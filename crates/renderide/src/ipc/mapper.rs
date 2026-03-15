@@ -2,7 +2,7 @@
 //!
 //! Maps RendererCommand variants into TranslatedCommand for consumption by the Session.
 
-use crate::core::{RenderConfig, SessionConfig};
+use crate::config::{RenderConfig, SessionConfig};
 use crate::shared::{FrameSubmitData, MeshUploadData, RendererCommand};
 
 /// Translated command: engine-agnostic action for the Session to apply.

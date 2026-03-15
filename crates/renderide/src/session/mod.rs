@@ -1,7 +1,7 @@
-//! Session: command ingest, translation, and orchestration.
+//! Session: orchestrates IPC, scene, assets, and frame flow.
 
-pub mod receiver;
+pub mod init;
 pub mod session;
+pub mod state;
 
-pub use receiver::CommandReceiver;
-pub use session::{Session, SpaceDrawBatch};
+pub use session::Session;

@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::ipc::shared_memory::SharedMemoryAccessor;
 use crate::shared::MeshUploadData;
-use crate::shared::shared_memory::SharedMemoryAccessor;
 
 use super::mesh::{self, MeshAsset};
 

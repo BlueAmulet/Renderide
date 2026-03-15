@@ -5,12 +5,12 @@ use std::collections::{HashMap, HashSet};
 use bytemuck::{Pod, Zeroable};
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 
-use crate::core::{render_transform_to_matrix, Drawable, Scene, SceneId};
+use crate::ipc::shared_memory::SharedMemoryAccessor;
+use crate::scene::{render_transform_to_matrix, Drawable, Scene, SceneId};
 use crate::shared::{
     BoneAssignment, MeshRenderablesUpdate, ReflectionProbeSH2Task, RenderTransform,
     SkinnedMeshRenderablesUpdate, TransformParentUpdate, TransformPoseUpdate, TransformsUpdate,
 };
-use crate::shared::shared_memory::SharedMemoryAccessor;
 
 /// Layout-compatible with MeshRendererState for shared memory access.
 #[repr(C)]
@@ -418,7 +418,6 @@ impl SceneGraph {
                             bone_transform_ids: None,
                         });
                     }
-                    let diag_full = std::env::var("RENDERIDE_DIAG_FULL").is_ok();
                 }
                 Err(_e) => {}
             }
@@ -543,7 +542,7 @@ impl SceneGraph {
             }
             visited[i] = true;
 
-            let local = render_transform_to_matrix(&scene.nodes[i]);
+            let local = super::render_transform_to_matrix(&scene.nodes[i]);
             let p = scene.node_parents.get(i).copied().unwrap_or(-1);
             let parent_world = if p >= 0 && (p as usize) < n && p != i as i32 {
                 world[p as usize]

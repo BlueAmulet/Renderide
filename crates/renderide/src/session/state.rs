@@ -1,6 +1,6 @@
 //! View state: primary view, clip planes, FOV.
 
-use crate::core::View;
+use crate::scene::View;
 
 /// Holds current view configuration from the host.
 pub struct ViewState {

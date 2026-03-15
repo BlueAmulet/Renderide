@@ -3,31 +3,18 @@
 use nalgebra::Matrix4;
 
 use crate::assets::AssetRegistry;
-use crate::command::{CommandMapper, TranslatedCommand};
-use crate::core::RenderConfig;
-use crate::init::{get_connection_parameters, take_singleton_init, InitError};
-use crate::scene::SceneGraph;
+use crate::config::RenderConfig;
+use crate::ipc::mapper::{CommandMapper, TranslatedCommand};
+use crate::ipc::receiver::CommandReceiver;
+use crate::ipc::shared_memory::SharedMemoryAccessor;
+use crate::render::batch::SpaceDrawBatch;
+use crate::scene::{render_transform_to_matrix, SceneGraph};
+use crate::session::init::{get_connection_parameters, take_singleton_init, InitError};
+use crate::session::state::ViewState;
 use crate::shared::{
     FrameStartData, FrameSubmitData, HeadOutputDevice, InputState, MeshUploadResult,
     RendererCommand, RendererInitResult, TextureFormat,
 };
-use crate::shared::shared_memory::SharedMemoryAccessor;
-use crate::view::ViewState;
-
-use super::receiver::CommandReceiver;
-
-/// Per-space draw batch for rendering.
-#[derive(Clone)]
-pub struct SpaceDrawBatch {
-    /// Scene/space identifier.
-    pub space_id: i32,
-    /// Whether this is an overlay.
-    pub is_overlay: bool,
-    /// View transform for this space.
-    pub view_transform: crate::shared::RenderTransform,
-    /// Draws: (model_matrix, mesh_asset_id, is_skinned, material_id, bone_transform_ids for skinned).
-    pub draws: Vec<(Matrix4<f32>, i32, bool, i32, Option<Vec<i32>>)>,
-}
 
 /// Main session: coordinates command ingest, translation, scene, and assets.
 pub struct Session {
@@ -445,7 +432,7 @@ impl Session {
                             continue;
                         }
                         let local =
-                            crate::core::render_transform_to_matrix(&scene.nodes[idx]);
+                            render_transform_to_matrix(&scene.nodes[idx]);
                         local
                     }
                 };
@@ -468,7 +455,7 @@ impl Session {
                             continue;
                         }
                         let local =
-                            crate::core::render_transform_to_matrix(&scene.nodes[idx]);
+                            render_transform_to_matrix(&scene.nodes[idx]);
                         local
                     }
                 };

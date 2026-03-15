@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use nalgebra::Matrix4;
-use crate::shared::{VertexAttributeFormat, VertexAttributeType};
 use wgpu::util::DeviceExt;
 
 use crate::assets::{self, MeshAsset};
+use crate::shared::{VertexAttributeFormat, VertexAttributeType};
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -178,7 +178,7 @@ fn half_to_f32(h: u16) -> f32 {
 /// Fallback cube with position+normal for normal debug pipeline (8 vertices, 12 triangles, 36 indices).
 fn fallback_cube_pos_normal() -> (Vec<VertexPosNormal>, Vec<u16>) {
     let s = 0.5f32;
-    let n = [0.0f32, 1.0, 0.0]; // placeholder normal (shader uses solid magenta)
+    let n = [0.0f32, 1.0, 0.0];
     let vertices = vec![
         VertexPosNormal { position: [-s, -s, -s], normal: n },
         VertexPosNormal { position: [s, -s, -s], normal: n },
@@ -272,7 +272,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 }
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    // World-space smooth normal: map [-1,1] to [0,1] for RGB visualization
     let n = normalize(in.world_normal);
     return vec4f(n * 0.5 + 0.5, 1.0);
 }
@@ -339,7 +338,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.uv = in.uv;
     return out;
 }
-// HSV to RGB: H in [0,1] (0=red, ~0.833=violet), S in [0,1], V in [0,1]
 fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3f {
     let c = v * s;
     let h6 = h * 6.0;
@@ -366,9 +364,6 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3f {
 }
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4f {
-    // U: red (0) -> violet (300/360) along horizontal
-    // V: saturated (0) -> unsaturated (1) along vertical
-    // Lightness: 1
     let u = clamp(in.uv.x, 0.0, 1.0);
     let v = clamp(in.uv.y, 0.0, 1.0);
     let hue = u * (300.0 / 360.0);
@@ -392,7 +387,6 @@ pub struct MeshPipeline {
     uniform_buffer_batch: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     bind_group_layout: wgpu::BindGroupLayout,
-    /// Skinned pipeline bind group layout and uniform buffer (uploaded per skinned draw).
     skinned_bind_group_layout: wgpu::BindGroupLayout,
     skinned_uniform_buffer: wgpu::Buffer,
     skinned_bind_group: wgpu::BindGroup,
@@ -479,7 +473,7 @@ impl MeshPipeline {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth24Plus,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::GreaterEqual, // reverse-Z
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -690,7 +684,7 @@ impl MeshPipeline {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth24Plus,
                 depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::GreaterEqual, // reverse-Z
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -699,9 +693,6 @@ impl MeshPipeline {
             cache: None,
         });
 
-        // Fallback cube buffers: reserved for future use (e.g. "mesh not found" placeholder).
-        // NOT used in the draw loop for invalid meshes—invalid meshes are skipped. Do not wire
-        // these into the draw path for skipped_no_mesh or skipped_invalid_mesh.
         let (cube_verts, cube_indices) = fallback_cube();
         let (cube_verts_uv, _) = fallback_cube_with_uv();
         let (cube_verts_pn, _) = fallback_cube_pos_normal();
@@ -777,8 +768,6 @@ impl MeshPipeline {
         }
     }
 
-    /// Uploads uniforms for multiple draws in one buffer write.
-    /// Each (mvp, model) pair is written at `index * UNIFORM_ALIGNMENT` offset.
     pub fn upload_uniforms_batch(
         &self,
         queue: &wgpu::Queue,
@@ -801,7 +790,6 @@ impl MeshPipeline {
         queue.write_buffer(&self.uniform_buffer_batch, 0, &aligned);
     }
 
-    /// Uploads skinned uniforms (mvp + bone matrices) for a single skinned draw.
     pub fn upload_skinned_uniforms(
         &self,
         queue: &wgpu::Queue,
@@ -817,7 +805,6 @@ impl MeshPipeline {
         queue.write_buffer(&self.skinned_uniform_buffer, 0, bytemuck::bytes_of(&u));
     }
 
-    /// Draws a skinned mesh with pre-uploaded bone uniforms.
     pub fn draw_mesh_skinned(
         &self,
         pass: &mut wgpu::RenderPass,
@@ -835,7 +822,6 @@ impl MeshPipeline {
         }
     }
 
-    /// Draws a mesh using a pre-uploaded uniform at the given batch index.
     pub fn draw_mesh_with_offset(
         &self,
         pass: &mut wgpu::RenderPass,
@@ -882,7 +868,6 @@ impl MeshPipeline {
         has_uvs: bool,
         is_skinned: bool,
         material_id: i32,
-        _frame: u64,
     ) {
         let uniforms = Uniforms {
             mvp: mvp.into(),
@@ -899,10 +884,6 @@ impl MeshPipeline {
             &self.pipeline
         };
         pass.set_pipeline(pipeline);
-        // Gated: was flooding (fires per draw, not per frame)
-        // if frame % 200 == 0 {
-        //     crate::log::log_write(&format!("[PIPELINE PROOF] frame={} → pipeline + bind_group + draw_indexed executed", frame));
-        // }
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         pass.set_index_buffer(index_buffer.slice(..), index_format);
@@ -911,27 +892,22 @@ impl MeshPipeline {
         }
     }
 
-    /// Fallback cube vertex buffer. Reserved for future placeholder use; not used in draw loop.
     pub fn fallback_vertex_buffer(&self) -> &wgpu::Buffer {
         &self.fallback_vertex_buffer
     }
 
-    /// Fallback cube vertex buffer (pos+normal). Reserved for future placeholder use; not used in draw loop.
     pub fn fallback_vertex_buffer_pos_normal(&self) -> &wgpu::Buffer {
         &self.fallback_vertex_buffer_pos_normal
     }
 
-    /// Fallback cube vertex buffer (pos+uv). Reserved for future placeholder use; not used in draw loop.
     pub fn fallback_vertex_buffer_uv(&self) -> &wgpu::Buffer {
         &self.fallback_vertex_buffer_uv
     }
 
-    /// Fallback cube index buffer. Reserved for future placeholder use; not used in draw loop.
     pub fn fallback_index_buffer(&self) -> &wgpu::Buffer {
         &self.fallback_index_buffer
     }
 
-    /// Fallback cube index count. Reserved for future placeholder use; not used in draw loop.
     pub fn fallback_index_count(&self) -> u32 {
         self.fallback_index_count
     }
@@ -940,20 +916,15 @@ impl MeshPipeline {
 /// Cached wgpu buffers for a mesh asset.
 pub struct GpuMeshBuffers {
     pub vertex_buffer: Arc<wgpu::Buffer>,
-    /// When present, used for UV debug shader (pos+uv layout). Main pipeline uses vertex_buffer (pos+normal).
     pub vertex_buffer_uv: Option<Arc<wgpu::Buffer>>,
-    /// When present, used for skinned pipeline (pos+normal+bone_indices+bone_weights).
     pub vertex_buffer_skinned: Option<Arc<wgpu::Buffer>>,
     pub index_buffer: Arc<wgpu::Buffer>,
-    /// Per-submesh (index_start, index_count). Empty means draw full range 0..index_count.
     pub submeshes: Vec<(u32, u32)>,
     pub index_format: wgpu::IndexFormat,
-    /// True if vertex buffer includes UVs (for UV debug shader).
     pub has_uvs: bool,
 }
 
-/// Creates or gets GPU buffers for a mesh. Extracts position and smooth normal for normal debug shader.
-/// Uses default normal (0,1,0) when mesh has no normal attribute.
+/// Creates GPU buffers for a mesh. Extracts position and smooth normal for normal debug shader.
 pub fn create_mesh_buffers(
     device: &wgpu::Device,
     mesh: &MeshAsset,
@@ -1012,7 +983,6 @@ pub fn create_mesh_buffers(
         } else {
             default_normal
         };
-        // Normalize (half16/unorm may not be unit length)
         let len = (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]).sqrt();
         if len > 1e-6 {
             normal[0] /= len;
@@ -1112,7 +1082,6 @@ pub fn create_mesh_buffers(
     })
 }
 
-/// BoneWeight layout: weight (f32) + bone_index (i32) = 8 bytes.
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct BoneWeightPod {
@@ -1120,7 +1089,6 @@ struct BoneWeightPod {
     bone_index: i32,
 }
 
-/// Builds skinned vertex buffer from mesh bone data. Requires bone_counts and bone_weights.
 fn build_skinned_vertices(
     device: &wgpu::Device,
     mesh: &MeshAsset,
@@ -1164,6 +1132,7 @@ fn build_skinned_vertices(
     }))
 }
 
+/// Computes vertex stride from mesh data when attribute layout is unknown.
 pub fn compute_vertex_stride_from_mesh(mesh: &MeshAsset) -> usize {
     mesh.vertex_data.len() / mesh.vertex_count.max(1) as usize
 }

@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use bytemuck::{Pod, Zeroable};
 use memmap2::MmapMut;
 
-use super::buffer::SharedMemoryBufferDescriptor;
+use crate::shared::buffer::SharedMemoryBufferDescriptor;
 
 const MEMORY_FILE_PATH: &str = "/dev/shm/.cloudtoid/interprocess/mmf";
 

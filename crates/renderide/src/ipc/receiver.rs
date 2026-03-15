@@ -2,7 +2,7 @@
 
 use interprocess::{Publisher, QueueFactory, QueueOptions, Subscriber};
 
-use crate::init::{get_connection_parameters, ConnectionParams, InitError};
+use crate::session::init::{get_connection_parameters, ConnectionParams, InitError};
 use crate::shared::decode_renderer_command;
 use crate::shared::default_entity_pool::DefaultEntityPool;
 use crate::shared::memory_packer::MemoryPacker;
