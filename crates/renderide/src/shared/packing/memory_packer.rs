@@ -40,7 +40,10 @@ impl<'a> MemoryPacker<'a> {
         let buf_ptr = self.buffer.as_mut_ptr();
         unsafe {
             ptr::write_unaligned(buf_ptr as *mut T, *value);
-            self.buffer = core::slice::from_raw_parts_mut(buf_ptr.add(byte_len), self.buffer.len() - byte_len);
+            self.buffer = core::slice::from_raw_parts_mut(
+                buf_ptr.add(byte_len),
+                self.buffer.len() - byte_len,
+            );
         }
     }
 
@@ -112,7 +115,9 @@ impl<'a> MemoryPacker<'a> {
 
     /// Writes a nested list of value lists (e.g. `Vec<Vec<T>>`).
     pub fn write_nested_value_list<T: Pod>(&mut self, list: Option<&[Vec<T>]>) {
-        self.write_nested_list(list, |packer, sublist| packer.write_value_list(Some(sublist)));
+        self.write_nested_list(list, |packer, sublist| {
+            packer.write_value_list(Some(sublist))
+        });
     }
 
     /// Writes a nested list using a custom writer for each sublist.

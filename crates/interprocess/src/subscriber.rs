@@ -11,7 +11,7 @@ use memmap2::MmapMut;
 use crate::backend;
 use crate::circular_buffer;
 use crate::queue::{
-    MessageHeader, QueueHeader, QueueOptions, MESSAGE_BODY_OFFSET, STATE_READY,
+    MESSAGE_BODY_OFFSET, MessageHeader, QueueHeader, QueueOptions, STATE_READY,
     padded_message_length,
 };
 
@@ -118,8 +118,10 @@ impl Subscriber {
         }
 
         // Try to acquire read lock
-        let read_lock_ptr = unsafe { &*(&(*header_ptr).read_lock_timestamp as *const i64 as *const AtomicI64) };
-        let prev = read_lock_ptr.compare_exchange(read_lock, ticks, Ordering::SeqCst, Ordering::SeqCst);
+        let read_lock_ptr =
+            unsafe { &*(&(*header_ptr).read_lock_timestamp as *const i64 as *const AtomicI64) };
+        let prev =
+            read_lock_ptr.compare_exchange(read_lock, ticks, Ordering::SeqCst, Ordering::SeqCst);
         if prev.is_err() {
             return None;
         }
@@ -132,7 +134,9 @@ impl Subscriber {
                 let read_offset = header.read_offset;
                 let write_offset = header.write_offset;
                 let msg_header_ptr = unsafe {
-                    self.buffer_ptr().add((read_offset % self.capacity) as usize) as *const MessageHeader
+                    self.buffer_ptr()
+                        .add((read_offset % self.capacity) as usize)
+                        as *const MessageHeader
                 };
 
                 // Spin until message is ready (state == 2)
@@ -143,7 +147,9 @@ impl Subscriber {
                         break;
                     }
                     if utc_now_ticks() - spin_ticks > TICKS_FOR_TEN_SECONDS {
-                        let read_offset_ptr = unsafe { &*(&(*header_ptr).read_offset as *const i64 as *const AtomicI64) };
+                        let read_offset_ptr = unsafe {
+                            &*(&(*header_ptr).read_offset as *const i64 as *const AtomicI64)
+                        };
                         read_offset_ptr.store(write_offset, Ordering::SeqCst);
                         return None;
                     }
@@ -154,7 +160,10 @@ impl Subscriber {
                 let padded = padded_message_length(body_len);
 
                 // Mark as locked (state=1) - we're consuming
-                let state_ptr = unsafe { &*(&(*(msg_header_ptr as *const MessageHeader)).state as *const i32 as *const AtomicI32) };
+                let state_ptr = unsafe {
+                    &*(&(*(msg_header_ptr as *const MessageHeader)).state as *const i32
+                        as *const AtomicI32)
+                };
                 state_ptr.store(1, Ordering::SeqCst);
 
                 let body_offset = read_offset + MESSAGE_BODY_OFFSET;
@@ -174,7 +183,8 @@ impl Subscriber {
                 );
 
                 let new_read = (read_offset + padded) % (self.capacity * 2);
-                let read_offset_ptr = unsafe { &*(&(*header_ptr).read_offset as *const i64 as *const AtomicI64) };
+                let read_offset_ptr =
+                    unsafe { &*(&(*header_ptr).read_offset as *const i64 as *const AtomicI64) };
                 read_offset_ptr.store(new_read, Ordering::SeqCst);
 
                 Some(msg_result)
@@ -182,7 +192,8 @@ impl Subscriber {
         };
 
         // Release read lock
-        let read_lock_ptr = unsafe { &*(&(*header_ptr).read_lock_timestamp as *const i64 as *const AtomicI64) };
+        let read_lock_ptr =
+            unsafe { &*(&(*header_ptr).read_lock_timestamp as *const i64 as *const AtomicI64) };
         read_lock_ptr.store(0, Ordering::SeqCst);
 
         result

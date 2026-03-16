@@ -1,14 +1,13 @@
 //! Session: orchestrates IPC, scene, assets, and frame flow.
 
-use nalgebra::Matrix4;
 
 use crate::assets::AssetRegistry;
 use crate::config::RenderConfig;
 use crate::ipc::receiver::CommandReceiver;
 use crate::ipc::shared_memory::SharedMemoryAccessor;
 use crate::render::batch::SpaceDrawBatch;
-use crate::scene::{render_transform_to_matrix, SceneGraph};
-use crate::session::init::{get_connection_parameters, take_singleton_init, InitError};
+use crate::scene::{SceneGraph, render_transform_to_matrix};
+use crate::session::init::{InitError, get_connection_parameters, take_singleton_init};
 use crate::session::state::ViewState;
 use crate::shared::{
     FrameStartData, FrameSubmitData, HeadOutputDevice, InputState, MeshUploadResult,
@@ -130,9 +129,12 @@ impl Session {
     fn process_commands(&mut self) {
         let commands = self.receiver.poll();
 
-        let (mesh_cmds, other_cmds): (Vec<_>, Vec<_>) = commands
-            .into_iter()
-            .partition(|c| matches!(c, RendererCommand::mesh_upload_data(_) | RendererCommand::mesh_unload(_)));
+        let (mesh_cmds, other_cmds): (Vec<_>, Vec<_>) = commands.into_iter().partition(|c| {
+            matches!(
+                c,
+                RendererCommand::mesh_upload_data(_) | RendererCommand::mesh_unload(_)
+            )
+        });
 
         for cmd in mesh_cmds {
             self.apply_command(cmd);
@@ -169,12 +171,13 @@ impl Session {
                         None => (false, false),
                     };
                     if success {
-                        self.receiver.send_background(RendererCommand::mesh_upload_result(
-                            MeshUploadResult {
-                                asset_id,
-                                instance_changed: !existed_before,
-                            },
-                        ));
+                        self.receiver
+                            .send_background(RendererCommand::mesh_upload_result(
+                                MeshUploadResult {
+                                    asset_id,
+                                    instance_changed: !existed_before,
+                                },
+                            ));
                     }
                 }
                 RendererCommand::mesh_unload(x) => {
@@ -182,13 +185,14 @@ impl Session {
                     self.pending_mesh_unloads.push(x.asset_id);
                 }
                 RendererCommand::frame_submit_data(data) => {
-                    if self.shared_memory.is_some() {
-                        if let Err(_e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                            self.process_frame_data(data);
-                        })) {
+                    if self.shared_memory.is_some()
+                        && let Err(_e) =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                self.process_frame_data(data);
+                            }))
+                        {
                             self.fatal_error = true;
                         }
-                    }
                 }
                 _ => {}
             }
@@ -196,7 +200,8 @@ impl Session {
         }
 
         match cmd {
-            RendererCommand::renderer_shutdown(_) | RendererCommand::renderer_shutdown_request(_) => {
+            RendererCommand::renderer_shutdown(_)
+            | RendererCommand::renderer_shutdown_request(_) => {
                 self.shutdown = true;
             }
             RendererCommand::renderer_init_finalize_data(_) => {
@@ -218,12 +223,11 @@ impl Session {
                     None => (false, false),
                 };
                 if success {
-                    self.receiver.send_background(RendererCommand::mesh_upload_result(
-                        MeshUploadResult {
+                    self.receiver
+                        .send_background(RendererCommand::mesh_upload_result(MeshUploadResult {
                             asset_id,
                             instance_changed: !existed_before,
-                        },
-                    ));
+                        }));
                 }
             }
             RendererCommand::mesh_unload(x) => {
@@ -265,11 +269,10 @@ impl Session {
             self.lock_cursor = output.lock_cursor;
         }
 
-        if let Some(ref mut shm) = self.shared_memory {
-            if let Err(e) = self.scene_graph.apply_frame_update(shm, &data) {
+        if let Some(ref mut shm) = self.shared_memory
+            && let Err(e) = self.scene_graph.apply_frame_update(shm, &data) {
                 crate::error!("Scene apply_frame_update: {}", e);
             }
-        }
 
         let active_non_overlay: Vec<_> = data
             .render_spaces
@@ -294,19 +297,17 @@ impl Session {
                 update.root_transform
             });
         }
-        if self.primary_view_transform.is_none() {
-            if let Some(first) = data.render_spaces.first() {
+        if self.primary_view_transform.is_none()
+            && let Some(first) = data.render_spaces.first() {
                 self.primary_view_space_id = Some(first.id);
                 self.primary_view_override = Some(first.override_view_position);
                 self.primary_view_position_is_external = Some(first.view_position_is_external);
                 self.primary_root_transform = Some(first.root_transform);
                 self.primary_view_transform = Some(first.root_transform);
             }
-        }
 
         self.pending_render_tasks = data.render_tasks;
         self.primary_camera_task = self.pending_render_tasks.first().cloned();
-
     }
 
     fn send_renderer_init_result(&mut self) {
@@ -320,7 +321,8 @@ impl Session {
             supported_texture_formats: vec![TextureFormat::rgba32],
             ..Default::default()
         };
-        self.receiver.send(RendererCommand::renderer_init_result(result));
+        self.receiver
+            .send(RendererCommand::renderer_init_result(result));
     }
 
     fn send_begin_frame(&mut self) {
@@ -331,7 +333,8 @@ impl Session {
             rendered_reflection_probes: Vec::new(),
             video_clock_errors: Vec::new(),
         };
-        self.receiver.send(RendererCommand::frame_start_data(frame_start));
+        self.receiver
+            .send(RendererCommand::frame_start_data(frame_start));
     }
 
     /// Processes render tasks (camera renders to buffers). Stub for now.
@@ -439,7 +442,7 @@ impl Session {
 
             let mut draws = Vec::new();
             let mut samples = Vec::new();
-            let frame_index = self.last_frame_index;
+            let _frame_index = self.last_frame_index;
             for entry in &scene.drawables {
                 if entry.node_id < 0 {
                     continue;
@@ -451,9 +454,8 @@ impl Session {
                         if idx >= scene.nodes.len() {
                             continue;
                         }
-                        let local =
-                            render_transform_to_matrix(&scene.nodes[idx]);
-                        local
+                        
+                        render_transform_to_matrix(&scene.nodes[idx])
                     }
                 };
                 let material_id = entry.material_handle.unwrap_or(-1);
@@ -474,9 +476,8 @@ impl Session {
                         if idx >= scene.nodes.len() {
                             continue;
                         }
-                        let local =
-                            render_transform_to_matrix(&scene.nodes[idx]);
-                        local
+                        
+                        render_transform_to_matrix(&scene.nodes[idx])
                     }
                 };
                 let material_id = entry.material_handle.unwrap_or(-1);

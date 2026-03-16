@@ -55,11 +55,7 @@ pub fn init() {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let file = match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
+    let file = match OpenOptions::new().create(true).append(true).open(&path) {
         Ok(f) => f,
         Err(_) => return,
     };
@@ -76,11 +72,7 @@ pub fn init() {
 /// mutex, so it is safe to call from a panic handler. Opens the file directly.
 pub fn log_panic(info: &std::panic::PanicInfo) {
     let path = log_path();
-    if let Ok(mut f) = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let _ = writeln!(f, "PANIC: {}", info);
         let _ = writeln!(f, "Backtrace:\n{:?}", std::backtrace::Backtrace::capture());
         let _ = f.flush();
@@ -89,8 +81,8 @@ pub fn log_panic(info: &std::panic::PanicInfo) {
 
 /// Internal log writer. Called by the log macros.
 pub(crate) fn log(level: LogLevel, args: std::fmt::Arguments<'_>) {
-    if let Some(logger) = LOGGER.get() {
-        if level <= logger.max_level {
+    if let Some(logger) = LOGGER.get()
+        && level <= logger.max_level {
             let msg = args.to_string();
             let timestamp = format_timestamp();
             let line = format!("[{}] {:?} {}\n", timestamp, level, msg);
@@ -103,7 +95,6 @@ pub(crate) fn log(level: LogLevel, args: std::fmt::Arguments<'_>) {
                 let _ = std::io::stderr().flush();
             }
         }
-    }
 }
 
 /// Returns a simple timestamp string. Uses std::time for a minimal format.

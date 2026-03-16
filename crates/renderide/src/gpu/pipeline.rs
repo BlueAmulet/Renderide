@@ -1,7 +1,7 @@
 //! Pipeline abstraction: RenderPipeline trait, PipelineManager, and concrete implementations.
 
-use nalgebra::Matrix4;
 use super::mesh::{GpuMeshBuffers, VertexPosNormal, VertexSkinned, VertexWithUv};
+use nalgebra::Matrix4;
 
 /// Per-draw uniform data; pipelines extract what they need.
 #[derive(Clone, Copy)]
@@ -47,7 +47,13 @@ pub trait RenderPipeline {
     fn upload_batch(&self, _queue: &wgpu::Queue, _mvp_models: &[(Matrix4<f32>, Matrix4<f32>)]) {}
 
     /// Uploads skinned uniforms for a single draw. No-op for non-skinned pipelines.
-    fn upload_skinned(&self, _queue: &wgpu::Queue, _mvp: Matrix4<f32>, _bone_matrices: &[[[f32; 4]; 4]]) {}
+    fn upload_skinned(
+        &self,
+        _queue: &wgpu::Queue,
+        _mvp: Matrix4<f32>,
+        _bone_matrices: &[[[f32; 4]; 4]],
+    ) {
+    }
 }
 
 /// Alignment for dynamic uniform buffer offsets (wgpu/Vulkan minimum).
@@ -219,7 +225,9 @@ impl NormalDebugPipeline {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
-                    min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<Uniforms>() as u64),
+                    min_binding_size: std::num::NonZeroU64::new(
+                        std::mem::size_of::<Uniforms>() as u64
+                    ),
                 },
                 count: None,
             }],
@@ -372,7 +380,9 @@ impl UvDebugPipeline {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
-                    min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<Uniforms>() as u64),
+                    min_binding_size: std::num::NonZeroU64::new(
+                        std::mem::size_of::<Uniforms>() as u64
+                    ),
                 },
                 count: None,
             }],
@@ -530,7 +540,9 @@ impl SkinnedPipeline {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<SkinnedUniforms>() as u64),
+                    min_binding_size: std::num::NonZeroU64::new(
+                        std::mem::size_of::<SkinnedUniforms>() as u64,
+                    ),
                 },
                 count: None,
             }],
@@ -653,7 +665,12 @@ impl RenderPipeline for SkinnedPipeline {
         }
     }
 
-    fn upload_skinned(&self, queue: &wgpu::Queue, mvp: Matrix4<f32>, bone_matrices: &[[[f32; 4]; 4]]) {
+    fn upload_skinned(
+        &self,
+        queue: &wgpu::Queue,
+        mvp: Matrix4<f32>,
+        bone_matrices: &[[[f32; 4]; 4]],
+    ) {
         let mut u = SkinnedUniforms {
             mvp: mvp.into(),
             bone_matrices: [[[0.0; 4]; 4]; 256],

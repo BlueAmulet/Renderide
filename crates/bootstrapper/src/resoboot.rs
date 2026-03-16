@@ -4,8 +4,8 @@
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use interprocess::{QueueFactory, QueueOptions};
@@ -44,11 +44,17 @@ pub fn run(logger: &mut Logger) {
     orphan::kill_orphans(logger);
 
     logger.log("Bootstrapper start");
-    logger.log(&format!("Shared memory prefix: {}", config.shared_memory_prefix));
+    logger.log(&format!(
+        "Shared memory prefix: {}",
+        config.shared_memory_prefix
+    ));
 
     let incoming_name = format!("{}.bootstrapper_in", config.shared_memory_prefix);
     let outgoing_name = format!("{}.bootstrapper_out", config.shared_memory_prefix);
-    logger.log(&format!("Queue names: incoming={} outgoing={}", incoming_name, outgoing_name));
+    logger.log(&format!(
+        "Queue names: incoming={} outgoing={}",
+        incoming_name, outgoing_name
+    ));
 
     let queue_factory = QueueFactory::new();
     let mut incoming = queue_factory.create_subscriber(QueueOptions::with_destroy(
@@ -82,8 +88,13 @@ pub fn run(logger: &mut Logger) {
         }
     };
 
-    logger.log(&format!("Process started. Id: {}, HasExited: {}", p.id(), false));
-    logger.log("Host must parse -shmprefix and create BootstrapperManager with matching queue names");
+    logger.log(&format!(
+        "Process started. Id: {}, HasExited: {}",
+        p.id(),
+        false
+    ));
+    logger
+        .log("Host must parse -shmprefix and create BootstrapperManager with matching queue names");
     logger.log("Host sends first message to bootstrapper_in: renderer start args (-QueueName X -QueueCapacity Y)");
 
     orphan::write_pid_file(p.id(), "host", logger);
@@ -109,29 +120,33 @@ pub fn run(logger: &mut Logger) {
                 std::thread::sleep(Duration::from_secs(1));
             }
             let timestamp = chrono::Local::now().format("%H:%M:%S");
-            println!("{}\tMain process has exited, triggering cancellation", timestamp);
+            println!(
+                "{}\tMain process has exited, triggering cancellation",
+                timestamp
+            );
             cancel_clone.store(true, Ordering::SeqCst);
         });
     } else {
         logger.log("Wine mode: process watcher disabled (child is shell, not Host)");
     }
 
-    queue_commands::queue_loop(&mut incoming, &mut outgoing, &config, &*cancel, logger);
+    queue_commands::queue_loop(&mut incoming, &mut outgoing, &config, &cancel, logger);
 
     if config.is_wine {
         let shm_dir = PathBuf::from("/dev/shm");
-        if shm_dir.exists() {
-            if let Ok(entries) = fs::read_dir(&shm_dir) {
+        if shm_dir.exists()
+            && let Ok(entries) = fs::read_dir(&shm_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    if let Some(name) = path.file_name() {
-                        if name.to_string_lossy().contains(&config.shared_memory_prefix) {
+                    if let Some(name) = path.file_name()
+                        && name
+                            .to_string_lossy()
+                            .contains(&config.shared_memory_prefix)
+                        {
                             let _ = fs::remove_file(&path);
                         }
-                    }
                 }
             }
-        }
     }
 
     orphan::remove_pid_file();

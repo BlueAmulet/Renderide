@@ -17,7 +17,10 @@ pub fn kill_orphans(logger: &mut Logger) {
     let _ = fs::remove_file(&path);
 
     for line in contents.lines() {
-        let pid = match line.strip_prefix("host:").or_else(|| line.strip_prefix("renderer:")) {
+        let pid = match line
+            .strip_prefix("host:")
+            .or_else(|| line.strip_prefix("renderer:"))
+        {
             Some(rest) => rest.trim().parse::<i32>().ok(),
             None => continue,
         };
@@ -37,11 +40,7 @@ pub fn kill_orphans(_logger: &mut Logger) {}
 /// Appends a PID entry to the PID file.
 pub fn write_pid_file(pid: u32, kind: &str, logger: &mut Logger) {
     let path = paths::pid_file_path();
-    match fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
+    match fs::OpenOptions::new().create(true).append(true).open(&path) {
         Ok(mut f) => {
             if let Err(e) = writeln!(f, "{}:{}", kind, pid) {
                 logger.log(&format!("Failed to write PID file: {}", e));

@@ -33,7 +33,12 @@ impl SharedMemoryView {
             .read(true)
             .write(true)
             .open(&path)
-            .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("{}: {}", path.display(), e)))?;
+            .map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("{}: {}", path.display(), e),
+                )
+            })?;
         let mmap = unsafe { MmapMut::map_mut(&file)? };
         Ok(Self { mmap })
     }
@@ -140,21 +145,38 @@ impl SharedMemoryAccessor {
             ));
         }
         let buffer_id = descriptor.buffer_id;
-        let capacity = descriptor.buffer_capacity.max(descriptor.offset + descriptor.length);
+        let capacity = descriptor
+            .buffer_capacity
+            .max(descriptor.offset + descriptor.length);
         if capacity <= 0 {
-            return Err(format!("capacity<=0 (buffer_id={} offset={} length={})", buffer_id, descriptor.offset, descriptor.length));
+            return Err(format!(
+                "capacity<=0 (buffer_id={} offset={} length={})",
+                buffer_id, descriptor.offset, descriptor.length
+            ));
         }
         let view = match self.get_view(descriptor) {
             Some(v) => v,
             None => {
                 let name = self.compose_memory_view_name(buffer_id);
                 let path = PathBuf::from(MEMORY_FILE_PATH).join(format!("{}.qu", name));
-                return Err(format!("get_view failed buffer_id={} path={}", buffer_id, path.display()));
+                return Err(format!(
+                    "get_view failed buffer_id={} path={}",
+                    buffer_id,
+                    path.display()
+                ));
             }
         };
-        let bytes = view.slice(descriptor.offset, descriptor.length).ok_or_else(|| {
-            format!("slice failed buffer_id={} offset={} length={} mmap_len={}", buffer_id, descriptor.offset, descriptor.length, view.mmap_len())
-        })?;
+        let bytes = view
+            .slice(descriptor.offset, descriptor.length)
+            .ok_or_else(|| {
+                format!(
+                    "slice failed buffer_id={} offset={} length={} mmap_len={}",
+                    buffer_id,
+                    descriptor.offset,
+                    descriptor.length,
+                    view.mmap_len()
+                )
+            })?;
         let count = descriptor.length as usize / std::mem::size_of::<T>();
         if count == 0 {
             return Err("count==0".into());
@@ -163,7 +185,8 @@ impl SharedMemoryAccessor {
         // (e.g. i32 needs 4-byte alignment), causing bytemuck::try_cast_slice to fail.
         let mut aligned = vec![0u8; bytes.len()];
         aligned.copy_from_slice(bytes);
-        let slice = bytemuck::try_cast_slice::<u8, T>(&aligned).map_err(|_| "try_cast_slice failed")?;
+        let slice =
+            bytemuck::try_cast_slice::<u8, T>(&aligned).map_err(|_| "try_cast_slice failed")?;
         if slice.len() < count {
             return Err(format!("slice.len()<count {}<{}", slice.len(), count));
         }
@@ -236,12 +259,17 @@ impl SharedMemoryAccessor {
         true
     }
 
-    fn get_view(&mut self, descriptor: &SharedMemoryBufferDescriptor) -> Option<&mut SharedMemoryView> {
+    fn get_view(
+        &mut self,
+        descriptor: &SharedMemoryBufferDescriptor,
+    ) -> Option<&mut SharedMemoryView> {
         if descriptor.length <= 0 {
             return None;
         }
         let buffer_id = descriptor.buffer_id;
-        let capacity = descriptor.buffer_capacity.max(descriptor.offset + descriptor.length);
+        let capacity = descriptor
+            .buffer_capacity
+            .max(descriptor.offset + descriptor.length);
         if capacity <= 0 {
             return None;
         }

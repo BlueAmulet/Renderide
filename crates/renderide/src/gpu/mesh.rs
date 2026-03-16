@@ -41,14 +41,23 @@ pub struct VertexSkinned {
 }
 
 /// Read a vec3 normal from vertex data at base+offset, converting from the given format to f32.
-fn read_normal(data: &[u8], base: usize, offset: usize, format: VertexAttributeFormat) -> Option<[f32; 3]> {
+fn read_normal(
+    data: &[u8],
+    base: usize,
+    offset: usize,
+    format: VertexAttributeFormat,
+) -> Option<[f32; 3]> {
     match format {
         VertexAttributeFormat::float32 => {
             if base + offset + 12 <= data.len() {
                 Some([
                     f32::from_le_bytes(data[base + offset..base + offset + 4].try_into().ok()?),
                     f32::from_le_bytes(data[base + offset + 4..base + offset + 8].try_into().ok()?),
-                    f32::from_le_bytes(data[base + offset + 8..base + offset + 12].try_into().ok()?),
+                    f32::from_le_bytes(
+                        data[base + offset + 8..base + offset + 12]
+                            .try_into()
+                            .ok()?,
+                    ),
                 ])
             } else {
                 None
@@ -57,9 +66,15 @@ fn read_normal(data: &[u8], base: usize, offset: usize, format: VertexAttributeF
         VertexAttributeFormat::half16 => {
             if base + offset + 6 <= data.len() {
                 Some([
-                    half_to_f32(u16::from_le_bytes(data[base + offset..base + offset + 2].try_into().ok()?)),
-                    half_to_f32(u16::from_le_bytes(data[base + offset + 2..base + offset + 4].try_into().ok()?)),
-                    half_to_f32(u16::from_le_bytes(data[base + offset + 4..base + offset + 6].try_into().ok()?)),
+                    half_to_f32(u16::from_le_bytes(
+                        data[base + offset..base + offset + 2].try_into().ok()?,
+                    )),
+                    half_to_f32(u16::from_le_bytes(
+                        data[base + offset + 2..base + offset + 4].try_into().ok()?,
+                    )),
+                    half_to_f32(u16::from_le_bytes(
+                        data[base + offset + 4..base + offset + 6].try_into().ok()?,
+                    )),
                 ])
             } else {
                 None
@@ -79,9 +94,21 @@ fn read_normal(data: &[u8], base: usize, offset: usize, format: VertexAttributeF
         VertexAttributeFormat::u_norm16 => {
             if base + offset + 6 <= data.len() {
                 Some([
-                    (u16::from_le_bytes(data[base + offset..base + offset + 2].try_into().ok()?) as f32 / 65535.0) * 2.0 - 1.0,
-                    (u16::from_le_bytes(data[base + offset + 2..base + offset + 4].try_into().ok()?) as f32 / 65535.0) * 2.0 - 1.0,
-                    (u16::from_le_bytes(data[base + offset + 4..base + offset + 6].try_into().ok()?) as f32 / 65535.0) * 2.0 - 1.0,
+                    (u16::from_le_bytes(data[base + offset..base + offset + 2].try_into().ok()?)
+                        as f32
+                        / 65535.0)
+                        * 2.0
+                        - 1.0,
+                    (u16::from_le_bytes(data[base + offset + 2..base + offset + 4].try_into().ok()?)
+                        as f32
+                        / 65535.0)
+                        * 2.0
+                        - 1.0,
+                    (u16::from_le_bytes(data[base + offset + 4..base + offset + 6].try_into().ok()?)
+                        as f32
+                        / 65535.0)
+                        * 2.0
+                        - 1.0,
                 ])
             } else {
                 None
@@ -92,7 +119,12 @@ fn read_normal(data: &[u8], base: usize, offset: usize, format: VertexAttributeF
 }
 
 /// Read a vec2 UV from vertex data at base+offset, converting from the given format to f32.
-fn read_uv(data: &[u8], base: usize, offset: usize, format: VertexAttributeFormat) -> Option<[f32; 2]> {
+fn read_uv(
+    data: &[u8],
+    base: usize,
+    offset: usize,
+    format: VertexAttributeFormat,
+) -> Option<[f32; 2]> {
     match format {
         VertexAttributeFormat::float32 => {
             if base + offset + 8 <= data.len() {
@@ -107,8 +139,12 @@ fn read_uv(data: &[u8], base: usize, offset: usize, format: VertexAttributeForma
         VertexAttributeFormat::half16 => {
             if base + offset + 4 <= data.len() {
                 Some([
-                    half_to_f32(u16::from_le_bytes(data[base + offset..base + offset + 2].try_into().ok()?)),
-                    half_to_f32(u16::from_le_bytes(data[base + offset + 2..base + offset + 4].try_into().ok()?)),
+                    half_to_f32(u16::from_le_bytes(
+                        data[base + offset..base + offset + 2].try_into().ok()?,
+                    )),
+                    half_to_f32(u16::from_le_bytes(
+                        data[base + offset + 2..base + offset + 4].try_into().ok()?,
+                    )),
                 ])
             } else {
                 None
@@ -127,8 +163,12 @@ fn read_uv(data: &[u8], base: usize, offset: usize, format: VertexAttributeForma
         VertexAttributeFormat::u_norm16 => {
             if base + offset + 4 <= data.len() {
                 Some([
-                    u16::from_le_bytes(data[base + offset..base + offset + 2].try_into().ok()?) as f32 / 65535.0,
-                    u16::from_le_bytes(data[base + offset + 2..base + offset + 4].try_into().ok()?) as f32 / 65535.0,
+                    u16::from_le_bytes(data[base + offset..base + offset + 2].try_into().ok()?)
+                        as f32
+                        / 65535.0,
+                    u16::from_le_bytes(data[base + offset + 2..base + offset + 4].try_into().ok()?)
+                        as f32
+                        / 65535.0,
                 ])
             } else {
                 None
@@ -145,7 +185,7 @@ fn half_to_f32(h: u16) -> f32 {
     let mant = (h & 0x3FF) as u32;
     if exp == 0 {
         let f = (sign << 31) | (mant << 13);
-        f32::from_bits(f) * 5.960464477539063e-8
+        f32::from_bits(f) * 5.960_464_5e-8
     } else if exp == 31 {
         let f = (sign << 31) | 0x7F800000 | (mant << 13);
         f32::from_bits(f)
@@ -160,21 +200,41 @@ fn fallback_cube_pos_normal() -> (Vec<VertexPosNormal>, Vec<u16>) {
     let s = 0.5f32;
     let n = [0.0f32, 1.0, 0.0];
     let vertices = vec![
-        VertexPosNormal { position: [-s, -s, -s], normal: n },
-        VertexPosNormal { position: [s, -s, -s], normal: n },
-        VertexPosNormal { position: [s, s, -s], normal: n },
-        VertexPosNormal { position: [-s, s, -s], normal: n },
-        VertexPosNormal { position: [-s, -s, s], normal: n },
-        VertexPosNormal { position: [s, -s, s], normal: n },
-        VertexPosNormal { position: [s, s, s], normal: n },
-        VertexPosNormal { position: [-s, s, s], normal: n },
+        VertexPosNormal {
+            position: [-s, -s, -s],
+            normal: n,
+        },
+        VertexPosNormal {
+            position: [s, -s, -s],
+            normal: n,
+        },
+        VertexPosNormal {
+            position: [s, s, -s],
+            normal: n,
+        },
+        VertexPosNormal {
+            position: [-s, s, -s],
+            normal: n,
+        },
+        VertexPosNormal {
+            position: [-s, -s, s],
+            normal: n,
+        },
+        VertexPosNormal {
+            position: [s, -s, s],
+            normal: n,
+        },
+        VertexPosNormal {
+            position: [s, s, s],
+            normal: n,
+        },
+        VertexPosNormal {
+            position: [-s, s, s],
+            normal: n,
+        },
     ];
     let indices: Vec<u16> = vec![
-        0, 1, 2, 0, 2, 3,
-        4, 6, 5, 4, 7, 6,
-        0, 4, 5, 0, 5, 1,
-        2, 6, 7, 2, 7, 3,
-        0, 3, 7, 0, 7, 4,
+        0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 2, 6, 7, 2, 7, 3, 0, 3, 7, 0, 7, 4,
         1, 5, 6, 1, 6, 2,
     ];
     (vertices, indices)
@@ -184,21 +244,33 @@ fn fallback_cube_pos_normal() -> (Vec<VertexPosNormal>, Vec<u16>) {
 fn fallback_cube() -> (Vec<Vertex>, Vec<u16>) {
     let s = 0.5f32;
     let vertices = vec![
-        Vertex { position: [-s, -s, -s] },
-        Vertex { position: [s, -s, -s] },
-        Vertex { position: [s, s, -s] },
-        Vertex { position: [-s, s, -s] },
-        Vertex { position: [-s, -s, s] },
-        Vertex { position: [s, -s, s] },
-        Vertex { position: [s, s, s] },
-        Vertex { position: [-s, s, s] },
+        Vertex {
+            position: [-s, -s, -s],
+        },
+        Vertex {
+            position: [s, -s, -s],
+        },
+        Vertex {
+            position: [s, s, -s],
+        },
+        Vertex {
+            position: [-s, s, -s],
+        },
+        Vertex {
+            position: [-s, -s, s],
+        },
+        Vertex {
+            position: [s, -s, s],
+        },
+        Vertex {
+            position: [s, s, s],
+        },
+        Vertex {
+            position: [-s, s, s],
+        },
     ];
     let indices: Vec<u16> = vec![
-        0, 1, 2, 0, 2, 3,
-        4, 6, 5, 4, 7, 6,
-        0, 4, 5, 0, 5, 1,
-        2, 6, 7, 2, 7, 3,
-        0, 3, 7, 0, 7, 4,
+        0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 2, 6, 7, 2, 7, 3, 0, 3, 7, 0, 7, 4,
         1, 5, 6, 1, 6, 2,
     ];
     (vertices, indices)
@@ -208,21 +280,41 @@ fn fallback_cube() -> (Vec<Vertex>, Vec<u16>) {
 fn fallback_cube_with_uv() -> (Vec<VertexWithUv>, Vec<u16>) {
     let s = 0.5f32;
     let vertices = vec![
-        VertexWithUv { position: [-s, -s, -s], uv: [0.0, 0.0] },
-        VertexWithUv { position: [s, -s, -s], uv: [1.0, 0.0] },
-        VertexWithUv { position: [s, s, -s], uv: [1.0, 1.0] },
-        VertexWithUv { position: [-s, s, -s], uv: [0.0, 1.0] },
-        VertexWithUv { position: [-s, -s, s], uv: [0.0, 0.0] },
-        VertexWithUv { position: [s, -s, s], uv: [1.0, 0.0] },
-        VertexWithUv { position: [s, s, s], uv: [1.0, 1.0] },
-        VertexWithUv { position: [-s, s, s], uv: [0.0, 1.0] },
+        VertexWithUv {
+            position: [-s, -s, -s],
+            uv: [0.0, 0.0],
+        },
+        VertexWithUv {
+            position: [s, -s, -s],
+            uv: [1.0, 0.0],
+        },
+        VertexWithUv {
+            position: [s, s, -s],
+            uv: [1.0, 1.0],
+        },
+        VertexWithUv {
+            position: [-s, s, -s],
+            uv: [0.0, 1.0],
+        },
+        VertexWithUv {
+            position: [-s, -s, s],
+            uv: [0.0, 0.0],
+        },
+        VertexWithUv {
+            position: [s, -s, s],
+            uv: [1.0, 0.0],
+        },
+        VertexWithUv {
+            position: [s, s, s],
+            uv: [1.0, 1.0],
+        },
+        VertexWithUv {
+            position: [-s, s, s],
+            uv: [0.0, 1.0],
+        },
     ];
     let indices: Vec<u16> = vec![
-        0, 1, 2, 0, 2, 3,
-        4, 6, 5, 4, 7, 6,
-        0, 4, 5, 0, 5, 1,
-        2, 6, 7, 2, 7, 3,
-        0, 3, 7, 0, 7, 4,
+        0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6, 0, 4, 5, 0, 5, 1, 2, 6, 7, 2, 7, 3, 0, 3, 7, 0, 7, 4,
         1, 5, 6, 1, 6, 2,
     ];
     (vertices, indices)
@@ -262,10 +354,13 @@ pub fn create_mesh_buffers(
     if required_vb > mesh.vertex_data.len() {
         return None;
     }
-    let pos_info = assets::attribute_offset_and_size(&mesh.vertex_attributes, VertexAttributeType::position)
-        .unwrap_or((0, 12));
-    let normal_info = assets::attribute_offset_size_format(&mesh.vertex_attributes, VertexAttributeType::normal);
-    let uv_info = assets::attribute_offset_size_format(&mesh.vertex_attributes, VertexAttributeType::uv0);
+    let pos_info =
+        assets::attribute_offset_and_size(&mesh.vertex_attributes, VertexAttributeType::position)
+            .unwrap_or((0, 12));
+    let normal_info =
+        assets::attribute_offset_size_format(&mesh.vertex_attributes, VertexAttributeType::normal);
+    let uv_info =
+        assets::attribute_offset_size_format(&mesh.vertex_attributes, VertexAttributeType::uv0);
 
     let (pos_off, _) = pos_info;
     let (normal_off, normal_size, normal_format) = normal_info
@@ -275,9 +370,10 @@ pub fn create_mesh_buffers(
 
     let default_normal = [0.0f32, 1.0, 0.0];
     let default_uv = [0.0f32, 0.0];
-    let (uv_off, uv_size, uv_format) = uv_info
-        .map(|(o, s, f)| (o, s, f))
-        .unwrap_or((0, 0, VertexAttributeFormat::float32));
+    let (uv_off, uv_size, uv_format) =
+        uv_info
+            .map(|(o, s, f)| (o, s, f))
+            .unwrap_or((0, 0, VertexAttributeFormat::float32));
 
     let mut vertices = Vec::with_capacity(mesh.vertex_count as usize);
     let mut vertices_uv: Option<Vec<VertexWithUv>> = if has_uvs {
@@ -291,9 +387,21 @@ pub fn create_mesh_buffers(
         if base + pos_off + 12 > mesh.vertex_data.len() {
             continue;
         }
-        let px = f32::from_le_bytes(mesh.vertex_data[base + pos_off..base + pos_off + 4].try_into().ok()?);
-        let py = f32::from_le_bytes(mesh.vertex_data[base + pos_off + 4..base + pos_off + 8].try_into().ok()?);
-        let pz = f32::from_le_bytes(mesh.vertex_data[base + pos_off + 8..base + pos_off + 12].try_into().ok()?);
+        let px = f32::from_le_bytes(
+            mesh.vertex_data[base + pos_off..base + pos_off + 4]
+                .try_into()
+                .ok()?,
+        );
+        let py = f32::from_le_bytes(
+            mesh.vertex_data[base + pos_off + 4..base + pos_off + 8]
+                .try_into()
+                .ok()?,
+        );
+        let pz = f32::from_le_bytes(
+            mesh.vertex_data[base + pos_off + 8..base + pos_off + 12]
+                .try_into()
+                .ok()?,
+        );
 
         let mut normal = if normal_size > 0 {
             read_normal(&mesh.vertex_data, base, normal_off, normal_format)
@@ -330,18 +438,22 @@ pub fn create_mesh_buffers(
         return None;
     }
 
-    let vertex_buffer = Arc::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("mesh vertex buffer (pos+normal)"),
-        contents: bytemuck::cast_slice(&vertices),
-        usage: wgpu::BufferUsages::VERTEX,
-    }));
+    let vertex_buffer = Arc::new(
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mesh vertex buffer (pos+normal)"),
+            contents: bytemuck::cast_slice(&vertices),
+            usage: wgpu::BufferUsages::VERTEX,
+        }),
+    );
 
     let vertex_buffer_uv = vertices_uv.map(|v_uv| {
-        Arc::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh vertex buffer (pos+uv)"),
-            contents: bytemuck::cast_slice(&v_uv),
-            usage: wgpu::BufferUsages::VERTEX,
-        }))
+        Arc::new(
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mesh vertex buffer (pos+uv)"),
+                contents: bytemuck::cast_slice(&v_uv),
+                usage: wgpu::BufferUsages::VERTEX,
+            }),
+        )
     });
 
     let (index_data, index_format, index_count) = match mesh.index_format {
@@ -350,22 +462,32 @@ pub fn create_mesh_buffers(
             if count == 0 {
                 return None;
             }
-            (mesh.index_data.clone(), wgpu::IndexFormat::Uint16, count as u32)
+            (
+                mesh.index_data.clone(),
+                wgpu::IndexFormat::Uint16,
+                count as u32,
+            )
         }
         crate::shared::IndexBufferFormat::u_int32 => {
             let count = mesh.index_data.len() / 4;
             if count == 0 {
                 return None;
             }
-            (mesh.index_data.clone(), wgpu::IndexFormat::Uint32, count as u32)
+            (
+                mesh.index_data.clone(),
+                wgpu::IndexFormat::Uint32,
+                count as u32,
+            )
         }
     };
 
-    let index_buffer = Arc::new(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("mesh index buffer"),
-        contents: &index_data,
-        usage: wgpu::BufferUsages::INDEX,
-    }));
+    let index_buffer = Arc::new(
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mesh index buffer"),
+            contents: &index_data,
+            usage: wgpu::BufferUsages::INDEX,
+        }),
+    );
 
     let submeshes: Vec<(u32, u32)> = if mesh.submeshes.is_empty() {
         vec![(0, index_count)]
@@ -383,11 +505,7 @@ pub fn create_mesh_buffers(
         }
     };
 
-    let vertex_buffer_skinned = if mesh
-        .bind_poses
-        .as_ref()
-        .map_or(false, |v| !v.is_empty())
-    {
+    let vertex_buffer_skinned = if mesh.bind_poses.as_ref().is_some_and(|v| !v.is_empty()) {
         build_skinned_vertices(device, mesh, vertex_stride, &vertices).map(Arc::new)
     } else {
         None
@@ -414,7 +532,7 @@ struct BoneWeightPod {
 fn build_skinned_vertices(
     device: &wgpu::Device,
     mesh: &MeshAsset,
-    vertex_stride: usize,
+    _vertex_stride: usize,
     base_vertices: &[VertexPosNormal],
 ) -> Option<wgpu::Buffer> {
     let bone_counts = mesh.bone_counts.as_ref()?;
@@ -432,9 +550,8 @@ fn build_skinned_vertices(
         let mut weights = [0.0f32; 4];
         for j in 0..n {
             if weight_offset + 8 <= bone_weights.len() {
-                let w: BoneWeightPod = bytemuck::pod_read_unaligned(
-                    &bone_weights[weight_offset..weight_offset + 8],
-                );
+                let w: BoneWeightPod =
+                    bytemuck::pod_read_unaligned(&bone_weights[weight_offset..weight_offset + 8]);
                 indices[j] = w.bone_index.max(0).min(255);
                 weights[j] = w.weight;
                 weight_offset += 8;
@@ -447,11 +564,13 @@ fn build_skinned_vertices(
             bone_weights: weights,
         });
     }
-    Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("mesh vertex buffer (skinned)"),
-        contents: bytemuck::cast_slice(&skinned),
-        usage: wgpu::BufferUsages::VERTEX,
-    }))
+    Some(
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("mesh vertex buffer (skinned)"),
+            contents: bytemuck::cast_slice(&skinned),
+            usage: wgpu::BufferUsages::VERTEX,
+        }),
+    )
 }
 
 /// Computes vertex stride from mesh data when attribute layout is unknown.

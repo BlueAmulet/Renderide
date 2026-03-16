@@ -2,13 +2,13 @@
 
 use interprocess::{Publisher, QueueFactory, QueueOptions, Subscriber};
 
-use crate::session::init::{get_connection_parameters, ConnectionParams, InitError};
+use crate::session::init::{ConnectionParams, InitError, get_connection_parameters};
+use crate::shared::RendererCommand;
 use crate::shared::decode_renderer_command;
 use crate::shared::default_entity_pool::DefaultEntityPool;
 use crate::shared::memory_packer::MemoryPacker;
 use crate::shared::memory_unpacker::MemoryUnpacker;
 use crate::shared::polymorphic_memory_packable_entity::PolymorphicEncode;
-use crate::shared::RendererCommand;
 
 /// Polls IPC queues and decodes incoming commands.
 pub struct CommandReceiver {
@@ -64,11 +64,9 @@ impl CommandReceiver {
         if let Some(ref mut s) = self.primary_subscriber {
             while let Some(msg) = s.try_dequeue() {
                 let mut unpacker = MemoryUnpacker::new(&msg, &mut pool);
-                if let Ok(cmd) =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        decode_renderer_command(&mut unpacker)
-                    }))
-                {
+                if let Ok(cmd) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    decode_renderer_command(&mut unpacker)
+                })) {
                     commands.push(cmd);
                 }
             }
@@ -76,11 +74,9 @@ impl CommandReceiver {
         if let Some(ref mut s) = self.background_subscriber {
             while let Some(msg) = s.try_dequeue() {
                 let mut unpacker = MemoryUnpacker::new(&msg, &mut pool);
-                if let Ok(cmd) =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        decode_renderer_command(&mut unpacker)
-                    }))
-                {
+                if let Ok(cmd) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    decode_renderer_command(&mut unpacker)
+                })) {
                     commands.push(cmd);
                 }
             }
@@ -96,11 +92,10 @@ impl CommandReceiver {
             cmd.encode(&mut packer);
             total_len - packer.remaining_len()
         };
-        if written > 0 {
-            if let Some(ref mut pub_) = self.primary_publisher {
+        if written > 0
+            && let Some(ref mut pub_) = self.primary_publisher {
                 let _ = pub_.try_enqueue(&self.send_buffer[..written]);
             }
-        }
     }
 
     /// Sends an asset result command to the background queue (MeshUploadResult, etc.).
@@ -112,11 +107,10 @@ impl CommandReceiver {
             cmd.encode(&mut packer);
             total_len - packer.remaining_len()
         };
-        if written > 0 {
-            if let Some(ref mut pub_) = self.background_publisher {
+        if written > 0
+            && let Some(ref mut pub_) = self.background_publisher {
                 let _ = pub_.try_enqueue(&self.send_buffer[..written]);
             }
-        }
     }
 }
 

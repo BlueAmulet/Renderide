@@ -43,16 +43,17 @@ pub struct ConnectionParams {
 /// can be used instead of command line args.
 pub fn get_connection_parameters() -> Option<ConnectionParams> {
     // Dev fallback: env vars (no host launch)
-    if let (Ok(name), Ok(cap_str)) = (env::var("RENDERIDE_QUEUE_NAME"), env::var("RENDERIDE_QUEUE_CAPACITY")) {
-        if let Ok(cap) = cap_str.parse::<i64>() {
-            if !name.is_empty() && cap > 0 {
+    if let (Ok(name), Ok(cap_str)) = (
+        env::var("RENDERIDE_QUEUE_NAME"),
+        env::var("RENDERIDE_QUEUE_CAPACITY"),
+    )
+        && let Ok(cap) = cap_str.parse::<i64>()
+            && !name.is_empty() && cap > 0 {
                 return Some(ConnectionParams {
                     queue_name: name,
                     queue_capacity: cap,
                 });
             }
-        }
-    }
     let args: Vec<String> = env::args().collect();
     if args.is_empty() {
         return None;
@@ -77,7 +78,7 @@ pub fn get_connection_parameters() -> Option<ConnectionParams> {
             queue_name = Some(args[next_i].clone());
             i = next_i;
         } else if arg_lower.ends_with("queuecapacity") {
-            if queue_capacity.map_or(false, |c| c > 0) {
+            if queue_capacity.is_some_and(|c| c > 0) {
                 return None;
             }
             queue_capacity = args[next_i].parse().ok().filter(|&c| c > 0);
@@ -86,7 +87,7 @@ pub fn get_connection_parameters() -> Option<ConnectionParams> {
 
         i += 1;
 
-        if queue_name.is_some() && queue_capacity.map_or(false, |c| c > 0) {
+        if queue_name.is_some() && queue_capacity.is_some_and(|c| c > 0) {
             return Some(ConnectionParams {
                 queue_name: queue_name.unwrap(),
                 queue_capacity: queue_capacity.unwrap(),
@@ -95,10 +96,12 @@ pub fn get_connection_parameters() -> Option<ConnectionParams> {
     }
 
     queue_name.and_then(|name| {
-        queue_capacity.filter(|&c| c > 0).map(|cap| ConnectionParams {
-            queue_name: name,
-            queue_capacity: cap,
-        })
+        queue_capacity
+            .filter(|&c| c > 0)
+            .map(|cap| ConnectionParams {
+                queue_name: name,
+                queue_capacity: cap,
+            })
     })
 }
 

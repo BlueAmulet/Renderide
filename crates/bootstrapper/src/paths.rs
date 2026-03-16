@@ -35,7 +35,7 @@ fn parse_libraryfolders_vdf(steam_base: &Path) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     for line in BufReader::new(file).lines().filter_map(Result::ok) {
         if let Some(idx) = line.find("\"path\"") {
-            let rest = line[idx + 6..].trim_start_matches(|c: char| c == '\t' || c == ' ');
+            let rest = line[idx + 6..].trim_start_matches(['\t', ' ']);
             if let Some(start) = rest.find('"') {
                 let inner = &rest[start + 1..];
                 if let Some(end) = inner.find('"') {

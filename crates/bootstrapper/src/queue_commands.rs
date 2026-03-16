@@ -34,7 +34,9 @@ pub fn parse_host_command(s: &str) -> HostCommand {
         "HEARTBEAT" => HostCommand::Heartbeat,
         "SHUTDOWN" => HostCommand::Shutdown,
         "GETTEXT" => HostCommand::GetText,
-        _ if s.starts_with("SETTEXT") => HostCommand::SetText(s.strip_prefix("SETTEXT").unwrap_or("").to_string()),
+        _ if s.starts_with("SETTEXT") => {
+            HostCommand::SetText(s.strip_prefix("SETTEXT").unwrap_or("").to_string())
+        }
         _ => HostCommand::StartRenderer(s.split_whitespace().map(String::from).collect()),
     }
 }
@@ -80,7 +82,10 @@ pub fn handle_command(
                 if target.exists() && (!symlink.exists() || fs::read_link(symlink).is_err()) {
                     let _ = fs::remove_file(symlink);
                     if let Err(e) = std::os::unix::fs::symlink("renderide", symlink) {
-                        logger.log(&format!("Failed to create Renderite.Renderer symlink: {}", e));
+                        logger.log(&format!(
+                            "Failed to create Renderite.Renderer symlink: {}",
+                            e
+                        ));
                     }
                 }
             }
@@ -126,12 +131,14 @@ pub fn queue_loop(
     let mut loop_iter: u64 = 0;
 
     logger.log("Starting queue loop");
-    logger.log("Expected: Host sends first msg (renderer args), then HEARTBEAT every 5s, SHUTDOWN on exit");
+    logger.log(
+        "Expected: Host sends first msg (renderer args), then HEARTBEAT every 5s, SHUTDOWN on exit",
+    );
     logger.log("dequeue() blocks until message or cancel; empty msg = cancel was set");
 
     while !cancel.load(Ordering::Relaxed) {
         loop_iter += 1;
-        if loop_iter <= 3 || loop_iter % 1000 == 0 {
+        if loop_iter <= 3 || loop_iter.is_multiple_of(1000) {
             logger.log(&format!(
                 "queue_loop iter {} elapsed={:.1}s cancel={}",
                 loop_iter,
@@ -164,7 +171,10 @@ pub fn queue_loop(
         logger.log(&format!("Received message: {}", arguments));
 
         let cmd = parse_host_command(&arguments);
-        if matches!(handle_command(cmd, outgoing, config, logger), LoopAction::Break) {
+        if matches!(
+            handle_command(cmd, outgoing, config, logger),
+            LoopAction::Break
+        ) {
             break;
         }
     }

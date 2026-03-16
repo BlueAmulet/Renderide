@@ -77,8 +77,8 @@ impl AssetRegistry {
         }
 
         let vertex_data = raw[..layout.vertex_size].to_vec();
-        let index_data = raw[layout.index_buffer_start
-            ..layout.index_buffer_start + layout.index_buffer_length]
+        let index_data = raw
+            [layout.index_buffer_start..layout.index_buffer_start + layout.index_buffer_length]
             .to_vec();
 
         let (bind_poses, bone_counts, bone_weights) = if data.bone_count > 0 {
@@ -86,11 +86,11 @@ impl AssetRegistry {
                 &raw[layout.bind_poses_start..layout.bind_poses_start + layout.bind_poses_length],
                 data.bone_count as usize,
             );
-            let bone_counts = raw[layout.bone_counts_start
-                ..layout.bone_counts_start + layout.bone_counts_length]
+            let bone_counts = raw
+                [layout.bone_counts_start..layout.bone_counts_start + layout.bone_counts_length]
                 .to_vec();
-            let bone_weights = raw[layout.bone_weights_start
-                ..layout.bone_weights_start + layout.bone_weights_length]
+            let bone_weights = raw
+                [layout.bone_weights_start..layout.bone_weights_start + layout.bone_weights_length]
                 .to_vec();
             (bind_poses, Some(bone_counts), Some(bone_weights))
         } else {

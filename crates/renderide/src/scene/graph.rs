@@ -81,11 +81,11 @@ impl PoseValidation<'_> {
         if !scale_ok {
             return false;
         }
-        let rot_ok = self.pose.rotation.i.is_finite()
+        
+        self.pose.rotation.i.is_finite()
             && self.pose.rotation.j.is_finite()
             && self.pose.rotation.k.is_finite()
-            && self.pose.rotation.w.is_finite();
-        rot_ok
+            && self.pose.rotation.w.is_finite()
     }
 }
 
@@ -102,8 +102,15 @@ impl std::fmt::Display for SceneError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SceneError::SharedMemoryAccess(msg) => write!(f, "Shared memory access: {}", msg),
-            SceneError::CycleDetected { scene_id, transform_id } => {
-                write!(f, "Cycle detected in scene {} at transform {}", scene_id, transform_id)
+            SceneError::CycleDetected {
+                scene_id,
+                transform_id,
+            } => {
+                write!(
+                    f,
+                    "Cycle detected in scene {} at transform {}",
+                    scene_id, transform_id
+                )
             }
         }
     }
@@ -164,7 +171,10 @@ impl SceneGraph {
     ) -> Vec<[[f32; 4]; 4]> {
         let mut out = Vec::with_capacity(bone_transform_ids.len().min(bind_poses.len()));
         for (i, &tid) in bone_transform_ids.iter().enumerate() {
-            let bind = bind_poses.get(i).copied().unwrap_or(Matrix4::identity().into());
+            let bind = bind_poses
+                .get(i)
+                .copied()
+                .unwrap_or(Matrix4::identity().into());
             let bind_mat = Matrix4::from_fn(|r, c| bind[r][c]);
             let world = if tid >= 0 {
                 self.get_world_matrix(space_id, tid as usize)
@@ -191,10 +201,7 @@ impl SceneGraph {
         }
 
         for update in &data.render_spaces {
-            let scene = self
-                .scenes
-                .entry(update.id)
-                .or_insert_with(Scene::default);
+            let scene = self.scenes.entry(update.id).or_default();
 
             scene.id = update.id;
             scene.is_active = update.is_active;
@@ -208,12 +215,8 @@ impl SceneGraph {
 
             let frame_index = data.frame_index;
             let transform_removals = if let Some(ref transforms_update) = update.transforms_update {
-                let removals = Self::apply_transforms_update(
-                    scene,
-                    shm,
-                    transforms_update,
-                    frame_index,
-                )?;
+                let removals =
+                    Self::apply_transforms_update(scene, shm, transforms_update, frame_index)?;
                 self.world_matrices.remove(&update.id);
                 self.world_matrices_dirty.insert(update.id);
                 removals
@@ -265,7 +268,8 @@ impl SceneGraph {
         if !shm.access_mut_bytes(&sh2_tasks.tasks, |bytes| {
             let mut offset = 0;
             while offset + TASK_STRIDE <= bytes.len() {
-                let renderable_index = i32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap_or([0; 4]));
+                let renderable_index =
+                    i32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap_or([0; 4]));
                 if renderable_index < 0 {
                     break;
                 }
@@ -273,8 +277,7 @@ impl SceneGraph {
                     .copy_from_slice(&COMPUTE_RESULT_FAILED.to_le_bytes());
                 offset += TASK_STRIDE;
             }
-        }) {
-        }
+        }) {}
     }
 
     fn apply_transforms_update(
@@ -309,8 +312,7 @@ impl SceneGraph {
                     }
                 }
                 for entry in &mut scene.drawables {
-                    entry.node_id =
-                        fixup_transform_id(entry.node_id, removed_id, last_index);
+                    entry.node_id = fixup_transform_id(entry.node_id, removed_id, last_index);
                 }
                 transform_removals.push((removed_id, last_index));
 
@@ -379,7 +381,7 @@ impl SceneGraph {
         if update.removals.length > 0 {
             let removals = shm
                 .access_copy_diagnostic::<i32>(&update.removals)
-                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+                .map_err(SceneError::SharedMemoryAccess)?;
             let mut indices: Vec<usize> = removals
                 .iter()
                 .take_while(|&&i| i >= 0)
@@ -395,12 +397,9 @@ impl SceneGraph {
         if update.additions.length > 0 {
             let additions = shm
                 .access_copy_diagnostic::<i32>(&update.additions)
-                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
-            let added_node_ids: Vec<i32> = additions
-                .iter()
-                .take_while(|&&i| i >= 0)
-                .copied()
-                .collect();
+                .map_err(SceneError::SharedMemoryAccess)?;
+            let added_node_ids: Vec<i32> =
+                additions.iter().take_while(|&&i| i >= 0).copied().collect();
             for &node_id in &added_node_ids {
                 scene.drawables.push(Drawable {
                     node_id,
@@ -415,7 +414,7 @@ impl SceneGraph {
         if update.mesh_states.length > 0 {
             let states = shm
                 .access_copy_diagnostic::<MeshRendererStatePod>(&update.mesh_states)
-                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+                .map_err(SceneError::SharedMemoryAccess)?;
             for state in states {
                 if state.renderable_index < 0 {
                     break;
@@ -444,8 +443,7 @@ impl SceneGraph {
     ) -> Result<(), SceneError> {
         for &(removed_id, last_index) in transform_removals {
             for entry in &mut scene.skinned_drawables {
-                entry.node_id =
-                    fixup_transform_id(entry.node_id, removed_id, last_index);
+                entry.node_id = fixup_transform_id(entry.node_id, removed_id, last_index);
                 if let Some(ref mut ids) = entry.bone_transform_ids {
                     for id in ids.iter_mut() {
                         *id = fixup_transform_id(*id, removed_id, last_index);
@@ -457,7 +455,7 @@ impl SceneGraph {
         if update.removals.length > 0 {
             let removals = shm
                 .access_copy_diagnostic::<i32>(&update.removals)
-                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+                .map_err(SceneError::SharedMemoryAccess)?;
             let mut indices: Vec<usize> = removals
                 .iter()
                 .take_while(|&&i| i >= 0)
@@ -473,12 +471,9 @@ impl SceneGraph {
         if update.additions.length > 0 {
             let additions = shm
                 .access_copy_diagnostic::<i32>(&update.additions)
-                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
-            let added_node_ids: Vec<i32> = additions
-                .iter()
-                .take_while(|&&i| i >= 0)
-                .copied()
-                .collect();
+                .map_err(SceneError::SharedMemoryAccess)?;
+            let added_node_ids: Vec<i32> =
+                additions.iter().take_while(|&&i| i >= 0).copied().collect();
             for &node_id in &added_node_ids {
                 scene.skinned_drawables.push(Drawable {
                     node_id,
@@ -493,7 +488,7 @@ impl SceneGraph {
         if update.mesh_states.length > 0 {
             let states = shm
                 .access_copy_diagnostic::<MeshRendererStatePod>(&update.mesh_states)
-                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+                .map_err(SceneError::SharedMemoryAccess)?;
             for state in states {
                 if state.renderable_index < 0 {
                     break;
@@ -502,22 +497,21 @@ impl SceneGraph {
                 if idx < scene.skinned_drawables.len() {
                     scene.skinned_drawables[idx].mesh_handle = state.mesh_asset_id;
                     scene.skinned_drawables[idx].sort_key = state.sorting_order;
-                    scene.skinned_drawables[idx].material_handle =
-                        if state.material_count > 0 {
-                            Some(-1)
-                        } else {
-                            None
-                        };
+                    scene.skinned_drawables[idx].material_handle = if state.material_count > 0 {
+                        Some(-1)
+                    } else {
+                        None
+                    };
                 }
             }
         }
         if update.bone_assignments.length > 0 {
             let assignments = shm
                 .access_copy_diagnostic::<BoneAssignment>(&update.bone_assignments)
-                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+                .map_err(SceneError::SharedMemoryAccess)?;
             let indexes = shm
                 .access_copy_diagnostic::<i32>(&update.bone_transform_indexes)
-                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+                .map_err(SceneError::SharedMemoryAccess)?;
             let mut index_offset = 0;
             for assignment in &assignments {
                 if assignment.renderable_index < 0 {
@@ -525,11 +519,9 @@ impl SceneGraph {
                 }
                 let idx = assignment.renderable_index as usize;
                 let bone_count = assignment.bone_count.max(0) as usize;
-                if idx < scene.skinned_drawables.len()
-                    && index_offset + bone_count <= indexes.len()
+                if idx < scene.skinned_drawables.len() && index_offset + bone_count <= indexes.len()
                 {
-                    let ids: Vec<i32> = indexes[index_offset..index_offset + bone_count]
-                        .to_vec();
+                    let ids: Vec<i32> = indexes[index_offset..index_offset + bone_count].to_vec();
                     scene.skinned_drawables[idx].bone_transform_ids = Some(ids);
                 }
                 index_offset += bone_count;

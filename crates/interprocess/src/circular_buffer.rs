@@ -13,18 +13,13 @@ pub(super) fn read(buffer: *const u8, capacity: i64, offset: i64, len: usize) ->
     let first = (cap - phys_offset).min(len);
     if first > 0 {
         unsafe {
-            result[..first].copy_from_slice(std::slice::from_raw_parts(
-                buffer.add(phys_offset),
-                first,
-            ));
+            result[..first]
+                .copy_from_slice(std::slice::from_raw_parts(buffer.add(phys_offset), first));
         }
     }
     if first < len {
         unsafe {
-            result[first..].copy_from_slice(std::slice::from_raw_parts(
-                buffer,
-                len - first,
-            ));
+            result[first..].copy_from_slice(std::slice::from_raw_parts(buffer, len - first));
         }
     }
     result
@@ -42,20 +37,12 @@ pub(super) fn write(buffer: *mut u8, capacity: i64, offset: i64, data: &[u8]) {
     let first = (cap - phys_offset).min(len);
     if first > 0 {
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                data.as_ptr(),
-                buffer.add(phys_offset),
-                first,
-            );
+            std::ptr::copy_nonoverlapping(data.as_ptr(), buffer.add(phys_offset), first);
         }
     }
     if first < len {
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                data.as_ptr().add(first),
-                buffer,
-                len - first,
-            );
+            std::ptr::copy_nonoverlapping(data.as_ptr().add(first), buffer, len - first);
         }
     }
 }

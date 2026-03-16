@@ -58,7 +58,10 @@ impl WindowInputState {
         let window = WindowState {
             is_window_focused: self.window_focused,
             is_fullscreen: false,
-            window_resolution: Vector2::new(self.window_resolution.0 as i32, self.window_resolution.1 as i32),
+            window_resolution: Vector2::new(
+                self.window_resolution.0 as i32,
+                self.window_resolution.1 as i32,
+            ),
             resolution_settings_applied: false,
             drag_and_drop_event: None,
         };

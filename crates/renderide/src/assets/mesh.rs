@@ -24,7 +24,8 @@ fn vertex_format_size(format: VertexAttributeFormat) -> i32 {
 
 /// Computes the interleaved vertex stride from vertex attributes.
 pub fn compute_vertex_stride(attrs: &[VertexAttributeDescriptor]) -> i32 {
-    attrs.iter()
+    attrs
+        .iter()
         .map(|a| vertex_format_size(a.format) * a.dimensions)
         .sum()
 }

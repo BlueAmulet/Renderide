@@ -15,9 +15,7 @@ pub trait Asset: Send + Sync + 'static {
     fn id(&self) -> AssetId;
 }
 
-pub use manager::AssetManager;
 pub use mesh::{
-    attribute_offset_and_size, attribute_offset_size_format, compute_vertex_stride, MeshAsset,
+    MeshAsset, attribute_offset_and_size, attribute_offset_size_format, compute_vertex_stride,
 };
 pub use registry::AssetRegistry;
-pub use texture::TextureAsset;

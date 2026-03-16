@@ -53,22 +53,22 @@ impl PackedBools {
 
     #[inline]
     pub fn six(self) -> (bool, bool, bool, bool, bool, bool) {
-        (self.bit0, self.bit1, self.bit2, self.bit3, self.bit4, self.bit5)
+        (
+            self.bit0, self.bit1, self.bit2, self.bit3, self.bit4, self.bit5,
+        )
     }
 
     #[inline]
     pub fn seven(self) -> (bool, bool, bool, bool, bool, bool, bool) {
         (
-            self.bit0, self.bit1, self.bit2, self.bit3, self.bit4, self.bit5,
-            self.bit6,
+            self.bit0, self.bit1, self.bit2, self.bit3, self.bit4, self.bit5, self.bit6,
         )
     }
 
     #[inline]
     pub fn eight(self) -> (bool, bool, bool, bool, bool, bool, bool, bool) {
         (
-            self.bit0, self.bit1, self.bit2, self.bit3, self.bit4, self.bit5,
-            self.bit6, self.bit7,
+            self.bit0, self.bit1, self.bit2, self.bit3, self.bit4, self.bit5, self.bit6, self.bit7,
         )
     }
 }

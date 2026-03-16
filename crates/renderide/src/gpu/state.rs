@@ -35,7 +35,9 @@ pub async fn init_gpu(
         .await
         .map_err(|e| format!("request_device: {:?}", e))?;
     let size = window.inner_size();
-    let mut config = surface.get_default_config(&adapter, size.width, size.height).unwrap();
+    let mut config = surface
+        .get_default_config(&adapter, size.width, size.height)
+        .unwrap();
     config.present_mode = wgpu::PresentMode::Fifo;
     surface.configure(&device, &config);
     let depth_texture = create_depth_texture(&device, &config);

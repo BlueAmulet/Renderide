@@ -3,7 +3,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::path::PathBuf;
 
-use libc::{sem_open, O_CREAT};
+use libc::{O_CREAT, sem_open};
 use memmap2::MmapMut;
 
 use crate::queue::QueueOptions;
@@ -24,22 +24,14 @@ pub(super) fn open_queue_backing(
         .open(&path)
         .expect("Failed to open queue file");
 
-    file.set_len(storage_size).expect("Failed to set file length");
+    file.set_len(storage_size)
+        .expect("Failed to set file length");
 
-    let mmap = unsafe {
-        MmapMut::map_mut(&file).expect("Failed to mmap queue file")
-    };
+    let mmap = unsafe { MmapMut::map_mut(&file).expect("Failed to mmap queue file") };
 
     let sem_name = options.semaphore_name();
     let sem_c_name = std::ffi::CString::new(sem_name.as_str()).expect("CString");
-    let sem_handle = unsafe {
-        sem_open(
-            sem_c_name.as_ptr(),
-            O_CREAT,
-            0o777,
-            0,
-        )
-    };
+    let sem_handle = unsafe { sem_open(sem_c_name.as_ptr(), O_CREAT, 0o777, 0) };
 
     if sem_handle == libc::SEM_FAILED {
         panic!("Failed to open semaphore: {}", sem_name);

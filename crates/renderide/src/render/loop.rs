@@ -2,8 +2,8 @@
 
 use nalgebra::{Matrix4, Vector3};
 
-use crate::gpu::{GpuMeshBuffers, GpuState, PipelineManager, RenderPipeline, UniformData};
 use super::SpaceDrawBatch;
+use crate::gpu::{GpuMeshBuffers, GpuState, PipelineManager, RenderPipeline, UniformData};
 use crate::scene::render_transform_to_matrix;
 use crate::session::Session;
 
@@ -74,13 +74,15 @@ impl RenderLoop {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: depth_view.as_ref().map(|dv| wgpu::RenderPassDepthStencilAttachment {
-                    view: dv,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
+                depth_stencil_attachment: depth_view.as_ref().map(|dv| {
+                    wgpu::RenderPassDepthStencilAttachment {
+                        view: dv,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
@@ -101,13 +103,15 @@ impl RenderLoop {
                         continue;
                     }
                     if !gpu.mesh_buffer_cache.contains_key(mesh_asset_id) {
-                        let stride = crate::assets::compute_vertex_stride(&mesh.vertex_attributes) as usize;
+                        let stride =
+                            crate::assets::compute_vertex_stride(&mesh.vertex_attributes) as usize;
                         let stride = if stride > 0 {
                             stride
                         } else {
                             crate::gpu::compute_vertex_stride_from_mesh(mesh)
                         };
-                        if let Some(b) = crate::gpu::create_mesh_buffers(&gpu.device, mesh, stride) {
+                        if let Some(b) = crate::gpu::create_mesh_buffers(&gpu.device, mesh, stride)
+                        {
                             gpu.mesh_buffer_cache.insert(*mesh_asset_id, b);
                         }
                     }
@@ -133,7 +137,9 @@ impl RenderLoop {
                 let view_mat = apply_view_handedness_fix(view_mat);
                 let view_proj = proj * view_mat;
 
-                for (model, mesh_asset_id, is_skinned, material_id, bone_transform_ids) in &batch.draws {
+                for (model, mesh_asset_id, is_skinned, _material_id, bone_transform_ids) in
+                    &batch.draws
+                {
                     let (buffers_ref, mesh) = if *mesh_asset_id >= 0 {
                         let Some(mesh) = mesh_assets.get_mesh(*mesh_asset_id) else {
                             continue;
@@ -199,23 +205,37 @@ impl RenderLoop {
             let mvp_models_normal: Vec<_> = normal_draws.iter().map(|d| (d.mvp, d.model)).collect();
             let mvp_models_uv: Vec<_> = uv_draws.iter().map(|d| (d.mvp, d.model)).collect();
 
-            self.pipeline_manager.normal_debug.upload_batch(&gpu.queue, &mvp_models_normal);
-            self.pipeline_manager.uv_debug.upload_batch(&gpu.queue, &mvp_models_uv);
+            self.pipeline_manager
+                .normal_debug
+                .upload_batch(&gpu.queue, &mvp_models_normal);
+            self.pipeline_manager
+                .uv_debug
+                .upload_batch(&gpu.queue, &mvp_models_uv);
 
             for (i, d) in normal_draws.iter().enumerate() {
-                self.pipeline_manager.normal_debug.bind(&mut pass, Some(i as u32));
+                self.pipeline_manager
+                    .normal_debug
+                    .bind(&mut pass, Some(i as u32));
                 self.pipeline_manager.normal_debug.draw_mesh(
                     &mut pass,
                     d.buffers,
-                    &UniformData::Simple { mvp: d.mvp, model: d.model },
+                    &UniformData::Simple {
+                        mvp: d.mvp,
+                        model: d.model,
+                    },
                 );
             }
             for (i, d) in uv_draws.iter().enumerate() {
-                self.pipeline_manager.uv_debug.bind(&mut pass, Some(i as u32));
+                self.pipeline_manager
+                    .uv_debug
+                    .bind(&mut pass, Some(i as u32));
                 self.pipeline_manager.uv_debug.draw_mesh(
                     &mut pass,
                     d.buffers,
-                    &UniformData::Simple { mvp: d.mvp, model: d.model },
+                    &UniformData::Simple {
+                        mvp: d.mvp,
+                        model: d.model,
+                    },
                 );
             }
         }
@@ -248,13 +268,25 @@ fn reverse_z_projection(aspect: f32, vertical_fov: f32, near: f32, far: f32) -> 
     let tan_horizontal_half = (horizontal_fov / 2.0).tan();
     let f_x = 1.0 / tan_horizontal_half;
     let f_y = 1.0 / tan_vertical_half;
-    let proj = Matrix4::new(
-        f_x, 0.0, 0.0, 0.0,
-        0.0, f_y, 0.0, 0.0,
-        0.0, 0.0, near / (far - near), (far * near) / (far - near),
-        0.0, 0.0, -1.0, 0.0,
-    );
-    proj
+    
+    Matrix4::new(
+        f_x,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        f_y,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        near / (far - near),
+        (far * near) / (far - near),
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+    )
 }
 
 fn filter_scale(scale: Vector3<f32>) -> Vector3<f32> {

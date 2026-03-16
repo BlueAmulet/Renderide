@@ -3,10 +3,10 @@
 
 mod backend;
 mod circular_buffer;
-mod queue;
 mod publisher;
+mod queue;
 mod subscriber;
 
-pub use queue::{QueueOptions, QueueFactory};
-pub use subscriber::Subscriber;
 pub use publisher::Publisher;
+pub use queue::{QueueFactory, QueueOptions};
+pub use subscriber::Subscriber;

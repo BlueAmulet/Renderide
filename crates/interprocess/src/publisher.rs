@@ -10,7 +10,7 @@ use memmap2::MmapMut;
 use crate::backend;
 use crate::circular_buffer;
 use crate::queue::{
-    MessageHeader, QueueOptions, MESSAGE_BODY_OFFSET, STATE_READY, STATE_WRITING,
+    MESSAGE_BODY_OFFSET, MessageHeader, QueueOptions, STATE_READY, STATE_WRITING,
     padded_message_length,
 };
 
@@ -81,8 +81,15 @@ impl Publisher {
             let write_offset = header.write_offset;
             let new_write = (write_offset + padded) % (self.capacity * 2);
 
-            let write_offset_ptr = unsafe { &*(&(*header_ptr).write_offset as *const i64 as *const std::sync::atomic::AtomicI64) };
-            let prev = write_offset_ptr.compare_exchange(write_offset, new_write, Ordering::SeqCst, Ordering::SeqCst);
+            let write_offset_ptr = unsafe {
+                &*(&(*header_ptr).write_offset as *const i64 as *const std::sync::atomic::AtomicI64)
+            };
+            let prev = write_offset_ptr.compare_exchange(
+                write_offset,
+                new_write,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            );
             if prev.is_err() {
                 continue;
             }
@@ -107,12 +114,7 @@ impl Publisher {
             );
 
             let state_bytes = STATE_READY.to_le_bytes();
-            circular_buffer::write(
-                self.buffer_mut(),
-                self.capacity,
-                write_offset,
-                &state_bytes,
-            );
+            circular_buffer::write(self.buffer_mut(), self.capacity, write_offset, &state_bytes);
 
             unsafe {
                 sem_post(self.sem_handle);

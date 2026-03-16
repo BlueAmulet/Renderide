@@ -7,8 +7,8 @@ use bytemuck::{Pod, Zeroable};
 
 use super::memory_packable::MemoryPackable;
 use super::memory_packer::MemoryPacker;
-use super::memory_unpacker::MemoryUnpacker;
 use super::memory_packer_entity_pool::MemoryPackerEntityPool;
+use super::memory_unpacker::MemoryUnpacker;
 
 /// Descriptor for a region within a shared memory buffer.
 /// Used by the host to tell the renderer where to find packed data in `/dev/shm`.

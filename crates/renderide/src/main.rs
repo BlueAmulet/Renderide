@@ -4,7 +4,6 @@ use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalPosition;
 use winit::event::{DeviceEvent, ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents, EventLoop};
-use winit::keyboard::PhysicalKey;
 use winit::window::{CursorGrabMode, Window, WindowAttributes};
 
 mod assets;
@@ -19,7 +18,7 @@ mod session;
 mod shared;
 
 use crate::gpu::GpuState;
-use crate::input::{winit_key_to_renderite_key, WindowInputState};
+use crate::input::{WindowInputState, winit_key_to_renderite_key};
 use crate::session::Session;
 
 fn main() {
@@ -107,19 +106,21 @@ impl ApplicationHandler for RenderideApp {
                 if let Some(ref window) = self.window {
                     let size = window.inner_size();
                     self.input.window_resolution = (size.width, size.height);
-                    let center = nalgebra::Vector2::new((size.width / 2) as f32, (size.height / 2) as f32);
+                    let center =
+                        nalgebra::Vector2::new((size.width / 2) as f32, (size.height / 2) as f32);
                     let lock = self.session.cursor_lock_requested();
 
                     if lock {
-                        let _ = window.set_cursor_grab(CursorGrabMode::Locked)
+                        let _ = window
+                            .set_cursor_grab(CursorGrabMode::Locked)
                             .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined));
-                        let _ = window.set_cursor_visible(false);
+                        window.set_cursor_visible(false);
                         let center_phys = PhysicalPosition::new(size.width / 2, size.height / 2);
                         let _ = window.set_cursor_position(center_phys);
                         self.input.window_position = center;
                     } else {
                         let _ = window.set_cursor_grab(CursorGrabMode::None);
-                        let _ = window.set_cursor_visible(true);
+                        window.set_cursor_visible(true);
                         if !self.input.window_focused {
                             self.input.window_position = center;
                         }
@@ -141,8 +142,7 @@ impl ApplicationHandler for RenderideApp {
                 if let (Some(window), None) = (&self.window, &self.gpu) {
                     match pollster::block_on(gpu::init_gpu(window)) {
                         Ok(g) => {
-                            self.render_loop =
-                                Some(render::RenderLoop::new(&g.device, &g.config));
+                            self.render_loop = Some(render::RenderLoop::new(&g.device, &g.config));
                             self.gpu = Some(g);
                         }
                         Err(_e) => {}
@@ -155,8 +155,7 @@ impl ApplicationHandler for RenderideApp {
                         gpu.mesh_buffer_cache.remove(&asset_id);
                     }
                     let draw_batches = self.session.collect_draw_batches();
-                    if let Ok(output) =
-                        render_loop.render_frame(gpu, &self.session, &draw_batches)
+                    if let Ok(output) = render_loop.render_frame(gpu, &self.session, &draw_batches)
                     {
                         output.present();
                     }
@@ -254,10 +253,9 @@ impl ApplicationHandler for RenderideApp {
                         return;
                     }
                     self.session.process_render_tasks();
-                    if let (Some(ref mut gpu), Some(ref mut render_loop)) = (
-                        self.gpu.as_mut(),
-                        self.render_loop.as_mut(),
-                    ) {
+                    if let (Some(ref mut gpu), Some(ref mut render_loop)) =
+                        (self.gpu.as_mut(), self.render_loop.as_mut())
+                    {
                         for asset_id in self.session.drain_pending_mesh_unloads() {
                             gpu.mesh_buffer_cache.remove(&asset_id);
                         }

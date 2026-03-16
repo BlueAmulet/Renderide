@@ -29,9 +29,7 @@ pub fn strip_windows_desktop_from_runtime_config(path: &Path) {
         .and_then(|f| f.as_array_mut())
     {
         frameworks.retain(|node| {
-            node.get("name")
-                .and_then(|n| n.as_str())
-                != Some("Microsoft.WindowsDesktop.App")
+            node.get("name").and_then(|n| n.as_str()) != Some("Microsoft.WindowsDesktop.App")
         });
     }
     if let Ok(new_contents) = serde_json::to_string_pretty(&json) {
@@ -40,7 +38,11 @@ pub fn strip_windows_desktop_from_runtime_config(path: &Path) {
 }
 
 /// Spawns a thread that drains the given reader into the log file with the given prefix.
-pub fn spawn_output_drainer(log_path: std::path::PathBuf, reader: impl Read + Send + 'static, prefix: &'static str) {
+pub fn spawn_output_drainer(
+    log_path: std::path::PathBuf,
+    reader: impl Read + Send + 'static,
+    prefix: &'static str,
+) {
     std::thread::spawn(move || {
         if let Ok(mut file) = fs::OpenOptions::new()
             .create(true)
@@ -49,7 +51,11 @@ pub fn spawn_output_drainer(log_path: std::path::PathBuf, reader: impl Read + Se
         {
             let mut buf_reader = BufReader::new(reader);
             let mut line = String::new();
-            while buf_reader.read_line(&mut line).map(|n| n > 0).unwrap_or(false) {
+            while buf_reader
+                .read_line(&mut line)
+                .map(|n| n > 0)
+                .unwrap_or(false)
+            {
                 let _ = writeln!(file, "{} {}", prefix, line.trim_end());
                 let _ = file.flush();
                 line.clear();
@@ -59,7 +65,11 @@ pub fn spawn_output_drainer(log_path: std::path::PathBuf, reader: impl Read + Se
 }
 
 /// Spawns the Renderite Host process. Returns the child process or an error.
-pub fn spawn_host(config: &ResoBootConfig, args: &[String], logger: &mut Logger) -> std::io::Result<Child> {
+pub fn spawn_host(
+    config: &ResoBootConfig,
+    args: &[String],
+    logger: &mut Logger,
+) -> std::io::Result<Child> {
     if config.is_wine {
         logger.log("Detected Wine; altering startup sequence accordingly.");
         strip_windows_desktop_from_runtime_config(&config.runtime_config);
@@ -85,7 +95,10 @@ pub fn spawn_host(config: &ResoBootConfig, args: &[String], logger: &mut Logger)
         {
             let dotnet = paths::find_dotnet_for_host(&resonite_dir);
             let host_dll = resonite_dir.join(paths::RENDERITE_HOST_DLL);
-            logger.log(&format!("Using dotnet at {:?} to run Renderite.Host.dll", dotnet));
+            logger.log(&format!(
+                "Using dotnet at {:?} to run Renderite.Host.dll",
+                dotnet
+            ));
             Command::new(&dotnet)
                 .arg(&host_dll)
                 .args(args)
