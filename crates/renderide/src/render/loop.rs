@@ -76,7 +76,7 @@ impl RenderLoop {
                 multiview_mask: None,
             });
 
-            let use_debug_uv = std::env::var("RENDERIDE_DEBUG_UV").is_ok();
+            let use_debug_uv = false;
 
             for batch in &draw_batches {
                 for (_, mesh_asset_id, _is_skinned, _material_id, _) in &batch.draws {

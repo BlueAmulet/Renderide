@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::time::{Duration, Instant};
 
 use winit::application::ApplicationHandler;
@@ -24,20 +23,11 @@ use crate::input::{winit_key_to_renderite_key, WindowInputState};
 use crate::session::Session;
 
 fn main() {
-    logging::init_log();
+    logging::init();
 
-    let log_path = logging::log_path();
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        if let Ok(mut f) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&log_path)
-        {
-            let _ = writeln!(f, "PANIC: {}", info);
-            let _ = writeln!(f, "Backtrace:\n{:?}", std::backtrace::Backtrace::capture());
-            let _ = f.flush();
-        }
+        logging::log_panic(info);
         default_hook(info);
     }));
 
@@ -84,7 +74,7 @@ impl ApplicationHandler for RenderideApp {
             let attrs = WindowAttributes::default().with_title("Renderide");
             match event_loop.create_window(attrs) {
                 Ok(w) => self.window = Some(w),
-                Err(e) => eprintln!("Failed to create window: {}", e),
+                Err(e) => crate::error!("Failed to create window: {}", e),
             }
         }
     }

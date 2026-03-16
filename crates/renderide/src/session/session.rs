@@ -4,7 +4,6 @@ use nalgebra::Matrix4;
 
 use crate::assets::AssetRegistry;
 use crate::config::RenderConfig;
-use crate::ipc::mapper::{CommandMapper, TranslatedCommand};
 use crate::ipc::receiver::CommandReceiver;
 use crate::ipc::shared_memory::SharedMemoryAccessor;
 use crate::render::batch::SpaceDrawBatch;
@@ -16,10 +15,9 @@ use crate::shared::{
     RendererCommand, RendererInitResult, TextureFormat,
 };
 
-/// Main session: coordinates command ingest, translation, scene, and assets.
+/// Main session: coordinates command ingest, scene, and assets.
 pub struct Session {
     receiver: CommandReceiver,
-    mapper: CommandMapper,
     scene_graph: SceneGraph,
     asset_registry: AssetRegistry,
     view_state: ViewState,
@@ -53,7 +51,6 @@ impl Session {
     pub fn new() -> Self {
         Self {
             receiver: CommandReceiver::new(),
-            mapper: CommandMapper::default(),
             scene_graph: SceneGraph::new(),
             asset_registry: AssetRegistry::new(),
             view_state: ViewState::default(),
@@ -147,10 +144,12 @@ impl Session {
 
     fn apply_command(&mut self, cmd: RendererCommand) {
         if !self.init_received {
-            match &cmd {
-                RendererCommand::renderer_init_data(_) => {
-                    let translated = self.mapper.translate(cmd);
-                    self.apply_translated(translated);
+            match cmd {
+                RendererCommand::renderer_init_data(x) => {
+                    if let Some(prefix) = x.shared_memory_prefix {
+                        self.shared_memory = Some(SharedMemoryAccessor::new(prefix));
+                    }
+                    self.send_renderer_init_result();
                     self.init_received = true;
                 }
                 _ => self.fatal_error = true,
@@ -159,15 +158,30 @@ impl Session {
         }
 
         if !self.init_finalized {
-            let translated = self.mapper.translate(cmd);
-            match translated {
-                TranslatedCommand::InitFinalize => {
+            match cmd {
+                RendererCommand::renderer_init_finalize_data(_) => {
                     self.init_finalized = true;
                 }
-                TranslatedCommand::MeshUpload(_) | TranslatedCommand::MeshUnload(_) => {
-                    self.apply_translated(translated);
+                RendererCommand::mesh_upload_data(data) => {
+                    let asset_id = data.asset_id;
+                    let (success, existed_before) = match &mut self.shared_memory {
+                        Some(shm) => self.asset_registry.handle_mesh_upload(shm, data),
+                        None => (false, false),
+                    };
+                    if success {
+                        self.receiver.send_background(RendererCommand::mesh_upload_result(
+                            MeshUploadResult {
+                                asset_id,
+                                instance_changed: !existed_before,
+                            },
+                        ));
+                    }
                 }
-                TranslatedCommand::FrameSubmit(data) => {
+                RendererCommand::mesh_unload(x) => {
+                    self.asset_registry.handle_mesh_unload(x.asset_id);
+                    self.pending_mesh_unloads.push(x.asset_id);
+                }
+                RendererCommand::frame_submit_data(data) => {
                     if self.shared_memory.is_some() {
                         if let Err(_e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                             self.process_frame_data(data);
@@ -181,32 +195,23 @@ impl Session {
             return;
         }
 
-        let translated = self.mapper.translate(cmd);
-        self.apply_translated(translated);
-    }
-
-    fn apply_translated(&mut self, cmd: TranslatedCommand) {
         match cmd {
-            TranslatedCommand::SessionInit(config) => {
-                if let Some(prefix) = config.shared_memory_prefix {
-                    self.shared_memory = Some(SharedMemoryAccessor::new(prefix));
-                }
-                self.send_renderer_init_result();
+            RendererCommand::renderer_shutdown(_) | RendererCommand::renderer_shutdown_request(_) => {
+                self.shutdown = true;
             }
-            TranslatedCommand::SessionShutdown => self.shutdown = true,
-            TranslatedCommand::InitFinalize => self.init_finalized = true,
-            TranslatedCommand::FrameSubmit(data) => {
-                if self.init_finalized {
-                    if let Err(_e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        self.process_frame_data(data);
-                    })) {
-                        self.fatal_error = true;
-                    } else {
-                        self.last_frame_data_processed = true;
-                    }
+            RendererCommand::renderer_init_finalize_data(_) => {
+                self.init_finalized = true;
+            }
+            RendererCommand::frame_submit_data(data) => {
+                if let Err(_e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    self.process_frame_data(data);
+                })) {
+                    self.fatal_error = true;
+                } else {
+                    self.last_frame_data_processed = true;
                 }
             }
-            TranslatedCommand::MeshUpload(data) => {
+            RendererCommand::mesh_upload_data(data) => {
                 let asset_id = data.asset_id;
                 let (success, existed_before) = match &mut self.shared_memory {
                     Some(shm) => self.asset_registry.handle_mesh_upload(shm, data),
@@ -221,17 +226,27 @@ impl Session {
                     ));
                 }
             }
-            TranslatedCommand::MeshUnload(asset_id) => {
-                self.asset_registry.handle_mesh_unload(asset_id);
-                self.pending_mesh_unloads.push(asset_id);
+            RendererCommand::mesh_unload(x) => {
+                self.asset_registry.handle_mesh_unload(x.asset_id);
+                self.pending_mesh_unloads.push(x.asset_id);
             }
-            TranslatedCommand::ConfigUpdate(config) => {
-                self.view_state.near_clip = config.near_clip;
-                self.view_state.far_clip = config.far_clip;
-                self.view_state.desktop_fov = config.desktop_fov;
-                self.render_config = config;
+            RendererCommand::desktop_config(x) => {
+                self.view_state.near_clip = 0.01;
+                self.view_state.far_clip = 1024.0;
+                self.view_state.desktop_fov = 75.0;
+                self.render_config = RenderConfig {
+                    near_clip: 0.01,
+                    far_clip: 1024.0,
+                    desktop_fov: 75.0,
+                    vsync: x.v_sync,
+                };
             }
-            TranslatedCommand::NoOp | TranslatedCommand::Unimplemented(_) => {}
+            RendererCommand::keep_alive(_)
+            | RendererCommand::renderer_init_progress_update(_)
+            | RendererCommand::renderer_engine_ready(_)
+            | RendererCommand::renderer_init_result(_)
+            | RendererCommand::frame_start_data(_) => {}
+            _ => {}
         }
     }
 

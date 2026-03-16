@@ -1,17 +1,6 @@
-//! Session and render configuration types.
+//! Render configuration types.
 //!
 //! Engine-agnostic configuration structures used by the renderer framework.
-
-use crate::shared::HeadOutputDevice;
-
-/// Session configuration derived from host init data.
-#[derive(Clone, Default)]
-pub struct SessionConfig {
-    /// Shared memory prefix for mmap-based IPC buffers.
-    pub shared_memory_prefix: Option<String>,
-    /// Output device (screen, VR, etc.).
-    pub output_device: HeadOutputDevice,
-}
 
 /// Render configuration (clip planes, FOV, display settings).
 #[derive(Clone, Debug)]
