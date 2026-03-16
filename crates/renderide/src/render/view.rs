@@ -42,6 +42,25 @@ pub struct ViewParams {
 }
 
 impl ViewParams {
+    /// Builds viewport-based orthographic params for screen-space UI fallback.
+    ///
+    /// Used when overlay batches exist but the primary camera has perspective projection.
+    /// half_size = 1.0 yields NDC from -1..1 in both axes; aspect matches viewport.
+    pub fn orthographic_viewport_fallback(
+        aspect: f32,
+        near_clip: f32,
+        far_clip: f32,
+    ) -> Self {
+        Self {
+            projection: ViewProjection::Orthographic {
+                half_size: 1.0,
+                aspect,
+            },
+            near_clip: near_clip.max(0.01),
+            far_clip,
+        }
+    }
+
     /// Builds perspective view params from session and aspect ratio.
     ///
     /// Uses `session.desktop_fov`, `session.near_clip`, and `session.far_clip`.

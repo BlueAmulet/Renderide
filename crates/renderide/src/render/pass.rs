@@ -406,6 +406,23 @@ fn collect_mesh_draws(ctx: &RenderPassContext) -> (
     (non_overlay_skinned, overlay_skinned, non_overlay_non_skinned, overlay_non_skinned)
 }
 
+/// Maps overlay pipeline variant to no-depth variant when orthographic overlay is used.
+/// Orthographic screen-space UI should not be occluded by scene depth.
+fn overlay_pipeline_variant_for_orthographic(
+    variant: &PipelineVariant,
+    overlay_orthographic: bool,
+) -> PipelineVariant {
+    if !overlay_orthographic {
+        return variant.clone();
+    }
+    match variant {
+        PipelineVariant::NormalDebug => PipelineVariant::OverlayNoDepthNormalDebug,
+        PipelineVariant::UvDebug => PipelineVariant::OverlayNoDepthUvDebug,
+        PipelineVariant::Skinned => PipelineVariant::OverlayNoDepthSkinned,
+        _ => variant.clone(),
+    }
+}
+
 /// Parameters for recording mesh draws; used to avoid borrowing ctx while encoder is active.
 struct MeshDrawParams<'a> {
     pipeline_manager: &'a mut PipelineManager,
@@ -414,6 +431,8 @@ struct MeshDrawParams<'a> {
     config: &'a wgpu::SurfaceConfiguration,
     frame_index: u64,
     mesh_buffer_cache: &'a std::collections::HashMap<i32, GpuMeshBuffers>,
+    /// When true, overlay draws use depth-disabled pipelines for screen-space UI.
+    overlay_orthographic: bool,
 }
 
 /// Records skinned mesh draws into the render pass.
@@ -435,8 +454,12 @@ fn record_skinned_draws(
             .count();
         let group = &draws[i..i + group_end];
 
+        let pipeline_variant = overlay_pipeline_variant_for_orthographic(
+            &variant,
+            params.overlay_orthographic && group.iter().any(|d| d.is_overlay),
+        );
         let Some(skinned) = params.pipeline_manager.get_pipeline(
-            PipelineKey(None, variant),
+            PipelineKey(None, pipeline_variant.clone()),
             params.device,
             params.config,
         ) else {
@@ -473,6 +496,10 @@ fn record_skinned_draws(
         }
         }
         skinned.upload_skinned_batch(params.queue, &items, params.frame_index);
+        let is_stencil_pipeline = matches!(
+            pipeline_variant,
+            crate::gpu::PipelineVariant::OverlayStencilSkinned
+        );
         for (j, d) in group.iter().enumerate() {
             let Some(buffers) = params.mesh_buffer_cache.get(&d.mesh_asset_id) else {
                 continue;
@@ -483,6 +510,11 @@ fn record_skinned_draws(
             skinned.bind(pass, Some(j as u32), params.frame_index, Some(&draw_bind_group));
             if let Some(ref stencil) = d.stencil_state {
                 pass.set_stencil_reference(stencil.reference as u32);
+            } else if is_stencil_pipeline {
+                debug_assert!(
+                    d.stencil_state.is_some(),
+                    "OverlayStencilSkinned draws must have stencil_state"
+                );
             }
             skinned.draw_skinned(
                 pass,
@@ -512,7 +544,11 @@ fn record_non_skinned_draws(
             .count();
         let group = &draws[i..i + group_end];
 
-        let pipeline_key = PipelineKey(None, variant.clone());
+        let pipeline_variant = overlay_pipeline_variant_for_orthographic(
+            &variant,
+            params.overlay_orthographic && group.iter().any(|d| d.is_overlay),
+        );
+        let pipeline_key = PipelineKey(None, pipeline_variant.clone());
         let Some(pipeline) = params.pipeline_manager.get_pipeline(
             pipeline_key,
             params.device,
@@ -542,6 +578,11 @@ fn record_non_skinned_draws(
             pipeline.upload_batch(params.queue, &mvp_models, params.frame_index);
         }
 
+        let is_stencil_pipeline = matches!(
+            pipeline_variant,
+            crate::gpu::PipelineVariant::OverlayStencilContent
+                | crate::gpu::PipelineVariant::OverlayStencilSkinned
+        );
         for (j, d) in group.iter().enumerate() {
             let Some(buffers) = params.mesh_buffer_cache.get(&d.mesh_asset_id) else {
                 continue;
@@ -549,6 +590,11 @@ fn record_non_skinned_draws(
             pipeline.bind(pass, Some(j as u32), params.frame_index, None);
             if let Some(ref stencil) = d.stencil_state {
                 pass.set_stencil_reference(stencil.reference as u32);
+            } else if is_stencil_pipeline {
+                debug_assert!(
+                    d.stencil_state.is_some(),
+                    "OverlayStencilContent/OverlayStencilSkinned draws must have stencil_state"
+                );
             }
             pipeline.draw_mesh(
                 pass,
@@ -599,6 +645,7 @@ impl RenderPass for MeshRenderPass {
             config: &ctx.gpu.config,
             frame_index: ctx.frame_index,
             mesh_buffer_cache: &ctx.gpu.mesh_buffer_cache,
+            overlay_orthographic: false,
         };
 
         let timestamp_writes = ctx.timestamp_query_set.map(|query_set| {
@@ -669,6 +716,16 @@ impl RenderPass for MeshRenderPass {
 ///   screen-space UI (Canvas, HUD, fixed-size elements). Matches Unity Canvas render mode.
 /// - **Perspective** (override `None`, default): Use for world-space overlays (3D UI in scene,
 ///   floating panels with depth). Overlay batches use the main view's projection.
+///
+/// ## GraphicsChunk stencil flow
+///
+/// Draws with `stencil_state.is_some()` use
+/// [`crate::gpu::PipelineVariant::OverlayStencilContent`] or
+/// [`crate::gpu::PipelineVariant::OverlayStencilSkinned`] pipelines. The depth-stencil attachment uses
+/// `LoadOp::Load`/`StoreOp::Store` for stencil so MaskWrite → Content → MaskClear
+/// phases can read/write stencil across draws. Per draw, the pass calls
+/// `set_stencil_reference(stencil_state.reference)` before the draw. See
+/// [`crate::stencil`] for GraphicsChunk RenderType (MaskWrite, Content, MaskClear).
 pub struct OverlayRenderPass;
 
 impl OverlayRenderPass {
@@ -696,6 +753,7 @@ impl RenderPass for OverlayRenderPass {
             return Ok(());
         }
 
+        let overlay_orthographic = ctx.overlay_projection_override.is_some();
         let mut draw_params = MeshDrawParams {
             pipeline_manager: &mut ctx.pipeline_manager,
             device: &ctx.gpu.device,
@@ -703,6 +761,7 @@ impl RenderPass for OverlayRenderPass {
             config: &ctx.gpu.config,
             frame_index: ctx.frame_index,
             mesh_buffer_cache: &ctx.gpu.mesh_buffer_cache,
+            overlay_orthographic,
         };
 
         let mut pass = ctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -733,6 +792,8 @@ impl RenderPass for OverlayRenderPass {
             occlusion_query_set: None,
             multiview_mask: None,
         });
+        // Stencil Load/Store preserves stencil across draws for GraphicsChunk
+        // MaskWrite → Content → MaskClear flow.
 
         let debug_blendshapes = ctx.session.render_config().debug_blendshapes;
         record_skinned_draws(&mut pass, &mut draw_params, &overlay_skinned, debug_blendshapes);

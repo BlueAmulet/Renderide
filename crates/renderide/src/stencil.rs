@@ -3,6 +3,16 @@
 //! Matches IUIX_Material from FrooxEngine: StencilComparison, StencilOperation,
 //! StencilID, StencilReadMask, StencilWriteMask. Used when the host exports
 //! stencil material properties via material property blocks.
+//!
+//! ## GraphicsChunk RenderType
+//!
+//! UIX GraphicsChunk uses a three-phase stencil pattern:
+//! - **MaskWrite**: Writes stencil (pass_op=Replace, write_mask non-zero). Draws the mask shape.
+//! - **Content**: Reads stencil (compare=Equal). Draws content clipped to the mask.
+//! - **MaskClear**: Clears stencil (pass_op=Zero or Replace with 0). Resets for next chunk.
+//!
+//! Draw order must be MaskWrite → Content → MaskClear. The host exports per-draw
+//! [`StencilState`] via material property blocks; sort_key controls draw order.
 
 /// Stencil comparison function. Matches Unity/GraphicsChunk StencilComparison.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -81,6 +91,7 @@ impl ClipRect {
 ///
 /// When `None`, no stencil test is applied (default for non-UIX draws).
 /// When `Some`, the overlay pipeline uses these values for GraphicsChunk masking.
+/// See module docs for MaskWrite/Content/MaskClear RenderType flow.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StencilState {
     /// Comparison function for stencil test.
@@ -130,6 +141,30 @@ impl StencilComparison {
             Self::GreaterEqual => wgpu::CompareFunction::GreaterEqual,
             Self::Never => wgpu::CompareFunction::Never,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verifies that Content-phase stencil state (Equal compare, Keep op) converts
+    /// correctly for GraphicsChunk masking.
+    #[test]
+    fn stencil_content_phase_to_wgpu() {
+        let content = StencilState {
+            comparison: StencilComparison::Equal,
+            pass_op: StencilOperation::Keep,
+            fail_op: StencilOperation::Keep,
+            depth_fail_op: StencilOperation::Keep,
+            reference: 1,
+            read_mask: 0xFF,
+            write_mask: 0,
+            clip_rect: None,
+        };
+        let face = content.to_wgpu_stencil_face();
+        assert_eq!(face.compare, wgpu::CompareFunction::Equal);
+        assert_eq!(face.pass_op, wgpu::StencilOperation::Keep);
     }
 }
 

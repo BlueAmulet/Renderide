@@ -385,12 +385,14 @@ impl Session {
             .collect();
 
         let mut batches = Vec::new();
+        let overlay_view_override = self.primary_view_transform().cloned();
         for space_id in space_ids {
             batches.extend(self.collect_draw_batches_for_task(
                 space_id,
                 &[],
                 &[],
                 false,
+                overlay_view_override.clone(),
             ));
         }
         batches.sort_by_key(|b| b.is_overlay);
@@ -403,6 +405,9 @@ impl Session {
     /// * `only_render_list` - When non-empty, include only draws with `node_id` in this list.
     /// * `exclude_render_list` - When non-empty, exclude draws with `node_id` in this list.
     /// * `include_private` - When false, returns empty if the space is private.
+    /// * `view_override` - When `Some` and the space is overlay, use this as the batch view
+    ///   transform instead of `scene.view_transform`. Matches Unity overlay positioning: overlay
+    ///   camera (view) is the head; see [`RenderSpace.UpdateOverlayPositioning`].
     ///
     /// Skips draws where layer is Hidden. Returns at most one batch (for the given space).
     pub fn collect_draw_batches_for_task(
@@ -411,6 +416,7 @@ impl Session {
         only_render_list: &[i32],
         exclude_render_list: &[i32],
         include_private: bool,
+        view_override: Option<crate::shared::RenderTransform>,
     ) -> Vec<SpaceDrawBatch> {
         let mut batches = Vec::new();
 
@@ -449,7 +455,7 @@ impl Session {
             )
         });
 
-        if let Some(batch) = create_space_batch(space_id, scene, draws) {
+        if let Some(batch) = create_space_batch(space_id, scene, draws, view_override) {
             batches.push(batch);
         }
 
@@ -598,18 +604,26 @@ fn build_draw_entries(filtered: Vec<FilteredDrawable>) -> Vec<DrawEntry> {
 /// Creates a space batch if draws is non-empty.
 ///
 /// Returns `None` when draws is empty; otherwise builds [`SpaceDrawBatch`] from scene metadata.
+/// For overlay spaces, when `view_override` is `Some`, uses it as the batch view transform
+/// (primary/head view) instead of `scene.view_transform` (root).
 fn create_space_batch(
     space_id: i32,
     scene: &Scene,
     draws: Vec<DrawEntry>,
+    view_override: Option<crate::shared::RenderTransform>,
 ) -> Option<SpaceDrawBatch> {
     if draws.is_empty() {
         return None;
     }
+    let view_transform = if scene.is_overlay {
+        view_override.unwrap_or(scene.view_transform)
+    } else {
+        scene.view_transform
+    };
     Some(SpaceDrawBatch {
         space_id,
         is_overlay: scene.is_overlay,
-        view_transform: scene.view_transform,
+        view_transform,
         draws,
     })
 }

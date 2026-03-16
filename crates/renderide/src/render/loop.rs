@@ -120,6 +120,18 @@ impl RenderLoop {
                     near_clip: p.near_clip.max(0.01),
                     far_clip: p.far_clip,
                 }
+            })
+            .or_else(|| {
+                let has_overlay_batches = draw_batches.iter().any(|b| b.is_overlay);
+                if has_overlay_batches {
+                    Some(ViewParams::orthographic_viewport_fallback(
+                        aspect,
+                        session.near_clip(),
+                        session.far_clip(),
+                    ))
+                } else {
+                    None
+                }
             });
 
         let mut ctx = RenderGraphContext {

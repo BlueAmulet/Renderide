@@ -552,7 +552,13 @@ pub struct NormalDebugPipeline {
 }
 
 impl NormalDebugPipeline {
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    /// Creates a normal debug pipeline. When `disable_depth_test` is true, uses
+    /// `CompareFunction::Always` and disables depth write for screen-space overlay.
+    pub fn new(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        disable_depth_test: bool,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("normal debug shader"),
             source: wgpu::ShaderSource::Wgsl(NORMAL_SHADER_SRC.into()),
@@ -622,8 +628,12 @@ impl NormalDebugPipeline {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth24PlusStencil8,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                depth_write_enabled: !disable_depth_test,
+                depth_compare: if disable_depth_test {
+                    wgpu::CompareFunction::Always
+                } else {
+                    wgpu::CompareFunction::GreaterEqual
+                },
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -698,7 +708,13 @@ pub struct UvDebugPipeline {
 }
 
 impl UvDebugPipeline {
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    /// Creates a UV debug pipeline. When `disable_depth_test` is true, uses
+    /// `CompareFunction::Always` and disables depth write for screen-space overlay.
+    pub fn new(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        disable_depth_test: bool,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("UV debug shader"),
             source: wgpu::ShaderSource::Wgsl(UV_DEBUG_SHADER_SRC.into()),
@@ -768,8 +784,12 @@ impl UvDebugPipeline {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth24PlusStencil8,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                depth_write_enabled: !disable_depth_test,
+                depth_compare: if disable_depth_test {
+                    wgpu::CompareFunction::Always
+                } else {
+                    wgpu::CompareFunction::GreaterEqual
+                },
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -841,10 +861,16 @@ impl RenderPipeline for UvDebugPipeline {
     }
 }
 
-/// Overlay stencil pipeline for GraphicsChunk masking (Content: Equal compare, Keep op).
+/// Overlay stencil pipeline for GraphicsChunk masking.
 ///
-/// Same as UvDebugPipeline but with stencil and optional rect clip. Used when overlay
-/// draws have `stencil_state`. Call `set_stencil_reference` before each draw.
+/// Implements the **Content** phase of the GraphicsChunk RenderType flow (see
+/// [`crate::stencil`]): stencil compare=Equal, pass_op=Keep, read_mask=0xFF,
+/// write_mask=0. Used when overlay draws have `stencil_state`. The pass must call
+/// `set_stencil_reference` before each draw with the draw's `stencil_state.reference`.
+///
+/// **Limitation**: This pipeline uses fixed stencil state (Content phase only).
+/// MaskWrite (Replace, write_mask) and MaskClear (Zero) require separate pipeline
+/// variants when the host exports them. Per-draw compare/ops are not yet supported.
 pub struct OverlayStencilPipeline {
     pipeline: wgpu::RenderPipeline,
     uniform_ring: OverlayStencilUniformRingBuffer,
@@ -1086,10 +1112,13 @@ pub struct SkinnedPipeline {
 
 impl SkinnedPipeline {
     /// Creates a skinned pipeline. When `use_stencil` is true, enables stencil for overlay masking.
+    /// When `disable_depth_test` is true, uses `CompareFunction::Always` and disables depth write
+    /// for orthographic screen-space overlay.
     pub fn new(
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         use_stencil: bool,
+        disable_depth_test: bool,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("skinned mesh shader"),
@@ -1214,8 +1243,8 @@ impl SkinnedPipeline {
                 };
                 wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
-                    depth_write_enabled: !use_stencil,
-                    depth_compare: if use_stencil {
+                    depth_write_enabled: !use_stencil && !disable_depth_test,
+                    depth_compare: if use_stencil || disable_depth_test {
                         wgpu::CompareFunction::Always
                     } else {
                         wgpu::CompareFunction::GreaterEqual
@@ -1323,13 +1352,16 @@ impl RenderPipeline for SkinnedPipeline {
 }
 
 /// Skinned overlay with stencil for GraphicsChunk masking.
+///
+/// Same stencil semantics as [`OverlayStencilPipeline`] (Content phase). Call
+/// `set_stencil_reference` before each draw.
 pub struct OverlayStencilSkinnedPipeline {
     inner: SkinnedPipeline,
 }
 
 impl OverlayStencilSkinnedPipeline {
     pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
-        let inner = SkinnedPipeline::new(device, config, true);
+        let inner = SkinnedPipeline::new(device, config, true, false);
         Self { inner }
     }
 }

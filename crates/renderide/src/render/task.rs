@@ -58,6 +58,7 @@ impl RenderTaskExecutor {
                 &task.only_render_list,
                 &task.exclude_render_list,
                 params.render_private_ui,
+                None,
             );
 
             let camera_transform = RenderTransform {

@@ -30,7 +30,9 @@
 //!
 //! - **Orthographic projection**: Set [`RenderGraphContext::overlay_projection_override`] to
 //!   orthographic for screen-space UI (Canvas, HUD). Keep `None` for world-space overlays.
-//! - **Stencil**: Add stencil buffer usage to the overlay pass for GraphicsChunk masking
+//! - **Stencil**: Overlay pass uses Load/Store for stencil; draws with `stencil_state`
+//!   use overlay stencil pipelines. See [`crate::stencil`] for GraphicsChunk RenderType
+//!   (MaskWrite, Content, MaskClear).
 //!   (e.g. scroll rects, clipping).
 //! - **Texture binding**: Extend pipeline bind groups or add a pass that binds atlas textures
 //!   for UI sprites and materials.

@@ -23,10 +23,17 @@ pub enum PipelineVariant {
     UvDebug,
     /// Skinned mesh: transforms vertices by weighted bone matrices.
     Skinned,
-    /// Overlay with stencil for GraphicsChunk masking (Content: Equal compare, Keep op).
+    /// Overlay with stencil for GraphicsChunk masking (Content phase: Equal compare, Keep op).
+    /// See [`crate::stencil`] for MaskWrite/Content/MaskClear RenderType flow.
     OverlayStencilContent,
-    /// Skinned overlay with stencil for GraphicsChunk masking.
+    /// Skinned overlay with stencil for GraphicsChunk masking (Content phase).
     OverlayStencilSkinned,
+    /// Normal debug with depth test disabled for orthographic screen-space overlay.
+    OverlayNoDepthNormalDebug,
+    /// UV debug with depth test disabled for orthographic screen-space overlay.
+    OverlayNoDepthUvDebug,
+    /// Skinned with depth test disabled for orthographic screen-space overlay.
+    OverlayNoDepthSkinned,
     /// Material-based pipeline for a specific material.
     Material { material_id: i32 },
     /// PBR pipeline.
@@ -54,15 +61,15 @@ impl PipelineRegistry {
     ) {
         self.pipelines.insert(
             PipelineKey(None, PipelineVariant::NormalDebug),
-            Arc::new(NormalDebugPipeline::new(device, config)),
+            Arc::new(NormalDebugPipeline::new(device, config, false)),
         );
         self.pipelines.insert(
             PipelineKey(None, PipelineVariant::UvDebug),
-            Arc::new(UvDebugPipeline::new(device, config)),
+            Arc::new(UvDebugPipeline::new(device, config, false)),
         );
         self.pipelines.insert(
             PipelineKey(None, PipelineVariant::Skinned),
-            Arc::new(SkinnedPipeline::new(device, config, false)),
+            Arc::new(SkinnedPipeline::new(device, config, false, false)),
         );
         self.pipelines.insert(
             PipelineKey(None, PipelineVariant::OverlayStencilContent),
@@ -71,6 +78,18 @@ impl PipelineRegistry {
         self.pipelines.insert(
             PipelineKey(None, PipelineVariant::OverlayStencilSkinned),
             Arc::new(OverlayStencilSkinnedPipeline::new(device, config)),
+        );
+        self.pipelines.insert(
+            PipelineKey(None, PipelineVariant::OverlayNoDepthNormalDebug),
+            Arc::new(NormalDebugPipeline::new(device, config, true)),
+        );
+        self.pipelines.insert(
+            PipelineKey(None, PipelineVariant::OverlayNoDepthUvDebug),
+            Arc::new(UvDebugPipeline::new(device, config, true)),
+        );
+        self.pipelines.insert(
+            PipelineKey(None, PipelineVariant::OverlayNoDepthSkinned),
+            Arc::new(SkinnedPipeline::new(device, config, false, true)),
         );
     }
 
