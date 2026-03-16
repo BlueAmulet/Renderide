@@ -291,16 +291,6 @@ impl RenderPass for MeshRenderPass {
                 };
 
                 let model_mvp = view_proj * d.model_matrix;
-                let mut skinned_mvp = if ctx.session.render_config().skinned_apply_mesh_root_transform
-                {
-                    view_proj * d.model_matrix
-                } else {
-                    view_proj
-                };
-                if ctx.session.render_config().skinned_flip_handedness {
-                    let z_flip = Matrix4::new_nonuniform_scaling(&Vector3::new(1.0, 1.0, -1.0));
-                    skinned_mvp = skinned_mvp * z_flip;
-                }
 
                 if d.is_skinned {
                     let Some(bind_poses) = mesh.bind_poses.as_ref() else {
@@ -372,6 +362,23 @@ impl RenderPass for MeshRenderPass {
                             first_vert_weights,
                             buffers_ref.vertex_buffer_skinned.is_some()
                         );
+                    }
+                    // Correct skinned MVP logic (matches Unity SkinnedMeshRenderer for modular avatars)
+                    let mut skinned_mvp = if ctx.session.render_config().skinned_use_root_bone {
+                        let root_id = d.root_bone_transform_id.filter(|&id| id >= 0);
+                        match root_id.and_then(|id| {
+                            scene_graph.get_world_matrix(batch.space_id, id as usize)
+                        }) {
+                            Some(root_world) => view_proj * root_world,
+                            None => view_proj,
+                        }
+                    } else {
+                        // Default path: vertices are already in world space (standard case)
+                        view_proj
+                    };
+                    if ctx.session.render_config().skinned_flip_handedness {
+                        let z_flip = Matrix4::new_nonuniform_scaling(&Vector3::new(1.0, 1.0, -1.0));
+                        skinned_mvp = skinned_mvp * z_flip;
                     }
                     let root_bone = if ctx.session.render_config().skinned_use_root_bone {
                         d.root_bone_transform_id
