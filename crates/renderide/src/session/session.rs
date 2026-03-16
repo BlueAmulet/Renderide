@@ -132,17 +132,16 @@ impl Session {
     fn process_commands(&mut self) {
         let commands = self.receiver.poll();
 
-        let (mesh_cmds, other_cmds): (Vec<_>, Vec<_>) = commands.into_iter().partition(|c| {
-            matches!(
-                c,
-                RendererCommand::mesh_upload_data(_) | RendererCommand::mesh_unload(_)
-            )
-        });
+        // Frame submit must run before asset uploads in the same poll so scene updates and
+        // render tasks are applied before new meshes/textures are used.
+        let (frame_cmds, rest): (Vec<_>, Vec<_>) = commands
+            .into_iter()
+            .partition(|c| matches!(c, RendererCommand::frame_submit_data(_)));
 
-        for cmd in mesh_cmds {
+        for cmd in frame_cmds {
             self.apply_command(cmd);
         }
-        for cmd in other_cmds {
+        for cmd in rest {
             self.apply_command(cmd);
         }
     }
