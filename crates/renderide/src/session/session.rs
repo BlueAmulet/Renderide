@@ -266,7 +266,9 @@ impl Session {
         }
 
         if let Some(ref mut shm) = self.shared_memory {
-            self.scene_graph.apply_frame_update(shm, &data);
+            if let Err(e) = self.scene_graph.apply_frame_update(shm, &data) {
+                crate::error!("Scene apply_frame_update: {}", e);
+            }
         }
 
         let active_non_overlay: Vec<_> = data
@@ -426,7 +428,10 @@ impl Session {
         let mut draw_batch_samples: Option<(i32, usize, usize, usize, Vec<(i32, String)>)> = None;
 
         for space_id in active_space_ids {
-            self.scene_graph.compute_world_matrices(space_id);
+            if let Err(e) = self.scene_graph.compute_world_matrices(space_id) {
+                crate::error!("Scene compute_world_matrices: {}", e);
+                continue;
+            }
             let scene = match self.scene_graph.get_scene(space_id) {
                 Some(s) => s,
                 None => continue,

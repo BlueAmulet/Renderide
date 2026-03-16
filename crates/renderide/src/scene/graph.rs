@@ -6,7 +6,7 @@ use bytemuck::{Pod, Zeroable};
 use nalgebra::{Matrix4, UnitQuaternion, Vector3};
 
 use crate::ipc::shared_memory::SharedMemoryAccessor;
-use crate::scene::{render_transform_to_matrix, Drawable, Scene, SceneId};
+use crate::scene::{Drawable, Scene, SceneId};
 use crate::shared::{
     BoneAssignment, MeshRenderablesUpdate, ReflectionProbeSH2Task, RenderTransform,
     SkinnedMeshRenderablesUpdate, TransformParentUpdate, TransformPoseUpdate, TransformsUpdate,
@@ -49,41 +49,67 @@ fn render_transform_identity() -> RenderTransform {
 /// Maximum allowed absolute value for position or scale components before rejecting as corrupt.
 const POSE_VALIDATION_THRESHOLD: f32 = 1e6;
 
-/// Returns true if the pose has no inf, NaN, or absurdly large values.
-/// Logs a warning and returns false for invalid data to avoid corrupting the scene.
-fn is_pose_valid(
-    pose: &RenderTransform,
-    frame_index: i32,
-    scene_id: i32,
-    transform_id: i32,
-) -> bool {
-    let pos_ok = pose.position.x.is_finite()
-        && pose.position.y.is_finite()
-        && pose.position.z.is_finite()
-        && pose.position.x.abs() < POSE_VALIDATION_THRESHOLD
-        && pose.position.y.abs() < POSE_VALIDATION_THRESHOLD
-        && pose.position.z.abs() < POSE_VALIDATION_THRESHOLD;
-    if !pos_ok {
-        return false;
-    }
-    let scale_ok = pose.scale.x.is_finite()
-        && pose.scale.y.is_finite()
-        && pose.scale.z.is_finite()
-        && pose.scale.x.abs() < POSE_VALIDATION_THRESHOLD
-        && pose.scale.y.abs() < POSE_VALIDATION_THRESHOLD
-        && pose.scale.z.abs() < POSE_VALIDATION_THRESHOLD;
-    if !scale_ok {
-        return false;
-    }
-    let rot_ok = pose.rotation.i.is_finite()
-        && pose.rotation.j.is_finite()
-        && pose.rotation.k.is_finite()
-        && pose.rotation.w.is_finite();
-    if !rot_ok {
-        return false;
-    }
-    true
+/// Validates pose data; rejects NaN, inf, or values with abs > 1e6.
+pub struct PoseValidation<'a> {
+    pose: &'a RenderTransform,
+    /// Frame index for error logging context.
+    pub frame_index: i32,
+    /// Scene ID for error logging context.
+    pub scene_id: i32,
+    /// Transform ID for error logging context.
+    pub transform_id: i32,
 }
+
+impl PoseValidation<'_> {
+    /// Returns true if the pose has no inf, NaN, or absurdly large values.
+    pub fn is_valid(&self) -> bool {
+        let pos_ok = self.pose.position.x.is_finite()
+            && self.pose.position.y.is_finite()
+            && self.pose.position.z.is_finite()
+            && self.pose.position.x.abs() < POSE_VALIDATION_THRESHOLD
+            && self.pose.position.y.abs() < POSE_VALIDATION_THRESHOLD
+            && self.pose.position.z.abs() < POSE_VALIDATION_THRESHOLD;
+        if !pos_ok {
+            return false;
+        }
+        let scale_ok = self.pose.scale.x.is_finite()
+            && self.pose.scale.y.is_finite()
+            && self.pose.scale.z.is_finite()
+            && self.pose.scale.x.abs() < POSE_VALIDATION_THRESHOLD
+            && self.pose.scale.y.abs() < POSE_VALIDATION_THRESHOLD
+            && self.pose.scale.z.abs() < POSE_VALIDATION_THRESHOLD;
+        if !scale_ok {
+            return false;
+        }
+        let rot_ok = self.pose.rotation.i.is_finite()
+            && self.pose.rotation.j.is_finite()
+            && self.pose.rotation.k.is_finite()
+            && self.pose.rotation.w.is_finite();
+        rot_ok
+    }
+}
+
+/// Error returned by scene graph operations.
+#[derive(Debug)]
+pub enum SceneError {
+    /// Shared memory access failed.
+    SharedMemoryAccess(String),
+    /// Cycle detected in transform hierarchy.
+    CycleDetected { scene_id: i32, transform_id: i32 },
+}
+
+impl std::fmt::Display for SceneError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SceneError::SharedMemoryAccess(msg) => write!(f, "Shared memory access: {}", msg),
+            SceneError::CycleDetected { scene_id, transform_id } => {
+                write!(f, "Cycle detected in scene {} at transform {}", scene_id, transform_id)
+            }
+        }
+    }
+}
+
+impl std::error::Error for SceneError {}
 
 /// Manages scenes (render spaces) and applies incremental updates from the host.
 pub struct SceneGraph {
@@ -133,10 +159,14 @@ impl SceneGraph {
         &mut self,
         shm: &mut SharedMemoryAccessor,
         data: &crate::shared::FrameSubmitData,
-    ) {
+    ) -> Result<(), SceneError> {
         for update in &data.render_spaces {
-            let is_new = !self.scenes.contains_key(&update.id);
-            let total_before = self.scenes.len();
+            if let Some(ref sh2_tasks) = update.reflection_probe_sh2_taks {
+                Self::apply_reflection_probe_sh2_tasks(shm, sh2_tasks);
+            }
+        }
+
+        for update in &data.render_spaces {
             let scene = self
                 .scenes
                 .entry(update.id)
@@ -153,19 +183,30 @@ impl SceneGraph {
             };
 
             let frame_index = data.frame_index;
-            if let Some(ref transforms_update) = update.transforms_update {
-                Self::apply_transforms_update(scene, shm, transforms_update, frame_index);
+            let transform_removals = if let Some(ref transforms_update) = update.transforms_update {
+                let removals = Self::apply_transforms_update(
+                    scene,
+                    shm,
+                    transforms_update,
+                    frame_index,
+                )?;
                 self.world_matrices.remove(&update.id);
                 self.world_matrices_dirty.insert(update.id);
-            }
+                removals
+            } else {
+                Vec::new()
+            };
             if let Some(ref mesh_update) = update.mesh_renderers_update {
-                Self::apply_mesh_renderables_update(scene, shm, mesh_update, frame_index);
+                Self::apply_mesh_renderables_update(scene, shm, mesh_update, frame_index)?;
             }
             if let Some(ref skinned_update) = update.skinned_mesh_renderers_update {
-                Self::apply_skinned_mesh_renderables_update(scene, shm, skinned_update, frame_index);
-            }
-            if let Some(ref sh2_tasks) = update.reflection_probe_sh2_taks {
-                Self::apply_reflection_probe_sh2_tasks(shm, sh2_tasks);
+                Self::apply_skinned_mesh_renderables_update(
+                    scene,
+                    shm,
+                    skinned_update,
+                    frame_index,
+                    &transform_removals,
+                )?;
             }
         }
 
@@ -180,6 +221,7 @@ impl SceneGraph {
             self.world_matrices_dirty.remove(id);
         }
         self.spaces_to_remove.clear();
+        Ok(())
     }
 
     /// Writes `ComputeResult::Failed` to each ReflectionProbeSH2Task in shared memory.
@@ -216,49 +258,40 @@ impl SceneGraph {
         shm: &mut SharedMemoryAccessor,
         update: &TransformsUpdate,
         frame_index: i32,
-    ) {
+    ) -> Result<Vec<(i32, usize)>, SceneError> {
+        let mut transform_removals = Vec::new();
         if update.removals.length > 0 {
-            match shm.access_copy_diagnostic::<i32>(&update.removals) {
-                Ok(removals) => {
-                    let mut indices: Vec<usize> = removals
-                        .iter()
-                        .take_while(|&&i| i >= 0)
-                        .map(|&i| i as usize)
-                        .collect();
-                    indices.sort_by(|a, b| b.cmp(a));
-                    for &idx in &indices {
-                        if idx >= scene.nodes.len() {
-                            continue;
-                        }
-                        let removed_id = idx as i32;
-                        let last_index = scene.nodes.len() - 1;
+            let removals = shm
+                .access_copy_diagnostic::<i32>(&update.removals)
+                .map_err(|e| SceneError::SharedMemoryAccess(e.to_string()))?;
+            let mut indices: Vec<usize> = removals
+                .iter()
+                .take_while(|&&i| i >= 0)
+                .map(|&i| i as usize)
+                .collect();
+            indices.sort_by(|a, b| b.cmp(a));
+            for &idx in &indices {
+                if idx >= scene.nodes.len() {
+                    continue;
+                }
+                let removed_id = idx as i32;
+                let last_index = scene.nodes.len() - 1;
 
-                        for parent in scene.node_parents.iter_mut() {
-                            if *parent == removed_id {
-                                *parent = -1;
-                            } else if *parent == last_index as i32 {
-                                *parent = removed_id;
-                            }
-                        }
-                        for entry in &mut scene.drawables {
-                            entry.node_id =
-                                fixup_transform_id(entry.node_id, removed_id, last_index);
-                        }
-                        for entry in &mut scene.skinned_drawables {
-                            entry.node_id =
-                                fixup_transform_id(entry.node_id, removed_id, last_index);
-                            if let Some(ref mut ids) = entry.bone_transform_ids {
-                                for id in ids.iter_mut() {
-                                    *id = fixup_transform_id(*id, removed_id, last_index);
-                                }
-                            }
-                        }
-
-                        scene.nodes.swap_remove(idx);
-                        scene.node_parents.swap_remove(idx);
+                for parent in scene.node_parents.iter_mut() {
+                    if *parent == removed_id {
+                        *parent = -1;
+                    } else if *parent == last_index as i32 {
+                        *parent = removed_id;
                     }
                 }
-                Err(_e) => {}
+                for entry in &mut scene.drawables {
+                    entry.node_id =
+                        fixup_transform_id(entry.node_id, removed_id, last_index);
+                }
+                transform_removals.push((removed_id, last_index));
+
+                scene.nodes.swap_remove(idx);
+                scene.node_parents.swap_remove(idx);
             }
         }
 
@@ -267,241 +300,240 @@ impl SceneGraph {
             scene.node_parents.push(-1);
         }
         if update.parent_updates.length > 0 {
-            match shm.access_copy_diagnostic::<TransformParentUpdate>(&update.parent_updates) {
-                Ok(parents) => {
-                    for pu in parents {
-                        if pu.transform_id < 0 {
-                            break;
-                        }
-                        if (pu.transform_id as usize) < scene.node_parents.len() {
-                            scene.node_parents[pu.transform_id as usize] = pu.new_parent_id;
-                        }
-                    }
+            let parents = shm
+                .access_copy_diagnostic::<TransformParentUpdate>(&update.parent_updates)
+                .map_err(|e| SceneError::SharedMemoryAccess(e.to_string()))?;
+            for pu in parents {
+                if pu.transform_id < 0 {
+                    break;
                 }
-                Err(_e) => {}
+                if (pu.transform_id as usize) < scene.node_parents.len() {
+                    scene.node_parents[pu.transform_id as usize] = pu.new_parent_id;
+                }
             }
         }
 
         if update.pose_updates.length > 0 {
-            match shm.access_copy_diagnostic::<TransformPoseUpdate>(&update.pose_updates) {
-                Ok(poses) => {
-                    let mut written = 0;
-                    let mut written_ids: Vec<i32> = Vec::new();
-                    for pu in &poses {
-                        if pu.transform_id < 0 {
-                            break;
-                        }
-                        if (pu.transform_id as usize) < scene.nodes.len()
-                            && is_pose_valid(&pu.pose, frame_index, scene.id, pu.transform_id)
-                        {
-                            scene.nodes[pu.transform_id as usize] = pu.pose;
-                            written += 1;
-                            written_ids.push(pu.transform_id);
-                        }
+            let poses = shm
+                .access_copy_diagnostic::<TransformPoseUpdate>(&update.pose_updates)
+                .map_err(|e| SceneError::SharedMemoryAccess(e.to_string()))?;
+            for pu in &poses {
+                if pu.transform_id < 0 {
+                    break;
+                }
+                if (pu.transform_id as usize) < scene.nodes.len() {
+                    let validation = PoseValidation {
+                        pose: &pu.pose,
+                        frame_index,
+                        scene_id: scene.id,
+                        transform_id: pu.transform_id,
+                    };
+                    if validation.is_valid() {
+                        scene.nodes[pu.transform_id as usize] = pu.pose;
+                    } else {
+                        crate::error!(
+                            "Invalid pose scene={} transform={} frame={}: using identity",
+                            scene.id,
+                            pu.transform_id,
+                            frame_index
+                        );
+                        scene.nodes[pu.transform_id as usize] = render_transform_identity();
                     }
                 }
-                Err(_e) => {}
             }
         }
 
+        Ok(transform_removals)
     }
 
     fn apply_mesh_renderables_update(
         scene: &mut Scene,
         shm: &mut SharedMemoryAccessor,
         update: &MeshRenderablesUpdate,
-        frame_index: i32,
-    ) {
+        _frame_index: i32,
+    ) -> Result<(), SceneError> {
         if update.removals.length > 0 {
-            match shm.access_copy_diagnostic::<i32>(&update.removals) {
-                Ok(removals) => {
-                    let mut indices: Vec<usize> = removals
-                        .iter()
-                        .take_while(|&&i| i >= 0)
-                        .map(|&i| i as usize)
-                        .collect();
-                    indices.sort_by(|a, b| b.cmp(a));
-                    for idx in indices {
-                        if idx < scene.drawables.len() {
-                            scene.drawables.swap_remove(idx);
-                        }
-                    }
+            let removals = shm
+                .access_copy_diagnostic::<i32>(&update.removals)
+                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+            let mut indices: Vec<usize> = removals
+                .iter()
+                .take_while(|&&i| i >= 0)
+                .map(|&i| i as usize)
+                .collect();
+            indices.sort_by(|a, b| b.cmp(a));
+            for idx in indices {
+                if idx < scene.drawables.len() {
+                    scene.drawables.swap_remove(idx);
                 }
-                Err(_e) => {}
             }
         }
         if update.additions.length > 0 {
-            match shm.access_copy_diagnostic::<i32>(&update.additions) {
-                Ok(additions) => {
-                    let added_node_ids: Vec<i32> = additions
-                        .iter()
-                        .take_while(|&&i| i >= 0)
-                        .copied()
-                        .collect();
-                    for &node_id in &added_node_ids {
-                        scene.drawables.push(Drawable {
-                            node_id,
-                            mesh_handle: -1,
-                            material_handle: None,
-                            sort_key: 0,
-                            is_skinned: false,
-                            bone_transform_ids: None,
-                        });
-                    }
-                }
-                Err(_e) => {}
+            let additions = shm
+                .access_copy_diagnostic::<i32>(&update.additions)
+                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+            let added_node_ids: Vec<i32> = additions
+                .iter()
+                .take_while(|&&i| i >= 0)
+                .copied()
+                .collect();
+            for &node_id in &added_node_ids {
+                scene.drawables.push(Drawable {
+                    node_id,
+                    mesh_handle: -1,
+                    material_handle: None,
+                    sort_key: 0,
+                    is_skinned: false,
+                    bone_transform_ids: None,
+                });
             }
         }
         if update.mesh_states.length > 0 {
-            match shm.access_copy_diagnostic::<MeshRendererStatePod>(&update.mesh_states) {
-                Ok(states) => {
-                    for state in states {
-                        if state.renderable_index < 0 {
-                            break;
-                        }
-                        let idx = state.renderable_index as usize;
-                        if idx < scene.drawables.len() {
-                            scene.drawables[idx].mesh_handle = state.mesh_asset_id;
-                            scene.drawables[idx].sort_key = state.sorting_order;
-                            scene.drawables[idx].material_handle = if state.material_count > 0 {
-                                Some(-1)
-                            } else {
-                                None
-                            };
-                        }
-                    }
+            let states = shm
+                .access_copy_diagnostic::<MeshRendererStatePod>(&update.mesh_states)
+                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+            for state in states {
+                if state.renderable_index < 0 {
+                    break;
                 }
-                Err(_e) => {}
+                let idx = state.renderable_index as usize;
+                if idx < scene.drawables.len() {
+                    scene.drawables[idx].mesh_handle = state.mesh_asset_id;
+                    scene.drawables[idx].sort_key = state.sorting_order;
+                    scene.drawables[idx].material_handle = if state.material_count > 0 {
+                        Some(-1)
+                    } else {
+                        None
+                    };
+                }
             }
         }
+        Ok(())
     }
 
     fn apply_skinned_mesh_renderables_update(
         scene: &mut Scene,
         shm: &mut SharedMemoryAccessor,
         update: &SkinnedMeshRenderablesUpdate,
-        frame_index: i32,
-    ) {
-        if update.removals.length > 0 {
-            match shm.access_copy_diagnostic::<i32>(&update.removals) {
-                Ok(removals) => {
-                    let mut indices: Vec<usize> = removals
-                        .iter()
-                        .take_while(|&&i| i >= 0)
-                        .map(|&i| i as usize)
-                        .collect();
-                    indices.sort_by(|a, b| b.cmp(a));
-                    for idx in indices {
-                        if idx < scene.skinned_drawables.len() {
-                            scene.skinned_drawables.swap_remove(idx);
-                        }
+        _frame_index: i32,
+        transform_removals: &[(i32, usize)],
+    ) -> Result<(), SceneError> {
+        for &(removed_id, last_index) in transform_removals {
+            for entry in &mut scene.skinned_drawables {
+                entry.node_id =
+                    fixup_transform_id(entry.node_id, removed_id, last_index);
+                if let Some(ref mut ids) = entry.bone_transform_ids {
+                    for id in ids.iter_mut() {
+                        *id = fixup_transform_id(*id, removed_id, last_index);
                     }
                 }
-                Err(_e) => {}
+            }
+        }
+
+        if update.removals.length > 0 {
+            let removals = shm
+                .access_copy_diagnostic::<i32>(&update.removals)
+                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+            let mut indices: Vec<usize> = removals
+                .iter()
+                .take_while(|&&i| i >= 0)
+                .map(|&i| i as usize)
+                .collect();
+            indices.sort_by(|a, b| b.cmp(a));
+            for idx in indices {
+                if idx < scene.skinned_drawables.len() {
+                    scene.skinned_drawables.swap_remove(idx);
+                }
             }
         }
         if update.additions.length > 0 {
-            match shm.access_copy_diagnostic::<i32>(&update.additions) {
-                Ok(additions) => {
-                    let added_node_ids: Vec<i32> = additions
-                        .iter()
-                        .take_while(|&&i| i >= 0)
-                        .copied()
-                        .collect();
-                    for &node_id in &added_node_ids {
-                        scene.skinned_drawables.push(Drawable {
-                            node_id,
-                            mesh_handle: -1,
-                            material_handle: None,
-                            sort_key: 0,
-                            is_skinned: true,
-                            bone_transform_ids: None,
-                        });
-                    }
-                }
-                Err(_e) => {}
+            let additions = shm
+                .access_copy_diagnostic::<i32>(&update.additions)
+                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+            let added_node_ids: Vec<i32> = additions
+                .iter()
+                .take_while(|&&i| i >= 0)
+                .copied()
+                .collect();
+            for &node_id in &added_node_ids {
+                scene.skinned_drawables.push(Drawable {
+                    node_id,
+                    mesh_handle: -1,
+                    material_handle: None,
+                    sort_key: 0,
+                    is_skinned: true,
+                    bone_transform_ids: None,
+                });
             }
         }
         if update.mesh_states.length > 0 {
-            match shm.access_copy_diagnostic::<MeshRendererStatePod>(&update.mesh_states) {
-                Ok(states) => {
-                    for state in states {
-                        if state.renderable_index < 0 {
-                            break;
-                        }
-                        let idx = state.renderable_index as usize;
-                        if idx < scene.skinned_drawables.len() {
-                            scene.skinned_drawables[idx].mesh_handle = state.mesh_asset_id;
-                            scene.skinned_drawables[idx].sort_key = state.sorting_order;
-                            scene.skinned_drawables[idx].material_handle =
-                                if state.material_count > 0 {
-                                    Some(-1)
-                                } else {
-                                    None
-                                };
-                        }
-                    }
+            let states = shm
+                .access_copy_diagnostic::<MeshRendererStatePod>(&update.mesh_states)
+                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+            for state in states {
+                if state.renderable_index < 0 {
+                    break;
                 }
-                Err(_e) => {}
+                let idx = state.renderable_index as usize;
+                if idx < scene.skinned_drawables.len() {
+                    scene.skinned_drawables[idx].mesh_handle = state.mesh_asset_id;
+                    scene.skinned_drawables[idx].sort_key = state.sorting_order;
+                    scene.skinned_drawables[idx].material_handle =
+                        if state.material_count > 0 {
+                            Some(-1)
+                        } else {
+                            None
+                        };
+                }
             }
         }
         if update.bone_assignments.length > 0 {
-            match (
-                shm.access_copy_diagnostic::<BoneAssignment>(&update.bone_assignments),
-                shm.access_copy_diagnostic::<i32>(&update.bone_transform_indexes),
-            ) {
-                (Ok(assignments), Ok(indexes)) => {
-                    let mut index_offset = 0;
-                    let mut assigned_count = 0;
-                    let mut assignments_processed = 0;
-                    for assignment in &assignments {
-                        if assignment.renderable_index < 0 {
-                            break;
-                        }
-                        assignments_processed += 1;
-                        let idx = assignment.renderable_index as usize;
-                        let bone_count = assignment.bone_count.max(0) as usize;
-                        if idx < scene.skinned_drawables.len()
-                            && index_offset + bone_count <= indexes.len()
-                        {
-                            let ids: Vec<i32> = indexes[index_offset..index_offset + bone_count]
-                                .to_vec();
-                            scene.skinned_drawables[idx].bone_transform_ids = Some(ids);
-                            assigned_count += 1;
-                        }
-                        index_offset += bone_count;
-                    }
+            let assignments = shm
+                .access_copy_diagnostic::<BoneAssignment>(&update.bone_assignments)
+                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+            let indexes = shm
+                .access_copy_diagnostic::<i32>(&update.bone_transform_indexes)
+                .map_err(|e| SceneError::SharedMemoryAccess(e))?;
+            let mut index_offset = 0;
+            for assignment in &assignments {
+                if assignment.renderable_index < 0 {
+                    break;
                 }
-                (Err(_e), _) | (_, Err(_e)) => {}
+                let idx = assignment.renderable_index as usize;
+                let bone_count = assignment.bone_count.max(0) as usize;
+                if idx < scene.skinned_drawables.len()
+                    && index_offset + bone_count <= indexes.len()
+                {
+                    let ids: Vec<i32> = indexes[index_offset..index_offset + bone_count]
+                        .to_vec();
+                    scene.skinned_drawables[idx].bone_transform_ids = Some(ids);
+                }
+                index_offset += bone_count;
             }
         }
+        Ok(())
     }
 
     /// Computes and caches world matrices for a scene when cache is missing or dirty.
-    /// Uses references to scene data instead of cloning.
-    pub fn compute_world_matrices(&mut self, scene_id: SceneId) {
+    pub fn compute_world_matrices(&mut self, scene_id: SceneId) -> Result<(), SceneError> {
         let needs_recompute = !self.world_matrices.contains_key(&scene_id)
             || self.world_matrices_dirty.contains(&scene_id);
         if !needs_recompute {
-            return;
+            return Ok(());
         }
         let matrices = match self.scenes.get(&scene_id) {
             Some(scene) => Self::compute_world_matrices_from_scene(scene),
-            None => return,
+            None => return Ok(()),
         };
         self.world_matrices.insert(scene_id, matrices);
         self.world_matrices_dirty.remove(&scene_id);
+        Ok(())
     }
 
-    /// Bulletproof iterative BFS world matrix computation.
-    /// Guarantees every node gets correct world = parent_chain * local.
-    /// No recursion, no stack overflow, works with deep or messy hierarchies.
-    ///
-    /// Root-level nodes (parent < 0 or invalid) use identity as parent—objects are in world space.
-    /// The scene's `root_transform` is for the view/camera only, not for object hierarchy.
+    /// Iterative DFS world matrix computation with cycle detection.
+    /// Uses visited + in_stack for cycle detection; on cycle, logs warning and treats node as root.
+    /// Root-level nodes (parent < 0 or invalid) use identity as parent.
     fn compute_world_matrices_from_scene(scene: &Scene) -> Vec<Matrix4<f32>> {
-        use std::collections::VecDeque;
-
         let n = scene.nodes.len();
         if n == 0 {
             return Vec::new();
@@ -509,50 +541,59 @@ impl SceneGraph {
 
         let mut world = vec![Matrix4::identity(); n];
         let mut visited = vec![false; n];
+        let mut in_stack = vec![false; n];
 
-        // Build children lists + find roots.
-        // Treat as root when: parent < 0, parent >= n, or parent == self (cycle sentinel).
-        let mut children: Vec<Vec<usize>> = vec![Vec::new(); n];
-        let mut roots = Vec::new();
-        for i in 0..n {
-            let p = scene.node_parents.get(i).copied().unwrap_or(-1);
-            let is_root = p < 0 || (p as usize) >= n || p == i as i32;
-            if is_root {
-                roots.push(i);
-            } else {
-                children[p as usize].push(i);
-            }
-        }
-
-        // If no roots (cycle or bad parent data), find a node that is never a child of any other.
-        // That node is the logical root (breaks the cycle). Fallback to 0 if none found.
-        if roots.is_empty() {
-            let never_child: Vec<usize> = (0..n)
-                .filter(|&i| !children.iter().any(|c| c.contains(&i)))
-                .collect();
-            let candidate = never_child.into_iter().next().unwrap_or(0);
-            roots.push(candidate);
-        }
-
-        // BFS from all roots (guarantees parents before children).
-        let mut queue: VecDeque<usize> = roots.into_iter().collect();
-        while let Some(i) = queue.pop_front() {
-            if visited[i] {
+        let mut stack: Vec<usize> = Vec::new();
+        for start in 0..n {
+            if visited[start] {
                 continue;
             }
-            visited[i] = true;
+            stack.push(start);
+            in_stack[start] = true;
+            while let Some(&i) = stack.last() {
+                if visited[i] {
+                    in_stack[i] = false;
+                    stack.pop();
+                    continue;
+                }
+                let p = scene.node_parents.get(i).copied().unwrap_or(-1);
+                let p_usize = if p >= 0 && (p as usize) < n && p != i as i32 {
+                    p as usize
+                } else {
+                    let local = super::render_transform_to_matrix(&scene.nodes[i]);
+                    world[i] = Matrix4::<f32>::identity() * local;
+                    visited[i] = true;
+                    in_stack[i] = false;
+                    stack.pop();
+                    continue;
+                };
 
-            let local = super::render_transform_to_matrix(&scene.nodes[i]);
-            let p = scene.node_parents.get(i).copied().unwrap_or(-1);
-            let parent_world = if p >= 0 && (p as usize) < n && p != i as i32 {
-                world[p as usize]
-            } else {
-                Matrix4::identity()
-            };
-            world[i] = parent_world * local;
+                if in_stack[p_usize] {
+                    crate::warn!(
+                        "Cycle detected in scene {} at transform {} (parent {}); treating as root",
+                        scene.id,
+                        i,
+                        p
+                    );
+                    let local = super::render_transform_to_matrix(&scene.nodes[i]);
+                    world[i] = Matrix4::<f32>::identity() * local;
+                    visited[i] = true;
+                    in_stack[i] = false;
+                    stack.pop();
+                    continue;
+                }
 
-            for &child in &children[i] {
-                queue.push_back(child);
+                if !visited[p_usize] {
+                    stack.push(p_usize);
+                    in_stack[p_usize] = true;
+                    continue;
+                }
+
+                let local = super::render_transform_to_matrix(&scene.nodes[i]);
+                world[i] = world[p_usize] * local;
+                visited[i] = true;
+                in_stack[i] = false;
+                stack.pop();
             }
         }
 
@@ -571,6 +612,60 @@ mod tests {
             scale: Vector3::new(1.0, 1.0, 1.0),
             rotation: Quaternion::identity(),
         }
+    }
+
+    #[test]
+    fn test_pose_validation_rejects_nan() {
+        let mut pose = make_transform((0.0, 0.0, 0.0));
+        pose.position.x = f32::NAN;
+        let v = PoseValidation {
+            pose: &pose,
+            frame_index: 0,
+            scene_id: 0,
+            transform_id: 0,
+        };
+        assert!(!v.is_valid());
+    }
+
+    #[test]
+    fn test_pose_validation_rejects_inf() {
+        let mut pose = make_transform((0.0, 0.0, 0.0));
+        pose.scale.y = f32::INFINITY;
+        let v = PoseValidation {
+            pose: &pose,
+            frame_index: 0,
+            scene_id: 0,
+            transform_id: 0,
+        };
+        assert!(!v.is_valid());
+    }
+
+    #[test]
+    fn test_pose_validation_rejects_large() {
+        let pose = RenderTransform {
+            position: Vector3::new(2e6, 0.0, 0.0),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+            rotation: Quaternion::identity(),
+        };
+        let v = PoseValidation {
+            pose: &pose,
+            frame_index: 0,
+            scene_id: 0,
+            transform_id: 0,
+        };
+        assert!(!v.is_valid());
+    }
+
+    #[test]
+    fn test_pose_validation_accepts_valid() {
+        let pose = make_transform((1.0, 2.0, 3.0));
+        let v = PoseValidation {
+            pose: &pose,
+            frame_index: 0,
+            scene_id: 0,
+            transform_id: 0,
+        };
+        assert!(v.is_valid());
     }
 
     #[test]
@@ -639,6 +734,23 @@ mod tests {
         assert!((pos0.x - 5.0).abs() < 1e-5);
         assert!((pos0.y - 0.0).abs() < 1e-5);
         assert!((pos0.z - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_compute_world_matrices_cycle_detection() {
+        let mut scene = Scene::default();
+        scene.root_transform = make_transform((0.0, 0.0, 0.0));
+        scene.nodes = vec![
+            make_transform((1.0, 0.0, 0.0)),
+            make_transform((0.0, 2.0, 0.0)),
+        ];
+        scene.node_parents = vec![1, 0];
+
+        let world = SceneGraph::compute_world_matrices_from_scene(&scene);
+
+        assert_eq!(world.len(), 2);
+        assert!(!world[0].column(3).x.is_nan());
+        assert!(!world[1].column(3).x.is_nan());
     }
 }
 
