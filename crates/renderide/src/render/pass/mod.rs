@@ -5,6 +5,7 @@
 mod composite;
 mod mesh_draw;
 mod projection;
+mod rtao_blur;
 mod rtao_compute;
 
 use nalgebra::Matrix4;
@@ -19,6 +20,7 @@ pub use composite::CompositePass;
 pub use projection::{
     orthographic_projection_reverse_z, projection_for_params, reverse_z_projection,
 };
+pub use rtao_blur::RtaoBlurPass;
 pub use rtao_compute::RtaoComputePass;
 
 /// Errors that can occur during render pass execution.
@@ -44,7 +46,9 @@ pub struct RenderTargetViews<'a> {
     pub mrt_position_view: Option<&'a wgpu::TextureView>,
     /// When RTAO is enabled, normal G-buffer view for MRT mesh pass.
     pub mrt_normal_view: Option<&'a wgpu::TextureView>,
-    /// When RTAO is enabled, AO texture view for RTAO compute and composite.
+    /// When RTAO is enabled, raw AO texture view (RTAO output, blur input).
+    pub mrt_ao_raw_view: Option<&'a wgpu::TextureView>,
+    /// When RTAO is enabled, AO texture view for blur output and composite.
     pub mrt_ao_view: Option<&'a wgpu::TextureView>,
     /// When RTAO is enabled, mesh color input for composite pass (MRT color texture).
     pub mrt_color_input_view: Option<&'a wgpu::TextureView>,
@@ -89,7 +93,9 @@ pub struct MrtViews<'a> {
     pub position_view: &'a wgpu::TextureView,
     /// Normal G-buffer view (Rgba16Float).
     pub normal_view: &'a wgpu::TextureView,
-    /// AO output view (Rgba8Unorm). Written by RTAO compute, read by composite.
+    /// Raw AO view (Rgba8Unorm). Written by RTAO compute, read by blur pass.
+    pub ao_raw_view: &'a wgpu::TextureView,
+    /// AO output view (Rgba8Unorm). Written by blur pass, read by composite.
     pub ao_view: &'a wgpu::TextureView,
 }
 
@@ -157,16 +163,17 @@ impl RenderGraph {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        let (color_view, mrt_position_view, mrt_normal_view, mrt_ao_view, mrt_color_input_view) =
+        let (color_view, mrt_position_view, mrt_normal_view, mrt_ao_raw_view, mrt_ao_view, mrt_color_input_view) =
             match &ctx.mrt_views {
                 Some(mrt) => (
                     mrt.color_view,
                     Some(mrt.position_view),
                     Some(mrt.normal_view),
+                    Some(mrt.ao_raw_view),
                     Some(mrt.ao_view),
                     Some(mrt.color_view),
                 ),
-                None => (ctx.target.color_view(), None, None, None, None),
+                None => (ctx.target.color_view(), None, None, None, None, None),
             };
         let depth_view = ctx.target.depth_view().or(ctx.depth_view_override);
         let render_target = RenderTargetViews {
@@ -174,6 +181,7 @@ impl RenderGraph {
             depth_view,
             mrt_position_view,
             mrt_normal_view,
+            mrt_ao_raw_view,
             mrt_ao_view,
             mrt_color_input_view,
         };
@@ -213,6 +221,7 @@ impl RenderGraph {
                     depth_view: pass_ctx.render_target.depth_view,
                     mrt_position_view: pass_ctx.render_target.mrt_position_view,
                     mrt_normal_view: pass_ctx.render_target.mrt_normal_view,
+                    mrt_ao_raw_view: pass_ctx.render_target.mrt_ao_raw_view,
                     mrt_ao_view: pass_ctx.render_target.mrt_ao_view,
                     mrt_color_input_view: pass_ctx.render_target.mrt_color_input_view,
                 };

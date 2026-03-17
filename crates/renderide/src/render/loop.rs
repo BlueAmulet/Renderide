@@ -6,7 +6,7 @@ use std::mem::size_of;
 
 use super::pass::{
     CompositePass, MeshRenderPass, OverlayRenderPass, RenderGraph, RenderGraphContext,
-    RtaoComputePass,
+    RtaoBlurPass, RtaoComputePass,
 };
 use super::view::ViewParams;
 use super::target::RenderTarget;
@@ -44,6 +44,7 @@ impl RenderLoop {
         let mut graph = RenderGraph::new();
         graph.add_pass(Box::new(MeshRenderPass::new()));
         graph.add_pass(Box::new(RtaoComputePass::new()));
+        graph.add_pass(Box::new(RtaoBlurPass::new()));
         graph.add_pass(Box::new(CompositePass::new()));
         graph.add_pass(Box::new(OverlayRenderPass::new()));
 
@@ -133,6 +134,8 @@ impl RenderLoop {
             mrt_position_view,
             mrt_normal_tex,
             mrt_normal_view,
+            mrt_ao_raw_tex,
+            mrt_ao_raw_view,
             mrt_ao_tex,
             mrt_ao_view,
         ) = if rtao_enabled {
@@ -181,6 +184,21 @@ impl RenderLoop {
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
                     view_formats: &[],
                 });
+                let ao_raw_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("RTAO AO raw texture"),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8Unorm,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                });
                 let ao_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("RTAO AO texture"),
                     size: wgpu::Extent3d {
@@ -200,6 +218,7 @@ impl RenderLoop {
                 let position_view =
                     position_tex.create_view(&wgpu::TextureViewDescriptor::default());
                 let normal_view = normal_tex.create_view(&wgpu::TextureViewDescriptor::default());
+                let ao_raw_view = ao_raw_tex.create_view(&wgpu::TextureViewDescriptor::default());
                 let ao_view = ao_tex.create_view(&wgpu::TextureViewDescriptor::default());
                 (
                     Some(color_tex),
@@ -208,11 +227,13 @@ impl RenderLoop {
                     Some(position_view),
                     Some(normal_tex),
                     Some(normal_view),
+                    Some(ao_raw_tex),
+                    Some(ao_raw_view),
                     Some(ao_tex),
                     Some(ao_view),
                 )
             } else {
-                (None, None, None, None, None, None, None, None)
+                (None, None, None, None, None, None, None, None, None, None)
             };
 
         let mrt_views = if let (
@@ -222,6 +243,8 @@ impl RenderLoop {
             Some(pv),
             Some(_nt),
             Some(nv),
+            Some(_araw),
+            Some(arawv),
             Some(_at),
             Some(av),
         ) = (
@@ -231,6 +254,8 @@ impl RenderLoop {
             &mrt_position_view,
             &mrt_normal_tex,
             &mrt_normal_view,
+            &mrt_ao_raw_tex,
+            &mrt_ao_raw_view,
             &mrt_ao_tex,
             &mrt_ao_view,
         ) {
@@ -239,6 +264,7 @@ impl RenderLoop {
                 color_texture: ct,
                 position_view: pv,
                 normal_view: nv,
+                ao_raw_view: arawv,
                 ao_view: av,
             })
         } else {

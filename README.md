@@ -2,6 +2,10 @@
 
 A Rust renderer for Resonite, replacing the Unity-based default with wgpu/winit. Early-stage project with AAA renderer ambitions.
 
+## Warning
+
+There are a lot of performance, support, and stability issues with the renderer currently. It is not intended for consumer use at the moment and comes with many rendering features enabled for testing purposes.
+
 ## Overview
 
 Resonite (formerly Neos VR) is a FrooxEngine-based VR and social platform. Renderite is its renderer abstraction layer (Host, Shared, Unity). Renderide acts as a drop-in renderer replacement, cross-platform with a focus on Linux via native dotnet host.

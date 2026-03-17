@@ -292,6 +292,13 @@ impl RenderPass for RtaoComputePass {
                 return Ok(());
             }
         };
+        let ao_raw_view = match ctx.render_target.mrt_ao_raw_view {
+            Some(v) => v,
+            None => {
+                logger::warn!("RTAO compute skipped: mrt_ao_raw_view is None");
+                return Ok(());
+            }
+        };
         let ao_view = match ctx.render_target.mrt_ao_view {
             Some(v) => v,
             None => {
@@ -371,7 +378,7 @@ impl RenderPass for RtaoComputePass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::TextureView(ao_view),
+                    resource: wgpu::BindingResource::TextureView(ao_raw_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
