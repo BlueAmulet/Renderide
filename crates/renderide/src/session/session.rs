@@ -362,10 +362,11 @@ impl Session {
 
     /// Collects draw batches for rendering.
     ///
-    /// **Overlay inclusion rules** (main view): Includes spaces where `is_active` is true.
-    /// For non-overlay spaces: include. For overlay spaces: include only when `!is_private`
-    /// (main view never shows private overlays; matches CameraRenderer culling mask when
-    /// renderPrivateUI is false). Skips draws where layer is Hidden.
+    /// **Overlay inclusion rules** (main view): Includes all spaces where `is_active` is true,
+    /// including private overlays (user's dashboard, loading indicators). The main window is the
+    /// user's own view and should show their local UI. For offscreen renders (e.g. mirrors,
+    /// picture-in-picture), [`CameraRenderTask`](crate::shared::CameraRenderTask) uses
+    /// `render_private_ui` to control private overlay inclusion. Skips draws where layer is Hidden.
     ///
     /// **Overlay view**: Overlay spaces use `primary_view_transform()` as view override
     /// (UpdateOverlayPositioning); overlay batches follow the head/camera.
@@ -374,17 +375,7 @@ impl Session {
             .scene_graph
             .scenes()
             .iter()
-            .filter(|(_, s)| {
-                if !s.is_active {
-                    return false;
-                }
-                // Main scene: active and not overlay.
-                if !s.is_overlay {
-                    return true;
-                }
-                // Overlay: exclude private (main view never shows private overlays).
-                !s.is_private
-            })
+            .filter(|(_, s)| s.is_active)
             .map(|(id, _)| *id)
             .collect();
 
@@ -395,7 +386,7 @@ impl Session {
                 space_id,
                 &[],
                 &[],
-                false,
+                true,
                 overlay_view_override.clone(),
             ));
         }

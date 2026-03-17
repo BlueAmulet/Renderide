@@ -10,8 +10,9 @@
 //! `(is_overlay, -sort_key, pipeline_variant, material_id, mesh_asset_id)`.
 //!
 //! **Layer filtering**: [`collect_draw_batches`](crate::session::Session::collect_draw_batches)
-//! skips `Hidden` layers. Main view excludes private overlays; `render_private_ui` in
-//! [`CameraRenderTask`](crate::shared::CameraRenderTask) controls private overlay inclusion.
+//! skips `Hidden` layers. Main view includes private overlays (dashboard, loading indicators);
+//! `render_private_ui` in [`CameraRenderTask`](crate::shared::CameraRenderTask) controls private
+//! overlay inclusion for offscreen renders.
 //!
 //! **Projection**: Main view uses [`ViewParams::perspective_from_session`]; offscreen
 //! [`CameraRenderTask`](crate::shared::CameraRenderTask)s use
