@@ -1,19 +1,19 @@
 //! Mesh draw collection and recording for mesh and overlay passes.
 //!
 //! Collects draws from batches, partitions by overlay/skinned, and records into render passes.
+//! Uses glam for SIMD-optimized matrix operations.
 
+use glam::Mat4;
 use nalgebra::{Matrix4, Vector3};
-
-use glam::Mat4 as GlamMat4;
 
 use crate::gpu::{GpuMeshBuffers, PipelineKey, PipelineManager, PipelineVariant};
 use std::collections::HashMap;
 use crate::scene::render_transform_to_matrix;
 
-/// Converts nalgebra Matrix4 to glam Mat4 for fast SIMD multiply.
+/// Converts nalgebra Matrix4 to glam Mat4 (for projection matrix from ctx).
 #[inline(always)]
-fn matrix_na_to_glam(m: &Matrix4<f32>) -> GlamMat4 {
-    GlamMat4::from_cols_array(&[
+fn matrix_na_to_glam(m: &Matrix4<f32>) -> Mat4 {
+    Mat4::from_cols_array(&[
         m[(0, 0)], m[(1, 0)], m[(2, 0)], m[(3, 0)],
         m[(0, 1)], m[(1, 1)], m[(2, 1)], m[(3, 1)],
         m[(0, 2)], m[(1, 2)], m[(2, 2)], m[(3, 2)],
@@ -21,9 +21,9 @@ fn matrix_na_to_glam(m: &Matrix4<f32>) -> GlamMat4 {
     ])
 }
 
-/// Converts glam Mat4 back to nalgebra Matrix4.
+/// Converts glam Mat4 to nalgebra Matrix4 for pipeline uniform upload.
 #[inline(always)]
-fn matrix_glam_to_na(m: GlamMat4) -> Matrix4<f32> {
+fn matrix_glam_to_na(m: Mat4) -> Matrix4<f32> {
     let a = m.to_cols_array();
     Matrix4::from_fn(|r, c| a[c * 4 + r])
 }
@@ -106,17 +106,14 @@ pub(super) fn collect_mesh_draws(ctx: &CollectMeshDrawsContext<'_>) -> (
     for batch in ctx.draw_batches {
         let mut batch_vt = batch.view_transform;
         batch_vt.scale = filter_scale(batch_vt.scale);
-        let view_mat = render_transform_to_matrix(&batch_vt)
-            .try_inverse()
-            .unwrap_or_else(Matrix4::identity);
-        let view_mat = apply_view_handedness_fix(view_mat);
+        let view_mat = apply_view_handedness_fix(render_transform_to_matrix(&batch_vt).inverse());
         let proj = batch
             .is_overlay
             .then(|| ctx.overlay_projection_override.as_ref())
             .flatten()
             .map(|v| v.to_projection_matrix())
             .unwrap_or(ctx.proj);
-        let view_proj_glam = matrix_na_to_glam(&proj) * matrix_na_to_glam(&view_mat);
+        let view_proj_glam = matrix_na_to_glam(&proj) * view_mat;
 
         for d in &batch.draws {
             let (buffers_ref, mesh) = if d.mesh_asset_id >= 0 {
@@ -134,7 +131,7 @@ pub(super) fn collect_mesh_draws(ctx: &CollectMeshDrawsContext<'_>) -> (
                 continue;
             };
 
-            let model_mvp = matrix_glam_to_na(view_proj_glam * matrix_na_to_glam(&d.model_matrix));
+            let model_mvp = matrix_glam_to_na(view_proj_glam * d.model_matrix);
 
             if d.is_skinned {
                 let Some(bind_poses) = mesh.bind_poses.as_ref() else {
@@ -213,7 +210,7 @@ pub(super) fn collect_mesh_draws(ctx: &CollectMeshDrawsContext<'_>) -> (
                         scene_graph.get_world_matrix(batch.space_id, id as usize)
                     }) {
                         Some(root_world) => {
-                            view_proj_glam * matrix_na_to_glam(&root_world)
+                            view_proj_glam * root_world
                         }
                         None => view_proj_glam,
                     }
@@ -221,8 +218,7 @@ pub(super) fn collect_mesh_draws(ctx: &CollectMeshDrawsContext<'_>) -> (
                     view_proj_glam
                 };
                 if ctx.session.render_config().skinned_flip_handedness {
-                    let z_flip =
-                        GlamMat4::from_scale(glam::Vec3::new(1.0, 1.0, -1.0));
+                    let z_flip = Mat4::from_scale(glam::Vec3::new(1.0, 1.0, -1.0));
                     skinned_mvp_glam *= z_flip;
                 }
                 let skinned_mvp = matrix_glam_to_na(skinned_mvp_glam);
@@ -253,7 +249,7 @@ pub(super) fn collect_mesh_draws(ctx: &CollectMeshDrawsContext<'_>) -> (
             non_skinned_draws.push(BatchedDraw {
                 mesh_asset_id: d.mesh_asset_id,
                 mvp: model_mvp,
-                model: d.model_matrix,
+                model: matrix_glam_to_na(d.model_matrix),
                 pipeline_variant: d.pipeline_variant.clone(),
                 is_overlay: batch.is_overlay,
                 stencil_state: d.stencil_state,
@@ -511,7 +507,7 @@ pub(super) fn filter_scale(scale: Vector3<f32>) -> Vector3<f32> {
 }
 
 /// Applies handedness fix to view matrix for coordinate system alignment.
-pub(super) fn apply_view_handedness_fix(view: Matrix4<f32>) -> Matrix4<f32> {
-    let z_flip = Matrix4::new_nonuniform_scaling(&Vector3::new(1.0, 1.0, -1.0));
+pub(super) fn apply_view_handedness_fix(view: Mat4) -> Mat4 {
+    let z_flip = Mat4::from_scale(glam::Vec3::new(1.0, 1.0, -1.0));
     z_flip * view
 }

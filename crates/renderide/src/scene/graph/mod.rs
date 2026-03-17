@@ -10,29 +10,17 @@ mod world_matrices;
 
 use std::collections::{HashMap, HashSet};
 
-use glam::Mat4 as GlamMat4;
-use nalgebra::Matrix4;
+use glam::Mat4;
 
 use crate::ipc::shared_memory::SharedMemoryAccessor;
 use crate::scene::{Scene, SceneId};
 
 pub use error::SceneError;
 
-/// Converts nalgebra `Matrix4` to glam `Mat4` for fast SIMD multiply in the bone matrix hot path.
-#[inline(always)]
-fn matrix_na_to_glam(m: &Matrix4<f32>) -> GlamMat4 {
-    GlamMat4::from_cols_array(&[
-        m[(0, 0)], m[(1, 0)], m[(2, 0)], m[(3, 0)],
-        m[(0, 1)], m[(1, 1)], m[(2, 1)], m[(3, 1)],
-        m[(0, 2)], m[(1, 2)], m[(2, 2)], m[(3, 2)],
-        m[(0, 3)], m[(1, 3)], m[(2, 3)], m[(3, 3)],
-    ])
-}
-
 /// Builds glam `Mat4` from bind pose. Format: `bind[col][row]` = M[row][col] (Unity column-major).
 #[inline(always)]
-fn glam_mat4_from_bind_pose(bind: &[[f32; 4]; 4]) -> GlamMat4 {
-    GlamMat4::from_cols_array(&[
+fn glam_mat4_from_bind_pose(bind: &[[f32; 4]; 4]) -> Mat4 {
+    Mat4::from_cols_array(&[
         bind[0][0], bind[0][1], bind[0][2], bind[0][3],
         bind[1][0], bind[1][1], bind[1][2], bind[1][3],
         bind[2][0], bind[2][1], bind[2][2], bind[2][3],
@@ -42,7 +30,7 @@ fn glam_mat4_from_bind_pose(bind: &[[f32; 4]; 4]) -> GlamMat4 {
 
 /// Converts glam `Mat4` to bind pose format `[[f32;4];4]` for GPU upload.
 #[inline(always)]
-fn glam_mat4_to_bind_pose(m: GlamMat4) -> [[f32; 4]; 4] {
+fn glam_mat4_to_bind_pose(m: Mat4) -> [[f32; 4]; 4] {
     let a = m.to_cols_array();
     [
         [a[0], a[1], a[2], a[3]],
@@ -107,6 +95,9 @@ impl SceneGraph {
         if let Some(cache) = self.scene_caches.get_mut(&scene_id) {
             if transform_id < cache.computed.len() {
                 cache.computed[transform_id] = false;
+                if transform_id < cache.local_dirty.len() {
+                    cache.local_dirty[transform_id] = true;
+                }
                 if let Some(scene) = self.scenes.get(&scene_id) {
                     mark_descendants_uncomputed(
                         &scene.node_parents,
@@ -119,7 +110,7 @@ impl SceneGraph {
     }
 
     /// Returns the cached world matrix for a transform in a scene.
-    pub fn get_world_matrix(&self, scene_id: SceneId, transform_id: usize) -> Option<Matrix4<f32>> {
+    pub fn get_world_matrix(&self, scene_id: SceneId, transform_id: usize) -> Option<Mat4> {
         self.scene_caches
             .get(&scene_id)
             .and_then(|c| c.world_matrices.get(transform_id).copied())
@@ -146,25 +137,23 @@ impl SceneGraph {
                 bind_poses.len()
             );
         }
-        let inv_root_na = root_bone_transform_id
+        let inv_root = root_bone_transform_id
             .filter(|&id| id >= 0)
             .and_then(|id| self.get_world_matrix(space_id, id as usize))
-            .and_then(|m| m.try_inverse())
-            .unwrap_or_else(Matrix4::identity);
-        let inv_root = matrix_na_to_glam(&inv_root_na);
+            .map(|m| m.inverse())
+            .unwrap_or(Mat4::IDENTITY);
         let use_root = root_bone_transform_id.is_some_and(|id| id >= 0);
 
         let mut out = Vec::with_capacity(bone_transform_ids.len().min(bind_poses.len()));
         for (i, &tid) in bone_transform_ids.iter().enumerate() {
             let bind = bind_poses.get(i).copied().unwrap_or_else(identity_4x4);
             let bind_mat = glam_mat4_from_bind_pose(&bind);
-            let world_na = if tid >= 0 {
+            let world = if tid >= 0 {
                 self.get_world_matrix(space_id, tid as usize)
-                    .unwrap_or_else(Matrix4::identity)
+                    .unwrap_or(Mat4::IDENTITY)
             } else {
-                Matrix4::identity()
+                Mat4::IDENTITY
             };
-            let world = matrix_na_to_glam(&world_na);
             let combined = if use_root {
                 world * inv_root * bind_mat
             } else {
@@ -208,6 +197,8 @@ impl SceneGraph {
                 let cache = self.scene_caches.entry(update.id).or_insert_with(|| SceneCache {
                     world_matrices: Vec::new(),
                     computed: Vec::new(),
+                    local_matrices: Vec::new(),
+                    local_dirty: Vec::new(),
                 });
                 updates::apply_transforms_update(
                     scene,
@@ -278,12 +269,16 @@ impl SceneGraph {
             .or_insert_with(|| SceneCache {
                 world_matrices: Vec::new(),
                 computed: Vec::new(),
+                local_matrices: Vec::new(),
+                local_dirty: Vec::new(),
             });
 
         let needs_resize = cache.world_matrices.len() != n;
         if needs_resize {
-            cache.world_matrices.resize(n, Matrix4::identity());
+            cache.world_matrices.resize(n, Mat4::IDENTITY);
             cache.computed.resize(n, false);
+            cache.local_matrices.resize(n, Mat4::IDENTITY);
+            cache.local_dirty.resize(n, true);
             for c in cache.computed.iter_mut() {
                 *c = false;
             }
@@ -301,6 +296,8 @@ impl SceneGraph {
             scene,
             &mut cache.world_matrices,
             &mut cache.computed,
+            &mut cache.local_matrices,
+            &mut cache.local_dirty,
         )?;
         self.world_matrices_dirty.remove(&scene_id);
         Ok(())
@@ -390,17 +387,17 @@ mod tests {
 
         assert_eq!(world.len(), 3);
 
-        let pos0 = world[0].column(3);
+        let pos0 = world[0].col(3);
         assert!((pos0.x - 1.0).abs() < 1e-5);
         assert!((pos0.y - 0.0).abs() < 1e-5);
         assert!((pos0.z - 0.0).abs() < 1e-5);
 
-        let pos1 = world[1].column(3);
+        let pos1 = world[1].col(3);
         assert!((pos1.x - 1.0).abs() < 1e-5);
         assert!((pos1.y - 2.0).abs() < 1e-5);
         assert!((pos1.z - 0.0).abs() < 1e-5);
 
-        let pos2 = world[2].column(3);
+        let pos2 = world[2].col(3);
         assert!((pos2.x - 1.0).abs() < 1e-5);
         assert!((pos2.y - 2.0).abs() < 1e-5);
         assert!((pos2.z - 3.0).abs() < 1e-5);
@@ -417,7 +414,7 @@ mod tests {
         let world = world_matrices::compute_world_matrices_from_scene(&scene);
 
         assert_eq!(world.len(), 1);
-        let pos = world[0].column(3);
+        let pos = world[0].col(3);
         // Root-level: world = identity * local = (1, 0, 0). root_transform is not applied to objects.
         assert!((pos.x - 1.0).abs() < 1e-5);
         assert!((pos.y - 0.0).abs() < 1e-5);
@@ -437,7 +434,7 @@ mod tests {
         let world = world_matrices::compute_world_matrices_from_scene(&scene);
 
         assert_eq!(world.len(), 2);
-        let pos0 = world[0].column(3);
+        let pos0 = world[0].col(3);
         assert!((pos0.x - 5.0).abs() < 1e-5);
         assert!((pos0.y - 0.0).abs() < 1e-5);
         assert!((pos0.z - 1.0).abs() < 1e-5);
@@ -456,8 +453,8 @@ mod tests {
         let world = world_matrices::compute_world_matrices_from_scene(&scene);
 
         assert_eq!(world.len(), 2);
-        assert!(!world[0].column(3).x.is_nan());
-        assert!(!world[1].column(3).x.is_nan());
+        assert!(!world[0].col(3).x.is_nan());
+        assert!(!world[1].col(3).x.is_nan());
     }
 
     #[test]
@@ -475,7 +472,7 @@ mod tests {
 
         graph.compute_world_matrices(0).unwrap();
         let mat_before = graph.get_world_matrix(0, 2).unwrap();
-        let pos2_before = mat_before.column(3);
+        let pos2_before = mat_before.col(3);
         assert!((pos2_before.x - 1.0).abs() < 1e-5);
         assert!((pos2_before.y - 2.0).abs() < 1e-5);
         assert!((pos2_before.z - 3.0).abs() < 1e-5);
@@ -485,7 +482,7 @@ mod tests {
 
         graph.compute_world_matrices(0).unwrap();
         let mat_after = graph.get_world_matrix(0, 2).unwrap();
-        let pos2_after = mat_after.column(3);
+        let pos2_after = mat_after.col(3);
         assert!((pos2_after.x - 10.0).abs() < 1e-5);
         assert!((pos2_after.y - 2.0).abs() < 1e-5);
         assert!((pos2_after.z - 3.0).abs() < 1e-5);

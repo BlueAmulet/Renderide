@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use nalgebra::Matrix4;
+use glam::Mat4;
 
 use crate::assets::{self, AssetRegistry};
 use crate::stencil::{StencilOperation, StencilState};
@@ -471,7 +471,7 @@ impl Default for Session {
 /// Output of [`filter_and_collect_drawables`]; input to [`build_draw_entries`].
 struct FilteredDrawable {
     drawable: Drawable,
-    world_matrix: Matrix4<f32>,
+    world_matrix: Mat4,
     pipeline_variant: PipelineVariant,
 }
 

@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use nalgebra::Matrix4;
+use glam::Mat4;
 use wgpu::util::DeviceExt;
 
 use crate::assets::{self, MeshAsset};
@@ -253,20 +253,12 @@ impl Default for RayTracingState {
 }
 
 /// Converts a 4x4 model matrix to 3x4 affine row-major for [`wgpu::TlasInstance`].
-fn matrix4_to_affine_3x4(m: &Matrix4<f32>) -> [f32; 12] {
+fn matrix4_to_affine_3x4(m: &Mat4) -> [f32; 12] {
+    let a = m.to_cols_array();
     [
-        m[(0, 0)],
-        m[(0, 1)],
-        m[(0, 2)],
-        m[(0, 3)],
-        m[(1, 0)],
-        m[(1, 1)],
-        m[(1, 2)],
-        m[(1, 3)],
-        m[(2, 0)],
-        m[(2, 1)],
-        m[(2, 2)],
-        m[(2, 3)],
+        a[0], a[4], a[8], a[12],
+        a[1], a[5], a[9], a[13],
+        a[2], a[6], a[10], a[14],
     ]
 }
 

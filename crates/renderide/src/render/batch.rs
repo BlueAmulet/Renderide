@@ -2,7 +2,7 @@
 //!
 //! Extension point for batch structure, draw ordering.
 
-use nalgebra::Matrix4;
+use glam::Mat4;
 
 use crate::gpu::PipelineVariant;
 use crate::shared::RenderTransform;
@@ -15,7 +15,7 @@ use crate::stencil::StencilState;
 #[derive(Clone)]
 pub struct DrawEntry {
     /// Model-to-world matrix.
-    pub model_matrix: Matrix4<f32>,
+    pub model_matrix: Mat4,
     /// Node (transform) ID this draw is attached to.
     pub node_id: i32,
     /// Mesh asset handle.

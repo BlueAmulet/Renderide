@@ -1,6 +1,8 @@
 //! World matrix computation and transform hierarchy utilities.
+//!
+//! Uses glam for SIMD-optimized matrix operations in the hot path.
 
-use nalgebra::Matrix4;
+use glam::Mat4;
 
 use crate::scene::{math::render_transform_to_matrix, Scene};
 
@@ -9,9 +11,13 @@ use super::error::SceneError;
 /// Per-scene cache for world matrices and computed flags.
 pub(super) struct SceneCache {
     /// World-space matrices for each transform.
-    pub world_matrices: Vec<Matrix4<f32>>,
+    pub world_matrices: Vec<Mat4>,
     /// Whether each transform's world matrix has been computed this frame.
     pub computed: Vec<bool>,
+    /// Cached local (TRS) matrices; avoids redundant render_transform_to_matrix when propagating.
+    pub local_matrices: Vec<Mat4>,
+    /// Whether each node's local matrix cache is stale (pose changed).
+    pub local_dirty: Vec<bool>,
 }
 
 /// Fixes transform ID references after swap_remove: removed ID becomes -1,
@@ -26,72 +32,69 @@ pub(super) fn fixup_transform_id(old: i32, removed_id: i32, last_index: usize) -
     }
 }
 
+/// Builds a parent→children index from `node_parents`. Root nodes (parent < 0) have no parent.
+fn build_node_children(node_parents: &[i32], n: usize) -> Vec<Vec<usize>> {
+    let mut children: Vec<Vec<usize>> = (0..n).map(|_| Vec::new()).collect();
+    for (i, &p) in node_parents.iter().take(n).enumerate() {
+        if p >= 0 && (p as usize) < n && p != i as i32 {
+            children[p as usize].push(i);
+        }
+    }
+    children
+}
+
 /// Marks descendants of uncomputed transforms as uncomputed.
-/// Walks each node's parent chain to find the uppermost uncomputed ancestor;
-/// if found, marks all nodes in that chain as uncomputed.
+/// Uses a parent→children index to traverse down from each uncomputed node (O(n) total)
+/// instead of walking up from every node (O(n²) for deep chains).
 pub(super) fn mark_descendants_uncomputed(node_parents: &[i32], computed: &mut [bool]) {
     let n = computed.len();
     if n == 0 {
         return;
     }
-    let mut checked = vec![false; n];
-    for transform_index in (0..n).rev() {
-        if checked[transform_index] {
+    let children = build_node_children(node_parents, n);
+    let mut stack = Vec::with_capacity(64.min(n));
+    for i in 0..n {
+        if computed[i] {
             continue;
         }
-        let mut maybe_last_non_computed: Option<usize> = None;
-        let mut id = transform_index;
-        let mut steps = 0;
-        while id < n && steps < n {
-            steps += 1;
-            if !computed[id] {
-                maybe_last_non_computed = Some(id);
-            }
-            if checked[id] {
-                break;
-            }
-            let p = node_parents.get(id).copied().unwrap_or(-1);
-            if p < 0 || (p as usize) >= n || p == id as i32 {
-                break;
-            }
-            id = p as usize;
+        stack.clear();
+        stack.extend(children[i].iter().copied());
+        while let Some(child) = stack.pop() {
+            computed[child] = false;
+            stack.extend(children[child].iter().copied());
         }
-        if let Some(last_non_computed) = maybe_last_non_computed {
-            let mut id = transform_index;
-            let mut steps = 0;
-            while id != last_non_computed && id < n && steps < n {
-                steps += 1;
-                computed[id] = false;
-                checked[id] = true;
-                let p = node_parents.get(id).copied().unwrap_or(-1);
-                if p < 0 || (p as usize) >= n || p == id as i32 {
-                    break;
-                }
-                id = p as usize;
-            }
-        } else {
-            let mut id = transform_index;
-            let mut steps = 0;
-            while id < n && steps < n {
-                steps += 1;
-                checked[id] = true;
-                let p = node_parents.get(id).copied().unwrap_or(-1);
-                if p < 0 || (p as usize) >= n || p == id as i32 {
-                    break;
-                }
-                id = p as usize;
-            }
-        }
-        checked[transform_index] = true;
+    }
+}
+
+/// Returns the local matrix for node `i`, using cache when valid.
+#[inline]
+fn get_local_matrix(
+    nodes: &[crate::shared::RenderTransform],
+    local_matrices: &mut [Mat4],
+    local_dirty: &mut [bool],
+    i: usize,
+) -> Mat4 {
+    if i < local_dirty.len() && local_dirty[i] {
+        let m = render_transform_to_matrix(&nodes[i]);
+        local_matrices[i] = m;
+        local_dirty[i] = false;
+        m
+    } else if i < local_matrices.len() {
+        local_matrices[i]
+    } else {
+        render_transform_to_matrix(&nodes[i])
     }
 }
 
 /// Incremental world matrix computation: only recomputes nodes with `computed[i] == false`.
 /// Walks up from each uncomputed node to find the first computed ancestor, then multiplies down.
+/// Uses glam for SIMD-optimized matrix multiply and local matrix cache to avoid redundant TRS conversion.
 pub(super) fn compute_world_matrices_incremental(
     scene: &Scene,
-    world_matrices: &mut [Matrix4<f32>],
+    world_matrices: &mut [Mat4],
     computed: &mut [bool],
+    local_matrices: &mut [Mat4],
+    local_dirty: &mut [bool],
 ) -> Result<(), SceneError> {
     let n = scene.nodes.len();
     let node_parents = &scene.node_parents;
@@ -103,7 +106,7 @@ pub(super) fn compute_world_matrices_incremental(
             continue;
         }
 
-        let mut maybe_uppermost_matrix: Option<Matrix4<f32>> = None;
+        let mut maybe_uppermost_matrix: Option<Mat4> = None;
         let mut id = transform_index;
         let mut steps = 0;
         while id < n && steps < n {
@@ -127,16 +130,15 @@ pub(super) fn compute_world_matrices_incremental(
                     Some(t) => t,
                     None => continue,
                 };
-                let local = render_transform_to_matrix(&nodes[top]);
-                let uppermost = Matrix4::<f32>::identity() * local;
-                world_matrices[top] = uppermost;
+                let local = get_local_matrix(nodes, local_matrices, local_dirty, top);
+                world_matrices[top] = local;
                 computed[top] = true;
-                uppermost
+                local
             }
         };
 
         while let Some(child_id) = stack.pop() {
-            let local = render_transform_to_matrix(&nodes[child_id]);
+            let local = get_local_matrix(nodes, local_matrices, local_dirty, child_id);
             parent_matrix = parent_matrix * local;
             world_matrices[child_id] = parent_matrix;
             computed[child_id] = true;
@@ -149,13 +151,13 @@ pub(super) fn compute_world_matrices_incremental(
 /// Full iterative DFS world matrix computation with cycle detection.
 /// Used by tests; root-level nodes use identity as parent.
 #[cfg(test)]
-pub(crate) fn compute_world_matrices_from_scene(scene: &Scene) -> Vec<Matrix4<f32>> {
+pub(crate) fn compute_world_matrices_from_scene(scene: &Scene) -> Vec<Mat4> {
     let n = scene.nodes.len();
     if n == 0 {
         return Vec::new();
     }
 
-    let mut world = vec![Matrix4::identity(); n];
+    let mut world = vec![Mat4::IDENTITY; n];
     let mut visited = vec![false; n];
     let mut in_stack = vec![false; n];
 
@@ -177,7 +179,7 @@ pub(crate) fn compute_world_matrices_from_scene(scene: &Scene) -> Vec<Matrix4<f3
                 p as usize
             } else {
                 let local = render_transform_to_matrix(&scene.nodes[i]);
-                world[i] = Matrix4::<f32>::identity() * local;
+                world[i] = local;
                 visited[i] = true;
                 in_stack[i] = false;
                 stack.pop();
@@ -192,7 +194,7 @@ pub(crate) fn compute_world_matrices_from_scene(scene: &Scene) -> Vec<Matrix4<f3
                     p
                 );
                 let local = render_transform_to_matrix(&scene.nodes[i]);
-                world[i] = Matrix4::<f32>::identity() * local;
+                world[i] = local;
                 visited[i] = true;
                 in_stack[i] = false;
                 stack.pop();

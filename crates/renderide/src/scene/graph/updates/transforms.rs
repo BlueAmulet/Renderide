@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use nalgebra::Matrix4;
+use glam::Mat4;
 
 use crate::ipc::shared_memory::SharedMemoryAccessor;
 use crate::scene::{Scene, SceneId};
@@ -28,8 +28,10 @@ pub(crate) fn apply_transforms_update(
     let mut transform_removals = Vec::new();
 
     if cache.world_matrices.len() != scene.nodes.len() {
-        cache.world_matrices.resize(scene.nodes.len(), Matrix4::identity());
+        cache.world_matrices.resize(scene.nodes.len(), Mat4::IDENTITY);
         cache.computed.resize(scene.nodes.len(), false);
+        cache.local_matrices.resize(scene.nodes.len(), Mat4::IDENTITY);
+        cache.local_dirty.resize(scene.nodes.len(), true);
     }
 
     if update.removals.length > 0 {
@@ -75,6 +77,8 @@ pub(crate) fn apply_transforms_update(
             if idx < cache.world_matrices.len() {
                 cache.world_matrices.swap_remove(idx);
                 cache.computed.swap_remove(idx);
+                cache.local_matrices.swap_remove(idx);
+                cache.local_dirty.swap_remove(idx);
             }
         }
     }
@@ -82,8 +86,10 @@ pub(crate) fn apply_transforms_update(
     while (scene.nodes.len() as i32) < update.target_transform_count {
         scene.nodes.push(render_transform_identity());
         scene.node_parents.push(-1);
-        cache.world_matrices.push(Matrix4::identity());
+        cache.world_matrices.push(Mat4::IDENTITY);
         cache.computed.push(false);
+        cache.local_matrices.push(Mat4::IDENTITY);
+        cache.local_dirty.push(true);
     }
 
     let mut changed_indices = std::collections::HashSet::new();
@@ -137,6 +143,9 @@ pub(crate) fn apply_transforms_update(
     for i in &changed_indices {
         if *i < cache.computed.len() {
             cache.computed[*i] = false;
+        }
+        if *i < cache.local_dirty.len() {
+            cache.local_dirty[*i] = true;
         }
     }
     mark_descendants_uncomputed(&scene.node_parents, &mut cache.computed);
