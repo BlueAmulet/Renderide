@@ -1,0 +1,178 @@
+//! Core pipeline abstractions: RenderPipeline trait, UniformData, and shared constants.
+
+use super::super::mesh::GpuMeshBuffers;
+use nalgebra::Matrix4;
+
+/// Converts a nalgebra Matrix4 to WGSL column-major layout.
+///
+/// WGSL `mat4x4f` expects matrices in column-major order: column 0 (4 floats), then column 1,
+/// then column 2, then column 3. Nalgebra is also column-major, so this explicitly ensures
+/// the byte layout matches WGSL expectations when uploading to uniform buffers.
+pub fn matrix4_to_wgsl_column_major(mat: &Matrix4<f32>) -> [[f32; 4]; 4] {
+    let mut out = [[0.0f32; 4]; 4];
+    for c in 0..4 {
+        for r in 0..4 {
+            out[c][r] = mat[(r, c)];
+        }
+    }
+    out
+}
+
+/// Per-draw uniform data; pipelines extract what they need.
+#[derive(Clone, Copy)]
+pub enum UniformData<'a> {
+    /// MVP + model for non-skinned.
+    Simple {
+        mvp: Matrix4<f32>,
+        model: Matrix4<f32>,
+    },
+    /// MVP + bone matrices for skinned.
+    Skinned {
+        mvp: Matrix4<f32>,
+        bone_matrices: &'a [[[f32; 4]; 4]],
+    },
+}
+
+/// Abstraction for a render pipeline (shader, bind groups, draw logic).
+pub trait RenderPipeline {
+    /// Binds this pipeline and its bind groups to the render pass.
+    /// `frame_index` is used by batched pipelines for ring buffer offset; ignored by others.
+    /// `draw_bind_group` is used by skinned pipeline for per-draw bind group (uniform + blendshape buffer).
+    fn bind(
+        &self,
+        pass: &mut wgpu::RenderPass,
+        batch_index: Option<u32>,
+        frame_index: u64,
+        draw_bind_group: Option<&wgpu::BindGroup>,
+    );
+
+    /// Draws a non-skinned mesh. No-op for pipelines that only support skinned.
+    fn draw_mesh(
+        &self,
+        pass: &mut wgpu::RenderPass,
+        buffers: &GpuMeshBuffers,
+        _uniforms: &UniformData<'_>,
+    ) {
+        let _ = (pass, buffers, _uniforms);
+    }
+
+    /// Draws a skinned mesh. No-op for pipelines that only support non-skinned.
+    fn draw_skinned(
+        &self,
+        pass: &mut wgpu::RenderPass,
+        buffers: &GpuMeshBuffers,
+        _uniforms: &UniformData<'_>,
+    ) {
+        let _ = (pass, buffers, _uniforms);
+    }
+
+    /// Uploads batched uniforms for non-skinned draws. No-op for pipelines that don't batch.
+    /// `frame_index` advances each frame for ring buffer region selection.
+    fn upload_batch(
+        &self,
+        _queue: &wgpu::Queue,
+        _mvp_models: &[(Matrix4<f32>, Matrix4<f32>)],
+        _frame_index: u64,
+    ) {
+    }
+
+    /// Uploads batched uniforms for overlay stencil draws (includes clip_rect).
+    /// Default calls `upload_batch` with mvp_models only.
+    fn upload_batch_overlay(
+        &self,
+        queue: &wgpu::Queue,
+        items: &[(Matrix4<f32>, Matrix4<f32>, Option<[f32; 4]>)],
+        frame_index: u64,
+    ) {
+        let mvp_models: Vec<_> = items.iter().map(|(m, p, _)| (*m, *p)).collect();
+        self.upload_batch(queue, &mvp_models, frame_index);
+    }
+
+    /// Uploads skinned uniforms for a single draw. No-op for non-skinned pipelines.
+    fn upload_skinned(
+        &self,
+        _queue: &wgpu::Queue,
+        _mvp: Matrix4<f32>,
+        _bone_matrices: &[[[f32; 4]; 4]],
+    ) {
+    }
+
+    /// Uploads batched skinned uniforms to the ring buffer. No-op for pipelines that don't batch.
+    fn upload_skinned_batch(
+        &self,
+        _queue: &wgpu::Queue,
+        _items: &[(Matrix4<f32>, &[[[f32; 4]; 4]], Option<&[f32]>, u32)],
+        _frame_index: u64,
+    ) {
+    }
+
+    /// Creates a per-draw bind group for skinned pipeline (uniform + blendshape buffer).
+    /// Returns None for non-skinned pipelines.
+    fn create_skinned_draw_bind_group(
+        &self,
+        _device: &wgpu::Device,
+        _buffers: &GpuMeshBuffers,
+    ) -> Option<wgpu::BindGroup> {
+        None
+    }
+}
+
+/// Alignment for dynamic uniform buffer offsets (wgpu/Vulkan minimum).
+pub(crate) const UNIFORM_ALIGNMENT: u64 = 256;
+/// Number of frame regions in the ring buffer (avoids overwriting in-flight data).
+pub(crate) const NUM_FRAMES_IN_FLIGHT: usize = 3;
+/// Slots per frame region. Draws exceeding this are split into multiple chunks.
+pub(crate) const SLOTS_PER_FRAME: usize = 16_384;
+
+/// Slot stride for skinned uniforms (mvp + 256 bones + num_blendshapes + 128 weights).
+/// Aligned to 256 for dynamic offset. Struct size 16964, round up to 17152.
+pub(crate) const SKINNED_SLOT_STRIDE: u64 = 17_152;
+/// Slots per frame for skinned draws. Smaller than `SLOTS_PER_FRAME` to limit memory (~25 MB).
+pub(crate) const SKINNED_SLOTS_PER_FRAME: usize = 512;
+
+/// Maximum blendshape weights per draw. Meshes with more blendshapes are truncated; weights
+/// beyond this index are ignored. The host (SkinnedMeshRendererManager) has no limit; Gloobie
+/// uses a storage buffer for unbounded weights.
+pub const MAX_BLENDSHAPE_WEIGHTS: usize = 128;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verifies that matrix4_to_wgsl_column_major produces byte layout matching WGSL mat4x4f:
+    /// column 0 at offset 0, column 1 at 16, column 2 at 32, column 3 at 48.
+    #[test]
+    fn test_matrix4_to_wgsl_column_major_layout() {
+        let mat = Matrix4::from_fn(|r, c| (r * 4 + c) as f32);
+        let arr = matrix4_to_wgsl_column_major(&mat);
+        let bytes: &[u8] = bytemuck::bytes_of(&arr);
+        assert_eq!(bytes.len(), 64);
+        for c in 0..4 {
+            let offset = c * 16;
+            for r in 0..4 {
+                let val = f32::from_le_bytes(
+                    bytes[offset + r * 4..offset + r * 4 + 4].try_into().unwrap(),
+                );
+                assert_eq!(val, (r * 4 + c) as f32, "col {} row {}", c, r);
+            }
+        }
+    }
+
+    /// Verifies translation in column 3 (typical model matrix layout).
+    #[test]
+    fn test_matrix4_wgsl_translation_column3() {
+        let mat = Matrix4::new_translation(&nalgebra::Vector3::new(1.0, 2.0, 3.0));
+        let arr = matrix4_to_wgsl_column_major(&mat);
+        let bytes: &[u8] = bytemuck::bytes_of(&arr);
+        let col3_offset = 48;
+        let tx =
+            f32::from_le_bytes(bytes[col3_offset..col3_offset + 4].try_into().unwrap());
+        let ty =
+            f32::from_le_bytes(bytes[col3_offset + 4..col3_offset + 8].try_into().unwrap());
+        let tz =
+            f32::from_le_bytes(bytes[col3_offset + 8..col3_offset + 12].try_into().unwrap());
+        assert!((tx - 1.0).abs() < 1e-6);
+        assert!((ty - 2.0).abs() < 1e-6);
+        assert!((tz - 3.0).abs() < 1e-6);
+    }
+}
