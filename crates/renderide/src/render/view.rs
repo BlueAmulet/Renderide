@@ -5,6 +5,7 @@
 
 use nalgebra::Matrix4;
 
+use super::batch::SpaceDrawBatch;
 use super::pass::{orthographic_projection_reverse_z, reverse_z_projection};
 use crate::session::Session;
 
@@ -59,6 +60,43 @@ impl ViewParams {
             near_clip: near_clip.max(0.01),
             far_clip,
         }
+    }
+
+    /// Computes overlay projection override for the current frame.
+    ///
+    /// Returns `Some(ViewParams)` when overlays should use orthographic projection:
+    /// - If the primary camera task has orthographic params, uses those.
+    /// - Else if any batch has `is_overlay`, uses `orthographic_viewport_fallback`.
+    /// Returns `None` when no overlay projection override is needed.
+    pub fn overlay_projection_for_frame(
+        session: &Session,
+        draw_batches: &[SpaceDrawBatch],
+        aspect: f32,
+    ) -> Option<Self> {
+        session
+            .primary_camera_task()
+            .and_then(|t| t.parameters.as_ref())
+            .filter(|p| p.projection == crate::shared::CameraProjection::orthographic)
+            .map(|p| Self {
+                projection: ViewProjection::Orthographic {
+                    half_size: p.orthographic_size,
+                    aspect,
+                },
+                near_clip: p.near_clip.max(0.01),
+                far_clip: p.far_clip,
+            })
+            .or_else(|| {
+                let has_overlay_batches = draw_batches.iter().any(|b| b.is_overlay);
+                if has_overlay_batches {
+                    Some(Self::orthographic_viewport_fallback(
+                        aspect,
+                        session.near_clip(),
+                        session.far_clip(),
+                    ))
+                } else {
+                    None
+                }
+            })
     }
 
     /// Builds perspective view params from session and aspect ratio.
