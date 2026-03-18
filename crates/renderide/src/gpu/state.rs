@@ -34,6 +34,10 @@ pub struct GpuState {
     pub accel_cache: Option<AccelCache>,
     /// Ray tracing state holding the current frame's TLAS. Rebuilt each frame when ray tracing available.
     pub ray_tracing_state: Option<RayTracingState>,
+    /// Persistent 16-byte uniform buffer for RTAO compute pass. Created on first use; written each frame via write_buffer.
+    pub rtao_uniform_buffer: Option<wgpu::Buffer>,
+    /// Persistent 16-byte uniform buffer for composite pass. Created on first use; written each frame via write_buffer.
+    pub composite_uniform_buffer: Option<wgpu::Buffer>,
 }
 
 /// Initializes wgpu surface, device, queue, and mesh pipeline.
@@ -189,6 +193,8 @@ pub async fn init_gpu(
         } else {
             None
         },
+        rtao_uniform_buffer: None,
+        composite_uniform_buffer: None,
     })
 }
 

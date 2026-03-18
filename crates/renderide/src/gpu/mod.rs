@@ -4,6 +4,7 @@ pub mod accel;
 pub mod mesh;
 pub mod pipeline;
 pub mod registry;
+pub mod rtao_textures;
 pub mod state;
 
 pub use accel::{build_blas_for_mesh, build_tlas, remove_blas, AccelCache, RayTracingState};

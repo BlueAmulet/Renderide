@@ -196,6 +196,20 @@ impl RenderPass for CompositePass {
             }
         };
 
+        let ao_strength = ctx.session.render_config().rtao_strength;
+        let uniform_data = [ao_strength, 0.0f32, 0.0f32, 0.0f32];
+        let uniform_buffer = ctx.gpu.composite_uniform_buffer.get_or_insert_with(|| {
+            ctx.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("composite uniforms"),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        });
+        ctx.gpu
+            .queue
+            .write_buffer(uniform_buffer, 0, bytemuck::bytes_of(&uniform_data));
+
         let (pipeline, bgl, sampler) = match self.ensure_pipeline(&ctx.gpu.device, ctx.gpu.config.format) {
             Some(x) => x,
             None => {
@@ -204,17 +218,6 @@ impl RenderPass for CompositePass {
             }
         };
 
-        let ao_strength = ctx.session.render_config().rtao_strength;
-        let uniform_data = [ao_strength, 0.0f32, 0.0f32, 0.0f32];
-        let uniform_buffer = ctx.gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("composite uniforms"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        ctx.gpu
-            .queue
-            .write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(&uniform_data));
         let bind_group = ctx.gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("composite bind group"),
             layout: bgl,

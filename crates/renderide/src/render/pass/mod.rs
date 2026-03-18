@@ -26,6 +26,56 @@ pub use projection::{
 pub use rtao_blur::RtaoBlurPass;
 pub use rtao_compute::RtaoComputePass;
 
+/// Pre-collected mesh draws and view parameters for the main view.
+///
+/// Produced by [`prepare_mesh_draws_for_view`] during the collect phase.
+/// Passed to [`RenderLoop::render_frame`] to avoid CPU work in the render phase.
+pub struct PreCollectedFrameData {
+    /// Primary projection matrix for the main view.
+    pub proj: Matrix4<f32>,
+    /// Overlay projection override when overlays use orthographic.
+    pub overlay_projection_override: Option<ViewParams>,
+    /// Cached mesh draws: (non_overlay_skinned, overlay_skinned, non_overlay_non_skinned, overlay_non_skinned).
+    pub(crate) cached_mesh_draws: (
+        Vec<mesh_draw::SkinnedBatchedDraw>,
+        Vec<mesh_draw::SkinnedBatchedDraw>,
+        Vec<mesh_draw::BatchedDraw>,
+        Vec<mesh_draw::BatchedDraw>,
+    ),
+}
+
+/// Prepares mesh draws for the main view during the collect phase.
+///
+/// Runs [`ensure_mesh_buffers`] and [`collect_mesh_draws`] so this CPU work
+/// is measured in the collect phase rather than the render phase.
+pub fn prepare_mesh_draws_for_view(
+    gpu: &mut crate::gpu::GpuState,
+    session: &Session,
+    draw_batches: &[SpaceDrawBatch],
+    viewport: (u32, u32),
+) -> PreCollectedFrameData {
+    ensure_mesh_buffers(gpu, session, draw_batches);
+    let (width, height) = viewport;
+    let aspect = width as f32 / height.max(1) as f32;
+    let view_params = ViewParams::perspective_from_session(session, aspect);
+    let proj = view_params.to_projection_matrix();
+    let overlay_projection_override =
+        ViewParams::overlay_projection_for_frame(session, draw_batches, aspect);
+    let collect_ctx = CollectMeshDrawsContext {
+        session,
+        draw_batches,
+        gpu,
+        proj,
+        overlay_projection_override: overlay_projection_override.clone(),
+    };
+    let cached_mesh_draws = collect_mesh_draws(&collect_ctx);
+    PreCollectedFrameData {
+        proj,
+        overlay_projection_override,
+        cached_mesh_draws,
+    }
+}
+
 /// Errors that can occur during render pass execution.
 #[derive(Debug)]
 pub enum RenderPassError {
@@ -84,10 +134,10 @@ pub struct RenderPassContext<'a> {
     pub timestamp_query_set: Option<&'a wgpu::QuerySet>,
     /// Cached mesh draws from a single collect per frame. Mesh and overlay passes use this.
     pub(crate) cached_mesh_draws: Option<(
-        Vec<mesh_draw::SkinnedBatchedDraw>,
-        Vec<mesh_draw::SkinnedBatchedDraw>,
-        Vec<mesh_draw::BatchedDraw>,
-        Vec<mesh_draw::BatchedDraw>,
+        &'a [mesh_draw::SkinnedBatchedDraw],
+        &'a [mesh_draw::SkinnedBatchedDraw],
+        &'a [mesh_draw::BatchedDraw],
+        &'a [mesh_draw::BatchedDraw],
     )>,
 }
 
@@ -137,6 +187,13 @@ pub struct RenderGraphContext<'a> {
     pub timestamp_staging_buffer: Option<&'a wgpu::Buffer>,
     /// When RTAO is enabled and ray tracing is available, MRT views for mesh pass.
     pub mrt_views: Option<MrtViews<'a>>,
+    /// Pre-collected mesh draws from the collect phase. When `Some`, skips collect in execute.
+    pub(crate) pre_collected: Option<&'a (
+        Vec<mesh_draw::SkinnedBatchedDraw>,
+        Vec<mesh_draw::SkinnedBatchedDraw>,
+        Vec<mesh_draw::BatchedDraw>,
+        Vec<mesh_draw::BatchedDraw>,
+    )>,
 }
 
 /// Trait for render passes that can be executed by the render graph.
@@ -196,16 +253,30 @@ impl RenderGraph {
             mrt_color_input_view,
         };
 
-        ensure_mesh_buffers(ctx.gpu, ctx.session, ctx.draw_batches);
+        if ctx.pre_collected.is_none() {
+            ensure_mesh_buffers(ctx.gpu, ctx.session, ctx.draw_batches);
+        }
 
-        let collect_ctx = CollectMeshDrawsContext {
-            session: ctx.session,
-            draw_batches: ctx.draw_batches,
-            gpu: &*ctx.gpu,
-            proj: ctx.proj,
-            overlay_projection_override: ctx.overlay_projection_override.clone(),
+        let computed;
+        let cached_mesh_draws = match ctx.pre_collected {
+            Some(pc) => Some((&pc.0[..], &pc.1[..], &pc.2[..], &pc.3[..])),
+            None => {
+                let collect_ctx = CollectMeshDrawsContext {
+                    session: ctx.session,
+                    draw_batches: ctx.draw_batches,
+                    gpu: &*ctx.gpu,
+                    proj: ctx.proj,
+                    overlay_projection_override: ctx.overlay_projection_override.clone(),
+                };
+                computed = collect_mesh_draws(&collect_ctx);
+                Some((
+                    &computed.0[..],
+                    &computed.1[..],
+                    &computed.2[..],
+                    &computed.3[..],
+                ))
+            }
         };
-        let cached_mesh_draws = collect_mesh_draws(&collect_ctx);
 
         if let Some(ref mut ray_tracing) = ctx.gpu.ray_tracing_state {
             if let Some(ref accel) = ctx.gpu.accel_cache {
@@ -214,6 +285,7 @@ impl RenderGraph {
                     &mut encoder,
                     accel,
                     ctx.draw_batches,
+                    &mut ray_tracing.instance_scratch,
                 );
             }
         }
@@ -231,7 +303,7 @@ impl RenderGraph {
             render_target,
             encoder: &mut encoder,
             timestamp_query_set: ctx.timestamp_query_set,
-            cached_mesh_draws: Some(cached_mesh_draws),
+            cached_mesh_draws,
         };
 
         for pass in &mut self.passes {

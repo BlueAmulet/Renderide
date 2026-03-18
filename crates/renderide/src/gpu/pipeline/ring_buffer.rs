@@ -1,5 +1,7 @@
 //! Ring buffers for batched uniform data.
 
+use std::cell::RefCell;
+
 use nalgebra::Matrix4;
 
 use super::core::{
@@ -12,6 +14,8 @@ use super::uniforms::{OverlayStencilUniforms, SkinnedUniforms, Uniforms};
 /// No panic or silent drop when draws exceed a single region.
 pub(crate) struct UniformRingBuffer {
     pub buffer: wgpu::Buffer,
+    /// Reusable scratch buffer for uploads. Avoids per-chunk heap allocation.
+    scratch: RefCell<Vec<u8>>,
 }
 
 impl UniformRingBuffer {
@@ -23,7 +27,10 @@ impl UniformRingBuffer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        Self { buffer }
+        let scratch = RefCell::new(Vec::with_capacity(
+            (SLOTS_PER_FRAME as u64 * UNIFORM_ALIGNMENT) as usize,
+        ));
+        Self { buffer, scratch }
     }
 
     /// Uploads uniforms to the ring buffer, chunking if needed. No limit panic.
@@ -38,10 +45,13 @@ impl UniformRingBuffer {
         }
         let uniform_size = std::mem::size_of::<Uniforms>();
         let region_base = (frame_index as usize % NUM_FRAMES_IN_FLIGHT) * SLOTS_PER_FRAME;
+        let mut scratch = self.scratch.borrow_mut();
         for (chunk_idx, chunk) in mvp_models.chunks(SLOTS_PER_FRAME).enumerate() {
             let region = (region_base + chunk_idx) % NUM_FRAMES_IN_FLIGHT;
             let buffer_offset = (region * SLOTS_PER_FRAME) as u64 * UNIFORM_ALIGNMENT;
-            let mut aligned = vec![0u8; (chunk.len() as u64 * UNIFORM_ALIGNMENT) as usize];
+            let need_len = (chunk.len() as u64 * UNIFORM_ALIGNMENT) as usize;
+            scratch.resize(need_len, 0);
+            let aligned = &mut scratch[..need_len];
             for (i, (mvp, model)) in chunk.iter().enumerate() {
                 let u = Uniforms {
                     mvp: matrix4_to_wgsl_column_major(mvp),
@@ -71,6 +81,8 @@ impl UniformRingBuffer {
 pub(crate) struct SkinnedUniformRingBuffer {
     /// GPU buffer backing the ring.
     pub buffer: wgpu::Buffer,
+    /// Reusable scratch buffer for uploads. Avoids per-chunk heap allocation.
+    scratch: RefCell<Vec<u8>>,
 }
 
 impl SkinnedUniformRingBuffer {
@@ -84,7 +96,10 @@ impl SkinnedUniformRingBuffer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        Self { buffer }
+        let scratch = RefCell::new(Vec::with_capacity(
+            (SKINNED_SLOTS_PER_FRAME as u64 * SKINNED_SLOT_STRIDE) as usize,
+        ));
+        Self { buffer, scratch }
     }
 
     /// Uploads skinned uniforms to the ring buffer, chunking if needed. No limit panic.
@@ -100,12 +115,14 @@ impl SkinnedUniformRingBuffer {
         let uniform_size = std::mem::size_of::<SkinnedUniforms>();
         let region_base =
             (frame_index as usize % NUM_FRAMES_IN_FLIGHT) * SKINNED_SLOTS_PER_FRAME;
+        let mut scratch = self.scratch.borrow_mut();
         for (chunk_idx, chunk) in items.chunks(SKINNED_SLOTS_PER_FRAME).enumerate() {
             let region = (region_base + chunk_idx) % NUM_FRAMES_IN_FLIGHT;
             let buffer_offset =
                 (region * SKINNED_SLOTS_PER_FRAME) as u64 * SKINNED_SLOT_STRIDE;
-            let mut aligned =
-                vec![0u8; (chunk.len() as u64 * SKINNED_SLOT_STRIDE) as usize];
+            let need_len = (chunk.len() as u64 * SKINNED_SLOT_STRIDE) as usize;
+            scratch.resize(need_len, 0);
+            let aligned = &mut scratch[..need_len];
             for (i, (mvp, bone_matrices, blendshape_weights, num_vertices)) in chunk.iter().enumerate()
             {
                 let mut u = SkinnedUniforms {
@@ -149,6 +166,8 @@ impl SkinnedUniformRingBuffer {
 /// Ring buffer for overlay stencil uniforms (mvp + model + clip_rect per slot).
 pub(crate) struct OverlayStencilUniformRingBuffer {
     pub buffer: wgpu::Buffer,
+    /// Reusable scratch buffer for uploads. Avoids per-chunk heap allocation.
+    scratch: RefCell<Vec<u8>>,
 }
 
 impl OverlayStencilUniformRingBuffer {
@@ -160,7 +179,10 @@ impl OverlayStencilUniformRingBuffer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        Self { buffer }
+        let scratch = RefCell::new(Vec::with_capacity(
+            (SLOTS_PER_FRAME as u64 * UNIFORM_ALIGNMENT) as usize,
+        ));
+        Self { buffer, scratch }
     }
 
     pub fn upload(
@@ -174,10 +196,13 @@ impl OverlayStencilUniformRingBuffer {
         }
         let uniform_size = std::mem::size_of::<OverlayStencilUniforms>();
         let region_base = (frame_index as usize % NUM_FRAMES_IN_FLIGHT) * SLOTS_PER_FRAME;
+        let mut scratch = self.scratch.borrow_mut();
         for (chunk_idx, chunk) in items.chunks(SLOTS_PER_FRAME).enumerate() {
             let region = (region_base + chunk_idx) % NUM_FRAMES_IN_FLIGHT;
             let buffer_offset = (region * SLOTS_PER_FRAME) as u64 * UNIFORM_ALIGNMENT;
-            let mut aligned = vec![0u8; (chunk.len() as u64 * UNIFORM_ALIGNMENT) as usize];
+            let need_len = (chunk.len() as u64 * UNIFORM_ALIGNMENT) as usize;
+            scratch.resize(need_len, 0);
+            let aligned = &mut scratch[..need_len];
             for (i, (mvp, model, clip_rect)) in chunk.iter().enumerate() {
                 let clip = clip_rect.unwrap_or([0.0, 0.0, 0.0, 0.0]);
                 let u = OverlayStencilUniforms {

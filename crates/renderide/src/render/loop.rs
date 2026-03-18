@@ -5,8 +5,8 @@
 use std::mem::size_of;
 
 use super::pass::{
-    CompositePass, MeshRenderPass, OverlayRenderPass, RenderGraph, RenderGraphContext,
-    RtaoBlurPass, RtaoComputePass,
+    CompositePass, MeshRenderPass, OverlayRenderPass, PreCollectedFrameData, RenderGraph,
+    RenderGraphContext, RtaoBlurPass, RtaoComputePass,
 };
 use super::view::ViewParams;
 use super::target::RenderTarget;
@@ -36,6 +36,9 @@ pub struct RenderLoop {
     last_gpu_mesh_pass_ms: Option<f64>,
     /// Whether RTAO diagnostic has been logged once at startup.
     rtao_diagnostic_logged: bool,
+    /// Cached RTAO MRT textures. Recreated only when viewport dimensions change.
+    /// Stored in RenderLoop to avoid borrow conflicts with GpuState in render graph context.
+    rtao_textures: Option<crate::gpu::rtao_textures::RtaoTextureCache>,
 }
 
 impl RenderLoop {
@@ -75,6 +78,7 @@ impl RenderLoop {
             frame_count: 0,
             last_gpu_mesh_pass_ms: None,
             rtao_diagnostic_logged: false,
+            rtao_textures: None,
         }
     }
 
@@ -87,11 +91,15 @@ impl RenderLoop {
     ///
     /// Uses [`RenderTarget::Surface`] for the main window. Depth texture dimensions
     /// must match the target; the caller ensures this via resize handling.
+    ///
+    /// When `pre_collected` is `Some`, uses pre-computed mesh draws and view params
+    /// from the collect phase to avoid CPU work in the render phase.
     pub fn render_frame(
         &mut self,
         gpu: &mut GpuState,
         session: &Session,
         draw_batches: &[SpaceDrawBatch],
+        pre_collected: Option<&PreCollectedFrameData>,
     ) -> Result<RenderTarget, wgpu::SurfaceError> {
         let output = gpu.surface.get_current_texture()?;
         let target = RenderTarget::from_surface_texture(output);
@@ -110,12 +118,17 @@ impl RenderLoop {
             .as_ref()
             .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
 
-        let aspect = width as f32 / height.max(1) as f32;
-        let view_params = ViewParams::perspective_from_session(session, aspect);
-        let proj = view_params.to_projection_matrix();
-
-        let overlay_projection_override =
-            ViewParams::overlay_projection_for_frame(session, draw_batches, aspect);
+        let (proj, overlay_projection_override) = match pre_collected {
+            Some(pc) => (pc.proj, pc.overlay_projection_override.clone()),
+            None => {
+                let aspect = width as f32 / height.max(1) as f32;
+                let view_params = ViewParams::perspective_from_session(session, aspect);
+                let proj = view_params.to_projection_matrix();
+                let overlay =
+                    ViewParams::overlay_projection_for_frame(session, draw_batches, aspect);
+                (proj, overlay)
+            }
+        };
 
         let rtao_enabled = session.render_config().rtao_enabled && gpu.ray_tracing_available;
         if !self.rtao_diagnostic_logged {
@@ -127,149 +140,32 @@ impl RenderLoop {
             );
             self.rtao_diagnostic_logged = true;
         }
-        let (
-            mrt_color_tex,
-            mrt_color_view,
-            mrt_position_tex,
-            mrt_position_view,
-            mrt_normal_tex,
-            mrt_normal_view,
-            mrt_ao_raw_tex,
-            mrt_ao_raw_view,
-            mrt_ao_tex,
-            mrt_ao_view,
-        ) = if rtao_enabled {
-                let color_format = gpu.config.format;
-                let color_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("RTAO MRT color texture"),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: color_format,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::COPY_SRC
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                });
-                let position_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("RTAO MRT position texture"),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba16Float,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                });
-                let normal_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("RTAO MRT normal texture"),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba16Float,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                });
-                let ao_raw_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("RTAO AO raw texture"),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::STORAGE_BINDING
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                });
-                let ao_tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("RTAO AO texture"),
-                    size: wgpu::Extent3d {
-                        width,
-                        height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    usage: wgpu::TextureUsages::STORAGE_BINDING
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                });
-                let color_view = color_tex.create_view(&wgpu::TextureViewDescriptor::default());
-                let position_view =
-                    position_tex.create_view(&wgpu::TextureViewDescriptor::default());
-                let normal_view = normal_tex.create_view(&wgpu::TextureViewDescriptor::default());
-                let ao_raw_view = ao_raw_tex.create_view(&wgpu::TextureViewDescriptor::default());
-                let ao_view = ao_tex.create_view(&wgpu::TextureViewDescriptor::default());
-                (
-                    Some(color_tex),
-                    Some(color_view),
-                    Some(position_tex),
-                    Some(position_view),
-                    Some(normal_tex),
-                    Some(normal_view),
-                    Some(ao_raw_tex),
-                    Some(ao_raw_view),
-                    Some(ao_tex),
-                    Some(ao_view),
-                )
-            } else {
-                (None, None, None, None, None, None, None, None, None, None)
-            };
 
-        let mrt_views = if let (
-            Some(ct),
-            Some(cv),
-            Some(_pt),
-            Some(pv),
-            Some(_nt),
-            Some(nv),
-            Some(_araw),
-            Some(arawv),
-            Some(_at),
-            Some(av),
-        ) = (
-            &mrt_color_tex,
-            &mrt_color_view,
-            &mrt_position_tex,
-            &mrt_position_view,
-            &mrt_normal_tex,
-            &mrt_normal_view,
-            &mrt_ao_raw_tex,
-            &mrt_ao_raw_view,
-            &mrt_ao_tex,
-            &mrt_ao_view,
-        ) {
-            Some(super::pass::MrtViews {
-                color_view: cv,
-                color_texture: ct,
-                position_view: pv,
-                normal_view: nv,
-                ao_raw_view: arawv,
-                ao_view: av,
-            })
+        if rtao_enabled {
+            let needs_create = self
+                .rtao_textures
+                .as_ref()
+                .map_or(true, |c| !c.matches_viewport(width, height));
+            if needs_create {
+                self.rtao_textures = Some(crate::gpu::rtao_textures::RtaoTextureCache::create(
+                    &gpu.device,
+                    width,
+                    height,
+                    gpu.config.format,
+                ));
+            }
         } else {
-            None
-        };
+            self.rtao_textures = None;
+        }
+
+        let mrt_views = self.rtao_textures.as_ref().map(|cache| super::pass::MrtViews {
+            color_view: &cache.color_view,
+            color_texture: &cache.color_texture,
+            position_view: &cache.position_view,
+            normal_view: &cache.normal_view,
+            ao_raw_view: &cache.ao_raw_view,
+            ao_view: &cache.ao_view,
+        });
 
         let mut ctx = RenderGraphContext {
             gpu,
@@ -285,6 +181,7 @@ impl RenderLoop {
             timestamp_resolve_buffer: Some(&self.timestamp_resolve_buffer),
             timestamp_staging_buffer: Some(&self.timestamp_staging_buffer),
             mrt_views,
+            pre_collected: pre_collected.map(|pc| &pc.cached_mesh_draws),
         };
 
         self.graph.execute(&mut ctx).map_err(|e| match e {
@@ -333,6 +230,7 @@ impl RenderLoop {
             timestamp_resolve_buffer: None,
             timestamp_staging_buffer: None,
             mrt_views: None,
+            pre_collected: None,
         };
         self.graph.execute(&mut ctx)
     }

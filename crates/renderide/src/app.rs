@@ -291,11 +291,23 @@ impl ApplicationHandler for RenderideApp {
                     }
                     let t1 = Instant::now();
                     let draw_batches = self.session.collect_draw_batches();
+                    let (width, height) = self.input.window_resolution;
+                    let viewport = (width, height);
+                    let pre_collected = crate::render::prepare_mesh_draws_for_view(
+                        gpu,
+                        &self.session,
+                        &draw_batches,
+                        viewport,
+                    );
                     let collect_us = t1.elapsed().as_micros() as u64;
 
                     let t2 = Instant::now();
-                    let render_result =
-                        render_loop.render_frame(gpu, &self.session, &draw_batches);
+                    let render_result = render_loop.render_frame(
+                        gpu,
+                        &self.session,
+                        &draw_batches,
+                        Some(&pre_collected),
+                    );
                     let render_us = t2.elapsed().as_micros() as u64;
 
                     let t3 = Instant::now();
@@ -443,11 +455,23 @@ impl ApplicationHandler for RenderideApp {
                         }
                         let t1 = Instant::now();
                         let draw_batches = self.session.collect_draw_batches();
+                        let (width, height) = self.input.window_resolution;
+                        let viewport = (width, height);
+                        let pre_collected = crate::render::prepare_mesh_draws_for_view(
+                            gpu,
+                            &self.session,
+                            &draw_batches,
+                            viewport,
+                        );
                         let collect_us = t1.elapsed().as_micros() as u64;
 
                         let t2 = Instant::now();
-                        let render_result =
-                            render_loop.render_frame(gpu, &self.session, &draw_batches);
+                        let render_result = render_loop.render_frame(
+                            gpu,
+                            &self.session,
+                            &draw_batches,
+                            Some(&pre_collected),
+                        );
                         let render_us = t2.elapsed().as_micros() as u64;
 
                         let t3 = Instant::now();

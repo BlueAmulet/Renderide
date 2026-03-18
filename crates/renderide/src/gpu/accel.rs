@@ -237,12 +237,17 @@ pub fn remove_blas(cache: &mut AccelCache, mesh_asset_id: i32) {
 pub struct RayTracingState {
     /// Current TLAS built from non-overlay, non-skinned draws. `None` when no instances.
     pub tlas: Option<wgpu::Tlas>,
+    /// Reusable scratch buffer for TLAS instance data. Avoids per-frame Vec allocation.
+    pub(crate) instance_scratch: Vec<(i32, [f32; 12])>,
 }
 
 impl RayTracingState {
     /// Creates an empty ray tracing state.
     pub fn new() -> Self {
-        Self { tlas: None }
+        Self {
+            tlas: None,
+            instance_scratch: Vec::new(),
+        }
     }
 }
 
@@ -268,6 +273,9 @@ fn matrix4_to_affine_3x4(m: &Mat4) -> [f32; 12] {
 /// `accel_cache`, adds an instance with the draw's model matrix and BLAS reference.
 /// Records the build into `encoder`. Caller must submit the encoder.
 ///
+/// Uses `instance_scratch` to avoid per-frame Vec allocation. Caller should pass a reusable
+/// buffer (e.g. [`RayTracingState::instance_scratch`]).
+///
 /// Returns `Some(Tlas)` when at least one instance was added, `None` otherwise.
 /// Caller must ensure the device has [`wgpu::Features::EXPERIMENTAL_RAY_QUERY`] enabled.
 pub fn build_tlas(
@@ -275,8 +283,9 @@ pub fn build_tlas(
     encoder: &mut wgpu::CommandEncoder,
     accel_cache: &AccelCache,
     draw_batches: &[SpaceDrawBatch],
+    instance_scratch: &mut Vec<(i32, [f32; 12])>,
 ) -> Option<wgpu::Tlas> {
-    let mut instance_data: Vec<(i32, [f32; 12])> = Vec::new();
+    instance_scratch.clear();
 
     for batch in draw_batches {
         if batch.is_overlay {
@@ -290,15 +299,15 @@ pub fn build_tlas(
                 continue;
             }
             let transform = matrix4_to_affine_3x4(&d.model_matrix);
-            instance_data.push((d.mesh_asset_id, transform));
+            instance_scratch.push((d.mesh_asset_id, transform));
         }
     }
 
-    if instance_data.is_empty() {
+    if instance_scratch.is_empty() {
         return None;
     }
 
-    let max_instances = instance_data.len() as u32;
+    let max_instances = instance_scratch.len() as u32;
     let tlas_desc = wgpu::CreateTlasDescriptor {
         label: Some("scene TLAS"),
         max_instances,
@@ -308,9 +317,9 @@ pub fn build_tlas(
 
     let mut tlas = device.create_tlas(&tlas_desc);
 
-    for (i, (mesh_asset_id, transform)) in instance_data.into_iter().enumerate() {
-        let blas = accel_cache.get(mesh_asset_id).expect("BLAS present");
-        let instance = wgpu::TlasInstance::new(blas, transform, 0, 0xFF);
+    for (i, (mesh_asset_id, transform)) in instance_scratch.iter().enumerate() {
+        let blas = accel_cache.get(*mesh_asset_id).expect("BLAS present");
+        let instance = wgpu::TlasInstance::new(blas, *transform, 0, 0xFF);
         tlas[i] = Some(instance);
     }
 

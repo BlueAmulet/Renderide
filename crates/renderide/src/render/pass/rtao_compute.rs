@@ -349,17 +349,19 @@ impl RenderPass for RtaoComputePass {
             }
         };
 
+        let uniform_buffer = ctx.gpu.rtao_uniform_buffer.get_or_insert_with(|| {
+            ctx.gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("RTAO uniforms"),
+                size: 16,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        });
         let ao_radius = ctx.session.render_config().ao_radius;
         let uniform_data = [ao_radius, 0.0f32, 0.0f32, 0.0f32];
-        let uniform_buffer = ctx.gpu.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("RTAO uniforms"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
         ctx.gpu
             .queue
-            .write_buffer(&uniform_buffer, 0, bytemuck::bytes_of(&uniform_data));
+            .write_buffer(uniform_buffer, 0, bytemuck::bytes_of(&uniform_data));
 
         let bind_group = ctx.gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("RTAO compute bind group"),

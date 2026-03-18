@@ -51,8 +51,9 @@ pub use crate::stencil::{ClipRect, StencilComparison, StencilOperation, StencilS
 pub use context::{current_context, set_context, with_context, FramePhase};
 pub use crate::shared::RenderingContext;
 pub use pass::{
-    MeshRenderPass, OverlayRenderPass, RenderGraph, RenderGraphContext, RenderPass,
-    RenderPassContext, RenderPassError, RenderTargetViews,
+    prepare_mesh_draws_for_view, MeshRenderPass, OverlayRenderPass, PreCollectedFrameData,
+    RenderGraph, RenderGraphContext, RenderPass, RenderPassContext, RenderPassError,
+    RenderTargetViews,
 };
 pub use r#loop::RenderLoop;
 pub use task::RenderTaskExecutor;
