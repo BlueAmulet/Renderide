@@ -229,6 +229,9 @@ impl SceneGraph {
                     &transform_removals,
                 )?;
             }
+            if let Some(ref rto_update) = update.render_transform_overrides_update {
+                updates::apply_render_transform_overrides_update(scene, shm, rto_update)?;
+            }
             if let Some(ref mat_override_update) = update.render_material_overrides_update {
                 updates::apply_render_material_overrides_update(scene, shm, mat_override_update)?;
             }

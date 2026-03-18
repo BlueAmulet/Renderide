@@ -76,6 +76,7 @@ pub(crate) fn apply_skinned_mesh_renderables_update(
                 blend_shape_weights: Some(vec![]),
                 stencil_state: None,
                 material_override_block_id: None,
+                render_transform_override: None,
             });
         }
     }

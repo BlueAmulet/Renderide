@@ -4015,7 +4015,7 @@ impl MemoryPackable for VROutputState {
     }
 }
 
-#[derive(Default, Clone, Copy, Pod, Zeroable)]
+#[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 pub struct RenderTransform {
     pub position: Vector3<f32>,

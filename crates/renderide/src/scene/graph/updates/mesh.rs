@@ -54,6 +54,7 @@ pub(crate) fn apply_mesh_renderables_update(
                 blend_shape_weights: None,
                 stencil_state: None,
                 material_override_block_id: None,
+                render_transform_override: None,
             });
         }
     }

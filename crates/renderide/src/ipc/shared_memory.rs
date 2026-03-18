@@ -179,7 +179,7 @@ impl SharedMemoryAccessor {
             })?;
         let count = descriptor.length as usize / std::mem::size_of::<T>();
         if count == 0 {
-            return Err("count==0".into());
+            return Ok(Vec::new());
         }
         // Copy to aligned buffer: mmap slices at arbitrary offsets may be unaligned for T
         // (e.g. i32 needs 4-byte alignment), causing bytemuck::try_cast_slice to fail.
