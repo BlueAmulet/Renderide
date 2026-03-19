@@ -219,6 +219,8 @@ pub trait RenderPipeline {
         _near_clip: f32,
         _far_clip: f32,
         _light_count: u32,
+        _viewport_width: u32,
+        _viewport_height: u32,
         _light_buffer: &wgpu::Buffer,
         _cluster_light_counts: &wgpu::Buffer,
         _cluster_light_indices: &wgpu::Buffer,

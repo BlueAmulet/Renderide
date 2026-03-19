@@ -1,14 +1,14 @@
 //! Clustered light compute pass.
 //!
 //! Dispatches over tiles (16x16 pixels), computes per-tile light indices by testing
-//! each light against the tile frustum (point: sphere-AABB, spot: cone-AABB,
-//! directional: always in). Outputs cluster_light_counts and cluster_light_indices.
+//! each light against the tile frustum (point: sphere-AABB, spot: conservative bounding sphere of
+//! the finite cone, directional: always in). Outputs cluster_light_counts and cluster_light_indices.
 //!
 //! For spot lights, the cone axis in WGSL is the view-space beam forward (same as
 //! [`GpuLight`](crate::render::lights::GpuLight) `direction`), matching PBR `light_dir`.
 //!
 //! The view matrix passed to the compute shader must match [`crate::render::visibility::view_matrix_glam_for_batch`]
-//! (handedness fix + scale filter), i.e. the same eye space as mesh MVP, or sphere/cone tests
+//! (handedness fix + scale filter), i.e. the same eye space as mesh MVP, or light-volume tests
 //! against cluster AABBs will be wrong when the camera moves.
 
 use std::mem::size_of;
@@ -148,39 +148,19 @@ fn sphere_aabb_intersect(center: vec3f, radius: f32, aabb_min: vec3f, aabb_max: 
     return dot(d, d) <= radius * radius;
 }
 
-/// Ray-AABB intersection. Returns true if ray origin + t*dir for t in [0, range] hits the AABB.
-fn ray_aabb_intersect(origin: vec3f, dir: vec3f, range: f32, aabb_min: vec3f, aabb_max: vec3f) -> bool {
-    let eps = 1e-8;
-    let inv_dir = vec3f(1.0 / select(dir.x, eps, dir.x == 0.0),
-                         1.0 / select(dir.y, eps, dir.y == 0.0),
-                         1.0 / select(dir.z, eps, dir.z == 0.0));
-    let t0 = (aabb_min - origin) * inv_dir;
-    let t1 = (aabb_max - origin) * inv_dir;
-    let t_min = vec3f(min(t0.x, t1.x), min(t0.y, t1.y), min(t0.z, t1.z));
-    let t_max = vec3f(max(t0.x, t1.x), max(t0.y, t1.y), max(t0.z, t1.z));
-    let t_entry = max(max(t_min.x, t_min.y), t_min.z);
-    let t_exit = min(min(t_max.x, t_max.y), t_max.z);
-    return t_entry <= t_exit && t_exit >= 0.0 && t_entry <= range;
-}
-
-/// Cone-AABB intersection for spot lights. Axis points from apex into the cone.
-fn cone_aabb_intersect(apex: vec3f, axis: vec3f, cos_half: f32, range: f32, aabb_min: vec3f, aabb_max: vec3f) -> bool {
+/// Conservative sphere that fully contains the finite spotlight cone (apex, axis, half-angle, range).
+/// Center is midpoint along the axis; radius reaches apex and base rim (avoids false negatives from
+/// incomplete cone–AABB tests).
+fn spotlight_bounds_intersect_aabb(apex: vec3f, axis: vec3f, cos_half: f32, range: f32, aabb_min: vec3f, aabb_max: vec3f) -> bool {
     if cos_half >= 0.9999 {
         return sphere_aabb_intersect(apex, range, aabb_min, aabb_max);
     }
-    let tan_angle_sq_plus_one = 1.0 / (cos_half * cos_half);
     let axis_n = normalize(axis);
-    for (var i = 0u; i < 8u; i++) {
-        let px = select(aabb_min.x, aabb_max.x, (i & 1u) != 0u);
-        let py = select(aabb_min.y, aabb_max.y, (i & 2u) != 0u);
-        let pz = select(aabb_min.z, aabb_max.z, (i & 4u) != 0u);
-        let p = vec3f(px, py, pz) - apex;
-        let len_a = dot(p, axis_n);
-        if len_a >= 0.0 && len_a <= range && dot(p, p) <= len_a * len_a * tan_angle_sq_plus_one {
-            return true;
-        }
-    }
-    return ray_aabb_intersect(apex, axis_n, range, aabb_min, aabb_max);
+    let sin_sq = max(0.0, 1.0 - cos_half * cos_half);
+    let tan_sq = sin_sq / max(cos_half * cos_half, 1e-8);
+    let radius = range * sqrt(0.25 + tan_sq);
+    let center = apex + axis_n * (range * 0.5);
+    return sphere_aabb_intersect(center, radius, aabb_min, aabb_max);
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -224,7 +204,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
                 dir_view * inverseSqrt(dir_len_sq),
                 dir_len_sq > 1e-16
             );
-            intersects = cone_aabb_intersect(pos_view, axis, light.spot_cos_half_angle, light.range, aabb_min, aabb_max);
+            intersects = spotlight_bounds_intersect_aabb(pos_view, axis, light.spot_cos_half_angle, light.range, aabb_min, aabb_max);
         }
 
         if intersects {
@@ -703,5 +683,57 @@ mod tests {
         ];
         let result = ClusteredLightPass::view_matrix_for_space(&batches, 5);
         assert!(result.is_none(), "all overlay batches should return None");
+    }
+
+    /// Radius of the conservative spotlight bounding sphere (must match WGSL `spotlight_bounds_intersect_aabb`).
+    fn spotlight_bounding_radius(range: f32, cos_half: f32) -> f32 {
+        let sin_sq = (1.0 - cos_half * cos_half).max(0.0);
+        let tan_sq = sin_sq / (cos_half * cos_half).max(1e-8);
+        range * (0.25 + tan_sq).sqrt()
+    }
+
+    /// `true` when the sphere intersects the axis-aligned box (same metric as WGSL `sphere_aabb_intersect`).
+    fn sphere_aabb_intersects_cpu(
+        center: glam::Vec3,
+        radius: f32,
+        aabb_min: glam::Vec3,
+        aabb_max: glam::Vec3,
+    ) -> bool {
+        let closest = center.clamp(aabb_min, aabb_max);
+        (center - closest).length_squared() <= radius * radius
+    }
+
+    #[test]
+    fn spotlight_bounding_radius_matches_base_rim_distance() {
+        let range = 4.0_f32;
+        let cos_half = std::f32::consts::FRAC_PI_6.cos();
+        let sin_half = std::f32::consts::FRAC_PI_6.sin();
+        let tan_half = sin_half / cos_half;
+        let r = spotlight_bounding_radius(range, cos_half);
+        let expected = range * (0.25 + tan_half * tan_half).sqrt();
+        assert!((r - expected).abs() < 1e-5, "r={} expected {}", r, expected);
+        let axial = range * 0.5;
+        let radial = range * tan_half;
+        let from_geometry = (axial * axial + radial * radial).sqrt();
+        assert!(
+            (r - from_geometry).abs() < 1e-4,
+            "radius should reach base rim from axial midpoint"
+        );
+    }
+
+    #[test]
+    fn spotlight_bounding_sphere_intersects_when_axis_misses_but_cone_sweeps_box() {
+        let cos_half = 0.965_925_8_f32;
+        let range = 10.0_f32;
+        let r = spotlight_bounding_radius(range, cos_half);
+        let axis = glam::Vec3::Z;
+        let apex = glam::Vec3::ZERO;
+        let center = apex + axis * (range * 0.5);
+        let aabb_min = glam::Vec3::new(3.0, 3.0, 2.0);
+        let aabb_max = glam::Vec3::new(4.0, 4.0, 8.0);
+        assert!(
+            sphere_aabb_intersects_cpu(center, r, aabb_min, aabb_max),
+            "conservative sphere should hit AABB that a cone-axis ray can miss"
+        );
     }
 }

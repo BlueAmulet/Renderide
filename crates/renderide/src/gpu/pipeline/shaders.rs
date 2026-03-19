@@ -446,6 +446,7 @@ struct VertexInput {
     @location(0) position: vec3f,
     @location(1) normal: vec3f,
 }
+/// VS: `clip_position` is clip space. FS: same field is `@builtin(position)` (framebuffer pixel coordinates).
 struct VertexOutput {
     @builtin(position) clip_position: vec4f,
     @location(0) world_normal: vec3f,
@@ -478,7 +479,8 @@ struct SceneUniforms {
     near_clip: f32,
     far_clip: f32,
     light_count: u32,
-    _pad1: u32,
+    viewport_width: u32,
+    viewport_height: u32,
 }
 @group(0) @binding(0) var<uniform> uniforms: array<UniformsSlot, 64>;
 @group(1) @binding(0) var<uniform> scene: SceneUniforms;
@@ -488,6 +490,15 @@ struct SceneUniforms {
 
 const TILE_SIZE: u32 = 16u;
 const MAX_LIGHTS_PER_TILE: u32 = 32u;
+
+/// Cluster tile X/Y matching clustered light compute (`px` centers, 16px tiles).
+fn cluster_xy_from_frag(frag_xy: vec2f, viewport_w: u32, viewport_h: u32) -> vec2u {
+    let max_x = max(f32(viewport_w) - 0.5, 0.5);
+    let max_y = max(f32(viewport_h) - 0.5, 0.5);
+    let pxy = clamp(frag_xy, vec2f(0.5, 0.5), vec2f(max_x, max_y));
+    let tile_f = (pxy - vec2f(0.5, 0.5)) / vec2f(f32(TILE_SIZE));
+    return vec2u(u32(floor(tile_f.x)), u32(floor(tile_f.y)));
+}
 
 fn pow5(x: f32) -> f32 {
     let x2 = x * x;
@@ -543,8 +554,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     var lo = vec3f(0.0, 0.0, 0.0);
 
-    let ndc_x = in.clip_position.x / in.clip_position.w * 0.5 + 0.5;
-    let ndc_y = in.clip_position.y / in.clip_position.w * 0.5 + 0.5;
     let view_z = dot(scene.view_space_z_coeffs.xyz, in.world_position) + scene.view_space_z_coeffs.w;
     let d = clamp(-view_z, scene.near_clip, scene.far_clip);
     let cluster_z_f = clamp(
@@ -553,8 +562,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         f32(scene.cluster_count_z - 1u)
     );
     let cluster_z = u32(cluster_z_f);
-    let cluster_x = min(u32(ndc_x * f32(scene.cluster_count_x)), scene.cluster_count_x - 1u);
-    let cluster_y = min(u32((1.0 - ndc_y) * f32(scene.cluster_count_y)), scene.cluster_count_y - 1u);
+    let cluster_xy = cluster_xy_from_frag(in.clip_position.xy, scene.viewport_width, scene.viewport_height);
+    let cluster_x = min(cluster_xy.x, scene.cluster_count_x - 1u);
+    let cluster_y = min(cluster_xy.y, scene.cluster_count_y - 1u);
     let cluster_id = cluster_x + scene.cluster_count_x * (cluster_y + scene.cluster_count_y * cluster_z);
     let count = cluster_light_counts[cluster_id];
     let base_idx = cluster_id * MAX_LIGHTS_PER_TILE;
@@ -630,6 +640,7 @@ struct VertexInput {
     @location(0) position: vec3f,
     @location(1) normal: vec3f,
 }
+/// VS: `clip_position` is clip space. FS: same field is `@builtin(position)` (framebuffer pixel coordinates).
 struct VertexOutput {
     @builtin(position) clip_position: vec4f,
     @location(0) world_normal: vec3f,
@@ -662,7 +673,8 @@ struct SceneUniforms {
     near_clip: f32,
     far_clip: f32,
     light_count: u32,
-    _pad1: u32,
+    viewport_width: u32,
+    viewport_height: u32,
 }
 @group(0) @binding(0) var<uniform> uniforms: array<UniformsSlot, 64>;
 @group(1) @binding(0) var<uniform> scene: SceneUniforms;
@@ -672,6 +684,15 @@ struct SceneUniforms {
 
 const TILE_SIZE: u32 = 16u;
 const MAX_LIGHTS_PER_TILE: u32 = 32u;
+
+/// Cluster tile X/Y matching clustered light compute (`px` centers, 16px tiles).
+fn cluster_xy_from_frag(frag_xy: vec2f, viewport_w: u32, viewport_h: u32) -> vec2u {
+    let max_x = max(f32(viewport_w) - 0.5, 0.5);
+    let max_y = max(f32(viewport_h) - 0.5, 0.5);
+    let pxy = clamp(frag_xy, vec2f(0.5, 0.5), vec2f(max_x, max_y));
+    let tile_f = (pxy - vec2f(0.5, 0.5)) / vec2f(f32(TILE_SIZE));
+    return vec2u(u32(floor(tile_f.x)), u32(floor(tile_f.y)));
+}
 
 fn pow5(x: f32) -> f32 {
     let x2 = x * x;
@@ -732,8 +753,6 @@ fn fs_main(in: VertexOutput) -> PbrFragmentOutput {
 
     var lo = vec3f(0.0, 0.0, 0.0);
 
-    let ndc_x = in.clip_position.x / in.clip_position.w * 0.5 + 0.5;
-    let ndc_y = in.clip_position.y / in.clip_position.w * 0.5 + 0.5;
     let view_z = dot(scene.view_space_z_coeffs.xyz, in.world_position) + scene.view_space_z_coeffs.w;
     let d = clamp(-view_z, scene.near_clip, scene.far_clip);
     let cluster_z_f = clamp(
@@ -742,8 +761,9 @@ fn fs_main(in: VertexOutput) -> PbrFragmentOutput {
         f32(scene.cluster_count_z - 1u)
     );
     let cluster_z = u32(cluster_z_f);
-    let cluster_x = min(u32(ndc_x * f32(scene.cluster_count_x)), scene.cluster_count_x - 1u);
-    let cluster_y = min(u32((1.0 - ndc_y) * f32(scene.cluster_count_y)), scene.cluster_count_y - 1u);
+    let cluster_xy = cluster_xy_from_frag(in.clip_position.xy, scene.viewport_width, scene.viewport_height);
+    let cluster_x = min(cluster_xy.x, scene.cluster_count_x - 1u);
+    let cluster_y = min(cluster_xy.y, scene.cluster_count_y - 1u);
     let cluster_id = cluster_x + scene.cluster_count_x * (cluster_y + scene.cluster_count_y * cluster_z);
     let count = cluster_light_counts[cluster_id];
     let base_idx = cluster_id * MAX_LIGHTS_PER_TILE;
@@ -825,6 +845,7 @@ struct VertexInput {
     @location(3) bone_indices: vec4i,
     @location(4) bone_weights: vec4f,
 }
+/// VS: `clip_position` is clip space. FS: same field is `@builtin(position)` (framebuffer pixel coordinates).
 struct VertexOutput {
     @builtin(position) clip_position: vec4f,
     @location(0) world_normal: vec3f,
@@ -864,7 +885,8 @@ struct SceneUniforms {
     near_clip: f32,
     far_clip: f32,
     light_count: u32,
-    _pad1: u32,
+    viewport_width: u32,
+    viewport_height: u32,
 }
 @group(0) @binding(0) var<uniform> uniforms: SkinnedUniforms;
 @group(0) @binding(1) var<storage, read> blendshape_offsets: array<BlendshapeOffset>;
@@ -875,6 +897,15 @@ struct SceneUniforms {
 
 const TILE_SIZE: u32 = 16u;
 const MAX_LIGHTS_PER_TILE: u32 = 32u;
+
+/// Cluster tile X/Y matching clustered light compute (`px` centers, 16px tiles).
+fn cluster_xy_from_frag(frag_xy: vec2f, viewport_w: u32, viewport_h: u32) -> vec2u {
+    let max_x = max(f32(viewport_w) - 0.5, 0.5);
+    let max_y = max(f32(viewport_h) - 0.5, 0.5);
+    let pxy = clamp(frag_xy, vec2f(0.5, 0.5), vec2f(max_x, max_y));
+    let tile_f = (pxy - vec2f(0.5, 0.5)) / vec2f(f32(TILE_SIZE));
+    return vec2u(u32(floor(tile_f.x)), u32(floor(tile_f.y)));
+}
 
 fn pow5(x: f32) -> f32 {
     let x2 = x * x;
@@ -965,8 +996,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
 
     var lo = vec3f(0.0, 0.0, 0.0);
 
-    let ndc_x = in.clip_position.x / in.clip_position.w * 0.5 + 0.5;
-    let ndc_y = in.clip_position.y / in.clip_position.w * 0.5 + 0.5;
     let view_z = dot(scene.view_space_z_coeffs.xyz, in.world_position) + scene.view_space_z_coeffs.w;
     let d = clamp(-view_z, scene.near_clip, scene.far_clip);
     let cluster_z_f = clamp(
@@ -975,8 +1004,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         f32(scene.cluster_count_z - 1u)
     );
     let cluster_z = u32(cluster_z_f);
-    let cluster_x = min(u32(ndc_x * f32(scene.cluster_count_x)), scene.cluster_count_x - 1u);
-    let cluster_y = min(u32((1.0 - ndc_y) * f32(scene.cluster_count_y)), scene.cluster_count_y - 1u);
+    let cluster_xy = cluster_xy_from_frag(in.clip_position.xy, scene.viewport_width, scene.viewport_height);
+    let cluster_x = min(cluster_xy.x, scene.cluster_count_x - 1u);
+    let cluster_y = min(cluster_xy.y, scene.cluster_count_y - 1u);
     let cluster_id = cluster_x + scene.cluster_count_x * (cluster_y + scene.cluster_count_y * cluster_z);
     let count = cluster_light_counts[cluster_id];
     let base_idx = cluster_id * MAX_LIGHTS_PER_TILE;
@@ -1054,6 +1084,7 @@ struct VertexInput {
     @location(3) bone_indices: vec4i,
     @location(4) bone_weights: vec4f,
 }
+/// VS: `clip_position` is clip space. FS: same field is `@builtin(position)` (framebuffer pixel coordinates).
 struct VertexOutput {
     @builtin(position) clip_position: vec4f,
     @location(0) world_normal: vec3f,
@@ -1093,7 +1124,8 @@ struct SceneUniforms {
     near_clip: f32,
     far_clip: f32,
     light_count: u32,
-    _pad1: u32,
+    viewport_width: u32,
+    viewport_height: u32,
 }
 @group(0) @binding(0) var<uniform> uniforms: SkinnedUniforms;
 @group(0) @binding(1) var<storage, read> blendshape_offsets: array<BlendshapeOffset>;
@@ -1104,6 +1136,15 @@ struct SceneUniforms {
 
 const TILE_SIZE: u32 = 16u;
 const MAX_LIGHTS_PER_TILE: u32 = 32u;
+
+/// Cluster tile X/Y matching clustered light compute (`px` centers, 16px tiles).
+fn cluster_xy_from_frag(frag_xy: vec2f, viewport_w: u32, viewport_h: u32) -> vec2u {
+    let max_x = max(f32(viewport_w) - 0.5, 0.5);
+    let max_y = max(f32(viewport_h) - 0.5, 0.5);
+    let pxy = clamp(frag_xy, vec2f(0.5, 0.5), vec2f(max_x, max_y));
+    let tile_f = (pxy - vec2f(0.5, 0.5)) / vec2f(f32(TILE_SIZE));
+    return vec2u(u32(floor(tile_f.x)), u32(floor(tile_f.y)));
+}
 
 fn pow5(x: f32) -> f32 {
     let x2 = x * x;
@@ -1199,8 +1240,6 @@ fn fs_main(in: VertexOutput) -> SkinnedPbrFragmentOutput {
 
     var lo = vec3f(0.0, 0.0, 0.0);
 
-    let ndc_x = in.clip_position.x / in.clip_position.w * 0.5 + 0.5;
-    let ndc_y = in.clip_position.y / in.clip_position.w * 0.5 + 0.5;
     let view_z = dot(scene.view_space_z_coeffs.xyz, in.world_position) + scene.view_space_z_coeffs.w;
     let d = clamp(-view_z, scene.near_clip, scene.far_clip);
     let cluster_z_f = clamp(
@@ -1209,8 +1248,9 @@ fn fs_main(in: VertexOutput) -> SkinnedPbrFragmentOutput {
         f32(scene.cluster_count_z - 1u)
     );
     let cluster_z = u32(cluster_z_f);
-    let cluster_x = min(u32(ndc_x * f32(scene.cluster_count_x)), scene.cluster_count_x - 1u);
-    let cluster_y = min(u32((1.0 - ndc_y) * f32(scene.cluster_count_y)), scene.cluster_count_y - 1u);
+    let cluster_xy = cluster_xy_from_frag(in.clip_position.xy, scene.viewport_width, scene.viewport_height);
+    let cluster_x = min(cluster_xy.x, scene.cluster_count_x - 1u);
+    let cluster_y = min(cluster_xy.y, scene.cluster_count_y - 1u);
     let cluster_id = cluster_x + scene.cluster_count_x * (cluster_y + scene.cluster_count_y * cluster_z);
     let count = cluster_light_counts[cluster_id];
     let base_idx = cluster_id * MAX_LIGHTS_PER_TILE;

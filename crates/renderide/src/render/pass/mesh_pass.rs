@@ -109,6 +109,7 @@ impl RenderPass for MeshRenderPass {
             .gpu
             .light_buffer_cache
             .ensure_buffer(&ctx.gpu.device, ctx.gpu.light_count.max(1) as usize);
+        let (viewport_width, viewport_height) = ctx.viewport;
         let cluster_counts_ok = ctx.gpu.cluster_count_x > 0
             && ctx.gpu.cluster_count_y > 0
             && ctx.gpu.cluster_count_z > 0;
@@ -136,6 +137,8 @@ impl RenderPass for MeshRenderPass {
                     near_clip: ctx.session.near_clip().max(0.01),
                     far_clip: ctx.session.far_clip(),
                     light_count: ctx.gpu.light_count,
+                    viewport_width,
+                    viewport_height,
                     light_buffer: lb,
                     cluster_light_counts: crefs.cluster_light_counts,
                     cluster_light_indices: crefs.cluster_light_indices,

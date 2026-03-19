@@ -36,7 +36,7 @@ pub(crate) struct OverlayStencilUniforms {
     pub _pad: [f32; 16],
 }
 
-/// Scene uniforms for PBR pipeline: view position, cluster depth row, cluster counts, clip planes, light count.
+/// Scene uniforms for PBR pipeline: view position, cluster depth row, cluster counts, clip planes, light count, viewport.
 ///
 /// Layout matches WGSL `SceneUniforms` in the PBR shader sources (64 bytes, 16-byte aligned).
 #[repr(C)]
@@ -52,9 +52,10 @@ pub struct SceneUniforms {
     pub near_clip: f32,
     pub far_clip: f32,
     pub light_count: u32,
-    pub _pad1: u32,
-    /// Padding to 16-byte struct size multiple for uniform rules.
-    pub _pad2: [u32; 1],
+    /// Viewport width in pixels; fragment cluster XY uses the same 16px tiles as clustered light compute.
+    pub viewport_width: u32,
+    /// Viewport height in pixels.
+    pub viewport_height: u32,
 }
 
 /// MVP + 256 bone matrices + blendshape weights for skinned pipeline.
