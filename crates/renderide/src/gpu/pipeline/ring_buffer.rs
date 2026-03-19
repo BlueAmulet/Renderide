@@ -77,6 +77,15 @@ impl UniformRingBuffer {
     }
 }
 
+/// Identity 4x4 matrix for bone slots. Unused bone indices use identity so vertices
+/// are not collapsed to the origin when a vertex references an out-of-range bone.
+const BONE_IDENTITY: [[f32; 4]; 4] = [
+    [1.0, 0.0, 0.0, 0.0],
+    [0.0, 1.0, 0.0, 0.0],
+    [0.0, 0.0, 1.0, 0.0],
+    [0.0, 0.0, 0.0, 1.0],
+];
+
 /// Ring buffer for batched skinned uniform data (mvp + bone_matrices[256] per slot).
 pub(crate) struct SkinnedUniformRingBuffer {
     /// GPU buffer backing the ring.
@@ -126,7 +135,7 @@ impl SkinnedUniformRingBuffer {
             {
                 let mut u = SkinnedUniforms {
                     mvp: matrix4_to_wgsl_column_major(mvp),
-                    bone_matrices: [[[0.0; 4]; 4]; 256],
+                    bone_matrices: [BONE_IDENTITY; 256],
                     num_blendshapes: 0,
                     num_vertices: *num_vertices,
                     _pad: [0, 0],
