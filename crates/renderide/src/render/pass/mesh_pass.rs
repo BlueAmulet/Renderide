@@ -197,7 +197,7 @@ impl RenderPass for MeshRenderPass {
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
                             r: 0.0,
-                            g: 0.8,
+                            g: 0.0,
                             b: 0.0,
                             a: 1.0,
                         }),
@@ -241,7 +241,7 @@ impl RenderPass for MeshRenderPass {
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color {
                         r: 0.0,
-                        g: 0.8,
+                        g: 0.0,
                         b: 0.0,
                         a: 1.0,
                     }),

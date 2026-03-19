@@ -4,12 +4,12 @@
 //! Uses glam for SIMD-optimized matrix operations.
 
 use glam::Mat4;
-use nalgebra::{Matrix4, Vector3};
+use nalgebra::Matrix4;
 
 use crate::gpu::pipeline::SceneUniforms;
 use crate::gpu::{GpuMeshBuffers, PipelineKey, PipelineManager, PipelineVariant, RenderPipeline};
-use crate::scene::math::{matrix_glam_to_na, matrix_na_to_glam};
-use crate::scene::render_transform_to_matrix;
+use crate::render::visibility::view_proj_glam_for_batch;
+use crate::scene::math::matrix_glam_to_na;
 use std::collections::HashMap;
 
 /// Minimal context for mesh draw collection.
@@ -174,6 +174,7 @@ pub(super) fn collect_mesh_draws(
     let mesh_assets = ctx.session.asset_registry();
     let scene_graph = ctx.session.scene_graph();
     let debug_skinned = ctx.session.render_config().debug_skinned;
+    let frustum_culling = ctx.session.render_config().frustum_culling;
     let mut first_skinned_logged = false;
 
     let total_draws: usize = ctx.draw_batches.iter().map(|b| b.draws.len()).sum();
@@ -181,16 +182,8 @@ pub(super) fn collect_mesh_draws(
     let mut skinned_draws: Vec<SkinnedBatchedDraw> = Vec::with_capacity(total_draws);
 
     for batch in ctx.draw_batches {
-        let mut batch_vt = batch.view_transform;
-        batch_vt.scale = filter_scale(batch_vt.scale);
-        let view_mat = apply_view_handedness_fix(render_transform_to_matrix(&batch_vt).inverse());
-        let proj = batch
-            .is_overlay
-            .then_some(ctx.overlay_projection_override.as_ref())
-            .flatten()
-            .map(|v| v.to_projection_matrix())
-            .unwrap_or(ctx.proj);
-        let view_proj_glam = matrix_na_to_glam(&proj) * view_mat;
+        let view_proj_glam =
+            view_proj_glam_for_batch(batch, &ctx.proj, ctx.overlay_projection_override.as_ref());
 
         for d in &batch.draws {
             let (buffers_ref, mesh) = if d.mesh_asset_id >= 0 {
@@ -207,6 +200,29 @@ pub(super) fn collect_mesh_draws(
             } else {
                 continue;
             };
+
+            if frustum_culling && !d.is_skinned {
+                if crate::render::visibility::mesh_bounds_degenerate_for_cull(&mesh.bounds) {
+                    logger::trace!(
+                        "frustum cull skipped for rigid mesh: degenerate upload bounds (mesh_asset_id={})",
+                        d.mesh_asset_id
+                    );
+                } else if !crate::render::visibility::rigid_mesh_potentially_visible(
+                    &mesh.bounds,
+                    d.model_matrix,
+                    view_proj_glam,
+                ) {
+                    if crate::render::visibility::mesh_bounds_max_half_extent(&mesh.bounds)
+                        < crate::render::visibility::SUSPICIOUS_MESH_BOUNDS_MAX_EXTENT
+                    {
+                        logger::trace!(
+                            "frustum culled rigid mesh with suspiciously small bounds (mesh_asset_id={})",
+                            d.mesh_asset_id
+                        );
+                    }
+                    continue;
+                }
+            }
 
             let model_mvp = matrix_glam_to_na(view_proj_glam * d.model_matrix);
 
@@ -709,22 +725,6 @@ pub(super) fn record_non_skinned_draws(
 
         i += group_end;
     }
-}
-
-/// Clamps scale components to avoid degenerate view matrices.
-pub(super) fn filter_scale(scale: Vector3<f32>) -> Vector3<f32> {
-    const MIN_SCALE: f32 = 1e-8;
-    if scale.x.abs() < MIN_SCALE || scale.y.abs() < MIN_SCALE || scale.z.abs() < MIN_SCALE {
-        Vector3::new(1.0, 1.0, 1.0)
-    } else {
-        scale
-    }
-}
-
-/// Applies handedness fix to view matrix for coordinate system alignment.
-pub(super) fn apply_view_handedness_fix(view: Mat4) -> Mat4 {
-    let z_flip = Mat4::from_scale(glam::Vec3::new(1.0, 1.0, -1.0));
-    z_flip * view
 }
 
 #[cfg(test)]

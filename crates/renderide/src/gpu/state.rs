@@ -1,9 +1,7 @@
 //! GPU state: surface, device, queue, and mesh buffer cache.
 //!
-//! Extension point for frustum culling.
-//! Stub: use nalgebra::Aabb3 to test mesh AABB against view frustum planes.
-//! Types: Aabb3<f32>, Point3<f32>, Vector3<f32>, Matrix4<f32>.
-//! fn frustum_cull(aabb: &Aabb3<f32>, view_proj: &Matrix4<f32>) -> bool { ... }
+//! Frustum culling for rigid meshes lives in [`crate::render::visibility`] (CPU), applied in
+//! [`crate::render::pass::mesh_draw::collect_mesh_draws`] and [`crate::gpu::accel::build_tlas`].
 
 use winit::window::Window;
 

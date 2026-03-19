@@ -32,6 +32,7 @@ impl CommandHandler for ConfigCommandHandler {
                     rtao_enabled: ctx.render_config.rtao_enabled,
                     rtao_strength: ctx.render_config.rtao_strength,
                     ao_radius: ctx.render_config.ao_radius,
+                    frustum_culling: ctx.render_config.frustum_culling,
                 };
                 CommandResult::Handled
             }

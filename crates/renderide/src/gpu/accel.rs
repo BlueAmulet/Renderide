@@ -8,10 +8,13 @@
 use std::collections::HashMap;
 
 use glam::Mat4;
+use nalgebra::Matrix4;
 use wgpu::util::DeviceExt;
 
-use crate::assets::{self, MeshAsset};
+use crate::assets::{self, AssetRegistry, MeshAsset};
 use crate::render::batch::SpaceDrawBatch;
+use crate::render::view::ViewParams;
+use crate::render::visibility::{rigid_mesh_potentially_visible, view_proj_glam_for_batch};
 use crate::shared::{VertexAttributeFormat, VertexAttributeType};
 
 use super::mesh::GpuMeshBuffers;
@@ -277,12 +280,22 @@ fn matrix4_to_affine_3x4(m: &Mat4) -> [f32; 12] {
 ///
 /// Returns `Some(Tlas)` when at least one instance was added, `None` otherwise.
 /// Caller must ensure the device has [`wgpu::Features::EXPERIMENTAL_RAY_QUERY`] enabled.
+///
+/// When `frustum_culling` is true, rigid instances outside the batch view frustum are omitted so
+/// TLAS matches [`crate::render::pass::mesh_draw::collect_mesh_draws`] culling.
+///
+/// Parameter count is high so the render graph call site stays explicit without a one-off options struct.
+#[allow(clippy::too_many_arguments)]
 pub fn build_tlas(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
     accel_cache: &AccelCache,
     draw_batches: &[SpaceDrawBatch],
     instance_scratch: &mut Vec<(i32, [f32; 12])>,
+    proj: &Matrix4<f32>,
+    overlay_projection_override: Option<&ViewParams>,
+    asset_registry: &AssetRegistry,
+    frustum_culling: bool,
 ) -> Option<wgpu::Tlas> {
     instance_scratch.clear();
 
@@ -290,12 +303,31 @@ pub fn build_tlas(
         if batch.is_overlay {
             continue;
         }
+        let view_proj = view_proj_glam_for_batch(batch, proj, overlay_projection_override);
         for d in &batch.draws {
             if d.is_skinned || d.mesh_asset_id < 0 {
                 continue;
             }
             if accel_cache.get(d.mesh_asset_id).is_none() {
                 continue;
+            }
+            if frustum_culling && let Some(mesh) = asset_registry.get_mesh(d.mesh_asset_id) {
+                if crate::render::visibility::mesh_bounds_degenerate_for_cull(&mesh.bounds) {
+                    logger::trace!(
+                        "TLAS frustum cull skipped: degenerate upload bounds (mesh_asset_id={})",
+                        d.mesh_asset_id
+                    );
+                } else if !rigid_mesh_potentially_visible(&mesh.bounds, d.model_matrix, view_proj) {
+                    if crate::render::visibility::mesh_bounds_max_half_extent(&mesh.bounds)
+                        < crate::render::visibility::SUSPICIOUS_MESH_BOUNDS_MAX_EXTENT
+                    {
+                        logger::trace!(
+                            "TLAS frustum culled instance with suspiciously small bounds (mesh_asset_id={})",
+                            d.mesh_asset_id
+                        );
+                    }
+                    continue;
+                }
             }
             let transform = matrix4_to_affine_3x4(&d.model_matrix);
             instance_scratch.push((d.mesh_asset_id, transform));

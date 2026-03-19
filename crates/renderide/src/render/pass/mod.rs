@@ -1021,6 +1021,10 @@ impl RenderGraph {
                 accel,
                 ctx.draw_batches,
                 &mut ray_tracing.instance_scratch,
+                &ctx.proj,
+                ctx.overlay_projection_override.as_ref(),
+                ctx.session.asset_registry(),
+                ctx.session.render_config().frustum_culling,
             );
         }
 

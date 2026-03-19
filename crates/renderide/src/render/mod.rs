@@ -59,6 +59,7 @@ pub mod pass;
 pub mod target;
 pub mod task;
 pub mod view;
+pub mod visibility;
 
 pub use crate::shared::RenderingContext;
 pub use crate::stencil::{ClipRect, StencilComparison, StencilOperation, StencilState};

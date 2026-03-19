@@ -48,16 +48,24 @@ pub struct RenderConfig {
     /// RTAO ray max distance in world units. Rays beyond this are not considered occluded.
     /// Default 1.0.
     pub ao_radius: f32,
+    /// When true, rigid mesh draws outside the view frustum are skipped (CPU), using mesh local
+    /// bounds. Skinned draws are not culled. Default true.
+    pub frustum_culling: bool,
 }
 
 impl RenderConfig {
     /// Loads config from defaults, then env vars. Single source of truth for render config.
     ///
     /// Env vars: `RENDERIDE_DEBUG_BLENDSHAPES=1` enables blendshape debug logging.
+    ///
+    /// `RENDERIDE_NO_FRUSTUM_CULL=1` disables frustum culling for rigid meshes.
     pub fn load() -> Self {
         let mut config = Self::default();
         if std::env::var("RENDERIDE_DEBUG_BLENDSHAPES").as_deref() == Ok("1") {
             config.debug_blendshapes = true;
+        }
+        if std::env::var("RENDERIDE_NO_FRUSTUM_CULL").as_deref() == Ok("1") {
+            config.frustum_culling = false;
         }
         config
     }
@@ -80,6 +88,7 @@ impl Default for RenderConfig {
             rtao_enabled: true,
             rtao_strength: 1.0,
             ao_radius: 1.0,
+            frustum_culling: true,
         }
     }
 }
