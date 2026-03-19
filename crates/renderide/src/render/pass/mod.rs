@@ -1044,12 +1044,12 @@ impl RenderGraph {
         if let Some(ref mut ray_tracing) = ctx.gpu.ray_tracing_state
             && let Some(ref accel) = ctx.gpu.accel_cache
         {
-            ray_tracing.tlas = crate::gpu::build_tlas(
+            crate::gpu::update_tlas(
                 &ctx.gpu.device,
                 &mut encoder,
+                ray_tracing,
                 accel,
                 ctx.draw_batches,
-                &mut ray_tracing.instance_scratch,
                 &ctx.proj,
                 ctx.overlay_projection_override.as_ref(),
                 ctx.session.asset_registry(),
