@@ -243,6 +243,9 @@ pub struct RayTracingState {
     pub tlas: Option<wgpu::Tlas>,
     /// Reusable scratch buffer for TLAS instance data. Avoids per-frame Vec allocation.
     pub(crate) instance_scratch: Vec<(i32, [f32; 12])>,
+    /// Snapshot of the instance list from the last frame a TLAS was built.
+    /// Used by [`update_tlas`] to skip the GPU rebuild when the scene is static.
+    pub(crate) last_instance_snapshot: Vec<(i32, [f32; 12])>,
 }
 
 impl RayTracingState {
@@ -251,6 +254,7 @@ impl RayTracingState {
         Self {
             tlas: None,
             instance_scratch: Vec::new(),
+            last_instance_snapshot: Vec::new(),
         }
     }
 }
@@ -366,4 +370,106 @@ pub fn build_tlas(
     );
 
     Some(tlas)
+}
+
+/// Updates the TLAS in `state` for this frame, skipping the GPU rebuild when the scene is static.
+///
+/// Collects non-overlay, non-skinned draw instances into `state.instance_scratch`. If the
+/// collected list is identical to `state.last_instance_snapshot` and a TLAS already exists,
+/// the rebuild is skipped entirely (no GPU work). Otherwise the TLAS is rebuilt and the snapshot
+/// is updated.
+///
+/// Caller must ensure the device has [`wgpu::Features::EXPERIMENTAL_RAY_QUERY`] enabled.
+#[allow(clippy::too_many_arguments)]
+pub fn update_tlas(
+    device: &wgpu::Device,
+    encoder: &mut wgpu::CommandEncoder,
+    state: &mut RayTracingState,
+    accel_cache: &AccelCache,
+    draw_batches: &[SpaceDrawBatch],
+    proj: &Matrix4<f32>,
+    overlay_projection_override: Option<&ViewParams>,
+    asset_registry: &AssetRegistry,
+    frustum_culling: bool,
+) {
+    state.instance_scratch.clear();
+    for batch in draw_batches {
+        if batch.is_overlay {
+            continue;
+        }
+        let view_proj = view_proj_glam_for_batch(batch, proj, overlay_projection_override);
+        for d in &batch.draws {
+            if d.is_skinned || d.mesh_asset_id < 0 {
+                continue;
+            }
+            if accel_cache.get(d.mesh_asset_id).is_none() {
+                continue;
+            }
+            if frustum_culling {
+                if let Some(mesh) = asset_registry.get_mesh(d.mesh_asset_id) {
+                    if crate::render::visibility::mesh_bounds_degenerate_for_cull(&mesh.bounds) {
+                        logger::trace!(
+                            "TLAS frustum cull skipped: degenerate upload bounds (mesh_asset_id={})",
+                            d.mesh_asset_id
+                        );
+                    } else if !rigid_mesh_potentially_visible(
+                        &mesh.bounds,
+                        d.model_matrix,
+                        view_proj,
+                    ) {
+                        if crate::render::visibility::mesh_bounds_max_half_extent(&mesh.bounds)
+                            < crate::render::visibility::SUSPICIOUS_MESH_BOUNDS_MAX_EXTENT
+                        {
+                            logger::trace!(
+                                "TLAS frustum culled instance with suspiciously small bounds (mesh_asset_id={})",
+                                d.mesh_asset_id
+                            );
+                        }
+                        continue;
+                    }
+                }
+            }
+            let transform = matrix4_to_affine_3x4(&d.model_matrix);
+            state.instance_scratch.push((d.mesh_asset_id, transform));
+        }
+    }
+
+    // Static scene: skip GPU rebuild when instances are identical to the previous frame.
+    if state.tlas.is_some() && state.instance_scratch == state.last_instance_snapshot {
+        return;
+    }
+
+    if state.instance_scratch.is_empty() {
+        state.tlas = None;
+        state.last_instance_snapshot.clear();
+        return;
+    }
+
+    let max_instances = state.instance_scratch.len() as u32;
+    let tlas_desc = wgpu::CreateTlasDescriptor {
+        label: Some("scene TLAS"),
+        max_instances,
+        flags: wgpu::AccelerationStructureFlags::PREFER_FAST_TRACE,
+        update_mode: wgpu::AccelerationStructureUpdateMode::Build,
+    };
+
+    let mut tlas = device.create_tlas(&tlas_desc);
+    for (i, (mesh_asset_id, transform)) in state.instance_scratch.iter().enumerate() {
+        let Some(blas) = accel_cache.get(*mesh_asset_id) else {
+            logger::warn!(
+                "BLAS missing for mesh_asset_id={}, skipping TLAS instance",
+                mesh_asset_id
+            );
+            continue;
+        };
+        let instance = wgpu::TlasInstance::new(blas, *transform, 0, 0xFF);
+        tlas[i] = Some(instance);
+    }
+    encoder.build_acceleration_structures(
+        std::iter::empty::<&wgpu::BlasBuildEntry>(),
+        std::iter::once(&tlas),
+    );
+
+    state.last_instance_snapshot.clone_from(&state.instance_scratch);
+    state.tlas = Some(tlas);
 }

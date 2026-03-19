@@ -9,7 +9,7 @@ pub mod registry;
 pub mod rtao_textures;
 pub mod state;
 
-pub use accel::{AccelCache, RayTracingState, build_blas_for_mesh, build_tlas, remove_blas};
+pub use accel::{AccelCache, RayTracingState, build_blas_for_mesh, build_tlas, remove_blas, update_tlas};
 pub use frame_scheduler::GpuFrameScheduler;
 pub use mesh::{GpuMeshBuffers, compute_vertex_stride_from_mesh, create_mesh_buffers};
 pub use pipeline::{MAX_INSTANCE_RUN, RenderPipeline, UniformData};

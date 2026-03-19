@@ -235,6 +235,25 @@ pub(super) fn collect_mesh_draws(
                 }
             }
 
+            // Conservative frustum cull for skinned meshes: bind-pose bounds inflated 3× so
+            // bone animation moving vertices beyond rest-pose still passes. Only skips draws
+            // where the inflated volume is entirely outside the frustum.
+            if frustum_culling && d.is_skinned {
+                if !crate::render::visibility::mesh_bounds_degenerate_for_cull(&mesh.bounds) {
+                    let conservative = crate::shared::RenderBoundingBox {
+                        center: mesh.bounds.center,
+                        extents: mesh.bounds.extents * 3.0,
+                    };
+                    if !crate::render::visibility::rigid_mesh_potentially_visible(
+                        &conservative,
+                        d.model_matrix,
+                        view_proj_glam,
+                    ) {
+                        continue;
+                    }
+                }
+            }
+
             let model_mvp = matrix_glam_to_na(view_proj_glam * d.model_matrix);
 
             if d.is_skinned {
