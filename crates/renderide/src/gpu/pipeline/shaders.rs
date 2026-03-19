@@ -611,7 +611,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
                 attenuation = light.intensity * att * (1.0 - smoothstep(light.range * 0.9, light.range, dist));
             }
         } else if light.light_type == 1u {
-            l = normalize(-light_dir);
+            let dir_len_sq = dot(light_dir, light_dir);
+            l = select(
+                vec3f(0.0, 0.0, 1.0),
+                normalize(-light_dir),
+                dir_len_sq > 1e-16
+            );
             attenuation = light.intensity;
         } else {
             let to_light = light_pos - in.world_position;
@@ -810,7 +815,12 @@ fn fs_main(in: VertexOutput) -> PbrFragmentOutput {
                 attenuation = light.intensity * att * (1.0 - smoothstep(light.range * 0.9, light.range, dist));
             }
         } else if light.light_type == 1u {
-            l = normalize(-light_dir);
+            let dir_len_sq = dot(light_dir, light_dir);
+            l = select(
+                vec3f(0.0, 0.0, 1.0),
+                normalize(-light_dir),
+                dir_len_sq > 1e-16
+            );
             attenuation = light.intensity;
         } else {
             let to_light = light_pos - in.world_position;
@@ -1054,7 +1064,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
                 attenuation = light.intensity * att * (1.0 - smoothstep(light.range * 0.9, light.range, dist));
             }
         } else if light.light_type == 1u {
-            l = normalize(-light_dir);
+            let dir_len_sq = dot(light_dir, light_dir);
+            l = select(
+                vec3f(0.0, 0.0, 1.0),
+                normalize(-light_dir),
+                dir_len_sq > 1e-16
+            );
             attenuation = light.intensity;
         } else {
             let to_light = light_pos - in.world_position;
@@ -1298,7 +1313,12 @@ fn fs_main(in: VertexOutput) -> SkinnedPbrFragmentOutput {
                 attenuation = light.intensity * att * (1.0 - smoothstep(light.range * 0.9, light.range, dist));
             }
         } else if light.light_type == 1u {
-            l = normalize(-light_dir);
+            let dir_len_sq = dot(light_dir, light_dir);
+            l = select(
+                vec3f(0.0, 0.0, 1.0),
+                normalize(-light_dir),
+                dir_len_sq > 1e-16
+            );
             attenuation = light.intensity;
         } else {
             let to_light = light_pos - in.world_position;

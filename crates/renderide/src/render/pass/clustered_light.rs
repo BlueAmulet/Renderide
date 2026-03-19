@@ -4,6 +4,10 @@
 //! each light against the tile frustum (point: sphere-AABB, spot: conservative bounding sphere of
 //! the finite cone, directional: always in). Outputs cluster_light_counts and cluster_light_indices.
 //!
+//! [`crate::render::lights::order_lights_for_clustered_shading`] runs before upload so directional
+//! lights occupy low buffer indices and are not dropped when local lights fill the per-cluster cap
+//! ([`MAX_LIGHTS_PER_TILE`]).
+//!
 //! For spot lights, the cone axis in WGSL is the view-space beam forward (same as
 //! [`GpuLight`](crate::render::lights::GpuLight) `direction`), matching PBR `light_dir`.
 //!
@@ -20,7 +24,7 @@ use super::{PassResources, RenderPass, RenderPassError, ResourceSlot};
 use crate::diagnostics::LogOnChange;
 use crate::gpu::cluster_buffer::ClusterBufferRefs;
 use crate::render::SpaceDrawBatch;
-use crate::render::lights::MAX_LIGHTS;
+use crate::render::lights::{MAX_LIGHTS, order_lights_for_clustered_shading};
 use crate::session::Session;
 
 const TILE_SIZE: u32 = 16;
@@ -389,10 +393,11 @@ impl RenderPass for ClusteredLightPass {
             }
         };
 
-        let lights = ctx
+        let lights_raw = ctx
             .session
             .resolved_lights_for_space(space_id)
-            .unwrap_or_default();
+            .unwrap_or(&[]);
+        let lights = order_lights_for_clustered_shading(lights_raw);
 
         logger::trace!(
             "clustered_light pass space_id={} batch_matched={} light_count={} lights=[{}]",
@@ -443,7 +448,7 @@ impl RenderPass for ClusteredLightPass {
             .light_buffer_cache
             .ensure_buffer(&ctx.gpu.device, effective_light_count);
         if !lights.is_empty() {
-            ctx.gpu.light_buffer_cache.upload(&ctx.gpu.queue, lights);
+            ctx.gpu.light_buffer_cache.upload(&ctx.gpu.queue, &lights);
         } else {
             let zero_light = crate::render::lights::GpuLight::default();
             if let Some(buf) = ctx

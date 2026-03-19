@@ -1,7 +1,18 @@
 //! GPU light buffer and clustered light infrastructure.
 //!
-//! Provides GpuLight struct for shader upload and LightBufferCache for per-frame
+//! Provides [`GpuLight`] for shader upload and [`LightBufferCache`] for per-frame
 //! light buffer management.
+//!
+//! ## Clustered forward and light order
+//!
+//! The clustered light compute pass keeps at most 32 lights per cluster in buffer index order.
+//! [`order_lights_for_clustered_shading`] places [`LightType::directional`] entries first so sun /
+//! key directionals are not dropped when many local lights fill the per-cluster cap.
+//!
+//! ## `light_type` in WGSL
+//!
+//! Must match [`crate::shared::LightType`] `repr(u8)` and host wire values: `point = 0`,
+//! `directional = 1`, `spot = 2`.
 
 use std::mem::size_of;
 
@@ -54,18 +65,17 @@ impl Default for GpuLight {
 }
 
 impl GpuLight {
-    /// Converts a ResolvedLight to GpuLight for GPU upload.
+    /// Converts a [`ResolvedLight`] to [`GpuLight`] for GPU upload.
+    ///
+    /// `light_type` is encoded for WGSL: `0` = point, `1` = directional, `2` = spot (same as
+    /// [`LightType`] on the wire).
     pub fn from_resolved(light: &ResolvedLight) -> Self {
         let spot_cos_half_angle = if light.spot_angle > 0.0 && light.spot_angle < 180.0 {
             (light.spot_angle.to_radians() / 2.0).cos()
         } else {
             1.0
         };
-        let light_type = match light.light_type {
-            LightType::point => 0u32,
-            LightType::directional => 1u32,
-            LightType::spot => 2u32,
-        };
+        let light_type = light_type_u32(light.light_type);
         Self {
             position: [
                 light.world_position.x,
@@ -88,6 +98,28 @@ impl GpuLight {
             _pad2: [0; 4],
         }
     }
+}
+
+/// Returns the `light_type` field stored in [`GpuLight`] / WGSL (0 = point, 1 = directional, 2 = spot).
+pub fn light_type_u32(ty: LightType) -> u32 {
+    match ty {
+        LightType::point => 0,
+        LightType::directional => 1,
+        LightType::spot => 2,
+    }
+}
+
+/// Copies up to [`MAX_LIGHTS`] lights with all [`LightType::directional`] entries first (stable).
+///
+/// Clustered shading assigns lights to clusters in buffer index order and caps at 32 per cluster;
+/// directionals must appear early so they are not evicted by dense local lights.
+pub fn order_lights_for_clustered_shading(lights: &[ResolvedLight]) -> Vec<ResolvedLight> {
+    let mut v: Vec<ResolvedLight> = lights.iter().take(MAX_LIGHTS).cloned().collect();
+    v.sort_by_key(|l| match l.light_type {
+        LightType::directional => 0u8,
+        LightType::point | LightType::spot => 1,
+    });
+    v
 }
 
 /// Cache for the light storage buffer. Recreates only when light count exceeds capacity.
@@ -168,5 +200,57 @@ mod tests {
             80,
             "GpuLight must be 80 bytes to match WGSL storage buffer stride"
         );
+    }
+
+    #[test]
+    fn light_type_u32_matches_wgsl_and_shared_repr() {
+        use glam::Vec3;
+
+        assert_eq!(light_type_u32(LightType::point), 0);
+        assert_eq!(light_type_u32(LightType::directional), 1);
+        assert_eq!(light_type_u32(LightType::spot), 2);
+        let p = ResolvedLight {
+            world_position: Vec3::ZERO,
+            world_direction: Vec3::NEG_Z,
+            color: Vec3::ONE,
+            intensity: 1.0,
+            range: 1.0,
+            spot_angle: 0.0,
+            light_type: LightType::directional,
+            global_unique_id: 0,
+        };
+        assert_eq!(GpuLight::from_resolved(&p).light_type, 1);
+    }
+
+    #[test]
+    fn order_lights_for_clustered_shading_puts_directionals_first_preserving_stable_tail() {
+        use glam::Vec3;
+
+        fn dummy(idx: u8, ty: LightType) -> ResolvedLight {
+            ResolvedLight {
+                world_position: Vec3::splat(idx as f32),
+                world_direction: Vec3::NEG_Z,
+                color: Vec3::ONE,
+                intensity: 1.0,
+                range: 10.0,
+                spot_angle: 45.0,
+                light_type: ty,
+                global_unique_id: idx as i32,
+            }
+        }
+
+        let mut lights: Vec<ResolvedLight> =
+            (0u8..40).map(|i| dummy(i, LightType::point)).collect();
+        lights.push(dummy(40, LightType::directional));
+
+        let ordered = order_lights_for_clustered_shading(&lights);
+        assert_eq!(ordered.len(), 41);
+        assert_eq!(ordered[0].light_type, LightType::directional);
+        assert_eq!(ordered[0].global_unique_id, 40);
+        for w in ordered.iter().skip(1) {
+            assert_eq!(w.light_type, LightType::point);
+        }
+        let tail_ids: Vec<i32> = ordered.iter().skip(1).map(|l| l.global_unique_id).collect();
+        assert_eq!(tail_ids, (0..40).collect::<Vec<_>>());
     }
 }
