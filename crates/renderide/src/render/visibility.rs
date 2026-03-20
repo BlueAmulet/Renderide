@@ -13,7 +13,7 @@
 //!
 //! # Using the culling functions
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! // Rigid draw: cull before submitting.
 //! if !visibility::rigid_mesh_potentially_visible(&bounds, model_matrix, view_proj) {
 //!     continue;

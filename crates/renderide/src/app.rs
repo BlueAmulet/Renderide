@@ -340,14 +340,19 @@ impl RenderideApp {
             }
             let t1 = Instant::now();
             let main_view_input = MainViewFrameInput::from_session(&mut self.session);
+            // Time IPC batch collection separately from mesh culling/GPU upload.
+            let ipc_us = t1.elapsed().as_micros() as u64;
+
             let window = self.window.as_ref();
-            let (render_result, collect_us, render_us, prep_stats) = match window {
+            let (render_result, collect_us, ipc_collect_us, mesh_prep_us, render_us, prep_stats) = match window {
                 None => {
                     logger::warn!("GPU active without window; skipping main view render");
                     let collect_us = t1.elapsed().as_micros() as u64;
                     (
                         Err(wgpu::SurfaceError::Other),
                         collect_us,
+                        ipc_us,
+                        0u64,
                         0u64,
                         crate::render::pass::MeshDrawPrepStats::default(),
                     )
@@ -358,6 +363,8 @@ impl RenderideApp {
                         (
                             Err(e),
                             collect_us,
+                            ipc_us,
+                            collect_us.saturating_sub(ipc_us),
                             0u64,
                             crate::render::pass::MeshDrawPrepStats::default(),
                         )
@@ -365,12 +372,14 @@ impl RenderideApp {
                     Ok(output) => {
                         let target = RenderTarget::from_surface_texture(output);
                         let viewport = target.dimensions();
+                        let t_prep = Instant::now();
                         let pre_collected = crate::render::prepare_mesh_draws_for_view(
                             gpu,
                             &self.session,
                             &main_view_input.draw_batches,
                             viewport,
                         );
+                        let mesh_prep_us = t_prep.elapsed().as_micros() as u64;
                         let collect_us = t1.elapsed().as_micros() as u64;
                         let t2 = Instant::now();
                         let rendered = render_loop.render_frame(
@@ -387,6 +396,8 @@ impl RenderideApp {
                         (
                             rendered,
                             collect_us,
+                            ipc_us,
+                            mesh_prep_us,
                             render_us,
                             pre_collected.prep_stats,
                         )
@@ -442,15 +453,21 @@ impl RenderideApp {
                 .filter(|b| b.is_overlay)
                 .map(|b| b.draws.len())
                 .sum();
+            let rc = self.session.render_config();
             let live_sample = LiveFrameDiagnostics {
                 frame_index: self.session.last_frame_index(),
                 viewport: (gpu.config.width.max(1), gpu.config.height.max(1)),
+                // CPU phase timings
                 session_update_us: session_us,
+                ipc_collect_us: ipc_collect_us,
+                mesh_prep_us:    mesh_prep_us,
                 collect_us,
                 render_us,
                 present_us,
                 total_us,
+                // GPU timing
                 gpu_mesh_pass_ms: render_loop.last_gpu_mesh_pass_ms(),
+                // Draw stats
                 batch_count,
                 overlay_batch_count,
                 total_draws_in_batches,
@@ -459,8 +476,19 @@ impl RenderideApp {
                 mesh_cache_count: gpu.mesh_buffer_cache.len(),
                 pending_render_tasks: self.session.pending_render_task_count(),
                 pending_camera_task_readbacks: render_loop.pending_camera_task_readback_count(),
-                frustum_culling_enabled: self.session.render_config().frustum_culling,
-                rtao_enabled: self.session.render_config().rtao_enabled,
+                // Lights
+                gpu_light_count: gpu.light_count,
+                // RT / RTAO
+                blas_count: gpu.accel_cache.as_ref().map(|a| a.len()).unwrap_or(0),
+                tlas_available: gpu.ray_tracing_state.as_ref()
+                    .and_then(|rt| rt.tlas.as_ref())
+                    .is_some(),
+                ao_radius:       rc.ao_radius,
+                ao_strength:     rc.rtao_strength,
+                ao_sample_count: 4,
+                // Feature flags
+                frustum_culling_enabled: rc.frustum_culling,
+                rtao_enabled: rc.rtao_enabled,
                 ray_tracing_available: gpu.ray_tracing_available,
             };
             if let Some(debug_hud) = self.debug_hud.as_mut() {

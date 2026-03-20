@@ -15,12 +15,26 @@ use crate::render::pass::MeshDrawPrepStats;
 pub struct LiveFrameDiagnostics {
     pub frame_index: i32,
     pub viewport: (u32, u32),
+
+    // ── CPU phase timings ────────────────────────────────────────────────────
     pub session_update_us: u64,
+    /// IPC batch collection: `MainViewFrameInput::from_session`.
+    pub ipc_collect_us: u64,
+    /// Mesh-draw culling + GPU buffer upload: `prepare_mesh_draws_for_view`.
+    pub mesh_prep_us: u64,
+    /// `ipc_collect_us + mesh_prep_us` (sum retained for external consumers and log diagnostics).
+    #[allow(dead_code)]
     pub collect_us: u64,
+    /// `render_loop.render_frame` wall time (TLAS build + all pass recording + submit).
     pub render_us: u64,
     pub present_us: u64,
     pub total_us: u64,
+
+    // ── GPU timing ───────────────────────────────────────────────────────────
+    /// GPU mesh rasterisation pass time (timestamp query, updated every 60 frames).
     pub gpu_mesh_pass_ms: Option<f64>,
+
+    // ── Draw stats ───────────────────────────────────────────────────────────
     pub batch_count: usize,
     pub overlay_batch_count: usize,
     pub total_draws_in_batches: usize,
@@ -29,6 +43,24 @@ pub struct LiveFrameDiagnostics {
     pub mesh_cache_count: usize,
     pub pending_render_tasks: usize,
     pub pending_camera_task_readbacks: usize,
+
+    // ── Lights ───────────────────────────────────────────────────────────────
+    /// Active light count uploaded to the GPU by the clustered light pass.
+    pub gpu_light_count: u32,
+
+    // ── Ray tracing / RTAO ───────────────────────────────────────────────────
+    /// Number of meshes with a built BLAS (acceleration structure).
+    pub blas_count: usize,
+    /// Whether a TLAS was successfully built for this frame.
+    pub tlas_available: bool,
+    /// `ao_radius` from render config (world-space AO ray length).
+    pub ao_radius: f32,
+    /// `rtao_strength` from render config (AO multiplier applied in composite).
+    pub ao_strength: f32,
+    /// Fixed sample count used by the RTAO compute shader this build.
+    pub ao_sample_count: u32,
+
+    // ── Feature flags ────────────────────────────────────────────────────────
     pub frustum_culling_enabled: bool,
     pub rtao_enabled: bool,
     pub ray_tracing_available: bool,
@@ -145,90 +177,120 @@ impl DebugHud {
             .bg_alpha(0.72)
             .flags(window_flags)
             .build(|| {
-                if let Some(sample) = self.latest.as_ref() {
+                if let Some(s) = self.latest.as_ref() {
+                    // ── Header ──────────────────────────────────────────────
                     ui.text(format!(
                         "FPS {:.1}  |  {:.2} ms  |  {}",
-                        sample.fps(),
-                        sample.frame_time_ms(),
-                        sample.bottleneck()
+                        s.fps(), s.frame_time_ms(), s.bottleneck()
                     ));
                     ui.text(format!(
                         "Frame {}  |  {}x{}",
-                        sample.frame_index, sample.viewport.0, sample.viewport.1
+                        s.frame_index, s.viewport.0, s.viewport.1
                     ));
+
+                    // ── CPU timings ──────────────────────────────────────────
                     ui.separator();
+                    let ms = |us: u64| us as f64 / 1000.0;
                     ui.text(format!(
-                        "CPU update {:.2}  collect+prep {:.2}  render {:.2}  present {:.2}",
-                        sample.session_update_us as f64 / 1000.0,
-                        sample.collect_us as f64 / 1000.0,
-                        sample.render_us as f64 / 1000.0,
-                        sample.present_us as f64 / 1000.0
+                        "CPU update {:.2}  ipc {:.2}  mesh-prep {:.2}  render {:.2}  present {:.2}  [ms]",
+                        ms(s.session_update_us), ms(s.ipc_collect_us),
+                        ms(s.mesh_prep_us), ms(s.render_us), ms(s.present_us)
                     ));
-                    ui.text(match sample.gpu_mesh_pass_ms {
-                        Some(ms) => format!("GPU mesh pass {:.2} ms", ms),
-                        None => "GPU mesh pass pending".to_string(),
+                    // Identify the dominant CPU phase
+                    let phases: [(&str, u64); 5] = [
+                        ("update",    s.session_update_us),
+                        ("ipc",       s.ipc_collect_us),
+                        ("mesh-prep", s.mesh_prep_us),
+                        ("render",    s.render_us),
+                        ("present",   s.present_us),
+                    ];
+                    let worst = phases.iter().max_by_key(|p| p.1).map(|p| p.0).unwrap_or("?");
+                    ui.text(format!("  ↳ dominant CPU phase: {}  (total {:.2} ms)", worst, s.frame_time_ms()));
+                    ui.text(match s.gpu_mesh_pass_ms {
+                        Some(ms_val) => format!("GPU mesh pass {:.2} ms  (timestamp, ~60-frame lag)", ms_val),
+                        None => "GPU mesh pass: waiting for timestamp readback...".to_string(),
                     });
+
+                    // ── Draw batches ─────────────────────────────────────────
                     ui.separator();
                     ui.text(format!(
                         "Batches {} total  |  {} main  |  {} overlay",
-                        sample.batch_count,
-                        sample
-                            .batch_count
-                            .saturating_sub(sample.overlay_batch_count),
-                        sample.overlay_batch_count
+                        s.batch_count,
+                        s.batch_count.saturating_sub(s.overlay_batch_count),
+                        s.overlay_batch_count
                     ));
                     ui.text(format!(
                         "Draws {} total  |  {} main  |  {} overlay",
-                        sample.total_draws_in_batches,
-                        sample
-                            .total_draws_in_batches
-                            .saturating_sub(sample.overlay_draws_in_batches),
-                        sample.overlay_draws_in_batches
+                        s.total_draws_in_batches,
+                        s.total_draws_in_batches.saturating_sub(s.overlay_draws_in_batches),
+                        s.overlay_draws_in_batches
                     ));
                     ui.text(format!(
                         "Submitted {} total  |  {} main  |  {} overlay",
-                        sample.prep_stats.submitted_draws(),
-                        sample.submitted_main_draws(),
-                        sample.submitted_overlay_draws()
+                        s.prep_stats.submitted_draws(),
+                        s.submitted_main_draws(),
+                        s.submitted_overlay_draws()
                     ));
+
+                    // ── Mesh prep detail ─────────────────────────────────────
                     ui.separator();
                     ui.text(format!(
                         "Prep rigid {}  skinned {}",
-                        sample.prep_stats.rigid_input_draws, sample.prep_stats.skinned_input_draws
+                        s.prep_stats.rigid_input_draws, s.prep_stats.skinned_input_draws
                     ));
                     ui.text(format!(
                         "Culled rigid {}  skinned {}  total {}  |  degenerate skip {}",
-                        sample.prep_stats.frustum_culled_rigid_draws,
-                        sample.prep_stats.frustum_culled_skinned_draws,
-                        sample.prep_stats.frustum_culled_rigid_draws
-                            + sample.prep_stats.frustum_culled_skinned_draws,
-                        sample.prep_stats.skipped_cull_degenerate_bounds
+                        s.prep_stats.frustum_culled_rigid_draws,
+                        s.prep_stats.frustum_culled_skinned_draws,
+                        s.prep_stats.frustum_culled_rigid_draws + s.prep_stats.frustum_culled_skinned_draws,
+                        s.prep_stats.skipped_cull_degenerate_bounds
                     ));
                     ui.text(format!(
                         "Missing mesh {}  empty mesh {}  missing GPU {}",
-                        sample.prep_stats.skipped_missing_mesh_asset,
-                        sample.prep_stats.skipped_empty_mesh,
-                        sample.prep_stats.skipped_missing_gpu_buffers
+                        s.prep_stats.skipped_missing_mesh_asset,
+                        s.prep_stats.skipped_empty_mesh,
+                        s.prep_stats.skipped_missing_gpu_buffers
                     ));
                     ui.text(format!(
                         "Skinned skips bind {}  ids {}  mismatch {}  vb {}",
-                        sample.prep_stats.skipped_skinned_missing_bind_poses,
-                        sample.prep_stats.skipped_skinned_missing_bone_ids,
-                        sample.prep_stats.skipped_skinned_id_count_mismatch,
-                        sample.prep_stats.skipped_skinned_missing_vertex_buffer
+                        s.prep_stats.skipped_skinned_missing_bind_poses,
+                        s.prep_stats.skipped_skinned_missing_bone_ids,
+                        s.prep_stats.skipped_skinned_id_count_mismatch,
+                        s.prep_stats.skipped_skinned_missing_vertex_buffer
                     ));
+
+                    // ── Lights ────────────────────────────────────────────────
+                    ui.separator();
+                    ui.text(format!(
+                        "Lights: {}  active  (GPU clustered buffer)",
+                        s.gpu_light_count
+                    ));
+
+                    // ── Caches / tasks ───────────────────────────────────────
                     ui.separator();
                     ui.text(format!(
                         "Mesh cache {}  |  tasks {}  |  readbacks {}",
-                        sample.mesh_cache_count,
-                        sample.pending_render_tasks,
-                        sample.pending_camera_task_readbacks
+                        s.mesh_cache_count, s.pending_render_tasks, s.pending_camera_task_readbacks
                     ));
+
+                    // ── Ray tracing / RTAO ────────────────────────────────────
+                    ui.separator();
+                    let tlas_str = if s.tlas_available { "built" } else { "NONE" };
                     ui.text(format!(
-                        "Flags cull={}  rtao={}  raytracing={}",
-                        sample.frustum_culling_enabled,
-                        sample.rtao_enabled,
-                        sample.ray_tracing_available
+                        "RT  BLASes {}  |  TLAS {}  |  raytracing={}",
+                        s.blas_count, tlas_str, s.ray_tracing_available
+                    ));
+                    let rtao_state = if s.rtao_enabled { "ON" } else { "OFF" };
+                    ui.text(format!(
+                        "RTAO {}  radius {:.2}  strength {:.2}  samples {}",
+                        rtao_state, s.ao_radius, s.ao_strength, s.ao_sample_count
+                    ));
+
+                    // ── Feature flags ─────────────────────────────────────────
+                    ui.separator();
+                    ui.text(format!(
+                        "Flags  cull={}  rtao={}",
+                        s.frustum_culling_enabled, s.rtao_enabled
                     ));
                 } else {
                     ui.text("Waiting for frame diagnostics...");
@@ -364,6 +426,8 @@ mod tests {
             frame_index: 12,
             viewport: (1280, 720),
             session_update_us: 1_000,
+            ipc_collect_us: 500,
+            mesh_prep_us: 1_500,
             collect_us: 2_000,
             render_us: 3_000,
             present_us: 500,
@@ -383,6 +447,12 @@ mod tests {
             mesh_cache_count: 10,
             pending_render_tasks: 0,
             pending_camera_task_readbacks: 0,
+            gpu_light_count: 4,
+            blas_count: 10,
+            tlas_available: true,
+            ao_radius: 1.5,
+            ao_strength: 0.85,
+            ao_sample_count: 8,
             frustum_culling_enabled: true,
             rtao_enabled: true,
             ray_tracing_available: true,
