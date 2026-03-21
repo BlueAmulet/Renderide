@@ -69,9 +69,9 @@ dotnet test SharedTypeGenerator.Tests/
 
 ## Logging
 
-`Bootstrapper.log` and `HostOutput.log` are written under `logs/` relative to the bootstrapper’s **current working directory**. At startup the bootstrapper also truncates `logs/Renderide.log` under that same directory. The renderer appends to `logs/Renderide.log` at the **workspace root** (compile-time path derived from `crates/renderide`). If you run the bootstrapper from the repo root, those `Renderide.log` paths are the same file; if the CWD is elsewhere, you may get two different `Renderide.log` locations.
+`Bootstrapper.log` and `HostOutput.log` are written under `logs/` relative to the bootstrapper’s current working directory. At startup the bootstrapper also truncates `logs/Renderide.log` under that same directory. The renderer appends to `logs/Renderide.log` at the workspace root (compile-time path derived from `crates/renderide`). If you run the bootstrapper from the repo root, those `Renderide.log` paths are the same file; if the CWD is elsewhere, you may get two different `Renderide.log` locations.
 
-**Verbosity:** Bootstrapper logging defaults to `trace`. Renderide defaults to `info` when no `-LogLevel` is passed. Pass `--log-level <level>` or `-l <level>` to the bootstrapper to set **both** bootstrapper and Renderide max levels; the bootstrapper then adds `-LogLevel` to the renderer argv. Levels: `error`, `warn`, `info`, `debug`, `trace`.
+**Verbosity:** Bootstrapper logging defaults to `trace`. Renderide defaults to `info` when no `-LogLevel` is passed. Pass `--log-level <level>` or `-l <level>` to the bootstrapper to set both bootstrapper and Renderide max levels; the bootstrapper then adds `-LogLevel` to the renderer argv. Levels: `error`, `warn`, `info`, `debug`, `trace`.
 
 ```bash
 cargo run --bin bootstrapper -- --log-level debug
@@ -83,12 +83,21 @@ cargo run --bin bootstrapper -- --log-level debug
 | HostOutput.log | `logs/HostOutput.log` | Bootstrapper (redirects C# host stdout/stderr with [Host stdout]/[Host stderr] prefixes) |
 | Renderide.log | `logs/Renderide.log` | Renderide crate — renderer diagnostics (path: repo root via CARGO_MANIFEST_DIR) |
 
+## GPU validation (debugging)
+
+wgpu can enable backend validation (on Vulkan, the validation layers when installed). This is off by default so debug builds stay usable.
+
+- **Enable:** set `RENDERIDE_GPU_VALIDATION=1` (or `true` / `yes`) before starting the renderer so `RenderConfig::gpu_validation_layers` is true at first GPU init (see `crates/renderide/src/config.rs`). Validation is chosen when the wgpu instance is created and cannot be toggled later without restarting the process.
+- **Override:** wgpu’s `WGPU_VALIDATION` is still applied via [`InstanceFlags::with_env`](https://docs.rs/wgpu/latest/wgpu/struct.InstanceFlags.html#method.with_env) after that config: any value other than `0` forces validation on; `0` forces it off.
+
+Expect a large performance hit when validation is on; use it only while tracking API errors.
+
 ## Building and Running
 
 **Rust:**
 
 ```bash
-cargo build && cargo run --bin bootstrapper
+cargo build --release && ./target/release/bootstrapper
 ```
 
 **Generator (optional):**
@@ -99,7 +108,7 @@ dotnet run --project SharedTypeGenerator -- -i /path/to/Renderite.Shared.dll
 
 **Resonite discovery:** `RESONITE_DIR` or Steam (`~/.steam/steam/steamapps/common/Resonite`, `~/.local/share/Steam`, libraryfolders.vdf).
 
-**Bootstrapper:** The renderer binary is resolved next to the bootstrapper executable (`target/debug` when using `cargo run`). On Linux the process is started as `Renderite.Renderer`; the bootstrapper can create a symlink to the `renderide` binary there if missing. On Windows it uses `renderide.exe`.
+**Bootstrapper:** The renderer binary is resolved next to the bootstrapper executable (`target/release` when using `cargo run`). On Linux the process is started as `Renderite.Renderer`; the bootstrapper can create a symlink to the `renderide` binary there if missing. On Windows it uses `renderide.exe`.
 
 **Wine:** Bootstrapper detects Wine and uses `LinuxBootstrap.sh` in the Resonite directory.
 

@@ -67,25 +67,46 @@ pub struct GpuState {
     pub rigid_frustum_cull_cache: crate::render::visibility::RigidFrustumCullCache,
 }
 
+/// Base instance flags from [`RenderConfig::gpu_validation_layers`](crate::config::RenderConfig::gpu_validation_layers)
+/// before [`wgpu::InstanceFlags::with_env`] is applied in [`instance_flags_for_init`].
+pub(crate) fn instance_flags_base(gpu_validation_layers: bool) -> wgpu::InstanceFlags {
+    let mut flags = wgpu::InstanceFlags::empty();
+    if gpu_validation_layers {
+        flags.insert(wgpu::InstanceFlags::VALIDATION);
+    }
+    flags
+}
+
+/// Builds instance flags for [`init_gpu`]: [`instance_flags_base`] then [`wgpu::InstanceFlags::with_env`]
+/// so `WGPU_VALIDATION` and related env vars can override.
+pub(crate) fn instance_flags_for_init(gpu_validation_layers: bool) -> wgpu::InstanceFlags {
+    instance_flags_base(gpu_validation_layers).with_env()
+}
+
 /// Initializes wgpu surface, device, queue, and mesh pipeline.
 ///
 /// Prefers Vulkan backend when available (ray tracing often better supported).
 /// Uses [`wgpu::PowerPreference::HighPerformance`] to prefer discrete GPUs (NVIDIA/AMD)
 /// over integrated (Intel), since integrated GPUs often report ray query support but
 /// have `max_blas_geometry_count=0` (no actual acceleration structure support).
-/// Instance flags use [`wgpu::InstanceFlags::from_build_config`]: validation layers
-/// are disabled in release; use `WGPU_VALIDATION=0` when profiling debug builds.
+///
+/// Validation layers are off unless `gpu_validation_layers` is true or enabled via `WGPU_VALIDATION`
+/// (see [`instance_flags_for_init`]).
 pub async fn init_gpu(
     window: &Window,
     vsync: bool,
+    gpu_validation_layers: bool,
 ) -> Result<GpuState, Box<dyn std::error::Error + Send + Sync>> {
     let enabled_backends = wgpu::Instance::enabled_backend_features();
     let use_vulkan_only = enabled_backends.contains(wgpu::Backends::VULKAN);
 
+    let instance_flags = instance_flags_for_init(gpu_validation_layers);
     logger::info!(
-        "GPU init: backends={:?} use_vulkan_only={} (Vulkan preferred for ray tracing)",
+        "GPU init: backends={:?} use_vulkan_only={} gpu_validation_layers={} instance_flags={:?} (Vulkan preferred for ray tracing)",
         enabled_backends,
-        use_vulkan_only
+        use_vulkan_only,
+        gpu_validation_layers,
+        instance_flags
     );
 
     let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -94,7 +115,7 @@ pub async fn init_gpu(
         } else {
             enabled_backends
         },
-        flags: wgpu::InstanceFlags::from_build_config(),
+        flags: instance_flags,
         ..Default::default()
     });
 
@@ -384,7 +405,14 @@ pub fn reconfigure_surface_for_window(
 
 #[cfg(test)]
 mod tests {
-    use super::clamp_surface_extent;
+    use super::{clamp_surface_extent, instance_flags_base};
+    use wgpu::InstanceFlags;
+
+    #[test]
+    fn instance_flags_base_toggles_validation() {
+        assert!(!instance_flags_base(false).contains(InstanceFlags::VALIDATION));
+        assert!(instance_flags_base(true).contains(InstanceFlags::VALIDATION));
+    }
 
     #[test]
     fn clamp_surface_extent_nonzero() {

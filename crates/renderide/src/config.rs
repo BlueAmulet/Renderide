@@ -6,7 +6,7 @@
 //!
 //! Use [`RenderConfig::load()`] as the single source of truth. Precedence:
 //! 1. **Defaults** — hardcoded values below
-//! 2. **Env vars** — override defaults (e.g. `RENDERIDE_DEBUG_BLENDSHAPES=1`, `RENDERIDE_VSYNC=1`)
+//! 2. **Env vars** — override defaults (e.g. `RENDERIDE_DEBUG_BLENDSHAPES=1`, `RENDERIDE_GPU_VALIDATION=1`, `RENDERIDE_VSYNC=1`)
 //!
 //! Extension point for config, feature flags.
 
@@ -35,6 +35,11 @@ pub struct RenderConfig {
     /// When true, use root_bone_transform_id from BoneAssignment for root-relative bone matrices.
     /// Enables A/B testing of coordinate alignment. Default false.
     pub skinned_use_root_bone: bool,
+    /// When true, request wgpu backend validation (e.g. Vulkan validation layers). Very slow; use
+    /// only when debugging GPU API misuse. Default false. Ignored after GPU init (instance flags
+    /// are fixed at first [`crate::gpu::init_gpu`]). See README for `RENDERIDE_GPU_VALIDATION` and
+    /// `WGPU_VALIDATION`.
+    pub gpu_validation_layers: bool,
     /// When true, log diagnostic info for the first skinned draw each frame.
     pub debug_skinned: bool,
     /// When true, log blendshape batch count and first few weights each frame.
@@ -77,6 +82,8 @@ impl RenderConfig {
     ///
     /// `RENDERIDE_NO_RTAO=1` disables RTAO even when ray tracing is available.
     ///
+    /// `RENDERIDE_GPU_VALIDATION=1` enables wgpu validation layers at GPU init ([`Self::gpu_validation_layers`]).
+    ///
     /// `RENDERIDE_VSYNC=1` enables hardware vsync ([`Self::vsync`]); `RENDERIDE_VSYNC=0` forces it off.
     ///
     /// `RENDERIDE_LOG_COLLECT_TIMING=1` enables [`Self::log_collect_draw_batches_timing`].
@@ -93,6 +100,11 @@ impl RenderConfig {
         }
         if std::env::var("RENDERIDE_NO_RTAO").as_deref() == Ok("1") {
             config.rtao_enabled = false;
+        }
+        match std::env::var("RENDERIDE_GPU_VALIDATION").as_deref() {
+            Ok("1") | Ok("true") | Ok("yes") => config.gpu_validation_layers = true,
+            Ok("0") | Ok("false") | Ok("no") => config.gpu_validation_layers = false,
+            _ => {}
         }
         match std::env::var("RENDERIDE_VSYNC").as_deref() {
             Ok("1") | Ok("true") | Ok("yes") => config.vsync = true,
@@ -117,10 +129,11 @@ impl Default for RenderConfig {
             use_pbr: true,
             skinned_apply_mesh_root_transform: true,
             skinned_use_root_bone: false,
+            gpu_validation_layers: false,
             debug_skinned: false,
             debug_blendshapes: false,
             skinned_flip_handedness: false,
-            rtao_enabled: true,
+            rtao_enabled: false,
             rtao_strength: 1.0,
             ao_radius: 1.0,
             frustum_culling: true,

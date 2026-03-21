@@ -344,6 +344,7 @@ impl RenderideApp {
             match pollster::block_on(crate::gpu::init_gpu(
                 window,
                 self.session.render_config().vsync,
+                self.session.render_config().gpu_validation_layers,
             )) {
                 Ok(g) => {
                     logger::info!(
