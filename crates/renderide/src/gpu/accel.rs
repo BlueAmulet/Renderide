@@ -137,6 +137,16 @@ fn read_position(
     }
 }
 
+/// Number of indices to pass to a BLAS triangle-list build for the given raw index count.
+///
+/// [`wgpu`] requires the index count to be a positive multiple of three. Host-provided meshes
+/// may occasionally use index buffers whose length is not a multiple of three; trailing indices
+/// are omitted from the acceleration structure so the build remains valid.
+fn triangle_list_index_count_for_blas(total_indices: u32) -> Option<u32> {
+    let n = total_indices.saturating_sub(total_indices % 3);
+    (n >= 3).then_some(n)
+}
+
 /// Builds a BLAS for a non-skinned mesh.
 ///
 /// Caller must ensure the device has [`wgpu::Features::EXPERIMENTAL_RAY_QUERY`] enabled.
@@ -189,13 +199,11 @@ pub fn build_blas_for_mesh(
     });
 
     let vertex_count = positions.len() as u32;
-    let index_count = match mesh.index_format {
+    let raw_index_count = match mesh.index_format {
         crate::shared::IndexBufferFormat::u_int16 => mesh.index_data.len() / 2,
         crate::shared::IndexBufferFormat::u_int32 => mesh.index_data.len() / 4,
     } as u32;
-    if index_count == 0 {
-        return None;
-    }
+    let index_count = triangle_list_index_count_for_blas(raw_index_count)?;
 
     let index_format = match mesh.index_format {
         crate::shared::IndexBufferFormat::u_int16 => wgpu::IndexFormat::Uint16,
@@ -497,4 +505,29 @@ pub fn update_tlas(
         .last_instance_snapshot
         .clone_from(&state.instance_scratch);
     state.tlas = Some(tlas);
+}
+
+#[cfg(test)]
+mod triangle_list_index_count_tests {
+    use super::triangle_list_index_count_for_blas;
+
+    #[test]
+    fn multiple_of_three_unchanged() {
+        assert_eq!(triangle_list_index_count_for_blas(9), Some(9));
+        assert_eq!(triangle_list_index_count_for_blas(3), Some(3));
+    }
+
+    #[test]
+    fn truncates_trailing_incomplete_triangle() {
+        assert_eq!(triangle_list_index_count_for_blas(19678), Some(19677));
+        assert_eq!(triangle_list_index_count_for_blas(5), Some(3));
+        assert_eq!(triangle_list_index_count_for_blas(4), Some(3));
+    }
+
+    #[test]
+    fn too_few_indices_returns_none() {
+        assert_eq!(triangle_list_index_count_for_blas(0), None);
+        assert_eq!(triangle_list_index_count_for_blas(1), None);
+        assert_eq!(triangle_list_index_count_for_blas(2), None);
+    }
 }
