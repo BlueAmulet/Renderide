@@ -80,7 +80,7 @@ IPC summary: `{prefix}.bootstrapper_in` / `{prefix}.bootstrapper_out` connect th
 | interprocess | [`crates/interprocess/`](crates/interprocess/) | Shared-memory IPC queues (Publisher/Subscriber, circular buffers) used by bootstrapper and renderide |
 | logger | [`crates/logger/`](crates/logger/) | Logging shared by bootstrapper and renderer |
 | bootstrapper | [`crates/bootstrapper/`](crates/bootstrapper/) | Creates `bootstrapper_in` / `bootstrapper_out` queues, spawns Renderite.Host from the Resonite install, runs the queue loop, starts Renderide when the host sends spawn tokens; Wine on Linux |
-| renderide | [`crates/renderide/`](crates/renderide/) | Main renderer: `renderide` and `roundtrip` binaries, scene, assets, WGSL under [`src/shaders/`](crates/renderide/src/shaders/); UnityShaderConverter writes under `src/shaders/generated/<stem>/` and merges [`shaders/mod.rs`](crates/renderide/src/shaders/mod.rs) above `// --- END UNITY_SHADER_CONVERTER_GENERATED ---` |
+| renderide | [`crates/renderide/`](crates/renderide/) | Main renderer: `renderide` and `roundtrip` binaries, scene, assets, WGSL under [`src/shaders/`](crates/renderide/src/shaders/); UnityShaderConverter writes under `src/shaders/<stem>/` and merges [`shaders/mod.rs`](crates/renderide/src/shaders/mod.rs) above `// --- END UNITY_SHADER_CONVERTER_GENERATED ---` |
 
 ### Third-party trees
 
@@ -106,7 +106,7 @@ Default output path is `crates/renderide/src/shared/shared.rs`. Use `-o` to writ
 
 ### UnityShaderConverter
 
-`generators/UnityShaderConverter/` (C# / .NET 10) emits Rust modules and WGSL under `crates/renderide/src/shaders/generated/`. Uses UnityShaderParser. Unrelated to SharedTypeGenerator (Cecil/IL -> `shared.rs`).
+`generators/UnityShaderConverter/` (C# / .NET 10) emits Rust modules and WGSL under `crates/renderide/src/shaders/<shader_name>/`. Uses UnityShaderParser. Unrelated to SharedTypeGenerator (Cecil/IL -> `shared.rs`).
 
 Typical commands (from `Renderide/`):
 

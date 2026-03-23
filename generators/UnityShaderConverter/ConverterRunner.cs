@@ -10,7 +10,7 @@ using UnityShaderParser.Common;
 
 namespace UnityShaderConverter;
 
-/// <summary>Orchestrates discovery, parsing, Slang/WGSL emission, and Rust codegen into the configured shader output directory (default <c>src/shaders/generated/&lt;mod&gt;/</c>).</summary>
+/// <summary>Orchestrates discovery, parsing, Slang/WGSL emission, and Rust codegen into the configured shader output directory (default <c>src/shaders/&lt;mod&gt;/</c>).</summary>
 public static class ConverterRunner
 {
     /// <summary>Runs the full pipeline for the given options and returns a process exit code.</summary>
@@ -253,7 +253,7 @@ public static class ConverterRunner
                 logger.LogDebug(LogCategory.Rust, $"Wrote {modDir}");
             }
 
-            TryWriteGeneratedBundleModAndMergeRoot(renderideRoot, outputDir, bundleEntries, logger);
+            TryMergeShadersCrateRootMod(renderideRoot, outputDir, bundleEntries, logger);
         }
         finally
         {
@@ -394,37 +394,27 @@ public static class ConverterRunner
         return true;
     }
 
-    private static void TryWriteGeneratedBundleModAndMergeRoot(
+    /// <summary>
+    /// When output is the crate <c>shaders/</c> directory, merges <c>pub mod &lt;shader&gt;;</c> lines into <c>shaders/mod.rs</c> between the UnityShaderConverter markers.
+    /// </summary>
+    private static void TryMergeShadersCrateRootMod(
         string renderideRoot,
         string outputDir,
         List<ShaderBundleEntry> bundleEntries,
         Logger logger)
     {
-        string expectedGen = Path.GetFullPath(
-            Path.Combine(renderideRoot, "crates", "renderide", "src", "shaders", "generated"));
-        if (!string.Equals(Path.GetFullPath(outputDir), expectedGen, StringComparison.OrdinalIgnoreCase))
+        string expectedShadersRoot = Path.GetFullPath(
+            Path.Combine(renderideRoot, "crates", "renderide", "src", "shaders"));
+        if (!string.Equals(Path.GetFullPath(outputDir), expectedShadersRoot, StringComparison.OrdinalIgnoreCase))
             return;
 
-        string genModPath = Path.Combine(outputDir, "mod.rs");
-        try
-        {
-            File.WriteAllText(
-                genModPath,
-                RustEmitter.EmitGeneratedShadersModRs(bundleEntries.Select(e => e.ModName).ToList()));
-            logger.LogDebug(LogCategory.Rust, $"Wrote {genModPath}");
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(LogCategory.Rust, $"Could not write {genModPath}: {ex.Message}");
-            return;
-        }
-
-        string shadersRoot = Path.Combine(renderideRoot, "crates", "renderide", "src", "shaders");
-        string rootModPath = Path.Combine(shadersRoot, "mod.rs");
+        string rootModPath = Path.Combine(expectedShadersRoot, "mod.rs");
         try
         {
             string? existing = File.Exists(rootModPath) ? File.ReadAllText(rootModPath) : null;
-            File.WriteAllText(rootModPath, RustEmitter.MergeShadersRootModRs(existing));
+            File.WriteAllText(
+                rootModPath,
+                RustEmitter.MergeShadersRootModRs(existing, bundleEntries.Select(e => e.ModName).ToList()));
             logger.LogDebug(LogCategory.Rust, $"Merged {rootModPath}");
         }
         catch (Exception ex)
