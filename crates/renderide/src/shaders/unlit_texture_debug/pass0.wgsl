@@ -34,7 +34,7 @@ struct SLANG_ParameterGroup_UnityPerFrame_std140_0
     @align(8) unity_ShadowColor_0 : vec4<f16>,
 };
 
-@binding(9) @group(0) var<uniform> UnityPerFrame_0 : SLANG_ParameterGroup_UnityPerFrame_std140_0;
+@binding(11) @group(0) var<uniform> UnityPerFrame_0 : SLANG_ParameterGroup_UnityPerFrame_std140_0;
 struct SLANG_ParameterGroup_UnityPerDraw_std140_0
 {
     @align(16) unity_ObjectToWorld_0 : _MatrixStorage_float4x4_ColMajorstd140_0,
@@ -44,7 +44,7 @@ struct SLANG_ParameterGroup_UnityPerDraw_std140_0
     @align(16) unity_RenderingLayer_0 : vec4<f32>,
 };
 
-@binding(7) @group(0) var<uniform> UnityPerDraw_0 : SLANG_ParameterGroup_UnityPerDraw_std140_0;
+@binding(9) @group(0) var<uniform> UnityPerDraw_0 : SLANG_ParameterGroup_UnityPerDraw_std140_0;
 struct GlobalParams_std140_0
 {
     @align(16) unity_Lightmap_HDR_0 : vec4<f16>,
@@ -89,9 +89,9 @@ fn vert( _S1 : vertexInput_0) -> v2f_0
 
 enable f16;
 
-@binding(25) @group(0) var _MainTex_0 : texture_2d<f32>;
+@binding(27) @group(0) var _MainTex_0 : texture_2d<f32>;
 
-@binding(26) @group(0) var sampler_MainTex_0 : sampler;
+@binding(28) @group(0) var sampler_MainTex_0 : sampler;
 
 struct GlobalParams_std140_0
 {

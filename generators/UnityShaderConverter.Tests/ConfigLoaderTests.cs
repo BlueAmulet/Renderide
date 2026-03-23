@@ -41,4 +41,34 @@ public sealed class ConfigLoaderTests
             }
         }
     }
+
+    /// <summary><c>slangExcludeGlobPatterns</c> in user JSON replaces the default exclude list when provided.</summary>
+    [Fact]
+    public void MergeCompilerConfig_SlangExcludeGlobPatterns_OverridesDefaults()
+    {
+        var defaults = new CompilerConfigModel
+        {
+            SlangEligibleGlobPatterns = new List<string> { "**/*.shader" },
+            SlangExcludeGlobPatterns = new List<string> { "**/Nosamplers.shader" },
+        };
+        string tmp = Path.Combine(Path.GetTempPath(), "usc_cfg_ex_" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            File.WriteAllText(tmp, "{\"slangExcludeGlobPatterns\":[\"**/OnlyThis.shader\"]}");
+            CompilerConfigModel merged = ConfigLoader.MergeCompilerConfig(defaults, tmp);
+            Assert.Single(merged.SlangExcludeGlobPatterns);
+            Assert.Equal("**/OnlyThis.shader", merged.SlangExcludeGlobPatterns[0]);
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(tmp);
+            }
+            catch
+            {
+                // ignored
+            }
+        }
+    }
 }

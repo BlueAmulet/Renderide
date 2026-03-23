@@ -15,12 +15,14 @@ namespace UnityShaderConverter.Emission;
 public sealed class SlangCompiler
 {
     /// <summary>Slang warning IDs that are noisy during Unity header conversion but rarely indicate WGSL failure.</summary>
+    /// <remarks>30056 covers deprecated non-short-circuiting <c>?:</c> in vendored Unity <c>.cginc</c> files.</remarks>
     private static readonly string[] DefaultDisabledSlangWarningIds =
     {
         "15205",
         "15401",
         "15400",
         "30081",
+        "30056",
     };
 
     private readonly string _slangcExecutable;

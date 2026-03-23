@@ -30,17 +30,20 @@ public sealed class SlangEmitterTests
         Assert.DoesNotContain("#pragma fragment", slang);
     }
 
-    /// <summary>Post-Unity compat include is inserted after the first run of <c>#include</c> lines.</summary>
+    /// <summary>UnityCG and Post-Unity compat are prepended so overrides apply before Resonite <c>Common.cginc</c>-first passes.</summary>
     [Fact]
-    public void InsertUnityCompatPostInclude_AfterInitialIncludes()
+    public void InsertUnityCompatPostInclude_PrependsUnityCgAndPostUnity()
     {
-        const string body = "#include \"A.cginc\"\n#include \"B.cginc\"\n\nfloat x;\n";
+        const string body = "#include \"../Common.cginc\"\nfloat x;\n";
         string result = SlangEmitter.InsertUnityCompatPostIncludeAfterInitialIncludes(body);
+        int unityCg = result.IndexOf("#include \"UnityCG.cginc\"", StringComparison.Ordinal);
         int post = result.IndexOf("UnityCompatPostUnity.slang", StringComparison.Ordinal);
-        int b = result.IndexOf("#include \"B.cginc\"", StringComparison.Ordinal);
+        int common = result.IndexOf("#include \"../Common.cginc\"", StringComparison.Ordinal);
         int x = result.IndexOf("float x", StringComparison.Ordinal);
-        Assert.True(post > b);
-        Assert.True(x > post);
+        Assert.True(unityCg >= 0);
+        Assert.True(unityCg < post);
+        Assert.True(post < common);
+        Assert.True(common < x);
     }
 
     /// <summary>Specialization axes become <c>[vk::constant_id(n)]</c> bools before UnityCompat.</summary>
@@ -100,5 +103,41 @@ public sealed class SlangEmitterTests
         Assert.Contains("UNITY_DECLARE_TEX2D(_MainTex)", rewritten, StringComparison.Ordinal);
         Assert.Contains("UNITY_DECLARE_TEX2D(_DepthTex)", rewritten, StringComparison.Ordinal);
         Assert.DoesNotContain("sampler2D _MainTex", rewritten, StringComparison.Ordinal);
+    }
+
+    /// <summary>Non-underscore <c>sampler2D LUT;</c> style declarations are rewritten for split samplers.</summary>
+    [Fact]
+    public void RewriteLegacySampler2DDeclarations_ReplacesCamelCaseTextureNames()
+    {
+        const string body = "sampler2D LUT;\n";
+        string rewritten = SlangEmitter.RewriteLegacySampler2DDeclarations(body);
+        Assert.Contains("UNITY_DECLARE_TEX2D(LUT)", rewritten, StringComparison.Ordinal);
+    }
+
+    /// <summary><c>sampler3D</c> volume textures need split declarations for <c>tex3D</c> under Slang.</summary>
+    [Fact]
+    public void RewriteLegacySampler3DDeclarations_ReplacesVolumeTextures()
+    {
+        const string body = "\t\tsampler3D _LUT;\n";
+        string rewritten = SlangEmitter.RewriteLegacySampler3DDeclarations(body);
+        Assert.Contains("UNITY_DECLARE_TEX3D(_LUT)", rewritten, StringComparison.Ordinal);
+    }
+
+    /// <summary><c>float4</c> appdata texcoord to <c>float2</c> UV needs a <c>.xy</c> swizzle for Slang.</summary>
+    [Fact]
+    public void RewriteFloat4TexcoordUvAssignments_AppendsXySwizzle()
+    {
+        const string body = "\t\t\to.uv = v.texcoord;\n";
+        string rewritten = SlangEmitter.RewriteFloat4TexcoordUvAssignments(body);
+        Assert.Contains("o.uv = v.texcoord.xy;", rewritten, StringComparison.Ordinal);
+    }
+
+    /// <summary>Already-swizzled RHS must not become <c>.xy.xy</c>.</summary>
+    [Fact]
+    public void RewriteFloat4TexcoordUvAssignments_SkipsWhenAlreadyXy()
+    {
+        const string body = "o.uv = v.texcoord.xy;\n";
+        string rewritten = SlangEmitter.RewriteFloat4TexcoordUvAssignments(body);
+        Assert.Equal(body.TrimEnd(), rewritten.TrimEnd(), StringComparer.Ordinal);
     }
 }

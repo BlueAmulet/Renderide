@@ -22,9 +22,19 @@
 #define SHADER_TARGET 50
 #endif
 
+/// Converter-only PBS selection: <c>UnityPBSLighting.cginc</c> requires a BRDF choice when <c>SHADER_TARGET</c> is at least 30.
+#ifndef UNITY_PBS_USE_BRDF1
+#define UNITY_PBS_USE_BRDF1 1
+#endif
+
 // -----------------------------------------------------------------------------
 // Types and semantics shared with Unity headers
 // -----------------------------------------------------------------------------
+
+/// HLSL <c>clip</c> is not available in WGSL; map to early fragment discard for Slang targets.
+#ifndef clip
+#define clip(x) if ((x) < 0.0) discard
+#endif
 
 typedef float4 fixed4;
 typedef float3 fixed3;
@@ -66,6 +76,14 @@ typedef float fixed;
 SamplerState unity_usc_vertexlight_sampler_compat;
 #define samplermainTex unity_usc_vertexlight_sampler_compat
 
+// Borrowed sampler for UnityUI.cginc helpers that take sampler2D parameters; split Texture2D + SamplerState
+// has no per-parameter sampler name. Matches Unity’s reuse-sampler pattern until explicit sampler parameters exist.
+SamplerState unity_usc_ui_shared_sampler;
+
+// Resonite Common.cginc EVR_* macros pass texture names through nested expansions; Slang can paste `sampler##formal`
+// before substituting the actual texture. Sampling with one shared state matches “borrow sampler” behavior.
+SamplerState unity_usc_resonite_macro_sampler;
+
 // Use `usc_t` (not `tex`) as the macro parameter name: `tex` can interact badly with Slang/Unity token pasting.
 #define tex2D(usc_t, uv) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), (uv)))
 #define tex2Dbias(usc_t, t) ((usc_t).SampleBias(UNITY_SC_SAMPLER_FOR(usc_t), (t).xy, (t).w))
@@ -82,7 +100,7 @@ SamplerState unity_usc_vertexlight_sampler_compat;
 #define tex3Dgrad(usc_t, t, dx, dy) ((usc_t).SampleGrad(UNITY_SC_SAMPLER_FOR(usc_t), (t), (dx), (dy)))
 #define tex3Dproj(usc_t, t) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz / (t).w))
 
-#define texCUBE(usc_t, dir) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), (dir)))
+#define texCUBE(usc_t, dir) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), float3((dir).xyz)))
 #define texCUBEbias(usc_t, t) ((usc_t).SampleBias(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz, (t).w))
 #define texCUBElod(usc_t, t) ((usc_t).SampleLevel(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz, (t).w))
 #define texCUBEgrad(usc_t, t, dx, dy) ((usc_t).SampleGrad(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz, (dx), (dy)))

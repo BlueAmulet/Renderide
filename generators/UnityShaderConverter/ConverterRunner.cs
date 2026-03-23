@@ -124,6 +124,11 @@ public static class ConverterRunner
                 }
 
                 bool slangEligible = GlobMatcher.MatchesAny(relForGlob, compilerConfig.SlangEligibleGlobPatterns);
+                if (slangEligible && compilerConfig.SlangExcludeGlobPatterns is { Count: > 0 } slangExcludes
+                    && GlobMatcher.MatchesAny(relForGlob, slangExcludes))
+                {
+                    slangEligible = false;
+                }
                 string shaderDir = Path.GetDirectoryName(shaderPath) ?? ".";
                 string? slangUnityCgIncludes = UnityCgIncludesResolver.ResolveForSlang(unityCgIncludes, shaderPath);
                 if (slangEligible && !options.SkipSlang && slangUnityCgIncludes is null)

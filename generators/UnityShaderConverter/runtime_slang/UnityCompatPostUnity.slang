@@ -256,4 +256,21 @@
 #define UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(samplertex), coord, lod)
 #endif
 
+// -----------------------------------------------------------------------------
+// Depth / screenspace: HLSLSupport’s non-stereo UNITY_DECLARE_DEPTH_TEXTURE is
+// `sampler2D_float tex`, which becomes Texture2D-only after our sampler2D typedef.
+// tex2D then references SamplerState UNITY_SC_SAMPLER_FOR(tex), which was never declared.
+// Mirror Unity’s split-sampler pattern for the non-stereo branch only (stereo uses arrays).
+// -----------------------------------------------------------------------------
+#if !defined(UNITY_STEREO_INSTANCING_ENABLED) && !defined(UNITY_STEREO_MULTIVIEW_ENABLED)
+#ifdef UNITY_DECLARE_DEPTH_TEXTURE
+#undef UNITY_DECLARE_DEPTH_TEXTURE
+#endif
+#define UNITY_DECLARE_DEPTH_TEXTURE(tex) Texture2D_float tex; SamplerState UNITY_SC_SAMPLER_FOR(tex);
+#ifdef UNITY_DECLARE_SCREENSPACE_TEXTURE
+#undef UNITY_DECLARE_SCREENSPACE_TEXTURE
+#endif
+#define UNITY_DECLARE_SCREENSPACE_TEXTURE(tex) Texture2D_float tex; SamplerState UNITY_SC_SAMPLER_FOR(tex);
+#endif
+
 #endif // UNITY_SHADER_CONVERTER_POST_UNITY_INCLUDED

@@ -62,7 +62,7 @@ struct SLANG_ParameterGroup_UnityPerDraw_std140_0
     @align(16) unity_RenderingLayer_0 : vec4<f32>,
 };
 
-@binding(7) @group(0) var<uniform> UnityPerDraw_0 : SLANG_ParameterGroup_UnityPerDraw_std140_0;
+@binding(9) @group(0) var<uniform> UnityPerDraw_0 : SLANG_ParameterGroup_UnityPerDraw_std140_0;
 struct _Array_std140_matrixx3Cfloatx2C4x2C4x3E4_0
 {
     @align(16) data_1 : array<_MatrixStorage_float4x4_ColMajorstd140_0, i32(4)>,
@@ -80,7 +80,7 @@ struct SLANG_ParameterGroup_UnityShadows_std140_0
     @align(16) unity_ShadowFadeCenterAndType_0 : vec4<f32>,
 };
 
-@binding(6) @group(0) var<uniform> UnityShadows_0 : SLANG_ParameterGroup_UnityShadows_std140_0;
+@binding(8) @group(0) var<uniform> UnityShadows_0 : SLANG_ParameterGroup_UnityShadows_std140_0;
 struct _Array_std140_vectorx3Chalfx2C4x3E8_0
 {
     @align(16) data_2 : array<vec8<f16>, i32(8)>,
@@ -110,7 +110,7 @@ struct SLANG_ParameterGroup_UnityLighting_std140_0
     @align(16) unity_ProbesOcclusion_0 : vec4<f16>,
 };
 
-@binding(4) @group(0) var<uniform> UnityLighting_0 : SLANG_ParameterGroup_UnityLighting_std140_0;
+@binding(6) @group(0) var<uniform> UnityLighting_0 : SLANG_ParameterGroup_UnityLighting_std140_0;
 struct SLANG_ParameterGroup_UnityPerFrame_std140_0
 {
     @align(16) glstate_lightmodel_ambient_0 : vec4<f16>,
@@ -126,7 +126,7 @@ struct SLANG_ParameterGroup_UnityPerFrame_std140_0
     @align(8) unity_ShadowColor_0 : vec4<f16>,
 };
 
-@binding(9) @group(0) var<uniform> UnityPerFrame_0 : SLANG_ParameterGroup_UnityPerFrame_std140_0;
+@binding(11) @group(0) var<uniform> UnityPerFrame_0 : SLANG_ParameterGroup_UnityPerFrame_std140_0;
 fn UnityObjectToWorldNormal_0( norm_0 : vec3<f32>) -> vec3<f32>
 {
     var _S1 : mat4x4<f32> = mat4x4<f32>(UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(0)][i32(0)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(1)][i32(0)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(2)][i32(0)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(3)][i32(0)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(0)][i32(1)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(1)][i32(1)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(2)][i32(1)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(3)][i32(1)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(0)][i32(2)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(1)][i32(2)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(2)][i32(2)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(3)][i32(2)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(0)][i32(3)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(1)][i32(3)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(2)][i32(3)], UnityPerDraw_0.unity_WorldToObject_0.data_0[i32(3)][i32(3)]);

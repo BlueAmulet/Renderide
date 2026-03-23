@@ -17,6 +17,7 @@ public static class ConfigLoader
         new()
         {
             SlangEligibleGlobPatterns = new List<string>(d.SlangEligibleGlobPatterns),
+            SlangExcludeGlobPatterns = new List<string>(d.SlangExcludeGlobPatterns),
             MaxVariantCombinationsPerShader = d.MaxVariantCombinationsPerShader,
             EnableSlangSpecialization = d.EnableSlangSpecialization,
             MaxSpecializationConstants = d.MaxSpecializationConstants,
@@ -51,6 +52,23 @@ public static class ConfigLoader
 
             if (list.Count > 0)
                 merged.SlangEligibleGlobPatterns = list;
+        }
+
+        if (root.TryGetProperty("slangExcludeGlobPatterns", out JsonElement exclEl) &&
+            exclEl.ValueKind == JsonValueKind.Array)
+        {
+            var excl = new List<string>();
+            foreach (JsonElement item in exclEl.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    string? s = item.GetString();
+                    if (!string.IsNullOrWhiteSpace(s))
+                        excl.Add(s);
+                }
+            }
+
+            merged.SlangExcludeGlobPatterns = excl;
         }
 
         if (root.TryGetProperty("maxVariantCombinationsPerShader", out JsonElement mvcEl) &&

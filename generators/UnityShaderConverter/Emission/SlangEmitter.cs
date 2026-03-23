@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using UnityShaderConverter.Analysis;
@@ -14,8 +13,21 @@ public static class SlangEmitter
     internal const string UnityCompatPostUnityIncludeFileName = "UnityCompatPostUnity.slang";
 
     private static readonly Regex LegacySampler2DDeclRegex = new(
-        @"^(?<indent>\s*)sampler2D\s+(?<name>_[A-Za-z0-9]+)\s*;\s*$",
+        @"^(?<indent>\s*)sampler2D\s+(?<name>_[A-Za-z0-9]+|[A-Za-z][A-Za-z0-9]*)\s*;\s*$",
         RegexOptions.Multiline | RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
+    private static readonly Regex LegacySampler3DDeclRegex = new(
+        @"^(?<indent>\s*)sampler3D\s+(?<name>_[A-Za-z0-9]+|[A-Za-z][A-Za-z0-9]*)\s*;\s*$",
+        RegexOptions.Multiline | RegexOptions.CultureInvariant,
+        TimeSpan.FromSeconds(1));
+
+    /// <summary>
+    /// <c>appdata_full.texcoord</c> is often <c>float4</c> while <c>v2f.uv</c> is <c>float2</c>; Slang rejects the assignment without a swizzle.
+    /// </summary>
+    private static readonly Regex Float4TexcoordToUvRegex = new(
+        @"(\w+)\.uv\s*=\s*(\w+)\.texcoord(?!\s*\.\s*xy)\s*;",
+        RegexOptions.CultureInvariant,
         TimeSpan.FromSeconds(1));
 
     /// <summary>
@@ -52,6 +64,8 @@ public static class SlangEmitter
 
         programBody = InsertUnityCompatPostIncludeAfterInitialIncludes(programBody);
         programBody = RewriteLegacySampler2DDeclarations(programBody);
+        programBody = RewriteLegacySampler3DDeclarations(programBody);
+        programBody = RewriteFloat4TexcoordUvAssignments(programBody);
 
         foreach (string line in programBody.Split('\n'))
         {
@@ -63,42 +77,42 @@ public static class SlangEmitter
     }
 
     /// <summary>
-    /// Inserts <c>#include "UnityCompatPostUnity.slang"</c> after the first run of <c>#include</c> lines (and blank lines), or at the start if there are none.
+    /// Prepends <c>UnityCG.cginc</c> then <c>UnityCompatPostUnity.slang</c> so split-sampler macro overrides are active
+    /// before any pass include (e.g. Resonite <c>Common.cginc</c> first) while relying on Unity include guards for duplicates.
     /// </summary>
     internal static string InsertUnityCompatPostIncludeAfterInitialIncludes(string programBody)
     {
+        const string unityCgInclude = "#include \"UnityCG.cginc\"";
+        string postUnity = $"#include \"{UnityCompatPostUnityIncludeFileName}\"";
         if (string.IsNullOrEmpty(programBody))
-            return $"#include \"{UnityCompatPostUnityIncludeFileName}\"";
+            return $"{unityCgInclude}\n{postUnity}";
 
-        string[] rawLines = programBody.Split('\n');
-        int insertAt = 0;
-        for (; insertAt < rawLines.Length; insertAt++)
-        {
-            string line = rawLines[insertAt];
-            string t = line.TrimStart();
-            if (t.StartsWith("#include", StringComparison.Ordinal))
-                continue;
-            if (string.IsNullOrWhiteSpace(line))
-                continue;
-            break;
-        }
-
-        var lines = new List<string>(rawLines.Length + 1);
-        for (int j = 0; j < insertAt; j++)
-            lines.Add(rawLines[j]);
-        lines.Add($"#include \"{UnityCompatPostUnityIncludeFileName}\"");
-        for (int j = insertAt; j < rawLines.Length; j++)
-            lines.Add(rawLines[j]);
-        return string.Join("\n", lines);
+        return $"{unityCgInclude}\n{postUnity}\n{programBody}";
     }
 
     /// <summary>
-    /// Maps legacy <c>sampler2D _Tex;</c> declarations to <c>UNITY_DECLARE_TEX2D(_Tex);</c> so <c>tex2D</c> resolves <c>SamplerState sampler_Tex</c> after the <c>sampler2D</c> typedef.
+    /// Maps legacy <c>sampler2D _Tex;</c> / <c>sampler2D Name;</c> declarations to <c>UNITY_DECLARE_TEX2D</c> so split samplers exist for <c>tex2D</c>.
     /// </summary>
     internal static string RewriteLegacySampler2DDeclarations(string programBody) =>
         LegacySampler2DDeclRegex.Replace(
             programBody,
             m => $"{m.Groups["indent"].Value}UNITY_DECLARE_TEX2D({m.Groups["name"].Value});");
+
+    /// <summary>
+    /// Maps legacy <c>sampler3D _Vol;</c> to <c>UNITY_DECLARE_TEX3D</c> so <c>tex3D</c> has a paired <c>SamplerState</c>.
+    /// </summary>
+    internal static string RewriteLegacySampler3DDeclarations(string programBody) =>
+        LegacySampler3DDeclRegex.Replace(
+            programBody,
+            m => $"{m.Groups["indent"].Value}UNITY_DECLARE_TEX3D({m.Groups["name"].Value});");
+
+    /// <summary>
+    /// Rewrites <c>o.uv = v.texcoord;</c>-style assignments so the RHS uses <c>.xy</c> when not already swizzled.
+    /// </summary>
+    internal static string RewriteFloat4TexcoordUvAssignments(string programBody) =>
+        Float4TexcoordToUvRegex.Replace(
+            programBody,
+            m => $"{m.Groups[1].Value}.uv = {m.Groups[2].Value}.texcoord.xy;");
 
     private static string StripCompilerDirectivesToString(string program)
     {

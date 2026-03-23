@@ -21,7 +21,7 @@ struct SLANG_ParameterGroup_UnityPerFrame_std140_0
     @align(8) unity_ShadowColor_0 : vec4<f16>,
 };
 
-@binding(9) @group(0) var<uniform> UnityPerFrame_0 : SLANG_ParameterGroup_UnityPerFrame_std140_0;
+@binding(11) @group(0) var<uniform> UnityPerFrame_0 : SLANG_ParameterGroup_UnityPerFrame_std140_0;
 struct SLANG_ParameterGroup_UnityPerDraw_std140_0
 {
     @align(16) unity_ObjectToWorld_0 : _MatrixStorage_float4x4_ColMajorstd140_0,
@@ -31,7 +31,7 @@ struct SLANG_ParameterGroup_UnityPerDraw_std140_0
     @align(16) unity_RenderingLayer_0 : vec4<f32>,
 };
 
-@binding(7) @group(0) var<uniform> UnityPerDraw_0 : SLANG_ParameterGroup_UnityPerDraw_std140_0;
+@binding(9) @group(0) var<uniform> UnityPerDraw_0 : SLANG_ParameterGroup_UnityPerDraw_std140_0;
 fn UnityObjectToClipPos_0( pos_0 : vec3<f32>) -> vec4<f32>
 {
     return ((((((vec4<f32>(pos_0, 1.0f)) * (mat4x4<f32>(UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(0)][i32(0)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(1)][i32(0)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(2)][i32(0)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(3)][i32(0)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(0)][i32(1)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(1)][i32(1)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(2)][i32(1)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(3)][i32(1)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(0)][i32(2)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(1)][i32(2)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(2)][i32(2)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(3)][i32(2)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(0)][i32(3)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(1)][i32(3)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(2)][i32(3)], UnityPerDraw_0.unity_ObjectToWorld_0.data_0[i32(3)][i32(3)]))))) * (mat4x4<f32>(UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(0)][i32(0)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(1)][i32(0)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(2)][i32(0)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(3)][i32(0)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(0)][i32(1)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(1)][i32(1)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(2)][i32(1)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(3)][i32(1)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(0)][i32(2)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(1)][i32(2)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(2)][i32(2)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(3)][i32(2)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(0)][i32(3)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(1)][i32(3)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(2)][i32(3)], UnityPerFrame_0.unity_MatrixVP_0.data_0[i32(3)][i32(3)]))));

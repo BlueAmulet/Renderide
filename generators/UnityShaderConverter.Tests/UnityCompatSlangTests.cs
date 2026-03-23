@@ -23,6 +23,8 @@ public sealed class UnityCompatSlangTests
         Assert.Contains("SHADER_TARGET", text, StringComparison.Ordinal);
         Assert.Contains("UNITY_SC_JOIN2", text, StringComparison.Ordinal);
         Assert.Contains("samplermainTex", text, StringComparison.Ordinal);
+        Assert.Contains("UNITY_PBS_USE_BRDF1", text, StringComparison.Ordinal);
+        Assert.Contains("#define clip", text, StringComparison.Ordinal);
     }
 
     /// <summary>Post-Unity header override must redefine texture macros for Slang token pasting.</summary>
