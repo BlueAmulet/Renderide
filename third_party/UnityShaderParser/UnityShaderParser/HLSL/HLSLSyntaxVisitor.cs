@@ -24,7 +24,7 @@ namespace UnityShaderParser.HLSL
         }
 
         public void VisitMany<T>(IList<T> nodes, Action runBetween)
-            where T: HLSLSyntaxNode
+            where T : HLSLSyntaxNode
         {
             for (int i = 0; i < nodes.Count; i++)
             {

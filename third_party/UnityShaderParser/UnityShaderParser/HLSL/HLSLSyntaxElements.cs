@@ -765,7 +765,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitFormalParameterNode(this);
 
-        public FormalParameterNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public FormalParameterNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class VariableDeclaratorNode : HLSLSyntaxNode
@@ -784,7 +784,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitVariableDeclaratorNode(this);
 
-        public VariableDeclaratorNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public VariableDeclaratorNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ArrayRankNode : HLSLSyntaxNode
@@ -799,12 +799,12 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitArrayRankNode(this);
 
-        public ArrayRankNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ArrayRankNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class InitializerNode : HLSLSyntaxNode
     {
-        public InitializerNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public InitializerNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ValueInitializerNode : InitializerNode
@@ -819,7 +819,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitValueInitializerNode(this);
 
-        public ValueInitializerNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ValueInitializerNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     // BlendState, SamplerState, etc.
@@ -835,7 +835,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitStateInitializerNode(this);
 
-        public StateInitializerNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public StateInitializerNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class StateArrayInitializerNode : InitializerNode
@@ -850,7 +850,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitStateArrayInitializerNode(this);
 
-        public StateArrayInitializerNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public StateArrayInitializerNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class FunctionDeclarationNode : FunctionNode
@@ -860,7 +860,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitFunctionDeclarationNode(this);
 
-        public FunctionDeclarationNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public FunctionDeclarationNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class FunctionDefinitionNode : FunctionNode
@@ -877,7 +877,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitFunctionDefinitionNode(this);
 
-        public FunctionDefinitionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public FunctionDefinitionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class StructDefinitionNode : StatementNode
@@ -892,7 +892,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitStructDefinitionNode(this);
 
-        public StructDefinitionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public StructDefinitionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class InterfaceDefinitionNode : StatementNode
@@ -908,7 +908,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitInterfaceDefinitionNode(this);
 
-        public InterfaceDefinitionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public InterfaceDefinitionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ConstantBufferNode : HLSLSyntaxNode
@@ -926,7 +926,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitConstantBufferNode(this);
 
-        public ConstantBufferNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ConstantBufferNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class NamespaceNode : HLSLSyntaxNode
@@ -959,12 +959,12 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitTypedefNode(this);
 
-        public TypedefNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public TypedefNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class VariableDeclaratorQualifierNode : HLSLSyntaxNode
     {
-        public VariableDeclaratorQualifierNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public VariableDeclaratorQualifierNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class SemanticNode : VariableDeclaratorQualifierNode
@@ -979,7 +979,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitSemanticNode(this);
 
-        public SemanticNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public SemanticNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class RegisterLocationNode : VariableDeclaratorQualifierNode
@@ -996,7 +996,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitRegisterLocationNode(this);
 
-        public RegisterLocationNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public RegisterLocationNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class PackoffsetNode : VariableDeclaratorQualifierNode
@@ -1012,7 +1012,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitPackoffsetNode(this);
 
-        public PackoffsetNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public PackoffsetNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class StatementNode : HLSLSyntaxNode
@@ -1022,7 +1022,7 @@ namespace UnityShaderParser.HLSL
         protected override IEnumerable<HLSLSyntaxNode> GetChildren =>
             Attributes;
 
-        public StatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public StatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class BlockNode : StatementNode
@@ -1037,7 +1037,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitBlockNode(this);
 
-        public BlockNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public BlockNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class VariableDeclarationStatementNode : StatementNode
@@ -1054,14 +1054,14 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitVariableDeclarationStatementNode(this);
 
-        public VariableDeclarationStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public VariableDeclarationStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ReturnStatementNode : StatementNode
     {
         public ExpressionNode Expression { get; set; } // Optional
 
-        protected override IEnumerable<HLSLSyntaxNode> GetChildren => 
+        protected override IEnumerable<HLSLSyntaxNode> GetChildren =>
             MergeChildren(base.GetChildren, OptionalChild(Expression));
 
         [DebuggerStepThrough]
@@ -1069,7 +1069,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitReturnStatementNode(this);
 
-        public ReturnStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ReturnStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class BreakStatementNode : StatementNode
@@ -1079,7 +1079,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitBreakStatementNode(this);
 
-        public BreakStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public BreakStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ContinueStatementNode : StatementNode
@@ -1089,7 +1089,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitContinueStatementNode(this);
 
-        public ContinueStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ContinueStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class DiscardStatementNode : StatementNode
@@ -1099,7 +1099,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitDiscardStatementNode(this);
 
-        public DiscardStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public DiscardStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class EmptyStatementNode : StatementNode
@@ -1109,7 +1109,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitEmptyStatementNode(this);
 
-        public EmptyStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public EmptyStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ForStatementNode : StatementNode
@@ -1133,7 +1133,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitForStatementNode(this);
 
-        public ForStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ForStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class WhileStatementNode : StatementNode
@@ -1151,7 +1151,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitWhileStatementNode(this);
 
-        public WhileStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public WhileStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class DoWhileStatementNode : StatementNode
@@ -1169,7 +1169,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitDoWhileStatementNode(this);
 
-        public DoWhileStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public DoWhileStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class IfStatementNode : StatementNode
@@ -1191,7 +1191,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitIfStatementNode(this);
 
-        public IfStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public IfStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class SwitchStatementNode : StatementNode
@@ -1207,7 +1207,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitSwitchStatementNode(this);
 
-        public SwitchStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public SwitchStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class SwitchClauseNode : HLSLSyntaxNode
@@ -1223,12 +1223,12 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitSwitchClauseNode(this);
 
-        public SwitchClauseNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public SwitchClauseNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class SwitchLabelNode : HLSLSyntaxNode
     {
-        public SwitchLabelNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public SwitchLabelNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class SwitchCaseLabelNode : SwitchLabelNode
@@ -1243,7 +1243,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitSwitchCaseLabelNode(this);
 
-        public SwitchCaseLabelNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public SwitchCaseLabelNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class SwitchDefaultLabelNode : SwitchLabelNode
@@ -1256,7 +1256,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitSwitchDefaultLabelNode(this);
 
-        public SwitchDefaultLabelNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public SwitchDefaultLabelNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ExpressionStatementNode : StatementNode
@@ -1271,7 +1271,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitExpressionStatementNode(this);
 
-        public ExpressionStatementNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ExpressionStatementNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class AttributeNode : HLSLSyntaxNode
@@ -1287,12 +1287,12 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitAttributeNode(this);
 
-        public AttributeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public AttributeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class ExpressionNode : HLSLSyntaxNode
     {
-        public ExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class NamedExpressionNode : ExpressionNode
@@ -1300,7 +1300,7 @@ namespace UnityShaderParser.HLSL
         public abstract string GetName();
         public abstract string GetUnqualifiedName();
 
-        public NamedExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public NamedExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class QualifiedIdentifierExpressionNode : NamedExpressionNode
@@ -1319,7 +1319,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitQualifiedIdentifierExpressionNode(this);
 
-        public QualifiedIdentifierExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public QualifiedIdentifierExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class IdentifierExpressionNode : NamedExpressionNode
@@ -1337,7 +1337,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitIdentifierExpressionNode(this);
 
-        public IdentifierExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public IdentifierExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class LiteralExpressionNode : ExpressionNode
@@ -1353,7 +1353,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitLiteralExpressionNode(this);
 
-        public LiteralExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public LiteralExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class AssignmentExpressionNode : ExpressionNode
@@ -1370,7 +1370,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitAssignmentExpressionNode(this);
 
-        public AssignmentExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public AssignmentExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class BinaryExpressionNode : ExpressionNode
@@ -1387,7 +1387,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitBinaryExpressionNode(this);
 
-        public BinaryExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public BinaryExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class CompoundExpressionNode : ExpressionNode
@@ -1403,7 +1403,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitCompoundExpressionNode(this);
 
-        public CompoundExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public CompoundExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class PrefixUnaryExpressionNode : ExpressionNode
@@ -1419,7 +1419,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitPrefixUnaryExpressionNode(this);
 
-        public PrefixUnaryExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public PrefixUnaryExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class PostfixUnaryExpressionNode : ExpressionNode
@@ -1435,7 +1435,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitPostfixUnaryExpressionNode(this);
 
-        public PostfixUnaryExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public PostfixUnaryExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class FieldAccessExpressionNode : ExpressionNode
@@ -1451,7 +1451,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitFieldAccessExpressionNode(this);
 
-        public FieldAccessExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public FieldAccessExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class MethodCallExpressionNode : ExpressionNode
@@ -1468,7 +1468,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitMethodCallExpressionNode(this);
 
-        public MethodCallExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public MethodCallExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class FunctionCallExpressionNode : ExpressionNode
@@ -1484,7 +1484,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitFunctionCallExpressionNode(this);
 
-        public FunctionCallExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public FunctionCallExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class NumericConstructorCallExpressionNode : ExpressionNode
@@ -1500,7 +1500,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitNumericConstructorCallExpressionNode(this);
 
-        public NumericConstructorCallExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public NumericConstructorCallExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ElementAccessExpressionNode : ExpressionNode
@@ -1516,7 +1516,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitElementAccessExpressionNode(this);
 
-        public ElementAccessExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ElementAccessExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class CastExpressionNode : ExpressionNode
@@ -1533,7 +1533,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitCastExpressionNode(this);
 
-        public CastExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public CastExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ArrayInitializerExpressionNode : ExpressionNode
@@ -1548,7 +1548,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitArrayInitializerExpressionNode(this);
 
-        public ArrayInitializerExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ArrayInitializerExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class TernaryExpressionNode : ExpressionNode
@@ -1565,7 +1565,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitTernaryExpressionNode(this);
 
-        public TernaryExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public TernaryExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     // Part of legacy sampler syntax (d3d9)
@@ -1581,7 +1581,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitSamplerStateLiteralExpressionNode(this);
 
-        public SamplerStateLiteralExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public SamplerStateLiteralExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     // From FX framework
@@ -1598,27 +1598,27 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitCompileExpressionNode(this);
 
-        public CompileExpressionNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public CompileExpressionNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class TypeNode : HLSLSyntaxNode
     {
-        public TypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public TypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
     public abstract class UserDefinedTypeNode : TypeNode
     {
-        public UserDefinedTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public UserDefinedTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
     public abstract class UserDefinedNamedTypeNode : UserDefinedTypeNode
     {
         public abstract string GetName();
         public abstract string GetUnqualifiedName();
 
-        public UserDefinedNamedTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public UserDefinedNamedTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
     public abstract class PredefinedTypeNode : TypeNode
     {
-        public PredefinedTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public PredefinedTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class QualifiedNamedTypeNode : UserDefinedNamedTypeNode
@@ -1637,7 +1637,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitQualifiedNamedTypeNode(this);
 
-        public QualifiedNamedTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public QualifiedNamedTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class NamedTypeNode : UserDefinedNamedTypeNode
@@ -1655,7 +1655,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitNamedTypeNode(this);
 
-        public NamedTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public NamedTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class PredefinedObjectTypeNode : PredefinedTypeNode
@@ -1671,7 +1671,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitPredefinedObjectTypeNode(this);
 
-        public PredefinedObjectTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public PredefinedObjectTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class StructTypeNode : UserDefinedTypeNode
@@ -1690,14 +1690,14 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitStructTypeNode(this);
 
-        public StructTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public StructTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class NumericTypeNode : PredefinedTypeNode
     {
         public ScalarType Kind { get; set; }
 
-        public NumericTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public NumericTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class ScalarTypeNode : NumericTypeNode
@@ -1710,7 +1710,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitScalarTypeNode(this);
 
-        public ScalarTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public ScalarTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class BaseMatrixTypeNode : NumericTypeNode
@@ -1736,7 +1736,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitMatrixTypeNode(this);
 
-        public MatrixTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public MatrixTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class GenericMatrixTypeNode : BaseMatrixTypeNode
@@ -1767,7 +1767,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitVectorTypeNode(this);
 
-        public VectorTypeNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public VectorTypeNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public class GenericVectorTypeNode : BaseVectorTypeNode
@@ -1799,7 +1799,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitLiteralTemplateArgumentType(this);
 
-        public LiteralTemplateArgumentType(List<HLSLToken> tokens) : base(tokens) { }   
+        public LiteralTemplateArgumentType(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     // Part of an object literal (SamplerState, BlendState, etc)
@@ -1818,7 +1818,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitStatePropertyNode(this);
 
-        public StatePropertyNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public StatePropertyNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     // Old FX pipeline syntax
@@ -1837,7 +1837,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitTechniqueNode(this);
 
-        public TechniqueNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public TechniqueNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     // Old FX pipeline syntax
@@ -1855,7 +1855,7 @@ namespace UnityShaderParser.HLSL
         [DebuggerStepThrough]
         public override T Accept<T>(HLSLSyntaxVisitor<T> visitor) => visitor.VisitPassNode(this);
 
-        public PassNode(List<HLSLToken> tokens) : base(tokens) { }   
+        public PassNode(List<HLSLToken> tokens) : base(tokens) { }
     }
 
     public abstract class PreProcessorDirectiveNode : StatementNode

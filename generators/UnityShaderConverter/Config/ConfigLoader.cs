@@ -18,10 +18,14 @@ public static class ConfigLoader
         {
             SlangEligibleGlobPatterns = new List<string>(d.SlangEligibleGlobPatterns),
             SlangExcludeGlobPatterns = new List<string>(d.SlangExcludeGlobPatterns),
+            ShaderGenerationExcludeGlobPatterns = new List<string>(d.ShaderGenerationExcludeGlobPatterns),
             MaxVariantCombinationsPerShader = d.MaxVariantCombinationsPerShader,
             EnableSlangSpecialization = d.EnableSlangSpecialization,
             MaxSpecializationConstants = d.MaxSpecializationConstants,
             SuppressSlangWarnings = d.SuppressSlangWarnings,
+            ExtraSlangIncludeDirectories = new List<string>(d.ExtraSlangIncludeDirectories),
+            SceneBindGroupIndex = d.SceneBindGroupIndex,
+            MaterialBindGroupIndex = d.MaterialBindGroupIndex,
         };
 
     /// <summary>Merges user compiler JSON over <paramref name="defaults"/>; only keys present in the user file override defaults.</summary>
@@ -71,6 +75,23 @@ public static class ConfigLoader
             merged.SlangExcludeGlobPatterns = excl;
         }
 
+        if (root.TryGetProperty("shaderGenerationExcludeGlobPatterns", out JsonElement genExclEl) &&
+            genExclEl.ValueKind == JsonValueKind.Array)
+        {
+            var genExcl = new List<string>();
+            foreach (JsonElement item in genExclEl.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    string? s = item.GetString();
+                    if (!string.IsNullOrWhiteSpace(s))
+                        genExcl.Add(s);
+                }
+            }
+
+            merged.ShaderGenerationExcludeGlobPatterns = genExcl;
+        }
+
         if (root.TryGetProperty("maxVariantCombinationsPerShader", out JsonElement mvcEl) &&
             mvcEl.ValueKind == JsonValueKind.Number &&
             mvcEl.TryGetInt32(out int mvc) &&
@@ -97,6 +118,38 @@ public static class ConfigLoader
             swEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
         {
             merged.SuppressSlangWarnings = swEl.GetBoolean();
+        }
+
+        if (root.TryGetProperty("extraSlangIncludeDirectories", out JsonElement incEl) &&
+            incEl.ValueKind == JsonValueKind.Array)
+        {
+            var inc = new List<string>();
+            foreach (JsonElement item in incEl.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    string? s = item.GetString();
+                    if (!string.IsNullOrWhiteSpace(s))
+                        inc.Add(s);
+                }
+            }
+
+            if (inc.Count > 0)
+                merged.ExtraSlangIncludeDirectories = inc;
+        }
+
+        if (root.TryGetProperty("sceneBindGroupIndex", out JsonElement sbEl) &&
+            sbEl.ValueKind == JsonValueKind.Number &&
+            sbEl.TryGetUInt32(out uint sbIdx))
+        {
+            merged.SceneBindGroupIndex = sbIdx;
+        }
+
+        if (root.TryGetProperty("materialBindGroupIndex", out JsonElement mbEl) &&
+            mbEl.ValueKind == JsonValueKind.Number &&
+            mbEl.TryGetUInt32(out uint mbIdx))
+        {
+            merged.MaterialBindGroupIndex = mbIdx;
         }
 
         return merged;

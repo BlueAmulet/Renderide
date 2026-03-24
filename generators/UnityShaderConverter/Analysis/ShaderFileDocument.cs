@@ -20,4 +20,10 @@ public sealed class ShaderFileDocument
 
     /// <summary>All <c>#pragma multi_compile</c> / <c>shader_feature</c> lines across passes.</summary>
     public required IReadOnlyList<string> MultiCompilePragmas { get; init; }
+
+    /// <summary>Analyzer-emitted warnings (e.g. multiple SubShaders).</summary>
+    public required IReadOnlyList<string> AnalyzerWarnings { get; init; }
+
+    /// <summary>Number of SubShader blocks in the parsed shader (converter uses only the first).</summary>
+    public int TotalSubShaderCount { get; init; }
 }

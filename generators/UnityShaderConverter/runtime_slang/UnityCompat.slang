@@ -44,6 +44,21 @@ typedef float fixed;
 #define SV_Target SV_Target0
 
 // -----------------------------------------------------------------------------
+// HLSL math: Unity / DXC allow dot(vectorN, vectorM) when the second vector is wider (implicit .xyz).
+// Slang is stricter; these overloads match common Unity / Resonite shader patterns (e.g. FurFX).
+// -----------------------------------------------------------------------------
+
+float dot(float3 a, float4 b)
+{
+    return dot(a, b.xyz);
+}
+
+half dot(half3 a, half4 b)
+{
+    return dot(a, b.xyz);
+}
+
+// -----------------------------------------------------------------------------
 // Legacy sampler type names (Cg-era signatures in UnityCG.cginc / Resonite Common.cginc).
 // Unity’s DX11 path uses Texture2D + SamplerState; these aliases keep old parameter types valid.
 // -----------------------------------------------------------------------------
@@ -80,32 +95,49 @@ SamplerState unity_usc_vertexlight_sampler_compat;
 // has no per-parameter sampler name. Matches Unity’s reuse-sampler pattern until explicit sampler parameters exist.
 SamplerState unity_usc_ui_shared_sampler;
 
-// Resonite Common.cginc EVR_* macros pass texture names through nested expansions; Slang can paste `sampler##formal`
-// before substituting the actual texture. Sampling with one shared state matches “borrow sampler” behavior.
+/// Shared sampler for legacy <c>tex2D</c> / <c>UNITY_SAMPLE_TEX2D*</c> paths.
+///
+/// Resonite <c>Common.cginc</c> EVR_* macros use a formal parameter named <c>tex</c> and call <c>tex2D(tex, …)</c>.
+/// Slang’s preprocessor can expand <c>UNITY_SC_JOIN(sampler, tex)</c> into the single token <c>samplertex</c> before
+/// the outer macro substitutes the real texture name. Using one explicit <c>SamplerState</c> avoids <c>sampler##…</c>
+/// in those expansions entirely (same “borrowed sampler” idea as <c>unity_usc_ui_shared_sampler</c>).
 SamplerState unity_usc_resonite_macro_sampler;
 
-// Use `usc_t` (not `tex`) as the macro parameter name: `tex` can interact badly with Slang/Unity token pasting.
-#define tex2D(usc_t, uv) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), (uv)))
-#define tex2Dbias(usc_t, t) ((usc_t).SampleBias(UNITY_SC_SAMPLER_FOR(usc_t), (t).xy, (t).w))
-#define tex2Dlod(usc_t, t) ((usc_t).SampleLevel(UNITY_SC_SAMPLER_FOR(usc_t), (t).xy, (t).w))
-#define tex2Dgrad(usc_t, t, dx, dy) ((usc_t).SampleGrad(UNITY_SC_SAMPLER_FOR(usc_t), (t), (dx), (dy)))
+// Legacy Cg sampling: use the shared sampler above — do not use UNITY_SC_SAMPLER_FOR here (nested macro / `tex` formal).
+#define tex2D(usc_t, uv) ((usc_t).Sample(unity_usc_resonite_macro_sampler, (uv)))
+#define tex2Dbias(usc_t, t) ((usc_t).SampleBias(unity_usc_resonite_macro_sampler, (t).xy, (t).w))
+#define tex2Dlod(usc_t, t) ((usc_t).SampleLevel(unity_usc_resonite_macro_sampler, (t).xy, (t).w))
+#define tex2Dgrad(usc_t, t, dx, dy) ((usc_t).SampleGrad(unity_usc_resonite_macro_sampler, (t), (dx), (dy)))
 
 // Projected sample (float4: coord.xy / coord.w). For float3 divisors use tex2Dproj3.
-#define tex2Dproj(usc_t, coord) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), (coord).xy / (coord).w))
-#define tex2Dproj3(usc_t, coord) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), (coord).xy / (coord).z))
+#define tex2Dproj(usc_t, coord) ((usc_t).Sample(unity_usc_resonite_macro_sampler, (coord).xy / (coord).w))
+#define tex2Dproj3(usc_t, coord) ((usc_t).Sample(unity_usc_resonite_macro_sampler, (coord).xy / (coord).z))
 
-#define tex3D(usc_t, uvw) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), (uvw)))
-#define tex3Dbias(usc_t, t) ((usc_t).SampleBias(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz, (t).w))
-#define tex3Dlod(usc_t, t) ((usc_t).SampleLevel(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz, (t).w))
-#define tex3Dgrad(usc_t, t, dx, dy) ((usc_t).SampleGrad(UNITY_SC_SAMPLER_FOR(usc_t), (t), (dx), (dy)))
-#define tex3Dproj(usc_t, t) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz / (t).w))
+#define tex3D(usc_t, uvw) ((usc_t).Sample(unity_usc_resonite_macro_sampler, (uvw)))
+#define tex3Dbias(usc_t, t) ((usc_t).SampleBias(unity_usc_resonite_macro_sampler, (t).xyz, (t).w))
+#define tex3Dlod(usc_t, t) ((usc_t).SampleLevel(unity_usc_resonite_macro_sampler, (t).xyz, (t).w))
+#define tex3Dgrad(usc_t, t, dx, dy) ((usc_t).SampleGrad(unity_usc_resonite_macro_sampler, (t), (dx), (dy)))
+#define tex3Dproj(usc_t, t) ((usc_t).Sample(unity_usc_resonite_macro_sampler, (t).xyz / (t).w))
 
-#define texCUBE(usc_t, dir) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), float3((dir).xyz)))
-#define texCUBEbias(usc_t, t) ((usc_t).SampleBias(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz, (t).w))
-#define texCUBElod(usc_t, t) ((usc_t).SampleLevel(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz, (t).w))
-#define texCUBEgrad(usc_t, t, dx, dy) ((usc_t).SampleGrad(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz, (dx), (dy)))
-#define texCUBEproj(usc_t, t) ((usc_t).Sample(UNITY_SC_SAMPLER_FOR(usc_t), (t).xyz / (t).w))
+#define texCUBE(usc_t, dir) ((usc_t).Sample(unity_usc_resonite_macro_sampler, float3((dir).xyz)))
+#define texCUBEbias(usc_t, t) ((usc_t).SampleBias(unity_usc_resonite_macro_sampler, (t).xyz, (t).w))
+#define texCUBElod(usc_t, t) ((usc_t).SampleLevel(unity_usc_resonite_macro_sampler, (t).xyz, (t).w))
+#define texCUBEgrad(usc_t, t, dx, dy) ((usc_t).SampleGrad(unity_usc_resonite_macro_sampler, (t).xyz, (dx), (dy)))
+#define texCUBEproj(usc_t, t) ((usc_t).Sample(unity_usc_resonite_macro_sampler, (t).xyz / (t).w))
 
 #endif // UNITY_SHADER_CONVERTER_LEGACY_TEX_MACROS
+
+// -----------------------------------------------------------------------------
+// Built-in uniforms (unity_ObjectToWorld, UNITY_MATRIX_*, _Time, UnityObjectToClipPos, etc.) are **not**
+// declared here. After <c>SlangEmitter</c> injects <c>UnityCG.cginc</c>, Unity’s <c>UnityShaderVariables.cginc</c>
+// / <c>UnityShaderUtilities.cginc</c> supply them in cbuffers and inline helpers. Duplicating them caused
+// ambiguous references and duplicate function bodies under slangc. The host must bind scene data to match
+// Unity’s layout (see WGSL / Rust material and scene groups).
+// -----------------------------------------------------------------------------
+
+// Clustered scene + lights at WGSL @group(1); enabled per pass via slangc -D RENDERIDE_CLUSTER_FORWARD_BINDINGS.
+#ifdef RENDERIDE_CLUSTER_FORWARD_BINDINGS
+#include "RenderideClusterForward.slang"
+#endif
 
 #endif // UNITY_SHADER_CONVERTER_COMPAT_INCLUDED

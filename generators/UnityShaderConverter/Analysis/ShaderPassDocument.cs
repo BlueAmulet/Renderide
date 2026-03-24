@@ -26,4 +26,7 @@ public sealed class ShaderPassDocument
 
     /// <summary>Structured fixed-function state and merged tags for Rust <c>wgpu</c> emission.</summary>
     public required PassFixedFunctionState FixedFunctionState { get; init; }
+
+    /// <summary>First <c>#pragma target</c> in the program block when present.</summary>
+    public float? PragmaShaderTarget { get; init; }
 }

@@ -189,7 +189,7 @@ namespace UnityShaderParser.HLSL
                     return ParseStructDefinitionOrDeclaration(new List<AttributeNode>());
 
                 case TokenKind.InterfaceKeyword:
-                  return ParseInterfaceDefinition(new List<AttributeNode>());
+                    return ParseInterfaceDefinition(new List<AttributeNode>());
 
                 case TokenKind.TypedefKeyword:
                     return ParseTypedef(new List<AttributeNode>());
@@ -326,12 +326,12 @@ namespace UnityShaderParser.HLSL
             if (Match(TokenKind.TextureKeyword))
             {
                 var nameTok = Advance();
-                name = new NamedTypeNode(new List<HLSLToken> { nameTok }) 
+                name = new NamedTypeNode(new List<HLSLToken> { nameTok })
                 {
                     Name = new IdentifierNode(new List<HLSLToken> { nameTok })
-                    { 
-                        Identifier = "texture" 
-                    } 
+                    {
+                        Identifier = "texture"
+                    }
                 };
             }
             else
@@ -507,7 +507,7 @@ namespace UnityShaderParser.HLSL
                 // Binds most tightly
             };
         }
-        
+
         public ExpressionNode ParseBinaryExpression(int level = 0)
         {
             if (level >= operatorGroups.Count)
@@ -663,7 +663,7 @@ namespace UnityShaderParser.HLSL
         {
             var firstTok = Peek();
             var identifier = ParseIdentifier();
-            
+
             var name = new IdentifierExpressionNode(Range(firstTok, firstTok)) { Name = identifier };
 
             if (Match(TokenKind.ColonColonToken))
@@ -1789,7 +1789,7 @@ namespace UnityShaderParser.HLSL
         {
             var keywordTok = Eat(TokenKind.DefineDirectiveKeyword);
             string ident = base.ParseIdentifier();
-            
+
             // Function like
             if (Match(TokenKind.OpenFunctionLikeMacroParenToken))
             {

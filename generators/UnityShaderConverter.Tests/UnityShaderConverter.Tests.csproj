@@ -26,6 +26,9 @@
     <None Update="TestData\**\*.shader">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="TestData\**\*.hlsl">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup>
@@ -34,5 +37,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <PropertyGroup>
+    <UnityStandardCoreOverlaySourceDir>$(MSBuildProjectDirectory)\..\UnityShaderConverter\runtime_slang</UnityStandardCoreOverlaySourceDir>
+  </PropertyGroup>
+  <Import Project="..\UnityShaderConverter\UnityBuiltinIncludesOverlay.targets" />
 
 </Project>

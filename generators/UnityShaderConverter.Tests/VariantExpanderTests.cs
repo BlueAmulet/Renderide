@@ -19,6 +19,8 @@ public sealed class VariantExpanderTests
             SubShaderTags = new Dictionary<string, string>(),
             Passes = Array.Empty<ShaderPassDocument>(),
             MultiCompilePragmas = Array.Empty<string>(),
+            AnalyzerWarnings = Array.Empty<string>(),
+            TotalSubShaderCount = 1,
         };
         var cfg = new CompilerConfigModel { MaxVariantCombinationsPerShader = 32, EnableSlangSpecialization = false };
         var result = VariantExpander.Expand(doc, cfg, null);
@@ -39,6 +41,8 @@ public sealed class VariantExpanderTests
             SubShaderTags = new Dictionary<string, string>(),
             Passes = Array.Empty<ShaderPassDocument>(),
             MultiCompilePragmas = new[] { "#pragma multi_compile " + many },
+            AnalyzerWarnings = Array.Empty<string>(),
+            TotalSubShaderCount = 1,
         };
         var cfg = new CompilerConfigModel
         {
@@ -63,6 +67,8 @@ public sealed class VariantExpanderTests
             SubShaderTags = new Dictionary<string, string>(),
             Passes = Array.Empty<ShaderPassDocument>(),
             MultiCompilePragmas = new[] { "#pragma multi_compile " + many },
+            AnalyzerWarnings = Array.Empty<string>(),
+            TotalSubShaderCount = 1,
         };
         var cfg = new CompilerConfigModel
         {
@@ -92,6 +98,8 @@ public sealed class VariantExpanderTests
                 "#pragma multi_compile " + g1,
                 "#pragma multi_compile " + g2,
             },
+            AnalyzerWarnings = Array.Empty<string>(),
+            TotalSubShaderCount = 1,
         };
         IReadOnlyList<string> combo = VariantExpander.GetFirstCartesianVariantDefinesIgnoringProductLimit(doc, null);
         Assert.Equal(new[] { "A0", "B0" }, combo);
@@ -109,6 +117,8 @@ public sealed class VariantExpanderTests
             SubShaderTags = new Dictionary<string, string>(),
             Passes = Array.Empty<ShaderPassDocument>(),
             MultiCompilePragmas = new[] { "#pragma multi_compile A B", "#pragma multi_compile _ X" },
+            AnalyzerWarnings = Array.Empty<string>(),
+            TotalSubShaderCount = 1,
         };
         VariantExpander.MultiCompileAnalysis a = VariantExpander.AnalyzeMultiCompileGroups(doc);
         Assert.Equal(2, a.Groups.Count);
@@ -127,6 +137,8 @@ public sealed class VariantExpanderTests
             SubShaderTags = new Dictionary<string, string>(),
             Passes = Array.Empty<ShaderPassDocument>(),
             MultiCompilePragmas = new[] { "#pragma multi_compile A B" },
+            AnalyzerWarnings = Array.Empty<string>(),
+            TotalSubShaderCount = 1,
         };
         var cfg = new CompilerConfigModel { MaxVariantCombinationsPerShader = 32, EnableSlangSpecialization = false };
         var vcfg = new VariantConfigModel

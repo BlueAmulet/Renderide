@@ -180,12 +180,12 @@ namespace UnityShaderParser.ShaderLab
         {
             switch (kind)
             {
-                case ShaderPropertyKind.Texture2D: return TextureType.Texture2D; 
-                case ShaderPropertyKind.Texture3D: return TextureType.Texture3D; 
-                case ShaderPropertyKind.TextureCube: return TextureType.TextureCube; 
-                case ShaderPropertyKind.TextureAny: return TextureType.TextureAny; 
-                case ShaderPropertyKind.Texture2DArray: return TextureType.Texture2DArray; 
-                case ShaderPropertyKind.Texture3DArray: return TextureType.Texture3DArray; 
+                case ShaderPropertyKind.Texture2D: return TextureType.Texture2D;
+                case ShaderPropertyKind.Texture3D: return TextureType.Texture3D;
+                case ShaderPropertyKind.TextureCube: return TextureType.TextureCube;
+                case ShaderPropertyKind.TextureAny: return TextureType.TextureAny;
+                case ShaderPropertyKind.Texture2DArray: return TextureType.Texture2DArray;
+                case ShaderPropertyKind.Texture3DArray: return TextureType.Texture3DArray;
                 case ShaderPropertyKind.TextureCubeArray: return TextureType.TextureCubeArray;
                 default: return default;
             }

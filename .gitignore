@@ -456,6 +456,6 @@ target
 #.idea/
 
 #### Other .gitignore rules
-.vscode/
 *.log
 profile.json.gz
+!crates/renderide/src/shaders/**

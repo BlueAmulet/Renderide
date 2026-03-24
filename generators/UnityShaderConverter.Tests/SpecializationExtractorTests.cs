@@ -18,6 +18,8 @@ public sealed class SpecializationExtractorTests
             SubShaderTags = new Dictionary<string, string>(),
             Passes = Array.Empty<ShaderPassDocument>(),
             MultiCompilePragmas = new[] { "#pragma multi_compile A B" },
+            AnalyzerWarnings = Array.Empty<string>(),
+            TotalSubShaderCount = 1,
         };
         var cfg = new CompilerConfigModel { EnableSlangSpecialization = false };
         IReadOnlyList<SpecializationAxis> axes = SpecializationExtractor.Extract(doc, cfg);
@@ -35,6 +37,8 @@ public sealed class SpecializationExtractorTests
             SubShaderTags = new Dictionary<string, string>(),
             Passes = Array.Empty<ShaderPassDocument>(),
             MultiCompilePragmas = new[] { "#pragma multi_compile FOO BAR" },
+            AnalyzerWarnings = Array.Empty<string>(),
+            TotalSubShaderCount = 1,
         };
         var cfg = new CompilerConfigModel { EnableSlangSpecialization = true, MaxSpecializationConstants = 8 };
         IReadOnlyList<SpecializationAxis> axes = SpecializationExtractor.Extract(doc, cfg);

@@ -10,7 +10,7 @@ using UnityShaderParser.Common;
 
 namespace UnityShaderConverter;
 
-/// <summary>Orchestrates discovery, parsing, Slang/WGSL emission, and Rust codegen into the configured shader output directory (default <c>src/shaders/&lt;mod&gt;/</c>).</summary>
+/// <summary>Orchestrates discovery, parsing, Slang/WGSL emission, and Rust codegen into the configured shader output directory (default <c>src/shaders/generated/&lt;mod&gt;/</c>).</summary>
 public static class ConverterRunner
 {
     /// <summary>Runs the full pipeline for the given options and returns a process exit code.</summary>
@@ -46,7 +46,7 @@ public static class ConverterRunner
             logger.LogInfo(LogCategory.Startup, "Unity CGIncludes: auto (bundled UnityBuiltinCGIncludes if present, else walk from each shader path)");
 
         string slangcExe = SlangCompiler.ResolveExecutable(options.SlangcPath);
-        logger.LogDebug(LogCategory.Startup, $"slangc executable: {slangcExe}");
+        logger.LogTrace(LogCategory.Startup, $"slangc executable: {slangcExe}");
         bool suppressSlangWarnings = options.ForceNoSuppressSlangWarnings
             ? false
             : options.ForceSuppressSlangWarnings || compilerConfig.SuppressSlangWarnings;
@@ -68,40 +68,80 @@ public static class ConverterRunner
             foreach (string shaderPath in inputs)
             {
                 string relForGlob = Path.GetRelativePath(renderideRoot, shaderPath).Replace('\\', '/');
+
                 if (!ShaderLabAnalyzer.TryAnalyze(shaderPath, unityCgIncludes, out ShaderFileDocument? doc, out List<Diagnostic> diags, out List<string> errors))
                 {
+                    bool expectedUnsupported = ShaderLabAnalyzer.IsExpectedUnsupportedShaderExclusion(errors);
                     foreach (string e in errors)
-                        logger.LogDebug(LogCategory.Parse, $"{shaderPath}: {e}");
+                    {
+                        if (ShaderLabAnalyzer.IsParseFailureLoggedAtTraceOnly(e))
+                            logger.LogTrace(LogCategory.Parse, $"{shaderPath}: {e}");
+                        else
+                            logger.LogError(LogCategory.Parse, $"{shaderPath}: {e}");
+                    }
+
                     foreach (Diagnostic d in diags.Where(d => (d.Kind & DiagnosticFlags.OnlyErrors) != 0))
-                        logger.LogDebug(LogCategory.Parse, d.ToString());
+                    {
+                        if (expectedUnsupported)
+                            logger.LogTrace(LogCategory.Parse, $"{shaderPath}: {d}");
+                        else
+                            logger.LogError(LogCategory.Parse, d.ToString());
+                    }
+
                     var errParts = new List<string>();
                     errParts.AddRange(errors);
-                    errParts.AddRange(diags.Where(d => (d.Kind & DiagnosticFlags.OnlyErrors) != 0).Select(d => d.ToString()));
+                    if (!expectedUnsupported)
+                        errParts.AddRange(diags.Where(d => (d.Kind & DiagnosticFlags.OnlyErrors) != 0).Select(d => d.ToString()));
+                    string parseCategory = ShaderLabAnalyzer.IsSurfaceShaderExclusion(errors)
+                        ? "SurfaceShader"
+                        : ShaderLabAnalyzer.IsGeometryShaderExclusion(errors)
+                            ? "GeometryShader"
+                            : "Parse";
                     generationFailures.Add(new ShaderGenerationFailure(
                         shaderPath,
                         null,
-                        "Parse",
+                        parseCategory,
                         errParts.Count > 0 ? string.Join("; ", errParts) : "ShaderLab analysis failed"));
                     continue;
                 }
 
-                foreach (Diagnostic d in diags.Where(d => (d.Kind & DiagnosticFlags.Warning) != 0))
-                    logger.LogDebug(LogCategory.Parse, d.ToString());
+                foreach (string w in doc!.AnalyzerWarnings)
+                    logger.LogTrace(LogCategory.Parse, $"{shaderPath}: {w}");
 
-                if (doc!.Passes.Count == 0)
+                foreach (Diagnostic d in diags.Where(d => (d.Kind & DiagnosticFlags.Warning) != 0))
+                    logger.LogTrace(LogCategory.Parse, $"{shaderPath}: {d}");
+
+                doc = PassLightModeFilter.ApplyDocumentFilters(
+                    doc!,
+                    new PassFilterOptions
+                    {
+                        SkipNonForwardPasses = options.SkipNonForwardPasses,
+                        SkipForwardAddPasses = options.SkipForwardAddPasses,
+                    });
+
+                if (compilerConfig.ShaderGenerationExcludeGlobPatterns is { Count: > 0 } genExclude &&
+                    GlobMatcher.MatchesAny(relForGlob, genExclude))
+                {
+                    logger.LogInfo(
+                        LogCategory.Output,
+                        $"{shaderPath}: skipped (matches shaderGenerationExcludeGlobPatterns; no WGSL/Rust emitted).");
+                    continue;
+                }
+
+                if (doc.Passes.Count == 0)
                 {
                     generationFailures.Add(new ShaderGenerationFailure(
                         shaderPath,
                         RustEmitter.ModuleNameFromShaderName(doc.ShaderName),
                         "NoPasses",
-                        "no code passes"));
+                        "no code passes after pass filters"));
                     continue;
                 }
 
                 VariantExpander.MultiCompileAnalysis multiAnalysis = VariantExpander.AnalyzeMultiCompileGroups(doc);
                 if (multiAnalysis.Groups.Count > 0)
                 {
-                    logger.LogDebug(
+                    logger.LogTrace(
                         LogCategory.Variants,
                         $"{shaderPath}: multi_compile groups={multiAnalysis.Groups.Count}, Cartesian product={multiAnalysis.Product}");
                 }
@@ -113,7 +153,7 @@ public static class ConverterRunner
                 }
                 catch (InvalidOperationException ex)
                 {
-                    logger.LogDebug(LogCategory.Variants, $"{shaderPath}: {ex.Message}");
+                    logger.LogError(LogCategory.Variants, $"{shaderPath}: {ex.Message}");
                     variantFailures++;
                     generationFailures.Add(new ShaderGenerationFailure(
                         shaderPath,
@@ -130,12 +170,29 @@ public static class ConverterRunner
                     slangEligible = false;
                 }
                 string shaderDir = Path.GetDirectoryName(shaderPath) ?? ".";
-                string? slangUnityCgIncludes = UnityCgIncludesResolver.ResolveForSlang(unityCgIncludes, shaderPath);
-                if (slangEligible && !options.SkipSlang && slangUnityCgIncludes is null)
+                var slangExtraRoots = new List<string>();
+                if (compilerConfig.ExtraSlangIncludeDirectories is { Count: > 0 } cfgInc)
+                {
+                    foreach (string p in cfgInc)
+                    {
+                        if (!string.IsNullOrWhiteSpace(p))
+                            slangExtraRoots.Add(p.Trim());
+                    }
+                }
+
+                foreach (string p in options.ExtraCgIncludeDirectories ?? Array.Empty<string>())
+                {
+                    if (!string.IsNullOrWhiteSpace(p))
+                        slangExtraRoots.Add(p.Trim());
+                }
+
+                IReadOnlyList<string> slangUnityCgIncludes =
+                    UnityCgIncludesResolver.ResolveAllForSlang(unityCgIncludes, slangExtraRoots, shaderPath);
+                if (slangEligible && !options.SkipSlang && slangUnityCgIncludes.Count == 0)
                 {
                     if (!loggedMissingSlangCgIncludes)
                     {
-                        logger.LogWarning(
+                        logger.LogError(
                             LogCategory.SlangCompile,
                             "No Unity CGIncludes directory found for slangc (expected UnityBuiltinCGIncludes next to the converter, " +
                             "or --cg-includes / UNITY_SHADER_CONVERTER_CG_INCLUDES / UNITY_CG_INCLUDES, or repo walk from the shader). " +
@@ -149,7 +206,7 @@ public static class ConverterRunner
                     modNameOwners[modName] = shaderPath;
                 else if (!string.Equals(Path.GetFullPath(ownerPath), Path.GetFullPath(shaderPath), StringComparison.Ordinal))
                 {
-                    logger.LogDebug(
+                    logger.LogError(
                         LogCategory.Rust,
                         $"Skipping `{shaderPath}`: Rust module name `{modName}` is already used by `{ownerPath}` (duplicate Unity shader name).");
                     generationFailures.Add(new ShaderGenerationFailure(
@@ -181,6 +238,19 @@ public static class ConverterRunner
                 string modDir = Path.Combine(outputDir, modName);
                 Directory.CreateDirectory(modDir);
 
+                bool skipSlangFromCache = false;
+                if (!options.SkipSlang && slangEligible && !string.IsNullOrWhiteSpace(options.CompileCacheDirectory))
+                {
+                    var allWgsl = new List<string>(doc.Passes.Count);
+                    for (int i = 0; i < doc.Passes.Count; i++)
+                        allWgsl.Add(Path.Combine(modDir, RustEmitter.WgslPassFileName(doc.Passes[i], i)));
+                    if (ShaderCompileCache.TrySkipCompile(options.CompileCacheDirectory, shaderPath, allWgsl, out _))
+                    {
+                        skipSlangFromCache = true;
+                        logger.LogTrace(LogCategory.SlangCompile, $"{shaderPath}: compile cache hit; skipping slangc for all passes.");
+                    }
+                }
+
                 bool allPassesOk = true;
                 bool anyPassDroppedSpecialization = false;
                 int firstFailedPassIndex = -1;
@@ -190,7 +260,7 @@ public static class ConverterRunner
                     ShaderPassDocument pass = doc.Passes[pi];
                     string wgslPath = Path.Combine(modDir, RustEmitter.WgslPassFileName(pass, pi));
 
-                    if (!options.SkipSlang && slangEligible)
+                    if (!options.SkipSlang && slangEligible && !skipSlangFromCache)
                     {
                         PassCompileOutcome outcome = TryCompilePassWithOptionalFallback(
                             doc,
@@ -206,6 +276,9 @@ public static class ConverterRunner
                             slangCompiler,
                             shaderPath,
                             pi,
+                            modName,
+                            options.DumpIntermediateDirectory,
+                            compilerConfig.MaterialBindGroupIndex,
                             logger,
                             out string? passFailDetail);
                         if (outcome == PassCompileOutcome.Failed)
@@ -222,7 +295,7 @@ public static class ConverterRunner
                     }
                     else if (!File.Exists(wgslPath) || new FileInfo(wgslPath).Length == 0)
                     {
-                        logger.LogDebug(
+                        logger.LogError(
                             LogCategory.Output,
                             $"No WGSL at {wgslPath} for `{doc.ShaderName}` pass {pi}; use --skip-slang only when files exist.");
                         allPassesOk = false;
@@ -239,13 +312,14 @@ public static class ConverterRunner
                             string wgsl = File.ReadAllText(wgslPath);
                             if (!wgsl.Contains("Material block (UnityShaderConverter)", StringComparison.Ordinal))
                             {
-                                wgsl = WgslMaterialUniformInjector.PrependMaterialBlock(wgsl, doc.Properties);
+                                wgsl = WgslMaterialUniformInjector.StripLegacyPrependedMaterialBlock(wgsl);
+                                wgsl = WgslMaterialUniformInjector.PrependMaterialBlock(wgsl, doc.Properties, compilerConfig.MaterialBindGroupIndex);
                                 File.WriteAllText(wgslPath, wgsl);
                             }
                         }
                         catch (Exception ex)
                         {
-                            logger.LogDebug(LogCategory.Output, $"{shaderPath} pass {pi}: WGSL post-process failed: {ex.Message}");
+                            logger.LogError(LogCategory.Output, $"{shaderPath} pass {pi}: WGSL post-process failed: {ex.Message}");
                             allPassesOk = false;
                             if (firstFailedPassIndex < 0)
                             {
@@ -255,6 +329,10 @@ public static class ConverterRunner
                         }
                     }
                 }
+
+                if (allPassesOk && !options.SkipSlang && slangEligible && !skipSlangFromCache &&
+                    !string.IsNullOrWhiteSpace(options.CompileCacheDirectory))
+                    ShaderCompileCache.WriteManifest(options.CompileCacheDirectory!, shaderPath);
 
                 if (!allPassesOk)
                 {
@@ -274,7 +352,7 @@ public static class ConverterRunner
                     string vertEntry = doc.Passes[pi].VertexEntry ?? "";
                     if (!WgslVertexLayoutExtractor.TryExtract(wgslText, vertEntry, out PassVertexLayout vLayout, out string? vErr))
                     {
-                        logger.LogDebug(
+                        logger.LogTrace(
                             LogCategory.Rust,
                             $"{shaderPath} pass {pi}: vertex layout extraction failed ({vErr}); emitting empty `VERTEX_BUFFER_LAYOUTS_PASS{pi}`.");
                         vertexLayouts.Add(PassVertexLayout.Empty);
@@ -296,7 +374,7 @@ public static class ConverterRunner
                     vertexLayouts));
                 if (anyPassDroppedSpecialization)
                     specializationFallbackShaders++;
-                logger.LogDebug(
+                logger.LogTrace(
                     LogCategory.Rust,
                     $"Queued shader `{modName}` ({doc.Passes.Count} pass(es), {rustAxes.Count} specialization axis/axes in Rust output).");
             }
@@ -321,8 +399,15 @@ public static class ConverterRunner
                 File.WriteAllText(Path.Combine(modDir, "mod.rs"), RustEmitter.EmitShaderCrateModRs());
                 File.WriteAllText(
                     Path.Combine(modDir, "material.rs"),
-                    RustEmitter.EmitShaderMaterialRs(e.Document, e.SourceComment, e.PassCount, e.Axes, e.VertexLayouts));
-                logger.LogDebug(LogCategory.Rust, $"Wrote {modDir}");
+                    RustEmitter.EmitShaderMaterialRs(
+                        e.Document,
+                        e.SourceComment,
+                        e.PassCount,
+                        e.Axes,
+                        e.VertexLayouts,
+                        compilerConfig.SceneBindGroupIndex,
+                        compilerConfig.MaterialBindGroupIndex));
+                logger.LogTrace(LogCategory.Rust, $"Wrote {modDir}");
             }
 
             TryMergeShadersCrateRootMod(renderideRoot, outputDir, bundleEntries, preservedFailedModNames, logger);
@@ -358,7 +443,7 @@ public static class ConverterRunner
             string full = Path.GetFullPath(raw.Trim());
             if (!File.Exists(Path.Combine(full, "UnityCG.cginc")))
             {
-                logger.LogWarning(LogCategory.Startup, $"CGIncludes path missing UnityCG.cginc (ignored): {full}");
+                logger.LogTrace(LogCategory.Startup, $"CGIncludes path missing UnityCG.cginc (ignored): {full}");
                 return null;
             }
 
@@ -401,11 +486,14 @@ public static class ConverterRunner
         string tempSlangDir,
         string wgslPath,
         string runtimeSlangDir,
-        string? unityCgIncludesForSlang,
+        IReadOnlyList<string> unityCgIncludesForSlang,
         string shaderSourceIncludeDir,
         SlangCompiler slangCompiler,
         string shaderPath,
         int passIndex,
+        string modName,
+        string? dumpIntermediateDirectory,
+        uint materialBindGroupIndex,
         Logger logger,
         out string? failureDetail)
     {
@@ -426,13 +514,16 @@ public static class ConverterRunner
                     slangCompiler,
                     shaderPath,
                     passIndex,
+                    modName,
+                    dumpIntermediateDirectory,
+                    materialBindGroupIndex,
                     logger,
                     out string? err0))
                 return axes.Count > 0 ? PassCompileOutcome.Ok : PassCompileOutcome.OkWithoutSpecialization;
 
             if (axes.Count > 0)
             {
-                logger.LogDebug(
+                logger.LogTrace(
                     LogCategory.SlangCompile,
                     $"{shaderPath} pass {passIndex}: retrying without specialization injection (full first-variant defines only).");
                 if (TryCompileOnce(
@@ -448,6 +539,9 @@ public static class ConverterRunner
                         slangCompiler,
                         shaderPath,
                         passIndex,
+                        modName,
+                        dumpIntermediateDirectory,
+                        materialBindGroupIndex,
                         logger,
                         out string? err1))
                     return PassCompileOutcome.OkWithoutSpecialization;
@@ -472,18 +566,36 @@ public static class ConverterRunner
         string tempSlangPath,
         string wgslPath,
         string runtimeSlangDir,
-        string? unityCgIncludesForSlang,
+        IReadOnlyList<string> unityCgIncludesForSlang,
         string shaderSourceIncludeDir,
         SlangCompiler slangCompiler,
         string shaderPath,
         int passIndex,
+        string modName,
+        string? dumpIntermediateDirectory,
+        uint materialBindGroupIndex,
         Logger logger,
         out string? failureDetail)
     {
         failureDetail = null;
         string slangSource = SlangEmitter.EmitPassSlang(pass, baselineDefines, axes);
         File.WriteAllText(tempSlangPath, slangSource);
-        logger.LogDebug(LogCategory.Slang, $"Transient Slang → slangc ({tempSlangPath})");
+        logger.LogTrace(LogCategory.Slang, $"Transient Slang → slangc ({tempSlangPath})");
+        if (!string.IsNullOrWhiteSpace(dumpIntermediateDirectory))
+        {
+            try
+            {
+                Directory.CreateDirectory(dumpIntermediateDirectory);
+                string dumpPath = Path.Combine(dumpIntermediateDirectory, $"{modName}_pass{passIndex}.slang");
+                File.Copy(tempSlangPath, dumpPath, overwrite: true);
+            }
+            catch (Exception ex)
+            {
+                logger.LogTrace(LogCategory.Slang, $"{shaderPath} pass {passIndex}: dump-intermediate failed: {ex.Message}");
+            }
+        }
+
+        List<string> slangDefines = PassLightModeFilter.MergeVariantDefines(baselineDefines, pass);
         if (!slangCompiler.TryCompileToWgsl(
                 tempSlangPath,
                 wgslPath,
@@ -492,33 +604,42 @@ public static class ConverterRunner
                 shaderSourceIncludeDir,
                 pass.VertexEntry!,
                 pass.FragmentEntry!,
-                baselineDefines,
+                slangDefines,
                 out string? err))
         {
             failureDetail = string.IsNullOrWhiteSpace(err) ? "slangc failed with no stderr" : err;
-            logger.LogDebug(LogCategory.SlangCompile, $"{shaderPath} pass {passIndex}: slangc failed: {failureDetail}");
+            logger.LogError(
+                LogCategory.SlangCompile,
+                $"{shaderPath} pass {passIndex}: slangc failed:\n{failureDetail}");
+            logger.LogInfo(
+                LogCategory.SlangCompile,
+                $"{shaderPath} pass {passIndex}: slangc include order: runtime_slang → [{string.Join(", ", unityCgIncludesForSlang)}] → {shaderSourceIncludeDir}");
+            logger.LogInfo(
+                LogCategory.SlangCompile,
+                "Hints: set --cg-includes to Unity CGIncludes; use --dump-intermediate. Shaders with #pragma surface are skipped at analysis (port to vert/frag ShaderLab first).");
             return false;
         }
 
         try
         {
             string wgsl = File.ReadAllText(wgslPath);
-            wgsl = WgslMaterialUniformInjector.PrependMaterialBlock(wgsl, shaderFile.Properties);
+            wgsl = WgslMaterialUniformInjector.StripLegacyPrependedMaterialBlock(wgsl);
+            wgsl = WgslMaterialUniformInjector.PrependMaterialBlock(wgsl, shaderFile.Properties, materialBindGroupIndex);
             File.WriteAllText(wgslPath, wgsl);
         }
         catch (Exception ex)
         {
             failureDetail = $"WGSL post-process failed: {ex.Message}";
-            logger.LogDebug(LogCategory.Output, $"{shaderPath} pass {passIndex}: {failureDetail}");
+            logger.LogError(LogCategory.Output, $"{shaderPath} pass {passIndex}: {failureDetail}");
             return false;
         }
 
-        logger.LogDebug(LogCategory.SlangCompile, $"WGSL {wgslPath}");
+        logger.LogTrace(LogCategory.SlangCompile, $"WGSL {wgslPath}");
         return true;
     }
 
     /// <summary>
-    /// When output is the crate <c>shaders/</c> directory, merges <c>pub mod &lt;shader&gt;;</c> lines into <c>shaders/mod.rs</c> between the UnityShaderConverter markers.
+    /// When output is the crate <c>shaders/generated/</c> directory, merges <c>pub mod &lt;shader&gt;;</c> lines into <c>shaders/generated/mod.rs</c> between the UnityShaderConverter markers.
     /// </summary>
     private static void TryMergeShadersCrateRootMod(
         string renderideRoot,
@@ -527,12 +648,12 @@ public static class ConverterRunner
         HashSet<string> preservedFailedModNames,
         Logger logger)
     {
-        string expectedShadersRoot = Path.GetFullPath(
-            Path.Combine(renderideRoot, "crates", "renderide", "src", "shaders"));
-        if (!string.Equals(Path.GetFullPath(outputDir), expectedShadersRoot, StringComparison.OrdinalIgnoreCase))
+        string expectedGeneratedRoot = Path.GetFullPath(
+            Path.Combine(renderideRoot, "crates", "renderide", "src", "shaders", "generated"));
+        if (!string.Equals(Path.GetFullPath(outputDir), expectedGeneratedRoot, StringComparison.OrdinalIgnoreCase))
             return;
 
-        string rootModPath = Path.Combine(expectedShadersRoot, "mod.rs");
+        string rootModPath = Path.Combine(expectedGeneratedRoot, "mod.rs");
         try
         {
             string? existing = File.Exists(rootModPath) ? File.ReadAllText(rootModPath) : null;
@@ -541,11 +662,11 @@ public static class ConverterRunner
             File.WriteAllText(
                 rootModPath,
                 RustEmitter.MergeShadersRootModRs(existing, successMods, preservedList));
-            logger.LogDebug(LogCategory.Rust, $"Merged {rootModPath}");
+            logger.LogTrace(LogCategory.Rust, $"Merged {rootModPath}");
         }
         catch (Exception ex)
         {
-            logger.LogWarning(LogCategory.Rust, $"Could not merge {rootModPath}: {ex.Message}");
+            logger.LogError(LogCategory.Rust, $"Could not merge {rootModPath}: {ex.Message}");
         }
     }
 
@@ -555,18 +676,18 @@ public static class ConverterRunner
         if (failures.Count == 0)
             return;
 
-        logger.LogWarning(LogCategory.FailureReport, $"=== UnityShaderConverter: failed generations ({failures.Count}) ===");
+        logger.LogError(LogCategory.FailureReport, $"=== UnityShaderConverter: failed generations ({failures.Count}) ===");
         foreach (ShaderGenerationFailure f in failures)
         {
             string mod = f.ModName is { Length: > 0 } mn ? $" mod={mn}" : "";
-            logger.LogWarning(
+            logger.LogError(
                 LogCategory.FailureReport,
                 $"  [{f.Category}]{mod} {f.ShaderPath}: {f.Detail}");
         }
 
-        logger.LogWarning(
+        logger.LogError(
             LogCategory.FailureReport,
-            "=== End failed generations — fix parse/variant/duplicate issues or slangc/WGSL errors above, then re-run ===");
+            "=== End failed generations — fix parse/variant/duplicate issues, excluded surface/geometry shaders ([SurfaceShader]/[GeometryShader]), or slangc/WGSL errors above, then re-run ===");
     }
 
     private static void TryDeleteFile(string path)
@@ -596,7 +717,7 @@ public static class ConverterRunner
             }
             catch (Exception ex)
             {
-                logger.LogWarning(LogCategory.Rust, $"Could not delete legacy {p}: {ex.Message}");
+                logger.LogError(LogCategory.Rust, $"Could not delete legacy {p}: {ex.Message}");
             }
         }
     }
@@ -633,7 +754,7 @@ public static class ConverterRunner
         }
         catch (Exception ex)
         {
-            logger.LogWarning(LogCategory.Output, $"Could not remove {path}: {ex.Message}");
+            logger.LogError(LogCategory.Output, $"Could not remove {path}: {ex.Message}");
         }
     }
 

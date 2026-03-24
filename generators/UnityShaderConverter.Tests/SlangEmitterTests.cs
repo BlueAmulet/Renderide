@@ -123,21 +123,13 @@ public sealed class SlangEmitterTests
         Assert.Contains("UNITY_DECLARE_TEX3D(_LUT)", rewritten, StringComparison.Ordinal);
     }
 
-    /// <summary><c>float4</c> appdata texcoord to <c>float2</c> UV needs a <c>.xy</c> swizzle for Slang.</summary>
+    /// <summary>Legacy <c>samplerCUBE _Cube;</c> becomes <c>UNITY_DECLARE_TEXCUBE</c> for <c>texCUBE</c> split samplers.</summary>
     [Fact]
-    public void RewriteFloat4TexcoordUvAssignments_AppendsXySwizzle()
+    public void RewriteLegacySamplerCubeDeclarations_ReplacesCubemapTextures()
     {
-        const string body = "\t\t\to.uv = v.texcoord;\n";
-        string rewritten = SlangEmitter.RewriteFloat4TexcoordUvAssignments(body);
-        Assert.Contains("o.uv = v.texcoord.xy;", rewritten, StringComparison.Ordinal);
-    }
-
-    /// <summary>Already-swizzled RHS must not become <c>.xy.xy</c>.</summary>
-    [Fact]
-    public void RewriteFloat4TexcoordUvAssignments_SkipsWhenAlreadyXy()
-    {
-        const string body = "o.uv = v.texcoord.xy;\n";
-        string rewritten = SlangEmitter.RewriteFloat4TexcoordUvAssignments(body);
-        Assert.Equal(body.TrimEnd(), rewritten.TrimEnd(), StringComparer.Ordinal);
+        const string body = "\t\tsamplerCUBE _Cube;\n";
+        string rewritten = SlangEmitter.RewriteLegacySamplerCubeDeclarations(body);
+        Assert.Contains("UNITY_DECLARE_TEXCUBE(_Cube)", rewritten, StringComparison.Ordinal);
+        Assert.DoesNotContain("samplerCUBE _Cube", rewritten, StringComparison.Ordinal);
     }
 }

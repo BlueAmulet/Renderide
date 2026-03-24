@@ -119,6 +119,14 @@ public static class FixedFunctionRustEmitter
     }}";
     }
 
+    /// <summary>WGSL-style <c>StencilFaceState</c> literal for concrete ShaderLab stencil ops.</summary>
+    public static string StencilFaceRust(
+        ComparisonMode comp,
+        StencilOp pass,
+        StencilOp fail,
+        StencilOp zfail) =>
+        StencilFace(comp, pass, fail, zfail);
+
     private static string StencilFace(
         ComparisonMode comp,
         StencilOp pass,
@@ -146,6 +154,9 @@ public static class FixedFunctionRustEmitter
             StencilOp.DecrWrap => "wgpu::StencilOperation::DecrementWrap",
             _ => "wgpu::StencilOperation::Keep",
         };
+
+    /// <summary>WGPU path for a Unity <see cref="ComparisonMode"/> (for static and dynamic emitters).</summary>
+    public static string CompareFunctionPath(ComparisonMode m) => ComparisonToCompareFunction(m);
 
     private static string ComparisonToCompareFunction(ComparisonMode m) =>
         m switch
@@ -208,6 +219,9 @@ public static class FixedFunctionRustEmitter
                     }},
                 }})";
     }
+
+    /// <summary>WGPU path for a Unity <see cref="BlendFactor"/>.</summary>
+    public static string BlendFactorPath(BlendFactor f) => BlendFactorToWgpu(f);
 
     private static string BlendFactorToWgpu(BlendFactor f) =>
         f switch

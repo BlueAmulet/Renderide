@@ -8,18 +8,45 @@ public static class UnityCgIncludesResolver
     /// <summary>
     /// Ordered search paths: optional CLI/env override, <c>UnityBuiltinCGIncludes</c> next to the app, then repo walk from <paramref name="shaderPath"/>.
     /// </summary>
-    public static IReadOnlyList<string> GetSearchDirectories(string? cliOrEnvOverride, string shaderPath)
+    public static IReadOnlyList<string> GetSearchDirectories(string? cliOrEnvOverride, string shaderPath) =>
+        GetSearchDirectories(cliOrEnvOverride, Array.Empty<string>(), shaderPath);
+
+    /// <summary>
+    /// Like <see cref="GetSearchDirectories(string?, string)"/> but appends extra include roots (e.g. <c>--extra-cg-include</c>) after the primary Unity tree.
+    /// </summary>
+    public static IReadOnlyList<string> GetSearchDirectories(
+        string? cliOrEnvOverride,
+        IEnumerable<string>? extraIncludeRoots,
+        string shaderPath)
     {
         var paths = new List<string>();
-        TryAddUniqueValidPath(paths, cliOrEnvOverride);
-        TryAddUniqueValidPath(paths, TryBundledDirectory());
-        TryAddUniqueValidPath(paths, TryWalkFromShader(shaderPath));
+        TryAddUnityCgRoot(paths, cliOrEnvOverride);
+        TryAddUnityCgRoot(paths, TryBundledDirectory());
+        TryAddUnityCgRoot(paths, TryWalkFromShader(shaderPath));
+        if (extraIncludeRoots is not null)
+        {
+            foreach (string raw in extraIncludeRoots)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    continue;
+                TryAddExistingDirectory(paths, raw.Trim());
+            }
+        }
+
         return paths;
     }
 
     /// <summary>
-    /// Returns the first directory that contains <c>UnityCG.cginc</c> in the same priority order as <see cref="GetSearchDirectories"/>.
-    /// Use as a single <c>-I</c> for Unity builtins when invoking <c>slangc</c>.
+    /// Returns ordered <c>-I</c> directories for <c>slangc</c>: all Unity CGIncludes candidates plus extra roots.
+    /// </summary>
+    public static IReadOnlyList<string> ResolveAllForSlang(
+        string? cliOrEnvOverride,
+        IEnumerable<string>? extraIncludeRoots,
+        string shaderPath) =>
+        GetSearchDirectories(cliOrEnvOverride, extraIncludeRoots, shaderPath);
+
+    /// <summary>
+    /// Returns the first directory that contains <c>UnityCG.cginc</c> (legacy single-<c>-I</c> helper).
     /// </summary>
     public static string? ResolveForSlang(string? cliOrEnvOverride, string shaderPath)
     {
@@ -41,7 +68,7 @@ public static class UnityCgIncludesResolver
         }
     }
 
-    private static void TryAddUniqueValidPath(List<string> paths, string? directory)
+    private static void TryAddUnityCgRoot(List<string> paths, string? directory)
     {
         if (string.IsNullOrWhiteSpace(directory))
             return;
@@ -50,18 +77,37 @@ public static class UnityCgIncludesResolver
             string full = Path.GetFullPath(directory.Trim());
             if (!File.Exists(Path.Combine(full, "UnityCG.cginc")))
                 return;
-            foreach (string existing in paths)
-            {
-                if (string.Equals(existing, full, StringComparison.OrdinalIgnoreCase))
-                    return;
-            }
-
-            paths.Add(full);
+            TryAddUniquePath(paths, full);
         }
         catch (ArgumentException)
         {
             // ignored
         }
+    }
+
+    private static void TryAddExistingDirectory(List<string> paths, string directory)
+    {
+        try
+        {
+            string full = Path.GetFullPath(directory);
+            if (!Directory.Exists(full))
+                return;
+            TryAddUniquePath(paths, full);
+        }
+        catch (ArgumentException)
+        {
+        }
+    }
+
+    private static void TryAddUniquePath(List<string> paths, string full)
+    {
+        foreach (string existing in paths)
+        {
+            if (string.Equals(existing, full, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        paths.Add(full);
     }
 
     /// <summary>

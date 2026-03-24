@@ -13,17 +13,28 @@ public static class RenderStateExtractor
         var passTags = new Dictionary<string, string>(StringComparer.Ordinal);
         CullMode? cull = null;
         bool cullProp = false;
+        string? cullPropName = null;
         bool? zwrite = null;
         bool zwriteProp = false;
+        string? zwritePropName = null;
         ComparisonMode? ztest = null;
         bool ztestProp = false;
+        string? ztestPropName = null;
         PassBlendStateRt0? blend = null;
         PassStencilConcrete? stencil = null;
         bool stencilProp = false;
+        string? stencilRefProp = null;
+        string? stencilCompProp = null;
+        string? stencilPassProp = null;
+        string? stencilReadMaskProp = null;
+        string? stencilWriteMaskProp = null;
         string? colorMask = null;
         bool colorMaskProp = false;
+        string? colorMaskPropName = null;
         (float, float)? offset = null;
         bool offsetProp = false;
+        string? offsetFactorProp = null;
+        string? offsetUnitsProp = null;
         int? lod = null;
 
         foreach (ShaderLabCommandNode cmd in commands ?? Array.Empty<ShaderLabCommandNode>())
@@ -39,11 +50,13 @@ public static class RenderStateExtractor
                     {
                         cullProp = true;
                         cull = null;
+                        cullPropName = c.Mode.Property;
                     }
                     else
                     {
                         cullProp = false;
                         cull = c.Mode.Value;
+                        cullPropName = null;
                     }
 
                     break;
@@ -52,11 +65,13 @@ public static class RenderStateExtractor
                     {
                         zwriteProp = true;
                         zwrite = null;
+                        zwritePropName = zw.Enabled.Property;
                     }
                     else
                     {
                         zwriteProp = false;
                         zwrite = zw.Enabled.Value;
+                        zwritePropName = null;
                     }
 
                     break;
@@ -65,11 +80,13 @@ public static class RenderStateExtractor
                     {
                         ztestProp = true;
                         ztest = null;
+                        ztestPropName = zt.Mode.Property;
                     }
                     else
                     {
                         ztestProp = false;
                         ztest = zt.Mode.Value;
+                        ztestPropName = null;
                     }
 
                     break;
@@ -81,11 +98,13 @@ public static class RenderStateExtractor
                     {
                         colorMaskProp = true;
                         colorMask = null;
+                        colorMaskPropName = cm.Mask.Property;
                     }
                     else
                     {
                         colorMaskProp = false;
                         colorMask = cm.Mask.Value;
+                        colorMaskPropName = null;
                     }
 
                     break;
@@ -94,11 +113,15 @@ public static class RenderStateExtractor
                     {
                         offsetProp = true;
                         offset = null;
+                        offsetFactorProp = off.Factor.IsPropertyReference ? off.Factor.Property : null;
+                        offsetUnitsProp = off.Units.IsPropertyReference ? off.Units.Property : null;
                     }
                     else
                     {
                         offsetProp = false;
                         offset = (off.Factor.Value, off.Units.Value);
+                        offsetFactorProp = null;
+                        offsetUnitsProp = null;
                     }
 
                     break;
@@ -107,11 +130,21 @@ public static class RenderStateExtractor
                     {
                         stencilProp = true;
                         stencil = null;
+                        stencilRefProp = st.Ref.IsPropertyReference ? st.Ref.Property : null;
+                        stencilCompProp = st.ComparisonOperationFront.IsPropertyReference ? st.ComparisonOperationFront.Property : null;
+                        stencilPassProp = st.PassOperationFront.IsPropertyReference ? st.PassOperationFront.Property : null;
+                        stencilReadMaskProp = st.ReadMask.IsPropertyReference ? st.ReadMask.Property : null;
+                        stencilWriteMaskProp = st.WriteMask.IsPropertyReference ? st.WriteMask.Property : null;
                     }
                     else
                     {
                         stencilProp = false;
                         stencil = BuildStencilConcrete(st);
+                        stencilRefProp = null;
+                        stencilCompProp = null;
+                        stencilPassProp = null;
+                        stencilReadMaskProp = null;
+                        stencilWriteMaskProp = null;
                     }
 
                     break;
@@ -129,17 +162,28 @@ public static class RenderStateExtractor
         {
             CullMode = cull,
             CullReferencesProperty = cullProp,
+            CullPropertyUniformName = cullPropName,
             DepthWrite = zwrite,
             DepthWriteReferencesProperty = zwriteProp,
+            DepthWritePropertyUniformName = zwritePropName,
             DepthTest = ztest,
             DepthTestReferencesProperty = ztestProp,
+            DepthTestPropertyUniformName = ztestPropName,
             BlendRt0 = blend,
             Stencil = stencil,
             StencilReferencesProperty = stencilProp,
+            StencilRefPropertyUniformName = stencilRefProp,
+            StencilCompPropertyUniformName = stencilCompProp,
+            StencilPassPropertyUniformName = stencilPassProp,
+            StencilReadMaskPropertyUniformName = stencilReadMaskProp,
+            StencilWriteMaskPropertyUniformName = stencilWriteMaskProp,
             ColorMask = colorMask,
             ColorMaskReferencesProperty = colorMaskProp,
+            ColorMaskPropertyUniformName = colorMaskPropName,
             DepthBias = offset,
             DepthBiasReferencesProperty = offsetProp,
+            DepthBiasFactorPropertyUniformName = offsetFactorProp,
+            DepthBiasUnitsPropertyUniformName = offsetUnitsProp,
             Lod = lod,
             EffectiveTags = effective,
         };
@@ -154,7 +198,11 @@ public static class RenderStateExtractor
 
         bool prop = IsBlendProp(b.SourceFactorRGB) || IsBlendProp(b.DestinationFactorRGB) ||
                     IsBlendProp(b.SourceFactorAlpha) || IsBlendProp(b.DestinationFactorAlpha);
-        return new PassBlendStateRt0
+        string? srcRgbP = BlendPropName(b.SourceFactorRGB);
+        string? dstRgbP = BlendPropName(b.DestinationFactorRGB);
+        string? srcAlphaP = BlendPropName(b.SourceFactorAlpha);
+        string? dstAlphaP = BlendPropName(b.DestinationFactorAlpha);
+        PassBlendStateRt0 state = new()
         {
             BlendDisabled = false,
             HasPropertyReference = prop,
@@ -162,8 +210,16 @@ public static class RenderStateExtractor
             DestRgb = FactorOrNull(b.DestinationFactorRGB),
             SourceAlpha = FactorOrNull(b.SourceFactorAlpha),
             DestAlpha = FactorOrNull(b.DestinationFactorAlpha),
+            SrcRgbPropertyUniformName = srcRgbP,
+            DstRgbPropertyUniformName = dstRgbP,
+            SrcAlphaPropertyUniformName = srcAlphaP,
+            DstAlphaPropertyUniformName = dstAlphaP,
         };
+        return state;
     }
+
+    private static string? BlendPropName(PropertyReferenceOr<BlendFactor>? f) =>
+        f is { IsPropertyReference: true } p ? p.Property : null;
 
     private static bool IsBlendProp(PropertyReferenceOr<BlendFactor>? f) =>
         f is { IsPropertyReference: true };

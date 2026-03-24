@@ -44,7 +44,7 @@ namespace UnityShaderParser.HLSL.PreProcessor
         /// <summary>
         /// Whether to expand #include directives.
         /// </summary>
-        ExpandIncludeDirectives     = 1 << 0,
+        ExpandIncludeDirectives = 1 << 0,
 
         /// <summary>
         /// Whether to expand conditional directives such as #if and #ifdef.
@@ -54,37 +54,37 @@ namespace UnityShaderParser.HLSL.PreProcessor
         /// <summary>
         /// Whether to expand #line directives. This kind of directive modifies the span of encountered tokens.
         /// </summary>
-        ExpandLineDirectives        = 1 << 2,
+        ExpandLineDirectives = 1 << 2,
 
         /// <summary>
         /// Whether to expand #define directives.
         /// </summary>
-        ExpandDefineDirectives      = 1 << 3,
+        ExpandDefineDirectives = 1 << 3,
 
         /// <summary>
         /// Whether to expand #undef directives.
         /// </summary>
-        ExpandUndefDirectives       = 1 << 4,
+        ExpandUndefDirectives = 1 << 4,
 
         /// <summary>
         /// Whether to expand #error directives. This kind of directives produces error diagnostics.
         /// </summary>
-        ExpandErrorDirectives       = 1 << 5,
+        ExpandErrorDirectives = 1 << 5,
 
         /// <summary>
         /// Whether to expand #pragma directives.
         /// </summary>
-        ExpandPragmaDirectives      = 1 << 6,
+        ExpandPragmaDirectives = 1 << 6,
 
         /// <summary>
         /// Whether to expand macro invocations, i.e. invocations of macros defined using the #define directive.
         /// </summary>
-        ExpandMacroInvocations      = 1 << 7,
+        ExpandMacroInvocations = 1 << 7,
 
         /// <summary>
         /// Whether to strip directives from the source code. This flag can not be combined with other flags.
         /// </summary>
-        StripDirectives             = 1 << 8,
+        StripDirectives = 1 << 8,
 
         // TODO: Option to embed directives into tokens
     }
@@ -480,9 +480,9 @@ namespace UnityShaderParser.HLSL.PreProcessor
             {
                 ReplaceBetweenExpansions(expanded);
             }
-            
+
             HashSet<string> hideSet = new HashSet<string>();
-            
+
             // Loop until we can't apply macros anymore
             while (true)
             {

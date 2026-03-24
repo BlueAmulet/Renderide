@@ -164,23 +164,23 @@ public static class PackEmitter
 
     private static string UnpackLine(Logger logger, string csharpTypeName, string name, FieldKind kind,
         List<FieldDescriptor> fields) => kind switch
-    {
-        FieldKind.Pod => $"self.{name} = unpacker.read();",
-        FieldKind.Bool => $"self.{name} = unpacker.read_bool();",
-        FieldKind.String => $"self.{name} = unpacker.read_str();",
-        FieldKind.Enum => $"unpacker.read_object_required(&mut self.{name});",
-        FieldKind.FlagsEnum => $"unpacker.read_object_required(&mut self.{name});",
-        FieldKind.Nullable => $"self.{name} = unpacker.read_option();",
-        FieldKind.Object => UnpackObjectLine(logger, csharpTypeName, name, fields),
-        FieldKind.ObjectRequired => $"unpacker.read_object_required(&mut self.{name});",
-        FieldKind.ValueList => $"self.{name} = unpacker.read_value_list();",
-        FieldKind.EnumValueList => $"self.{name} = unpacker.read_enum_value_list();",
-        FieldKind.ObjectList => $"self.{name} = unpacker.read_object_list();",
-        FieldKind.PolymorphicList => UnpackPolymorphicListLine(logger, csharpTypeName, name, fields),
-        FieldKind.StringList => $"self.{name} = unpacker.read_string_list();",
-        FieldKind.NestedValueList => $"self.{name} = unpacker.read_nested_value_list();",
-        _ => UnknownFieldKindUnpackLine(logger, csharpTypeName, name, kind),
-    };
+        {
+            FieldKind.Pod => $"self.{name} = unpacker.read();",
+            FieldKind.Bool => $"self.{name} = unpacker.read_bool();",
+            FieldKind.String => $"self.{name} = unpacker.read_str();",
+            FieldKind.Enum => $"unpacker.read_object_required(&mut self.{name});",
+            FieldKind.FlagsEnum => $"unpacker.read_object_required(&mut self.{name});",
+            FieldKind.Nullable => $"self.{name} = unpacker.read_option();",
+            FieldKind.Object => UnpackObjectLine(logger, csharpTypeName, name, fields),
+            FieldKind.ObjectRequired => $"unpacker.read_object_required(&mut self.{name});",
+            FieldKind.ValueList => $"self.{name} = unpacker.read_value_list();",
+            FieldKind.EnumValueList => $"self.{name} = unpacker.read_enum_value_list();",
+            FieldKind.ObjectList => $"self.{name} = unpacker.read_object_list();",
+            FieldKind.PolymorphicList => UnpackPolymorphicListLine(logger, csharpTypeName, name, fields),
+            FieldKind.StringList => $"self.{name} = unpacker.read_string_list();",
+            FieldKind.NestedValueList => $"self.{name} = unpacker.read_nested_value_list();",
+            _ => UnknownFieldKindUnpackLine(logger, csharpTypeName, name, kind),
+        };
 
     private static string UnknownFieldKindUnpackLine(Logger logger, string csharpTypeName, string name, FieldKind kind)
     {

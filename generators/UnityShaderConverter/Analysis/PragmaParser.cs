@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace UnityShaderConverter.Analysis;
@@ -45,4 +46,28 @@ public static partial class PragmaParser
 
     [GeneratedRegex(@"^\s*#\s*pragma\s+geometry\s+\w+", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
     private static partial Regex GeometryStageRegex();
+
+    [GeneratedRegex(@"^\s*#\s*pragma\s+surface\s+(\w+)\s+(\w+)(?:\s+(.*))?\s*$", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    private static partial Regex SurfacePragmaRegex();
+
+    [GeneratedRegex(@"^\s*#\s*pragma\s+target\s+([0-9]+(?:\.[0-9]+)?)", RegexOptions.IgnoreCase | RegexOptions.Multiline)]
+    private static partial Regex ShaderTargetRegex();
+
+    /// <summary>
+    /// True when <paramref name="program"/> contains a line <c>#pragma surface …</c> (full shader source or a single CGPROGRAM body).
+    /// Used to skip entire shaders from conversion before expensive ShaderLab parsing.
+    /// </summary>
+    public static bool HasSurfacePragma(string program) => SurfacePragmaRegex().IsMatch(program);
+
+    /// <summary>
+    /// Returns the first <c>#pragma target</c> value (e.g. <c>3.0</c>) when present.
+    /// </summary>
+    public static bool TryGetShaderTarget(string program, out float targetVersion)
+    {
+        targetVersion = 0f;
+        Match m = ShaderTargetRegex().Match(program);
+        if (!m.Success)
+            return false;
+        return float.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out targetVersion);
+    }
 }

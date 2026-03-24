@@ -12,6 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\GeneratorLogging\GeneratorLogging.csproj" />
     <PackageReference Include="CommandLineParser" Version="2.9.2-ci-210" />
     <PackageReference Include="Humanizer" Version="3.0.10" />
     <PackageReference Include="Humanizer.Core" Version="3.0.10" />

@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\GeneratorLogging\GeneratorLogging.csproj" />
     <ProjectReference Include="..\..\third_party\UnityShaderParser\UnityShaderParser\UnityShaderParser.csproj" />
   </ItemGroup>
 
@@ -38,5 +39,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <PropertyGroup>
+    <UnityStandardCoreOverlaySourceDir>$(MSBuildProjectDirectory)\runtime_slang</UnityStandardCoreOverlaySourceDir>
+  </PropertyGroup>
+  <Import Project="UnityBuiltinIncludesOverlay.targets" />
 
 </Project>

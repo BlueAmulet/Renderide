@@ -1,6 +1,7 @@
 // Injected by UnityShaderConverter after the shader’s leading #include block (see SlangEmitter).
 // Slang’s preprocessor mishandles Unity’s `sampler##tex` when `tex` is `_MainTex` (becomes `samplermainTex`).
-// Redeclare texture/sampler macros using a two-step `UNITY_SC_JOIN(sampler, tex)` so names match Unity (e.g. `sampler_MainTex`).
+// `UNITY_DECLARE_*` / `UNITY_PASS_*` still use `UNITY_SC_JOIN(sampler, tex)` so declared names match Unity (e.g. `sampler_MainTex`).
+// `UNITY_SAMPLE_*` uses `unity_usc_resonite_macro_sampler` (see UnityCompat.slang) so nested macros with a formal parameter named `tex` do not form the bogus token `samplertex`.
 // Each `#undef` is wrapped in `#ifdef` so Slang does not warn when Unity headers never defined the macro.
 
 #ifndef UNITY_SHADER_CONVERTER_POST_UNITY_INCLUDED
@@ -33,19 +34,19 @@
 #ifdef UNITY_SAMPLE_TEX2D
 #undef UNITY_SAMPLE_TEX2D
 #endif
-#define UNITY_SAMPLE_TEX2D(tex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(tex), coord)
+#define UNITY_SAMPLE_TEX2D(tex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEX2D_LOD
 #undef UNITY_SAMPLE_TEX2D_LOD
 #endif
-#define UNITY_SAMPLE_TEX2D_LOD(tex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(tex), coord, lod)
+#define UNITY_SAMPLE_TEX2D_LOD(tex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 #ifdef UNITY_SAMPLE_TEX2D_SAMPLER
 #undef UNITY_SAMPLE_TEX2D_SAMPLER
 #endif
-#define UNITY_SAMPLE_TEX2D_SAMPLER(tex, samplertex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(samplertex), coord)
+#define UNITY_SAMPLE_TEX2D_SAMPLER(tex, samplertex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEX2D_SAMPLER_LOD
 #undef UNITY_SAMPLE_TEX2D_SAMPLER_LOD
 #endif
-#define UNITY_SAMPLE_TEX2D_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(samplertex), coord, lod)
+#define UNITY_SAMPLE_TEX2D_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 
 #ifdef UNITY_DECLARE_TEX2D_HALF
 #undef UNITY_DECLARE_TEX2D_HALF
@@ -99,19 +100,19 @@
 #ifdef UNITY_SAMPLE_TEXCUBE
 #undef UNITY_SAMPLE_TEXCUBE
 #endif
-#define UNITY_SAMPLE_TEXCUBE(tex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(tex), coord)
+#define UNITY_SAMPLE_TEXCUBE(tex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEXCUBE_LOD
 #undef UNITY_SAMPLE_TEXCUBE_LOD
 #endif
-#define UNITY_SAMPLE_TEXCUBE_LOD(tex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(tex), coord, lod)
+#define UNITY_SAMPLE_TEXCUBE_LOD(tex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 #ifdef UNITY_SAMPLE_TEXCUBE_SAMPLER
 #undef UNITY_SAMPLE_TEXCUBE_SAMPLER
 #endif
-#define UNITY_SAMPLE_TEXCUBE_SAMPLER(tex, samplertex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(samplertex), coord)
+#define UNITY_SAMPLE_TEXCUBE_SAMPLER(tex, samplertex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD
 #undef UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD
 #endif
-#define UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(samplertex), coord, lod)
+#define UNITY_SAMPLE_TEXCUBE_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 
 #ifdef UNITY_DECLARE_TEX3D
 #undef UNITY_DECLARE_TEX3D
@@ -124,19 +125,19 @@
 #ifdef UNITY_SAMPLE_TEX3D
 #undef UNITY_SAMPLE_TEX3D
 #endif
-#define UNITY_SAMPLE_TEX3D(tex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(tex), coord)
+#define UNITY_SAMPLE_TEX3D(tex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEX3D_LOD
 #undef UNITY_SAMPLE_TEX3D_LOD
 #endif
-#define UNITY_SAMPLE_TEX3D_LOD(tex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(tex), coord, lod)
+#define UNITY_SAMPLE_TEX3D_LOD(tex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 #ifdef UNITY_SAMPLE_TEX3D_SAMPLER
 #undef UNITY_SAMPLE_TEX3D_SAMPLER
 #endif
-#define UNITY_SAMPLE_TEX3D_SAMPLER(tex, samplertex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(samplertex), coord)
+#define UNITY_SAMPLE_TEX3D_SAMPLER(tex, samplertex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEX3D_SAMPLER_LOD
 #undef UNITY_SAMPLE_TEX3D_SAMPLER_LOD
 #endif
-#define UNITY_SAMPLE_TEX3D_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(samplertex), coord, lod)
+#define UNITY_SAMPLE_TEX3D_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 #ifdef UNITY_DECLARE_TEX3D_FLOAT
 #undef UNITY_DECLARE_TEX3D_FLOAT
 #endif
@@ -181,19 +182,19 @@
 #ifdef UNITY_SAMPLE_TEX2DARRAY
 #undef UNITY_SAMPLE_TEX2DARRAY
 #endif
-#define UNITY_SAMPLE_TEX2DARRAY(tex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(tex), coord)
+#define UNITY_SAMPLE_TEX2DARRAY(tex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEX2DARRAY_LOD
 #undef UNITY_SAMPLE_TEX2DARRAY_LOD
 #endif
-#define UNITY_SAMPLE_TEX2DARRAY_LOD(tex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(tex), coord, lod)
+#define UNITY_SAMPLE_TEX2DARRAY_LOD(tex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 #ifdef UNITY_SAMPLE_TEX2DARRAY_SAMPLER
 #undef UNITY_SAMPLE_TEX2DARRAY_SAMPLER
 #endif
-#define UNITY_SAMPLE_TEX2DARRAY_SAMPLER(tex, samplertex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(samplertex), coord)
+#define UNITY_SAMPLE_TEX2DARRAY_SAMPLER(tex, samplertex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEX2DARRAY_SAMPLER_LOD
 #undef UNITY_SAMPLE_TEX2DARRAY_SAMPLER_LOD
 #endif
-#define UNITY_SAMPLE_TEX2DARRAY_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(samplertex), coord, lod)
+#define UNITY_SAMPLE_TEX2DARRAY_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 
 #ifdef UNITY_DECLARE_TEXCUBEARRAY
 #undef UNITY_DECLARE_TEXCUBEARRAY
@@ -224,36 +225,36 @@
 #ifdef UNITY_SAMPLE_TEXCUBEARRAY
 #undef UNITY_SAMPLE_TEXCUBEARRAY
 #endif
-#define UNITY_SAMPLE_TEXCUBEARRAY(tex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(tex), float4((coord).xyz, round((coord).w)))
+#define UNITY_SAMPLE_TEXCUBEARRAY(tex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, float4((coord).xyz, round((coord).w)))
 #ifdef UNITY_SAMPLE_TEXCUBEARRAY_LOD
 #undef UNITY_SAMPLE_TEXCUBEARRAY_LOD
 #endif
-#define UNITY_SAMPLE_TEXCUBEARRAY_LOD(tex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(tex), float4((coord).xyz, round((coord).w)), lod)
+#define UNITY_SAMPLE_TEXCUBEARRAY_LOD(tex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, float4((coord).xyz, round((coord).w)), lod)
 #ifdef UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER
 #undef UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER
 #endif
-#define UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER(tex, samplertex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(samplertex), float4((coord).xyz, round((coord).w)))
+#define UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER(tex, samplertex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, float4((coord).xyz, round((coord).w)))
 #ifdef UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER_LOD
 #undef UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER_LOD
 #endif
-#define UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(samplertex), float4((coord).xyz, round((coord).w)), lod)
+#define UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, float4((coord).xyz, round((coord).w)), lod)
 #else
 #ifdef UNITY_SAMPLE_TEXCUBEARRAY
 #undef UNITY_SAMPLE_TEXCUBEARRAY
 #endif
-#define UNITY_SAMPLE_TEXCUBEARRAY(tex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(tex), coord)
+#define UNITY_SAMPLE_TEXCUBEARRAY(tex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEXCUBEARRAY_LOD
 #undef UNITY_SAMPLE_TEXCUBEARRAY_LOD
 #endif
-#define UNITY_SAMPLE_TEXCUBEARRAY_LOD(tex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(tex), coord, lod)
+#define UNITY_SAMPLE_TEXCUBEARRAY_LOD(tex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 #ifdef UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER
 #undef UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER
 #endif
-#define UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER(tex, samplertex, coord) (tex).Sample(UNITY_SC_SAMPLER_FOR(samplertex), coord)
+#define UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER(tex, samplertex, coord) (tex).Sample(unity_usc_resonite_macro_sampler, coord)
 #ifdef UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER_LOD
 #undef UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER_LOD
 #endif
-#define UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(UNITY_SC_SAMPLER_FOR(samplertex), coord, lod)
+#define UNITY_SAMPLE_TEXCUBEARRAY_SAMPLER_LOD(tex, samplertex, coord, lod) (tex).SampleLevel(unity_usc_resonite_macro_sampler, coord, lod)
 #endif
 
 // -----------------------------------------------------------------------------

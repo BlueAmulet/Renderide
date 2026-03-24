@@ -106,7 +106,7 @@ namespace UnityShaderParser.HLSL
             Emit("[");
             Visit(node.Dimension);
             Emit("]");
-        }    
+        }
         public override void VisitValueInitializerNode(ValueInitializerNode node)
         {
             Emit(" = ");

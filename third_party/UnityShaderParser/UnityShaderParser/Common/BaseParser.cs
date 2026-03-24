@@ -76,7 +76,7 @@ namespace UnityShaderParser.Common
             }
             finally
             {
-                RestoreState();   
+                RestoreState();
             }
         }
 
@@ -141,7 +141,7 @@ namespace UnityShaderParser.Common
         protected Token<T> Advance(int amount = 1)
         {
             if (IsAtEnd(amount - 1))
-                return InvalidToken; 
+                return InvalidToken;
             // If we are currently recovering from an error, don't keep eating tokens, and instead return an error token.
             else if (isRecovering)
                 return InvalidToken;

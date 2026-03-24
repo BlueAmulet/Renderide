@@ -206,7 +206,7 @@ namespace UnityShaderParser.ShaderLab
                 kind = ProgramKind.Glsl;
 
             string program = programToken.Identifier;
-            
+
             // Prepend include blocks
             ProcessCurrentIncludes(
                 programToken,
@@ -1238,15 +1238,15 @@ namespace UnityShaderParser.ShaderLab
             {
                 Ref = @ref,
                 ReadMask = readMask,
-                WriteMask = writeMask ,
-                ComparisonOperationBack = comparisonOperationBack ,
-                PassOperationBack = passOperationBack ,
-                FailOperationBack = failOperationBack ,
-                ZFailOperationBack = zFailOperationBack ,
-                ComparisonOperationFront = comparisonOperationFront ,
-                PassOperationFront = passOperationFront ,
-                FailOperationFront = failOperationFront ,
-                ZFailOperationFront = zFailOperationFront ,
+                WriteMask = writeMask,
+                ComparisonOperationBack = comparisonOperationBack,
+                PassOperationBack = passOperationBack,
+                FailOperationBack = failOperationBack,
+                ZFailOperationBack = zFailOperationBack,
+                ComparisonOperationFront = comparisonOperationFront,
+                PassOperationFront = passOperationFront,
+                FailOperationFront = failOperationFront,
+                ZFailOperationFront = zFailOperationFront,
             };
         }
 

@@ -2,7 +2,7 @@ using System.Runtime;
 using CommandLine;
 using NotEnoughLogs;
 using NotEnoughLogs.Behaviour;
-using NotEnoughLogs.Sinks;
+using Renderide.Generators.Logging;
 using SharedTypeGenerator;
 using SharedTypeGenerator.Logging;
 using SharedTypeGenerator.Options;
@@ -39,14 +39,21 @@ Parser.Default.ParseArguments<GeneratorOptions>(args)
         LogLevel maxLevel = ResolveMaxLogLevel(options.Verbose);
         int exitCode = 0;
         {
-            using var deferSink = new DeferringIssueSink(new ConsoleSink());
+            string? gitRoot = RenderidePathResolver.TryGetGitRepositoryRoot();
+            string logsDirectory = gitRoot is not null
+                ? Path.Combine(gitRoot, "logs")
+                : Path.Combine(RenderidePathResolver.FallbackRenderideRootFromCwd(), "logs");
+            Directory.CreateDirectory(logsDirectory);
+            string logFilePath = Path.Combine(logsDirectory, "SharedTypeGenerator.log");
+            using var logSink = new SuppressWarningsSink(new TruncatingFileSink(logFilePath));
             using var logger = new Logger(
-                new[] { deferSink },
+                new[] { logSink },
                 new LoggerConfiguration
                 {
                     Behaviour = new DirectLoggingBehaviour(),
                     MaxLevel = maxLevel,
                 });
+            logger.LogInfo(LogCategory.Startup, $"Log file (truncated this run): {logFilePath}");
             try
             {
                 GeneratorRunner.Run(options, logger);
@@ -66,9 +73,5 @@ static LogLevel ResolveMaxLogLevel(bool verbose)
 {
     if (verbose)
         return LogLevel.Trace;
-#if DEBUG
-    return LogLevel.Trace;
-#else
     return LogLevel.Info;
-#endif
 }

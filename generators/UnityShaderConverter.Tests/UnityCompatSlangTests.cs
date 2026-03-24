@@ -23,8 +23,16 @@ public sealed class UnityCompatSlangTests
         Assert.Contains("SHADER_TARGET", text, StringComparison.Ordinal);
         Assert.Contains("UNITY_SC_JOIN2", text, StringComparison.Ordinal);
         Assert.Contains("samplermainTex", text, StringComparison.Ordinal);
+        Assert.Contains(
+            "tex2D(usc_t, uv) ((usc_t).Sample(unity_usc_resonite_macro_sampler, (uv)))",
+            text,
+            StringComparison.Ordinal);
         Assert.Contains("UNITY_PBS_USE_BRDF1", text, StringComparison.Ordinal);
         Assert.Contains("#define clip", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "float4x4 unity_ObjectToWorld;",
+            text,
+            StringComparison.Ordinal);
     }
 
     /// <summary>Post-Unity header override must redefine texture macros for Slang token pasting.</summary>
