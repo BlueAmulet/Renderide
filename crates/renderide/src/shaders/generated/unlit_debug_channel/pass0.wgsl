@@ -231,11 +231,13 @@ fn vert( _S1 : vertexInput_0) -> v2f_0
 
 enable f16;
 
+@binding(27) @group(0) var _MainTex_0 : texture_2d<f32>;
+
+@binding(3) @group(0) var unity_usc_resonite_macro_sampler_0 : sampler;
+
 @binding(1) @group(0) var unity_usc_vertexlight_sampler_compat_0 : sampler;
 
 @binding(2) @group(0) var unity_usc_ui_shared_sampler_0 : sampler;
-
-@binding(3) @group(0) var unity_usc_resonite_macro_sampler_0 : sampler;
 
 struct SLANG_ParameterGroup_UnityPerCamera_std140_0
 {
@@ -406,8 +408,6 @@ struct SLANG_ParameterGroup_UnityReflectionProbes_std140_0
 };
 
 @binding(26) @group(0) var<uniform> UnityReflectionProbes_0 : SLANG_ParameterGroup_UnityReflectionProbes_std140_0;
-@binding(27) @group(0) var _MainTex_0 : texture_2d<f32>;
-
 @binding(28) @group(0) var sampler_MainTex_0 : sampler;
 
 struct GlobalParams_std140_0
@@ -418,6 +418,14 @@ struct GlobalParams_std140_0
 };
 
 @binding(0) @group(0) var<uniform> globalParams_0 : GlobalParams_std140_0;
+@id(0) override USC_R_0 : bool = true;
+
+@id(1) override USC_G_0 : bool = false;
+
+@id(2) override USC_B_0 : bool = false;
+
+@id(3) override USC_A_0 : bool = false;
+
 struct pixelOutput_0
 {
     @location(0) output_0 : vec4<f16>,
@@ -431,15 +439,40 @@ struct pixelInput_0
 @fragment
 fn frag( _S1 : pixelInput_0, @builtin(position) vertex_0 : vec4<f32>) -> pixelOutput_0
 {
-    var _S2 : pixelOutput_0 = pixelOutput_0( vec4<f16>(0.0h, 0.0h, 0.0h, 0.0h) );
-    return _S2;
+    var _S2 : vec4<f16> = vec4<f16>((textureSample((_MainTex_0), (unity_usc_resonite_macro_sampler_0), (_S1.uv_0))));
+    if(USC_R_0)
+    {
+        var _S3 : pixelOutput_0 = pixelOutput_0( vec4<f16>(_S2.xxx, 1.0h) );
+        return _S3;
+    }
+    else
+    {
+        if(USC_G_0)
+        {
+            var _S4 : pixelOutput_0 = pixelOutput_0( vec4<f16>(_S2.yyy, 1.0h) );
+            return _S4;
+        }
+        else
+        {
+            if(USC_B_0)
+            {
+                var _S5 : pixelOutput_0 = pixelOutput_0( vec4<f16>(_S2.zzz, 1.0h) );
+                return _S5;
+            }
+            else
+            {
+                if(USC_A_0)
+                {
+                    var _S6 : pixelOutput_0 = pixelOutput_0( vec4<f16>(_S2.www, 1.0h) );
+                    return _S6;
+                }
+                else
+                {
+                    var _S7 : pixelOutput_0 = pixelOutput_0( vec4<f16>(0.0h, 0.0h, 0.0h, 0.0h) );
+                    return _S7;
+                }
+            }
+        }
+    }
 }
-
-@id(0) override USC_R_0 : bool = true;
-
-@id(1) override USC_G_0 : bool = false;
-
-@id(2) override USC_B_0 : bool = false;
-
-@id(3) override USC_A_0 : bool = false;
 

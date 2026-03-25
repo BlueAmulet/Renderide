@@ -192,11 +192,30 @@ struct SLANG_ParameterGroup_EVR_INST_BUFFER_std140_0
 
 @binding(29) @group(0) var sampler_CameraDepthTexture_0 : sampler;
 
+@binding(30) @group(0) var _Tex_0 : texture_2d<f32>;
+
+@binding(31) @group(0) var sampler_Tex_0 : sampler;
+
+@binding(32) @group(0) var _OffsetTex_0 : texture_2d<f32>;
+
+@binding(33) @group(0) var sampler_OffsetTex_0 : sampler;
+
+@binding(34) @group(0) var _MaskTex_0 : texture_2d<f32>;
+
+@binding(35) @group(0) var sampler_MaskTex_0 : sampler;
+
 struct GlobalParams_std140_0
 {
     @align(16) unity_Lightmap_HDR_0 : vec4<f16>,
     @align(8) unity_DynamicLightmap_HDR_0 : vec4<f16>,
     @align(16) _GammaCurve_0 : f32,
+    @align(16) _Tex_ST_0 : vec4<f32>,
+    @align(16) _RightEye_ST_0 : vec4<f32>,
+    @align(16) _OffsetMagnitude_0 : vec2<f32>,
+    @align(16) _OffsetTex_ST_0 : vec4<f32>,
+    @align(16) _MaskTex_ST_0 : vec4<f32>,
+    @align(16) _PolarPow_0 : f32,
+    @align(4) _Cutoff_0 : f32,
 };
 
 @binding(0) @group(0) var<uniform> globalParams_0 : GlobalParams_std140_0;
@@ -213,11 +232,15 @@ fn UnityObjectToClipPos_1( pos_1 : vec4<f32>) -> vec4<f32>
 struct v2f_0
 {
     @builtin(position) vertex_0 : vec4<f32>,
+    @location(0) texcoord_0 : vec2<f16>,
+    @location(1) vcolor_0 : vec4<f32>,
 };
 
 struct vertexInput_0
 {
     @location(0) vertex_1 : vec4<f32>,
+    @location(1) texcoord_1 : vec2<f32>,
+    @location(2) vcolor_1 : vec4<f32>,
 };
 
 @vertex
@@ -225,6 +248,8 @@ fn vert( _S1 : vertexInput_0) -> v2f_0
 {
     var o_0 : v2f_0;
     o_0.vertex_0 = UnityObjectToClipPos_1(_S1.vertex_1);
+    o_0.texcoord_0 = vec2<f16>(_S1.texcoord_1);
+    o_0.vcolor_0 = _S1.vcolor_1;
     return o_0;
 }
 
@@ -248,11 +273,13 @@ fn vert( _S1 : vertexInput_0) -> v2f_0
 
 enable f16;
 
+@binding(34) @group(0) var _MaskTex_0 : texture_2d<f32>;
+
+@binding(3) @group(0) var unity_usc_resonite_macro_sampler_0 : sampler;
+
 @binding(1) @group(0) var unity_usc_vertexlight_sampler_compat_0 : sampler;
 
 @binding(2) @group(0) var unity_usc_ui_shared_sampler_0 : sampler;
-
-@binding(3) @group(0) var unity_usc_resonite_macro_sampler_0 : sampler;
 
 struct SLANG_ParameterGroup_UnityPerCamera_std140_0
 {
@@ -439,37 +466,112 @@ struct SLANG_ParameterGroup_EVR_INST_BUFFER_std140_0
 
 @binding(29) @group(0) var sampler_CameraDepthTexture_0 : sampler;
 
+@binding(30) @group(0) var _Tex_0 : texture_2d<f32>;
+
+@binding(31) @group(0) var sampler_Tex_0 : sampler;
+
+@binding(32) @group(0) var _OffsetTex_0 : texture_2d<f32>;
+
+@binding(33) @group(0) var sampler_OffsetTex_0 : sampler;
+
+@binding(35) @group(0) var sampler_MaskTex_0 : sampler;
+
 struct GlobalParams_std140_0
 {
     @align(16) unity_Lightmap_HDR_0 : vec4<f16>,
     @align(8) unity_DynamicLightmap_HDR_0 : vec4<f16>,
     @align(16) _GammaCurve_0 : f32,
+    @align(16) _Tex_ST_0 : vec4<f32>,
+    @align(16) _RightEye_ST_0 : vec4<f32>,
+    @align(16) _OffsetMagnitude_0 : vec2<f32>,
+    @align(16) _OffsetTex_ST_0 : vec4<f32>,
+    @align(16) _MaskTex_ST_0 : vec4<f32>,
+    @align(16) _PolarPow_0 : f32,
+    @align(4) _Cutoff_0 : f32,
 };
 
 @binding(0) @group(0) var<uniform> globalParams_0 : GlobalParams_std140_0;
+@id(2) override USC_MASK_TEXTURE_MUL_0 : bool = false;
+
+@id(3) override USC_MASK_TEXTURE_CLIP_0 : bool = false;
+
+@id(0) override USC_ALPHATEST_0 : bool = false;
+
+@id(5) override USC_MUL_RGB_BY_ALPHA_0 : bool = false;
+
+@id(4) override USC_MUL_ALPHA_INTENSITY_0 : bool = false;
+
 struct pixelOutput_0
 {
     @location(0) output_0 : vec4<f32>,
 };
 
-@fragment
-fn frag(@builtin(position) vertex_0 : vec4<f32>) -> pixelOutput_0
+struct pixelInput_0
 {
-    var _S1 : pixelOutput_0 = pixelOutput_0( vec4<f32>(1.0f, 1.0f, 1.0f, 1.0f) );
-    return _S1;
+    @location(0) texcoord_0 : vec2<f16>,
+    @location(1) vcolor_0 : vec4<f32>,
+};
+
+@fragment
+fn frag( _S1 : pixelInput_0, @builtin(position) vertex_0 : vec4<f32>) -> pixelOutput_0
+{
+    var col_0 : vec4<f32> = vec4<f32>(1.0f, 1.0f, 1.0f, 1.0f);
+    var _S2 : bool;
+    if(USC_MASK_TEXTURE_MUL_0)
+    {
+        _S2 = true;
+    }
+    else
+    {
+        _S2 = USC_MASK_TEXTURE_CLIP_0;
+    }
+    if(_S2)
+    {
+        var mask_0 : vec4<f32> = (textureSample((_MaskTex_0), (unity_usc_resonite_macro_sampler_0), (vec2<f32>(_S1.texcoord_0.xy) * globalParams_0._MaskTex_ST_0.xy + globalParams_0._MaskTex_ST_0.zw)));
+        var mul_0 : f32 = (mask_0.x + mask_0.y + mask_0.z) * 0.33333331346511841f * mask_0.w;
+        if(USC_MASK_TEXTURE_MUL_0)
+        {
+            col_0[i32(3)] = col_0[i32(3)] * mul_0;
+        }
+        if(USC_MASK_TEXTURE_CLIP_0)
+        {
+            if((mul_0 - globalParams_0._Cutoff_0) <= 0.0f)
+            {
+                discard;
+            }
+        }
+    }
+    if(USC_ALPHATEST_0)
+    {
+        _S2 = !USC_MASK_TEXTURE_CLIP_0;
+    }
+    else
+    {
+        _S2 = false;
+    }
+    if(_S2)
+    {
+        if((col_0.w - globalParams_0._Cutoff_0) <= 0.0f)
+        {
+            discard;
+        }
+    }
+    if(USC_MUL_RGB_BY_ALPHA_0)
+    {
+        var _S3 : vec3<f32> = col_0.xyz * vec3<f32>(col_0.w);
+        col_0.x = _S3.x;
+        col_0.y = _S3.y;
+        col_0.z = _S3.z;
+    }
+    if(USC_MUL_ALPHA_INTENSITY_0)
+    {
+        col_0[i32(3)] = col_0[i32(3)] * ((col_0.x + col_0.y + col_0.z) * 0.33333331346511841f);
+    }
+    var _S4 : pixelOutput_0 = pixelOutput_0( col_0 );
+    return _S4;
 }
 
-@id(0) override USC_ALPHATEST_0 : bool = false;
-
 @id(1) override USC_COLOR_0 : bool = false;
-
-@id(2) override USC_MASK_TEXTURE_MUL_0 : bool = false;
-
-@id(3) override USC_MASK_TEXTURE_CLIP_0 : bool = false;
-
-@id(4) override USC_MUL_ALPHA_INTENSITY_0 : bool = false;
-
-@id(5) override USC_MUL_RGB_BY_ALPHA_0 : bool = false;
 
 @id(6) override USC_OFFSET_TEXTURE_0 : bool = false;
 

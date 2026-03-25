@@ -17,39 +17,9 @@
 use glam::Vec4;
 use crate::scene::types::TextureHandle;
 
-/// Maps to WGSL `override` / `wgpu::PipelineCompilationOptions::constants` (decimal id keys per wgpu docs).
-/// `Default` matches WGSL override initializer defaults from Slang `[vk::constant_id]` (first keyword true on exclusive `multi_compile` lines).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct VariantKey {
-    /// ShaderLab keyword `ALPHACLIP`
-    pub alphaclip: bool,
-    /// ShaderLab keyword `OVERLAY`
-    pub overlay: bool,
-    /// ShaderLab keyword `RECTCLIP`
-    pub rectclip: bool,
-    /// ShaderLab keyword `TEXTURE_NORMALMAP`
-    pub texture_normalmap: bool,
-    /// ShaderLab keyword `TEXTURE_LERPCOLOR`
-    pub texture_lerpcolor: bool,
-    /// ShaderLab keyword `_MASK_TEXTURE_MUL`
-    pub mask_texture_mul: bool,
-    /// ShaderLab keyword `_MASK_TEXTURE_CLIP`
-    pub mask_texture_clip: bool,
-}
-
-impl Default for VariantKey {
-    fn default() -> Self {
-        Self {
-            alphaclip: false,
-            overlay: false,
-            rectclip: false,
-            texture_normalmap: false,
-            texture_lerpcolor: false,
-            mask_texture_mul: false,
-            mask_texture_clip: false,
-        }
-    }
-}
+/// No `multi_compile` specialization axes were extracted; pipeline constants are unused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct VariantKey;
 
 /// WGSL clustered scene uniforms, lights, cluster buffers (matches builtin PBR).
 pub const RENDERIDE_SCENE_BIND_GROUP: u32 = 1;
@@ -193,50 +163,8 @@ pub struct MaterialUniform {
     pub _pad4: u32,
 }
 
-/// Maps `VariantKey` fields to pipeline constant ids (decimal strings per WebGPU).
-pub fn specialization_constants_f64(variant: &VariantKey) -> std::vec::Vec<(&'static str, f64)> {
-    let mut v = std::vec::Vec::new();
-    v.push(("0", if variant.alphaclip { 1.0 } else { 0.0 }));
-    v.push(("1", if variant.overlay { 1.0 } else { 0.0 }));
-    v.push(("2", if variant.rectclip { 1.0 } else { 0.0 }));
-    v.push(("3", if variant.texture_normalmap { 1.0 } else { 0.0 }));
-    v.push(("4", if variant.texture_lerpcolor { 1.0 } else { 0.0 }));
-    v.push(("5", if variant.mask_texture_mul { 1.0 } else { 0.0 }));
-    v.push(("6", if variant.mask_texture_clip { 1.0 } else { 0.0 }));
-    v
-}
-
-static SPECIALIZATION_KEYS: &[&str] = &[
-    "0",
-    "1",
-    "2",
-    "3",
-    "4",
-    "5",
-    "6",
-];
-
-fn pipeline_compilation_options_vertex_inner(variant: &VariantKey) -> wgpu::PipelineCompilationOptions<'static> {
-    let vals: [f64; 7] = [
-        if variant.alphaclip { 1.0 } else { 0.0 },
-        if variant.overlay { 1.0 } else { 0.0 },
-        if variant.rectclip { 1.0 } else { 0.0 },
-        if variant.texture_normalmap { 1.0 } else { 0.0 },
-        if variant.texture_lerpcolor { 1.0 } else { 0.0 },
-        if variant.mask_texture_mul { 1.0 } else { 0.0 },
-        if variant.mask_texture_clip { 1.0 } else { 0.0 },
-    ];
-    let tuples: std::vec::Vec<(&'static str, f64)> = SPECIALIZATION_KEYS
-        .iter()
-        .copied()
-        .zip(vals)
-        .collect();
-    let boxed = tuples.into_boxed_slice();
-    let leaked = Box::leak(boxed);
-    wgpu::PipelineCompilationOptions {
-        constants: leaked,
-        ..Default::default()
-    }
+fn pipeline_compilation_options_vertex_inner(_variant: &VariantKey) -> wgpu::PipelineCompilationOptions<'static> {
+    wgpu::PipelineCompilationOptions::default()
 }
 
 /// Builds `PipelineCompilationOptions` for vertex/fragment stages (WGSL `override` / `@id`).

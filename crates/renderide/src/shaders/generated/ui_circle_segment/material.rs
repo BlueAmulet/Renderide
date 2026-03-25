@@ -16,24 +16,9 @@
 
 use glam::Vec4;
 
-/// Maps to WGSL `override` / `wgpu::PipelineCompilationOptions::constants` (decimal id keys per wgpu docs).
-/// `Default` matches WGSL override initializer defaults from Slang `[vk::constant_id]` (first keyword true on exclusive `multi_compile` lines).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct VariantKey {
-    /// ShaderLab keyword `OVERLAY`
-    pub overlay: bool,
-    /// ShaderLab keyword `RECTCLIP`
-    pub rectclip: bool,
-}
-
-impl Default for VariantKey {
-    fn default() -> Self {
-        Self {
-            overlay: false,
-            rectclip: false,
-        }
-    }
-}
+/// No `multi_compile` specialization axes were extracted; pipeline constants are unused.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct VariantKey;
 
 /// WGSL clustered scene uniforms, lights, cluster buffers (matches builtin PBR).
 pub const RENDERIDE_SCENE_BIND_GROUP: u32 = 1;
@@ -176,35 +161,8 @@ pub struct MaterialUniform {
     pub rect: Vec4,
 }
 
-/// Maps `VariantKey` fields to pipeline constant ids (decimal strings per WebGPU).
-pub fn specialization_constants_f64(variant: &VariantKey) -> std::vec::Vec<(&'static str, f64)> {
-    let mut v = std::vec::Vec::new();
-    v.push(("0", if variant.overlay { 1.0 } else { 0.0 }));
-    v.push(("1", if variant.rectclip { 1.0 } else { 0.0 }));
-    v
-}
-
-static SPECIALIZATION_KEYS: &[&str] = &[
-    "0",
-    "1",
-];
-
-fn pipeline_compilation_options_vertex_inner(variant: &VariantKey) -> wgpu::PipelineCompilationOptions<'static> {
-    let vals: [f64; 2] = [
-        if variant.overlay { 1.0 } else { 0.0 },
-        if variant.rectclip { 1.0 } else { 0.0 },
-    ];
-    let tuples: std::vec::Vec<(&'static str, f64)> = SPECIALIZATION_KEYS
-        .iter()
-        .copied()
-        .zip(vals)
-        .collect();
-    let boxed = tuples.into_boxed_slice();
-    let leaked = Box::leak(boxed);
-    wgpu::PipelineCompilationOptions {
-        constants: leaked,
-        ..Default::default()
-    }
+fn pipeline_compilation_options_vertex_inner(_variant: &VariantKey) -> wgpu::PipelineCompilationOptions<'static> {
+    wgpu::PipelineCompilationOptions::default()
 }
 
 /// Builds `PipelineCompilationOptions` for vertex/fragment stages (WGSL `override` / `@id`).

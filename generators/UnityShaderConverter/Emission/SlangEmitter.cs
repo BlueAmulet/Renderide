@@ -61,7 +61,11 @@ public static class SlangEmitter
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (SpecializationAxis ax in specializationAxes)
                 map[ax.Keyword] = ax.SlangIdentifier;
-            programBody = HlslSpecializationPreprocessor.Rewrite(programBody, map);
+            programBody = HlslSpecializationPreprocessor.Rewrite(
+                programBody,
+                map,
+                pass.VertexEntry,
+                pass.FragmentEntry);
         }
 
         programBody = InsertUnityCompatPostIncludeAfterInitialIncludes(programBody);

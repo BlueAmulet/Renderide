@@ -425,6 +425,8 @@ struct GlobalParams_std140_0
 };
 
 @binding(0) @group(0) var<uniform> globalParams_0 : GlobalParams_std140_0;
+@id(0) override USC_NORMALIZE_0 : bool = false;
+
 struct pixelOutput_0
 {
     @location(0) output_0 : vec4<f32>,
@@ -435,14 +437,25 @@ struct pixelInput_0
     @location(0) data_3 : vec3<f32>,
 };
 
-@fragment
-fn frag( _S1 : pixelInput_0, @builtin(position) vertex_0 : vec4<f32>) -> pixelOutput_0
+struct v2f_0
 {
-    var _S2 : pixelOutput_0 = pixelOutput_0( vec4<f32>(saturate(_S1.data_3 * globalParams_0.U_Scale_0 + globalParams_0._Offset_0), 1.0f) );
-    return _S2;
-}
+     vertex_0 : vec4<f32>,
+     data_4 : vec3<f32>,
+};
 
-@id(0) override USC_NORMALIZE_0 : bool = false;
+@fragment
+fn frag( _S1 : pixelInput_0, @builtin(position) vertex_1 : vec4<f32>) -> pixelOutput_0
+{
+    var _S2 : v2f_0;
+    _S2.vertex_0 = vertex_1;
+    _S2.data_4 = _S1.data_3;
+    if(USC_NORMALIZE_0)
+    {
+        _S2.data_4 = normalize(_S2.data_4);
+    }
+    var _S3 : pixelOutput_0 = pixelOutput_0( vec4<f32>(saturate(_S2.data_4 * globalParams_0.U_Scale_0 + globalParams_0._Offset_0), 1.0f) );
+    return _S3;
+}
 
 @id(1) override USC_POSITION_0 : bool = true;
 
