@@ -7,12 +7,10 @@
 //! - [`pbr_ray_query`]: same PBR families with `wgpu_ray_query` and TLAS for RT shadows.
 //! - [`overlay`]: overlay stencil shader with optional rect-clip discard.
 //!
-//! # Why are WGSL sources embedded as strings?
-//! There is currently no offline shader compilation (SPIR-V pre-compilation, naga offline, etc.)
-//! or runtime pipeline assembly (composable WGSL modules). Each pipeline variant therefore
-//! contains its full WGSL source inline. When a shader preprocessor or `wgsl-import` step is
-//! added, these constants can be replaced with compiled artifacts and the per-variant copies of
-//! shared code (e.g. the PBR BRDF functions) can be deduplicated.
+//! # Modular WGSL
+//! Single-target normal and UV debug shaders are built from `wgsl_modules/` with **naga_oil** in the
+//! crate `build.rs` ([`debug::NORMAL_SHADER_SRC`], [`debug::UV_DEBUG_SHADER_SRC`]). The host-unlit pilot
+//! uses `host_unlit.wgsl` from the same build. Other families still use inline strings until migrated.
 
 mod debug;
 mod overlay;

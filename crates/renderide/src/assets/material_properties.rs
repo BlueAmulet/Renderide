@@ -12,6 +12,8 @@
 //!   - `set_float`: f32 (4 bytes)
 //!   - `set_float4`: [f32; 4] (16 bytes)
 //!   - `set_float4x4`: 64 bytes — skipped
+//!   - `set_shader`: i32 shader asset id (4 bytes) — see [`MaterialPropertyStore::set_shader_asset`]
+//!   - `set_render_queue`, `set_instancing`, `set_render_type`: i32 each (4 bytes) — consumed, not stored
 //!   - `update_batch_end`: 0 bytes
 //!   - Other types: skipped (value size unknown)
 //!
@@ -37,6 +39,8 @@ pub enum MaterialPropertyValue {
 pub struct MaterialPropertyStore {
     /// block_id -> (property_id -> value)
     blocks: HashMap<i32, HashMap<i32, MaterialPropertyValue>>,
+    /// block_id -> shader asset id from [`MaterialPropertyUpdateType::set_shader`](crate::shared::MaterialPropertyUpdateType::set_shader).
+    shader_asset_by_block: HashMap<i32, i32>,
 }
 
 impl MaterialPropertyStore {
@@ -44,6 +48,7 @@ impl MaterialPropertyStore {
     pub fn new() -> Self {
         Self {
             blocks: HashMap::new(),
+            shader_asset_by_block: HashMap::new(),
         }
     }
 
@@ -60,9 +65,20 @@ impl MaterialPropertyStore {
         self.blocks.get(&block_id)?.get(&property_id)
     }
 
+    /// Records the shader asset bound to a material property block.
+    pub fn set_shader_asset(&mut self, block_id: i32, shader_asset_id: i32) {
+        self.shader_asset_by_block.insert(block_id, shader_asset_id);
+    }
+
+    /// Shader asset id for `block_id` when the host sent `set_shader` for that block.
+    pub fn shader_asset_for_block(&self, block_id: i32) -> Option<i32> {
+        self.shader_asset_by_block.get(&block_id).copied()
+    }
+
     /// Removes all properties for a block. Called on UnloadMaterialPropertyBlock.
     pub fn remove_block(&mut self, block_id: i32) {
         self.blocks.remove(&block_id);
+        self.shader_asset_by_block.remove(&block_id);
     }
 
     /// Returns true if the block has any properties.

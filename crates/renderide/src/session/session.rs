@@ -590,8 +590,9 @@ impl Session {
             &this.scene_graph,
             space_id,
             this.asset_registry(),
-            this.render_config.use_debug_uv,
-            this.render_config.use_pbr,
+            this.render_config(),
+            this.render_config().use_debug_uv,
+            this.render_config().use_pbr,
         );
         let mut draws = super::collect::build_draw_entries(filtered);
         draws.sort_by_key(|d| {

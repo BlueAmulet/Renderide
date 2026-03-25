@@ -7,7 +7,8 @@ use std::collections::HashSet;
 use glam::Mat4;
 
 use crate::assets::{self, AssetRegistry};
-use crate::gpu::PipelineVariant;
+use crate::config::{RenderConfig, ShaderDebugOverride};
+use crate::gpu::{PipelineVariant, ShaderKey};
 use crate::render::batch::{DrawEntry, SpaceDrawBatch};
 use crate::scene::{Drawable, Scene, SceneGraph, render_transform_to_matrix};
 use crate::shared::{LayerType, VertexAttributeType};
@@ -20,12 +21,14 @@ pub(super) struct FilteredDrawable {
     pub(super) drawable: Drawable,
     pub(super) world_matrix: Mat4,
     pub(super) pipeline_variant: PipelineVariant,
+    pub(super) shader_key: ShaderKey,
 }
 
 /// Filters drawables by layer, render lists, and skinned validity; collects world matrices.
 ///
 /// Skips Hidden layer, applies only/exclude lists, validates bone_transform_ids and bind_poses
-/// for skinned draws. Returns (Drawable, world_matrix, pipeline_variant) for each valid draw.
+/// for skinned draws. Returns [`FilteredDrawable`] for each valid draw (including [`ShaderKey`]
+/// and resolved [`PipelineVariant`](crate::gpu::PipelineVariant)).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn filter_and_collect_drawables(
     scene: &Scene,
@@ -34,6 +37,7 @@ pub(super) fn filter_and_collect_drawables(
     scene_graph: &SceneGraph,
     space_id: i32,
     asset_registry: &AssetRegistry,
+    render_config: &RenderConfig,
     use_debug_uv: bool,
     use_pbr: bool,
 ) -> Vec<FilteredDrawable> {
@@ -100,7 +104,7 @@ pub(super) fn filter_and_collect_drawables(
         let mut drawable = entry.clone();
         drawable.stencil_state = stencil_state;
 
-        let pipeline_variant = compute_pipeline_variant_for_drawable(
+        let fallback_variant = compute_pipeline_variant_for_drawable(
             scene.is_overlay,
             is_skinned,
             &drawable,
@@ -109,10 +113,31 @@ pub(super) fn filter_and_collect_drawables(
             use_pbr,
             asset_registry,
         );
+        let material_block_id = drawable.material_handle.unwrap_or(-1);
+        let host_shader_asset_id = asset_registry
+            .material_property_store
+            .shader_asset_for_block(material_block_id);
+        let shader_key = ShaderKey {
+            host_shader_asset_id,
+            fallback_variant,
+        };
+        let force_legacy = matches!(
+            render_config.shader_debug_override,
+            ShaderDebugOverride::ForceLegacyGlobalShading
+        );
+        let pipeline_variant = shader_key.effective_variant(
+            render_config.use_host_unlit_pilot,
+            force_legacy,
+            material_block_id,
+            false,
+            is_skinned,
+            scene.is_overlay,
+        );
         out.push(FilteredDrawable {
             drawable,
             world_matrix,
             pipeline_variant,
+            shader_key,
         });
     }
 
@@ -150,6 +175,7 @@ pub(super) fn build_draw_entries(filtered: Vec<FilteredDrawable>) -> Vec<DrawEnt
                     None
                 },
                 pipeline_variant: f.pipeline_variant,
+                shader_key: f.shader_key,
                 stencil_state: f.drawable.stencil_state,
                 shadow_cast_mode: f.drawable.shadow_cast_mode,
             }
@@ -276,7 +302,7 @@ fn compute_pipeline_variant(
 #[cfg(test)]
 mod tests {
     use super::{FilteredDrawable, build_draw_entries, create_space_batch};
-    use crate::gpu::PipelineVariant;
+    use crate::gpu::{PipelineVariant, ShaderKey};
     use crate::render::batch::DrawEntry;
     use crate::scene::{Drawable, Scene};
     use crate::shared::ShadowCastMode;
@@ -312,6 +338,7 @@ mod tests {
             root_bone_transform_id: None,
             blendshape_weights: None,
             pipeline_variant: PipelineVariant::NormalDebug,
+            shader_key: ShaderKey::builtin_only(PipelineVariant::NormalDebug),
             stencil_state: None,
             shadow_cast_mode: crate::shared::ShadowCastMode::on,
         };
@@ -335,6 +362,7 @@ mod tests {
             },
             world_matrix: Mat4::IDENTITY,
             pipeline_variant: PipelineVariant::NormalDebug,
+            shader_key: ShaderKey::builtin_only(PipelineVariant::NormalDebug),
         }];
         let entries = build_draw_entries(filtered);
         assert_eq!(entries.len(), 1);
@@ -353,6 +381,7 @@ mod tests {
             },
             world_matrix: Mat4::IDENTITY,
             pipeline_variant: PipelineVariant::NormalDebug,
+            shader_key: ShaderKey::builtin_only(PipelineVariant::NormalDebug),
         }];
         let entries = build_draw_entries(filtered);
         assert_eq!(entries.len(), 1);

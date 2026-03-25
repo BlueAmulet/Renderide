@@ -75,6 +75,7 @@ mod mesh_prep;
 
 mod clustered_light;
 mod composite;
+mod fullscreen_filter;
 mod mesh_pass;
 mod overlay_pass;
 mod projection;
@@ -94,6 +95,7 @@ pub use mesh_prep::{MeshDrawPrepStats, PreCollectedFrameData, prepare_mesh_draws
 
 pub use clustered_light::ClusteredLightPass;
 pub use composite::CompositePass;
+pub use fullscreen_filter::FullscreenFilterPlaceholderPass;
 pub use mesh_pass::MeshRenderPass;
 pub use overlay_pass::OverlayRenderPass;
 pub use projection::{

@@ -90,6 +90,7 @@ impl RenderPass for OverlayRenderPass {
                 .gpu
                 .last_pbr_scene_cache_rt_shadow_atlas_generation,
             rt_shadow_bind: None,
+            material_property_store: &ctx.session.asset_registry().material_property_store,
         };
 
         let mut pass = ctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

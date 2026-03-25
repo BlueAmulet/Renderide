@@ -1,4 +1,4 @@
-//! Shader command handlers: shader_upload.
+//! Shader command handlers: `shader_upload`, `shader_unload`.
 
 use crate::shared::{RendererCommand, ShaderUploadResult};
 
@@ -23,6 +23,10 @@ impl CommandHandler for ShaderCommandHandler {
                             },
                         ));
                 }
+                CommandResult::Handled
+            }
+            RendererCommand::shader_unload(cmd) => {
+                ctx.assets.asset_registry.handle_shader_unload(cmd.asset_id);
                 CommandResult::Handled
             }
             _ => CommandResult::Ignored,

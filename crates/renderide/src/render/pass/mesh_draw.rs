@@ -7,6 +7,7 @@ use glam::Mat4;
 use nalgebra::Matrix4;
 
 use super::mesh_prep::MeshDrawPrepStats;
+use crate::assets::MaterialPropertyStore;
 use crate::gpu::pipeline::{RtShadowSceneBind, RtShadowUniforms, SceneUniforms};
 use crate::gpu::{GpuMeshBuffers, PipelineKey, PipelineManager, PipelineVariant, RenderPipeline};
 use crate::render::SpaceDrawBatch;
@@ -121,6 +122,8 @@ pub(super) struct MeshDrawParams<'a> {
     pub(super) last_pbr_scene_cache_rt_shadow_atlas_generation: &'a mut u64,
     /// When set with ray-query PBR, uploads [`RtShadowUniforms`] and binds group 1 slots 5–7.
     pub(super) rt_shadow_bind: Option<RtShadowBindParams<'a>>,
+    /// Material property store for [`PipelineVariant::Material`] host-unlit pipeline resolution.
+    pub(super) material_property_store: &'a MaterialPropertyStore,
 }
 
 /// Resources and per-frame tuning for PBR ray-query shadow bindings (scene group 1, bindings 5–7).
@@ -585,6 +588,9 @@ fn resolve_pipeline_for_group(
     params: &MeshDrawParams,
     is_overlay_group: bool,
 ) -> PipelineVariant {
+    if matches!(variant, PipelineVariant::Material { .. }) {
+        return *variant;
+    }
     let pbr_ray_query = params
         .pbr_scene
         .as_ref()
@@ -641,6 +647,12 @@ pub(super) fn mesh_pipeline_variant_for_mrt(
     has_pbr_scene: bool,
     pbr_ray_query: bool,
 ) -> PipelineVariant {
+    if let PipelineVariant::Material { .. } = variant {
+        if use_mrt {
+            return PipelineVariant::NormalDebugMRT;
+        }
+        return *variant;
+    }
     if !has_pbr_scene {
         return match variant {
             PipelineVariant::Pbr | PipelineVariant::PbrRayQuery => PipelineVariant::NormalDebug,
@@ -759,6 +771,7 @@ pub(super) fn record_skinned_draws(
             PipelineKey(None, pipeline_variant),
             params.device,
             params.config,
+            Some(params.material_property_store),
         ) else {
             i += group_end;
             continue;
@@ -897,11 +910,12 @@ pub(super) fn record_non_skinned_draws(
         let pipeline_variant =
             resolve_pipeline_for_group(&variant, params, group.iter().any(|d| d.is_overlay));
         let pipeline_key = PipelineKey(None, pipeline_variant);
-        let Some(pipeline) =
-            params
-                .pipeline_manager
-                .get_pipeline(pipeline_key, params.device, params.config)
-        else {
+        let Some(pipeline) = params.pipeline_manager.get_pipeline(
+            pipeline_key,
+            params.device,
+            params.config,
+            Some(params.material_property_store),
+        ) else {
             i += group_end;
             continue;
         };
@@ -1086,5 +1100,29 @@ mod tests {
     fn mesh_pipeline_variant_fallback_when_no_pbr_scene() {
         let v = mesh_pipeline_variant_for_mrt(&PipelineVariant::Pbr, false, true, false, false);
         assert_eq!(v, PipelineVariant::NormalDebug);
+    }
+
+    #[test]
+    fn mesh_pipeline_variant_material_downgrades_to_mrt_debug() {
+        let v = mesh_pipeline_variant_for_mrt(
+            &PipelineVariant::Material { material_id: 1 },
+            true,
+            false,
+            true,
+            false,
+        );
+        assert_eq!(v, PipelineVariant::NormalDebugMRT);
+    }
+
+    #[test]
+    fn mesh_pipeline_variant_material_preserved_without_mrt() {
+        let v = mesh_pipeline_variant_for_mrt(
+            &PipelineVariant::Material { material_id: 1 },
+            false,
+            true,
+            true,
+            false,
+        );
+        assert_eq!(v, PipelineVariant::Material { material_id: 1 });
     }
 }

@@ -5,8 +5,10 @@ pub mod cluster_buffer;
 pub mod frame_scheduler;
 pub mod mesh;
 pub mod pipeline;
+mod pipeline_descriptor_cache;
 pub mod registry;
 pub mod rtao_textures;
+pub mod shader_key;
 pub mod state;
 
 pub use accel::{
@@ -17,6 +19,7 @@ pub use frame_scheduler::GpuFrameScheduler;
 pub use mesh::{GpuMeshBuffers, compute_vertex_stride_from_mesh, create_mesh_buffers};
 pub use pipeline::{MAX_INSTANCE_RUN, RenderPipeline, UniformData};
 pub use registry::{PipelineKey, PipelineManager, PipelineRegistry, PipelineVariant};
+pub use shader_key::ShaderKey;
 pub use state::{
     GpuState, clamp_surface_extent, ensure_depth_texture, init_gpu, reconfigure_surface_for_window,
 };

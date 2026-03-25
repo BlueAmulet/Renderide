@@ -352,6 +352,23 @@ pub struct RenderConfig {
     /// timings (world matrices, filter/sort/batch build, light resolve, final batch sort).
     /// Enable with `RENDERIDE_LOG_COLLECT_TIMING=1`.
     pub log_collect_draw_batches_timing: bool,
+    /// When true, drawables with a `set_shader` entry in the material property store may use the
+    /// host-unlit pilot pipeline ([`PipelineVariant::Material`](crate::gpu::PipelineVariant::Material)).
+    pub use_host_unlit_pilot: bool,
+    /// When true on the non-MRT main graph, inserts a no-op fullscreen filter hook between mesh and overlay.
+    pub fullscreen_filter_hook: bool,
+    /// Optional override that ignores host per-draw shader resolution and uses global shading toggles only.
+    pub shader_debug_override: ShaderDebugOverride,
+}
+
+/// Debug override for shader resolution (replacement-shader style).
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default)]
+pub enum ShaderDebugOverride {
+    /// Use normal resolution ([`ShaderKey::effective_variant`](crate::gpu::ShaderKey::effective_variant)).
+    #[default]
+    None,
+    /// Force legacy global `use_pbr` / `use_debug_uv` path; ignore host `set_shader` for drawing.
+    ForceLegacyGlobalShading,
 }
 
 /// Applies one `(section, key, value)` triple from `configuration.ini` to [`RenderConfig`].
@@ -414,6 +431,49 @@ fn apply_render_config_ini_entry(config: &mut RenderConfig, section: &str, key: 
                 logger::info!("ini: use_pbr = {}", v);
             } else {
                 eprintln!("[renderide] ini: use_pbr parse error (raw = {:?})", value);
+            }
+        }
+        ("rendering", "use_host_unlit_pilot") => {
+            if let Some(v) = parse_bool(value) {
+                config.use_host_unlit_pilot = v;
+                eprintln!("[renderide] ini: use_host_unlit_pilot = {}", v);
+                logger::info!("ini: use_host_unlit_pilot = {}", v);
+            } else {
+                eprintln!(
+                    "[renderide] ini: use_host_unlit_pilot parse error (raw = {:?})",
+                    value
+                );
+            }
+        }
+        ("rendering", "fullscreen_filter_hook") => {
+            if let Some(v) = parse_bool(value) {
+                config.fullscreen_filter_hook = v;
+                eprintln!("[renderide] ini: fullscreen_filter_hook = {}", v);
+                logger::info!("ini: fullscreen_filter_hook = {}", v);
+            } else {
+                eprintln!(
+                    "[renderide] ini: fullscreen_filter_hook parse error (raw = {:?})",
+                    value
+                );
+            }
+        }
+        ("rendering", "shader_debug_override") => {
+            let v = value.trim();
+            if v.eq_ignore_ascii_case("none") || v.is_empty() {
+                config.shader_debug_override = ShaderDebugOverride::None;
+                eprintln!("[renderide] ini: shader_debug_override = None");
+                logger::info!("ini: shader_debug_override = None");
+            } else if v.eq_ignore_ascii_case("force_legacy_global_shading")
+                || v.eq_ignore_ascii_case("legacy")
+            {
+                config.shader_debug_override = ShaderDebugOverride::ForceLegacyGlobalShading;
+                eprintln!("[renderide] ini: shader_debug_override = force_legacy_global_shading");
+                logger::info!("ini: shader_debug_override = force_legacy_global_shading");
+            } else {
+                eprintln!(
+                    "[renderide] ini: shader_debug_override unknown (raw = {:?})",
+                    value
+                );
             }
         }
         ("rendering", "skinned_apply_mesh_root_transform") => {
@@ -665,11 +725,12 @@ impl RenderConfig {
     ///   connected, [`crate::session::Session::process_frame_data`] overwrites these from each
     ///   frame payload; INI values apply until the first frame (or when running without host data).
     /// - **`[display]`** — `vsync` (bool).
-    /// - **`[rendering]`** — `use_debug_uv`, `use_pbr`, `skinned_apply_mesh_root_transform`,
-    ///   `skinned_use_root_bone`, `gpu_validation_layers`, `ray_tracing_enabled`, `debug_skinned`,
-    ///   `debug_blendshapes`, `skinned_flip_handedness`, `parallel_mesh_draw_prep_batches`,
-    ///   `log_collect_draw_batches_timing` (bools); `rtao_enabled`, `ray_traced_shadows_enabled`
-    ///   (bools); `rtao_strength`, `ao_radius` (floats); `frustum_culling` (bool).
+    /// - **`[rendering]`** — `use_debug_uv`, `use_pbr`, `use_host_unlit_pilot`, `fullscreen_filter_hook`,
+    ///   `shader_debug_override` (`none` / `force_legacy_global_shading` / `legacy`),
+    ///   `skinned_apply_mesh_root_transform`, `skinned_use_root_bone`, `gpu_validation_layers`,
+    ///   `ray_tracing_enabled`, `debug_skinned`, `debug_blendshapes`, `skinned_flip_handedness`,
+    ///   `parallel_mesh_draw_prep_batches`, `log_collect_draw_batches_timing` (bools); `rtao_enabled`,
+    ///   `ray_traced_shadows_enabled` (bools); `rtao_strength`, `ao_radius` (floats); `frustum_culling` (bool).
     ///
     /// **Env vars** (highest priority; override INI and defaults):
     /// - `RENDERIDE_DEBUG_BLENDSHAPES=1` — blendshape debug logging.
@@ -682,6 +743,9 @@ impl RenderConfig {
     /// - `RENDERIDE_GPU_VALIDATION=1` — enables wgpu validation layers at GPU init ([`Self::gpu_validation_layers`]).
     /// - `RENDERIDE_VSYNC=1` enables hardware vsync ([`Self::vsync`]); `RENDERIDE_VSYNC=0` forces it off.
     /// - `RENDERIDE_LOG_COLLECT_TIMING=1` — enables [`Self::log_collect_draw_batches_timing`].
+    /// - `RENDERIDE_HOST_UNLIT_PILOT=1` — enables [`Self::use_host_unlit_pilot`].
+    /// - `RENDERIDE_FULLSCREEN_FILTER_HOOK=1` — enables [`Self::fullscreen_filter_hook`].
+    /// - `RENDERIDE_SHADER_DEBUG_OVERRIDE=legacy` — sets [`ShaderDebugOverride::ForceLegacyGlobalShading`].
     pub fn load() -> Self {
         let mut config = Self::default();
 
@@ -699,7 +763,7 @@ impl RenderConfig {
             );
             let display = format!("RenderConfig (INI): display vsync={}", config.vsync);
             let rendering = format!(
-                "RenderConfig (INI): rendering debug_uv={} pbr={} skin_root={} skin_root_bone={} gpu_val={} rt={} opengl={} dx12={} dbg_skin={} dbg_blend={} flip_h={} parallel_prep={} log_collect={} rtao={} rt_shadows={} rtao_str={} ao_r={} frustum={}",
+                "RenderConfig (INI): rendering debug_uv={} pbr={} skin_root={} skin_root_bone={} gpu_val={} rt={} opengl={} dx12={} dbg_skin={} dbg_blend={} flip_h={} parallel_prep={} log_collect={} rtao={} rt_shadows={} rtao_str={} ao_r={} frustum={} host_unlit_pilot={} fullscreen_filter_hook={} shader_dbg={:?}",
                 config.use_debug_uv,
                 config.use_pbr,
                 config.skinned_apply_mesh_root_transform,
@@ -717,7 +781,10 @@ impl RenderConfig {
                 config.ray_traced_shadows_enabled,
                 config.rtao_strength,
                 config.ao_radius,
-                config.frustum_culling
+                config.frustum_culling,
+                config.use_host_unlit_pilot,
+                config.fullscreen_filter_hook,
+                config.shader_debug_override
             );
             eprintln!("[renderide] {}", camera);
             eprintln!("[renderide] {}", display);
@@ -763,6 +830,21 @@ impl RenderConfig {
         if std::env::var("RENDERIDE_LOG_COLLECT_TIMING").as_deref() == Ok("1") {
             config.log_collect_draw_batches_timing = true;
         }
+        if std::env::var("RENDERIDE_HOST_UNLIT_PILOT").as_deref() == Ok("1") {
+            config.use_host_unlit_pilot = true;
+        }
+        if std::env::var("RENDERIDE_FULLSCREEN_FILTER_HOOK").as_deref() == Ok("1") {
+            config.fullscreen_filter_hook = true;
+        }
+        match std::env::var("RENDERIDE_SHADER_DEBUG_OVERRIDE").as_deref() {
+            Ok("legacy") | Ok("force_legacy_global_shading") => {
+                config.shader_debug_override = ShaderDebugOverride::ForceLegacyGlobalShading;
+            }
+            Ok("none") | Ok("") => {
+                config.shader_debug_override = ShaderDebugOverride::None;
+            }
+            _ => {}
+        }
         config
     }
 }
@@ -796,6 +878,9 @@ impl Default for RenderConfig {
             frustum_culling: true,
             parallel_mesh_draw_prep_batches: true,
             log_collect_draw_batches_timing: false,
+            use_host_unlit_pilot: false,
+            fullscreen_filter_hook: false,
+            shader_debug_override: ShaderDebugOverride::None,
         }
     }
 }

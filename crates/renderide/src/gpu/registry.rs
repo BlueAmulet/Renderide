@@ -1,19 +1,25 @@
-//! Pipeline registry: maps (shader_id, PipelineVariant) to RenderPipeline instances.
+//! Pipeline registry: maps (shader_id, [`PipelineVariant`]) to [`RenderPipeline`] instances.
 //!
-//! Enables arbitrary shaders and prepares for host-uploaded shaders.
+//! Built-ins are indexed by [`PipelineKey`] and mirrored in [`super::pipeline_descriptor_cache::PipelineDescriptorCache`]
+//! for stable descriptor hashing. Host-unlit programs share one [`super::pipeline::HostUnlitPipeline`] per
+//! shader asset id (see [`PipelineVariant::Material`]).
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::assets::MaterialPropertyStore;
+
 use super::pipeline::mrt::create_mrt_gbuffer_origin_bind_group_layout;
 use super::pipeline::{
-    MaterialPipeline, NormalDebugMRTPipeline, NormalDebugPipeline, OverlayStencilMaskClearPipeline,
-    OverlayStencilMaskClearSkinnedPipeline, OverlayStencilMaskWritePipeline,
-    OverlayStencilMaskWriteSkinnedPipeline, OverlayStencilPipeline, OverlayStencilSkinnedPipeline,
-    PbrMRTPipeline, PbrMrtRayQueryPipeline, PbrPipeline, PbrRayQueryPipeline, RenderPipeline,
-    SkinnedMRTPipeline, SkinnedPbrMRTPipeline, SkinnedPbrMrtRayQueryPipeline, SkinnedPbrPipeline,
-    SkinnedPbrRayQueryPipeline, SkinnedPipeline, UvDebugMRTPipeline, UvDebugPipeline,
+    HostUnlitPipeline, NormalDebugMRTPipeline, NormalDebugPipeline,
+    OverlayStencilMaskClearPipeline, OverlayStencilMaskClearSkinnedPipeline,
+    OverlayStencilMaskWritePipeline, OverlayStencilMaskWriteSkinnedPipeline,
+    OverlayStencilPipeline, OverlayStencilSkinnedPipeline, PbrMRTPipeline, PbrMrtRayQueryPipeline,
+    PbrPipeline, PbrRayQueryPipeline, RenderPipeline, SkinnedMRTPipeline, SkinnedPbrMRTPipeline,
+    SkinnedPbrMrtRayQueryPipeline, SkinnedPbrPipeline, SkinnedPbrRayQueryPipeline, SkinnedPipeline,
+    UvDebugMRTPipeline, UvDebugPipeline,
 };
+use super::pipeline_descriptor_cache::PipelineDescriptorCache;
 
 /// Key for pipeline lookup: shader_id (None = builtin) and variant.
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
@@ -54,7 +60,8 @@ pub enum PipelineVariant {
     OverlayNoDepthUvDebug,
     /// Skinned with depth test disabled for orthographic screen-space overlay.
     OverlayNoDepthSkinned,
-    /// Material-based pipeline for a specific material.
+    /// Host-resolved material: uses [`HostUnlitPipeline`] when the property store lists a shader
+    /// for `material_id` (material / property block id from the draw).
     Material { material_id: i32 },
     /// PBR pipeline.
     Pbr,
@@ -77,6 +84,7 @@ pub enum PipelineVariant {
 /// Maps pipeline keys to render pipelines. Supports builtin registration and lazy creation.
 pub struct PipelineRegistry {
     pipelines: HashMap<PipelineKey, Arc<dyn RenderPipeline>>,
+    descriptor_cache: PipelineDescriptorCache,
 }
 
 impl PipelineRegistry {
@@ -84,7 +92,36 @@ impl PipelineRegistry {
     pub fn new() -> Self {
         Self {
             pipelines: HashMap::new(),
+            descriptor_cache: PipelineDescriptorCache::default(),
         }
+    }
+
+    fn put_builtin(
+        &mut self,
+        variant: PipelineVariant,
+        config: &wgpu::SurfaceConfiguration,
+        pipeline: Arc<dyn RenderPipeline>,
+    ) {
+        self.pipelines
+            .insert(PipelineKey(None, variant), Arc::clone(&pipeline));
+        self.descriptor_cache.insert(
+            PipelineDescriptorCache::builtin_key(variant, config.format),
+            pipeline,
+        );
+    }
+
+    fn put_lazy(
+        &mut self,
+        key: PipelineKey,
+        variant: PipelineVariant,
+        config: &wgpu::SurfaceConfiguration,
+        pipeline: Arc<dyn RenderPipeline>,
+    ) {
+        self.pipelines.insert(key, Arc::clone(&pipeline));
+        self.descriptor_cache.insert(
+            PipelineDescriptorCache::builtin_key(variant, config.format),
+            pipeline,
+        );
     }
 
     /// Registers builtin pipelines for the given device and surface configuration.
@@ -97,107 +134,145 @@ impl PipelineRegistry {
         config: &wgpu::SurfaceConfiguration,
         mrt_gbuffer_origin_layout: &wgpu::BindGroupLayout,
     ) {
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::NormalDebug),
+        self.put_builtin(
+            PipelineVariant::NormalDebug,
+            config,
             Arc::new(NormalDebugPipeline::new(device, config, false)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::UvDebug),
+        self.put_builtin(
+            PipelineVariant::UvDebug,
+            config,
             Arc::new(UvDebugPipeline::new(device, config, false)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::Skinned),
+        self.put_builtin(
+            PipelineVariant::Skinned,
+            config,
             Arc::new(SkinnedPipeline::new(device, config, None, false)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::NormalDebugMRT),
+        self.put_builtin(
+            PipelineVariant::NormalDebugMRT,
+            config,
             Arc::new(NormalDebugMRTPipeline::new(
                 device,
                 config,
                 mrt_gbuffer_origin_layout,
             )),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::UvDebugMRT),
+        self.put_builtin(
+            PipelineVariant::UvDebugMRT,
+            config,
             Arc::new(UvDebugMRTPipeline::new(
                 device,
                 config,
                 mrt_gbuffer_origin_layout,
             )),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::SkinnedMRT),
+        self.put_builtin(
+            PipelineVariant::SkinnedMRT,
+            config,
             Arc::new(SkinnedMRTPipeline::new(
                 device,
                 config,
                 mrt_gbuffer_origin_layout,
             )),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::OverlayStencilMaskWrite),
+        self.put_builtin(
+            PipelineVariant::OverlayStencilMaskWrite,
+            config,
             Arc::new(OverlayStencilMaskWritePipeline::new(device, config)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::OverlayStencilContent),
+        self.put_builtin(
+            PipelineVariant::OverlayStencilContent,
+            config,
             Arc::new(OverlayStencilPipeline::new(device, config)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::OverlayStencilMaskClear),
+        self.put_builtin(
+            PipelineVariant::OverlayStencilMaskClear,
+            config,
             Arc::new(OverlayStencilMaskClearPipeline::new(device, config)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::OverlayStencilMaskWriteSkinned),
+        self.put_builtin(
+            PipelineVariant::OverlayStencilMaskWriteSkinned,
+            config,
             Arc::new(OverlayStencilMaskWriteSkinnedPipeline::new(device, config)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::OverlayStencilSkinned),
+        self.put_builtin(
+            PipelineVariant::OverlayStencilSkinned,
+            config,
             Arc::new(OverlayStencilSkinnedPipeline::new(device, config)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::OverlayStencilMaskClearSkinned),
+        self.put_builtin(
+            PipelineVariant::OverlayStencilMaskClearSkinned,
+            config,
             Arc::new(OverlayStencilMaskClearSkinnedPipeline::new(device, config)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::OverlayNoDepthNormalDebug),
+        self.put_builtin(
+            PipelineVariant::OverlayNoDepthNormalDebug,
+            config,
             Arc::new(NormalDebugPipeline::new(device, config, true)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::OverlayNoDepthUvDebug),
+        self.put_builtin(
+            PipelineVariant::OverlayNoDepthUvDebug,
+            config,
             Arc::new(UvDebugPipeline::new(device, config, true)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::OverlayNoDepthSkinned),
+        self.put_builtin(
+            PipelineVariant::OverlayNoDepthSkinned,
+            config,
             Arc::new(SkinnedPipeline::new(device, config, None, true)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::PbrMRT),
+        self.put_builtin(
+            PipelineVariant::PbrMRT,
+            config,
             Arc::new(PbrMRTPipeline::new(device, config)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::SkinnedPbr),
+        self.put_builtin(
+            PipelineVariant::SkinnedPbr,
+            config,
             Arc::new(SkinnedPbrPipeline::new(device, config)),
         );
-        self.pipelines.insert(
-            PipelineKey(None, PipelineVariant::SkinnedPbrMRT),
+        self.put_builtin(
+            PipelineVariant::SkinnedPbrMRT,
+            config,
             Arc::new(SkinnedPbrMRTPipeline::new(device, config)),
         );
     }
 
     /// Returns the pipeline for the key, or lazily creates it for Material/Pbr.
-    /// Builtins must be registered via `register_builtin` before use.
+    /// Builtins must be registered via [`Self::register_builtin`] before use.
     #[allow(clippy::arc_with_non_send_sync)]
     pub fn get_or_create(
         &mut self,
         key: PipelineKey,
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
+        material_store: Option<&MaterialPropertyStore>,
     ) -> Option<Arc<dyn RenderPipeline>> {
         if let Some(p) = self.pipelines.get(&key) {
             return Some(Arc::clone(p));
         }
-        let pipeline: Arc<dyn RenderPipeline> = match &key.1 {
-            PipelineVariant::Material { .. } => Arc::new(MaterialPipeline::new(device, config)),
-            PipelineVariant::Pbr => Arc::new(PbrPipeline::new(device, config)),
+        match &key.1 {
+            PipelineVariant::Material { material_id } => {
+                let store = material_store?;
+                let shader_id = store.shader_asset_for_block(*material_id)?;
+                let dk = PipelineDescriptorCache::host_unlit_key(shader_id, config.format);
+                let pipeline: Arc<dyn RenderPipeline> =
+                    if let Some(p) = self.descriptor_cache.get(dk) {
+                        p
+                    } else {
+                        let p: Arc<dyn RenderPipeline> =
+                            Arc::new(HostUnlitPipeline::new(device, config));
+                        self.descriptor_cache.insert(dk, Arc::clone(&p));
+                        p
+                    };
+                self.pipelines.insert(key, Arc::clone(&pipeline));
+                Some(pipeline)
+            }
+            PipelineVariant::Pbr => {
+                let pipeline: Arc<dyn RenderPipeline> = Arc::new(PbrPipeline::new(device, config));
+                self.put_lazy(key, PipelineVariant::Pbr, config, Arc::clone(&pipeline));
+                Some(pipeline)
+            }
             PipelineVariant::PbrRayQuery => {
                 if !device
                     .features()
@@ -205,7 +280,15 @@ impl PipelineRegistry {
                 {
                     return None;
                 }
-                Arc::new(PbrRayQueryPipeline::new(device, config))
+                let pipeline: Arc<dyn RenderPipeline> =
+                    Arc::new(PbrRayQueryPipeline::new(device, config));
+                self.put_lazy(
+                    key,
+                    PipelineVariant::PbrRayQuery,
+                    config,
+                    Arc::clone(&pipeline),
+                );
+                Some(pipeline)
             }
             PipelineVariant::PbrMRTRayQuery => {
                 if !device
@@ -214,7 +297,15 @@ impl PipelineRegistry {
                 {
                     return None;
                 }
-                Arc::new(PbrMrtRayQueryPipeline::new(device, config))
+                let pipeline: Arc<dyn RenderPipeline> =
+                    Arc::new(PbrMrtRayQueryPipeline::new(device, config));
+                self.put_lazy(
+                    key,
+                    PipelineVariant::PbrMRTRayQuery,
+                    config,
+                    Arc::clone(&pipeline),
+                );
+                Some(pipeline)
             }
             PipelineVariant::SkinnedPbrRayQuery => {
                 if !device
@@ -223,7 +314,15 @@ impl PipelineRegistry {
                 {
                     return None;
                 }
-                Arc::new(SkinnedPbrRayQueryPipeline::new(device, config))
+                let pipeline: Arc<dyn RenderPipeline> =
+                    Arc::new(SkinnedPbrRayQueryPipeline::new(device, config));
+                self.put_lazy(
+                    key,
+                    PipelineVariant::SkinnedPbrRayQuery,
+                    config,
+                    Arc::clone(&pipeline),
+                );
+                Some(pipeline)
             }
             PipelineVariant::SkinnedPbrMRTRayQuery => {
                 if !device
@@ -232,18 +331,35 @@ impl PipelineRegistry {
                 {
                     return None;
                 }
-                Arc::new(SkinnedPbrMrtRayQueryPipeline::new(device, config))
+                let pipeline: Arc<dyn RenderPipeline> =
+                    Arc::new(SkinnedPbrMrtRayQueryPipeline::new(device, config));
+                self.put_lazy(
+                    key,
+                    PipelineVariant::SkinnedPbrMRTRayQuery,
+                    config,
+                    Arc::clone(&pipeline),
+                );
+                Some(pipeline)
             }
-            _ => return None,
-        };
-        self.pipelines.insert(key, Arc::clone(&pipeline));
-        Some(pipeline)
+            _ => None,
+        }
     }
 
-    /// Removes pipelines for the given material ID. Call when a material is unloaded to avoid unbounded growth.
+    /// Removes [`PipelineKey`] rows for the given material id. Does not remove shared host-unlit
+    /// descriptor-cache entries (other materials may share the same shader asset).
     pub fn evict_material(&mut self, material_id: i32) {
-        self.pipelines
-            .retain(|k, _| !matches!(&k.1, PipelineVariant::Material { material_id: mid } if *mid == material_id));
+        self.pipelines.retain(|k, _| {
+            !matches!(&k.1, PipelineVariant::Material { material_id: mid } if *mid == material_id)
+        });
+    }
+
+    /// Drops the descriptor-cache slot for a host-unlit program so the next use rebuilds it.
+    ///
+    /// Existing [`PipelineKey`] rows may still hold a strong [`Arc`] to the old pipeline until
+    /// [`Self::evict_material`] removes those keys or the registry is recreated.
+    pub fn evict_host_unlit_shader(&mut self, shader_asset_id: i32, format: wgpu::TextureFormat) {
+        self.descriptor_cache
+            .remove_host_unlit(shader_asset_id, format);
     }
 }
 
@@ -296,12 +412,20 @@ impl PipelineManager {
         key: PipelineKey,
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
+        material_store: Option<&MaterialPropertyStore>,
     ) -> Option<Arc<dyn RenderPipeline>> {
-        self.registry.get_or_create(key, device, config)
+        self.registry
+            .get_or_create(key, device, config, material_store)
     }
 
     /// Evicts pipelines for the given material. Call when a material is unloaded.
     pub fn evict_material(&mut self, material_id: i32) {
         self.registry.evict_material(material_id);
+    }
+
+    /// Evicts the host-unlit GPU pipeline cached for `shader_asset_id`.
+    pub fn evict_host_unlit_shader(&mut self, shader_asset_id: i32, format: wgpu::TextureFormat) {
+        self.registry
+            .evict_host_unlit_shader(shader_asset_id, format);
     }
 }

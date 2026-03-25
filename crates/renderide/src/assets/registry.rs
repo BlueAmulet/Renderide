@@ -187,7 +187,13 @@ impl AssetRegistry {
         (false, false)
     }
 
-    /// Handles a shader upload. Stub: stores id and optional WGSL source from ShaderUpload.file.
+    /// Removes a shader asset. Called when the host sends `shader_unload`.
+    pub fn handle_shader_unload(&mut self, asset_id: i32) {
+        self.shaders.remove(asset_id);
+        self.unload_count += 1;
+    }
+
+    /// Handles a shader upload. Stores id and optional WGSL source from [`ShaderUpload::file`](crate::shared::ShaderUpload::file).
     /// Returns `(success, existed_before)`.
     pub fn handle_shader_upload(&mut self, data: ShaderUpload) -> (bool, bool) {
         let existed_before = self.shaders.contains_key(data.asset_id);

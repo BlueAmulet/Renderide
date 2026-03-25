@@ -52,6 +52,9 @@ impl CommandHandler for ConfigCommandHandler {
                     log_collect_draw_batches_timing: ctx
                         .render_config
                         .log_collect_draw_batches_timing,
+                    use_host_unlit_pilot: ctx.render_config.use_host_unlit_pilot,
+                    fullscreen_filter_hook: ctx.render_config.fullscreen_filter_hook,
+                    shader_debug_override: ctx.render_config.shader_debug_override,
                 };
                 CommandResult::Handled
             }

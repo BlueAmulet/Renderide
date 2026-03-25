@@ -4,7 +4,7 @@
 
 use glam::Mat4;
 
-use crate::gpu::PipelineVariant;
+use crate::gpu::{PipelineVariant, ShaderKey};
 use crate::shared::{RenderTransform, ShadowCastMode};
 
 use crate::stencil::StencilState;
@@ -33,8 +33,10 @@ pub struct DrawEntry {
     pub root_bone_transform_id: Option<i32>,
     /// Blendshape weights per blendshape index for skinned meshes.
     pub blendshape_weights: Option<Vec<f32>>,
-    /// Pipeline variant derived from is_skinned, use_debug_uv, and mesh has_uvs.
+    /// Pipeline variant after host shader resolution (see [`ShaderKey`]).
     pub pipeline_variant: PipelineVariant,
+    /// Host shader id (if any) and fallback variant before resolution.
+    pub shader_key: ShaderKey,
     /// Per-draw stencil state for GraphicsChunk masking. When `Some`, overlay pass uses
     /// stencil pipeline and `set_stencil_reference`. Populated from material property blocks
     /// when host exports IUIX_Material stencil props.

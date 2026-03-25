@@ -8,6 +8,7 @@ use nalgebra::Matrix4;
 use super::clustered_light::ClusteredLightPass;
 use super::composite::CompositePass;
 use super::error::RenderPassError;
+use super::fullscreen_filter::FullscreenFilterPlaceholderPass;
 use super::mesh_pass::MeshRenderPass;
 use super::mesh_prep::{
     CachedMeshDraws, CachedMeshDrawsRef, ensure_mesh_buffers, run_collect_mesh_draws,
@@ -660,6 +661,9 @@ impl Default for GraphBuilder {
 /// with `true`. When false, the mesh pass uses `false` and writes color and depth to the
 /// surface and edges mesh directly to overlay; RTAO passes are omitted.
 ///
+/// When `fullscreen_filter_hook` is true and `rtao_mrt_graph` is false, inserts
+/// [`FullscreenFilterPlaceholderPass`] between mesh and overlay.
+///
 /// When `rt_shadow_compute` is true (requires `rtao_mrt_graph`), inserts [`RtShadowComputePass`]
 /// after the mesh pass and before RTAO compute so the atlas is filled from the current frame’s
 /// G-buffer; PBR samples that atlas on the **following** frame when atlas mode is active.
@@ -669,6 +673,7 @@ impl Default for GraphBuilder {
 pub fn build_main_render_graph(
     rtao_mrt_graph: bool,
     rt_shadow_compute: bool,
+    fullscreen_filter_hook: bool,
 ) -> Result<RenderGraph, GraphBuildError> {
     let mut builder = GraphBuilder::new();
     let clustered = builder.add_pass(Box::new(ClusteredLightPass::new()));
@@ -694,6 +699,11 @@ pub fn build_main_render_graph(
         builder.add_edge(rtao_blur, composite);
         builder.add_edge(composite, overlay);
         builder.build_with_special_passes(Some(composite), Some(overlay))
+    } else if fullscreen_filter_hook {
+        let filter = builder.add_pass(Box::new(FullscreenFilterPlaceholderPass::new()));
+        builder.add_edge(mesh, filter);
+        builder.add_edge(filter, overlay);
+        builder.build_with_special_passes(None, Some(overlay))
     } else {
         builder.add_edge(mesh, overlay);
         builder.build_with_special_passes(None, Some(overlay))
@@ -1052,7 +1062,7 @@ mod tests {
 
     #[test]
     fn main_render_graph_no_rtao_mesh_writes_color_depth() {
-        let graph = build_main_render_graph(false, false).expect("graph");
+        let graph = build_main_render_graph(false, false, false).expect("graph");
         assert_eq!(graph.pass_names(), &["clustered_light", "mesh", "overlay"]);
         let (comp, overlay) = graph.special_pass_ids();
         assert!(comp.is_none());
@@ -1064,8 +1074,22 @@ mod tests {
     }
 
     #[test]
+    fn main_render_graph_fullscreen_filter_hook_inserts_placeholder() {
+        let graph = build_main_render_graph(false, false, true).expect("graph");
+        assert_eq!(
+            graph.pass_names(),
+            &[
+                "clustered_light",
+                "mesh",
+                "fullscreen_filter_placeholder",
+                "overlay",
+            ]
+        );
+    }
+
+    #[test]
     fn main_render_graph_rtao_includes_compute_blur_composite() {
-        let graph = build_main_render_graph(true, false).expect("graph");
+        let graph = build_main_render_graph(true, false, false).expect("graph");
         let names = graph.pass_names();
         assert_eq!(names.len(), 6);
         assert!(names.iter().any(|n| n == "rtao_compute"));
@@ -1080,7 +1104,7 @@ mod tests {
 
     #[test]
     fn main_render_graph_rt_shadow_compute_between_mesh_and_rtao() {
-        let graph = build_main_render_graph(true, true).expect("graph");
+        let graph = build_main_render_graph(true, true, false).expect("graph");
         let names = graph.pass_names();
         assert_eq!(names.len(), 7);
         let mesh_i = names.iter().position(|n| *n == "mesh").expect("mesh");
@@ -1111,7 +1135,7 @@ mod tests {
 
     #[test]
     fn graph_builder_subgraph_wraps_main_view_flat_graph() {
-        let inner = build_main_render_graph(false, false).expect("inner");
+        let inner = build_main_render_graph(false, false, false).expect("inner");
         let mut builder = GraphBuilder::new();
         let _main = builder.add_subgraph("main_view", inner);
         let graph = builder.build().expect("single subgraph");
@@ -1123,7 +1147,7 @@ mod tests {
 
     #[test]
     fn graph_builder_edge_pass_to_subgraph() {
-        let inner = build_main_render_graph(false, false).expect("inner");
+        let inner = build_main_render_graph(false, false, false).expect("inner");
         let mut builder = GraphBuilder::new();
         let pre = builder.add_pass(Box::new(TestPass {
             name: "pre".to_string(),

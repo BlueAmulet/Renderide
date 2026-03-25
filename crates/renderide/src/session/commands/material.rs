@@ -87,6 +87,10 @@ fn parse_and_store_materials_batch(
 
             let value_size = match update.update_type {
                 MaterialPropertyUpdateType::select_target => 4,
+                MaterialPropertyUpdateType::set_shader => 4,
+                MaterialPropertyUpdateType::set_render_queue => 4,
+                MaterialPropertyUpdateType::set_instancing => 4,
+                MaterialPropertyUpdateType::set_render_type => 4,
                 MaterialPropertyUpdateType::set_float => 4,
                 MaterialPropertyUpdateType::set_float4 => 16,
                 MaterialPropertyUpdateType::set_float4x4 => 64,
@@ -106,6 +110,14 @@ fn parse_and_store_materials_batch(
                         current_block_id = i32::from_le_bytes(
                             bytes[offset..offset + 4].try_into().unwrap_or([0; 4]),
                         );
+                    }
+                }
+                MaterialPropertyUpdateType::set_shader => {
+                    if value_size == 4 {
+                        let shader_asset_id = i32::from_le_bytes(
+                            bytes[offset..offset + 4].try_into().unwrap_or([0; 4]),
+                        );
+                        store.set_shader_asset(current_block_id, shader_asset_id);
                     }
                 }
                 MaterialPropertyUpdateType::set_float => {

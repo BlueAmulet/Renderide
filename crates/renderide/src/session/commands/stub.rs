@@ -50,6 +50,7 @@ impl CommandHandler for StubCommandHandler {
             | RendererCommand::mesh_upload_data(_)
             | RendererCommand::mesh_unload(_)
             | RendererCommand::shader_upload(_)
+            | RendererCommand::shader_unload(_)
             | RendererCommand::desktop_config(_)
             | RendererCommand::free_shared_memory_view(_)
             | RendererCommand::keep_alive(_)
@@ -103,10 +104,6 @@ impl CommandHandler for StubCommandHandler {
             RendererCommand::mesh_upload_result(_) => CommandResult::Handled,
 
             // --- Shaders ---
-            RendererCommand::shader_unload(_) => {
-                self.log_once("shader_unload");
-                CommandResult::Handled
-            }
             RendererCommand::shader_upload_result(_) => CommandResult::Handled,
 
             // --- Materials ---

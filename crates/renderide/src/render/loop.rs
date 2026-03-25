@@ -57,8 +57,9 @@ pub struct RenderLoop {
     last_gpu_mesh_pass_ms: Option<f64>,
     /// Whether RTAO diagnostic has been logged once at startup.
     rtao_diagnostic_logged: bool,
-    /// Last built main graph (`RTAO MRT`, `RT shadow compute`); rebuild [`Self::graph`] when either changes.
-    cached_main_graph_key: Option<(bool, bool)>,
+    /// Last built main graph (`RTAO MRT`, `RT shadow compute`, `fullscreen filter hook`); rebuild
+    /// [`Self::graph`] when any changes.
+    cached_main_graph_key: Option<(bool, bool, bool)>,
     /// Camera tasks awaiting `map_async` completion before writing [`CameraRenderTask::result_data`].
     pending_camera_task_readbacks: VecDeque<PendingCameraTaskReadback>,
 }
@@ -66,8 +67,8 @@ pub struct RenderLoop {
 impl RenderLoop {
     /// Creates a new render loop with pipelines for the given device and config.
     pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
-        let graph =
-            build_main_render_graph(false, false).expect("default render graph has no cycles");
+        let graph = build_main_render_graph(false, false, false)
+            .expect("default render graph has no cycles");
 
         let timestamp_query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
             label: Some("mesh pass timestamp query set"),
@@ -96,7 +97,7 @@ impl RenderLoop {
             frame_count: 0,
             last_gpu_mesh_pass_ms: None,
             rtao_diagnostic_logged: false,
-            cached_main_graph_key: Some((false, false)),
+            cached_main_graph_key: Some((false, false, false)),
             pending_camera_task_readbacks: VecDeque::new(),
         }
     }
@@ -192,6 +193,12 @@ impl RenderLoop {
         self.pipeline_manager.evict_material(material_id);
     }
 
+    /// Evicts the cached host-unlit pipeline for `shader_asset_id` at the given swapchain format.
+    pub fn evict_host_unlit_shader(&mut self, shader_asset_id: i32, format: wgpu::TextureFormat) {
+        self.pipeline_manager
+            .evict_host_unlit_shader(shader_asset_id, format);
+    }
+
     /// Renders one frame: clear, draw batches. Caller must acquire the swapchain with
     /// [`wgpu::Surface::get_current_texture`], wrap it in [`RenderTarget::from_surface_texture`],
     /// and present the inner [`wgpu::SurfaceTexture`] after a successful return.
@@ -251,10 +258,13 @@ impl RenderLoop {
             self.rtao_diagnostic_logged = true;
         }
 
-        let graph_key = (rtao_mrt_graph, rt_shadow_compute);
+        let fullscreen_filter_hook =
+            session.render_config().fullscreen_filter_hook && !rtao_mrt_graph;
+        let graph_key = (rtao_mrt_graph, rt_shadow_compute, fullscreen_filter_hook);
         if self.cached_main_graph_key != Some(graph_key) {
-            self.graph = build_main_render_graph(rtao_mrt_graph, rt_shadow_compute)
-                .expect("main render graph rebuild has no cycles");
+            self.graph =
+                build_main_render_graph(rtao_mrt_graph, rt_shadow_compute, fullscreen_filter_hook)
+                    .expect("main render graph rebuild has no cycles");
             self.cached_main_graph_key = Some(graph_key);
         }
 

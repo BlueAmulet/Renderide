@@ -1,12 +1,11 @@
-//! Shader asset type. Stub for host-uploaded WGSL shaders.
+//! Shader asset type for host-uploaded WGSL (or future intermediate representations).
 //!
-//! Extension point for shader_upload command handling.
+//! Filled by [`super::AssetRegistry::handle_shader_upload`].
 
 use super::Asset;
 use super::AssetId;
 
 /// Stored shader data for pipeline creation.
-/// Stub: WGSL source populated when shader_upload is implemented.
 pub struct ShaderAsset {
     /// Unique identifier for this shader.
     pub id: AssetId,

@@ -296,6 +296,7 @@ impl RenderPass for MeshRenderPass {
                 .gpu
                 .last_pbr_scene_cache_rt_shadow_atlas_generation,
             rt_shadow_bind,
+            material_property_store: &ctx.session.asset_registry().material_property_store,
         };
 
         let timestamp_writes =

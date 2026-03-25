@@ -11,6 +11,10 @@ debug-hud = ["dep:imgui", "dep:imgui-wgpu"]
 name = "renderide"
 path = "src/lib.rs"
 
+[build-dependencies]
+naga = { version = "28.0.0", features = ["wgsl-in", "wgsl-out"] }
+naga_oil = { version = "0.21.0", default-features = false }
+
 [[bin]]
 name = "renderide"
 path = "src/main.rs"
