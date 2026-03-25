@@ -26,6 +26,7 @@ public static class ConfigLoader
             ExtraSlangIncludeDirectories = new List<string>(d.ExtraSlangIncludeDirectories),
             SceneBindGroupIndex = d.SceneBindGroupIndex,
             MaterialBindGroupIndex = d.MaterialBindGroupIndex,
+            InjectMaterialUniformBlockWgsl = d.InjectMaterialUniformBlockWgsl,
         };
 
     /// <summary>Merges user compiler JSON over <paramref name="defaults"/>; only keys present in the user file override defaults.</summary>
@@ -150,6 +151,12 @@ public static class ConfigLoader
             mbEl.TryGetUInt32(out uint mbIdx))
         {
             merged.MaterialBindGroupIndex = mbIdx;
+        }
+
+        if (root.TryGetProperty("injectMaterialUniformBlockWgsl", out JsonElement injEl) &&
+            injEl.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            merged.InjectMaterialUniformBlockWgsl = injEl.GetBoolean();
         }
 
         return merged;

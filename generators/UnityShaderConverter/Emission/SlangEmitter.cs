@@ -48,7 +48,8 @@ public static class SlangEmitter
         foreach (SpecializationAxis axis in specializationAxes)
         {
             sb.Append("[vk::constant_id(").Append(axis.ConstantId).Append(")] const bool ")
-                .Append(axis.SlangIdentifier).AppendLine(" = false;");
+                .Append(axis.SlangIdentifier).Append(" = ")
+                .Append(axis.DefaultConstantValue ? "true" : "false").AppendLine(";");
         }
 
         if (specializationAxes.Count > 0)

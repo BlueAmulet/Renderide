@@ -279,6 +279,7 @@ public static class ConverterRunner
                             modName,
                             options.DumpIntermediateDirectory,
                             compilerConfig.MaterialBindGroupIndex,
+                            compilerConfig.InjectMaterialUniformBlockWgsl,
                             logger,
                             out string? passFailDetail);
                         if (outcome == PassCompileOutcome.Failed)
@@ -310,12 +311,13 @@ public static class ConverterRunner
                         try
                         {
                             string wgsl = File.ReadAllText(wgslPath);
-                            if (!wgsl.Contains("Material block (UnityShaderConverter)", StringComparison.Ordinal))
-                            {
-                                wgsl = WgslMaterialUniformInjector.StripLegacyPrependedMaterialBlock(wgsl);
-                                wgsl = WgslMaterialUniformInjector.PrependMaterialBlock(wgsl, doc.Properties, compilerConfig.MaterialBindGroupIndex);
-                                File.WriteAllText(wgslPath, wgsl);
-                            }
+                            wgsl = WgslMaterialUniformInjector.StripInjectedMaterialBlock(wgsl);
+                            if (compilerConfig.InjectMaterialUniformBlockWgsl)
+                                wgsl = WgslMaterialUniformInjector.PrependMaterialBlock(
+                                    wgsl,
+                                    doc.Properties,
+                                    compilerConfig.MaterialBindGroupIndex);
+                            File.WriteAllText(wgslPath, wgsl);
                         }
                         catch (Exception ex)
                         {
@@ -494,6 +496,7 @@ public static class ConverterRunner
         string modName,
         string? dumpIntermediateDirectory,
         uint materialBindGroupIndex,
+        bool injectMaterialUniformBlockWgsl,
         Logger logger,
         out string? failureDetail)
     {
@@ -517,6 +520,7 @@ public static class ConverterRunner
                     modName,
                     dumpIntermediateDirectory,
                     materialBindGroupIndex,
+                    injectMaterialUniformBlockWgsl,
                     logger,
                     out string? err0))
                 return axes.Count > 0 ? PassCompileOutcome.Ok : PassCompileOutcome.OkWithoutSpecialization;
@@ -542,6 +546,7 @@ public static class ConverterRunner
                         modName,
                         dumpIntermediateDirectory,
                         materialBindGroupIndex,
+                        injectMaterialUniformBlockWgsl,
                         logger,
                         out string? err1))
                     return PassCompileOutcome.OkWithoutSpecialization;
@@ -574,6 +579,7 @@ public static class ConverterRunner
         string modName,
         string? dumpIntermediateDirectory,
         uint materialBindGroupIndex,
+        bool injectMaterialUniformBlockWgsl,
         Logger logger,
         out string? failureDetail)
     {
@@ -623,8 +629,9 @@ public static class ConverterRunner
         try
         {
             string wgsl = File.ReadAllText(wgslPath);
-            wgsl = WgslMaterialUniformInjector.StripLegacyPrependedMaterialBlock(wgsl);
-            wgsl = WgslMaterialUniformInjector.PrependMaterialBlock(wgsl, shaderFile.Properties, materialBindGroupIndex);
+            wgsl = WgslMaterialUniformInjector.StripInjectedMaterialBlock(wgsl);
+            if (injectMaterialUniformBlockWgsl)
+                wgsl = WgslMaterialUniformInjector.PrependMaterialBlock(wgsl, shaderFile.Properties, materialBindGroupIndex);
             File.WriteAllText(wgslPath, wgsl);
         }
         catch (Exception ex)
