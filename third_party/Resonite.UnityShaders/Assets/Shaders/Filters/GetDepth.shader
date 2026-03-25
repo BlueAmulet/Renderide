@@ -1,4 +1,4 @@
-Shader "Filters/Get Depth"
+﻿Shader "Filters/Get Depth"
 {
 	Properties
 	{
@@ -71,10 +71,14 @@ Shader "Filters/Get Depth"
 			float _Multiply;
 			float _Offset;
 
-float _ClipMin;
+#ifdef CLIP
+			float _ClipMin;
 			float _ClipMax;
+#endif
 
-float4 _Rect;
+#ifdef RECTCLIP
+			float4 _Rect;
+#endif
 
 			UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
 
@@ -87,7 +91,9 @@ float4 _Rect;
 				float4 projPos : TEXCOORD1;
 				float4 pos : SV_POSITION;
 
+#ifdef RECTCLIP
 				float2 position : TEXCOORD2;
+#endif
 			};
 
 			v2f vert(appdata_full v)
@@ -96,7 +102,7 @@ float4 _Rect;
 				// use UnityObjectToClipPos from UnityCG.cginc to calculate 
 				// the clip-space of the vertex
 				o.pos = UnityObjectToClipPos(v.vertex);
-				o.uv = v.texcoord.xy;
+				o.uv = v.texcoord;
 
 				// use ComputeGrabScreenPos function from UnityCG.cginc
 				// to get the correct texture coordinate

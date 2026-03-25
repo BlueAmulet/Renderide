@@ -94,6 +94,7 @@ fn parse_and_store_materials_batch(
                 MaterialPropertyUpdateType::set_float => 4,
                 MaterialPropertyUpdateType::set_float4 => 16,
                 MaterialPropertyUpdateType::set_float4x4 => 64,
+                MaterialPropertyUpdateType::set_texture => 4,
                 MaterialPropertyUpdateType::update_batch_end => 0,
                 _ => {
                     break;
@@ -144,6 +145,18 @@ fn parse_and_store_materials_batch(
                             current_block_id,
                             update.property_id,
                             MaterialPropertyValue::Float4(arr),
+                        );
+                    }
+                }
+                MaterialPropertyUpdateType::set_texture => {
+                    if value_size == 4 {
+                        let packed = i32::from_le_bytes(
+                            bytes[offset..offset + 4].try_into().unwrap_or([0; 4]),
+                        );
+                        store.set(
+                            current_block_id,
+                            update.property_id,
+                            MaterialPropertyValue::Texture(packed),
                         );
                     }
                 }

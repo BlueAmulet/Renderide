@@ -22,6 +22,8 @@
 
 use std::path::PathBuf;
 
+use crate::assets::{UiTextUnlitPropertyIds, UiUnlitPropertyIds};
+
 // ─── INI parser ───────────────────────────────────────────────────────────────
 
 /// Searches for `configuration.ini` in several locations and returns the first
@@ -359,6 +361,17 @@ pub struct RenderConfig {
     pub fullscreen_filter_hook: bool,
     /// Optional override that ignores host per-draw shader resolution and uses global shading toggles only.
     pub shader_debug_override: ShaderDebugOverride,
+    /// When true, orthographic overlay draws whose host `set_shader` id matches the allowlists and
+    /// whose mesh has canvas UI vertices may use native WGSL `UI_Unlit` / `UI_TextUnlit` pipelines.
+    pub use_native_ui_wgsl: bool,
+    /// Host shader asset id for Resonite `UI/Unlit`. `-1` disables this arm of the allowlist.
+    pub native_ui_unlit_shader_id: i32,
+    /// Host shader asset id for `UI/Text/Unlit`. `-1` disables this arm.
+    pub native_ui_text_unlit_shader_id: i32,
+    /// Material property indices for native `UI_Unlit` uniforms and textures (`-1` = default).
+    pub ui_unlit_property_ids: UiUnlitPropertyIds,
+    /// Material property indices for native `UI_TextUnlit`.
+    pub ui_text_unlit_property_ids: UiTextUnlitPropertyIds,
 }
 
 /// Debug override for shader resolution (replacement-shader style).
@@ -712,6 +725,40 @@ fn apply_render_config_ini_entry(config: &mut RenderConfig, section: &str, key: 
                 );
             }
         }
+        ("rendering", "use_native_ui_wgsl") => {
+            if let Some(v) = parse_bool(value) {
+                config.use_native_ui_wgsl = v;
+                eprintln!("[renderide] ini: use_native_ui_wgsl = {}", v);
+                logger::info!("ini: use_native_ui_wgsl = {}", v);
+            } else {
+                eprintln!(
+                    "[renderide] ini: use_native_ui_wgsl parse error (raw = {:?})",
+                    value
+                );
+            }
+        }
+        ("rendering", "native_ui_unlit_shader_id") => match value.parse::<i32>() {
+            Ok(v) => {
+                config.native_ui_unlit_shader_id = v;
+                eprintln!("[renderide] ini: native_ui_unlit_shader_id = {}", v);
+                logger::info!("ini: native_ui_unlit_shader_id = {}", v);
+            }
+            Err(_) => eprintln!(
+                "[renderide] ini: native_ui_unlit_shader_id parse error (raw = {:?})",
+                value
+            ),
+        },
+        ("rendering", "native_ui_text_unlit_shader_id") => match value.parse::<i32>() {
+            Ok(v) => {
+                config.native_ui_text_unlit_shader_id = v;
+                eprintln!("[renderide] ini: native_ui_text_unlit_shader_id = {}", v);
+                logger::info!("ini: native_ui_text_unlit_shader_id = {}", v);
+            }
+            Err(_) => eprintln!(
+                "[renderide] ini: native_ui_text_unlit_shader_id parse error (raw = {:?})",
+                value
+            ),
+        },
         _ => {}
     }
 }
@@ -730,7 +777,8 @@ impl RenderConfig {
     ///   `skinned_apply_mesh_root_transform`, `skinned_use_root_bone`, `gpu_validation_layers`,
     ///   `ray_tracing_enabled`, `debug_skinned`, `debug_blendshapes`, `skinned_flip_handedness`,
     ///   `parallel_mesh_draw_prep_batches`, `log_collect_draw_batches_timing` (bools); `rtao_enabled`,
-    ///   `ray_traced_shadows_enabled` (bools); `rtao_strength`, `ao_radius` (floats); `frustum_culling` (bool).
+    ///   `ray_traced_shadows_enabled` (bools); `rtao_strength`, `ao_radius` (floats); `frustum_culling` (bool);
+    ///   `use_native_ui_wgsl` (bool); `native_ui_unlit_shader_id`, `native_ui_text_unlit_shader_id` (ints, `-1` off).
     ///
     /// **Env vars** (highest priority; override INI and defaults):
     /// - `RENDERIDE_DEBUG_BLENDSHAPES=1` — blendshape debug logging.
@@ -746,6 +794,9 @@ impl RenderConfig {
     /// - `RENDERIDE_HOST_UNLIT_PILOT=1` — enables [`Self::use_host_unlit_pilot`].
     /// - `RENDERIDE_FULLSCREEN_FILTER_HOOK=1` — enables [`Self::fullscreen_filter_hook`].
     /// - `RENDERIDE_SHADER_DEBUG_OVERRIDE=legacy` — sets [`ShaderDebugOverride::ForceLegacyGlobalShading`].
+    /// - `RENDERIDE_NATIVE_UI_WGSL=1` — enables [`Self::use_native_ui_wgsl`].
+    /// - `RENDERIDE_NATIVE_UI_UNLIT_SHADER_ID` / `RENDERIDE_NATIVE_UI_TEXT_UNLIT_SHADER_ID` — host shader
+    ///   asset ids for the native UI allowlist (integers; unset leaves INI/default).
     pub fn load() -> Self {
         let mut config = Self::default();
 
@@ -845,6 +896,19 @@ impl RenderConfig {
             }
             _ => {}
         }
+        if std::env::var("RENDERIDE_NATIVE_UI_WGSL").as_deref() == Ok("1") {
+            config.use_native_ui_wgsl = true;
+        }
+        if let Ok(s) = std::env::var("RENDERIDE_NATIVE_UI_UNLIT_SHADER_ID")
+            && let Ok(v) = s.parse::<i32>()
+        {
+            config.native_ui_unlit_shader_id = v;
+        }
+        if let Ok(s) = std::env::var("RENDERIDE_NATIVE_UI_TEXT_UNLIT_SHADER_ID")
+            && let Ok(v) = s.parse::<i32>()
+        {
+            config.native_ui_text_unlit_shader_id = v;
+        }
         config
     }
 }
@@ -881,6 +945,11 @@ impl Default for RenderConfig {
             use_host_unlit_pilot: false,
             fullscreen_filter_hook: false,
             shader_debug_override: ShaderDebugOverride::None,
+            use_native_ui_wgsl: false,
+            native_ui_unlit_shader_id: -1,
+            native_ui_text_unlit_shader_id: -1,
+            ui_unlit_property_ids: UiUnlitPropertyIds::default(),
+            ui_text_unlit_property_ids: UiTextUnlitPropertyIds::default(),
         }
     }
 }

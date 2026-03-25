@@ -87,6 +87,14 @@ pub struct GpuState {
     pub rt_shadow_compute_extra_buffer: Option<wgpu::Buffer>,
     /// Reuses world-space AABBs for rigid frustum culling when model matrices are unchanged.
     pub rigid_frustum_cull_cache: crate::render::visibility::RigidFrustumCullCache,
+    /// Copy of the main depth buffer for native UI `OVERLAY` sampling (`texture_depth_2d` group 1).
+    pub ui_depth_copy_texture: Option<wgpu::Texture>,
+    /// View of [`Self::ui_depth_copy_texture`] for bind groups and copy destination.
+    pub ui_depth_copy_view: Option<wgpu::TextureView>,
+    /// Lazily created layout matching [`crate::gpu::pipeline::ui_unlit_native::native_ui_scene_depth_bind_group_layout`].
+    native_ui_scene_depth_bgl: Option<wgpu::BindGroupLayout>,
+    /// Bind group 1 for native UI pipelines; invalidated when the copy texture is recreated.
+    pub native_ui_scene_depth_bind_group: Option<wgpu::BindGroup>,
 }
 
 /// Base instance flags from [`RenderConfig::gpu_validation_layers`](crate::config::RenderConfig::gpu_validation_layers)
@@ -333,6 +341,10 @@ pub async fn init_gpu(
         rt_shadow_compute_scene_buffer: None,
         rt_shadow_compute_extra_buffer: None,
         rigid_frustum_cull_cache: crate::render::visibility::RigidFrustumCullCache::default(),
+        ui_depth_copy_texture: None,
+        ui_depth_copy_view: None,
+        native_ui_scene_depth_bgl: None,
+        native_ui_scene_depth_bind_group: None,
     })
 }
 
@@ -483,7 +495,9 @@ pub fn create_depth_texture(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth24PlusStencil8,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     })
 }
@@ -532,6 +546,63 @@ pub fn reconfigure_surface_for_window(
     if let Some(new_depth) = ensure_depth_texture(&gpu.device, &gpu.config, gpu.depth_size) {
         gpu.depth_texture = Some(new_depth);
         gpu.depth_size = (gpu.config.width, gpu.config.height);
+    }
+}
+
+impl GpuState {
+    /// Ensures a depth-stencil copy texture exists at `width`×`height` for native UI `OVERLAY` sampling.
+    ///
+    /// Recreates storage when dimensions change and drops [`Self::native_ui_scene_depth_bind_group`]
+    /// so it can be rebuilt with the new view.
+    pub fn ensure_ui_depth_copy_texture(&mut self, width: u32, height: u32) {
+        let ok = self.ui_depth_copy_texture.as_ref().is_some_and(|t| {
+            let s = t.size();
+            s.width == width && s.height == height
+        });
+        if ok {
+            return;
+        }
+        self.native_ui_scene_depth_bind_group = None;
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("ui overlay depth copy"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        self.ui_depth_copy_texture = Some(tex);
+        self.ui_depth_copy_view = Some(view);
+    }
+
+    /// Creates bind group 1 (scene depth texture) for native UI pipelines when a copy view exists.
+    pub fn ensure_native_ui_scene_depth_bind_group(&mut self) {
+        let Some(ref view) = self.ui_depth_copy_view else {
+            return;
+        };
+        if self.native_ui_scene_depth_bind_group.is_some() {
+            return;
+        }
+        let device = &self.device;
+        let bgl = self.native_ui_scene_depth_bgl.get_or_insert_with(|| {
+            super::pipeline::native_ui_scene_depth_bind_group_layout(device)
+        });
+        let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("native ui scene depth BG"),
+            layout: bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(view),
+            }],
+        });
+        self.native_ui_scene_depth_bind_group = Some(bg);
     }
 }
 

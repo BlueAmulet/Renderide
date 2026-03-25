@@ -240,6 +240,10 @@ impl OverlayStencilMaskClearPipeline {
 }
 
 impl RenderPipeline for OverlayStencilMaskWritePipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }
@@ -290,6 +294,10 @@ impl RenderPipeline for OverlayStencilMaskWritePipeline {
 }
 
 impl RenderPipeline for OverlayStencilMaskClearPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }
@@ -340,6 +348,10 @@ impl RenderPipeline for OverlayStencilMaskClearPipeline {
 }
 
 impl RenderPipeline for OverlayStencilPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }

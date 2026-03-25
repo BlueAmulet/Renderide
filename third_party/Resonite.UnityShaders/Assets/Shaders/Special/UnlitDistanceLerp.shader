@@ -1,4 +1,4 @@
-Shader "UnlitDistanceLerp"
+﻿Shader "UnlitDistanceLerp"
 {
 	Properties
 	{
@@ -20,9 +20,6 @@ Shader "UnlitDistanceLerp"
 		_Cull("Cull", Float) = 2.0
 
 		_ZTest("ZTest", Float) = 2
-
-		_OffsetFactor ("Offset Factor", Float) = 0.0
-		_OffsetUnits("Offset Units", Float) = 0.0
 	}
 		SubShader
 		{
@@ -74,7 +71,7 @@ Shader "UnlitDistanceLerp"
 					EVR_SETUP_INSTANCING_FRAGMENT(i);
 					UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
-					float _dist = distance(_Point, i.position.xyz);
+					float _dist = distance(_Point, i.position);
 
 					_dist -= _Distance;
 

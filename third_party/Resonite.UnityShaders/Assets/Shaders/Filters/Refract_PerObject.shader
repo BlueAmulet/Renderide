@@ -79,7 +79,9 @@ Shader "Filters/Refract_PerObject"
 #pragma multi_compile _ _NORMALMAP
 #pragma multi_compile _ RECTCLIP
 
-float4 _Rect;
+#ifdef RECTCLIP
+		float4 _Rect;
+#endif
 
 		struct v2f
 		{
@@ -89,10 +91,14 @@ float4 _Rect;
 			float camDist : TEXCOORD3;
 			float4 pos : SV_POSITION;
 			float3 normal : NORMAL;
+#ifdef _NORMALMAP
 			float3 tangent : TANGENT;
 			float3 bitangent : TEXCOORD4;
+#endif
 
+#ifdef RECTCLIP
 			float2 position : TEXCOORD5;
+#endif
 		};
 
 		v2f vert(appdata_full v)
@@ -103,17 +109,21 @@ float4 _Rect;
 			// use UnityObjectToClipPos from UnityCG.cginc to calculate 
 			// the clip-space of the vertex
 			o.pos = UnityObjectToClipPos(v.vertex);
-			o.uv = v.texcoord.xy;
+			o.uv = v.texcoord;
 
 			o.normal = UnityObjectToWorldNormal(v.normal);
+#ifdef _NORMALMAP
 			o.tangent = normalize(mul(unity_ObjectToWorld, float4(v.tangent.xyz, 0)).xyz);
 			o.bitangent = normalize(cross(o.normal, o.tangent) * v.tangent.w);
+#endif
 
 			// use ComputeGrabScreenPos function from UnityCG.cginc
 			// to get the correct texture coordinate
 			o.grabPos = ComputeGrabScreenPos(o.pos);
 
+#ifdef RECTCLIP
 			o.position = v.vertex.xy;
+#endif
 			COMPUTE_EYEDEPTH(o.depth);
 			o.camDist = length(ObjSpaceViewDir(v.vertex));
 			return o;
@@ -130,9 +140,13 @@ float4 _Rect;
 			half4 c = half4(0, 0, 0, 0);
 			float2 grabUv = i.grabPos.xy / i.grabPos.w;
 
-			float3 tangent = i.tangent;
-			float3 binormal = i.bitangent;
-			float3 normal = i.normal;
+			float3 tangent, normal, binormal;
+
+#ifdef _NORMALMAP
+			tangent = i.tangent;
+			binormal = i.bitangent;
+#endif
+			normal = i.normal;
 
 			grabUv = evrCalculateRefractionCoords(grabUv, i.uv, i.depth, tangent, binormal, normal, i.grabPos);
 

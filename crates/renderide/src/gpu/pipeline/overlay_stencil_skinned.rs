@@ -22,6 +22,10 @@ use super::skinned::SkinnedPipeline;
 macro_rules! impl_overlay_stencil_skinned {
     ($ty:ty) => {
         impl RenderPipeline for $ty {
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+
             fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
                 self.inner.bind_pipeline(pass);
             }

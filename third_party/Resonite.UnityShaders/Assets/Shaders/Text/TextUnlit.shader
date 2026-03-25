@@ -1,4 +1,4 @@
-Shader "Text/Unlit"
+﻿Shader "Text/Unlit"
 {
     Properties
     {
@@ -20,9 +20,6 @@ Shader "Text/Unlit"
 		_Cull("Cull", Float) = 2.0
 
 		_ZTest("ZTest", Float) = 2
-
-		_OffsetFactor ("Offset Factor", Float) = 0.0
-		_OffsetUnits("Offset Units", Float) = 0.0
     }
     SubShader
     {
@@ -109,16 +106,14 @@ Shader "Text/Unlit"
 				UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
 				float4 atlasColor = tex2D(_FontAtlas, i.uv);
-				float4 outColor = float4(0, 0, 0, 0);
 
 #if defined(MSDF) || defined(SDF)
 				float2 msdfUnit = _Range;
 
-				float sigDist;
 #ifdef MSDF
-				sigDist = median(atlasColor.r, atlasColor.g, atlasColor.b) - 0.5;
-#else
-				sigDist = atlasColor.a - 0.5;
+				float sigDist = median(atlasColor.r, atlasColor.g, atlasColor.b) - 0.5;
+#elif SDF
+				float sigDist = atlasColor.a - 0.5;
 #endif
 
 				sigDist += _FaceDilate + i.extraData.x;
@@ -142,12 +137,16 @@ Shader "Text/Unlit"
 				fillColor = lerp(_OutlineColor * float4(1,1,1,i.color.a), fillColor, outlineLerp);
 #endif
 
-				outColor = lerp(_BackgroundColor * i.color, fillColor, glyphLerp);
-#elif defined(RASTER)
-				outColor = atlasColor * i.color;
-				clip(outColor.a - 0.001);
+				return lerp(_BackgroundColor * i.color, fillColor, glyphLerp);
 #endif
-				return outColor;
+
+#ifdef RASTER
+				float4 c = atlasColor * i.color;
+
+				clip(c.a - 0.001);
+
+				return c;
+#endif
             }
 
             ENDCG

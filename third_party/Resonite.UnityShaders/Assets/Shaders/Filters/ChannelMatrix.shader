@@ -1,4 +1,4 @@
-Shader "Filters/ChannelMatrix"
+﻿Shader "Filters/ChannelMatrix"
 {
 	Properties
 	{
@@ -84,7 +84,9 @@ Shader "Filters/ChannelMatrix"
 			static const float PI = 3.14159265359;
 			static const float TAU = 6.283185307;
 
-float4 _Rect;
+#ifdef RECTCLIP
+			float4 _Rect;
+#endif
 
 			struct v2f
 			{
@@ -92,7 +94,9 @@ float4 _Rect;
 				float4 grabPos : TEXCOORD1;
 				float4 pos : SV_POSITION;
 
+#ifdef RECTCLIP
 				float2 position : TEXCOORD2;
+#endif
 			};
 
 			v2f vert(appdata_full v)
@@ -101,7 +105,7 @@ float4 _Rect;
 				// use UnityObjectToClipPos from UnityCG.cginc to calculate 
 				// the clip-space of the vertex
 				o.pos = UnityObjectToClipPos(v.vertex);
-				o.uv = v.texcoord.xy;
+				o.uv = v.texcoord;
 
 				// use ComputeGrabScreenPos function from UnityCG.cginc
 				// to get the correct texture coordinate
@@ -128,8 +132,8 @@ float4 _Rect;
 
 				c.rgb = mul(float3x3(_LevelsR.xyz, _LevelsG.xyz, _LevelsB.xyz), c.rgb) + float3(_LevelsR.w, _LevelsG.w, _LevelsB.w);
 
-				c.rgb = max(_ClampMin.xyz, (float3)c.rgb);
-				c.rgb = min(_ClampMax.xyz, (float3)c.rgb);
+				c.rgb = max(_ClampMin, c.rgb);
+				c.rgb = min(_ClampMax, c.rgb);
 
 				return c;
 			}

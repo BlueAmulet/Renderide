@@ -21,9 +21,18 @@ fn main() {
     println!("cargo:rerun-if-changed=wgsl_modules/normal_debug.wgsl");
     println!("cargo:rerun-if-changed=wgsl_modules/uv_debug.wgsl");
     println!("cargo:rerun-if-changed=wgsl_modules/host_unlit.wgsl");
+    println!("cargo:rerun-if-changed=wgsl_modules/ui_common.wgsl");
+    println!("cargo:rerun-if-changed=wgsl_modules/ui_unlit.wgsl");
+    println!("cargo:rerun-if-changed=wgsl_modules/ui_text_unlit.wgsl");
     println!("cargo:rerun-if-changed=build.rs");
 
-    for name in ["normal_debug", "uv_debug", "host_unlit"] {
+    for name in [
+        "normal_debug",
+        "uv_debug",
+        "host_unlit",
+        "ui_unlit",
+        "ui_text_unlit",
+    ] {
         let composed = compose_entry(&wgsl_dir, name).unwrap_or_else(|e| {
             panic!("naga_oil compose failed for {name}: {e:?}");
         });
@@ -37,7 +46,7 @@ fn compose_entry(wgsl_dir: &Path, entry_name: &str) -> Result<String, String> {
 
     // Only library modules: entry shaders (`normal_debug`, `uv_debug`) define `vs_main` / `fs_main`
     // and must not be registered as composable modules (would collide on entry point names).
-    let library_modules = ["uniform_ring", "color_util"];
+    let library_modules = ["uniform_ring", "color_util", "ui_common"];
     for stem in library_modules {
         let path = wgsl_dir.join(format!("{stem}.wgsl"));
         if !path.exists() {

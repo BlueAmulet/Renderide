@@ -1,4 +1,4 @@
-Shader "Unlit/Circle"
+﻿Shader "Unlit/Circle"
 {
 	Properties
 	{
@@ -51,7 +51,7 @@ Shader "Unlit/Circle"
 		UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
 
 		o.pos = UnityObjectToClipPos(v.vertex);
-		o.uv = v.texcoord.xy;
+		o.uv = v.texcoord;
 		return o;
 	}
 

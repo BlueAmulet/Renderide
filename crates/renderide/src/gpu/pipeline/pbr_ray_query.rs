@@ -238,6 +238,10 @@ impl PbrRayQueryPipeline {
 }
 
 impl RenderPipeline for PbrRayQueryPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }
@@ -435,6 +439,10 @@ impl PbrMrtRayQueryPipeline {
 }
 
 impl RenderPipeline for PbrMrtRayQueryPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }
@@ -670,6 +678,10 @@ impl SkinnedPbrRayQueryPipeline {
 }
 
 impl RenderPipeline for SkinnedPbrRayQueryPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }
@@ -877,6 +889,10 @@ impl SkinnedPbrMrtRayQueryPipeline {
 }
 
 impl RenderPipeline for SkinnedPbrMrtRayQueryPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }

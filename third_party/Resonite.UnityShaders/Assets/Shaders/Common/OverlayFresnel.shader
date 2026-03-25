@@ -1,4 +1,4 @@
-Shader "OverlayFresnel" {
+﻿Shader "OverlayFresnel" {
 	Properties{
 
 		_Exp("Exponent", Float) = 1.0
@@ -66,13 +66,17 @@ Shader "OverlayFresnel" {
 
 	float _Exp;
 
+#ifdef _TEXTURE
 	sampler2D _BehindFarTex;
 	float4 _BehindFarTex_ST;
 
 	sampler2D _BehindNearTex;
 	float4 _BehindNearTex_ST;
+#endif
 
+#ifdef _POLARUV
 	float _PolarPow;
+#endif
 
 	fixed4 frag(evr_v2f i) : SV_Target
 	{
@@ -150,15 +154,18 @@ Shader "OverlayFresnel" {
 	fixed4 _FrontNearColor;
 
 	float _Exp;
-	float _GammaCurve;
 
+#ifdef _TEXTURE
 	sampler2D _FrontFarTex;
 	float4 _FrontFarTex_ST;
 
 	sampler2D _FrontNearTex;
 	float4 _FrontNearTex_ST;
+#endif
 
+#ifdef _POLARUV
 	float _PolarPow;
+#endif
 
 	fixed4 frag(evr_v2f i) : SV_Target
 	{

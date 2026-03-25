@@ -8,7 +8,11 @@ use nalgebra::Matrix4;
 
 use super::mesh_prep::MeshDrawPrepStats;
 use crate::assets::MaterialPropertyStore;
-use crate::gpu::pipeline::{RtShadowSceneBind, RtShadowUniforms, SceneUniforms};
+use crate::config::RenderConfig;
+use crate::gpu::pipeline::{
+    RtShadowSceneBind, RtShadowUniforms, SceneUniforms, UiTextUnlitNativePipeline,
+    UiUnlitNativePipeline,
+};
 use crate::gpu::{GpuMeshBuffers, PipelineKey, PipelineManager, PipelineVariant, RenderPipeline};
 use crate::render::SpaceDrawBatch;
 use crate::render::visibility::view_proj_glam_for_batch;
@@ -124,6 +128,10 @@ pub(super) struct MeshDrawParams<'a> {
     pub(super) rt_shadow_bind: Option<RtShadowBindParams<'a>>,
     /// Material property store for [`PipelineVariant::Material`] host-unlit pipeline resolution.
     pub(super) material_property_store: &'a MaterialPropertyStore,
+    /// Frame render config (native UI property id maps, flags).
+    pub(super) render_config: &'a RenderConfig,
+    /// Sampled scene depth bind group for native UI `OVERLAY`; overlay pass only.
+    pub(super) native_ui_scene_depth_bind: Option<&'a wgpu::BindGroup>,
 }
 
 /// Resources and per-frame tuning for PBR ray-query shadow bindings (scene group 1, bindings 5–7).
@@ -588,7 +596,12 @@ fn resolve_pipeline_for_group(
     params: &MeshDrawParams,
     is_overlay_group: bool,
 ) -> PipelineVariant {
-    if matches!(variant, PipelineVariant::Material { .. }) {
+    if matches!(
+        variant,
+        PipelineVariant::Material { .. }
+            | PipelineVariant::NativeUiUnlit { .. }
+            | PipelineVariant::NativeUiTextUnlit { .. }
+    ) {
         return *variant;
     }
     let pbr_ray_query = params
@@ -647,7 +660,12 @@ pub(super) fn mesh_pipeline_variant_for_mrt(
     has_pbr_scene: bool,
     pbr_ray_query: bool,
 ) -> PipelineVariant {
-    if let PipelineVariant::Material { .. } = variant {
+    if matches!(
+        variant,
+        PipelineVariant::Material { .. }
+            | PipelineVariant::NativeUiUnlit { .. }
+            | PipelineVariant::NativeUiTextUnlit { .. }
+    ) {
         if use_mrt {
             return PipelineVariant::NormalDebugMRT;
         }
@@ -953,7 +971,17 @@ pub(super) fn record_non_skinned_draws(
                 | crate::gpu::PipelineVariant::OverlayStencilMaskClearSkinned
         );
         pipeline.bind_pipeline(pass);
+        let is_native_ui = matches!(
+            pipeline_variant,
+            PipelineVariant::NativeUiUnlit { .. } | PipelineVariant::NativeUiTextUnlit { .. }
+        );
+        if is_native_ui {
+            if let Some(bg) = params.native_ui_scene_depth_bind {
+                pass.set_bind_group(1, bg, &[]);
+            }
+        }
         if params.use_mrt
+            && !is_native_ui
             && pipeline_uses_standalone_mrt_gbuffer_origin_bind_group(&pipeline_variant)
             && let Some(bg) = params.mrt_gbuffer_origin_bind_group
         {
@@ -991,6 +1019,25 @@ pub(super) fn record_non_skinned_draws(
                 pipeline.bind_scene(pass, Some(scene_bg));
             }
         }
+        let native_ui_unlit_ref =
+            if matches!(pipeline_variant, PipelineVariant::NativeUiUnlit { .. }) {
+                pipeline
+                    .as_ref()
+                    .as_any()
+                    .downcast_ref::<UiUnlitNativePipeline>()
+            } else {
+                None
+            };
+        let native_ui_text_ref =
+            if matches!(pipeline_variant, PipelineVariant::NativeUiTextUnlit { .. }) {
+                pipeline
+                    .as_ref()
+                    .as_any()
+                    .downcast_ref::<UiTextUnlitNativePipeline>()
+            } else {
+                None
+            };
+
         let mut order: Vec<usize> = (0..group.len()).collect();
         order.sort_by_key(|&idx| group[idx].mesh_asset_id);
         let mut last_mesh_asset_id: Option<i32> = None;
@@ -1010,6 +1057,7 @@ pub(super) fn record_non_skinned_draws(
                 && pipeline.supports_instancing()
                 && !is_stencil_pipeline
                 && !run_has_stencil
+                && !is_native_ui
                 && run_len as u32 <= crate::gpu::MAX_INSTANCE_RUN;
 
             let Some(buffers) = params.mesh_buffer_cache.get(&mesh_id) else {
@@ -1028,6 +1076,31 @@ pub(super) fn record_non_skinned_draws(
                 for idx in order[run_start..run_end].iter().copied() {
                     let d = &group[idx];
                     pipeline.bind_draw(pass, Some(idx as u32), params.frame_index, None);
+                    match pipeline_variant {
+                        PipelineVariant::NativeUiUnlit { material_id } => {
+                            if let Some(ui) = native_ui_unlit_ref {
+                                ui.write_material_bind(
+                                    params.queue,
+                                    pass,
+                                    params.material_property_store,
+                                    material_id,
+                                    &params.render_config.ui_unlit_property_ids,
+                                );
+                            }
+                        }
+                        PipelineVariant::NativeUiTextUnlit { material_id } => {
+                            if let Some(ui) = native_ui_text_ref {
+                                ui.write_material_bind(
+                                    params.queue,
+                                    pass,
+                                    params.material_property_store,
+                                    material_id,
+                                    &params.render_config.ui_text_unlit_property_ids,
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
                     if let Some(ref stencil) = d.stencil_state {
                         pass.set_stencil_reference(stencil.reference as u32);
                     } else if is_stencil_pipeline {
@@ -1124,5 +1197,37 @@ mod tests {
             false,
         );
         assert_eq!(v, PipelineVariant::Material { material_id: 1 });
+    }
+
+    #[test]
+    fn mesh_pipeline_variant_native_ui_unlit_mirrors_material_mrt_rule() {
+        let v = mesh_pipeline_variant_for_mrt(
+            &PipelineVariant::NativeUiUnlit { material_id: 2 },
+            true,
+            false,
+            true,
+            false,
+        );
+        assert_eq!(v, PipelineVariant::NormalDebugMRT);
+        let v2 = mesh_pipeline_variant_for_mrt(
+            &PipelineVariant::NativeUiUnlit { material_id: 2 },
+            false,
+            true,
+            true,
+            false,
+        );
+        assert_eq!(v2, PipelineVariant::NativeUiUnlit { material_id: 2 });
+    }
+
+    #[test]
+    fn mesh_pipeline_variant_native_ui_text_unlit_mirrors_material_mrt_rule() {
+        let v = mesh_pipeline_variant_for_mrt(
+            &PipelineVariant::NativeUiTextUnlit { material_id: 3 },
+            true,
+            true,
+            true,
+            false,
+        );
+        assert_eq!(v, PipelineVariant::NormalDebugMRT);
     }
 }

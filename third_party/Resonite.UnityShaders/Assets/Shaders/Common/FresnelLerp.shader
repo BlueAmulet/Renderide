@@ -80,12 +80,15 @@ SubShader{
 
 			float _Exp0;
 			float _Exp1;
-			float _GammaCurve;
 
+			#if defined(_LERPTEX) || defined(_LERPTEX_POLARUV)
+			#ifdef _LERPTEX_POLARUV
 			float _LerpPolarPow;
-			sampler2D _LerpTex;
-			float4 _LerpTex_ST;
+			#endif
+			#else
+			#endif
 
+			#ifdef _TEXTURE
 			sampler2D _FarTex0;
 			sampler2D _FarTex1;
 			float4 _FarTex0_ST;
@@ -95,11 +98,14 @@ SubShader{
 			sampler2D _NearTex1;
 			float4 _NearTex0_ST;
 			float4 _NearTex1_ST;
+			#endif
 
+			#ifdef _NORMALMAP
 			sampler2D _NormalMap0;
 			sampler2D _NormalMap1;
 			float4 _NormalMap0_ST;
 			float4 _NormalMap1_ST;
+			#endif
 			
 			fixed4 frag (evr_v2f i) : SV_Target
 			{

@@ -17,7 +17,7 @@ use super::pipeline::{
     OverlayStencilPipeline, OverlayStencilSkinnedPipeline, PbrMRTPipeline, PbrMrtRayQueryPipeline,
     PbrPipeline, PbrRayQueryPipeline, RenderPipeline, SkinnedMRTPipeline, SkinnedPbrMRTPipeline,
     SkinnedPbrMrtRayQueryPipeline, SkinnedPbrPipeline, SkinnedPbrRayQueryPipeline, SkinnedPipeline,
-    UvDebugMRTPipeline, UvDebugPipeline,
+    UiTextUnlitNativePipeline, UiUnlitNativePipeline, UvDebugMRTPipeline, UvDebugPipeline,
 };
 use super::pipeline_descriptor_cache::PipelineDescriptorCache;
 
@@ -63,6 +63,10 @@ pub enum PipelineVariant {
     /// Host-resolved material: uses [`HostUnlitPipeline`] when the property store lists a shader
     /// for `material_id` (material / property block id from the draw).
     Material { material_id: i32 },
+    /// Native WGSL Resonite `UI/Unlit` (orthographic overlay, canvas vertices).
+    NativeUiUnlit { material_id: i32 },
+    /// Native WGSL `UI/Text/Unlit`.
+    NativeUiTextUnlit { material_id: i32 },
     /// PBR pipeline.
     Pbr,
     /// PBR MRT: PBR with G-buffer output for RTAO.
@@ -268,6 +272,38 @@ impl PipelineRegistry {
                 self.pipelines.insert(key, Arc::clone(&pipeline));
                 Some(pipeline)
             }
+            PipelineVariant::NativeUiUnlit { material_id } => {
+                let store = material_store?;
+                let shader_id = store.shader_asset_for_block(*material_id)?;
+                let dk = PipelineDescriptorCache::native_ui_unlit_key(shader_id, config.format);
+                let pipeline: Arc<dyn RenderPipeline> =
+                    if let Some(p) = self.descriptor_cache.get(dk) {
+                        p
+                    } else {
+                        let p: Arc<dyn RenderPipeline> =
+                            Arc::new(UiUnlitNativePipeline::new(device, config));
+                        self.descriptor_cache.insert(dk, Arc::clone(&p));
+                        p
+                    };
+                self.pipelines.insert(key, Arc::clone(&pipeline));
+                Some(pipeline)
+            }
+            PipelineVariant::NativeUiTextUnlit { material_id } => {
+                let store = material_store?;
+                let shader_id = store.shader_asset_for_block(*material_id)?;
+                let dk = PipelineDescriptorCache::native_ui_text_key(shader_id, config.format);
+                let pipeline: Arc<dyn RenderPipeline> =
+                    if let Some(p) = self.descriptor_cache.get(dk) {
+                        p
+                    } else {
+                        let p: Arc<dyn RenderPipeline> =
+                            Arc::new(UiTextUnlitNativePipeline::new(device, config));
+                        self.descriptor_cache.insert(dk, Arc::clone(&p));
+                        p
+                    };
+                self.pipelines.insert(key, Arc::clone(&pipeline));
+                Some(pipeline)
+            }
             PipelineVariant::Pbr => {
                 let pipeline: Arc<dyn RenderPipeline> = Arc::new(PbrPipeline::new(device, config));
                 self.put_lazy(key, PipelineVariant::Pbr, config, Arc::clone(&pipeline));
@@ -348,8 +384,11 @@ impl PipelineRegistry {
     /// Removes [`PipelineKey`] rows for the given material id. Does not remove shared host-unlit
     /// descriptor-cache entries (other materials may share the same shader asset).
     pub fn evict_material(&mut self, material_id: i32) {
-        self.pipelines.retain(|k, _| {
-            !matches!(&k.1, PipelineVariant::Material { material_id: mid } if *mid == material_id)
+        self.pipelines.retain(|k, _| match &k.1 {
+            PipelineVariant::Material { material_id: m } if *m == material_id => false,
+            PipelineVariant::NativeUiUnlit { material_id: m } if *m == material_id => false,
+            PipelineVariant::NativeUiTextUnlit { material_id: m } if *m == material_id => false,
+            _ => true,
         });
     }
 
@@ -360,6 +399,8 @@ impl PipelineRegistry {
     pub fn evict_host_unlit_shader(&mut self, shader_asset_id: i32, format: wgpu::TextureFormat) {
         self.descriptor_cache
             .remove_host_unlit(shader_asset_id, format);
+        self.descriptor_cache
+            .remove_native_ui(shader_asset_id, format);
     }
 }
 

@@ -80,6 +80,10 @@ pub(crate) const MRT_NORMAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R
 macro_rules! impl_non_skinned_mrt_pipeline {
     ($ty:ty, $buf_method:ident) => {
         impl RenderPipeline for $ty {
+            fn as_any(&self) -> &dyn std::any::Any {
+                self
+            }
+
             fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
                 pass.set_pipeline(&self.pipeline);
             }
@@ -421,6 +425,10 @@ impl SkinnedMRTPipeline {
 }
 
 impl RenderPipeline for SkinnedMRTPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }

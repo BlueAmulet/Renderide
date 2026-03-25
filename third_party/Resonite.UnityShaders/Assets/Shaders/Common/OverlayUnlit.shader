@@ -55,36 +55,42 @@ SubShader{
 			
 			#include "UnityCG.cginc"
 			#include "../Common.cginc"
-
+		
+		#ifdef _TEXTURE
 			sampler2D _BehindTex;
 			float4 _BehindTex_ST;
+			#endif
 
 			fixed4 _BehindColor;
 
+			#ifdef _POLARUV
 			float _PolarPow;
+			#endif
 			
 			fixed4 frag (evr_v2f i) : SV_Target
 			{
 				EVR_SETUP_INSTANCING_FRAGMENT(i);
 				UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
-				fixed4 col;
-
 				#if defined(_TEXTURE)
 
 					#if defined(_POLARUV)
 					float2 uvddx, uvddy;
 					float2 uv = PolarMapping(i.texcoord * 2 - 1, _BehindTex_ST, _PolarPow, uvddx, uvddy);
-					col = tex2Dgrad(_BehindTex, uv, uvddx, uvddy);
 					#else
 					float2 uv = TRANSFORM_TEX(i.texcoord, _BehindTex);
-					col = tex2D(_BehindTex, uv);
+					#endif
+				
+					#if defined(_POLARUV)
+					fixed4 col = tex2Dgrad(_BehindTex, uv, uvddx, uvddy);
+					#else
+					fixed4 col = tex2D(_BehindTex, uv);
 					#endif
 
 					col *= _BehindColor;
 
 				#else
-				col = _BehindColor;
+				fixed4 col = _BehindColor;
 				#endif
 
 				#if defined(_ALPHATEST)
@@ -138,36 +144,42 @@ SubShader{
 
 	#include "UnityCG.cginc"
 	#include "../Common.cginc"
-
+			
+			#ifdef _TEXTURE
 		sampler2D _FrontTex;
 		float4 _FrontTex_ST;
+	#endif
 
 		fixed4 _FrontColor;
-
+			
+	#ifdef _POLARUV
 		float _PolarPow;
+	#endif
 
 		fixed4 frag(evr_v2f i) : SV_Target
 		{
 			EVR_SETUP_INSTANCING_FRAGMENT(i);
 			UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
 
-			fixed4 col;
-
 	#if defined(_TEXTURE)
 
 	#if defined(_POLARUV)
 			float2 uvddx, uvddy;
-			float2 uv = PolarMapping(i.texcoord * 2 - 1, _FrontTex_ST, _PolarPow, uvddx, uvddy);
-			col = tex2Dgrad(_FrontTex, uv, uvddx, uvddy);
+		float2 uv = PolarMapping(i.texcoord * 2 - 1, _FrontTex_ST, _PolarPow, uvddx, uvddy);
 	#else
 			float2 uv = TRANSFORM_TEX(i.texcoord, _FrontTex);
-			col = tex2D(_FrontTex, uv);
+	#endif
+
+	#if defined(_POLARUV)
+			fixed4 col = tex2Dgrad(_FrontTex, uv, uvddx, uvddy);
+	#else
+			fixed4 col = tex2D(_FrontTex, uv);
 	#endif
 
 			col *= _FrontColor;
 
 	#else
-			col = _FrontColor;
+			fixed4 col = _FrontColor;
 	#endif
 
 	#if defined(_ALPHATEST)

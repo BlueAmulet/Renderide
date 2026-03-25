@@ -1,4 +1,4 @@
-Shader "Filters/Pixelate"
+﻿Shader "Filters/Pixelate"
 {
 	Properties
 	{
@@ -72,10 +72,14 @@ Shader "Filters/Pixelate"
 
 		float2 _Resolution;
 
+#ifdef RESOLUTION_TEX
 		sampler2D _ResolutionTex;
 		float4 _ResolutionTex_ST;
+#endif
 
-float4 _Rect;
+#ifdef RECTCLIP
+		float4 _Rect;
+#endif
 
 		static const float PI = 3.14159265359;
 		static const float TAU = 6.283185307;
@@ -86,7 +90,9 @@ float4 _Rect;
 			float4 grabPos : TEXCOORD1;
 			float4 pos : SV_POSITION;
 
-				float2 position : TEXCOORD2;
+#ifdef RECTCLIP
+			float2 position : TEXCOORD2;
+#endif
 		};
 
 		v2f vert(appdata_base v)
@@ -97,12 +103,14 @@ float4 _Rect;
 			// use UnityObjectToClipPos from UnityCG.cginc to calculate 
 			// the clip-space of the vertex
 			o.pos = UnityObjectToClipPos(v.vertex);
-			o.uv = v.texcoord.xy;
+			o.uv = v.texcoord;
 			// use ComputeGrabScreenPos function from UnityCG.cginc
 			// to get the correct texture coordinate
 			o.grabPos = ComputeGrabScreenPos(o.pos);
 
+#ifdef RECTCLIP
 			o.position = v.vertex.xy;
+#endif
 
 			return o;
 		}
@@ -117,11 +125,10 @@ float4 _Rect;
 
 			float2 grabUv = i.grabPos.xy / i.grabPos.w;
 
-			float2 size;
 #ifdef RESOLUTION_TEX
-			size = _Resolution * tex2D(_ResolutionTex, TRANSFORM_TEX(i.uv, _ResolutionTex)).rg;
+			float2 size = _Resolution * tex2D(_ResolutionTex, TRANSFORM_TEX(i.uv, _ResolutionTex)).rg;
 #else
-			size = _Resolution;
+			float2 size = _Resolution;
 #endif
 			grabUv = round(grabUv * size) / size;
 

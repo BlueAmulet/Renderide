@@ -258,6 +258,10 @@ impl SkinnedPbrPipeline {
 }
 
 impl RenderPipeline for SkinnedPbrPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }
@@ -463,6 +467,10 @@ impl SkinnedPbrMRTPipeline {
 }
 
 impl RenderPipeline for SkinnedPbrMRTPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }

@@ -24,6 +24,8 @@ pub(crate) mod rt_shadow_uniforms;
 mod shaders;
 mod skinned;
 mod skinned_pbr;
+mod ui_text_unlit_native;
+mod ui_unlit_native;
 mod uniforms;
 mod uv_debug;
 
@@ -52,5 +54,8 @@ pub use rt_shadow_uniforms::{
 };
 pub use skinned::SkinnedPipeline;
 pub use skinned_pbr::{SkinnedPbrMRTPipeline, SkinnedPbrPipeline};
+pub use ui_text_unlit_native::UiTextUnlitNativePipeline;
+pub use ui_unlit_native::UiUnlitNativePipeline;
+pub(crate) use ui_unlit_native::native_ui_scene_depth_bind_group_layout;
 pub use uniforms::SceneUniforms;
 pub use uv_debug::UvDebugPipeline;

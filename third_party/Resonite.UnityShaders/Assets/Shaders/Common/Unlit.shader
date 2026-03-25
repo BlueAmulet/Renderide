@@ -17,9 +17,6 @@ Shader "Unlit" {
 		_PolarPow("Polar Mapping Power", Float) = 1.0
 
 		_ZTest("ZTest", Float) = 2
-
-		_OffsetFactor ("Offset Factor", Float) = 0.0
-		_OffsetUnits("Offset Units", Float) = 0.0
 	}
 
 		SubShader{
@@ -59,17 +56,21 @@ Shader "Unlit" {
 					#include "UnityStandardUtils.cginc"
 					#include "..\Common.cginc"
 
-					// Renderide/UnityShaderConverter: always provide TEXCOORD0 so a single WGSL module can specialize
-					// fragment sampling with pipeline constants; conditional _USES_TEXTURE + #define breaks preprocessor
-					// when keywords map to specialization bools instead of macros.
+					#if defined(_TEXTURE) || defined(_TEXTURE_NORMALMAP) || defined(_MASK_TEXTURE_MUL) || defined(_MASK_TEXTURE_CLIP)
+					#define _USES_TEXTURE
+					#endif
 
 					struct appdata_t
 					{
 						float4 vertex : POSITION;
 
+						#ifdef _USES_TEXTURE
 						float2 texcoord : TEXCOORD0;
+						#endif
 
+						#ifdef _VERTEXCOLORS
 						float4 vcolor : COLOR;
+						#endif
 
 						UNITY_VERTEX_INPUT_INSTANCE_ID
 					};
@@ -78,29 +79,41 @@ Shader "Unlit" {
 					{
 						float4 vertex : SV_POSITION;
 
+						#ifdef _USES_TEXTURE
 						half2 texcoord : TEXCOORD0;
+						#endif
 
+						#ifdef _VERTEXCOLORS
 						float4 vcolor : COLOR;
+						#endif
 
 						UNITY_VERTEX_OUTPUT_STEREO
 					};
 
 
-					// Always declare optional textures/uniforms so global scope stays valid under one slangc compile;
-					// fragment branches use runtime specialization (USC_*) for which paths execute.
+					#if defined(_TEXTURE) || defined(_TEXTURE_NORMALMAP)
 					sampler2D _Tex;
 					float4 _Tex_ST;
+					#ifdef _RIGHT_EYE_ST
 					float4 _RightEye_ST;
+					#endif
+					#endif
 
+					#ifdef _OFFSET_TEXTURE
 					float2 _OffsetMagnitude;
 
 					sampler2D _OffsetTex;
 					float4 _OffsetTex_ST;
+					#endif
 
+					#if defined(_MASK_TEXTURE_MUL) || defined(_MASK_TEXTURE_CLIP)
 					sampler2D _MaskTex;
 					float4 _MaskTex_ST;
+					#endif
 
+					#ifdef _POLARUV
 					float _PolarPow;
+					#endif
 
 					v2f vert(appdata_t v)
 					{
@@ -111,9 +124,13 @@ Shader "Unlit" {
 
 						o.vertex = UnityObjectToClipPos(v.vertex);
 
+						#ifdef _USES_TEXTURE
 						o.texcoord = v.texcoord;
+						#endif
 
+						#ifdef _VERTEXCOLORS
 						o.vcolor = v.vcolor;
+						#endif
 
 						return o;
 					}

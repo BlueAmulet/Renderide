@@ -61,6 +61,41 @@ impl RenderPass for OverlayRenderPass {
             return Ok(());
         }
 
+        let render_config = ctx.session.render_config();
+        let mut native_ui_depth_bind = None;
+        if render_config.use_native_ui_wgsl {
+            let (vw, vh) = ctx.viewport;
+            if ctx.gpu.depth_size == (vw, vh) && ctx.gpu.depth_texture.is_some() {
+                ctx.gpu.ensure_ui_depth_copy_texture(vw, vh);
+                if let (Some(src_tex), Some(dst_tex)) = (
+                    ctx.gpu.depth_texture.as_ref(),
+                    ctx.gpu.ui_depth_copy_texture.as_ref(),
+                ) {
+                    ctx.encoder.copy_texture_to_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: src_tex,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyTextureInfo {
+                            texture: dst_tex,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::Extent3d {
+                            width: vw,
+                            height: vh,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+                ctx.gpu.ensure_native_ui_scene_depth_bind_group();
+                native_ui_depth_bind = ctx.gpu.native_ui_scene_depth_bind_group.as_ref();
+            }
+        }
+
         let overlay_orthographic = ctx.overlay_projection_override.is_some();
         let light_buffer_version = ctx.gpu.light_buffer_cache.version;
         let cluster_buffer_version = ctx.gpu.cluster_buffer_cache.version;
@@ -91,6 +126,8 @@ impl RenderPass for OverlayRenderPass {
                 .last_pbr_scene_cache_rt_shadow_atlas_generation,
             rt_shadow_bind: None,
             material_property_store: &ctx.session.asset_registry().material_property_store,
+            render_config,
+            native_ui_scene_depth_bind: native_ui_depth_bind,
         };
 
         let mut pass = ctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

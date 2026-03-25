@@ -1,5 +1,7 @@
 //! Core pipeline abstractions: RenderPipeline trait, UniformData, and shared constants.
 
+use std::any::Any;
+
 use super::super::mesh::GpuMeshBuffers;
 use super::rt_shadow_uniforms::RtShadowSceneBind;
 use nalgebra::Matrix4;
@@ -35,7 +37,13 @@ pub enum UniformData<'a> {
 }
 
 /// Abstraction for a render pipeline (shader, bind groups, draw logic).
-pub trait RenderPipeline {
+///
+/// [`Self::as_any`] enables [`Any::downcast_ref`] for native UI pipelines in
+/// [`crate::render::pass::mesh_draw::record_non_skinned_draws`].
+pub trait RenderPipeline: Send + Sync {
+    /// Exposes `self` for [`Any::downcast_ref`] on concrete pipeline types.
+    fn as_any(&self) -> &dyn Any;
+
     /// Binds this pipeline to the render pass. Call once per pipeline group.
     fn bind_pipeline(&self, _pass: &mut wgpu::RenderPass) {
         // Default: no-op for placeholder pipelines.

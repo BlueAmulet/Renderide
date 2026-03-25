@@ -1,4 +1,4 @@
-Shader "UI/Text/Unlit"
+﻿Shader "UI/Text/Unlit"
 {
     Properties
     {
@@ -97,9 +97,13 @@ Shader "UI/Text/Unlit"
 				float4 color : COLOR;
 				float3 extraData : NORMAL;
 
+#ifdef RECTCLIP
 				float2 position : TEXCOORD1;
+#endif
 
+#ifdef OVERLAY
 				float4 projPos : TEXCOORD2;
+#endif
 
 				UNITY_VERTEX_OUTPUT_STEREO
             };
@@ -116,10 +120,14 @@ Shader "UI/Text/Unlit"
 			float _FaceSoftness;
 			float _OutlineSize;
 
-float4 _Rect;
+#ifdef RECTCLIP
+			float4 _Rect;
+#endif
 
+#ifdef OVERLAY
 			float4 _OverlayTint;
 			UNITY_DECLARE_DEPTH_TEXTURE(_CameraDepthTexture);
+#endif
 
 			float median(float r, float g, float b)
 			{
@@ -134,15 +142,19 @@ float4 _Rect;
 				UNITY_INITIALIZE_OUTPUT(v2f, o);
 				UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(o);
 
+#ifdef RECTCLIP
 				o.position = v.vertex.xy;
+#endif
 
                 o.vertex = UnityObjectToClipPos(v.vertex);
                 o.uv = v.uv;
 				o.color = v.color;
 				o.extraData = v.extraData;
 
+#ifdef OVERLAY
 				o.projPos = ComputeScreenPos(o.vertex);
 				COMPUTE_EYEDEPTH(o.projPos.z);
+#endif
 
                 return o;
             }
@@ -151,8 +163,6 @@ float4 _Rect;
             {
 				//UNITY_SETUP_INSTANCE_ID(i);
 				UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(i);
-
-				float4 c = float4(0, 0, 0, 0);
 
 #ifdef RECTCLIP
 				clip(UnityGet2DClipping(i.position, _Rect) - 0.1);
@@ -163,11 +173,10 @@ float4 _Rect;
 #if defined(MSDF) || defined(SDF)
 				float2 msdfUnit = _Range;
 
-				float sigDist;
 #ifdef MSDF
-				sigDist = median(atlasColor.r, atlasColor.g, atlasColor.b) - 0.5;
-#else
-				sigDist = atlasColor.a - 0.5;
+				float sigDist = median(atlasColor.r, atlasColor.g, atlasColor.b) - 0.5;
+#elif SDF
+				float sigDist = atlasColor.a - 0.5;
 #endif
 
 				sigDist += _FaceDilate + i.extraData.x;
@@ -191,9 +200,12 @@ float4 _Rect;
 				fillColor = lerp(_OutlineColor * float4(1,1,1,i.color.a), fillColor, outlineLerp);
 #endif
 
-				c = lerp(_BackgroundColor * i.color, fillColor, glyphLerp);
-#elif defined(RASTER)
-				c = atlasColor * i.color;
+				float4 c = lerp(_BackgroundColor * i.color, fillColor, glyphLerp);
+#endif
+
+#ifdef RASTER
+				float4 c = atlasColor * i.color;
+
 				clip(c.a - 0.001);
 #endif
 

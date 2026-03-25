@@ -70,6 +70,10 @@ impl NormalDebugPipeline {
 }
 
 impl RenderPipeline for NormalDebugPipeline {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn bind_pipeline(&self, pass: &mut wgpu::RenderPass) {
         pass.set_pipeline(&self.pipeline);
     }

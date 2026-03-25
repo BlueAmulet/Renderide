@@ -82,12 +82,16 @@ Shader "Filters/Grayscale_PerObject"
 
 			uniform float _Lerp;
 
+#ifdef GRADIENT
 			sampler2D _Gradient;
+#endif
 
 			static const float PI = 3.14159265359;
 			static const float TAU = 6.283185307;
 
-float4 _Rect;
+#ifdef RECTCLIP
+			float4 _Rect;
+#endif
 
 			struct v2f
 			{
@@ -95,7 +99,9 @@ float4 _Rect;
 				float4 grabPos : TEXCOORD1;
 				float4 pos : SV_POSITION;
 
-				float2 position : TEXCOORD2;
+#ifdef RECTCLIP
+				float2 position : TEXCOORD1;
+#endif
 			};
 
 			v2f vert(appdata_full v)
@@ -104,7 +110,7 @@ float4 _Rect;
 				// use UnityObjectToClipPos from UnityCG.cginc to calculate 
 				// the clip-space of the vertex
 				o.pos = UnityObjectToClipPos(v.vertex);
-				o.uv = v.texcoord.xy;
+				o.uv = v.texcoord;
 
 				// use ComputeGrabScreenPos function from UnityCG.cginc
 				// to get the correct texture coordinate
@@ -131,11 +137,10 @@ float4 _Rect;
 
 				half grayscale = c.r * _RatioR + c.g * _RatioG + c.b * _RatioB;
 
-				half3 newColor;
 #ifdef GRADIENT
-				newColor = tex2Dlod(_Gradient, float4(grayscale, 0, 0, 0)).rgb;
+				half3 newColor = tex2Dlod(_Gradient, float4(grayscale, 0, 0, 0));
 #else
-				newColor = grayscale.xxx;
+				half3 newColor = grayscale.xxx;
 #endif
 
 				c.rgb = lerp(c.rgb, newColor, _Lerp);

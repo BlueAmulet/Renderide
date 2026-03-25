@@ -13,6 +13,7 @@
 //!   - `set_float4`: [f32; 4] (16 bytes)
 //!   - `set_float4x4`: 64 bytes — skipped
 //!   - `set_shader`: i32 shader asset id (4 bytes) — see [`MaterialPropertyStore::set_shader_asset`]
+//!   - `set_texture`: i32 packed texture reference (4 bytes) — see [`MaterialPropertyValue::Texture`]
 //!   - `set_render_queue`, `set_instancing`, `set_render_type`: i32 each (4 bytes) — consumed, not stored
 //!   - `update_batch_end`: 0 bytes
 //!   - Other types: skipped (value size unknown)
@@ -29,6 +30,8 @@ pub enum MaterialPropertyValue {
     Float(f32),
     /// Four floats (e.g. clip rect x, y, width, height).
     Float4([f32; 4]),
+    /// Packed texture id from host `set_texture` (see Renderite Unity `MaterialUpdateReader.ReadInt`).
+    Texture(i32),
 }
 
 /// Store of material property values per block.

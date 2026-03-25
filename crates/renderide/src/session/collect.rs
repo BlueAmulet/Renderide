@@ -14,6 +14,66 @@ use crate::scene::{Drawable, Scene, SceneGraph, render_transform_to_matrix};
 use crate::shared::{LayerType, VertexAttributeType};
 use crate::stencil::{StencilOperation, StencilState};
 
+/// Returns true when the mesh has UV0 and vertex color so [`GpuMeshBuffers::ui_canvas_buffers`](crate::gpu::mesh::GpuMeshBuffers::ui_canvas_buffers) is populated.
+pub(crate) fn mesh_has_ui_canvas_vertices(
+    asset_registry: &AssetRegistry,
+    mesh_asset_id: i32,
+) -> bool {
+    let Some(mesh) = asset_registry.get_mesh(mesh_asset_id) else {
+        return false;
+    };
+    let uv =
+        assets::attribute_offset_size_format(&mesh.vertex_attributes, VertexAttributeType::uv0);
+    let color =
+        assets::attribute_offset_size_format(&mesh.vertex_attributes, VertexAttributeType::color);
+    uv.map(|(_, s, _)| s >= 4).unwrap_or(false) && color.map(|(_, s, _)| s >= 4).unwrap_or(false)
+}
+
+/// After [`ShaderKey::effective_variant`], maps overlay non-stencil draws to native UI pipelines when allowed.
+pub(crate) fn apply_native_ui_overlay_pipeline_variant(
+    is_overlay: bool,
+    is_skinned: bool,
+    stencil_state: Option<&StencilState>,
+    render_config: &RenderConfig,
+    host_shader_asset_id: Option<i32>,
+    material_block_id: i32,
+    mesh_asset_id: i32,
+    current: PipelineVariant,
+    asset_registry: &AssetRegistry,
+) -> PipelineVariant {
+    if !render_config.use_native_ui_wgsl
+        || matches!(
+            render_config.shader_debug_override,
+            ShaderDebugOverride::ForceLegacyGlobalShading
+        )
+        || !is_overlay
+        || is_skinned
+        || stencil_state.is_some()
+        || material_block_id < 0
+    {
+        return current;
+    }
+    let Some(shader_id) = host_shader_asset_id else {
+        return current;
+    };
+    if !mesh_has_ui_canvas_vertices(asset_registry, mesh_asset_id) {
+        return current;
+    }
+    let uid = render_config.native_ui_unlit_shader_id;
+    if uid >= 0 && shader_id == uid {
+        return PipelineVariant::NativeUiUnlit {
+            material_id: material_block_id,
+        };
+    }
+    let tid = render_config.native_ui_text_unlit_shader_id;
+    if tid >= 0 && shader_id == tid {
+        return PipelineVariant::NativeUiTextUnlit {
+            material_id: material_block_id,
+        };
+    }
+    current
+}
+
 /// Filtered drawable with world matrix and pipeline variant.
 ///
 /// Output of [`filter_and_collect_drawables`]; input to [`build_draw_entries`].
@@ -132,6 +192,17 @@ pub(super) fn filter_and_collect_drawables(
             false,
             is_skinned,
             scene.is_overlay,
+        );
+        let pipeline_variant = apply_native_ui_overlay_pipeline_variant(
+            scene.is_overlay,
+            is_skinned,
+            drawable.stencil_state.as_ref(),
+            render_config,
+            host_shader_asset_id,
+            material_block_id,
+            drawable.mesh_handle,
+            pipeline_variant,
+            asset_registry,
         );
         out.push(FilteredDrawable {
             drawable,
@@ -301,7 +372,11 @@ fn compute_pipeline_variant(
 
 #[cfg(test)]
 mod tests {
-    use super::{FilteredDrawable, build_draw_entries, create_space_batch};
+    use super::{
+        AssetRegistry, FilteredDrawable, apply_native_ui_overlay_pipeline_variant,
+        build_draw_entries, create_space_batch, mesh_has_ui_canvas_vertices,
+    };
+    use crate::config::{RenderConfig, ShaderDebugOverride};
     use crate::gpu::{PipelineVariant, ShaderKey};
     use crate::render::batch::DrawEntry;
     use crate::scene::{Drawable, Scene};
@@ -386,5 +461,70 @@ mod tests {
         let entries = build_draw_entries(filtered);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].shadow_cast_mode, ShadowCastMode::off);
+    }
+
+    #[test]
+    fn mesh_has_ui_canvas_vertices_false_without_mesh() {
+        let reg = AssetRegistry::new();
+        assert!(!mesh_has_ui_canvas_vertices(&reg, 1));
+    }
+
+    #[test]
+    fn apply_native_ui_overlay_respects_overlay_only() {
+        let reg = AssetRegistry::new();
+        let mut rc = RenderConfig::default();
+        rc.use_native_ui_wgsl = true;
+        rc.native_ui_unlit_shader_id = 42;
+        let v = apply_native_ui_overlay_pipeline_variant(
+            false,
+            false,
+            None,
+            &rc,
+            Some(42),
+            7,
+            1,
+            PipelineVariant::NormalDebug,
+            &reg,
+        );
+        assert_eq!(v, PipelineVariant::NormalDebug);
+    }
+
+    #[test]
+    fn apply_native_ui_overlay_disabled_when_config_off() {
+        let reg = AssetRegistry::new();
+        let rc = RenderConfig::default();
+        let v = apply_native_ui_overlay_pipeline_variant(
+            true,
+            false,
+            None,
+            &rc,
+            Some(99),
+            7,
+            1,
+            PipelineVariant::NormalDebug,
+            &reg,
+        );
+        assert_eq!(v, PipelineVariant::NormalDebug);
+    }
+
+    #[test]
+    fn apply_native_ui_overlay_skips_legacy_shader_override() {
+        let reg = AssetRegistry::new();
+        let mut rc = RenderConfig::default();
+        rc.use_native_ui_wgsl = true;
+        rc.native_ui_unlit_shader_id = 42;
+        rc.shader_debug_override = ShaderDebugOverride::ForceLegacyGlobalShading;
+        let v = apply_native_ui_overlay_pipeline_variant(
+            true,
+            false,
+            None,
+            &rc,
+            Some(42),
+            7,
+            1,
+            PipelineVariant::NormalDebug,
+            &reg,
+        );
+        assert_eq!(v, PipelineVariant::NormalDebug);
     }
 }

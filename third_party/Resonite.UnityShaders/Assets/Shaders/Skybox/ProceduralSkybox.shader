@@ -297,7 +297,7 @@ SubShader {
 			}
 
 		#if SKYBOX_SUNDISK == SKYBOX_SUNDISK_HQ
-			OUT.vertex 			= -half3(v.vertex.xyz);
+			OUT.vertex 			= -v.vertex;
 		#elif SKYBOX_SUNDISK == SKYBOX_SUNDISK_SIMPLE
 			OUT.rayDir 			= half3(-eyeRay);
 		#else

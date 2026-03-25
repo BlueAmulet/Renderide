@@ -55,6 +55,16 @@ impl CommandHandler for ConfigCommandHandler {
                     use_host_unlit_pilot: ctx.render_config.use_host_unlit_pilot,
                     fullscreen_filter_hook: ctx.render_config.fullscreen_filter_hook,
                     shader_debug_override: ctx.render_config.shader_debug_override,
+                    use_native_ui_wgsl: ctx.render_config.use_native_ui_wgsl,
+                    native_ui_unlit_shader_id: ctx.render_config.native_ui_unlit_shader_id,
+                    native_ui_text_unlit_shader_id: ctx
+                        .render_config
+                        .native_ui_text_unlit_shader_id,
+                    ui_unlit_property_ids: ctx.render_config.ui_unlit_property_ids.clone(),
+                    ui_text_unlit_property_ids: ctx
+                        .render_config
+                        .ui_text_unlit_property_ids
+                        .clone(),
                 };
                 CommandResult::Handled
             }
