@@ -52,6 +52,11 @@ impl CommandHandler for TextureCommandHandler {
                                 },
                             ));
                     }
+                } else {
+                    logger::warn!(
+                        "set_texture_2d_data ignored: shared_memory is not initialized (asset_id={})",
+                        data.asset_id
+                    );
                 }
                 CommandResult::Handled
             }

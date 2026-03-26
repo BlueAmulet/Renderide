@@ -1,4 +1,8 @@
 //! Shader command handlers: `shader_upload`, `shader_unload`.
+//!
+//! Native UI shader ids default to auto-fill from upload path hints when INI ids are `-1`.
+//! [`crate::config::RenderConfig::native_ui_force_shader_hint_registration`] overwrites ids on every
+//! matching hint upload (stale positive INI ids otherwise block auto-reg).
 
 use crate::assets::{NativeUiShaderFamily, native_ui_family_from_shader_path_hint};
 use crate::shared::{RendererCommand, ShaderUploadResult};
@@ -19,24 +23,40 @@ impl CommandHandler for ShaderCommandHandler {
                     if let Some(ref hint) = data.file
                         && let Some(family) = native_ui_family_from_shader_path_hint(hint)
                     {
+                        let force = ctx.render_config.native_ui_force_shader_hint_registration;
                         match family {
                             NativeUiShaderFamily::UiUnlit
-                                if ctx.render_config.native_ui_unlit_shader_id < 0 =>
+                                if force || ctx.render_config.native_ui_unlit_shader_id < 0 =>
                             {
                                 ctx.render_config.native_ui_unlit_shader_id = asset_id;
-                                logger::info!(
-                                    "native_ui: auto-registered UI_Unlit shader_id={} from upload hint",
-                                    asset_id
-                                );
+                                if force {
+                                    logger::info!(
+                                        "native_ui: force-registered UI_Unlit shader_id={} from upload hint",
+                                        asset_id
+                                    );
+                                } else {
+                                    logger::info!(
+                                        "native_ui: auto-registered UI_Unlit shader_id={} from upload hint",
+                                        asset_id
+                                    );
+                                }
                             }
                             NativeUiShaderFamily::UiTextUnlit
-                                if ctx.render_config.native_ui_text_unlit_shader_id < 0 =>
+                                if force
+                                    || ctx.render_config.native_ui_text_unlit_shader_id < 0 =>
                             {
                                 ctx.render_config.native_ui_text_unlit_shader_id = asset_id;
-                                logger::info!(
-                                    "native_ui: auto-registered UI_TextUnlit shader_id={} from upload hint",
-                                    asset_id
-                                );
+                                if force {
+                                    logger::info!(
+                                        "native_ui: force-registered UI_TextUnlit shader_id={} from upload hint",
+                                        asset_id
+                                    );
+                                } else {
+                                    logger::info!(
+                                        "native_ui: auto-registered UI_TextUnlit shader_id={} from upload hint",
+                                        asset_id
+                                    );
+                                }
                             }
                             _ => {}
                         }

@@ -70,6 +70,10 @@ impl CommandHandler for ConfigCommandHandler {
                         .render_config
                         .native_ui_overlay_stencil_pipelines,
                     log_native_ui_routing: ctx.render_config.log_native_ui_routing,
+                    native_ui_uivert_pbr_fallback: ctx.render_config.native_ui_uivert_pbr_fallback,
+                    native_ui_force_shader_hint_registration: ctx
+                        .render_config
+                        .native_ui_force_shader_hint_registration,
                     native_ui_default_surface_blend: ctx
                         .render_config
                         .native_ui_default_surface_blend,

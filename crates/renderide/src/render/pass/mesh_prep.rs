@@ -2,12 +2,24 @@
 //!
 //! Used from the collect phase ([`prepare_mesh_draws_for_view`]) and from [`super::graph::RenderGraph::execute`]
 //! when pre-collected draws are not supplied.
+//!
+//! ## Manual Canvas check (native UI)
+//!
+//! - Overlay: `native_ui_world_space` usually off; world UI: enable [`crate::config::RenderConfig::native_ui_world_space`].
+//! - `use_native_ui_wgsl` on; shader allowlist matches host `set_shader` id (INI, env, or upload hint + optional force).
+//! - `set_texture_2d_data` uses shared memory when the host supplies pixels; decode supports the atlas format.
+//! - After a frame with data, GPU texture residency should reflect UI slots (prefetch + draw-time ensure).
 
 use std::collections::HashSet;
 
 use nalgebra::Matrix4;
 
+use super::material_draw_context::MaterialDrawContext;
 use super::mesh_draw::{CollectMeshDrawsContext, collect_mesh_draws};
+use crate::assets::texture2d_asset_id_from_packed;
+use crate::assets::{ui_text_unlit_material_uniform, ui_unlit_material_uniform};
+use crate::gpu::GpuState;
+use crate::gpu::PipelineVariant;
 use crate::render::batch::SpaceDrawBatch;
 use crate::render::view::ViewParams;
 use crate::session::Session;
@@ -156,6 +168,7 @@ pub fn prepare_mesh_draws_for_view(
     viewport: (u32, u32),
 ) -> PreCollectedFrameData {
     ensure_mesh_buffers(gpu, session, draw_batches);
+    prefetch_native_ui_texture2d_gpu(session, gpu, draw_batches);
     let (width, height) = viewport;
     let aspect = width as f32 / height.max(1) as f32;
     let view_params = ViewParams::perspective_from_session(session, aspect);
@@ -175,6 +188,59 @@ pub fn prepare_mesh_draws_for_view(
         cached_mesh_draws,
         prep_stats,
     }
+}
+
+/// Uploads host `Texture2D` mips referenced by native UI materials before pass encoding.
+fn prefetch_native_ui_texture2d_gpu(
+    session: &Session,
+    gpu: &mut GpuState,
+    batches: &[SpaceDrawBatch],
+) {
+    let rc = session.render_config();
+    if !rc.use_native_ui_wgsl {
+        return;
+    }
+    let reg = session.asset_registry();
+    let store = &reg.material_property_store;
+    for batch in batches {
+        for d in &batch.draws {
+            let (material_id, is_ui_unlit) = match d.pipeline_variant {
+                PipelineVariant::NativeUiUnlit { material_id }
+                | PipelineVariant::NativeUiUnlitStencil { material_id } => (material_id, true),
+                PipelineVariant::NativeUiTextUnlit { material_id }
+                | PipelineVariant::NativeUiTextUnlitStencil { material_id } => (material_id, false),
+                _ => continue,
+            };
+            let lookup = MaterialDrawContext::for_non_skinned_draw(
+                material_id,
+                d.mesh_renderer_property_block_slot0_id,
+            )
+            .property_lookup;
+            if is_ui_unlit {
+                let (_, main_tex, mask_tex) =
+                    ui_unlit_material_uniform(store, lookup, &rc.ui_unlit_property_ids);
+                prefetch_packed_texture2d(gpu, reg, main_tex);
+                prefetch_packed_texture2d(gpu, reg, mask_tex);
+            } else {
+                let (_, atlas) =
+                    ui_text_unlit_material_uniform(store, lookup, &rc.ui_text_unlit_property_ids);
+                prefetch_packed_texture2d(gpu, reg, atlas);
+            }
+        }
+    }
+}
+
+fn prefetch_packed_texture2d(gpu: &mut GpuState, reg: &crate::assets::AssetRegistry, packed: i32) {
+    if packed == 0 {
+        return;
+    }
+    let Some(tex_id) = texture2d_asset_id_from_packed(packed) else {
+        return;
+    };
+    let Some(tex) = reg.get_texture(tex_id) else {
+        return;
+    };
+    let _ = gpu.ensure_texture2d_gpu(tex_id, tex);
 }
 
 /// Ensures all meshes referenced by draw batches are in the GPU mesh buffer cache.

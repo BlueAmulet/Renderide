@@ -35,6 +35,8 @@ impl Asset for TextureAsset {
 }
 
 /// Converts raw mip0 bytes from the host into tight RGBA8 (row-major, top row first after optional flip).
+///
+/// `rgb565` uses `RRRRR GGGGGG BBBBB` in the 16-bit word; `bgr565` uses `BBBBB GGGGGG RRRRR`.
 pub fn decode_texture_mip0_to_rgba8(
     format: TextureFormat,
     width: u32,
@@ -130,6 +132,35 @@ pub fn decode_texture_mip0_to_rgba8(
             }
             Some(out)
         }
+        TextureFormat::rgb565 | TextureFormat::bgr565 => {
+            let need = count.checked_mul(2)?;
+            if raw.len() < need {
+                return None;
+            }
+            let mut out = Vec::with_capacity(count * 4);
+            for chunk in raw[..need].chunks_exact(2) {
+                let v = u16::from_le_bytes([chunk[0], chunk[1]]);
+                let (r5, g6, b5) = if format == TextureFormat::bgr565 {
+                    let b5 = (v >> 11) & 0x1f;
+                    let g6 = (v >> 5) & 0x3f;
+                    let r5 = v & 0x1f;
+                    (r5, g6, b5)
+                } else {
+                    let r5 = (v >> 11) & 0x1f;
+                    let g6 = (v >> 5) & 0x3f;
+                    let b5 = v & 0x1f;
+                    (r5, g6, b5)
+                };
+                let r = ((u32::from(r5) * 255 + 15) / 31) as u8;
+                let g = ((u32::from(g6) * 255 + 31) / 63) as u8;
+                let b = ((u32::from(b5) * 255 + 15) / 31) as u8;
+                out.extend_from_slice(&[r, g, b, 255]);
+            }
+            if flip_y {
+                flip_rgba_image_rows(&mut out, w, h);
+            }
+            Some(out)
+        }
         _ => None,
     }
 }
@@ -190,5 +221,25 @@ mod tests {
         flip_rgba_image_rows(&mut v, 2, 2);
         assert_eq!(v[0..4], [3, 0, 0, 0]);
         assert_eq!(v[4..8], [4, 0, 0, 0]);
+    }
+
+    /// Full red in RGB565: `R=31`, `G=0`, `B=0` → `0xF800` LE `[0x00, 0xF8]`.
+    #[test]
+    fn rgb565_decodes_to_rgba() {
+        let raw = vec![0x00u8, 0xF8];
+        let out =
+            decode_texture_mip0_to_rgba8(TextureFormat::rgb565, 1, 1, false, &raw).expect("ok");
+        assert_eq!(out.len(), 4);
+        assert!(out[0] >= 250 && out[1] < 5 && out[2] < 5 && out[3] == 255);
+    }
+
+    /// Full blue in BGR565: `B=31`, `G=0`, `R=0` → high 5 bits blue → `0xF800` LE `[0x00, 0xF8]`.
+    #[test]
+    fn bgr565_decodes_to_rgba() {
+        let raw = vec![0x00u8, 0xF8];
+        let out =
+            decode_texture_mip0_to_rgba8(TextureFormat::bgr565, 1, 1, false, &raw).expect("ok");
+        assert_eq!(out.len(), 4);
+        assert!(out[2] >= 250 && out[1] < 5 && out[0] < 5 && out[3] == 255);
     }
 }

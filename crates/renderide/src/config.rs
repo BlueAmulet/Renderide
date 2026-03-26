@@ -373,11 +373,22 @@ pub struct RenderConfig {
     /// Material property indices for native `UI_TextUnlit`.
     pub ui_text_unlit_property_ids: UiTextUnlitPropertyIds,
     /// When true, non-overlay draws with UV0-only UI meshes may use native UI WGSL in the main pass.
+    ///
+    /// World-space Canvas / 3D UI needs this enabled; screen overlay batches do not.
     pub native_ui_world_space: bool,
     /// When true, overlay draws with GraphicsChunk stencil may use native UI stencil pipelines.
     pub native_ui_overlay_stencil_pipelines: bool,
     /// Trace logs for native UI routing decisions (can be noisy).
     pub log_native_ui_routing: bool,
+    /// When true and global PBR is on, UI-capable meshes that fail native UI routing use
+    /// [`crate::gpu::PipelineVariant::Pbr`]. When false (default), they keep the non-PBR fallback
+    /// from [`crate::gpu::ShaderKey::fallback_variant`] (e.g. NormalDebug on overlay) so UI is not
+    /// forced through an untextured PBR path.
+    pub native_ui_uivert_pbr_fallback: bool,
+    /// When true, each `shader_upload` whose path matches `UI_Unlit` / `UI_TextUnlit` overwrites
+    /// [`Self::native_ui_unlit_shader_id`] / [`Self::native_ui_text_unlit_shader_id`] even if
+    /// already set (e.g. fixes stale INI ids vs host).
+    pub native_ui_force_shader_hint_registration: bool,
     /// Default native UI surface blend when `_SrcBlend` / `_DstBlend` are not mapped or missing.
     pub native_ui_default_surface_blend: NativeUiSurfaceBlend,
 }
@@ -806,6 +817,33 @@ fn apply_render_config_ini_entry(config: &mut RenderConfig, section: &str, key: 
                 );
             }
         }
+        ("rendering", "native_ui_uivert_pbr_fallback") => {
+            if let Some(v) = parse_bool(value) {
+                config.native_ui_uivert_pbr_fallback = v;
+                eprintln!("[renderide] ini: native_ui_uivert_pbr_fallback = {}", v);
+                logger::info!("ini: native_ui_uivert_pbr_fallback = {}", v);
+            } else {
+                eprintln!(
+                    "[renderide] ini: native_ui_uivert_pbr_fallback parse error (raw = {:?})",
+                    value
+                );
+            }
+        }
+        ("rendering", "native_ui_force_shader_hint_registration") => {
+            if let Some(v) = parse_bool(value) {
+                config.native_ui_force_shader_hint_registration = v;
+                eprintln!(
+                    "[renderide] ini: native_ui_force_shader_hint_registration = {}",
+                    v
+                );
+                logger::info!("ini: native_ui_force_shader_hint_registration = {}", v);
+            } else {
+                eprintln!(
+                    "[renderide] ini: native_ui_force_shader_hint_registration parse error (raw = {:?})",
+                    value
+                );
+            }
+        }
         ("rendering", "native_ui_default_surface_blend") => {
             if let Some(v) = NativeUiSurfaceBlend::parse_ini(value) {
                 config.native_ui_default_surface_blend = v;
@@ -902,7 +940,10 @@ impl RenderConfig {
     ///   `ray_tracing_enabled`, `debug_skinned`, `debug_blendshapes`, `skinned_flip_handedness`,
     ///   `parallel_mesh_draw_prep_batches`, `log_collect_draw_batches_timing` (bools); `rtao_enabled`,
     ///   `ray_traced_shadows_enabled` (bools); `rtao_strength`, `ao_radius` (floats); `frustum_culling` (bool);
-    ///   `use_native_ui_wgsl` (bool); `native_ui_unlit_shader_id`, `native_ui_text_unlit_shader_id` (ints, `-1` off).
+    ///   `use_native_ui_wgsl` (bool); `native_ui_unlit_shader_id`, `native_ui_text_unlit_shader_id` (ints, `-1` off);
+    ///   `native_ui_world_space`, `native_ui_overlay_stencil_pipelines`, `log_native_ui_routing` (bools);
+    ///   `native_ui_uivert_pbr_fallback`, `native_ui_force_shader_hint_registration` (bools);
+    ///   `native_ui_default_surface_blend` (`alpha` / `additive` / …).
     /// - **`[native_ui_unlit_properties]`** / **`[native_ui_text_unlit_properties]`** — integer material
     ///   property ids for native UI WGSL (see [`crate::assets::ui_material_contract`]). Host
     ///   `material_property_id_request` can also populate these when [`RenderConfig::use_native_ui_wgsl`] is true.
@@ -924,6 +965,9 @@ impl RenderConfig {
     /// - `RENDERIDE_NATIVE_UI_WGSL=1` — enables [`Self::use_native_ui_wgsl`].
     /// - `RENDERIDE_NATIVE_UI_UNLIT_SHADER_ID` / `RENDERIDE_NATIVE_UI_TEXT_UNLIT_SHADER_ID` — host shader
     ///   asset ids for the native UI allowlist (integers; unset leaves INI/default).
+    /// - `RENDERIDE_NATIVE_UI_WORLD_SPACE=1` — [`Self::native_ui_world_space`].
+    /// - `RENDERIDE_NATIVE_UI_UIVERT_PBR_FALLBACK=true|false` — [`Self::native_ui_uivert_pbr_fallback`].
+    /// - `RENDERIDE_NATIVE_UI_FORCE_SHADER_HINT_REGISTRATION=1` — [`Self::native_ui_force_shader_hint_registration`].
     pub fn load() -> Self {
         let mut config = Self::default();
 
@@ -1047,6 +1091,15 @@ impl RenderConfig {
         {
             config.native_ui_text_unlit_shader_id = v;
         }
+        if let Ok(s) = std::env::var("RENDERIDE_NATIVE_UI_UIVERT_PBR_FALLBACK")
+            && let Some(v) = parse_bool(&s)
+        {
+            config.native_ui_uivert_pbr_fallback = v;
+        }
+        if std::env::var("RENDERIDE_NATIVE_UI_FORCE_SHADER_HINT_REGISTRATION").as_deref() == Ok("1")
+        {
+            config.native_ui_force_shader_hint_registration = true;
+        }
         config
     }
 }
@@ -1091,6 +1144,8 @@ impl Default for RenderConfig {
             native_ui_world_space: false,
             native_ui_overlay_stencil_pipelines: false,
             log_native_ui_routing: false,
+            native_ui_uivert_pbr_fallback: false,
+            native_ui_force_shader_hint_registration: false,
             native_ui_default_surface_blend: NativeUiSurfaceBlend::Alpha,
         }
     }
@@ -1216,5 +1271,31 @@ native_ui_default_surface_blend = additive
             c.native_ui_default_surface_blend,
             crate::assets::NativeUiSurfaceBlend::Additive
         );
+    }
+
+    #[test]
+    fn apply_ini_native_ui_uivert_pbr_fallback() {
+        let ini = r#"
+[rendering]
+native_ui_uivert_pbr_fallback = true
+"#;
+        let mut c = RenderConfig::default();
+        for (section, key, value) in parse_ini(ini) {
+            apply_render_config_ini_entry(&mut c, &section, &key, &value);
+        }
+        assert!(c.native_ui_uivert_pbr_fallback);
+    }
+
+    #[test]
+    fn apply_ini_native_ui_force_shader_hint_registration() {
+        let ini = r#"
+[rendering]
+native_ui_force_shader_hint_registration = true
+"#;
+        let mut c = RenderConfig::default();
+        for (section, key, value) in parse_ini(ini) {
+            apply_render_config_ini_entry(&mut c, &section, &key, &value);
+        }
+        assert!(c.native_ui_force_shader_hint_registration);
     }
 }

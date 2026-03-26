@@ -296,6 +296,12 @@ impl AssetRegistry {
         self.meshes.remove(asset_id);
         self.unload_count += 1;
     }
+
+    /// Inserts a mesh for unit tests (bypasses IPC upload layout).
+    #[cfg(test)]
+    pub(crate) fn insert_mesh_for_tests(&mut self, mesh: MeshAsset) {
+        let _ = self.meshes.insert(mesh);
+    }
 }
 
 impl Default for AssetRegistry {

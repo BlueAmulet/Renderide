@@ -143,13 +143,15 @@ pub(crate) fn apply_native_ui_pipeline_variant(
 }
 
 /// When native UI WGSL is on and the mesh has UI-capable vertices but the shader is not mapped to
-/// native UI, fall back to [`PipelineVariant::Pbr`] if global PBR is enabled.
+/// native UI, optionally force [`PipelineVariant::Pbr`] (legacy). By default keeps
+/// `fallback_variant` so overlay UI stays on unlit debug-style paths instead of untextured PBR.
 pub(crate) fn apply_ui_mesh_pbr_fallback_for_non_native_shader(
     render_config: &RenderConfig,
     asset_registry: &AssetRegistry,
     drawable: &Drawable,
     pipeline_variant: PipelineVariant,
     use_pbr: bool,
+    fallback_variant: PipelineVariant,
 ) -> PipelineVariant {
     if !render_config.use_native_ui_wgsl || !use_pbr || drawable.is_skinned {
         return pipeline_variant;
@@ -169,7 +171,11 @@ pub(crate) fn apply_ui_mesh_pbr_fallback_for_non_native_shader(
     ) {
         return pipeline_variant;
     }
-    PipelineVariant::Pbr
+    if render_config.native_ui_uivert_pbr_fallback {
+        PipelineVariant::Pbr
+    } else {
+        fallback_variant
+    }
 }
 
 /// Filtered drawable with world matrix and pipeline variant.
@@ -308,6 +314,7 @@ pub(super) fn filter_and_collect_drawables(
             &drawable,
             pipeline_variant,
             use_pbr,
+            fallback_variant,
         );
         out.push(FilteredDrawable {
             drawable,
@@ -481,14 +488,19 @@ fn compute_pipeline_variant(
 #[cfg(test)]
 mod tests {
     use super::{
-        AssetRegistry, FilteredDrawable, apply_native_ui_pipeline_variant, build_draw_entries,
-        create_space_batch, mesh_has_ui_canvas_vertices,
+        AssetRegistry, FilteredDrawable, apply_native_ui_pipeline_variant,
+        apply_ui_mesh_pbr_fallback_for_non_native_shader, build_draw_entries, create_space_batch,
+        mesh_has_ui_canvas_vertices,
     };
+    use crate::assets::mesh::MeshAsset;
     use crate::config::{RenderConfig, ShaderDebugOverride};
     use crate::gpu::{PipelineVariant, ShaderKey};
     use crate::render::batch::DrawEntry;
     use crate::scene::{Drawable, Scene};
-    use crate::shared::ShadowCastMode;
+    use crate::shared::{
+        IndexBufferFormat, RenderBoundingBox, ShadowCastMode, VertexAttributeDescriptor,
+        VertexAttributeFormat, VertexAttributeType,
+    };
     use glam::Mat4;
 
     fn make_scene(space_id: i32, is_overlay: bool) -> Scene {
@@ -642,5 +654,78 @@ mod tests {
             &reg,
         );
         assert_eq!(v, PipelineVariant::NormalDebug);
+    }
+
+    fn mesh_with_uv0(id: i32) -> MeshAsset {
+        MeshAsset {
+            id,
+            vertex_data: Vec::new(),
+            index_data: Vec::new(),
+            vertex_count: 0,
+            index_count: 0,
+            index_format: IndexBufferFormat::u_int16,
+            submeshes: Vec::new(),
+            vertex_attributes: vec![VertexAttributeDescriptor {
+                attribute: VertexAttributeType::uv0,
+                format: VertexAttributeFormat::float32,
+                dimensions: 4,
+            }],
+            bounds: RenderBoundingBox::default(),
+            bind_poses: None,
+            bone_counts: None,
+            bone_weights: None,
+            blendshape_offsets: None,
+            num_blendshapes: 0,
+        }
+    }
+
+    #[test]
+    fn ui_mesh_pbr_fallback_default_keeps_fallback_variant() {
+        let mut reg = AssetRegistry::new();
+        reg.insert_mesh_for_tests(mesh_with_uv0(9));
+        let drawable = Drawable {
+            mesh_handle: 9,
+            ..Default::default()
+        };
+        let rc = RenderConfig {
+            use_native_ui_wgsl: true,
+            use_pbr: true,
+            native_ui_uivert_pbr_fallback: false,
+            ..Default::default()
+        };
+        let v = apply_ui_mesh_pbr_fallback_for_non_native_shader(
+            &rc,
+            &reg,
+            &drawable,
+            PipelineVariant::NormalDebug,
+            true,
+            PipelineVariant::NormalDebug,
+        );
+        assert_eq!(v, PipelineVariant::NormalDebug);
+    }
+
+    #[test]
+    fn ui_mesh_pbr_fallback_legacy_forces_pbr() {
+        let mut reg = AssetRegistry::new();
+        reg.insert_mesh_for_tests(mesh_with_uv0(9));
+        let drawable = Drawable {
+            mesh_handle: 9,
+            ..Default::default()
+        };
+        let rc = RenderConfig {
+            use_native_ui_wgsl: true,
+            use_pbr: true,
+            native_ui_uivert_pbr_fallback: true,
+            ..Default::default()
+        };
+        let v = apply_ui_mesh_pbr_fallback_for_non_native_shader(
+            &rc,
+            &reg,
+            &drawable,
+            PipelineVariant::NormalDebug,
+            true,
+            PipelineVariant::NormalDebug,
+        );
+        assert_eq!(v, PipelineVariant::Pbr);
     }
 }

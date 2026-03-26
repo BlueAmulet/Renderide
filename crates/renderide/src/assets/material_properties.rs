@@ -19,6 +19,16 @@
 //!   - Other types: skipped (value size unknown)
 //!
 //! Bounds checks: we stop parsing when remaining bytes are insufficient for the next record.
+//!
+//! ## Block id vs drawable material handle (native UI routing)
+//!
+//! [`MaterialPropertyStore::shader_asset_for_block`] and property lookups use the **block id** from
+//! each batch’s `select_target` before `set_shader` / `set_texture` / etc. Drawables resolve that
+//! block id from the host material slot (typically slot 0’s material asset id). If the host sends
+//! material updates under a **different** `select_target` than the drawable’s `material_handle`,
+//! the store will not find the shader or textures for native UI routing; fixing that is a host /
+//! scene contract issue (align batch block id with the drawable’s material id), not something the
+//! renderer can infer safely.
 
 use std::collections::HashMap;
 
