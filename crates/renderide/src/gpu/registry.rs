@@ -7,7 +7,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::assets::MaterialPropertyStore;
+use crate::assets::{
+    MaterialPropertyStore, resolve_native_ui_surface_blend_text,
+    resolve_native_ui_surface_blend_unlit,
+};
+use crate::config::RenderConfig;
 
 use super::pipeline::mrt::create_mrt_gbuffer_origin_bind_group_layout;
 use super::pipeline::{
@@ -255,6 +259,7 @@ impl PipelineRegistry {
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         material_store: Option<&MaterialPropertyStore>,
+        render_config: &RenderConfig,
     ) -> Option<Arc<dyn RenderPipeline>> {
         if let Some(p) = self.pipelines.get(&key) {
             return Some(Arc::clone(p));
@@ -279,13 +284,20 @@ impl PipelineRegistry {
             PipelineVariant::NativeUiUnlit { material_id } => {
                 let store = material_store?;
                 let shader_id = store.shader_asset_for_block(*material_id)?;
-                let dk = PipelineDescriptorCache::native_ui_unlit_key(shader_id, config.format);
+                let blend = resolve_native_ui_surface_blend_unlit(
+                    store,
+                    *material_id,
+                    &render_config.ui_unlit_property_ids,
+                    render_config.native_ui_default_surface_blend,
+                );
+                let dk =
+                    PipelineDescriptorCache::native_ui_unlit_key(shader_id, config.format, blend);
                 let pipeline: Arc<dyn RenderPipeline> =
                     if let Some(p) = self.descriptor_cache.get(dk) {
                         p
                     } else {
                         let p: Arc<dyn RenderPipeline> =
-                            Arc::new(UiUnlitNativePipeline::new(device, config));
+                            Arc::new(UiUnlitNativePipeline::new(device, config, blend));
                         self.descriptor_cache.insert(dk, Arc::clone(&p));
                         p
                     };
@@ -295,13 +307,20 @@ impl PipelineRegistry {
             PipelineVariant::NativeUiTextUnlit { material_id } => {
                 let store = material_store?;
                 let shader_id = store.shader_asset_for_block(*material_id)?;
-                let dk = PipelineDescriptorCache::native_ui_text_key(shader_id, config.format);
+                let blend = resolve_native_ui_surface_blend_text(
+                    store,
+                    *material_id,
+                    &render_config.ui_text_unlit_property_ids,
+                    render_config.native_ui_default_surface_blend,
+                );
+                let dk =
+                    PipelineDescriptorCache::native_ui_text_key(shader_id, config.format, blend);
                 let pipeline: Arc<dyn RenderPipeline> =
                     if let Some(p) = self.descriptor_cache.get(dk) {
                         p
                     } else {
                         let p: Arc<dyn RenderPipeline> =
-                            Arc::new(UiTextUnlitNativePipeline::new(device, config));
+                            Arc::new(UiTextUnlitNativePipeline::new(device, config, blend));
                         self.descriptor_cache.insert(dk, Arc::clone(&p));
                         p
                     };
@@ -311,14 +330,24 @@ impl PipelineRegistry {
             PipelineVariant::NativeUiUnlitStencil { material_id } => {
                 let store = material_store?;
                 let shader_id = store.shader_asset_for_block(*material_id)?;
-                let dk =
-                    PipelineDescriptorCache::native_ui_unlit_stencil_key(shader_id, config.format);
+                let blend = resolve_native_ui_surface_blend_unlit(
+                    store,
+                    *material_id,
+                    &render_config.ui_unlit_property_ids,
+                    render_config.native_ui_default_surface_blend,
+                );
+                let dk = PipelineDescriptorCache::native_ui_unlit_stencil_key(
+                    shader_id,
+                    config.format,
+                    blend,
+                );
                 let pipeline: Arc<dyn RenderPipeline> =
                     if let Some(p) = self.descriptor_cache.get(dk) {
                         p
                     } else {
-                        let p: Arc<dyn RenderPipeline> =
-                            Arc::new(UiUnlitNativePipeline::new_with_stencil(device, config));
+                        let p: Arc<dyn RenderPipeline> = Arc::new(
+                            UiUnlitNativePipeline::new_with_stencil(device, config, blend),
+                        );
                         self.descriptor_cache.insert(dk, Arc::clone(&p));
                         p
                     };
@@ -328,14 +357,24 @@ impl PipelineRegistry {
             PipelineVariant::NativeUiTextUnlitStencil { material_id } => {
                 let store = material_store?;
                 let shader_id = store.shader_asset_for_block(*material_id)?;
-                let dk =
-                    PipelineDescriptorCache::native_ui_text_stencil_key(shader_id, config.format);
+                let blend = resolve_native_ui_surface_blend_text(
+                    store,
+                    *material_id,
+                    &render_config.ui_text_unlit_property_ids,
+                    render_config.native_ui_default_surface_blend,
+                );
+                let dk = PipelineDescriptorCache::native_ui_text_stencil_key(
+                    shader_id,
+                    config.format,
+                    blend,
+                );
                 let pipeline: Arc<dyn RenderPipeline> =
                     if let Some(p) = self.descriptor_cache.get(dk) {
                         p
                     } else {
-                        let p: Arc<dyn RenderPipeline> =
-                            Arc::new(UiTextUnlitNativePipeline::new_with_stencil(device, config));
+                        let p: Arc<dyn RenderPipeline> = Arc::new(
+                            UiTextUnlitNativePipeline::new_with_stencil(device, config, blend),
+                        );
                         self.descriptor_cache.insert(dk, Arc::clone(&p));
                         p
                     };
@@ -496,9 +535,10 @@ impl PipelineManager {
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         material_store: Option<&MaterialPropertyStore>,
+        render_config: &RenderConfig,
     ) -> Option<Arc<dyn RenderPipeline>> {
         self.registry
-            .get_or_create(key, device, config, material_store)
+            .get_or_create(key, device, config, material_store, render_config)
     }
 
     /// Evicts pipelines for the given material. Call when a material is unloaded.

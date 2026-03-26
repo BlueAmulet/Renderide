@@ -133,6 +133,9 @@ pub struct Drawable {
     /// Material override block ID for stencil lookup. Set from RenderMaterialOverridesUpdate when
     /// the host sends material override states; used for later stencil/property block binding.
     pub material_override_block_id: Option<i32>,
+    /// First per-slot `MaterialPropertyBlock` asset id from `mesh_materials_and_property_blocks`
+    /// (Renderite `MeshRendererManager`), when `materialPropertyBlockCount >= 0`.
+    pub mesh_renderer_property_block_slot0_id: Option<i32>,
     /// Per-skinned-mesh-renderer transform override (e.g. cloud-spawned avatars). When set,
     /// replaces the node's world matrix when rendering. From RenderTransformOverridesUpdate.
     pub render_transform_override: Option<RenderTransform>,
@@ -155,6 +158,7 @@ impl Default for Drawable {
             blend_shape_weights: None,
             stencil_state: None,
             material_override_block_id: None,
+            mesh_renderer_property_block_slot0_id: None,
             render_transform_override: None,
             shadow_cast_mode: ShadowCastMode::on,
         }

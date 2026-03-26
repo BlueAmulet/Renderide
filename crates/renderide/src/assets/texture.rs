@@ -46,12 +46,40 @@ pub fn decode_texture_mip0_to_rgba8(
     let h = height as usize;
     let count = w.checked_mul(h)?;
     match format {
+        TextureFormat::rgb24 => {
+            let need = count.checked_mul(3)?;
+            if raw.len() < need {
+                return None;
+            }
+            let mut out = Vec::with_capacity(count * 4);
+            for p in raw[..need].chunks_exact(3) {
+                out.extend_from_slice(&[p[0], p[1], p[2], 255]);
+            }
+            if flip_y {
+                flip_rgba_image_rows(&mut out, w, h);
+            }
+            Some(out)
+        }
         TextureFormat::rgba32 => {
             let need = count.checked_mul(4)?;
             if raw.len() < need {
                 return None;
             }
             let mut out = raw[..need].to_vec();
+            if flip_y {
+                flip_rgba_image_rows(&mut out, w, h);
+            }
+            Some(out)
+        }
+        TextureFormat::argb32 => {
+            let need = count.checked_mul(4)?;
+            if raw.len() < need {
+                return None;
+            }
+            let mut out = Vec::with_capacity(need);
+            for p in raw[..need].chunks_exact(4) {
+                out.extend_from_slice(&[p[1], p[2], p[3], p[0]]);
+            }
             if flip_y {
                 flip_rgba_image_rows(&mut out, w, h);
             }
@@ -135,6 +163,22 @@ mod tests {
         let out =
             decode_texture_mip0_to_rgba8(TextureFormat::rgba32, 2, 1, false, &raw).expect("ok");
         assert_eq!(out.len(), 8);
+    }
+
+    #[test]
+    fn rgb24_expands_to_rgba() {
+        let raw = vec![10u8, 20, 30, 40, 50, 60];
+        let out =
+            decode_texture_mip0_to_rgba8(TextureFormat::rgb24, 2, 1, false, &raw).expect("ok");
+        assert_eq!(out, vec![10, 20, 30, 255, 40, 50, 60, 255]);
+    }
+
+    #[test]
+    fn argb32_swizzles_to_rgba() {
+        let raw = vec![255u8, 1, 2, 3];
+        let out =
+            decode_texture_mip0_to_rgba8(TextureFormat::argb32, 1, 1, false, &raw).expect("ok");
+        assert_eq!(out, vec![1, 2, 3, 255]);
     }
 
     #[test]

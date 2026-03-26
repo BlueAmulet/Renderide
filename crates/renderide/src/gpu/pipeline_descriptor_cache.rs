@@ -8,6 +8,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
+use crate::assets::NativeUiSurfaceBlend;
+
 use super::PipelineVariant;
 use super::pipeline::RenderPipeline;
 
@@ -43,20 +45,30 @@ impl PipelineDescriptorCache {
     }
 
     /// Hash for native [`crate::gpu::pipeline::UiUnlitNativePipeline`] keyed by shader asset id.
-    pub(crate) fn native_ui_unlit_key(shader_asset_id: i32, format: wgpu::TextureFormat) -> u64 {
+    pub(crate) fn native_ui_unlit_key(
+        shader_asset_id: i32,
+        format: wgpu::TextureFormat,
+        surface_blend: NativeUiSurfaceBlend,
+    ) -> u64 {
         let mut h = DefaultHasher::new();
         NATIVE_UI_UNLIT_TAG.hash(&mut h);
         shader_asset_id.hash(&mut h);
         format.hash(&mut h);
+        surface_blend.hash(&mut h);
         h.finish()
     }
 
     /// Hash for native [`crate::gpu::pipeline::UiTextUnlitNativePipeline`].
-    pub(crate) fn native_ui_text_key(shader_asset_id: i32, format: wgpu::TextureFormat) -> u64 {
+    pub(crate) fn native_ui_text_key(
+        shader_asset_id: i32,
+        format: wgpu::TextureFormat,
+        surface_blend: NativeUiSurfaceBlend,
+    ) -> u64 {
         let mut h = DefaultHasher::new();
         NATIVE_UI_TEXT_TAG.hash(&mut h);
         shader_asset_id.hash(&mut h);
         format.hash(&mut h);
+        surface_blend.hash(&mut h);
         h.finish()
     }
 
@@ -64,11 +76,13 @@ impl PipelineDescriptorCache {
     pub(crate) fn native_ui_unlit_stencil_key(
         shader_asset_id: i32,
         format: wgpu::TextureFormat,
+        surface_blend: NativeUiSurfaceBlend,
     ) -> u64 {
         let mut h = DefaultHasher::new();
         NATIVE_UI_UNLIT_STENCIL_TAG.hash(&mut h);
         shader_asset_id.hash(&mut h);
         format.hash(&mut h);
+        surface_blend.hash(&mut h);
         h.finish()
     }
 
@@ -76,11 +90,13 @@ impl PipelineDescriptorCache {
     pub(crate) fn native_ui_text_stencil_key(
         shader_asset_id: i32,
         format: wgpu::TextureFormat,
+        surface_blend: NativeUiSurfaceBlend,
     ) -> u64 {
         let mut h = DefaultHasher::new();
         NATIVE_UI_TEXT_STENCIL_TAG.hash(&mut h);
         shader_asset_id.hash(&mut h);
         format.hash(&mut h);
+        surface_blend.hash(&mut h);
         h.finish()
     }
 
@@ -100,31 +116,50 @@ impl PipelineDescriptorCache {
 
     /// Drops cached native UI pipelines for `shader_asset_id` (e.g. shader unload).
     pub(crate) fn remove_native_ui(&mut self, shader_asset_id: i32, format: wgpu::TextureFormat) {
-        self.entries
-            .remove(&Self::native_ui_unlit_key(shader_asset_id, format));
-        self.entries
-            .remove(&Self::native_ui_text_key(shader_asset_id, format));
-        self.entries
-            .remove(&Self::native_ui_unlit_stencil_key(shader_asset_id, format));
-        self.entries
-            .remove(&Self::native_ui_text_stencil_key(shader_asset_id, format));
+        for b in [NativeUiSurfaceBlend::Alpha, NativeUiSurfaceBlend::Additive] {
+            self.entries
+                .remove(&Self::native_ui_unlit_key(shader_asset_id, format, b));
+            self.entries
+                .remove(&Self::native_ui_text_key(shader_asset_id, format, b));
+            self.entries.remove(&Self::native_ui_unlit_stencil_key(
+                shader_asset_id,
+                format,
+                b,
+            ));
+            self.entries.remove(&Self::native_ui_text_stencil_key(
+                shader_asset_id,
+                format,
+                b,
+            ));
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::PipelineDescriptorCache;
+    use crate::assets::NativeUiSurfaceBlend;
     use wgpu::TextureFormat;
 
     #[test]
     fn native_ui_cache_keys_differ_from_host_unlit_and_each_other() {
         let fmt = TextureFormat::Bgra8UnormSrgb;
         let sid = 100_i32;
-        let u = PipelineDescriptorCache::native_ui_unlit_key(sid, fmt);
-        let t = PipelineDescriptorCache::native_ui_text_key(sid, fmt);
+        let b = NativeUiSurfaceBlend::Alpha;
+        let u = PipelineDescriptorCache::native_ui_unlit_key(sid, fmt, b);
+        let t = PipelineDescriptorCache::native_ui_text_key(sid, fmt, b);
         let h = PipelineDescriptorCache::host_unlit_key(sid, fmt);
         assert_ne!(u, t);
         assert_ne!(u, h);
         assert_ne!(t, h);
+    }
+
+    #[test]
+    fn native_ui_blend_changes_cache_key() {
+        let fmt = TextureFormat::Bgra8UnormSrgb;
+        let a = PipelineDescriptorCache::native_ui_unlit_key(1, fmt, NativeUiSurfaceBlend::Alpha);
+        let m =
+            PipelineDescriptorCache::native_ui_unlit_key(1, fmt, NativeUiSurfaceBlend::Additive);
+        assert_ne!(a, m);
     }
 }

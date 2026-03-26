@@ -142,6 +142,36 @@ pub(crate) fn apply_native_ui_pipeline_variant(
     }
 }
 
+/// When native UI WGSL is on and the mesh has UI-capable vertices but the shader is not mapped to
+/// native UI, fall back to [`PipelineVariant::Pbr`] if global PBR is enabled.
+pub(crate) fn apply_ui_mesh_pbr_fallback_for_non_native_shader(
+    render_config: &RenderConfig,
+    asset_registry: &AssetRegistry,
+    drawable: &Drawable,
+    pipeline_variant: PipelineVariant,
+    use_pbr: bool,
+) -> PipelineVariant {
+    if !render_config.use_native_ui_wgsl || !use_pbr || drawable.is_skinned {
+        return pipeline_variant;
+    }
+    if drawable.stencil_state.is_some() {
+        return pipeline_variant;
+    }
+    if !mesh_has_native_ui_vertices(asset_registry, drawable.mesh_handle) {
+        return pipeline_variant;
+    }
+    if matches!(
+        pipeline_variant,
+        PipelineVariant::NativeUiUnlit { .. }
+            | PipelineVariant::NativeUiTextUnlit { .. }
+            | PipelineVariant::NativeUiUnlitStencil { .. }
+            | PipelineVariant::NativeUiTextUnlitStencil { .. }
+    ) {
+        return pipeline_variant;
+    }
+    PipelineVariant::Pbr
+}
+
 /// Filtered drawable with world matrix and pipeline variant.
 ///
 /// Output of [`filter_and_collect_drawables`]; input to [`build_draw_entries`].
@@ -272,6 +302,13 @@ pub(super) fn filter_and_collect_drawables(
             pipeline_variant,
             asset_registry,
         );
+        let pipeline_variant = apply_ui_mesh_pbr_fallback_for_non_native_shader(
+            render_config,
+            asset_registry,
+            &drawable,
+            pipeline_variant,
+            use_pbr,
+        );
         out.push(FilteredDrawable {
             drawable,
             world_matrix,
@@ -317,6 +354,9 @@ pub(super) fn build_draw_entries(filtered: Vec<FilteredDrawable>) -> Vec<DrawEnt
                 shader_key: f.shader_key,
                 stencil_state: f.drawable.stencil_state,
                 shadow_cast_mode: f.drawable.shadow_cast_mode,
+                mesh_renderer_property_block_slot0_id: f
+                    .drawable
+                    .mesh_renderer_property_block_slot0_id,
             }
         })
         .collect()
@@ -484,6 +524,7 @@ mod tests {
             shader_key: ShaderKey::builtin_only(PipelineVariant::NormalDebug),
             stencil_state: None,
             shadow_cast_mode: crate::shared::ShadowCastMode::on,
+            mesh_renderer_property_block_slot0_id: None,
         };
         let batch = create_space_batch(5, &scene, vec![draw], None);
         let batch = batch.expect("should have batch");

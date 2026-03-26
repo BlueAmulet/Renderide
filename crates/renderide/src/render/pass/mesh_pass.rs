@@ -125,6 +125,13 @@ impl RenderPass for MeshRenderPass {
                 .write_mrt_gbuffer_origin(&ctx.gpu.queue, mrt_world_origin);
         }
 
+        let rc = ctx.session.render_config();
+        if rc.use_native_ui_wgsl {
+            ctx.gpu
+                .update_native_ui_overlay_unproject(&ctx.proj, &ctx.proj);
+            ctx.gpu.ensure_native_ui_depth_fallback_bind_group();
+        }
+
         let use_ray_tracing_scene_early = {
             let rt = ctx.gpu.ray_tracing_state.as_ref();
             ctx.session.render_config().ray_traced_shadows_enabled
@@ -174,7 +181,6 @@ impl RenderPass for MeshRenderPass {
             None
         };
 
-        let rc = ctx.session.render_config();
         let shadow_mode = if self.rtao_mrt_graph
             && rc.ray_traced_shadows_use_compute
             && rc.ray_traced_shadows_enabled
@@ -270,6 +276,12 @@ impl RenderPass for MeshRenderPass {
             }
         };
 
+        let native_ui_depth_bind_mesh = if rc.use_native_ui_wgsl {
+            ctx.gpu.native_ui_depth_fallback_bind_group.as_ref()
+        } else {
+            None
+        };
+
         let mut draw_params = MeshDrawParams {
             pipeline_manager: ctx.pipeline_manager,
             device: &ctx.gpu.device,
@@ -298,7 +310,7 @@ impl RenderPass for MeshRenderPass {
             rt_shadow_bind,
             material_property_store: &ctx.session.asset_registry().material_property_store,
             render_config: ctx.session.render_config(),
-            native_ui_scene_depth_bind: None,
+            native_ui_scene_depth_bind: native_ui_depth_bind_mesh,
             asset_registry: ctx.session.asset_registry(),
             texture2d_gpu: &mut ctx.gpu.texture2d_gpu,
             native_ui_material_bind_cache: &mut ctx.gpu.native_ui_material_bind_cache,

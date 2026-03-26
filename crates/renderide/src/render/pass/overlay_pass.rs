@@ -19,6 +19,15 @@
 //! phases can read/write stencil across draws. Per draw, the pass calls
 //! `set_stencil_reference(stencil_state.reference)` before the draw. See
 //! [`crate::stencil`] for GraphicsChunk RenderType (MaskWrite, Content, MaskClear).
+//!
+//! ## Native UI `OVERLAY` keyword
+//!
+//! When [`crate::config::RenderConfig::use_native_ui_wgsl`] is on, this pass copies the main
+//! depth-stencil buffer into a UI-only texture (`TextureAspect::All` copy per WebGPU rules), exposes
+//! a **depth-only** view for `texture_depth_2d` (group 1 binding 0) plus overlay unproject
+//! uniforms (binding 1), and passes that bind group into
+//! [`super::mesh_draw::MeshDrawParams::native_ui_scene_depth_bind`] so `UI_Unlit` / `UI_TextUnlit`
+//! can match Unity’s `_CameraDepthTexture` sampling for the OVERLAY path.
 
 use super::mesh_draw::{MeshDrawParams, record_non_skinned_draws, record_skinned_draws};
 use super::{PassResources, RenderPass, RenderPassContext, RenderPassError, ResourceSlot};
@@ -93,6 +102,12 @@ impl RenderPass for OverlayRenderPass {
                         },
                     );
                 }
+                let ui_proj = ctx
+                    .overlay_projection_override
+                    .map(|v| v.to_projection_matrix())
+                    .unwrap_or(ctx.proj);
+                ctx.gpu
+                    .update_native_ui_overlay_unproject(&ctx.proj, &ui_proj);
                 ctx.gpu.ensure_native_ui_scene_depth_bind_group();
                 native_ui_depth_bind = ctx.gpu.native_ui_scene_depth_bind_group.as_ref();
             }

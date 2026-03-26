@@ -55,6 +55,16 @@ impl AssetRegistry {
         self.meshes.len()
     }
 
+    /// Number of host `Texture2D` assets (after `SetTexture2DFormat`; may still lack mip0 pixels).
+    pub fn texture_2d_count(&self) -> usize {
+        self.textures.len()
+    }
+
+    /// Textures with decoded mip0 ready for [`crate::gpu::GpuState::ensure_texture2d_gpu`].
+    pub fn texture_2d_ready_for_gpu_count(&self) -> usize {
+        self.textures.values().filter(|t| t.ready_for_gpu()).count()
+    }
+
     /// Handles a mesh upload from shared memory.
     ///
     /// Layout must match host's MeshBuffer.ComputeBufferLayout (vertices, indices, bone_counts,

@@ -85,6 +85,14 @@ pub struct LiveFrameDiagnostics {
     pub pending_render_tasks: usize,
     pub pending_camera_task_readbacks: usize,
 
+    // ── Textures (2D) ───────────────────────────────────────────────────────
+    /// Host-registered Texture2D rows in [`crate::assets::AssetRegistry`].
+    pub textures_cpu_registered: usize,
+    /// Same registry entries with mip0 decoded and sized for GPU upload.
+    pub textures_cpu_ready_for_gpu: usize,
+    /// Entries in [`crate::gpu::GpuState::texture2d_gpu`] (uploaded wgpu textures).
+    pub textures_gpu_resident: usize,
+
     // ── Lights ───────────────────────────────────────────────────────────────
     /// Active light count uploaded to the GPU by the clustered light pass.
     pub gpu_light_count: u32,
@@ -459,6 +467,18 @@ impl DebugHud {
                     ));
 
                     ui.separator();
+                    ui.text("Textures 2D (scene / GPU)");
+                    ui.text(format!(
+                        "CPU registered {:>5}  |  mip0-ready {:>5}  |  GPU resident {:>5}",
+                        sample.textures_cpu_registered,
+                        sample.textures_cpu_ready_for_gpu,
+                        sample.textures_gpu_resident
+                    ));
+                    ui.text_wrapped(
+                        "CPU registered = host Texture2D assets; mip0-ready = decoded pixels for upload; GPU resident = wgpu textures created (e.g. bound draws).",
+                    );
+
+                    ui.separator();
                     let tlas_str = if sample.tlas_available {
                         "built"
                     } else {
@@ -693,6 +713,9 @@ mod tests {
             mesh_cache_count: 10,
             pending_render_tasks: 0,
             pending_camera_task_readbacks: 0,
+            textures_cpu_registered: 3,
+            textures_cpu_ready_for_gpu: 2,
+            textures_gpu_resident: 2,
             gpu_light_count: 4,
             blas_count: 10,
             tlas_available: true,

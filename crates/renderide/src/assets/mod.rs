@@ -2,7 +2,10 @@
 
 pub mod manager;
 pub mod material_properties;
+pub mod material_property_host;
+pub mod material_update_batch;
 pub mod mesh;
+pub mod native_ui_blend;
 pub mod registry;
 pub mod shader;
 pub mod texture;
@@ -19,10 +22,19 @@ pub trait Asset: Send + Sync + 'static {
     fn id(&self) -> AssetId;
 }
 
-pub use material_properties::{MaterialPropertyStore, MaterialPropertyValue};
+pub use material_properties::{
+    MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
+};
+pub use material_property_host::{
+    apply_froox_material_property_name_to_native_ui_config, intern_host_material_property_id,
+};
 pub use mesh::{
     BlendshapeOffset, MeshAsset, attribute_offset_and_size, attribute_offset_size_format,
     compute_vertex_stride,
+};
+pub use native_ui_blend::{
+    NativeUiSurfaceBlend, resolve_native_ui_surface_blend_text,
+    resolve_native_ui_surface_blend_unlit,
 };
 pub use registry::AssetRegistry;
 pub use shader::ShaderAsset;

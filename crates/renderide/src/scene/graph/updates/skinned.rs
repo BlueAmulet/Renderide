@@ -7,7 +7,6 @@ use std::sync::{LazyLock, Mutex};
 
 use crate::ipc::shared_memory::SharedMemoryAccessor;
 use crate::scene::{Drawable, Scene};
-use crate::shared::enum_repr::EnumRepr;
 use crate::shared::{
     BlendshapeUpdate, BlendshapeUpdateBatch, BoneAssignment, LayerType, ShadowCastMode,
     SkinnedMeshRenderablesUpdate,
@@ -16,6 +15,7 @@ use crate::shared::{
 use super::super::error::SceneError;
 use super::super::pods::MeshRendererStatePod;
 use super::super::world_matrices::fixup_transform_id;
+use super::mesh_material_slots::apply_mesh_renderer_state_row;
 
 /// Scene IDs for which we logged a bone_assignments / bone_transform_indexes length mismatch.
 static BONE_INDEX_EMPTY_WARNED_SCENES: LazyLock<Mutex<HashSet<i32>>> =
@@ -82,6 +82,7 @@ pub(crate) fn apply_skinned_mesh_renderables_update(
                 blend_shape_weights: Some(vec![]),
                 stencil_state: None,
                 material_override_block_id: None,
+                mesh_renderer_property_block_slot0_id: None,
                 render_transform_override: None,
                 shadow_cast_mode: ShadowCastMode::on,
             });
@@ -92,22 +93,27 @@ pub(crate) fn apply_skinned_mesh_renderables_update(
         let states = shm
             .access_with_context::<MeshRendererStatePod>(&update.mesh_states, &ctx)
             .map_err(SceneError::SharedMemoryAccess)?;
+        let packed_ids = if update.mesh_materials_and_property_blocks.length > 0 {
+            let ctx_m = format!(
+                "skinned mesh_materials_and_property_blocks scene_id={}",
+                scene.id
+            );
+            Some(
+                shm.access_with_context::<i32>(&update.mesh_materials_and_property_blocks, &ctx_m)
+                    .map_err(SceneError::SharedMemoryAccess)?,
+            )
+        } else {
+            None
+        };
+        let packed_ref = packed_ids.as_deref();
+        let mut packed_cursor = 0usize;
         for state in states {
             if state.renderable_index < 0 {
                 break;
             }
             let idx = state.renderable_index as usize;
-            if idx < scene.skinned_drawables.len() {
-                scene.skinned_drawables[idx].mesh_handle = state.mesh_asset_id;
-                scene.skinned_drawables[idx].sort_key = state.sorting_order;
-                scene.skinned_drawables[idx].material_handle = if state.material_count > 0 {
-                    Some(-1)
-                } else {
-                    None
-                };
-                scene.skinned_drawables[idx].shadow_cast_mode =
-                    ShadowCastMode::from_i32(state.shadow_cast_mode as i32);
-            }
+            let drawable = scene.skinned_drawables.get_mut(idx);
+            apply_mesh_renderer_state_row(drawable, &state, packed_ref, &mut packed_cursor);
         }
     }
     if update.bone_assignments.length > 0 {

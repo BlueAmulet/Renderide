@@ -4,8 +4,8 @@ use nalgebra::Matrix4;
 use wgpu::util::DeviceExt;
 
 use crate::assets::{
-    MaterialPropertyStore, UiTextUnlitMaterialUniform, UiTextUnlitPropertyIds,
-    ui_text_unlit_material_uniform,
+    MaterialPropertyLookupIds, MaterialPropertyStore, NativeUiSurfaceBlend,
+    UiTextUnlitMaterialUniform, UiTextUnlitPropertyIds, ui_text_unlit_material_uniform,
 };
 
 use super::super::mesh::{GpuMeshBuffers, VertexUiCanvas};
@@ -29,7 +29,11 @@ pub struct UiTextUnlitNativePipeline {
 
 impl UiTextUnlitNativePipeline {
     /// Builds the pipeline for the swapchain format.
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        surface_blend: NativeUiSurfaceBlend,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ui_text_unlit native"),
             source: wgpu::ShaderSource::Wgsl(UI_TEXT_UNLIT_WGSL.into()),
@@ -159,11 +163,16 @@ impl UiTextUnlitNativePipeline {
             vb_layout,
             builder::depth_stencil_no_depth(),
             "ui text unlit native RP",
+            surface_blend,
         )
     }
 
     /// Same as [`Self::new`] with GraphicsChunk stencil masking in the overlay pass.
-    pub fn new_with_stencil(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new_with_stencil(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        surface_blend: NativeUiSurfaceBlend,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ui_text_unlit native stencil"),
             source: wgpu::ShaderSource::Wgsl(UI_TEXT_UNLIT_WGSL.into()),
@@ -293,6 +302,7 @@ impl UiTextUnlitNativePipeline {
             vb_layout,
             builder::depth_stencil_native_ui_stencil_content(),
             "ui text unlit native stencil RP",
+            surface_blend,
         )
     }
 
@@ -309,6 +319,7 @@ impl UiTextUnlitNativePipeline {
         vb_layout: wgpu::VertexBufferLayout<'_>,
         depth_stencil: wgpu::DepthStencilState,
         pipeline_label: &'static str,
+        surface_blend: NativeUiSurfaceBlend,
     ) -> Self {
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(pipeline_label),
@@ -324,7 +335,7 @@ impl UiTextUnlitNativePipeline {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(surface_blend.to_wgpu_blend_state()),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
@@ -371,16 +382,16 @@ impl UiTextUnlitNativePipeline {
         &self.material_uniform
     }
 
-    /// Writes material uniforms for `block_id` and binds group 2.
+    /// Writes material uniforms for `lookup` and binds group 2.
     pub fn write_material_bind(
         &self,
         queue: &wgpu::Queue,
         pass: &mut wgpu::RenderPass<'_>,
         store: &MaterialPropertyStore,
-        block_id: i32,
+        lookup: MaterialPropertyLookupIds,
         ids: &UiTextUnlitPropertyIds,
     ) {
-        let (u, _) = ui_text_unlit_material_uniform(store, block_id, ids);
+        let (u, _) = ui_text_unlit_material_uniform(store, lookup, ids);
         queue.write_buffer(&self.material_uniform, 0, bytemuck::bytes_of(&u));
         pass.set_bind_group(2, &self.material_bind_group, &[]);
     }

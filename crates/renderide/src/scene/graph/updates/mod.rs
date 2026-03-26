@@ -4,6 +4,7 @@ mod layers;
 mod lights;
 mod material_overrides;
 mod mesh;
+mod mesh_material_slots;
 mod reflection_probe;
 mod render_transform_overrides;
 mod skinned;

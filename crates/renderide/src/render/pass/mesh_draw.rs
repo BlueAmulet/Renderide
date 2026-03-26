@@ -6,6 +6,7 @@
 use glam::Mat4;
 use nalgebra::Matrix4;
 
+use super::material_draw_context::MaterialDrawContext;
 use super::mesh_prep::MeshDrawPrepStats;
 use crate::assets::{MaterialPropertyStore, texture2d_asset_id_from_packed};
 use crate::config::RenderConfig;
@@ -64,6 +65,8 @@ pub(crate) struct BatchedDraw {
     pub(super) is_overlay: bool,
     /// Per-draw stencil for GraphicsChunk masking. When `Some`, overlay uses stencil pipeline.
     pub(super) stencil_state: Option<crate::stencil::StencilState>,
+    /// Slot-0 mesh renderer property block for merged material property lookup.
+    pub(super) mesh_renderer_property_block_slot0_id: Option<i32>,
 }
 
 /// Collected skinned draw for batch upload.
@@ -532,6 +535,7 @@ fn collect_mesh_draws_for_batch(
             pipeline_variant: d.pipeline_variant,
             is_overlay: batch.is_overlay,
             stencil_state: d.stencil_state,
+            mesh_renderer_property_block_slot0_id: d.mesh_renderer_property_block_slot0_id,
         });
         stats.submitted_rigid_draws += 1;
     }
@@ -804,6 +808,7 @@ pub(super) fn record_skinned_draws(
             params.device,
             params.config,
             Some(params.material_property_store),
+            params.render_config,
         ) else {
             i += group_end;
             continue;
@@ -947,6 +952,7 @@ pub(super) fn record_non_skinned_draws(
             params.device,
             params.config,
             Some(params.material_property_store),
+            params.render_config,
         ) else {
             i += group_end;
             continue;
@@ -1100,10 +1106,15 @@ pub(super) fn record_non_skinned_draws(
                         PipelineVariant::NativeUiUnlit { material_id }
                         | PipelineVariant::NativeUiUnlitStencil { material_id } => {
                             if let Some(ui) = native_ui_unlit_ref {
+                                let ui_lookup = MaterialDrawContext::for_non_skinned_draw(
+                                    material_id,
+                                    d.mesh_renderer_property_block_slot0_id,
+                                )
+                                .property_lookup;
                                 let (_, main_packed, mask_packed) =
                                     crate::assets::ui_unlit_material_uniform(
                                         params.material_property_store,
-                                        material_id,
+                                        ui_lookup,
                                         &params.render_config.ui_unlit_property_ids,
                                     );
                                 let main_id = (main_packed != 0)
@@ -1142,6 +1153,16 @@ pub(super) fn record_non_skinned_draws(
                                     .and_then(|id| params.texture2d_gpu.get(&id).map(|(_, v)| v));
                                 let main_key = main_id.unwrap_or(0);
                                 let mask_key = mask_id.unwrap_or(0);
+                                if params.render_config.log_native_ui_routing {
+                                    logger::trace!(
+                                        "native_ui: ui_unlit bind material_block={} main_tex_id={:?} mask_tex_id={:?} main_view_ok={} mask_view_ok={}",
+                                        material_id,
+                                        main_id,
+                                        mask_id,
+                                        main_view.is_some(),
+                                        mask_view.is_some(),
+                                    );
+                                }
                                 params
                                     .native_ui_material_bind_cache
                                     .write_ui_unlit_material_bind(
@@ -1152,7 +1173,7 @@ pub(super) fn record_non_skinned_draws(
                                         ui.material_uniform_buffer(),
                                         ui.linear_sampler(),
                                         params.material_property_store,
-                                        material_id,
+                                        ui_lookup,
                                         &params.render_config.ui_unlit_property_ids,
                                         main_view,
                                         mask_view,
@@ -1164,10 +1185,15 @@ pub(super) fn record_non_skinned_draws(
                         PipelineVariant::NativeUiTextUnlit { material_id }
                         | PipelineVariant::NativeUiTextUnlitStencil { material_id } => {
                             if let Some(ui) = native_ui_text_ref {
+                                let ui_lookup = MaterialDrawContext::for_non_skinned_draw(
+                                    material_id,
+                                    d.mesh_renderer_property_block_slot0_id,
+                                )
+                                .property_lookup;
                                 let (_, font_packed) =
                                     crate::assets::ui_text_unlit_material_uniform(
                                         params.material_property_store,
-                                        material_id,
+                                        ui_lookup,
                                         &params.render_config.ui_text_unlit_property_ids,
                                     );
                                 let font_id = (font_packed != 0)
@@ -1188,6 +1214,14 @@ pub(super) fn record_non_skinned_draws(
                                 let font_view = font_id
                                     .and_then(|id| params.texture2d_gpu.get(&id).map(|(_, v)| v));
                                 let font_key = font_id.unwrap_or(0);
+                                if params.render_config.log_native_ui_routing {
+                                    logger::trace!(
+                                        "native_ui: ui_text_unlit bind material_block={} font_atlas_id={:?} font_view_ok={}",
+                                        material_id,
+                                        font_id,
+                                        font_view.is_some(),
+                                    );
+                                }
                                 params
                                     .native_ui_material_bind_cache
                                     .write_ui_text_unlit_material_bind(
@@ -1198,7 +1232,7 @@ pub(super) fn record_non_skinned_draws(
                                         ui.linear_sampler(),
                                         ui.material_bind_group_layout(),
                                         params.material_property_store,
-                                        material_id,
+                                        ui_lookup,
                                         &params.render_config.ui_text_unlit_property_ids,
                                         font_view,
                                         font_key,

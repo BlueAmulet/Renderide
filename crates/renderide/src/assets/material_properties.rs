@@ -24,7 +24,7 @@ use std::collections::HashMap;
 
 /// Single property value. Supports f32 and [f32; 4] for stencil (comparison, operation,
 /// reference, clip rect). Extensible for other types.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum MaterialPropertyValue {
     /// Single float (e.g. reference, blend factor).
     Float(f32),
@@ -32,6 +32,18 @@ pub enum MaterialPropertyValue {
     Float4([f32; 4]),
     /// Packed texture id from host `set_texture` (see Renderite Unity `MaterialUpdateReader.ReadInt`).
     Texture(i32),
+}
+
+/// Material asset id and optional per-renderer property block for merged property reads.
+///
+/// Matches Unity’s base `Material` plus `MaterialPropertyBlock` on the renderer: lookups prefer
+/// [`Self::mesh_property_block_slot0`] when present, then fall back to [`Self::material_asset_id`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MaterialPropertyLookupIds {
+    /// Host material asset id (`MeshRenderer.sharedMaterials[0]`).
+    pub material_asset_id: i32,
+    /// First slot `MaterialPropertyBlock` asset id from `mesh_materials_and_property_blocks`, if any.
+    pub mesh_property_block_slot0: Option<i32>,
 }
 
 /// Store of material property values per block.
@@ -66,6 +78,22 @@ impl MaterialPropertyStore {
     /// Gets a property value for a block.
     pub fn get(&self, block_id: i32, property_id: i32) -> Option<&MaterialPropertyValue> {
         self.blocks.get(&block_id)?.get(&property_id)
+    }
+
+    /// Looks up `property_id` in `mesh_property_block_slot0` first, then in `material_asset_id`.
+    ///
+    /// Matches Unity-style material plus per-renderer `MaterialPropertyBlock` override behavior.
+    pub fn get_merged(
+        &self,
+        ids: MaterialPropertyLookupIds,
+        property_id: i32,
+    ) -> Option<&MaterialPropertyValue> {
+        if let Some(pb) = ids.mesh_property_block_slot0
+            && let Some(v) = self.get(pb, property_id)
+        {
+            return Some(v);
+        }
+        self.get(ids.material_asset_id, property_id)
     }
 
     /// Records the shader asset bound to a material property block.

@@ -4,9 +4,49 @@
 //! `configuration.ini` (see [`crate::config::RenderConfig`]) or via environment variables so the
 //! renderer maps `set_shader` batches to [`NativeUiShaderFamily`].
 //!
-//! Material **property IDs** are also host-assigned (`MaterialProperty` indices on the host).
-//! When a property id is `-1`, that channel is skipped and the GPU uniform uses a documented default.
-//! Populate ids from host logs or a future `material_property_id_request` / `MaterialPropertyIdResult` flow.
+//! ## Material property IDs
+//!
+//! Batches use numeric `property_id` values. When a field in [`UiUnlitPropertyIds`] or
+//! [`UiTextUnlitPropertyIds`] is `-1`, that channel is skipped and the GPU uniform uses a default.
+//!
+//! **Automatic mapping:** On [`MaterialPropertyIdRequest`](crate::shared::MaterialPropertyIdRequest),
+//! [`crate::assets::material_property_host`] interns each property name to an integer and replies with
+//! [`MaterialPropertyIdResult`](crate::shared::MaterialPropertyIdResult); matching FrooxEngine shader
+//! property names also update [`crate::config::RenderConfig`] when [`RenderConfig::use_native_ui_wgsl`](crate::config::RenderConfig::use_native_ui_wgsl) is true.
+//!
+//! **Manual mapping:** INI sections `[native_ui_unlit_properties]` and
+//! `[native_ui_text_unlit_properties]` (see [`crate::config::RenderConfig`]) set the same fields.
+//!
+//! ### `UI_UnlitMaterial` (FrooxEngine) → INI key under `[native_ui_unlit_properties]`
+//!
+//! - `_MainTex` → `main_tex` (`set_texture` packed id → GPU bind)
+//! - `_MaskTex` → `mask_tex`
+//! - `_MainTex_ST` → `main_tex_st`, `_MaskTex_ST` → `mask_tex_st`
+//! - `_Tint` → `tint`, `_OverlayTint` → `overlay_tint`, `_Cutoff` → `cutoff`, `_Rect` → `rect`
+//! - Keyword floats (when the host assigns property ids): `alphaclip`, `rectclip`, `overlay`,
+//!   `texture_normalmap`, `texture_lerpcolor`, `mask_texture_mul`, `mask_texture_clip`
+//! - `_SrcBlend` / `_DstBlend` → `src_blend` / `dst_blend` (Unity blend factors as floats; see
+//!   [`crate::assets::native_ui_blend::NativeUiSurfaceBlend`])
+//!
+//! **FrooxEngine shader keywords** (from `UpdateKeywords`, not only underscored property names) are
+//! mirrored into the same INI fields when the host requests ids for those names:
+//! `ALPHACLIP`, `RECTCLIP`, `OVERLAY`, `TEXTURE_NORMALMAP`, `TEXTURE_LERPCOLOR`,
+//! `_MASK_TEXTURE_MUL`, `_MASK_TEXTURE_CLIP`, and for text `RASTER`, `SDF`, `MSDF`, `OUTLINE`.
+//!
+//! ### `TextUnlitMaterial` / `UI_TextUnlitMaterial` → `[native_ui_text_unlit_properties]`
+//!
+//! - `_FontAtlas` → `font_atlas`
+//! - `_TintColor` → `tint_color`, `_OutlineColor` → `outline_color`, `_BackgroundColor` → `background_color`
+//! - `_Range` → `range`, `_FaceDilate` → `face_dilate`, `_FaceSoftness` → `face_softness`,
+//!   `_OutlineSize` → `outline_size`
+//! - `_OverlayTint` → `overlay_tint`, `_Rect` → `rect`
+//! - `src_blend` / `dst_blend` for `_SrcBlend` / `_DstBlend`
+//! - Mode / keyword floats when present: `raster`, `sdf`, `msdf`, `outline`, `rectclip`, `overlay`
+//!
+//! ### Vertex stream (text)
+//!
+//! Resonite’s `UI_TextUnlit` shader packs glyph extras in the **NORMAL** slot (`extraData`); the mesh
+//! path copies that into [`VertexUiCanvas`](crate::gpu::mesh::VertexUiCanvas) `aux` for WGSL.
 
 /// Identifies which native UI WGSL program to use for a host shader asset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -93,6 +133,10 @@ pub struct UiUnlitPropertyIds {
     pub texture_lerpcolor: i32,
     pub mask_texture_mul: i32,
     pub mask_texture_clip: i32,
+    /// `_SrcBlend` (float; Unity blend mode enum value).
+    pub src_blend: i32,
+    /// `_DstBlend` (float).
+    pub dst_blend: i32,
 }
 
 impl Default for UiUnlitPropertyIds {
@@ -113,6 +157,8 @@ impl Default for UiUnlitPropertyIds {
             texture_lerpcolor: -1,
             mask_texture_mul: -1,
             mask_texture_clip: -1,
+            src_blend: -1,
+            dst_blend: -1,
         }
     }
 }
@@ -136,6 +182,10 @@ pub struct UiTextUnlitPropertyIds {
     pub outline: i32,
     pub rectclip: i32,
     pub overlay: i32,
+    /// `_SrcBlend` (float).
+    pub src_blend: i32,
+    /// `_DstBlend` (float).
+    pub dst_blend: i32,
 }
 
 impl Default for UiTextUnlitPropertyIds {
@@ -157,6 +207,8 @@ impl Default for UiTextUnlitPropertyIds {
             outline: -1,
             rectclip: -1,
             overlay: -1,
+            src_blend: -1,
+            dst_blend: -1,
         }
     }
 }
@@ -236,64 +288,76 @@ pub struct UiTextUnlitMaterialUniform {
     pub pad_tail: [u32; 2],
 }
 
+/// Reads a float4 property via merged material / property-block lookup, or `default` when unset.
 fn float4(
     store: &super::MaterialPropertyStore,
-    block: i32,
+    lookup: super::MaterialPropertyLookupIds,
     pid: i32,
     default: [f32; 4],
 ) -> [f32; 4] {
     if pid < 0 {
         return default;
     }
-    match store.get(block, pid) {
+    match store.get_merged(lookup, pid) {
         Some(super::MaterialPropertyValue::Float4(v)) => *v,
         _ => default,
     }
 }
 
-fn float1(store: &super::MaterialPropertyStore, block: i32, pid: i32, default: f32) -> f32 {
+/// Reads a float property via merged lookup, or `default` when unset.
+fn float1(
+    store: &super::MaterialPropertyStore,
+    lookup: super::MaterialPropertyLookupIds,
+    pid: i32,
+    default: f32,
+) -> f32 {
     if pid < 0 {
         return default;
     }
-    match store.get(block, pid) {
+    match store.get_merged(lookup, pid) {
         Some(super::MaterialPropertyValue::Float(v)) => *v,
         _ => default,
     }
 }
 
-fn flag_f(store: &super::MaterialPropertyStore, block: i32, pid: i32) -> bool {
+/// True when merged lookup has a float keyword property ≥ 0.5.
+fn flag_f(
+    store: &super::MaterialPropertyStore,
+    lookup: super::MaterialPropertyLookupIds,
+    pid: i32,
+) -> bool {
     if pid < 0 {
         return false;
     }
     matches!(
-        store.get(block, pid),
+        store.get_merged(lookup, pid),
         Some(super::MaterialPropertyValue::Float(f)) if *f >= 0.5
     )
 }
 
-/// Builds GPU uniform and texture handles for `UI_Unlit` from the property store.
+/// Builds GPU uniform and texture handles for `UI_Unlit` from merged material + mesh property-block lookup.
 pub fn ui_unlit_material_uniform(
     store: &super::MaterialPropertyStore,
-    block_id: i32,
+    lookup: super::MaterialPropertyLookupIds,
     ids: &UiUnlitPropertyIds,
 ) -> (UiUnlitMaterialUniform, i32, i32) {
-    let tint = float4(store, block_id, ids.tint, [1.0, 1.0, 1.0, 1.0]);
-    let overlay_tint = float4(store, block_id, ids.overlay_tint, [1.0, 1.0, 1.0, 0.73]);
-    let cutoff = float1(store, block_id, ids.cutoff, 0.98);
-    let main_tex_st = float4(store, block_id, ids.main_tex_st, [1.0, 1.0, 0.0, 0.0]);
-    let mask_tex_st = float4(store, block_id, ids.mask_tex_st, [1.0, 1.0, 0.0, 0.0]);
-    let rect = float4(store, block_id, ids.rect, [0.0, 0.0, 1.0, 1.0]);
+    let tint = float4(store, lookup, ids.tint, [1.0, 1.0, 1.0, 1.0]);
+    let overlay_tint = float4(store, lookup, ids.overlay_tint, [1.0, 1.0, 1.0, 0.73]);
+    let cutoff = float1(store, lookup, ids.cutoff, 0.98);
+    let main_tex_st = float4(store, lookup, ids.main_tex_st, [1.0, 1.0, 0.0, 0.0]);
+    let mask_tex_st = float4(store, lookup, ids.mask_tex_st, [1.0, 1.0, 0.0, 0.0]);
+    let rect = float4(store, lookup, ids.rect, [0.0, 0.0, 1.0, 1.0]);
     let flags = UiUnlitFlags {
-        alphaclip: flag_f(store, block_id, ids.alphaclip),
-        rectclip: flag_f(store, block_id, ids.rectclip),
-        overlay: flag_f(store, block_id, ids.overlay),
-        texture_normalmap: flag_f(store, block_id, ids.texture_normalmap),
-        texture_lerpcolor: flag_f(store, block_id, ids.texture_lerpcolor),
-        mask_texture_mul: flag_f(store, block_id, ids.mask_texture_mul),
-        mask_texture_clip: flag_f(store, block_id, ids.mask_texture_clip),
+        alphaclip: flag_f(store, lookup, ids.alphaclip),
+        rectclip: flag_f(store, lookup, ids.rectclip),
+        overlay: flag_f(store, lookup, ids.overlay),
+        texture_normalmap: flag_f(store, lookup, ids.texture_normalmap),
+        texture_lerpcolor: flag_f(store, lookup, ids.texture_lerpcolor),
+        mask_texture_mul: flag_f(store, lookup, ids.mask_texture_mul),
+        mask_texture_clip: flag_f(store, lookup, ids.mask_texture_clip),
     };
-    let main_tex = texture_handle(store, block_id, ids.main_tex);
-    let mask_tex = texture_handle(store, block_id, ids.mask_tex);
+    let main_tex = texture_handle(store, lookup, ids.main_tex);
+    let mask_tex = texture_handle(store, lookup, ids.mask_tex);
     let u = UiUnlitMaterialUniform {
         tint,
         overlay_tint,
@@ -307,52 +371,57 @@ pub fn ui_unlit_material_uniform(
     (u, main_tex, mask_tex)
 }
 
-fn texture_handle(store: &super::MaterialPropertyStore, block: i32, pid: i32) -> i32 {
+/// Packed host texture id from merged lookup, or `0` when unset.
+fn texture_handle(
+    store: &super::MaterialPropertyStore,
+    lookup: super::MaterialPropertyLookupIds,
+    pid: i32,
+) -> i32 {
     if pid < 0 {
         return 0;
     }
-    match store.get(block, pid) {
+    match store.get_merged(lookup, pid) {
         Some(super::MaterialPropertyValue::Texture(h)) => *h,
         _ => 0,
     }
 }
 
-/// Builds uniform and font atlas handle for `UI_TextUnlit`.
+/// Builds uniform and font atlas handle for `UI_TextUnlit` from merged property lookup.
 pub fn ui_text_unlit_material_uniform(
     store: &super::MaterialPropertyStore,
-    block_id: i32,
+    lookup: super::MaterialPropertyLookupIds,
     ids: &UiTextUnlitPropertyIds,
 ) -> (UiTextUnlitMaterialUniform, i32) {
-    let tint_color = float4(store, block_id, ids.tint_color, [1.0, 1.0, 1.0, 1.0]);
-    let overlay_tint = float4(store, block_id, ids.overlay_tint, [1.0, 1.0, 1.0, 0.73]);
-    let outline_color = float4(store, block_id, ids.outline_color, [1.0, 1.0, 1.0, 0.0]);
-    let background_color = float4(store, block_id, ids.background_color, [0.0, 0.0, 0.0, 0.0]);
-    let range_v = float4(store, block_id, ids.range, [0.001, 0.001, 0.0, 0.0]);
-    let face_dilate = float1(store, block_id, ids.face_dilate, 0.0);
-    let face_softness = float1(store, block_id, ids.face_softness, 0.0);
-    let outline_size = float1(store, block_id, ids.outline_size, 0.0);
-    let rect = float4(store, block_id, ids.rect, [0.0, 0.0, 1.0, 1.0]);
+    let tint_color = float4(store, lookup, ids.tint_color, [1.0, 1.0, 1.0, 1.0]);
+    let overlay_tint = float4(store, lookup, ids.overlay_tint, [1.0, 1.0, 1.0, 0.73]);
+    let outline_color = float4(store, lookup, ids.outline_color, [1.0, 1.0, 1.0, 0.0]);
+    let background_color = float4(store, lookup, ids.background_color, [0.0, 0.0, 0.0, 0.0]);
+    let range_v = float4(store, lookup, ids.range, [0.001, 0.001, 0.0, 0.0]);
+    let face_dilate = float1(store, lookup, ids.face_dilate, 0.0);
+    let face_softness = float1(store, lookup, ids.face_softness, 0.0);
+    let outline_size = float1(store, lookup, ids.outline_size, 0.0);
+    let rect = float4(store, lookup, ids.rect, [0.0, 0.0, 1.0, 1.0]);
     let mut mode: u32 = 0;
-    if flag_f(store, block_id, ids.sdf) {
+    if flag_f(store, lookup, ids.sdf) {
         mode = 1;
     }
-    if flag_f(store, block_id, ids.msdf) {
+    if flag_f(store, lookup, ids.msdf) {
         mode = 2;
     }
-    if flag_f(store, block_id, ids.raster) {
+    if flag_f(store, lookup, ids.raster) {
         mode = 0;
     }
     let mut flags = mode & 3;
-    if flag_f(store, block_id, ids.outline) {
+    if flag_f(store, lookup, ids.outline) {
         flags |= 1 << 8;
     }
-    if flag_f(store, block_id, ids.rectclip) {
+    if flag_f(store, lookup, ids.rectclip) {
         flags |= 1 << 9;
     }
-    if flag_f(store, block_id, ids.overlay) {
+    if flag_f(store, lookup, ids.overlay) {
         flags |= 1 << 10;
     }
-    let font_atlas = texture_handle(store, block_id, ids.font_atlas);
+    let font_atlas = texture_handle(store, lookup, ids.font_atlas);
     let u = UiTextUnlitMaterialUniform {
         tint_color,
         overlay_tint,
@@ -369,4 +438,44 @@ pub fn ui_text_unlit_material_uniform(
         pad_tail: [0; 2],
     };
     (u, font_atlas)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::assets::material_properties::{
+        MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
+    };
+
+    use super::{UiUnlitFlags, UiUnlitPropertyIds, ui_unlit_material_uniform};
+
+    #[test]
+    fn ui_unlit_flags_bit_positions_match_wgsl() {
+        let f = UiUnlitFlags {
+            alphaclip: true,
+            rectclip: true,
+            overlay: true,
+            texture_normalmap: true,
+            texture_lerpcolor: true,
+            mask_texture_mul: true,
+            mask_texture_clip: true,
+        };
+        assert_eq!(f.to_bits(), 1 | 2 | 4 | 8 | 16 | 32 | 64);
+    }
+
+    #[test]
+    fn ui_unlit_uniform_reads_float_keyword_flags() {
+        let mut store = MaterialPropertyStore::new();
+        let mid = 10;
+        store.set(mid, 100, MaterialPropertyValue::Float(1.0));
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: mid,
+            mesh_property_block_slot0: None,
+        };
+        let ids = UiUnlitPropertyIds {
+            alphaclip: 100,
+            ..Default::default()
+        };
+        let (u, _, _) = ui_unlit_material_uniform(&store, lookup, &ids);
+        assert_ne!(u.flags & 1, 0);
+    }
 }

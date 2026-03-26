@@ -22,7 +22,7 @@
 
 use std::path::PathBuf;
 
-use crate::assets::{UiTextUnlitPropertyIds, UiUnlitPropertyIds};
+use crate::assets::{NativeUiSurfaceBlend, UiTextUnlitPropertyIds, UiUnlitPropertyIds};
 
 // ─── INI parser ───────────────────────────────────────────────────────────────
 
@@ -378,6 +378,8 @@ pub struct RenderConfig {
     pub native_ui_overlay_stencil_pipelines: bool,
     /// Trace logs for native UI routing decisions (can be noisy).
     pub log_native_ui_routing: bool,
+    /// Default native UI surface blend when `_SrcBlend` / `_DstBlend` are not mapped or missing.
+    pub native_ui_default_surface_blend: NativeUiSurfaceBlend,
 }
 
 /// Debug override for shader resolution (replacement-shader style).
@@ -804,6 +806,18 @@ fn apply_render_config_ini_entry(config: &mut RenderConfig, section: &str, key: 
                 );
             }
         }
+        ("rendering", "native_ui_default_surface_blend") => {
+            if let Some(v) = NativeUiSurfaceBlend::parse_ini(value) {
+                config.native_ui_default_surface_blend = v;
+                eprintln!("[renderide] ini: native_ui_default_surface_blend = {:?}", v);
+                logger::info!("ini: native_ui_default_surface_blend = {:?}", v);
+            } else {
+                eprintln!(
+                    "[renderide] ini: native_ui_default_surface_blend parse error (raw = {:?})",
+                    value
+                );
+            }
+        }
         _ => apply_native_ui_property_ini(config, section, key, value),
     }
 }
@@ -833,6 +847,8 @@ fn apply_native_ui_property_ini(config: &mut RenderConfig, section: &str, key: &
                 "texture_lerpcolor" => ids.texture_lerpcolor = v,
                 "mask_texture_mul" => ids.mask_texture_mul = v,
                 "mask_texture_clip" => ids.mask_texture_clip = v,
+                "src_blend" => ids.src_blend = v,
+                "dst_blend" => ids.dst_blend = v,
                 _ => {}
             }
         }
@@ -862,6 +878,8 @@ fn apply_native_ui_property_ini(config: &mut RenderConfig, section: &str, key: &
                 "outline" => ids.outline = v,
                 "rectclip" => ids.rectclip = v,
                 "overlay" => ids.overlay = v,
+                "src_blend" => ids.src_blend = v,
+                "dst_blend" => ids.dst_blend = v,
                 _ => {}
             }
         }
@@ -885,6 +903,9 @@ impl RenderConfig {
     ///   `parallel_mesh_draw_prep_batches`, `log_collect_draw_batches_timing` (bools); `rtao_enabled`,
     ///   `ray_traced_shadows_enabled` (bools); `rtao_strength`, `ao_radius` (floats); `frustum_culling` (bool);
     ///   `use_native_ui_wgsl` (bool); `native_ui_unlit_shader_id`, `native_ui_text_unlit_shader_id` (ints, `-1` off).
+    /// - **`[native_ui_unlit_properties]`** / **`[native_ui_text_unlit_properties]`** — integer material
+    ///   property ids for native UI WGSL (see [`crate::assets::ui_material_contract`]). Host
+    ///   `material_property_id_request` can also populate these when [`RenderConfig::use_native_ui_wgsl`] is true.
     ///
     /// **Env vars** (highest priority; override INI and defaults):
     /// - `RENDERIDE_DEBUG_BLENDSHAPES=1` — blendshape debug logging.
@@ -1070,6 +1091,7 @@ impl Default for RenderConfig {
             native_ui_world_space: false,
             native_ui_overlay_stencil_pipelines: false,
             log_native_ui_routing: false,
+            native_ui_default_surface_blend: NativeUiSurfaceBlend::Alpha,
         }
     }
 }
@@ -1153,5 +1175,46 @@ use_dx12 = true
         }
         assert!(c.use_opengl);
         assert!(c.use_dx12);
+    }
+
+    /// [`apply_render_config_ini_entry`] maps `[native_ui_unlit_properties]` and text-unlit keys.
+    #[test]
+    fn apply_ini_native_ui_material_property_sections() {
+        let ini = r#"
+[native_ui_unlit_properties]
+main_tex = 101
+mask_tex = 102
+tint = 5
+src_blend = 7
+[native_ui_text_unlit_properties]
+font_atlas = 201
+tint_color = 6
+"#;
+        let mut c = RenderConfig::default();
+        for (section, key, value) in parse_ini(ini) {
+            apply_render_config_ini_entry(&mut c, &section, &key, &value);
+        }
+        assert_eq!(c.ui_unlit_property_ids.main_tex, 101);
+        assert_eq!(c.ui_unlit_property_ids.mask_tex, 102);
+        assert_eq!(c.ui_unlit_property_ids.tint, 5);
+        assert_eq!(c.ui_unlit_property_ids.src_blend, 7);
+        assert_eq!(c.ui_text_unlit_property_ids.font_atlas, 201);
+        assert_eq!(c.ui_text_unlit_property_ids.tint_color, 6);
+    }
+
+    #[test]
+    fn apply_ini_native_ui_default_surface_blend() {
+        let ini = r#"
+[rendering]
+native_ui_default_surface_blend = additive
+"#;
+        let mut c = RenderConfig::default();
+        for (section, key, value) in parse_ini(ini) {
+            apply_render_config_ini_entry(&mut c, &section, &key, &value);
+        }
+        assert_eq!(
+            c.native_ui_default_surface_blend,
+            crate::assets::NativeUiSurfaceBlend::Additive
+        );
     }
 }

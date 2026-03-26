@@ -25,7 +25,7 @@ mod shaders;
 mod skinned;
 mod skinned_pbr;
 mod ui_text_unlit_native;
-mod ui_unlit_native;
+pub(crate) mod ui_unlit_native;
 mod uniforms;
 mod uv_debug;
 

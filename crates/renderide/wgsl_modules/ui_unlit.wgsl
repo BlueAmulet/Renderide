@@ -1,6 +1,31 @@
 #import uniform_ring
 #import ui_common
 
+/// Uniform block for group 1 binding 1 (inverse projection for `OVERLAY` depth compare).
+struct NativeUiOverlayUnproject {
+    inv_scene_proj: mat4x4f,
+    inv_ui_proj: mat4x4f,
+}
+
+fn overlay_ndc_xy(frag_xy: vec2f, dims: vec2u) -> vec2f {
+    let w = max(f32(dims.x), 1.0);
+    let h = max(f32(dims.y), 1.0);
+    let x = (frag_xy.x + 0.5) / w * 2.0 - 1.0;
+    let y = 1.0 - (frag_xy.y + 0.5) / h * 2.0;
+    return vec2f(x, y);
+}
+
+fn overlay_view_z_from_depth(d: f32, ndc_xy: vec2f, inv_proj: mat4x4f) -> f32 {
+    let ndc_z = d * 2.0 - 1.0;
+    let h = inv_proj * vec4f(ndc_xy.x, ndc_xy.y, ndc_z, 1.0);
+    let v = h.xyz / max(h.w, 1e-8);
+    return v.z;
+}
+
+fn overlay_linear_eye_dist(view_z: f32) -> f32 {
+    return -view_z;
+}
+
 struct UiUnlitMaterialUniform {
     tint: vec4f,
     overlay_tint: vec4f,
@@ -14,6 +39,7 @@ struct UiUnlitMaterialUniform {
 
 @group(0) @binding(0) var<uniform> uniforms: array<uniform_ring::UniformsSlot, 64>;
 @group(1) @binding(0) var scene_depth: texture_depth_2d;
+@group(1) @binding(1) var<uniform> overlay_unproject: NativeUiOverlayUnproject;
 @group(2) @binding(0) var<uniform> mat: UiUnlitMaterialUniform;
 @group(2) @binding(1) var main_tex: texture_2d<f32>;
 @group(2) @binding(2) var main_samp: sampler;
@@ -104,9 +130,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {
         let px = vec2i(i32(in.clip_position.x), i32(in.clip_position.y));
         let sx = clamp(px.x, 0, i32(dims.x) - 1);
         let sy = clamp(px.y, 0, i32(dims.y) - 1);
-        let scene_z = textureLoad(scene_depth, vec2i(sx, sy), 0);
-        let part_z = in.clip_position.z;
-        if (part_z > scene_z) {
+        let scene_d = textureLoad(scene_depth, vec2i(sx, sy), 0);
+        let part_d = in.clip_position.z;
+        let ndc_xy = overlay_ndc_xy(in.clip_position.xy, dims);
+        let scene_vz = overlay_view_z_from_depth(scene_d, ndc_xy, overlay_unproject.inv_scene_proj);
+        let part_vz = overlay_view_z_from_depth(part_d, ndc_xy, overlay_unproject.inv_ui_proj);
+        let scene_eye = overlay_linear_eye_dist(scene_vz);
+        let part_eye = overlay_linear_eye_dist(part_vz);
+        if (part_eye > scene_eye) {
             color *= mat.overlay_tint;
         }
     }

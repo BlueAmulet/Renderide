@@ -4,6 +4,8 @@
 //! [`crate::render::pass::mesh_draw::collect_mesh_draws`] and [`crate::gpu::accel::update_tlas`]
 //! (TLAS instances respect [`crate::gpu::accel::shadow_cast_mode_in_scene_tlas`]).
 
+use nalgebra::Matrix4;
+use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 use super::accel::{AccelCache, RayTracingState};
@@ -12,6 +14,9 @@ use super::mesh::GpuMeshBuffers;
 use super::native_ui_bind_cache::NativeUiMaterialBindCache;
 use super::pipeline::RtShadowUniforms;
 use super::pipeline::mrt::MrtGbufferOriginUniform;
+use super::pipeline::ui_unlit_native::{
+    NativeUiOverlayUnprojectUniform, matrix4_to_wgsl_column_major,
+};
 use super::registry::PipelineVariant;
 use crate::render::lights::LightBufferCache;
 
@@ -94,8 +99,13 @@ pub struct GpuState {
     pub ui_depth_copy_view: Option<wgpu::TextureView>,
     /// Lazily created layout matching [`crate::gpu::pipeline::ui_unlit_native::native_ui_scene_depth_bind_group_layout`].
     native_ui_scene_depth_bgl: Option<wgpu::BindGroupLayout>,
+    /// Uniform buffer for inverse projection matrices (native UI `OVERLAY`, group 1 binding 1).
+    native_ui_overlay_unproject_buffer: Option<wgpu::Buffer>,
     /// Bind group 1 for native UI pipelines; invalidated when the copy texture is recreated.
     pub native_ui_scene_depth_bind_group: Option<wgpu::BindGroup>,
+    /// 1×1 depth + overlay uniform for mesh-pass native UI when no depth copy exists.
+    native_ui_depth_fallback_texture: Option<wgpu::Texture>,
+    pub native_ui_depth_fallback_bind_group: Option<wgpu::BindGroup>,
     /// GPU textures for host `Texture2D` assets (mip0 RGBA8).
     pub texture2d_gpu: std::collections::HashMap<i32, (wgpu::Texture, wgpu::TextureView)>,
     /// Cached material bind groups for native UI draws.
@@ -359,7 +369,10 @@ pub async fn init_gpu(
         ui_depth_copy_texture: None,
         ui_depth_copy_view: None,
         native_ui_scene_depth_bgl: None,
+        native_ui_overlay_unproject_buffer: None,
         native_ui_scene_depth_bind_group: None,
+        native_ui_depth_fallback_texture: None,
+        native_ui_depth_fallback_bind_group: None,
         texture2d_gpu: std::collections::HashMap::new(),
         native_ui_material_bind_cache: NativeUiMaterialBindCache::new(),
         dual_source_blending_available,
@@ -661,6 +674,8 @@ impl GpuState {
             return;
         }
         self.native_ui_scene_depth_bind_group = None;
+        self.native_ui_depth_fallback_bind_group = None;
+        self.native_ui_depth_fallback_texture = None;
         let tex = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ui overlay depth copy"),
             size: wgpu::Extent3d {
@@ -685,25 +700,161 @@ impl GpuState {
         self.ui_depth_copy_view = Some(view);
     }
 
-    /// Creates bind group 1 (scene depth texture) for native UI pipelines when a copy view exists.
+    /// Ensures the overlay unproject uniform buffer exists (identity until written).
+    /// Ensures the uniform buffer for native UI `OVERLAY` depth unprojection exists.
+    fn ensure_native_ui_overlay_unproject_buffer(&mut self) {
+        if self.native_ui_overlay_unproject_buffer.is_none() {
+            let id = Matrix4::identity();
+            let initial = NativeUiOverlayUnprojectUniform {
+                inv_scene_proj: matrix4_to_wgsl_column_major(&id),
+                inv_ui_proj: matrix4_to_wgsl_column_major(&id),
+            };
+            self.native_ui_overlay_unproject_buffer = Some(self.device.create_buffer_init(
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("native ui overlay unproject"),
+                    contents: bytemuck::bytes_of(&initial),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                },
+            ));
+        }
+    }
+
+    /// Writes inverse projection uniforms for native UI `OVERLAY`.
+    pub fn update_native_ui_overlay_unproject(
+        &mut self,
+        scene_proj: &Matrix4<f32>,
+        ui_proj: &Matrix4<f32>,
+    ) {
+        self.ensure_native_ui_overlay_unproject_buffer();
+        let id = Matrix4::identity();
+        let inv_s = scene_proj.try_inverse().unwrap_or(id);
+        let inv_u = ui_proj.try_inverse().unwrap_or(id);
+        let u = NativeUiOverlayUnprojectUniform {
+            inv_scene_proj: matrix4_to_wgsl_column_major(&inv_s),
+            inv_ui_proj: matrix4_to_wgsl_column_major(&inv_u),
+        };
+        let queue = &self.queue;
+        let buf = self
+            .native_ui_overlay_unproject_buffer
+            .as_ref()
+            .expect("overlay unproject buffer created above");
+        queue.write_buffer(buf, 0, bytemuck::bytes_of(&u));
+    }
+
+    /// Bind group 1 for native UI in the mesh pass when no depth copy is available (1×1 cleared depth).
+    pub fn ensure_native_ui_depth_fallback_bind_group(&mut self) {
+        if self.native_ui_depth_fallback_bind_group.is_some() {
+            return;
+        }
+        self.ensure_native_ui_overlay_unproject_buffer();
+        let device = &self.device;
+        let queue = &self.queue;
+        let bgl = self.native_ui_scene_depth_bgl.get_or_insert_with(|| {
+            super::pipeline::native_ui_scene_depth_bind_group_layout(device)
+        });
+        let ub = self
+            .native_ui_overlay_unproject_buffer
+            .as_ref()
+            .expect("overlay unproject buffer created above");
+        let tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("native ui depth fallback 1x1"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        // Combined depth-stencil: a depth-*only* view is valid for `texture_depth_2d` sampling but is
+        // not a renderable depth-stencil attachment (wgpu validation). Clear using all aspects, bind
+        // the depth-only view for the shader (matches [`Self::ensure_ui_depth_copy_texture`]).
+        let clear_view = tex.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("native ui depth fallback clear RT"),
+            aspect: wgpu::TextureAspect::All,
+            ..Default::default()
+        });
+        let sample_view = tex.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("native ui depth fallback sample"),
+            aspect: wgpu::TextureAspect::DepthOnly,
+            ..Default::default()
+        });
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("native ui depth fallback clear"),
+        });
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("native ui depth fallback clear RP"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &clear_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+        queue.submit([encoder.finish()]);
+        let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("native ui depth fallback BG"),
+            layout: bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&sample_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: ub.as_entire_binding(),
+                },
+            ],
+        });
+        self.native_ui_depth_fallback_texture = Some(tex);
+        self.native_ui_depth_fallback_bind_group = Some(bg);
+    }
+
+    /// Creates bind group 1 (scene depth texture + overlay unproject) for native UI when a copy view exists.
     pub fn ensure_native_ui_scene_depth_bind_group(&mut self) {
-        let Some(ref view) = self.ui_depth_copy_view else {
+        let Some(view) = self.ui_depth_copy_view.clone() else {
             return;
         };
         if self.native_ui_scene_depth_bind_group.is_some() {
             return;
         }
+        self.ensure_native_ui_overlay_unproject_buffer();
         let device = &self.device;
         let bgl = self.native_ui_scene_depth_bgl.get_or_insert_with(|| {
             super::pipeline::native_ui_scene_depth_bind_group_layout(device)
         });
+        let ub = self
+            .native_ui_overlay_unproject_buffer
+            .as_ref()
+            .expect("overlay unproject buffer created above");
         let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("native ui scene depth BG"),
             layout: bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(view),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: ub.as_entire_binding(),
+                },
+            ],
         });
         self.native_ui_scene_depth_bind_group = Some(bg);
     }

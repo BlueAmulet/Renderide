@@ -64,7 +64,9 @@ impl CommandHandler for StubCommandHandler {
             | RendererCommand::renderer_init_result(_)
             | RendererCommand::frame_start_data(_)
             | RendererCommand::unload_material(_)
-            | RendererCommand::unload_material_property_block(_) => {
+            | RendererCommand::unload_material_property_block(_)
+            | RendererCommand::material_property_id_request(_)
+            | RendererCommand::materials_update_batch(_) => {
                 unreachable!("command handled by earlier handler")
             }
 
@@ -112,15 +114,7 @@ impl CommandHandler for StubCommandHandler {
             RendererCommand::shader_upload_result(_) => CommandResult::Handled,
 
             // --- Materials ---
-            RendererCommand::material_property_id_request(_) => {
-                self.log_once("material_property_id_request");
-                CommandResult::Handled
-            }
             RendererCommand::material_property_id_result(_) => CommandResult::Handled,
-            RendererCommand::materials_update_batch(_) => {
-                self.log_once("materials_update_batch");
-                CommandResult::Handled
-            }
             RendererCommand::materials_update_batch_result(_) => CommandResult::Handled,
 
             // --- Textures 2D --- (handled by TextureCommandHandler)

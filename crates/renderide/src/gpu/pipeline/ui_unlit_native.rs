@@ -9,7 +9,8 @@ use nalgebra::Matrix4;
 use wgpu::util::DeviceExt;
 
 use crate::assets::{
-    MaterialPropertyStore, UiUnlitMaterialUniform, UiUnlitPropertyIds, ui_unlit_material_uniform,
+    MaterialPropertyLookupIds, MaterialPropertyStore, NativeUiSurfaceBlend, UiUnlitMaterialUniform,
+    UiUnlitPropertyIds, ui_unlit_material_uniform,
 };
 
 use super::super::mesh::{GpuMeshBuffers, VertexUiCanvas};
@@ -21,22 +22,54 @@ const UI_UNLIT_WGSL: &str = include_str!(concat!(env!("OUT_DIR"), "/ui_unlit.wgs
 
 static FALLBACK_WHITE: OnceLock<(wgpu::Texture, wgpu::TextureView)> = OnceLock::new();
 
-/// Bind group layout for group 1: sampled scene depth (`texture_depth_2d`) for the `OVERLAY` keyword.
+/// GPU uniform for [`NativeUiOverlayUnproject`] in WGSL (two column-major `mat4` inverses).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct NativeUiOverlayUnprojectUniform {
+    /// Inverse scene (main camera) projection, column-major rows.
+    pub inv_scene_proj: [[f32; 4]; 4],
+    /// Inverse UI overlay projection (orthographic screen UI or same as scene for world UI).
+    pub inv_ui_proj: [[f32; 4]; 4],
+}
+
+/// Converts a column-major [`Matrix4`] to WGSL `mat4x4f` column layout (`[[f32;4];4]`).
+pub(crate) fn matrix4_to_wgsl_column_major(m: &Matrix4<f32>) -> [[f32; 4]; 4] {
+    std::array::from_fn(|c| {
+        let col = m.column(c);
+        [col.x, col.y, col.z, col.w]
+    })
+}
+
+/// Bind group layout for group 1: sampled scene depth and overlay unprojection uniforms.
 pub(crate) fn native_ui_scene_depth_bind_group_layout(
     device: &wgpu::Device,
 ) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("native ui scene depth BGL"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Depth,
-                multisampled: false,
-                view_dimension: wgpu::TextureViewDimension::D2,
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
             },
-            count: None,
-        }],
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: std::num::NonZeroU64::new(std::mem::size_of::<
+                        NativeUiOverlayUnprojectUniform,
+                    >() as u64),
+                },
+                count: None,
+            },
+        ],
     })
 }
 
@@ -131,22 +164,32 @@ pub struct UiUnlitNativePipeline {
 
 impl UiUnlitNativePipeline {
     /// Builds the pipeline for the swapchain format and depth-stencil attachment.
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        surface_blend: NativeUiSurfaceBlend,
+    ) -> Self {
         Self::new_with_depth_stencil(
             device,
             config,
             builder::depth_stencil_no_depth(),
             "ui unlit native RP",
+            surface_blend,
         )
     }
 
     /// Same as [`Self::new`] but with GraphicsChunk stencil test for masked overlay draws.
-    pub fn new_with_stencil(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new_with_stencil(
+        device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
+        surface_blend: NativeUiSurfaceBlend,
+    ) -> Self {
         Self::new_with_depth_stencil(
             device,
             config,
             builder::depth_stencil_native_ui_stencil_content(),
             "ui unlit native stencil RP",
+            surface_blend,
         )
     }
 
@@ -155,6 +198,7 @@ impl UiUnlitNativePipeline {
         config: &wgpu::SurfaceConfiguration,
         depth_stencil: wgpu::DepthStencilState,
         pipeline_label: &'static str,
+        surface_blend: NativeUiSurfaceBlend,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ui_unlit native"),
@@ -256,7 +300,7 @@ impl UiUnlitNativePipeline {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    blend: Some(surface_blend.to_wgpu_blend_state()),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
@@ -303,16 +347,16 @@ impl UiUnlitNativePipeline {
         &self.material_uniform
     }
 
-    /// Writes material uniforms for `block_id` and binds group 2.
+    /// Writes material uniforms for `lookup` and binds group 2.
     pub fn write_material_bind(
         &self,
         queue: &wgpu::Queue,
         pass: &mut wgpu::RenderPass<'_>,
         store: &MaterialPropertyStore,
-        block_id: i32,
+        lookup: MaterialPropertyLookupIds,
         ids: &UiUnlitPropertyIds,
     ) {
-        let (u, _, _) = ui_unlit_material_uniform(store, block_id, ids);
+        let (u, _, _) = ui_unlit_material_uniform(store, lookup, ids);
         queue.write_buffer(&self.material_uniform, 0, bytemuck::bytes_of(&u));
         pass.set_bind_group(2, &self.material_bind_group, &[]);
     }
@@ -379,5 +423,16 @@ impl RenderPipeline for UiUnlitNativePipeline {
         frame_index: u64,
     ) {
         self.uniform_ring.upload(queue, mvp_models, frame_index);
+    }
+}
+
+#[cfg(test)]
+mod native_ui_overlay_uniform_tests {
+    use super::NativeUiOverlayUnprojectUniform;
+
+    /// Matches WGSL `NativeUiOverlayUnproject`: two `mat4x4<f32>` (column-major in the uniform).
+    #[test]
+    fn native_ui_overlay_unproject_uniform_is_two_mat4() {
+        assert_eq!(std::mem::size_of::<NativeUiOverlayUnprojectUniform>(), 128);
     }
 }

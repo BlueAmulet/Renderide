@@ -43,6 +43,8 @@ pub struct DrawEntry {
     pub stencil_state: Option<StencilState>,
     /// From mesh renderer state; [`ShadowCastMode::off`] instances are omitted from the scene TLAS.
     pub shadow_cast_mode: ShadowCastMode,
+    /// Slot-0 `MaterialPropertyBlock` asset id from `mesh_materials_and_property_blocks`, if any.
+    pub mesh_renderer_property_block_slot0_id: Option<i32>,
 }
 
 /// Per-space draw batch for rendering.

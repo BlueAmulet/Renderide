@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::assets::{
-    MaterialPropertyStore, UiTextUnlitPropertyIds, UiUnlitPropertyIds,
+    MaterialPropertyLookupIds, MaterialPropertyStore, UiTextUnlitPropertyIds, UiUnlitPropertyIds,
     ui_text_unlit_material_uniform, ui_unlit_material_uniform,
 };
 
@@ -50,14 +50,14 @@ impl NativeUiMaterialBindCache {
         material_uniform: &wgpu::Buffer,
         linear_sampler: &wgpu::Sampler,
         store: &MaterialPropertyStore,
-        block_id: i32,
+        lookup: MaterialPropertyLookupIds,
         ids: &UiUnlitPropertyIds,
         main_view: Option<&wgpu::TextureView>,
         mask_view: Option<&wgpu::TextureView>,
         main_key: i32,
         mask_key: i32,
     ) {
-        let (u, _, _) = ui_unlit_material_uniform(store, block_id, ids);
+        let (u, _, _) = ui_unlit_material_uniform(store, lookup, ids);
         queue.write_buffer(material_uniform, 0, bytemuck::bytes_of(&u));
         let white = fallback_white(device);
         let mv = main_view.unwrap_or(white);
@@ -107,12 +107,12 @@ impl NativeUiMaterialBindCache {
         linear_sampler: &wgpu::Sampler,
         material_bgl: &wgpu::BindGroupLayout,
         store: &MaterialPropertyStore,
-        block_id: i32,
+        lookup: MaterialPropertyLookupIds,
         ids: &UiTextUnlitPropertyIds,
         font_view: Option<&wgpu::TextureView>,
         font_key: i32,
     ) {
-        let (u, _) = ui_text_unlit_material_uniform(store, block_id, ids);
+        let (u, _) = ui_text_unlit_material_uniform(store, lookup, ids);
         queue.write_buffer(material_uniform, 0, bytemuck::bytes_of(&u));
         let white = fallback_white(device);
         let fv = font_view.unwrap_or(white);

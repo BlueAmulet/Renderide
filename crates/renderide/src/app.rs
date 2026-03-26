@@ -589,6 +589,7 @@ impl RenderideApp {
                 })
                 .unwrap_or_default();
             let rc = self.session.render_config();
+            let reg = self.session.asset_registry();
             let live_sample = LiveFrameDiagnostics {
                 frame_index: self.session.last_frame_index(),
                 viewport: (gpu.config.width.max(1), gpu.config.height.max(1)),
@@ -612,6 +613,9 @@ impl RenderideApp {
                 mesh_cache_count: gpu.mesh_buffer_cache.len(),
                 pending_render_tasks: self.session.pending_render_task_count(),
                 pending_camera_task_readbacks: render_loop.pending_camera_task_readback_count(),
+                textures_cpu_registered: reg.texture_2d_count(),
+                textures_cpu_ready_for_gpu: reg.texture_2d_ready_for_gpu_count(),
+                textures_gpu_resident: gpu.texture2d_gpu.len(),
                 // Lights
                 gpu_light_count: gpu.light_count,
                 // RT / RTAO

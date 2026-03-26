@@ -70,6 +70,7 @@
 //! Cluster and light buffers are ordered by pass sequence and wgpu’s buffer tracking.
 
 mod error;
+mod material_draw_context;
 mod mesh_draw;
 mod mesh_prep;
 

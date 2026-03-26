@@ -48,6 +48,11 @@ impl<T: Asset> AssetManager<T> {
         self.assets.len()
     }
 
+    /// Iterates over all stored assets (hash map iteration order is undefined).
+    pub fn values(&self) -> impl Iterator<Item = &T> + '_ {
+        self.assets.values()
+    }
+
     /// Returns true if no assets are stored.
     pub fn is_empty(&self) -> bool {
         self.assets.is_empty()
