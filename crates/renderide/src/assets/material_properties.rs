@@ -197,6 +197,15 @@ impl MaterialPropertyStore {
         self.shader_asset_by_material.get(&material_id).copied()
     }
 
+    /// Iterates `(material_asset_id, shader_asset_id)` for every material that received `set_shader`.
+    ///
+    /// Used for diagnostics such as [`crate::assets::ui_material_contract::log_ui_unlit_material_inventory_if_enabled`].
+    pub fn iter_material_shader_bindings(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.shader_asset_by_material
+            .iter()
+            .map(|(&material_id, &shader_id)| (material_id, shader_id))
+    }
+
     /// Removes all properties and shader binding for a material asset. Used on `UnloadMaterial` IPC.
     pub fn remove_material(&mut self, material_id: i32) {
         self.material_properties.remove(&material_id);

@@ -53,8 +53,8 @@ pub use texture_unpack::{
 };
 pub use ui_material_contract::{
     NativeUiShaderFamily, UiTextUnlitMaterialUniform, UiTextUnlitPropertyIds, UiUnlitFlags,
-    UiUnlitMaterialUniform, UiUnlitPropertyIds, native_ui_family_for_shader,
-    native_ui_family_from_shader_label, native_ui_family_from_shader_path_hint,
-    native_ui_family_from_unity_shader_name, resolve_native_ui_shader_family,
-    ui_text_unlit_material_uniform, ui_unlit_material_uniform,
+    UiUnlitMaterialUniform, UiUnlitPropertyIds, log_ui_unlit_material_inventory_if_enabled,
+    native_ui_family_for_shader, native_ui_family_from_shader_label,
+    native_ui_family_from_shader_path_hint, native_ui_family_from_unity_shader_name,
+    resolve_native_ui_shader_family, ui_text_unlit_material_uniform, ui_unlit_material_uniform,
 };

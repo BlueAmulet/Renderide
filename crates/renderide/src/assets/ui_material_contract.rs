@@ -83,6 +83,13 @@
 //! [`crate::assets::material_properties`] and [`crate::config::RenderConfig`]; full Standard stacks
 //! (`_BumpMap`, `_EmissionMap`, …) are not wired into the generic PBR WGSL path yet.
 
+use std::collections::HashMap;
+
+use crate::config::RenderConfig;
+
+use super::MaterialPropertyLookupIds;
+use super::texture2d_asset_id_from_packed;
+
 /// Identifies which native UI WGSL program to use for a host shader asset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NativeUiShaderFamily {
@@ -150,7 +157,8 @@ pub fn native_ui_family_from_shader_label(label: &str) -> Option<NativeUiShaderF
 /// Uses [`native_ui_family_from_shader_label`] first, then [`native_ui_family_from_shader_path_hint`]
 /// for legacy bundle paths and other substring matches.
 pub fn native_ui_family_from_unity_shader_name(name: &str) -> Option<NativeUiShaderFamily> {
-    native_ui_family_from_shader_label(name).or_else(|| native_ui_family_from_shader_path_hint(name))
+    native_ui_family_from_shader_label(name)
+        .or_else(|| native_ui_family_from_shader_path_hint(name))
 }
 
 /// Resolves native UI shader family using configured allowlist ids, stored Unity shader name, then path hint.
@@ -177,6 +185,54 @@ pub fn resolve_native_ui_shader_family(
             .and_then(|s| s.wgsl_source.as_deref())
             .and_then(native_ui_family_from_unity_shader_name)
     })
+}
+
+/// When [`RenderConfig::use_native_ui_wgsl`] and [`RenderConfig::log_ui_unlit_material_inventory`]
+/// are true, logs one line per material asset whose `set_shader` resolves to
+/// [`NativeUiShaderFamily::UiUnlit`].
+///
+/// Uses material-only [`MaterialPropertyLookupIds`] (no per-renderer property-block merge). For
+/// per-draw overrides, use draw-path logging when [`RenderConfig::log_native_ui_routing`] is enabled.
+pub fn log_ui_unlit_material_inventory_if_enabled(
+    store: &super::MaterialPropertyStore,
+    registry: &super::AssetRegistry,
+    rc: &RenderConfig,
+    texture2d_gpu: &HashMap<i32, (wgpu::Texture, wgpu::TextureView)>,
+) {
+    if !rc.use_native_ui_wgsl || !rc.log_ui_unlit_material_inventory {
+        return;
+    }
+    for (material_id, shader_id) in store.iter_material_shader_bindings() {
+        let Some(family) = resolve_native_ui_shader_family(
+            shader_id,
+            rc.native_ui_unlit_shader_id,
+            rc.native_ui_text_unlit_shader_id,
+            registry,
+        ) else {
+            continue;
+        };
+        if family != NativeUiShaderFamily::UiUnlit {
+            continue;
+        }
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: material_id,
+            mesh_property_block_slot0: None,
+        };
+        let (_, main_packed, _) =
+            ui_unlit_material_uniform(store, lookup, &rc.ui_unlit_property_ids);
+        let tex_id = texture2d_asset_id_from_packed(main_packed);
+        let has_color_texture_property = main_packed != 0 && tex_id.is_some();
+        let gpu_texture_resident = tex_id.is_some_and(|id| texture2d_gpu.contains_key(&id));
+        logger::info!(
+            "ui_unlit_material_inventory: material_id={} shader_id={} main_tex_packed={} has_color_texture_property={} texture2d_asset_id={:?} gpu_texture_resident={}",
+            material_id,
+            shader_id,
+            main_packed,
+            has_color_texture_property,
+            tex_id,
+            gpu_texture_resident,
+        );
+    }
 }
 
 /// Property id map for `UI_Unlit` material batches. `-1` = omit (use GPU default).
@@ -522,9 +578,13 @@ mod tests {
         CANONICAL_UNITY_UI_TEXT_UNLIT, CANONICAL_UNITY_UI_UNLIT,
     };
 
+    use crate::assets::AssetRegistry;
+    use crate::assets::texture2d_asset_id_from_packed;
+    use crate::config::RenderConfig;
+
     use super::{
-        NativeUiShaderFamily, UiUnlitFlags, UiUnlitPropertyIds,
-        native_ui_family_from_shader_label, native_ui_family_from_unity_shader_name,
+        NativeUiShaderFamily, UiUnlitFlags, UiUnlitPropertyIds, native_ui_family_from_shader_label,
+        native_ui_family_from_unity_shader_name, resolve_native_ui_shader_family,
         ui_unlit_material_uniform,
     };
 
@@ -594,5 +654,28 @@ mod tests {
         };
         let (u, _, _) = ui_unlit_material_uniform(&store, lookup, &ids);
         assert_ne!(u.flags & 1, 0);
+    }
+
+    #[test]
+    fn ui_unlit_inventory_material_only_lookup_reads_main_tex() {
+        let mut store = MaterialPropertyStore::new();
+        store.set_shader_asset_for_material(10, 42);
+        let mut rc = RenderConfig::default();
+        rc.native_ui_unlit_shader_id = 42;
+        rc.ui_unlit_property_ids.main_tex = 7;
+        store.set_material(10, 7, MaterialPropertyValue::Texture(99));
+        let reg = AssetRegistry::new();
+        assert_eq!(
+            resolve_native_ui_shader_family(42, 42, -1, &reg),
+            Some(NativeUiShaderFamily::UiUnlit)
+        );
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: 10,
+            mesh_property_block_slot0: None,
+        };
+        let (_, main_packed, _) =
+            ui_unlit_material_uniform(&store, lookup, &rc.ui_unlit_property_ids);
+        assert_eq!(main_packed, 99);
+        assert_eq!(texture2d_asset_id_from_packed(99), Some(99));
     }
 }

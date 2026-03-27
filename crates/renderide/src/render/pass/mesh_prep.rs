@@ -8,6 +8,10 @@
 //! - Overlay: `native_ui_world_space` usually off; world UI: enable [`crate::config::RenderConfig::native_ui_world_space`].
 //! - `use_native_ui_wgsl` on; shader allowlist matches host `set_shader` id (INI, env, or upload hint + optional force).
 //! - `set_texture_2d_data` uses shared memory when the host supplies pixels; decode supports the atlas format.
+//! - [`prefetch_native_ui_texture2d_gpu`] ensures `Texture2D` GPU uploads for native UI draws **and** for
+//!   every material in the store classified as `UI_Unlit` (material-only `_MainTex` / `_MaskTex`), not only
+//!   for meshes drawn this frame—so inventory and draw-time paths agree when assets are
+//!   [`TextureAsset::ready_for_gpu`](crate::assets::TextureAsset::ready_for_gpu).
 //! - After a frame with data, GPU texture residency should reflect UI slots (prefetch + draw-time ensure).
 
 use std::collections::HashSet;
@@ -17,7 +21,10 @@ use nalgebra::Matrix4;
 use super::material_draw_context::MaterialDrawContext;
 use super::mesh_draw::{CollectMeshDrawsContext, collect_mesh_draws};
 use crate::assets::texture2d_asset_id_from_packed;
-use crate::assets::{ui_text_unlit_material_uniform, ui_unlit_material_uniform};
+use crate::assets::{
+    MaterialPropertyLookupIds, NativeUiShaderFamily, log_ui_unlit_material_inventory_if_enabled,
+    resolve_native_ui_shader_family, ui_text_unlit_material_uniform, ui_unlit_material_uniform,
+};
 use crate::gpu::GpuState;
 use crate::gpu::PipelineVariant;
 use crate::render::batch::SpaceDrawBatch;
@@ -169,6 +176,13 @@ pub fn prepare_mesh_draws_for_view(
 ) -> PreCollectedFrameData {
     ensure_mesh_buffers(gpu, session, draw_batches);
     prefetch_native_ui_texture2d_gpu(session, gpu, draw_batches);
+    let reg = session.asset_registry();
+    log_ui_unlit_material_inventory_if_enabled(
+        &reg.material_property_store,
+        reg,
+        session.render_config(),
+        &gpu.texture2d_gpu,
+    );
     let (width, height) = viewport;
     let aspect = width as f32 / height.max(1) as f32;
     let view_params = ViewParams::perspective_from_session(session, aspect);
@@ -191,6 +205,11 @@ pub fn prepare_mesh_draws_for_view(
 }
 
 /// Uploads host `Texture2D` mips referenced by native UI materials before pass encoding.
+///
+/// Walks this frame’s draw batches (merged material + property-block lookup) and then
+/// **every** `set_shader` material in the store resolved as [`NativeUiShaderFamily::UiUnlit`]
+/// using material-only lookup (same basis as [`log_ui_unlit_material_inventory_if_enabled`](crate::assets::log_ui_unlit_material_inventory_if_enabled))
+/// so textures are GPU-resident even when a material is not drawn this frame.
 fn prefetch_native_ui_texture2d_gpu(
     session: &Session,
     gpu: &mut GpuState,
@@ -227,6 +246,27 @@ fn prefetch_native_ui_texture2d_gpu(
                 prefetch_packed_texture2d(gpu, reg, atlas);
             }
         }
+    }
+    for (material_id, shader_id) in store.iter_material_shader_bindings() {
+        let Some(family) = resolve_native_ui_shader_family(
+            shader_id,
+            rc.native_ui_unlit_shader_id,
+            rc.native_ui_text_unlit_shader_id,
+            reg,
+        ) else {
+            continue;
+        };
+        if family != NativeUiShaderFamily::UiUnlit {
+            continue;
+        }
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: material_id,
+            mesh_property_block_slot0: None,
+        };
+        let (_, main_tex, mask_tex) =
+            ui_unlit_material_uniform(store, lookup, &rc.ui_unlit_property_ids);
+        prefetch_packed_texture2d(gpu, reg, main_tex);
+        prefetch_packed_texture2d(gpu, reg, mask_tex);
     }
 }
 

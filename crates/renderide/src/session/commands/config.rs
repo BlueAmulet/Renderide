@@ -70,6 +70,9 @@ impl CommandHandler for ConfigCommandHandler {
                         .render_config
                         .native_ui_overlay_stencil_pipelines,
                     log_native_ui_routing: ctx.render_config.log_native_ui_routing,
+                    log_ui_unlit_material_inventory: ctx
+                        .render_config
+                        .log_ui_unlit_material_inventory,
                     native_ui_routing_metrics: ctx.render_config.native_ui_routing_metrics,
                     material_batch_wire_metrics: ctx.render_config.material_batch_wire_metrics,
                     material_batch_persist_extended_payloads: ctx

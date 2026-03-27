@@ -117,6 +117,12 @@ pub struct RenderConfig {
     pub native_ui_overlay_stencil_pipelines: bool,
     /// Trace logs for native UI routing decisions (can be noisy).
     pub log_native_ui_routing: bool,
+    /// When true with [`Self::use_native_ui_wgsl`], each frame logs every material asset classified
+    /// as `UI_Unlit` (material-only property lookup) with `_MainTex` packed id and GPU residency.
+    ///
+    /// Per-renderer `MaterialPropertyBlock` overrides are not included; use
+    /// [`Self::log_native_ui_routing`] draw-path traces for merged block data.
+    pub log_ui_unlit_material_inventory: bool,
     /// When true, accumulate per-frame counts for native UI routing and PBR UI-vert fallback ([`crate::session::native_ui_routing_metrics`]).
     pub native_ui_routing_metrics: bool,
     /// When true, count `set_float4x4` / float array opcodes on the material batch wire ([`crate::assets::material_batch_wire_metrics`]).
@@ -183,7 +189,7 @@ impl RenderConfig {
     ///   `ray_traced_shadows_enabled` (bools); `rtao_strength`, `ao_radius` (floats); `frustum_culling` (bool);
     ///   `use_native_ui_wgsl` (bool); `native_ui_unlit_shader_id`, `native_ui_text_unlit_shader_id` (ints, `-1` off);
     ///   `native_ui_world_space`, `native_ui_overlay_stencil_pipelines`, `log_native_ui_routing`,
-    ///   `native_ui_routing_metrics` (bools);
+    ///   `log_ui_unlit_material_inventory`, `native_ui_routing_metrics` (bools);
     ///   `native_ui_uivert_pbr_fallback`, `native_ui_force_shader_hint_registration` (bools);
     ///   `native_ui_default_surface_blend` (`alpha` / `premultiplied` / `additive`);
     ///   `pbr_bind_host_material_properties` (bool);
@@ -214,6 +220,7 @@ impl RenderConfig {
     /// - `RENDERIDE_NATIVE_UI_WORLD_SPACE=1` — [`Self::native_ui_world_space`].
     /// - `RENDERIDE_NATIVE_UI_UIVERT_PBR_FALLBACK=true|false` — [`Self::native_ui_uivert_pbr_fallback`].
     /// - `RENDERIDE_NATIVE_UI_FORCE_SHADER_HINT_REGISTRATION=1` — [`Self::native_ui_force_shader_hint_registration`].
+    /// - `RENDERIDE_LOG_UI_UNLIT_MATERIALS=1` — [`Self::log_ui_unlit_material_inventory`].
     pub fn load() -> Self {
         let mut config = Self::default();
 
@@ -333,6 +340,9 @@ impl RenderConfig {
         if std::env::var("RENDERIDE_LOG_NATIVE_UI_ROUTING").as_deref() == Ok("1") {
             config.log_native_ui_routing = true;
         }
+        if std::env::var("RENDERIDE_LOG_UI_UNLIT_MATERIALS").as_deref() == Ok("1") {
+            config.log_ui_unlit_material_inventory = true;
+        }
         if std::env::var("RENDERIDE_NATIVE_UI_ROUTING_METRICS").as_deref() == Ok("1") {
             config.native_ui_routing_metrics = true;
         }
@@ -402,6 +412,7 @@ impl Default for RenderConfig {
             native_ui_world_space: false,
             native_ui_overlay_stencil_pipelines: false,
             log_native_ui_routing: false,
+            log_ui_unlit_material_inventory: true,
             native_ui_routing_metrics: false,
             material_batch_wire_metrics: false,
             material_batch_persist_extended_payloads: false,

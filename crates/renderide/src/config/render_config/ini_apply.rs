@@ -450,6 +450,18 @@ pub(crate) fn apply_render_config_ini_entry(
                 );
             }
         }
+        ("rendering", "log_ui_unlit_material_inventory") => {
+            if let Some(v) = parse_bool(value) {
+                config.log_ui_unlit_material_inventory = v;
+                eprintln!("[renderide] ini: log_ui_unlit_material_inventory = {}", v);
+                logger::info!("ini: log_ui_unlit_material_inventory = {}", v);
+            } else {
+                eprintln!(
+                    "[renderide] ini: log_ui_unlit_material_inventory parse error (raw = {:?})",
+                    value
+                );
+            }
+        }
         ("rendering", "native_ui_routing_metrics") => {
             if let Some(v) = parse_bool(value) {
                 config.native_ui_routing_metrics = v;
