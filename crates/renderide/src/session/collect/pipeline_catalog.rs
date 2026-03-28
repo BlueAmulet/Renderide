@@ -23,7 +23,7 @@ use super::pipeline::resolve_pipeline_for_material_draw_internal;
 pub enum ShaderPipelineFamily {
     /// Global debug / PBR / skinned builtins without host `Material` pipeline override.
     BuiltinGlobal,
-    /// Host-unlit pilot: generic WGSL host path ([`PipelineVariant::Material`]).
+    /// Native world-unlit material path.
     HostUnlitMaterial,
     /// Resonite `Shader "PBSMetallic"` native forward PBR ([`crate::gpu::PipelineVariant::Pbr`] family).
     PbsMetallicNative,
@@ -69,9 +69,6 @@ pub fn classify_shader_pipeline_family(
     }
     if resolve_pbs_metallic_shader_family(sid, asset_registry) {
         return ShaderPipelineFamily::PbsMetallicNative;
-    }
-    if render_config.use_host_unlit_pilot {
-        return ShaderPipelineFamily::HostUnlitMaterial;
     }
     ShaderPipelineFamily::Unknown
 }
@@ -190,15 +187,12 @@ mod tests {
     }
 
     #[test]
-    fn classify_host_unlit_when_pilot_and_no_other_family() {
+    fn classify_unknown_when_no_matching_family() {
         let reg = AssetRegistry::new();
-        let rc = RenderConfig {
-            use_host_unlit_pilot: true,
-            ..Default::default()
-        };
+        let rc = RenderConfig::default();
         assert_eq!(
             classify_shader_pipeline_family(Some(777), 3, &rc, &reg),
-            ShaderPipelineFamily::HostUnlitMaterial
+            ShaderPipelineFamily::Unknown
         );
     }
 

@@ -1,8 +1,6 @@
-//! [`ShaderKey`] describes how a drawable’s shader was resolved: optional host shader asset id
-//! plus the legacy [`PipelineVariant`](super::PipelineVariant) used when the host path does not apply.
-//!
-//! This runs in parallel with the existing enum-based pipeline selection until per-draw resolution
-//! fully replaces global `use_pbr` / `use_debug_uv` toggles.
+//! [`ShaderKey`] describes how a drawable???s shader was resolved: optional host shader asset id
+//! plus the builtin [`PipelineVariant`](super::PipelineVariant) used when no native Renderide
+//! shader route applies.
 
 use crate::assets::NativeMaterialPipelineFamily;
 
@@ -11,10 +9,10 @@ use super::PipelineVariant;
 /// Host shader identity and fallback variant from the pre-host-resolution path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct ShaderKey {
-    /// Shader asset id from a `MaterialPropertyUpdateType::set_shader` batch for this drawable’s
+    /// Shader asset id from a `MaterialPropertyUpdateType::set_shader` batch for this drawable???s
     /// material property block, when present.
     pub host_shader_asset_id: Option<i32>,
-    /// Variant that would apply without host shader selection (debug UV, PBR, skinned, stencil, …).
+    /// Variant that would apply without host shader selection (debug UV, PBR, skinned, stencil, ???).
     pub fallback_variant: PipelineVariant,
 }
 
@@ -29,14 +27,12 @@ impl ShaderKey {
 
     /// Effective pipeline variant for batching and GPU pipeline lookup.
     ///
-    /// When the host-unlit pilot is active and [`Self::host_shader_asset_id`] is set, non-MRT
-    /// non-skinned mesh draws use [`PipelineVariant::Material`] keyed by `material_block_id`,
-    /// except for [`NativeMaterialPipelineFamily::PbsMetallic`] and [`NativeMaterialPipelineFamily::UiUnlit`]
-    /// (native PBS / UI routes stay on global or native UI variants).
+    /// When [`Self::host_shader_asset_id`] is set and the shader resolves to world-unlit,
+    /// non-MRT non-skinned non-overlay draws use [`PipelineVariant::Material`] keyed by
+    /// `material_block_id`. Native PBS / UI routes stay on their own variants.
     #[allow(clippy::too_many_arguments)]
     pub fn effective_variant(
         self,
-        use_host_unlit_pilot: bool,
         shader_debug_override_force_legacy: bool,
         material_block_id: i32,
         use_mrt: bool,
@@ -47,8 +43,7 @@ impl ShaderKey {
         if shader_debug_override_force_legacy {
             return self.fallback_variant;
         }
-        if !use_host_unlit_pilot
-            || self.host_shader_asset_id.is_none()
+        if self.host_shader_asset_id.is_none()
             || material_block_id < 0
             || use_mrt
             || is_skinned
@@ -79,9 +74,7 @@ mod tests {
             host_shader_asset_id: Some(42),
             fallback_variant: PipelineVariant::Pbr,
         };
-        let v = k.effective_variant(
-            true,
-            false,
+        let v = k.effective_variant(`r`n            false,
             7,
             false,
             false,
@@ -97,9 +90,7 @@ mod tests {
             host_shader_asset_id: Some(42),
             fallback_variant: PipelineVariant::Pbr,
         };
-        let v = k.effective_variant(
-            true,
-            false,
+        let v = k.effective_variant(`r`n            false,
             7,
             false,
             false,
@@ -115,9 +106,7 @@ mod tests {
             host_shader_asset_id: Some(42),
             fallback_variant: PipelineVariant::Pbr,
         };
-        let v = k.effective_variant(
-            true,
-            false,
+        let v = k.effective_variant(`r`n            false,
             7,
             false,
             false,
@@ -133,9 +122,7 @@ mod tests {
             host_shader_asset_id: Some(42),
             fallback_variant: PipelineVariant::NormalDebug,
         };
-        let v = k.effective_variant(
-            true,
-            true,
+        let v = k.effective_variant(`r`n            true,
             7,
             false,
             false,
@@ -152,9 +139,7 @@ mod tests {
             fallback_variant: PipelineVariant::Skinned,
         };
         assert_eq!(
-            k.effective_variant(
-                true,
-                false,
+            k.effective_variant(`r`n                false,
                 3,
                 false,
                 true,
@@ -168,9 +153,7 @@ mod tests {
             fallback_variant: PipelineVariant::NormalDebug,
         };
         assert_eq!(
-            k2.effective_variant(
-                true,
-                false,
+            k2.effective_variant(`r`n                false,
                 3,
                 false,
                 false,
@@ -181,3 +164,4 @@ mod tests {
         );
     }
 }
+

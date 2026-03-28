@@ -2,7 +2,7 @@
 //!
 //! # Resolution DAG
 //!
-//! See the module-level documentation on [`super`](crate::session::collect) for the full CPU→GPU DAG.
+//! See the module-level documentation on [`super`](crate::session::collect) for the full CPU???GPU DAG.
 //! [`resolve_pipeline_for_material_draw`] is the main entry; when [`crate::config::RenderConfig::use_pipeline_catalog_resolver`]
 //! is enabled, [`super::pipeline_catalog::resolve_pipeline_variant_for_material_draw`] is authoritative.
 
@@ -117,9 +117,7 @@ pub(crate) fn resolve_pipeline_for_material_draw_internal(
     );
     let native_material_family =
         native_material_family_for_shader(host_shader_asset_id, render_config, asset_registry);
-    let pipeline_variant = shader_key.effective_variant(
-        render_config.use_host_unlit_pilot,
-        force_legacy,
+    let pipeline_variant = shader_key.effective_variant(`r`n        force_legacy,
         material_block_id,
         false,
         is_skinned,
@@ -315,3 +313,4 @@ fn compute_pipeline_variant(
         PipelineVariant::NormalDebug
     }
 }
+
