@@ -14,16 +14,20 @@ use crate::assets::material::{
     PropertyIdRegistry,
 };
 use crate::assets::mesh::try_upload_mesh_from_raw;
+use crate::assets::resolve_shader_upload;
+use crate::assets::shader::classify_shader;
 use crate::assets::texture::{supported_host_formats_for_init, write_texture2d_mips};
 use crate::assets::AssetSubsystem;
 use crate::connection::{ConnectionParams, InitError};
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
+use crate::materials::MaterialFamilyId;
 use crate::resources::{GpuTexture2d, MeshPool, TexturePool};
 use crate::shared::{
     FrameStartData, FrameSubmitData, HeadOutputDevice, MaterialPropertyIdResult,
     MaterialsUpdateBatch, MaterialsUpdateBatchResult, MeshUnload, MeshUploadData, MeshUploadResult,
     RendererCommand, RendererInitData, RendererInitResult, SetTexture2DData, SetTexture2DFormat,
-    SetTexture2DProperties, SetTexture2DResult, TextureUpdateResultType, UnloadTexture2D,
+    SetTexture2DProperties, SetTexture2DResult, ShaderUnload, ShaderUpload, ShaderUploadResult,
+    TextureUpdateResultType, UnloadTexture2D,
 };
 
 /// Max queued [`MeshUploadData`] when GPU is not ready yet (host data stays in shared memory).
@@ -85,6 +89,8 @@ pub struct RendererRuntime {
     pending_texture_uploads: VecDeque<SetTexture2DData>,
     /// GPU material families, router, and pipeline cache (after [`Self::attach_gpu`]).
     material_registry: Option<crate::materials::MaterialRegistry>,
+    /// Shader asset id → family when uploads arrive before [`Self::attach_gpu`].
+    pending_shader_routes: HashMap<i32, MaterialFamilyId>,
 }
 
 impl RendererRuntime {
@@ -120,6 +126,7 @@ impl RendererRuntime {
             pending_mesh_uploads: VecDeque::new(),
             pending_texture_uploads: VecDeque::new(),
             material_registry: None,
+            pending_shader_routes: HashMap::new(),
         }
     }
 
@@ -203,6 +210,11 @@ impl RendererRuntime {
         self.material_registry = Some(crate::materials::MaterialRegistry::with_default_families(
             device.clone(),
         ));
+        if let Some(reg) = self.material_registry.as_mut() {
+            for (asset_id, family) in self.pending_shader_routes.drain() {
+                reg.map_shader_to_family(asset_id, family);
+            }
+        }
         self.flush_pending_texture_allocations(&device);
         let pending_tex: Vec<SetTexture2DData> = self.pending_texture_uploads.drain(..).collect();
         for data in pending_tex {
@@ -345,9 +357,55 @@ impl RendererRuntime {
                 self.material_property_store
                     .remove_property_block(u.asset_id);
             }
+            RendererCommand::shader_upload(u) => self.on_shader_upload(u),
+            RendererCommand::shader_unload(u) => self.on_shader_unload(u),
             _ => {
                 logger::trace!("runtime: unhandled RendererCommand (expand handlers here)");
             }
+        }
+    }
+
+    fn register_shader_route(&mut self, asset_id: i32, family: MaterialFamilyId) {
+        if let Some(reg) = self.material_registry.as_mut() {
+            reg.map_shader_to_family(asset_id, family);
+        } else {
+            self.pending_shader_routes.insert(asset_id, family);
+        }
+    }
+
+    fn send_shader_upload_result(&mut self, asset_id: i32, instance_changed: bool) {
+        let Some(ref mut ipc) = self.ipc else {
+            return;
+        };
+        ipc.send_background(RendererCommand::shader_upload_result(ShaderUploadResult {
+            asset_id,
+            instance_changed,
+        }));
+    }
+
+    fn on_shader_upload(&mut self, upload: ShaderUpload) {
+        let asset_id = upload.asset_id;
+        let resolved = resolve_shader_upload(&upload);
+        let kind = classify_shader(
+            resolved.unity_shader_name.as_deref(),
+            upload.file.as_deref(),
+        );
+        logger::info!(
+            "shader_upload: asset_id={} unity_shader_name={:?} kind={kind:?} material_family={:?}",
+            asset_id,
+            resolved.unity_shader_name.as_deref(),
+            resolved.family,
+        );
+        self.register_shader_route(asset_id, resolved.family);
+        // Match Renderite Unity `ShaderAsset.SendLoaded`: host unblocks variant loads with `true`.
+        self.send_shader_upload_result(asset_id, true);
+    }
+
+    fn on_shader_unload(&mut self, unload: ShaderUnload) {
+        let id = unload.asset_id;
+        self.pending_shader_routes.remove(&id);
+        if let Some(reg) = self.material_registry.as_mut() {
+            reg.unmap_shader(id);
         }
     }
 

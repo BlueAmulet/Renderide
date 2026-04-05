@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "renderide"
 path = "src/main.rs"
 
+[[bin]]
+name = "roundtrip"
+path = "src/bin/roundtrip.rs"
+
 [dependencies]
 bytemuck = { version = "1.14", features = ["derive"] }
 memmap2 = "0.9"
@@ -19,8 +23,13 @@ logger = { path = "../logger" }
 nalgebra = { version = "0.34.1", features = ["convert-bytemuck"] }
 pollster = "0.4"
 thiserror = "2"
+unity-asset = "0.2.0"
+unity-asset-binary = "0.2.0"
 wgpu = "23"
 winit = "0.30"
+
+[dev-dependencies]
+tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.52", features = [

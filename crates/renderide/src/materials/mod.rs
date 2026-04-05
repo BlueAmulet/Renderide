@@ -2,7 +2,7 @@
 //!
 //! Host material **properties** live in [`crate::assets::material::MaterialPropertyStore`] (IPC
 //! batches). **Shader program choice** (which WGSL family to use) is routed via [`MaterialRouter`]
-//! from host shader asset ids once shader uploads are wired.
+//! from host shader asset ids updated by [`crate::assets::shader::resolve_shader_upload`].
 
 mod builtin_solid;
 mod cache;

@@ -1,7 +1,7 @@
 //! Maps host shader asset ids from `set_shader` to renderer [`super::MaterialFamilyId`].
 //!
-//! Until [`crate::shared::ShaderUpload`] is wired with name extraction, use an explicit map plus
-//! fallback family (see [`MaterialRouter::family_for_shader_asset`]).
+//! Populated from [`crate::assets::shader::resolve_shader_upload`] when the host sends
+//! [`crate::shared::ShaderUpload`]. Unknown ids use [`MaterialRouter::fallback`].
 
 use std::collections::HashMap;
 
@@ -35,5 +35,31 @@ impl MaterialRouter {
             .get(&shader_asset_id)
             .copied()
             .unwrap_or(self.fallback)
+    }
+
+    /// Drops a host shader id mapping after [`crate::shared::ShaderUnload`].
+    pub fn remove_shader_family(&mut self, shader_asset_id: i32) {
+        self.shader_to_family.remove(&shader_asset_id);
+    }
+
+    /// Returns the mapped family when the host id was registered via [`Self::set_shader_family`].
+    pub fn get_shader_family(&self, shader_asset_id: i32) -> Option<MaterialFamilyId> {
+        self.shader_to_family.get(&shader_asset_id).copied()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MaterialRouter;
+    use crate::materials::{MaterialFamilyId, SOLID_COLOR_FAMILY_ID};
+
+    #[test]
+    fn remove_shader_family_clears_entry() {
+        let mut r = MaterialRouter::new(MaterialFamilyId(99));
+        r.set_shader_family(7, SOLID_COLOR_FAMILY_ID);
+        assert_eq!(r.get_shader_family(7), Some(SOLID_COLOR_FAMILY_ID));
+        r.remove_shader_family(7);
+        assert_eq!(r.get_shader_family(7), None);
+        assert_eq!(r.family_for_shader_asset(7), MaterialFamilyId(99));
     }
 }

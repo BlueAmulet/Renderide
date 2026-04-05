@@ -2,7 +2,11 @@
 
 pub mod material;
 pub mod mesh;
+pub mod shader;
 pub mod texture;
+pub mod util;
+
+pub use shader::{resolve_shader_upload, CoarseShaderKind, ResolvedShaderUpload};
 
 use std::collections::VecDeque;
 

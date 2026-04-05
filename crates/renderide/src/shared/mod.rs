@@ -7,6 +7,7 @@
 
 pub mod buffer;
 pub mod packing;
+pub mod shader_upload_extras;
 
 /// Automatically generated Renderite shared types and decode helpers.
 pub mod shared;

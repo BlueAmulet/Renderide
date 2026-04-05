@@ -41,6 +41,11 @@ impl MaterialRegistry {
         self.router.set_shader_family(shader_asset_id, family);
     }
 
+    /// Removes routing for a host shader id [`crate::shared::ShaderUnload`].
+    pub fn unmap_shader(&mut self, shader_asset_id: i32) {
+        self.router.remove_shader_family(shader_asset_id);
+    }
+
     /// Resolves a pipeline for a host shader asset (via static or default router).
     pub fn pipeline_for_shader_asset(
         &mut self,
