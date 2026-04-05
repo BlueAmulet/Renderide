@@ -5,7 +5,8 @@
 //!
 //! ## Layering
 //!
-//! - **[`frontend`]** — IPC queues, shared memory accessor, init handshake, lock-step frame gating.
+//! - **[`frontend`]** — IPC queues, shared memory accessor, init handshake, lock-step frame gating,
+//!   and window [`input`](crate::frontend::input) (winit to [`InputState`](crate::shared::InputState)).
 //! - **[`scene`]** — Render spaces, transforms, mesh renderables, host light cache (no wgpu).
 //! - **[`backend`]** — GPU device usage, mesh/texture pools, material property store, uploads,
 //!   [`MeshPreprocessPipelines`](crate::gpu::MeshPreprocessPipelines), and the compiled

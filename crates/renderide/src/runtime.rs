@@ -1,9 +1,9 @@
 //! Renderer façade: orchestrates **frontend** (IPC / shared memory / lock-step), **scene** (host
 //! logical state), and **backend** (GPU pools, material store, uploads).
 //!
-//! Phase order aligns with `RenderingManager.HandleUpdate`: optionally send
-//! [`FrameStartData`](crate::shared::FrameStartData), drain integration-style work (stub here), then
-//! process incoming commands.
+//! Phase order aligns with the historical session loop: drain incoming commands first, then emit
+//! [`FrameStartData`](crate::shared::FrameStartData) when lock-step allows (see `app` `tick_frame`).
+//! Asset integration between begin-frame and frame processing remains a stub here.
 //!
 //! Lock-step is driven by the `last_frame_index` field of [`FrameStartData`](crate::shared::FrameStartData)
 //! on the **outgoing** `frame_start_data` the renderer sends from [`RendererRuntime::pre_frame`].
@@ -27,8 +27,8 @@ pub use crate::frontend::InitState;
 use crate::ipc::SharedMemoryAccessor;
 use crate::scene::SceneCoordinator;
 use crate::shared::{
-    FrameSubmitData, HeadOutputDevice, LightData, LightsBufferRendererConsumed,
-    LightsBufferRendererSubmission, MaterialPropertyIdResult, MaterialsUpdateBatch,
+    FrameSubmitData, HeadOutputDevice, InputState, LightData, LightsBufferRendererConsumed,
+    LightsBufferRendererSubmission, MaterialPropertyIdResult, MaterialsUpdateBatch, OutputState,
     RendererCommand, RendererInitData, RendererInitResult, ShaderUnload, ShaderUpload,
     ShaderUploadResult,
 };
@@ -165,9 +165,24 @@ impl RendererRuntime {
         self.backend.execute_frame_graph(gpu, window, scene_ref)
     }
 
+    /// Whether the next tick should build [`InputState`] and call [`Self::pre_frame`].
+    pub fn should_send_begin_frame(&self) -> bool {
+        self.frontend.should_send_begin_frame()
+    }
+
+    /// Host [`OutputState::lock_cursor`] bit merged into packed mouse state.
+    pub fn host_cursor_lock_requested(&self) -> bool {
+        self.frontend.host_cursor_lock_requested()
+    }
+
     /// If connected and init is complete, sends [`FrameStartData`] when we are ready for the next host frame.
-    pub fn pre_frame(&mut self) {
-        self.frontend.pre_frame();
+    pub fn pre_frame(&mut self, inputs: InputState) {
+        self.frontend.pre_frame(inputs);
+    }
+
+    /// Drains pending host window policy after [`Self::poll_ipc`].
+    pub fn take_pending_output_state(&mut self) -> Option<OutputState> {
+        self.frontend.take_pending_output_state()
     }
 
     /// Placeholder for bounded asset integration between begin-frame and frame processing (Unity:
@@ -391,6 +406,8 @@ impl RendererRuntime {
 
     fn on_frame_submit(&mut self, data: FrameSubmitData) {
         self.frontend.note_frame_submit_processed(data.frame_index);
+        self.frontend
+            .apply_frame_submit_output(data.output_state.clone());
         let start = Instant::now();
         self.run_asset_integration_stub(Duration::from_millis(2));
 

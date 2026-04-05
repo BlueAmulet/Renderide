@@ -35,6 +35,12 @@
 //! batches and [`LightsBufferRendererSubmission`](crate::shared::LightsBufferRendererSubmission) payloads;
 //! [`SceneCoordinator::resolve_lights_world`](SceneCoordinator::resolve_lights_world) produces
 //! [`ResolvedLight`](ResolvedLight) for [`GpuLight`](crate::backend::GpuLight) packing in the backend.
+//!
+//! ## Reflection probes
+//!
+//! [`RenderSpaceUpdate::reflection_probe_sh2_taks`](crate::shared::RenderSpaceUpdate) is completed in
+//! shared memory by marking each task [`ComputeResult::failed`](crate::shared::ComputeResult) until
+//! SH2 extraction is implemented (module `reflection_probe_sh2`).
 
 mod coordinator;
 mod error;
@@ -45,6 +51,7 @@ mod mesh_apply;
 mod mesh_material_row;
 mod mesh_renderable;
 mod pose;
+mod reflection_probe_sh2;
 mod render_space;
 mod transforms_apply;
 mod world;

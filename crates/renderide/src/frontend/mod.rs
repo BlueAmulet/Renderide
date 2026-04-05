@@ -9,5 +9,8 @@
 
 mod renderer_frontend;
 
+/// Winit adapter and [`WindowInputAccumulator`](input::WindowInputAccumulator) for [`crate::shared::InputState`].
+pub mod input;
+
 pub use renderer_frontend::InitState;
 pub use renderer_frontend::RendererFrontend;

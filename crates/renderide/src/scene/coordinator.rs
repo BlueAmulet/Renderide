@@ -114,6 +114,13 @@ impl SceneCoordinator {
         shm: &mut SharedMemoryAccessor,
         data: &FrameSubmitData,
     ) -> Result<(), SceneError> {
+        // Unity `RenderSpace.HandleUpdate` order: reflection-probe SH2 tasks before per-space work.
+        for update in &data.render_spaces {
+            if let Some(ref sh2) = update.reflection_probe_sh2_taks {
+                super::reflection_probe_sh2::mark_reflection_probe_sh2_tasks_failed(shm, sh2);
+            }
+        }
+
         let mut seen = HashSet::new();
 
         for update in &data.render_spaces {

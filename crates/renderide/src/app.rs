@@ -1,15 +1,22 @@
 //! Winit [`ApplicationHandler`]: window creation, GPU init, IPC-driven tick, and present.
+//!
+//! The main window is created maximized via [`winit::window::Window::default_attributes`] and
+//! [`with_maximized(true)`](winit::window::WindowAttributes::with_maximized), which winit maps to
+//! the appropriate Win32, X11, and Wayland behavior.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use logger::{LogComponent, LogLevel};
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event::{DeviceEvent, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, DeviceEvents, EventLoop};
 use winit::window::{Window, WindowId};
 
 use crate::connection::{get_connection_parameters, try_claim_renderer_singleton};
+use crate::frontend::input::{
+    apply_device_event, apply_output_state_to_window, apply_window_event, WindowInputAccumulator,
+};
 use crate::gpu::GpuContext;
 use crate::present::present_clear_frame;
 use crate::render_graph::GraphExecuteError;
@@ -75,6 +82,7 @@ pub fn run() -> Option<i32> {
         gpu: None,
         exit_code: None,
         last_log_flush: None,
+        input: WindowInputAccumulator::default(),
     };
 
     let _ = event_loop.run_app(&mut app);
@@ -88,6 +96,7 @@ struct RenderideApp {
     gpu: Option<GpuContext>,
     exit_code: Option<i32>,
     last_log_flush: Option<Instant>,
+    input: WindowInputAccumulator,
 }
 
 impl RenderideApp {
@@ -110,6 +119,7 @@ impl RenderideApp {
 
         let attrs = winit::window::Window::default_attributes()
             .with_title("Renderide")
+            .with_maximized(true)
             .with_visible(true);
 
         let window = match event_loop.create_window(attrs) {
@@ -144,11 +154,28 @@ impl RenderideApp {
         }
 
         self.window = Some(window);
+        if let Some(w) = self.window.as_ref() {
+            w.set_ime_allowed(true);
+        }
     }
 
     fn tick_frame(&mut self, event_loop: &ActiveEventLoop) {
-        self.runtime.pre_frame();
         self.runtime.poll_ipc();
+
+        if let (Some(window), Some(out)) = (
+            self.window.as_ref(),
+            self.runtime.take_pending_output_state(),
+        ) {
+            if let Err(e) = apply_output_state_to_window(window.as_ref(), &out) {
+                logger::debug!("apply_output_state_to_window: {e:?}");
+            }
+        }
+
+        if self.runtime.should_send_begin_frame() {
+            let lock = self.runtime.host_cursor_lock_requested();
+            let inputs = self.input.take_input_state(lock);
+            self.runtime.pre_frame(inputs);
+        }
 
         if self.runtime.shutdown_requested() {
             logger::info!("Renderer shutdown requested by host");
@@ -192,7 +219,17 @@ impl RenderideApp {
 
 impl ApplicationHandler for RenderideApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        event_loop.listen_device_events(DeviceEvents::Always);
         self.ensure_window_gpu(event_loop);
+    }
+
+    fn device_event(
+        &mut self,
+        _event_loop: &ActiveEventLoop,
+        _device_id: winit::event::DeviceId,
+        event: DeviceEvent,
+    ) {
+        apply_device_event(&mut self.input, &event);
     }
 
     fn window_event(
@@ -208,6 +245,8 @@ impl ApplicationHandler for RenderideApp {
             return;
         }
 
+        apply_window_event(&mut self.input, &event);
+
         match event {
             WindowEvent::CloseRequested => {
                 logger::info!("Window close requested");
@@ -219,6 +258,10 @@ impl ApplicationHandler for RenderideApp {
                 }
             }
             WindowEvent::RedrawRequested => {
+                if let Some(w) = self.window.as_ref() {
+                    let s = w.inner_size();
+                    self.input.window_resolution = (s.width, s.height);
+                }
                 self.tick_frame(event_loop);
             }
             WindowEvent::ScaleFactorChanged { .. } => {

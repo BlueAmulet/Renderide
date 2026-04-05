@@ -2,7 +2,7 @@
 
 use crate::connection::{ConnectionParams, InitError};
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
-use crate::shared::{FrameStartData, RendererCommand, RendererInitData};
+use crate::shared::{FrameStartData, InputState, OutputState, RendererCommand, RendererInitData};
 
 /// Host init sequence state (replaces paired booleans such as `init_received` / `init_finalized`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -36,6 +36,10 @@ pub struct RendererFrontend {
     sent_bootstrap_frame_start: bool,
     pub shutdown_requested: bool,
     pub fatal_error: bool,
+    /// Latest host [`OutputState::lock_cursor`] from [`crate::shared::FrameSubmitData`].
+    cursor_lock_requested: bool,
+    /// Pending window policy from the last frame submit (applied in winit; consumed by the app).
+    pending_output_state: Option<OutputState>,
 }
 
 impl RendererFrontend {
@@ -58,6 +62,8 @@ impl RendererFrontend {
             sent_bootstrap_frame_start: false,
             shutdown_requested: false,
             fatal_error: false,
+            cursor_lock_requested: false,
+            pending_output_state: None,
         }
     }
 
@@ -131,23 +137,27 @@ impl RendererFrontend {
         batch
     }
 
-    /// Lock-step begin-frame: send [`FrameStartData`] when allowed.
-    ///
-    /// The host primarily uses `last_frame_index` for lock-step; other [`FrameStartData`] fields are
-    /// left empty until input/perf/reflection paths are wired.
-    pub fn pre_frame(&mut self) {
+    /// Whether a [`FrameStartData`] should be sent this tick (caller should supply [`InputState`] via [`Self::pre_frame`]).
+    pub fn should_send_begin_frame(&self) -> bool {
         if !self.init_state.is_finalized() || self.fatal_error || self.ipc.is_none() {
+            return false;
+        }
+        let bootstrap = self.last_frame_index < 0 && !self.sent_bootstrap_frame_start;
+        self.last_frame_data_processed || bootstrap
+    }
+
+    /// Lock-step begin-frame: send [`FrameStartData`] with `inputs` when [`Self::should_send_begin_frame`].
+    ///
+    /// Call only when [`Self::should_send_begin_frame`] is true so [`InputState`] is not dropped on the floor.
+    pub fn pre_frame(&mut self, inputs: InputState) {
+        if !self.should_send_begin_frame() {
             return;
         }
 
         let bootstrap = self.last_frame_index < 0 && !self.sent_bootstrap_frame_start;
-        let should_send = self.last_frame_data_processed || bootstrap;
-        if !should_send {
-            return;
-        }
-
         let frame_start = FrameStartData {
             last_frame_index: self.last_frame_index,
+            inputs: Some(inputs),
             ..Default::default()
         };
         if let Some(ref mut ipc) = self.ipc {
@@ -157,6 +167,27 @@ impl RendererFrontend {
         if bootstrap {
             self.sent_bootstrap_frame_start = true;
         }
+    }
+
+    /// Host wants relative mouse mode; merged into [`crate::shared::MouseState::is_active`] when packing input.
+    pub fn host_cursor_lock_requested(&self) -> bool {
+        self.cursor_lock_requested
+    }
+
+    /// Updates cursor policy when the host includes [`OutputState`], and queues window chrome for the app.
+    ///
+    /// When `output` is `None`, [`Self::host_cursor_lock_requested`] is left unchanged (Unity only calls
+    /// `HandleOutputState` when non-null); pending chrome is cleared for that frame.
+    pub fn apply_frame_submit_output(&mut self, output: Option<OutputState>) {
+        if let Some(ref o) = output {
+            self.cursor_lock_requested = o.lock_cursor;
+        }
+        self.pending_output_state = output;
+    }
+
+    /// Takes the last [`OutputState`] so the winit layer can apply it once.
+    pub fn take_pending_output_state(&mut self) -> Option<OutputState> {
+        self.pending_output_state.take()
     }
 
     /// Updates lock-step state after the host submits a frame.
