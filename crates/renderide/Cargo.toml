@@ -3,6 +3,27 @@ name = "renderide"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "renderide"
+path = "src/lib.rs"
+
+[[bin]]
+name = "renderide"
+path = "src/main.rs"
+
 [dependencies]
 bytemuck = { version = "1.14", features = ["derive"] }
+memmap2 = "0.9"
+interprocess = { path = "../interprocess" }
+logger = { path = "../logger" }
 nalgebra = { version = "0.34.1", features = ["convert-bytemuck"] }
+pollster = "0.4"
+thiserror = "2"
+wgpu = "23"
+winit = "0.30"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_Memory",
+] }
