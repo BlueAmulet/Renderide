@@ -96,6 +96,19 @@ pub fn mip_byte_len(format: TextureFormat, width: u32, height: u32) -> Option<u6
     }
 }
 
+/// Returns the width and height of mip `level` in a standard mip chain (matches wgpu/WebGPU mip sizing).
+///
+/// `level` 0 is the base size; each subsequent level halves each dimension, clamped to at least 1.
+pub fn mip_dimensions_at_level(base_w: u32, base_h: u32, level: u32) -> (u32, u32) {
+    let mut w = base_w;
+    let mut h = base_h;
+    for _ in 0..level {
+        w = (w / 2).max(1);
+        h = (h / 2).max(1);
+    }
+    (w, h)
+}
+
 /// Sum of byte lengths for mips 0..`mipmap_count` for `base_w`×`base_h`.
 pub fn total_mip_chain_byte_len(
     format: TextureFormat,
@@ -210,5 +223,13 @@ mod tests {
             mip_byte_len(TextureFormat::rgba32, 16, 16).unwrap(),
             16 * 16 * 4
         );
+    }
+
+    #[test]
+    fn mip_dimensions_at_level_halves_each_step() {
+        assert_eq!(mip_dimensions_at_level(114, 200, 0), (114, 200));
+        assert_eq!(mip_dimensions_at_level(114, 200, 1), (57, 100));
+        assert_eq!(mip_dimensions_at_level(114, 200, 2), (28, 50));
+        assert_eq!(mip_dimensions_at_level(1, 1, 5), (1, 1));
     }
 }

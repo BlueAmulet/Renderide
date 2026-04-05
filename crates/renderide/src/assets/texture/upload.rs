@@ -7,7 +7,9 @@ use crate::shared::{ColorProfile, SetTexture2DData, SetTexture2DFormat};
 
 use super::decode::{decode_mip_to_rgba8, flip_mip_rows, needs_rgba8_decode_before_upload};
 use super::format::pick_wgpu_storage_format;
-use super::layout::{host_format_is_compressed, mip_byte_len, validate_mip_upload_layout};
+use super::layout::{
+    host_format_is_compressed, mip_byte_len, mip_dimensions_at_level, validate_mip_upload_layout,
+};
 
 /// Decides GPU storage format for a new 2D texture from host [`SetTexture2DFormat`].
 ///
@@ -75,6 +77,16 @@ pub fn write_texture2d_mips(
         );
     }
 
+    let tex_extent = texture.size();
+    let fmt_w = fmt.width.max(0) as u32;
+    let fmt_h = fmt.height.max(0) as u32;
+    if tex_extent.width != fmt_w || tex_extent.height != fmt_h {
+        return Err(format!(
+            "GPU texture {}x{} does not match SetTexture2DFormat {}x{} for asset {}",
+            tex_extent.width, tex_extent.height, fmt_w, fmt_h, upload.asset_id
+        ));
+    }
+
     for (i, sz) in upload.mip_map_sizes.iter().enumerate() {
         let w = sz.x.max(0) as u32;
         let h = sz.y.max(0) as u32;
@@ -82,6 +94,16 @@ pub fn write_texture2d_mips(
         if mip_level >= mipmap_count {
             return Err(format!(
                 "upload mip {mip_level} exceeds texture mips {mipmap_count}"
+            ));
+        }
+
+        let (gw, gh) = mip_dimensions_at_level(tex_extent.width, tex_extent.height, mip_level);
+        if w != gw || h != gh {
+            return Err(format!(
+                "texture {} mip {mip_level}: upload says {w}x{h} but GPU mip is {gw}x{gh} (base {}x{} from format); fix host SetTexture2DFormat vs SetTexture2DData",
+                upload.asset_id,
+                tex_extent.width,
+                tex_extent.height
             ));
         }
 
