@@ -16,7 +16,9 @@ use crate::render_graph::{CompiledRenderGraph, GraphExecuteError};
 use crate::resources::{GpuTexture2d, MeshPool, TexturePool};
 use crate::scene::SceneCoordinator;
 
+use super::debug_draw::DebugDrawResources;
 use super::light_gpu::{order_lights_for_clustered_shading, GpuLight};
+use super::mesh_deform_scratch::MeshDeformScratch;
 use crate::shared::{
     MaterialsUpdateBatch, MaterialsUpdateBatchResult, MeshUnload, MeshUploadData, MeshUploadResult,
     RendererCommand, SetTexture2DData, SetTexture2DFormat, SetTexture2DProperties,
@@ -40,7 +42,7 @@ pub struct RenderBackend {
     /// Stable ids for [`crate::shared::MaterialPropertyIdRequest`] / batch `property_id` keys.
     property_id_registry: PropertyIdRegistry,
     pending_material_batches: VecDeque<MaterialsUpdateBatch>,
-    mesh_pool: MeshPool,
+    pub(crate) mesh_pool: MeshPool,
     texture_pool: TexturePool,
     /// Latest [`SetTexture2DFormat`] per asset (required before data upload).
     texture_formats: HashMap<i32, SetTexture2DFormat>,
@@ -51,7 +53,7 @@ pub struct RenderBackend {
     pending_mesh_uploads: VecDeque<MeshUploadData>,
     pending_texture_uploads: VecDeque<SetTexture2DData>,
     /// GPU material families, router, and pipeline cache (after [`Self::attach`]).
-    material_registry: Option<crate::materials::MaterialRegistry>,
+    pub(crate) material_registry: Option<crate::materials::MaterialRegistry>,
     /// Shader asset id → family when uploads arrive before GPU attach.
     pending_shader_routes: HashMap<i32, MaterialFamilyId>,
     /// Optional mesh skinning / blendshape compute pipelines (after [`Self::attach`]).
@@ -60,6 +62,10 @@ pub struct RenderBackend {
     frame_graph: Option<CompiledRenderGraph>,
     /// Last packed lights for the frame (after [`Self::prepare_lights_from_scene`]).
     light_scratch: Vec<GpuLight>,
+    /// Scratch buffers for mesh deformation compute (after [`Self::attach`]).
+    mesh_deform_scratch: Option<MeshDeformScratch>,
+    /// Uniforms + bind group for debug mesh draws.
+    pub(crate) debug_draw: Option<DebugDrawResources>,
 }
 
 impl Default for RenderBackend {
@@ -88,6 +94,8 @@ impl RenderBackend {
             mesh_preprocess: None,
             frame_graph: None,
             light_scratch: Vec::new(),
+            mesh_deform_scratch: None,
+            debug_draw: None,
         }
     }
 
@@ -175,6 +183,8 @@ impl RenderBackend {
     ) {
         self.gpu_device = Some(device.clone());
         self.gpu_queue = Some(queue);
+        self.mesh_deform_scratch = Some(MeshDeformScratch::new(device.as_ref()));
+        self.debug_draw = Some(DebugDrawResources::new(device.as_ref()));
         match MeshPreprocessPipelines::new(device.as_ref()) {
             Ok(p) => self.mesh_preprocess = Some(p),
             Err(e) => {
@@ -218,18 +228,40 @@ impl RenderBackend {
         };
     }
 
-    /// Records and presents one frame using the compiled render graph (swapchain clear + future passes).
+    /// Records and presents one frame using the compiled render graph (deform compute + forward mesh pass).
     ///
     /// Returns [`GraphExecuteError::NoFrameGraph`] if graph build failed during [`Self::attach`].
     pub fn execute_frame_graph(
         &mut self,
         gpu: &mut GpuContext,
         window: &Window,
+        scene: &SceneCoordinator,
     ) -> Result<(), GraphExecuteError> {
-        let Some(graph) = self.frame_graph.as_mut() else {
+        let Some(mut graph) = self.frame_graph.take() else {
             return Err(GraphExecuteError::NoFrameGraph);
         };
-        graph.execute(gpu, window)
+        let res = graph.execute(gpu, window, scene, self);
+        self.frame_graph = Some(graph);
+        res
+    }
+
+    /// Scratch buffers for mesh deformation (`MeshDeformPass`).
+    pub fn mesh_deform_scratch_mut(&mut self) -> Option<&mut MeshDeformScratch> {
+        self.mesh_deform_scratch.as_mut()
+    }
+
+    /// Compute preprocess pipelines + deform scratch (`MeshDeformPass`) as one disjoint borrow.
+    pub fn mesh_deform_pre_and_scratch(
+        &mut self,
+    ) -> Option<(&crate::gpu::MeshPreprocessPipelines, &mut MeshDeformScratch)> {
+        let pre = self.mesh_preprocess.as_ref()?;
+        let scratch = self.mesh_deform_scratch.as_mut()?;
+        Some((pre, scratch))
+    }
+
+    /// Debug mesh draw uniforms ([`DebugDrawResources`]).
+    pub fn debug_draw(&self) -> Option<&DebugDrawResources> {
+        self.debug_draw.as_ref()
     }
 
     /// Maps shader asset to material family, or defers until [`Self::attach`].

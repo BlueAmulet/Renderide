@@ -53,6 +53,7 @@ pub use coordinator::SceneCoordinator;
 pub use error::SceneError;
 pub use ids::{RenderSpaceId, TransformIndex};
 pub use lights::{light_casts_shadows, CachedLight, LightCache, ResolvedLight};
+pub use math::render_transform_to_matrix;
 pub use mesh_renderable::{MeshMaterialSlot, SkinnedMeshRenderer, StaticMeshRenderer};
 pub use render_space::RenderSpaceState;
 pub use transforms_apply::TransformRemovalEvent;

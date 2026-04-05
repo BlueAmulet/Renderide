@@ -5,6 +5,8 @@
 //! a [`PipelineKey`] that hashes permutation + format state. This avoids dynamic branch cost in
 //! shaders and avoids a second offline compiler when WGSL is the authoring format.
 
+pub mod raster;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

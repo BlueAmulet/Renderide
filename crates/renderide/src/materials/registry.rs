@@ -3,11 +3,13 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::pipelines::raster::{DebugWorldNormalsFamily, DEBUG_WORLD_NORMALS_FAMILY_ID};
 use crate::pipelines::ShaderPermutation;
 
 use super::builtin_solid::SolidColorFamily;
 use super::cache::MaterialPipelineCache;
 use super::family::{MaterialFamilyId, MaterialPipelineDesc, MaterialPipelineFamily};
+use super::resolve_raster::resolve_raster_family;
 use super::router::MaterialRouter;
 
 /// Owning table of material families, routing, and pipeline cache.
@@ -19,15 +21,16 @@ pub struct MaterialRegistry {
 }
 
 impl MaterialRegistry {
-    /// Registers builtin families and routes all unknown shader assets to [`SolidColorFamily`].
+    /// Registers builtin families and routes unknown shader assets to [`DEBUG_WORLD_NORMALS_FAMILY_ID`].
     pub fn with_default_families(device: Arc<wgpu::Device>) -> Self {
         let mut registry = Self {
             device: device.clone(),
             families: HashMap::new(),
-            router: MaterialRouter::new(super::builtin_solid::SOLID_COLOR_FAMILY_ID),
+            router: MaterialRouter::new(DEBUG_WORLD_NORMALS_FAMILY_ID),
             cache: MaterialPipelineCache::new(device),
         };
         registry.register_family(Arc::new(SolidColorFamily));
+        registry.register_family(Arc::new(DebugWorldNormalsFamily));
         registry
     }
 
@@ -53,7 +56,7 @@ impl MaterialRegistry {
         desc: &MaterialPipelineDesc,
         permutation: ShaderPermutation,
     ) -> Option<&wgpu::RenderPipeline> {
-        let id = self.router.family_for_shader_asset(shader_asset_id);
+        let id = resolve_raster_family(shader_asset_id);
         self.pipeline_for_family(id, desc, permutation)
     }
 

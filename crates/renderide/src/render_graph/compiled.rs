@@ -2,11 +2,14 @@
 
 use winit::window::Window;
 
+use crate::backend::RenderBackend;
 use crate::gpu::GpuContext;
 use crate::present::{acquire_surface_outcome, SurfaceFrameOutcome};
+use crate::scene::SceneCoordinator;
 
 use super::context::RenderPassContext;
 use super::error::GraphExecuteError;
+use super::frame_params::FrameRenderParams;
 use super::pass::RenderPass;
 
 /// Statistics emitted when building a [`CompiledRenderGraph`].
@@ -46,10 +49,15 @@ impl CompiledRenderGraph {
 
     /// Records all passes and submits. Matches [`crate::present::present_clear_frame`] recovery
     /// behavior for surface acquire (timeout/occluded skip, validation reconfigure).
+    ///
+    /// `scene` and `backend` are passed through [`super::FrameRenderParams`] to mesh passes; the
+    /// graph temporarily takes ownership of `backend.frame_graph` via [`RenderBackend::execute_frame_graph`].
     pub fn execute(
         &mut self,
         gpu: &mut GpuContext,
         window: &Window,
+        scene: &SceneCoordinator,
+        backend: &mut RenderBackend,
     ) -> Result<(), GraphExecuteError> {
         let (frame, backbuffer_view_holder): (
             Option<wgpu::SurfaceTexture>,
@@ -70,25 +78,40 @@ impl CompiledRenderGraph {
             (None, None)
         };
 
-        let device = gpu.device().as_ref();
+        let surface_format = gpu.config_format();
+        let viewport_px = gpu.surface_extent_px();
+        let device_arc = gpu.device().clone();
+        let queue_arc = gpu.queue().clone();
+        let depth_view = gpu.ensure_depth_view();
+        let device = device_arc.as_ref();
         let backbuffer_ref = backbuffer_view_holder.as_ref();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render-graph"),
         });
 
+        let mut frame_params = FrameRenderParams {
+            scene,
+            backend,
+            depth_view,
+            surface_format,
+            viewport_px,
+        };
+
         let mut ctx = RenderPassContext {
             device,
-            queue: gpu.queue(),
+            queue: &queue_arc,
             encoder: &mut encoder,
             backbuffer: backbuffer_ref,
+            depth_view: Some(depth_view),
+            frame: Some(&mut frame_params),
         };
 
         for pass in &mut self.passes {
             pass.execute(&mut ctx)?;
         }
 
-        gpu.queue()
+        queue_arc
             .lock()
             .expect("queue mutex poisoned")
             .submit(std::iter::once(encoder.finish()));

@@ -291,6 +291,107 @@ pub fn attribute_offset_and_size(
     None
 }
 
+/// Extracts float3 position and normal streams from interleaved vertices into dense `vec4<f32>`
+/// storage (16 bytes each per vertex). Returns [`None`] when attributes are missing or not both
+/// three-component `float32` (debug raster / compute path requirement).
+pub fn extract_float3_position_normal_as_vec4_streams(
+    vertex_data: &[u8],
+    vertex_count: usize,
+    stride: usize,
+    attrs: &[VertexAttributeDescriptor],
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    if vertex_count == 0 || stride == 0 {
+        return None;
+    }
+    let need = vertex_count.checked_mul(stride)?;
+    if vertex_data.len() < need {
+        return None;
+    }
+    let pos = attribute_offset_and_size(attrs, VertexAttributeType::position)?;
+    let nrm = attribute_offset_and_size(attrs, VertexAttributeType::normal)?;
+    let pos_attr = attrs
+        .iter()
+        .find(|a| (a.attribute as i16) == (VertexAttributeType::position as i16))?;
+    let nrm_attr = attrs
+        .iter()
+        .find(|a| (a.attribute as i16) == (VertexAttributeType::normal as i16))?;
+    if pos_attr.format != VertexAttributeFormat::float32 || pos_attr.dimensions != 3 {
+        return None;
+    }
+    if nrm_attr.format != VertexAttributeFormat::float32 || nrm_attr.dimensions != 3 {
+        return None;
+    }
+    if pos.1 != 12 || nrm.1 != 12 {
+        return None;
+    }
+
+    let mut pos_out = vec![0u8; vertex_count * 16];
+    let mut nrm_out = vec![0u8; vertex_count * 16];
+    let one = 1.0f32.to_le_bytes();
+    for i in 0..vertex_count {
+        let base = i * stride;
+        let p0 = base + pos.0;
+        let n0 = base + nrm.0;
+        if p0 + 12 > vertex_data.len() || n0 + 12 > vertex_data.len() {
+            return None;
+        }
+        let po = i * 16;
+        pos_out[po..po + 12].copy_from_slice(&vertex_data[p0..p0 + 12]);
+        pos_out[po + 12..po + 16].copy_from_slice(&one);
+
+        let no = i * 16;
+        nrm_out[no..no + 12].copy_from_slice(&vertex_data[n0..n0 + 12]);
+        nrm_out[no + 12..no + 16].fill(0);
+    }
+    Some((pos_out, nrm_out))
+}
+
+/// Splits the mesh tail `bone_weights` region into GPU storage buffers for the skinning shader:
+/// `array<vec4<u32>>` joint indices and `array<vec4<f32>>` weights per vertex.
+///
+/// Supports either **4 influences** (`32 * vertex_count` bytes as `(f32 weight, i32 index)` tuples)
+/// or **1 influence** (`8 * vertex_count` bytes) as produced by [`super::synthetic_bone_data_for_blendshape_only`].
+pub fn split_bone_weights_tail_for_gpu(
+    bone_weights_tail: &[u8],
+    vertex_count: usize,
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    if vertex_count == 0 {
+        return None;
+    }
+    let four_inf = vertex_count * 32;
+    let one_inf = vertex_count * 8;
+    let span = if bone_weights_tail.len() >= four_inf {
+        4usize
+    } else if bone_weights_tail.len() >= one_inf {
+        1usize
+    } else {
+        return None;
+    };
+
+    let mut idx_bytes = vec![0u8; vertex_count * 16];
+    let mut wt_bytes = vec![0u8; vertex_count * 16];
+
+    for v in 0..vertex_count {
+        for k in 0..4 {
+            let (w, j) = if k < span {
+                let off = v * (span * 8) + k * 8;
+                if off + 8 > bone_weights_tail.len() {
+                    return None;
+                }
+                let w = f32::from_le_bytes(bone_weights_tail[off..off + 4].try_into().ok()?);
+                let j = i32::from_le_bytes(bone_weights_tail[off + 4..off + 8].try_into().ok()?);
+                (w, j.max(0) as u32)
+            } else {
+                (0.0f32, 0u32)
+            };
+            let wb = v * 16 + k * 4;
+            wt_bytes[wb..wb + 4].copy_from_slice(&w.to_le_bytes());
+            idx_bytes[wb..wb + 4].copy_from_slice(&j.to_le_bytes());
+        }
+    }
+    Some((idx_bytes, wt_bytes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,5 +432,29 @@ mod tests {
             },
         ];
         assert_eq!(compute_vertex_stride(&attrs), 24);
+    }
+
+    #[test]
+    fn split_bone_weights_four_influences_roundtrip() {
+        let mut tail = Vec::new();
+        for v in 0..2u8 {
+            for k in 0..4u8 {
+                let w = (v + k) as f32 * 0.1;
+                let j = (k as i32) + (v as i32) * 10;
+                tail.extend_from_slice(&w.to_le_bytes());
+                tail.extend_from_slice(&j.to_le_bytes());
+            }
+        }
+        let (idx, wt) = split_bone_weights_tail_for_gpu(&tail, 2).expect("split");
+        let w0 = f32::from_le_bytes(wt[0..4].try_into().unwrap());
+        let i0 = u32::from_le_bytes(idx[0..4].try_into().unwrap());
+        assert!((w0 - 0.0).abs() < 1e-5);
+        assert_eq!(i0, 0);
+
+        // Vertex 1, first influence (k=0): w=0.1, j=10
+        let w1_0 = f32::from_le_bytes(wt[16..20].try_into().unwrap());
+        let i1_0 = u32::from_le_bytes(idx[16..20].try_into().unwrap());
+        assert!((w1_0 - 0.1).abs() < 1e-5);
+        assert_eq!(i1_0, 10);
     }
 }

@@ -48,12 +48,14 @@ pub use frontend::RendererFrontend;
 pub use gpu::MeshPreprocessPipelines;
 pub use ipc::DualQueueIpc;
 pub use materials::{
-    compose_wgsl, MaterialFamilyId, MaterialPipelineCache, MaterialPipelineCacheKey,
-    MaterialPipelineDesc, MaterialPipelineFamily, MaterialRegistry, MaterialRouter,
-    SolidColorFamily, WgslPatch, SOLID_COLOR_FAMILY_ID,
+    compose_wgsl, resolve_raster_family, DebugWorldNormalsFamily, MaterialFamilyId,
+    MaterialPipelineCache, MaterialPipelineCacheKey, MaterialPipelineDesc, MaterialPipelineFamily,
+    MaterialRegistry, MaterialRouter, SolidColorFamily, WgslPatch, DEBUG_WORLD_NORMALS_FAMILY_ID,
+    SOLID_COLOR_FAMILY_ID,
 };
 pub use render_graph::{
-    build_default_main_graph, passes::SwapchainClearPass, CompileStats, CompiledRenderGraph,
+    build_default_main_graph, passes::MeshDeformPass, passes::SwapchainClearPass,
+    passes::WorldMeshForwardPass, CompileStats, CompiledRenderGraph, FrameRenderParams,
     GraphBuildError, GraphBuilder, GraphExecuteError, PassId, PassResources, RenderPass,
     RenderPassContext, RenderPassError, ResourceSlot,
 };

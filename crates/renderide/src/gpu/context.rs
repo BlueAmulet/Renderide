@@ -14,6 +14,10 @@ pub struct GpuContext {
     /// must outlive this value (owned alongside it in the app handler).
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
+    /// Depth target matching [`Self::config`] extent; recreated after resize.
+    depth_texture: Option<wgpu::Texture>,
+    depth_view: Option<wgpu::TextureView>,
+    depth_extent_px: (u32, u32),
 }
 
 /// GPU initialization or resize failure.
@@ -94,6 +98,9 @@ impl GpuContext {
             queue: Arc::new(Mutex::new(queue)),
             surface: surface_safe,
             config,
+            depth_texture: None,
+            depth_view: None,
+            depth_extent_px: (0, 0),
         })
     }
 
@@ -102,12 +109,20 @@ impl GpuContext {
         PhysicalSize::new(self.config.width, self.config.height)
     }
 
+    /// Swapchain pixel size `(width, height)`.
+    pub fn surface_extent_px(&self) -> (u32, u32) {
+        (self.config.width, self.config.height)
+    }
+
     /// Reconfigures the swapchain after resize or after [`wgpu::CurrentSurfaceTexture::Lost`] /
     /// [`wgpu::CurrentSurfaceTexture::Outdated`].
     pub fn reconfigure(&mut self, width: u32, height: u32) {
         self.config.width = width.max(1);
         self.config.height = height.max(1);
         self.surface.configure(&self.device, &self.config);
+        self.depth_texture = None;
+        self.depth_view = None;
+        self.depth_extent_px = (0, 0);
     }
 
     /// Borrows the configured surface for acquire/submit.
@@ -126,6 +141,40 @@ impl GpuContext {
 
     pub fn config_format(&self) -> wgpu::TextureFormat {
         self.config.format
+    }
+
+    /// Ensures a [`wgpu::TextureFormat::Depth32Float`] attachment exists for the current surface extent.
+    ///
+    /// Call after [`Self::reconfigure`] or when the swapchain size may have changed.
+    pub fn ensure_depth_view(&mut self) -> &wgpu::TextureView {
+        let w = self.config.width.max(1);
+        let h = self.config.height.max(1);
+        if self.depth_extent_px == (w, h) {
+            if let Some(ref v) = self.depth_view {
+                return v;
+            }
+        }
+        self.depth_texture = None;
+        self.depth_view = None;
+        let tex = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("renderide-depth"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        self.depth_extent_px = (w, h);
+        self.depth_texture = Some(tex);
+        self.depth_view = Some(view);
+        self.depth_view.as_ref().expect("just created")
     }
 
     /// Acquires the next frame, reconfiguring once on [`wgpu::CurrentSurfaceTexture::Lost`] or

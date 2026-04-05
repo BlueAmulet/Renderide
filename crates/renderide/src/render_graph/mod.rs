@@ -20,6 +20,7 @@ mod builder;
 mod compiled;
 mod context;
 mod error;
+mod frame_params;
 mod ids;
 mod pass;
 mod resources;
@@ -30,14 +31,17 @@ pub use builder::GraphBuilder;
 pub use compiled::{CompileStats, CompiledRenderGraph};
 pub use context::RenderPassContext;
 pub use error::{GraphBuildError, GraphExecuteError, RenderPassError};
+pub use frame_params::FrameRenderParams;
 pub use ids::PassId;
 pub use pass::RenderPass;
 pub use resources::{PassResources, ResourceSlot};
 
-/// Builds the default single-pass graph (swapchain clear) installed after GPU attach.
+/// Builds the default graph: mesh deform compute, then world forward (clear + depth + mesh draw).
 pub fn build_default_main_graph() -> Result<CompiledRenderGraph, GraphBuildError> {
     let mut builder = GraphBuilder::new();
-    builder.add_pass(Box::new(passes::SwapchainClearPass::new()));
+    let deform = builder.add_pass(Box::new(passes::MeshDeformPass::new()));
+    let forward = builder.add_pass(Box::new(passes::WorldMeshForwardPass::new()));
+    builder.add_edge(deform, forward);
     builder.build()
 }
 
@@ -46,10 +50,10 @@ mod default_graph_tests {
     use super::*;
 
     #[test]
-    fn default_main_needs_surface_and_one_pass() {
+    fn default_main_needs_surface_and_two_passes() {
         let g = build_default_main_graph().expect("default graph");
         assert!(g.needs_surface_acquire());
-        assert_eq!(g.pass_count(), 1);
-        assert_eq!(g.compile_stats.topo_levels, 1);
+        assert_eq!(g.pass_count(), 2);
+        assert_eq!(g.compile_stats.topo_levels, 2);
     }
 }

@@ -161,7 +161,8 @@ impl RendererRuntime {
         window: &Window,
     ) -> Result<(), GraphExecuteError> {
         self.backend.prepare_lights_from_scene(&self.scene);
-        self.backend.execute_frame_graph(gpu, window)
+        let scene_ref: &SceneCoordinator = &self.scene;
+        self.backend.execute_frame_graph(gpu, window, scene_ref)
     }
 
     /// If connected and init is complete, sends [`FrameStartData`] when we are ready for the next host frame.

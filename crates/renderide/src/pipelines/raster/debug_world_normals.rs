@@ -1,0 +1,129 @@
+//! Debug mesh material: world-space normals as RGB.
+
+use crate::materials::{MaterialFamilyId, MaterialPipelineDesc, MaterialPipelineFamily};
+use crate::pipelines::ShaderPermutation;
+
+/// Builtin family id for [`DebugWorldNormalsFamily`].
+pub const DEBUG_WORLD_NORMALS_FAMILY_ID: MaterialFamilyId = MaterialFamilyId(2);
+
+/// World-normal debug visualization for decomposed position/normal vertex streams.
+pub struct DebugWorldNormalsFamily;
+
+impl DebugWorldNormalsFamily {
+    /// Shared layout for [`MaterialPipelineFamily::create_render_pipeline`] and bind group creation at draw time.
+    pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("debug_world_normals_material"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: std::num::NonZeroU64::new(64),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: std::num::NonZeroU64::new(64),
+                    },
+                    count: None,
+                },
+            ],
+        })
+    }
+}
+
+impl MaterialPipelineFamily for DebugWorldNormalsFamily {
+    fn family_id(&self) -> MaterialFamilyId {
+        DEBUG_WORLD_NORMALS_FAMILY_ID
+    }
+
+    fn build_wgsl(&self, _permutation: ShaderPermutation) -> String {
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/shaders/debug_world_normals.wgsl"
+        ))
+        .to_string()
+    }
+
+    fn create_render_pipeline(
+        &self,
+        device: &wgpu::Device,
+        module: &wgpu::ShaderModule,
+        desc: &MaterialPipelineDesc,
+    ) -> wgpu::RenderPipeline {
+        let bgl = Self::bind_group_layout(device);
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("debug_world_normals_material"),
+            bind_group_layouts: &[Some(&bgl)],
+            immediate_size: 0,
+        });
+
+        let pos_layout = wgpu::VertexBufferLayout {
+            array_stride: 16,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 0,
+                format: wgpu::VertexFormat::Float32x4,
+            }],
+        };
+        let nrm_layout = wgpu::VertexBufferLayout {
+            array_stride: 16,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[wgpu::VertexAttribute {
+                offset: 0,
+                shader_location: 1,
+                format: wgpu::VertexFormat::Float32x4,
+            }],
+        };
+
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("debug_world_normals_material"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[pos_layout, nrm_layout],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: desc.surface_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: desc
+                .depth_stencil_format
+                .map(|format| wgpu::DepthStencilState {
+                    format,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+            multisample: wgpu::MultisampleState {
+                count: desc.sample_count,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview_mask: None,
+            cache: None,
+        })
+    }
+}

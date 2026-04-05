@@ -2,6 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use super::frame_params::FrameRenderParams;
+
 /// Immutable GPU handles and mutable encoder for one frame’s recording.
 pub struct RenderPassContext<'a> {
     /// WGPU device.
@@ -12,4 +14,8 @@ pub struct RenderPassContext<'a> {
     pub encoder: &'a mut wgpu::CommandEncoder,
     /// Swapchain view when this frame acquired the surface; [`None`] for offscreen-only graphs.
     pub backbuffer: Option<&'a wgpu::TextureView>,
+    /// Depth attachment for the main forward pass when configured.
+    pub depth_view: Option<&'a wgpu::TextureView>,
+    /// Scene + backend when the graph participates in mesh drawing.
+    pub frame: Option<&'a mut FrameRenderParams<'a>>,
 }
