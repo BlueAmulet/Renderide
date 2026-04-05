@@ -55,13 +55,13 @@ public class RustEmitter
         _w.Line(")]");
         _w.BlankLine();
         _w.Line("use nalgebra::{Vector2, Vector3, Vector4, Quaternion, Matrix4};");
-        _w.Line("use super::memory_packable::MemoryPackable;");
-        _w.Line("use super::memory_packer::MemoryPacker;");
-        _w.Line("use super::memory_unpacker::MemoryUnpacker;");
-        _w.Line("use super::memory_packer_entity_pool::MemoryPackerEntityPool;");
-        _w.Line("use super::polymorphic_memory_packable_entity::PolymorphicEncode;");
+        _w.Line("use super::packing::memory_packable::MemoryPackable;");
+        _w.Line("use super::packing::memory_packer::MemoryPacker;");
+        _w.Line("use super::packing::memory_unpacker::MemoryUnpacker;");
+        _w.Line("use super::packing::memory_packer_entity_pool::MemoryPackerEntityPool;");
+        _w.Line("use super::packing::polymorphic_memory_packable_entity::PolymorphicEncode;");
         _w.Line("use super::buffer::SharedMemoryBufferDescriptor;");
-        _w.Line("use super::enum_repr::EnumRepr;");
+        _w.Line("use super::packing::enum_repr::EnumRepr;");
         _w.Line("use bytemuck::{Pod, Zeroable};");
         _w.BlankLine();
     }
@@ -384,7 +384,7 @@ public class RustEmitter
         _w.Comment("Roundtrip dispatch for C#–Rust serialization tests. Called by the roundtrip binary.");
         using (_w.BeginMethod("roundtrip_dispatch", "std::io::Result<Vec<u8>>", null, ["type_name: &str", "input: &[u8]"], isPublic: true))
         {
-            _w.Line("use super::default_entity_pool::DefaultEntityPool;");
+            _w.Line("use super::packing::default_entity_pool::DefaultEntityPool;");
             _w.Line("let mut pool = DefaultEntityPool;");
             _w.Line("let mut unpacker = MemoryUnpacker::new(input, &mut pool);");
             _w.Line("let mut output = vec![0u8; 1024 * 1024];");

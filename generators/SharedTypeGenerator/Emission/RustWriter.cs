@@ -10,10 +10,15 @@ public class RustWriter : IDisposable
     private readonly Stream _stream;
     private int _indent;
 
-    /// <summary>Opens <paramref name="path"/> for write (truncating if it exists).</summary>
+    /// <summary>Opens <paramref name="path"/> for write (truncating if it exists). Creates parent directories when missing.</summary>
     public RustWriter(string path)
     {
-        _stream = File.OpenWrite(path);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        string fullPath = Path.GetFullPath(path);
+        string? dir = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrEmpty(dir))
+            Directory.CreateDirectory(dir);
+        _stream = File.OpenWrite(fullPath);
         _writer = new StreamWriter(_stream);
     }
 
