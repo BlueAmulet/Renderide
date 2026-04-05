@@ -1,6 +1,7 @@
 //! Compute shaders for mesh skinning and blendshape deformation (frame-begin preprocess hook).
 //!
-//! Pipelines compile at [`crate::runtime::RendererRuntime::attach_gpu`]. Full vertex layout binding
+//! Pipelines compile when [`crate::backend::RenderBackend::attach`] runs (via
+//! [`crate::runtime::RendererRuntime::attach_gpu`]). Full vertex layout binding
 //! to [`crate::assets::mesh::GpuMesh`] interleaved buffers is a follow-up; this module establishes
 //! bind group contracts and valid WGSL entry points.
 

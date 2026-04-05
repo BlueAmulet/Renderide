@@ -149,14 +149,14 @@ impl RenderideApp {
         self.runtime.pre_frame();
         self.runtime.poll_ipc();
 
-        if self.runtime.shutdown_requested {
+        if self.runtime.shutdown_requested() {
             logger::info!("Renderer shutdown requested by host");
             self.exit_code = Some(0);
             event_loop.exit();
             return;
         }
 
-        if self.runtime.fatal_error {
+        if self.runtime.fatal_error() {
             logger::error!("Renderer fatal IPC error");
             self.exit_code = Some(4);
             event_loop.exit();

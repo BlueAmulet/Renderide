@@ -1,190 +1,110 @@
-//! Renderer orchestration: IPC polling, init lifecycle, lock-step frame gating, mesh + texture +
-//! material ingest.
+//! Renderer façade: orchestrates **frontend** (IPC / shared memory / lock-step), **scene** (host
+//! logical state), and **backend** (GPU pools, material store, uploads).
 //!
-//! Phase order is aligned with `RenderingManager.HandleUpdate`: optionally send
+//! Phase order aligns with `RenderingManager.HandleUpdate`: optionally send
 //! [`FrameStartData`](crate::shared::FrameStartData), drain integration-style work (stub here), then
 //! process incoming commands.
 //!
-//! Lock-step with the host is driven by the `last_frame_index` field of [`FrameStartData`](crate::shared::FrameStartData)
+//! Lock-step is driven by the `last_frame_index` field of [`FrameStartData`](crate::shared::FrameStartData)
 //! on the **outgoing** `frame_start_data` the renderer sends from [`RendererRuntime::pre_frame`].
-//! If the host ever sends [`RendererCommand::frame_start_data`](crate::shared::RendererCommand::frame_start_data)
-//! on the primary queue, optional payloads (`performance`, `inputs`, reflection-probe results, video
-//! clock errors) are recorded only via trace logging until consumers exist.
+//! If the host sends [`RendererCommand::frame_start_data`](crate::shared::RendererCommand::frame_start_data),
+//! optional payloads are trace-logged until consumers exist.
 
-use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::assets::material::{
-    parse_materials_update_batch_into_store, MaterialPropertyStore, ParseMaterialBatchOptions,
-    PropertyIdRegistry,
-};
-use crate::assets::mesh::try_upload_mesh_from_raw;
 use crate::assets::resolve_shader_upload;
 use crate::assets::shader::classify_shader;
-use crate::assets::texture::{supported_host_formats_for_init, write_texture2d_mips};
+use crate::assets::texture::supported_host_formats_for_init;
 use crate::assets::AssetSubsystem;
+use crate::backend::RenderBackend;
 use crate::connection::{ConnectionParams, InitError};
-use crate::gpu::MeshPreprocessPipelines;
-use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
-use crate::materials::MaterialFamilyId;
-use crate::resources::{GpuTexture2d, MeshPool, TexturePool};
+use crate::frontend::RendererFrontend;
+
+pub use crate::frontend::InitState;
+use crate::ipc::SharedMemoryAccessor;
 use crate::scene::SceneCoordinator;
 use crate::shared::{
-    FrameStartData, FrameSubmitData, HeadOutputDevice, MaterialPropertyIdResult,
-    MaterialsUpdateBatch, MaterialsUpdateBatchResult, MeshUnload, MeshUploadData, MeshUploadResult,
-    RendererCommand, RendererInitData, RendererInitResult, SetTexture2DData, SetTexture2DFormat,
-    SetTexture2DProperties, SetTexture2DResult, ShaderUnload, ShaderUpload, ShaderUploadResult,
-    TextureUpdateResultType, UnloadTexture2D,
+    FrameSubmitData, HeadOutputDevice, MaterialPropertyIdResult, MaterialsUpdateBatch,
+    RendererCommand, RendererInitData, RendererInitResult, ShaderUnload, ShaderUpload,
+    ShaderUploadResult,
 };
 
-/// Max queued [`MeshUploadData`] when GPU is not ready yet (host data stays in shared memory).
-const MAX_PENDING_MESH_UPLOADS: usize = 256;
-
-/// Max queued texture data commands when GPU or format is not ready.
-const MAX_PENDING_TEXTURE_UPLOADS: usize = 256;
-
-/// Max queued [`MaterialsUpdateBatch`] when shared memory is not available.
-const MAX_PENDING_MATERIAL_BATCHES: usize = 256;
-
-/// Host init sequence state (replaces paired booleans such as `init_received` / `init_finalized`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum InitState {
-    /// Waiting for [`RendererCommand::renderer_init_data`].
-    #[default]
-    Uninitialized,
-    /// `renderer_init_data` received; waiting for [`RendererCommand::renderer_init_finalize_data`].
-    InitReceived,
-    /// Normal operation (or standalone mode).
-    Finalized,
-}
-
-impl InitState {
-    /// Whether host init handshake is complete.
-    pub fn is_finalized(self) -> bool {
-        matches!(self, InitState::Finalized)
-    }
-}
-
-/// Owns IPC (optional), lock-step flags, shared memory, and GPU resource pools.
+/// Facade: [`RendererFrontend`] + [`SceneCoordinator`] + [`RenderBackend`] + ingestion helpers.
 pub struct RendererRuntime {
-    ipc: Option<DualQueueIpc>,
-    params: Option<ConnectionParams>,
-    init_state: InitState,
-    /// After a successful [`FrameSubmitData`] application, host may expect another begin-frame.
-    pub last_frame_data_processed: bool,
-    pub last_frame_index: i32,
-    sent_bootstrap_frame_start: bool,
-    pub shutdown_requested: bool,
-    pub fatal_error: bool,
-    assets: AssetSubsystem,
-    pending_init: Option<RendererInitData>,
-    shared_memory: Option<SharedMemoryAccessor>,
-    /// Host material property batches (`MaterialsUpdateBatch`); separate maps for materials vs blocks.
-    material_property_store: MaterialPropertyStore,
-    /// Stable ids for [`crate::shared::MaterialPropertyIdRequest`] / batch `property_id` keys.
-    property_id_registry: PropertyIdRegistry,
-    pending_material_batches: VecDeque<MaterialsUpdateBatch>,
-    mesh_pool: MeshPool,
-    texture_pool: TexturePool,
-    /// Latest [`SetTexture2DFormat`] per asset (required before data upload).
-    texture_formats: HashMap<i32, SetTexture2DFormat>,
-    /// Latest [`SetTexture2DProperties`] per asset (sampler metadata on [`GpuTexture2d`]).
-    texture_properties: HashMap<i32, SetTexture2DProperties>,
-    gpu_device: Option<Arc<wgpu::Device>>,
-    gpu_queue: Option<Arc<Mutex<wgpu::Queue>>>,
-    pending_mesh_uploads: VecDeque<MeshUploadData>,
-    pending_texture_uploads: VecDeque<SetTexture2DData>,
-    /// GPU material families, router, and pipeline cache (after [`Self::attach_gpu`]).
-    material_registry: Option<crate::materials::MaterialRegistry>,
-    /// Shader asset id → family when uploads arrive before [`Self::attach_gpu`].
-    pending_shader_routes: HashMap<i32, MaterialFamilyId>,
-    /// Render spaces and dense transform arenas from [`FrameSubmitData`](crate::shared::FrameSubmitData).
+    frontend: RendererFrontend,
+    backend: RenderBackend,
+    /// Render spaces and dense transform / mesh state from [`FrameSubmitData`](crate::shared::FrameSubmitData).
     pub scene: SceneCoordinator,
-    /// Optional mesh skinning / blendshape compute pipelines (after [`Self::attach_gpu`]).
-    mesh_preprocess: Option<MeshPreprocessPipelines>,
+    assets: AssetSubsystem,
 }
 
 impl RendererRuntime {
     /// Builds a runtime; does not open IPC yet (see [`Self::connect_ipc`]).
     pub fn new(params: Option<ConnectionParams>) -> Self {
-        let standalone = params.is_none();
-        let init_state = if standalone {
-            InitState::Finalized
-        } else {
-            InitState::default()
-        };
         Self {
-            ipc: None,
-            params,
-            init_state,
-            last_frame_data_processed: standalone,
-            last_frame_index: -1,
-            sent_bootstrap_frame_start: false,
-            shutdown_requested: false,
-            fatal_error: false,
-            assets: AssetSubsystem::default(),
-            pending_init: None,
-            shared_memory: None,
-            material_property_store: MaterialPropertyStore::new(),
-            property_id_registry: PropertyIdRegistry::new(),
-            pending_material_batches: VecDeque::new(),
-            mesh_pool: MeshPool::default_pool(),
-            texture_pool: TexturePool::default_pool(),
-            texture_formats: HashMap::new(),
-            texture_properties: HashMap::new(),
-            gpu_device: None,
-            gpu_queue: None,
-            pending_mesh_uploads: VecDeque::new(),
-            pending_texture_uploads: VecDeque::new(),
-            material_registry: None,
-            pending_shader_routes: HashMap::new(),
+            frontend: RendererFrontend::new(params),
+            backend: RenderBackend::new(),
             scene: SceneCoordinator::new(),
-            mesh_preprocess: None,
+            assets: AssetSubsystem::default(),
         }
     }
 
     /// Mesh deformation compute pipelines when GPU init succeeded.
-    pub fn mesh_preprocess(&self) -> Option<&MeshPreprocessPipelines> {
-        self.mesh_preprocess.as_ref()
+    pub fn mesh_preprocess(&self) -> Option<&crate::gpu::MeshPreprocessPipelines> {
+        self.backend.mesh_preprocess()
     }
 
     /// Opens Primary/Background queues when [`Self::new`] was given connection parameters.
     pub fn connect_ipc(&mut self) -> Result<(), InitError> {
-        let Some(ref p) = self.params.clone() else {
-            return Ok(());
-        };
-        self.ipc = Some(DualQueueIpc::connect(p)?);
-        Ok(())
+        self.frontend.connect_ipc()
     }
 
     /// Whether IPC queues are open.
     pub fn is_ipc_connected(&self) -> bool {
-        self.ipc.is_some()
+        self.frontend.is_ipc_connected()
     }
 
     pub fn init_state(&self) -> InitState {
-        self.init_state
+        self.frontend.init_state()
+    }
+
+    /// After a successful [`FrameSubmitData`] application, host may expect another begin-frame.
+    pub fn last_frame_data_processed(&self) -> bool {
+        self.frontend.last_frame_data_processed
+    }
+
+    /// Current lock-step frame index echoed to the host.
+    pub fn last_frame_index(&self) -> i32 {
+        self.frontend.last_frame_index
+    }
+
+    pub fn shutdown_requested(&self) -> bool {
+        self.frontend.shutdown_requested
+    }
+
+    pub fn fatal_error(&self) -> bool {
+        self.frontend.fatal_error
     }
 
     /// Mesh pool and VRAM accounting (draw prep, debugging).
-    pub fn mesh_pool(&self) -> &MeshPool {
-        &self.mesh_pool
+    pub fn mesh_pool(&self) -> &crate::resources::MeshPool {
+        self.backend.mesh_pool()
     }
 
     /// Mutable mesh pool (eviction experiments).
-    pub fn mesh_pool_mut(&mut self) -> &mut MeshPool {
-        &mut self.mesh_pool
+    pub fn mesh_pool_mut(&mut self) -> &mut crate::resources::MeshPool {
+        self.backend.mesh_pool_mut()
     }
 
     /// Resident Texture2D table (bind-group prep).
-    pub fn texture_pool(&self) -> &TexturePool {
-        &self.texture_pool
+    pub fn texture_pool(&self) -> &crate::resources::TexturePool {
+        self.backend.texture_pool()
     }
 
     /// Mutable texture pool.
-    pub fn texture_pool_mut(&mut self) -> &mut TexturePool {
-        &mut self.texture_pool
+    pub fn texture_pool_mut(&mut self) -> &mut crate::resources::TexturePool {
+        self.backend.texture_pool_mut()
     }
 
     /// Exposes asset subsystem hooks (upload queues, handle table) for future workers.
@@ -193,92 +113,46 @@ impl RendererRuntime {
     }
 
     /// Material property store (host uniforms, textures, shader asset bindings).
-    pub fn material_property_store(&self) -> &MaterialPropertyStore {
-        &self.material_property_store
+    pub fn material_property_store(&self) -> &crate::assets::material::MaterialPropertyStore {
+        self.backend.material_property_store()
     }
 
     /// Mutable store for tests and tooling.
-    pub fn material_property_store_mut(&mut self) -> &mut MaterialPropertyStore {
-        &mut self.material_property_store
+    pub fn material_property_store_mut(
+        &mut self,
+    ) -> &mut crate::assets::material::MaterialPropertyStore {
+        self.backend.material_property_store_mut()
     }
 
     /// Property name interning for material batches.
-    pub fn property_id_registry(&self) -> &PropertyIdRegistry {
-        &self.property_id_registry
+    pub fn property_id_registry(&self) -> &crate::assets::material::PropertyIdRegistry {
+        self.backend.property_id_registry()
     }
 
     /// Registered material families and pipeline cache (after GPU attach).
     pub fn material_registry(&self) -> Option<&crate::materials::MaterialRegistry> {
-        self.material_registry.as_ref()
+        self.backend.material_registry()
     }
 
     /// Mutable registry (e.g. register custom [`crate::materials::MaterialPipelineFamily`]).
     pub fn material_registry_mut(&mut self) -> Option<&mut crate::materials::MaterialRegistry> {
-        self.material_registry.as_mut()
+        self.backend.material_registry_mut()
     }
 
     /// Applies pending init once a GPU/window stack exists (e.g. window title).
     pub fn take_pending_init(&mut self) -> Option<RendererInitData> {
-        self.pending_init.take()
+        self.frontend.take_pending_init()
     }
 
     /// Call after [`crate::gpu::GpuContext`] is created so mesh/texture uploads can use the GPU.
     pub fn attach_gpu(&mut self, device: Arc<wgpu::Device>, queue: Arc<Mutex<wgpu::Queue>>) {
-        self.gpu_device = Some(device.clone());
-        self.gpu_queue = Some(queue);
-        match MeshPreprocessPipelines::new(device.as_ref()) {
-            Ok(p) => self.mesh_preprocess = Some(p),
-            Err(e) => {
-                logger::warn!("mesh preprocess compute pipelines not created: {e}");
-                self.mesh_preprocess = None;
-            }
-        }
-        self.material_registry = Some(crate::materials::MaterialRegistry::with_default_families(
-            device.clone(),
-        ));
-        if let Some(reg) = self.material_registry.as_mut() {
-            for (asset_id, family) in self.pending_shader_routes.drain() {
-                reg.map_shader_to_family(asset_id, family);
-            }
-        }
-        self.flush_pending_texture_allocations(&device);
-        let pending_tex: Vec<SetTexture2DData> = self.pending_texture_uploads.drain(..).collect();
-        for data in pending_tex {
-            self.try_texture_upload_with_device(data);
-        }
-        let pending: Vec<MeshUploadData> = self.pending_mesh_uploads.drain(..).collect();
-        for data in pending {
-            self.try_mesh_upload_with_device(&device, data);
-        }
+        let shm = self.frontend.shared_memory_mut();
+        self.backend.attach(device, queue, shm);
     }
 
-    /// If connected and init is complete, sends [`FrameStartData`] when we are ready for the next
-    /// host frame (Unity: `_lastFrameDataProcessed` or bootstrap), then clears the processed flag.
-    ///
-    /// The host primarily uses `last_frame_index` for lock-step; other [`FrameStartData`] fields are
-    /// left empty here until input/perf/reflection paths are wired.
+    /// If connected and init is complete, sends [`FrameStartData`] when we are ready for the next host frame.
     pub fn pre_frame(&mut self) {
-        if !self.init_state.is_finalized() || self.fatal_error || self.ipc.is_none() {
-            return;
-        }
-
-        let bootstrap = self.last_frame_index < 0 && !self.sent_bootstrap_frame_start;
-        let should_send = self.last_frame_data_processed || bootstrap;
-        if !should_send {
-            return;
-        }
-
-        let frame_start = FrameStartData {
-            last_frame_index: self.last_frame_index,
-            ..Default::default()
-        };
-        if let Some(ref mut ipc) = self.ipc {
-            ipc.send_primary(RendererCommand::frame_start_data(frame_start));
-        }
-        self.last_frame_data_processed = false;
-        if bootstrap {
-            self.sent_bootstrap_frame_start = true;
-        }
+        self.frontend.pre_frame();
     }
 
     /// Placeholder for bounded asset integration between begin-frame and frame processing (Unity:
@@ -288,32 +162,28 @@ impl RendererRuntime {
     }
 
     /// Drains IPC and dispatches commands. Frame submissions are sorted before other commands from
-    /// the same [`Self::poll`] batch.
+    /// the same poll batch.
     pub fn poll_ipc(&mut self) {
-        let Some(ref mut ipc) = self.ipc else {
-            return;
-        };
-        let mut batch = ipc.poll();
-        batch.sort_by_key(|c| !matches!(c, RendererCommand::frame_submit_data(_)));
+        let batch = self.frontend.poll_commands();
         for cmd in batch {
             self.handle_command(cmd);
         }
     }
 
     fn handle_command(&mut self, cmd: RendererCommand) {
-        match self.init_state {
+        match self.frontend.init_state() {
             InitState::Uninitialized => match cmd {
                 RendererCommand::keep_alive(_) => {}
                 RendererCommand::renderer_init_data(d) => self.on_init_data(d),
                 _ => {
                     logger::error!("IPC: expected RendererInitData first");
-                    self.fatal_error = true;
+                    self.frontend.fatal_error = true;
                 }
             },
             InitState::InitReceived => match cmd {
                 RendererCommand::keep_alive(_) => {}
                 RendererCommand::renderer_init_finalize_data(_) => {
-                    self.init_state = InitState::Finalized;
+                    self.frontend.set_init_state(InitState::Finalized);
                 }
                 RendererCommand::renderer_init_progress_update(_) => {}
                 RendererCommand::renderer_engine_ready(_) => {}
@@ -327,16 +197,19 @@ impl RendererRuntime {
 
     fn on_init_data(&mut self, d: RendererInitData) {
         if let Some(ref prefix) = d.shared_memory_prefix {
-            self.shared_memory = Some(SharedMemoryAccessor::new(prefix.clone()));
+            self.frontend
+                .set_shared_memory(SharedMemoryAccessor::new(prefix.clone()));
             logger::info!("Shared memory prefix: {}", prefix);
-            self.flush_pending_material_batches();
+            let (shm, ipc) = self.frontend.transport_pair_mut();
+            if let (Some(shm), Some(ipc)) = (shm, ipc) {
+                self.backend.flush_pending_material_batches(shm, ipc);
+            }
         }
-        self.pending_init = Some(d.clone());
-        if let Some(ref mut ipc) = self.ipc {
+        self.frontend.set_pending_init(d.clone());
+        if let Some(ref mut ipc) = self.frontend.ipc_mut() {
             send_renderer_init_result(ipc, d.output_device);
         }
-        self.init_state = InitState::InitReceived;
-        self.last_frame_data_processed = true;
+        self.frontend.on_init_received();
     }
 
     fn handle_running_command(&mut self, cmd: RendererCommand) {
@@ -344,30 +217,45 @@ impl RendererRuntime {
             RendererCommand::keep_alive(_) => {}
             RendererCommand::renderer_shutdown(_)
             | RendererCommand::renderer_shutdown_request(_) => {
-                self.shutdown_requested = true;
+                self.frontend.shutdown_requested = true;
             }
             RendererCommand::frame_submit_data(data) => self.on_frame_submit(data),
-            RendererCommand::mesh_upload_data(d) => self.try_process_mesh_upload(d),
-            RendererCommand::mesh_unload(u) => self.on_mesh_unload(u),
-            RendererCommand::set_texture_2d_format(f) => self.on_set_texture_2d_format(f),
-            RendererCommand::set_texture_2d_properties(p) => self.on_set_texture_2d_properties(p),
-            RendererCommand::set_texture_2d_data(d) => self.on_set_texture_2d_data(d),
-            RendererCommand::unload_texture_2d(u) => self.on_unload_texture_2d(u),
+            RendererCommand::mesh_upload_data(d) => {
+                let (shm, ipc) = self.frontend.transport_pair_mut();
+                if let Some(shm) = shm {
+                    self.backend.try_process_mesh_upload(d, shm, ipc);
+                } else {
+                    logger::warn!("mesh upload: no shared memory (standalone?)");
+                }
+            }
+            RendererCommand::mesh_unload(u) => self.backend.on_mesh_unload(u),
+            RendererCommand::set_texture_2d_format(f) => {
+                self.backend
+                    .on_set_texture_2d_format(f, self.frontend.ipc_mut());
+            }
+            RendererCommand::set_texture_2d_properties(p) => {
+                self.backend
+                    .on_set_texture_2d_properties(p, self.frontend.ipc_mut());
+            }
+            RendererCommand::set_texture_2d_data(d) => {
+                let (shm, ipc) = self.frontend.transport_pair_mut();
+                self.backend.on_set_texture_2d_data(d, shm, ipc);
+            }
+            RendererCommand::unload_texture_2d(u) => self.backend.on_unload_texture_2d(u),
             RendererCommand::free_shared_memory_view(f) => {
-                if let Some(shm) = self.shared_memory.as_mut() {
+                if let Some(shm) = self.frontend.shared_memory_mut() {
                     shm.release_view(f.buffer_id);
                 }
             }
             RendererCommand::material_property_id_request(req) => {
-                let property_ids: Vec<i32> = req
-                    .property_names
-                    .iter()
-                    .map(|n| {
-                        self.property_id_registry
-                            .intern_for_host_request(n.as_deref().unwrap_or(""))
-                    })
-                    .collect();
-                if let Some(ref mut ipc) = self.ipc {
+                let property_ids: Vec<i32> = {
+                    let reg = self.backend.property_id_registry_mut();
+                    req.property_names
+                        .iter()
+                        .map(|n| reg.intern_for_host_request(n.as_deref().unwrap_or("")))
+                        .collect()
+                };
+                if let Some(ref mut ipc) = self.frontend.ipc_mut() {
                     ipc.send_background(RendererCommand::material_property_id_result(
                         MaterialPropertyIdResult {
                             request_id: req.request_id,
@@ -379,12 +267,9 @@ impl RendererRuntime {
             RendererCommand::materials_update_batch(batch) => {
                 self.on_materials_update_batch(batch);
             }
-            RendererCommand::unload_material(u) => {
-                self.material_property_store.remove_material(u.asset_id);
-            }
+            RendererCommand::unload_material(u) => self.backend.on_unload_material(u.asset_id),
             RendererCommand::unload_material_property_block(u) => {
-                self.material_property_store
-                    .remove_property_block(u.asset_id);
+                self.backend.on_unload_material_property_block(u.asset_id);
             }
             RendererCommand::shader_upload(u) => self.on_shader_upload(u),
             RendererCommand::shader_unload(u) => self.on_shader_unload(u),
@@ -404,24 +289,6 @@ impl RendererRuntime {
         }
     }
 
-    fn register_shader_route(&mut self, asset_id: i32, family: MaterialFamilyId) {
-        if let Some(reg) = self.material_registry.as_mut() {
-            reg.map_shader_to_family(asset_id, family);
-        } else {
-            self.pending_shader_routes.insert(asset_id, family);
-        }
-    }
-
-    fn send_shader_upload_result(&mut self, asset_id: i32, instance_changed: bool) {
-        let Some(ref mut ipc) = self.ipc else {
-            return;
-        };
-        ipc.send_background(RendererCommand::shader_upload_result(ShaderUploadResult {
-            asset_id,
-            instance_changed,
-        }));
-    }
-
     fn on_shader_upload(&mut self, upload: ShaderUpload) {
         let asset_id = upload.asset_id;
         let resolved = resolve_shader_upload(&upload);
@@ -435,300 +302,41 @@ impl RendererRuntime {
             resolved.unity_shader_name.as_deref(),
             resolved.family,
         );
-        self.register_shader_route(asset_id, resolved.family);
-        // Match Renderite Unity `ShaderAsset.SendLoaded`: host unblocks variant loads with `true`.
-        self.send_shader_upload_result(asset_id, true);
+        self.backend
+            .register_shader_route(asset_id, resolved.family);
+        if let Some(ref mut ipc) = self.frontend.ipc_mut() {
+            ipc.send_background(RendererCommand::shader_upload_result(ShaderUploadResult {
+                asset_id,
+                instance_changed: true,
+            }));
+        }
     }
 
     fn on_shader_unload(&mut self, unload: ShaderUnload) {
         let id = unload.asset_id;
-        self.pending_shader_routes.remove(&id);
-        if let Some(reg) = self.material_registry.as_mut() {
-            reg.unmap_shader(id);
-        }
-    }
-
-    fn flush_pending_material_batches(&mut self) {
-        let batches: Vec<MaterialsUpdateBatch> = self.pending_material_batches.drain(..).collect();
-        for batch in batches {
-            self.apply_materials_update_batch(batch);
-        }
+        self.backend.unregister_shader_route(id);
     }
 
     fn on_materials_update_batch(&mut self, batch: MaterialsUpdateBatch) {
-        if self.shared_memory.is_none() {
-            if self.pending_material_batches.len() >= MAX_PENDING_MATERIAL_BATCHES {
-                logger::warn!(
-                    "materials update batch {} dropped: pending queue full (no shared memory)",
-                    batch.update_batch_id
-                );
-                return;
+        if self.frontend.shared_memory().is_none() {
+            if !self.backend.enqueue_materials_batch_no_shm(batch) {
+                // already logged
             }
-            self.pending_material_batches.push_back(batch);
             return;
         }
-        self.apply_materials_update_batch(batch);
-    }
-
-    fn apply_materials_update_batch(&mut self, batch: MaterialsUpdateBatch) {
-        let update_batch_id = batch.update_batch_id;
-        let opts = ParseMaterialBatchOptions::default();
-        let Some(shm) = self.shared_memory.as_mut() else {
-            logger::warn!("materials update batch {update_batch_id}: skipped (no shared memory)");
+        let (shm, ipc) = self.frontend.transport_pair_mut();
+        let (Some(shm), Some(ipc)) = (shm, ipc) else {
             return;
         };
-        parse_materials_update_batch_into_store(
-            shm,
-            &batch,
-            &mut self.material_property_store,
-            &opts,
-        );
-        if let Some(ref mut ipc) = self.ipc {
-            ipc.send_background(RendererCommand::materials_update_batch_result(
-                MaterialsUpdateBatchResult { update_batch_id },
-            ));
-        }
-    }
-
-    fn flush_pending_texture_allocations(&mut self, device: &Arc<wgpu::Device>) {
-        let ids: Vec<i32> = self.texture_formats.keys().copied().collect();
-        for id in ids {
-            if self.texture_pool.get_texture(id).is_some() {
-                continue;
-            }
-            let Some(fmt) = self.texture_formats.get(&id).cloned() else {
-                continue;
-            };
-            let props = self.texture_properties.get(&id);
-            let Some(tex) = GpuTexture2d::new_from_format(device.as_ref(), &fmt, props) else {
-                logger::warn!("texture {id}: failed to allocate GPU texture on attach");
-                continue;
-            };
-            let _ = self.texture_pool.insert_texture(tex);
-        }
-    }
-
-    fn send_texture_2d_result(&mut self, asset_id: i32, update: i32, instance_changed: bool) {
-        let Some(ref mut ipc) = self.ipc else {
-            return;
-        };
-        ipc.send_background(RendererCommand::set_texture_2d_result(SetTexture2DResult {
-            asset_id,
-            r#type: TextureUpdateResultType(update),
-            instance_changed,
-        }));
-    }
-
-    fn on_set_texture_2d_format(&mut self, f: SetTexture2DFormat) {
-        let id = f.asset_id;
-        self.texture_formats.insert(id, f.clone());
-        let props = self.texture_properties.get(&id);
-        let Some(device) = self.gpu_device.clone() else {
-            self.send_texture_2d_result(
-                id,
-                TextureUpdateResultType::FORMAT_SET,
-                self.texture_pool.get_texture(id).is_none(),
-            );
-            return;
-        };
-        let Some(tex) = GpuTexture2d::new_from_format(device.as_ref(), &f, props) else {
-            logger::warn!("texture {id}: SetTexture2DFormat rejected (bad size or device)");
-            return;
-        };
-        let existed_before = self.texture_pool.insert_texture(tex);
-        self.send_texture_2d_result(id, TextureUpdateResultType::FORMAT_SET, !existed_before);
-        logger::info!(
-            "texture {} format {:?} {}×{} mips={} (resident_bytes≈{})",
-            id,
-            f.format,
-            f.width,
-            f.height,
-            f.mipmap_count,
-            self.texture_pool.accounting().texture_resident_bytes()
-        );
-    }
-
-    fn on_set_texture_2d_properties(&mut self, p: SetTexture2DProperties) {
-        let id = p.asset_id;
-        self.texture_properties.insert(id, p.clone());
-        if let Some(t) = self.texture_pool.get_texture_mut(id) {
-            t.apply_properties(&p);
-        }
-        self.send_texture_2d_result(id, TextureUpdateResultType::PROPERTIES_SET, false);
-    }
-
-    fn on_set_texture_2d_data(&mut self, d: SetTexture2DData) {
-        if d.data.length <= 0 {
-            return;
-        }
-        if !self.texture_formats.contains_key(&d.asset_id) {
-            logger::warn!(
-                "texture {}: SetTexture2DData before format; ignored",
-                d.asset_id
-            );
-            return;
-        }
-        if self.gpu_device.is_none() || self.gpu_queue.is_none() {
-            if self.pending_texture_uploads.len() >= MAX_PENDING_TEXTURE_UPLOADS {
-                logger::warn!(
-                    "texture {}: pending texture upload queue full; dropping",
-                    d.asset_id
-                );
-                return;
-            }
-            self.pending_texture_uploads.push_back(d);
-            return;
-        }
-        let Some(ref device) = self.gpu_device.clone() else {
-            return;
-        };
-        if self.texture_pool.get_texture(d.asset_id).is_none() {
-            self.flush_pending_texture_allocations(device);
-        }
-        if self.texture_pool.get_texture(d.asset_id).is_none() {
-            if self.pending_texture_uploads.len() >= MAX_PENDING_TEXTURE_UPLOADS {
-                logger::warn!(
-                    "texture {}: no GPU texture and pending full; dropping data",
-                    d.asset_id
-                );
-                return;
-            }
-            self.pending_texture_uploads.push_back(d);
-            return;
-        }
-        self.try_texture_upload_with_device(d);
-    }
-
-    fn try_texture_upload_with_device(&mut self, data: SetTexture2DData) {
-        let id = data.asset_id;
-        let Some(fmt) = self.texture_formats.get(&id).cloned() else {
-            logger::warn!("texture {id}: missing format");
-            return;
-        };
-        let (tex_arc, wgpu_fmt) = match self.texture_pool.get_texture(id) {
-            Some(t) => (t.texture.clone(), t.wgpu_format),
-            None => {
-                logger::warn!("texture {id}: missing GPU texture");
-                return;
-            }
-        };
-        let Some(shm) = self.shared_memory.as_mut() else {
-            logger::warn!("texture {id}: no shared memory accessor");
-            return;
-        };
-        let Some(queue_arc) = self.gpu_queue.as_ref() else {
-            return;
-        };
-        let upload_out = shm.with_read_bytes(&data.data, |raw| {
-            let q = queue_arc.lock().expect("queue mutex poisoned");
-            Some(write_texture2d_mips(
-                &q,
-                tex_arc.as_ref(),
-                &fmt,
-                wgpu_fmt,
-                &data,
-                raw,
-            ))
-        });
-        match upload_out {
-            Some(Ok(())) => {
-                if let Some(t) = self.texture_pool.get_texture_mut(id) {
-                    let uploaded_mips = data.mip_map_sizes.len() as u32;
-                    let start = data.start_mip_level.max(0) as u32;
-                    let end_exclusive = start.saturating_add(uploaded_mips).min(t.mip_levels_total);
-                    t.mip_levels_resident = t.mip_levels_resident.max(end_exclusive);
-                }
-                self.send_texture_2d_result(id, TextureUpdateResultType::DATA_UPLOAD, false);
-                logger::trace!("texture {id}: data upload ok");
-            }
-            Some(Err(e)) => {
-                logger::warn!("texture {id}: upload failed: {e}");
-            }
-            None => {
-                logger::warn!("texture {id}: shared memory slice missing");
-            }
-        }
-    }
-
-    fn on_unload_texture_2d(&mut self, u: UnloadTexture2D) {
-        let id = u.asset_id;
-        self.texture_formats.remove(&id);
-        self.texture_properties.remove(&id);
-        if self.texture_pool.remove_texture(id) {
-            logger::info!(
-                "texture {id} unloaded (mesh≈{} tex≈{} total≈{})",
-                self.mesh_pool.accounting().mesh_resident_bytes(),
-                self.texture_pool.accounting().texture_resident_bytes(),
-                self.mesh_pool.accounting().total_resident_bytes()
-            );
-        }
-    }
-
-    fn try_process_mesh_upload(&mut self, data: MeshUploadData) {
-        if data.buffer.length <= 0 {
-            return;
-        }
-        let Some(device) = self.gpu_device.clone() else {
-            if self.pending_mesh_uploads.len() >= MAX_PENDING_MESH_UPLOADS {
-                logger::warn!(
-                    "mesh upload pending queue full; dropping asset {}",
-                    data.asset_id
-                );
-                return;
-            }
-            self.pending_mesh_uploads.push_back(data);
-            return;
-        };
-        self.try_mesh_upload_with_device(&device, data);
-    }
-
-    fn try_mesh_upload_with_device(&mut self, device: &Arc<wgpu::Device>, data: MeshUploadData) {
-        let Some(shm) = self.shared_memory.as_mut() else {
-            logger::warn!(
-                "mesh {}: no shared memory accessor (standalone or missing prefix)",
-                data.asset_id
-            );
-            return;
-        };
-        let upload_result = shm.with_read_bytes(&data.buffer, |raw| {
-            try_upload_mesh_from_raw(device.as_ref(), raw, &data)
-        });
-        let Some(mesh) = upload_result else {
-            logger::warn!("mesh {}: upload failed or rejected", data.asset_id);
-            return;
-        };
-        let existed_before = self.mesh_pool.insert_mesh(mesh);
-        if let Some(ref mut ipc) = self.ipc {
-            ipc.send_background(RendererCommand::mesh_upload_result(MeshUploadResult {
-                asset_id: data.asset_id,
-                instance_changed: !existed_before,
-            }));
-        }
-        logger::info!(
-            "mesh {} uploaded (replaced={} resident_bytes≈{})",
-            data.asset_id,
-            existed_before,
-            self.mesh_pool.accounting().total_resident_bytes()
-        );
-    }
-
-    fn on_mesh_unload(&mut self, u: MeshUnload) {
-        if self.mesh_pool.remove_mesh(u.asset_id) {
-            logger::info!(
-                "mesh {} unloaded (resident_bytes≈{})",
-                u.asset_id,
-                self.mesh_pool.accounting().total_resident_bytes()
-            );
-        }
+        self.backend.apply_materials_update_batch(batch, shm, ipc);
     }
 
     fn on_frame_submit(&mut self, data: FrameSubmitData) {
-        self.last_frame_index = data.frame_index;
-        self.last_frame_data_processed = true;
+        self.frontend.note_frame_submit_processed(data.frame_index);
         let start = Instant::now();
         self.run_asset_integration_stub(Duration::from_millis(2));
 
-        if let Some(ref mut shm) = self.shared_memory {
+        if let Some(ref mut shm) = self.frontend.shared_memory_mut() {
             if let Err(e) = self.scene.apply_frame_submit(shm, &data) {
                 logger::error!("scene apply_frame_submit failed: {e}");
             }
@@ -745,7 +353,7 @@ impl RendererRuntime {
     }
 }
 
-fn send_renderer_init_result(ipc: &mut DualQueueIpc, output_device: HeadOutputDevice) {
+fn send_renderer_init_result(ipc: &mut crate::ipc::DualQueueIpc, output_device: HeadOutputDevice) {
     let result = RendererInitResult {
         actual_output_device: output_device,
         renderer_identifier: Some("Renderide 0.1.0 (wgpu skeleton)".to_string()),
