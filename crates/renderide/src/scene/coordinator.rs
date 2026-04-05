@@ -79,7 +79,10 @@ impl SceneCoordinator {
         Ok(())
     }
 
-    /// Applies [`FrameSubmitData`] (transform batches only; mesh/light/reflection paths omitted).
+    /// Applies [`FrameSubmitData`]: transforms, static mesh renderables, skinned mesh renderables.
+    ///
+    /// Other render-space payloads (lights, cameras, layers, …) are intentionally omitted in this
+    /// phase.
     pub fn apply_frame_submit(
         &mut self,
         shm: &mut SharedMemoryAccessor,
@@ -103,8 +106,10 @@ impl SceneCoordinator {
                 .world_caches
                 .entry(RenderSpaceId(update.id))
                 .or_default();
+
+            let mut transform_removals = Vec::new();
             if let Some(ref tu) = update.transforms_update {
-                super::transforms_apply::apply_transforms_update(
+                transform_removals.extend(super::transforms_apply::apply_transforms_update(
                     space,
                     cache,
                     &mut self.world_dirty,
@@ -112,6 +117,25 @@ impl SceneCoordinator {
                     shm,
                     tu,
                     data.frame_index,
+                )?);
+            }
+            if let Some(ref mu) = update.mesh_renderers_update {
+                super::mesh_apply::apply_mesh_renderables_update(
+                    space,
+                    shm,
+                    mu,
+                    data.frame_index,
+                    update.id,
+                )?;
+            }
+            if let Some(ref su) = update.skinned_mesh_renderers_update {
+                super::mesh_apply::apply_skinned_mesh_renderables_update(
+                    space,
+                    shm,
+                    su,
+                    data.frame_index,
+                    update.id,
+                    &transform_removals,
                 )?;
             }
         }

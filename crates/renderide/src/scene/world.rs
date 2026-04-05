@@ -44,8 +44,7 @@ impl Default for WorldTransformCache {
 }
 
 /// After `swap_remove` at `removed_id` index, remaps a stored transform reference.
-#[allow(dead_code)]
-pub(super) fn fixup_transform_id(old: i32, removed_id: i32, last_index: usize) -> i32 {
+pub(crate) fn fixup_transform_id(old: i32, removed_id: i32, last_index: usize) -> i32 {
     if old == removed_id {
         -1
     } else if old == last_index as i32 {

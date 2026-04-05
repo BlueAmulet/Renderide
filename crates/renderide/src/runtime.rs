@@ -25,6 +25,7 @@ use crate::assets::shader::classify_shader;
 use crate::assets::texture::{supported_host_formats_for_init, write_texture2d_mips};
 use crate::assets::AssetSubsystem;
 use crate::connection::{ConnectionParams, InitError};
+use crate::gpu::MeshPreprocessPipelines;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::MaterialFamilyId;
 use crate::resources::{GpuTexture2d, MeshPool, TexturePool};
@@ -100,6 +101,8 @@ pub struct RendererRuntime {
     pending_shader_routes: HashMap<i32, MaterialFamilyId>,
     /// Render spaces and dense transform arenas from [`FrameSubmitData`](crate::shared::FrameSubmitData).
     pub scene: SceneCoordinator,
+    /// Optional mesh skinning / blendshape compute pipelines (after [`Self::attach_gpu`]).
+    mesh_preprocess: Option<MeshPreprocessPipelines>,
 }
 
 impl RendererRuntime {
@@ -137,7 +140,13 @@ impl RendererRuntime {
             material_registry: None,
             pending_shader_routes: HashMap::new(),
             scene: SceneCoordinator::new(),
+            mesh_preprocess: None,
         }
+    }
+
+    /// Mesh deformation compute pipelines when GPU init succeeded.
+    pub fn mesh_preprocess(&self) -> Option<&MeshPreprocessPipelines> {
+        self.mesh_preprocess.as_ref()
     }
 
     /// Opens Primary/Background queues when [`Self::new`] was given connection parameters.
@@ -217,6 +226,13 @@ impl RendererRuntime {
     pub fn attach_gpu(&mut self, device: Arc<wgpu::Device>, queue: Arc<Mutex<wgpu::Queue>>) {
         self.gpu_device = Some(device.clone());
         self.gpu_queue = Some(queue);
+        match MeshPreprocessPipelines::new(device.as_ref()) {
+            Ok(p) => self.mesh_preprocess = Some(p),
+            Err(e) => {
+                logger::warn!("mesh preprocess compute pipelines not created: {e}");
+                self.mesh_preprocess = None;
+            }
+        }
         self.material_registry = Some(crate::materials::MaterialRegistry::with_default_families(
             device.clone(),
         ));

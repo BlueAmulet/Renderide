@@ -3,8 +3,9 @@
 use crate::shared::{RenderSpaceUpdate, RenderTransform};
 
 use super::ids::RenderSpaceId;
+use super::mesh_renderable::{SkinnedMeshRenderer, StaticMeshRenderer};
 
-/// One host render space: flags, root/view TRS, and dense transform arena.
+/// One host render space: flags, root/view TRS, dense transform arena, and mesh renderable tables.
 #[derive(Debug)]
 pub struct RenderSpaceState {
     /// Host id (matches dictionary key).
@@ -23,6 +24,10 @@ pub struct RenderSpaceState {
     pub nodes: Vec<RenderTransform>,
     /// Parent index per node; `-1` = hierarchy root under [`Self::root_transform`].
     pub node_parents: Vec<i32>,
+    /// Static mesh renderables; `renderable_index` ↔ dense index in this vec.
+    pub static_mesh_renderers: Vec<StaticMeshRenderer>,
+    /// Skinned mesh renderables; separate dense table from static.
+    pub skinned_mesh_renderers: Vec<SkinnedMeshRenderer>,
 }
 
 impl RenderSpaceState {
@@ -51,6 +56,8 @@ impl Default for RenderSpaceState {
             view_transform: RenderTransform::default(),
             nodes: Vec::new(),
             node_parents: Vec::new(),
+            static_mesh_renderers: Vec::new(),
+            skinned_mesh_renderers: Vec::new(),
         }
     }
 }

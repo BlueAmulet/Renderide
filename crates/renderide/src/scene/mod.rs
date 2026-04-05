@@ -19,14 +19,23 @@
 //!
 //! ## IPC
 //!
-//! Transform batches require a live [`crate::ipc::SharedMemoryAccessor`]. Frame payloads that
-//! list [`RenderSpaceUpdate`](crate::shared::RenderSpaceUpdate) without shared memory are skipped
-//! by the runtime until init provides a prefix.
+//! Transform and mesh batches require a live [`crate::ipc::SharedMemoryAccessor`]. Frame payloads
+//! that list [`RenderSpaceUpdate`](crate::shared::RenderSpaceUpdate) without shared memory are
+//! skipped by the runtime until init provides a prefix.
+//!
+//! ## Mesh renderables
+//!
+//! [`RenderSpaceState::static_mesh_renderers`](RenderSpaceState::static_mesh_renderers) and
+//! [`RenderSpaceState::skinned_mesh_renderers`](RenderSpaceState::skinned_mesh_renderers) use dense
+//! `renderable_index` ↔ `Vec` index, with removals in buffer order (swap-with-last).
 
 mod coordinator;
 mod error;
 mod ids;
 mod math;
+mod mesh_apply;
+mod mesh_material_row;
+mod mesh_renderable;
 mod pose;
 mod render_space;
 mod transforms_apply;
@@ -35,5 +44,7 @@ mod world;
 pub use coordinator::SceneCoordinator;
 pub use error::SceneError;
 pub use ids::{RenderSpaceId, TransformIndex};
+pub use mesh_renderable::{MeshMaterialSlot, SkinnedMeshRenderer, StaticMeshRenderer};
 pub use render_space::RenderSpaceState;
+pub use transforms_apply::TransformRemovalEvent;
 pub use world::WorldTransformCache;

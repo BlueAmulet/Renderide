@@ -14,11 +14,21 @@ use super::pose::{render_transform_identity, PoseValidation};
 use super::render_space::RenderSpaceState;
 use super::world::{mark_descendants_uncomputed, rebuild_children, WorldTransformCache};
 
+/// One successful transform removal: dense index removed and last valid index before `swap_remove`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TransformRemovalEvent {
+    /// Removed dense transform index (`i32`, same as host removal buffer entry).
+    pub removed_index: i32,
+    /// Last valid index in `nodes` before the slot was removed (swapped-into source).
+    pub last_index_before_swap: usize,
+}
+
 fn apply_transform_removals_ordered(
     space: &mut RenderSpaceState,
     cache: &mut WorldTransformCache,
     removals: &[i32],
-) -> bool {
+) -> (bool, Vec<TransformRemovalEvent>) {
+    let mut events = Vec::new();
     let mut had_removal = false;
     for &raw in removals.iter().take_while(|&&i| i >= 0) {
         let idx = raw as usize;
@@ -26,7 +36,7 @@ fn apply_transform_removals_ordered(
             continue;
         }
         let removed_id = raw;
-        let last_index = space.nodes.len() - 1;
+        let last_index_before_swap = space.nodes.len() - 1;
 
         for (i, parent) in space.node_parents.iter_mut().enumerate() {
             if *parent == removed_id {
@@ -34,7 +44,7 @@ fn apply_transform_removals_ordered(
                 if i < cache.computed.len() {
                     cache.computed[i] = false;
                 }
-            } else if *parent == last_index as i32 {
+            } else if *parent == last_index_before_swap as i32 {
                 *parent = removed_id;
             }
         }
@@ -50,12 +60,18 @@ fn apply_transform_removals_ordered(
                 cache.visit_epoch.swap_remove(idx);
             }
         }
+        events.push(TransformRemovalEvent {
+            removed_index: removed_id,
+            last_index_before_swap,
+        });
         had_removal = true;
     }
-    had_removal
+    (had_removal, events)
 }
 
 /// Applies removals, growth, parent updates, and pose updates for one space.
+///
+/// Returns transform removal events in buffer order for consumers (e.g. skinned bone index fixup).
 pub fn apply_transforms_update(
     space: &mut RenderSpaceState,
     cache: &mut WorldTransformCache,
@@ -64,9 +80,10 @@ pub fn apply_transforms_update(
     shm: &mut SharedMemoryAccessor,
     update: &TransformsUpdate,
     frame_index: i32,
-) -> Result<(), SceneError> {
+) -> Result<Vec<TransformRemovalEvent>, SceneError> {
     let sid = space_id.0;
     let mut invalidate_world = false;
+    let mut removal_events = Vec::new();
 
     if cache.world_matrices.len() != space.nodes.len() {
         cache
@@ -86,7 +103,8 @@ pub fn apply_transforms_update(
         let removals = shm
             .access_copy_diagnostic_with_context::<i32>(&update.removals, Some(&ctx))
             .map_err(SceneError::SharedMemoryAccess)?;
-        let had_removal = apply_transform_removals_ordered(space, cache, removals.as_slice());
+        let (had_removal, ev) = apply_transform_removals_ordered(space, cache, removals.as_slice());
+        removal_events.extend(ev);
         if had_removal {
             cache.children_dirty = true;
             invalidate_world = true;
@@ -189,7 +207,7 @@ pub fn apply_transforms_update(
         world_dirty.insert(space_id);
     }
 
-    Ok(())
+    Ok(removal_events)
 }
 
 #[cfg(test)]
@@ -228,7 +246,8 @@ mod tests {
             space.node_parents.push(-1);
         }
         let mut cache = empty_cache(4);
-        apply_transform_removals_ordered(&mut space, &mut cache, &[0, 1, -1]);
+        let (_, ev) = apply_transform_removals_ordered(&mut space, &mut cache, &[0, 1, -1]);
+        assert_eq!(ev.len(), 2);
         assert_eq!(space.nodes.len(), 2);
         assert!((space.nodes[0].position.x - 3.0).abs() < 1e-5);
         assert!((space.nodes[1].position.x - 2.0).abs() < 1e-5);
@@ -239,7 +258,8 @@ mod tests {
             space_b.node_parents.push(-1);
         }
         let mut cache_b = empty_cache(4);
-        apply_transform_removals_ordered(&mut space_b, &mut cache_b, &[1, 0, -1]);
+        let (_, ev_b) = apply_transform_removals_ordered(&mut space_b, &mut cache_b, &[1, 0, -1]);
+        assert_eq!(ev_b.len(), 2);
         assert_eq!(space_b.nodes.len(), 2);
         assert!((space_b.nodes[0].position.x - 2.0).abs() < 1e-5);
         assert!((space_b.nodes[1].position.x - 3.0).abs() < 1e-5);
@@ -253,7 +273,8 @@ mod tests {
             space.node_parents.push(-1);
         }
         let mut cache = empty_cache(3);
-        apply_transform_removals_ordered(&mut space, &mut cache, &[0, -1, 1]);
+        let (_, ev) = apply_transform_removals_ordered(&mut space, &mut cache, &[0, -1, 1]);
+        assert_eq!(ev.len(), 1);
         assert_eq!(space.nodes.len(), 2);
         assert!((space.nodes[0].position.x - 2.0).abs() < 1e-5);
         assert!((space.nodes[1].position.x - 1.0).abs() < 1e-5);

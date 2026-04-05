@@ -26,6 +26,7 @@ pub use connection::{
     get_connection_parameters, try_claim_renderer_singleton, ConnectionParams, InitError,
     DEFAULT_QUEUE_CAPACITY,
 };
+pub use gpu::MeshPreprocessPipelines;
 pub use ipc::DualQueueIpc;
 pub use materials::{
     compose_wgsl, MaterialFamilyId, MaterialPipelineCache, MaterialPipelineCacheKey,
@@ -37,7 +38,10 @@ pub use resources::{
     StreamingPolicy, TexturePool, TextureResidencyMeta, VramAccounting, VramResourceKind,
 };
 pub use runtime::{InitState, RendererRuntime};
-pub use scene::{RenderSpaceId, SceneCoordinator};
+pub use scene::{
+    MeshMaterialSlot, RenderSpaceId, SceneCoordinator, SkinnedMeshRenderer, StaticMeshRenderer,
+    TransformRemovalEvent,
+};
 
 /// Runs the renderer process: logging, optional IPC, winit loop, and wgpu presentation.
 ///
