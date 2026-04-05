@@ -3,19 +3,19 @@
 use std::fs;
 use std::path::Path;
 
-use interprocess::DEFAULT_MEMORY_DIR;
+use interprocess::LINUX_SHM_MEMORY_DIR;
 
 /// Deletes files whose names contain `shared_memory_prefix` under Wine-relevant trees.
 ///
 /// ResoBoot scans `/dev/shm` recursively; queue files also live under
-/// [`interprocess::DEFAULT_MEMORY_DIR`]. Both are walked so orphaned `.qu` files and stray matches are removed.
+/// [`interprocess::LINUX_SHM_MEMORY_DIR`]. Both are walked so orphaned `.qu` files and stray matches are removed.
 pub fn remove_wine_queue_backing_files(shared_memory_prefix: &str) {
     if !cfg!(target_os = "linux") {
         return;
     }
 
     let shm = Path::new("/dev/shm");
-    let mmf = Path::new(DEFAULT_MEMORY_DIR);
+    let mmf = Path::new(LINUX_SHM_MEMORY_DIR);
 
     for base in [shm, mmf] {
         if base.exists() {

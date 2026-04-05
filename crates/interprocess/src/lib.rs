@@ -2,8 +2,11 @@
 
 //! Cloudtoid-compatible shared-memory queue for IPC between processes.
 //!
-//! - **Unix**: file-backed read/write mapping under the configured directory (default `/dev/shm/...`).
-//! - **Windows**: named file mapping `CT_IP_{queue}` plus `Global\CT.IP.{queue}` semaphore.
+//! - **Unix**: file-backed read/write mapping under the configured directory. The portable default
+//!   is [`default_memory_dir`]: `/dev/shm/.cloudtoid/...` on Linux (tmpfs), and a
+//!   `.cloudtoid/interprocess/mmf` folder under [`std::env::temp_dir`] on macOS and other non-Linux Unix.
+//! - **Windows**: named file mapping `CT_IP_{queue}` plus `Global\CT.IP.{queue}` semaphore; the default
+//!   [`QueueOptions::path`] uses the same temp-dir subfolder as other platforms for consistency (the mapping does not read from disk).
 
 #[cfg(not(any(unix, windows)))]
 compile_error!("The `interprocess` crate only supports `cfg(unix)` and `cfg(windows)` targets.");
@@ -27,7 +30,9 @@ pub use layout::{
     padded_message_length, MessageHeader, QueueHeader, STATE_LOCKED, STATE_READY, STATE_WRITING,
     TICKS_FOR_TEN_SECONDS, TICKS_PER_SECOND,
 };
-pub use options::{QueueOptions, DEFAULT_MEMORY_DIR, MEMORY_FILE_PATH};
+pub use options::{default_memory_dir, QueueOptions, LINUX_SHM_MEMORY_DIR};
+#[allow(deprecated)]
+pub use options::{DEFAULT_MEMORY_DIR, MEMORY_FILE_PATH};
 pub use publisher::Publisher;
 pub use queue::QueueFactory;
 pub use subscriber::Subscriber;

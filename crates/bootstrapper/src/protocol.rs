@@ -44,7 +44,9 @@ pub fn parse_host_command(s: &str) -> HostCommand {
         "SHUTDOWN" => HostCommand::Shutdown,
         "GETTEXT" => HostCommand::GetText,
         _ if s.starts_with("SETTEXT") => HostCommand::SetText(
-            s.strip_prefix("SETTEXT").map(str::to_string).unwrap_or_default(),
+            s.strip_prefix("SETTEXT")
+                .map(str::to_string)
+                .unwrap_or_default(),
         ),
         _ => HostCommand::StartRenderer(s.split_whitespace().map(String::from).collect()),
     }

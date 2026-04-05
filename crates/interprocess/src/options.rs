@@ -2,11 +2,38 @@
 
 use std::path::{Path, PathBuf};
 
-/// Default directory for queue backing files on Unix (typically tmpfs at `/dev/shm`).
-pub const DEFAULT_MEMORY_DIR: &str = "/dev/shm/.cloudtoid/interprocess/mmf";
+/// Linux tmpfs directory used for file-backed queues and for interop with stacks that expect `/dev/shm`.
+pub const LINUX_SHM_MEMORY_DIR: &str = "/dev/shm/.cloudtoid/interprocess/mmf";
 
-/// Legacy alias for [`DEFAULT_MEMORY_DIR`].
-pub const MEMORY_FILE_PATH: &str = DEFAULT_MEMORY_DIR;
+/// Linux-only default directory (same as [`LINUX_SHM_MEMORY_DIR`]).
+#[deprecated(
+    note = "use LINUX_SHM_MEMORY_DIR for Linux-specific paths, or default_memory_dir() for portable defaults"
+)]
+pub const DEFAULT_MEMORY_DIR: &str = LINUX_SHM_MEMORY_DIR;
+
+/// Legacy alias for [`LINUX_SHM_MEMORY_DIR`].
+#[deprecated(note = "use LINUX_SHM_MEMORY_DIR or default_memory_dir()")]
+pub const MEMORY_FILE_PATH: &str = LINUX_SHM_MEMORY_DIR;
+
+/// Returns the default directory for `.qu` backing files used by [`QueueOptions::new`] and [`QueueOptions::with_destroy`].
+///
+/// - **Linux**: [`LINUX_SHM_MEMORY_DIR`] under `/dev/shm` (tmpfs, matches typical managed layouts).
+/// - **Other Unix** (macOS, BSD, etc.): `std::env::temp_dir()/.cloudtoid/interprocess/mmf`.
+/// - **Windows**: same temp-dir layout (the named mapping does not use this path, but [`QueueOptions::path`] is populated for consistency).
+pub fn default_memory_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        PathBuf::from(LINUX_SHM_MEMORY_DIR)
+    }
+    #[cfg(all(unix, not(target_os = "linux")))]
+    {
+        std::env::temp_dir().join(".cloudtoid/interprocess/mmf")
+    }
+    #[cfg(windows)]
+    {
+        std::env::temp_dir().join(".cloudtoid/interprocess/mmf")
+    }
+}
 
 /// Options for creating a [`crate::Publisher`] or [`crate::Subscriber`].
 #[derive(Clone)]
@@ -40,12 +67,12 @@ impl QueueOptions {
         Ok(())
     }
 
-    /// Builds options with [`DEFAULT_MEMORY_DIR`] and `destroy_on_dispose = false`.
+    /// Builds options with [`default_memory_dir()`] and `destroy_on_dispose = false`.
     pub fn new(queue_name: &str, capacity: i64) -> Result<Self, String> {
         Self::validate_capacity(capacity)?;
         Ok(Self {
             memory_view_name: queue_name.to_string(),
-            path: PathBuf::from(MEMORY_FILE_PATH),
+            path: default_memory_dir(),
             capacity,
             destroy_on_dispose: false,
         })
@@ -60,7 +87,7 @@ impl QueueOptions {
         Self::validate_capacity(capacity)?;
         Ok(Self {
             memory_view_name: queue_name.to_string(),
-            path: PathBuf::from(MEMORY_FILE_PATH),
+            path: default_memory_dir(),
             capacity,
             destroy_on_dispose,
         })
@@ -110,5 +137,52 @@ impl QueueOptions {
     /// POSIX semaphore name (`/ct.ip.{memory_view_name}`).
     pub fn posix_semaphore_name(&self) -> String {
         format!("/ct.ip.{}", self.memory_view_name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MM_SUBDIR: &str = ".cloudtoid/interprocess/mmf";
+
+    #[test]
+    fn default_memory_dir_linux_matches_shm_path() {
+        if !cfg!(target_os = "linux") {
+            return;
+        }
+        assert_eq!(default_memory_dir(), PathBuf::from(LINUX_SHM_MEMORY_DIR));
+    }
+
+    #[test]
+    fn default_memory_dir_non_linux_unix_uses_temp_subdir() {
+        if !cfg!(unix) || cfg!(target_os = "linux") {
+            return;
+        }
+        let d = default_memory_dir();
+        let tmp = std::env::temp_dir();
+        assert!(
+            d.starts_with(&tmp) && d.as_os_str().to_string_lossy().contains(MM_SUBDIR),
+            "expected path under temp containing {MM_SUBDIR}, got {d:?}"
+        );
+    }
+
+    #[test]
+    fn default_memory_dir_windows_uses_temp_subdir() {
+        if !cfg!(windows) {
+            return;
+        }
+        let d = default_memory_dir();
+        let tmp = std::env::temp_dir();
+        assert!(
+            d.starts_with(&tmp) && d.as_os_str().to_string_lossy().contains(MM_SUBDIR),
+            "expected path under temp containing {MM_SUBDIR}, got {d:?}"
+        );
+    }
+
+    #[test]
+    fn queue_options_new_paths_default_memory_dir() {
+        let o = QueueOptions::new("q", 4096).expect("valid");
+        assert_eq!(o.path, default_memory_dir());
     }
 }
