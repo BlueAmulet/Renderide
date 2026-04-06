@@ -94,15 +94,6 @@ use unix::SharedMemoryView;
 #[cfg(windows)]
 use windows::SharedMemoryView;
 
-/// Wire stride (bytes) for one host [`LightData`](crate::shared::LightData) row in shared memory (C# explicit layout through `angle`).
-pub const LIGHT_DATA_SHM_STRIDE_BYTES: usize = 52;
-
-/// Wire stride (bytes) for one host [`TransformPoseUpdate`](crate::shared::TransformPoseUpdate) row.
-pub const TRANSFORM_POSE_UPDATE_SHM_STRIDE_BYTES: usize = 44;
-
-/// Wire stride (bytes) for one host [`LightState`](crate::shared::LightState) row (C# `StructLayout` size).
-pub const LIGHT_STATE_SHM_STRIDE_BYTES: usize = 60;
-
 /// Lazy mapping cache keyed by `buffer_id` for host shared buffers.
 pub struct SharedMemoryAccessor {
     prefix: String,

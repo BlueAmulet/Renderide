@@ -29,13 +29,13 @@ use crate::diagnostics::{DebugHudInput, HostHudGatherer};
 use crate::render_graph::{GraphExecuteError, HostCameraFrame};
 
 pub use crate::frontend::InitState;
-use crate::ipc::{SharedMemoryAccessor, LIGHT_DATA_SHM_STRIDE_BYTES};
+use crate::ipc::SharedMemoryAccessor;
 use crate::scene::SceneCoordinator;
 use crate::shared::{
     CameraProjection, FrameSubmitData, HeadOutputDevice, InputState, LightData,
     LightsBufferRendererConsumed, LightsBufferRendererSubmission, MaterialPropertyIdResult,
     MaterialsUpdateBatch, OutputState, RendererCommand, RendererInitData, RendererInitResult,
-    ShaderUnload, ShaderUpload, ShaderUploadResult,
+    ShaderUnload, ShaderUpload, ShaderUploadResult, LIGHT_DATA_HOST_ROW_BYTES,
 };
 use winit::window::Window;
 
@@ -471,7 +471,7 @@ impl RendererRuntime {
         let ctx = format!("lights_buffer_renderer_submission id={buffer_id}");
         let vec = match shm.access_copy_memory_packable_rows::<LightData>(
             &sub.lights,
-            LIGHT_DATA_SHM_STRIDE_BYTES,
+            LIGHT_DATA_HOST_ROW_BYTES,
             Some(&ctx),
         ) {
             Ok(v) => v,

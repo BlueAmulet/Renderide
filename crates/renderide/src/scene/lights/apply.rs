@@ -2,9 +2,10 @@
 
 use std::mem::size_of;
 
-use crate::ipc::{SharedMemoryAccessor, LIGHT_STATE_SHM_STRIDE_BYTES};
+use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{
     LightRenderablesUpdate, LightState, LightsBufferRendererState, LightsBufferRendererUpdate,
+    LIGHT_STATE_HOST_ROW_BYTES,
 };
 
 use crate::scene::error::SceneError;
@@ -19,7 +20,7 @@ pub fn apply_light_renderables_update(
     space_id: i32,
 ) -> Result<(), SceneError> {
     let i32_size = size_of::<i32>() as i32;
-    let state_size = LIGHT_STATE_SHM_STRIDE_BYTES as i32;
+    let state_size = LIGHT_STATE_HOST_ROW_BYTES as i32;
 
     let removals = if update.removals.length >= i32_size {
         let ctx = format!("light renderables removals space_id={space_id}");
@@ -41,7 +42,7 @@ pub fn apply_light_renderables_update(
         let ctx = format!("light renderables states space_id={space_id}");
         shm.access_copy_memory_packable_rows::<LightState>(
             &update.states,
-            LIGHT_STATE_SHM_STRIDE_BYTES,
+            LIGHT_STATE_HOST_ROW_BYTES,
             Some(&ctx),
         )
         .map_err(SceneError::SharedMemoryAccess)?

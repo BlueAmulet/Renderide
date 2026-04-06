@@ -45,6 +45,13 @@ public sealed class TypeDescriptor
     /// <summary>Computed padding bytes needed to match the declared ExplicitLayout size.</summary>
     public int PaddingBytes { get; init; }
 
+    /// <summary>
+    /// C# <see cref="System.Runtime.InteropServices.Marshal.SizeOf"/> for this struct when blitted as a contiguous
+    /// host record (e.g. shared-memory row stride). Set for explicit-layout <see cref="TypeShape.PodStruct"/> types
+    /// when <c>Marshal.SizeOf</c> succeeds; reconciles with <see cref="ExplicitSize"/> when both exist.
+    /// </summary>
+    public int? HostInteropSizeBytes { get; init; }
+
     /// <summary>The Rust type string for the enum's underlying type (e.g., "i32", "u8").</summary>
     public string? RustUnderlyingType { get; init; }
 }

@@ -298,6 +298,14 @@ public class RustEmitter
             }
         }
 
+        if (type.HostInteropSizeBytes is int hostBytes)
+        {
+            string prefix = type.RustName.ToScreamingSnakeTypeName();
+            _w.DocLine($"Host interop size from C# `Marshal.SizeOf` for `{type.CSharpName}` (SHM row stride).");
+            _w.Line($"pub const {prefix}_HOST_ROW_BYTES: usize = {hostBytes};");
+            _w.BlankLine();
+        }
+
         // MemoryPackable impl (use same field order as struct for correct wire format)
         _w.BlankLine();
         using (_w.BeginTraitImpl("MemoryPackable", name))
@@ -306,6 +314,24 @@ public class RustEmitter
                 PackEmitter.EmitExplicitPack(_w, _logger, type.CSharpName, orderedFields, needsTrailingPadding ? type.PaddingBytes : 0);
             using (_w.BeginMethod("unpack", "", ["P: MemoryPackerEntityPool"], ["&mut self", "unpacker: &mut MemoryUnpacker<'_, '_, P>"], isPublic: false))
                 PackEmitter.EmitExplicitUnpack(_w, _logger, type.CSharpName, orderedFields, needsTrailingPadding ? type.PaddingBytes : 0);
+        }
+
+        if (!type.IsPod && type.HostInteropSizeBytes.HasValue)
+        {
+            string prefix = type.RustName.ToScreamingSnakeTypeName();
+            string testFn = $"verify_{type.RustName.HumanizeField()}_host_row_bytes_contract";
+            _w.BlankLine();
+            _w.Line("#[cfg(test)]");
+            _w.Line("#[test]");
+            _w.Line($"fn {testFn}() {{");
+            _w.Indent();
+            _w.Line($"let mut buf = vec![0u8; {prefix}_HOST_ROW_BYTES];");
+            _w.Line("let mut packer = MemoryPacker::new(&mut buf);");
+            _w.Line($"let mut v = {name}::default();");
+            _w.Line("v.pack(&mut packer);");
+            _w.Line("assert_eq!(packer.remaining_len(), 0, \"pack must fill host row\");");
+            _w.Dedent();
+            _w.Line("}");
         }
     }
 

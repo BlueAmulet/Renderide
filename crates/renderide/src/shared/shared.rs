@@ -2835,6 +2835,8 @@ pub struct ReflectionProbeChangeRenderResult {
     pub require_reset: u8,
     pub _padding: [u8; 3],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `ReflectionProbeChangeRenderResult` (SHM row stride).
+pub const REFLECTION_PROBE_CHANGE_RENDER_RESULT_HOST_ROW_BYTES: usize = 12;
 
 impl MemoryPackable for ReflectionProbeChangeRenderResult {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -2857,6 +2859,8 @@ pub struct VideoTextureClockErrorState {
     pub asset_id: i32,
     pub current_clock_error: f32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `VideoTextureClockErrorState` (SHM row stride).
+pub const VIDEO_TEXTURE_CLOCK_ERROR_STATE_HOST_ROW_BYTES: usize = 8;
 
 impl MemoryPackable for VideoTextureClockErrorState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3210,6 +3214,8 @@ pub struct VertexAttributeDescriptor {
     pub format: VertexAttributeFormat,
     pub dimensions: i32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `VertexAttributeDescriptor` (SHM row stride).
+pub const VERTEX_ATTRIBUTE_DESCRIPTOR_HOST_ROW_BYTES: usize = 8;
 
 impl MemoryPackable for VertexAttributeDescriptor {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3240,6 +3246,8 @@ pub struct SubmeshBufferDescriptor {
     pub index_count: i32,
     pub bounds: RenderBoundingBox,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `SubmeshBufferDescriptor` (SHM row stride).
+pub const SUBMESH_BUFFER_DESCRIPTOR_HOST_ROW_BYTES: usize = 36;
 
 impl MemoryPackable for SubmeshBufferDescriptor {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3268,6 +3276,8 @@ pub struct BlendshapeBufferDescriptor {
     pub frame_weight: f32,
     pub data_flags: BlendshapeDataFlags,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `BlendshapeBufferDescriptor` (SHM row stride).
+pub const BLENDSHAPE_BUFFER_DESCRIPTOR_HOST_ROW_BYTES: usize = 16;
 
 impl MemoryPackable for BlendshapeBufferDescriptor {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3293,6 +3303,8 @@ impl MemoryPackable for BlendshapeBufferDescriptor {
 pub struct MeshUploadHint {
     pub flags: MeshUploadHintFlag,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `MeshUploadHint` (SHM row stride).
+pub const MESH_UPLOAD_HINT_HOST_ROW_BYTES: usize = 4;
 
 impl MemoryPackable for MeshUploadHint {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3313,6 +3325,8 @@ pub struct RenderBoundingBox {
     pub center: Vec3,
     pub extents: Vec3,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `RenderBoundingBox` (SHM row stride).
+pub const RENDER_BOUNDING_BOX_HOST_ROW_BYTES: usize = 24;
 
 impl MemoryPackable for RenderBoundingBox {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3332,6 +3346,8 @@ pub struct MaterialPropertyUpdate {
     pub update_type: MaterialPropertyUpdateType,
     pub _padding: [u8; 3],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `MaterialPropertyUpdate` (SHM row stride).
+pub const MATERIAL_PROPERTY_UPDATE_HOST_ROW_BYTES: usize = 8;
 
 impl MemoryPackable for MaterialPropertyUpdate {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3465,6 +3481,8 @@ pub struct TextureUploadHint {
     pub has_region: u8,
     pub _padding: [u8; 2],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `TextureUploadHint` (SHM row stride).
+pub const TEXTURE_UPLOAD_HINT_HOST_ROW_BYTES: usize = 21;
 
 impl MemoryPackable for TextureUploadHint {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3514,6 +3532,8 @@ impl MemoryPackable for TextureUpdateResultType {
 pub struct Texture3DUploadHint {
     pub readable: u8,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `Texture3DUploadHint` (SHM row stride).
+pub const TEXTURE3_D_UPLOAD_HINT_HOST_ROW_BYTES: usize = 4;
 
 impl MemoryPackable for Texture3DUploadHint {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3679,6 +3699,8 @@ pub struct LightData {
     pub range: f32,
     pub angle: f32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `LightData` (SHM row stride).
+pub const LIGHT_DATA_HOST_ROW_BYTES: usize = 52;
 
 impl MemoryPackable for LightData {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -3697,6 +3719,16 @@ impl MemoryPackable for LightData {
         self.range = unpacker.read();
         self.angle = unpacker.read();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn verify_light_data_host_row_bytes_contract() {
+    let mut buf = vec![0u8; LIGHT_DATA_HOST_ROW_BYTES];
+    let mut packer = MemoryPacker::new(&mut buf);
+    let mut v = LightData::default();
+    v.pack(&mut packer);
+    assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
 }
 
 #[derive(Debug, Default, Clone)]
@@ -4031,6 +4063,8 @@ pub struct RenderTransform {
     pub scale: Vec3,
     pub rotation: Quat,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `RenderTransform` (SHM row stride).
+pub const RENDER_TRANSFORM_HOST_ROW_BYTES: usize = 40;
 
 impl MemoryPackable for RenderTransform {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -4043,6 +4077,16 @@ impl MemoryPackable for RenderTransform {
         self.scale = unpacker.read();
         self.rotation = unpacker.read();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn verify_render_transform_host_row_bytes_contract() {
+    let mut buf = vec![0u8; RENDER_TRANSFORM_HOST_ROW_BYTES];
+    let mut packer = MemoryPacker::new(&mut buf);
+    let mut v = RenderTransform::default();
+    v.pack(&mut packer);
+    assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
 }
 
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
@@ -4058,6 +4102,8 @@ pub struct RenderSH2 {
     pub sh7: Vec3,
     pub sh8: Vec3,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `RenderSH2` (SHM row stride).
+pub const RENDER_SH2_HOST_ROW_BYTES: usize = 108;
 
 impl MemoryPackable for RenderSH2 {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -4870,6 +4916,8 @@ pub struct RenderIntRect {
     pub width: i32,
     pub height: i32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `RenderIntRect` (SHM row stride).
+pub const RENDER_INT_RECT_HOST_ROW_BYTES: usize = 16;
 
 impl MemoryPackable for RenderIntRect {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5449,6 +5497,8 @@ pub struct TransformParentUpdate {
     pub transform_id: i32,
     pub new_parent_id: i32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `TransformParentUpdate` (SHM row stride).
+pub const TRANSFORM_PARENT_UPDATE_HOST_ROW_BYTES: usize = 8;
 
 impl MemoryPackable for TransformParentUpdate {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5467,6 +5517,8 @@ pub struct TransformPoseUpdate {
     pub transform_id: i32,
     pub pose: RenderTransform,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `TransformPoseUpdate` (SHM row stride).
+pub const TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES: usize = 44;
 
 impl MemoryPackable for TransformPoseUpdate {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5477,6 +5529,16 @@ impl MemoryPackable for TransformPoseUpdate {
         self.transform_id = unpacker.read();
         unpacker.read_object_required(&mut self.pose);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn verify_transform_pose_update_host_row_bytes_contract() {
+    let mut buf = vec![0u8; TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES];
+    let mut packer = MemoryPacker::new(&mut buf);
+    let mut v = TransformPoseUpdate::default();
+    v.pack(&mut packer);
+    assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
 }
 
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
@@ -5491,6 +5553,8 @@ pub struct MeshRendererState {
     pub motion_vector_mode: MotionVectorMode,
     pub _padding: [u8; 2],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `MeshRendererState` (SHM row stride).
+pub const MESH_RENDERER_STATE_HOST_ROW_BYTES: usize = 24;
 
 impl MemoryPackable for MeshRendererState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5544,6 +5608,8 @@ pub struct BoneAssignment {
     pub root_bone_transform_id: i32,
     pub bone_count: i32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `BoneAssignment` (SHM row stride).
+pub const BONE_ASSIGNMENT_HOST_ROW_BYTES: usize = 12;
 
 impl MemoryPackable for BoneAssignment {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5564,6 +5630,8 @@ pub struct BlendshapeUpdateBatch {
     pub renderable_index: i32,
     pub blendshape_update_count: i32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `BlendshapeUpdateBatch` (SHM row stride).
+pub const BLENDSHAPE_UPDATE_BATCH_HOST_ROW_BYTES: usize = 8;
 
 impl MemoryPackable for BlendshapeUpdateBatch {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5582,6 +5650,8 @@ pub struct BlendshapeUpdate {
     pub blendshape_index: i32,
     pub weight: f32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `BlendshapeUpdate` (SHM row stride).
+pub const BLENDSHAPE_UPDATE_HOST_ROW_BYTES: usize = 8;
 
 impl MemoryPackable for BlendshapeUpdate {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5612,6 +5682,8 @@ pub struct LightState {
     pub shadow_type: ShadowType,
     pub _padding: [u8; 2],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `LightState` (SHM row stride).
+pub const LIGHT_STATE_HOST_ROW_BYTES: usize = 60;
 
 impl MemoryPackable for LightState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5656,6 +5728,16 @@ impl MemoryPackable for LightState {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn verify_light_state_host_row_bytes_contract() {
+    let mut buf = vec![0u8; LIGHT_STATE_HOST_ROW_BYTES];
+    let mut packer = MemoryPacker::new(&mut buf);
+    let mut v = LightState::default();
+    v.pack(&mut packer);
+    assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 pub struct CameraState {
@@ -5674,6 +5756,8 @@ pub struct CameraState {
     pub projection: CameraProjection,
     pub flags: u16,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `CameraState` (SHM row stride).
+pub const CAMERA_STATE_HOST_ROW_BYTES: usize = 72;
 
 impl MemoryPackable for CameraState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5718,6 +5802,16 @@ impl MemoryPackable for CameraState {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn verify_camera_state_host_row_bytes_contract() {
+    let mut buf = vec![0u8; CAMERA_STATE_HOST_ROW_BYTES];
+    let mut packer = MemoryPacker::new(&mut buf);
+    let mut v = CameraState::default();
+    v.pack(&mut packer);
+    assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 #[repr(C)]
 pub struct CameraPortalState {
@@ -5734,6 +5828,8 @@ pub struct CameraPortalState {
     pub _padding: [u8; 3],
     pub flags: i32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `CameraPortalState` (SHM row stride).
+pub const CAMERA_PORTAL_STATE_HOST_ROW_BYTES: usize = 128;
 
 impl MemoryPackable for CameraPortalState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5770,12 +5866,24 @@ impl MemoryPackable for CameraPortalState {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn verify_camera_portal_state_host_row_bytes_contract() {
+    let mut buf = vec![0u8; CAMERA_PORTAL_STATE_HOST_ROW_BYTES];
+    let mut packer = MemoryPacker::new(&mut buf);
+    let mut v = CameraPortalState::default();
+    v.pack(&mut packer);
+    assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
+}
+
 #[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 pub struct ReflectionProbeChangeRenderTask {
     pub renderable_index: i32,
     pub unique_id: i32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `ReflectionProbeChangeRenderTask` (SHM row stride).
+pub const REFLECTION_PROBE_CHANGE_RENDER_TASK_HOST_ROW_BYTES: usize = 8;
 
 impl MemoryPackable for ReflectionProbeChangeRenderTask {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5807,6 +5915,8 @@ pub struct ReflectionProbeState {
     pub time_slicing_mode: ReflectionProbeTimeSlicingMode,
     pub flags: u8,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `ReflectionProbeState` (SHM row stride).
+pub const REFLECTION_PROBE_STATE_HOST_ROW_BYTES: usize = 68;
 
 impl MemoryPackable for ReflectionProbeState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5855,6 +5965,16 @@ impl MemoryPackable for ReflectionProbeState {
         };
         self.flags = unpacker.read();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn verify_reflection_probe_state_host_row_bytes_contract() {
+    let mut buf = vec![0u8; REFLECTION_PROBE_STATE_HOST_ROW_BYTES];
+    let mut packer = MemoryPacker::new(&mut buf);
+    let mut v = ReflectionProbeState::default();
+    v.pack(&mut packer);
+    assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
 }
 
 #[derive(Debug, Default)]
@@ -5912,6 +6032,8 @@ pub struct BillboardRenderBufferState {
     pub motion_vector_mode: MotionVectorMode,
     pub _padding: [u8; 2],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `BillboardRenderBufferState` (SHM row stride).
+pub const BILLBOARD_RENDER_BUFFER_STATE_HOST_ROW_BYTES: usize = 24;
 
 impl MemoryPackable for BillboardRenderBufferState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5954,6 +6076,8 @@ pub struct MeshRenderBufferState {
     pub alignment: MeshAlignment,
     pub _padding: [u8; 3],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `MeshRenderBufferState` (SHM row stride).
+pub const MESH_RENDER_BUFFER_STATE_HOST_ROW_BYTES: usize = 20;
 
 impl MemoryPackable for MeshRenderBufferState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -5989,6 +6113,8 @@ pub struct TrailsRendererState {
     pub generate_lighting_data: u8,
     pub _padding: [u8; 1],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `TrailsRendererState` (SHM row stride).
+pub const TRAILS_RENDERER_STATE_HOST_ROW_BYTES: usize = 18;
 
 impl MemoryPackable for TrailsRendererState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -6034,6 +6160,8 @@ pub struct LightsBufferRendererState {
     pub shadow_type: ShadowType,
     pub _padding: [u8; 2],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `LightsBufferRendererState` (SHM row stride).
+pub const LIGHTS_BUFFER_RENDERER_STATE_HOST_ROW_BYTES: usize = 36;
 
 impl MemoryPackable for LightsBufferRendererState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -6085,6 +6213,8 @@ pub struct RenderTransformOverrideState {
     pub override_flags: u8,
     pub _padding_1: [u8; 2],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `RenderTransformOverrideState` (SHM row stride).
+pub const RENDER_TRANSFORM_OVERRIDE_STATE_HOST_ROW_BYTES: usize = 56;
 
 impl MemoryPackable for RenderTransformOverrideState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -6115,6 +6245,16 @@ impl MemoryPackable for RenderTransformOverrideState {
     }
 }
 
+#[cfg(test)]
+#[test]
+fn verify_render_transform_override_state_host_row_bytes_contract() {
+    let mut buf = vec![0u8; RENDER_TRANSFORM_OVERRIDE_STATE_HOST_ROW_BYTES];
+    let mut packer = MemoryPacker::new(&mut buf);
+    let mut v = RenderTransformOverrideState::default();
+    v.pack(&mut packer);
+    assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
+}
+
 #[derive(Debug, Default)]
 #[repr(C)]
 pub struct MaterialOverrideState {
@@ -6131,6 +6271,8 @@ pub struct RenderMaterialOverrideState {
     pub context: RenderingContext,
     pub _padding: [u8; 1],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `RenderMaterialOverrideState` (SHM row stride).
+pub const RENDER_MATERIAL_OVERRIDE_STATE_HOST_ROW_BYTES: usize = 12;
 
 impl MemoryPackable for RenderMaterialOverrideState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -6163,6 +6305,8 @@ pub struct BlitToDisplayState {
     pub flags: u8,
     pub _padding: [u8; 1],
 }
+/// Host interop size from C# `Marshal.SizeOf` for `BlitToDisplayState` (SHM row stride).
+pub const BLIT_TO_DISPLAY_STATE_HOST_ROW_BYTES: usize = 28;
 
 impl MemoryPackable for BlitToDisplayState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -6181,6 +6325,16 @@ impl MemoryPackable for BlitToDisplayState {
         self.flags = unpacker.read();
         self._padding = unpacker.read();
     }
+}
+
+#[cfg(test)]
+#[test]
+fn verify_blit_to_display_state_host_row_bytes_contract() {
+    let mut buf = vec![0u8; BLIT_TO_DISPLAY_STATE_HOST_ROW_BYTES];
+    let mut packer = MemoryPacker::new(&mut buf);
+    let mut v = BlitToDisplayState::default();
+    v.pack(&mut packer);
+    assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
 }
 
 #[derive(Debug, Default)]
@@ -7227,6 +7381,8 @@ pub struct HapticPointState {
     pub pain: f32,
     pub vibration: f32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `HapticPointState` (SHM row stride).
+pub const HAPTIC_POINT_STATE_HOST_ROW_BYTES: usize = 16;
 
 impl MemoryPackable for HapticPointState {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
@@ -7392,6 +7548,8 @@ pub struct RenderRect {
     pub width: f32,
     pub height: f32,
 }
+/// Host interop size from C# `Marshal.SizeOf` for `RenderRect` (SHM row stride).
+pub const RENDER_RECT_HOST_ROW_BYTES: usize = 16;
 
 impl MemoryPackable for RenderRect {
     fn pack(&mut self, packer: &mut MemoryPacker<'_>) {

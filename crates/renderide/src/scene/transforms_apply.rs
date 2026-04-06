@@ -9,8 +9,11 @@
 
 use std::collections::HashSet;
 
-use crate::ipc::{SharedMemoryAccessor, TRANSFORM_POSE_UPDATE_SHM_STRIDE_BYTES};
-use crate::shared::{TransformParentUpdate, TransformPoseUpdate, TransformsUpdate};
+use crate::ipc::SharedMemoryAccessor;
+use crate::shared::{
+    TransformParentUpdate, TransformPoseUpdate, TransformsUpdate,
+    TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES,
+};
 
 use super::error::SceneError;
 use super::ids::RenderSpaceId;
@@ -167,7 +170,7 @@ pub fn apply_transforms_update(
         let poses = shm
             .access_copy_memory_packable_rows::<TransformPoseUpdate>(
                 &update.pose_updates,
-                TRANSFORM_POSE_UPDATE_SHM_STRIDE_BYTES,
+                TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES,
                 Some(&ctx),
             )
             .map_err(SceneError::SharedMemoryAccess)?;

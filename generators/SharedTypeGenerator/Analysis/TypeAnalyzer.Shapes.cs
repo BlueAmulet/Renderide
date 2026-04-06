@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using LayoutKind = System.Runtime.InteropServices.LayoutKind;
+using NotEnoughLogs;
 using SharedTypeGenerator.IR;
+using SharedTypeGenerator.Logging;
 
 namespace SharedTypeGenerator.Analysis;
 
@@ -202,6 +204,46 @@ public partial class TypeAnalyzer
         });
         bool isPod = allFieldsPod && !hasSimdCompositePaddingRisk;
 
+        int? hostInteropSizeBytes = null;
+        try
+        {
+            int marshalSize = Marshal.SizeOf(type);
+            hostInteropSizeBytes = marshalSize;
+            if (declaredSize > 0 && marshalSize != declaredSize)
+            {
+                _logger.LogWarning(
+                    LogCategory.Analysis,
+                    $"{type.FullName}: StructLayout.Size={declaredSize} differs from Marshal.SizeOf={marshalSize}; using Marshal.SizeOf for HostInteropSizeBytes.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(LogCategory.Analysis, $"{type.FullName}: Marshal.SizeOf failed: {ex.Message}");
+        }
+
+        if (hostInteropSizeBytes.HasValue && fields.Any(f => f.GetCustomAttribute<FieldOffsetAttribute>() != null))
+        {
+            int maxEnd = 0;
+            foreach (FieldInfo field in fields)
+            {
+                FieldOffsetAttribute? fo = field.GetCustomAttribute<FieldOffsetAttribute>();
+                if (fo == null) continue;
+
+                Type st = field.FieldType == typeof(bool) ? typeof(byte) : field.FieldType;
+                if (st.IsEnum) st = st.GetField("value__")!.FieldType;
+                int sz;
+                try { sz = Marshal.SizeOf(st); } catch { continue; }
+
+                maxEnd = Math.Max(maxEnd, fo.Value + sz);
+            }
+
+            if (maxEnd > hostInteropSizeBytes.Value)
+            {
+                throw new InvalidOperationException(
+                    $"{type.FullName}: explicit layout field extent ({maxEnd} bytes) exceeds Marshal.SizeOf={hostInteropSizeBytes.Value}.");
+            }
+        }
+
         return new TypeDescriptor
         {
             CSharpName = type.Name,
@@ -211,6 +253,7 @@ public partial class TypeAnalyzer
             IsPod = isPod,
             ExplicitSize = declaredSize > 0 ? declaredSize : null,
             PaddingBytes = paddingBytes,
+            HostInteropSizeBytes = hostInteropSizeBytes,
         };
     }
 

@@ -36,6 +36,14 @@ public class RustWriter : IDisposable
         _writer.WriteLine(text);
     }
 
+    /// <summary>Writes a Rust doc line (<c>/// ...</c>) at the current indent.</summary>
+    public void DocLine(string text)
+    {
+        WriteIndent();
+        _writer.Write("/// ");
+        _writer.WriteLine(text);
+    }
+
     public void Fixme(string text) => Comment($"FIXME: {text}");
     public void Note(string text) => Comment($"NOTE: {text}");
     public void Todo(string text) => Comment($"TODO: {text}");
