@@ -6,6 +6,7 @@ use std::sync::Arc;
 use glam::Mat4;
 
 use crate::assets::mesh::BLENDSHAPE_OFFSET_GPU_STRIDE;
+use crate::backend::advance_slab_cursor;
 use crate::gpu::plan_blendshape_bind_chunks;
 
 use crate::render_graph::context::RenderPassContext;
@@ -128,6 +129,9 @@ impl RenderPass for MeshDeformPass {
             Err(poisoned) => poisoned.into_inner(),
         };
 
+        let mut bone_cursor = 0u64;
+        let mut blend_weight_cursor = 0u64;
+
         for item in work {
             record_mesh_deform(
                 &queue,
@@ -140,6 +144,8 @@ impl RenderPass for MeshDeformPass {
                 &item.mesh,
                 item.skinned.as_deref(),
                 &item.blend_weights,
+                &mut bone_cursor,
+                &mut blend_weight_cursor,
             );
         }
 
@@ -159,6 +165,8 @@ fn record_mesh_deform(
     mesh: &MeshDeformSnapshot,
     bone_transform_indices: Option<&[i32]>,
     blend_weights: &[f32],
+    bone_cursor: &mut u64,
+    blend_weight_cursor: &mut u64,
 ) {
     let Some(ref positions) = mesh.positions_buffer else {
         return;
@@ -200,7 +208,13 @@ fn record_mesh_deform(
             let w = blend_weights.get(s).copied().unwrap_or(0.0);
             wbytes[s * 4..s * 4 + 4].copy_from_slice(&w.to_le_bytes());
         }
-        queue.write_buffer(&scratch.blendshape_weights, 0, &wbytes);
+
+        let weight_binding_len = wbytes.len() as u64;
+        scratch.ensure_blend_weight_byte_capacity(
+            device,
+            (*blend_weight_cursor).saturating_add(weight_binding_len),
+        );
+        queue.write_buffer(&scratch.blendshape_weights, *blend_weight_cursor, &wbytes);
 
         let limits = device.limits();
         let Some(chunks) = plan_blendshape_bind_chunks(
@@ -218,19 +232,31 @@ fn record_mesh_deform(
 
         let stride = u64::from(vc) * u64::from(BLENDSHAPE_OFFSET_GPU_STRIDE as u32);
 
-        let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("blendshape"),
-            timestamp_writes: None,
-        });
-        cpass.set_pipeline(&pre.blendshape_pipeline);
-
+        let mut packed_params = Vec::with_capacity(chunks.len() * 32);
         for (chunk_i, (shape_start, chunk_shapes)) in chunks.iter().enumerate() {
             let params = build_blend_params(vc, *chunk_shapes, *shape_start, chunk_i == 0);
-            queue.write_buffer(&scratch.blendshape_params, 0, &params);
+            packed_params.extend_from_slice(&params);
+        }
+        scratch.ensure_blendshape_params_staging(device, packed_params.len() as u64);
+        queue.write_buffer(&scratch.blendshape_params_staging, 0, &packed_params);
+
+        for (chunk_i, (shape_start, chunk_shapes)) in chunks.iter().enumerate() {
+            let src_off = (chunk_i as u64).saturating_mul(32);
+            encoder.copy_buffer_to_buffer(
+                &scratch.blendshape_params_staging,
+                src_off,
+                &scratch.blendshape_params,
+                0,
+                32,
+            );
 
             let offset = u64::from(*shape_start).saturating_mul(stride);
             let size = u64::from(*chunk_shapes).saturating_mul(stride);
             let Some(size_nz) = NonZeroU64::new(size) else {
+                continue;
+            };
+
+            let Some(weight_size) = NonZeroU64::new(weight_binding_len) else {
                 continue;
             };
 
@@ -256,7 +282,11 @@ fn record_mesh_deform(
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: scratch.blendshape_weights.as_entire_binding(),
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &scratch.blendshape_weights,
+                            offset: *blend_weight_cursor,
+                            size: Some(weight_size),
+                        }),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
@@ -265,10 +295,16 @@ fn record_mesh_deform(
                 ],
             });
 
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("blendshape"),
+                timestamp_writes: None,
+            });
+            cpass.set_pipeline(&pre.blendshape_pipeline);
             cpass.set_bind_group(0, &blend_bg, &[]);
             cpass.dispatch_workgroups(wg, 1, 1);
         }
-        drop(cpass);
+
+        *blend_weight_cursor = advance_slab_cursor(*blend_weight_cursor, weight_binding_len);
     }
 
     if needs_skin {
@@ -297,7 +333,14 @@ fn record_mesh_deform(
             let cols = pal.to_cols_array();
             palette[bi * 64..bi * 64 + 64].copy_from_slice(bytemuck::cast_slice(&cols));
         }
-        queue.write_buffer(&scratch.bone_matrices, 0, &palette);
+
+        let palette_len = palette.len() as u64;
+        scratch.ensure_bone_byte_capacity(device, bone_cursor.saturating_add(palette_len));
+        queue.write_buffer(&scratch.bone_matrices, *bone_cursor, &palette);
+
+        let Some(bone_binding_size) = NonZeroU64::new(palette_len) else {
+            return;
+        };
 
         let src_for_skin: &wgpu::Buffer = if needs_blend {
             mesh.deform_temp_buffer.as_deref().expect("blend temp")
@@ -311,7 +354,11 @@ fn record_mesh_deform(
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: scratch.bone_matrices.as_entire_binding(),
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &scratch.bone_matrices,
+                        offset: *bone_cursor,
+                        size: Some(bone_binding_size),
+                    }),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -340,6 +387,8 @@ fn record_mesh_deform(
         cpass.set_bind_group(0, &skin_bg, &[]);
         cpass.dispatch_workgroups(wg, 1, 1);
         drop(cpass);
+
+        *bone_cursor = advance_slab_cursor(*bone_cursor, palette_len);
     }
 }
 

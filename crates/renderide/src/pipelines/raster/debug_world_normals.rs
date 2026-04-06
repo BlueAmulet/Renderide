@@ -1,11 +1,19 @@
 //! Debug mesh material: world-space normals as RGB.
 
+use std::num::NonZeroU64;
+
+use crate::gpu::PER_DRAW_UNIFORM_STRIDE;
 use crate::materials::{MaterialFamilyId, MaterialPipelineDesc, MaterialPipelineFamily};
 use crate::pipelines::ShaderPermutation;
 use crate::render_graph::MAIN_FORWARD_DEPTH_COMPARE;
 
 /// Builtin family id for [`DebugWorldNormalsFamily`].
 pub const DEBUG_WORLD_NORMALS_FAMILY_ID: MaterialFamilyId = MaterialFamilyId(2);
+
+/// Minimum `min_binding_size` for the dynamic uniform binding (256-byte slots).
+fn per_draw_uniform_min_binding_size() -> NonZeroU64 {
+    NonZeroU64::new(PER_DRAW_UNIFORM_STRIDE as u64).expect("stride positive")
+}
 
 /// World-normal debug visualization for decomposed position/normal vertex streams.
 pub struct DebugWorldNormalsFamily;
@@ -15,28 +23,16 @@ impl DebugWorldNormalsFamily {
     pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("debug_world_normals_material"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: std::num::NonZeroU64::new(64),
-                    },
-                    count: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: Some(per_draw_uniform_min_binding_size()),
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: std::num::NonZeroU64::new(64),
-                    },
-                    count: None,
-                },
-            ],
+                count: None,
+            }],
         })
     }
 }

@@ -359,7 +359,7 @@ impl RenderBackend {
         Some((pre, scratch))
     }
 
-    /// Debug mesh draw uniforms ([`DebugDrawResources`]).
+    /// Per-draw debug mesh uniforms: 256-byte dynamic uniform slab ([`DebugDrawResources`]).
     pub fn debug_draw(&self) -> Option<&DebugDrawResources> {
         self.debug_draw.as_ref()
     }

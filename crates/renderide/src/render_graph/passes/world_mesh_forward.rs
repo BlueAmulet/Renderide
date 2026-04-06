@@ -8,6 +8,7 @@
 use glam::Mat4;
 
 use crate::assets::material::MaterialDictionary;
+use crate::gpu::{write_per_draw_uniform_slab, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE};
 use crate::materials::MaterialPipelineDesc;
 use crate::pipelines::ShaderPermutation;
 use crate::present::SWAPCHAIN_CLEAR_COLOR;
@@ -23,9 +24,6 @@ use crate::render_graph::MAIN_FORWARD_DEPTH_CLEAR;
 use crate::render_graph::{
     collect_and_sort_world_mesh_draws, MaterialDrawBatchKey, WorldMeshDrawItem,
 };
-use crate::scene::RenderSpaceId;
-use crate::scene::SceneCoordinator;
-
 /// Clears the backbuffer and depth, then draws meshes with material-batched raster pipelines.
 #[derive(Debug, Default)]
 pub struct WorldMeshForwardPass;
@@ -81,12 +79,63 @@ impl RenderPass for WorldMeshForwardPass {
         let Some(reg) = backend.material_registry.as_mut() else {
             return Ok(());
         };
-        let Some(dbg) = backend.debug_draw.as_ref() else {
+        let Some(dbg) = backend.debug_draw.as_mut() else {
             return Ok(());
         };
+
+        let (vw, vh) = frame.viewport_px;
+        let aspect = vw as f32 / vh.max(1) as f32;
+        let hc = frame.host_camera;
+        let near = hc.near_clip.max(0.01);
+        let far = hc.far_clip;
+        let fov_rad = clamp_desktop_fov_degrees(hc.desktop_fov_degrees).to_radians();
+        let world_proj = reverse_z_perspective(aspect, fov_rad, near, far);
+
+        let has_overlay = draws.iter().any(|d| d.is_overlay);
+        let overlay_proj = if has_overlay {
+            Some(if let Some((half_h, on, of)) = hc.primary_ortho_task {
+                reverse_z_orthographic(half_h * aspect, half_h, on, of)
+            } else {
+                reverse_z_orthographic(1.0 * aspect, 1.0, near, far)
+            })
+        } else {
+            None
+        };
+
+        dbg.ensure_draw_slot_capacity(ctx.device, draws.len());
+
+        let scene = frame.scene;
+        let mut slots: Vec<PaddedPerDrawUniforms> = Vec::with_capacity(draws.len());
+        for item in &draws {
+            let proj = if item.is_overlay {
+                overlay_proj.unwrap_or(world_proj)
+            } else {
+                world_proj
+            };
+            let (vp, model) = if let Some(space) = scene.space(item.space_id) {
+                let view = view_matrix_from_render_transform(&space.view_transform);
+                let vp = proj * view;
+                let node_u = item.node_id as usize;
+                let model = scene
+                    .world_matrix_with_root(item.space_id, node_u)
+                    .unwrap_or(Mat4::IDENTITY);
+                (vp, model)
+            } else {
+                (Mat4::IDENTITY, Mat4::IDENTITY)
+            };
+            slots.push(PaddedPerDrawUniforms::new(vp, model));
+        }
+
+        let mut slab_bytes = vec![0u8; draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE)];
+        write_per_draw_uniform_slab(&slots, &mut slab_bytes);
+
+        let queue = match ctx.queue.lock() {
+            Ok(q) => q,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        queue.write_buffer(&dbg.per_draw_uniforms, 0, &slab_bytes);
+
         let debug_bind_group = &dbg.bind_group;
-        let globals_buf = &dbg.globals_buffer;
-        let model_buf = &dbg.model_buffer;
 
         let mut rpass = ctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("world-mesh-forward"),
@@ -112,59 +161,16 @@ impl RenderPass for WorldMeshForwardPass {
             multiview_mask: None,
         });
 
-        let queue = match ctx.queue.lock() {
-            Ok(q) => q,
-            Err(poisoned) => poisoned.into_inner(),
-        };
-
-        let (vw, vh) = frame.viewport_px;
-        let aspect = vw as f32 / vh.max(1) as f32;
-        let hc = frame.host_camera;
-        let near = hc.near_clip.max(0.01);
-        let far = hc.far_clip;
-        let fov_rad = clamp_desktop_fov_degrees(hc.desktop_fov_degrees).to_radians();
-        let world_proj = reverse_z_perspective(aspect, fov_rad, near, far);
-
-        let has_overlay = draws.iter().any(|d| d.is_overlay);
-        let overlay_proj = if has_overlay {
-            Some(if let Some((half_h, on, of)) = hc.primary_ortho_task {
-                reverse_z_orthographic(half_h * aspect, half_h, on, of)
-            } else {
-                reverse_z_orthographic(1.0 * aspect, 1.0, near, far)
-            })
-        } else {
-            None
-        };
-
-        let mut last_vp_key: Option<(RenderSpaceId, bool)> = None;
         let mut last_batch_key: Option<MaterialDrawBatchKey> = None;
         let mut pipeline_ok = false;
 
-        for item in &draws {
-            let vp_key = (item.space_id, item.is_overlay);
-            if last_vp_key != Some(vp_key) {
-                let proj = if item.is_overlay {
-                    overlay_proj.unwrap_or(world_proj)
-                } else {
-                    world_proj
-                };
-                Self::write_view_proj_for_space(
-                    frame.scene,
-                    item.space_id,
-                    &proj,
-                    globals_buf,
-                    &queue,
-                );
-                last_vp_key = Some(vp_key);
-            }
-
+        for (draw_idx, item) in draws.iter().enumerate() {
             if last_batch_key.as_ref() != Some(&item.batch_key) {
                 last_batch_key = Some(item.batch_key);
                 match reg.pipeline_for_family(item.batch_key.family_id, &desc, ShaderPermutation(0))
                 {
                     Some(pipeline) => {
                         rpass.set_pipeline(pipeline);
-                        rpass.set_bind_group(0, debug_bind_group, &[]);
                         pipeline_ok = true;
                     }
                     None => {
@@ -184,36 +190,18 @@ impl RenderPass for WorldMeshForwardPass {
             // `lookup_ids` feeds future per-material bind groups (`MaterialDictionary::get_merged`).
             let _ = &item.lookup_ids;
 
-            draw_mesh_submesh(&mut rpass, &queue, model_buf, frame.scene, item, mesh_pool);
+            let dynamic_offset = (draw_idx * PER_DRAW_UNIFORM_STRIDE) as u32;
+            rpass.set_bind_group(0, debug_bind_group, &[dynamic_offset]);
+
+            draw_mesh_submesh(&mut rpass, item, mesh_pool);
         }
 
         Ok(())
     }
 }
 
-impl WorldMeshForwardPass {
-    fn write_view_proj_for_space(
-        scene: &SceneCoordinator,
-        space_id: RenderSpaceId,
-        proj: &Mat4,
-        globals_buf: &wgpu::Buffer,
-        queue: &wgpu::Queue,
-    ) {
-        let Some(space) = scene.space(space_id) else {
-            return;
-        };
-        let view = view_matrix_from_render_transform(&space.view_transform);
-        let vp = proj * view;
-        let vp_bytes: [f32; 16] = vp.to_cols_array();
-        queue.write_buffer(globals_buf, 0, bytemuck::cast_slice(&vp_bytes));
-    }
-}
-
 fn draw_mesh_submesh(
     rpass: &mut wgpu::RenderPass<'_>,
-    queue: &wgpu::Queue,
-    model_buf: &wgpu::Buffer,
-    scene: &SceneCoordinator,
     item: &WorldMeshDrawItem,
     mesh_pool: &crate::resources::MeshPool,
 ) {
@@ -243,13 +231,6 @@ fn draw_mesh_submesh(
     let Some(pos) = pos_buf else {
         return;
     };
-
-    let node_u = item.node_id as usize;
-    let model = scene
-        .world_matrix_with_root(item.space_id, node_u)
-        .unwrap_or(Mat4::IDENTITY);
-    let m_bytes: [f32; 16] = model.to_cols_array();
-    queue.write_buffer(model_buf, 0, bytemuck::cast_slice(&m_bytes));
 
     rpass.set_vertex_buffer(0, pos.slice(..));
     rpass.set_vertex_buffer(1, normals.slice(..));
