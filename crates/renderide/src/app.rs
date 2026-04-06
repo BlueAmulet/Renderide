@@ -13,7 +13,7 @@ use winit::event::{DeviceEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, DeviceEvents, EventLoop};
 use winit::window::{Window, WindowId};
 
-use crate::config::{load_renderer_settings, log_config_resolve_trace, RendererSettings};
+use crate::config::{load_renderer_settings, log_config_resolve_trace, settings_handle_from};
 use crate::connection::{get_connection_parameters, try_claim_renderer_singleton};
 use crate::frontend::input::{
     apply_device_event, apply_output_state_to_window, apply_per_frame_cursor_lock_when_locked,
@@ -48,7 +48,8 @@ pub fn run() -> Option<i32> {
 
     let config_load = load_renderer_settings();
     log_config_resolve_trace(&config_load.resolve);
-    let renderer_settings = config_load.settings;
+    let settings_handle = settings_handle_from(&config_load);
+    let initial_vsync = config_load.settings.rendering.vsync;
 
     let default_hook = std::panic::take_hook();
     let log_path_hook = log_path.clone();
@@ -58,7 +59,11 @@ pub fn run() -> Option<i32> {
     }));
 
     let params = get_connection_parameters();
-    let mut runtime = RendererRuntime::new(params.clone());
+    let mut runtime = RendererRuntime::new(
+        params.clone(),
+        settings_handle,
+        config_load.save_path.clone(),
+    );
     if let Err(e) = runtime.connect_ipc() {
         if params.is_some() {
             logger::error!("IPC connect failed: {e}");
@@ -84,7 +89,7 @@ pub fn run() -> Option<i32> {
 
     let mut app = RenderideApp {
         runtime,
-        renderer_settings,
+        initial_vsync,
         window: None,
         gpu: None,
         exit_code: None,
@@ -102,9 +107,8 @@ pub fn run() -> Option<i32> {
 /// Winit-owned state: [`RendererRuntime`], plus lazily created window and [`GpuContext`].
 struct RenderideApp {
     runtime: RendererRuntime,
-    /// Loaded once at startup from `config.ini` (or defaults).
-    #[allow(dead_code)]
-    renderer_settings: RendererSettings,
+    /// VSync flag used for the initial [`GpuContext::new`] before live updates from settings.
+    initial_vsync: bool,
     window: Option<Arc<Window>>,
     gpu: Option<GpuContext>,
     exit_code: Option<i32>,
@@ -156,7 +160,7 @@ impl RenderideApp {
             }
         }
 
-        match pollster::block_on(GpuContext::new(Arc::clone(&window), false)) {
+        match pollster::block_on(GpuContext::new(Arc::clone(&window), self.initial_vsync)) {
             Ok(gpu) => {
                 logger::info!("GPU initialized");
                 self.runtime.attach_gpu(&gpu);
@@ -235,6 +239,10 @@ impl RenderideApp {
         let Some(gpu) = self.gpu.as_mut() else {
             return;
         };
+
+        if let Ok(s) = self.runtime.settings().read() {
+            gpu.set_vsync(s.rendering.vsync);
+        }
 
         #[cfg(feature = "debug-hud")]
         {

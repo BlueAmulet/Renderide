@@ -24,9 +24,85 @@ impl IniDocument {
         self.sections.get(&sec)?.get(&k).map(String::as_str)
     }
 
+    /// Inserts or replaces `key` in `section` (stored as lowercase section and key).
+    pub fn set(&mut self, section: &str, key: &str, value: impl Into<String>) {
+        let sec = section.to_lowercase();
+        let k = key.to_lowercase();
+        self.sections
+            .entry(sec)
+            .or_default()
+            .insert(k, value.into());
+    }
+
+    /// Removes `key` from `section` if present.
+    pub fn remove(&mut self, section: &str, key: &str) -> Option<String> {
+        let sec = section.to_lowercase();
+        let k = key.to_lowercase();
+        let removed = self.sections.get_mut(&sec)?.remove(&k);
+        if self.sections.get(&sec).is_none_or(|m| m.is_empty()) {
+            self.sections.remove(&sec);
+        }
+        removed
+    }
+
     /// Returns true if the document has no entries.
     pub fn is_empty(&self) -> bool {
         self.sections.values().all(|m| m.is_empty()) || self.sections.is_empty()
+    }
+
+    /// Serializes to INI text with deterministic ordering: orphan keys (`""` section) first, then
+    /// `[section]` headers in sorted order; keys within each section sorted lexicographically.
+    pub fn serialize(&self) -> String {
+        let mut out = String::new();
+
+        if let Some(orphan) = self.sections.get("") {
+            if !orphan.is_empty() {
+                let mut keys: Vec<_> = orphan.keys().cloned().collect();
+                keys.sort();
+                for k in keys {
+                    if let Some(v) = orphan.get(&k) {
+                        out.push_str(&format!("{k} = {v}\n"));
+                    }
+                }
+                out.push('\n');
+            }
+        }
+
+        let mut section_names: Vec<_> = self
+            .sections
+            .keys()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .collect();
+        section_names.sort();
+
+        for sec in section_names {
+            let Some(map) = self.sections.get(&sec) else {
+                continue;
+            };
+            if map.is_empty() {
+                continue;
+            }
+            out.push('[');
+            out.push_str(&sec);
+            out.push_str("]\n");
+            let mut keys: Vec<_> = map.keys().cloned().collect();
+            keys.sort();
+            for k in keys {
+                if let Some(v) = map.get(&k) {
+                    out.push_str(&format!("{k} = {v}\n"));
+                }
+            }
+            out.push('\n');
+        }
+
+        while out.ends_with('\n') && out.len() > 1 {
+            out.pop();
+        }
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out
     }
 }
 
@@ -139,5 +215,45 @@ unfocused_fps = 60
         let (doc, w) = parse_ini_document("[s]\nnot_a_pair\nk=v");
         assert_eq!(doc.get("s", "k"), Some("v"));
         assert!(!w.is_empty());
+    }
+
+    #[test]
+    fn set_and_serialize_roundtrip() {
+        let mut doc = IniDocument::default();
+        doc.set("display", "focused_fps", "240");
+        doc.set("display", "unfocused_fps", "60");
+        doc.set("rendering", "vsync", "true");
+        let s = doc.serialize();
+        let (doc2, w) = parse_ini_document(&s);
+        assert!(w.is_empty());
+        assert_eq!(doc2.get("display", "focused_fps"), Some("240"));
+        assert_eq!(doc2.get("rendering", "vsync"), Some("true"));
+    }
+
+    #[test]
+    fn serialize_deterministic_order() {
+        let mut doc = IniDocument::default();
+        doc.set("zsec", "b", "2");
+        doc.set("asec", "c", "3");
+        doc.set("zsec", "a", "1");
+        let s = doc.serialize();
+        let pos_asec = s.find("[asec]").unwrap();
+        let pos_zsec = s.find("[zsec]").unwrap();
+        assert!(pos_asec < pos_zsec);
+        let pos_a = s.find("a = 1").unwrap();
+        let pos_b = s.find("b = 2").unwrap();
+        assert!(pos_a < pos_b);
+    }
+
+    #[test]
+    fn roundtrip_parse_merge_serialize() {
+        let raw = "[display]\na=1\nb=2\n";
+        let (mut doc, _) = parse_ini_document(raw);
+        doc.set("display", "c", "3");
+        let s = doc.serialize();
+        let (doc3, w) = parse_ini_document(&s);
+        assert!(w.is_empty());
+        assert_eq!(doc3.get("display", "a"), Some("1"));
+        assert_eq!(doc3.get("display", "c"), Some("3"));
     }
 }

@@ -7,12 +7,17 @@ use super::DebugHudInput;
 use super::SceneTransformsSnapshot;
 
 #[cfg(feature = "debug-hud")]
+use std::path::PathBuf;
+#[cfg(feature = "debug-hud")]
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "debug-hud")]
+use crate::config::{save_renderer_settings, PowerPreferenceSetting, RendererSettingsHandle};
+
+#[cfg(feature = "debug-hud")]
 use imgui::{
-    Condition, Context, FontConfig, FontSource, Io, ListClipper, MouseButton as ImGuiMouseButton,
-    TableFlags, WindowFlags,
+    Condition, Context, Drag, FontConfig, FontSource, Io, ListClipper,
+    MouseButton as ImGuiMouseButton, TableFlags, WindowFlags,
 };
 #[cfg(feature = "debug-hud")]
 use imgui_wgpu::{Renderer as ImguiWgpuRenderer, RendererConfig};
@@ -28,6 +33,11 @@ pub struct DebugHud {
     scene_transforms: SceneTransformsSnapshot,
     /// Whether the **Scene transforms** window is open (independent of the stats panel).
     scene_transforms_open: bool,
+    /// Live settings + persistence target for the **Renderer config** window.
+    renderer_settings: RendererSettingsHandle,
+    config_save_path: PathBuf,
+    /// Whether the **Renderer config** window is open.
+    renderer_config_open: bool,
 }
 
 #[cfg(feature = "debug-hud")]
@@ -62,6 +72,8 @@ impl DebugHud {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         surface_format: wgpu::TextureFormat,
+        renderer_settings: RendererSettingsHandle,
+        config_save_path: PathBuf,
     ) -> Self {
         let mut imgui = Context::create();
         imgui.set_ini_filename(None);
@@ -87,6 +99,9 @@ impl DebugHud {
             latest: None,
             scene_transforms: SceneTransformsSnapshot::default(),
             scene_transforms_open: true,
+            renderer_settings,
+            config_save_path,
+            renderer_config_open: true,
         }
     }
 
@@ -145,6 +160,13 @@ impl DebugHud {
             });
 
         Self::scene_transforms_window(ui, &scene_transforms, &mut self.scene_transforms_open);
+
+        Self::renderer_config_window(
+            ui,
+            &self.renderer_settings,
+            &self.config_save_path,
+            &mut self.renderer_config_open,
+        );
 
         let draw_data = self.imgui.render();
         {
@@ -245,6 +267,102 @@ impl DebugHud {
         ));
     }
 
+    /// Third overlay window: editable [`crate::config::RendererSettings`] with immediate disk sync.
+    fn renderer_config_window(
+        ui: &imgui::Ui,
+        settings: &RendererSettingsHandle,
+        save_path: &std::path::Path,
+        open: &mut bool,
+    ) {
+        ui.window("Renderer config")
+            .opened(open)
+            .position([12.0, 12.0], Condition::FirstUseEver)
+            .size([440.0, 360.0], Condition::FirstUseEver)
+            .bg_alpha(0.88)
+            .build(|| {
+                ui.text_wrapped(
+                    "This file is owned by the renderer. Do not edit config.ini manually while \
+                     the process is running — your changes may be overwritten or lost. Use these \
+                     controls instead.",
+                );
+                ui.separator();
+
+                let Ok(mut g) = settings.write() else {
+                    ui.text_colored([1.0, 0.4, 0.4, 1.0], "Settings store is unavailable.");
+                    return;
+                };
+
+                let mut dirty = false;
+
+                ui.text("Display");
+                ui.indent();
+                let mut ff = g.display.focused_fps_cap as f32;
+                if Drag::new("Focused FPS cap (0 = uncapped)")
+                    .range(0.0, 2000.0)
+                    .speed(1.0)
+                    .build(ui, &mut ff)
+                {
+                    g.display.focused_fps_cap = ff.round().clamp(0.0, u32::MAX as f32) as u32;
+                    dirty = true;
+                }
+                let mut uf = g.display.unfocused_fps_cap as f32;
+                if Drag::new("Unfocused FPS cap (0 = uncapped)")
+                    .range(0.0, 2000.0)
+                    .speed(1.0)
+                    .build(ui, &mut uf)
+                {
+                    g.display.unfocused_fps_cap = uf.round().clamp(0.0, u32::MAX as f32) as u32;
+                    dirty = true;
+                }
+                ui.unindent();
+
+                ui.text("Rendering");
+                ui.indent();
+                if ui.checkbox("VSync", &mut g.rendering.vsync) {
+                    dirty = true;
+                }
+                if Drag::new("Exposure (reserved)")
+                    .range(0.0, 16.0)
+                    .speed(0.02)
+                    .build(ui, &mut g.rendering.exposure)
+                {
+                    dirty = true;
+                }
+                ui.unindent();
+
+                ui.text("Debug");
+                ui.indent();
+                if ui.checkbox("Log verbose (reserved)", &mut g.debug.log_verbose) {
+                    dirty = true;
+                }
+                ui.text_disabled("Power preference (applies on next GPU adapter init)");
+                for (i, &pref) in PowerPreferenceSetting::ALL.iter().enumerate() {
+                    let _id = ui.push_id_int(i as i32);
+                    if ui
+                        .selectable_config(pref.label())
+                        .selected(g.debug.power_preference == pref)
+                        .build()
+                    {
+                        g.debug.power_preference = pref;
+                        dirty = true;
+                    }
+                }
+                ui.unindent();
+
+                if dirty {
+                    if let Err(e) = save_renderer_settings(save_path, &g) {
+                        logger::warn!(
+                            "Failed to save renderer config to {}: {e}",
+                            save_path.display()
+                        );
+                    }
+                }
+
+                ui.separator();
+                ui.text_disabled(format!("Persist: {}", save_path.display()));
+            });
+    }
+
     /// Second overlay window: one tab per render space and a clipped table of world TRS rows.
     fn scene_transforms_window(
         ui: &imgui::Ui,
@@ -253,7 +371,7 @@ impl DebugHud {
     ) {
         ui.window("Scene transforms")
             .opened(open)
-            .position([12.0, 280.0], Condition::FirstUseEver)
+            .position([12.0, 390.0], Condition::FirstUseEver)
             .size([720.0, 420.0], Condition::FirstUseEver)
             .bg_alpha(0.85)
             .build(|| {

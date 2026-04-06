@@ -46,8 +46,10 @@ pub use assets::material::{
 };
 pub use backend::{order_lights_for_clustered_shading, GpuLight, RenderBackend, MAX_LIGHTS};
 pub use config::{
-    load_renderer_settings, log_config_resolve_trace, ConfigLoadResult, ConfigResolveOutcome,
-    ConfigSource, IniDocument, ParseWarning, RendererSettings,
+    load_renderer_settings, log_config_resolve_trace, resolve_save_path, save_renderer_settings,
+    save_renderer_settings_from_load, settings_handle_from, ConfigLoadResult, ConfigResolveOutcome,
+    ConfigSource, DebugSettings, DisplaySettings, IniDocument, ParseWarning,
+    PowerPreferenceSetting, RendererSettings, RendererSettingsHandle, RenderingSettings,
 };
 pub use connection::{
     get_connection_parameters, try_claim_renderer_singleton, ConnectionParams, InitError,

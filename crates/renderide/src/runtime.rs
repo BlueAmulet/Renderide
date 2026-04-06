@@ -10,6 +10,7 @@
 //! If the host sends [`RendererCommand::frame_start_data`](crate::shared::RendererCommand::frame_start_data),
 //! optional payloads are trace-logged until consumers exist.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -18,6 +19,7 @@ use crate::assets::shader::classify_shader;
 use crate::assets::texture::supported_host_formats_for_init;
 use crate::assets::AssetSubsystem;
 use crate::backend::RenderBackend;
+use crate::config::RendererSettingsHandle;
 use crate::connection::{ConnectionParams, InitError};
 use crate::frontend::RendererFrontend;
 use crate::gpu::GpuContext;
@@ -46,18 +48,38 @@ pub struct RendererRuntime {
     assets: AssetSubsystem,
     /// Last host clip / FOV / VR / ortho task state for [`crate::render_graph::FrameRenderParams`].
     pub host_camera: HostCameraFrame,
+    /// Process-wide renderer settings (shared with the debug HUD and the frame loop).
+    settings: RendererSettingsHandle,
+    /// Target path for persisting [`Self::settings`] from the ImGui config window.
+    config_save_path: PathBuf,
 }
 
 impl RendererRuntime {
     /// Builds a runtime; does not open IPC yet (see [`Self::connect_ipc`]).
-    pub fn new(params: Option<ConnectionParams>) -> Self {
+    pub fn new(
+        params: Option<ConnectionParams>,
+        settings: RendererSettingsHandle,
+        config_save_path: PathBuf,
+    ) -> Self {
         Self {
             frontend: RendererFrontend::new(params),
             backend: RenderBackend::new(),
             scene: SceneCoordinator::new(),
             assets: AssetSubsystem::default(),
             host_camera: HostCameraFrame::default(),
+            settings,
+            config_save_path,
         }
+    }
+
+    /// Shared settings store ([`crate::config::RendererSettings`]).
+    pub fn settings(&self) -> &RendererSettingsHandle {
+        &self.settings
+    }
+
+    /// Path written by the **Renderer config** ImGui window and [`crate::config::save_renderer_settings`].
+    pub fn config_save_path(&self) -> &PathBuf {
+        &self.config_save_path
     }
 
     /// Mesh deformation compute pipelines when GPU init succeeded.
@@ -159,7 +181,14 @@ impl RendererRuntime {
         let device = gpu.device().clone();
         let queue = Arc::clone(gpu.queue());
         let shm = self.frontend.shared_memory_mut();
-        self.backend.attach(device, queue, shm, gpu.config_format());
+        self.backend.attach(
+            device,
+            queue,
+            shm,
+            gpu.config_format(),
+            Arc::clone(&self.settings),
+            self.config_save_path.clone(),
+        );
     }
 
     #[cfg(feature = "debug-hud")]

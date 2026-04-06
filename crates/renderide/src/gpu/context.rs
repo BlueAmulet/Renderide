@@ -107,6 +107,25 @@ impl GpuContext {
         })
     }
 
+    /// Updates vertical sync / present mode and reconfigures the surface (hot-reload from settings).
+    pub fn set_vsync(&mut self, vsync: bool) {
+        let mode = if vsync {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        };
+        if self.config.present_mode == mode {
+            return;
+        }
+        self.config.present_mode = mode;
+        self.surface.configure(&self.device, &self.config);
+        logger::info!(
+            "Present mode set to {:?} (vsync={})",
+            self.config.present_mode,
+            vsync
+        );
+    }
+
     /// Current swapchain configuration extent.
     pub fn size(&self) -> PhysicalSize<u32> {
         PhysicalSize::new(self.config.width, self.config.height)

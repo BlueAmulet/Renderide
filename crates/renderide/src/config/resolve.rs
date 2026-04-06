@@ -102,3 +102,58 @@ pub fn resolve_config_path() -> ConfigResolveOutcome {
 pub fn read_config_file(path: &Path) -> std::io::Result<String> {
     std::fs::read_to_string(path)
 }
+
+/// Picks the path used when persisting settings from the UI or [`crate::config::save_renderer_settings`].
+///
+/// - If a file was loaded ([`ConfigResolveOutcome::loaded_path`]), that path is used.
+/// - Otherwise: prefer `current_dir()/config.ini` when the directory exists and is writable; else
+///   the first path in the same search order as [`resolve_config_path`] whose parent exists and is
+///   writable (typically the executable directory).
+pub fn resolve_save_path(resolve: &ConfigResolveOutcome) -> PathBuf {
+    if let Some(p) = resolve.loaded_path.clone() {
+        return p;
+    }
+
+    if let Ok(cwd) = std::env::current_dir() {
+        let p = cwd.join(FILE_NAME);
+        if is_dir_writable(cwd.as_path()) {
+            return p;
+        }
+    }
+
+    for p in search_candidates() {
+        if let Some(parent) = p.parent() {
+            if parent.as_os_str().is_empty() {
+                continue;
+            }
+            if is_dir_writable(parent) {
+                return p;
+            }
+        }
+    }
+
+    // Last resort: cwd join even if we could not verify writability (save may fail at runtime).
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(FILE_NAME)
+}
+
+fn is_dir_writable(dir: &Path) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    // Best-effort: create a probe file (same approach as `access` is not fully portable for ACLs).
+    let probe = dir.join(".renderide_write_probe");
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&probe)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}

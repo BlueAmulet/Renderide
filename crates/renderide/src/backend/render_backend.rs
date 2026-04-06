@@ -1,6 +1,7 @@
 //! [`RenderBackend`] implementation.
 
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::assets::material::{
@@ -9,6 +10,7 @@ use crate::assets::material::{
 };
 use crate::assets::mesh::try_upload_mesh_from_raw;
 use crate::assets::texture::write_texture2d_mips;
+use crate::config::RendererSettingsHandle;
 use crate::gpu::{GpuContext, MeshPreprocessPipelines};
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::MaterialFamilyId;
@@ -201,6 +203,8 @@ impl RenderBackend {
         queue: Arc<Mutex<wgpu::Queue>>,
         shm: Option<&mut SharedMemoryAccessor>,
         surface_format: wgpu::TextureFormat,
+        renderer_settings: RendererSettingsHandle,
+        config_save_path: PathBuf,
     ) {
         self.gpu_device = Some(device.clone());
         self.gpu_queue = Some(queue.clone());
@@ -209,10 +213,16 @@ impl RenderBackend {
         #[cfg(feature = "debug-hud")]
         {
             let q = queue.lock().unwrap_or_else(|e| e.into_inner());
-            self.debug_hud = Some(DebugHud::new(device.as_ref(), &q, surface_format));
+            self.debug_hud = Some(DebugHud::new(
+                device.as_ref(),
+                &q,
+                surface_format,
+                renderer_settings,
+                config_save_path,
+            ));
         }
         #[cfg(not(feature = "debug-hud"))]
-        let _ = surface_format;
+        let _ = (surface_format, renderer_settings, config_save_path);
         match MeshPreprocessPipelines::new(device.as_ref()) {
             Ok(p) => self.mesh_preprocess = Some(p),
             Err(e) => {
