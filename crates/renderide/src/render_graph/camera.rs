@@ -42,8 +42,9 @@ fn filter_scale_for_view(scale: Vec3) -> Vec3 {
 }
 
 /// Z-flip for RH engine space → Vulkan/WebGPU-style clip (legacy `apply_view_handedness_fix`).
+/// Z-flip for RH engine space → Vulkan/WebGPU-style clip (legacy `apply_view_handedness_fix`).
 #[inline]
-fn apply_view_handedness_fix(view: Mat4) -> Mat4 {
+pub fn apply_view_handedness_fix(view: Mat4) -> Mat4 {
     let z_flip = Mat4::from_scale(Vec3::new(1.0, 1.0, -1.0));
     z_flip * view
 }

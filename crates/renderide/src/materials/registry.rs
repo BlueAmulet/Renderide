@@ -133,6 +133,7 @@ mod wgpu_cache_tests {
             surface_format: wgpu::TextureFormat::Bgra8UnormSrgb,
             depth_stencil_format: None,
             sample_count: 1,
+            multiview_mask: None,
         };
         let addr = {
             let p = reg
@@ -161,6 +162,7 @@ mod wgpu_cache_tests {
             surface_format: wgpu::TextureFormat::Bgra8UnormSrgb,
             depth_stencil_format: None,
             sample_count: 1,
+            multiview_mask: None,
         };
         let addr0 = {
             let p = reg

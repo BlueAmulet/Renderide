@@ -78,7 +78,7 @@ impl MaterialPipelineFamily for SolidColorFamily {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview_mask: None,
+            multiview_mask: desc.multiview_mask,
             cache: None,
         })
     }

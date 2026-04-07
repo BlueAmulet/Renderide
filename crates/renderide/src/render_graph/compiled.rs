@@ -12,6 +12,18 @@ use super::error::GraphExecuteError;
 use super::frame_params::{FrameRenderParams, HostCameraFrame};
 use super::pass::RenderPass;
 
+/// Pre-acquired 2-layer color + depth targets for OpenXR multiview (no window swapchain acquire).
+pub struct ExternalFrameTargets<'a> {
+    /// `D2Array` color view (`array_layer_count` = 2).
+    pub color_view: &'a wgpu::TextureView,
+    /// `D2Array` depth view (`array_layer_count` = 2).
+    pub depth_view: &'a wgpu::TextureView,
+    /// Pixel extent per eye (`width`, `height`).
+    pub extent_px: (u32, u32),
+    /// Color format (must match pipeline targets).
+    pub surface_format: wgpu::TextureFormat,
+}
+
 /// Statistics emitted when building a [`CompiledRenderGraph`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CompileStats {
@@ -60,10 +72,40 @@ impl CompiledRenderGraph {
         backend: &mut RenderBackend,
         host_camera: HostCameraFrame,
     ) -> Result<(), GraphExecuteError> {
+        self.execute_inner(gpu, window, scene, backend, host_camera, None)
+    }
+
+    /// Records passes against pre-built multiview array targets (OpenXR swapchain path).
+    ///
+    /// Does not acquire the window surface or present. Skips the debug HUD overlay on the external
+    /// target (mirror/HUD use a separate path).
+    pub fn execute_external_multiview(
+        &mut self,
+        gpu: &mut GpuContext,
+        window: &Window,
+        scene: &SceneCoordinator,
+        backend: &mut RenderBackend,
+        host_camera: HostCameraFrame,
+        external: ExternalFrameTargets<'_>,
+    ) -> Result<(), GraphExecuteError> {
+        self.execute_inner(gpu, window, scene, backend, host_camera, Some(external))
+    }
+
+    fn execute_inner(
+        &mut self,
+        gpu: &mut GpuContext,
+        window: &Window,
+        scene: &SceneCoordinator,
+        backend: &mut RenderBackend,
+        host_camera: HostCameraFrame,
+        external: Option<ExternalFrameTargets<'_>>,
+    ) -> Result<(), GraphExecuteError> {
         let (frame, backbuffer_view_holder): (
             Option<wgpu::SurfaceTexture>,
             Option<wgpu::TextureView>,
-        ) = if self.needs_surface_acquire {
+        ) = if external.is_some() {
+            (None, None)
+        } else if self.needs_surface_acquire {
             match acquire_surface_outcome(gpu, window)? {
                 SurfaceFrameOutcome::Skip | SurfaceFrameOutcome::Reconfigured => {
                     return Ok(());
@@ -79,13 +121,30 @@ impl CompiledRenderGraph {
             (None, None)
         };
 
-        let surface_format = gpu.config_format();
-        let viewport_px = gpu.surface_extent_px();
         let device_arc = gpu.device().clone();
         let queue_arc = gpu.queue().clone();
-        let depth_view = gpu.ensure_depth_view();
+
+        let (surface_format, viewport_px, depth_ref, backbuffer_ref): (
+            wgpu::TextureFormat,
+            (u32, u32),
+            &wgpu::TextureView,
+            Option<&wgpu::TextureView>,
+        ) = if let Some(ext) = external.as_ref() {
+            (
+                ext.surface_format,
+                ext.extent_px,
+                ext.depth_view,
+                Some(ext.color_view),
+            )
+        } else {
+            let surface_format = gpu.config_format();
+            let viewport_px = gpu.surface_extent_px();
+            let bb = backbuffer_view_holder
+                .as_ref()
+                .map(|v| v as &wgpu::TextureView);
+            (surface_format, viewport_px, gpu.ensure_depth_view(), bb)
+        };
         let device = device_arc.as_ref();
-        let backbuffer_ref = backbuffer_view_holder.as_ref();
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render-graph"),
@@ -94,10 +153,11 @@ impl CompiledRenderGraph {
         let mut frame_params = FrameRenderParams {
             scene,
             backend,
-            depth_view,
+            depth_view: depth_ref,
             surface_format,
             viewport_px,
             host_camera,
+            multiview_stereo: external.is_some(),
         };
 
         let mut ctx = RenderPassContext {
@@ -105,7 +165,7 @@ impl CompiledRenderGraph {
             queue: &queue_arc,
             encoder: &mut encoder,
             backbuffer: backbuffer_ref,
-            depth_view: Some(depth_view),
+            depth_view: Some(depth_ref),
             frame: Some(&mut frame_params),
         };
 
@@ -113,7 +173,12 @@ impl CompiledRenderGraph {
             pass.execute(&mut ctx)?;
         }
 
-        if let Some(view) = backbuffer_view_holder.as_ref() {
+        if external.is_some() {
+            queue_arc
+                .lock()
+                .expect("queue mutex poisoned")
+                .submit(std::iter::once(encoder.finish()));
+        } else if let Some(view) = backbuffer_view_holder.as_ref() {
             let queue_lock = queue_arc.lock().expect("queue mutex poisoned");
             if let Err(e) = backend.encode_debug_hud_overlay(
                 device,

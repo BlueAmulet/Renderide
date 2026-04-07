@@ -1,6 +1,4 @@
-// Debug raster: visualize world-space normals (RGB = n * 0.5 + 0.5).
-// One 256-byte uniform slot per draw (WebGPU dynamic uniform alignment).
-// Stereo: `view_proj_left` / `view_proj_right`; desktop duplicates the same matrix in both.
+// Multiview variant: `@builtin(view_index)` selects per-eye view–projection (single draw, two layers).
 
 struct PerDrawUniforms {
     view_proj_left: mat4x4<f32>,
@@ -18,13 +16,15 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(
+    @builtin(view_index) view_idx: u32,
     @location(0) pos: vec4<f32>,
     @location(1) normal: vec4<f32>,
 ) -> VertexOutput {
     let world_p = draw.model * vec4<f32>(pos.xyz, 1.0);
     let world_n = normalize((draw.model * vec4<f32>(normal.xyz, 0.0)).xyz);
+    let vp = select(draw.view_proj_right, draw.view_proj_left, view_idx == 0u);
     var out: VertexOutput;
-    out.clip_pos = draw.view_proj_left * world_p;
+    out.clip_pos = vp * world_p;
     out.world_n = world_n;
     return out;
 }

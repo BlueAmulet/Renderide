@@ -3,6 +3,13 @@
 //! The main window is created maximized via [`winit::window::Window::default_attributes`] and
 //! [`with_maximized(true)`](winit::window::WindowAttributes::with_maximized), which winit maps to
 //! the appropriate Win32, X11, and Wayland behavior.
+//!
+//! When built with `openxr` and [`RenderMode::OpenXr`](crate::launch_mode::RenderMode::OpenXr),
+//! the Vulkan device comes from [`crate::xr::init_wgpu_openxr`]; the mirror window uses the same
+//! device. Each frame: OpenXR `wait_frame` / `locate_views` drive per-eye matrices; the mirror
+//! uses the normal render graph. When `vr_active` and multiview are available, the headset path
+//! renders once to the OpenXR array swapchain and ends the frame with a projection layer;
+//! otherwise the mirror window is rendered and the frame ends empty.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -20,9 +27,23 @@ use crate::frontend::input::{
     apply_window_event, CursorOutputTracking, WindowInputAccumulator,
 };
 use crate::gpu::GpuContext;
+use crate::launch_mode::RenderMode;
 use crate::present::present_clear_frame;
+#[cfg(feature = "openxr")]
+use crate::render_graph::ExternalFrameTargets;
 use crate::render_graph::GraphExecuteError;
 use crate::runtime::RendererRuntime;
+
+#[cfg(feature = "openxr")]
+use openxr as xr;
+
+/// Cached OpenXR frame state after a single `wait_frame` (no second wait per tick).
+#[cfg(feature = "openxr")]
+struct OpenxrFrameTick {
+    predicted_display_time: xr::Time,
+    should_render: bool,
+    views: Vec<xr::View>,
+}
 
 /// Interval between log flushes when using file logging.
 const LOG_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
@@ -50,6 +71,10 @@ pub fn run() -> Option<i32> {
     log_config_resolve_trace(&config_load.resolve);
     let settings_handle = settings_handle_from(&config_load);
     let initial_vsync = config_load.settings.rendering.vsync;
+    let render_mode = RenderMode::resolve_with_optional_dialog(
+        config_load.settings.launch.render_mode,
+        RenderMode::Desktop,
+    );
 
     let default_hook = std::panic::take_hook();
     let log_path_hook = log_path.clone();
@@ -64,6 +89,7 @@ pub fn run() -> Option<i32> {
         settings_handle,
         config_load.save_path.clone(),
     );
+    runtime.set_launch_render_mode(render_mode);
     if let Err(e) = runtime.connect_ipc() {
         if params.is_some() {
             logger::error!("IPC connect failed: {e}");
@@ -90,12 +116,19 @@ pub fn run() -> Option<i32> {
     let mut app = RenderideApp {
         runtime,
         initial_vsync,
+        launch_render_mode: render_mode,
         window: None,
         gpu: None,
         exit_code: None,
         last_log_flush: None,
         input: WindowInputAccumulator::default(),
         cursor_output_tracking: CursorOutputTracking::default(),
+        #[cfg(feature = "openxr")]
+        xr_handles: None,
+        #[cfg(feature = "openxr")]
+        xr_swapchain: None,
+        #[cfg(feature = "openxr")]
+        xr_stereo_depth: None,
         #[cfg(feature = "debug-hud")]
         hud_frame_last: None,
     };
@@ -109,6 +142,9 @@ struct RenderideApp {
     runtime: RendererRuntime,
     /// VSync flag used for the initial [`GpuContext::new`] before live updates from settings.
     initial_vsync: bool,
+    /// Resolved desktop vs OpenXR (after optional dialog). Read when `openxr` is enabled for GPU bootstrap.
+    #[cfg_attr(not(feature = "openxr"), allow(dead_code))]
+    launch_render_mode: RenderMode,
     window: Option<Arc<Window>>,
     gpu: Option<GpuContext>,
     exit_code: Option<i32>,
@@ -116,6 +152,12 @@ struct RenderideApp {
     input: WindowInputAccumulator,
     /// Host cursor lock transitions (unlock warp parity with Unity mouse driver).
     cursor_output_tracking: CursorOutputTracking,
+    #[cfg(feature = "openxr")]
+    xr_handles: Option<crate::xr::XrWgpuHandles>,
+    #[cfg(feature = "openxr")]
+    xr_swapchain: Option<crate::xr::XrStereoSwapchain>,
+    #[cfg(feature = "openxr")]
+    xr_stereo_depth: Option<(wgpu::Texture, wgpu::TextureView)>,
     /// Previous redraw instant for HUD FPS ([`diagnostics::DebugHud`]).
     #[cfg(feature = "debug-hud")]
     hud_frame_last: Option<Instant>,
@@ -160,9 +202,66 @@ impl RenderideApp {
             }
         }
 
-        match pollster::block_on(GpuContext::new(Arc::clone(&window), self.initial_vsync)) {
+        #[cfg(feature = "openxr")]
+        {
+            if matches!(self.launch_render_mode, RenderMode::OpenXr) {
+                match crate::xr::init_wgpu_openxr() {
+                    Ok(h) => {
+                        match GpuContext::new_from_openxr_bootstrap(
+                            &h.wgpu_instance,
+                            &h.wgpu_adapter,
+                            Arc::clone(&h.device),
+                            Arc::clone(&h.queue),
+                            Arc::clone(&window),
+                            self.initial_vsync,
+                        ) {
+                            Ok(gpu) => {
+                                logger::info!(
+                                    "GPU initialized (OpenXR Vulkan device + mirror surface)"
+                                );
+                                self.runtime.attach_gpu(&gpu);
+                                self.gpu = Some(gpu);
+                                self.xr_handles = Some(h);
+                            }
+                            Err(e) => {
+                                logger::warn!(
+                                    "OpenXR mirror surface failed; falling back to desktop GPU: {e}"
+                                );
+                                self.launch_render_mode = RenderMode::Desktop;
+                                self.runtime.set_launch_render_mode(RenderMode::Desktop);
+                                self.init_desktop_gpu(&window, event_loop);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        logger::warn!("OpenXR init failed; falling back to desktop: {e}");
+                        self.launch_render_mode = RenderMode::Desktop;
+                        self.runtime.set_launch_render_mode(RenderMode::Desktop);
+                        self.init_desktop_gpu(&window, event_loop);
+                    }
+                }
+            } else {
+                self.init_desktop_gpu(&window, event_loop);
+            }
+        }
+        #[cfg(not(feature = "openxr"))]
+        self.init_desktop_gpu(&window, event_loop);
+
+        if self.exit_code.is_some() {
+            return;
+        }
+
+        self.window = Some(window);
+        if let Some(w) = self.window.as_ref() {
+            w.set_ime_allowed(true);
+            self.input.sync_window_resolution_logical(w.as_ref());
+        }
+    }
+
+    fn init_desktop_gpu(&mut self, window: &Arc<Window>, event_loop: &ActiveEventLoop) {
+        match pollster::block_on(GpuContext::new(Arc::clone(window), self.initial_vsync)) {
             Ok(gpu) => {
-                logger::info!("GPU initialized");
+                logger::info!("GPU initialized (desktop)");
                 self.runtime.attach_gpu(&gpu);
                 self.gpu = Some(gpu);
             }
@@ -170,14 +269,7 @@ impl RenderideApp {
                 logger::error!("GPU init failed: {e}");
                 self.exit_code = Some(1);
                 event_loop.exit();
-                return;
             }
-        }
-
-        self.window = Some(window);
-        if let Some(w) = self.window.as_ref() {
-            w.set_ime_allowed(true);
-            self.input.sync_window_resolution_logical(w.as_ref());
         }
     }
 
@@ -233,9 +325,23 @@ impl RenderideApp {
             return;
         }
 
-        let Some(window) = self.window.as_ref() else {
+        let Some(window) = self.window.clone() else {
             return;
         };
+
+        #[cfg(feature = "openxr")]
+        let xr_tick = self.openxr_begin_frame_and_stereo_matrices();
+
+        #[cfg(feature = "openxr")]
+        let hmd_projection_ended = if let Some(ref tick) = xr_tick {
+            self.try_openxr_hmd_multiview_submit(window.as_ref(), tick)
+        } else {
+            false
+        };
+
+        #[cfg(not(feature = "openxr"))]
+        let hmd_projection_ended = false;
+
         let Some(gpu) = self.gpu.as_mut() else {
             return;
         };
@@ -257,20 +363,179 @@ impl RenderideApp {
             self.runtime.set_debug_hud_frame_data(hud_in, ms);
         }
 
-        if let Err(e) = self.runtime.execute_frame_graph(gpu, window) {
-            match e {
-                GraphExecuteError::NoFrameGraph => {
-                    if let Err(pe) = present_clear_frame(gpu, window) {
-                        logger::warn!("present fallback failed: {pe:?}");
-                        let s = window.inner_size();
-                        gpu.reconfigure(s.width, s.height);
-                    }
+        if !hmd_projection_ended {
+            if let Err(e) = self.runtime.execute_frame_graph(gpu, window.as_ref()) {
+                Self::handle_frame_graph_error(gpu, window.as_ref(), e);
+            }
+        }
+
+        #[cfg(feature = "openxr")]
+        if let (Some(handles), Some(tick)) = (self.xr_handles.as_mut(), xr_tick) {
+            if !hmd_projection_ended {
+                if let Err(e) = handles
+                    .xr_session
+                    .end_frame_empty(tick.predicted_display_time)
+                {
+                    logger::debug!("OpenXR end_frame_empty: {e:?}");
                 }
-                _ => {
-                    logger::warn!("frame graph failed: {e:?}");
+            }
+        }
+    }
+
+    /// Single `wait_frame` + `locate_views` for stereo uniforms; used for both mirror and HMD paths.
+    #[cfg(feature = "openxr")]
+    fn openxr_begin_frame_and_stereo_matrices(&mut self) -> Option<OpenxrFrameTick> {
+        let handles = self.xr_handles.as_mut()?;
+        let _ = handles.xr_session.poll_events();
+        let fs = handles.xr_session.wait_frame().ok()??;
+        let views = if fs.should_render {
+            handles
+                .xr_session
+                .locate_views(fs.predicted_display_time)
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        if views.len() >= 2 {
+            let near = self.runtime.host_camera.near_clip;
+            let far = self.runtime.host_camera.far_clip;
+            let l = crate::xr::view_projection_from_xr_view(&views[0], near, far);
+            let r = crate::xr::view_projection_from_xr_view(&views[1], near, far);
+            self.runtime.set_stereo_view_proj(Some((l, r)));
+        }
+        Some(OpenxrFrameTick {
+            predicted_display_time: fs.predicted_display_time,
+            should_render: fs.should_render,
+            views,
+        })
+    }
+
+    /// Renders to the OpenXR stereo swapchain and calls [`crate::xr::session::XrSessionState::end_frame_projection`].
+    ///
+    /// Uses the same [`xr::FrameState`] as [`Self::openxr_begin_frame_and_stereo_matrices`] — no second `wait_frame`.
+    #[cfg(feature = "openxr")]
+    fn try_openxr_hmd_multiview_submit(&mut self, window: &Window, tick: &OpenxrFrameTick) -> bool {
+        let Some(gpu) = self.gpu.as_mut() else {
+            return false;
+        };
+        let Some(handles) = self.xr_handles.as_mut() else {
+            return false;
+        };
+        if !handles.xr_session.session_running() {
+            return false;
+        }
+        if !self.runtime.host_camera.vr_active {
+            return false;
+        }
+        if !gpu.device().features().contains(wgpu::Features::MULTIVIEW) {
+            return false;
+        }
+        if !tick.should_render || tick.views.len() < 2 {
+            return false;
+        }
+        if self.xr_swapchain.is_none() {
+            let sys_id = handles.xr_system_id;
+            let session = handles.xr_session.xr_vulkan_session();
+            let inst = handles.xr_session.xr_instance();
+            let dev = handles.device.as_ref();
+            let res = unsafe { crate::xr::XrStereoSwapchain::new(session, inst, sys_id, dev) };
+            match res {
+                Ok(sc) => {
+                    logger::info!(
+                        "OpenXR swapchain {}×{} (stereo array)",
+                        sc.resolution.0,
+                        sc.resolution.1
+                    );
+                    self.xr_swapchain = Some(sc);
+                }
+                Err(e) => {
+                    logger::debug!("OpenXR swapchain not created: {e}");
+                    return false;
+                }
+            }
+        }
+        let sc = match self.xr_swapchain.as_mut() {
+            Some(s) => s,
+            None => return false,
+        };
+        let image_index = match sc.handle.acquire_image() {
+            Ok(i) => i as usize,
+            Err(_) => return false,
+        };
+        if sc.handle.wait_image(xr::Duration::INFINITE).is_err() {
+            return false;
+        }
+        let Some(color_view) = sc.color_view_for_image(image_index) else {
+            let _ = sc.handle.release_image();
+            return false;
+        };
+        let extent = sc.resolution;
+        let need_new_depth = self
+            .xr_stereo_depth
+            .as_ref()
+            .map(|(tex, _)| {
+                tex.size().width != extent.0
+                    || tex.size().height != extent.1
+                    || tex.size().depth_or_array_layers != crate::xr::XR_VIEW_COUNT
+            })
+            .unwrap_or(true);
+        if need_new_depth {
+            let (dt, dv) = crate::xr::create_stereo_depth_texture(gpu.device().as_ref(), extent);
+            self.xr_stereo_depth = Some((dt, dv));
+        }
+        let depth_pair = &self
+            .xr_stereo_depth
+            .as_ref()
+            .expect("xr_stereo_depth set above when missing")
+            .1;
+        let ext = ExternalFrameTargets {
+            color_view,
+            depth_view: depth_pair,
+            extent_px: extent,
+            surface_format: crate::xr::XR_COLOR_FORMAT,
+        };
+        let rect = xr::Rect2Di {
+            offset: xr::Offset2Di { x: 0, y: 0 },
+            extent: xr::Extent2Di {
+                width: extent.0 as i32,
+                height: extent.1 as i32,
+            },
+        };
+        let views_ref = tick.views.as_slice();
+        if self
+            .runtime
+            .execute_frame_graph_external_multiview(gpu, window, ext)
+            .is_err()
+        {
+            let _ = sc.handle.release_image();
+            return false;
+        }
+        if sc.handle.release_image().is_err() {
+            return false;
+        }
+        if handles
+            .xr_session
+            .end_frame_projection(tick.predicted_display_time, &sc.handle, views_ref, rect)
+            .is_err()
+        {
+            return false;
+        }
+        true
+    }
+
+    fn handle_frame_graph_error(gpu: &mut GpuContext, window: &Window, e: GraphExecuteError) {
+        match e {
+            GraphExecuteError::NoFrameGraph => {
+                if let Err(pe) = present_clear_frame(gpu, window) {
+                    logger::warn!("present fallback failed: {pe:?}");
                     let s = window.inner_size();
                     gpu.reconfigure(s.width, s.height);
                 }
+            }
+            _ => {
+                logger::warn!("frame graph failed: {e:?}");
+                let s = window.inner_size();
+                gpu.reconfigure(s.width, s.height);
             }
         }
     }

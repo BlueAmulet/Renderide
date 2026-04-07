@@ -1,5 +1,7 @@
 //! [`MaterialPipelineFamily`]: WGSL + render pipeline layout for one material class.
 
+use std::num::NonZeroU32;
+
 use crate::pipelines::ShaderPermutation;
 
 /// Opaque id for cache keys and routing (stable across runs for builtins).
@@ -15,6 +17,8 @@ pub struct MaterialPipelineDesc {
     pub depth_stencil_format: Option<wgpu::TextureFormat>,
     /// MSAA sample count (1 = off).
     pub sample_count: u32,
+    /// When set, must match the render pass and pipeline (e.g. `0b11` for two multiview layers).
+    pub multiview_mask: Option<NonZeroU32>,
 }
 
 /// One WGSL material program and how to compile it into a [`wgpu::RenderPipeline`].

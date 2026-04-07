@@ -37,11 +37,11 @@ pub use world_mesh_draw_prep::{
 
 pub use builder::GraphBuilder;
 pub use camera::{
-    clamp_desktop_fov_degrees, reverse_z_orthographic, reverse_z_perspective,
-    view_matrix_from_render_transform,
+    apply_view_handedness_fix, clamp_desktop_fov_degrees, reverse_z_orthographic,
+    reverse_z_perspective, view_matrix_from_render_transform,
 };
 pub use camera::{DESKTOP_FOV_DEGREES_MAX, DESKTOP_FOV_DEGREES_MIN};
-pub use compiled::{CompileStats, CompiledRenderGraph};
+pub use compiled::{CompileStats, CompiledRenderGraph, ExternalFrameTargets};
 pub use context::RenderPassContext;
 pub use error::{GraphBuildError, GraphExecuteError, RenderPassError};
 pub use frame_params::{FrameRenderParams, HostCameraFrame};

@@ -5,12 +5,15 @@
 //! Per-slot [`MaterialPropertyLookupIds`](crate::assets::material::MaterialPropertyLookupIds) are carried on each
 //! [`WorldMeshDrawItem`](crate::render_graph::WorldMeshDrawItem) for upcoming per-material bind groups (`get_merged`).
 
+use std::num::NonZeroU32;
+
 use glam::Mat4;
 
 use crate::assets::material::MaterialDictionary;
 use crate::gpu::{write_per_draw_uniform_slab, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE};
 use crate::materials::MaterialPipelineDesc;
 use crate::pipelines::ShaderPermutation;
+use crate::pipelines::SHADER_PERM_MULTIVIEW_STEREO;
 use crate::present::SWAPCHAIN_CLEAR_COLOR;
 use crate::render_graph::camera::{
     clamp_desktop_fov_degrees, reverse_z_orthographic, reverse_z_perspective,
@@ -65,11 +68,31 @@ impl RenderPass for WorldMeshForwardPass {
             });
         };
 
-        let desc = MaterialPipelineDesc {
+        let hc = frame.host_camera;
+        let use_multiview = frame.multiview_stereo
+            && hc.vr_active
+            && hc.stereo_view_proj.is_some()
+            && ctx
+                .device
+                .features()
+                .contains(wgpu::Features::MULTIVIEW);
+
+        let pass_desc = MaterialPipelineDesc {
             surface_format: frame.surface_format,
             depth_stencil_format: Some(wgpu::TextureFormat::Depth32Float),
             sample_count: 1,
+            multiview_mask: if use_multiview {
+                NonZeroU32::new(3)
+            } else {
+                None
+            },
         };
+        let shader_perm = if use_multiview {
+            SHADER_PERM_MULTIVIEW_STEREO
+        } else {
+            ShaderPermutation(0)
+        };
+
         let backend = &mut frame.backend;
         let store_ref = backend.material_property_store();
         let dict = MaterialDictionary::new(store_ref);
@@ -91,7 +114,6 @@ impl RenderPass for WorldMeshForwardPass {
 
         let (vw, vh) = frame.viewport_px;
         let aspect = vw as f32 / vh.max(1) as f32;
-        let hc = frame.host_camera;
         let near = hc.near_clip.max(0.01);
         let far = hc.far_clip;
         let fov_rad = clamp_desktop_fov_degrees(hc.desktop_fov_degrees).to_radians();
@@ -113,29 +135,52 @@ impl RenderPass for WorldMeshForwardPass {
         let scene = frame.scene;
         let mut slots: Vec<PaddedPerDrawUniforms> = Vec::with_capacity(draws.len());
         for item in &draws {
-            let proj = if item.is_overlay {
-                overlay_proj.unwrap_or(world_proj)
-            } else {
-                world_proj
-            };
-            let (vp, model) = if let Some(space) = scene.space(item.space_id) {
+            let (vp_l, vp_r, model) = if let Some(space) = scene.space(item.space_id) {
                 let view = view_matrix_from_render_transform(&space.view_transform);
-                let base_vp = proj * view;
-                if item.skinned {
-                    // Skinned positions are already in world space from compute skinning (parity with
-                    // legacy skinned shader: `clip = view_proj * world_pos`, no SMR model matrix).
-                    (base_vp, Mat4::IDENTITY)
+                if let (true, Some((sl, sr))) = (hc.vr_active, hc.stereo_view_proj) {
+                    if item.is_overlay {
+                        let op = overlay_proj.unwrap_or(world_proj);
+                        let base = op * view;
+                        if item.skinned {
+                            (base, base, Mat4::IDENTITY)
+                        } else {
+                            let model = scene
+                                .world_matrix(item.space_id, item.node_id as usize)
+                                .unwrap_or(Mat4::IDENTITY);
+                            (base * model, base * model, model)
+                        }
+                    } else if item.skinned {
+                        (sl * view, sr * view, Mat4::IDENTITY)
+                    } else {
+                        let model = scene
+                            .world_matrix(item.space_id, item.node_id as usize)
+                            .unwrap_or(Mat4::IDENTITY);
+                        (sl * view * model, sr * view * model, model)
+                    }
                 } else {
-                    let node_u = item.node_id as usize;
-                    let model = scene
-                        .world_matrix(item.space_id, node_u)
-                        .unwrap_or(Mat4::IDENTITY);
-                    (base_vp, model)
+                    let proj = if item.is_overlay {
+                        overlay_proj.unwrap_or(world_proj)
+                    } else {
+                        world_proj
+                    };
+                    let base_vp = proj * view;
+                    if item.skinned {
+                        (base_vp, base_vp, Mat4::IDENTITY)
+                    } else {
+                        let model = scene
+                            .world_matrix(item.space_id, item.node_id as usize)
+                            .unwrap_or(Mat4::IDENTITY);
+                        (base_vp * model, base_vp * model, model)
+                    }
                 }
             } else {
-                (Mat4::IDENTITY, Mat4::IDENTITY)
+                (Mat4::IDENTITY, Mat4::IDENTITY, Mat4::IDENTITY)
             };
-            slots.push(PaddedPerDrawUniforms::new(vp, model));
+            slots.push(if vp_l == vp_r {
+                PaddedPerDrawUniforms::new_single(vp_l, model)
+            } else {
+                PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
+            });
         }
 
         let mut slab_bytes = vec![0u8; draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE)];
@@ -170,7 +215,11 @@ impl RenderPass for WorldMeshForwardPass {
             }),
             occlusion_query_set: None,
             timestamp_writes: None,
-            multiview_mask: None,
+            multiview_mask: if use_multiview {
+                NonZeroU32::new(3)
+            } else {
+                None
+            },
         });
 
         let mut last_batch_key: Option<MaterialDrawBatchKey> = None;
@@ -179,8 +228,7 @@ impl RenderPass for WorldMeshForwardPass {
         for (draw_idx, item) in draws.iter().enumerate() {
             if last_batch_key.as_ref() != Some(&item.batch_key) {
                 last_batch_key = Some(item.batch_key);
-                match reg.pipeline_for_family(item.batch_key.family_id, &desc, ShaderPermutation(0))
-                {
+                match reg.pipeline_for_family(item.batch_key.family_id, &pass_desc, shader_perm) {
                     Some(pipeline) => {
                         rpass.set_pipeline(pipeline);
                         pipeline_ok = true;
@@ -199,7 +247,6 @@ impl RenderPass for WorldMeshForwardPass {
                 continue;
             }
 
-            // `lookup_ids` feeds future per-material bind groups (`MaterialDictionary::get_merged`).
             let _ = &item.lookup_ids;
 
             let dynamic_offset = (draw_idx * PER_DRAW_UNIFORM_STRIDE) as u32;

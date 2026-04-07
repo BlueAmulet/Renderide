@@ -2,33 +2,47 @@
 
 use glam::Mat4;
 
-/// Stride between consecutive draw slots in the uniform slab (`mat4`×2 + WGSL padding).
+/// Stride between consecutive draw slots in the uniform slab (`mat4`×3 + WGSL padding).
 pub const PER_DRAW_UNIFORM_STRIDE: usize = 256;
 
 /// Initial number of draw slots allocated for [`super::debug_draw::DebugDrawResources`].
 pub const INITIAL_PER_DRAW_UNIFORM_SLOTS: usize = 256;
 
-/// GPU layout: `view_proj` and `model` column-major (`glam`), then 128 bytes padding to 256.
+/// GPU layout: left/right view–projection, `model`, then padding to 256 bytes.
 ///
-/// Matches `shaders/debug_world_normals.wgsl` `PerDrawUniforms`.
+/// Matches `shaders/debug_world_normals.wgsl` and `debug_world_normals_multiview.wgsl`.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PaddedPerDrawUniforms {
-    /// Column-major 4×4 view-projection matrix.
-    pub view_proj: [f32; 16],
+    /// Column-major 4×4 view–projection for the left eye (or single desktop view).
+    pub view_proj_left: [f32; 16],
+    /// Column-major 4×4 view–projection for the right eye (duplicated for desktop).
+    pub view_proj_right: [f32; 16],
     /// Column-major 4×4 model matrix.
     pub model: [f32; 16],
-    /// Padding so each slot is [`PER_DRAW_UNIFORM_STRIDE`] bytes (dynamic uniform alignment).
-    pub _pad: [f32; 32],
+    /// Padding to [`PER_DRAW_UNIFORM_STRIDE`] bytes.
+    pub _pad: [f32; 16],
 }
 
 impl PaddedPerDrawUniforms {
-    /// Packs `view_proj` and `model` into one 256-byte slot.
-    pub fn new(view_proj: Mat4, model: Mat4) -> Self {
+    /// Single-view path: duplicates `view_proj` into both eye slots.
+    pub fn new_single(view_proj: Mat4, model: Mat4) -> Self {
+        let vp = view_proj.to_cols_array();
         Self {
-            view_proj: view_proj.to_cols_array(),
+            view_proj_left: vp,
+            view_proj_right: vp,
             model: model.to_cols_array(),
-            _pad: [0.0; 32],
+            _pad: [0.0; 16],
+        }
+    }
+
+    /// Stereo path: separate per-eye view–projection (multiview or two-pass fallback).
+    pub fn new_stereo(view_proj_left: Mat4, view_proj_right: Mat4, model: Mat4) -> Self {
+        Self {
+            view_proj_left: view_proj_left.to_cols_array(),
+            view_proj_right: view_proj_right.to_cols_array(),
+            model: model.to_cols_array(),
+            _pad: [0.0; 16],
         }
     }
 }
@@ -64,17 +78,18 @@ mod tests {
     fn slab_roundtrip_bytes() {
         let vp = Mat4::from_translation(glam::Vec3::new(1.0, 2.0, 3.0));
         let m = Mat4::from_scale(glam::Vec3::new(4.0, 5.0, 6.0));
-        let slot = PaddedPerDrawUniforms::new(vp, m);
+        let slot = PaddedPerDrawUniforms::new_single(vp, m);
         let mut buf = vec![0u8; PER_DRAW_UNIFORM_STRIDE * 2];
         write_per_draw_uniform_slab(
             &[
                 slot,
-                PaddedPerDrawUniforms::new(Mat4::IDENTITY, Mat4::IDENTITY),
+                PaddedPerDrawUniforms::new_single(Mat4::IDENTITY, Mat4::IDENTITY),
             ],
             &mut buf,
         );
         let a: &PaddedPerDrawUniforms = bytemuck::from_bytes(&buf[0..PER_DRAW_UNIFORM_STRIDE]);
-        assert_eq!(a.view_proj, vp.to_cols_array());
+        assert_eq!(a.view_proj_left, vp.to_cols_array());
+        assert_eq!(a.view_proj_right, vp.to_cols_array());
         assert_eq!(a.model, m.to_cols_array());
     }
 }

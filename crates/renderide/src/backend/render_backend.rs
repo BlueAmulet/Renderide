@@ -16,7 +16,7 @@ use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::MaterialFamilyId;
 #[cfg(feature = "debug-hud")]
 use crate::render_graph::WorldMeshDrawStats;
-use crate::render_graph::{CompiledRenderGraph, GraphExecuteError};
+use crate::render_graph::{CompiledRenderGraph, ExternalFrameTargets, GraphExecuteError};
 use crate::resources::{GpuTexture2d, MeshPool, TexturePool};
 use crate::scene::SceneCoordinator;
 
@@ -306,6 +306,23 @@ impl RenderBackend {
             return Err(GraphExecuteError::NoFrameGraph);
         };
         let res = graph.execute(gpu, window, scene, self, host_camera);
+        self.frame_graph = Some(graph);
+        res
+    }
+
+    /// Renders the frame graph to pre-acquired OpenXR multiview array targets (no surface present).
+    pub fn execute_frame_graph_external_multiview(
+        &mut self,
+        gpu: &mut GpuContext,
+        window: &Window,
+        scene: &SceneCoordinator,
+        host_camera: crate::render_graph::HostCameraFrame,
+        external: ExternalFrameTargets<'_>,
+    ) -> Result<(), GraphExecuteError> {
+        let Some(mut graph) = self.frame_graph.take() else {
+            return Err(GraphExecuteError::NoFrameGraph);
+        };
+        let res = graph.execute_external_multiview(gpu, window, scene, self, host_camera, external);
         self.frame_graph = Some(graph);
         res
     }

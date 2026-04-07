@@ -1,6 +1,7 @@
 //! Cache of [`wgpu::RenderPipeline`] per material family + permutation + attachment formats.
 
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use crate::pipelines::ShaderPermutation;
@@ -15,6 +16,7 @@ pub struct MaterialPipelineCacheKey {
     pub surface_format: wgpu::TextureFormat,
     pub depth_stencil_format: Option<wgpu::TextureFormat>,
     pub sample_count: u32,
+    pub multiview_mask: Option<NonZeroU32>,
 }
 
 /// Lazily built pipelines; safe to retain for the [`wgpu::Device`] lifetime.
@@ -51,6 +53,7 @@ impl MaterialPipelineCache {
             surface_format: desc.surface_format,
             depth_stencil_format: desc.depth_stencil_format,
             sample_count: desc.sample_count,
+            multiview_mask: desc.multiview_mask,
         };
         self.pipelines.entry(key).or_insert_with(|| {
             let wgsl = family.build_wgsl(permutation);

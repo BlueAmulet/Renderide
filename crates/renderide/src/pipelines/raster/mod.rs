@@ -2,4 +2,6 @@
 
 mod debug_world_normals;
 
-pub use debug_world_normals::{DebugWorldNormalsFamily, DEBUG_WORLD_NORMALS_FAMILY_ID};
+pub use debug_world_normals::{
+    DebugWorldNormalsFamily, DEBUG_WORLD_NORMALS_FAMILY_ID, SHADER_PERM_MULTIVIEW_STEREO,
+};

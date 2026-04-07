@@ -10,6 +10,9 @@ use crate::render_graph::MAIN_FORWARD_DEPTH_COMPARE;
 /// Builtin family id for [`DebugWorldNormalsFamily`].
 pub const DEBUG_WORLD_NORMALS_FAMILY_ID: MaterialFamilyId = MaterialFamilyId(2);
 
+/// [`ShaderPermutation`] for multiview WGSL (`debug_world_normals_multiview.wgsl`).
+pub const SHADER_PERM_MULTIVIEW_STEREO: ShaderPermutation = ShaderPermutation(1);
+
 /// Minimum `min_binding_size` for the dynamic uniform binding (256-byte slots).
 fn per_draw_uniform_min_binding_size() -> NonZeroU64 {
     NonZeroU64::new(PER_DRAW_UNIFORM_STRIDE as u64).expect("stride positive")
@@ -42,12 +45,20 @@ impl MaterialPipelineFamily for DebugWorldNormalsFamily {
         DEBUG_WORLD_NORMALS_FAMILY_ID
     }
 
-    fn build_wgsl(&self, _permutation: ShaderPermutation) -> String {
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/shaders/debug_world_normals.wgsl"
-        ))
-        .to_string()
+    fn build_wgsl(&self, permutation: ShaderPermutation) -> String {
+        if permutation.0 == SHADER_PERM_MULTIVIEW_STEREO.0 {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/shaders/debug_world_normals_multiview.wgsl"
+            ))
+            .to_string()
+        } else {
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/shaders/debug_world_normals.wgsl"
+            ))
+            .to_string()
+        }
     }
 
     fn create_render_pipeline(
@@ -119,7 +130,7 @@ impl MaterialPipelineFamily for DebugWorldNormalsFamily {
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
-            multiview_mask: None,
+            multiview_mask: desc.multiview_mask,
             cache: None,
         })
     }

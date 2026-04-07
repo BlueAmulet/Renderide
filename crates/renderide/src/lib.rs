@@ -28,9 +28,13 @@ pub mod diagnostics;
 pub mod frontend;
 pub mod gpu;
 pub mod ipc;
+/// Resolved desktop vs OpenXR launch mode (CLI, env, config).
+pub mod launch_mode;
 pub mod materials;
 pub mod pipelines;
 pub mod present;
+/// Desktop vs OpenXR presentation (see plan).
+pub mod presentation;
 pub mod render_graph;
 pub mod resources;
 pub mod runtime;
@@ -38,6 +42,9 @@ pub mod runtime;
 pub mod scene;
 
 pub mod shared;
+
+#[cfg(feature = "openxr")]
+pub mod xr;
 
 pub use assets::material::{
     parse_materials_update_batch_into_store, MaterialBatchBlobLoader, MaterialDictionary,

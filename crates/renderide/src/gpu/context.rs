@@ -107,6 +107,49 @@ impl GpuContext {
         })
     }
 
+    /// Builds GPU state using an existing wgpu instance/device from OpenXR bootstrap (mirror window).
+    #[cfg(feature = "openxr")]
+    pub fn new_from_openxr_bootstrap(
+        instance: &wgpu::Instance,
+        adapter: &wgpu::Adapter,
+        device: Arc<wgpu::Device>,
+        queue: Arc<Mutex<wgpu::Queue>>,
+        window: Arc<Window>,
+        vsync: bool,
+    ) -> Result<Self, GpuError> {
+        let surface = instance
+            .create_surface(window.clone())
+            .map_err(|e| GpuError::Surface(format!("{e:?}")))?;
+        let surface_safe: wgpu::Surface<'static> = unsafe { std::mem::transmute(surface) };
+        let size = window.inner_size();
+        let mut config = surface_safe
+            .get_default_config(adapter, size.width.max(1), size.height.max(1))
+            .ok_or(GpuError::SurfaceUnsupported)?;
+        config.present_mode = if vsync {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::AutoNoVsync
+        };
+        surface_safe.configure(&device, &config);
+        let adapter_info = adapter.get_info();
+        logger::info!(
+            "GPU (OpenXR path): adapter={} backend={:?} present_mode={:?}",
+            adapter_info.name,
+            adapter_info.backend,
+            config.present_mode
+        );
+        Ok(Self {
+            adapter_info,
+            device,
+            queue,
+            surface: surface_safe,
+            config,
+            depth_texture: None,
+            depth_view: None,
+            depth_extent_px: (0, 0),
+        })
+    }
+
     /// Updates vertical sync / present mode and reconfigures the surface (hot-reload from settings).
     pub fn set_vsync(&mut self, vsync: bool) {
         let mode = if vsync {

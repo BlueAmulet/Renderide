@@ -7,6 +7,8 @@
 
 pub mod raster;
 
+pub use raster::SHADER_PERM_MULTIVIEW_STEREO;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

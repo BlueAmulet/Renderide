@@ -23,10 +23,13 @@ use crate::config::RendererSettingsHandle;
 use crate::connection::{ConnectionParams, InitError};
 use crate::frontend::RendererFrontend;
 use crate::gpu::GpuContext;
+use crate::launch_mode::RenderMode;
 
 #[cfg(feature = "debug-hud")]
 use crate::diagnostics::{DebugHudInput, HostHudGatherer};
-use crate::render_graph::{GraphExecuteError, HostCameraFrame};
+use glam::Mat4;
+
+use crate::render_graph::{ExternalFrameTargets, GraphExecuteError, HostCameraFrame};
 
 pub use crate::frontend::InitState;
 use crate::ipc::SharedMemoryAccessor;
@@ -50,6 +53,8 @@ pub struct RendererRuntime {
     pub host_camera: HostCameraFrame,
     /// Process-wide renderer settings (shared with the debug HUD and the frame loop).
     settings: RendererSettingsHandle,
+    /// Desktop vs OpenXR (set from [`crate::app`] before IPC init result is sent).
+    launch_render_mode: RenderMode,
     /// Target path for persisting [`Self::settings`] from the ImGui config window.
     config_save_path: PathBuf,
     /// Throttled host CPU/RAM sampling for the debug HUD.
@@ -74,6 +79,7 @@ impl RendererRuntime {
             assets: AssetSubsystem::default(),
             host_camera: HostCameraFrame::default(),
             settings,
+            launch_render_mode: RenderMode::default(),
             config_save_path,
             #[cfg(feature = "debug-hud")]
             host_hud: HostHudGatherer::default(),
@@ -87,9 +93,19 @@ impl RendererRuntime {
         &self.settings
     }
 
+    /// Sets launch presentation mode for [`RendererInitResult::stereo_rendering_mode`] reporting.
+    pub fn set_launch_render_mode(&mut self, mode: RenderMode) {
+        self.launch_render_mode = mode;
+    }
+
     /// Path written by the **Renderer config** ImGui window and [`crate::config::save_renderer_settings`].
     pub fn config_save_path(&self) -> &PathBuf {
         &self.config_save_path
+    }
+
+    /// Sets per-eye view–projection from OpenXR ([`HostCameraFrame::stereo_view_proj`]); `None` clears.
+    pub fn set_stereo_view_proj(&mut self, vp: Option<(Mat4, Mat4)>) {
+        self.host_camera.stereo_view_proj = vp;
     }
 
     /// Mesh deformation compute pipelines when GPU init succeeded.
@@ -255,6 +271,59 @@ impl RendererRuntime {
         res
     }
 
+    /// Renders to OpenXR multiview array targets (see [`RenderBackend::execute_frame_graph_external_multiview`]).
+    pub fn execute_frame_graph_external_multiview(
+        &mut self,
+        gpu: &mut GpuContext,
+        window: &Window,
+        external: ExternalFrameTargets<'_>,
+    ) -> Result<(), GraphExecuteError> {
+        self.backend.prepare_lights_from_scene(&self.scene);
+        let scene_ref: &SceneCoordinator = &self.scene;
+        #[cfg(feature = "debug-hud")]
+        let graph_start = Instant::now();
+        let res = self.backend.execute_frame_graph_external_multiview(
+            gpu,
+            window,
+            scene_ref,
+            self.host_camera,
+            external,
+        );
+        #[cfg(feature = "debug-hud")]
+        {
+            let unified_cpu_ms = graph_start.elapsed().as_secs_f64() * 1000.0;
+            self.backend.set_debug_hud_last_frame_cpu_ms(unified_cpu_ms);
+            let host = self.host_hud.snapshot();
+            let frame_diag = crate::diagnostics::FrameDiagnosticsSnapshot::capture(
+                gpu,
+                self.backend.debug_frame_time_ms(),
+                unified_cpu_ms,
+                host,
+                self.last_submit_render_task_count,
+                &self.backend,
+            );
+            let snapshot = crate::diagnostics::RendererInfoSnapshot::capture(
+                self.is_ipc_connected(),
+                self.init_state(),
+                self.last_frame_index(),
+                gpu.adapter_info(),
+                gpu.config_format(),
+                gpu.surface_extent_px(),
+                gpu.present_mode(),
+                self.backend.debug_frame_time_ms(),
+                &self.scene,
+                &self.backend,
+            );
+            self.backend.set_debug_hud_snapshot(snapshot);
+            self.backend.set_debug_hud_frame_diagnostics(frame_diag);
+            let scene_transforms =
+                crate::diagnostics::SceneTransformsSnapshot::capture(&self.scene);
+            self.backend
+                .set_debug_hud_scene_transforms_snapshot(scene_transforms);
+        }
+        res
+    }
+
     /// Whether the next tick should build [`InputState`] and call [`Self::pre_frame`].
     pub fn should_send_begin_frame(&self) -> bool {
         self.frontend.should_send_begin_frame()
@@ -332,7 +401,7 @@ impl RendererRuntime {
         }
         self.frontend.set_pending_init(d.clone());
         if let Some(ref mut ipc) = self.frontend.ipc_mut() {
-            send_renderer_init_result(ipc, d.output_device);
+            send_renderer_init_result(ipc, d.output_device, self.launch_render_mode);
         }
         self.frontend.on_init_received();
     }
@@ -514,6 +583,9 @@ impl RendererRuntime {
         self.host_camera.far_clip = data.far_clip;
         self.host_camera.desktop_fov_degrees = data.desktop_fov;
         self.host_camera.vr_active = data.vr_active;
+        if !data.vr_active {
+            self.host_camera.stereo_view_proj = None;
+        }
         self.host_camera.primary_ortho_task = data.render_tasks.iter().find_map(|t| {
             t.parameters.as_ref().and_then(|p| {
                 if p.projection == CameraProjection::orthographic {
@@ -548,12 +620,20 @@ impl RendererRuntime {
     }
 }
 
-fn send_renderer_init_result(ipc: &mut crate::ipc::DualQueueIpc, output_device: HeadOutputDevice) {
+fn send_renderer_init_result(
+    ipc: &mut crate::ipc::DualQueueIpc,
+    output_device: HeadOutputDevice,
+    launch_render_mode: RenderMode,
+) {
+    let stereo = match launch_render_mode {
+        RenderMode::OpenXr => "OpenXR(multiview)",
+        RenderMode::Desktop => "None",
+    };
     let result = RendererInitResult {
         actual_output_device: output_device,
         renderer_identifier: Some("Renderide 0.1.0 (wgpu skeleton)".to_string()),
         main_window_handle_ptr: 0,
-        stereo_rendering_mode: Some("None".to_string()),
+        stereo_rendering_mode: Some(stereo.to_string()),
         max_texture_size: 8192,
         is_gpu_texture_pot_byte_aligned: true,
         supported_texture_formats: supported_host_formats_for_init(),

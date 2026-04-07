@@ -1,5 +1,7 @@
 //! Per-frame parameters shared across render graph passes (scene, backend, surface state).
 
+use glam::Mat4;
+
 use crate::backend::RenderBackend;
 use crate::scene::SceneCoordinator;
 
@@ -19,6 +21,8 @@ pub struct HostCameraFrame {
     /// `(orthographic_half_height, near, far)` from the first [`crate::shared::CameraRenderTask`] whose
     /// parameters use orthographic projection (overlay main-camera ortho override).
     pub primary_ortho_task: Option<(f32, f32, f32)>,
+    /// When [`Self::vr_active`] and OpenXR supplies views, per-eye view–projection (reverse-Z).
+    pub stereo_view_proj: Option<(Mat4, Mat4)>,
 }
 
 impl Default for HostCameraFrame {
@@ -30,6 +34,7 @@ impl Default for HostCameraFrame {
             desktop_fov_degrees: 60.0,
             vr_active: false,
             primary_ortho_task: None,
+            stereo_view_proj: None,
         }
     }
 }
@@ -48,4 +53,6 @@ pub struct FrameRenderParams<'a> {
     pub viewport_px: (u32, u32),
     /// Clip planes, FOV, and ortho task hint from the last host frame submission.
     pub host_camera: HostCameraFrame,
+    /// When `true`, the forward pass targets 2-layer array attachments and may use multiview.
+    pub multiview_stereo: bool,
 }
