@@ -16,7 +16,11 @@ fn copy_openxr_loader() {
                 .ancestors()
                 .find_map(|p| {
                     let t = p.join("target");
-                    if t.is_dir() { Some(t) } else { None }
+                    if t.is_dir() {
+                        Some(t)
+                    } else {
+                        None
+                    }
                 })
                 .expect("could not find target/ directory")
         });
@@ -30,7 +34,10 @@ fn copy_openxr_loader() {
         r"C:\Program Files\Steam\steamapps\common\SteamVR\bin\win64\openxr_loader.dll",
     ];
 
-    let src = candidates.iter().map(std::path::Path::new).find(|p| p.exists());
+    let src = candidates
+        .iter()
+        .map(std::path::Path::new)
+        .find(|p| p.exists());
 
     if let Some(src) = src {
         let dest = dest_dir.join("openxr_loader.dll");
