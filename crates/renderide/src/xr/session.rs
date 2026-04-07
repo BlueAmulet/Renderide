@@ -4,42 +4,34 @@ use glam::{Mat4, Quat, Vec3};
 use openxr as xr;
 use openxr::{CompositionLayerProjection, CompositionLayerProjectionView, SwapchainSubImage};
 
-use crate::render_graph::{apply_view_handedness_fix, reverse_z_perspective};
+use crate::render_graph::{apply_view_handedness_fix, reverse_z_perspective_openxr_fov};
 
 /// Per-eye view–projection from OpenXR [`xr::View`] (reverse-Z, engine handedness).
 pub fn view_projection_from_xr_view(view: &xr::View, near: f32, far: f32) -> Mat4 {
     let pose = view.pose;
-    let (xr_translation, xr_rotation) = openxr_pose_to_glam(&pose);
+    let (xr_translation, xr_rotation) = openxr_pose_to_engine(&pose);
     let eye = xr_translation;
-    let forward = xr_rotation * Vec3::Z;
+    // OpenXR view space: −Z forward, +Y up, +X right (same as OpenGL camera).
+    let forward = xr_rotation * (-Vec3::Z);
     let up = xr_rotation * Vec3::Y;
     let view_mat = Mat4::look_at_rh(eye, eye + forward, up);
     let view_mat = apply_view_handedness_fix(view_mat);
 
-    let tan_left = view.fov.angle_left.tan();
-    let tan_right = view.fov.angle_right.tan();
-    let tan_down = view.fov.angle_down.tan();
-    let tan_up = view.fov.angle_up.tan();
-    let tan_width = tan_right - tan_left;
-    let tan_height = tan_up - tan_down;
-    let aspect = tan_width / tan_height.max(1e-6);
-    let vertical_fov = (tan_down + tan_up).atan() * 2.0;
-    let proj = reverse_z_perspective(aspect, vertical_fov, near, far);
+    let proj = reverse_z_perspective_openxr_fov(&view.fov, near, far);
     proj * view_mat
 }
 
-fn openxr_pose_to_glam(pose: &xr::Posef) -> (Vec3, Quat) {
-    let rotation = {
-        let o = pose.orientation;
-        Quat::from_rotation_x(180.0f32.to_radians()) * glam::quat(o.w, o.z, o.y, o.x)
-    };
+/// Maps an OpenXR [`xr::Posef`] to engine translation + rotation (same basis as [`view_projection_from_xr_view`]).
+pub fn openxr_pose_to_engine(pose: &xr::Posef) -> (Vec3, Quat) {
+    let o = pose.orientation;
+    let rotation = Quat::from_xyzw(o.x, o.y, o.z, o.w);
     let translation = glam::vec3(-pose.position.x, pose.position.y, -pose.position.z);
     (translation, rotation)
 }
 
 /// Headset position and rotation in engine space (same basis as [`view_projection_from_xr_view`]).
 pub fn headset_pose_from_xr_view(view: &xr::View) -> (Vec3, Quat) {
-    openxr_pose_to_glam(&view.pose)
+    openxr_pose_to_engine(&view.pose)
 }
 
 /// OpenXR requires a unit quaternion; some runtimes briefly report `(0,0,0,0)`, which makes
@@ -135,6 +127,11 @@ impl XrSessionState {
     /// Underlying Vulkan session (swapchain lifetime).
     pub fn xr_vulkan_session(&self) -> &xr::Session<xr::Vulkan> {
         &self.session
+    }
+
+    /// Stage reference space used for [`Self::locate_views`] and controller [`xr::Space`] location.
+    pub fn stage_space(&self) -> &xr::Space {
+        &self.stage
     }
 
     /// Blocks until the next frame, begins the frame stream. Returns `None` if not ready or idle.

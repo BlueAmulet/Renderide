@@ -2,8 +2,11 @@
 //!
 //! Matches the legacy mesh pass: world-to-view applies a Z flip for Vulkan/WebGPU clip, and
 //! perspective uses vertical FOV in **radians** with clip planes from [`super::frame_params::HostCameraFrame`].
+//!
+//! OpenXR HMD views use [`reverse_z_perspective_openxr_fov`] (asymmetric frustum from tangents).
 
 use glam::{Mat4, Vec3, Vec4};
+use openxr::Fovf;
 
 use crate::scene::render_transform_to_matrix;
 use crate::shared::RenderTransform;
@@ -76,14 +79,52 @@ pub fn reverse_z_perspective(aspect: f32, vertical_fov: f32, near: f32, far: f32
     let tan_horizontal_half = (horizontal_fov / 2.0).tan();
     let f_x = 1.0 / tan_horizontal_half;
     let f_y = 1.0 / tan_vertical_half;
+    reverse_z_perspective_from_scales(f_x, f_y, 0.0, 0.0, near, far)
+}
+
+/// Reverse-Z perspective with optional **off-center** (asymmetric) X/Y skew from OpenXR tangents.
+///
+/// `skew_x` / `skew_y` are `(tan_right + tan_left) / (tan_right - tan_left)` and
+/// `(tan_up + tan_down) / (tan_up - tan_down)` on the **Z basis column** so clip X/Y depend on view-space Z.
+fn reverse_z_perspective_from_scales(
+    x_scale: f32,
+    y_scale: f32,
+    skew_x: f32,
+    skew_y: f32,
+    near: f32,
+    far: f32,
+) -> Mat4 {
     let z2 = near / (far - near);
     let z3 = (far * near) / (far - near);
     Mat4::from_cols(
-        Vec4::new(f_x, 0.0, 0.0, 0.0),
-        Vec4::new(0.0, f_y, 0.0, 0.0),
-        Vec4::new(0.0, 0.0, z2, -1.0),
+        Vec4::new(x_scale, 0.0, 0.0, 0.0),
+        Vec4::new(0.0, y_scale, 0.0, 0.0),
+        Vec4::new(skew_x, skew_y, z2, -1.0),
         Vec4::new(0.0, 0.0, z3, 0.0),
     )
+}
+
+/// Asymmetric reverse-Z projection from OpenXR [`Fovf`] tangents (Khronos `XrMatrix4x4f_CreateProjectionFov` X/Y,
+/// with the same reverse-Z depth row as [`reverse_z_perspective`]).
+///
+/// View space matches the renderer: **right-handed**, **−Z** forward, **+Y** up.
+pub fn reverse_z_perspective_openxr_fov(fov: &Fovf, near: f32, far: f32) -> Mat4 {
+    let tl = fov.angle_left.tan();
+    let tr = fov.angle_right.tan();
+    let td = fov.angle_down.tan();
+    let tu = fov.angle_up.tan();
+    let w = tr - tl;
+    let h = tu - td;
+    if !(w.is_finite() && h.is_finite()) || w.abs() < 1e-6 || h.abs() < 1e-6 {
+        let aspect = 1.0_f32;
+        let vertical_fov = std::f32::consts::FRAC_PI_2 * 0.5;
+        return reverse_z_perspective(aspect, vertical_fov, near, far);
+    }
+    let x_scale = 2.0 / w;
+    let y_scale = 2.0 / h;
+    let skew_x = (tr + tl) / w;
+    let skew_y = (tu + td) / h;
+    reverse_z_perspective_from_scales(x_scale, y_scale, skew_x, skew_y, near, far)
 }
 
 /// Reverse-Z orthographic projection (`half_width`, `half_height` in view space).
@@ -209,5 +250,28 @@ mod tests {
         let z_off = (100.0 + 0.05) / range;
         assert!((m.z_axis.z - z_scale).abs() < 1e-5);
         assert!((m.w_axis.z - z_off).abs() < 1e-5);
+    }
+
+    #[test]
+    fn reverse_z_openxr_fov_symmetric_near_symmetric_perspective() {
+        let a = 0.45_f32;
+        let b = 0.45_f32;
+        let fov = Fovf {
+            angle_left: -a,
+            angle_right: a,
+            angle_down: -b,
+            angle_up: b,
+        };
+        let near = 0.01_f32;
+        let far = 500.0_f32;
+        let m_oxr = reverse_z_perspective_openxr_fov(&fov, near, far);
+        let aspect = (a.tan() - (-a).tan()) / (b.tan() - (-b).tan());
+        let m_sym = reverse_z_perspective(aspect, 2.0 * b, near, far);
+        for i in 0..16 {
+            assert!(
+                (m_oxr.to_cols_array()[i] - m_sym.to_cols_array()[i]).abs() < 2e-3,
+                "coeff {i} mismatch"
+            );
+        }
     }
 }

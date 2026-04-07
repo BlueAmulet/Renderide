@@ -3,9 +3,9 @@
 //! **OpenXR GPU path:** [`head_output_device_wants_openxr`] is `true` for VR-capable devices; the app
 //! then runs [`crate::xr::init_wgpu_openxr`]. If init fails, the renderer falls back to desktop GPU.
 //!
-//! **VR IPC input:** [`crate::frontend::input::vr_inputs_for_session`] supplies headset
-//! [`InputState::vr`](crate::shared::InputState) when the session device is VR-capable, even when
-//! the GPU path fell back to desktop.
+//! **VR IPC input:** [`crate::frontend::input::vr_inputs_for_session`] supplies headset pose,
+//! OpenXR-sampled controllers when available, and a non-empty [`InputState::vr`](crate::shared::InputState)
+//! when the session device is VR-capable, even when the GPU path fell back to desktop.
 
 use crate::shared::HeadOutputDevice;
 

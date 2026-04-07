@@ -11,6 +11,8 @@ use wgpu::hal::api::Vulkan as HalVulkan;
 
 use wgpu::wgt;
 
+use super::input::OpenxrInput;
+
 /// WGPU + OpenXR objects produced by [`init_wgpu_openxr`].
 pub struct XrWgpuHandles {
     /// WGPU instance (Vulkan backend).
@@ -23,6 +25,8 @@ pub struct XrWgpuHandles {
     pub xr_session: super::session::XrSessionState,
     /// Active system (HMD) id.
     pub xr_system_id: xr::SystemId,
+    /// Controller actions and spaces; `None` if action creation or Touch bindings failed.
+    pub openxr_input: Option<OpenxrInput>,
 }
 
 /// Bootstrap failure (missing runtime, Vulkan, or extension).
@@ -247,6 +251,13 @@ pub fn init_wgpu_openxr() -> Result<XrWgpuHandles, XrBootstrapError> {
     let stage = session
         .create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)
         .map_err(XrBootstrapError::OpenXr)?;
+    let openxr_input = match OpenxrInput::new(&xr_instance, &session) {
+        Ok(i) => Some(i),
+        Err(e) => {
+            logger::warn!("OpenXR controller input unavailable (continuing without actions): {e}");
+            None
+        }
+    };
     let xr_session = super::session::XrSessionState::new(
         xr_instance,
         environment_blend_mode,
@@ -256,7 +267,11 @@ pub fn init_wgpu_openxr() -> Result<XrWgpuHandles, XrBootstrapError> {
         stage,
     );
 
-    let limits = wgpu::Limits::default();
+    let mut limits = wgpu_exposed.capabilities.limits.clone();
+    // The OpenXR path renders to 2-layer array targets. Passing `Limits::default()` sets
+    // `max_multiview_view_count` to 0, so wgpu-core rejects the pass with "Multiview view count
+    // limit violated". Use the adapter's reported limits and require at least two views for stereo.
+    limits.max_multiview_view_count = limits.max_multiview_view_count.max(2);
     let memory_hints = wgpu::MemoryHints::default();
 
     let wgpu_open_device = unsafe {
@@ -296,5 +311,6 @@ pub fn init_wgpu_openxr() -> Result<XrWgpuHandles, XrBootstrapError> {
         queue: Arc::new(Mutex::new(wgpu_queue)),
         xr_session,
         xr_system_id,
+        openxr_input,
     })
 }
