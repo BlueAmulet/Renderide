@@ -326,6 +326,20 @@ impl RendererRuntime {
         self.frontend.should_send_begin_frame()
     }
 
+    /// Records wall-clock spacing for host FPS metrics. Call at the very start of each winit tick,
+    /// before [`Self::poll_ipc`], OpenXR, and [`Self::pre_frame`].
+    pub fn tick_frame_wall_clock_begin(&mut self, now: Instant) {
+        self.frontend.on_tick_frame_wall_clock(now);
+    }
+
+    /// Completes wall-clock timing for the tick: stores elapsed from `frame_start` for the next
+    /// [`crate::shared::PerformanceState::render_time`]. Call once before every return from
+    /// [`crate::app::RenderideApp::tick_frame`].
+    pub fn tick_frame_wall_clock_end(&mut self, frame_start: Instant) {
+        self.frontend
+            .set_perf_last_total_us(frame_start.elapsed().as_micros() as u64);
+    }
+
     /// Host [`OutputState::lock_cursor`] bit merged into packed mouse state.
     pub fn host_cursor_lock_requested(&self) -> bool {
         self.frontend.host_cursor_lock_requested()

@@ -7,6 +7,7 @@
 //! uploads or mutate [`SceneCoordinator`](crate::scene::SceneCoordinator); the runtime façade
 //! combines this layer with [`crate::backend::RenderBackend`] and scene.
 
+mod frame_perf;
 mod renderer_frontend;
 
 /// Winit adapter and [`WindowInputAccumulator`](input::WindowInputAccumulator) for [`crate::shared::InputState`].

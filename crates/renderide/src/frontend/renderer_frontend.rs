@@ -1,5 +1,7 @@
 //! [`RendererFrontend`] implementation.
 
+use std::time::Instant;
+
 use crate::connection::{ConnectionParams, InitError};
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::shared::{FrameStartData, InputState, OutputState, RendererCommand, RendererInitData};
@@ -42,6 +44,16 @@ pub struct RendererFrontend {
     pending_output_state: Option<OutputState>,
     /// Last non-null [`OutputState`] from the host (retained for per-frame cursor policy).
     last_output_state: Option<OutputState>,
+    /// Wall-clock start of the previous [`crate::app::RenderideApp::tick_frame`] (for FPS interval).
+    last_tick_wall_start: Option<Instant>,
+    /// Microseconds between the last two tick starts; fed into [`crate::frontend::frame_perf`].
+    wall_interval_us_for_perf: u64,
+    /// Total microseconds for the previous completed tick ([`crate::shared::PerformanceState::render_time`]).
+    perf_last_total_us: u64,
+    /// Exponentially smoothed FPS for optional [`crate::shared::FrameStartData::performance`].
+    smoothed_fps: Option<f32>,
+    /// Last wall time a non-null performance sample was attached to outgoing `frame_start_data`.
+    last_perf_send: Option<Instant>,
 }
 
 impl RendererFrontend {
@@ -67,6 +79,11 @@ impl RendererFrontend {
             cursor_lock_requested: false,
             pending_output_state: None,
             last_output_state: None,
+            last_tick_wall_start: None,
+            wall_interval_us_for_perf: 0,
+            perf_last_total_us: 0,
+            smoothed_fps: None,
+            last_perf_send: None,
         }
     }
 
@@ -130,6 +147,26 @@ impl RendererFrontend {
         self.ipc.is_some()
     }
 
+    /// Records wall-clock spacing for FPS / [`crate::shared::PerformanceState`] before lock-step
+    /// [`Self::pre_frame`].
+    ///
+    /// Call once at the start of each winit tick with the same [`Instant`] used as that tick’s
+    /// duration anchor (see [`Self::set_perf_last_total_us`]).
+    pub fn on_tick_frame_wall_clock(&mut self, now: Instant) {
+        let wall_interval_us = self
+            .last_tick_wall_start
+            .map(|t| now.duration_since(t).as_micros() as u64)
+            .unwrap_or(0);
+        self.wall_interval_us_for_perf = wall_interval_us;
+        self.last_tick_wall_start = Some(now);
+    }
+
+    /// Stores the previous tick’s total duration so the next [`Self::pre_frame`] can populate
+    /// [`crate::shared::PerformanceState::render_time`].
+    pub fn set_perf_last_total_us(&mut self, total_us: u64) {
+        self.perf_last_total_us = total_us;
+    }
+
     /// Poll and sort commands so [`RendererCommand::renderer_init_data`] runs before any other work
     /// in the same batch (then frame submits), avoiding a fatal `Uninitialized` ordering hazard.
     pub fn poll_commands(&mut self) -> Vec<RendererCommand> {
@@ -163,8 +200,16 @@ impl RendererFrontend {
         }
 
         let bootstrap = self.last_frame_index < 0 && !self.sent_bootstrap_frame_start;
+        let performance = super::frame_perf::step_frame_performance(
+            self.wall_interval_us_for_perf,
+            self.perf_last_total_us,
+            &mut self.smoothed_fps,
+            &mut self.last_perf_send,
+            Instant::now(),
+        );
         let frame_start = FrameStartData {
             last_frame_index: self.last_frame_index,
+            performance,
             inputs: Some(inputs),
             ..Default::default()
         };

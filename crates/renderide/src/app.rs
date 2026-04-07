@@ -305,6 +305,9 @@ impl RenderideApp {
     }
 
     fn tick_frame(&mut self, event_loop: &ActiveEventLoop) {
+        let frame_start = Instant::now();
+        self.runtime.tick_frame_wall_clock_begin(frame_start);
+
         self.runtime.poll_ipc();
 
         if let (Some(window), Some(out)) = (
@@ -391,6 +394,7 @@ impl RenderideApp {
             logger::info!("Renderer shutdown requested by host");
             self.exit_code = Some(0);
             event_loop.exit();
+            self.runtime.tick_frame_wall_clock_end(frame_start);
             return;
         }
 
@@ -398,10 +402,12 @@ impl RenderideApp {
             logger::error!("Renderer fatal IPC error");
             self.exit_code = Some(4);
             event_loop.exit();
+            self.runtime.tick_frame_wall_clock_end(frame_start);
             return;
         }
 
         let Some(window) = self.window.clone() else {
+            self.runtime.tick_frame_wall_clock_end(frame_start);
             return;
         };
 
@@ -412,6 +418,7 @@ impl RenderideApp {
         };
 
         let Some(gpu) = self.gpu.as_mut() else {
+            self.runtime.tick_frame_wall_clock_end(frame_start);
             return;
         };
 
@@ -448,6 +455,8 @@ impl RenderideApp {
                 }
             }
         }
+
+        self.runtime.tick_frame_wall_clock_end(frame_start);
     }
 
     /// Single `wait_frame` + `locate_views` for stereo uniforms; used for both mirror and HMD paths.
