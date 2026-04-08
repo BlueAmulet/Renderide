@@ -25,4 +25,10 @@ mod tests {
         let s = super::manifest_stem_for_unity_name("Unlit").expect("unlit target");
         assert_eq!(s, "unlit_default");
     }
+
+    #[test]
+    fn embedded_stem_resolves_ui_unlit() {
+        let s = super::manifest_stem_for_unity_name("UI/Unlit").expect("ui_unlit target");
+        assert_eq!(s, "ui_unlit_default");
+    }
 }

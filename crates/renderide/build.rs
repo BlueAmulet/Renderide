@@ -3,8 +3,8 @@
 //!
 //! Material sources under `shaders/source/materials/*.wgsl` use a **manifest-free** convention: the
 //! file stem is the normalized Unity shader lookup key (e.g. `unlit` for `Shader "Unlit"`). Build
-//! emits composed targets `{stem}_default` and `{stem}_multiview` when the source opts into the
-//! multiview pair (see `multiview_pair_stem` below).
+//! **always** emits composed targets `{stem}_default` and `{stem}_multiview` for every material file;
+//! each source must implement `#ifdef MULTIVIEW` for `vs_main` / `fs_main` as documented below.
 //!
 //! ## Multiview variants (`*_default` / `*_multiview`)
 //!
@@ -38,11 +38,6 @@ fn multiview_shader_defs(enable: bool) -> HashMap<String, ShaderDefValue> {
         defs.insert("MULTIVIEW".to_string(), ShaderDefValue::Bool(true));
     }
     defs
-}
-
-/// Source stems that emit both `{stem}_default` and `{stem}_multiview` composed targets.
-fn multiview_pair_stem(stem: &str) -> bool {
-    stem == "debug_world_normals" || stem == "unlit"
 }
 
 fn validate_and_write_wgsl(
@@ -150,44 +145,27 @@ fn main() {
         let material_source =
             fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
 
-        if multiview_pair_stem(stem) {
-            let variants = [
-                (format!("{stem}_default"), false),
-                (format!("{stem}_multiview"), true),
-            ];
-            for (target_stem, multiview) in variants {
-                let defs = multiview_shader_defs(multiview);
-                let module = compose_material(
-                    &globals_source,
-                    &material_source,
-                    path.to_str().expect("utf8 path"),
-                    defs,
-                );
-                let label = format!("{target_stem} (MULTIVIEW={multiview})");
-                let out_path = target_dir.join(format!("{target_stem}.wgsl"));
-                validate_and_write_wgsl(&module, &label, &out_path, Some(multiview));
+        let variants = [
+            (format!("{stem}_default"), false),
+            (format!("{stem}_multiview"), true),
+        ];
+        for (target_stem, multiview) in variants {
+            let defs = multiview_shader_defs(multiview);
+            let module = compose_material(
+                &globals_source,
+                &material_source,
+                path.to_str().expect("utf8 path"),
+                defs,
+            );
+            let label = format!("{target_stem} (MULTIVIEW={multiview})");
+            let out_path = target_dir.join(format!("{target_stem}.wgsl"));
+            validate_and_write_wgsl(&module, &label, &out_path, Some(multiview));
 
-                embedded_arms.push_str(&format!(
-                    "        \"{target_stem}\" => Some(include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/shaders/target/{target_stem}.wgsl\"))),\n"
-                ));
-                output_stems.push(target_stem);
-            }
-            continue;
+            embedded_arms.push_str(&format!(
+                "        \"{target_stem}\" => Some(include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/shaders/target/{target_stem}.wgsl\"))),\n"
+            ));
+            output_stems.push(target_stem);
         }
-
-        let module = compose_material(
-            &globals_source,
-            &material_source,
-            path.to_str().expect("utf8 path"),
-            HashMap::new(),
-        );
-        let out_path = target_dir.join(format!("{stem}.wgsl"));
-        validate_and_write_wgsl(&module, stem, &out_path, None);
-
-        embedded_arms.push_str(&format!(
-            "        \"{stem}\" => Some(include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/shaders/target/{stem}.wgsl\"))),\n"
-        ));
-        output_stems.push(stem.to_string());
     }
 
     let stems_list = output_stems

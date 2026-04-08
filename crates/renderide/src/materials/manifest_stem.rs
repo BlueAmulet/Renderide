@@ -229,4 +229,16 @@ mod tests {
             SHADER_PERM_MULTIVIEW_STEREO
         ));
     }
+
+    #[test]
+    fn ui_unlit_default_and_multiview_need_uv0_stream() {
+        assert!(manifest_stem_needs_uv0_stream(
+            "ui_unlit_default",
+            ShaderPermutation(0)
+        ));
+        assert!(manifest_stem_needs_uv0_stream(
+            "ui_unlit_default",
+            SHADER_PERM_MULTIVIEW_STEREO
+        ));
+    }
 }

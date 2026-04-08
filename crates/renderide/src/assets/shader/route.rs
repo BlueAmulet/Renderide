@@ -253,7 +253,7 @@ mod tests {
         };
         let r = resolve_shader_upload(&u);
         assert_eq!(r.unity_shader_name.as_deref(), Some("UI/Unlit"));
-        assert_eq!(r.family, DEBUG_WORLD_NORMALS_FAMILY_ID);
+        assert_eq!(r.family, MANIFEST_RASTER_FAMILY_ID);
     }
 
     #[test]
