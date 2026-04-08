@@ -81,12 +81,15 @@ pub enum ReflectError {
     Validate(String),
     #[error("layout computation: {0}")]
     Layout(String),
-    #[error("group(0) must have uniform binding 0 size {expected_frame} and storage binding 1 element stride {expected_light}; got binding0 size {got0:?} binding1 stride {got1:?}")]
+    #[error("group(0) must have uniform binding 0 size {expected_frame}, storage binding 1 stride {expected_light}, bindings 2–3 u32 stride {expected_cluster_u32}; got b0={got0:?} b1={got1:?} b2={got2:?} b3={got3:?}")]
     FrameGroupMismatch {
         expected_frame: u32,
         expected_light: u32,
+        expected_cluster_u32: u32,
         got0: Option<u32>,
         got1: Option<u32>,
+        got2: Option<u32>,
+        got3: Option<u32>,
     },
     #[error("unsupported global resource at group {group} binding {binding}: {reason}")]
     UnsupportedBinding {
@@ -289,12 +292,42 @@ fn resource_data_ty(
     }
 }
 
+/// Stride of one element in a runtime-sized storage array (e.g. `GpuLight`, `u32`, `atomic<u32>`).
+fn storage_array_element_stride(
+    module: &naga::Module,
+    layouter: &Layouter,
+    data_ty: naga::Handle<naga::Type>,
+    binding: u32,
+) -> Result<u32, ReflectError> {
+    match &module.types[data_ty].inner {
+        TypeInner::Array { base: el, size, .. } => {
+            let el_stride = layouter[*el].to_stride();
+            match size {
+                ArraySize::Pending(_) => Err(ReflectError::UnsupportedBinding {
+                    group: 0,
+                    binding,
+                    reason: "pending array size".into(),
+                }),
+                ArraySize::Constant(_) | ArraySize::Dynamic => Ok(el_stride),
+            }
+        }
+        _ => Err(ReflectError::UnsupportedBinding {
+            group: 0,
+            binding,
+            reason: "expected runtime-sized array".into(),
+        }),
+    }
+}
+
 fn validate_frame_group0(module: &naga::Module, layouter: &Layouter) -> Result<(), ReflectError> {
     let expected_frame = std::mem::size_of::<FrameGpuUniforms>() as u32;
     let expected_light = std::mem::size_of::<GpuLight>() as u32;
+    let expected_cluster_u32 = std::mem::size_of::<u32>() as u32;
 
     let mut b0_size: Option<u32> = None;
     let mut b1_stride: Option<u32> = None;
+    let mut b2_stride: Option<u32> = None;
+    let mut b3_stride: Option<u32> = None;
 
     for (_, gv) in module.global_variables.iter() {
         let Some(rb) = gv.binding else {
@@ -302,6 +335,13 @@ fn validate_frame_group0(module: &naga::Module, layouter: &Layouter) -> Result<(
         };
         if rb.group != 0 {
             continue;
+        }
+        if rb.binding > 3 {
+            return Err(ReflectError::UnsupportedBinding {
+                group: 0,
+                binding: rb.binding,
+                reason: "only bindings 0..=3 are supported for raster frame globals".into(),
+            });
         }
         let (space, data_ty) = resource_data_ty(module, gv);
         match space {
@@ -311,44 +351,33 @@ fn validate_frame_group0(module: &naga::Module, layouter: &Layouter) -> Result<(
                 }
             }
             AddressSpace::Storage { .. } => {
-                if rb.binding == 1 {
-                    let stride = match &module.types[data_ty].inner {
-                        TypeInner::Array { base: el, size, .. } => {
-                            let el_stride = layouter[*el].to_stride();
-                            match size {
-                                ArraySize::Pending(_) => {
-                                    return Err(ReflectError::UnsupportedBinding {
-                                        group: 0,
-                                        binding: 1,
-                                        reason: "pending array size".into(),
-                                    });
-                                }
-                                ArraySize::Constant(_) | ArraySize::Dynamic => el_stride,
-                            }
-                        }
-                        _ => {
-                            return Err(ReflectError::UnsupportedBinding {
-                                group: 0,
-                                binding: 1,
-                                reason: "expected runtime-sized array".into(),
-                            });
-                        }
-                    };
-                    b1_stride = Some(stride);
+                let stride = storage_array_element_stride(module, layouter, data_ty, rb.binding)?;
+                match rb.binding {
+                    1 => b1_stride = Some(stride),
+                    2 => b2_stride = Some(stride),
+                    3 => b3_stride = Some(stride),
+                    _ => {}
                 }
             }
             _ => {}
         }
     }
 
-    if b0_size == Some(expected_frame) && b1_stride == Some(expected_light) {
+    if b0_size == Some(expected_frame)
+        && b1_stride == Some(expected_light)
+        && b2_stride == Some(expected_cluster_u32)
+        && b3_stride == Some(expected_cluster_u32)
+    {
         Ok(())
     } else {
         Err(ReflectError::FrameGroupMismatch {
             expected_frame,
             expected_light,
+            expected_cluster_u32,
             got0: b0_size,
             got1: b1_stride,
+            got2: b2_stride,
+            got3: b3_stride,
         })
     }
 }
@@ -675,5 +704,19 @@ mod tests {
             Some(1),
             "debug normals: position + normal only"
         );
+    }
+
+    /// Every composed `shaders/target/*.wgsl` must declare the full [`FrameGpuResources`] `@group(0)`
+    /// contract; naga-oil strips unused imports, so a material that omits cluster buffer references
+    /// can fail at runtime during pipeline creation unless this test catches it.
+    #[test]
+    fn reflect_all_embedded_material_targets_match_frame_group0() {
+        for stem in crate::embedded_shaders::COMPILED_MATERIAL_STEMS {
+            let wgsl = crate::embedded_shaders::embedded_target_wgsl(stem)
+                .unwrap_or_else(|| panic!("embedded_target_wgsl missing for {stem}"));
+            reflect_raster_material_wgsl(wgsl).unwrap_or_else(|e| {
+                panic!("reflect_raster_material_wgsl failed for {stem}: {e}");
+            });
+        }
     }
 }

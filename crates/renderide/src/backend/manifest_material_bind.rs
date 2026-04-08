@@ -3,6 +3,11 @@
 //! Layouts and uniform packing come from [`crate::materials::reflect_raster_material_wgsl`] (naga).
 //! WGSL identifiers in `@group(1)` match Unity [`MaterialPropertyBlock`](https://docs.unity3d.com/ScriptReference/MaterialPropertyBlock.html)
 //! names; [`crate::assets::material::PropertyIdRegistry`] resolves them to batch property ids.
+//!
+//! **UI text (`_TextMode`, `_RectClip`):** When a reflected uniform field is named `_TextMode` or `_RectClip`,
+//! packing uses explicit `set_float` when present; otherwise keyword-style floats (`MSDF`, `RASTER`, `SDF`,
+//! `RECTCLIP`, case variants) are interpreted the same way as legacy FrooxEngine/Unity keyword bindings—without
+//! hard-coding a particular shader stem in the draw pass.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -351,10 +356,17 @@ impl ManifestMaterialBindResources {
                     write_f32x4_at(&mut buf, field, &v);
                 }
                 ReflectedUniformScalarKind::F32 => {
-                    let mut v = 0.5f32;
-                    if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, pid) {
-                        v = *f;
-                    }
+                    let v = if field_name == "_TextMode" {
+                        packed_text_mode_f32(store, lookup, self.property_registry.as_ref())
+                    } else if field_name == "_RectClip" {
+                        packed_rect_clip_f32(store, lookup, self.property_registry.as_ref())
+                    } else if let Some(MaterialPropertyValue::Float(f)) =
+                        store.get_merged(lookup, pid)
+                    {
+                        *f
+                    } else {
+                        0.5f32
+                    };
                     if field_name == "_Cutoff" {
                         cutoff = v;
                     }
@@ -448,6 +460,70 @@ impl ManifestMaterialBindResources {
 
 fn sampler_pairs_texture_binding(sampler_binding: u32) -> u32 {
     sampler_binding.saturating_sub(1)
+}
+
+/// True when the host material has a `set_float` for `name` with value ≥ 0.5 (Unity shader keyword pattern).
+fn keyword_float_enabled(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    registry: &PropertyIdRegistry,
+    name: &str,
+) -> bool {
+    let pid = registry.intern(name);
+    matches!(
+        store.get_merged(lookup, pid),
+        Some(MaterialPropertyValue::Float(f)) if *f >= 0.5
+    )
+}
+
+/// Packs `UI_TextUnlit`-style `_TextMode`: explicit `0`/`1`/`2`, else keyword floats `MSDF` / `SDF` / `RASTER`, else `0` (MSDF default).
+fn packed_text_mode_f32(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    registry: &PropertyIdRegistry,
+) -> f32 {
+    let pid = registry.intern("_TextMode");
+    if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, pid) {
+        return *f;
+    }
+    if keyword_float_enabled(store, lookup, registry, "MSDF") {
+        return 0.0;
+    }
+    if keyword_float_enabled(store, lookup, registry, "SDF") {
+        return 2.0;
+    }
+    if keyword_float_enabled(store, lookup, registry, "RASTER") {
+        return 1.0;
+    }
+    if keyword_float_enabled(store, lookup, registry, "msdf") {
+        return 0.0;
+    }
+    if keyword_float_enabled(store, lookup, registry, "sdf") {
+        return 2.0;
+    }
+    if keyword_float_enabled(store, lookup, registry, "raster") {
+        return 1.0;
+    }
+    0.0
+}
+
+/// Packs `_RectClip`: explicit value, else `RECTCLIP` / `rectclip` keyword floats, else `0`.
+fn packed_rect_clip_f32(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    registry: &PropertyIdRegistry,
+) -> f32 {
+    let pid = registry.intern("_RectClip");
+    if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, pid) {
+        return *f;
+    }
+    if keyword_float_enabled(store, lookup, registry, "RECTCLIP") {
+        return 1.0;
+    }
+    if keyword_float_enabled(store, lookup, registry, "rectclip") {
+        return 1.0;
+    }
+    0.0
 }
 
 fn primary_texture_2d_asset_id(
@@ -569,4 +645,57 @@ fn sampler_from_state(device: &wgpu::Device, state: &Texture2dSamplerState) -> w
         mipmap_filter: mipmap,
         ..Default::default()
     })
+}
+
+#[cfg(test)]
+mod text_uniform_packing_tests {
+    use super::*;
+    use crate::assets::material::{MaterialPropertyLookupIds, MaterialPropertyStore};
+
+    fn lookup(material_id: i32) -> MaterialPropertyLookupIds {
+        MaterialPropertyLookupIds {
+            material_asset_id: material_id,
+            mesh_property_block_slot0: None,
+        }
+    }
+
+    #[test]
+    fn packed_text_mode_defaults_to_msdf_when_empty() {
+        let store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        assert_eq!(
+            packed_text_mode_f32(&store, lookup(1), &reg),
+            0.0,
+            "FrooxEngine default GlyphRenderMethod is MSDF"
+        );
+    }
+
+    #[test]
+    fn packed_text_mode_explicit_overrides_keywords() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let pid_tm = reg.intern("_TextMode");
+        let pid_msdf = reg.intern("MSDF");
+        store.set_material(1, pid_msdf, MaterialPropertyValue::Float(1.0));
+        store.set_material(1, pid_tm, MaterialPropertyValue::Float(1.0));
+        assert_eq!(packed_text_mode_f32(&store, lookup(1), &reg), 1.0);
+    }
+
+    #[test]
+    fn packed_text_mode_raster_from_keyword() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let pid = reg.intern("RASTER");
+        store.set_material(2, pid, MaterialPropertyValue::Float(1.0));
+        assert_eq!(packed_text_mode_f32(&store, lookup(2), &reg), 1.0);
+    }
+
+    #[test]
+    fn packed_rect_clip_from_rectclip_keyword() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let pid = reg.intern("RECTCLIP");
+        store.set_material(3, pid, MaterialPropertyValue::Float(1.0));
+        assert_eq!(packed_rect_clip_f32(&store, lookup(3), &reg), 1.0);
+    }
 }

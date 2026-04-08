@@ -1,23 +1,52 @@
 //! CPU layout for `shaders/source/modules/globals.wgsl` (`FrameGlobals` at `@group(0) @binding(0)`).
 
 use bytemuck::{Pod, Zeroable};
+use glam::Mat4;
 
-/// Uniform block matching WGSL `FrameGlobals` (32-byte size, 16-byte aligned).
+/// Uniform block matching WGSL `FrameGlobals` (64-byte size, 16-byte aligned).
+///
+/// Encodes camera position, coefficients for view-space Z from world position, clustered grid
+/// dimensions, clip planes, light count, and viewport size for clustered forward sampling.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct FrameGpuUniforms {
     /// World-space camera position (`.w` unused).
     pub camera_world_pos: [f32; 4],
-    /// Number of valid elements in the bound lights storage buffer.
+    /// World `vec4(x,y,z,1)` → view-space Z is `dot(xyz, world.xyz) + w` (third column of world-to-view).
+    pub view_space_z_coeffs: [f32; 4],
+    pub cluster_count_x: u32,
+    pub cluster_count_y: u32,
+    pub cluster_count_z: u32,
+    pub near_clip: f32,
+    pub far_clip: f32,
     pub light_count: u32,
-    pub _pad0: u32,
-    pub _pad1: u32,
-    pub _pad2: u32,
+    pub viewport_width: u32,
+    pub viewport_height: u32,
 }
 
 impl FrameGpuUniforms {
-    /// Builds frame uniforms from a camera world position and active light count.
-    pub fn new(camera_world_pos: glam::Vec3, light_count: u32) -> Self {
+    /// Coefficients so `dot(coeffs.xyz, world) + coeffs.w` yields view-space Z for a world point.
+    ///
+    /// Uses the third row of the column-major world-to-view matrix (`glam` column vectors).
+    pub fn view_space_z_coeffs_from_world_to_view(world_to_view: Mat4) -> [f32; 4] {
+        let m = world_to_view;
+        [m.x_axis.z, m.y_axis.z, m.z_axis.z, m.w_axis.z]
+    }
+
+    /// Builds per-frame uniforms for clustered forward and lighting.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_clustered(
+        camera_world_pos: glam::Vec3,
+        view_space_z_coeffs: [f32; 4],
+        cluster_count_x: u32,
+        cluster_count_y: u32,
+        cluster_count_z: u32,
+        near_clip: f32,
+        far_clip: f32,
+        light_count: u32,
+        viewport_width: u32,
+        viewport_height: u32,
+    ) -> Self {
         Self {
             camera_world_pos: [
                 camera_world_pos.x,
@@ -25,10 +54,15 @@ impl FrameGpuUniforms {
                 camera_world_pos.z,
                 0.0,
             ],
+            view_space_z_coeffs,
+            cluster_count_x,
+            cluster_count_y,
+            cluster_count_z,
+            near_clip,
+            far_clip,
             light_count,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
+            viewport_width,
+            viewport_height,
         }
     }
 }
@@ -38,7 +72,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frame_globals_size_32() {
-        assert_eq!(std::mem::size_of::<FrameGpuUniforms>(), 32);
+    fn frame_globals_size_64() {
+        assert_eq!(std::mem::size_of::<FrameGpuUniforms>(), 64);
+        assert_eq!(std::mem::size_of::<FrameGpuUniforms>() % 16, 0);
     }
 }

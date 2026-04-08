@@ -102,9 +102,33 @@ fn add_per_draw_module(composer: &mut Composer, per_draw_source: &str) {
         .unwrap_or_else(|e| panic!("add per_draw module: {e}"));
 }
 
+fn add_pbs_brdf_module(composer: &mut Composer, source: &str) {
+    composer
+        .add_composable_module(ComposableModuleDescriptor {
+            source,
+            file_path: "shaders/source/modules/pbs_brdf.wgsl",
+            language: ShaderLanguage::Wgsl,
+            ..Default::default()
+        })
+        .unwrap_or_else(|e| panic!("add pbs_brdf module: {e}"));
+}
+
+fn add_pbs_cluster_module(composer: &mut Composer, source: &str) {
+    composer
+        .add_composable_module(ComposableModuleDescriptor {
+            source,
+            file_path: "shaders/source/modules/pbs_cluster.wgsl",
+            language: ShaderLanguage::Wgsl,
+            ..Default::default()
+        })
+        .unwrap_or_else(|e| panic!("add pbs_cluster module: {e}"));
+}
+
 fn compose_material(
     globals_source: &str,
     per_draw_source: &str,
+    pbs_brdf_source: &str,
+    pbs_cluster_source: &str,
     material_source: &str,
     material_file_path: &str,
     shader_defs: HashMap<String, ShaderDefValue>,
@@ -112,6 +136,8 @@ fn compose_material(
     let mut composer = Composer::default().with_capabilities(Capabilities::all());
     add_globals_module(&mut composer, globals_source);
     add_per_draw_module(&mut composer, per_draw_source);
+    add_pbs_brdf_module(&mut composer, pbs_brdf_source);
+    add_pbs_cluster_module(&mut composer, pbs_cluster_source);
     composer
         .make_naga_module(NagaModuleDescriptor {
             source: material_source,
@@ -128,6 +154,8 @@ fn main() {
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let globals_path = manifest_dir.join("shaders/source/modules/globals.wgsl");
     let per_draw_path = manifest_dir.join("shaders/source/modules/per_draw.wgsl");
+    let pbs_brdf_path = manifest_dir.join("shaders/source/modules/pbs_brdf.wgsl");
+    let pbs_cluster_path = manifest_dir.join("shaders/source/modules/pbs_cluster.wgsl");
     let materials_dir = manifest_dir.join("shaders/source/materials");
     let target_dir = manifest_dir.join("shaders/target");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
@@ -142,6 +170,10 @@ fn main() {
         .unwrap_or_else(|e| panic!("read {}: {e}", globals_path.display()));
     let per_draw_source = fs::read_to_string(&per_draw_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", per_draw_path.display()));
+    let pbs_brdf_source = fs::read_to_string(&pbs_brdf_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", pbs_brdf_path.display()));
+    let pbs_cluster_source = fs::read_to_string(&pbs_cluster_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", pbs_cluster_path.display()));
 
     let mut embedded_arms = String::new();
     let mut output_stems: Vec<String> = Vec::new();
@@ -172,6 +204,8 @@ fn main() {
             let module = compose_material(
                 &globals_source,
                 &per_draw_source,
+                &pbs_brdf_source,
+                &pbs_cluster_source,
                 &material_source,
                 path.to_str().expect("utf8 path"),
                 defs,

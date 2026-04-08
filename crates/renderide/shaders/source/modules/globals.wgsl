@@ -1,8 +1,12 @@
 //! Shared per-frame bindings (`@group(0)`) for all raster materials.
 //! Import with `#import renderide::globals` from `source/materials/*.wgsl`.
 //!
-//! CPU packing must match [`crate::gpu::frame_globals::FrameGpuUniforms`] and
-//! [`crate::backend::light_gpu::GpuLight`].
+//! Composed materials must **reference** every binding below (e.g. a no-op `cluster_light_counts` /
+//! `cluster_light_indices` touch in the fragment shader if unused); the composer drops unused globals,
+//! which breaks the fixed [`FrameGpuResources`] bind group layout at pipeline creation.
+//!
+//! CPU packing must match [`crate::gpu::frame_globals::FrameGpuUniforms`],
+//! [`crate::backend::light_gpu::GpuLight`], and [`crate::backend::cluster_gpu`] cluster buffers.
 
 #define_import_path renderide::globals
 
@@ -25,13 +29,21 @@ struct GpuLight {
     align_pad_vec3_tail: vec3<u32>,
 }
 
+/// Per-frame scene + clustered grid (matches [`crate::gpu::frame_globals::FrameGpuUniforms`]).
 struct FrameGlobals {
     camera_world_pos: vec4<f32>,
+    view_space_z_coeffs: vec4<f32>,
+    cluster_count_x: u32,
+    cluster_count_y: u32,
+    cluster_count_z: u32,
+    near_clip: f32,
+    far_clip: f32,
     light_count: u32,
-    align_pad_frame_a: u32,
-    align_pad_frame_b: u32,
-    align_pad_frame_c: u32,
+    viewport_width: u32,
+    viewport_height: u32,
 }
 
 @group(0) @binding(0) var<uniform> frame: FrameGlobals;
 @group(0) @binding(1) var<storage, read> lights: array<GpuLight>;
+@group(0) @binding(2) var<storage, read> cluster_light_counts: array<u32>;
+@group(0) @binding(3) var<storage, read> cluster_light_indices: array<u32>;

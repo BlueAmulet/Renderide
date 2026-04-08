@@ -163,6 +163,11 @@ impl RenderBackend {
         self.frame_gpu.as_ref()
     }
 
+    /// Mutable frame globals (cluster resize, uniform upload).
+    pub fn frame_gpu_mut(&mut self) -> Option<&mut FrameGpuResources> {
+        self.frame_gpu.as_mut()
+    }
+
     /// Empty `@group(1)` bind group for shaders without per-material bindings.
     pub fn empty_material(&self) -> Option<&EmptyMaterialBindGroup> {
         self.empty_material.as_ref()

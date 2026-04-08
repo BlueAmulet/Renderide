@@ -55,8 +55,10 @@ pub use reverse_z_depth::{MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE};
 pub fn build_default_main_graph() -> Result<CompiledRenderGraph, GraphBuildError> {
     let mut builder = GraphBuilder::new();
     let deform = builder.add_pass(Box::new(passes::MeshDeformPass::new()));
+    let clustered = builder.add_pass(Box::new(passes::ClusteredLightPass::new()));
     let forward = builder.add_pass(Box::new(passes::WorldMeshForwardPass::new()));
-    builder.add_edge(deform, forward);
+    builder.add_edge(deform, clustered);
+    builder.add_edge(clustered, forward);
     builder.build()
 }
 
@@ -65,10 +67,10 @@ mod default_graph_tests {
     use super::*;
 
     #[test]
-    fn default_main_needs_surface_and_two_passes() {
+    fn default_main_needs_surface_and_three_passes() {
         let g = build_default_main_graph().expect("default graph");
         assert!(g.needs_surface_acquire());
-        assert_eq!(g.pass_count(), 2);
-        assert_eq!(g.compile_stats.topo_levels, 2);
+        assert_eq!(g.pass_count(), 3);
+        assert_eq!(g.compile_stats.topo_levels, 3);
     }
 }

@@ -58,7 +58,10 @@ pub use assets::material::{
     MaterialPropertyValue, ParseMaterialBatchOptions, PropertyIdRegistry,
 };
 pub use assets::resolve_shader_routing_name_from_upload;
-pub use backend::{order_lights_for_clustered_shading, GpuLight, RenderBackend, MAX_LIGHTS};
+pub use backend::{
+    order_lights_for_clustered_shading, ClusterBufferCache, GpuLight, RenderBackend,
+    CLUSTER_COUNT_Z, MAX_LIGHTS, MAX_LIGHTS_PER_TILE, TILE_SIZE,
+};
 pub use config::{
     load_renderer_settings, log_config_resolve_trace, resolve_save_path, save_renderer_settings,
     save_renderer_settings_from_load, settings_handle_from, ConfigLoadResult, ConfigResolveOutcome,
@@ -83,10 +86,10 @@ pub use materials::{
     MANIFEST_RASTER_FAMILY_ID,
 };
 pub use render_graph::{
-    build_default_main_graph, passes::MeshDeformPass, passes::SwapchainClearPass,
-    passes::WorldMeshForwardPass, CompileStats, CompiledRenderGraph, FrameRenderParams,
-    GraphBuildError, GraphBuilder, GraphExecuteError, HostCameraFrame, PassId, PassResources,
-    RenderPass, RenderPassContext, RenderPassError, ResourceSlot,
+    build_default_main_graph, passes::ClusteredLightPass, passes::MeshDeformPass,
+    passes::SwapchainClearPass, passes::WorldMeshForwardPass, CompileStats, CompiledRenderGraph,
+    FrameRenderParams, GraphBuildError, GraphBuilder, GraphExecuteError, HostCameraFrame, PassId,
+    PassResources, RenderPass, RenderPassContext, RenderPassError, ResourceSlot,
 };
 pub use resources::{
     GpuResource, GpuTexture2d, MeshPool, MeshResidencyMeta, NoopStreamingPolicy, ResidencyTier,

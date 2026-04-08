@@ -73,5 +73,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (rg::frame.light_count > 0u) {
         lit = rg::lights[0].light_type;
     }
-    return albedo + vec4<f32>(vec3<f32>(f32(lit) * 1e-10), 0.0);
+    let cluster_touch =
+        f32(rg::cluster_light_counts[0u] & 255u) * 1e-10 + f32(rg::cluster_light_indices[0u] & 255u) * 1e-10;
+    return albedo + vec4<f32>(vec3<f32>(f32(lit) * 1e-10 + cluster_touch), 0.0);
 }

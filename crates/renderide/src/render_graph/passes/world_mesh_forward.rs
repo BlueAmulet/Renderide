@@ -22,6 +22,8 @@ use std::num::NonZeroU32;
 use glam::Mat4;
 
 use crate::assets::material::MaterialDictionary;
+use crate::backend::{CLUSTER_COUNT_Z, TILE_SIZE};
+use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::gpu::{write_per_draw_uniform_slab, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE};
 use crate::materials::{
     MaterialPipelineDesc, MaterialRouter, DEBUG_WORLD_NORMALS_FAMILY_ID, MANIFEST_RASTER_FAMILY_ID,
@@ -60,7 +62,7 @@ impl RenderPass for WorldMeshForwardPass {
 
     fn resources(&self) -> PassResources {
         PassResources {
-            reads: Vec::new(),
+            reads: vec![ResourceSlot::ClusterBuffers, ResourceSlot::LightBuffer],
             writes: vec![ResourceSlot::Backbuffer, ResourceSlot::Depth],
         }
     }
@@ -250,8 +252,29 @@ impl RenderPass for WorldMeshForwardPass {
             queue.write_buffer(&dbg.per_draw_uniforms, 0, &slab_bytes);
         }
         let camera_world = hc.head_output_transform.col(3).truncate();
-        if let Some(fgpu) = backend.frame_gpu() {
-            fgpu.write_frame(queue, camera_world, &lights_for_frame);
+        let world_to_view = scene
+            .active_main_space()
+            .map(|s| view_matrix_from_render_transform(&s.view_transform))
+            .unwrap_or(Mat4::IDENTITY);
+        let z_coeffs = FrameGpuUniforms::view_space_z_coeffs_from_world_to_view(world_to_view);
+        let cluster_count_x = vw.div_ceil(TILE_SIZE);
+        let cluster_count_y = vh.div_ceil(TILE_SIZE);
+        let light_count_u = lights_for_frame.len().min(crate::backend::MAX_LIGHTS) as u32;
+        let uniforms = FrameGpuUniforms::new_clustered(
+            camera_world,
+            z_coeffs,
+            cluster_count_x,
+            cluster_count_y,
+            CLUSTER_COUNT_Z,
+            near,
+            far,
+            light_count_u,
+            vw.max(1),
+            vh.max(1),
+        );
+        if let Some(fgpu) = backend.frame_gpu_mut() {
+            fgpu.sync_cluster_viewport(ctx.device, (vw, vh));
+            fgpu.write_frame_uniform_and_lights(queue, &uniforms, &lights_for_frame);
         }
 
         let Some((frame_bg_arc, empty_bg_arc)) = backend.mesh_forward_frame_bind_groups() else {

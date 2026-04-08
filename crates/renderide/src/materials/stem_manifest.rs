@@ -65,6 +65,14 @@ mod tests {
     }
 
     #[test]
+    fn resolves_pbs_metallic_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSMetallic").as_deref(),
+            Some("pbsmetallic_default")
+        );
+    }
+
+    #[test]
     fn resolves_ui_textunlit_from_unity_asset_token() {
         assert_eq!(
             embedded_default_stem_for_unity_name("UI_TextUnlit").as_deref(),
