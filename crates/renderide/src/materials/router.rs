@@ -20,6 +20,8 @@ pub struct ShaderRouteEntry {
 #[derive(Debug)]
 pub struct MaterialRouter {
     routes: HashMap<i32, ShaderRouteEntry>,
+    /// Optional composed WGSL stem (`shaders/target/<stem>.wgsl`) when [`super::StemResolver`] matched a Unity name.
+    shader_stem: HashMap<i32, String>,
     /// Default when `routes` has no entry.
     pub fallback: MaterialFamilyId,
 }
@@ -29,6 +31,7 @@ impl MaterialRouter {
     pub fn new(fallback: MaterialFamilyId) -> Self {
         Self {
             routes: HashMap::new(),
+            shader_stem: HashMap::new(),
             fallback,
         }
     }
@@ -62,9 +65,25 @@ impl MaterialRouter {
             .unwrap_or(self.fallback)
     }
 
+    /// Records a target WGSL stem for `shader_asset_id` (from manifest Unity name resolution).
+    pub fn set_shader_stem(&mut self, shader_asset_id: i32, stem: String) {
+        self.shader_stem.insert(shader_asset_id, stem);
+    }
+
+    /// Clears [`Self::stem_for_shader_asset`] for `shader_asset_id`.
+    pub fn remove_shader_stem(&mut self, shader_asset_id: i32) {
+        self.shader_stem.remove(&shader_asset_id);
+    }
+
+    /// Composed material stem when the host shader name matched the embedded manifest.
+    pub fn stem_for_shader_asset(&self, shader_asset_id: i32) -> Option<&str> {
+        self.shader_stem.get(&shader_asset_id).map(String::as_str)
+    }
+
     /// Drops a host shader id mapping after [`crate::shared::ShaderUnload`].
     pub fn remove_shader_family(&mut self, shader_asset_id: i32) {
         self.routes.remove(&shader_asset_id);
+        self.shader_stem.remove(&shader_asset_id);
     }
 
     /// Returns the mapped family when the host id was registered via [`Self::set_shader_route`].
@@ -97,6 +116,19 @@ mod tests {
         r.remove_shader_family(7);
         assert_eq!(r.get_shader_family(7), None);
         assert_eq!(r.family_for_shader_asset(7), MaterialFamilyId(99));
+    }
+
+    #[test]
+    fn remove_shader_family_clears_stem() {
+        let mut r = MaterialRouter::new(MaterialFamilyId(99));
+        r.set_shader_route(1, SOLID_COLOR_FAMILY_ID, Some("x".to_string()));
+        r.set_shader_stem(1, "debug_world_normals_default".to_string());
+        assert_eq!(
+            r.stem_for_shader_asset(1),
+            Some("debug_world_normals_default")
+        );
+        r.remove_shader_family(1);
+        assert_eq!(r.stem_for_shader_asset(1), None);
     }
 
     #[test]

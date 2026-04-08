@@ -101,7 +101,8 @@ fn material_family_for_kind(kind: CoarseShaderKind, unity_name: Option<&str>) ->
     }
 }
 
-fn normalize_unity_shader_lookup_key(name: &str) -> String {
+/// Normalizes a Unity `Shader "…"` label or path for stable dictionary lookup (whitespace, `/` → `_`, lowercased).
+pub fn normalize_unity_shader_lookup_key(name: &str) -> String {
     let token = name.split_whitespace().next().unwrap_or(name).trim();
     token
         .chars()

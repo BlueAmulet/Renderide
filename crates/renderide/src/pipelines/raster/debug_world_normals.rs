@@ -1,9 +1,7 @@
 //! Debug mesh material: world-space normals as RGB (`shaders/target/debug_world_normals_*.wgsl`).
 
-use std::num::NonZeroU64;
-
 use crate::backend::{empty_material_bind_group_layout, FrameGpuResources};
-use crate::gpu::PER_DRAW_UNIFORM_STRIDE;
+use crate::materials::{reflect_raster_material_wgsl, validate_per_draw_group2};
 use crate::materials::{MaterialFamilyId, MaterialPipelineDesc, MaterialPipelineFamily};
 use crate::pipelines::ShaderPermutation;
 use crate::render_graph::MAIN_FORWARD_DEPTH_COMPARE;
@@ -14,29 +12,22 @@ pub const DEBUG_WORLD_NORMALS_FAMILY_ID: MaterialFamilyId = MaterialFamilyId(2);
 /// [`ShaderPermutation`] for multiview WGSL (`debug_world_normals_multiview` target stem).
 pub const SHADER_PERM_MULTIVIEW_STEREO: ShaderPermutation = ShaderPermutation(1);
 
-/// Minimum `min_binding_size` for the dynamic uniform binding (256-byte slots).
-fn per_draw_uniform_min_binding_size() -> NonZeroU64 {
-    NonZeroU64::new(PER_DRAW_UNIFORM_STRIDE as u64).expect("stride positive")
-}
-
 /// World-normal debug visualization for decomposed position/normal vertex streams.
 pub struct DebugWorldNormalsFamily;
 
 impl DebugWorldNormalsFamily {
     /// `@group(2)` dynamic uniform layout for [`crate::backend::DebugDrawResources`].
+    ///
+    /// Matches naga reflection of the embedded `debug_world_normals_default` target (same `@group(2)`
+    /// as the multiview variant).
     pub fn per_draw_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+        let wgsl = crate::embedded_shaders::embedded_target_wgsl("debug_world_normals_default")
+            .expect("embedded debug_world_normals_default");
+        let r = reflect_raster_material_wgsl(wgsl).expect("reflect per_draw layout");
+        validate_per_draw_group2(&r.per_draw_entries).expect("per_draw group2");
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("debug_world_normals_per_draw"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(per_draw_uniform_min_binding_size()),
-                },
-                count: None,
-            }],
+            entries: &r.per_draw_entries,
         })
     }
 
@@ -68,13 +59,29 @@ impl MaterialPipelineFamily for DebugWorldNormalsFamily {
         device: &wgpu::Device,
         module: &wgpu::ShaderModule,
         desc: &MaterialPipelineDesc,
+        wgsl_source: &str,
     ) -> wgpu::RenderPipeline {
+        let reflected = reflect_raster_material_wgsl(wgsl_source)
+            .expect("reflect debug_world_normals (must match frame globals + per-draw contract)");
+        validate_per_draw_group2(&reflected.per_draw_entries).expect("per_draw group2");
+
         let frame_bgl = FrameGpuResources::bind_group_layout(device);
-        let empty_mat_bgl = empty_material_bind_group_layout(device);
-        let per_draw_bgl = Self::per_draw_bind_group_layout(device);
+        let material_bgl = if reflected.material_entries.is_empty() {
+            empty_material_bind_group_layout(device)
+        } else {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("debug_world_normals_material_props"),
+                entries: &reflected.material_entries,
+            })
+        };
+        let per_draw_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("debug_world_normals_per_draw"),
+            entries: &reflected.per_draw_entries,
+        });
+
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("debug_world_normals_material"),
-            bind_group_layouts: &[Some(&frame_bgl), Some(&empty_mat_bgl), Some(&per_draw_bgl)],
+            bind_group_layouts: &[Some(&frame_bgl), Some(&material_bgl), Some(&per_draw_bgl)],
             immediate_size: 0,
         });
 

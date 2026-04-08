@@ -72,9 +72,10 @@ pub use frontend::RendererFrontend;
 pub use gpu::{FrameGpuUniforms, MeshPreprocessPipelines};
 pub use ipc::DualQueueIpc;
 pub use materials::{
-    compose_wgsl, resolve_raster_family, DebugWorldNormalsFamily, MaterialFamilyId,
-    MaterialPipelineCache, MaterialPipelineCacheKey, MaterialPipelineDesc, MaterialPipelineFamily,
-    MaterialPropertyGpuLayout, MaterialRegistry, MaterialRouter, SolidColorFamily, WgslPatch,
+    compose_wgsl, reflect_raster_material_wgsl, resolve_raster_family, DebugWorldNormalsFamily,
+    MaterialFamilyId, MaterialPipelineCache, MaterialPipelineCacheKey, MaterialPipelineDesc,
+    MaterialPipelineFamily, MaterialPropertyGpuLayout, MaterialRegistry, MaterialRouter,
+    ReflectError, ReflectedRasterLayout, SolidColorFamily, StemResolver, WgslPatch,
     DEBUG_WORLD_NORMALS_FAMILY_ID, SOLID_COLOR_FAMILY_ID,
 };
 pub use render_graph::{

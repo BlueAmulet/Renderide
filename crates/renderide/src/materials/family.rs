@@ -34,10 +34,14 @@ pub trait MaterialPipelineFamily: Send + Sync {
     fn build_wgsl(&self, permutation: ShaderPermutation) -> String;
 
     /// Compiles `module` into a raster pipeline for `desc` (layouts, targets, depth, MSAA).
+    ///
+    /// `wgsl_source` is the same string as [`Self::build_wgsl`]; reflective families use it with
+    /// [`super::reflect_raster_material_wgsl`] to derive bind group layouts.
     fn create_render_pipeline(
         &self,
         device: &wgpu::Device,
         module: &wgpu::ShaderModule,
         desc: &MaterialPipelineDesc,
+        wgsl_source: &str,
     ) -> wgpu::RenderPipeline;
 }

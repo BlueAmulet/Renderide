@@ -7,12 +7,15 @@ use std::sync::Arc;
 use crate::pipelines::ShaderPermutation;
 
 use super::family::{MaterialFamilyId, MaterialPipelineDesc, MaterialPipelineFamily};
+use super::wgsl_reflect::reflect_raster_material_wgsl;
 
 /// Key for [`MaterialPipelineCache`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct MaterialPipelineCacheKey {
     pub family_id: MaterialFamilyId,
     pub permutation: ShaderPermutation,
+    /// From [`super::reflect_raster_material_wgsl`] when the shader matches the frame-globals contract; `0` if reflection failed (e.g. no `@group(0)`).
+    pub layout_fingerprint: u64,
     pub surface_format: wgpu::TextureFormat,
     pub depth_stencil_format: Option<wgpu::TextureFormat>,
     pub sample_count: u32,
@@ -47,23 +50,27 @@ impl MaterialPipelineCache {
         desc: &MaterialPipelineDesc,
         permutation: ShaderPermutation,
     ) -> &wgpu::RenderPipeline {
+        let wgsl = family.build_wgsl(permutation);
+        let layout_fingerprint = reflect_raster_material_wgsl(&wgsl)
+            .map(|r| r.layout_fingerprint)
+            .unwrap_or(0);
         let key = MaterialPipelineCacheKey {
             family_id: family.family_id(),
             permutation,
+            layout_fingerprint,
             surface_format: desc.surface_format,
             depth_stencil_format: desc.depth_stencil_format,
             sample_count: desc.sample_count,
             multiview_mask: desc.multiview_mask,
         };
         self.pipelines.entry(key).or_insert_with(|| {
-            let wgsl = family.build_wgsl(permutation);
             let module = self
                 .device
                 .create_shader_module(wgpu::ShaderModuleDescriptor {
                     label: Some("material_family_shader"),
-                    source: wgpu::ShaderSource::Wgsl(wgsl.into()),
+                    source: wgpu::ShaderSource::Wgsl(wgsl.clone().into()),
                 });
-            family.create_render_pipeline(&self.device, &module, desc)
+            family.create_render_pipeline(&self.device, &module, desc, &wgsl)
         })
     }
 }

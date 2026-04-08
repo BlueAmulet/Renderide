@@ -35,6 +35,7 @@ impl MaterialPipelineFamily for SolidColorFamily {
         device: &wgpu::Device,
         module: &wgpu::ShaderModule,
         desc: &MaterialPipelineDesc,
+        _wgsl_source: &str,
     ) -> wgpu::RenderPipeline {
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("solid_color_material"),

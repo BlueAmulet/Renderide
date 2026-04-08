@@ -311,6 +311,8 @@ impl RenderPass for WorldMeshForwardPass {
             let _ = &item.lookup_ids;
 
             let dynamic_offset = (draw_idx * PER_DRAW_UNIFORM_STRIDE) as u32;
+            // Raster convention: @group(0) frame globals, @group(1) material properties (textures/uniforms),
+            // @group(2) per-draw dynamic uniform slab. Placeholder empty bind group at 1 until property uploads wire real layouts.
             rpass.set_bind_group(0, frame_bg_arc.as_ref(), &[]);
             rpass.set_bind_group(1, empty_bg_arc.as_ref(), &[]);
             rpass.set_bind_group(2, debug_bind_group, &[dynamic_offset]);
