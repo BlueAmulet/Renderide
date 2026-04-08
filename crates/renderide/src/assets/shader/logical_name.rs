@@ -5,8 +5,8 @@
 //! host-appended logical name after the stock payload, see [`crate::shared::shader_upload_extras::unpack_appended_shader_logical_name`]
 //! and [`resolve_logical_shader_name_from_upload_with_host_hint`].
 //!
-//! When `file` is a filesystem path to a Unity YAML asset, AssetBundle, serialized file, or a directory
-//! containing such files, [`super::unity_asset`] tries to extract the ShaderLab name via the `unity-asset` crate.
+//! When `file` is a filesystem path to an on-disk **Unity AssetBundle** (often extensionless) or a directory
+//! scanned for bundles, [`super::unity_asset`] resolves the shader stem from **`m_Container` only** (not ShaderLab inside serialized shaders).
 
 use crate::shared::ShaderUpload;
 
@@ -134,7 +134,7 @@ pub fn resolve_logical_shader_name_from_upload(data: &ShaderUpload) -> Option<St
 /// Resolution order:
 /// 1. Non-empty `host_hint` (trimmed).
 /// 2. Raw name from [`super::unity_asset::try_resolve_shader_name_from_path_hint_raw`] when `file` is an
-///    existing filesystem path to a Unity asset, bundle, or directory (AssetBundle container stem, etc.).
+///    existing filesystem path to an AssetBundle file or directory (container path stem from `m_Container` only).
 /// 3. Otherwise same sources as [`resolve_logical_shader_name_from_upload_inner`], then
 ///    [`canonical_shader_lab_logical_name`] on the result.
 pub fn resolve_shader_routing_name_from_upload(

@@ -2736,7 +2736,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "unity-asset",
- "unity-asset-binary",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
