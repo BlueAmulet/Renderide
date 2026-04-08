@@ -78,6 +78,8 @@ fn batch_key_for_slot(
     }
 }
 
+/// Expands one static mesh renderer into draw items (material slots × submeshes).
+#[allow(clippy::too_many_arguments)] // Single fan-out site; grouping would obscure the mesh pass.
 fn push_draws_for_renderer(
     out: &mut Vec<WorldMeshDrawItem>,
     scene: &SceneCoordinator,

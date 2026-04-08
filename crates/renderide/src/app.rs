@@ -363,7 +363,7 @@ impl RenderideApp {
             self.cached_head_pose =
                 crate::xr::headset_center_pose_from_stereo_views(tick.views.as_slice());
             if let (Some(v0), Some(v1), Some((ipc_p, ipc_q))) =
-                (tick.views.get(0), tick.views.get(1), self.cached_head_pose)
+                (tick.views.first(), tick.views.get(1), self.cached_head_pose)
             {
                 // Raw OpenXR view positions (what the renderer uses for view-projection)
                 let rp0 = &v0.pose.position;
@@ -506,7 +506,6 @@ impl RenderideApp {
                 })
                 .unwrap_or(glam::Mat4::IDENTITY);
             self.runtime.set_head_output_transform(world_from_tracking);
-            // views[0] = left, views[1] = right per OpenXR PRIMARY_STEREO spec -- xlinka 2026-04-07
             let l = crate::xr::view_projection_from_xr_view_aligned(
                 &views[0],
                 near,

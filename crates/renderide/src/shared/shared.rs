@@ -6337,7 +6337,7 @@ fn verify_blit_to_display_state_host_row_bytes_contract() {
     assert_eq!(packer.remaining_len(), 0, "pack must fill host row");
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 pub struct LODState {
     pub screen_relative_transition_height: f32,

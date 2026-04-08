@@ -18,17 +18,12 @@ use super::world::fixup_transform_id;
 const MATERIAL_RENDERER_TYPE_SHIFT: u32 = 30;
 const MATERIAL_RENDERER_ID_MASK: i32 = 0x3fff_ffff;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MeshRendererOverrideTarget {
     Static(i32),
     Skinned(i32),
+    #[default]
     Unknown,
-}
-
-impl Default for MeshRendererOverrideTarget {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

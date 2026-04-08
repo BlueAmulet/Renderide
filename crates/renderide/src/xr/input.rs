@@ -1,3 +1,5 @@
+#![allow(clippy::items_after_test_module)] // `mod tests` sits above helpers it exercises; keep file order stable.
+
 use glam::{Quat, Vec2, Vec3};
 use openxr as xr;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -86,10 +88,16 @@ fn index_pose_correction(side: Chirality, position: Vec3, rotation: Quat) -> (Ve
         Chirality::left => 90.0_f32,
         Chirality::right => -90.0_f32,
     };
-    (position, rotation * Quat::from_rotation_z(roll.to_radians()))
+    (
+        position,
+        rotation * Quat::from_rotation_z(roll.to_radians()),
+    )
 }
 
-fn bound_hand_pose_defaults(profile: ActiveControllerProfile, side: Chirality) -> (bool, Vec3, Quat) {
+fn bound_hand_pose_defaults(
+    profile: ActiveControllerProfile,
+    side: Chirality,
+) -> (bool, Vec3, Quat) {
     let generic_fix = unity_euler_deg(90.0, 90.0, 90.0).inverse();
     match (profile, side) {
         (ActiveControllerProfile::Touch, Chirality::left) => (
@@ -361,7 +369,11 @@ pub struct OpenxrInput {
     simple_controller_profile: xr::Path,
     left_profile_cache: AtomicU8,
     right_profile_cache: AtomicU8,
+    /// Kept alive for the OpenXR session; per-frame poses use the derived [`xr::Space`] handles.
+    #[allow(dead_code)]
     left_grip_pose: xr::Action<xr::Posef>,
+    /// Kept alive for the OpenXR session; per-frame poses use the derived [`xr::Space`] handles.
+    #[allow(dead_code)]
     right_grip_pose: xr::Action<xr::Posef>,
     left_trigger: xr::Action<f32>,
     right_trigger: xr::Action<f32>,
@@ -954,12 +966,8 @@ impl OpenxrInput {
         let right_profile = self.active_profile(session, self.right_user_path, Chirality::right);
         log_profile_transition(Chirality::left, left_profile);
         log_profile_transition(Chirality::right, right_profile);
-        let left_frame = resolve_controller_frame(
-            left_profile,
-            Chirality::left,
-            left_grip_pose,
-            left_aim_pose,
-        );
+        let left_frame =
+            resolve_controller_frame(left_profile, Chirality::left, left_grip_pose, left_aim_pose);
         let right_frame = resolve_controller_frame(
             right_profile,
             Chirality::right,

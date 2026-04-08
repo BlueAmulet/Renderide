@@ -501,8 +501,17 @@ mod tests {
             .world_matrix_for_render_context(id, 0, RenderingContext::user_view, head_output)
             .expect("render matrix");
         let t = world.col(3);
-        assert!((t.x - 9.0).abs() < 1e-4, "overlay x should follow head output");
-        assert!((t.y + 3.0).abs() < 1e-4, "overlay y should subtract space root");
-        assert!((t.z + 4.0).abs() < 1e-4, "overlay z should subtract space root");
+        assert!(
+            (t.x - 9.0).abs() < 1e-4,
+            "overlay x should follow head output"
+        );
+        assert!(
+            (t.y + 3.0).abs() < 1e-4,
+            "overlay y should subtract space root"
+        );
+        assert!(
+            (t.z + 4.0).abs() < 1e-4,
+            "overlay z should subtract space root"
+        );
     }
 }

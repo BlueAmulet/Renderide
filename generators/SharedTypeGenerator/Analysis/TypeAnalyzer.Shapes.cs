@@ -311,6 +311,16 @@ public partial class TypeAnalyzer
         bool isPod = type == typeof(Guid);
         bool shouldPack = type == typeof(Guid);
 
+        // Non-explicit C# structs still map to `#[repr(C)]` scalars in Rust. When every field is a
+        // plain scalar and classified as `Pod`, the layout matches `bytemuck::Pod` (same rule as
+        // blittable rows used for shared-memory copy helpers — e.g. `MaterialOverrideState`).
+        if (!isPod
+            && fieldDescriptors.Count > 0
+            && fieldDescriptors.All(f => f.Kind == FieldKind.Pod && IsPlainRustScalarLayoutType(f.RustType)))
+        {
+            isPod = true;
+        }
+
         List<SerializationStep> steps = [];
         if (shouldPack)
         {
@@ -331,6 +341,11 @@ public partial class TypeAnalyzer
             IsPod = isPod,
         };
     }
+
+    /// <summary>Returns true when <paramref name="rustType"/> is a single scalar field suitable for
+    /// `#[repr(C)]` layout without glam vectors (avoids SIMD padding mismatches vs. C#).</summary>
+    private static bool IsPlainRustScalarLayoutType(string rustType) =>
+        rustType is "i32" or "i64" or "u32" or "u64" or "u16" or "i16" or "u8" or "f32" or "f64";
 
     /// <summary>Recursively replaces CallBase steps with the inlined serialization
     /// steps from the base type's Pack method.</summary>

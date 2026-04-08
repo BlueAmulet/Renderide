@@ -1,15 +1,19 @@
 //! OpenXR session frame loop: wait, begin, locate views, end.
 //!
-//! OpenXR [`xr::Posef`] is documented as transforming **from the space’s local frame to the
-//! reference frame** (e.g. view pose in stage space). Renderide scene transforms currently stay in
-//! the host/Unity-style world basis, so XR poses are converted into that same basis first and only
-//! then inverted for the camera **view** matrix.
+//! OpenXR [`xr::Posef`] transforms **from the view-local frame to the reference (stage) frame**
+//! (right-handed, Y-up, −Z forward). Scene content and render-space rigs from the host use a
+//! Unity-style left-handed world basis for parity with FrooxEngine; [`openxr_pose_to_engine`] and
+//! [`openxr_pose_to_host_tracking`] apply the same RH→LH mapping used for IPC so HMD views and
+//! scene transforms share one world basis before [`crate::render_graph::apply_view_handedness_fix`]
+//! applies the clip-space Z handling for the mesh path.
 //!
 //! ## Stereo convention (runtime `views` order)
 //!
-//! Per spec, `PRIMARY_STEREO` guarantees `views[0]` = left eye, `views[1]` = right eye.
-//! [`headset_center_pose_from_stereo_views`] averages both for the center eye pose sent over IPC.
-//! IPC uses [`openxr_pose_to_host_tracking`] (OpenXR RH -> host/Unity LH).
+//! For the primary stereo view configuration (`PRIMARY_STEREO`), `views[0]` is the left eye and
+//! `views[1]` the right eye. [`headset_center_pose_from_stereo_views`] averages both for the
+//! center-eye pose sent over IPC via [`openxr_pose_to_host_tracking`].
+
+#![allow(clippy::items_after_test_module)] // `mod tests` precedes `tracking_space_to_world_matrix`; reorder in a follow-up.
 
 use glam::{Mat4, Quat, Vec3};
 use openxr as xr;
@@ -255,9 +259,9 @@ impl XrSessionState {
 
     /// Submits a stereo projection layer referencing the acquired swapchain image (`image_rect` in pixels).
     ///
-    /// spec guarantees views[0] = left, views[1] = right for PRIMARY_STEREO.
-    /// layer 0 / image_array_index 0 = left eye, layer 1 / index 1 = right eye.
-    /// multiview view_index in shader matches this ordering. -- xlinka 2026-04-07
+    /// For the primary stereo view configuration (`PRIMARY_STEREO`), `views[0]` is the left eye and
+    /// `views[1]` the right eye. Composition layer 0 / `image_array_index` 0 is the left eye, layer 1
+    /// / index 1 the right eye, matching multiview `view_index` in the stereo path.
     pub fn end_frame_projection(
         &mut self,
         predicted_display_time: xr::Time,
