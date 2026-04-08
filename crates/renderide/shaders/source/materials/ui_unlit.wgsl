@@ -11,17 +11,11 @@
 //! bit2 = rect clip using `_Rect` (xy = min, zw = size in object XY); bit3 = overlay tint stub
 //! (multiplies by `_OverlayTint.a` as a stand-in; no scene depth); bit4 = mask multiply alpha;
 //! bit5 = mask alpha clip vs `_Cutoff`. The manifest CPU path also sets bit0/bit1 from texture presence and `_Cutoff` when `_Flags` is absent.
+//!
+//! Per-draw uniforms (`@group(2)`) use [`renderide::per_draw`].
 
 #import renderide::globals as rg
-
-struct PerDrawUniforms {
-    view_proj_left: mat4x4<f32>,
-    view_proj_right: mat4x4<f32>,
-    model: mat4x4<f32>,
-    _pad: array<vec4<f32>, 4>,
-}
-
-@group(2) @binding(0) var<uniform> draw: PerDrawUniforms;
+#import renderide::per_draw as pd
 
 struct UiUnlitMaterial {
     _MainTex_ST: vec4<f32>,
@@ -56,42 +50,32 @@ struct VertexOutput {
     @location(1) obj_xy: vec2<f32>,
 }
 
-#ifdef MULTIVIEW
 @vertex
 fn vs_main(
+#ifdef MULTIVIEW
     @builtin(view_index) view_idx: u32,
+#endif
     @location(0) pos: vec4<f32>,
     @location(1) _n: vec4<f32>,
     @location(2) uv: vec2<f32>,
 ) -> VertexOutput {
-    let world_p = draw.model * vec4<f32>(pos.xyz, 1.0);
+    let world_p = pd::draw.model * vec4<f32>(pos.xyz, 1.0);
+#ifdef MULTIVIEW
     var vp: mat4x4<f32>;
     if (view_idx == 0u) {
-        vp = draw.view_proj_left;
+        vp = pd::draw.view_proj_left;
     } else {
-        vp = draw.view_proj_right;
+        vp = pd::draw.view_proj_right;
     }
+#else
+    let vp = pd::draw.view_proj_left;
+#endif
     var out: VertexOutput;
     out.clip_pos = vp * world_p;
     out.uv = uv;
     out.obj_xy = pos.xy;
     return out;
 }
-#else
-@vertex
-fn vs_main(
-    @location(0) pos: vec4<f32>,
-    @location(1) _n: vec4<f32>,
-    @location(2) uv: vec2<f32>,
-) -> VertexOutput {
-    let world_p = draw.model * vec4<f32>(pos.xyz, 1.0);
-    var out: VertexOutput;
-    out.clip_pos = draw.view_proj_left * world_p;
-    out.uv = uv;
-    out.obj_xy = pos.xy;
-    return out;
-}
-#endif
 
 fn uv_with_st(uv: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
     let uv_st = uv * st.xy + st.zw;

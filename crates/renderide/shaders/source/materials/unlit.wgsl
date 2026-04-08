@@ -4,17 +4,10 @@
 //! `@group(1)` identifiers match Unity material property names (`_Color`, `_Tex`, …) for host binding by reflection.
 //!
 //! Per-frame bindings (`@group(0)`) are imported from `globals.wgsl` so composed targets match the frame bind group layout used by the renderer.
+//! Per-draw uniforms (`@group(2)`) use [`renderide::per_draw`].
 
 #import renderide::globals as rg
-
-struct PerDrawUniforms {
-    view_proj_left: mat4x4<f32>,
-    view_proj_right: mat4x4<f32>,
-    model: mat4x4<f32>,
-    _pad: array<vec4<f32>, 4>,
-}
-
-@group(2) @binding(0) var<uniform> draw: PerDrawUniforms;
+#import renderide::per_draw as pd
 
 struct UnlitMaterial {
     _Color: vec4<f32>,
@@ -33,40 +26,31 @@ struct VertexOutput {
     @location(0) uv: vec2<f32>,
 }
 
-#ifdef MULTIVIEW
 @vertex
 fn vs_main(
+#ifdef MULTIVIEW
     @builtin(view_index) view_idx: u32,
+#endif
     @location(0) pos: vec4<f32>,
     @location(1) _n: vec4<f32>,
     @location(2) uv: vec2<f32>,
 ) -> VertexOutput {
-    let world_p = draw.model * vec4<f32>(pos.xyz, 1.0);
+    let world_p = pd::draw.model * vec4<f32>(pos.xyz, 1.0);
+#ifdef MULTIVIEW
     var vp: mat4x4<f32>;
     if (view_idx == 0u) {
-        vp = draw.view_proj_left;
+        vp = pd::draw.view_proj_left;
     } else {
-        vp = draw.view_proj_right;
+        vp = pd::draw.view_proj_right;
     }
+#else
+    let vp = pd::draw.view_proj_left;
+#endif
     var out: VertexOutput;
     out.clip_pos = vp * world_p;
     out.uv = uv;
     return out;
 }
-#else
-@vertex
-fn vs_main(
-    @location(0) pos: vec4<f32>,
-    @location(1) _n: vec4<f32>,
-    @location(2) uv: vec2<f32>,
-) -> VertexOutput {
-    let world_p = draw.model * vec4<f32>(pos.xyz, 1.0);
-    var out: VertexOutput;
-    out.clip_pos = draw.view_proj_left * world_p;
-    out.uv = uv;
-    return out;
-}
-#endif
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {

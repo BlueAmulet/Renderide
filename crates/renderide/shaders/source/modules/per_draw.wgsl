@@ -1,5 +1,6 @@
 //! Per-draw dynamic uniform slot (`@group(2)`) shared by mesh materials.
-//! Import with `#import renderide::per_draw` from `source/materials/*.wgsl`.
+//! Import with `#import renderide::per_draw as pd` from `source/materials/*.wgsl` and use `pd::draw`.
+//! Do not redeclare `@group(2)` or `draw` in material roots.
 //!
 //! CPU packing must match [`crate::gpu::PaddedPerDrawUniforms`].
 
@@ -12,4 +13,4 @@ struct PerDrawUniforms {
     _pad: array<vec4<f32>, 4>,
 }
 
-//! Bind `@group(2) @binding(0) var<uniform> draw: PerDrawUniforms;` in each material root.
+@group(2) @binding(0) var<uniform> draw: PerDrawUniforms;

@@ -4,7 +4,8 @@
 //! Material sources under `shaders/source/materials/*.wgsl` use a **manifest-free** convention: the
 //! file stem is the normalized Unity shader lookup key (e.g. `unlit` for `Shader "Unlit"`). Build
 //! **always** emits composed targets `{stem}_default` and `{stem}_multiview` for every material file;
-//! each source must implement `#ifdef MULTIVIEW` for `vs_main` / `fs_main` as documented below.
+//! each source must handle multiview (typically `#ifdef MULTIVIEW` around `@builtin(view_index)` and
+//! view-projection selection in a single `vs_main`, or separate `vs_main` blocks) as documented below.
 //!
 //! ## Multiview variants (`*_default` / `*_multiview`)
 //!
@@ -89,14 +90,27 @@ fn add_globals_module(composer: &mut Composer, globals_source: &str) {
         .unwrap_or_else(|e| panic!("add globals module: {e}"));
 }
 
+fn add_per_draw_module(composer: &mut Composer, per_draw_source: &str) {
+    composer
+        .add_composable_module(ComposableModuleDescriptor {
+            source: per_draw_source,
+            file_path: "shaders/source/modules/per_draw.wgsl",
+            language: ShaderLanguage::Wgsl,
+            ..Default::default()
+        })
+        .unwrap_or_else(|e| panic!("add per_draw module: {e}"));
+}
+
 fn compose_material(
     globals_source: &str,
+    per_draw_source: &str,
     material_source: &str,
     material_file_path: &str,
     shader_defs: HashMap<String, ShaderDefValue>,
 ) -> naga::Module {
     let mut composer = Composer::default().with_capabilities(Capabilities::all());
     add_globals_module(&mut composer, globals_source);
+    add_per_draw_module(&mut composer, per_draw_source);
     composer
         .make_naga_module(NagaModuleDescriptor {
             source: material_source,
@@ -112,6 +126,7 @@ fn main() {
     let manifest_dir =
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let globals_path = manifest_dir.join("shaders/source/modules/globals.wgsl");
+    let per_draw_path = manifest_dir.join("shaders/source/modules/per_draw.wgsl");
     let materials_dir = manifest_dir.join("shaders/source/materials");
     let target_dir = manifest_dir.join("shaders/target");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
@@ -124,6 +139,8 @@ fn main() {
 
     let globals_source = fs::read_to_string(&globals_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", globals_path.display()));
+    let per_draw_source = fs::read_to_string(&per_draw_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", per_draw_path.display()));
 
     let mut embedded_arms = String::new();
     let mut output_stems: Vec<String> = Vec::new();
@@ -153,6 +170,7 @@ fn main() {
             let defs = multiview_shader_defs(multiview);
             let module = compose_material(
                 &globals_source,
+                &per_draw_source,
                 &material_source,
                 path.to_str().expect("utf8 path"),
                 defs,

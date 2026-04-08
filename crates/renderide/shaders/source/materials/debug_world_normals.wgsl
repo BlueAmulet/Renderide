@@ -4,58 +4,41 @@
 //! - `debug_world_normals_default.wgsl` — `MULTIVIEW` off (single-view desktop)
 //! - `debug_world_normals_multiview.wgsl` — `MULTIVIEW` on (stereo `@builtin(view_index)`)
 //!
-//! [`PerDrawUniforms`] matches [`crate::gpu::PaddedPerDrawUniforms`].
+//! [`PerDrawUniforms`] lives in [`renderide::per_draw`].
 
 #import renderide::globals as rg
-
-struct PerDrawUniforms {
-    view_proj_left: mat4x4<f32>,
-    view_proj_right: mat4x4<f32>,
-    model: mat4x4<f32>,
-    _pad: array<vec4<f32>, 4>,
-}
-
-@group(2) @binding(0) var<uniform> draw: PerDrawUniforms;
+#import renderide::per_draw as pd
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) world_n: vec3<f32>,
 }
 
-#ifdef MULTIVIEW
 @vertex
 fn vs_main(
+#ifdef MULTIVIEW
     @builtin(view_index) view_idx: u32,
+#endif
     @location(0) pos: vec4<f32>,
     @location(1) normal: vec4<f32>,
 ) -> VertexOutput {
-    let world_p = draw.model * vec4<f32>(pos.xyz, 1.0);
-    let world_n = normalize((draw.model * vec4<f32>(normal.xyz, 0.0)).xyz);
+    let world_p = pd::draw.model * vec4<f32>(pos.xyz, 1.0);
+    let world_n = normalize((pd::draw.model * vec4<f32>(normal.xyz, 0.0)).xyz);
+#ifdef MULTIVIEW
     var vp: mat4x4<f32>;
     if (view_idx == 0u) {
-        vp = draw.view_proj_left;
+        vp = pd::draw.view_proj_left;
     } else {
-        vp = draw.view_proj_right;
+        vp = pd::draw.view_proj_right;
     }
+#else
+    let vp = pd::draw.view_proj_left;
+#endif
     var out: VertexOutput;
     out.clip_pos = vp * world_p;
     out.world_n = world_n;
     return out;
 }
-#else
-@vertex
-fn vs_main(
-    @location(0) pos: vec4<f32>,
-    @location(1) normal: vec4<f32>,
-) -> VertexOutput {
-    let world_p = draw.model * vec4<f32>(pos.xyz, 1.0);
-    let world_n = normalize((draw.model * vec4<f32>(normal.xyz, 0.0)).xyz);
-    var out: VertexOutput;
-    out.clip_pos = draw.view_proj_left * world_p;
-    out.world_n = world_n;
-    return out;
-}
-#endif
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
