@@ -32,9 +32,11 @@ struct MeshDeformSnapshot {
     num_blendshapes: u32,
     has_skeleton: bool,
     positions_buffer: Option<Arc<wgpu::Buffer>>,
+    normals_buffer: Option<Arc<wgpu::Buffer>>,
     blendshape_buffer: Option<Arc<wgpu::Buffer>>,
     deform_temp_buffer: Option<Arc<wgpu::Buffer>>,
     deformed_positions_buffer: Option<Arc<wgpu::Buffer>>,
+    deformed_normals_buffer: Option<Arc<wgpu::Buffer>>,
     bone_indices_buffer: Option<Arc<wgpu::Buffer>>,
     bone_weights_vec4_buffer: Option<Arc<wgpu::Buffer>>,
     skinning_bind_matrices: Vec<Mat4>,
@@ -47,9 +49,11 @@ impl MeshDeformSnapshot {
             num_blendshapes: m.num_blendshapes,
             has_skeleton: m.has_skeleton,
             positions_buffer: m.positions_buffer.clone(),
+            normals_buffer: m.normals_buffer.clone(),
             blendshape_buffer: m.blendshape_buffer.clone(),
             deform_temp_buffer: m.deform_temp_buffer.clone(),
             deformed_positions_buffer: m.deformed_positions_buffer.clone(),
+            deformed_normals_buffer: m.deformed_normals_buffer.clone(),
             bone_indices_buffer: m.bone_indices_buffer.clone(),
             bone_weights_vec4_buffer: m.bone_weights_vec4_buffer.clone(),
             skinning_bind_matrices: m.skinning_bind_matrices.clone(),
@@ -195,6 +199,8 @@ fn record_mesh_deform(
     let needs_skin = bone_transform_indices.is_some()
         && mesh.has_skeleton
         && mesh.deformed_positions_buffer.is_some()
+        && mesh.deformed_normals_buffer.is_some()
+        && mesh.normals_buffer.is_some()
         && mesh.bone_indices_buffer.is_some()
         && mesh.bone_weights_vec4_buffer.is_some()
         && !mesh.skinning_bind_matrices.is_empty();
@@ -323,6 +329,12 @@ fn record_mesh_deform(
         let Some(ref dst) = mesh.deformed_positions_buffer else {
             return;
         };
+        let Some(ref dst_n) = mesh.deformed_normals_buffer else {
+            return;
+        };
+        let Some(ref src_n) = mesh.normals_buffer else {
+            return;
+        };
         let Some(ref bone_idx) = mesh.bone_indices_buffer else {
             return;
         };
@@ -410,6 +422,14 @@ fn record_mesh_deform(
                     binding: 4,
                     resource: dst.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: src_n.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: dst_n.as_entire_binding(),
+                },
             ],
         });
 
@@ -449,7 +469,7 @@ fn build_blend_params(
 
 #[cfg(test)]
 mod palette_tests {
-    use glam::{Mat4, Vec3};
+    use glam::{Mat3, Mat4, Vec3};
 
     #[test]
     fn palette_is_world_times_bind() {
@@ -458,5 +478,13 @@ mod palette_tests {
         let pal = world * bind;
         let expected = world * bind;
         assert!(pal.abs_diff_eq(expected, 1e-5));
+    }
+
+    /// Matches WGSL `transpose(inverse(mat3_linear(M)))` for rigid rotations: equals the linear part.
+    #[test]
+    fn normal_matrix_inverse_transpose_is_rotation_for_orthogonal() {
+        let m3 = Mat3::from_axis_angle(Vec3::Z, 1.15);
+        let inv_t = m3.inverse().transpose();
+        assert!(inv_t.abs_diff_eq(m3, 1e-5));
     }
 }

@@ -408,7 +408,7 @@ fn draw_mesh_submesh(
     if !mesh.debug_streams_ready() {
         return;
     }
-    let Some(normals) = mesh.normals_buffer.as_deref() else {
+    let Some(normals_bind) = mesh.normals_buffer.as_deref() else {
         return;
     };
 
@@ -426,8 +426,16 @@ fn draw_mesh_submesh(
         return;
     };
 
+    let normals_vb = if use_deformed {
+        mesh.deformed_normals_buffer
+            .as_deref()
+            .unwrap_or(normals_bind)
+    } else {
+        normals_bind
+    };
+
     rpass.set_vertex_buffer(0, pos.slice(..));
-    rpass.set_vertex_buffer(1, normals.slice(..));
+    rpass.set_vertex_buffer(1, normals_vb.slice(..));
     if manifest_uv {
         let Some(uv) = mesh.uv0_buffer.as_deref() else {
             return;

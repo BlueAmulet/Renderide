@@ -48,13 +48,16 @@ pub struct GpuMesh {
     pub num_blendshapes: u32,
     /// Decomposed position stream (`vec4<f32>` per vertex) for compute + debug raster.
     pub positions_buffer: Option<Arc<wgpu::Buffer>>,
-    /// Bind-pose normal stream (`vec4<f32>` per vertex; xyz used). Not yet deformed by the skinning
-    /// compute pass; debug shading uses this as a static hint until a normals/tangents skinning path exists.
+    /// Bind-pose normal stream (`vec4<f32>` per vertex; xyz used). Serves as the skinning compute
+    /// input; the forward pass binds [`Self::deformed_normals_buffer`] when skinning is active.
     pub normals_buffer: Option<Arc<wgpu::Buffer>>,
     /// Blendshape output and/or skinning input ping buffer (`vec4<f32>` per vertex).
     pub deform_temp_buffer: Option<Arc<wgpu::Buffer>>,
     /// Skinning output positions (`vec4<f32>` per vertex).
     pub deformed_positions_buffer: Option<Arc<wgpu::Buffer>>,
+    /// Skinning output normals in world space (`vec4<f32>` per vertex; xyz used), inverse-transpose
+    /// LBS of bind-pose normals. Present when [`Self::has_skeleton`].
+    pub deformed_normals_buffer: Option<Arc<wgpu::Buffer>>,
     /// `vec2<f32>` UV0 stream (`8` bytes/vertex) for manifest raster materials; zeros when uv0 is absent.
     pub uv0_buffer: Option<Arc<wgpu::Buffer>>,
     /// True when the host uploaded a real skeleton (`bone_count > 0`).
@@ -330,16 +333,23 @@ impl GpuMesh {
             None
         };
 
-        let deformed_positions_buffer = if needs_skin_compute {
+        let (deformed_positions_buffer, deformed_normals_buffer) = if needs_skin_compute {
             let len = (data.vertex_count.max(0) as u64).saturating_mul(16).max(16);
-            Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
+            let pos = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(&format!("mesh {} deformed_positions", data.asset_id)),
                 size: len,
                 usage: deform_usage,
                 mapped_at_creation: false,
-            })))
+            })));
+            let nrm = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("mesh {} deformed_normals", data.asset_id)),
+                size: len,
+                usage: deform_usage,
+                mapped_at_creation: false,
+            })));
+            (pos, nrm)
         } else {
-            None
+            (None, None)
         };
 
         let submeshes = validated_submesh_ranges(&data.submeshes, index_count_u32);
@@ -372,6 +382,9 @@ impl GpuMesh {
         if let Some(ref b) = deformed_positions_buffer {
             resident_bytes += b.size();
         }
+        if let Some(ref b) = deformed_normals_buffer {
+            resident_bytes += b.size();
+        }
         if let Some(ref b) = uv0_buffer {
             resident_bytes += b.size();
         }
@@ -396,6 +409,7 @@ impl GpuMesh {
             normals_buffer,
             deform_temp_buffer,
             deformed_positions_buffer,
+            deformed_normals_buffer,
             uv0_buffer,
             has_skeleton,
             skinning_bind_matrices,

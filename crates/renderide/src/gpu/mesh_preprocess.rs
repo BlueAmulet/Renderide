@@ -38,6 +38,8 @@ fn skinning_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
             storage_buffer_entry(2, true),
             storage_buffer_entry(3, true),
             storage_buffer_entry(4, false),
+            storage_buffer_entry(5, true),
+            storage_buffer_entry(6, false),
         ],
     })
 }
