@@ -1,8 +1,8 @@
 //! `@group(1)` bind groups for manifest raster materials ([`crate::materials::MANIFEST_RASTER_FAMILY_ID`]).
 //!
 //! Layouts and uniform packing come from [`crate::materials::reflect_raster_material_wgsl`] (naga).
-//! Host property names (`_Tex`, …) are mapped via [`crate::materials::stem_manifest::ShaderManifestMaterialEntry::material_properties`]
-//! embedded in `shaders/target/manifest.json` — the only bridge WGSL cannot supply.
+//! WGSL identifiers in `@group(1)` match Unity [`MaterialPropertyBlock`](https://docs.unity3d.com/ScriptReference/MaterialPropertyBlock.html)
+//! names; [`crate::assets::material::PropertyIdRegistry`] resolves them to batch property ids.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -16,8 +16,8 @@ use crate::assets::material::{
 use crate::assets::texture::texture2d_asset_id_from_packed;
 use crate::embedded_shaders;
 use crate::materials::{
-    reflect_raster_material_wgsl, MaterialPropertyBindingSpec, ReflectedRasterLayout,
-    ReflectedUniformField, ShaderManifest, ShaderManifestMaterialEntry, UniformDerivedRule,
+    reflect_raster_material_wgsl, ReflectedRasterLayout, ReflectedUniformField,
+    ReflectedUniformScalarKind,
 };
 use crate::resources::{Texture2dSamplerState, TexturePool};
 
@@ -27,18 +27,16 @@ pub struct ManifestMaterialBindResources {
     white_texture: Arc<wgpu::Texture>,
     white_texture_view: Arc<wgpu::TextureView>,
     default_sampler: Arc<wgpu::Sampler>,
-    /// Host property names from all manifest `material_properties` keys → interned ids.
-    property_name_to_id: HashMap<String, i32>,
+    property_registry: Arc<PropertyIdRegistry>,
     stem_cache: RefCell<HashMap<String, Arc<StemMaterialLayout>>>,
     bind_cache: RefCell<HashMap<MaterialBindCacheKey, Arc<wgpu::BindGroup>>>,
     uniform_cache: RefCell<HashMap<MaterialUniformCacheKey, Arc<wgpu::Buffer>>>,
 }
 
-/// Cached reflection + manifest row for one composed stem.
+/// Cached reflection for one composed stem.
 struct StemMaterialLayout {
     bind_group_layout: wgpu::BindGroupLayout,
     reflected: ReflectedRasterLayout,
-    manifest: ShaderManifestMaterialEntry,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -67,20 +65,11 @@ fn stem_hash(stem: &str) -> u64 {
 }
 
 impl ManifestMaterialBindResources {
-    /// Builds layouts and placeholder texture; interns all manifest `material_properties` keys on `property_registry`.
+    /// Builds layouts and placeholder texture.
     pub fn new(
         device: Arc<wgpu::Device>,
-        property_registry: &PropertyIdRegistry,
+        property_registry: Arc<PropertyIdRegistry>,
     ) -> Result<Self, String> {
-        let manifest = ShaderManifest::from_embedded_json();
-        let mut property_name_to_id: HashMap<String, i32> = HashMap::new();
-        for entry in &manifest.materials {
-            for name in entry.material_properties.keys() {
-                let id = property_registry.intern(name);
-                property_name_to_id.insert(name.clone(), id);
-            }
-        }
-
         let white_texture = Arc::new(device.create_texture(&wgpu::TextureDescriptor {
             label: Some("manifest_default_white"),
             size: wgpu::Extent3d {
@@ -113,7 +102,7 @@ impl ManifestMaterialBindResources {
             white_texture,
             white_texture_view,
             default_sampler,
-            property_name_to_id,
+            property_registry,
             stem_cache: RefCell::new(HashMap::new()),
             bind_cache: RefCell::new(HashMap::new()),
             uniform_cache: RefCell::new(HashMap::new()),
@@ -143,7 +132,16 @@ impl ManifestMaterialBindResources {
         );
     }
 
-    /// Returns or builds a `@group(1)` bind group for the composed manifest `stem` (e.g. `world_unlit_default`).
+    /// `true` when `vs_main` uses `@location(2)` or higher (UV0 stream expected), from reflection.
+    pub fn stem_uses_uv0_stream(&self, stem: &str) -> bool {
+        self.stem_layout(stem)
+            .ok()
+            .and_then(|l| l.reflected.vs_max_vertex_location)
+            .map(|m| m >= 2)
+            .unwrap_or(false)
+    }
+
+    /// Returns or builds a `@group(1)` bind group for the composed manifest `stem` (e.g. `unlit_default`).
     pub fn manifest_material_bind_group(
         &self,
         stem: &str,
@@ -156,10 +154,10 @@ impl ManifestMaterialBindResources {
         let sh = stem_hash(stem);
 
         let texture_2d_asset_id = primary_texture_2d_asset_id(
-            &layout.manifest.material_properties,
+            &layout.reflected,
             store,
             lookup,
-            &self.property_name_to_id,
+            self.property_registry.as_ref(),
         );
         let texture_gpu_resident =
             texture_2d_asset_id >= 0 && texture_pool.get_texture(texture_2d_asset_id).is_some();
@@ -218,14 +216,13 @@ impl ManifestMaterialBindResources {
                 } => {}
                 wgpu::BindingType::Texture { .. } => {
                     let host_name = layout
-                        .manifest
-                        .material_properties
-                        .iter()
-                        .find(|(_, spec)| {
-                            matches!(spec, MaterialPropertyBindingSpec::Texture { binding: tb } if *tb == b)
-                        })
-                        .map(|(k, _)| k.as_str())
-                        .ok_or_else(|| format!("manifest: no texture property for @binding({b})"))?;
+                        .reflected
+                        .material_group1_names
+                        .get(&b)
+                        .map(String::as_str)
+                        .ok_or_else(|| {
+                            format!("reflection: no WGSL name for texture @binding({b})")
+                        })?;
                     let tex_view = self
                         .resolve_texture_view_for_host(
                             host_name,
@@ -238,10 +235,14 @@ impl ManifestMaterialBindResources {
                     keepalive_views.push(tex_view);
                 }
                 wgpu::BindingType::Sampler(_) => {
-                    let tex_binding = b.saturating_sub(1);
-                    let host_name = host_for_texture_binding(&layout.manifest, tex_binding)
+                    let tex_binding = sampler_pairs_texture_binding(b);
+                    let host_name = layout
+                        .reflected
+                        .material_group1_names
+                        .get(&tex_binding)
+                        .map(String::as_str)
                         .ok_or_else(|| {
-                            format!("manifest: no texture host for sampler @binding({b})")
+                            format!("reflection: no texture global for sampler @binding({b})")
                         })?;
                     let sampler = self.resolve_sampler_for_host(
                         host_name,
@@ -315,18 +316,10 @@ impl ManifestMaterialBindResources {
             return Ok(s.clone());
         }
 
-        let manifest = ShaderManifest::from_embedded_json();
-        let entry = manifest
-            .entry_for_stem(stem)
-            .ok_or_else(|| format!("manifest has no entry for stem {stem}"))?
-            .clone();
-
         let wgsl = embedded_shaders::embedded_target_wgsl(stem)
             .ok_or_else(|| format!("embedded WGSL missing for stem {stem}"))?;
         let reflected =
             reflect_raster_material_wgsl(wgsl).map_err(|e| format!("reflect {stem}: {e}"))?;
-
-        validate_manifest_against_reflection(&entry, &reflected)?;
 
         let bind_group_layout =
             self.device
@@ -338,7 +331,6 @@ impl ManifestMaterialBindResources {
         let layout = Arc::new(StemMaterialLayout {
             bind_group_layout,
             reflected,
-            manifest: entry,
         });
         cache.insert(stem.to_string(), layout.clone());
         Ok(layout)
@@ -355,51 +347,40 @@ impl ManifestMaterialBindResources {
         let mut buf = vec![0u8; u.total_size as usize];
 
         let mut cutoff = 0.5f32;
-        for (host_name, spec) in layout.manifest.material_properties.iter() {
-            let Some(pid) = self.property_name_to_id.get(host_name).copied() else {
-                continue;
-            };
-            match spec {
-                MaterialPropertyBindingSpec::Float4 { uniform_field } => {
-                    let Some(field) = u.fields.get(uniform_field.as_str()) else {
-                        continue;
-                    };
+        for (field_name, field) in &u.fields {
+            let pid = self.property_registry.intern(field_name);
+            match field.kind {
+                ReflectedUniformScalarKind::Vec4 => {
                     let mut v = [1.0f32, 1.0, 1.0, 1.0];
                     if let Some(MaterialPropertyValue::Float4(c)) = store.get_merged(lookup, pid) {
                         v = *c;
                     }
                     write_f32x4_at(&mut buf, field, &v);
                 }
-                MaterialPropertyBindingSpec::Float { uniform_field } => {
-                    let Some(field) = u.fields.get(uniform_field.as_str()) else {
-                        continue;
-                    };
+                ReflectedUniformScalarKind::F32 => {
                     let mut v = 0.5f32;
                     if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, pid) {
                         v = *f;
                     }
-                    if uniform_field == "cutoff" {
+                    if field_name == "_Cutoff" {
                         cutoff = v;
                     }
                     write_f32_at(&mut buf, field, v);
                 }
-                MaterialPropertyBindingSpec::Texture { .. } => {}
-            }
-        }
-
-        if let Some(UniformDerivedRule::UnlitFlags) = layout.manifest.uniform_derived {
-            if let Some(flags_field) = u.fields.get("flags") {
-                let mut flags = 0u32;
-                if texture_2d_for_key >= 0 {
-                    flags |= 1u32;
+                ReflectedUniformScalarKind::U32 => {
+                    if field_name == "flags" {
+                        let flags = pack_flags_u32(
+                            field_name,
+                            store,
+                            lookup,
+                            self.property_registry.as_ref(),
+                            texture_2d_for_key,
+                            cutoff,
+                        );
+                        write_u32_at(&mut buf, field, flags);
+                    }
                 }
-                if cutoff > 0.0 && cutoff < 1.0 {
-                    flags |= 2u32;
-                }
-                let off = flags_field.offset as usize;
-                if off + 4 <= buf.len() && flags_field.size >= 4 {
-                    buf[off..off + 4].copy_from_slice(&flags.to_le_bytes());
-                }
+                ReflectedUniformScalarKind::Unsupported => {}
             }
         }
 
@@ -414,7 +395,7 @@ impl ManifestMaterialBindResources {
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
     ) -> Option<Arc<wgpu::TextureView>> {
-        let pid = *self.property_name_to_id.get(host_name)?;
+        let pid = self.property_registry.intern(host_name);
         let tid = match store.get_merged(lookup, pid) {
             Some(MaterialPropertyValue::Texture(packed)) => {
                 texture2d_asset_id_from_packed(*packed).unwrap_or(-1)
@@ -433,14 +414,12 @@ impl ManifestMaterialBindResources {
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
     ) -> Arc<wgpu::Sampler> {
-        let tid = self
-            .property_name_to_id
-            .get(host_name)
-            .and_then(|pid| {
-                store.get_merged(lookup, *pid).and_then(|v| match v {
-                    MaterialPropertyValue::Texture(p) => texture2d_asset_id_from_packed(*p),
-                    _ => None,
-                })
+        let pid = self.property_registry.intern(host_name);
+        let tid = store
+            .get_merged(lookup, pid)
+            .and_then(|v| match v {
+                MaterialPropertyValue::Texture(p) => texture2d_asset_id_from_packed(*p),
+                _ => None,
             })
             .unwrap_or(primary_texture_2d);
         self.resolve_sampler(texture_pool, tid)
@@ -474,65 +453,58 @@ impl ManifestMaterialBindResources {
     }
 }
 
-fn host_for_texture_binding(manifest: &ShaderManifestMaterialEntry, binding: u32) -> Option<&str> {
-    manifest.material_properties.iter().find_map(|(k, spec)| {
-        if let MaterialPropertyBindingSpec::Texture { binding: tb } = spec {
-            (*tb == binding).then_some(k.as_str())
-        } else {
-            None
-        }
-    })
+fn sampler_pairs_texture_binding(sampler_binding: u32) -> u32 {
+    sampler_binding.saturating_sub(1)
 }
 
 fn primary_texture_2d_asset_id(
-    props: &std::collections::HashMap<String, MaterialPropertyBindingSpec>,
+    reflected: &ReflectedRasterLayout,
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
-    name_to_id: &HashMap<String, i32>,
+    property_registry: &PropertyIdRegistry,
 ) -> i32 {
-    for (host_name, spec) in props {
-        if let MaterialPropertyBindingSpec::Texture { .. } = spec {
-            if let Some(pid) = name_to_id.get(host_name) {
-                if let Some(MaterialPropertyValue::Texture(packed)) = store.get_merged(lookup, *pid)
-                {
-                    return texture2d_asset_id_from_packed(*packed).unwrap_or(-1);
-                }
+    for entry in &reflected.material_entries {
+        if matches!(entry.ty, wgpu::BindingType::Texture { .. }) {
+            let Some(name) = reflected.material_group1_names.get(&entry.binding) else {
+                continue;
+            };
+            let pid = property_registry.intern(name);
+            if let Some(MaterialPropertyValue::Texture(packed)) = store.get_merged(lookup, pid) {
+                return texture2d_asset_id_from_packed(*packed).unwrap_or(-1);
             }
         }
     }
     -1
 }
 
-fn validate_manifest_against_reflection(
-    entry: &ShaderManifestMaterialEntry,
-    reflected: &ReflectedRasterLayout,
-) -> Result<(), String> {
-    let Some(u) = reflected.material_uniform.as_ref() else {
-        if entry.material_properties.is_empty() {
-            return Ok(());
-        }
-        return Err("manifest lists material_properties but shader has no uniform block".into());
-    };
-    for (host, spec) in &entry.material_properties {
-        match spec {
-            MaterialPropertyBindingSpec::Float4 { uniform_field }
-            | MaterialPropertyBindingSpec::Float { uniform_field } => {
-                if !u.fields.contains_key(uniform_field.as_str()) {
-                    return Err(format!(
-                        "manifest property {host}: uniform_field {uniform_field} not in reflected struct"
-                    ));
-                }
-            }
-            MaterialPropertyBindingSpec::Texture { binding: tb } => {
-                if !reflected.material_entries.iter().any(|e| e.binding == *tb) {
-                    return Err(format!(
-                        "manifest property {host}: texture binding {tb} not in reflected layout"
-                    ));
-                }
-            }
+/// Packs `flags` from `_Flags` when present; otherwise derives texture + alpha-test bits by convention.
+fn pack_flags_u32(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    property_registry: &PropertyIdRegistry,
+    texture_2d_for_key: i32,
+    cutoff: f32,
+) -> u32 {
+    if field_name != "flags" {
+        return 0;
+    }
+    let flags_pid = property_registry.intern("_Flags");
+    if let Some(v) = store.get_merged(lookup, flags_pid) {
+        match v {
+            MaterialPropertyValue::Float(f) => return (*f).max(0.0) as u32,
+            MaterialPropertyValue::Float4(a) => return a[0].max(0.0) as u32,
+            _ => {}
         }
     }
-    Ok(())
+    let mut flags = 0u32;
+    if texture_2d_for_key >= 0 {
+        flags |= 1u32;
+    }
+    if cutoff > 0.0 && cutoff < 1.0 {
+        flags |= 2u32;
+    }
+    flags
 }
 
 fn write_f32_at(buf: &mut [u8], field: &ReflectedUniformField, v: f32) {
@@ -549,6 +521,13 @@ fn write_f32x4_at(buf: &mut [u8], field: &ReflectedUniformField, v: &[f32; 4]) {
             let o = off + i * 4;
             buf[o..o + 4].copy_from_slice(&c.to_le_bytes());
         }
+    }
+}
+
+fn write_u32_at(buf: &mut [u8], field: &ReflectedUniformField, v: u32) {
+    let off = field.offset as usize;
+    if off + 4 <= buf.len() && field.size >= 4 {
+        buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
     }
 }
 

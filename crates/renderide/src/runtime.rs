@@ -460,7 +460,7 @@ impl RendererRuntime {
             }
             RendererCommand::material_property_id_request(req) => {
                 let property_ids: Vec<i32> = {
-                    let reg = self.backend.property_id_registry_mut();
+                    let reg = self.backend.property_id_registry();
                     req.property_names
                         .iter()
                         .map(|n| reg.intern_for_host_request(n.as_deref().unwrap_or("")))

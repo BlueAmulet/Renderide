@@ -11,13 +11,27 @@ use naga::front::wgsl::parse_str;
 use naga::proc::Layouter;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 use naga::{
-    AddressSpace, ArraySize, ImageClass, ImageDimension, ScalarKind, StorageAccess, TypeInner,
+    AddressSpace, ArraySize, Binding, ImageClass, ImageDimension, ScalarKind, ShaderStage,
+    StorageAccess, TypeInner, VectorSize,
 };
 use thiserror::Error;
 
 use crate::backend::GpuLight;
 use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::gpu::PER_DRAW_UNIFORM_STRIDE;
+
+/// Scalar shape of a named uniform struct member (for CPU packing from host properties).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReflectedUniformScalarKind {
+    /// Single `f32`.
+    F32,
+    /// `vec4<f32>` (or equivalent 16-byte float vector).
+    Vec4,
+    /// Single `u32` (e.g. shader `flags`).
+    U32,
+    /// Not mapped automatically (padding or unsupported type).
+    Unsupported,
+}
 
 /// Byte layout of one field inside a `@group(1)` `var<uniform>` struct (from naga struct member offsets).
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,6 +40,8 @@ pub struct ReflectedUniformField {
     pub offset: u32,
     /// Size in bytes (`Layouter` type size).
     pub size: u32,
+    /// Host packing strategy for this member.
+    pub kind: ReflectedUniformScalarKind,
 }
 
 /// Uniform block at `@group(1)` (typically `@binding(0)`) used for material constants.
@@ -50,6 +66,10 @@ pub struct ReflectedRasterLayout {
     pub per_draw_entries: Vec<wgpu::BindGroupLayoutEntry>,
     /// First `var<uniform>` in `@group(1)` with a struct body, if any (for CPU packing without hand-written `#[repr(C)]` structs).
     pub material_uniform: Option<ReflectedMaterialUniformBlock>,
+    /// `@group(1)` `@binding` → WGSL global identifier (matches Unity host property names where applicable).
+    pub material_group1_names: HashMap<u32, String>,
+    /// Highest `@location` index on `vs_main` vertex inputs (excluding builtins); `>= 2` implies a UV stream at `location(2)`.
+    pub vs_max_vertex_location: Option<u32>,
 }
 
 /// Errors from [`reflect_raster_material_wgsl`].
@@ -125,15 +145,81 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
     let per_draw_entries: Vec<_> = g2.into_values().collect();
 
     let material_uniform = reflect_first_group1_uniform_struct(&module, &layouter);
+    let material_group1_names = reflect_group1_global_binding_names(&module);
+    let vs_max_vertex_location = reflect_vs_main_max_vertex_location(&module);
 
-    let layout_fingerprint = fingerprint_layout(&material_entries, &per_draw_entries);
+    let layout_fingerprint = fingerprint_layout(
+        &material_entries,
+        &per_draw_entries,
+        vs_max_vertex_location,
+        &material_group1_names,
+    );
 
     Ok(ReflectedRasterLayout {
         layout_fingerprint,
         material_entries,
         per_draw_entries,
         material_uniform,
+        material_group1_names,
+        vs_max_vertex_location,
     })
+}
+
+fn reflect_group1_global_binding_names(module: &naga::Module) -> HashMap<u32, String> {
+    let mut out = HashMap::new();
+    for (_, gv) in module.global_variables.iter() {
+        let Some(rb) = gv.binding else {
+            continue;
+        };
+        if rb.group != 1 {
+            continue;
+        }
+        let Some(name) = gv.name.as_deref() else {
+            continue;
+        };
+        out.insert(rb.binding, name.to_string());
+    }
+    out
+}
+
+fn reflect_vs_main_max_vertex_location(module: &naga::Module) -> Option<u32> {
+    let ep = module
+        .entry_points
+        .iter()
+        .find(|e| e.stage == ShaderStage::Vertex && e.name == "vs_main")?;
+    let func = &ep.function;
+    let mut max: Option<u32> = None;
+    for arg in &func.arguments {
+        if let Some(Binding::Location { location, .. }) = arg.binding {
+            max = Some(max.map_or(location, |m| m.max(location)));
+        }
+    }
+    max
+}
+
+fn uniform_member_kind(
+    module: &naga::Module,
+    ty: naga::Handle<naga::Type>,
+) -> ReflectedUniformScalarKind {
+    match &module.types[ty].inner {
+        TypeInner::Scalar(sc) => match sc.kind {
+            ScalarKind::Float => ReflectedUniformScalarKind::F32,
+            ScalarKind::Uint => ReflectedUniformScalarKind::U32,
+            ScalarKind::Sint => ReflectedUniformScalarKind::Unsupported,
+            ScalarKind::Bool => ReflectedUniformScalarKind::Unsupported,
+            ScalarKind::AbstractInt | ScalarKind::AbstractFloat => {
+                ReflectedUniformScalarKind::Unsupported
+            }
+        },
+        TypeInner::Vector { size, scalar } => {
+            if *size == VectorSize::Quad && scalar.kind == ScalarKind::Float {
+                ReflectedUniformScalarKind::Vec4
+            } else {
+                ReflectedUniformScalarKind::Unsupported
+            }
+        }
+        _ => ReflectedUniformScalarKind::Unsupported,
+    }
 }
 
 /// Finds the first `@group(1)` `var<uniform>` with a struct type and records member offsets/sizes.
@@ -162,11 +248,13 @@ fn reflect_first_group1_uniform_struct(
                 continue;
             };
             let size = layouter[m.ty].size;
+            let kind = uniform_member_kind(module, m.ty);
             fields.insert(
                 name.to_string(),
                 ReflectedUniformField {
                     offset: m.offset,
                     size,
+                    kind,
                 },
             );
         }
@@ -458,13 +546,24 @@ fn global_to_layout_entry(
 fn fingerprint_layout(
     material: &[wgpu::BindGroupLayoutEntry],
     per_draw: &[wgpu::BindGroupLayoutEntry],
+    vs_max_vertex_location: Option<u32>,
+    group1_names: &HashMap<u32, String>,
 ) -> u64 {
     use std::collections::hash_map::DefaultHasher;
+    use std::hash::Hash;
     let mut h = DefaultHasher::new();
     1u8.hash(&mut h);
     hash_entries(material, &mut h);
     2u8.hash(&mut h);
     hash_entries(per_draw, &mut h);
+    3u8.hash(&mut h);
+    vs_max_vertex_location.hash(&mut h);
+    let mut keys: Vec<u32> = group1_names.keys().copied().collect();
+    keys.sort_unstable();
+    for k in keys {
+        k.hash(&mut h);
+        group1_names[&k].hash(&mut h);
+    }
     h.finish()
 }
 
@@ -562,21 +661,34 @@ mod tests {
         assert!(r.material_entries.is_empty());
         validate_per_draw_group2(&r.per_draw_entries).expect("per_draw");
         assert_ne!(r.layout_fingerprint, 0);
+        assert_eq!(
+            r.vs_max_vertex_location,
+            Some(1),
+            "debug normals: position + normal only"
+        );
     }
 
     #[test]
-    fn reflect_world_unlit_default_embedded() {
-        let wgsl =
-            crate::embedded_shaders::embedded_target_wgsl("world_unlit_default").expect("stem");
+    fn reflect_unlit_default_embedded() {
+        let wgsl = crate::embedded_shaders::embedded_target_wgsl("unlit_default").expect("stem");
         let r = reflect_raster_material_wgsl(wgsl).expect("reflect");
         assert_eq!(r.material_entries.len(), 3);
         validate_per_draw_group2(&r.per_draw_entries).expect("per_draw");
         assert_ne!(r.layout_fingerprint, 0);
         let u = r.material_uniform.as_ref().expect("unlit material uniform");
         assert_eq!(u.binding, 0);
-        assert!(u.fields.contains_key("color"));
-        assert!(u.fields.contains_key("tex_st"));
-        assert!(u.fields.contains_key("cutoff"));
+        assert!(u.fields.contains_key("_Color"));
+        assert!(u.fields.contains_key("_Tex_ST"));
+        assert!(u.fields.contains_key("_Cutoff"));
         assert!(u.fields.contains_key("flags"));
+        assert_eq!(
+            r.material_group1_names.get(&1).map(String::as_str),
+            Some("_Tex")
+        );
+        assert_eq!(
+            r.vs_max_vertex_location,
+            Some(2),
+            "unlit vs_main uses position, normal, uv"
+        );
     }
 }

@@ -1,6 +1,7 @@
 //! World Unlit (`Shader "Unlit"`): texture × tint, optional alpha test.
 //!
-//! Build emits `world_unlit_default` / `world_unlit_multiview` targets via [`MULTIVIEW`](https://docs.rs/naga_oil).
+//! Build emits `unlit_default` / `unlit_multiview` targets via [`MULTIVIEW`](https://docs.rs/naga_oil).
+//! `@group(1)` identifiers match Unity material property names (`_Color`, `_Tex`, …) for host binding by reflection.
 //!
 //! Per-frame bindings (`@group(0)`) are imported from `globals.wgsl` so composed targets match the frame bind group layout used by the renderer.
 
@@ -16,16 +17,16 @@ struct PerDrawUniforms {
 @group(2) @binding(0) var<uniform> draw: PerDrawUniforms;
 
 struct UnlitMaterial {
-    color: vec4<f32>,
-    tex_st: vec4<f32>,
-    cutoff: f32,
+    _Color: vec4<f32>,
+    _Tex_ST: vec4<f32>,
+    _Cutoff: f32,
     flags: u32,
     _pad0: vec2<f32>,
 }
 
 @group(1) @binding(0) var<uniform> mat: UnlitMaterial;
-@group(1) @binding(1) var tex_main: texture_2d<f32>;
-@group(1) @binding(2) var samp_main: sampler;
+@group(1) @binding(1) var _Tex: texture_2d<f32>;
+@group(1) @binding(2) var _Tex_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -69,18 +70,18 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    var albedo = mat.color;
+    var albedo = mat._Color;
     if ((mat.flags & 1u) != 0u) {
-        let st = mat.tex_st;
+        let st = mat._Tex_ST;
         let uv_st = in.uv * st.xy + st.zw;
         // WebGPU samples with v=0 at the top row of stored texels; Unity mesh UVs use
         // bottom-left texture space for `_Tex` / `_Tex_ST`. Flip V so imagery matches the host.
         let uv_sample = vec2<f32>(uv_st.x, 1.0 - uv_st.y);
-        let t = textureSample(tex_main, samp_main, uv_sample);
+        let t = textureSample(_Tex, _Tex_sampler, uv_sample);
         albedo = albedo * t;
     }
     if ((mat.flags & 2u) != 0u) {
-        if (albedo.a < mat.cutoff) {
+        if (albedo.a < mat._Cutoff) {
             discard;
         }
     }

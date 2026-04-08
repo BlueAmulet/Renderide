@@ -5,6 +5,10 @@
 //! [`unity_asset::environment::Environment::bundle_container_entries`] (`AssetBundle.m_Container`
 //! path stem, e.g. `.../ui_unlit.shader` → `ui_unlit`). If that fails, TypeTree `peek_name` / full
 //! [`unity_asset_binary::object::ObjectHandle::read`] / ShaderLab substring fallbacks apply.
+//!
+//! **Authoritative name:** When both a container path stem and a **ShaderLab** `Shader "…"` string can
+//! be read from serialized shader objects, the ShaderLab name is preferred for routing (matches the
+//! inspector and scripts). If the normalized keys differ, a warning is logged once per bundle.
 
 use std::fmt::Display;
 use std::path::Path;
@@ -23,6 +27,7 @@ use unity_asset_binary::asset::SerializedFileParser;
 use unity_asset_binary::object::UnityObject;
 
 use super::logical_name::parse_shader_lab_quoted_name;
+use crate::assets::util::normalize_unity_shader_lookup_key;
 
 /// Maximum file size to read for parsing (bundle / serialized file).
 const MAX_READ_BYTES: usize = 32 * 1024 * 1024;
@@ -706,17 +711,39 @@ fn shader_name_from_serialized_file(sf: &SerializedFile) -> Option<String> {
     None
 }
 
-/// Prefer `m_Container` path stems (typical for UnityFS cache), then TypeTree / ShaderLab per asset.
+/// Prefer ShaderLab / typetree from serialized shader objects, then `m_Container` path stems.
+///
+/// Serialized extraction matches what Unity exposes as the shader’s logical name; the container stem
+/// is a filename-based fallback that can diverge (e.g. different path layout).
 fn shader_name_from_bundle(bundle_path: &Path, bundle: &AssetBundle) -> Option<String> {
-    if let Some(name) = shader_name_from_bundle_container_fallback(bundle_path, bundle) {
-        return Some(name);
-    }
+    let mut serialized_first: Option<String> = None;
     for asset in &bundle.assets {
         if let Some(name) = shader_name_from_serialized_file(asset) {
-            return Some(name);
+            serialized_first = Some(name);
+            break;
         }
     }
-    None
+
+    let container = shader_name_from_bundle_container_fallback(bundle_path, bundle);
+
+    match (&serialized_first, &container) {
+        (Some(ser), Some(con)) => {
+            let ks = normalize_unity_shader_lookup_key(ser);
+            let kc = normalize_unity_shader_lookup_key(con);
+            if ks != kc {
+                logger::warn!(
+                    "shader_unity_asset: bundle {:?} container stem {:?} disagrees with ShaderLab/serialized name {:?} (using ShaderLab)",
+                    bundle_path.display(),
+                    con,
+                    ser
+                );
+            }
+            Some(ser.clone())
+        }
+        (Some(ser), None) => Some(ser.clone()),
+        (None, Some(con)) => Some(con.clone()),
+        (None, None) => None,
+    }
 }
 
 #[cfg(test)]

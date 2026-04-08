@@ -2,7 +2,7 @@
 
 /// Normalizes a Unity `Shader "…"` label or path for stable dictionary lookup (whitespace, `/` → `_`, lowercased).
 ///
-/// Shared by shader routing and [`crate::materials::stem_manifest::StemResolver`] so manifest lookups stay
+/// Shared by shader routing and embedded `{key}_default` stem resolution so lookups stay
 /// consistent without import cycles between `assets::shader::route` and materials.
 pub fn normalize_unity_shader_lookup_key(name: &str) -> String {
     let token = name.split_whitespace().next().unwrap_or(name).trim();

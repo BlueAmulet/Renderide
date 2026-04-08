@@ -3,9 +3,9 @@
 //! [`crate::assets::material::MaterialPropertyStore`] and [`crate::assets::material::PropertyIdRegistry`]
 //! capture Unity [`Material`](https://docs.unity3d.com/ScriptReference/Material.html) /
 //! [`MaterialPropertyBlock`](https://docs.unity3d.com/ScriptReference/MaterialPropertyBlock.html) data on
-//! CPU. GPU uploads use [`super::reflect_raster_material_wgsl`] plus per-stem
-//! [`super::stem_manifest::ShaderManifestMaterialEntry::material_properties`] (embedded manifest) to pack
-//! [`crate::assets::material::MaterialPropertyValue`] into bind group **1** (group **0** is always frame globals).
+//! CPU. GPU uploads use [`super::reflect_raster_material_wgsl`] and WGSL identifiers that match host
+//! property names to pack [`crate::assets::material::MaterialPropertyValue`] into bind group **1**
+//! (group **0** is always frame globals).
 
 /// Per-logical-shader layout describing which property ids feed which `@group(1)` bindings (reserved).
 #[derive(Debug, Default)]

@@ -1,12 +1,10 @@
 //! Composes `shaders/source/modules/*.wgsl` with [`naga_oil`] (`#import`), validates with naga, and
 //! writes flat `shaders/target/*.wgsl` plus `OUT_DIR/embedded_shaders.rs`.
 //!
-//! Optional per-material metadata: `shaders/source/materials/<stem>.meta.json` may include:
-//! - `unity_names`: Unity `Shader "…"` keys (normalized at resolve time)
-//! - `material_properties`, `vertex_streams`, `uniform_derived`: copied into `shaders/target/manifest.json`
-//!
-//! Multiview sources (`debug_world_normals`, `world_unlit`) share one config path below; `world_unlit`
-//! attaches `unity_names` only to `*_default` targets (multiview targets list empty `unity_names`).
+//! Material sources under `shaders/source/materials/*.wgsl` use a **manifest-free** convention: the
+//! file stem is the normalized Unity shader lookup key (e.g. `unlit` for `Shader "Unlit"`). Build
+//! emits composed targets `{stem}_default` and `{stem}_multiview` when the source opts into the
+//! multiview pair (see `multiview_pair_stem` below).
 //!
 //! ## Multiview variants (`*_default` / `*_multiview`)
 //!
@@ -40,6 +38,11 @@ fn multiview_shader_defs(enable: bool) -> HashMap<String, ShaderDefValue> {
         defs.insert("MULTIVIEW".to_string(), ShaderDefValue::Bool(true));
     }
     defs
+}
+
+/// Source stems that emit both `{stem}_default` and `{stem}_multiview` composed targets.
+fn multiview_pair_stem(stem: &str) -> bool {
+    stem == "debug_world_normals" || stem == "unlit"
 }
 
 fn validate_and_write_wgsl(
@@ -110,38 +113,6 @@ fn compose_material(
         .unwrap_or_else(|e| panic!("compose {material_file_path}: {e}"))
 }
 
-/// Reads optional JSON sidecar for a material source stem (empty object if missing).
-fn read_stem_meta(materials_dir: &std::path::Path, file_stem: &str) -> serde_json::Value {
-    let meta_path = materials_dir.join(format!("{file_stem}.meta.json"));
-    if !meta_path.is_file() {
-        return serde_json::json!({});
-    }
-    let raw = fs::read_to_string(&meta_path)
-        .unwrap_or_else(|e| panic!("read {}: {e}", meta_path.display()));
-    serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {}: {e}", meta_path.display()))
-}
-
-/// Builds one `manifest.json` material entry, merging shared meta fields with per-target `stem` / `file` / `unity_names`.
-fn manifest_material_entry(
-    meta: &serde_json::Value,
-    target_stem: &str,
-    unity_names: Vec<String>,
-) -> serde_json::Value {
-    let mut m = serde_json::Map::new();
-    m.insert("stem".to_string(), serde_json::json!(target_stem));
-    m.insert(
-        "file".to_string(),
-        serde_json::json!(format!("shaders/target/{target_stem}.wgsl")),
-    );
-    m.insert("unity_names".to_string(), serde_json::json!(unity_names));
-    for key in ["material_properties", "vertex_streams", "uniform_derived"] {
-        if let Some(v) = meta.get(key) {
-            m.insert(key.to_string(), v.clone());
-        }
-    }
-    serde_json::Value::Object(m)
-}
-
 fn main() {
     let manifest_dir =
         PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
@@ -159,7 +130,6 @@ fn main() {
     let globals_source = fs::read_to_string(&globals_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", globals_path.display()));
 
-    let mut manifest_entries: Vec<serde_json::Value> = Vec::new();
     let mut embedded_arms = String::new();
     let mut output_stems: Vec<String> = Vec::new();
 
@@ -179,30 +149,13 @@ fn main() {
 
         let material_source =
             fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let meta = read_stem_meta(&materials_dir, stem);
-        let unity_from_meta: Vec<String> = meta
-            .get("unity_names")
-            .and_then(|u| u.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|x| x.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
 
-        let multiview_pair = stem == "debug_world_normals" || stem == "world_unlit";
-        if multiview_pair {
-            let unity_names_default_only = stem == "world_unlit";
+        if multiview_pair_stem(stem) {
             let variants = [
                 (format!("{stem}_default"), false),
                 (format!("{stem}_multiview"), true),
             ];
             for (target_stem, multiview) in variants {
-                let unity_for_entry = if unity_names_default_only && multiview {
-                    Vec::new()
-                } else {
-                    unity_from_meta.clone()
-                };
                 let defs = multiview_shader_defs(multiview);
                 let module = compose_material(
                     &globals_source,
@@ -213,12 +166,6 @@ fn main() {
                 let label = format!("{target_stem} (MULTIVIEW={multiview})");
                 let out_path = target_dir.join(format!("{target_stem}.wgsl"));
                 validate_and_write_wgsl(&module, &label, &out_path, Some(multiview));
-
-                manifest_entries.push(manifest_material_entry(
-                    &meta,
-                    &target_stem,
-                    unity_for_entry,
-                ));
 
                 embedded_arms.push_str(&format!(
                     "        \"{target_stem}\" => Some(include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/shaders/target/{target_stem}.wgsl\"))),\n"
@@ -237,24 +184,11 @@ fn main() {
         let out_path = target_dir.join(format!("{stem}.wgsl"));
         validate_and_write_wgsl(&module, stem, &out_path, None);
 
-        manifest_entries.push(manifest_material_entry(&meta, stem, unity_from_meta));
-
         embedded_arms.push_str(&format!(
             "        \"{stem}\" => Some(include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/shaders/target/{stem}.wgsl\"))),\n"
         ));
         output_stems.push(stem.to_string());
     }
-
-    let manifest = serde_json::json!({
-        "materials": manifest_entries,
-        "globals_module": "shaders/source/modules/globals.wgsl",
-    });
-    let manifest_path = target_dir.join("manifest.json");
-    fs::write(
-        &manifest_path,
-        serde_json::to_string_pretty(&manifest).expect("manifest json"),
-    )
-    .expect("write manifest");
 
     let stems_list = output_stems
         .iter()
@@ -276,9 +210,6 @@ pub fn embedded_target_wgsl(stem: &str) -> Option<&'static str> {{
 pub const COMPILED_MATERIAL_STEMS: &[&str] = &[
 {stems}
 ];
-
-/// JSON manifest written next to composed shaders.
-pub const SHADER_MANIFEST_JSON: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/target/manifest.json"));
 "#,
         embedded_arms = embedded_arms,
         stems = stems_list

@@ -12,15 +12,13 @@ use super::family::{MaterialFamilyId, MaterialPipelineDesc, MaterialPipelineFami
 use super::manifest_stem::{ManifestStemMaterialFamily, MANIFEST_RASTER_FAMILY_ID};
 use super::resolve_raster::resolve_raster_family;
 use super::router::MaterialRouter;
-use super::stem_manifest::StemResolver;
+use super::stem_manifest;
 
 /// Owning table of material families, routing, and pipeline cache.
 pub struct MaterialRegistry {
     device: Arc<wgpu::Device>,
     families: HashMap<MaterialFamilyId, Arc<dyn MaterialPipelineFamily>>,
     pub router: MaterialRouter,
-    /// Unity logical name → composed WGSL stem from the embedded manifest.
-    pub stem_resolver: StemResolver,
     cache: MaterialPipelineCache,
 }
 
@@ -31,7 +29,6 @@ impl MaterialRegistry {
             device: device.clone(),
             families: HashMap::new(),
             router: MaterialRouter::new(DEBUG_WORLD_NORMALS_FAMILY_ID),
-            stem_resolver: StemResolver::from_embedded_manifest(),
             cache: MaterialPipelineCache::new(device),
         };
         registry.register_family(Arc::new(SolidColorFamily));
@@ -46,8 +43,8 @@ impl MaterialRegistry {
 
     /// Inserts a host shader id → family mapping and optional HUD display name (Unity-style logical name or upload field).
     ///
-    /// When `display_name` matches a Unity name listed in the embedded shader manifest, records the
-    /// target WGSL stem on [`MaterialRouter::stem_for_shader_asset`].
+    /// When `display_name` normalizes to an embedded `{key}_default` WGSL target, records the stem on
+    /// [`MaterialRouter::stem_for_shader_asset`].
     pub fn map_shader_route(
         &mut self,
         shader_asset_id: i32,
@@ -56,8 +53,7 @@ impl MaterialRegistry {
     ) {
         let stem = display_name
             .as_deref()
-            .and_then(|n| self.stem_resolver.stem_for_unity_name(n))
-            .map(str::to_string);
+            .and_then(stem_manifest::embedded_default_stem_for_unity_name);
         self.router
             .set_shader_route(shader_asset_id, family, display_name);
         if let Some(s) = stem {
@@ -136,7 +132,7 @@ impl MaterialRegistry {
         self.router.routes_sorted_for_hud()
     }
 
-    /// Resolved composed WGSL stem for a host shader id, if manifest resolution succeeded.
+    /// Resolved composed WGSL stem for a host shader id, when [`Self::map_shader_route`] recorded one.
     pub fn stem_for_shader_asset(&self, shader_asset_id: i32) -> Option<&str> {
         self.router.stem_for_shader_asset(shader_asset_id)
     }

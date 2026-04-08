@@ -24,14 +24,12 @@ pub use material_property_binding::MaterialPropertyGpuLayout;
 pub use registry::MaterialRegistry;
 pub use resolve_raster::resolve_raster_family;
 pub use router::{MaterialRouter, ShaderRouteEntry};
-pub use stem_manifest::{
-    manifest_stem_for_unity_name, MaterialPropertyBindingSpec, ShaderManifest,
-    ShaderManifestMaterialEntry, StemResolver, UniformDerivedRule,
-};
+pub use stem_manifest::{embedded_default_stem_for_unity_name, manifest_stem_for_unity_name};
 pub use wgsl::{compose_wgsl, WgslPatch};
 pub use wgsl_reflect::{
     reflect_raster_material_wgsl, validate_per_draw_group2, ReflectError,
     ReflectedMaterialUniformBlock, ReflectedRasterLayout, ReflectedUniformField,
+    ReflectedUniformScalarKind,
 };
 
 pub use crate::pipelines::raster::{DebugWorldNormalsFamily, DEBUG_WORLD_NORMALS_FAMILY_ID};

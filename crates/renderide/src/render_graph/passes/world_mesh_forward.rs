@@ -7,8 +7,7 @@
 //! groups for [`crate::materials::MANIFEST_RASTER_FAMILY_ID`] draws (see [`crate::backend::ManifestMaterialBindResources`]).
 //!
 //! Manifest raster binds use the composed WGSL **stem** from [`crate::materials::MaterialRouter::stem_for_shader_asset`]
-//! (not a hard-coded Unlit path). Extra vertex streams (e.g. UV0) follow [`crate::materials::ShaderManifest`] `vertex_streams`
-//! for that stem.
+//! (not a hard-coded Unlit path). UV0 is bound when `vs_main` reflection reports `@location(2)` or higher.
 //!
 //! ## VR stereo world draws
 //!
@@ -24,8 +23,7 @@ use glam::Mat4;
 use crate::assets::material::MaterialDictionary;
 use crate::gpu::{write_per_draw_uniform_slab, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE};
 use crate::materials::{
-    MaterialPipelineDesc, MaterialRouter, ShaderManifest, DEBUG_WORLD_NORMALS_FAMILY_ID,
-    MANIFEST_RASTER_FAMILY_ID,
+    MaterialPipelineDesc, MaterialRouter, DEBUG_WORLD_NORMALS_FAMILY_ID, MANIFEST_RASTER_FAMILY_ID,
 };
 use crate::pipelines::ShaderPermutation;
 use crate::pipelines::SHADER_PERM_MULTIVIEW_STEREO;
@@ -131,7 +129,6 @@ impl RenderPass for WorldMeshForwardPass {
         if draws.is_empty() {
             return Ok(());
         }
-        let shader_manifest = ShaderManifest::from_embedded_json();
         let lights_for_frame = backend.frame_lights().to_vec();
         {
             let Some(dbg) = backend.debug_draw.as_mut() else {
@@ -357,8 +354,11 @@ impl RenderPass for WorldMeshForwardPass {
                     .material_registry
                     .as_ref()
                     .and_then(|r| r.stem_for_shader_asset(item.batch_key.shader_asset_id))
-                    .and_then(|stem| shader_manifest.entry_for_stem(stem))
-                    .map(|e| e.vertex_streams.iter().any(|x| x == "uv0"))
+                    .and_then(|stem| {
+                        backend
+                            .manifest_material_bind()
+                            .map(|mb| mb.stem_uses_uv0_stream(stem))
+                    })
                     .unwrap_or(false);
 
             draw_mesh_submesh(&mut rpass, item, &backend.mesh_pool, manifest_uv);

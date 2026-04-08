@@ -49,7 +49,7 @@ pub struct RenderBackend {
     /// Host material property batches (`MaterialsUpdateBatch`); separate maps for materials vs blocks.
     material_property_store: MaterialPropertyStore,
     /// Stable ids for [`crate::shared::MaterialPropertyIdRequest`] / batch `property_id` keys.
-    property_id_registry: PropertyIdRegistry,
+    property_id_registry: Arc<PropertyIdRegistry>,
     pending_material_batches: VecDeque<MaterialsUpdateBatch>,
     pub(crate) mesh_pool: MeshPool,
     texture_pool: TexturePool,
@@ -106,7 +106,7 @@ impl RenderBackend {
     pub fn new() -> Self {
         Self {
             material_property_store: MaterialPropertyStore::new(),
-            property_id_registry: PropertyIdRegistry::new(),
+            property_id_registry: Arc::new(PropertyIdRegistry::new()),
             pending_material_batches: VecDeque::new(),
             mesh_pool: MeshPool::default_pool(),
             texture_pool: TexturePool::default_pool(),
@@ -231,12 +231,7 @@ impl RenderBackend {
 
     /// Property name interning for material batches.
     pub fn property_id_registry(&self) -> &PropertyIdRegistry {
-        &self.property_id_registry
-    }
-
-    /// Mutable property id registry.
-    pub fn property_id_registry_mut(&mut self) -> &mut PropertyIdRegistry {
-        &mut self.property_id_registry
+        self.property_id_registry.as_ref()
     }
 
     /// Registered material families and pipeline cache (after GPU attach).
@@ -306,7 +301,10 @@ impl RenderBackend {
                 reg.map_shader_route(asset_id, family, display_name);
             }
         }
-        match ManifestMaterialBindResources::new(device.clone(), self.property_id_registry()) {
+        match ManifestMaterialBindResources::new(
+            device.clone(),
+            Arc::clone(&self.property_id_registry),
+        ) {
             Ok(m) => {
                 if let Ok(q) = queue.lock() {
                     m.write_default_white(&q);

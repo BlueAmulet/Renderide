@@ -1,7 +1,7 @@
 //! Coarse classification of host shaders into [`MaterialFamilyId`] for [`MaterialRegistry`](crate::materials::MaterialRegistry).
 //!
 //! Extraction of Unity logical names lives in [`super::logical_name`] and [`super::unity_asset`].
-//! Names listed in the embedded shader manifest resolve to [`MANIFEST_RASTER_FAMILY_ID`](crate::materials::MANIFEST_RASTER_FAMILY_ID);
+//! Names with an embedded `{key}_default` WGSL target resolve to [`MANIFEST_RASTER_FAMILY_ID`](crate::materials::MANIFEST_RASTER_FAMILY_ID);
 //! other kinds use [`DEBUG_WORLD_NORMALS_FAMILY_ID`](crate::materials::DEBUG_WORLD_NORMALS_FAMILY_ID) until implemented.
 
 pub use crate::assets::util::normalize_unity_shader_lookup_key;
@@ -78,8 +78,7 @@ pub fn classify_shader(unity_name: Option<&str>, path_hint: Option<&str>) -> Coa
 ///
 /// **Transitional routing:** when [`manifest_stem_for_unity_name`] does not match, several
 /// **substring / token heuristics** on the normalized shader key map to [`DEBUG_WORLD_NORMALS_FAMILY_ID`]
-/// (`ui_unlit`, `ui_text`, `pbsmetallic`, …). These are placeholders until more WGSL stems exist and
-/// routes can come from the embedded shader manifest or explicit host hints.
+/// (`ui_unlit`, `ui_text`, `pbsmetallic`, …). These are placeholders until more WGSL stems exist.
 fn material_family_for_kind(kind: CoarseShaderKind, unity_name: Option<&str>) -> MaterialFamilyId {
     if let Some(name) = unity_name {
         if manifest_stem_for_unity_name(name).is_some() {

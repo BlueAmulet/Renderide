@@ -20,7 +20,7 @@ pub struct ShaderRouteEntry {
 #[derive(Debug)]
 pub struct MaterialRouter {
     routes: HashMap<i32, ShaderRouteEntry>,
-    /// Optional composed WGSL stem (`shaders/target/<stem>.wgsl`) when [`super::StemResolver`] matched a Unity name.
+    /// Optional composed WGSL stem (`shaders/target/<stem>.wgsl`) when an embedded `{key}_default` target exists.
     shader_stem: HashMap<i32, String>,
     /// Default when `routes` has no entry.
     pub fallback: MaterialFamilyId,

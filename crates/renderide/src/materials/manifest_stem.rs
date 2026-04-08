@@ -1,10 +1,9 @@
-//! Manifest-driven raster materials: one [`MaterialFamilyId`] and many composed WGSL stems.
+//! Convention-based raster materials: one [`MaterialFamilyId`] and many composed WGSL stems.
 //!
 //! [`ManifestStemMaterialFamily`] is constructed per resolved stem (see [`super::MaterialRegistry`]).
 
 use std::sync::Arc;
 
-use super::stem_manifest::ShaderManifest;
 use crate::backend::{empty_material_bind_group_layout, FrameGpuResources};
 use crate::embedded_shaders;
 use crate::materials::{reflect_raster_material_wgsl, validate_per_draw_group2};
@@ -13,10 +12,10 @@ use crate::pipelines::raster::SHADER_PERM_MULTIVIEW_STEREO;
 use crate::pipelines::ShaderPermutation;
 use crate::render_graph::MAIN_FORWARD_DEPTH_COMPARE;
 
-/// Stable id for all shaders whose Unity name maps to an entry in the embedded shader manifest.
+/// Stable id for shaders whose normalized Unity name has an embedded `{key}_default` WGSL target.
 pub const MANIFEST_RASTER_FAMILY_ID: MaterialFamilyId = MaterialFamilyId(3);
 
-/// Composed target stem for a manifest base stem (e.g. `world_unlit_default` → `world_unlit_multiview`).
+/// Composed target stem for a manifest base stem (e.g. `unlit_default` → `unlit_multiview`).
 pub fn manifest_composed_stem_for_permutation(
     base_stem: &str,
     permutation: ShaderPermutation,
@@ -36,7 +35,7 @@ pub fn manifest_composed_stem_for_permutation(
 /// Raster family parameterized by a manifest stem (`shaders/target/<composed_stem>.wgsl`).
 #[derive(Debug)]
 pub struct ManifestStemMaterialFamily {
-    /// Stem from [`super::MaterialRouter::stem_for_shader_asset`] (e.g. `world_unlit_default`).
+    /// Stem from [`super::MaterialRouter::stem_for_shader_asset`] (e.g. `unlit_default`).
     pub stem: Arc<str>,
 }
 
@@ -129,11 +128,11 @@ impl MaterialPipelineFamily for ManifestStemMaterialFamily {
             }],
         };
 
-        let stream_list: Vec<String> = ShaderManifest::from_embedded_json()
-            .entry_for_stem(self.stem.as_ref())
-            .map(|e| e.vertex_streams.clone())
-            .unwrap_or_default();
-        let use_uv = stream_list.iter().any(|s| s == "uv0");
+        let use_uv = reflect_raster_material_wgsl(wgsl_source)
+            .ok()
+            .and_then(|r| r.vs_max_vertex_location)
+            .map(|m| m >= 2)
+            .unwrap_or(false);
 
         let vertex_buffers: &[wgpu::VertexBufferLayout<'_>] = if use_uv {
             &[pos_layout, nrm_layout, uv_layout]
