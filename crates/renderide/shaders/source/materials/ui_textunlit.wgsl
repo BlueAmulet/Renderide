@@ -1,6 +1,6 @@
-//! Canvas UI text unlit (`Shader "UI/Text/Unlit"`): MSDF/SDF/Raster font atlas, tint, outline, rect clip.
+//! Canvas UI text unlit (Unity shader asset `UI_TextUnlit`, normalized key `ui_textunlit`): MSDF/SDF/Raster font atlas, tint, outline, rect clip.
 //!
-//! Build emits `ui_text_unlit_default` / `ui_text_unlit_multiview` via [`MULTIVIEW`](https://docs.rs/naga_oil).
+//! Build emits `ui_textunlit_default` / `ui_textunlit_multiview` via [`MULTIVIEW`](https://docs.rs/naga_oil).
 //! `@group(1)` global names match Unity `UI_TextUnlit.shader` material property names for host reflection.
 //!
 //! **Vertex color:** Unity multiplies `_TintColor * vertexColor`. This manifest path has no vertex color stream;

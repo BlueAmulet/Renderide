@@ -712,10 +712,9 @@ fn shader_name_from_serialized_file(sf: &SerializedFile) -> Option<String> {
     None
 }
 
-/// Prefer ShaderLab / typetree from serialized shader objects, then `m_Container` path stems.
-///
-/// Serialized extraction matches what Unity exposes as the shader’s logical name; the container stem
-/// is a filename-based fallback that can diverge (e.g. different path layout).
+/// Prefer `m_Container` asset path stem (shader **asset** filename) when available; it matches bundle
+/// layout and [`normalize_unity_shader_lookup_key`] for WGSL stem routing. Fall back to ShaderLab /
+/// typetree from serialized shader objects when the container path is unavailable.
 fn shader_name_from_bundle(bundle_path: &Path, bundle: &AssetBundle) -> Option<String> {
     let mut serialized_first: Option<String> = None;
     for asset in &bundle.assets {
@@ -733,13 +732,13 @@ fn shader_name_from_bundle(bundle_path: &Path, bundle: &AssetBundle) -> Option<S
             let kc = normalize_unity_shader_lookup_key(con);
             if ks != kc {
                 logger::warn!(
-                    "shader_unity_asset: bundle {:?} container stem {:?} disagrees with ShaderLab/serialized name {:?} (using ShaderLab)",
+                    "shader_unity_asset: bundle {:?} ShaderLab/serialized name {:?} differs from container stem {:?} (using container for routing)",
                     bundle_path.display(),
-                    con,
-                    ser
+                    ser,
+                    con
                 );
             }
-            Some(ser.clone())
+            Some(con.clone())
         }
         (Some(ser), None) => Some(ser.clone()),
         (None, Some(con)) => Some(con.clone()),

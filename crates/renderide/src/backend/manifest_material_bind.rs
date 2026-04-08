@@ -337,6 +337,8 @@ impl ManifestMaterialBindResources {
         let u = layout.reflected.material_uniform.as_ref()?;
         let mut buf = vec![0u8; u.total_size as usize];
 
+        // `_Cutoff` is tracked when present so `flags` packing can mirror Unity alpha-test heuristics for any
+        // material whose WGSL declares these identifiers (reflection-driven, not per-shader names in Rust).
         let mut cutoff = 0.5f32;
         for (field_name, field) in &u.fields {
             let pid = self.property_registry.intern(field_name);

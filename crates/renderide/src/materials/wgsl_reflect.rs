@@ -667,5 +667,4 @@ mod tests {
             "debug normals: position + normal only"
         );
     }
-
 }

@@ -14,18 +14,23 @@ pub fn resolve_raster_family(shader_asset_id: i32, router: &MaterialRouter) -> M
 #[cfg(test)]
 mod tests {
     use super::resolve_raster_family;
-    use crate::materials::{MaterialRouter, DEBUG_WORLD_NORMALS_FAMILY_ID, SOLID_COLOR_FAMILY_ID};
+    use crate::materials::{MaterialFamilyId, MaterialRouter};
+
+    /// [`resolve_raster_family`] only forwards [`MaterialRouter::family_for_shader_asset`]; tests need two
+    /// distinct ids, not any particular builtin pipeline family.
+    const FALLBACK: MaterialFamilyId = MaterialFamilyId(0xE0_00_01);
+    const REGISTERED_ROUTE: MaterialFamilyId = MaterialFamilyId(0xE0_00_02);
 
     #[test]
     fn unknown_shader_uses_router_fallback() {
-        let r = MaterialRouter::new(SOLID_COLOR_FAMILY_ID);
-        assert_eq!(resolve_raster_family(999, &r), SOLID_COLOR_FAMILY_ID);
+        let r = MaterialRouter::new(FALLBACK);
+        assert_eq!(resolve_raster_family(999, &r), FALLBACK);
     }
 
     #[test]
     fn registered_shader_uses_route_family() {
-        let mut r = MaterialRouter::new(SOLID_COLOR_FAMILY_ID);
-        r.set_shader_family(7, DEBUG_WORLD_NORMALS_FAMILY_ID);
-        assert_eq!(resolve_raster_family(7, &r), DEBUG_WORLD_NORMALS_FAMILY_ID);
+        let mut r = MaterialRouter::new(FALLBACK);
+        r.set_shader_family(7, REGISTERED_ROUTE);
+        assert_eq!(resolve_raster_family(7, &r), REGISTERED_ROUTE);
     }
 }

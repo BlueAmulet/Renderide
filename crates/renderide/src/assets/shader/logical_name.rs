@@ -13,21 +13,9 @@ use crate::shared::ShaderUpload;
 /// Maximum length for a single logical stem or first-token label from [`try_resolve_plain_shader_label`].
 const PLAIN_SHADER_LABEL_MAX_LEN: usize = 256;
 
-/// Canonical name from Resonite `UI_Unlit.shader`: line `Shader "UI/Unlit"`.
-pub const CANONICAL_UNITY_UI_UNLIT: &str = "UI/Unlit";
-
-/// Canonical name: `UI_TextUnlit.shader` → `Shader "UI/Text/Unlit"`.
-pub const CANONICAL_UNITY_UI_TEXT_UNLIT: &str = "UI/Text/Unlit";
-
-/// Canonical name from Resonite `Common/Unlit.shader`: line `Shader "Unlit"`.
-///
-/// Distinct from [`CANONICAL_UNITY_UI_UNLIT`] (`UI/Unlit`); the world-mesh unlit WGSL path keys on this.
-pub const CANONICAL_UNITY_WORLD_UNLIT: &str = "Unlit";
-
-/// Maps host filename-style stems and normalized keys to the ShaderLab `Shader "…"` string used for routing.
-///
-/// [`crate::assets::util::normalize_unity_shader_lookup_key`] is applied **after** this step so internal keys stay
-/// consistent (`ui_text_unlit`, `ui_unlit`, …).
+/// Returns the first token of `resolved` trimmed, or empty. Routing matches host names to embedded WGSL via
+/// [`crate::materials::stem_manifest`]; material source stems under `shaders/source/materials/*.wgsl` align with
+/// normalized Unity shader **asset** names (see crate `build.rs`).
 pub fn canonical_shader_lab_logical_name(resolved: &str) -> String {
     let t = resolved
         .split_whitespace()
@@ -37,12 +25,7 @@ pub fn canonical_shader_lab_logical_name(resolved: &str) -> String {
     if t.is_empty() {
         return String::new();
     }
-    let lower = t.to_ascii_lowercase();
-    match lower.as_str() {
-        "ui_textunlit" | "ui_text_unlit" => CANONICAL_UNITY_UI_TEXT_UNLIT.to_string(),
-        "ui_unlit" => CANONICAL_UNITY_UI_UNLIT.to_string(),
-        _ => t.to_string(),
-    }
+    t.to_string()
 }
 
 /// Parses the quoted name from a ShaderLab `Shader "Name"` opening line or small file prelude.
@@ -144,8 +127,7 @@ pub fn resolve_logical_shader_name_from_upload(data: &ShaderUpload) -> Option<St
 /// Like [`resolve_logical_shader_name_from_upload`], but uses `host_hint` first when set (e.g. from
 /// [`crate::shared::shader_upload_extras::unpack_appended_shader_logical_name`]).
 ///
-/// The returned name is always passed through [`canonical_shader_lab_logical_name`] so plain stems such as
-/// `UI_TextUnlit` match ShaderLab `UI/Text/Unlit` for embedded stem lookup.
+/// The returned name is passed through [`canonical_shader_lab_logical_name`] (first token only) before routing.
 pub fn resolve_logical_shader_name_from_upload_with_host_hint(
     data: &ShaderUpload,
     host_hint: Option<&str>,

@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::assets::resolve_shader_upload;
-use crate::assets::shader::classify_shader;
 use crate::assets::texture::supported_host_formats_for_init;
 use crate::assets::AssetSubsystem;
 use crate::backend::RenderBackend;
@@ -509,12 +508,8 @@ impl RendererRuntime {
     fn on_shader_upload(&mut self, upload: ShaderUpload) {
         let asset_id = upload.asset_id;
         let resolved = resolve_shader_upload(&upload);
-        let kind = classify_shader(
-            resolved.unity_shader_name.as_deref(),
-            upload.file.as_deref(),
-        );
         logger::info!(
-            "shader_upload: asset_id={} unity_shader_name={:?} kind={kind:?} material_family={:?}",
+            "shader_upload: asset_id={} unity_shader_name={:?} material_family={:?}",
             asset_id,
             resolved.unity_shader_name.as_deref(),
             resolved.family,

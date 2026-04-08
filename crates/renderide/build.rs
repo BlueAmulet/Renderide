@@ -1,9 +1,10 @@
 //! Composes `shaders/source/modules/*.wgsl` with [`naga_oil`] (`#import`), validates with naga, and
 //! writes flat `shaders/target/*.wgsl` plus `OUT_DIR/embedded_shaders.rs`.
 //!
-//! Material sources under `shaders/source/materials/*.wgsl` use a **manifest-free** convention: the
-//! file stem is the normalized Unity shader lookup key (e.g. `unlit` for `Shader "Unlit"`). Build
-//! **always** emits composed targets `{stem}_default` and `{stem}_multiview` for every material file;
+//! Material sources under `shaders/source/materials/*.wgsl`: the **file stem** must match
+//! `normalize_unity_shader_lookup_key` in the renderide crate (Unity shader **asset** name, e.g.
+//! `UI_TextUnlit` → `ui_textunlit` → `ui_textunlit_default` / `ui_textunlit_multiview`).
+//! Build **always** emits composed targets `{stem}_default` and `{stem}_multiview` for every material file;
 //! each source must handle multiview (typically `#ifdef MULTIVIEW` around `@builtin(view_index)` and
 //! view-projection selection in a single `vs_main`, or separate `vs_main` blocks) as documented below.
 //!
