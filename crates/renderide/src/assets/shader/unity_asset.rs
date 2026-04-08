@@ -26,7 +26,7 @@ use unity_asset_binary::asset::SerializedFile;
 use unity_asset_binary::asset::SerializedFileParser;
 use unity_asset_binary::object::UnityObject;
 
-use super::logical_name::parse_shader_lab_quoted_name;
+use super::logical_name::{canonical_shader_lab_logical_name, parse_shader_lab_quoted_name};
 use crate::assets::util::normalize_unity_shader_lookup_key;
 
 /// Maximum file size to read for parsing (bundle / serialized file).
@@ -67,6 +67,7 @@ pub(crate) fn try_resolve_shader_name_from_path_hint(path: &Path) -> Option<Stri
     } else {
         None
     };
+    let name = name.map(|n| canonical_shader_lab_logical_name(&n));
     if let Some(parsed) = &name {
         logger::info!(
             "shader_unity_asset: resolved {:?} from path {}",
@@ -754,8 +755,8 @@ mod tests {
     #[test]
     fn container_asset_path_strips_shader_suffix() {
         assert_eq!(
-            shader_logical_name_from_container_asset_path("assets/foo/ui_unlit.shader").as_deref(),
-            Some("ui_unlit")
+            shader_logical_name_from_container_asset_path("assets/foo/my_shader.shader").as_deref(),
+            Some("my_shader")
         );
         assert_eq!(
             shader_logical_name_from_container_asset_path("archive:/CAB-deadbeef").as_deref(),

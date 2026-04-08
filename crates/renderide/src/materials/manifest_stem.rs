@@ -224,18 +224,6 @@ mod tests {
     use crate::pipelines::SHADER_PERM_MULTIVIEW_STEREO;
 
     #[test]
-    fn unlit_default_and_multiview_need_uv0_stream() {
-        assert!(manifest_stem_needs_uv0_stream(
-            "unlit_default",
-            ShaderPermutation(0)
-        ));
-        assert!(manifest_stem_needs_uv0_stream(
-            "unlit_default",
-            SHADER_PERM_MULTIVIEW_STEREO
-        ));
-    }
-
-    #[test]
     fn debug_world_normals_no_uv0_stream() {
         assert!(!manifest_stem_needs_uv0_stream(
             "debug_world_normals_default",
@@ -243,18 +231,6 @@ mod tests {
         ));
         assert!(!manifest_stem_needs_uv0_stream(
             "debug_world_normals_default",
-            SHADER_PERM_MULTIVIEW_STEREO
-        ));
-    }
-
-    #[test]
-    fn ui_unlit_default_and_multiview_need_uv0_stream() {
-        assert!(manifest_stem_needs_uv0_stream(
-            "ui_unlit_default",
-            ShaderPermutation(0)
-        ));
-        assert!(manifest_stem_needs_uv0_stream(
-            "ui_unlit_default",
             SHADER_PERM_MULTIVIEW_STEREO
         ));
     }

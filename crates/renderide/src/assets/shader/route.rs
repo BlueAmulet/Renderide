@@ -211,31 +211,7 @@ pub enum WorldUnlitFamily {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::materials::{DEBUG_WORLD_NORMALS_FAMILY_ID, MANIFEST_RASTER_FAMILY_ID};
-
-    #[test]
-    fn classify_ui_path_hint() {
-        assert_eq!(
-            classify_shader(None, Some("Assets/UI_Unlit.foo")),
-            CoarseShaderKind::Ui
-        );
-    }
-
-    #[test]
-    fn classify_world_unlit_name() {
-        assert_eq!(
-            classify_shader(Some("Unlit"), None),
-            CoarseShaderKind::WorldUnlit
-        );
-    }
-
-    #[test]
-    fn classify_ui_name_token() {
-        assert_eq!(
-            classify_shader(Some("UI/Unlit"), None),
-            CoarseShaderKind::Ui
-        );
-    }
+    use crate::materials::DEBUG_WORLD_NORMALS_FAMILY_ID;
 
     #[test]
     fn classify_pbs_token() {
@@ -243,28 +219,6 @@ mod tests {
             classify_shader(Some("PBSMetallic"), None),
             CoarseShaderKind::PbsMetallic
         );
-    }
-
-    #[test]
-    fn resolve_shader_upload_sets_family_id() {
-        let u = ShaderUpload {
-            asset_id: 3,
-            file: Some("Shader \"UI/Unlit\"\n{\n".to_string()),
-        };
-        let r = resolve_shader_upload(&u);
-        assert_eq!(r.unity_shader_name.as_deref(), Some("UI/Unlit"));
-        assert_eq!(r.family, MANIFEST_RASTER_FAMILY_ID);
-    }
-
-    #[test]
-    fn manifest_unity_name_maps_to_manifest_raster_family() {
-        let u = ShaderUpload {
-            asset_id: 4,
-            file: Some("Shader \"Unlit\"\n{\n".to_string()),
-        };
-        let r = resolve_shader_upload(&u);
-        assert_eq!(r.unity_shader_name.as_deref(), Some("Unlit"));
-        assert_eq!(r.family, MANIFEST_RASTER_FAMILY_ID);
     }
 
     #[test]

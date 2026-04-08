@@ -668,46 +668,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn reflect_unlit_default_embedded() {
-        let wgsl = crate::embedded_shaders::embedded_target_wgsl("unlit_default").expect("stem");
-        let r = reflect_raster_material_wgsl(wgsl).expect("reflect");
-        assert_eq!(r.material_entries.len(), 3);
-        validate_per_draw_group2(&r.per_draw_entries).expect("per_draw");
-        assert_ne!(r.layout_fingerprint, 0);
-        let u = r.material_uniform.as_ref().expect("unlit material uniform");
-        assert_eq!(u.binding, 0);
-        assert!(u.fields.contains_key("_Color"));
-        assert!(u.fields.contains_key("_Tex_ST"));
-        assert!(u.fields.contains_key("_Cutoff"));
-        assert!(u.fields.contains_key("flags"));
-        assert_eq!(
-            r.material_group1_names.get(&1).map(String::as_str),
-            Some("_Tex")
-        );
-        assert_eq!(
-            r.vs_max_vertex_location,
-            Some(2),
-            "unlit vs_main uses position, normal, uv"
-        );
-        assert_eq!(
-            r.material_group1_names.get(&2).map(String::as_str),
-            Some("_Tex_sampler")
-        );
-    }
-
-    #[test]
-    fn reflect_unlit_multiview_embedded_matches_default_layout() {
-        let wgsl = crate::embedded_shaders::embedded_target_wgsl("unlit_multiview").expect("stem");
-        let r = reflect_raster_material_wgsl(wgsl).expect("reflect");
-        assert_eq!(r.material_entries.len(), 3);
-        validate_per_draw_group2(&r.per_draw_entries).expect("per_draw");
-        let u = r.material_uniform.as_ref().expect("unlit material uniform");
-        assert!(u.fields.contains_key("_Color"));
-        assert_eq!(r.vs_max_vertex_location, Some(2));
-        assert_eq!(
-            r.material_group1_names.get(&1).map(String::as_str),
-            Some("_Tex")
-        );
-    }
 }

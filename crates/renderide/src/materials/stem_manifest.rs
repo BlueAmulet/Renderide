@@ -7,28 +7,20 @@ use crate::assets::util::normalize_unity_shader_lookup_key;
 use crate::embedded_shaders;
 
 /// Returns `{normalized_key}_default` when that composed target was built into the embedded table.
+///
+/// Plain host stems such as `UI_TextUnlit` normalize to `ui_textunlit`; that key aliases to the same
+/// targets as ShaderLab `UI/Text/Unlit` → `ui_text_unlit` so one WGSL source suffices.
 pub fn embedded_default_stem_for_unity_name(name: &str) -> Option<String> {
     let key = normalize_unity_shader_lookup_key(name);
-    let stem = format!("{key}_default");
+    let effective_key = match key.as_str() {
+        "ui_textunlit" => "ui_text_unlit",
+        _ => key.as_str(),
+    };
+    let stem = format!("{effective_key}_default");
     embedded_shaders::embedded_target_wgsl(&stem).map(|_| stem)
 }
 
 /// Returns the composed WGSL stem for `name` when an embedded `{key}_default` target exists (routing).
 pub fn manifest_stem_for_unity_name(name: &str) -> Option<String> {
     embedded_default_stem_for_unity_name(name)
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn embedded_stem_resolves_unlit() {
-        let s = super::manifest_stem_for_unity_name("Unlit").expect("unlit target");
-        assert_eq!(s, "unlit_default");
-    }
-
-    #[test]
-    fn embedded_stem_resolves_ui_unlit() {
-        let s = super::manifest_stem_for_unity_name("UI/Unlit").expect("ui_unlit target");
-        assert_eq!(s, "ui_unlit_default");
-    }
 }

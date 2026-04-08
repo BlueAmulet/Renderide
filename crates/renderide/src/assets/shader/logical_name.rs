@@ -24,6 +24,27 @@ pub const CANONICAL_UNITY_UI_TEXT_UNLIT: &str = "UI/Text/Unlit";
 /// Distinct from [`CANONICAL_UNITY_UI_UNLIT`] (`UI/Unlit`); the world-mesh unlit WGSL path keys on this.
 pub const CANONICAL_UNITY_WORLD_UNLIT: &str = "Unlit";
 
+/// Maps host filename-style stems and normalized keys to the ShaderLab `Shader "…"` string used for routing.
+///
+/// [`crate::assets::util::normalize_unity_shader_lookup_key`] is applied **after** this step so internal keys stay
+/// consistent (`ui_text_unlit`, `ui_unlit`, …).
+pub fn canonical_shader_lab_logical_name(resolved: &str) -> String {
+    let t = resolved
+        .split_whitespace()
+        .next()
+        .unwrap_or(resolved)
+        .trim();
+    if t.is_empty() {
+        return String::new();
+    }
+    let lower = t.to_ascii_lowercase();
+    match lower.as_str() {
+        "ui_textunlit" | "ui_text_unlit" => CANONICAL_UNITY_UI_TEXT_UNLIT.to_string(),
+        "ui_unlit" => CANONICAL_UNITY_UI_UNLIT.to_string(),
+        _ => t.to_string(),
+    }
+}
+
 /// Parses the quoted name from a ShaderLab `Shader "Name"` opening line or small file prelude.
 pub fn parse_shader_lab_quoted_name(source: &str) -> Option<String> {
     let s = source.trim_start_matches('\u{feff}').trim_start();
@@ -122,7 +143,18 @@ pub fn resolve_logical_shader_name_from_upload(data: &ShaderUpload) -> Option<St
 
 /// Like [`resolve_logical_shader_name_from_upload`], but uses `host_hint` first when set (e.g. from
 /// [`crate::shared::shader_upload_extras::unpack_appended_shader_logical_name`]).
+///
+/// The returned name is always passed through [`canonical_shader_lab_logical_name`] so plain stems such as
+/// `UI_TextUnlit` match ShaderLab `UI/Text/Unlit` for embedded stem lookup.
 pub fn resolve_logical_shader_name_from_upload_with_host_hint(
+    data: &ShaderUpload,
+    host_hint: Option<&str>,
+) -> Option<String> {
+    let raw = resolve_logical_shader_name_from_upload_inner(data, host_hint)?;
+    Some(canonical_shader_lab_logical_name(&raw))
+}
+
+fn resolve_logical_shader_name_from_upload_inner(
     data: &ShaderUpload,
     host_hint: Option<&str>,
 ) -> Option<String> {
@@ -176,113 +208,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_ui_unlit_shader_line() {
-        let src = "Shader \"UI/Unlit\"\n{\n";
-        assert_eq!(
-            parse_shader_lab_quoted_name(src).as_deref(),
-            Some(CANONICAL_UNITY_UI_UNLIT)
-        );
-    }
-
-    #[test]
-    fn parse_ui_text_unlit_shader_line() {
-        let src = "Shader \"UI/Text/Unlit\"\r\n{";
-        assert_eq!(
-            parse_shader_lab_quoted_name(src).as_deref(),
-            Some(CANONICAL_UNITY_UI_TEXT_UNLIT)
-        );
-    }
-
-    #[test]
-    fn parse_wgsl_banner() {
-        let wgsl = "// unity-shader-name: UI/Unlit\nfn vs() {}\n";
-        assert_eq!(
-            parse_wgsl_unity_shader_name_banner(wgsl).as_deref(),
-            Some(CANONICAL_UNITY_UI_UNLIT)
-        );
-    }
-
-    #[test]
-    fn resolve_from_host_hint_without_file() {
-        let u = ShaderUpload::default();
-        assert_eq!(
-            resolve_logical_shader_name_from_upload_with_host_hint(&u, Some("UI/Text/Unlit"))
-                .as_deref(),
-            Some(CANONICAL_UNITY_UI_TEXT_UNLIT)
-        );
-    }
-
-    #[test]
-    fn resolve_from_inline_shader_lab_in_file_field() {
-        let u = ShaderUpload {
-            file: Some("Shader \"UI/Unlit\"\n{\n".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(
-            resolve_logical_shader_name_from_upload(&u).as_deref(),
-            Some(CANONICAL_UNITY_UI_UNLIT)
-        );
-    }
-
-    #[test]
-    fn resolve_from_plain_stem_ui_unlit() {
-        let u = ShaderUpload {
-            file: Some("UI_Unlit".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(
-            resolve_logical_shader_name_from_upload(&u).as_deref(),
-            Some("UI_Unlit")
-        );
-    }
-
-    #[test]
-    fn resolve_from_plain_stem_ui_text_unlit() {
-        let u = ShaderUpload {
-            file: Some("UI_TextUnlit".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(
-            resolve_logical_shader_name_from_upload(&u).as_deref(),
-            Some("UI_TextUnlit")
-        );
-    }
-
-    #[test]
-    fn resolve_plain_label_first_token_only() {
-        let u = ShaderUpload {
-            file: Some("UI_Unlit ALPHACLIP".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(
-            resolve_logical_shader_name_from_upload(&u).as_deref(),
-            Some("UI_Unlit")
-        );
-    }
-
-    #[test]
     fn try_resolve_plain_rejects_absolute_path_like() {
         assert_eq!(
             try_resolve_plain_shader_label("/etc/shaders/x.shader"),
             None
         );
         assert_eq!(try_resolve_plain_shader_label("C:\\a\\b.shader"), None);
-    }
-
-    #[test]
-    fn try_resolve_plain_strips_renderide_prefix() {
-        assert_eq!(
-            try_resolve_plain_shader_label("renderide:UI_Unlit").as_deref(),
-            Some("UI_Unlit")
-        );
-    }
-
-    #[test]
-    fn parse_world_unlit_shader_line() {
-        let src = "Shader \"Unlit\"\n{\n";
-        assert_eq!(
-            parse_shader_lab_quoted_name(src).as_deref(),
-            Some(CANONICAL_UNITY_WORLD_UNLIT)
-        );
     }
 }

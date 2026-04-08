@@ -134,10 +134,18 @@ mod tests {
     #[test]
     fn set_shader_route_stores_display_name_for_hud() {
         let mut r = MaterialRouter::new(MaterialFamilyId(99));
-        r.set_shader_route(3, SOLID_COLOR_FAMILY_ID, Some("UI/Unlit".to_string()));
+        r.set_shader_route(
+            3,
+            SOLID_COLOR_FAMILY_ID,
+            Some("Custom/ExampleShader".to_string()),
+        );
         assert_eq!(
             r.routes_sorted_for_hud(),
-            vec![(3, SOLID_COLOR_FAMILY_ID, Some("UI/Unlit".to_string()))]
+            vec![(
+                3,
+                SOLID_COLOR_FAMILY_ID,
+                Some("Custom/ExampleShader".to_string())
+            )]
         );
         assert_eq!(r.get_shader_family(3), Some(SOLID_COLOR_FAMILY_ID));
     }

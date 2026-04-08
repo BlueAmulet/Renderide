@@ -41,7 +41,7 @@ mod tests {
         let mut packer = MemoryPacker::new(&mut buf[..]);
         upload.pack(&mut packer);
         let after_upload = cap - packer.remaining_len();
-        let name = "UI/Text/Unlit";
+        let name = "Custom/AppendedShader";
         packer.write_str(Some(name));
         let payload_len = cap - packer.remaining_len();
 
