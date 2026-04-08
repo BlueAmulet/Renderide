@@ -2,7 +2,8 @@
 //!
 //! [`ManifestStemMaterialFamily`] is constructed per resolved stem (see [`super::MaterialRegistry`]).
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::backend::{empty_material_bind_group_layout, FrameGpuResources};
 use crate::embedded_shaders;
@@ -15,16 +16,32 @@ use crate::render_graph::MAIN_FORWARD_DEPTH_COMPARE;
 /// Stable id for shaders whose normalized Unity name has an embedded `{key}_default` WGSL target.
 pub const MANIFEST_RASTER_FAMILY_ID: MaterialFamilyId = MaterialFamilyId(3);
 
+fn manifest_uv0_stream_cache() -> &'static Mutex<HashMap<String, bool>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// `true` when composed manifest WGSL's `vs_main` uses `@location(2)` or higher (UV0 vertex stream).
 ///
 /// Uses the same embedded source and reflection as [`ManifestStemMaterialFamily::create_render_pipeline`]
 /// for the given [`ShaderPermutation`], independent of [`crate::backend::ManifestMaterialBindResources`].
+///
+/// Results are memoized per `(base_stem, permutation)` so draw collection and other hot paths do not
+/// re-run naga reflection once per mesh draw.
 pub fn manifest_stem_needs_uv0_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
+    let key = format!("{base_stem}:{}", permutation.0);
+    let mut guard = manifest_uv0_stream_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(v) = guard.get(&key) {
+        return *v;
+    }
     let composed = manifest_composed_stem_for_permutation(base_stem, permutation);
-    let Some(wgsl) = embedded_shaders::embedded_target_wgsl(&composed) else {
-        return false;
-    };
-    manifest_wgsl_needs_uv0_stream(wgsl)
+    let v = embedded_shaders::embedded_target_wgsl(&composed)
+        .map(manifest_wgsl_needs_uv0_stream)
+        .unwrap_or(false);
+    guard.insert(key, v);
+    v
 }
 
 /// `true` when `vs_main` reflection reports a highest vertex `@location` index ≥ 2 (UV at `location(2)`).

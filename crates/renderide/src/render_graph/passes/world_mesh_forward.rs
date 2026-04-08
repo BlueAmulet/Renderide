@@ -7,8 +7,8 @@
 //! groups for [`crate::materials::MANIFEST_RASTER_FAMILY_ID`] draws (see [`crate::backend::ManifestMaterialBindResources`]).
 //!
 //! Manifest raster binds use the composed WGSL **stem** from [`crate::materials::MaterialRouter::stem_for_shader_asset`]
-//! (not a hard-coded Unlit path). UV0 is bound when [`crate::materials::manifest_stem_needs_uv0_stream`]
-//! matches the active [`ShaderPermutation`] (same rule as the manifest raster pipeline).
+//! (not a hard-coded Unlit path). Whether UV0 is bound is stored on [`MaterialDrawBatchKey::manifest_needs_uv0`]
+//! (same rule as the manifest raster pipeline and [`crate::materials::manifest_stem_needs_uv0_stream`], computed during draw collection).
 //!
 //! ## VR stereo world draws
 //!
@@ -24,8 +24,7 @@ use glam::Mat4;
 use crate::assets::material::MaterialDictionary;
 use crate::gpu::{write_per_draw_uniform_slab, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE};
 use crate::materials::{
-    manifest_stem_needs_uv0_stream, MaterialPipelineDesc, MaterialRouter,
-    DEBUG_WORLD_NORMALS_FAMILY_ID, MANIFEST_RASTER_FAMILY_ID,
+    MaterialPipelineDesc, MaterialRouter, DEBUG_WORLD_NORMALS_FAMILY_ID, MANIFEST_RASTER_FAMILY_ID,
 };
 use crate::pipelines::ShaderPermutation;
 use crate::pipelines::SHADER_PERM_MULTIVIEW_STEREO;
@@ -120,6 +119,7 @@ impl RenderPass for WorldMeshForwardPass {
                 &backend.mesh_pool,
                 &dict,
                 router_ref,
+                shader_perm,
                 render_context,
             )
         };
@@ -358,15 +358,12 @@ impl RenderPass for WorldMeshForwardPass {
             }
             rpass.set_bind_group(2, debug_bind_group.as_ref(), &[dynamic_offset]);
 
-            let manifest_uv = item.batch_key.family_id == MANIFEST_RASTER_FAMILY_ID
-                && backend
-                    .material_registry
-                    .as_ref()
-                    .and_then(|r| r.stem_for_shader_asset(item.batch_key.shader_asset_id))
-                    .map(|stem| manifest_stem_needs_uv0_stream(stem, shader_perm))
-                    .unwrap_or(false);
-
-            draw_mesh_submesh(&mut rpass, item, &backend.mesh_pool, manifest_uv);
+            draw_mesh_submesh(
+                &mut rpass,
+                item,
+                &backend.mesh_pool,
+                item.batch_key.manifest_needs_uv0,
+            );
         }
 
         Ok(())

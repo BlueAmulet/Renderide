@@ -7,7 +7,11 @@
 use std::collections::HashSet;
 
 use crate::assets::material::{MaterialDictionary, MaterialPropertyLookupIds};
-use crate::materials::{resolve_raster_family, MaterialFamilyId, MaterialRouter};
+use crate::materials::{
+    manifest_stem_needs_uv0_stream, resolve_raster_family, MaterialFamilyId, MaterialRouter,
+    MANIFEST_RASTER_FAMILY_ID,
+};
+use crate::pipelines::ShaderPermutation;
 use crate::resources::MeshPool;
 use crate::scene::{MeshMaterialSlot, RenderSpaceId, SceneCoordinator, StaticMeshRenderer};
 use crate::shared::RenderingContext;
@@ -26,6 +30,10 @@ pub struct MaterialDrawBatchKey {
     pub property_block_slot0: Option<i32>,
     /// Skinned deform path uses different vertex buffers.
     pub skinned: bool,
+    /// When [`Self::family_id`] is [`MANIFEST_RASTER_FAMILY_ID`](crate::materials::MANIFEST_RASTER_FAMILY_ID),
+    /// whether the active [`ShaderPermutation`] requires a UV0 vertex stream (computed once per draw item,
+    /// not per frame in the raster pass).
+    pub manifest_needs_uv0: bool,
 }
 
 /// One indexed draw after pairing a material slot with a mesh submesh range.
@@ -69,16 +77,27 @@ fn batch_key_for_slot(
     skinned: bool,
     dict: &MaterialDictionary<'_>,
     router: &MaterialRouter,
+    shader_perm: ShaderPermutation,
 ) -> MaterialDrawBatchKey {
     let shader_asset_id = dict
         .shader_asset_for_material(material_asset_id)
         .unwrap_or(-1);
+    let family_id = resolve_raster_family(shader_asset_id, router);
+    let manifest_needs_uv0 = if family_id == MANIFEST_RASTER_FAMILY_ID {
+        router
+            .stem_for_shader_asset(shader_asset_id)
+            .map(|stem| manifest_stem_needs_uv0_stream(stem, shader_perm))
+            .unwrap_or(false)
+    } else {
+        false
+    };
     MaterialDrawBatchKey {
-        family_id: resolve_raster_family(shader_asset_id, router),
+        family_id,
         shader_asset_id,
         material_asset_id,
         property_block_slot0: property_block_id,
         skinned,
+        manifest_needs_uv0,
     }
 }
 
@@ -94,6 +113,7 @@ fn push_draws_for_renderer(
     submeshes: &[(u32, u32)],
     dict: &MaterialDictionary<'_>,
     router: &MaterialRouter,
+    shader_perm: ShaderPermutation,
     context: RenderingContext,
     mismatch_warned: &mut HashSet<i32>,
 ) {
@@ -141,6 +161,7 @@ fn push_draws_for_renderer(
             skinned,
             dict,
             router,
+            shader_perm,
         );
         out.push(WorldMeshDrawItem {
             space_id,
@@ -177,6 +198,7 @@ pub fn collect_and_sort_world_mesh_draws(
     mesh_pool: &MeshPool,
     dict: &MaterialDictionary<'_>,
     router: &MaterialRouter,
+    shader_perm: ShaderPermutation,
     context: RenderingContext,
 ) -> Vec<WorldMeshDrawItem> {
     let mut mismatch_warned = HashSet::new();
@@ -210,6 +232,7 @@ pub fn collect_and_sort_world_mesh_draws(
                 &mesh.submeshes,
                 dict,
                 router,
+                shader_perm,
                 context,
                 &mut mismatch_warned,
             );
@@ -235,6 +258,7 @@ pub fn collect_and_sort_world_mesh_draws(
                 &mesh.submeshes,
                 dict,
                 router,
+                shader_perm,
                 context,
                 &mut mismatch_warned,
             );
@@ -368,6 +392,7 @@ mod tests {
                 material_asset_id: mid,
                 property_block_slot0: pb,
                 skinned,
+                manifest_needs_uv0: false,
             },
         }
     }
@@ -396,6 +421,7 @@ mod tests {
             material_asset_id: 1,
             property_block_slot0: None,
             skinned: false,
+            manifest_needs_uv0: false,
         };
         let b = MaterialDrawBatchKey {
             family_id: DEBUG_WORLD_NORMALS_FAMILY_ID,
@@ -403,6 +429,7 @@ mod tests {
             material_asset_id: 1,
             property_block_slot0: Some(99),
             skinned: false,
+            manifest_needs_uv0: false,
         };
         assert_ne!(a, b);
         assert!(a < b || b < a);
