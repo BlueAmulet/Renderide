@@ -460,5 +460,5 @@ target
 config.ini
 *.log
 profile.json.gz
-!crates/renderide/shaders/**
+!crates/renderide/shaders/target/**
 !crates/renderide/src/bin/**
