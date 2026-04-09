@@ -19,6 +19,7 @@
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd
+#import renderide::alpha_clip_sample as acs
 
 struct UnlitMaterial {
     _Color: vec4<f32>,
@@ -86,6 +87,8 @@ fn apply_st(uv: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var albedo = mat._Color;
+    // Alpha for `_ALPHATEST` vs `_Cutoff` (base mip — stable coverage).
+    var clip_a = mat._Color.a;
 
     // --- Main texture ---
     if ((mat.flags & 1u) != 0u) {
@@ -99,6 +102,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         let t = textureSample(_Tex, _Tex_sampler, uv_main);
+        clip_a = mat._Color.a * acs::texture_alpha_base_mip(_Tex, _Tex_sampler, uv_main);
         albedo = albedo * t;
     }
 
@@ -108,13 +112,15 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let mask = textureSample(_MaskTex, _MaskTex_sampler, uv_mask);
         // Unity: mul = (r+g+b) * 0.3333 * a  (luminance × alpha)
         let mul = (mask.r + mask.g + mask.b) * 0.33333334 * mask.a;
+        let mul_clip = acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_mask);
 
         if ((mat.flags & 8u) != 0u) {     // _MASK_TEXTURE_MUL
             albedo.a = albedo.a * mul;
+            clip_a = clip_a * mul_clip;
         }
         if ((mat.flags & 16u) != 0u) {    // _MASK_TEXTURE_CLIP
             // Unity: `if (mul - _Cutoff <= 0) discard` → discard when mul <= _Cutoff.
-            if (mul <= mat._Cutoff) {
+            if (mul_clip <= mat._Cutoff) {
                 discard;
             }
         }
@@ -123,7 +129,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // --- Alpha clip — skipped when mask clip is already active (mirrors Unity #pragma) ---
     if ((mat.flags & 2u) != 0u && (mat.flags & 16u) == 0u) {
         // Unity: `if (col.a - _Cutoff <= 0) discard` → discard when a <= _Cutoff.
-        if (albedo.a <= mat._Cutoff) {
+        if (clip_a <= mat._Cutoff) {
             discard;
         }
     }

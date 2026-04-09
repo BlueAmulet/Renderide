@@ -9,6 +9,7 @@
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd
+#import renderide::alpha_clip_sample as acs
 
 struct OverlayUnlitMaterial {
     _BehindColor: vec4<f32>,
@@ -89,6 +90,19 @@ fn sample_layer(
     return textureSample(tex, samp, sample_uv) * tint;
 }
 
+/// Same UV as [`sample_layer`], base mip — for `_Cutoff` vs composited alpha only.
+fn sample_layer_lod0(
+    tex: texture_2d<f32>,
+    samp: sampler,
+    tint: vec4<f32>,
+    uv: vec2<f32>,
+    st: vec4<f32>,
+) -> vec4<f32> {
+    let use_polar = mat._POLARUV > 0.99;
+    let sample_uv = select(apply_st(uv, st), apply_st(polar_uv(uv, mat._PolarPow), st), use_polar);
+    return acs::texture_rgba_base_mip(tex, samp, sample_uv) * tint;
+}
+
 fn alpha_over(front: vec4<f32>, behind: vec4<f32>) -> vec4<f32> {
     let out_a = front.a + behind.a * (1.0 - front.a);
     if (out_a <= 1e-6) {
@@ -118,7 +132,23 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var color = alpha_over(front, behind);
 
-    if (mat._Cutoff > 0.0 && mat._Cutoff < 1.0 && color.a <= mat._Cutoff) {
+    let behind_clip = sample_layer_lod0(
+        _BehindTex,
+        _BehindTex_sampler,
+        mat._BehindColor,
+        in.uv,
+        mat._BehindTex_ST,
+    );
+    let front_clip = sample_layer_lod0(
+        _FrontTex,
+        _FrontTex_sampler,
+        mat._FrontColor,
+        in.uv,
+        mat._FrontTex_ST,
+    );
+    let color_clip = alpha_over(front_clip, behind_clip);
+
+    if (mat._Cutoff > 0.0 && mat._Cutoff < 1.0 && color_clip.a <= mat._Cutoff) {
         discard;
     }
 

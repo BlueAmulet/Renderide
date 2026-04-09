@@ -58,6 +58,8 @@ struct VertexOutput {
     @location(0) uv: vec2<f32>,
 }
 
+const CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX: f32 = 0f;
+
 @group(2) @binding(0) 
 var<uniform> drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX: PerDrawUniformsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX;
 @group(0) @binding(0) 
@@ -83,8 +85,18 @@ var _MaskTex: texture_2d<f32>;
 @group(1) @binding(6) 
 var _MaskTex_sampler: sampler;
 
-fn apply_st(uv_1: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
-    let uv_st: vec2<f32> = ((uv_1 * st.xy) + st.zw);
+fn texture_alpha_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex: texture_2d<f32>, samp: sampler, uv_1: vec2<f32>) -> f32 {
+    let _e4: vec4<f32> = textureSampleLevel(tex, samp, uv_1, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
+    return _e4.w;
+}
+
+fn mask_luminance_mul_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex_1: texture_2d<f32>, samp_1: sampler, uv_2: vec2<f32>) -> f32 {
+    let mask: vec4<f32> = textureSampleLevel(tex_1, samp_1, uv_2, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
+    return ((((mask.x + mask.y) + mask.z) * 0.33333334f) * mask.w);
+}
+
+fn apply_st(uv_3: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
+    let uv_st: vec2<f32> = ((uv_3 * st.xy) + st.zw);
     return vec2<f32>(uv_st.x, (1f - uv_st.y));
 }
 
@@ -104,90 +116,100 @@ fn vs_main(@location(0) pos: vec4<f32>, @location(1) _n: vec4<f32>, @location(2)
 @fragment 
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var albedo: vec4<f32>;
+    var clip_a: f32;
     var uv_main: vec2<f32>;
     var local: bool;
     var lit: u32 = 0u;
 
     let _e3: vec4<f32> = mat._Color;
     albedo = _e3;
-    let _e7: u32 = mat.flags;
-    if ((_e7 & 1u) != 0u) {
-        let _e16: vec4<f32> = mat._Tex_ST;
-        let _e17: vec2<f32> = apply_st(in.uv, _e16);
-        uv_main = _e17;
-        let _e21: u32 = mat.flags;
-        if ((_e21 & 4u) != 0u) {
-            let _e29: vec4<f32> = mat._OffsetTex_ST;
-            let _e30: vec2<f32> = apply_st(in.uv, _e29);
-            let offset_s: vec4<f32> = textureSample(_OffsetTex, _OffsetTex_sampler, _e30);
-            let _e34: vec2<f32> = uv_main;
-            let _e38: vec4<f32> = mat._OffsetMagnitude;
-            uv_main = (_e34 + (offset_s.xy * _e38.xy));
+    let _e8: f32 = mat._Color.w;
+    clip_a = _e8;
+    let _e12: u32 = mat.flags;
+    if ((_e12 & 1u) != 0u) {
+        let _e21: vec4<f32> = mat._Tex_ST;
+        let _e22: vec2<f32> = apply_st(in.uv, _e21);
+        uv_main = _e22;
+        let _e26: u32 = mat.flags;
+        if ((_e26 & 4u) != 0u) {
+            let _e34: vec4<f32> = mat._OffsetTex_ST;
+            let _e35: vec2<f32> = apply_st(in.uv, _e34);
+            let offset_s: vec4<f32> = textureSample(_OffsetTex, _OffsetTex_sampler, _e35);
+            let _e39: vec2<f32> = uv_main;
+            let _e43: vec4<f32> = mat._OffsetMagnitude;
+            uv_main = (_e39 + (offset_s.xy * _e43.xy));
         }
-        let _e44: vec2<f32> = uv_main;
-        let t: vec4<f32> = textureSample(_Tex, _Tex_sampler, _e44);
-        let _e46: vec4<f32> = albedo;
-        albedo = (_e46 * t);
+        let _e49: vec2<f32> = uv_main;
+        let t: vec4<f32> = textureSample(_Tex, _Tex_sampler, _e49);
+        let _e54: f32 = mat._Color.w;
+        let _e55: vec2<f32> = uv_main;
+        let _e58: f32 = texture_alpha_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_Tex, _Tex_sampler, _e55);
+        clip_a = (_e54 * _e58);
+        let _e60: vec4<f32> = albedo;
+        albedo = (_e60 * t);
     }
-    let _e50: u32 = mat.flags;
-    if ((_e50 & 24u) != 0u) {
-        let _e58: vec4<f32> = mat._MaskTex_ST;
-        let _e59: vec2<f32> = apply_st(in.uv, _e58);
-        let mask: vec4<f32> = textureSample(_MaskTex, _MaskTex_sampler, _e59);
-        let mul: f32 = ((((mask.x + mask.y) + mask.z) * 0.33333334f) * mask.w);
-        let _e74: u32 = mat.flags;
-        if ((_e74 & 8u) != 0u) {
-            let _e81: f32 = albedo.w;
-            albedo.w = (_e81 * mul);
+    let _e64: u32 = mat.flags;
+    if ((_e64 & 24u) != 0u) {
+        let _e72: vec4<f32> = mat._MaskTex_ST;
+        let _e73: vec2<f32> = apply_st(in.uv, _e72);
+        let mask_1: vec4<f32> = textureSample(_MaskTex, _MaskTex_sampler, _e73);
+        let mul: f32 = ((((mask_1.x + mask_1.y) + mask_1.z) * 0.33333334f) * mask_1.w);
+        let _e88: f32 = mask_luminance_mul_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_MaskTex, _MaskTex_sampler, _e73);
+        let _e91: u32 = mat.flags;
+        if ((_e91 & 8u) != 0u) {
+            let _e98: f32 = albedo.w;
+            albedo.w = (_e98 * mul);
+            let _e100: f32 = clip_a;
+            clip_a = (_e100 * _e88);
         }
-        let _e85: u32 = mat.flags;
-        if ((_e85 & 16u) != 0u) {
-            let _e92: f32 = mat._Cutoff;
-            if (mul <= _e92) {
+        let _e104: u32 = mat.flags;
+        if ((_e104 & 16u) != 0u) {
+            let _e111: f32 = mat._Cutoff;
+            if (_e88 <= _e111) {
                 discard;
             }
         }
     }
-    let _e96: u32 = mat.flags;
-    if ((_e96 & 2u) != 0u) {
-        let _e103: u32 = mat.flags;
-        local = ((_e103 & 16u) == 0u);
+    let _e115: u32 = mat.flags;
+    if ((_e115 & 2u) != 0u) {
+        let _e122: u32 = mat.flags;
+        local = ((_e122 & 16u) == 0u);
     } else {
         local = false;
     }
-    let _e111: bool = local;
-    if _e111 {
-        let _e113: f32 = albedo.w;
-        let _e116: f32 = mat._Cutoff;
-        if (_e113 <= _e116) {
+    let _e130: bool = local;
+    if _e130 {
+        let _e131: f32 = clip_a;
+        let _e134: f32 = mat._Cutoff;
+        if (_e131 <= _e134) {
             discard;
         }
     }
-    let _e120: u32 = mat.flags;
-    if ((_e120 & 32u) != 0u) {
-        let _e125: vec4<f32> = albedo;
-        let _e128: f32 = albedo.w;
-        let _e131: f32 = albedo.w;
-        albedo = vec4<f32>((_e125.xyz * _e128), _e131);
+    let _e138: u32 = mat.flags;
+    if ((_e138 & 32u) != 0u) {
+        let _e143: vec4<f32> = albedo;
+        let _e146: f32 = albedo.w;
+        let _e149: f32 = albedo.w;
+        albedo = vec4<f32>((_e143.xyz * _e146), _e149);
     }
-    let _e135: u32 = mat.flags;
-    if ((_e135 & 64u) != 0u) {
-        let _e141: f32 = albedo.x;
-        let _e143: f32 = albedo.y;
-        let _e146: f32 = albedo.z;
-        let lum: f32 = (((_e141 + _e143) + _e146) * 0.33333334f);
-        let _e152: f32 = albedo.w;
-        albedo.w = (_e152 * lum);
+    let _e153: u32 = mat.flags;
+    if ((_e153 & 64u) != 0u) {
+        let _e159: f32 = albedo.x;
+        let _e161: f32 = albedo.y;
+        let _e164: f32 = albedo.z;
+        let lum: f32 = (((_e159 + _e161) + _e164) * 0.33333334f);
+        let _e170: f32 = albedo.w;
+        albedo.w = (_e170 * lum);
     }
-    let _e156: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
-    if (_e156 > 0u) {
-        let _e162: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
-        lit = _e162;
+    let _e174: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
+    if (_e174 > 0u) {
+        let _e180: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
+        lit = _e180;
     }
-    let _e166: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e174: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let cluster_touch: f32 = ((f32((_e166 & 255u)) * 0.0000000001f) + (f32((_e174 & 255u)) * 0.0000000001f));
-    let _e181: vec4<f32> = albedo;
-    let _e182: u32 = lit;
-    return (_e181 + vec4<f32>(vec3(((f32(_e182) * 0.0000000001f) + cluster_touch)), 0f));
+    let _e184: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e192: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let cluster_touch: f32 = ((f32((_e184 & 255u)) * 0.0000000001f) + (f32((_e192 & 255u)) * 0.0000000001f));
+    let _e199: vec4<f32> = albedo;
+    let _e200: u32 = lit;
+    return (_e199 + vec4<f32>(vec3(((f32(_e200) * 0.0000000001f) + cluster_touch)), 0f));
 }

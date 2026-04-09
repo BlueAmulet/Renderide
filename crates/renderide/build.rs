@@ -124,11 +124,25 @@ fn add_pbs_cluster_module(composer: &mut Composer, source: &str) {
         .unwrap_or_else(|e| panic!("add pbs_cluster module: {e}"));
 }
 
+fn add_alpha_clip_sample_module(composer: &mut Composer, source: &str) {
+    composer
+        .add_composable_module(ComposableModuleDescriptor {
+            source,
+            file_path: "shaders/source/modules/alpha_clip_sample.wgsl",
+            language: ShaderLanguage::Wgsl,
+            ..Default::default()
+        })
+        .unwrap_or_else(|e| panic!("add alpha_clip_sample module: {e}"));
+}
+
+/// Composes one material with all shared naga-oil modules (globals, PBS, alpha-clip helpers).
+#[allow(clippy::too_many_arguments)] // One call site; splitting would not improve readability.
 fn compose_material(
     globals_source: &str,
     per_draw_source: &str,
     pbs_brdf_source: &str,
     pbs_cluster_source: &str,
+    alpha_clip_sample_source: &str,
     material_source: &str,
     material_file_path: &str,
     shader_defs: HashMap<String, ShaderDefValue>,
@@ -138,6 +152,7 @@ fn compose_material(
     add_per_draw_module(&mut composer, per_draw_source);
     add_pbs_brdf_module(&mut composer, pbs_brdf_source);
     add_pbs_cluster_module(&mut composer, pbs_cluster_source);
+    add_alpha_clip_sample_module(&mut composer, alpha_clip_sample_source);
     composer
         .make_naga_module(NagaModuleDescriptor {
             source: material_source,
@@ -156,6 +171,7 @@ fn main() {
     let per_draw_path = manifest_dir.join("shaders/source/modules/per_draw.wgsl");
     let pbs_brdf_path = manifest_dir.join("shaders/source/modules/pbs_brdf.wgsl");
     let pbs_cluster_path = manifest_dir.join("shaders/source/modules/pbs_cluster.wgsl");
+    let alpha_clip_sample_path = manifest_dir.join("shaders/source/modules/alpha_clip_sample.wgsl");
     let materials_dir = manifest_dir.join("shaders/source/materials");
     let target_dir = manifest_dir.join("shaders/target");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
@@ -174,6 +190,8 @@ fn main() {
         .unwrap_or_else(|e| panic!("read {}: {e}", pbs_brdf_path.display()));
     let pbs_cluster_source = fs::read_to_string(&pbs_cluster_path)
         .unwrap_or_else(|e| panic!("read {}: {e}", pbs_cluster_path.display()));
+    let alpha_clip_sample_source = fs::read_to_string(&alpha_clip_sample_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", alpha_clip_sample_path.display()));
 
     let mut embedded_arms = String::new();
     let mut output_stems: Vec<String> = Vec::new();
@@ -206,6 +224,7 @@ fn main() {
                 &per_draw_source,
                 &pbs_brdf_source,
                 &pbs_cluster_source,
+                &alpha_clip_sample_source,
                 &material_source,
                 path.to_str().expect("utf8 path"),
                 defs,

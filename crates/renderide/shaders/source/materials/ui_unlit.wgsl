@@ -15,6 +15,7 @@
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd
+#import renderide::alpha_clip_sample as acs
 
 struct UiUnlitMaterial {
     _MainTex_ST: vec4<f32>,
@@ -87,10 +88,12 @@ fn uv_with_st(uv: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var color = in.color;
+    var clip_a = in.color.a;
 
     if ((mat.flags & 1u) != 0u) {
         let uv_s = uv_with_st(in.uv, mat._MainTex_ST);
         let t = textureSample(_MainTex, _MainTex_sampler, uv_s);
+        clip_a = in.color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_s);
         color = color * t;
     }
 
@@ -107,12 +110,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let uv_m = uv_with_st(in.uv, mat._MaskTex_ST);
         let mask = textureSample(_MaskTex, _MaskTex_sampler, uv_m);
         let mul = (mask.r + mask.g + mask.b) * 0.33333334 * mask.a;
+        let mul_clip = acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_m);
         if ((mat.flags & 16u) != 0u) {
             color.a = color.a * mul;
+            clip_a = clip_a * mul_clip;
         }
         if ((mat.flags & 32u) != 0u) {
             // Unity: `if (mul - _Cutoff <= 0) discard`
-            if (mul <= mat._Cutoff) {
+            if (mul_clip <= mat._Cutoff) {
                 discard;
             }
         }
@@ -120,7 +125,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Alpha clip — skipped when mask clip is already active (mirrors Unity #pragma).
     if ((mat.flags & 2u) != 0u && (mat.flags & 32u) == 0u) {
-        if (color.a <= mat._Cutoff) {
+        if (clip_a <= mat._Cutoff) {
             discard;
         }
     }

@@ -59,6 +59,8 @@ struct VertexOutput {
     @location(0) uv: vec2<f32>,
 }
 
+const CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX: f32 = 0f;
+
 @group(2) @binding(0) 
 var<uniform> drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX: PerDrawUniformsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX;
 @group(0) @binding(0) 
@@ -80,8 +82,13 @@ var _FrontTex: texture_2d<f32>;
 @group(1) @binding(4) 
 var _FrontTex_sampler: sampler;
 
-fn apply_st(uv_1: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
-    let uv_st: vec2<f32> = ((uv_1 * st.xy) + st.zw);
+fn texture_rgba_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex: texture_2d<f32>, samp: sampler, uv_1: vec2<f32>) -> vec4<f32> {
+    let _e4: vec4<f32> = textureSampleLevel(tex, samp, uv_1, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
+    return _e4;
+}
+
+fn apply_st(uv_2: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
+    let uv_st: vec2<f32> = ((uv_2 * st.xy) + st.zw);
     return vec2<f32>(uv_st.x, (1f - uv_st.y));
 }
 
@@ -92,16 +99,28 @@ fn polar_uv(raw_uv: vec2<f32>, radius_pow: f32) -> vec2<f32> {
     return vec2<f32>((angle / 6.2831855f), radius);
 }
 
-fn sample_layer(tex: texture_2d<f32>, samp: sampler, tint: vec4<f32>, uv_2: vec2<f32>, st_1: vec4<f32>) -> vec4<f32> {
+fn sample_layer(tex_1: texture_2d<f32>, samp_1: sampler, tint: vec4<f32>, uv_3: vec2<f32>, st_1: vec4<f32>) -> vec4<f32> {
     let _e2: f32 = mat._POLARUV;
     let use_polar: bool = (_e2 > 0.99f);
-    let _e7: vec2<f32> = apply_st(uv_2, st_1);
+    let _e7: vec2<f32> = apply_st(uv_3, st_1);
     let _e10: f32 = mat._PolarPow;
-    let _e11: vec2<f32> = polar_uv(uv_2, _e10);
+    let _e11: vec2<f32> = polar_uv(uv_3, _e10);
     let _e12: vec2<f32> = apply_st(_e11, st_1);
     let sample_uv: vec2<f32> = select(_e7, _e12, use_polar);
-    let _e17: vec4<f32> = textureSample(tex, samp, sample_uv);
+    let _e17: vec4<f32> = textureSample(tex_1, samp_1, sample_uv);
     return (_e17 * tint);
+}
+
+fn sample_layer_lod0_(tex_2: texture_2d<f32>, samp_2: sampler, tint_1: vec4<f32>, uv_4: vec2<f32>, st_2: vec4<f32>) -> vec4<f32> {
+    let _e2: f32 = mat._POLARUV;
+    let use_polar_1: bool = (_e2 > 0.99f);
+    let _e7: vec2<f32> = apply_st(uv_4, st_2);
+    let _e10: f32 = mat._PolarPow;
+    let _e11: vec2<f32> = polar_uv(uv_4, _e10);
+    let _e12: vec2<f32> = apply_st(_e11, st_2);
+    let sample_uv_1: vec2<f32> = select(_e7, _e12, use_polar_1);
+    let _e16: vec4<f32> = texture_rgba_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex_2, samp_2, sample_uv_1);
+    return (_e16 * tint_1);
 }
 
 fn alpha_over(front: vec4<f32>, behind: vec4<f32>) -> vec4<f32> {
@@ -141,50 +160,56 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let _e21: vec4<f32> = sample_layer(_FrontTex, _FrontTex_sampler, _e14, in.uv, _e18);
     let _e22: vec4<f32> = alpha_over(_e21, _e11);
     color = _e22;
-    let _e26: f32 = mat._Cutoff;
-    if (_e26 > 0f) {
-        let _e31: f32 = mat._Cutoff;
-        local = (_e31 < 1f);
+    let _e26: vec4<f32> = mat._BehindColor;
+    let _e30: vec4<f32> = mat._BehindTex_ST;
+    let _e33: vec4<f32> = sample_layer_lod0_(_BehindTex, _BehindTex_sampler, _e26, in.uv, _e30);
+    let _e36: vec4<f32> = mat._FrontColor;
+    let _e40: vec4<f32> = mat._FrontTex_ST;
+    let _e43: vec4<f32> = sample_layer_lod0_(_FrontTex, _FrontTex_sampler, _e36, in.uv, _e40);
+    let _e44: vec4<f32> = alpha_over(_e43, _e33);
+    let _e47: f32 = mat._Cutoff;
+    if (_e47 > 0f) {
+        let _e52: f32 = mat._Cutoff;
+        local = (_e52 < 1f);
     } else {
         local = false;
     }
-    let _e37: bool = local;
-    if _e37 {
-        let _e39: f32 = color.w;
-        let _e42: f32 = mat._Cutoff;
-        local_1 = (_e39 <= _e42);
+    let _e58: bool = local;
+    if _e58 {
+        let _e62: f32 = mat._Cutoff;
+        local_1 = (_e44.w <= _e62);
     } else {
         local_1 = false;
     }
-    let _e47: bool = local_1;
-    if _e47 {
+    let _e67: bool = local_1;
+    if _e67 {
         discard;
     }
-    let _e50: f32 = mat._MUL_RGB_BY_ALPHA;
-    if (_e50 > 0.99f) {
-        let _e53: vec4<f32> = color;
-        let _e56: f32 = color.w;
-        let _e59: f32 = color.w;
-        color = vec4<f32>((_e53.xyz * _e56), _e59);
+    let _e70: f32 = mat._MUL_RGB_BY_ALPHA;
+    if (_e70 > 0.99f) {
+        let _e73: vec4<f32> = color;
+        let _e76: f32 = color.w;
+        let _e79: f32 = color.w;
+        color = vec4<f32>((_e73.xyz * _e76), _e79);
     }
-    let _e63: f32 = mat._MUL_ALPHA_INTENSITY;
-    if (_e63 > 0.99f) {
-        let _e67: f32 = color.x;
-        let _e69: f32 = color.y;
-        let _e72: f32 = color.z;
-        let lum: f32 = (((_e67 + _e69) + _e72) * 0.33333334f);
-        let _e78: f32 = color.w;
-        color.w = (_e78 * lum);
+    let _e83: f32 = mat._MUL_ALPHA_INTENSITY;
+    if (_e83 > 0.99f) {
+        let _e87: f32 = color.x;
+        let _e89: f32 = color.y;
+        let _e92: f32 = color.z;
+        let lum: f32 = (((_e87 + _e89) + _e92) * 0.33333334f);
+        let _e98: f32 = color.w;
+        color.w = (_e98 * lum);
     }
-    let _e82: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
-    if (_e82 > 0u) {
-        let _e88: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
-        lit = _e88;
+    let _e102: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
+    if (_e102 > 0u) {
+        let _e108: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
+        lit = _e108;
     }
-    let _e92: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e100: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let cluster_touch: f32 = ((f32((_e92 & 255u)) * 0.0000000001f) + (f32((_e100 & 255u)) * 0.0000000001f));
-    let _e107: vec4<f32> = color;
-    let _e108: u32 = lit;
-    return (_e107 + vec4<f32>(vec3(((f32(_e108) * 0.0000000001f) + cluster_touch)), 0f));
+    let _e112: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e120: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let cluster_touch: f32 = ((f32((_e112 & 255u)) * 0.0000000001f) + (f32((_e120 & 255u)) * 0.0000000001f));
+    let _e127: vec4<f32> = color;
+    let _e128: u32 = lit;
+    return (_e127 + vec4<f32>(vec3(((f32(_e128) * 0.0000000001f) + cluster_touch)), 0f));
 }

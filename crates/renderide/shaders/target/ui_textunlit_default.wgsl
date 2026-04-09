@@ -71,6 +71,8 @@ struct VertexOutput {
     @location(3) obj_xy: vec2<f32>,
 }
 
+const CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX: f32 = 0f;
+
 @group(2) @binding(0) 
 var<uniform> drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX: PerDrawUniformsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX;
 @group(0) @binding(0) 
@@ -87,6 +89,11 @@ var<uniform> mat: UiTextUnlitMaterial;
 var _FontAtlas: texture_2d<f32>;
 @group(1) @binding(2) 
 var _FontAtlas_sampler: sampler;
+
+fn texture_rgba_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex: texture_2d<f32>, samp: sampler, uv_1: vec2<f32>) -> vec4<f32> {
+    let _e4: vec4<f32> = textureSampleLevel(tex, samp, uv_1, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
+    return _e4;
+}
 
 fn median3_(r: f32, g: f32, b: f32) -> f32 {
     return max(min(r, g), min(max(r, g), b));
@@ -223,43 +230,43 @@ fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     let atlas_color: vec4<f32> = textureSample(_FontAtlas, _FontAtlas_sampler, vout.uv);
-    let _e32: vec4<f32> = mat._Range;
-    let range_xy_1: vec2<f32> = _e32.xy;
-    let _e36: f32 = mat._TextMode;
-    let _e37: i32 = text_mode_clamped(_e36);
-    if (_e37 == 1i) {
+    let _e33: vec4<f32> = texture_rgba_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_FontAtlas, _FontAtlas_sampler, vout.uv);
+    let _e36: vec4<f32> = mat._Range;
+    let range_xy_1: vec2<f32> = _e36.xy;
+    let _e40: f32 = mat._TextMode;
+    let _e41: i32 = text_mode_clamped(_e40);
+    if (_e41 == 1i) {
         c = (atlas_color * vtx_color_1);
-        let _e43: f32 = c.w;
-        if (_e43 < 0.001f) {
+        if ((_e33.w * vtx_color_1.w) < 0.001f) {
             discard;
         }
     } else {
-        if (_e37 == 2i) {
-            let sig_dist_1: f32 = (atlas_color.w - 0.5f);
-            let _e51: vec4<f32> = shade_distance_field(sig_dist_1, vout, vtx_color_1, range_xy_1);
-            c = _e51;
+        if (_e41 == 2i) {
+            let sig_dist_1: f32 = (_e33.w - 0.5f);
+            let _e56: vec4<f32> = shade_distance_field(sig_dist_1, vout, vtx_color_1, range_xy_1);
+            c = _e56;
         } else {
-            let _e55: f32 = median3_(atlas_color.x, atlas_color.y, atlas_color.z);
-            let sig_dist_2: f32 = (_e55 - 0.5f);
-            let _e58: vec4<f32> = shade_distance_field(sig_dist_2, vout, vtx_color_1, range_xy_1);
-            c = _e58;
+            let _e60: f32 = median3_(_e33.x, _e33.y, _e33.z);
+            let sig_dist_2: f32 = (_e60 - 0.5f);
+            let _e63: vec4<f32> = shade_distance_field(sig_dist_2, vout, vtx_color_1, range_xy_1);
+            c = _e63;
         }
     }
     let o: vec4<f32> = mat._OverlayTint;
     if (o.w > 0.01f) {
-        let _e65: vec4<f32> = c;
-        let _e74: f32 = c.w;
-        c = vec4<f32>((_e65.xyz * mix(vec3(1f), o.xyz, o.w)), _e74);
+        let _e70: vec4<f32> = c;
+        let _e79: f32 = c.w;
+        c = vec4<f32>((_e70.xyz * mix(vec3(1f), o.xyz, o.w)), _e79);
     }
-    let _e78: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
-    if (_e78 > 0u) {
-        let _e84: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
-        lit = _e84;
+    let _e83: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
+    if (_e83 > 0u) {
+        let _e89: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
+        lit = _e89;
     }
-    let _e88: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e96: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let cluster_touch: f32 = ((f32((_e88 & 255u)) * 0.0000000001f) + (f32((_e96 & 255u)) * 0.0000000001f));
-    let _e103: vec4<f32> = c;
-    let _e104: u32 = lit;
-    return (_e103 + vec4<f32>(vec3(((f32(_e104) * 0.0000000001f) + cluster_touch)), 0f));
+    let _e93: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e101: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let cluster_touch: f32 = ((f32((_e93 & 255u)) * 0.0000000001f) + (f32((_e101 & 255u)) * 0.0000000001f));
+    let _e108: vec4<f32> = c;
+    let _e109: u32 = lit;
+    return (_e108 + vec4<f32>(vec3(((f32(_e109) * 0.0000000001f) + cluster_touch)), 0f));
 }

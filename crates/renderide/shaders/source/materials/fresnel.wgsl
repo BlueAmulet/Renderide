@@ -7,6 +7,7 @@
 #import renderide::globals as rg
 #import renderide::per_draw as pd
 #import renderide::pbs::brdf as brdf
+#import renderide::alpha_clip_sample as acs
 
 struct FresnelMaterial {
     _FarColor: vec4<f32>,
@@ -102,6 +103,13 @@ fn sample_color(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, st: vec4<f32
     return textureSample(tex, samp, sample_uv);
 }
 
+/// Same UV mapping as [`sample_color`], at base mip for alpha clip / mask clip.
+fn sample_color_lod0(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, st: vec4<f32>) -> vec4<f32> {
+    let use_polar = mat._POLARUV > 0.99;
+    let sample_uv = select(apply_st(uv, st), apply_st(polar_uv(uv, mat._PolarPow), st), use_polar);
+    return acs::texture_rgba_base_mip(tex, samp, sample_uv);
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var n = normalize(in.world_n);
@@ -125,20 +133,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var color = mix(near_color, far_color, clamp(fres, 0.0, 1.0));
 
+    let far_clip = mat._FarColor * sample_color_lod0(_FarTex, _FarTex_sampler, in.uv, mat._FarTex_ST);
+    let near_clip = mat._NearColor * sample_color_lod0(_NearTex, _NearTex_sampler, in.uv, mat._NearTex_ST);
+    var clip_a = mix(near_clip.a, far_clip.a, clamp(fres, 0.0, 1.0));
+
     if (mat._MASK_TEXTURE_MUL > 0.99 || mat._MASK_TEXTURE_CLIP > 0.99) {
         let uv_mask = apply_st(in.uv, mat._MaskTex_ST);
         let mask = textureSample(_MaskTex, _MaskTex_sampler, uv_mask);
         let mul = (mask.r + mask.g + mask.b) * 0.33333334 * mask.a;
+        let mul_clip = acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_mask);
 
         if (mat._MASK_TEXTURE_MUL > 0.99) {
             color.a = color.a * mul;
+            clip_a = clip_a * mul_clip;
         }
-        if (mat._MASK_TEXTURE_CLIP > 0.99 && mul <= mat._Cutoff) {
+        if (mat._MASK_TEXTURE_CLIP > 0.99 && mul_clip <= mat._Cutoff) {
             discard;
         }
     }
 
-    if (!(mat._MASK_TEXTURE_CLIP > 0.99) && mat._Cutoff > 0.0 && mat._Cutoff < 1.0 && color.a <= mat._Cutoff) {
+    if (!(mat._MASK_TEXTURE_CLIP > 0.99) && mat._Cutoff > 0.0 && mat._Cutoff < 1.0 && clip_a <= mat._Cutoff) {
         discard;
     }
 

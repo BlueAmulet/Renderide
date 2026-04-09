@@ -11,6 +11,7 @@
 #import renderide::per_draw as pd
 #import renderide::pbs::brdf as brdf
 #import renderide::pbs::cluster as pcls
+#import renderide::alpha_clip_sample as acs
 
 struct PbsLerpSpecularMaterial {
     _Color: vec4<f32>,
@@ -171,13 +172,19 @@ fn fs_main(
 
     var c0 = mat._Color;
     var c1 = mat._Color1;
+    var clip_a = mix(mat._Color.a, mat._Color1.a, l);
     if (kw_enabled(mat._ALBEDOTEX)) {
         c0 = c0 * textureSample(_MainTex, _MainTex_sampler, uv_main0);
         c1 = c1 * textureSample(_MainTex1, _MainTex1_sampler, uv_main1);
+        clip_a = mix(
+            mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main0),
+            mat._Color1.a * acs::texture_alpha_base_mip(_MainTex1, _MainTex1_sampler, uv_main1),
+            l,
+        );
     }
 
     let c = mix(c0, c1, l);
-    if (kw_enabled(mat._ALPHACLIP) && c.a <= mat._AlphaClip) {
+    if (kw_enabled(mat._ALPHACLIP) && clip_a <= mat._AlphaClip) {
         discard;
     }
 

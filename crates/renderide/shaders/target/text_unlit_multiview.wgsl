@@ -62,6 +62,8 @@ struct VertexOutput {
     @location(2) vtx_color: vec4<f32>,
 }
 
+const CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX: f32 = 0f;
+
 @group(2) @binding(0) 
 var<uniform> drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX: PerDrawUniformsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX;
 @group(0) @binding(0) 
@@ -78,6 +80,11 @@ var<uniform> mat: TextUnlitMaterial;
 var _FontAtlas: texture_2d<f32>;
 @group(1) @binding(2) 
 var _FontAtlas_sampler: sampler;
+
+fn texture_rgba_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex: texture_2d<f32>, samp: sampler, uv_1: vec2<f32>) -> vec4<f32> {
+    let _e4: vec4<f32> = textureSampleLevel(tex, samp, uv_1, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
+    return _e4;
+}
 
 fn median3_(r: f32, g: f32, b: f32) -> f32 {
     return max(min(r, g), min(max(r, g), b));
@@ -173,38 +180,39 @@ fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
 
     let vtx_color_1: vec4<f32> = vout.vtx_color;
     let atlas_color: vec4<f32> = textureSample(_FontAtlas, _FontAtlas_sampler, vout.uv);
-    let _e9: vec4<f32> = mat._Range;
-    let range_xy_1: vec2<f32> = _e9.xy;
-    let _e13: f32 = mat._TextMode;
-    let _e14: i32 = text_mode_clamped(_e13);
-    if (_e14 == 1i) {
-        let _e19: vec4<f32> = mat._TintColor;
-        c = ((atlas_color * _e19) * vtx_color_1);
-        let _e24: f32 = c.w;
-        if (_e24 < 0.001f) {
+    let _e10: vec4<f32> = texture_rgba_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_FontAtlas, _FontAtlas_sampler, vout.uv);
+    let _e13: vec4<f32> = mat._Range;
+    let range_xy_1: vec2<f32> = _e13.xy;
+    let _e17: f32 = mat._TextMode;
+    let _e18: i32 = text_mode_clamped(_e17);
+    if (_e18 == 1i) {
+        let _e23: vec4<f32> = mat._TintColor;
+        c = ((atlas_color * _e23) * vtx_color_1);
+        let _e31: f32 = mat._TintColor.w;
+        if (((_e10.w * _e31) * vtx_color_1.w) < 0.001f) {
             discard;
         }
     } else {
-        if (_e14 == 2i) {
-            let sig_dist_1: f32 = (atlas_color.w - 0.5f);
-            let _e32: vec4<f32> = shade_distance_field(sig_dist_1, vout, vtx_color_1, range_xy_1);
-            c = _e32;
+        if (_e18 == 2i) {
+            let sig_dist_1: f32 = (_e10.w - 0.5f);
+            let _e42: vec4<f32> = shade_distance_field(sig_dist_1, vout, vtx_color_1, range_xy_1);
+            c = _e42;
         } else {
-            let _e36: f32 = median3_(atlas_color.x, atlas_color.y, atlas_color.z);
-            let sig_dist_2: f32 = (_e36 - 0.5f);
-            let _e39: vec4<f32> = shade_distance_field(sig_dist_2, vout, vtx_color_1, range_xy_1);
-            c = _e39;
+            let _e46: f32 = median3_(_e10.x, _e10.y, _e10.z);
+            let sig_dist_2: f32 = (_e46 - 0.5f);
+            let _e49: vec4<f32> = shade_distance_field(sig_dist_2, vout, vtx_color_1, range_xy_1);
+            c = _e49;
         }
     }
-    let _e42: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
-    if (_e42 > 0u) {
-        let _e48: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
-        lit = _e48;
+    let _e52: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
+    if (_e52 > 0u) {
+        let _e58: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
+        lit = _e58;
     }
-    let _e52: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e60: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let cluster_touch: f32 = ((f32((_e52 & 255u)) * 0.0000000001f) + (f32((_e60 & 255u)) * 0.0000000001f));
-    let _e67: vec4<f32> = c;
-    let _e68: u32 = lit;
-    return (_e67 + vec4<f32>(vec3(((f32(_e68) * 0.0000000001f) + cluster_touch)), 0f));
+    let _e62: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e70: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let cluster_touch: f32 = ((f32((_e62 & 255u)) * 0.0000000001f) + (f32((_e70 & 255u)) * 0.0000000001f));
+    let _e77: vec4<f32> = c;
+    let _e78: u32 = lit;
+    return (_e77 + vec4<f32>(vec3(((f32(_e78) * 0.0000000001f) + cluster_touch)), 0f));
 }

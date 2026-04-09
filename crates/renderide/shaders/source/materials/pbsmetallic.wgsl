@@ -17,6 +17,7 @@
 #import renderide::per_draw as pd
 #import renderide::pbs::brdf as brdf
 #import renderide::pbs::cluster as pcls
+#import renderide::alpha_clip_sample as acs
 
 struct PbsMetallicMaterial {
     _Color: vec4<f32>,
@@ -163,7 +164,8 @@ fn fs_main(
     let albedo_s   = textureSample(_MainTex, _MainTex_sampler, uv_main);
     var base_color = mat._Color.xyz * albedo_s.xyz;
     let alpha      = mat._Color.a * albedo_s.a;
-    if alpha < mat._Cutoff {
+    let clip_alpha = mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main);
+    if clip_alpha < mat._Cutoff {
         discard;
     }
 

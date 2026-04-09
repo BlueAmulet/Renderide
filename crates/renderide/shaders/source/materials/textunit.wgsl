@@ -5,6 +5,7 @@
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd
+#import renderide::alpha_clip_sample as acs
 
 struct TextUnitMaterial {
     _TintColor: vec4<f32>,
@@ -112,6 +113,7 @@ fn shade_distance_field(
 fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
     let vtx_color = vout.vtx_color;
     let atlas_color = textureSample(_FontAtlas, _FontAtlas_sampler, vout.uv);
+    let atlas_clip = acs::texture_rgba_base_mip(_FontAtlas, _FontAtlas_sampler, vout.uv);
     let range_xy = mat._Range.xy;
     let mode = text_mode_clamped(mat._TextMode);
 
@@ -119,14 +121,14 @@ fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
 
     if (mode == 1) {
         c = atlas_color * mat._TintColor * vtx_color;
-        if (c.a < 0.001) {
+        if (atlas_clip.a * mat._TintColor.a * vtx_color.a < 0.001) {
             discard;
         }
     } else if (mode == 2) {
-        let sig_dist = atlas_color.a - 0.5;
+        let sig_dist = atlas_clip.a - 0.5;
         c = shade_distance_field(sig_dist, vout, vtx_color, range_xy);
     } else {
-        let m = median3(atlas_color.r, atlas_color.g, atlas_color.b);
+        let m = median3(atlas_clip.r, atlas_clip.g, atlas_clip.b);
         let sig_dist = m - 0.5;
         c = shade_distance_field(sig_dist, vout, vtx_color, range_xy);
     }
