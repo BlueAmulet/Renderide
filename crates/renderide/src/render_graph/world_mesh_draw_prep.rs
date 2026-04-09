@@ -25,8 +25,6 @@ use crate::scene::{
 };
 use crate::shared::RenderingContext;
 
-use glam::Vec3;
-
 use super::camera::view_matrix_from_render_transform;
 use super::frustum::{
     mesh_bounds_degenerate_for_cull, world_aabb_from_local_bounds,
