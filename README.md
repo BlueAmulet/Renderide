@@ -31,3 +31,5 @@ Visual bugs and missing features are expected.
 The bootstrapper will launch the Resonite host and connect Renderide automatically.
 
 Logs appear in the `logs/` folder.
+
+Enable validation layers in the config hud to get more detailed error messages for GPU crashes. Requires a restart.

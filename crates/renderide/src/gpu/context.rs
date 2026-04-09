@@ -34,6 +34,21 @@ fn required_limits_for_adapter(adapter: &wgpu::Adapter) -> wgpu::Limits {
     limits
 }
 
+fn instance_flags_base(gpu_validation_layers: bool) -> wgpu::InstanceFlags {
+    let mut flags = wgpu::InstanceFlags::empty();
+    if gpu_validation_layers {
+        flags.insert(wgpu::InstanceFlags::VALIDATION);
+    }
+    flags
+}
+
+/// Builds [`wgpu::InstanceFlags`] for desktop GPU init: optional `VALIDATION`, then
+/// [`wgpu::InstanceFlags::with_env`] so `WGPU_VALIDATION` and related variables can override at
+/// process start.
+pub fn instance_flags_for_gpu_init(gpu_validation_layers: bool) -> wgpu::InstanceFlags {
+    instance_flags_base(gpu_validation_layers).with_env()
+}
+
 /// GPU initialization or resize failure.
 #[derive(Debug, Error)]
 pub enum GpuError {
@@ -53,9 +68,18 @@ pub enum GpuError {
 
 impl GpuContext {
     /// Asynchronously builds GPU state for `window`.
-    pub async fn new(window: Arc<Window>, vsync: bool) -> Result<Self, GpuError> {
+    ///
+    /// `gpu_validation_layers` selects whether to request backend validation before `WGPU_*` env
+    /// overrides; see [`instance_flags_for_gpu_init`].
+    pub async fn new(
+        window: Arc<Window>,
+        vsync: bool,
+        gpu_validation_layers: bool,
+    ) -> Result<Self, GpuError> {
         let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
         instance_desc.backends = wgpu::Backends::all();
+        let instance_flags = instance_flags_for_gpu_init(gpu_validation_layers);
+        instance_desc.flags = instance_flags;
         let instance = wgpu::Instance::new(instance_desc);
 
         let surface = instance
@@ -107,10 +131,11 @@ impl GpuContext {
 
         let adapter_info = adapter.get_info();
         logger::info!(
-            "GPU: adapter={} backend={:?} present_mode={:?}",
+            "GPU: adapter={} backend={:?} present_mode={:?} instance_flags={:?}",
             adapter_info.name,
             adapter_info.backend,
-            config.present_mode
+            config.present_mode,
+            instance_flags
         );
 
         Ok(Self {
@@ -311,5 +336,17 @@ impl GpuContext {
             }
             other => Err(other),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::instance_flags_base;
+    use wgpu::InstanceFlags;
+
+    #[test]
+    fn instance_flags_base_toggles_validation() {
+        assert!(!instance_flags_base(false).contains(InstanceFlags::VALIDATION));
+        assert!(instance_flags_base(true).contains(InstanceFlags::VALIDATION));
     }
 }

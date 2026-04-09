@@ -839,6 +839,12 @@ impl DebugHud {
                 if ui.checkbox("Log verbose (reserved)", &mut g.debug.log_verbose) {
                     dirty = true;
                 }
+                if ui.checkbox("GPU validation layers", &mut g.debug.gpu_validation_layers) {
+                    dirty = true;
+                }
+                ui.text_disabled(
+                    "GPU validation layers (slow; restart required to apply). OpenXR path unchanged.",
+                );
                 ui.text_disabled("Power preference (applies on next GPU adapter init)");
                 for (i, &pref) in PowerPreferenceSetting::ALL.iter().enumerate() {
                     let _id = ui.push_id_int(i as i32);

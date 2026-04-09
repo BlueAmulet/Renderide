@@ -126,6 +126,7 @@ mod wgpu_cache_tests {
     async fn device_with_adapter() -> Option<Arc<wgpu::Device>> {
         let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
         instance_desc.backends = wgpu::Backends::all();
+        instance_desc.flags = wgpu::InstanceFlags::empty();
         let instance = wgpu::Instance::new(instance_desc);
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())

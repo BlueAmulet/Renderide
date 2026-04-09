@@ -94,6 +94,11 @@ pub struct DebugSettings {
     pub log_verbose: bool,
     /// GPU power preference hint for adapter selection (see [`PowerPreferenceSetting`]).
     pub power_preference: PowerPreferenceSetting,
+    /// When true, request backend validation (e.g. Vulkan validation layers) via wgpu instance
+    /// flags. Slow; use only when debugging GPU API misuse. Default false. Applied when the wgpu
+    /// instance is first created, not on later config updates. [`apply_renderide_gpu_validation_env`]
+    /// and `WGPU_*` environment variables can still adjust flags at process start.
+    pub gpu_validation_layers: bool,
 }
 
 /// Runtime settings for the renderer process: defaults, merged from INI, and edited via the debug UI.
@@ -145,6 +150,11 @@ impl RendererSettings {
                 self.debug.power_preference = v;
             }
         }
+        if let Some(s) = document.get("debug", "gpu_validation_layers") {
+            if let Some(v) = parse_bool(s) {
+                self.debug.gpu_validation_layers = v;
+            }
+        }
     }
 
     /// Builds an [`IniDocument`] representing the full current settings (for save / round-trip).
@@ -171,6 +181,11 @@ impl RendererSettings {
             "debug",
             "power_preference",
             self.debug.power_preference.as_ini_str(),
+        );
+        doc.set(
+            "debug",
+            "gpu_validation_layers",
+            bool_ini(self.debug.gpu_validation_layers),
         );
         doc
     }
@@ -206,6 +221,18 @@ fn parse_u32(s: &str) -> Option<u32> {
 
 fn parse_f32(s: &str) -> Option<f32> {
     s.trim().parse().ok()
+}
+
+/// Overrides [`DebugSettings::gpu_validation_layers`] when `RENDERIDE_GPU_VALIDATION` is set.
+///
+/// Truthy values (`1`, `true`, `yes`) force validation on; falsey (`0`, `false`, `no`) force off.
+/// If unset, the value from INI or defaults is unchanged.
+pub fn apply_renderide_gpu_validation_env(settings: &mut RendererSettings) {
+    match std::env::var("RENDERIDE_GPU_VALIDATION").as_deref() {
+        Ok("1") | Ok("true") | Ok("yes") => settings.debug.gpu_validation_layers = true,
+        Ok("0") | Ok("false") | Ok("no") => settings.debug.gpu_validation_layers = false,
+        _ => {}
+    }
 }
 
 /// Full load result: resolved path, parsed document, parse warnings, and save path for persistence.
@@ -323,6 +350,8 @@ pub fn load_renderer_settings() -> ConfigLoadResult {
 
     logger::trace!("Renderer config will persist to {}", save_path.display());
 
+    apply_renderide_gpu_validation_env(&mut settings);
+
     ConfigLoadResult {
         settings,
         resolve,
@@ -387,6 +416,7 @@ mod tests {
         let mut s = RendererSettings::from_defaults();
         s.rendering.vsync = true;
         s.display.focused_fps_cap = 120;
+        s.debug.gpu_validation_layers = true;
         let doc = s.to_ini_document();
         let mut s2 = RendererSettings::from_defaults();
         s2.merge_from_ini(&doc);

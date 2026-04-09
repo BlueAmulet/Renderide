@@ -14,6 +14,8 @@
 //!    - two levels up from cwd (e.g. repo root when running from `crates/renderide`).
 //! 3. **Defaults** — when no file is found or read fails, [`RendererSettings`] stays at
 //!    [`Default::default`].
+//! 4. **`RENDERIDE_GPU_VALIDATION`** — if set, overrides [`DebugSettings::gpu_validation_layers`]
+//!    after INI merge (see [`apply_renderide_gpu_validation_env`]).
 //!
 //! ## Auto-creation
 //!
@@ -42,8 +44,8 @@ pub use resolve::{
     resolve_config_path, resolve_save_path, ConfigResolveOutcome, ConfigSource,
 };
 pub use settings::{
-    load_renderer_settings, log_config_resolve_trace, save_renderer_settings,
-    save_renderer_settings_from_load, settings_handle_from, ConfigLoadResult, DebugSettings,
-    DisplaySettings, PowerPreferenceSetting, RendererSettings, RendererSettingsHandle,
-    RenderingSettings,
+    apply_renderide_gpu_validation_env, load_renderer_settings, log_config_resolve_trace,
+    save_renderer_settings, save_renderer_settings_from_load, settings_handle_from,
+    ConfigLoadResult, DebugSettings, DisplaySettings, PowerPreferenceSetting, RendererSettings,
+    RendererSettingsHandle, RenderingSettings,
 };

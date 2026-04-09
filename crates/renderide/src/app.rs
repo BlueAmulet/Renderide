@@ -72,6 +72,7 @@ pub fn run() -> Option<i32> {
     log_config_resolve_trace(&config_load.resolve);
     let settings_handle = settings_handle_from(&config_load);
     let initial_vsync = config_load.settings.rendering.vsync;
+    let initial_gpu_validation = config_load.settings.debug.gpu_validation_layers;
 
     let default_hook = std::panic::take_hook();
     let log_path_hook = log_path.clone();
@@ -115,6 +116,7 @@ pub fn run() -> Option<i32> {
     let mut app = RenderideApp {
         runtime,
         initial_vsync,
+        initial_gpu_validation,
         session_output_device: HeadOutputDevice::screen,
         cached_head_pose: None,
         cached_openxr_controllers: Vec::new(),
@@ -171,6 +173,8 @@ struct RenderideApp {
     runtime: RendererRuntime,
     /// VSync flag used for the initial [`GpuContext::new`] before live updates from settings.
     initial_vsync: bool,
+    /// GPU validation layers flag for the initial [`GpuContext::new`] (persisted; restart to apply).
+    initial_gpu_validation: bool,
     /// Copied from host [`RendererInitData::output_device`] when the window is created.
     session_output_device: HeadOutputDevice,
     /// Center-eye pose for host IPC ([`crate::xr::headset_center_pose_from_stereo_views`], Unity-style
@@ -282,7 +286,11 @@ impl RenderideApp {
     }
 
     fn init_desktop_gpu(&mut self, window: &Arc<Window>, event_loop: &ActiveEventLoop) {
-        match pollster::block_on(GpuContext::new(Arc::clone(window), self.initial_vsync)) {
+        match pollster::block_on(GpuContext::new(
+            Arc::clone(window),
+            self.initial_vsync,
+            self.initial_gpu_validation,
+        )) {
             Ok(gpu) => {
                 logger::info!("GPU initialized (desktop)");
                 self.runtime.attach_gpu(&gpu);
