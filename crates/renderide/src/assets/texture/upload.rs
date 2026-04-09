@@ -329,8 +329,16 @@ fn write_one_mip(
     // block dimensions (the "physical" mip size).  The data produced by copy_layout_for_mip
     // already covers the padded block grid (via div_ceil), so only the Extent3d needs aligning.
     let (bw, bh) = format.block_dimensions();
-    let copy_width = if bw > 1 { width.div_ceil(bw) * bw } else { width };
-    let copy_height = if bh > 1 { height.div_ceil(bh) * bh } else { height };
+    let copy_width = if bw > 1 {
+        width.div_ceil(bw) * bw
+    } else {
+        width
+    };
+    let copy_height = if bh > 1 {
+        height.div_ceil(bh) * bh
+    } else {
+        height
+    };
     let size = wgpu::Extent3d {
         width: copy_width,
         height: copy_height,

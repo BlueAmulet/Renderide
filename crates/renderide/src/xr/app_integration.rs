@@ -180,9 +180,11 @@ pub fn try_openxr_hmd_multiview_submit(
         let (dt, dv) = create_stereo_depth_texture(gpu.device().as_ref(), extent);
         *xr_stereo_depth = Some((dt, dv));
     }
-    let stereo_depth = xr_stereo_depth
-        .as_ref()
-        .expect("xr_stereo_depth set above when missing");
+    let Some(stereo_depth) = xr_stereo_depth.as_ref() else {
+        logger::debug!("OpenXR stereo depth texture missing after resize");
+        let _ = sc.handle.release_image();
+        return false;
+    };
     let ext = ExternalFrameTargets {
         color_view,
         depth_texture: &stereo_depth.0,

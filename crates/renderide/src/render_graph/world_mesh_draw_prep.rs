@@ -351,6 +351,9 @@ pub fn sort_world_mesh_draws(items: &mut [WorldMeshDrawItem]) {
 }
 
 /// Updates alpha-blended draw distance keys from the active camera, then re-sorts the full draw list.
+///
+/// Reserved for frame-graph paths that move the camera without rebuilding the full draw collection.
+#[allow(dead_code)]
 pub fn resort_world_mesh_draws_for_camera(
     items: &mut [WorldMeshDrawItem],
     scene: &SceneCoordinator,
@@ -577,6 +580,7 @@ mod tests {
         assert_eq!(slots[0].property_block_id, Some(42));
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn dummy_item(
         mid: i32,
         pb: Option<i32>,

@@ -19,6 +19,9 @@ use crate::render_graph::MAIN_FORWARD_DEPTH_COMPARE;
 /// `@location(2)` UV0 and `@location(3)` color.
 ///
 /// Used by [`crate::pipelines::raster::DebugWorldNormalsFamily`] and embedded WGSL raster materials.
+///
+/// Argument list mirrors discrete wgpu pipeline options (vertex streams, blending, depth) at call sites.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn create_reflective_raster_mesh_forward_pipeline(
     device: &wgpu::Device,
     module: &wgpu::ShaderModule,

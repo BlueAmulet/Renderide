@@ -453,25 +453,22 @@ fn decode_vertex_color(
         VertexAttributeFormat::u_norm8 => {
             let end = base.checked_add(dims)?;
             let src = vertex_data.get(base..end)?;
-            for i in 0..dims {
-                rgba[i] = src[i] as f32 / 255.0;
+            for (i, byte) in src.iter().take(dims).enumerate() {
+                rgba[i] = *byte as f32 / 255.0;
             }
         }
         VertexAttributeFormat::u_norm16 => {
             let end = base.checked_add(dims.checked_mul(2)?)?;
             let src = vertex_data.get(base..end)?;
-            for i in 0..dims {
-                let start = i * 2;
-                rgba[i] =
-                    u16::from_le_bytes(src[start..start + 2].try_into().ok()?) as f32 / 65535.0;
+            for (i, chunk) in src.chunks(2).take(dims).enumerate() {
+                rgba[i] = u16::from_le_bytes(chunk.try_into().ok()?) as f32 / 65535.0;
             }
         }
         VertexAttributeFormat::float32 => {
             let end = base.checked_add(dims.checked_mul(4)?)?;
             let src = vertex_data.get(base..end)?;
-            for i in 0..dims {
-                let start = i * 4;
-                rgba[i] = f32::from_le_bytes(src[start..start + 4].try_into().ok()?);
+            for (i, chunk) in src.chunks(4).take(dims).enumerate() {
+                rgba[i] = f32::from_le_bytes(chunk.try_into().ok()?);
             }
         }
         _ => return None,
