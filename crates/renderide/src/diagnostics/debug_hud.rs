@@ -1,10 +1,13 @@
 //! Dear ImGui overlay for developer diagnostics (feature `debug-hud`).
 //!
-//! The **Renderide debug** window uses a **Stats** tab (unified renderer + frame diagnostics) and a
-//! **Shader routes** tab for host shader → material family mappings.
+//! The **Frame timing** window shows FPS and CPU/GPU submit-interval metrics (wall-clock splits around submits).
+//! **[`crate::config::DebugSettings::debug_hud_enabled`]** toggles **Frame timing** and **Renderide debug** (Stats / Shader routes).
+//! **[`crate::config::DebugSettings::debug_hud_transforms`]** toggles the **Scene transforms** window independently.
 
 #[cfg(feature = "debug-hud")]
 use super::frame_diagnostics_snapshot::FrameDiagnosticsSnapshot;
+#[cfg(feature = "debug-hud")]
+use super::frame_timing_hud_snapshot::FrameTimingHudSnapshot;
 use super::renderer_info_snapshot::RendererInfoSnapshot;
 #[cfg(feature = "debug-hud")]
 use super::scene_transforms_snapshot::RenderSpaceTransformsSnapshot;
@@ -47,6 +50,8 @@ pub struct DebugHud {
     imgui: Context,
     renderer: ImguiWgpuRenderer,
     last_frame_at: Instant,
+    /// Lightweight FPS / wall / CPU–submit / GPU-idle metrics ([`FrameTimingHudSnapshot`]).
+    frame_timing: Option<FrameTimingHudSnapshot>,
     latest: Option<RendererInfoSnapshot>,
     /// Per-frame timing, draws, host metrics, and shader-route strings ([`FrameDiagnosticsSnapshot`]).
     frame_diagnostics: Option<FrameDiagnosticsSnapshot>,
@@ -117,6 +122,7 @@ impl DebugHud {
             imgui,
             renderer,
             last_frame_at: Instant::now(),
+            frame_timing: None,
             latest: None,
             frame_diagnostics: None,
             scene_transforms: SceneTransformsSnapshot::default(),
@@ -125,6 +131,11 @@ impl DebugHud {
             config_save_path,
             renderer_config_open: true,
         }
+    }
+
+    /// Stores [`FrameTimingHudSnapshot`] for the **Frame timing** window.
+    pub fn set_frame_timing(&mut self, sample: FrameTimingHudSnapshot) {
+        self.frame_timing = Some(sample);
     }
 
     /// Stores [`RendererInfoSnapshot`] for the **Stats** tab (IPC, adapter, scene, materials, graph).
@@ -140,6 +151,24 @@ impl DebugHud {
     /// Stores per–render-space world transform rows for the **Scene transforms** window.
     pub fn set_scene_transforms_snapshot(&mut self, sample: SceneTransformsSnapshot) {
         self.scene_transforms = sample;
+    }
+
+    /// Clears Frame timing, Stats, and Shader routes payloads (not scene transforms).
+    pub fn clear_main_snapshot_payloads(&mut self) {
+        self.frame_timing = None;
+        self.latest = None;
+        self.frame_diagnostics = None;
+    }
+
+    /// Clears the **Scene transforms** HUD payload.
+    pub fn clear_scene_transforms_snapshot(&mut self) {
+        self.scene_transforms = SceneTransformsSnapshot::default();
+    }
+
+    /// Clears all HUD payloads when no overlay content is enabled.
+    pub fn clear_diagnostic_snapshots(&mut self) {
+        self.clear_main_snapshot_payloads();
+        self.clear_scene_transforms_snapshot();
     }
 
     /// Records ImGui into `encoder` as a load-on-top pass over `backbuffer`.
@@ -161,35 +190,56 @@ impl DebugHud {
         io.update_delta_time(delta);
         apply_input(io, input);
 
-        let snapshot = self.latest.clone();
-        let frame_diag = self.frame_diagnostics.clone();
-        let scene_transforms = self.scene_transforms.clone();
+        let (main_hud, transforms_hud) = self
+            .renderer_settings
+            .read()
+            .map(|g| (g.debug.debug_hud_enabled, g.debug.debug_hud_transforms))
+            .unwrap_or((false, false));
+
+        let any_debug_content = main_hud || transforms_hud;
+
         let ui = self.imgui.frame();
-        const PANEL_WIDTH: f32 = 760.0;
-        let panel_x = (width as f32 - PANEL_WIDTH - 12.0).max(12.0);
-        let window_flags = WindowFlags::ALWAYS_AUTO_RESIZE
-            | WindowFlags::NO_RESIZE
-            | WindowFlags::NO_SAVED_SETTINGS
-            | WindowFlags::NO_FOCUS_ON_APPEARING
-            | WindowFlags::NO_NAV;
+        if any_debug_content {
+            if main_hud {
+                Self::frame_timing_window(ui, self.frame_timing.as_ref());
 
-        ui.window("Renderide debug")
-            .position([panel_x, 12.0], Condition::FirstUseEver)
-            .size_constraints([PANEL_WIDTH, 0.0], [PANEL_WIDTH, 1.0e9])
-            .bg_alpha(0.72)
-            .flags(window_flags)
-            .build(|| {
-                if let Some(_tab_bar) = ui.tab_bar("debug_tabs") {
-                    if let Some(_tab) = ui.tab_item("Stats") {
-                        Self::main_debug_panel(ui, snapshot.as_ref(), frame_diag.as_ref());
-                    }
-                    if let Some(_tab) = ui.tab_item("Shader routes") {
-                        Self::shader_mappings_tab(ui, frame_diag.as_ref());
-                    }
-                }
-            });
+                const PANEL_WIDTH: f32 = 760.0;
+                let panel_x = (width as f32 - PANEL_WIDTH - 12.0).max(12.0);
+                let window_flags = WindowFlags::ALWAYS_AUTO_RESIZE
+                    | WindowFlags::NO_RESIZE
+                    | WindowFlags::NO_SAVED_SETTINGS
+                    | WindowFlags::NO_FOCUS_ON_APPEARING
+                    | WindowFlags::NO_NAV;
 
-        Self::scene_transforms_window(ui, &scene_transforms, &mut self.scene_transforms_open);
+                ui.window("Renderide debug")
+                    .position([panel_x, 12.0], Condition::FirstUseEver)
+                    .size_constraints([PANEL_WIDTH, 0.0], [PANEL_WIDTH, 1.0e9])
+                    .bg_alpha(0.72)
+                    .flags(window_flags)
+                    .build(|| {
+                        if let Some(_tab_bar) = ui.tab_bar("debug_tabs") {
+                            if let Some(_tab) = ui.tab_item("Stats") {
+                                Self::main_debug_panel(
+                                    ui,
+                                    self.latest.as_ref(),
+                                    self.frame_diagnostics.as_ref(),
+                                );
+                            }
+                            if let Some(_tab) = ui.tab_item("Shader routes") {
+                                Self::shader_mappings_tab(ui, self.frame_diagnostics.as_ref());
+                            }
+                        }
+                    });
+            }
+
+            if transforms_hud {
+                Self::scene_transforms_window(
+                    ui,
+                    &self.scene_transforms,
+                    &mut self.scene_transforms_open,
+                );
+            }
+        }
 
         Self::renderer_config_window(
             ui,
@@ -224,7 +274,48 @@ impl DebugHud {
         Ok((io.want_capture_mouse, io.want_capture_keyboard))
     }
 
-    /// Unified IPC, timing, adapter, scene, draws, and resources (no shader route list).
+    /// Wall-clock **FPS**, frame interval, and CPU/GPU submit splits use the same definitions as
+    /// [`FrameDiagnosticsSnapshot`] (see **Frame timing** window).
+    fn frame_timing_window(ui: &imgui::Ui, timing: Option<&FrameTimingHudSnapshot>) {
+        let window_flags = WindowFlags::ALWAYS_AUTO_RESIZE
+            | WindowFlags::NO_SAVED_SETTINGS
+            | WindowFlags::NO_FOCUS_ON_APPEARING
+            | WindowFlags::NO_NAV;
+        ui.window("Frame timing")
+            .position([12.0, 12.0], Condition::FirstUseEver)
+            .bg_alpha(0.72)
+            .flags(window_flags)
+            .build(|| {
+                let Some(t) = timing else {
+                    ui.text("Waiting for snapshot…");
+                    return;
+                };
+                let fps = t.fps_from_wall();
+                ui.text(format!("FPS {}", hud_fmt::f64_field(8, 2, fps)));
+                ui.text(format!(
+                    "Frame time (ms) {}",
+                    hud_fmt::f64_field(8, 3, t.wall_frame_time_ms)
+                ));
+                if let Some(ms) = t.cpu_frame_until_submit_ms {
+                    ui.text(format!(
+                        "CPU (tick to last submit) {} ms",
+                        hud_fmt::f64_field(8, 3, ms)
+                    ));
+                } else {
+                    ui.text_disabled("CPU (tick to last submit): n/a");
+                }
+                if let Some(ms) = t.gpu_frame_after_submit_ms {
+                    ui.text(format!(
+                        "GPU (last submit to idle) {} ms",
+                        hud_fmt::f64_field(8, 3, ms)
+                    ));
+                } else {
+                    ui.text_disabled("GPU (last submit to idle): pending");
+                }
+            });
+    }
+
+    /// Unified IPC, adapter, scene, draws, and resources (FPS / submit timing: **Frame timing** window).
     fn main_debug_panel(
         ui: &imgui::Ui,
         renderer: Option<&RendererInfoSnapshot>,
@@ -235,29 +326,6 @@ impl DebugHud {
             return;
         }
 
-        // Summary: wall-clock FPS and total frame time (ms between redraws; reciprocal of each other).
-        if let Some(f) = frame {
-            let fps = f.fps_from_wall();
-            let total_ms = f.wall_frame_time_ms;
-            ui.text(format!(
-                "FPS {}  |  total frame time {} ms",
-                hud_fmt::f64_field(8, 2, fps),
-                hud_fmt::f64_field(8, 3, total_ms)
-            ));
-        } else if let Some(r) = renderer {
-            let total_ms = r.frame_time_ms;
-            let fps = if total_ms > f64::EPSILON {
-                1000.0 / total_ms
-            } else {
-                0.0
-            };
-            ui.text(format!(
-                "FPS {}  |  total frame time {} ms",
-                hud_fmt::f64_field(8, 2, fps),
-                hud_fmt::f64_field(8, 3, total_ms)
-            ));
-        }
-
         if let Some(r) = renderer {
             ui.text(format!(
                 "Frame index {}  |  viewport {}×{}",
@@ -265,25 +333,6 @@ impl DebugHud {
             ));
         } else if frame.is_some() {
             ui.text_disabled("Frame index / viewport: (need renderer snapshot)");
-        }
-
-        if let Some(f) = frame {
-            if let Some(ms) = f.cpu_frame_until_submit_ms {
-                ui.text(format!(
-                    "CPU (tick to last submit): {} ms",
-                    hud_fmt::f64_field(8, 3, ms)
-                ));
-            } else {
-                ui.text_disabled("CPU (tick to last submit): n/a");
-            }
-            if let Some(ms) = f.gpu_frame_after_submit_ms {
-                ui.text(format!(
-                    "GPU (last submit to idle): {} ms",
-                    hud_fmt::f64_field(8, 3, ms)
-                ));
-            } else {
-                ui.text_disabled("GPU (last submit to idle): pending");
-            }
         }
 
         if let Some(r) = renderer {
@@ -445,7 +494,7 @@ impl DebugHud {
         ui.window("Renderer config")
             .opened(open)
             .position([12.0, 12.0], Condition::FirstUseEver)
-            .size([440.0, 360.0], Condition::FirstUseEver)
+            .size([440.0, 400.0], Condition::FirstUseEver)
             .bg_alpha(0.88)
             .build(|| {
                 ui.text_wrapped(
@@ -500,6 +549,19 @@ impl DebugHud {
 
                 ui.text("Debug");
                 ui.indent();
+                if ui.checkbox("Debug HUD (Frame timing + Stats + Shader routes)", &mut g.debug.debug_hud_enabled)
+                {
+                    dirty = true;
+                }
+                ui.text_disabled(
+                    "Main debug panels and per-frame diagnostics capture when enabled.",
+                );
+                if ui.checkbox("Scene transforms HUD", &mut g.debug.debug_hud_transforms) {
+                    dirty = true;
+                }
+                ui.text_disabled(
+                    "Per-space world transform table; separate from main HUD (can be expensive on large scenes).",
+                );
                 if ui.checkbox("Log verbose (reserved)", &mut g.debug.log_verbose) {
                     dirty = true;
                 }

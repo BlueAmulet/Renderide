@@ -106,6 +106,9 @@ pub struct RenderBackend {
     /// Last [`WorldMeshDrawStats`] from [`crate::render_graph::passes::WorldMeshForwardPass`].
     #[cfg(feature = "debug-hud")]
     last_world_mesh_draw_stats: WorldMeshDrawStats,
+    /// Mirrors [`crate::config::DebugSettings::debug_hud_enabled`] at frame graph start (mesh-draw stats for HUD).
+    #[cfg(feature = "debug-hud")]
+    debug_hud_main_enabled: bool,
     /// Hierarchical depth pyramid GPU/CPU state for occlusion culling (previous-frame readback).
     hi_z_gpu: HiZGpuState,
 }
@@ -155,6 +158,8 @@ impl RenderBackend {
             debug_hud_want_capture_keyboard: false,
             #[cfg(feature = "debug-hud")]
             last_world_mesh_draw_stats: WorldMeshDrawStats::default(),
+            #[cfg(feature = "debug-hud")]
+            debug_hud_main_enabled: false,
             hi_z_gpu: HiZGpuState::default(),
         }
     }
@@ -460,6 +465,26 @@ impl RenderBackend {
     }
 
     #[cfg(feature = "debug-hud")]
+    /// Updates whether main HUD diagnostics run (mirrors [`crate::config::DebugSettings::debug_hud_enabled`]).
+    pub fn set_debug_hud_main_enabled(&mut self, enabled: bool) {
+        self.debug_hud_main_enabled = enabled;
+    }
+
+    #[cfg(feature = "debug-hud")]
+    /// Whether main debug HUD is on (mesh-draw stats for [`crate::render_graph::passes::WorldMeshForwardPass`]).
+    pub(crate) fn debug_hud_main_enabled(&self) -> bool {
+        self.debug_hud_main_enabled
+    }
+
+    #[cfg(feature = "debug-hud")]
+    /// Clears all HUD payloads including frame timing when the overlay is fully disabled.
+    pub(crate) fn clear_debug_hud_diagnostic_snapshots(&mut self) {
+        if let Some(hud) = self.debug_hud.as_mut() {
+            hud.clear_diagnostic_snapshots();
+        }
+    }
+
+    #[cfg(feature = "debug-hud")]
     /// Updates pointer state and frame delta for the optional ImGui overlay.
     pub fn set_debug_hud_frame_data(&mut self, input: DebugHudInput, frame_time_ms: f64) {
         self.debug_hud_input = input;
@@ -502,6 +527,32 @@ impl RenderBackend {
     ) {
         if let Some(hud) = self.debug_hud.as_mut() {
             hud.set_frame_diagnostics(snapshot);
+        }
+    }
+
+    #[cfg(feature = "debug-hud")]
+    pub(crate) fn set_debug_hud_frame_timing(
+        &mut self,
+        snapshot: crate::diagnostics::FrameTimingHudSnapshot,
+    ) {
+        if let Some(hud) = self.debug_hud.as_mut() {
+            hud.set_frame_timing(snapshot);
+        }
+    }
+
+    #[cfg(feature = "debug-hud")]
+    /// Clears Frame timing, Stats, and Shader routes payloads (not scene transforms).
+    pub(crate) fn clear_debug_hud_main_snapshots(&mut self) {
+        if let Some(hud) = self.debug_hud.as_mut() {
+            hud.clear_main_snapshot_payloads();
+        }
+    }
+
+    #[cfg(feature = "debug-hud")]
+    /// Clears the **Scene transforms** HUD payload.
+    pub(crate) fn clear_debug_hud_scene_transforms_snapshot(&mut self) {
+        if let Some(hud) = self.debug_hud.as_mut() {
+            hud.clear_scene_transforms_snapshot();
         }
     }
 

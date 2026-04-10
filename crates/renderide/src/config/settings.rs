@@ -99,6 +99,14 @@ pub struct DebugSettings {
     /// instance is first created, not on later config updates. [`apply_renderide_gpu_validation_env`]
     /// and `WGPU_*` environment variables can still adjust flags at process start.
     pub gpu_validation_layers: bool,
+    /// When true, show the **Frame timing** and **Renderide debug** (Stats / Shader routes) ImGui windows and run
+    /// the corresponding per-frame capture (mesh-draw stats, frame diagnostics, renderer info). Default false
+    /// (performance-first; enable from **Renderer config** or `debug_hud_enabled` in INI).
+    pub debug_hud_enabled: bool,
+    /// When true, capture [`crate::diagnostics::SceneTransformsSnapshot`] each frame and show the **Scene transforms**
+    /// ImGui window (can be expensive on large scenes). Independent of [`Self::debug_hud_enabled`] so you can enable
+    /// transforms inspection without the main debug panels. Default false.
+    pub debug_hud_transforms: bool,
 }
 
 /// Runtime settings for the renderer process: defaults, merged from INI, and edited via the debug UI.
@@ -155,6 +163,16 @@ impl RendererSettings {
                 self.debug.gpu_validation_layers = v;
             }
         }
+        if let Some(s) = document.get("debug", "debug_hud_enabled") {
+            if let Some(v) = parse_bool(s) {
+                self.debug.debug_hud_enabled = v;
+            }
+        }
+        if let Some(s) = document.get("debug", "debug_hud_transforms") {
+            if let Some(v) = parse_bool(s) {
+                self.debug.debug_hud_transforms = v;
+            }
+        }
     }
 
     /// Builds an [`IniDocument`] representing the full current settings (for save / round-trip).
@@ -186,6 +204,16 @@ impl RendererSettings {
             "debug",
             "gpu_validation_layers",
             bool_ini(self.debug.gpu_validation_layers),
+        );
+        doc.set(
+            "debug",
+            "debug_hud_enabled",
+            bool_ini(self.debug.debug_hud_enabled),
+        );
+        doc.set(
+            "debug",
+            "debug_hud_transforms",
+            bool_ini(self.debug.debug_hud_transforms),
         );
         doc
     }
@@ -417,6 +445,8 @@ mod tests {
         s.rendering.vsync = true;
         s.display.focused_fps_cap = 120;
         s.debug.gpu_validation_layers = true;
+        s.debug.debug_hud_enabled = true;
+        s.debug.debug_hud_transforms = true;
         let doc = s.to_ini_document();
         let mut s2 = RendererSettings::from_defaults();
         s2.merge_from_ini(&doc);

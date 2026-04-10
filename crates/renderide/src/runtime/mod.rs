@@ -245,6 +245,8 @@ impl RendererRuntime {
         window: &Window,
     ) -> Result<(), GraphExecuteError> {
         self.backend.prepare_lights_from_scene(&self.scene);
+        #[cfg(feature = "debug-hud")]
+        self.sync_debug_hud_diagnostics_from_settings();
         let scene_ref: &SceneCoordinator = &self.scene;
         self.backend
             .execute_frame_graph(gpu, window, scene_ref, self.host_camera)
@@ -258,6 +260,8 @@ impl RendererRuntime {
         external: ExternalFrameTargets<'_>,
     ) -> Result<(), GraphExecuteError> {
         self.backend.prepare_lights_from_scene(&self.scene);
+        #[cfg(feature = "debug-hud")]
+        self.sync_debug_hud_diagnostics_from_settings();
         let scene_ref: &SceneCoordinator = &self.scene;
         self.backend.execute_frame_graph_external_multiview(
             gpu,
@@ -268,34 +272,72 @@ impl RendererRuntime {
         )
     }
 
+    #[cfg(feature = "debug-hud")]
+    /// Copies [`crate::config::DebugSettings::debug_hud_enabled`] into the backend before the render graph runs.
+    fn sync_debug_hud_diagnostics_from_settings(&mut self) {
+        let main = self
+            .settings
+            .read()
+            .map(|s| s.debug.debug_hud_enabled)
+            .unwrap_or(false);
+        self.backend.set_debug_hud_main_enabled(main);
+    }
+
     /// Updates debug HUD snapshots after [`crate::gpu::GpuContext::end_frame_timing`] for the winit tick.
     #[cfg(feature = "debug-hud")]
     pub fn capture_debug_hud_after_frame_end(&mut self, gpu: &GpuContext) {
-        let host = self.host_hud.snapshot();
-        let frame_diag = crate::diagnostics::FrameDiagnosticsSnapshot::capture(
-            gpu,
-            self.backend.debug_frame_time_ms(),
-            host,
-            self.last_submit_render_task_count,
-            &self.backend,
-        );
-        let snapshot = crate::diagnostics::RendererInfoSnapshot::capture(
-            self.is_ipc_connected(),
-            self.init_state(),
-            self.last_frame_index(),
-            gpu.adapter_info(),
-            gpu.config_format(),
-            gpu.surface_extent_px(),
-            gpu.present_mode(),
-            self.backend.debug_frame_time_ms(),
-            &self.scene,
-            &self.backend,
-        );
-        self.backend.set_debug_hud_snapshot(snapshot);
-        self.backend.set_debug_hud_frame_diagnostics(frame_diag);
-        let scene_transforms = crate::diagnostics::SceneTransformsSnapshot::capture(&self.scene);
-        self.backend
-            .set_debug_hud_scene_transforms_snapshot(scene_transforms);
+        let (main_hud, transforms_hud) = self
+            .settings
+            .read()
+            .map(|s| (s.debug.debug_hud_enabled, s.debug.debug_hud_transforms))
+            .unwrap_or((false, false));
+
+        if !main_hud && !transforms_hud {
+            self.backend.clear_debug_hud_diagnostic_snapshots();
+            return;
+        }
+
+        if main_hud {
+            let frame_timing = crate::diagnostics::FrameTimingHudSnapshot::capture(
+                gpu,
+                self.backend.debug_frame_time_ms(),
+            );
+            self.backend.set_debug_hud_frame_timing(frame_timing);
+
+            let host = self.host_hud.snapshot();
+            let frame_diag = crate::diagnostics::FrameDiagnosticsSnapshot::capture(
+                gpu,
+                self.backend.debug_frame_time_ms(),
+                host,
+                self.last_submit_render_task_count,
+                &self.backend,
+            );
+            let snapshot = crate::diagnostics::RendererInfoSnapshot::capture(
+                self.is_ipc_connected(),
+                self.init_state(),
+                self.last_frame_index(),
+                gpu.adapter_info(),
+                gpu.config_format(),
+                gpu.surface_extent_px(),
+                gpu.present_mode(),
+                self.backend.debug_frame_time_ms(),
+                &self.scene,
+                &self.backend,
+            );
+            self.backend.set_debug_hud_snapshot(snapshot);
+            self.backend.set_debug_hud_frame_diagnostics(frame_diag);
+        } else {
+            self.backend.clear_debug_hud_main_snapshots();
+        }
+
+        if transforms_hud {
+            let scene_transforms =
+                crate::diagnostics::SceneTransformsSnapshot::capture(&self.scene);
+            self.backend
+                .set_debug_hud_scene_transforms_snapshot(scene_transforms);
+        } else {
+            self.backend.clear_debug_hud_scene_transforms_snapshot();
+        }
     }
 
     /// Whether the next tick should build [`InputState`] and call [`Self::pre_frame`].

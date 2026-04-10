@@ -140,15 +140,17 @@ impl RenderPass for WorldMeshForwardPass {
         let draws = collection.items;
         #[cfg(feature = "debug-hud")]
         {
-            let stats = world_mesh_draw_stats_from_sorted(
-                &draws,
-                Some((
-                    collection.draws_pre_cull,
-                    collection.draws_culled,
-                    collection.draws_hi_z_culled,
-                )),
-            );
-            backend.set_last_world_mesh_draw_stats(stats);
+            if backend.debug_hud_main_enabled() {
+                let stats = world_mesh_draw_stats_from_sorted(
+                    &draws,
+                    Some((
+                        collection.draws_pre_cull,
+                        collection.draws_culled,
+                        collection.draws_hi_z_culled,
+                    )),
+                );
+                backend.set_last_world_mesh_draw_stats(stats);
+            }
         }
         if draws.is_empty() {
             return Ok(());
