@@ -2724,7 +2724,6 @@ dependencies = [
  "imgui",
  "imgui-wgpu",
  "interprocess",
- "libc",
  "logger",
  "memmap2",
  "naga",

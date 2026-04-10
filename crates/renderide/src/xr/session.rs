@@ -160,9 +160,6 @@ fn sanitize_pose_for_end_frame(pose: xr::Posef) -> xr::Posef {
 /// Owns OpenXR session objects (constructed in [`super::bootstrap::init_wgpu_openxr`]).
 pub struct XrSessionState {
     pub(super) xr_instance: xr::Instance,
-    /// Dropped before [`Self::xr_instance`] so the messenger handle is destroyed first.
-    #[allow(dead_code)]
-    pub(super) openxr_debug_messenger: Option<super::debug_utils::OpenxrDebugUtilsMessenger>,
     pub(super) environment_blend_mode: xr::EnvironmentBlendMode,
     pub(super) session: xr::Session<xr::Vulkan>,
     pub(super) session_running: bool,
@@ -175,7 +172,6 @@ pub struct XrSessionState {
 impl XrSessionState {
     pub(super) fn new(
         xr_instance: xr::Instance,
-        openxr_debug_messenger: Option<super::debug_utils::OpenxrDebugUtilsMessenger>,
         environment_blend_mode: xr::EnvironmentBlendMode,
         session: xr::Session<xr::Vulkan>,
         frame_wait: xr::FrameWaiter,
@@ -184,7 +180,6 @@ impl XrSessionState {
     ) -> Self {
         Self {
             xr_instance,
-            openxr_debug_messenger,
             environment_blend_mode,
             session,
             session_running: false,
