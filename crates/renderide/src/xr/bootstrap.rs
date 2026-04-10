@@ -121,12 +121,36 @@ fn verify_device_has_wait_semaphores(
     Ok(())
 }
 
+/// Loads the OpenXR API entry: tries [`super::openxr_loader_paths::openxr_loader_candidate_paths`]
+/// with [`xr::Entry::load_from`], then falls back to [`xr::Entry::load`] (default library search).
+fn load_xr_entry() -> Result<xr::Entry, xr::LoadError> {
+    let paths = super::openxr_loader_paths::openxr_loader_candidate_paths();
+    for path in paths {
+        match unsafe { xr::Entry::load_from(&path) } {
+            Ok(entry) => {
+                logger::debug!("OpenXR loader loaded from {}", path.display());
+                return Ok(entry);
+            }
+            Err(e) => {
+                logger::trace!("OpenXR loader not loaded from {}: {e}", path.display());
+            }
+        }
+    }
+    match unsafe { xr::Entry::load() } {
+        Ok(entry) => {
+            logger::debug!("OpenXR loader loaded via default library search");
+            Ok(entry)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Builds a Vulkan instance through OpenXR and wraps it as wgpu [`wgpu::Instance`] / [`wgpu::Device`].
 pub fn init_wgpu_openxr() -> Result<XrWgpuHandles, XrBootstrapError> {
     // Runtimes often log with fprintf(stderr); redirect fd 2 so those lines go to the file logger.
     super::stderr_forward::ensure_stderr_forwarded_to_logger();
 
-    let xr_entry = unsafe { xr::Entry::load() }
+    let xr_entry = load_xr_entry()
         .map_err(|e| XrBootstrapError::Message(format!("OpenXR loader not found: {e}")))?;
     let available_extensions = xr_entry
         .enumerate_extensions()

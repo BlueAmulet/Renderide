@@ -5,11 +5,16 @@
 //! files. On Unix, [`init_wgpu_openxr`](bootstrap::init_wgpu_openxr) also replaces libc **stderr**
 //! with a pipe and forwards lines to the file logger so native `fprintf(stderr, ...)` from the
 //! runtime does not reach the terminal.
+//!
+//! Khronos OpenXR **loader** discovery (runtime `LoadLibrary` / `dlopen`) is implemented in
+//! [`openxr_loader_paths`], including [`openxr_loader_paths::RENDERIDE_OPENXR_LOADER`] and
+//! [`openxr_loader_paths::openxr_loader_candidate_paths`].
 
 mod app_integration;
 mod bootstrap;
 mod debug_utils;
 mod input;
+mod openxr_loader_paths;
 mod session;
 mod stderr_forward;
 mod swapchain;
