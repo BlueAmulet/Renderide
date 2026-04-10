@@ -387,6 +387,12 @@ impl RenderideApp {
         if self.runtime.should_send_begin_frame() {
             let lock = self.runtime.host_cursor_lock_requested();
             let mut inputs = self.input.take_input_state(lock);
+            #[cfg(feature = "debug-hud")]
+            crate::diagnostics::sanitize_input_state_for_imgui_host(
+                &mut inputs,
+                self.runtime.debug_hud_last_want_capture_mouse(),
+                self.runtime.debug_hud_last_want_capture_keyboard(),
+            );
             if let Some(vr) = vr_inputs_for_session(
                 self.session_output_device,
                 self.cached_head_pose,

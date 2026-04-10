@@ -151,7 +151,7 @@ impl DebugHud {
         backbuffer: &wgpu::TextureView,
         (width, height): (u32, u32),
         input: &DebugHudInput,
-    ) -> Result<(), String> {
+    ) -> Result<(bool, bool), String> {
         let delta = self.last_frame_at.elapsed().max(Duration::from_millis(1));
         self.last_frame_at = Instant::now();
 
@@ -220,7 +220,8 @@ impl DebugHud {
                 .render(draw_data, queue, device, &mut pass)
                 .map_err(|e| format!("imgui-wgpu render: {e}"))?;
         }
-        Ok(())
+        let io = self.imgui.io();
+        Ok((io.want_capture_mouse, io.want_capture_keyboard))
     }
 
     /// Unified IPC, timing, adapter, scene, draws, and resources (no shader route list).
@@ -669,7 +670,7 @@ impl DebugHud {
         _backbuffer: &wgpu::TextureView,
         _extent: (u32, u32),
         _input: &DebugHudInput,
-    ) -> Result<(), String> {
-        Ok(())
+    ) -> Result<(bool, bool), String> {
+        Ok((false, false))
     }
 }

@@ -32,4 +32,20 @@ The bootstrapper will launch the Resonite host and connect Renderide automatical
 
 Logs appear in the `logs/` folder.
 
-Enable validation layers in the config hud to get more detailed error messages for GPU crashes. Requires a restart.
+## Debugging
+
+1. Build the workspace in debug mode:
+
+   ```bash
+   cargo build --release
+   ```
+
+1. Run the bootstrapper in debug mode:
+
+   ```bash
+   RUST_BACKTRACE=1 ./target/debug/bootstrapper
+   ```
+
+1. Enable validation layers in the config hud to get more detailed error messages for GPU crashes. Requires a restart.
+
+1. Inspect logs in the `logs/` folder for panics, crashes,backtraces, and validation errors.

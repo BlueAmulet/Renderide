@@ -90,6 +90,12 @@ pub struct RenderBackend {
     debug_hud_input: DebugHudInput,
     #[cfg(feature = "debug-hud")]
     debug_frame_time_ms: f64,
+    /// Last [`imgui::Io::want_capture_mouse`] after a successful debug HUD encode (for next tick IPC).
+    #[cfg(feature = "debug-hud")]
+    debug_hud_want_capture_mouse: bool,
+    /// Last [`imgui::Io::want_capture_keyboard`] after a successful debug HUD encode (for next tick IPC).
+    #[cfg(feature = "debug-hud")]
+    debug_hud_want_capture_keyboard: bool,
     /// Last [`WorldMeshDrawStats`] from [`crate::render_graph::passes::WorldMeshForwardPass`].
     #[cfg(feature = "debug-hud")]
     last_world_mesh_draw_stats: WorldMeshDrawStats,
@@ -134,6 +140,10 @@ impl RenderBackend {
             debug_hud_input: DebugHudInput::default(),
             #[cfg(feature = "debug-hud")]
             debug_frame_time_ms: 0.0,
+            #[cfg(feature = "debug-hud")]
+            debug_hud_want_capture_mouse: false,
+            #[cfg(feature = "debug-hud")]
+            debug_hud_want_capture_keyboard: false,
             #[cfg(feature = "debug-hud")]
             last_world_mesh_draw_stats: WorldMeshDrawStats::default(),
             hi_z_gpu: HiZGpuState::default(),
@@ -440,6 +450,18 @@ impl RenderBackend {
     }
 
     #[cfg(feature = "debug-hud")]
+    /// [`imgui::Io::want_capture_mouse`] from the last successful HUD encode (used to filter host IPC on the next tick).
+    pub(crate) fn debug_hud_last_want_capture_mouse(&self) -> bool {
+        self.debug_hud_want_capture_mouse
+    }
+
+    #[cfg(feature = "debug-hud")]
+    /// [`imgui::Io::want_capture_keyboard`] from the last successful HUD encode (used to filter host IPC on the next tick).
+    pub(crate) fn debug_hud_last_want_capture_keyboard(&self) -> bool {
+        self.debug_hud_want_capture_keyboard
+    }
+
+    #[cfg(feature = "debug-hud")]
     /// Stores [`crate::diagnostics::RendererInfoSnapshot`] for the next HUD frame.
     pub(crate) fn set_debug_hud_snapshot(
         &mut self,
@@ -494,14 +516,21 @@ impl RenderBackend {
         let Some(hud) = self.debug_hud.as_mut() else {
             return Ok(());
         };
-        hud.encode_overlay(
+        match hud.encode_overlay(
             device,
             queue,
             encoder,
             backbuffer,
             extent,
             &self.debug_hud_input,
-        )
+        ) {
+            Ok((want_mouse, want_keyboard)) => {
+                self.debug_hud_want_capture_mouse = want_mouse;
+                self.debug_hud_want_capture_keyboard = want_keyboard;
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     #[cfg(not(feature = "debug-hud"))]

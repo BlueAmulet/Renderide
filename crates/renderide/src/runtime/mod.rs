@@ -226,6 +226,18 @@ impl RendererRuntime {
         self.backend.set_debug_hud_frame_data(input, frame_time_ms);
     }
 
+    #[cfg(feature = "debug-hud")]
+    /// Last ImGui `want_capture_mouse` after the previous successful HUD encode; used when filtering [`InputState`] for the host.
+    pub fn debug_hud_last_want_capture_mouse(&self) -> bool {
+        self.backend.debug_hud_last_want_capture_mouse()
+    }
+
+    #[cfg(feature = "debug-hud")]
+    /// Last ImGui `want_capture_keyboard` after the previous successful HUD encode; used when filtering [`InputState`] for the host.
+    pub fn debug_hud_last_want_capture_keyboard(&self) -> bool {
+        self.backend.debug_hud_last_want_capture_keyboard()
+    }
+
     /// Records and presents one frame via the backend’s compiled render graph.
     pub fn execute_frame_graph(
         &mut self,
