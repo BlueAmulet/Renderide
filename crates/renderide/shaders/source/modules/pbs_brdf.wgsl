@@ -75,7 +75,8 @@ fn direct_radiance_metallic(
         let dist = length(to_light);
         l = normalize(to_light);
         let spot_cos = dot(-l, normalize(light_dir));
-        let spot_atten = smoothstep(light.spot_cos_half_angle, light.spot_cos_half_angle + 0.1, spot_cos);
+        let inner_cos = min(light.spot_cos_half_angle + 0.1, 1.0);
+        let spot_atten = smoothstep(light.spot_cos_half_angle, inner_cos, spot_cos);
         attenuation = select(
             0.0,
             light.intensity * spot_atten * (1.0 - smoothstep(light.range * 0.9, light.range, dist)) / max(dist * dist, 0.0001),
@@ -133,7 +134,8 @@ fn direct_radiance_specular(
         let dist = length(to_light);
         l = normalize(to_light);
         let spot_cos = dot(-l, normalize(light_dir));
-        let spot_atten = smoothstep(light.spot_cos_half_angle, light.spot_cos_half_angle + 0.1, spot_cos);
+        let inner_cos = min(light.spot_cos_half_angle + 0.1, 1.0);
+        let spot_atten = smoothstep(light.spot_cos_half_angle, inner_cos, spot_cos);
         attenuation = select(
             0.0,
             light.intensity * spot_atten * (1.0 - smoothstep(light.range * 0.9, light.range, dist)) / max(dist * dist, 0.0001),
@@ -186,7 +188,8 @@ fn diffuse_only_metallic(
         let dist = length(to_light);
         l = normalize(to_light);
         let spot_cos = dot(-l, normalize(light_dir));
-        let spot_atten = smoothstep(light.spot_cos_half_angle, light.spot_cos_half_angle + 0.1, spot_cos);
+        let inner_cos = min(light.spot_cos_half_angle + 0.1, 1.0);
+        let spot_atten = smoothstep(light.spot_cos_half_angle, inner_cos, spot_cos);
         attenuation = select(
             0.0,
             light.intensity * spot_atten * (1.0 - smoothstep(light.range * 0.9, light.range, dist)) / max(dist * dist, 0.0001),
@@ -228,7 +231,8 @@ fn diffuse_only_specular(
         let dist = length(to_light);
         l = normalize(to_light);
         let spot_cos = dot(-l, normalize(light_dir));
-        let spot_atten = smoothstep(light.spot_cos_half_angle, light.spot_cos_half_angle + 0.1, spot_cos);
+        let inner_cos = min(light.spot_cos_half_angle + 0.1, 1.0);
+        let spot_atten = smoothstep(light.spot_cos_half_angle, inner_cos, spot_cos);
         attenuation = select(
             0.0,
             light.intensity * spot_atten * (1.0 - smoothstep(light.range * 0.9, light.range, dist)) / max(dist * dist, 0.0001),

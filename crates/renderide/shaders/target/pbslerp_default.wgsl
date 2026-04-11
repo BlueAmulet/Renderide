@@ -191,26 +191,27 @@ fn direct_radiance_metallicX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(lig
             l = normalize(to_light_1);
             let _e51: vec3<f32> = l;
             let spot_cos: f32 = dot(-(_e51), normalize(light_dir));
-            let spot_atten: f32 = smoothstep(light.spot_cos_half_angle, (light.spot_cos_half_angle + 0.1f), spot_cos);
+            let inner_cos: f32 = min((light.spot_cos_half_angle + 0.1f), 1f);
+            let spot_atten: f32 = smoothstep(light.spot_cos_half_angle, inner_cos, spot_cos);
             attenuation = select(0f, (((light.intensity * spot_atten) * (1f - smoothstep((light.range * 0.9f), light.range, dist_1))) / max((dist_1 * dist_1), 0.0001f)), (light.range > 0f));
         }
     }
-    let _e80: vec3<f32> = l;
-    let h: vec3<f32> = normalize((v + _e80));
-    let _e84: vec3<f32> = l;
-    let n_dot_l_1: f32 = max(dot(n_2, _e84), 0f);
+    let _e82: vec3<f32> = l;
+    let h: vec3<f32> = normalize((v + _e82));
+    let _e86: vec3<f32> = l;
+    let n_dot_l_1: f32 = max(dot(n_2, _e86), 0f);
     let n_dot_v_2: f32 = max(dot(n_2, v), 0.0001f);
     let n_dot_h_1: f32 = max(dot(n_2, h), 0f);
-    let _e94: f32 = attenuation;
-    let radiance: vec3<f32> = ((light_color * _e94) * n_dot_l_1);
+    let _e96: f32 = attenuation;
+    let radiance: vec3<f32> = ((light_color * _e96) * n_dot_l_1);
     if (n_dot_l_1 <= 0f) {
         return vec3(0f);
     }
-    let _e105: vec3<f32> = fresnel_schlickX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(max(dot(h, v), 0f), f0_1);
-    let _e107: f32 = distribution_ggxX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(n_dot_h_1, roughness_3);
-    let _e108: f32 = geometry_smithX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(n_dot_v_2, n_dot_l_1, roughness_3);
-    let spec: vec3<f32> = (((_e107 * _e108) * _e105) / vec3(max(((4f * n_dot_v_2) * n_dot_l_1), 0.0001f)));
-    let kd: vec3<f32> = ((vec3(1f) - _e105) * (1f - metallic));
+    let _e107: vec3<f32> = fresnel_schlickX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(max(dot(h, v), 0f), f0_1);
+    let _e109: f32 = distribution_ggxX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(n_dot_h_1, roughness_3);
+    let _e110: f32 = geometry_smithX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(n_dot_v_2, n_dot_l_1, roughness_3);
+    let spec: vec3<f32> = (((_e109 * _e110) * _e107) / vec3(max(((4f * n_dot_v_2) * n_dot_l_1), 0.0001f)));
+    let kd: vec3<f32> = ((vec3(1f) - _e107) * (1f - metallic));
     let diffuse: vec3<f32> = ((kd * base_color) / vec3(3.1415927f));
     return ((diffuse + spec) * radiance);
 }

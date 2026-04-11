@@ -59,7 +59,7 @@ pub fn effective_head_output_clip_planes(
     let filtered_root_scale = filter_scale_legacy(root_scale.unwrap_or(Vec3::ONE));
     (
         near_clip.max(near_min) * filtered_root_scale.x,
-        far_clip.max(0.5),
+        far_clip.max(0.5) * filtered_root_scale.x,
     )
 }
 
@@ -286,7 +286,7 @@ mod tests {
             Some(Vec3::splat(2.0)),
         );
         assert!((near - 0.5).abs() < 1e-6);
-        assert!((far - 0.5).abs() < 1e-6);
+        assert!((far - 1.0).abs() < 1e-6);
     }
 
     #[test]
