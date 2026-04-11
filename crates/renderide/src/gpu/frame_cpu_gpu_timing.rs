@@ -91,6 +91,20 @@ impl FrameCpuGpuTiming {
 /// Shared timing state held by [`super::GpuContext`].
 pub type FrameCpuGpuTimingHandle = Arc<Mutex<FrameCpuGpuTiming>>;
 
+/// Builds a callback that records GPU duration for `seq` when the queue finishes that submission.
+pub fn make_gpu_done_callback(
+    handle: FrameCpuGpuTimingHandle,
+    generation: u64,
+    seq: u32,
+    submit_at: Instant,
+) -> impl FnOnce() + Send + 'static {
+    move || {
+        let gpu_ms = submit_at.elapsed().as_secs_f64() * 1000.0;
+        let mut g = handle.lock().unwrap_or_else(|e| e.into_inner());
+        g.record_gpu_done(generation, seq, gpu_ms);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::FrameCpuGpuTiming;
@@ -110,19 +124,5 @@ mod tests {
         t.record_gpu_done(gen, seq, 2.5);
         assert!(t.gpu_after_submit_ms.is_none());
         assert_eq!(t.last_completed_gpu_idle_ms, Some(2.5));
-    }
-}
-
-/// Builds a callback that records GPU duration for `seq` when the queue finishes that submission.
-pub fn make_gpu_done_callback(
-    handle: FrameCpuGpuTimingHandle,
-    generation: u64,
-    seq: u32,
-    submit_at: Instant,
-) -> impl FnOnce() + Send + 'static {
-    move || {
-        let gpu_ms = submit_at.elapsed().as_secs_f64() * 1000.0;
-        let mut g = handle.lock().unwrap_or_else(|e| e.into_inner());
-        g.record_gpu_done(generation, seq, gpu_ms);
     }
 }

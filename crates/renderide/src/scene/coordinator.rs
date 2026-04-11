@@ -135,7 +135,7 @@ impl SceneCoordinator {
             return self.world_matrix(id, transform_index);
         }
 
-        let mut path = Vec::with_capacity(8);
+        let mut path = Vec::with_capacity(64);
         let mut cursor = transform_index;
         let mut broke = false;
         let mut any_override = false;

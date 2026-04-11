@@ -133,6 +133,7 @@ impl RenderPass for WorldMeshForwardPass {
                 router_ref,
                 shader_perm,
                 render_context,
+                hc.head_output_transform,
                 Some(&culling),
             )
         };
@@ -204,27 +205,31 @@ impl RenderPass for WorldMeshForwardPass {
                         if item.skinned {
                             (base_vp, base_vp, Mat4::IDENTITY)
                         } else {
-                            let model = scene
+                            let model = item.rigid_world_matrix.unwrap_or_else(|| {
+                                scene
+                                    .world_matrix_for_render_context(
+                                        item.space_id,
+                                        item.node_id as usize,
+                                        render_context,
+                                        hc.head_output_transform,
+                                    )
+                                    .unwrap_or(Mat4::IDENTITY)
+                            });
+                            (base_vp, base_vp, model)
+                        }
+                    } else if item.skinned {
+                        (sl * vr_stereo_view, sr * vr_stereo_view, Mat4::IDENTITY)
+                    } else {
+                        let model = item.rigid_world_matrix.unwrap_or_else(|| {
+                            scene
                                 .world_matrix_for_render_context(
                                     item.space_id,
                                     item.node_id as usize,
                                     render_context,
                                     hc.head_output_transform,
                                 )
-                                .unwrap_or(Mat4::IDENTITY);
-                            (base_vp, base_vp, model)
-                        }
-                    } else if item.skinned {
-                        (sl * vr_stereo_view, sr * vr_stereo_view, Mat4::IDENTITY)
-                    } else {
-                        let model = scene
-                            .world_matrix_for_render_context(
-                                item.space_id,
-                                item.node_id as usize,
-                                render_context,
-                                hc.head_output_transform,
-                            )
-                            .unwrap_or(Mat4::IDENTITY);
+                                .unwrap_or(Mat4::IDENTITY)
+                        });
                         (sl * vr_stereo_view, sr * vr_stereo_view, model)
                     }
                 } else {
@@ -237,14 +242,16 @@ impl RenderPass for WorldMeshForwardPass {
                     if item.skinned {
                         (base_vp, base_vp, Mat4::IDENTITY)
                     } else {
-                        let model = scene
-                            .world_matrix_for_render_context(
-                                item.space_id,
-                                item.node_id as usize,
-                                render_context,
-                                hc.head_output_transform,
-                            )
-                            .unwrap_or(Mat4::IDENTITY);
+                        let model = item.rigid_world_matrix.unwrap_or_else(|| {
+                            scene
+                                .world_matrix_for_render_context(
+                                    item.space_id,
+                                    item.node_id as usize,
+                                    render_context,
+                                    hc.head_output_transform,
+                                )
+                                .unwrap_or(Mat4::IDENTITY)
+                        });
                         (base_vp, base_vp, model)
                     }
                 }

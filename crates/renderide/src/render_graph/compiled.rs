@@ -182,7 +182,7 @@ impl CompiledRenderGraph {
         if external.is_some() {
             let cmd = encoder.finish();
             gpu.submit_tracked_frame_commands(cmd);
-            backend.hi_z_on_frame_submitted();
+            backend.hi_z_on_frame_submitted(device);
         } else if let Some(view) = backbuffer_view_holder.as_ref() {
             let mut queue_lock = queue_arc.lock().expect("queue mutex poisoned");
             if let Err(e) = backend.encode_debug_hud_overlay(
@@ -196,11 +196,11 @@ impl CompiledRenderGraph {
             }
             let cmd = encoder.finish();
             gpu.submit_tracked_frame_commands_with_queue(&mut queue_lock, cmd);
-            backend.hi_z_on_frame_submitted();
+            backend.hi_z_on_frame_submitted(device);
         } else {
             let cmd = encoder.finish();
             gpu.submit_tracked_frame_commands(cmd);
-            backend.hi_z_on_frame_submitted();
+            backend.hi_z_on_frame_submitted(device);
         }
 
         if let Some(f) = frame {

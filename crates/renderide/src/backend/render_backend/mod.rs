@@ -462,18 +462,17 @@ impl RenderBackend {
         );
     }
 
-    /// Maps Hi-Z staging buffers after the queue submission for this frame has completed.
-    /// Maps the prior frame’s Hi-Z staging into CPU snapshots for [`Self::hi_z_cull_data`].
+    /// Drains completed Hi-Z `map_async` readbacks into CPU snapshots for [`Self::hi_z_cull_data`].
     ///
-    /// Invoked at the start of [`Self::execute_frame_graph`] / [`Self::execute_frame_graph_external_multiview`]
-    /// so the main thread does not block after [`wgpu::Queue::submit`] for readback.
+    /// Invoked at the start of [`Self::execute_frame_graph`] / [`Self::execute_frame_graph_external_multiview`].
+    /// Non-blocking: uses at most one [`wgpu::Device::poll`]; if a read is not ready, prior snapshots are kept.
     pub fn hi_z_begin_frame_readback(&mut self, device: &wgpu::Device) {
         self.hi_z_gpu.begin_frame_readback(device);
     }
 
-    /// Call after each successful render-graph submit that recorded Hi-Z copies (ping-pong slot).
-    pub(crate) fn hi_z_on_frame_submitted(&mut self) {
-        self.hi_z_gpu.on_frame_submitted();
+    /// Call after each successful render-graph submit that recorded Hi-Z copies (ring slot).
+    pub(crate) fn hi_z_on_frame_submitted(&mut self, device: &wgpu::Device) {
+        self.hi_z_gpu.on_frame_submitted(device);
     }
 
     /// View/projection snapshot from the **previous** world forward pass (for Hi-Z occlusion tests).
