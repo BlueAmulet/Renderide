@@ -1,7 +1,7 @@
 //! Clustered forward lighting: GPU buffers for per-cluster light lists and compute-only uniforms.
 //!
-//! [`ClusterBufferCache`] recreates storage when the viewport or Z slice count changes. Tile size and
-//! per-tile caps match the clustered light compute shader and PBS fragment sampling.
+//! [`ClusterBufferCache`] recreates storage when the viewport, Z slice count, or stereo layer count
+//! changes. Tile size and per-tile caps match the clustered light compute shader and PBS fragment sampling.
 
 use std::mem::size_of;
 
@@ -29,7 +29,8 @@ pub struct ClusterBufferCache {
     cluster_light_counts: Option<wgpu::Buffer>,
     cluster_light_indices: Option<wgpu::Buffer>,
     params_buffer: Option<wgpu::Buffer>,
-    cached_viewport: ((u32, u32), u32),
+    /// `(viewport, cluster_count_z, stereo_cluster_layers)`.
+    cached_viewport: ((u32, u32), u32, u32),
     /// Incremented when buffers are recreated (bind group invalidation).
     pub version: u64,
 }
@@ -41,26 +42,28 @@ impl ClusterBufferCache {
             cluster_light_counts: None,
             cluster_light_indices: None,
             params_buffer: None,
-            cached_viewport: ((0, 0), 0),
+            cached_viewport: ((0, 0), 0, 0),
             version: 0,
         }
     }
 
-    /// Ensures buffers exist for `viewport` and `cluster_count_z`; recreates when either changes.
+    /// Ensures buffers exist for `viewport`, `cluster_count_z`, and packed stereo layers (`1` or `2`).
     pub fn ensure_buffers(
         &mut self,
         device: &wgpu::Device,
         viewport: (u32, u32),
         cluster_count_z: u32,
+        stereo_cluster_layers: u32,
     ) -> Option<ClusterBufferRefs<'_>> {
         let (width, height) = viewport;
         if width == 0 || height == 0 {
             return None;
         }
+        let layers = stereo_cluster_layers.clamp(1, 2);
         let cluster_count_x = width.div_ceil(TILE_SIZE);
         let cluster_count_y = height.div_ceil(TILE_SIZE);
-        let cluster_count = (cluster_count_x * cluster_count_y * cluster_count_z) as usize;
-        let cache_key = (viewport, cluster_count_z);
+        let cluster_count = (cluster_count_x * cluster_count_y * cluster_count_z * layers) as usize;
+        let cache_key = (viewport, cluster_count_z, layers);
         if self.cluster_light_counts.is_none() || self.cached_viewport != cache_key {
             self.version = self.version.wrapping_add(1);
             self.cached_viewport = cache_key;
@@ -96,8 +99,10 @@ impl ClusterBufferCache {
         &self,
         viewport: (u32, u32),
         cluster_count_z: u32,
+        stereo_cluster_layers: u32,
     ) -> Option<ClusterBufferRefs<'_>> {
-        let cache_key = (viewport, cluster_count_z);
+        let layers = stereo_cluster_layers.clamp(1, 2);
+        let cache_key = (viewport, cluster_count_z, layers);
         if self.cached_viewport != cache_key {
             return None;
         }

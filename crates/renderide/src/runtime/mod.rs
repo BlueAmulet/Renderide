@@ -96,9 +96,18 @@ impl RendererRuntime {
         &self.config_save_path
     }
 
-    /// Sets per-eye view–projection from OpenXR ([`HostCameraFrame::stereo_view_proj`]); `None` clears.
+    /// Sets per-eye view–projection from OpenXR ([`HostCameraFrame::stereo_view_proj`]); `None` clears
+    /// [`HostCameraFrame::stereo_cluster`] as well.
     pub fn set_stereo_view_proj(&mut self, vp: Option<(Mat4, Mat4)>) {
         self.host_camera.stereo_view_proj = vp;
+        if vp.is_none() {
+            self.host_camera.stereo_cluster = None;
+        }
+    }
+
+    /// Sets per-eye `(world_to_view, proj)` for clustered lights and right-eye Z coefficients ([`HostCameraFrame::stereo_cluster`]).
+    pub fn set_stereo_cluster(&mut self, cluster: Option<((Mat4, Mat4), (Mat4, Mat4))>) {
+        self.host_camera.stereo_cluster = cluster;
     }
 
     /// Sets the active head-output transform used for legacy overlay-space positioning.
@@ -537,6 +546,7 @@ impl RendererRuntime {
         self.host_camera.vr_active = data.vr_active;
         if !data.vr_active {
             self.host_camera.stereo_view_proj = None;
+            self.host_camera.stereo_cluster = None;
         }
         self.host_camera.primary_ortho_task = data.render_tasks.iter().find_map(|t| {
             t.parameters.as_ref().and_then(|p| {

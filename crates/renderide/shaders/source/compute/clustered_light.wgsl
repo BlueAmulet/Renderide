@@ -34,6 +34,9 @@ struct ClusterParams {
     cluster_count_z: u32,
     near_clip: f32,
     far_clip: f32,
+    /// Linear cluster index offset for packed stereo (`0` = left / mono, `per_eye` = right).
+    cluster_write_base: u32,
+    _pad_cluster: u32,
 }
 
 @group(0) @binding(0) var<uniform> params: ClusterParams;
@@ -103,13 +106,21 @@ fn sphere_aabb_intersect(center: vec3f, radius: f32, aabb_min: vec3f, aabb_max: 
     return dot(d, d) <= radius * radius;
 }
 
+// PBS spot attenuation uses smoothstep(spot_cos_half, spot_cos_half + 0.1, spot_cos); culling widens
+// the cone in cosine space so the sphere proxy does not drop visible penumbra clusters.
+//
+// The circumsphere around the finite cone is intentionally conservative (may include extra clusters).
+// A direct cone–AABB test could trim false positives if profiling shows cluster overflow; it is not
+// required once world-to-view matches fragment cluster indexing (see `cluster_light_frame.rs`).
 fn spotlight_bounds_intersect_aabb(apex: vec3f, axis: vec3f, cos_half: f32, range: f32, aabb_min: vec3f, aabb_max: vec3f) -> bool {
     if cos_half >= 0.9999 {
         return sphere_aabb_intersect(apex, range, aabb_min, aabb_max);
     }
+    // Widen the cone (lower cosine cutoff) by the same delta as `pbs_brdf.wgsl` smoothstep band.
+    let cull_cos_half = max(-1.0, cos_half - 0.1);
     let axis_n = normalize(axis);
-    let sin_sq = max(0.0, 1.0 - cos_half * cos_half);
-    let tan_sq = sin_sq / max(cos_half * cos_half, 1e-8);
+    let sin_sq = max(0.0, 1.0 - cull_cos_half * cull_cos_half);
+    let tan_sq = sin_sq / max(cull_cos_half * cull_cos_half, 1e-8);
     let radius = range * sqrt(0.25 + tan_sq);
     let center = apex + axis_n * (range * 0.5);
     return sphere_aabb_intersect(center, radius, aabb_min, aabb_max);
@@ -124,6 +135,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         return;
     }
     let cluster_id = global_id.x + cluster_count_x * (global_id.y + cluster_count_y * global_id.z);
+    let effective_id = cluster_id + params.cluster_write_base;
     let cluster_x = global_id.x;
     let cluster_y = global_id.y;
     let cluster_z = global_id.z;
@@ -133,7 +145,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let aabb_max = aabb.max_v;
 
     var count: u32 = 0u;
-    let base_idx = cluster_id * MAX_LIGHTS_PER_TILE;
+    let base_idx = effective_id * MAX_LIGHTS_PER_TILE;
 
     for (var i = 0u; i < params.light_count; i++) {
         if count >= MAX_LIGHTS_PER_TILE {
@@ -164,5 +176,5 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         }
     }
 
-    cluster_light_counts[cluster_id] = count;
+    cluster_light_counts[effective_id] = count;
 }

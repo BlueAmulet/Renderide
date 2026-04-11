@@ -8,9 +8,11 @@ struct PerDrawUniformsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX {
 struct FrameGlobalsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX {
     camera_world_pos: vec4<f32>,
     view_space_z_coeffs: vec4<f32>,
+    view_space_z_coeffs_right: vec4<f32>,
     cluster_count_x: u32,
     cluster_count_y: u32,
     cluster_count_z: u32,
+    stereo_cluster_layers: u32,
     near_clip: f32,
     far_clip: f32,
     light_count: u32,
@@ -83,6 +85,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let c: vec3<f32> = ((vec3<f32>(n) + (_e21.xyz * 0.0001f)) + vec3((f32(_e26) * 0.0000000001f)));
     let _e34: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
     let _e42: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let cluster_touch: f32 = ((f32((_e34 & 255u)) * 0.0000000001f) + (f32((_e42 & 255u)) * 0.0000000001f));
+    let _e51: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs_right;
+    let _e62: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
+    let cluster_touch: f32 = (((f32((_e34 & 255u)) * 0.0000000001f) + (f32((_e42 & 255u)) * 0.0000000001f)) + ((dot(_e51, vec4<f32>(1f, 1f, 1f, 1f)) * 0.0000000001f) + (f32(_e62) * 0.0000000001f)));
     return vec4<f32>((c + vec3(cluster_touch)), 1f);
 }

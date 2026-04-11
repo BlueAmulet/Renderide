@@ -75,6 +75,15 @@ pub fn openxr_begin_frame_tick(
                 world_from_tracking,
             );
             runtime.set_stereo_view_proj(Some((l, r)));
+            runtime.set_stereo_cluster(Some(
+                crate::xr::session::stereo_cluster_decomposition_from_openxr_views(
+                    &views[0],
+                    &views[1],
+                    near,
+                    far,
+                    world_from_tracking,
+                ),
+            ));
             let desktop_mirror_view_proj =
                 crate::xr::center_view_projection_from_stereo_views_aligned(
                     &views,

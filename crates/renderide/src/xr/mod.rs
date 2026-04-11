@@ -24,8 +24,8 @@ pub use input::OpenxrInput;
 pub use session::{
     center_view_projection_from_stereo_views_aligned, headset_center_pose_from_stereo_views,
     headset_pose_from_xr_view, openxr_pose_to_engine, openxr_pose_to_host_tracking,
-    tracking_space_to_world_matrix, view_projection_from_xr_view,
-    view_projection_from_xr_view_aligned, XrSessionState,
+    stereo_cluster_decomposition_from_openxr_views, tracking_space_to_world_matrix,
+    view_projection_from_xr_view, view_projection_from_xr_view_aligned, XrSessionState,
 };
 pub use swapchain::{
     create_stereo_depth_texture, XrStereoSwapchain, XrSwapchainError, XR_COLOR_FORMAT,

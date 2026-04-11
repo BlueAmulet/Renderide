@@ -160,6 +160,9 @@ fn vs_main(
 @fragment
 fn fs_main(
     @builtin(position) frag_pos: vec4<f32>,
+#ifdef MULTIVIEW
+    @builtin(view_index) view_idx: u32,
+#endif
     @builtin(front_facing) front_facing: bool,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
@@ -237,10 +240,21 @@ fn fs_main(
     let v = normalize(cam - world_pos);
     let f0 = mix(vec3<f32>(0.04), base_color, metallic);
 
+#ifdef MULTIVIEW
+    let vi = view_idx;
+#else
+    let vi = 0u;
+#endif
+    let zc = pcls::select_eye_view_space_z_coeffs(
+        vi,
+        rg::frame.view_space_z_coeffs,
+        rg::frame.view_space_z_coeffs_right,
+        rg::frame.stereo_cluster_layers,
+    );
     let cluster_id = pcls::cluster_id_from_frag(
         frag_pos.xy,
         world_pos,
-        rg::frame.view_space_z_coeffs,
+        zc,
         rg::frame.viewport_width,
         rg::frame.viewport_height,
         rg::frame.cluster_count_x,
@@ -248,6 +262,8 @@ fn fs_main(
         rg::frame.cluster_count_z,
         rg::frame.near_clip,
         rg::frame.far_clip,
+        vi,
+        rg::frame.stereo_cluster_layers,
     );
 
     let count = rg::cluster_light_counts[cluster_id];
@@ -274,5 +290,6 @@ fn fs_main(
 
     let amb = vec3<f32>(0.03);
     let color = (amb * base_color * occlusion + lo * occlusion) + em;
-    return vec4<f32>(color, alpha);
+    let fg_anchor = (dot(rg::frame.view_space_z_coeffs_right, vec4<f32>(1.0, 1.0, 1.0, 1.0)) * 1e-10 + f32(rg::frame.stereo_cluster_layers) * 1e-10);
+    return vec4<f32>(color + vec3<f32>(fg_anchor * 1e-30), alpha);
 }
