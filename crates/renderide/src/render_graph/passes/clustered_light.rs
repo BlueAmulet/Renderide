@@ -209,12 +209,13 @@ impl RenderPass for ClusteredLightPass {
         let use_multiview = frame.multiview_stereo
             && hc.vr_active
             && hc.stereo_view_proj.is_some()
-            && ctx
-                .device
-                .features()
-                .contains(wgpu::Features::MULTIVIEW);
+            && ctx.device.features().contains(wgpu::Features::MULTIVIEW);
         let clf = cluster_light_frame_params(&hc, scene, (vw, vh), use_multiview);
-        let stereo_cluster_layers = if clf.stereo_eyes.is_some() { 2u32 } else { 1u32 };
+        let stereo_cluster_layers = if clf.stereo_eyes.is_some() {
+            2u32
+        } else {
+            1u32
+        };
 
         fgpu.sync_cluster_viewport(ctx.device, (vw, vh), stereo_cluster_layers);
 
@@ -224,7 +225,9 @@ impl RenderPass for ClusteredLightPass {
             fgpu.write_lights_buffer(&queue, lights);
         }
 
-        let Some(refs) = fgpu.cluster_cache.get_buffers((vw, vh), CLUSTER_COUNT_Z, stereo_cluster_layers)
+        let Some(refs) =
+            fgpu.cluster_cache
+                .get_buffers((vw, vh), CLUSTER_COUNT_Z, stereo_cluster_layers)
         else {
             logger::trace!("ClusteredLight: cluster buffers missing after sync");
             return Ok(());

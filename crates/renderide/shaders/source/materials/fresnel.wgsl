@@ -8,6 +8,10 @@
 #import renderide::per_draw as pd
 #import renderide::pbs::brdf as brdf
 #import renderide::alpha_clip_sample as acs
+#import renderide::unity_st as ust
+#import renderide::view_proj as vp
+#import renderide::globals_retention as ret
+#import renderide::polar_uv as polar
 
 struct FresnelMaterial {
     _FarColor: vec4<f32>,
@@ -61,52 +65,28 @@ fn vs_main(
     let world_p = pd::draw.model * vec4<f32>(pos.xyz, 1.0);
     let wn = normalize((pd::draw.model * vec4<f32>(n.xyz, 0.0)).xyz);
 #ifdef MULTIVIEW
-    var vp: mat4x4<f32>;
-    if (view_idx == 0u) {
-        vp = pd::draw.view_proj_left;
-    } else {
-        vp = pd::draw.view_proj_right;
-    }
+    let vpm = vp::view_projection_for_eye(view_idx);
 #else
-    let vp = pd::draw.view_proj_left;
+    let vpm = vp::view_projection_for_eye(0u);
 #endif
     var out: VertexOutput;
-    out.clip_pos = vp * world_p;
+    out.clip_pos = vpm * world_p;
     out.world_pos = world_p.xyz;
     out.world_n = wn;
     out.uv = uv;
     return out;
 }
 
-fn apply_st(uv: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
-    let uv_st = uv * st.xy + st.zw;
-    return vec2<f32>(uv_st.x, 1.0 - uv_st.y);
-}
-
-fn polar_uv(raw_uv: vec2<f32>, radius_pow: f32) -> vec2<f32> {
-    let centered = raw_uv * 2.0 - 1.0;
-    let angle_len = 6.28318530718;
-    let radius = pow(length(centered), radius_pow);
-    let angle = atan2(centered.x, centered.y) + angle_len * 0.5;
-    return vec2<f32>(angle / angle_len, radius);
-}
-
-fn decode_ts_normal(raw: vec3<f32>, scale: f32) -> vec3<f32> {
-    let nm_xy = (raw.xy * 2.0 - 1.0) * scale;
-    let z = max(sqrt(max(1.0 - dot(nm_xy, nm_xy), 0.0)), 1e-6);
-    return normalize(vec3<f32>(nm_xy, z));
-}
-
 fn sample_color(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, st: vec4<f32>) -> vec4<f32> {
     let use_polar = mat._POLARUV > 0.99;
-    let sample_uv = select(apply_st(uv, st), apply_st(polar_uv(uv, mat._PolarPow), st), use_polar);
+    let sample_uv = select(ust::apply_st(uv, st), ust::apply_st(polar::polar_uv(uv, mat._PolarPow), st), use_polar);
     return textureSample(tex, samp, sample_uv);
 }
 
 /// Same UV mapping as [`sample_color`], at base mip for alpha clip / mask clip.
 fn sample_color_lod0(tex: texture_2d<f32>, samp: sampler, uv: vec2<f32>, st: vec4<f32>) -> vec4<f32> {
     let use_polar = mat._POLARUV > 0.99;
-    let sample_uv = select(apply_st(uv, st), apply_st(polar_uv(uv, mat._PolarPow), st), use_polar);
+    let sample_uv = select(ust::apply_st(uv, st), ust::apply_st(polar::polar_uv(uv, mat._PolarPow), st), use_polar);
     return acs::texture_rgba_base_mip(tex, samp, sample_uv);
 }
 
@@ -116,7 +96,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (mat._NORMALMAP > 0.99) {
         let uv_n = vec2<f32>(in.uv.x, 1.0 - in.uv.y);
         let tbn = brdf::orthonormal_tbn(n);
-        let ts_n = decode_ts_normal(
+        let ts_n = brdf::decode_ts_normal(
             textureSample(_NormalMap, _NormalMap_sampler, uv_n).xyz,
             mat._NormalScale,
         );
@@ -138,7 +118,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var clip_a = mix(near_clip.a, far_clip.a, clamp(fres, 0.0, 1.0));
 
     if (mat._MASK_TEXTURE_MUL > 0.99 || mat._MASK_TEXTURE_CLIP > 0.99) {
-        let uv_mask = apply_st(in.uv, mat._MaskTex_ST);
+        let uv_mask = ust::apply_st(in.uv, mat._MaskTex_ST);
         let mask = textureSample(_MaskTex, _MaskTex_sampler, uv_mask);
         let mul = (mask.r + mask.g + mask.b) * 0.33333334 * mask.a;
         let mul_clip = acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_mask);
@@ -161,13 +141,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color.a = color.a * lum * lum;
     }
 
-    var lit: u32 = 0u;
-    if (rg::frame.light_count > 0u) {
-        lit = rg::lights[0].light_type;
-    }
-    let cluster_touch =
-        f32(rg::cluster_light_counts[0u] & 255u) * 1e-10 +
-        f32(rg::cluster_light_indices[0u] & 255u) * 1e-10 +
-        (dot(rg::frame.view_space_z_coeffs_right, vec4<f32>(1.0, 1.0, 1.0, 1.0)) * 1e-10 + f32(rg::frame.stereo_cluster_layers) * 1e-10);
-    return color + vec4<f32>(vec3<f32>(f32(lit) * 1e-10 + cluster_touch), 0.0);
+    return color + vec4<f32>(ret::fragment_watermark_rgb(), 0.0);
 }

@@ -4,6 +4,8 @@
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd
+#import renderide::view_proj as vp
+#import renderide::globals_retention as ret
 
 struct UnlitUvRectMaterial {
     _Rect: vec4<f32>,
@@ -37,17 +39,12 @@ fn vs_main(
 ) -> VertexOutput {
     let world_p = pd::draw.model * vec4<f32>(pos.xyz, 1.0);
 #ifdef MULTIVIEW
-    var vp: mat4x4<f32>;
-    if (view_idx == 0u) {
-        vp = pd::draw.view_proj_left;
-    } else {
-        vp = pd::draw.view_proj_right;
-    }
+    let vpm = vp::view_projection_for_eye(view_idx);
 #else
-    let vp = pd::draw.view_proj_left;
+    let vpm = vp::view_projection_for_eye(0u);
 #endif
     var out: VertexOutput;
-    out.clip_pos = vp * world_p;
+    out.clip_pos = vpm * world_p;
     out.uv = uv;
     return out;
 }
@@ -67,13 +64,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let inner = inside_rect01(in.uv, mat._Rect);
     let color = mix(mat._OuterColor, mat._InnerColor, inner);
 
-    var lit: u32 = 0u;
-    if (rg::frame.light_count > 0u) {
-        lit = rg::lights[0].light_type;
-    }
-    let cluster_touch =
-        f32(rg::cluster_light_counts[0u] & 255u) * 1e-10 +
-        f32(rg::cluster_light_indices[0u] & 255u) * 1e-10 +
-        (dot(rg::frame.view_space_z_coeffs_right, vec4<f32>(1.0, 1.0, 1.0, 1.0)) * 1e-10 + f32(rg::frame.stereo_cluster_layers) * 1e-10);
-    return color + vec4<f32>(vec3<f32>(f32(lit) * 1e-10 + cluster_touch), 0.0);
+    return color + vec4<f32>(ret::fragment_watermark_rgb(), 0.0);
 }

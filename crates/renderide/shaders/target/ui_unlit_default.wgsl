@@ -90,19 +90,41 @@ var _MaskTex: texture_2d<f32>;
 @group(1) @binding(4) 
 var _MaskTex_sampler: sampler;
 
-fn texture_alpha_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex: texture_2d<f32>, samp: sampler, uv_1: vec2<f32>) -> f32 {
-    let _e4: vec4<f32> = textureSampleLevel(tex, samp, uv_1, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
+fn view_projection_for_eyeX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ3GSZLXL5YHE33KX(view_idx: u32) -> mat4x4<f32> {
+    let _e2: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.view_proj_left;
+    return _e2;
+}
+
+fn apply_stX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ2W42LUPFPXG5AX(uv_1: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
+    let uv_st: vec2<f32> = ((uv_1 * st.xy) + st.zw);
+    return vec2<f32>(uv_st.x, (1f - uv_st.y));
+}
+
+fn texture_alpha_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex: texture_2d<f32>, samp: sampler, uv_2: vec2<f32>) -> f32 {
+    let _e4: vec4<f32> = textureSampleLevel(tex, samp, uv_2, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
     return _e4.w;
 }
 
-fn mask_luminance_mul_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex_1: texture_2d<f32>, samp_1: sampler, uv_2: vec2<f32>) -> f32 {
-    let mask: vec4<f32> = textureSampleLevel(tex_1, samp_1, uv_2, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
+fn mask_luminance_mul_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex_1: texture_2d<f32>, samp_1: sampler, uv_3: vec2<f32>) -> f32 {
+    let mask: vec4<f32> = textureSampleLevel(tex_1, samp_1, uv_3, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
     return ((((mask.x + mask.y) + mask.z) * 0.33333334f) * mask.w);
 }
 
-fn uv_with_st(uv_3: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
-    let uv_st: vec2<f32> = ((uv_3 * st.xy) + st.zw);
-    return vec2<f32>(uv_st.x, (1f - uv_st.y));
+fn fragment_watermark_rgbX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX3SMV2GK3TUNFXW4X() -> vec3<f32> {
+    var lit: u32 = 0u;
+
+    let _e3: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
+    if (_e3 > 0u) {
+        let _e9: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
+        lit = _e9;
+    }
+    let _e13: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e21: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e30: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs_right;
+    let _e41: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
+    let cluster_touch: f32 = (((f32((_e13 & 255u)) * 0.0000000001f) + (f32((_e21 & 255u)) * 0.0000000001f)) + ((dot(_e30, vec4<f32>(1f, 1f, 1f, 1f)) * 0.0000000001f) + (f32(_e41) * 0.0000000001f)));
+    let _e47: u32 = lit;
+    return vec3(((f32(_e47) * 0.0000000001f) + cluster_touch));
 }
 
 @vertex 
@@ -111,14 +133,14 @@ fn vs_main(@location(0) pos: vec4<f32>, @location(1) _n: vec4<f32>, @location(2)
 
     let _e3: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.model;
     let world_p: vec4<f32> = (_e3 * vec4<f32>(pos.xyz, 1f));
-    let vp: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.view_proj_left;
-    out.clip_pos = (vp * world_p);
+    let _e9: mat4x4<f32> = view_projection_for_eyeX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ3GSZLXL5YHE33KX(0u);
+    out.clip_pos = (_e9 * world_p);
     out.uv = uv;
-    let _e20: vec4<f32> = mat._Tint;
-    out.color = (color * _e20);
+    let _e19: vec4<f32> = mat._Tint;
+    out.color = (color * _e19);
     out.obj_xy = pos.xy;
-    let _e24: VertexOutput = out;
-    return _e24;
+    let _e23: VertexOutput = out;
+    return _e23;
 }
 
 @fragment 
@@ -129,22 +151,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var local_1: bool;
     var local_2: bool;
     var local_3: bool;
-    var lit: u32 = 0u;
 
     color_1 = in.color;
     clip_a = in.color.w;
-    let _e9: u32 = mat.flags;
-    if ((_e9 & 1u) != 0u) {
-        let _e17: vec4<f32> = mat._MainTex_ST;
-        let _e18: vec2<f32> = uv_with_st(in.uv, _e17);
-        let t: vec4<f32> = textureSample(_MainTex, _MainTex_sampler, _e18);
-        let _e26: f32 = texture_alpha_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_MainTex, _MainTex_sampler, _e18);
-        clip_a = (in.color.w * _e26);
-        let _e28: vec4<f32> = color_1;
-        color_1 = (_e28 * t);
+    let _e8: u32 = mat.flags;
+    if ((_e8 & 1u) != 0u) {
+        let _e16: vec4<f32> = mat._MainTex_ST;
+        let _e17: vec2<f32> = apply_stX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ2W42LUPFPXG5AX(in.uv, _e16);
+        let t: vec4<f32> = textureSample(_MainTex, _MainTex_sampler, _e17);
+        let _e25: f32 = texture_alpha_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_MainTex, _MainTex_sampler, _e17);
+        clip_a = (in.color.w * _e25);
+        let _e27: vec4<f32> = color_1;
+        color_1 = (_e27 * t);
     }
-    let _e32: u32 = mat.flags;
-    if ((_e32 & 4u) != 0u) {
+    let _e31: u32 = mat.flags;
+    if ((_e31 & 4u) != 0u) {
         let r: vec4<f32> = mat._Rect;
         let min_v: vec2<f32> = r.xy;
         let max_v: vec2<f32> = (r.xy + r.zw);
@@ -153,78 +174,68 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         } else {
             local = true;
         }
-        let _e56: bool = local;
-        if !(_e56) {
+        let _e55: bool = local;
+        if !(_e55) {
             local_1 = (in.obj_xy.y < min_v.y);
         } else {
             local_1 = true;
         }
-        let _e65: bool = local_1;
-        if !(_e65) {
+        let _e64: bool = local_1;
+        if !(_e64) {
             local_2 = (in.obj_xy.y > max_v.y);
         } else {
             local_2 = true;
         }
-        let _e74: bool = local_2;
-        if _e74 {
+        let _e73: bool = local_2;
+        if _e73 {
             discard;
         }
     }
-    let _e77: u32 = mat.flags;
-    if ((_e77 & 48u) != 0u) {
-        let _e85: vec4<f32> = mat._MaskTex_ST;
-        let _e86: vec2<f32> = uv_with_st(in.uv, _e85);
-        let mask_1: vec4<f32> = textureSample(_MaskTex, _MaskTex_sampler, _e86);
+    let _e76: u32 = mat.flags;
+    if ((_e76 & 48u) != 0u) {
+        let _e84: vec4<f32> = mat._MaskTex_ST;
+        let _e85: vec2<f32> = apply_stX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ2W42LUPFPXG5AX(in.uv, _e84);
+        let mask_1: vec4<f32> = textureSample(_MaskTex, _MaskTex_sampler, _e85);
         let mul: f32 = ((((mask_1.x + mask_1.y) + mask_1.z) * 0.33333334f) * mask_1.w);
-        let _e101: f32 = mask_luminance_mul_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_MaskTex, _MaskTex_sampler, _e86);
-        let _e104: u32 = mat.flags;
-        if ((_e104 & 16u) != 0u) {
-            let _e111: f32 = color_1.w;
-            color_1.w = (_e111 * mul);
-            let _e113: f32 = clip_a;
-            clip_a = (_e113 * _e101);
+        let _e100: f32 = mask_luminance_mul_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_MaskTex, _MaskTex_sampler, _e85);
+        let _e103: u32 = mat.flags;
+        if ((_e103 & 16u) != 0u) {
+            let _e110: f32 = color_1.w;
+            color_1.w = (_e110 * mul);
+            let _e112: f32 = clip_a;
+            clip_a = (_e112 * _e100);
         }
-        let _e117: u32 = mat.flags;
-        if ((_e117 & 32u) != 0u) {
-            let _e124: f32 = mat._Cutoff;
-            if (_e101 <= _e124) {
+        let _e116: u32 = mat.flags;
+        if ((_e116 & 32u) != 0u) {
+            let _e123: f32 = mat._Cutoff;
+            if (_e100 <= _e123) {
                 discard;
             }
         }
     }
-    let _e128: u32 = mat.flags;
-    if ((_e128 & 2u) != 0u) {
-        let _e135: u32 = mat.flags;
-        local_3 = ((_e135 & 32u) == 0u);
+    let _e127: u32 = mat.flags;
+    if ((_e127 & 2u) != 0u) {
+        let _e134: u32 = mat.flags;
+        local_3 = ((_e134 & 32u) == 0u);
     } else {
         local_3 = false;
     }
-    let _e143: bool = local_3;
-    if _e143 {
-        let _e144: f32 = clip_a;
-        let _e147: f32 = mat._Cutoff;
-        if (_e144 <= _e147) {
+    let _e142: bool = local_3;
+    if _e142 {
+        let _e143: f32 = clip_a;
+        let _e146: f32 = mat._Cutoff;
+        if (_e143 <= _e146) {
             discard;
         }
     }
-    let _e151: u32 = mat.flags;
-    if ((_e151 & 8u) != 0u) {
+    let _e150: u32 = mat.flags;
+    if ((_e150 & 8u) != 0u) {
         let o: vec4<f32> = mat._OverlayTint;
-        let _e159: vec4<f32> = color_1;
-        let _e168: f32 = color_1.w;
-        color_1 = vec4<f32>((_e159.xyz * mix(vec3(1f), o.xyz, o.w)), _e168);
+        let _e158: vec4<f32> = color_1;
+        let _e167: f32 = color_1.w;
+        color_1 = vec4<f32>((_e158.xyz * mix(vec3(1f), o.xyz, o.w)), _e167);
     }
-    let _e172: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
-    if (_e172 > 0u) {
-        let _e178: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
-        lit = _e178;
-    }
-    let _e182: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e190: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e199: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs_right;
-    let _e210: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
-    let cluster_touch: f32 = (((f32((_e182 & 255u)) * 0.0000000001f) + (f32((_e190 & 255u)) * 0.0000000001f)) + ((dot(_e199, vec4<f32>(1f, 1f, 1f, 1f)) * 0.0000000001f) + (f32(_e210) * 0.0000000001f)));
-    let _e216: vec4<f32> = color_1;
-    let _e217: u32 = lit;
-    return (_e216 + vec4<f32>(vec3(((f32(_e217) * 0.0000000001f) + cluster_touch)), 0f));
+    let _e169: vec4<f32> = color_1;
+    let _e170: vec3<f32> = fragment_watermark_rgbX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX3SMV2GK3TUNFXW4X();
+    return (_e169 + vec4<f32>(_e170, 0f));
 }

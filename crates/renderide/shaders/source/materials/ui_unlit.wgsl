@@ -16,6 +16,9 @@
 #import renderide::globals as rg
 #import renderide::per_draw as pd
 #import renderide::alpha_clip_sample as acs
+#import renderide::unity_st as ust
+#import renderide::view_proj as vp
+#import renderide::globals_retention as ret
 
 struct UiUnlitMaterial {
     _MainTex_ST: vec4<f32>,
@@ -63,26 +66,16 @@ fn vs_main(
 ) -> VertexOutput {
     let world_p = pd::draw.model * vec4<f32>(pos.xyz, 1.0);
 #ifdef MULTIVIEW
-    var vp: mat4x4<f32>;
-    if (view_idx == 0u) {
-        vp = pd::draw.view_proj_left;
-    } else {
-        vp = pd::draw.view_proj_right;
-    }
+    let vpm = vp::view_projection_for_eye(view_idx);
 #else
-    let vp = pd::draw.view_proj_left;
+    let vpm = vp::view_projection_for_eye(0u);
 #endif
     var out: VertexOutput;
-    out.clip_pos = vp * world_p;
+    out.clip_pos = vpm * world_p;
     out.uv = uv;
     out.color = color * mat._Tint;
     out.obj_xy = pos.xy;
     return out;
-}
-
-fn uv_with_st(uv: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
-    let uv_st = uv * st.xy + st.zw;
-    return vec2<f32>(uv_st.x, 1.0 - uv_st.y);
 }
 
 @fragment
@@ -91,7 +84,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var clip_a = in.color.a;
 
     if ((mat.flags & 1u) != 0u) {
-        let uv_s = uv_with_st(in.uv, mat._MainTex_ST);
+        let uv_s = ust::apply_st(in.uv, mat._MainTex_ST);
         let t = textureSample(_MainTex, _MainTex_sampler, uv_s);
         clip_a = in.color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_s);
         color = color * t;
@@ -107,7 +100,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     if ((mat.flags & 48u) != 0u) {
-        let uv_m = uv_with_st(in.uv, mat._MaskTex_ST);
+        let uv_m = ust::apply_st(in.uv, mat._MaskTex_ST);
         let mask = textureSample(_MaskTex, _MaskTex_sampler, uv_m);
         let mul = (mask.r + mask.g + mask.b) * 0.33333334 * mask.a;
         let mul_clip = acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_m);
@@ -135,13 +128,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color = vec4<f32>(color.rgb * mix(vec3<f32>(1.0), o.rgb, o.a), color.a);
     }
 
-    var lit: u32 = 0u;
-    if (rg::frame.light_count > 0u) {
-        lit = rg::lights[0].light_type;
-    }
-    // Retain cluster buffers in the composed shader (naga-oil drops unused globals); must match frame bind group layout.
-    let cluster_touch =
-        f32(rg::cluster_light_counts[0u] & 255u) * 1e-10 + f32(rg::cluster_light_indices[0u] & 255u) * 1e-10
-        + (dot(rg::frame.view_space_z_coeffs_right, vec4<f32>(1.0, 1.0, 1.0, 1.0)) * 1e-10 + f32(rg::frame.stereo_cluster_layers) * 1e-10);
-    return color + vec4<f32>(vec3<f32>(f32(lit) * 1e-10 + cluster_touch), 0.0);
+    return color + vec4<f32>(ret::fragment_watermark_rgb(), 0.0);
 }

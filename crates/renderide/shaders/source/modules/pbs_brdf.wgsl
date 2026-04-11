@@ -41,6 +41,21 @@ fn orthonormal_tbn(n: vec3<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(t, b, n);
 }
 
+/// Decodes a tangent-space normal from an RGB normal map sample (DXT5nm / Unity-style packed Z).
+fn decode_ts_normal(raw: vec3<f32>, scale: f32) -> vec3<f32> {
+    let nm_xy = (raw.xy * 2.0 - 1.0) * scale;
+    let z = max(sqrt(max(1.0 - dot(nm_xy, nm_xy), 0.0)), 1e-6);
+    return normalize(vec3<f32>(nm_xy, z));
+}
+
+/// Like [`decode_ts_normal`], but treats near-white RGB `(1,1,1)` as flat Z-up (placeholder texels).
+fn decode_ts_normal_placeholder_flat(raw: vec3<f32>, scale: f32) -> vec3<f32> {
+    if (all(raw > vec3<f32>(0.99, 0.99, 0.99))) {
+        return vec3<f32>(0.0, 0.0, 1.0);
+    }
+    return decode_ts_normal(raw, scale);
+}
+
 /// Metallic workflow: Cook–Torrance direct light with GGX + Schlick; diffuse scaled by `(1 - metallic)`.
 fn direct_radiance_metallic(
     light: rg::GpuLight,

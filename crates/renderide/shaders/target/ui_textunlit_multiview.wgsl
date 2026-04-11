@@ -92,9 +92,35 @@ var _FontAtlas: texture_2d<f32>;
 @group(1) @binding(2) 
 var _FontAtlas_sampler: sampler;
 
+fn view_projection_for_eyeX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ3GSZLXL5YHE33KX(view_idx_1: u32) -> mat4x4<f32> {
+    if (view_idx_1 == 0u) {
+        let _e5: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.view_proj_left;
+        return _e5;
+    }
+    let _e8: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.view_proj_right;
+    return _e8;
+}
+
 fn texture_rgba_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(tex: texture_2d<f32>, samp: sampler, uv_1: vec2<f32>) -> vec4<f32> {
     let _e4: vec4<f32> = textureSampleLevel(tex, samp, uv_1, CLIP_COVERAGE_LODX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX);
     return _e4;
+}
+
+fn fragment_watermark_rgbX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX3SMV2GK3TUNFXW4X() -> vec3<f32> {
+    var lit: u32 = 0u;
+
+    let _e3: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
+    if (_e3 > 0u) {
+        let _e9: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
+        lit = _e9;
+    }
+    let _e13: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e21: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e30: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs_right;
+    let _e41: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
+    let cluster_touch: f32 = (((f32((_e13 & 255u)) * 0.0000000001f) + (f32((_e21 & 255u)) * 0.0000000001f)) + ((dot(_e30, vec4<f32>(1f, 1f, 1f, 1f)) * 0.0000000001f) + (f32(_e41) * 0.0000000001f)));
+    let _e47: u32 = lit;
+    return vec3(((f32(_e47) * 0.0000000001f) + cluster_touch));
 }
 
 fn median3_(r: f32, g: f32, b: f32) -> f32 {
@@ -191,26 +217,18 @@ fn shade_distance_field(sig_dist_in: f32, vo: VertexOutput, vtx_color: vec4<f32>
 
 @vertex 
 fn vs_main(@builtin(view_index) view_idx: u32, @location(0) pos: vec4<f32>, @location(1) extra_n: vec4<f32>, @location(2) uv: vec2<f32>, @location(3) color: vec4<f32>) -> VertexOutput {
-    var vp: mat4x4<f32>;
     var out: VertexOutput;
 
     let _e3: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.model;
     let world_p: vec4<f32> = (_e3 * vec4<f32>(pos.xyz, 1f));
-    if (view_idx == 0u) {
-        let _e13: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.view_proj_left;
-        vp = _e13;
-    } else {
-        let _e17: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.view_proj_right;
-        vp = _e17;
-    }
-    let _e20: mat4x4<f32> = vp;
-    out.clip_pos = (_e20 * world_p);
+    let _e9: mat4x4<f32> = view_projection_for_eyeX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ3GSZLXL5YHE33KX(view_idx);
+    out.clip_pos = (_e9 * world_p);
     out.uv = uv;
     out.extra_data = extra_n;
     out.vtx_color = color;
     out.obj_xy = pos.xy;
-    let _e30: VertexOutput = out;
-    return _e30;
+    let _e21: VertexOutput = out;
+    return _e21;
 }
 
 @fragment 
@@ -218,67 +236,56 @@ fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
     var local: bool;
     var local_1: bool;
     var c: vec4<f32>;
-    var lit: u32 = 0u;
 
     let vtx_color_1: vec4<f32> = vout.vtx_color;
     let rect: vec4<f32> = mat._Rect;
-    let _e8: f32 = mat._RectClip;
-    if (_e8 > 0.5f) {
+    let _e7: f32 = mat._RectClip;
+    if (_e7 > 0.5f) {
         local = ((rect.z * rect.w) > 0.000001f);
     } else {
         local = false;
     }
     let use_rect_clip: bool = local;
     if use_rect_clip {
-        let _e21: bool = outside_rect_clip(vout.obj_xy, rect);
-        local_1 = _e21;
+        let _e20: bool = outside_rect_clip(vout.obj_xy, rect);
+        local_1 = _e20;
     } else {
         local_1 = false;
     }
-    let _e25: bool = local_1;
-    if _e25 {
+    let _e24: bool = local_1;
+    if _e24 {
         discard;
     }
     let atlas_color: vec4<f32> = textureSample(_FontAtlas, _FontAtlas_sampler, vout.uv);
-    let _e33: vec4<f32> = texture_rgba_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_FontAtlas, _FontAtlas_sampler, vout.uv);
-    let _e36: vec4<f32> = mat._Range;
-    let range_xy_1: vec2<f32> = _e36.xy;
-    let _e40: f32 = mat._TextMode;
-    let _e41: i32 = text_mode_clamped(_e40);
-    if (_e41 == 1i) {
+    let _e32: vec4<f32> = texture_rgba_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_FontAtlas, _FontAtlas_sampler, vout.uv);
+    let _e35: vec4<f32> = mat._Range;
+    let range_xy_1: vec2<f32> = _e35.xy;
+    let _e39: f32 = mat._TextMode;
+    let _e40: i32 = text_mode_clamped(_e39);
+    if (_e40 == 1i) {
         c = (atlas_color * vtx_color_1);
-        if ((_e33.w * vtx_color_1.w) < 0.001f) {
+        if ((_e32.w * vtx_color_1.w) < 0.001f) {
             discard;
         }
     } else {
-        if (_e41 == 2i) {
-            let sig_dist_1: f32 = (_e33.w - 0.5f);
-            let _e56: vec4<f32> = shade_distance_field(sig_dist_1, vout, vtx_color_1, range_xy_1);
-            c = _e56;
+        if (_e40 == 2i) {
+            let sig_dist_1: f32 = (_e32.w - 0.5f);
+            let _e55: vec4<f32> = shade_distance_field(sig_dist_1, vout, vtx_color_1, range_xy_1);
+            c = _e55;
         } else {
-            let _e60: f32 = median3_(_e33.x, _e33.y, _e33.z);
-            let sig_dist_2: f32 = (_e60 - 0.5f);
-            let _e63: vec4<f32> = shade_distance_field(sig_dist_2, vout, vtx_color_1, range_xy_1);
-            c = _e63;
+            let _e59: f32 = median3_(_e32.x, _e32.y, _e32.z);
+            let sig_dist_2: f32 = (_e59 - 0.5f);
+            let _e62: vec4<f32> = shade_distance_field(sig_dist_2, vout, vtx_color_1, range_xy_1);
+            c = _e62;
         }
     }
     let o: vec4<f32> = mat._OverlayTint;
     if (o.w > 0.01f) {
-        let _e70: vec4<f32> = c;
-        let _e79: f32 = c.w;
-        c = vec4<f32>((_e70.xyz * mix(vec3(1f), o.xyz, o.w)), _e79);
+        let _e69: vec4<f32> = c;
+        let _e78: f32 = c.w;
+        c = vec4<f32>((_e69.xyz * mix(vec3(1f), o.xyz, o.w)), _e78);
     }
-    let _e83: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
-    if (_e83 > 0u) {
-        let _e89: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
-        lit = _e89;
-    }
-    let _e93: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e101: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e110: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs_right;
-    let _e121: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
-    let cluster_touch: f32 = (((f32((_e93 & 255u)) * 0.0000000001f) + (f32((_e101 & 255u)) * 0.0000000001f)) + ((dot(_e110, vec4<f32>(1f, 1f, 1f, 1f)) * 0.0000000001f) + (f32(_e121) * 0.0000000001f)));
-    let _e127: vec4<f32> = c;
-    let _e128: u32 = lit;
-    return (_e127 + vec4<f32>(vec3(((f32(_e128) * 0.0000000001f) + cluster_touch)), 0f));
+    let _e80: vec4<f32> = c;
+    let _e81: vec3<f32> = fragment_watermark_rgbX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX3SMV2GK3TUNFXW4X();
+    return (_e80 + vec4<f32>(_e81, 0f));
 }

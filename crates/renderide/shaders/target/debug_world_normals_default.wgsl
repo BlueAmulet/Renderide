@@ -55,6 +55,28 @@ var<storage> cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX:
 @group(0) @binding(3) 
 var<storage> cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX: array<u32>;
 
+fn view_projection_for_eyeX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ3GSZLXL5YHE33KX(view_idx: u32) -> mat4x4<f32> {
+    let _e2: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.view_proj_left;
+    return _e2;
+}
+
+fn fragment_watermark_rgbX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX3SMV2GK3TUNFXW4X() -> vec3<f32> {
+    var lit: u32 = 0u;
+
+    let _e3: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
+    if (_e3 > 0u) {
+        let _e9: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
+        lit = _e9;
+    }
+    let _e13: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e21: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
+    let _e30: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs_right;
+    let _e41: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
+    let cluster_touch: f32 = (((f32((_e13 & 255u)) * 0.0000000001f) + (f32((_e21 & 255u)) * 0.0000000001f)) + ((dot(_e30, vec4<f32>(1f, 1f, 1f, 1f)) * 0.0000000001f) + (f32(_e41) * 0.0000000001f)));
+    let _e47: u32 = lit;
+    return vec3(((f32(_e47) * 0.0000000001f) + cluster_touch));
+}
+
 @vertex 
 fn vs_main(@location(0) pos: vec4<f32>, @location(1) normal: vec4<f32>) -> VertexOutput {
     var out: VertexOutput;
@@ -63,30 +85,18 @@ fn vs_main(@location(0) pos: vec4<f32>, @location(1) normal: vec4<f32>) -> Verte
     let world_p: vec4<f32> = (_e3 * vec4<f32>(pos.xyz, 1f));
     let _e11: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.model;
     let world_n: vec3<f32> = normalize((_e11 * vec4<f32>(normal.xyz, 0f)).xyz);
-    let vp: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.view_proj_left;
-    out.clip_pos = (vp * world_p);
+    let _e19: mat4x4<f32> = view_projection_for_eyeX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ3GSZLXL5YHE33KX(0u);
+    out.clip_pos = (_e19 * world_p);
     out.world_n = world_n;
-    let _e25: VertexOutput = out;
-    return _e25;
+    let _e24: VertexOutput = out;
+    return _e24;
 }
 
 @fragment 
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    var lit: u32 = 0u;
-
     let n: vec3<f32> = ((in.world_n * 0.5f) + vec3(0.5f));
-    let _e10: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
-    if (_e10 > 0u) {
-        let _e16: u32 = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0].light_type;
-        lit = _e16;
-    }
-    let _e21: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.camera_world_pos;
-    let _e26: u32 = lit;
-    let c: vec3<f32> = ((vec3<f32>(n) + (_e21.xyz * 0.0001f)) + vec3((f32(_e26) * 0.0000000001f)));
-    let _e34: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e42: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[0];
-    let _e51: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs_right;
-    let _e62: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
-    let cluster_touch: f32 = (((f32((_e34 & 255u)) * 0.0000000001f) + (f32((_e42 & 255u)) * 0.0000000001f)) + ((dot(_e51, vec4<f32>(1f, 1f, 1f, 1f)) * 0.0000000001f) + (f32(_e62) * 0.0000000001f)));
-    return vec4<f32>((c + vec3(cluster_touch)), 1f);
+    let _e10: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.camera_world_pos;
+    let _e15: vec3<f32> = fragment_watermark_rgbX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX3SMV2GK3TUNFXW4X();
+    let c: vec3<f32> = ((vec3<f32>(n) + (_e10.xyz * 0.0001f)) + _e15);
+    return vec4<f32>(c, 1f);
 }

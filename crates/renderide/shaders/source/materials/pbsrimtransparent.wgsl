@@ -9,6 +9,8 @@
 #import renderide::per_draw as pd
 #import renderide::pbs::brdf as brdf
 #import renderide::pbs::cluster as pcls
+#import renderide::unity_st as ust
+#import renderide::view_proj as vp
 
 struct PbsRimTransparentMaterial {
     _Color: vec4<f32>,
@@ -44,23 +46,9 @@ struct VertexOutput {
     @location(2) uv0: vec2<f32>,
 }
 
-fn apply_st(uv: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
-    let uv_st = uv * st.xy + st.zw;
-    return vec2<f32>(uv_st.x, 1.0 - uv_st.y);
-}
-
-fn decode_ts_normal(raw: vec3<f32>, scale: f32) -> vec3<f32> {
-    if (all(raw > vec3<f32>(0.99, 0.99, 0.99))) {
-        return vec3<f32>(0.0, 0.0, 1.0);
-    }
-    let nm_xy = (raw.xy * 2.0 - 1.0) * scale;
-    let z = max(sqrt(max(1.0 - dot(nm_xy, nm_xy), 0.0)), 1e-6);
-    return normalize(vec3<f32>(nm_xy, z));
-}
-
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>) -> vec3<f32> {
     let tbn = brdf::orthonormal_tbn(world_n);
-    let ts_n = decode_ts_normal(
+    let ts_n = brdf::decode_ts_normal_placeholder_flat(
         textureSample(_NormalMap, _NormalMap_sampler, uv_main).xyz,
         mat._NormalScale,
     );
@@ -87,17 +75,12 @@ fn vs_main(
     let world_p = pd::draw.model * vec4<f32>(pos.xyz, 1.0);
     let wn = normalize((pd::draw.model * vec4<f32>(n.xyz, 0.0)).xyz);
 #ifdef MULTIVIEW
-    var vp: mat4x4<f32>;
-    if (view_idx == 0u) {
-        vp = pd::draw.view_proj_left;
-    } else {
-        vp = pd::draw.view_proj_right;
-    }
+    let vpm = vp::view_projection_for_eye(view_idx);
 #else
-    let vp = pd::draw.view_proj_left;
+    let vpm = vp::view_projection_for_eye(0u);
 #endif
     var out: VertexOutput;
-    out.clip_pos = vp * world_p;
+    out.clip_pos = vpm * world_p;
     out.world_pos = world_p.xyz;
     out.world_n = wn;
     out.uv0 = uv0;
@@ -114,7 +97,7 @@ fn fs_main(
     @location(1) world_n: vec3<f32>,
     @location(2) uv0: vec2<f32>,
 ) -> @location(0) vec4<f32> {
-    let uv_main = apply_st(uv0, mat._MainTex_ST);
+    let uv_main = ust::apply_st(uv0, mat._MainTex_ST);
 
     let albedo_s = textureSample(_MainTex, _MainTex_sampler, uv_main);
     let base_color = mat._Color.xyz * albedo_s.xyz;

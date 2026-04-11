@@ -8,6 +8,8 @@
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd
+#import renderide::view_proj as vp
+#import renderide::globals_retention as ret
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -25,17 +27,12 @@ fn vs_main(
     let world_p = pd::draw.model * vec4<f32>(pos.xyz, 1.0);
     let world_n = normalize((pd::draw.model * vec4<f32>(normal.xyz, 0.0)).xyz);
 #ifdef MULTIVIEW
-    var vp: mat4x4<f32>;
-    if (view_idx == 0u) {
-        vp = pd::draw.view_proj_left;
-    } else {
-        vp = pd::draw.view_proj_right;
-    }
+    let vpm = vp::view_projection_for_eye(view_idx);
 #else
-    let vp = pd::draw.view_proj_left;
+    let vpm = vp::view_projection_for_eye(0u);
 #endif
     var out: VertexOutput;
-    out.clip_pos = vp * world_p;
+    out.clip_pos = vpm * world_p;
     out.world_n = world_n;
     return out;
 }
@@ -43,13 +40,6 @@ fn vs_main(
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let n = in.world_n * 0.5 + 0.5;
-    var lit: u32 = 0u;
-    if (rg::frame.light_count > 0u) {
-        lit = rg::lights[0].light_type;
-    }
-    let c = vec3<f32>(n) + rg::frame.camera_world_pos.xyz * 0.0001 + vec3<f32>(f32(lit) * 1e-10);
-    let cluster_touch =
-        f32(rg::cluster_light_counts[0u] & 255u) * 1e-10 + f32(rg::cluster_light_indices[0u] & 255u) * 1e-10
-        + (dot(rg::frame.view_space_z_coeffs_right, vec4<f32>(1.0, 1.0, 1.0, 1.0)) * 1e-10 + f32(rg::frame.stereo_cluster_layers) * 1e-10);
-    return vec4<f32>(c + vec3<f32>(cluster_touch), 1.0);
+    let c = vec3<f32>(n) + rg::frame.camera_world_pos.xyz * 0.0001 + ret::fragment_watermark_rgb();
+    return vec4<f32>(c, 1.0);
 }
