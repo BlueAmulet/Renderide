@@ -29,8 +29,10 @@ use crate::materials::{MaterialPipelineDesc, MaterialRouter, RasterPipelineKind}
 use crate::pipelines::ShaderPermutation;
 use crate::pipelines::SHADER_PERM_MULTIVIEW_STEREO;
 use crate::present::SWAPCHAIN_CLEAR_COLOR;
-use crate::render_graph::camera::{reverse_z_orthographic, view_matrix_from_render_transform};
-use crate::render_graph::cluster_light_frame_params;
+use crate::render_graph::camera::{
+    clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_orthographic,
+    reverse_z_perspective, view_matrix_from_render_transform,
+};
 use crate::render_graph::context::RenderPassContext;
 use crate::render_graph::error::RenderPassError;
 use crate::render_graph::pass::RenderPass;
@@ -164,11 +166,17 @@ impl RenderPass for WorldMeshForwardPass {
 
         let (vw, vh) = frame.viewport_px;
         let aspect = vw as f32 / vh.max(1) as f32;
-        let scene = frame.scene;
-        let clf = cluster_light_frame_params(&hc, scene, (vw, vh), use_multiview);
-        let world_proj = clf.mono_proj;
-        let near = clf.near_clip;
-        let far = clf.far_clip;
+        let (near, far) = effective_head_output_clip_planes(
+            hc.near_clip,
+            hc.far_clip,
+            hc.output_device,
+            frame
+                .scene
+                .active_main_space()
+                .map(|space| space.root_transform.scale),
+        );
+        let fov_rad = clamp_desktop_fov_degrees(hc.desktop_fov_degrees).to_radians();
+        let world_proj = reverse_z_perspective(aspect, fov_rad, near, far);
 
         let has_overlay = draws.iter().any(|d| d.is_overlay);
         let overlay_proj = if has_overlay {
@@ -181,6 +189,7 @@ impl RenderPass for WorldMeshForwardPass {
             None
         };
 
+        let scene = frame.scene;
         let mut slots: Vec<PaddedPerDrawUniforms> = Vec::with_capacity(draws.len());
         for item in &draws {
             let (vp_l, vp_r, model) = if let Some(space) = scene.space(item.space_id) {
@@ -271,26 +280,18 @@ impl RenderPass for WorldMeshForwardPass {
             };
             queue.write_buffer(&dbg.per_draw_uniforms, 0, &slab_bytes);
         }
-        let z_coeffs_left =
-            FrameGpuUniforms::view_space_z_coeffs_from_world_to_view(clf.mono_scene_view);
-        let z_coeffs_right = clf
-            .stereo_eyes
-            .map(|(_, r)| FrameGpuUniforms::view_space_z_coeffs_from_world_to_view(r.scene_view))
-            .unwrap_or(z_coeffs_left);
-        let stereo_cluster_layers = if clf.stereo_eyes.is_some() {
-            2u32
-        } else {
-            1u32
-        };
+        let world_to_view = scene
+            .active_main_space()
+            .map(|s| view_matrix_from_render_transform(&s.view_transform))
+            .unwrap_or(Mat4::IDENTITY);
+        let z_coeffs = FrameGpuUniforms::view_space_z_coeffs_from_world_to_view(world_to_view);
         let cluster_count_x = vw.div_ceil(TILE_SIZE);
         let cluster_count_y = vh.div_ceil(TILE_SIZE);
         let light_count_u = lights_for_frame.len().min(crate::backend::MAX_LIGHTS) as u32;
         let camera_world = hc.head_output_transform.col(3).truncate();
         let uniforms = FrameGpuUniforms::new_clustered(
             camera_world,
-            z_coeffs_left,
-            z_coeffs_right,
-            stereo_cluster_layers,
+            z_coeffs,
             cluster_count_x,
             cluster_count_y,
             CLUSTER_COUNT_Z,
@@ -301,7 +302,7 @@ impl RenderPass for WorldMeshForwardPass {
             vh.max(1),
         );
         if let Some(fgpu) = backend.frame_gpu_mut() {
-            fgpu.sync_cluster_viewport(ctx.device, (vw, vh), stereo_cluster_layers);
+            fgpu.sync_cluster_viewport(ctx.device, (vw, vh));
             fgpu.write_frame_uniform_and_lights(queue, &uniforms, &lights_for_frame);
         }
 

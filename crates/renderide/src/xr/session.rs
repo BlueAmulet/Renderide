@@ -53,25 +53,6 @@ pub fn view_projection_from_xr_view_aligned(
     proj * view_mat
 }
 
-/// Per-eye `(world_to_view, reverse-Z projection)` for clustered light compute and frame Z coefficients.
-///
-/// For each eye, `proj * view` matches [`view_projection_from_xr_view_aligned`].
-pub fn stereo_cluster_decomposition_from_openxr_views(
-    left: &xr::View,
-    right: &xr::View,
-    near: f32,
-    far: f32,
-    world_from_tracking: Mat4,
-) -> ((Mat4, Mat4), (Mat4, Mat4)) {
-    let ref_from_view_l = world_from_tracking * ref_from_view_matrix(&left.pose);
-    let view_mat_l = apply_view_handedness_fix(ref_from_view_l.inverse());
-    let proj_l = reverse_z_perspective_openxr_fov(&left.fov, near, far);
-    let ref_from_view_r = world_from_tracking * ref_from_view_matrix(&right.pose);
-    let view_mat_r = apply_view_handedness_fix(ref_from_view_r.inverse());
-    let proj_r = reverse_z_perspective_openxr_fov(&right.fov, near, far);
-    ((view_mat_l, proj_l), (view_mat_r, proj_r))
-}
-
 fn averaged_stereo_fov(views: &[xr::View]) -> Option<xr::Fovf> {
     match views {
         [] => None,

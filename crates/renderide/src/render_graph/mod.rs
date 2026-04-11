@@ -18,7 +18,6 @@
 
 mod builder;
 mod camera;
-mod cluster_light_frame;
 mod compiled;
 mod context;
 mod error;
@@ -50,9 +49,6 @@ pub use camera::{
     view_matrix_from_render_transform,
 };
 pub use camera::{DESKTOP_FOV_DEGREES_MAX, DESKTOP_FOV_DEGREES_MIN};
-pub use cluster_light_frame::{
-    cluster_light_frame_params, ClusterLightFrameParams, ClusterStereoEye,
-};
 pub use compiled::{CompileStats, CompiledRenderGraph, ExternalFrameTargets};
 pub use context::RenderPassContext;
 pub use error::{GraphBuildError, GraphExecuteError, RenderPassError};

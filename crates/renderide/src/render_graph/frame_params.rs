@@ -30,12 +30,6 @@ pub struct HostCameraFrame {
     /// **stage** space to clip. World mesh passes combine this with object transforms; the host
     /// `view_transform` is **not** multiplied again for stereo world draws (see `world_mesh_forward`).
     pub stereo_view_proj: Option<(Mat4, Mat4)>,
-    /// Optional per-eye `(world_to_view, proj)` for clustered light compute and [`crate::gpu::frame_globals::FrameGpuUniforms::view_space_z_coeffs_right`].
-    ///
-    /// Decomposed from the same OpenXR views as [`Self::stereo_view_proj`] so [`view_projection_from_xr_view_aligned`]
-    /// equals `proj * view`. When `None`, clustered light may fall back to decomposing [`Self::stereo_view_proj`]
-    /// with the mono projection (less accurate if per-eye projections differ).
-    pub stereo_cluster: Option<((Mat4, Mat4), (Mat4, Mat4))>,
     /// Legacy Unity `HeadOutput.transform` in renderer world space.
     ///
     /// Overlay render spaces are positioned relative to this transform each frame
@@ -54,7 +48,6 @@ impl Default for HostCameraFrame {
             output_device: HeadOutputDevice::screen,
             primary_ortho_task: None,
             stereo_view_proj: None,
-            stereo_cluster: None,
             head_output_transform: Mat4::IDENTITY,
         }
     }

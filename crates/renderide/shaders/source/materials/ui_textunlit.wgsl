@@ -184,7 +184,6 @@ fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
         lit = rg::lights[0].light_type;
     }
     let cluster_touch =
-        f32(rg::cluster_light_counts[0u] & 255u) * 1e-10 + f32(rg::cluster_light_indices[0u] & 255u) * 1e-10
-        + (dot(rg::frame.view_space_z_coeffs_right, vec4<f32>(1.0, 1.0, 1.0, 1.0)) * 1e-10 + f32(rg::frame.stereo_cluster_layers) * 1e-10);
+        f32(rg::cluster_light_counts[0u] & 255u) * 1e-10 + f32(rg::cluster_light_indices[0u] & 255u) * 1e-10;
     return c + vec4<f32>(vec3<f32>(f32(lit) * 1e-10 + cluster_touch), 0.0);
 }

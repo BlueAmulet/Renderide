@@ -49,7 +49,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     let c = vec3<f32>(n) + rg::frame.camera_world_pos.xyz * 0.0001 + vec3<f32>(f32(lit) * 1e-10);
     let cluster_touch =
-        f32(rg::cluster_light_counts[0u] & 255u) * 1e-10 + f32(rg::cluster_light_indices[0u] & 255u) * 1e-10
-        + (dot(rg::frame.view_space_z_coeffs_right, vec4<f32>(1.0, 1.0, 1.0, 1.0)) * 1e-10 + f32(rg::frame.stereo_cluster_layers) * 1e-10);
+        f32(rg::cluster_light_counts[0u] & 255u) * 1e-10 + f32(rg::cluster_light_indices[0u] & 255u) * 1e-10;
     return vec4<f32>(c + vec3<f32>(cluster_touch), 1.0);
 }

@@ -3,11 +3,10 @@
 use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
 
-/// Uniform block matching WGSL `FrameGlobals` (96-byte size, 16-byte aligned).
+/// Uniform block matching WGSL `FrameGlobals` (64-byte size, 16-byte aligned).
 ///
-/// Encodes camera position, coefficients for view-space Z from world position (left and optional
-/// right eye), clustered grid dimensions, clip planes, light count, and viewport size for clustered
-/// forward sampling.
+/// Encodes camera position, coefficients for view-space Z from world position, clustered grid
+/// dimensions, clip planes, light count, and viewport size for clustered forward sampling.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct FrameGpuUniforms {
@@ -15,20 +14,14 @@ pub struct FrameGpuUniforms {
     pub camera_world_pos: [f32; 4],
     /// World `vec4(x,y,z,1)` → view-space Z is `dot(xyz, world.xyz) + w` (third column of world-to-view).
     pub view_space_z_coeffs: [f32; 4],
-    /// Same as [`Self::view_space_z_coeffs`] for the right eye when [`Self::stereo_cluster_layers`] is `2`.
-    pub view_space_z_coeffs_right: [f32; 4],
     pub cluster_count_x: u32,
     pub cluster_count_y: u32,
     pub cluster_count_z: u32,
-    /// `1` mono, `2` packed stereo cluster buffers (see `cluster_id_from_frag` in `pbs_cluster.wgsl`).
-    pub stereo_cluster_layers: u32,
     pub near_clip: f32,
     pub far_clip: f32,
     pub light_count: u32,
     pub viewport_width: u32,
     pub viewport_height: u32,
-    /// Padding to 96 bytes (WGSL uniform struct alignment).
-    pub _pad: [u8; 12],
 }
 
 impl FrameGpuUniforms {
@@ -45,8 +38,6 @@ impl FrameGpuUniforms {
     pub fn new_clustered(
         camera_world_pos: glam::Vec3,
         view_space_z_coeffs: [f32; 4],
-        view_space_z_coeffs_right: [f32; 4],
-        stereo_cluster_layers: u32,
         cluster_count_x: u32,
         cluster_count_y: u32,
         cluster_count_z: u32,
@@ -64,17 +55,14 @@ impl FrameGpuUniforms {
                 0.0,
             ],
             view_space_z_coeffs,
-            view_space_z_coeffs_right,
             cluster_count_x,
             cluster_count_y,
             cluster_count_z,
-            stereo_cluster_layers: stereo_cluster_layers.clamp(1, 2),
             near_clip,
             far_clip,
             light_count,
             viewport_width,
             viewport_height,
-            _pad: [0; 12],
         }
     }
 }
@@ -84,8 +72,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frame_globals_size_96() {
-        assert_eq!(std::mem::size_of::<FrameGpuUniforms>(), 96);
+    fn frame_globals_size_64() {
+        assert_eq!(std::mem::size_of::<FrameGpuUniforms>(), 64);
         assert_eq!(std::mem::size_of::<FrameGpuUniforms>() % 16, 0);
     }
 }

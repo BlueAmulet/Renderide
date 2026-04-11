@@ -33,11 +33,9 @@ struct GpuLight {
 struct FrameGlobals {
     camera_world_pos: vec4<f32>,
     view_space_z_coeffs: vec4<f32>,
-    view_space_z_coeffs_right: vec4<f32>,
     cluster_count_x: u32,
     cluster_count_y: u32,
     cluster_count_z: u32,
-    stereo_cluster_layers: u32,
     near_clip: f32,
     far_clip: f32,
     light_count: u32,

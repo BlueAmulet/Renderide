@@ -27,11 +27,9 @@ struct PerDrawUniformsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX {
 struct FrameGlobalsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX {
     camera_world_pos: vec4<f32>,
     view_space_z_coeffs: vec4<f32>,
-    view_space_z_coeffs_right: vec4<f32>,
     cluster_count_x: u32,
     cluster_count_y: u32,
     cluster_count_z: u32,
-    stereo_cluster_layers: u32,
     near_clip: f32,
     far_clip: f32,
     light_count: u32,
@@ -179,18 +177,6 @@ fn direct_radiance_metallicX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(lig
     return ((diffuse + spec) * radiance);
 }
 
-fn select_eye_view_space_z_coeffsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(view_index: u32, left: vec4<f32>, right: vec4<f32>, stereo_cluster_layers: u32) -> vec4<f32> {
-    var local: bool;
-
-    if (stereo_cluster_layers > 1u) {
-        local = (view_index != 0u);
-    } else {
-        local = false;
-    }
-    let _e11: bool = local;
-    return select(left, right, _e11);
-}
-
 fn cluster_z_from_view_zX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(view_z: f32, near_clip: f32, far_clip: f32, cluster_count_z: u32) -> u32 {
     let d: f32 = clamp(-(view_z), near_clip, far_clip);
     let z: f32 = ((log((d / near_clip)) / log((far_clip / near_clip))) * f32(cluster_count_z));
@@ -205,16 +191,13 @@ fn cluster_xy_from_fragX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(fr
     return vec2<u32>(u32(floor(tile_f.x)), u32(floor(tile_f.y)));
 }
 
-fn cluster_id_from_fragX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(clip_xy: vec2<f32>, world_pos_2: vec3<f32>, view_space_z_coeffs: vec4<f32>, viewport_w_1: u32, viewport_h_1: u32, cluster_count_x: u32, cluster_count_y: u32, cluster_count_z_1: u32, near_clip_1: f32, far_clip_1: f32, view_index_1: u32, stereo_cluster_layers_1: u32) -> u32 {
+fn cluster_id_from_fragX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(clip_xy: vec2<f32>, world_pos_2: vec3<f32>, view_space_z_coeffs: vec4<f32>, viewport_w_1: u32, viewport_h_1: u32, cluster_count_x: u32, cluster_count_y: u32, cluster_count_z_1: u32, near_clip_1: f32, far_clip_1: f32) -> u32 {
     let view_z_1: f32 = (dot(view_space_z_coeffs.xyz, world_pos_2) + view_space_z_coeffs.w);
     let _e9: u32 = cluster_z_from_view_zX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(view_z_1, near_clip_1, far_clip_1, cluster_count_z_1);
     let _e13: vec2<u32> = cluster_xy_from_fragX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(clip_xy, viewport_w_1, viewport_h_1);
     let cx: u32 = min(_e13.x, (cluster_count_x - 1u));
     let cy: u32 = min(_e13.y, (cluster_count_y - 1u));
-    let local_1: u32 = (cx + (cluster_count_x * (cy + (cluster_count_y * _e9))));
-    let per_eye: u32 = ((cluster_count_x * cluster_count_y) * cluster_count_z_1);
-    let offset: u32 = select(0u, (view_index_1 * per_eye), (stereo_cluster_layers_1 > 1u));
-    return (local_1 + offset);
+    return (cx + (cluster_count_x * (cy + (cluster_count_y * _e9))));
 }
 
 fn apply_st(uv: vec2<f32>, st: vec4<f32>) -> vec2<f32> {
@@ -300,51 +283,44 @@ fn fs_main(@builtin(position) frag_pos: vec4<f32>, @location(0) world_pos: vec3<
     let rim: f32 = pow(max((1f - clamp(dot(v_1, _e54), 0f, 1f)), 0f), max(_e65, 0.0001f));
     let _e71: vec4<f32> = mat._RimColor;
     let rim_emission: vec3<f32> = (_e71.xyz * rim);
-    let _e76: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs;
-    let _e79: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs_right;
-    let _e82: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
-    let _e84: vec4<f32> = select_eye_view_space_z_coeffsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(0u, _e76, _e79, _e82);
-    let _e89: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.viewport_width;
-    let _e92: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.viewport_height;
-    let _e95: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.cluster_count_x;
-    let _e98: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.cluster_count_y;
-    let _e101: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.cluster_count_z;
-    let _e104: f32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.near_clip;
-    let _e107: f32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.far_clip;
-    let _e110: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
-    let _e111: u32 = cluster_id_from_fragX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(frag_pos.xy, world_pos, _e84, _e89, _e92, _e95, _e98, _e101, _e104, _e107, 0u, _e110);
-    let count: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[_e111];
-    let base_idx: u32 = (_e111 * MAX_LIGHTS_PER_TILEX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX);
+    let _e78: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs;
+    let _e81: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.viewport_width;
+    let _e84: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.viewport_height;
+    let _e87: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.cluster_count_x;
+    let _e90: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.cluster_count_y;
+    let _e93: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.cluster_count_z;
+    let _e96: f32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.near_clip;
+    let _e99: f32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.far_clip;
+    let _e100: u32 = cluster_id_from_fragX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(frag_pos.xy, world_pos, _e78, _e81, _e84, _e87, _e90, _e93, _e96, _e99);
+    let count: u32 = cluster_light_countsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[_e100];
+    let base_idx: u32 = (_e100 * MAX_LIGHTS_PER_TILEX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX);
     let i_max: u32 = min(count, MAX_LIGHTS_PER_TILEX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX);
     loop {
-        let _e120: u32 = i;
-        if (_e120 < i_max) {
+        let _e109: u32 = i;
+        if (_e109 < i_max) {
         } else {
             break;
         }
         {
-            let _e123: u32 = i;
-            let li: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[(base_idx + _e123)];
-            let _e129: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
-            if (li >= _e129) {
+            let _e112: u32 = i;
+            let li: u32 = cluster_light_indicesX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[(base_idx + _e112)];
+            let _e118: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.light_count;
+            if (li >= _e118) {
                 continue;
             }
             let light_1: GpuLightX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX = lightsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX[li];
-            let _e135: vec3<f32> = lo;
-            let _e136: vec3<f32> = n_1;
-            let _e137: vec3<f32> = direct_radiance_metallicX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(light_1, world_pos, _e136, v_1, roughness_5, metallic_2, base_color_1, f0_2);
-            lo = (_e135 + _e137);
+            let _e124: vec3<f32> = lo;
+            let _e125: vec3<f32> = n_1;
+            let _e126: vec3<f32> = direct_radiance_metallicX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(light_1, world_pos, _e125, v_1, roughness_5, metallic_2, base_color_1, f0_2);
+            lo = (_e124 + _e126);
         }
         continuing {
-            let _e140: u32 = i;
-            i = (_e140 + 1u);
+            let _e129: u32 = i;
+            i = (_e129 + 1u);
         }
     }
     let amb: vec3<f32> = vec3(0.03f);
-    let _e146: vec3<f32> = lo;
-    let color: vec3<f32> = (((((amb * base_color_1) * occlusion) + (_e146 * occlusion)) + emission) + rim_emission);
-    let _e153: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.view_space_z_coeffs_right;
-    let _e164: u32 = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.stereo_cluster_layers;
-    let fg_anchor: f32 = ((dot(_e153, vec4<f32>(1f, 1f, 1f, 1f)) * 0.0000000001f) + (f32(_e164) * 0.0000000001f));
-    return vec4<f32>((color + vec3((fg_anchor * 0.000000000000000000000000000001f))), alpha);
+    let _e135: vec3<f32> = lo;
+    let color: vec3<f32> = (((((amb * base_color_1) * occlusion) + (_e135 * occlusion)) + emission) + rim_emission);
+    return vec4<f32>(color, alpha);
 }

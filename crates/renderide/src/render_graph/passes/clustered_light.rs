@@ -7,14 +7,16 @@
 
 use std::num::NonZeroU64;
 use std::sync::OnceLock;
-use std::vec::Vec;
 
 use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
 
 use crate::backend::{GpuLight, MAX_LIGHTS};
 use crate::backend::{CLUSTER_COUNT_Z, CLUSTER_PARAMS_UNIFORM_SIZE, TILE_SIZE};
-use crate::render_graph::cluster_light_frame_params;
+use crate::render_graph::camera::{
+    clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_perspective,
+    view_matrix_from_render_transform,
+};
 use crate::render_graph::context::RenderPassContext;
 use crate::render_graph::error::RenderPassError;
 use crate::render_graph::pass::RenderPass;
@@ -36,12 +38,8 @@ struct ClusterParams {
     cluster_count_z: u32,
     near_clip: f32,
     far_clip: f32,
-    cluster_write_base: u32,
-    _pad_cluster: u32,
-    _pad: [u8; 20],
+    _pad: [u8; 16],
 }
-
-const _: () = assert!(std::mem::size_of::<ClusterParams>() == CLUSTER_PARAMS_UNIFORM_SIZE as usize);
 
 const CLUSTERED_LIGHT_SHADER_SRC: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -154,7 +152,6 @@ impl ClusteredLightPass {
         light_count: u32,
         near: f32,
         far: f32,
-        cluster_write_base: u32,
     ) -> ClusterParams {
         let inv_proj = proj.inverse();
         ClusterParams {
@@ -170,9 +167,7 @@ impl ClusteredLightPass {
             cluster_count_z: CLUSTER_COUNT_Z,
             near_clip: near.max(0.01),
             far_clip: far,
-            cluster_write_base,
-            _pad_cluster: 0,
-            _pad: [0; 20],
+            _pad: [0; 16],
         }
     }
 }
@@ -204,19 +199,7 @@ impl RenderPass for ClusteredLightPass {
             return Ok(());
         };
 
-        let hc = frame.host_camera;
-        let scene = frame.scene;
-        let use_multiview = frame.multiview_stereo
-            && hc.vr_active
-            && hc.stereo_view_proj.is_some()
-            && ctx
-                .device
-                .features()
-                .contains(wgpu::Features::MULTIVIEW);
-        let clf = cluster_light_frame_params(&hc, scene, (vw, vh), use_multiview);
-        let stereo_cluster_layers = if clf.stereo_eyes.is_some() { 2u32 } else { 1u32 };
-
-        fgpu.sync_cluster_viewport(ctx.device, (vw, vh), stereo_cluster_layers);
+        fgpu.sync_cluster_viewport(ctx.device, (vw, vh));
 
         let lights = lights_upload.as_slice();
         {
@@ -224,27 +207,46 @@ impl RenderPass for ClusteredLightPass {
             fgpu.write_lights_buffer(&queue, lights);
         }
 
-        let Some(refs) = fgpu.cluster_cache.get_buffers((vw, vh), CLUSTER_COUNT_Z, stereo_cluster_layers)
-        else {
+        let Some(refs) = fgpu.cluster_cache.get_buffers((vw, vh), CLUSTER_COUNT_Z) else {
             logger::trace!("ClusteredLight: cluster buffers missing after sync");
             return Ok(());
         };
 
+        let hc = frame.host_camera;
+        let scene = frame.scene;
+        let (near, far) = effective_head_output_clip_planes(
+            hc.near_clip,
+            hc.far_clip,
+            hc.output_device,
+            scene
+                .active_main_space()
+                .map(|space| space.root_transform.scale),
+        );
+        let aspect = vw as f32 / vh.max(1) as f32;
+        let fov_rad = clamp_desktop_fov_degrees(hc.desktop_fov_degrees).to_radians();
+        let proj = reverse_z_perspective(aspect, fov_rad, near, far);
+        let scene_view = scene
+            .active_main_space()
+            .map(|s| view_matrix_from_render_transform(&s.view_transform))
+            .unwrap_or(Mat4::IDENTITY);
+
         let cluster_count_x = vw.div_ceil(TILE_SIZE);
         let cluster_count_y = vh.div_ceil(TILE_SIZE);
         let light_count = lights_upload.len().min(MAX_LIGHTS) as u32;
-        let per_eye_linear = cluster_count_x * cluster_count_y * CLUSTER_COUNT_Z;
 
-        let eye_dispatches: Vec<(Mat4, Mat4, u32)> = if let Some((left, right)) = clf.stereo_eyes {
-            vec![
-                (left.scene_view, left.proj, 0u32),
-                (right.scene_view, right.proj, per_eye_linear),
-            ]
-        } else {
-            vec![(clf.mono_scene_view, clf.mono_proj, 0u32)]
-        };
+        let params = Self::build_params(
+            scene_view,
+            proj,
+            (vw, vh),
+            cluster_count_x,
+            cluster_count_y,
+            light_count,
+            near,
+            far,
+        );
 
         let queue = ctx.queue.lock().unwrap_or_else(|e| e.into_inner());
+        write_cluster_params_padded(&queue, refs.params_buffer, &params);
 
         let (pipeline, bgl) = ensure_compute_pipeline(ctx.device);
         let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -270,35 +272,20 @@ impl RenderPass for ClusteredLightPass {
             ],
         });
 
-        for (scene_view, proj, write_base) in eye_dispatches {
-            let params = Self::build_params(
-                scene_view,
-                proj,
-                (vw, vh),
-                cluster_count_x,
-                cluster_count_y,
-                light_count,
-                clf.near_clip,
-                clf.far_clip,
-                write_base,
-            );
-            write_cluster_params_padded(&queue, refs.params_buffer, &params);
-
-            let mut pass = ctx
-                .encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("clustered_light"),
-                    timestamp_writes: None,
-                });
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups(
-                cluster_count_x.div_ceil(8),
-                cluster_count_y.div_ceil(8),
-                CLUSTER_COUNT_Z,
-            );
-            drop(pass);
-        }
+        let mut pass = ctx
+            .encoder
+            .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("clustered_light"),
+                timestamp_writes: None,
+            });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(
+            cluster_count_x.div_ceil(8),
+            cluster_count_y.div_ceil(8),
+            CLUSTER_COUNT_Z,
+        );
+        drop(pass);
 
         if !self.logged_active_once {
             self.logged_active_once = true;
