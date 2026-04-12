@@ -56,63 +56,14 @@ pub mod shared;
 
 pub mod xr;
 
-/// Convenience re-exports for embedders and integration tests (prefer submodule paths for new code).
+/// Small set of types for embedding the renderer; import everything else via submodules
+/// (for example `crate::materials::MaterialRegistry` in-tree, `renderide::materials::…` externally).
 pub mod prelude {
     pub use crate::config::{RendererSettings, RendererSettingsHandle};
     pub use crate::render_graph::HostCameraFrame;
     pub use crate::runtime::{InitState, RendererRuntime};
     pub use crate::xr::{XrHostCameraSync, XrMultiviewFrameRenderer};
 }
-
-pub use assets::material::{
-    parse_materials_update_batch_into_store, MaterialBatchBlobLoader, MaterialDictionary,
-    MaterialPropertyLookupIds, MaterialPropertySemanticHook, MaterialPropertyStore,
-    MaterialPropertyValue, ParseMaterialBatchOptions, PropertyIdRegistry,
-};
-pub use assets::resolve_shader_routing_name_from_upload;
-pub use backend::{
-    order_lights_for_clustered_shading, ClusterBufferCache, GpuLight, RenderBackend,
-    CLUSTER_COUNT_Z, MAX_LIGHTS, MAX_LIGHTS_PER_TILE, TILE_SIZE,
-};
-pub use config::{
-    load_renderer_settings, log_config_resolve_trace, resolve_save_path, save_renderer_settings,
-    save_renderer_settings_from_load, settings_handle_from, ConfigLoadResult, ConfigResolveOutcome,
-    ConfigSource, DebugSettings, DisplaySettings, PowerPreferenceSetting, RendererSettings,
-    RendererSettingsHandle, RenderingSettings,
-};
-pub use connection::{
-    get_connection_parameters, try_claim_renderer_singleton, ConnectionParams, InitError,
-    DEFAULT_QUEUE_CAPACITY,
-};
-pub use frontend::RendererFrontend;
-pub use gpu::{FrameGpuUniforms, MeshPreprocessPipelines};
-pub use ipc::DualQueueIpc;
-pub use materials::{
-    compose_wgsl, embedded_composed_stem_for_permutation, embedded_default_stem_for_unity_name,
-    embedded_stem_for_unity_name, embedded_stem_needs_color_stream, embedded_stem_needs_uv0_stream,
-    embedded_stem_uses_alpha_blending, embedded_wgsl_needs_color_stream,
-    embedded_wgsl_needs_uv0_stream, reflect_raster_material_wgsl,
-    reflect_vertex_shader_needs_color_stream, reflect_vertex_shader_needs_uv0_stream,
-    resolve_raster_pipeline, DebugWorldNormalsFamily, MaterialPipelineCache,
-    MaterialPipelineCacheKey, MaterialPipelineDesc, MaterialPropertyGpuLayout, MaterialRegistry,
-    MaterialRouter, RasterPipelineKind, ReflectError, ReflectedMaterialUniformBlock,
-    ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind, WgslPatch,
-};
-pub use render_graph::{
-    build_default_main_graph, passes::ClusteredLightPass, passes::MeshDeformPass,
-    passes::SwapchainClearPass, passes::WorldMeshForwardPass, CompileStats, CompiledRenderGraph,
-    FrameRenderParams, GraphBuildError, GraphBuilder, GraphExecuteError, HostCameraFrame, PassId,
-    PassResources, RenderPass, RenderPassContext, RenderPassError, ResourceSlot,
-};
-pub use resources::{
-    GpuResource, GpuTexture2d, MeshPool, MeshResidencyMeta, NoopStreamingPolicy, ResidencyTier,
-    StreamingPolicy, TexturePool, TextureResidencyMeta, VramAccounting, VramResourceKind,
-};
-pub use runtime::{InitState, RendererRuntime};
-pub use scene::{
-    light_casts_shadows, CachedLight, LightCache, MeshMaterialSlot, RenderSpaceId, ResolvedLight,
-    SceneCoordinator, SkinnedMeshRenderer, StaticMeshRenderer, TransformRemovalEvent,
-};
 
 /// Runs the renderer process: logging, optional IPC, winit loop, and wgpu presentation.
 ///
