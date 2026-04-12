@@ -44,7 +44,6 @@ use crate::render_graph::context::RenderPassContext;
 use crate::render_graph::error::RenderPassError;
 use crate::render_graph::pass::RenderPass;
 use crate::render_graph::resources::{PassResources, ResourceSlot};
-#[cfg(feature = "debug-hud")]
 use crate::render_graph::world_mesh_draw_stats_from_sorted;
 use crate::render_graph::MAIN_FORWARD_DEPTH_CLEAR;
 use crate::render_graph::{
@@ -154,19 +153,16 @@ impl RenderPass for WorldMeshForwardPass {
             frame.viewport_px,
         );
         let draws = collection.items;
-        #[cfg(feature = "debug-hud")]
-        {
-            if backend.debug_hud_main_enabled() {
-                let stats = world_mesh_draw_stats_from_sorted(
-                    &draws,
-                    Some((
-                        collection.draws_pre_cull,
-                        collection.draws_culled,
-                        collection.draws_hi_z_culled,
-                    )),
-                );
-                backend.set_last_world_mesh_draw_stats(stats);
-            }
+        if backend.debug_hud_main_enabled() {
+            let stats = world_mesh_draw_stats_from_sorted(
+                &draws,
+                Some((
+                    collection.draws_pre_cull,
+                    collection.draws_culled,
+                    collection.draws_hi_z_culled,
+                )),
+            );
+            backend.set_last_world_mesh_draw_stats(stats);
         }
         if draws.is_empty() {
             return Ok(());

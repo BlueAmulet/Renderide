@@ -1,4 +1,4 @@
-//! Optional Dear ImGui overlay state and per-frame capture flags (feature `debug-hud`).
+//! Dear ImGui overlay state and per-frame capture flags.
 
 use std::path::PathBuf;
 

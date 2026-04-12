@@ -2,7 +2,7 @@
 //!
 //! Core subsystems live in [`super::MaterialSystem`], [`crate::assets::AssetTransferQueue`],
 //! [`super::FrameResourceManager`], and [`super::OcclusionSystem`]; this type wires attach,
-//! the compiled render graph, mesh deform preprocess, and optional debug HUD.
+//! the compiled render graph, mesh deform preprocess, and debug HUD.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -10,19 +10,16 @@ use std::sync::{Arc, Mutex};
 use crate::assets::material::MaterialPropertyStore;
 use crate::backend::mesh_deform::MeshPreprocessPipelines;
 use crate::config::RendererSettingsHandle;
+use crate::diagnostics::{DebugHudInput, SceneTransformsSnapshot};
 use crate::gpu::GpuContext;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::RasterPipelineKind;
-#[cfg(feature = "debug-hud")]
 use crate::render_graph::WorldMeshDrawStats;
 use crate::render_graph::{CompiledRenderGraph, ExternalFrameTargets, GraphExecuteError};
 use crate::resources::{MeshPool, TexturePool};
 use crate::scene::SceneCoordinator;
 
-#[cfg(feature = "debug-hud")]
 use super::debug_hud_bundle::DebugHudBundle;
-#[cfg(feature = "debug-hud")]
-use crate::diagnostics::{DebugHudInput, SceneTransformsSnapshot};
 
 use super::material_system::MaterialSystem;
 use super::mesh_deform_scratch::MeshDeformScratch;
@@ -39,7 +36,7 @@ pub use crate::assets::asset_transfer_queue::{
     MESH_UPLOAD_NON_HIGH_PRIORITY_BUDGET_PER_POLL,
 };
 
-/// Coordinates materials, asset uploads, per-frame GPU binds, occlusion, optional deform + HUD, and the render graph.
+/// Coordinates materials, asset uploads, per-frame GPU binds, occlusion, optional deform + ImGui HUD, and the render graph.
 pub struct RenderBackend {
     /// Material property store, shader routes, pipeline registry, embedded `@group(1)` binds.
     pub(crate) materials: MaterialSystem,
@@ -53,8 +50,7 @@ pub struct RenderBackend {
     mesh_deform_scratch: Option<MeshDeformScratch>,
     /// Per-frame bind groups, light staging, and debug draw slab.
     pub(crate) frame_resources: super::FrameResourceManager,
-    /// Dear ImGui overlay and capture state when `debug-hud` is enabled.
-    #[cfg(feature = "debug-hud")]
+    /// Dear ImGui overlay and capture state.
     debug_hud: DebugHudBundle,
     /// Hierarchical depth pyramid, CPU readback, and temporal cull state for occlusion culling.
     pub(crate) occlusion: OcclusionSystem,
@@ -76,7 +72,6 @@ impl RenderBackend {
             frame_graph: None,
             mesh_deform_scratch: None,
             frame_resources: super::FrameResourceManager::new(),
-            #[cfg(feature = "debug-hud")]
             debug_hud: DebugHudBundle::new(),
             occlusion: OcclusionSystem::new(),
         }
@@ -215,7 +210,6 @@ impl RenderBackend {
         self.asset_transfers.gpu_queue = Some(queue.clone());
         self.mesh_deform_scratch = Some(MeshDeformScratch::new(device.as_ref()));
         self.frame_resources.attach(device.as_ref());
-        #[cfg(feature = "debug-hud")]
         {
             let q = queue.lock().unwrap_or_else(|e| e.into_inner());
             self.debug_hud.attach(
@@ -226,8 +220,6 @@ impl RenderBackend {
                 config_save_path,
             );
         }
-        #[cfg(not(feature = "debug-hud"))]
-        let _ = (surface_format, renderer_settings, config_save_path);
         match MeshPreprocessPipelines::new(device.as_ref()) {
             Ok(p) => self.mesh_preprocess = Some(p),
             Err(e) => {
@@ -284,43 +276,36 @@ impl RenderBackend {
         res
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Updates whether main HUD diagnostics run (mirrors [`crate::config::DebugSettings::debug_hud_enabled`]).
     pub fn set_debug_hud_main_enabled(&mut self, enabled: bool) {
         self.debug_hud.set_main_enabled(enabled);
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Whether main debug HUD is on (mesh-draw stats for [`crate::render_graph::passes::WorldMeshForwardPass`]).
     pub(crate) fn debug_hud_main_enabled(&self) -> bool {
         self.debug_hud.main_enabled()
     }
 
-    #[cfg(feature = "debug-hud")]
-    /// Updates pointer state and frame delta for the optional ImGui overlay.
+    /// Updates pointer state and frame delta for the ImGui overlay.
     pub fn set_debug_hud_frame_data(&mut self, input: DebugHudInput, frame_time_ms: f64) {
         self.debug_hud.set_frame_data(input, frame_time_ms);
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Last inter-frame time in milliseconds supplied by the app for HUD FPS.
     pub(crate) fn debug_frame_time_ms(&self) -> f64 {
         self.debug_hud.frame_time_ms()
     }
 
-    #[cfg(feature = "debug-hud")]
     /// [`imgui::Io::want_capture_mouse`] from the last successful HUD encode (used to filter host IPC on the next tick).
     pub(crate) fn debug_hud_last_want_capture_mouse(&self) -> bool {
         self.debug_hud.last_want_capture_mouse()
     }
 
-    #[cfg(feature = "debug-hud")]
     /// [`imgui::Io::want_capture_keyboard`] from the last successful HUD encode (used to filter host IPC on the next tick).
     pub(crate) fn debug_hud_last_want_capture_keyboard(&self) -> bool {
         self.debug_hud.last_want_capture_keyboard()
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Stores [`crate::diagnostics::RendererInfoSnapshot`] for the next HUD frame.
     pub(crate) fn set_debug_hud_snapshot(
         &mut self,
@@ -329,7 +314,6 @@ impl RenderBackend {
         self.debug_hud.set_snapshot(snapshot);
     }
 
-    #[cfg(feature = "debug-hud")]
     pub(crate) fn set_debug_hud_frame_diagnostics(
         &mut self,
         snapshot: crate::diagnostics::FrameDiagnosticsSnapshot,
@@ -337,7 +321,6 @@ impl RenderBackend {
         self.debug_hud.set_frame_diagnostics(snapshot);
     }
 
-    #[cfg(feature = "debug-hud")]
     pub(crate) fn set_debug_hud_frame_timing(
         &mut self,
         snapshot: crate::diagnostics::FrameTimingHudSnapshot,
@@ -345,30 +328,25 @@ impl RenderBackend {
         self.debug_hud.set_frame_timing(snapshot);
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Clears Stats / Shader routes payloads only (not frame timing or scene transforms).
     pub(crate) fn clear_debug_hud_stats_snapshots(&mut self) {
         self.debug_hud.clear_stats_snapshots();
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Clears the **Scene transforms** HUD payload.
     pub(crate) fn clear_debug_hud_scene_transforms_snapshot(&mut self) {
         self.debug_hud.clear_scene_transforms_snapshot();
     }
 
-    #[cfg(feature = "debug-hud")]
     pub(crate) fn set_last_world_mesh_draw_stats(&mut self, stats: WorldMeshDrawStats) {
         self.debug_hud.set_last_world_mesh_draw_stats(stats);
     }
 
-    #[cfg(feature = "debug-hud")]
     pub(crate) fn last_world_mesh_draw_stats(&self) -> WorldMeshDrawStats {
         self.debug_hud.last_world_mesh_draw_stats()
     }
 
     /// Updates the **Scene transforms** Dear ImGui window payload for the next composite pass.
-    #[cfg(feature = "debug-hud")]
     pub(crate) fn set_debug_hud_scene_transforms_snapshot(
         &mut self,
         snapshot: SceneTransformsSnapshot,
@@ -376,7 +354,6 @@ impl RenderBackend {
         self.debug_hud.set_scene_transforms_snapshot(snapshot);
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Composites the debug HUD with `LoadOp::Load` onto the swapchain in `encoder`.
     pub(crate) fn encode_debug_hud_overlay(
         &mut self,
@@ -388,19 +365,6 @@ impl RenderBackend {
     ) -> Result<(), String> {
         self.debug_hud
             .encode_overlay(device, queue, encoder, backbuffer, extent)
-    }
-
-    #[cfg(not(feature = "debug-hud"))]
-    /// No-op without `debug-hud`.
-    pub(crate) fn encode_debug_hud_overlay(
-        &mut self,
-        _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-        _encoder: &mut wgpu::CommandEncoder,
-        _backbuffer: &wgpu::TextureView,
-        _extent: (u32, u32),
-    ) -> Result<(), String> {
-        Ok(())
     }
 
     /// Scratch buffers for mesh deformation (`MeshDeformPass`).

@@ -14,10 +14,7 @@ pub(crate) fn process_frame_submit(runtime: &mut RendererRuntime, data: FrameSub
     runtime
         .frontend
         .apply_frame_submit_output(data.output_state.clone());
-    #[cfg(feature = "debug-hud")]
-    {
-        runtime.last_submit_render_task_count = data.render_tasks.len();
-    }
+    runtime.last_submit_render_task_count = data.render_tasks.len();
 
     host_camera_apply::apply_frame_submit_fields(&mut runtime.host_camera, &data);
 

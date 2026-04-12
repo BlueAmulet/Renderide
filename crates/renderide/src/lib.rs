@@ -28,7 +28,7 @@ pub mod backend;
 /// `config.toml` loading and [`config::RendererSettings`] (process-wide defaults).
 pub mod config;
 pub mod connection;
-/// Developer overlay: Dear ImGui frame snapshot + HUD ([`diagnostics::DebugHud`], feature `debug-hud`).
+/// Developer overlay: Dear ImGui frame snapshot + HUD ([`diagnostics::DebugHud`]).
 pub mod diagnostics;
 /// Host IPC, shared memory, init, lock-step — **frontend** layer.
 pub mod frontend;

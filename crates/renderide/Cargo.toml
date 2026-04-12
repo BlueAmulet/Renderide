@@ -19,10 +19,6 @@ path = "src/main.rs"
 name = "roundtrip"
 path = "src/bin/roundtrip.rs"
 
-[features]
-default = ["debug-hud"]
-debug-hud = ["dep:imgui", "dep:imgui-wgpu", "dep:sysinfo"]
-
 [dependencies]
 bytemuck = { version = "1.25.0", features = ["derive"] }
 glam = { version = "0.32.1", features = ["bytemuck"] }
@@ -43,9 +39,11 @@ wgpu = "29.0.1"
 winit = "0.30"
 ash = "0.38"
 openxr = { version = "0.21", default-features = false, features = ["loaded"] }
-imgui = { version = "0.12", optional = true, features = ["tables-api"] }
-imgui-wgpu = { version = "0.28", optional = true }
-sysinfo = { version = "0.38.4", default-features = false, features = ["system"], optional = true }
+imgui = { version = "0.12", features = ["tables-api"] }
+imgui-wgpu = "0.28"
+sysinfo = { version = "0.38.4", default-features = false, features = [
+  "system",
+] }
 
 [dev-dependencies]
 nalgebra = { version = "0.34.1", features = ["convert-bytemuck"] }
@@ -56,9 +54,9 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
-    "Win32_Foundation",
-    "Win32_Security",
-    "Win32_System_Console",
-    "Win32_System_Memory",
-    "Win32_System_Pipes",
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_System_Console",
+  "Win32_System_Memory",
+  "Win32_System_Pipes",
 ] }

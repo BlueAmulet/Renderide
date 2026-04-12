@@ -10,7 +10,6 @@
 
 mod cluster_gpu;
 mod debug_draw;
-#[cfg(feature = "debug-hud")]
 mod debug_hud_bundle;
 mod embedded_material_bind;
 mod embedded_material_layout;
@@ -31,7 +30,6 @@ pub use cluster_gpu::{
     MAX_LIGHTS_PER_TILE, TILE_SIZE,
 };
 pub use debug_draw::DebugDrawResources;
-#[cfg(feature = "debug-hud")]
 pub use debug_hud_bundle::DebugHudBundle;
 pub use embedded_material_bind::EmbeddedMaterialBindResources;
 pub use frame_gpu::{empty_material_bind_group_layout, EmptyMaterialBindGroup, FrameGpuResources};

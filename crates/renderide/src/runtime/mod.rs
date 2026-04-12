@@ -31,7 +31,6 @@ use crate::frontend::RendererFrontend;
 use crate::gpu::GpuContext;
 use crate::output_device::head_output_device_wants_openxr;
 
-#[cfg(feature = "debug-hud")]
 use crate::diagnostics::{DebugHudInput, HostHudGatherer};
 use glam::{Mat4, Quat, Vec3};
 
@@ -60,10 +59,8 @@ pub struct RendererRuntime {
     /// Target path for persisting [`Self::settings`] from the ImGui config window.
     config_save_path: PathBuf,
     /// Throttled host CPU/RAM sampling for the debug HUD.
-    #[cfg(feature = "debug-hud")]
     host_hud: HostHudGatherer,
     /// [`FrameSubmitData::render_tasks`] length from the last applied frame submit (HUD).
-    #[cfg(feature = "debug-hud")]
     last_submit_render_task_count: usize,
 }
 
@@ -81,9 +78,7 @@ impl RendererRuntime {
             host_camera: HostCameraFrame::default(),
             settings,
             config_save_path,
-            #[cfg(feature = "debug-hud")]
             host_hud: HostHudGatherer::default(),
-            #[cfg(feature = "debug-hud")]
             last_submit_render_task_count: 0,
         }
     }
@@ -212,19 +207,16 @@ impl RendererRuntime {
         );
     }
 
-    #[cfg(feature = "debug-hud")]
-    /// Per-frame pointer state and timing for the optional ImGui overlay ([`diagnostics::DebugHud`]).
+    /// Per-frame pointer state and timing for the ImGui overlay ([`diagnostics::DebugHud`]).
     pub fn set_debug_hud_frame_data(&mut self, input: DebugHudInput, frame_time_ms: f64) {
         self.backend.set_debug_hud_frame_data(input, frame_time_ms);
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Last ImGui `want_capture_mouse` after the previous successful HUD encode; used when filtering [`InputState`] for the host.
     pub fn debug_hud_last_want_capture_mouse(&self) -> bool {
         self.backend.debug_hud_last_want_capture_mouse()
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Last ImGui `want_capture_keyboard` after the previous successful HUD encode; used when filtering [`InputState`] for the host.
     pub fn debug_hud_last_want_capture_keyboard(&self) -> bool {
         self.backend.debug_hud_last_want_capture_keyboard()
@@ -239,7 +231,6 @@ impl RendererRuntime {
         self.backend
             .frame_resources
             .prepare_lights_from_scene(&self.scene);
-        #[cfg(feature = "debug-hud")]
         self.sync_debug_hud_diagnostics_from_settings();
         let scene_ref: &SceneCoordinator = &self.scene;
         self.backend
@@ -265,7 +256,6 @@ impl RendererRuntime {
         self.backend
             .frame_resources
             .prepare_lights_from_scene(&self.scene);
-        #[cfg(feature = "debug-hud")]
         self.sync_debug_hud_diagnostics_from_settings();
         let scene_ref: &SceneCoordinator = &self.scene;
         self.backend.execute_frame_graph_external_multiview(
@@ -277,7 +267,6 @@ impl RendererRuntime {
         )
     }
 
-    #[cfg(feature = "debug-hud")]
     /// Copies [`crate::config::DebugSettings::debug_hud_enabled`] into the backend before the render graph runs.
     fn sync_debug_hud_diagnostics_from_settings(&mut self) {
         let main = self
@@ -289,7 +278,6 @@ impl RendererRuntime {
     }
 
     /// Updates debug HUD snapshots after [`crate::gpu::GpuContext::end_frame_timing`] for the winit tick.
-    #[cfg(feature = "debug-hud")]
     pub fn capture_debug_hud_after_frame_end(&mut self, gpu: &GpuContext) {
         let frame_timing = crate::diagnostics::FrameTimingHudSnapshot::capture(
             gpu,

@@ -1,42 +1,31 @@
-//! Dear ImGui overlay for developer diagnostics (feature `debug-hud`).
+//! Dear ImGui overlay for developer diagnostics.
 //!
 //! The **Frame timing** window shows FPS and CPU/GPU submit-interval metrics (wall-clock splits around submits).
 //! **[`crate::config::DebugSettings::debug_hud_frame_timing`]** toggles the **Frame timing** window (default on).
 //! **[`crate::config::DebugSettings::debug_hud_enabled`]** toggles **Renderide debug** (Stats / Shader routes).
 //! **[`crate::config::DebugSettings::debug_hud_transforms`]** toggles the **Scene transforms** window.
 
-#[cfg(feature = "debug-hud")]
 use super::frame_diagnostics_snapshot::FrameDiagnosticsSnapshot;
-#[cfg(feature = "debug-hud")]
 use super::frame_timing_hud_snapshot::FrameTimingHudSnapshot;
 use super::renderer_info_snapshot::RendererInfoSnapshot;
-#[cfg(feature = "debug-hud")]
 use super::scene_transforms_snapshot::RenderSpaceTransformsSnapshot;
 use super::DebugHudInput;
 use super::SceneTransformsSnapshot;
 
-#[cfg(feature = "debug-hud")]
 use std::path::PathBuf;
-#[cfg(feature = "debug-hud")]
 use std::time::{Duration, Instant};
 
-#[cfg(feature = "debug-hud")]
 use crate::config::{save_renderer_settings, PowerPreferenceSetting, RendererSettingsHandle};
 
-#[cfg(feature = "debug-hud")]
 use imgui::{
     Condition, Context, Drag, FontConfig, FontSource, Io, ListClipper,
     MouseButton as ImGuiMouseButton, TableFlags, WindowFlags,
 };
-#[cfg(feature = "debug-hud")]
 use imgui_wgpu::{Renderer as ImguiWgpuRenderer, RendererConfig};
 
-#[cfg(feature = "debug-hud")]
 use super::debug_hud_fmt as hud_fmt;
-#[cfg(feature = "debug-hud")]
 use super::debug_hud_layout as overlay_layout;
 
-#[cfg(feature = "debug-hud")]
 pub struct DebugHud {
     imgui: Context,
     renderer: ImguiWgpuRenderer,
@@ -57,7 +46,6 @@ pub struct DebugHud {
     renderer_config_open: bool,
 }
 
-#[cfg(feature = "debug-hud")]
 fn device_type_label(kind: wgpu::DeviceType) -> &'static str {
     match kind {
         wgpu::DeviceType::Other => "other / unknown",
@@ -68,7 +56,6 @@ fn device_type_label(kind: wgpu::DeviceType) -> &'static str {
     }
 }
 
-#[cfg(feature = "debug-hud")]
 fn apply_input(io: &mut Io, input: &DebugHudInput) {
     if input.mouse_active && input.window_focused {
         io.add_mouse_pos_event(input.cursor_px);
@@ -82,7 +69,6 @@ fn apply_input(io: &mut Io, input: &DebugHudInput) {
     io.add_mouse_button_event(ImGuiMouseButton::Extra2, input.extra2);
 }
 
-#[cfg(feature = "debug-hud")]
 impl DebugHud {
     /// Builds ImGui and the wgpu render backend for the swapchain format.
     pub fn new(
@@ -692,41 +678,5 @@ impl DebugHud {
                 }
             }
         }
-    }
-}
-
-#[cfg(not(feature = "debug-hud"))]
-/// Stub when `debug-hud` is disabled.
-#[derive(Debug, Default)]
-pub struct DebugHud;
-
-#[cfg(not(feature = "debug-hud"))]
-impl DebugHud {
-    /// No-op without ImGui.
-    pub fn new(
-        _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-        _surface_format: wgpu::TextureFormat,
-    ) -> Self {
-        Self
-    }
-
-    /// No-op without ImGui.
-    pub fn set_snapshot(&mut self, _sample: RendererInfoSnapshot) {}
-
-    /// No-op without ImGui.
-    pub fn set_scene_transforms_snapshot(&mut self, _sample: SceneTransformsSnapshot) {}
-
-    /// No-op without ImGui.
-    pub fn encode_overlay(
-        &mut self,
-        _device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-        _encoder: &mut wgpu::CommandEncoder,
-        _backbuffer: &wgpu::TextureView,
-        _extent: (u32, u32),
-        _input: &DebugHudInput,
-    ) -> Result<(bool, bool), String> {
-        Ok((false, false))
     }
 }

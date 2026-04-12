@@ -159,7 +159,6 @@ pub fn run() -> Option<i32> {
         xr_swapchain: None,
         xr_stereo_depth: None,
         vr_mirror_blit: VrMirrorBlitResources::new(),
-        #[cfg(feature = "debug-hud")]
         hud_frame_last: None,
         last_frame_end: None,
     };
@@ -228,7 +227,6 @@ struct RenderideApp {
     /// Staging texture and blit pipelines for the VR desktop mirror (left HMD eye).
     vr_mirror_blit: VrMirrorBlitResources,
     /// Previous redraw instant for HUD FPS ([`diagnostics::DebugHud`]).
-    #[cfg(feature = "debug-hud")]
     hud_frame_last: Option<Instant>,
     /// Wall-clock end of the last [`Self::tick_frame`] (for desktop FPS caps).
     last_frame_end: Option<Instant>,
@@ -365,7 +363,6 @@ impl RenderideApp {
         self.sync_log_level_from_settings();
         let frame_start = Instant::now();
         self.runtime.tick_frame_wall_clock_begin(frame_start);
-        #[cfg(feature = "debug-hud")]
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.begin_frame_timing(frame_start);
         }
@@ -445,7 +442,6 @@ impl RenderideApp {
         if self.runtime.should_send_begin_frame() {
             let lock = self.runtime.host_cursor_lock_requested();
             let mut inputs = self.input.take_input_state(lock);
-            #[cfg(feature = "debug-hud")]
             crate::diagnostics::sanitize_input_state_for_imgui_host(
                 &mut inputs,
                 self.runtime.debug_hud_last_want_capture_mouse(),
@@ -465,7 +461,6 @@ impl RenderideApp {
             logger::info!("Renderer shutdown requested by host");
             self.exit_code = Some(0);
             event_loop.exit();
-            #[cfg(feature = "debug-hud")]
             self.end_frame_timing_and_hud_capture();
             self.record_frame_tick_end(frame_start);
             return;
@@ -475,14 +470,12 @@ impl RenderideApp {
             logger::error!("Renderer fatal IPC error");
             self.exit_code = Some(4);
             event_loop.exit();
-            #[cfg(feature = "debug-hud")]
             self.end_frame_timing_and_hud_capture();
             self.record_frame_tick_end(frame_start);
             return;
         }
 
         let Some(window) = self.window.clone() else {
-            #[cfg(feature = "debug-hud")]
             self.end_frame_timing_and_hud_capture();
             self.record_frame_tick_end(frame_start);
             return;
@@ -507,7 +500,6 @@ impl RenderideApp {
         };
 
         let Some(gpu) = self.gpu.as_mut() else {
-            #[cfg(feature = "debug-hud")]
             self.end_frame_timing_and_hud_capture();
             self.record_frame_tick_end(frame_start);
             return;
@@ -517,7 +509,6 @@ impl RenderideApp {
             gpu.set_vsync(s.rendering.vsync);
         }
 
-        #[cfg(feature = "debug-hud")]
         {
             let now = Instant::now();
             let ms = self
@@ -564,13 +555,11 @@ impl RenderideApp {
             }
         }
 
-        #[cfg(feature = "debug-hud")]
         self.end_frame_timing_and_hud_capture();
         self.record_frame_tick_end(frame_start);
     }
 
     /// Finalizes [`GpuContext`] frame timing and refreshes debug HUD snapshots for the tick.
-    #[cfg(feature = "debug-hud")]
     fn end_frame_timing_and_hud_capture(&mut self) {
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.end_frame_timing();

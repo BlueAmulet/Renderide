@@ -1,10 +1,8 @@
 //! [`GpuContext`]: instance, surface, device, and swapchain state.
 
 use std::sync::{Arc, Mutex};
-#[cfg(feature = "debug-hud")]
 use std::time::Instant;
 
-#[cfg(feature = "debug-hud")]
 use super::frame_cpu_gpu_timing::{
     make_gpu_done_callback, FrameCpuGpuTiming, FrameCpuGpuTimingHandle,
 };
@@ -26,7 +24,6 @@ pub struct GpuContext {
     depth_attachment: Option<(wgpu::Texture, wgpu::TextureView)>,
     depth_extent_px: (u32, u32),
     /// Debug HUD: wall-clock CPU (tick start → last submit) and GPU (last submit → idle) timing.
-    #[cfg(feature = "debug-hud")]
     frame_timing: FrameCpuGpuTimingHandle,
 }
 
@@ -159,7 +156,6 @@ impl GpuContext {
             config,
             depth_attachment: None,
             depth_extent_px: (0, 0),
-            #[cfg(feature = "debug-hud")]
             frame_timing: Arc::new(Mutex::new(FrameCpuGpuTiming::default())),
         })
     }
@@ -202,7 +198,6 @@ impl GpuContext {
             config,
             depth_attachment: None,
             depth_extent_px: (0, 0),
-            #[cfg(feature = "debug-hud")]
             frame_timing: Arc::new(Mutex::new(FrameCpuGpuTiming::default())),
         })
     }
@@ -260,15 +255,9 @@ impl GpuContext {
         &self.queue
     }
 
-    /// Submits render work for this frame; when debug HUD timing is active, records last submit and GPU idle.
+    /// Submits render work for this frame; records last submit and GPU idle for the debug HUD timing HUD.
     pub fn submit_tracked_frame_commands(&self, cmd: wgpu::CommandBuffer) {
-        #[cfg(feature = "debug-hud")]
         self.submit_tracked_inner(cmd);
-        #[cfg(not(feature = "debug-hud"))]
-        self.queue
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .submit(std::iter::once(cmd));
     }
 
     /// Same as [`Self::submit_tracked_frame_commands`] but uses an already-locked queue (e.g. debug HUD overlay encode).
@@ -277,13 +266,9 @@ impl GpuContext {
         queue: &mut wgpu::Queue,
         cmd: wgpu::CommandBuffer,
     ) {
-        #[cfg(feature = "debug-hud")]
         self.submit_tracked_inner_with_queue(queue, cmd);
-        #[cfg(not(feature = "debug-hud"))]
-        queue.submit(std::iter::once(cmd));
     }
 
-    #[cfg(feature = "debug-hud")]
     fn submit_tracked_inner(&self, cmd: wgpu::CommandBuffer) {
         let track = {
             let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
@@ -304,7 +289,6 @@ impl GpuContext {
         }
     }
 
-    #[cfg(feature = "debug-hud")]
     fn submit_tracked_inner_with_queue(&self, queue: &mut wgpu::Queue, cmd: wgpu::CommandBuffer) {
         let track = {
             let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
@@ -322,7 +306,6 @@ impl GpuContext {
     }
 
     /// Call at the start of each winit frame tick (same instant as [`crate::runtime::RendererRuntime::tick_frame_wall_clock_begin`]).
-    #[cfg(feature = "debug-hud")]
     pub fn begin_frame_timing(&self, frame_start: Instant) {
         self.frame_timing
             .lock()
@@ -335,9 +318,6 @@ impl GpuContext {
     /// Finalizes CPU-until-submit for this tick. GPU idle time for the HUD comes from
     /// [`super::frame_cpu_gpu_timing::FrameCpuGpuTiming::last_completed_gpu_idle_ms`], which is
     /// updated asynchronously when [`wgpu::Queue::on_submitted_work_done`] runs—no blocking poll here.
-    ///
-    /// Requires the `debug-hud` Cargo feature (see [`Self::submit_tracked_frame_commands`]).
-    #[cfg(feature = "debug-hud")]
     pub fn end_frame_timing(&self) {
         let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
         ft.end_frame();
@@ -345,7 +325,6 @@ impl GpuContext {
 
     /// CPU time for this tick and the **latest completed** GPU submit→idle ms (may lag; see
     /// [`super::frame_cpu_gpu_timing::FrameCpuGpuTiming::last_completed_gpu_idle_ms`]).
-    #[cfg(feature = "debug-hud")]
     pub fn frame_cpu_gpu_ms_for_hud(&self) -> (Option<f64>, Option<f64>) {
         let ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
         (ft.cpu_until_submit_ms, ft.last_completed_gpu_idle_ms)

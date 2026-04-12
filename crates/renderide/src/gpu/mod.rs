@@ -1,7 +1,6 @@
 //! GPU device, adapter, and swapchain configuration.
 
 mod context;
-#[cfg(feature = "debug-hud")]
 mod frame_cpu_gpu_timing;
 pub mod vr_mirror_blit;
 
