@@ -42,10 +42,20 @@ pub(super) fn index_pose_correction(
     )
 }
 
-/// Default `BodyNodeRotationOffset` and position for the bound-hand body node relative to the
-/// controller's tracked pose. The rotation orients the avatar hand bone in the controller's local
-/// frame; `generic_fix` (`Rx(-90°)`) rotates the palm normal from the controller's +Z (forward)
-/// axis to ±X (inward toward the other hand).
+/// Default `hand_position` / `hand_rotation` on the IPC controller state types in
+/// [`crate::shared`] for bound-hand tracking (FrooxEngine `BodyNodePositionOffset` /
+/// `BodyNodeRotationOffset` on the hand device).
+///
+/// The host does not hardcode these: `VR_Manager` forwards IPC `handPosition` / `handRotation` into
+/// `MappableTrackedObject.Initialize` at registration. Values here mirror the legacy Unity
+/// **SteamVR** driver (`SteamVRDriver.cs`): same Euler triples per controller class, plus
+/// `handRotation *= Inverse(Euler(90°, 90°, 90°))` for Touch, Vive, and Generic (not for Index,
+/// WMR, HP Reverb, Pico). The old **Oculus** Unity driver used the OVR SDK (`OVRInput` local
+/// controller pose), not Unity's generic XR `InputDevice` API, so there is no single documented
+/// "Unity XR default" grip frame to copy—this stack matched SteamVR/OpenVR poses.
+///
+/// `generic_fix` is `unity_euler_deg(90.0, 90.0, 90.0).inverse()` (equivalent to `Rx(-90°)`),
+/// matching that SteamVR post-multiply.
 pub(super) fn bound_hand_pose_defaults(
     profile: ActiveControllerProfile,
     side: Chirality,
@@ -132,36 +142,18 @@ pub(super) fn controller_pose_from_aim(position: Vec3, rotation: Quat) -> (Vec3,
     (position - rotation * tip_offset, rotation)
 }
 
-/// Chirality-dependent roll correction applied to every OpenXR grip/aim pose after the RH-to-LH
-/// conversion. The OpenXR grip frame defines +Y as perpendicular to the controller surface
-/// (away from buttons/palm); the old SteamVR convention had +Y pointing up along the controller
-/// shaft. For a left controller +Y (away from palm) points to the right, for right it points
-/// left, so the correction roll is opposite per side. A `Rz(±90°)` maps the OpenXR grip's +Y
-/// to the old convention's ±X. Start with `Quat::IDENTITY` and adjust based on empirical
-/// testing if the controller-local axes differ from the old driver convention.
-fn grip_to_host_correction(side: Chirality) -> Quat {
-    match side {
-        Chirality::left => Quat::from_rotation_z(90.0_f32.to_radians()),
-        Chirality::right => Quat::from_rotation_z(-90.0_f32.to_radians()),
-    }
-}
-
-/// Converts an [`xr::SpaceLocation`] into a host-tracking-space `(position, rotation)`,
-/// applying `grip_to_host_correction` to align the OpenXR grip axes with the host convention.
-pub(super) fn pose_from_location(
-    location: &xr::SpaceLocation,
-    side: Chirality,
-) -> Option<(Vec3, Quat)> {
+/// Converts an [`xr::SpaceLocation`] into host-tracking-space `(position, rotation)` using only
+/// [`openxr_pose_to_host_tracking`] (OpenXR RH → FrooxEngine/Unity LH). No extra grip-axis
+/// correction is applied here; controller pose must match what [`bound_hand_pose_defaults`] was
+/// authored against (legacy SteamVR `Generic.Pose`–style tracking after the same conversion).
+pub(super) fn pose_from_location(location: &xr::SpaceLocation) -> Option<(Vec3, Quat)> {
     let tracked = location
         .location_flags
         .contains(xr::SpaceLocationFlags::ORIENTATION_VALID)
         && location
             .location_flags
             .contains(xr::SpaceLocationFlags::POSITION_VALID);
-    tracked.then(|| {
-        let (pos, rot) = openxr_pose_to_host_tracking(&location.pose);
-        (pos, (rot * grip_to_host_correction(side)).normalize())
-    })
+    tracked.then(|| openxr_pose_to_host_tracking(&location.pose))
 }
 
 #[cfg(test)]
@@ -222,28 +214,5 @@ mod tests {
             (palm_l.x + palm_r.x).abs() < 0.15,
             "palm normal X should be approximately mirrored: left={palm_l:?}, right={palm_r:?}",
         );
-    }
-
-    #[test]
-    fn grip_to_host_correction_is_chirality_opposite() {
-        let corr_l = grip_to_host_correction(Chirality::left);
-        let corr_r = grip_to_host_correction(Chirality::right);
-        let dot = corr_l.dot(corr_r);
-        assert!(
-            dot.abs() < 0.1,
-            "left and right grip corrections should be roughly opposite rotations, dot={dot}",
-        );
-    }
-
-    #[test]
-    fn grip_to_host_correction_is_roll_only() {
-        for side in [Chirality::left, Chirality::right] {
-            let corr = grip_to_host_correction(side);
-            let forward = corr * Vec3::Z;
-            assert!(
-                (forward - Vec3::Z).length() < 1e-4,
-                "{side:?}: correction should not rotate the forward (+Z) axis, got {forward:?}",
-            );
-        }
     }
 }

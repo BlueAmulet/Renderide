@@ -541,10 +541,10 @@ impl OpenxrInput {
         let right_loc = self.right_space.locate(stage, predicted_time)?;
         let left_aim_loc = self.left_aim_space.locate(stage, predicted_time)?;
         let right_aim_loc = self.right_aim_space.locate(stage, predicted_time)?;
-        let left_grip_pose = pose_from_location(&left_loc, Chirality::left);
-        let right_grip_pose = pose_from_location(&right_loc, Chirality::right);
-        let left_aim_pose = pose_from_location(&left_aim_loc, Chirality::left);
-        let right_aim_pose = pose_from_location(&right_aim_loc, Chirality::right);
+        let left_grip_pose = pose_from_location(&left_loc);
+        let right_grip_pose = pose_from_location(&right_loc);
+        let left_aim_pose = pose_from_location(&left_aim_loc);
+        let right_aim_pose = pose_from_location(&right_aim_loc);
         let left_trigger = self.left_trigger.state(session, xr::Path::NULL)?;
         let right_trigger = self.right_trigger.state(session, xr::Path::NULL)?;
         let left_trigger_touch = self.left_trigger_touch.state(session, xr::Path::NULL)?;
