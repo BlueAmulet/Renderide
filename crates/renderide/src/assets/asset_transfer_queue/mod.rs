@@ -9,15 +9,19 @@ mod uploads;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use crate::resources::{MeshPool, TexturePool};
-use crate::shared::{MeshUploadData, SetTexture2DData, SetTexture2DFormat, SetTexture2DProperties};
+use crate::resources::{MeshPool, RenderTexturePool, TexturePool};
+use crate::shared::{
+    MeshUploadData, SetRenderTextureFormat, SetTexture2DData, SetTexture2DFormat,
+    SetTexture2DProperties,
+};
 
 pub use uploads::{
     attach_flush_pending_asset_uploads, begin_ipc_poll_mesh_upload_budget,
     drain_deferred_mesh_uploads_after_poll, drain_deferred_texture_uploads_after_poll,
-    on_mesh_unload, on_set_texture_2d_data, on_set_texture_2d_format, on_set_texture_2d_properties,
-    on_unload_texture_2d, try_process_mesh_upload, try_texture_upload_with_device,
-    MAX_DEFERRED_MESH_UPLOADS, MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
+    on_mesh_unload, on_set_render_texture_format, on_set_texture_2d_data, on_set_texture_2d_format,
+    on_set_texture_2d_properties, on_unload_render_texture, on_unload_texture_2d,
+    try_process_mesh_upload, try_texture_upload_with_device, MAX_DEFERRED_MESH_UPLOADS,
+    MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
     MESH_UPLOAD_NON_HIGH_PRIORITY_BUDGET_PER_POLL,
 };
 
@@ -27,6 +31,10 @@ pub struct AssetTransferQueue {
     pub(crate) mesh_pool: MeshPool,
     /// Resident textures (upload target).
     pub(crate) texture_pool: TexturePool,
+    /// Resident host render textures (color + optional depth).
+    pub(crate) render_texture_pool: RenderTexturePool,
+    /// Latest [`SetRenderTextureFormat`] per asset.
+    pub(crate) render_texture_formats: HashMap<i32, SetRenderTextureFormat>,
     /// Latest [`SetTexture2DFormat`] per asset (required before data upload).
     pub(crate) texture_formats: HashMap<i32, SetTexture2DFormat>,
     /// Latest [`SetTexture2DProperties`] per asset (sampler metadata on [`crate::resources::GpuTexture2d`]).
@@ -61,6 +69,8 @@ impl AssetTransferQueue {
         Self {
             mesh_pool: MeshPool::default_pool(),
             texture_pool: TexturePool::default_pool(),
+            render_texture_pool: RenderTexturePool::new(),
+            render_texture_formats: HashMap::new(),
             texture_formats: HashMap::new(),
             texture_properties: HashMap::new(),
             gpu_device: None,

@@ -21,6 +21,7 @@ pub(crate) fn draw_subset(
     pass_desc: &MaterialPipelineDesc,
     shader_perm: ShaderPermutation,
     warned_missing_embedded_bind: &mut bool,
+    offscreen_write_render_texture_asset_id: Option<i32>,
 ) {
     let mut last_batch_key: Option<MaterialDrawBatchKey> = None;
     let mut pipeline_ok = false;
@@ -72,7 +73,9 @@ pub(crate) fn draw_subset(
                     queue,
                     backend.material_property_store(),
                     backend.texture_pool(),
+                    backend.render_texture_pool(),
                     item.lookup_ids,
+                    offscreen_write_render_texture_asset_id,
                 ) {
                     Ok(bg) => rpass.set_bind_group(1, bg.as_ref(), &[]),
                     Err(_) => rpass.set_bind_group(1, empty_bg, &[]),

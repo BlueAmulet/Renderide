@@ -115,15 +115,19 @@ impl RenderPass for WorldMeshForwardPass {
         };
 
         let render_context = frame.scene.active_main_render_context();
-        let cull_proj = build_world_mesh_cull_proj_params(frame.scene, frame.viewport_px, &hc);
-        let depth_mode = frame.output_depth_mode();
-        let hi_z_temporal = frame.backend.occlusion.hi_z_temporal_snapshot();
-        let hi_z = frame.backend.occlusion.hi_z_cull_data(depth_mode);
-        let culling = WorldMeshCullInput {
-            proj: cull_proj,
-            host_camera: &hc,
-            hi_z,
-            hi_z_temporal,
+        let culling = if hc.suppress_occlusion_temporal {
+            None
+        } else {
+            let cull_proj = build_world_mesh_cull_proj_params(frame.scene, frame.viewport_px, &hc);
+            let depth_mode = frame.output_depth_mode();
+            let hi_z_temporal = frame.backend.occlusion.hi_z_temporal_snapshot();
+            let hi_z = frame.backend.occlusion.hi_z_cull_data(depth_mode);
+            Some(WorldMeshCullInput {
+                proj: cull_proj,
+                host_camera: &hc,
+                hi_z,
+                hi_z_temporal,
+            })
         };
 
         let backend = &mut frame.backend;
@@ -144,14 +148,19 @@ impl RenderPass for WorldMeshForwardPass {
                 shader_perm,
                 render_context,
                 hc.head_output_transform,
-                Some(&culling),
+                culling.as_ref(),
+                frame.transform_draw_filter.as_ref(),
             )
         };
-        backend.occlusion.capture_hi_z_temporal_for_next_frame(
-            frame.scene,
-            cull_proj,
-            frame.viewport_px,
-        );
+        if !hc.suppress_occlusion_temporal {
+            if let Some(ref cull_in) = culling {
+                backend.occlusion.capture_hi_z_temporal_for_next_frame(
+                    frame.scene,
+                    cull_in.proj,
+                    frame.viewport_px,
+                );
+            }
+        }
         let draws = collection.items;
         if backend.debug_hud_main_enabled() {
             let stats = world_mesh_draw_stats_from_sorted(
@@ -235,7 +244,9 @@ impl RenderPass for WorldMeshForwardPass {
             queue.write_buffer(&dbg.per_draw_uniforms, 0, &slab_bytes);
         }
         let light_count_u = lights_for_frame.len().min(crate::backend::MAX_LIGHTS) as u32;
-        let camera_world = hc.head_output_transform.col(3).truncate();
+        let camera_world = hc
+            .secondary_camera_world_position
+            .unwrap_or_else(|| hc.head_output_transform.col(3).truncate());
 
         let stereo_cluster = use_multiview && hc.vr_active && hc.stereo_views.is_some();
 
@@ -286,6 +297,8 @@ impl RenderPass for WorldMeshForwardPass {
             return Ok(());
         };
 
+        let offscreen_write_rt = frame.offscreen_write_render_texture_asset_id;
+
         {
             let mut rpass = ctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("world-mesh-forward-opaque"),
@@ -326,6 +339,7 @@ impl RenderPass for WorldMeshForwardPass {
                 &pass_desc,
                 shader_perm,
                 &mut warned_missing_embedded_bind,
+                offscreen_write_rt,
             );
         }
 
@@ -384,6 +398,7 @@ impl RenderPass for WorldMeshForwardPass {
                 &pass_desc,
                 shader_perm,
                 &mut warned_missing_embedded_bind,
+                offscreen_write_rt,
             );
         }
 

@@ -8,6 +8,7 @@ use crate::ipc::SharedMemoryAccessor;
 use crate::shared::FrameSubmitData;
 use crate::shared::RenderingContext;
 
+use super::camera_apply;
 use super::error::SceneError;
 use super::ids::RenderSpaceId;
 use super::lights::{
@@ -273,11 +274,8 @@ impl SceneCoordinator {
             space.id = RenderSpaceId(update.id);
             space.apply_update_header(update);
 
-            if update.cameras_update.is_some() {
-                logger::trace!(
-                    "render_space {}: cameras_update present (full CameraManager parity not implemented)",
-                    update.id
-                );
+            if let Some(ref cu) = update.cameras_update {
+                camera_apply::apply_camera_renderables_update(space, shm, cu, update.id)?;
             }
 
             let cache = self

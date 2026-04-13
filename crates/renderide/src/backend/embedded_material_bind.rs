@@ -19,14 +19,14 @@ use wgpu::util::DeviceExt;
 use crate::assets::material::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
-use crate::resources::TexturePool;
+use crate::resources::{RenderTexturePool, TexturePool};
 
 use super::embedded_material_layout::{
     build_stem_material_layout, stem_hash, EmbeddedSharedKeywordIds, StemMaterialLayout,
 };
 use super::embedded_texture_resolve::{
-    primary_texture_2d_asset_id, resolved_texture_asset_id_for_host, sampler_from_state,
-    texture_bind_signature,
+    primary_texture_2d_asset_id, resolved_texture_binding_for_host, sampler_from_state,
+    texture_bind_signature, ResolvedTextureBinding,
 };
 use super::embedded_uniform_pack::build_embedded_uniform_bytes;
 
@@ -57,6 +57,8 @@ struct MaterialBindCacheKey {
     material_asset_id: i32,
     property_block_slot0: Option<i32>,
     texture_bind_signature: u64,
+    /// Distinguishes main vs secondary-RT passes when self-sampling is masked.
+    offscreen_write_render_texture_asset_id: Option<i32>,
 }
 
 /// Cached GPU uniform buffer and last [`crate::assets::material::MaterialPropertyStore::mutation_generation`] uploaded to it.
@@ -138,13 +140,16 @@ impl EmbeddedMaterialBindResources {
     }
 
     /// Returns or builds a `@group(1)` bind group for the composed embedded `stem` (e.g. `unlit_default`).
+    #[allow(clippy::too_many_arguments)]
     pub fn embedded_material_bind_group(
         &self,
         stem: &str,
         queue: &wgpu::Queue,
         store: &MaterialPropertyStore,
         texture_pool: &TexturePool,
+        render_texture_pool: &RenderTexturePool,
         lookup: MaterialPropertyLookupIds,
+        offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Result<Arc<wgpu::BindGroup>, String> {
         let layout = self.stem_layout(stem)?;
         let sh = stem_hash(stem);
@@ -157,7 +162,9 @@ impl EmbeddedMaterialBindResources {
             store,
             lookup,
             texture_pool,
+            render_texture_pool,
             texture_2d_asset_id,
+            offscreen_write_render_texture_asset_id,
         );
 
         let uniform_key = MaterialUniformCacheKey {
@@ -171,6 +178,7 @@ impl EmbeddedMaterialBindResources {
             material_asset_id: lookup.material_asset_id,
             property_block_slot0: lookup.mesh_property_block_slot0,
             texture_bind_signature,
+            offscreen_write_render_texture_asset_id,
         };
 
         let mutation_gen = store.mutation_generation(lookup);
@@ -266,8 +274,10 @@ impl EmbeddedMaterialBindResources {
                             tex_pid,
                             texture_2d_asset_id,
                             texture_pool,
+                            render_texture_pool,
                             store,
                             lookup,
+                            offscreen_write_render_texture_asset_id,
                         )
                         .unwrap_or_else(|| self.white_texture_view.clone());
                     keepalive_views.push(tex_view);
@@ -297,8 +307,10 @@ impl EmbeddedMaterialBindResources {
                         tex_pid,
                         texture_2d_asset_id,
                         texture_pool,
+                        render_texture_pool,
                         store,
                         lookup,
+                        offscreen_write_render_texture_asset_id,
                     );
                     keepalive_samplers.push(sampler);
                 }
@@ -375,70 +387,124 @@ impl EmbeddedMaterialBindResources {
         Ok(layout)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn resolve_texture_view_for_host(
         &self,
         host_name: &str,
         texture_property_id: i32,
         primary_texture_2d: i32,
         texture_pool: &TexturePool,
+        render_texture_pool: &RenderTexturePool,
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
+        offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Option<Arc<wgpu::TextureView>> {
-        let id = resolved_texture_asset_id_for_host(
+        let binding = resolved_texture_binding_for_host(
             host_name,
             texture_property_id,
             primary_texture_2d,
             store,
             lookup,
         );
-        self.resolve_texture_view(texture_pool, id)
+        self.resolve_texture_view(
+            texture_pool,
+            render_texture_pool,
+            binding,
+            offscreen_write_render_texture_asset_id,
+        )
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn resolve_sampler_for_host(
         &self,
         host_name: &str,
         texture_property_id: i32,
         primary_texture_2d: i32,
         texture_pool: &TexturePool,
+        render_texture_pool: &RenderTexturePool,
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
+        offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Arc<wgpu::Sampler> {
-        let tid = resolved_texture_asset_id_for_host(
+        let binding = resolved_texture_binding_for_host(
             host_name,
             texture_property_id,
             primary_texture_2d,
             store,
             lookup,
         );
-        self.resolve_sampler(texture_pool, tid)
+        self.resolve_sampler(
+            texture_pool,
+            render_texture_pool,
+            binding,
+            offscreen_write_render_texture_asset_id,
+        )
     }
 
     fn resolve_texture_view(
         &self,
         texture_pool: &TexturePool,
-        texture_asset_id: i32,
+        render_texture_pool: &RenderTexturePool,
+        binding: ResolvedTextureBinding,
+        offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Option<Arc<wgpu::TextureView>> {
-        if texture_asset_id < 0 {
-            return None;
+        match binding {
+            ResolvedTextureBinding::None => None,
+            ResolvedTextureBinding::Texture2D { asset_id } => {
+                if asset_id < 0 {
+                    return None;
+                }
+                texture_pool
+                    .get_texture(asset_id)
+                    .filter(|t| t.mip_levels_resident > 0)
+                    .map(|t| t.view.clone())
+            }
+            ResolvedTextureBinding::RenderTexture { asset_id } => {
+                if asset_id < 0 {
+                    return None;
+                }
+                if offscreen_write_render_texture_asset_id == Some(asset_id) {
+                    return None;
+                }
+                render_texture_pool
+                    .get(asset_id)
+                    .filter(|t| t.is_sampleable())
+                    .map(|t| t.color_view.clone())
+            }
         }
-        texture_pool
-            .get_texture(texture_asset_id)
-            .filter(|t| t.mip_levels_resident > 0)
-            .map(|t| t.view.clone())
     }
 
     fn resolve_sampler(
         &self,
         texture_pool: &TexturePool,
-        texture_asset_id: i32,
+        render_texture_pool: &RenderTexturePool,
+        binding: ResolvedTextureBinding,
+        offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Arc<wgpu::Sampler> {
-        if texture_asset_id < 0 {
-            return self.default_sampler.clone();
+        match binding {
+            ResolvedTextureBinding::None => self.default_sampler.clone(),
+            ResolvedTextureBinding::Texture2D { asset_id } => {
+                if asset_id < 0 {
+                    return self.default_sampler.clone();
+                }
+                let Some(tex) = texture_pool.get_texture(asset_id) else {
+                    return self.default_sampler.clone();
+                };
+                Arc::new(sampler_from_state(&self.device, &tex.sampler))
+            }
+            ResolvedTextureBinding::RenderTexture { asset_id } => {
+                if asset_id < 0 {
+                    return self.default_sampler.clone();
+                }
+                if offscreen_write_render_texture_asset_id == Some(asset_id) {
+                    return self.default_sampler.clone();
+                }
+                let Some(tex) = render_texture_pool.get(asset_id) else {
+                    return self.default_sampler.clone();
+                };
+                Arc::new(sampler_from_state(&self.device, &tex.sampler))
+            }
         }
-        let Some(tex) = texture_pool.get_texture(texture_asset_id) else {
-            return self.default_sampler.clone();
-        };
-        Arc::new(sampler_from_state(&self.device, &tex.sampler))
     }
 }
 

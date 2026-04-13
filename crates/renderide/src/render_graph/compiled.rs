@@ -11,6 +11,19 @@ use super::context::RenderPassContext;
 use super::error::GraphExecuteError;
 use super::frame_params::{FrameRenderParams, HostCameraFrame};
 use super::pass::RenderPass;
+use super::world_mesh_draw_prep::CameraTransformDrawFilter;
+
+/// Single-view color + depth for secondary cameras rendering to a host [`crate::resources::GpuRenderTexture`].
+pub struct ExternalOffscreenTargets<'a> {
+    /// Host render-texture asset id for `color_view` (used to suppress self-sampling during this pass).
+    pub render_texture_asset_id: i32,
+    /// Color attachment (`Rgba16Float` for Unity `ARGBHalf` parity).
+    pub color_view: &'a wgpu::TextureView,
+    pub depth_texture: &'a wgpu::Texture,
+    pub depth_view: &'a wgpu::TextureView,
+    pub extent_px: (u32, u32),
+    pub color_format: wgpu::TextureFormat,
+}
 
 /// Pre-acquired 2-layer color + depth targets for OpenXR multiview (no window swapchain acquire).
 pub struct ExternalFrameTargets<'a> {
@@ -93,6 +106,69 @@ impl CompiledRenderGraph {
         self.execute_inner(gpu, window, scene, backend, host_camera, Some(external))
     }
 
+    /// Renders the graph to a single-view offscreen color/depth target (secondary camera → render texture).
+    ///
+    /// Does not acquire the swapchain or present. Sets [`FrameRenderParams::multiview_stereo`] to `false`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn execute_offscreen_single_view(
+        &mut self,
+        gpu: &mut GpuContext,
+        _window: &Window,
+        scene: &SceneCoordinator,
+        backend: &mut RenderBackend,
+        host_camera: HostCameraFrame,
+        external: ExternalOffscreenTargets<'_>,
+        transform_filter: Option<CameraTransformDrawFilter>,
+    ) -> Result<(), GraphExecuteError> {
+        let device_arc = gpu.device().clone();
+        let queue_arc = gpu.queue().clone();
+
+        let surface_format = external.color_format;
+        let viewport_px = external.extent_px;
+        let depth_tex_ref = external.depth_texture;
+        let depth_ref = external.depth_view;
+        let backbuffer_ref = Some(external.color_view);
+
+        let device = device_arc.as_ref();
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("render-graph-offscreen"),
+        });
+
+        let mut frame_params = FrameRenderParams {
+            scene,
+            backend,
+            depth_texture: depth_tex_ref,
+            depth_view: depth_ref,
+            surface_format,
+            viewport_px,
+            host_camera,
+            multiview_stereo: false,
+            transform_draw_filter: transform_filter,
+            offscreen_write_render_texture_asset_id: Some(external.render_texture_asset_id),
+        };
+
+        let mut ctx = RenderPassContext {
+            device,
+            queue: &queue_arc,
+            encoder: &mut encoder,
+            backbuffer: backbuffer_ref,
+            depth_view: Some(depth_ref),
+            frame: Some(&mut frame_params),
+        };
+
+        for pass in &mut self.passes {
+            pass.execute(&mut ctx)?;
+        }
+
+        let cmd = encoder.finish();
+        gpu.submit_tracked_frame_commands(cmd);
+        if !host_camera.suppress_occlusion_temporal {
+            backend.occlusion.hi_z_on_frame_submitted(device);
+        }
+        Ok(())
+    }
+
     fn execute_inner(
         &mut self,
         gpu: &mut GpuContext,
@@ -166,6 +242,8 @@ impl CompiledRenderGraph {
             viewport_px,
             host_camera,
             multiview_stereo: external.is_some(),
+            transform_draw_filter: None,
+            offscreen_write_render_texture_asset_id: None,
         };
 
         let mut ctx = RenderPassContext {
@@ -184,7 +262,9 @@ impl CompiledRenderGraph {
         if external.is_some() {
             let cmd = encoder.finish();
             gpu.submit_tracked_frame_commands(cmd);
-            backend.occlusion.hi_z_on_frame_submitted(device);
+            if !host_camera.suppress_occlusion_temporal {
+                backend.occlusion.hi_z_on_frame_submitted(device);
+            }
         } else if let Some(view) = backbuffer_view_holder.as_ref() {
             let mut queue_lock = queue_arc.lock().expect("queue mutex poisoned");
             if let Err(e) = backend.encode_debug_hud_overlay(

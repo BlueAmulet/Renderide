@@ -32,6 +32,43 @@ use crate::shared::RenderingContext;
 
 use super::world_mesh_cull_eval::{mesh_draw_passes_cpu_cull, CpuCullFailure};
 
+/// Selective / exclude transform lists for secondary cameras (Unity `CameraRenderer.Render` semantics).
+#[derive(Clone, Debug, Default)]
+pub struct CameraTransformDrawFilter {
+    /// When `Some`, only these transform node ids are drawn.
+    pub only: Option<HashSet<i32>>,
+    /// When [`Self::only`] is `None`, transforms in this set are skipped.
+    pub exclude: HashSet<i32>,
+}
+
+impl CameraTransformDrawFilter {
+    /// Returns `true` if `node_id` should be rendered under this filter.
+    pub fn passes(&self, node_id: i32) -> bool {
+        if let Some(only) = &self.only {
+            only.contains(&node_id)
+        } else {
+            !self.exclude.contains(&node_id)
+        }
+    }
+}
+
+/// Builds a filter from a host [`crate::scene::CameraRenderableEntry`].
+pub fn draw_filter_from_camera_entry(
+    entry: &crate::scene::CameraRenderableEntry,
+) -> CameraTransformDrawFilter {
+    if !entry.selective_transform_ids.is_empty() {
+        CameraTransformDrawFilter {
+            only: Some(entry.selective_transform_ids.iter().copied().collect()),
+            exclude: HashSet::new(),
+        }
+    } else {
+        CameraTransformDrawFilter {
+            only: None,
+            exclude: entry.exclude_transform_ids.iter().copied().collect(),
+        }
+    }
+}
+
 /// Groups draws that can share the same raster pipeline and material bind data (Unity material +
 /// [`MaterialPropertyBlock`](https://docs.unity3d.com/ScriptReference/MaterialPropertyBlock.html)-style slot0).
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -187,7 +224,13 @@ fn push_draws_for_renderer(
     mismatch_warned: &mut HashSet<i32>,
     culling: Option<&super::world_mesh_cull::WorldMeshCullInput<'_>>,
     cull_stats: &mut (usize, usize, usize),
+    transform_filter: Option<&CameraTransformDrawFilter>,
 ) {
+    if let Some(f) = transform_filter {
+        if !f.passes(renderer.node_id) {
+            return;
+        }
+    }
     let slots = resolved_material_slots(renderer);
     if slots.is_empty() {
         return;
@@ -355,6 +398,7 @@ pub fn collect_and_sort_world_mesh_draws(
     context: RenderingContext,
     head_output_transform: Mat4,
     culling: Option<&super::world_mesh_cull::WorldMeshCullInput<'_>>,
+    transform_filter: Option<&CameraTransformDrawFilter>,
 ) -> WorldMeshDrawCollection {
     let mut mismatch_warned = HashSet::new();
     let mut out = Vec::new();
@@ -409,6 +453,7 @@ pub fn collect_and_sort_world_mesh_draws(
                 &mut mismatch_warned,
                 culling,
                 &mut cull_stats,
+                transform_filter,
             );
         }
         for (renderable_index, skinned) in space.skinned_mesh_renderers.iter().enumerate() {
@@ -440,6 +485,7 @@ pub fn collect_and_sort_world_mesh_draws(
                 &mut mismatch_warned,
                 culling,
                 &mut cull_stats,
+                transform_filter,
             );
         }
     }

@@ -1,12 +1,14 @@
 //! GPU resource pools and VRAM hooks (meshes and Texture2D).
 
 mod budget;
+mod render_texture_pool;
 mod texture_pool;
 
 pub use budget::{
     MeshResidencyMeta, NoopStreamingPolicy, ResidencyTier, StreamingPolicy, TextureResidencyMeta,
     VramAccounting, VramResourceKind,
 };
+pub use render_texture_pool::{GpuRenderTexture, RenderTexturePool};
 pub use texture_pool::{GpuTexture2d, Texture2dSamplerState, TexturePool};
 
 use std::collections::HashMap;

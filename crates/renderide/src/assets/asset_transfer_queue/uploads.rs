@@ -8,11 +8,11 @@ use crate::assets::mesh::{
 };
 use crate::assets::texture::write_texture2d_mips;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
-use crate::resources::GpuTexture2d;
+use crate::resources::{GpuRenderTexture, GpuTexture2d};
 use crate::shared::{
-    MeshUnload, MeshUploadData, MeshUploadResult, RendererCommand, SetTexture2DData,
-    SetTexture2DFormat, SetTexture2DProperties, SetTexture2DResult, TextureUpdateResultType,
-    UnloadTexture2D,
+    MeshUnload, MeshUploadData, MeshUploadResult, RenderTextureResult, RendererCommand,
+    SetRenderTextureFormat, SetTexture2DData, SetTexture2DFormat, SetTexture2DProperties,
+    SetTexture2DResult, TextureUpdateResultType, UnloadRenderTexture, UnloadTexture2D,
 };
 
 use super::AssetTransferQueue;
@@ -52,6 +52,7 @@ pub fn attach_flush_pending_asset_uploads(
     shm: Option<&mut SharedMemoryAccessor>,
 ) {
     flush_pending_texture_allocations(queue, device);
+    flush_pending_render_texture_allocations(queue, device);
     let pending_tex: Vec<SetTexture2DData> = queue.pending_texture_uploads.drain(..).collect();
     let pending_mesh: Vec<MeshUploadData> = queue.pending_mesh_uploads.drain(..).collect();
     if let Some(shm) = shm {
@@ -86,6 +87,86 @@ fn flush_pending_texture_allocations(queue: &mut AssetTransferQueue, device: &Ar
             continue;
         };
         let _ = queue.texture_pool.insert_texture(tex);
+    }
+}
+
+fn flush_pending_render_texture_allocations(
+    queue: &mut AssetTransferQueue,
+    device: &Arc<wgpu::Device>,
+) {
+    let ids: Vec<i32> = queue.render_texture_formats.keys().copied().collect();
+    for id in ids {
+        if queue.render_texture_pool.get(id).is_some() {
+            continue;
+        }
+        let Some(fmt) = queue.render_texture_formats.get(&id).cloned() else {
+            continue;
+        };
+        let Some(tex) = GpuRenderTexture::new_from_format(device.as_ref(), &fmt) else {
+            logger::warn!("render texture {id}: failed to allocate GPU targets on attach");
+            continue;
+        };
+        let _ = queue.render_texture_pool.insert_texture(tex);
+    }
+}
+
+fn send_render_texture_result(
+    ipc: Option<&mut DualQueueIpc>,
+    asset_id: i32,
+    instance_changed: bool,
+) {
+    let Some(ipc) = ipc else {
+        return;
+    };
+    ipc.send_background(RendererCommand::render_texture_result(
+        RenderTextureResult {
+            asset_id,
+            instance_changed,
+        },
+    ));
+}
+
+/// Handle [`SetRenderTextureFormat`](crate::shared::SetRenderTextureFormat).
+pub fn on_set_render_texture_format(
+    queue: &mut AssetTransferQueue,
+    f: SetRenderTextureFormat,
+    ipc: Option<&mut DualQueueIpc>,
+) {
+    let id = f.asset_id;
+    queue.render_texture_formats.insert(id, f.clone());
+    let Some(device) = queue.gpu_device.clone() else {
+        send_render_texture_result(ipc, id, queue.render_texture_pool.get(id).is_none());
+        return;
+    };
+    let Some(tex) = GpuRenderTexture::new_from_format(device.as_ref(), &f) else {
+        logger::warn!("render texture {id}: SetRenderTextureFormat rejected (bad size or device)");
+        return;
+    };
+    let existed_before = queue.render_texture_pool.insert_texture(tex);
+    send_render_texture_result(ipc, id, !existed_before);
+    logger::trace!(
+        "render texture {} {}×{} depth_bits={} (resident_bytes≈{})",
+        id,
+        f.size.x,
+        f.size.y,
+        f.depth,
+        queue
+            .render_texture_pool
+            .accounting()
+            .texture_resident_bytes()
+    );
+}
+
+/// Remove a render texture asset from the CPU table and GPU pool.
+pub fn on_unload_render_texture(queue: &mut AssetTransferQueue, u: UnloadRenderTexture) {
+    let id = u.asset_id;
+    queue.render_texture_formats.remove(&id);
+    if queue.render_texture_pool.remove(id) {
+        logger::info!(
+            "render texture {id} unloaded (tex≈{} total≈{})",
+            queue.texture_pool.accounting().texture_resident_bytes(),
+            queue.mesh_pool.accounting().total_resident_bytes()
+        );
     }
 }
 

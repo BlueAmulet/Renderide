@@ -505,6 +505,13 @@ impl RenderideApp {
             return;
         };
 
+        if let Err(e) = self
+            .runtime
+            .render_secondary_cameras_to_render_textures(gpu, window.as_ref())
+        {
+            logger::warn!("secondary camera render-to-texture failed: {e:?}");
+        }
+
         if let Ok(s) = self.runtime.settings().read() {
             gpu.set_vsync(s.rendering.vsync);
         }

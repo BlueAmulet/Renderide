@@ -6,11 +6,42 @@ use std::hash::{Hash, Hasher};
 use crate::assets::material::{
     MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
 };
-use crate::assets::texture::texture2d_asset_id_from_packed;
+use crate::assets::texture::{
+    texture2d_asset_id_from_packed, unpack_host_texture_packed, HostTextureAssetKind,
+};
 use crate::materials::ReflectedRasterLayout;
-use crate::resources::{Texture2dSamplerState, TexturePool};
+use crate::resources::{RenderTexturePool, Texture2dSamplerState, TexturePool};
 
 use super::embedded_material_layout::StemEmbeddedPropertyIds;
+
+/// Resolved GPU texture binding for a material property (packed host id or primary fallback).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResolvedTextureBinding {
+    /// No texture or unsupported packed type.
+    None,
+    /// [`crate::resources::TexturePool`] entry (unpacked 2D asset id).
+    Texture2D { asset_id: i32 },
+    /// [`crate::resources::RenderTexturePool`] entry (unpacked render-texture asset id).
+    RenderTexture { asset_id: i32 },
+}
+
+impl ResolvedTextureBinding {
+    fn hash_for_signature(self, hasher: &mut DefaultHasher) {
+        match self {
+            ResolvedTextureBinding::None => {
+                0u8.hash(hasher);
+            }
+            ResolvedTextureBinding::Texture2D { asset_id } => {
+                1u8.hash(hasher);
+                asset_id.hash(hasher);
+            }
+            ResolvedTextureBinding::RenderTexture { asset_id } => {
+                2u8.hash(hasher);
+                asset_id.hash(hasher);
+            }
+        }
+    }
+}
 
 /// Resolves primary 2D texture asset id from reflected material entries.
 pub(crate) fn primary_texture_2d_asset_id(
@@ -36,47 +67,62 @@ pub(crate) fn should_fallback_to_primary_texture(host_name: &str) -> bool {
     matches!(host_name, "_MainTex" | "_Tex" | "_TEXTURE")
 }
 
-fn texture_property_asset_id_by_pid(
+fn texture_property_binding(
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
     property_id: i32,
-) -> i32 {
+) -> ResolvedTextureBinding {
     match store.get_merged(lookup, property_id) {
-        Some(MaterialPropertyValue::Texture(packed)) => {
-            texture2d_asset_id_from_packed(*packed).unwrap_or(-1)
-        }
-        _ => -1,
+        Some(MaterialPropertyValue::Texture(packed)) => match unpack_host_texture_packed(*packed) {
+            Some((id, HostTextureAssetKind::Texture2D)) => {
+                ResolvedTextureBinding::Texture2D { asset_id: id }
+            }
+            Some((id, HostTextureAssetKind::RenderTexture)) => {
+                ResolvedTextureBinding::RenderTexture { asset_id: id }
+            }
+            _ => ResolvedTextureBinding::None,
+        },
+        _ => ResolvedTextureBinding::None,
     }
 }
 
-/// Resolves resident texture asset id for a host property name, with primary-texture fallback.
-pub(crate) fn resolved_texture_asset_id_for_host(
+/// Resolves resident texture binding for a host property name, with primary-texture fallback for 2D-only slots.
+pub(crate) fn resolved_texture_binding_for_host(
     host_name: &str,
     texture_property_id: i32,
     primary_texture_2d: i32,
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
-) -> i32 {
-    let tid = texture_property_asset_id_by_pid(store, lookup, texture_property_id);
-    if tid >= 0 {
-        return tid;
+) -> ResolvedTextureBinding {
+    let b = texture_property_binding(store, lookup, texture_property_id);
+    if !matches!(b, ResolvedTextureBinding::None) {
+        return b;
     }
-    if should_fallback_to_primary_texture(host_name) {
-        return primary_texture_2d;
+    if should_fallback_to_primary_texture(host_name) && primary_texture_2d >= 0 {
+        return ResolvedTextureBinding::Texture2D {
+            asset_id: primary_texture_2d,
+        };
     }
-    -1
+    ResolvedTextureBinding::None
 }
 
 /// Fingerprint for bind cache invalidation when texture views or residency change.
+///
+/// When `offscreen_write_render_texture_asset_id` is [`Some`], that render-texture id is treated as
+/// non-resident (offscreen color target; self-sampling is masked).
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn texture_bind_signature(
     reflected: &ReflectedRasterLayout,
     ids: &StemEmbeddedPropertyIds,
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
     texture_pool: &TexturePool,
+    render_texture_pool: &RenderTexturePool,
     primary_texture_2d: i32,
+    offscreen_write_render_texture_asset_id: Option<i32>,
 ) -> u64 {
     let mut h = DefaultHasher::new();
+    offscreen_write_render_texture_asset_id.hash(&mut h);
     for entry in &reflected.material_entries {
         if !matches!(entry.ty, wgpu::BindingType::Texture { .. }) {
             continue;
@@ -87,7 +133,7 @@ pub(crate) fn texture_bind_signature(
         let Some(&texture_pid) = ids.texture_binding_to_property_id.get(&entry.binding) else {
             continue;
         };
-        let texture_asset_id = resolved_texture_asset_id_for_host(
+        let binding = resolved_texture_binding_for_host(
             name.as_str(),
             texture_pid,
             primary_texture_2d,
@@ -96,11 +142,23 @@ pub(crate) fn texture_bind_signature(
         );
         entry.binding.hash(&mut h);
         name.hash(&mut h);
-        texture_asset_id.hash(&mut h);
-        texture_pool
-            .get_texture(texture_asset_id)
-            .is_some_and(|t| t.mip_levels_resident > 0)
-            .hash(&mut h);
+        binding.hash_for_signature(&mut h);
+        let resident = match binding {
+            ResolvedTextureBinding::None => false,
+            ResolvedTextureBinding::Texture2D { asset_id } => texture_pool
+                .get_texture(asset_id)
+                .is_some_and(|t| t.mip_levels_resident > 0),
+            ResolvedTextureBinding::RenderTexture { asset_id } => {
+                if offscreen_write_render_texture_asset_id == Some(asset_id) {
+                    false
+                } else {
+                    render_texture_pool
+                        .get(asset_id)
+                        .is_some_and(|t| t.is_sampleable())
+                }
+            }
+        };
+        resident.hash(&mut h);
     }
     h.finish()
 }

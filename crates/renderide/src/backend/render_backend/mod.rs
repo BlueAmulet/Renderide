@@ -15,8 +15,11 @@ use crate::gpu::GpuContext;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::RasterPipelineKind;
 use crate::render_graph::WorldMeshDrawStats;
-use crate::render_graph::{CompiledRenderGraph, ExternalFrameTargets, GraphExecuteError};
-use crate::resources::{MeshPool, TexturePool};
+use crate::render_graph::{
+    CameraTransformDrawFilter, CompiledRenderGraph, ExternalFrameTargets, ExternalOffscreenTargets,
+    GraphExecuteError,
+};
+use crate::resources::{MeshPool, RenderTexturePool, TexturePool};
 use crate::scene::SceneCoordinator;
 
 use super::debug_hud_bundle::DebugHudBundle;
@@ -26,8 +29,8 @@ use super::mesh_deform_scratch::MeshDeformScratch;
 use super::occlusion::OcclusionSystem;
 use crate::assets::asset_transfer_queue::{self as asset_uploads, AssetTransferQueue};
 use crate::shared::{
-    MaterialsUpdateBatch, MeshUnload, MeshUploadData, SetTexture2DData, SetTexture2DFormat,
-    SetTexture2DProperties, UnloadTexture2D,
+    MaterialsUpdateBatch, MeshUnload, MeshUploadData, SetRenderTextureFormat, SetTexture2DData,
+    SetTexture2DFormat, SetTexture2DProperties, UnloadRenderTexture, UnloadTexture2D,
 };
 use winit::window::Window;
 
@@ -151,6 +154,11 @@ impl RenderBackend {
         &self.asset_transfers.texture_pool
     }
 
+    /// Host render texture targets (secondary cameras, material sampling).
+    pub fn render_texture_pool(&self) -> &RenderTexturePool {
+        &self.asset_transfers.render_texture_pool
+    }
+
     /// Mutable texture pool.
     pub fn texture_pool_mut(&mut self) -> &mut TexturePool {
         &mut self.asset_transfers.texture_pool
@@ -272,6 +280,32 @@ impl RenderBackend {
             return Err(GraphExecuteError::NoFrameGraph);
         };
         let res = graph.execute_external_multiview(gpu, window, scene, self, host_camera, external);
+        self.frame_graph = Some(graph);
+        res
+    }
+
+    /// Renders the default graph to a single-view render texture (secondary camera).
+    pub fn execute_frame_graph_offscreen_single_view(
+        &mut self,
+        gpu: &mut GpuContext,
+        window: &Window,
+        scene: &SceneCoordinator,
+        host_camera: crate::render_graph::HostCameraFrame,
+        external: ExternalOffscreenTargets<'_>,
+        transform_filter: Option<CameraTransformDrawFilter>,
+    ) -> Result<(), GraphExecuteError> {
+        let Some(mut graph) = self.frame_graph.take() else {
+            return Err(GraphExecuteError::NoFrameGraph);
+        };
+        let res = graph.execute_offscreen_single_view(
+            gpu,
+            window,
+            scene,
+            self,
+            host_camera,
+            external,
+            transform_filter,
+        );
         self.frame_graph = Some(graph);
         res
     }
@@ -476,6 +510,20 @@ impl RenderBackend {
     /// Remove a texture asset from CPU tables and the pool.
     pub fn on_unload_texture_2d(&mut self, u: UnloadTexture2D) {
         asset_uploads::on_unload_texture_2d(&mut self.asset_transfers, u);
+    }
+
+    /// Handle [`SetRenderTextureFormat`](crate::shared::SetRenderTextureFormat).
+    pub fn on_set_render_texture_format(
+        &mut self,
+        f: SetRenderTextureFormat,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_set_render_texture_format(&mut self.asset_transfers, f, ipc);
+    }
+
+    /// Handle [`UnloadRenderTexture`](crate::shared::UnloadRenderTexture).
+    pub fn on_unload_render_texture(&mut self, u: UnloadRenderTexture) {
+        asset_uploads::on_unload_render_texture(&mut self.asset_transfers, u);
     }
 
     /// Ingest mesh bytes from shared memory; notifies host when `ipc` is set.

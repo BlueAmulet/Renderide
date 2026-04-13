@@ -3,6 +3,7 @@
 use super::render_overrides::{RenderMaterialOverrideEntry, RenderTransformOverrideEntry};
 use crate::shared::{RenderSpaceUpdate, RenderTransform};
 
+use super::camera_apply::CameraRenderableEntry;
 use super::ids::RenderSpaceId;
 use super::mesh_renderable::{SkinnedMeshRenderer, StaticMeshRenderer};
 
@@ -33,6 +34,8 @@ pub struct RenderSpaceState {
     pub static_mesh_renderers: Vec<StaticMeshRenderer>,
     /// Skinned mesh renderables; separate dense table from static.
     pub skinned_mesh_renderers: Vec<SkinnedMeshRenderer>,
+    /// Host camera components (secondary cameras, render texture targets).
+    pub cameras: Vec<CameraRenderableEntry>,
     /// Render-context-local transform substitutions from the host.
     pub render_transform_overrides: Vec<RenderTransformOverrideEntry>,
     /// Render-context-local material substitutions from the host.
@@ -71,6 +74,7 @@ impl Default for RenderSpaceState {
             node_parents: Vec::new(),
             static_mesh_renderers: Vec::new(),
             skinned_mesh_renderers: Vec::new(),
+            cameras: Vec::new(),
             render_transform_overrides: Vec::new(),
             render_material_overrides: Vec::new(),
         }

@@ -103,4 +103,16 @@ mod tests {
         );
         assert_eq!(texture2d_asset_id_from_packed(id), Some(id));
     }
+
+    #[test]
+    fn render_texture_packed_id_unpacks() {
+        let type_bits = super::necessary_bits(super::TEXTURE_ASSET_TYPE_COUNT);
+        let pack_type_shift = 32u32.saturating_sub(type_bits);
+        let asset_id = 7i32;
+        let packed = asset_id | ((HostTextureAssetKind::RenderTexture as i32) << pack_type_shift);
+        let (id, k) = unpack_host_texture_packed(packed).expect("unpack");
+        assert_eq!(id, asset_id);
+        assert_eq!(k, HostTextureAssetKind::RenderTexture);
+        assert_eq!(texture2d_asset_id_from_packed(packed), None);
+    }
 }

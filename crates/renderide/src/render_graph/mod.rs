@@ -50,6 +50,7 @@ mod output_depth_mode;
 mod pass;
 mod resources;
 mod reverse_z_depth;
+mod secondary_camera;
 mod skinning_palette;
 mod world_mesh_cull;
 mod world_mesh_cull_eval;
@@ -59,8 +60,9 @@ mod world_mesh_draw_stats;
 pub mod passes;
 
 pub use world_mesh_draw_prep::{
-    collect_and_sort_world_mesh_draws, resolved_material_slots, sort_world_mesh_draws,
-    MaterialDrawBatchKey, WorldMeshDrawCollection, WorldMeshDrawItem,
+    collect_and_sort_world_mesh_draws, draw_filter_from_camera_entry, resolved_material_slots,
+    sort_world_mesh_draws, CameraTransformDrawFilter, MaterialDrawBatchKey,
+    WorldMeshDrawCollection, WorldMeshDrawItem,
 };
 pub use world_mesh_draw_stats::{world_mesh_draw_stats_from_sorted, WorldMeshDrawStats};
 
@@ -72,7 +74,9 @@ pub use camera::{
 };
 pub use camera::{DESKTOP_FOV_DEGREES_MAX, DESKTOP_FOV_DEGREES_MIN};
 pub use cluster_frame::{cluster_frame_params, cluster_frame_params_stereo, ClusterFrameParams};
-pub use compiled::{CompileStats, CompiledRenderGraph, ExternalFrameTargets};
+pub use compiled::{
+    CompileStats, CompiledRenderGraph, ExternalFrameTargets, ExternalOffscreenTargets,
+};
 pub use context::RenderPassContext;
 pub use error::{GraphBuildError, GraphExecuteError, RenderPassError};
 pub use frame_params::{FrameRenderParams, HostCameraFrame};
@@ -94,6 +98,7 @@ pub use output_depth_mode::OutputDepthMode;
 pub use pass::RenderPass;
 pub use resources::{PassResources, ResourceSlot};
 pub use reverse_z_depth::{MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE};
+pub use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};
 pub use skinning_palette::build_skinning_palette;
 pub use world_mesh_cull::{
     build_world_mesh_cull_proj_params, capture_hi_z_temporal, HiZTemporalState, WorldMeshCullInput,

@@ -45,6 +45,7 @@
 //! shared memory by marking each task [`ComputeResult::failed`](crate::shared::ComputeResult) until
 //! SH2 extraction is implemented (module `reflection_probe_sh2`).
 
+mod camera_apply;
 mod coordinator;
 mod error;
 mod ids;
@@ -60,6 +61,7 @@ mod render_space;
 mod transforms_apply;
 mod world;
 
+pub use camera_apply::CameraRenderableEntry;
 pub use coordinator::SceneCoordinator;
 pub use error::SceneError;
 pub use ids::{RenderSpaceId, TransformIndex};

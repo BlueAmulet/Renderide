@@ -79,6 +79,36 @@ pub fn cluster_frame_params(
     scene: &SceneCoordinator,
     viewport_px: (u32, u32),
 ) -> Option<ClusterFrameParams> {
+    if let (Some(view), Some(proj)) = (
+        host_camera.cluster_view_override,
+        host_camera.cluster_proj_override,
+    ) {
+        let (vw, vh) = viewport_px;
+        if vw == 0 || vh == 0 {
+            return None;
+        }
+        let (near_clip, far_clip) = effective_head_output_clip_planes(
+            host_camera.near_clip,
+            host_camera.far_clip,
+            host_camera.output_device,
+            scene
+                .active_main_space()
+                .map(|space| space.root_transform.scale),
+        );
+        let cluster_count_x = vw.div_ceil(TILE_SIZE);
+        let cluster_count_y = vh.div_ceil(TILE_SIZE);
+        return Some(ClusterFrameParams {
+            near_clip,
+            far_clip,
+            world_to_view: view,
+            proj,
+            cluster_count_x,
+            cluster_count_y,
+            viewport_width: vw,
+            viewport_height: vh,
+        });
+    }
+
     let common = CommonClusterInputs::compute(host_camera, scene, viewport_px)?;
 
     let world_to_view = common.scene_view;

@@ -36,6 +36,12 @@ pub(super) fn handle_running_command(runtime: &mut RendererRuntime, cmd: Rendere
             runtime.backend.on_set_texture_2d_data(d, shm, ipc);
         }
         RendererCommand::unload_texture_2d(u) => runtime.backend.on_unload_texture_2d(u),
+        RendererCommand::set_render_texture_format(f) => {
+            runtime
+                .backend
+                .on_set_render_texture_format(f, runtime.frontend.ipc_mut());
+        }
+        RendererCommand::unload_render_texture(u) => runtime.backend.on_unload_render_texture(u),
         RendererCommand::free_shared_memory_view(f) => {
             if let Some(shm) = runtime.frontend.shared_memory_mut() {
                 shm.release_view(f.buffer_id);
@@ -84,6 +90,11 @@ pub(super) fn handle_running_command(runtime: &mut RendererRuntime, cmd: Rendere
         }
         RendererCommand::lights_buffer_renderer_consumed(_) => {
             logger::trace!("runtime: lights_buffer_renderer_consumed from host (ignored)");
+        }
+        RendererCommand::render_texture_result(_) => {
+            logger::trace!(
+                "runtime: render_texture_result from host (ignored; renderer is source)"
+            );
         }
         _ => {
             logger::trace!("runtime: unhandled RendererCommand (expand handlers here)");
