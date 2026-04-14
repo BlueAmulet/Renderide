@@ -11,7 +11,7 @@ use super::context::RenderPassContext;
 use super::error::GraphExecuteError;
 use super::frame_params::{FrameRenderParams, HostCameraFrame};
 use super::pass::RenderPass;
-use super::world_mesh_draw_prep::CameraTransformDrawFilter;
+use super::world_mesh_draw_prep::{CameraTransformDrawFilter, WorldMeshDrawCollection};
 
 /// Single-view color + depth for secondary cameras rendering to a host [`crate::resources::GpuRenderTexture`].
 pub struct ExternalOffscreenTargets<'a> {
@@ -123,6 +123,7 @@ impl CompiledRenderGraph {
         host_camera: HostCameraFrame,
         external: ExternalOffscreenTargets<'_>,
         transform_filter: Option<CameraTransformDrawFilter>,
+        prefetched_world_mesh_draws: Option<WorldMeshDrawCollection>,
     ) -> Result<(), GraphExecuteError> {
         let device_arc = gpu.device().clone();
         let queue_arc = gpu.queue().clone();
@@ -150,6 +151,7 @@ impl CompiledRenderGraph {
             multiview_stereo: false,
             transform_draw_filter: transform_filter,
             offscreen_write_render_texture_asset_id: Some(external.render_texture_asset_id),
+            prefetched_world_mesh_draws,
         };
 
         let mut ctx = RenderPassContext {
@@ -248,6 +250,7 @@ impl CompiledRenderGraph {
             multiview_stereo: external.is_some(),
             transform_draw_filter: None,
             offscreen_write_render_texture_asset_id: None,
+            prefetched_world_mesh_draws: None,
         };
 
         let mut ctx = RenderPassContext {

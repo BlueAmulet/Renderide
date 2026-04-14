@@ -6,7 +6,7 @@ use crate::backend::RenderBackend;
 use crate::scene::SceneCoordinator;
 use crate::shared::HeadOutputDevice;
 
-use super::world_mesh_draw_prep::CameraTransformDrawFilter;
+use super::world_mesh_draw_prep::{CameraTransformDrawFilter, WorldMeshDrawCollection};
 use super::OutputDepthMode;
 
 /// Latest camera-related fields from host [`crate::shared::FrameSubmitData`], updated each `frame_submit`.
@@ -106,6 +106,9 @@ pub struct FrameRenderParams<'a> {
     /// same pass (wgpu forbids `TEXTURE_BINDING` + `RENDER_ATTACHMENT` on one subresource); embedded
     /// bind resolves fall back to a white placeholder for this id.
     pub offscreen_write_render_texture_asset_id: Option<i32>,
+    /// When set (e.g. secondary RT cameras), [`crate::render_graph::passes::WorldMeshForwardPass`] skips
+    /// draw collection and uses this list instead.
+    pub prefetched_world_mesh_draws: Option<WorldMeshDrawCollection>,
 }
 
 impl<'a> FrameRenderParams<'a> {

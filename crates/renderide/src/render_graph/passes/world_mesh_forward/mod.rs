@@ -133,15 +133,17 @@ impl RenderPass for WorldMeshForwardPass {
             })
         };
 
-        let backend = &mut frame.backend;
-        let fallback_router = MaterialRouter::new(RasterPipelineKind::DebugWorldNormals);
-        let router_ref = backend
-            .materials
-            .material_registry
-            .as_ref()
-            .map(|r| &r.router)
-            .unwrap_or(&fallback_router);
-        let collection = {
+        let collection = if let Some(prefetched) = frame.prefetched_world_mesh_draws.take() {
+            prefetched
+        } else {
+            let backend = &mut frame.backend;
+            let fallback_router = MaterialRouter::new(RasterPipelineKind::DebugWorldNormals);
+            let router_ref = backend
+                .materials
+                .material_registry
+                .as_ref()
+                .map(|r| &r.router)
+                .unwrap_or(&fallback_router);
             let dict = MaterialDictionary::new(backend.material_property_store());
             collect_and_sort_world_mesh_draws(
                 frame.scene,
@@ -155,6 +157,7 @@ impl RenderPass for WorldMeshForwardPass {
                 frame.transform_draw_filter.as_ref(),
             )
         };
+        let backend = &mut frame.backend;
         if !hc.suppress_occlusion_temporal {
             if let Some(ref cull_in) = culling {
                 backend.occlusion.capture_hi_z_temporal_for_next_frame(

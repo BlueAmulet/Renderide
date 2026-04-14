@@ -26,7 +26,7 @@
 //! some GPU passes in [`passes`]):
 //!
 //! 1. **LightPrep** — [`crate::backend::FrameResourceManager::prepare_lights_from_scene`] packs
-//!    clustered lights (see [`cluster_frame`]).
+//!    clustered lights (see [`cluster_frame`]); at most one full pack per winit tick (coalesced across graph entry points).
 //! 2. **Camera / cluster params** — [`frame_params::FrameRenderParams`] + [`cluster_frame`] from
 //!    host camera and [`HostCameraFrame`].
 //! 3. **Cull** — frustum and Hi-Z occlusion in [`world_mesh_cull`] (inputs to forward pass).

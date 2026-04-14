@@ -38,6 +38,11 @@ pub struct FrameResourceManager {
     light_scratch: Vec<GpuLight>,
     /// Reused each frame to flatten all spaces’ [`crate::scene::ResolvedLight`] before ordering and GPU pack.
     resolved_flatten_scratch: Vec<ResolvedLight>,
+    /// When true, [`Self::prepare_lights_from_scene`] is a no-op until [`Self::reset_light_prep_for_tick`].
+    ///
+    /// Cleared at the start of each winit tick so multiple graph entry points in one tick (e.g. secondary
+    /// RT passes then main swapchain) share one CPU light pack.
+    light_prep_done_this_tick: bool,
 }
 
 impl Default for FrameResourceManager {
@@ -55,6 +60,7 @@ impl FrameResourceManager {
             debug_draw: None,
             light_scratch: Vec::new(),
             resolved_flatten_scratch: Vec::new(),
+            light_prep_done_this_tick: false,
         }
     }
 
@@ -69,6 +75,12 @@ impl FrameResourceManager {
         };
         self.empty_material = Some(EmptyMaterialBindGroup::new(device));
         self.debug_draw = Some(DebugDrawResources::new(device));
+    }
+
+    /// Clears the per-tick light prep coalescing flag. Call once per winit frame from
+    /// [`crate::runtime::RendererRuntime::tick_frame_wall_clock_begin`].
+    pub fn reset_light_prep_for_tick(&mut self) {
+        self.light_prep_done_this_tick = false;
     }
 
     /// Packed GPU lights from the last [`Self::prepare_lights_from_scene`] call.
@@ -104,7 +116,13 @@ impl FrameResourceManager {
 
     /// Fills the light scratch buffer from [`SceneCoordinator`] (all spaces, clustered ordering,
     /// capped at [`super::MAX_LIGHTS`]).
+    ///
+    /// After the first successful run in a winit tick, subsequent calls are skipped until
+    /// [`Self::reset_light_prep_for_tick`], so secondary RT and main passes share one pack.
     pub fn prepare_lights_from_scene(&mut self, scene: &SceneCoordinator) {
+        if self.light_prep_done_this_tick {
+            return;
+        }
         self.light_scratch.clear();
         self.resolved_flatten_scratch.clear();
         for id in scene.render_space_ids() {
@@ -118,6 +136,7 @@ impl FrameResourceManager {
                 .iter()
                 .map(GpuLight::from_resolved),
         );
+        self.light_prep_done_this_tick = true;
     }
 
     /// Per-draw debug mesh uniforms: 256-byte dynamic uniform slab.
