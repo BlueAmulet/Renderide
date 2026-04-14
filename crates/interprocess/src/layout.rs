@@ -5,7 +5,9 @@ use std::mem::size_of;
 /// Offset of the ring buffer from the start of the mapping (after [`QueueHeader`]).
 pub const BUFFER_BYTE_OFFSET: usize = size_of::<QueueHeader>();
 
-/// Queue header size on the wire (32 bytes).
+/// Fixed header at the start of the mapped queue file; ring bytes follow at the byte offset given by the crate-root `BUFFER_BYTE_OFFSET` constant.
+///
+/// `read_offset` / `write_offset` use logical positions that may wrap using modulo `capacity`.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 pub struct QueueHeader {
@@ -26,7 +28,7 @@ impl QueueHeader {
     }
 }
 
-/// Per-message header (8 bytes), immediately followed by the body then padding to eight bytes.
+/// Per-message prefix (8 bytes) at the start of each slot in the ring; body follows, then padding to eight bytes.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct MessageHeader {

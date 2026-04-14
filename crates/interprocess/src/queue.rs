@@ -9,7 +9,7 @@ use crate::Subscriber;
 pub struct QueueFactory;
 
 impl QueueFactory {
-    /// Creates an empty factory.
+    /// Creates a factory with no state; matches the managed `QueueFactory` usage pattern.
     pub fn new() -> Self {
         Self
     }

@@ -32,10 +32,12 @@ impl Publisher {
         })
     }
 
+    /// Pointer to the shared [`crate::QueueHeader`] at the start of the mapping.
     fn header_mut(&mut self) -> *mut QueueHeader {
         self.mapping.as_mut_ptr() as *mut QueueHeader
     }
 
+    /// Pointer to the start of the byte ring (after the queue header).
     fn buffer_mut(&mut self) -> *mut u8 {
         unsafe {
             self.mapping
@@ -44,6 +46,7 @@ impl Publisher {
         }
     }
 
+    /// Returns `true` if the ring has enough contiguous logical space for `message_len` (padded).
     fn check_capacity(&self, header: &QueueHeader, message_len: i64) -> bool {
         if message_len > self.capacity {
             return false;
@@ -129,4 +132,9 @@ impl Drop for Publisher {
 }
 
 /// Shared-memory queues are process-wide handles; treat ownership as non-`Sync` socket-style.
+///
+/// # Safety
+///
+/// The mapping is owned by this process and may be sent to another thread that owns the
+/// [`Publisher`]. The same synchronization rules as the managed implementation apply.
 unsafe impl Send for Publisher {}

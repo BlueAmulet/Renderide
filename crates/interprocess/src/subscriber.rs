@@ -17,6 +17,7 @@ use crate::QueueHeader;
 /// `DateTime.UtcNow.Ticks` value at the Unix epoch (100 ns ticks since 0001-01-01 UTC).
 const DOTNET_TICKS_AT_UNIX_EPOCH: i64 = 621_355_968_000_000_000;
 
+/// Current instant in the same 100 ns tick domain as .NET `DateTime.UtcNow.Ticks`.
 fn utc_now_ticks() -> i64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(d) => {
@@ -47,14 +48,17 @@ impl Subscriber {
         })
     }
 
+    /// Pointer to the shared [`crate::QueueHeader`] at the start of the mapping.
     fn header_mut(&mut self) -> *mut QueueHeader {
         self.mapping.as_mut_ptr() as *mut QueueHeader
     }
 
+    /// Pointer to the start of the byte ring (after the queue header).
     fn buffer_ptr(&self) -> *const u8 {
         unsafe { self.mapping.as_ptr().add(crate::layout::BUFFER_BYTE_OFFSET) }
     }
 
+    /// Mutable pointer to the start of the byte ring (after the queue header).
     fn buffer_mut(&mut self) -> *mut u8 {
         unsafe {
             self.mapping
@@ -191,4 +195,10 @@ impl Drop for Subscriber {
     }
 }
 
+/// Shared-memory queues are process-wide handles; treat ownership as non-`Sync` socket-style.
+///
+/// # Safety
+///
+/// The mapping is owned by this process and may be sent to another thread that owns the
+/// [`Subscriber`]. The same synchronization rules as the managed implementation apply.
 unsafe impl Send for Subscriber {}

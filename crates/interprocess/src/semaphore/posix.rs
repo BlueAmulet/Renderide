@@ -6,10 +6,11 @@ use std::time::Duration;
 #[cfg(target_vendor = "apple")]
 use std::time::Instant;
 
-/// Opens `/ct.ip.{memory_view_name}`.
+/// Handle to a POSIX named semaphore created with `sem_open` (`/ct.ip.{memory_view_name}`).
 pub(super) struct PosixSemaphore(*mut libc::sem_t);
 
 impl PosixSemaphore {
+    /// Opens or creates the semaphore with mode `0o777` and initial value `0`.
     pub(super) fn open(memory_view_name: &str) -> io::Result<Self> {
         let full_name = format!("/ct.ip.{memory_view_name}");
         let c_name = CString::new(full_name).map_err(|_| {
@@ -22,6 +23,7 @@ impl PosixSemaphore {
         Ok(Self(h))
     }
 
+    /// Increments the semaphore (wake one waiter).
     pub(super) fn post(&self) {
         let rc = unsafe { libc::sem_post(self.0) };
         if rc != 0 {
@@ -29,6 +31,7 @@ impl PosixSemaphore {
         }
     }
 
+    /// Waits for a post, using `sem_timedwait` on non-Apple Unix and polling on Apple platforms.
     pub(super) fn wait_timeout(&self, timeout: Duration) -> bool {
         if timeout.is_zero() {
             return self.try_wait();
@@ -43,6 +46,7 @@ impl PosixSemaphore {
         }
     }
 
+    /// Non-blocking wait; returns `true` if the semaphore was acquired.
     fn try_wait(&self) -> bool {
         loop {
             let rc = unsafe { libc::sem_trywait(self.0) };

@@ -13,10 +13,11 @@ use windows_sys::Win32::System::Threading::{
 
 use crate::naming;
 
-/// Win32 semaphore handle.
+/// Win32 semaphore handle from `CreateSemaphoreW` (`Global\CT.IP.{name}`).
 pub(super) struct WinSemaphore(windows_sys::Win32::Foundation::HANDLE);
 
 impl WinSemaphore {
+    /// Creates or opens the named global semaphore (initial count `0`, max `i32::MAX`).
     pub(super) fn open(memory_view_name: &str) -> io::Result<Self> {
         let full_name = naming::windows_semaphore_wide_name(memory_view_name);
         let name_wide: Vec<u16> = OsStr::new(&full_name)
@@ -30,6 +31,7 @@ impl WinSemaphore {
         Ok(Self(handle))
     }
 
+    /// Releases one semaphore count (`ReleaseSemaphore`).
     pub(super) fn post(&self) {
         let rc = unsafe { ReleaseSemaphore(self.0, 1, null_mut()) };
         if rc == 0 {
@@ -41,6 +43,7 @@ impl WinSemaphore {
         }
     }
 
+    /// Waits on the semaphore with a timeout in milliseconds (capped; very long waits use `INFINITE`).
     pub(super) fn wait_timeout(&self, timeout: Duration) -> bool {
         let ms = if timeout.is_zero() {
             0u32

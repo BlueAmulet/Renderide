@@ -15,26 +15,33 @@ use windows_sys::Win32::System::Memory::{
     PAGE_READWRITE,
 };
 
-/// RAII for `CreateFileMappingW` + `MapViewOfFile`.
+/// RAII for `CreateFileMappingW` / `OpenFileMappingW` plus `MapViewOfFile`.
 pub(super) struct WindowsMapping {
+    /// Handle from `CreateFileMappingW` or `OpenFileMappingW`.
     map_handle: windows_sys::Win32::Foundation::HANDLE,
+    /// Mapped view of the queue bytes.
     view: windows_sys::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS,
+    /// Byte length of the view (header plus ring).
     len: usize,
 }
 
 impl WindowsMapping {
+    /// Returns the start of the mapped section.
     pub(super) fn as_ptr(&self) -> *const u8 {
         self.view.Value as *const u8
     }
 
+    /// Returns the start of the mapped section for writes.
     pub(super) fn as_mut_ptr(&mut self) -> *mut u8 {
         self.view.Value as *mut u8
     }
 
+    /// Length of the mapping in bytes.
     pub(super) fn len(&self) -> usize {
         self.len
     }
 
+    /// Always [`None`]; Windows uses named mappings, not a `.qu` path.
     pub(super) fn backing_file_path(&self) -> Option<&std::path::PathBuf> {
         None
     }
@@ -55,8 +62,7 @@ impl Drop for WindowsMapping {
     }
 }
 
-/// Small yield using a zero-timeout wait on the current process pseudo-handle is unnecessary;
-/// we use `std::thread::yield_now` at the callsite instead (not used here).
+/// Creates or opens the named file mapping, maps it, and opens the paired Win32 semaphore.
 pub(super) fn open_queue(options: &QueueOptions) -> Result<(WindowsMapping, Semaphore), OpenError> {
     let name = naming::windows_mapping_name(&options.memory_view_name);
     let storage_size = options.actual_storage_size() as usize;
@@ -90,6 +96,7 @@ pub(super) fn open_queue(options: &QueueOptions) -> Result<(WindowsMapping, Sema
     ))
 }
 
+/// Tries `CreateFileMappingW` first, then `OpenFileMappingW`, with exponential backoff for startup races.
 fn create_or_open_file_mapping(
     name: &[u16],
     size: usize,

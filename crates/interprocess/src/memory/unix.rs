@@ -8,33 +8,41 @@ use crate::error::OpenError;
 use crate::options::QueueOptions;
 use crate::semaphore::Semaphore;
 
-/// Unix mapping: keeps the file open alongside a writable [`memmap2::MmapMut`].
+/// File-backed queue: keeps the `.qu` file open alongside a writable [`memmap2::MmapMut`].
 pub(super) struct UnixMapping {
+    /// Open file handle; must outlive `mmap`.
     _file: std::fs::File,
+    /// Writable mapping of the entire file.
     mmap: memmap2::MmapMut,
+    /// Path passed to [`crate::QueueOptions::file_path`].
     file_path: PathBuf,
+    /// Byte length of the mapping (header plus ring).
     len: usize,
 }
 
 impl UnixMapping {
+    /// Returns the start of the mapped file.
     pub(super) fn as_ptr(&self) -> *const u8 {
         self.mmap.as_ptr()
     }
 
+    /// Returns the start of the mapped file for writes.
     pub(super) fn as_mut_ptr(&mut self) -> *mut u8 {
         self.mmap.as_mut_ptr()
     }
 
+    /// Length of the mapping in bytes.
     pub(super) fn len(&self) -> usize {
         self.len
     }
 
+    /// Path to the backing `.qu` file (always [`Some`] on Unix).
     pub(super) fn backing_file_path(&self) -> Option<&PathBuf> {
         Some(&self.file_path)
     }
 }
 
-/// Opens or creates the `.qu` file, ensures length, maps RW, and opens the semaphore.
+/// Opens or creates the `.qu` file, sets its length, maps it read/write, and opens the POSIX semaphore.
 pub(super) fn open_queue(options: &QueueOptions) -> Result<(UnixMapping, Semaphore), OpenError> {
     let path = options.file_path();
     if let Some(parent) = path.parent() {

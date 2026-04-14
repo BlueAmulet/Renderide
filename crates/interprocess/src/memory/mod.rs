@@ -11,15 +11,20 @@ use crate::error::OpenError;
 use crate::options::QueueOptions;
 use crate::semaphore::Semaphore;
 
-/// Mapped region shared between processes (+ companion semaphore at [`open_queue`]).
+/// Read/write mapping of the queue file (Unix) or named section (Windows), plus a paired semaphore.
+///
+/// Obtained via [`SharedMapping::open_queue`]; size matches [`QueueOptions::actual_storage_size`].
 pub(crate) struct SharedMapping {
+    /// Platform-specific mapping implementation.
     #[cfg(unix)]
     inner: unix::UnixMapping,
+    /// Platform-specific mapping implementation.
     #[cfg(windows)]
     inner: windows::WindowsMapping,
 }
 
 impl SharedMapping {
+    /// Creates or opens the backing store for `options` and the companion wakeup semaphore.
     pub(crate) fn open_queue(options: &QueueOptions) -> Result<(Self, Semaphore), OpenError> {
         #[cfg(unix)]
         {
@@ -35,10 +40,12 @@ impl SharedMapping {
         }
     }
 
+    /// Base pointer to the mapped region (includes [`crate::layout::QueueHeader`] at offset zero).
     pub(crate) fn as_ptr(&self) -> *const u8 {
         self.inner.as_ptr()
     }
 
+    /// Mutable base pointer to the mapped region.
     pub(crate) fn as_mut_ptr(&mut self) -> *mut u8 {
         self.inner.as_mut_ptr()
     }

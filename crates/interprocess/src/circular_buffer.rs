@@ -1,6 +1,8 @@
 //! Helpers for a byte ring inside a shared mapping.
+//!
+//! `offset` is a logical position in the ring; it is reduced modulo `capacity` to index the buffer.
 
-/// Copies `len` bytes starting at logical `offset` into a new vector.
+/// Copies `len` bytes starting at logical `offset` (wrapping at `capacity`) into a new vector.
 pub(crate) fn read(buffer: *const u8, capacity: i64, offset: i64, len: usize) -> Vec<u8> {
     if len == 0 {
         return Vec::new();
@@ -24,7 +26,7 @@ pub(crate) fn read(buffer: *const u8, capacity: i64, offset: i64, len: usize) ->
     result
 }
 
-/// Writes `data` at logical `offset`.
+/// Writes `data` at logical `offset`, wrapping at `capacity`.
 pub(crate) fn write(buffer: *mut u8, capacity: i64, offset: i64, data: &[u8]) {
     if data.is_empty() {
         return;
@@ -46,7 +48,7 @@ pub(crate) fn write(buffer: *mut u8, capacity: i64, offset: i64, data: &[u8]) {
     }
 }
 
-/// Zero-fills `len` bytes at logical `offset`.
+/// Zero-fills `len` bytes at logical `offset`, wrapping at `capacity`.
 pub(crate) fn clear(buffer: *mut u8, capacity: i64, offset: i64, len: usize) {
     if len == 0 {
         return;

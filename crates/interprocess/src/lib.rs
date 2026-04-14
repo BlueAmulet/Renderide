@@ -38,6 +38,7 @@ pub use queue::QueueFactory;
 pub use subscriber::Subscriber;
 
 #[cfg(test)]
+/// Enqueue/dequeue smoke test on a shared backing directory under the process temp folder.
 mod ipc_tests {
     use crate::options::QueueOptions;
     use crate::{Publisher, Subscriber};

@@ -51,7 +51,7 @@ pub struct QueueOptions {
 impl QueueOptions {
     const MIN_CAPACITY: i64 = 17;
 
-    /// Validates `capacity` and returns an error message if invalid.
+    /// Ensures `capacity` is above [`Self::MIN_CAPACITY`] and 8-byte aligned (layout requirement).
     fn validate_capacity(capacity: i64) -> Result<(), String> {
         if capacity <= Self::MIN_CAPACITY {
             return Err(format!(
