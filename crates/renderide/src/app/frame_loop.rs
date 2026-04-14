@@ -1,6 +1,6 @@
-//! Desktop vs OpenXR frame submission helpers for [`super::RenderideApp`].
+//! Desktop vs OpenXR frame submission helpers for [`super::renderide_app::RenderideApp`].
 //!
-//! Keeps [`super::RenderideApp::tick_frame`] readable while preserving ordering: OpenXR
+//! Keeps [`super::renderide_app::RenderideApp::tick_frame`] readable while preserving ordering: OpenXR
 //! `wait_frame` / `locate_views` before lock-step [`crate::runtime::RendererRuntime::pre_frame`].
 
 use winit::window::Window;
