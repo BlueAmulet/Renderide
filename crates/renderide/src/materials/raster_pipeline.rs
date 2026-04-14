@@ -2,8 +2,11 @@
 //!
 //! **Transparent blending:** embedded materials that mirror Unity transparent queues (e.g. UI text) may need
 //! alpha blending derived from material uniforms (`_SrcBlend` / `_DstBlend`) or host render-queue metadata.
-//! The default here is opaque replacement (`blend: None`); improving that is a cross-cutting, reflection-driven
-//! follow-up—not per-shader logic in the mesh pass.
+//! Opaque paths use `blend: None` and [`wgpu::ColorWrites::COLOR`] so only RGB is written and the clear
+//! alpha (`a=1`) is preserved for `Rgba16Float` render textures. Enabling any [`wgpu::BlendState`] on opaque
+//! targets would require the format to be **blendable**; `Rgba16Float` is often not, which breaks pipeline
+//! creation. Alpha-blended stems use [`wgpu::BlendState::ALPHA_BLENDING`] with [`wgpu::ColorWrites::ALL`].
+//! Unity-style blend from uniforms is a cross-cutting follow-up—not per-shader logic in the mesh pass.
 
 use crate::backend::{empty_material_bind_group_layout, FrameGpuResources};
 use crate::materials::MaterialPipelineDesc;
@@ -108,10 +111,15 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipeline(
     } else {
         &[pos_layout, nrm_layout]
     };
-    let blend = if use_alpha_blending {
-        Some(wgpu::BlendState::ALPHA_BLENDING)
+    // Opaque: no blending + write RGB only so destination alpha stays at the clear value (a=1). Do not use
+    // `blend: Some(...)` here: float RT formats may not be blendable and pipeline creation can fail.
+    let (blend, color_writes) = if use_alpha_blending {
+        (
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            wgpu::ColorWrites::ALL,
+        )
     } else {
-        None
+        (None, wgpu::ColorWrites::COLOR)
     };
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -130,7 +138,7 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipeline(
             targets: &[Some(wgpu::ColorTargetState {
                 format: desc.surface_format,
                 blend,
-                write_mask: wgpu::ColorWrites::ALL,
+                write_mask: color_writes,
             })],
         }),
         primitive: wgpu::PrimitiveState {
