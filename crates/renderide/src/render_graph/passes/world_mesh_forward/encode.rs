@@ -35,6 +35,8 @@ pub(crate) fn draw_subset(
     let mut last_material_bind_key: Option<LastMaterialBindGroup1Key> = None;
     let mut pipeline_ok = false;
 
+    rpass.set_bind_group(0, frame_bg, &[]);
+
     for draw_idx in draw_indices {
         let item = &draws[*draw_idx];
         if last_batch_key.as_ref() != Some(&item.batch_key) {
@@ -66,7 +68,6 @@ pub(crate) fn draw_subset(
         }
 
         let dynamic_offset = (*draw_idx * PER_DRAW_UNIFORM_STRIDE) as u32;
-        rpass.set_bind_group(0, frame_bg, &[]);
         if matches!(
             &item.batch_key.pipeline,
             RasterPipelineKind::EmbeddedStem(_)

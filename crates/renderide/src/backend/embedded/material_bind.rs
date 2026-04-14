@@ -10,10 +10,11 @@
 //! hard-coding a particular shader stem in the draw pass.
 
 use std::cell::RefCell;
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 
+use lru::LruCache;
 use wgpu::util::DeviceExt;
 
 use crate::assets::material::{
@@ -31,6 +32,11 @@ use super::texture_resolve::{
 };
 use super::uniform_pack::build_embedded_uniform_bytes;
 
+/// LRU cap for `@group(1)` bind groups (per unique material/texture signature).
+const MAX_CACHED_EMBEDDED_BIND_GROUPS: usize = 512;
+/// LRU cap for embedded material uniform buffers.
+const MAX_CACHED_EMBEDDED_UNIFORMS: usize = 512;
+
 /// GPU resources shared by embedded material bind groups (layouts, default texture, sampler).
 pub struct EmbeddedMaterialBindResources {
     device: Arc<wgpu::Device>,
@@ -40,8 +46,8 @@ pub struct EmbeddedMaterialBindResources {
     property_registry: Arc<PropertyIdRegistry>,
     shared_keyword_ids: Arc<EmbeddedSharedKeywordIds>,
     stem_cache: RefCell<HashMap<String, Arc<StemMaterialLayout>>>,
-    bind_cache: RefCell<HashMap<MaterialBindCacheKey, Arc<wgpu::BindGroup>>>,
-    uniform_cache: RefCell<HashMap<MaterialUniformCacheKey, CachedUniformEntry>>,
+    bind_cache: RefCell<LruCache<MaterialBindCacheKey, Arc<wgpu::BindGroup>>>,
+    uniform_cache: RefCell<LruCache<MaterialUniformCacheKey, CachedUniformEntry>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -115,8 +121,14 @@ impl EmbeddedMaterialBindResources {
             property_registry,
             shared_keyword_ids,
             stem_cache: RefCell::new(HashMap::new()),
-            bind_cache: RefCell::new(HashMap::new()),
-            uniform_cache: RefCell::new(HashMap::new()),
+            bind_cache: RefCell::new(LruCache::new(
+                NonZeroUsize::new(MAX_CACHED_EMBEDDED_BIND_GROUPS)
+                    .expect("MAX_CACHED_EMBEDDED_BIND_GROUPS > 0"),
+            )),
+            uniform_cache: RefCell::new(LruCache::new(
+                NonZeroUsize::new(MAX_CACHED_EMBEDDED_UNIFORMS)
+                    .expect("MAX_CACHED_EMBEDDED_UNIFORMS > 0"),
+            )),
         })
     }
 
@@ -217,30 +229,10 @@ impl EmbeddedMaterialBindResources {
 
         let uniform_buf = {
             let mut uniform_cache = self.uniform_cache.borrow_mut();
-            match uniform_cache.entry(uniform_key) {
-                Entry::Occupied(mut o) => {
-                    if o.get().last_written_generation == mutation_gen {
-                        o.get().buffer.clone()
-                    } else {
-                        let uniform_bytes = build_embedded_uniform_bytes(
-                            &layout.reflected,
-                            layout.ids.as_ref(),
-                            store,
-                            lookup,
-                            primary_texture_any_kind_present,
-                        )
-                        .ok_or_else(|| {
-                            format!(
-                                "stem {stem}: uniform block missing (shader has no material uniform)"
-                            )
-                        })?;
-                        let e = o.get_mut();
-                        queue.write_buffer(e.buffer.as_ref(), 0, &uniform_bytes);
-                        e.last_written_generation = mutation_gen;
-                        e.buffer.clone()
-                    }
-                }
-                Entry::Vacant(v) => {
+            if let Some(entry) = uniform_cache.get_mut(&uniform_key) {
+                if entry.last_written_generation == mutation_gen {
+                    entry.buffer.clone()
+                } else {
                     let uniform_bytes = build_embedded_uniform_bytes(
                         &layout.reflected,
                         layout.ids.as_ref(),
@@ -253,19 +245,39 @@ impl EmbeddedMaterialBindResources {
                             "stem {stem}: uniform block missing (shader has no material uniform)"
                         )
                     })?;
-                    let buf = Arc::new(self.device.create_buffer_init(
-                        &wgpu::util::BufferInitDescriptor {
-                            label: Some("embedded_material_uniform"),
-                            contents: &uniform_bytes,
-                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                        },
-                    ));
-                    v.insert(CachedUniformEntry {
-                        buffer: buf.clone(),
-                        last_written_generation: mutation_gen,
-                    });
-                    buf
+                    queue.write_buffer(entry.buffer.as_ref(), 0, &uniform_bytes);
+                    entry.last_written_generation = mutation_gen;
+                    entry.buffer.clone()
                 }
+            } else {
+                let uniform_bytes = build_embedded_uniform_bytes(
+                    &layout.reflected,
+                    layout.ids.as_ref(),
+                    store,
+                    lookup,
+                    primary_texture_any_kind_present,
+                )
+                .ok_or_else(|| {
+                    format!("stem {stem}: uniform block missing (shader has no material uniform)")
+                })?;
+                let buf = Arc::new(self.device.create_buffer_init(
+                    &wgpu::util::BufferInitDescriptor {
+                        label: Some("embedded_material_uniform"),
+                        contents: &uniform_bytes,
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                    },
+                ));
+                let entry = CachedUniformEntry {
+                    buffer: buf.clone(),
+                    last_written_generation: mutation_gen,
+                };
+                if let Some(evicted) = uniform_cache.put(uniform_key, entry) {
+                    drop(evicted);
+                    logger::trace!(
+                        "EmbeddedMaterialBindResources: evicted LRU uniform cache entry"
+                    );
+                }
+                buf
             }
         };
 
@@ -399,7 +411,10 @@ impl EmbeddedMaterialBindResources {
             layout: &layout.bind_group_layout,
             entries: &entries,
         }));
-        cache.insert(bind_key, bind_group.clone());
+        if let Some(evicted) = cache.put(bind_key, bind_group.clone()) {
+            drop(evicted);
+            logger::trace!("EmbeddedMaterialBindResources: evicted LRU bind group cache entry");
+        }
         Ok((bind_key, bind_group))
     }
 

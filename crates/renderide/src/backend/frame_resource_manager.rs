@@ -11,6 +11,7 @@ use std::sync::Arc;
 use super::debug_draw::DebugDrawResources;
 use super::frame_gpu::{EmptyMaterialBindGroup, FrameGpuResources};
 use super::light_gpu::{order_lights_for_clustered_shading_in_place, GpuLight, MAX_LIGHTS};
+use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::scene::{ResolvedLight, SceneCoordinator};
 
 /// Immutable snapshot of `@group(0)` / empty `@group(1)` / debug `@group(2)` resources for one frame.
@@ -118,6 +119,31 @@ impl FrameResourceManager {
         &self.light_scratch
     }
 
+    /// Light count for frame uniforms and shaders (`min(len, [`MAX_LIGHTS`])`).
+    pub fn frame_light_count_u32(&self) -> u32 {
+        self.light_scratch.len().min(MAX_LIGHTS) as u32
+    }
+
+    /// Writes camera frame uniform and, if lights were not yet uploaded this tick, the lights storage buffer.
+    ///
+    /// Skips [`FrameGpuResources::write_lights_buffer`] when [`Self::lights_gpu_uploaded_this_tick`] is already
+    /// true (e.g. [`crate::render_graph::passes::ClusteredLightPass`] ran first), avoiding duplicate uploads
+    /// on multi-view paths while still refreshing frame uniforms every view.
+    pub fn write_frame_uniform_and_lights_from_scratch(
+        &mut self,
+        queue: &wgpu::Queue,
+        uniforms: &FrameGpuUniforms,
+    ) {
+        let Some(fgpu) = self.frame_gpu.as_ref() else {
+            return;
+        };
+        fgpu.write_frame_uniform(queue, uniforms);
+        if !self.lights_gpu_uploaded_this_tick.get() {
+            fgpu.write_lights_buffer(queue, &self.light_scratch);
+            self.lights_gpu_uploaded_this_tick.set(true);
+        }
+    }
+
     /// Per-frame `@group(0)` bind group (camera + lights), after attach.
     pub fn frame_gpu(&self) -> Option<&FrameGpuResources> {
         self.frame_gpu.as_ref()
@@ -185,25 +211,24 @@ impl FrameResourceManager {
 
     /// Syncs cluster viewport and uploads the packed light buffer once per tick (multi-view path).
     ///
-    /// After the first successful GPU upload in a tick, [`Self::lights_gpu_uploaded_this_tick`] is set
-    /// and subsequent calls skip [`super::frame_gpu::FrameGpuResources::write_lights_buffer`].
+    /// Reads lights from [`Self::light_scratch`] (no clone). After the first successful GPU upload in a tick,
+    /// [`Self::lights_gpu_uploaded_this_tick`] is set and subsequent calls skip
+    /// [`super::frame_gpu::FrameGpuResources::write_lights_buffer`].
     pub fn sync_cluster_viewport_ensure_lights_upload(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         viewport: (u32, u32),
         stereo: bool,
-        lights: &[GpuLight],
     ) -> Option<&mut FrameGpuResources> {
         let skip = self.lights_gpu_uploaded_this_tick.get();
         {
             let fgpu = self.frame_gpu_mut()?;
             fgpu.sync_cluster_viewport(device, viewport, stereo);
-            if !skip {
-                fgpu.write_lights_buffer(queue, lights);
-            }
         }
         if !skip {
+            let fgpu = self.frame_gpu.as_ref()?;
+            fgpu.write_lights_buffer(queue, &self.light_scratch);
             self.lights_gpu_uploaded_this_tick.set(true);
         }
         self.frame_gpu_mut()

@@ -4,10 +4,13 @@
 //! shader on every cache probe would dominate CPU cost. Embedded targets are stable per
 //! `(kind, permutation, [`MaterialPipelineDesc`])`. If hot-reload or dynamic WGSL is introduced,
 //! extend the key with a content hash or version.
+//!
+//! The cache is LRU-bounded to avoid unbounded growth when many format/permutation combinations appear.
 
-use std::collections::HashMap;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
+
+use lru::LruCache;
 
 use crate::materials::embedded_raster_pipeline::{
     build_embedded_wgsl, create_embedded_render_pipeline,
@@ -19,6 +22,9 @@ use crate::pipelines::raster::debug_world_normals::{
 use crate::pipelines::ShaderPermutation;
 
 use super::family::MaterialPipelineDesc;
+
+/// Maximum raster pipelines retained (LRU eviction).
+const MAX_CACHED_PIPELINES: usize = 512;
 
 /// Key for [`MaterialPipelineCache`] lookups (no WGSL parse — see module docs).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -37,11 +43,11 @@ pub struct MaterialPipelineCacheKey {
     pub multiview_mask: Option<NonZeroU32>,
 }
 
-/// Lazily built pipelines; safe to retain for the [`wgpu::Device`] lifetime.
+/// Lazily built pipelines; LRU-evicted when over [`MAX_CACHED_PIPELINES`].
 #[derive(Debug)]
 pub struct MaterialPipelineCache {
     device: Arc<wgpu::Device>,
-    pipelines: HashMap<MaterialPipelineCacheKey, wgpu::RenderPipeline>,
+    pipelines: LruCache<MaterialPipelineCacheKey, wgpu::RenderPipeline>,
 }
 
 impl MaterialPipelineCache {
@@ -49,7 +55,9 @@ impl MaterialPipelineCache {
     pub fn new(device: Arc<wgpu::Device>) -> Self {
         Self {
             device,
-            pipelines: HashMap::new(),
+            pipelines: LruCache::new(
+                NonZeroUsize::new(MAX_CACHED_PIPELINES).expect("MAX_CACHED_PIPELINES > 0"),
+            ),
         }
     }
 
@@ -75,27 +83,31 @@ impl MaterialPipelineCache {
             sample_count: desc.sample_count,
             multiview_mask: desc.multiview_mask,
         };
-        self.pipelines.entry(key).or_insert_with(|| {
-            let wgsl = match kind {
-                RasterPipelineKind::EmbeddedStem(stem) => build_embedded_wgsl(stem, permutation),
-                RasterPipelineKind::DebugWorldNormals => {
-                    build_debug_world_normals_wgsl(permutation)
-                }
-            };
-            let module = self
-                .device
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("raster_material_shader"),
-                    source: wgpu::ShaderSource::Wgsl(wgsl.clone().into()),
-                });
-            match kind {
-                RasterPipelineKind::EmbeddedStem(stem) => {
-                    create_embedded_render_pipeline(stem, &self.device, &module, desc, &wgsl)
-                }
-                RasterPipelineKind::DebugWorldNormals => {
-                    create_debug_world_normals_render_pipeline(&self.device, &module, desc, &wgsl)
-                }
+        let device = self.device.clone();
+        let cache = &mut self.pipelines;
+        if cache.peek(&key).is_some() {
+            return cache.get(&key).expect("pipeline cache peek hit");
+        }
+        let wgsl = match kind {
+            RasterPipelineKind::EmbeddedStem(stem) => build_embedded_wgsl(stem, permutation),
+            RasterPipelineKind::DebugWorldNormals => build_debug_world_normals_wgsl(permutation),
+        };
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("raster_material_shader"),
+            source: wgpu::ShaderSource::Wgsl(wgsl.clone().into()),
+        });
+        let pipeline = match kind {
+            RasterPipelineKind::EmbeddedStem(stem) => {
+                create_embedded_render_pipeline(stem, &device, &module, desc, &wgsl)
             }
-        })
+            RasterPipelineKind::DebugWorldNormals => {
+                create_debug_world_normals_render_pipeline(&device, &module, desc, &wgsl)
+            }
+        };
+        if let Some(evicted) = cache.put(key.clone(), pipeline) {
+            drop(evicted);
+            logger::trace!("MaterialPipelineCache: evicted LRU pipeline entry");
+        }
+        cache.get(&key).expect("pipeline just inserted")
     }
 }

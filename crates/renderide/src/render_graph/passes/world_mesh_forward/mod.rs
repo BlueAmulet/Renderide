@@ -187,8 +187,6 @@ impl RenderPass for WorldMeshForwardPass {
             );
             backend.set_last_world_mesh_draw_stats(stats);
         }
-        let lights_for_frame = backend.frame_resources.frame_lights().to_vec();
-
         let (vw, vh) = frame.viewport_px;
         let aspect = vw as f32 / vh.max(1) as f32;
         let (near, far) = effective_head_output_clip_planes(
@@ -283,7 +281,7 @@ impl RenderPass for WorldMeshForwardPass {
             };
             queue.write_buffer(&dbg.per_draw_uniforms, 0, &slab_bytes);
         }
-        let light_count_u = lights_for_frame.len().min(crate::backend::MAX_LIGHTS) as u32;
+        let light_count_u = backend.frame_resources.frame_light_count_u32();
         let camera_world = hc
             .secondary_camera_world_position
             .unwrap_or_else(|| hc.head_output_transform.col(3).truncate());
@@ -308,8 +306,10 @@ impl RenderPass for WorldMeshForwardPass {
 
         if let Some(fgpu) = backend.frame_resources.frame_gpu_mut() {
             fgpu.sync_cluster_viewport(ctx.device, (vw, vh), stereo_cluster);
-            fgpu.write_frame_uniform_and_lights(queue, &uniforms, &lights_for_frame);
         }
+        backend
+            .frame_resources
+            .write_frame_uniform_and_lights_from_scratch(queue, &uniforms);
 
         if draws.is_empty() {
             // Still clear color + depth so offscreen render textures are defined (no draws → no geometry).
