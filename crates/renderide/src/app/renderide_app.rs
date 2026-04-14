@@ -14,7 +14,7 @@
 //! 5. Early exits — shutdown, fatal IPC, missing window/GPU (each runs epilogue timing).
 //! 6. [`render_views`] — HMD multiview submit if XR+GPU; secondary cameras to render textures; vsync;
 //!    debug HUD input/time for this frame (must run before desktop [`RendererRuntime::render_all_views`]).
-//! 7. [`present_and_diagnostics`] — VR mirror blit or clear; OpenXR `end_frame_empty` when needed (desktop world render is in step 6).
+//! 7. [`present_and_diagnostics`] — VR mirror blit or clear (with optional Dear ImGui overlay on the desktop surface); OpenXR `end_frame_empty` when needed (desktop world render is in step 6).
 //! 8. [`frame_tick_epilogue`] — GPU frame timing end and debug HUD capture after the tick.
 //!
 //! [`tick_phase_trace`] emits `trace!` lines prefixed with [`TICK_TRACE_PREFIX`] for grep/profiling; the same
@@ -35,7 +35,7 @@ use crate::frontend::input::{
 };
 use crate::gpu::GpuContext;
 use crate::output_device::head_output_device_wants_openxr;
-use crate::present::present_clear_frame;
+use crate::present::{present_clear_frame, present_clear_frame_overlay};
 use crate::render_graph::GraphExecuteError;
 use crate::runtime::RendererRuntime;
 use crate::shared::{HeadOutputDevice, VRControllerState};
@@ -441,7 +441,7 @@ impl RenderideApp {
             return;
         };
         // VR: desktop shows a blit of the left HMD eye (`VrMirrorBlitResources`); no second world pass.
-        // Debug HUD overlay is not drawn on this path (see `frame_graph::compiled` for non-VR HUD).
+        // Dear ImGui is composited on the same swapchain after the mirror (desktop HUD uses `frame_graph::compiled`).
         if self.runtime.vr_active() {
             if hmd_projection_ended {
                 if let Some(bundle) = self.xr_session.as_mut() {
@@ -449,14 +449,28 @@ impl RenderideApp {
                         gpu,
                         window.as_ref(),
                         &mut bundle.mirror_blit,
+                        |enc, view, g| {
+                            self.runtime
+                                .encode_debug_hud_overlay_on_surface(g, enc, view)
+                        },
                     ) {
                         logger::debug!("VR mirror blit failed: {e:?}");
-                        if let Err(pe) = present_clear_frame(gpu, window.as_ref()) {
+                        if let Err(pe) =
+                            present_clear_frame_overlay(gpu, window.as_ref(), |enc, view, g| {
+                                self.runtime
+                                    .encode_debug_hud_overlay_on_surface(g, enc, view)
+                            })
+                        {
                             logger::warn!("present_clear_frame after mirror blit: {pe:?}");
                         }
                     }
                 }
-            } else if let Err(e) = present_clear_frame(gpu, window.as_ref()) {
+            } else if let Err(e) =
+                present_clear_frame_overlay(gpu, window.as_ref(), |enc, view, g| {
+                    self.runtime
+                        .encode_debug_hud_overlay_on_surface(g, enc, view)
+                })
+            {
                 logger::debug!("VR mirror clear (no HMD frame): {e:?}");
             }
         }

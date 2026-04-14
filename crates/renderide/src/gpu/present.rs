@@ -82,6 +82,18 @@ pub fn record_swapchain_clear_pass(
 
 /// Clears the swapchain texture to [`SWAPCHAIN_CLEAR_COLOR`] and presents.
 pub fn present_clear_frame(gpu: &mut GpuContext, window: &Window) -> Result<(), PresentClearError> {
+    present_clear_frame_overlay(gpu, window, |_, _, _| Ok(()))
+}
+
+/// Clears the swapchain, optionally composites an overlay (e.g. Dear ImGui with `LoadOp::Load`), then presents.
+pub fn present_clear_frame_overlay<F>(
+    gpu: &mut GpuContext,
+    window: &Window,
+    overlay: F,
+) -> Result<(), PresentClearError>
+where
+    F: FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView, &mut GpuContext) -> Result<(), String>,
+{
     let frame = match acquire_surface_outcome(gpu, window)? {
         SurfaceFrameOutcome::Skip | SurfaceFrameOutcome::Reconfigured => return Ok(()),
         SurfaceFrameOutcome::Acquired(f) => f,
@@ -96,10 +108,10 @@ pub fn present_clear_frame(gpu: &mut GpuContext, window: &Window) -> Result<(), 
             label: Some("skeleton-clear"),
         });
     record_swapchain_clear_pass(&mut encoder, &view, SWAPCHAIN_CLEAR_COLOR, Some("clear"));
-    gpu.queue()
-        .lock()
-        .expect("queue mutex poisoned")
-        .submit(std::iter::once(encoder.finish()));
+    if let Err(e) = overlay(&mut encoder, &view, gpu) {
+        logger::warn!("debug HUD overlay (clear frame): {e}");
+    }
+    gpu.submit_tracked_frame_commands(encoder.finish());
     frame.present();
     Ok(())
 }

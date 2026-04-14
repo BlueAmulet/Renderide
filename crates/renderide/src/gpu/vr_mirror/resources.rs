@@ -162,6 +162,24 @@ impl VrMirrorBlitResources {
         gpu: &mut GpuContext,
         window: &Window,
     ) -> Result<(), PresentClearError> {
+        self.present_staging_to_surface_overlay(gpu, window, |_, _, _| Ok(()))
+    }
+
+    /// Same as [`Self::present_staging_to_surface`], then runs `overlay` on the same encoder and swapchain view
+    /// (e.g. Dear ImGui with `LoadOp::Load` over the mirror image).
+    pub fn present_staging_to_surface_overlay<F>(
+        &mut self,
+        gpu: &mut GpuContext,
+        window: &Window,
+        overlay: F,
+    ) -> Result<(), PresentClearError>
+    where
+        F: FnOnce(
+            &mut wgpu::CommandEncoder,
+            &wgpu::TextureView,
+            &mut GpuContext,
+        ) -> Result<(), String>,
+    {
         if !self.staging_valid {
             return Ok(());
         }
@@ -186,6 +204,7 @@ impl VrMirrorBlitResources {
         self.ensure_surface_uniform(device);
         let Some(uniform_buf) = self.surface_uniform.as_ref() else {
             logger::warn!("vr_mirror: surface uniform buffer missing after ensure_surface_uniform");
+            frame.present();
             return Ok(());
         };
         {
@@ -194,6 +213,7 @@ impl VrMirrorBlitResources {
         }
 
         let Some(staging_tex) = self.staging_texture.as_ref() else {
+            frame.present();
             return Ok(());
         };
         let staging_view = staging_tex.create_view(&wgpu::TextureViewDescriptor::default());
@@ -247,6 +267,10 @@ impl VrMirrorBlitResources {
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.draw(0..3, 0..1);
+        }
+
+        if let Err(e) = overlay(&mut encoder, &surface_view, gpu) {
+            logger::warn!("debug HUD overlay (VR mirror): {e}");
         }
 
         gpu.submit_tracked_frame_commands(encoder.finish());

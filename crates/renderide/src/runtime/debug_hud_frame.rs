@@ -65,4 +65,24 @@ impl RendererRuntime {
             self.backend.clear_debug_hud_scene_transforms_snapshot();
         }
     }
+
+    /// Encodes the Dear ImGui debug overlay onto an acquired swapchain view (e.g. after the VR mirror blit).
+    ///
+    /// Uses the same composite path as the desktop render graph (`LoadOp::Load`). Caller must keep
+    /// [`Self::set_debug_hud_frame_data`] in sync for this tick before encoding.
+    pub(crate) fn encode_debug_hud_overlay_on_surface(
+        &mut self,
+        gpu: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        backbuffer: &wgpu::TextureView,
+    ) -> Result<(), String> {
+        let device = gpu.device().as_ref();
+        let extent = gpu.surface_extent_px();
+        let q = gpu
+            .queue()
+            .lock()
+            .map_err(|e| format!("queue mutex poisoned: {e}"))?;
+        self.backend
+            .encode_debug_hud_overlay(device, &q, encoder, backbuffer, extent)
+    }
 }
