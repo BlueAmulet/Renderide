@@ -35,16 +35,28 @@ impl QueueResources {
     }
 
     /// Pointer to the start of the byte ring (after the queue header).
+    ///
+    /// # Safety
+    ///
+    /// [`crate::layout::BUFFER_BYTE_OFFSET`] is within the length of the mapping opened for this queue.
     pub(crate) fn buffer_ptr(&self) -> *const u8 {
-        unsafe { self.mapping.as_ptr().add(crate::layout::BUFFER_BYTE_OFFSET) }
+        unsafe {
+            self.mapping
+                .as_ptr()
+                .byte_add(crate::layout::BUFFER_BYTE_OFFSET)
+        }
     }
 
     /// Mutable pointer to the start of the byte ring (after the queue header).
+    ///
+    /// # Safety
+    ///
+    /// Same as [`Self::buffer_ptr`].
     pub(crate) fn buffer_mut(&mut self) -> *mut u8 {
         unsafe {
             self.mapping
                 .as_mut_ptr()
-                .add(crate::layout::BUFFER_BYTE_OFFSET)
+                .byte_add(crate::layout::BUFFER_BYTE_OFFSET)
         }
     }
 

@@ -21,32 +21,16 @@ pub fn wine_get_version() -> Option<String> {
     }
 }
 
-/// Loads `wine_get_version` from `ntdll.dll` via `dlopen` / `dlsym` and returns the UTF-16 version string.
+/// Loads `wine_get_version` from `ntdll.dll` via [`libloading::Library`] and returns the UTF-16 version string.
 #[cfg(target_os = "linux")]
 fn wine_get_version_linux() -> Option<String> {
-    use std::ffi::CString;
+    use libloading::{Library, Symbol};
 
-    type WineGetVersion = unsafe extern "C" fn() -> *const u16;
-
-    let name = CString::new("ntdll.dll").ok()?;
-    let handle = unsafe { libc::dlopen(name.as_ptr(), libc::RTLD_NOW) };
-    if handle.is_null() {
-        return None;
-    }
-    let sym = CString::new("wine_get_version").ok()?;
-    let func = unsafe {
-        std::mem::transmute::<*mut libc::c_void, Option<WineGetVersion>>(libc::dlsym(
-            handle,
-            sym.as_ptr(),
-        ))
-    };
-    let Some(func) = func else {
-        unsafe { libc::dlclose(handle) };
-        return None;
-    };
+    let lib = unsafe { Library::new("ntdll.dll") }.ok()?;
+    let func: Symbol<unsafe extern "C" fn() -> *const u16> =
+        unsafe { lib.get(b"wine_get_version\0").ok()? };
     let ptr = unsafe { func() };
     if ptr.is_null() {
-        unsafe { libc::dlclose(handle) };
         return None;
     }
     let mut len = 0usize;
@@ -54,9 +38,7 @@ fn wine_get_version_linux() -> Option<String> {
         len += 1;
     }
     let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
-    let result = String::from_utf16(slice).ok();
-    unsafe { libc::dlclose(handle) };
-    result
+    String::from_utf16(slice).ok()
 }
 
 #[cfg(test)]

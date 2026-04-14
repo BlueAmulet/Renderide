@@ -3,7 +3,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::atomics;
 use crate::circular_buffer;
 use crate::layout::{
     padded_message_length, MessageHeader, MESSAGE_BODY_OFFSET, STATE_LOCKED, STATE_READY,
@@ -101,13 +100,13 @@ impl Subscriber {
         }
 
         let ticks = utc_now_ticks();
-        let read_lock = unsafe { (*header_ptr).read_lock_timestamp };
+        let read_lock = header.read_lock_timestamp.load(Ordering::SeqCst);
         if ticks - read_lock < TICKS_FOR_TEN_SECONDS {
             return None;
         }
 
-        let read_lock_ptr = unsafe { atomics::queue_header_read_lock_timestamp(header_ptr) };
-        if read_lock_ptr
+        if header
+            .read_lock_timestamp
             .compare_exchange(read_lock, ticks, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
@@ -119,18 +118,18 @@ impl Subscriber {
             if header.is_empty() {
                 return None;
             }
-            let read_offset = header.read_offset;
-            let write_offset = header.write_offset;
+            let read_offset = header.read_offset.load(Ordering::SeqCst);
+            let write_offset = header.write_offset.load(Ordering::SeqCst);
             let msg_header_ptr = unsafe {
                 self.buffer_ptr()
                     .add((read_offset % self.res.capacity) as usize)
                     as *const MessageHeader
             };
 
-            let state_ptr = unsafe { atomics::message_header_state(msg_header_ptr) };
+            let msg = unsafe { &*msg_header_ptr };
             let spin_ticks = ticks;
             loop {
-                match state_ptr.compare_exchange(
+                match msg.state.compare_exchange(
                     STATE_READY,
                     STATE_LOCKED,
                     Ordering::SeqCst,
@@ -139,9 +138,7 @@ impl Subscriber {
                     Ok(_) => break,
                     Err(_) => {
                         if utc_now_ticks() - spin_ticks > TICKS_FOR_TEN_SECONDS {
-                            let read_offset_ptr =
-                                unsafe { atomics::queue_header_read_offset(header_ptr) };
-                            read_offset_ptr.store(write_offset, Ordering::SeqCst);
+                            header.read_offset.store(write_offset, Ordering::SeqCst);
                             return None;
                         }
                         std::hint::spin_loop();
@@ -149,7 +146,7 @@ impl Subscriber {
                 }
             }
 
-            let body_len = unsafe { (*msg_header_ptr).body_length } as i64;
+            let body_len = msg.body_length as i64;
             let padded = padded_message_length(body_len);
 
             let body_offset = read_offset + MESSAGE_BODY_OFFSET;
@@ -169,21 +166,14 @@ impl Subscriber {
             );
 
             let new_read = (read_offset + padded) % (self.res.capacity * 2);
-            let read_offset_ptr = unsafe { atomics::queue_header_read_offset(header_ptr) };
-            read_offset_ptr.store(new_read, Ordering::SeqCst);
+            header.read_offset.store(new_read, Ordering::SeqCst);
 
             Some(msg_result)
         })();
 
-        read_lock_ptr.store(0, Ordering::SeqCst);
+        unsafe { &*header_ptr }
+            .read_lock_timestamp
+            .store(0, Ordering::SeqCst);
         result
     }
 }
-
-/// Shared-memory queues are process-wide handles; treat ownership as non-`Sync` socket-style.
-///
-/// # Safety
-///
-/// The mapping is owned by this process and may be sent to another thread that owns the
-/// [`Subscriber`]. The same synchronization rules as the managed implementation apply.
-unsafe impl Send for Subscriber {}

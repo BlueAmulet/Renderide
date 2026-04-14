@@ -2,10 +2,10 @@
 
 use std::sync::atomic::Ordering;
 
-use crate::atomics;
 use crate::circular_buffer;
 use crate::layout::{
-    padded_message_length, MessageHeader, MESSAGE_BODY_OFFSET, STATE_READY, STATE_WRITING,
+    message_header_wire_bytes, padded_message_length, MESSAGE_BODY_OFFSET, STATE_READY,
+    STATE_WRITING,
 };
 use crate::options::QueueOptions;
 use crate::queue_resources::QueueResources;
@@ -42,8 +42,8 @@ impl Publisher {
         if header.is_empty() {
             return true;
         }
-        let read_phys = header.read_offset % self.res.capacity;
-        let write_phys = header.write_offset % self.res.capacity;
+        let read_phys = header.read_offset.load(Ordering::SeqCst) % self.res.capacity;
+        let write_phys = header.write_offset.load(Ordering::SeqCst) % self.res.capacity;
         if read_phys == write_phys {
             return false;
         }
@@ -66,11 +66,10 @@ impl Publisher {
             if !self.check_capacity(header, padded) {
                 return false;
             }
-            let write_offset = header.write_offset;
+            let write_offset = header.write_offset.load(Ordering::SeqCst);
             let new_write = (write_offset + padded) % (self.res.capacity * 2);
 
-            let write_offset_ptr = unsafe { atomics::queue_header_write_offset(header_ptr) };
-            let prev = write_offset_ptr.compare_exchange(
+            let prev = header.write_offset.compare_exchange(
                 write_offset,
                 new_write,
                 Ordering::SeqCst,
@@ -80,16 +79,8 @@ impl Publisher {
                 continue;
             }
 
-            let msg_header = MessageHeader {
-                state: STATE_WRITING,
-                body_length: len as i32,
-            };
-            circular_buffer::write(
-                self.buffer_mut(),
-                self.res.capacity,
-                write_offset,
-                bytemuck::bytes_of(&msg_header),
-            );
+            let wire = message_header_wire_bytes(STATE_WRITING, len as i32);
+            circular_buffer::write(self.buffer_mut(), self.res.capacity, write_offset, &wire);
 
             circular_buffer::write(
                 self.buffer_mut(),
@@ -111,11 +102,3 @@ impl Publisher {
         }
     }
 }
-
-/// Shared-memory queues are process-wide handles; treat ownership as non-`Sync` socket-style.
-///
-/// # Safety
-///
-/// The mapping is owned by this process and may be sent to another thread that owns the
-/// [`Publisher`]. The same synchronization rules as the managed implementation apply.
-unsafe impl Send for Publisher {}
