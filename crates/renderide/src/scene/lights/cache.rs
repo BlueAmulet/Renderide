@@ -25,6 +25,10 @@ pub struct LightCache {
     regular_lights: HashMap<(i32, i32), CachedLight>,
     buffer_transforms: HashMap<(i32, i32), usize>,
     regular_light_transforms: HashMap<(i32, i32), usize>,
+    /// Reused by [`Self::rebuild_space_vec`] for sorted buffer GUID keys (avoids per-update allocations).
+    rebuild_guids_scratch: Vec<i32>,
+    /// Reused by [`Self::rebuild_space_vec`] for sorted regular renderable indices.
+    rebuild_regular_indices_scratch: Vec<i32>,
 }
 
 impl LightCache {
@@ -38,6 +42,8 @@ impl LightCache {
             regular_lights: HashMap::new(),
             buffer_transforms: HashMap::new(),
             regular_light_transforms: HashMap::new(),
+            rebuild_guids_scratch: Vec::new(),
+            rebuild_regular_indices_scratch: Vec::new(),
         }
     }
 
@@ -51,33 +57,41 @@ impl LightCache {
         self.buffers.insert(lights_buffer_unique_id, light_data);
     }
 
+    /// Rebuilds the flattened per-space light list after buffer or regular-light map changes.
+    ///
+    /// Reuses the [`Vec`] stored in [`Self::spaces`] and scratch buffers for sort keys so steady-state
+    /// updates avoid allocating new vectors every time.
     fn rebuild_space_vec(&mut self, space_id: i32) {
-        let mut v = Vec::new();
-        let mut guids: Vec<i32> = self
-            .buffer_contributions
-            .keys()
-            .filter(|(sid, _)| *sid == space_id)
-            .map(|(_, g)| *g)
-            .collect();
-        guids.sort_unstable();
-        for g in guids {
+        let v = self.spaces.entry(space_id).or_default();
+        v.clear();
+
+        self.rebuild_guids_scratch.clear();
+        self.rebuild_guids_scratch.extend(
+            self.buffer_contributions
+                .keys()
+                .filter(|(sid, _)| *sid == space_id)
+                .map(|(_, g)| *g),
+        );
+        self.rebuild_guids_scratch.sort_unstable();
+        for g in self.rebuild_guids_scratch.iter().copied() {
             if let Some(chunk) = self.buffer_contributions.get(&(space_id, g)) {
                 v.extend(chunk.iter().cloned());
             }
         }
-        let mut r_indices: Vec<i32> = self
-            .regular_lights
-            .keys()
-            .filter(|(sid, _)| *sid == space_id)
-            .map(|(_, r)| *r)
-            .collect();
-        r_indices.sort_unstable();
-        for r in r_indices {
+
+        self.rebuild_regular_indices_scratch.clear();
+        self.rebuild_regular_indices_scratch.extend(
+            self.regular_lights
+                .keys()
+                .filter(|(sid, _)| *sid == space_id)
+                .map(|(_, r)| *r),
+        );
+        self.rebuild_regular_indices_scratch.sort_unstable();
+        for r in self.rebuild_regular_indices_scratch.iter().copied() {
             if let Some(light) = self.regular_lights.get(&(space_id, r)) {
                 v.push(light.clone());
             }
         }
-        self.spaces.insert(space_id, v);
     }
 
     /// Applies [`LightsBufferRendererUpdate`]: removals, additions (transform indices), states.
@@ -234,11 +248,23 @@ impl LightCache {
         space_id: i32,
         get_world_matrix: impl Fn(usize) -> Option<Mat4>,
     ) -> Vec<ResolvedLight> {
+        let mut out = Vec::new();
+        self.resolve_lights_into(space_id, get_world_matrix, &mut out);
+        out
+    }
+
+    /// Like [`Self::resolve_lights`], but appends into `out` (caller clears when replacing content).
+    pub fn resolve_lights_into(
+        &self,
+        space_id: i32,
+        get_world_matrix: impl Fn(usize) -> Option<Mat4>,
+        out: &mut Vec<ResolvedLight>,
+    ) {
         let Some(lights) = self.get_lights_for_space(space_id) else {
-            return Vec::new();
+            return;
         };
 
-        let mut resolved = Vec::with_capacity(lights.len());
+        out.reserve(lights.len());
         for cached in lights {
             let world = get_world_matrix(cached.transform_id).unwrap_or(Mat4::IDENTITY);
 
@@ -266,7 +292,7 @@ impl LightCache {
                 cached.data.range
             };
 
-            resolved.push(ResolvedLight {
+            out.push(ResolvedLight {
                 world_position: world_pos,
                 world_direction: world_dir,
                 color,
@@ -282,7 +308,6 @@ impl LightCache {
                 shadow_normal_bias: cached.state.shadow_normal_bias,
             });
         }
-        resolved
     }
 
     /// Like [`Self::resolve_lights`], but if the flattened list is empty, synthesizes from raw buffer data.
@@ -291,9 +316,25 @@ impl LightCache {
         space_id: i32,
         get_world_matrix: impl Fn(usize) -> Option<Mat4>,
     ) -> Vec<ResolvedLight> {
-        let from_spaces = self.resolve_lights(space_id, get_world_matrix);
-        if !from_spaces.is_empty() {
-            return from_spaces;
+        let mut out = Vec::new();
+        self.resolve_lights_with_fallback_into(space_id, get_world_matrix, &mut out);
+        out
+    }
+
+    /// Like [`Self::resolve_lights_with_fallback`], appending **this** `space_id`'s lights into `out`.
+    ///
+    /// Safe to call once per space while flattening all spaces into the same `out`: progress is detected
+    /// via length before/after [`Self::resolve_lights_into`], not `out.is_empty()`.
+    pub fn resolve_lights_with_fallback_into(
+        &self,
+        space_id: i32,
+        get_world_matrix: impl Fn(usize) -> Option<Mat4>,
+        out: &mut Vec<ResolvedLight>,
+    ) {
+        let len_before = out.len();
+        self.resolve_lights_into(space_id, get_world_matrix, out);
+        if out.len() > len_before {
+            return;
         }
 
         let light_data = self.buffers.get(&space_id).or_else(|| {
@@ -304,13 +345,13 @@ impl LightCache {
             }
         });
         let Some(light_data) = light_data else {
-            return Vec::new();
+            return;
         };
         if light_data.is_empty() {
-            return Vec::new();
+            return;
         }
 
-        let mut resolved = Vec::with_capacity(light_data.len());
+        out.reserve(light_data.len());
         for data in light_data {
             let p = Vec3::new(data.point.x, data.point.y, data.point.z);
             let q = data.orientation;
@@ -321,7 +362,7 @@ impl LightCache {
                 LOCAL_LIGHT_PROPAGATION
             };
 
-            resolved.push(ResolvedLight {
+            out.push(ResolvedLight {
                 world_position: p,
                 world_direction: world_dir,
                 color: Vec3::new(data.color.x, data.color.y, data.color.z),
@@ -337,7 +378,6 @@ impl LightCache {
                 shadow_normal_bias: 0.0,
             });
         }
-        resolved
     }
 }
 

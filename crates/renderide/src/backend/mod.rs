@@ -31,7 +31,10 @@ pub use embedded::EmbeddedMaterialBindResources;
 pub(crate) use embedded::MaterialBindCacheKey;
 pub use frame_gpu::{empty_material_bind_group_layout, EmptyMaterialBindGroup, FrameGpuResources};
 pub use frame_resource_manager::{FrameGpuBindContext, FrameResourceManager};
-pub use light_gpu::{order_lights_for_clustered_shading, GpuLight, MAX_LIGHTS};
+pub use light_gpu::{
+    order_lights_for_clustered_shading, order_lights_for_clustered_shading_in_place, GpuLight,
+    MAX_LIGHTS,
+};
 pub use material_system::{MaterialSystem, MAX_PENDING_MATERIAL_BATCHES};
 pub use mesh_deform::{
     advance_slab_cursor, plan_blendshape_bind_chunks, write_per_draw_uniform_slab,

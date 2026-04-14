@@ -87,6 +87,17 @@ impl SceneCoordinator {
             .resolve_lights_with_fallback(sid, |transform_idx| self.world_matrix(id, transform_idx))
     }
 
+    /// Appends world-space lights for `id` into `out` (caller typically [`Vec::clear`]s once per frame).
+    /// Same semantics as [`Self::resolve_lights_world`] without allocating a new [`Vec`].
+    pub fn resolve_lights_world_into(&self, id: RenderSpaceId, out: &mut Vec<ResolvedLight>) {
+        let sid = id.0;
+        self.light_cache.resolve_lights_with_fallback_into(
+            sid,
+            |transform_idx| self.world_matrix(id, transform_idx),
+            out,
+        );
+    }
+
     /// Read-only access for debugging / future systems.
     pub fn space(&self, id: RenderSpaceId) -> Option<&RenderSpaceState> {
         self.spaces.get(&id)

@@ -139,12 +139,23 @@ fn shadow_type_u32(ty: ShadowType) -> u32 {
 }
 
 /// Directional lights first (clustered forward compatibility); then point/spot; stable within bucket.
-pub fn order_lights_for_clustered_shading(lights: &[ResolvedLight]) -> Vec<ResolvedLight> {
-    let mut v: Vec<ResolvedLight> = lights.iter().take(MAX_LIGHTS).cloned().collect();
-    v.sort_by_key(|l| match l.light_type {
+///
+/// Truncates to [`MAX_LIGHTS`] then sorts in place — prefer this over [`order_lights_for_clustered_shading`]
+/// when reusing a [`Vec`] across frames.
+pub fn order_lights_for_clustered_shading_in_place(lights: &mut Vec<ResolvedLight>) {
+    if lights.len() > MAX_LIGHTS {
+        lights.truncate(MAX_LIGHTS);
+    }
+    lights.sort_by_key(|l| match l.light_type {
         LightType::Directional => 0u8,
         LightType::Point | LightType::Spot => 1,
     });
+}
+
+/// Allocates a new [`Vec`]; use [`order_lights_for_clustered_shading_in_place`] for hot paths.
+pub fn order_lights_for_clustered_shading(lights: &[ResolvedLight]) -> Vec<ResolvedLight> {
+    let mut v = lights.to_vec();
+    order_lights_for_clustered_shading_in_place(&mut v);
     v
 }
 

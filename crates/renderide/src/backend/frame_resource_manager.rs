@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use super::debug_draw::DebugDrawResources;
 use super::frame_gpu::{EmptyMaterialBindGroup, FrameGpuResources};
-use super::light_gpu::{order_lights_for_clustered_shading, GpuLight};
-use crate::scene::SceneCoordinator;
+use super::light_gpu::{order_lights_for_clustered_shading_in_place, GpuLight, MAX_LIGHTS};
+use crate::scene::{ResolvedLight, SceneCoordinator};
 
 /// Immutable snapshot of `@group(0)` / empty `@group(1)` / debug `@group(2)` resources for one frame.
 ///
@@ -36,6 +36,8 @@ pub struct FrameResourceManager {
     pub(crate) debug_draw: Option<DebugDrawResources>,
     /// Last packed lights for the frame (after [`Self::prepare_lights_from_scene`]).
     light_scratch: Vec<GpuLight>,
+    /// Reused each frame to flatten all spaces’ [`crate::scene::ResolvedLight`] before ordering and GPU pack.
+    resolved_flatten_scratch: Vec<ResolvedLight>,
 }
 
 impl Default for FrameResourceManager {
@@ -52,6 +54,7 @@ impl FrameResourceManager {
             empty_material: None,
             debug_draw: None,
             light_scratch: Vec::new(),
+            resolved_flatten_scratch: Vec::new(),
         }
     }
 
@@ -103,13 +106,18 @@ impl FrameResourceManager {
     /// capped at [`super::MAX_LIGHTS`]).
     pub fn prepare_lights_from_scene(&mut self, scene: &SceneCoordinator) {
         self.light_scratch.clear();
-        let mut all = Vec::new();
+        self.resolved_flatten_scratch.clear();
         for id in scene.render_space_ids() {
-            all.extend(scene.resolve_lights_world(id));
+            scene.resolve_lights_world_into(id, &mut self.resolved_flatten_scratch);
         }
-        let ordered = order_lights_for_clustered_shading(&all);
+        order_lights_for_clustered_shading_in_place(&mut self.resolved_flatten_scratch);
         self.light_scratch
-            .extend(ordered.iter().map(GpuLight::from_resolved));
+            .reserve(self.resolved_flatten_scratch.len().min(MAX_LIGHTS));
+        self.light_scratch.extend(
+            self.resolved_flatten_scratch
+                .iter()
+                .map(GpuLight::from_resolved),
+        );
     }
 
     /// Per-draw debug mesh uniforms: 256-byte dynamic uniform slab.
