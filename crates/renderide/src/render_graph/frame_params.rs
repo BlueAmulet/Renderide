@@ -66,7 +66,7 @@ impl Default for HostCameraFrame {
             far_clip: 10_000.0,
             desktop_fov_degrees: 60.0,
             vr_active: false,
-            output_device: HeadOutputDevice::screen,
+            output_device: HeadOutputDevice::Screen,
             primary_ortho_task: None,
             stereo_view_proj: None,
             stereo_views: None,

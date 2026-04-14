@@ -328,9 +328,9 @@ impl LightCache {
                 intensity: data.intensity,
                 range: data.range,
                 spot_angle: data.angle,
-                light_type: LightType::point,
+                light_type: LightType::Point,
                 global_unique_id: -1,
-                shadow_type: ShadowType::none,
+                shadow_type: ShadowType::None,
                 shadow_strength: 0.0,
                 shadow_near_plane: 0.0,
                 shadow_bias: 0.0,
@@ -381,7 +381,7 @@ mod tests {
             shadow_normal_bias: 0.0,
             cookie_texture_asset_id: -1,
             light_type,
-            shadow_type: ShadowType::none,
+            shadow_type: ShadowType::None,
             _padding: [0; 2],
         }
     }
@@ -397,7 +397,7 @@ mod tests {
         cache.store_full(100, light_data);
 
         let additions: Vec<i32> = vec![0];
-        let states = vec![make_state(0, 100, LightType::point)];
+        let states = vec![make_state(0, 100, LightType::Point)];
         cache.apply_update(space_id, &[], &additions, &states);
 
         let lights = cache
@@ -407,7 +407,7 @@ mod tests {
         assert_eq!(lights[0].data.point.x, 1.0);
         assert_eq!(lights[0].state.global_unique_id, 100);
         assert_eq!(lights[1].data.point.y, 2.0);
-        assert_eq!(lights[1].state.light_type, LightType::point);
+        assert_eq!(lights[1].state.light_type, LightType::Point);
     }
 
     #[test]
@@ -420,9 +420,9 @@ mod tests {
 
         let additions: Vec<i32> = vec![0, 1, 2];
         let states = vec![
-            make_state(0, 100, LightType::point),
-            make_state(1, 101, LightType::point),
-            make_state(2, 102, LightType::point),
+            make_state(0, 100, LightType::Point),
+            make_state(1, 101, LightType::Point),
+            make_state(2, 102, LightType::Point),
         ];
         cache.apply_update(space_id, &[], &additions, &states);
         assert_eq!(
@@ -449,7 +449,7 @@ mod tests {
         cache.store_full(100, vec![make_light_data((1.0, 0.0, 0.0), (1.0, 0.0, 0.0))]);
 
         let additions: Vec<i32> = vec![0];
-        let states = vec![make_state(0, 100, LightType::point)];
+        let states = vec![make_state(0, 100, LightType::Point)];
         cache.apply_update(space_id, &[], &additions, &states);
 
         let world_matrix = Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0));
@@ -486,7 +486,7 @@ mod tests {
         assert_eq!(resolved.len(), 2);
         assert!((resolved[0].world_position.x - 5.0).abs() < 1e-5);
         assert!((resolved[0].color.x - 1.0).abs() < 1e-5);
-        assert_eq!(resolved[0].light_type, LightType::point);
+        assert_eq!(resolved[0].light_type, LightType::Point);
         assert_eq!(resolved[0].global_unique_id, -1);
         assert!((resolved[1].world_position.y - 3.0).abs() < 1e-5);
         assert!((resolved[1].color.y - 1.0).abs() < 1e-5);
@@ -497,7 +497,7 @@ mod tests {
         let mut cache = LightCache::new();
         let space_id = 0;
         cache.store_full(100, vec![make_light_data((1.0, 0.0, 0.0), (1.0, 0.0, 0.0))]);
-        cache.apply_update(space_id, &[], &[0], &[make_state(0, 100, LightType::point)]);
+        cache.apply_update(space_id, &[], &[0], &[make_state(0, 100, LightType::Point)]);
         let resolved = cache.resolve_lights(space_id, |_| Some(Mat4::IDENTITY));
         assert_eq!(resolved.len(), 1);
         let gpu = crate::backend::GpuLight::from_resolved(&resolved[0]);

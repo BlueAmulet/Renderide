@@ -52,7 +52,7 @@ pub fn effective_head_output_clip_planes(
     output_device: HeadOutputDevice,
     root_scale: Option<Vec3>,
 ) -> (f32, f32) {
-    let near_min = if output_device == HeadOutputDevice::screen360 {
+    let near_min = if output_device == HeadOutputDevice::Screen360 {
         0.25
     } else {
         0.001
@@ -303,7 +303,7 @@ mod tests {
         let (near, far) = effective_head_output_clip_planes(
             0.0001,
             0.25,
-            HeadOutputDevice::screen360,
+            HeadOutputDevice::Screen360,
             Some(Vec3::splat(2.0)),
         );
         assert!((near - 0.5).abs() < 1e-6);

@@ -204,8 +204,8 @@ impl OpenxrInput {
     ) -> ActiveControllerProfile {
         let live = self.detect_profile(session, hand_user_path);
         let cache = match side {
-            Chirality::left => &self.left_profile_cache,
-            Chirality::right => &self.right_profile_cache,
+            Chirality::Left => &self.left_profile_cache,
+            Chirality::Right => &self.right_profile_cache,
         };
         if is_concrete_profile(live) {
             cache.store(profile_code(live), Ordering::Relaxed);
@@ -284,27 +284,27 @@ impl OpenxrInput {
             right_trackpad.current_state.x,
             right_trackpad.current_state.y,
         );
-        let left_profile = self.active_profile(session, self.left_user_path, Chirality::left);
-        let right_profile = self.active_profile(session, self.right_user_path, Chirality::right);
-        log_profile_transition(Chirality::left, left_profile);
-        log_profile_transition(Chirality::right, right_profile);
-        Self::log_grip_missing_aim_valid_throttled(Chirality::left, left_grip_pose, left_aim_pose);
+        let left_profile = self.active_profile(session, self.left_user_path, Chirality::Left);
+        let right_profile = self.active_profile(session, self.right_user_path, Chirality::Right);
+        log_profile_transition(Chirality::Left, left_profile);
+        log_profile_transition(Chirality::Right, right_profile);
+        Self::log_grip_missing_aim_valid_throttled(Chirality::Left, left_grip_pose, left_aim_pose);
         Self::log_grip_missing_aim_valid_throttled(
-            Chirality::right,
+            Chirality::Right,
             right_grip_pose,
             right_aim_pose,
         );
         let left_frame =
-            resolve_controller_frame(left_profile, Chirality::left, left_grip_pose, left_aim_pose);
+            resolve_controller_frame(left_profile, Chirality::Left, left_grip_pose, left_aim_pose);
         let right_frame = resolve_controller_frame(
             right_profile,
-            Chirality::right,
+            Chirality::Right,
             right_grip_pose,
             right_aim_pose,
         );
         let left = build_controller_state(
             left_profile,
-            Chirality::left,
+            Chirality::Left,
             left_frame.is_some(),
             left_frame.unwrap_or(ControllerFrame {
                 position: Vec3::ZERO,
@@ -335,7 +335,7 @@ impl OpenxrInput {
         );
         let right = build_controller_state(
             right_profile,
-            Chirality::right,
+            Chirality::Right,
             right_frame.is_some(),
             right_frame.unwrap_or(ControllerFrame {
                 position: Vec3::ZERO,
@@ -381,8 +381,8 @@ impl OpenxrInput {
         static LEFT: AtomicU32 = AtomicU32::new(0);
         static RIGHT: AtomicU32 = AtomicU32::new(0);
         let slot = match side {
-            Chirality::left => &LEFT,
-            Chirality::right => &RIGHT,
+            Chirality::Left => &LEFT,
+            Chirality::Right => &RIGHT,
         };
         let n = slot.fetch_add(1, Ordering::Relaxed);
         if n % 300 == 0 {

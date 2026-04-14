@@ -53,8 +53,8 @@ pub(super) fn log_profile_transition(side: Chirality, profile: ActiveControllerP
     static LEFT: AtomicU8 = AtomicU8::new(0);
     static RIGHT: AtomicU8 = AtomicU8::new(0);
     let slot = match side {
-        Chirality::left => &LEFT,
-        Chirality::right => &RIGHT,
+        Chirality::Left => &LEFT,
+        Chirality::Right => &RIGHT,
     };
     let code = profile_code(profile);
     let previous = slot.swap(code, Ordering::Relaxed);

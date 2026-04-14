@@ -192,34 +192,34 @@ pub(crate) fn sampler_from_state(
     state: &Texture2dSamplerState,
 ) -> wgpu::Sampler {
     let address_mode_u = match state.wrap_u {
-        crate::shared::TextureWrapMode::repeat => wgpu::AddressMode::Repeat,
-        crate::shared::TextureWrapMode::clamp => wgpu::AddressMode::ClampToEdge,
-        crate::shared::TextureWrapMode::mirror => wgpu::AddressMode::MirrorRepeat,
-        crate::shared::TextureWrapMode::mirror_once => wgpu::AddressMode::ClampToEdge,
+        crate::shared::TextureWrapMode::Repeat => wgpu::AddressMode::Repeat,
+        crate::shared::TextureWrapMode::Clamp => wgpu::AddressMode::ClampToEdge,
+        crate::shared::TextureWrapMode::Mirror => wgpu::AddressMode::MirrorRepeat,
+        crate::shared::TextureWrapMode::MirrorOnce => wgpu::AddressMode::ClampToEdge,
     };
     let address_mode_v = match state.wrap_v {
-        crate::shared::TextureWrapMode::repeat => wgpu::AddressMode::Repeat,
-        crate::shared::TextureWrapMode::clamp => wgpu::AddressMode::ClampToEdge,
-        crate::shared::TextureWrapMode::mirror => wgpu::AddressMode::MirrorRepeat,
-        crate::shared::TextureWrapMode::mirror_once => wgpu::AddressMode::ClampToEdge,
+        crate::shared::TextureWrapMode::Repeat => wgpu::AddressMode::Repeat,
+        crate::shared::TextureWrapMode::Clamp => wgpu::AddressMode::ClampToEdge,
+        crate::shared::TextureWrapMode::Mirror => wgpu::AddressMode::MirrorRepeat,
+        crate::shared::TextureWrapMode::MirrorOnce => wgpu::AddressMode::ClampToEdge,
     };
     let (mag, min, mipmap) = match state.filter_mode {
-        crate::shared::TextureFilterMode::point => (
+        crate::shared::TextureFilterMode::Point => (
             wgpu::FilterMode::Nearest,
             wgpu::FilterMode::Nearest,
             wgpu::MipmapFilterMode::Nearest,
         ),
-        crate::shared::TextureFilterMode::bilinear => (
+        crate::shared::TextureFilterMode::Bilinear => (
             wgpu::FilterMode::Linear,
             wgpu::FilterMode::Linear,
             wgpu::MipmapFilterMode::Linear,
         ),
-        crate::shared::TextureFilterMode::trilinear => (
+        crate::shared::TextureFilterMode::Trilinear => (
             wgpu::FilterMode::Linear,
             wgpu::FilterMode::Linear,
             wgpu::MipmapFilterMode::Linear,
         ),
-        crate::shared::TextureFilterMode::anisotropic => (
+        crate::shared::TextureFilterMode::Anisotropic => (
             wgpu::FilterMode::Linear,
             wgpu::FilterMode::Linear,
             wgpu::MipmapFilterMode::Linear,

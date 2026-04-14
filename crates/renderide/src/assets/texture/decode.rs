@@ -16,7 +16,7 @@ pub fn decode_mip_to_rgba8(
     let h = height as usize;
     let count = w.checked_mul(h)?;
     match format {
-        TextureFormat::rgb24 => {
+        TextureFormat::RGB24 => {
             let need = count.checked_mul(3)?;
             if raw.len() < need {
                 return None;
@@ -30,7 +30,7 @@ pub fn decode_mip_to_rgba8(
             }
             Some(out)
         }
-        TextureFormat::rgba32 => {
+        TextureFormat::RGBA32 => {
             let need = count.checked_mul(4)?;
             if raw.len() < need {
                 return None;
@@ -41,7 +41,7 @@ pub fn decode_mip_to_rgba8(
             }
             Some(out)
         }
-        TextureFormat::argb32 => {
+        TextureFormat::ARGB32 => {
             let need = count.checked_mul(4)?;
             if raw.len() < need {
                 return None;
@@ -55,7 +55,7 @@ pub fn decode_mip_to_rgba8(
             }
             Some(out)
         }
-        TextureFormat::bgra32 => {
+        TextureFormat::BGRA32 => {
             let need = count.checked_mul(4)?;
             if raw.len() < need {
                 return None;
@@ -72,13 +72,13 @@ pub fn decode_mip_to_rgba8(
             }
             Some(out)
         }
-        TextureFormat::r8 | TextureFormat::alpha8 => {
+        TextureFormat::R8 | TextureFormat::Alpha8 => {
             let need = count;
             if raw.len() < need {
                 return None;
             }
             let mut out = Vec::with_capacity(count * 4);
-            if format == TextureFormat::r8 {
+            if format == TextureFormat::R8 {
                 for &g in &raw[..need] {
                     out.extend_from_slice(&[g, g, g, 255]);
                 }
@@ -92,7 +92,7 @@ pub fn decode_mip_to_rgba8(
             }
             Some(out)
         }
-        TextureFormat::rgb565 | TextureFormat::bgr565 => {
+        TextureFormat::RGB565 | TextureFormat::BGR565 => {
             let need = count.checked_mul(2)?;
             if raw.len() < need {
                 return None;
@@ -100,7 +100,7 @@ pub fn decode_mip_to_rgba8(
             let mut out = Vec::with_capacity(count * 4);
             for chunk in raw[..need].chunks_exact(2) {
                 let v = u16::from_le_bytes([chunk[0], chunk[1]]);
-                let (r5, g6, b5) = if format == TextureFormat::bgr565 {
+                let (r5, g6, b5) = if format == TextureFormat::BGR565 {
                     let b5 = (v >> 11) & 0x1f;
                     let g6 = (v >> 5) & 0x3f;
                     let r5 = v & 0x1f;
@@ -121,13 +121,13 @@ pub fn decode_mip_to_rgba8(
             }
             Some(out)
         }
-        TextureFormat::bc1 => decode_bc1_to_rgba8(w, h, raw).map(|mut out| {
+        TextureFormat::BC1 => decode_bc1_to_rgba8(w, h, raw).map(|mut out| {
             if flip_y {
                 flip_rgba_image_rows(&mut out, w, h);
             }
             out
         }),
-        TextureFormat::bc3 => decode_bc3_to_rgba8(w, h, raw).map(|mut out| {
+        TextureFormat::BC3 => decode_bc3_to_rgba8(w, h, raw).map(|mut out| {
             if flip_y {
                 flip_rgba_image_rows(&mut out, w, h);
             }
@@ -141,15 +141,15 @@ pub fn decode_mip_to_rgba8(
 pub fn needs_rgba8_decode_before_upload(host: TextureFormat) -> bool {
     matches!(
         host,
-        TextureFormat::rgb24
-            | TextureFormat::argb32
-            | TextureFormat::bgra32
-            | TextureFormat::r8
-            | TextureFormat::alpha8
-            | TextureFormat::rgb565
-            | TextureFormat::bgr565
-            | TextureFormat::bc1
-            | TextureFormat::bc3
+        TextureFormat::RGB24
+            | TextureFormat::ARGB32
+            | TextureFormat::BGRA32
+            | TextureFormat::R8
+            | TextureFormat::Alpha8
+            | TextureFormat::RGB565
+            | TextureFormat::BGR565
+            | TextureFormat::BC1
+            | TextureFormat::BC3
     )
 }
 
@@ -391,14 +391,14 @@ mod tests {
     #[test]
     fn argb32_swizzles_to_rgba() {
         let raw = vec![255u8, 1, 2, 3];
-        let out = decode_mip_to_rgba8(TextureFormat::argb32, 1, 1, false, &raw).expect("ok");
+        let out = decode_mip_to_rgba8(TextureFormat::ARGB32, 1, 1, false, &raw).expect("ok");
         assert_eq!(out, vec![1, 2, 3, 255]);
     }
 
     #[test]
     fn bc1_decodes_red_1x1() {
         let raw = vec![0x00u8, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-        let out = decode_mip_to_rgba8(TextureFormat::bc1, 1, 1, false, &raw).expect("ok");
+        let out = decode_mip_to_rgba8(TextureFormat::BC1, 1, 1, false, &raw).expect("ok");
         assert!(out[0] >= 250 && out[1] < 5 && out[2] < 5 && out[3] == 255);
     }
 }

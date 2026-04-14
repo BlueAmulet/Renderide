@@ -9,10 +9,10 @@ use crate::shared::{FrameStartData, InputState, OutputState, RendererCommand, Re
 /// Host init sequence state (replaces paired booleans such as `init_received` / `init_finalized`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum InitState {
-    /// Waiting for [`RendererCommand::renderer_init_data`].
+    /// Waiting for [`RendererCommand::RendererInitData`].
     #[default]
     Uninitialized,
-    /// `renderer_init_data` received; waiting for [`RendererCommand::renderer_init_finalize_data`].
+    /// `renderer_init_data` received; waiting for [`RendererCommand::RendererInitFinalizeData`].
     InitReceived,
     /// Normal operation (or standalone mode).
     Finalized,
@@ -102,7 +102,7 @@ impl RendererFrontend {
         self.shutdown_requested
     }
 
-    /// Records a host shutdown request ([`RendererCommand::renderer_shutdown_request`] / shutdown).
+    /// Records a host shutdown request ([`RendererCommand::RendererShutdownRequest`] / shutdown).
     pub fn set_shutdown_requested(&mut self, value: bool) {
         self.shutdown_requested = value;
     }
@@ -197,7 +197,7 @@ impl RendererFrontend {
         self.perf_last_total_us = total_us;
     }
 
-    /// Poll and sort commands so [`RendererCommand::renderer_init_data`] runs before any other work
+    /// Poll and sort commands so [`RendererCommand::RendererInitData`] runs before any other work
     /// in the same batch (then frame submits), avoiding a fatal `Uninitialized` ordering hazard.
     pub fn poll_commands(&mut self) -> Vec<RendererCommand> {
         let Some(ref mut ipc) = self.ipc else {
@@ -205,8 +205,8 @@ impl RendererFrontend {
         };
         let mut batch = ipc.poll();
         batch.sort_by_key(|c| match c {
-            RendererCommand::renderer_init_data(_) => 0u8,
-            RendererCommand::frame_submit_data(_) => 1,
+            RendererCommand::RendererInitData(_) => 0u8,
+            RendererCommand::FrameSubmitData(_) => 1,
             _ => 2,
         });
         batch
@@ -244,7 +244,7 @@ impl RendererFrontend {
             ..Default::default()
         };
         if let Some(ref mut ipc) = self.ipc {
-            ipc.send_primary(RendererCommand::frame_start_data(frame_start));
+            ipc.send_primary(RendererCommand::FrameStartData(frame_start));
         }
         self.last_frame_data_processed = false;
         if bootstrap {

@@ -80,12 +80,12 @@ pub fn parse_materials_update_batch_into_store(
         let Some(update) = p.next_update() else {
             break;
         };
-        if update.update_type == MaterialPropertyUpdateType::update_batch_end {
+        if update.update_type == MaterialPropertyUpdateType::UpdateBatchEnd {
             break;
         }
 
         let Some(target) = current else {
-            if update.update_type == MaterialPropertyUpdateType::select_target {
+            if update.update_type == MaterialPropertyUpdateType::SelectTarget {
                 current = Some(select_target_kind(
                     update.property_id,
                     &mut select_target_index,
@@ -96,23 +96,23 @@ pub fn parse_materials_update_batch_into_store(
         };
 
         match update.update_type {
-            MaterialPropertyUpdateType::select_target => {
+            MaterialPropertyUpdateType::SelectTarget => {
                 current = Some(select_target_kind(
                     update.property_id,
                     &mut select_target_index,
                     material_update_count,
                 ));
             }
-            MaterialPropertyUpdateType::set_shader => match target {
+            MaterialPropertyUpdateType::SetShader => match target {
                 MaterialBatchTarget::Material(material_id) => {
                     store.set_shader_asset_for_material(material_id, update.property_id);
                 }
                 MaterialBatchTarget::PropertyBlock(_) => {}
             },
-            MaterialPropertyUpdateType::set_render_queue
-            | MaterialPropertyUpdateType::set_instancing
-            | MaterialPropertyUpdateType::set_render_type => {}
-            MaterialPropertyUpdateType::set_float => {
+            MaterialPropertyUpdateType::SetRenderQueue
+            | MaterialPropertyUpdateType::SetInstancing
+            | MaterialPropertyUpdateType::SetRenderType => {}
+            MaterialPropertyUpdateType::SetFloat => {
                 if let Some(v) = p.next_float() {
                     match target {
                         MaterialBatchTarget::Material(id) => {
@@ -132,7 +132,7 @@ pub fn parse_materials_update_batch_into_store(
                     }
                 }
             }
-            MaterialPropertyUpdateType::set_float4 => {
+            MaterialPropertyUpdateType::SetFloat4 => {
                 if let Some(v) = p.next_float4() {
                     match target {
                         MaterialBatchTarget::Material(id) => {
@@ -152,7 +152,7 @@ pub fn parse_materials_update_batch_into_store(
                     }
                 }
             }
-            MaterialPropertyUpdateType::set_float4x4 => {
+            MaterialPropertyUpdateType::SetFloat4x4 => {
                 if let Some(mat) = p.next_matrix() {
                     if options.persist_extended_payloads {
                         let v = MaterialPropertyValue::Float4x4(mat);
@@ -167,7 +167,7 @@ pub fn parse_materials_update_batch_into_store(
                     }
                 }
             }
-            MaterialPropertyUpdateType::set_texture => {
+            MaterialPropertyUpdateType::SetTexture => {
                 if let Some(packed) = p.next_int() {
                     let v = MaterialPropertyValue::Texture(packed);
                     match target {
@@ -180,7 +180,7 @@ pub fn parse_materials_update_batch_into_store(
                     }
                 }
             }
-            MaterialPropertyUpdateType::set_float_array => {
+            MaterialPropertyUpdateType::SetFloatArray => {
                 let Some(len) = p.next_int() else {
                     continue;
                 };
@@ -212,7 +212,7 @@ pub fn parse_materials_update_batch_into_store(
                     }
                 }
             }
-            MaterialPropertyUpdateType::set_float4_array => {
+            MaterialPropertyUpdateType::SetFloat4Array => {
                 let Some(len) = p.next_int() else {
                     continue;
                 };
@@ -244,7 +244,7 @@ pub fn parse_materials_update_batch_into_store(
                     }
                 }
             }
-            MaterialPropertyUpdateType::update_batch_end => break,
+            MaterialPropertyUpdateType::UpdateBatchEnd => break,
         }
     }
 }
@@ -384,15 +384,12 @@ mod tests {
 
     #[test]
     fn select_target_uses_property_id_set_shader_in_property_id() {
-        let b0 = bytemuck::bytes_of(&write_update(42, MaterialPropertyUpdateType::select_target))
+        let b0 = bytemuck::bytes_of(&write_update(42, MaterialPropertyUpdateType::SelectTarget))
             .to_vec();
         let b1 =
-            bytemuck::bytes_of(&write_update(7, MaterialPropertyUpdateType::set_shader)).to_vec();
-        let b2 = bytemuck::bytes_of(&write_update(
-            0,
-            MaterialPropertyUpdateType::update_batch_end,
-        ))
-        .to_vec();
+            bytemuck::bytes_of(&write_update(7, MaterialPropertyUpdateType::SetShader)).to_vec();
+        let b2 = bytemuck::bytes_of(&write_update(0, MaterialPropertyUpdateType::UpdateBatchEnd))
+            .to_vec();
         let mut loader = TestLoader {
             blobs: vec![b0.clone(), b1.clone(), b2.clone()],
         };
@@ -414,15 +411,15 @@ mod tests {
     #[test]
     fn set_texture_reads_packed_from_int_buffer() {
         let stream: Vec<u8> =
-            bytemuck::bytes_of(&write_update(99, MaterialPropertyUpdateType::select_target))
+            bytemuck::bytes_of(&write_update(99, MaterialPropertyUpdateType::SelectTarget))
                 .iter()
                 .chain(bytemuck::bytes_of(&write_update(
                     1,
-                    MaterialPropertyUpdateType::set_texture,
+                    MaterialPropertyUpdateType::SetTexture,
                 )))
                 .chain(bytemuck::bytes_of(&write_update(
                     0,
-                    MaterialPropertyUpdateType::update_batch_end,
+                    MaterialPropertyUpdateType::UpdateBatchEnd,
                 )))
                 .copied()
                 .collect();
@@ -454,19 +451,19 @@ mod tests {
     #[test]
     fn set_float_and_float4_from_typed_buffers() {
         let stream: Vec<u8> =
-            bytemuck::bytes_of(&write_update(10, MaterialPropertyUpdateType::select_target))
+            bytemuck::bytes_of(&write_update(10, MaterialPropertyUpdateType::SelectTarget))
                 .iter()
                 .chain(bytemuck::bytes_of(&write_update(
                     2,
-                    MaterialPropertyUpdateType::set_float,
+                    MaterialPropertyUpdateType::SetFloat,
                 )))
                 .chain(bytemuck::bytes_of(&write_update(
                     3,
-                    MaterialPropertyUpdateType::set_float4,
+                    MaterialPropertyUpdateType::SetFloat4,
                 )))
                 .chain(bytemuck::bytes_of(&write_update(
                     0,
-                    MaterialPropertyUpdateType::update_batch_end,
+                    MaterialPropertyUpdateType::UpdateBatchEnd,
                 )))
                 .copied()
                 .collect();
@@ -504,10 +501,10 @@ mod tests {
 
     #[test]
     fn chained_material_update_buffers() {
-        let b0 = bytemuck::bytes_of(&write_update(5, MaterialPropertyUpdateType::select_target))
-            .to_vec();
+        let b0 =
+            bytemuck::bytes_of(&write_update(5, MaterialPropertyUpdateType::SelectTarget)).to_vec();
         let b1 =
-            bytemuck::bytes_of(&write_update(9, MaterialPropertyUpdateType::set_shader)).to_vec();
+            bytemuck::bytes_of(&write_update(9, MaterialPropertyUpdateType::SetShader)).to_vec();
         let mut loader = TestLoader {
             blobs: vec![b0.clone(), b1.clone()],
         };
@@ -529,15 +526,15 @@ mod tests {
     #[test]
     fn set_float4x4_persisted_when_option_on() {
         let stream: Vec<u8> =
-            bytemuck::bytes_of(&write_update(20, MaterialPropertyUpdateType::select_target))
+            bytemuck::bytes_of(&write_update(20, MaterialPropertyUpdateType::SelectTarget))
                 .iter()
                 .chain(bytemuck::bytes_of(&write_update(
                     3,
-                    MaterialPropertyUpdateType::set_float4x4,
+                    MaterialPropertyUpdateType::SetFloat4x4,
                 )))
                 .chain(bytemuck::bytes_of(&write_update(
                     0,
-                    MaterialPropertyUpdateType::update_batch_end,
+                    MaterialPropertyUpdateType::UpdateBatchEnd,
                 )))
                 .copied()
                 .collect();
@@ -567,15 +564,15 @@ mod tests {
     #[test]
     fn set_float_array_persisted_when_option_on() {
         let stream: Vec<u8> =
-            bytemuck::bytes_of(&write_update(21, MaterialPropertyUpdateType::select_target))
+            bytemuck::bytes_of(&write_update(21, MaterialPropertyUpdateType::SelectTarget))
                 .iter()
                 .chain(bytemuck::bytes_of(&write_update(
                     4,
-                    MaterialPropertyUpdateType::set_float_array,
+                    MaterialPropertyUpdateType::SetFloatArray,
                 )))
                 .chain(bytemuck::bytes_of(&write_update(
                     0,
-                    MaterialPropertyUpdateType::update_batch_end,
+                    MaterialPropertyUpdateType::UpdateBatchEnd,
                 )))
                 .copied()
                 .collect();
@@ -613,15 +610,15 @@ mod tests {
     #[test]
     fn material_update_count_zero_targets_property_blocks_only() {
         let stream: Vec<u8> =
-            bytemuck::bytes_of(&write_update(10, MaterialPropertyUpdateType::select_target))
+            bytemuck::bytes_of(&write_update(10, MaterialPropertyUpdateType::SelectTarget))
                 .iter()
                 .chain(bytemuck::bytes_of(&write_update(
                     2,
-                    MaterialPropertyUpdateType::set_float,
+                    MaterialPropertyUpdateType::SetFloat,
                 )))
                 .chain(bytemuck::bytes_of(&write_update(
                     0,
-                    MaterialPropertyUpdateType::update_batch_end,
+                    MaterialPropertyUpdateType::UpdateBatchEnd,
                 )))
                 .copied()
                 .collect();
@@ -652,29 +649,27 @@ mod tests {
 
     #[test]
     fn same_numeric_id_material_and_property_block_do_not_collide() {
-        let stream: Vec<u8> = bytemuck::bytes_of(&write_update(
-            100,
-            MaterialPropertyUpdateType::select_target,
-        ))
-        .iter()
-        .chain(bytemuck::bytes_of(&write_update(
-            1,
-            MaterialPropertyUpdateType::set_float,
-        )))
-        .chain(bytemuck::bytes_of(&write_update(
-            100,
-            MaterialPropertyUpdateType::select_target,
-        )))
-        .chain(bytemuck::bytes_of(&write_update(
-            1,
-            MaterialPropertyUpdateType::set_float,
-        )))
-        .chain(bytemuck::bytes_of(&write_update(
-            0,
-            MaterialPropertyUpdateType::update_batch_end,
-        )))
-        .copied()
-        .collect();
+        let stream: Vec<u8> =
+            bytemuck::bytes_of(&write_update(100, MaterialPropertyUpdateType::SelectTarget))
+                .iter()
+                .chain(bytemuck::bytes_of(&write_update(
+                    1,
+                    MaterialPropertyUpdateType::SetFloat,
+                )))
+                .chain(bytemuck::bytes_of(&write_update(
+                    100,
+                    MaterialPropertyUpdateType::SelectTarget,
+                )))
+                .chain(bytemuck::bytes_of(&write_update(
+                    1,
+                    MaterialPropertyUpdateType::SetFloat,
+                )))
+                .chain(bytemuck::bytes_of(&write_update(
+                    0,
+                    MaterialPropertyUpdateType::UpdateBatchEnd,
+                )))
+                .copied()
+                .collect();
         let fbytes = bytemuck::bytes_of(&1.0f32)
             .iter()
             .chain(bytemuck::bytes_of(&2.0f32))

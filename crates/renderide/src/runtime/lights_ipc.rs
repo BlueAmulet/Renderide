@@ -41,7 +41,7 @@ pub(crate) fn apply_lights_buffer_submission(
     let payload: Vec<LightData> = vec.into_iter().take(take).collect();
     scene.light_cache_mut().store_full(buffer_id, payload);
     if let Some(ipc) = ipc {
-        ipc.send_background(RendererCommand::lights_buffer_renderer_consumed(
+        ipc.send_background(RendererCommand::LightsBufferRendererConsumed(
             LightsBufferRendererConsumed {
                 global_unique_id: buffer_id,
             },

@@ -175,3 +175,36 @@ pub fn try_log(level: LogLevel, args: std::fmt::Arguments<'_>) -> bool {
     }
     false
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    /// Single test for the global logger: [`OnceLock`] allows at most one successful [`init`] per process.
+    #[test]
+    fn global_logger_init_log_filter_flush_try_log() {
+        let path =
+            std::env::temp_dir().join(format!("logger_output_smoke_{}.log", std::process::id()));
+        let _ = fs::remove_file(&path);
+
+        init(&path, LogLevel::Trace, false).expect("init");
+        assert!(enabled(LogLevel::Info));
+        assert!(is_level_enabled(LogLevel::Debug));
+
+        log(LogLevel::Info, format_args!("smoke line"));
+        flush();
+
+        set_max_level(LogLevel::Warn);
+        assert!(!enabled(LogLevel::Info));
+        assert!(enabled(LogLevel::Warn));
+
+        assert!(try_log(LogLevel::Warn, format_args!("try_log line")));
+
+        let contents = fs::read_to_string(&path).expect("read log");
+        assert!(contents.contains("smoke line"));
+        assert!(contents.contains("try_log line"));
+
+        let _ = fs::remove_file(&path);
+    }
+}

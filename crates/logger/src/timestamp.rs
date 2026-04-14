@@ -49,3 +49,27 @@ fn days_since_epoch_to_ymd(days: u64) -> (u32, u32, u32) {
     let y = if m <= 2 { y + 1 } else { y };
     (y, m, d)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn days_since_epoch_unix_epoch_is_1970_01_01() {
+        assert_eq!(days_since_epoch_to_ymd(0), (1970, 1, 1));
+    }
+
+    #[test]
+    fn days_since_epoch_one_day_later() {
+        assert_eq!(days_since_epoch_to_ymd(1), (1970, 1, 2));
+    }
+
+    #[test]
+    fn format_line_timestamp_matches_pattern() {
+        let s = format_line_timestamp();
+        assert_eq!(s.len(), 12);
+        assert_eq!(s.as_bytes()[2], b':');
+        assert_eq!(s.as_bytes()[5], b':');
+        assert_eq!(s.as_bytes()[8], b'.');
+    }
+}

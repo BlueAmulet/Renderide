@@ -21,8 +21,8 @@ pub(super) fn touch_pose_correction(
 ) -> (Vec3, Quat) {
     let rotation = rotation * Quat::from_rotation_x(45.0_f32.to_radians());
     let offset = match side {
-        Chirality::left => Vec3::new(-0.01, 0.04, 0.03),
-        Chirality::right => Vec3::new(0.01, 0.04, 0.03),
+        Chirality::Left => Vec3::new(-0.01, 0.04, 0.03),
+        Chirality::Right => Vec3::new(0.01, 0.04, 0.03),
     };
     (position - rotation * offset, rotation)
 }
@@ -33,8 +33,8 @@ pub(super) fn index_pose_correction(
     rotation: Quat,
 ) -> (Vec3, Quat) {
     let roll = match side {
-        Chirality::left => 90.0_f32,
-        Chirality::right => -90.0_f32,
+        Chirality::Left => 90.0_f32,
+        Chirality::Right => -90.0_f32,
     };
     (
         position,
@@ -62,46 +62,46 @@ pub(super) fn bound_hand_pose_defaults(
 ) -> (bool, Vec3, Quat) {
     let generic_fix = unity_euler_deg(90.0, 90.0, 90.0).inverse();
     match (profile, side) {
-        (ActiveControllerProfile::Touch, Chirality::left) => (
+        (ActiveControllerProfile::Touch, Chirality::Left) => (
             true,
             Vec3::new(-0.04, -0.025, -0.1),
             unity_euler_deg(185.0, -95.0, -90.0) * generic_fix,
         ),
-        (ActiveControllerProfile::Touch, Chirality::right) => (
+        (ActiveControllerProfile::Touch, Chirality::Right) => (
             true,
             Vec3::new(0.04, -0.025, -0.1),
             unity_euler_deg(5.0, -95.0, -90.0) * generic_fix,
         ),
-        (ActiveControllerProfile::Vive, Chirality::left)
-        | (ActiveControllerProfile::Generic, Chirality::left)
-        | (ActiveControllerProfile::Simple, Chirality::left) => (
+        (ActiveControllerProfile::Vive, Chirality::Left)
+        | (ActiveControllerProfile::Generic, Chirality::Left)
+        | (ActiveControllerProfile::Simple, Chirality::Left) => (
             true,
             Vec3::new(-0.02, 0.0, -0.16),
             unity_euler_deg(140.0, -90.0, -90.0) * generic_fix,
         ),
-        (ActiveControllerProfile::Vive, Chirality::right)
-        | (ActiveControllerProfile::Generic, Chirality::right)
-        | (ActiveControllerProfile::Simple, Chirality::right) => (
+        (ActiveControllerProfile::Vive, Chirality::Right)
+        | (ActiveControllerProfile::Generic, Chirality::Right)
+        | (ActiveControllerProfile::Simple, Chirality::Right) => (
             true,
             Vec3::new(0.02, 0.0, -0.16),
             unity_euler_deg(40.0, -90.0, -90.0) * generic_fix,
         ),
-        (ActiveControllerProfile::WindowsMr, Chirality::left) => (
+        (ActiveControllerProfile::WindowsMr, Chirality::Left) => (
             true,
             Vec3::new(-0.028, 0.0, -0.18),
             unity_euler_deg(30.0, 5.0, 100.0),
         ),
-        (ActiveControllerProfile::WindowsMr, Chirality::right) => (
+        (ActiveControllerProfile::WindowsMr, Chirality::Right) => (
             true,
             Vec3::new(0.028, 0.0, -0.18),
             unity_euler_deg(30.0, -5.0, -100.0),
         ),
-        (ActiveControllerProfile::Index, Chirality::left) => (
+        (ActiveControllerProfile::Index, Chirality::Left) => (
             true,
             Vec3::new(-0.028, 0.0, -0.18),
             unity_euler_deg(30.0, 5.0, 100.0),
         ),
-        (ActiveControllerProfile::Index, Chirality::right) => (
+        (ActiveControllerProfile::Index, Chirality::Right) => (
             true,
             Vec3::new(0.028, 0.0, -0.18),
             unity_euler_deg(30.0, -5.0, -100.0),
@@ -166,7 +166,7 @@ mod tests {
     /// accidentally removed.
     #[test]
     fn neutral_grip_palm_faces_inward_not_forward_generic() {
-        for (side, expected_x_sign) in [(Chirality::left, -1.0_f32), (Chirality::right, 1.0_f32)] {
+        for (side, expected_x_sign) in [(Chirality::Left, -1.0_f32), (Chirality::Right, 1.0_f32)] {
             let (_, _, hand_rot) = bound_hand_pose_defaults(ActiveControllerProfile::Generic, side);
             let palm_normal = hand_rot * Vec3::Y;
             assert!(
@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn neutral_grip_palm_faces_inward_not_forward_touch() {
-        for (side, expected_x_sign) in [(Chirality::left, -1.0_f32), (Chirality::right, 1.0_f32)] {
+        for (side, expected_x_sign) in [(Chirality::Left, -1.0_f32), (Chirality::Right, 1.0_f32)] {
             let (_, _, hand_rot) = bound_hand_pose_defaults(ActiveControllerProfile::Touch, side);
             let palm_normal = hand_rot * Vec3::Y;
             assert!(
@@ -199,9 +199,9 @@ mod tests {
     #[test]
     fn bound_hand_chirality_mirrors_x_component() {
         let (_, pos_l, rot_l) =
-            bound_hand_pose_defaults(ActiveControllerProfile::Generic, Chirality::left);
+            bound_hand_pose_defaults(ActiveControllerProfile::Generic, Chirality::Left);
         let (_, pos_r, rot_r) =
-            bound_hand_pose_defaults(ActiveControllerProfile::Generic, Chirality::right);
+            bound_hand_pose_defaults(ActiveControllerProfile::Generic, Chirality::Right);
         assert!(
             (pos_l.x + pos_r.x).abs() < 1e-4,
             "position X should be mirrored: left={}, right={}",

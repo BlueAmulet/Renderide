@@ -14,10 +14,10 @@ use crate::shared::HeadOutputDevice;
 pub fn head_output_device_is_vr(device: HeadOutputDevice) -> bool {
     matches!(
         device,
-        HeadOutputDevice::steam_vr
-            | HeadOutputDevice::windows_mr
-            | HeadOutputDevice::oculus
-            | HeadOutputDevice::oculus_quest
+        HeadOutputDevice::SteamVR
+            | HeadOutputDevice::WindowsMR
+            | HeadOutputDevice::Oculus
+            | HeadOutputDevice::OculusQuest
     )
 }
 
@@ -33,17 +33,17 @@ mod tests {
     #[test]
     fn is_vr_matches_cs_table() {
         let cases = [
-            (HeadOutputDevice::autodetect, false),
-            (HeadOutputDevice::headless, false),
-            (HeadOutputDevice::screen, false),
-            (HeadOutputDevice::screen360, false),
-            (HeadOutputDevice::static_camera, false),
-            (HeadOutputDevice::static_camera360, false),
-            (HeadOutputDevice::steam_vr, true),
-            (HeadOutputDevice::windows_mr, true),
-            (HeadOutputDevice::oculus, true),
-            (HeadOutputDevice::oculus_quest, true),
-            (HeadOutputDevice::unknown, false),
+            (HeadOutputDevice::Autodetect, false),
+            (HeadOutputDevice::Headless, false),
+            (HeadOutputDevice::Screen, false),
+            (HeadOutputDevice::Screen360, false),
+            (HeadOutputDevice::StaticCamera, false),
+            (HeadOutputDevice::StaticCamera360, false),
+            (HeadOutputDevice::SteamVR, true),
+            (HeadOutputDevice::WindowsMR, true),
+            (HeadOutputDevice::Oculus, true),
+            (HeadOutputDevice::OculusQuest, true),
+            (HeadOutputDevice::UNKNOWN, false),
         ];
         for (d, want) in cases {
             assert_eq!(head_output_device_is_vr(d), want, "wrong IsVR for {d:?}");
@@ -52,8 +52,8 @@ mod tests {
 
     #[test]
     fn wants_openxr_matches_is_vr() {
-        let vr = HeadOutputDevice::steam_vr;
-        let non = HeadOutputDevice::screen;
+        let vr = HeadOutputDevice::SteamVR;
+        let non = HeadOutputDevice::Screen;
         assert_eq!(
             head_output_device_wants_openxr(vr),
             head_output_device_is_vr(vr)

@@ -33,18 +33,18 @@ pub fn host_camera_frame_for_render_texture(
     let (near_clip, far_clip) = effective_head_output_clip_planes(
         state.near_clip,
         state.far_clip,
-        HeadOutputDevice::screen,
+        HeadOutputDevice::Screen,
         root_scale,
     );
     let world_to_view = apply_view_handedness_fix(camera_world_matrix.inverse());
     let camera_world = camera_world_matrix.col(3).truncate();
     let world_proj = match state.projection {
-        CameraProjection::orthographic => {
+        CameraProjection::Orthographic => {
             let half_h = state.orthographic_size.max(1e-6);
             let half_w = half_h * aspect;
             reverse_z_orthographic(half_w, half_h, near_clip, far_clip)
         }
-        CameraProjection::perspective | CameraProjection::panoramic => {
+        CameraProjection::Perspective | CameraProjection::Panoramic => {
             let fov_deg = clamp_desktop_fov_degrees(state.field_of_view);
             let fov_rad = fov_deg.to_radians();
             reverse_z_perspective(aspect, fov_rad, near_clip, far_clip)
@@ -52,10 +52,10 @@ pub fn host_camera_frame_for_render_texture(
     };
 
     let primary_ortho_task = match state.projection {
-        CameraProjection::orthographic => {
+        CameraProjection::Orthographic => {
             Some((state.orthographic_size.max(1e-6), near_clip, far_clip))
         }
-        CameraProjection::perspective | CameraProjection::panoramic => None,
+        CameraProjection::Perspective | CameraProjection::Panoramic => None,
     };
 
     let desktop_fov = clamp_desktop_fov_degrees(state.field_of_view);

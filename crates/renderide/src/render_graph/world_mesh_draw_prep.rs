@@ -120,7 +120,7 @@ pub struct WorldMeshDrawItem {
     pub slot_index: usize,
     pub first_index: u32,
     pub index_count: u32,
-    /// `true` if [`LayerType::overlay`](crate::shared::LayerType).
+    /// `true` if [`LayerType::Overlay`](crate::shared::LayerType).
     pub is_overlay: bool,
     pub sorting_order: i32,
     pub skinned: bool,
@@ -251,7 +251,7 @@ fn push_draws_for_renderer(
         return;
     }
 
-    let is_overlay = renderer.layer == crate::shared::LayerType::overlay;
+    let is_overlay = renderer.layer == crate::shared::LayerType::Overlay;
 
     for slot_index in 0..n {
         let slot = &slots[slot_index];

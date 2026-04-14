@@ -12,16 +12,16 @@ pub const BLENDSHAPE_OFFSET_GPU_STRIDE: usize = 48;
 
 fn vertex_format_size(format: VertexAttributeFormat) -> i32 {
     match format {
-        VertexAttributeFormat::float32 => 4,
-        VertexAttributeFormat::half16 => 2,
-        VertexAttributeFormat::u_norm8 => 1,
-        VertexAttributeFormat::u_norm16 => 2,
-        VertexAttributeFormat::s_int8 => 1,
-        VertexAttributeFormat::s_int16 => 2,
-        VertexAttributeFormat::s_int32 => 4,
-        VertexAttributeFormat::u_int8 => 1,
-        VertexAttributeFormat::u_int16 => 2,
-        VertexAttributeFormat::u_int32 => 4,
+        VertexAttributeFormat::Float32 => 4,
+        VertexAttributeFormat::Half16 => 2,
+        VertexAttributeFormat::UNorm8 => 1,
+        VertexAttributeFormat::UNorm16 => 2,
+        VertexAttributeFormat::SInt8 => 1,
+        VertexAttributeFormat::SInt16 => 2,
+        VertexAttributeFormat::SInt32 => 4,
+        VertexAttributeFormat::UInt8 => 1,
+        VertexAttributeFormat::UInt16 => 2,
+        VertexAttributeFormat::UInt32 => 4,
     }
 }
 
@@ -45,8 +45,8 @@ pub fn compute_index_count(submeshes: &[SubmeshBufferDescriptor]) -> i32 {
 /// Bytes per index for [`IndexBufferFormat`].
 pub fn index_bytes_per_element(format: IndexBufferFormat) -> i32 {
     match format {
-        IndexBufferFormat::u_int16 => 2,
-        IndexBufferFormat::u_int32 => 4,
+        IndexBufferFormat::UInt16 => 2,
+        IndexBufferFormat::UInt32 => 4,
     }
 }
 
@@ -307,18 +307,18 @@ pub fn extract_float3_position_normal_as_vec4_streams(
     if vertex_data.len() < need {
         return None;
     }
-    let pos = attribute_offset_and_size(attrs, VertexAttributeType::position)?;
-    let nrm = attribute_offset_and_size(attrs, VertexAttributeType::normal)?;
+    let pos = attribute_offset_and_size(attrs, VertexAttributeType::Position)?;
+    let nrm = attribute_offset_and_size(attrs, VertexAttributeType::Normal)?;
     let pos_attr = attrs
         .iter()
-        .find(|a| (a.attribute as i16) == (VertexAttributeType::position as i16))?;
+        .find(|a| (a.attribute as i16) == (VertexAttributeType::Position as i16))?;
     let nrm_attr = attrs
         .iter()
-        .find(|a| (a.attribute as i16) == (VertexAttributeType::normal as i16))?;
-    if pos_attr.format != VertexAttributeFormat::float32 || pos_attr.dimensions != 3 {
+        .find(|a| (a.attribute as i16) == (VertexAttributeType::Normal as i16))?;
+    if pos_attr.format != VertexAttributeFormat::Float32 || pos_attr.dimensions != 3 {
         return None;
     }
-    if nrm_attr.format != VertexAttributeFormat::float32 || nrm_attr.dimensions != 3 {
+    if nrm_attr.format != VertexAttributeFormat::Float32 || nrm_attr.dimensions != 3 {
         return None;
     }
     if pos.1 != 12 || nrm.1 != 12 {
@@ -348,7 +348,7 @@ pub fn extract_float3_position_normal_as_vec4_streams(
 
 /// Dense `vec2<f32>` UV stream (`8` bytes per vertex) for embedded materials (e.g. world Unlit).
 ///
-/// When [`VertexAttributeType::uv0`] is missing or not `float32`×2, returns **zeros** so a vertex buffer
+/// When [`VertexAttributeType::UV0`] is missing or not `float32`×2, returns **zeros** so a vertex buffer
 /// slot can always be bound.
 pub fn uv0_float2_stream_bytes(
     vertex_data: &[u8],
@@ -364,13 +364,13 @@ pub fn uv0_float2_stream_bytes(
         return None;
     }
     let mut out = vec![0u8; vertex_count * 8];
-    let Some((off, sz)) = attribute_offset_and_size(attrs, VertexAttributeType::uv0) else {
+    let Some((off, sz)) = attribute_offset_and_size(attrs, VertexAttributeType::UV0) else {
         return Some(out);
     };
     let uv_attr = attrs
         .iter()
-        .find(|a| (a.attribute as i16) == (VertexAttributeType::uv0 as i16))?;
-    if uv_attr.format != VertexAttributeFormat::float32 || uv_attr.dimensions != 2 {
+        .find(|a| (a.attribute as i16) == (VertexAttributeType::UV0 as i16))?;
+    if uv_attr.format != VertexAttributeFormat::Float32 || uv_attr.dimensions != 2 {
         return Some(out);
     }
     if sz != 8 {
@@ -407,12 +407,12 @@ pub fn color_float4_stream_bytes(
     let mut out = vec![0u8; vertex_count * 16];
     fill_color_stream_with_white(&mut out);
 
-    let Some((off, _sz)) = attribute_offset_and_size(attrs, VertexAttributeType::color) else {
+    let Some((off, _sz)) = attribute_offset_and_size(attrs, VertexAttributeType::Color) else {
         return Some(out);
     };
     let color_attr = attrs
         .iter()
-        .find(|a| (a.attribute as i16) == (VertexAttributeType::color as i16))?;
+        .find(|a| (a.attribute as i16) == (VertexAttributeType::Color as i16))?;
 
     for i in 0..vertex_count {
         let base = i * stride + off;
@@ -450,21 +450,21 @@ fn decode_vertex_color(
     let dims = attr.dimensions.clamp(1, 4) as usize;
     let mut rgba = [1.0f32; 4];
     match attr.format {
-        VertexAttributeFormat::u_norm8 => {
+        VertexAttributeFormat::UNorm8 => {
             let end = base.checked_add(dims)?;
             let src = vertex_data.get(base..end)?;
             for (i, byte) in src.iter().take(dims).enumerate() {
                 rgba[i] = *byte as f32 / 255.0;
             }
         }
-        VertexAttributeFormat::u_norm16 => {
+        VertexAttributeFormat::UNorm16 => {
             let end = base.checked_add(dims.checked_mul(2)?)?;
             let src = vertex_data.get(base..end)?;
             for (i, chunk) in src.chunks(2).take(dims).enumerate() {
                 rgba[i] = u16::from_le_bytes(chunk.try_into().ok()?) as f32 / 65535.0;
             }
         }
-        VertexAttributeFormat::float32 => {
+        VertexAttributeFormat::Float32 => {
             let end = base.checked_add(dims.checked_mul(4)?)?;
             let src = vertex_data.get(base..end)?;
             for (i, chunk) in src.chunks(4).take(dims).enumerate() {
@@ -557,13 +557,13 @@ mod tests {
         use crate::shared::{VertexAttributeDescriptor, VertexAttributeType};
         let attrs = [
             VertexAttributeDescriptor {
-                attribute: VertexAttributeType::position,
-                format: VertexAttributeFormat::float32,
+                attribute: VertexAttributeType::Position,
+                format: VertexAttributeFormat::Float32,
                 dimensions: 3,
             },
             VertexAttributeDescriptor {
-                attribute: VertexAttributeType::normal,
-                format: VertexAttributeFormat::float32,
+                attribute: VertexAttributeType::Normal,
+                format: VertexAttributeFormat::Float32,
                 dimensions: 3,
             },
         ];
@@ -633,13 +633,13 @@ mod tests {
     fn uv0_float2_zeros_when_missing() {
         let attrs = [
             VertexAttributeDescriptor {
-                attribute: VertexAttributeType::position,
-                format: VertexAttributeFormat::float32,
+                attribute: VertexAttributeType::Position,
+                format: VertexAttributeFormat::Float32,
                 dimensions: 3,
             },
             VertexAttributeDescriptor {
-                attribute: VertexAttributeType::normal,
-                format: VertexAttributeFormat::float32,
+                attribute: VertexAttributeType::Normal,
+                format: VertexAttributeFormat::Float32,
                 dimensions: 3,
             },
         ];
@@ -654,8 +654,8 @@ mod tests {
     #[test]
     fn color_stream_defaults_to_opaque_white_when_missing() {
         let attrs = [VertexAttributeDescriptor {
-            attribute: VertexAttributeType::position,
-            format: VertexAttributeFormat::float32,
+            attribute: VertexAttributeType::Position,
+            format: VertexAttributeFormat::Float32,
             dimensions: 3,
         }];
         let raw = vec![0u8; 12];
@@ -667,8 +667,8 @@ mod tests {
     #[test]
     fn color_stream_decodes_unorm8_rgba() {
         let attrs = [VertexAttributeDescriptor {
-            attribute: VertexAttributeType::color,
-            format: VertexAttributeFormat::u_norm8,
+            attribute: VertexAttributeType::Color,
+            format: VertexAttributeFormat::UNorm8,
             dimensions: 4,
         }];
         let raw = vec![255u8, 128u8, 0u8, 64u8];

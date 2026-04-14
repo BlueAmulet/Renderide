@@ -68,7 +68,7 @@ pub(crate) fn apply_mesh_renderables_update(
         for &node_id in &added_node_ids {
             space.static_mesh_renderers.push(StaticMeshRenderer {
                 node_id,
-                layer: LayerType::hidden,
+                layer: LayerType::Hidden,
                 ..Default::default()
             });
         }
@@ -140,7 +140,7 @@ pub(crate) fn apply_skinned_mesh_renderables_update(
             space.skinned_mesh_renderers.push(SkinnedMeshRenderer {
                 base: StaticMeshRenderer {
                     node_id,
-                    layer: LayerType::hidden,
+                    layer: LayerType::Hidden,
                     ..Default::default()
                 },
                 ..Default::default()

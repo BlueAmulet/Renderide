@@ -158,7 +158,7 @@ mod tests {
 
         let frame = resolve_controller_frame(
             ActiveControllerProfile::Index,
-            Chirality::left,
+            Chirality::Left,
             Some((grip_position, grip_rotation)),
             Some((aim_position, aim_rotation)),
         )
@@ -176,7 +176,7 @@ mod tests {
             frame.hand_rotation,
         );
         let (expected_hand_position, expected_hand_rotation) =
-            index_pose_correction(Chirality::left, grip_position, grip_rotation);
+            index_pose_correction(Chirality::Left, grip_position, grip_rotation);
         assert_vec3_near(hand_world_position, expected_hand_position);
         assert_quat_near(hand_world_rotation, expected_hand_rotation);
     }
@@ -187,7 +187,7 @@ mod tests {
         let aim_rotation = (Quat::from_rotation_y(0.75) * Quat::from_rotation_x(-0.1)).normalize();
         let frame = resolve_controller_frame(
             ActiveControllerProfile::Index,
-            Chirality::left,
+            Chirality::Left,
             None,
             Some((aim_position, aim_rotation)),
         )
@@ -204,7 +204,7 @@ mod tests {
         let aim_rotation = Quat::from_rotation_x(0.3);
         let frame = resolve_controller_frame(
             ActiveControllerProfile::Generic,
-            Chirality::right,
+            Chirality::Right,
             None,
             Some((aim_position, aim_rotation)),
         )
@@ -221,7 +221,7 @@ mod tests {
         let aim_rotation = Quat::from_rotation_y(-0.4);
         let frame = resolve_controller_frame(
             ActiveControllerProfile::Touch,
-            Chirality::left,
+            Chirality::Left,
             None,
             Some((aim_position, aim_rotation)),
         )
@@ -240,13 +240,13 @@ mod tests {
         let aim_rotation = Quat::IDENTITY;
         let frame = resolve_controller_frame(
             ActiveControllerProfile::Touch,
-            Chirality::left,
+            Chirality::Left,
             Some((grip_position, grip_rotation)),
             Some((aim_position, aim_rotation)),
         )
         .expect("frame");
         let (expected_pos, expected_rot) =
-            touch_pose_correction(Chirality::left, grip_position, grip_rotation);
+            touch_pose_correction(Chirality::Left, grip_position, grip_rotation);
         assert_vec3_near(frame.position, expected_pos);
         assert_quat_near(frame.rotation, expected_rot);
     }

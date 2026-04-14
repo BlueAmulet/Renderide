@@ -118,12 +118,10 @@ fn send_render_texture_result(
     let Some(ipc) = ipc else {
         return;
     };
-    ipc.send_background(RendererCommand::render_texture_result(
-        RenderTextureResult {
-            asset_id,
-            instance_changed,
-        },
-    ));
+    ipc.send_background(RendererCommand::RenderTextureResult(RenderTextureResult {
+        asset_id,
+        instance_changed,
+    }));
 }
 
 /// Handle [`SetRenderTextureFormat`](crate::shared::SetRenderTextureFormat).
@@ -179,7 +177,7 @@ fn send_texture_2d_result(
     let Some(ipc) = ipc else {
         return;
     };
-    ipc.send_background(RendererCommand::set_texture_2d_result(SetTexture2DResult {
+    ipc.send_background(RendererCommand::SetTexture2DResult(SetTexture2DResult {
         asset_id,
         r#type: TextureUpdateResultType(update),
         instance_changed,
@@ -560,7 +558,7 @@ pub fn try_mesh_upload_with_device(
 
     let existed_before = queue.mesh_pool.insert_mesh(mesh);
     if let Some(ipc) = ipc {
-        ipc.send_background(RendererCommand::mesh_upload_result(MeshUploadResult {
+        ipc.send_background(RendererCommand::MeshUploadResult(MeshUploadResult {
             asset_id,
             instance_changed: !existed_before,
         }));

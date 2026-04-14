@@ -108,17 +108,17 @@ impl GpuLight {
 
 fn light_type_u32(ty: LightType) -> u32 {
     match ty {
-        LightType::point => 0,
-        LightType::directional => 1,
-        LightType::spot => 2,
+        LightType::Point => 0,
+        LightType::Directional => 1,
+        LightType::Spot => 2,
     }
 }
 
 fn shadow_type_u32(ty: ShadowType) -> u32 {
     match ty {
-        ShadowType::none => 0,
-        ShadowType::hard => 1,
-        ShadowType::soft => 2,
+        ShadowType::None => 0,
+        ShadowType::Hard => 1,
+        ShadowType::Soft => 2,
     }
 }
 
@@ -126,8 +126,8 @@ fn shadow_type_u32(ty: ShadowType) -> u32 {
 pub fn order_lights_for_clustered_shading(lights: &[ResolvedLight]) -> Vec<ResolvedLight> {
     let mut v: Vec<ResolvedLight> = lights.iter().take(MAX_LIGHTS).cloned().collect();
     v.sort_by_key(|l| match l.light_type {
-        LightType::directional => 0u8,
-        LightType::point | LightType::spot => 1,
+        LightType::Directional => 0u8,
+        LightType::Point | LightType::Spot => 1,
     });
     v
 }

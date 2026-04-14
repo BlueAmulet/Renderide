@@ -150,7 +150,7 @@ pub fn run() -> Option<i32> {
         initial_vsync,
         initial_gpu_validation,
         log_level_cli,
-        session_output_device: HeadOutputDevice::screen,
+        session_output_device: HeadOutputDevice::Screen,
         cached_head_pose: None,
         cached_openxr_controllers: Vec::new(),
         window: None,
@@ -193,7 +193,7 @@ fn wait_for_renderer_init_data(runtime: &mut RendererRuntime) -> Result<(), ()> 
 fn effective_output_device_for_gpu(pending: Option<&RendererInitData>) -> HeadOutputDevice {
     pending
         .map(|i| i.output_device)
-        .unwrap_or(HeadOutputDevice::screen)
+        .unwrap_or(HeadOutputDevice::Screen)
 }
 
 fn apply_window_title_from_init(window: &Arc<Window>, init: &RendererInitData) {

@@ -59,7 +59,7 @@ pub struct ResolvedLight {
 
 /// Whether `resolved` should cast shadows (ray-traced path guard).
 ///
-/// [`ShadowType::none`] or non-positive [`ResolvedLight::shadow_strength`] disables shadow rays.
+/// [`ShadowType::None`] or non-positive [`ResolvedLight::shadow_strength`] disables shadow rays.
 pub fn light_casts_shadows(resolved: &ResolvedLight) -> bool {
-    resolved.shadow_type != ShadowType::none && resolved.shadow_strength > 0.0
+    resolved.shadow_type != ShadowType::None && resolved.shadow_strength > 0.0
 }

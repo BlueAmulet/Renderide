@@ -39,10 +39,10 @@ impl Default for StaticMeshRenderer {
     fn default() -> Self {
         Self {
             node_id: -1,
-            layer: LayerType::hidden,
+            layer: LayerType::Hidden,
             mesh_asset_id: -1,
             sorting_order: 0,
-            shadow_cast_mode: ShadowCastMode::on,
+            shadow_cast_mode: ShadowCastMode::On,
             motion_vector_mode: MotionVectorMode::default(),
             material_slots: Vec::new(),
             primary_material_asset_id: None,

@@ -153,7 +153,7 @@ impl SharedMemoryAccessor {
         f(bytes)
     }
 
-    /// Releases a cached view (e.g. after [`RendererCommand::free_shared_memory_view`](crate::shared::shared::RendererCommand::free_shared_memory_view)).
+    /// Releases a cached view (e.g. after [`RendererCommand::FreeSharedMemoryView`](crate::shared::shared::RendererCommand::FreeSharedMemoryView)).
     pub fn release_view(&mut self, buffer_id: i32) {
         self.views.remove(&buffer_id);
     }

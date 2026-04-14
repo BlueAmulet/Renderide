@@ -44,7 +44,7 @@ pub fn vr_inputs_for_session(
             rotation,
             battery_level: 1.0,
             battery_charging: false,
-            connection_type: HeadsetConnection::wired,
+            connection_type: HeadsetConnection::Wired,
             headset_manufacturer: Some("Renderide".to_string()),
             headset_model: Some("SteamVR".to_string()),
         }),
@@ -63,17 +63,17 @@ mod tests {
 
     #[test]
     fn non_vr_session_returns_none() {
-        assert!(vr_inputs_for_session(HeadOutputDevice::screen, None, &[]).is_none());
-        assert!(vr_inputs_for_session(HeadOutputDevice::unknown, None, &[]).is_none());
+        assert!(vr_inputs_for_session(HeadOutputDevice::Screen, None, &[]).is_none());
+        assert!(vr_inputs_for_session(HeadOutputDevice::UNKNOWN, None, &[]).is_none());
     }
 
     #[test]
     fn steam_vr_includes_headset_and_wired_connection() {
-        let vr = vr_inputs_for_session(HeadOutputDevice::steam_vr, None, &[]).expect("vr session");
+        let vr = vr_inputs_for_session(HeadOutputDevice::SteamVR, None, &[]).expect("vr session");
         assert!(vr.user_present_in_headset);
         let hs = vr.headset_state.expect("headset");
         assert!(!hs.is_tracking);
-        assert_eq!(hs.connection_type, HeadsetConnection::wired);
+        assert_eq!(hs.connection_type, HeadsetConnection::Wired);
         assert_eq!(hs.headset_model.as_deref(), Some("SteamVR"));
         assert_eq!(hs.position, Vec3::ZERO);
         assert_eq!(hs.rotation, Quat::IDENTITY);
@@ -84,7 +84,7 @@ mod tests {
         let pos = Vec3::new(1.0, 2.0, 3.0);
         let rot = Quat::from_rotation_x(0.5);
         let vr =
-            vr_inputs_for_session(HeadOutputDevice::steam_vr, Some((pos, rot)), &[]).expect("vr");
+            vr_inputs_for_session(HeadOutputDevice::SteamVR, Some((pos, rot)), &[]).expect("vr");
         let hs = vr.headset_state.expect("headset");
         assert!(hs.is_tracking);
         assert_eq!(hs.position, pos);

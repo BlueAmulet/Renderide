@@ -161,7 +161,7 @@ mod sanitize_input_state_tests {
             mouse: None,
             keyboard: Some(KeyboardState {
                 type_delta: Some("hi".into()),
-                held_keys: vec![Key::a],
+                held_keys: vec![Key::A],
             }),
             window: None,
             vr: None,

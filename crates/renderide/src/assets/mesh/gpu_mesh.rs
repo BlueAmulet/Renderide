@@ -833,8 +833,8 @@ impl GpuMesh {
 }
 fn wgpu_index_format(f: IndexBufferFormat) -> wgpu::IndexFormat {
     match f {
-        IndexBufferFormat::u_int16 => wgpu::IndexFormat::Uint16,
-        IndexBufferFormat::u_int32 => wgpu::IndexFormat::Uint32,
+        IndexBufferFormat::UInt16 => wgpu::IndexFormat::Uint16,
+        IndexBufferFormat::UInt32 => wgpu::IndexFormat::Uint32,
     }
 }
 

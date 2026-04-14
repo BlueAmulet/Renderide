@@ -100,7 +100,7 @@ impl SceneCoordinator {
     pub fn active_main_render_context(&self) -> RenderingContext {
         self.active_main_space()
             .map(RenderSpaceState::main_render_context)
-            .unwrap_or(RenderingContext::user_view)
+            .unwrap_or(RenderingContext::UserView)
     }
 
     /// Cached world matrix from the host transform hierarchy (parent chain only).
@@ -499,7 +499,7 @@ mod tests {
             Vec3::new(10.0, 0.0, 0.0),
         );
         let world = scene
-            .world_matrix_for_render_context(id, 0, RenderingContext::user_view, head_output)
+            .world_matrix_for_render_context(id, 0, RenderingContext::UserView, head_output)
             .expect("render matrix");
         let t = world.col(3);
         assert!(

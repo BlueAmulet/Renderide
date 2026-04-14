@@ -177,7 +177,7 @@ mod tests {
             material_count,
             material_property_block_count: property_block_count,
             sorting_order: 0,
-            shadow_cast_mode: ShadowCastMode::on,
+            shadow_cast_mode: ShadowCastMode::On,
             motion_vector_mode: crate::shared::MotionVectorMode::default(),
             _padding: [0; 2],
         }
@@ -188,7 +188,7 @@ mod tests {
         let packed = [10, 20, 30, 40];
         let mut d = StaticMeshRenderer {
             node_id: 0,
-            layer: LayerType::hidden,
+            layer: LayerType::Hidden,
             ..Default::default()
         };
         let mut c = 0usize;

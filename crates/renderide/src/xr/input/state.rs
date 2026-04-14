@@ -16,16 +16,16 @@ pub(super) fn vec2_nonzero(v: Vec2) -> bool {
 
 pub(super) fn body_node_for_side(side: Chirality) -> BodyNode {
     match side {
-        Chirality::left => BodyNode::left_controller,
-        Chirality::right => BodyNode::right_controller,
+        Chirality::Left => BodyNode::LeftController,
+        Chirality::Right => BodyNode::RightController,
     }
 }
 
 /// Maps the active OpenXR profile to a host [`VRControllerState`] variant.
 ///
-/// [`ActiveControllerProfile::Generic`] is encoded as [`VRControllerState::touch_controller_state`]
+/// [`ActiveControllerProfile::Generic`] is encoded as [`VRControllerState::TouchControllerState`]
 /// so the host input stack receives the same polymorphic shape as Touch controllers (Quest-class
-/// paths) instead of [`VRControllerState::generic_controller_state`], which would deserialize to a
+/// paths) instead of [`VRControllerState::GenericControllerState`], which would deserialize to a
 /// different controller type on the host.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_controller_state(
@@ -54,8 +54,8 @@ pub(super) fn build_controller_state(
     select: bool,
 ) -> VRControllerState {
     let device_id = Some(match side {
-        Chirality::left => "OpenXR Left".to_string(),
-        Chirality::right => "OpenXR Right".to_string(),
+        Chirality::Left => "OpenXR Left".to_string(),
+        Chirality::Right => "OpenXR Right".to_string(),
     });
     let device_model = Some(device_label(profile).to_string());
     let body_node = body_node_for_side(side);
@@ -67,8 +67,8 @@ pub(super) fn build_controller_state(
     let touchpad_touch = trackpad_touch || vec2_nonzero(trackpad) || trackpad_force > 0.01;
     match profile {
         ActiveControllerProfile::Touch => {
-            VRControllerState::touch_controller_state(TouchControllerState {
-                model: TouchControllerModel::quest_and_rift_s,
+            VRControllerState::TouchControllerState(TouchControllerState {
+                model: TouchControllerModel::QuestAndRiftS,
                 start: menu,
                 button_yb: secondary,
                 button_xa: primary,
@@ -99,7 +99,7 @@ pub(super) fn build_controller_state(
             })
         }
         ActiveControllerProfile::Index => {
-            VRControllerState::index_controller_state(IndexControllerState {
+            VRControllerState::IndexControllerState(IndexControllerState {
                 grip: squeeze,
                 grip_touch,
                 grip_click,
@@ -133,7 +133,7 @@ pub(super) fn build_controller_state(
             })
         }
         ActiveControllerProfile::Vive => {
-            VRControllerState::vive_controller_state(ViveControllerState {
+            VRControllerState::ViveControllerState(ViveControllerState {
                 grip: squeeze_click || squeeze > 0.5,
                 app: menu,
                 trigger_hair: trigger_touch,
@@ -158,7 +158,7 @@ pub(super) fn build_controller_state(
             })
         }
         ActiveControllerProfile::WindowsMr => {
-            VRControllerState::windows_mr_controller_state(WindowsMRControllerState {
+            VRControllerState::WindowsMRControllerState(WindowsMRControllerState {
                 grip: squeeze_click || squeeze > 0.5,
                 app: menu,
                 trigger_hair: trigger_touch,
@@ -185,8 +185,8 @@ pub(super) fn build_controller_state(
             })
         }
         ActiveControllerProfile::Generic => {
-            VRControllerState::touch_controller_state(TouchControllerState {
-                model: TouchControllerModel::quest_and_rift_s,
+            VRControllerState::TouchControllerState(TouchControllerState {
+                model: TouchControllerModel::QuestAndRiftS,
                 start: menu,
                 button_yb: secondary,
                 button_xa: primary,
@@ -217,7 +217,7 @@ pub(super) fn build_controller_state(
             })
         }
         ActiveControllerProfile::Simple => {
-            VRControllerState::generic_controller_state(GenericControllerState {
+            VRControllerState::GenericControllerState(GenericControllerState {
                 strength: if select { 1.0 } else { trigger },
                 axis: Vec2::ZERO,
                 touching_strength: trigger_touch || select,

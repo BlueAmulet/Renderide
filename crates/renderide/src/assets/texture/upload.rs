@@ -34,8 +34,8 @@ pub fn resolve_texture2d_wgpu_format(
 
 fn rgba8_fallback_format(profile: ColorProfile) -> wgpu::TextureFormat {
     match profile {
-        ColorProfile::s_rgb | ColorProfile::s_rgb_alpha => wgpu::TextureFormat::Rgba8UnormSrgb,
-        ColorProfile::linear => wgpu::TextureFormat::Rgba8Unorm,
+        ColorProfile::SRGB | ColorProfile::SRGBAlpha => wgpu::TextureFormat::Rgba8UnormSrgb,
+        ColorProfile::Linear => wgpu::TextureFormat::Rgba8Unorm,
     }
 }
 
@@ -759,7 +759,7 @@ mod tests {
         upload.mip_map_sizes = vec![IVec2::new(4, 4), IVec2::new(2, 2)];
         upload.mip_starts = vec![0, 64];
 
-        let (bias, prefix) = choose_mip_start_bias(TextureFormat::rgba32, &upload, 80).unwrap();
+        let (bias, prefix) = choose_mip_start_bias(TextureFormat::RGBA32, &upload, 80).unwrap();
         assert_eq!(bias, 0);
         assert_eq!(prefix, 2);
     }
@@ -772,7 +772,7 @@ mod tests {
         upload.mip_map_sizes = vec![IVec2::new(4, 4), IVec2::new(2, 2)];
         upload.mip_starts = vec![128, 192];
 
-        let (bias, prefix) = choose_mip_start_bias(TextureFormat::rgba32, &upload, 80).unwrap();
+        let (bias, prefix) = choose_mip_start_bias(TextureFormat::RGBA32, &upload, 80).unwrap();
         assert_eq!(bias, 128);
         assert_eq!(prefix, 2);
     }
@@ -784,7 +784,7 @@ mod tests {
         upload.mip_map_sizes = vec![IVec2::new(4, 4), IVec2::new(2, 2)];
         upload.mip_starts = vec![0, 64];
 
-        let prefix = valid_mip_prefix_len(TextureFormat::rgba32, &upload, 68, 0).unwrap();
+        let prefix = valid_mip_prefix_len(TextureFormat::RGBA32, &upload, 68, 0).unwrap();
         assert_eq!(prefix, 1);
     }
 

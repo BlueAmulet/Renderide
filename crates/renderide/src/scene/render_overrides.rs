@@ -53,9 +53,9 @@ pub struct RenderMaterialOverrideEntry {
 impl RenderSpaceState {
     pub fn main_render_context(&self) -> RenderingContext {
         if self.view_position_is_external {
-            RenderingContext::external_view
+            RenderingContext::ExternalView
         } else {
-            RenderingContext::user_view
+            RenderingContext::UserView
         }
     }
 
@@ -354,9 +354,9 @@ mod tests {
     #[test]
     fn main_render_context_uses_external_flag() {
         let mut space = RenderSpaceState::default();
-        assert_eq!(space.main_render_context(), RenderingContext::user_view);
+        assert_eq!(space.main_render_context(), RenderingContext::UserView);
         space.view_position_is_external = true;
-        assert_eq!(space.main_render_context(), RenderingContext::external_view);
+        assert_eq!(space.main_render_context(), RenderingContext::ExternalView);
     }
 
     #[test]
@@ -371,7 +371,7 @@ mod tests {
             .render_transform_overrides
             .push(RenderTransformOverrideEntry {
                 node_id: 0,
-                context: RenderingContext::user_view,
+                context: RenderingContext::UserView,
                 position_override: Some(Vec3::new(10.0, 20.0, 30.0)),
                 rotation_override: None,
                 scale_override: Some(Vec3::ONE),
@@ -379,7 +379,7 @@ mod tests {
             });
 
         let local = space
-            .overridden_local_transform(0, RenderingContext::user_view)
+            .overridden_local_transform(0, RenderingContext::UserView)
             .expect("override");
         assert_eq!(local.position, Vec3::new(10.0, 20.0, 30.0));
         assert_eq!(local.rotation, Quat::IDENTITY);
@@ -393,7 +393,7 @@ mod tests {
             .render_material_overrides
             .push(RenderMaterialOverrideEntry {
                 node_id: 0,
-                context: RenderingContext::user_view,
+                context: RenderingContext::UserView,
                 target: MeshRendererOverrideTarget::Static(4),
                 material_overrides: vec![MaterialOverrideBinding {
                     material_slot_index: 1,
@@ -403,7 +403,7 @@ mod tests {
 
         assert_eq!(
             space.overridden_material_asset_id(
-                RenderingContext::user_view,
+                RenderingContext::UserView,
                 MeshRendererOverrideTarget::Static(4),
                 1,
             ),
@@ -411,7 +411,7 @@ mod tests {
         );
         assert_eq!(
             space.overridden_material_asset_id(
-                RenderingContext::external_view,
+                RenderingContext::ExternalView,
                 MeshRendererOverrideTarget::Static(4),
                 1,
             ),

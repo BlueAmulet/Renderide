@@ -51,16 +51,8 @@ public class RustEmitter
         _w.Comment($"Generated for {_engineVersion}\n");
         _w.Line("#![allow(");
         _w.Line("    missing_docs,");
-        _w.Line("    non_camel_case_types,");
-        _w.Line("    non_snake_case,");
-        _w.Line("    clippy::missing_transmute_annotations,");
-        _w.Line("    clippy::unnecessary_cast,");
-        _w.Line("    unused_parens,");
-        _w.Line("    clippy::large_enum_variant,");
-        _w.Line("    clippy::option_as_ref_deref,");
         _w.Line(")]");
         _w.BlankLine();
-        _w.Line("#[allow(unused_imports)] // Subset used depending on emitted struct fields.");
         _w.Line("use glam::{IVec2, IVec3, IVec4, Mat4, Quat, Vec2, Vec3, Vec4};");
         _w.Line("use super::packing::memory_packable::MemoryPackable;");
         _w.Line("use super::packing::memory_packer::MemoryPacker;");
@@ -144,7 +136,7 @@ public class RustEmitter
                 _w.Line("match self {");
                 for (int i = 0; i < typeNames.Count; i++)
                 {
-                    string variant = typeNames[i].HumanizeField();
+                    string variant = typeNames[i].HumanizeVariant();
                     _w.Line($"    {unionName}::{variant}(x) => {{ packer.write(&{i}i32); x.pack(packer); }}");
                 }
                 _w.Line("}");
@@ -160,7 +152,7 @@ public class RustEmitter
             _w.Line("match tag {");
             for (int i = 0; i < typeNames.Count; i++)
             {
-                string variant = typeNames[i].HumanizeField();
+                string variant = typeNames[i].HumanizeVariant();
                 string payloadType = typeNames[i].HumanizeType();
                 _w.Line($"    {i} => {unionName}::{variant}({{ let mut x = {payloadType}::default(); x.unpack(unpacker); x }}),");
             }
@@ -221,14 +213,14 @@ public class RustEmitter
     private void EmitValueEnumUnpackMatch(string enumRustName, string rustType, List<EnumMember> members)
     {
         EnumMember defaultMember = members.First(static m => m.IsDefault);
-        string defaultVariant = defaultMember.Name.HumanizeField();
+        string defaultVariant = defaultMember.Name.HumanizeVariant();
 
         _w.Line($"let raw = unpacker.read::<{rustType}>();");
         _w.Line("*self = match raw {");
         foreach (EnumMember member in members)
         {
             string lit = FormatRustPatternLiteralForUnderlying(member.Value, rustType);
-            _w.Line($"    {lit} => Self::{member.Name.HumanizeField()},");
+            _w.Line($"    {lit} => Self::{member.Name.HumanizeVariant()},");
         }
 
         _w.Line("    _ => {");
@@ -243,7 +235,7 @@ public class RustEmitter
     private void EmitValueEnumFromI32Match(string enumRustName, List<EnumMember> members)
     {
         EnumMember defaultMember = members.First(static m => m.IsDefault);
-        string defaultVariant = defaultMember.Name.HumanizeField();
+        string defaultVariant = defaultMember.Name.HumanizeVariant();
 
         _w.Line("match i {");
         foreach (EnumMember member in members)
@@ -258,7 +250,7 @@ public class RustEmitter
             }
 
             int arm = (int)v;
-            _w.Line($"    {arm} => Self::{member.Name.HumanizeField()},");
+            _w.Line($"    {arm} => Self::{member.Name.HumanizeVariant()},");
         }
 
         _w.Line("    _ => {");

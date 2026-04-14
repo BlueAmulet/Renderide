@@ -7,7 +7,7 @@
 //!
 //! Lock-step is driven by the `last_frame_index` field of [`FrameStartData`](crate::shared::FrameStartData)
 //! on the **outgoing** `frame_start_data` the renderer sends from [`RendererRuntime::pre_frame`].
-//! If the host sends [`RendererCommand::frame_start_data`](crate::shared::RendererCommand::frame_start_data),
+//! If the host sends [`RendererCommand::FrameStartData`](crate::shared::RendererCommand::FrameStartData),
 //! optional payloads are trace-logged until consumers exist.
 
 mod commands;
@@ -620,5 +620,5 @@ pub(super) fn send_renderer_init_result(
         is_gpu_texture_pot_byte_aligned: true,
         supported_texture_formats: supported_host_formats_for_init(),
     };
-    ipc.send_primary(RendererCommand::renderer_init_result(result));
+    ipc.send_primary(RendererCommand::RendererInitResult(result));
 }

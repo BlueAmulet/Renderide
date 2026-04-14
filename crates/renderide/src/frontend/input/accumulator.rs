@@ -240,8 +240,8 @@ mod tests {
     #[test]
     fn focus_loss_clears_held_keys_but_preserves_mouse_buttons() {
         let mut w = WindowInputAccumulator::default();
-        w.held_keys.push(Key::w);
-        w.held_keys.push(Key::a);
+        w.held_keys.push(Key::W);
+        w.held_keys.push(Key::A);
         w.left_held = true;
         w.right_held = true;
         w.clear_stuck_keyboard_on_focus_lost();

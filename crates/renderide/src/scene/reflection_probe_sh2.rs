@@ -1,18 +1,18 @@
 //! Reflection probe SH2 task completion in shared memory.
 //!
-//! The host queues per-probe spherical-harmonics work with [`ComputeResult::scheduled`] in
+//! The host queues per-probe spherical-harmonics work with [`ComputeResult::Scheduled`] in
 //! [`ReflectionProbeSH2Task`](crate::shared::ReflectionProbeSH2Task). The managed renderer clears
-//! each task to [`ComputeResult::computed`] or [`ComputeResult::failed`] before finalizing the
-//! frame; leaving [`ComputeResult::scheduled`] can trigger host errors (for example invalid
+//! each task to [`ComputeResult::Computed`] or [`ComputeResult::Failed`] before finalizing the
+//! frame; leaving [`ComputeResult::Scheduled`] can trigger host errors (for example invalid
 //! compute result while scheduled).
 //!
 //! This renderer does not implement SH2 extraction yet. Like the legacy `crates_old` path, we mark
-//! every task [`ComputeResult::failed`] so the host can proceed without waiting on GPU SH2 work.
+//! every task [`ComputeResult::Failed`] so the host can proceed without waiting on GPU SH2 work.
 
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{ComputeResult, ReflectionProbeSH2Task, ReflectionProbeSH2Tasks};
 
-/// Writes [`ComputeResult::failed`] to the `result` field of each active task in `tasks.tasks`.
+/// Writes [`ComputeResult::Failed`] to the `result` field of each active task in `tasks.tasks`.
 ///
 /// Tasks are laid out as a dense array of [`ReflectionProbeSH2Task`] in shared memory; iteration
 /// stops at the first entry whose `renderable_index` is negative (host terminator convention, same
@@ -27,7 +27,7 @@ pub(crate) fn mark_reflection_probe_sh2_tasks_failed(
 
     const STRIDE: usize = std::mem::size_of::<ReflectionProbeSH2Task>();
     const RESULT_OFFSET: usize = std::mem::offset_of!(ReflectionProbeSH2Task, result);
-    let failed_le = (ComputeResult::failed as i32).to_le_bytes();
+    let failed_le = (ComputeResult::Failed as i32).to_le_bytes();
 
     let ok = shm.access_mut_bytes(&tasks.tasks, |bytes| {
         let mut offset = 0usize;
@@ -53,7 +53,7 @@ pub(crate) fn mark_reflection_probe_sh2_tasks_failed(
 
     if !ok {
         logger::warn!(
-            "reflection_probe_sh2: could not write ComputeResult::failed (shared memory buffer)"
+            "reflection_probe_sh2: could not write ComputeResult::Failed (shared memory buffer)"
         );
     }
 }

@@ -27,7 +27,7 @@ pub(crate) fn on_shader_upload(
         .or_else(|| upload.file.clone().filter(|s| !s.is_empty()));
     backend.register_shader_route(asset_id, resolved.pipeline, display_name);
     if let Some(ref mut ipc) = frontend.ipc_mut() {
-        ipc.send_background(RendererCommand::shader_upload_result(ShaderUploadResult {
+        ipc.send_background(RendererCommand::ShaderUploadResult(ShaderUploadResult {
             asset_id,
             instance_changed: true,
         }));

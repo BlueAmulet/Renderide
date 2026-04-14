@@ -3,8 +3,9 @@ using Humanizer;
 namespace SharedTypeGenerator.Analysis;
 
 /// <summary>Pure static methods for converting C# names to Rust naming conventions.
-/// HumanizeField produces snake_case, HumanizeType produces PascalCase.
-/// Both handle Rust keyword escaping and special abbreviation patterns.</summary>
+/// HumanizeField produces snake_case, HumanizeType produces PascalCase for types,
+/// HumanizeVariant produces UpperCamelCase for enum variants (Rust convention).
+/// HumanizeField and HumanizeVariant escape Rust keywords; HumanizeType does not.</summary>
 public static class RustNaming
 {
     private static readonly HashSet<string> RustKeywords =
@@ -41,6 +42,21 @@ public static class RustNaming
         name = name.Replace("i_ds", "ids");
 
         return name;
+    }
+
+    /// <summary>Converts a C# enum member or tagged-union variant name to Rust UpperCamelCase,
+    /// escaping Rust keywords with <c>r#</c> prefix.</summary>
+    public static string HumanizeVariant(this string name)
+    {
+        name = name.Replace("2D", "_2D_", StringComparison.OrdinalIgnoreCase);
+        name = name.Replace("3D", "_3D_", StringComparison.OrdinalIgnoreCase);
+
+        name = name.Replace("_", "").Pascalize();
+
+        while (name.Contains("__"))
+            name = name.Replace("__", "_");
+
+        return EscapeKeyword(name);
     }
 
     /// <summary>Converts a C# type name to Rust PascalCase, preserving

@@ -7,12 +7,12 @@ use super::RendererRuntime;
 /// Handles IPC commands in the normal running state ([`crate::frontend::InitState::Finalized`]).
 pub(super) fn handle_running_command(runtime: &mut RendererRuntime, cmd: RendererCommand) {
     match cmd {
-        RendererCommand::keep_alive(_) => {}
-        RendererCommand::renderer_shutdown(_) | RendererCommand::renderer_shutdown_request(_) => {
+        RendererCommand::KeepAlive(_) => {}
+        RendererCommand::RendererShutdown(_) | RendererCommand::RendererShutdownRequest(_) => {
             runtime.frontend.set_shutdown_requested(true);
         }
-        RendererCommand::frame_submit_data(data) => runtime.on_frame_submit(data),
-        RendererCommand::mesh_upload_data(d) => {
+        RendererCommand::FrameSubmitData(data) => runtime.on_frame_submit(data),
+        RendererCommand::MeshUploadData(d) => {
             let (shm, ipc) = runtime.frontend.transport_pair_mut();
             if let Some(shm) = shm {
                 runtime.backend.try_process_mesh_upload(d, shm, ipc);
@@ -20,34 +20,34 @@ pub(super) fn handle_running_command(runtime: &mut RendererRuntime, cmd: Rendere
                 logger::warn!("mesh upload: no shared memory (standalone?)");
             }
         }
-        RendererCommand::mesh_unload(u) => runtime.backend.on_mesh_unload(u),
-        RendererCommand::set_texture_2d_format(f) => {
+        RendererCommand::MeshUnload(u) => runtime.backend.on_mesh_unload(u),
+        RendererCommand::SetTexture2DFormat(f) => {
             runtime
                 .backend
                 .on_set_texture_2d_format(f, runtime.frontend.ipc_mut());
         }
-        RendererCommand::set_texture_2d_properties(p) => {
+        RendererCommand::SetTexture2DProperties(p) => {
             runtime
                 .backend
                 .on_set_texture_2d_properties(p, runtime.frontend.ipc_mut());
         }
-        RendererCommand::set_texture_2d_data(d) => {
+        RendererCommand::SetTexture2DData(d) => {
             let (shm, ipc) = runtime.frontend.transport_pair_mut();
             runtime.backend.on_set_texture_2d_data(d, shm, ipc);
         }
-        RendererCommand::unload_texture_2d(u) => runtime.backend.on_unload_texture_2d(u),
-        RendererCommand::set_render_texture_format(f) => {
+        RendererCommand::UnloadTexture2D(u) => runtime.backend.on_unload_texture_2d(u),
+        RendererCommand::SetRenderTextureFormat(f) => {
             runtime
                 .backend
                 .on_set_render_texture_format(f, runtime.frontend.ipc_mut());
         }
-        RendererCommand::unload_render_texture(u) => runtime.backend.on_unload_render_texture(u),
-        RendererCommand::free_shared_memory_view(f) => {
+        RendererCommand::UnloadRenderTexture(u) => runtime.backend.on_unload_render_texture(u),
+        RendererCommand::FreeSharedMemoryView(f) => {
             if let Some(shm) = runtime.frontend.shared_memory_mut() {
                 shm.release_view(f.buffer_id);
             }
         }
-        RendererCommand::material_property_id_request(req) => {
+        RendererCommand::MaterialPropertyIdRequest(req) => {
             let property_ids: Vec<i32> = {
                 let reg = runtime.backend.property_id_registry();
                 req.property_names
@@ -56,7 +56,7 @@ pub(super) fn handle_running_command(runtime: &mut RendererRuntime, cmd: Rendere
                     .collect()
             };
             if let Some(ref mut ipc) = runtime.frontend.ipc_mut() {
-                ipc.send_background(RendererCommand::material_property_id_result(
+                ipc.send_background(RendererCommand::MaterialPropertyIdResult(
                     MaterialPropertyIdResult {
                         request_id: req.request_id,
                         property_ids,
@@ -64,18 +64,18 @@ pub(super) fn handle_running_command(runtime: &mut RendererRuntime, cmd: Rendere
                 ));
             }
         }
-        RendererCommand::materials_update_batch(batch) => {
+        RendererCommand::MaterialsUpdateBatch(batch) => {
             runtime.on_materials_update_batch(batch);
         }
-        RendererCommand::unload_material(u) => runtime.backend.on_unload_material(u.asset_id),
-        RendererCommand::unload_material_property_block(u) => {
+        RendererCommand::UnloadMaterial(u) => runtime.backend.on_unload_material(u.asset_id),
+        RendererCommand::UnloadMaterialPropertyBlock(u) => {
             runtime
                 .backend
                 .on_unload_material_property_block(u.asset_id);
         }
-        RendererCommand::shader_upload(u) => runtime.on_shader_upload(u),
-        RendererCommand::shader_unload(u) => runtime.on_shader_unload(u),
-        RendererCommand::frame_start_data(fs) => {
+        RendererCommand::ShaderUpload(u) => runtime.on_shader_upload(u),
+        RendererCommand::ShaderUnload(u) => runtime.on_shader_unload(u),
+        RendererCommand::FrameStartData(fs) => {
             logger::trace!(
                 "host frame_start_data: last_frame_index={} has_performance={} has_inputs={} reflection_probes={} video_clock_errors={}",
                 fs.last_frame_index,
@@ -85,13 +85,13 @@ pub(super) fn handle_running_command(runtime: &mut RendererRuntime, cmd: Rendere
                 fs.video_clock_errors.len(),
             );
         }
-        RendererCommand::lights_buffer_renderer_submission(sub) => {
+        RendererCommand::LightsBufferRendererSubmission(sub) => {
             runtime.on_lights_buffer_renderer_submission(sub);
         }
-        RendererCommand::lights_buffer_renderer_consumed(_) => {
+        RendererCommand::LightsBufferRendererConsumed(_) => {
             logger::trace!("runtime: lights_buffer_renderer_consumed from host (ignored)");
         }
-        RendererCommand::render_texture_result(_) => {
+        RendererCommand::RenderTextureResult(_) => {
             logger::trace!(
                 "runtime: render_texture_result from host (ignored; renderer is source)"
             );

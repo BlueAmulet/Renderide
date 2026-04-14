@@ -3,16 +3,8 @@
 
 #![allow(
     missing_docs,
-    non_camel_case_types,
-    non_snake_case,
-    clippy::missing_transmute_annotations,
-    clippy::unnecessary_cast,
-    unused_parens,
-    clippy::large_enum_variant,
-    clippy::option_as_ref_deref,
 )]
 
-#[allow(unused_imports)] // Subset used depending on emitted struct fields.
 use glam::{IVec2, IVec3, IVec4, Mat4, Quat, Vec2, Vec3, Vec4};
 use super::packing::memory_packable::MemoryPackable;
 use super::packing::memory_packer::MemoryPacker;
@@ -28,236 +20,236 @@ use logger::warn;
 #[repr(i32)]
 pub enum RendererCommandTypes {
     #[default]
-    renderer_init_data,
-    renderer_init_result,
-    renderer_init_progress_update,
-    renderer_init_finalize_data,
-    renderer_engine_ready,
-    renderer_shutdown_request,
-    renderer_shutdown,
-    keep_alive,
-    renderer_parent_window,
-    free_shared_memory_view,
-    set_window_icon,
-    set_window_icon_result,
-    set_taskbar_progress,
-    frame_start_data,
-    frame_submit_data,
-    post_processing_config,
-    quality_config,
-    resolution_config,
-    desktop_config,
-    gaussian_splat_config,
-    render_decoupling_config,
-    mesh_upload_data,
-    mesh_unload,
-    mesh_upload_result,
-    shader_upload,
-    shader_unload,
-    shader_upload_result,
-    material_property_id_request,
-    material_property_id_result,
-    materials_update_batch,
-    materials_update_batch_result,
-    unload_material,
-    unload_material_property_block,
-    set_texture_2d_format,
-    set_texture_2d_properties,
-    set_texture_2d_data,
-    set_texture_2d_result,
-    unload_texture_2d,
-    set_texture_3d_format,
-    set_texture_3d_properties,
-    set_texture_3d_data,
-    set_texture_3d_result,
-    unload_texture_3d,
-    set_cubemap_format,
-    set_cubemap_properties,
-    set_cubemap_data,
-    set_cubemap_result,
-    unload_cubemap,
-    set_render_texture_format,
-    render_texture_result,
-    unload_render_texture,
-    set_desktop_texture_properties,
-    desktop_texture_properties_update,
-    unload_desktop_texture,
-    point_render_buffer_upload,
-    point_render_buffer_consumed,
-    point_render_buffer_unload,
-    trail_render_buffer_upload,
-    trail_render_buffer_consumed,
-    trail_render_buffer_unload,
-    gaussian_splat_upload_raw,
-    gaussian_splat_upload_encoded,
-    gaussian_splat_result,
-    unload_gaussian_splat,
-    lights_buffer_renderer_submission,
-    lights_buffer_renderer_consumed,
-    reflection_probe_render_result,
-    video_texture_load,
-    video_texture_update,
-    video_texture_ready,
-    video_texture_changed,
-    video_texture_properties,
-    video_texture_start_audio_track,
-    unload_video_texture,
+    RendererInitData,
+    RendererInitResult,
+    RendererInitProgressUpdate,
+    RendererInitFinalizeData,
+    RendererEngineReady,
+    RendererShutdownRequest,
+    RendererShutdown,
+    KeepAlive,
+    RendererParentWindow,
+    FreeSharedMemoryView,
+    SetWindowIcon,
+    SetWindowIconResult,
+    SetTaskbarProgress,
+    FrameStartData,
+    FrameSubmitData,
+    PostProcessingConfig,
+    QualityConfig,
+    ResolutionConfig,
+    DesktopConfig,
+    GaussianSplatConfig,
+    RenderDecouplingConfig,
+    MeshUploadData,
+    MeshUnload,
+    MeshUploadResult,
+    ShaderUpload,
+    ShaderUnload,
+    ShaderUploadResult,
+    MaterialPropertyIdRequest,
+    MaterialPropertyIdResult,
+    MaterialsUpdateBatch,
+    MaterialsUpdateBatchResult,
+    UnloadMaterial,
+    UnloadMaterialPropertyBlock,
+    SetTexture2DFormat,
+    SetTexture2DProperties,
+    SetTexture2DData,
+    SetTexture2DResult,
+    UnloadTexture2D,
+    SetTexture3DFormat,
+    SetTexture3DProperties,
+    SetTexture3DData,
+    SetTexture3DResult,
+    UnloadTexture3D,
+    SetCubemapFormat,
+    SetCubemapProperties,
+    SetCubemapData,
+    SetCubemapResult,
+    UnloadCubemap,
+    SetRenderTextureFormat,
+    RenderTextureResult,
+    UnloadRenderTexture,
+    SetDesktopTextureProperties,
+    DesktopTexturePropertiesUpdate,
+    UnloadDesktopTexture,
+    PointRenderBufferUpload,
+    PointRenderBufferConsumed,
+    PointRenderBufferUnload,
+    TrailRenderBufferUpload,
+    TrailRenderBufferConsumed,
+    TrailRenderBufferUnload,
+    GaussianSplatUploadRaw,
+    GaussianSplatUploadEncoded,
+    GaussianSplatResult,
+    UnloadGaussianSplat,
+    LightsBufferRendererSubmission,
+    LightsBufferRendererConsumed,
+    ReflectionProbeRenderResult,
+    VideoTextureLoad,
+    VideoTextureUpdate,
+    VideoTextureReady,
+    VideoTextureChanged,
+    VideoTextureProperties,
+    VideoTextureStartAudioTrack,
+    UnloadVideoTexture,
 }
 #[derive(Debug, Clone)]
 pub enum RendererCommand {
-    renderer_init_data(RendererInitData),
-    renderer_init_result(RendererInitResult),
-    renderer_init_progress_update(RendererInitProgressUpdate),
-    renderer_init_finalize_data(RendererInitFinalizeData),
-    renderer_engine_ready(RendererEngineReady),
-    renderer_shutdown_request(RendererShutdownRequest),
-    renderer_shutdown(RendererShutdown),
-    keep_alive(KeepAlive),
-    renderer_parent_window(RendererParentWindow),
-    free_shared_memory_view(FreeSharedMemoryView),
-    set_window_icon(SetWindowIcon),
-    set_window_icon_result(SetWindowIconResult),
-    set_taskbar_progress(SetTaskbarProgress),
-    frame_start_data(FrameStartData),
-    frame_submit_data(FrameSubmitData),
-    post_processing_config(PostProcessingConfig),
-    quality_config(QualityConfig),
-    resolution_config(ResolutionConfig),
-    desktop_config(DesktopConfig),
-    gaussian_splat_config(GaussianSplatConfig),
-    render_decoupling_config(RenderDecouplingConfig),
-    mesh_upload_data(MeshUploadData),
-    mesh_unload(MeshUnload),
-    mesh_upload_result(MeshUploadResult),
-    shader_upload(ShaderUpload),
-    shader_unload(ShaderUnload),
-    shader_upload_result(ShaderUploadResult),
-    material_property_id_request(MaterialPropertyIdRequest),
-    material_property_id_result(MaterialPropertyIdResult),
-    materials_update_batch(MaterialsUpdateBatch),
-    materials_update_batch_result(MaterialsUpdateBatchResult),
-    unload_material(UnloadMaterial),
-    unload_material_property_block(UnloadMaterialPropertyBlock),
-    set_texture_2d_format(SetTexture2DFormat),
-    set_texture_2d_properties(SetTexture2DProperties),
-    set_texture_2d_data(SetTexture2DData),
-    set_texture_2d_result(SetTexture2DResult),
-    unload_texture_2d(UnloadTexture2D),
-    set_texture_3d_format(SetTexture3DFormat),
-    set_texture_3d_properties(SetTexture3DProperties),
-    set_texture_3d_data(SetTexture3DData),
-    set_texture_3d_result(SetTexture3DResult),
-    unload_texture_3d(UnloadTexture3D),
-    set_cubemap_format(SetCubemapFormat),
-    set_cubemap_properties(SetCubemapProperties),
-    set_cubemap_data(SetCubemapData),
-    set_cubemap_result(SetCubemapResult),
-    unload_cubemap(UnloadCubemap),
-    set_render_texture_format(SetRenderTextureFormat),
-    render_texture_result(RenderTextureResult),
-    unload_render_texture(UnloadRenderTexture),
-    set_desktop_texture_properties(SetDesktopTextureProperties),
-    desktop_texture_properties_update(DesktopTexturePropertiesUpdate),
-    unload_desktop_texture(UnloadDesktopTexture),
-    point_render_buffer_upload(PointRenderBufferUpload),
-    point_render_buffer_consumed(PointRenderBufferConsumed),
-    point_render_buffer_unload(PointRenderBufferUnload),
-    trail_render_buffer_upload(TrailRenderBufferUpload),
-    trail_render_buffer_consumed(TrailRenderBufferConsumed),
-    trail_render_buffer_unload(TrailRenderBufferUnload),
-    gaussian_splat_upload_raw(GaussianSplatUploadRaw),
-    gaussian_splat_upload_encoded(GaussianSplatUploadEncoded),
-    gaussian_splat_result(GaussianSplatResult),
-    unload_gaussian_splat(UnloadGaussianSplat),
-    lights_buffer_renderer_submission(LightsBufferRendererSubmission),
-    lights_buffer_renderer_consumed(LightsBufferRendererConsumed),
-    reflection_probe_render_result(ReflectionProbeRenderResult),
-    video_texture_load(VideoTextureLoad),
-    video_texture_update(VideoTextureUpdate),
-    video_texture_ready(VideoTextureReady),
-    video_texture_changed(VideoTextureChanged),
-    video_texture_properties(VideoTextureProperties),
-    video_texture_start_audio_track(VideoTextureStartAudioTrack),
-    unload_video_texture(UnloadVideoTexture),
+    RendererInitData(RendererInitData),
+    RendererInitResult(RendererInitResult),
+    RendererInitProgressUpdate(RendererInitProgressUpdate),
+    RendererInitFinalizeData(RendererInitFinalizeData),
+    RendererEngineReady(RendererEngineReady),
+    RendererShutdownRequest(RendererShutdownRequest),
+    RendererShutdown(RendererShutdown),
+    KeepAlive(KeepAlive),
+    RendererParentWindow(RendererParentWindow),
+    FreeSharedMemoryView(FreeSharedMemoryView),
+    SetWindowIcon(SetWindowIcon),
+    SetWindowIconResult(SetWindowIconResult),
+    SetTaskbarProgress(SetTaskbarProgress),
+    FrameStartData(FrameStartData),
+    FrameSubmitData(FrameSubmitData),
+    PostProcessingConfig(PostProcessingConfig),
+    QualityConfig(QualityConfig),
+    ResolutionConfig(ResolutionConfig),
+    DesktopConfig(DesktopConfig),
+    GaussianSplatConfig(GaussianSplatConfig),
+    RenderDecouplingConfig(RenderDecouplingConfig),
+    MeshUploadData(MeshUploadData),
+    MeshUnload(MeshUnload),
+    MeshUploadResult(MeshUploadResult),
+    ShaderUpload(ShaderUpload),
+    ShaderUnload(ShaderUnload),
+    ShaderUploadResult(ShaderUploadResult),
+    MaterialPropertyIdRequest(MaterialPropertyIdRequest),
+    MaterialPropertyIdResult(MaterialPropertyIdResult),
+    MaterialsUpdateBatch(MaterialsUpdateBatch),
+    MaterialsUpdateBatchResult(MaterialsUpdateBatchResult),
+    UnloadMaterial(UnloadMaterial),
+    UnloadMaterialPropertyBlock(UnloadMaterialPropertyBlock),
+    SetTexture2DFormat(SetTexture2DFormat),
+    SetTexture2DProperties(SetTexture2DProperties),
+    SetTexture2DData(SetTexture2DData),
+    SetTexture2DResult(SetTexture2DResult),
+    UnloadTexture2D(UnloadTexture2D),
+    SetTexture3DFormat(SetTexture3DFormat),
+    SetTexture3DProperties(SetTexture3DProperties),
+    SetTexture3DData(SetTexture3DData),
+    SetTexture3DResult(SetTexture3DResult),
+    UnloadTexture3D(UnloadTexture3D),
+    SetCubemapFormat(SetCubemapFormat),
+    SetCubemapProperties(SetCubemapProperties),
+    SetCubemapData(SetCubemapData),
+    SetCubemapResult(SetCubemapResult),
+    UnloadCubemap(UnloadCubemap),
+    SetRenderTextureFormat(SetRenderTextureFormat),
+    RenderTextureResult(RenderTextureResult),
+    UnloadRenderTexture(UnloadRenderTexture),
+    SetDesktopTextureProperties(SetDesktopTextureProperties),
+    DesktopTexturePropertiesUpdate(DesktopTexturePropertiesUpdate),
+    UnloadDesktopTexture(UnloadDesktopTexture),
+    PointRenderBufferUpload(PointRenderBufferUpload),
+    PointRenderBufferConsumed(PointRenderBufferConsumed),
+    PointRenderBufferUnload(PointRenderBufferUnload),
+    TrailRenderBufferUpload(TrailRenderBufferUpload),
+    TrailRenderBufferConsumed(TrailRenderBufferConsumed),
+    TrailRenderBufferUnload(TrailRenderBufferUnload),
+    GaussianSplatUploadRaw(GaussianSplatUploadRaw),
+    GaussianSplatUploadEncoded(GaussianSplatUploadEncoded),
+    GaussianSplatResult(GaussianSplatResult),
+    UnloadGaussianSplat(UnloadGaussianSplat),
+    LightsBufferRendererSubmission(LightsBufferRendererSubmission),
+    LightsBufferRendererConsumed(LightsBufferRendererConsumed),
+    ReflectionProbeRenderResult(ReflectionProbeRenderResult),
+    VideoTextureLoad(VideoTextureLoad),
+    VideoTextureUpdate(VideoTextureUpdate),
+    VideoTextureReady(VideoTextureReady),
+    VideoTextureChanged(VideoTextureChanged),
+    VideoTextureProperties(VideoTextureProperties),
+    VideoTextureStartAudioTrack(VideoTextureStartAudioTrack),
+    UnloadVideoTexture(UnloadVideoTexture),
 }
 
 impl PolymorphicEncode for RendererCommand {
     fn encode(&mut self, packer: &mut MemoryPacker<'_>) {
         match self {
-            RendererCommand::renderer_init_data(x) => { packer.write(&0i32); x.pack(packer); }
-            RendererCommand::renderer_init_result(x) => { packer.write(&1i32); x.pack(packer); }
-            RendererCommand::renderer_init_progress_update(x) => { packer.write(&2i32); x.pack(packer); }
-            RendererCommand::renderer_init_finalize_data(x) => { packer.write(&3i32); x.pack(packer); }
-            RendererCommand::renderer_engine_ready(x) => { packer.write(&4i32); x.pack(packer); }
-            RendererCommand::renderer_shutdown_request(x) => { packer.write(&5i32); x.pack(packer); }
-            RendererCommand::renderer_shutdown(x) => { packer.write(&6i32); x.pack(packer); }
-            RendererCommand::keep_alive(x) => { packer.write(&7i32); x.pack(packer); }
-            RendererCommand::renderer_parent_window(x) => { packer.write(&8i32); x.pack(packer); }
-            RendererCommand::free_shared_memory_view(x) => { packer.write(&9i32); x.pack(packer); }
-            RendererCommand::set_window_icon(x) => { packer.write(&10i32); x.pack(packer); }
-            RendererCommand::set_window_icon_result(x) => { packer.write(&11i32); x.pack(packer); }
-            RendererCommand::set_taskbar_progress(x) => { packer.write(&12i32); x.pack(packer); }
-            RendererCommand::frame_start_data(x) => { packer.write(&13i32); x.pack(packer); }
-            RendererCommand::frame_submit_data(x) => { packer.write(&14i32); x.pack(packer); }
-            RendererCommand::post_processing_config(x) => { packer.write(&15i32); x.pack(packer); }
-            RendererCommand::quality_config(x) => { packer.write(&16i32); x.pack(packer); }
-            RendererCommand::resolution_config(x) => { packer.write(&17i32); x.pack(packer); }
-            RendererCommand::desktop_config(x) => { packer.write(&18i32); x.pack(packer); }
-            RendererCommand::gaussian_splat_config(x) => { packer.write(&19i32); x.pack(packer); }
-            RendererCommand::render_decoupling_config(x) => { packer.write(&20i32); x.pack(packer); }
-            RendererCommand::mesh_upload_data(x) => { packer.write(&21i32); x.pack(packer); }
-            RendererCommand::mesh_unload(x) => { packer.write(&22i32); x.pack(packer); }
-            RendererCommand::mesh_upload_result(x) => { packer.write(&23i32); x.pack(packer); }
-            RendererCommand::shader_upload(x) => { packer.write(&24i32); x.pack(packer); }
-            RendererCommand::shader_unload(x) => { packer.write(&25i32); x.pack(packer); }
-            RendererCommand::shader_upload_result(x) => { packer.write(&26i32); x.pack(packer); }
-            RendererCommand::material_property_id_request(x) => { packer.write(&27i32); x.pack(packer); }
-            RendererCommand::material_property_id_result(x) => { packer.write(&28i32); x.pack(packer); }
-            RendererCommand::materials_update_batch(x) => { packer.write(&29i32); x.pack(packer); }
-            RendererCommand::materials_update_batch_result(x) => { packer.write(&30i32); x.pack(packer); }
-            RendererCommand::unload_material(x) => { packer.write(&31i32); x.pack(packer); }
-            RendererCommand::unload_material_property_block(x) => { packer.write(&32i32); x.pack(packer); }
-            RendererCommand::set_texture_2d_format(x) => { packer.write(&33i32); x.pack(packer); }
-            RendererCommand::set_texture_2d_properties(x) => { packer.write(&34i32); x.pack(packer); }
-            RendererCommand::set_texture_2d_data(x) => { packer.write(&35i32); x.pack(packer); }
-            RendererCommand::set_texture_2d_result(x) => { packer.write(&36i32); x.pack(packer); }
-            RendererCommand::unload_texture_2d(x) => { packer.write(&37i32); x.pack(packer); }
-            RendererCommand::set_texture_3d_format(x) => { packer.write(&38i32); x.pack(packer); }
-            RendererCommand::set_texture_3d_properties(x) => { packer.write(&39i32); x.pack(packer); }
-            RendererCommand::set_texture_3d_data(x) => { packer.write(&40i32); x.pack(packer); }
-            RendererCommand::set_texture_3d_result(x) => { packer.write(&41i32); x.pack(packer); }
-            RendererCommand::unload_texture_3d(x) => { packer.write(&42i32); x.pack(packer); }
-            RendererCommand::set_cubemap_format(x) => { packer.write(&43i32); x.pack(packer); }
-            RendererCommand::set_cubemap_properties(x) => { packer.write(&44i32); x.pack(packer); }
-            RendererCommand::set_cubemap_data(x) => { packer.write(&45i32); x.pack(packer); }
-            RendererCommand::set_cubemap_result(x) => { packer.write(&46i32); x.pack(packer); }
-            RendererCommand::unload_cubemap(x) => { packer.write(&47i32); x.pack(packer); }
-            RendererCommand::set_render_texture_format(x) => { packer.write(&48i32); x.pack(packer); }
-            RendererCommand::render_texture_result(x) => { packer.write(&49i32); x.pack(packer); }
-            RendererCommand::unload_render_texture(x) => { packer.write(&50i32); x.pack(packer); }
-            RendererCommand::set_desktop_texture_properties(x) => { packer.write(&51i32); x.pack(packer); }
-            RendererCommand::desktop_texture_properties_update(x) => { packer.write(&52i32); x.pack(packer); }
-            RendererCommand::unload_desktop_texture(x) => { packer.write(&53i32); x.pack(packer); }
-            RendererCommand::point_render_buffer_upload(x) => { packer.write(&54i32); x.pack(packer); }
-            RendererCommand::point_render_buffer_consumed(x) => { packer.write(&55i32); x.pack(packer); }
-            RendererCommand::point_render_buffer_unload(x) => { packer.write(&56i32); x.pack(packer); }
-            RendererCommand::trail_render_buffer_upload(x) => { packer.write(&57i32); x.pack(packer); }
-            RendererCommand::trail_render_buffer_consumed(x) => { packer.write(&58i32); x.pack(packer); }
-            RendererCommand::trail_render_buffer_unload(x) => { packer.write(&59i32); x.pack(packer); }
-            RendererCommand::gaussian_splat_upload_raw(x) => { packer.write(&60i32); x.pack(packer); }
-            RendererCommand::gaussian_splat_upload_encoded(x) => { packer.write(&61i32); x.pack(packer); }
-            RendererCommand::gaussian_splat_result(x) => { packer.write(&62i32); x.pack(packer); }
-            RendererCommand::unload_gaussian_splat(x) => { packer.write(&63i32); x.pack(packer); }
-            RendererCommand::lights_buffer_renderer_submission(x) => { packer.write(&64i32); x.pack(packer); }
-            RendererCommand::lights_buffer_renderer_consumed(x) => { packer.write(&65i32); x.pack(packer); }
-            RendererCommand::reflection_probe_render_result(x) => { packer.write(&66i32); x.pack(packer); }
-            RendererCommand::video_texture_load(x) => { packer.write(&67i32); x.pack(packer); }
-            RendererCommand::video_texture_update(x) => { packer.write(&68i32); x.pack(packer); }
-            RendererCommand::video_texture_ready(x) => { packer.write(&69i32); x.pack(packer); }
-            RendererCommand::video_texture_changed(x) => { packer.write(&70i32); x.pack(packer); }
-            RendererCommand::video_texture_properties(x) => { packer.write(&71i32); x.pack(packer); }
-            RendererCommand::video_texture_start_audio_track(x) => { packer.write(&72i32); x.pack(packer); }
-            RendererCommand::unload_video_texture(x) => { packer.write(&73i32); x.pack(packer); }
+            RendererCommand::RendererInitData(x) => { packer.write(&0i32); x.pack(packer); }
+            RendererCommand::RendererInitResult(x) => { packer.write(&1i32); x.pack(packer); }
+            RendererCommand::RendererInitProgressUpdate(x) => { packer.write(&2i32); x.pack(packer); }
+            RendererCommand::RendererInitFinalizeData(x) => { packer.write(&3i32); x.pack(packer); }
+            RendererCommand::RendererEngineReady(x) => { packer.write(&4i32); x.pack(packer); }
+            RendererCommand::RendererShutdownRequest(x) => { packer.write(&5i32); x.pack(packer); }
+            RendererCommand::RendererShutdown(x) => { packer.write(&6i32); x.pack(packer); }
+            RendererCommand::KeepAlive(x) => { packer.write(&7i32); x.pack(packer); }
+            RendererCommand::RendererParentWindow(x) => { packer.write(&8i32); x.pack(packer); }
+            RendererCommand::FreeSharedMemoryView(x) => { packer.write(&9i32); x.pack(packer); }
+            RendererCommand::SetWindowIcon(x) => { packer.write(&10i32); x.pack(packer); }
+            RendererCommand::SetWindowIconResult(x) => { packer.write(&11i32); x.pack(packer); }
+            RendererCommand::SetTaskbarProgress(x) => { packer.write(&12i32); x.pack(packer); }
+            RendererCommand::FrameStartData(x) => { packer.write(&13i32); x.pack(packer); }
+            RendererCommand::FrameSubmitData(x) => { packer.write(&14i32); x.pack(packer); }
+            RendererCommand::PostProcessingConfig(x) => { packer.write(&15i32); x.pack(packer); }
+            RendererCommand::QualityConfig(x) => { packer.write(&16i32); x.pack(packer); }
+            RendererCommand::ResolutionConfig(x) => { packer.write(&17i32); x.pack(packer); }
+            RendererCommand::DesktopConfig(x) => { packer.write(&18i32); x.pack(packer); }
+            RendererCommand::GaussianSplatConfig(x) => { packer.write(&19i32); x.pack(packer); }
+            RendererCommand::RenderDecouplingConfig(x) => { packer.write(&20i32); x.pack(packer); }
+            RendererCommand::MeshUploadData(x) => { packer.write(&21i32); x.pack(packer); }
+            RendererCommand::MeshUnload(x) => { packer.write(&22i32); x.pack(packer); }
+            RendererCommand::MeshUploadResult(x) => { packer.write(&23i32); x.pack(packer); }
+            RendererCommand::ShaderUpload(x) => { packer.write(&24i32); x.pack(packer); }
+            RendererCommand::ShaderUnload(x) => { packer.write(&25i32); x.pack(packer); }
+            RendererCommand::ShaderUploadResult(x) => { packer.write(&26i32); x.pack(packer); }
+            RendererCommand::MaterialPropertyIdRequest(x) => { packer.write(&27i32); x.pack(packer); }
+            RendererCommand::MaterialPropertyIdResult(x) => { packer.write(&28i32); x.pack(packer); }
+            RendererCommand::MaterialsUpdateBatch(x) => { packer.write(&29i32); x.pack(packer); }
+            RendererCommand::MaterialsUpdateBatchResult(x) => { packer.write(&30i32); x.pack(packer); }
+            RendererCommand::UnloadMaterial(x) => { packer.write(&31i32); x.pack(packer); }
+            RendererCommand::UnloadMaterialPropertyBlock(x) => { packer.write(&32i32); x.pack(packer); }
+            RendererCommand::SetTexture2DFormat(x) => { packer.write(&33i32); x.pack(packer); }
+            RendererCommand::SetTexture2DProperties(x) => { packer.write(&34i32); x.pack(packer); }
+            RendererCommand::SetTexture2DData(x) => { packer.write(&35i32); x.pack(packer); }
+            RendererCommand::SetTexture2DResult(x) => { packer.write(&36i32); x.pack(packer); }
+            RendererCommand::UnloadTexture2D(x) => { packer.write(&37i32); x.pack(packer); }
+            RendererCommand::SetTexture3DFormat(x) => { packer.write(&38i32); x.pack(packer); }
+            RendererCommand::SetTexture3DProperties(x) => { packer.write(&39i32); x.pack(packer); }
+            RendererCommand::SetTexture3DData(x) => { packer.write(&40i32); x.pack(packer); }
+            RendererCommand::SetTexture3DResult(x) => { packer.write(&41i32); x.pack(packer); }
+            RendererCommand::UnloadTexture3D(x) => { packer.write(&42i32); x.pack(packer); }
+            RendererCommand::SetCubemapFormat(x) => { packer.write(&43i32); x.pack(packer); }
+            RendererCommand::SetCubemapProperties(x) => { packer.write(&44i32); x.pack(packer); }
+            RendererCommand::SetCubemapData(x) => { packer.write(&45i32); x.pack(packer); }
+            RendererCommand::SetCubemapResult(x) => { packer.write(&46i32); x.pack(packer); }
+            RendererCommand::UnloadCubemap(x) => { packer.write(&47i32); x.pack(packer); }
+            RendererCommand::SetRenderTextureFormat(x) => { packer.write(&48i32); x.pack(packer); }
+            RendererCommand::RenderTextureResult(x) => { packer.write(&49i32); x.pack(packer); }
+            RendererCommand::UnloadRenderTexture(x) => { packer.write(&50i32); x.pack(packer); }
+            RendererCommand::SetDesktopTextureProperties(x) => { packer.write(&51i32); x.pack(packer); }
+            RendererCommand::DesktopTexturePropertiesUpdate(x) => { packer.write(&52i32); x.pack(packer); }
+            RendererCommand::UnloadDesktopTexture(x) => { packer.write(&53i32); x.pack(packer); }
+            RendererCommand::PointRenderBufferUpload(x) => { packer.write(&54i32); x.pack(packer); }
+            RendererCommand::PointRenderBufferConsumed(x) => { packer.write(&55i32); x.pack(packer); }
+            RendererCommand::PointRenderBufferUnload(x) => { packer.write(&56i32); x.pack(packer); }
+            RendererCommand::TrailRenderBufferUpload(x) => { packer.write(&57i32); x.pack(packer); }
+            RendererCommand::TrailRenderBufferConsumed(x) => { packer.write(&58i32); x.pack(packer); }
+            RendererCommand::TrailRenderBufferUnload(x) => { packer.write(&59i32); x.pack(packer); }
+            RendererCommand::GaussianSplatUploadRaw(x) => { packer.write(&60i32); x.pack(packer); }
+            RendererCommand::GaussianSplatUploadEncoded(x) => { packer.write(&61i32); x.pack(packer); }
+            RendererCommand::GaussianSplatResult(x) => { packer.write(&62i32); x.pack(packer); }
+            RendererCommand::UnloadGaussianSplat(x) => { packer.write(&63i32); x.pack(packer); }
+            RendererCommand::LightsBufferRendererSubmission(x) => { packer.write(&64i32); x.pack(packer); }
+            RendererCommand::LightsBufferRendererConsumed(x) => { packer.write(&65i32); x.pack(packer); }
+            RendererCommand::ReflectionProbeRenderResult(x) => { packer.write(&66i32); x.pack(packer); }
+            RendererCommand::VideoTextureLoad(x) => { packer.write(&67i32); x.pack(packer); }
+            RendererCommand::VideoTextureUpdate(x) => { packer.write(&68i32); x.pack(packer); }
+            RendererCommand::VideoTextureReady(x) => { packer.write(&69i32); x.pack(packer); }
+            RendererCommand::VideoTextureChanged(x) => { packer.write(&70i32); x.pack(packer); }
+            RendererCommand::VideoTextureProperties(x) => { packer.write(&71i32); x.pack(packer); }
+            RendererCommand::VideoTextureStartAudioTrack(x) => { packer.write(&72i32); x.pack(packer); }
+            RendererCommand::UnloadVideoTexture(x) => { packer.write(&73i32); x.pack(packer); }
         }
     }
 }
@@ -265,80 +257,80 @@ impl PolymorphicEncode for RendererCommand {
 pub fn decode_renderer_command<P: MemoryPackerEntityPool>(unpacker: &mut MemoryUnpacker<'_, '_, P>) -> RendererCommand {
     let tag = unpacker.read::<i32>();
     match tag {
-        0 => RendererCommand::renderer_init_data({ let mut x = RendererInitData::default(); x.unpack(unpacker); x }),
-        1 => RendererCommand::renderer_init_result({ let mut x = RendererInitResult::default(); x.unpack(unpacker); x }),
-        2 => RendererCommand::renderer_init_progress_update({ let mut x = RendererInitProgressUpdate::default(); x.unpack(unpacker); x }),
-        3 => RendererCommand::renderer_init_finalize_data({ let mut x = RendererInitFinalizeData::default(); x.unpack(unpacker); x }),
-        4 => RendererCommand::renderer_engine_ready({ let mut x = RendererEngineReady::default(); x.unpack(unpacker); x }),
-        5 => RendererCommand::renderer_shutdown_request({ let mut x = RendererShutdownRequest::default(); x.unpack(unpacker); x }),
-        6 => RendererCommand::renderer_shutdown({ let mut x = RendererShutdown::default(); x.unpack(unpacker); x }),
-        7 => RendererCommand::keep_alive({ let mut x = KeepAlive::default(); x.unpack(unpacker); x }),
-        8 => RendererCommand::renderer_parent_window({ let mut x = RendererParentWindow::default(); x.unpack(unpacker); x }),
-        9 => RendererCommand::free_shared_memory_view({ let mut x = FreeSharedMemoryView::default(); x.unpack(unpacker); x }),
-        10 => RendererCommand::set_window_icon({ let mut x = SetWindowIcon::default(); x.unpack(unpacker); x }),
-        11 => RendererCommand::set_window_icon_result({ let mut x = SetWindowIconResult::default(); x.unpack(unpacker); x }),
-        12 => RendererCommand::set_taskbar_progress({ let mut x = SetTaskbarProgress::default(); x.unpack(unpacker); x }),
-        13 => RendererCommand::frame_start_data({ let mut x = FrameStartData::default(); x.unpack(unpacker); x }),
-        14 => RendererCommand::frame_submit_data({ let mut x = FrameSubmitData::default(); x.unpack(unpacker); x }),
-        15 => RendererCommand::post_processing_config({ let mut x = PostProcessingConfig::default(); x.unpack(unpacker); x }),
-        16 => RendererCommand::quality_config({ let mut x = QualityConfig::default(); x.unpack(unpacker); x }),
-        17 => RendererCommand::resolution_config({ let mut x = ResolutionConfig::default(); x.unpack(unpacker); x }),
-        18 => RendererCommand::desktop_config({ let mut x = DesktopConfig::default(); x.unpack(unpacker); x }),
-        19 => RendererCommand::gaussian_splat_config({ let mut x = GaussianSplatConfig::default(); x.unpack(unpacker); x }),
-        20 => RendererCommand::render_decoupling_config({ let mut x = RenderDecouplingConfig::default(); x.unpack(unpacker); x }),
-        21 => RendererCommand::mesh_upload_data({ let mut x = MeshUploadData::default(); x.unpack(unpacker); x }),
-        22 => RendererCommand::mesh_unload({ let mut x = MeshUnload::default(); x.unpack(unpacker); x }),
-        23 => RendererCommand::mesh_upload_result({ let mut x = MeshUploadResult::default(); x.unpack(unpacker); x }),
-        24 => RendererCommand::shader_upload({ let mut x = ShaderUpload::default(); x.unpack(unpacker); x }),
-        25 => RendererCommand::shader_unload({ let mut x = ShaderUnload::default(); x.unpack(unpacker); x }),
-        26 => RendererCommand::shader_upload_result({ let mut x = ShaderUploadResult::default(); x.unpack(unpacker); x }),
-        27 => RendererCommand::material_property_id_request({ let mut x = MaterialPropertyIdRequest::default(); x.unpack(unpacker); x }),
-        28 => RendererCommand::material_property_id_result({ let mut x = MaterialPropertyIdResult::default(); x.unpack(unpacker); x }),
-        29 => RendererCommand::materials_update_batch({ let mut x = MaterialsUpdateBatch::default(); x.unpack(unpacker); x }),
-        30 => RendererCommand::materials_update_batch_result({ let mut x = MaterialsUpdateBatchResult::default(); x.unpack(unpacker); x }),
-        31 => RendererCommand::unload_material({ let mut x = UnloadMaterial::default(); x.unpack(unpacker); x }),
-        32 => RendererCommand::unload_material_property_block({ let mut x = UnloadMaterialPropertyBlock::default(); x.unpack(unpacker); x }),
-        33 => RendererCommand::set_texture_2d_format({ let mut x = SetTexture2DFormat::default(); x.unpack(unpacker); x }),
-        34 => RendererCommand::set_texture_2d_properties({ let mut x = SetTexture2DProperties::default(); x.unpack(unpacker); x }),
-        35 => RendererCommand::set_texture_2d_data({ let mut x = SetTexture2DData::default(); x.unpack(unpacker); x }),
-        36 => RendererCommand::set_texture_2d_result({ let mut x = SetTexture2DResult::default(); x.unpack(unpacker); x }),
-        37 => RendererCommand::unload_texture_2d({ let mut x = UnloadTexture2D::default(); x.unpack(unpacker); x }),
-        38 => RendererCommand::set_texture_3d_format({ let mut x = SetTexture3DFormat::default(); x.unpack(unpacker); x }),
-        39 => RendererCommand::set_texture_3d_properties({ let mut x = SetTexture3DProperties::default(); x.unpack(unpacker); x }),
-        40 => RendererCommand::set_texture_3d_data({ let mut x = SetTexture3DData::default(); x.unpack(unpacker); x }),
-        41 => RendererCommand::set_texture_3d_result({ let mut x = SetTexture3DResult::default(); x.unpack(unpacker); x }),
-        42 => RendererCommand::unload_texture_3d({ let mut x = UnloadTexture3D::default(); x.unpack(unpacker); x }),
-        43 => RendererCommand::set_cubemap_format({ let mut x = SetCubemapFormat::default(); x.unpack(unpacker); x }),
-        44 => RendererCommand::set_cubemap_properties({ let mut x = SetCubemapProperties::default(); x.unpack(unpacker); x }),
-        45 => RendererCommand::set_cubemap_data({ let mut x = SetCubemapData::default(); x.unpack(unpacker); x }),
-        46 => RendererCommand::set_cubemap_result({ let mut x = SetCubemapResult::default(); x.unpack(unpacker); x }),
-        47 => RendererCommand::unload_cubemap({ let mut x = UnloadCubemap::default(); x.unpack(unpacker); x }),
-        48 => RendererCommand::set_render_texture_format({ let mut x = SetRenderTextureFormat::default(); x.unpack(unpacker); x }),
-        49 => RendererCommand::render_texture_result({ let mut x = RenderTextureResult::default(); x.unpack(unpacker); x }),
-        50 => RendererCommand::unload_render_texture({ let mut x = UnloadRenderTexture::default(); x.unpack(unpacker); x }),
-        51 => RendererCommand::set_desktop_texture_properties({ let mut x = SetDesktopTextureProperties::default(); x.unpack(unpacker); x }),
-        52 => RendererCommand::desktop_texture_properties_update({ let mut x = DesktopTexturePropertiesUpdate::default(); x.unpack(unpacker); x }),
-        53 => RendererCommand::unload_desktop_texture({ let mut x = UnloadDesktopTexture::default(); x.unpack(unpacker); x }),
-        54 => RendererCommand::point_render_buffer_upload({ let mut x = PointRenderBufferUpload::default(); x.unpack(unpacker); x }),
-        55 => RendererCommand::point_render_buffer_consumed({ let mut x = PointRenderBufferConsumed::default(); x.unpack(unpacker); x }),
-        56 => RendererCommand::point_render_buffer_unload({ let mut x = PointRenderBufferUnload::default(); x.unpack(unpacker); x }),
-        57 => RendererCommand::trail_render_buffer_upload({ let mut x = TrailRenderBufferUpload::default(); x.unpack(unpacker); x }),
-        58 => RendererCommand::trail_render_buffer_consumed({ let mut x = TrailRenderBufferConsumed::default(); x.unpack(unpacker); x }),
-        59 => RendererCommand::trail_render_buffer_unload({ let mut x = TrailRenderBufferUnload::default(); x.unpack(unpacker); x }),
-        60 => RendererCommand::gaussian_splat_upload_raw({ let mut x = GaussianSplatUploadRaw::default(); x.unpack(unpacker); x }),
-        61 => RendererCommand::gaussian_splat_upload_encoded({ let mut x = GaussianSplatUploadEncoded::default(); x.unpack(unpacker); x }),
-        62 => RendererCommand::gaussian_splat_result({ let mut x = GaussianSplatResult::default(); x.unpack(unpacker); x }),
-        63 => RendererCommand::unload_gaussian_splat({ let mut x = UnloadGaussianSplat::default(); x.unpack(unpacker); x }),
-        64 => RendererCommand::lights_buffer_renderer_submission({ let mut x = LightsBufferRendererSubmission::default(); x.unpack(unpacker); x }),
-        65 => RendererCommand::lights_buffer_renderer_consumed({ let mut x = LightsBufferRendererConsumed::default(); x.unpack(unpacker); x }),
-        66 => RendererCommand::reflection_probe_render_result({ let mut x = ReflectionProbeRenderResult::default(); x.unpack(unpacker); x }),
-        67 => RendererCommand::video_texture_load({ let mut x = VideoTextureLoad::default(); x.unpack(unpacker); x }),
-        68 => RendererCommand::video_texture_update({ let mut x = VideoTextureUpdate::default(); x.unpack(unpacker); x }),
-        69 => RendererCommand::video_texture_ready({ let mut x = VideoTextureReady::default(); x.unpack(unpacker); x }),
-        70 => RendererCommand::video_texture_changed({ let mut x = VideoTextureChanged::default(); x.unpack(unpacker); x }),
-        71 => RendererCommand::video_texture_properties({ let mut x = VideoTextureProperties::default(); x.unpack(unpacker); x }),
-        72 => RendererCommand::video_texture_start_audio_track({ let mut x = VideoTextureStartAudioTrack::default(); x.unpack(unpacker); x }),
-        73 => RendererCommand::unload_video_texture({ let mut x = UnloadVideoTexture::default(); x.unpack(unpacker); x }),
+        0 => RendererCommand::RendererInitData({ let mut x = RendererInitData::default(); x.unpack(unpacker); x }),
+        1 => RendererCommand::RendererInitResult({ let mut x = RendererInitResult::default(); x.unpack(unpacker); x }),
+        2 => RendererCommand::RendererInitProgressUpdate({ let mut x = RendererInitProgressUpdate::default(); x.unpack(unpacker); x }),
+        3 => RendererCommand::RendererInitFinalizeData({ let mut x = RendererInitFinalizeData::default(); x.unpack(unpacker); x }),
+        4 => RendererCommand::RendererEngineReady({ let mut x = RendererEngineReady::default(); x.unpack(unpacker); x }),
+        5 => RendererCommand::RendererShutdownRequest({ let mut x = RendererShutdownRequest::default(); x.unpack(unpacker); x }),
+        6 => RendererCommand::RendererShutdown({ let mut x = RendererShutdown::default(); x.unpack(unpacker); x }),
+        7 => RendererCommand::KeepAlive({ let mut x = KeepAlive::default(); x.unpack(unpacker); x }),
+        8 => RendererCommand::RendererParentWindow({ let mut x = RendererParentWindow::default(); x.unpack(unpacker); x }),
+        9 => RendererCommand::FreeSharedMemoryView({ let mut x = FreeSharedMemoryView::default(); x.unpack(unpacker); x }),
+        10 => RendererCommand::SetWindowIcon({ let mut x = SetWindowIcon::default(); x.unpack(unpacker); x }),
+        11 => RendererCommand::SetWindowIconResult({ let mut x = SetWindowIconResult::default(); x.unpack(unpacker); x }),
+        12 => RendererCommand::SetTaskbarProgress({ let mut x = SetTaskbarProgress::default(); x.unpack(unpacker); x }),
+        13 => RendererCommand::FrameStartData({ let mut x = FrameStartData::default(); x.unpack(unpacker); x }),
+        14 => RendererCommand::FrameSubmitData({ let mut x = FrameSubmitData::default(); x.unpack(unpacker); x }),
+        15 => RendererCommand::PostProcessingConfig({ let mut x = PostProcessingConfig::default(); x.unpack(unpacker); x }),
+        16 => RendererCommand::QualityConfig({ let mut x = QualityConfig::default(); x.unpack(unpacker); x }),
+        17 => RendererCommand::ResolutionConfig({ let mut x = ResolutionConfig::default(); x.unpack(unpacker); x }),
+        18 => RendererCommand::DesktopConfig({ let mut x = DesktopConfig::default(); x.unpack(unpacker); x }),
+        19 => RendererCommand::GaussianSplatConfig({ let mut x = GaussianSplatConfig::default(); x.unpack(unpacker); x }),
+        20 => RendererCommand::RenderDecouplingConfig({ let mut x = RenderDecouplingConfig::default(); x.unpack(unpacker); x }),
+        21 => RendererCommand::MeshUploadData({ let mut x = MeshUploadData::default(); x.unpack(unpacker); x }),
+        22 => RendererCommand::MeshUnload({ let mut x = MeshUnload::default(); x.unpack(unpacker); x }),
+        23 => RendererCommand::MeshUploadResult({ let mut x = MeshUploadResult::default(); x.unpack(unpacker); x }),
+        24 => RendererCommand::ShaderUpload({ let mut x = ShaderUpload::default(); x.unpack(unpacker); x }),
+        25 => RendererCommand::ShaderUnload({ let mut x = ShaderUnload::default(); x.unpack(unpacker); x }),
+        26 => RendererCommand::ShaderUploadResult({ let mut x = ShaderUploadResult::default(); x.unpack(unpacker); x }),
+        27 => RendererCommand::MaterialPropertyIdRequest({ let mut x = MaterialPropertyIdRequest::default(); x.unpack(unpacker); x }),
+        28 => RendererCommand::MaterialPropertyIdResult({ let mut x = MaterialPropertyIdResult::default(); x.unpack(unpacker); x }),
+        29 => RendererCommand::MaterialsUpdateBatch({ let mut x = MaterialsUpdateBatch::default(); x.unpack(unpacker); x }),
+        30 => RendererCommand::MaterialsUpdateBatchResult({ let mut x = MaterialsUpdateBatchResult::default(); x.unpack(unpacker); x }),
+        31 => RendererCommand::UnloadMaterial({ let mut x = UnloadMaterial::default(); x.unpack(unpacker); x }),
+        32 => RendererCommand::UnloadMaterialPropertyBlock({ let mut x = UnloadMaterialPropertyBlock::default(); x.unpack(unpacker); x }),
+        33 => RendererCommand::SetTexture2DFormat({ let mut x = SetTexture2DFormat::default(); x.unpack(unpacker); x }),
+        34 => RendererCommand::SetTexture2DProperties({ let mut x = SetTexture2DProperties::default(); x.unpack(unpacker); x }),
+        35 => RendererCommand::SetTexture2DData({ let mut x = SetTexture2DData::default(); x.unpack(unpacker); x }),
+        36 => RendererCommand::SetTexture2DResult({ let mut x = SetTexture2DResult::default(); x.unpack(unpacker); x }),
+        37 => RendererCommand::UnloadTexture2D({ let mut x = UnloadTexture2D::default(); x.unpack(unpacker); x }),
+        38 => RendererCommand::SetTexture3DFormat({ let mut x = SetTexture3DFormat::default(); x.unpack(unpacker); x }),
+        39 => RendererCommand::SetTexture3DProperties({ let mut x = SetTexture3DProperties::default(); x.unpack(unpacker); x }),
+        40 => RendererCommand::SetTexture3DData({ let mut x = SetTexture3DData::default(); x.unpack(unpacker); x }),
+        41 => RendererCommand::SetTexture3DResult({ let mut x = SetTexture3DResult::default(); x.unpack(unpacker); x }),
+        42 => RendererCommand::UnloadTexture3D({ let mut x = UnloadTexture3D::default(); x.unpack(unpacker); x }),
+        43 => RendererCommand::SetCubemapFormat({ let mut x = SetCubemapFormat::default(); x.unpack(unpacker); x }),
+        44 => RendererCommand::SetCubemapProperties({ let mut x = SetCubemapProperties::default(); x.unpack(unpacker); x }),
+        45 => RendererCommand::SetCubemapData({ let mut x = SetCubemapData::default(); x.unpack(unpacker); x }),
+        46 => RendererCommand::SetCubemapResult({ let mut x = SetCubemapResult::default(); x.unpack(unpacker); x }),
+        47 => RendererCommand::UnloadCubemap({ let mut x = UnloadCubemap::default(); x.unpack(unpacker); x }),
+        48 => RendererCommand::SetRenderTextureFormat({ let mut x = SetRenderTextureFormat::default(); x.unpack(unpacker); x }),
+        49 => RendererCommand::RenderTextureResult({ let mut x = RenderTextureResult::default(); x.unpack(unpacker); x }),
+        50 => RendererCommand::UnloadRenderTexture({ let mut x = UnloadRenderTexture::default(); x.unpack(unpacker); x }),
+        51 => RendererCommand::SetDesktopTextureProperties({ let mut x = SetDesktopTextureProperties::default(); x.unpack(unpacker); x }),
+        52 => RendererCommand::DesktopTexturePropertiesUpdate({ let mut x = DesktopTexturePropertiesUpdate::default(); x.unpack(unpacker); x }),
+        53 => RendererCommand::UnloadDesktopTexture({ let mut x = UnloadDesktopTexture::default(); x.unpack(unpacker); x }),
+        54 => RendererCommand::PointRenderBufferUpload({ let mut x = PointRenderBufferUpload::default(); x.unpack(unpacker); x }),
+        55 => RendererCommand::PointRenderBufferConsumed({ let mut x = PointRenderBufferConsumed::default(); x.unpack(unpacker); x }),
+        56 => RendererCommand::PointRenderBufferUnload({ let mut x = PointRenderBufferUnload::default(); x.unpack(unpacker); x }),
+        57 => RendererCommand::TrailRenderBufferUpload({ let mut x = TrailRenderBufferUpload::default(); x.unpack(unpacker); x }),
+        58 => RendererCommand::TrailRenderBufferConsumed({ let mut x = TrailRenderBufferConsumed::default(); x.unpack(unpacker); x }),
+        59 => RendererCommand::TrailRenderBufferUnload({ let mut x = TrailRenderBufferUnload::default(); x.unpack(unpacker); x }),
+        60 => RendererCommand::GaussianSplatUploadRaw({ let mut x = GaussianSplatUploadRaw::default(); x.unpack(unpacker); x }),
+        61 => RendererCommand::GaussianSplatUploadEncoded({ let mut x = GaussianSplatUploadEncoded::default(); x.unpack(unpacker); x }),
+        62 => RendererCommand::GaussianSplatResult({ let mut x = GaussianSplatResult::default(); x.unpack(unpacker); x }),
+        63 => RendererCommand::UnloadGaussianSplat({ let mut x = UnloadGaussianSplat::default(); x.unpack(unpacker); x }),
+        64 => RendererCommand::LightsBufferRendererSubmission({ let mut x = LightsBufferRendererSubmission::default(); x.unpack(unpacker); x }),
+        65 => RendererCommand::LightsBufferRendererConsumed({ let mut x = LightsBufferRendererConsumed::default(); x.unpack(unpacker); x }),
+        66 => RendererCommand::ReflectionProbeRenderResult({ let mut x = ReflectionProbeRenderResult::default(); x.unpack(unpacker); x }),
+        67 => RendererCommand::VideoTextureLoad({ let mut x = VideoTextureLoad::default(); x.unpack(unpacker); x }),
+        68 => RendererCommand::VideoTextureUpdate({ let mut x = VideoTextureUpdate::default(); x.unpack(unpacker); x }),
+        69 => RendererCommand::VideoTextureReady({ let mut x = VideoTextureReady::default(); x.unpack(unpacker); x }),
+        70 => RendererCommand::VideoTextureChanged({ let mut x = VideoTextureChanged::default(); x.unpack(unpacker); x }),
+        71 => RendererCommand::VideoTextureProperties({ let mut x = VideoTextureProperties::default(); x.unpack(unpacker); x }),
+        72 => RendererCommand::VideoTextureStartAudioTrack({ let mut x = VideoTextureStartAudioTrack::default(); x.unpack(unpacker); x }),
+        73 => RendererCommand::UnloadVideoTexture({ let mut x = UnloadVideoTexture::default(); x.unpack(unpacker); x }),
         _ => panic!("Invalid polymorphic tag: {:?}", tag),
     }
 }
@@ -2035,17 +2027,17 @@ impl MemoryPackable for Guid {
 #[repr(i32)]
 pub enum HeadOutputDevice {
     #[default]
-    autodetect = 0,
-    headless = 1,
-    screen = 2,
-    screen360 = 3,
-    static_camera = 4,
-    static_camera360 = 5,
-    steam_vr = 6,
-    windows_mr = 7,
-    oculus = 8,
-    oculus_quest = 9,
-    unknown = 10,
+    Autodetect = 0,
+    Headless = 1,
+    Screen = 2,
+    Screen360 = 3,
+    StaticCamera = 4,
+    StaticCamera360 = 5,
+    SteamVR = 6,
+    WindowsMR = 7,
+    Oculus = 8,
+    OculusQuest = 9,
+    UNKNOWN = 10,
 }
 
 impl MemoryPackable for HeadOutputDevice {
@@ -2055,20 +2047,20 @@ impl MemoryPackable for HeadOutputDevice {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::autodetect,
-            1 => Self::headless,
-            2 => Self::screen,
-            3 => Self::screen360,
-            4 => Self::static_camera,
-            5 => Self::static_camera360,
-            6 => Self::steam_vr,
-            7 => Self::windows_mr,
-            8 => Self::oculus,
-            9 => Self::oculus_quest,
-            10 => Self::unknown,
+            0 => Self::Autodetect,
+            1 => Self::Headless,
+            2 => Self::Screen,
+            3 => Self::Screen360,
+            4 => Self::StaticCamera,
+            5 => Self::StaticCamera360,
+            6 => Self::SteamVR,
+            7 => Self::WindowsMR,
+            8 => Self::Oculus,
+            9 => Self::OculusQuest,
+            10 => Self::UNKNOWN,
             _ => {
                 warn!("invalid HeadOutputDevice wire value {}; using default", raw);
-                Self::autodetect
+                Self::Autodetect
             }
         };
     }
@@ -2080,20 +2072,20 @@ impl EnumRepr for HeadOutputDevice {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::autodetect,
-            1 => Self::headless,
-            2 => Self::screen,
-            3 => Self::screen360,
-            4 => Self::static_camera,
-            5 => Self::static_camera360,
-            6 => Self::steam_vr,
-            7 => Self::windows_mr,
-            8 => Self::oculus,
-            9 => Self::oculus_quest,
-            10 => Self::unknown,
+            0 => Self::Autodetect,
+            1 => Self::Headless,
+            2 => Self::Screen,
+            3 => Self::Screen360,
+            4 => Self::StaticCamera,
+            5 => Self::StaticCamera360,
+            6 => Self::SteamVR,
+            7 => Self::WindowsMR,
+            8 => Self::Oculus,
+            9 => Self::OculusQuest,
+            10 => Self::UNKNOWN,
             _ => {
                 warn!("invalid HeadOutputDevice discriminant {}; using default", i);
-                Self::autodetect
+                Self::Autodetect
             }
         }
     }
@@ -2129,39 +2121,39 @@ impl MemoryPackable for RendererSplashScreenOverride {
 #[repr(i32)]
 pub enum TextureFormat {
     #[default]
-    unknown = 0,
-    alpha8 = 1,
-    r8 = 2,
-    rgb24 = 16,
-    argb32 = 17,
-    rgba32 = 18,
-    bgra32 = 19,
-    rgb565 = 24,
-    bgr565 = 25,
-    rgba_half = 32,
-    argb_half = 33,
-    r_half = 34,
-    rg_half = 35,
-    rgba_float = 48,
-    argb_float = 49,
-    r_float = 50,
-    rg_float = 51,
-    bc1 = 64,
-    bc2 = 65,
-    bc3 = 66,
-    bc4 = 67,
-    bc5 = 68,
-    bc6_h = 69,
-    bc7 = 70,
-    etc2_rgb = 96,
-    etc2_rgba1 = 97,
-    etc2_rgba8 = 98,
-    astc_4x4 = 128,
-    astc_5x5 = 129,
-    astc_6x6 = 130,
-    astc_8x8 = 131,
-    astc_10x10 = 132,
-    astc_12x12 = 133,
+    Unknown = 0,
+    Alpha8 = 1,
+    R8 = 2,
+    RGB24 = 16,
+    ARGB32 = 17,
+    RGBA32 = 18,
+    BGRA32 = 19,
+    RGB565 = 24,
+    BGR565 = 25,
+    RGBAHalf = 32,
+    ARGBHalf = 33,
+    RHalf = 34,
+    RGHalf = 35,
+    RGBAFloat = 48,
+    ARGBFloat = 49,
+    RFloat = 50,
+    RGFloat = 51,
+    BC1 = 64,
+    BC2 = 65,
+    BC3 = 66,
+    BC4 = 67,
+    BC5 = 68,
+    BC6H = 69,
+    BC7 = 70,
+    ETC2RGB = 96,
+    ETC2RGBA1 = 97,
+    ETC2RGBA8 = 98,
+    ASTC4x4 = 128,
+    ASTC5x5 = 129,
+    ASTC6x6 = 130,
+    ASTC8x8 = 131,
+    ASTC10x10 = 132,
+    ASTC12x12 = 133,
 }
 
 impl MemoryPackable for TextureFormat {
@@ -2171,42 +2163,42 @@ impl MemoryPackable for TextureFormat {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::unknown,
-            1 => Self::alpha8,
-            2 => Self::r8,
-            16 => Self::rgb24,
-            17 => Self::argb32,
-            18 => Self::rgba32,
-            19 => Self::bgra32,
-            24 => Self::rgb565,
-            25 => Self::bgr565,
-            32 => Self::rgba_half,
-            33 => Self::argb_half,
-            34 => Self::r_half,
-            35 => Self::rg_half,
-            48 => Self::rgba_float,
-            49 => Self::argb_float,
-            50 => Self::r_float,
-            51 => Self::rg_float,
-            64 => Self::bc1,
-            65 => Self::bc2,
-            66 => Self::bc3,
-            67 => Self::bc4,
-            68 => Self::bc5,
-            69 => Self::bc6_h,
-            70 => Self::bc7,
-            96 => Self::etc2_rgb,
-            97 => Self::etc2_rgba1,
-            98 => Self::etc2_rgba8,
-            128 => Self::astc_4x4,
-            129 => Self::astc_5x5,
-            130 => Self::astc_6x6,
-            131 => Self::astc_8x8,
-            132 => Self::astc_10x10,
-            133 => Self::astc_12x12,
+            0 => Self::Unknown,
+            1 => Self::Alpha8,
+            2 => Self::R8,
+            16 => Self::RGB24,
+            17 => Self::ARGB32,
+            18 => Self::RGBA32,
+            19 => Self::BGRA32,
+            24 => Self::RGB565,
+            25 => Self::BGR565,
+            32 => Self::RGBAHalf,
+            33 => Self::ARGBHalf,
+            34 => Self::RHalf,
+            35 => Self::RGHalf,
+            48 => Self::RGBAFloat,
+            49 => Self::ARGBFloat,
+            50 => Self::RFloat,
+            51 => Self::RGFloat,
+            64 => Self::BC1,
+            65 => Self::BC2,
+            66 => Self::BC3,
+            67 => Self::BC4,
+            68 => Self::BC5,
+            69 => Self::BC6H,
+            70 => Self::BC7,
+            96 => Self::ETC2RGB,
+            97 => Self::ETC2RGBA1,
+            98 => Self::ETC2RGBA8,
+            128 => Self::ASTC4x4,
+            129 => Self::ASTC5x5,
+            130 => Self::ASTC6x6,
+            131 => Self::ASTC8x8,
+            132 => Self::ASTC10x10,
+            133 => Self::ASTC12x12,
             _ => {
                 warn!("invalid TextureFormat wire value {}; using default", raw);
-                Self::unknown
+                Self::Unknown
             }
         };
     }
@@ -2218,42 +2210,42 @@ impl EnumRepr for TextureFormat {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::unknown,
-            1 => Self::alpha8,
-            2 => Self::r8,
-            16 => Self::rgb24,
-            17 => Self::argb32,
-            18 => Self::rgba32,
-            19 => Self::bgra32,
-            24 => Self::rgb565,
-            25 => Self::bgr565,
-            32 => Self::rgba_half,
-            33 => Self::argb_half,
-            34 => Self::r_half,
-            35 => Self::rg_half,
-            48 => Self::rgba_float,
-            49 => Self::argb_float,
-            50 => Self::r_float,
-            51 => Self::rg_float,
-            64 => Self::bc1,
-            65 => Self::bc2,
-            66 => Self::bc3,
-            67 => Self::bc4,
-            68 => Self::bc5,
-            69 => Self::bc6_h,
-            70 => Self::bc7,
-            96 => Self::etc2_rgb,
-            97 => Self::etc2_rgba1,
-            98 => Self::etc2_rgba8,
-            128 => Self::astc_4x4,
-            129 => Self::astc_5x5,
-            130 => Self::astc_6x6,
-            131 => Self::astc_8x8,
-            132 => Self::astc_10x10,
-            133 => Self::astc_12x12,
+            0 => Self::Unknown,
+            1 => Self::Alpha8,
+            2 => Self::R8,
+            16 => Self::RGB24,
+            17 => Self::ARGB32,
+            18 => Self::RGBA32,
+            19 => Self::BGRA32,
+            24 => Self::RGB565,
+            25 => Self::BGR565,
+            32 => Self::RGBAHalf,
+            33 => Self::ARGBHalf,
+            34 => Self::RHalf,
+            35 => Self::RGHalf,
+            48 => Self::RGBAFloat,
+            49 => Self::ARGBFloat,
+            50 => Self::RFloat,
+            51 => Self::RGFloat,
+            64 => Self::BC1,
+            65 => Self::BC2,
+            66 => Self::BC3,
+            67 => Self::BC4,
+            68 => Self::BC5,
+            69 => Self::BC6H,
+            70 => Self::BC7,
+            96 => Self::ETC2RGB,
+            97 => Self::ETC2RGBA1,
+            98 => Self::ETC2RGBA8,
+            128 => Self::ASTC4x4,
+            129 => Self::ASTC5x5,
+            130 => Self::ASTC6x6,
+            131 => Self::ASTC8x8,
+            132 => Self::ASTC10x10,
+            133 => Self::ASTC12x12,
             _ => {
                 warn!("invalid TextureFormat discriminant {}; using default", i);
-                Self::unknown
+                Self::Unknown
             }
         }
     }
@@ -2266,11 +2258,11 @@ unsafe impl Zeroable for TextureFormat {}
 #[repr(i32)]
 pub enum TaskbarProgressBarMode {
     #[default]
-    none = 0,
-    indeterminate = 1,
-    normal = 2,
-    error = 3,
-    paused = 4,
+    None = 0,
+    Indeterminate = 1,
+    Normal = 2,
+    Error = 3,
+    Paused = 4,
 }
 
 impl MemoryPackable for TaskbarProgressBarMode {
@@ -2280,14 +2272,14 @@ impl MemoryPackable for TaskbarProgressBarMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::none,
-            1 => Self::indeterminate,
-            2 => Self::normal,
-            3 => Self::error,
-            4 => Self::paused,
+            0 => Self::None,
+            1 => Self::Indeterminate,
+            2 => Self::Normal,
+            3 => Self::Error,
+            4 => Self::Paused,
             _ => {
                 warn!("invalid TaskbarProgressBarMode wire value {}; using default", raw);
-                Self::none
+                Self::None
             }
         };
     }
@@ -2299,14 +2291,14 @@ impl EnumRepr for TaskbarProgressBarMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::none,
-            1 => Self::indeterminate,
-            2 => Self::normal,
-            3 => Self::error,
-            4 => Self::paused,
+            0 => Self::None,
+            1 => Self::Indeterminate,
+            2 => Self::Normal,
+            3 => Self::Error,
+            4 => Self::Paused,
             _ => {
                 warn!("invalid TaskbarProgressBarMode discriminant {}; using default", i);
-                Self::none
+                Self::None
             }
         }
     }
@@ -2623,11 +2615,11 @@ impl MemoryPackable for CameraRenderTask {
 #[repr(i32)]
 pub enum AntiAliasingMethod {
     #[default]
-    off = 0,
-    fxaa = 1,
-    ctaa = 2,
-    smaa = 3,
-    taa = 4,
+    Off = 0,
+    FXAA = 1,
+    CTAA = 2,
+    SMAA = 3,
+    TAA = 4,
 }
 
 impl MemoryPackable for AntiAliasingMethod {
@@ -2637,14 +2629,14 @@ impl MemoryPackable for AntiAliasingMethod {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::off,
-            1 => Self::fxaa,
-            2 => Self::ctaa,
-            3 => Self::smaa,
-            4 => Self::taa,
+            0 => Self::Off,
+            1 => Self::FXAA,
+            2 => Self::CTAA,
+            3 => Self::SMAA,
+            4 => Self::TAA,
             _ => {
                 warn!("invalid AntiAliasingMethod wire value {}; using default", raw);
-                Self::off
+                Self::Off
             }
         };
     }
@@ -2656,14 +2648,14 @@ impl EnumRepr for AntiAliasingMethod {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::off,
-            1 => Self::fxaa,
-            2 => Self::ctaa,
-            3 => Self::smaa,
-            4 => Self::taa,
+            0 => Self::Off,
+            1 => Self::FXAA,
+            2 => Self::CTAA,
+            3 => Self::SMAA,
+            4 => Self::TAA,
             _ => {
                 warn!("invalid AntiAliasingMethod discriminant {}; using default", i);
-                Self::off
+                Self::Off
             }
         }
     }
@@ -2676,9 +2668,9 @@ unsafe impl Zeroable for AntiAliasingMethod {}
 #[repr(i32)]
 pub enum ShadowCascadeMode {
     #[default]
-    none = 0,
-    two_cascades = 1,
-    four_cascades = 2,
+    None = 0,
+    TwoCascades = 1,
+    FourCascades = 2,
 }
 
 impl MemoryPackable for ShadowCascadeMode {
@@ -2688,12 +2680,12 @@ impl MemoryPackable for ShadowCascadeMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::none,
-            1 => Self::two_cascades,
-            2 => Self::four_cascades,
+            0 => Self::None,
+            1 => Self::TwoCascades,
+            2 => Self::FourCascades,
             _ => {
                 warn!("invalid ShadowCascadeMode wire value {}; using default", raw);
-                Self::none
+                Self::None
             }
         };
     }
@@ -2705,12 +2697,12 @@ impl EnumRepr for ShadowCascadeMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::none,
-            1 => Self::two_cascades,
-            2 => Self::four_cascades,
+            0 => Self::None,
+            1 => Self::TwoCascades,
+            2 => Self::FourCascades,
             _ => {
                 warn!("invalid ShadowCascadeMode discriminant {}; using default", i);
-                Self::none
+                Self::None
             }
         }
     }
@@ -2723,10 +2715,10 @@ unsafe impl Zeroable for ShadowCascadeMode {}
 #[repr(i32)]
 pub enum ShadowResolutionMode {
     #[default]
-    low = 0,
-    medium = 1,
-    high = 2,
-    ultra = 3,
+    Low = 0,
+    Medium = 1,
+    High = 2,
+    Ultra = 3,
 }
 
 impl MemoryPackable for ShadowResolutionMode {
@@ -2736,13 +2728,13 @@ impl MemoryPackable for ShadowResolutionMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::low,
-            1 => Self::medium,
-            2 => Self::high,
-            3 => Self::ultra,
+            0 => Self::Low,
+            1 => Self::Medium,
+            2 => Self::High,
+            3 => Self::Ultra,
             _ => {
                 warn!("invalid ShadowResolutionMode wire value {}; using default", raw);
-                Self::low
+                Self::Low
             }
         };
     }
@@ -2754,13 +2746,13 @@ impl EnumRepr for ShadowResolutionMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::low,
-            1 => Self::medium,
-            2 => Self::high,
-            3 => Self::ultra,
+            0 => Self::Low,
+            1 => Self::Medium,
+            2 => Self::High,
+            3 => Self::Ultra,
             _ => {
                 warn!("invalid ShadowResolutionMode discriminant {}; using default", i);
-                Self::low
+                Self::Low
             }
         }
     }
@@ -2773,10 +2765,10 @@ unsafe impl Zeroable for ShadowResolutionMode {}
 #[repr(i32)]
 pub enum SkinWeightMode {
     #[default]
-    one_bone = 0,
-    two_bones = 1,
-    four_bones = 2,
-    unlimited = 3,
+    OneBone = 0,
+    TwoBones = 1,
+    FourBones = 2,
+    Unlimited = 3,
 }
 
 impl MemoryPackable for SkinWeightMode {
@@ -2786,13 +2778,13 @@ impl MemoryPackable for SkinWeightMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::one_bone,
-            1 => Self::two_bones,
-            2 => Self::four_bones,
-            3 => Self::unlimited,
+            0 => Self::OneBone,
+            1 => Self::TwoBones,
+            2 => Self::FourBones,
+            3 => Self::Unlimited,
             _ => {
                 warn!("invalid SkinWeightMode wire value {}; using default", raw);
-                Self::one_bone
+                Self::OneBone
             }
         };
     }
@@ -2804,13 +2796,13 @@ impl EnumRepr for SkinWeightMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::one_bone,
-            1 => Self::two_bones,
-            2 => Self::four_bones,
-            3 => Self::unlimited,
+            0 => Self::OneBone,
+            1 => Self::TwoBones,
+            2 => Self::FourBones,
+            3 => Self::Unlimited,
             _ => {
                 warn!("invalid SkinWeightMode discriminant {}; using default", i);
-                Self::one_bone
+                Self::OneBone
             }
         }
     }
@@ -2823,8 +2815,8 @@ unsafe impl Zeroable for SkinWeightMode {}
 #[repr(i32)]
 pub enum IndexBufferFormat {
     #[default]
-    u_int16 = 0,
-    u_int32 = 1,
+    UInt16 = 0,
+    UInt32 = 1,
 }
 
 impl MemoryPackable for IndexBufferFormat {
@@ -2834,11 +2826,11 @@ impl MemoryPackable for IndexBufferFormat {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::u_int16,
-            1 => Self::u_int32,
+            0 => Self::UInt16,
+            1 => Self::UInt32,
             _ => {
                 warn!("invalid IndexBufferFormat wire value {}; using default", raw);
-                Self::u_int16
+                Self::UInt16
             }
         };
     }
@@ -2850,11 +2842,11 @@ impl EnumRepr for IndexBufferFormat {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::u_int16,
-            1 => Self::u_int32,
+            0 => Self::UInt16,
+            1 => Self::UInt32,
             _ => {
                 warn!("invalid IndexBufferFormat discriminant {}; using default", i);
-                Self::u_int16
+                Self::UInt16
             }
         }
     }
@@ -3008,9 +3000,9 @@ impl MemoryPackable for MaterialPropertyUpdate {
 #[repr(i32)]
 pub enum ColorProfile {
     #[default]
-    linear = 0,
-    s_rgb = 1,
-    s_rgb_alpha = 2,
+    Linear = 0,
+    SRGB = 1,
+    SRGBAlpha = 2,
 }
 
 impl MemoryPackable for ColorProfile {
@@ -3020,12 +3012,12 @@ impl MemoryPackable for ColorProfile {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::linear,
-            1 => Self::s_rgb,
-            2 => Self::s_rgb_alpha,
+            0 => Self::Linear,
+            1 => Self::SRGB,
+            2 => Self::SRGBAlpha,
             _ => {
                 warn!("invalid ColorProfile wire value {}; using default", raw);
-                Self::linear
+                Self::Linear
             }
         };
     }
@@ -3037,12 +3029,12 @@ impl EnumRepr for ColorProfile {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::linear,
-            1 => Self::s_rgb,
-            2 => Self::s_rgb_alpha,
+            0 => Self::Linear,
+            1 => Self::SRGB,
+            2 => Self::SRGBAlpha,
             _ => {
                 warn!("invalid ColorProfile discriminant {}; using default", i);
-                Self::linear
+                Self::Linear
             }
         }
     }
@@ -3055,10 +3047,10 @@ unsafe impl Zeroable for ColorProfile {}
 #[repr(i32)]
 pub enum TextureFilterMode {
     #[default]
-    point = 0,
-    bilinear = 1,
-    trilinear = 2,
-    anisotropic = 3,
+    Point = 0,
+    Bilinear = 1,
+    Trilinear = 2,
+    Anisotropic = 3,
 }
 
 impl MemoryPackable for TextureFilterMode {
@@ -3068,13 +3060,13 @@ impl MemoryPackable for TextureFilterMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::point,
-            1 => Self::bilinear,
-            2 => Self::trilinear,
-            3 => Self::anisotropic,
+            0 => Self::Point,
+            1 => Self::Bilinear,
+            2 => Self::Trilinear,
+            3 => Self::Anisotropic,
             _ => {
                 warn!("invalid TextureFilterMode wire value {}; using default", raw);
-                Self::point
+                Self::Point
             }
         };
     }
@@ -3086,13 +3078,13 @@ impl EnumRepr for TextureFilterMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::point,
-            1 => Self::bilinear,
-            2 => Self::trilinear,
-            3 => Self::anisotropic,
+            0 => Self::Point,
+            1 => Self::Bilinear,
+            2 => Self::Trilinear,
+            3 => Self::Anisotropic,
             _ => {
                 warn!("invalid TextureFilterMode discriminant {}; using default", i);
-                Self::point
+                Self::Point
             }
         }
     }
@@ -3105,10 +3097,10 @@ unsafe impl Zeroable for TextureFilterMode {}
 #[repr(i32)]
 pub enum TextureWrapMode {
     #[default]
-    repeat = 0,
-    clamp = 1,
-    mirror = 2,
-    mirror_once = 3,
+    Repeat = 0,
+    Clamp = 1,
+    Mirror = 2,
+    MirrorOnce = 3,
 }
 
 impl MemoryPackable for TextureWrapMode {
@@ -3118,13 +3110,13 @@ impl MemoryPackable for TextureWrapMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::repeat,
-            1 => Self::clamp,
-            2 => Self::mirror,
-            3 => Self::mirror_once,
+            0 => Self::Repeat,
+            1 => Self::Clamp,
+            2 => Self::Mirror,
+            3 => Self::MirrorOnce,
             _ => {
                 warn!("invalid TextureWrapMode wire value {}; using default", raw);
-                Self::repeat
+                Self::Repeat
             }
         };
     }
@@ -3136,13 +3128,13 @@ impl EnumRepr for TextureWrapMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::repeat,
-            1 => Self::clamp,
-            2 => Self::mirror,
-            3 => Self::mirror_once,
+            0 => Self::Repeat,
+            1 => Self::Clamp,
+            2 => Self::Mirror,
+            3 => Self::MirrorOnce,
             _ => {
                 warn!("invalid TextureWrapMode discriminant {}; using default", i);
-                Self::repeat
+                Self::Repeat
             }
         }
     }
@@ -3222,10 +3214,10 @@ impl MemoryPackable for Texture3DUploadHint {
 #[repr(i32)]
 pub enum GaussianVectorFormat {
     #[default]
-    float32 = 0,
-    norm16 = 1,
-    norm11 = 2,
-    norm6 = 3,
+    Float32 = 0,
+    Norm16 = 1,
+    Norm11 = 2,
+    Norm6 = 3,
 }
 
 impl MemoryPackable for GaussianVectorFormat {
@@ -3235,13 +3227,13 @@ impl MemoryPackable for GaussianVectorFormat {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::float32,
-            1 => Self::norm16,
-            2 => Self::norm11,
-            3 => Self::norm6,
+            0 => Self::Float32,
+            1 => Self::Norm16,
+            2 => Self::Norm11,
+            3 => Self::Norm6,
             _ => {
                 warn!("invalid GaussianVectorFormat wire value {}; using default", raw);
-                Self::float32
+                Self::Float32
             }
         };
     }
@@ -3253,13 +3245,13 @@ impl EnumRepr for GaussianVectorFormat {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::float32,
-            1 => Self::norm16,
-            2 => Self::norm11,
-            3 => Self::norm6,
+            0 => Self::Float32,
+            1 => Self::Norm16,
+            2 => Self::Norm11,
+            3 => Self::Norm6,
             _ => {
                 warn!("invalid GaussianVectorFormat discriminant {}; using default", i);
-                Self::float32
+                Self::Float32
             }
         }
     }
@@ -3272,7 +3264,7 @@ unsafe impl Zeroable for GaussianVectorFormat {}
 #[repr(i32)]
 pub enum GaussianRotationFormat {
     #[default]
-    packed_norm10 = 0,
+    PackedNorm10 = 0,
 }
 
 impl MemoryPackable for GaussianRotationFormat {
@@ -3282,10 +3274,10 @@ impl MemoryPackable for GaussianRotationFormat {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::packed_norm10,
+            0 => Self::PackedNorm10,
             _ => {
                 warn!("invalid GaussianRotationFormat wire value {}; using default", raw);
-                Self::packed_norm10
+                Self::PackedNorm10
             }
         };
     }
@@ -3297,10 +3289,10 @@ impl EnumRepr for GaussianRotationFormat {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::packed_norm10,
+            0 => Self::PackedNorm10,
             _ => {
                 warn!("invalid GaussianRotationFormat discriminant {}; using default", i);
-                Self::packed_norm10
+                Self::PackedNorm10
             }
         }
     }
@@ -3313,10 +3305,10 @@ unsafe impl Zeroable for GaussianRotationFormat {}
 #[repr(i32)]
 pub enum GaussianColorFormat {
     #[default]
-    float32x4 = 0,
-    float16x4 = 1,
-    norm8x4 = 2,
-    bc7 = 3,
+    Float32x4 = 0,
+    Float16x4 = 1,
+    Norm8x4 = 2,
+    BC7 = 3,
 }
 
 impl MemoryPackable for GaussianColorFormat {
@@ -3326,13 +3318,13 @@ impl MemoryPackable for GaussianColorFormat {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::float32x4,
-            1 => Self::float16x4,
-            2 => Self::norm8x4,
-            3 => Self::bc7,
+            0 => Self::Float32x4,
+            1 => Self::Float16x4,
+            2 => Self::Norm8x4,
+            3 => Self::BC7,
             _ => {
                 warn!("invalid GaussianColorFormat wire value {}; using default", raw);
-                Self::float32x4
+                Self::Float32x4
             }
         };
     }
@@ -3344,13 +3336,13 @@ impl EnumRepr for GaussianColorFormat {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::float32x4,
-            1 => Self::float16x4,
-            2 => Self::norm8x4,
-            3 => Self::bc7,
+            0 => Self::Float32x4,
+            1 => Self::Float16x4,
+            2 => Self::Norm8x4,
+            3 => Self::BC7,
             _ => {
                 warn!("invalid GaussianColorFormat discriminant {}; using default", i);
-                Self::float32x4
+                Self::Float32x4
             }
         }
     }
@@ -3363,14 +3355,14 @@ unsafe impl Zeroable for GaussianColorFormat {}
 #[repr(i32)]
 pub enum GaussianSHFormat {
     #[default]
-    float16 = 0,
-    norm11 = 1,
-    norm6 = 2,
-    cluster64k = 3,
-    cluster32k = 4,
-    cluster16k = 5,
-    cluster8k = 6,
-    cluster4k = 7,
+    Float16 = 0,
+    Norm11 = 1,
+    Norm6 = 2,
+    Cluster64k = 3,
+    Cluster32k = 4,
+    Cluster16k = 5,
+    Cluster8k = 6,
+    Cluster4k = 7,
 }
 
 impl MemoryPackable for GaussianSHFormat {
@@ -3380,17 +3372,17 @@ impl MemoryPackable for GaussianSHFormat {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::float16,
-            1 => Self::norm11,
-            2 => Self::norm6,
-            3 => Self::cluster64k,
-            4 => Self::cluster32k,
-            5 => Self::cluster16k,
-            6 => Self::cluster8k,
-            7 => Self::cluster4k,
+            0 => Self::Float16,
+            1 => Self::Norm11,
+            2 => Self::Norm6,
+            3 => Self::Cluster64k,
+            4 => Self::Cluster32k,
+            5 => Self::Cluster16k,
+            6 => Self::Cluster8k,
+            7 => Self::Cluster4k,
             _ => {
                 warn!("invalid GaussianSHFormat wire value {}; using default", raw);
-                Self::float16
+                Self::Float16
             }
         };
     }
@@ -3402,17 +3394,17 @@ impl EnumRepr for GaussianSHFormat {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::float16,
-            1 => Self::norm11,
-            2 => Self::norm6,
-            3 => Self::cluster64k,
-            4 => Self::cluster32k,
-            5 => Self::cluster16k,
-            6 => Self::cluster8k,
-            7 => Self::cluster4k,
+            0 => Self::Float16,
+            1 => Self::Norm11,
+            2 => Self::Norm6,
+            3 => Self::Cluster64k,
+            4 => Self::Cluster32k,
+            5 => Self::Cluster16k,
+            6 => Self::Cluster8k,
+            7 => Self::Cluster4k,
             _ => {
                 warn!("invalid GaussianSHFormat discriminant {}; using default", i);
-                Self::float16
+                Self::Float16
             }
         }
     }
@@ -4315,20 +4307,20 @@ impl MemoryPackable for CameraRenderParameters {
 #[repr(i16)]
 pub enum VertexAttributeType {
     #[default]
-    position = 0,
-    normal = 1,
-    tangent = 2,
-    color = 3,
-    uv0 = 4,
-    uv1 = 5,
-    uv2 = 6,
-    uv3 = 7,
-    uv4 = 8,
-    uv5 = 9,
-    uv6 = 10,
-    uv7 = 11,
-    bone_weights = 12,
-    bone_indicies = 13,
+    Position = 0,
+    Normal = 1,
+    Tangent = 2,
+    Color = 3,
+    UV0 = 4,
+    UV1 = 5,
+    UV2 = 6,
+    UV3 = 7,
+    UV4 = 8,
+    UV5 = 9,
+    UV6 = 10,
+    UV7 = 11,
+    BoneWeights = 12,
+    BoneIndicies = 13,
 }
 
 impl MemoryPackable for VertexAttributeType {
@@ -4338,23 +4330,23 @@ impl MemoryPackable for VertexAttributeType {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i16>();
         *self = match raw {
-            0 => Self::position,
-            1 => Self::normal,
-            2 => Self::tangent,
-            3 => Self::color,
-            4 => Self::uv0,
-            5 => Self::uv1,
-            6 => Self::uv2,
-            7 => Self::uv3,
-            8 => Self::uv4,
-            9 => Self::uv5,
-            10 => Self::uv6,
-            11 => Self::uv7,
-            12 => Self::bone_weights,
-            13 => Self::bone_indicies,
+            0 => Self::Position,
+            1 => Self::Normal,
+            2 => Self::Tangent,
+            3 => Self::Color,
+            4 => Self::UV0,
+            5 => Self::UV1,
+            6 => Self::UV2,
+            7 => Self::UV3,
+            8 => Self::UV4,
+            9 => Self::UV5,
+            10 => Self::UV6,
+            11 => Self::UV7,
+            12 => Self::BoneWeights,
+            13 => Self::BoneIndicies,
             _ => {
                 warn!("invalid VertexAttributeType wire value {}; using default", raw);
-                Self::position
+                Self::Position
             }
         };
     }
@@ -4366,23 +4358,23 @@ impl EnumRepr for VertexAttributeType {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::position,
-            1 => Self::normal,
-            2 => Self::tangent,
-            3 => Self::color,
-            4 => Self::uv0,
-            5 => Self::uv1,
-            6 => Self::uv2,
-            7 => Self::uv3,
-            8 => Self::uv4,
-            9 => Self::uv5,
-            10 => Self::uv6,
-            11 => Self::uv7,
-            12 => Self::bone_weights,
-            13 => Self::bone_indicies,
+            0 => Self::Position,
+            1 => Self::Normal,
+            2 => Self::Tangent,
+            3 => Self::Color,
+            4 => Self::UV0,
+            5 => Self::UV1,
+            6 => Self::UV2,
+            7 => Self::UV3,
+            8 => Self::UV4,
+            9 => Self::UV5,
+            10 => Self::UV6,
+            11 => Self::UV7,
+            12 => Self::BoneWeights,
+            13 => Self::BoneIndicies,
             _ => {
                 warn!("invalid VertexAttributeType discriminant {}; using default", i);
-                Self::position
+                Self::Position
             }
         }
     }
@@ -4395,16 +4387,16 @@ unsafe impl Zeroable for VertexAttributeType {}
 #[repr(i16)]
 pub enum VertexAttributeFormat {
     #[default]
-    float32 = 0,
-    half16 = 1,
-    u_norm8 = 2,
-    u_norm16 = 3,
-    s_int8 = 4,
-    s_int16 = 5,
-    s_int32 = 6,
-    u_int8 = 7,
-    u_int16 = 8,
-    u_int32 = 9,
+    Float32 = 0,
+    Half16 = 1,
+    UNorm8 = 2,
+    UNorm16 = 3,
+    SInt8 = 4,
+    SInt16 = 5,
+    SInt32 = 6,
+    UInt8 = 7,
+    UInt16 = 8,
+    UInt32 = 9,
 }
 
 impl MemoryPackable for VertexAttributeFormat {
@@ -4414,19 +4406,19 @@ impl MemoryPackable for VertexAttributeFormat {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i16>();
         *self = match raw {
-            0 => Self::float32,
-            1 => Self::half16,
-            2 => Self::u_norm8,
-            3 => Self::u_norm16,
-            4 => Self::s_int8,
-            5 => Self::s_int16,
-            6 => Self::s_int32,
-            7 => Self::u_int8,
-            8 => Self::u_int16,
-            9 => Self::u_int32,
+            0 => Self::Float32,
+            1 => Self::Half16,
+            2 => Self::UNorm8,
+            3 => Self::UNorm16,
+            4 => Self::SInt8,
+            5 => Self::SInt16,
+            6 => Self::SInt32,
+            7 => Self::UInt8,
+            8 => Self::UInt16,
+            9 => Self::UInt32,
             _ => {
                 warn!("invalid VertexAttributeFormat wire value {}; using default", raw);
-                Self::float32
+                Self::Float32
             }
         };
     }
@@ -4438,19 +4430,19 @@ impl EnumRepr for VertexAttributeFormat {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::float32,
-            1 => Self::half16,
-            2 => Self::u_norm8,
-            3 => Self::u_norm16,
-            4 => Self::s_int8,
-            5 => Self::s_int16,
-            6 => Self::s_int32,
-            7 => Self::u_int8,
-            8 => Self::u_int16,
-            9 => Self::u_int32,
+            0 => Self::Float32,
+            1 => Self::Half16,
+            2 => Self::UNorm8,
+            3 => Self::UNorm16,
+            4 => Self::SInt8,
+            5 => Self::SInt16,
+            6 => Self::SInt32,
+            7 => Self::UInt8,
+            8 => Self::UInt16,
+            9 => Self::UInt32,
             _ => {
                 warn!("invalid VertexAttributeFormat discriminant {}; using default", i);
-                Self::float32
+                Self::Float32
             }
         }
     }
@@ -4463,8 +4455,8 @@ unsafe impl Zeroable for VertexAttributeFormat {}
 #[repr(i32)]
 pub enum SubmeshTopology {
     #[default]
-    points = 0,
-    triangles = 1,
+    Points = 0,
+    Triangles = 1,
 }
 
 impl MemoryPackable for SubmeshTopology {
@@ -4474,11 +4466,11 @@ impl MemoryPackable for SubmeshTopology {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::points,
-            1 => Self::triangles,
+            0 => Self::Points,
+            1 => Self::Triangles,
             _ => {
                 warn!("invalid SubmeshTopology wire value {}; using default", raw);
-                Self::points
+                Self::Points
             }
         };
     }
@@ -4490,11 +4482,11 @@ impl EnumRepr for SubmeshTopology {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::points,
-            1 => Self::triangles,
+            0 => Self::Points,
+            1 => Self::Triangles,
             _ => {
                 warn!("invalid SubmeshTopology discriminant {}; using default", i);
-                Self::points
+                Self::Points
             }
         }
     }
@@ -4587,18 +4579,18 @@ impl MemoryPackable for MeshUploadHintFlag {
 #[repr(u8)]
 pub enum MaterialPropertyUpdateType {
     #[default]
-    select_target = 0,
-    set_shader = 1,
-    set_render_queue = 2,
-    set_instancing = 3,
-    set_render_type = 4,
-    set_float = 5,
-    set_float4 = 6,
-    set_float4x4 = 7,
-    set_float_array = 8,
-    set_float4_array = 9,
-    set_texture = 10,
-    update_batch_end = 11,
+    SelectTarget = 0,
+    SetShader = 1,
+    SetRenderQueue = 2,
+    SetInstancing = 3,
+    SetRenderType = 4,
+    SetFloat = 5,
+    SetFloat4 = 6,
+    SetFloat4x4 = 7,
+    SetFloatArray = 8,
+    SetFloat4Array = 9,
+    SetTexture = 10,
+    UpdateBatchEnd = 11,
 }
 
 impl MemoryPackable for MaterialPropertyUpdateType {
@@ -4608,21 +4600,21 @@ impl MemoryPackable for MaterialPropertyUpdateType {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::select_target,
-            1 => Self::set_shader,
-            2 => Self::set_render_queue,
-            3 => Self::set_instancing,
-            4 => Self::set_render_type,
-            5 => Self::set_float,
-            6 => Self::set_float4,
-            7 => Self::set_float4x4,
-            8 => Self::set_float_array,
-            9 => Self::set_float4_array,
-            10 => Self::set_texture,
-            11 => Self::update_batch_end,
+            0 => Self::SelectTarget,
+            1 => Self::SetShader,
+            2 => Self::SetRenderQueue,
+            3 => Self::SetInstancing,
+            4 => Self::SetRenderType,
+            5 => Self::SetFloat,
+            6 => Self::SetFloat4,
+            7 => Self::SetFloat4x4,
+            8 => Self::SetFloatArray,
+            9 => Self::SetFloat4Array,
+            10 => Self::SetTexture,
+            11 => Self::UpdateBatchEnd,
             _ => {
                 warn!("invalid MaterialPropertyUpdateType wire value {}; using default", raw);
-                Self::select_target
+                Self::SelectTarget
             }
         };
     }
@@ -4634,21 +4626,21 @@ impl EnumRepr for MaterialPropertyUpdateType {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::select_target,
-            1 => Self::set_shader,
-            2 => Self::set_render_queue,
-            3 => Self::set_instancing,
-            4 => Self::set_render_type,
-            5 => Self::set_float,
-            6 => Self::set_float4,
-            7 => Self::set_float4x4,
-            8 => Self::set_float_array,
-            9 => Self::set_float4_array,
-            10 => Self::set_texture,
-            11 => Self::update_batch_end,
+            0 => Self::SelectTarget,
+            1 => Self::SetShader,
+            2 => Self::SetRenderQueue,
+            3 => Self::SetInstancing,
+            4 => Self::SetRenderType,
+            5 => Self::SetFloat,
+            6 => Self::SetFloat4,
+            7 => Self::SetFloat4x4,
+            8 => Self::SetFloatArray,
+            9 => Self::SetFloat4Array,
+            10 => Self::SetTexture,
+            11 => Self::UpdateBatchEnd,
             _ => {
                 warn!("invalid MaterialPropertyUpdateType discriminant {}; using default", i);
-                Self::select_target
+                Self::SelectTarget
             }
         }
     }
@@ -4688,147 +4680,147 @@ impl MemoryPackable for RenderIntRect {
 #[repr(i32)]
 pub enum Key {
     #[default]
-    none = 0,
-    backspace = 8,
-    tab = 9,
-    clear = 12,
-    r#return = 13,
-    pause = 19,
-    escape = 27,
-    space = 32,
-    exclaim = 33,
-    double_quote = 34,
-    hash = 35,
-    dollar = 36,
-    ampersand = 38,
-    quote = 39,
-    left_parenthesis = 40,
-    right_parenthesis = 41,
-    asterisk = 42,
-    plus = 43,
-    comma = 44,
-    minus = 45,
-    period = 46,
-    slash = 47,
-    alpha0 = 48,
-    alpha1 = 49,
-    alpha2 = 50,
-    alpha3 = 51,
-    alpha4 = 52,
-    alpha5 = 53,
-    alpha6 = 54,
-    alpha7 = 55,
-    alpha8 = 56,
-    alpha9 = 57,
-    colon = 58,
-    semicolon = 59,
-    less = 60,
-    equals = 61,
-    greater = 62,
-    question = 63,
-    at = 64,
-    vertical_bar = 65,
-    left_bracket = 91,
-    backslash = 92,
-    right_bracket = 93,
-    caret = 94,
-    underscore = 95,
-    back_quote = 96,
-    a = 97,
-    b = 98,
-    c = 99,
-    d = 100,
-    e = 101,
-    f = 102,
-    g = 103,
-    h = 104,
-    i = 105,
-    j = 106,
-    k = 107,
-    l = 108,
-    m = 109,
-    n = 110,
-    o = 111,
-    p = 112,
-    q = 113,
-    r = 114,
-    s = 115,
-    t = 116,
-    u = 117,
-    v = 118,
-    w = 119,
-    x = 120,
-    y = 121,
-    z = 122,
-    percent = 123,
-    tilde = 124,
-    left_brace = 125,
-    right_brace = 126,
-    delete = 127,
-    keypad0 = 256,
-    keypad1 = 257,
-    keypad2 = 258,
-    keypad3 = 259,
-    keypad4 = 260,
-    keypad5 = 261,
-    keypad6 = 262,
-    keypad7 = 263,
-    keypad8 = 264,
-    keypad9 = 265,
-    keypad_period = 266,
-    keypad_divide = 267,
-    keypad_multiply = 268,
-    keypad_minus = 269,
-    keypad_plus = 270,
-    keypad_enter = 271,
-    keypad_equals = 272,
-    up_arrow = 273,
-    down_arrow = 274,
-    right_arrow = 275,
-    left_arrow = 276,
-    insert = 277,
-    home = 278,
-    end = 279,
-    page_up = 280,
-    page_down = 281,
-    f1 = 282,
-    f2 = 283,
-    f3 = 284,
-    f4 = 285,
-    f5 = 286,
-    f6 = 287,
-    f7 = 288,
-    f8 = 289,
-    f9 = 290,
-    f10 = 291,
-    f11 = 292,
-    f12 = 293,
-    f13 = 294,
-    f14 = 295,
-    f15 = 296,
-    numlock = 300,
-    caps_lock = 301,
-    scroll_lock = 302,
-    right_shift = 303,
-    left_shift = 304,
-    right_control = 305,
-    left_control = 306,
-    right_alt = 307,
-    left_alt = 308,
-    right_apple = 309,
-    left_apple = 310,
-    left_windows = 311,
-    right_windows = 312,
-    alt_gr = 313,
-    help = 315,
-    print = 316,
-    sys_req = 317,
-    r#break = 318,
-    menu = 319,
-    shift = 512,
-    control = 513,
-    alt = 514,
-    windows = 515,
+    None = 0,
+    Backspace = 8,
+    Tab = 9,
+    Clear = 12,
+    Return = 13,
+    Pause = 19,
+    Escape = 27,
+    Space = 32,
+    Exclaim = 33,
+    DoubleQuote = 34,
+    Hash = 35,
+    Dollar = 36,
+    Ampersand = 38,
+    Quote = 39,
+    LeftParenthesis = 40,
+    RightParenthesis = 41,
+    Asterisk = 42,
+    Plus = 43,
+    Comma = 44,
+    Minus = 45,
+    Period = 46,
+    Slash = 47,
+    Alpha0 = 48,
+    Alpha1 = 49,
+    Alpha2 = 50,
+    Alpha3 = 51,
+    Alpha4 = 52,
+    Alpha5 = 53,
+    Alpha6 = 54,
+    Alpha7 = 55,
+    Alpha8 = 56,
+    Alpha9 = 57,
+    Colon = 58,
+    Semicolon = 59,
+    Less = 60,
+    Equals = 61,
+    Greater = 62,
+    Question = 63,
+    At = 64,
+    VerticalBar = 65,
+    LeftBracket = 91,
+    Backslash = 92,
+    RightBracket = 93,
+    Caret = 94,
+    Underscore = 95,
+    BackQuote = 96,
+    A = 97,
+    B = 98,
+    C = 99,
+    D = 100,
+    E = 101,
+    F = 102,
+    G = 103,
+    H = 104,
+    I = 105,
+    J = 106,
+    K = 107,
+    L = 108,
+    M = 109,
+    N = 110,
+    O = 111,
+    P = 112,
+    Q = 113,
+    R = 114,
+    S = 115,
+    T = 116,
+    U = 117,
+    V = 118,
+    W = 119,
+    X = 120,
+    Y = 121,
+    Z = 122,
+    Percent = 123,
+    Tilde = 124,
+    LeftBrace = 125,
+    RightBrace = 126,
+    Delete = 127,
+    Keypad0 = 256,
+    Keypad1 = 257,
+    Keypad2 = 258,
+    Keypad3 = 259,
+    Keypad4 = 260,
+    Keypad5 = 261,
+    Keypad6 = 262,
+    Keypad7 = 263,
+    Keypad8 = 264,
+    Keypad9 = 265,
+    KeypadPeriod = 266,
+    KeypadDivide = 267,
+    KeypadMultiply = 268,
+    KeypadMinus = 269,
+    KeypadPlus = 270,
+    KeypadEnter = 271,
+    KeypadEquals = 272,
+    UpArrow = 273,
+    DownArrow = 274,
+    RightArrow = 275,
+    LeftArrow = 276,
+    Insert = 277,
+    Home = 278,
+    End = 279,
+    PageUp = 280,
+    PageDown = 281,
+    F1 = 282,
+    F2 = 283,
+    F3 = 284,
+    F4 = 285,
+    F5 = 286,
+    F6 = 287,
+    F7 = 288,
+    F8 = 289,
+    F9 = 290,
+    F10 = 291,
+    F11 = 292,
+    F12 = 293,
+    F13 = 294,
+    F14 = 295,
+    F15 = 296,
+    Numlock = 300,
+    CapsLock = 301,
+    ScrollLock = 302,
+    RightShift = 303,
+    LeftShift = 304,
+    RightControl = 305,
+    LeftControl = 306,
+    RightAlt = 307,
+    LeftAlt = 308,
+    RightApple = 309,
+    LeftApple = 310,
+    LeftWindows = 311,
+    RightWindows = 312,
+    AltGr = 313,
+    Help = 315,
+    Print = 316,
+    SysReq = 317,
+    Break = 318,
+    Menu = 319,
+    Shift = 512,
+    Control = 513,
+    Alt = 514,
+    Windows = 515,
 }
 
 impl MemoryPackable for Key {
@@ -4838,150 +4830,150 @@ impl MemoryPackable for Key {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::none,
-            8 => Self::backspace,
-            9 => Self::tab,
-            12 => Self::clear,
-            13 => Self::r#return,
-            19 => Self::pause,
-            27 => Self::escape,
-            32 => Self::space,
-            33 => Self::exclaim,
-            34 => Self::double_quote,
-            35 => Self::hash,
-            36 => Self::dollar,
-            38 => Self::ampersand,
-            39 => Self::quote,
-            40 => Self::left_parenthesis,
-            41 => Self::right_parenthesis,
-            42 => Self::asterisk,
-            43 => Self::plus,
-            44 => Self::comma,
-            45 => Self::minus,
-            46 => Self::period,
-            47 => Self::slash,
-            48 => Self::alpha0,
-            49 => Self::alpha1,
-            50 => Self::alpha2,
-            51 => Self::alpha3,
-            52 => Self::alpha4,
-            53 => Self::alpha5,
-            54 => Self::alpha6,
-            55 => Self::alpha7,
-            56 => Self::alpha8,
-            57 => Self::alpha9,
-            58 => Self::colon,
-            59 => Self::semicolon,
-            60 => Self::less,
-            61 => Self::equals,
-            62 => Self::greater,
-            63 => Self::question,
-            64 => Self::at,
-            65 => Self::vertical_bar,
-            91 => Self::left_bracket,
-            92 => Self::backslash,
-            93 => Self::right_bracket,
-            94 => Self::caret,
-            95 => Self::underscore,
-            96 => Self::back_quote,
-            97 => Self::a,
-            98 => Self::b,
-            99 => Self::c,
-            100 => Self::d,
-            101 => Self::e,
-            102 => Self::f,
-            103 => Self::g,
-            104 => Self::h,
-            105 => Self::i,
-            106 => Self::j,
-            107 => Self::k,
-            108 => Self::l,
-            109 => Self::m,
-            110 => Self::n,
-            111 => Self::o,
-            112 => Self::p,
-            113 => Self::q,
-            114 => Self::r,
-            115 => Self::s,
-            116 => Self::t,
-            117 => Self::u,
-            118 => Self::v,
-            119 => Self::w,
-            120 => Self::x,
-            121 => Self::y,
-            122 => Self::z,
-            123 => Self::percent,
-            124 => Self::tilde,
-            125 => Self::left_brace,
-            126 => Self::right_brace,
-            127 => Self::delete,
-            256 => Self::keypad0,
-            257 => Self::keypad1,
-            258 => Self::keypad2,
-            259 => Self::keypad3,
-            260 => Self::keypad4,
-            261 => Self::keypad5,
-            262 => Self::keypad6,
-            263 => Self::keypad7,
-            264 => Self::keypad8,
-            265 => Self::keypad9,
-            266 => Self::keypad_period,
-            267 => Self::keypad_divide,
-            268 => Self::keypad_multiply,
-            269 => Self::keypad_minus,
-            270 => Self::keypad_plus,
-            271 => Self::keypad_enter,
-            272 => Self::keypad_equals,
-            273 => Self::up_arrow,
-            274 => Self::down_arrow,
-            275 => Self::right_arrow,
-            276 => Self::left_arrow,
-            277 => Self::insert,
-            278 => Self::home,
-            279 => Self::end,
-            280 => Self::page_up,
-            281 => Self::page_down,
-            282 => Self::f1,
-            283 => Self::f2,
-            284 => Self::f3,
-            285 => Self::f4,
-            286 => Self::f5,
-            287 => Self::f6,
-            288 => Self::f7,
-            289 => Self::f8,
-            290 => Self::f9,
-            291 => Self::f10,
-            292 => Self::f11,
-            293 => Self::f12,
-            294 => Self::f13,
-            295 => Self::f14,
-            296 => Self::f15,
-            300 => Self::numlock,
-            301 => Self::caps_lock,
-            302 => Self::scroll_lock,
-            303 => Self::right_shift,
-            304 => Self::left_shift,
-            305 => Self::right_control,
-            306 => Self::left_control,
-            307 => Self::right_alt,
-            308 => Self::left_alt,
-            309 => Self::right_apple,
-            310 => Self::left_apple,
-            311 => Self::left_windows,
-            312 => Self::right_windows,
-            313 => Self::alt_gr,
-            315 => Self::help,
-            316 => Self::print,
-            317 => Self::sys_req,
-            318 => Self::r#break,
-            319 => Self::menu,
-            512 => Self::shift,
-            513 => Self::control,
-            514 => Self::alt,
-            515 => Self::windows,
+            0 => Self::None,
+            8 => Self::Backspace,
+            9 => Self::Tab,
+            12 => Self::Clear,
+            13 => Self::Return,
+            19 => Self::Pause,
+            27 => Self::Escape,
+            32 => Self::Space,
+            33 => Self::Exclaim,
+            34 => Self::DoubleQuote,
+            35 => Self::Hash,
+            36 => Self::Dollar,
+            38 => Self::Ampersand,
+            39 => Self::Quote,
+            40 => Self::LeftParenthesis,
+            41 => Self::RightParenthesis,
+            42 => Self::Asterisk,
+            43 => Self::Plus,
+            44 => Self::Comma,
+            45 => Self::Minus,
+            46 => Self::Period,
+            47 => Self::Slash,
+            48 => Self::Alpha0,
+            49 => Self::Alpha1,
+            50 => Self::Alpha2,
+            51 => Self::Alpha3,
+            52 => Self::Alpha4,
+            53 => Self::Alpha5,
+            54 => Self::Alpha6,
+            55 => Self::Alpha7,
+            56 => Self::Alpha8,
+            57 => Self::Alpha9,
+            58 => Self::Colon,
+            59 => Self::Semicolon,
+            60 => Self::Less,
+            61 => Self::Equals,
+            62 => Self::Greater,
+            63 => Self::Question,
+            64 => Self::At,
+            65 => Self::VerticalBar,
+            91 => Self::LeftBracket,
+            92 => Self::Backslash,
+            93 => Self::RightBracket,
+            94 => Self::Caret,
+            95 => Self::Underscore,
+            96 => Self::BackQuote,
+            97 => Self::A,
+            98 => Self::B,
+            99 => Self::C,
+            100 => Self::D,
+            101 => Self::E,
+            102 => Self::F,
+            103 => Self::G,
+            104 => Self::H,
+            105 => Self::I,
+            106 => Self::J,
+            107 => Self::K,
+            108 => Self::L,
+            109 => Self::M,
+            110 => Self::N,
+            111 => Self::O,
+            112 => Self::P,
+            113 => Self::Q,
+            114 => Self::R,
+            115 => Self::S,
+            116 => Self::T,
+            117 => Self::U,
+            118 => Self::V,
+            119 => Self::W,
+            120 => Self::X,
+            121 => Self::Y,
+            122 => Self::Z,
+            123 => Self::Percent,
+            124 => Self::Tilde,
+            125 => Self::LeftBrace,
+            126 => Self::RightBrace,
+            127 => Self::Delete,
+            256 => Self::Keypad0,
+            257 => Self::Keypad1,
+            258 => Self::Keypad2,
+            259 => Self::Keypad3,
+            260 => Self::Keypad4,
+            261 => Self::Keypad5,
+            262 => Self::Keypad6,
+            263 => Self::Keypad7,
+            264 => Self::Keypad8,
+            265 => Self::Keypad9,
+            266 => Self::KeypadPeriod,
+            267 => Self::KeypadDivide,
+            268 => Self::KeypadMultiply,
+            269 => Self::KeypadMinus,
+            270 => Self::KeypadPlus,
+            271 => Self::KeypadEnter,
+            272 => Self::KeypadEquals,
+            273 => Self::UpArrow,
+            274 => Self::DownArrow,
+            275 => Self::RightArrow,
+            276 => Self::LeftArrow,
+            277 => Self::Insert,
+            278 => Self::Home,
+            279 => Self::End,
+            280 => Self::PageUp,
+            281 => Self::PageDown,
+            282 => Self::F1,
+            283 => Self::F2,
+            284 => Self::F3,
+            285 => Self::F4,
+            286 => Self::F5,
+            287 => Self::F6,
+            288 => Self::F7,
+            289 => Self::F8,
+            290 => Self::F9,
+            291 => Self::F10,
+            292 => Self::F11,
+            293 => Self::F12,
+            294 => Self::F13,
+            295 => Self::F14,
+            296 => Self::F15,
+            300 => Self::Numlock,
+            301 => Self::CapsLock,
+            302 => Self::ScrollLock,
+            303 => Self::RightShift,
+            304 => Self::LeftShift,
+            305 => Self::RightControl,
+            306 => Self::LeftControl,
+            307 => Self::RightAlt,
+            308 => Self::LeftAlt,
+            309 => Self::RightApple,
+            310 => Self::LeftApple,
+            311 => Self::LeftWindows,
+            312 => Self::RightWindows,
+            313 => Self::AltGr,
+            315 => Self::Help,
+            316 => Self::Print,
+            317 => Self::SysReq,
+            318 => Self::Break,
+            319 => Self::Menu,
+            512 => Self::Shift,
+            513 => Self::Control,
+            514 => Self::Alt,
+            515 => Self::Windows,
             _ => {
                 warn!("invalid Key wire value {}; using default", raw);
-                Self::none
+                Self::None
             }
         };
     }
@@ -4993,150 +4985,150 @@ impl EnumRepr for Key {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::none,
-            8 => Self::backspace,
-            9 => Self::tab,
-            12 => Self::clear,
-            13 => Self::r#return,
-            19 => Self::pause,
-            27 => Self::escape,
-            32 => Self::space,
-            33 => Self::exclaim,
-            34 => Self::double_quote,
-            35 => Self::hash,
-            36 => Self::dollar,
-            38 => Self::ampersand,
-            39 => Self::quote,
-            40 => Self::left_parenthesis,
-            41 => Self::right_parenthesis,
-            42 => Self::asterisk,
-            43 => Self::plus,
-            44 => Self::comma,
-            45 => Self::minus,
-            46 => Self::period,
-            47 => Self::slash,
-            48 => Self::alpha0,
-            49 => Self::alpha1,
-            50 => Self::alpha2,
-            51 => Self::alpha3,
-            52 => Self::alpha4,
-            53 => Self::alpha5,
-            54 => Self::alpha6,
-            55 => Self::alpha7,
-            56 => Self::alpha8,
-            57 => Self::alpha9,
-            58 => Self::colon,
-            59 => Self::semicolon,
-            60 => Self::less,
-            61 => Self::equals,
-            62 => Self::greater,
-            63 => Self::question,
-            64 => Self::at,
-            65 => Self::vertical_bar,
-            91 => Self::left_bracket,
-            92 => Self::backslash,
-            93 => Self::right_bracket,
-            94 => Self::caret,
-            95 => Self::underscore,
-            96 => Self::back_quote,
-            97 => Self::a,
-            98 => Self::b,
-            99 => Self::c,
-            100 => Self::d,
-            101 => Self::e,
-            102 => Self::f,
-            103 => Self::g,
-            104 => Self::h,
-            105 => Self::i,
-            106 => Self::j,
-            107 => Self::k,
-            108 => Self::l,
-            109 => Self::m,
-            110 => Self::n,
-            111 => Self::o,
-            112 => Self::p,
-            113 => Self::q,
-            114 => Self::r,
-            115 => Self::s,
-            116 => Self::t,
-            117 => Self::u,
-            118 => Self::v,
-            119 => Self::w,
-            120 => Self::x,
-            121 => Self::y,
-            122 => Self::z,
-            123 => Self::percent,
-            124 => Self::tilde,
-            125 => Self::left_brace,
-            126 => Self::right_brace,
-            127 => Self::delete,
-            256 => Self::keypad0,
-            257 => Self::keypad1,
-            258 => Self::keypad2,
-            259 => Self::keypad3,
-            260 => Self::keypad4,
-            261 => Self::keypad5,
-            262 => Self::keypad6,
-            263 => Self::keypad7,
-            264 => Self::keypad8,
-            265 => Self::keypad9,
-            266 => Self::keypad_period,
-            267 => Self::keypad_divide,
-            268 => Self::keypad_multiply,
-            269 => Self::keypad_minus,
-            270 => Self::keypad_plus,
-            271 => Self::keypad_enter,
-            272 => Self::keypad_equals,
-            273 => Self::up_arrow,
-            274 => Self::down_arrow,
-            275 => Self::right_arrow,
-            276 => Self::left_arrow,
-            277 => Self::insert,
-            278 => Self::home,
-            279 => Self::end,
-            280 => Self::page_up,
-            281 => Self::page_down,
-            282 => Self::f1,
-            283 => Self::f2,
-            284 => Self::f3,
-            285 => Self::f4,
-            286 => Self::f5,
-            287 => Self::f6,
-            288 => Self::f7,
-            289 => Self::f8,
-            290 => Self::f9,
-            291 => Self::f10,
-            292 => Self::f11,
-            293 => Self::f12,
-            294 => Self::f13,
-            295 => Self::f14,
-            296 => Self::f15,
-            300 => Self::numlock,
-            301 => Self::caps_lock,
-            302 => Self::scroll_lock,
-            303 => Self::right_shift,
-            304 => Self::left_shift,
-            305 => Self::right_control,
-            306 => Self::left_control,
-            307 => Self::right_alt,
-            308 => Self::left_alt,
-            309 => Self::right_apple,
-            310 => Self::left_apple,
-            311 => Self::left_windows,
-            312 => Self::right_windows,
-            313 => Self::alt_gr,
-            315 => Self::help,
-            316 => Self::print,
-            317 => Self::sys_req,
-            318 => Self::r#break,
-            319 => Self::menu,
-            512 => Self::shift,
-            513 => Self::control,
-            514 => Self::alt,
-            515 => Self::windows,
+            0 => Self::None,
+            8 => Self::Backspace,
+            9 => Self::Tab,
+            12 => Self::Clear,
+            13 => Self::Return,
+            19 => Self::Pause,
+            27 => Self::Escape,
+            32 => Self::Space,
+            33 => Self::Exclaim,
+            34 => Self::DoubleQuote,
+            35 => Self::Hash,
+            36 => Self::Dollar,
+            38 => Self::Ampersand,
+            39 => Self::Quote,
+            40 => Self::LeftParenthesis,
+            41 => Self::RightParenthesis,
+            42 => Self::Asterisk,
+            43 => Self::Plus,
+            44 => Self::Comma,
+            45 => Self::Minus,
+            46 => Self::Period,
+            47 => Self::Slash,
+            48 => Self::Alpha0,
+            49 => Self::Alpha1,
+            50 => Self::Alpha2,
+            51 => Self::Alpha3,
+            52 => Self::Alpha4,
+            53 => Self::Alpha5,
+            54 => Self::Alpha6,
+            55 => Self::Alpha7,
+            56 => Self::Alpha8,
+            57 => Self::Alpha9,
+            58 => Self::Colon,
+            59 => Self::Semicolon,
+            60 => Self::Less,
+            61 => Self::Equals,
+            62 => Self::Greater,
+            63 => Self::Question,
+            64 => Self::At,
+            65 => Self::VerticalBar,
+            91 => Self::LeftBracket,
+            92 => Self::Backslash,
+            93 => Self::RightBracket,
+            94 => Self::Caret,
+            95 => Self::Underscore,
+            96 => Self::BackQuote,
+            97 => Self::A,
+            98 => Self::B,
+            99 => Self::C,
+            100 => Self::D,
+            101 => Self::E,
+            102 => Self::F,
+            103 => Self::G,
+            104 => Self::H,
+            105 => Self::I,
+            106 => Self::J,
+            107 => Self::K,
+            108 => Self::L,
+            109 => Self::M,
+            110 => Self::N,
+            111 => Self::O,
+            112 => Self::P,
+            113 => Self::Q,
+            114 => Self::R,
+            115 => Self::S,
+            116 => Self::T,
+            117 => Self::U,
+            118 => Self::V,
+            119 => Self::W,
+            120 => Self::X,
+            121 => Self::Y,
+            122 => Self::Z,
+            123 => Self::Percent,
+            124 => Self::Tilde,
+            125 => Self::LeftBrace,
+            126 => Self::RightBrace,
+            127 => Self::Delete,
+            256 => Self::Keypad0,
+            257 => Self::Keypad1,
+            258 => Self::Keypad2,
+            259 => Self::Keypad3,
+            260 => Self::Keypad4,
+            261 => Self::Keypad5,
+            262 => Self::Keypad6,
+            263 => Self::Keypad7,
+            264 => Self::Keypad8,
+            265 => Self::Keypad9,
+            266 => Self::KeypadPeriod,
+            267 => Self::KeypadDivide,
+            268 => Self::KeypadMultiply,
+            269 => Self::KeypadMinus,
+            270 => Self::KeypadPlus,
+            271 => Self::KeypadEnter,
+            272 => Self::KeypadEquals,
+            273 => Self::UpArrow,
+            274 => Self::DownArrow,
+            275 => Self::RightArrow,
+            276 => Self::LeftArrow,
+            277 => Self::Insert,
+            278 => Self::Home,
+            279 => Self::End,
+            280 => Self::PageUp,
+            281 => Self::PageDown,
+            282 => Self::F1,
+            283 => Self::F2,
+            284 => Self::F3,
+            285 => Self::F4,
+            286 => Self::F5,
+            287 => Self::F6,
+            288 => Self::F7,
+            289 => Self::F8,
+            290 => Self::F9,
+            291 => Self::F10,
+            292 => Self::F11,
+            293 => Self::F12,
+            294 => Self::F13,
+            295 => Self::F14,
+            296 => Self::F15,
+            300 => Self::Numlock,
+            301 => Self::CapsLock,
+            302 => Self::ScrollLock,
+            303 => Self::RightShift,
+            304 => Self::LeftShift,
+            305 => Self::RightControl,
+            306 => Self::LeftControl,
+            307 => Self::RightAlt,
+            308 => Self::LeftAlt,
+            309 => Self::RightApple,
+            310 => Self::LeftApple,
+            311 => Self::LeftWindows,
+            312 => Self::RightWindows,
+            313 => Self::AltGr,
+            315 => Self::Help,
+            316 => Self::Print,
+            317 => Self::SysReq,
+            318 => Self::Break,
+            319 => Self::Menu,
+            512 => Self::Shift,
+            513 => Self::Control,
+            514 => Self::Alt,
+            515 => Self::Windows,
             _ => {
                 warn!("invalid Key discriminant {}; using default", i);
-                Self::none
+                Self::None
             }
         }
     }
@@ -5206,38 +5198,38 @@ impl MemoryPackable for HeadsetState {
 #[repr(i32)]
 pub enum VRControllerStateTypes {
     #[default]
-    cosmos_controller_state,
-    generic_controller_state,
-    hp_reverb_controller_state,
-    index_controller_state,
-    pico_neo2_controller_state,
-    touch_controller_state,
-    vive_controller_state,
-    windows_mr_controller_state,
+    CosmosControllerState,
+    GenericControllerState,
+    HPReverbControllerState,
+    IndexControllerState,
+    PicoNeo2ControllerState,
+    TouchControllerState,
+    ViveControllerState,
+    WindowsMRControllerState,
 }
 #[derive(Debug, Clone)]
 pub enum VRControllerState {
-    cosmos_controller_state(CosmosControllerState),
-    generic_controller_state(GenericControllerState),
-    hp_reverb_controller_state(HPReverbControllerState),
-    index_controller_state(IndexControllerState),
-    pico_neo2_controller_state(PicoNeo2ControllerState),
-    touch_controller_state(TouchControllerState),
-    vive_controller_state(ViveControllerState),
-    windows_mr_controller_state(WindowsMRControllerState),
+    CosmosControllerState(CosmosControllerState),
+    GenericControllerState(GenericControllerState),
+    HPReverbControllerState(HPReverbControllerState),
+    IndexControllerState(IndexControllerState),
+    PicoNeo2ControllerState(PicoNeo2ControllerState),
+    TouchControllerState(TouchControllerState),
+    ViveControllerState(ViveControllerState),
+    WindowsMRControllerState(WindowsMRControllerState),
 }
 
 impl PolymorphicEncode for VRControllerState {
     fn encode(&mut self, packer: &mut MemoryPacker<'_>) {
         match self {
-            VRControllerState::cosmos_controller_state(x) => { packer.write(&0i32); x.pack(packer); }
-            VRControllerState::generic_controller_state(x) => { packer.write(&1i32); x.pack(packer); }
-            VRControllerState::hp_reverb_controller_state(x) => { packer.write(&2i32); x.pack(packer); }
-            VRControllerState::index_controller_state(x) => { packer.write(&3i32); x.pack(packer); }
-            VRControllerState::pico_neo2_controller_state(x) => { packer.write(&4i32); x.pack(packer); }
-            VRControllerState::touch_controller_state(x) => { packer.write(&5i32); x.pack(packer); }
-            VRControllerState::vive_controller_state(x) => { packer.write(&6i32); x.pack(packer); }
-            VRControllerState::windows_mr_controller_state(x) => { packer.write(&7i32); x.pack(packer); }
+            VRControllerState::CosmosControllerState(x) => { packer.write(&0i32); x.pack(packer); }
+            VRControllerState::GenericControllerState(x) => { packer.write(&1i32); x.pack(packer); }
+            VRControllerState::HPReverbControllerState(x) => { packer.write(&2i32); x.pack(packer); }
+            VRControllerState::IndexControllerState(x) => { packer.write(&3i32); x.pack(packer); }
+            VRControllerState::PicoNeo2ControllerState(x) => { packer.write(&4i32); x.pack(packer); }
+            VRControllerState::TouchControllerState(x) => { packer.write(&5i32); x.pack(packer); }
+            VRControllerState::ViveControllerState(x) => { packer.write(&6i32); x.pack(packer); }
+            VRControllerState::WindowsMRControllerState(x) => { packer.write(&7i32); x.pack(packer); }
         }
     }
 }
@@ -5245,14 +5237,14 @@ impl PolymorphicEncode for VRControllerState {
 pub fn decode_vr_controller_state<P: MemoryPackerEntityPool>(unpacker: &mut MemoryUnpacker<'_, '_, P>) -> VRControllerState {
     let tag = unpacker.read::<i32>();
     match tag {
-        0 => VRControllerState::cosmos_controller_state({ let mut x = CosmosControllerState::default(); x.unpack(unpacker); x }),
-        1 => VRControllerState::generic_controller_state({ let mut x = GenericControllerState::default(); x.unpack(unpacker); x }),
-        2 => VRControllerState::hp_reverb_controller_state({ let mut x = HPReverbControllerState::default(); x.unpack(unpacker); x }),
-        3 => VRControllerState::index_controller_state({ let mut x = IndexControllerState::default(); x.unpack(unpacker); x }),
-        4 => VRControllerState::pico_neo2_controller_state({ let mut x = PicoNeo2ControllerState::default(); x.unpack(unpacker); x }),
-        5 => VRControllerState::touch_controller_state({ let mut x = TouchControllerState::default(); x.unpack(unpacker); x }),
-        6 => VRControllerState::vive_controller_state({ let mut x = ViveControllerState::default(); x.unpack(unpacker); x }),
-        7 => VRControllerState::windows_mr_controller_state({ let mut x = WindowsMRControllerState::default(); x.unpack(unpacker); x }),
+        0 => VRControllerState::CosmosControllerState({ let mut x = CosmosControllerState::default(); x.unpack(unpacker); x }),
+        1 => VRControllerState::GenericControllerState({ let mut x = GenericControllerState::default(); x.unpack(unpacker); x }),
+        2 => VRControllerState::HPReverbControllerState({ let mut x = HPReverbControllerState::default(); x.unpack(unpacker); x }),
+        3 => VRControllerState::IndexControllerState({ let mut x = IndexControllerState::default(); x.unpack(unpacker); x }),
+        4 => VRControllerState::PicoNeo2ControllerState({ let mut x = PicoNeo2ControllerState::default(); x.unpack(unpacker); x }),
+        5 => VRControllerState::TouchControllerState({ let mut x = TouchControllerState::default(); x.unpack(unpacker); x }),
+        6 => VRControllerState::ViveControllerState({ let mut x = ViveControllerState::default(); x.unpack(unpacker); x }),
+        7 => VRControllerState::WindowsMRControllerState({ let mut x = WindowsMRControllerState::default(); x.unpack(unpacker); x }),
         _ => panic!("Invalid polymorphic tag: {:?}", tag),
     }
 }
@@ -5392,10 +5384,10 @@ impl MemoryPackable for ViveHandTrackingInputState {
 #[repr(i32)]
 pub enum RectOrientation {
     #[default]
-    default = 0,
-    clockwise90 = 1,
-    upside_down180 = 2,
-    counter_clockwise90 = 3,
+    Default = 0,
+    Clockwise90 = 1,
+    UpsideDown180 = 2,
+    CounterClockwise90 = 3,
 }
 
 impl MemoryPackable for RectOrientation {
@@ -5405,13 +5397,13 @@ impl MemoryPackable for RectOrientation {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::default,
-            1 => Self::clockwise90,
-            2 => Self::upside_down180,
-            3 => Self::counter_clockwise90,
+            0 => Self::Default,
+            1 => Self::Clockwise90,
+            2 => Self::UpsideDown180,
+            3 => Self::CounterClockwise90,
             _ => {
                 warn!("invalid RectOrientation wire value {}; using default", raw);
-                Self::default
+                Self::Default
             }
         };
     }
@@ -5423,13 +5415,13 @@ impl EnumRepr for RectOrientation {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::default,
-            1 => Self::clockwise90,
-            2 => Self::upside_down180,
-            3 => Self::counter_clockwise90,
+            0 => Self::Default,
+            1 => Self::Clockwise90,
+            2 => Self::UpsideDown180,
+            3 => Self::CounterClockwise90,
             _ => {
                 warn!("invalid RectOrientation discriminant {}; using default", i);
-                Self::default
+                Self::Default
             }
         }
     }
@@ -5928,8 +5920,8 @@ pub struct ReflectionProbeSH2Task {
 #[repr(u8)]
 pub enum LayerType {
     #[default]
-    hidden = 0,
-    overlay = 1,
+    Hidden = 0,
+    Overlay = 1,
 }
 
 impl MemoryPackable for LayerType {
@@ -5939,11 +5931,11 @@ impl MemoryPackable for LayerType {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::hidden,
-            1 => Self::overlay,
+            0 => Self::Hidden,
+            1 => Self::Overlay,
             _ => {
                 warn!("invalid LayerType wire value {}; using default", raw);
-                Self::hidden
+                Self::Hidden
             }
         };
     }
@@ -5955,11 +5947,11 @@ impl EnumRepr for LayerType {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::hidden,
-            1 => Self::overlay,
+            0 => Self::Hidden,
+            1 => Self::Overlay,
             _ => {
                 warn!("invalid LayerType discriminant {}; using default", i);
-                Self::hidden
+                Self::Hidden
             }
         }
     }
@@ -6288,9 +6280,9 @@ pub struct GaussianSplatRendererState {
 #[repr(u8)]
 pub enum CameraProjection {
     #[default]
-    perspective = 0,
-    orthographic = 1,
-    panoramic = 2,
+    Perspective = 0,
+    Orthographic = 1,
+    Panoramic = 2,
 }
 
 impl MemoryPackable for CameraProjection {
@@ -6300,12 +6292,12 @@ impl MemoryPackable for CameraProjection {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::perspective,
-            1 => Self::orthographic,
-            2 => Self::panoramic,
+            0 => Self::Perspective,
+            1 => Self::Orthographic,
+            2 => Self::Panoramic,
             _ => {
                 warn!("invalid CameraProjection wire value {}; using default", raw);
-                Self::perspective
+                Self::Perspective
             }
         };
     }
@@ -6317,12 +6309,12 @@ impl EnumRepr for CameraProjection {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::perspective,
-            1 => Self::orthographic,
-            2 => Self::panoramic,
+            0 => Self::Perspective,
+            1 => Self::Orthographic,
+            2 => Self::Panoramic,
             _ => {
                 warn!("invalid CameraProjection discriminant {}; using default", i);
-                Self::perspective
+                Self::Perspective
             }
         }
     }
@@ -6335,10 +6327,10 @@ unsafe impl Zeroable for CameraProjection {}
 #[repr(u8)]
 pub enum CameraClearMode {
     #[default]
-    skybox = 0,
-    color = 1,
-    depth = 2,
-    nothing = 3,
+    Skybox = 0,
+    Color = 1,
+    Depth = 2,
+    Nothing = 3,
 }
 
 impl MemoryPackable for CameraClearMode {
@@ -6348,13 +6340,13 @@ impl MemoryPackable for CameraClearMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::skybox,
-            1 => Self::color,
-            2 => Self::depth,
-            3 => Self::nothing,
+            0 => Self::Skybox,
+            1 => Self::Color,
+            2 => Self::Depth,
+            3 => Self::Nothing,
             _ => {
                 warn!("invalid CameraClearMode wire value {}; using default", raw);
-                Self::skybox
+                Self::Skybox
             }
         };
     }
@@ -6366,13 +6358,13 @@ impl EnumRepr for CameraClearMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::skybox,
-            1 => Self::color,
-            2 => Self::depth,
-            3 => Self::nothing,
+            0 => Self::Skybox,
+            1 => Self::Color,
+            2 => Self::Depth,
+            3 => Self::Nothing,
             _ => {
                 warn!("invalid CameraClearMode discriminant {}; using default", i);
-                Self::skybox
+                Self::Skybox
             }
         }
     }
@@ -6385,9 +6377,9 @@ unsafe impl Zeroable for CameraClearMode {}
 #[repr(i32)]
 pub enum HeadsetConnection {
     #[default]
-    wired = 0,
-    wireless_general = 1,
-    wireless_steam_link = 2,
+    Wired = 0,
+    WirelessGeneral = 1,
+    WirelessSteamLink = 2,
 }
 
 impl MemoryPackable for HeadsetConnection {
@@ -6397,12 +6389,12 @@ impl MemoryPackable for HeadsetConnection {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::wired,
-            1 => Self::wireless_general,
-            2 => Self::wireless_steam_link,
+            0 => Self::Wired,
+            1 => Self::WirelessGeneral,
+            2 => Self::WirelessSteamLink,
             _ => {
                 warn!("invalid HeadsetConnection wire value {}; using default", raw);
-                Self::wired
+                Self::Wired
             }
         };
     }
@@ -6414,12 +6406,12 @@ impl EnumRepr for HeadsetConnection {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::wired,
-            1 => Self::wireless_general,
-            2 => Self::wireless_steam_link,
+            0 => Self::Wired,
+            1 => Self::WirelessGeneral,
+            2 => Self::WirelessSteamLink,
             _ => {
                 warn!("invalid HeadsetConnection discriminant {}; using default", i);
-                Self::wired
+                Self::Wired
             }
         }
     }
@@ -7112,8 +7104,8 @@ impl MemoryPackable for WindowsMRControllerState {
 #[repr(i8)]
 pub enum Chirality {
     #[default]
-    left = 0,
-    right = 1,
+    Left = 0,
+    Right = 1,
 }
 
 impl MemoryPackable for Chirality {
@@ -7123,11 +7115,11 @@ impl MemoryPackable for Chirality {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i8>();
         *self = match raw {
-            0 => Self::left,
-            1 => Self::right,
+            0 => Self::Left,
+            1 => Self::Right,
             _ => {
                 warn!("invalid Chirality wire value {}; using default", raw);
-                Self::left
+                Self::Left
             }
         };
     }
@@ -7139,11 +7131,11 @@ impl EnumRepr for Chirality {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::left,
-            1 => Self::right,
+            0 => Self::Left,
+            1 => Self::Right,
             _ => {
                 warn!("invalid Chirality discriminant {}; using default", i);
-                Self::left
+                Self::Left
             }
         }
     }
@@ -7209,10 +7201,10 @@ impl MemoryPackable for HapticPointState {
 #[repr(u8)]
 pub enum ShadowCastMode {
     #[default]
-    off = 0,
-    on = 1,
-    shadow_only = 2,
-    double_sided = 3,
+    Off = 0,
+    On = 1,
+    ShadowOnly = 2,
+    DoubleSided = 3,
 }
 
 impl MemoryPackable for ShadowCastMode {
@@ -7222,13 +7214,13 @@ impl MemoryPackable for ShadowCastMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::off,
-            1 => Self::on,
-            2 => Self::shadow_only,
-            3 => Self::double_sided,
+            0 => Self::Off,
+            1 => Self::On,
+            2 => Self::ShadowOnly,
+            3 => Self::DoubleSided,
             _ => {
                 warn!("invalid ShadowCastMode wire value {}; using default", raw);
-                Self::off
+                Self::Off
             }
         };
     }
@@ -7240,13 +7232,13 @@ impl EnumRepr for ShadowCastMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::off,
-            1 => Self::on,
-            2 => Self::shadow_only,
-            3 => Self::double_sided,
+            0 => Self::Off,
+            1 => Self::On,
+            2 => Self::ShadowOnly,
+            3 => Self::DoubleSided,
             _ => {
                 warn!("invalid ShadowCastMode discriminant {}; using default", i);
-                Self::off
+                Self::Off
             }
         }
     }
@@ -7259,9 +7251,9 @@ unsafe impl Zeroable for ShadowCastMode {}
 #[repr(u8)]
 pub enum MotionVectorMode {
     #[default]
-    camera = 0,
-    object = 1,
-    no_motion = 2,
+    Camera = 0,
+    Object = 1,
+    NoMotion = 2,
 }
 
 impl MemoryPackable for MotionVectorMode {
@@ -7271,12 +7263,12 @@ impl MemoryPackable for MotionVectorMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::camera,
-            1 => Self::object,
-            2 => Self::no_motion,
+            0 => Self::Camera,
+            1 => Self::Object,
+            2 => Self::NoMotion,
             _ => {
                 warn!("invalid MotionVectorMode wire value {}; using default", raw);
-                Self::camera
+                Self::Camera
             }
         };
     }
@@ -7288,12 +7280,12 @@ impl EnumRepr for MotionVectorMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::camera,
-            1 => Self::object,
-            2 => Self::no_motion,
+            0 => Self::Camera,
+            1 => Self::Object,
+            2 => Self::NoMotion,
             _ => {
                 warn!("invalid MotionVectorMode discriminant {}; using default", i);
-                Self::camera
+                Self::Camera
             }
         }
     }
@@ -7306,9 +7298,9 @@ unsafe impl Zeroable for MotionVectorMode {}
 #[repr(u8)]
 pub enum LightType {
     #[default]
-    point = 0,
-    directional = 1,
-    spot = 2,
+    Point = 0,
+    Directional = 1,
+    Spot = 2,
 }
 
 impl MemoryPackable for LightType {
@@ -7318,12 +7310,12 @@ impl MemoryPackable for LightType {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::point,
-            1 => Self::directional,
-            2 => Self::spot,
+            0 => Self::Point,
+            1 => Self::Directional,
+            2 => Self::Spot,
             _ => {
                 warn!("invalid LightType wire value {}; using default", raw);
-                Self::point
+                Self::Point
             }
         };
     }
@@ -7335,12 +7327,12 @@ impl EnumRepr for LightType {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::point,
-            1 => Self::directional,
-            2 => Self::spot,
+            0 => Self::Point,
+            1 => Self::Directional,
+            2 => Self::Spot,
             _ => {
                 warn!("invalid LightType discriminant {}; using default", i);
-                Self::point
+                Self::Point
             }
         }
     }
@@ -7353,9 +7345,9 @@ unsafe impl Zeroable for LightType {}
 #[repr(u8)]
 pub enum ShadowType {
     #[default]
-    none = 0,
-    hard = 1,
-    soft = 2,
+    None = 0,
+    Hard = 1,
+    Soft = 2,
 }
 
 impl MemoryPackable for ShadowType {
@@ -7365,12 +7357,12 @@ impl MemoryPackable for ShadowType {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::none,
-            1 => Self::hard,
-            2 => Self::soft,
+            0 => Self::None,
+            1 => Self::Hard,
+            2 => Self::Soft,
             _ => {
                 warn!("invalid ShadowType wire value {}; using default", raw);
-                Self::none
+                Self::None
             }
         };
     }
@@ -7382,12 +7374,12 @@ impl EnumRepr for ShadowType {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::none,
-            1 => Self::hard,
-            2 => Self::soft,
+            0 => Self::None,
+            1 => Self::Hard,
+            2 => Self::Soft,
             _ => {
                 warn!("invalid ShadowType discriminant {}; using default", i);
-                Self::none
+                Self::None
             }
         }
     }
@@ -7427,9 +7419,9 @@ impl MemoryPackable for RenderRect {
 #[repr(u8)]
 pub enum ReflectionProbeType {
     #[default]
-    baked = 0,
-    on_changes = 1,
-    realtime = 2,
+    Baked = 0,
+    OnChanges = 1,
+    Realtime = 2,
 }
 
 impl MemoryPackable for ReflectionProbeType {
@@ -7439,12 +7431,12 @@ impl MemoryPackable for ReflectionProbeType {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::baked,
-            1 => Self::on_changes,
-            2 => Self::realtime,
+            0 => Self::Baked,
+            1 => Self::OnChanges,
+            2 => Self::Realtime,
             _ => {
                 warn!("invalid ReflectionProbeType wire value {}; using default", raw);
-                Self::baked
+                Self::Baked
             }
         };
     }
@@ -7456,12 +7448,12 @@ impl EnumRepr for ReflectionProbeType {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::baked,
-            1 => Self::on_changes,
-            2 => Self::realtime,
+            0 => Self::Baked,
+            1 => Self::OnChanges,
+            2 => Self::Realtime,
             _ => {
                 warn!("invalid ReflectionProbeType discriminant {}; using default", i);
-                Self::baked
+                Self::Baked
             }
         }
     }
@@ -7474,8 +7466,8 @@ unsafe impl Zeroable for ReflectionProbeType {}
 #[repr(u8)]
 pub enum ReflectionProbeClear {
     #[default]
-    skybox = 0,
-    color = 1,
+    Skybox = 0,
+    Color = 1,
 }
 
 impl MemoryPackable for ReflectionProbeClear {
@@ -7485,11 +7477,11 @@ impl MemoryPackable for ReflectionProbeClear {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::skybox,
-            1 => Self::color,
+            0 => Self::Skybox,
+            1 => Self::Color,
             _ => {
                 warn!("invalid ReflectionProbeClear wire value {}; using default", raw);
-                Self::skybox
+                Self::Skybox
             }
         };
     }
@@ -7501,11 +7493,11 @@ impl EnumRepr for ReflectionProbeClear {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::skybox,
-            1 => Self::color,
+            0 => Self::Skybox,
+            1 => Self::Color,
             _ => {
                 warn!("invalid ReflectionProbeClear discriminant {}; using default", i);
-                Self::skybox
+                Self::Skybox
             }
         }
     }
@@ -7518,9 +7510,9 @@ unsafe impl Zeroable for ReflectionProbeClear {}
 #[repr(u8)]
 pub enum ReflectionProbeTimeSlicingMode {
     #[default]
-    all_faces_at_once = 0,
-    individual_faces = 1,
-    no_time_slicing = 2,
+    AllFacesAtOnce = 0,
+    IndividualFaces = 1,
+    NoTimeSlicing = 2,
 }
 
 impl MemoryPackable for ReflectionProbeTimeSlicingMode {
@@ -7530,12 +7522,12 @@ impl MemoryPackable for ReflectionProbeTimeSlicingMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::all_faces_at_once,
-            1 => Self::individual_faces,
-            2 => Self::no_time_slicing,
+            0 => Self::AllFacesAtOnce,
+            1 => Self::IndividualFaces,
+            2 => Self::NoTimeSlicing,
             _ => {
                 warn!("invalid ReflectionProbeTimeSlicingMode wire value {}; using default", raw);
-                Self::all_faces_at_once
+                Self::AllFacesAtOnce
             }
         };
     }
@@ -7547,12 +7539,12 @@ impl EnumRepr for ReflectionProbeTimeSlicingMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::all_faces_at_once,
-            1 => Self::individual_faces,
-            2 => Self::no_time_slicing,
+            0 => Self::AllFacesAtOnce,
+            1 => Self::IndividualFaces,
+            2 => Self::NoTimeSlicing,
             _ => {
                 warn!("invalid ReflectionProbeTimeSlicingMode discriminant {}; using default", i);
-                Self::all_faces_at_once
+                Self::AllFacesAtOnce
             }
         }
     }
@@ -7565,10 +7557,10 @@ unsafe impl Zeroable for ReflectionProbeTimeSlicingMode {}
 #[repr(i32)]
 pub enum ComputeResult {
     #[default]
-    scheduled = 0,
-    computed = 1,
-    postpone = 2,
-    failed = 3,
+    Scheduled = 0,
+    Computed = 1,
+    Postpone = 2,
+    Failed = 3,
 }
 
 impl MemoryPackable for ComputeResult {
@@ -7578,13 +7570,13 @@ impl MemoryPackable for ComputeResult {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::scheduled,
-            1 => Self::computed,
-            2 => Self::postpone,
-            3 => Self::failed,
+            0 => Self::Scheduled,
+            1 => Self::Computed,
+            2 => Self::Postpone,
+            3 => Self::Failed,
             _ => {
                 warn!("invalid ComputeResult wire value {}; using default", raw);
-                Self::scheduled
+                Self::Scheduled
             }
         };
     }
@@ -7596,13 +7588,13 @@ impl EnumRepr for ComputeResult {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::scheduled,
-            1 => Self::computed,
-            2 => Self::postpone,
-            3 => Self::failed,
+            0 => Self::Scheduled,
+            1 => Self::Computed,
+            2 => Self::Postpone,
+            3 => Self::Failed,
             _ => {
                 warn!("invalid ComputeResult discriminant {}; using default", i);
-                Self::scheduled
+                Self::Scheduled
             }
         }
     }
@@ -7615,11 +7607,11 @@ unsafe impl Zeroable for ComputeResult {}
 #[repr(u8)]
 pub enum BillboardAlignment {
     #[default]
-    view = 0,
-    facing = 1,
-    local = 2,
-    global = 3,
-    direction = 4,
+    View = 0,
+    Facing = 1,
+    Local = 2,
+    Global = 3,
+    Direction = 4,
 }
 
 impl MemoryPackable for BillboardAlignment {
@@ -7629,14 +7621,14 @@ impl MemoryPackable for BillboardAlignment {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::view,
-            1 => Self::facing,
-            2 => Self::local,
-            3 => Self::global,
-            4 => Self::direction,
+            0 => Self::View,
+            1 => Self::Facing,
+            2 => Self::Local,
+            3 => Self::Global,
+            4 => Self::Direction,
             _ => {
                 warn!("invalid BillboardAlignment wire value {}; using default", raw);
-                Self::view
+                Self::View
             }
         };
     }
@@ -7648,14 +7640,14 @@ impl EnumRepr for BillboardAlignment {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::view,
-            1 => Self::facing,
-            2 => Self::local,
-            3 => Self::global,
-            4 => Self::direction,
+            0 => Self::View,
+            1 => Self::Facing,
+            2 => Self::Local,
+            3 => Self::Global,
+            4 => Self::Direction,
             _ => {
                 warn!("invalid BillboardAlignment discriminant {}; using default", i);
-                Self::view
+                Self::View
             }
         }
     }
@@ -7668,10 +7660,10 @@ unsafe impl Zeroable for BillboardAlignment {}
 #[repr(u8)]
 pub enum MeshAlignment {
     #[default]
-    view = 0,
-    facing = 1,
-    local = 2,
-    global = 3,
+    View = 0,
+    Facing = 1,
+    Local = 2,
+    Global = 3,
 }
 
 impl MemoryPackable for MeshAlignment {
@@ -7681,13 +7673,13 @@ impl MemoryPackable for MeshAlignment {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::view,
-            1 => Self::facing,
-            2 => Self::local,
-            3 => Self::global,
+            0 => Self::View,
+            1 => Self::Facing,
+            2 => Self::Local,
+            3 => Self::Global,
             _ => {
                 warn!("invalid MeshAlignment wire value {}; using default", raw);
-                Self::view
+                Self::View
             }
         };
     }
@@ -7699,13 +7691,13 @@ impl EnumRepr for MeshAlignment {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::view,
-            1 => Self::facing,
-            2 => Self::local,
-            3 => Self::global,
+            0 => Self::View,
+            1 => Self::Facing,
+            2 => Self::Local,
+            3 => Self::Global,
             _ => {
                 warn!("invalid MeshAlignment discriminant {}; using default", i);
-                Self::view
+                Self::View
             }
         }
     }
@@ -7718,10 +7710,10 @@ unsafe impl Zeroable for MeshAlignment {}
 #[repr(u8)]
 pub enum TrailTextureMode {
     #[default]
-    stretch = 0,
-    tile = 1,
-    distribute_per_segment = 2,
-    repeat_per_segment = 3,
+    Stretch = 0,
+    Tile = 1,
+    DistributePerSegment = 2,
+    RepeatPerSegment = 3,
 }
 
 impl MemoryPackable for TrailTextureMode {
@@ -7731,13 +7723,13 @@ impl MemoryPackable for TrailTextureMode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::stretch,
-            1 => Self::tile,
-            2 => Self::distribute_per_segment,
-            3 => Self::repeat_per_segment,
+            0 => Self::Stretch,
+            1 => Self::Tile,
+            2 => Self::DistributePerSegment,
+            3 => Self::RepeatPerSegment,
             _ => {
                 warn!("invalid TrailTextureMode wire value {}; using default", raw);
-                Self::stretch
+                Self::Stretch
             }
         };
     }
@@ -7749,13 +7741,13 @@ impl EnumRepr for TrailTextureMode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::stretch,
-            1 => Self::tile,
-            2 => Self::distribute_per_segment,
-            3 => Self::repeat_per_segment,
+            0 => Self::Stretch,
+            1 => Self::Tile,
+            2 => Self::DistributePerSegment,
+            3 => Self::RepeatPerSegment,
             _ => {
                 warn!("invalid TrailTextureMode discriminant {}; using default", i);
-                Self::stretch
+                Self::Stretch
             }
         }
     }
@@ -7768,12 +7760,12 @@ unsafe impl Zeroable for TrailTextureMode {}
 #[repr(u8)]
 pub enum RenderingContext {
     #[default]
-    user_view = 0,
-    external_view = 1,
-    camera = 2,
-    mirror = 3,
-    portal = 4,
-    render_to_asset = 5,
+    UserView = 0,
+    ExternalView = 1,
+    Camera = 2,
+    Mirror = 3,
+    Portal = 4,
+    RenderToAsset = 5,
 }
 
 impl MemoryPackable for RenderingContext {
@@ -7783,15 +7775,15 @@ impl MemoryPackable for RenderingContext {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<u8>();
         *self = match raw {
-            0 => Self::user_view,
-            1 => Self::external_view,
-            2 => Self::camera,
-            3 => Self::mirror,
-            4 => Self::portal,
-            5 => Self::render_to_asset,
+            0 => Self::UserView,
+            1 => Self::ExternalView,
+            2 => Self::Camera,
+            3 => Self::Mirror,
+            4 => Self::Portal,
+            5 => Self::RenderToAsset,
             _ => {
                 warn!("invalid RenderingContext wire value {}; using default", raw);
-                Self::user_view
+                Self::UserView
             }
         };
     }
@@ -7803,15 +7795,15 @@ impl EnumRepr for RenderingContext {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::user_view,
-            1 => Self::external_view,
-            2 => Self::camera,
-            3 => Self::mirror,
-            4 => Self::portal,
-            5 => Self::render_to_asset,
+            0 => Self::UserView,
+            1 => Self::ExternalView,
+            2 => Self::Camera,
+            3 => Self::Mirror,
+            4 => Self::Portal,
+            5 => Self::RenderToAsset,
             _ => {
                 warn!("invalid RenderingContext discriminant {}; using default", i);
-                Self::user_view
+                Self::UserView
             }
         }
     }
@@ -7824,87 +7816,87 @@ unsafe impl Zeroable for RenderingContext {}
 #[repr(i32)]
 pub enum BodyNode {
     #[default]
-    none = 0,
-    root = 1,
-    view = 2,
-    left_controller = 3,
-    right_controller = 4,
-    hips = 5,
-    spine = 6,
-    chest = 7,
-    upper_chest = 8,
-    neck = 9,
-    head = 10,
-    jaw = 11,
-    left_eye = 12,
-    right_eye = 13,
-    left_shoulder = 14,
-    left_upper_arm = 15,
-    left_lower_arm = 16,
-    left_hand = 17,
-    left_palm = 18,
-    left_thumb_metacarpal = 19,
-    left_thumb_proximal = 20,
-    left_thumb_distal = 21,
-    left_thumb_tip = 22,
-    left_index_finger_metacarpal = 23,
-    left_index_finger_proximal = 24,
-    left_index_finger_intermediate = 25,
-    left_index_finger_distal = 26,
-    left_index_finger_tip = 27,
-    left_middle_finger_metacarpal = 28,
-    left_middle_finger_proximal = 29,
-    left_middle_finger_intermediate = 30,
-    left_middle_finger_distal = 31,
-    left_middle_finger_tip = 32,
-    left_ring_finger_metacarpal = 33,
-    left_ring_finger_proximal = 34,
-    left_ring_finger_intermediate = 35,
-    left_ring_finger_distal = 36,
-    left_ring_finger_tip = 37,
-    left_pinky_metacarpal = 38,
-    left_pinky_proximal = 39,
-    left_pinky_intermediate = 40,
-    left_pinky_distal = 41,
-    left_pinky_tip = 42,
-    right_shoulder = 43,
-    right_upper_arm = 44,
-    right_lower_arm = 45,
-    right_hand = 46,
-    right_palm = 47,
-    right_thumb_metacarpal = 48,
-    right_thumb_proximal = 49,
-    right_thumb_distal = 50,
-    right_thumb_tip = 51,
-    right_index_finger_metacarpal = 52,
-    right_index_finger_proximal = 53,
-    right_index_finger_intermediate = 54,
-    right_index_finger_distal = 55,
-    right_index_finger_tip = 56,
-    right_middle_finger_metacarpal = 57,
-    right_middle_finger_proximal = 58,
-    right_middle_finger_intermediate = 59,
-    right_middle_finger_distal = 60,
-    right_middle_finger_tip = 61,
-    right_ring_finger_metacarpal = 62,
-    right_ring_finger_proximal = 63,
-    right_ring_finger_intermediate = 64,
-    right_ring_finger_distal = 65,
-    right_ring_finger_tip = 66,
-    right_pinky_metacarpal = 67,
-    right_pinky_proximal = 68,
-    right_pinky_intermediate = 69,
-    right_pinky_distal = 70,
-    right_finger_end = 71,
-    left_upper_leg = 72,
-    left_lower_leg = 73,
-    left_foot = 74,
-    left_toes = 75,
-    right_upper_leg = 76,
-    right_lower_leg = 77,
-    right_foot = 78,
-    right_toes = 79,
-    end = 80,
+    NONE = 0,
+    Root = 1,
+    View = 2,
+    LeftController = 3,
+    RightController = 4,
+    Hips = 5,
+    Spine = 6,
+    Chest = 7,
+    UpperChest = 8,
+    Neck = 9,
+    Head = 10,
+    Jaw = 11,
+    LeftEye = 12,
+    RightEye = 13,
+    LeftShoulder = 14,
+    LeftUpperArm = 15,
+    LeftLowerArm = 16,
+    LeftHand = 17,
+    LeftPalm = 18,
+    LeftThumbMetacarpal = 19,
+    LeftThumbProximal = 20,
+    LeftThumbDistal = 21,
+    LeftThumbTip = 22,
+    LeftIndexFingerMetacarpal = 23,
+    LeftIndexFingerProximal = 24,
+    LeftIndexFingerIntermediate = 25,
+    LeftIndexFingerDistal = 26,
+    LeftIndexFingerTip = 27,
+    LeftMiddleFingerMetacarpal = 28,
+    LeftMiddleFingerProximal = 29,
+    LeftMiddleFingerIntermediate = 30,
+    LeftMiddleFingerDistal = 31,
+    LeftMiddleFingerTip = 32,
+    LeftRingFingerMetacarpal = 33,
+    LeftRingFingerProximal = 34,
+    LeftRingFingerIntermediate = 35,
+    LeftRingFingerDistal = 36,
+    LeftRingFingerTip = 37,
+    LeftPinkyMetacarpal = 38,
+    LeftPinkyProximal = 39,
+    LeftPinkyIntermediate = 40,
+    LeftPinkyDistal = 41,
+    LeftPinkyTip = 42,
+    RightShoulder = 43,
+    RightUpperArm = 44,
+    RightLowerArm = 45,
+    RightHand = 46,
+    RightPalm = 47,
+    RightThumbMetacarpal = 48,
+    RightThumbProximal = 49,
+    RightThumbDistal = 50,
+    RightThumbTip = 51,
+    RightIndexFingerMetacarpal = 52,
+    RightIndexFingerProximal = 53,
+    RightIndexFingerIntermediate = 54,
+    RightIndexFingerDistal = 55,
+    RightIndexFingerTip = 56,
+    RightMiddleFingerMetacarpal = 57,
+    RightMiddleFingerProximal = 58,
+    RightMiddleFingerIntermediate = 59,
+    RightMiddleFingerDistal = 60,
+    RightMiddleFingerTip = 61,
+    RightRingFingerMetacarpal = 62,
+    RightRingFingerProximal = 63,
+    RightRingFingerIntermediate = 64,
+    RightRingFingerDistal = 65,
+    RightRingFingerTip = 66,
+    RightPinkyMetacarpal = 67,
+    RightPinkyProximal = 68,
+    RightPinkyIntermediate = 69,
+    RightPinkyDistal = 70,
+    RIGHTFINGEREND = 71,
+    LeftUpperLeg = 72,
+    LeftLowerLeg = 73,
+    LeftFoot = 74,
+    LeftToes = 75,
+    RightUpperLeg = 76,
+    RightLowerLeg = 77,
+    RightFoot = 78,
+    RightToes = 79,
+    END = 80,
 }
 
 impl MemoryPackable for BodyNode {
@@ -7914,90 +7906,90 @@ impl MemoryPackable for BodyNode {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i32>();
         *self = match raw {
-            0 => Self::none,
-            1 => Self::root,
-            2 => Self::view,
-            3 => Self::left_controller,
-            4 => Self::right_controller,
-            5 => Self::hips,
-            6 => Self::spine,
-            7 => Self::chest,
-            8 => Self::upper_chest,
-            9 => Self::neck,
-            10 => Self::head,
-            11 => Self::jaw,
-            12 => Self::left_eye,
-            13 => Self::right_eye,
-            14 => Self::left_shoulder,
-            15 => Self::left_upper_arm,
-            16 => Self::left_lower_arm,
-            17 => Self::left_hand,
-            18 => Self::left_palm,
-            19 => Self::left_thumb_metacarpal,
-            20 => Self::left_thumb_proximal,
-            21 => Self::left_thumb_distal,
-            22 => Self::left_thumb_tip,
-            23 => Self::left_index_finger_metacarpal,
-            24 => Self::left_index_finger_proximal,
-            25 => Self::left_index_finger_intermediate,
-            26 => Self::left_index_finger_distal,
-            27 => Self::left_index_finger_tip,
-            28 => Self::left_middle_finger_metacarpal,
-            29 => Self::left_middle_finger_proximal,
-            30 => Self::left_middle_finger_intermediate,
-            31 => Self::left_middle_finger_distal,
-            32 => Self::left_middle_finger_tip,
-            33 => Self::left_ring_finger_metacarpal,
-            34 => Self::left_ring_finger_proximal,
-            35 => Self::left_ring_finger_intermediate,
-            36 => Self::left_ring_finger_distal,
-            37 => Self::left_ring_finger_tip,
-            38 => Self::left_pinky_metacarpal,
-            39 => Self::left_pinky_proximal,
-            40 => Self::left_pinky_intermediate,
-            41 => Self::left_pinky_distal,
-            42 => Self::left_pinky_tip,
-            43 => Self::right_shoulder,
-            44 => Self::right_upper_arm,
-            45 => Self::right_lower_arm,
-            46 => Self::right_hand,
-            47 => Self::right_palm,
-            48 => Self::right_thumb_metacarpal,
-            49 => Self::right_thumb_proximal,
-            50 => Self::right_thumb_distal,
-            51 => Self::right_thumb_tip,
-            52 => Self::right_index_finger_metacarpal,
-            53 => Self::right_index_finger_proximal,
-            54 => Self::right_index_finger_intermediate,
-            55 => Self::right_index_finger_distal,
-            56 => Self::right_index_finger_tip,
-            57 => Self::right_middle_finger_metacarpal,
-            58 => Self::right_middle_finger_proximal,
-            59 => Self::right_middle_finger_intermediate,
-            60 => Self::right_middle_finger_distal,
-            61 => Self::right_middle_finger_tip,
-            62 => Self::right_ring_finger_metacarpal,
-            63 => Self::right_ring_finger_proximal,
-            64 => Self::right_ring_finger_intermediate,
-            65 => Self::right_ring_finger_distal,
-            66 => Self::right_ring_finger_tip,
-            67 => Self::right_pinky_metacarpal,
-            68 => Self::right_pinky_proximal,
-            69 => Self::right_pinky_intermediate,
-            70 => Self::right_pinky_distal,
-            71 => Self::right_finger_end,
-            72 => Self::left_upper_leg,
-            73 => Self::left_lower_leg,
-            74 => Self::left_foot,
-            75 => Self::left_toes,
-            76 => Self::right_upper_leg,
-            77 => Self::right_lower_leg,
-            78 => Self::right_foot,
-            79 => Self::right_toes,
-            80 => Self::end,
+            0 => Self::NONE,
+            1 => Self::Root,
+            2 => Self::View,
+            3 => Self::LeftController,
+            4 => Self::RightController,
+            5 => Self::Hips,
+            6 => Self::Spine,
+            7 => Self::Chest,
+            8 => Self::UpperChest,
+            9 => Self::Neck,
+            10 => Self::Head,
+            11 => Self::Jaw,
+            12 => Self::LeftEye,
+            13 => Self::RightEye,
+            14 => Self::LeftShoulder,
+            15 => Self::LeftUpperArm,
+            16 => Self::LeftLowerArm,
+            17 => Self::LeftHand,
+            18 => Self::LeftPalm,
+            19 => Self::LeftThumbMetacarpal,
+            20 => Self::LeftThumbProximal,
+            21 => Self::LeftThumbDistal,
+            22 => Self::LeftThumbTip,
+            23 => Self::LeftIndexFingerMetacarpal,
+            24 => Self::LeftIndexFingerProximal,
+            25 => Self::LeftIndexFingerIntermediate,
+            26 => Self::LeftIndexFingerDistal,
+            27 => Self::LeftIndexFingerTip,
+            28 => Self::LeftMiddleFingerMetacarpal,
+            29 => Self::LeftMiddleFingerProximal,
+            30 => Self::LeftMiddleFingerIntermediate,
+            31 => Self::LeftMiddleFingerDistal,
+            32 => Self::LeftMiddleFingerTip,
+            33 => Self::LeftRingFingerMetacarpal,
+            34 => Self::LeftRingFingerProximal,
+            35 => Self::LeftRingFingerIntermediate,
+            36 => Self::LeftRingFingerDistal,
+            37 => Self::LeftRingFingerTip,
+            38 => Self::LeftPinkyMetacarpal,
+            39 => Self::LeftPinkyProximal,
+            40 => Self::LeftPinkyIntermediate,
+            41 => Self::LeftPinkyDistal,
+            42 => Self::LeftPinkyTip,
+            43 => Self::RightShoulder,
+            44 => Self::RightUpperArm,
+            45 => Self::RightLowerArm,
+            46 => Self::RightHand,
+            47 => Self::RightPalm,
+            48 => Self::RightThumbMetacarpal,
+            49 => Self::RightThumbProximal,
+            50 => Self::RightThumbDistal,
+            51 => Self::RightThumbTip,
+            52 => Self::RightIndexFingerMetacarpal,
+            53 => Self::RightIndexFingerProximal,
+            54 => Self::RightIndexFingerIntermediate,
+            55 => Self::RightIndexFingerDistal,
+            56 => Self::RightIndexFingerTip,
+            57 => Self::RightMiddleFingerMetacarpal,
+            58 => Self::RightMiddleFingerProximal,
+            59 => Self::RightMiddleFingerIntermediate,
+            60 => Self::RightMiddleFingerDistal,
+            61 => Self::RightMiddleFingerTip,
+            62 => Self::RightRingFingerMetacarpal,
+            63 => Self::RightRingFingerProximal,
+            64 => Self::RightRingFingerIntermediate,
+            65 => Self::RightRingFingerDistal,
+            66 => Self::RightRingFingerTip,
+            67 => Self::RightPinkyMetacarpal,
+            68 => Self::RightPinkyProximal,
+            69 => Self::RightPinkyIntermediate,
+            70 => Self::RightPinkyDistal,
+            71 => Self::RIGHTFINGEREND,
+            72 => Self::LeftUpperLeg,
+            73 => Self::LeftLowerLeg,
+            74 => Self::LeftFoot,
+            75 => Self::LeftToes,
+            76 => Self::RightUpperLeg,
+            77 => Self::RightLowerLeg,
+            78 => Self::RightFoot,
+            79 => Self::RightToes,
+            80 => Self::END,
             _ => {
                 warn!("invalid BodyNode wire value {}; using default", raw);
-                Self::none
+                Self::NONE
             }
         };
     }
@@ -8009,90 +8001,90 @@ impl EnumRepr for BodyNode {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::none,
-            1 => Self::root,
-            2 => Self::view,
-            3 => Self::left_controller,
-            4 => Self::right_controller,
-            5 => Self::hips,
-            6 => Self::spine,
-            7 => Self::chest,
-            8 => Self::upper_chest,
-            9 => Self::neck,
-            10 => Self::head,
-            11 => Self::jaw,
-            12 => Self::left_eye,
-            13 => Self::right_eye,
-            14 => Self::left_shoulder,
-            15 => Self::left_upper_arm,
-            16 => Self::left_lower_arm,
-            17 => Self::left_hand,
-            18 => Self::left_palm,
-            19 => Self::left_thumb_metacarpal,
-            20 => Self::left_thumb_proximal,
-            21 => Self::left_thumb_distal,
-            22 => Self::left_thumb_tip,
-            23 => Self::left_index_finger_metacarpal,
-            24 => Self::left_index_finger_proximal,
-            25 => Self::left_index_finger_intermediate,
-            26 => Self::left_index_finger_distal,
-            27 => Self::left_index_finger_tip,
-            28 => Self::left_middle_finger_metacarpal,
-            29 => Self::left_middle_finger_proximal,
-            30 => Self::left_middle_finger_intermediate,
-            31 => Self::left_middle_finger_distal,
-            32 => Self::left_middle_finger_tip,
-            33 => Self::left_ring_finger_metacarpal,
-            34 => Self::left_ring_finger_proximal,
-            35 => Self::left_ring_finger_intermediate,
-            36 => Self::left_ring_finger_distal,
-            37 => Self::left_ring_finger_tip,
-            38 => Self::left_pinky_metacarpal,
-            39 => Self::left_pinky_proximal,
-            40 => Self::left_pinky_intermediate,
-            41 => Self::left_pinky_distal,
-            42 => Self::left_pinky_tip,
-            43 => Self::right_shoulder,
-            44 => Self::right_upper_arm,
-            45 => Self::right_lower_arm,
-            46 => Self::right_hand,
-            47 => Self::right_palm,
-            48 => Self::right_thumb_metacarpal,
-            49 => Self::right_thumb_proximal,
-            50 => Self::right_thumb_distal,
-            51 => Self::right_thumb_tip,
-            52 => Self::right_index_finger_metacarpal,
-            53 => Self::right_index_finger_proximal,
-            54 => Self::right_index_finger_intermediate,
-            55 => Self::right_index_finger_distal,
-            56 => Self::right_index_finger_tip,
-            57 => Self::right_middle_finger_metacarpal,
-            58 => Self::right_middle_finger_proximal,
-            59 => Self::right_middle_finger_intermediate,
-            60 => Self::right_middle_finger_distal,
-            61 => Self::right_middle_finger_tip,
-            62 => Self::right_ring_finger_metacarpal,
-            63 => Self::right_ring_finger_proximal,
-            64 => Self::right_ring_finger_intermediate,
-            65 => Self::right_ring_finger_distal,
-            66 => Self::right_ring_finger_tip,
-            67 => Self::right_pinky_metacarpal,
-            68 => Self::right_pinky_proximal,
-            69 => Self::right_pinky_intermediate,
-            70 => Self::right_pinky_distal,
-            71 => Self::right_finger_end,
-            72 => Self::left_upper_leg,
-            73 => Self::left_lower_leg,
-            74 => Self::left_foot,
-            75 => Self::left_toes,
-            76 => Self::right_upper_leg,
-            77 => Self::right_lower_leg,
-            78 => Self::right_foot,
-            79 => Self::right_toes,
-            80 => Self::end,
+            0 => Self::NONE,
+            1 => Self::Root,
+            2 => Self::View,
+            3 => Self::LeftController,
+            4 => Self::RightController,
+            5 => Self::Hips,
+            6 => Self::Spine,
+            7 => Self::Chest,
+            8 => Self::UpperChest,
+            9 => Self::Neck,
+            10 => Self::Head,
+            11 => Self::Jaw,
+            12 => Self::LeftEye,
+            13 => Self::RightEye,
+            14 => Self::LeftShoulder,
+            15 => Self::LeftUpperArm,
+            16 => Self::LeftLowerArm,
+            17 => Self::LeftHand,
+            18 => Self::LeftPalm,
+            19 => Self::LeftThumbMetacarpal,
+            20 => Self::LeftThumbProximal,
+            21 => Self::LeftThumbDistal,
+            22 => Self::LeftThumbTip,
+            23 => Self::LeftIndexFingerMetacarpal,
+            24 => Self::LeftIndexFingerProximal,
+            25 => Self::LeftIndexFingerIntermediate,
+            26 => Self::LeftIndexFingerDistal,
+            27 => Self::LeftIndexFingerTip,
+            28 => Self::LeftMiddleFingerMetacarpal,
+            29 => Self::LeftMiddleFingerProximal,
+            30 => Self::LeftMiddleFingerIntermediate,
+            31 => Self::LeftMiddleFingerDistal,
+            32 => Self::LeftMiddleFingerTip,
+            33 => Self::LeftRingFingerMetacarpal,
+            34 => Self::LeftRingFingerProximal,
+            35 => Self::LeftRingFingerIntermediate,
+            36 => Self::LeftRingFingerDistal,
+            37 => Self::LeftRingFingerTip,
+            38 => Self::LeftPinkyMetacarpal,
+            39 => Self::LeftPinkyProximal,
+            40 => Self::LeftPinkyIntermediate,
+            41 => Self::LeftPinkyDistal,
+            42 => Self::LeftPinkyTip,
+            43 => Self::RightShoulder,
+            44 => Self::RightUpperArm,
+            45 => Self::RightLowerArm,
+            46 => Self::RightHand,
+            47 => Self::RightPalm,
+            48 => Self::RightThumbMetacarpal,
+            49 => Self::RightThumbProximal,
+            50 => Self::RightThumbDistal,
+            51 => Self::RightThumbTip,
+            52 => Self::RightIndexFingerMetacarpal,
+            53 => Self::RightIndexFingerProximal,
+            54 => Self::RightIndexFingerIntermediate,
+            55 => Self::RightIndexFingerDistal,
+            56 => Self::RightIndexFingerTip,
+            57 => Self::RightMiddleFingerMetacarpal,
+            58 => Self::RightMiddleFingerProximal,
+            59 => Self::RightMiddleFingerIntermediate,
+            60 => Self::RightMiddleFingerDistal,
+            61 => Self::RightMiddleFingerTip,
+            62 => Self::RightRingFingerMetacarpal,
+            63 => Self::RightRingFingerProximal,
+            64 => Self::RightRingFingerIntermediate,
+            65 => Self::RightRingFingerDistal,
+            66 => Self::RightRingFingerTip,
+            67 => Self::RightPinkyMetacarpal,
+            68 => Self::RightPinkyProximal,
+            69 => Self::RightPinkyIntermediate,
+            70 => Self::RightPinkyDistal,
+            71 => Self::RIGHTFINGEREND,
+            72 => Self::LeftUpperLeg,
+            73 => Self::LeftLowerLeg,
+            74 => Self::LeftFoot,
+            75 => Self::LeftToes,
+            76 => Self::RightUpperLeg,
+            77 => Self::RightLowerLeg,
+            78 => Self::RightFoot,
+            79 => Self::RightToes,
+            80 => Self::END,
             _ => {
                 warn!("invalid BodyNode discriminant {}; using default", i);
-                Self::none
+                Self::NONE
             }
         }
     }
@@ -8105,8 +8097,8 @@ unsafe impl Zeroable for BodyNode {}
 #[repr(i8)]
 pub enum TouchControllerModel {
     #[default]
-    cv1 = 0,
-    quest_and_rift_s = 1,
+    CV1 = 0,
+    QuestAndRiftS = 1,
 }
 
 impl MemoryPackable for TouchControllerModel {
@@ -8116,11 +8108,11 @@ impl MemoryPackable for TouchControllerModel {
     fn unpack<P: MemoryPackerEntityPool>(&mut self, unpacker: &mut MemoryUnpacker<'_, '_, P>) {
         let raw = unpacker.read::<i8>();
         *self = match raw {
-            0 => Self::cv1,
-            1 => Self::quest_and_rift_s,
+            0 => Self::CV1,
+            1 => Self::QuestAndRiftS,
             _ => {
                 warn!("invalid TouchControllerModel wire value {}; using default", raw);
-                Self::cv1
+                Self::CV1
             }
         };
     }
@@ -8132,11 +8124,11 @@ impl EnumRepr for TouchControllerModel {
     }
     fn from_i32(i: i32) -> Self {
         match i {
-            0 => Self::cv1,
-            1 => Self::quest_and_rift_s,
+            0 => Self::CV1,
+            1 => Self::QuestAndRiftS,
             _ => {
                 warn!("invalid TouchControllerModel discriminant {}; using default", i);
-                Self::cv1
+                Self::CV1
             }
         }
     }

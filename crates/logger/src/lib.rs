@@ -171,4 +171,17 @@ mod tests {
         assert!(date.chars().filter(|c| *c == '-').count() == 2);
         assert!(time.chars().filter(|c| *c == '-').count() == 2);
     }
+
+    #[test]
+    fn log_level_ordering_matches_severity() {
+        assert!(LogLevel::Error < LogLevel::Warn);
+        assert!(LogLevel::Warn < LogLevel::Info);
+        assert!(LogLevel::Trace > LogLevel::Debug);
+    }
+
+    #[test]
+    fn log_level_debug_fmt() {
+        assert_eq!(format!("{:?}", LogLevel::Error), "ERROR");
+        assert_eq!(format!("{:?}", LogLevel::Trace), "TRACE");
+    }
 }

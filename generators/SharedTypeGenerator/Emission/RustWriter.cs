@@ -175,7 +175,7 @@ public class RustWriter : IDisposable
         {
             WriteIndent(); _writer.WriteLine("#[default]");
         }
-        WriteIndent(); _writer.Write(name.HumanizeField()); _writer.WriteLine(',');
+        WriteIndent(); _writer.Write(name.HumanizeVariant()); _writer.WriteLine(',');
     }
 
     /// <summary>Emits a C-style enum variant with an explicit discriminant.</summary>
@@ -185,7 +185,7 @@ public class RustWriter : IDisposable
         {
             WriteIndent(); _writer.WriteLine("#[default]");
         }
-        WriteIndent(); _writer.Write(name.HumanizeField());
+        WriteIndent(); _writer.Write(name.HumanizeVariant());
         _writer.Write(" = "); _writer.Write(value); _writer.WriteLine(',');
     }
 
@@ -193,7 +193,7 @@ public class RustWriter : IDisposable
     public void EnumVariantWithPayload(string variantName, string payloadType)
     {
         WriteIndent();
-        _writer.Write(variantName.HumanizeField()); _writer.Write('(');
+        _writer.Write(variantName.HumanizeVariant()); _writer.Write('(');
         _writer.Write(payloadType.HumanizeType()); _writer.WriteLine("),");
     }
 

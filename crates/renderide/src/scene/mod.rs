@@ -42,7 +42,7 @@
 //! ## Reflection probes
 //!
 //! [`RenderSpaceUpdate::reflection_probe_sh2_taks`](crate::shared::RenderSpaceUpdate) is completed in
-//! shared memory by marking each task [`ComputeResult::failed`](crate::shared::ComputeResult) until
+//! shared memory by marking each task [`ComputeResult::Failed`](crate::shared::ComputeResult) until
 //! SH2 extraction is implemented (module `reflection_probe_sh2`).
 
 mod camera_apply;
