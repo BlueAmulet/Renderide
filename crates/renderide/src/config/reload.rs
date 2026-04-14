@@ -1,7 +1,7 @@
 //! Optional debounced file watching for the renderer config path.
 //!
 //! [`RendererSettings`](super::RendererSettings) already implements [`PartialEq`]; after detecting a
-//! change with [`ConfigFileWatcher::poll_changed`], call [`super::load_renderer_settings`] and
+//! change with [`ConfigFileWatcher::poll_changed`], call [`super::persist::load_renderer_settings`] and
 //! compare to the in-memory copy to decide whether to apply updates.
 
 use std::path::Path;

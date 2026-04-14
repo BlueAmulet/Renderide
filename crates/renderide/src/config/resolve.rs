@@ -122,7 +122,7 @@ fn push_unique(out: &mut Vec<PathBuf>, p: PathBuf) {
     }
 }
 
-/// Records that `config.toml` was created at `path` on first load (see [`super::settings::load_renderer_settings`]).
+/// Records that `config.toml` was created at `path` on first load (see [`super::persist::load_renderer_settings`]).
 pub fn apply_generated_config(outcome: &mut ConfigResolveOutcome, path: PathBuf) {
     push_unique(&mut outcome.attempted_paths, path.clone());
     outcome.loaded_path = Some(path);

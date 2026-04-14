@@ -32,18 +32,21 @@
 //! next save from the UI will overwrite it. Manual edits are best done with the renderer stopped, or
 //! use [`save_renderer_settings`] to apply programmatically.
 
+mod persist;
 mod reload;
 mod resolve;
-mod settings;
+mod types;
 
+pub use persist::{
+    apply_renderide_gpu_validation_env, load_renderer_settings, log_config_resolve_trace,
+    save_renderer_settings, save_renderer_settings_from_load, settings_handle_from,
+    ConfigLoadResult, RendererSettingsHandle,
+};
 pub use reload::{renderer_settings_changed, ConfigFileWatcher};
 pub use resolve::{
     apply_generated_config, find_renderide_workspace_root, renderide_config_env_nonempty,
     resolve_config_path, resolve_save_path, ConfigResolveOutcome, ConfigSource, FILE_NAME_TOML,
 };
-pub use settings::{
-    apply_renderide_gpu_validation_env, load_renderer_settings, log_config_resolve_trace,
-    save_renderer_settings, save_renderer_settings_from_load, settings_handle_from,
-    ConfigLoadResult, DebugSettings, DisplaySettings, PowerPreferenceSetting, RendererSettings,
-    RendererSettingsHandle, RenderingSettings,
+pub use types::{
+    DebugSettings, DisplaySettings, PowerPreferenceSetting, RendererSettings, RenderingSettings,
 };
