@@ -125,6 +125,32 @@ pub(crate) fn try_write_preserved_stderr(data: &[u8]) {
     }
 }
 
+/// Duplicates the **preserved** stderr stream (the launching terminal) for async-signal-safe
+/// `write` from a fatal crash handler. Call only after [`ensure_stdio_forwarded_to_logger`].
+///
+/// Returns [`None`] when tee is disabled, stderr was not redirected, or duplication fails.
+#[cfg(unix)]
+pub(crate) fn duplicate_preserved_stderr_raw_fd() -> Option<std::os::fd::OwnedFd> {
+    if !tee_terminal_enabled() {
+        return None;
+    }
+    let m = PRESERVED_STDERR.get()?;
+    let guard = m.lock().ok()?;
+    use std::os::fd::AsFd;
+    guard.as_fd().try_clone_to_owned().ok()
+}
+
+/// See [`duplicate_preserved_stderr_raw_fd`]. Windows uses a duplicated [`std::fs::File`].
+#[cfg(windows)]
+pub(crate) fn duplicate_preserved_stderr_file_for_crash_log() -> Option<std::fs::File> {
+    if !tee_terminal_enabled() {
+        return None;
+    }
+    let m = PRESERVED_STDERR.get()?;
+    let guard = m.lock().ok()?;
+    guard.try_clone().ok()
+}
+
 #[cfg(any(unix, windows))]
 fn try_write_preserved_stdout(data: &[u8]) {
     if !tee_terminal_enabled() {

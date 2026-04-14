@@ -44,6 +44,7 @@ imgui-wgpu = "0.28"
 sysinfo = { version = "0.38.4", default-features = false, features = [
   "system",
 ] }
+crash-handler = "0.7"
 
 [dev-dependencies]
 nalgebra = { version = "0.34.1", features = ["convert-bytemuck"] }

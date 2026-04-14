@@ -92,6 +92,10 @@ pub fn run() -> Option<i32> {
     // or `VK_INSTANCE_LAYERS` (see `native_stdio`).
     crate::native_stdio::ensure_stdio_forwarded_to_logger();
 
+    // Fatal faults (signals / SEH / Mach exceptions) do not run the panic hook; register after
+    // stdio forwarding so a duplicate of the preserved terminal fd exists when tee is enabled.
+    crate::fatal_crash_log::install(&log_path);
+
     let config_load = load_renderer_settings();
     logger::set_max_level(effective_renderer_log_level(
         log_level_cli,

@@ -19,6 +19,7 @@
 //! `wgpu` dependency**, enforcing the “no GPU in scene” rule via Cargo boundaries; the current
 //! single crate keeps iteration cheaper until the scene API stabilizes.
 
+mod fatal_crash_log;
 mod native_stdio;
 
 pub mod app;
