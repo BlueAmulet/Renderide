@@ -63,6 +63,30 @@ pub(crate) fn primary_texture_2d_asset_id(
     -1
 }
 
+/// `true` when the first reflected `@group(1)` texture slot has a valid packed host texture of any
+/// supported kind (2D, render texture, etc.).
+///
+/// Used for uniform `flags` bit 0 (`_TEXTURE` / main texture sampling) — Unity enables that path
+/// when any texture is bound, not only [`HostTextureAssetKind::Texture2D`].
+pub(crate) fn primary_texture_any_kind_present(
+    reflected: &ReflectedRasterLayout,
+    ids: &StemEmbeddedPropertyIds,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+) -> bool {
+    for entry in &reflected.material_entries {
+        if matches!(entry.ty, wgpu::BindingType::Texture { .. }) {
+            let Some(pid) = ids.texture_binding_to_property_id.get(&entry.binding) else {
+                continue;
+            };
+            if let Some(MaterialPropertyValue::Texture(packed)) = store.get_merged(lookup, *pid) {
+                return unpack_host_texture_packed(*packed).is_some();
+            }
+        }
+    }
+    false
+}
+
 pub(crate) fn should_fallback_to_primary_texture(host_name: &str) -> bool {
     matches!(host_name, "_MainTex" | "_Tex" | "_TEXTURE")
 }

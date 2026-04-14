@@ -173,16 +173,7 @@ impl RenderPass for WorldMeshForwardPass {
             );
             backend.set_last_world_mesh_draw_stats(stats);
         }
-        if draws.is_empty() {
-            return Ok(());
-        }
         let lights_for_frame = backend.frame_resources.frame_lights().to_vec();
-        {
-            let Some(dbg) = backend.frame_resources.debug_draw.as_mut() else {
-                return Ok(());
-            };
-            dbg.ensure_draw_slot_capacity(ctx.device, draws.len());
-        }
 
         let (vw, vh) = frame.viewport_px;
         let aspect = vw as f32 / vh.max(1) as f32;
@@ -199,7 +190,7 @@ impl RenderPass for WorldMeshForwardPass {
             crate::render_graph::clamp_desktop_fov_degrees(hc.desktop_fov_degrees).to_radians();
         let world_proj = reverse_z_perspective(aspect, fov_rad, near, far);
 
-        let has_overlay = draws.iter().any(|d| d.is_overlay);
+        let has_overlay = !draws.is_empty() && draws.iter().any(|d| d.is_overlay);
         let overlay_proj = if has_overlay {
             Some(if let Some((half_h, on, of)) = hc.primary_ortho_task {
                 reverse_z_orthographic(half_h * aspect, half_h, on, of)
@@ -211,25 +202,36 @@ impl RenderPass for WorldMeshForwardPass {
         };
 
         let scene = frame.scene;
-        let mut slots: Vec<PaddedPerDrawUniforms> = Vec::with_capacity(draws.len());
-        for item in &draws {
-            let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
-                scene,
-                item,
-                hc,
-                render_context,
-                world_proj,
-                overlay_proj,
-            );
-            slots.push(if vp_l == vp_r {
-                PaddedPerDrawUniforms::new_single(vp_l, model)
-            } else {
-                PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
-            });
-        }
 
-        let mut slab_bytes = vec![0u8; draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE)];
-        write_per_draw_uniform_slab(&slots, &mut slab_bytes);
+        let mut slab_bytes = Vec::new();
+        if !draws.is_empty() {
+            {
+                let Some(dbg) = backend.frame_resources.debug_draw.as_mut() else {
+                    return Ok(());
+                };
+                dbg.ensure_draw_slot_capacity(ctx.device, draws.len());
+            }
+
+            let mut slots: Vec<PaddedPerDrawUniforms> = Vec::with_capacity(draws.len());
+            for item in &draws {
+                let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
+                    scene,
+                    item,
+                    hc,
+                    render_context,
+                    world_proj,
+                    overlay_proj,
+                );
+                slots.push(if vp_l == vp_r {
+                    PaddedPerDrawUniforms::new_single(vp_l, model)
+                } else {
+                    PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
+                });
+            }
+
+            slab_bytes = vec![0u8; draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE)];
+            write_per_draw_uniform_slab(&slots, &mut slab_bytes);
+        }
 
         let queue_guard = ctx
             .queue
@@ -237,7 +239,7 @@ impl RenderPass for WorldMeshForwardPass {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let queue = &*queue_guard;
 
-        {
+        if !draws.is_empty() {
             let Some(dbg) = backend.frame_resources.debug_draw.as_mut() else {
                 return Ok(());
             };
@@ -269,6 +271,40 @@ impl RenderPass for WorldMeshForwardPass {
         if let Some(fgpu) = backend.frame_resources.frame_gpu_mut() {
             fgpu.sync_cluster_viewport(ctx.device, (vw, vh), stereo_cluster);
             fgpu.write_frame_uniform_and_lights(queue, &uniforms, &lights_for_frame);
+        }
+
+        if draws.is_empty() {
+            // Still clear color + depth so offscreen render textures are defined (no draws → no geometry).
+            {
+                let _rpass = ctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("world-mesh-forward-clear-only"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: bb,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(SWAPCHAIN_CLEAR_COLOR),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: depth,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(MAIN_FORWARD_DEPTH_CLEAR),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    occlusion_query_set: None,
+                    timestamp_writes: None,
+                    multiview_mask: if use_multiview {
+                        NonZeroU32::new(3)
+                    } else {
+                        None
+                    },
+                });
+            }
+            return Ok(());
         }
 
         let Some(debug_bind_group) = backend

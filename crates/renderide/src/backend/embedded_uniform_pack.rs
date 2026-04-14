@@ -3,6 +3,7 @@
 use crate::assets::material::{
     MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
 };
+use crate::assets::texture::unpack_host_texture_packed;
 use crate::materials::{ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind};
 
 use super::embedded_material_layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
@@ -49,17 +50,17 @@ fn is_keyword_like_field(field_name: &str) -> bool {
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
-fn texture_property_asset_id_by_pid(
+/// `true` when the property has a packed texture that unpacks to any supported host kind (2D, RT, …).
+fn texture_property_any_kind_present_by_pid(
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
     property_id: i32,
-) -> i32 {
-    use crate::assets::texture::texture2d_asset_id_from_packed;
+) -> bool {
     match store.get_merged(lookup, property_id) {
         Some(MaterialPropertyValue::Texture(packed)) => {
-            texture2d_asset_id_from_packed(*packed).unwrap_or(-1)
+            unpack_host_texture_packed(*packed).is_some()
         }
-        _ => -1,
+        _ => false,
     }
 }
 
@@ -69,7 +70,7 @@ fn texture_property_present_pids(
     pids: &[i32],
 ) -> bool {
     pids.iter()
-        .any(|&pid| texture_property_asset_id_by_pid(store, lookup, pid) >= 0)
+        .any(|&pid| texture_property_any_kind_present_by_pid(store, lookup, pid))
 }
 
 fn inferred_keyword_float_f32(
@@ -201,7 +202,7 @@ fn pack_flags_u32(
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
     kw: &EmbeddedSharedKeywordIds,
-    texture_2d_for_key: i32,
+    primary_texture_any_kind_present: bool,
     cutoff: f32,
 ) -> u32 {
     if field_name != "flags" {
@@ -217,7 +218,7 @@ fn pack_flags_u32(
 
     let mut flags = 0u32;
 
-    if texture_2d_for_key >= 0 {
+    if primary_texture_any_kind_present {
         flags |= 0x01;
     }
     if cutoff > 0.0 && cutoff < 1.0 {
@@ -282,7 +283,7 @@ pub(crate) fn build_embedded_uniform_bytes(
     ids: &StemEmbeddedPropertyIds,
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
-    texture_2d_for_key: i32,
+    primary_texture_any_kind_present: bool,
 ) -> Option<Vec<u8>> {
     let u = reflected.material_uniform.as_ref()?;
     let mut buf = vec![0u8; u.total_size as usize];
@@ -322,7 +323,7 @@ pub(crate) fn build_embedded_uniform_bytes(
                         store,
                         lookup,
                         ids.shared.as_ref(),
-                        texture_2d_for_key,
+                        primary_texture_any_kind_present,
                         cutoff,
                     );
                     write_u32_at(&mut buf, field, flags);
@@ -439,5 +440,30 @@ mod text_uniform_packing_tests {
         assert!(should_fallback_to_primary_texture("_MainTex"));
         assert!(!should_fallback_to_primary_texture("_MainTex1"));
         assert!(!should_fallback_to_primary_texture("_SpecularMap"));
+    }
+
+    /// `_ALBEDOTEX` keyword inference must treat a packed [`HostTextureAssetKind::RenderTexture`] like a
+    /// bound texture (parity with 2D-only `texture_property_asset_id_by_pid`).
+    #[test]
+    fn albedo_keyword_infers_from_render_texture_packed_id() {
+        use crate::assets::texture::{unpack_host_texture_packed, HostTextureAssetKind};
+
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        let main_tex = reg.intern("_MainTex");
+        let type_bits = 3u32;
+        let pack_type_shift = 32u32.saturating_sub(type_bits);
+        let asset_id = 7i32;
+        let packed = asset_id | ((HostTextureAssetKind::RenderTexture as i32) << pack_type_shift);
+        assert_eq!(
+            unpack_host_texture_packed(packed),
+            Some((asset_id, HostTextureAssetKind::RenderTexture))
+        );
+        store.set_material(6, main_tex, MaterialPropertyValue::Texture(packed));
+        assert_eq!(
+            inferred_keyword_float_f32("_ALBEDOTEX", &store, lookup(6), &ids),
+            Some(1.0)
+        );
     }
 }

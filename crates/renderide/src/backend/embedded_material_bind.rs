@@ -25,8 +25,9 @@ use super::embedded_material_layout::{
     build_stem_material_layout, stem_hash, EmbeddedSharedKeywordIds, StemMaterialLayout,
 };
 use super::embedded_texture_resolve::{
-    primary_texture_2d_asset_id, resolved_texture_binding_for_host, sampler_from_state,
-    texture_bind_signature, ResolvedTextureBinding,
+    primary_texture_2d_asset_id, primary_texture_any_kind_present,
+    resolved_texture_binding_for_host, sampler_from_state, texture_bind_signature,
+    ResolvedTextureBinding,
 };
 use super::embedded_uniform_pack::build_embedded_uniform_bytes;
 
@@ -49,6 +50,8 @@ struct MaterialUniformCacheKey {
     material_asset_id: i32,
     property_block_slot0: Option<i32>,
     texture_2d_asset_id: i32,
+    /// Distinguishes RT-only primary slot from empty (`flags` bit 0).
+    primary_texture_any_kind_present: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -156,6 +159,8 @@ impl EmbeddedMaterialBindResources {
 
         let texture_2d_asset_id =
             primary_texture_2d_asset_id(&layout.reflected, layout.ids.as_ref(), store, lookup);
+        let primary_texture_any_kind_present =
+            primary_texture_any_kind_present(&layout.reflected, layout.ids.as_ref(), store, lookup);
         let texture_bind_signature = texture_bind_signature(
             &layout.reflected,
             layout.ids.as_ref(),
@@ -172,6 +177,7 @@ impl EmbeddedMaterialBindResources {
             material_asset_id: lookup.material_asset_id,
             property_block_slot0: lookup.mesh_property_block_slot0,
             texture_2d_asset_id,
+            primary_texture_any_kind_present,
         };
         let bind_key = MaterialBindCacheKey {
             stem_hash: sh,
@@ -195,7 +201,7 @@ impl EmbeddedMaterialBindResources {
                             layout.ids.as_ref(),
                             store,
                             lookup,
-                            texture_2d_asset_id,
+                            primary_texture_any_kind_present,
                         )
                         .ok_or_else(|| {
                             format!(
@@ -214,7 +220,7 @@ impl EmbeddedMaterialBindResources {
                         layout.ids.as_ref(),
                         store,
                         lookup,
-                        texture_2d_asset_id,
+                        primary_texture_any_kind_present,
                     )
                     .ok_or_else(|| {
                         format!(
