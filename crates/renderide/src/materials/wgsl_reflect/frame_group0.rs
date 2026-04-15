@@ -1,7 +1,7 @@
 //! Validates `@group(0)` against frame globals and optional depth snapshot handles.
 
 use naga::proc::Layouter;
-use naga::{AddressSpace, ImageClass, ImageDimension, Module, TypeInner};
+use naga::{AddressSpace, ImageClass, ImageDimension, Module, ScalarKind, TypeInner};
 
 use crate::backend::GpuLight;
 use crate::gpu::frame_globals::FrameGpuUniforms;
@@ -29,11 +29,11 @@ pub(super) fn validate_frame_group0(
         if rb.group != 0 {
             continue;
         }
-        if rb.binding > 5 {
+        if rb.binding > 8 {
             return Err(ReflectError::UnsupportedBinding {
                 group: 0,
                 binding: rb.binding,
-                reason: "only bindings 0..=5 are supported for raster frame globals".into(),
+                reason: "only bindings 0..=8 are supported for raster frame globals".into(),
             });
         }
         let (space, data_ty) = resource_data_ty(module, gv);
@@ -43,6 +43,15 @@ pub(super) fn validate_frame_group0(
             }
             (5, AddressSpace::Handle) => {
                 validate_frame_depth_texture_binding(module, data_ty, true, rb.binding)?;
+            }
+            (6, AddressSpace::Handle) => {
+                validate_frame_color_texture_binding(module, data_ty, false, rb.binding)?;
+            }
+            (7, AddressSpace::Handle) => {
+                validate_frame_color_texture_binding(module, data_ty, true, rb.binding)?;
+            }
+            (8, AddressSpace::Handle) => {
+                validate_frame_color_sampler_binding(module, data_ty, rb.binding)?;
             }
             (_, AddressSpace::Uniform) => {
                 if rb.binding == 0 {
@@ -106,6 +115,54 @@ fn validate_frame_depth_texture_binding(
             group: 0,
             binding,
             reason: "expected depth texture handle".into(),
+        }),
+    }
+}
+
+fn validate_frame_color_texture_binding(
+    module: &Module,
+    data_ty: naga::Handle<naga::Type>,
+    arrayed: bool,
+    binding: u32,
+) -> Result<(), ReflectError> {
+    match &module.types[data_ty].inner {
+        TypeInner::Image {
+            dim,
+            arrayed: got_arrayed,
+            class:
+                ImageClass::Sampled {
+                    kind: ScalarKind::Float,
+                    multi,
+                },
+        } if *dim == ImageDimension::D2 && *got_arrayed == arrayed && !*multi => Ok(()),
+        TypeInner::Image { .. } => Err(ReflectError::UnsupportedBinding {
+            group: 0,
+            binding,
+            reason: if arrayed {
+                "expected texture_2d_array<f32>".into()
+            } else {
+                "expected texture_2d<f32>".into()
+            },
+        }),
+        _ => Err(ReflectError::UnsupportedBinding {
+            group: 0,
+            binding,
+            reason: "expected sampled float texture handle".into(),
+        }),
+    }
+}
+
+fn validate_frame_color_sampler_binding(
+    module: &Module,
+    data_ty: naga::Handle<naga::Type>,
+    binding: u32,
+) -> Result<(), ReflectError> {
+    match &module.types[data_ty].inner {
+        TypeInner::Sampler { comparison: false } => Ok(()),
+        _ => Err(ReflectError::UnsupportedBinding {
+            group: 0,
+            binding,
+            reason: "expected filtering sampler".into(),
         }),
     }
 }

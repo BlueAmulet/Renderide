@@ -25,9 +25,10 @@ pub use cache::{MaterialPipelineCache, MaterialPipelineCacheKey, MaterialPipelin
 pub use embedded_raster_pipeline::{
     embedded_composed_stem_for_permutation, embedded_stem_needs_color_stream,
     embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_uv0_stream,
-    embedded_stem_requires_intersection_pass, embedded_stem_uses_alpha_blending,
-    embedded_wgsl_needs_color_stream, embedded_wgsl_needs_extended_vertex_streams,
-    embedded_wgsl_needs_uv0_stream, embedded_wgsl_requires_intersection_pass,
+    embedded_stem_requires_grab_pass, embedded_stem_requires_intersection_pass,
+    embedded_stem_uses_alpha_blending, embedded_wgsl_needs_color_stream,
+    embedded_wgsl_needs_extended_vertex_streams, embedded_wgsl_needs_uv0_stream,
+    embedded_wgsl_requires_grab_pass, embedded_wgsl_requires_intersection_pass,
 };
 pub use embedded_shader_stem::{
     embedded_default_stem_for_unity_name, embedded_stem_for_unity_name,
@@ -45,10 +46,11 @@ pub use pipeline_kind::RasterPipelineKind;
 
 /// Naga reflection: composed WGSL → `wgpu` bind layouts, uniform block layout, stem fingerprints.
 pub use wgsl_reflect::{
-    reflect_raster_material_requires_intersection_pass, reflect_raster_material_wgsl,
-    reflect_vertex_shader_needs_color_stream, reflect_vertex_shader_needs_uv0_stream,
-    validate_per_draw_group2, ReflectError, ReflectedMaterialUniformBlock, ReflectedRasterLayout,
-    ReflectedUniformField, ReflectedUniformScalarKind,
+    reflect_raster_material_requires_grab_pass, reflect_raster_material_requires_intersection_pass,
+    reflect_raster_material_wgsl, reflect_vertex_shader_needs_color_stream,
+    reflect_vertex_shader_needs_uv0_stream, validate_per_draw_group2, ReflectError,
+    ReflectedMaterialUniformBlock, ReflectedRasterLayout, ReflectedUniformField,
+    ReflectedUniformScalarKind,
 };
 
 /// Shader route table, optional material asset registry, and WGSL composition patches.

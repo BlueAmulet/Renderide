@@ -28,8 +28,9 @@ use self::bind_layout::global_to_layout_entry;
 use self::fingerprint::fingerprint_layout;
 use self::frame_group0::validate_frame_group0;
 use self::uniform_vertex::{
-    material_uniform_requires_intersection_subpass, reflect_first_group1_uniform_struct,
-    reflect_group1_global_binding_names, reflect_vs_main_max_vertex_location,
+    material_uniform_requires_grab_pass_subpass, material_uniform_requires_intersection_subpass,
+    reflect_first_group1_uniform_struct, reflect_group1_global_binding_names,
+    reflect_vs_main_max_vertex_location,
 };
 
 /// Parses and validates WGSL, checks frame globals, and builds layout entries for groups 1 and 2.
@@ -91,6 +92,7 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
 
     let requires_intersection_pass =
         material_uniform_requires_intersection_subpass(&material_uniform);
+    let requires_grab_pass = material_uniform_requires_grab_pass_subpass(&material_uniform);
 
     Ok(ReflectedRasterLayout {
         layout_fingerprint,
@@ -100,6 +102,7 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
         material_group1_names,
         vs_max_vertex_location,
         requires_intersection_pass,
+        requires_grab_pass,
     })
 }
 
@@ -126,6 +129,13 @@ pub fn reflect_raster_material_requires_intersection_pass(wgsl_source: &str) -> 
     reflect_raster_material_wgsl(wgsl_source)
         .ok()
         .is_some_and(|r| r.requires_intersection_pass)
+}
+
+/// `true` when reflection reports a grab-pass material (uniform field `_GrabPass`).
+pub fn reflect_raster_material_requires_grab_pass(wgsl_source: &str) -> bool {
+    reflect_raster_material_wgsl(wgsl_source)
+        .ok()
+        .is_some_and(|r| r.requires_grab_pass)
 }
 
 /// Validates that `@group(2)` matches the per-draw storage slab (single binding, 256-byte element stride).

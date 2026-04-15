@@ -32,6 +32,11 @@ fn embedded_intersection_pass_cache() -> &'static Mutex<HashMap<String, bool>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn embedded_grab_pass_cache() -> &'static Mutex<HashMap<String, bool>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// `true` when composed embedded WGSL's `vs_main` uses `@location(2)` or higher (UV0 vertex stream).
 ///
 /// Uses the same embedded source and reflection as the embedded raster pipeline for the given
@@ -108,6 +113,30 @@ pub fn embedded_wgsl_needs_extended_vertex_streams(wgsl_source: &str) -> bool {
         .ok()
         .and_then(|r| r.vs_max_vertex_location)
         .is_some_and(|m| m >= 4)
+}
+
+/// `true` when reflection reports a grab-pass material (uniform field `_GrabPass`).
+pub fn embedded_wgsl_requires_grab_pass(wgsl_source: &str) -> bool {
+    crate::materials::wgsl_reflect::reflect_raster_material_requires_grab_pass(wgsl_source)
+}
+
+/// `true` when the composed embedded target uses a grab pass (reflection of `_GrabPass`).
+///
+/// Memoized per `(base_stem, permutation)` like [`embedded_stem_needs_uv0_stream`].
+pub fn embedded_stem_requires_grab_pass(base_stem: &str, permutation: ShaderPermutation) -> bool {
+    let key = format!("{base_stem}:{}", permutation.0);
+    let mut guard = embedded_grab_pass_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(v) = guard.get(&key) {
+        return *v;
+    }
+    let composed = embedded_composed_stem_for_permutation(base_stem, permutation);
+    let v = embedded_shaders::embedded_target_wgsl(&composed)
+        .map(embedded_wgsl_requires_grab_pass)
+        .unwrap_or(false);
+    guard.insert(key, v);
+    v
 }
 
 /// `true` when reflection reports `_IntersectColor` in the material uniform (intersection forward subpass).

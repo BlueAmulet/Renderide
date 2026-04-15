@@ -116,18 +116,33 @@ pub fn compute_mesh_buffer_layout(
     bone_weight_count: i32,
     blendshape_buffers: Option<&[BlendshapeBufferDescriptor]>,
 ) -> Result<MeshBufferLayout, &'static str> {
-    let vertex_size = (vertex_stride * vertex_count) as usize;
-    let index_buffer_length = (index_count * index_bytes) as usize;
+    let vertex_stride = vertex_stride.max(0) as usize;
+    let vertex_count = vertex_count.max(0) as usize;
+    let index_count = index_count.max(0) as usize;
+    let index_bytes = index_bytes.max(0) as usize;
+    let bone_count = bone_count.max(0) as usize;
+    let bone_weight_count = bone_weight_count.max(0) as usize;
+
+    let vertex_size = vertex_stride
+        .checked_mul(vertex_count)
+        .ok_or("Mesh buffer size overflow")?;
+    let index_buffer_length = index_count
+        .checked_mul(index_bytes)
+        .ok_or("Mesh buffer size overflow")?;
     let index_buffer_start = vertex_size;
     let bone_counts_start = index_buffer_start + index_buffer_length;
-    let bone_counts_length = vertex_count as usize;
+    let bone_counts_length = vertex_count;
     let bone_weights_start = bone_counts_start + bone_counts_length;
-    let bone_weights_length = (bone_weight_count * 8) as usize;
+    let bone_weights_length = bone_weight_count
+        .checked_mul(8)
+        .ok_or("Mesh buffer size overflow")?;
     let bind_poses_start = bone_weights_start + bone_weights_length;
-    let bind_poses_length = (bone_count * 64) as usize;
+    let bind_poses_length = bone_count
+        .checked_mul(64)
+        .ok_or("Mesh buffer size overflow")?;
     let blendshape_data_start = bind_poses_start + bind_poses_length;
     let blendshape_data_length = blendshape_buffers
-        .map(|b| compute_blendshape_data_length(b, vertex_count))
+        .map(|b| compute_blendshape_data_length(b, vertex_count as i32))
         .unwrap_or(0);
     let total_buffer_length = blendshape_data_start + blendshape_data_length;
 
@@ -303,9 +318,12 @@ pub fn attribute_offset_and_size(
     None
 }
 
-/// Extracts float3 position and normal streams from interleaved vertices into dense `vec4<f32>`
-/// storage (16 bytes each per vertex). Returns [`None`] when attributes are missing or not both
-/// three-component `float32` (debug raster / compute path requirement).
+/// Extracts a float3 position stream and a normal stream from interleaved vertices into dense
+/// `vec4<f32>` storage (16 bytes each per vertex).
+///
+/// Position must be at least three-component `float32`. Normal is allowed to be absent or
+/// unsupported; in that case a stable +Z normal is synthesized so UI meshes that do not upload
+/// normals still satisfy the shared raster vertex layout.
 pub fn extract_float3_position_normal_as_vec4_streams(
     vertex_data: &[u8],
     vertex_count: usize,
@@ -320,42 +338,66 @@ pub fn extract_float3_position_normal_as_vec4_streams(
         return None;
     }
     let pos = attribute_offset_and_size(attrs, VertexAttributeType::Position)?;
-    let nrm = attribute_offset_and_size(attrs, VertexAttributeType::Normal)?;
     let pos_attr = attrs
         .iter()
         .find(|a| (a.attribute as i16) == (VertexAttributeType::Position as i16))?;
-    let nrm_attr = attrs
-        .iter()
-        .find(|a| (a.attribute as i16) == (VertexAttributeType::Normal as i16))?;
-    if pos_attr.format != VertexAttributeFormat::Float32 || pos_attr.dimensions != 3 {
+    if pos_attr.format != VertexAttributeFormat::Float32 || pos_attr.dimensions < 3 {
         return None;
     }
-    if nrm_attr.format != VertexAttributeFormat::Float32 || nrm_attr.dimensions != 3 {
-        return None;
-    }
-    if pos.1 != 12 || nrm.1 != 12 {
+    if pos.1 < 12 {
         return None;
     }
 
     let mut pos_out = vec![0u8; vertex_count * 16];
     let mut nrm_out = vec![0u8; vertex_count * 16];
     let one = 1.0f32.to_le_bytes();
+    fill_normal_stream_with_forward_z(&mut nrm_out);
+
+    let nrm = attribute_offset_and_size(attrs, VertexAttributeType::Normal);
+    let nrm_attr = attrs
+        .iter()
+        .find(|a| (a.attribute as i16) == (VertexAttributeType::Normal as i16));
+    let nrm_offset = if matches!(
+        (nrm, nrm_attr),
+        (Some((_, sz)), Some(attr))
+            if attr.format == VertexAttributeFormat::Float32 && attr.dimensions >= 3 && sz >= 12
+    ) {
+        nrm.map(|(off, _)| off)
+    } else {
+        None
+    };
+
     for i in 0..vertex_count {
         let base = i * stride;
         let p0 = base + pos.0;
-        let n0 = base + nrm.0;
-        if p0 + 12 > vertex_data.len() || n0 + 12 > vertex_data.len() {
+        if p0 + 12 > vertex_data.len() {
             return None;
         }
         let po = i * 16;
         pos_out[po..po + 12].copy_from_slice(&vertex_data[p0..p0 + 12]);
         pos_out[po + 12..po + 16].copy_from_slice(&one);
 
-        let no = i * 16;
-        nrm_out[no..no + 12].copy_from_slice(&vertex_data[n0..n0 + 12]);
-        nrm_out[no + 12..no + 16].fill(0);
+        if let Some(nrm_offset) = nrm_offset {
+            let n0 = base + nrm_offset;
+            if n0 + 12 > vertex_data.len() {
+                return None;
+            }
+            let no = i * 16;
+            nrm_out[no..no + 12].copy_from_slice(&vertex_data[n0..n0 + 12]);
+        }
     }
     Some((pos_out, nrm_out))
+}
+
+fn fill_normal_stream_with_forward_z(out: &mut [u8]) {
+    let zero = 0.0f32.to_le_bytes();
+    let one = 1.0f32.to_le_bytes();
+    for chunk in out.chunks_exact_mut(16) {
+        chunk[0..4].copy_from_slice(&zero);
+        chunk[4..8].copy_from_slice(&zero);
+        chunk[8..12].copy_from_slice(&one);
+        chunk[12..16].copy_from_slice(&zero);
+    }
 }
 
 /// Dense `vec2<f32>` UV stream (`8` bytes per vertex) for embedded materials (e.g. world Unlit).
@@ -536,14 +578,14 @@ fn decode_vertex_color(
     let dims = attr.dimensions.clamp(1, 4) as usize;
     let mut rgba = [1.0f32; 4];
     match attr.format {
-        VertexAttributeFormat::UNorm8 => {
+        VertexAttributeFormat::UNorm8 | VertexAttributeFormat::UInt8 => {
             let end = base.checked_add(dims)?;
             let src = vertex_data.get(base..end)?;
             for (i, byte) in src.iter().take(dims).enumerate() {
                 rgba[i] = *byte as f32 / 255.0;
             }
         }
-        VertexAttributeFormat::UNorm16 => {
+        VertexAttributeFormat::UNorm16 | VertexAttributeFormat::UInt16 => {
             let end = base.checked_add(dims.checked_mul(2)?)?;
             let src = vertex_data.get(base..end)?;
             for (i, chunk) in src.chunks(2).take(dims).enumerate() {
@@ -639,6 +681,25 @@ mod tests {
     }
 
     #[test]
+    fn layout_negative_bone_counts_clamped() {
+        let sub = vec![SubmeshBufferDescriptor {
+            topology: SubmeshTopology::default(),
+            index_start: 0,
+            index_count: 3,
+            bounds: crate::shared::RenderBoundingBox::default(),
+        }];
+        let ic = compute_index_count(&sub);
+        let l = compute_mesh_buffer_layout(32, 2, ic, 2, -1, -1, None).unwrap();
+        assert_eq!(l.vertex_size, 64);
+        assert_eq!(l.index_buffer_start, 64);
+        assert_eq!(l.index_buffer_length, 6);
+        assert_eq!(l.bone_counts_length, 2);
+        assert_eq!(l.bone_weights_length, 0);
+        assert_eq!(l.bind_poses_length, 0);
+        assert_eq!(l.total_buffer_length, 64 + 6 + 2);
+    }
+
+    #[test]
     fn vertex_stride_sum() {
         use crate::shared::{VertexAttributeDescriptor, VertexAttributeType};
         let attrs = [
@@ -654,6 +715,32 @@ mod tests {
             },
         ];
         assert_eq!(compute_vertex_stride(&attrs), 24);
+    }
+
+    #[test]
+    fn position_stream_synthesizes_normals_when_normal_missing() {
+        use crate::shared::{VertexAttributeDescriptor, VertexAttributeType};
+        let attrs = [VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Position,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 3,
+        }];
+        let mut raw = Vec::new();
+        for value in [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0] {
+            raw.extend_from_slice(&value.to_le_bytes());
+        }
+
+        let (pos, nrm) =
+            extract_float3_position_normal_as_vec4_streams(&raw, 2, 12, &attrs).expect("streams");
+        let pos0: [f32; 4] = bytemuck::pod_read_unaligned(&pos[..16]);
+        let pos1: [f32; 4] = bytemuck::pod_read_unaligned(&pos[16..32]);
+        let nrm0: [f32; 4] = bytemuck::pod_read_unaligned(&nrm[..16]);
+        let nrm1: [f32; 4] = bytemuck::pod_read_unaligned(&nrm[16..32]);
+
+        assert_eq!(pos0, [1.0, 2.0, 3.0, 1.0]);
+        assert_eq!(pos1, [4.0, 5.0, 6.0, 1.0]);
+        assert_eq!(nrm0, [0.0, 0.0, 1.0, 0.0]);
+        assert_eq!(nrm1, [0.0, 0.0, 1.0, 0.0]);
     }
 
     #[test]
@@ -812,5 +899,21 @@ mod tests {
         assert!((rgba[1] - (128.0 / 255.0)).abs() < 1e-6);
         assert!((rgba[2] - 0.0).abs() < 1e-6);
         assert!((rgba[3] - (64.0 / 255.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn color_stream_decodes_uint8_rgba_as_normalized_color() {
+        let attrs = [VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Color,
+            format: VertexAttributeFormat::UInt8,
+            dimensions: 4,
+        }];
+        let raw = vec![0u8, 64u8, 128u8, 255u8];
+        let out = color_float4_stream_bytes(&raw, 1, 4, &attrs).expect("color stream");
+        let rgba: [f32; 4] = bytemuck::pod_read_unaligned(&out[..16]);
+        assert!((rgba[0] - 0.0).abs() < 1e-6);
+        assert!((rgba[1] - (64.0 / 255.0)).abs() < 1e-6);
+        assert!((rgba[2] - (128.0 / 255.0)).abs() < 1e-6);
+        assert!((rgba[3] - 1.0).abs() < 1e-6);
     }
 }

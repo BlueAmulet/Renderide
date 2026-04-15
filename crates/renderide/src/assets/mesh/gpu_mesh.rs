@@ -178,7 +178,7 @@ impl GpuMesh {
                 }
                 None => {
                     logger::warn!(
-                        "mesh {}: missing float3 position+normal attributes — debug/deform path disabled",
+                        "mesh {}: missing float3 position attribute - debug/deform path disabled",
                         data.asset_id
                     );
                     (None, None)
