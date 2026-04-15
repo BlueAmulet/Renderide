@@ -10,12 +10,10 @@ use crate::assets::texture::{
     texture2d_asset_id_from_packed, unpack_host_texture_packed, HostTextureAssetKind,
 };
 use crate::materials::ReflectedRasterLayout;
-use crate::resources::{
-    CubemapPool, CubemapSamplerState, RenderTexturePool, Texture2dSamplerState, Texture3dPool,
-    Texture3dSamplerState, TexturePool,
-};
+use crate::resources::{CubemapSamplerState, Texture2dSamplerState, Texture3dSamplerState};
 
 use super::layout::StemEmbeddedPropertyIds;
+use super::texture_pools::EmbeddedTexturePools;
 
 /// Resolved GPU texture binding for a material property (packed host id or primary fallback).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -155,16 +153,12 @@ pub(crate) fn resolved_texture_binding_for_host(
 ///
 /// When `offscreen_write_render_texture_asset_id` is [`Some`], that render-texture id is treated as
 /// non-resident (offscreen color target; self-sampling is masked).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn texture_bind_signature(
     reflected: &ReflectedRasterLayout,
     ids: &StemEmbeddedPropertyIds,
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
-    texture_pool: &TexturePool,
-    texture3d_pool: &Texture3dPool,
-    cubemap_pool: &CubemapPool,
-    render_texture_pool: &RenderTexturePool,
+    pools: &EmbeddedTexturePools<'_>,
     primary_texture_2d: i32,
     offscreen_write_render_texture_asset_id: Option<i32>,
 ) -> u64 {
@@ -192,20 +186,24 @@ pub(crate) fn texture_bind_signature(
         binding.hash_for_signature(&mut h);
         let resident = match binding {
             ResolvedTextureBinding::None => false,
-            ResolvedTextureBinding::Texture2D { asset_id } => texture_pool
+            ResolvedTextureBinding::Texture2D { asset_id } => pools
+                .texture
                 .get_texture(asset_id)
                 .is_some_and(|t| t.mip_levels_resident > 0),
-            ResolvedTextureBinding::Texture3D { asset_id } => texture3d_pool
+            ResolvedTextureBinding::Texture3D { asset_id } => pools
+                .texture3d
                 .get_texture(asset_id)
                 .is_some_and(|t| t.mip_levels_resident > 0),
-            ResolvedTextureBinding::Cubemap { asset_id } => cubemap_pool
+            ResolvedTextureBinding::Cubemap { asset_id } => pools
+                .cubemap
                 .get_texture(asset_id)
                 .is_some_and(|t| t.mip_levels_resident > 0),
             ResolvedTextureBinding::RenderTexture { asset_id } => {
                 if offscreen_write_render_texture_asset_id == Some(asset_id) {
                     false
                 } else {
-                    render_texture_pool
+                    pools
+                        .render_texture
                         .get(asset_id)
                         .is_some_and(|t| t.is_sampleable())
                 }

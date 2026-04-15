@@ -22,6 +22,7 @@ use crate::render_graph::WorldMeshDrawStats;
 use crate::resources::{CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool};
 
 use super::debug_hud_bundle::DebugHudBundle;
+use super::embedded::EmbeddedTexturePools;
 use super::material_system::MaterialSystem;
 use super::occlusion::OcclusionSystem;
 
@@ -123,6 +124,16 @@ impl RenderBackend {
     /// Host render texture targets (secondary cameras, material sampling).
     pub fn render_texture_pool(&self) -> &RenderTexturePool {
         &self.asset_transfers.render_texture_pool
+    }
+
+    /// Borrowed view of all texture pools used for embedded material `@group(1)` bind resolution.
+    pub fn embedded_texture_pools(&self) -> EmbeddedTexturePools<'_> {
+        EmbeddedTexturePools {
+            texture: self.texture_pool(),
+            texture3d: self.texture3d_pool(),
+            cubemap: self.cubemap_pool(),
+            render_texture: self.render_texture_pool(),
+        }
     }
 
     /// Mutable texture pool.

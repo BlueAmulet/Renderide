@@ -71,14 +71,12 @@ fn set_world_mesh_material_bind_group(
             .as_ref()
             .and_then(|r| r.stem_for_shader_asset(item.batch_key.shader_asset_id));
         if let (Some(mb), Some(stem)) = (backend.materials.embedded_material_bind(), stem) {
+            let pools = backend.embedded_texture_pools();
             match mb.embedded_material_bind_group_with_cache_key(
                 stem,
                 queue,
                 backend.material_property_store(),
-                backend.texture_pool(),
-                backend.texture3d_pool(),
-                backend.cubemap_pool(),
-                backend.render_texture_pool(),
+                &pools,
                 item.lookup_ids,
                 offscreen_write_render_texture_asset_id,
             ) {

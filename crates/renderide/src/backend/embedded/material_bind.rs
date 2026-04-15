@@ -17,21 +17,20 @@ use std::sync::Arc;
 use lru::LruCache;
 use wgpu::util::DeviceExt;
 
-use crate::assets::material::{
-    MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
-};
-use crate::resources::{CubemapPool, RenderTexturePool, Texture3dPool, TexturePool};
-
 use super::embedded_material_bind_error::EmbeddedMaterialBindError;
 use super::layout::{
     build_stem_material_layout, stem_hash, EmbeddedSharedKeywordIds, StemMaterialLayout,
 };
+use super::texture_pools::EmbeddedTexturePools;
 use super::texture_resolve::{
     primary_texture_2d_asset_id, primary_texture_any_kind_present,
     resolved_texture_binding_for_host, sampler_from_cubemap_state, sampler_from_state,
     sampler_from_texture3d_state, texture_bind_signature, ResolvedTextureBinding,
 };
 use super::uniform_pack::build_embedded_uniform_bytes;
+use crate::assets::material::{
+    MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
+};
 
 /// LRU cap for `@group(1)` bind groups (per unique material/texture signature).
 const MAX_CACHED_EMBEDDED_BIND_GROUPS: usize = 512;
@@ -166,17 +165,13 @@ impl EmbeddedMaterialBindResources {
     }
 
     /// Returns or builds a `@group(1)` bind group for the composed embedded `stem` (e.g. `unlit_default`).
-    #[allow(clippy::too_many_arguments)]
     #[inline]
     pub fn embedded_material_bind_group(
         &self,
         stem: &str,
         queue: &wgpu::Queue,
         store: &MaterialPropertyStore,
-        texture_pool: &TexturePool,
-        texture3d_pool: &Texture3dPool,
-        cubemap_pool: &CubemapPool,
-        render_texture_pool: &RenderTexturePool,
+        pools: &EmbeddedTexturePools<'_>,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Result<Arc<wgpu::BindGroup>, EmbeddedMaterialBindError> {
@@ -184,10 +179,7 @@ impl EmbeddedMaterialBindResources {
             stem,
             queue,
             store,
-            texture_pool,
-            texture3d_pool,
-            cubemap_pool,
-            render_texture_pool,
+            pools,
             lookup,
             offscreen_write_render_texture_asset_id,
         )
@@ -196,16 +188,12 @@ impl EmbeddedMaterialBindResources {
 
     /// Same as [`Self::embedded_material_bind_group`], plus the cache key so callers can skip redundant
     /// [`wgpu::RenderPass::set_bind_group`] calls when the key matches the previous draw.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn embedded_material_bind_group_with_cache_key(
         &self,
         stem: &str,
         queue: &wgpu::Queue,
         store: &MaterialPropertyStore,
-        texture_pool: &TexturePool,
-        texture3d_pool: &Texture3dPool,
-        cubemap_pool: &CubemapPool,
-        render_texture_pool: &RenderTexturePool,
+        pools: &EmbeddedTexturePools<'_>,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Result<(MaterialBindCacheKey, Arc<wgpu::BindGroup>), EmbeddedMaterialBindError> {
@@ -218,10 +206,7 @@ impl EmbeddedMaterialBindResources {
         } = self.resolve_embedded_bind_inputs(
             stem,
             store,
-            texture_pool,
-            texture3d_pool,
-            cubemap_pool,
-            render_texture_pool,
+            pools,
             lookup,
             offscreen_write_render_texture_asset_id,
         )?;
@@ -247,10 +232,7 @@ impl EmbeddedMaterialBindResources {
         let (keepalive_views, keepalive_samplers) = self.resolve_group1_textures_and_samplers(
             &layout,
             texture_2d_asset_id,
-            texture_pool,
-            texture3d_pool,
-            cubemap_pool,
-            render_texture_pool,
+            pools,
             store,
             lookup,
             offscreen_write_render_texture_asset_id,
@@ -276,15 +258,11 @@ impl EmbeddedMaterialBindResources {
     }
 
     /// Resolves stem layout, primary texture ids, texture signature, and LRU cache keys for embedded binds.
-    #[allow(clippy::too_many_arguments)]
     fn resolve_embedded_bind_inputs(
         &self,
         stem: &str,
         store: &MaterialPropertyStore,
-        texture_pool: &TexturePool,
-        texture3d_pool: &Texture3dPool,
-        cubemap_pool: &CubemapPool,
-        render_texture_pool: &RenderTexturePool,
+        pools: &EmbeddedTexturePools<'_>,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Result<EmbeddedBindInputResolution, EmbeddedMaterialBindError> {
@@ -300,10 +278,7 @@ impl EmbeddedMaterialBindResources {
             layout.ids.as_ref(),
             store,
             lookup,
-            texture_pool,
-            texture3d_pool,
-            cubemap_pool,
-            render_texture_pool,
+            pools,
             texture_2d_asset_id,
             offscreen_write_render_texture_asset_id,
         );
@@ -333,16 +308,12 @@ impl EmbeddedMaterialBindResources {
     }
 
     /// Resolves every non-uniform `@group(1)` texture view and sampler in reflection order.
-    #[allow(clippy::too_many_arguments)]
     #[allow(clippy::type_complexity)]
     fn resolve_group1_textures_and_samplers(
         &self,
         layout: &Arc<StemMaterialLayout>,
         texture_2d_asset_id: i32,
-        texture_pool: &TexturePool,
-        texture3d_pool: &Texture3dPool,
-        cubemap_pool: &CubemapPool,
-        render_texture_pool: &RenderTexturePool,
+        pools: &EmbeddedTexturePools<'_>,
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
@@ -379,10 +350,7 @@ impl EmbeddedMaterialBindResources {
                             host_name,
                             tex_pid,
                             texture_2d_asset_id,
-                            texture_pool,
-                            texture3d_pool,
-                            cubemap_pool,
-                            render_texture_pool,
+                            pools,
                             store,
                             lookup,
                             offscreen_write_render_texture_asset_id,
@@ -414,10 +382,7 @@ impl EmbeddedMaterialBindResources {
                         host_name,
                         tex_pid,
                         texture_2d_asset_id,
-                        texture_pool,
-                        texture3d_pool,
-                        cubemap_pool,
-                        render_texture_pool,
+                        pools,
                         store,
                         lookup,
                         offscreen_write_render_texture_asset_id,
@@ -514,16 +479,13 @@ impl EmbeddedMaterialBindResources {
         Ok(layout)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // host name, property ids, pools, store, lookup, offscreen mask.
     fn resolve_texture_view_for_host(
         &self,
         host_name: &str,
         texture_property_id: i32,
         primary_texture_2d: i32,
-        texture_pool: &TexturePool,
-        texture3d_pool: &Texture3dPool,
-        cubemap_pool: &CubemapPool,
-        render_texture_pool: &RenderTexturePool,
+        pools: &EmbeddedTexturePools<'_>,
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
@@ -535,26 +497,16 @@ impl EmbeddedMaterialBindResources {
             store,
             lookup,
         );
-        self.resolve_texture_view(
-            texture_pool,
-            texture3d_pool,
-            cubemap_pool,
-            render_texture_pool,
-            binding,
-            offscreen_write_render_texture_asset_id,
-        )
+        self.resolve_texture_view(pools, binding, offscreen_write_render_texture_asset_id)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // host name, property ids, pools, store, lookup, offscreen mask.
     fn resolve_sampler_for_host(
         &self,
         host_name: &str,
         texture_property_id: i32,
         primary_texture_2d: i32,
-        texture_pool: &TexturePool,
-        texture3d_pool: &Texture3dPool,
-        cubemap_pool: &CubemapPool,
-        render_texture_pool: &RenderTexturePool,
+        pools: &EmbeddedTexturePools<'_>,
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
@@ -566,22 +518,12 @@ impl EmbeddedMaterialBindResources {
             store,
             lookup,
         );
-        self.resolve_sampler(
-            texture_pool,
-            texture3d_pool,
-            cubemap_pool,
-            render_texture_pool,
-            binding,
-            offscreen_write_render_texture_asset_id,
-        )
+        self.resolve_sampler(pools, binding, offscreen_write_render_texture_asset_id)
     }
 
     fn resolve_texture_view(
         &self,
-        texture_pool: &TexturePool,
-        _texture3d_pool: &Texture3dPool,
-        _cubemap_pool: &CubemapPool,
-        render_texture_pool: &RenderTexturePool,
+        pools: &EmbeddedTexturePools<'_>,
         binding: ResolvedTextureBinding,
         offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Option<Arc<wgpu::TextureView>> {
@@ -591,7 +533,8 @@ impl EmbeddedMaterialBindResources {
                 if asset_id < 0 {
                     return None;
                 }
-                texture_pool
+                pools
+                    .texture
                     .get_texture(asset_id)
                     .filter(|t| t.mip_levels_resident > 0)
                     .map(|t| t.view.clone())
@@ -607,7 +550,8 @@ impl EmbeddedMaterialBindResources {
                 if offscreen_write_render_texture_asset_id == Some(asset_id) {
                     return None;
                 }
-                render_texture_pool
+                pools
+                    .render_texture
                     .get(asset_id)
                     .filter(|t| t.is_sampleable())
                     .map(|t| t.color_view.clone())
@@ -617,10 +561,7 @@ impl EmbeddedMaterialBindResources {
 
     fn resolve_sampler(
         &self,
-        texture_pool: &TexturePool,
-        texture3d_pool: &Texture3dPool,
-        cubemap_pool: &CubemapPool,
-        render_texture_pool: &RenderTexturePool,
+        pools: &EmbeddedTexturePools<'_>,
         binding: ResolvedTextureBinding,
         offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Arc<wgpu::Sampler> {
@@ -630,7 +571,7 @@ impl EmbeddedMaterialBindResources {
                 if asset_id < 0 {
                     return self.default_sampler.clone();
                 }
-                let Some(tex) = texture_pool.get_texture(asset_id) else {
+                let Some(tex) = pools.texture.get_texture(asset_id) else {
                     return self.default_sampler.clone();
                 };
                 Arc::new(sampler_from_state(&self.device, &tex.sampler))
@@ -639,7 +580,7 @@ impl EmbeddedMaterialBindResources {
                 if asset_id < 0 {
                     return self.default_sampler.clone();
                 }
-                let Some(tex) = texture3d_pool.get_texture(asset_id) else {
+                let Some(tex) = pools.texture3d.get_texture(asset_id) else {
                     return self.default_sampler.clone();
                 };
                 Arc::new(sampler_from_texture3d_state(&self.device, &tex.sampler))
@@ -648,7 +589,7 @@ impl EmbeddedMaterialBindResources {
                 if asset_id < 0 {
                     return self.default_sampler.clone();
                 }
-                let Some(tex) = cubemap_pool.get_texture(asset_id) else {
+                let Some(tex) = pools.cubemap.get_texture(asset_id) else {
                     return self.default_sampler.clone();
                 };
                 Arc::new(sampler_from_cubemap_state(&self.device, &tex.sampler))
@@ -660,7 +601,7 @@ impl EmbeddedMaterialBindResources {
                 if offscreen_write_render_texture_asset_id == Some(asset_id) {
                     return self.default_sampler.clone();
                 }
-                let Some(tex) = render_texture_pool.get(asset_id) else {
+                let Some(tex) = pools.render_texture.get(asset_id) else {
                     return self.default_sampler.clone();
                 };
                 Arc::new(sampler_from_state(&self.device, &tex.sampler))
