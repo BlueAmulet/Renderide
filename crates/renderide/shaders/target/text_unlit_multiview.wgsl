@@ -185,11 +185,11 @@ fn vs_main(@builtin(instance_index) instance_index: u32, @builtin(view_index) vi
     }
     let _e16: mat4x4<f32> = vp;
     out.clip_pos = (_e16 * world_p);
-    out.uv = uv;
+    out.uv = vec2<f32>(uv.x, (1f - uv.y));
     out.extra_data = extra_n;
     out.vtx_color = color;
-    let _e24: VertexOutput = out;
-    return _e24;
+    let _e29: VertexOutput = out;
+    return _e29;
 }
 
 @fragment 

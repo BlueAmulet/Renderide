@@ -179,11 +179,11 @@ fn vs_main(@builtin(instance_index) instance_index: u32, @location(0) pos: vec4<
     let world_p: vec4<f32> = (_e1.model * vec4<f32>(pos.xyz, 1f));
     let vp: mat4x4<f32> = _e1.view_proj_left;
     out.clip_pos = (vp * world_p);
-    out.uv = uv;
+    out.uv = vec2<f32>(uv.x, (1f - uv.y));
     out.extra_data = extra_n;
     out.vtx_color = color;
-    let _e18: VertexOutput = out;
-    return _e18;
+    let _e23: VertexOutput = out;
+    return _e23;
 }
 
 @fragment 
