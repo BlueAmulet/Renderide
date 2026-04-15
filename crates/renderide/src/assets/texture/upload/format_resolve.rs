@@ -1,6 +1,6 @@
 //! Maps host [`SetTexture2DFormat`](crate::shared::SetTexture2DFormat) to [`wgpu::TextureFormat`] for new textures.
 
-use crate::shared::{ColorProfile, SetTexture2DFormat};
+use crate::shared::{ColorProfile, SetCubemapFormat, SetTexture2DFormat, SetTexture3DFormat};
 
 use super::super::decode::needs_rgba8_decode_before_upload;
 use super::super::format::pick_wgpu_storage_format;
@@ -27,4 +27,32 @@ fn rgba8_fallback_format(profile: ColorProfile) -> wgpu::TextureFormat {
         ColorProfile::SRGB | ColorProfile::SRGBAlpha => wgpu::TextureFormat::Rgba8UnormSrgb,
         ColorProfile::Linear => wgpu::TextureFormat::Rgba8Unorm,
     }
+}
+
+/// Decides GPU storage format for a new 3D texture from host [`SetTexture3DFormat`].
+pub fn resolve_texture3d_wgpu_format(
+    device: &wgpu::Device,
+    fmt: &SetTexture3DFormat,
+) -> wgpu::TextureFormat {
+    if needs_rgba8_decode_before_upload(fmt.format) {
+        return rgba8_fallback_format(fmt.profile);
+    }
+    if let Some(f) = pick_wgpu_storage_format(device, fmt.format, fmt.profile) {
+        return f;
+    }
+    rgba8_fallback_format(fmt.profile)
+}
+
+/// Decides GPU storage format for a new cubemap from host [`SetCubemapFormat`].
+pub fn resolve_cubemap_wgpu_format(
+    device: &wgpu::Device,
+    fmt: &SetCubemapFormat,
+) -> wgpu::TextureFormat {
+    if needs_rgba8_decode_before_upload(fmt.format) {
+        return rgba8_fallback_format(fmt.profile);
+    }
+    if let Some(f) = pick_wgpu_storage_format(device, fmt.format, fmt.profile) {
+        return f;
+    }
+    rgba8_fallback_format(fmt.profile)
 }

@@ -133,6 +133,12 @@ impl GpuLimits {
         self.wgpu.max_texture_dimension_2d
     }
 
+    /// `max_texture_dimension_3d` for the device.
+    #[inline]
+    pub fn max_texture_dimension_3d(&self) -> u32 {
+        self.wgpu.max_texture_dimension_3d
+    }
+
     /// `max_compute_workgroups_per_dimension` for dispatch validation.
     #[inline]
     pub fn max_compute_workgroups_per_dimension(&self) -> u32 {

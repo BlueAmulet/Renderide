@@ -20,15 +20,15 @@ use wgpu::util::DeviceExt;
 use crate::assets::material::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
-use crate::resources::{RenderTexturePool, TexturePool};
+use crate::resources::{CubemapPool, RenderTexturePool, Texture3dPool, TexturePool};
 
 use super::layout::{
     build_stem_material_layout, stem_hash, EmbeddedSharedKeywordIds, StemMaterialLayout,
 };
 use super::texture_resolve::{
     primary_texture_2d_asset_id, primary_texture_any_kind_present,
-    resolved_texture_binding_for_host, sampler_from_state, texture_bind_signature,
-    ResolvedTextureBinding,
+    resolved_texture_binding_for_host, sampler_from_cubemap_state, sampler_from_state,
+    sampler_from_texture3d_state, texture_bind_signature, ResolvedTextureBinding,
 };
 use super::uniform_pack::build_embedded_uniform_bytes;
 
@@ -164,6 +164,8 @@ impl EmbeddedMaterialBindResources {
         queue: &wgpu::Queue,
         store: &MaterialPropertyStore,
         texture_pool: &TexturePool,
+        texture3d_pool: &Texture3dPool,
+        cubemap_pool: &CubemapPool,
         render_texture_pool: &RenderTexturePool,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
@@ -173,6 +175,8 @@ impl EmbeddedMaterialBindResources {
             queue,
             store,
             texture_pool,
+            texture3d_pool,
+            cubemap_pool,
             render_texture_pool,
             lookup,
             offscreen_write_render_texture_asset_id,
@@ -189,6 +193,8 @@ impl EmbeddedMaterialBindResources {
         queue: &wgpu::Queue,
         store: &MaterialPropertyStore,
         texture_pool: &TexturePool,
+        texture3d_pool: &Texture3dPool,
+        cubemap_pool: &CubemapPool,
         render_texture_pool: &RenderTexturePool,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
@@ -206,6 +212,8 @@ impl EmbeddedMaterialBindResources {
             store,
             lookup,
             texture_pool,
+            texture3d_pool,
+            cubemap_pool,
             render_texture_pool,
             texture_2d_asset_id,
             offscreen_write_render_texture_asset_id,
@@ -319,6 +327,8 @@ impl EmbeddedMaterialBindResources {
                             tex_pid,
                             texture_2d_asset_id,
                             texture_pool,
+                            texture3d_pool,
+                            cubemap_pool,
                             render_texture_pool,
                             store,
                             lookup,
@@ -352,6 +362,8 @@ impl EmbeddedMaterialBindResources {
                         tex_pid,
                         texture_2d_asset_id,
                         texture_pool,
+                        texture3d_pool,
+                        cubemap_pool,
                         render_texture_pool,
                         store,
                         lookup,
@@ -442,6 +454,8 @@ impl EmbeddedMaterialBindResources {
         texture_property_id: i32,
         primary_texture_2d: i32,
         texture_pool: &TexturePool,
+        texture3d_pool: &Texture3dPool,
+        cubemap_pool: &CubemapPool,
         render_texture_pool: &RenderTexturePool,
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
@@ -456,6 +470,8 @@ impl EmbeddedMaterialBindResources {
         );
         self.resolve_texture_view(
             texture_pool,
+            texture3d_pool,
+            cubemap_pool,
             render_texture_pool,
             binding,
             offscreen_write_render_texture_asset_id,
@@ -469,6 +485,8 @@ impl EmbeddedMaterialBindResources {
         texture_property_id: i32,
         primary_texture_2d: i32,
         texture_pool: &TexturePool,
+        texture3d_pool: &Texture3dPool,
+        cubemap_pool: &CubemapPool,
         render_texture_pool: &RenderTexturePool,
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
@@ -483,6 +501,8 @@ impl EmbeddedMaterialBindResources {
         );
         self.resolve_sampler(
             texture_pool,
+            texture3d_pool,
+            cubemap_pool,
             render_texture_pool,
             binding,
             offscreen_write_render_texture_asset_id,
@@ -492,6 +512,8 @@ impl EmbeddedMaterialBindResources {
     fn resolve_texture_view(
         &self,
         texture_pool: &TexturePool,
+        _texture3d_pool: &Texture3dPool,
+        _cubemap_pool: &CubemapPool,
         render_texture_pool: &RenderTexturePool,
         binding: ResolvedTextureBinding,
         offscreen_write_render_texture_asset_id: Option<i32>,
@@ -506,6 +528,10 @@ impl EmbeddedMaterialBindResources {
                     .get_texture(asset_id)
                     .filter(|t| t.mip_levels_resident > 0)
                     .map(|t| t.view.clone())
+            }
+            ResolvedTextureBinding::Texture3D { .. } | ResolvedTextureBinding::Cubemap { .. } => {
+                // Embedded stems use `texture_2d` bindings; 3D/cube assets need shader/layout variants.
+                None
             }
             ResolvedTextureBinding::RenderTexture { asset_id } => {
                 if asset_id < 0 {
@@ -525,6 +551,8 @@ impl EmbeddedMaterialBindResources {
     fn resolve_sampler(
         &self,
         texture_pool: &TexturePool,
+        texture3d_pool: &Texture3dPool,
+        cubemap_pool: &CubemapPool,
         render_texture_pool: &RenderTexturePool,
         binding: ResolvedTextureBinding,
         offscreen_write_render_texture_asset_id: Option<i32>,
@@ -539,6 +567,24 @@ impl EmbeddedMaterialBindResources {
                     return self.default_sampler.clone();
                 };
                 Arc::new(sampler_from_state(&self.device, &tex.sampler))
+            }
+            ResolvedTextureBinding::Texture3D { asset_id } => {
+                if asset_id < 0 {
+                    return self.default_sampler.clone();
+                }
+                let Some(tex) = texture3d_pool.get_texture(asset_id) else {
+                    return self.default_sampler.clone();
+                };
+                Arc::new(sampler_from_texture3d_state(&self.device, &tex.sampler))
+            }
+            ResolvedTextureBinding::Cubemap { asset_id } => {
+                if asset_id < 0 {
+                    return self.default_sampler.clone();
+                }
+                let Some(tex) = cubemap_pool.get_texture(asset_id) else {
+                    return self.default_sampler.clone();
+                };
+                Arc::new(sampler_from_cubemap_state(&self.device, &tex.sampler))
             }
             ResolvedTextureBinding::RenderTexture { asset_id } => {
                 if asset_id < 0 {

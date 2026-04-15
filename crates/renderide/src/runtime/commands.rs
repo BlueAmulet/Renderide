@@ -36,6 +36,36 @@ pub(super) fn handle_running_command(runtime: &mut RendererRuntime, cmd: Rendere
             runtime.backend.on_set_texture_2d_data(d, shm, ipc);
         }
         RendererCommand::UnloadTexture2D(u) => runtime.backend.on_unload_texture_2d(u),
+        RendererCommand::SetTexture3DFormat(f) => {
+            runtime
+                .backend
+                .on_set_texture_3d_format(f, runtime.frontend.ipc_mut());
+        }
+        RendererCommand::SetTexture3DProperties(p) => {
+            runtime
+                .backend
+                .on_set_texture_3d_properties(p, runtime.frontend.ipc_mut());
+        }
+        RendererCommand::SetTexture3DData(d) => {
+            let (shm, ipc) = runtime.frontend.transport_pair_mut();
+            runtime.backend.on_set_texture_3d_data(d, shm, ipc);
+        }
+        RendererCommand::UnloadTexture3D(u) => runtime.backend.on_unload_texture_3d(u),
+        RendererCommand::SetCubemapFormat(f) => {
+            runtime
+                .backend
+                .on_set_cubemap_format(f, runtime.frontend.ipc_mut());
+        }
+        RendererCommand::SetCubemapProperties(p) => {
+            runtime
+                .backend
+                .on_set_cubemap_properties(p, runtime.frontend.ipc_mut());
+        }
+        RendererCommand::SetCubemapData(d) => {
+            let (shm, ipc) = runtime.frontend.transport_pair_mut();
+            runtime.backend.on_set_cubemap_data(d, shm, ipc);
+        }
+        RendererCommand::UnloadCubemap(u) => runtime.backend.on_unload_cubemap(u),
         RendererCommand::SetRenderTextureFormat(f) => {
             runtime
                 .backend

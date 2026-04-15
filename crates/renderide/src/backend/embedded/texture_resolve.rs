@@ -10,7 +10,10 @@ use crate::assets::texture::{
     texture2d_asset_id_from_packed, unpack_host_texture_packed, HostTextureAssetKind,
 };
 use crate::materials::ReflectedRasterLayout;
-use crate::resources::{RenderTexturePool, Texture2dSamplerState, TexturePool};
+use crate::resources::{
+    CubemapPool, CubemapSamplerState, RenderTexturePool, Texture2dSamplerState, Texture3dPool,
+    Texture3dSamplerState, TexturePool,
+};
 
 use super::layout::StemEmbeddedPropertyIds;
 
@@ -21,6 +24,10 @@ pub(crate) enum ResolvedTextureBinding {
     None,
     /// [`crate::resources::TexturePool`] entry (unpacked 2D asset id).
     Texture2D { asset_id: i32 },
+    /// [`crate::resources::Texture3dPool`] entry (unpacked 3D asset id).
+    Texture3D { asset_id: i32 },
+    /// [`crate::resources::CubemapPool`] entry (unpacked cubemap asset id).
+    Cubemap { asset_id: i32 },
     /// [`crate::resources::RenderTexturePool`] entry (unpacked render-texture asset id).
     RenderTexture { asset_id: i32 },
 }
@@ -33,6 +40,14 @@ impl ResolvedTextureBinding {
             }
             ResolvedTextureBinding::Texture2D { asset_id } => {
                 1u8.hash(hasher);
+                asset_id.hash(hasher);
+            }
+            ResolvedTextureBinding::Texture3D { asset_id } => {
+                3u8.hash(hasher);
+                asset_id.hash(hasher);
+            }
+            ResolvedTextureBinding::Cubemap { asset_id } => {
+                4u8.hash(hasher);
                 asset_id.hash(hasher);
             }
             ResolvedTextureBinding::RenderTexture { asset_id } => {
@@ -101,6 +116,12 @@ fn texture_property_binding(
             Some((id, HostTextureAssetKind::Texture2D)) => {
                 ResolvedTextureBinding::Texture2D { asset_id: id }
             }
+            Some((id, HostTextureAssetKind::Texture3D)) => {
+                ResolvedTextureBinding::Texture3D { asset_id: id }
+            }
+            Some((id, HostTextureAssetKind::Cubemap)) => {
+                ResolvedTextureBinding::Cubemap { asset_id: id }
+            }
             Some((id, HostTextureAssetKind::RenderTexture)) => {
                 ResolvedTextureBinding::RenderTexture { asset_id: id }
             }
@@ -141,6 +162,8 @@ pub(crate) fn texture_bind_signature(
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
     texture_pool: &TexturePool,
+    texture3d_pool: &Texture3dPool,
+    cubemap_pool: &CubemapPool,
     render_texture_pool: &RenderTexturePool,
     primary_texture_2d: i32,
     offscreen_write_render_texture_asset_id: Option<i32>,
@@ -172,6 +195,12 @@ pub(crate) fn texture_bind_signature(
             ResolvedTextureBinding::Texture2D { asset_id } => texture_pool
                 .get_texture(asset_id)
                 .is_some_and(|t| t.mip_levels_resident > 0),
+            ResolvedTextureBinding::Texture3D { asset_id } => texture3d_pool
+                .get_texture(asset_id)
+                .is_some_and(|t| t.mip_levels_resident > 0),
+            ResolvedTextureBinding::Cubemap { asset_id } => cubemap_pool
+                .get_texture(asset_id)
+                .is_some_and(|t| t.mip_levels_resident > 0),
             ResolvedTextureBinding::RenderTexture { asset_id } => {
                 if offscreen_write_render_texture_asset_id == Some(asset_id) {
                     false
@@ -187,23 +216,60 @@ pub(crate) fn texture_bind_signature(
     h.finish()
 }
 
-pub(crate) fn sampler_from_state(
+/// Builds a sampler for [`Texture3dSamplerState`] (three address modes).
+pub(crate) fn sampler_from_texture3d_state(
     device: &wgpu::Device,
-    state: &Texture2dSamplerState,
+    state: &Texture3dSamplerState,
 ) -> wgpu::Sampler {
-    let address_mode_u = match state.wrap_u {
+    let address_mode_u = wrap_to_address(state.wrap_u);
+    let address_mode_v = wrap_to_address(state.wrap_v);
+    let address_mode_w = wrap_to_address(state.wrap_w);
+    let (mag, min, mipmap) = filter_mode_to_wgpu(state.filter_mode);
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("embedded_texture3d_sampler"),
+        address_mode_u,
+        address_mode_v,
+        address_mode_w,
+        mag_filter: mag,
+        min_filter: min,
+        mipmap_filter: mipmap,
+        ..Default::default()
+    })
+}
+
+/// Builds a sampler for [`CubemapSamplerState`].
+pub(crate) fn sampler_from_cubemap_state(
+    device: &wgpu::Device,
+    state: &CubemapSamplerState,
+) -> wgpu::Sampler {
+    let address_mode_u = wrap_to_address(state.wrap_u);
+    let address_mode_v = wrap_to_address(state.wrap_v);
+    let (mag, min, mipmap) = filter_mode_to_wgpu(state.filter_mode);
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("embedded_cubemap_sampler"),
+        address_mode_u,
+        address_mode_v,
+        address_mode_w: address_mode_u,
+        mag_filter: mag,
+        min_filter: min,
+        mipmap_filter: mipmap,
+        ..Default::default()
+    })
+}
+
+fn wrap_to_address(w: crate::shared::TextureWrapMode) -> wgpu::AddressMode {
+    match w {
         crate::shared::TextureWrapMode::Repeat => wgpu::AddressMode::Repeat,
         crate::shared::TextureWrapMode::Clamp => wgpu::AddressMode::ClampToEdge,
         crate::shared::TextureWrapMode::Mirror => wgpu::AddressMode::MirrorRepeat,
         crate::shared::TextureWrapMode::MirrorOnce => wgpu::AddressMode::ClampToEdge,
-    };
-    let address_mode_v = match state.wrap_v {
-        crate::shared::TextureWrapMode::Repeat => wgpu::AddressMode::Repeat,
-        crate::shared::TextureWrapMode::Clamp => wgpu::AddressMode::ClampToEdge,
-        crate::shared::TextureWrapMode::Mirror => wgpu::AddressMode::MirrorRepeat,
-        crate::shared::TextureWrapMode::MirrorOnce => wgpu::AddressMode::ClampToEdge,
-    };
-    let (mag, min, mipmap) = match state.filter_mode {
+    }
+}
+
+fn filter_mode_to_wgpu(
+    filter_mode: crate::shared::TextureFilterMode,
+) -> (wgpu::FilterMode, wgpu::FilterMode, wgpu::MipmapFilterMode) {
+    match filter_mode {
         crate::shared::TextureFilterMode::Point => (
             wgpu::FilterMode::Nearest,
             wgpu::FilterMode::Nearest,
@@ -224,7 +290,16 @@ pub(crate) fn sampler_from_state(
             wgpu::FilterMode::Linear,
             wgpu::MipmapFilterMode::Linear,
         ),
-    };
+    }
+}
+
+pub(crate) fn sampler_from_state(
+    device: &wgpu::Device,
+    state: &Texture2dSamplerState,
+) -> wgpu::Sampler {
+    let address_mode_u = wrap_to_address(state.wrap_u);
+    let address_mode_v = wrap_to_address(state.wrap_v);
+    let (mag, min, mipmap) = filter_mode_to_wgpu(state.filter_mode);
     device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("embedded_texture_sampler"),
         address_mode_u,

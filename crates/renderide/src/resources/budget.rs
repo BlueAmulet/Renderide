@@ -138,6 +138,32 @@ impl TextureResidencyMeta {
             mipmap_bias: props.mipmap_bias,
         }
     }
+
+    /// Builds meta from host [`crate::shared::SetTexture3DProperties`].
+    pub fn from_texture3d_props(props: &crate::shared::SetTexture3DProperties) -> Self {
+        Self {
+            tier: if props.apply_immediatelly || props.high_priority {
+                ResidencyTier::Hot
+            } else {
+                ResidencyTier::Streaming
+            },
+            integration_urgent: props.apply_immediatelly,
+            mipmap_bias: 0.0,
+        }
+    }
+
+    /// Builds meta from host [`crate::shared::SetCubemapProperties`].
+    pub fn from_cubemap_props(props: &crate::shared::SetCubemapProperties) -> Self {
+        Self {
+            tier: if props.apply_immediatelly || props.high_priority {
+                ResidencyTier::Hot
+            } else {
+                ResidencyTier::Streaming
+            },
+            integration_urgent: props.apply_immediatelly,
+            mipmap_bias: props.mipmap_bias,
+        }
+    }
 }
 
 /// Metadata for future mesh eviction (not enforced yet).

@@ -19,7 +19,7 @@ use crate::config::RendererSettingsHandle;
 use crate::diagnostics::{DebugHudInput, SceneTransformsSnapshot};
 use crate::gpu::GpuLimits;
 use crate::render_graph::WorldMeshDrawStats;
-use crate::resources::{MeshPool, RenderTexturePool, TexturePool};
+use crate::resources::{CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool};
 
 use super::debug_hud_bundle::DebugHudBundle;
 use super::material_system::MaterialSystem;
@@ -108,6 +108,16 @@ impl RenderBackend {
     /// Resident Texture2D table (bind-group prep).
     pub fn texture_pool(&self) -> &TexturePool {
         &self.asset_transfers.texture_pool
+    }
+
+    /// Resident Texture3D table.
+    pub fn texture3d_pool(&self) -> &Texture3dPool {
+        &self.asset_transfers.texture3d_pool
+    }
+
+    /// Resident cubemap table.
+    pub fn cubemap_pool(&self) -> &CubemapPool {
+        &self.asset_transfers.cubemap_pool
     }
 
     /// Host render texture targets (secondary cameras, material sampling).

@@ -138,6 +138,73 @@ pub fn total_mip_chain_byte_len(
     Some(total)
 }
 
+/// Width, height, and depth at `level` in a standard 3D mip chain.
+pub fn mip_dimensions_at_level_3d(
+    base_w: u32,
+    base_h: u32,
+    base_d: u32,
+    level: u32,
+) -> (u32, u32, u32) {
+    let mut w = base_w;
+    let mut h = base_h;
+    let mut d = base_d;
+    for _ in 0..level {
+        w = (w / 2).max(1);
+        h = (h / 2).max(1);
+        d = (d / 2).max(1);
+    }
+    (w, h, d)
+}
+
+/// Sum of byte lengths for mips 0..`mipmap_count` for a 3D volume (`base_w`×`base_h`×`base_d`).
+pub fn total_mip_chain_volume_byte_len(
+    format: TextureFormat,
+    base_w: u32,
+    base_h: u32,
+    base_d: u32,
+    mipmap_count: u32,
+) -> Option<u64> {
+    let mut total = 0u64;
+    for level in 0..mipmap_count {
+        let (w, h, d) = mip_dimensions_at_level_3d(base_w, base_h, base_d, level);
+        let slice = mip_byte_len(format, w, h)?;
+        total = total.checked_add(slice.checked_mul(u64::from(d))?)?;
+    }
+    Some(total)
+}
+
+/// Approximate GPU bytes for a 3D texture (full mip chain) in `wgpu_format`.
+pub fn estimate_gpu_texture3d_bytes(
+    wgpu_format: wgpu::TextureFormat,
+    width: u32,
+    height: u32,
+    depth: u32,
+    mip_levels: u32,
+) -> u64 {
+    let mut sum = 0u64;
+    let mut w = width;
+    let mut h = height;
+    let mut d = depth;
+    for _ in 0..mip_levels {
+        sum = sum.saturating_add(
+            estimate_gpu_texture_bytes(wgpu_format, w, h, 1).saturating_mul(u64::from(d)),
+        );
+        w = (w / 2).max(1);
+        h = (h / 2).max(1);
+        d = (d / 2).max(1);
+    }
+    sum
+}
+
+/// Approximate GPU bytes for a cubemap (six faces, full mip chain per face).
+pub fn estimate_gpu_cubemap_bytes(
+    wgpu_format: wgpu::TextureFormat,
+    face_size: u32,
+    mip_levels: u32,
+) -> u64 {
+    estimate_gpu_texture_bytes(wgpu_format, face_size, face_size, mip_levels).saturating_mul(6)
+}
+
 /// Approximate GPU bytes for a 2D texture (full mip chain) in `wgpu_format` (used for VRAM accounting).
 pub fn estimate_gpu_texture_bytes(
     wgpu_format: wgpu::TextureFormat,

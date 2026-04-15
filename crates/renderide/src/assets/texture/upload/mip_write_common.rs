@@ -142,6 +142,122 @@ pub(super) fn write_one_mip(
     Ok(())
 }
 
+/// Writes one mip level of a 3D texture (full `width`×`height`×`depth` volume).
+#[allow(clippy::too_many_arguments)]
+pub fn write_texture3d_volume_mip(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    mip_level: u32,
+    width: u32,
+    height: u32,
+    depth: u32,
+    format: wgpu::TextureFormat,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let (bw, bh) = format.block_dimensions();
+    let copy_width = if bw > 1 {
+        width.div_ceil(bw) * bw
+    } else {
+        width
+    };
+    let copy_height = if bh > 1 {
+        height.div_ceil(bh) * bh
+    } else {
+        height
+    };
+    let size = wgpu::Extent3d {
+        width: copy_width,
+        height: copy_height,
+        depth_or_array_layers: depth,
+    };
+    let (layout, slice_len) = copy_layout_for_mip(format, width, height)?;
+    let expected = slice_len
+        .checked_mul(depth as usize)
+        .ok_or_else(|| "3d mip expected bytes overflow".to_string())?;
+    if bytes.len() != expected {
+        return Err(format!(
+            "3d mip data len {} != expected {} ({}x{}x{} {:?})",
+            bytes.len(),
+            expected,
+            width,
+            height,
+            depth,
+            format
+        ));
+    }
+
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        bytes,
+        layout,
+        size,
+    );
+    Ok(())
+}
+
+/// Writes one face × one mip of a cubemap (`D2` texture with six array layers).
+#[allow(clippy::too_many_arguments)]
+pub fn write_cubemap_face_mip(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    mip_level: u32,
+    face_layer: u32,
+    width: u32,
+    height: u32,
+    format: wgpu::TextureFormat,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let (bw, bh) = format.block_dimensions();
+    let copy_width = if bw > 1 {
+        width.div_ceil(bw) * bw
+    } else {
+        width
+    };
+    let copy_height = if bh > 1 {
+        height.div_ceil(bh) * bh
+    } else {
+        height
+    };
+    let size = wgpu::Extent3d {
+        width: copy_width,
+        height: copy_height,
+        depth_or_array_layers: 1,
+    };
+    let (layout, expected_len) = copy_layout_for_mip(format, width, height)?;
+    if bytes.len() != expected_len {
+        return Err(format!(
+            "cubemap mip data len {} != expected {} ({}x{} {:?})",
+            bytes.len(),
+            expected_len,
+            width,
+            height,
+            format
+        ));
+    }
+
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level,
+            origin: wgpu::Origin3d {
+                x: 0,
+                y: 0,
+                z: face_layer,
+            },
+            aspect: wgpu::TextureAspect::All,
+        },
+        bytes,
+        layout,
+        size,
+    );
+    Ok(())
+}
+
 pub(super) fn copy_layout_for_mip(
     format: wgpu::TextureFormat,
     width: u32,

@@ -86,6 +86,8 @@ pub(crate) fn draw_subset(
                     queue,
                     backend.material_property_store(),
                     backend.texture_pool(),
+                    backend.texture3d_pool(),
+                    backend.cubemap_pool(),
                     backend.render_texture_pool(),
                     item.lookup_ids,
                     offscreen_write_render_texture_asset_id,

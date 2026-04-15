@@ -2,10 +2,13 @@
 //!
 //! [`AssetTransferQueue`] lives in the [`crate::assets`] module and is owned by
 //! [`crate::backend::RenderBackend`]. It handles shared-memory ingestion paths that populate
-//! [`crate::resources::MeshPool`] and [`crate::resources::TexturePool`].
+//! [`crate::resources::MeshPool`], [`crate::resources::TexturePool`], [`crate::resources::Texture3dPool`],
+//! and [`crate::resources::CubemapPool`].
 
+mod cubemap_task;
 mod integrator;
 mod mesh_task;
+mod texture3d_task;
 mod texture_task;
 mod uploads;
 
@@ -13,10 +16,11 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 
 use crate::gpu::GpuLimits;
-use crate::resources::{MeshPool, RenderTexturePool, TexturePool};
+use crate::resources::{CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool};
 use crate::shared::{
-    MeshUploadData, SetRenderTextureFormat, SetTexture2DData, SetTexture2DFormat,
-    SetTexture2DProperties,
+    MeshUploadData, SetCubemapData, SetCubemapFormat, SetCubemapProperties, SetRenderTextureFormat,
+    SetTexture2DData, SetTexture2DFormat, SetTexture2DProperties, SetTexture3DData,
+    SetTexture3DFormat, SetTexture3DProperties,
 };
 
 pub use integrator::{
@@ -24,9 +28,12 @@ pub use integrator::{
     MAX_ASSET_INTEGRATION_QUEUED,
 };
 pub use uploads::{
-    attach_flush_pending_asset_uploads, on_mesh_unload, on_set_render_texture_format,
-    on_set_texture_2d_data, on_set_texture_2d_format, on_set_texture_2d_properties,
-    on_unload_render_texture, on_unload_texture_2d, try_process_mesh_upload,
+    attach_flush_pending_asset_uploads, on_mesh_unload, on_set_cubemap_data, on_set_cubemap_format,
+    on_set_cubemap_properties, on_set_render_texture_format, on_set_texture_2d_data,
+    on_set_texture_2d_format, on_set_texture_2d_properties, on_set_texture_3d_data,
+    on_set_texture_3d_format, on_set_texture_3d_properties, on_unload_cubemap,
+    on_unload_render_texture, on_unload_texture_2d, on_unload_texture_3d,
+    try_cubemap_upload_with_device, try_process_mesh_upload, try_texture3d_upload_with_device,
     try_texture_upload_with_device, MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
 };
 
@@ -36,6 +43,10 @@ pub struct AssetTransferQueue {
     pub(crate) mesh_pool: MeshPool,
     /// Resident textures (upload target).
     pub(crate) texture_pool: TexturePool,
+    /// Resident 3D textures (upload target).
+    pub(crate) texture3d_pool: Texture3dPool,
+    /// Resident cubemaps (upload target).
+    pub(crate) cubemap_pool: CubemapPool,
     /// Resident host render textures (color + optional depth).
     pub(crate) render_texture_pool: RenderTexturePool,
     /// Latest [`SetRenderTextureFormat`] per asset.
@@ -44,6 +55,14 @@ pub struct AssetTransferQueue {
     pub(crate) texture_formats: HashMap<i32, SetTexture2DFormat>,
     /// Latest [`SetTexture2DProperties`] per asset (sampler metadata on [`crate::resources::GpuTexture2d`]).
     pub(crate) texture_properties: HashMap<i32, SetTexture2DProperties>,
+    /// Latest [`SetTexture3DFormat`] per asset.
+    pub(crate) texture3d_formats: HashMap<i32, SetTexture3DFormat>,
+    /// Latest [`SetTexture3DProperties`] per asset.
+    pub(crate) texture3d_properties: HashMap<i32, SetTexture3DProperties>,
+    /// Latest [`SetCubemapFormat`] per asset.
+    pub(crate) cubemap_formats: HashMap<i32, SetCubemapFormat>,
+    /// Latest [`SetCubemapProperties`] per asset.
+    pub(crate) cubemap_properties: HashMap<i32, SetCubemapProperties>,
     /// Bound wgpu device after [`crate::backend::RenderBackend::attach`].
     pub(crate) gpu_device: Option<Arc<wgpu::Device>>,
     /// Submission queue paired with [`Self::gpu_device`].
@@ -54,6 +73,10 @@ pub struct AssetTransferQueue {
     pub(crate) pending_mesh_uploads: VecDeque<MeshUploadData>,
     /// Texture mip payloads waiting for GPU allocation or shared memory.
     pub(crate) pending_texture_uploads: VecDeque<SetTexture2DData>,
+    /// Texture3D data waiting for GPU or format.
+    pub(crate) pending_texture3d_uploads: VecDeque<SetTexture3DData>,
+    /// Cubemap data waiting for GPU or format.
+    pub(crate) pending_cubemap_uploads: VecDeque<SetCubemapData>,
     /// Cooperative uploads drained by [`drain_asset_tasks`] / [`drain_asset_tasks_unbounded`].
     pub(crate) integrator: AssetIntegrator,
 }
@@ -76,15 +99,23 @@ impl AssetTransferQueue {
         Self {
             mesh_pool: MeshPool::default_pool(),
             texture_pool: TexturePool::default_pool(),
+            texture3d_pool: Texture3dPool::default_pool(),
+            cubemap_pool: CubemapPool::default_pool(),
             render_texture_pool: RenderTexturePool::new(),
             render_texture_formats: HashMap::new(),
             texture_formats: HashMap::new(),
             texture_properties: HashMap::new(),
+            texture3d_formats: HashMap::new(),
+            texture3d_properties: HashMap::new(),
+            cubemap_formats: HashMap::new(),
+            cubemap_properties: HashMap::new(),
             gpu_device: None,
             gpu_queue: None,
             gpu_limits: None,
             pending_mesh_uploads: VecDeque::new(),
             pending_texture_uploads: VecDeque::new(),
+            pending_texture3d_uploads: VecDeque::new(),
+            pending_cubemap_uploads: VecDeque::new(),
             integrator: AssetIntegrator::default(),
         }
     }

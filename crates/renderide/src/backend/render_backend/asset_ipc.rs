@@ -3,8 +3,10 @@
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::RasterPipelineKind;
 use crate::shared::{
-    MaterialsUpdateBatch, MeshUnload, MeshUploadData, SetRenderTextureFormat, SetTexture2DData,
-    SetTexture2DFormat, SetTexture2DProperties, UnloadRenderTexture, UnloadTexture2D,
+    MaterialsUpdateBatch, MeshUnload, MeshUploadData, SetCubemapData, SetCubemapFormat,
+    SetCubemapProperties, SetRenderTextureFormat, SetTexture2DData, SetTexture2DFormat,
+    SetTexture2DProperties, SetTexture3DData, SetTexture3DFormat, SetTexture3DProperties,
+    UnloadCubemap, UnloadRenderTexture, UnloadTexture2D, UnloadTexture3D,
 };
 
 use crate::assets::asset_transfer_queue::{self as asset_uploads};
@@ -75,6 +77,68 @@ impl RenderBackend {
     /// Remove a texture asset from CPU tables and the pool.
     pub fn on_unload_texture_2d(&mut self, u: UnloadTexture2D) {
         asset_uploads::on_unload_texture_2d(&mut self.asset_transfers, u);
+    }
+
+    /// Handle [`SetTexture3DFormat`](crate::shared::SetTexture3DFormat).
+    pub fn on_set_texture_3d_format(
+        &mut self,
+        f: SetTexture3DFormat,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_set_texture_3d_format(&mut self.asset_transfers, f, ipc);
+    }
+
+    /// Handle [`SetTexture3DProperties`](crate::shared::SetTexture3DProperties).
+    pub fn on_set_texture_3d_properties(
+        &mut self,
+        p: SetTexture3DProperties,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_set_texture_3d_properties(&mut self.asset_transfers, p, ipc);
+    }
+
+    /// Handle [`SetTexture3DData`](crate::shared::SetTexture3DData).
+    pub fn on_set_texture_3d_data(
+        &mut self,
+        d: SetTexture3DData,
+        shm: Option<&mut SharedMemoryAccessor>,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_set_texture_3d_data(&mut self.asset_transfers, d, shm, ipc);
+    }
+
+    /// Handle [`UnloadTexture3D`](crate::shared::UnloadTexture3D).
+    pub fn on_unload_texture_3d(&mut self, u: UnloadTexture3D) {
+        asset_uploads::on_unload_texture_3d(&mut self.asset_transfers, u);
+    }
+
+    /// Handle [`SetCubemapFormat`](crate::shared::SetCubemapFormat).
+    pub fn on_set_cubemap_format(&mut self, f: SetCubemapFormat, ipc: Option<&mut DualQueueIpc>) {
+        asset_uploads::on_set_cubemap_format(&mut self.asset_transfers, f, ipc);
+    }
+
+    /// Handle [`SetCubemapProperties`](crate::shared::SetCubemapProperties).
+    pub fn on_set_cubemap_properties(
+        &mut self,
+        p: SetCubemapProperties,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_set_cubemap_properties(&mut self.asset_transfers, p, ipc);
+    }
+
+    /// Handle [`SetCubemapData`](crate::shared::SetCubemapData).
+    pub fn on_set_cubemap_data(
+        &mut self,
+        d: SetCubemapData,
+        shm: Option<&mut SharedMemoryAccessor>,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_set_cubemap_data(&mut self.asset_transfers, d, shm, ipc);
+    }
+
+    /// Handle [`UnloadCubemap`](crate::shared::UnloadCubemap).
+    pub fn on_unload_cubemap(&mut self, u: UnloadCubemap) {
+        asset_uploads::on_unload_cubemap(&mut self.asset_transfers, u);
     }
 
     /// Handle [`SetRenderTextureFormat`](crate::shared::SetRenderTextureFormat).

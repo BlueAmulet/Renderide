@@ -7,20 +7,26 @@ use std::time::Instant;
 use crate::gpu::GpuLimits;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 
+use super::cubemap_task::CubemapUploadTask;
 use super::mesh_task::MeshUploadTask;
+use super::texture3d_task::Texture3dUploadTask;
 use super::texture_task::TextureUploadTask;
 use super::AssetTransferQueue;
 
 /// Maximum combined queued integration tasks (high + normal). Beyond this, new tasks are dropped with a warning.
 pub const MAX_ASSET_INTEGRATION_QUEUED: usize = 2048;
 
-/// One cooperative upload (mesh or Texture2D data).
+/// One cooperative upload (mesh or texture data).
 #[derive(Debug)]
 pub enum AssetTask {
     /// Host mesh payload integration.
     Mesh(MeshUploadTask),
     /// Host Texture2D mip integration.
     Texture(TextureUploadTask),
+    /// Host Texture3D mip integration.
+    Texture3d(Texture3dUploadTask),
+    /// Host cubemap face/mip integration.
+    Cubemap(CubemapUploadTask),
 }
 
 /// Whether a task needs another [`AssetTask::step`] call in a later drain.
@@ -35,7 +41,7 @@ pub enum StepResult {
 /// Priority-separated cooperative upload queues ([`Renderite.Unity.AssetIntegrator`]–style).
 #[derive(Debug, Default)]
 pub struct AssetIntegrator {
-    /// [`MeshUploadData::high_priority`] / [`SetTexture2DData::high_priority`] tasks.
+    /// [`MeshUploadData::high_priority`] / texture data `high_priority` tasks.
     pub high_priority: VecDeque<AssetTask>,
     /// Standard-priority tasks.
     pub normal_priority: VecDeque<AssetTask>,
@@ -90,6 +96,8 @@ fn step_asset_task(
     let step_result = match task {
         AssetTask::Mesh(m) => m.step(asset, device, gpu_limits, &q_lock, shm, ipc),
         AssetTask::Texture(t) => t.step(asset, device, gpu_limits, &q_lock, shm, ipc),
+        AssetTask::Texture3d(t) => t.step(asset, device, gpu_limits, &q_lock, shm, ipc),
+        AssetTask::Cubemap(t) => t.step(asset, device, gpu_limits, &q_lock, shm, ipc),
     };
     drop(q_lock);
     step_result

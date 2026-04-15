@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::resources::{GpuRenderTexture, GpuTexture2d};
+use crate::resources::{GpuCubemap, GpuRenderTexture, GpuTexture2d, GpuTexture3d};
 
 use super::super::AssetTransferQueue;
 
@@ -57,5 +57,60 @@ pub fn flush_pending_render_texture_allocations(
             continue;
         };
         let _ = queue.render_texture_pool.insert_texture(tex);
+    }
+}
+
+/// Ensures [`GpuTexture3d`](crate::resources::GpuTexture3d) instances exist for pending format table entries.
+pub fn flush_pending_texture3d_allocations(
+    queue: &mut AssetTransferQueue,
+    device: &Arc<wgpu::Device>,
+) {
+    let ids: Vec<i32> = queue.texture3d_formats.keys().copied().collect();
+    for id in ids {
+        if queue.texture3d_pool.get_texture(id).is_some() {
+            continue;
+        }
+        let Some(fmt) = queue.texture3d_formats.get(&id).cloned() else {
+            continue;
+        };
+        let props = queue.texture3d_properties.get(&id);
+        let Some(limits) = queue.gpu_limits.as_ref() else {
+            logger::warn!("texture3d {id}: gpu_limits missing; cannot allocate on attach");
+            continue;
+        };
+        let Some(tex) =
+            GpuTexture3d::new_from_format(device.as_ref(), limits.as_ref(), &fmt, props)
+        else {
+            logger::warn!("texture3d {id}: failed to allocate GPU texture on attach");
+            continue;
+        };
+        let _ = queue.texture3d_pool.insert_texture(tex);
+    }
+}
+
+/// Ensures [`GpuCubemap`](crate::resources::GpuCubemap) instances exist for pending format table entries.
+pub fn flush_pending_cubemap_allocations(
+    queue: &mut AssetTransferQueue,
+    device: &Arc<wgpu::Device>,
+) {
+    let ids: Vec<i32> = queue.cubemap_formats.keys().copied().collect();
+    for id in ids {
+        if queue.cubemap_pool.get_texture(id).is_some() {
+            continue;
+        }
+        let Some(fmt) = queue.cubemap_formats.get(&id).cloned() else {
+            continue;
+        };
+        let props = queue.cubemap_properties.get(&id);
+        let Some(limits) = queue.gpu_limits.as_ref() else {
+            logger::warn!("cubemap {id}: gpu_limits missing; cannot allocate on attach");
+            continue;
+        };
+        let Some(tex) = GpuCubemap::new_from_format(device.as_ref(), limits.as_ref(), &fmt, props)
+        else {
+            logger::warn!("cubemap {id}: failed to allocate GPU texture on attach");
+            continue;
+        };
+        let _ = queue.cubemap_pool.insert_texture(tex);
     }
 }
