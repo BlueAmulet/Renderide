@@ -8,7 +8,7 @@ use crate::diagnostics::{
     DebugHud, DebugHudInput, FrameDiagnosticsSnapshot, FrameTimingHudSnapshot,
     RendererInfoSnapshot, SceneTransformsSnapshot, TextureDebugSnapshot,
 };
-use crate::render_graph::WorldMeshDrawStats;
+use crate::render_graph::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
 /// ImGui overlay, input/timing state, and mesh-draw stats for the diagnostics HUD.
 pub struct DebugHudBundle {
@@ -18,6 +18,7 @@ pub struct DebugHudBundle {
     want_capture_mouse: bool,
     want_capture_keyboard: bool,
     last_world_mesh_draw_stats: WorldMeshDrawStats,
+    last_world_mesh_draw_state_rows: Vec<WorldMeshDrawStateRow>,
     main_enabled: bool,
     textures_enabled: bool,
     current_view_texture_2d_asset_ids: BTreeSet<i32>,
@@ -39,6 +40,7 @@ impl DebugHudBundle {
             want_capture_mouse: false,
             want_capture_keyboard: false,
             last_world_mesh_draw_stats: WorldMeshDrawStats::default(),
+            last_world_mesh_draw_state_rows: Vec::new(),
             main_enabled: false,
             textures_enabled: false,
             current_view_texture_2d_asset_ids: BTreeSet::new(),
@@ -162,6 +164,14 @@ impl DebugHudBundle {
 
     pub(crate) fn last_world_mesh_draw_stats(&self) -> WorldMeshDrawStats {
         self.last_world_mesh_draw_stats
+    }
+
+    pub(crate) fn set_last_world_mesh_draw_state_rows(&mut self, rows: Vec<WorldMeshDrawStateRow>) {
+        self.last_world_mesh_draw_state_rows = rows;
+    }
+
+    pub(crate) fn last_world_mesh_draw_state_rows(&self) -> Vec<WorldMeshDrawStateRow> {
+        self.last_world_mesh_draw_state_rows.clone()
     }
 
     pub(crate) fn set_scene_transforms_snapshot(&mut self, snapshot: SceneTransformsSnapshot) {

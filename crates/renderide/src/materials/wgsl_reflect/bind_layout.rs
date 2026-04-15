@@ -120,13 +120,17 @@ pub(super) fn global_to_layout_entry(
                             reason: "arrayed images not supported yet".into(),
                         });
                     }
-                    if *dim != ImageDimension::D2 {
-                        return Err(ReflectError::UnsupportedBinding {
-                            group,
-                            binding,
-                            reason: "only 2D textures supported".into(),
-                        });
-                    }
+                    let view_dimension = match *dim {
+                        ImageDimension::D2 => wgpu::TextureViewDimension::D2,
+                        ImageDimension::Cube => wgpu::TextureViewDimension::Cube,
+                        _ => {
+                            return Err(ReflectError::UnsupportedBinding {
+                                group,
+                                binding,
+                                reason: "only 2D and cube textures supported".into(),
+                            });
+                        }
+                    };
                     let sample_type = match class {
                         ImageClass::Sampled { kind, multi } => {
                             if *multi {
@@ -181,7 +185,7 @@ pub(super) fn global_to_layout_entry(
                         visibility,
                         ty: wgpu::BindingType::Texture {
                             sample_type,
-                            view_dimension: wgpu::TextureViewDimension::D2,
+                            view_dimension,
                             multisampled: false,
                         },
                         count: None,

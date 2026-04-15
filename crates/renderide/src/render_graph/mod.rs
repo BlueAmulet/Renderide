@@ -70,7 +70,10 @@ pub use world_mesh_draw_prep::{
     MaterialDrawBatchKey, WorldMeshDrawCollectParallelism, WorldMeshDrawCollection,
     WorldMeshDrawItem,
 };
-pub use world_mesh_draw_stats::{world_mesh_draw_stats_from_sorted, WorldMeshDrawStats};
+pub use world_mesh_draw_stats::{
+    world_mesh_draw_state_rows_from_sorted, world_mesh_draw_stats_from_sorted,
+    WorldMeshDrawStateRow, WorldMeshDrawStats,
+};
 
 pub use builder::GraphBuilder;
 pub use camera::{
@@ -104,7 +107,9 @@ pub use ids::PassId;
 pub use output_depth_mode::OutputDepthMode;
 pub use pass::{PassPhase, RenderPass};
 pub use resources::{PassResources, ResourceSlot};
-pub use reverse_z_depth::{MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE};
+pub use reverse_z_depth::{
+    main_forward_depth_stencil_format, MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE,
+};
 pub use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};
 pub use skinning_palette::build_skinning_palette;
 pub use world_mesh_cull::{

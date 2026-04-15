@@ -19,7 +19,7 @@ use crate::backend::mesh_deform::{MeshDeformScratch, MeshPreprocessPipelines};
 use crate::config::RendererSettingsHandle;
 use crate::diagnostics::{DebugHudInput, SceneTransformsSnapshot};
 use crate::gpu::GpuLimits;
-use crate::render_graph::WorldMeshDrawStats;
+use crate::render_graph::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 use crate::resources::{CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool};
 
 use super::debug_hud_bundle::DebugHudBundle;
@@ -314,6 +314,14 @@ impl RenderBackend {
 
     pub(crate) fn last_world_mesh_draw_stats(&self) -> WorldMeshDrawStats {
         self.debug_hud.last_world_mesh_draw_stats()
+    }
+
+    pub(crate) fn set_last_world_mesh_draw_state_rows(&mut self, rows: Vec<WorldMeshDrawStateRow>) {
+        self.debug_hud.set_last_world_mesh_draw_state_rows(rows);
+    }
+
+    pub(crate) fn last_world_mesh_draw_state_rows(&self) -> Vec<WorldMeshDrawStateRow> {
+        self.debug_hud.last_world_mesh_draw_state_rows()
     }
 
     /// Updates the **Scene transforms** Dear ImGui window payload for the next composite pass.

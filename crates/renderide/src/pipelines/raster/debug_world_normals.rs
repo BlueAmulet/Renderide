@@ -4,6 +4,7 @@ use crate::embedded_shaders;
 use crate::materials::raster_pipeline::create_reflective_raster_mesh_forward_pipeline;
 use crate::materials::{
     reflect_raster_material_wgsl, validate_per_draw_group2, MaterialPipelineDesc,
+    MaterialRenderState,
 };
 use crate::pipelines::ShaderPermutation;
 
@@ -63,5 +64,6 @@ pub(crate) fn create_debug_world_normals_render_pipeline(
         false,
         false,
         true,
+        MaterialRenderState::default(),
     )
 }

@@ -9,7 +9,7 @@
 //! Unity-style blend from uniforms is a cross-cutting follow-up—not per-shader logic in the mesh pass.
 
 use crate::backend::{empty_material_bind_group_layout, FrameGpuResources};
-use crate::materials::material_passes::{default_pass, MaterialPassDesc};
+use crate::materials::material_passes::{default_pass, MaterialPassDesc, MaterialRenderState};
 use crate::materials::MaterialPipelineDesc;
 use crate::materials::{
     reflect_raster_material_wgsl, reflect_vertex_shader_needs_color_stream,
@@ -37,6 +37,7 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipeline(
     include_color_vertex_buffer: bool,
     use_alpha_blending: bool,
     depth_write_enabled: bool,
+    render_state: MaterialRenderState,
 ) -> wgpu::RenderPipeline {
     let reflected = reflect_raster_material_wgsl(wgsl_source).unwrap_or_else(|e| {
         panic!("reflect {label} (must match frame globals + per-draw contract): {e}");
@@ -164,7 +165,16 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipeline(
     // Opaque: no blending + write RGB only so destination alpha stays at the clear value (a=1). Do not use
     // `blend: Some(...)` on opaque passes: float RT formats may not be blendable and pipeline creation can fail.
     let pass = default_pass(use_alpha_blending, depth_write_enabled);
-    build_pipeline_from_pass(device, module, desc, label, &layout, vertex_buffers, &pass)
+    build_pipeline_from_pass(
+        device,
+        module,
+        desc,
+        label,
+        &layout,
+        vertex_buffers,
+        &pass,
+        render_state,
+    )
 }
 
 /// Builds one pipeline for a single [`MaterialPassDesc`] sharing the layout and vertex buffers.
@@ -177,6 +187,7 @@ pub(crate) fn build_pipeline_from_pass(
     layout: &wgpu::PipelineLayout,
     vertex_buffers: &[wgpu::VertexBufferLayout<'_>],
     pass: &MaterialPassDesc,
+    render_state: MaterialRenderState,
 ) -> wgpu::RenderPipeline {
     let pass_label = format!("{label}__{}", pass.name);
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -195,7 +206,7 @@ pub(crate) fn build_pipeline_from_pass(
             targets: &[Some(wgpu::ColorTargetState {
                 format: desc.surface_format,
                 blend: pass.blend,
-                write_mask: pass.write_mask,
+                write_mask: render_state.color_writes(pass.write_mask),
             })],
         }),
         primitive: wgpu::PrimitiveState {
@@ -207,9 +218,13 @@ pub(crate) fn build_pipeline_from_pass(
             .depth_stencil_format
             .map(|format| wgpu::DepthStencilState {
                 format,
-                depth_write_enabled: Some(pass.depth_write),
+                depth_write_enabled: Some(render_state.depth_write(pass.depth_write)),
                 depth_compare: Some(pass.depth_compare),
-                stencil: wgpu::StencilState::default(),
+                stencil: if format.has_stencil_aspect() {
+                    render_state.stencil_state()
+                } else {
+                    wgpu::StencilState::default()
+                },
                 bias: wgpu::DepthBiasState {
                     constant: pass.depth_bias_constant,
                     slope_scale: pass.depth_bias_slope_scale,
@@ -241,6 +256,7 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipelines(
     include_uv_vertex_buffer: bool,
     include_color_vertex_buffer: bool,
     passes: &[MaterialPassDesc],
+    render_state: MaterialRenderState,
 ) -> Vec<wgpu::RenderPipeline> {
     assert!(
         !passes.is_empty(),
@@ -371,6 +387,17 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipelines(
 
     passes
         .iter()
-        .map(|p| build_pipeline_from_pass(device, module, desc, label, &layout, vertex_buffers, p))
+        .map(|p| {
+            build_pipeline_from_pass(
+                device,
+                module,
+                desc,
+                label,
+                &layout,
+                vertex_buffers,
+                p,
+                render_state,
+            )
+        })
         .collect()
 }

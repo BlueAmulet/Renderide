@@ -2,7 +2,7 @@
 //!
 //! The **Frame timing** window shows FPS and CPU/GPU submit-interval metrics (wall-clock splits around submits).
 //! **[`crate::config::DebugSettings::debug_hud_frame_timing`]** toggles the **Frame timing** window (default on).
-//! **[`crate::config::DebugSettings::debug_hud_enabled`]** toggles **Renderide debug** (Stats / Shader routes).
+//! **[`crate::config::DebugSettings::debug_hud_enabled`]** toggles **Renderide debug** (Stats / Shader routes / Draw state).
 //! **[`crate::config::DebugSettings::debug_hud_transforms`]** toggles the **Scene transforms** window.
 //! **[`crate::config::DebugSettings::debug_hud_textures`]** toggles the **Textures** window.
 //!
@@ -26,7 +26,7 @@ use super::renderer_info_snapshot::RendererInfoSnapshot;
 use super::scene_transforms_snapshot::SceneTransformsSnapshot;
 use super::texture_debug_snapshot::TextureDebugSnapshot;
 
-/// Dear ImGui overlay: frame timing, renderer stats, shader routes, scene transforms, textures, and config UI.
+/// Dear ImGui overlay: frame timing, renderer stats, shader routes, draw state, scene transforms, textures, and config UI.
 pub struct DebugHud {
     imgui: Context,
     renderer: ImguiWgpuRenderer,
@@ -49,6 +49,10 @@ pub struct DebugHud {
     /// **Shader routes** filter: when true, hides implemented routes and shows only the ones
     /// that fall back to `debug_world_normals` (i.e., shaders with no embedded target yet).
     shader_routes_only_fallback: bool,
+    /// **Draw state** filter: when true, shows only UI/text/projection-like material routes.
+    draw_state_ui_only: bool,
+    /// **Draw state** filter: when true, shows only rows with explicit material render-state overrides.
+    draw_state_only_overrides: bool,
     /// Live settings + persistence target for the **Renderer config** window.
     renderer_settings: RendererSettingsHandle,
     config_save_path: PathBuf,
@@ -95,6 +99,8 @@ impl DebugHud {
             texture_debug_open: true,
             texture_debug_current_view_only: false,
             shader_routes_only_fallback: false,
+            draw_state_ui_only: true,
+            draw_state_only_overrides: false,
             renderer_settings,
             config_save_path,
             renderer_config_open: true,
@@ -218,6 +224,14 @@ impl DebugHud {
                                     ui,
                                     self.frame_diagnostics.as_ref(),
                                     &mut self.shader_routes_only_fallback,
+                                );
+                            }
+                            if let Some(_tab) = ui.tab_item("Draw state") {
+                                Self::draw_state_tab(
+                                    ui,
+                                    self.frame_diagnostics.as_ref(),
+                                    &mut self.draw_state_ui_only,
+                                    &mut self.draw_state_only_overrides,
                                 );
                             }
                         }

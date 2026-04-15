@@ -88,7 +88,9 @@ impl GpuContext {
         // FLOAT32_FILTERABLE: without it, Rgba32Float is unfilterable and cannot bind to embedded
         // material layouts that use filterable float texture + Filtering samplers.
         let optional_float32_filterable = wgpu::Features::FLOAT32_FILTERABLE;
-        let required_features = adapter.features() & (compression | optional_float32_filterable);
+        let optional_depth32_stencil8 = wgpu::Features::DEPTH32FLOAT_STENCIL8;
+        let required_features = adapter.features()
+            & (compression | optional_float32_filterable | optional_depth32_stencil8);
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
@@ -341,7 +343,7 @@ impl GpuContext {
         self.config.present_mode
     }
 
-    /// Ensures a [`wgpu::TextureFormat::Depth32Float`] attachment exists for the current surface extent.
+    /// Ensures a depth-stencil attachment exists for the current surface extent.
     ///
     /// Call after [`Self::reconfigure`] or when the swapchain size may have changed.
     ///
@@ -378,7 +380,9 @@ impl GpuContext {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth32Float,
+                format: crate::render_graph::main_forward_depth_stencil_format(
+                    self.device.features(),
+                ),
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                     | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::TEXTURE_BINDING,

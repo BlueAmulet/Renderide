@@ -3,6 +3,7 @@
 use super::world_mesh_draw_prep::{
     build_instance_batches, MaterialDrawBatchKey, WorldMeshDrawItem,
 };
+use crate::materials::{MaterialBlendMode, RasterPipelineKind};
 
 /// Draw and batch counts for the debug HUD (aligned with sorted [`WorldMeshDrawItem`] order).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -31,6 +32,62 @@ pub struct WorldMeshDrawStats {
     pub draws_hi_z_culled: usize,
     /// GPU instance batches after merge (one indexed draw each); at most `draws_total`.
     pub instance_batch_total: usize,
+}
+
+/// One submitted draw row for the **Draw state** debug HUD tab.
+///
+/// Rows are captured after culling and sorting, so `draw_index` matches the per-draw slab index used
+/// by `draw_indexed(..., first_instance)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorldMeshDrawStateRow {
+    /// Index in the sorted draw list and GPU per-draw slab.
+    pub draw_index: usize,
+    /// Host render space id.
+    pub space_id: i32,
+    /// Scene graph node id.
+    pub node_id: i32,
+    /// Resident mesh asset id.
+    pub mesh_asset_id: i32,
+    /// Submesh/material slot index.
+    pub slot_index: usize,
+    /// Host shader asset id from material `set_shader`.
+    pub shader_asset_id: i32,
+    /// Material asset id.
+    pub material_asset_id: i32,
+    /// Slot0 property block id when present.
+    pub property_block_slot0: Option<i32>,
+    /// Resolved raster pipeline route.
+    pub pipeline: RasterPipelineKind,
+    /// Resolved material blend override used for pipeline selection.
+    pub blend_mode: MaterialBlendMode,
+    /// True for overlay-layer draws.
+    pub is_overlay: bool,
+    /// Host sorting order carried by the mesh renderer.
+    pub sorting_order: i32,
+    /// Stable collection order before sort.
+    pub collect_order: usize,
+    /// Whether the draw uses the skinned/deformed vertex path.
+    pub skinned: bool,
+    /// Whether this draw is alpha sorted.
+    pub alpha_blended: bool,
+    /// Whether this draw is emitted through the intersection depth-snapshot subpass.
+    pub requires_intersection_pass: bool,
+    /// Unity `_ZWrite` / `ZWrite` override. `None` means the shader pass default is used.
+    pub depth_write: Option<bool>,
+    /// Whether stencil state was enabled by material/properties.
+    pub stencil_enabled: bool,
+    /// Dynamic stencil reference.
+    pub stencil_reference: u32,
+    /// Unity `CompareFunction` enum value.
+    pub stencil_compare: u8,
+    /// Unity `StencilOp` enum value.
+    pub stencil_pass_op: u8,
+    /// Stencil read mask.
+    pub stencil_read_mask: u32,
+    /// Stencil write mask.
+    pub stencil_write_mask: u32,
+    /// Unity `_ColorMask` / `ColorMask` override. `None` means the shader pass default is used.
+    pub color_mask: Option<u8>,
 }
 
 /// Computes batch boundaries from material/property-block/skin/overlay changes after sorting.
@@ -90,11 +147,50 @@ pub fn world_mesh_draw_stats_from_sorted(
     }
 }
 
+/// Captures draw-state diagnostics from the sorted draw list submitted by the forward pass.
+pub fn world_mesh_draw_state_rows_from_sorted(
+    draws: &[WorldMeshDrawItem],
+) -> Vec<WorldMeshDrawStateRow> {
+    draws
+        .iter()
+        .enumerate()
+        .map(|(draw_index, item)| {
+            let state = item.batch_key.render_state;
+            WorldMeshDrawStateRow {
+                draw_index,
+                space_id: item.space_id.0,
+                node_id: item.node_id,
+                mesh_asset_id: item.mesh_asset_id,
+                slot_index: item.slot_index,
+                shader_asset_id: item.batch_key.shader_asset_id,
+                material_asset_id: item.batch_key.material_asset_id,
+                property_block_slot0: item.batch_key.property_block_slot0,
+                pipeline: item.batch_key.pipeline.clone(),
+                blend_mode: item.batch_key.blend_mode,
+                is_overlay: item.is_overlay,
+                sorting_order: item.sorting_order,
+                collect_order: item.collect_order,
+                skinned: item.skinned,
+                alpha_blended: item.batch_key.alpha_blended,
+                requires_intersection_pass: item.batch_key.embedded_requires_intersection_pass,
+                depth_write: state.depth_write,
+                stencil_enabled: state.stencil.enabled,
+                stencil_reference: state.stencil.reference,
+                stencil_compare: state.stencil.compare,
+                stencil_pass_op: state.stencil.pass_op,
+                stencil_read_mask: state.stencil.read_mask,
+                stencil_write_mask: state.stencil.write_mask,
+                color_mask: state.color_mask,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::assets::material::MaterialPropertyLookupIds;
-    use crate::materials::RasterPipelineKind;
+    use crate::materials::{MaterialBlendMode, RasterPipelineKind};
     use crate::scene::RenderSpaceId;
 
     #[allow(clippy::too_many_arguments)]
@@ -135,6 +231,8 @@ mod tests {
                 embedded_needs_color: false,
                 embedded_needs_extended_vertex_streams: false,
                 embedded_requires_intersection_pass: false,
+                render_state: Default::default(),
+                blend_mode: Default::default(),
                 alpha_blended,
             },
             rigid_world_matrix: None,
@@ -159,5 +257,32 @@ mod tests {
         assert_eq!(s.draws_total, 2);
         assert_eq!(s.rigid_draws, 2);
         assert_eq!(s.instance_batch_total, 1);
+    }
+
+    #[test]
+    fn world_mesh_draw_state_rows_capture_material_state() {
+        let mut draw = dummy_item(7, Some(70), false, 3, 4, 5, 6, 8, true);
+        draw.batch_key.blend_mode = MaterialBlendMode::UnityBlend { src: 1, dst: 10 };
+        draw.batch_key.render_state.depth_write = Some(false);
+        draw.batch_key.render_state.color_mask = Some(0);
+        draw.batch_key.render_state.stencil.enabled = true;
+        draw.batch_key.render_state.stencil.reference = 2;
+        draw.batch_key.render_state.stencil.compare = 8;
+        draw.batch_key.render_state.stencil.pass_op = 2;
+
+        let rows = world_mesh_draw_state_rows_from_sorted(&[draw]);
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.draw_index, 0);
+        assert_eq!(row.material_asset_id, 7);
+        assert_eq!(row.property_block_slot0, Some(70));
+        assert_eq!(row.depth_write, Some(false));
+        assert_eq!(row.color_mask, Some(0));
+        assert!(row.stencil_enabled);
+        assert_eq!(row.stencil_reference, 2);
+        assert_eq!(
+            row.blend_mode,
+            MaterialBlendMode::UnityBlend { src: 1, dst: 10 }
+        );
     }
 }

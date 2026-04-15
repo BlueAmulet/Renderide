@@ -29,12 +29,19 @@ impl RenderPass for HiZBuildPass {
     }
 
     fn execute(&mut self, ctx: &mut RenderPassContext<'_>) -> Result<(), RenderPassError> {
-        let Some(depth) = ctx.depth_view else {
+        let Some(_depth) = ctx.depth_view else {
             return Ok(());
         };
         let Some(frame) = ctx.frame.as_mut() else {
             return Ok(());
         };
+        let depth_sample_view = frame
+            .depth_texture
+            .create_view(&wgpu::TextureViewDescriptor {
+                label: Some("hi_z_depth_sample_view"),
+                aspect: wgpu::TextureAspect::DepthOnly,
+                ..Default::default()
+            });
         let mode = frame.output_depth_mode();
         let view_id = frame.occlusion_view;
         let queue = ctx.queue.lock().unwrap_or_else(|e| e.into_inner());
@@ -42,7 +49,7 @@ impl RenderPass for HiZBuildPass {
             ctx.device,
             &queue,
             ctx.encoder,
-            depth,
+            &depth_sample_view,
             frame.viewport_px,
             mode,
             view_id,

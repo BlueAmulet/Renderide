@@ -1,5 +1,5 @@
 //! Dear ImGui diagnostics: **Frame timing** ([`crate::config::DebugSettings::debug_hud_frame_timing`]),
-//! **Renderide debug** ([`crate::config::DebugSettings::debug_hud_enabled`]), **Scene transforms** ([`crate::config::DebugSettings::debug_hud_transforms`]),
+//! **Renderide debug** ([`crate::config::DebugSettings::debug_hud_enabled`]: Stats / Shader routes / Draw state), **Scene transforms** ([`crate::config::DebugSettings::debug_hud_transforms`]),
 //! and **Textures** ([`crate::config::DebugSettings::debug_hud_textures`]).
 
 mod debug_hud;

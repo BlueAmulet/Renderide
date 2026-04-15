@@ -102,6 +102,13 @@ pub struct MaterialPipelinePropertyIds {
     blend_mode: [i32; 2],
     src_blend: [i32; 2],
     dst_blend: [i32; 2],
+    stencil_ref: [i32; 2],
+    stencil_comp: [i32; 2],
+    stencil_op: [i32; 2],
+    stencil_read_mask: [i32; 2],
+    stencil_write_mask: [i32; 2],
+    color_mask: [i32; 2],
+    z_write: [i32; 2],
 }
 
 impl MaterialPipelinePropertyIds {
@@ -111,6 +118,22 @@ impl MaterialPipelinePropertyIds {
             blend_mode: [registry.intern("_BlendMode"), registry.intern("BlendMode")],
             src_blend: [registry.intern("_SrcBlend"), registry.intern("SrcBlend")],
             dst_blend: [registry.intern("_DstBlend"), registry.intern("DstBlend")],
+            stencil_ref: [registry.intern("_Stencil"), registry.intern("Stencil")],
+            stencil_comp: [
+                registry.intern("_StencilComp"),
+                registry.intern("StencilComp"),
+            ],
+            stencil_op: [registry.intern("_StencilOp"), registry.intern("StencilOp")],
+            stencil_read_mask: [
+                registry.intern("_StencilReadMask"),
+                registry.intern("StencilReadMask"),
+            ],
+            stencil_write_mask: [
+                registry.intern("_StencilWriteMask"),
+                registry.intern("StencilWriteMask"),
+            ],
+            color_mask: [registry.intern("_ColorMask"), registry.intern("ColorMask")],
+            z_write: [registry.intern("_ZWrite"), registry.intern("ZWrite")],
         }
     }
 }
@@ -145,6 +168,181 @@ pub fn material_blend_mode_for_lookup(
     }
 
     MaterialBlendMode::StemDefault
+}
+
+/// Runtime Unity stencil/color/depth-write state resolved from material properties.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MaterialRenderState {
+    /// Stencil state for this draw. Disabled when no stencil-related material property is present.
+    pub stencil: MaterialStencilState,
+    /// Unity `ColorMask` override. `None` preserves the shader pass default.
+    pub color_mask: Option<u8>,
+    /// Unity `ZWrite` override. `None` preserves the shader pass default.
+    pub depth_write: Option<bool>,
+}
+
+impl MaterialRenderState {
+    /// Stencil reference passed via dynamic render pass state.
+    pub fn stencil_reference(self) -> u32 {
+        self.stencil.reference
+    }
+
+    /// Applies the optional Unity color-mask override to a pass write mask.
+    pub fn color_writes(self, fallback: wgpu::ColorWrites) -> wgpu::ColorWrites {
+        self.color_mask.map(unity_color_writes).unwrap_or(fallback)
+    }
+
+    /// Applies the optional Unity depth-write override to a pass default.
+    pub fn depth_write(self, fallback: bool) -> bool {
+        self.depth_write.unwrap_or(fallback)
+    }
+
+    /// Converts the resolved material state into a wgpu stencil state.
+    pub fn stencil_state(self) -> wgpu::StencilState {
+        if !self.stencil.enabled {
+            return wgpu::StencilState::default();
+        }
+        let face = wgpu::StencilFaceState {
+            compare: unity_compare_function(self.stencil.compare),
+            fail_op: wgpu::StencilOperation::Keep,
+            depth_fail_op: wgpu::StencilOperation::Keep,
+            pass_op: unity_stencil_operation(self.stencil.pass_op),
+        };
+        wgpu::StencilState {
+            front: face,
+            back: face,
+            read_mask: self.stencil.read_mask,
+            write_mask: self.stencil.write_mask,
+        }
+    }
+}
+
+/// Unity-compatible stencil material state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct MaterialStencilState {
+    /// Whether the stencil test/write path should be enabled for this draw.
+    pub enabled: bool,
+    /// Dynamic stencil reference value.
+    pub reference: u32,
+    /// Unity `CompareFunction` enum value.
+    pub compare: u8,
+    /// Unity `StencilOp` enum value applied on pass.
+    pub pass_op: u8,
+    /// Stencil read mask.
+    pub read_mask: u32,
+    /// Stencil write mask.
+    pub write_mask: u32,
+}
+
+impl Default for MaterialStencilState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            reference: 0,
+            compare: 8,
+            pass_op: 0,
+            read_mask: 0xff,
+            write_mask: 0xff,
+        }
+    }
+}
+
+fn unity_u8(v: f32) -> u8 {
+    v.round().clamp(0.0, 255.0) as u8
+}
+
+fn unity_mask(v: f32) -> u32 {
+    v.round().clamp(0.0, 255.0) as u32
+}
+
+fn first_float_presence_by_pids(
+    dict: &MaterialDictionary<'_>,
+    lookup: MaterialPropertyLookupIds,
+    pids: &[i32],
+) -> Option<f32> {
+    first_float_by_pids(dict, lookup, pids)
+}
+
+fn unity_compare_function(value: u8) -> wgpu::CompareFunction {
+    match value {
+        1 => wgpu::CompareFunction::Never,
+        2 => wgpu::CompareFunction::Less,
+        3 => wgpu::CompareFunction::Equal,
+        4 => wgpu::CompareFunction::LessEqual,
+        5 => wgpu::CompareFunction::Greater,
+        6 => wgpu::CompareFunction::NotEqual,
+        7 => wgpu::CompareFunction::GreaterEqual,
+        8 => wgpu::CompareFunction::Always,
+        // Unity value 0 is "Disabled"; if another stencil field enabled the state, treat it as Always.
+        _ => wgpu::CompareFunction::Always,
+    }
+}
+
+fn unity_stencil_operation(value: u8) -> wgpu::StencilOperation {
+    match value {
+        1 => wgpu::StencilOperation::Zero,
+        2 => wgpu::StencilOperation::Replace,
+        3 => wgpu::StencilOperation::IncrementClamp,
+        4 => wgpu::StencilOperation::DecrementClamp,
+        5 => wgpu::StencilOperation::Invert,
+        6 => wgpu::StencilOperation::IncrementWrap,
+        7 => wgpu::StencilOperation::DecrementWrap,
+        _ => wgpu::StencilOperation::Keep,
+    }
+}
+
+fn unity_color_writes(mask: u8) -> wgpu::ColorWrites {
+    let mut writes = wgpu::ColorWrites::empty();
+    if mask & 8 != 0 {
+        writes |= wgpu::ColorWrites::RED;
+    }
+    if mask & 4 != 0 {
+        writes |= wgpu::ColorWrites::GREEN;
+    }
+    if mask & 2 != 0 {
+        writes |= wgpu::ColorWrites::BLUE;
+    }
+    if mask & 1 != 0 {
+        writes |= wgpu::ColorWrites::ALPHA;
+    }
+    writes
+}
+
+/// Resolves Unity stencil and color-write properties for a material/property-block pair.
+pub fn material_render_state_for_lookup(
+    dict: &MaterialDictionary<'_>,
+    lookup: MaterialPropertyLookupIds,
+    ids: &MaterialPipelinePropertyIds,
+) -> MaterialRenderState {
+    let stencil_ref = first_float_presence_by_pids(dict, lookup, &ids.stencil_ref);
+    let stencil_comp = first_float_presence_by_pids(dict, lookup, &ids.stencil_comp);
+    let stencil_op = first_float_presence_by_pids(dict, lookup, &ids.stencil_op);
+    let stencil_read_mask = first_float_presence_by_pids(dict, lookup, &ids.stencil_read_mask);
+    let stencil_write_mask = first_float_presence_by_pids(dict, lookup, &ids.stencil_write_mask);
+    let color_mask = first_float_presence_by_pids(dict, lookup, &ids.color_mask).map(unity_u8);
+    let depth_write = first_float_presence_by_pids(dict, lookup, &ids.z_write)
+        .map(|v| v.round().clamp(0.0, 1.0) >= 0.5);
+
+    let stencil_present = stencil_ref.is_some()
+        || stencil_comp.is_some()
+        || stencil_op.is_some()
+        || stencil_read_mask.is_some()
+        || stencil_write_mask.is_some();
+    let compare = stencil_comp.map(unity_u8).unwrap_or(8);
+    let stencil = MaterialStencilState {
+        enabled: stencil_present && compare != 0,
+        reference: stencil_ref.map(unity_mask).unwrap_or(0),
+        compare,
+        pass_op: stencil_op.map(unity_u8).unwrap_or(0),
+        read_mask: stencil_read_mask.map(unity_mask).unwrap_or(0xff),
+        write_mask: stencil_write_mask.map(unity_mask).unwrap_or(0xff),
+    };
+
+    MaterialRenderState {
+        stencil,
+        color_mask,
+        depth_write,
+    }
 }
 
 /// How a declared shader pass applies material-driven Unity render state.
@@ -385,5 +583,108 @@ mod tests {
             material_blend_mode_for_lookup(&dict, lookup, &ids),
             MaterialBlendMode::UnityBlend { src: 1, dst: 1 }
         );
+    }
+
+    #[test]
+    fn resolves_unity_stencil_and_color_mask_properties() {
+        let reg = PropertyIdRegistry::new();
+        let ids = MaterialPipelinePropertyIds::new(&reg);
+        let mut store = MaterialPropertyStore::new();
+        let stencil = reg.intern("_Stencil");
+        let comp = reg.intern("_StencilComp");
+        let op = reg.intern("_StencilOp");
+        let read = reg.intern("_StencilReadMask");
+        let write = reg.intern("_StencilWriteMask");
+        let color_mask = reg.intern("_ColorMask");
+        store.set_material(44, stencil, MaterialPropertyValue::Float(3.0));
+        store.set_material(44, comp, MaterialPropertyValue::Float(8.0));
+        store.set_material(44, op, MaterialPropertyValue::Float(2.0));
+        store.set_material(44, read, MaterialPropertyValue::Float(127.0));
+        store.set_material(44, write, MaterialPropertyValue::Float(63.0));
+        store.set_material(44, color_mask, MaterialPropertyValue::Float(0.0));
+        let dict = MaterialDictionary::new(&store);
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: 44,
+            mesh_property_block_slot0: None,
+        };
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert!(state.stencil.enabled);
+        assert_eq!(state.stencil_reference(), 3);
+        assert_eq!(state.stencil.compare, 8);
+        assert_eq!(state.stencil.pass_op, 2);
+        assert_eq!(state.stencil.read_mask, 127);
+        assert_eq!(state.stencil.write_mask, 63);
+        assert_eq!(
+            state.color_writes(wgpu::ColorWrites::ALL),
+            wgpu::ColorWrites::empty()
+        );
+        assert_eq!(
+            state.stencil_state().front.pass_op,
+            wgpu::StencilOperation::Replace
+        );
+    }
+
+    #[test]
+    fn property_block_overrides_stencil_reference() {
+        let reg = PropertyIdRegistry::new();
+        let ids = MaterialPipelinePropertyIds::new(&reg);
+        let mut store = MaterialPropertyStore::new();
+        let stencil = reg.intern("_Stencil");
+        store.set_material(45, stencil, MaterialPropertyValue::Float(1.0));
+        store.set_property_block(450, stencil, MaterialPropertyValue::Float(5.0));
+        let dict = MaterialDictionary::new(&store);
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: 45,
+            mesh_property_block_slot0: Some(450),
+        };
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert_eq!(state.stencil_reference(), 5);
+    }
+
+    #[test]
+    fn stencil_comp_zero_disables_stencil_state() {
+        let reg = PropertyIdRegistry::new();
+        let ids = MaterialPipelinePropertyIds::new(&reg);
+        let mut store = MaterialPropertyStore::new();
+        let stencil = reg.intern("_Stencil");
+        let comp = reg.intern("_StencilComp");
+        store.set_material(46, stencil, MaterialPropertyValue::Float(7.0));
+        store.set_material(46, comp, MaterialPropertyValue::Float(0.0));
+        let dict = MaterialDictionary::new(&store);
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: 46,
+            mesh_property_block_slot0: None,
+        };
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert!(!state.stencil.enabled);
+        assert_eq!(state.stencil_state(), wgpu::StencilState::default());
+    }
+
+    #[test]
+    fn zwrite_property_overrides_pass_depth_write() {
+        let reg = PropertyIdRegistry::new();
+        let ids = MaterialPipelinePropertyIds::new(&reg);
+        let mut store = MaterialPropertyStore::new();
+        let zwrite = reg.intern("_ZWrite");
+        store.set_material(47, zwrite, MaterialPropertyValue::Float(0.0));
+        let dict = MaterialDictionary::new(&store);
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: 47,
+            mesh_property_block_slot0: None,
+        };
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert_eq!(state.depth_write, Some(false));
+        assert!(!state.depth_write(true));
+        assert!(!state.depth_write(false));
+
+        store.set_property_block(470, zwrite, MaterialPropertyValue::Float(1.0));
+        let dict = MaterialDictionary::new(&store);
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: 47,
+            mesh_property_block_slot0: Some(470),
+        };
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert_eq!(state.depth_write, Some(true));
+        assert!(state.depth_write(false));
     }
 }

@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use glam::Mat4;
 
 use crate::assets::material::MaterialPropertyLookupIds;
-use crate::materials::RasterPipelineKind;
+use crate::materials::{MaterialBlendMode, MaterialRenderState, RasterPipelineKind};
 use crate::scene::{MeshMaterialSlot, RenderSpaceId, StaticMeshRenderer};
 
 /// Selective / exclude transform lists for secondary cameras (Unity `CameraRenderer.Render` semantics).
@@ -73,6 +73,10 @@ pub struct MaterialDrawBatchKey {
     /// When [`Self::pipeline`] is [`RasterPipelineKind::EmbeddedStem`], whether reflection reports `_IntersectColor`
     /// in the material uniform (second forward subpass with depth snapshot).
     pub embedded_requires_intersection_pass: bool,
+    /// Runtime stencil/color-write state for this material/property-block pair.
+    pub render_state: MaterialRenderState,
+    /// Resolved material blend mode for pipeline selection and diagnostics.
+    pub blend_mode: MaterialBlendMode,
     /// Transparent alpha-blended UI/text stems should preserve stable canvas order.
     pub alpha_blended: bool,
 }

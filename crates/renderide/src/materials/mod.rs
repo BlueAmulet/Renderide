@@ -38,8 +38,9 @@ pub use embedded_shader_stem::{
 pub use family::MaterialPipelineDesc;
 pub use material_passes::{
     default_pass, default_pass_for_blend_mode, material_blend_mode_for_lookup,
-    materialized_pass_for_blend_mode, MaterialBlendMode, MaterialPassDesc, MaterialPassState,
-    MaterialPipelinePropertyIds,
+    material_render_state_for_lookup, materialized_pass_for_blend_mode, MaterialBlendMode,
+    MaterialPassDesc, MaterialPassState, MaterialPipelinePropertyIds, MaterialRenderState,
+    MaterialStencilState,
 };
 pub use material_property_binding::MaterialPropertyGpuLayout;
 pub use pipeline_kind::RasterPipelineKind;

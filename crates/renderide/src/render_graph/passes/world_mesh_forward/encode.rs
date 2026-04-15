@@ -1,11 +1,7 @@
 //! Encode indexed draws and material bind groups for [`super::WorldMeshForwardPass`].
 
-use crate::assets::material::MaterialDictionary;
 use crate::backend::MaterialBindCacheKey;
-use crate::materials::{
-    material_blend_mode_for_lookup, MaterialPipelineDesc, MaterialPipelinePropertyIds,
-    MaterialPipelineSet, RasterPipelineKind,
-};
+use crate::materials::{MaterialPipelineDesc, MaterialPipelineSet, RasterPipelineKind};
 use crate::pipelines::ShaderPermutation;
 use crate::render_graph::world_mesh_draw_prep::build_instance_batches;
 use crate::render_graph::MaterialDrawBatchKey;
@@ -43,8 +39,6 @@ pub(crate) fn draw_subset(
     rpass.set_bind_group(0, frame_bg, &[]);
 
     let batches = build_instance_batches(draws, draw_indices, supports_base_instance);
-    let pipeline_property_ids = MaterialPipelinePropertyIds::new(backend.property_id_registry());
-
     for batch in batches {
         let first_idx = batch.first_draw_index;
         let item = &draws[first_idx];
@@ -52,10 +46,7 @@ pub(crate) fn draw_subset(
         if last_batch_key.as_ref() != Some(&item.batch_key) {
             last_batch_key = Some(item.batch_key.clone());
             let shader_asset_id = item.batch_key.shader_asset_id;
-            let material_blend_mode = {
-                let dict = MaterialDictionary::new(backend.material_property_store());
-                material_blend_mode_for_lookup(&dict, item.lookup_ids, &pipeline_property_ids)
-            };
+            let material_blend_mode = item.batch_key.blend_mode;
             pipeline_ok = match backend.materials.material_registry.as_mut() {
                 None => false,
                 Some(reg) => {
@@ -64,6 +55,7 @@ pub(crate) fn draw_subset(
                         pass_desc,
                         shader_perm,
                         material_blend_mode,
+                        item.batch_key.render_state,
                     ) {
                         Some(pipelines) if !pipelines.is_empty() => {
                             current_pipelines = Some(pipelines);
@@ -160,6 +152,7 @@ pub(crate) fn draw_subset(
 
         let inst_start = first_idx as u32;
         let inst_range = inst_start..inst_start + batch.instance_count;
+        rpass.set_stencil_reference(item.batch_key.render_state.stencil_reference());
 
         let Some(pipelines) = current_pipelines.as_ref() else {
             continue;

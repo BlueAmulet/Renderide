@@ -145,6 +145,21 @@ fn texture_property_aliases(name: &str) -> &'static [&'static str] {
     }
 }
 
+fn shader_writer_unescaped_property_name(name: &str) -> &str {
+    let Some(stripped) = name.strip_suffix('_') else {
+        return name;
+    };
+    if stripped
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_ascii_digit())
+    {
+        stripped
+    } else {
+        name
+    }
+}
+
 impl StemEmbeddedPropertyIds {
     pub(crate) fn build(
         shared: Arc<EmbeddedSharedKeywordIds>,
@@ -155,9 +170,10 @@ impl StemEmbeddedPropertyIds {
         let mut keyword_field_probe_ids = HashMap::new();
         if let Some(u) = reflected.material_uniform.as_ref() {
             for field_name in u.fields.keys() {
-                let pid = registry.intern(field_name);
+                let host_field_name = shader_writer_unescaped_property_name(field_name);
+                let pid = registry.intern(host_field_name);
                 uniform_field_ids.insert(field_name.clone(), pid);
-                let stripped = field_name.strip_prefix('_').unwrap_or(field_name);
+                let stripped = host_field_name.strip_prefix('_').unwrap_or(host_field_name);
                 let lowercase = stripped.to_ascii_lowercase();
                 let pid_strip = registry.intern(stripped);
                 let pid_lower = registry.intern(lowercase.as_str());
@@ -204,6 +220,21 @@ impl StemEmbeddedPropertyIds {
             texture_binding_alias_property_ids: HashMap::new(),
             keyword_field_probe_ids: HashMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shader_writer_unescaped_property_name;
+
+    #[test]
+    fn shader_writer_escape_strips_digit_suffix_underscore() {
+        assert_eq!(shader_writer_unescaped_property_name("_Tint0_"), "_Tint0");
+        assert_eq!(shader_writer_unescaped_property_name("_Color1_"), "_Color1");
+        assert_eq!(
+            shader_writer_unescaped_property_name("_MainTex_ST"),
+            "_MainTex_ST"
+        );
     }
 }
 

@@ -7,7 +7,7 @@ use crate::pipelines::ShaderPermutation;
 use super::cache::{MaterialPipelineCache, MaterialPipelineSet};
 use super::embedded_shader_stem::embedded_default_stem_for_unity_name;
 use super::family::MaterialPipelineDesc;
-use super::material_passes::MaterialBlendMode;
+use super::material_passes::{MaterialBlendMode, MaterialRenderState};
 use super::pipeline_kind::RasterPipelineKind;
 use super::resolve_raster::resolve_raster_pipeline;
 use super::router::MaterialRouter;
@@ -76,11 +76,12 @@ impl MaterialRegistry {
         desc: &MaterialPipelineDesc,
         permutation: ShaderPermutation,
         blend_mode: MaterialBlendMode,
+        render_state: MaterialRenderState,
     ) -> Option<MaterialPipelineSet> {
         let kind = resolve_raster_pipeline(shader_asset_id, &self.router);
         Some(
             self.cache
-                .get_or_create(&kind, desc, permutation, blend_mode),
+                .get_or_create(&kind, desc, permutation, blend_mode, render_state),
         )
     }
 
@@ -91,9 +92,10 @@ impl MaterialRegistry {
         desc: &MaterialPipelineDesc,
         permutation: ShaderPermutation,
         blend_mode: MaterialBlendMode,
+        render_state: MaterialRenderState,
     ) -> MaterialPipelineSet {
         self.cache
-            .get_or_create(kind, desc, permutation, blend_mode)
+            .get_or_create(kind, desc, permutation, blend_mode, render_state)
     }
 
     /// Low-level cache access keyed by [`RasterPipelineKind`].
@@ -103,9 +105,10 @@ impl MaterialRegistry {
         desc: &MaterialPipelineDesc,
         permutation: ShaderPermutation,
         blend_mode: MaterialBlendMode,
+        render_state: MaterialRenderState,
     ) -> MaterialPipelineSet {
         self.cache
-            .get_or_create(kind, desc, permutation, blend_mode)
+            .get_or_create(kind, desc, permutation, blend_mode, render_state)
     }
 
     /// Borrow the wgpu device held by this registry.
@@ -130,7 +133,7 @@ mod wgpu_cache_tests {
 
     use super::MaterialRegistry;
     use crate::materials::family::MaterialPipelineDesc;
-    use crate::materials::{MaterialBlendMode, RasterPipelineKind};
+    use crate::materials::{MaterialBlendMode, MaterialRenderState, RasterPipelineKind};
     use crate::pipelines::ShaderPermutation;
 
     async fn device_with_adapter() -> Option<Arc<wgpu::Device>> {
@@ -174,6 +177,7 @@ mod wgpu_cache_tests {
                 &desc,
                 ShaderPermutation(0),
                 MaterialBlendMode::StemDefault,
+                MaterialRenderState::default(),
             );
             std::ptr::from_ref(&p[0])
         };
@@ -183,6 +187,7 @@ mod wgpu_cache_tests {
                 &desc,
                 ShaderPermutation(0),
                 MaterialBlendMode::StemDefault,
+                MaterialRenderState::default(),
             );
             std::ptr::from_ref(&p[0])
         };
@@ -209,6 +214,7 @@ mod wgpu_cache_tests {
                 &desc,
                 ShaderPermutation(0),
                 MaterialBlendMode::StemDefault,
+                MaterialRenderState::default(),
             );
             std::ptr::from_ref(&p[0])
         };
@@ -218,6 +224,7 @@ mod wgpu_cache_tests {
                 &desc,
                 ShaderPermutation(1),
                 MaterialBlendMode::StemDefault,
+                MaterialRenderState::default(),
             );
             std::ptr::from_ref(&p[0])
         };

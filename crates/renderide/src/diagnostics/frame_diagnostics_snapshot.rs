@@ -3,7 +3,7 @@
 use crate::backend::RenderBackend;
 use crate::gpu::GpuContext;
 use crate::materials::RasterPipelineKind;
-use crate::render_graph::WorldMeshDrawStats;
+use crate::render_graph::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
 /// One row in the **Shader routes** tab: identifies the host shader, its backing pipeline, and
 /// whether the renderer has a real embedded shader for it or falls back to `debug_world_normals`.
@@ -60,6 +60,8 @@ pub struct FrameDiagnosticsSnapshot {
     pub host: HostCpuMemoryHud,
     /// World mesh forward pass draw batching stats for the frame.
     pub mesh_draw: WorldMeshDrawStats,
+    /// Sorted draw rows with resolved material pipeline state for the **Draw state** tab.
+    pub draw_state_rows: Vec<WorldMeshDrawStateRow>,
     /// Host [`FrameSubmitData::render_tasks`] count from the last applied frame submit.
     pub last_submit_render_task_count: usize,
     /// Textures with a registered [`crate::shared::SetTexture2DFormat`] on the backend.
@@ -105,7 +107,8 @@ impl FrameDiagnosticsSnapshot {
                 reg.shader_routes_for_hud()
                     .into_iter()
                     .map(|(id, pipeline, name)| {
-                        let implemented = !matches!(pipeline, RasterPipelineKind::DebugWorldNormals);
+                        let implemented =
+                            !matches!(pipeline, RasterPipelineKind::DebugWorldNormals);
                         let pipeline_label = match &pipeline {
                             RasterPipelineKind::EmbeddedStem(stem) => stem.to_string(),
                             RasterPipelineKind::DebugWorldNormals => {
@@ -136,6 +139,7 @@ impl FrameDiagnosticsSnapshot {
             gpu_allocator,
             host,
             mesh_draw: backend.last_world_mesh_draw_stats(),
+            draw_state_rows: backend.last_world_mesh_draw_state_rows(),
             last_submit_render_task_count,
             textures_cpu_registered,
             textures_cpu_mip0_ready,
@@ -169,6 +173,7 @@ mod tests {
             gpu_allocator: Default::default(),
             host: Default::default(),
             mesh_draw: Default::default(),
+            draw_state_rows: Vec::new(),
             last_submit_render_task_count: 0,
             textures_cpu_registered: 0,
             textures_cpu_mip0_ready: 0,
@@ -189,6 +194,7 @@ mod tests {
             gpu_allocator: Default::default(),
             host: Default::default(),
             mesh_draw: Default::default(),
+            draw_state_rows: Vec::new(),
             last_submit_render_task_count: 0,
             textures_cpu_registered: 0,
             textures_cpu_mip0_ready: 0,

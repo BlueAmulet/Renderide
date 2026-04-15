@@ -43,6 +43,8 @@ pub struct EmbeddedMaterialBindResources {
     device: Arc<wgpu::Device>,
     white_texture: Arc<wgpu::Texture>,
     white_texture_view: Arc<wgpu::TextureView>,
+    white_cube_texture: Arc<wgpu::Texture>,
+    white_cube_texture_view: Arc<wgpu::TextureView>,
     default_sampler: Arc<wgpu::Sampler>,
     property_registry: Arc<PropertyIdRegistry>,
     shared_keyword_ids: Arc<EmbeddedSharedKeywordIds>,
@@ -100,6 +102,27 @@ impl EmbeddedMaterialBindResources {
         }));
         let white_texture_view =
             Arc::new(white_texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        let white_cube_texture = Arc::new(device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("embedded_default_white_cube"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 6,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        }));
+        let white_cube_texture_view = Arc::new(white_cube_texture.create_view(
+            &wgpu::TextureViewDescriptor {
+                label: Some("embedded_default_white_cube_view"),
+                dimension: Some(wgpu::TextureViewDimension::Cube),
+                ..Default::default()
+            },
+        ));
 
         let default_sampler = Arc::new(device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("embedded_default_sampler"),
@@ -118,6 +141,8 @@ impl EmbeddedMaterialBindResources {
             device,
             white_texture,
             white_texture_view,
+            white_cube_texture,
+            white_cube_texture_view,
             default_sampler,
             property_registry,
             shared_keyword_ids,
@@ -154,6 +179,31 @@ impl EmbeddedMaterialBindResources {
                 depth_or_array_layers: 1,
             },
         );
+        for layer in 0..6 {
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: self.white_cube_texture.as_ref(),
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: layer,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &[255u8, 255, 255, 255],
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4),
+                    rows_per_image: None,
+                },
+                wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
     }
 
     /// Returns or builds a `@group(1)` bind group for the composed embedded `stem` (e.g. `unlit_default`).
@@ -305,7 +355,7 @@ impl EmbeddedMaterialBindResources {
                     ty: wgpu::BufferBindingType::Uniform,
                     ..
                 } => {}
-                wgpu::BindingType::Texture { .. } => {
+                wgpu::BindingType::Texture { view_dimension, .. } => {
                     let host_name = layout
                         .reflected
                         .material_group1_names
@@ -324,6 +374,7 @@ impl EmbeddedMaterialBindResources {
                         .resolve_texture_view_for_host(
                             host_name,
                             &tex_pids,
+                            view_dimension,
                             texture_2d_asset_id,
                             texture_pool,
                             texture3d_pool,
@@ -333,7 +384,7 @@ impl EmbeddedMaterialBindResources {
                             lookup,
                             offscreen_write_render_texture_asset_id,
                         )
-                        .unwrap_or_else(|| self.white_texture_view.clone());
+                        .unwrap_or_else(|| self.default_texture_view_for_dimension(view_dimension));
                     keepalive_views.push(tex_view);
                 }
                 wgpu::BindingType::Sampler(_) => {
@@ -443,6 +494,16 @@ impl EmbeddedMaterialBindResources {
         Ok(layout)
     }
 
+    fn default_texture_view_for_dimension(
+        &self,
+        view_dimension: wgpu::TextureViewDimension,
+    ) -> Arc<wgpu::TextureView> {
+        match view_dimension {
+            wgpu::TextureViewDimension::Cube => self.white_cube_texture_view.clone(),
+            _ => self.white_texture_view.clone(),
+        }
+    }
+
     /// Returns Texture2D asset ids referenced by an embedded material/property-block lookup.
     pub(crate) fn texture2d_asset_ids_for_stem(
         &self,
@@ -495,6 +556,7 @@ impl EmbeddedMaterialBindResources {
         &self,
         host_name: &str,
         texture_property_ids: &[i32],
+        view_dimension: wgpu::TextureViewDimension,
         primary_texture_2d: i32,
         texture_pool: &TexturePool,
         texture3d_pool: &Texture3dPool,
@@ -517,6 +579,7 @@ impl EmbeddedMaterialBindResources {
             cubemap_pool,
             render_texture_pool,
             binding,
+            view_dimension,
             offscreen_write_render_texture_asset_id,
         )
     }
@@ -556,14 +619,15 @@ impl EmbeddedMaterialBindResources {
         &self,
         texture_pool: &TexturePool,
         _texture3d_pool: &Texture3dPool,
-        _cubemap_pool: &CubemapPool,
+        cubemap_pool: &CubemapPool,
         render_texture_pool: &RenderTexturePool,
         binding: ResolvedTextureBinding,
+        view_dimension: wgpu::TextureViewDimension,
         offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Option<Arc<wgpu::TextureView>> {
-        match binding {
-            ResolvedTextureBinding::None => None,
-            ResolvedTextureBinding::Texture2D { asset_id } => {
+        match (view_dimension, binding) {
+            (_, ResolvedTextureBinding::None) => None,
+            (wgpu::TextureViewDimension::D2, ResolvedTextureBinding::Texture2D { asset_id }) => {
                 if asset_id < 0 {
                     return None;
                 }
@@ -572,11 +636,19 @@ impl EmbeddedMaterialBindResources {
                     .filter(|t| t.mip_levels_resident > 0)
                     .map(|t| t.view.clone())
             }
-            ResolvedTextureBinding::Texture3D { .. } | ResolvedTextureBinding::Cubemap { .. } => {
-                // Embedded stems use `texture_2d` bindings; 3D/cube assets need shader/layout variants.
-                None
+            (wgpu::TextureViewDimension::Cube, ResolvedTextureBinding::Cubemap { asset_id }) => {
+                if asset_id < 0 {
+                    return None;
+                }
+                cubemap_pool
+                    .get_texture(asset_id)
+                    .filter(|t| t.mip_levels_resident > 0)
+                    .map(|t| t.view.clone())
             }
-            ResolvedTextureBinding::RenderTexture { asset_id } => {
+            (
+                wgpu::TextureViewDimension::D2,
+                ResolvedTextureBinding::RenderTexture { asset_id },
+            ) => {
                 if asset_id < 0 {
                     return None;
                 }
@@ -588,6 +660,7 @@ impl EmbeddedMaterialBindResources {
                     .filter(|t| t.is_sampleable())
                     .map(|t| t.color_view.clone())
             }
+            _ => None,
         }
     }
 

@@ -19,9 +19,11 @@ pub struct FrameGpuResources {
     /// Sampled single-view scene depth snapshot for materials that need `_CameraDepthTexture`.
     scene_depth_2d: (wgpu::Texture, wgpu::TextureView),
     scene_depth_2d_extent_px: (u32, u32),
+    scene_depth_2d_format: wgpu::TextureFormat,
     /// Sampled multiview scene depth snapshot (`D2Array`, 2 layers).
     scene_depth_array: (wgpu::Texture, wgpu::TextureView),
     scene_depth_array_extent_px: (u32, u32),
+    scene_depth_array_format: wgpu::TextureFormat,
     /// Sampled single-view scene color snapshot (grab pass) for materials like `filters_blur_perobject`.
     scene_color_2d: (wgpu::Texture, wgpu::TextureView),
     scene_color_2d_extent_px: (u32, u32),
@@ -200,6 +202,7 @@ impl FrameGpuResources {
     fn create_depth_snapshot_2d(
         device: &wgpu::Device,
         extent_px: (u32, u32),
+        format: wgpu::TextureFormat,
     ) -> (wgpu::Texture, wgpu::TextureView) {
         let tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("frame_scene_depth_2d"),
@@ -211,13 +214,14 @@ impl FrameGpuResources {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
+            format,
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
         let view = tex.create_view(&wgpu::TextureViewDescriptor {
             label: Some("frame_scene_depth_2d_view"),
             dimension: Some(wgpu::TextureViewDimension::D2),
+            aspect: wgpu::TextureAspect::DepthOnly,
             ..Default::default()
         });
         (tex, view)
@@ -226,6 +230,7 @@ impl FrameGpuResources {
     fn create_depth_snapshot_array(
         device: &wgpu::Device,
         extent_px: (u32, u32),
+        format: wgpu::TextureFormat,
     ) -> (wgpu::Texture, wgpu::TextureView) {
         let tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("frame_scene_depth_array"),
@@ -237,7 +242,7 @@ impl FrameGpuResources {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
+            format,
             usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
@@ -245,6 +250,7 @@ impl FrameGpuResources {
             label: Some("frame_scene_depth_array_view"),
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             array_layer_count: Some(2),
+            aspect: wgpu::TextureAspect::DepthOnly,
             ..Default::default()
         });
         (tex, view)
@@ -275,7 +281,12 @@ impl FrameGpuResources {
         );
     }
 
-    fn ensure_scene_depth_2d(&mut self, device: &wgpu::Device, extent_px: (u32, u32)) {
+    fn ensure_scene_depth_2d(
+        &mut self,
+        device: &wgpu::Device,
+        extent_px: (u32, u32),
+        format: wgpu::TextureFormat,
+    ) {
         let want = (extent_px.0.max(1), extent_px.1.max(1));
         let max_dim = self.limits.max_texture_dimension_2d();
         if want.0 > max_dim || want.1 > max_dim {
@@ -286,14 +297,20 @@ impl FrameGpuResources {
             );
             return;
         }
-        if self.scene_depth_2d_extent_px == want {
+        if self.scene_depth_2d_extent_px == want && self.scene_depth_2d_format == format {
             return;
         }
-        self.scene_depth_2d = Self::create_depth_snapshot_2d(device, want);
+        self.scene_depth_2d = Self::create_depth_snapshot_2d(device, want, format);
         self.scene_depth_2d_extent_px = want;
+        self.scene_depth_2d_format = format;
     }
 
-    fn ensure_scene_depth_array(&mut self, device: &wgpu::Device, extent_px: (u32, u32)) {
+    fn ensure_scene_depth_array(
+        &mut self,
+        device: &wgpu::Device,
+        extent_px: (u32, u32),
+        format: wgpu::TextureFormat,
+    ) {
         let want = (extent_px.0.max(1), extent_px.1.max(1));
         let max_dim = self.limits.max_texture_dimension_2d();
         if want.0 > max_dim || want.1 > max_dim {
@@ -304,11 +321,12 @@ impl FrameGpuResources {
             );
             return;
         }
-        if self.scene_depth_array_extent_px == want {
+        if self.scene_depth_array_extent_px == want && self.scene_depth_array_format == format {
             return;
         }
-        self.scene_depth_array = Self::create_depth_snapshot_array(device, want);
+        self.scene_depth_array = Self::create_depth_snapshot_array(device, want, format);
         self.scene_depth_array_extent_px = want;
+        self.scene_depth_array_format = format;
     }
 
     fn create_color_snapshot_2d(
@@ -446,8 +464,11 @@ impl FrameGpuResources {
         let refs = cluster_cache
             .get_buffers((1, 1), CLUSTER_COUNT_Z, false)
             .ok_or_else(|| "cluster buffers: get_buffers failed for 1x1 viewport".to_string())?;
-        let scene_depth_2d = Self::create_depth_snapshot_2d(device, (1, 1));
-        let scene_depth_array = Self::create_depth_snapshot_array(device, (1, 1));
+        let scene_depth_format =
+            crate::render_graph::main_forward_depth_stencil_format(device.features());
+        let scene_depth_2d = Self::create_depth_snapshot_2d(device, (1, 1), scene_depth_format);
+        let scene_depth_array =
+            Self::create_depth_snapshot_array(device, (1, 1), scene_depth_format);
         let scene_color_2d =
             Self::create_color_snapshot_2d(device, (1, 1), DEFAULT_SCENE_COLOR_FORMAT);
         let scene_color_array =
@@ -479,8 +500,10 @@ impl FrameGpuResources {
             cluster_cache,
             scene_depth_2d,
             scene_depth_2d_extent_px: (1, 1),
+            scene_depth_2d_format: scene_depth_format,
             scene_depth_array,
             scene_depth_array_extent_px: (1, 1),
+            scene_depth_array_format: scene_depth_format,
             scene_color_2d,
             scene_color_2d_extent_px: (1, 1),
             scene_color_2d_format: DEFAULT_SCENE_COLOR_FORMAT,
@@ -554,37 +577,38 @@ impl FrameGpuResources {
             height,
             depth_or_array_layers: if multiview { 2 } else { 1 },
         };
+        let format = source_depth.format();
         if multiview {
-            self.ensure_scene_depth_array(device, (width, height));
+            self.ensure_scene_depth_array(device, (width, height), format);
             encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: source_depth,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::DepthOnly,
+                    aspect: wgpu::TextureAspect::All,
                 },
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.scene_depth_array.0,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::DepthOnly,
+                    aspect: wgpu::TextureAspect::All,
                 },
                 extent,
             );
         } else {
-            self.ensure_scene_depth_2d(device, (width, height));
+            self.ensure_scene_depth_2d(device, (width, height), format);
             encoder.copy_texture_to_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture: source_depth,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::DepthOnly,
+                    aspect: wgpu::TextureAspect::All,
                 },
                 wgpu::TexelCopyTextureInfo {
                     texture: &self.scene_depth_2d.0,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::DepthOnly,
+                    aspect: wgpu::TextureAspect::All,
                 },
                 extent,
             );

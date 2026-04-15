@@ -15,7 +15,7 @@ use lru::LruCache;
 use crate::materials::embedded_raster_pipeline::{
     build_embedded_wgsl, create_embedded_render_pipelines,
 };
-use crate::materials::{MaterialBlendMode, RasterPipelineKind};
+use crate::materials::{MaterialBlendMode, MaterialRenderState, RasterPipelineKind};
 use crate::pipelines::raster::debug_world_normals::{
     build_debug_world_normals_wgsl, create_debug_world_normals_render_pipeline,
 };
@@ -43,6 +43,8 @@ pub struct MaterialPipelineCacheKey {
     pub multiview_mask: Option<NonZeroU32>,
     /// Material-level blend override for stems without explicit pass directives.
     pub blend_mode: MaterialBlendMode,
+    /// Material-level stencil and color write state.
+    pub render_state: MaterialRenderState,
 }
 
 /// One or more pipelines for a material entry (one per declared `//#pass`).
@@ -83,6 +85,7 @@ impl MaterialPipelineCache {
         desc: &MaterialPipelineDesc,
         permutation: ShaderPermutation,
         blend_mode: MaterialBlendMode,
+        render_state: MaterialRenderState,
     ) -> MaterialPipelineSet {
         let key = MaterialPipelineCacheKey {
             kind: kind.clone(),
@@ -92,6 +95,7 @@ impl MaterialPipelineCache {
             sample_count: desc.sample_count,
             multiview_mask: desc.multiview_mask,
             blend_mode,
+            render_state,
         };
         let device = self.device.clone();
         let cache = &mut self.pipelines;
@@ -115,6 +119,7 @@ impl MaterialPipelineCache {
                 &wgsl,
                 permutation,
                 blend_mode,
+                render_state,
             ),
             RasterPipelineKind::DebugWorldNormals => {
                 vec![create_debug_world_normals_render_pipeline(

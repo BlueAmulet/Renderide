@@ -51,11 +51,13 @@ use crate::render_graph::context::RenderPassContext;
 use crate::render_graph::error::RenderPassError;
 use crate::render_graph::pass::RenderPass;
 use crate::render_graph::resources::{PassResources, ResourceSlot};
-use crate::render_graph::world_mesh_draw_stats_from_sorted;
 use crate::render_graph::MAIN_FORWARD_DEPTH_CLEAR;
 use crate::render_graph::{
     build_world_mesh_cull_proj_params, collect_and_sort_world_mesh_draws, WorldMeshCullInput,
     WorldMeshDrawItem,
+};
+use crate::render_graph::{
+    world_mesh_draw_state_rows_from_sorted, world_mesh_draw_stats_from_sorted,
 };
 
 use encode::draw_subset;
@@ -63,6 +65,20 @@ use vp::compute_per_draw_vp_triple;
 
 /// Minimum draws before parallelizing per-draw VP / model uniform packing (rayon overhead).
 const PER_DRAW_VP_PARALLEL_MIN_DRAWS: usize = 256;
+
+fn stencil_clear_ops(format: wgpu::TextureFormat) -> Option<wgpu::Operations<u32>> {
+    format.has_stencil_aspect().then_some(wgpu::Operations {
+        load: wgpu::LoadOp::Clear(0),
+        store: wgpu::StoreOp::Store,
+    })
+}
+
+fn stencil_load_ops(format: wgpu::TextureFormat) -> Option<wgpu::Operations<u32>> {
+    format.has_stencil_aspect().then_some(wgpu::Operations {
+        load: wgpu::LoadOp::Load,
+        store: wgpu::StoreOp::Store,
+    })
+}
 
 fn current_view_texture2d_asset_ids_from_draws(
     draws: &[WorldMeshDrawItem],
@@ -147,9 +163,10 @@ impl RenderPass for WorldMeshForwardPass {
             && hc.stereo_view_proj.is_some()
             && ctx.gpu_limits.supports_multiview;
 
+        let depth_format = frame.depth_texture.format();
         let pass_desc = MaterialPipelineDesc {
             surface_format: frame.surface_format,
-            depth_stencil_format: Some(wgpu::TextureFormat::Depth32Float),
+            depth_stencil_format: Some(depth_format),
             sample_count: 1,
             multiview_mask: if use_multiview {
                 NonZeroU32::new(3)
@@ -236,7 +253,9 @@ impl RenderPass for WorldMeshForwardPass {
                 )),
                 supports_base_instance,
             );
+            let state_rows = world_mesh_draw_state_rows_from_sorted(&draws);
             backend.set_last_world_mesh_draw_stats(stats);
+            backend.set_last_world_mesh_draw_state_rows(state_rows);
         }
         let (vw, vh) = frame.viewport_px;
         let aspect = vw as f32 / vh.max(1) as f32;
@@ -382,7 +401,7 @@ impl RenderPass for WorldMeshForwardPass {
                             load: wgpu::LoadOp::Clear(MAIN_FORWARD_DEPTH_CLEAR),
                             store: wgpu::StoreOp::Store,
                         }),
-                        stencil_ops: None,
+                        stencil_ops: stencil_clear_ops(depth_format),
                     }),
                     occlusion_query_set: None,
                     timestamp_writes: None,
@@ -442,7 +461,7 @@ impl RenderPass for WorldMeshForwardPass {
                         load: wgpu::LoadOp::Clear(MAIN_FORWARD_DEPTH_CLEAR),
                         store: wgpu::StoreOp::Store,
                     }),
-                    stencil_ops: None,
+                    stencil_ops: stencil_clear_ops(depth_format),
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,
@@ -502,7 +521,7 @@ impl RenderPass for WorldMeshForwardPass {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     }),
-                    stencil_ops: None,
+                    stencil_ops: stencil_load_ops(depth_format),
                 }),
                 occlusion_query_set: None,
                 timestamp_writes: None,

@@ -113,6 +113,8 @@ mod tests {
                 embedded_needs_color: false,
                 embedded_needs_extended_vertex_streams: false,
                 embedded_requires_intersection_pass: false,
+                render_state: Default::default(),
+                blend_mode: Default::default(),
                 alpha_blended,
             },
             rigid_world_matrix: None,
@@ -147,6 +149,8 @@ mod tests {
             embedded_needs_color: false,
             embedded_needs_extended_vertex_streams: false,
             embedded_requires_intersection_pass: false,
+            render_state: Default::default(),
+            blend_mode: Default::default(),
             alpha_blended: false,
         };
         let b = MaterialDrawBatchKey {
@@ -159,6 +163,8 @@ mod tests {
             embedded_needs_color: false,
             embedded_needs_extended_vertex_streams: false,
             embedded_requires_intersection_pass: false,
+            render_state: Default::default(),
+            blend_mode: Default::default(),
             alpha_blended: false,
         };
         assert_ne!(a, b);

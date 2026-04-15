@@ -42,19 +42,39 @@ fn first_float_by_pids(
         })
 }
 
+fn shader_writer_unescaped_field_name(field_name: &str) -> &str {
+    let Some(stripped) = field_name.strip_suffix('_') else {
+        return field_name;
+    };
+    if stripped
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_ascii_digit())
+    {
+        stripped
+    } else {
+        field_name
+    }
+}
+
 fn default_vec4_for_field(field_name: &str) -> [f32; 4] {
+    let field_name = shader_writer_unescaped_field_name(field_name);
     if field_name.ends_with("_ST") {
         return [1.0, 1.0, 0.0, 0.0];
     }
     match field_name {
         "_Rect" => [0.0, 0.0, 1.0, 1.0],
+        "_FOV" => [6.2831855, 3.1415927, 0.0, 0.0],
+        "_SecondTexOffset" => [0.0, 0.0, 0.0, 0.0],
+        "_OffsetMagnitude" => [0.1, 0.1, 0.0, 0.0],
+        "_PerspectiveFOV" => [0.785398, 0.785398, 0.0, 0.0],
+        "_Tint0" => [1.0, 0.0, 0.0, 1.0],
+        "_Tint1" => [0.0, 1.0, 0.0, 1.0],
         "_OverlayTint" => [1.0, 1.0, 1.0, 0.5],
         "_EmissionColor" | "_EmissionColor1" | "_IntersectEmissionColor" | "_OutsideColor" => {
             [0.0, 0.0, 0.0, 0.0]
         }
-        "_BehindFarColor" | "_FrontFarColor" | "_FarColor" | "_FarColor0" => {
-            [0.0, 0.0, 0.0, 1.0]
-        }
+        "_BehindFarColor" | "_FrontFarColor" | "_FarColor" | "_FarColor0" => [0.0, 0.0, 0.0, 1.0],
         "_FarColor1" => [0.2, 0.2, 0.2, 1.0],
         "_NearColor1" => [0.8, 0.8, 0.8, 0.8],
         "_SpecularColor" | "_SpecularColor1" => [1.0, 1.0, 1.0, 0.5],
@@ -63,6 +83,7 @@ fn default_vec4_for_field(field_name: &str) -> [f32; 4] {
 }
 
 fn is_keyword_like_field(field_name: &str) -> bool {
+    let field_name = shader_writer_unescaped_field_name(field_name);
     let stripped = field_name.strip_prefix('_').unwrap_or(field_name);
     !stripped.is_empty()
         && stripped
@@ -99,6 +120,7 @@ fn inferred_keyword_float_f32(
     lookup: MaterialPropertyLookupIds,
     ids: &StemEmbeddedPropertyIds,
 ) -> Option<f32> {
+    let field_name = shader_writer_unescaped_field_name(field_name);
     if let Some(probes) = ids.keyword_field_probe_ids.get(field_name) {
         if keyword_float_enabled_any_pids(store, lookup, probes) {
             return Some(1.0);
@@ -187,12 +209,13 @@ fn default_f32_for_field(
     lookup: MaterialPropertyLookupIds,
     ids: &StemEmbeddedPropertyIds,
 ) -> f32 {
+    let field_name = shader_writer_unescaped_field_name(field_name);
     if let Some(v) = inferred_keyword_float_f32(field_name, store, lookup, ids) {
         return v;
     }
     match field_name {
-        "_Lerp" | "_Metallic" | "_Metallic1" | "_UVSec" | "_Mode" | "_OffsetFactor"
-        | "_OffsetUnits" | "_Stencil" | "_StencilOp" => 0.0,
+        "_Lerp" | "_TextureLerp" | "_ProjectionLerp" | "_CubeLOD" | "_Metallic" | "_Metallic1"
+        | "_UVSec" | "_Mode" | "_OffsetFactor" | "_OffsetUnits" | "_Stencil" | "_StencilOp" => 0.0,
         "_NormalScale"
         | "_NormalScale1"
         | "_BumpScale"
@@ -205,6 +228,7 @@ fn default_f32_for_field(
         | "_Gamma"
         | "_ZWrite" => 1.0,
         "_Exp" | "_Exp0" | "_Exp1" | "_PolarPow" | "_LerpPolarPow" => 1.0,
+        "_MaxIntensity" => 4.0,
         "_Parallax" => 0.02,
         "_GammaCurve" => 2.2,
         "_SrcBlend" => 1.0,
@@ -573,6 +597,11 @@ mod text_uniform_packing_tests {
         assert_eq!(
             default_f32_for_field("_GammaCurve", &store, lookup(5), &ids),
             2.2
+        );
+        assert_eq!(default_vec4_for_field("_Tint0_"), [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(
+            default_f32_for_field("_Metallic1_", &store, lookup(5), &ids),
+            0.0
         );
         assert_eq!(
             default_f32_for_field("_StencilComp", &store, lookup(5), &ids),

@@ -10,8 +10,9 @@ use crate::assets::material::MaterialDictionary;
 use crate::materials::{
     embedded_stem_needs_color_stream, embedded_stem_needs_extended_vertex_streams,
     embedded_stem_needs_uv0_stream, embedded_stem_requires_intersection_pass,
-    embedded_stem_uses_alpha_blending, material_blend_mode_for_lookup, resolve_raster_pipeline,
-    MaterialPipelinePropertyIds, MaterialRouter, RasterPipelineKind,
+    embedded_stem_uses_alpha_blending, material_blend_mode_for_lookup,
+    material_render_state_for_lookup, resolve_raster_pipeline, MaterialPipelinePropertyIds,
+    MaterialRouter, RasterPipelineKind,
 };
 use crate::pipelines::ShaderPermutation;
 use crate::scene::SceneCoordinator;
@@ -63,6 +64,7 @@ pub(super) fn batch_key_for_slot(
     };
     let material_blend_mode =
         material_blend_mode_for_lookup(dict, lookup_ids, pipeline_property_ids);
+    let render_state = material_render_state_for_lookup(dict, lookup_ids, pipeline_property_ids);
     let alpha_blended = match &pipeline {
         RasterPipelineKind::EmbeddedStem(stem) => embedded_stem_uses_alpha_blending(stem.as_ref()),
         RasterPipelineKind::DebugWorldNormals => false,
@@ -77,6 +79,8 @@ pub(super) fn batch_key_for_slot(
         embedded_needs_color,
         embedded_needs_extended_vertex_streams,
         embedded_requires_intersection_pass,
+        render_state,
+        blend_mode: material_blend_mode,
         alpha_blended,
     }
 }

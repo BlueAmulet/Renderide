@@ -6,6 +6,8 @@ use crate::diagnostics::{
     FrameDiagnosticsSnapshot, FrameTimingHudSnapshot, RendererInfoSnapshot,
     SceneTransformsSnapshot, TextureDebugSnapshot,
 };
+use crate::materials::{MaterialBlendMode, RasterPipelineKind};
+use crate::render_graph::WorldMeshDrawStateRow;
 
 use imgui::{
     Condition, Drag, Io, ListClipper, MouseButton as ImGuiMouseButton, TableFlags, WindowFlags,
@@ -23,6 +25,83 @@ fn device_type_label(kind: wgpu::DeviceType) -> &'static str {
         wgpu::DeviceType::VirtualGpu => "virtual GPU",
         wgpu::DeviceType::Cpu => "software / CPU",
     }
+}
+
+fn pipeline_label(kind: &RasterPipelineKind) -> String {
+    match kind {
+        RasterPipelineKind::EmbeddedStem(stem) => stem.to_string(),
+        RasterPipelineKind::DebugWorldNormals => "debug_world_normals".to_string(),
+    }
+}
+
+fn draw_state_is_uiish(row: &WorldMeshDrawStateRow) -> bool {
+    match &row.pipeline {
+        RasterPipelineKind::EmbeddedStem(stem) => {
+            let stem = stem.as_ref();
+            stem.starts_with("ui_")
+                || stem.contains("text")
+                || stem.contains("projection360")
+                || stem.contains("dash")
+        }
+        RasterPipelineKind::DebugWorldNormals => false,
+    }
+}
+
+fn draw_state_has_override(row: &WorldMeshDrawStateRow) -> bool {
+    row.depth_write.is_some()
+        || row.color_mask.is_some()
+        || row.stencil_enabled
+        || !matches!(row.blend_mode, MaterialBlendMode::StemDefault)
+}
+
+fn blend_mode_label(mode: MaterialBlendMode) -> String {
+    match mode {
+        MaterialBlendMode::StemDefault => "stem".to_string(),
+        MaterialBlendMode::Opaque => "opaque".to_string(),
+        MaterialBlendMode::Cutout => "cutout".to_string(),
+        MaterialBlendMode::Alpha => "alpha".to_string(),
+        MaterialBlendMode::Transparent => "transparent".to_string(),
+        MaterialBlendMode::Additive => "additive".to_string(),
+        MaterialBlendMode::Multiply => "multiply".to_string(),
+        MaterialBlendMode::UnityBlend { src, dst } => format!("unity {src}/{dst}"),
+    }
+}
+
+fn color_mask_label(mask: Option<u8>) -> String {
+    let Some(mask) = mask else {
+        return "inherit".to_string();
+    };
+    if mask == 0 {
+        return "0 none".to_string();
+    }
+    let mut s = String::new();
+    if mask & 8 != 0 {
+        s.push('r');
+    }
+    if mask & 4 != 0 {
+        s.push('g');
+    }
+    if mask & 2 != 0 {
+        s.push('b');
+    }
+    if mask & 1 != 0 {
+        s.push('a');
+    }
+    format!("{s} ({mask})")
+}
+
+fn stencil_label(row: &WorldMeshDrawStateRow) -> String {
+    if !row.stencil_enabled {
+        return "off".to_string();
+    }
+    format!(
+        "ref={} cmp={} op={} r/w={:02x}/{:02x}",
+        row.stencil_reference,
+        row.stencil_compare,
+        row.stencil_pass_op,
+        row.stencil_read_mask,
+        row.stencil_write_mask
+    )
 }
 
 /// Feeds winit-derived [`crate::diagnostics::DebugHudInput`] into ImGui `io` before each frame.
@@ -339,6 +418,178 @@ impl DebugHud {
         }
     }
 
+    /// Sorted draw rows with material-driven pipeline state (`_ZWrite`, stencil, color mask, blend).
+    pub(super) fn draw_state_tab(
+        ui: &imgui::Ui,
+        frame: Option<&FrameDiagnosticsSnapshot>,
+        ui_only: &mut bool,
+        only_overrides: &mut bool,
+    ) {
+        let Some(d) = frame else {
+            ui.text("Waiting for frame diagnostics...");
+            return;
+        };
+        if d.draw_state_rows.is_empty() {
+            ui.text("No draw-state rows captured.");
+            return;
+        }
+
+        let z_inherit = d
+            .draw_state_rows
+            .iter()
+            .filter(|r| r.depth_write.is_none())
+            .count();
+        let z_on = d
+            .draw_state_rows
+            .iter()
+            .filter(|r| r.depth_write == Some(true))
+            .count();
+        let z_off = d
+            .draw_state_rows
+            .iter()
+            .filter(|r| r.depth_write == Some(false))
+            .count();
+        let stencil_on = d
+            .draw_state_rows
+            .iter()
+            .filter(|r| r.stencil_enabled)
+            .count();
+        let color_masked = d
+            .draw_state_rows
+            .iter()
+            .filter(|r| r.color_mask.is_some())
+            .count();
+        let alpha_sorted = d.draw_state_rows.iter().filter(|r| r.alpha_blended).count();
+        let uiish = d
+            .draw_state_rows
+            .iter()
+            .filter(|r| draw_state_is_uiish(r))
+            .count();
+
+        ui.text(format!(
+            "Draws: {}  |  UI-ish: {}  |  alpha-sorted: {}",
+            d.draw_state_rows.len(),
+            uiish,
+            alpha_sorted
+        ));
+        ui.text(format!(
+            "ZWrite property: inherit {}  |  on {}  |  off {}",
+            z_inherit, z_on, z_off
+        ));
+        ui.text(format!(
+            "Stencil enabled: {}  |  ColorMask overrides: {}",
+            stencil_on, color_masked
+        ));
+        ui.text_disabled(
+            "ZWrite 'inherit' means no _ZWrite/ZWrite value was found; the shader pass default is used.",
+        );
+        ui.checkbox("Show only UI/text/projection rows", ui_only);
+        ui.checkbox("Show only rows with material overrides", only_overrides);
+        ui.separator();
+
+        let rows: Vec<_> = d
+            .draw_state_rows
+            .iter()
+            .filter(|r| !*ui_only || draw_state_is_uiish(r))
+            .filter(|r| !*only_overrides || draw_state_has_override(r))
+            .collect();
+        if rows.is_empty() {
+            ui.text("No draw-state rows match the current filters.");
+            return;
+        }
+
+        let table_flags = TableFlags::BORDERS
+            | TableFlags::ROW_BG
+            | TableFlags::SCROLL_Y
+            | TableFlags::RESIZABLE
+            | TableFlags::SIZING_STRETCH_PROP;
+        let avail = ui.content_region_avail();
+        let table_height = avail[1].max(180.0);
+        if let Some(_table) = ui.begin_table_with_sizing(
+            "draw_state_rows",
+            11,
+            table_flags,
+            [avail[0], table_height],
+            0.0,
+        ) {
+            ui.table_setup_column("#");
+            ui.table_setup_column("Pipeline");
+            ui.table_setup_column("Mat/PB");
+            ui.table_setup_column("Shader");
+            ui.table_setup_column("Mesh");
+            ui.table_setup_column("Flags");
+            ui.table_setup_column("Blend");
+            ui.table_setup_column("ZWrite");
+            ui.table_setup_column("Stencil");
+            ui.table_setup_column("ColorMask");
+            ui.table_setup_column("Sort");
+            ui.table_headers_row();
+
+            let clip = ListClipper::new(rows.len() as i32);
+            let tok = clip.begin(ui);
+            for row_i in tok.iter() {
+                let r = rows[row_i as usize];
+                ui.table_next_row();
+                ui.table_next_column();
+                ui.text(format!("{}", r.draw_index));
+                ui.table_next_column();
+                ui.text(pipeline_label(&r.pipeline));
+                ui.table_next_column();
+                let pb = r
+                    .property_block_slot0
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "-".to_string());
+                ui.text(format!("{}/{}", r.material_asset_id, pb));
+                ui.table_next_column();
+                ui.text(format!("{}", r.shader_asset_id));
+                ui.table_next_column();
+                ui.text(format!(
+                    "s{} n{} m{}:{}",
+                    r.space_id, r.node_id, r.mesh_asset_id, r.slot_index
+                ));
+                ui.table_next_column();
+                let mut flags = Vec::new();
+                if r.is_overlay {
+                    flags.push("overlay");
+                }
+                if r.alpha_blended {
+                    flags.push("alpha");
+                }
+                if r.skinned {
+                    flags.push("skin");
+                }
+                if r.requires_intersection_pass {
+                    flags.push("intersect");
+                }
+                if flags.is_empty() {
+                    ui.text("-");
+                } else {
+                    ui.text(flags.join(","));
+                }
+                ui.table_next_column();
+                ui.text(blend_mode_label(r.blend_mode));
+                ui.table_next_column();
+                match r.depth_write {
+                    Some(true) => ui.text_colored([0.5, 0.95, 0.55, 1.0], "on"),
+                    Some(false) => ui.text_colored([1.0, 0.75, 0.35, 1.0], "off"),
+                    None => ui.text_disabled("inherit"),
+                }
+                ui.table_next_column();
+                ui.text(stencil_label(r));
+                ui.table_next_column();
+                match r.color_mask {
+                    Some(0) => {
+                        ui.text_colored([1.0, 0.55, 0.4, 1.0], color_mask_label(r.color_mask))
+                    }
+                    Some(_) => ui.text(color_mask_label(r.color_mask)),
+                    None => ui.text_disabled("inherit"),
+                }
+                ui.table_next_column();
+                ui.text(format!("{} / {}", r.sorting_order, r.collect_order));
+            }
+        }
+    }
+
     /// Third overlay window: editable [`crate::config::RendererSettings`] with immediate disk sync.
     pub(super) fn renderer_config_window(
         ui: &imgui::Ui,
@@ -405,7 +656,7 @@ impl DebugHud {
                     dirty = true;
                 }
                 ui.text_disabled("FPS and CPU/GPU submit intervals; snapshot is cheap.");
-                if ui.checkbox("Debug HUD (Stats + Shader routes)", &mut g.debug.debug_hud_enabled) {
+                if ui.checkbox("Debug HUD (Stats + Shader routes + Draw state)", &mut g.debug.debug_hud_enabled) {
                     dirty = true;
                 }
                 ui.text_disabled(

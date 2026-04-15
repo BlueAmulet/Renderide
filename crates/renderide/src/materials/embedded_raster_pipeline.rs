@@ -7,7 +7,7 @@ use crate::embedded_shaders;
 use crate::materials::raster_pipeline::create_reflective_raster_mesh_forward_pipelines;
 use crate::materials::{
     default_pass_for_blend_mode, materialized_pass_for_blend_mode, MaterialBlendMode,
-    MaterialPipelineDesc,
+    MaterialPipelineDesc, MaterialRenderState,
 };
 use crate::pipelines::raster::SHADER_PERM_MULTIVIEW_STEREO;
 use crate::pipelines::ShaderPermutation;
@@ -200,6 +200,7 @@ pub(crate) fn create_embedded_render_pipelines(
     wgsl_source: &str,
     permutation: ShaderPermutation,
     blend_mode: MaterialBlendMode,
+    render_state: MaterialRenderState,
 ) -> Vec<wgpu::RenderPipeline> {
     let composed = embedded_composed_stem_for_permutation(stem.as_ref(), permutation);
     let declared_passes = embedded_shaders::embedded_target_passes(&composed);
@@ -217,6 +218,7 @@ pub(crate) fn create_embedded_render_pipelines(
             true,
             true,
             &materialized_passes,
+            render_state,
         );
     }
 
@@ -231,6 +233,7 @@ pub(crate) fn create_embedded_render_pipelines(
         true,
         true,
         std::slice::from_ref(&pass),
+        render_state,
     )
 }
 
@@ -242,6 +245,7 @@ pub fn embedded_stem_uses_alpha_blending(stem: &str) -> bool {
     stem.starts_with("ui_")
         || stem == "overlayunlit"
         || stem == "overlayfresnel"
+        || stem == "projection360"
         || stem == "textunlit"
         || stem == "textunit"
         || stem == "text_unlit"

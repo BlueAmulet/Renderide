@@ -137,6 +137,14 @@ mod tests {
     }
 
     #[test]
+    fn resolves_projection360_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("Projection360").as_deref(),
+            Some("projection360_default")
+        );
+    }
+
+    #[test]
     fn resolves_fresnel_from_unity_name() {
         assert_eq!(
             embedded_default_stem_for_unity_name("Fresnel").as_deref(),

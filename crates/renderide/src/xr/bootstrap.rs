@@ -309,8 +309,10 @@ pub fn init_wgpu_openxr(gpu_validation_layers: bool) -> Result<XrWgpuHandles, Xr
         | wgt::Features::TEXTURE_COMPRESSION_ETC2
         | wgt::Features::TEXTURE_COMPRESSION_ASTC;
     let optional_float32_filterable = wgt::Features::FLOAT32_FILTERABLE;
+    let optional_depth32_stencil8 = wgt::Features::DEPTH32FLOAT_STENCIL8;
     let wgpu_features = wgt::Features::MULTIVIEW
-        | (wgpu_exposed.features & (compression | optional_float32_filterable));
+        | (wgpu_exposed.features
+            & (compression | optional_float32_filterable | optional_depth32_stencil8));
 
     let mut enabled_device_extensions = wgpu_exposed
         .adapter

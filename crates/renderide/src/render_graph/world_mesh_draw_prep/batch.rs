@@ -126,6 +126,8 @@ mod tests {
                 embedded_needs_color: false,
                 embedded_needs_extended_vertex_streams: false,
                 embedded_requires_intersection_pass: false,
+                render_state: Default::default(),
+                blend_mode: Default::default(),
                 alpha_blended: alpha,
             },
             rigid_world_matrix: None,
