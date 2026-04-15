@@ -55,7 +55,6 @@ pub fn run(config: &ResoBootConfig, ctx: RunContext) -> Result<(), BootstrapErro
     } = ctx;
 
     let mut args: Vec<String> = host_args;
-    args.push("-Invisible".to_string());
     args.push("-shmprefix".to_string());
     args.push(config.shared_memory_prefix.clone());
     logger::info!("Host args: {:?}", args);
