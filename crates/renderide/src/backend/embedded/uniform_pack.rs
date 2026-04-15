@@ -52,7 +52,11 @@ fn default_vec4_for_field(field_name: &str) -> [f32; 4] {
         "_EmissionColor" | "_EmissionColor1" | "_IntersectEmissionColor" | "_OutsideColor" => {
             [0.0, 0.0, 0.0, 0.0]
         }
-        "_BehindFarColor" | "_FrontFarColor" => [0.0, 0.0, 0.0, 1.0],
+        "_BehindFarColor" | "_FrontFarColor" | "_FarColor" | "_FarColor0" => {
+            [0.0, 0.0, 0.0, 1.0]
+        }
+        "_FarColor1" => [0.2, 0.2, 0.2, 1.0],
+        "_NearColor1" => [0.8, 0.8, 0.8, 0.8],
         "_SpecularColor" | "_SpecularColor1" => [1.0, 1.0, 1.0, 0.5],
         _ => [1.0, 1.0, 1.0, 1.0],
     }
@@ -200,7 +204,7 @@ fn default_f32_for_field(
         | "_Exposure"
         | "_Gamma"
         | "_ZWrite" => 1.0,
-        "_Exp" | "_PolarPow" => 1.0,
+        "_Exp" | "_Exp0" | "_Exp1" | "_PolarPow" | "_LerpPolarPow" => 1.0,
         "_Parallax" => 0.02,
         "_GammaCurve" => 2.2,
         "_SrcBlend" => 1.0,

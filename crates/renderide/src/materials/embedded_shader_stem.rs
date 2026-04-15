@@ -81,6 +81,14 @@ mod tests {
     }
 
     #[test]
+    fn resolves_pbs_dual_sided_specular_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSDualSidedSpecular").as_deref(),
+            Some("pbsdualsidedspecular_default")
+        );
+    }
+
+    #[test]
     fn resolves_ui_textunlit_from_unity_asset_token() {
         assert_eq!(
             embedded_default_stem_for_unity_name("UI_TextUnlit").as_deref(),
@@ -133,6 +141,14 @@ mod tests {
         assert_eq!(
             embedded_default_stem_for_unity_name("Fresnel").as_deref(),
             Some("fresnel_default")
+        );
+    }
+
+    #[test]
+    fn resolves_fresnel_lerp_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("FresnelLerp").as_deref(),
+            Some("fresnellerp_default")
         );
     }
 
