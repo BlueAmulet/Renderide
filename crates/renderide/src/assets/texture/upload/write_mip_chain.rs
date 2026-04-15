@@ -1,6 +1,6 @@
 //! Full mip chain path: decode, optional flip, [`super::mip_write_common::write_one_mip`] per level.
 
-use crate::assets::texture::layout::block_extent;
+use crate::assets::texture::layout::host_mip_payload_byte_offset;
 use crate::shared::{SetTexture2DData, SetTexture2DFormat};
 
 use super::super::decode::{decode_mip_to_rgba8, flip_mip_rows, needs_rgba8_decode_before_upload};
@@ -158,8 +158,8 @@ impl TextureMipChainUploader {
 
         let (gw, gh) = mip_dimensions_at_level(tex_extent.width, tex_extent.height, mip_level);
         if w != gw || h != gh {
-            logger::trace!(
-                "texture {} mip {mip_level}: upload says {w}x{h} but GPU mip is {gw}x{gh} (base {}x{} from format)",
+            logger::debug!(
+                "texture {} mip {mip_level}: mip_map_sizes {w}x{h} != GPU {gw}x{gh} (using GPU dimensions; base {}x{})",
                 upload.asset_id,
                 tex_extent.width,
                 tex_extent.height
@@ -205,10 +205,13 @@ impl TextureMipChainUploader {
                 total_uploaded: self.uploaded_mips,
             });
         }
-        let start = start_abs - start_bias;
-        let block_dims = block_extent(fmt.format);
-        let start = (start * mip_byte_len(fmt.format, 1, 1).unwrap() as usize)
-            .div_ceil(block_dims.0 as usize * block_dims.1 as usize);
+        let start_rel = start_abs - start_bias;
+        let start = host_mip_payload_byte_offset(fmt.format, start_rel).ok_or_else(|| {
+            format!(
+                "texture {} mip {mip_level}: mip start offset unsupported for {:?}",
+                upload.asset_id, fmt.format
+            )
+        })?;
         let host_len = mip_byte_len(fmt.format, w, h)
             .ok_or_else(|| format!("mip byte size unsupported for {:?}", fmt.format))?
             as usize;
@@ -292,7 +295,7 @@ impl TextureMipChainUploader {
                         );
                     }
                 }
-                flip_mip_rows(&mut v, w, h, bpp_host);
+                flip_mip_rows(&mut v, gw, gh, bpp_host);
                 std::borrow::Cow::Owned(v)
             } else {
                 if flip && host_format_is_compressed(fmt.format) {
