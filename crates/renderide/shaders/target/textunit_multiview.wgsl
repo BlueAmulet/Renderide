@@ -182,11 +182,11 @@ fn vs_main(@builtin(view_index) view_idx: u32, @location(0) pos: vec4<f32>, @loc
     }
     let _e20: mat4x4<f32> = vp;
     out.clip_pos = (_e20 * world_p);
-    out.uv = uv;
+    out.uv = vec2<f32>(uv.x, (1f - uv.y));
     out.extra_data = extra_n;
     out.vtx_color = color;
-    let _e28: VertexOutput = out;
-    return _e28;
+    let _e33: VertexOutput = out;
+    return _e33;
 }
 
 @fragment 

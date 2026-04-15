@@ -211,12 +211,12 @@ fn vs_main(@location(0) pos: vec4<f32>, @location(1) extra_n: vec4<f32>, @locati
     let world_p: vec4<f32> = (_e3 * vec4<f32>(pos.xyz, 1f));
     let vp: mat4x4<f32> = drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX.view_proj_left;
     out.clip_pos = (vp * world_p);
-    out.uv = uv;
+    out.uv = vec2<f32>(uv.x, (1f - uv.y));
     out.extra_data = extra_n;
     out.vtx_color = color;
     out.obj_xy = pos.xy;
-    let _e22: VertexOutput = out;
-    return _e22;
+    let _e27: VertexOutput = out;
+    return _e27;
 }
 
 @fragment 
