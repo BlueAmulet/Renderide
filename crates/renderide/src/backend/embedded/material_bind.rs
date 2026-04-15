@@ -447,6 +447,53 @@ impl EmbeddedMaterialBindResources {
         Ok(layout)
     }
 
+    /// Returns Texture2D asset ids referenced by an embedded material/property-block lookup.
+    pub(crate) fn texture2d_asset_ids_for_stem(
+        &self,
+        stem: &str,
+        store: &MaterialPropertyStore,
+        lookup: MaterialPropertyLookupIds,
+    ) -> Result<Vec<i32>, String> {
+        let layout = self.stem_layout(stem)?;
+        let primary_texture_2d =
+            primary_texture_2d_asset_id(&layout.reflected, layout.ids.as_ref(), store, lookup);
+        let mut asset_ids = Vec::new();
+        for entry in &layout.reflected.material_entries {
+            if !matches!(entry.ty, wgpu::BindingType::Texture { .. }) {
+                continue;
+            }
+            let b = entry.binding;
+            let Some(host_name) = layout
+                .reflected
+                .material_group1_names
+                .get(&b)
+                .map(String::as_str)
+            else {
+                continue;
+            };
+            let Some(texture_pid) = layout.ids.texture_binding_to_property_id.get(&b).copied()
+            else {
+                continue;
+            };
+            if let ResolvedTextureBinding::Texture2D { asset_id } =
+                resolved_texture_binding_for_host(
+                    host_name,
+                    texture_pid,
+                    primary_texture_2d,
+                    store,
+                    lookup,
+                )
+            {
+                if asset_id >= 0 {
+                    asset_ids.push(asset_id);
+                }
+            }
+        }
+        asset_ids.sort_unstable();
+        asset_ids.dedup();
+        Ok(asset_ids)
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn resolve_texture_view_for_host(
         &self,

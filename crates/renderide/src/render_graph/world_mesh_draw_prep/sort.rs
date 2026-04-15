@@ -8,9 +8,9 @@ use rayon::slice::ParallelSliceMut;
 
 use crate::assets::material::MaterialDictionary;
 use crate::materials::{
-    embedded_stem_needs_color_stream, embedded_stem_needs_uv0_stream,
-    embedded_stem_requires_intersection_pass, embedded_stem_uses_alpha_blending,
-    resolve_raster_pipeline, MaterialRouter, RasterPipelineKind,
+    embedded_stem_needs_color_stream, embedded_stem_needs_extended_vertex_streams,
+    embedded_stem_needs_uv0_stream, embedded_stem_requires_intersection_pass,
+    embedded_stem_uses_alpha_blending, resolve_raster_pipeline, MaterialRouter, RasterPipelineKind,
 };
 use crate::pipelines::ShaderPermutation;
 use crate::scene::SceneCoordinator;
@@ -43,6 +43,12 @@ pub(super) fn batch_key_for_slot(
         }
         RasterPipelineKind::DebugWorldNormals => false,
     };
+    let embedded_needs_extended_vertex_streams = match &pipeline {
+        RasterPipelineKind::EmbeddedStem(stem) => {
+            embedded_stem_needs_extended_vertex_streams(stem.as_ref(), shader_perm)
+        }
+        RasterPipelineKind::DebugWorldNormals => false,
+    };
     let embedded_requires_intersection_pass = match &pipeline {
         RasterPipelineKind::EmbeddedStem(stem) => {
             embedded_stem_requires_intersection_pass(stem.as_ref(), shader_perm)
@@ -61,6 +67,7 @@ pub(super) fn batch_key_for_slot(
         skinned,
         embedded_needs_uv0,
         embedded_needs_color,
+        embedded_needs_extended_vertex_streams,
         embedded_requires_intersection_pass,
         alpha_blended,
     }

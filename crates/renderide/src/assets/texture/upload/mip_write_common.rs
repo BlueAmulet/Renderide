@@ -52,7 +52,7 @@ pub(super) fn valid_mip_prefix_len(
             as usize;
         let start_raw = upload.mip_starts[i];
         if start_raw < 0 {
-            return Err("negative mip_starts".into());
+            break;
         }
         let start_abs = start_raw as usize;
         if start_abs < bias {
@@ -345,6 +345,17 @@ mod tests {
         upload.mip_starts = vec![0, 64];
 
         let prefix = valid_mip_prefix_len(TextureFormat::RGBA32, &upload, 68, 0).unwrap();
+        assert_eq!(prefix, 1);
+    }
+
+    #[test]
+    fn valid_prefix_len_stops_at_negative_tail_start() {
+        let mut upload = SetTexture2DData::default();
+        upload.data.length = 64;
+        upload.mip_map_sizes = vec![IVec2::new(4, 4), IVec2::new(2, 2)];
+        upload.mip_starts = vec![0, -1];
+
+        let prefix = valid_mip_prefix_len(TextureFormat::RGBA32, &upload, 64, 0).unwrap();
         assert_eq!(prefix, 1);
     }
 }

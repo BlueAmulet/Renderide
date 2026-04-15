@@ -5,14 +5,17 @@ use crate::gpu::GpuContext;
 use super::RendererRuntime;
 
 impl RendererRuntime {
-    /// Copies [`crate::config::DebugSettings::debug_hud_enabled`] into the backend before the render graph runs.
+    /// Copies debug HUD capture flags into the backend before the render graph runs.
     pub(super) fn sync_debug_hud_diagnostics_from_settings(&mut self) {
-        let main = self
+        let (main, textures) = self
             .settings
             .read()
-            .map(|s| s.debug.debug_hud_enabled)
-            .unwrap_or(false);
+            .map(|s| (s.debug.debug_hud_enabled, s.debug.debug_hud_textures))
+            .unwrap_or((false, false));
         self.backend.set_debug_hud_main_enabled(main);
+        self.backend.set_debug_hud_textures_enabled(textures);
+        self.backend
+            .clear_debug_hud_current_view_texture_2d_asset_ids();
     }
 
     /// Updates debug HUD snapshots after [`crate::gpu::GpuContext::end_frame_timing`] for the winit tick.
@@ -73,8 +76,10 @@ impl RendererRuntime {
         }
 
         if textures_hud {
-            let textures =
-                crate::diagnostics::TextureDebugSnapshot::capture(self.backend.texture_pool());
+            let textures = crate::diagnostics::TextureDebugSnapshot::capture(
+                self.backend.texture_pool(),
+                self.backend.debug_hud_current_view_texture_2d_asset_ids(),
+            );
             self.backend.set_debug_hud_texture_debug_snapshot(textures);
         } else {
             self.backend.clear_debug_hud_texture_debug_snapshot();

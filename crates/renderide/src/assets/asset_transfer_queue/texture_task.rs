@@ -20,8 +20,11 @@ use super::AssetTransferQueue;
 enum TextureStage {
     /// First step: sub-region or create mip-chain uploader.
     Start,
-    /// Upload one mip per [`super::integrator::drain_asset_tasks`] step.
-    MipChain { uploader: TextureMipChainUploader },
+    /// Upload one mip per [`super::integrator::drain_asset_tasks`] step from an owned payload copy.
+    MipChain {
+        uploader: TextureMipChainUploader,
+        payload: Vec<u8>,
+    },
 }
 
 /// One in-flight Texture2D data upload.
@@ -80,26 +83,38 @@ impl TextureUploadTask {
                 let wgpu_format = self.wgpu_format;
                 let upload = &self.data;
                 let start = shm.with_read_bytes(&upload.data, |raw| {
-                    Some(texture_upload_start(
-                        gpu_queue,
-                        texture,
-                        fmt,
-                        wgpu_format,
-                        upload,
-                        raw,
-                    ))
+                    let start =
+                        texture_upload_start(gpu_queue, texture, fmt, wgpu_format, upload, raw);
+                    let payload = match start {
+                        Ok(TextureDataStart::MipChain(_)) => {
+                            let want = upload.data.length.max(0) as usize;
+                            if raw.len() < want {
+                                return Some((
+                                    Err(format!(
+                                        "raw shorter than descriptor (need {want}, got {})",
+                                        raw.len()
+                                    )),
+                                    Vec::new(),
+                                ));
+                            }
+                            raw[..want].to_vec()
+                        }
+                        _ => Vec::new(),
+                    };
+                    Some((start, payload))
                 });
                 let Some(start) = start else {
                     logger::warn!("texture {id}: shared memory slice missing");
                     return StepResult::Done;
                 };
+                let (start, payload) = start;
                 match start {
                     Ok(TextureDataStart::SubregionComplete(uploaded_mips)) => {
                         self.finalize_success(queue, ipc, uploaded_mips);
                         StepResult::Done
                     }
                     Ok(TextureDataStart::MipChain(uploader)) => {
-                        self.stage = TextureStage::MipChain { uploader };
+                        self.stage = TextureStage::MipChain { uploader, payload };
                         StepResult::Continue
                     }
                     Err(e) => {
@@ -108,34 +123,17 @@ impl TextureUploadTask {
                     }
                 }
             }
-            TextureStage::MipChain { uploader } => {
+            TextureStage::MipChain { uploader, payload } => {
                 let fmt = &self.format;
                 let wgpu_format = self.wgpu_format;
                 let upload = &self.data;
-                let want = upload.data.length.max(0) as usize;
-                let mip_out = shm.with_read_bytes(&upload.data, |raw| {
-                    if raw.len() < want {
-                        return Some(Err(format!(
-                            "raw shorter than descriptor (need {want}, got {})",
-                            raw.len()
-                        )));
-                    }
-                    let payload = &raw[..want];
-                    Some(uploader.upload_next_mip(
-                        gpu_queue,
-                        texture,
-                        fmt,
-                        wgpu_format,
-                        upload,
-                        payload,
-                    ))
-                });
-                let Some(mip_result) = mip_out else {
-                    logger::warn!("texture {id}: shared memory slice missing");
-                    return StepResult::Done;
-                };
+                let mip_result =
+                    uploader.upload_next_mip(gpu_queue, texture, fmt, wgpu_format, upload, payload);
                 match mip_result {
-                    Ok(MipChainAdvance::UploadedOne) => StepResult::Continue,
+                    Ok(MipChainAdvance::UploadedOne { total_uploaded }) => {
+                        self.mark_uploaded_mips(queue, total_uploaded);
+                        StepResult::Continue
+                    }
                     Ok(MipChainAdvance::Finished { total_uploaded }) => {
                         self.finalize_success(queue, ipc, total_uploaded);
                         StepResult::Done
@@ -149,6 +147,16 @@ impl TextureUploadTask {
         }
     }
 
+    fn mark_uploaded_mips(&self, queue: &mut AssetTransferQueue, uploaded_mips: u32) {
+        if uploaded_mips == 0 {
+            return;
+        }
+        if let Some(t) = queue.texture_pool.get_texture_mut(self.data.asset_id) {
+            let start = self.data.start_mip_level.max(0) as u32;
+            t.mark_mips_resident(start, uploaded_mips);
+        }
+    }
+
     fn finalize_success(
         &mut self,
         queue: &mut AssetTransferQueue,
@@ -156,13 +164,7 @@ impl TextureUploadTask {
         uploaded_mips: u32,
     ) {
         let id = self.data.asset_id;
-        if uploaded_mips > 0 {
-            if let Some(t) = queue.texture_pool.get_texture_mut(id) {
-                let start = self.data.start_mip_level.max(0) as u32;
-                let end_exclusive = start.saturating_add(uploaded_mips).min(t.mip_levels_total);
-                t.mip_levels_resident = t.mip_levels_resident.max(end_exclusive);
-            }
-        }
+        self.mark_uploaded_mips(queue, uploaded_mips);
         if let Some(ipc) = ipc.as_mut() {
             ipc.send_background(RendererCommand::SetTexture2DResult(SetTexture2DResult {
                 asset_id: id,

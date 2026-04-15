@@ -259,7 +259,9 @@ impl CubemapMipChainUploader {
             });
         }
 
-        Ok(MipChainAdvance::UploadedOne)
+        Ok(MipChainAdvance::UploadedOne {
+            total_uploaded: self.uploaded,
+        })
     }
 }
 
@@ -317,7 +319,7 @@ fn valid_cubemap_mip_prefix_len(
                 .get(i)
                 .ok_or_else(|| "cubemap mip_starts index".to_string())?;
             if start_raw < 0 {
-                return Err("negative mip_starts".into());
+                break 'outer;
             }
             let start_abs = start_raw as usize;
             if start_abs < bias {

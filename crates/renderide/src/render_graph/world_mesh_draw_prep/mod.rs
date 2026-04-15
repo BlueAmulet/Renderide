@@ -111,6 +111,7 @@ mod tests {
                 skinned,
                 embedded_needs_uv0: false,
                 embedded_needs_color: false,
+                embedded_needs_extended_vertex_streams: false,
                 embedded_requires_intersection_pass: false,
                 alpha_blended,
             },
@@ -144,6 +145,7 @@ mod tests {
             skinned: false,
             embedded_needs_uv0: false,
             embedded_needs_color: false,
+            embedded_needs_extended_vertex_streams: false,
             embedded_requires_intersection_pass: false,
             alpha_blended: false,
         };
@@ -155,6 +157,7 @@ mod tests {
             skinned: false,
             embedded_needs_uv0: false,
             embedded_needs_color: false,
+            embedded_needs_extended_vertex_streams: false,
             embedded_requires_intersection_pass: false,
             alpha_blended: false,
         };

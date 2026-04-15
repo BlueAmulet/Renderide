@@ -53,6 +53,7 @@ use crate::render_graph::world_mesh_draw_stats_from_sorted;
 use crate::render_graph::MAIN_FORWARD_DEPTH_CLEAR;
 use crate::render_graph::{
     build_world_mesh_cull_proj_params, collect_and_sort_world_mesh_draws, WorldMeshCullInput,
+    WorldMeshDrawItem,
 };
 
 use encode::draw_subset;
@@ -60,6 +61,39 @@ use vp::compute_per_draw_vp_triple;
 
 /// Minimum draws before parallelizing per-draw VP / model uniform packing (rayon overhead).
 const PER_DRAW_VP_PARALLEL_MIN_DRAWS: usize = 256;
+
+fn current_view_texture2d_asset_ids_from_draws(
+    draws: &[WorldMeshDrawItem],
+    backend: &crate::backend::RenderBackend,
+) -> Vec<i32> {
+    let Some(material_registry) = backend.materials.material_registry.as_ref() else {
+        return Vec::new();
+    };
+    let Some(embedded_bind) = backend.materials.embedded_material_bind() else {
+        return Vec::new();
+    };
+    let store = backend.material_property_store();
+    let mut asset_ids = Vec::new();
+    for item in draws {
+        if !matches!(
+            &item.batch_key.pipeline,
+            RasterPipelineKind::EmbeddedStem(_)
+        ) {
+            continue;
+        }
+        let Some(stem) = material_registry.stem_for_shader_asset(item.batch_key.shader_asset_id)
+        else {
+            continue;
+        };
+        match embedded_bind.texture2d_asset_ids_for_stem(stem, store, item.lookup_ids) {
+            Ok(ids) => asset_ids.extend(ids),
+            Err(e) => logger::trace!("Texture HUD: failed to inspect embedded stem {stem}: {e}"),
+        }
+    }
+    asset_ids.sort_unstable();
+    asset_ids.dedup();
+    asset_ids
+}
 
 /// Clears the backbuffer and depth, then draws meshes with material-batched raster pipelines.
 #[derive(Debug, Default)]
@@ -168,6 +202,7 @@ impl RenderPass for WorldMeshForwardPass {
                 frame.transform_draw_filter.as_ref(),
             )
         };
+        let track_current_view_textures = frame.offscreen_write_render_texture_asset_id.is_none();
         let backend = &mut frame.backend;
         if !hc.suppress_occlusion_temporal {
             if let Some(ref cull_in) = culling {
@@ -182,6 +217,10 @@ impl RenderPass for WorldMeshForwardPass {
             }
         }
         let draws = collection.items;
+        if backend.debug_hud_textures_enabled() && track_current_view_textures {
+            let asset_ids = current_view_texture2d_asset_ids_from_draws(&draws, backend);
+            backend.note_debug_hud_current_view_texture_2d_asset_ids(asset_ids);
+        }
         if backend.debug_hud_main_enabled() {
             let stats = world_mesh_draw_stats_from_sorted(
                 &draws,

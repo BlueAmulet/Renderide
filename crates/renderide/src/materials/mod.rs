@@ -23,8 +23,9 @@ pub use cache::{MaterialPipelineCache, MaterialPipelineCacheKey};
 /// Unity shader names → embedded WGSL stems and permutation flags.
 pub use embedded_raster_pipeline::{
     embedded_composed_stem_for_permutation, embedded_stem_needs_color_stream,
-    embedded_stem_needs_uv0_stream, embedded_stem_requires_intersection_pass,
-    embedded_stem_uses_alpha_blending, embedded_wgsl_needs_color_stream,
+    embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_uv0_stream,
+    embedded_stem_requires_intersection_pass, embedded_stem_uses_alpha_blending,
+    embedded_wgsl_needs_color_stream, embedded_wgsl_needs_extended_vertex_streams,
     embedded_wgsl_needs_uv0_stream, embedded_wgsl_requires_intersection_pass,
 };
 pub use embedded_shader_stem::{

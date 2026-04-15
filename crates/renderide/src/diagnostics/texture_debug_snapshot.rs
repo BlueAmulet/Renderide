@@ -1,5 +1,7 @@
 //! Read-only snapshot of GPU texture pool entries for the **Textures** debug HUD.
 
+use std::collections::BTreeSet;
+
 use crate::resources::TexturePool;
 use crate::shared::{ColorProfile, TextureFilterMode, TextureFormat, TextureWrapMode};
 
@@ -34,6 +36,8 @@ pub struct TextureDebugRow {
     pub wrap_v: TextureWrapMode,
     /// Host mipmap bias value.
     pub mipmap_bias: f32,
+    /// `true` when the texture was referenced by submitted world draws for the current view.
+    pub used_by_current_view: bool,
 }
 
 /// Per-frame snapshot of every resident texture for the **Textures** ImGui window.
@@ -43,11 +47,13 @@ pub struct TextureDebugSnapshot {
     pub rows: Vec<TextureDebugRow>,
     /// Sum of [`TextureDebugRow::resident_bytes`] across all rows.
     pub total_resident_bytes: u64,
+    /// Number of rows with [`TextureDebugRow::used_by_current_view`].
+    pub current_view_texture_count: usize,
 }
 
 impl TextureDebugSnapshot {
     /// Collects a row per resident texture, sorted by asset id for stable listing.
-    pub fn capture(pool: &TexturePool) -> Self {
+    pub fn capture(pool: &TexturePool, current_view_texture_ids: &BTreeSet<i32>) -> Self {
         let mut rows: Vec<TextureDebugRow> = pool
             .textures()
             .values()
@@ -66,13 +72,16 @@ impl TextureDebugSnapshot {
                 wrap_u: t.sampler.wrap_u,
                 wrap_v: t.sampler.wrap_v,
                 mipmap_bias: t.sampler.mipmap_bias,
+                used_by_current_view: current_view_texture_ids.contains(&t.asset_id),
             })
             .collect();
         rows.sort_by_key(|r| r.asset_id);
         let total_resident_bytes = rows.iter().map(|r| r.resident_bytes).sum();
+        let current_view_texture_count = rows.iter().filter(|r| r.used_by_current_view).count();
         Self {
             rows,
             total_resident_bytes,
+            current_view_texture_count,
         }
     }
 }

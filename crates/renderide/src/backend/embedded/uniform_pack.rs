@@ -34,6 +34,8 @@ fn default_vec4_for_field(field_name: &str) -> [f32; 4] {
         return [1.0, 1.0, 0.0, 0.0];
     }
     match field_name {
+        "_Rect" => [0.0, 0.0, 1.0, 1.0],
+        "_OverlayTint" => [1.0, 1.0, 1.0, 0.5],
         "_EmissionColor" | "_EmissionColor1" | "_IntersectEmissionColor" | "_OutsideColor" => {
             [0.0, 0.0, 0.0, 0.0]
         }
@@ -129,7 +131,7 @@ fn default_f32_for_field(
     }
     match field_name {
         "_Lerp" | "_Metallic" | "_Metallic1" | "_UVSec" | "_Mode" | "_OffsetFactor"
-        | "_OffsetUnits" => 0.0,
+        | "_OffsetUnits" | "_Stencil" | "_StencilOp" => 0.0,
         "_NormalScale"
         | "_NormalScale1"
         | "_BumpScale"
@@ -141,7 +143,10 @@ fn default_f32_for_field(
         | "_ZWrite" => 1.0,
         "_SrcBlend" => 1.0,
         "_DstBlend" => 0.0,
-        "_Cull" => 2.0,
+        "_ZTest" | "_Cull" => 2.0,
+        "_StencilComp" => 8.0,
+        "_StencilWriteMask" | "_StencilReadMask" => 255.0,
+        "_ColorMask" => 15.0,
         "_Cutoff" | "_AlphaClip" | "_Glossiness" | "_Glossiness1" => 0.5,
         _ => 0.5,
     }
@@ -429,6 +434,20 @@ mod text_uniform_packing_tests {
         assert_eq!(
             default_vec4_for_field("_SpecularColor"),
             [1.0, 1.0, 1.0, 0.5]
+        );
+        assert_eq!(default_vec4_for_field("_Rect"), [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(default_vec4_for_field("_OverlayTint"), [1.0, 1.0, 1.0, 0.5]);
+        assert_eq!(
+            default_f32_for_field("_ZTest", &store, lookup(5), &ids),
+            2.0
+        );
+        assert_eq!(
+            default_f32_for_field("_StencilComp", &store, lookup(5), &ids),
+            8.0
+        );
+        assert_eq!(
+            default_f32_for_field("_ColorMask", &store, lookup(5), &ids),
+            15.0
         );
     }
 

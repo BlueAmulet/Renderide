@@ -368,6 +368,26 @@ pub fn uv0_float2_stream_bytes(
     stride: usize,
     attrs: &[VertexAttributeDescriptor],
 ) -> Option<Vec<u8>> {
+    vertex_float2_stream_bytes(
+        vertex_data,
+        vertex_count,
+        stride,
+        attrs,
+        VertexAttributeType::UV0,
+    )
+}
+
+/// Dense `vec2<f32>` vertex stream for an arbitrary float2 attribute.
+///
+/// Missing or unsupported attributes return zeros so optional embedded shader streams can still
+/// bind a stable vertex buffer slot.
+pub fn vertex_float2_stream_bytes(
+    vertex_data: &[u8],
+    vertex_count: usize,
+    stride: usize,
+    attrs: &[VertexAttributeDescriptor],
+    target: VertexAttributeType,
+) -> Option<Vec<u8>> {
     if vertex_count == 0 || stride == 0 {
         return None;
     }
@@ -376,16 +396,16 @@ pub fn uv0_float2_stream_bytes(
         return None;
     }
     let mut out = vec![0u8; vertex_count * 8];
-    let Some((off, sz)) = attribute_offset_and_size(attrs, VertexAttributeType::UV0) else {
+    let Some((off, sz)) = attribute_offset_and_size(attrs, target) else {
         return Some(out);
     };
-    let uv_attr = attrs
+    let attr = attrs
         .iter()
-        .find(|a| (a.attribute as i16) == (VertexAttributeType::UV0 as i16))?;
-    if uv_attr.format != VertexAttributeFormat::Float32 || uv_attr.dimensions != 2 {
+        .find(|a| (a.attribute as i16) == (target as i16))?;
+    if attr.format != VertexAttributeFormat::Float32 || attr.dimensions < 2 {
         return Some(out);
     }
-    if sz != 8 {
+    if sz < 8 {
         return Some(out);
     }
     for i in 0..vertex_count {
@@ -396,6 +416,60 @@ pub fn uv0_float2_stream_bytes(
         let o = i * 8;
         out[o..o + 8].copy_from_slice(&vertex_data[base..base + 8]);
     }
+    Some(out)
+}
+
+/// Dense `vec4<f32>` vertex stream for an arbitrary float attribute.
+///
+/// Missing or unsupported attributes return `default` per vertex.
+pub fn vertex_float4_stream_bytes(
+    vertex_data: &[u8],
+    vertex_count: usize,
+    stride: usize,
+    attrs: &[VertexAttributeDescriptor],
+    target: VertexAttributeType,
+    default: [f32; 4],
+) -> Option<Vec<u8>> {
+    if vertex_count == 0 || stride == 0 {
+        return None;
+    }
+    let need = vertex_count.checked_mul(stride)?;
+    if vertex_data.len() < need {
+        return None;
+    }
+    let mut out = vec![0u8; vertex_count * 16];
+    for chunk in out.chunks_exact_mut(16) {
+        for (component, value) in default.iter().enumerate() {
+            let o = component * 4;
+            chunk[o..o + 4].copy_from_slice(&value.to_le_bytes());
+        }
+    }
+
+    let Some((off, sz)) = attribute_offset_and_size(attrs, target) else {
+        return Some(out);
+    };
+    let attr = attrs
+        .iter()
+        .find(|a| (a.attribute as i16) == (target as i16))?;
+    if attr.format != VertexAttributeFormat::Float32 || attr.dimensions < 1 {
+        return Some(out);
+    }
+    let dims = attr.dimensions.clamp(1, 4) as usize;
+    if sz < dims * 4 {
+        return Some(out);
+    }
+    for i in 0..vertex_count {
+        let base = i * stride + off;
+        if base + dims * 4 > vertex_data.len() {
+            return None;
+        }
+        let o = i * 16;
+        for c in 0..dims {
+            let src = base + c * 4;
+            out[o + c * 4..o + c * 4 + 4].copy_from_slice(&vertex_data[src..src + 4]);
+        }
+    }
+
     Some(out)
 }
 
@@ -661,6 +735,54 @@ mod tests {
         let out = uv0_float2_stream_bytes(&raw, verts, stride, &attrs).expect("uv stream");
         assert_eq!(out.len(), verts * 8);
         assert!(out.iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn vertex_float2_extracts_uv1_stream() {
+        let attrs = [
+            VertexAttributeDescriptor {
+                attribute: VertexAttributeType::Position,
+                format: VertexAttributeFormat::Float32,
+                dimensions: 3,
+            },
+            VertexAttributeDescriptor {
+                attribute: VertexAttributeType::UV1,
+                format: VertexAttributeFormat::Float32,
+                dimensions: 2,
+            },
+        ];
+        let mut raw = Vec::new();
+        raw.extend_from_slice(&0.0f32.to_le_bytes());
+        raw.extend_from_slice(&0.0f32.to_le_bytes());
+        raw.extend_from_slice(&0.0f32.to_le_bytes());
+        raw.extend_from_slice(&1.25f32.to_le_bytes());
+        raw.extend_from_slice(&2.5f32.to_le_bytes());
+
+        let out = vertex_float2_stream_bytes(&raw, 1, 20, &attrs, VertexAttributeType::UV1)
+            .expect("uv1 stream");
+        let uv: [f32; 2] = bytemuck::pod_read_unaligned(&out[..8]);
+        assert_eq!(uv, [1.25, 2.5]);
+    }
+
+    #[test]
+    fn vertex_float4_defaults_when_tangent_missing() {
+        let attrs = [VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Position,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 3,
+        }];
+        let raw = vec![0u8; 12];
+        let out = vertex_float4_stream_bytes(
+            &raw,
+            1,
+            12,
+            &attrs,
+            VertexAttributeType::Tangent,
+            [1.0, 0.0, 0.0, 1.0],
+        )
+        .expect("tangent stream");
+        let tangent: [f32; 4] = bytemuck::pod_read_unaligned(&out[..16]);
+        assert_eq!(tangent, [1.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]

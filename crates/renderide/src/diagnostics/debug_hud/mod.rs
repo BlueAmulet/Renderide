@@ -44,6 +44,8 @@ pub struct DebugHud {
     texture_debug: TextureDebugSnapshot,
     /// Whether the **Textures** window is open (independent of the stats panel).
     texture_debug_open: bool,
+    /// Texture table filter: only rows used by submitted world draws for the current view.
+    texture_debug_current_view_only: bool,
     /// Live settings + persistence target for the **Renderer config** window.
     renderer_settings: RendererSettingsHandle,
     config_save_path: PathBuf,
@@ -88,6 +90,7 @@ impl DebugHud {
             scene_transforms_open: true,
             texture_debug: TextureDebugSnapshot::default(),
             texture_debug_open: true,
+            texture_debug_current_view_only: false,
             renderer_settings,
             config_save_path,
             renderer_config_open: true,
@@ -222,7 +225,12 @@ impl DebugHud {
             }
 
             if textures_hud {
-                Self::texture_debug_window(ui, &self.texture_debug, &mut self.texture_debug_open);
+                Self::texture_debug_window(
+                    ui,
+                    &self.texture_debug,
+                    &mut self.texture_debug_open,
+                    &mut self.texture_debug_current_view_only,
+                );
             }
         }
 

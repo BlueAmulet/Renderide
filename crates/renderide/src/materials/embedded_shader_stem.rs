@@ -97,6 +97,14 @@ mod tests {
     }
 
     #[test]
+    fn shader_lab_ui_circle_segment_path_maps() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("UI/CircleSegment").as_deref(),
+            Some("ui_circlesegment_default")
+        );
+    }
+
+    #[test]
     fn resolves_overlay_unlit_from_unity_name() {
         assert_eq!(
             embedded_default_stem_for_unity_name("OverlayUnlit").as_deref(),

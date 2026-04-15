@@ -396,6 +396,7 @@ impl DebugHud {
         ui: &imgui::Ui,
         snapshot: &TextureDebugSnapshot,
         open: &mut bool,
+        current_view_only: &mut bool,
     ) {
         const WINDOW_W: f32 = 860.0;
         const WINDOW_H: f32 = 420.0;
@@ -409,13 +410,29 @@ impl DebugHud {
             .bg_alpha(0.85)
             .build(|| {
                 ui.text(format!(
-                    "Resident textures: {}  |  total GPU bytes: {} MiB",
+                    "Resident textures: {}  |  current view: {}  |  total GPU bytes: {} MiB",
                     snapshot.rows.len(),
+                    snapshot.current_view_texture_count,
                     snapshot.total_resident_bytes / (1024 * 1024)
                 ));
+                if ui.checkbox("Only current view", current_view_only) {
+                    // State only; the snapshot is refreshed once per frame.
+                }
+                ui.text_disabled(
+                    "Filters to Texture2D assets used by submitted world draws after culling.",
+                );
                 ui.separator();
                 if snapshot.rows.is_empty() {
                     ui.text("Texture pool is empty.");
+                    return;
+                }
+                let rows: Vec<_> = snapshot
+                    .rows
+                    .iter()
+                    .filter(|r| !*current_view_only || r.used_by_current_view)
+                    .collect();
+                if rows.is_empty() {
+                    ui.text("No Texture2D rows are used by the current view.");
                     return;
                 }
                 let table_flags = TableFlags::BORDERS
@@ -438,14 +455,13 @@ impl DebugHud {
                     ui.table_setup_column("Mips (R/T)");
                     ui.table_setup_column("Filter");
                     ui.table_setup_column("Wrap U/V");
-                    ui.table_setup_column("VRAM KiB");
+                    ui.table_setup_column("View / VRAM");
                     ui.table_headers_row();
 
-                    let rows = &snapshot.rows;
                     let clip = ListClipper::new(rows.len() as i32);
                     let tok = clip.begin(ui);
                     for row_i in tok.iter() {
-                        let r = &rows[row_i as usize];
+                        let r = rows[row_i as usize];
                         ui.table_next_row();
                         ui.table_next_column();
                         ui.text(format!("{}", r.asset_id));
@@ -480,7 +496,8 @@ impl DebugHud {
                         };
                         ui.text(format!("{}/{}", wrap(r.wrap_u), wrap(r.wrap_v)));
                         ui.table_next_column();
-                        ui.text(format!("{}", r.resident_bytes / 1024));
+                        let used = if r.used_by_current_view { "yes" } else { "no" };
+                        ui.text(format!("{used} / {}", r.resident_bytes / 1024));
                     }
                 }
             });

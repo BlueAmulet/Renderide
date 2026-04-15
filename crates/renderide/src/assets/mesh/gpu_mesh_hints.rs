@@ -2,13 +2,13 @@
 
 use crate::shared::{
     BlendshapeBufferDescriptor, IndexBufferFormat, MeshUploadData, MeshUploadHintFlag,
-    SubmeshBufferDescriptor,
+    SubmeshBufferDescriptor, VertexAttributeType,
 };
 
 use super::gpu_mesh::GpuMesh;
 use super::layout::{
     color_float4_stream_bytes, extract_float3_position_normal_as_vec4_streams,
-    uv0_float2_stream_bytes,
+    uv0_float2_stream_bytes, vertex_float2_stream_bytes, vertex_float4_stream_bytes,
 };
 
 pub(super) fn wgpu_index_format(f: IndexBufferFormat) -> wgpu::IndexFormat {
@@ -100,6 +100,47 @@ pub(super) fn derived_streams_compatible_for_in_place(
         }
         (None, None) => {}
         _ => return false,
+    }
+
+    let tangent_new = vertex_float4_stream_bytes(
+        vertex_slice,
+        vc_usize,
+        vertex_stride_us,
+        &data.vertex_attributes,
+        VertexAttributeType::Tangent,
+        [1.0, 1.0, 1.0, 1.0],
+    );
+    match (&gpu.tangent_buffer, tangent_new.as_ref()) {
+        (Some(b), Some(t)) => {
+            if b.size() != t.len() as u64 {
+                return false;
+            }
+        }
+        (None, None) => {}
+        _ => return false,
+    }
+
+    for (buffer, target) in [
+        (&gpu.uv1_buffer, VertexAttributeType::UV1),
+        (&gpu.uv2_buffer, VertexAttributeType::UV2),
+        (&gpu.uv3_buffer, VertexAttributeType::UV3),
+    ] {
+        let uv_new = vertex_float2_stream_bytes(
+            vertex_slice,
+            vc_usize,
+            vertex_stride_us,
+            &data.vertex_attributes,
+            target,
+        );
+        match (buffer, uv_new.as_ref()) {
+            (Some(b), Some(uv)) => {
+                if b.size() != uv.len() as u64 {
+                    return false;
+                }
+            }
+            (None, None) => {}
+            _ => return false,
+        }
     }
 
     true

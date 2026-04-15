@@ -1,5 +1,6 @@
 //! Dear ImGui overlay state and per-frame capture flags.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use crate::config::RendererSettingsHandle;
@@ -18,6 +19,8 @@ pub struct DebugHudBundle {
     want_capture_keyboard: bool,
     last_world_mesh_draw_stats: WorldMeshDrawStats,
     main_enabled: bool,
+    textures_enabled: bool,
+    current_view_texture_2d_asset_ids: BTreeSet<i32>,
 }
 
 impl Default for DebugHudBundle {
@@ -37,6 +40,8 @@ impl DebugHudBundle {
             want_capture_keyboard: false,
             last_world_mesh_draw_stats: WorldMeshDrawStats::default(),
             main_enabled: false,
+            textures_enabled: false,
+            current_view_texture_2d_asset_ids: BTreeSet::new(),
         }
     }
 
@@ -66,6 +71,35 @@ impl DebugHudBundle {
     /// Whether main debug HUD is on (mesh-draw stats for [`crate::render_graph::passes::WorldMeshForwardPass`]).
     pub(crate) fn main_enabled(&self) -> bool {
         self.main_enabled
+    }
+
+    /// Updates whether texture HUD diagnostics run.
+    pub fn set_textures_enabled(&mut self, enabled: bool) {
+        self.textures_enabled = enabled;
+    }
+
+    /// Whether texture debug HUD capture is on.
+    pub(crate) fn textures_enabled(&self) -> bool {
+        self.textures_enabled
+    }
+
+    /// Clears the current-view Texture2D id set before collecting this frame's submitted draws.
+    pub(crate) fn clear_current_view_texture_2d_asset_ids(&mut self) {
+        self.current_view_texture_2d_asset_ids.clear();
+    }
+
+    /// Adds Texture2D ids used by submitted world draws for the current view.
+    pub(crate) fn note_current_view_texture_2d_asset_ids(
+        &mut self,
+        asset_ids: impl IntoIterator<Item = i32>,
+    ) {
+        self.current_view_texture_2d_asset_ids
+            .extend(asset_ids.into_iter().filter(|id| *id >= 0));
+    }
+
+    /// Texture2D ids used by submitted world draws for the current view.
+    pub(crate) fn current_view_texture_2d_asset_ids(&self) -> &BTreeSet<i32> {
+        &self.current_view_texture_2d_asset_ids
     }
 
     /// Updates pointer state and frame delta for the optional ImGui overlay.

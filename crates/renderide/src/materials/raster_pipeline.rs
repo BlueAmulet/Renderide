@@ -16,10 +16,12 @@ use crate::materials::{
 };
 use crate::render_graph::MAIN_FORWARD_DEPTH_COMPARE;
 
-/// Builds a forward mesh render pipeline from reflected WGSL (`@group(0..=2)`), with optional UV0 and color vertex streams.
+/// Builds a forward mesh render pipeline from reflected WGSL (`@group(0..=2)`), with optional UV0,
+/// color, and extended UI vertex streams.
 ///
 /// Vertex inputs are `@location(0)` position, `@location(1)` normal/extra, and optionally
-/// `@location(2)` UV0 and `@location(3)` color.
+/// `@location(2)` UV0, `@location(3)` color, `@location(4)` tangent/color, and
+/// `@location(5..=7)` UV1/UV2/UV3.
 ///
 /// Used by [`crate::pipelines::raster::DebugWorldNormalsFamily`] and embedded WGSL raster materials.
 ///
@@ -99,12 +101,60 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipeline(
             format: wgpu::VertexFormat::Float32x4,
         }],
     };
+    let tangent_layout = wgpu::VertexBufferLayout {
+        array_stride: 16,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            offset: 0,
+            shader_location: 4,
+            format: wgpu::VertexFormat::Float32x4,
+        }],
+    };
+    let uv1_layout = wgpu::VertexBufferLayout {
+        array_stride: 8,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            offset: 0,
+            shader_location: 5,
+            format: wgpu::VertexFormat::Float32x2,
+        }],
+    };
+    let uv2_layout = wgpu::VertexBufferLayout {
+        array_stride: 8,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            offset: 0,
+            shader_location: 6,
+            format: wgpu::VertexFormat::Float32x2,
+        }],
+    };
+    let uv3_layout = wgpu::VertexBufferLayout {
+        array_stride: 8,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            offset: 0,
+            shader_location: 7,
+            format: wgpu::VertexFormat::Float32x2,
+        }],
+    };
 
     let use_uv = include_uv_vertex_buffer && reflect_vertex_shader_needs_uv0_stream(wgsl_source);
     let use_color =
         include_color_vertex_buffer && reflect_vertex_shader_needs_color_stream(wgsl_source);
+    let use_extended = reflected.vs_max_vertex_location.is_some_and(|m| m >= 4);
 
-    let vertex_buffers: &[wgpu::VertexBufferLayout<'_>] = if use_color {
+    let vertex_buffers: &[wgpu::VertexBufferLayout<'_>] = if use_extended {
+        &[
+            pos_layout,
+            nrm_layout,
+            uv_layout,
+            color_layout,
+            tangent_layout,
+            uv1_layout,
+            uv2_layout,
+            uv3_layout,
+        ]
+    } else if use_color {
         &[pos_layout, nrm_layout, uv_layout, color_layout]
     } else if use_uv {
         &[pos_layout, nrm_layout, uv_layout]

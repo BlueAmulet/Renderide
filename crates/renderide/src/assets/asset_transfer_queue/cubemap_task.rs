@@ -16,7 +16,10 @@ use super::AssetTransferQueue;
 #[derive(Debug)]
 enum CubemapStage {
     Start,
-    Chain { uploader: CubemapMipChainUploader },
+    Chain {
+        uploader: CubemapMipChainUploader,
+        payload: Vec<u8>,
+    },
 }
 
 /// One in-flight cubemap data upload.
@@ -73,15 +76,33 @@ impl CubemapUploadTask {
                 let fmt = &self.format;
                 let upload = &self.data;
                 let start = shm.with_read_bytes(&upload.data, |raw| {
-                    Some(CubemapMipChainUploader::new(texture, fmt, upload, raw))
+                    let uploader = CubemapMipChainUploader::new(texture, fmt, upload, raw);
+                    let payload = match uploader {
+                        Ok(_) => {
+                            let want = upload.data.length.max(0) as usize;
+                            if raw.len() < want {
+                                return Some((
+                                    Err(format!(
+                                        "raw shorter than descriptor (need {want}, got {})",
+                                        raw.len()
+                                    )),
+                                    Vec::new(),
+                                ));
+                            }
+                            raw[..want].to_vec()
+                        }
+                        Err(_) => Vec::new(),
+                    };
+                    Some((uploader, payload))
                 });
                 let Some(uploader_result) = start else {
                     logger::warn!("cubemap {id}: shared memory slice missing");
                     return StepResult::Done;
                 };
+                let (uploader_result, payload) = uploader_result;
                 match uploader_result {
                     Ok(uploader) => {
-                        self.stage = CubemapStage::Chain { uploader };
+                        self.stage = CubemapStage::Chain { uploader, payload };
                         StepResult::Continue
                     }
                     Err(e) => {
@@ -90,34 +111,20 @@ impl CubemapUploadTask {
                     }
                 }
             }
-            CubemapStage::Chain { uploader } => {
+            CubemapStage::Chain { uploader, payload } => {
                 let fmt = &self.format;
                 let wgpu_format = self.wgpu_format;
                 let upload = &self.data;
-                let want = upload.data.length.max(0) as usize;
-                let mip_out = shm.with_read_bytes(&upload.data, |raw| {
-                    if raw.len() < want {
-                        return Some(Err(format!(
-                            "raw shorter than descriptor (need {want}, got {})",
-                            raw.len()
-                        )));
-                    }
-                    let payload = &raw[..want];
-                    Some(uploader.upload_next_face_mip(
-                        gpu_queue,
-                        texture,
-                        fmt,
-                        wgpu_format,
-                        upload,
-                        payload,
-                    ))
-                });
-                let Some(mip_result) = mip_out else {
-                    logger::warn!("cubemap {id}: shared memory slice missing");
-                    return StepResult::Done;
-                };
+                let mip_result = uploader.upload_next_face_mip(
+                    gpu_queue,
+                    texture,
+                    fmt,
+                    wgpu_format,
+                    upload,
+                    payload,
+                );
                 match mip_result {
-                    Ok(MipChainAdvance::UploadedOne) => StepResult::Continue,
+                    Ok(MipChainAdvance::UploadedOne { .. }) => StepResult::Continue,
                     Ok(MipChainAdvance::Finished { total_uploaded }) => {
                         self.finalize_success(queue, ipc, total_uploaded);
                         StepResult::Done

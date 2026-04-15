@@ -142,6 +142,7 @@ pub(crate) fn draw_subset(
             backend.mesh_pool(),
             item.batch_key.embedded_needs_uv0,
             item.batch_key.embedded_needs_color,
+            item.batch_key.embedded_needs_extended_vertex_streams,
             inst_range,
         );
     }
@@ -153,6 +154,7 @@ pub(crate) fn draw_mesh_submesh_instanced(
     mesh_pool: &MeshPool,
     embedded_uv: bool,
     embedded_color: bool,
+    embedded_extended_vertex_streams: bool,
     instances: std::ops::Range<u32>,
 ) {
     if item.mesh_asset_id < 0 || item.node_id < 0 || item.index_count == 0 {
@@ -192,17 +194,31 @@ pub(crate) fn draw_mesh_submesh_instanced(
 
     rpass.set_vertex_buffer(0, pos.slice(..));
     rpass.set_vertex_buffer(1, normals_vb.slice(..));
-    if embedded_uv || embedded_color {
+    if embedded_uv || embedded_color || embedded_extended_vertex_streams {
         let Some(uv) = mesh.uv0_buffer.as_deref() else {
             return;
         };
         rpass.set_vertex_buffer(2, uv.slice(..));
     }
-    if embedded_color {
+    if embedded_color || embedded_extended_vertex_streams {
         let Some(color) = mesh.color_buffer.as_deref() else {
             return;
         };
         rpass.set_vertex_buffer(3, color.slice(..));
+    }
+    if embedded_extended_vertex_streams {
+        let (Some(tangent), Some(uv1), Some(uv2), Some(uv3)) = (
+            mesh.tangent_buffer.as_deref(),
+            mesh.uv1_buffer.as_deref(),
+            mesh.uv2_buffer.as_deref(),
+            mesh.uv3_buffer.as_deref(),
+        ) else {
+            return;
+        };
+        rpass.set_vertex_buffer(4, tangent.slice(..));
+        rpass.set_vertex_buffer(5, uv1.slice(..));
+        rpass.set_vertex_buffer(6, uv2.slice(..));
+        rpass.set_vertex_buffer(7, uv3.slice(..));
     }
     rpass.set_index_buffer(mesh.index_buffer.slice(..), mesh.index_format);
 

@@ -5,13 +5,14 @@ use std::sync::Arc;
 use glam::Mat4;
 use wgpu::util::DeviceExt;
 
-use crate::shared::{MeshUploadData, MeshUploadHintFlag, RenderBoundingBox};
+use crate::shared::{MeshUploadData, MeshUploadHintFlag, RenderBoundingBox, VertexAttributeType};
 
 use super::layout::{
     color_float4_stream_bytes, compute_index_count, compute_vertex_stride, extract_bind_poses,
     extract_blendshape_offsets, extract_float3_position_normal_as_vec4_streams,
     split_bone_weights_tail_for_gpu, synthetic_bone_data_for_blendshape_only,
-    uv0_float2_stream_bytes, MeshBufferLayout, BLENDSHAPE_OFFSET_GPU_STRIDE,
+    uv0_float2_stream_bytes, vertex_float2_stream_bytes, vertex_float4_stream_bytes,
+    MeshBufferLayout, BLENDSHAPE_OFFSET_GPU_STRIDE,
 };
 
 use crate::backend::mesh_deform::plan_blendshape_bind_chunks;
@@ -75,6 +76,14 @@ pub struct GpuMesh {
     pub uv0_buffer: Option<Arc<wgpu::Buffer>>,
     /// `vec4<f32>` color stream for UI/text embedded materials; defaults to opaque white when absent.
     pub color_buffer: Option<Arc<wgpu::Buffer>>,
+    /// `vec4<f32>` tangent stream for UI/CircleSegment border color data.
+    pub tangent_buffer: Option<Arc<wgpu::Buffer>>,
+    /// `vec2<f32>` UV1 stream for UI/CircleSegment angle data.
+    pub uv1_buffer: Option<Arc<wgpu::Buffer>>,
+    /// `vec2<f32>` UV2 stream for UI/CircleSegment radius data.
+    pub uv2_buffer: Option<Arc<wgpu::Buffer>>,
+    /// `vec2<f32>` UV3 stream for UI/CircleSegment border/corner data.
+    pub uv3_buffer: Option<Arc<wgpu::Buffer>>,
     /// True when the host uploaded a real skeleton (`bone_count > 0`).
     pub has_skeleton: bool,
     /// Unity [`Mesh.bindposes`](https://docs.unity3d.com/ScriptReference/Mesh-bindposes.html):
@@ -202,6 +211,71 @@ impl GpuMesh {
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some(&format!("mesh {} color_stream", data.asset_id)),
                     contents: &color_bytes,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                }),
+            )
+        });
+        let tangent_buffer = vertex_float4_stream_bytes(
+            vertex_slice,
+            vc_usize,
+            vertex_stride_us,
+            &data.vertex_attributes,
+            VertexAttributeType::Tangent,
+            [1.0, 1.0, 1.0, 1.0],
+        )
+        .map(|bytes| {
+            Arc::new(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("mesh {} tangent_stream", data.asset_id)),
+                    contents: &bytes,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                }),
+            )
+        });
+        let uv1_buffer = vertex_float2_stream_bytes(
+            vertex_slice,
+            vc_usize,
+            vertex_stride_us,
+            &data.vertex_attributes,
+            VertexAttributeType::UV1,
+        )
+        .map(|bytes| {
+            Arc::new(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("mesh {} uv1_stream", data.asset_id)),
+                    contents: &bytes,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                }),
+            )
+        });
+        let uv2_buffer = vertex_float2_stream_bytes(
+            vertex_slice,
+            vc_usize,
+            vertex_stride_us,
+            &data.vertex_attributes,
+            VertexAttributeType::UV2,
+        )
+        .map(|bytes| {
+            Arc::new(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("mesh {} uv2_stream", data.asset_id)),
+                    contents: &bytes,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                }),
+            )
+        });
+        let uv3_buffer = vertex_float2_stream_bytes(
+            vertex_slice,
+            vc_usize,
+            vertex_stride_us,
+            &data.vertex_attributes,
+            VertexAttributeType::UV3,
+        )
+        .map(|bytes| {
+            Arc::new(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(&format!("mesh {} uv3_stream", data.asset_id)),
+                    contents: &bytes,
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 }),
             )
@@ -443,6 +517,18 @@ impl GpuMesh {
         if let Some(ref b) = color_buffer {
             resident_bytes += b.size();
         }
+        if let Some(ref b) = tangent_buffer {
+            resident_bytes += b.size();
+        }
+        if let Some(ref b) = uv1_buffer {
+            resident_bytes += b.size();
+        }
+        if let Some(ref b) = uv2_buffer {
+            resident_bytes += b.size();
+        }
+        if let Some(ref b) = uv3_buffer {
+            resident_bytes += b.size();
+        }
 
         Some(Self {
             asset_id: data.asset_id,
@@ -467,6 +553,10 @@ impl GpuMesh {
             deformed_normals_buffer,
             uv0_buffer,
             color_buffer,
+            tangent_buffer,
+            uv1_buffer,
+            uv2_buffer,
+            uv3_buffer,
             has_skeleton,
             skinning_bind_matrices,
             resident_bytes,
@@ -737,6 +827,59 @@ impl GpuMesh {
             ) {
                 queue.write_buffer(cb.as_ref(), 0, &c);
             }
+
+            if let (Some(tb), Some(tangent)) = (
+                self.tangent_buffer.as_ref(),
+                vertex_float4_stream_bytes(
+                    vertex_slice,
+                    vc_usize,
+                    vertex_stride_us,
+                    &data.vertex_attributes,
+                    VertexAttributeType::Tangent,
+                    [1.0, 1.0, 1.0, 1.0],
+                ),
+            ) {
+                queue.write_buffer(tb.as_ref(), 0, &tangent);
+            }
+
+            if let (Some(uvb), Some(uv)) = (
+                self.uv1_buffer.as_ref(),
+                vertex_float2_stream_bytes(
+                    vertex_slice,
+                    vc_usize,
+                    vertex_stride_us,
+                    &data.vertex_attributes,
+                    VertexAttributeType::UV1,
+                ),
+            ) {
+                queue.write_buffer(uvb.as_ref(), 0, &uv);
+            }
+
+            if let (Some(uvb), Some(uv)) = (
+                self.uv2_buffer.as_ref(),
+                vertex_float2_stream_bytes(
+                    vertex_slice,
+                    vc_usize,
+                    vertex_stride_us,
+                    &data.vertex_attributes,
+                    VertexAttributeType::UV2,
+                ),
+            ) {
+                queue.write_buffer(uvb.as_ref(), 0, &uv);
+            }
+
+            if let (Some(uvb), Some(uv)) = (
+                self.uv3_buffer.as_ref(),
+                vertex_float2_stream_bytes(
+                    vertex_slice,
+                    vc_usize,
+                    vertex_stride_us,
+                    &data.vertex_attributes,
+                    VertexAttributeType::UV3,
+                ),
+            ) {
+                queue.write_buffer(uvb.as_ref(), 0, &uv);
+            }
         }
 
         if write_ib {
@@ -850,6 +993,10 @@ impl GpuMesh {
             deformed_normals_buffer: self.deformed_normals_buffer.clone(),
             uv0_buffer: self.uv0_buffer.clone(),
             color_buffer: self.color_buffer.clone(),
+            tangent_buffer: self.tangent_buffer.clone(),
+            uv1_buffer: self.uv1_buffer.clone(),
+            uv2_buffer: self.uv2_buffer.clone(),
+            uv3_buffer: self.uv3_buffer.clone(),
             has_skeleton: self.has_skeleton,
             skinning_bind_matrices: skinning,
             resident_bytes: self.resident_bytes,

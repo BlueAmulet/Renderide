@@ -9,6 +9,7 @@
 mod asset_ipc;
 mod execute;
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -224,6 +225,35 @@ impl RenderBackend {
     /// Whether main debug HUD is on (mesh-draw stats for [`crate::render_graph::passes::WorldMeshForwardPass`]).
     pub(crate) fn debug_hud_main_enabled(&self) -> bool {
         self.debug_hud.main_enabled()
+    }
+
+    /// Updates whether texture HUD diagnostics run.
+    pub(crate) fn set_debug_hud_textures_enabled(&mut self, enabled: bool) {
+        self.debug_hud.set_textures_enabled(enabled);
+    }
+
+    /// Whether texture debug HUD capture is on.
+    pub(crate) fn debug_hud_textures_enabled(&self) -> bool {
+        self.debug_hud.textures_enabled()
+    }
+
+    /// Clears the current-view Texture2D set before collecting this frame's submitted draws.
+    pub(crate) fn clear_debug_hud_current_view_texture_2d_asset_ids(&mut self) {
+        self.debug_hud.clear_current_view_texture_2d_asset_ids();
+    }
+
+    /// Adds Texture2D ids used by submitted world draws for the current view.
+    pub(crate) fn note_debug_hud_current_view_texture_2d_asset_ids(
+        &mut self,
+        asset_ids: impl IntoIterator<Item = i32>,
+    ) {
+        self.debug_hud
+            .note_current_view_texture_2d_asset_ids(asset_ids);
+    }
+
+    /// Texture2D ids used by submitted world draws for the current view.
+    pub(crate) fn debug_hud_current_view_texture_2d_asset_ids(&self) -> &BTreeSet<i32> {
+        self.debug_hud.current_view_texture_2d_asset_ids()
     }
 
     /// Updates pointer state and frame delta for the ImGui overlay.

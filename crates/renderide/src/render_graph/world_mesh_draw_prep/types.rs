@@ -67,6 +67,9 @@ pub struct MaterialDrawBatchKey {
     /// When [`Self::pipeline`] is [`RasterPipelineKind::EmbeddedStem`], whether the active [`crate::pipelines::ShaderPermutation`]
     /// requires a color vertex stream at `@location(3)`.
     pub embedded_needs_color: bool,
+    /// When [`Self::pipeline`] is [`RasterPipelineKind::EmbeddedStem`], whether the active shader needs
+    /// extra UI streams at `@location(4..=7)` (tangent, UV1, UV2, UV3).
+    pub embedded_needs_extended_vertex_streams: bool,
     /// When [`Self::pipeline`] is [`RasterPipelineKind::EmbeddedStem`], whether reflection reports `_IntersectColor`
     /// in the material uniform (second forward subpass with depth snapshot).
     pub embedded_requires_intersection_pass: bool,
