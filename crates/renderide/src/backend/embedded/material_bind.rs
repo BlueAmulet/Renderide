@@ -32,13 +32,71 @@ use super::uniform_pack::build_embedded_uniform_bytes;
 use crate::assets::material::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
+use crate::resources::{CubemapSamplerState, Texture2dSamplerState, Texture3dSamplerState};
 
 /// LRU cap for `@group(1)` bind groups (per unique material/texture signature).
 const MAX_CACHED_EMBEDDED_BIND_GROUPS: usize = 512;
 /// LRU cap for embedded material uniform buffers.
 const MAX_CACHED_EMBEDDED_UNIFORMS: usize = 512;
+/// LRU cap for embedded samplers.
+const MAX_CACHED_EMBEDDED_SAMPLERS: usize = 512;
+/// LRU cap for texture HUD asset-id scans.
+const MAX_CACHED_TEXTURE_DEBUG_IDS: usize = 512;
 
 type EmbeddedGroup1TexturesAndSamplers = (Vec<Arc<wgpu::TextureView>>, Vec<Arc<wgpu::Sampler>>);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+struct EmbeddedSamplerCacheKey {
+    dimension: u8,
+    filter_mode: i32,
+    aniso_level: i32,
+    wrap_u: i32,
+    wrap_v: i32,
+    wrap_w: i32,
+    mipmap_bias_bits: u32,
+    mip_levels_resident: u32,
+}
+
+impl EmbeddedSamplerCacheKey {
+    fn texture2d(state: &Texture2dSamplerState, mip_levels_resident: u32) -> Self {
+        Self {
+            dimension: 2,
+            filter_mode: state.filter_mode as i32,
+            aniso_level: state.aniso_level,
+            wrap_u: state.wrap_u as i32,
+            wrap_v: state.wrap_v as i32,
+            wrap_w: state.wrap_u as i32,
+            mipmap_bias_bits: state.mipmap_bias.to_bits(),
+            mip_levels_resident,
+        }
+    }
+
+    fn texture3d(state: &Texture3dSamplerState) -> Self {
+        Self {
+            dimension: 3,
+            filter_mode: state.filter_mode as i32,
+            aniso_level: state.aniso_level,
+            wrap_u: state.wrap_u as i32,
+            wrap_v: state.wrap_v as i32,
+            wrap_w: state.wrap_w as i32,
+            mipmap_bias_bits: state.mipmap_bias.to_bits(),
+            mip_levels_resident: 0,
+        }
+    }
+
+    fn cubemap(state: &CubemapSamplerState) -> Self {
+        Self {
+            dimension: 4,
+            filter_mode: state.filter_mode as i32,
+            aniso_level: state.aniso_level,
+            wrap_u: state.wrap_u as i32,
+            wrap_v: state.wrap_v as i32,
+            wrap_w: state.wrap_u as i32,
+            mipmap_bias_bits: state.mipmap_bias.to_bits(),
+            mip_levels_resident: 0,
+        }
+    }
+}
 
 /// GPU resources shared by embedded material bind groups (layouts, default texture, sampler).
 pub struct EmbeddedMaterialBindResources {
@@ -55,6 +113,8 @@ pub struct EmbeddedMaterialBindResources {
     stem_cache: RefCell<HashMap<String, Arc<StemMaterialLayout>>>,
     bind_cache: RefCell<LruCache<MaterialBindCacheKey, Arc<wgpu::BindGroup>>>,
     uniform_cache: RefCell<LruCache<MaterialUniformCacheKey, CachedUniformEntry>>,
+    sampler_cache: RefCell<LruCache<EmbeddedSamplerCacheKey, Arc<wgpu::Sampler>>>,
+    texture_debug_cache: RefCell<LruCache<TextureDebugCacheKey, Arc<[i32]>>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -65,6 +125,14 @@ struct MaterialUniformCacheKey {
     texture_2d_asset_id: i32,
     /// Distinguishes RT-only primary slot from empty (`flags` bit 0).
     primary_texture_any_kind_present: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+struct TextureDebugCacheKey {
+    stem_hash: u64,
+    material_asset_id: i32,
+    property_block_slot0: Option<i32>,
+    mutation_generation: u64,
 }
 
 /// Key for [`EmbeddedMaterialBindResources`] `@group(1)` bind-group cache (matches internal hashing).
@@ -213,6 +281,14 @@ impl EmbeddedMaterialBindResources {
             uniform_cache: RefCell::new(LruCache::new(
                 NonZeroUsize::new(MAX_CACHED_EMBEDDED_UNIFORMS)
                     .expect("MAX_CACHED_EMBEDDED_UNIFORMS > 0"),
+            )),
+            sampler_cache: RefCell::new(LruCache::new(
+                NonZeroUsize::new(MAX_CACHED_EMBEDDED_SAMPLERS)
+                    .expect("MAX_CACHED_EMBEDDED_SAMPLERS > 0"),
+            )),
+            texture_debug_cache: RefCell::new(LruCache::new(
+                NonZeroUsize::new(MAX_CACHED_TEXTURE_DEBUG_IDS)
+                    .expect("MAX_CACHED_TEXTURE_DEBUG_IDS > 0"),
             )),
         })
     }
@@ -463,7 +539,7 @@ impl EmbeddedMaterialBindResources {
                         .resolve_texture_view_for_host(
                             HostTexturePropertyQuery {
                                 host_name,
-                                texture_property_ids: &tex_pids,
+                                texture_property_ids: tex_pids,
                                 primary_texture_2d: texture_2d_asset_id,
                                 pools,
                                 store,
@@ -494,7 +570,7 @@ impl EmbeddedMaterialBindResources {
                     }
                     let sampler = self.resolve_sampler_for_host(HostTexturePropertyQuery {
                         host_name,
-                        texture_property_ids: &tex_pids,
+                        texture_property_ids: tex_pids,
                         primary_texture_2d: texture_2d_asset_id,
                         pools,
                         store,
@@ -605,6 +681,18 @@ impl EmbeddedMaterialBindResources {
         let Ok(layout) = self.stem_layout(stem) else {
             return Vec::new();
         };
+        let cache_key = TextureDebugCacheKey {
+            stem_hash: stem_hash(stem),
+            material_asset_id: lookup.material_asset_id,
+            property_block_slot0: lookup.mesh_property_block_slot0,
+            mutation_generation: store.mutation_generation(lookup),
+        };
+        {
+            let mut cache = self.texture_debug_cache.borrow_mut();
+            if let Some(hit) = cache.get(&cache_key) {
+                return hit.to_vec();
+            }
+        }
         let primary_texture_2d =
             primary_texture_2d_asset_id(&layout.reflected, layout.ids.as_ref(), store, lookup);
         let mut out = Vec::new();
@@ -621,7 +709,7 @@ impl EmbeddedMaterialBindResources {
             }
             let ResolvedTextureBinding::Texture2D { asset_id } = resolved_texture_binding_for_host(
                 host_name.as_str(),
-                &texture_pids,
+                texture_pids,
                 primary_texture_2d,
                 store,
                 lookup,
@@ -632,6 +720,10 @@ impl EmbeddedMaterialBindResources {
                 out.push(asset_id);
             }
         }
+        //perf xlinka: texture HUD can scan thousands of draws; cache by material mutation.
+        self.texture_debug_cache
+            .borrow_mut()
+            .put(cache_key, Arc::from(out.clone()));
         out
     }
 
@@ -737,6 +829,25 @@ impl EmbeddedMaterialBindResources {
         }
     }
 
+    fn cached_sampler(
+        &self,
+        key: EmbeddedSamplerCacheKey,
+        create: impl FnOnce() -> wgpu::Sampler,
+    ) -> Arc<wgpu::Sampler> {
+        {
+            let mut cache = self.sampler_cache.borrow_mut();
+            if let Some(hit) = cache.get(&key) {
+                return hit.clone();
+            }
+        }
+        //perf xlinka: sampler objects are cheap-ish, but bind misses can make lots of them.
+        let sampler = Arc::new(create());
+        if let Some(evicted) = self.sampler_cache.borrow_mut().put(key, sampler.clone()) {
+            drop(evicted);
+        }
+        sampler
+    }
+
     fn resolve_sampler(
         &self,
         pools: &EmbeddedTexturePools<'_>,
@@ -752,11 +863,10 @@ impl EmbeddedMaterialBindResources {
                 let Some(tex) = pools.texture.get_texture(asset_id) else {
                     return self.default_sampler.clone();
                 };
-                Arc::new(sampler_from_state(
-                    &self.device,
-                    &tex.sampler,
-                    tex.mip_levels_resident,
-                ))
+                let key = EmbeddedSamplerCacheKey::texture2d(&tex.sampler, tex.mip_levels_resident);
+                self.cached_sampler(key, || {
+                    sampler_from_state(&self.device, &tex.sampler, tex.mip_levels_resident)
+                })
             }
             ResolvedTextureBinding::Texture3D { asset_id } => {
                 if asset_id < 0 {
@@ -765,7 +875,10 @@ impl EmbeddedMaterialBindResources {
                 let Some(tex) = pools.texture3d.get_texture(asset_id) else {
                     return self.default_sampler.clone();
                 };
-                Arc::new(sampler_from_texture3d_state(&self.device, &tex.sampler))
+                let key = EmbeddedSamplerCacheKey::texture3d(&tex.sampler);
+                self.cached_sampler(key, || {
+                    sampler_from_texture3d_state(&self.device, &tex.sampler)
+                })
             }
             ResolvedTextureBinding::Cubemap { asset_id } => {
                 if asset_id < 0 {
@@ -774,7 +887,10 @@ impl EmbeddedMaterialBindResources {
                 let Some(tex) = pools.cubemap.get_texture(asset_id) else {
                     return self.default_sampler.clone();
                 };
-                Arc::new(sampler_from_cubemap_state(&self.device, &tex.sampler))
+                let key = EmbeddedSamplerCacheKey::cubemap(&tex.sampler);
+                self.cached_sampler(key, || {
+                    sampler_from_cubemap_state(&self.device, &tex.sampler)
+                })
             }
             ResolvedTextureBinding::RenderTexture { asset_id } => {
                 if asset_id < 0 {
@@ -786,7 +902,8 @@ impl EmbeddedMaterialBindResources {
                 let Some(tex) = pools.render_texture.get(asset_id) else {
                     return self.default_sampler.clone();
                 };
-                Arc::new(sampler_from_state(&self.device, &tex.sampler, 1))
+                let key = EmbeddedSamplerCacheKey::texture2d(&tex.sampler, 1);
+                self.cached_sampler(key, || sampler_from_state(&self.device, &tex.sampler, 1))
             }
         }
     }

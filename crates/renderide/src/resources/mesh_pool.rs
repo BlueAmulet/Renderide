@@ -100,6 +100,28 @@ impl MeshPool {
         false
     }
 
+    /// Lazily creates tangent / UV1-3 buffers for meshes drawn by extended embedded shaders.
+    pub fn ensure_extended_vertex_streams(&mut self, device: &wgpu::Device, asset_id: i32) -> bool {
+        let Some(mesh) = self.meshes.get_mut(&asset_id) else {
+            return false;
+        };
+        let before = mesh.resident_bytes;
+        let ok = mesh.ensure_extended_vertex_streams(device);
+        if ok {
+            let after = mesh.resident_bytes;
+            if after > before {
+                //perf xlinka: lazy stream upload changes mesh VRAM after initial pool insert.
+                self.accounting
+                    .on_resident_added(VramResourceKind::Mesh, after - before);
+            } else if before > after {
+                self.accounting
+                    .on_resident_removed(VramResourceKind::Mesh, before - after);
+            }
+            self.streaming.note_mesh_access(asset_id);
+        }
+        ok
+    }
+
     /// Borrows a resident mesh by host asset id.
     #[inline]
     pub fn get_mesh(&self, asset_id: i32) -> Option<&GpuMesh> {

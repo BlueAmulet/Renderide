@@ -130,8 +130,7 @@ impl EmbeddedSharedKeywordIds {
 pub(crate) struct StemEmbeddedPropertyIds {
     pub(crate) shared: Arc<EmbeddedSharedKeywordIds>,
     pub(crate) uniform_field_ids: HashMap<String, i32>,
-    pub(crate) texture_binding_to_property_id: HashMap<u32, i32>,
-    pub(crate) texture_binding_alias_property_ids: HashMap<u32, Vec<i32>>,
+    pub(crate) texture_binding_property_ids: HashMap<u32, Arc<[i32]>>,
     pub(crate) keyword_field_probe_ids: HashMap<String, [i32; 3]>,
 }
 
@@ -184,21 +183,23 @@ impl StemEmbeddedPropertyIds {
             }
         }
 
-        let mut texture_binding_to_property_id = HashMap::new();
-        let mut texture_binding_alias_property_ids = HashMap::new();
+        let mut texture_binding_property_ids = HashMap::new();
         for entry in &reflected.material_entries {
             if matches!(entry.ty, wgpu::BindingType::Texture { .. }) {
                 if let Some(name) = reflected.material_group1_names.get(&entry.binding) {
                     let host_name = shader_writer_unescaped_property_name(name.as_str());
-                    texture_binding_to_property_id
-                        .insert(entry.binding, registry.intern(host_name));
-                    let aliases = texture_property_aliases(host_name)
-                        .iter()
-                        .map(|alias| registry.intern(alias))
-                        .collect::<Vec<_>>();
-                    if !aliases.is_empty() {
-                        texture_binding_alias_property_ids.insert(entry.binding, aliases);
+                    let pid = registry.intern(host_name);
+
+                    let mut pids =
+                        Vec::with_capacity(1 + texture_property_aliases(host_name).len());
+                    pids.push(pid);
+                    for alias in texture_property_aliases(host_name) {
+                        let alias_pid = registry.intern(alias);
+                        if !pids.contains(&alias_pid) {
+                            pids.push(alias_pid);
+                        }
                     }
+                    texture_binding_property_ids.insert(entry.binding, Arc::from(pids));
                 }
             }
         }
@@ -206,8 +207,7 @@ impl StemEmbeddedPropertyIds {
         Self {
             shared,
             uniform_field_ids,
-            texture_binding_to_property_id,
-            texture_binding_alias_property_ids,
+            texture_binding_property_ids,
             keyword_field_probe_ids,
         }
     }
@@ -220,8 +220,7 @@ impl StemEmbeddedPropertyIds {
         Self {
             shared: Arc::new(EmbeddedSharedKeywordIds::new(registry)),
             uniform_field_ids: HashMap::new(),
-            texture_binding_to_property_id: HashMap::new(),
-            texture_binding_alias_property_ids: HashMap::new(),
+            texture_binding_property_ids: HashMap::new(),
             keyword_field_probe_ids: HashMap::new(),
         }
     }
@@ -274,12 +273,15 @@ mod tests {
         let ids = StemEmbeddedPropertyIds::build(shared, &registry, &reflected);
 
         assert_eq!(
-            ids.texture_binding_to_property_id.get(&1),
-            Some(&registry.intern("_MainTex"))
-        );
-        assert_eq!(
-            ids.texture_binding_alias_property_ids.get(&1),
-            Some(&vec![registry.intern("Texture"), registry.intern("_Tex")])
+            ids.texture_binding_property_ids.get(&1).map(|p| &**p),
+            Some(
+                [
+                    registry.intern("_MainTex"),
+                    registry.intern("Texture"),
+                    registry.intern("_Tex"),
+                ]
+                .as_slice()
+            )
         );
     }
 }

@@ -3,7 +3,8 @@
 use super::world_mesh_draw_prep::{
     build_instance_batches, MaterialDrawBatchKey, WorldMeshDrawItem,
 };
-use crate::materials::{MaterialBlendMode, RasterPipelineKind};
+use crate::materials::{embedded_stem_pipeline_pass_count, MaterialBlendMode, RasterPipelineKind};
+use crate::pipelines::ShaderPermutation;
 
 /// Draw and batch counts for the debug HUD (aligned with sorted [`WorldMeshDrawItem`] order).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,6 +33,8 @@ pub struct WorldMeshDrawStats {
     pub draws_hi_z_culled: usize,
     /// GPU instance batches after merge (one indexed draw each); at most `draws_total`.
     pub instance_batch_total: usize,
+    /// Actual pipeline-pass draw submissions after multi-pass materials expand each instance batch.
+    pub submitted_pipeline_pass_total: usize,
 }
 
 /// One submitted draw row for the **Draw state** debug HUD tab.
@@ -98,6 +101,7 @@ pub fn world_mesh_draw_stats_from_sorted(
     draws: &[WorldMeshDrawItem],
     cull: Option<(usize, usize, usize)>,
     supports_base_instance: bool,
+    shader_perm: ShaderPermutation,
 ) -> WorldMeshDrawStats {
     let draws_total = draws.len();
     let draws_main = draws.iter().filter(|d| !d.is_overlay).count();
@@ -128,8 +132,21 @@ pub fn world_mesh_draw_stats_from_sorted(
     let (draws_pre_cull, draws_culled, draws_hi_z_culled) = cull.unwrap_or((0, 0, 0));
 
     let draw_indices: Vec<usize> = (0..draws.len()).collect();
-    let instance_batch_total =
-        build_instance_batches(draws, &draw_indices, supports_base_instance).len();
+    let instance_batches = build_instance_batches(draws, &draw_indices, supports_base_instance);
+    let instance_batch_total = instance_batches.len();
+    //perf xlinka: this is the real submit count when a material has multiple passes.
+    let submitted_pipeline_pass_total = instance_batches
+        .iter()
+        .map(|batch| {
+            let item = &draws[batch.first_draw_index];
+            match &item.batch_key.pipeline {
+                RasterPipelineKind::EmbeddedStem(stem) => {
+                    embedded_stem_pipeline_pass_count(stem.as_ref(), shader_perm)
+                }
+                RasterPipelineKind::DebugWorldNormals => 1,
+            }
+        })
+        .sum();
 
     WorldMeshDrawStats {
         batch_total,
@@ -144,6 +161,7 @@ pub fn world_mesh_draw_stats_from_sorted(
         draws_culled,
         draws_hi_z_culled,
         instance_batch_total,
+        submitted_pipeline_pass_total,
     }
 }
 
@@ -194,10 +212,16 @@ mod tests {
 
     #[test]
     fn world_mesh_draw_stats_empty() {
-        let s = world_mesh_draw_stats_from_sorted(&[], None, true);
+        let s = world_mesh_draw_stats_from_sorted(
+            &[],
+            None,
+            true,
+            crate::pipelines::ShaderPermutation(0),
+        );
         assert_eq!(s.batch_total, 0);
         assert_eq!(s.draws_total, 0);
         assert_eq!(s.instance_batch_total, 0);
+        assert_eq!(s.submitted_pipeline_pass_total, 0);
     }
 
     #[test]
@@ -225,11 +249,17 @@ mod tests {
             alpha_blended: false,
         });
         let draws = vec![a, b];
-        let s = world_mesh_draw_stats_from_sorted(&draws, None, true);
+        let s = world_mesh_draw_stats_from_sorted(
+            &draws,
+            None,
+            true,
+            crate::pipelines::ShaderPermutation(0),
+        );
         assert_eq!(s.batch_total, 1);
         assert_eq!(s.draws_total, 2);
         assert_eq!(s.rigid_draws, 2);
         assert_eq!(s.instance_batch_total, 1);
+        assert_eq!(s.submitted_pipeline_pass_total, 1);
     }
 
     #[test]

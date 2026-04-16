@@ -9,7 +9,7 @@ use crate::backend::mesh_deform::{
     blendshape_sparse_buffers_fit_device, BLENDSHAPE_SPARSE_MIN_BUFFER_BYTES,
 };
 use crate::gpu::GpuLimits;
-use crate::shared::{MeshUploadData, VertexAttributeType};
+use crate::shared::{MeshUploadData, VertexAttributeDescriptor, VertexAttributeType};
 
 use super::gpu_mesh_hints::wgpu_index_format;
 use super::layout::{
@@ -200,12 +200,43 @@ fn upload_uv0_color(
     (uv0_buffer, color_buffer)
 }
 
-fn upload_extended_vertex_streams(
+fn float4_default_stream_bytes(vertex_count: usize, default: [f32; 4]) -> Vec<u8> {
+    let mut out = vec![0u8; vertex_count * 16];
+    for chunk in out.chunks_exact_mut(16) {
+        for (component, value) in default.iter().enumerate() {
+            let o = component * 4;
+            chunk[o..o + 4].copy_from_slice(&value.to_le_bytes());
+        }
+    }
+    out
+}
+
+fn float2_zero_stream_bytes(vertex_count: usize) -> Vec<u8> {
+    vec![0u8; vertex_count * 8]
+}
+
+fn create_vertex_stream_buffer(
     device: &wgpu::Device,
-    data: &MeshUploadData,
+    asset_id: i32,
+    label: &str,
+    bytes: &[u8],
+) -> Arc<wgpu::Buffer> {
+    Arc::new(
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("mesh {} {label}_stream", asset_id)),
+            contents: bytes,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        }),
+    )
+}
+
+pub(super) fn upload_extended_vertex_streams(
+    device: &wgpu::Device,
+    asset_id: i32,
     vertex_slice: &[u8],
     vc_usize: usize,
     vertex_stride_us: usize,
+    vertex_attributes: &[VertexAttributeDescriptor],
 ) -> (
     Option<Arc<wgpu::Buffer>>,
     Option<Arc<wgpu::Buffer>>,
@@ -216,37 +247,21 @@ fn upload_extended_vertex_streams(
         vertex_slice,
         vc_usize,
         vertex_stride_us,
-        &data.vertex_attributes,
+        vertex_attributes,
         VertexAttributeType::Tangent,
         [1.0, 1.0, 1.0, 1.0],
     )
-    .map(|bytes| {
-        Arc::new(
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("mesh {} tangent_stream", data.asset_id)),
-                contents: &bytes,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            }),
-        )
-    });
+    .map(|bytes| create_vertex_stream_buffer(device, asset_id, "tangent", &bytes));
 
     let make_uv = |target: VertexAttributeType, label: &str| {
         vertex_float2_stream_bytes(
             vertex_slice,
             vc_usize,
             vertex_stride_us,
-            &data.vertex_attributes,
+            vertex_attributes,
             target,
         )
-        .map(|bytes| {
-            Arc::new(
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(&format!("mesh {} {label}_stream", data.asset_id)),
-                    contents: &bytes,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                }),
-            )
-        })
+        .map(|bytes| create_vertex_stream_buffer(device, asset_id, label, &bytes))
     };
 
     (
@@ -254,6 +269,40 @@ fn upload_extended_vertex_streams(
         make_uv(VertexAttributeType::UV1, "uv1"),
         make_uv(VertexAttributeType::UV2, "uv2"),
         make_uv(VertexAttributeType::UV3, "uv3"),
+    )
+}
+
+pub(super) fn upload_default_extended_vertex_streams(
+    device: &wgpu::Device,
+    asset_id: i32,
+    vc_usize: usize,
+) -> (
+    Option<Arc<wgpu::Buffer>>,
+    Option<Arc<wgpu::Buffer>>,
+    Option<Arc<wgpu::Buffer>>,
+    Option<Arc<wgpu::Buffer>>,
+) {
+    if vc_usize == 0 {
+        return (None, None, None, None);
+    }
+    let tangent_bytes = float4_default_stream_bytes(vc_usize, [1.0, 1.0, 1.0, 1.0]);
+    let uv_bytes = float2_zero_stream_bytes(vc_usize);
+    (
+        Some(create_vertex_stream_buffer(
+            device,
+            asset_id,
+            "tangent",
+            &tangent_bytes,
+        )),
+        Some(create_vertex_stream_buffer(
+            device, asset_id, "uv1", &uv_bytes,
+        )),
+        Some(create_vertex_stream_buffer(
+            device, asset_id, "uv2", &uv_bytes,
+        )),
+        Some(create_vertex_stream_buffer(
+            device, asset_id, "uv3", &uv_bytes,
+        )),
     )
 }
 
@@ -271,17 +320,16 @@ pub(super) fn extract_derived_vertex_streams(
         upload_positions_normals(device, data, vertex_slice, vc_usize, core.vertex_stride_us);
     let (uv0_buffer, color_buffer) =
         upload_uv0_color(device, data, vertex_slice, vc_usize, core.vertex_stride_us);
-    let (tangent_buffer, uv1_buffer, uv2_buffer, uv3_buffer) =
-        upload_extended_vertex_streams(device, data, vertex_slice, vc_usize, core.vertex_stride_us);
+    //perf xlinka: tangent/UV1-3 are big; build them only if a shader actually asks for them.
     DerivedStreams {
         positions_buffer,
         normals_buffer,
         uv0_buffer,
         color_buffer,
-        tangent_buffer,
-        uv1_buffer,
-        uv2_buffer,
-        uv3_buffer,
+        tangent_buffer: None,
+        uv1_buffer: None,
+        uv2_buffer: None,
+        uv3_buffer: None,
     }
 }
 

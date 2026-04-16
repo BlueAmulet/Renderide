@@ -123,6 +123,7 @@ impl RenderPass for WorldMeshForwardPass {
             &collection,
             &collection.items,
             supports_base_instance,
+            shader_perm,
             frame.offscreen_write_render_texture_asset_id,
         );
 

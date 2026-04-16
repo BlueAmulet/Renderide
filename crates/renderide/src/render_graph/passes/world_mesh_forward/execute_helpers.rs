@@ -157,6 +157,7 @@ pub(super) fn maybe_set_world_mesh_draw_stats(
     collection: &WorldMeshDrawCollection,
     draws: &[WorldMeshDrawItem],
     supports_base_instance: bool,
+    shader_perm: ShaderPermutation,
     offscreen_write_render_texture_asset_id: Option<i32>,
 ) {
     if backend.debug_hud_main_enabled() {
@@ -168,6 +169,7 @@ pub(super) fn maybe_set_world_mesh_draw_stats(
                 collection.draws_hi_z_culled,
             )),
             supports_base_instance,
+            shader_perm,
         );
         backend.set_last_world_mesh_draw_stats(stats);
         backend.set_last_world_mesh_draw_state_rows(world_mesh_draw_state_rows_from_sorted(draws));
@@ -492,6 +494,7 @@ struct ForwardSubpassRecord<'a, 'b, 'c> {
     encoder: &'a mut wgpu::CommandEncoder,
     frame: &'a mut FrameRenderParams<'b>,
     queue: &'a wgpu::Queue,
+    device: &'a wgpu::Device,
     draws: &'c [WorldMeshDrawItem],
     draw_indices: &'c [usize],
     /// Deformed vertex streams; see [`super::encode::ForwardDrawBatch::skin_cache`].
@@ -538,6 +541,7 @@ fn encode_world_mesh_forward_opaque_pass(
         draws: sub.draws,
         backend: sub.frame.backend,
         queue: sub.queue,
+        device: sub.device,
         frame_bg: bind_groups.frame.as_ref(),
         empty_bg: bind_groups.empty_material.as_ref(),
         per_draw_bind_group: bind_groups.per_draw,
@@ -590,6 +594,7 @@ fn encode_world_mesh_forward_intersection_pass(
         draws: sub.draws,
         backend: sub.frame.backend,
         queue: sub.queue,
+        device: sub.device,
         frame_bg: bind_groups.frame.as_ref(),
         empty_bg: bind_groups.empty_material.as_ref(),
         per_draw_bind_group: bind_groups.per_draw,
@@ -694,6 +699,7 @@ pub(super) fn encode_world_mesh_forward_draw_passes(
             encoder,
             frame,
             queue,
+            device,
             draws,
             draw_indices: &regular_indices,
             skin_cache,
@@ -797,6 +803,7 @@ pub(super) fn encode_world_mesh_forward_draw_passes(
             encoder,
             frame,
             queue,
+            device,
             draws,
             draw_indices: &intersect_indices,
             skin_cache,

@@ -100,6 +100,8 @@ pub(crate) struct ForwardDrawBatch<'a, 'b, 'c> {
     pub backend: &'a mut crate::backend::RenderBackend,
     /// Queue for embedded material bind uploads.
     pub queue: &'a wgpu::Queue,
+    /// GPU device for lazy mesh stream creation.
+    pub device: &'a wgpu::Device,
     /// Frame globals at `@group(0)`.
     pub frame_bg: &'a wgpu::BindGroup,
     /// Fallback material bind group when a stem has no resources.
@@ -221,7 +223,8 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_>) {
             draw_mesh_submesh_instanced(
                 batch.rpass,
                 item,
-                batch.backend.mesh_pool(),
+                batch.backend.mesh_pool_mut(),
+                batch.device,
                 batch.skin_cache,
                 item.batch_key.embedded_needs_uv0,
                 item.batch_key.embedded_needs_color,
@@ -235,7 +238,8 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_>) {
 pub(crate) fn draw_mesh_submesh_instanced(
     rpass: &mut wgpu::RenderPass<'_>,
     item: &WorldMeshDrawItem,
-    mesh_pool: &MeshPool,
+    mesh_pool: &mut MeshPool,
+    device: &wgpu::Device,
     skin_cache: Option<*const GpuSkinCache>,
     embedded_uv: bool,
     embedded_color: bool,
@@ -243,6 +247,11 @@ pub(crate) fn draw_mesh_submesh_instanced(
     instances: std::ops::Range<u32>,
 ) {
     if item.mesh_asset_id < 0 || item.node_id < 0 || item.index_count == 0 {
+        return;
+    }
+    if embedded_extended_vertex_streams
+        && !mesh_pool.ensure_extended_vertex_streams(device, item.mesh_asset_id)
+    {
         return;
     }
     let Some(mesh) = mesh_pool.get_mesh(item.mesh_asset_id) else {

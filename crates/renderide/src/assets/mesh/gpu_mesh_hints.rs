@@ -110,14 +110,13 @@ pub(super) fn derived_streams_compatible_for_in_place(
         VertexAttributeType::Tangent,
         [1.0, 1.0, 1.0, 1.0],
     );
-    match (&gpu.tangent_buffer, tangent_new.as_ref()) {
-        (Some(b), Some(t)) => {
-            if b.size() != t.len() as u64 {
-                return false;
-            }
+    if let Some(b) = &gpu.tangent_buffer {
+        let Some(t) = tangent_new.as_ref() else {
+            return false;
+        };
+        if b.size() != t.len() as u64 {
+            return false;
         }
-        (None, None) => {}
-        _ => return false,
     }
 
     for (buffer, target) in [
@@ -132,14 +131,13 @@ pub(super) fn derived_streams_compatible_for_in_place(
             &data.vertex_attributes,
             target,
         );
-        match (buffer, uv_new.as_ref()) {
-            (Some(b), Some(uv)) => {
-                if b.size() != uv.len() as u64 {
-                    return false;
-                }
+        if let Some(b) = buffer {
+            let Some(uv) = uv_new.as_ref() else {
+                return false;
+            };
+            if b.size() != uv.len() as u64 {
+                return false;
             }
-            (None, None) => {}
-            _ => return false,
         }
     }
 

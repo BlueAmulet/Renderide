@@ -1,8 +1,12 @@
-//! GPU-resident mesh: wgpu buffers only; host layout preserved in one interleaved vertex buffer.
+//! GPU-resident mesh buffers; an optional CPU vertex copy is kept only until lazy extended streams build.
 
+use std::fmt;
 use std::sync::Arc;
 
-use crate::shared::{MeshUploadData, MeshUploadHintFlag, RenderBoundingBox, VertexAttributeType};
+use crate::shared::{
+    MeshUploadData, MeshUploadHintFlag, RenderBoundingBox, VertexAttributeDescriptor,
+    VertexAttributeType,
+};
 use glam::Mat4;
 
 use super::layout::{
@@ -18,6 +22,7 @@ use crate::gpu::GpuLimits;
 use super::upload_impl::{
     create_core_vertex_index_buffers, extract_derived_vertex_streams, padded_sparse_bytes,
     resident_bytes_for_mesh_upload, upload_blendshape_buffer, upload_bone_and_skin_buffers,
+    upload_default_extended_vertex_streams, upload_extended_vertex_streams,
     validate_mesh_upload_layout,
 };
 
@@ -26,6 +31,21 @@ use super::gpu_mesh_hints::{
     mesh_upload_hint_any_selective, mesh_upload_hint_touches_vertex_streams,
     validated_submesh_ranges, wgpu_index_format,
 };
+
+#[derive(Clone)]
+struct ExtendedVertexStreamSource {
+    vertex_bytes: Arc<[u8]>,
+    vertex_attributes: Arc<[VertexAttributeDescriptor]>,
+}
+
+impl fmt::Debug for ExtendedVertexStreamSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExtendedVertexStreamSource")
+            .field("vertex_bytes_len", &self.vertex_bytes.len())
+            .field("vertex_attributes_len", &self.vertex_attributes.len())
+            .finish()
+    }
+}
 
 /// Resident mesh on GPU: no CPU geometry retained.
 ///
@@ -84,6 +104,8 @@ pub struct GpuMesh {
     pub uv2_buffer: Option<Arc<wgpu::Buffer>>,
     /// `vec2<f32>` UV3 stream for shaders using extended vertex inputs.
     pub uv3_buffer: Option<Arc<wgpu::Buffer>>,
+    /// CPU vertex source kept only until lazy extended streams are created.
+    extended_vertex_stream_source: Option<ExtendedVertexStreamSource>,
     /// True when the host uploaded a real skeleton (`bone_count > 0`).
     pub has_skeleton: bool,
     /// Unity [`Mesh.bindposes`](https://docs.unity3d.com/ScriptReference/Mesh-bindposes.html):
@@ -227,6 +249,46 @@ struct MeshInPlaceWriteContext<'a> {
     data: &'a MeshUploadData,
     vertex_count: usize,
     vertex_stride: usize,
+}
+
+fn has_extended_vertex_attribute(attrs: &[VertexAttributeDescriptor]) -> bool {
+    attrs.iter().any(|a| {
+        matches!(
+            a.attribute,
+            VertexAttributeType::Tangent
+                | VertexAttributeType::UV1
+                | VertexAttributeType::UV2
+                | VertexAttributeType::UV3
+        )
+    })
+}
+
+fn extended_vertex_stream_source_from_raw(
+    raw: &[u8],
+    data: &MeshUploadData,
+    layout: &MeshBufferLayout,
+) -> Option<ExtendedVertexStreamSource> {
+    if !has_extended_vertex_attribute(&data.vertex_attributes) {
+        return None;
+    }
+    let vertex_bytes = raw.get(..layout.vertex_size)?.to_vec();
+    Some(ExtendedVertexStreamSource {
+        vertex_bytes: Arc::from(vertex_bytes),
+        vertex_attributes: Arc::from(data.vertex_attributes.clone()),
+    })
+}
+
+fn extended_vertex_stream_bytes(mesh: &GpuMesh) -> u64 {
+    [
+        mesh.tangent_buffer.as_ref(),
+        mesh.uv1_buffer.as_ref(),
+        mesh.uv2_buffer.as_ref(),
+        mesh.uv3_buffer.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|b| b.size())
+    .sum()
 }
 
 /// Writes interleaved VB then optional derived position/normal/uv/color streams.
@@ -450,6 +512,8 @@ impl GpuMesh {
         let vc_usize = data.vertex_count.max(0) as usize;
 
         let derived = extract_derived_vertex_streams(device, raw, data, layout, &core);
+        let extended_vertex_stream_source =
+            extended_vertex_stream_source_from_raw(raw, data, layout);
 
         let bone_skin =
             upload_bone_and_skin_buffers(device, raw, data, layout, use_blendshapes, vc_usize)?;
@@ -502,6 +566,7 @@ impl GpuMesh {
             uv1_buffer: derived.uv1_buffer,
             uv2_buffer: derived.uv2_buffer,
             uv3_buffer: derived.uv3_buffer,
+            extended_vertex_stream_source,
             has_skeleton: data.bone_count > 0,
             skinning_bind_matrices: bone_skin.skinning_bind_matrices,
             resident_bytes,
@@ -513,7 +578,55 @@ impl GpuMesh {
         self.positions_buffer.is_some() && self.normals_buffer.is_some()
     }
 
-    /// Whether `data`/`layout` match this mesh’s buffer sizes and optional derived streams so we can
+    /// Creates tangent / UV1-3 streams the first time an embedded shader needs them.
+    pub(crate) fn ensure_extended_vertex_streams(&mut self, device: &wgpu::Device) -> bool {
+        if self.tangent_buffer.is_some()
+            && self.uv1_buffer.is_some()
+            && self.uv2_buffer.is_some()
+            && self.uv3_buffer.is_some()
+        {
+            return true;
+        }
+
+        let old_bytes = extended_vertex_stream_bytes(self);
+        let vc_usize = self.vertex_count as usize;
+        let (tangent_buffer, uv1_buffer, uv2_buffer, uv3_buffer) =
+            if let Some(source) = self.extended_vertex_stream_source.as_ref() {
+                upload_extended_vertex_streams(
+                    device,
+                    self.asset_id,
+                    source.vertex_bytes.as_ref(),
+                    vc_usize,
+                    self.vertex_stride as usize,
+                    source.vertex_attributes.as_ref(),
+                )
+            } else {
+                upload_default_extended_vertex_streams(device, self.asset_id, vc_usize)
+            };
+
+        if tangent_buffer.is_none()
+            || uv1_buffer.is_none()
+            || uv2_buffer.is_none()
+            || uv3_buffer.is_none()
+        {
+            return false;
+        }
+
+        //perf xlinka: pay the 40 bytes/vertex only for meshes that hit extended shaders.
+        self.tangent_buffer = tangent_buffer;
+        self.uv1_buffer = uv1_buffer;
+        self.uv2_buffer = uv2_buffer;
+        self.uv3_buffer = uv3_buffer;
+        let new_bytes = extended_vertex_stream_bytes(self);
+        self.resident_bytes = self
+            .resident_bytes
+            .saturating_sub(old_bytes)
+            .saturating_add(new_bytes);
+        self.extended_vertex_stream_source = None;
+        true
+    }
+
+    /// Whether `data`/`layout` match this mesh's buffer sizes and optional derived streams so we can
     /// [`Self::write_in_place`] instead of allocating new buffers.
     pub(crate) fn compatible_for_in_place_update(
         &self,
@@ -701,6 +814,18 @@ impl GpuMesh {
                 .collect();
         }
 
+        let has_extended_gpu_streams = self.tangent_buffer.is_some()
+            && self.uv1_buffer.is_some()
+            && self.uv2_buffer.is_some()
+            && self.uv3_buffer.is_some();
+        let extended_vertex_stream_source = if write_vertex && !has_extended_gpu_streams {
+            extended_vertex_stream_source_from_raw(raw, data, layout)
+        } else if write_vertex {
+            None
+        } else {
+            self.extended_vertex_stream_source.clone()
+        };
+
         Some(Self {
             asset_id: self.asset_id,
             vertex_buffer: Arc::clone(&self.vertex_buffer),
@@ -727,6 +852,7 @@ impl GpuMesh {
             uv1_buffer: self.uv1_buffer.clone(),
             uv2_buffer: self.uv2_buffer.clone(),
             uv3_buffer: self.uv3_buffer.clone(),
+            extended_vertex_stream_source,
             has_skeleton: self.has_skeleton,
             skinning_bind_matrices: skinning,
             resident_bytes: self.resident_bytes,

@@ -62,23 +62,11 @@ impl ResolvedTextureBinding {
 pub(crate) fn texture_property_ids_for_binding(
     ids: &StemEmbeddedPropertyIds,
     binding: u32,
-) -> Vec<i32> {
-    let alias_count = ids
-        .texture_binding_alias_property_ids
+) -> &[i32] {
+    //perf xlinka: aliases are built once per stem, no tiny Vec per texture bind.
+    ids.texture_binding_property_ids
         .get(&binding)
-        .map_or(0, Vec::len);
-    let mut out = Vec::with_capacity(1 + alias_count);
-    if let Some(&pid) = ids.texture_binding_to_property_id.get(&binding) {
-        out.push(pid);
-    }
-    if let Some(aliases) = ids.texture_binding_alias_property_ids.get(&binding) {
-        for &pid in aliases {
-            if !out.contains(&pid) {
-                out.push(pid);
-            }
-        }
-    }
-    out
+        .map_or(&[], |pids| pids.as_ref())
 }
 
 /// Resolves primary 2D texture asset id from reflected material entries.
@@ -90,7 +78,7 @@ pub(crate) fn primary_texture_2d_asset_id(
 ) -> i32 {
     for entry in &reflected.material_entries {
         if matches!(entry.ty, wgpu::BindingType::Texture { .. }) {
-            for pid in texture_property_ids_for_binding(ids, entry.binding) {
+            for &pid in texture_property_ids_for_binding(ids, entry.binding) {
                 if let Some(MaterialPropertyValue::Texture(packed)) = store.get_merged(lookup, pid)
                 {
                     return texture2d_asset_id_from_packed(*packed).unwrap_or(-1);
@@ -114,7 +102,7 @@ pub(crate) fn primary_texture_any_kind_present(
 ) -> bool {
     for entry in &reflected.material_entries {
         if matches!(entry.ty, wgpu::BindingType::Texture { .. }) {
-            for pid in texture_property_ids_for_binding(ids, entry.binding) {
+            for &pid in texture_property_ids_for_binding(ids, entry.binding) {
                 if let Some(MaterialPropertyValue::Texture(packed)) = store.get_merged(lookup, pid)
                 {
                     return unpack_host_texture_packed(*packed).is_some();
@@ -230,7 +218,7 @@ pub(crate) fn texture_bind_signature(
         }
         let binding = resolved_texture_binding_for_host(
             name.as_str(),
-            &texture_pids,
+            texture_pids,
             primary_texture_2d,
             store,
             lookup,

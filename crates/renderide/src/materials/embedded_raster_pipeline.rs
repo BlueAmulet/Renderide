@@ -116,6 +116,14 @@ pub fn embedded_wgsl_needs_extended_vertex_streams(wgsl_source: &str) -> bool {
         .is_some_and(|m| m >= 4)
 }
 
+/// Number of raster passes that will be submitted for one embedded draw batch.
+pub fn embedded_stem_pipeline_pass_count(base_stem: &str, permutation: ShaderPermutation) -> usize {
+    let composed = embedded_composed_stem_for_permutation(base_stem, permutation);
+    embedded_shaders::embedded_target_passes(&composed)
+        .len()
+        .max(1)
+}
+
 /// `true` when reflection reports a grab-pass material (uniform field `_GrabPass`).
 pub fn embedded_wgsl_requires_grab_pass(wgsl_source: &str) -> bool {
     crate::materials::wgsl_reflect::reflect_raster_material_requires_grab_pass(wgsl_source)

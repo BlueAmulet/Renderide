@@ -98,7 +98,8 @@ impl MaterialPipelineCache {
             blend_mode,
             render_state,
         };
-        if let Some(hit) = self.pipelines.peek(&key) {
+        //perf xlinka: a hit is real use; promote it so hot pipelines do not get evicted.
+        if let Some(hit) = self.pipelines.get(&key) {
             return Ok(hit.clone());
         }
         let wgsl = match kind {
