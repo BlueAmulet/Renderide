@@ -28,7 +28,6 @@ impl PosixSemaphore {
                 "/sem_{}",
                 &BASE64_URL_SAFE.encode(Sha256::digest(&memory_view_name))[..24]
             );
-            println!("[Semaphore] Create({memory_view_name}) => {full_name}");
         }
         let c_name = CString::new(full_name).map_err(|_| {
             io::Error::new(io::ErrorKind::InvalidInput, "semaphore name contains NUL")

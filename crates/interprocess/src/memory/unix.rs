@@ -49,8 +49,6 @@ pub(super) fn open_queue(options: &QueueOptions) -> Result<(UnixMapping, Semapho
         fs::create_dir_all(parent).map_err(OpenError)?;
     }
 
-    println!("[Queue] Open({path:?})");
-
     let storage_size = options.actual_storage_size() as u64;
     let file = OpenOptions::new()
         .read(true)
