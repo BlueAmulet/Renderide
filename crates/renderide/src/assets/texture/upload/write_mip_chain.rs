@@ -88,15 +88,29 @@ fn mip_src_to_upload_pixels<'a>(
         flip_mip_rows(&mut v, gw, gh, bpp_host);
         std::borrow::Cow::Owned(v)
     } else if flip && host_format_is_compressed(fmt.format) {
-        let v = flip_compressed_mip_block_rows_y(fmt.format, gw, gh, mip_src).ok_or_else(|| {
+        let expected_len = mip_byte_len(fmt.format, gw, gh).ok_or_else(|| {
             TextureUploadError::from(format!(
-                "texture {asset_id} mip {mip_index}: flip_y failed for compressed {:?} (len {} vs expected {:?})",
-                fmt.format,
-                mip_src.len(),
-                mip_byte_len(fmt.format, gw, gh)
+                "texture {asset_id} mip {mip_index}: mip byte size unknown for {:?}",
+                fmt.format
             ))
-        })?;
-        std::borrow::Cow::Owned(v)
+        })? as usize;
+        if mip_src.len() != expected_len {
+            return Err(TextureUploadError::from(format!(
+                "texture {asset_id} mip {mip_index}: mip len {} != expected {} for {:?}",
+                mip_src.len(),
+                expected_len,
+                fmt.format
+            )));
+        }
+        if let Some(v) = flip_compressed_mip_block_rows_y(fmt.format, gw, gh, mip_src) {
+            std::borrow::Cow::Owned(v)
+        } else {
+            logger::warn!(
+                "texture {asset_id} mip {mip_index}: flip_y skipped for compressed {:?} (vertical flip not implemented for this block-compressed format)",
+                fmt.format
+            );
+            std::borrow::Cow::Borrowed(mip_src)
+        }
     } else {
         std::borrow::Cow::Borrowed(mip_src)
     };

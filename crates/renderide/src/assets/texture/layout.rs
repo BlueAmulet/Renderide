@@ -37,7 +37,9 @@ pub fn bytes_per_compressed_block(format: TextureFormat) -> Option<u32> {
     match format {
         TextureFormat::BC1 => Some(8),
         TextureFormat::BC2 | TextureFormat::BC3 => Some(16),
-        TextureFormat::BC4 | TextureFormat::BC5 => Some(8),
+        TextureFormat::BC4 => Some(8),
+        // Two BC4-style halves (R then G), 16 bytes total per 4×4 block (matches `wgpu::TextureFormat::Bc5RgUnorm`).
+        TextureFormat::BC5 => Some(16),
         TextureFormat::BC6H | TextureFormat::BC7 => Some(16),
         TextureFormat::ETC2RGB | TextureFormat::ETC2RGBA1 => Some(8),
         TextureFormat::ETC2RGBA8 => Some(16),
@@ -106,8 +108,103 @@ pub fn mip_byte_len(format: TextureFormat, width: u32, height: u32) -> Option<u6
     }
 }
 
+/// Swaps the four 12-bit alpha index rows in a BC3/BC4 48-bit index block (bytes `[2..8]` of an
+/// 8-byte BC4 block, or the alpha half of BC3).
+fn flip_bc3_bc4_alpha_index_rows(block: &mut [u8]) {
+    debug_assert!(block.len() >= 8);
+    let mut bits = 0u64;
+    for i in 0..6 {
+        bits |= u64::from(block[2 + i]) << (8 * i);
+    }
+    bits &= (1u64 << 48) - 1;
+    let r0 = bits & 0xFFF;
+    let r1 = (bits >> 12) & 0xFFF;
+    let r2 = (bits >> 24) & 0xFFF;
+    let r3 = (bits >> 36) & 0xFFF;
+    // Vertical flip: top row ↔ bottom, middle rows ↔ each other.
+    let new_bits = r3 | (r2 << 12) | (r1 << 24) | (r0 << 36);
+    for i in 0..6 {
+        block[2 + i] = (new_bits >> (8 * i)) as u8;
+    }
+}
+
+/// Reverses BC1 color selector rows (bytes `[4..8]`): one byte per texel row, 2 bits per texel.
+fn flip_bc1_color_selector_rows(block: &mut [u8]) {
+    debug_assert!(block.len() >= 8);
+    block.swap(4, 7);
+    block.swap(5, 6);
+}
+
+/// Reverses vertical texel rows inside one BC1 block (`8` bytes).
+fn flip_bc1_block_in_place(block: &mut [u8]) {
+    debug_assert_eq!(block.len(), 8);
+    flip_bc1_color_selector_rows(block);
+}
+
+/// Reverses vertical texel rows inside one BC2 block (`16` bytes): explicit alpha then BC1 color.
+fn flip_bc2_block_in_place(block: &mut [u8]) {
+    debug_assert_eq!(block.len(), 16);
+    block.swap(0, 6);
+    block.swap(1, 7);
+    block.swap(2, 4);
+    block.swap(3, 5);
+    flip_bc1_color_selector_rows(&mut block[8..16]);
+}
+
+/// Reverses vertical texel rows inside one BC3 block (`16` bytes): BC3 alpha + BC1 color.
+fn flip_bc3_block_in_place(block: &mut [u8]) {
+    debug_assert_eq!(block.len(), 16);
+    flip_bc3_bc4_alpha_index_rows(&mut block[0..8]);
+    flip_bc1_color_selector_rows(&mut block[8..16]);
+}
+
+/// Reverses vertical texel rows inside one BC4 block (`8` bytes).
+fn flip_bc4_block_in_place(block: &mut [u8]) {
+    debug_assert_eq!(block.len(), 8);
+    flip_bc3_bc4_alpha_index_rows(block);
+}
+
+/// Reverses vertical texel rows inside one BC5 block (`16` bytes): two BC4 halves (RG).
+fn flip_bc5_block_in_place(block: &mut [u8]) {
+    debug_assert_eq!(block.len(), 16);
+    flip_bc4_block_in_place(&mut block[0..8]);
+    flip_bc4_block_in_place(&mut block[8..16]);
+}
+
+/// Reverses vertical texel rows inside one compressed block for [`TextureFormat`] **BC1–BC5** only.
+fn flip_compressed_block_in_place(block: &mut [u8], format: TextureFormat) {
+    match format {
+        TextureFormat::BC1 => flip_bc1_block_in_place(block),
+        TextureFormat::BC2 => flip_bc2_block_in_place(block),
+        TextureFormat::BC3 => flip_bc3_block_in_place(block),
+        TextureFormat::BC4 => flip_bc4_block_in_place(block),
+        TextureFormat::BC5 => flip_bc5_block_in_place(block),
+        _ => {}
+    }
+}
+
+/// Returns `true` if [`flip_compressed_mip_block_rows_y`] can flip **BC1–BC5** host mips for `flip_y`.
+///
+/// **BC6H**, **BC7**, **ETC2**, and **ASTC** use mode-dependent block layouts; callers should treat
+/// [`flip_compressed_mip_block_rows_y`] returning [`None`] as “flip not supported” after validating
+/// mip byte length.
+pub fn flip_compressed_mip_block_rows_y_supported(format: TextureFormat) -> bool {
+    matches!(
+        format,
+        TextureFormat::BC1
+            | TextureFormat::BC2
+            | TextureFormat::BC3
+            | TextureFormat::BC4
+            | TextureFormat::BC5
+    )
+}
+
 /// Reverses the vertical order of **block rows** in a tight-packed compressed mip (D3D-style layout:
-/// row-major blocks; see [`crate::assets::texture::decode::decode_bc1_to_rgba8`] outer `byi` loop).
+/// row-major blocks; see [`crate::assets::texture::decode::decode_bc1_to_rgba8`] outer `byi` loop),
+/// then reverses **texel rows inside each block** so the image is not left in a zigzag pattern.
+///
+/// Supported host formats: **BC1–BC5** only. Returns [`None`] for **BC6H**, **BC7**, **ETC2**, **ASTC**,
+/// or when the mip length does not match [`mip_byte_len`].
 ///
 /// Used when host data is top-down and [`crate::shared::SetTexture2DData::flip_y`] requests conversion
 /// to GPU bottom-up storage while the [`wgpu::TextureFormat`] is native block-compressed (texel row
@@ -118,6 +215,9 @@ pub fn flip_compressed_mip_block_rows_y(
     height: u32,
     mip_src: &[u8],
 ) -> Option<Vec<u8>> {
+    if !flip_compressed_mip_block_rows_y_supported(format) {
+        return None;
+    }
     let bpb = bytes_per_compressed_block(format)? as usize;
     let (bw, bh) = block_extent(format);
     let expected = mip_byte_len(format, width, height)? as usize;
@@ -126,17 +226,28 @@ pub fn flip_compressed_mip_block_rows_y(
     }
     let blocks_x = width.div_ceil(bw);
     let blocks_y = height.div_ceil(bh);
-    if blocks_y < 2 {
-        return Some(mip_src.to_vec());
-    }
     let row_stride = (blocks_x as usize).checked_mul(bpb)?;
     let mut out = vec![0u8; expected];
+    if blocks_y >= 2 {
+        for byi in 0..blocks_y {
+            let src_off = (byi as usize).checked_mul(row_stride)?;
+            let dst_off = ((blocks_y - 1 - byi) as usize).checked_mul(row_stride)?;
+            let row = mip_src.get(src_off..src_off + row_stride)?;
+            out.get_mut(dst_off..dst_off + row_stride)?
+                .copy_from_slice(row);
+        }
+    } else {
+        out.copy_from_slice(mip_src);
+    }
     for byi in 0..blocks_y {
-        let src_off = (byi as usize).checked_mul(row_stride)?;
-        let dst_off = ((blocks_y - 1 - byi) as usize).checked_mul(row_stride)?;
-        let row = mip_src.get(src_off..src_off + row_stride)?;
-        out.get_mut(dst_off..dst_off + row_stride)?
-            .copy_from_slice(row);
+        for bxi in 0..blocks_x {
+            let idx = (byi as usize)
+                .checked_mul(blocks_x as usize)?
+                .checked_add(bxi as usize)?;
+            let off = idx.checked_mul(bpb)?;
+            let block = out.get_mut(off..off.checked_add(bpb)?)?;
+            flip_compressed_block_in_place(block, format);
+        }
     }
     Some(out)
 }
@@ -394,5 +505,105 @@ mod tests {
     #[test]
     fn flip_compressed_wrong_len_returns_none() {
         assert!(flip_compressed_mip_block_rows_y(TextureFormat::BC1, 4, 4, &[0u8; 4]).is_none());
+    }
+
+    #[test]
+    fn flip_bc1_intra_block_swaps_selector_rows() {
+        let w = 4u32;
+        let h = 4u32;
+        let mut mip = vec![0u8; mip_byte_len(TextureFormat::BC1, w, h).unwrap() as usize];
+        mip[4] = 0x01;
+        mip[5] = 0x02;
+        mip[6] = 0x03;
+        mip[7] = 0x04;
+        let flipped =
+            flip_compressed_mip_block_rows_y(TextureFormat::BC1, w, h, &mip).expect("flip");
+        assert_eq!(&flipped[4..8], &[0x04, 0x03, 0x02, 0x01]);
+    }
+
+    #[test]
+    fn flip_bc2_intra_block_swaps_alpha_and_color_rows() {
+        let w = 4u32;
+        let h = 4u32;
+        let mut mip = vec![0u8; mip_byte_len(TextureFormat::BC2, w, h).unwrap() as usize];
+        mip[0] = 0xa0;
+        mip[1] = 0xa1;
+        mip[6] = 0xb0;
+        mip[7] = 0xb1;
+        mip[12] = 0xc0;
+        mip[15] = 0xc3;
+        let flipped =
+            flip_compressed_mip_block_rows_y(TextureFormat::BC2, w, h, &mip).expect("flip");
+        assert_eq!(flipped[0], 0xb0);
+        assert_eq!(flipped[1], 0xb1);
+        assert_eq!(flipped[6], 0xa0);
+        assert_eq!(flipped[7], 0xa1);
+        assert_eq!(flipped[12], 0xc3);
+        assert_eq!(flipped[15], 0xc0);
+    }
+
+    #[test]
+    fn flip_bc3_double_flip_restores_mip() {
+        let w = 4u32;
+        let h = 4u32;
+        let mut mip = vec![0u8; mip_byte_len(TextureFormat::BC3, w, h).unwrap() as usize];
+        for (i, b) in mip.iter_mut().enumerate() {
+            *b = (i as u8).wrapping_mul(17).wrapping_add(3);
+        }
+        let once = flip_compressed_mip_block_rows_y(TextureFormat::BC3, w, h, &mip).expect("flip");
+        let twice =
+            flip_compressed_mip_block_rows_y(TextureFormat::BC3, w, h, &once).expect("flip");
+        assert_eq!(twice, mip);
+    }
+
+    #[test]
+    fn flip_bc4_double_flip_restores_mip() {
+        let w = 4u32;
+        let h = 4u32;
+        let mut mip = vec![0u8; mip_byte_len(TextureFormat::BC4, w, h).unwrap() as usize];
+        for (i, b) in mip.iter_mut().enumerate() {
+            *b = (i as u8).wrapping_mul(19).wrapping_add(5);
+        }
+        let once = flip_compressed_mip_block_rows_y(TextureFormat::BC4, w, h, &mip).expect("flip");
+        let twice =
+            flip_compressed_mip_block_rows_y(TextureFormat::BC4, w, h, &once).expect("flip");
+        assert_eq!(twice, mip);
+    }
+
+    #[test]
+    fn flip_bc5_double_flip_restores_mip() {
+        let w = 4u32;
+        let h = 4u32;
+        let mut mip = vec![0u8; mip_byte_len(TextureFormat::BC5, w, h).unwrap() as usize];
+        for (i, b) in mip.iter_mut().enumerate() {
+            *b = (i as u8).wrapping_mul(23).wrapping_add(7);
+        }
+        let once = flip_compressed_mip_block_rows_y(TextureFormat::BC5, w, h, &mip).expect("flip");
+        let twice =
+            flip_compressed_mip_block_rows_y(TextureFormat::BC5, w, h, &once).expect("flip");
+        assert_eq!(twice, mip);
+    }
+
+    #[test]
+    fn flip_compressed_bc6h_returns_none() {
+        let len = mip_byte_len(TextureFormat::BC6H, 4, 4).unwrap() as usize;
+        let mip = vec![0u8; len];
+        assert!(flip_compressed_mip_block_rows_y(TextureFormat::BC6H, 4, 4, &mip).is_none());
+    }
+
+    #[test]
+    fn flip_compressed_mip_block_rows_y_supported_bc1_through_bc5_only() {
+        assert!(flip_compressed_mip_block_rows_y_supported(
+            TextureFormat::BC1
+        ));
+        assert!(flip_compressed_mip_block_rows_y_supported(
+            TextureFormat::BC5
+        ));
+        assert!(!flip_compressed_mip_block_rows_y_supported(
+            TextureFormat::BC6H
+        ));
+        assert!(!flip_compressed_mip_block_rows_y_supported(
+            TextureFormat::ETC2RGB
+        ));
     }
 }
