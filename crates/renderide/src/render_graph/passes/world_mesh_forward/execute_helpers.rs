@@ -11,7 +11,7 @@ use rayon::prelude::*;
 
 use crate::assets::material::MaterialDictionary;
 use crate::backend::mesh_deform::{
-    write_per_draw_uniform_slab, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE,
+    write_per_draw_uniform_slab, GpuSkinCache, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE,
 };
 use crate::backend::RenderBackend;
 use crate::gpu::frame_globals::FrameGpuUniforms;
@@ -429,6 +429,8 @@ struct ForwardSubpassRecord<'a, 'b, 'c> {
     queue: &'a wgpu::Queue,
     draws: &'c [WorldMeshDrawItem],
     draw_indices: &'c [usize],
+    /// Deformed vertex streams; see [`super::encode::ForwardDrawBatch::skin_cache`].
+    skin_cache: Option<*const GpuSkinCache>,
 }
 
 /// Opaque pass: clear color/depth, draw non-intersection items.
@@ -479,6 +481,7 @@ fn encode_world_mesh_forward_opaque_pass(
         warned_missing_embedded_bind: cfg.warned_missing_embedded_bind,
         offscreen_write_render_texture_asset_id: cfg.offscreen_write_render_texture_asset_id,
         supports_base_instance: cfg.supports_base_instance,
+        skin_cache: sub.skin_cache,
     });
 }
 
@@ -530,6 +533,7 @@ fn encode_world_mesh_forward_intersection_pass(
         warned_missing_embedded_bind: cfg.warned_missing_embedded_bind,
         offscreen_write_render_texture_asset_id: cfg.offscreen_write_render_texture_asset_id,
         supports_base_instance: cfg.supports_base_instance,
+        skin_cache: sub.skin_cache,
     });
 }
 
@@ -614,6 +618,12 @@ pub(super) fn encode_world_mesh_forward_draw_passes(
         warned_missing_embedded_bind: &mut warned_missing_embedded_bind,
     };
 
+    let skin_cache = frame
+        .backend
+        .frame_resources
+        .skin_cache()
+        .map(|c| c as *const GpuSkinCache);
+
     encode_world_mesh_forward_opaque_pass(
         ForwardSubpassRecord {
             encoder,
@@ -621,6 +631,7 @@ pub(super) fn encode_world_mesh_forward_draw_passes(
             queue,
             draws,
             draw_indices: &regular_indices,
+            skin_cache,
         },
         ForwardPassAttachments {
             color_view,
@@ -710,6 +721,12 @@ pub(super) fn encode_world_mesh_forward_draw_passes(
         warned_missing_embedded_bind: &mut warned_missing_embedded_bind,
     };
 
+    let skin_cache = frame
+        .backend
+        .frame_resources
+        .skin_cache()
+        .map(|c| c as *const GpuSkinCache);
+
     encode_world_mesh_forward_intersection_pass(
         ForwardSubpassRecord {
             encoder,
@@ -717,6 +734,7 @@ pub(super) fn encode_world_mesh_forward_draw_passes(
             queue,
             draws,
             draw_indices: &intersect_indices,
+            skin_cache,
         },
         ForwardPassAttachments {
             color_view,

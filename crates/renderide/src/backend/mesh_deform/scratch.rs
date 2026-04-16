@@ -5,6 +5,8 @@ const INITIAL_MAX_BONES: u32 = 256;
 const INITIAL_MAX_BLENDSHAPES: u32 = 256;
 /// Initial staging for packed blendshape `Params` (32 bytes × chunks).
 const INITIAL_BLENDSHAPE_PARAMS_STAGING: u64 = 4096;
+/// Initial number of 256-byte slots for per-dispatch `SkinDispatchParams` (32 B payload each).
+const INITIAL_SKIN_DISPATCH_SLOTS: u64 = 16;
 
 /// WebGPU storage / uniform dynamic offset alignment (typical 256).
 #[inline]
@@ -22,6 +24,8 @@ pub struct MeshDeformScratch {
     pub blendshape_params_staging: wgpu::Buffer,
     /// `f32` weight per blendshape; subranges use 256-byte-aligned offsets between meshes.
     pub blendshape_weights: wgpu::Buffer,
+    /// Slab of `mesh_skinning.wgsl` [`SkinDispatchParams`] (32 bytes per dispatch at 256-byte-aligned offsets).
+    pub skin_dispatch: wgpu::Buffer,
     max_bones: u32,
     max_shapes: u32,
 }
@@ -31,6 +35,7 @@ impl MeshDeformScratch {
     pub fn new(device: &wgpu::Device) -> Self {
         let bone_bytes = (INITIAL_MAX_BONES as u64) * 64;
         let weight_bytes = (INITIAL_MAX_BLENDSHAPES as u64) * 4;
+        let skin_dispatch_bytes = INITIAL_SKIN_DISPATCH_SLOTS.saturating_mul(256);
         Self {
             bone_matrices: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("mesh_deform_bone_palette"),
@@ -54,6 +59,12 @@ impl MeshDeformScratch {
                 label: Some("mesh_deform_blendshape_weights"),
                 size: weight_bytes.max(16),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            skin_dispatch: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mesh_deform_skin_dispatch"),
+                size: skin_dispatch_bytes.max(256),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
             max_bones: INITIAL_MAX_BONES,
@@ -136,6 +147,27 @@ impl MeshDeformScratch {
             mapped_at_creation: false,
         });
     }
+
+    /// Ensures the skin-dispatch uniform slab can address byte range `[0, end_exclusive)`.
+    ///
+    /// Each skinning dispatch writes 32 bytes at a 256-byte-aligned cursor; callers advance with
+    /// [`advance_slab_cursor`].
+    pub fn ensure_skin_dispatch_byte_capacity(
+        &mut self,
+        device: &wgpu::Device,
+        end_exclusive: u64,
+    ) {
+        if end_exclusive <= self.skin_dispatch.size() {
+            return;
+        }
+        let next_size = end_exclusive.next_power_of_two().max(256);
+        self.skin_dispatch = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mesh_deform_skin_dispatch"),
+            size: next_size,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+    }
 }
 
 /// Returns the next slab cursor after placing `byte_len` bytes at `cursor`, padding to 256-byte
@@ -145,4 +177,52 @@ pub fn advance_slab_cursor(cursor: u64, byte_len: u64) -> u64 {
         return cursor;
     }
     cursor + align256(byte_len)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_device_and_queue() -> Option<(wgpu::Device, wgpu::Queue)> {
+        pollster::block_on(async {
+            let instance = wgpu::Instance::default();
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions::default())
+                .await
+                .ok()?;
+            let (device, queue) = adapter
+                .request_device(&wgpu::DeviceDescriptor {
+                    required_limits: wgpu::Limits::downlevel_defaults(),
+                    ..Default::default()
+                })
+                .await
+                .ok()?;
+            Some((device, queue))
+        })
+    }
+
+    #[test]
+    fn skin_dispatch_cursor_advances_by_256_per_32_byte_payload() {
+        assert_eq!(advance_slab_cursor(0, 32), 256);
+        assert_eq!(advance_slab_cursor(256, 32), 512);
+    }
+
+    #[test]
+    fn ensure_skin_dispatch_byte_capacity_grows() {
+        let Some((device, _queue)) = dummy_device_and_queue() else {
+            return;
+        };
+        let mut scratch = MeshDeformScratch::new(&device);
+        let initial = INITIAL_SKIN_DISPATCH_SLOTS.saturating_mul(256);
+        assert_eq!(scratch.skin_dispatch.size(), initial);
+        scratch.ensure_skin_dispatch_byte_capacity(&device, 5000);
+        assert!(scratch.skin_dispatch.size() >= 5000);
+        let size_after_grow = scratch.skin_dispatch.size();
+        scratch.ensure_skin_dispatch_byte_capacity(&device, 3000);
+        assert_eq!(
+            scratch.skin_dispatch.size(),
+            size_after_grow,
+            "smaller need should not shrink buffer"
+        );
+    }
 }

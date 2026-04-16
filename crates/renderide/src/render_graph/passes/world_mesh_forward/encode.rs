@@ -1,5 +1,6 @@
 //! Encode indexed draws and material bind groups for [`super::WorldMeshForwardPass`].
 
+use crate::backend::mesh_deform::GpuSkinCache;
 use crate::backend::MaterialBindCacheKey;
 use crate::materials::{MaterialPipelineDesc, RasterPipelineKind};
 use crate::pipelines::ShaderPermutation;
@@ -149,6 +150,12 @@ pub(crate) struct ForwardDrawBatch<'a, 'b, 'c> {
     pub offscreen_write_render_texture_asset_id: Option<i32>,
     /// Whether `draw_indexed` may use non-zero `first_instance` / base instance.
     pub supports_base_instance: bool,
+    /// Per-instance deform vertex streams; pointer is valid for the frame encode scope only.
+    ///
+    /// # Safety
+    ///
+    /// Must point at [`crate::backend::FrameResourceManager`]'s cache, which outlives this draw.
+    pub skin_cache: Option<*const GpuSkinCache>,
 }
 
 pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_>) {
@@ -206,6 +213,7 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_>) {
             batch.rpass,
             item,
             batch.backend.mesh_pool(),
+            batch.skin_cache,
             item.batch_key.embedded_needs_uv0,
             item.batch_key.embedded_needs_color,
             inst_range,
@@ -217,6 +225,7 @@ pub(crate) fn draw_mesh_submesh_instanced(
     rpass: &mut wgpu::RenderPass<'_>,
     item: &WorldMeshDrawItem,
     mesh_pool: &MeshPool,
+    skin_cache: Option<*const GpuSkinCache>,
     embedded_uv: bool,
     embedded_color: bool,
     instances: std::ops::Range<u32>,
@@ -236,28 +245,41 @@ pub(crate) fn draw_mesh_submesh_instanced(
 
     let use_deformed = item.skinned && mesh.has_skeleton;
     let use_blend_only = mesh.num_blendshapes > 0;
+    let needs_cache_stream = use_deformed || use_blend_only;
 
-    let pos_buf = if use_deformed {
-        mesh.deformed_positions_buffer.as_deref()
-    } else if use_blend_only {
-        mesh.deform_temp_buffer.as_deref()
+    if needs_cache_stream {
+        let Some(cache_ptr) = skin_cache else {
+            return;
+        };
+        // SAFETY: `skin_cache` is [`FrameResourceManager`]'s cache; lives for the full encode.
+        let cache = unsafe { &*cache_ptr };
+        let key = (item.space_id, item.node_id);
+        let Some(entry) = cache.lookup(&key) else {
+            logger::trace!(
+                "world mesh forward: skin cache miss for space {:?} node {}",
+                item.space_id,
+                item.node_id
+            );
+            return;
+        };
+        let pos_buf = cache.positions_arena();
+        rpass.set_vertex_buffer(0, pos_buf.slice(entry.positions.byte_range()));
+        if use_deformed {
+            let Some(nrm_r) = entry.normals.as_ref() else {
+                return;
+            };
+            let nrm_buf = cache.normals_arena();
+            rpass.set_vertex_buffer(1, nrm_buf.slice(nrm_r.byte_range()));
+        } else {
+            rpass.set_vertex_buffer(1, normals_bind.slice(..));
+        }
     } else {
-        mesh.positions_buffer.as_deref()
-    };
-    let Some(pos) = pos_buf else {
-        return;
-    };
-
-    let normals_vb = if use_deformed {
-        mesh.deformed_normals_buffer
-            .as_deref()
-            .unwrap_or(normals_bind)
-    } else {
-        normals_bind
-    };
-
-    rpass.set_vertex_buffer(0, pos.slice(..));
-    rpass.set_vertex_buffer(1, normals_vb.slice(..));
+        let Some(pos) = mesh.positions_buffer.as_deref() else {
+            return;
+        };
+        rpass.set_vertex_buffer(0, pos.slice(..));
+        rpass.set_vertex_buffer(1, normals_bind.slice(..));
+    }
     if embedded_uv || embedded_color {
         let Some(uv) = mesh.uv0_buffer.as_deref() else {
             return;

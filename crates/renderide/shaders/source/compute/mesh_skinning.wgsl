@@ -1,6 +1,16 @@
 // Linear blend skinning (compute). Bind buffers expected to match layout produced by mesh preprocess.
 // Bone palette entries are world_bone * unity_bindpose (inverse bind matrix per bone), built on CPU each frame.
 // Positions use M; normals use transpose(inverse(mat3(M))) per bone (inverse-transpose / cotangent rule).
+//
+// Source and destination buffers may be subranges of large arenas; [`SkinDispatchParams`] supplies element bases.
+
+struct SkinDispatchParams {
+    vertex_count: u32,
+    base_src_pos_e: u32,
+    base_src_nrm_e: u32,
+    base_dst_pos_e: u32,
+    base_dst_nrm_e: u32,
+}
 
 @group(0) @binding(0) var<storage, read> bone_matrices: array<mat4x4<f32>>;
 @group(0) @binding(1) var<storage, read> src_pos: array<vec4<f32>>;
@@ -9,6 +19,7 @@
 @group(0) @binding(4) var<storage, read_write> dst_pos: array<vec4<f32>>;
 @group(0) @binding(5) var<storage, read> src_n: array<vec4<f32>>;
 @group(0) @binding(6) var<storage, read_write> dst_n: array<vec4<f32>>;
+@group(0) @binding(7) var<uniform> skin_dispatch: SkinDispatchParams;
 
 fn mat3_linear(m: mat4x4<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(m[0].xyz, m[1].xyz, m[2].xyz);
@@ -43,11 +54,15 @@ fn normal_matrix(m: mat4x4<f32>) -> mat3x3<f32> {
 @compute @workgroup_size(64)
 fn skin_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
-    let n = arrayLength(&src_pos);
-    if (i >= n) {
+    if (i >= skin_dispatch.vertex_count) {
         return;
     }
-    let p = src_pos[i];
+    let src_pi = skin_dispatch.base_src_pos_e + i;
+    let src_ni = skin_dispatch.base_src_nrm_e + i;
+    let dst_pi = skin_dispatch.base_dst_pos_e + i;
+    let dst_ni = skin_dispatch.base_dst_nrm_e + i;
+
+    let p = src_pos[src_pi];
     let idx = bone_idx[i];
     let w = bone_weights[i];
     let p4 = vec4<f32>(p.xyz, 1.0);
@@ -58,7 +73,7 @@ fn skin_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     acc += w.w * (bone_matrices[idx.w] * p4);
     let ws = w.x + w.y + w.z + w.w;
 
-    let nb = src_n[i];
+    let nb = src_n[src_ni];
     let n_bind = vec3<f32>(nb.xyz);
     var acc_n = vec3<f32>(0.0);
     acc_n += w.x * (normal_matrix(bone_matrices[idx.x]) * n_bind);
@@ -67,11 +82,11 @@ fn skin_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     acc_n += w.w * (normal_matrix(bone_matrices[idx.w]) * n_bind);
 
     if (ws > 1e-6) {
-        dst_pos[i] = vec4<f32>((acc / ws).xyz, p.w);
+        dst_pos[dst_pi] = vec4<f32>((acc / ws).xyz, p.w);
         let nn = normalize(acc_n / ws);
-        dst_n[i] = vec4<f32>(nn, nb.w);
+        dst_n[dst_ni] = vec4<f32>(nn, nb.w);
     } else {
-        dst_pos[i] = p;
-        dst_n[i] = vec4<f32>(normalize(n_bind), nb.w);
+        dst_pos[dst_pi] = p;
+        dst_n[dst_ni] = vec4<f32>(normalize(n_bind), nb.w);
     }
 }

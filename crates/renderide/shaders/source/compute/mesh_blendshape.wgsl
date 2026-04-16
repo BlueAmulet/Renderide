@@ -6,7 +6,8 @@ struct Params {
     shape_index: u32,
     sparse_base: u32,
     sparse_count: u32,
-    _p0: u32,
+    /// Element offset into `out_pos` for this instance’s subrange (GPU skin cache arena).
+    base_dst_e: u32,
     _p1: u32,
     _p2: u32,
     _p3: u32,
@@ -40,6 +41,7 @@ fn blendshape_scatter_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let d = vec3<f32>(e.dx, e.dy, e.dz);
-    let p = out_pos[vi];
-    out_pos[vi] = vec4<f32>(p.xyz + wi * d, p.w);
+    let oi = params.base_dst_e + vi;
+    let p = out_pos[oi];
+    out_pos[oi] = vec4<f32>(p.xyz + wi * d, p.w);
 }

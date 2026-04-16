@@ -8,6 +8,9 @@ use crate::assets::mesh::GpuMesh;
 
 /// GPU buffer handles + metadata copied from [`crate::assets::mesh::GpuMesh`] so we can hold
 /// deform state without borrowing the mesh pool across preprocess/scratch access.
+///
+/// Deformed positions/normals and blend temp live in [`crate::backend::mesh_deform::GpuSkinCache`]
+/// per instance, not on the mesh.
 pub(super) struct MeshDeformSnapshot {
     pub(super) vertex_count: u32,
     pub(super) num_blendshapes: u32,
@@ -17,9 +20,6 @@ pub(super) struct MeshDeformSnapshot {
     pub(super) blendshape_sparse_buffer: Option<Arc<wgpu::Buffer>>,
     /// Per-shape `(first_entry, entry_count)` into [`Self::blendshape_sparse_buffer`] (scatter dispatch).
     pub(super) blendshape_sparse_ranges: Vec<(u32, u32)>,
-    pub(super) deform_temp_buffer: Option<Arc<wgpu::Buffer>>,
-    pub(super) deformed_positions_buffer: Option<Arc<wgpu::Buffer>>,
-    pub(super) deformed_normals_buffer: Option<Arc<wgpu::Buffer>>,
     pub(super) bone_indices_buffer: Option<Arc<wgpu::Buffer>>,
     pub(super) bone_weights_vec4_buffer: Option<Arc<wgpu::Buffer>>,
     pub(super) skinning_bind_matrices: Vec<Mat4>,
@@ -37,9 +37,6 @@ impl MeshDeformSnapshot {
             normals_buffer: m.normals_buffer.clone(),
             blendshape_sparse_buffer: m.blendshape_sparse_buffer.clone(),
             blendshape_sparse_ranges: m.blendshape_sparse_ranges.clone(),
-            deform_temp_buffer: m.deform_temp_buffer.clone(),
-            deformed_positions_buffer: m.deformed_positions_buffer.clone(),
-            deformed_normals_buffer: m.deformed_normals_buffer.clone(),
             bone_indices_buffer: m.bone_indices_buffer.clone(),
             bone_weights_vec4_buffer: m.bone_weights_vec4_buffer.clone(),
             skinning_bind_matrices: if clone_skinning_bind_matrices {
@@ -56,15 +53,12 @@ pub(super) fn deform_needs_blend_mesh(m: &GpuMesh) -> bool {
     m.num_blendshapes > 0
         && m.blendshape_sparse_buffer.is_some()
         && m.blendshape_sparse_ranges.len() == m.num_blendshapes as usize
-        && m.deform_temp_buffer.is_some()
 }
 
 /// Returns whether skinning compute should run for `m` (parity with deform encode).
 pub(super) fn deform_needs_skin_mesh(m: &GpuMesh, bone_transform_indices: Option<&[i32]>) -> bool {
     bone_transform_indices.is_some()
         && m.has_skeleton
-        && m.deformed_positions_buffer.is_some()
-        && m.deformed_normals_buffer.is_some()
         && m.normals_buffer.is_some()
         && m.bone_indices_buffer.is_some()
         && m.bone_weights_vec4_buffer.is_some()
@@ -87,7 +81,6 @@ pub(super) fn deform_needs_blend_snapshot(mesh: &MeshDeformSnapshot) -> bool {
     mesh.num_blendshapes > 0
         && mesh.blendshape_sparse_buffer.is_some()
         && mesh.blendshape_sparse_ranges.len() == mesh.num_blendshapes as usize
-        && mesh.deform_temp_buffer.is_some()
 }
 
 /// Snapshot variant of [`deform_needs_skin_mesh`].
@@ -97,8 +90,6 @@ pub(super) fn deform_needs_skin_snapshot(
 ) -> bool {
     bone_transform_indices.is_some()
         && mesh.has_skeleton
-        && mesh.deformed_positions_buffer.is_some()
-        && mesh.deformed_normals_buffer.is_some()
         && mesh.normals_buffer.is_some()
         && mesh.bone_indices_buffer.is_some()
         && mesh.bone_weights_vec4_buffer.is_some()

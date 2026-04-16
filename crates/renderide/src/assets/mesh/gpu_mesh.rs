@@ -15,9 +15,9 @@ use super::layout::{
 use crate::gpu::GpuLimits;
 
 use super::upload_impl::{
-    allocate_deform_outputs, create_core_vertex_index_buffers, extract_derived_vertex_streams,
-    padded_sparse_bytes, resident_bytes_for_mesh_upload, upload_blendshape_buffer,
-    upload_bone_and_skin_buffers, validate_mesh_upload_layout,
+    create_core_vertex_index_buffers, extract_derived_vertex_streams, padded_sparse_bytes,
+    resident_bytes_for_mesh_upload, upload_blendshape_buffer, upload_bone_and_skin_buffers,
+    validate_mesh_upload_layout,
 };
 
 use super::gpu_mesh_hints::{
@@ -68,16 +68,9 @@ pub struct GpuMesh {
     pub num_blendshapes: u32,
     /// Decomposed position stream (`vec4<f32>` per vertex) for compute + debug raster.
     pub positions_buffer: Option<Arc<wgpu::Buffer>>,
-    /// Bind-pose normal stream (`vec4<f32>` per vertex; xyz used). Serves as the skinning compute
-    /// input; the forward pass binds [`Self::deformed_normals_buffer`] when skinning is active.
+    /// Bind-pose normal stream (`vec4<f32>` per vertex; xyz used). Skinning writes deformed normals
+    /// to the GPU skin cache arena; see [`crate::backend::mesh_deform::GpuSkinCache`].
     pub normals_buffer: Option<Arc<wgpu::Buffer>>,
-    /// Blendshape output and/or skinning input ping buffer (`vec4<f32>` per vertex).
-    pub deform_temp_buffer: Option<Arc<wgpu::Buffer>>,
-    /// Skinning output positions (`vec4<f32>` per vertex).
-    pub deformed_positions_buffer: Option<Arc<wgpu::Buffer>>,
-    /// Skinning output normals in world space (`vec4<f32>` per vertex; xyz used), inverse-transpose
-    /// LBS of bind-pose normals. Present when [`Self::has_skeleton`].
-    pub deformed_normals_buffer: Option<Arc<wgpu::Buffer>>,
     /// `vec2<f32>` UV0 stream (`8` bytes/vertex) for embedded raster materials; zeros when uv0 is absent.
     pub uv0_buffer: Option<Arc<wgpu::Buffer>>,
     /// `vec4<f32>` color stream for UI/text embedded materials; defaults to opaque white when absent.
@@ -137,21 +130,6 @@ fn blendshape_and_deform_buffers_match_for_in_place(
         return false;
     }
 
-    if mesh.num_blendshapes > 0 {
-        let need = (data.vertex_count.max(0) as u64).saturating_mul(16).max(16);
-        if mesh.deform_temp_buffer.as_ref().map(|b| b.size()) != Some(need) {
-            return false;
-        }
-    }
-    if mesh.has_skeleton {
-        let need = (data.vertex_count.max(0) as u64).saturating_mul(16).max(16);
-        if mesh.deformed_positions_buffer.as_ref().map(|b| b.size()) != Some(need) {
-            return false;
-        }
-        if mesh.deformed_normals_buffer.as_ref().map(|b| b.size()) != Some(need) {
-            return false;
-        }
-    }
     true
 }
 
@@ -445,12 +423,6 @@ impl GpuMesh {
         );
         let num_blendshapes = blend_up.num_blendshapes;
 
-        let has_skeleton = data.bone_count > 0;
-        let needs_blend_compute = num_blendshapes > 0;
-        let needs_skin_compute = has_skeleton;
-
-        let deform = allocate_deform_outputs(device, data, needs_blend_compute, needs_skin_compute);
-
         let submeshes = validated_submesh_ranges(&data.submeshes, core.index_count_u32);
 
         let resident_bytes = resident_bytes_for_mesh_upload(
@@ -460,7 +432,6 @@ impl GpuMesh {
             &bone_skin,
             &blend_up.sparse_buffer,
             &blend_up.shape_descriptor_buffer,
-            &deform,
         );
 
         Some(Self {
@@ -483,12 +454,9 @@ impl GpuMesh {
             num_blendshapes,
             positions_buffer: derived.positions_buffer,
             normals_buffer: derived.normals_buffer,
-            deform_temp_buffer: deform.deform_temp_buffer,
-            deformed_positions_buffer: deform.deformed_positions_buffer,
-            deformed_normals_buffer: deform.deformed_normals_buffer,
             uv0_buffer: derived.uv0_buffer,
             color_buffer: derived.color_buffer,
-            has_skeleton,
+            has_skeleton: data.bone_count > 0,
             skinning_bind_matrices: bone_skin.skinning_bind_matrices,
             resident_bytes,
         })
@@ -707,9 +675,6 @@ impl GpuMesh {
             num_blendshapes: self.num_blendshapes,
             positions_buffer: self.positions_buffer.clone(),
             normals_buffer: self.normals_buffer.clone(),
-            deform_temp_buffer: self.deform_temp_buffer.clone(),
-            deformed_positions_buffer: self.deformed_positions_buffer.clone(),
-            deformed_normals_buffer: self.deformed_normals_buffer.clone(),
             uv0_buffer: self.uv0_buffer.clone(),
             color_buffer: self.color_buffer.clone(),
             has_skeleton: self.has_skeleton,

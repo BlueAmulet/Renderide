@@ -449,60 +449,6 @@ pub(super) fn upload_blendshape_buffer(
     }
 }
 
-/// Uninitialized deform ping-pong scratch and skinning output buffers when compute paths need them.
-pub(super) struct DeformOutputs {
-    pub deform_temp_buffer: Option<Arc<wgpu::Buffer>>,
-    pub deformed_positions_buffer: Option<Arc<wgpu::Buffer>>,
-    pub deformed_normals_buffer: Option<Arc<wgpu::Buffer>>,
-}
-
-/// Allocates blend temp and/or skinning output buffers from compute flags.
-pub(super) fn allocate_deform_outputs(
-    device: &wgpu::Device,
-    data: &MeshUploadData,
-    needs_blend_compute: bool,
-    needs_skin_compute: bool,
-) -> DeformOutputs {
-    let deform_usage =
-        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST;
-    let deform_temp_buffer = if needs_blend_compute {
-        let len = (data.vertex_count.max(0) as u64).saturating_mul(16).max(16);
-        Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(&format!("mesh {} deform_temp", data.asset_id)),
-            size: len,
-            usage: deform_usage,
-            mapped_at_creation: false,
-        })))
-    } else {
-        None
-    };
-
-    let (deformed_positions_buffer, deformed_normals_buffer) = if needs_skin_compute {
-        let len = (data.vertex_count.max(0) as u64).saturating_mul(16).max(16);
-        let pos = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(&format!("mesh {} deformed_positions", data.asset_id)),
-            size: len,
-            usage: deform_usage,
-            mapped_at_creation: false,
-        })));
-        let nrm = Some(Arc::new(device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(&format!("mesh {} deformed_normals", data.asset_id)),
-            size: len,
-            usage: deform_usage,
-            mapped_at_creation: false,
-        })));
-        (pos, nrm)
-    } else {
-        (None, None)
-    };
-
-    DeformOutputs {
-        deform_temp_buffer,
-        deformed_positions_buffer,
-        deformed_normals_buffer,
-    }
-}
-
 pub(super) fn sum_optional_buffer_bytes(buffers: &[Option<&Arc<wgpu::Buffer>>]) -> u64 {
     buffers
         .iter()
@@ -518,7 +464,6 @@ pub(super) fn resident_bytes_for_mesh_upload(
     bone_skin: &BoneSkinUpload,
     blend_sparse: &Option<Arc<wgpu::Buffer>>,
     blend_shape_desc: &Option<Arc<wgpu::Buffer>>,
-    deform: &DeformOutputs,
 ) -> u64 {
     let mut n = core_vb.size() + core_ib.size();
     n += sum_optional_buffer_bytes(&[
@@ -528,9 +473,6 @@ pub(super) fn resident_bytes_for_mesh_upload(
         bone_skin.bind_poses_buffer.as_ref(),
         derived.positions_buffer.as_ref(),
         derived.normals_buffer.as_ref(),
-        deform.deform_temp_buffer.as_ref(),
-        deform.deformed_positions_buffer.as_ref(),
-        deform.deformed_normals_buffer.as_ref(),
         derived.uv0_buffer.as_ref(),
         derived.color_buffer.as_ref(),
     ]);

@@ -8,6 +8,7 @@ mod snapshot;
 
 use rayon::prelude::*;
 
+use crate::backend::mesh_deform::{EntryNeed, GpuSkinCache};
 use crate::render_graph::context::RenderPassContext;
 use crate::render_graph::error::RenderPassError;
 use crate::render_graph::pass::{PassPhase, RenderPass};
@@ -16,7 +17,10 @@ use crate::resources::MeshPool;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 
 use self::encode::{record_mesh_deform, MeshDeformEncodeGpu, MeshDeformRecordInputs};
-use self::snapshot::{deform_needs_skin_mesh, gpu_mesh_needs_deform_dispatch, MeshDeformSnapshot};
+use self::snapshot::{
+    deform_needs_blend_snapshot, deform_needs_skin_mesh, deform_needs_skin_snapshot,
+    gpu_mesh_needs_deform_dispatch, MeshDeformSnapshot,
+};
 
 /// Encodes mesh deformation compute for all active render spaces.
 #[derive(Debug, Default)]
@@ -31,6 +35,8 @@ impl MeshDeformPass {
 
 struct DeformWorkItem {
     space_id: RenderSpaceId,
+    /// [`StaticMeshRenderer::node_id`](crate::scene::StaticMeshRenderer::node_id) for GPU skin cache key.
+    node_id: i32,
     mesh: MeshDeformSnapshot,
     skinned: Option<Vec<i32>>,
     /// [`StaticMeshRenderer::node_id`](crate::scene::StaticMeshRenderer::node_id) (SMR) for skinning fallbacks when a bone is unmapped.
@@ -63,6 +69,7 @@ fn collect_deform_work_for_space(
         }
         work.push(DeformWorkItem {
             space_id,
+            node_id: r.node_id,
             mesh: MeshDeformSnapshot::from_mesh(m, false),
             skinned: None,
             smr_node_id: -1,
@@ -84,6 +91,7 @@ fn collect_deform_work_for_space(
         let clone_bind = deform_needs_skin_mesh(m, Some(bone_ix));
         work.push(DeformWorkItem {
             space_id,
+            node_id: r.node_id,
             mesh: MeshDeformSnapshot::from_mesh(m, clone_bind),
             skinned: Some(skinned.bone_transform_indices.clone()),
             smr_node_id: r.node_id,
@@ -151,6 +159,12 @@ impl RenderPass for MeshDeformPass {
             work
         };
 
+        let skin_cache_ptr = frame
+            .backend
+            .frame_resources
+            .skin_cache_mut()
+            .map(|c| c as *mut GpuSkinCache);
+
         let Some((pre, scratch)) = frame.backend.mesh_deform_pre_and_scratch() else {
             return Ok(());
         };
@@ -162,10 +176,34 @@ impl RenderPass for MeshDeformPass {
 
         let mut bone_cursor = 0u64;
         let mut blend_weight_cursor = 0u64;
+        let mut skin_dispatch_cursor = 0u64;
         let render_context = frame.scene.active_main_render_context();
         let head_output_transform = frame.host_camera.head_output_transform;
 
+        let Some(skin_cache_raw) = skin_cache_ptr else {
+            return Ok(());
+        };
+
         for item in work {
+            let need = EntryNeed {
+                needs_blend: deform_needs_blend_snapshot(&item.mesh),
+                needs_skin: deform_needs_skin_snapshot(&item.mesh, item.skinned.as_deref()),
+            };
+            let key = (item.space_id, item.node_id);
+            // SAFETY: `skin_cache_raw` points at [`FrameResourceManager`]'s cache for this frame.
+            let skin_cache = unsafe { &mut *skin_cache_raw };
+            let Some((cache_entry, positions_arena, normals_arena, temp_arena)) = skin_cache
+                .get_or_alloc_with_arenas(
+                    ctx.device,
+                    ctx.encoder,
+                    key,
+                    need,
+                    item.mesh.vertex_count,
+                )
+            else {
+                continue;
+            };
+
             record_mesh_deform(
                 MeshDeformEncodeGpu {
                     queue: &queue,
@@ -186,9 +224,18 @@ impl RenderPass for MeshDeformPass {
                     blend_weights: &item.blend_weights,
                     bone_cursor: &mut bone_cursor,
                     blend_weight_cursor: &mut blend_weight_cursor,
+                    skin_dispatch_cursor: &mut skin_dispatch_cursor,
+                    skin_cache_entry: cache_entry,
+                    positions_arena,
+                    normals_arena,
+                    temp_arena,
                 },
             );
         }
+
+        let skin_cache = unsafe { &mut *skin_cache_raw };
+        let fc = skin_cache.frame_counter();
+        skin_cache.sweep_stale(fc.saturating_sub(2));
 
         frame
             .backend

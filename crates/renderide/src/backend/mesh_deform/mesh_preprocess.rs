@@ -5,6 +5,8 @@
 //! to [`crate::assets::mesh::GpuMesh`] interleaved buffers is a follow-up; this module establishes
 //! bind group contracts and valid WGSL entry points.
 
+use std::num::NonZeroU64;
+
 use wgpu::util::DeviceExt;
 
 const SKINNING_WGSL: &str = include_str!(concat!(
@@ -40,6 +42,16 @@ fn skinning_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
             storage_buffer_entry(4, false),
             storage_buffer_entry(5, true),
             storage_buffer_entry(6, false),
+            wgpu::BindGroupLayoutEntry {
+                binding: 7,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: NonZeroU64::new(32),
+                },
+                count: None,
+            },
         ],
     })
 }
