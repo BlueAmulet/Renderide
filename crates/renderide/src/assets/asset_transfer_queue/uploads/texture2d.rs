@@ -66,6 +66,7 @@ pub fn on_set_texture_2d_format(
         return;
     };
     let existed_before = queue.texture_pool.insert_texture(tex);
+    queue.maybe_warn_texture_vram_budget();
     send_texture_2d_result(
         ipc,
         id,

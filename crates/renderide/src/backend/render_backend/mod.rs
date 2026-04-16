@@ -196,6 +196,15 @@ impl RenderBackend {
         self.asset_transfers.gpu_device = Some(device.clone());
         self.asset_transfers.gpu_queue = Some(queue.clone());
         self.asset_transfers.gpu_limits = Some(Arc::clone(&gpu_limits));
+        {
+            let s = renderer_settings
+                .read()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            self.asset_transfers.render_texture_hdr_color = s.rendering.render_texture_hdr_color;
+            self.asset_transfers.texture_vram_budget_bytes =
+                u64::from(s.rendering.texture_vram_budget_mib).saturating_mul(1024 * 1024);
+        }
         self.mesh_deform_scratch = Some(MeshDeformScratch::new(device.as_ref()));
         self.frame_resources.attach(device.as_ref(), gpu_limits);
         {

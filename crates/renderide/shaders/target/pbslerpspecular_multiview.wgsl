@@ -228,6 +228,27 @@ fn direct_radiance_specularX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(lig
     return ((diffuse + spec) * radiance);
 }
 
+fn decode_ts_normal_sample_rawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(s: vec4<f32>) -> vec3<f32> {
+    var local_1: bool;
+
+    let uniform_white_rgb: bool = all((s.xyz > vec3<f32>(0.99f, 0.99f, 0.99f)));
+    if uniform_white_rgb {
+        return s.xyz;
+    }
+    let all_r_high: bool = (s.x > 0.98f);
+    let gb_close: bool = (abs((s.y - s.z)) < 0.03f);
+    if all_r_high {
+        local_1 = gb_close;
+    } else {
+        local_1 = false;
+    }
+    let _e21: bool = local_1;
+    if _e21 {
+        return vec3<f32>(s.w, s.y, s.z);
+    }
+    return s.xyz;
+}
+
 fn decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(raw: vec3<f32>, scale: f32) -> vec3<f32> {
     if all((raw > vec3<f32>(0.99f, 0.99f, 0.99f))) {
         return vec3<f32>(0f, 0f, 1f);
@@ -235,6 +256,12 @@ fn decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF
     let nm_xy: vec2<f32> = (((raw.xy * 2f) - vec2(1f)) * scale);
     let z: f32 = max(sqrt(max((1f - dot(nm_xy, nm_xy)), 0f)), 0.000001f);
     return normalize(vec3<f32>(nm_xy, z));
+}
+
+fn decode_ts_normal_with_placeholder_sampleX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(s_1: vec4<f32>, scale_1: f32) -> vec3<f32> {
+    let _e1: vec3<f32> = decode_ts_normal_sample_rawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(s_1);
+    let _e3: vec3<f32> = decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e1, scale_1);
+    return _e3;
 }
 
 fn get_drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX(instance_idx: u32) -> PerDrawUniformsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX {
@@ -275,9 +302,9 @@ fn cluster_id_from_fragX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRWY5LTORSXEX(cl
 
 fn sample_normal_world(uv0_1: vec2<f32>, uv1_: vec2<f32>, world_n_1: vec3<f32>, front_facing_1: bool, lerp_factor: f32) -> vec3<f32> {
     var n_3: vec3<f32>;
-    var local_1: bool;
-    var ts: vec3<f32>;
     var local_2: bool;
+    var ts: vec3<f32>;
+    var local_3: bool;
 
     let _e2: f32 = mat._NORMALMAP;
     let _e3: bool = kw_enabledX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ2XMX3VORUWY4YX(_e2);
@@ -286,11 +313,11 @@ fn sample_normal_world(uv0_1: vec2<f32>, uv1_: vec2<f32>, world_n_1: vec3<f32>, 
         let _e10: f32 = mat._DUALSIDED;
         let _e11: bool = kw_enabledX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ2XMX3VORUWY4YX(_e10);
         if _e11 {
-            local_1 = !(front_facing_1);
+            local_2 = !(front_facing_1);
         } else {
-            local_1 = false;
+            local_2 = false;
         }
-        let _e17: bool = local_1;
+        let _e17: bool = local_2;
         if _e17 {
             let _e18: vec3<f32> = n_3;
             n_3 = -(_e18);
@@ -300,26 +327,26 @@ fn sample_normal_world(uv0_1: vec2<f32>, uv1_: vec2<f32>, world_n_1: vec3<f32>, 
     }
     let _e22: mat3x3<f32> = orthonormal_tbnX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(normalize(world_n_1));
     let _e26: vec4<f32> = textureSample(_NormalMap, _NormalMap_sampler, uv0_1);
-    let _e30: f32 = mat._NormalScale;
-    let _e31: vec3<f32> = decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e26.xyz, _e30);
-    let _e35: vec4<f32> = textureSample(_NormalMap1_, _NormalMap1_sampler, uv1_);
-    let _e39: f32 = mat._NormalScale1_;
-    let _e40: vec3<f32> = decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e35.xyz, _e39);
-    ts = normalize(mix(_e31, _e40, vec3(lerp_factor)));
-    let _e48: f32 = mat._DUALSIDED;
-    let _e49: bool = kw_enabledX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ2XMX3VORUWY4YX(_e48);
-    if _e49 {
-        local_2 = !(front_facing_1);
+    let _e29: f32 = mat._NormalScale;
+    let _e30: vec3<f32> = decode_ts_normal_with_placeholder_sampleX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e26, _e29);
+    let _e34: vec4<f32> = textureSample(_NormalMap1_, _NormalMap1_sampler, uv1_);
+    let _e37: f32 = mat._NormalScale1_;
+    let _e38: vec3<f32> = decode_ts_normal_with_placeholder_sampleX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e34, _e37);
+    ts = normalize(mix(_e30, _e38, vec3(lerp_factor)));
+    let _e46: f32 = mat._DUALSIDED;
+    let _e47: bool = kw_enabledX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ2XMX3VORUWY4YX(_e46);
+    if _e47 {
+        local_3 = !(front_facing_1);
     } else {
-        local_2 = false;
+        local_3 = false;
     }
-    let _e54: bool = local_2;
-    if _e54 {
-        let _e57: f32 = ts.z;
-        ts.z = -(_e57);
+    let _e52: bool = local_3;
+    if _e52 {
+        let _e55: f32 = ts.z;
+        ts.z = -(_e55);
     }
-    let _e59: vec3<f32> = ts;
-    return normalize((_e22 * _e59));
+    let _e57: vec3<f32> = ts;
+    return normalize((_e22 * _e57));
 }
 
 fn compute_lerp_factor(uv_lerp: vec2<f32>) -> f32 {

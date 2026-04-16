@@ -23,6 +23,22 @@ pub(super) const LOG_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 /// Max time to wait for [`RendererInitData`] after IPC connect before exiting with an error.
 const IPC_INIT_WAIT_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Registers `SIGTERM` via [`signal_hook::flag`] so the winit loop can exit cleanly and log.
+///
+/// Linux child processes may receive `SIGTERM` when the parent bootstrapper exits (e.g. `PR_SET_PDEATHSIG`);
+/// that path does not run the panic hook or fatal-crash logger.
+#[cfg(unix)]
+fn install_sigterm_shutdown_flag() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+
+    let flag = Arc::new(AtomicBool::new(false));
+    if let Err(e) = signal_hook::flag::register(signal_hook::consts::SIGTERM, Arc::clone(&flag)) {
+        logger::warn!("Failed to register SIGTERM handler: {e}");
+    }
+    flag
+}
+
 /// Chooses the process max log level after [`logger::init_for`].
 ///
 /// Precedence: **`-LogLevel`** (if present) always wins. If absent, [`crate::config::DebugSettings::log_verbose`]
@@ -101,11 +117,17 @@ pub fn run() -> Result<Option<i32>, RunError> {
         e
     })?;
 
+    #[cfg(unix)]
+    let sigterm_shutdown = Some(install_sigterm_shutdown_flag());
+    #[cfg(not(unix))]
+    let sigterm_shutdown = None;
+
     let mut app = RenderideApp::new(
         runtime,
         initial_vsync,
         initial_gpu_validation,
         log_level_cli,
+        sigterm_shutdown,
     );
 
     let _ = event_loop.run_app(&mut app);

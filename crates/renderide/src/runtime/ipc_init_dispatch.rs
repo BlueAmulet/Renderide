@@ -1,6 +1,7 @@
 //! IPC command routing by [`crate::frontend::InitState`]: init handshake vs running dispatch.
 
 use crate::assets::texture::supported_host_formats_for_init;
+use crate::config::RendererSettings;
 use crate::frontend::InitState;
 use crate::ipc::DualQueueIpc;
 use crate::output_device::head_output_device_wants_openxr;
@@ -8,18 +9,30 @@ use crate::runtime::RendererRuntime;
 use crate::shared::{HeadOutputDevice, RendererCommand, RendererInitResult};
 
 /// Sends [`RendererInitResult`] to the host after [`crate::shared::RendererInitData`] is applied.
-pub(crate) fn send_renderer_init_result(ipc: &mut DualQueueIpc, output_device: HeadOutputDevice) {
+///
+/// `gpu_max_texture_dim_2d` should be [`None`] until a [`wgpu::Device`] exists; the host only
+/// accepts **one** init result (see FrooxEngine `RenderSystem.HandleCommand`), so this is sent once
+/// from [`crate::runtime::RendererRuntime::on_init_data`] with [`None`] before GPU init. The
+/// [`RendererSettings::reported_max_texture_dimension_for_host`] fallback (`8192` when GPU limits are
+/// unknown) matches typical GPUs; non-zero config caps are still clamped.
+pub(crate) fn send_renderer_init_result(
+    ipc: &mut DualQueueIpc,
+    output_device: HeadOutputDevice,
+    settings: &RendererSettings,
+    gpu_max_texture_dim_2d: Option<u32>,
+) {
     let stereo = if head_output_device_wants_openxr(output_device) {
         "OpenXR(multiview)"
     } else {
         "None"
     };
+    let max_texture_size = settings.reported_max_texture_dimension_for_host(gpu_max_texture_dim_2d);
     let result = RendererInitResult {
         actual_output_device: output_device,
         renderer_identifier: Some("Renderide 0.1.0 (wgpu skeleton)".to_string()),
         main_window_handle_ptr: 0,
         stereo_rendering_mode: Some(stereo.to_string()),
-        max_texture_size: 8192,
+        max_texture_size,
         is_gpu_texture_pot_byte_aligned: true,
         supported_texture_formats: supported_host_formats_for_init(),
     };

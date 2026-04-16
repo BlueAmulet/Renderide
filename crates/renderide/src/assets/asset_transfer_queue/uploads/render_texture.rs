@@ -39,11 +39,17 @@ pub fn on_set_render_texture_format(
         send_render_texture_result(ipc, id, queue.render_texture_pool.get(id).is_none());
         return;
     };
-    let Some(tex) = GpuRenderTexture::new_from_format(device.as_ref(), limits.as_ref(), &f) else {
+    let Some(tex) = GpuRenderTexture::new_from_format(
+        device.as_ref(),
+        limits.as_ref(),
+        &f,
+        queue.render_texture_hdr_color,
+    ) else {
         logger::warn!("render texture {id}: SetRenderTextureFormat rejected (bad size or device)");
         return;
     };
     let existed_before = queue.render_texture_pool.insert_texture(tex);
+    queue.maybe_warn_texture_vram_budget();
     send_render_texture_result(ipc, id, !existed_before);
     logger::trace!(
         "render texture {} {}×{} depth_bits={} (resident_bytes≈{})",

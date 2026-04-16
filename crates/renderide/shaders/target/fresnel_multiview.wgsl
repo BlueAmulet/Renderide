@@ -136,6 +136,27 @@ fn orthonormal_tbnX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(n_2: vec3<f3
     return mat3x3<f32>(normalize(t), normalize(bitan), n_2);
 }
 
+fn decode_ts_normal_sample_rawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(s: vec4<f32>) -> vec3<f32> {
+    var local_5: bool;
+
+    let uniform_white_rgb: bool = all((s.xyz > vec3<f32>(0.99f, 0.99f, 0.99f)));
+    if uniform_white_rgb {
+        return s.xyz;
+    }
+    let all_r_high: bool = (s.x > 0.98f);
+    let gb_close: bool = (abs((s.y - s.z)) < 0.03f);
+    if all_r_high {
+        local_5 = gb_close;
+    } else {
+        local_5 = false;
+    }
+    let _e21: bool = local_5;
+    if _e21 {
+        return vec3<f32>(s.w, s.y, s.z);
+    }
+    return s.xyz;
+}
+
 fn decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(raw: vec3<f32>, scale: f32) -> vec3<f32> {
     if all((raw > vec3<f32>(0.99f, 0.99f, 0.99f))) {
         return vec3<f32>(0f, 0f, 1f);
@@ -143,6 +164,12 @@ fn decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF
     let nm_xy: vec2<f32> = (((raw.xy * 2f) - vec2(1f)) * scale);
     let z: f32 = max(sqrt(max((1f - dot(nm_xy, nm_xy)), 0f)), 0.000001f);
     return normalize(vec3<f32>(nm_xy, z));
+}
+
+fn decode_ts_normal_with_placeholder_sampleX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(s_1: vec4<f32>, scale_1: f32) -> vec3<f32> {
+    let _e1: vec3<f32> = decode_ts_normal_sample_rawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(s_1);
+    let _e3: vec3<f32> = decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e1, scale_1);
+    return _e3;
 }
 
 fn retain_globals_additiveX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX(color_1: vec4<f32>) -> vec4<f32> {
@@ -225,107 +252,107 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let _e16: vec3<f32> = n_1;
         let _e17: mat3x3<f32> = orthonormal_tbnX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(_e16);
         let _e20: vec4<f32> = textureSample(_NormalMap, _NormalMap_sampler, uv_n);
-        let _e24: f32 = mat._NormalScale;
-        let _e25: vec3<f32> = decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e20.xyz, _e24);
-        n_1 = normalize((_e17 * _e25));
+        let _e23: f32 = mat._NormalScale;
+        let _e24: vec3<f32> = decode_ts_normal_with_placeholder_sampleX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e20, _e23);
+        n_1 = normalize((_e17 * _e24));
     }
-    let _e30: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.camera_world_pos;
-    let view_dir: vec3<f32> = normalize((_e30.xyz - in.world_pos));
-    let _e35: vec3<f32> = n_1;
-    let _e42: f32 = mat._Exp;
-    fres = pow((1f - abs(dot(_e35, view_dir))), max(_e42, 0.0001f));
-    let _e47: f32 = fres;
-    let _e53: f32 = mat._GammaCurve;
-    fres = pow(clamp(_e47, 0f, 1f), max(_e53, 0.0001f));
-    let _e59: vec4<f32> = mat._FarColor;
-    let _e63: vec4<f32> = mat._FarTex_ST;
-    let _e66: vec4<f32> = sample_color(_FarTex, _FarTex_sampler, in.uv, _e63);
-    let far_color: vec4<f32> = (_e59 * _e66);
-    let _e70: vec4<f32> = mat._NearColor;
-    let _e74: vec4<f32> = mat._NearTex_ST;
-    let _e77: vec4<f32> = sample_color(_NearTex, _NearTex_sampler, in.uv, _e74);
-    let near_color: vec4<f32> = (_e70 * _e77);
-    let _e79: f32 = fres;
-    color = mix(near_color, far_color, clamp(_e79, 0f, 1f));
-    let _e87: vec4<f32> = mat._FarColor;
-    let _e91: vec4<f32> = mat._FarTex_ST;
-    let _e94: vec4<f32> = sample_color_lod0_(_FarTex, _FarTex_sampler, in.uv, _e91);
-    let far_clip: vec4<f32> = (_e87 * _e94);
-    let _e98: vec4<f32> = mat._NearColor;
-    let _e102: vec4<f32> = mat._NearTex_ST;
-    let _e105: vec4<f32> = sample_color_lod0_(_NearTex, _NearTex_sampler, in.uv, _e102);
-    let near_clip: vec4<f32> = (_e98 * _e105);
-    let _e109: f32 = fres;
-    clip_a = mix(near_clip.w, far_clip.w, clamp(_e109, 0f, 1f));
-    let _e117: f32 = mat._MASK_TEXTURE_MUL;
-    if !((_e117 > 0.99f)) {
-        let _e123: f32 = mat._MASK_TEXTURE_CLIP;
-        local = (_e123 > 0.99f);
+    let _e29: vec4<f32> = frameX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX.camera_world_pos;
+    let view_dir: vec3<f32> = normalize((_e29.xyz - in.world_pos));
+    let _e34: vec3<f32> = n_1;
+    let _e41: f32 = mat._Exp;
+    fres = pow((1f - abs(dot(_e34, view_dir))), max(_e41, 0.0001f));
+    let _e46: f32 = fres;
+    let _e52: f32 = mat._GammaCurve;
+    fres = pow(clamp(_e46, 0f, 1f), max(_e52, 0.0001f));
+    let _e58: vec4<f32> = mat._FarColor;
+    let _e62: vec4<f32> = mat._FarTex_ST;
+    let _e65: vec4<f32> = sample_color(_FarTex, _FarTex_sampler, in.uv, _e62);
+    let far_color: vec4<f32> = (_e58 * _e65);
+    let _e69: vec4<f32> = mat._NearColor;
+    let _e73: vec4<f32> = mat._NearTex_ST;
+    let _e76: vec4<f32> = sample_color(_NearTex, _NearTex_sampler, in.uv, _e73);
+    let near_color: vec4<f32> = (_e69 * _e76);
+    let _e78: f32 = fres;
+    color = mix(near_color, far_color, clamp(_e78, 0f, 1f));
+    let _e86: vec4<f32> = mat._FarColor;
+    let _e90: vec4<f32> = mat._FarTex_ST;
+    let _e93: vec4<f32> = sample_color_lod0_(_FarTex, _FarTex_sampler, in.uv, _e90);
+    let far_clip: vec4<f32> = (_e86 * _e93);
+    let _e97: vec4<f32> = mat._NearColor;
+    let _e101: vec4<f32> = mat._NearTex_ST;
+    let _e104: vec4<f32> = sample_color_lod0_(_NearTex, _NearTex_sampler, in.uv, _e101);
+    let near_clip: vec4<f32> = (_e97 * _e104);
+    let _e108: f32 = fres;
+    clip_a = mix(near_clip.w, far_clip.w, clamp(_e108, 0f, 1f));
+    let _e116: f32 = mat._MASK_TEXTURE_MUL;
+    if !((_e116 > 0.99f)) {
+        let _e122: f32 = mat._MASK_TEXTURE_CLIP;
+        local = (_e122 > 0.99f);
     } else {
         local = true;
     }
-    let _e129: bool = local;
-    if _e129 {
-        let _e133: vec4<f32> = mat._MaskTex_ST;
-        let _e134: vec2<f32> = apply_stX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ2XMX3VORUWY4YX(in.uv, _e133);
-        let mask_1: vec4<f32> = textureSample(_MaskTex, _MaskTex_sampler, _e134);
+    let _e128: bool = local;
+    if _e128 {
+        let _e132: vec4<f32> = mat._MaskTex_ST;
+        let _e133: vec2<f32> = apply_stX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ2XMX3VORUWY4YX(in.uv, _e132);
+        let mask_1: vec4<f32> = textureSample(_MaskTex, _MaskTex_sampler, _e133);
         let mul: f32 = ((((mask_1.x + mask_1.y) + mask_1.z) * 0.33333334f) * mask_1.w);
-        let _e149: f32 = mask_luminance_mul_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_MaskTex, _MaskTex_sampler, _e134);
-        let _e152: f32 = mat._MASK_TEXTURE_MUL;
-        if (_e152 > 0.99f) {
-            let _e157: f32 = color.w;
-            color.w = (_e157 * mul);
-            let _e159: f32 = clip_a;
-            clip_a = (_e159 * _e149);
+        let _e148: f32 = mask_luminance_mul_base_mipX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJQWY4DIMFPWG3DJOBPXGYLNOBWGKX(_MaskTex, _MaskTex_sampler, _e133);
+        let _e151: f32 = mat._MASK_TEXTURE_MUL;
+        if (_e151 > 0.99f) {
+            let _e156: f32 = color.w;
+            color.w = (_e156 * mul);
+            let _e158: f32 = clip_a;
+            clip_a = (_e158 * _e148);
         }
-        let _e163: f32 = mat._MASK_TEXTURE_CLIP;
-        if (_e163 > 0.99f) {
-            let _e168: f32 = mat._Cutoff;
-            local_1 = (_e149 <= _e168);
+        let _e162: f32 = mat._MASK_TEXTURE_CLIP;
+        if (_e162 > 0.99f) {
+            let _e167: f32 = mat._Cutoff;
+            local_1 = (_e148 <= _e167);
         } else {
             local_1 = false;
         }
-        let _e173: bool = local_1;
-        if _e173 {
+        let _e172: bool = local_1;
+        if _e172 {
             discard;
         }
     }
-    let _e176: f32 = mat._MASK_TEXTURE_CLIP;
-    if !((_e176 > 0.99f)) {
-        let _e182: f32 = mat._Cutoff;
-        local_2 = (_e182 > 0f);
+    let _e175: f32 = mat._MASK_TEXTURE_CLIP;
+    if !((_e175 > 0.99f)) {
+        let _e181: f32 = mat._Cutoff;
+        local_2 = (_e181 > 0f);
     } else {
         local_2 = false;
     }
-    let _e188: bool = local_2;
-    if _e188 {
-        let _e191: f32 = mat._Cutoff;
-        local_3 = (_e191 < 1f);
+    let _e187: bool = local_2;
+    if _e187 {
+        let _e190: f32 = mat._Cutoff;
+        local_3 = (_e190 < 1f);
     } else {
         local_3 = false;
     }
-    let _e197: bool = local_3;
-    if _e197 {
-        let _e198: f32 = clip_a;
-        let _e201: f32 = mat._Cutoff;
-        local_4 = (_e198 <= _e201);
+    let _e196: bool = local_3;
+    if _e196 {
+        let _e197: f32 = clip_a;
+        let _e200: f32 = mat._Cutoff;
+        local_4 = (_e197 <= _e200);
     } else {
         local_4 = false;
     }
-    let _e206: bool = local_4;
-    if _e206 {
+    let _e205: bool = local_4;
+    if _e205 {
         discard;
     }
-    let _e209: f32 = mat._MUL_ALPHA_INTENSITY;
-    if (_e209 > 0.99f) {
-        let _e213: f32 = color.x;
-        let _e215: f32 = color.y;
-        let _e218: f32 = color.z;
-        let lum: f32 = (((_e213 + _e215) + _e218) * 0.33333334f);
-        let _e224: f32 = color.w;
-        color.w = ((_e224 * lum) * lum);
+    let _e208: f32 = mat._MUL_ALPHA_INTENSITY;
+    if (_e208 > 0.99f) {
+        let _e212: f32 = color.x;
+        let _e214: f32 = color.y;
+        let _e217: f32 = color.z;
+        let lum: f32 = (((_e212 + _e214) + _e217) * 0.33333334f);
+        let _e223: f32 = color.w;
+        color.w = ((_e223 * lum) * lum);
     }
-    let _e227: vec4<f32> = color;
-    let _e228: vec4<f32> = retain_globals_additiveX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX(_e227);
-    return _e228;
+    let _e226: vec4<f32> = color;
+    let _e227: vec4<f32> = retain_globals_additiveX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJTWY33CMFWHGX(_e226);
+    return _e227;
 }

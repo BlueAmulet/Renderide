@@ -52,7 +52,7 @@ impl CubemapUploadTask {
     pub fn step(
         &mut self,
         queue: &mut AssetTransferQueue,
-        _device: &Arc<wgpu::Device>,
+        device: &Arc<wgpu::Device>,
         _gpu_limits: &Arc<GpuLimits>,
         gpu_queue: &wgpu::Queue,
         shm: &mut SharedMemoryAccessor,
@@ -104,6 +104,7 @@ impl CubemapUploadTask {
                     }
                     let payload = &raw[..want];
                     Some(uploader.upload_next_face_mip(
+                        device.as_ref(),
                         gpu_queue,
                         texture,
                         fmt,

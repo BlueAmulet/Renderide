@@ -51,8 +51,12 @@ pub fn flush_pending_render_texture_allocations(
             logger::warn!("render texture {id}: gpu_limits missing; cannot allocate on attach");
             continue;
         };
-        let Some(tex) = GpuRenderTexture::new_from_format(device.as_ref(), limits.as_ref(), &fmt)
-        else {
+        let Some(tex) = GpuRenderTexture::new_from_format(
+            device.as_ref(),
+            limits.as_ref(),
+            &fmt,
+            queue.render_texture_hdr_color,
+        ) else {
             logger::warn!("render texture {id}: failed to allocate GPU targets on attach");
             continue;
         };

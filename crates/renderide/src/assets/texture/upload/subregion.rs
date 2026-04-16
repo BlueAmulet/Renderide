@@ -146,6 +146,7 @@ fn write_texture_subregion(w: TextureWriteSubregion<'_>) -> Result<(), TextureUp
 ///
 /// Checked: flip, mip0-only descriptor, uncompressed host format, GPU RGBA8 family.
 fn subregion_fast_path_supported(
+    device: &wgpu::Device,
     upload: &SetTexture2DData,
     fmt: &SetTexture2DFormat,
     wgpu_format: wgpu::TextureFormat,
@@ -159,7 +160,8 @@ fn subregion_fast_path_supported(
     if upload.mip_map_sizes.len() != 1 || upload.mip_starts.len() != 1 {
         return None;
     }
-    if host_format_is_compressed(fmt.format) || needs_rgba8_decode_before_upload(fmt.format) {
+    if host_format_is_compressed(fmt.format) || needs_rgba8_decode_before_upload(device, fmt.format)
+    {
         return None;
     }
     if !is_rgba8_family(wgpu_format) {
@@ -228,6 +230,7 @@ fn subregion_rect_from_hint(
 ///
 /// Returns [`None`] when the fast path does not apply (caller uses the full mip chain path).
 pub(super) fn try_write_texture2d_subregion(
+    device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
     fmt: &SetTexture2DFormat,
@@ -235,7 +238,7 @@ pub(super) fn try_write_texture2d_subregion(
     upload: &SetTexture2DData,
     raw: &[u8],
 ) -> Option<Result<u32, TextureUploadError>> {
-    subregion_fast_path_supported(upload, fmt, wgpu_format)?;
+    subregion_fast_path_supported(device, upload, fmt, wgpu_format)?;
 
     let want = upload.data.length.max(0) as usize;
     if raw.len() < want {

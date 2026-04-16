@@ -80,14 +80,16 @@ fn sample_normal_world(
     detail_mask: f32,
 ) -> vec3<f32> {
     let tbn = brdf::orthonormal_tbn(world_n);
-    var ts_n = nd::decode_ts_normal_with_placeholder(
-        textureSample(_BumpMap, _BumpMap_sampler, uv_main).xyz,
+    var ts_n = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_BumpMap, _BumpMap_sampler, uv_main),
         mat._BumpScale,
     );
 
     if detail_mask > 0.001 {
-        let detail_raw = textureSample(_DetailNormalMap, _DetailNormalMap_sampler, uv_det).xyz;
-        let ts_detail = nd::decode_ts_normal_with_placeholder(detail_raw, mat._DetailNormalMapScale);
+        let ts_detail = nd::decode_ts_normal_with_placeholder_sample(
+            textureSample(_DetailNormalMap, _DetailNormalMap_sampler, uv_det),
+            mat._DetailNormalMapScale,
+        );
         ts_n = normalize(vec3<f32>(ts_n.xy + ts_detail.xy * detail_mask, ts_n.z));
     }
 

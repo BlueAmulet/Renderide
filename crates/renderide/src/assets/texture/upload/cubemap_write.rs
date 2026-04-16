@@ -55,6 +55,7 @@ fn resolve_cubemap_face_mip_slice<'a>(
 /// Converts host face mip bytes for [`write_cubemap_face_mip`] (decode, optional row flip).
 #[allow(clippy::too_many_arguments)]
 fn cubemap_mip_src_to_upload_pixels<'a>(
+    device: &wgpu::Device,
     fmt: &SetCubemapFormat,
     wgpu_format: wgpu::TextureFormat,
     w: u32,
@@ -66,7 +67,9 @@ fn cubemap_mip_src_to_upload_pixels<'a>(
     mip_src: &'a [u8],
 ) -> Result<std::borrow::Cow<'a, [u8]>, TextureUploadError> {
     let pixels: std::borrow::Cow<'a, [u8]> = if is_rgba8_family(wgpu_format) {
-        if needs_rgba8_decode_before_upload(fmt.format) || host_format_is_compressed(fmt.format) {
+        if needs_rgba8_decode_before_upload(device, fmt.format)
+            || host_format_is_compressed(fmt.format)
+        {
             std::borrow::Cow::Owned(
                 decode_mip_to_rgba8(fmt.format, w, h, flip, mip_src).ok_or_else(|| {
                     TextureUploadError::from(format!(
@@ -95,7 +98,7 @@ fn cubemap_mip_src_to_upload_pixels<'a>(
             std::borrow::Cow::Borrowed(mip_src)
         }
     } else {
-        if needs_rgba8_decode_before_upload(fmt.format) {
+        if needs_rgba8_decode_before_upload(device, fmt.format) {
             return Err(TextureUploadError::from(format!(
                 "host {:?} must use RGBA decode but GPU format is {:?}",
                 fmt.format, wgpu_format
@@ -225,8 +228,10 @@ impl CubemapMipChainUploader {
     }
 
     /// Writes at most one face mip. `payload` is `&raw[..upload.data.length]`.
+    #[allow(clippy::too_many_arguments)]
     pub fn upload_next_face_mip(
         &mut self,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
         texture: &wgpu::Texture,
         fmt: &SetCubemapFormat,
@@ -274,6 +279,7 @@ impl CubemapMipChainUploader {
         )?;
 
         let pixels = cubemap_mip_src_to_upload_pixels(
+            device,
             fmt,
             wgpu_format,
             w,

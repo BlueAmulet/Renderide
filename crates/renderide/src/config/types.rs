@@ -36,6 +36,20 @@ pub struct RenderingSettings {
     /// Wall-clock budget per frame for cooperative mesh/texture integration ([`crate::runtime::RendererRuntime::run_asset_integration`]), in milliseconds.
     #[serde(rename = "asset_integration_budget_ms")]
     pub asset_integration_budget_ms: u32,
+    /// Upper bound for [`crate::shared::RendererInitResult::max_texture_size`] sent to the host.
+    /// `0` means use the GPU’s [`wgpu::Limits::max_texture_dimension_2d`] (after device creation).
+    /// Non-zero values are clamped to the GPU maximum.
+    #[serde(rename = "reported_max_texture_size")]
+    pub reported_max_texture_size: u32,
+    /// When `true`, host [`crate::shared::SetRenderTextureFormat`] assets allocate **HDR** color
+    /// (`Rgba16Float`, Unity `ARGBHalf` parity). When `false` (default), **`Rgba8Unorm`** is used to
+    /// reduce VRAM for typical LDR render targets (mirrors, cameras, UI).
+    #[serde(rename = "render_texture_hdr_color")]
+    pub render_texture_hdr_color: bool,
+    /// When non-zero, logs a **warning** when combined resident Texture2D + render-texture bytes exceed
+    /// this many mebibytes (best-effort accounting).
+    #[serde(rename = "texture_vram_budget_mib")]
+    pub texture_vram_budget_mib: u32,
 }
 
 impl Default for RenderingSettings {
@@ -43,6 +57,9 @@ impl Default for RenderingSettings {
         Self {
             vsync: false,
             asset_integration_budget_ms: 3,
+            reported_max_texture_size: 0,
+            render_texture_hdr_color: false,
+            texture_vram_budget_mib: 0,
         }
     }
 }
@@ -153,5 +170,47 @@ impl RendererSettings {
     /// Hardcoded defaults only.
     pub fn from_defaults() -> Self {
         Self::default()
+    }
+
+    /// Effective value for [`crate::shared::RendererInitResult::max_texture_size`].
+    ///
+    /// `gpu_max_texture_dim_2d` should be [`wgpu::Limits::max_texture_dimension_2d`] when the device
+    /// exists; use [`None`] before GPU init (conservative **8192** fallback).
+    pub fn reported_max_texture_dimension_for_host(
+        &self,
+        gpu_max_texture_dim_2d: Option<u32>,
+    ) -> i32 {
+        let gpu_cap = gpu_max_texture_dim_2d.unwrap_or(8192);
+        let cap = self.rendering.reported_max_texture_size;
+        let v = if cap == 0 { gpu_cap } else { cap.min(gpu_cap) };
+        v as i32
+    }
+}
+
+#[cfg(test)]
+mod reported_max_texture_tests {
+    use super::RendererSettings;
+
+    #[test]
+    fn reported_max_texture_matches_gpu_when_config_zero() {
+        let s = RendererSettings::default();
+        assert_eq!(
+            s.reported_max_texture_dimension_for_host(Some(16384)),
+            16384
+        );
+    }
+
+    #[test]
+    fn reported_max_texture_clamps_config_to_gpu() {
+        let mut s = RendererSettings::default();
+        s.rendering.reported_max_texture_size = 4096;
+        assert_eq!(s.reported_max_texture_dimension_for_host(Some(16384)), 4096);
+        assert_eq!(s.reported_max_texture_dimension_for_host(Some(2048)), 2048);
+    }
+
+    #[test]
+    fn reported_max_texture_fallback_without_gpu() {
+        let s = RendererSettings::default();
+        assert_eq!(s.reported_max_texture_dimension_for_host(None), 8192);
     }
 }

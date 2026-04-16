@@ -101,8 +101,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (mat._NORMALMAP > 0.99) {
         let uv_n = vec2<f32>(in.uv.x, 1.0 - in.uv.y);
         let tbn = brdf::orthonormal_tbn(n);
-        let ts_n = nd::decode_ts_normal_with_placeholder(
-            textureSample(_NormalMap, _NormalMap_sampler, uv_n).xyz,
+        let ts_n = nd::decode_ts_normal_with_placeholder_sample(
+            textureSample(_NormalMap, _NormalMap_sampler, uv_n),
             mat._NormalScale,
         );
         n = normalize(tbn * ts_n);

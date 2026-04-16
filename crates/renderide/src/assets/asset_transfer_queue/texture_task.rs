@@ -59,7 +59,7 @@ impl TextureUploadTask {
     pub fn step(
         &mut self,
         queue: &mut AssetTransferQueue,
-        _device: &Arc<wgpu::Device>,
+        device: &Arc<wgpu::Device>,
         _gpu_limits: &Arc<GpuLimits>,
         gpu_queue: &wgpu::Queue,
         shm: &mut SharedMemoryAccessor,
@@ -82,6 +82,7 @@ impl TextureUploadTask {
                 let upload = &self.data;
                 let start = shm.with_read_bytes(&upload.data, |raw| {
                     Some(texture_upload_start(
+                        device.as_ref(),
                         gpu_queue,
                         texture,
                         fmt,
@@ -123,6 +124,7 @@ impl TextureUploadTask {
                     }
                     let payload = &raw[..want];
                     Some(uploader.upload_next_mip(
+                        device.as_ref(),
                         gpu_queue,
                         texture,
                         fmt,

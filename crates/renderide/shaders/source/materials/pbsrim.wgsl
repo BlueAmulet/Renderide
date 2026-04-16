@@ -53,8 +53,8 @@ struct VertexOutput {
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>) -> vec3<f32> {
     let tbn = brdf::orthonormal_tbn(world_n);
-    let ts_n = nd::decode_ts_normal_with_placeholder(
-        textureSample(_NormalMap, _NormalMap_sampler, uv_main).xyz,
+    let ts_n = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_NormalMap, _NormalMap_sampler, uv_main),
         mat._NormalScale,
     );
     return normalize(tbn * ts_n);

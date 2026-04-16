@@ -160,20 +160,23 @@ pub fn decode_mip_to_rgba8(
     Some(apply_optional_rgba_vertical_flip(rgba, w, h, flip_y))
 }
 
-/// Returns true if host packing differs from tight RGBA8 used by `wgpu::TextureFormat::Rgba8Unorm`.
-pub fn needs_rgba8_decode_before_upload(host: TextureFormat) -> bool {
-    matches!(
+/// Returns true if host mip bytes must be decoded to RGBA8 before [`wgpu::Queue::write_texture`].
+///
+/// When [`wgpu::Features::TEXTURE_COMPRESSION_BC`] is enabled, **BC1** and **BC3** are uploaded as
+/// native block-compressed GPU formats instead (see [`crate::assets::texture::upload::format_resolve`]).
+/// **BC3nm** normal-map channel packing is handled in shaders (`normal_decode.wgsl`,
+/// `decode_ts_normal_sample_raw`).
+pub fn needs_rgba8_decode_before_upload(device: &wgpu::Device, host: TextureFormat) -> bool {
+    use TextureFormat::{Alpha8, ARGB32, BC1, BC3, BGR565, BGRA32, R8, RGB24, RGB565};
+    let bc_native = device
+        .features()
+        .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
+    let packed_rgb = matches!(
         host,
-        TextureFormat::RGB24
-            | TextureFormat::ARGB32
-            | TextureFormat::BGRA32
-            | TextureFormat::R8
-            | TextureFormat::Alpha8
-            | TextureFormat::RGB565
-            | TextureFormat::BGR565
-            | TextureFormat::BC1
-            | TextureFormat::BC3
-    )
+        RGB24 | ARGB32 | BGRA32 | R8 | Alpha8 | RGB565 | BGR565
+    );
+    let bc_cpu_fallback = matches!(host, BC1 | BC3) && !bc_native;
+    packed_rgb || bc_cpu_fallback
 }
 
 fn rgb565_to_rgb8(c: u16) -> (u8, u8, u8) {

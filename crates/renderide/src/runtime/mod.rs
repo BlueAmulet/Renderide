@@ -221,7 +221,8 @@ impl RendererRuntime {
         }
         self.frontend.set_pending_init(d.clone());
         if let Some(ref mut ipc) = self.frontend.ipc_mut() {
-            ipc_init_dispatch::send_renderer_init_result(ipc, d.output_device);
+            let settings = self.settings.read().map(|g| g.clone()).unwrap_or_default();
+            ipc_init_dispatch::send_renderer_init_result(ipc, d.output_device, &settings, None);
         }
         self.frontend.on_init_received();
     }

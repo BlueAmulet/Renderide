@@ -16,6 +16,7 @@ use super::subregion::{hint_region_is_empty, try_write_texture2d_subregion};
 /// Converts host mip bytes into a buffer suitable for [`write_one_mip`] (decode, optional row flip).
 #[allow(clippy::too_many_arguments)]
 fn mip_src_to_upload_pixels<'a>(
+    device: &wgpu::Device,
     fmt: &SetTexture2DFormat,
     wgpu_format: wgpu::TextureFormat,
     gw: u32,
@@ -26,7 +27,9 @@ fn mip_src_to_upload_pixels<'a>(
     asset_id: i32,
 ) -> Result<std::borrow::Cow<'a, [u8]>, TextureUploadError> {
     let pixels: std::borrow::Cow<'a, [u8]> = if is_rgba8_family(wgpu_format) {
-        if needs_rgba8_decode_before_upload(fmt.format) || host_format_is_compressed(fmt.format) {
+        if needs_rgba8_decode_before_upload(device, fmt.format)
+            || host_format_is_compressed(fmt.format)
+        {
             std::borrow::Cow::Owned(
                 decode_mip_to_rgba8(fmt.format, gw, gh, flip, mip_src).ok_or_else(|| {
                     TextureUploadError::from(format!(
@@ -55,7 +58,7 @@ fn mip_src_to_upload_pixels<'a>(
         } else {
             std::borrow::Cow::Borrowed(mip_src)
         }
-    } else if needs_rgba8_decode_before_upload(fmt.format) {
+    } else if needs_rgba8_decode_before_upload(device, fmt.format) {
         return Err(TextureUploadError::from(format!(
             "host {:?} must use RGBA decode but GPU format is {:?}",
             fmt.format, wgpu_format
@@ -368,8 +371,10 @@ impl TextureMipChainUploader {
     }
 
     /// Writes at most one mip level. `payload` must be `&raw[..upload.data.length]` for the same mapping as `new`.
+    #[allow(clippy::too_many_arguments)]
     pub fn upload_next_mip(
         &mut self,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
         texture: &wgpu::Texture,
         fmt: &SetTexture2DFormat,
@@ -427,6 +432,7 @@ impl TextureMipChainUploader {
         };
 
         let pixels = mip_src_to_upload_pixels(
+            device,
             fmt,
             wgpu_format,
             gw,
@@ -470,6 +476,7 @@ pub enum TextureDataStart {
 
 /// Classifies sub-region vs full mip chain and runs the sub-region upload when applicable.
 pub fn texture_upload_start(
+    device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
     fmt: &SetTexture2DFormat,
@@ -485,7 +492,7 @@ pub fn texture_upload_start(
             );
             return Ok(TextureDataStart::SubregionComplete(0));
         }
-        match try_write_texture2d_subregion(queue, texture, fmt, wgpu_format, upload, raw) {
+        match try_write_texture2d_subregion(device, queue, texture, fmt, wgpu_format, upload, raw) {
             Some(Ok(n)) => {
                 logger::trace!(
                     "texture {}: sub-region texture upload ({} mips equivalent)",
@@ -510,6 +517,7 @@ pub fn texture_upload_start(
 
 /// Uploads mips from `raw` (exact shared-memory descriptor window) into `texture` using `wgpu_format`.
 pub fn write_texture2d_mips(
+    device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
     fmt: &SetTexture2DFormat,
@@ -526,10 +534,18 @@ pub fn write_texture2d_mips(
     }
     let payload = &raw[..want];
 
-    match texture_upload_start(queue, texture, fmt, wgpu_format, upload, raw)? {
+    match texture_upload_start(device, queue, texture, fmt, wgpu_format, upload, raw)? {
         TextureDataStart::SubregionComplete(n) => Ok(n),
         TextureDataStart::MipChain(mut uploader) => loop {
-            match uploader.upload_next_mip(queue, texture, fmt, wgpu_format, upload, payload)? {
+            match uploader.upload_next_mip(
+                device,
+                queue,
+                texture,
+                fmt,
+                wgpu_format,
+                upload,
+                payload,
+            )? {
                 MipChainAdvance::UploadedOne => {}
                 MipChainAdvance::Finished { total_uploaded } => {
                     return Ok(total_uploaded);

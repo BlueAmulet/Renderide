@@ -202,6 +202,27 @@ fn direct_radiance_specularX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(lig
     return ((diffuse + spec) * radiance);
 }
 
+fn decode_ts_normal_sample_rawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(s: vec4<f32>) -> vec3<f32> {
+    var local: bool;
+
+    let uniform_white_rgb: bool = all((s.xyz > vec3<f32>(0.99f, 0.99f, 0.99f)));
+    if uniform_white_rgb {
+        return s.xyz;
+    }
+    let all_r_high: bool = (s.x > 0.98f);
+    let gb_close: bool = (abs((s.y - s.z)) < 0.03f);
+    if all_r_high {
+        local = gb_close;
+    } else {
+        local = false;
+    }
+    let _e21: bool = local;
+    if _e21 {
+        return vec3<f32>(s.w, s.y, s.z);
+    }
+    return s.xyz;
+}
+
 fn decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(raw: vec3<f32>, scale: f32) -> vec3<f32> {
     if all((raw > vec3<f32>(0.99f, 0.99f, 0.99f))) {
         return vec3<f32>(0f, 0f, 1f);
@@ -209,6 +230,12 @@ fn decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF
     let nm_xy: vec2<f32> = (((raw.xy * 2f) - vec2(1f)) * scale);
     let z: f32 = max(sqrt(max((1f - dot(nm_xy, nm_xy)), 0f)), 0.000001f);
     return normalize(vec3<f32>(nm_xy, z));
+}
+
+fn decode_ts_normal_with_placeholder_sampleX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(s_1: vec4<f32>, scale_1: f32) -> vec3<f32> {
+    let _e1: vec3<f32> = decode_ts_normal_sample_rawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(s_1);
+    let _e3: vec3<f32> = decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e1, scale_1);
+    return _e3;
 }
 
 fn get_drawX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX(instance_idx: u32) -> PerDrawUniformsX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGK4S7MRZGC5YX {
@@ -252,16 +279,16 @@ fn sample_normal_world(uv_main: vec2<f32>, world_n_1: vec3<f32>, front_facing_1:
         let _e7: vec3<f32> = n_3;
         let _e8: mat3x3<f32> = orthonormal_tbnX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJYGE4Z2HJRHEZDGX(_e7);
         let _e12: vec4<f32> = textureSample(_NormalMap, _NormalMap_sampler, uv_main);
-        let _e16: f32 = mat._NormalScale;
-        let _e17: vec3<f32> = decode_ts_normal_with_placeholderX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e12.xyz, _e16);
-        n_3 = normalize((_e8 * _e17));
+        let _e15: f32 = mat._NormalScale;
+        let _e16: vec3<f32> = decode_ts_normal_with_placeholder_sampleX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJXG64TNMFWF6ZDFMNXWIZIX(_e12, _e15);
+        n_3 = normalize((_e8 * _e16));
     }
     if !(front_facing_1) {
-        let _e22: vec3<f32> = n_3;
-        n_3 = -(_e22);
+        let _e21: vec3<f32> = n_3;
+        n_3 = -(_e21);
     }
-    let _e24: vec3<f32> = n_3;
-    return _e24;
+    let _e23: vec3<f32> = n_3;
+    return _e23;
 }
 
 fn safe_linear_factor(a: f32, b: f32, value: f32) -> f32 {

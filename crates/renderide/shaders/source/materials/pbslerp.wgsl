@@ -92,9 +92,14 @@ fn sample_normal_world(
     }
 
     let tbn = brdf::orthonormal_tbn(normalize(world_n));
-    let ts0 = nd::decode_ts_normal_with_placeholder(textureSample(_NormalMap, _NormalMap_sampler, uv0).xyz, mat._NormalScale);
-    let ts1 =
-        nd::decode_ts_normal_with_placeholder(textureSample(_NormalMap1, _NormalMap1_sampler, uv1).xyz, mat._NormalScale1);
+    let ts0 = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_NormalMap, _NormalMap_sampler, uv0),
+        mat._NormalScale,
+    );
+    let ts1 = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_NormalMap1, _NormalMap1_sampler, uv1),
+        mat._NormalScale1,
+    );
     var ts = normalize(mix(ts0, ts1, vec3<f32>(lerp_factor)));
     if (uvu::kw_enabled(mat._DUALSIDED) && !front_facing) {
         ts.z = -ts.z;

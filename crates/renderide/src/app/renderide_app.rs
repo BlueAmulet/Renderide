@@ -20,6 +20,7 @@
 //! [`tick_phase_trace`] emits `trace!` lines prefixed with [`TICK_TRACE_PREFIX`] for grep/profiling; the same
 //! splits are natural boundaries for the `tracing` crate’s spans if added later.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -87,6 +88,8 @@ pub(crate) struct RenderideApp {
     hud_frame_last: Option<Instant>,
     /// Wall-clock end of the last [`Self::tick_frame`] (for desktop FPS caps).
     last_frame_end: Option<Instant>,
+    /// Unix: set by the `SIGTERM` handler (e.g. bootstrapper exit); the event loop exits on the next check.
+    sigterm_shutdown: Option<Arc<AtomicBool>>,
 }
 
 /// Reconfigures the swapchain/depth for the given physical dimensions (shared by resize path and helpers).
@@ -107,6 +110,7 @@ impl RenderideApp {
         initial_vsync: bool,
         initial_gpu_validation: bool,
         log_level_cli: Option<LogLevel>,
+        sigterm_shutdown: Option<Arc<AtomicBool>>,
     ) -> Self {
         Self {
             runtime,
@@ -125,7 +129,22 @@ impl RenderideApp {
             xr_session: None,
             hud_frame_last: None,
             last_frame_end: None,
+            sigterm_shutdown,
         }
+    }
+
+    /// If `SIGTERM` was delivered (flag set by [`crate::app::startup`]), logs and requests loop exit.
+    fn check_sigterm_shutdown(&mut self, event_loop: &ActiveEventLoop) -> bool {
+        let Some(flag) = self.sigterm_shutdown.as_ref() else {
+            return false;
+        };
+        if !flag.load(Ordering::Relaxed) {
+            return false;
+        }
+        logger::info!("Received SIGTERM (e.g. bootstrapper parent exit); shutting down");
+        self.exit_code = Some(0);
+        event_loop.exit();
+        true
     }
 
     /// Records wall-clock frame end for FPS pacing and forwards to [`RendererRuntime::tick_frame_wall_clock_end`].
@@ -504,6 +523,10 @@ impl RenderideApp {
         let frame_start = Instant::now();
         self.frame_tick_prologue(frame_start);
         self.poll_ipc_and_window();
+        if self.check_sigterm_shutdown(event_loop) {
+            self.frame_tick_epilogue(frame_start);
+            return;
+        }
         self.runtime.run_asset_integration();
         let xr_tick = self.xr_begin_tick();
         self.lock_step_exchange();
@@ -621,6 +644,9 @@ impl ApplicationHandler for RenderideApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.check_sigterm_shutdown(event_loop) {
+            return;
+        }
         if let Some(window) = self.window.as_ref() {
             if self.exit_code.is_none() && !self.runtime.vr_active() {
                 let cap = match self.runtime.settings().read() {

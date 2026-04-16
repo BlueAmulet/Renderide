@@ -82,6 +82,7 @@ fn texture3d_mip_volume_payload_slice<'a>(
 /// Prepares decoded RGBA8 slab or passes raw host bytes through for 3D volume upload.
 #[allow(clippy::too_many_arguments)]
 fn texture3d_mip_to_upload_pixels<'a>(
+    device: &wgpu::Device,
     fmt: &SetTexture3DFormat,
     wgpu_format: wgpu::TextureFormat,
     w: u32,
@@ -94,7 +95,9 @@ fn texture3d_mip_to_upload_pixels<'a>(
     mip_src: &'a [u8],
 ) -> Result<std::borrow::Cow<'a, [u8]>, TextureUploadError> {
     let pixels: std::borrow::Cow<'a, [u8]> = if is_rgba8_family(wgpu_format) {
-        if needs_rgba8_decode_before_upload(fmt.format) || host_format_is_compressed(fmt.format) {
+        if needs_rgba8_decode_before_upload(device, fmt.format)
+            || host_format_is_compressed(fmt.format)
+        {
             let mut out = Vec::with_capacity(vol_bytes);
             let mut z_off = 0usize;
             for _z in 0..d {
@@ -116,7 +119,7 @@ fn texture3d_mip_to_upload_pixels<'a>(
             std::borrow::Cow::Borrowed(mip_src)
         }
     } else {
-        if needs_rgba8_decode_before_upload(fmt.format) {
+        if needs_rgba8_decode_before_upload(device, fmt.format) {
             return Err(TextureUploadError::from(format!(
                 "texture3d {}: host {:?} must decode to RGBA but GPU format is {:?}",
                 upload.asset_id, fmt.format, wgpu_format
@@ -223,8 +226,10 @@ impl Texture3dMipChainUploader {
     }
 
     /// Writes at most one mip level. `payload` is `&raw[..upload.data.length]`.
+    #[allow(clippy::too_many_arguments)]
     pub fn upload_next_mip(
         &mut self,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
         texture: &wgpu::Texture,
         fmt: &SetTexture3DFormat,
@@ -250,6 +255,7 @@ impl Texture3dMipChainUploader {
         )?;
 
         let pixels = texture3d_mip_to_upload_pixels(
+            device,
             fmt,
             wgpu_format,
             w,
@@ -278,6 +284,7 @@ impl Texture3dMipChainUploader {
 
 /// Runs the full mip chain upload for 3D data (non-cooperative path).
 pub fn write_texture3d_mips(
+    device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
     fmt: &SetTexture3DFormat,
@@ -295,7 +302,7 @@ pub fn write_texture3d_mips(
     let payload = &raw[..want];
     let mut uploader = Texture3dMipChainUploader::new(texture, fmt, upload, raw)?;
     loop {
-        match uploader.upload_next_mip(queue, texture, fmt, wgpu_format, upload, payload)? {
+        match uploader.upload_next_mip(device, queue, texture, fmt, wgpu_format, upload, payload)? {
             Texture3dMipAdvance::UploadedOne => {}
             Texture3dMipAdvance::Finished { total_uploaded } => {
                 return Ok(total_uploaded);

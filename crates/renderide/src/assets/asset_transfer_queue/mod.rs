@@ -69,6 +69,10 @@ pub struct AssetTransferQueue {
     pub(crate) gpu_queue: Option<Arc<Mutex<wgpu::Queue>>>,
     /// Effective limits snapshot (set with device on attach).
     pub(crate) gpu_limits: Option<Arc<GpuLimits>>,
+    /// When true, [`crate::resources::GpuRenderTexture`] uses `Rgba16Float`; else `Rgba8Unorm`.
+    pub(crate) render_texture_hdr_color: bool,
+    /// When non-zero, [`Self::maybe_warn_texture_vram_budget`] compares resident texture bytes.
+    pub(crate) texture_vram_budget_bytes: u64,
     /// Mesh payloads waiting for GPU or shared memory (drained on attach).
     pub(crate) pending_mesh_uploads: VecDeque<MeshUploadData>,
     /// Texture mip payloads waiting for GPU allocation or shared memory.
@@ -84,6 +88,30 @@ pub struct AssetTransferQueue {
 impl AssetTransferQueue {
     pub(crate) fn integrator_mut(&mut self) -> &mut AssetIntegrator {
         &mut self.integrator
+    }
+
+    /// Logs a warning when combined Texture2D + render-texture resident bytes exceed the configured budget.
+    pub(crate) fn maybe_warn_texture_vram_budget(&self) {
+        let budget = self.texture_vram_budget_bytes;
+        if budget == 0 {
+            return;
+        }
+        let used = self
+            .texture_pool
+            .accounting()
+            .texture_resident_bytes()
+            .saturating_add(
+                self.render_texture_pool
+                    .accounting()
+                    .texture_resident_bytes(),
+            );
+        if used > budget {
+            logger::warn!(
+                "texture VRAM over budget: resident≈{} MiB > {} MiB (2D+RT pools; see [rendering].texture_vram_budget_mib)",
+                used / (1024 * 1024),
+                budget / (1024 * 1024),
+            );
+        }
     }
 }
 
@@ -112,6 +140,8 @@ impl AssetTransferQueue {
             gpu_device: None,
             gpu_queue: None,
             gpu_limits: None,
+            render_texture_hdr_color: false,
+            texture_vram_budget_bytes: 0,
             pending_mesh_uploads: VecDeque::new(),
             pending_texture_uploads: VecDeque::new(),
             pending_texture3d_uploads: VecDeque::new(),
