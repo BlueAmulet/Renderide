@@ -9,9 +9,9 @@ use rayon::prelude::*;
 
 use crate::assets::material::MaterialDictionary;
 use crate::backend::mesh_deform::{
-    write_per_draw_uniform_slab, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE,
+    write_per_draw_uniform_slab, GpuSkinCache, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE,
 };
-use crate::backend::{RenderBackend, WorldMeshForwardEncodeRefs};
+use crate::backend::RenderBackend;
 use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::materials::{
@@ -65,7 +65,7 @@ pub(super) fn resolve_pass_config(
 
     let pass_desc = MaterialPipelineDesc {
         surface_format,
-        depth_stencil_format: Some(wgpu::TextureFormat::Depth32Float),
+        depth_stencil_format: Some(depth_stencil_format),
         sample_count: sc,
         multiview_mask: if use_multiview {
             NonZeroU32::new(3)
@@ -102,7 +102,8 @@ pub(super) fn take_or_collect_world_mesh_draws<'a>(
     let fallback_router = MaterialRouter::new(RasterPipelineKind::DebugWorldNormals);
     let router_ref = backend
         .materials
-        .material_registry()
+        .material_registry
+        .as_ref()
         .map(|r| &r.router)
         .unwrap_or(&fallback_router);
     let pipeline_property_ids = MaterialPipelinePropertyIds::new(backend.property_id_registry());
@@ -176,6 +177,39 @@ pub(super) fn maybe_set_world_mesh_draw_stats(
         );
         backend.note_debug_hud_current_view_texture_2d_asset_ids(asset_ids);
     }
+
+    if backend.debug_hud_textures_enabled() && offscreen_write_render_texture_asset_id.is_none() {
+        let asset_ids = current_view_texture2d_asset_ids_from_draws(backend, draws);
+        backend.note_debug_hud_current_view_texture_2d_asset_ids(asset_ids);
+    }
+}
+
+fn current_view_texture2d_asset_ids_from_draws(
+    backend: &RenderBackend,
+    draws: &[WorldMeshDrawItem],
+) -> Vec<i32> {
+    let Some(bind) = backend.embedded_material_bind() else {
+        return Vec::new();
+    };
+    let Some(registry) = backend.materials.material_registry.as_ref() else {
+        return Vec::new();
+    };
+    let store = backend.material_property_store();
+    let mut out = Vec::new();
+    for item in draws {
+        if !matches!(item.batch_key.pipeline, RasterPipelineKind::EmbeddedStem(_)) {
+            continue;
+        }
+        let Some(stem) = registry.stem_for_shader_asset(item.batch_key.shader_asset_id) else {
+            continue;
+        };
+        for asset_id in bind.texture2d_asset_ids_for_stem(stem, store, item.lookup_ids) {
+            if !out.contains(&asset_id) {
+                out.push(asset_id);
+            }
+        }
+    }
+    out
 }
 
 /// Main render-space context, perspective projection for world draws, and optional ortho for overlays.
@@ -230,42 +264,18 @@ pub(super) fn pack_and_upload_per_draw_slab(
     let scene = frame.scene;
     let hc = frame.host_camera;
     let backend = &mut frame.backend;
-    let fr = &mut backend.frame_resources;
 
     {
-        let Some(pd) = fr.per_draw_mut() else {
+        let Some(pd) = backend.frame_resources.per_draw.as_mut() else {
             return false;
         };
         pd.ensure_draw_slot_capacity(device, draws.len());
     }
 
-    let need_bytes = draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE);
-    {
-        let uniforms = &mut fr.per_draw_uniforms_scratch;
-        let slab = &mut fr.per_draw_slab_byte_scratch;
-        uniforms.resize(draws.len(), PaddedPerDrawUniforms::zeroed());
-
-        if draws.len() >= PER_DRAW_VP_PARALLEL_MIN_DRAWS {
-            uniforms
-                .par_iter_mut()
-                .zip(draws.par_iter())
-                .for_each(|(out, item)| {
-                    let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
-                        scene,
-                        item,
-                        hc,
-                        render_context,
-                        world_proj,
-                        overlay_proj,
-                    );
-                    *out = if vp_l == vp_r {
-                        PaddedPerDrawUniforms::new_single(vp_l, model)
-                    } else {
-                        PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
-                    };
-                });
-        } else {
-            for (out, item) in uniforms.iter_mut().zip(draws.iter()) {
+    let slots: Vec<PaddedPerDrawUniforms> = if draws.len() >= PER_DRAW_VP_PARALLEL_MIN_DRAWS {
+        draws
+            .par_iter()
+            .map(|item| {
                 let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
                     scene,
                     item,
@@ -274,29 +284,41 @@ pub(super) fn pack_and_upload_per_draw_slab(
                     world_proj,
                     overlay_proj,
                 );
-                *out = if vp_l == vp_r {
+                if vp_l == vp_r {
                     PaddedPerDrawUniforms::new_single(vp_l, model)
                 } else {
                     PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
-                };
-            }
-        }
-
-        slab.resize(need_bytes, 0);
-        write_per_draw_uniform_slab(uniforms, slab);
-    }
-
-    let per_draw_storage = {
-        let Some(pd) = fr.per_draw_mut() else {
-            return false;
-        };
-        pd.per_draw_storage.clone()
+                }
+            })
+            .collect()
+    } else {
+        draws
+            .iter()
+            .map(|item| {
+                let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
+                    scene,
+                    item,
+                    hc,
+                    render_context,
+                    world_proj,
+                    overlay_proj,
+                );
+                if vp_l == vp_r {
+                    PaddedPerDrawUniforms::new_single(vp_l, model)
+                } else {
+                    PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
+                }
+            })
+            .collect()
     };
-    queue.write_buffer(
-        &per_draw_storage,
-        0,
-        &fr.per_draw_slab_byte_scratch[..need_bytes],
-    );
+
+    let mut slab_bytes = vec![0u8; draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE)];
+    write_per_draw_uniform_slab(&slots, &mut slab_bytes);
+
+    let Some(pd) = backend.frame_resources.per_draw.as_mut() else {
+        return false;
+    };
+    queue.write_buffer(&pd.per_draw_storage, 0, &slab_bytes);
     true
 }
 
@@ -435,6 +457,28 @@ pub(super) fn prepare_world_mesh_forward_frame(
 }
 
 pub(super) fn stencil_load_ops(
+    depth_stencil_format: Option<wgpu::TextureFormat>,
+) -> Option<wgpu::Operations<u32>> {
+    depth_stencil_format
+        .filter(wgpu::TextureFormat::has_stencil_aspect)
+        .map(|_| wgpu::Operations {
+            load: wgpu::LoadOp::Load,
+            store: wgpu::StoreOp::Store,
+        })
+}
+
+fn stencil_clear_ops(
+    depth_stencil_format: Option<wgpu::TextureFormat>,
+) -> Option<wgpu::Operations<u32>> {
+    depth_stencil_format
+        .filter(wgpu::TextureFormat::has_stencil_aspect)
+        .map(|_| wgpu::Operations {
+            load: wgpu::LoadOp::Clear(0),
+            store: wgpu::StoreOp::Store,
+        })
+}
+
+fn stencil_load_ops(
     depth_stencil_format: Option<wgpu::TextureFormat>,
 ) -> Option<wgpu::Operations<u32>> {
     depth_stencil_format

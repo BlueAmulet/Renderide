@@ -10,8 +10,6 @@ use crate::render_graph::resources::ImportedTextureHandle;
 /// Clears the acquired backbuffer to a solid color (default [`SWAPCHAIN_CLEAR_COLOR`]).
 #[derive(Debug)]
 pub struct SwapchainClearPass {
-    /// Logical swapchain color target.
-    backbuffer: ResourceId,
     /// Clear color for the swapchain load op.
     pub clear_color: wgpu::Color,
     target: ImportedTextureHandle,
@@ -21,7 +19,6 @@ impl SwapchainClearPass {
     /// Default clear color matches [`SWAPCHAIN_CLEAR_COLOR`].
     pub fn new(target: ImportedTextureHandle) -> Self {
         Self {
-            backbuffer,
             clear_color: SWAPCHAIN_CLEAR_COLOR,
             target,
         }

@@ -2,7 +2,6 @@
 
 use crate::present::PresentClearError;
 
-use super::handles::ResourceId;
 use super::ids::PassId;
 use super::resources::{BufferHandle, ImportedBufferHandle, ImportedTextureHandle, TextureHandle};
 
@@ -85,9 +84,16 @@ pub enum GraphBuildError {
         message: &'static str,
     },
 
-    /// A pass referenced a resource id not registered on this builder.
-    #[error("unknown resource handle {0:?}")]
-    UnknownResource(ResourceId),
+    /// Pass setup failed.
+    #[error("setup failed for pass {pass:?} `{name}`: {source}")]
+    Setup {
+        /// Pass id.
+        pass: PassId,
+        /// Pass name.
+        name: String,
+        /// Setup validation error.
+        source: SetupError,
+    },
 }
 
 /// Failure inside a single [`super::RenderPass::execute`] call.
@@ -121,10 +127,6 @@ pub enum GraphExecuteError {
     /// No compiled graph was installed (e.g. GPU attach failed before graph build).
     #[error("no frame graph configured on render backend")]
     NoFrameGraph,
-
-    /// Render graph failed to compile for the current cache key.
-    #[error(transparent)]
-    GraphBuild(#[from] GraphBuildError),
 
     /// Surface acquisition or recovery failed after retry.
     #[error(transparent)]

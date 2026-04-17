@@ -48,7 +48,6 @@
 //! 8. **FrameEnd** — submit, optional debug HUD composite, present, Hi-Z frame bookkeeping.
 
 mod builder;
-mod cache;
 mod camera;
 mod cluster_frame;
 mod compiled;
@@ -56,11 +55,9 @@ mod context;
 mod error;
 mod frame_params;
 mod frustum;
-mod handles;
 mod hi_z_cpu;
 mod hi_z_occlusion;
 mod ids;
-mod module;
 pub mod occlusion;
 mod output_depth_mode;
 mod pass;
@@ -92,7 +89,6 @@ pub use world_mesh_draw_stats::{
 };
 
 pub use builder::GraphBuilder;
-pub use cache::{GraphCache, GraphCacheKey};
 pub use camera::{
     apply_view_handedness_fix, clamp_desktop_fov_degrees, effective_head_output_clip_planes,
     reverse_z_orthographic, reverse_z_perspective, reverse_z_perspective_openxr_fov,
@@ -115,9 +111,6 @@ pub use frustum::{
     mesh_bounds_degenerate_for_cull, mesh_bounds_max_half_extent, world_aabb_from_local_bounds,
     world_aabb_from_skinned_bone_origins, world_aabb_visible_in_homogeneous_clip, Frustum, Plane,
     HOMOGENEOUS_CLIP_EPS,
-};
-pub use handles::{
-    ResourceDesc, ResourceExtent, ResourceId, ResourceKind, ResourceLifetime, SharedRenderHandles,
 };
 pub use hi_z_cpu::{
     hi_z_pyramid_dimensions, hi_z_snapshot_from_linear_linear, mip_dimensions,
@@ -352,18 +345,7 @@ pub fn build_main_graph(key: GraphCacheKey) -> Result<CompiledRenderGraph, Graph
 
 #[cfg(test)]
 mod default_graph_tests {
-    use wgpu::TextureFormat;
-
     use super::*;
-
-    fn smoke_key() -> GraphCacheKey {
-        GraphCacheKey {
-            surface_extent: (1280, 720),
-            msaa_sample_count: 1,
-            multiview_stereo: false,
-            surface_format: TextureFormat::Bgra8UnormSrgb,
-        }
-    }
 
     #[test]
     fn default_main_needs_surface_and_eight_passes() {
