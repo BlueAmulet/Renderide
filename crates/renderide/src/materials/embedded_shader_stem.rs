@@ -255,6 +255,14 @@ mod tests {
     }
 
     #[test]
+    fn resolves_pbsrimtransparentzwrite_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSRimTransparentZWrite").as_deref(),
+            Some("pbsrimtransparentzwrite_default")
+        );
+    }
+
+    #[test]
     fn resolves_pbslerp_from_unity_name() {
         assert_eq!(
             embedded_default_stem_for_unity_name("PBSLerp").as_deref(),
@@ -271,6 +279,14 @@ mod tests {
     }
 
     #[test]
+    fn resolves_pbsintersect_from_plain_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSIntersect").as_deref(),
+            Some("pbsintersect_default")
+        );
+    }
+
+    #[test]
     fn resolves_pbsintersectspecular_from_plain_name() {
         assert_eq!(
             embedded_default_stem_for_unity_name("PBSIntersectSpecular").as_deref(),
@@ -283,6 +299,14 @@ mod tests {
         assert_eq!(
             embedded_default_stem_for_unity_name("Custom/PBSIntersectSpecular").as_deref(),
             Some("custom_pbsintersectspecular_default")
+        );
+    }
+
+    #[test]
+    fn resolves_custom_pbsintersect_from_shader_lab_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("Custom/PBSIntersect").as_deref(),
+            Some("custom_pbsintersect_default")
         );
     }
 

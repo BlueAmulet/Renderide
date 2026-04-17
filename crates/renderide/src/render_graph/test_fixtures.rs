@@ -52,6 +52,7 @@ pub(crate) fn dummy_world_mesh_draw_item(spec: DummyDrawItemSpec) -> WorldMeshDr
         is_overlay: false,
         sorting_order: sort,
         skinned,
+        world_space_deformed: skinned,
         collect_order,
         camera_distance_sq: 0.0,
         lookup_ids: MaterialPropertyLookupIds {

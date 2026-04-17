@@ -475,6 +475,8 @@ struct ForwardPassAttachments<'a> {
 /// Bind groups shared across opaque and intersection forward subpasses.
 struct ForwardPassBindGroups<'a> {
     per_draw: &'a wgpu::BindGroup,
+    per_draw_storage: &'a wgpu::Buffer,
+    per_draw_layout: &'a wgpu::BindGroupLayout,
     frame: &'a Arc<wgpu::BindGroup>,
     empty_material: &'a Arc<wgpu::BindGroup>,
 }
@@ -545,6 +547,8 @@ fn encode_world_mesh_forward_opaque_pass(
         frame_bg: bind_groups.frame.as_ref(),
         empty_bg: bind_groups.empty_material.as_ref(),
         per_draw_bind_group: bind_groups.per_draw,
+        per_draw_storage: bind_groups.per_draw_storage,
+        per_draw_bind_group_layout: bind_groups.per_draw_layout,
         pass_desc: cfg.pass_desc,
         shader_perm: cfg.shader_perm,
         warned_missing_embedded_bind: cfg.warned_missing_embedded_bind,
@@ -598,6 +602,8 @@ fn encode_world_mesh_forward_intersection_pass(
         frame_bg: bind_groups.frame.as_ref(),
         empty_bg: bind_groups.empty_material.as_ref(),
         per_draw_bind_group: bind_groups.per_draw,
+        per_draw_storage: bind_groups.per_draw_storage,
+        per_draw_bind_group_layout: bind_groups.per_draw_layout,
         pass_desc: cfg.pass_desc,
         shader_perm: cfg.shader_perm,
         warned_missing_embedded_bind: cfg.warned_missing_embedded_bind,
@@ -632,12 +638,14 @@ pub(super) fn encode_world_mesh_forward_draw_passes(
     let pass_desc = &pipeline.pass_desc;
     let shader_perm = pipeline.shader_perm;
     let use_multiview = pipeline.use_multiview;
-    let Some(per_draw_bg) = frame
-        .backend
-        .frame_resources
-        .per_draw
-        .as_ref()
-        .map(|d| d.bind_group.clone())
+    let Some((per_draw_bg, per_draw_storage, per_draw_layout)) =
+        frame.backend.frame_resources.per_draw.as_ref().map(|d| {
+            (
+                d.bind_group.clone(),
+                d.per_draw_storage.clone(),
+                d.bind_group_layout.clone(),
+            )
+        })
     else {
         return false;
     };
@@ -675,6 +683,8 @@ pub(super) fn encode_world_mesh_forward_draw_passes(
 
     let bind_groups = ForwardPassBindGroups {
         per_draw: per_draw_bg.as_ref(),
+        per_draw_storage: &per_draw_storage,
+        per_draw_layout: per_draw_layout.as_ref(),
         frame: &frame_bg_arc,
         empty_material: &empty_bg_arc,
     };
@@ -779,6 +789,8 @@ pub(super) fn encode_world_mesh_forward_draw_passes(
 
     let bind_groups = ForwardPassBindGroups {
         per_draw: per_draw_bg.as_ref(),
+        per_draw_storage: &per_draw_storage,
+        per_draw_layout: per_draw_layout.as_ref(),
         frame: &frame_bg_arc,
         empty_material: &empty_bg_arc,
     };

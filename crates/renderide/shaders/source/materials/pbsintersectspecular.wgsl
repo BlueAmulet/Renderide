@@ -6,6 +6,7 @@
 //! `_ALBEDOTEX`, `_EMISSIONTEX`, `_NORMALMAP`, `_SPECULARMAP`, `_OCCLUSION`.
 
 // unity-shader-name: PBSIntersectSpecular
+//#pass forward: depth=greater_equal, zwrite=off, cull=none, blend=src_alpha,one_minus_src_alpha,add, alpha=src_alpha,one_minus_src_alpha,add
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

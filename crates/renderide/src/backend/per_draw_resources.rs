@@ -14,6 +14,8 @@ pub struct PerDrawResources {
     pub per_draw_storage: wgpu::Buffer,
     /// Bind group wiring `per_draw_storage` for raster mesh pipelines (`@group(2)`).
     pub bind_group: Arc<wgpu::BindGroup>,
+    /// Layout shared by the full-slab bind group and one-row fallback bind groups.
+    pub bind_group_layout: Arc<wgpu::BindGroupLayout>,
     slot_count: usize,
     limits: Arc<GpuLimits>,
 }
@@ -21,7 +23,7 @@ pub struct PerDrawResources {
 impl PerDrawResources {
     /// Allocates [`INITIAL_PER_DRAW_UNIFORM_SLOTS`] slots (256 bytes each).
     pub fn new(device: &wgpu::Device, limits: Arc<GpuLimits>) -> Result<Self, PipelineBuildError> {
-        let layout = DebugWorldNormalsFamily::per_draw_bind_group_layout(device)?;
+        let layout = Arc::new(DebugWorldNormalsFamily::per_draw_bind_group_layout(device)?);
         let slot_count = INITIAL_PER_DRAW_UNIFORM_SLOTS.min(limits.max_per_draw_slab_slots);
         let size = (slot_count * PER_DRAW_UNIFORM_STRIDE) as u64;
         let per_draw_storage = device.create_buffer(&wgpu::BufferDescriptor {
@@ -32,13 +34,14 @@ impl PerDrawResources {
         });
         let bind_group = Arc::new(Self::make_bind_group(
             device,
-            &layout,
+            layout.as_ref(),
             &per_draw_storage,
             size,
         ));
         Ok(Self {
             per_draw_storage,
             bind_group,
+            bind_group_layout: layout,
             slot_count,
             limits,
         })
@@ -92,18 +95,9 @@ impl PerDrawResources {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let layout = match DebugWorldNormalsFamily::per_draw_bind_group_layout(device) {
-            Ok(l) => l,
-            Err(e) => {
-                logger::warn!(
-                    "per-draw slab resize: could not build debug normals bind layout: {e}"
-                );
-                return;
-            }
-        };
         let bind_group = Arc::new(Self::make_bind_group(
             device,
-            &layout,
+            self.bind_group_layout.as_ref(),
             &per_draw_storage,
             size_u64,
         ));

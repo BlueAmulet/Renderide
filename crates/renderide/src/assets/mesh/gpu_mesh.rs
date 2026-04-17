@@ -578,6 +578,16 @@ impl GpuMesh {
         self.positions_buffer.is_some() && self.normals_buffer.is_some()
     }
 
+    /// Returns whether this mesh has every GPU stream needed to produce world-space skinned output.
+    pub fn supports_world_space_skin_deform(&self, bone_transform_indices: Option<&[i32]>) -> bool {
+        bone_transform_indices.is_some()
+            && self.has_skeleton
+            && self.normals_buffer.is_some()
+            && self.bone_indices_buffer.is_some()
+            && self.bone_weights_vec4_buffer.is_some()
+            && !self.skinning_bind_matrices.is_empty()
+    }
+
     /// Creates tangent / UV1-3 streams the first time an embedded shader needs them.
     pub(crate) fn ensure_extended_vertex_streams(&mut self, device: &wgpu::Device) -> bool {
         if self.tangent_buffer.is_some()

@@ -115,6 +115,12 @@ pub struct WorldMeshDrawItem {
     pub sorting_order: i32,
     /// Whether the mesh uses skinning / deform paths.
     pub skinned: bool,
+    /// Whether the position/normal stream selected by the forward pass is already in world space.
+    ///
+    /// Real GPU skinning outputs world-space vertices and therefore uses an identity model matrix.
+    /// Skinned renderers that fall back to raw or blend-only local streams still need their renderer
+    /// transform, otherwise they appear at the render-space origin.
+    pub world_space_deformed: bool,
     /// Stable insertion order before sorting; used for transparent UI/text.
     pub collect_order: usize,
     /// Approximate camera distance used for transparent back-to-front sorting.

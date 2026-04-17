@@ -110,6 +110,7 @@ mod tests {
             is_overlay: false,
             sorting_order: 0,
             skinned,
+            world_space_deformed: skinned,
             collect_order: 0,
             camera_distance_sq: 0.0,
             lookup_ids: MaterialPropertyLookupIds {

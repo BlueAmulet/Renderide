@@ -3,6 +3,7 @@
 //! Keep this source in sync with `pbsintersectspecular.wgsl`.
 
 // unity-shader-name: Custom/PBSIntersectSpecular
+//#pass forward: depth=greater_equal, zwrite=off, cull=none, blend=src_alpha,one_minus_src_alpha,add, alpha=src_alpha,one_minus_src_alpha,add
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

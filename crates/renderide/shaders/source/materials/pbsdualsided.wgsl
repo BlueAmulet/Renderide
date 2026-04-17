@@ -5,8 +5,8 @@
 //! shader declares the forward base + forward additive passes and keeps culling disabled.
 
 // unity-shader-name: PBSDualSided
-//#pass forward: fs=fs_forward_base, depth=greater_equal, zwrite=on, cull=none, blend=none
-//#pass forward_delta: fs=fs_forward_delta, depth=greater_equal, zwrite=off, cull=none, blend=one,one,add, alpha=one,one,add
+//#pass forward: fs=fs_forward_base, depth=greater_equal, zwrite=on, cull=none, blend=none, material=forward_base
+//#pass forward_delta: fs=fs_forward_delta, depth=greater_equal, zwrite=off, cull=none, blend=one,one,add, alpha=one,one,add, material=forward_add
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd
@@ -55,7 +55,8 @@ struct VertexOutput {
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
     @location(2) uv0: vec2<f32>,
-    @location(3) @interpolate(flat) view_layer: u32,
+    @location(3) color: vec4<f32>,
+    @location(4) @interpolate(flat) view_layer: u32,
 }
 
 struct SurfaceData {
@@ -84,16 +85,27 @@ fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, front_facing: boo
     return normalize(tbn * ts_n);
 }
 
-fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, front_facing: bool) -> SurfaceData {
+fn sample_surface(
+    uv0: vec2<f32>,
+    world_n: vec3<f32>,
+    front_facing: bool,
+    vertex_color: vec4<f32>,
+) -> SurfaceData {
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
     var albedo = mat._Color;
     if (uvu::kw_enabled(mat._ALBEDOTEX)) {
         albedo = albedo * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
+    if (uvu::kw_enabled(mat.VCOLOR_ALBEDO)) {
+        albedo = albedo * vertex_color;
+    }
+    let vertex_alpha = select(1.0, vertex_color.a, uvu::kw_enabled(mat.VCOLOR_ALBEDO));
     let clip_alpha = select(
         albedo.a,
-        mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main),
+        mat._Color.a
+            * vertex_alpha
+            * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main),
         uvu::kw_enabled(mat._ALBEDOTEX),
     );
     if (uvu::kw_enabled(mat._ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
@@ -107,6 +119,10 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, front_facing: bool) -> Sur
         metallic = m.r;
         smoothness = m.a;
     }
+    if (uvu::kw_enabled(mat.VCOLOR_METALLIC)) {
+        metallic = metallic * dot(vertex_color.rgb, vec3<f32>(0.33333334));
+        smoothness = smoothness * vertex_color.a;
+    }
     metallic = clamp(metallic, 0.0, 1.0);
     let roughness = clamp(1.0 - smoothness, 0.045, 1.0);
 
@@ -118,6 +134,9 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, front_facing: bool) -> Sur
     var emission = mat._EmissionColor.rgb;
     if (uvu::kw_enabled(mat._EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
+    }
+    if (uvu::kw_enabled(mat.VCOLOR_EMIT)) {
+        emission = emission * vertex_color.rgb;
     }
 
     return SurfaceData(
@@ -195,10 +214,11 @@ fn vs_main(
     @location(0) pos: vec4<f32>,
     @location(1) n: vec4<f32>,
     @location(2) uv0: vec2<f32>,
+    @location(3) color: vec4<f32>,
 ) -> VertexOutput {
     let d = pd::get_draw(instance_index);
     let world_p = d.model * vec4<f32>(pos.xyz, 1.0);
-    let wn = normalize((d.model * vec4<f32>(n.xyz, 0.0)).xyz);
+    let wn = normalize(d.normal_matrix * n.xyz);
 #ifdef MULTIVIEW
     var vp: mat4x4<f32>;
     if (view_idx == 0u) {
@@ -215,6 +235,7 @@ fn vs_main(
     out.world_pos = world_p.xyz;
     out.world_n = wn;
     out.uv0 = uv0;
+    out.color = color;
 #ifdef MULTIVIEW
     out.view_layer = view_idx;
 #else
@@ -230,9 +251,10 @@ fn fs_forward_base(
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
     @location(2) uv0: vec2<f32>,
-    @location(3) @interpolate(flat) view_layer: u32,
+    @location(3) color: vec4<f32>,
+    @location(4) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let s = sample_surface(uv0, world_n, front_facing);
+    let s = sample_surface(uv0, world_n, front_facing, color);
     let direct = clustered_direct_lighting(frag_pos.xy, world_pos, view_layer, s, true, false);
     let ambient = vec3<f32>(0.03) * s.base_color * s.occlusion;
     return vec4<f32>(ambient + direct + s.emission, s.alpha);
@@ -245,9 +267,10 @@ fn fs_forward_delta(
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
     @location(2) uv0: vec2<f32>,
-    @location(3) @interpolate(flat) view_layer: u32,
+    @location(3) color: vec4<f32>,
+    @location(4) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let s = sample_surface(uv0, world_n, front_facing);
+    let s = sample_surface(uv0, world_n, front_facing, color);
     let direct = clustered_direct_lighting(frag_pos.xy, world_pos, view_layer, s, false, true);
     return vec4<f32>(direct, s.alpha);
 }

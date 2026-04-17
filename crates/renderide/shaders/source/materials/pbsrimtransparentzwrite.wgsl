@@ -1,11 +1,11 @@
-//! Unity shader `Shader "Custom/PBSIntersect"`: transparent metallic Standard lighting with
-//! scene-depth driven intersection tint/emission (`_BeginTransition*` / `_EndTransition*` band).
-//!
-//! Depth is sampled from the opaque scene-depth snapshot bound at `@group(0)` by the intersection
-//! subpass — see [`crate::backend::frame_gpu::FrameGpuResources::copy_scene_depth_snapshot`].
+//! Unity PBS rim transparent with ZWrite (`Shader "PBSRimTransparentZWrite"`):
+//! same shading as [`pbsrimtransparent`], but emits a depth-only prepass before the alpha-blended
+//! forward pass so the surface populates the depth buffer (matches Unity's `Pass { ColorMask 0 }`
+//! prepass + `#pragma surface surf Standard alpha fullforwardshadows` color pass).
 
-// unity-shader-name: Custom/PBSIntersect
-//#pass forward: depth=greater_equal, zwrite=off, cull=none, blend=src_alpha,one_minus_src_alpha,add, alpha=src_alpha,one_minus_src_alpha,add
+// unity-shader-name: PBSRimTransparentZWrite
+//#pass depth_prepass: vs=vs_main, fs=fs_depth_only, depth=greater_equal, zwrite=on, cull=back, blend=none, write=none
+//#pass forward: vs=vs_main, fs=fs_main, depth=greater_equal, zwrite=off, cull=back, blend=src_alpha,one_minus_src_alpha,add, alpha=one,one_minus_src_alpha,add
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd
@@ -14,32 +14,26 @@
 #import renderide::uv_utils as uvu
 #import renderide::normal_decode as nd
 
-struct CustomPbsIntersectMaterial {
+struct PbsRimTransparentZWriteMaterial {
     _Color: vec4<f32>,
-    _IntersectColor: vec4<f32>,
-    _IntersectEmissionColor: vec4<f32>,
     _EmissionColor: vec4<f32>,
+    _RimColor: vec4<f32>,
     _MainTex_ST: vec4<f32>,
-    _BeginTransitionStart: f32,
-    _BeginTransitionEnd: f32,
-    _EndTransitionStart: f32,
-    _EndTransitionEnd: f32,
-    _NormalScale: f32,
     _Glossiness: f32,
     _Metallic: f32,
-    _OffsetFactor: f32,
-    _OffsetUnits: f32,
+    _NormalScale: f32,
+    _RimPower: f32,
+    _Cull: f32,
     _ALBEDOTEX: f32,
     _EMISSIONTEX: f32,
     _NORMALMAP: f32,
     _METALLICMAP: f32,
     _OCCLUSION: f32,
-    _Cull: f32,
     _pad0: f32,
     _pad1: f32,
 }
 
-@group(1) @binding(0)  var<uniform> mat: CustomPbsIntersectMaterial;
+@group(1) @binding(0)  var<uniform> mat: PbsRimTransparentZWriteMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
 @group(1) @binding(2)  var _MainTex_sampler: sampler;
 @group(1) @binding(3)  var _NormalMap: texture_2d<f32>;
@@ -59,63 +53,17 @@ struct VertexOutput {
     @location(3) @interpolate(flat) view_layer: u32,
 }
 
-fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, front_facing: bool) -> vec3<f32> {
+fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>) -> vec3<f32> {
     var n = normalize(world_n);
     if (uvu::kw_enabled(mat._NORMALMAP)) {
         let tbn = brdf::orthonormal_tbn(n);
-        var ts_n = nd::decode_ts_normal_with_placeholder(
+        let ts_n = nd::decode_ts_normal_with_placeholder(
             textureSample(_NormalMap, _NormalMap_sampler, uv_main).xyz,
             mat._NormalScale,
         );
-        if (!front_facing) {
-            ts_n = vec3<f32>(ts_n.x, ts_n.y, -ts_n.z);
-        }
         return normalize(tbn * ts_n);
     }
-    if (!front_facing) {
-        n = -n;
-    }
     return n;
-}
-
-fn safe_linear_factor(a: f32, b: f32, value: f32) -> f32 {
-    let denom = b - a;
-    if (abs(denom) < 1e-6) {
-        return select(0.0, 1.0, value >= b);
-    }
-    return clamp((value - a) / denom, 0.0, 1.0);
-}
-
-fn scene_linear_depth(frag_pos: vec4<f32>, view_layer: u32) -> f32 {
-    let max_xy = vec2<i32>(
-        i32(rg::frame.viewport_width) - 1,
-        i32(rg::frame.viewport_height) - 1,
-    );
-    let xy = clamp(vec2<i32>(frag_pos.xy), vec2<i32>(0, 0), max_xy);
-#ifdef MULTIVIEW
-    let raw_depth = textureLoad(rg::scene_depth_array, xy, i32(view_layer), 0);
-#else
-    let raw_depth = textureLoad(rg::scene_depth, xy, 0);
-#endif
-    let denom = max(
-        raw_depth * (rg::frame.far_clip - rg::frame.near_clip) + rg::frame.near_clip,
-        1e-6,
-    );
-    return (rg::frame.near_clip * rg::frame.far_clip) / denom;
-}
-
-fn fragment_linear_depth(world_pos: vec3<f32>, view_layer: u32) -> f32 {
-    let z_coeffs = select(rg::frame.view_space_z_coeffs, rg::frame.view_space_z_coeffs_right, view_layer != 0u);
-    let view_z = dot(z_coeffs.xyz, world_pos) + z_coeffs.w;
-    return -view_z;
-}
-
-fn intersection_lerp(frag_pos: vec4<f32>, world_pos: vec3<f32>, view_layer: u32) -> f32 {
-    let diff = scene_linear_depth(frag_pos, view_layer) - fragment_linear_depth(world_pos, view_layer);
-    if (diff < mat._EndTransitionStart) {
-        return safe_linear_factor(mat._BeginTransitionStart, mat._BeginTransitionEnd, diff);
-    }
-    return 1.0 - safe_linear_factor(mat._EndTransitionStart, mat._EndTransitionEnd, diff);
 }
 
 @vertex
@@ -154,6 +102,31 @@ fn vs_main(
     return out;
 }
 
+/// Depth-only prepass: writes nothing to color (`write=none`) but populates depth so the alpha-blended
+/// main pass below can self-occlude. Touches every binding so the prepass pipeline's auto-derived
+/// bind-group layout matches the forward pass and the same material bind group binds for both.
+@fragment
+fn fs_depth_only(
+    @location(0) world_pos: vec3<f32>,
+    @location(1) world_n: vec3<f32>,
+    @location(2) uv0: vec2<f32>,
+    @location(3) @interpolate(flat) view_layer: u32,
+) -> @location(0) vec4<f32> {
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
+    let albedo_s = textureSample(_MainTex, _MainTex_sampler, uv_main);
+    let normal_s = textureSample(_NormalMap, _NormalMap_sampler, uv_main);
+    let emit_s = textureSample(_EmissionMap, _EmissionMap_sampler, uv_main);
+    let occ_s = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main);
+    let metal_s = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
+    let touch = (mat._Color.x + mat._EmissionColor.x + mat._RimColor.x
+        + mat._Glossiness + mat._Metallic + mat._NormalScale + mat._RimPower
+        + mat._Cull + mat._ALBEDOTEX + mat._EMISSIONTEX + mat._NORMALMAP
+        + mat._METALLICMAP + mat._OCCLUSION
+        + albedo_s.x + normal_s.x + emit_s.x + occ_s.x + metal_s.x
+        + world_pos.x + world_n.x + f32(view_layer)) * 0.0;
+    return rg::retain_globals_additive(vec4<f32>(touch, touch, touch, 0.0));
+}
+
 @fragment
 fn fs_main(
     @builtin(position) frag_pos: vec4<f32>,
@@ -164,16 +137,18 @@ fn fs_main(
     @location(3) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
-    let intersect_lerp = intersection_lerp(frag_pos, world_pos, view_layer);
 
-    var c0 = mix(mat._Color, mat._IntersectColor, intersect_lerp);
+    var c0 = mat._Color;
     if (uvu::kw_enabled(mat._ALBEDOTEX)) {
         c0 = c0 * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
     let base_color = c0.rgb;
     let alpha = c0.a;
 
-    let n = sample_normal_world(uv_main, world_n, front_facing);
+    var n = sample_normal_world(uv_main, world_n);
+    if (!front_facing) {
+        n = -n;
+    }
 
     var occlusion = 1.0;
     if (uvu::kw_enabled(mat._OCCLUSION)) {
@@ -184,8 +159,8 @@ fn fs_main(
     var smoothness = mat._Glossiness;
     if (uvu::kw_enabled(mat._METALLICMAP)) {
         let m = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
-        metallic = m.r;
-        smoothness = m.a;
+        metallic = metallic * m.r;
+        smoothness = smoothness * m.a;
     }
     metallic = clamp(metallic, 0.0, 1.0);
     smoothness = clamp(smoothness, 0.0, 1.0);
@@ -196,10 +171,12 @@ fn fs_main(
     if (uvu::kw_enabled(mat._EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
-    emission = emission + mat._IntersectEmissionColor.rgb * intersect_lerp;
 
     let cam = rg::frame.camera_world_pos.xyz;
     let v = normalize(cam - world_pos);
+
+    let rim = pow(max(1.0 - clamp(dot(v, n), 0.0, 1.0), 0.0), max(mat._RimPower, 1e-4));
+    let rim_emission = mat._RimColor.rgb * rim;
 
     let cluster_id = pcls::cluster_id_from_frag(
         frag_pos.xy,
@@ -227,18 +204,11 @@ fn fs_main(
         }
         let light = rg::lights[li];
         lo = lo + brdf::direct_radiance_metallic(
-            light,
-            world_pos,
-            n,
-            v,
-            roughness,
-            metallic,
-            base_color,
-            f0,
+            light, world_pos, n, v, roughness, metallic, base_color, f0,
         );
     }
 
     let amb = vec3<f32>(0.03);
-    let color = (amb * base_color * occlusion + lo * occlusion) + emission;
+    let color = (amb * base_color * occlusion + lo * occlusion) + emission + rim_emission;
     return vec4<f32>(color, alpha);
 }

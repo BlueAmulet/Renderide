@@ -1,10 +1,11 @@
-//! Unity shader `Shader "Custom/PBSIntersect"`: transparent metallic Standard lighting with
-//! scene-depth driven intersection tint/emission (`_BeginTransition*` / `_EndTransition*` band).
+//! Unity shader `Shader "PBSIntersect"`: transparent metallic Standard lighting with scene-depth
+//! driven intersection tint/emission (`_BeginTransition*` / `_EndTransition*` band).
 //!
-//! Depth is sampled from the opaque scene-depth snapshot bound at `@group(0)` by the intersection
-//! subpass — see [`crate::backend::frame_gpu::FrameGpuResources::copy_scene_depth_snapshot`].
+//! Metallic-workflow counterpart of [`pbsintersectspecular`]. Depth is sampled from the opaque
+//! scene-depth snapshot bound at `@group(0)` by the intersection subpass — see
+//! [`crate::backend::frame_gpu::FrameGpuResources::copy_scene_depth_snapshot`].
 
-// unity-shader-name: Custom/PBSIntersect
+// unity-shader-name: PBSIntersect
 //#pass forward: depth=greater_equal, zwrite=off, cull=none, blend=src_alpha,one_minus_src_alpha,add, alpha=src_alpha,one_minus_src_alpha,add
 
 #import renderide::globals as rg
@@ -14,7 +15,7 @@
 #import renderide::uv_utils as uvu
 #import renderide::normal_decode as nd
 
-struct CustomPbsIntersectMaterial {
+struct PbsIntersectMaterial {
     _Color: vec4<f32>,
     _IntersectColor: vec4<f32>,
     _IntersectEmissionColor: vec4<f32>,
@@ -39,7 +40,7 @@ struct CustomPbsIntersectMaterial {
     _pad1: f32,
 }
 
-@group(1) @binding(0)  var<uniform> mat: CustomPbsIntersectMaterial;
+@group(1) @binding(0)  var<uniform> mat: PbsIntersectMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
 @group(1) @binding(2)  var _MainTex_sampler: sampler;
 @group(1) @binding(3)  var _NormalMap: texture_2d<f32>;

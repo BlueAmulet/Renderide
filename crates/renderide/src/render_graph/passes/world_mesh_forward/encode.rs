@@ -1,6 +1,7 @@
 //! Encode indexed draws and material bind groups for [`super::WorldMeshForwardPass`].
 
 use crate::backend::mesh_deform::GpuSkinCache;
+use crate::backend::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 use crate::backend::MaterialBindCacheKey;
 use crate::materials::{MaterialPipelineDesc, MaterialPipelineSet, RasterPipelineKind};
 use crate::pipelines::ShaderPermutation;
@@ -108,6 +109,10 @@ pub(crate) struct ForwardDrawBatch<'a, 'b, 'c> {
     pub empty_bg: &'a wgpu::BindGroup,
     /// Per-draw storage slab at `@group(2)`.
     pub per_draw_bind_group: &'a wgpu::BindGroup,
+    /// Full per-draw storage slab, used for one-row fallback binds when base instance is unavailable.
+    pub per_draw_storage: &'a wgpu::Buffer,
+    /// Bind layout for `@group(2)`.
+    pub per_draw_bind_group_layout: &'a wgpu::BindGroupLayout,
     /// Surface / depth / MSAA pipeline description.
     pub pass_desc: &'a MaterialPipelineDesc,
     /// Default vs multiview shader permutation.
@@ -203,14 +208,29 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_>) {
             offscreen_write_render_texture_asset_id: batch.offscreen_write_render_texture_asset_id,
         });
 
-        // Full-buffer bind group: no dynamic offset. Slot selection is `instance_index` from
-        // `draw_indexed(..., first_idx..first_idx + count)` (single- and multi-instance batches).
-        batch
-            .rpass
-            .set_bind_group(2, batch.per_draw_bind_group, &[]);
-
-        let inst_start = first_idx as u32;
-        let inst_range = inst_start..inst_start + inst_batch.instance_count;
+        if batch.supports_base_instance {
+            // Full-buffer bind group: slot selection is `instance_index` from
+            // `draw_indexed(..., first_idx..first_idx + count)`.
+            batch
+                .rpass
+                .set_bind_group(2, batch.per_draw_bind_group, &[]);
+        } else {
+            // Some downlevel stacks do not support non-zero `first_instance`. Bind the current
+            // row as a one-element storage array and draw with instance index zero.
+            debug_assert_eq!(inst_batch.instance_count, 1);
+            let bg = per_draw_one_row_bind_group(
+                batch.device,
+                batch.per_draw_bind_group_layout,
+                batch.per_draw_storage,
+                first_idx,
+            );
+            batch.rpass.set_bind_group(2, &bg, &[]);
+        }
+        let inst_range = instance_range_for_batch(
+            first_idx,
+            inst_batch.instance_count,
+            batch.supports_base_instance,
+        );
         batch
             .rpass
             .set_stencil_reference(item.batch_key.render_state.stencil_reference());
@@ -233,6 +253,40 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_>) {
             );
         }
     }
+}
+
+fn instance_range_for_batch(
+    first_draw_index: usize,
+    instance_count: u32,
+    supports_base_instance: bool,
+) -> std::ops::Range<u32> {
+    if supports_base_instance {
+        let start = first_draw_index as u32;
+        start..start + instance_count
+    } else {
+        0..instance_count
+    }
+}
+
+fn per_draw_one_row_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    storage: &wgpu::Buffer,
+    draw_index: usize,
+) -> wgpu::BindGroup {
+    let offset = (draw_index * PER_DRAW_UNIFORM_STRIDE) as u64;
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("mesh_forward_per_draw_one_row_bind_group"),
+        layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: storage,
+                offset,
+                size: std::num::NonZeroU64::new(PER_DRAW_UNIFORM_STRIDE as u64),
+            }),
+        }],
+    })
 }
 
 pub(crate) fn draw_mesh_submesh_instanced(
@@ -264,7 +318,7 @@ pub(crate) fn draw_mesh_submesh_instanced(
         return;
     };
 
-    let use_deformed = item.skinned && mesh.has_skeleton;
+    let use_deformed = item.world_space_deformed;
     let use_blend_only = mesh.num_blendshapes > 0;
     let needs_cache_stream = use_deformed || use_blend_only;
 
@@ -332,4 +386,19 @@ pub(crate) fn draw_mesh_submesh_instanced(
     let first = item.first_index;
     let end = first.saturating_add(item.index_count);
     rpass.draw_indexed(first..end, 0, instances);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::instance_range_for_batch;
+
+    #[test]
+    fn no_base_instance_draws_from_zero() {
+        assert_eq!(instance_range_for_batch(17, 1, false), 0..1);
+    }
+
+    #[test]
+    fn base_instance_uses_sorted_draw_slot() {
+        assert_eq!(instance_range_for_batch(17, 3, true), 17..20);
+    }
 }
