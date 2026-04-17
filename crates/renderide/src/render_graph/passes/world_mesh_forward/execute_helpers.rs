@@ -478,7 +478,7 @@ fn stencil_clear_ops(
         })
 }
 
-fn stencil_load_ops(
+pub(super) fn stencil_load_ops(
     depth_stencil_format: Option<wgpu::TextureFormat>,
 ) -> Option<wgpu::Operations<u32>> {
     depth_stencil_format
