@@ -115,6 +115,7 @@ pub struct MaterialPipelinePropertyIds {
     z_test: [i32; 2],
     offset_factor: [i32; 2],
     offset_units: [i32; 2],
+    cull: [i32; 2],
 }
 
 impl MaterialPipelinePropertyIds {
@@ -163,6 +164,7 @@ impl MaterialPipelinePropertyIds {
                 registry.intern("_OffsetUnits"),
                 registry.intern("OffsetUnits"),
             ],
+            cull: [registry.intern("_Cull"), registry.intern("_Culling")],
         }
     }
 }
@@ -199,7 +201,21 @@ pub fn material_blend_mode_for_lookup(
     MaterialBlendMode::StemDefault
 }
 
-/// Runtime Unity stencil/color/depth state resolved from material properties.
+/// Unity `Cull` / `CullMode` material override for raster pipeline keys and [`MaterialRenderState::resolved_cull_mode`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum MaterialCullOverride {
+    /// No `_Cull` / `_Culling` property (or unknown enum value): use the pass default.
+    #[default]
+    Unspecified,
+    /// `Cull Off` — disable backface culling.
+    Off,
+    /// `Cull Front`.
+    Front,
+    /// `Cull Back`.
+    Back,
+}
+
+/// Runtime Unity stencil/color/depth/cull state resolved from material properties.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MaterialRenderState {
     /// Stencil state for this draw. Disabled when no stencil-related material property is present.
@@ -212,6 +228,8 @@ pub struct MaterialRenderState {
     pub depth_compare: Option<u8>,
     /// Unity `Offset factor, units` override. `None` preserves the shader pass default.
     pub depth_offset: Option<MaterialDepthOffsetState>,
+    /// Unity `Cull` / `_Culling` override for wgpu [`PrimitiveState::cull_mode`](wgpu::PrimitiveState::cull_mode).
+    pub cull_override: MaterialCullOverride,
 }
 
 /// Unity `Offset factor, units` state stored in an ordered/hashable form for pipeline keys.
@@ -272,6 +290,16 @@ impl MaterialRenderState {
         self.depth_compare
             .and_then(unity_depth_compare_function)
             .unwrap_or(fallback)
+    }
+
+    /// Applies [`Self::cull_override`] to a pass default (`None` = culling disabled).
+    pub fn resolved_cull_mode(self, fallback: Option<wgpu::Face>) -> Option<wgpu::Face> {
+        match self.cull_override {
+            MaterialCullOverride::Unspecified => fallback,
+            MaterialCullOverride::Off => None,
+            MaterialCullOverride::Front => Some(wgpu::Face::Front),
+            MaterialCullOverride::Back => Some(wgpu::Face::Back),
+        }
     }
 
     /// Applies Unity `Offset` to wgpu depth bias, accounting for reverse-Z.
@@ -442,6 +470,14 @@ pub fn material_render_state_for_lookup(
     let depth_write = first_float_presence_by_pids(dict, lookup, &ids.z_write)
         .map(|v| v.round().clamp(0.0, 1.0) >= 0.5);
     let depth_compare = first_float_presence_by_pids(dict, lookup, &ids.z_test).map(unity_u8);
+    let cull_override = match first_float_presence_by_pids(dict, lookup, &ids.cull).map(unity_u8) {
+        None => MaterialCullOverride::Unspecified,
+        // UnityEngine.Rendering.CullMode: Off / Front / Back
+        Some(0) => MaterialCullOverride::Off,
+        Some(1) => MaterialCullOverride::Front,
+        Some(2) => MaterialCullOverride::Back,
+        Some(_) => MaterialCullOverride::Unspecified,
+    };
     let depth_offset = {
         let factor = first_float_presence_by_pids(dict, lookup, &ids.offset_factor);
         let units = first_float_presence_by_pids(dict, lookup, &ids.offset_units);
@@ -476,6 +512,7 @@ pub fn material_render_state_for_lookup(
         depth_write,
         depth_compare,
         depth_offset,
+        cull_override,
     }
 }
 
@@ -611,7 +648,7 @@ fn unity_blend_pass(name: &'static str, src: u8, dst: u8, depth_write: bool) -> 
         fragment_entry: "fs_main",
         depth_compare: crate::render_graph::MAIN_FORWARD_DEPTH_COMPARE,
         depth_write,
-        cull_mode: None,
+        cull_mode: Some(wgpu::Face::Back),
         blend: unity_blend_state(src, dst),
         write_mask: wgpu::ColorWrites::ALL,
         depth_bias_slope_scale: 0.0,
@@ -947,5 +984,80 @@ mod tests {
         assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
         assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::One);
         assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Max);
+    }
+
+    #[test]
+    fn cull_property_resolves_off_front_back() {
+        let reg = PropertyIdRegistry::new();
+        let ids = MaterialPipelinePropertyIds::new(&reg);
+        let mut store = MaterialPropertyStore::new();
+        let cull = reg.intern("_Cull");
+
+        store.set_material(50, cull, MaterialPropertyValue::Float(0.0));
+        let dict = MaterialDictionary::new(&store);
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: 50,
+            mesh_property_block_slot0: None,
+        };
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert_eq!(state.cull_override, MaterialCullOverride::Off);
+        assert_eq!(state.resolved_cull_mode(Some(wgpu::Face::Back)), None);
+
+        store.set_material(50, cull, MaterialPropertyValue::Float(1.0));
+        let dict = MaterialDictionary::new(&store);
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert_eq!(state.cull_override, MaterialCullOverride::Front);
+        assert_eq!(
+            state.resolved_cull_mode(Some(wgpu::Face::Back)),
+            Some(wgpu::Face::Front)
+        );
+
+        store.set_material(50, cull, MaterialPropertyValue::Float(2.0));
+        let dict = MaterialDictionary::new(&store);
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert_eq!(state.cull_override, MaterialCullOverride::Back);
+        assert_eq!(
+            state.resolved_cull_mode(Some(wgpu::Face::Back)),
+            Some(wgpu::Face::Back)
+        );
+    }
+
+    #[test]
+    fn culling_property_alias_resolves_like_cull() {
+        let reg = PropertyIdRegistry::new();
+        let ids = MaterialPipelinePropertyIds::new(&reg);
+        let mut store = MaterialPropertyStore::new();
+        let culling = reg.intern("_Culling");
+        store.set_material(51, culling, MaterialPropertyValue::Float(2.0));
+        let dict = MaterialDictionary::new(&store);
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: 51,
+            mesh_property_block_slot0: None,
+        };
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert_eq!(state.cull_override, MaterialCullOverride::Back);
+    }
+
+    #[test]
+    fn property_block_overrides_cull() {
+        let reg = PropertyIdRegistry::new();
+        let ids = MaterialPipelinePropertyIds::new(&reg);
+        let mut store = MaterialPropertyStore::new();
+        let cull = reg.intern("_Cull");
+        store.set_material(52, cull, MaterialPropertyValue::Float(2.0));
+        store.set_property_block(520, cull, MaterialPropertyValue::Float(0.0));
+        let dict = MaterialDictionary::new(&store);
+        let lookup = MaterialPropertyLookupIds {
+            material_asset_id: 52,
+            mesh_property_block_slot0: Some(520),
+        };
+        let state = material_render_state_for_lookup(&dict, lookup, &ids);
+        assert_eq!(state.cull_override, MaterialCullOverride::Off);
+    }
+
+    #[test]
+    fn default_blend_mode_alpha_pass_culls_back_faces() {
+        let pass = default_pass_for_blend_mode(false, MaterialBlendMode::Alpha);
+        assert_eq!(pass.cull_mode, Some(wgpu::Face::Back));
     }
 }

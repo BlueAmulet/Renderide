@@ -5,8 +5,8 @@ use std::num::NonZeroU32;
 use super::context::{GraphRasterPassContext, RenderPassContext};
 use super::error::{RenderPassError, SetupError};
 use super::resources::{
-    BufferAccess, BufferHandle, BufferResourceHandle, ImportedBufferHandle,
-    ImportedTextureHandle, ResourceAccess, TextureAccess, TextureHandle, TextureResourceHandle,
+    BufferAccess, BufferHandle, BufferResourceHandle, ImportedBufferHandle, ImportedTextureHandle,
+    ResourceAccess, TextureAccess, TextureHandle, TextureResourceHandle,
 };
 
 /// Whether a render pass runs once per frame or once per view in a multi-view tick.
@@ -259,10 +259,8 @@ impl RasterPassBuilder<'_, '_> {
         depth: wgpu::Operations<f32>,
         stencil: Option<wgpu::Operations<u32>>,
     ) {
-        self.parent.write_texture_resource(
-            handle,
-            TextureAccess::DepthAttachment { depth, stencil },
-        );
+        self.parent
+            .write_texture_resource(handle, TextureAccess::DepthAttachment { depth, stencil });
     }
 
     /// Declares a multiview render-pass mask.

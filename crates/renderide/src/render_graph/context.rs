@@ -7,8 +7,7 @@ use crate::gpu::GpuLimits;
 
 use super::frame_params::FrameRenderParams;
 use super::resources::{
-    BufferHandle, ImportedBufferHandle, ImportedTextureHandle, TextureHandle,
-    TextureResourceHandle,
+    BufferHandle, ImportedBufferHandle, ImportedTextureHandle, TextureHandle, TextureResourceHandle,
 };
 use super::transient_pool::TransientPool;
 
@@ -146,9 +145,7 @@ impl GraphResolvedResources {
 
     pub(crate) fn texture_view(&self, handle: TextureResourceHandle) -> Option<&wgpu::TextureView> {
         match handle {
-            TextureResourceHandle::Transient(handle) => {
-                Some(&self.transient_texture(handle)?.view)
-            }
+            TextureResourceHandle::Transient(handle) => Some(&self.transient_texture(handle)?.view),
             TextureResourceHandle::Imported(handle) => Some(&self.imported_texture(handle)?.view),
         }
     }

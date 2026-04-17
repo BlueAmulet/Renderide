@@ -3,18 +3,18 @@
 use std::collections::{HashMap, HashSet};
 
 use super::compiled::{
-    ColorAttachmentTemplate, CompileStats, CompiledBufferResource, CompiledGroup,
-    CompiledPassInfo, CompiledRenderGraph, CompiledTextureResource, DepthAttachmentTemplate,
-    RenderPassTemplate, ResourceLifetime,
+    ColorAttachmentTemplate, CompileStats, CompiledBufferResource, CompiledGroup, CompiledPassInfo,
+    CompiledRenderGraph, CompiledTextureResource, DepthAttachmentTemplate, RenderPassTemplate,
+    ResourceLifetime,
 };
 use super::error::{GraphBuildError, SetupError};
 use super::ids::{GroupId, PassId};
 use super::pass::{GroupScope, PassBuilder, PassPhase, PassSetup, RenderPass};
 use super::resources::{
-    AccessKind, BufferHandle, BufferResourceHandle,
-    ImportedBufferDecl, ImportedBufferHandle, ImportedTextureDecl, ImportedTextureHandle,
-    ImportSource, ResourceHandle, TextureAccess, TextureHandle, TextureResourceHandle,
-    TransientBufferDesc, TransientExtent, TransientTextureDesc,
+    AccessKind, BufferHandle, BufferResourceHandle, ImportSource, ImportedBufferDecl,
+    ImportedBufferHandle, ImportedTextureDecl, ImportedTextureHandle, ResourceHandle,
+    TextureAccess, TextureHandle, TextureResourceHandle, TransientBufferDesc, TransientExtent,
+    TransientTextureDesc,
 };
 
 struct PassEntry {
@@ -186,7 +186,10 @@ impl GraphBuilder {
         let (sorted, topo_levels) = topo_sort(n, &edges)?;
         let keep = retained_passes(n, &edges, &setups);
         let culled_count = n.saturating_sub(keep.len());
-        let ordered: Vec<usize> = sorted.into_iter().filter(|idx| keep.contains(idx)).collect();
+        let ordered: Vec<usize> = sorted
+            .into_iter()
+            .filter(|idx| keep.contains(idx))
+            .collect();
 
         let retained_ord = retained_ordinals(&ordered);
         let (compiled_textures, texture_slots) =
@@ -197,8 +200,11 @@ impl GraphBuilder {
         let groups = compile_groups(&self.groups, &pass_info);
         let needs_surface_acquire = needs_surface_acquire(&pass_info, &self.imports_tex);
 
-        let mut pass_take: Vec<Option<Box<dyn RenderPass>>> =
-            self.passes.into_iter().map(|entry| Some(entry.pass)).collect();
+        let mut pass_take: Vec<Option<Box<dyn RenderPass>>> = self
+            .passes
+            .into_iter()
+            .map(|entry| Some(entry.pass))
+            .collect();
         let mut ordered_passes = Vec::with_capacity(ordered.len());
         for idx in ordered {
             ordered_passes.push(
@@ -351,8 +357,7 @@ impl GraphBuilder {
                 }
                 let a_group = &self.groups[a.group.0];
                 let b_group = &self.groups[b.group.0];
-                if a_group.scope == GroupScope::FrameGlobal
-                    && b_group.scope == GroupScope::PerView
+                if a_group.scope == GroupScope::FrameGlobal && b_group.scope == GroupScope::PerView
                 {
                     edges.insert((a_idx, b_idx));
                 }
@@ -511,7 +516,10 @@ fn validate_resource_handle(
     }
 }
 
-fn topo_sort(n: usize, edges: &HashSet<(usize, usize)>) -> Result<(Vec<usize>, usize), GraphBuildError> {
+fn topo_sort(
+    n: usize,
+    edges: &HashSet<(usize, usize)>,
+) -> Result<(Vec<usize>, usize), GraphBuildError> {
     let mut in_degree = vec![0usize; n];
     let mut neighbors: Vec<Vec<usize>> = vec![Vec::new(); n];
     for &(from, to) in edges {
@@ -673,10 +681,7 @@ fn compile_groups(groups: &[GroupEntry], pass_info: &[CompiledPassInfo]) -> Vec<
         .collect()
 }
 
-fn needs_surface_acquire(
-    pass_info: &[CompiledPassInfo],
-    imports: &[ImportedTextureDecl],
-) -> bool {
+fn needs_surface_acquire(pass_info: &[CompiledPassInfo], imports: &[ImportedTextureDecl]) -> bool {
     pass_info.iter().any(|pass| {
         pass.accesses.iter().any(|access| {
             if !access.writes() {
@@ -796,11 +801,15 @@ fn assign_texture_slots(resources: &mut [CompiledTextureResource]) -> usize {
             array_layers: resource.desc.array_layers,
             usage_bits: resource.usage.bits() as u64,
         };
-        let existing_slot = resource.desc.alias.then(|| {
-            slots.iter().position(|(slot_key, lifetimes)| {
-                *slot_key == key && lifetimes.iter().all(|other| other.disjoint(lifetime))
+        let existing_slot = resource
+            .desc
+            .alias
+            .then(|| {
+                slots.iter().position(|(slot_key, lifetimes)| {
+                    *slot_key == key && lifetimes.iter().all(|other| other.disjoint(lifetime))
+                })
             })
-        }).flatten();
+            .flatten();
         match existing_slot {
             Some(slot) => {
                 resource.physical_slot = slot;
@@ -825,11 +834,15 @@ fn assign_buffer_slots(resources: &mut [CompiledBufferResource]) -> usize {
             size_policy: resource.desc.size_policy,
             usage_bits: resource.usage.bits() as u64,
         };
-        let existing_slot = resource.desc.alias.then(|| {
-            slots.iter().position(|(slot_key, lifetimes)| {
-                *slot_key == key && lifetimes.iter().all(|other| other.disjoint(lifetime))
+        let existing_slot = resource
+            .desc
+            .alias
+            .then(|| {
+                slots.iter().position(|(slot_key, lifetimes)| {
+                    *slot_key == key && lifetimes.iter().all(|other| other.disjoint(lifetime))
+                })
             })
-        }).flatten();
+            .flatten();
         match existing_slot {
             Some(slot) => {
                 resource.physical_slot = slot;
@@ -1069,7 +1082,10 @@ mod tests {
         let a_id = b.add_pass(Box::new(a));
         let c_id = b.add_pass(Box::new(c));
         b.add_edge(a_id, c_id);
-        assert!(matches!(b.build(), Err(GraphBuildError::MissingDependency { .. })));
+        assert!(matches!(
+            b.build(),
+            Err(GraphBuildError::MissingDependency { .. })
+        ));
     }
 
     #[test]
@@ -1079,7 +1095,10 @@ mod tests {
         let mut p = TestPass::compute("reader");
         p.texture_reads.push(tex);
         b.add_pass(Box::new(p));
-        assert!(matches!(b.build(), Err(GraphBuildError::MissingDependency { .. })));
+        assert!(matches!(
+            b.build(),
+            Err(GraphBuildError::MissingDependency { .. })
+        ));
     }
 
     #[test]

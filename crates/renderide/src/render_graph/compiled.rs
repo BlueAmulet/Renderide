@@ -20,9 +20,9 @@ use super::frame_params::{FrameRenderParams, HostCameraFrame, OcclusionViewId};
 use super::ids::{GroupId, PassId};
 use super::pass::{GroupScope, PassKind, PassPhase, RenderPass};
 use super::resources::{
-    BufferImportSource, BufferSizePolicy, FrameTargetRole, ImportedBufferDecl,
-    ImportedBufferHandle, ImportedTextureDecl, ImportedTextureHandle, ImportSource,
-    ResourceAccess, TextureHandle, TextureResourceHandle, TransientBufferDesc, TransientExtent,
+    BufferImportSource, BufferSizePolicy, FrameTargetRole, ImportSource, ImportedBufferDecl,
+    ImportedBufferHandle, ImportedTextureDecl, ImportedTextureHandle, ResourceAccess,
+    TextureHandle, TextureResourceHandle, TransientBufferDesc, TransientExtent,
     TransientTextureDesc,
 };
 use super::transient_pool::{BufferKey, TextureKey};
@@ -436,12 +436,12 @@ fn execute_graph_managed_raster_pass(
 ) -> Result<(), GraphExecuteError> {
     let mut color_attachments = Vec::with_capacity(template.color_attachments.len());
     for color in &template.color_attachments {
-        let view = graph_resources
-            .texture_view(color.target)
-            .ok_or_else(|| GraphExecuteError::MissingGraphAttachment {
+        let view = graph_resources.texture_view(color.target).ok_or_else(|| {
+            GraphExecuteError::MissingGraphAttachment {
                 pass: pass.name().to_string(),
                 resource: format!("{:?}", color.target),
-            })?;
+            }
+        })?;
         let resolve_target = match color.resolve_to {
             Some(target) => Some(graph_resources.texture_view(target).ok_or_else(|| {
                 GraphExecuteError::MissingGraphAttachment {
@@ -463,12 +463,12 @@ fn execute_graph_managed_raster_pass(
     }
 
     let depth_stencil_attachment = if let Some(depth) = &template.depth_stencil_attachment {
-        let view = graph_resources
-            .texture_view(depth.target)
-            .ok_or_else(|| GraphExecuteError::MissingGraphAttachment {
+        let view = graph_resources.texture_view(depth.target).ok_or_else(|| {
+            GraphExecuteError::MissingGraphAttachment {
                 pass: pass.name().to_string(),
                 resource: format!("{:?}", depth.target),
-            })?;
+            }
+        })?;
         Some(wgpu::RenderPassDepthStencilAttachment {
             view,
             depth_ops: Some(depth.depth),
@@ -991,16 +991,12 @@ impl CompiledRenderGraph {
                 BufferImportSource::BackendFrameResource("frame_uniforms") => {
                     frame_gpu.map(|fgpu| fgpu.frame_uniform.clone())
                 }
-                BufferImportSource::BackendFrameResource("cluster_light_counts") => {
-                    cluster_refs
-                        .as_ref()
-                        .map(|refs| refs.cluster_light_counts.clone())
-                }
-                BufferImportSource::BackendFrameResource("cluster_light_indices") => {
-                    cluster_refs
-                        .as_ref()
-                        .map(|refs| refs.cluster_light_indices.clone())
-                }
+                BufferImportSource::BackendFrameResource("cluster_light_counts") => cluster_refs
+                    .as_ref()
+                    .map(|refs| refs.cluster_light_counts.clone()),
+                BufferImportSource::BackendFrameResource("cluster_light_indices") => cluster_refs
+                    .as_ref()
+                    .map(|refs| refs.cluster_light_indices.clone()),
                 BufferImportSource::BackendFrameResource("per_draw_slab") => backend
                     .frame_resources
                     .per_draw()
@@ -1009,10 +1005,10 @@ impl CompiledRenderGraph {
                 BufferImportSource::External | BufferImportSource::PingPong(_) => None,
             };
             if let Some(buffer) = buffer {
-                resources
-                    .set_imported_buffer(ImportedBufferHandle(idx as u32), ResolvedImportedBuffer {
-                        buffer,
-                    });
+                resources.set_imported_buffer(
+                    ImportedBufferHandle(idx as u32),
+                    ResolvedImportedBuffer { buffer },
+                );
             }
         }
     }

@@ -108,16 +108,16 @@ pub use output_depth_mode::OutputDepthMode;
 pub use pass::{GroupScope, PassBuilder, PassKind, PassPhase, RenderPass};
 pub use resources::{
     BufferAccess, BufferHandle, BufferImportSource, BufferSizePolicy, FrameTargetRole,
-    HistorySlotId, ImportedBufferDecl, ImportedBufferHandle, ImportedTextureDecl,
-    ImportedTextureHandle, ImportSource, StorageAccess, TextureAccess, TextureHandle,
-    TextureResourceHandle, TransientBufferDesc, TransientExtent, TransientTextureDesc,
+    HistorySlotId, ImportSource, ImportedBufferDecl, ImportedBufferHandle, ImportedTextureDecl,
+    ImportedTextureHandle, StorageAccess, TextureAccess, TextureHandle, TextureResourceHandle,
+    TransientBufferDesc, TransientExtent, TransientTextureDesc,
 };
-pub use transient_pool::{BufferKey, TextureKey, TransientPool, TransientPoolMetrics};
 pub use reverse_z_depth::{
     main_forward_depth_stencil_format, MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE,
 };
 pub use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};
 pub use skinning_palette::{build_skinning_palette, SkinningPaletteParams};
+pub use transient_pool::{BufferKey, TextureKey, TransientPool, TransientPoolMetrics};
 pub use world_mesh_cull::{
     build_world_mesh_cull_proj_params, capture_hi_z_temporal, HiZTemporalState, WorldMeshCullInput,
     WorldMeshCullProjParams,

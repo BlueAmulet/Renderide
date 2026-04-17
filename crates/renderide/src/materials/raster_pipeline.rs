@@ -187,7 +187,10 @@ pub(crate) fn build_pipeline_from_pass(
         }),
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
-            cull_mode: pass.cull_mode,
+            // Unity / host mesh winding uses clockwise front faces (D3D-style). wgpu defaults to
+            // `FrontFace::Ccw`; without this, `Cull Back` removes Unity's outward-facing tris.
+            front_face: wgpu::FrontFace::Cw,
+            cull_mode: render_state.resolved_cull_mode(pass.cull_mode),
             ..Default::default()
         },
         depth_stencil: desc

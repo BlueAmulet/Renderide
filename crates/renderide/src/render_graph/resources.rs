@@ -358,7 +358,10 @@ impl TextureAccess {
     }
 
     pub(crate) fn is_attachment(&self) -> bool {
-        matches!(self, Self::ColorAttachment { .. } | Self::DepthAttachment { .. })
+        matches!(
+            self,
+            Self::ColorAttachment { .. } | Self::DepthAttachment { .. }
+        )
     }
 }
 
@@ -407,11 +410,9 @@ impl BufferAccess {
 
     pub(crate) fn reads(self) -> bool {
         match self {
-            Self::Uniform { .. }
-            | Self::Index
-            | Self::Vertex
-            | Self::Indirect
-            | Self::CopySrc => true,
+            Self::Uniform { .. } | Self::Index | Self::Vertex | Self::Indirect | Self::CopySrc => {
+                true
+            }
             Self::Storage { access, .. } => access.reads(),
             Self::CopyDst => false,
         }
@@ -421,11 +422,9 @@ impl BufferAccess {
         match self {
             Self::Storage { access, .. } => access.writes(),
             Self::CopyDst => true,
-            Self::Uniform { .. }
-            | Self::Index
-            | Self::Vertex
-            | Self::Indirect
-            | Self::CopySrc => false,
+            Self::Uniform { .. } | Self::Index | Self::Vertex | Self::Indirect | Self::CopySrc => {
+                false
+            }
         }
     }
 }
