@@ -31,11 +31,8 @@ mod vp;
 
 use std::num::NonZeroU32;
 
-use crate::render_graph::context::{
-    GraphRasterPassContext, GraphResolvedResources, RenderPassContext, ResolvedGraphTexture,
-};
+use crate::render_graph::context::{GraphRasterPassContext, RenderPassContext};
 use crate::render_graph::error::{RenderPassError, SetupError};
-use crate::render_graph::frame_params::FrameRenderParams;
 use crate::render_graph::pass::{PassBuilder, RenderPass};
 use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, StorageAccess, TextureAccess,
@@ -292,7 +289,6 @@ impl RenderPass for WorldMeshForwardOpaquePass {
                 pass: self.name().to_string(),
             });
         };
-        apply_graph_forward_msaa_views(frame, ctx.graph_resources, self.resources);
 
         let Some(mut prepared) = frame.prepared_world_mesh_forward.take() else {
             return Ok(());
@@ -357,7 +353,12 @@ impl RenderPass for WorldMeshDepthSnapshotPass {
                 pass: self.name().to_string(),
             });
         };
-        apply_graph_forward_msaa_views(frame, ctx.graph_resources, self.resources);
+        let msaa_views = resolve_forward_msaa_views(
+            ctx.graph_resources,
+            self.resources,
+            frame.sample_count,
+            frame.multiview_stereo,
+        );
 
         let Some(mut prepared) = frame.prepared_world_mesh_forward.take() else {
             return Ok(());
@@ -368,6 +369,7 @@ impl RenderPass for WorldMeshDepthSnapshotPass {
             ctx.encoder,
             frame,
             &prepared,
+            msaa_views.as_ref(),
             msaa_depth_resolve.as_deref(),
         );
         if recorded {
@@ -460,7 +462,6 @@ impl RenderPass for WorldMeshForwardIntersectPass {
                 pass: self.name().to_string(),
             });
         };
-        apply_graph_forward_msaa_views(frame, ctx.graph_resources, self.resources);
 
         let Some(mut prepared) = frame.prepared_world_mesh_forward.take() else {
             return Ok(());
@@ -536,6 +537,7 @@ impl RenderPass for WorldMeshForwardDepthResolvePass {
             ctx.device,
             ctx.encoder,
             frame,
+            msaa_views.as_ref(),
             msaa_depth_resolve.as_deref(),
         );
         Ok(())
