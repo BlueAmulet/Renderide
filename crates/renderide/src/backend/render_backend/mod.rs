@@ -101,6 +101,36 @@ impl<'a> WorldMeshForwardEncodeRefs<'a> {
     }
 }
 
+/// Disjoint borrows of [`MaterialSystem`], [`AssetTransferQueue`], and the GPU skin cache for world mesh forward encoding.
+///
+/// Built by [`RenderBackend::world_mesh_forward_encode_refs`] so the raster encoder never holds
+/// `&mut RenderBackend` while also borrowing the deform cache on [`RenderBackend`].
+pub(crate) struct WorldMeshForwardEncodeRefs<'a> {
+    /// Material registry, embedded binds, and property store.
+    pub(crate) materials: &'a mut MaterialSystem,
+    /// Resident mesh and texture pools (read-only for draw recording).
+    pub(crate) asset_transfers: &'a AssetTransferQueue,
+    /// Arena-backed deformed positions and normals keyed by renderable (after [`RenderBackend::attach`]).
+    pub(crate) skin_cache: Option<&'a GpuSkinCache>,
+}
+
+impl<'a> WorldMeshForwardEncodeRefs<'a> {
+    /// Resident meshes for draw validation and vertex buffer binding.
+    pub(crate) fn mesh_pool(&self) -> &MeshPool {
+        &self.asset_transfers.mesh_pool
+    }
+
+    /// Pool views for embedded `@group(1)` texture resolution.
+    pub(crate) fn embedded_texture_pools(&self) -> EmbeddedTexturePools<'_> {
+        EmbeddedTexturePools {
+            texture: &self.asset_transfers.texture_pool,
+            texture3d: &self.asset_transfers.texture3d_pool,
+            cubemap: &self.asset_transfers.cubemap_pool,
+            render_texture: &self.asset_transfers.render_texture_pool,
+        }
+    }
+}
+
 impl Default for RenderBackend {
     fn default() -> Self {
         Self::new()
@@ -185,6 +215,35 @@ impl RenderBackend {
             materials: &mut self.materials,
             asset_transfers: &mut self.asset_transfers,
             skin_cache: self.gpu.as_ref().map(|g| &g.gpu_skin_cache),
+        }
+    }
+
+    /// Arena-backed deformed vertex streams shared by mesh deform compute and mesh forward draws.
+    pub fn skin_cache(&self) -> Option<&GpuSkinCache> {
+        self.gpu_skin_cache.as_ref()
+    }
+
+    /// Mutable skin cache for mesh deform compute and cache sweeps.
+    pub fn skin_cache_mut(&mut self) -> Option<&mut GpuSkinCache> {
+        self.gpu_skin_cache.as_mut()
+    }
+
+    /// Resets per-tick light prep flags, mesh deform coalescing, and advances the skin cache frame counter.
+    ///
+    /// Call once per winit tick before IPC and frame work (see [`crate::runtime::RendererRuntime::tick_frame_wall_clock_begin`]).
+    pub fn reset_light_prep_for_tick(&mut self) {
+        if let Some(cache) = self.gpu_skin_cache.as_mut() {
+            cache.advance_frame();
+        }
+        self.frame_resources.reset_light_prep_for_tick();
+    }
+
+    /// Borrows material and pool state disjointly from the GPU skin cache for mesh forward encoding.
+    pub(crate) fn world_mesh_forward_encode_refs(&mut self) -> WorldMeshForwardEncodeRefs<'_> {
+        WorldMeshForwardEncodeRefs {
+            materials: &mut self.materials,
+            asset_transfers: &self.asset_transfers,
+            skin_cache: self.gpu_skin_cache.as_ref(),
         }
     }
 
@@ -534,5 +593,21 @@ impl RenderBackend {
         let g = self.gpu.as_mut()?;
         let pre = g.mesh_preprocess.as_ref()?;
         Some((pre, &mut g.mesh_deform_scratch, &mut g.gpu_skin_cache))
+    }
+
+    /// Preprocess pipelines, deform scratch, and skin cache for [`crate::render_graph::passes::MeshDeformPass`].
+    ///
+    /// Single method so callers avoid overlapping borrows of [`RenderBackend`].
+    pub(crate) fn mesh_deform_pass_refs(
+        &mut self,
+    ) -> Option<(
+        &MeshPreprocessPipelines,
+        &mut MeshDeformScratch,
+        &mut GpuSkinCache,
+    )> {
+        let pre = self.mesh_preprocess.as_ref()?;
+        let scratch = self.mesh_deform_scratch.as_mut()?;
+        let skin = self.gpu_skin_cache.as_mut()?;
+        Some((pre, scratch, skin))
     }
 }
