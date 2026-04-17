@@ -48,10 +48,6 @@ use super::WorldMeshForwardGraphResources;
 const PER_DRAW_VP_PARALLEL_MIN_DRAWS: usize = 256;
 
 /// Resolves multiview use, [`MaterialPipelineDesc`], and [`ShaderPermutation`].
-///
-/// When `sample_count > 1`, depth/stencil is fixed to [`wgpu::TextureFormat::Depth32Float`] for the
-/// multisampled raster path. Otherwise `frame_depth_stencil_format` comes from the frame depth
-/// texture so stencil-capable formats propagate into material pipeline selection.
 pub(super) fn resolve_pass_config(
     hc: HostCameraFrame,
     multiview_stereo: bool,
@@ -67,15 +63,9 @@ pub(super) fn resolve_pass_config(
 
     let sc = sample_count.max(1);
 
-    let depth_stencil_format = if sc > 1 {
-        wgpu::TextureFormat::Depth32Float
-    } else {
-        frame_depth_stencil_format
-    };
-
     let pass_desc = MaterialPipelineDesc {
         surface_format,
-        depth_stencil_format: Some(depth_stencil_format),
+        depth_stencil_format: Some(wgpu::TextureFormat::Depth32Float),
         sample_count: sc,
         multiview_mask: if use_multiview {
             NonZeroU32::new(3)
