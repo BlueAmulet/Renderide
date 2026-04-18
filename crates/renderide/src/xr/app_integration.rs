@@ -56,12 +56,24 @@ pub fn openxr_begin_frame_tick(
     runtime: &mut impl XrHostCameraSync,
 ) -> Option<OpenxrFrameTick> {
     let _ = handles.xr_session.poll_events();
-    let fs = handles.xr_session.wait_frame().ok()??;
+    let fs = match handles.xr_session.wait_frame() {
+        Ok(Some(state)) => state,
+        Ok(None) => return None,
+        Err(e) => {
+            logger::warn!("OpenXR wait_frame failed: {e:?}");
+            runtime.note_openxr_wait_frame_failed();
+            return None;
+        }
+    };
     let views = if fs.should_render {
-        handles
-            .xr_session
-            .locate_views(fs.predicted_display_time)
-            .unwrap_or_default()
+        match handles.xr_session.locate_views(fs.predicted_display_time) {
+            Ok(v) => v,
+            Err(e) => {
+                logger::warn!("OpenXR locate_views failed: {e:?}");
+                runtime.note_openxr_locate_views_failed();
+                Vec::new()
+            }
+        }
     } else {
         Vec::new()
     };

@@ -171,6 +171,40 @@ impl RendererFrontend {
         self.ipc.is_some()
     }
 
+    /// Clears per-tick outbound IPC drop flags on the dual queue (no-op when IPC is disconnected).
+    pub fn reset_ipc_outbound_drop_tick_flags(&mut self) {
+        if let Some(ipc) = self.ipc.as_mut() {
+            ipc.reset_outbound_drop_tick_flags();
+        }
+    }
+
+    /// Whether any **primary** outbound send failed since the last [`Self::reset_ipc_outbound_drop_tick_flags`].
+    pub fn ipc_outbound_primary_drop_this_tick(&self) -> bool {
+        self.ipc
+            .as_ref()
+            .is_some_and(|i| i.had_outbound_primary_drop_this_tick())
+    }
+
+    /// Whether any **background** outbound send failed since the last [`Self::reset_ipc_outbound_drop_tick_flags`].
+    pub fn ipc_outbound_background_drop_this_tick(&self) -> bool {
+        self.ipc
+            .as_ref()
+            .is_some_and(|i| i.had_outbound_background_drop_this_tick())
+    }
+
+    /// Current consecutive outbound drop streaks per channel (`0` when disconnected or after a successful send).
+    pub fn ipc_consecutive_outbound_drop_streaks(&self) -> (u32, u32) {
+        self.ipc
+            .as_ref()
+            .map(|i| {
+                (
+                    i.consecutive_primary_drop_streak(),
+                    i.consecutive_background_drop_streak(),
+                )
+            })
+            .unwrap_or((0, 0))
+    }
+
     /// Records wall-clock spacing for FPS / [`crate::shared::PerformanceState`] before lock-step
     /// [`Self::pre_frame`].
     ///
@@ -238,7 +272,12 @@ impl RendererFrontend {
             ..Default::default()
         };
         if let Some(ref mut ipc) = self.ipc {
-            ipc.send_primary(RendererCommand::FrameStartData(frame_start));
+            if !ipc.send_primary(RendererCommand::FrameStartData(frame_start)) {
+                logger::warn!(
+                    "IPC primary queue full: FrameStartData not sent; will retry on the next tick"
+                );
+                return;
+            }
         }
         self.last_frame_data_processed = false;
         if bootstrap {

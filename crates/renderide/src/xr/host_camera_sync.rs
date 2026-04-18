@@ -29,6 +29,10 @@ pub trait XrHostCameraSync {
     fn set_stereo_view_proj(&mut self, vp: Option<(Mat4, Mat4)>);
     /// Per-eye **view-only** matrices (world-to-view, handedness-fixed) for stereo clustering.
     fn set_stereo_views(&mut self, views: Option<(Mat4, Mat4)>);
+    /// Hook when OpenXR `wait_frame` returns an error (recoverable; tick may skip XR work).
+    fn note_openxr_wait_frame_failed(&mut self) {}
+    /// Hook when OpenXR `locate_views` fails while the runtime expected rendering views.
+    fn note_openxr_locate_views_failed(&mut self) {}
 }
 
 /// Multiview submission path that reuses the render graph with external stereo targets.

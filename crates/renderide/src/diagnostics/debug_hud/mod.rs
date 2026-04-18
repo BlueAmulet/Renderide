@@ -130,6 +130,8 @@ pub struct DebugHud {
     /// Live settings + persistence target for the **Renderer config** window.
     renderer_settings: RendererSettingsHandle,
     config_save_path: PathBuf,
+    /// When `true`, do not write `config.toml` from the overlay (startup Figment extract failed).
+    suppress_renderer_config_disk_writes: bool,
     /// Whether the **Renderer config** window is open.
     renderer_config_open: bool,
 }
@@ -142,6 +144,7 @@ impl DebugHud {
         surface_format: wgpu::TextureFormat,
         renderer_settings: RendererSettingsHandle,
         config_save_path: PathBuf,
+        suppress_renderer_config_disk_writes: bool,
     ) -> Self {
         let mut imgui = Context::create();
         imgui.set_ini_filename(None);
@@ -177,6 +180,7 @@ impl DebugHud {
             shader_routes_only_fallback: false,
             renderer_settings,
             config_save_path,
+            suppress_renderer_config_disk_writes,
             renderer_config_open: true,
         }
     }
@@ -352,6 +356,7 @@ impl DebugHud {
             ui,
             &self.renderer_settings,
             &self.config_save_path,
+            self.suppress_renderer_config_disk_writes,
             &mut self.renderer_config_open,
         );
 

@@ -101,10 +101,27 @@ pub struct FrameDiagnosticsSnapshot {
     pub mesh_pool_entry_count: usize,
     /// Host shader routes (id, name, pipeline, implemented flag), sorted implemented-first then by id.
     pub shader_routes: Vec<ShaderRouteRow>,
+    /// At least one **primary** outbound IPC send failed this tick (queue full).
+    pub ipc_primary_outbound_drop_this_tick: bool,
+    /// At least one **background** outbound IPC send failed this tick (queue full).
+    pub ipc_background_outbound_drop_this_tick: bool,
+    /// Consecutive primary-queue enqueue failures (0 after a successful send).
+    pub ipc_primary_consecutive_fail_streak: u32,
+    /// Consecutive background-queue enqueue failures (0 after a successful send).
+    pub ipc_background_consecutive_fail_streak: u32,
+    /// Cumulative failed scene applies after host [`crate::shared::FrameSubmitData`] (see runtime).
+    pub frame_submit_apply_failures: u64,
+    /// Cumulative OpenXR `wait_frame` errors (recoverable).
+    pub xr_wait_frame_failures: u64,
+    /// Cumulative OpenXR `locate_views` errors while rendering was expected (recoverable).
+    pub xr_locate_views_failures: u64,
+    /// Sum of post-init unhandled [`crate::shared::RendererCommand`] observations (running dispatch).
+    pub unhandled_ipc_command_event_total: u64,
 }
 
 impl FrameDiagnosticsSnapshot {
     /// Builds the snapshot after [`crate::gpu::GpuContext::end_frame_timing`] for the tick.
+    #[allow(clippy::too_many_arguments)]
     pub fn capture(
         gpu: &GpuContext,
         wall_frame_time_ms: f64,
@@ -113,6 +130,14 @@ impl FrameDiagnosticsSnapshot {
         backend: &RenderBackend,
         gpu_allocator_report: Option<GpuAllocatorReportHud>,
         gpu_allocator_report_next_refresh_in_secs: f32,
+        ipc_primary_outbound_drop_this_tick: bool,
+        ipc_background_outbound_drop_this_tick: bool,
+        ipc_primary_consecutive_fail_streak: u32,
+        ipc_background_consecutive_fail_streak: u32,
+        frame_submit_apply_failures: u64,
+        xr_wait_frame_failures: u64,
+        xr_locate_views_failures: u64,
+        unhandled_ipc_command_event_total: u64,
     ) -> Self {
         let (cpu_frame_until_submit_ms, gpu_frame_after_submit_ms) = gpu.frame_cpu_gpu_ms_for_hud();
         let (alloc, resv) = gpu.gpu_allocator_bytes();
@@ -175,6 +200,14 @@ impl FrameDiagnosticsSnapshot {
             render_textures_gpu_resident,
             mesh_pool_entry_count,
             shader_routes,
+            ipc_primary_outbound_drop_this_tick,
+            ipc_background_outbound_drop_this_tick,
+            ipc_primary_consecutive_fail_streak,
+            ipc_background_consecutive_fail_streak,
+            frame_submit_apply_failures,
+            xr_wait_frame_failures,
+            xr_locate_views_failures,
+            unhandled_ipc_command_event_total,
         }
     }
 
@@ -211,6 +244,14 @@ mod tests {
             render_textures_gpu_resident: 0,
             mesh_pool_entry_count: 0,
             shader_routes: Vec::new(),
+            ipc_primary_outbound_drop_this_tick: false,
+            ipc_background_outbound_drop_this_tick: false,
+            ipc_primary_consecutive_fail_streak: 0,
+            ipc_background_consecutive_fail_streak: 0,
+            frame_submit_apply_failures: 0,
+            xr_wait_frame_failures: 0,
+            xr_locate_views_failures: 0,
+            unhandled_ipc_command_event_total: 0,
         };
         assert!((s.fps_from_wall() - 62.5).abs() < 0.01);
     }
@@ -234,6 +275,14 @@ mod tests {
             render_textures_gpu_resident: 0,
             mesh_pool_entry_count: 0,
             shader_routes: Vec::new(),
+            ipc_primary_outbound_drop_this_tick: false,
+            ipc_background_outbound_drop_this_tick: false,
+            ipc_primary_consecutive_fail_streak: 0,
+            ipc_background_consecutive_fail_streak: 0,
+            frame_submit_apply_failures: 0,
+            xr_wait_frame_failures: 0,
+            xr_locate_views_failures: 0,
+            unhandled_ipc_command_event_total: 0,
         };
         assert_eq!(s.fps_from_wall(), 0.0);
     }

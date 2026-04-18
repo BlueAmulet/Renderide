@@ -14,6 +14,9 @@ use crate::shared::{
 
 const SEND_BUFFER_CAP: usize = 65536;
 
+/// After this many consecutive `try_enqueue` failures on one channel, log at [`logger::error!`].
+const IPC_CONSECUTIVE_DROP_ERROR_AFTER: u32 = 16;
+
 /// Host ↔ renderer IPC over two Cloudtoid queue pairs (Primary and Background).
 pub struct DualQueueIpc {
     primary_subscriber: Subscriber,
@@ -21,9 +24,12 @@ pub struct DualQueueIpc {
     primary_publisher: Publisher,
     background_publisher: Publisher,
     send_buffer: Vec<u8>,
-    /// Count of dropped primary sends since last log (for burst summary).
+    /// Count of dropped primary sends since last successful send (consecutive backpressure).
     primary_drops_since_log: u32,
     background_drops_since_log: u32,
+    /// Set when a primary outbound send failed this winit tick (cleared in [`Self::reset_outbound_drop_tick_flags`]).
+    had_primary_outbound_drop_this_tick: bool,
+    had_background_outbound_drop_this_tick: bool,
 }
 
 impl DualQueueIpc {
@@ -46,7 +52,35 @@ impl DualQueueIpc {
             send_buffer: vec![0u8; SEND_BUFFER_CAP],
             primary_drops_since_log: 0,
             background_drops_since_log: 0,
+            had_primary_outbound_drop_this_tick: false,
+            had_background_outbound_drop_this_tick: false,
         })
+    }
+
+    /// Clears per-tick outbound drop flags; call once at the start of each winit frame tick.
+    pub fn reset_outbound_drop_tick_flags(&mut self) {
+        self.had_primary_outbound_drop_this_tick = false;
+        self.had_background_outbound_drop_this_tick = false;
+    }
+
+    /// Whether any **primary** outbound send failed since the last [`Self::reset_outbound_drop_tick_flags`].
+    pub fn had_outbound_primary_drop_this_tick(&self) -> bool {
+        self.had_primary_outbound_drop_this_tick
+    }
+
+    /// Whether any **background** outbound send failed since the last [`Self::reset_outbound_drop_tick_flags`].
+    pub fn had_outbound_background_drop_this_tick(&self) -> bool {
+        self.had_background_outbound_drop_this_tick
+    }
+
+    /// Current consecutive primary-queue drop streak (resets on next successful enqueue).
+    pub fn consecutive_primary_drop_streak(&self) -> u32 {
+        self.primary_drops_since_log
+    }
+
+    /// Current consecutive background-queue drop streak (resets on next successful enqueue).
+    pub fn consecutive_background_drop_streak(&self) -> u32 {
+        self.background_drops_since_log
     }
 
     /// Drains both subscribers and returns decoded commands (Primary first, then Background; each
@@ -59,31 +93,43 @@ impl DualQueueIpc {
     }
 
     /// Encodes and sends a command on the **Primary** publisher (frame handshake, init, etc.).
-    pub fn send_primary(&mut self, mut cmd: RendererCommand) {
+    ///
+    /// Returns `true` if the message was queued, `false` if encoding produced no bytes or the queue was full.
+    pub fn send_primary(&mut self, mut cmd: RendererCommand) -> bool {
         let written = encode_command(&mut cmd, &mut self.send_buffer);
         if written == 0 {
-            return;
+            return false;
         }
-        send_on_publisher(
+        let ok = send_on_publisher(
             &mut self.primary_publisher,
             &self.send_buffer[..written],
             &mut self.primary_drops_since_log,
             "primary",
         );
+        if !ok {
+            self.had_primary_outbound_drop_this_tick = true;
+        }
+        ok
     }
 
     /// Encodes and sends a command on the **Background** publisher (asset results, etc.).
-    pub fn send_background(&mut self, mut cmd: RendererCommand) {
+    ///
+    /// Returns `true` if the message was queued, `false` if encoding produced no bytes or the queue was full.
+    pub fn send_background(&mut self, mut cmd: RendererCommand) -> bool {
         let written = encode_command(&mut cmd, &mut self.send_buffer);
         if written == 0 {
-            return;
+            return false;
         }
-        send_on_publisher(
+        let ok = send_on_publisher(
             &mut self.background_publisher,
             &self.send_buffer[..written],
             &mut self.background_drops_since_log,
             "background",
         );
+        if !ok {
+            self.had_background_outbound_drop_this_tick = true;
+        }
+        ok
     }
 }
 
@@ -92,10 +138,10 @@ fn send_on_publisher(
     payload: &[u8],
     drops_since_log: &mut u32,
     channel: &'static str,
-) {
+) -> bool {
     if publisher.try_enqueue(payload) {
         *drops_since_log = 0;
-        return;
+        return true;
     }
     *drops_since_log += 1;
     if *drops_since_log == 1 {
@@ -103,12 +149,22 @@ fn send_on_publisher(
             "IPC {channel} queue full, dropped outgoing command ({} bytes)",
             payload.len()
         );
+    } else if *drops_since_log >= IPC_CONSECUTIVE_DROP_ERROR_AFTER
+        && ((*drops_since_log == IPC_CONSECUTIVE_DROP_ERROR_AFTER)
+            || (*drops_since_log - IPC_CONSECUTIVE_DROP_ERROR_AFTER)
+                .is_multiple_of(IPC_CONSECUTIVE_DROP_ERROR_AFTER))
+    {
+        logger::error!(
+            "IPC {channel} queue full: {} consecutive dropped outgoing sends (backpressure)",
+            *drops_since_log
+        );
     } else if drops_since_log.is_multiple_of(128) {
         logger::warn!(
             "IPC {channel} queue full: {} additional drops since last summary",
             128
         );
     }
+    false
 }
 
 fn encode_command(cmd: &mut RendererCommand, buf: &mut [u8]) -> usize {

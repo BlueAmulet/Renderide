@@ -47,6 +47,8 @@ pub struct RenderBackendAttachDesc {
     pub renderer_settings: RendererSettingsHandle,
     /// Path for persisting HUD/config from the debug overlay.
     pub config_save_path: PathBuf,
+    /// When `true`, the ImGui config window must not write `config.toml` (startup extract failed).
+    pub suppress_renderer_config_disk_writes: bool,
 }
 
 /// Coordinates materials, asset uploads, per-frame GPU binds, occlusion, optional deform + ImGui HUD, and the render graph.
@@ -297,6 +299,7 @@ impl RenderBackend {
             surface_format,
             renderer_settings,
             config_save_path,
+            suppress_renderer_config_disk_writes,
         } = desc;
 
         let frame_binds = FrameGpuBindings::try_new(device.as_ref(), Arc::clone(&gpu_limits))?;
@@ -346,6 +349,7 @@ impl RenderBackend {
                 surface_format,
                 renderer_settings,
                 config_save_path,
+                suppress_renderer_config_disk_writes,
             );
         }
 

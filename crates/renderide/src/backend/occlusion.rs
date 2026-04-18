@@ -4,9 +4,10 @@
 //! temporal view/projection data used by [`crate::render_graph::passes::WorldMeshForwardPass`] and
 //! [`crate::render_graph::passes::HiZBuildPass`].
 
-use std::collections::HashMap;
+use std::num::NonZeroUsize;
 
 use glam::Mat4;
+use lru::LruCache;
 
 use crate::render_graph::occlusion::{encode_hi_z_build, HiZGpuState};
 use crate::render_graph::OcclusionViewId;
@@ -14,6 +15,9 @@ use crate::render_graph::{
     capture_hi_z_temporal, HiZCullData, HiZTemporalState, OutputDepthMode, WorldMeshCullProjParams,
 };
 use crate::scene::SceneCoordinator;
+
+/// Maximum distinct host render-texture occlusion pyramids retained ([`OcclusionSystem::offscreen`] LRU).
+const OFFSCREEN_HIZ_LRU_CAP: usize = 64;
 
 /// Depth source, layout, and logical view for [`OcclusionSystem::encode_hi_z_build_pass`].
 pub(crate) struct HiZBuildInput<'a> {
@@ -31,8 +35,8 @@ pub(crate) struct HiZBuildInput<'a> {
 pub struct OcclusionSystem {
     /// Main window / OpenXR multiview Hi-Z (desktop and stereo layouts).
     main: HiZGpuState,
-    /// Per host render-texture secondary camera pyramids (single-view desktop layout each).
-    offscreen: HashMap<i32, HiZGpuState>,
+    /// Per host render-texture secondary camera pyramids (single-view desktop layout each), LRU-bounded.
+    offscreen: LruCache<i32, HiZGpuState>,
 }
 
 impl Default for OcclusionSystem {
@@ -44,23 +48,32 @@ impl Default for OcclusionSystem {
 impl OcclusionSystem {
     /// Creates an empty occlusion system with no pyramid data.
     pub fn new() -> Self {
+        let cap =
+            NonZeroUsize::new(OFFSCREEN_HIZ_LRU_CAP).expect("offscreen Hi-Z LRU cap is non-zero");
         Self {
             main: HiZGpuState::default(),
-            offscreen: HashMap::new(),
+            offscreen: LruCache::new(cap),
         }
     }
 
     fn hi_z_state_mut(&mut self, view: OcclusionViewId) -> &mut HiZGpuState {
         match view {
             OcclusionViewId::Main => &mut self.main,
-            OcclusionViewId::OffscreenRenderTexture(id) => self.offscreen.entry(id).or_default(),
+            OcclusionViewId::OffscreenRenderTexture(id) => {
+                if !self.offscreen.contains(&id) {
+                    self.offscreen.put(id, HiZGpuState::default());
+                }
+                self.offscreen
+                    .get_mut(&id)
+                    .expect("offscreen Hi-Z LRU contains key after insert")
+            }
         }
     }
 
     fn hi_z_state_ref(&self, view: OcclusionViewId) -> Option<&HiZGpuState> {
         match view {
             OcclusionViewId::Main => Some(&self.main),
-            OcclusionViewId::OffscreenRenderTexture(id) => self.offscreen.get(&id),
+            OcclusionViewId::OffscreenRenderTexture(id) => self.offscreen.peek(&id),
         }
     }
 
@@ -117,7 +130,7 @@ impl OcclusionSystem {
     /// snapshots are kept.
     pub fn hi_z_begin_frame_readback(&mut self, device: &wgpu::Device) {
         self.main.begin_frame_readback(device);
-        for s in self.offscreen.values_mut() {
+        for (_, s) in self.offscreen.iter_mut() {
             s.begin_frame_readback(device);
         }
     }

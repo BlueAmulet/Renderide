@@ -19,22 +19,18 @@ fn renderer_settings_figment() -> Figment {
         .merge(Env::prefixed("RENDERIDE_").split("__"))
 }
 
-fn extract_settings(figment: Figment) -> RendererSettings {
-    match figment.extract::<RendererSettings>() {
-        Ok(s) => s,
-        Err(e) => {
-            logger::warn!("Renderer config extract failed: {e}; using built-in defaults");
-            RendererSettings::default()
-        }
-    }
+#[allow(clippy::result_large_err)] // `figment::Error` is large; only used on startup paths.
+fn try_extract_settings(figment: Figment) -> Result<RendererSettings, figment::Error> {
+    figment.extract::<RendererSettings>()
 }
 
-fn load_settings_from_toml_str(content: &str) -> RendererSettings {
+#[allow(clippy::result_large_err)]
+fn load_settings_from_toml_str(content: &str) -> Result<RendererSettings, figment::Error> {
     let figment = Figment::new()
         .merge(Serialized::defaults(RendererSettings::default()))
         .merge(Toml::string(content))
         .merge(Env::prefixed("RENDERIDE_").split("__"));
-    extract_settings(figment)
+    try_extract_settings(figment)
 }
 
 /// Overrides [`super::types::DebugSettings::gpu_validation_layers`] when `RENDERIDE_GPU_VALIDATION` is set.
@@ -58,6 +54,8 @@ pub struct ConfigLoadResult {
     pub resolve: ConfigResolveOutcome,
     /// Target file for [`save_renderer_settings`] and the ImGui config window.
     pub save_path: PathBuf,
+    /// When `true`, disk persistence is disabled until restart (Figment extract failed on an existing file).
+    pub suppress_config_disk_writes: bool,
 }
 
 /// Shared handle for the process-wide settings store (read by the frame loop, written by the HUD).
@@ -72,14 +70,34 @@ pub type RendererSettingsHandle = Arc<std::sync::RwLock<RendererSettings>>;
 /// defaults to the save path (see [`super::resolve::resolve_save_path`]) and loads that file.
 pub fn load_renderer_settings() -> ConfigLoadResult {
     let mut resolve = resolve_config_path();
+    let mut suppress_config_disk_writes = false;
     let mut settings = match resolve.loaded_path.as_ref() {
         Some(path) => {
             logger::info!("Loading renderer config from {}", path.display());
             match read_config_file(path) {
-                Ok(content) => load_settings_from_toml_str(&content),
+                Ok(content) => match load_settings_from_toml_str(&content) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        logger::error!(
+                            "Renderer config Figment extract failed for {}: {e:#}",
+                            path.display()
+                        );
+                        suppress_config_disk_writes = true;
+                        RendererSettings::default()
+                    }
+                },
                 Err(e) => {
                     logger::warn!("Failed to read {}: {e}; using defaults", path.display());
-                    extract_settings(renderer_settings_figment())
+                    match try_extract_settings(renderer_settings_figment()) {
+                        Ok(s) => s,
+                        Err(e2) => {
+                            logger::error!(
+                                "Renderer config Figment extract failed (defaults+env only): {e2:#}"
+                            );
+                            suppress_config_disk_writes = true;
+                            RendererSettings::default()
+                        }
+                    }
                 }
             }
         }
@@ -89,7 +107,14 @@ pub fn load_renderer_settings() -> ConfigLoadResult {
                 "config search tried {} path(s)",
                 resolve.attempted_paths.len()
             );
-            extract_settings(renderer_settings_figment())
+            match try_extract_settings(renderer_settings_figment()) {
+                Ok(s) => s,
+                Err(e) => {
+                    logger::error!("Renderer config Figment extract failed (defaults+env): {e:#}");
+                    suppress_config_disk_writes = true;
+                    RendererSettings::default()
+                }
+            }
         }
     };
 
@@ -103,9 +128,18 @@ pub fn load_renderer_settings() -> ConfigLoadResult {
                             logger::info!("Created default renderer config at {}", path.display());
                             apply_generated_config(&mut resolve, path.clone());
                             match read_config_file(&path) {
-                                Ok(content) => {
-                                    settings = load_settings_from_toml_str(&content);
-                                }
+                                Ok(content) => match load_settings_from_toml_str(&content) {
+                                    Ok(s) => {
+                                        settings = s;
+                                    }
+                                    Err(e) => {
+                                        logger::error!(
+                                            "Figment extract failed for newly created {}: {e:#}",
+                                            path.display()
+                                        );
+                                        suppress_config_disk_writes = true;
+                                    }
+                                },
                                 Err(e) => {
                                     logger::warn!(
                                         "Failed to read newly created {}: {e}; using defaults",
@@ -141,6 +175,7 @@ pub fn load_renderer_settings() -> ConfigLoadResult {
         settings,
         resolve,
         save_path,
+        suppress_config_disk_writes,
     }
 }
 
@@ -170,6 +205,13 @@ pub fn save_renderer_settings(path: &Path, settings: &RendererSettings) -> io::R
 
 /// Persists using [`ConfigLoadResult::save_path`] and logs failures.
 pub fn save_renderer_settings_from_load(load: &ConfigLoadResult, settings: &RendererSettings) {
+    if load.suppress_config_disk_writes {
+        logger::error!(
+            "Refusing to save renderer config to {}: initial load had Figment extraction errors; fix the file and restart",
+            load.save_path.display()
+        );
+        return;
+    }
     if let Err(e) = save_renderer_settings(&load.save_path, settings) {
         logger::warn!(
             "Failed to save renderer config to {}: {e}",

@@ -207,11 +207,12 @@ impl GraphBuilder {
             .collect();
         let mut ordered_passes = Vec::with_capacity(ordered.len());
         for idx in ordered {
-            ordered_passes.push(
-                pass_take[idx]
-                    .take()
-                    .expect("pass index taken once during build"),
-            );
+            let Some(pass) = pass_take[idx].take() else {
+                return Err(GraphBuildError::PassOwnershipInvariant {
+                    message: "pass index taken more than once during build",
+                });
+            };
+            ordered_passes.push(pass);
         }
 
         Ok(CompiledRenderGraph {

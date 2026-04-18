@@ -104,10 +104,11 @@ impl MeshUploadTask {
                 let existed_before = queue.mesh_pool.insert_mesh(mesh);
                 if let Some(ipc) = ipc.as_mut() {
                     use crate::shared::{MeshUploadResult, RendererCommand};
-                    ipc.send_background(RendererCommand::MeshUploadResult(MeshUploadResult {
-                        asset_id,
-                        instance_changed: !existed_before,
-                    }));
+                    let _ =
+                        ipc.send_background(RendererCommand::MeshUploadResult(MeshUploadResult {
+                            asset_id,
+                            instance_changed: !existed_before,
+                        }));
                 }
                 logger::trace!(
                     "mesh {} uploaded via integrator (replaced={} resident_bytes≈{})",

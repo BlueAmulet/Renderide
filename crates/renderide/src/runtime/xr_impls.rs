@@ -58,6 +58,14 @@ impl crate::xr::XrHostCameraSync for RendererRuntime {
     fn set_stereo_views(&mut self, views: Option<(Mat4, Mat4)>) {
         self.host_camera.stereo_views = views;
     }
+
+    fn note_openxr_wait_frame_failed(&mut self) {
+        self.xr_wait_frame_failures = self.xr_wait_frame_failures.saturating_add(1);
+    }
+
+    fn note_openxr_locate_views_failed(&mut self) {
+        self.xr_locate_views_failures = self.xr_locate_views_failures.saturating_add(1);
+    }
 }
 
 impl crate::xr::XrMultiviewFrameRenderer for RendererRuntime {

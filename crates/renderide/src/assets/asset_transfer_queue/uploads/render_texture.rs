@@ -16,7 +16,7 @@ fn send_render_texture_result(
     let Some(ipc) = ipc else {
         return;
     };
-    ipc.send_background(RendererCommand::RenderTextureResult(RenderTextureResult {
+    let _ = ipc.send_background(RendererCommand::RenderTextureResult(RenderTextureResult {
         asset_id,
         instance_changed,
     }));

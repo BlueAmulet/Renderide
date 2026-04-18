@@ -73,6 +73,7 @@ impl RendererRuntime {
                         .as_secs_f32()
                 })
                 .unwrap_or(GPU_ALLOCATOR_FULL_REPORT_INTERVAL.as_secs_f32());
+            let (ipc_pri_str, ipc_bg_str) = self.frontend.ipc_consecutive_outbound_drop_streaks();
             let frame_diag = crate::diagnostics::FrameDiagnosticsSnapshot::capture(
                 gpu,
                 self.backend.debug_frame_time_ms(),
@@ -81,6 +82,14 @@ impl RendererRuntime {
                 &self.backend,
                 self.allocator_report_hud.clone(),
                 next_refresh_in_secs,
+                self.frontend.ipc_outbound_primary_drop_this_tick(),
+                self.frontend.ipc_outbound_background_drop_this_tick(),
+                ipc_pri_str,
+                ipc_bg_str,
+                self.frame_submit_apply_failures,
+                self.xr_wait_frame_failures,
+                self.xr_locate_views_failures,
+                self.unhandled_ipc_command_event_total(),
             );
             let msaa_requested = self
                 .settings

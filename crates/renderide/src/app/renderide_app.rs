@@ -6,16 +6,17 @@
 //!
 //! [`tick_frame`] runs these **private** stages in order (AAA-style “frame phases” / “tick stages”):
 //!
-//! 1. [`frame_tick_prologue`] — log level, wall-clock tick markers, GPU frame timing begin.
-//! 2. [`poll_ipc_and_window`] — drain IPC; apply host output (cursor); per-frame cursor lock when requested; then [`RendererRuntime::run_asset_integration`] (time-sliced uploads).
-//! 3. [`xr_begin_tick`] — OpenXR `wait_frame` / view poses **before** lock-step (must stay before
+//! 1. [`frame_tick_prologue`] — log level, wall-clock tick markers, GPU frame timing begin, swapchain vsync from settings.
+//! 2. [`poll_ipc_and_window`] — drain IPC; apply host output (cursor); per-frame cursor lock when requested.
+//! 3. [`RendererRuntime::run_asset_integration`] — one time-sliced mesh/texture upload drain per tick (after IPC, before OpenXR).
+//! 4. [`xr_begin_tick`] — OpenXR `wait_frame` / view poses **before** lock-step (must stay before
 //!    [`lock_step_exchange`] so [`InputState::vr`] matches the same [`OpenxrFrameTick`] snapshot).
-//! 4. [`lock_step_exchange`] — when allowed, [`RendererRuntime::pre_frame`] with winit input + optional VR IPC.
-//! 5. Early exits — shutdown, fatal IPC, missing window/GPU (each runs epilogue timing).
-//! 6. [`render_views`] — HMD multiview submit if XR+GPU; secondary cameras to render textures; vsync;
+//! 5. [`lock_step_exchange`] — when allowed, [`RendererRuntime::pre_frame`] with winit input + optional VR IPC.
+//! 6. Early exits — shutdown, fatal IPC, missing window/GPU (each runs epilogue timing).
+//! 7. [`render_views`] — HMD multiview submit if XR+GPU; secondary cameras to render textures;
 //!    debug HUD input/time for this frame (must run before desktop [`RendererRuntime::render_all_views`]).
-//! 7. [`present_and_diagnostics`] — VR mirror blit or clear (with optional Dear ImGui overlay on the desktop surface); OpenXR `end_frame_empty` when needed (desktop world render is in step 6).
-//! 8. [`frame_tick_epilogue`] — GPU frame timing end and debug HUD capture after the tick.
+//! 8. [`present_and_diagnostics`] — VR mirror blit or clear (with optional Dear ImGui overlay on the desktop surface); OpenXR `end_frame_empty` when needed (desktop world render is in step 7).
+//! 9. [`frame_tick_epilogue`] — GPU frame timing end and debug HUD capture after the tick.
 //!
 //! [`tick_phase_trace`] emits `trace!` lines prefixed with [`TICK_TRACE_PREFIX`] for grep/profiling; the same
 //! splits are natural boundaries for the `tracing` crate’s spans if added later.
@@ -284,6 +285,9 @@ impl RenderideApp {
         self.runtime.tick_frame_wall_clock_begin(frame_start);
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.begin_frame_timing(frame_start);
+            if let Ok(s) = self.runtime.settings().read() {
+                gpu.set_vsync(s.rendering.vsync);
+            }
         }
     }
 
@@ -393,7 +397,7 @@ impl RenderideApp {
         }
     }
 
-    /// Phase: HMD multiview submission, secondary cameras to render textures, vsync from settings,
+    /// Phase: HMD multiview submission, secondary cameras to render textures,
     /// and debug HUD input/time for this frame.
     ///
     /// Returns [`None`] if no [`GpuContext`] is available (mirror epilogue-only path). Otherwise returns
@@ -429,10 +433,6 @@ impl RenderideApp {
             }
         } else if let Err(e) = self.runtime.render_all_views(gpu, window.as_ref()) {
             Self::handle_frame_graph_error(gpu, window.as_ref(), e);
-        }
-
-        if let Ok(s) = self.runtime.settings().read() {
-            gpu.set_vsync(s.rendering.vsync);
         }
 
         {

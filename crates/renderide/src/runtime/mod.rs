@@ -19,10 +19,12 @@ mod host_camera_apply;
 mod ipc_init_dispatch;
 mod lights_ipc;
 mod lockstep;
+mod renderer_command_kind;
 mod secondary_cameras;
 mod shader_material_ipc;
 mod xr_impls;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -63,6 +65,18 @@ pub struct RendererRuntime {
     allocator_report_hud: Option<crate::diagnostics::GpuAllocatorReportHud>,
     /// Wall clock when a **GPU memory** tab refresh was last attempted (typically every 2s while the main debug HUD runs).
     allocator_report_last_refresh: Option<Instant>,
+    /// Set when [`Self::run_asset_integration`] completed for the current winit tick (cleared in [`Self::tick_frame_wall_clock_begin`]).
+    did_integrate_this_tick: bool,
+    /// Count of failed [`SceneCoordinator::apply_frame_submit`] or [`SceneCoordinator::flush_world_caches`] after a host submit (HUD / drift).
+    frame_submit_apply_failures: u64,
+    /// Count of OpenXR `wait_frame` errors since startup (recoverable).
+    xr_wait_frame_failures: u64,
+    /// Count of OpenXR `locate_views` errors when `should_render` was true (recoverable).
+    xr_locate_views_failures: u64,
+    /// Running counts of post-init [`RendererCommand`] variants seen without a running handler.
+    unhandled_ipc_command_counts: HashMap<&'static str, u64>,
+    /// When `true`, ImGui and [`crate::config::save_renderer_settings_from_load`] must not overwrite `config.toml`.
+    suppress_renderer_config_disk_writes: bool,
 }
 
 impl RendererRuntime {
@@ -83,7 +97,32 @@ impl RendererRuntime {
             last_submit_render_task_count: 0,
             allocator_report_hud: None,
             allocator_report_last_refresh: None,
+            did_integrate_this_tick: false,
+            frame_submit_apply_failures: 0,
+            xr_wait_frame_failures: 0,
+            xr_locate_views_failures: 0,
+            unhandled_ipc_command_counts: HashMap::new(),
+            suppress_renderer_config_disk_writes: false,
         }
+    }
+
+    /// Disables writing `config.toml` from the HUD when load-time Figment extraction failed.
+    pub fn set_suppress_renderer_config_disk_writes(&mut self, value: bool) {
+        self.suppress_renderer_config_disk_writes = value;
+    }
+
+    /// Whether disk persistence of renderer settings is blocked (bad on-disk config at startup).
+    pub fn suppress_renderer_config_disk_writes(&self) -> bool {
+        self.suppress_renderer_config_disk_writes
+    }
+
+    /// Total number of post-handshake IPC commands logged as unhandled (sum of per-variant counters).
+    pub fn unhandled_ipc_command_event_total(&self) -> u64 {
+        self.unhandled_ipc_command_counts.values().copied().sum()
+    }
+
+    pub(super) fn record_unhandled_renderer_command(&mut self, tag: &'static str) {
+        *self.unhandled_ipc_command_counts.entry(tag).or_insert(0) += 1;
     }
 
     /// Records and presents one frame via the backend’s compiled render graph.
@@ -161,6 +200,8 @@ impl RendererRuntime {
     /// Records wall-clock spacing for host FPS metrics. Call at the very start of each winit tick,
     /// before [`Self::poll_ipc`], OpenXR, and [`Self::pre_frame`].
     pub fn tick_frame_wall_clock_begin(&mut self, now: Instant) {
+        self.did_integrate_this_tick = false;
+        self.frontend.reset_ipc_outbound_drop_tick_flags();
         self.backend.reset_light_prep_for_tick();
         self.frontend.on_tick_frame_wall_clock(now);
     }
@@ -195,7 +236,12 @@ impl RendererRuntime {
 
     /// Bounded cooperative mesh/texture asset integration (Unity `RunAssetIntegration`–style).
     /// Uses [`crate::config::RenderingSettings::asset_integration_budget_ms`] for the wall-clock slice.
+    ///
+    /// At most once per winit tick: a second call in the same tick is a no-op ([`Self::did_integrate_this_tick`]).
     pub fn run_asset_integration(&mut self) {
+        if self.did_integrate_this_tick {
+            return;
+        }
         let budget_ms = self
             .settings
             .read()
@@ -209,6 +255,12 @@ impl RendererRuntime {
         };
         let mut ipc_opt = ipc;
         self.backend.drain_asset_tasks(shm, &mut ipc_opt, deadline);
+        self.did_integrate_this_tick = true;
+    }
+
+    /// Whether [`Self::run_asset_integration`] already ran this tick.
+    pub fn did_integrate_assets_this_tick(&self) -> bool {
+        self.did_integrate_this_tick
     }
 
     /// Drains IPC and dispatches commands. Each poll batch is ordered so `renderer_init_data` runs
@@ -234,7 +286,14 @@ impl RendererRuntime {
         self.frontend.set_pending_init(d.clone());
         if let Some(ref mut ipc) = self.frontend.ipc_mut() {
             let settings = self.settings.read().map(|g| g.clone()).unwrap_or_default();
-            ipc_init_dispatch::send_renderer_init_result(ipc, d.output_device, &settings, None);
+            if !ipc_init_dispatch::send_renderer_init_result(ipc, d.output_device, &settings, None)
+            {
+                logger::error!(
+                    "IPC: RendererInitResult was not sent (primary queue full); stopping init handshake"
+                );
+                self.frontend.set_fatal_error(true);
+                return;
+            }
         }
         self.frontend.on_init_received();
     }

@@ -108,4 +108,7 @@ pub enum ReflectError {
     /// Bind group index outside `0..=2`.
     #[error("invalid bind group index {0} (only 0, 1, 2 are allowed for raster materials)")]
     InvalidBindGroup(u32),
+    /// Composed embedded shader stem has no WGSL payload (build/embed mismatch).
+    #[error("embedded composed WGSL missing for material stem `{0}`")]
+    EmbeddedTargetMissing(&'static str),
 }

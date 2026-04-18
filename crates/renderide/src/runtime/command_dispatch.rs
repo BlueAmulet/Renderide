@@ -7,6 +7,7 @@ use crate::shared::{
     RendererCommand,
 };
 
+use super::renderer_command_kind::renderer_command_variant_tag;
 use super::RendererRuntime;
 
 /// Logs structured fields from a host [`FrameStartData`] payload (lock-step / diagnostics only).
@@ -111,8 +112,12 @@ pub(super) fn dispatch_running_command(runtime: &mut RendererRuntime, cmd: Rende
                 "runtime: render_texture_result from host (ignored; renderer is source)"
             );
         }
-        _ => {
-            logger::trace!("runtime: unhandled RendererCommand (expand handlers here)");
+        ref cmd => {
+            let tag = renderer_command_variant_tag(cmd);
+            runtime.record_unhandled_renderer_command(tag);
+            logger::warn!(
+                "runtime: no handler for RendererCommand::{tag} (host sent unexpected command)"
+            );
         }
     }
 }
@@ -145,7 +150,7 @@ fn material_property_id_request(runtime: &mut RendererRuntime, req: MaterialProp
             .collect()
     };
     if let Some(ref mut ipc) = runtime.frontend.ipc_mut() {
-        ipc.send_background(RendererCommand::MaterialPropertyIdResult(
+        let _ = ipc.send_background(RendererCommand::MaterialPropertyIdResult(
             MaterialPropertyIdResult {
                 request_id: req.request_id,
                 property_ids,

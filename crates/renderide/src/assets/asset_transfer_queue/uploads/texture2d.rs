@@ -21,7 +21,7 @@ fn send_texture_2d_result(
     let Some(ipc) = ipc else {
         return;
     };
-    ipc.send_background(RendererCommand::SetTexture2DResult(SetTexture2DResult {
+    let _ = ipc.send_background(RendererCommand::SetTexture2DResult(SetTexture2DResult {
         asset_id,
         r#type: TextureUpdateResultType(update),
         instance_changed,

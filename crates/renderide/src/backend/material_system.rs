@@ -172,7 +172,7 @@ impl MaterialSystem {
             &mut self.material_property_store,
             &opts,
         );
-        ipc.send_background(RendererCommand::MaterialsUpdateBatchResult(
+        let _ = ipc.send_background(RendererCommand::MaterialsUpdateBatchResult(
             MaterialsUpdateBatchResult { update_batch_id },
         ));
     }

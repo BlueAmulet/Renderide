@@ -76,6 +76,13 @@ pub enum GraphBuildError {
         /// Setup validation error.
         source: SetupError,
     },
+
+    /// Internal invariant violated while taking ownership of compiled passes (should never happen).
+    #[error("render graph build pass ownership invariant violated: {message}")]
+    PassOwnershipInvariant {
+        /// Short invariant description.
+        message: &'static str,
+    },
 }
 
 /// Failure inside a single [`super::RenderPass::execute`] call.

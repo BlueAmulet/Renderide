@@ -22,7 +22,7 @@ fn send_texture_3d_result(
     let Some(ipc) = ipc else {
         return;
     };
-    ipc.send_background(RendererCommand::SetTexture3DResult(SetTexture3DResult {
+    let _ = ipc.send_background(RendererCommand::SetTexture3DResult(SetTexture3DResult {
         asset_id,
         r#type: TextureUpdateResultType(update),
         instance_changed,

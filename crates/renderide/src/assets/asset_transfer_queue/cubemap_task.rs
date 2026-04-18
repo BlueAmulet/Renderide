@@ -155,7 +155,7 @@ impl CubemapUploadTask {
             }
         }
         if let Some(ipc) = ipc.as_mut() {
-            ipc.send_background(RendererCommand::SetCubemapResult(SetCubemapResult {
+            let _ = ipc.send_background(RendererCommand::SetCubemapResult(SetCubemapResult {
                 asset_id: id,
                 r#type: TextureUpdateResultType(TextureUpdateResultType::DATA_UPLOAD),
                 instance_changed: false,

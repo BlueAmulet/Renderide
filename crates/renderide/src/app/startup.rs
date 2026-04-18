@@ -218,6 +218,7 @@ pub fn run() -> Result<Option<i32>, RunError> {
         settings_handle,
         config_load.save_path.clone(),
     );
+    runtime.set_suppress_renderer_config_disk_writes(config_load.suppress_config_disk_writes);
     if let Err(e) = runtime.connect_ipc() {
         if params.is_some() {
             logger::error!("IPC connect failed: {e}");

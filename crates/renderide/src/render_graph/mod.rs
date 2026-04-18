@@ -123,7 +123,7 @@ pub use hi_z_occlusion::{
     hi_z_view_proj_matrices, mesh_fully_occluded_in_hiz, stereo_hiz_keeps_draw,
 };
 pub use ids::{GroupId, PassId};
-pub use output_depth_mode::OutputDepthMode;
+pub use output_depth_mode::{OutputDepthMode, OutputDepthModeError};
 pub use pass::{GroupScope, PassBuilder, PassKind, PassPhase, RenderPass};
 pub use resources::{
     BufferAccess, BufferHandle, BufferImportSource, BufferSizePolicy, FrameTargetRole,

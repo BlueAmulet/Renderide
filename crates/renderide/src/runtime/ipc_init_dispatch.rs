@@ -13,6 +13,8 @@ const RENDERER_IDENTIFIER: &str = concat!("Renderide ", env!("CARGO_PKG_VERSION"
 
 /// Sends [`RendererInitResult`] to the host after [`crate::shared::RendererInitData`] is applied.
 ///
+/// Returns `false` if the primary queue rejected the message (caller should treat as fatal / retry init).
+///
 /// `gpu_max_texture_dim_2d` should be [`None`] until a [`wgpu::Device`] exists; the host only
 /// accepts **one** init result (see FrooxEngine `RenderSystem.HandleCommand`), so this is sent once
 /// from [`crate::runtime::RendererRuntime::on_init_data`] with [`None`] before GPU init. The
@@ -23,7 +25,7 @@ pub(crate) fn send_renderer_init_result(
     output_device: HeadOutputDevice,
     settings: &RendererSettings,
     gpu_max_texture_dim_2d: Option<u32>,
-) {
+) -> bool {
     let stereo = if head_output_device_wants_openxr(output_device) {
         "OpenXR(multiview)"
     } else {
@@ -39,7 +41,7 @@ pub(crate) fn send_renderer_init_result(
         is_gpu_texture_pot_byte_aligned: true,
         supported_texture_formats: supported_host_formats_for_init(),
     };
-    ipc.send_primary(RendererCommand::RendererInitResult(result));
+    ipc.send_primary(RendererCommand::RendererInitResult(result))
 }
 
 /// Dispatches a single command according to the current init phase.

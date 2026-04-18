@@ -182,7 +182,7 @@ impl TextureUploadTask {
         let id = self.data.asset_id;
         self.mark_uploaded_mips(queue, uploaded_mips);
         if let Some(ipc) = ipc.as_mut() {
-            ipc.send_background(RendererCommand::SetTexture2DResult(SetTexture2DResult {
+            let _ = ipc.send_background(RendererCommand::SetTexture2DResult(SetTexture2DResult {
                 asset_id: id,
                 r#type: TextureUpdateResultType(TextureUpdateResultType::DATA_UPLOAD),
                 instance_changed: false,

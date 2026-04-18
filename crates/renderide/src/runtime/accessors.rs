@@ -147,6 +147,7 @@ impl RendererRuntime {
                 surface_format: gpu.config_format(),
                 renderer_settings: Arc::clone(&self.settings),
                 config_save_path: self.config_save_path.clone(),
+                suppress_renderer_config_disk_writes: self.suppress_renderer_config_disk_writes,
             },
             shm,
         ) {

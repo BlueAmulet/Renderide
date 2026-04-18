@@ -198,13 +198,12 @@ mod tests {
     /// contract; naga-oil strips unused imports, so a material that omits cluster buffer references
     /// can fail at runtime during pipeline creation unless this test catches it.
     #[test]
-    fn reflect_all_embedded_material_targets_match_frame_group0() {
+    fn reflect_all_embedded_material_targets_match_frame_group0() -> Result<(), ReflectError> {
         for stem in crate::embedded_shaders::COMPILED_MATERIAL_STEMS {
             let wgsl = crate::embedded_shaders::embedded_target_wgsl(stem)
-                .unwrap_or_else(|| panic!("embedded_target_wgsl missing for {stem}"));
-            reflect_raster_material_wgsl(wgsl).unwrap_or_else(|e| {
-                panic!("reflect_raster_material_wgsl failed for {stem}: {e}");
-            });
+                .ok_or(ReflectError::EmbeddedTargetMissing(stem))?;
+            reflect_raster_material_wgsl(wgsl)?;
         }
+        Ok(())
     }
 }

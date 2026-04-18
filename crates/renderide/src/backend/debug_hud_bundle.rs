@@ -55,6 +55,7 @@ impl DebugHudBundle {
         surface_format: wgpu::TextureFormat,
         renderer_settings: RendererSettingsHandle,
         config_save_path: PathBuf,
+        suppress_renderer_config_disk_writes: bool,
     ) {
         self.hud = Some(DebugHud::new(
             device,
@@ -62,6 +63,7 @@ impl DebugHudBundle {
             surface_format,
             renderer_settings,
             config_save_path,
+            suppress_renderer_config_disk_writes,
         ));
     }
 

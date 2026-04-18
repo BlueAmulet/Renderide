@@ -174,6 +174,20 @@ fn main_debug_panel_draw_stats(ui: &imgui::Ui, f: &FrameDiagnosticsSnapshot) {
         "Last submit render_tasks: {}  |  pending camera readbacks: not implemented",
         f.last_submit_render_task_count
     ));
+    ui.text(format!(
+        "IPC outbound drops this tick: primary={} background={}  |  consecutive fail streak: primary={} background={}",
+        f.ipc_primary_outbound_drop_this_tick,
+        f.ipc_background_outbound_drop_this_tick,
+        f.ipc_primary_consecutive_fail_streak,
+        f.ipc_background_consecutive_fail_streak
+    ));
+    ui.text(format!(
+        "Frame submit apply failures: {}  |  OpenXR wait_frame errs: {}  locate_views errs: {}  |  unhandled IPC cmds (total events): {}",
+        f.frame_submit_apply_failures,
+        f.xr_wait_frame_failures,
+        f.xr_locate_views_failures,
+        f.unhandled_ipc_command_event_total
+    ));
 }
 
 /// Pool counts, materials, and render graph summary (Stats tab).
@@ -359,6 +373,7 @@ fn renderer_config_panel_body(
     ui: &imgui::Ui,
     g: &mut crate::config::RendererSettings,
     save_path: &std::path::Path,
+    suppress_renderer_config_disk_writes: bool,
 ) {
     let mut dirty = false;
     renderer_config_display_section(ui, g, &mut dirty);
@@ -366,7 +381,12 @@ fn renderer_config_panel_body(
     renderer_config_debug_section(ui, g, &mut dirty);
 
     if dirty {
-        if let Err(e) = save_renderer_settings(save_path, g) {
+        if suppress_renderer_config_disk_writes {
+            logger::error!(
+                "Refusing to save renderer config to {}: disk writes suppressed after startup extract failure",
+                save_path.display()
+            );
+        } else if let Err(e) = save_renderer_settings(save_path, g) {
             logger::warn!(
                 "Failed to save renderer config to {}: {e}",
                 save_path.display()
@@ -880,6 +900,7 @@ impl DebugHud {
         ui: &imgui::Ui,
         settings: &RendererSettingsHandle,
         save_path: &std::path::Path,
+        suppress_renderer_config_disk_writes: bool,
         open: &mut bool,
     ) {
         ui.window("Renderer config")
@@ -902,6 +923,12 @@ impl DebugHud {
                      the process is running — your changes may be overwritten or lost. Use these \
                      controls instead.",
                 );
+                if suppress_renderer_config_disk_writes {
+                    ui.text_colored(
+                        [1.0, 0.35, 0.35, 1.0],
+                        "Disk save is disabled: startup Figment extract failed. Fix config.toml and restart.",
+                    );
+                }
                 ui.separator();
 
                 let Ok(mut g) = settings.write() else {
@@ -909,7 +936,7 @@ impl DebugHud {
                     return;
                 };
 
-                renderer_config_panel_body(ui, &mut g, save_path);
+                renderer_config_panel_body(ui, &mut g, save_path, suppress_renderer_config_disk_writes);
             });
     }
 

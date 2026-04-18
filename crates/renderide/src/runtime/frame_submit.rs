@@ -19,21 +19,26 @@ pub(crate) fn process_frame_submit(runtime: &mut RendererRuntime, data: FrameSub
     host_camera_apply::apply_frame_submit_fields(&mut runtime.host_camera, &data);
 
     let start = Instant::now();
-    runtime.run_asset_integration();
-
+    let mut apply_failed = false;
     if let Some(ref mut shm) = runtime.frontend.shared_memory_mut() {
         if let Err(e) = runtime.scene.apply_frame_submit(shm, &data) {
             logger::error!("scene apply_frame_submit failed: {e}");
+            apply_failed = true;
         }
         if let Err(e) = runtime.scene.flush_world_caches() {
             logger::error!("scene flush_world_caches failed: {e}");
+            apply_failed = true;
         }
+    }
+    if apply_failed {
+        runtime.frame_submit_apply_failures = runtime.frame_submit_apply_failures.saturating_add(1);
+        runtime.frontend.set_fatal_error(true);
     }
     runtime.host_camera.head_output_transform =
         host_camera_apply::head_output_from_active_main_space(&runtime.scene);
 
     logger::trace!(
-        "frame_submit frame_index={} near_clip={} far_clip={} desktop_fov_deg={} vr_active={} asset_integration_ms={:.3}",
+        "frame_submit frame_index={} near_clip={} far_clip={} desktop_fov_deg={} vr_active={} scene_apply_ms={:.3}",
         data.frame_index,
         runtime.host_camera.near_clip,
         runtime.host_camera.far_clip,

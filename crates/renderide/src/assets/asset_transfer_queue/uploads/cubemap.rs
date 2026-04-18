@@ -22,7 +22,7 @@ fn send_cubemap_result(
     let Some(ipc) = ipc else {
         return;
     };
-    ipc.send_background(RendererCommand::SetCubemapResult(SetCubemapResult {
+    let _ = ipc.send_background(RendererCommand::SetCubemapResult(SetCubemapResult {
         asset_id,
         r#type: TextureUpdateResultType(update),
         instance_changed,

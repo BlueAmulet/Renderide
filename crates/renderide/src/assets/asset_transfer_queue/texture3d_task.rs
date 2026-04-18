@@ -153,7 +153,7 @@ impl Texture3dUploadTask {
             }
         }
         if let Some(ipc) = ipc.as_mut() {
-            ipc.send_background(RendererCommand::SetTexture3DResult(SetTexture3DResult {
+            let _ = ipc.send_background(RendererCommand::SetTexture3DResult(SetTexture3DResult {
                 asset_id: id,
                 r#type: TextureUpdateResultType(TextureUpdateResultType::DATA_UPLOAD),
                 instance_changed: false,
