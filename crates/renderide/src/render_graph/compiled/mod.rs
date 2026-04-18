@@ -1,6 +1,6 @@
 //! Compiled DAG: immutable pass order and per-frame execution.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use winit::window::Window;
 
@@ -98,8 +98,8 @@ pub(super) struct MultiViewExecutionContext<'a> {
     device: &'a wgpu::Device,
     /// Limits for [`RenderPassContext`].
     gpu_limits: &'a GpuLimits,
-    /// Shared queue (mutex for cross-thread encode if needed).
-    queue_arc: &'a Arc<Mutex<wgpu::Queue>>,
+    /// Shared queue handle (wgpu::Queue is internally synchronized).
+    queue_arc: &'a Arc<wgpu::Queue>,
     /// Swapchain color view when a view targets the main window.
     backbuffer_view_holder: &'a Option<wgpu::TextureView>,
 }

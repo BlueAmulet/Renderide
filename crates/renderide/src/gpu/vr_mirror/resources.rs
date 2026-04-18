@@ -204,10 +204,7 @@ impl VrMirrorBlitResources {
             frame.present();
             return Ok(());
         };
-        {
-            let q = gpu.queue().lock().unwrap_or_else(|e| e.into_inner());
-            q.write_buffer(uniform_buf, 0, uniform_bytes);
-        }
+        gpu.queue().write_buffer(uniform_buf, 0, uniform_bytes);
 
         let Some(staging_tex) = self.staging_texture.as_ref() else {
             frame.present();

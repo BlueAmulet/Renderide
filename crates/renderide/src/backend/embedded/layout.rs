@@ -128,6 +128,7 @@ impl EmbeddedSharedKeywordIds {
 
 /// Per-stem stable property ids from WGSL reflection (uniform members and `@group(1)` texture globals), built once when the stem layout loads.
 pub(crate) struct StemEmbeddedPropertyIds {
+    pub(crate) stem: Arc<str>,
     pub(crate) shared: Arc<EmbeddedSharedKeywordIds>,
     pub(crate) uniform_field_ids: HashMap<String, i32>,
     pub(crate) texture_binding_property_ids: HashMap<u32, Arc<[i32]>>,
@@ -164,6 +165,7 @@ pub(crate) fn shader_writer_unescaped_property_name(name: &str) -> &str {
 
 impl StemEmbeddedPropertyIds {
     pub(crate) fn build(
+        stem: &str,
         shared: Arc<EmbeddedSharedKeywordIds>,
         registry: &PropertyIdRegistry,
         reflected: &ReflectedRasterLayout,
@@ -205,6 +207,7 @@ impl StemEmbeddedPropertyIds {
         }
 
         Self {
+            stem: Arc::from(stem),
             shared,
             uniform_field_ids,
             texture_binding_property_ids,
@@ -217,7 +220,12 @@ impl StemEmbeddedPropertyIds {
 impl StemEmbeddedPropertyIds {
     /// Shared keyword ids only (no per-stem uniform/texture reflection); for unit tests.
     pub fn minimal_for_tests(registry: &PropertyIdRegistry) -> Self {
+        Self::minimal_for_tests_with_stem(registry, "")
+    }
+
+    pub fn minimal_for_tests_with_stem(registry: &PropertyIdRegistry, stem: &str) -> Self {
         Self {
+            stem: Arc::from(stem),
             shared: Arc::new(EmbeddedSharedKeywordIds::new(registry)),
             uniform_field_ids: HashMap::new(),
             texture_binding_property_ids: HashMap::new(),
@@ -270,7 +278,12 @@ mod tests {
         let registry = PropertyIdRegistry::new();
         let shared = Arc::new(EmbeddedSharedKeywordIds::new(&registry));
 
-        let ids = StemEmbeddedPropertyIds::build(shared, &registry, &reflected);
+        let ids = StemEmbeddedPropertyIds::build(
+            "xiexe_xstoon2.0_default",
+            shared,
+            &registry,
+            &reflected,
+        );
 
         assert_eq!(
             ids.texture_binding_property_ids.get(&1).map(|p| &**p),
@@ -313,6 +326,7 @@ pub(crate) fn build_stem_material_layout(
     });
 
     let ids = Arc::new(StemEmbeddedPropertyIds::build(
+        stem,
         Arc::clone(shared_keyword_ids),
         property_registry,
         &reflected,

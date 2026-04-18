@@ -193,13 +193,8 @@ impl RenderPass for WorldMeshForwardPreparePass {
             });
         };
 
-        let queue_guard = ctx
-            .queue
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let queue = &*queue_guard;
         frame.prepared_world_mesh_forward =
-            prepare_world_mesh_forward_frame(ctx.device, queue, ctx.gpu_limits, frame);
+            prepare_world_mesh_forward_frame(ctx.device, ctx.queue.as_ref(), ctx.gpu_limits, frame);
         Ok(())
     }
 }
@@ -293,13 +288,12 @@ impl RenderPass for WorldMeshForwardOpaquePass {
         let Some(mut prepared) = frame.prepared_world_mesh_forward.take() else {
             return Ok(());
         };
-        let queue_guard = ctx
-            .queue
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let queue = &*queue_guard;
         let recorded = record_world_mesh_forward_opaque_graph_raster(
-            rpass, ctx.device, queue, frame, &prepared,
+            rpass,
+            ctx.device,
+            ctx.queue.as_ref(),
+            frame,
+            &prepared,
         );
         prepared.opaque_recorded = recorded;
         frame.prepared_world_mesh_forward = Some(prepared);
@@ -467,13 +461,12 @@ impl RenderPass for WorldMeshForwardIntersectPass {
             return Ok(());
         };
         let recorded = if prepared.opaque_recorded {
-            let queue_guard = ctx
-                .queue
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let queue = &*queue_guard;
             record_world_mesh_forward_intersection_graph_raster(
-                rpass, ctx.device, queue, frame, &prepared,
+                rpass,
+                ctx.device,
+                ctx.queue.as_ref(),
+                frame,
+                &prepared,
             )
         } else {
             false

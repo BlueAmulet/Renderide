@@ -13,7 +13,7 @@ mod texture_task;
 mod uploads;
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::gpu::GpuLimits;
 use crate::resources::{CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool};
@@ -66,7 +66,7 @@ pub struct AssetTransferQueue {
     /// Bound wgpu device after [`crate::backend::RenderBackend::attach`].
     pub(crate) gpu_device: Option<Arc<wgpu::Device>>,
     /// Submission queue paired with [`Self::gpu_device`].
-    pub(crate) gpu_queue: Option<Arc<Mutex<wgpu::Queue>>>,
+    pub(crate) gpu_queue: Option<Arc<wgpu::Queue>>,
     /// Effective limits snapshot (set with device on attach).
     pub(crate) gpu_limits: Option<Arc<GpuLimits>>,
     /// When true, [`crate::resources::GpuRenderTexture`] uses `Rgba16Float`; else `Rgba8Unorm`.

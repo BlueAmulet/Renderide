@@ -1,7 +1,7 @@
 //! Priority queues and wall-clock–bounded draining for cooperative mesh/texture upload tasks.
 
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::gpu::GpuLimits;
@@ -87,20 +87,18 @@ fn step_asset_task(
     asset: &mut AssetTransferQueue,
     device: &Arc<wgpu::Device>,
     gpu_limits: &Arc<GpuLimits>,
-    queue_arc: &Arc<Mutex<wgpu::Queue>>,
+    queue: &Arc<wgpu::Queue>,
     shm: &mut SharedMemoryAccessor,
     ipc: &mut Option<&mut DualQueueIpc>,
     task: &mut AssetTask,
 ) -> StepResult {
-    let q_lock = queue_arc.lock().unwrap_or_else(|e| e.into_inner());
-    let step_result = match task {
-        AssetTask::Mesh(m) => m.step(asset, device, gpu_limits, &q_lock, shm, ipc),
-        AssetTask::Texture(t) => t.step(asset, device, gpu_limits, &q_lock, shm, ipc),
-        AssetTask::Texture3d(t) => t.step(asset, device, gpu_limits, &q_lock, shm, ipc),
-        AssetTask::Cubemap(t) => t.step(asset, device, gpu_limits, &q_lock, shm, ipc),
-    };
-    drop(q_lock);
-    step_result
+    let q = queue.as_ref();
+    match task {
+        AssetTask::Mesh(m) => m.step(asset, device, gpu_limits, q, shm, ipc),
+        AssetTask::Texture(t) => t.step(asset, device, gpu_limits, q, shm, ipc),
+        AssetTask::Texture3d(t) => t.step(asset, device, gpu_limits, q, shm, ipc),
+        AssetTask::Cubemap(t) => t.step(asset, device, gpu_limits, q, shm, ipc),
+    }
 }
 
 /// Runs integration steps: **all** high-priority tasks complete with **no** wall-clock limit, then

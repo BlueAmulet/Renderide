@@ -392,11 +392,11 @@ impl RenderPass for ClusteredLightPass {
 
         let light_count = frame.backend.frame_resources.frame_light_count_u32();
 
-        let queue = ctx.queue.lock().unwrap_or_else(|e| e.into_inner());
+        let queue: &wgpu::Queue = ctx.queue.as_ref();
         let Some(fgpu) = frame
             .backend
             .frame_resources
-            .sync_cluster_viewport_ensure_lights_upload(ctx.device, &queue, (vw, vh), stereo)
+            .sync_cluster_viewport_ensure_lights_upload(ctx.device, queue, (vw, vh), stereo)
         else {
             return Ok(());
         };
@@ -419,6 +419,14 @@ impl RenderPass for ClusteredLightPass {
         let clusters_per_eye =
             eye_params[0].cluster_count_x * eye_params[0].cluster_count_y * CLUSTER_COUNT_Z;
 
+        if light_count == 0 {
+            let total_clusters = clusters_per_eye as u64 * eye_params.len() as u64;
+            let counts_bytes = total_clusters * std::mem::size_of::<u32>() as u64;
+            ctx.encoder
+                .clear_buffer(refs.cluster_light_counts, 0, Some(counts_bytes));
+            return Ok(());
+        }
+
         let (pipeline, bgl) = ensure_compute_pipeline(ctx.device);
         let cluster_ver = fgpu.cluster_cache.version;
         let bind_group = self.ensure_cluster_compute_bind_group(
@@ -431,7 +439,7 @@ impl RenderPass for ClusteredLightPass {
 
         run_clustered_light_eye_passes(ClusteredLightEyePassEnv {
             encoder: ctx.encoder,
-            queue: &queue,
+            queue,
             pipeline,
             bind_group,
             params_buffer: refs.params_buffer,

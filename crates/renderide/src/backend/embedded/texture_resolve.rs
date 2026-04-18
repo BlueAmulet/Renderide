@@ -449,6 +449,7 @@ mod tests {
                 requires_grab_pass: false,
             },
             StemEmbeddedPropertyIds {
+                stem: Arc::from(""),
                 shared: Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
                 uniform_field_ids: HashMap::new(),
                 texture_binding_property_ids,

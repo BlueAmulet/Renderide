@@ -4,7 +4,7 @@
 //! in `config.toml` (and `RENDERIDE_GPU_VALIDATION`), plus `WGPU_*` env overrides via [`crate::gpu::instance_flags_for_gpu_init`].
 
 use std::ffi::c_void;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use ash::khr::timeline_semaphore as khr_timeline_semaphore;
 use ash::vk::{self, Handle};
@@ -25,8 +25,8 @@ pub struct XrWgpuHandles {
     pub wgpu_adapter: wgpu::Adapter,
     /// WGPU device shared with the desktop path (XR + window mirror).
     pub device: Arc<wgpu::Device>,
-    /// Default queue for submits (mutex for cross-thread encode if needed).
-    pub queue: Arc<Mutex<wgpu::Queue>>,
+    /// Default queue for submits (wgpu::Queue is internally synchronized).
+    pub queue: Arc<wgpu::Queue>,
     /// OpenXR session, frame stream, and reference space.
     pub xr_session: super::session::XrSessionState,
     /// Active system (HMD) id.
@@ -599,7 +599,7 @@ fn wgpu_from_hal_openxr_chain(
         wgpu_instance,
         wgpu_adapter,
         device: Arc::new(wgpu_device),
-        queue: Arc::new(Mutex::new(wgpu_queue)),
+        queue: Arc::new(wgpu_queue),
         xr_session: assembly.xr_session,
         xr_system_id: assembly.xr_system_id,
         openxr_input: assembly.openxr_input,

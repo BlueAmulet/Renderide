@@ -1,3 +1,4 @@
+# Root Cargo.toml (Workspace Level)
 [workspace]
 resolver = "2"
 members = [
@@ -6,3 +7,16 @@ members = [
   "crates/bootstrapper",
   "crates/logger",
 ]
+
+# Global Release Build Settings
+[profile.release]
+# Disable debug symbols to reduce file size and increase performance
+debug = false
+# Full optimization for maximum performance
+opt-level = 3
+# Enable Link-Time Optimization (LTO) for smaller and faster binaries
+lto = true
+# Disable debug assertions for better performance
+debug-assertions = false
+# Set a lower panic strategy to reduce binary size (Unwind uses more space)
+panic = "abort"

@@ -117,9 +117,16 @@ impl RendererRuntime {
 
     /// Updates debug HUD snapshots after [`crate::gpu::GpuContext::end_frame_timing`] for the winit tick.
     pub fn capture_debug_hud_after_frame_end(&mut self, gpu: &GpuContext) {
+        let wall_ms = self.backend.debug_frame_time_ms();
+        self.frame_time_history.push(wall_ms as f32);
+        // Host CPU / RAM / process RAM are sampled every tick so the Frame timing overlay can show
+        // them without requiring the full debug HUD (heavier panels are still gated below).
+        let host = self.host_hud.snapshot();
         let frame_timing = crate::diagnostics::FrameTimingHudSnapshot::capture(
             gpu,
-            self.backend.debug_frame_time_ms(),
+            wall_ms,
+            &host,
+            &self.frame_time_history,
         );
         self.backend.set_debug_hud_frame_timing(frame_timing);
 
@@ -176,11 +183,8 @@ impl RendererRuntime {
     ) -> Result<(), DebugHudEncodeError> {
         let device = gpu.device().as_ref();
         let extent = gpu.surface_extent_px();
-        let q = gpu
-            .queue()
-            .lock()
-            .map_err(|_| DebugHudEncodeError::QueueMutexPoisoned)?;
+        let q = gpu.queue().as_ref();
         self.backend
-            .encode_debug_hud_overlay(device, &q, encoder, backbuffer, extent)
+            .encode_debug_hud_overlay(device, q, encoder, backbuffer, extent)
     }
 }

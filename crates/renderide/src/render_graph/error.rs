@@ -153,10 +153,6 @@ pub enum GraphExecuteError {
     #[error("pass execution failed: {0}")]
     Pass(#[from] RenderPassError),
 
-    /// The render queue mutex was poisoned (another thread panicked while holding the lock).
-    #[error("render queue mutex poisoned")]
-    QueueMutexPoisoned,
-
     /// Multi-view execution was invoked with no views while frame-global work was required.
     #[error("no views in batch for frame-global graph execution")]
     NoViewsInBatch,

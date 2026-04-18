@@ -11,7 +11,7 @@ mod execute;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use thiserror::Error;
 
@@ -50,7 +50,7 @@ pub struct RenderBackendAttachDesc {
     /// Logical device for uploads and graph encoding.
     pub device: Arc<wgpu::Device>,
     /// Queue used for submits and GPU writes.
-    pub queue: Arc<Mutex<wgpu::Queue>>,
+    pub queue: Arc<wgpu::Queue>,
     /// Capabilities for buffer sizing and MSAA.
     pub gpu_limits: Arc<GpuLimits>,
     /// Swapchain / main surface format for HUD and pipelines.
@@ -321,17 +321,14 @@ impl RenderBackend {
         }
         self.mesh_deform_scratch = Some(MeshDeformScratch::new(device.as_ref()));
         self.frame_resources.attach(device.as_ref(), gpu_limits)?;
-        {
-            let q = queue.lock().unwrap_or_else(|e| e.into_inner());
-            self.debug_hud.attach(
-                device.as_ref(),
-                &q,
-                surface_format,
-                renderer_settings,
-                config_save_path,
-                suppress_renderer_config_disk_writes,
-            );
-        }
+        self.debug_hud.attach(
+            device.as_ref(),
+            queue.as_ref(),
+            surface_format,
+            renderer_settings,
+            config_save_path,
+            suppress_renderer_config_disk_writes,
+        );
         match MeshPreprocessPipelines::new(device.as_ref()) {
             Ok(p) => self.mesh_preprocess = Some(p),
             Err(e) => {

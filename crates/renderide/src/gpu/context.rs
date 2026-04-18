@@ -3,6 +3,12 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[allow(dead_code)]
+fn _assert_queue_send_sync() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<wgpu::Queue>();
+}
+
 use super::frame_cpu_gpu_timing::{
     make_gpu_done_callback, FrameCpuGpuTiming, FrameCpuGpuTimingHandle,
 };
@@ -128,7 +134,7 @@ pub struct GpuContext {
     /// Effective limits and derived caps for this device (shared across backend and uploads).
     limits: Arc<GpuLimits>,
     device: Arc<wgpu::Device>,
-    queue: Arc<Mutex<wgpu::Queue>>,
+    queue: Arc<wgpu::Queue>,
     /// Kept as `'static` so the context can move independently of the window borrow; the window
     /// must outlive this value (owned alongside it in the app handler).
     surface: wgpu::Surface<'static>,
@@ -245,7 +251,7 @@ impl GpuContext {
             swapchain_msaa_effective_stereo: 1,
             limits,
             device,
-            queue: Arc::new(Mutex::new(queue)),
+            queue: Arc::new(queue),
             surface: surface_safe,
             config,
             depth_attachment: None,
@@ -259,7 +265,7 @@ impl GpuContext {
         instance: &wgpu::Instance,
         adapter: &wgpu::Adapter,
         device: Arc<wgpu::Device>,
-        queue: Arc<Mutex<wgpu::Queue>>,
+        queue: Arc<wgpu::Queue>,
         window: Arc<Window>,
         vsync: bool,
     ) -> Result<Self, GpuError> {
@@ -379,45 +385,26 @@ impl GpuContext {
     }
 
     /// Shared handle also passed to [`crate::runtime::RendererRuntime`] for uploads.
-    pub fn queue(&self) -> &Arc<Mutex<wgpu::Queue>> {
+    pub fn queue(&self) -> &Arc<wgpu::Queue> {
         &self.queue
     }
 
     /// Submits render work for this frame; records last submit and GPU idle for the debug HUD timing HUD.
     pub fn submit_tracked_frame_commands(&self, cmd: wgpu::CommandBuffer) {
-        self.submit_tracked_inner(cmd);
+        self.submit_tracked_inner(&self.queue, cmd);
     }
 
-    /// Same as [`Self::submit_tracked_frame_commands`] but uses an already-locked queue (e.g. debug HUD overlay encode).
+    /// Same as [`Self::submit_tracked_frame_commands`] but uses an externally-held queue reference
+    /// (e.g. debug HUD overlay encode on the same handle).
     pub fn submit_tracked_frame_commands_with_queue(
         &self,
-        queue: &mut wgpu::Queue,
+        queue: &wgpu::Queue,
         cmd: wgpu::CommandBuffer,
     ) {
-        self.submit_tracked_inner_with_queue(queue, cmd);
+        self.submit_tracked_inner(queue, cmd);
     }
 
-    fn submit_tracked_inner(&self, cmd: wgpu::CommandBuffer) {
-        let track = {
-            let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
-            ft.on_before_tracked_submit()
-        };
-        if let Some((gen, seq)) = track {
-            let submit_at = Instant::now();
-            let q = self.queue.lock().unwrap_or_else(|e| e.into_inner());
-            q.submit(std::iter::once(cmd));
-            let handle = Arc::clone(&self.frame_timing);
-            let cb = make_gpu_done_callback(handle, gen, seq, submit_at);
-            q.on_submitted_work_done(cb);
-        } else {
-            self.queue
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .submit(std::iter::once(cmd));
-        }
-    }
-
-    fn submit_tracked_inner_with_queue(&self, queue: &mut wgpu::Queue, cmd: wgpu::CommandBuffer) {
+    fn submit_tracked_inner(&self, queue: &wgpu::Queue, cmd: wgpu::CommandBuffer) {
         let track = {
             let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
             ft.on_before_tracked_submit()

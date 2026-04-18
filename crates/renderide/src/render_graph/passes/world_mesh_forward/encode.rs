@@ -4,9 +4,13 @@ use crate::backend::mesh_deform::GpuSkinCache;
 use crate::backend::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 use crate::backend::MaterialBindCacheKey;
 use crate::backend::WorldMeshForwardEncodeRefs;
-use crate::materials::{MaterialPipelineDesc, MaterialPipelineSet, RasterPipelineKind};
+use crate::embedded_shaders;
+use crate::materials::{
+    embedded_composed_stem_for_permutation, MaterialPassDesc, MaterialPipelineDesc,
+    MaterialPipelineSet, RasterPipelineKind,
+};
 use crate::pipelines::ShaderPermutation;
-use crate::render_graph::world_mesh_draw_prep::build_instance_batches;
+use crate::render_graph::world_mesh_draw_prep::for_each_instance_batch;
 use crate::render_graph::MaterialDrawBatchKey;
 use crate::render_graph::WorldMeshDrawItem;
 use crate::resources::MeshPool;
@@ -139,6 +143,30 @@ pub(crate) struct ForwardDrawBatch<'a, 'b, 'c, 'd> {
     pub offscreen_write_render_texture_asset_id: Option<i32>,
     /// Whether `draw_indexed` may use non-zero `first_instance` / base instance.
     pub supports_base_instance: bool,
+    /// Whether the packed frame light buffer contains any point/spot light.
+    pub has_local_lights: bool,
+}
+
+fn declared_passes_for_pipeline(
+    pipeline: &RasterPipelineKind,
+    shader_perm: ShaderPermutation,
+) -> &'static [MaterialPassDesc] {
+    let RasterPipelineKind::EmbeddedStem(stem) = pipeline else {
+        return &[];
+    };
+    let composed = embedded_composed_stem_for_permutation(stem.as_ref(), shader_perm);
+    embedded_shaders::embedded_target_passes(&composed)
+}
+
+fn should_skip_pipeline_pass(
+    declared_passes: &[MaterialPassDesc],
+    pass_idx: usize,
+    has_local_lights: bool,
+) -> bool {
+    !has_local_lights
+        && declared_passes
+            .get(pass_idx)
+            .is_some_and(|pass| pass.name == "forward_delta")
 }
 
 /// Resolves raster pipeline set for `item`’s batch key, logging when the registry has no match.
@@ -183,52 +211,70 @@ fn resolve_pipelines_for_batch_item(
 }
 
 pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
+    let ForwardDrawBatch {
+        rpass,
+        draw_indices,
+        draws,
+        encode,
+        queue,
+        device,
+        frame_bg,
+        empty_bg,
+        per_draw_bind_group,
+        pass_desc,
+        shader_perm,
+        warned_missing_embedded_bind,
+        offscreen_write_render_texture_asset_id,
+        supports_base_instance,
+        has_local_lights,
+    } = batch;
+
     let mut last_batch_key: Option<MaterialDrawBatchKey> = None;
     let mut last_material_bind_key: Option<LastMaterialBindGroup1Key> = None;
     let mut current_pipelines: Option<MaterialPipelineSet> = None;
+    let mut current_declared_passes: &'static [MaterialPassDesc] = &[];
     let mut pipeline_ok = false;
 
-    batch.rpass.set_bind_group(0, batch.frame_bg, &[]);
+    rpass.set_bind_group(0, frame_bg, &[]);
 
-    let batches = build_instance_batches(
-        batch.draws,
-        batch.draw_indices,
-        batch.supports_base_instance,
-    );
-
-    for inst_batch in batches {
+    for_each_instance_batch(draws, draw_indices, supports_base_instance, |inst_batch| {
         let first_idx = inst_batch.first_draw_index;
-        let item = &batch.draws[first_idx];
+        let item = &draws[first_idx];
 
-        if last_batch_key.as_ref() != Some(&item.batch_key) {
+        let batch_key_changed = last_batch_key.as_ref() != Some(&item.batch_key);
+        if batch_key_changed {
             last_batch_key = Some(item.batch_key.clone());
-            let (ok, pipes) = resolve_pipelines_for_batch_item(
-                batch.encode,
-                batch.pass_desc,
-                batch.shader_perm,
-                item,
-            );
+            let (ok, pipes) =
+                resolve_pipelines_for_batch_item(encode, pass_desc, shader_perm, item);
             pipeline_ok = ok;
             current_pipelines = pipes;
+            current_declared_passes =
+                declared_passes_for_pipeline(&item.batch_key.pipeline, shader_perm);
         }
 
         if !pipeline_ok {
-            continue;
+            return;
         }
 
-        set_world_mesh_material_bind_group(MaterialBindState {
-            rpass: batch.rpass,
-            encode: batch.encode,
-            queue: batch.queue,
-            item,
-            empty_bg: batch.empty_bg,
-            last_material_bind_key: &mut last_material_bind_key,
-            warned_missing_embedded_bind: batch.warned_missing_embedded_bind,
-            offscreen_write_render_texture_asset_id: batch.offscreen_write_render_texture_asset_id,
-        });
+        // Material bind resolution (stem layout + texture signature hash + LRU lookups) only needs
+        // to run when the batch key changes. Within a run of same-key batches, @group(1) and its
+        // cached uniform buffer are invariant, so the previous `last_material_bind_key` still
+        // reflects what is bound on the render pass.
+        if batch_key_changed {
+            set_world_mesh_material_bind_group(MaterialBindState {
+                rpass: &mut *rpass,
+                encode: &mut *encode,
+                queue,
+                item,
+                empty_bg,
+                last_material_bind_key: &mut last_material_bind_key,
+                warned_missing_embedded_bind,
+                offscreen_write_render_texture_asset_id,
+            });
+        }
 
-        let storage_align = batch.device.limits().min_storage_buffer_offset_alignment;
-        let per_draw_dyn_offset = if batch.supports_base_instance {
+        let storage_align = device.limits().min_storage_buffer_offset_alignment;
+        let per_draw_dyn_offset = if supports_base_instance {
             0u32
         } else {
             // Downlevel: `first_instance` is always zero; select the draw row via dynamic offset.
@@ -241,30 +287,26 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
             );
             raw
         };
-        batch
-            .rpass
-            .set_bind_group(2, batch.per_draw_bind_group, &[per_draw_dyn_offset]);
-        let inst_range = instance_range_for_batch(
-            first_idx,
-            inst_batch.instance_count,
-            batch.supports_base_instance,
-        );
-        batch
-            .rpass
-            .set_stencil_reference(item.batch_key.render_state.stencil_reference());
+        rpass.set_bind_group(2, per_draw_bind_group, &[per_draw_dyn_offset]);
+        let inst_range =
+            instance_range_for_batch(first_idx, inst_batch.instance_count, supports_base_instance);
+        rpass.set_stencil_reference(item.batch_key.render_state.stencil_reference());
 
         let Some(pipelines) = current_pipelines.as_ref() else {
-            continue;
+            return;
         };
-        let skin_cache = batch.encode.skin_cache;
-        for pipeline in pipelines.iter() {
-            batch.rpass.set_pipeline(pipeline);
+        let skin_cache = encode.skin_cache;
+        for (pass_idx, pipeline) in pipelines.iter().enumerate() {
+            if should_skip_pipeline_pass(current_declared_passes, pass_idx, has_local_lights) {
+                continue;
+            }
+            rpass.set_pipeline(pipeline);
             draw_mesh_submesh_instanced(
-                batch.rpass,
+                rpass,
                 item,
                 WorldMeshDrawGpuRefs {
-                    mesh_pool: batch.encode.mesh_pool_mut(),
-                    device: batch.device,
+                    mesh_pool: encode.mesh_pool_mut(),
+                    device,
                     skin_cache,
                 },
                 EmbeddedVertexStreamFlags {
@@ -277,7 +319,7 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
                 inst_range.clone(),
             );
         }
-    }
+    });
 }
 
 fn instance_range_for_batch(
@@ -395,7 +437,9 @@ pub(crate) fn draw_mesh_submesh_instanced(
 
 #[cfg(test)]
 mod tests {
-    use super::instance_range_for_batch;
+    use crate::materials::default_pass;
+
+    use super::{instance_range_for_batch, should_skip_pipeline_pass, MaterialPassDesc};
 
     #[test]
     fn no_base_instance_draws_from_zero() {
@@ -405,5 +449,23 @@ mod tests {
     #[test]
     fn base_instance_uses_sorted_draw_slot() {
         assert_eq!(instance_range_for_batch(17, 3, true), 17..20);
+    }
+
+    #[test]
+    fn skips_forward_delta_only_when_no_local_lights() {
+        let passes = [
+            MaterialPassDesc {
+                name: "forward",
+                ..default_pass(false, true)
+            },
+            MaterialPassDesc {
+                name: "forward_delta",
+                ..default_pass(false, false)
+            },
+        ];
+
+        assert!(!should_skip_pipeline_pass(&passes, 0, false));
+        assert!(should_skip_pipeline_pass(&passes, 1, false));
+        assert!(!should_skip_pipeline_pass(&passes, 1, true));
     }
 }

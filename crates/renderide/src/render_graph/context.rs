@@ -6,7 +6,7 @@
 //! those slices. See [`crate::render_graph::CompiledRenderGraph::execute_multi_view`].
 
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::gpu::GpuLimits;
 
@@ -183,8 +183,8 @@ pub struct RenderPassContext<'a, 'encoder, 'frame> {
     pub device: &'a wgpu::Device,
     /// Effective limits for this frame (from [`crate::gpu::GpuContext::limits`]).
     pub gpu_limits: &'a GpuLimits,
-    /// Submission queue (same mutex as [`crate::gpu::GpuContext::queue`]).
-    pub queue: &'a Arc<Mutex<wgpu::Queue>>,
+    /// Submission queue (internally synchronized by wgpu).
+    pub queue: &'a Arc<wgpu::Queue>,
     /// Encoder for this slice only (all passes invoked on this context share this encoder until it is finished).
     pub encoder: &'encoder mut wgpu::CommandEncoder,
     /// Swapchain view when this frame acquired the surface; [`None`] for offscreen-only graphs.
@@ -203,8 +203,8 @@ pub struct GraphRasterPassContext<'a, 'frame> {
     pub device: &'a wgpu::Device,
     /// Effective limits for this frame (from [`crate::gpu::GpuContext::limits`]).
     pub gpu_limits: &'a GpuLimits,
-    /// Submission queue (same mutex as [`crate::gpu::GpuContext::queue`]).
-    pub queue: &'a Arc<Mutex<wgpu::Queue>>,
+    /// Submission queue (internally synchronized by wgpu).
+    pub queue: &'a Arc<wgpu::Queue>,
     /// Swapchain view when this frame acquired the surface; [`None`] for offscreen-only graphs.
     pub backbuffer: Option<&'a wgpu::TextureView>,
     /// Depth attachment for the main forward pass when configured.

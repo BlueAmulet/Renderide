@@ -42,6 +42,9 @@ struct PbsSpecularMaterial {
     _DstBlend: f32,
     _ZWrite: f32,
     _Mode: f32,
+    _ALPHATEST_ON: f32,
+    _ALPHABLEND_ON: f32,
+    _ALPHAPREMULTIPLY_ON: f32,
     _OffsetFactor: f32,  // pad to 144-byte (9 × 16) boundary
 }
 
@@ -70,6 +73,26 @@ struct VertexOutput {
     @location(2) uv0: vec2<f32>,
     @location(3) uv1: vec2<f32>,
     @location(4) @interpolate(flat) view_layer: u32,
+}
+
+fn kw(v: f32) -> bool {
+    return v > 0.5;
+}
+
+fn mode_near(v: f32) -> bool {
+    return abs(mat._Mode - v) < 0.5;
+}
+
+fn alpha_test_enabled() -> bool {
+    return kw(mat._ALPHATEST_ON) || mode_near(1.0);
+}
+
+fn alpha_premultiply_enabled() -> bool {
+    return kw(mat._ALPHAPREMULTIPLY_ON) || mode_near(3.0);
+}
+
+fn apply_premultiply(color: vec3<f32>, alpha: f32) -> vec3<f32> {
+    return select(color, color * alpha, alpha_premultiply_enabled());
 }
 
 /// Sample base + detail normal maps, blend them (UDN) and transform to world space.
@@ -152,7 +175,7 @@ fn fs_main(
     var base_color = mat._Color.xyz * albedo_s.xyz;
     let alpha      = mat._Color.a * albedo_s.a;
     let clip_alpha = mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main);
-    if clip_alpha < mat._Cutoff {
+    if (alpha_test_enabled() && clip_alpha <= mat._Cutoff) {
         discard;
     }
 
@@ -226,5 +249,5 @@ fn fs_main(
 
     let amb   = select(vec3<f32>(0.03), vec3<f32>(0.0), mat._GlossyReflections < 0.5);
     let color = (amb * base_color * occlusion + lo * occlusion) + em;
-    return vec4<f32>(color, alpha);
+    return vec4<f32>(apply_premultiply(color, alpha), alpha);
 }

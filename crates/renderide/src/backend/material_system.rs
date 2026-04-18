@@ -1,7 +1,7 @@
 //! Material property store, shader routing, pipeline registry, and embedded `@group(1)` bind resources.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::assets::material::{
     parse_materials_update_batch_into_store, MaterialPropertyStore, ParseMaterialBatchOptions,
@@ -58,7 +58,7 @@ impl MaterialSystem {
     pub fn try_attach_gpu(
         &mut self,
         device: Arc<wgpu::Device>,
-        queue: &Arc<Mutex<wgpu::Queue>>,
+        queue: &Arc<wgpu::Queue>,
     ) -> Result<(), EmbeddedMaterialBindError> {
         let embedded = EmbeddedMaterialBindResources::new(
             device.clone(),
@@ -72,9 +72,7 @@ impl MaterialSystem {
                 reg.map_shader_route(asset_id, pipeline, display_name);
             }
         }
-        if let Ok(q) = queue.lock() {
-            embedded.write_default_white(&q);
-        }
+        embedded.write_default_white(queue.as_ref());
         self.embedded_material_bind = Some(embedded);
         Ok(())
     }

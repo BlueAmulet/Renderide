@@ -2,7 +2,7 @@
 
 use crate::assets::material::{MaterialPropertyLookupIds, MaterialPropertyStore};
 
-use super::super::layout::StemEmbeddedPropertyIds;
+use super::super::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
 use super::helpers::{
     first_float_by_pids, is_keyword_like_field, keyword_float_enabled_any_pids,
     shader_writer_unescaped_field_name, texture_property_present_pids,
@@ -23,31 +23,27 @@ pub(super) fn inferred_keyword_float_f32(
 
     let kw = ids.shared.as_ref();
     match field_name {
-        "_ALPHATEST_ON" => {
-            let mode = first_float_by_pids(store, lookup, &[kw.mode]).map(|v| v.round() as i32);
-            let blend = first_float_by_pids(store, lookup, &[kw.blend_mode, kw.blend_mode_alt])
-                .map(|v| v.round() as i32);
-            return Some(if mode == Some(1) || blend == Some(1) {
+        "_ALPHATEST_ON" | "_ALPHATEST" | "ALPHATEST" | "_ALPHA_TEST" | "ALPHA_TEST"
+        | "_ALPHACLIP" | "ALPHACLIP" | "_ALPHA_CLIP" | "ALPHA_CLIP" => {
+            return Some(if material_mode_or_blend_mode_is(store, lookup, kw, 1) {
                 1.0
             } else {
                 0.0
             });
         }
-        "_ALPHABLEND_ON" => {
-            let mode = first_float_by_pids(store, lookup, &[kw.mode]).map(|v| v.round() as i32);
-            let blend = first_float_by_pids(store, lookup, &[kw.blend_mode, kw.blend_mode_alt])
-                .map(|v| v.round() as i32);
-            return Some(if mode == Some(2) || blend == Some(2) {
+        "_ALPHABLEND_ON" | "_ALPHABLEND" | "ALPHABLEND" | "_ALPHA_BLEND" | "ALPHA_BLEND" => {
+            return Some(if material_mode_or_blend_mode_is(store, lookup, kw, 2) {
                 1.0
             } else {
                 0.0
             });
         }
-        "_ALPHAPREMULTIPLY_ON" => {
-            let mode = first_float_by_pids(store, lookup, &[kw.mode]).map(|v| v.round() as i32);
-            let blend = first_float_by_pids(store, lookup, &[kw.blend_mode, kw.blend_mode_alt])
-                .map(|v| v.round() as i32);
-            return Some(if mode == Some(3) || blend == Some(3) {
+        "_ALPHAPREMULTIPLY_ON"
+        | "_ALPHAPREMULTIPLY"
+        | "ALPHAPREMULTIPLY"
+        | "_ALPHA_PREMULTIPLY"
+        | "ALPHA_PREMULTIPLY" => {
+            return Some(if material_mode_or_blend_mode_is(store, lookup, kw, 3) {
                 1.0
             } else {
                 0.0
@@ -95,6 +91,18 @@ pub(super) fn inferred_keyword_float_f32(
         _ => return None,
     };
     Some(if inferred { 1.0 } else { 0.0 })
+}
+
+fn material_mode_or_blend_mode_is(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    kw: &EmbeddedSharedKeywordIds,
+    mode_value: i32,
+) -> bool {
+    let mode = first_float_by_pids(store, lookup, &[kw.mode]).map(|v| v.round() as i32);
+    let blend = first_float_by_pids(store, lookup, &[kw.blend_mode, kw.blend_mode_alt])
+        .map(|v| v.round() as i32);
+    mode == Some(mode_value) || blend == Some(mode_value)
 }
 
 pub(super) fn default_f32_for_field(
@@ -176,6 +184,8 @@ pub(super) fn default_f32_for_field(
         | "_SrcBlendBase"
         | "_SrcBlendAdd" => 1.0,
         "_Exp" | "_Exp0" | "_Exp1" | "_PolarPow" | "_LerpPolarPow" => 1.0,
+        "_Distance" => 1.0,
+        "_Transition" => 0.1,
         "_MaxIntensity" => 4.0,
         "_Parallax" => 0.02,
         "_GammaCurve" => 2.2,

@@ -206,10 +206,7 @@ impl RenderPass for MeshDeformPass {
             return Ok(());
         };
 
-        let queue = match ctx.queue.lock() {
-            Ok(q) => q,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let queue: &wgpu::Queue = ctx.queue.as_ref();
 
         let mut bone_cursor = 0u64;
         let mut blend_weight_cursor = 0u64;
@@ -237,7 +234,7 @@ impl RenderPass for MeshDeformPass {
 
             record_mesh_deform(
                 MeshDeformEncodeGpu {
-                    queue: &queue,
+                    queue,
                     device: ctx.device,
                     gpu_limits: ctx.gpu_limits,
                     encoder: ctx.encoder,

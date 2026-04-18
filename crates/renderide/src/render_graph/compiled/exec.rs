@@ -342,16 +342,14 @@ impl CompiledRenderGraph {
                 return Err(GraphExecuteError::MissingSwapchainView);
             };
             let viewport_px = gpu.surface_extent_px();
-            let mut queue_lock = queue_arc
-                .lock()
-                .map_err(|_| GraphExecuteError::QueueMutexPoisoned)?;
+            let queue_ref: &wgpu::Queue = queue_arc.as_ref();
             if let Err(e) =
-                backend.encode_debug_hud_overlay(device, &queue_lock, &mut encoder, bb, viewport_px)
+                backend.encode_debug_hud_overlay(device, queue_ref, &mut encoder, bb, viewport_px)
             {
                 logger::warn!("debug HUD overlay: {e}");
             }
             let cmd = encoder.finish();
-            gpu.submit_tracked_frame_commands_with_queue(&mut queue_lock, cmd);
+            gpu.submit_tracked_frame_commands_with_queue(queue_ref, cmd);
         } else {
             let cmd = encoder.finish();
             gpu.submit_tracked_frame_commands(cmd);
