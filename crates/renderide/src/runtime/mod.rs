@@ -59,6 +59,8 @@ pub struct RendererRuntime {
     config_save_path: PathBuf,
     /// Throttled host CPU/RAM sampling for the debug HUD.
     host_hud: crate::diagnostics::HostHudGatherer,
+    /// Rolling per-frame wall time history that feeds the Frame timing sparkline.
+    frame_time_history: crate::diagnostics::FrameTimeHistory,
     /// [`FrameSubmitData::render_tasks`] length from the last applied frame submit (HUD).
     last_submit_render_task_count: usize,
     /// Cached full [`wgpu::AllocatorReport`] for the **GPU memory** HUD tab (refreshed on a timer).
@@ -94,6 +96,7 @@ impl RendererRuntime {
             settings,
             config_save_path,
             host_hud: crate::diagnostics::HostHudGatherer::default(),
+            frame_time_history: crate::diagnostics::FrameTimeHistory::new(),
             last_submit_render_task_count: 0,
             allocator_report_hud: None,
             allocator_report_last_refresh: None,

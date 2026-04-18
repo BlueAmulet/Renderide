@@ -48,6 +48,8 @@ pub struct HostCpuMemoryHud {
     pub ram_total_bytes: u64,
     /// Used RAM in bytes (OS-defined).
     pub ram_used_bytes: u64,
+    /// Resident memory of the renderer process in bytes (OS-defined; `None` when unavailable).
+    pub process_ram_bytes: Option<u64>,
 }
 
 /// Optional wgpu allocator totals when the backend exposes a report.

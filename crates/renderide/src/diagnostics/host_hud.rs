@@ -1,13 +1,18 @@
 //! Throttled `sysinfo` sampling for the debug HUD host CPU / RAM section.
 
 use super::frame_diagnostics_snapshot::HostCpuMemoryHud;
-use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
+use sysinfo::{
+    CpuRefreshKind, MemoryRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind,
+    System,
+};
 
 /// Owns a lazily allocated [`System`] and samples [`HostCpuMemoryHud`] every
 /// [`REFRESH_INTERVAL_FRAMES`] frames to limit `sysinfo` work.
 pub struct HostHudGatherer {
     system: Option<System>,
     frame_counter: u64,
+    pid: Option<Pid>,
+    cached: HostCpuMemoryHud,
 }
 
 const REFRESH_INTERVAL_FRAMES: u64 = 30;
@@ -18,10 +23,12 @@ impl HostHudGatherer {
         Self {
             system: None,
             frame_counter: 0,
+            pid: sysinfo::get_current_pid().ok(),
+            cached: HostCpuMemoryHud::default(),
         }
     }
 
-    /// Returns host CPU/RAM for the current frame (reusing cached values between refreshes).
+    /// Returns host CPU/RAM plus this process RAM for the current frame (cached between refreshes).
     pub fn snapshot(&mut self) -> HostCpuMemoryHud {
         self.frame_counter = self.frame_counter.wrapping_add(1);
 
@@ -34,34 +41,47 @@ impl HostHudGatherer {
         }
 
         let Some(ref mut sys) = self.system else {
-            return HostCpuMemoryHud {
-                cpu_model: if sysinfo::IS_SUPPORTED_SYSTEM {
-                    String::new()
-                } else {
-                    "unsupported platform".to_string()
-                },
+            let label = if sysinfo::IS_SUPPORTED_SYSTEM {
+                String::new()
+            } else {
+                "unsupported platform".to_string()
+            };
+            self.cached = HostCpuMemoryHud {
+                cpu_model: label,
                 ..Default::default()
             };
+            return self.cached.clone();
         };
 
         if self.frame_counter % REFRESH_INTERVAL_FRAMES == 1 {
             sys.refresh_cpu_usage();
             sys.refresh_memory();
+            let process_ram = self.pid.and_then(|pid| {
+                sys.refresh_processes_specifics(
+                    ProcessesToUpdate::Some(&[pid]),
+                    true,
+                    ProcessRefreshKind::nothing().with_memory(),
+                );
+                sys.process(pid).map(|p| p.memory())
+            });
+
+            let cpu_model = sys
+                .cpus()
+                .first()
+                .map(|c| c.brand().to_string())
+                .unwrap_or_default();
+
+            self.cached = HostCpuMemoryHud {
+                cpu_model,
+                logical_cpus: sys.cpus().len(),
+                cpu_usage_percent: sys.global_cpu_usage(),
+                ram_total_bytes: sys.total_memory(),
+                ram_used_bytes: sys.used_memory(),
+                process_ram_bytes: process_ram,
+            };
         }
 
-        let cpu_model = sys
-            .cpus()
-            .first()
-            .map(|c| c.brand().to_string())
-            .unwrap_or_default();
-
-        HostCpuMemoryHud {
-            cpu_model,
-            logical_cpus: sys.cpus().len(),
-            cpu_usage_percent: sys.global_cpu_usage(),
-            ram_total_bytes: sys.total_memory(),
-            ram_used_bytes: sys.used_memory(),
-        }
+        self.cached.clone()
     }
 }
 

@@ -28,9 +28,16 @@ impl RendererRuntime {
 
     /// Updates debug HUD snapshots after [`crate::gpu::GpuContext::end_frame_timing`] for the winit tick.
     pub fn capture_debug_hud_after_frame_end(&mut self, gpu: &GpuContext) {
+        let wall_ms = self.backend.debug_frame_time_ms();
+        self.frame_time_history.push(wall_ms as f32);
+        // Host CPU / RAM / process RAM are sampled every tick so the Frame timing overlay can show
+        // them without requiring the full debug HUD (heavier panels are still gated below).
+        let host = self.host_hud.snapshot();
         let frame_timing = crate::diagnostics::FrameTimingHudSnapshot::capture(
             gpu,
-            self.backend.debug_frame_time_ms(),
+            wall_ms,
+            &host,
+            &self.frame_time_history,
         );
         self.backend.set_debug_hud_frame_timing(frame_timing);
 
@@ -47,7 +54,6 @@ impl RendererRuntime {
             .unwrap_or((false, false, false));
 
         if main_hud {
-            let host = self.host_hud.snapshot();
             let now = Instant::now();
             let should_refresh_allocator_report = self
                 .allocator_report_last_refresh
