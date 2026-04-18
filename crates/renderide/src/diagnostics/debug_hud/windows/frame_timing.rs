@@ -15,9 +15,14 @@ const RAM_HEAD_COLOR: [f32; 4] = [1.00, 0.75, 0.35, 1.0];
 const FPS_HEAD_COLOR: [f32; 4] = [1.00, 1.00, 1.00, 1.0];
 const GRAPH_COLOR: [f32; 4] = [0.50, 1.00, 0.55, 1.0];
 
-const LABEL_COL_W: f32 = 48.0;
-const VALUE_COL_W: f32 = 86.0;
-const GRAPH_SIZE: [f32; 2] = [LABEL_COL_W + VALUE_COL_W * 2.0 + 4.0, 44.0];
+/// Column x offsets relative to the window content origin (after padding). Widest value
+/// strings (`23.03 GiB (72%)`, `peak 27.51 ms`) set the overall window width.
+const COL_LABEL_X: f32 = 0.0;
+const COL_PRIMARY_X: f32 = 54.0;
+const COL_SECONDARY_LABEL_X: f32 = 150.0;
+const COL_SECONDARY_VALUE_X: f32 = 196.0;
+const CONTENT_WIDTH: f32 = 320.0;
+const GRAPH_HEIGHT: f32 = 46.0;
 
 pub(super) fn frame_timing_window(ui: &imgui::Ui, timing: Option<&FrameTimingHudSnapshot>) {
     let window_flags = WindowFlags::ALWAYS_AUTO_RESIZE
@@ -33,6 +38,8 @@ pub(super) fn frame_timing_window(ui: &imgui::Ui, timing: Option<&FrameTimingHud
                 ui.text("Waiting for snapshot...");
                 return;
             };
+            // Reserve a fixed content width so every row and the graph share the same extent.
+            ui.dummy([CONTENT_WIDTH, 0.0]);
             render_rows(ui, t);
             ui.separator();
             render_frametime_graph(ui, t);
@@ -94,7 +101,7 @@ fn render_rows(ui: &imgui::Ui, t: &FrameTimingHudSnapshot) {
         ui,
         ("RAM", RAM_HEAD_COLOR),
         (proc_ram, VALUE_COLOR),
-        Some(("app", DIM_COLOR)),
+        Some(("host", DIM_COLOR)),
         Some((format!("{host_ram} ({host_ram_pct:.0}%)"), DIM_COLOR)),
     );
 
@@ -119,29 +126,30 @@ fn row(
     secondary_label: Option<(&str, [f32; 4])>,
     secondary_value: Option<(String, [f32; 4])>,
 ) {
-    let y = ui.cursor_pos()[1];
-    ui.set_cursor_pos([0.0, y]);
+    // Start the row at the natural cursor (respects window padding), then align columns with
+    // `same_line_with_pos` which is window-local, padding-aware.
+    if COL_LABEL_X > 0.0 {
+        ui.same_line_with_pos(COL_LABEL_X);
+    }
     ui.text_colored(label_color, label);
-    ui.set_cursor_pos([LABEL_COL_W, y]);
+
+    ui.same_line_with_pos(COL_PRIMARY_X);
     ui.text_colored(value_color, value);
 
     if let Some((slabel, slabel_color)) = secondary_label {
-        let x = LABEL_COL_W + VALUE_COL_W;
-        ui.set_cursor_pos([x, y]);
+        ui.same_line_with_pos(COL_SECONDARY_LABEL_X);
         ui.text_colored(slabel_color, slabel);
     }
     if let Some((sval, sval_color)) = secondary_value {
-        let x = LABEL_COL_W + VALUE_COL_W + 40.0;
-        ui.set_cursor_pos([x, y]);
+        ui.same_line_with_pos(COL_SECONDARY_VALUE_X);
         ui.text_colored(sval_color, sval);
     }
-    // Ensure next row advances below this one even if we stayed on the same line.
-    ui.new_line();
 }
 
 fn render_frametime_graph(ui: &imgui::Ui, t: &FrameTimingHudSnapshot) {
+    let width = ui.content_region_avail()[0].max(CONTENT_WIDTH);
     if t.frame_time_history.is_empty() {
-        ui.dummy(GRAPH_SIZE);
+        ui.dummy([width, GRAPH_HEIGHT]);
         return;
     }
     let peak = t
@@ -155,7 +163,7 @@ fn render_frametime_graph(ui: &imgui::Ui, t: &FrameTimingHudSnapshot) {
     ui.plot_lines("##frametime", &t.frame_time_history)
         .scale_min(lo)
         .scale_max(hi)
-        .graph_size(GRAPH_SIZE)
+        .graph_size([width, GRAPH_HEIGHT])
         .overlay_text(overlay)
         .build();
     style.pop();
