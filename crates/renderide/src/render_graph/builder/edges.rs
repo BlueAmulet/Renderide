@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::super::error::GraphBuildError;
-use super::super::ids::PassId;
+use super::super::ids::{GroupId, PassId};
 use super::super::pass::GroupScope;
 use super::super::resources::{BufferResourceHandle, ResourceHandle, TextureResourceHandle};
 use super::decl::SetupEntry;
@@ -28,6 +28,24 @@ pub(super) fn explicit_edges(
     Ok(edges)
 }
 
+/// Adds linear-size relay edges so every pass in set `a` precedes every pass in set `b`.
+fn relay_all_before(a: &[usize], b: &[usize], edges: &mut HashSet<(usize, usize)>) {
+    if a.is_empty() || b.is_empty() {
+        return;
+    }
+    let mut b_sorted = b.to_vec();
+    b_sorted.sort_unstable();
+    let rep_b = b_sorted[0];
+    for &ai in a {
+        if ai != rep_b {
+            edges.insert((ai, rep_b));
+        }
+    }
+    for &bi in b_sorted.iter().skip(1) {
+        edges.insert((rep_b, bi));
+    }
+}
+
 pub(super) fn add_group_edges(
     builder: &GraphBuilder,
     setups: &[SetupEntry],
@@ -41,19 +59,34 @@ pub(super) fn add_group_edges(
         }
     }
 
-    for (a_idx, a) in setups.iter().enumerate() {
-        for (b_idx, b) in setups.iter().enumerate() {
-            if a_idx == b_idx {
-                continue;
-            }
-            let a_group = &builder.groups[a.group.0];
-            let b_group = &builder.groups[b.group.0];
-            if a_group.scope == GroupScope::FrameGlobal && b_group.scope == GroupScope::PerView {
-                edges.insert((a_idx, b_idx));
-            }
-            if b_group.after.contains(&a.group) {
-                edges.insert((a_idx, b_idx));
-            }
+    let mut frame_global = Vec::new();
+    let mut per_view = Vec::new();
+    for (idx, setup) in setups.iter().enumerate() {
+        match builder.groups[setup.group.0].scope {
+            GroupScope::FrameGlobal => frame_global.push(idx),
+            GroupScope::PerView => per_view.push(idx),
+        }
+    }
+    frame_global.sort_unstable();
+    per_view.sort_unstable();
+    relay_all_before(&frame_global, &per_view, edges);
+
+    for (gb_idx, gb) in builder.groups.iter().enumerate() {
+        let gb_id = GroupId(gb_idx);
+        let mut passes_b: Vec<usize> = setups
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| (s.group == gb_id).then_some(i))
+            .collect();
+        passes_b.sort_unstable();
+        for &ga_id in &gb.after {
+            let mut passes_a: Vec<usize> = setups
+                .iter()
+                .enumerate()
+                .filter_map(|(i, s)| (s.group == ga_id).then_some(i))
+                .collect();
+            passes_a.sort_unstable();
+            relay_all_before(&passes_a, &passes_b, edges);
         }
     }
     Ok(())

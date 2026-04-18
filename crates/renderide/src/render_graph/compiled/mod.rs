@@ -261,6 +261,13 @@ pub struct CompiledGroup {
 /// multi-view records them in one encoder and submits once, then uses **one encoder + submit per
 /// [`FrameView`]** for [`PassPhase::PerView`] passes so `wgpu::Queue::write_buffer` work is ordered
 /// before each view’s GPU commands.
+///
+/// ## Frame-global contract
+///
+/// [`PassPhase::FrameGlobal`] passes run **once** per tick in
+/// [`CompiledRenderGraph::execute_multi_view_frame_global_passes`]. Host/scene context and
+/// [`super::context::GraphResolvedResources`] resolution for that encoder use the **first**
+/// [`FrameView`] only (camera, viewport, and transient pool keys derived from that view).
 pub struct CompiledRenderGraph {
     pub(super) passes: Vec<Box<dyn RenderPass>>,
     /// `true` when any pass writes an imported frame color target; frame execution
@@ -280,6 +287,15 @@ pub struct CompiledRenderGraph {
     pub imported_textures: Vec<ImportedTextureDecl>,
     /// Imported buffer declarations.
     pub imported_buffers: Vec<ImportedBufferDecl>,
+    /// Indices into [`Self::passes`] for [`PassPhase::FrameGlobal`] passes (execution order).
+    pub(super) frame_global_pass_indices: Vec<usize>,
+    /// Indices into [`Self::passes`] for [`PassPhase::PerView`] passes (execution order).
+    pub(super) per_view_pass_indices: Vec<usize>,
+    /// When this graph is the main frame graph from [`super::build_main_graph`], transient handles
+    /// for MSAA color/depth/R32 resources so the executor can wire [`super::frame_params::FrameRenderParams`]
+    /// once per view.
+    pub(super) main_graph_msaa_transient_handles:
+        Option<[crate::render_graph::resources::TextureHandle; 3]>,
 }
 
 pub(super) struct ResolvedView<'a> {

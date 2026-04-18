@@ -135,6 +135,8 @@ pub struct FrameRenderParams<'a> {
     pub depth_texture: &'a wgpu::Texture,
     /// Depth attachment for the main forward pass.
     pub depth_view: &'a wgpu::TextureView,
+    /// Depth-only view for compute sampling (e.g. Hi-Z build); created once per view.
+    pub depth_sample_view: Option<wgpu::TextureView>,
     /// Swapchain / main color format.
     pub surface_format: wgpu::TextureFormat,
     /// Main surface extent in pixels (`width`, `height`) for projection.

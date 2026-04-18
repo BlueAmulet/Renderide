@@ -159,6 +159,19 @@ impl GraphBuilder {
         add_resource_edges(&self, &setups, &mut edges)?;
 
         let (sorted, topo_levels) = topo_sort(n, &edges)?;
+        #[cfg(debug_assertions)]
+        {
+            let mut pos = vec![0usize; n];
+            for (ord, &node) in sorted.iter().enumerate() {
+                pos[node] = ord;
+            }
+            for &(u, v) in &edges {
+                debug_assert!(
+                    pos[u] < pos[v],
+                    "topological order violates edge ({u} -> {v})"
+                );
+            }
+        }
         let keep = retained_passes(n, &edges, &setups);
         let culled_count = n.saturating_sub(keep.len());
         let ordered: Vec<usize> = sorted
@@ -190,6 +203,15 @@ impl GraphBuilder {
             ordered_passes.push(pass);
         }
 
+        let mut frame_global_pass_indices = Vec::new();
+        let mut per_view_pass_indices = Vec::new();
+        for (i, pass) in ordered_passes.iter().enumerate() {
+            match pass.phase() {
+                PassPhase::FrameGlobal => frame_global_pass_indices.push(i),
+                PassPhase::PerView => per_view_pass_indices.push(i),
+            }
+        }
+
         Ok(CompiledRenderGraph {
             passes: ordered_passes,
             needs_surface_acquire,
@@ -210,6 +232,9 @@ impl GraphBuilder {
             transient_buffers: compiled_buffers,
             imported_textures: self.imports_tex,
             imported_buffers: self.imports_buf,
+            frame_global_pass_indices,
+            per_view_pass_indices,
+            main_graph_msaa_transient_handles: None,
         })
     }
 
@@ -248,6 +273,9 @@ impl GraphBuilder {
                 .collect(),
             imported_textures: self.imports_tex,
             imported_buffers: self.imports_buf,
+            frame_global_pass_indices: Vec::new(),
+            per_view_pass_indices: Vec::new(),
+            main_graph_msaa_transient_handles: None,
         }
     }
 

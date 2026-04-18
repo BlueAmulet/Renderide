@@ -7,14 +7,14 @@ use crate::gpu::GpuContext;
 use crate::present::{acquire_surface_outcome, SurfaceFrameOutcome};
 use crate::scene::SceneCoordinator;
 
-use super::super::context::{GraphRasterPassContext, GraphResolvedResources};
+use super::super::context::{GraphRasterPassContext, GraphResolvedResources, ResolvedGraphTexture};
 use super::super::error::GraphExecuteError;
 use super::super::frame_params::FrameRenderParams;
 use super::super::frame_params::HostCameraFrame;
 use super::super::pass::RenderPass;
 use super::super::resources::{
-    BufferSizePolicy, TextureAttachmentResolve, TextureAttachmentTarget, TextureResourceHandle,
-    TransientExtent,
+    BufferSizePolicy, TextureAttachmentResolve, TextureAttachmentTarget, TextureHandle,
+    TextureResourceHandle, TransientExtent,
 };
 use super::super::transient_pool::TextureKey;
 use super::super::world_mesh_draw_prep::{CameraTransformDrawFilter, WorldMeshDrawCollection};
@@ -30,11 +30,19 @@ pub(super) fn frame_render_params_from_resolved<'a>(
     transform_draw_filter: Option<CameraTransformDrawFilter>,
     prefetched_world_mesh_draws: Option<WorldMeshDrawCollection>,
 ) -> FrameRenderParams<'a> {
+    let depth_sample_view = resolved
+        .depth_texture
+        .create_view(&wgpu::TextureViewDescriptor {
+            label: Some("depth_sample"),
+            aspect: wgpu::TextureAspect::DepthOnly,
+            ..Default::default()
+        });
     FrameRenderParams {
         scene,
         backend,
         depth_texture: resolved.depth_texture,
         depth_view: resolved.depth_view,
+        depth_sample_view: Some(depth_sample_view),
         surface_format: resolved.surface_format,
         viewport_px: resolved.viewport_px,
         host_camera,
@@ -51,6 +59,59 @@ pub(super) fn frame_render_params_from_resolved<'a>(
         msaa_depth_is_array: resolved.msaa_depth_is_array,
         msaa_stereo_depth_layer_views: resolved.msaa_stereo_depth_layer_views.clone(),
         msaa_stereo_r32_layer_views: resolved.msaa_stereo_r32_layer_views.clone(),
+    }
+}
+
+fn first_two_layer_views(texture: &ResolvedGraphTexture) -> Option<[wgpu::TextureView; 2]> {
+    Some([
+        texture.layer_views.first()?.clone(),
+        texture.layer_views.get(1)?.clone(),
+    ])
+}
+
+/// Fills [`FrameRenderParams`] MSAA attachment views from resolved graph transients (main graph only).
+pub(super) fn populate_forward_msaa_from_graph_resources(
+    frame: &mut FrameRenderParams<'_>,
+    graph_resources: Option<&GraphResolvedResources>,
+    msaa_handles: Option<[TextureHandle; 3]>,
+) {
+    let Some(handles) = msaa_handles else {
+        return;
+    };
+    let [color_h, depth_h, r32_h] = handles;
+    let Some(graph_resources) = graph_resources else {
+        return;
+    };
+    if frame.sample_count <= 1 {
+        return;
+    }
+    let (Some(color), Some(depth), Some(r32)) = (
+        graph_resources.transient_texture(color_h),
+        graph_resources.transient_texture(depth_h),
+        graph_resources.transient_texture(r32_h),
+    ) else {
+        return;
+    };
+
+    if frame.multiview_stereo {
+        let (Some(depth_layers), Some(r32_layers)) =
+            (first_two_layer_views(depth), first_two_layer_views(r32))
+        else {
+            return;
+        };
+        frame.msaa_color_view = Some(color.view.clone());
+        frame.msaa_depth_view = Some(depth.view.clone());
+        frame.msaa_depth_resolve_r32_view = Some(r32.view.clone());
+        frame.msaa_depth_is_array = true;
+        frame.msaa_stereo_depth_layer_views = Some(depth_layers);
+        frame.msaa_stereo_r32_layer_views = Some(r32_layers);
+    } else {
+        frame.msaa_color_view = Some(color.view.clone());
+        frame.msaa_depth_view = Some(depth.view.clone());
+        frame.msaa_depth_resolve_r32_view = Some(r32.view.clone());
+        frame.msaa_depth_is_array = false;
+        frame.msaa_stereo_depth_layer_views = None;
+        frame.msaa_stereo_r32_layer_views = None;
     }
 }
 
