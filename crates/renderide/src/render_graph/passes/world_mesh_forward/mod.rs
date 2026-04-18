@@ -31,8 +31,11 @@ mod vp;
 
 use std::num::NonZeroU32;
 
-use crate::render_graph::context::{GraphRasterPassContext, RenderPassContext};
+use crate::render_graph::context::{
+    GraphRasterPassContext, GraphResolvedResources, RenderPassContext, ResolvedGraphTexture,
+};
 use crate::render_graph::error::{RenderPassError, SetupError};
+use crate::render_graph::frame_params::FrameRenderParams;
 use crate::render_graph::pass::{PassBuilder, RenderPass};
 use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, StorageAccess, TextureAccess,
@@ -42,7 +45,7 @@ use crate::render_graph::resources::{
 use execute_helpers::{
     encode_msaa_depth_resolve_after_clear_only, encode_world_mesh_forward_depth_snapshot,
     prepare_world_mesh_forward_frame, record_world_mesh_forward_intersection_graph_raster,
-    record_world_mesh_forward_opaque_graph_raster, stencil_load_ops,
+    record_world_mesh_forward_opaque_graph_raster, resolve_forward_msaa_views, stencil_load_ops,
 };
 
 /// Prepares sorted world-mesh forward draw state for subsequent graph nodes.
@@ -289,6 +292,7 @@ impl RenderPass for WorldMeshForwardOpaquePass {
                 pass: self.name().to_string(),
             });
         };
+        apply_graph_forward_msaa_views(frame, ctx.graph_resources, self.resources);
 
         let Some(mut prepared) = frame.prepared_world_mesh_forward.take() else {
             return Ok(());
@@ -353,6 +357,7 @@ impl RenderPass for WorldMeshDepthSnapshotPass {
                 pass: self.name().to_string(),
             });
         };
+        apply_graph_forward_msaa_views(frame, ctx.graph_resources, self.resources);
         let msaa_views = resolve_forward_msaa_views(
             ctx.graph_resources,
             self.resources,
@@ -462,6 +467,7 @@ impl RenderPass for WorldMeshForwardIntersectPass {
                 pass: self.name().to_string(),
             });
         };
+        apply_graph_forward_msaa_views(frame, ctx.graph_resources, self.resources);
 
         let Some(mut prepared) = frame.prepared_world_mesh_forward.take() else {
             return Ok(());
@@ -532,6 +538,12 @@ impl RenderPass for WorldMeshForwardDepthResolvePass {
             });
         };
         apply_graph_forward_msaa_views(frame, ctx.graph_resources, self.resources);
+        let msaa_views = resolve_forward_msaa_views(
+            ctx.graph_resources,
+            self.resources,
+            frame.sample_count,
+            frame.multiview_stereo,
+        );
         let msaa_depth_resolve = frame.backend.msaa_depth_resolve();
         encode_msaa_depth_resolve_after_clear_only(
             ctx.device,

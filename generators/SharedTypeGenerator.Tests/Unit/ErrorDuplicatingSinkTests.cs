@@ -46,8 +46,11 @@ public sealed class ErrorDuplicatingSinkTests
         try
         {
             var stderr = new StringWriter(CultureInfo.InvariantCulture);
-            using var sink = new ErrorDuplicatingSink(new LogFileSink(path), stderr);
-            sink.Log(LogLevel.Error, "Cat", "exact");
+            using (var sink = new ErrorDuplicatingSink(new LogFileSink(path), stderr))
+            {
+                sink.Log(LogLevel.Error, "Cat", "exact");
+            }
+
             string fileText = File.ReadAllText(path).TrimEnd('\r', '\n');
             string err = stderr.ToString().TrimEnd('\r', '\n');
             Assert.Equal(fileText, err);

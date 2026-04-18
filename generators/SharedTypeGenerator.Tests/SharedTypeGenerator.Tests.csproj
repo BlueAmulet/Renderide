@@ -19,16 +19,26 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <RenderiteSharedDllPath Condition="'$(RenderiteSharedDllPath)' == ''">$(RENDERITE_SHARED_DLL)</RenderiteSharedDllPath>
-    <RenderiteSharedDllPath Condition="'$(RenderiteSharedDllPath)' == ''">$(HOME)/.steam/steam/steamapps/common/Resonite/Renderite.Shared.dll</RenderiteSharedDllPath>
-    <RenderiteSharedDllPath Condition="'$(RenderiteSharedDllPath)' == ''">$(MSBuildThisFileDirectory)lib/Renderite.Shared.dll</RenderiteSharedDllPath>
+    <RenderiteSharedDllPath Condition="'$(RenderiteSharedDllPath)' == '' and '$(RENDERITE_SHARED_DLL)' != '' and Exists('$(RENDERITE_SHARED_DLL)')">$(RENDERITE_SHARED_DLL)</RenderiteSharedDllPath>
+    <RenderiteSharedDllPath Condition="'$(RenderiteSharedDllPath)' == '' and '$(RESONITE_DIR)' != '' and Exists('$(RESONITE_DIR)/Renderite.Shared.dll')">$(RESONITE_DIR)/Renderite.Shared.dll</RenderiteSharedDllPath>
+    <RenderiteSharedDllPath Condition="'$(RenderiteSharedDllPath)' == '' and '$(ProgramFiles(x86))' != '' and Exists('$(ProgramFiles(x86))/Steam/steamapps/common/Resonite/Renderite.Shared.dll')">$(ProgramFiles(x86))/Steam/steamapps/common/Resonite/Renderite.Shared.dll</RenderiteSharedDllPath>
+    <RenderiteSharedDllPath Condition="'$(RenderiteSharedDllPath)' == '' and '$(HOME)' != '' and Exists('$(HOME)/.steam/steam/steamapps/common/Resonite/Renderite.Shared.dll')">$(HOME)/.steam/steam/steamapps/common/Resonite/Renderite.Shared.dll</RenderiteSharedDllPath>
+    <RenderiteSharedDllPath Condition="'$(RenderiteSharedDllPath)' == '' and Exists('$(MSBuildThisFileDirectory)lib/Renderite.Shared.dll')">$(MSBuildThisFileDirectory)lib/Renderite.Shared.dll</RenderiteSharedDllPath>
+    <HasRenderiteSharedDll Condition="'$(RenderiteSharedDllPath)' != '' and Exists('$(RenderiteSharedDllPath)')">true</HasRenderiteSharedDll>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\SharedTypeGenerator\SharedTypeGenerator.csproj" />
-    <Reference Include="Renderite.Shared">
+    <Reference Include="Renderite.Shared" Condition="'$(HasRenderiteSharedDll)' == 'true'">
       <HintPath>$(RenderiteSharedDllPath)</HintPath>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(HasRenderiteSharedDll)' != 'true'">
+    <Compile Remove="CrossLanguageRoundtripTests.cs" />
+    <Compile Remove="RandomInstancePopulator.cs" />
+    <Compile Remove="RandomInstancePopulator.Nested.cs" />
+    <Compile Remove="RoundtripTestBase.cs" />
   </ItemGroup>
 
 </Project>

@@ -9,8 +9,8 @@ use crate::gpu::GpuContext;
 use crate::scene::SceneCoordinator;
 
 use super::super::context::{
-    GraphRasterPassContext, GraphResolvedResources, RenderPassContext, ResolvedGraphBuffer,
-    ResolvedGraphTexture, ResolvedImportedBuffer, ResolvedImportedTexture,
+    GraphRasterPassContext, GraphResolvedResources, PostSubmitContext, RenderPassContext,
+    ResolvedGraphBuffer, ResolvedGraphTexture, ResolvedImportedBuffer, ResolvedImportedTexture,
 };
 use super::super::error::GraphExecuteError;
 use super::super::frame_params::{HostCameraFrame, OcclusionViewId};
@@ -621,6 +621,12 @@ impl CompiledRenderGraph {
                     offscreen_write_render_texture_asset_id: None,
                     occlusion_view: OcclusionViewId::Main,
                     sample_count,
+                    msaa_color_view: None,
+                    msaa_depth_view: None,
+                    msaa_depth_resolve_r32_view: None,
+                    msaa_depth_is_array: false,
+                    msaa_stereo_depth_layer_views: None,
+                    msaa_stereo_r32_layer_views: None,
                 })
             }
             FrameViewTarget::ExternalMultiview(ext) => {
@@ -635,6 +641,12 @@ impl CompiledRenderGraph {
                     offscreen_write_render_texture_asset_id: None,
                     occlusion_view: OcclusionViewId::Main,
                     sample_count,
+                    msaa_color_view: None,
+                    msaa_depth_view: None,
+                    msaa_depth_resolve_r32_view: None,
+                    msaa_depth_is_array: false,
+                    msaa_stereo_depth_layer_views: None,
+                    msaa_stereo_r32_layer_views: None,
                 })
             }
             FrameViewTarget::OffscreenRt(ext) => Ok(ResolvedView {
@@ -649,6 +661,12 @@ impl CompiledRenderGraph {
                     ext.render_texture_asset_id,
                 ),
                 sample_count: 1,
+                msaa_color_view: None,
+                msaa_depth_view: None,
+                msaa_depth_resolve_r32_view: None,
+                msaa_depth_is_array: false,
+                msaa_stereo_depth_layer_views: None,
+                msaa_stereo_r32_layer_views: None,
             }),
         }
     }

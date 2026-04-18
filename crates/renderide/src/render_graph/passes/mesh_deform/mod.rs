@@ -6,6 +6,8 @@
 mod encode;
 mod snapshot;
 
+use std::fmt;
+
 use rayon::prelude::*;
 
 use crate::backend::mesh_deform::{EntryNeed, GpuSkinCache};

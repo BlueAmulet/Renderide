@@ -159,6 +159,18 @@ pub struct FrameRenderParams<'a> {
     pub occlusion_view: OcclusionViewId,
     /// Effective raster sample count for mesh forward (1 = off). Clamped to the GPU max for this view.
     pub sample_count: u32,
+    /// Graph-owned multisampled color attachment view when MSAA is active.
+    pub msaa_color_view: Option<wgpu::TextureView>,
+    /// Graph-owned multisampled depth attachment view when MSAA is active.
+    pub msaa_depth_view: Option<wgpu::TextureView>,
+    /// R32Float intermediate view used by the MSAA depth resolve path.
+    pub msaa_depth_resolve_r32_view: Option<wgpu::TextureView>,
+    /// True when MSAA depth/R32 views are two-layer array views for stereo multiview.
+    pub msaa_depth_is_array: bool,
+    /// Per-eye single-layer views of stereo MSAA depth.
+    pub msaa_stereo_depth_layer_views: Option<[wgpu::TextureView; 2]>,
+    /// Per-eye single-layer views of stereo R32Float resolve targets.
+    pub msaa_stereo_r32_layer_views: Option<[wgpu::TextureView; 2]>,
 }
 
 impl<'a> FrameRenderParams<'a> {

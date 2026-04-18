@@ -48,6 +48,7 @@
 //! 8. **FrameEnd** — submit, optional debug HUD composite, present, Hi-Z frame bookkeeping.
 
 mod builder;
+mod cache;
 mod camera;
 mod cluster_frame;
 mod compiled;
@@ -89,6 +90,7 @@ pub use world_mesh_draw_stats::{
 };
 
 pub use builder::GraphBuilder;
+pub use cache::{GraphCache, GraphCacheKey};
 pub use camera::{
     apply_view_handedness_fix, clamp_desktop_fov_degrees, effective_head_output_clip_planes,
     reverse_z_orthographic, reverse_z_perspective, reverse_z_perspective_openxr_fov,
@@ -343,9 +345,30 @@ pub fn build_main_graph(key: GraphCacheKey) -> Result<CompiledRenderGraph, Graph
     builder.build()
 }
 
+/// Builds the main graph with a placeholder cache key for callers that still compile it once at attach.
+pub fn build_default_main_graph() -> Result<CompiledRenderGraph, GraphBuildError> {
+    build_main_graph(GraphCacheKey {
+        surface_extent: (1, 1),
+        msaa_sample_count: 1,
+        multiview_stereo: false,
+        surface_format: wgpu::TextureFormat::Bgra8UnormSrgb,
+    })
+}
+
 #[cfg(test)]
 mod default_graph_tests {
+    use wgpu::TextureFormat;
+
     use super::*;
+
+    fn smoke_key() -> GraphCacheKey {
+        GraphCacheKey {
+            surface_extent: (1280, 720),
+            msaa_sample_count: 1,
+            multiview_stereo: false,
+            surface_format: TextureFormat::Bgra8UnormSrgb,
+        }
+    }
 
     #[test]
     fn default_main_needs_surface_and_eight_passes() {
@@ -375,22 +398,4 @@ mod default_graph_tests {
         assert_eq!(cache.pass_count(), n);
     }
 
-    #[test]
-    fn graph_cache_reuses_when_key_unchanged() {
-        let key = smoke_key();
-        let mut cache = GraphCache::default();
-        cache
-            .ensure(key, || build_main_graph(key))
-            .expect("first build");
-        let n = cache.pass_count();
-        let mut build_called = false;
-        cache
-            .ensure(key, || {
-                build_called = true;
-                build_main_graph(key)
-            })
-            .expect("second ensure");
-        assert!(!build_called);
-        assert_eq!(cache.pass_count(), n);
-    }
 }

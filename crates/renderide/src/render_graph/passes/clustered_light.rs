@@ -258,19 +258,6 @@ pub struct ClusteredLightGraphResources {
     pub params: BufferHandle,
 }
 
-/// Graph resources used by [`ClusteredLightPass`].
-#[derive(Clone, Copy, Debug)]
-pub struct ClusteredLightGraphResources {
-    /// Imported light storage buffer.
-    pub lights: ImportedBufferHandle,
-    /// Imported per-cluster light-count storage buffer.
-    pub cluster_light_counts: ImportedBufferHandle,
-    /// Imported per-cluster light-index storage buffer.
-    pub cluster_light_indices: ImportedBufferHandle,
-    /// Transient uniform buffer for per-eye cluster parameters.
-    pub params: BufferHandle,
-}
-
 impl ClusteredLightPass {
     /// Creates a clustered light pass (pipeline is created lazily on first execute).
     pub fn new(resources: ClusteredLightGraphResources) -> Self {
@@ -279,7 +266,6 @@ impl ClusteredLightPass {
             logged_active_once: false,
             cached_cluster_bind_version: None,
             cached_compute_bind_group: None,
-            cluster_eye_params_scratch: Vec::with_capacity(2),
         }
     }
 

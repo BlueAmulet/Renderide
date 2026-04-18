@@ -84,16 +84,6 @@ pub enum GraphBuildError {
         message: &'static str,
     },
 
-    /// Pass setup failed.
-    #[error("setup failed for pass {pass:?} `{name}`: {source}")]
-    Setup {
-        /// Pass id.
-        pass: PassId,
-        /// Pass name.
-        name: String,
-        /// Setup validation error.
-        source: SetupError,
-    },
 }
 
 /// Failure inside a single [`super::RenderPass::execute`] call.

@@ -9,9 +9,9 @@ use rayon::prelude::*;
 
 use crate::assets::material::MaterialDictionary;
 use crate::backend::mesh_deform::{
-    write_per_draw_uniform_slab, GpuSkinCache, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE,
+    write_per_draw_uniform_slab, PaddedPerDrawUniforms, PER_DRAW_UNIFORM_STRIDE,
 };
-use crate::backend::RenderBackend;
+use crate::backend::{RenderBackend, WorldMeshForwardEncodeRefs};
 use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::materials::{
@@ -454,28 +454,6 @@ pub(super) fn prepare_world_mesh_forward_frame(
         depth_snapshot_recorded: false,
         tail_raster_recorded: false,
     })
-}
-
-pub(super) fn stencil_load_ops(
-    depth_stencil_format: Option<wgpu::TextureFormat>,
-) -> Option<wgpu::Operations<u32>> {
-    depth_stencil_format
-        .filter(wgpu::TextureFormat::has_stencil_aspect)
-        .map(|_| wgpu::Operations {
-            load: wgpu::LoadOp::Load,
-            store: wgpu::StoreOp::Store,
-        })
-}
-
-fn stencil_clear_ops(
-    depth_stencil_format: Option<wgpu::TextureFormat>,
-) -> Option<wgpu::Operations<u32>> {
-    depth_stencil_format
-        .filter(wgpu::TextureFormat::has_stencil_aspect)
-        .map(|_| wgpu::Operations {
-            load: wgpu::LoadOp::Clear(0),
-            store: wgpu::StoreOp::Store,
-        })
 }
 
 pub(super) fn stencil_load_ops(
