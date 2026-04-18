@@ -43,6 +43,31 @@ const MAX_CACHED_EMBEDDED_SAMPLERS: usize = 512;
 /// LRU cap for texture HUD asset-id scans.
 const MAX_CACHED_TEXTURE_DEBUG_IDS: usize = 512;
 
+const MAX_CACHED_EMBEDDED_BIND_GROUPS_NZ: NonZeroUsize = {
+    match NonZeroUsize::new(MAX_CACHED_EMBEDDED_BIND_GROUPS) {
+        Some(n) => n,
+        None => panic!("MAX_CACHED_EMBEDDED_BIND_GROUPS must be non-zero"),
+    }
+};
+const MAX_CACHED_EMBEDDED_UNIFORMS_NZ: NonZeroUsize = {
+    match NonZeroUsize::new(MAX_CACHED_EMBEDDED_UNIFORMS) {
+        Some(n) => n,
+        None => panic!("MAX_CACHED_EMBEDDED_UNIFORMS must be non-zero"),
+    }
+};
+const MAX_CACHED_EMBEDDED_SAMPLERS_NZ: NonZeroUsize = {
+    match NonZeroUsize::new(MAX_CACHED_EMBEDDED_SAMPLERS) {
+        Some(n) => n,
+        None => panic!("MAX_CACHED_EMBEDDED_SAMPLERS must be non-zero"),
+    }
+};
+const MAX_CACHED_TEXTURE_DEBUG_IDS_NZ: NonZeroUsize = {
+    match NonZeroUsize::new(MAX_CACHED_TEXTURE_DEBUG_IDS) {
+        Some(n) => n,
+        None => panic!("MAX_CACHED_TEXTURE_DEBUG_IDS must be non-zero"),
+    }
+};
+
 type EmbeddedGroup1TexturesAndSamplers = (Vec<Arc<wgpu::TextureView>>, Vec<Arc<wgpu::Sampler>>);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -274,22 +299,10 @@ impl EmbeddedMaterialBindResources {
             property_registry,
             shared_keyword_ids,
             stem_cache: RefCell::new(HashMap::new()),
-            bind_cache: RefCell::new(LruCache::new(
-                NonZeroUsize::new(MAX_CACHED_EMBEDDED_BIND_GROUPS)
-                    .expect("MAX_CACHED_EMBEDDED_BIND_GROUPS > 0"),
-            )),
-            uniform_cache: RefCell::new(LruCache::new(
-                NonZeroUsize::new(MAX_CACHED_EMBEDDED_UNIFORMS)
-                    .expect("MAX_CACHED_EMBEDDED_UNIFORMS > 0"),
-            )),
-            sampler_cache: RefCell::new(LruCache::new(
-                NonZeroUsize::new(MAX_CACHED_EMBEDDED_SAMPLERS)
-                    .expect("MAX_CACHED_EMBEDDED_SAMPLERS > 0"),
-            )),
-            texture_debug_cache: RefCell::new(LruCache::new(
-                NonZeroUsize::new(MAX_CACHED_TEXTURE_DEBUG_IDS)
-                    .expect("MAX_CACHED_TEXTURE_DEBUG_IDS > 0"),
-            )),
+            bind_cache: RefCell::new(LruCache::new(MAX_CACHED_EMBEDDED_BIND_GROUPS_NZ)),
+            uniform_cache: RefCell::new(LruCache::new(MAX_CACHED_EMBEDDED_UNIFORMS_NZ)),
+            sampler_cache: RefCell::new(LruCache::new(MAX_CACHED_EMBEDDED_SAMPLERS_NZ)),
+            texture_debug_cache: RefCell::new(LruCache::new(MAX_CACHED_TEXTURE_DEBUG_IDS_NZ)),
         })
     }
 

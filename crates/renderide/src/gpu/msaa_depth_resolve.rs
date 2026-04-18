@@ -267,14 +267,16 @@ impl MsaaDepthResolveResources {
         })
     }
 
-    fn blit_pipeline_for_format(&self, format: wgpu::TextureFormat) -> &wgpu::RenderPipeline {
+    fn blit_pipeline_for_format(
+        &self,
+        format: wgpu::TextureFormat,
+    ) -> Option<&wgpu::RenderPipeline> {
         match format {
-            wgpu::TextureFormat::Depth24PlusStencil8 => &self.blit_pipeline_depth24_stencil8,
-            wgpu::TextureFormat::Depth32FloatStencil8 => self
-                .blit_pipeline_depth32_stencil8
-                .as_ref()
-                .expect("Depth32FloatStencil8 pipeline requires DEPTH32FLOAT_STENCIL8"),
-            _ => &self.blit_pipeline_depth32,
+            wgpu::TextureFormat::Depth24PlusStencil8 => Some(&self.blit_pipeline_depth24_stencil8),
+            wgpu::TextureFormat::Depth32FloatStencil8 => {
+                self.blit_pipeline_depth32_stencil8.as_ref()
+            }
+            _ => Some(&self.blit_pipeline_depth32),
         }
     }
 
@@ -294,6 +296,7 @@ impl MsaaDepthResolveResources {
     }
 
     /// Resolves `msaa_depth_view` into `dst_depth_view` via R32F intermediate `r32_view`.
+    #[allow(clippy::too_many_arguments)]
     pub fn encode_resolve(
         &self,
         device: &wgpu::Device,
@@ -342,6 +345,13 @@ impl MsaaDepthResolveResources {
             cpass.dispatch_workgroups(gx, gy, 1);
         }
 
+        let Some(blit_pipeline) = self.blit_pipeline_for_format(dst_depth_format) else {
+            logger::warn!(
+                "MSAA depth resolve: mono blit pipeline missing for {:?} (DEPTH32FLOAT_STENCIL8 feature unavailable?)",
+                dst_depth_format
+            );
+            return;
+        };
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("msaa-depth-blit-r32-to-depth"),
@@ -358,7 +368,7 @@ impl MsaaDepthResolveResources {
                 timestamp_writes: None,
                 multiview_mask: None,
             });
-            rpass.set_pipeline(self.blit_pipeline_for_format(dst_depth_format));
+            rpass.set_pipeline(blit_pipeline);
             rpass.set_bind_group(0, &blit_bg, &[]);
             rpass.draw(0..3, 0..1);
         }

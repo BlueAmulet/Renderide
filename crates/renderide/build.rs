@@ -54,6 +54,24 @@ use naga_oil::compose::{
     ComposableModuleDescriptor, Composer, NagaModuleDescriptor, ShaderDefValue, ShaderLanguage,
     ShaderType,
 };
+use thiserror::Error;
+
+/// Errors from shader discovery, composition, validation, and generated code I/O.
+#[derive(Debug, Error)]
+enum BuildError {
+    /// User-facing message (directive parse, validation, naga errors).
+    #[error("{0}")]
+    Message(String),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    /// Required Cargo environment variable missing.
+    #[error("missing build environment variable `{0}`")]
+    MissingEnv(&'static str),
+}
+
+fn env_var(name: &'static str) -> Result<String, BuildError> {
+    std::env::var(name).map_err(|_| BuildError::MissingEnv(name))
+}
 
 /// Shader defs for material sources that use `#ifdef MULTIVIEW`.
 ///
@@ -107,92 +125,110 @@ impl BuildPassDirective {
     }
 }
 
-fn parse_bool_like(value: &str, label: &str, file: &str, line: usize) -> bool {
+fn parse_bool_like(value: &str, label: &str, file: &str, line: usize) -> Result<bool, BuildError> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "1" | "true" | "on" | "yes" => true,
-        "0" | "false" | "off" | "no" => false,
-        _ => panic!("{file}:{line}: invalid {label} value `{value}`"),
+        "1" | "true" | "on" | "yes" => Ok(true),
+        "0" | "false" | "off" | "no" => Ok(false),
+        _ => Err(BuildError::Message(format!(
+            "{file}:{line}: invalid {label} value `{value}`"
+        ))),
     }
 }
 
-fn compare_token(value: &str, file: &str, line: usize) -> &'static str {
+fn compare_token(value: &str, file: &str, line: usize) -> Result<&'static str, BuildError> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "never" => "wgpu::CompareFunction::Never",
-        "less" => "wgpu::CompareFunction::Less",
-        "equal" => "wgpu::CompareFunction::Equal",
-        "less_equal" | "lessequal" | "lequal" => "wgpu::CompareFunction::LessEqual",
-        "greater" => "wgpu::CompareFunction::Greater",
-        "not_equal" | "notequal" => "wgpu::CompareFunction::NotEqual",
-        "greater_equal" | "greaterequal" | "gequal" => "wgpu::CompareFunction::GreaterEqual",
-        "always" => "wgpu::CompareFunction::Always",
-        _ => panic!("{file}:{line}: invalid depth compare `{value}`"),
+        "never" => Ok("wgpu::CompareFunction::Never"),
+        "less" => Ok("wgpu::CompareFunction::Less"),
+        "equal" => Ok("wgpu::CompareFunction::Equal"),
+        "less_equal" | "lessequal" | "lequal" => Ok("wgpu::CompareFunction::LessEqual"),
+        "greater" => Ok("wgpu::CompareFunction::Greater"),
+        "not_equal" | "notequal" => Ok("wgpu::CompareFunction::NotEqual"),
+        "greater_equal" | "greaterequal" | "gequal" => Ok("wgpu::CompareFunction::GreaterEqual"),
+        "always" => Ok("wgpu::CompareFunction::Always"),
+        _ => Err(BuildError::Message(format!(
+            "{file}:{line}: invalid depth compare `{value}`"
+        ))),
     }
 }
 
-fn cull_token(value: &str, file: &str, line: usize) -> &'static str {
+fn cull_token(value: &str, file: &str, line: usize) -> Result<&'static str, BuildError> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "none" | "off" | "0" => "None",
-        "front" => "Some(wgpu::Face::Front)",
-        "back" => "Some(wgpu::Face::Back)",
-        _ => panic!("{file}:{line}: invalid cull mode `{value}`"),
+        "none" | "off" | "0" => Ok("None"),
+        "front" => Ok("Some(wgpu::Face::Front)"),
+        "back" => Ok("Some(wgpu::Face::Back)"),
+        _ => Err(BuildError::Message(format!(
+            "{file}:{line}: invalid cull mode `{value}`"
+        ))),
     }
 }
 
-fn color_writes_token(value: &str, file: &str, line: usize) -> &'static str {
+fn color_writes_token(value: &str, file: &str, line: usize) -> Result<&'static str, BuildError> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "all" | "rgba" => "wgpu::ColorWrites::ALL",
-        "color" | "rgb" => "wgpu::ColorWrites::COLOR",
-        "none" | "off" => "crate::materials::COLOR_WRITES_NONE",
-        _ => panic!("{file}:{line}: invalid color write mask `{value}`"),
+        "all" | "rgba" => Ok("wgpu::ColorWrites::ALL"),
+        "color" | "rgb" => Ok("wgpu::ColorWrites::COLOR"),
+        "none" | "off" => Ok("crate::materials::COLOR_WRITES_NONE"),
+        _ => Err(BuildError::Message(format!(
+            "{file}:{line}: invalid color write mask `{value}`"
+        ))),
     }
 }
 
-fn material_pass_state_token(value: &str, file: &str, line: usize) -> &'static str {
+fn material_pass_state_token(
+    value: &str,
+    file: &str,
+    line: usize,
+) -> Result<&'static str, BuildError> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "static" | "none" => "crate::materials::MaterialPassState::Static",
+        "static" | "none" => Ok("crate::materials::MaterialPassState::Static"),
         "base" | "forward_base" | "forwardbase" | "unity_forward_base" => {
-            "crate::materials::MaterialPassState::UnityForwardBase"
+            Ok("crate::materials::MaterialPassState::UnityForwardBase")
         }
         "add" | "forward_add" | "forwardadd" | "delta" | "unity_forward_add" => {
-            "crate::materials::MaterialPassState::UnityForwardAdd"
+            Ok("crate::materials::MaterialPassState::UnityForwardAdd")
         }
-        _ => panic!("{file}:{line}: invalid material pass state `{value}`"),
+        _ => Err(BuildError::Message(format!(
+            "{file}:{line}: invalid material pass state `{value}`"
+        ))),
     }
 }
 
-fn blend_factor_token(value: &str, file: &str, line: usize) -> &'static str {
+fn blend_factor_token(value: &str, file: &str, line: usize) -> Result<&'static str, BuildError> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "zero" | "0" => "wgpu::BlendFactor::Zero",
-        "one" | "1" => "wgpu::BlendFactor::One",
-        "src" | "src_color" | "srccolor" => "wgpu::BlendFactor::Src",
+        "zero" | "0" => Ok("wgpu::BlendFactor::Zero"),
+        "one" | "1" => Ok("wgpu::BlendFactor::One"),
+        "src" | "src_color" | "srccolor" => Ok("wgpu::BlendFactor::Src"),
         "one_minus_src" | "one_minus_src_color" | "oneminussrc" | "oneminussrccolor" => {
-            "wgpu::BlendFactor::OneMinusSrc"
+            Ok("wgpu::BlendFactor::OneMinusSrc")
         }
-        "dst" | "dst_color" | "dstcolor" => "wgpu::BlendFactor::Dst",
+        "dst" | "dst_color" | "dstcolor" => Ok("wgpu::BlendFactor::Dst"),
         "one_minus_dst" | "one_minus_dst_color" | "oneminusdst" | "oneminusdstcolor" => {
-            "wgpu::BlendFactor::OneMinusDst"
+            Ok("wgpu::BlendFactor::OneMinusDst")
         }
-        "src_alpha" | "srcalpha" => "wgpu::BlendFactor::SrcAlpha",
-        "one_minus_src_alpha" | "oneminussrcalpha" => "wgpu::BlendFactor::OneMinusSrcAlpha",
-        "dst_alpha" | "dstalpha" => "wgpu::BlendFactor::DstAlpha",
-        "one_minus_dst_alpha" | "oneminusdstalpha" => "wgpu::BlendFactor::OneMinusDstAlpha",
-        "constant" | "constant_color" | "constantcolor" => "wgpu::BlendFactor::Constant",
+        "src_alpha" | "srcalpha" => Ok("wgpu::BlendFactor::SrcAlpha"),
+        "one_minus_src_alpha" | "oneminussrcalpha" => Ok("wgpu::BlendFactor::OneMinusSrcAlpha"),
+        "dst_alpha" | "dstalpha" => Ok("wgpu::BlendFactor::DstAlpha"),
+        "one_minus_dst_alpha" | "oneminusdstalpha" => Ok("wgpu::BlendFactor::OneMinusDstAlpha"),
+        "constant" | "constant_color" | "constantcolor" => Ok("wgpu::BlendFactor::Constant"),
         "one_minus_constant" | "one_minus_constant_color" | "oneminusconstant" => {
-            "wgpu::BlendFactor::OneMinusConstant"
+            Ok("wgpu::BlendFactor::OneMinusConstant")
         }
-        "src_alpha_saturated" | "srcalphasaturated" => "wgpu::BlendFactor::SrcAlphaSaturated",
-        _ => panic!("{file}:{line}: invalid blend factor `{value}`"),
+        "src_alpha_saturated" | "srcalphasaturated" => Ok("wgpu::BlendFactor::SrcAlphaSaturated"),
+        _ => Err(BuildError::Message(format!(
+            "{file}:{line}: invalid blend factor `{value}`"
+        ))),
     }
 }
 
-fn blend_operation_token(value: &str, file: &str, line: usize) -> &'static str {
+fn blend_operation_token(value: &str, file: &str, line: usize) -> Result<&'static str, BuildError> {
     match value.trim().to_ascii_lowercase().as_str() {
-        "add" => "wgpu::BlendOperation::Add",
-        "subtract" | "sub" => "wgpu::BlendOperation::Subtract",
-        "reverse_subtract" | "revsub" => "wgpu::BlendOperation::ReverseSubtract",
-        "min" => "wgpu::BlendOperation::Min",
-        "max" => "wgpu::BlendOperation::Max",
-        _ => panic!("{file}:{line}: invalid blend operation `{value}`"),
+        "add" => Ok("wgpu::BlendOperation::Add"),
+        "subtract" | "sub" => Ok("wgpu::BlendOperation::Subtract"),
+        "reverse_subtract" | "revsub" => Ok("wgpu::BlendOperation::ReverseSubtract"),
+        "min" => Ok("wgpu::BlendOperation::Min"),
+        "max" => Ok("wgpu::BlendOperation::Max"),
+        _ => Err(BuildError::Message(format!(
+            "{file}:{line}: invalid blend operation `{value}`"
+        ))),
     }
 }
 
@@ -202,23 +238,25 @@ fn parse_blend_component(
     first_value: &str,
     file: &str,
     line: usize,
-) -> BuildBlendComponent {
+) -> Result<BuildBlendComponent, BuildError> {
     if *index + 2 >= parts.len() {
-        panic!("{file}:{line}: blend component needs src,dst,op");
+        return Err(BuildError::Message(format!(
+            "{file}:{line}: blend component needs src,dst,op"
+        )));
     }
-    let src = blend_factor_token(first_value, file, line);
+    let src = blend_factor_token(first_value, file, line)?;
     *index += 1;
-    let dst = blend_factor_token(parts[*index], file, line);
+    let dst = blend_factor_token(parts[*index], file, line)?;
     *index += 1;
-    let op = blend_operation_token(parts[*index], file, line);
-    BuildBlendComponent {
+    let op = blend_operation_token(parts[*index], file, line)?;
+    Ok(BuildBlendComponent {
         src_factor: src,
         dst_factor: dst,
         operation: op,
-    }
+    })
 }
 
-fn parse_pass_directives(source: &str, file: &str) -> Vec<BuildPassDirective> {
+fn parse_pass_directives(source: &str, file: &str) -> Result<Vec<BuildPassDirective>, BuildError> {
     let mut passes = Vec::new();
     for (line_idx, line) in source.lines().enumerate() {
         let line_no = line_idx + 1;
@@ -226,9 +264,11 @@ fn parse_pass_directives(source: &str, file: &str) -> Vec<BuildPassDirective> {
             continue;
         };
         let rest = rest.trim();
-        let (name, body) = rest.split_once(':').unwrap_or_else(|| {
-            panic!("{file}:{line_no}: pass directive must be `//#pass name: key=value`")
-        });
+        let (name, body) = rest.split_once(':').ok_or_else(|| {
+            BuildError::Message(format!(
+                "{file}:{line_no}: pass directive must be `//#pass name: key=value`"
+            ))
+        })?;
         let mut pass = BuildPassDirective::new(name.trim().to_string());
         let mut color_blend: Option<BuildBlendComponent> = None;
         let mut alpha_blend: Option<BuildBlendComponent> = None;
@@ -241,32 +281,39 @@ fn parse_pass_directives(source: &str, file: &str) -> Vec<BuildPassDirective> {
             .collect::<Vec<_>>();
         let mut i = 0usize;
         while i < parts.len() {
-            let (key, value) = parts[i].split_once('=').unwrap_or_else(|| {
-                panic!("{file}:{line_no}: expected key=value in `{}`", parts[i])
-            });
+            let (key, value) = parts[i].split_once('=').ok_or_else(|| {
+                BuildError::Message(format!(
+                    "{file}:{line_no}: expected key=value in `{}`",
+                    parts[i]
+                ))
+            })?;
             match key.trim().to_ascii_lowercase().as_str() {
                 "vs" | "vertex" => pass.vertex_entry = value.trim().to_string(),
                 "fs" | "fragment" => pass.fragment_entry = value.trim().to_string(),
-                "depth" | "ztest" => pass.depth_compare = compare_token(value, file, line_no),
+                "depth" | "ztest" => pass.depth_compare = compare_token(value, file, line_no)?,
                 "zwrite" | "depth_write" => {
-                    pass.depth_write = parse_bool_like(value, "zwrite", file, line_no)
+                    pass.depth_write = parse_bool_like(value, "zwrite", file, line_no)?;
                 }
-                "cull" => pass.cull_mode = cull_token(value, file, line_no),
+                "cull" => pass.cull_mode = cull_token(value, file, line_no)?,
                 "write" | "writes" | "color_write" | "colorwrites" => {
-                    pass.write_mask = color_writes_token(value, file, line_no)
+                    pass.write_mask = color_writes_token(value, file, line_no)?;
                 }
                 "bias" | "depth_bias" => {
-                    pass.depth_bias_constant = value.trim().parse().unwrap_or_else(|_| {
-                        panic!("{file}:{line_no}: invalid depth bias `{value}`")
-                    });
+                    pass.depth_bias_constant = value.trim().parse().map_err(|_| {
+                        BuildError::Message(format!(
+                            "{file}:{line_no}: invalid depth bias `{value}`"
+                        ))
+                    })?;
                 }
                 "slope" | "slope_bias" => {
-                    pass.depth_bias_slope_scale = value.trim().parse().unwrap_or_else(|_| {
-                        panic!("{file}:{line_no}: invalid slope bias `{value}`")
-                    });
+                    pass.depth_bias_slope_scale = value.trim().parse().map_err(|_| {
+                        BuildError::Message(format!(
+                            "{file}:{line_no}: invalid slope bias `{value}`"
+                        ))
+                    })?;
                 }
                 "material" | "material_state" => {
-                    pass.material_state = material_pass_state_token(value, file, line_no);
+                    pass.material_state = material_pass_state_token(value, file, line_no)?;
                 }
                 "blend" => {
                     if value.trim().eq_ignore_ascii_case("none") {
@@ -287,14 +334,19 @@ fn parse_pass_directives(source: &str, file: &str) -> Vec<BuildPassDirective> {
                     } else {
                         blend_disabled = false;
                         color_blend =
-                            Some(parse_blend_component(&parts, &mut i, value, file, line_no));
+                            Some(parse_blend_component(&parts, &mut i, value, file, line_no)?);
                     }
                 }
                 "alpha" => {
                     blend_disabled = false;
-                    alpha_blend = Some(parse_blend_component(&parts, &mut i, value, file, line_no));
+                    alpha_blend =
+                        Some(parse_blend_component(&parts, &mut i, value, file, line_no)?);
                 }
-                _ => panic!("{file}:{line_no}: unknown pass key `{key}`"),
+                _ => {
+                    return Err(BuildError::Message(format!(
+                        "{file}:{line_no}: unknown pass key `{key}`"
+                    )));
+                }
             }
             i += 1;
         }
@@ -319,7 +371,7 @@ fn parse_pass_directives(source: &str, file: &str) -> Vec<BuildPassDirective> {
 
         passes.push(pass);
     }
-    passes
+    Ok(passes)
 }
 
 fn blend_component_literal(c: &BuildBlendComponent) -> String {
@@ -361,7 +413,7 @@ fn validate_and_write_wgsl(
     out_path: &std::path::Path,
     expect_view_index: Option<bool>,
     passes: &[BuildPassDirective],
-) -> String {
+) -> Result<String, BuildError> {
     if passes.is_empty() {
         let has_vs = module
             .entry_points
@@ -372,9 +424,9 @@ fn validate_and_write_wgsl(
             .iter()
             .any(|e| e.stage == naga::ShaderStage::Fragment && e.name == "fs_main");
         if !has_vs || !has_fs {
-            panic!(
+            return Err(BuildError::Message(format!(
                 "{label}: expected entry points vs_main and fs_main (vertex={has_vs} fragment={has_fs})",
-            );
+            )));
         }
     } else {
         for pass in passes {
@@ -385,10 +437,10 @@ fn validate_and_write_wgsl(
                 e.stage == naga::ShaderStage::Fragment && e.name == pass.fragment_entry.as_str()
             });
             if !has_vs || !has_fs {
-                panic!(
+                return Err(BuildError::Message(format!(
                     "{label}: pass `{}` expected entry points {} and {} (vertex={has_vs} fragment={has_fs})",
                     pass.name, pass.vertex_entry, pass.fragment_entry
-                );
+                )));
             }
         }
     }
@@ -396,20 +448,20 @@ fn validate_and_write_wgsl(
     let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
     let info = validator
         .validate(module)
-        .unwrap_or_else(|e| panic!("validate {label}: {e}"));
+        .map_err(|e| BuildError::Message(format!("validate {label}: {e}")))?;
     let wgsl = naga::back::wgsl::write_string(module, &info, WriterFlags::EXPLICIT_TYPES)
-        .unwrap_or_else(|e| panic!("wgsl out {label}: {e}"));
+        .map_err(|e| BuildError::Message(format!("wgsl out {label}: {e}")))?;
     if let Some(want) = expect_view_index {
         let has = wgsl.contains("@builtin(view_index)");
         if want != has {
-            panic!(
+            return Err(BuildError::Message(format!(
                 "{label}: expected @builtin(view_index) {} in output (multiview shader_defs contract)",
                 if want { "present" } else { "absent" }
-            );
+            )));
         }
     }
-    fs::write(out_path, &wgsl).unwrap_or_else(|e| panic!("write {}: {e}", out_path.display()));
-    wgsl
+    fs::write(out_path, &wgsl)?;
+    Ok(wgsl)
 }
 
 /// Escapes `s` as a Rust `str` literal token (same as `format!("{s:?}")`).
@@ -421,10 +473,10 @@ fn rust_string_literal_token(s: &str) -> String {
 ///
 /// Returns `(file_path, source)` where `file_path` uses forward slashes (e.g.
 /// `shaders/source/modules/globals.wgsl`) for [`ComposableModuleDescriptor::file_path`].
-fn discover_shader_modules(manifest_dir: &Path) -> Vec<(String, String)> {
+fn discover_shader_modules(manifest_dir: &Path) -> Result<Vec<(String, String)>, BuildError> {
     let modules_dir = manifest_dir.join("shaders/source/modules");
     let mut paths: Vec<PathBuf> = fs::read_dir(&modules_dir)
-        .unwrap_or_else(|e| panic!("read {}: {e}", modules_dir.display()))
+        .map_err(|e| BuildError::Message(format!("read {}: {e}", modules_dir.display())))?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "wgsl"))
@@ -433,30 +485,33 @@ fn discover_shader_modules(manifest_dir: &Path) -> Vec<(String, String)> {
 
     let mut modules = Vec::with_capacity(paths.len());
     for path in paths {
-        let source =
-            fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let rel = path.strip_prefix(manifest_dir).unwrap_or_else(|_| {
-            panic!(
+        let source = fs::read_to_string(&path)
+            .map_err(|e| BuildError::Message(format!("read {}: {e}", path.display())))?;
+        let rel = path.strip_prefix(manifest_dir).map_err(|_| {
+            BuildError::Message(format!(
                 "module path {} is not under manifest {}",
                 path.display(),
                 manifest_dir.display()
-            )
-        });
+            ))
+        })?;
         let file_path = rel.to_string_lossy().replace('\\', "/");
         modules.push((file_path, source));
     }
 
     if modules.is_empty() {
-        panic!(
+        return Err(BuildError::Message(format!(
             "no *.wgsl modules under {} (naga-oil imports will fail)",
             modules_dir.display()
-        );
+        )));
     }
 
-    modules
+    Ok(modules)
 }
 
-fn register_composable_modules(composer: &mut Composer, modules: &[(String, String)]) {
+fn register_composable_modules(
+    composer: &mut Composer,
+    modules: &[(String, String)],
+) -> Result<(), BuildError> {
     for (file_path, source) in modules {
         composer
             .add_composable_module(ComposableModuleDescriptor {
@@ -465,8 +520,9 @@ fn register_composable_modules(composer: &mut Composer, modules: &[(String, Stri
                 language: ShaderLanguage::Wgsl,
                 ..Default::default()
             })
-            .unwrap_or_else(|e| panic!("add composable module {file_path}: {e}"));
+            .map_err(|e| BuildError::Message(format!("add composable module {file_path}: {e}")))?;
     }
+    Ok(())
 }
 
 fn compose_material(
@@ -474,9 +530,9 @@ fn compose_material(
     material_source: &str,
     material_file_path: &str,
     shader_defs: HashMap<String, ShaderDefValue>,
-) -> naga::Module {
+) -> Result<naga::Module, BuildError> {
     let mut composer = Composer::default().with_capabilities(Capabilities::all());
-    register_composable_modules(&mut composer, modules);
+    register_composable_modules(&mut composer, modules)?;
     composer
         .make_naga_module(NagaModuleDescriptor {
             source: material_source,
@@ -485,7 +541,7 @@ fn compose_material(
             shader_defs: std::collections::HashMap::from_iter(shader_defs),
             ..Default::default()
         })
-        .unwrap_or_else(|e| panic!("compose {material_file_path}: {e}"))
+        .map_err(|e| BuildError::Message(format!("compose {material_file_path}: {e}")))
 }
 
 /// Picks the lexicographically last `openxr_loader_windows-*` directory so newer SDK versions win.
@@ -510,13 +566,16 @@ fn find_latest_openxr_windows_package_dir(third_party_openxr: &Path) -> Option<P
 /// Cargo uses `target/<PROFILE>/` for the default host target and `target/<TARGET>/<PROFILE>/` when
 /// `--target` selects a different triple; copying the loader only to `target/<PROFILE>/` misses
 /// cross-compiled outputs (e.g. `x86_64-pc-windows-gnu`).
-fn cargo_artifact_profile_dir(cargo_target_dir: &Path, profile: &str) -> PathBuf {
-    let target = std::env::var("TARGET").expect("TARGET");
-    let host = std::env::var("HOST").expect("HOST");
+fn cargo_artifact_profile_dir(
+    cargo_target_dir: &Path,
+    profile: &str,
+) -> Result<PathBuf, BuildError> {
+    let target = env_var("TARGET")?;
+    let host = env_var("HOST")?;
     if target == host {
-        cargo_target_dir.join(profile)
+        Ok(cargo_target_dir.join(profile))
     } else {
-        cargo_target_dir.join(target).join(profile)
+        Ok(cargo_target_dir.join(target).join(profile))
     }
 }
 
@@ -567,7 +626,10 @@ fn copy_vendored_openxr_loader_windows(manifest_dir: &Path) {
         .unwrap_or_else(|_| manifest_dir.join("../../target"));
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
 
-    let dest_dir = cargo_artifact_profile_dir(&cargo_target_dir, &profile);
+    let Ok(dest_dir) = cargo_artifact_profile_dir(&cargo_target_dir, &profile) else {
+        println!("cargo:warning=openxr_loader: TARGET/HOST unset");
+        return;
+    };
     if let Err(e) = fs::create_dir_all(&dest_dir) {
         println!(
             "cargo:warning=openxr_loader: mkdir {} failed: {e}",
@@ -586,27 +648,36 @@ fn copy_vendored_openxr_loader_windows(manifest_dir: &Path) {
 }
 
 fn main() {
-    let manifest_dir =
-        PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    if let Err(e) = run() {
+        eprintln!("renderide build.rs: {e:#}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), BuildError> {
+    let manifest_dir = PathBuf::from(env_var("CARGO_MANIFEST_DIR")?);
     copy_vendored_openxr_loader_windows(&manifest_dir);
     let materials_dir = manifest_dir.join("shaders/source/materials");
     let target_dir = manifest_dir.join("shaders/target");
-    let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
+    let out_dir = PathBuf::from(env_var("OUT_DIR")?);
 
     println!("cargo:rerun-if-changed=shaders/source");
     println!("cargo:rerun-if-changed=build.rs");
 
-    fs::create_dir_all(materials_dir.parent().expect("materials parent")).expect("mkdir");
-    fs::create_dir_all(&target_dir).expect("mkdir target");
+    let materials_parent = materials_dir
+        .parent()
+        .ok_or_else(|| BuildError::Message("shaders/source/materials has no parent".into()))?;
+    fs::create_dir_all(materials_parent)?;
+    fs::create_dir_all(&target_dir)?;
 
-    let shader_modules = discover_shader_modules(&manifest_dir);
+    let shader_modules = discover_shader_modules(&manifest_dir)?;
 
     let mut embedded_arms = String::new();
     let mut embedded_pass_arms = String::new();
     let mut output_stems: Vec<String> = Vec::new();
 
     let mut material_paths: Vec<PathBuf> = fs::read_dir(&materials_dir)
-        .expect("read materials")
+        .map_err(|e| BuildError::Message(format!("read {}: {e}", materials_dir.display())))?
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.extension().map(|x| x == "wgsl").unwrap_or(false))
@@ -614,15 +685,16 @@ fn main() {
     material_paths.sort();
 
     for path in &material_paths {
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .expect("material stem");
+        let stem = path.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
+            BuildError::Message(format!("invalid material stem: {}", path.display()))
+        })?;
 
-        let material_source =
-            fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let material_file_path = path.to_str().expect("utf8 path");
-        let pass_directives = parse_pass_directives(&material_source, material_file_path);
+        let material_source = fs::read_to_string(path)
+            .map_err(|e| BuildError::Message(format!("read {}: {e}", path.display())))?;
+        let material_file_path = path.to_str().ok_or_else(|| {
+            BuildError::Message(format!("material path must be UTF-8: {}", path.display()))
+        })?;
+        let pass_directives = parse_pass_directives(&material_source, material_file_path)?;
 
         let variants = [
             (format!("{stem}_default"), false),
@@ -631,7 +703,7 @@ fn main() {
         for (target_stem, multiview) in variants {
             let defs = multiview_shader_defs(multiview);
             let module =
-                compose_material(&shader_modules, &material_source, material_file_path, defs);
+                compose_material(&shader_modules, &material_source, material_file_path, defs)?;
             let label = format!("{target_stem} (MULTIVIEW={multiview})");
             let out_path = target_dir.join(format!("{target_stem}.wgsl"));
             let wgsl = validate_and_write_wgsl(
@@ -640,7 +712,7 @@ fn main() {
                 &out_path,
                 Some(multiview),
                 &pass_directives,
-            );
+            )?;
             let lit = rust_string_literal_token(&wgsl);
             embedded_arms.push_str(&format!("        \"{target_stem}\" => Some({lit}),\n"));
             if !pass_directives.is_empty() {
@@ -691,5 +763,6 @@ pub const COMPILED_MATERIAL_STEMS: &[&str] = &[
     );
 
     let gen_path = out_dir.join("embedded_shaders.rs");
-    fs::write(&gen_path, embedded_rs).expect("write embedded_shaders.rs");
+    fs::write(&gen_path, embedded_rs)?;
+    Ok(())
 }

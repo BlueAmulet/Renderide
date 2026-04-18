@@ -19,6 +19,13 @@ use crate::scene::SceneCoordinator;
 /// Maximum distinct host render-texture occlusion pyramids retained ([`OcclusionSystem::offscreen`] LRU).
 const OFFSCREEN_HIZ_LRU_CAP: usize = 64;
 
+const OFFSCREEN_HIZ_LRU_CAP_NZ: NonZeroUsize = {
+    match NonZeroUsize::new(OFFSCREEN_HIZ_LRU_CAP) {
+        Some(n) => n,
+        None => panic!("OFFSCREEN_HIZ_LRU_CAP must be non-zero"),
+    }
+};
+
 /// Depth source, layout, and logical view for [`OcclusionSystem::encode_hi_z_build_pass`].
 pub(crate) struct HiZBuildInput<'a> {
     /// Depth attachment view (desktop 2D or multiview array) sampled for mip0.
@@ -48,11 +55,9 @@ impl Default for OcclusionSystem {
 impl OcclusionSystem {
     /// Creates an empty occlusion system with no pyramid data.
     pub fn new() -> Self {
-        let cap =
-            NonZeroUsize::new(OFFSCREEN_HIZ_LRU_CAP).expect("offscreen Hi-Z LRU cap is non-zero");
         Self {
             main: HiZGpuState::default(),
-            offscreen: LruCache::new(cap),
+            offscreen: LruCache::new(OFFSCREEN_HIZ_LRU_CAP_NZ),
         }
     }
 
@@ -60,12 +65,7 @@ impl OcclusionSystem {
         match view {
             OcclusionViewId::Main => &mut self.main,
             OcclusionViewId::OffscreenRenderTexture(id) => {
-                if !self.offscreen.contains(&id) {
-                    self.offscreen.put(id, HiZGpuState::default());
-                }
-                self.offscreen
-                    .get_mut(&id)
-                    .expect("offscreen Hi-Z LRU contains key after insert")
+                self.offscreen.get_or_insert_mut(id, HiZGpuState::default)
             }
         }
     }

@@ -27,6 +27,13 @@ use super::pipeline_build_error::PipelineBuildError;
 /// Maximum raster pipelines retained (LRU eviction).
 const MAX_CACHED_PIPELINES: usize = 512;
 
+const MAX_CACHED_PIPELINES_NZ: NonZeroUsize = {
+    match NonZeroUsize::new(MAX_CACHED_PIPELINES) {
+        Some(n) => n,
+        None => panic!("MAX_CACHED_PIPELINES must be non-zero"),
+    }
+};
+
 /// Key for [`MaterialPipelineCache`] lookups (no WGSL parse — see module docs).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct MaterialPipelineCacheKey {
@@ -66,9 +73,7 @@ impl MaterialPipelineCache {
     pub fn new(device: Arc<wgpu::Device>) -> Self {
         Self {
             device,
-            pipelines: LruCache::new(
-                NonZeroUsize::new(MAX_CACHED_PIPELINES).expect("MAX_CACHED_PIPELINES > 0"),
-            ),
+            pipelines: LruCache::new(MAX_CACHED_PIPELINES_NZ),
         }
     }
 

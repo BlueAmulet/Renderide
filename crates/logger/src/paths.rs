@@ -6,6 +6,19 @@ use std::path::{Path, PathBuf};
 use crate::level::LogLevel;
 use crate::output;
 
+/// Failure to resolve the default `Renderide/logs` root from a crate manifest path.
+#[derive(Debug, thiserror::Error)]
+pub enum LogsRootError {
+    /// `manifest_dir` did not have enough ancestors to reach the workspace `Renderide/` directory.
+    #[error(
+        "logger manifest path must live under .../Renderide/crates/logger (need 3+ path segments); got {manifest_dir:?}"
+    )]
+    ManifestPathTooShort {
+        /// Path passed to [`logs_root_with`].
+        manifest_dir: PathBuf,
+    },
+}
+
 /// Which part of the system produces a log stream under [`logs_root`] / `<component>/`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum LogComponent {
@@ -33,15 +46,21 @@ impl LogComponent {
 /// If `override_root` is [`Some`], that path is used as the logs root (`RENDERIDE_LOGS_ROOT`).
 /// Otherwise `manifest_dir` must be `.../Renderide/crates/logger`; [`Path::ancestors`] yields
 /// `logger` → `crates` → `Renderide`, so index `2` is the repository root.
-pub fn logs_root_with(manifest_dir: &Path, override_root: Option<&OsStr>) -> PathBuf {
+pub fn logs_root_with(
+    manifest_dir: &Path,
+    override_root: Option<&OsStr>,
+) -> Result<PathBuf, LogsRootError> {
     if let Some(root) = override_root {
-        return PathBuf::from(root);
+        return Ok(PathBuf::from(root));
     }
-    let renderide_root = manifest_dir
-        .ancestors()
-        .nth(2)
-        .expect("logger crate manifest dir must be .../Renderide/crates/logger");
-    renderide_root.join("logs")
+    let renderide_root =
+        manifest_dir
+            .ancestors()
+            .nth(2)
+            .ok_or_else(|| LogsRootError::ManifestPathTooShort {
+                manifest_dir: manifest_dir.to_path_buf(),
+            })?;
+    Ok(renderide_root.join("logs"))
 }
 
 /// Root directory containing per-component folders (`bootstrapper`, `host`, `renderer`).
@@ -54,6 +73,12 @@ pub fn logs_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")),
         std::env::var_os("RENDERIDE_LOGS_ROOT").as_deref(),
     )
+    .unwrap_or_else(|e| {
+        eprintln!("Renderide logger: {e}; using fallback logs directory");
+        std::env::current_dir()
+            .map(|p| p.join("logs"))
+            .unwrap_or_else(|_| PathBuf::from("logs"))
+    })
 }
 
 /// `logs_root()` joined with [`LogComponent::subdir`].

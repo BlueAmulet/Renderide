@@ -299,7 +299,7 @@ impl ClusteredLightPass {
         refs: &ClusterBufferRefs<'_>,
         lights_buffer: &wgpu::Buffer,
         bgl: &wgpu::BindGroupLayout,
-    ) -> &wgpu::BindGroup {
+    ) -> Result<&wgpu::BindGroup, RenderPassError> {
         let need_new_bind_group = self.cached_cluster_bind_version != Some(cluster_ver)
             || self.cached_compute_bind_group.is_none();
         if need_new_bind_group {
@@ -334,7 +334,7 @@ impl ClusteredLightPass {
         }
         self.cached_compute_bind_group
             .as_ref()
-            .expect("cached clustered_light bind group")
+            .ok_or(RenderPassError::ClusteredLightBindGroupMissing)
     }
 }
 
@@ -427,7 +427,7 @@ impl RenderPass for ClusteredLightPass {
             &refs,
             &fgpu.lights_buffer,
             bgl,
-        );
+        )?;
 
         run_clustered_light_eye_passes(ClusteredLightEyePassEnv {
             encoder: ctx.encoder,

@@ -11,6 +11,7 @@ path = "src/lib.rs"
 hashbrown = "0.17"
 naga = { version = "29", features = ["wgsl-in", "wgsl-out", "termcolor"] }
 naga_oil = { version = "0.22", default-features = false }
+thiserror = "2"
 
 [[bin]]
 name = "renderide"

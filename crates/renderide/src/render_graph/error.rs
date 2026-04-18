@@ -108,6 +108,10 @@ pub enum RenderPassError {
         /// Pass name from [`super::RenderPass::name`].
         pass: String,
     },
+
+    /// Clustered-light compute bind group was not created after cache update.
+    #[error("clustered light compute bind group missing after prepare")]
+    ClusteredLightBindGroupMissing,
 }
 
 /// Frame-level failure when recording or presenting the compiled graph.
@@ -148,4 +152,16 @@ pub enum GraphExecuteError {
     /// A pass returned an error while recording.
     #[error("pass execution failed: {0}")]
     Pass(#[from] RenderPassError),
+
+    /// The render queue mutex was poisoned (another thread panicked while holding the lock).
+    #[error("render queue mutex poisoned")]
+    QueueMutexPoisoned,
+
+    /// Multi-view execution was invoked with no views while frame-global work was required.
+    #[error("no views in batch for frame-global graph execution")]
+    NoViewsInBatch,
+
+    /// Transient GPU pool could not produce a lease (internal invariant violated).
+    #[error(transparent)]
+    TransientPool(#[from] super::transient_pool::TransientPoolError),
 }

@@ -37,6 +37,7 @@ pub use output::{enabled, flush, init, init_with_mirror, log, set_max_level, try
 pub use panic::{append_panic_report_to_file, log_panic, log_panic_payload, panic_report};
 pub use paths::{
     ensure_log_dir, init_for, log_dir_for, log_file_path, logs_root, logs_root_with, LogComponent,
+    LogsRootError,
 };
 pub use timestamp::log_filename_timestamp;
 
@@ -131,14 +132,15 @@ mod tests {
     #[test]
     fn logs_root_from_manifest_path() {
         let manifest = Path::new("/workspace/Renderide/crates/logger");
-        let root = logs_root_with(manifest, None);
+        let root = logs_root_with(manifest, None).expect("resolve logs root");
         assert_eq!(root, PathBuf::from("/workspace/Renderide/logs"));
     }
 
     #[test]
     fn logs_root_env_override_wins() {
         let manifest = Path::new("/workspace/Renderide/crates/logger");
-        let root = logs_root_with(manifest, Some(std::ffi::OsStr::new("/tmp/custom_logs")));
+        let root = logs_root_with(manifest, Some(std::ffi::OsStr::new("/tmp/custom_logs")))
+            .expect("resolve logs root");
         assert_eq!(root, PathBuf::from("/tmp/custom_logs"));
     }
 
@@ -152,12 +154,23 @@ mod tests {
     #[test]
     fn log_file_path_layout() {
         let manifest = Path::new("/r/Renderide/crates/logger");
-        let root = logs_root_with(manifest, None);
+        let root = logs_root_with(manifest, None).expect("resolve logs root");
         let expected = root.join("renderer").join("2026-04-05_12-00-00.log");
         let got = logs_root_with(manifest, None)
+            .expect("resolve logs root")
             .join(LogComponent::Renderer.subdir())
             .join("2026-04-05_12-00-00.log");
         assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn logs_root_err_on_short_manifest_path() {
+        let manifest = Path::new("/logger");
+        let err = logs_root_with(manifest, None).expect_err("short path");
+        assert!(matches!(
+            err,
+            crate::LogsRootError::ManifestPathTooShort { .. }
+        ));
     }
 
     #[test]

@@ -7,6 +7,23 @@ use std::collections::HashMap;
 
 use super::resources::{BufferSizePolicy, TransientExtent};
 
+/// Failure to build a [`PooledTextureLease`] or [`PooledBufferLease`] from pool entries.
+#[derive(Debug, thiserror::Error)]
+pub enum TransientPoolError {
+    /// GPU texture or view was not attached before leasing.
+    #[error("transient pool texture entry {pool_id} missing GPU texture or view")]
+    MissingTextureResources {
+        /// Pool index.
+        pool_id: usize,
+    },
+    /// GPU buffer was not attached before leasing.
+    #[error("transient pool buffer entry {pool_id} missing GPU buffer")]
+    MissingBuffer {
+        /// Pool index.
+        pool_id: usize,
+    },
+}
+
 /// Concrete texture allocation key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TextureKey {
@@ -146,7 +163,7 @@ impl TransientPool {
         key: TextureKey,
         label: &'static str,
         usage: wgpu::TextureUsages,
-    ) -> PooledTextureLease {
+    ) -> Result<PooledTextureLease, TransientPoolError> {
         if let Some(list) = self.free_textures.get_mut(&key) {
             if let Some(id) = list.pop() {
                 self.metrics.texture_hits += 1;
@@ -207,7 +224,7 @@ impl TransientPool {
         label: &'static str,
         usage: wgpu::BufferUsages,
         size: u64,
-    ) -> PooledBufferLease {
+    ) -> Result<PooledBufferLease, TransientPoolError> {
         if let Some(list) = self.free_buffers.get_mut(&key) {
             if let Some(id) = list.pop() {
                 self.metrics.buffer_hits += 1;
@@ -269,32 +286,38 @@ impl TransientPool {
     }
 }
 
-fn texture_lease_from_entry(id: usize, entry: &PooledTexture) -> PooledTextureLease {
-    PooledTextureLease {
+fn texture_lease_from_entry(
+    id: usize,
+    entry: &PooledTexture,
+) -> Result<PooledTextureLease, TransientPoolError> {
+    let texture = entry
+        .texture
+        .clone()
+        .ok_or(TransientPoolError::MissingTextureResources { pool_id: id })?;
+    let view = entry
+        .view
+        .clone()
+        .ok_or(TransientPoolError::MissingTextureResources { pool_id: id })?;
+    Ok(PooledTextureLease {
         pool_id: id,
-        texture: entry
-            .texture
-            .as_ref()
-            .expect("runtime texture entry has texture")
-            .clone(),
-        view: entry
-            .view
-            .as_ref()
-            .expect("runtime texture entry has view")
-            .clone(),
-    }
+        texture,
+        view,
+    })
 }
 
-fn buffer_lease_from_entry(id: usize, entry: &PooledBuffer) -> PooledBufferLease {
-    PooledBufferLease {
+fn buffer_lease_from_entry(
+    id: usize,
+    entry: &PooledBuffer,
+) -> Result<PooledBufferLease, TransientPoolError> {
+    let buffer = entry
+        .buffer
+        .clone()
+        .ok_or(TransientPoolError::MissingBuffer { pool_id: id })?;
+    Ok(PooledBufferLease {
         pool_id: id,
-        buffer: entry
-            .buffer
-            .as_ref()
-            .expect("runtime buffer entry has buffer")
-            .clone(),
+        buffer,
         size: entry.size,
-    }
+    })
 }
 
 fn create_texture_and_view(

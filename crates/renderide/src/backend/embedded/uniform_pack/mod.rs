@@ -156,19 +156,17 @@ fn pack_flags_u32(
             flags |= 0x02;
         }
     }
-    if keyword_float_enabled_by_pid(store, lookup, kw.mul_rgb_by_alpha)
-        || keyword_float_enabled_by_pid(store, lookup, kw.mul_rgb_by_alpha_alt)
+    if (keyword_float_enabled_by_pid(store, lookup, kw.mul_rgb_by_alpha)
+        || keyword_float_enabled_by_pid(store, lookup, kw.mul_rgb_by_alpha_alt))
+        && layout == PackedFlagsLayout::Unlit
     {
-        if layout == PackedFlagsLayout::Unlit {
-            flags |= 0x20;
-        }
+        flags |= 0x20;
     }
-    if keyword_float_enabled_by_pid(store, lookup, kw.mul_alpha_intensity)
-        || keyword_float_enabled_by_pid(store, lookup, kw.mul_alpha_intensity_alt)
+    if (keyword_float_enabled_by_pid(store, lookup, kw.mul_alpha_intensity)
+        || keyword_float_enabled_by_pid(store, lookup, kw.mul_alpha_intensity_alt))
+        && layout == PackedFlagsLayout::Unlit
     {
-        if layout == PackedFlagsLayout::Unlit {
-            flags |= 0x40;
-        }
+        flags |= 0x40;
     }
 
     flags

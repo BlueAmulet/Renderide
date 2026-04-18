@@ -90,9 +90,7 @@ fn resolve_layer_for_node(
         {
             return Some(entry.layer);
         }
-        let Some(&parent) = node_parents.get(cursor as usize) else {
-            return None;
-        };
+        let parent = *node_parents.get(cursor as usize)?;
         if parent < 0 || parent == cursor || parent as usize >= node_parents.len() {
             return None;
         }

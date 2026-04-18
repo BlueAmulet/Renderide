@@ -211,7 +211,7 @@ impl CompiledRenderGraph {
         let host_camera = view.host_camera;
         let target_is_swapchain = matches!(view.target, FrameViewTarget::Swapchain);
         let resolved = Self::resolve_view_from_target(&view.target, gpu, backbuffer_view_holder)?;
-        let graph_resources = self.resolve_graph_resources_for_view(device, backend, &resolved);
+        let graph_resources = self.resolve_graph_resources_for_view(device, backend, &resolved)?;
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render-graph-per-view"),
         });
@@ -268,7 +268,9 @@ impl CompiledRenderGraph {
                 return Err(GraphExecuteError::MissingSwapchainView);
             };
             let viewport_px = gpu.surface_extent_px();
-            let mut queue_lock = queue_arc.lock().expect("queue mutex poisoned");
+            let mut queue_lock = queue_arc
+                .lock()
+                .map_err(|_| GraphExecuteError::QueueMutexPoisoned)?;
             if let Err(e) =
                 backend.encode_debug_hud_overlay(device, &queue_lock, &mut encoder, bb, viewport_px)
             {
@@ -320,15 +322,16 @@ impl CompiledRenderGraph {
         if !has_frame_global {
             return Ok(());
         }
+        let first = views.first().ok_or(GraphExecuteError::NoViewsInBatch)?;
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render-graph-frame-global"),
         });
         // Frame-global phase (e.g. mesh deform): use first view for host camera / scene context.
         {
-            let first = views.first().expect("views non-empty");
             let resolved =
                 Self::resolve_view_from_target(&first.target, gpu, backbuffer_view_holder)?;
-            let graph_resources = self.resolve_graph_resources_for_view(device, backend, &resolved);
+            let graph_resources =
+                self.resolve_graph_resources_for_view(device, backend, &resolved)?;
             {
                 let mut frame_params = helpers::frame_render_params_from_resolved(
                     scene,
@@ -380,7 +383,6 @@ impl CompiledRenderGraph {
         let cmd = encoder.finish();
         gpu.submit_tracked_frame_commands(cmd);
 
-        let first = views.first().expect("views non-empty");
         let occlusion_view = first.occlusion_view_id();
         let host_camera = first.host_camera;
         let mut post_ctx = PostSubmitContext {
@@ -403,7 +405,7 @@ impl CompiledRenderGraph {
         device: &wgpu::Device,
         backend: &mut RenderBackend,
         resolved: &ResolvedView<'_>,
-    ) -> GraphResolvedResources {
+    ) -> Result<GraphResolvedResources, GraphExecuteError> {
         let mut resources = GraphResolvedResources::with_capacity(
             self.transient_textures.len(),
             self.transient_buffers.len(),
@@ -419,14 +421,15 @@ impl CompiledRenderGraph {
             resolved.sample_count,
             resolved.multiview_stereo,
             &mut resources,
-        );
-        self.resolve_transient_buffers(device, backend, resolved.viewport_px, &mut resources);
+        )?;
+        self.resolve_transient_buffers(device, backend, resolved.viewport_px, &mut resources)?;
         self.resolve_imported_textures(resolved, &mut resources);
         self.resolve_imported_buffers(backend, resolved, &mut resources);
-        resources
+        Ok(resources)
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::map_entry)] // insert-on-miss pattern is clearer than Entry API here
     fn resolve_transient_textures(
         &self,
         device: &wgpu::Device,
@@ -437,90 +440,95 @@ impl CompiledRenderGraph {
         sample_count: u32,
         multiview_stereo: bool,
         resources: &mut GraphResolvedResources,
-    ) {
+    ) -> Result<(), GraphExecuteError> {
         let mut physical_slots: HashMap<usize, ResolvedGraphTexture> = HashMap::new();
         for (idx, compiled) in self.transient_textures.iter().enumerate() {
             if compiled.lifetime.is_none() || compiled.physical_slot == usize::MAX {
                 continue;
             }
-            let resolved = physical_slots
-                .entry(compiled.physical_slot)
-                .or_insert_with(|| {
-                    let array_layers = compiled.desc.array_layers.resolve(multiview_stereo);
-                    let key = TextureKey {
-                        format: compiled
-                            .desc
-                            .format
-                            .resolve(surface_format, depth_stencil_format),
-                        extent: helpers::resolve_transient_extent(
-                            compiled.desc.extent,
-                            viewport_px,
-                            array_layers,
-                        ),
-                        mip_levels: compiled.desc.mip_levels,
-                        sample_count: compiled.desc.sample_count.resolve(sample_count),
-                        dimension: compiled.desc.dimension,
+            if !physical_slots.contains_key(&compiled.physical_slot) {
+                let array_layers = compiled.desc.array_layers.resolve(multiview_stereo);
+                let key = TextureKey {
+                    format: compiled
+                        .desc
+                        .format
+                        .resolve(surface_format, depth_stencil_format),
+                    extent: helpers::resolve_transient_extent(
+                        compiled.desc.extent,
+                        viewport_px,
                         array_layers,
-                        usage_bits: compiled.usage.bits() as u64,
-                    };
-                    let lease = backend.transient_pool_mut().acquire_texture_resource(
-                        device,
-                        key,
-                        compiled.desc.label,
-                        compiled.usage,
-                    );
-                    let layer_views = helpers::create_transient_layer_views(&lease.texture, key);
+                    ),
+                    mip_levels: compiled.desc.mip_levels,
+                    sample_count: compiled.desc.sample_count.resolve(sample_count),
+                    dimension: compiled.desc.dimension,
+                    array_layers,
+                    usage_bits: compiled.usage.bits() as u64,
+                };
+                let lease = backend.transient_pool_mut().acquire_texture_resource(
+                    device,
+                    key,
+                    compiled.desc.label,
+                    compiled.usage,
+                )?;
+                let layer_views = helpers::create_transient_layer_views(&lease.texture, key);
+                physical_slots.insert(
+                    compiled.physical_slot,
                     ResolvedGraphTexture {
                         pool_id: lease.pool_id,
                         physical_slot: compiled.physical_slot,
                         texture: lease.texture,
                         view: lease.view,
                         layer_views,
-                    }
-                })
-                .clone();
+                    },
+                );
+            }
+            let resolved = physical_slots[&compiled.physical_slot].clone();
             resources.set_transient_texture(TextureHandle(idx as u32), resolved);
         }
+        Ok(())
     }
 
+    #[allow(clippy::map_entry)]
     fn resolve_transient_buffers(
         &self,
         device: &wgpu::Device,
         backend: &mut RenderBackend,
         viewport_px: (u32, u32),
         resources: &mut GraphResolvedResources,
-    ) {
+    ) -> Result<(), GraphExecuteError> {
         let mut physical_slots: HashMap<usize, ResolvedGraphBuffer> = HashMap::new();
         for (idx, compiled) in self.transient_buffers.iter().enumerate() {
             if compiled.lifetime.is_none() || compiled.physical_slot == usize::MAX {
                 continue;
             }
-            let resolved = physical_slots
-                .entry(compiled.physical_slot)
-                .or_insert_with(|| {
-                    let key = BufferKey {
-                        size_policy: compiled.desc.size_policy,
-                        usage_bits: compiled.usage.bits() as u64,
-                    };
-                    let size = helpers::resolve_buffer_size(compiled.desc.size_policy, viewport_px);
-                    let lease = backend.transient_pool_mut().acquire_buffer_resource(
-                        device,
-                        key,
-                        compiled.desc.label,
-                        compiled.usage,
-                        size,
-                    );
+            if !physical_slots.contains_key(&compiled.physical_slot) {
+                let key = BufferKey {
+                    size_policy: compiled.desc.size_policy,
+                    usage_bits: compiled.usage.bits() as u64,
+                };
+                let size = helpers::resolve_buffer_size(compiled.desc.size_policy, viewport_px);
+                let lease = backend.transient_pool_mut().acquire_buffer_resource(
+                    device,
+                    key,
+                    compiled.desc.label,
+                    compiled.usage,
+                    size,
+                )?;
+                physical_slots.insert(
+                    compiled.physical_slot,
                     ResolvedGraphBuffer {
                         pool_id: lease.pool_id,
                         physical_slot: compiled.physical_slot,
                         buffer: lease.buffer,
                         size: lease.size,
-                    }
-                })
-                .clone();
+                    },
+                );
+            }
+            let resolved = physical_slots[&compiled.physical_slot].clone();
             resources
                 .set_transient_buffer(super::super::resources::BufferHandle(idx as u32), resolved);
         }
+        Ok(())
     }
 
     fn resolve_imported_textures(

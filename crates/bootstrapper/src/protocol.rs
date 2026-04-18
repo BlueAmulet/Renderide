@@ -248,41 +248,41 @@ mod tests {
 
     #[test]
     fn parse_host_command_settext() {
-        match parse_host_command("SETTEXThello") {
-            HostCommand::SetText(s) => assert_eq!(s, "hello"),
-            other => panic!("expected SetText, got {:?}", other),
-        }
+        assert!(matches!(
+            parse_host_command("SETTEXThello"),
+            HostCommand::SetText(ref s) if s == "hello"
+        ));
     }
 
     #[test]
     fn parse_host_command_renderer_args() {
-        match parse_host_command("-QueueName q -QueueCapacity 4096") {
-            HostCommand::StartRenderer(args) => {
-                assert_eq!(
-                    args,
-                    vec!["-QueueName", "q", "-QueueCapacity", "4096"]
-                        .into_iter()
-                        .map(String::from)
-                        .collect::<Vec<_>>()
-                );
-            }
-            other => panic!("expected StartRenderer, got {:?}", other),
+        let cmd = parse_host_command("-QueueName q -QueueCapacity 4096");
+        if let HostCommand::StartRenderer(args) = cmd {
+            assert_eq!(
+                args,
+                vec!["-QueueName", "q", "-QueueCapacity", "4096"]
+                    .into_iter()
+                    .map(String::from)
+                    .collect::<Vec<_>>()
+            );
+        } else {
+            panic!("expected StartRenderer, got {cmd:?}");
         }
     }
 
     #[test]
     fn parse_host_command_empty_message_is_start_renderer_empty() {
-        match parse_host_command("") {
-            HostCommand::StartRenderer(args) => assert!(args.is_empty()),
-            other => panic!("expected StartRenderer, got {:?}", other),
-        }
+        assert!(matches!(
+            parse_host_command(""),
+            HostCommand::StartRenderer(ref args) if args.is_empty()
+        ));
     }
 
     #[test]
     fn parse_host_command_settext_only() {
-        match parse_host_command("SETTEXT") {
-            HostCommand::SetText(s) => assert!(s.is_empty()),
-            other => panic!("expected SetText, got {:?}", other),
-        }
+        assert!(matches!(
+            parse_host_command("SETTEXT"),
+            HostCommand::SetText(ref s) if s.is_empty()
+        ));
     }
 }

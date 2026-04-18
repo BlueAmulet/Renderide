@@ -138,7 +138,9 @@ pub use reverse_z_depth::{
 };
 pub use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};
 pub use skinning_palette::{build_skinning_palette, SkinningPaletteParams};
-pub use transient_pool::{BufferKey, TextureKey, TransientPool, TransientPoolMetrics};
+pub use transient_pool::{
+    BufferKey, TextureKey, TransientPool, TransientPoolError, TransientPoolMetrics,
+};
 pub use world_mesh_cull::{
     build_world_mesh_cull_proj_params, capture_hi_z_temporal, HiZTemporalState, WorldMeshCullInput,
     WorldMeshCullProjParams,

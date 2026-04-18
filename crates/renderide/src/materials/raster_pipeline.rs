@@ -260,10 +260,9 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipelines(
     passes: &[MaterialPassDesc],
     render_state: MaterialRenderState,
 ) -> Result<Vec<wgpu::RenderPipeline>, PipelineBuildError> {
-    assert!(
-        !passes.is_empty(),
-        "create_reflective_raster_mesh_forward_pipelines called with empty passes (stem {label})"
-    );
+    if passes.is_empty() {
+        return Err(PipelineBuildError::EmptyPasses { label });
+    }
     let (layout, vertex_buffers) = pipeline_layout_and_vertex_buffers(
         device,
         wgsl_source,

@@ -13,4 +13,10 @@ pub enum PipelineBuildError {
     /// No embedded `shaders/target/{stem}.wgsl` string in the build output for `stem`.
     #[error("embedded WGSL missing for composed stem `{0}` (run build with shaders/source)")]
     MissingEmbeddedShader(String),
+    /// Reflective pipeline build was invoked with no pass descriptors (invalid stem or build output).
+    #[error("reflective raster pipeline requires at least one pass (stem `{label}`)")]
+    EmptyPasses {
+        /// Material stem label used in pipeline creation.
+        label: &'static str,
+    },
 }
