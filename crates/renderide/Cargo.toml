@@ -22,6 +22,7 @@ name = "roundtrip"
 path = "src/bin/roundtrip.rs"
 
 [dependencies]
+ahash = "0.8"
 bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.32", features = ["bytemuck"] }
 memmap2 = "0.9"

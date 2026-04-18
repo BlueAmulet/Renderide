@@ -103,9 +103,9 @@ pub struct TransientPoolMetrics {
     pub buffer_hits: usize,
     /// Buffer allocation misses.
     pub buffer_misses: usize,
-    /// Texture entries currently retained.
+    /// Pool texture slots that currently hold GPU [`wgpu::Texture`] handles (after GC drops dead entries).
     pub retained_textures: usize,
-    /// Buffer entries currently retained.
+    /// Pool buffer slots that currently hold GPU [`wgpu::Buffer`] handles.
     pub retained_buffers: usize,
 }
 
@@ -272,17 +272,62 @@ impl TransientPool {
         for list in self.free_buffers.values_mut() {
             list.retain(|&id| buffer_alive.get(id).copied().unwrap_or(false));
         }
-        self.metrics.retained_textures = texture_alive.into_iter().filter(|alive| *alive).count();
-        self.metrics.retained_buffers = buffer_alive.into_iter().filter(|alive| *alive).count();
+
+        for (idx, alive) in texture_alive.iter().enumerate() {
+            if !alive {
+                if let Some(entry) = self.textures.get_mut(idx) {
+                    entry.texture = None;
+                    entry.view = None;
+                }
+            }
+        }
+        for (idx, alive) in buffer_alive.iter().enumerate() {
+            if !alive {
+                if let Some(entry) = self.buffers.get_mut(idx) {
+                    entry.buffer = None;
+                    entry.size = 0;
+                }
+            }
+        }
+
+        self.refresh_retained_counts();
+    }
+
+    /// Drops GPU resources for free-list entries whose [`TextureKey`] matches `pred` (e.g. stale MSAA
+    /// sample counts after [`crate::gpu::GpuContext::swapchain_msaa_effective`] changes).
+    pub fn evict_texture_keys_where(&mut self, mut pred: impl FnMut(&TextureKey) -> bool) {
+        let keys: Vec<TextureKey> = self
+            .free_textures
+            .keys()
+            .copied()
+            .filter(|k| pred(k))
+            .collect();
+        for key in keys {
+            let Some(ids) = self.free_textures.remove(&key) else {
+                continue;
+            };
+            for id in ids {
+                if let Some(entry) = self.textures.get_mut(id) {
+                    entry.texture = None;
+                    entry.view = None;
+                }
+            }
+        }
+        self.refresh_retained_counts();
+    }
+
+    fn refresh_retained_counts(&mut self) {
+        self.metrics.retained_textures =
+            self.textures.iter().filter(|e| e.texture.is_some()).count();
+        self.metrics.retained_buffers = self.buffers.iter().filter(|e| e.buffer.is_some()).count();
     }
 
     /// Returns current metrics.
     pub fn metrics(&self) -> TransientPoolMetrics {
-        TransientPoolMetrics {
-            retained_textures: self.textures.len(),
-            retained_buffers: self.buffers.len(),
-            ..self.metrics
-        }
+        let mut m = self.metrics;
+        m.retained_textures = self.textures.iter().filter(|e| e.texture.is_some()).count();
+        m.retained_buffers = self.buffers.iter().filter(|e| e.buffer.is_some()).count();
+        m
     }
 }
 
@@ -459,5 +504,41 @@ mod tests {
         assert_eq!(metrics.texture_hits, 1);
         assert_eq!(metrics.buffer_misses, 1);
         assert_eq!(metrics.buffer_hits, 1);
+    }
+
+    #[test]
+    fn gc_drops_gpu_texture_slots_for_stale_msaa_keys() {
+        let mut pool = TransientPool::new();
+        let base = tex_key(wgpu::TextureUsages::RENDER_ATTACHMENT, 64, 64);
+        let mut k1 = base;
+        k1.sample_count = 1;
+        let mut k4 = base;
+        k4.sample_count = 4;
+        let mut k8 = base;
+        k8.sample_count = 8;
+
+        let id1 = pool.acquire_texture(k1);
+        let id4 = pool.acquire_texture(k4);
+        let id8 = pool.acquire_texture(k8);
+        pool.release_texture(id1);
+        pool.release_texture(id4);
+        pool.release_texture(id8);
+
+        for _ in 0..4 {
+            pool.begin_generation();
+        }
+        pool.gc_tick(0);
+
+        let m = pool.metrics();
+        assert_eq!(
+            m.retained_textures, 0,
+            "dead slots should not count as retained GPU textures"
+        );
+
+        let fresh = pool.acquire_texture(k1);
+        assert_ne!(
+            fresh, id1,
+            "after GC, acquire should allocate a new slot when the free list was pruned"
+        );
     }
 }

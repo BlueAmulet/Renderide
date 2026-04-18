@@ -90,6 +90,15 @@ impl RendererRuntime {
             return Ok(());
         }
 
+        let requested_msaa = self
+            .settings
+            .read()
+            .map(|s| s.rendering.msaa.as_count())
+            .unwrap_or(1);
+        let prev_msaa = gpu.swapchain_msaa_effective();
+        gpu.set_swapchain_msaa_requested(requested_msaa);
+        self.transient_evict_stale_msaa_tiers_if_changed(prev_msaa, gpu.swapchain_msaa_effective());
+
         let render_context = self.scene.active_main_render_context();
         let scene_ref: &SceneCoordinator = &self.scene;
         let property_store = self.backend.material_property_store();
@@ -164,12 +173,6 @@ impl RendererRuntime {
             });
         }
         if !views.is_empty() {
-            let requested_msaa = self
-                .settings
-                .read()
-                .map(|s| s.rendering.msaa.as_count())
-                .unwrap_or(1);
-            gpu.set_swapchain_msaa_requested(requested_msaa);
             self.backend
                 .execute_multi_view_frame(gpu, window, scene_ref, views, true)?;
         }
@@ -188,6 +191,16 @@ impl RendererRuntime {
         self.sync_debug_hud_diagnostics_from_settings();
 
         let prepared = self.collect_secondary_rt_prepared();
+
+        let requested_msaa = self
+            .settings
+            .read()
+            .map(|s| s.rendering.msaa.as_count())
+            .unwrap_or(1);
+        let prev_msaa = gpu.swapchain_msaa_effective();
+        gpu.set_swapchain_msaa_requested(requested_msaa);
+        self.transient_evict_stale_msaa_tiers_if_changed(prev_msaa, gpu.swapchain_msaa_effective());
+
         let render_context = self.scene.active_main_render_context();
         let scene_ref: &SceneCoordinator = &self.scene;
         let property_store = self.backend.material_property_store();
@@ -279,12 +292,6 @@ impl RendererRuntime {
             main_collection,
         );
 
-        let requested_msaa = self
-            .settings
-            .read()
-            .map(|s| s.rendering.msaa.as_count())
-            .unwrap_or(1);
-        gpu.set_swapchain_msaa_requested(requested_msaa);
         self.backend
             .execute_multi_view_frame(gpu, window, scene_ref, views, true)
     }

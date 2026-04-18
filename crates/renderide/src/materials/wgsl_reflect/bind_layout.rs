@@ -65,14 +65,26 @@ fn layout_entry_for_storage(
                 })?,
                 ArraySize::Constant(n) => {
                     let n = n.get();
-                    let total = stride.saturating_mul(n);
-                    NonZeroU64::new(u64::from(total)).ok_or_else(|| {
-                        ReflectError::UnsupportedBinding {
-                            group,
-                            binding,
-                            reason: "zero-sized storage array".into(),
-                        }
-                    })?
+                    if group == 2 {
+                        // Per-draw slab: `set_bind_group` dynamic offset selects one row; the shader still
+                        // indexes `instances[instance_index]` within the bound window (base instance or row 0).
+                        NonZeroU64::new(u64::from(stride)).ok_or_else(|| {
+                            ReflectError::UnsupportedBinding {
+                                group,
+                                binding,
+                                reason: "zero stride per-draw storage array".into(),
+                            }
+                        })?
+                    } else {
+                        let total = stride.saturating_mul(n);
+                        NonZeroU64::new(u64::from(total)).ok_or_else(|| {
+                            ReflectError::UnsupportedBinding {
+                                group,
+                                binding,
+                                reason: "zero-sized storage array".into(),
+                            }
+                        })?
+                    }
                 }
                 ArraySize::Pending(_) => {
                     return Err(ReflectError::UnsupportedBinding {
@@ -101,9 +113,8 @@ fn layout_entry_for_storage(
         visibility,
         ty: wgpu::BindingType::Buffer {
             ty: buf_ty,
-            // Per-draw `@group(2)` uses the full storage slab; draw slots are selected with
-            // `@builtin(instance_index)` and `draw_indexed` instance ranges, not dynamic offsets.
-            has_dynamic_offset: false,
+            // `@group(2)` per-draw slab: dynamic offset selects a row; base-instance path uses offset 0.
+            has_dynamic_offset: group == 2,
             min_binding_size: Some(min_binding_size),
         },
         count: None,

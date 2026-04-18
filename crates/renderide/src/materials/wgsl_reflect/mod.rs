@@ -163,14 +163,15 @@ pub fn validate_per_draw_group2(
     match e.ty {
         wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Storage { read_only: true },
-            has_dynamic_offset: false,
+            has_dynamic_offset: true,
             min_binding_size: Some(n),
         } if n.get() == PER_DRAW_UNIFORM_STRIDE as u64 => Ok(()),
         _ => Err(ReflectError::UnsupportedBinding {
             group: 2,
             binding: 0,
-            reason: "expected var<storage, read> array without dynamic offset min_binding_size 256"
-                .into(),
+            reason:
+                "expected var<storage, read> array with dynamic offset and min_binding_size 256"
+                    .into(),
         }),
     }
 }

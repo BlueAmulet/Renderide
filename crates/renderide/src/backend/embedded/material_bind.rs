@@ -419,6 +419,26 @@ impl EmbeddedMaterialBindResources {
 
         let mutation_gen = store.mutation_generation(lookup);
 
+        let hit_bg = {
+            let mut cache = self.bind_cache.borrow_mut();
+            cache.get(&bind_key).cloned()
+        };
+        if let Some(bg) = hit_bg {
+            // Bind group is unchanged; still refresh the uniform slab if the material store mutated.
+            let _uniform_buf =
+                self.get_or_create_embedded_uniform_buffer(EmbeddedUniformBufferRequest {
+                    queue,
+                    stem,
+                    layout: &layout,
+                    uniform_key: &uniform_key,
+                    mutation_gen,
+                    store,
+                    lookup,
+                    primary_texture_any_kind_present,
+                })?;
+            return Ok((bind_key, bg));
+        }
+
         let uniform_buf =
             self.get_or_create_embedded_uniform_buffer(EmbeddedUniformBufferRequest {
                 queue,
@@ -432,10 +452,6 @@ impl EmbeddedMaterialBindResources {
             })?;
 
         let mut cache = self.bind_cache.borrow_mut();
-        if let Some(bg) = cache.get(&bind_key) {
-            return Ok((bind_key, bg.clone()));
-        }
-
         let (keepalive_views, keepalive_samplers) = self.resolve_group1_textures_and_samplers(
             &layout,
             texture_2d_asset_id,
@@ -465,6 +481,12 @@ impl EmbeddedMaterialBindResources {
     }
 
     /// Resolves stem layout, primary texture ids, texture signature, and LRU cache keys for embedded binds.
+    ///
+    /// The texture bind signature in [`MaterialBindCacheKey`] must reflect pool residency and sampler state.
+    /// A cheaper fingerprint that omits it (e.g. keyed only by [`MaterialPropertyStore::mutation_generation`])
+    /// would be **unsound**: material mutations do not bump generation when textures stream mips or pools
+    /// change without a store write. Any future L1 fast path must include this signature or a dedicated
+    /// texture-binding epoch bumped on those events.
     fn resolve_embedded_bind_inputs(
         &self,
         stem: &str,

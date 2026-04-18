@@ -8,13 +8,14 @@ use crate::materials::PipelineBuildError;
 use crate::pipelines::raster::DebugWorldNormalsFamily;
 
 /// GPU storage slab: one [`crate::backend::mesh_deform::PaddedPerDrawUniforms`] slot (256 bytes) per
-/// mesh draw; vertex shaders index via `@builtin(instance_index)` from `draw_indexed` instance ranges.
+/// mesh draw. Shaders use `instance_index` within the dynamically bound row; base-instance batches use
+/// offset `0`, downlevel batches use a non-zero dynamic storage offset at bind time.
 pub struct PerDrawResources {
     /// Packed rows (`slot_count * 256` bytes), `STORAGE | COPY_DST`.
     pub per_draw_storage: wgpu::Buffer,
     /// Bind group wiring `per_draw_storage` for raster mesh pipelines (`@group(2)`).
     pub bind_group: Arc<wgpu::BindGroup>,
-    /// Layout shared by the full-slab bind group and one-row fallback bind groups.
+    /// Layout shared by mesh-forward pipelines (`@group(2)` dynamic storage binding).
     pub bind_group_layout: Arc<wgpu::BindGroupLayout>,
     slot_count: usize,
     limits: Arc<GpuLimits>,
@@ -51,7 +52,7 @@ impl PerDrawResources {
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         slab: &wgpu::Buffer,
-        byte_size: u64,
+        _byte_size: u64,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("mesh_forward_per_draw_bind_group"),
@@ -61,7 +62,7 @@ impl PerDrawResources {
                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                     buffer: slab,
                     offset: 0,
-                    size: std::num::NonZeroU64::new(byte_size),
+                    size: None,
                 }),
             }],
         })

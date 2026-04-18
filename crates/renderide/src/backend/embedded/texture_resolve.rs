@@ -1,7 +1,8 @@
 //! Texture asset id resolution and bind signature hashing for embedded material bind groups.
 
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+
+use ahash::AHasher;
 
 use crate::assets::material::{
     MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
@@ -31,7 +32,7 @@ pub(crate) enum ResolvedTextureBinding {
 }
 
 impl ResolvedTextureBinding {
-    fn hash_for_signature(self, hasher: &mut DefaultHasher) {
+    fn hash_for_signature(self, hasher: &mut impl Hasher) {
         match self {
             ResolvedTextureBinding::None => {
                 0u8.hash(hasher);
@@ -169,7 +170,7 @@ pub(crate) fn resolved_texture_binding_for_host(
     ResolvedTextureBinding::None
 }
 
-fn hash_texture2d_sampler(state: &Texture2dSamplerState, h: &mut DefaultHasher) {
+fn hash_texture2d_sampler(state: &Texture2dSamplerState, h: &mut impl Hasher) {
     (state.filter_mode as i32).hash(h);
     state.aniso_level.hash(h);
     (state.wrap_u as i32).hash(h);
@@ -177,7 +178,7 @@ fn hash_texture2d_sampler(state: &Texture2dSamplerState, h: &mut DefaultHasher) 
     state.mipmap_bias.to_bits().hash(h);
 }
 
-fn hash_texture3d_sampler(state: &Texture3dSamplerState, h: &mut DefaultHasher) {
+fn hash_texture3d_sampler(state: &Texture3dSamplerState, h: &mut impl Hasher) {
     (state.filter_mode as i32).hash(h);
     state.aniso_level.hash(h);
     (state.wrap_u as i32).hash(h);
@@ -186,7 +187,7 @@ fn hash_texture3d_sampler(state: &Texture3dSamplerState, h: &mut DefaultHasher) 
     state.mipmap_bias.to_bits().hash(h);
 }
 
-fn hash_cubemap_sampler(state: &CubemapSamplerState, h: &mut DefaultHasher) {
+fn hash_cubemap_sampler(state: &CubemapSamplerState, h: &mut impl Hasher) {
     (state.filter_mode as i32).hash(h);
     state.aniso_level.hash(h);
     state.mipmap_bias.to_bits().hash(h);
@@ -207,7 +208,7 @@ pub(crate) fn texture_bind_signature(
     primary_texture_2d: i32,
     offscreen_write_render_texture_asset_id: Option<i32>,
 ) -> u64 {
-    let mut h = DefaultHasher::new();
+    let mut h = AHasher::default();
     offscreen_write_render_texture_asset_id.hash(&mut h);
     for entry in &reflected.material_entries {
         if !matches!(entry.ty, wgpu::BindingType::Texture { .. }) {

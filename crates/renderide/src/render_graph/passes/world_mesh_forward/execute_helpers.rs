@@ -486,8 +486,6 @@ fn partition_intersection_draw_indices(draws: &[WorldMeshDrawItem]) -> (Vec<usiz
 /// Bind groups shared across opaque and intersection forward subpasses.
 struct ForwardPassBindGroups<'a> {
     per_draw: &'a wgpu::BindGroup,
-    per_draw_storage: &'a wgpu::Buffer,
-    per_draw_layout: &'a wgpu::BindGroupLayout,
     frame: &'a Arc<wgpu::BindGroup>,
     empty_material: &'a Arc<wgpu::BindGroup>,
 }
@@ -527,8 +525,6 @@ fn record_world_mesh_forward_subpass(
         frame_bg: bind_groups.frame.as_ref(),
         empty_bg: bind_groups.empty_material.as_ref(),
         per_draw_bind_group: bind_groups.per_draw,
-        per_draw_storage: bind_groups.per_draw_storage,
-        per_draw_bind_group_layout: bind_groups.per_draw_layout,
         pass_desc: cfg.pass_desc,
         shader_perm: cfg.shader_perm,
         warned_missing_embedded_bind: cfg.warned_missing_embedded_bind,
@@ -549,14 +545,11 @@ pub(super) fn record_world_mesh_forward_opaque_graph_raster(
         return true;
     }
 
-    let Some((per_draw_bg, per_draw_storage, per_draw_layout)) =
-        frame.backend.frame_resources.per_draw().map(|d| {
-            (
-                d.bind_group.clone(),
-                d.per_draw_storage.clone(),
-                d.bind_group_layout.clone(),
-            )
-        })
+    let Some(per_draw_bg) = frame
+        .backend
+        .frame_resources
+        .per_draw()
+        .map(|d| d.bind_group.clone())
     else {
         return false;
     };
@@ -570,8 +563,6 @@ pub(super) fn record_world_mesh_forward_opaque_graph_raster(
 
     let bind_groups = ForwardPassBindGroups {
         per_draw: per_draw_bg.as_ref(),
-        per_draw_storage: &per_draw_storage,
-        per_draw_layout: per_draw_layout.as_ref(),
         frame: &frame_bg_arc,
         empty_material: &empty_bg_arc,
     };
@@ -613,14 +604,11 @@ pub(super) fn record_world_mesh_forward_intersection_graph_raster(
         return true;
     }
 
-    let Some((per_draw_bg, per_draw_storage, per_draw_layout)) =
-        frame.backend.frame_resources.per_draw().map(|d| {
-            (
-                d.bind_group.clone(),
-                d.per_draw_storage.clone(),
-                d.bind_group_layout.clone(),
-            )
-        })
+    let Some(per_draw_bg) = frame
+        .backend
+        .frame_resources
+        .per_draw()
+        .map(|d| d.bind_group.clone())
     else {
         return false;
     };
@@ -634,8 +622,6 @@ pub(super) fn record_world_mesh_forward_intersection_graph_raster(
 
     let bind_groups = ForwardPassBindGroups {
         per_draw: per_draw_bg.as_ref(),
-        per_draw_storage: &per_draw_storage,
-        per_draw_layout: per_draw_layout.as_ref(),
         frame: &frame_bg_arc,
         empty_material: &empty_bg_arc,
     };

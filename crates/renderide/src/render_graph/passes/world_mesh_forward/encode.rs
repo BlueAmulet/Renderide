@@ -127,12 +127,8 @@ pub(crate) struct ForwardDrawBatch<'a, 'b, 'c, 'd> {
     pub frame_bg: &'a wgpu::BindGroup,
     /// Fallback material bind group when a stem has no resources.
     pub empty_bg: &'a wgpu::BindGroup,
-    /// Per-draw storage slab at `@group(2)`.
+    /// Per-draw storage slab at `@group(2)` (dynamic storage offset; see [`Self::supports_base_instance`]).
     pub per_draw_bind_group: &'a wgpu::BindGroup,
-    /// Full per-draw storage slab, used for one-row fallback binds when base instance is unavailable.
-    pub per_draw_storage: &'a wgpu::Buffer,
-    /// Bind layout for `@group(2)`.
-    pub per_draw_bind_group_layout: &'a wgpu::BindGroupLayout,
     /// Surface / depth / MSAA pipeline description.
     pub pass_desc: &'a MaterialPipelineDesc,
     /// Default vs multiview shader permutation.
@@ -231,24 +227,23 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
             offscreen_write_render_texture_asset_id: batch.offscreen_write_render_texture_asset_id,
         });
 
-        if batch.supports_base_instance {
-            // Full-buffer bind group: slot selection is `instance_index` from
-            // `draw_indexed(..., first_idx..first_idx + count)`.
-            batch
-                .rpass
-                .set_bind_group(2, batch.per_draw_bind_group, &[]);
+        let storage_align = batch.device.limits().min_storage_buffer_offset_alignment;
+        let per_draw_dyn_offset = if batch.supports_base_instance {
+            0u32
         } else {
-            // Some downlevel stacks do not support non-zero `first_instance`. Bind the current
-            // row as a one-element storage array and draw with instance index zero.
+            // Downlevel: `first_instance` is always zero; select the draw row via dynamic offset.
             debug_assert_eq!(inst_batch.instance_count, 1);
-            let bg = per_draw_one_row_bind_group(
-                batch.device,
-                batch.per_draw_bind_group_layout,
-                batch.per_draw_storage,
-                first_idx,
+            let raw = (first_idx * PER_DRAW_UNIFORM_STRIDE) as u32;
+            debug_assert_eq!(
+                raw % storage_align,
+                0,
+                "per-draw offset must match min_storage_buffer_offset_alignment"
             );
-            batch.rpass.set_bind_group(2, &bg, &[]);
-        }
+            raw
+        };
+        batch
+            .rpass
+            .set_bind_group(2, batch.per_draw_bind_group, &[per_draw_dyn_offset]);
         let inst_range = instance_range_for_batch(
             first_idx,
             inst_batch.instance_count,
@@ -296,27 +291,6 @@ fn instance_range_for_batch(
     } else {
         0..instance_count
     }
-}
-
-fn per_draw_one_row_bind_group(
-    device: &wgpu::Device,
-    layout: &wgpu::BindGroupLayout,
-    storage: &wgpu::Buffer,
-    draw_index: usize,
-) -> wgpu::BindGroup {
-    let offset = (draw_index * PER_DRAW_UNIFORM_STRIDE) as u64;
-    device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("mesh_forward_per_draw_one_row_bind_group"),
-        layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                buffer: storage,
-                offset,
-                size: std::num::NonZeroU64::new(PER_DRAW_UNIFORM_STRIDE as u64),
-            }),
-        }],
-    })
 }
 
 pub(crate) fn draw_mesh_submesh_instanced(

@@ -80,6 +80,22 @@ pub struct RendererRuntime {
 }
 
 impl RendererRuntime {
+    /// Drops transient-pool GPU textures for free-list entries whose MSAA sample count no longer
+    /// matches the effective swapchain tier (avoids VRAM retention when toggling MSAA).
+    pub(super) fn transient_evict_stale_msaa_tiers_if_changed(
+        &mut self,
+        prev_effective: u32,
+        new_effective: u32,
+    ) {
+        if prev_effective == new_effective {
+            return;
+        }
+        let eff = new_effective.max(1);
+        self.backend
+            .transient_pool_mut()
+            .evict_texture_keys_where(|k| k.sample_count > 1 && k.sample_count != eff);
+    }
+
     /// Builds a runtime; does not open IPC yet (see [`Self::connect_ipc`]).
     pub fn new(
         params: Option<ConnectionParams>,
@@ -140,7 +156,9 @@ impl RendererRuntime {
             .read()
             .map(|s| s.rendering.msaa.as_count())
             .unwrap_or(1);
+        let prev_msaa = gpu.swapchain_msaa_effective();
         gpu.set_swapchain_msaa_requested(requested_msaa);
+        self.transient_evict_stale_msaa_tiers_if_changed(prev_msaa, gpu.swapchain_msaa_effective());
         let scene_ref: &SceneCoordinator = &self.scene;
         self.backend
             .execute_frame_graph(gpu, window, scene_ref, self.host_camera)
@@ -173,7 +191,12 @@ impl RendererRuntime {
             .read()
             .map(|s| s.rendering.msaa.as_count())
             .unwrap_or(1);
+        let prev_stereo = gpu.swapchain_msaa_effective_stereo();
         gpu.set_swapchain_msaa_requested_stereo(requested_msaa);
+        self.transient_evict_stale_msaa_tiers_if_changed(
+            prev_stereo,
+            gpu.swapchain_msaa_effective_stereo(),
+        );
         let scene_ref: &SceneCoordinator = &self.scene;
         self.backend.execute_frame_graph_external_multiview(
             gpu,
