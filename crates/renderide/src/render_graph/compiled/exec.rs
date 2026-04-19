@@ -18,7 +18,7 @@ use super::super::resources::{
     BackendFrameBufferKind, BufferImportSource, FrameTargetRole, ImportSource,
     ImportedBufferHandle, ImportedTextureHandle, TextureHandle,
 };
-use super::super::transient_pool::{BufferKey, TextureKey};
+use super::super::transient_pool::{BufferKey, TextureKey, TransientPool};
 use super::helpers;
 use super::{
     CompiledRenderGraph, ExternalFrameTargets, FrameView, FrameViewTarget,
@@ -219,11 +219,13 @@ impl CompiledRenderGraph {
             self.execute_multi_view_submit_for_one_view(&mut mv_ctx, view, &mut transient_by_key)?;
         }
 
-        for (_, resources) in transient_by_key {
-            resources.release_to_pool(mv_ctx.backend.transient_pool_mut());
+        {
+            let pool = mv_ctx.backend.transient_pool_mut();
+            for (_, resources) in transient_by_key {
+                resources.release_to_pool(pool);
+            }
+            pool.gc_tick(120);
         }
-
-        mv_ctx.backend.transient_pool_mut().gc_tick(120);
 
         if let Some(f) = frame {
             f.present();
@@ -268,7 +270,7 @@ impl CompiledRenderGraph {
             );
             self.resolve_transient_textures(
                 device,
-                backend,
+                backend.transient_pool_mut(),
                 TransientTextureResolveSurfaceParams {
                     viewport_px: alloc_viewport,
                     surface_format: resolved.surface_format,
@@ -278,13 +280,18 @@ impl CompiledRenderGraph {
                 },
                 &mut resources,
             )?;
-            self.resolve_transient_buffers(device, backend, alloc_viewport, &mut resources)?;
+            self.resolve_transient_buffers(
+                device,
+                backend.transient_pool_mut(),
+                alloc_viewport,
+                &mut resources,
+            )?;
             transient_by_key.insert(key, resources);
         }
         {
             let r = transient_by_key.get_mut(&key).unwrap();
             self.resolve_imported_textures(&resolved, r);
-            self.resolve_imported_buffers(backend, &resolved, r);
+            self.resolve_imported_buffers(&backend.frame_resources, &resolved, r);
         }
         let graph_resources = transient_by_key.get(&key).unwrap();
 
@@ -362,7 +369,7 @@ impl CompiledRenderGraph {
         let occlusion_view = view.occlusion_view_id();
         let mut post_ctx = PostSubmitContext {
             device,
-            backend,
+            occlusion: &mut backend.occlusion,
             occlusion_view,
             host_camera: view.host_camera,
         };
@@ -417,7 +424,7 @@ impl CompiledRenderGraph {
                 );
                 self.resolve_transient_textures(
                     device,
-                    backend,
+                    backend.transient_pool_mut(),
                     TransientTextureResolveSurfaceParams {
                         viewport_px: alloc_viewport,
                         surface_format: resolved.surface_format,
@@ -427,13 +434,18 @@ impl CompiledRenderGraph {
                     },
                     &mut resources,
                 )?;
-                self.resolve_transient_buffers(device, backend, alloc_viewport, &mut resources)?;
+                self.resolve_transient_buffers(
+                    device,
+                    backend.transient_pool_mut(),
+                    alloc_viewport,
+                    &mut resources,
+                )?;
                 transient_by_key.insert(key, resources);
             }
             {
                 let r = transient_by_key.get_mut(&key).unwrap();
                 self.resolve_imported_textures(&resolved, r);
-                self.resolve_imported_buffers(backend, &resolved, r);
+                self.resolve_imported_buffers(&backend.frame_resources, &resolved, r);
             }
             let graph_resources = transient_by_key.get(&key).unwrap();
             {
@@ -494,7 +506,7 @@ impl CompiledRenderGraph {
         let host_camera = first.host_camera;
         let mut post_ctx = PostSubmitContext {
             device,
-            backend,
+            occlusion: &mut backend.occlusion,
             occlusion_view,
             host_camera,
         };
@@ -510,7 +522,7 @@ impl CompiledRenderGraph {
     fn resolve_transient_textures(
         &self,
         device: &wgpu::Device,
-        backend: &mut RenderBackend,
+        pool: &mut TransientPool,
         surface: TransientTextureResolveSurfaceParams,
         resources: &mut GraphResolvedResources,
     ) -> Result<(), GraphExecuteError> {
@@ -537,7 +549,7 @@ impl CompiledRenderGraph {
                     array_layers,
                     usage_bits: compiled.usage.bits() as u64,
                 };
-                let lease = backend.transient_pool_mut().acquire_texture_resource(
+                let lease = pool.acquire_texture_resource(
                     device,
                     key,
                     compiled.desc.label,
@@ -565,7 +577,7 @@ impl CompiledRenderGraph {
     fn resolve_transient_buffers(
         &self,
         device: &wgpu::Device,
-        backend: &mut RenderBackend,
+        pool: &mut TransientPool,
         viewport_px: (u32, u32),
         resources: &mut GraphResolvedResources,
     ) -> Result<(), GraphExecuteError> {
@@ -580,7 +592,7 @@ impl CompiledRenderGraph {
                     usage_bits: compiled.usage.bits() as u64,
                 };
                 let size = helpers::resolve_buffer_size(compiled.desc.size_policy, viewport_px);
-                let lease = backend.transient_pool_mut().acquire_buffer_resource(
+                let lease = pool.acquire_buffer_resource(
                     device,
                     key,
                     compiled.desc.label,
@@ -630,11 +642,11 @@ impl CompiledRenderGraph {
 
     fn resolve_imported_buffers(
         &self,
-        backend: &RenderBackend,
+        frame_resources: &crate::backend::FrameResourceManager,
         resolved: &ResolvedView<'_>,
         resources: &mut GraphResolvedResources,
     ) {
-        let frame_gpu = backend.frame_resources.frame_gpu();
+        let frame_gpu = frame_resources.frame_gpu();
         let cluster_refs = frame_gpu.and_then(|fgpu| {
             fgpu.cluster_cache.get_buffers(
                 resolved.viewport_px,
@@ -661,8 +673,7 @@ impl CompiledRenderGraph {
                     .as_ref()
                     .map(|refs| refs.cluster_light_indices.clone()),
                 BufferImportSource::BackendFrameResource(BackendFrameBufferKind::PerDrawSlab) => {
-                    backend
-                        .frame_resources
+                    frame_resources
                         .per_draw()
                         .map(|per_draw| per_draw.per_draw_storage.clone())
                 }
