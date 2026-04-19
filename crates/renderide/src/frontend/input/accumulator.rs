@@ -186,7 +186,6 @@ impl WindowInputAccumulator {
         }
     }
 
-    
     /// Returns the scroll delta observed since the HUD last read it and advances the HUD marker.
     ///
     /// The accumulator keeps a running `scroll_delta` for the host. The HUD should call this
