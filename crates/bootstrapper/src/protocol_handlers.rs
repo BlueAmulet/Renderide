@@ -146,6 +146,7 @@ mod tests {
     }
 
     /// `true` is at `/usr/bin/true` on macOS; Linux typically has `/bin/true`. Fall back to `PATH`.
+    #[cfg(unix)]
     fn unix_noop_executable() -> PathBuf {
         use std::path::Path;
         for candidate in ["/usr/bin/true", "/bin/true"] {

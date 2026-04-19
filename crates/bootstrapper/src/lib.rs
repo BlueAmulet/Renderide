@@ -14,7 +14,7 @@ mod config;
 mod constants;
 mod error;
 mod host;
-mod ipc;
+pub mod ipc;
 mod orchestration;
 mod panic_hook;
 mod paths;
