@@ -186,6 +186,14 @@ impl WindowInputAccumulator {
         }
     }
 
+    
+    /// Returns the scroll delta observed since the HUD last read it and advances the HUD marker.
+    ///
+    /// The accumulator keeps a running `scroll_delta` for the host. The HUD should call this
+    /// method to obtain the incremental scroll delta since its last read; the method returns
+    /// `scroll_delta - hud_scroll_sample` and advances `hud_scroll_sample` so subsequent HUD
+    /// frames do not reapply the same input. The host still consumes the full accumulated
+    /// `scroll_delta` when `take_input_state()` is called.
     pub fn take_hud_scroll_delta(&mut self) -> Vec2 {
         let delta = self.scroll_delta - self.hud_scroll_sample;
         self.hud_scroll_sample = self.scroll_delta;

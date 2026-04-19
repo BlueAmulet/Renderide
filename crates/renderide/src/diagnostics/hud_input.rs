@@ -47,7 +47,7 @@ pub struct DebugHudInput {
     pub window_focused: bool,
     /// Whether the cursor is over the client area (from winit accumulator).
     pub mouse_active: bool,
-    // Scroll wheel delta in platform units (e.g. Windows uses 120 per notch).
+    /// Scroll wheel delta in platform units (e.g. Windows uses 120 per notch).
     pub mouse_wheel_delta: Vec2,
     /// Left mouse button held.
     pub left: bool,
