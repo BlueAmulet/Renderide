@@ -78,3 +78,81 @@ pub fn host_camera_frame_for_render_texture(
         suppress_occlusion_temporal: false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for [`camera_state_enabled`] and [`host_camera_frame_for_render_texture`].
+
+    use glam::{Mat4, Vec3};
+
+    use crate::scene::{RenderSpaceId, SceneCoordinator};
+    use crate::shared::{CameraProjection, CameraState, HeadOutputDevice};
+
+    use super::super::camera::apply_view_handedness_fix;
+    use super::super::frame_params::HostCameraFrame;
+    use super::{camera_state_enabled, host_camera_frame_for_render_texture};
+
+    #[test]
+    fn camera_state_enabled_reads_bit_zero() {
+        assert!(!camera_state_enabled(0));
+        assert!(camera_state_enabled(1));
+        assert!(camera_state_enabled(0xffff));
+        assert!(!camera_state_enabled(2));
+    }
+
+    #[test]
+    fn host_camera_frame_secondary_sets_world_to_view_and_cluster_overrides() {
+        let scene = SceneCoordinator::new();
+        let base = HostCameraFrame {
+            output_device: HeadOutputDevice::Screen,
+            ..Default::default()
+        };
+        let cam_world = Mat4::from_translation(Vec3::new(4.0, 5.0, 6.0));
+        let state = CameraState {
+            projection: CameraProjection::Perspective,
+            field_of_view: 55.0,
+            near_clip: 0.05,
+            far_clip: 2000.0,
+            ..Default::default()
+        };
+
+        let out =
+            host_camera_frame_for_render_texture(&base, &state, (1280, 720), cam_world, &scene);
+
+        let expected_w2v = apply_view_handedness_fix(cam_world.inverse());
+        assert_eq!(out.secondary_camera_world_to_view, Some(expected_w2v));
+        assert_eq!(out.cluster_view_override, Some(expected_w2v));
+        assert!(out.cluster_proj_override.is_some());
+        assert_eq!(out.primary_ortho_task, None);
+        assert_eq!(out.desktop_fov_degrees, state.field_of_view);
+        assert!(!out.vr_active);
+    }
+
+    #[test]
+    fn host_camera_frame_secondary_orthographic_sets_primary_ortho_task() {
+        let mut scene = SceneCoordinator::new();
+        scene.test_seed_space_identity_worlds(
+            RenderSpaceId(1),
+            vec![crate::shared::RenderTransform::default()],
+            vec![-1],
+        );
+        let base = HostCameraFrame::default();
+        let cam_world = Mat4::IDENTITY;
+        let state = CameraState {
+            projection: CameraProjection::Orthographic,
+            orthographic_size: 8.0,
+            near_clip: 0.1,
+            far_clip: 500.0,
+            ..Default::default()
+        };
+
+        let out =
+            host_camera_frame_for_render_texture(&base, &state, (640, 480), cam_world, &scene);
+
+        assert_eq!(
+            out.primary_ortho_task,
+            Some((8.0, out.near_clip, out.far_clip))
+        );
+        assert!(out.cluster_proj_override.is_some());
+    }
+}

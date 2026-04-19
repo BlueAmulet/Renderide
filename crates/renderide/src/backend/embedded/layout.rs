@@ -234,6 +234,46 @@ impl StemEmbeddedPropertyIds {
     }
 }
 
+/// Stable hash for stem strings (uniform/bind cache keys).
+pub(crate) fn stem_hash(stem: &str) -> u64 {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    stem.hash(&mut h);
+    h.finish()
+}
+
+/// Reflects embedded WGSL for `stem`, builds the `@group(1)` layout, and interns property ids.
+pub(crate) fn build_stem_material_layout(
+    device: &wgpu::Device,
+    stem: &str,
+    shared_keyword_ids: &Arc<EmbeddedSharedKeywordIds>,
+    property_registry: &PropertyIdRegistry,
+) -> Result<Arc<StemMaterialLayout>, String> {
+    let wgsl = embedded_shaders::embedded_target_wgsl(stem)
+        .ok_or_else(|| format!("embedded WGSL missing for stem {stem}"))?;
+    let reflected =
+        reflect_raster_material_wgsl(wgsl).map_err(|e| format!("reflect {stem}: {e}"))?;
+
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("embedded_raster_material"),
+        entries: &reflected.material_entries,
+    });
+
+    let ids = Arc::new(StemEmbeddedPropertyIds::build(
+        stem,
+        Arc::clone(shared_keyword_ids),
+        property_registry,
+        &reflected,
+    ));
+
+    Ok(Arc::new(StemMaterialLayout {
+        bind_group_layout,
+        reflected,
+        ids,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -297,44 +337,4 @@ mod tests {
             )
         );
     }
-}
-
-/// Stable hash for stem strings (uniform/bind cache keys).
-pub(crate) fn stem_hash(stem: &str) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut h = DefaultHasher::new();
-    stem.hash(&mut h);
-    h.finish()
-}
-
-/// Reflects embedded WGSL for `stem`, builds the `@group(1)` layout, and interns property ids.
-pub(crate) fn build_stem_material_layout(
-    device: &wgpu::Device,
-    stem: &str,
-    shared_keyword_ids: &Arc<EmbeddedSharedKeywordIds>,
-    property_registry: &PropertyIdRegistry,
-) -> Result<Arc<StemMaterialLayout>, String> {
-    let wgsl = embedded_shaders::embedded_target_wgsl(stem)
-        .ok_or_else(|| format!("embedded WGSL missing for stem {stem}"))?;
-    let reflected =
-        reflect_raster_material_wgsl(wgsl).map_err(|e| format!("reflect {stem}: {e}"))?;
-
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("embedded_raster_material"),
-        entries: &reflected.material_entries,
-    });
-
-    let ids = Arc::new(StemEmbeddedPropertyIds::build(
-        stem,
-        Arc::clone(shared_keyword_ids),
-        property_registry,
-        &reflected,
-    ));
-
-    Ok(Arc::new(StemMaterialLayout {
-        bind_group_layout,
-        reflected,
-        ids,
-    }))
 }

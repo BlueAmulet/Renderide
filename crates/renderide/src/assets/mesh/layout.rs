@@ -61,7 +61,7 @@ pub fn index_bytes_per_element(format: IndexBufferFormat) -> i32 {
 pub const MAX_BUFFER_SIZE: usize = 2_147_483_648;
 
 /// Byte offsets for each region of the host mesh payload.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MeshBufferLayout {
     /// Byte length of the interleaved vertex region at the start of the host buffer.
     pub vertex_size: usize,

@@ -180,3 +180,112 @@ impl Default for MeshResidencyMeta {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for [`VramAccounting`] and [`TextureResidencyMeta`] host mapping.
+
+    use super::{ResidencyTier, TextureResidencyMeta, VramAccounting, VramResourceKind};
+    use crate::shared::{SetCubemapProperties, SetTexture2DProperties, SetTexture3DProperties};
+
+    #[test]
+    fn vram_accounting_tracks_mesh_and_texture_subtotals() {
+        let mut a = VramAccounting::default();
+        a.on_resident_added(VramResourceKind::Mesh, 100);
+        a.on_resident_added(VramResourceKind::Texture, 200);
+        assert_eq!(a.mesh_resident_bytes(), 100);
+        assert_eq!(a.texture_resident_bytes(), 200);
+        assert_eq!(a.total_resident_bytes(), 300);
+
+        a.on_resident_removed(VramResourceKind::Mesh, 40);
+        assert_eq!(a.mesh_resident_bytes(), 60);
+        assert_eq!(a.texture_resident_bytes(), 200);
+        assert_eq!(a.total_resident_bytes(), 260);
+    }
+
+    #[test]
+    fn vram_accounting_saturates_total_on_add_overflow() {
+        let mut a = VramAccounting::default();
+        a.on_resident_added(VramResourceKind::Mesh, u64::MAX);
+        a.on_resident_added(VramResourceKind::Texture, 1);
+        assert_eq!(a.total_resident_bytes(), u64::MAX);
+    }
+
+    #[test]
+    fn vram_accounting_saturates_subtract_at_zero() {
+        let mut a = VramAccounting::default();
+        a.on_resident_added(VramResourceKind::Mesh, 10);
+        a.on_resident_removed(VramResourceKind::Mesh, 100);
+        assert_eq!(a.mesh_resident_bytes(), 0);
+        assert_eq!(a.total_resident_bytes(), 0);
+    }
+
+    #[test]
+    fn texture_meta_from_2d_hot_when_urgent_or_high_priority() {
+        let p = SetTexture2DProperties {
+            apply_immediatelly: true,
+            high_priority: false,
+            mipmap_bias: -0.5,
+            ..Default::default()
+        };
+        let m = TextureResidencyMeta::from_texture_props(&p);
+        assert_eq!(m.tier, ResidencyTier::Hot);
+        assert!(m.integration_urgent);
+        assert_eq!(m.mipmap_bias, -0.5);
+
+        let p2 = SetTexture2DProperties {
+            apply_immediatelly: false,
+            high_priority: true,
+            ..Default::default()
+        };
+        let m2 = TextureResidencyMeta::from_texture_props(&p2);
+        assert_eq!(m2.tier, ResidencyTier::Hot);
+        assert!(!m2.integration_urgent);
+    }
+
+    #[test]
+    fn texture_meta_from_2d_streaming_when_neither_urgent_nor_high_priority() {
+        let p = SetTexture2DProperties {
+            apply_immediatelly: false,
+            high_priority: false,
+            ..Default::default()
+        };
+        let m = TextureResidencyMeta::from_texture_props(&p);
+        assert_eq!(m.tier, ResidencyTier::Streaming);
+        assert!(!m.integration_urgent);
+    }
+
+    #[test]
+    fn texture_meta_from_3d_matches_2d_tier_rules_and_zero_mipmap_bias() {
+        let p = SetTexture3DProperties {
+            apply_immediatelly: false,
+            high_priority: true,
+            ..Default::default()
+        };
+        let m = TextureResidencyMeta::from_texture3d_props(&p);
+        assert_eq!(m.tier, ResidencyTier::Hot);
+        assert!(!m.integration_urgent);
+        assert_eq!(m.mipmap_bias, 0.0);
+
+        let p2 = SetTexture3DProperties {
+            apply_immediatelly: true,
+            ..Default::default()
+        };
+        let m2 = TextureResidencyMeta::from_texture3d_props(&p2);
+        assert_eq!(m2.tier, ResidencyTier::Hot);
+        assert!(m2.integration_urgent);
+    }
+
+    #[test]
+    fn texture_meta_from_cubemap_carries_mipmap_bias() {
+        let p = SetCubemapProperties {
+            apply_immediatelly: false,
+            high_priority: false,
+            mipmap_bias: 1.25,
+            ..Default::default()
+        };
+        let m = TextureResidencyMeta::from_cubemap_props(&p);
+        assert_eq!(m.tier, ResidencyTier::Streaming);
+        assert_eq!(m.mipmap_bias, 1.25);
+    }
+}

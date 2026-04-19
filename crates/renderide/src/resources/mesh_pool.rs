@@ -134,3 +134,52 @@ impl MeshPool {
         &self.meshes
     }
 }
+
+#[cfg(test)]
+mod layout_cache_tests {
+    //! [`MeshPool`] layout fingerprint cache tests (no GPU handles).
+
+    use super::MeshPool;
+    use crate::assets::mesh::MeshBufferLayout;
+
+    fn layout_with_vertex_size(vertex_size: usize) -> MeshBufferLayout {
+        MeshBufferLayout {
+            vertex_size,
+            index_buffer_start: 0,
+            index_buffer_length: 0,
+            bone_counts_start: 0,
+            bone_counts_length: 0,
+            bone_weights_start: 0,
+            bone_weights_length: 0,
+            bind_poses_start: 0,
+            bind_poses_length: 0,
+            blendshape_data_start: 0,
+            blendshape_data_length: 0,
+            total_buffer_length: vertex_size,
+        }
+    }
+
+    #[test]
+    fn get_cached_mesh_layout_returns_layout_on_fingerprint_hit() {
+        let mut pool = MeshPool::default_pool();
+        let id = 42;
+        let fp = 0xdead_beef_u64;
+        let layout = layout_with_vertex_size(128);
+        pool.set_cached_mesh_layout(id, fp, layout);
+        assert_eq!(pool.get_cached_mesh_layout(id, fp), Some(layout));
+    }
+
+    #[test]
+    fn get_cached_mesh_layout_misses_when_fingerprint_changes() {
+        let mut pool = MeshPool::default_pool();
+        let id = 1;
+        pool.set_cached_mesh_layout(id, 100, layout_with_vertex_size(64));
+        assert_eq!(pool.get_cached_mesh_layout(id, 101), None);
+    }
+
+    #[test]
+    fn get_cached_mesh_layout_misses_for_unknown_asset_id() {
+        let pool = MeshPool::default_pool();
+        assert_eq!(pool.get_cached_mesh_layout(999, 0), None);
+    }
+}

@@ -128,3 +128,105 @@ pub fn build_world_mesh_cull_proj_params(
         vr_stereo,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for [`capture_hi_z_temporal`] and [`build_world_mesh_cull_proj_params`].
+
+    use glam::Mat4;
+
+    use crate::scene::{RenderSpaceId, SceneCoordinator};
+    use crate::shared::RenderTransform;
+
+    use super::super::camera::view_matrix_from_render_transform;
+    use super::super::frame_params::HostCameraFrame;
+    use super::super::hi_z_cpu::hi_z_pyramid_dimensions;
+    use super::{
+        build_world_mesh_cull_proj_params, capture_hi_z_temporal, WorldMeshCullProjParams,
+    };
+
+    #[test]
+    fn capture_hi_z_temporal_secondary_override_fills_all_spaces() {
+        let mut scene = SceneCoordinator::new();
+        scene.test_seed_space_identity_worlds(
+            RenderSpaceId(1),
+            vec![RenderTransform::default()],
+            vec![-1],
+        );
+        scene.test_seed_space_identity_worlds(
+            RenderSpaceId(2),
+            vec![RenderTransform::default()],
+            vec![-1],
+        );
+        let prev = WorldMeshCullProjParams {
+            world_proj: Mat4::IDENTITY,
+            overlay_proj: Mat4::IDENTITY,
+            vr_stereo: None,
+        };
+        let m = Mat4::from_translation(glam::Vec3::new(3.0, 0.0, 0.0));
+        let t = capture_hi_z_temporal(&scene, prev, (1920, 1080), Some(m));
+        assert_eq!(t.prev_view_by_space.len(), 2);
+        for id in scene.render_space_ids() {
+            assert_eq!(t.prev_view_by_space.get(&id).copied(), Some(m));
+        }
+        assert_eq!(t.depth_viewport_px, hi_z_pyramid_dimensions(1920, 1080));
+    }
+
+    #[test]
+    fn capture_hi_z_temporal_without_override_uses_view_per_space() {
+        let mut scene = SceneCoordinator::new();
+        scene.test_seed_space_identity_worlds(
+            RenderSpaceId(5),
+            vec![RenderTransform::default()],
+            vec![-1],
+        );
+        let space = scene.space(RenderSpaceId(5)).expect("space");
+        let expected = view_matrix_from_render_transform(&space.view_transform);
+        let prev = WorldMeshCullProjParams {
+            world_proj: Mat4::IDENTITY,
+            overlay_proj: Mat4::IDENTITY,
+            vr_stereo: None,
+        };
+        let t = capture_hi_z_temporal(&scene, prev, (800, 600), None);
+        assert_eq!(
+            t.prev_view_by_space.get(&RenderSpaceId(5)).copied(),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn build_world_mesh_cull_proj_params_sets_vr_stereo_only_when_active_and_pair_present() {
+        let scene = SceneCoordinator::new();
+        let hc = HostCameraFrame {
+            vr_active: true,
+            stereo_view_proj: Some((Mat4::IDENTITY, Mat4::IDENTITY)),
+            ..Default::default()
+        };
+        let p = build_world_mesh_cull_proj_params(&scene, (1280, 720), &hc);
+        assert!(p.vr_stereo.is_some());
+
+        let hc2 = HostCameraFrame {
+            vr_active: false,
+            stereo_view_proj: Some((Mat4::IDENTITY, Mat4::IDENTITY)),
+            ..Default::default()
+        };
+        let p2 = build_world_mesh_cull_proj_params(&scene, (1280, 720), &hc2);
+        assert!(p2.vr_stereo.is_none());
+    }
+
+    #[test]
+    fn build_world_mesh_cull_proj_params_overlay_uses_primary_ortho_task_when_present() {
+        let scene = SceneCoordinator::new();
+        let hc = HostCameraFrame::default();
+        let p_no = build_world_mesh_cull_proj_params(&scene, (800, 600), &hc);
+
+        let hc_ortho = HostCameraFrame {
+            primary_ortho_task: Some((10.0, 0.01, 5000.0)),
+            ..Default::default()
+        };
+        let p_ortho = build_world_mesh_cull_proj_params(&scene, (800, 600), &hc_ortho);
+
+        assert_eq!(p_no.world_proj, p_ortho.world_proj);
+        assert_ne!(p_no.overlay_proj, p_ortho.overlay_proj);
+    }
+}

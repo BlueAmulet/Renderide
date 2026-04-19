@@ -240,3 +240,71 @@ fn hi_z_snapshot_matches_temporal(hi: &HiZCullData, t: &HiZTemporalState) -> boo
         HiZCullData::Stereo { left, .. } => left.base_width == w && left.base_height == h,
     }
 }
+
+#[cfg(test)]
+mod hi_z_temporal_match_tests {
+    //! [`super::hi_z_snapshot_matches_temporal`] dimension checks (stale-pyramid guard).
+
+    use glam::Mat4;
+    use hashbrown::HashMap;
+
+    use super::hi_z_snapshot_matches_temporal;
+    use crate::render_graph::hi_z_cpu::{total_float_count, HiZCpuSnapshot};
+    use crate::render_graph::world_mesh_cull::{HiZTemporalState, WorldMeshCullProjParams};
+    use crate::render_graph::HiZCullData;
+
+    fn dummy_temporal(depth_viewport_px: (u32, u32)) -> HiZTemporalState {
+        HiZTemporalState {
+            prev_cull: WorldMeshCullProjParams {
+                world_proj: Mat4::IDENTITY,
+                overlay_proj: Mat4::IDENTITY,
+                vr_stereo: None,
+            },
+            prev_view_by_space: HashMap::new(),
+            depth_viewport_px,
+        }
+    }
+
+    fn snapshot(wx: u32, hy: u32) -> HiZCpuSnapshot {
+        let mip_levels = 1u32;
+        let n = total_float_count(wx, hy, mip_levels);
+        HiZCpuSnapshot {
+            base_width: wx,
+            base_height: hy,
+            mip_levels,
+            mips: vec![0.0; n],
+        }
+    }
+
+    #[test]
+    fn desktop_matches_when_mip0_matches_temporal_viewport() {
+        let t = dummy_temporal((128, 96));
+        let hi = HiZCullData::Desktop(snapshot(128, 96));
+        assert!(hi_z_snapshot_matches_temporal(&hi, &t));
+    }
+
+    #[test]
+    fn desktop_mismatches_when_pyramid_resolution_differs() {
+        let t = dummy_temporal((128, 96));
+        let hi = HiZCullData::Desktop(snapshot(64, 96));
+        assert!(!hi_z_snapshot_matches_temporal(&hi, &t));
+    }
+
+    #[test]
+    fn stereo_matches_left_eye_mip0_against_temporal_viewport() {
+        let t = dummy_temporal((256, 144));
+        let left = snapshot(256, 144);
+        let right = snapshot(1, 1);
+        let hi = HiZCullData::Stereo { left, right };
+        assert!(hi_z_snapshot_matches_temporal(&hi, &t));
+    }
+
+    #[test]
+    fn stereo_mismatches_when_left_eye_size_differs() {
+        let t = dummy_temporal((256, 144));
+        let left = snapshot(128, 144);
+        let right = snapshot(256, 144);
+        let hi = HiZCullData::Stereo { left, right };
+        assert!(!hi_z_snapshot_matches_temporal(&hi, &t));
+    }
+}

@@ -19,17 +19,7 @@ use super::unix::SharedMemoryView;
 #[cfg(windows)]
 use super::windows::SharedMemoryView;
 
-fn required_view_capacity(d: &SharedMemoryBufferDescriptor) -> Option<i32> {
-    if d.length <= 0 {
-        return None;
-    }
-    let cap = d.buffer_capacity.max(d.offset.saturating_add(d.length));
-    if cap > 0 {
-        Some(cap)
-    } else {
-        None
-    }
-}
+use super::bounds::required_view_capacity;
 
 /// Lazy mapping cache keyed by `buffer_id` for host shared buffers.
 pub struct SharedMemoryAccessor {

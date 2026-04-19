@@ -69,8 +69,10 @@ fn dispatch_shutdown_sets_shutdown_requested() {
 fn dispatch_frame_submit_updates_lockstep_fields() {
     let mut rt = test_runtime_standalone();
     rt.test_set_shared_memory("test_shm");
-    let mut data = FrameSubmitData::default();
-    data.frame_index = 101;
+    let data = FrameSubmitData {
+        frame_index: 101,
+        ..Default::default()
+    };
     handle_running_command(&mut rt, RendererCommand::FrameSubmitData(data));
     assert_eq!(rt.last_frame_index(), 101);
     assert!(rt.last_frame_data_processed());
@@ -123,21 +125,23 @@ fn run_asset_integration_at_most_once_per_tick() {
 fn frame_submit_fatal_on_scene_shared_memory_error() {
     let mut rt = test_runtime_standalone();
     rt.test_set_shared_memory("pfx");
-    let mut data = FrameSubmitData::default();
-    data.frame_index = 1;
-    data.render_spaces.push(RenderSpaceUpdate {
-        id: 1,
-        mesh_renderers_update: Some(MeshRenderablesUpdate {
-            removals: SharedMemoryBufferDescriptor {
-                buffer_id: 0,
-                buffer_capacity: 0,
-                offset: 0,
-                length: SharedMemoryAccessor::MAX_ACCESS_COPY_BYTES + 1,
-            },
+    let data = FrameSubmitData {
+        frame_index: 1,
+        render_spaces: vec![RenderSpaceUpdate {
+            id: 1,
+            mesh_renderers_update: Some(MeshRenderablesUpdate {
+                removals: SharedMemoryBufferDescriptor {
+                    buffer_id: 0,
+                    buffer_capacity: 0,
+                    offset: 0,
+                    length: SharedMemoryAccessor::MAX_ACCESS_COPY_BYTES + 1,
+                },
+                ..Default::default()
+            }),
             ..Default::default()
-        }),
+        }],
         ..Default::default()
-    });
+    };
     process_frame_submit(&mut rt, data);
     assert!(rt.fatal_error());
 }

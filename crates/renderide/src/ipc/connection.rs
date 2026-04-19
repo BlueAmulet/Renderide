@@ -138,6 +138,76 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_queue_capacity_before_queue_name() {
+        let cmd = [
+            "renderide",
+            "-QueueCapacity",
+            "4096",
+            "-QueueName",
+            "LaterName",
+        ];
+        assert_eq!(
+            parse_args(&cmd),
+            Some(ConnectionParams {
+                queue_name: "LaterName".into(),
+                queue_capacity: 4096,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_duplicate_queue_name() {
+        let cmd = [
+            "renderide",
+            "-QueueName",
+            "First",
+            "-QueueName",
+            "Second",
+            "-QueueCapacity",
+            "4096",
+        ];
+        assert_eq!(parse_args(&cmd), None);
+    }
+
+    #[test]
+    fn parse_args_returns_first_complete_pair_and_ignores_later_flags() {
+        // Implementation returns as soon as both name and positive capacity are set; trailing
+        // arguments are not validated (matches `get_connection_parameters` scan semantics).
+        let cmd = [
+            "renderide",
+            "-QueueName",
+            "S",
+            "-QueueCapacity",
+            "4096",
+            "-QueueCapacity",
+            "8192",
+        ];
+        assert_eq!(
+            parse_args(&cmd),
+            Some(ConnectionParams {
+                queue_name: "S".into(),
+                queue_capacity: 4096,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_rejects_non_numeric_or_non_positive_capacity() {
+        assert_eq!(
+            parse_args(&["r", "-QueueName", "n", "-QueueCapacity", "not_a_number"]),
+            None
+        );
+        assert_eq!(
+            parse_args(&["r", "-QueueName", "n", "-QueueCapacity", "0"]),
+            None
+        );
+        assert_eq!(
+            parse_args(&["r", "-QueueName", "n", "-QueueCapacity", "-100"]),
+            None
+        );
+    }
+
+    #[test]
     fn ipc_suffixes_match_cloudtoid_non_authority() {
         let p = ConnectionParams {
             queue_name: "Foo".to_string(),
