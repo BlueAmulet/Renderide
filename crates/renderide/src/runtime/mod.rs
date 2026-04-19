@@ -24,7 +24,7 @@ mod secondary_cameras;
 mod shader_material_ipc;
 mod xr_impls;
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 

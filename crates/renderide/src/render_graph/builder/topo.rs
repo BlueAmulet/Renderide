@@ -1,6 +1,7 @@
 //! Topological ordering (Kahn) and import-root pass culling.
 
-use std::collections::{HashMap, HashSet};
+use hashbrown::HashMap;
+use std::collections::HashSet;
 
 use super::super::error::GraphBuildError;
 use super::decl::SetupEntry;

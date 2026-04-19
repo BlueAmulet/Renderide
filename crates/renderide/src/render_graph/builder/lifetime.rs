@@ -1,6 +1,6 @@
 //! Transient resource lifetimes and physical alias slot assignment.
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use super::super::compiled::{CompiledBufferResource, CompiledTextureResource, ResourceLifetime};
 use super::super::resources::{TransientBufferDesc, TransientTextureDesc};

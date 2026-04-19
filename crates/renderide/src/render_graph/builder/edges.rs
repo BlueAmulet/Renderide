@@ -1,6 +1,7 @@
 //! Explicit group edges and resource read/write dependency edges.
 
-use std::collections::{HashMap, HashSet};
+use hashbrown::HashMap;
+use std::collections::HashSet;
 
 use super::super::error::GraphBuildError;
 use super::super::ids::{GroupId, PassId};

@@ -5,7 +5,7 @@
 //! [`HostCameraFrame::secondary_camera_world_to_view`] is set, frustum and Hi-Z temporal paths use
 //! that world-to-view (same as the forward pass) instead of [`view_matrix_for_world_mesh_render_space`].
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use glam::Mat4;
 

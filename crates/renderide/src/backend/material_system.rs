@@ -1,6 +1,7 @@
 //! Material property store, shader routing, pipeline registry, and embedded `@group(1)` bind resources.
 
-use std::collections::{HashMap, VecDeque};
+use hashbrown::HashMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::assets::material::{

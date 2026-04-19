@@ -2,7 +2,8 @@
 
 mod world_queries;
 
-use std::collections::{HashMap, HashSet};
+use hashbrown::HashMap;
+use std::collections::HashSet;
 
 use glam::Mat4;
 

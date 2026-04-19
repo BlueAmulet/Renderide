@@ -1,6 +1,6 @@
 //! [`SharedMemoryAccessor`]: lazy map cache for host shared buffers.
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use bytemuck::{Pod, Zeroable};
 

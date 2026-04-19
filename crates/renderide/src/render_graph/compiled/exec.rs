@@ -1,6 +1,6 @@
 //! [`CompiledRenderGraph`] execution: multi-view scheduling, resource resolution, and submits.
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use winit::window::Window;
 

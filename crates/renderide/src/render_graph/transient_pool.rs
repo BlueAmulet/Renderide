@@ -3,7 +3,7 @@
 //! The runtime allocator can attach actual `wgpu` objects to these entries; the keying, hit/miss,
 //! and garbage-collection behavior is deterministic and unit-testable without a GPU.
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use super::resources::{BufferSizePolicy, TransientExtent};
 

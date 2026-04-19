@@ -606,6 +606,7 @@ fn compose_material(
             source: material_source,
             file_path: material_file_path,
             shader_type: ShaderType::Wgsl,
+            // naga_oil 0.22 `NagaModuleDescriptor::shader_defs` is `std::collections::HashMap` (not hashbrown).
             shader_defs: std::collections::HashMap::from_iter(shader_defs),
             ..Default::default()
         })

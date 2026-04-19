@@ -12,7 +12,8 @@ mod texture3d_task;
 mod texture_task;
 mod uploads;
 
-use std::collections::{HashMap, VecDeque};
+use hashbrown::HashMap;
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::gpu::GpuLimits;

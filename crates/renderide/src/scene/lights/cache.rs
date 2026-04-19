@@ -1,6 +1,7 @@
 //! [`LightCache`]: merges incremental host light updates and resolves to world space.
 
-use std::collections::{HashMap, HashSet};
+use hashbrown::HashMap;
+use std::collections::HashSet;
 
 use glam::{Mat4, Quat, Vec3};
 
