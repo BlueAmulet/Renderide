@@ -59,7 +59,8 @@ public static partial class RandomInstancePopulator
         do
         {
             r = NextUInt64(rng);
-        } while (r > limit);
+        }
+        while (r > limit);
 
         return min + r % count;
     }

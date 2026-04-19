@@ -7,6 +7,7 @@ using SharedTypeGenerator.Analysis;
 using SharedTypeGenerator.Emission;
 using SharedTypeGenerator.IR;
 using SharedTypeGenerator.Logging;
+using SharedTypeGenerator.Tests.Unit.Support;
 using Xunit;
 
 namespace SharedTypeGenerator.Tests.Unit;
@@ -50,7 +51,7 @@ public sealed class PackEmitterTests
         string line = InvokePackLine(logger, bogus);
         Assert.Contains("FIXME", line, StringComparison.Ordinal);
         Assert.Contains(bogus.ToString(), line, StringComparison.Ordinal);
-        Assert.True(sink.Messages.Exists(m => m.Contains("FIXME", StringComparison.Ordinal)), "expected warning log");
+        Assert.True(sink.Lines.Exists(m => m.Contains("FIXME", StringComparison.Ordinal)), "expected warning log");
     }
 
     /// <summary>Empty step lists emit no-op bindings for pack and unpack.</summary>
@@ -259,20 +260,5 @@ public sealed class PackEmitterTests
                 Behaviour = new DirectLoggingBehaviour(),
                 MaxLevel = LogLevel.Trace,
             });
-    }
-
-    /// <summary>Captures log messages for assertions.</summary>
-    private sealed class CollectingSink : ILoggerSink
-    {
-        /// <summary>Recorded formatted messages.</summary>
-        public List<string> Messages { get; } = [];
-
-        /// <inheritdoc />
-        public void Log(LogLevel level, ReadOnlySpan<char> category, ReadOnlySpan<char> content) =>
-            Messages.Add(content.ToString());
-
-        /// <inheritdoc />
-        public void Log(LogLevel level, ReadOnlySpan<char> category, ReadOnlySpan<char> format, params object[] args) =>
-            Messages.Add(string.Format(CultureInfo.InvariantCulture, format.ToString(), args));
     }
 }

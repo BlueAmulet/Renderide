@@ -1,5 +1,6 @@
 using System.Globalization;
 using SharedTypeGenerator.Options;
+using SharedTypeGenerator.Tests.Unit.Support;
 using Xunit;
 
 namespace SharedTypeGenerator.Tests.Unit;
@@ -7,24 +8,24 @@ namespace SharedTypeGenerator.Tests.Unit;
 /// <summary>Unit tests for <see cref="AssemblyPathResolution"/>.</summary>
 public sealed class AssemblyPathResolutionTests : IDisposable
 {
-    private readonly string? _prevDll;
-    private readonly string? _prevDir;
-    private readonly string? _prevSteam;
+    private readonly EnvVarScope _dllScope;
+    private readonly EnvVarScope _dirScope;
+    private readonly EnvVarScope _steamScope;
 
     /// <summary>Captures discovery env vars so empty-path resolution is deterministic.</summary>
     public AssemblyPathResolutionTests()
     {
-        _prevDll = Environment.GetEnvironmentVariable(ResoniteAssemblyDiscovery.RenderiteSharedDllEnvVar);
-        _prevDir = Environment.GetEnvironmentVariable(ResoniteAssemblyDiscovery.ResoniteDirEnvVar);
-        _prevSteam = Environment.GetEnvironmentVariable(ResoniteAssemblyDiscovery.SteamPathEnvVar);
+        _dllScope = new EnvVarScope(ResoniteAssemblyDiscovery.RenderiteSharedDllEnvVar);
+        _dirScope = new EnvVarScope(ResoniteAssemblyDiscovery.ResoniteDirEnvVar);
+        _steamScope = new EnvVarScope(ResoniteAssemblyDiscovery.SteamPathEnvVar);
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
-        RestoreEnv(ResoniteAssemblyDiscovery.RenderiteSharedDllEnvVar, _prevDll);
-        RestoreEnv(ResoniteAssemblyDiscovery.ResoniteDirEnvVar, _prevDir);
-        RestoreEnv(ResoniteAssemblyDiscovery.SteamPathEnvVar, _prevSteam);
+        _dllScope.Dispose();
+        _dirScope.Dispose();
+        _steamScope.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -44,39 +45,17 @@ public sealed class AssemblyPathResolutionTests : IDisposable
         Assert.Contains("Could not find Renderite.Shared.dll", err.ToString(), StringComparison.Ordinal);
     }
 
-    private static void RestoreEnv(string name, string? value)
-    {
-        if (value is null)
-            Environment.SetEnvironmentVariable(name, null);
-        else
-            Environment.SetEnvironmentVariable(name, value);
-    }
-
     /// <summary>Existing file paths are normalized to full paths.</summary>
     [Fact]
     public void TryResolveOrValidate_existing_file_sets_full_path()
     {
-        string temp = Path.Combine(Path.GetTempPath(), "fake-shared-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".dll");
-        File.WriteAllBytes(temp, [0x4D, 0x5A]);
-        try
-        {
-            var options = new GeneratorOptions { AssemblyPath = temp };
-            var err = new StringWriter(CultureInfo.InvariantCulture);
-            bool ok = AssemblyPathResolution.TryResolveOrValidate(options, err);
-            Assert.True(ok);
-            Assert.Equal(Path.GetFullPath(temp), options.AssemblyPath);
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(temp);
-            }
-            catch
-            {
-                // ignored
-            }
-        }
+        using var dllFile = new TempFile();
+        File.WriteAllBytes(dllFile.FilePath, [0x4D, 0x5A]);
+        var options = new GeneratorOptions { AssemblyPath = dllFile.FilePath };
+        var err = new StringWriter(CultureInfo.InvariantCulture);
+        bool ok = AssemblyPathResolution.TryResolveOrValidate(options, err);
+        Assert.True(ok);
+        Assert.Equal(Path.GetFullPath(dllFile.FilePath), options.AssemblyPath);
     }
 
     /// <summary>Missing explicit paths surface a clear error.</summary>

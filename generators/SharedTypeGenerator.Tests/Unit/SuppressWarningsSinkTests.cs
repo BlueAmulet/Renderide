@@ -1,7 +1,7 @@
-using System.Globalization;
 using NotEnoughLogs;
 using NotEnoughLogs.Sinks;
 using SharedTypeGenerator.Logging;
+using SharedTypeGenerator.Tests.Unit.Support;
 using Xunit;
 
 namespace SharedTypeGenerator.Tests.Unit;
@@ -32,20 +32,5 @@ public sealed class SuppressWarningsSinkTests
         using var sink = new SuppressWarningsSink(inner);
         sink.Log(LogLevel.Warning, "Cat", "n={0}", 1);
         Assert.Empty(inner.Lines);
-    }
-
-    /// <summary>Captures forwarded log lines.</summary>
-    private sealed class CollectingSink : ILoggerSink
-    {
-        /// <summary>Recorded message bodies.</summary>
-        public List<string> Lines { get; } = [];
-
-        /// <inheritdoc />
-        public void Log(LogLevel level, ReadOnlySpan<char> category, ReadOnlySpan<char> content) =>
-            Lines.Add(content.ToString());
-
-        /// <inheritdoc />
-        public void Log(LogLevel level, ReadOnlySpan<char> category, ReadOnlySpan<char> format, params object[] args) =>
-            Lines.Add(string.Format(CultureInfo.InvariantCulture, format.ToString(), args));
     }
 }

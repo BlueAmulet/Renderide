@@ -7,6 +7,7 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <!-- xUnit test methods intentionally use snake_case segments in names for readability. -->
     <NoWarn>$(NoWarn);CA1707;CA1711</NoWarn>
   </PropertyGroup>
 
@@ -39,10 +40,7 @@
 
   <!-- Roundtrip sources reference Renderite.Shared types; they cannot compile without the DLL. -->
   <ItemGroup Condition="'$(HasRenderiteSharedDll)' != 'true'">
-    <Compile Remove="CrossLanguageRoundtripTests.cs" />
-    <Compile Remove="RandomInstancePopulator.cs" />
-    <Compile Remove="RandomInstancePopulator.Nested.cs" />
-    <Compile Remove="RoundtripTestBase.cs" />
+    <Compile Remove="Roundtrip/**/*.cs" />
   </ItemGroup>
 
 </Project>

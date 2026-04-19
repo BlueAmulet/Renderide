@@ -1,5 +1,5 @@
-using System.Globalization;
 using SharedTypeGenerator.Options;
+using SharedTypeGenerator.Tests.Unit.Support;
 using Xunit;
 
 namespace SharedTypeGenerator.Tests.Unit;
@@ -8,25 +8,25 @@ namespace SharedTypeGenerator.Tests.Unit;
 [Collection("ResoniteAssemblyDiscoveryEnv")]
 public sealed class ResoniteAssemblyDiscoveryEnvTests : IDisposable
 {
-    private readonly string? _prevDll;
-    private readonly string? _prevDir;
-    private readonly string? _prevSteam;
+    private readonly EnvVarScope _dllScope;
+    private readonly EnvVarScope _dirScope;
+    private readonly EnvVarScope _steamScope;
 
     /// <summary>Captures and clears discovery env vars before each test.</summary>
     public ResoniteAssemblyDiscoveryEnvTests()
     {
-        _prevDll = Environment.GetEnvironmentVariable(ResoniteAssemblyDiscovery.RenderiteSharedDllEnvVar);
-        _prevDir = Environment.GetEnvironmentVariable(ResoniteAssemblyDiscovery.ResoniteDirEnvVar);
-        _prevSteam = Environment.GetEnvironmentVariable(ResoniteAssemblyDiscovery.SteamPathEnvVar);
+        _dllScope = new EnvVarScope(ResoniteAssemblyDiscovery.RenderiteSharedDllEnvVar);
+        _dirScope = new EnvVarScope(ResoniteAssemblyDiscovery.ResoniteDirEnvVar);
+        _steamScope = new EnvVarScope(ResoniteAssemblyDiscovery.SteamPathEnvVar);
         ClearEnv();
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
-        Restore(ResoniteAssemblyDiscovery.RenderiteSharedDllEnvVar, _prevDll);
-        Restore(ResoniteAssemblyDiscovery.ResoniteDirEnvVar, _prevDir);
-        Restore(ResoniteAssemblyDiscovery.SteamPathEnvVar, _prevSteam);
+        _steamScope.Dispose();
+        _dirScope.Dispose();
+        _dllScope.Dispose();
         GC.SuppressFinalize(this);
     }
 
@@ -34,80 +34,37 @@ public sealed class ResoniteAssemblyDiscoveryEnvTests : IDisposable
     [Fact]
     public void Renderite_shared_dll_env_wins()
     {
-        string dll = Path.Combine(Path.GetTempPath(), "renderite-shared-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + ".dll");
-        File.WriteAllBytes(dll, [0x4D, 0x5A]);
-        try
-        {
-            Environment.SetEnvironmentVariable(ResoniteAssemblyDiscovery.RenderiteSharedDllEnvVar, dll);
-            string? found = ResoniteAssemblyDiscovery.TryFindRenderiteSharedDll();
-            Assert.Equal(Path.GetFullPath(dll), found);
-        }
-        finally
-        {
-            try
-            {
-                File.Delete(dll);
-            }
-            catch
-            {
-                // ignored
-            }
-        }
+        using var dllFile = new TempFile();
+        File.WriteAllBytes(dllFile.FilePath, [0x4D, 0x5A]);
+        Environment.SetEnvironmentVariable(ResoniteAssemblyDiscovery.RenderiteSharedDllEnvVar, dllFile.FilePath);
+        string? found = ResoniteAssemblyDiscovery.TryFindRenderiteSharedDll();
+        Assert.Equal(Path.GetFullPath(dllFile.FilePath), found);
     }
 
     /// <summary><c>RESONITE_DIR</c> resolves the DLL when present.</summary>
     [Fact]
     public void Resonite_dir_env_finds_dll()
     {
-        string dir = Path.Combine(Path.GetTempPath(), "resonite-dir-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture));
-        string dll = Path.Combine(dir, ResoniteAssemblyDiscovery.SharedDllFileName);
-        Directory.CreateDirectory(dir);
+        using var dir = new TempDirectory();
+        string dll = Path.Combine(dir.DirectoryPath, ResoniteAssemblyDiscovery.SharedDllFileName);
         File.WriteAllBytes(dll, [0x4D, 0x5A]);
-        try
-        {
-            Environment.SetEnvironmentVariable(ResoniteAssemblyDiscovery.ResoniteDirEnvVar, dir);
-            string? found = ResoniteAssemblyDiscovery.TryFindRenderiteSharedDll();
-            Assert.Equal(Path.GetFullPath(dll), found);
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(dir, recursive: true);
-            }
-            catch
-            {
-                // ignored
-            }
-        }
+        Environment.SetEnvironmentVariable(ResoniteAssemblyDiscovery.ResoniteDirEnvVar, dir.DirectoryPath);
+        string? found = ResoniteAssemblyDiscovery.TryFindRenderiteSharedDll();
+        Assert.Equal(Path.GetFullPath(dll), found);
     }
 
     /// <summary><c>STEAM_PATH</c> resolves the DLL under the Resonite steamapps layout.</summary>
     [Fact]
     public void Steam_path_env_finds_dll()
     {
-        string steam = Path.Combine(Path.GetTempPath(), "steam-root-" + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture));
-        string dll = Path.Combine(steam, "steamapps", "common", ResoniteAssemblyDiscovery.ResoniteAppFolderName,
+        using var steam = new TempDirectory();
+        string dll = Path.Combine(steam.DirectoryPath, "steamapps", "common", ResoniteAssemblyDiscovery.ResoniteAppFolderName,
             ResoniteAssemblyDiscovery.SharedDllFileName);
         Directory.CreateDirectory(Path.GetDirectoryName(dll)!);
         File.WriteAllBytes(dll, [0x4D, 0x5A]);
-        try
-        {
-            Environment.SetEnvironmentVariable(ResoniteAssemblyDiscovery.SteamPathEnvVar, steam);
-            string? found = ResoniteAssemblyDiscovery.TryFindRenderiteSharedDll();
-            Assert.Equal(Path.GetFullPath(dll), found);
-        }
-        finally
-        {
-            try
-            {
-                Directory.Delete(steam, recursive: true);
-            }
-            catch
-            {
-                // ignored
-            }
-        }
+        Environment.SetEnvironmentVariable(ResoniteAssemblyDiscovery.SteamPathEnvVar, steam.DirectoryPath);
+        string? found = ResoniteAssemblyDiscovery.TryFindRenderiteSharedDll();
+        Assert.Equal(Path.GetFullPath(dll), found);
     }
 
     private static void ClearEnv()
@@ -115,13 +72,5 @@ public sealed class ResoniteAssemblyDiscoveryEnvTests : IDisposable
         Environment.SetEnvironmentVariable(ResoniteAssemblyDiscovery.RenderiteSharedDllEnvVar, null);
         Environment.SetEnvironmentVariable(ResoniteAssemblyDiscovery.ResoniteDirEnvVar, null);
         Environment.SetEnvironmentVariable(ResoniteAssemblyDiscovery.SteamPathEnvVar, null);
-    }
-
-    private static void Restore(string name, string? value)
-    {
-        if (value is null)
-            Environment.SetEnvironmentVariable(name, null);
-        else
-            Environment.SetEnvironmentVariable(name, value);
     }
 }
