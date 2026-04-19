@@ -145,6 +145,17 @@ mod tests {
         (publisher, subscriber)
     }
 
+    /// `true` is at `/usr/bin/true` on macOS; Linux typically has `/bin/true`. Fall back to `PATH`.
+    fn unix_noop_executable() -> PathBuf {
+        use std::path::Path;
+        for candidate in ["/usr/bin/true", "/bin/true"] {
+            if Path::new(candidate).exists() {
+                return PathBuf::from(candidate);
+            }
+        }
+        PathBuf::from("true")
+    }
+
     #[test]
     fn heartbeat_advances_deadline() {
         let deadline = Arc::new(Mutex::new(Instant::now()));
@@ -208,7 +219,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let tmp = dir.join("game");
         std::fs::create_dir_all(&tmp).unwrap();
-        let cfg = sample_config(PathBuf::from("/bin/true"), tmp);
+        let cfg = sample_config(unix_noop_executable(), tmp);
         let lifetime = ChildLifetimeGroup::new().expect("lifetime");
         let (mut publisher, mut subscriber) = make_publisher_subscriber(&dir);
         assert_eq!(
