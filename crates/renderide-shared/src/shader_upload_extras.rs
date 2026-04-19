@@ -2,15 +2,15 @@
 //!
 //! Stock IPC encodes [`ShaderUpload`] as `asset_id` plus optional `file` string only. A custom host may
 //! append an extra length-prefixed UTF-16 string (same wire format as
-//! [`MemoryUnpacker::read_str`](crate::shared::packing::memory_unpacker::MemoryUnpacker::read_str))
+//! [`MemoryUnpacker::read_str`](crate::packing::memory_unpacker::MemoryUnpacker::read_str))
 //! after those fields; use [`unpack_appended_shader_logical_name`] on the trailing bytes when you decode
-//! messages outside the generated decode path, then pass the result to
-//! [`crate::assets::shader::logical_name::resolve_logical_shader_name_from_upload_with_host_hint`].
-//! For routing and embedded stem matching, prefer [`crate::assets::shader::resolve_shader_routing_name_from_upload`]
-//! with the unpacked string as `host_hint`.
+//! messages outside the generated decode path, then pass the result to the renderer's logical-name
+//! resolver (`renderide::assets::shader::logical_name::resolve_logical_shader_name_from_upload_with_host_hint`).
+//! For routing and embedded stem matching, prefer the renderer's
+//! `renderide::assets::shader::resolve_shader_routing_name_from_upload` with the unpacked string as `host_hint`.
 
-use crate::shared::packing::default_entity_pool::DefaultEntityPool;
-use crate::shared::packing::memory_unpacker::MemoryUnpacker;
+use crate::packing::default_entity_pool::DefaultEntityPool;
+use crate::packing::memory_unpacker::MemoryUnpacker;
 
 /// Decodes an optional logical Unity shader name from bytes that follow a fully unpacked stock [`ShaderUpload`].
 ///
@@ -27,9 +27,9 @@ pub fn unpack_appended_shader_logical_name(trailing: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::packing::memory_packable::MemoryPackable;
-    use crate::shared::packing::memory_packer::MemoryPacker;
-    use crate::shared::packing::memory_unpacker::MemoryUnpacker;
+    use crate::packing::memory_packable::MemoryPackable;
+    use crate::packing::memory_packer::MemoryPacker;
+    use crate::packing::memory_unpacker::MemoryUnpacker;
     use crate::shared::ShaderUpload;
 
     #[test]

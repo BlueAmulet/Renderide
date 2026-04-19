@@ -5,12 +5,15 @@
 
 use interprocess::{Publisher, QueueFactory, QueueOptions, Subscriber};
 
-use crate::connection::{publisher_queue_name, subscriber_queue_name, ConnectionParams, InitError};
-use crate::shared::{
-    decode_renderer_command, default_entity_pool::DefaultEntityPool, memory_packer::MemoryPacker,
-    memory_unpacker::MemoryUnpacker, polymorphic_memory_packable_entity::PolymorphicEncode,
-    RendererCommand, WireDecodeError,
+use crate::ipc::connection::{
+    publisher_queue_name, subscriber_queue_name, ConnectionParams, InitError,
 };
+use crate::packing::default_entity_pool::DefaultEntityPool;
+use crate::packing::memory_packer::MemoryPacker;
+use crate::packing::memory_unpacker::MemoryUnpacker;
+use crate::packing::polymorphic_memory_packable_entity::PolymorphicEncode;
+use crate::packing::wire_decode_error::WireDecodeError;
+use crate::shared::{decode_renderer_command, RendererCommand};
 
 const SEND_BUFFER_CAP: usize = 65536;
 
@@ -224,10 +227,11 @@ fn open_publisher(
 #[cfg(test)]
 mod renderer_command_roundtrip_tests {
     use super::encode_command;
+    use crate::packing::default_entity_pool::DefaultEntityPool;
+    use crate::packing::memory_unpacker::MemoryUnpacker;
     use crate::shared::{
-        decode_renderer_command, default_entity_pool::DefaultEntityPool,
-        memory_unpacker::MemoryUnpacker, FrameSubmitData, FreeSharedMemoryView, KeepAlive,
-        RendererCommand, RendererShutdown,
+        decode_renderer_command, FrameSubmitData, FreeSharedMemoryView, KeepAlive, RendererCommand,
+        RendererShutdown,
     };
 
     fn assert_roundtrip(mut cmd: RendererCommand) {

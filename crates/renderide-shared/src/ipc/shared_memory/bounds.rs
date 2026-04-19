@@ -1,6 +1,6 @@
 //! Validates `[offset, offset+length)` against a mapped buffer’s total length.
 
-use crate::shared::buffer::SharedMemoryBufferDescriptor;
+use crate::buffer::SharedMemoryBufferDescriptor;
 
 /// Minimum byte capacity required to map `descriptor`’s byte range (`offset + length`), capped by host `buffer_capacity`.
 ///
@@ -34,7 +34,7 @@ mod tests {
     //! Unit tests for [`byte_subrange`] and [`required_view_capacity`].
 
     use super::{byte_subrange, required_view_capacity};
-    use crate::shared::buffer::SharedMemoryBufferDescriptor;
+    use crate::buffer::SharedMemoryBufferDescriptor;
 
     #[test]
     fn byte_subrange_ok_and_rejects_overflow() {

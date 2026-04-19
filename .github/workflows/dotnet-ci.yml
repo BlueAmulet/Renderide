@@ -21,26 +21,6 @@ env:
   DOTNET_NOLOGO: "1"
 
 jobs:
-  # `dotnet format` decisions can be sensitive to the runner's git line-ending
-  # behavior (e.g. Windows `core.autocrlf=true` rewriting LF to CRLF on checkout),
-  # so we verify formatting on a single Linux runner where checkouts match the
-  # in-repo encoding.
-  format:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0"
-
-      - name: Restore
-        run: dotnet restore Generators.sln
-
-      - name: Verify formatting
-        run: dotnet format Generators.sln --verify-no-changes --no-restore
-
   build-test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -55,9 +35,20 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0"
+          # Restores NuGet global-packages folder between runs (keyed on dependency manifests).
+          cache: true
+          cache-dependency-path: |
+            generators/**/*.csproj
+            generators/**/Directory.Build.props
 
       - name: Restore
         run: dotnet restore Generators.sln
+
+      # `dotnet format` can be sensitive to the runner's git line-ending behavior (e.g. Windows
+      # `core.autocrlf=true`), so verify formatting only on Linux where checkouts match in-repo encoding.
+      - name: Verify formatting
+        if: runner.os == 'Linux'
+        run: dotnet format Generators.sln --verify-no-changes --no-restore
 
       # `-warnaserror` promotes every compiler / analyzer warning to a build error;
       # combined with `latest-recommended` analyzers in the project files this gates

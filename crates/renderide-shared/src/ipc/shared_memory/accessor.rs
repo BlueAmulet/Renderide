@@ -4,11 +4,11 @@ use hashbrown::HashMap;
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::shared::buffer::SharedMemoryBufferDescriptor;
-use crate::shared::default_entity_pool::DefaultEntityPool;
-use crate::shared::memory_packable::MemoryPackable;
-use crate::shared::memory_unpacker::MemoryUnpacker;
-use crate::shared::wire_decode_error::WireDecodeError;
+use crate::buffer::SharedMemoryBufferDescriptor;
+use crate::packing::default_entity_pool::DefaultEntityPool;
+use crate::packing::memory_packable::MemoryPackable;
+use crate::packing::memory_unpacker::MemoryUnpacker;
+use crate::packing::wire_decode_error::WireDecodeError;
 
 #[cfg(windows)]
 use super::naming::compose_memory_view_name;
@@ -74,7 +74,7 @@ impl SharedMemoryAccessor {
         f(bytes)
     }
 
-    /// Releases a cached view (e.g. after [`RendererCommand::FreeSharedMemoryView`](crate::shared::shared::RendererCommand::FreeSharedMemoryView)).
+    /// Releases a cached view (e.g. after [`RendererCommand::FreeSharedMemoryView`](crate::shared::RendererCommand::FreeSharedMemoryView)).
     pub fn release_view(&mut self, buffer_id: i32) {
         self.views.remove(&buffer_id);
     }
@@ -339,7 +339,7 @@ impl SharedMemoryAccessor {
 
 #[cfg(test)]
 mod access_copy_diagnostic_tests {
-    use crate::shared::buffer::SharedMemoryBufferDescriptor;
+    use crate::buffer::SharedMemoryBufferDescriptor;
 
     use super::SharedMemoryAccessor;
 
