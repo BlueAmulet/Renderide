@@ -304,9 +304,13 @@ fn import_main_graph_buffers(builder: &mut GraphBuilder) -> MainGraphBufferImpor
     }
 }
 
+/// Declares cluster/Hi-Z staging buffers and HDR forward transients for [`build_main_graph`].
+///
+/// Forward MSAA depth targets use [`TransientArrayLayers::Frame`] (not a fixed layer count from
+/// [`GraphCacheKey::multiview_stereo`]) so the same compiled graph can run mono desktop and stereo
+/// OpenXR without mismatched multiview attachment layers.
 fn create_main_graph_transient_resources(
     builder: &mut GraphBuilder,
-    key: GraphCacheKey,
 ) -> (
     BufferHandle,
     BufferHandle,
@@ -327,7 +331,6 @@ fn create_main_graph_transient_resources(
         base_usage: wgpu::BufferUsages::COPY_DST,
         alias: true,
     });
-    let stereo_layers = if key.multiview_stereo { 2u32 } else { 1u32 };
     // Use [`TransientExtent::Backbuffer`] for forward MSAA targets: [`build_default_main_graph`]
     // uses a placeholder [`GraphCacheKey::surface_extent`]; baking that into `Custom` extent would
     // allocate 1×1 textures while resolve / imported frame color stay at the real swapchain size.
@@ -367,7 +370,9 @@ fn create_main_graph_transient_resources(
         wgpu::TextureUsages::empty(),
     );
     forward_msaa_depth.sample_count = TransientSampleCount::Frame;
-    forward_msaa_depth.array_layers = TransientArrayLayers::Fixed(stereo_layers);
+    // Same layer policy as scene color MSAA: execute-time stereo (e.g. OpenXR) must not disagree
+    // with a graph built under a mono [`GraphCacheKey`].
+    forward_msaa_depth.array_layers = TransientArrayLayers::Frame;
     let forward_msaa_depth = builder.create_texture(forward_msaa_depth);
     let forward_msaa_depth_r32 = builder.create_texture(
         TransientTextureDesc::texture_2d(
@@ -377,7 +382,7 @@ fn create_main_graph_transient_resources(
             1,
             wgpu::TextureUsages::empty(),
         )
-        .with_array_layers(stereo_layers),
+        .with_frame_array_layers(),
     );
     (
         cluster_params,
@@ -389,7 +394,8 @@ fn create_main_graph_transient_resources(
     )
 }
 
-fn import_main_graph_resources(builder: &mut GraphBuilder, key: GraphCacheKey) -> MainGraphHandles {
+/// Wires imported frame targets and main-graph transients into `builder` for [`build_main_graph`].
+fn import_main_graph_resources(builder: &mut GraphBuilder) -> MainGraphHandles {
     let (color, depth, hi_z_current) = import_main_graph_textures(builder);
     let buf = import_main_graph_buffers(builder);
     let (
@@ -399,7 +405,7 @@ fn import_main_graph_resources(builder: &mut GraphBuilder, key: GraphCacheKey) -
         scene_color_hdr_msaa,
         forward_msaa_depth,
         forward_msaa_depth_r32,
-    ) = create_main_graph_transient_resources(builder, key);
+    ) = create_main_graph_transient_resources(builder);
     MainGraphHandles {
         color,
         depth,
@@ -525,7 +531,7 @@ pub fn build_main_graph(
         key.post_processing.active_count()
     );
     let mut builder = GraphBuilder::new();
-    let handles = import_main_graph_resources(&mut builder, key);
+    let handles = import_main_graph_resources(&mut builder);
     let msaa_handles = [
         handles.scene_color_hdr_msaa,
         handles.forward_msaa_depth,
@@ -655,6 +661,27 @@ mod default_graph_tests {
             })
             .expect("second ensure");
         assert!(build_called);
+    }
+
+    /// MSAA depth transients must follow [`TransientArrayLayers::Frame`] so stereo execution matches
+    /// HDR color even when [`GraphCacheKey::multiview_stereo`] was `false` at compile time.
+    #[test]
+    fn forward_msaa_depth_uses_frame_array_layers_with_mono_cache_key() {
+        let mut key = smoke_key();
+        key.multiview_stereo = false;
+        let g = build_main_graph(key, &no_post()).expect("default graph");
+        let forward_depth = g
+            .transient_textures
+            .iter()
+            .find(|t| t.desc.label == "forward_msaa_depth")
+            .expect("forward_msaa_depth transient");
+        assert_eq!(forward_depth.desc.array_layers, TransientArrayLayers::Frame);
+        let r32 = g
+            .transient_textures
+            .iter()
+            .find(|t| t.desc.label == "forward_msaa_depth_r32")
+            .expect("forward_msaa_depth_r32 transient");
+        assert_eq!(r32.desc.array_layers, TransientArrayLayers::Frame);
     }
 
     #[test]
