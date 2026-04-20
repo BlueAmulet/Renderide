@@ -20,6 +20,9 @@ pub const QUEUE_WAIT_LOG_INTERVAL_SECS: u64 = 5;
 /// Host process exit watcher polling interval.
 pub const HOST_EXIT_WATCHER_POLL_INTERVAL_SECS: u64 = 1;
 
+/// Poll interval for the renderer exit watcher (`Child::try_wait` loop).
+pub const RENDERER_EXIT_WATCHER_POLL_INTERVAL_MS: u64 = 250;
+
 /// Returns [`Duration`] for the initial IPC idle watchdog.
 #[inline]
 pub fn initial_heartbeat_timeout() -> Duration {
@@ -54,4 +57,10 @@ pub fn queue_wait_log_interval() -> Duration {
 #[inline]
 pub fn host_exit_watcher_poll_interval() -> Duration {
     Duration::from_secs(HOST_EXIT_WATCHER_POLL_INTERVAL_SECS)
+}
+
+/// Returns [`Duration`] between renderer `Child::try_wait` polls.
+#[inline]
+pub fn renderer_exit_watcher_poll_interval() -> Duration {
+    Duration::from_millis(RENDERER_EXIT_WATCHER_POLL_INTERVAL_MS)
 }

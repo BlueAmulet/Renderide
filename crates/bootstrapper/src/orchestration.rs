@@ -13,7 +13,8 @@ use crate::child_lifetime::ChildLifetimeGroup;
 use crate::cleanup;
 use crate::config::ResoBootConfig;
 use crate::constants::{
-    host_exit_watcher_poll_interval, initial_heartbeat_timeout, watchdog_poll_interval,
+    host_exit_watcher_poll_interval, initial_heartbeat_timeout,
+    renderer_exit_watcher_poll_interval, watchdog_poll_interval,
 };
 use crate::host;
 use crate::ipc::{bootstrap_queue_base_names, BootstrapQueues};
@@ -87,20 +88,26 @@ fn install_macos_signal_handler(cancel: &Arc<AtomicBool>) {
     }
 }
 
-/// Spawns the heartbeat watchdog; optionally spawns Host exit watcher when not under Wine.
+/// Spawns the heartbeat watchdog, optional Host exit watcher (non-Wine), and a renderer exit watcher
+/// once [`crate::protocol_handlers::handle_start_renderer`] registers a [`Child`].
+///
+/// When the **renderer** exits first (e.g. user closes the window), the renderer watcher sets
+/// `cancel`, terminates the **Host** [`Child`], and the queue loop ends so the bootstrapper process
+/// exits—analogous to the engine-side watchdog that stops the session when the GPU process dies.
 fn spawn_watchdogs(
     config: &ResoBootConfig,
     cancel: Arc<AtomicBool>,
     heartbeat_deadline: Arc<Mutex<Instant>>,
-    child: Child,
+    host_child: Arc<Mutex<Option<Child>>>,
+    renderer_child: Arc<Mutex<Option<Child>>>,
     log_timestamp: String,
-) -> (JoinHandle<()>, Option<JoinHandle<()>>) {
+) -> (JoinHandle<()>, Option<JoinHandle<()>>, JoinHandle<()>) {
     let heartbeat = spawn_heartbeat_watchdog(Arc::clone(&cancel), Arc::clone(&heartbeat_deadline));
 
     let host_exit = if !config.is_wine {
         logger::info!("Process watcher: cancel when Host process exits");
         Some(spawn_host_exit_watcher(
-            child,
+            Arc::clone(&host_child),
             Arc::clone(&cancel),
             log_timestamp,
         ))
@@ -109,7 +116,10 @@ fn spawn_watchdogs(
         None
     };
 
-    (heartbeat, host_exit)
+    let renderer_exit =
+        spawn_renderer_exit_watcher(renderer_child, host_child, Arc::clone(&cancel));
+
+    (heartbeat, host_exit, renderer_exit)
 }
 
 /// macOS child teardown, Wine queue cleanup, and final log line.
@@ -147,8 +157,11 @@ pub fn run(config: &ResoBootConfig, ctx: RunContext) -> Result<(), BootstrapErro
     let args = assemble_host_args(host_args, &config.shared_memory_prefix);
     logger::info!("Host args: {:?}", args);
 
-    let child = start_host_with_drainers(config, &args, &lifetime, &log_timestamp)
+    let host_process = start_host_with_drainers(config, &args, &lifetime, &log_timestamp)
         .map_err(BootstrapError::Io)?;
+
+    let host_child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(Some(host_process)));
+    let renderer_child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
 
     let cancel = Arc::new(AtomicBool::new(false));
 
@@ -156,11 +169,12 @@ pub fn run(config: &ResoBootConfig, ctx: RunContext) -> Result<(), BootstrapErro
     install_macos_signal_handler(&cancel);
 
     let heartbeat_deadline = Arc::new(Mutex::new(Instant::now() + initial_heartbeat_timeout()));
-    let (_heartbeat_watchdog, _host_exit_watcher) = spawn_watchdogs(
+    let (_heartbeat_watchdog, _host_exit_watcher, _renderer_exit_watcher) = spawn_watchdogs(
         config,
         Arc::clone(&cancel),
         Arc::clone(&heartbeat_deadline),
-        child,
+        Arc::clone(&host_child),
+        Arc::clone(&renderer_child),
         log_timestamp,
     );
 
@@ -171,6 +185,7 @@ pub fn run(config: &ResoBootConfig, ctx: RunContext) -> Result<(), BootstrapErro
         &cancel,
         &lifetime,
         &heartbeat_deadline,
+        &renderer_child,
     );
 
     finalize(config, &lifetime);
@@ -200,33 +215,95 @@ fn spawn_heartbeat_watchdog(
 }
 
 /// Thread: sets `cancel` when the Host child exits (not used under Wine).
+///
+/// [`Child`] is stored in `host_child` so [`spawn_renderer_exit_watcher`] can [`Child::kill`] the
+/// Host when the renderer exits first.
 fn spawn_host_exit_watcher(
-    mut child: Child,
+    host_child: Arc<Mutex<Option<Child>>>,
     cancel: Arc<AtomicBool>,
     log_timestamp: String,
 ) -> JoinHandle<()> {
     let cancel_host = Arc::clone(&cancel);
     let host_out_name = format!("{log_timestamp}.log");
-    std::thread::spawn(move || {
-        let exit_status = loop {
-            match child.try_wait() {
-                Ok(Some(status)) => break Some(status),
-                Ok(None) => {}
-                Err(e) => {
-                    logger::error!("Process watcher try_wait error: {}", e);
-                    break None;
+    std::thread::spawn(move || loop {
+        if cancel_host.load(Ordering::Relaxed) {
+            break;
+        }
+        let outcome = {
+            let mut guard = match host_child.lock() {
+                Ok(g) => g,
+                Err(_) => break,
+            };
+            match guard.as_mut() {
+                None => break,
+                Some(child) => match child.try_wait() {
+                    Ok(Some(status)) => Ok(Some(status)),
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(e),
+                },
+            }
+        };
+        match outcome {
+            Ok(Some(status)) => {
+                let msg = format!(
+                        "Host process exited (exit code: {status}). Check logs/host/{host_out_name} for stdout/stderr."
+                    );
+                logger::info!("{msg}");
+                cancel_host.store(true, Ordering::SeqCst);
+                break;
+            }
+            Ok(None) => std::thread::sleep(host_exit_watcher_poll_interval()),
+            Err(e) => {
+                logger::error!("Host process watcher try_wait error: {e}");
+                cancel_host.store(true, Ordering::SeqCst);
+                break;
+            }
+        }
+    })
+}
+
+/// Thread: when a registered renderer [`Child`] exits, terminates the Host and sets `cancel`.
+fn spawn_renderer_exit_watcher(
+    renderer_child: Arc<Mutex<Option<Child>>>,
+    host_child: Arc<Mutex<Option<Child>>>,
+    cancel: Arc<AtomicBool>,
+) -> JoinHandle<()> {
+    std::thread::spawn(move || loop {
+        if cancel.load(Ordering::Relaxed) {
+            break;
+        }
+        let mut exited: Option<std::process::ExitStatus> = None;
+        {
+            let mut guard = match renderer_child.lock() {
+                Ok(g) => g,
+                Err(_) => break,
+            };
+            if let Some(r) = guard.as_mut() {
+                match r.try_wait() {
+                    Ok(Some(st)) => exited = Some(st),
+                    Ok(None) => {}
+                    Err(e) => {
+                        logger::error!("Renderer exit watcher try_wait error: {e}");
+                        cancel.store(true, Ordering::SeqCst);
+                        break;
+                    }
                 }
             }
-            std::thread::sleep(host_exit_watcher_poll_interval());
-        };
-        let exit_info = exit_status
-            .as_ref()
-            .map(|s| format!(" (exit code: {s})"))
-            .unwrap_or_default();
-        let msg = format!(
-            "Host process exited{exit_info}. Check logs/host/{host_out_name} for stdout/stderr."
-        );
-        logger::info!("{msg}");
-        cancel_host.store(true, Ordering::SeqCst);
+        }
+        if let Some(status) = exited {
+            logger::info!(
+                "Renderer process exited ({status}); terminating Host and stopping bootstrapper"
+            );
+            cancel.store(true, Ordering::SeqCst);
+            if let Ok(mut h) = host_child.lock() {
+                if let Some(mut hc) = h.take() {
+                    logger::info!("Terminating Host PID {} after renderer exit", hc.id());
+                    let _ = hc.kill();
+                    let _ = hc.wait();
+                }
+            }
+            break;
+        }
+        std::thread::sleep(renderer_exit_watcher_poll_interval());
     })
 }

@@ -1,5 +1,6 @@
 //! Host-to-bootstrapper queue messages: heartbeat, clipboard, renderer spawn.
 
+use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -68,6 +69,7 @@ pub fn queue_loop(
     cancel: &AtomicBool,
     lifetime: &ChildLifetimeGroup,
     heartbeat_deadline: &Arc<Mutex<Instant>>,
+    renderer_child: &Arc<Mutex<Option<Child>>>,
 ) {
     let start = Instant::now();
     let mut last_wait_log = Instant::now();
@@ -98,7 +100,9 @@ pub fn queue_loop(
         let msg = incoming.dequeue(cancel);
         if msg.is_empty() {
             if cancel.load(Ordering::Relaxed) {
-                logger::info!("Queue loop stopping (cancel set: host exit, SHUTDOWN, or timeout)");
+                logger::info!(
+                    "Queue loop stopping (cancel set: host exit, renderer exit, SHUTDOWN, or timeout)"
+                );
                 break;
             }
             if last_wait_log.elapsed() >= queue_wait_log_interval() {
@@ -125,7 +129,8 @@ pub fn queue_loop(
                 outgoing,
                 config,
                 lifetime,
-                heartbeat_deadline
+                heartbeat_deadline,
+                renderer_child,
             ),
             LoopAction::Break
         ) {
