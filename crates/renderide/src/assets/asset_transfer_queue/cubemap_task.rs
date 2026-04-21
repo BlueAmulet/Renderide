@@ -19,7 +19,7 @@ enum CubemapStage {
     Start,
     Chain {
         uploader: CubemapMipChainUploader,
-        payload: Vec<u8>,
+        payload: Arc<[u8]>,
     },
 }
 
@@ -86,13 +86,13 @@ impl CubemapUploadTask {
                                         "raw shorter than descriptor (need {want}, got {})",
                                         raw.len()
                                     ))),
-                                    Vec::new(),
+                                    Arc::from([] as [u8; 0]),
                                 ));
                             }
                             //review: keep the bytes owned while the cooperative face/mip task spans frames.
-                            raw[..want].to_vec()
+                            Arc::from(&raw[..want])
                         }
-                        Err(_) => Vec::new(),
+                        Err(_) => Arc::from([] as [u8; 0]),
                     };
                     Some((uploader, payload))
                 });
@@ -130,6 +130,9 @@ impl CubemapUploadTask {
                     Ok(MipChainAdvance::Finished { total_uploaded }) => {
                         self.finalize_success(queue, ipc, total_uploaded);
                         StepResult::Done
+                    }
+                    Ok(MipChainAdvance::YieldBackground) => {
+                        StepResult::YieldBackground
                     }
                     Err(e) => {
                         logger::warn!("cubemap {id}: upload failed: {e}");

@@ -23,7 +23,7 @@ enum TextureStage {
     /// Upload one mip per [`super::integrator::drain_asset_tasks`] step from an owned payload copy.
     MipChain {
         uploader: TextureMipChainUploader,
-        payload: Vec<u8>,
+        payload: Arc<[u8]>,
     },
 }
 
@@ -100,13 +100,13 @@ impl TextureUploadTask {
                                         "raw shorter than descriptor (need {want}, got {})",
                                         raw.len()
                                     ))),
-                                    Vec::new(),
+                                    Arc::from([] as [u8; 0]),
                                 ));
                             }
                             //review: keep the bytes owned while the cooperative mip task spans frames.
-                            raw[..want].to_vec()
+                            Arc::from(&raw[..want])
                         }
-                        _ => Vec::new(),
+                        _ => Arc::from([] as [u8; 0]),
                     };
                     Some((start, payload))
                 });
@@ -151,6 +151,9 @@ impl TextureUploadTask {
                     Ok(MipChainAdvance::Finished { total_uploaded }) => {
                         self.finalize_success(queue, ipc, total_uploaded);
                         StepResult::Done
+                    }
+                    Ok(MipChainAdvance::YieldBackground) => {
+                        StepResult::YieldBackground
                     }
                     Err(e) => {
                         logger::warn!("texture {id}: upload failed: {e}");

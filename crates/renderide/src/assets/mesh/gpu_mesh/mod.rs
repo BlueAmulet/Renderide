@@ -48,7 +48,7 @@ impl fmt::Debug for ExtendedVertexStreamSource {
 ///
 /// **Vertex groups** in Renderite are expressed through per-vertex bone influence streams
 /// (`bone_counts` + bone weight tail) when the host provides skeleton data.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GpuMesh {
     /// Host mesh asset id (`MeshUploadData.asset_id`).
     pub asset_id: i32,

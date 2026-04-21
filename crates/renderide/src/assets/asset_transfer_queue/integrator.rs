@@ -36,6 +36,8 @@ pub enum StepResult {
     Continue,
     /// Upload finished (success or logged failure; host callbacks sent when applicable).
     Done,
+    /// Task is waiting for a background thread to finish; push to the back of the queue.
+    YieldBackground,
 }
 
 /// Priority-separated cooperative upload queues ([`Renderite.Unity.AssetIntegrator`]–style).
@@ -106,7 +108,7 @@ fn step_asset_task(
     profiling::scope!("asset::upload", asset_task_kind_tag(task));
     let q = queue.as_ref();
     match task {
-        AssetTask::Mesh(m) => m.step(asset, device, gpu_limits, q, shm, ipc),
+        AssetTask::Mesh(m) => m.step(asset, device, gpu_limits, queue, shm, ipc),
         AssetTask::Texture(t) => t.step(asset, device, q, shm, ipc),
         AssetTask::Texture3d(t) => t.step(asset, device, q, shm, ipc),
         AssetTask::Cubemap(t) => t.step(asset, device, q, shm, ipc),
@@ -134,25 +136,53 @@ pub fn drain_asset_tasks(
 
     {
         profiling::scope!("asset::high_priority_drain");
+        let mut yielded = 0;
         while let Some(mut task) = asset.integrator.high_priority.pop_front() {
             let step_result =
                 step_asset_task(asset, &device, &gpu_limits, &queue_arc, shm, ipc, &mut task);
-            if step_result == StepResult::Continue {
-                asset.integrator.push_front(task, true);
+            match step_result {
+                StepResult::Continue => {
+                    asset.integrator.push_front(task, true);
+                    yielded = 0;
+                }
+                StepResult::YieldBackground => {
+                    asset.integrator.high_priority.push_back(task);
+                    yielded += 1;
+                    if yielded >= asset.integrator.high_priority.len() {
+                        break;
+                    }
+                }
+                StepResult::Done => {
+                    yielded = 0;
+                }
             }
         }
     }
 
     {
         profiling::scope!("asset::normal_priority_drain");
+        let mut yielded = 0;
         while Instant::now() < normal_deadline {
             let Some(mut task) = asset.integrator.normal_priority.pop_front() else {
                 break;
             };
             let step_result =
                 step_asset_task(asset, &device, &gpu_limits, &queue_arc, shm, ipc, &mut task);
-            if step_result == StepResult::Continue {
-                asset.integrator.push_front(task, false);
+            match step_result {
+                StepResult::Continue => {
+                    asset.integrator.push_front(task, false);
+                    yielded = 0;
+                }
+                StepResult::YieldBackground => {
+                    asset.integrator.normal_priority.push_back(task);
+                    yielded += 1;
+                    if yielded >= asset.integrator.normal_priority.len() {
+                        break;
+                    }
+                }
+                StepResult::Done => {
+                    yielded = 0;
+                }
             }
         }
     }

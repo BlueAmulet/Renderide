@@ -1,5 +1,7 @@
 //! Full mip chain path: decode, optional flip, [`super::mip_write_common::write_one_mip`] per level.
 
+use std::sync::Arc;
+
 use crate::assets::texture::layout::host_mip_payload_byte_offset;
 use crate::shared::{SetTexture2DData, SetTexture2DFormat};
 
@@ -16,128 +18,116 @@ use super::subregion::{hint_region_is_empty, try_write_texture2d_subregion};
 
 /// Shared device, host format, and payload window for walking a 2D mip chain.
 struct MipChainWalkState<'a> {
-    device: &'a wgpu::Device,
     fmt: &'a SetTexture2DFormat,
     upload: &'a SetTexture2DData,
     payload: &'a [u8],
     start_bias: usize,
 }
 
-/// One mip level’s dimensions and source bytes for [`mip_src_to_upload_pixels`].
-struct MipLevelPixelsDecode<'a> {
+/// Converts host mip bytes into a buffer suitable for [`write_one_mip`] (decode, optional row flip).
+fn mip_src_to_upload_pixels(
+    asset_id: i32,
+    fmt_format: crate::shared::TextureFormat,
     wgpu_format: wgpu::TextureFormat,
+    needs_rgba8_decode: bool,
     gw: u32,
     gh: u32,
     flip: bool,
-    mip_src: &'a [u8],
+    mip_src: &[u8],
     mip_index: usize,
-}
-
-/// Converts host mip bytes into a buffer suitable for [`write_one_mip`] (decode, optional row flip).
-fn mip_src_to_upload_pixels<'a>(
-    chain: &MipChainWalkState<'a>,
-    level: MipLevelPixelsDecode<'a>,
-) -> Result<std::borrow::Cow<'a, [u8]>, TextureUploadError> {
-    let asset_id = chain.upload.asset_id;
-    let fmt = chain.fmt;
-    let device = chain.device;
-    let pixels: std::borrow::Cow<'a, [u8]> = if is_rgba8_family(level.wgpu_format) {
-        if needs_rgba8_decode_before_upload(device, fmt.format)
-            || host_format_is_compressed(fmt.format)
-        {
-            std::borrow::Cow::Owned(
-                decode_mip_to_rgba8(fmt.format, level.gw, level.gh, level.flip, level.mip_src)
-                    .ok_or_else(|| {
-                        TextureUploadError::from(format!(
-                            "RGBA decode failed for mip {} ({:?})",
-                            level.mip_index, fmt.format
-                        ))
-                    })?,
-            )
-        } else if level.flip {
-            let mut v = level.mip_src.to_vec();
-            let bpp = mip_tight_bytes_per_texel(v.len(), level.gw, level.gh).ok_or_else(|| {
+) -> Result<Vec<u8>, TextureUploadError> {
+    if is_rgba8_family(wgpu_format) {
+        if needs_rgba8_decode || host_format_is_compressed(fmt_format) {
+            decode_mip_to_rgba8(fmt_format, gw, gh, flip, mip_src)
+                .ok_or_else(|| {
+                    TextureUploadError::from(format!(
+                        "RGBA decode failed for mip {} ({:?})",
+                        mip_index, fmt_format
+                    ))
+                })
+        } else if flip {
+            let mut v = mip_src.to_vec();
+            let bpp = mip_tight_bytes_per_texel(v.len(), gw, gh).ok_or_else(|| {
                 TextureUploadError::from(format!(
                     "mip {}: RGBA8 upload len {} not divisible by {}×{} texels",
-                    level.mip_index,
+                    mip_index,
                     v.len(),
-                    level.gw,
-                    level.gh
+                    gw,
+                    gh
                 ))
             })?;
             if bpp != 4 {
                 return Err(TextureUploadError::from(format!(
                     "mip {}: RGBA8 family expects 4 bytes per texel, got {bpp}",
-                    level.mip_index
+                    mip_index
                 )));
             }
-            flip_mip_rows(&mut v, level.gw, level.gh, bpp);
-            std::borrow::Cow::Owned(v)
+            flip_mip_rows(&mut v, gw, gh, bpp);
+            Ok(v)
         } else {
-            std::borrow::Cow::Borrowed(level.mip_src)
+            Ok(mip_src.to_vec())
         }
-    } else if needs_rgba8_decode_before_upload(device, fmt.format) {
+    } else if needs_rgba8_decode {
         return Err(TextureUploadError::from(format!(
             "host {:?} must use RGBA decode but GPU format is {:?}",
-            fmt.format, level.wgpu_format
+            fmt_format, wgpu_format
         )));
-    } else if level.flip && !host_format_is_compressed(fmt.format) {
-        let mut v = level.mip_src.to_vec();
-        let bpp_host = mip_tight_bytes_per_texel(v.len(), level.gw, level.gh).ok_or_else(|| {
+    } else if flip && !host_format_is_compressed(fmt_format) {
+        let mut v = mip_src.to_vec();
+        let bpp_host = mip_tight_bytes_per_texel(v.len(), gw, gh).ok_or_else(|| {
             TextureUploadError::from(format!(
                 "mip {}: len {} not divisible by {}×{} texels (cannot infer row stride for flip_y)",
-                level.mip_index,
+                mip_index,
                 v.len(),
-                level.gw,
-                level.gh
+                gw,
+                gh
             ))
         })?;
-        if let Ok(bpp_gpu) = uncompressed_row_bytes(level.wgpu_format) {
+        if let Ok(bpp_gpu) = uncompressed_row_bytes(wgpu_format) {
             if bpp_host != bpp_gpu {
                 logger::warn!(
                     "texture {} mip {}: host texel stride {} B != GPU {:?} stride {} B; flip_y uses host packing",
                     asset_id,
-                    level.mip_index,
+                    mip_index,
                     bpp_host,
-                    level.wgpu_format,
+                    wgpu_format,
                     bpp_gpu
                 );
             }
         }
-        flip_mip_rows(&mut v, level.gw, level.gh, bpp_host);
-        std::borrow::Cow::Owned(v)
-    } else if level.flip && host_format_is_compressed(fmt.format) {
-        let expected_len = mip_byte_len(fmt.format, level.gw, level.gh).ok_or_else(|| {
+        flip_mip_rows(&mut v, gw, gh, bpp_host);
+        Ok(v)
+    } else if flip && host_format_is_compressed(fmt_format) {
+        let expected_len = mip_byte_len(fmt_format, gw, gh).ok_or_else(|| {
             TextureUploadError::from(format!(
                 "texture {asset_id} mip {}: mip byte size unknown for {:?}",
-                level.mip_index, fmt.format
+                mip_index, fmt_format
             ))
         })? as usize;
-        if level.mip_src.len() != expected_len {
+        if mip_src.len() != expected_len {
             return Err(TextureUploadError::from(format!(
                 "texture {asset_id} mip {}: mip len {} != expected {} for {:?}",
-                level.mip_index,
-                level.mip_src.len(),
+                mip_index,
+                mip_src.len(),
                 expected_len,
-                fmt.format
+                fmt_format
             )));
         }
         if let Some(v) =
-            flip_compressed_mip_block_rows_y(fmt.format, level.gw, level.gh, level.mip_src)
+            flip_compressed_mip_block_rows_y(fmt_format, gw, gh, mip_src)
         {
-            std::borrow::Cow::Owned(v)
+            Ok(v)
         } else {
             logger::warn!(
                 "texture {asset_id} mip {}: flip_y skipped for compressed {:?} (vertical flip not implemented for this block-compressed format)",
-                level.mip_index,
-                fmt.format
+                mip_index,
+                fmt_format
             );
-            std::borrow::Cow::Borrowed(level.mip_src)
+            Ok(mip_src.to_vec())
         }
     } else {
-        std::borrow::Cow::Borrowed(level.mip_src)
-    };
-    Ok(pixels)
+        Ok(mip_src.to_vec())
+    }
 }
 
 /// Outcome of [`validate_and_resolve_next_mip_slice`] for one [`TextureMipChainUploader`] step.
@@ -345,6 +335,8 @@ pub struct TextureMipChainUploader {
     stopped: bool,
     generating_tail: bool,
     last_rgba8_mip: Option<Rgba8Mip>,
+    background_rx: Option<crossbeam_channel::Receiver<Result<Vec<u8>, TextureUploadError>>>,
+    pending_mip: Option<(u32, u32, u32)>, // mip_level, gw, gh
 }
 
 /// Result of one [`TextureMipChainUploader::upload_next_mip`] step.
@@ -360,6 +352,8 @@ pub enum MipChainAdvance {
         /// Total mips successfully written in this chain.
         total_uploaded: u32,
     },
+    /// Waiting on background decoding thread. Call again next tick.
+    YieldBackground,
 }
 
 /// GPU device, queue, and host upload view for one [`TextureMipChainUploader::upload_next_mip`] step.
@@ -377,7 +371,7 @@ pub struct TextureMipUploadStep<'a> {
     /// Upload record.
     pub upload: &'a SetTexture2DData,
     /// Payload (`&raw[..upload.data.length]`).
-    pub payload: &'a [u8],
+    pub payload: &'a Arc<[u8]>,
 }
 
 #[derive(Clone, Debug)]
@@ -452,6 +446,8 @@ impl TextureMipChainUploader {
             stopped: false,
             generating_tail: false,
             last_rgba8_mip: None,
+            background_rx: None,
+            pending_mip: None,
         })
     }
 
@@ -475,6 +471,52 @@ impl TextureMipChainUploader {
             });
         }
 
+        if let Some(rx) = &self.background_rx {
+            match rx.try_recv() {
+                Ok(res) => {
+                    self.background_rx = None;
+                    let pixels = res?;
+                    let (mip_level, gw, gh) = self.pending_mip.take().unwrap();
+                    
+                    write_one_mip(
+                        queue,
+                        texture,
+                        mip_level,
+                        gw,
+                        gh,
+                        wgpu_format,
+                        &pixels,
+                    )?;
+                    
+                    if is_rgba8_family(wgpu_format) {
+                        self.last_rgba8_mip = Some(Rgba8Mip {
+                            width: gw,
+                            height: gh,
+                            pixels,
+                        });
+                    }
+                    self.uploaded_mips += 1;
+                    self.next_i += 1;
+
+                    if self.start_base + self.next_i as u32 >= self.mipmap_count {
+                        self.stopped = true;
+                        return Ok(MipChainAdvance::Finished {
+                            total_uploaded: self.uploaded_mips,
+                        });
+                    }
+                    return Ok(MipChainAdvance::UploadedOne {
+                        total_uploaded: self.uploaded_mips,
+                    });
+                }
+                Err(crossbeam_channel::TryRecvError::Empty) => {
+                    return Ok(MipChainAdvance::YieldBackground);
+                }
+                Err(crossbeam_channel::TryRecvError::Disconnected) => {
+                    return Err(TextureUploadError::from("Background decode thread panicked"));
+                }
+            }
+        }
+
         let flip = self.flip;
 
         let tex_extent = self.tex_extent;
@@ -484,7 +526,6 @@ impl TextureMipChainUploader {
         let i = self.next_i;
 
         let chain = MipChainWalkState {
-            device,
             fmt,
             upload,
             payload,
@@ -498,11 +539,11 @@ impl TextureMipChainUploader {
             mipmap_count,
             tex_extent,
         )?;
-        let (mip_level, gw, gh, mip_index, mip_src) = match slice {
+        let (mip_level, gw, gh, mip_index, mip_src_range) = match slice {
             NextMipUploadSlice::ChainDone { total_uploaded } => {
                 if self.start_base + (self.next_i as u32) < self.mipmap_count {
                     //review: stopping here leaves undefined mips on some Unity uploads; synthesize the tail when we can.
-                    return self.upload_generated_tail_mip(queue, texture, wgpu_format, upload);
+                    return self.spawn_generated_tail_mip(wgpu_format, upload);
                 }
                 self.stopped = true;
                 return Ok(MipChainAdvance::Finished { total_uploaded });
@@ -511,7 +552,7 @@ impl TextureMipChainUploader {
                 if self.start_base + (self.next_i as u32) < self.mipmap_count
                     && self.last_rgba8_mip.is_some()
                 {
-                    return self.upload_generated_tail_mip(queue, texture, wgpu_format, upload);
+                    return self.spawn_generated_tail_mip(wgpu_format, upload);
                 }
                 self.stopped = true;
                 return Ok(MipChainAdvance::Finished { total_uploaded });
@@ -522,56 +563,44 @@ impl TextureMipChainUploader {
                 gh,
                 mip_index,
                 mip_src,
-            } => (mip_level, gw, gh, mip_index, mip_src),
+            } => {
+                let offset = mip_src.as_ptr() as usize - payload.as_ptr() as usize;
+                let len = mip_src.len();
+                (mip_level, gw, gh, mip_index, offset..offset+len)
+            }
         };
 
-        let pixels = mip_src_to_upload_pixels(
-            &chain,
-            MipLevelPixelsDecode {
+        self.pending_mip = Some((mip_level, gw, gh));
+        
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.background_rx = Some(rx);
+
+        let fmt_format = fmt.format;
+        let needs_rgba8_decode = needs_rgba8_decode_before_upload(device, fmt_format);
+        let payload_arc = Arc::clone(payload);
+        let asset_id = upload.asset_id;
+
+        rayon::spawn(move || {
+            let mip_src = &payload_arc[mip_src_range];
+            let res = mip_src_to_upload_pixels(
+                asset_id,
+                fmt_format,
                 wgpu_format,
+                needs_rgba8_decode,
                 gw,
                 gh,
                 flip,
                 mip_src,
                 mip_index,
-            },
-        )?;
+            );
+            let _ = tx.send(res);
+        });
 
-        write_one_mip(
-            queue,
-            texture,
-            mip_level,
-            gw,
-            gh,
-            wgpu_format,
-            pixels.as_ref(),
-        )?;
-        if is_rgba8_family(wgpu_format) {
-            self.last_rgba8_mip = Some(Rgba8Mip {
-                width: gw,
-                height: gh,
-                pixels: pixels.as_ref().to_vec(),
-            });
-        }
-        self.uploaded_mips += 1;
-        self.next_i += 1;
-
-        if self.start_base + self.next_i as u32 >= self.mipmap_count {
-            self.stopped = true;
-            return Ok(MipChainAdvance::Finished {
-                total_uploaded: self.uploaded_mips,
-            });
-        }
-
-        Ok(MipChainAdvance::UploadedOne {
-            total_uploaded: self.uploaded_mips,
-        })
+        Ok(MipChainAdvance::YieldBackground)
     }
 
-    fn upload_generated_tail_mip(
+    fn spawn_generated_tail_mip(
         &mut self,
-        queue: &wgpu::Queue,
-        texture: &wgpu::Texture,
         wgpu_format: wgpu::TextureFormat,
         upload: &SetTexture2DData,
     ) -> Result<MipChainAdvance, TextureUploadError> {
@@ -597,7 +626,7 @@ impl TextureMipChainUploader {
             });
         }
 
-        let Some(source) = self.last_rgba8_mip.as_ref() else {
+        let Some(source) = self.last_rgba8_mip.clone() else {
             self.stopped = true;
             return Ok(MipChainAdvance::Finished {
                 total_uploaded: self.uploaded_mips,
@@ -616,26 +645,18 @@ impl TextureMipChainUploader {
 
         let (w, h) =
             mip_dimensions_at_level(self.tex_extent.width, self.tex_extent.height, mip_level);
-        let pixels = downsample_rgba8_box(&source.pixels, source.width, source.height, w, h)?;
-        write_one_mip(queue, texture, mip_level, w, h, wgpu_format, &pixels)?;
-        self.last_rgba8_mip = Some(Rgba8Mip {
-            width: w,
-            height: h,
-            pixels,
+        
+        self.pending_mip = Some((mip_level, w, h));
+        
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        self.background_rx = Some(rx);
+        
+        rayon::spawn(move || {
+            let res = downsample_rgba8_box(&source.pixels, source.width, source.height, w, h);
+            let _ = tx.send(res);
         });
-        self.uploaded_mips += 1;
-        self.next_i += 1;
 
-        if self.start_base + self.next_i as u32 >= self.mipmap_count {
-            self.stopped = true;
-            return Ok(MipChainAdvance::Finished {
-                total_uploaded: self.uploaded_mips,
-            });
-        }
-
-        Ok(MipChainAdvance::UploadedOne {
-            total_uploaded: self.uploaded_mips,
-        })
+        Ok(MipChainAdvance::YieldBackground)
     }
 }
 
@@ -769,7 +790,7 @@ pub fn write_texture2d_mips(
             raw.len()
         )));
     }
-    let payload = &raw[..want];
+    let payload = Arc::from(&raw[..want]);
 
     match texture_upload_start(device, queue, texture, fmt, wgpu_format, upload, raw)? {
         TextureDataStart::SubregionComplete(n) => Ok(n),
@@ -781,11 +802,14 @@ pub fn write_texture2d_mips(
                 fmt,
                 wgpu_format,
                 upload,
-                payload,
+                payload: &payload,
             })? {
                 MipChainAdvance::UploadedOne { .. } => {}
                 MipChainAdvance::Finished { total_uploaded } => {
                     return Ok(total_uploaded);
+                }
+                MipChainAdvance::YieldBackground => {
+                    std::thread::yield_now();
                 }
             }
         },
