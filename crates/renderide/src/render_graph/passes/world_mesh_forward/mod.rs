@@ -495,6 +495,12 @@ impl ComputePass for WorldMeshForwardDepthResolvePass {
                 access: StorageAccess::WriteOnly,
             },
         );
+        b.read_texture(
+            self.resources.msaa_depth_r32,
+            TextureAccess::Sampled {
+                stages: wgpu::ShaderStages::FRAGMENT,
+            },
+        );
         Ok(())
     }
 

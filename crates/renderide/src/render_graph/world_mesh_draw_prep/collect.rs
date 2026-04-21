@@ -1,15 +1,20 @@
 //! Scene walk that pairs material slots with submeshes and applies optional CPU culling.
 //!
-//! [`collect_and_sort_world_mesh_draws`] walks each render space in parallel ([`rayon`]), merges in
-//! [`SceneCoordinator::render_space_ids`] order, assigns [`WorldMeshDrawItem::collect_order`], then sorts.
+//! [`collect_and_sort_world_mesh_draws`] walks each render space in 128-renderable parallel chunks
+//! ([`rayon`]), merges in [`SceneCoordinator::render_space_ids`] order, assigns
+//! [`WorldMeshDrawItem::collect_order`], then sorts.
+//!
+//! Material-derived batch key fields are computed once per `(material_asset_id, property_block_id)`
+//! per call via [`FrameMaterialBatchCache`] before the parallel phase begins. This eliminates
+//! repeated dictionary and router lookups for the common case where hundreds of draws share a
+//! few dozen materials.
 
-use hashbrown::HashSet;
+use hashbrown::HashMap;
 
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 use rayon::prelude::*;
 
 use crate::assets::material::{MaterialDictionary, MaterialPropertyLookupIds};
-use crate::assets::mesh::GpuMesh;
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter};
 use crate::pipelines::ShaderPermutation;
 use crate::resources::MeshPool;
@@ -18,14 +23,16 @@ use crate::scene::{
 };
 use crate::shared::RenderingContext;
 
-use super::sort::{batch_key_for_slot, sort_world_mesh_draws, sort_world_mesh_draws_serial};
-use super::types::{
-    resolved_material_slots, CameraTransformDrawFilter, WorldMeshDrawCollection, WorldMeshDrawItem,
-};
+use super::material_batch_cache::FrameMaterialBatchCache;
+use super::sort::{batch_key_for_slot_cached, sort_world_mesh_draws, sort_world_mesh_draws_serial};
+use super::types::{WorldMeshDrawCollection, WorldMeshDrawItem};
 
 use super::super::world_mesh_cull_eval::{
     mesh_draw_passes_cpu_cull, CpuCullFailure, MeshCullTarget,
 };
+
+/// Renders per chunk (static or skinned slice of one render space).
+const WORLD_MESH_COLLECT_CHUNK_SIZE: usize = 128;
 
 /// Submesh index range for one material slot pairing during draw collection.
 pub(crate) struct SubmeshSlotIndices {
@@ -63,50 +70,68 @@ pub struct DrawCollectionContext<'a> {
     pub render_context: RenderingContext,
     /// Head / rig transform for world matrix resolution.
     pub head_output_transform: Mat4,
+    /// Camera world position for back-to-front distance sorting of transparent draws.
+    ///
+    /// Populate from `HostCameraFrame::secondary_camera_world_position.unwrap_or_else(|| head_output_transform.col(3).truncate())`.
+    pub view_origin_world: Vec3,
     /// Optional CPU frustum + Hi-Z cull inputs.
     pub culling: Option<&'a super::super::world_mesh_cull::WorldMeshCullInput<'a>>,
     /// Optional per-camera node filter.
-    pub transform_filter: Option<&'a CameraTransformDrawFilter>,
+    pub transform_filter: Option<&'a super::types::CameraTransformDrawFilter>,
 }
 
-/// One static or skinned mesh renderer with its resolved [`GpuMesh`] and submesh index ranges.
+/// One static or skinned mesh renderer with its resolved [`crate::assets::mesh::GpuMesh`] and submesh index ranges.
 struct StaticMeshDrawSource<'a> {
     space_id: RenderSpaceId,
     renderer: &'a StaticMeshRenderer,
     renderable_index: usize,
     skinned: bool,
     skinned_renderer: Option<&'a SkinnedMeshRenderer>,
-    mesh: &'a GpuMesh,
+    mesh: &'a crate::assets::mesh::GpuMesh,
     submeshes: &'a [(u32, u32)],
 }
 
-/// Mutable expansion state while expanding one space into draw items.
+/// Mutable expansion state while expanding one chunk into draw items.
 struct DrawCollectionAccumulator<'a> {
     out: &'a mut Vec<WorldMeshDrawItem>,
-    mismatch_warned: &'a mut HashSet<i32>,
     cull_stats: &'a mut (usize, usize, usize),
     /// Precomputed filter result per node index. When `Some`, used in place of
-    /// [`CameraTransformDrawFilter::passes_scene_node`] to avoid per-draw ancestor walks.
+    /// [`super::types::CameraTransformDrawFilter::passes_scene_node`] to avoid per-draw ancestor walks.
     filter_pass_mask: Option<&'a [bool]>,
 }
 
-/// How [`collect_and_sort_world_mesh_draws_with_parallelism`] parallelizes per-space collection and sorting.
+/// How [`collect_and_sort_world_mesh_draws_with_parallelism`] parallelizes per-chunk collection and sorting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorldMeshDrawCollectParallelism {
-    /// Per-space collection and draw sort both use rayon.
+    /// Per-chunk collection and draw sort both use rayon.
     Full,
-    /// Serial per-space merge and serial sort; use when an outer `par_iter` already fans out (e.g. multiple secondary RTs).
+    /// Serial per-chunk merge and serial sort; use when an outer `par_iter` already fans out (e.g. multiple secondary RTs).
     SerialInnerForNestedBatch,
+}
+
+/// Whether a chunk covers the static or skinned renderer list of a render space.
+#[derive(Clone, Copy)]
+enum ChunkKind {
+    Static,
+    Skinned,
+}
+
+/// One 128-renderable slice of a render space's static or skinned renderer array.
+struct WorldMeshChunkSpec {
+    space_id: RenderSpaceId,
+    kind: ChunkKind,
+    range: std::ops::Range<usize>,
 }
 
 /// Expands one static mesh renderer into draw items (material slots × submeshes).
 ///
 /// `collect_order` is filled with a placeholder; [`collect_and_sort_world_mesh_draws`] assigns the
-/// final stable index after per-space results are merged.
+/// final stable index after per-chunk results are merged.
 fn push_draws_for_renderer(
     ctx: &DrawCollectionContext<'_>,
     acc: &mut DrawCollectionAccumulator<'_>,
     draw: StaticMeshDrawSource<'_>,
+    cache: &FrameMaterialBatchCache,
 ) {
     if let Some(f) = ctx.transform_filter {
         let passes = match acc.filter_pass_mask {
@@ -120,13 +145,28 @@ fn push_draws_for_renderer(
             return;
         }
     }
-    let slots = resolved_material_slots(draw.renderer);
+
+    // Resolve material slots inline to avoid the Cow::Owned(vec![..]) allocation for the
+    // primary-material fallback path.
+    let fallback_slot;
+    let slots: &[MeshMaterialSlot] = if !draw.renderer.material_slots.is_empty() {
+        &draw.renderer.material_slots
+    } else if let Some(mat_id) = draw.renderer.primary_material_asset_id {
+        fallback_slot = MeshMaterialSlot {
+            material_asset_id: mat_id,
+            property_block_id: draw.renderer.primary_property_block_id,
+        };
+        std::slice::from_ref(&fallback_slot)
+    } else {
+        return;
+    };
+
     if slots.is_empty() {
         return;
     }
     let n_sub = draw.submeshes.len();
     let n_slot = slots.len();
-    if n_sub != n_slot && acc.mismatch_warned.insert(draw.renderer.mesh_asset_id) {
+    if n_sub != n_slot {
         logger::trace!(
             "mesh_asset_id={}: material slot count {} != submesh count {} (using first {} pairings only)",
             draw.renderer.mesh_asset_id,
@@ -147,9 +187,11 @@ fn push_draws_for_renderer(
                 .map(|skinned| skinned.bone_transform_indices.as_slice()),
         );
 
-    for slot_index in 0..n {
-        let slot = &slots[slot_index];
-        let (first_index, index_count) = draw.submeshes[slot_index];
+    for (slot_index, (slot, &(first_index, index_count))) in slots[..n]
+        .iter()
+        .zip(draw.submeshes[..n].iter())
+        .enumerate()
+    {
         push_one_slot_draw(
             ctx,
             acc,
@@ -164,6 +206,7 @@ fn push_draws_for_renderer(
                 is_overlay,
                 world_space_deformed,
             },
+            cache,
         );
     }
 }
@@ -176,6 +219,7 @@ fn push_one_slot_draw(
     slot: &MeshMaterialSlot,
     indices: SubmeshSlotIndices,
     flags: OverlayDeformCullFlags,
+    cache: &FrameMaterialBatchCache,
 ) {
     let SubmeshSlotIndices {
         slot_index,
@@ -237,15 +281,24 @@ fn push_one_slot_draw(
         material_asset_id,
         mesh_property_block_slot0: slot.property_block_id,
     };
-    let batch_key = batch_key_for_slot(
+    let batch_key = batch_key_for_slot_cached(
         material_asset_id,
         slot.property_block_id,
         draw.skinned,
+        cache,
         ctx.material_dict,
         ctx.material_router,
         ctx.pipeline_property_ids,
         ctx.shader_perm,
     );
+    let camera_distance_sq = if batch_key.alpha_blended {
+        match rigid_world_matrix {
+            Some(m) => (m.col(3).truncate() - ctx.view_origin_world).length_squared(),
+            None => 0.0,
+        }
+    } else {
+        0.0
+    };
     acc.out.push(WorldMeshDrawItem {
         space_id: draw.space_id,
         node_id: draw.renderer.node_id,
@@ -258,92 +311,192 @@ fn push_one_slot_draw(
         skinned: draw.skinned,
         world_space_deformed,
         collect_order: 0,
-        camera_distance_sq: 0.0,
+        camera_distance_sq,
         lookup_ids,
         batch_key,
         rigid_world_matrix,
     });
 }
 
-/// Collects draws for one render space (static then skinned renderers).
-fn collect_draws_for_one_space(
-    space_id: RenderSpaceId,
+/// Warms the material batch cache for all material slots on one renderer.
+fn warm_cache_for_renderer(
+    cache: &mut FrameMaterialBatchCache,
+    r: &StaticMeshRenderer,
     ctx: &DrawCollectionContext<'_>,
+) {
+    let fallback_slot;
+    let slots: &[MeshMaterialSlot] = if !r.material_slots.is_empty() {
+        &r.material_slots
+    } else if let Some(mat_id) = r.primary_material_asset_id {
+        fallback_slot = MeshMaterialSlot {
+            material_asset_id: mat_id,
+            property_block_id: r.primary_property_block_id,
+        };
+        std::slice::from_ref(&fallback_slot)
+    } else {
+        return;
+    };
+    for slot in slots {
+        if slot.material_asset_id < 0 {
+            continue;
+        }
+        cache.get_or_insert(
+            slot.material_asset_id,
+            slot.property_block_id,
+            ctx.material_dict,
+            ctx.material_router,
+            ctx.pipeline_property_ids,
+        );
+    }
+}
+
+/// Builds a [`FrameMaterialBatchCache`] by walking all active render spaces before the parallel
+/// collection phase. The cache is then shared as an immutable reference across rayon workers.
+fn build_frame_material_batch_cache(ctx: &DrawCollectionContext<'_>) -> FrameMaterialBatchCache {
+    let mut cache = FrameMaterialBatchCache::new(ctx.shader_perm);
+    for space_id in ctx.scene.render_space_ids() {
+        let Some(space) = ctx.scene.space(space_id) else {
+            continue;
+        };
+        if !space.is_active {
+            continue;
+        }
+        for r in &space.static_mesh_renderers {
+            if r.mesh_asset_id >= 0 {
+                warm_cache_for_renderer(&mut cache, r, ctx);
+            }
+        }
+        for sk in &space.skinned_mesh_renderers {
+            if sk.base.mesh_asset_id >= 0 {
+                warm_cache_for_renderer(&mut cache, &sk.base, ctx);
+            }
+        }
+    }
+    cache
+}
+
+/// Builds the chunk list: one entry per 128-renderer slice of static or skinned renderers per space.
+fn build_chunk_specs(
+    space_ids: &[RenderSpaceId],
+    ctx: &DrawCollectionContext<'_>,
+) -> Vec<WorldMeshChunkSpec> {
+    let mut chunks = Vec::new();
+    for &space_id in space_ids {
+        let Some(space) = ctx.scene.space(space_id) else {
+            continue;
+        };
+        if !space.is_active {
+            continue;
+        }
+        let n_static = space.static_mesh_renderers.len();
+        let mut start = 0;
+        while start < n_static {
+            let end = n_static.min(start + WORLD_MESH_COLLECT_CHUNK_SIZE);
+            chunks.push(WorldMeshChunkSpec {
+                space_id,
+                kind: ChunkKind::Static,
+                range: start..end,
+            });
+            start = end;
+        }
+        let n_skinned = space.skinned_mesh_renderers.len();
+        start = 0;
+        while start < n_skinned {
+            let end = n_skinned.min(start + WORLD_MESH_COLLECT_CHUNK_SIZE);
+            chunks.push(WorldMeshChunkSpec {
+                space_id,
+                kind: ChunkKind::Skinned,
+                range: start..end,
+            });
+            start = end;
+        }
+    }
+    chunks
+}
+
+/// Collects draw items for one chunk (one 128-renderer slice of static or skinned renderers).
+fn collect_chunk(
+    spec: &WorldMeshChunkSpec,
+    ctx: &DrawCollectionContext<'_>,
+    cache: &FrameMaterialBatchCache,
+    filter_masks: &HashMap<RenderSpaceId, Vec<bool>>,
 ) -> (Vec<WorldMeshDrawItem>, (usize, usize, usize)) {
     let mut out = Vec::new();
     let mut cull_stats = (0usize, 0usize, 0usize);
-    let mut mismatch_warned = HashSet::new();
 
-    let Some(space) = ctx.scene.space(space_id) else {
+    let Some(space) = ctx.scene.space(spec.space_id) else {
         return (out, cull_stats);
     };
     if !space.is_active {
         return (out, cull_stats);
     }
 
-    // Precompute per-node filter pass mask so `push_draws_for_renderer` skips the O(depth)
-    // ancestor walk on every draw (hot in dashboard / secondary-RT paths).
-    let filter_pass_mask: Option<Vec<bool>> = ctx
-        .transform_filter
-        .and_then(|f| f.build_pass_mask(ctx.scene, space_id));
-
+    let filter_pass_mask = filter_masks.get(&spec.space_id).map(|m| m.as_slice());
     let mut acc = DrawCollectionAccumulator {
         out: &mut out,
-        mismatch_warned: &mut mismatch_warned,
         cull_stats: &mut cull_stats,
-        filter_pass_mask: filter_pass_mask.as_deref(),
+        filter_pass_mask,
     };
 
-    for (renderable_index, r) in space.static_mesh_renderers.iter().enumerate() {
-        if r.mesh_asset_id < 0 || r.node_id < 0 {
-            continue;
+    match spec.kind {
+        ChunkKind::Static => {
+            for renderable_index in spec.range.clone() {
+                let r = &space.static_mesh_renderers[renderable_index];
+                if r.mesh_asset_id < 0 || r.node_id < 0 {
+                    continue;
+                }
+                let Some(mesh) = ctx.mesh_pool.get_mesh(r.mesh_asset_id) else {
+                    continue;
+                };
+                if mesh.submeshes.is_empty() {
+                    continue;
+                }
+                push_draws_for_renderer(
+                    ctx,
+                    &mut acc,
+                    StaticMeshDrawSource {
+                        space_id: spec.space_id,
+                        renderer: r,
+                        renderable_index,
+                        skinned: false,
+                        skinned_renderer: None,
+                        mesh,
+                        submeshes: &mesh.submeshes,
+                    },
+                    cache,
+                );
+            }
         }
-        let Some(mesh) = ctx.mesh_pool.get_mesh(r.mesh_asset_id) else {
-            continue;
-        };
-        if mesh.submeshes.is_empty() {
-            continue;
+        ChunkKind::Skinned => {
+            for renderable_index in spec.range.clone() {
+                let skinned = &space.skinned_mesh_renderers[renderable_index];
+                let r = &skinned.base;
+                if r.mesh_asset_id < 0 || r.node_id < 0 {
+                    continue;
+                }
+                let Some(mesh) = ctx.mesh_pool.get_mesh(r.mesh_asset_id) else {
+                    continue;
+                };
+                if mesh.submeshes.is_empty() {
+                    continue;
+                }
+                push_draws_for_renderer(
+                    ctx,
+                    &mut acc,
+                    StaticMeshDrawSource {
+                        space_id: spec.space_id,
+                        renderer: r,
+                        renderable_index,
+                        skinned: true,
+                        skinned_renderer: Some(skinned),
+                        mesh,
+                        submeshes: &mesh.submeshes,
+                    },
+                    cache,
+                );
+            }
         }
-        push_draws_for_renderer(
-            ctx,
-            &mut acc,
-            StaticMeshDrawSource {
-                space_id,
-                renderer: r,
-                renderable_index,
-                skinned: false,
-                skinned_renderer: None,
-                mesh,
-                submeshes: &mesh.submeshes,
-            },
-        );
     }
-    for (renderable_index, skinned) in space.skinned_mesh_renderers.iter().enumerate() {
-        let r = &skinned.base;
-        if r.mesh_asset_id < 0 || r.node_id < 0 {
-            continue;
-        }
-        let Some(mesh) = ctx.mesh_pool.get_mesh(r.mesh_asset_id) else {
-            continue;
-        };
-        if mesh.submeshes.is_empty() {
-            continue;
-        }
-        push_draws_for_renderer(
-            ctx,
-            &mut acc,
-            StaticMeshDrawSource {
-                space_id,
-                renderer: r,
-                renderable_index,
-                skinned: true,
-                skinned_renderer: Some(skinned),
-                mesh,
-                submeshes: &mesh.submeshes,
-            },
-        );
-    }
-
     (out, cull_stats)
 }
 
@@ -352,8 +505,9 @@ fn collect_draws_for_one_space(
 /// When `culling` is [`Some`], instances outside the frustum (and optional Hi-Z) are dropped (see
 /// [`mesh_draw_passes_cpu_cull`](super::super::world_mesh_cull_eval::mesh_draw_passes_cpu_cull)).
 ///
-/// Per-space collection runs in parallel via [`rayon`] by default; results are merged in the same order as
-/// [`SceneCoordinator::render_space_ids`], then [`WorldMeshDrawItem::collect_order`] is assigned for transparent sort stability.
+/// Collection runs over 128-renderer chunks in parallel via [`rayon`] by default; results are
+/// merged in the same order as [`SceneCoordinator::render_space_ids`], then
+/// [`WorldMeshDrawItem::collect_order`] is assigned for transparent sort stability.
 pub fn collect_and_sort_world_mesh_draws(
     ctx: &DrawCollectionContext<'_>,
 ) -> WorldMeshDrawCollection {
@@ -380,25 +534,39 @@ pub fn collect_and_sort_world_mesh_draws_with_parallelism(
         }
     }
 
-    let per_space: Vec<(Vec<WorldMeshDrawItem>, (usize, usize, usize))> = {
+    // Build per-material cache and per-space filter masks before the parallel phase.
+    let cache = build_frame_material_batch_cache(ctx);
+    let filter_masks: HashMap<RenderSpaceId, Vec<bool>> = if ctx.transform_filter.is_some() {
+        space_ids
+            .iter()
+            .copied()
+            .filter_map(|sid| {
+                let mask = ctx.transform_filter?.build_pass_mask(ctx.scene, sid)?;
+                Some((sid, mask))
+            })
+            .collect()
+    } else {
+        HashMap::new()
+    };
+    let chunks = build_chunk_specs(&space_ids, ctx);
+
+    let per_chunk: Vec<(Vec<WorldMeshDrawItem>, (usize, usize, usize))> = {
         profiling::scope!("mesh::collect");
         match parallelism {
-            WorldMeshDrawCollectParallelism::Full => space_ids
+            WorldMeshDrawCollectParallelism::Full => chunks
                 .par_iter()
-                .copied()
-                .map(|space_id| collect_draws_for_one_space(space_id, ctx))
+                .map(|spec| collect_chunk(spec, ctx, &cache, &filter_masks))
                 .collect(),
-            WorldMeshDrawCollectParallelism::SerialInnerForNestedBatch => space_ids
+            WorldMeshDrawCollectParallelism::SerialInnerForNestedBatch => chunks
                 .iter()
-                .copied()
-                .map(|space_id| collect_draws_for_one_space(space_id, ctx))
+                .map(|spec| collect_chunk(spec, ctx, &cache, &filter_masks))
                 .collect(),
         }
     };
 
-    let mut out = Vec::with_capacity(cap_hint.saturating_mul(8));
+    let mut out = Vec::with_capacity(cap_hint);
     let mut cull_stats = (0usize, 0usize, 0usize);
-    for (items, cs) in per_space {
+    for (items, cs) in per_chunk {
         cull_stats.0 += cs.0;
         cull_stats.1 += cs.1;
         cull_stats.2 += cs.2;

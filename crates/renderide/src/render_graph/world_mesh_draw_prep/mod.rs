@@ -15,6 +15,7 @@
 
 mod batch;
 mod collect;
+mod material_batch_cache;
 mod sort;
 mod types;
 

@@ -193,6 +193,12 @@ impl RendererRuntime {
                         shader_perm: ShaderPermutation(0),
                         render_context,
                         head_output_transform: prep.host_camera.head_output_transform,
+                        view_origin_world: prep
+                            .host_camera
+                            .secondary_camera_world_position
+                            .unwrap_or_else(|| {
+                                prep.host_camera.head_output_transform.col(3).truncate()
+                            }),
                         culling: culling.as_ref(),
                         transform_filter: Some(&prep.filter),
                     },
@@ -294,6 +300,12 @@ impl RendererRuntime {
                         shader_perm: ShaderPermutation(0),
                         render_context,
                         head_output_transform: prep.host_camera.head_output_transform,
+                        view_origin_world: prep
+                            .host_camera
+                            .secondary_camera_world_position
+                            .unwrap_or_else(|| {
+                                prep.host_camera.head_output_transform.col(3).truncate()
+                            }),
                         culling: culling.as_ref(),
                         transform_filter: Some(&prep.filter),
                     },
@@ -327,6 +339,9 @@ impl RendererRuntime {
             shader_perm: ShaderPermutation(0),
             render_context,
             head_output_transform: hc.head_output_transform,
+            view_origin_world: hc
+                .secondary_camera_world_position
+                .unwrap_or_else(|| hc.head_output_transform.col(3).truncate()),
             culling: culling_main_ref,
             transform_filter: None,
         });

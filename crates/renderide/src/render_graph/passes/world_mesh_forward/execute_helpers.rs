@@ -127,6 +127,9 @@ pub(super) fn take_or_collect_world_mesh_draws<'a>(
         shader_perm,
         render_context,
         head_output_transform: hc.head_output_transform,
+        view_origin_world: hc
+            .secondary_camera_world_position
+            .unwrap_or_else(|| hc.head_output_transform.col(3).truncate()),
         culling,
         transform_filter: frame.transform_draw_filter.as_ref(),
     })
