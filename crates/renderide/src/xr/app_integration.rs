@@ -272,6 +272,14 @@ pub fn try_openxr_hmd_multiview_submit(
             .mirror_blit
             .submit_eye_to_staging(gpu, extent, &layer_view);
     }
+    // Drain the renderer-driver queue so every command buffer that touches the OpenXR swapchain
+    // image (the multiview render-graph submit and the eye→staging copy) has reached
+    // `wgpu::Queue::submit` **before** `xrReleaseSwapchainImage` / `xrEndFrame`. OpenXR runtimes
+    // (WiVRn, Monado, SteamVR/Vulkan, …) wait on the application's queue at end-frame to know the
+    // image is ready for compositing; if our submits are still parked on
+    // [`crate::gpu::driver_thread::DriverThread`], `xrEndFrame` blocks indefinitely waiting on
+    // GPU work that has not been issued yet.
+    gpu.flush_driver();
     if sc.handle.release_image().is_err() {
         return false;
     }

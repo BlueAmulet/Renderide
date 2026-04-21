@@ -244,8 +244,13 @@ impl VrMirrorBlitResources {
             logger::warn!("debug HUD overlay (VR mirror): {e}");
         }
 
-        gpu.submit_tracked_frame_commands(encoder.finish());
-        frame.present();
+        // Hand the surface texture to the driver thread along with the command buffer so the
+        // real `Queue::submit` runs **before** `SurfaceTexture::present`. Calling `present()` on
+        // the main thread immediately after `submit_tracked_frame_commands` (which only enqueues
+        // on the driver) destroys the surface texture, after which the driver's deferred
+        // `Queue::submit` rejects the command buffer with: "Texture with '<Surface Texture>'
+        // label has been destroyed".
+        gpu.submit_frame_batch(vec![encoder.finish()], Some(frame), None);
         Ok(())
     }
 }
