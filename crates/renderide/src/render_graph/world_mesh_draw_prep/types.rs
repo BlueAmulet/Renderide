@@ -391,4 +391,25 @@ mod tests {
         let mask = no_exclude.build_pass_mask(&scene, space_id).unwrap();
         assert_eq!(mask, vec![true, true, true]);
     }
+
+    /// [`CameraTransformDrawFilter::build_pass_mask`] returns `None` when the requested render
+    /// space has not been seeded in the [`SceneCoordinator`].
+    #[test]
+    fn build_pass_mask_returns_none_for_missing_space() {
+        let scene = SceneCoordinator::new();
+        let missing = RenderSpaceId(999);
+        let filter = CameraTransformDrawFilter::default();
+        assert!(filter.build_pass_mask(&scene, missing).is_none());
+    }
+
+    /// Default-constructed filters (no `only`, empty `exclude`) pass every node.
+    #[test]
+    fn default_filter_passes_all_nodes() {
+        let (scene, space_id) = seeded_scene();
+        let filter = CameraTransformDrawFilter::default();
+        for node_id in 0..3 {
+            assert!(filter.passes(node_id));
+            assert!(filter.passes_scene_node(&scene, space_id, node_id));
+        }
+    }
 }

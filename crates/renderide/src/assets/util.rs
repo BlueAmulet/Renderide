@@ -42,3 +42,27 @@ mod compact_alnum_lower_tests {
         assert_eq!(compact_alnum_lower(" /.-_"), "");
     }
 }
+
+#[cfg(test)]
+mod normalize_unity_shader_lookup_key_tests {
+    use super::normalize_unity_shader_lookup_key;
+
+    #[test]
+    fn folds_path_separators_and_lowercases_first_token() {
+        assert_eq!(
+            normalize_unity_shader_lookup_key("Custom/UI/TextUnlit kw1"),
+            "custom_ui_textunlit"
+        );
+    }
+
+    #[test]
+    fn empty_input_yields_empty() {
+        assert_eq!(normalize_unity_shader_lookup_key(""), "");
+        assert_eq!(normalize_unity_shader_lookup_key("   "), "");
+    }
+
+    #[test]
+    fn preserves_inner_ascii_other_chars() {
+        assert_eq!(normalize_unity_shader_lookup_key("Foo-Bar_1"), "foo-bar_1");
+    }
+}

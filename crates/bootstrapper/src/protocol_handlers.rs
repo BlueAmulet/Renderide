@@ -297,6 +297,28 @@ mod tests {
             ),
             LoopAction::Break
         );
+        assert_eq!(
+            dispatch_command(
+                HostCommand::SetText("clip".into()),
+                &mut publisher,
+                &cfg,
+                &lifetime,
+                &deadline,
+                &slot
+            ),
+            LoopAction::Continue
+        );
+        assert_eq!(
+            dispatch_command(
+                HostCommand::GetText,
+                &mut publisher,
+                &cfg,
+                &lifetime,
+                &deadline,
+                &slot
+            ),
+            LoopAction::Continue
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -46,7 +46,10 @@ fn log_run_intro(config: &ResoBootConfig) {
 }
 
 /// Appends `-shmprefix` and the generated prefix to Host argv.
-fn assemble_host_args(mut host_args: Vec<String>, shared_memory_prefix: &str) -> Vec<String> {
+pub(crate) fn assemble_host_args(
+    mut host_args: Vec<String>,
+    shared_memory_prefix: &str,
+) -> Vec<String> {
     host_args.push("-shmprefix".to_string());
     host_args.push(shared_memory_prefix.to_string());
     host_args
@@ -306,4 +309,46 @@ fn spawn_renderer_exit_watcher(
         }
         std::thread::sleep(renderer_exit_watcher_poll_interval());
     })
+}
+
+#[cfg(test)]
+mod assemble_host_args_tests {
+    use super::assemble_host_args;
+
+    #[test]
+    fn empty_argv_appends_shmprefix_and_prefix() {
+        let out = assemble_host_args(vec![], "Ab12");
+        assert_eq!(out, vec!["-shmprefix".to_string(), "Ab12".to_string()]);
+    }
+
+    #[test]
+    fn preserves_order_and_appends_suffix() {
+        let out = assemble_host_args(
+            vec![
+                "-Invisible".to_string(),
+                "-Data".to_string(),
+                "path".to_string(),
+            ],
+            "Z9",
+        );
+        assert_eq!(
+            out,
+            vec![
+                "-Invisible".to_string(),
+                "-Data".to_string(),
+                "path".to_string(),
+                "-shmprefix".to_string(),
+                "Z9".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn ends_with_shmprefix_then_prefix() {
+        let prefix = "prefX";
+        let out = assemble_host_args(vec!["a".into(), "b".into()], prefix);
+        assert!(out.len() >= 2);
+        assert_eq!(out[out.len() - 2], "-shmprefix");
+        assert_eq!(out[out.len() - 1], prefix);
+    }
 }

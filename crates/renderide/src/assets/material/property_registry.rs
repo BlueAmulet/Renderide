@@ -88,3 +88,70 @@ impl Default for PropertyIdRegistry {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicI32, Ordering};
+
+    #[test]
+    fn empty_name_returns_zero() {
+        let reg = PropertyIdRegistry::new();
+        assert_eq!(reg.intern(""), 0);
+    }
+
+    #[test]
+    fn first_nonempty_name_starts_at_one() {
+        let reg = PropertyIdRegistry::new();
+        assert_eq!(reg.intern("_MainTex"), 1);
+    }
+
+    #[test]
+    fn repeated_name_returns_same_id() {
+        let reg = PropertyIdRegistry::new();
+        let first = reg.intern("_Color");
+        let second = reg.intern("_Color");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn distinct_names_get_distinct_increasing_ids() {
+        let reg = PropertyIdRegistry::new();
+        let a = reg.intern("_A");
+        let b = reg.intern("_B");
+        let c = reg.intern("_C");
+        assert_eq!((a, b, c), (1, 2, 3));
+    }
+
+    #[test]
+    fn intern_for_host_request_fires_hook_each_time() {
+        let reg = PropertyIdRegistry::new();
+        let counter = Arc::new(AtomicI32::new(0));
+        let last_id = Arc::new(AtomicI32::new(0));
+        let counter_h = counter.clone();
+        let last_id_h = last_id.clone();
+        reg.add_semantic_hook(Arc::new(move |_name, id| {
+            counter_h.fetch_add(1, Ordering::SeqCst);
+            last_id_h.store(id, Ordering::SeqCst);
+        }));
+
+        let id1 = reg.intern_for_host_request("_MainTex");
+        let id2 = reg.intern_for_host_request("_MainTex");
+        assert_eq!(id1, id2);
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+        assert_eq!(last_id.load(Ordering::SeqCst), id1);
+    }
+
+    #[test]
+    fn intern_for_host_request_empty_name_skips_hook() {
+        let reg = PropertyIdRegistry::new();
+        let counter = Arc::new(AtomicI32::new(0));
+        let counter_h = counter.clone();
+        reg.add_semantic_hook(Arc::new(move |_name, _id| {
+            counter_h.fetch_add(1, Ordering::SeqCst);
+        }));
+
+        assert_eq!(reg.intern_for_host_request(""), 0);
+        assert_eq!(counter.load(Ordering::SeqCst), 0);
+    }
+}

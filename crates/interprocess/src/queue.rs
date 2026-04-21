@@ -56,4 +56,20 @@ mod tests {
             Some(b"via_factory".as_slice())
         );
     }
+
+    #[test]
+    fn queue_factory_subscriber_before_publisher_roundtrip() {
+        let dir = tempdir().expect("tempdir");
+        let name = format!("qf_sub_first_{}", std::process::id());
+        let opts = QueueOptions::with_path(&name, dir.path(), 4096).expect("valid options");
+        let factory = QueueFactory::new();
+        let mut subscriber = factory.create_subscriber(opts.clone()).expect("subscriber");
+        let mut publisher = factory.create_publisher(opts).expect("publisher");
+
+        assert!(publisher.try_enqueue(b"sub_first"));
+        assert_eq!(
+            subscriber.try_dequeue().as_deref(),
+            Some(b"sub_first".as_slice())
+        );
+    }
 }

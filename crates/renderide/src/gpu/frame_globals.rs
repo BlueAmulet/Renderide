@@ -104,4 +104,58 @@ mod tests {
         assert_eq!(std::mem::size_of::<FrameGpuUniforms>(), 80);
         assert_eq!(std::mem::size_of::<FrameGpuUniforms>() % 16, 0);
     }
+
+    #[test]
+    fn z_coeffs_extracts_third_row_for_translation_only_view() {
+        // Translation-only view: world-to-view z = world.z + tz (tz from row 3, w component).
+        let tz = 7.0;
+        let m = Mat4::from_translation(glam::Vec3::new(0.0, 0.0, tz));
+        let coeffs = FrameGpuUniforms::view_space_z_coeffs_from_world_to_view(m);
+        assert_eq!(coeffs, [0.0, 0.0, 1.0, tz]);
+
+        // Sanity: dot(coeffs.xyz, p) + coeffs.w matches (m * p).z for a sample point.
+        let p = glam::Vec3::new(2.0, -3.0, 4.0);
+        let view_z = (m * p.extend(1.0)).z;
+        let dotted = coeffs[0] * p.x + coeffs[1] * p.y + coeffs[2] * p.z + coeffs[3];
+        assert!((view_z - dotted).abs() < 1e-6);
+    }
+
+    #[test]
+    fn z_coeffs_matches_third_component_under_yaw_rotation() {
+        // Yaw should leave Z row invariant (rotation about Y keeps Z-basis).
+        let m = Mat4::from_rotation_y(std::f32::consts::FRAC_PI_3);
+        let coeffs = FrameGpuUniforms::view_space_z_coeffs_from_world_to_view(m);
+        let p = glam::Vec3::new(1.5, -0.25, 2.0);
+        let view_z = (m * p.extend(1.0)).z;
+        let dotted = coeffs[0] * p.x + coeffs[1] * p.y + coeffs[2] * p.z + coeffs[3];
+        assert!((view_z - dotted).abs() < 1e-5);
+    }
+
+    #[test]
+    fn new_clustered_populates_fields_including_zero_w_for_camera_pos() {
+        let u = FrameGpuUniforms::new_clustered(ClusteredFrameGlobalsParams {
+            camera_world_pos: glam::Vec3::new(1.0, 2.0, 3.0),
+            view_space_z_coeffs: [0.1, 0.2, 0.3, 0.4],
+            view_space_z_coeffs_right: [0.5, 0.6, 0.7, 0.8],
+            cluster_count_x: 16,
+            cluster_count_y: 9,
+            cluster_count_z: 24,
+            near_clip: 0.05,
+            far_clip: 1000.0,
+            light_count: 42,
+            viewport_width: 1920,
+            viewport_height: 1080,
+        });
+        assert_eq!(u.camera_world_pos, [1.0, 2.0, 3.0, 0.0]);
+        assert_eq!(u.view_space_z_coeffs, [0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(u.view_space_z_coeffs_right, [0.5, 0.6, 0.7, 0.8]);
+        assert_eq!(u.cluster_count_x, 16);
+        assert_eq!(u.cluster_count_y, 9);
+        assert_eq!(u.cluster_count_z, 24);
+        assert_eq!(u.near_clip, 0.05);
+        assert_eq!(u.far_clip, 1000.0);
+        assert_eq!(u.light_count, 42);
+        assert_eq!(u.viewport_width, 1920);
+        assert_eq!(u.viewport_height, 1080);
+    }
 }

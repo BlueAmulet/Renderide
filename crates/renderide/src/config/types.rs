@@ -493,6 +493,41 @@ mod reported_max_texture_tests {
 }
 
 #[cfg(test)]
+mod msaa_sample_count_tests {
+    use super::{MsaaSampleCount, RendererSettings};
+
+    #[test]
+    fn all_variants_persist_str_round_trip() {
+        for v in MsaaSampleCount::ALL {
+            let s = v.as_persist_str();
+            assert_eq!(
+                MsaaSampleCount::from_persist_str(s),
+                Some(v),
+                "round-trip failed for {s}"
+            );
+        }
+    }
+
+    #[test]
+    fn msaa_toml_round_trip_all_variants() {
+        for v in MsaaSampleCount::ALL {
+            let mut s = RendererSettings::default();
+            s.rendering.msaa = v;
+            let toml = toml::to_string(&s).expect("serialize");
+            let back: RendererSettings = toml::from_str(&toml).expect("deserialize");
+            assert_eq!(back.rendering.msaa, v);
+        }
+    }
+
+    #[test]
+    fn labels_are_non_empty() {
+        for v in MsaaSampleCount::ALL {
+            assert!(!v.label().is_empty());
+        }
+    }
+}
+
+#[cfg(test)]
 mod scene_color_format_tests {
     use super::{RendererSettings, SceneColorFormat};
     use wgpu::TextureFormat;
@@ -511,6 +546,15 @@ mod scene_color_format_tests {
             SceneColorFormat::Rgba8Unorm.wgpu_format(),
             TextureFormat::Rgba8Unorm
         );
+    }
+
+    #[test]
+    fn scene_color_format_all_covers_every_variant() {
+        for v in SceneColorFormat::ALL {
+            // Ensures `wgpu_format` and `label` are defined for every variant.
+            let _ = v.wgpu_format();
+            assert!(!v.label().is_empty());
+        }
     }
 
     #[test]

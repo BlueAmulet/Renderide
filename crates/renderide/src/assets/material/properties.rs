@@ -231,7 +231,9 @@ impl MaterialPropertyStore {
 
 #[cfg(test)]
 mod material_dictionary_tests {
-    use super::{MaterialDictionary, MaterialPropertyStore};
+    use super::{
+        MaterialDictionary, MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
+    };
 
     #[test]
     fn material_dictionary_delegates_shader_binding() {
@@ -239,5 +241,89 @@ mod material_dictionary_tests {
         store.set_shader_asset_for_material(7, 99);
         let d = MaterialDictionary::new(&store);
         assert_eq!(d.shader_asset_for_material(7), Some(99));
+    }
+
+    #[test]
+    fn get_merged_prefers_property_block_over_material() {
+        let mut store = MaterialPropertyStore::new();
+        store.set_material(1, 42, MaterialPropertyValue::Float(0.25));
+        store.set_property_block(5, 42, MaterialPropertyValue::Float(0.75));
+        let ids = MaterialPropertyLookupIds {
+            material_asset_id: 1,
+            mesh_property_block_slot0: Some(5),
+        };
+        assert_eq!(
+            store.get_merged(ids, 42),
+            Some(&MaterialPropertyValue::Float(0.75))
+        );
+    }
+
+    #[test]
+    fn get_merged_falls_through_missing_block_key_to_material() {
+        let mut store = MaterialPropertyStore::new();
+        store.set_material(1, 42, MaterialPropertyValue::Float(0.25));
+        let ids = MaterialPropertyLookupIds {
+            material_asset_id: 1,
+            mesh_property_block_slot0: Some(5),
+        };
+        assert_eq!(
+            store.get_merged(ids, 42),
+            Some(&MaterialPropertyValue::Float(0.25))
+        );
+        assert_eq!(store.get_merged(ids, 999), None);
+    }
+
+    #[test]
+    fn set_get_material_and_property_block_are_independent() {
+        let mut store = MaterialPropertyStore::new();
+        store.set_material(1, 10, MaterialPropertyValue::Float(1.0));
+        store.set_property_block(1, 10, MaterialPropertyValue::Float(2.0));
+        assert_eq!(
+            store.get_material(1, 10),
+            Some(&MaterialPropertyValue::Float(1.0))
+        );
+        assert_eq!(
+            store.get_property_block(1, 10),
+            Some(&MaterialPropertyValue::Float(2.0))
+        );
+    }
+
+    #[test]
+    fn mutation_generation_bumps_on_writes_only() {
+        let mut store = MaterialPropertyStore::new();
+        let ids = MaterialPropertyLookupIds {
+            material_asset_id: 3,
+            mesh_property_block_slot0: None,
+        };
+        let g0 = store.mutation_generation(ids);
+        store.set_material(3, 7, MaterialPropertyValue::Float(1.0));
+        let g1 = store.mutation_generation(ids);
+        assert_ne!(g0, g1);
+        // Pure reads do not bump.
+        let _ = store.get_material(3, 7);
+        assert_eq!(store.mutation_generation(ids), g1);
+        store.set_shader_asset_for_material(3, 99);
+        assert_ne!(store.mutation_generation(ids), g1);
+    }
+
+    #[test]
+    fn remove_material_clears_properties_and_shader_binding() {
+        let mut store = MaterialPropertyStore::new();
+        store.set_material(1, 10, MaterialPropertyValue::Float(1.0));
+        store.set_shader_asset_for_material(1, 100);
+        store.remove_material(1);
+        assert_eq!(store.get_material(1, 10), None);
+        assert_eq!(store.shader_asset_for_material(1), None);
+        assert_eq!(store.material_property_slot_count(), 0);
+    }
+
+    #[test]
+    fn remove_property_block_clears_its_properties() {
+        let mut store = MaterialPropertyStore::new();
+        store.set_property_block(4, 10, MaterialPropertyValue::Float(1.0));
+        assert_eq!(store.property_block_slot_count(), 1);
+        store.remove_property_block(4);
+        assert_eq!(store.get_property_block(4, 10), None);
+        assert_eq!(store.property_block_slot_count(), 0);
     }
 }

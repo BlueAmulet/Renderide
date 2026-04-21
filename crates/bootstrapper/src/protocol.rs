@@ -227,3 +227,98 @@ mod tests {
         assert!(!should_trace_iter(1001));
     }
 }
+
+#[cfg(test)]
+mod queue_loop_tests {
+    use std::process::Child;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::Instant;
+
+    use super::queue_loop;
+    use crate::child_lifetime::ChildLifetimeGroup;
+    use crate::config::ResoBootConfig;
+    use crate::ipc::{
+        open_bootstrap_queues_host_publisher_first, BootstrapQueues, RENDERIDE_INTERPROCESS_DIR_ENV,
+    };
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().expect("env lock")
+    }
+
+    #[test]
+    fn queue_loop_returns_immediately_when_cancel_pre_set() {
+        let _g = lock_env();
+        let tmp =
+            std::env::temp_dir().join(format!("bootstrapper_ql_cancel_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
+
+        let prefix = format!("cc{}", std::process::id());
+        let mut queues = BootstrapQueues::open(&prefix).expect("open queues");
+        let config = ResoBootConfig::new(prefix, None).expect("config");
+        let lifetime = ChildLifetimeGroup::new().expect("lifetime");
+        let cancel = AtomicBool::new(true);
+        let deadline = std::sync::Arc::new(Mutex::new(Instant::now()));
+        let renderer: std::sync::Arc<Mutex<Option<Child>>> = std::sync::Arc::new(Mutex::new(None));
+
+        queue_loop(
+            &mut queues.incoming,
+            &mut queues.outgoing,
+            &config,
+            &cancel,
+            &lifetime,
+            &deadline,
+            &renderer,
+        );
+
+        std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn queue_loop_exits_on_shutdown_from_host_publisher() {
+        let _g = lock_env();
+        let tmp = std::env::temp_dir().join(format!("bootstrapper_ql_sd_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
+
+        let prefix = format!("sd{}", std::process::id());
+        let (mut queues, mut host_publisher) =
+            open_bootstrap_queues_host_publisher_first(&prefix).expect("open queues");
+
+        assert!(
+            host_publisher.try_enqueue(b"SHUTDOWN"),
+            "host should enqueue SHUTDOWN before queue_loop runs"
+        );
+
+        let config = ResoBootConfig::new(prefix, None).expect("config");
+        let lifetime = ChildLifetimeGroup::new().expect("lifetime");
+        let cancel = AtomicBool::new(false);
+        let deadline = std::sync::Arc::new(Mutex::new(Instant::now()));
+        let renderer: std::sync::Arc<Mutex<Option<Child>>> = std::sync::Arc::new(Mutex::new(None));
+
+        queue_loop(
+            &mut queues.incoming,
+            &mut queues.outgoing,
+            &config,
+            &cancel,
+            &lifetime,
+            &deadline,
+            &renderer,
+        );
+
+        assert!(
+            cancel.load(std::sync::atomic::Ordering::SeqCst),
+            "SHUTDOWN should set cancel"
+        );
+
+        drop(host_publisher);
+        std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+}

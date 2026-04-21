@@ -156,4 +156,37 @@ mod tests {
         img.put_pixel(1, 0, image::Rgba([10, 0, 0, 255]));
         assert!(flat_sample_rgba_if_nearly_uniform(&img).is_none());
     }
+
+    #[test]
+    fn check_rejects_dimension_mismatch_before_ssim() {
+        use crate::error::HarnessError;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let actual = dir.path().join("actual.png");
+        let golden = dir.path().join("golden.png");
+        let diff_out = dir.path().join("diff.png");
+
+        let mut small = RgbaImage::new(2, 2);
+        for p in small.pixels_mut() {
+            *p = image::Rgba([10, 20, 30, 255]);
+        }
+        small.save(&actual).expect("write actual");
+
+        let mut large = RgbaImage::new(3, 3);
+        for p in large.pixels_mut() {
+            *p = image::Rgba([10, 20, 30, 255]);
+        }
+        large.save(&golden).expect("write golden");
+
+        let err = super::check(&actual, &golden, 0.95, &diff_out).expect_err("dimension mismatch");
+        match err {
+            HarnessError::ImageCompare(msg) => {
+                assert!(
+                    msg.contains("dimensions differ"),
+                    "unexpected message: {msg}"
+                );
+            }
+            other => panic!("expected ImageCompare, got {other:?}"),
+        }
+    }
 }

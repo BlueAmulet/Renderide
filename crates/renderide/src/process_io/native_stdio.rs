@@ -369,3 +369,57 @@ fn emit_stdio_line(line: &[u8], level: LogLevel, stream: StdioStream) {
         StdioStream::Stdout => try_write_preserved_stdout(bytes),
     }
 }
+
+#[cfg(test)]
+mod tee_env_tests {
+    use super::tee_terminal_enabled;
+
+    /// Environment variable consulted by [`tee_terminal_enabled`].
+    const VAR: &str = "RENDERIDE_LOG_TEE_TERMINAL";
+
+    /// RAII guard that restores the original value of [`VAR`] (or unsets it) on drop so tests do
+    /// not leak process-global state.
+    struct EnvGuard(Option<String>);
+
+    impl EnvGuard {
+        /// Captures the current value for later restoration.
+        fn capture() -> Self {
+            Self(std::env::var(VAR).ok())
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.0 {
+                Some(v) => std::env::set_var(VAR, v),
+                None => std::env::remove_var(VAR),
+            }
+        }
+    }
+
+    /// All env-var parsing cases are exercised in a single serialized test because
+    /// [`std::env::set_var`] mutates process-global state.
+    #[test]
+    fn tee_terminal_enabled_parses_env_var() {
+        let _guard = EnvGuard::capture();
+
+        std::env::remove_var(VAR);
+        assert!(tee_terminal_enabled(), "unset should default to enabled");
+
+        for disabled in ["0", "false", "no", "off", "FALSE", "  No  "] {
+            std::env::set_var(VAR, disabled);
+            assert!(
+                !tee_terminal_enabled(),
+                "value {disabled:?} should disable tee"
+            );
+        }
+
+        for enabled in ["1", "true", "yes", "", "anything else"] {
+            std::env::set_var(VAR, enabled);
+            assert!(
+                tee_terminal_enabled(),
+                "value {enabled:?} should keep tee enabled"
+            );
+        }
+    }
+}

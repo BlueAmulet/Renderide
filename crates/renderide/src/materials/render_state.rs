@@ -266,3 +266,158 @@ pub fn material_render_state_for_lookup(
         cull_override,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn depth_offset_rejects_all_zero() {
+        assert!(MaterialDepthOffsetState::new(0.0, 0).is_none());
+    }
+
+    #[test]
+    fn depth_offset_accepts_non_zero() {
+        let s = MaterialDepthOffsetState::new(1.5, -3).expect("non-zero");
+        assert_eq!(s.factor(), 1.5);
+        assert_eq!(s.units(), -3);
+        assert_eq!(s.factor_bits(), 1.5_f32.to_bits());
+    }
+
+    #[test]
+    fn depth_offset_nan_factor_coerced_to_zero_requires_units() {
+        // NaN coerces to 0.0; with units=0 the state is None.
+        assert!(MaterialDepthOffsetState::new(f32::NAN, 0).is_none());
+        let s = MaterialDepthOffsetState::new(f32::NAN, 4).expect("non-zero units");
+        assert_eq!(s.factor(), 0.0);
+        assert_eq!(s.units(), 4);
+    }
+
+    #[test]
+    fn unity_u8_clamps_and_rounds() {
+        assert_eq!(unity_u8(-10.0), 0);
+        assert_eq!(unity_u8(0.4), 0);
+        assert_eq!(unity_u8(0.6), 1);
+        assert_eq!(unity_u8(254.7), 255);
+        assert_eq!(unity_u8(1_000.0), 255);
+    }
+
+    #[test]
+    fn unity_offset_units_saturates_at_i32_bounds() {
+        assert_eq!(unity_offset_units(0.4), 0);
+        assert_eq!(unity_offset_units(5.6), 6);
+        assert_eq!(unity_offset_units(-5.6), -6);
+        assert_eq!(unity_offset_units(1e12), i32::MAX);
+        assert_eq!(unity_offset_units(-1e12), i32::MIN);
+    }
+
+    #[test]
+    fn color_writes_uses_fallback_when_unset() {
+        let st = MaterialRenderState::default();
+        assert_eq!(
+            st.color_writes(wgpu::ColorWrites::ALL),
+            wgpu::ColorWrites::ALL
+        );
+    }
+
+    #[test]
+    fn color_writes_applies_override() {
+        let st = MaterialRenderState {
+            color_mask: Some(0b1000),
+            ..MaterialRenderState::default()
+        };
+        assert_eq!(
+            st.color_writes(wgpu::ColorWrites::ALL),
+            wgpu::ColorWrites::RED
+        );
+    }
+
+    #[test]
+    fn depth_write_and_compare_apply_overrides_or_fallback() {
+        let st = MaterialRenderState::default();
+        assert!(st.depth_write(true));
+        assert_eq!(
+            st.depth_compare(wgpu::CompareFunction::Greater),
+            wgpu::CompareFunction::Greater
+        );
+
+        let st = MaterialRenderState {
+            depth_write: Some(false),
+            depth_compare: Some(2),
+            ..MaterialRenderState::default()
+        };
+        assert!(!st.depth_write(true));
+        assert_eq!(
+            st.depth_compare(wgpu::CompareFunction::Always),
+            wgpu::CompareFunction::Greater
+        );
+    }
+
+    #[test]
+    fn resolved_cull_mode_maps_each_variant() {
+        let mut st = MaterialRenderState::default();
+        assert_eq!(
+            st.resolved_cull_mode(Some(wgpu::Face::Back)),
+            Some(wgpu::Face::Back)
+        );
+        st.cull_override = MaterialCullOverride::Off;
+        assert_eq!(st.resolved_cull_mode(Some(wgpu::Face::Back)), None);
+        st.cull_override = MaterialCullOverride::Front;
+        assert_eq!(st.resolved_cull_mode(None), Some(wgpu::Face::Front));
+        st.cull_override = MaterialCullOverride::Back;
+        assert_eq!(st.resolved_cull_mode(None), Some(wgpu::Face::Back));
+    }
+
+    #[test]
+    fn depth_bias_inverts_sign_for_reverse_z() {
+        let st = MaterialRenderState {
+            depth_offset: MaterialDepthOffsetState::new(2.0, 3),
+            ..MaterialRenderState::default()
+        };
+        let bias = st.depth_bias(99, 99.0);
+        assert_eq!(bias.constant, -3);
+        assert_eq!(bias.slope_scale, -2.0);
+        assert_eq!(bias.clamp, 0.0);
+    }
+
+    #[test]
+    fn depth_bias_uses_fallback_when_no_offset() {
+        let st = MaterialRenderState::default();
+        let bias = st.depth_bias(7, 0.25);
+        assert_eq!(bias.constant, 7);
+        assert_eq!(bias.slope_scale, 0.25);
+    }
+
+    #[test]
+    fn stencil_state_disabled_matches_default() {
+        let st = MaterialRenderState::default();
+        let s = st.stencil_state();
+        assert_eq!(s, wgpu::StencilState::default());
+    }
+
+    #[test]
+    fn stencil_state_assembles_face_state_when_enabled() {
+        let st = MaterialRenderState {
+            stencil: MaterialStencilState {
+                enabled: true,
+                reference: 4,
+                compare: 3, // Equal
+                pass_op: 2, // Replace
+                fail_op: 1, // Zero
+                depth_fail_op: 0,
+                read_mask: 0xf0,
+                write_mask: 0x0f,
+            },
+            ..MaterialRenderState::default()
+        };
+        let s = st.stencil_state();
+        assert_eq!(s.front.compare, wgpu::CompareFunction::Equal);
+        assert_eq!(s.front.pass_op, wgpu::StencilOperation::Replace);
+        assert_eq!(s.front.fail_op, wgpu::StencilOperation::Zero);
+        assert_eq!(s.front.depth_fail_op, wgpu::StencilOperation::Keep);
+        assert_eq!(s.front, s.back, "front and back faces match");
+        assert_eq!(s.read_mask, 0xf0);
+        assert_eq!(s.write_mask, 0x0f);
+        assert_eq!(st.stencil_reference(), 4);
+    }
+}

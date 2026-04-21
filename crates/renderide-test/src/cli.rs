@@ -184,3 +184,54 @@ fn default_renderer_path(release: bool, dev_fast: bool) -> PathBuf {
     };
     PathBuf::from("target").join(profile).join(exe)
 }
+
+#[cfg(test)]
+mod cli_tests {
+    use std::path::PathBuf;
+
+    use super::{default_renderer_path, parse_resolution};
+
+    #[test]
+    fn parse_resolution_accepts_lowercase_and_uppercase_x() {
+        assert_eq!(parse_resolution("128x64"), (128, 64));
+        assert_eq!(parse_resolution("128X64"), (128, 64));
+    }
+
+    #[test]
+    fn parse_resolution_invalid_falls_back_to_default() {
+        assert_eq!(parse_resolution("not-a-resolution"), (256, 256));
+        assert_eq!(parse_resolution(""), (256, 256));
+    }
+
+    #[test]
+    fn parse_resolution_clamps_zero_dimensions_to_one() {
+        assert_eq!(parse_resolution("0x0"), (1, 1));
+        assert_eq!(parse_resolution("0x64"), (1, 64));
+    }
+
+    #[test]
+    fn default_renderer_path_profiles_and_exe_name() {
+        assert_eq!(
+            default_renderer_path(false, true),
+            PathBuf::from("target")
+                .join("dev-fast")
+                .join(expected_exe())
+        );
+        assert_eq!(
+            default_renderer_path(true, false),
+            PathBuf::from("target").join("release").join(expected_exe())
+        );
+        assert_eq!(
+            default_renderer_path(false, false),
+            PathBuf::from("target").join("debug").join(expected_exe())
+        );
+    }
+
+    fn expected_exe() -> &'static str {
+        if cfg!(windows) {
+            "renderide.exe"
+        } else {
+            "renderide"
+        }
+    }
+}

@@ -64,3 +64,40 @@ pub fn host_exit_watcher_poll_interval() -> Duration {
 pub fn renderer_exit_watcher_poll_interval() -> Duration {
     Duration::from_millis(RENDERER_EXIT_WATCHER_POLL_INTERVAL_MS)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn duration_helpers_match_constants() {
+        assert_eq!(
+            initial_heartbeat_timeout().as_secs(),
+            INITIAL_HEARTBEAT_TIMEOUT_SECS
+        );
+        assert_eq!(
+            heartbeat_refresh_timeout().as_secs(),
+            HEARTBEAT_REFRESH_TIMEOUT_SECS
+        );
+        assert_eq!(
+            watchdog_poll_interval().as_millis(),
+            u128::from(WATCHDOG_POLL_INTERVAL_MS)
+        );
+        assert_eq!(
+            queue_loop_flush_interval().as_secs(),
+            QUEUE_LOOP_FLUSH_INTERVAL_SECS
+        );
+        assert_eq!(
+            queue_wait_log_interval().as_secs(),
+            QUEUE_WAIT_LOG_INTERVAL_SECS
+        );
+        assert_eq!(
+            host_exit_watcher_poll_interval().as_secs(),
+            HOST_EXIT_WATCHER_POLL_INTERVAL_SECS
+        );
+        assert_eq!(
+            renderer_exit_watcher_poll_interval().as_millis(),
+            u128::from(RENDERER_EXIT_WATCHER_POLL_INTERVAL_MS)
+        );
+    }
+}

@@ -290,4 +290,30 @@ mod tests {
         // Reference as function pointer to confirm the signature compiles.
         let _fn_ptr: fn(&wgpu::Adapter) -> wgpu::Features = timestamp_query_features_if_supported;
     }
+
+    /// `register_main_thread` and `emit_frame_mark` must be safely callable more than once per
+    /// process; calling them repeatedly should never panic under any feature configuration.
+    #[test]
+    fn thread_registration_and_frame_mark_are_idempotent() {
+        register_main_thread();
+        register_main_thread();
+        emit_frame_mark();
+        emit_frame_mark();
+    }
+
+    /// The no-tracy [`PhaseQuery`] placeholder is zero-sized so its presence in per-phase structs
+    /// cannot regress memory layout when profiling is disabled.
+    #[cfg(not(feature = "tracy"))]
+    #[test]
+    fn phase_query_stub_is_zero_sized() {
+        assert_eq!(std::mem::size_of::<PhaseQuery>(), 0);
+    }
+
+    /// The no-tracy [`GpuProfilerHandle`] stub is also zero-sized; construction is unreachable via
+    /// [`GpuProfilerHandle::try_new`] (always returns [`None`]), so the placeholder must stay free.
+    #[cfg(not(feature = "tracy"))]
+    #[test]
+    fn gpu_profiler_handle_stub_is_zero_sized() {
+        assert_eq!(std::mem::size_of::<GpuProfilerHandle>(), 0);
+    }
 }

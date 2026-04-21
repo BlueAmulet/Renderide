@@ -114,3 +114,50 @@ impl Drop for HostHarness {
         let _ = self.output_dir_guard.take();
     }
 }
+
+#[cfg(test)]
+mod harness_start_tests {
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use super::{HostHarness, HostHarnessConfig};
+
+    fn minimal_config(forced_output_path: Option<PathBuf>) -> HostHarnessConfig {
+        HostHarnessConfig {
+            renderer_path: PathBuf::from("/nonexistent/renderide"),
+            forced_output_path,
+            width: 1,
+            height: 1,
+            interval_ms: 1,
+            timeout: Duration::from_secs(1),
+            verbose_renderer: false,
+        }
+    }
+
+    #[test]
+    fn start_uses_forced_output_path_when_set() {
+        let custom = PathBuf::from("/tmp/harness_forced_out.png");
+        let h = HostHarness::start(minimal_config(Some(custom.clone()))).expect("start");
+        assert_eq!(h.output_path(), &custom);
+    }
+
+    #[test]
+    fn start_allocates_temp_headless_png_when_not_forced() {
+        let h = HostHarness::start(minimal_config(None)).expect("start");
+        let out = h.output_path();
+        assert_eq!(
+            out.file_name().and_then(|n| n.to_str()),
+            Some("headless.png")
+        );
+        let parent = out.parent().expect("parent");
+        let dir_name = parent
+            .file_name()
+            .expect("dir name")
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            dir_name.starts_with("renderide-test-"),
+            "expected tempfile prefix, got {dir_name:?}"
+        );
+    }
+}

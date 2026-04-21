@@ -332,3 +332,71 @@ mod effective_log_level_tests {
         assert_eq!(effective_renderer_log_level(None, false), LogLevel::Debug);
     }
 }
+
+#[cfg(test)]
+mod effective_output_device_tests {
+    use super::effective_output_device_for_gpu;
+    use crate::shared::{HeadOutputDevice, RendererInitData};
+
+    #[test]
+    fn none_falls_back_to_screen() {
+        assert_eq!(
+            effective_output_device_for_gpu(None),
+            HeadOutputDevice::Screen
+        );
+    }
+
+    #[test]
+    fn some_screen_returns_screen() {
+        let init = RendererInitData {
+            output_device: HeadOutputDevice::Screen,
+            ..Default::default()
+        };
+        assert_eq!(
+            effective_output_device_for_gpu(Some(&init)),
+            HeadOutputDevice::Screen
+        );
+    }
+
+    #[test]
+    fn some_vr_device_is_passed_through() {
+        let init = RendererInitData {
+            output_device: HeadOutputDevice::SteamVR,
+            ..Default::default()
+        };
+        assert_eq!(
+            effective_output_device_for_gpu(Some(&init)),
+            HeadOutputDevice::SteamVR
+        );
+    }
+
+    #[test]
+    fn some_autodetect_is_passed_through() {
+        let init = RendererInitData {
+            output_device: HeadOutputDevice::Autodetect,
+            ..Default::default()
+        };
+        assert_eq!(
+            effective_output_device_for_gpu(Some(&init)),
+            HeadOutputDevice::Autodetect
+        );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod shutdown_signal_display_name_tests {
+    use super::shutdown_signal_display_name;
+
+    #[test]
+    fn known_signals_map_to_name() {
+        assert_eq!(shutdown_signal_display_name(libc::SIGTERM), "SIGTERM");
+        assert_eq!(shutdown_signal_display_name(libc::SIGINT), "SIGINT");
+        assert_eq!(shutdown_signal_display_name(libc::SIGHUP), "SIGHUP");
+    }
+
+    #[test]
+    fn unrecognized_signal_is_unknown() {
+        assert_eq!(shutdown_signal_display_name(libc::SIGUSR1), "unknown");
+        assert_eq!(shutdown_signal_display_name(-1), "unknown");
+    }
+}

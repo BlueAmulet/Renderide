@@ -255,3 +255,43 @@ enum HeadlessReadbackError {
     #[error("io: {0}")]
     Io(#[source] std::io::Error),
 }
+
+#[cfg(test)]
+mod readback_error_tests {
+    use super::HeadlessReadbackError;
+
+    /// Variants with constant or mostly-constant messages have stable [`std::fmt::Display`] output
+    /// used in the headless warn line, so CI log scrapers can match them.
+    #[test]
+    fn constant_variants_render_stable_messages() {
+        assert_eq!(
+            HeadlessReadbackError::NoOffscreenTexture.to_string(),
+            "no headless offscreen color texture allocated"
+        );
+        assert_eq!(
+            HeadlessReadbackError::EmptyExtent.to_string(),
+            "headless offscreen target has empty extent"
+        );
+        assert_eq!(
+            HeadlessReadbackError::ReadbackTimeout.to_string(),
+            "buffer.map_async timed out"
+        );
+        assert_eq!(
+            HeadlessReadbackError::EncodeBufferSize.to_string(),
+            "readback dimensions invalid for image::RgbaImage construction"
+        );
+    }
+
+    /// String-carrying variants interpolate their payload into the message without truncating.
+    #[test]
+    fn payload_variants_interpolate_inner_string() {
+        let lost = HeadlessReadbackError::DeviceLost("adapter went away".into()).to_string();
+        assert!(lost.contains("adapter went away"), "got {lost:?}");
+
+        let mapped = HeadlessReadbackError::Map("OOM".into()).to_string();
+        assert!(mapped.contains("OOM"), "got {mapped:?}");
+
+        let encoded = HeadlessReadbackError::Encode("IO(BrokenPipe)".into()).to_string();
+        assert!(encoded.contains("IO(BrokenPipe)"), "got {encoded:?}");
+    }
+}
