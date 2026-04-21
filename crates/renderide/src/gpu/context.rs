@@ -677,6 +677,31 @@ impl GpuContext {
         }
     }
 
+    /// Submits multiple command buffers in a single [`wgpu::Queue::submit`] call, tracked for
+    /// frame timing. This is the single-submit path used by the ring-upload multi-view executor.
+    ///
+    /// All per-view `Queue::write_buffer` calls must have occurred before this call; wgpu
+    /// guarantees they are visible to GPU commands in the same submit.
+    pub fn submit_tracked_frame_commands_batch(
+        &self,
+        queue: &wgpu::Queue,
+        cmds: impl IntoIterator<Item = wgpu::CommandBuffer>,
+    ) {
+        let track = {
+            let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
+            ft.on_before_tracked_submit()
+        };
+        if let Some((gen, seq)) = track {
+            let submit_at = Instant::now();
+            queue.submit(cmds);
+            let handle = Arc::clone(&self.frame_timing);
+            let cb = make_gpu_done_callback(handle, gen, seq, submit_at);
+            queue.on_submitted_work_done(cb);
+        } else {
+            queue.submit(cmds);
+        }
+    }
+
     /// Call at the start of each winit frame tick (same instant as [`crate::runtime::RendererRuntime::tick_frame_wall_clock_begin`]).
     pub fn begin_frame_timing(&self, frame_start: Instant) {
         self.frame_timing

@@ -1,13 +1,4 @@
 //! Post-processing chain: ordered effects + graph wiring helpers.
-//!
-//! The chain owns a list of [`PostProcessEffect`] trait objects in execution order. At graph
-//! build time, [`PostProcessChain::build_into_graph`] walks the enabled effects and inserts one
-//! pass per effect, ping-ponging between two HDR transients so multi-effect chains never need
-//! more than two intermediate textures.
-//!
-//! When the chain is empty (master toggle off, or all effects disabled), nothing is added to the
-//! graph and [`ChainOutput::PassThrough`] is returned so the caller can wire the original input
-//! handle straight into [`crate::render_graph::passes::SceneColorComposePass`].
 
 use crate::config::{PostProcessingSettings, TonemapMode};
 use crate::render_graph::builder::GraphBuilder;
@@ -20,11 +11,6 @@ use crate::render_graph::resources::{
 use super::effect::{PostProcessEffect, PostProcessEffectId};
 
 /// Topology fingerprint for the post-processing chain at graph compile time.
-///
-/// Captures only what changes the *shape* of the graph (effect added/removed). Effect parameter
-/// tweaks that only update uniforms do **not** flip this signature, so the
-/// [`crate::render_graph::cache::GraphCache`] keeps the same compiled graph and only re-records
-/// the per-frame uniforms.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PostProcessChainSignature {
     /// Stephen Hill ACES Fitted tonemap pass active.
@@ -33,9 +19,6 @@ pub struct PostProcessChainSignature {
 
 impl PostProcessChainSignature {
     /// Derives the signature from live [`PostProcessingSettings`].
-    ///
-    /// Mirrors what each registered [`PostProcessEffect::is_enabled`] would return so the chain
-    /// and the cache key never disagree.
     pub fn from_settings(settings: &PostProcessingSettings) -> Self {
         let master = settings.enabled;
         Self {
@@ -60,14 +43,13 @@ pub enum ChainOutput {
     /// No effects ran; the chain forwards the original input handle.
     PassThrough(TextureHandle),
     /// One or more effects ran; the chain output and pass-id range are returned so the caller
-    /// can wire explicit edges (e.g. `add_edge(upstream, first_pass)` and
-    /// `add_edge(last_pass, downstream)`).
+    /// can wire explicit edges.
     Chained {
-        /// Final HDR output of the chain (the texture the next consumer should sample).
+        /// Final HDR output of the chain.
         final_handle: TextureHandle,
-        /// First pass added by the chain (use as the destination for an upstream edge).
+        /// First pass added by the chain.
         first_pass: PassId,
-        /// Last pass added by the chain (use as the source for a downstream edge).
+        /// Last pass added by the chain.
         last_pass: PassId,
     },
 }
@@ -95,15 +77,12 @@ impl ChainOutput {
 }
 
 /// Ordered, configurable list of [`PostProcessEffect`] trait objects.
-///
-/// Effects are evaluated in registration order. Use [`Self::with_default_effects`] to get the
-/// canonical chain that ships with the renderer.
 pub struct PostProcessChain {
     effects: Vec<Box<dyn PostProcessEffect>>,
 }
 
 impl PostProcessChain {
-    /// Empty chain (no effects). Mostly useful for tests.
+    /// Empty chain (no effects).
     pub fn new() -> Self {
         Self {
             effects: Vec::new(),
@@ -131,12 +110,6 @@ impl PostProcessChain {
     }
 
     /// Inserts the chain's enabled passes into `builder`, returning the wiring info.
-    ///
-    /// When all effects are disabled (or the master toggle is off), no transients are allocated
-    /// and the input handle is forwarded.
-    ///
-    /// Logs at `info` when one or more effects are wired into the graph so a developer can see
-    /// (in the renderer log) which compile-time passes the chain produced.
     pub fn build_into_graph(
         &self,
         builder: &mut GraphBuilder,
@@ -177,7 +150,8 @@ impl PostProcessChain {
             .filter(|e| e.is_enabled(settings))
             .enumerate()
         {
-            let pass_id = builder.add_pass(effect.build_pass(current_in, current_out));
+            let raster = effect.build_pass(current_in, current_out);
+            let pass_id = builder.add_raster_pass(raster);
             first_pass.get_or_insert(pass_id);
             last_pass = Some(pass_id);
 
@@ -205,11 +179,6 @@ impl Default for PostProcessChain {
     }
 }
 
-/// Descriptor for a single ping-pong slot in the chain.
-///
-/// HDR float, single-sample, frame-array-layers (1 mono / 2 stereo), aliasable. Matches the
-/// `scene_color_hdr` transient so subsequent effects can read its predecessor's output without a
-/// format change.
 fn post_process_color_transient_desc(label: &'static str) -> TransientTextureDesc {
     TransientTextureDesc {
         label,
@@ -228,11 +197,10 @@ fn post_process_color_transient_desc(label: &'static str) -> TransientTextureDes
 mod tests {
     use super::*;
     use crate::config::TonemapSettings;
+    use crate::render_graph::context::RasterPassCtx;
     use crate::render_graph::error::{RenderPassError, SetupError};
-    use crate::render_graph::pass::{PassBuilder, RenderPass};
+    use crate::render_graph::pass::{PassBuilder, RasterPass};
 
-    /// Test-only effect: builds a no-op pass that records sampled-read + color-attachment intent
-    /// so the graph builder accepts it as raster.
     struct MockEffect {
         id: PostProcessEffectId,
         enabled: bool,
@@ -247,7 +215,7 @@ mod tests {
             self.enabled
         }
 
-        fn build_pass(&self, input: TextureHandle, output: TextureHandle) -> Box<dyn RenderPass> {
+        fn build_pass(&self, input: TextureHandle, output: TextureHandle) -> Box<dyn RasterPass> {
             Box::new(MockPass {
                 name: self.id.label(),
                 input,
@@ -262,7 +230,7 @@ mod tests {
         output: TextureHandle,
     }
 
-    impl RenderPass for MockPass {
+    impl RasterPass for MockPass {
         fn name(&self) -> &str {
             self.name
         }
@@ -287,9 +255,10 @@ mod tests {
             Ok(())
         }
 
-        fn execute(
+        fn record(
             &mut self,
-            _ctx: &mut crate::render_graph::context::RenderPassContext<'_, '_, '_>,
+            _ctx: &mut RasterPassCtx<'_, '_>,
+            _rpass: &mut wgpu::RenderPass<'_>,
         ) -> Result<(), RenderPassError> {
             Ok(())
         }
@@ -341,7 +310,7 @@ mod tests {
         let settings = PostProcessingSettings {
             enabled: true,
             tonemap: TonemapSettings {
-                mode: TonemapMode::AcesFitted,
+                mode: crate::config::TonemapMode::AcesFitted,
             },
         };
         let out = chain.build_into_graph(&mut builder, input, &settings);
@@ -400,7 +369,7 @@ mod tests {
         let mut s = PostProcessingSettings {
             enabled: false,
             tonemap: TonemapSettings {
-                mode: TonemapMode::AcesFitted,
+                mode: crate::config::TonemapMode::AcesFitted,
             },
         };
         assert!(PostProcessChainSignature::from_settings(&s).is_empty());
@@ -410,7 +379,7 @@ mod tests {
         assert!(sig.aces_tonemap);
         assert_eq!(sig.active_count(), 1);
 
-        s.tonemap.mode = TonemapMode::None;
+        s.tonemap.mode = crate::config::TonemapMode::None;
         assert!(PostProcessChainSignature::from_settings(&s).is_empty());
     }
 

@@ -1,21 +1,19 @@
 //! Shared helpers for [`super::CompiledRenderGraph`] execution (resolution, raster templates).
 
 use crate::backend::RenderBackend;
-use crate::gpu::GpuContext;
-use crate::present::{acquire_surface_outcome, SurfaceFrameOutcome};
 use crate::scene::SceneCoordinator;
 
-use super::super::context::{GraphRasterPassContext, GraphResolvedResources, ResolvedGraphTexture};
+use super::super::context::{GraphResolvedResources, RasterPassCtx, ResolvedGraphTexture};
 use super::super::error::GraphExecuteError;
 use super::super::frame_params::FrameRenderParams;
 use super::super::frame_params::HostCameraFrame;
-use super::super::pass::RenderPass;
+use super::super::pass::PassNode;
 use super::super::resources::{
     BufferSizePolicy, TextureAttachmentResolve, TextureAttachmentTarget, TextureHandle,
     TextureResourceHandle, TransientExtent,
 };
 use super::super::transient_pool::TextureKey;
-use super::super::world_mesh_draw_prep::{CameraTransformDrawFilter, WorldMeshDrawCollection};
+use super::super::world_mesh_draw_prep::CameraTransformDrawFilter;
 
 use super::{CompiledPassInfo, RenderPassTemplate, ResolvedView};
 
@@ -26,7 +24,6 @@ pub(super) fn frame_render_params_from_resolved<'a>(
     resolved: &ResolvedView<'a>,
     host_camera: HostCameraFrame,
     transform_draw_filter: Option<CameraTransformDrawFilter>,
-    prefetched_world_mesh_draws: Option<WorldMeshDrawCollection>,
 ) -> FrameRenderParams<'a> {
     let depth_sample_view = resolved
         .depth_texture
@@ -70,16 +67,10 @@ pub(super) fn frame_render_params_from_resolved<'a>(
         multiview_stereo: resolved.multiview_stereo,
         transform_draw_filter,
         offscreen_write_render_texture_asset_id: resolved.offscreen_write_render_texture_asset_id,
-        prefetched_world_mesh_draws,
-        prepared_world_mesh_forward: None,
         occlusion_view: resolved.occlusion_view,
         sample_count: resolved.sample_count,
-        msaa_color_view: resolved.msaa_color_view.clone(),
-        msaa_depth_view: resolved.msaa_depth_view.clone(),
-        msaa_depth_resolve_r32_view: resolved.msaa_depth_resolve_r32_view.clone(),
-        msaa_depth_is_array: resolved.msaa_depth_is_array,
-        msaa_stereo_depth_layer_views: resolved.msaa_stereo_depth_layer_views.clone(),
-        msaa_stereo_r32_layer_views: resolved.msaa_stereo_r32_layer_views.clone(),
+        // MSAA views now live in the per-view blackboard (MsaaViewsSlot), resolved from
+        // graph transient textures by the executor via resolve_forward_msaa_views_from_graph_resources.
     }
 }
 
@@ -90,136 +81,54 @@ fn first_two_layer_views(texture: &ResolvedGraphTexture) -> Option<[wgpu::Textur
     ])
 }
 
-/// Fills [`FrameRenderParams`] MSAA attachment views from resolved graph transients (main graph only).
-pub(super) fn populate_forward_msaa_from_graph_resources(
-    frame: &mut FrameRenderParams<'_>,
+/// Resolves MSAA attachment views from graph transient textures for the main graph.
+///
+/// Returns `None` when MSAA is inactive (`sample_count <= 1`), graph resources are missing,
+/// or the transient handles are unavailable. The executor inserts the returned value into the
+/// per-view [`super::super::blackboard::Blackboard`] as a
+/// [`super::super::frame_params::MsaaViewsSlot`].
+pub(super) fn resolve_forward_msaa_views_from_graph_resources(
+    frame: &FrameRenderParams<'_>,
     graph_resources: Option<&GraphResolvedResources>,
     msaa_handles: Option<[TextureHandle; 3]>,
-) {
-    let Some(handles) = msaa_handles else {
-        return;
-    };
+) -> Option<super::super::frame_params::MsaaViews> {
+    let handles = msaa_handles?;
     let [color_h, depth_h, r32_h] = handles;
-    let Some(graph_resources) = graph_resources else {
-        return;
-    };
+    let graph_resources = graph_resources?;
     if frame.sample_count <= 1 {
-        return;
+        return None;
     }
-    let (Some(color), Some(depth), Some(r32)) = (
-        graph_resources.transient_texture(color_h),
-        graph_resources.transient_texture(depth_h),
-        graph_resources.transient_texture(r32_h),
-    ) else {
-        return;
-    };
+    let color = graph_resources.transient_texture(color_h)?;
+    let depth = graph_resources.transient_texture(depth_h)?;
+    let r32 = graph_resources.transient_texture(r32_h)?;
 
     if frame.multiview_stereo {
-        let (Some(depth_layers), Some(r32_layers)) =
-            (first_two_layer_views(depth), first_two_layer_views(r32))
-        else {
-            return;
-        };
-        frame.msaa_color_view = Some(color.view.clone());
-        frame.msaa_depth_view = Some(depth.view.clone());
-        frame.msaa_depth_resolve_r32_view = Some(r32.view.clone());
-        frame.msaa_depth_is_array = true;
-        frame.msaa_stereo_depth_layer_views = Some(depth_layers);
-        frame.msaa_stereo_r32_layer_views = Some(r32_layers);
+        let depth_layers = first_two_layer_views(depth)?;
+        let r32_layers = first_two_layer_views(r32)?;
+        Some(super::super::frame_params::MsaaViews {
+            msaa_color_view: color.view.clone(),
+            msaa_depth_view: depth.view.clone(),
+            msaa_depth_resolve_r32_view: r32.view.clone(),
+            msaa_depth_is_array: true,
+            msaa_stereo_depth_layer_views: Some(depth_layers),
+            msaa_stereo_r32_layer_views: Some(r32_layers),
+        })
     } else {
-        frame.msaa_color_view = Some(color.view.clone());
-        frame.msaa_depth_view = Some(depth.view.clone());
-        frame.msaa_depth_resolve_r32_view = Some(r32.view.clone());
-        frame.msaa_depth_is_array = false;
-        frame.msaa_stereo_depth_layer_views = None;
-        frame.msaa_stereo_r32_layer_views = None;
+        Some(super::super::frame_params::MsaaViews {
+            msaa_color_view: color.view.clone(),
+            msaa_depth_view: depth.view.clone(),
+            msaa_depth_resolve_r32_view: r32.view.clone(),
+            msaa_depth_is_array: false,
+            msaa_stereo_depth_layer_views: None,
+            msaa_stereo_r32_layer_views: None,
+        })
     }
 }
 
-/// Owns an acquired [`wgpu::SurfaceTexture`] and calls [`wgpu::SurfaceTexture::present`] on drop.
-///
-/// wgpu’s Vulkan backend ties a per-frame acquire semaphore to the [`wgpu::SurfaceTexture`]. If
-/// execution returns [`Err`], unwinds after an internal **panic** (e.g. validation), or completes
-/// successfully, the texture **must** still be presented so the semaphore and image return to the
-/// swapchain pool. Dropping the texture without presenting triggers a secondary panic
-/// (`SwapchainAcquireSemaphore` still in use), which masks the original failure.
-///
-/// Place this guard in a tuple **before** the [`wgpu::TextureView`] handle so tuple field drop
-/// order releases the view first, then presents (see [`MultiViewSwapchainAcquire::Acquired`]).
-pub(super) struct SurfaceTexturePresentGuard(Option<wgpu::SurfaceTexture>);
-
-impl SurfaceTexturePresentGuard {
-    /// No swapchain texture acquired this frame (offscreen-only graph or no surface bind).
-    pub(super) fn none() -> Self {
-        Self(None)
-    }
-
-    /// Wraps a successfully acquired surface texture.
-    pub(super) fn new(frame: wgpu::SurfaceTexture) -> Self {
-        Self(Some(frame))
-    }
-}
-
-impl Drop for SurfaceTexturePresentGuard {
-    fn drop(&mut self) {
-        if let Some(tex) = self.0.take() {
-            tex.present();
-        }
-    }
-}
-
-/// Outcome of swapchain acquisition for [`CompiledRenderGraph::execute_multi_view`].
-pub(super) enum MultiViewSwapchainAcquire {
-    /// No swapchain view required (no swapchain pass, or graph does not bind the backbuffer).
-    NotNeeded,
-    /// Skip this frame’s GPU work (timeout, occluded, or swapchain reconfigured).
-    SkipPresent,
-    /// Surface texture and default view for per-view and present.
-    Acquired {
-        /// Surface texture presented at the end of multi-view execution when present.
-        frame: wgpu::SurfaceTexture,
-        /// View used as the swapchain color attachment across views.
-        backbuffer_view: wgpu::TextureView,
-    },
-}
-
-/// Acquires the window swapchain when any [`FrameView`] targets [`FrameViewTarget::Swapchain`].
-///
-/// Returns [`MultiViewSwapchainAcquire::NotNeeded`] when the views do not target the swapchain
-/// (offscreen-only path). When acquisition is required, [`GpuContext::acquire_with_recovery`]
-/// uses the window stored inside `gpu`; in headless mode this returns
-/// [`GraphExecuteError::SwapchainRequiresWindow`] (unreachable in practice because the headless
-/// driver substitutes Swapchain views with OffscreenRt views before reaching here).
-pub(super) fn acquire_swapchain_for_multi_view_if_needed(
-    needs_swapchain: bool,
-    needs_surface_acquire: bool,
-    gpu: &mut GpuContext,
-) -> Result<MultiViewSwapchainAcquire, GraphExecuteError> {
-    if !needs_swapchain {
-        return Ok(MultiViewSwapchainAcquire::NotNeeded);
-    }
-    if !needs_surface_acquire {
-        return Ok(MultiViewSwapchainAcquire::NotNeeded);
-    }
-    if gpu.is_headless() {
-        return Err(GraphExecuteError::SwapchainRequiresWindow);
-    }
-    profiling::scope!("gpu::swapchain_acquire");
-    match acquire_surface_outcome(gpu)? {
-        SurfaceFrameOutcome::Skip | SurfaceFrameOutcome::Reconfigured => {
-            Ok(MultiViewSwapchainAcquire::SkipPresent)
-        }
-        SurfaceFrameOutcome::Acquired(tex) => {
-            let backbuffer_view = tex
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            Ok(MultiViewSwapchainAcquire::Acquired {
-                frame: tex,
-                backbuffer_view,
-            })
-        }
-    }
-}
+// Note: surface acquisition + present-on-drop now live in
+// [`super::super::swapchain_scope::SwapchainScope`] (Phase 8). The legacy
+// `SurfaceTexturePresentGuard` / `MultiViewSwapchainAcquire` / `acquire_swapchain_for_multi_view_if_needed`
+// helpers were removed; callers use `SwapchainScope::enter` instead.
 
 pub(super) fn resolve_transient_extent(
     extent: TransientExtent,
@@ -308,7 +217,7 @@ pub(super) fn pass_info_raster_template(
         })
 }
 
-pub(super) fn frame_sample_count(ctx: &GraphRasterPassContext<'_, '_>) -> u32 {
+pub(super) fn frame_sample_count_from_raster_ctx(ctx: &RasterPassCtx<'_, '_>) -> u32 {
     ctx.frame
         .as_ref()
         .map(|frame| frame.sample_count.max(1))
@@ -344,30 +253,36 @@ pub(super) fn resolve_attachment_resolve_target(
     }
 }
 
-pub(super) fn execute_graph_managed_raster_pass(
-    pass: &mut dyn RenderPass,
+/// Opens a graph-managed raster render pass for a [`PassNode::Raster`] variant and calls
+/// [`super::super::pass::PassNode::record_raster`].
+///
+/// This is the primary path for raster passes in the new pass-node system.
+pub(super) fn execute_graph_raster_pass_node(
+    pass: &mut PassNode,
     template: &RenderPassTemplate,
     graph_resources: &GraphResolvedResources,
     encoder: &mut wgpu::CommandEncoder,
-    ctx: &mut GraphRasterPassContext<'_, '_>,
+    ctx: &mut RasterPassCtx<'_, '_>,
 ) -> Result<(), GraphExecuteError> {
-    let sample_count = frame_sample_count(ctx);
+    let sample_count = frame_sample_count_from_raster_ctx(ctx);
+    let pass_name = pass.name().to_string();
+
     let mut color_attachments = Vec::with_capacity(template.color_attachments.len());
     for color in &template.color_attachments {
         let target = resolve_attachment_target(color.target, sample_count);
         let view = graph_resources.texture_view(target).ok_or_else(|| {
             GraphExecuteError::MissingGraphAttachment {
-                pass: pass.name().to_string(),
+                pass: pass_name.clone(),
                 resource: format!("{target:?}"),
             }
         })?;
         let resolve_target = match color
             .resolve_to
-            .and_then(|target| resolve_attachment_resolve_target(target, sample_count))
+            .and_then(|t| resolve_attachment_resolve_target(t, sample_count))
         {
             Some(target) => Some(graph_resources.texture_view(target).ok_or_else(|| {
                 GraphExecuteError::MissingGraphAttachment {
-                    pass: pass.name().to_string(),
+                    pass: pass_name.clone(),
                     resource: format!("{target:?}"),
                 }
             })?),
@@ -388,27 +303,30 @@ pub(super) fn execute_graph_managed_raster_pass(
         let target = resolve_attachment_target(depth.target, sample_count);
         let view = graph_resources.texture_view(target).ok_or_else(|| {
             GraphExecuteError::MissingGraphAttachment {
-                pass: pass.name().to_string(),
+                pass: pass_name.clone(),
                 resource: format!("{target:?}"),
             }
         })?;
+        let stencil_ops = pass.stencil_ops_override(ctx, depth);
         Some(wgpu::RenderPassDepthStencilAttachment {
             view,
             depth_ops: Some(depth.depth),
-            stencil_ops: pass.graph_raster_stencil_ops(ctx, depth),
+            stencil_ops,
         })
     } else {
         None
     };
 
+    let multiview_mask = pass.multiview_mask_override(ctx, template);
     let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
         label: Some("render-graph-raster"),
         color_attachments: &color_attachments,
         depth_stencil_attachment,
         occlusion_query_set: None,
         timestamp_writes: None,
-        multiview_mask: pass.graph_raster_multiview_mask(ctx, template),
+        multiview_mask,
     });
-    pass.execute_graph_raster(ctx, &mut rpass)?;
+    pass.record_raster(ctx, &mut rpass)
+        .map_err(GraphExecuteError::Pass)?;
     Ok(())
 }

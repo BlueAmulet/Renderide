@@ -55,6 +55,7 @@
 //!    / XR / offscreen output (hook for future post-processing).
 //! 9. **FrameEnd** — submit, optional debug HUD composite, present, Hi-Z frame bookkeeping.
 
+mod blackboard;
 mod builder;
 mod cache;
 mod camera;
@@ -69,12 +70,14 @@ mod hi_z_occlusion;
 mod ids;
 pub mod occlusion;
 mod output_depth_mode;
-mod pass;
+pub mod pass;
 pub mod post_processing;
 mod resources;
 mod reverse_z_depth;
+mod schedule;
 mod secondary_camera;
 mod skinning_palette;
+mod swapchain_scope;
 mod transient_pool;
 mod world_mesh_cull;
 mod world_mesh_cull_eval;
@@ -98,6 +101,7 @@ pub use world_mesh_draw_stats::{
     WorldMeshDrawStateRow, WorldMeshDrawStats,
 };
 
+pub use blackboard::{Blackboard, BlackboardSlot};
 pub use builder::GraphBuilder;
 pub use cache::{GraphCache, GraphCacheKey};
 pub use camera::{
@@ -113,11 +117,16 @@ pub use compiled::{
     OffscreenSingleViewExecuteSpec, RenderPassTemplate,
 };
 pub use context::{
-    GraphRasterPassContext, GraphResolvedResources, RenderPassContext, ResolvedGraphBuffer,
-    ResolvedGraphTexture, ResolvedImportedBuffer, ResolvedImportedTexture,
+    CallbackCtx, ComputePassCtx, CopyPassCtx, GraphRasterPassContext, GraphResolvedResources,
+    PostSubmitContext, RasterPassCtx, RenderPassContext, ResolvedGraphBuffer, ResolvedGraphTexture,
+    ResolvedImportedBuffer, ResolvedImportedTexture,
 };
 pub use error::{GraphBuildError, GraphExecuteError, RenderPassError, SetupError};
-pub use frame_params::{FrameRenderParams, HostCameraFrame, OcclusionViewId};
+pub use frame_params::{
+    FrameRenderParams, HostCameraFrame, OcclusionViewId, PerViewFramePlan, PerViewFramePlanSlot,
+    PrecomputedMaterialBind, PrecomputedMaterialBindsSlot, PrefetchedWorldMeshDrawsSlot,
+    PreparedWorldMeshForwardFrame, WorldMeshForwardPipelineState, WorldMeshForwardPlanSlot,
+};
 pub use frustum::{
     mesh_bounds_degenerate_for_cull, mesh_bounds_max_half_extent, world_aabb_from_local_bounds,
     world_aabb_from_skinned_bone_origins, world_aabb_visible_in_homogeneous_clip, Frustum, Plane,
@@ -133,7 +142,10 @@ pub use hi_z_occlusion::{
 };
 pub use ids::{GroupId, PassId};
 pub use output_depth_mode::{OutputDepthMode, OutputDepthModeError};
-pub use pass::{GroupScope, PassBuilder, PassKind, PassPhase, RenderPass};
+pub use pass::{
+    CallbackPass, ComputePass, CopyPass, GroupScope, PassBuilder, PassKind, PassNode, PassPhase,
+    RasterPass, RasterPassBuilder,
+};
 pub use resources::{
     BackendFrameBufferKind, BufferAccess, BufferHandle, BufferImportSource, BufferSizePolicy,
     FrameTargetRole, HistorySlotId, ImportSource, ImportedBufferDecl, ImportedBufferHandle,
@@ -145,8 +157,10 @@ pub use resources::{
 pub use reverse_z_depth::{
     main_forward_depth_stencil_format, MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE,
 };
+pub use schedule::{FrameSchedule, ScheduleHudSnapshot, ScheduleStep, ScheduleValidationError};
 pub use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};
 pub use skinning_palette::{build_skinning_palette, SkinningPaletteParams};
+pub use swapchain_scope::{SwapchainEnterOutcome, SwapchainScope};
 pub use transient_pool::{
     BufferKey, TextureKey, TransientPool, TransientPoolError, TransientPoolMetrics,
 };
@@ -429,8 +443,8 @@ fn add_main_graph_passes_and_edges(
     h: MainGraphHandles,
     post_processing: &crate::config::PostProcessingSettings,
 ) -> Result<CompiledRenderGraph, GraphBuildError> {
-    let deform = builder.add_pass(Box::new(passes::MeshDeformPass::new()));
-    let clustered = builder.add_pass(Box::new(passes::ClusteredLightPass::new(
+    let deform = builder.add_compute_pass(Box::new(passes::MeshDeformPass::new()));
+    let clustered = builder.add_compute_pass(Box::new(passes::ClusteredLightPass::new(
         passes::ClusteredLightGraphResources {
             lights: h.lights,
             cluster_light_counts: h.cluster_light_counts,
@@ -450,22 +464,22 @@ fn add_main_graph_passes_and_edges(
         per_draw_slab: h.per_draw_slab,
         frame_uniforms: h.frame_uniforms,
     };
-    let forward_prepare = builder.add_pass(Box::new(passes::WorldMeshForwardPreparePass::new(
-        forward_resources,
-    )));
-    let forward_opaque = builder.add_pass(Box::new(passes::WorldMeshForwardOpaquePass::new(
-        forward_resources,
-    )));
-    let depth_snapshot = builder.add_pass(Box::new(passes::WorldMeshDepthSnapshotPass::new(
-        forward_resources,
-    )));
-    let forward_intersect = builder.add_pass(Box::new(passes::WorldMeshForwardIntersectPass::new(
-        forward_resources,
-    )));
-    let depth_resolve = builder.add_pass(Box::new(passes::WorldMeshForwardDepthResolvePass::new(
-        forward_resources,
-    )));
-    let hiz = builder.add_pass(Box::new(passes::HiZBuildPass::new(
+    let forward_prepare = builder.add_callback_pass(Box::new(
+        passes::WorldMeshForwardPreparePass::new(forward_resources),
+    ));
+    let forward_opaque = builder.add_raster_pass(Box::new(
+        passes::WorldMeshForwardOpaquePass::new(forward_resources),
+    ));
+    let depth_snapshot = builder.add_compute_pass(Box::new(
+        passes::WorldMeshDepthSnapshotPass::new(forward_resources),
+    ));
+    let forward_intersect = builder.add_raster_pass(Box::new(
+        passes::WorldMeshForwardIntersectPass::new(forward_resources),
+    ));
+    let depth_resolve = builder.add_compute_pass(Box::new(
+        passes::WorldMeshForwardDepthResolvePass::new(forward_resources),
+    ));
+    let hiz = builder.add_compute_pass(Box::new(passes::HiZBuildPass::new(
         passes::HiZBuildGraphResources {
             depth: h.depth,
             hi_z_current: h.hi_z_current,
@@ -477,7 +491,7 @@ fn add_main_graph_passes_and_edges(
     let chain_output = chain.build_into_graph(&mut builder, h.scene_color_hdr, post_processing);
     let compose_input = chain_output.final_handle();
 
-    let compose = builder.add_pass(Box::new(passes::SceneColorComposePass::new(
+    let compose = builder.add_raster_pass(Box::new(passes::SceneColorComposePass::new(
         passes::SceneColorComposeGraphResources {
             scene_color_hdr: compose_input,
             frame_color: h.color,

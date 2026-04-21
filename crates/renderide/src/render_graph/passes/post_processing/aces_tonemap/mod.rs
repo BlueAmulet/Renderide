@@ -14,9 +14,10 @@ use std::sync::OnceLock;
 use pipeline::AcesTonemapPipelineCache;
 
 use crate::config::PostProcessingSettings;
-use crate::render_graph::context::{GraphRasterPassContext, RenderPassContext};
+use crate::render_graph::compiled::RenderPassTemplate;
+use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
-use crate::render_graph::pass::{PassBuilder, RenderPass};
+use crate::render_graph::pass::{PassBuilder, RasterPass};
 use crate::render_graph::post_processing::{PostProcessEffect, PostProcessEffectId};
 use crate::render_graph::resources::{TextureAccess, TextureHandle};
 
@@ -52,7 +53,7 @@ fn aces_tonemap_pipelines() -> &'static AcesTonemapPipelineCache {
     CACHE.get_or_init(AcesTonemapPipelineCache::default)
 }
 
-impl RenderPass for AcesTonemapPass {
+impl RasterPass for AcesTonemapPass {
     fn name(&self) -> &str {
         "AcesTonemap"
     }
@@ -76,18 +77,10 @@ impl RenderPass for AcesTonemapPass {
         Ok(())
     }
 
-    fn execute(&mut self, _ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError> {
-        Ok(())
-    }
-
-    fn graph_managed_raster(&self) -> bool {
-        true
-    }
-
-    fn graph_raster_multiview_mask(
+    fn multiview_mask_override(
         &self,
-        ctx: &GraphRasterPassContext<'_, '_>,
-        template: &crate::render_graph::RenderPassTemplate,
+        ctx: &RasterPassCtx<'_, '_>,
+        template: &RenderPassTemplate,
     ) -> Option<NonZeroU32> {
         let stereo = ctx
             .frame
@@ -100,9 +93,9 @@ impl RenderPass for AcesTonemapPass {
         }
     }
 
-    fn execute_graph_raster(
+    fn record(
         &mut self,
-        ctx: &mut GraphRasterPassContext<'_, '_>,
+        ctx: &mut RasterPassCtx<'_, '_>,
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         let Some(frame) = ctx.frame.as_ref() else {
@@ -124,7 +117,7 @@ impl RenderPass for AcesTonemapPass {
                 ),
             });
         };
-        let target_format = output_attachment_format(self.resources.output, ctx);
+        let target_format = output_attachment_format(self.resources.output, graph_resources);
         let pipeline = self
             .pipelines
             .pipeline(ctx.device, target_format, frame.multiview_stereo);
@@ -138,22 +131,17 @@ impl RenderPass for AcesTonemapPass {
 }
 
 /// Resolves the wgpu format the ACES color attachment is bound to this frame.
-///
-/// Reads the resolved transient texture's actual `wgpu::Texture` format so the pipeline cache
-/// keys correctly when the scene HDR format changes (e.g. `RGBA16Float` → `RG11B10Float` via the
-/// renderer config HUD). Falls back to [`wgpu::TextureFormat::Rgba16Float`] when the chain
-/// transient is missing, matching the default forward HDR format.
 fn output_attachment_format(
     output: TextureHandle,
-    ctx: &GraphRasterPassContext<'_, '_>,
+    graph_resources: &crate::render_graph::context::GraphResolvedResources,
 ) -> wgpu::TextureFormat {
-    ctx.graph_resources
-        .and_then(|gr| gr.transient_texture(output))
-        .map(|tex| tex.texture.format())
+    graph_resources
+        .transient_texture(output)
+        .map(|t| t.texture.format())
         .unwrap_or(wgpu::TextureFormat::Rgba16Float)
 }
 
-/// Effect adapter so the ACES pass can be inserted into a [`crate::render_graph::post_processing::PostProcessChain`].
+/// Effect descriptor that contributes an [`AcesTonemapPass`] to the post-processing chain.
 pub struct AcesTonemapEffect;
 
 impl PostProcessEffect for AcesTonemapEffect {
@@ -162,11 +150,14 @@ impl PostProcessEffect for AcesTonemapEffect {
     }
 
     fn is_enabled(&self, settings: &PostProcessingSettings) -> bool {
-        crate::render_graph::post_processing::PostProcessChainSignature::from_settings(settings)
-            .aces_tonemap
+        settings.enabled
+            && matches!(
+                settings.tonemap.mode,
+                crate::config::TonemapMode::AcesFitted
+            )
     }
 
-    fn build_pass(&self, input: TextureHandle, output: TextureHandle) -> Box<dyn RenderPass> {
+    fn build_pass(&self, input: TextureHandle, output: TextureHandle) -> Box<dyn RasterPass> {
         Box::new(AcesTonemapPass::new(AcesTonemapGraphResources {
             input,
             output,
@@ -175,43 +166,44 @@ impl PostProcessEffect for AcesTonemapEffect {
 }
 
 #[cfg(test)]
-mod setup_tests {
+mod tests {
     use super::*;
+    use crate::render_graph::pass::node::PassKind;
     use crate::render_graph::pass::PassBuilder;
     use crate::render_graph::resources::{
-        AccessKind, TransientArrayLayers, TransientExtent, TransientSampleCount,
+        AccessKind, TextureAccess, TransientArrayLayers, TransientExtent, TransientSampleCount,
         TransientTextureDesc, TransientTextureFormat,
     };
     use crate::render_graph::GraphBuilder;
 
-    fn hdr_transient(builder: &mut GraphBuilder, label: &'static str) -> TextureHandle {
-        builder.create_texture(TransientTextureDesc {
-            label,
+    fn fake_textures(builder: &mut GraphBuilder) -> (TextureHandle, TextureHandle) {
+        let desc = || TransientTextureDesc {
+            label: "pp_hdr",
             format: TransientTextureFormat::SceneColorHdr,
-            extent: TransientExtent::Custom {
-                width: 4,
-                height: 4,
-            },
+            extent: TransientExtent::Backbuffer,
             mip_levels: 1,
             sample_count: TransientSampleCount::Fixed(1),
             dimension: wgpu::TextureDimension::D2,
-            array_layers: TransientArrayLayers::Fixed(1),
-            base_usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            array_layers: TransientArrayLayers::Frame,
+            base_usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING,
             alias: true,
-        })
+        };
+        (
+            builder.create_texture(desc()),
+            builder.create_texture(desc()),
+        )
     }
 
     #[test]
-    fn setup_declares_sampled_input_and_color_attachment() {
+    fn setup_declares_sampled_input_and_raster_output() {
         let mut builder = GraphBuilder::new();
-        let input = hdr_transient(&mut builder, "aces_input");
-        let output = hdr_transient(&mut builder, "aces_output");
+        let (input, output) = fake_textures(&mut builder);
         let mut pass = AcesTonemapPass::new(AcesTonemapGraphResources { input, output });
         let mut b = PassBuilder::new("AcesTonemap");
         pass.setup(&mut b).expect("setup");
         let setup = b.finish().expect("finish");
-        assert_eq!(setup.kind, crate::render_graph::pass::PassKind::Raster);
+        assert_eq!(setup.kind, PassKind::Raster);
         assert!(
             setup.accesses.iter().any(|a| matches!(
                 &a.access,

@@ -1,4 +1,7 @@
 //! Per-frame parameters shared across render graph passes (scene, backend slices, surface state).
+//!
+//! Cross-pass per-view state that is too large or too volatile to live on the pass struct lives
+//! in the per-view [`crate::render_graph::blackboard::Blackboard`] via typed slots defined here.
 
 use std::sync::Arc;
 
@@ -16,6 +19,7 @@ use crate::pipelines::ShaderPermutation;
 use crate::scene::SceneCoordinator;
 use crate::shared::HeadOutputDevice;
 
+use super::blackboard::BlackboardSlot;
 use super::world_mesh_draw_prep::{
     CameraTransformDrawFilter, WorldMeshDrawCollection, WorldMeshDrawItem,
 };
@@ -133,6 +137,107 @@ pub struct PreparedWorldMeshForwardFrame {
     pub tail_raster_recorded: bool,
 }
 
+/// Blackboard slot for per-view MSAA attachment views resolved from transient graph resources.
+///
+/// Populated by the executor (before per-view passes run) from
+/// [`super::compiled::helpers::populate_forward_msaa_from_graph_resources`] output.
+/// Replaces the six `msaa_*` fields that previously lived on [`FrameRenderParams`].
+pub struct MsaaViewsSlot;
+impl BlackboardSlot for MsaaViewsSlot {
+    type Value = MsaaViews;
+}
+
+/// MSAA attachment views for the forward pass (resolved from graph transient textures).
+///
+/// Fields are read by [`crate::render_graph::passes::WorldMeshDepthSnapshotPass`] and
+/// [`crate::render_graph::passes::WorldMeshForwardDepthResolvePass`] via the per-view blackboard.
+/// The forward depth-snapshot/resolve helpers in `world_mesh_forward/execute_helpers.rs`
+/// currently resolve MSAA views directly from graph transient textures; reading from this slot
+/// is wired in but the consumer functions are migrated incrementally.
+#[derive(Clone)]
+#[allow(dead_code)] // Fields are accessed via the blackboard slot; consumer migration is incremental.
+pub struct MsaaViews {
+    /// Graph-owned multisampled color attachment view when MSAA is active.
+    pub msaa_color_view: wgpu::TextureView,
+    /// Graph-owned multisampled depth attachment view when MSAA is active.
+    pub msaa_depth_view: wgpu::TextureView,
+    /// R32Float intermediate view used by the MSAA depth resolve path.
+    pub msaa_depth_resolve_r32_view: wgpu::TextureView,
+    /// `true` when MSAA depth/R32 views are two-layer array views for stereo multiview.
+    pub msaa_depth_is_array: bool,
+    /// Per-eye single-layer views of stereo MSAA depth.
+    pub msaa_stereo_depth_layer_views: Option<[wgpu::TextureView; 2]>,
+    /// Per-eye single-layer views of stereo R32Float resolve targets.
+    pub msaa_stereo_r32_layer_views: Option<[wgpu::TextureView; 2]>,
+}
+
+/// Blackboard slot key for the per-view world-mesh forward plan.
+///
+/// Populated by [`crate::render_graph::passes::WorldMeshForwardPreparePass`] (a [`crate::render_graph::pass::CallbackPass`])
+/// and consumed by the four downstream forward passes (opaque, depth snapshot, intersect,
+/// depth resolve). Replaces the `prepared_world_mesh_forward` field that previously lived on
+/// [`FrameRenderParams`].
+pub struct WorldMeshForwardPlanSlot;
+impl BlackboardSlot for WorldMeshForwardPlanSlot {
+    type Value = PreparedWorldMeshForwardFrame;
+}
+
+/// Blackboard slot key for pre-collected world-mesh draws (secondary cameras / prefetch path).
+///
+/// When set before the graph executes, [`crate::render_graph::passes::WorldMeshForwardPreparePass`]
+/// skips draw collection and uses this list instead.
+pub struct PrefetchedWorldMeshDrawsSlot;
+impl BlackboardSlot for PrefetchedWorldMeshDrawsSlot {
+    type Value = WorldMeshDrawCollection;
+}
+
+/// Blackboard slot for precomputed per-batch `@group(1)` material bind groups.
+///
+/// Populated by [`crate::render_graph::passes::WorldMeshForwardPreparePass`] during the planning
+/// phase. Each entry covers a contiguous range of sorted draws with the same material batch key.
+/// The recording loop reads from this slot instead of performing per-batch LRU lookups.
+pub struct PrecomputedMaterialBindsSlot;
+impl BlackboardSlot for PrecomputedMaterialBindsSlot {
+    type Value = Vec<PrecomputedMaterialBind>;
+}
+
+/// One precomputed `@group(1)` bind group covering a batch range in the sorted draw list.
+#[derive(Clone)]
+pub struct PrecomputedMaterialBind {
+    /// First draw index (into the sorted draw list) covered by this bind group.
+    pub first_draw_idx: usize,
+    /// Last draw index (inclusive) covered by this bind group.
+    pub last_draw_idx: usize,
+    /// Resolved `@group(1)` bind group for this batch's material, or `None` for the empty fallback.
+    pub bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
+}
+
+/// Blackboard slot for per-view frame bind group and uniform buffer.
+///
+/// Seeded into the per-view blackboard by the executor before running per-view passes.
+/// The prepare pass writes frame uniforms to the buffer backing [`PerViewFramePlan::frame_bind_group`].
+pub struct PerViewFramePlanSlot;
+impl BlackboardSlot for PerViewFramePlanSlot {
+    type Value = PerViewFramePlan;
+}
+
+/// Per-view frame bind group and uniform buffer for multi-view rendering.
+///
+/// Each view writes its own frame-uniform data to [`Self::frame_uniform_buffer`] in the prepare
+/// pass. The forward raster pass binds [`Self::frame_bind_group`] at `@group(0)` so that each
+/// view's camera / cluster parameters are independent.
+#[derive(Clone)]
+pub struct PerViewFramePlan {
+    /// `@group(0)` bind group that uses this view's dedicated frame-uniform buffer.
+    pub frame_bind_group: std::sync::Arc<wgpu::BindGroup>,
+    /// Per-view frame uniform buffer (written by the plan pass via `Queue::write_buffer`).
+    ///
+    /// [`wgpu::Buffer`] is internally ref-counted, so cloning is cheap.
+    pub frame_uniform_buffer: wgpu::Buffer,
+    /// Index of this view in the multi-view batch (0-based).
+    pub view_idx: usize,
+}
+
 /// Data passes need beyond raw GPU handles: host scene, narrow backend slices, and main-surface formats.
 ///
 /// Built with disjoint borrows from [`crate::backend::RenderBackend`] so passes do not take a full backend handle.
@@ -182,27 +287,10 @@ pub struct FrameRenderParams<'a> {
     /// same pass (wgpu forbids `TEXTURE_BINDING` + `RENDER_ATTACHMENT` on one subresource); embedded
     /// bind resolves fall back to a white placeholder for this id.
     pub offscreen_write_render_texture_asset_id: Option<i32>,
-    /// When set (e.g. secondary RT cameras), the world-mesh forward path skips
-    /// draw collection and uses this list instead.
-    pub prefetched_world_mesh_draws: Option<WorldMeshDrawCollection>,
-    /// Prepared forward state for multi-node world-mesh forward execution.
-    pub prepared_world_mesh_forward: Option<PreparedWorldMeshForwardFrame>,
     /// Which Hi-Z pyramid / temporal slot this view reads and writes.
     pub occlusion_view: OcclusionViewId,
     /// Effective raster sample count for mesh forward (1 = off). Clamped to the GPU max for this view.
     pub sample_count: u32,
-    /// Graph-owned multisampled color attachment view when MSAA is active.
-    pub msaa_color_view: Option<wgpu::TextureView>,
-    /// Graph-owned multisampled depth attachment view when MSAA is active.
-    pub msaa_depth_view: Option<wgpu::TextureView>,
-    /// R32Float intermediate view used by the MSAA depth resolve path.
-    pub msaa_depth_resolve_r32_view: Option<wgpu::TextureView>,
-    /// True when MSAA depth/R32 views are two-layer array views for stereo multiview.
-    pub msaa_depth_is_array: bool,
-    /// Per-eye single-layer views of stereo MSAA depth.
-    pub msaa_stereo_depth_layer_views: Option<[wgpu::TextureView; 2]>,
-    /// Per-eye single-layer views of stereo R32Float resolve targets.
-    pub msaa_stereo_r32_layer_views: Option<[wgpu::TextureView; 2]>,
 }
 
 impl<'a> FrameRenderParams<'a> {

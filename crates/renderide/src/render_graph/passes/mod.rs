@@ -1,6 +1,10 @@
-//! Concrete render passes registered on a [`super::CompiledRenderGraph`].
+//! Concrete render passes registered on a [`crate::render_graph::CompiledRenderGraph`].
 //!
-//! Phase 2 can add G-buffer, lighting, post, and UI passes here.
+//! Each pass implements one of the four typed pass traits:
+//! - [`crate::render_graph::pass::RasterPass`] — raster render passes
+//! - [`crate::render_graph::pass::ComputePass`] — encoder-driven compute
+//! - [`crate::render_graph::pass::CopyPass`] — copy-only work
+//! - [`crate::render_graph::pass::CallbackPass`] — CPU callbacks with no encoder
 
 mod clustered_light;
 mod hi_z_build;

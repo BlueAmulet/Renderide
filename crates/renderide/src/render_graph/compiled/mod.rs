@@ -8,11 +8,12 @@ use crate::scene::SceneCoordinator;
 
 use super::frame_params::{HostCameraFrame, OcclusionViewId};
 use super::ids::{GroupId, PassId};
-use super::pass::{GroupScope, PassKind, RenderPass};
+use super::pass::{GroupScope, PassKind, PassNode};
 use super::resources::{
     ImportedBufferDecl, ImportedTextureDecl, ResourceAccess, TextureAttachmentResolve,
     TextureAttachmentTarget, TransientBufferDesc, TransientTextureDesc,
 };
+use super::schedule::FrameSchedule;
 use super::world_mesh_draw_prep::{CameraTransformDrawFilter, WorldMeshDrawCollection};
 
 /// Inputs for [`CompiledRenderGraph::execute_offscreen_single_view`] and
@@ -85,19 +86,19 @@ pub struct FrameView<'a> {
 /// Borrows shared across frame-global and per-view [`CompiledRenderGraph::execute_multi_view`] passes.
 pub(super) struct MultiViewExecutionContext<'a> {
     /// GPU context (surface, swapchain, submits).
-    gpu: &'a mut GpuContext,
+    pub(super) gpu: &'a mut GpuContext,
     /// Scene after cache flush.
-    scene: &'a SceneCoordinator,
+    pub(super) scene: &'a SceneCoordinator,
     /// Render backend (materials, occlusion, HUD overlay).
-    backend: &'a mut RenderBackend,
+    pub(super) backend: &'a mut RenderBackend,
     /// Device for encoders and pipeline state.
-    device: &'a wgpu::Device,
-    /// Limits for [`RenderPassContext`].
-    gpu_limits: &'a GpuLimits,
+    pub(super) device: &'a wgpu::Device,
+    /// Limits for pass contexts.
+    pub(super) gpu_limits: &'a GpuLimits,
     /// Shared queue handle (wgpu::Queue is internally synchronized).
-    queue_arc: &'a Arc<wgpu::Queue>,
+    pub(super) queue_arc: &'a Arc<wgpu::Queue>,
     /// Swapchain color view when a view targets the main window.
-    backbuffer_view_holder: &'a Option<wgpu::TextureView>,
+    pub(super) backbuffer_view_holder: &'a Option<wgpu::TextureView>,
 }
 
 impl<'a> FrameView<'a> {
@@ -122,8 +123,8 @@ pub struct CompileStats {
     /// Number of Kahn sweep **waves** (parallel layers) in the build-time DAG sort.
     ///
     /// Runtime execution still walks the compiled pass list in one flat order; this
-    /// count is not a separate executor schedule. It is exposed in the debug HUD (with pass count) as
-    /// a diagnostic and a hint for future wave-based or parallel record scheduling.
+    /// count is not a separate executor schedule. It is exposed in the debug HUD (with pass count)
+    /// as a diagnostic and a hint for future wave-based parallel record scheduling.
     pub topo_levels: usize,
     /// Number of passes culled because their writes could not reach an import/export.
     pub culled_count: usize,
@@ -252,24 +253,30 @@ pub struct CompiledGroup {
 
 /// Immutable execution schedule produced by [`super::GraphBuilder::build`].
 ///
-/// After build, pass order and [`Self::needs_surface_acquire`] do not change. Per-frame work is
-/// [`Self::execute`] / [`Self::execute_multi_view`]. When any [`PassPhase::FrameGlobal`] passes exist,
-/// multi-view records them in one encoder and submits once, then uses **one encoder + submit per
-/// [`FrameView`]** for [`PassPhase::PerView`] passes so `wgpu::Queue::write_buffer` work is ordered
-/// before each view’s GPU commands.
+/// ## Pass storage
+///
+/// Passes are stored as [`PassNode`] enum values, enabling the executor to dispatch to the
+/// correct context type (raster/compute/copy/callback) without a runtime `graph_managed_raster()`
+/// toggle.
 ///
 /// ## Frame-global contract
 ///
-/// [`PassPhase::FrameGlobal`] passes run **once** per tick in
+/// [`super::pass::PassPhase::FrameGlobal`] passes run once per tick in
 /// [`CompiledRenderGraph::execute_multi_view_frame_global_passes`]. Host/scene context and
-/// [`super::context::GraphResolvedResources`] resolution for that encoder use the **first**
-/// [`FrameView`] only (camera, viewport, and transient pool keys derived from that view).
+/// resource resolution for that encoder use the **first** [`FrameView`] only.
+///
+/// ## Submit model (Phase 4 target)
+///
+/// The executor currently issues one submit per view plus one for frame-global work. Phase 4
+/// (per-view ring upload) collapses this to a single `Queue::submit` per tick by pre-planning
+/// ring buffer layouts and writing all per-view data before the single submit.
 pub struct CompiledRenderGraph {
-    pub(super) passes: Vec<Box<dyn RenderPass>>,
+    /// Ordered pass nodes in execution order (culled, sorted).
+    pub(super) passes: Vec<PassNode>,
     /// `true` when any pass writes an imported frame color target; frame execution
     /// acquires the swapchain once and presents after submit.
     pub needs_surface_acquire: bool,
-    /// Build-time stats for tests and future profiling hooks.
+    /// Build-time stats for tests and profiling hooks.
     pub compile_stats: CompileStats,
     /// Ordered groups and retained pass membership.
     pub groups: Vec<CompiledGroup>,
@@ -283,33 +290,26 @@ pub struct CompiledRenderGraph {
     pub imported_textures: Vec<ImportedTextureDecl>,
     /// Imported buffer declarations.
     pub imported_buffers: Vec<ImportedBufferDecl>,
-    /// Indices into [`Self::passes`] for [`PassPhase::FrameGlobal`] passes (execution order).
-    pub(super) frame_global_pass_indices: Vec<usize>,
-    /// Indices into [`Self::passes`] for [`PassPhase::PerView`] passes (execution order).
-    pub(super) per_view_pass_indices: Vec<usize>,
+    /// Single source of truth for pass ordering, phase, and wave membership.
+    pub schedule: FrameSchedule,
     /// When this graph is the main frame graph from [`super::build_main_graph`], transient handles
-    /// for MSAA color/depth/R32 resources so the executor can wire [`super::frame_params::FrameRenderParams`]
-    /// once per view.
+    /// for MSAA color/depth/R32 resources.
     pub(super) main_graph_msaa_transient_handles:
         Option<[crate::render_graph::resources::TextureHandle; 3]>,
 }
 
 pub(super) struct ResolvedView<'a> {
-    depth_texture: &'a wgpu::Texture,
-    depth_view: &'a wgpu::TextureView,
-    backbuffer: Option<&'a wgpu::TextureView>,
-    surface_format: wgpu::TextureFormat,
-    viewport_px: (u32, u32),
-    multiview_stereo: bool,
-    offscreen_write_render_texture_asset_id: Option<i32>,
-    occlusion_view: OcclusionViewId,
-    sample_count: u32,
-    msaa_color_view: Option<wgpu::TextureView>,
-    msaa_depth_view: Option<wgpu::TextureView>,
-    msaa_depth_resolve_r32_view: Option<wgpu::TextureView>,
-    msaa_depth_is_array: bool,
-    msaa_stereo_depth_layer_views: Option<[wgpu::TextureView; 2]>,
-    msaa_stereo_r32_layer_views: Option<[wgpu::TextureView; 2]>,
+    pub(super) depth_texture: &'a wgpu::Texture,
+    pub(super) depth_view: &'a wgpu::TextureView,
+    pub(super) backbuffer: Option<&'a wgpu::TextureView>,
+    pub(super) surface_format: wgpu::TextureFormat,
+    pub(super) viewport_px: (u32, u32),
+    pub(super) multiview_stereo: bool,
+    pub(super) offscreen_write_render_texture_asset_id: Option<i32>,
+    pub(super) occlusion_view: OcclusionViewId,
+    pub(super) sample_count: u32,
+    // MSAA views are now in the per-view blackboard (MsaaViewsSlot), resolved from graph
+    // transient textures by the executor. ResolvedView no longer carries them.
 }
 
 mod exec;

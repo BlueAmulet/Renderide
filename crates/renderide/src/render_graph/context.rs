@@ -1,20 +1,38 @@
-//! Context passed to each [`super::RenderPass::execute`] call while **one** [`wgpu::CommandEncoder`]
-//! is open for that recording slice.
+//! Context types passed to each pass's recording method for one encoder slice.
 //!
-//! Multi-view graph execution creates a **separate** encoder (and thus a separate
-//! [`RenderPassContext`]) for frame-global work vs each view; passes never share one encoder across
-//! those slices. See [`crate::render_graph::CompiledRenderGraph::execute_multi_view`].
+//! Four context types correspond to the four pass kinds in [`super::pass::PassNode`]:
+//! - [`RasterPassCtx`] — graph has already opened `wgpu::RenderPass`; pass records draws.
+//! - [`ComputePassCtx`] — pass receives the raw `wgpu::CommandEncoder` for compute work.
+//! - [`CopyPassCtx`] — same as compute, semantically restricted to copy operations.
+//! - [`CallbackCtx`] — no encoder; pass runs CPU prep, Queue writes, and blackboard mutations.
+//!
+//! [`PostSubmitContext`] is shared across all pass kinds for post-submit hooks.
+//!
+//! ## Lifetime parameters
+//!
+//! Contexts use up to three lifetime parameters:
+//! - `'a` — immutable GPU handles (device, limits, queue, graph resources, views).
+//! - `'encoder` — mutable encoder borrow (only compute/copy contexts).
+//! - `'frame` — mutable scene/backend frame params borrow.
+//!
+//! Multi-view graph execution creates a **separate** encoder (and thus a separate context) for
+//! frame-global work vs each view; passes never share one encoder across those slices.
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::gpu::GpuLimits;
 
+use super::blackboard::Blackboard;
 use super::frame_params::FrameRenderParams;
 use super::resources::{
     BufferHandle, ImportedBufferHandle, ImportedTextureHandle, TextureHandle, TextureResourceHandle,
 };
 use super::transient_pool::TransientPool;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Resolved resource types
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// Resolved transient texture for one graph execution scope.
 #[derive(Clone, Debug)]
@@ -33,15 +51,14 @@ pub struct ResolvedGraphTexture {
 
 impl ResolvedGraphTexture {
     /// Builds a [`wgpu::TextureView`] with [`wgpu::TextureViewDimension::D2Array`] for WGSL
-    /// `texture_2d_array` and bind layouts that declare `TextureViewDimension::D2Array`.
+    /// `texture_2d_array` bindings that expect a D2Array view.
     ///
-    /// The transient pool’s default [`Self::view`] uses [`wgpu::TextureViewDimension::D2`] when the
+    /// The transient pool's default [`Self::view`] uses [`wgpu::TextureViewDimension::D2`] when the
     /// backing texture has a single array layer (mono desktop). Passing that view to bindings that
-    /// expect a 2D array fails wgpu validation (`D2` vs `D2Array`).
+    /// expect a 2D array fails wgpu validation.
     ///
-    /// `multiview_stereo` must match [`crate::render_graph::frame_params::FrameRenderParams::multiview_stereo`]
-    /// so the view spans one layer (mono) or two (stereo), aligned with
-    /// [`crate::render_graph::resources::TransientArrayLayers::Frame`].
+    /// `multiview_stereo` must match [`FrameRenderParams::multiview_stereo`] so the view spans
+    /// one layer (mono) or two (stereo).
     pub(crate) fn view_for_sampled_2d_array(&self, multiview_stereo: bool) -> wgpu::TextureView {
         let layers_in_texture = self.texture.size().depth_or_array_layers.max(1);
         let array_layer_count = if multiview_stereo {
@@ -85,7 +102,11 @@ pub struct ResolvedImportedBuffer {
     pub buffer: wgpu::Buffer,
 }
 
-/// Execute-time resource lookup table built by [`super::CompiledRenderGraph`].
+// ─────────────────────────────────────────────────────────────────────────────
+// Resolved resource lookup table
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Execute-time resource lookup table built by [`super::compiled::CompiledRenderGraph`].
 #[derive(Debug, Default)]
 pub struct GraphResolvedResources {
     transient_textures: Vec<Option<ResolvedGraphTexture>>,
@@ -200,49 +221,88 @@ impl GraphResolvedResources {
     }
 }
 
-/// GPU handles, queue, and the encoder used for the **current** recording slice (frame-global or one view).
+// ─────────────────────────────────────────────────────────────────────────────
+// New typed context structs (Phases 1–2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Context for [`super::pass::RasterPass::record`].
 ///
-/// Multi-view graph execution creates a separate [`wgpu::CommandEncoder`] per slice, so the
-/// `'encoder` lifetime is distinct from `'a` (immutable GPU handles) and `'frame` (mutable scene
-/// + backend borrow). See [`super::CompiledRenderGraph::execute_multi_view`].
-pub struct RenderPassContext<'a, 'encoder, 'frame> {
+/// The graph has already opened a [`wgpu::RenderPass`] from the compiled attachment template;
+/// the pass records draw commands into it. No encoder is exposed since the encoder is borrowed
+/// by the open render pass.
+pub struct RasterPassCtx<'a, 'frame> {
     /// WGPU device.
     pub device: &'a wgpu::Device,
-    /// Effective limits for this frame (from [`crate::gpu::GpuContext::limits`]).
+    /// Effective limits for this frame.
     pub gpu_limits: &'a GpuLimits,
     /// Submission queue (internally synchronized by wgpu).
     pub queue: &'a Arc<wgpu::Queue>,
-    /// Encoder for this slice only (all passes invoked on this context share this encoder until it is finished).
+    /// Swapchain view when the frame acquired the surface; [`None`] for offscreen-only graphs.
+    pub backbuffer: Option<&'a wgpu::TextureView>,
+    /// Depth attachment for the main forward pass.
+    pub depth_view: Option<&'a wgpu::TextureView>,
+    /// Scene + backend frame params for this view.
+    pub frame: Option<&'frame mut FrameRenderParams<'a>>,
+    /// Typed graph resources resolved for this execution scope.
+    pub graph_resources: Option<&'a GraphResolvedResources>,
+    /// Per-scope typed blackboard (read/write; populated by prior callback passes this scope).
+    pub blackboard: &'frame mut Blackboard,
+}
+
+/// Context for [`super::pass::ComputePass::record`].
+///
+/// The pass receives the raw [`wgpu::CommandEncoder`] and dispatches compute workgroups or
+/// issues other encoder-level commands.
+pub struct ComputePassCtx<'a, 'encoder, 'frame> {
+    /// WGPU device.
+    pub device: &'a wgpu::Device,
+    /// Effective limits for this frame.
+    pub gpu_limits: &'a GpuLimits,
+    /// Submission queue.
+    pub queue: &'a Arc<wgpu::Queue>,
+    /// Active command encoder for this recording slice.
     pub encoder: &'encoder mut wgpu::CommandEncoder,
-    /// Swapchain view when this frame acquired the surface; [`None`] for offscreen-only graphs.
-    pub backbuffer: Option<&'a wgpu::TextureView>,
-    /// Depth attachment for the main forward pass when configured.
+    /// Depth attachment for the main forward pass (often needed by compute passes that
+    /// read or copy the depth buffer).
     pub depth_view: Option<&'a wgpu::TextureView>,
-    /// Scene + backend when the graph participates in mesh drawing.
+    /// Scene + backend frame params for this view.
     pub frame: Option<&'frame mut FrameRenderParams<'a>>,
     /// Typed graph resources resolved for this execution scope.
     pub graph_resources: Option<&'a GraphResolvedResources>,
+    /// Per-scope typed blackboard (read/write; populated by prior callback passes this scope).
+    pub blackboard: &'frame mut Blackboard,
 }
 
-/// Context for raster passes whose `wgpu::RenderPass` is opened by the graph.
-pub struct GraphRasterPassContext<'a, 'frame> {
+/// Context for [`super::pass::CopyPass::record`].
+///
+/// Structurally identical to [`ComputePassCtx`]; separated by type to distinguish copy-only
+/// intent from arbitrary compute dispatch.
+pub type CopyPassCtx<'a, 'encoder, 'frame> = ComputePassCtx<'a, 'encoder, 'frame>;
+
+/// Context for [`super::pass::CallbackPass::run`].
+///
+/// No encoder is provided. The pass runs as a CPU callback, which may issue
+/// [`wgpu::Queue::write_buffer`] calls via `queue` and mutate `blackboard`.
+pub struct CallbackCtx<'a, 'frame> {
     /// WGPU device.
     pub device: &'a wgpu::Device,
-    /// Effective limits for this frame (from [`crate::gpu::GpuContext::limits`]).
+    /// Effective limits for this frame.
     pub gpu_limits: &'a GpuLimits,
-    /// Submission queue (internally synchronized by wgpu).
+    /// Submission queue for `write_buffer` calls.
     pub queue: &'a Arc<wgpu::Queue>,
-    /// Swapchain view when this frame acquired the surface; [`None`] for offscreen-only graphs.
-    pub backbuffer: Option<&'a wgpu::TextureView>,
-    /// Depth attachment for the main forward pass when configured.
-    pub depth_view: Option<&'a wgpu::TextureView>,
-    /// Scene + backend when the graph participates in mesh drawing.
+    /// Scene + backend frame params for this view (or first view for frame-global callbacks).
     pub frame: Option<&'frame mut FrameRenderParams<'a>>,
     /// Typed graph resources resolved for this execution scope.
     pub graph_resources: Option<&'a GraphResolvedResources>,
+    /// Per-scope typed blackboard (read/write; the primary output of callback passes).
+    pub blackboard: &'frame mut Blackboard,
 }
 
-/// Context passed to [`super::RenderPass::post_submit`] after a per-view or frame-global submit.
+// ─────────────────────────────────────────────────────────────────────────────
+// Post-submit context (unchanged)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Context passed to `post_submit` after a per-view or frame-global submit.
 ///
 /// Runs on the CPU **after** [`wgpu::Queue::submit`] so passes can start `map_async` work on
 /// buffers they wrote this frame (e.g. Hi-Z readback staging rotation).
@@ -253,6 +313,53 @@ pub struct PostSubmitContext<'a> {
     pub occlusion: &'a mut crate::backend::OcclusionSystem,
     /// Which occlusion view this submit covered.
     pub occlusion_view: super::OcclusionViewId,
-    /// Host camera snapshot for the view — lets passes gate on flags like `suppress_occlusion_temporal`.
+    /// Host camera snapshot for the view.
     pub host_camera: super::HostCameraFrame,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Legacy context type aliases (kept for test compatibility; callers should migrate)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Legacy encoder-driven pass context. Prefer [`ComputePassCtx`] for new code.
+///
+/// Kept as an alias for incremental migration of tests and helper functions that reference the
+/// old type. Will be removed when all callers are updated.
+pub struct RenderPassContext<'a, 'encoder, 'frame> {
+    /// WGPU device.
+    pub device: &'a wgpu::Device,
+    /// Effective limits for this frame.
+    pub gpu_limits: &'a GpuLimits,
+    /// Submission queue.
+    pub queue: &'a Arc<wgpu::Queue>,
+    /// Active command encoder.
+    pub encoder: &'encoder mut wgpu::CommandEncoder,
+    /// Swapchain view when this frame acquired the surface.
+    pub backbuffer: Option<&'a wgpu::TextureView>,
+    /// Depth attachment for the main forward pass.
+    pub depth_view: Option<&'a wgpu::TextureView>,
+    /// Scene + backend frame params.
+    pub frame: Option<&'frame mut FrameRenderParams<'a>>,
+    /// Typed graph resources resolved for this execution scope.
+    pub graph_resources: Option<&'a GraphResolvedResources>,
+}
+
+/// Legacy graph-raster pass context. Prefer [`RasterPassCtx`] for new code.
+///
+/// Kept for incremental migration of tests and setup/compose pass helpers.
+pub struct GraphRasterPassContext<'a, 'frame> {
+    /// WGPU device.
+    pub device: &'a wgpu::Device,
+    /// Effective limits for this frame.
+    pub gpu_limits: &'a GpuLimits,
+    /// Submission queue.
+    pub queue: &'a Arc<wgpu::Queue>,
+    /// Swapchain view when this frame acquired the surface.
+    pub backbuffer: Option<&'a wgpu::TextureView>,
+    /// Depth attachment for the main forward pass.
+    pub depth_view: Option<&'a wgpu::TextureView>,
+    /// Scene + backend frame params.
+    pub frame: Option<&'frame mut FrameRenderParams<'a>>,
+    /// Typed graph resources resolved for this execution scope.
+    pub graph_resources: Option<&'a GraphResolvedResources>,
 }

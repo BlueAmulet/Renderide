@@ -1,4 +1,10 @@
-//! Per-frame `@group(0)` resources: scene uniform, lights storage, clustered light buffers.
+//! Per-frame `@group(0)` resources: scene uniform, lights storage, and scene snapshot textures.
+//!
+//! Per-view cluster buffers and `@group(0)` bind groups live in
+//! [`crate::backend::FrameResourceManager`] (one [`crate::backend::frame_resource_manager::PerViewFrameState`]
+//! per [`crate::render_graph::OcclusionViewId`]). This module provides the shared
+//! immutable resources that per-view bind groups reference: lights storage, scene snapshot
+//! textures, and the `@group(0)` bind group layout.
 
 use std::num::NonZeroU64;
 use std::sync::Arc;
@@ -10,13 +16,24 @@ use crate::gpu::GpuLimits;
 
 use super::frame_gpu_error::FrameGpuInitError;
 
-/// GPU buffers and bind group for [`FrameGpuUniforms`], [`GpuLight`] storage, and cluster lists.
+/// GPU buffers and bind groups for `@group(0)` frame globals (camera, lights, cluster lists,
+/// and sampled scene snapshots).
+///
+/// Per-view cluster buffers and `@group(0)` bind groups are owned by
+/// [`crate::backend::frame_resource_manager::PerViewFrameState`], keyed by
+/// [`crate::render_graph::OcclusionViewId`], and built using
+/// [`Self::build_per_view_bind_group`].
 pub struct FrameGpuResources {
-    /// Uniform buffer for [`FrameGpuUniforms`].
+    /// Uniform buffer for [`FrameGpuUniforms`] (global fallback; per-view uniforms are in
+    /// [`crate::backend::frame_resource_manager::PerViewFrameState`]).
     pub frame_uniform: wgpu::Buffer,
-    /// Storage buffer holding up to [`MAX_LIGHTS`] [`GpuLight`] records.
+    /// Storage buffer holding up to [`MAX_LIGHTS`] [`GpuLight`] records (scene-global; shared
+    /// across all views).
     pub lights_buffer: wgpu::Buffer,
-    /// Cluster buffers and compute params; resized with viewport ([`Self::sync_cluster_viewport`]).
+    /// Global cluster buffers used for viewport sync and the global `@group(0)` bind group.
+    ///
+    /// Per-view dispatches use independent [`ClusterBufferCache`] instances owned by
+    /// [`crate::backend::frame_resource_manager::PerViewFrameState`].
     pub cluster_cache: ClusterBufferCache,
     /// Sampled single-view scene depth snapshot for materials that need `_CameraDepthTexture`.
     scene_depth_2d: (wgpu::Texture, wgpu::TextureView),
@@ -36,10 +53,19 @@ pub struct FrameGpuResources {
     scene_color_array_format: wgpu::TextureFormat,
     /// Shared linear-clamp sampler for sampling [`Self::scene_color_2d`] / [`Self::scene_color_array`].
     scene_color_sampler: wgpu::Sampler,
-    /// Bind group for `@group(0)` in composed mesh shaders.
+    /// Global `@group(0)` bind group (global frame uniform + shared lights/snapshots).
+    ///
+    /// Per-view passes bind the per-view bind group from
+    /// [`crate::backend::frame_resource_manager::PerViewFrameState`] instead.
     pub bind_group: Arc<wgpu::BindGroup>,
     cluster_bind_version: u64,
     limits: Arc<GpuLimits>,
+    /// Monotonically increasing counter; incremented each time a scene snapshot texture is
+    /// recreated due to a size or format change.
+    ///
+    /// [`crate::backend::frame_resource_manager::PerViewFrameState`] tracks the version at which
+    /// it last rebuilt its `@group(0)` bind group and rebuilds when this diverges.
+    pub(super) snapshot_version: u64,
 }
 
 /// Default scene color snapshot format used when no grab pass has been triggered yet.
@@ -340,6 +366,7 @@ impl FrameGpuResources {
         self.scene_depth_2d = Self::create_depth_snapshot_2d(device, want, format);
         self.scene_depth_2d_extent_px = want;
         self.scene_depth_2d_format = format;
+        self.snapshot_version = self.snapshot_version.wrapping_add(1);
     }
 
     fn ensure_scene_depth_array(
@@ -364,6 +391,7 @@ impl FrameGpuResources {
         self.scene_depth_array = Self::create_depth_snapshot_array(device, want, format);
         self.scene_depth_array_extent_px = want;
         self.scene_depth_array_format = format;
+        self.snapshot_version = self.snapshot_version.wrapping_add(1);
     }
 
     fn create_color_snapshot_2d(
@@ -443,6 +471,7 @@ impl FrameGpuResources {
         self.scene_color_2d = Self::create_color_snapshot_2d(device, want, format);
         self.scene_color_2d_extent_px = want;
         self.scene_color_2d_format = format;
+        self.snapshot_version = self.snapshot_version.wrapping_add(1);
     }
 
     fn ensure_scene_color_array(
@@ -467,6 +496,7 @@ impl FrameGpuResources {
         self.scene_color_array = Self::create_color_snapshot_array(device, want, format);
         self.scene_color_array_extent_px = want;
         self.scene_color_array_format = format;
+        self.snapshot_version = self.snapshot_version.wrapping_add(1);
     }
 
     /// Allocates frame uniform, lights storage, minimal cluster grid `(1×1×Z)`; builds [`Self::bind_group`].
@@ -551,6 +581,7 @@ impl FrameGpuResources {
             bind_group,
             cluster_bind_version,
             limits,
+            snapshot_version: 0,
         })
     }
 
@@ -722,6 +753,32 @@ impl FrameGpuResources {
             );
         }
         self.rebuild_bind_group(device, viewport, stereo_cluster);
+    }
+
+    /// Builds a per-view `@group(0)` bind group using this view's own `frame_uniform` and
+    /// `cluster_refs`, but sharing lights storage and scene snapshot textures from [`Self`].
+    ///
+    /// Called by [`crate::backend::frame_resource_manager::PerViewFrameState`] whenever the view's
+    /// cluster buffers or snapshot textures change.
+    pub(super) fn build_per_view_bind_group(
+        &self,
+        device: &wgpu::Device,
+        frame_uniform: &wgpu::Buffer,
+        cluster_refs: ClusterBufferRefs<'_>,
+    ) -> Arc<wgpu::BindGroup> {
+        Self::create_bind_group(
+            device,
+            frame_uniform,
+            &self.lights_buffer,
+            cluster_refs,
+            FrameSceneSnapshotTextureViews {
+                scene_depth_2d: &self.scene_depth_2d.1,
+                scene_depth_array: &self.scene_depth_array.1,
+                scene_color_2d: &self.scene_color_2d.1,
+                scene_color_array: &self.scene_color_array.1,
+                scene_color_sampler: &self.scene_color_sampler,
+            },
+        )
     }
 
     /// Uploads [`FrameGpuUniforms`] only (packed lights unchanged).

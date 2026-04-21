@@ -112,6 +112,12 @@ pub struct RenderBackend {
     pub(crate) transient_pool: TransientPool,
     /// Live settings for per-frame graph parameters (scene HDR format, etc.); set in [`Self::attach`].
     renderer_settings: Option<RendererSettingsHandle>,
+    /// Whether per-view encoder recording runs on rayon workers or sequentially on the main thread.
+    ///
+    /// Defaults to [`crate::config::RecordParallelism::Serial`]. Switch to
+    /// [`crate::config::RecordParallelism::PerViewParallel`] via `[rendering] record_parallelism`
+    /// in the renderer config once per-view pass state is fully validated as `Send`-safe.
+    pub(crate) record_parallelism: crate::config::RecordParallelism,
 }
 
 /// Disjoint borrows of [`MaterialSystem`], [`AssetTransferQueue`], and the GPU skin cache for world mesh forward encoding.
@@ -180,6 +186,7 @@ impl RenderBackend {
             occlusion: OcclusionSystem::new(),
             transient_pool: TransientPool::new(),
             renderer_settings: None,
+            record_parallelism: crate::config::RecordParallelism::Serial,
         }
     }
 

@@ -38,7 +38,7 @@ pub use frame_gpu::{
 };
 pub use frame_gpu_bindings::{FrameGpuBindings, FrameGpuBindingsError};
 pub use frame_gpu_error::FrameGpuInitError;
-pub use frame_resource_manager::{FrameGpuBindContext, FrameResourceManager};
+pub use frame_resource_manager::{FrameGpuBindContext, FrameResourceManager, PerViewFrameState};
 pub use light_gpu::{
     order_lights_for_clustered_shading, order_lights_for_clustered_shading_in_place, GpuLight,
     MAX_LIGHTS,

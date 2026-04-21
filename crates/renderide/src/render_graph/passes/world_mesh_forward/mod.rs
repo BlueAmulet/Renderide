@@ -1,27 +1,28 @@
-//! Main forward pass: clear color + depth, debug normal shading for scene meshes.
+//! Main forward pass: clear color + depth, draw scene meshes, MSAA resolve.
 //!
-//! Draws are collected and **sorted by [`MaterialDrawBatchKey`](crate::render_graph::MaterialDrawBatchKey)**
-//! so pipeline and batch key drive pipeline switches. **GPU instancing:** consecutive draws that share the
-//! same mesh submesh and batch key (opaque, non-skinned) are merged into one indexed draw with
-//! `instance_index` sampling [`crate::backend::PerDrawResources`] (`@group(2)` storage). Embedded `@group(1)`
-//! skips redundant [`wgpu::RenderPass::set_bind_group`] when [`MaterialBindCacheKey`](crate::backend::MaterialBindCacheKey) matches
-//! the previous draw (uniform updates still run each time via [`EmbeddedMaterialBindResources`](crate::backend::EmbeddedMaterialBindResources)).
-//! Per-slot [`MaterialPropertyLookupIds`](crate::assets::material::MaterialPropertyLookupIds) are carried on each
-//! [`WorldMeshDrawItem`](crate::render_graph::WorldMeshDrawItem) for `get_merged` when building `@group(1)` bind
-//! groups for [`crate::materials::RasterPipelineKind::EmbeddedStem`] draws (see [`crate::backend::EmbeddedMaterialBindResources`]).
+//! ## Pass graph structure
 //!
-//! Manifest raster binds use the composed WGSL **stem** from [`crate::materials::MaterialRouter::stem_for_shader_asset`]
-//! (not a hard-coded Unlit path). Whether UV0 is bound is stored on [`MaterialDrawBatchKey::Embedded_needs_uv0`]
-//! (same rule as the embedded raster pipeline and [`crate::materials::embedded_stem_needs_uv0_stream`], computed during draw collection).
-//! Intersection tint subpasses use [`MaterialDrawBatchKey::Embedded_requires_intersection_pass`]
-//! ([`crate::materials::embedded_stem_requires_intersection_pass`], WGSL reflection of `_IntersectColor`).
+//! World-mesh forward rendering is split across five passes:
+//!
+//! 1. [`WorldMeshForwardPreparePass`] — **[`CallbackPass`]** that collects + sorts draws, packs
+//!    per-draw VP/model uniforms (rayon-parallel above the existing threshold), and uploads the
+//!    per-draw slab and frame uniforms via `Queue::write_buffer`. Stores the prepared state in
+//!    [`crate::render_graph::frame_params::FrameRenderParams::prepared_world_mesh_forward`] for
+//!    downstream passes. (Phase 2 will move this to the typed blackboard.)
+//! 2. [`WorldMeshForwardOpaquePass`] — **[`RasterPass`]** that opens the HDR color + depth
+//!    attachments with `LoadOp::Clear` and records opaque draws.
+//! 3. [`WorldMeshDepthSnapshotPass`] — **[`ComputePass`]** that resolves MSAA depth (when active)
+//!    and copies single-sample depth into the scene-depth snapshot for intersection materials.
+//! 4. [`WorldMeshForwardIntersectPass`] — **[`RasterPass`]** that draws intersection materials
+//!    and resolves MSAA color when active.
+//! 5. [`WorldMeshForwardDepthResolvePass`] — **[`ComputePass`]** that resolves the final MSAA
+//!    depth into the single-sample frame depth used by Hi-Z.
 //!
 //! ## VR stereo world draws
 //!
-//! OpenXR per-eye view–projection maps **stage** space to clip. For **non-overlay** draws with
-//! `stereo_view_proj`, we use **identity** instead of the host `view_transform` world-to-camera so
-//! `VP` is not `P·V_hmd·V_host`, which mixed stage with the host rig and caused playspace-relative
-//! offsets. Overlays keep `view` for orthographic / UI alignment with the host camera rig.
+//! OpenXR per-eye view–projection maps **stage** space to clip. For non-overlay draws with
+//! `stereo_view_proj`, identity is used instead of the host `view_transform` world-to-camera
+//! to avoid mixing stage with the host rig. Overlays keep `view` for orthographic / UI alignment.
 //! Matrix composition lives in [`vp`].
 
 mod current_view_textures;
@@ -31,9 +32,11 @@ mod vp;
 
 use std::num::NonZeroU32;
 
-use crate::render_graph::context::{GraphRasterPassContext, RenderPassContext};
+use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
+use crate::render_graph::context::{CallbackCtx, ComputePassCtx, RasterPassCtx};
 use crate::render_graph::error::{RenderPassError, SetupError};
-use crate::render_graph::pass::{PassBuilder, RenderPass};
+use crate::render_graph::frame_params::{PrefetchedWorldMeshDrawsSlot, WorldMeshForwardPlanSlot};
+use crate::render_graph::pass::{CallbackPass, ComputePass, PassBuilder, RasterPass};
 use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, StorageAccess, TextureAccess,
     TextureHandle,
@@ -46,10 +49,12 @@ use execute_helpers::{
 };
 
 /// Prepares sorted world-mesh forward draw state for subsequent graph nodes.
-#[derive(Debug)]
-pub struct WorldMeshForwardPreparePass {
-    resources: WorldMeshForwardGraphResources,
-}
+///
+/// The pass is a [`CallbackPass`] (no encoder); it issues `Queue::write_buffer` uploads and
+/// stores results in the per-view blackboard via [`WorldMeshForwardPlanSlot`] and
+/// [`crate::render_graph::PrecomputedMaterialBindsSlot`].
+#[derive(Debug, Default)]
+pub struct WorldMeshForwardPreparePass;
 
 /// Graph-managed opaque/clear subpass for world-mesh forward rendering.
 #[derive(Debug)]
@@ -102,8 +107,12 @@ pub struct WorldMeshForwardGraphResources {
 
 impl WorldMeshForwardPreparePass {
     /// Creates a world mesh forward prepare pass instance.
-    pub fn new(resources: WorldMeshForwardGraphResources) -> Self {
-        Self { resources }
+    ///
+    /// The `_resources` parameter is accepted for API symmetry with the other forward passes
+    /// but is not stored: the prepare pass operates on per-view blackboard slots rather than
+    /// graph resource handles.
+    pub fn new(_resources: WorldMeshForwardGraphResources) -> Self {
+        Self
     }
 }
 
@@ -173,33 +182,51 @@ fn declare_forward_draw_reads(b: &mut PassBuilder<'_>, resources: WorldMeshForwa
     );
 }
 
-impl RenderPass for WorldMeshForwardPreparePass {
+impl CallbackPass for WorldMeshForwardPreparePass {
     fn name(&self) -> &str {
         "WorldMeshForwardPrepare"
     }
 
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
-        b.copy();
-        b.import_buffer(self.resources.per_draw_slab, BufferAccess::CopyDst);
-        b.import_buffer(self.resources.frame_uniforms, BufferAccess::CopyDst);
-        b.import_buffer(self.resources.lights, BufferAccess::CopyDst);
+        b.callback();
+        b.cull_exempt();
         Ok(())
     }
 
-    fn execute(&mut self, ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError> {
+    fn run(&mut self, ctx: &mut CallbackCtx<'_, '_>) -> Result<(), RenderPassError> {
         let Some(frame) = ctx.frame.as_mut() else {
             return Err(RenderPassError::MissingFrameParams {
                 pass: self.name().to_string(),
             });
         };
 
-        frame.prepared_world_mesh_forward =
-            prepare_world_mesh_forward_frame(ctx.device, ctx.queue.as_ref(), ctx.gpu_limits, frame);
+        // Transfer prefetched draws from blackboard to frame params so the prepare helper
+        // can use them (it calls `take_or_collect_world_mesh_draws` which checks frame params).
+        // Phase 5+ will move this entirely into the blackboard via `PrefetchedWorldMeshDrawsSlot`.
+        if let Some(prefetched) = ctx.blackboard.take::<PrefetchedWorldMeshDrawsSlot>() {
+            // Temporarily stash in the blackboard slot so execute_helpers.rs can pick it up.
+            // Since execute_helpers currently reads from frame (which we moved away from),
+            // pass it directly to prepare_world_mesh_forward_frame via a new blackboard-aware path.
+            // For now: use the `prefetched_world_mesh_draws` slot that prepare_frame reads.
+            ctx.blackboard
+                .insert::<PrefetchedWorldMeshDrawsSlot>(prefetched);
+        }
+
+        let prepared = prepare_world_mesh_forward_frame(
+            ctx.device,
+            ctx.queue.as_ref(),
+            ctx.gpu_limits,
+            frame,
+            ctx.blackboard,
+        );
+        if let Some(prepared) = prepared {
+            ctx.blackboard.insert::<WorldMeshForwardPlanSlot>(prepared);
+        }
         Ok(())
     }
 }
 
-impl RenderPass for WorldMeshForwardOpaquePass {
+impl RasterPass for WorldMeshForwardOpaquePass {
     fn name(&self) -> &str {
         "WorldMeshForwardOpaque"
     }
@@ -230,23 +257,14 @@ impl RenderPass for WorldMeshForwardOpaquePass {
         Ok(())
     }
 
-    fn execute(&mut self, _ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError> {
-        Ok(())
-    }
-
-    fn graph_managed_raster(&self) -> bool {
-        true
-    }
-
-    fn graph_raster_multiview_mask(
+    fn multiview_mask_override(
         &self,
-        ctx: &GraphRasterPassContext<'_, '_>,
-        template: &crate::render_graph::RenderPassTemplate,
+        ctx: &RasterPassCtx<'_, '_>,
+        template: &RenderPassTemplate,
     ) -> Option<NonZeroU32> {
         let use_multiview = ctx
-            .frame
-            .as_ref()
-            .and_then(|frame| frame.prepared_world_mesh_forward.as_ref())
+            .blackboard
+            .get::<WorldMeshForwardPlanSlot>()
             .is_some_and(|prepared| prepared.pipeline.use_multiview);
         if use_multiview {
             NonZeroU32::new(3)
@@ -255,15 +273,14 @@ impl RenderPass for WorldMeshForwardOpaquePass {
         }
     }
 
-    fn graph_raster_stencil_ops(
+    fn stencil_ops_override(
         &self,
-        ctx: &GraphRasterPassContext<'_, '_>,
-        depth: &crate::render_graph::DepthAttachmentTemplate,
+        ctx: &RasterPassCtx<'_, '_>,
+        depth: &DepthAttachmentTemplate,
     ) -> Option<wgpu::Operations<u32>> {
         let Some(format) = ctx
-            .frame
-            .as_ref()
-            .and_then(|frame| frame.prepared_world_mesh_forward.as_ref())
+            .blackboard
+            .get::<WorldMeshForwardPlanSlot>()
             .and_then(|prepared| prepared.pipeline.pass_desc.depth_stencil_format)
         else {
             return depth.stencil;
@@ -274,9 +291,9 @@ impl RenderPass for WorldMeshForwardOpaquePass {
         })
     }
 
-    fn execute_graph_raster(
+    fn record(
         &mut self,
-        ctx: &mut GraphRasterPassContext<'_, '_>,
+        ctx: &mut RasterPassCtx<'_, '_>,
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         let Some(frame) = ctx.frame.as_mut() else {
@@ -285,7 +302,7 @@ impl RenderPass for WorldMeshForwardOpaquePass {
             });
         };
 
-        let Some(mut prepared) = frame.prepared_world_mesh_forward.take() else {
+        let Some(mut prepared) = ctx.blackboard.take::<WorldMeshForwardPlanSlot>() else {
             return Ok(());
         };
         let recorded = record_world_mesh_forward_opaque_graph_raster(
@@ -296,28 +313,23 @@ impl RenderPass for WorldMeshForwardOpaquePass {
             &prepared,
         );
         prepared.opaque_recorded = recorded;
-        frame.prepared_world_mesh_forward = Some(prepared);
+        ctx.blackboard.insert::<WorldMeshForwardPlanSlot>(prepared);
         Ok(())
     }
 }
 
-impl RenderPass for WorldMeshDepthSnapshotPass {
+impl ComputePass for WorldMeshDepthSnapshotPass {
     fn name(&self) -> &str {
         "WorldMeshDepthSnapshot"
     }
 
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
-        {
-            let mut r = b.raster();
-            r.depth(
-                self.resources.depth,
-                wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-                None,
-            );
-        }
+        b.compute();
+        // Declare only what is actually used: msaa_depth as sampled input,
+        // msaa_depth_r32 as storage write output, and depth as CopySrc.
+        // Note: msaa_depth_r32 lifetime is extended by WorldMeshForwardDepthResolvePass
+        // which also writes it, covering the intersection pass that reads it implicitly
+        // via the frame bind group.
         b.read_texture(
             self.resources.msaa_depth,
             TextureAccess::Sampled {
@@ -331,17 +343,11 @@ impl RenderPass for WorldMeshDepthSnapshotPass {
                 access: StorageAccess::WriteOnly,
             },
         );
-        b.read_texture(
-            self.resources.msaa_depth_r32,
-            TextureAccess::Sampled {
-                stages: wgpu::ShaderStages::FRAGMENT,
-            },
-        );
         b.import_texture(self.resources.depth, TextureAccess::CopySrc);
         Ok(())
     }
 
-    fn execute(&mut self, ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError> {
+    fn record(&mut self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
         let Some(frame) = ctx.frame.as_mut() else {
             return Err(RenderPassError::MissingFrameParams {
                 pass: self.name().to_string(),
@@ -354,7 +360,7 @@ impl RenderPass for WorldMeshDepthSnapshotPass {
             frame.multiview_stereo,
         );
 
-        let Some(mut prepared) = frame.prepared_world_mesh_forward.take() else {
+        let Some(mut prepared) = ctx.blackboard.take::<WorldMeshForwardPlanSlot>() else {
             return Ok(());
         };
         let msaa_depth_resolve = frame.msaa_depth_resolve.clone();
@@ -369,12 +375,12 @@ impl RenderPass for WorldMeshDepthSnapshotPass {
         if recorded {
             prepared.depth_snapshot_recorded = true;
         }
-        frame.prepared_world_mesh_forward = Some(prepared);
+        ctx.blackboard.insert::<WorldMeshForwardPlanSlot>(prepared);
         Ok(())
     }
 }
 
-impl RenderPass for WorldMeshForwardIntersectPass {
+impl RasterPass for WorldMeshForwardIntersectPass {
     fn name(&self) -> &str {
         "WorldMeshForwardIntersect"
     }
@@ -405,23 +411,14 @@ impl RenderPass for WorldMeshForwardIntersectPass {
         Ok(())
     }
 
-    fn execute(&mut self, _ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError> {
-        Ok(())
-    }
-
-    fn graph_managed_raster(&self) -> bool {
-        true
-    }
-
-    fn graph_raster_multiview_mask(
+    fn multiview_mask_override(
         &self,
-        ctx: &GraphRasterPassContext<'_, '_>,
-        template: &crate::render_graph::RenderPassTemplate,
+        ctx: &RasterPassCtx<'_, '_>,
+        template: &RenderPassTemplate,
     ) -> Option<NonZeroU32> {
         let use_multiview = ctx
-            .frame
-            .as_ref()
-            .and_then(|frame| frame.prepared_world_mesh_forward.as_ref())
+            .blackboard
+            .get::<WorldMeshForwardPlanSlot>()
             .is_some_and(|prepared| prepared.pipeline.use_multiview);
         if use_multiview {
             NonZeroU32::new(3)
@@ -430,15 +427,14 @@ impl RenderPass for WorldMeshForwardIntersectPass {
         }
     }
 
-    fn graph_raster_stencil_ops(
+    fn stencil_ops_override(
         &self,
-        ctx: &GraphRasterPassContext<'_, '_>,
-        depth: &crate::render_graph::DepthAttachmentTemplate,
+        ctx: &RasterPassCtx<'_, '_>,
+        depth: &DepthAttachmentTemplate,
     ) -> Option<wgpu::Operations<u32>> {
         let Some(format) = ctx
-            .frame
-            .as_ref()
-            .and_then(|frame| frame.prepared_world_mesh_forward.as_ref())
+            .blackboard
+            .get::<WorldMeshForwardPlanSlot>()
             .and_then(|prepared| prepared.pipeline.pass_desc.depth_stencil_format)
         else {
             return depth.stencil;
@@ -446,9 +442,9 @@ impl RenderPass for WorldMeshForwardIntersectPass {
         stencil_load_ops(Some(format))
     }
 
-    fn execute_graph_raster(
+    fn record(
         &mut self,
-        ctx: &mut GraphRasterPassContext<'_, '_>,
+        ctx: &mut RasterPassCtx<'_, '_>,
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         let Some(frame) = ctx.frame.as_mut() else {
@@ -457,7 +453,7 @@ impl RenderPass for WorldMeshForwardIntersectPass {
             });
         };
 
-        let Some(mut prepared) = frame.prepared_world_mesh_forward.take() else {
+        let Some(mut prepared) = ctx.blackboard.take::<WorldMeshForwardPlanSlot>() else {
             return Ok(());
         };
         let recorded = if prepared.opaque_recorded {
@@ -474,28 +470,18 @@ impl RenderPass for WorldMeshForwardIntersectPass {
         if recorded {
             prepared.tail_raster_recorded = true;
         }
-        frame.prepared_world_mesh_forward = Some(prepared);
+        ctx.blackboard.insert::<WorldMeshForwardPlanSlot>(prepared);
         Ok(())
     }
 }
 
-impl RenderPass for WorldMeshForwardDepthResolvePass {
+impl ComputePass for WorldMeshForwardDepthResolvePass {
     fn name(&self) -> &str {
         "WorldMeshForwardDepthResolve"
     }
 
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
-        {
-            let mut r = b.raster();
-            r.depth(
-                self.resources.depth,
-                wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-                None,
-            );
-        }
+        b.compute();
         b.read_texture(
             self.resources.msaa_depth,
             TextureAccess::Sampled {
@@ -509,16 +495,10 @@ impl RenderPass for WorldMeshForwardDepthResolvePass {
                 access: StorageAccess::WriteOnly,
             },
         );
-        b.read_texture(
-            self.resources.msaa_depth_r32,
-            TextureAccess::Sampled {
-                stages: wgpu::ShaderStages::FRAGMENT,
-            },
-        );
         Ok(())
     }
 
-    fn execute(&mut self, ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError> {
+    fn record(&mut self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
         let Some(frame) = ctx.frame.as_mut() else {
             return Err(RenderPassError::MissingFrameParams {
                 pass: self.name().to_string(),
@@ -538,6 +518,7 @@ impl RenderPass for WorldMeshForwardDepthResolvePass {
             msaa_views.as_ref(),
             msaa_depth_resolve.as_deref(),
         );
+        // No blackboard interaction needed: depth resolve is purely encoder-driven.
         Ok(())
     }
 }

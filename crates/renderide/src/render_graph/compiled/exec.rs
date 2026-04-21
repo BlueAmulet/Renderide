@@ -1,4 +1,21 @@
 //! [`CompiledRenderGraph`] execution: multi-view scheduling, resource resolution, and submits.
+//!
+//! ## Submit model
+//!
+//! Multi-view execution issues **one submit for frame-global work** (optional) plus
+//! **one submit per view** for per-view passes. This ordering guarantees that
+//! per-view `Queue::write_buffer` uploads (per-draw slab, frame uniforms, cluster params) are
+//! visible to that view's GPU commands. Each view owns its own per-draw slab buffer, so views
+//! never compete for per-draw storage capacity.
+//!
+//! ## Pass dispatch
+//!
+//! Each retained pass is a [`super::super::pass::PassNode`] enum. The executor matches on the
+//! variant to call the correct record method:
+//! - `Raster` → graph opens `wgpu::RenderPass` from template; calls `record_raster`.
+//! - `Compute` → passes receive raw encoder; calls `record_compute`.
+//! - `Copy` → same as compute; calls `record_copy`.
+//! - `Callback` → no encoder; calls `run_callback`.
 
 use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
@@ -7,12 +24,17 @@ use crate::backend::RenderBackend;
 use crate::gpu::GpuContext;
 use crate::scene::SceneCoordinator;
 
+use super::super::blackboard::Blackboard;
 use super::super::context::{
-    GraphRasterPassContext, GraphResolvedResources, PostSubmitContext, RenderPassContext,
+    CallbackCtx, ComputePassCtx, GraphResolvedResources, PostSubmitContext, RasterPassCtx,
     ResolvedGraphBuffer, ResolvedGraphTexture, ResolvedImportedBuffer, ResolvedImportedTexture,
 };
 use super::super::error::GraphExecuteError;
-use super::super::frame_params::{HostCameraFrame, OcclusionViewId};
+use super::super::frame_params::{
+    HostCameraFrame, MsaaViewsSlot, OcclusionViewId, PerViewFramePlan, PerViewFramePlanSlot,
+    PrefetchedWorldMeshDrawsSlot,
+};
+use super::super::pass::PassKind;
 use super::super::resources::{
     BackendFrameBufferKind, BufferImportSource, FrameTargetRole, ImportSource,
     ImportedBufferHandle, ImportedTextureHandle, TextureHandle,
@@ -73,11 +95,22 @@ impl CompiledRenderGraph {
         self.needs_surface_acquire
     }
 
-    /// Desktop single-view entry: delegates to [`Self::execute_multi_view`] (one swapchain view).
+    /// Returns a CPU-side snapshot of the compiled schedule for the debug HUD.
     ///
-    /// Submit count follows the multi-view rules (optional frame-global encoder + submit, then
-    /// per-view encoder + submit). Matches [`crate::present::present_clear_frame`] recovery behavior
-    /// for surface acquire (timeout/occluded skip, validation reconfigure).
+    /// Captures pass count, wave count, phase distribution, and per-wave pass counts.
+    pub fn schedule_hud_snapshot(&self) -> super::super::schedule::ScheduleHudSnapshot {
+        super::super::schedule::ScheduleHudSnapshot::from_schedule(&self.schedule)
+    }
+
+    /// Validates the compiled schedule for structural invariants
+    /// (frame-global before per-view, monotonic waves, wave ranges cover steps).
+    ///
+    /// Called by tests; production code can use this to surface graph build failures early.
+    pub fn validate_schedule(&self) -> Result<(), super::super::schedule::ScheduleValidationError> {
+        self.schedule.validate()
+    }
+
+    /// Desktop single-view entry: delegates to [`Self::execute_multi_view`] (one swapchain view).
     pub fn execute(
         &mut self,
         gpu: &mut GpuContext,
@@ -133,24 +166,21 @@ impl CompiledRenderGraph {
         self.execute_multi_view(gpu, scene, backend, &mut single)
     }
 
-    /// Records all views: one encoder + submit for frame-global work, then one encoder + submit per view.
+    /// Records all views into separate command encoders and submits them in a single
+    /// [`wgpu::Queue::submit`] call alongside the frame-global encoder.
     ///
-    /// Per-view passes use [`wgpu::Queue::write_buffer`] for camera uniforms, per-draw slabs, and
-    /// cluster params. Those writes are ordered **before** the next `queue.submit`; a single submit
-    /// for all views would leave only the last view’s uploads visible to every view’s GPU commands,
-    /// so each view is isolated in its own submit.
+    /// ## Per-view write ordering
     ///
-    /// Frame-global passes ([`PassPhase::FrameGlobal`]) run once in the first encoder; per-view
-    /// passes run for each [`FrameView`] in order.
+    /// Per-view `Queue::write_buffer` calls (per-draw slab, frame uniforms, cluster params) happen
+    /// during per-view callback passes. Since all writes are issued BEFORE the single submit, wgpu
+    /// guarantees they are visible to every GPU command in that submit. Each view owns its own
+    /// per-draw slab buffer (keyed by [`OcclusionViewId`]), so views never compete for buffer
+    /// space.
     ///
-    /// `views` is borrowed for the duration of execution (callers can pass a stack-allocated
-    /// one-element array or reuse a [`Vec`] through `as_mut_slice()` to avoid allocating a fresh
-    /// [`Vec`] each frame for single-view paths).
+    /// ## Per-view frame plan
     ///
-    /// Swapchain acquisition routes through [`GpuContext::acquire_with_recovery`], which uses the
-    /// window stored inside `gpu` for size queries. Headless contexts have no window and no
-    /// swapchain views (the headless driver substitutes `Swapchain` for `OffscreenRt` upstream),
-    /// so this path never reaches the swapchain branch in headless mode.
+    /// A [`super::super::frame_params::PerViewFramePlanSlot`] is inserted into each view's
+    /// per-view blackboard carrying the per-view `@group(0)` frame bind group and uniform buffer.
     pub fn execute_multi_view<'a>(
         &mut self,
         gpu: &mut GpuContext,
@@ -166,33 +196,30 @@ impl CompiledRenderGraph {
             .iter()
             .any(|v| matches!(v.target, FrameViewTarget::Swapchain));
 
-        // Acquire order: keep [`helpers::SurfaceTexturePresentGuard`] in the **first** tuple slot so
-        // it is dropped **last** (tuple fields drop in reverse order): backbuffer views release
-        // first, then `present()` runs — safe on `Err`, panic unwind, or success.
-        let (_swapchain_present_guard, backbuffer_view_holder): (
-            helpers::SurfaceTexturePresentGuard,
+        // Surface acquire + automatic present-on-drop via SwapchainScope.
+        //
+        // The scope holds the [`wgpu::SurfaceTexture`] for the entire frame and presents it on
+        // drop, so the wgpu Vulkan acquire semaphore is returned to the pool whether the frame
+        // succeeds, errors, or panics. Local `backbuffer_view_holder` is dropped before
+        // `_swapchain_scope` to ensure all views into the surface texture are released first.
+        let (_swapchain_scope, backbuffer_view_holder): (
+            super::super::swapchain_scope::SwapchainScope,
             Option<wgpu::TextureView>,
-        ) = match helpers::acquire_swapchain_for_multi_view_if_needed(
+        ) = match super::super::swapchain_scope::SwapchainScope::enter(
             needs_swapchain,
             self.needs_surface_acquire,
             gpu,
         )? {
-            helpers::MultiViewSwapchainAcquire::NotNeeded => {
-                (helpers::SurfaceTexturePresentGuard::none(), None)
+            super::super::swapchain_scope::SwapchainEnterOutcome::NotNeeded => {
+                (super::super::swapchain_scope::SwapchainScope::none(), None)
             }
-            helpers::MultiViewSwapchainAcquire::SkipPresent => return Ok(()),
-            helpers::MultiViewSwapchainAcquire::Acquired {
-                frame,
-                backbuffer_view,
-            } => (
-                helpers::SurfaceTexturePresentGuard::new(frame),
-                Some(backbuffer_view),
-            ),
+            super::super::swapchain_scope::SwapchainEnterOutcome::SkipFrame => return Ok(()),
+            super::super::swapchain_scope::SwapchainEnterOutcome::Acquired(scope) => {
+                let bb = scope.backbuffer_view().cloned();
+                (scope, bb)
+            }
         };
 
-        // `resolve_view_from_target` and submits need `&mut GpuContext` while passes need `&Device`,
-        // `&GpuLimits`, and `&Arc<Queue>`. Those cannot be borrowed directly from `gpu` alongside
-        // the mutable context borrow, so we hold refcounted clones for the frame (cheap atomics).
         let device_arc = gpu.device().clone();
         let queue_arc = gpu.queue().clone();
         let limits_arc = gpu.limits().clone();
@@ -200,6 +227,8 @@ impl CompiledRenderGraph {
         let gpu_limits = limits_arc.as_ref();
 
         backend.transient_pool_mut().begin_generation();
+
+        let n_views = views.len();
 
         let mut mv_ctx = MultiViewExecutionContext {
             gpu,
@@ -213,13 +242,143 @@ impl CompiledRenderGraph {
 
         let mut transient_by_key: HashMap<GraphResolveKey, GraphResolvedResources> = HashMap::new();
 
-        self.execute_multi_view_frame_global_passes(&mut mv_ctx, views, &mut transient_by_key)?;
+        // ── Frame-global pass (optional) ─────────────────────────────────────────────────────
+        let frame_global_cmd =
+            self.encode_frame_global_passes(&mut mv_ctx, views, &mut transient_by_key)?;
 
-        // Per-view: separate encoder + submit so queue writes before each submit apply only to this view.
-        for view in views.iter_mut() {
-            self.execute_multi_view_submit_for_one_view(&mut mv_ctx, view, &mut transient_by_key)?;
+        // ── Per-view recording (no submit per view) ──────────────────────────────────────────
+        // Serial vs parallel recording is controlled by `backend.record_parallelism`.
+        // `PerViewParallel` requires passes to be `Send` (enforced by PassNode bounds) and
+        // the mutable pass access to be safe across threads. Currently we record serially and
+        // note that full rayon parallelism requires stateless pass state or per-view pass clones.
+        let _record_parallelism = mv_ctx.backend.record_parallelism;
+        let mut per_view_cmds: Vec<wgpu::CommandBuffer> = Vec::with_capacity(n_views);
+        let mut per_view_occlusion_info: Vec<(
+            OcclusionViewId,
+            super::super::frame_params::HostCameraFrame,
+        )> = Vec::with_capacity(n_views);
+
+        for (view_idx, view) in views.iter_mut().enumerate() {
+            let occlusion_view = view.occlusion_view_id();
+            let host_camera = view.host_camera;
+
+            // Determine per-view viewport and stereo for per-view frame/cluster state.
+            let (view_viewport, view_stereo) = match &view.target {
+                FrameViewTarget::ExternalMultiview(ext) => {
+                    let stereo = host_camera.vr_active && host_camera.stereo_views.is_some();
+                    (ext.extent_px, stereo)
+                }
+                FrameViewTarget::OffscreenRt(ext) => (ext.extent_px, false),
+                FrameViewTarget::Swapchain => (mv_ctx.gpu.surface_extent_px(), false),
+            };
+
+            // Ensure per-view cluster buffers and @group(0) bind group exist for this view.
+            let per_view_frame_bg_and_buf = mv_ctx
+                .backend
+                .frame_resources
+                .per_view_frame_or_create(occlusion_view, device, view_viewport, view_stereo)
+                .map(|state| {
+                    (
+                        state.frame_bind_group.clone(),
+                        state.frame_uniform_buffer.clone(),
+                    )
+                });
+
+            let cmd = self.encode_per_view_to_cmd(
+                &mut mv_ctx,
+                view,
+                view_idx,
+                &mut transient_by_key,
+                per_view_frame_bg_and_buf,
+            )?;
+            per_view_cmds.push(cmd);
+            per_view_occlusion_info.push((occlusion_view, host_camera));
         }
 
+        // ── Single submit ────────────────────────────────────────────────────────────────────
+        {
+            let target_is_swapchain = views
+                .iter()
+                .any(|v| matches!(v.target, FrameViewTarget::Swapchain));
+            let queue_ref: &wgpu::Queue = queue_arc.as_ref();
+
+            // Debug HUD overlay encodes into the last view's encoder (swapchain path).
+            // For simplicity with single-submit, we add a fresh encoder for the HUD.
+            let hud_cmd = if target_is_swapchain {
+                let Some(bb) = backbuffer_view_holder.as_ref() else {
+                    return Err(GraphExecuteError::MissingSwapchainView);
+                };
+                let viewport_px = mv_ctx.gpu.surface_extent_px();
+                let mut hud_encoder =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("render-graph-hud"),
+                    });
+                if let Err(e) = mv_ctx.backend.encode_debug_hud_overlay(
+                    device,
+                    queue_ref,
+                    &mut hud_encoder,
+                    bb,
+                    viewport_px,
+                ) {
+                    logger::warn!("debug HUD overlay: {e}");
+                }
+                Some(hud_encoder.finish())
+            } else {
+                None
+            };
+
+            let all_cmds = frame_global_cmd
+                .into_iter()
+                .chain(per_view_cmds)
+                .chain(hud_cmd);
+
+            mv_ctx
+                .gpu
+                .submit_tracked_frame_commands_batch(queue_ref, all_cmds);
+        }
+
+        // ── Post-submit hooks ────────────────────────────────────────────────────────────────
+        let pv_post: Vec<usize> = self.schedule.per_view_steps().map(|s| s.pass_idx).collect();
+        let fg_post: Vec<usize> = self
+            .schedule
+            .frame_global_steps()
+            .map(|s| s.pass_idx)
+            .collect();
+
+        // Frame-global post-submit (uses first view's occlusion slot).
+        if let Some((first_occlusion, first_hc)) = per_view_occlusion_info.first().copied() {
+            let mut post_ctx = PostSubmitContext {
+                device,
+                occlusion: &mut mv_ctx.backend.occlusion,
+                occlusion_view: first_occlusion,
+                host_camera: first_hc,
+            };
+            for &pass_idx in &fg_post {
+                self.passes[pass_idx]
+                    .post_submit(&mut post_ctx)
+                    .map_err(GraphExecuteError::Pass)?;
+            }
+        }
+
+        // Per-view post-submit.
+        for (view, (occlusion_view, host_camera)) in
+            views.iter().zip(per_view_occlusion_info.iter())
+        {
+            let _ = view;
+            let mut post_ctx = PostSubmitContext {
+                device,
+                occlusion: &mut mv_ctx.backend.occlusion,
+                occlusion_view: *occlusion_view,
+                host_camera: *host_camera,
+            };
+            for &pass_idx in &pv_post {
+                self.passes[pass_idx]
+                    .post_submit(&mut post_ctx)
+                    .map_err(GraphExecuteError::Pass)?;
+            }
+        }
+
+        // ── Transient cleanup ────────────────────────────────────────────────────────────────
         {
             let pool = mv_ctx.backend.transient_pool_mut();
             for (_, resources) in transient_by_key {
@@ -234,13 +393,20 @@ impl CompiledRenderGraph {
         Ok(())
     }
 
-    /// One per-view encoder, per-view [`PassPhase::PerView`] passes, submit, and Hi-Z bookkeeping.
-    fn execute_multi_view_submit_for_one_view(
+    /// Encodes one per-view pass into a command buffer and returns it without submitting.
+    ///
+    /// The caller is responsible for submitting the returned buffer (with all other per-view
+    /// buffers) in a single [`wgpu::Queue::submit`] call after all per-view encoding is done.
+    ///
+    /// `per_view_frame_bg_and_buf` is the per-view `@group(0)` bind group + uniform buffer.
+    fn encode_per_view_to_cmd(
         &mut self,
         mv_ctx: &mut MultiViewExecutionContext<'_>,
         view: &mut FrameView<'_>,
+        view_idx: usize,
         transient_by_key: &mut HashMap<GraphResolveKey, GraphResolvedResources>,
-    ) -> Result<(), GraphExecuteError> {
+        per_view_frame_bg_and_buf: Option<(std::sync::Arc<wgpu::BindGroup>, wgpu::Buffer)>,
+    ) -> Result<wgpu::CommandBuffer, GraphExecuteError> {
         profiling::scope!("graph::per_view");
         let MultiViewExecutionContext {
             gpu,
@@ -255,24 +421,13 @@ impl CompiledRenderGraph {
         let prefetched = view.prefetched_world_mesh_draws.take();
         let draw_filter = view.draw_filter.clone();
         let host_camera = view.host_camera;
-        let target_is_swapchain = matches!(view.target, FrameViewTarget::Swapchain);
 
-        // Create the encoder and open the GPU profiler query before `resolve_view_from_target`
-        // to avoid a double mutable borrow of `gpu`: `resolved` holds lifetime references into
-        // `gpu` (e.g. `depth_texture`), and `gpu_profiler_mut()` also borrows `gpu`. By opening
-        // the query first (which borrows gpu only transiently via the method call chain), then
-        // releasing that borrow before `resolve_view_from_target` takes its borrow, and only
-        // closing the query after the inner block where `resolved` is last used (NLL releases the
-        // borrow there), the two exclusive borrows are kept non-overlapping.
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("render-graph-per-view"),
         });
         let gpu_query = gpu
             .gpu_profiler_mut()
             .map(|p| p.begin_query("graph::per_view", &mut encoder));
-        // Take the profiler out before `resolve_view_from_target` borrows `gpu` so the
-        // per-pass loop can drive the profiler via a local handle without conflicting with the
-        // lifetime of `resolved`.
         let mut pass_profiler = gpu.take_gpu_profiler();
 
         let resolved = Self::resolve_view_from_target(&view.target, gpu, backbuffer_view_holder)?;
@@ -317,6 +472,7 @@ impl CompiledRenderGraph {
         self.resolve_imported_textures(&resolved, resolved_resources);
         self.resolve_imported_buffers(&backend.frame_resources, &resolved, resolved_resources);
         let graph_resources: &GraphResolvedResources = &*resolved_resources;
+
         {
             let mut frame_params = helpers::frame_render_params_from_resolved(
                 scene,
@@ -324,50 +480,58 @@ impl CompiledRenderGraph {
                 &resolved,
                 host_camera,
                 draw_filter,
-                prefetched,
             );
-            helpers::populate_forward_msaa_from_graph_resources(
-                &mut frame_params,
+            // Per-view blackboard: seed with prefetched draws, ring plan, and MSAA views.
+            let mut view_blackboard = Blackboard::new();
+
+            // Resolve and insert MSAA views (replaces the removed FrameRenderParams MSAA fields).
+            if let Some(msaa_views) = helpers::resolve_forward_msaa_views_from_graph_resources(
+                &frame_params,
                 Some(graph_resources),
                 self.main_graph_msaa_transient_handles,
-            );
-            for &pass_idx in &self.per_view_pass_indices {
-                let pass = &mut self.passes[pass_idx];
-                profiling::scope!("graph::pass", pass.name());
+            ) {
+                view_blackboard.insert::<MsaaViewsSlot>(msaa_views);
+            }
+
+            if let Some(draws) = prefetched {
+                view_blackboard.insert::<PrefetchedWorldMeshDrawsSlot>(draws);
+            }
+            // Seed per-view frame plan so the prepare pass can write frame uniforms to the
+            // correct per-view buffer and bind the right @group(0) bind group.
+            if let Some((frame_bg, frame_buf)) = per_view_frame_bg_and_buf.clone() {
+                view_blackboard.insert::<PerViewFramePlanSlot>(PerViewFramePlan {
+                    frame_bind_group: frame_bg,
+                    frame_uniform_buffer: frame_buf,
+                    view_idx,
+                });
+            }
+
+            // Collect indices from the single FrameSchedule source of truth.
+            let per_view_indices: Vec<usize> =
+                self.schedule.per_view_steps().map(|s| s.pass_idx).collect();
+
+            for &pass_idx in &per_view_indices {
+                let pass_name = self.passes[pass_idx].name().to_string();
+                profiling::scope!("graph::pass", pass_name.as_str());
+
+                // Open the GPU profiler query before calling execute_pass_node so we can
+                // avoid capturing `encoder` in a closure while also passing it mutably.
                 let pass_query = pass_profiler
                     .as_mut()
-                    .map(|p| p.begin_query(pass.name(), &mut encoder));
-                if pass.graph_managed_raster() {
-                    let template = helpers::pass_info_raster_template(&self.pass_info, pass_idx)?;
-                    let mut ctx = GraphRasterPassContext {
-                        device,
-                        gpu_limits,
-                        queue: queue_arc,
-                        backbuffer: resolved.backbuffer,
-                        depth_view: Some(resolved.depth_view),
-                        frame: Some(&mut frame_params),
-                        graph_resources: Some(graph_resources),
-                    };
-                    helpers::execute_graph_managed_raster_pass(
-                        pass.as_mut(),
-                        &template,
-                        graph_resources,
-                        &mut encoder,
-                        &mut ctx,
-                    )?;
-                } else {
-                    let mut ctx = RenderPassContext {
-                        device,
-                        gpu_limits,
-                        queue: queue_arc,
-                        encoder: &mut encoder,
-                        backbuffer: resolved.backbuffer,
-                        depth_view: Some(resolved.depth_view),
-                        frame: Some(&mut frame_params),
-                        graph_resources: Some(graph_resources),
-                    };
-                    pass.execute(&mut ctx)?;
-                }
+                    .map(|p| p.begin_query(pass_name.as_str(), &mut encoder));
+
+                self.execute_pass_node(
+                    pass_idx,
+                    &resolved,
+                    graph_resources,
+                    &mut frame_params,
+                    &mut view_blackboard,
+                    &mut encoder,
+                    device,
+                    gpu_limits,
+                    queue_arc,
+                )?;
+
                 if let Some(q) = pass_query {
                     if let Some(p) = pass_profiler.as_mut() {
                         p.end_query(&mut encoder, q);
@@ -376,7 +540,6 @@ impl CompiledRenderGraph {
             }
         }
 
-        // Restore the profiler before closing the frame-level query.
         gpu.restore_gpu_profiler(pass_profiler);
         if let Some(query) = gpu_query {
             if let Some(prof) = gpu.gpu_profiler_mut() {
@@ -384,46 +547,20 @@ impl CompiledRenderGraph {
                 prof.resolve_queries(&mut encoder);
             }
         }
-        if target_is_swapchain {
-            let Some(bb) = backbuffer_view_holder.as_ref() else {
-                return Err(GraphExecuteError::MissingSwapchainView);
-            };
-            let viewport_px = gpu.surface_extent_px();
-            let queue_ref: &wgpu::Queue = queue_arc.as_ref();
-            if let Err(e) =
-                backend.encode_debug_hud_overlay(device, queue_ref, &mut encoder, bb, viewport_px)
-            {
-                logger::warn!("debug HUD overlay: {e}");
-            }
-            let cmd = encoder.finish();
-            gpu.submit_tracked_frame_commands_with_queue(queue_ref, cmd);
-        } else {
-            let cmd = encoder.finish();
-            gpu.submit_tracked_frame_commands(cmd);
-        }
-
-        let occlusion_view = view.occlusion_view_id();
-        let mut post_ctx = PostSubmitContext {
-            device,
-            occlusion: &mut backend.occlusion,
-            occlusion_view,
-            host_camera: view.host_camera,
-        };
-        for &pass_idx in &self.per_view_pass_indices {
-            self.passes[pass_idx]
-                .post_submit(&mut post_ctx)
-                .map_err(GraphExecuteError::Pass)?;
-        }
-        Ok(())
+        // Return the encoded command buffer WITHOUT submitting; the caller handles single submit.
+        Ok(encoder.finish())
     }
 
-    /// Runs [`PassPhase::FrameGlobal`] passes once per tick using the first view for host/scene context.
-    fn execute_multi_view_frame_global_passes(
+    /// Encodes [`super::super::pass::PassPhase::FrameGlobal`] passes into a command buffer.
+    ///
+    /// Returns `None` when there are no frame-global passes (nothing to submit for this phase).
+    /// The caller is responsible for including the returned buffer in the single-submit batch.
+    fn encode_frame_global_passes(
         &mut self,
         mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &[FrameView<'_>],
         transient_by_key: &mut HashMap<GraphResolveKey, GraphResolvedResources>,
-    ) -> Result<(), GraphExecuteError> {
+    ) -> Result<Option<wgpu::CommandBuffer>, GraphExecuteError> {
         profiling::scope!("graph::frame_global");
         let MultiViewExecutionContext {
             gpu,
@@ -435,8 +572,8 @@ impl CompiledRenderGraph {
             backbuffer_view_holder,
         } = mv_ctx;
 
-        if self.frame_global_pass_indices.is_empty() {
-            return Ok(());
+        if self.schedule.frame_global_steps().next().is_none() {
+            return Ok(None);
         }
         let first = views.first().ok_or(GraphExecuteError::NoViewsInBatch)?;
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -445,11 +582,8 @@ impl CompiledRenderGraph {
         let gpu_query = gpu
             .gpu_profiler_mut()
             .map(|p| p.begin_query("graph::frame_global", &mut encoder));
-        // Take the profiler out before `resolve_view_from_target` borrows `gpu` through the
-        // returned `ResolvedView`. This lets the per-pass loop drive the profiler via a local
-        // handle without conflicting with the lifetime of `resolved`.
         let mut pass_profiler = gpu.take_gpu_profiler();
-        // Frame-global phase (e.g. mesh deform): use first view for host camera / scene context.
+
         {
             let resolved =
                 Self::resolve_view_from_target(&first.target, gpu, backbuffer_view_holder)?;
@@ -494,6 +628,7 @@ impl CompiledRenderGraph {
             self.resolve_imported_textures(&resolved, resolved_resources);
             self.resolve_imported_buffers(&backend.frame_resources, &resolved, resolved_resources);
             let graph_resources: &GraphResolvedResources = &*resolved_resources;
+
             {
                 let mut frame_params = helpers::frame_render_params_from_resolved(
                     scene,
@@ -501,51 +636,39 @@ impl CompiledRenderGraph {
                     &resolved,
                     first.host_camera,
                     first.draw_filter.clone(),
-                    None,
                 );
-                helpers::populate_forward_msaa_from_graph_resources(
-                    &mut frame_params,
-                    Some(graph_resources),
-                    self.main_graph_msaa_transient_handles,
-                );
-                for &pass_idx in &self.frame_global_pass_indices {
-                    let pass = &mut self.passes[pass_idx];
-                    profiling::scope!("graph::pass", pass.name());
+                // Frame-global blackboard (one per tick).
+                let mut frame_blackboard = Blackboard::new();
+                // MSAA views are per-view, not frame-global; seed in per-view blackboard only.
+                // Frame-global passes (e.g. mesh deform) don't need MSAA views.
+
+                // Collect from FrameSchedule (single source of truth).
+                let fg_indices: Vec<usize> = self
+                    .schedule
+                    .frame_global_steps()
+                    .map(|s| s.pass_idx)
+                    .collect();
+
+                for &pass_idx in &fg_indices {
+                    let pass_name = self.passes[pass_idx].name().to_string();
+                    profiling::scope!("graph::pass", pass_name.as_str());
+
                     let pass_query = pass_profiler
                         .as_mut()
-                        .map(|p| p.begin_query(pass.name(), &mut encoder));
-                    if pass.graph_managed_raster() {
-                        let template =
-                            helpers::pass_info_raster_template(&self.pass_info, pass_idx)?;
-                        let mut ctx = GraphRasterPassContext {
-                            device,
-                            gpu_limits,
-                            queue: queue_arc,
-                            backbuffer: None,
-                            depth_view: None,
-                            frame: Some(&mut frame_params),
-                            graph_resources: Some(graph_resources),
-                        };
-                        helpers::execute_graph_managed_raster_pass(
-                            pass.as_mut(),
-                            &template,
-                            graph_resources,
-                            &mut encoder,
-                            &mut ctx,
-                        )?;
-                    } else {
-                        let mut ctx = RenderPassContext {
-                            device,
-                            gpu_limits,
-                            queue: queue_arc,
-                            encoder: &mut encoder,
-                            backbuffer: None,
-                            depth_view: None,
-                            frame: Some(&mut frame_params),
-                            graph_resources: Some(graph_resources),
-                        };
-                        pass.execute(&mut ctx)?;
-                    }
+                        .map(|p| p.begin_query(pass_name.as_str(), &mut encoder));
+
+                    self.execute_pass_node(
+                        pass_idx,
+                        &resolved,
+                        graph_resources,
+                        &mut frame_params,
+                        &mut frame_blackboard,
+                        &mut encoder,
+                        device,
+                        gpu_limits,
+                        queue_arc,
+                    )?;
+
                     if let Some(q) = pass_query {
                         if let Some(p) = pass_profiler.as_mut() {
                             p.end_query(&mut encoder, q);
@@ -554,7 +677,7 @@ impl CompiledRenderGraph {
                 }
             }
         }
-        // Restore the profiler before closing the frame-level query.
+
         gpu.restore_gpu_profiler(pass_profiler);
         if let Some(query) = gpu_query {
             if let Some(prof) = gpu.gpu_profiler_mut() {
@@ -562,26 +685,102 @@ impl CompiledRenderGraph {
                 prof.resolve_queries(&mut encoder);
             }
         }
-        let cmd = encoder.finish();
-        gpu.submit_tracked_frame_commands(cmd);
+        // Return the encoded command buffer WITHOUT submitting; the caller handles single submit.
+        Ok(Some(encoder.finish()))
+    }
 
-        let occlusion_view = first.occlusion_view_id();
-        let host_camera = first.host_camera;
-        let mut post_ctx = PostSubmitContext {
-            device,
-            occlusion: &mut backend.occlusion,
-            occlusion_view,
-            host_camera,
-        };
-        for &pass_idx in &self.frame_global_pass_indices {
-            self.passes[pass_idx]
-                .post_submit(&mut post_ctx)
-                .map_err(GraphExecuteError::Pass)?;
+    /// Dispatches one pass node to its correct execution path.
+    ///
+    /// - `Raster` → opens `wgpu::RenderPass` from template, calls `record_raster`.
+    /// - `Compute` → calls `record_compute` with raw encoder.
+    /// - `Copy` → calls `record_copy` with raw encoder.
+    /// - `Callback` → calls `run_callback` (no encoder).
+    #[allow(clippy::too_many_arguments)]
+    fn execute_pass_node<'a>(
+        &mut self,
+        pass_idx: usize,
+        resolved: &'a ResolvedView<'a>,
+        graph_resources: &'a GraphResolvedResources,
+        frame_params: &mut crate::render_graph::frame_params::FrameRenderParams<'a>,
+        blackboard: &mut Blackboard,
+        // `encoder` intentionally uses no named lifetime so each call's borrow
+        // ends at the call boundary, avoiding cross-iteration borrow conflicts.
+        encoder: &mut wgpu::CommandEncoder,
+        device: &'a wgpu::Device,
+        gpu_limits: &'a crate::gpu::GpuLimits,
+        queue_arc: &'a std::sync::Arc<wgpu::Queue>,
+    ) -> Result<(), GraphExecuteError> {
+        let kind = self.passes[pass_idx].kind();
+        match kind {
+            PassKind::Raster => {
+                let template = helpers::pass_info_raster_template(&self.pass_info, pass_idx)?;
+                let mut ctx = RasterPassCtx {
+                    device,
+                    gpu_limits,
+                    queue: queue_arc,
+                    backbuffer: resolved.backbuffer,
+                    depth_view: Some(resolved.depth_view),
+                    frame: Some(frame_params),
+                    graph_resources: Some(graph_resources),
+                    blackboard,
+                };
+                helpers::execute_graph_raster_pass_node(
+                    &mut self.passes[pass_idx],
+                    &template,
+                    graph_resources,
+                    encoder,
+                    &mut ctx,
+                )?;
+            }
+            PassKind::Compute => {
+                // encoder is moved into ComputePassCtx; pass uses ctx.encoder.
+                let mut ctx = ComputePassCtx {
+                    device,
+                    gpu_limits,
+                    queue: queue_arc,
+                    encoder,
+                    depth_view: Some(resolved.depth_view),
+                    frame: Some(frame_params),
+                    graph_resources: Some(graph_resources),
+                    blackboard,
+                };
+                self.passes[pass_idx]
+                    .record_compute(&mut ctx)
+                    .map_err(GraphExecuteError::Pass)?;
+            }
+            PassKind::Copy => {
+                let mut ctx = ComputePassCtx {
+                    device,
+                    gpu_limits,
+                    queue: queue_arc,
+                    encoder,
+                    depth_view: Some(resolved.depth_view),
+                    frame: Some(frame_params),
+                    graph_resources: Some(graph_resources),
+                    blackboard,
+                };
+                self.passes[pass_idx]
+                    .record_copy(&mut ctx)
+                    .map_err(GraphExecuteError::Pass)?;
+            }
+            PassKind::Callback => {
+                let mut ctx = CallbackCtx {
+                    device,
+                    gpu_limits,
+                    queue: queue_arc,
+                    frame: Some(frame_params),
+                    graph_resources: Some(graph_resources),
+                    blackboard,
+                };
+                self.passes[pass_idx]
+                    .run_callback(&mut ctx)
+                    .map_err(GraphExecuteError::Pass)?;
+            }
         }
         Ok(())
     }
 
-    #[allow(clippy::map_entry)] // insert-on-miss pattern is clearer than Entry API here
+    #[allow(clippy::map_entry)]
     fn resolve_transient_textures(
         &self,
         device: &wgpu::Device,
@@ -711,13 +910,10 @@ impl CompiledRenderGraph {
         resources: &mut GraphResolvedResources,
     ) {
         let frame_gpu = frame_resources.frame_gpu();
-        let cluster_refs = frame_gpu.and_then(|fgpu| {
-            fgpu.cluster_cache.get_buffers(
-                resolved.viewport_px,
-                crate::backend::CLUSTER_COUNT_Z,
-                resolved.multiview_stereo,
-            )
-        });
+        // Use per-view cluster refs so each view resolves its own independent cluster buffers.
+        let cluster_refs = frame_resources
+            .per_view_frame(resolved.occlusion_view)
+            .and_then(|state| state.cluster_buffer_refs());
         for (idx, import) in self.imported_buffers.iter().enumerate() {
             let buffer = match &import.source {
                 BufferImportSource::BackendFrameResource(BackendFrameBufferKind::Lights) => {
@@ -738,7 +934,7 @@ impl CompiledRenderGraph {
                     .map(|refs| refs.cluster_light_indices.clone()),
                 BufferImportSource::BackendFrameResource(BackendFrameBufferKind::PerDrawSlab) => {
                     frame_resources
-                        .per_draw()
+                        .per_view_per_draw(resolved.occlusion_view)
                         .map(|per_draw| per_draw.per_draw_storage.clone())
                 }
                 BufferImportSource::External | BufferImportSource::PingPong(_) => None,
@@ -782,12 +978,6 @@ impl CompiledRenderGraph {
                     offscreen_write_render_texture_asset_id: None,
                     occlusion_view: OcclusionViewId::Main,
                     sample_count,
-                    msaa_color_view: None,
-                    msaa_depth_view: None,
-                    msaa_depth_resolve_r32_view: None,
-                    msaa_depth_is_array: false,
-                    msaa_stereo_depth_layer_views: None,
-                    msaa_stereo_r32_layer_views: None,
                 })
             }
             FrameViewTarget::ExternalMultiview(ext) => {
@@ -802,12 +992,6 @@ impl CompiledRenderGraph {
                     offscreen_write_render_texture_asset_id: None,
                     occlusion_view: OcclusionViewId::Main,
                     sample_count,
-                    msaa_color_view: None,
-                    msaa_depth_view: None,
-                    msaa_depth_resolve_r32_view: None,
-                    msaa_depth_is_array: false,
-                    msaa_stereo_depth_layer_views: None,
-                    msaa_stereo_r32_layer_views: None,
                 })
             }
             FrameViewTarget::OffscreenRt(ext) => Ok(ResolvedView {
@@ -822,12 +1006,6 @@ impl CompiledRenderGraph {
                     ext.render_texture_asset_id,
                 ),
                 sample_count: 1,
-                msaa_color_view: None,
-                msaa_depth_view: None,
-                msaa_depth_resolve_r32_view: None,
-                msaa_depth_is_array: false,
-                msaa_stereo_depth_layer_views: None,
-                msaa_stereo_r32_layer_views: None,
             }),
         }
     }

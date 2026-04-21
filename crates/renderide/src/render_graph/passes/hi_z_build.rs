@@ -1,9 +1,9 @@
 //! Builds a CPU-readable hierarchical depth pyramid from the main depth attachment after the forward pass.
 
 use crate::backend::HiZBuildInput;
-use crate::render_graph::context::{PostSubmitContext, RenderPassContext};
+use crate::render_graph::context::{ComputePassCtx, PostSubmitContext};
 use crate::render_graph::error::{RenderPassError, SetupError};
-use crate::render_graph::pass::{PassBuilder, RenderPass};
+use crate::render_graph::pass::{ComputePass, PassBuilder};
 use crate::render_graph::resources::{
     BufferAccess, BufferHandle, ImportedTextureHandle, StorageAccess, TextureAccess,
 };
@@ -32,7 +32,7 @@ impl HiZBuildPass {
     }
 }
 
-impl RenderPass for HiZBuildPass {
+impl ComputePass for HiZBuildPass {
     fn name(&self) -> &str {
         "HiZBuild"
     }
@@ -56,10 +56,10 @@ impl RenderPass for HiZBuildPass {
         Ok(())
     }
 
-    fn execute(&mut self, ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError> {
-        let Some(_depth) = ctx.depth_view else {
+    fn record(&mut self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
+        if ctx.depth_view.is_none() {
             return Ok(());
-        };
+        }
         let Some(frame) = ctx.frame.as_mut() else {
             return Ok(());
         };

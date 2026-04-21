@@ -1,60 +1,26 @@
-//! [`RenderPass`] trait plus setup-time pass builders.
+//! Setup-time pass builder: resource access declarations and attachment intent.
+//!
+//! [`PassBuilder`] is the single entry-point a pass's `setup` method uses to declare:
+//! - What kind of GPU work it performs ([`PassKind`] via [`PassBuilder::raster`],
+//!   [`PassBuilder::compute`], [`PassBuilder::copy`], or [`PassBuilder::callback`]).
+//! - Which resources it reads or writes (textures/buffers, transient or imported).
+//! - For raster passes: color and depth-stencil attachments with their load/store ops.
+//! - Whether the pass is exempt from dead-pass culling ([`PassBuilder::cull_exempt`]).
 
 use std::num::NonZeroU32;
 
-use super::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
-use super::context::{GraphRasterPassContext, PostSubmitContext, RenderPassContext};
-use super::error::{RenderPassError, SetupError};
-use super::resources::{
+use super::node::PassKind;
+use super::setup::{PassSetup, RasterColorAttachmentSetup, RasterDepthAttachmentSetup};
+use crate::render_graph::error::SetupError;
+use crate::render_graph::resources::{
     BufferAccess, BufferHandle, BufferResourceHandle, ImportedBufferHandle, ImportedTextureHandle,
-    ResourceAccess, TextureAccess, TextureAttachmentResolve, TextureAttachmentTarget,
-    TextureHandle, TextureResourceHandle,
+    ResourceAccess, StorageAccess, TextureAccess, TextureAttachmentResolve,
+    TextureAttachmentTarget, TextureHandle, TextureResourceHandle,
 };
 
-/// Whether a render pass runs once per frame or once per view in a multi-view tick.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum PassPhase {
-    /// Runs once per frame regardless of view count (e.g. mesh deform).
-    FrameGlobal,
-    /// Runs once per view (e.g. clustered light compute, forward raster, Hi-Z build).
-    PerView,
-}
-
-/// Command domain declared by a pass during setup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum PassKind {
-    /// Raster pass with at least one color or depth attachment declaration.
-    Raster,
-    /// Compute pass.
-    Compute,
-    /// Copy-only pass.
-    Copy,
-    /// Callback/side-effect pass without graph-visible GPU resources.
-    Callback,
-}
-
-/// Group execution scope. Frame-global groups run once per tick; per-view groups run once per
-/// [`super::FrameView`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum GroupScope {
-    /// Runs once per tick.
-    FrameGlobal,
-    /// Runs once for each frame view.
-    PerView,
-}
-
-impl From<PassPhase> for GroupScope {
-    fn from(value: PassPhase) -> Self {
-        match value {
-            PassPhase::FrameGlobal => Self::FrameGlobal,
-            PassPhase::PerView => Self::PerView,
-        }
-    }
-}
-
-/// Compiled setup data for one pass.
-#[derive(Clone, Debug)]
-pub(crate) struct PassSetup {
+/// Setup-time builder used by a pass to declare resource access and command kind.
+pub struct PassBuilder<'a> {
+    pub(crate) name: &'a str,
     pub(crate) kind: PassKind,
     pub(crate) accesses: Vec<ResourceAccess>,
     pub(crate) color_attachments: Vec<RasterColorAttachmentSetup>,
@@ -63,53 +29,8 @@ pub(crate) struct PassSetup {
     pub(crate) cull_exempt: bool,
 }
 
-impl PassSetup {
-    pub(crate) fn validate(self) -> Result<Self, SetupError> {
-        let has_attachment = !self.color_attachments.is_empty()
-            || self.depth_stencil_attachment.is_some()
-            || self.accesses.iter().any(ResourceAccess::is_attachment);
-        match self.kind {
-            PassKind::Raster if !has_attachment => Err(SetupError::RasterWithoutAttachments),
-            PassKind::Compute | PassKind::Copy if has_attachment => {
-                Err(SetupError::NonRasterPassHasAttachment)
-            }
-            PassKind::Callback if !self.accesses.is_empty() => {
-                Err(SetupError::CallbackPassHasAccesses)
-            }
-            _ => Ok(self),
-        }
-    }
-}
-
-/// Setup-time color attachment declaration.
-#[derive(Clone, Debug)]
-pub(crate) struct RasterColorAttachmentSetup {
-    pub(crate) target: TextureAttachmentTarget,
-    pub(crate) load: wgpu::LoadOp<wgpu::Color>,
-    pub(crate) store: wgpu::StoreOp,
-    pub(crate) resolve_to: Option<TextureAttachmentResolve>,
-}
-
-/// Setup-time depth/stencil attachment declaration.
-#[derive(Clone, Debug)]
-pub(crate) struct RasterDepthAttachmentSetup {
-    pub(crate) target: TextureAttachmentTarget,
-    pub(crate) depth: wgpu::Operations<f32>,
-    pub(crate) stencil: Option<wgpu::Operations<u32>>,
-}
-
-/// Setup-time builder used by a pass to declare resource access and command kind.
-pub struct PassBuilder<'a> {
-    name: &'a str,
-    kind: PassKind,
-    accesses: Vec<ResourceAccess>,
-    color_attachments: Vec<RasterColorAttachmentSetup>,
-    depth_stencil_attachment: Option<RasterDepthAttachmentSetup>,
-    multiview_mask: Option<NonZeroU32>,
-    cull_exempt: bool,
-}
-
 impl<'a> PassBuilder<'a> {
+    /// Creates a builder starting in [`PassKind::Callback`] kind (no-GPU default).
     pub(crate) fn new(name: &'a str) -> Self {
         Self {
             name,
@@ -153,6 +74,11 @@ impl<'a> PassBuilder<'a> {
     /// Declares this pass as copy-only.
     pub fn copy(&mut self) {
         self.kind = PassKind::Copy;
+    }
+
+    /// Declares this pass as a callback (CPU-only, no encoder or GPU resources).
+    pub fn callback(&mut self) {
+        self.kind = PassKind::Callback;
     }
 
     /// Keeps the pass even when it has no graph-visible export.
@@ -244,7 +170,7 @@ impl<'a> PassBuilder<'a> {
         let reads = matches!(
             access,
             BufferAccess::Storage {
-                access: super::resources::StorageAccess::ReadWrite,
+                access: StorageAccess::ReadWrite,
                 ..
             }
         );
@@ -253,9 +179,9 @@ impl<'a> PassBuilder<'a> {
     }
 }
 
-/// Raster-pass setup helper. It records attachments and multiview state.
+/// Raster-pass setup helper that records attachments and multiview state.
 pub struct RasterPassBuilder<'b, 'a> {
-    parent: &'b mut PassBuilder<'a>,
+    pub(crate) parent: &'b mut PassBuilder<'a>,
 }
 
 impl RasterPassBuilder<'_, '_> {
@@ -382,68 +308,5 @@ impl RasterPassBuilder<'_, '_> {
     /// Declares a multiview render-pass mask.
     pub fn multiview(&mut self, mask: NonZeroU32) {
         self.parent.multiview_mask = Some(mask);
-    }
-}
-
-/// One node in the render graph.
-pub trait RenderPass: Send {
-    /// Stable name for logging and errors.
-    fn name(&self) -> &str;
-
-    /// Declares pass kind, resource accesses, and attachment intent.
-    fn setup(&mut self, builder: &mut PassBuilder<'_>) -> Result<(), SetupError>;
-
-    /// Records GPU commands for this pass into `ctx.encoder`.
-    ///
-    /// Runtime execution still routes through the existing command encoder while the graph-owned
-    /// resource allocator is brought online; setup data is already the source of scheduling truth.
-    fn execute(&mut self, ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError>;
-
-    /// Whether this raster pass expects the graph to open `wgpu::RenderPass` from setup data.
-    ///
-    /// Existing legacy raster passes return `false` until their encode helpers are ported.
-    fn graph_managed_raster(&self) -> bool {
-        false
-    }
-
-    /// Runtime multiview mask for a graph-owned raster pass.
-    fn graph_raster_multiview_mask(
-        &self,
-        _ctx: &GraphRasterPassContext<'_, '_>,
-        template: &RenderPassTemplate,
-    ) -> Option<NonZeroU32> {
-        template.multiview_mask
-    }
-
-    /// Runtime stencil operations for a graph-owned raster pass.
-    fn graph_raster_stencil_ops(
-        &self,
-        _ctx: &GraphRasterPassContext<'_, '_>,
-        depth: &DepthAttachmentTemplate,
-    ) -> Option<wgpu::Operations<u32>> {
-        depth.stencil
-    }
-
-    /// Records commands into a graph-owned raster pass.
-    fn execute_graph_raster(
-        &mut self,
-        _ctx: &mut GraphRasterPassContext<'_, '_>,
-        _rpass: &mut wgpu::RenderPass<'_>,
-    ) -> Result<(), RenderPassError> {
-        Ok(())
-    }
-
-    /// Scheduling phase for multi-view execution. Defaults to per-view.
-    fn phase(&self) -> PassPhase {
-        PassPhase::PerView
-    }
-
-    /// Runs after the encoder that contains this pass has been submitted to the queue.
-    ///
-    /// Used by passes that need to kick `map_async` on staging buffers written this frame
-    /// (e.g. Hi-Z readback). Default is a no-op. The graph calls this for every pass that was
-    /// scheduled in the submitted group.
-    fn post_submit(&mut self, _ctx: &mut PostSubmitContext<'_>) -> Result<(), RenderPassError> {
-        Ok(())
     }
 }

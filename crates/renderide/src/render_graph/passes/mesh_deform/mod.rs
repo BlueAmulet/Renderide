@@ -11,9 +11,9 @@ use std::fmt;
 use rayon::prelude::*;
 
 use crate::backend::mesh_deform::EntryNeed;
-use crate::render_graph::context::RenderPassContext;
+use crate::render_graph::context::ComputePassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
-use crate::render_graph::pass::{PassBuilder, PassPhase, RenderPass};
+use crate::render_graph::pass::{ComputePass, PassBuilder, PassPhase};
 use crate::resources::MeshPool;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 
@@ -44,11 +44,11 @@ impl fmt::Debug for MeshDeformPass {
 
 struct DeformWorkItem {
     space_id: RenderSpaceId,
-    /// [`StaticMeshRenderer::node_id`](crate::scene::StaticMeshRenderer::node_id) for GPU skin cache key.
+    /// [`crate::scene::StaticMeshRenderer::node_id`] for GPU skin cache key.
     node_id: i32,
     mesh: MeshDeformSnapshot,
     skinned: Option<Vec<i32>>,
-    /// [`StaticMeshRenderer::node_id`](crate::scene::StaticMeshRenderer::node_id) (SMR) for skinning fallbacks when a bone is unmapped.
+    /// [`crate::scene::StaticMeshRenderer::node_id`] (SMR) for skinning fallbacks when a bone is unmapped.
     smr_node_id: i32,
     blend_weights: Vec<f32>,
 }
@@ -149,8 +149,6 @@ impl MeshDeformPass {
         {
             let space_ids = &self.mesh_deform_space_ids_scratch;
             let chunks = &mut self.mesh_deform_chunks_scratch;
-            // Scope `scene` + `mesh_pool` so the rayon closure only captures `Sync` refs, not
-            // fat frame handles (non-`Sync` graph state).
             space_ids
                 .par_iter()
                 .copied()
@@ -168,7 +166,7 @@ impl MeshDeformPass {
     }
 }
 
-impl RenderPass for MeshDeformPass {
+impl ComputePass for MeshDeformPass {
     fn name(&self) -> &str {
         "MeshDeform"
     }
@@ -183,7 +181,7 @@ impl RenderPass for MeshDeformPass {
         PassPhase::FrameGlobal
     }
 
-    fn execute(&mut self, ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError> {
+    fn record(&mut self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
         let Some(frame) = ctx.frame.as_mut() else {
             return Ok(());
         };

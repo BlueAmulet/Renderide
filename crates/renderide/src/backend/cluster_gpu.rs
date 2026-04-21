@@ -20,6 +20,7 @@ pub const MAX_LIGHTS_PER_TILE: u32 = 64;
 pub const CLUSTER_PARAMS_UNIFORM_SIZE: u64 = 256;
 
 /// References to GPU buffers shared by the clustered light compute pass and raster `@group(0)`.
+#[derive(Clone, Copy)]
 pub struct ClusterBufferRefs<'a> {
     /// One `u32` count per cluster (compute writes; fragment reads plain `u32`; one thread per cluster).
     pub cluster_light_counts: &'a wgpu::Buffer,

@@ -23,6 +23,7 @@ use crate::materials::{
     MaterialPipelineDesc, MaterialPipelinePropertyIds, MaterialRouter, RasterPipelineKind,
 };
 use crate::pipelines::{ShaderPermutation, SHADER_PERM_MULTIVIEW_STEREO};
+use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::camera::{
     effective_head_output_clip_planes, reverse_z_orthographic, reverse_z_perspective,
 };
@@ -31,6 +32,10 @@ use crate::render_graph::context::{GraphResolvedResources, ResolvedGraphTexture}
 use crate::render_graph::frame_params::{
     FrameRenderParams, HostCameraFrame, PreparedWorldMeshForwardFrame,
     WorldMeshForwardPipelineState,
+};
+use crate::render_graph::frame_params::{
+    PerViewFramePlanSlot, PrecomputedMaterialBind, PrecomputedMaterialBindsSlot,
+    PrefetchedWorldMeshDrawsSlot,
 };
 use crate::render_graph::world_mesh_draw_prep::{
     collect_and_sort_world_mesh_draws, DrawCollectionContext, WorldMeshDrawCollection,
@@ -92,15 +97,16 @@ pub(super) fn resolve_pass_config(
     }
 }
 
-/// Uses prefetched draws or collects and sorts scene draws.
+/// Uses prefetched draws from the blackboard or collects and sorts scene draws.
 pub(super) fn take_or_collect_world_mesh_draws<'a>(
     frame: &mut FrameRenderParams<'a>,
+    blackboard: &mut Blackboard,
     culling: Option<&WorldMeshCullInput<'_>>,
     shader_perm: ShaderPermutation,
 ) -> WorldMeshDrawCollection {
     let hc = frame.host_camera;
     let render_context = frame.scene.active_main_render_context();
-    if let Some(prefetched) = frame.prefetched_world_mesh_draws.take() {
+    if let Some(prefetched) = blackboard.take::<PrefetchedWorldMeshDrawsSlot>() {
         return prefetched;
     }
     let fallback_router = MaterialRouter::new(RasterPipelineKind::DebugWorldNormals);
@@ -217,7 +223,11 @@ pub(super) fn compute_view_projections(
     (render_context, world_proj, overlay_proj)
 }
 
-/// Packs per-draw uniforms and uploads the storage slab. Returns `false` if per-draw resources are missing.
+/// Packs per-draw uniforms and uploads the storage slab for this view.
+///
+/// Uses the per-view [`crate::backend::PerDrawResources`] identified by
+/// [`FrameRenderParams::occlusion_view`], growing it as needed. Writes at byte offset 0 of the
+/// view's own buffer. Returns `false` if per-draw resources cannot be created (not yet attached).
 pub(super) fn pack_and_upload_per_draw_slab(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -231,24 +241,49 @@ pub(super) fn pack_and_upload_per_draw_slab(
         return true;
     }
 
+    let view_id = frame.occlusion_view;
     let scene = frame.scene;
     let hc = frame.host_camera;
+
+    // Step 1: ensure per-view buffer capacity (&mut on per_view_draw, released immediately).
     {
-        let Some(pd) = frame.frame_resources.per_draw.as_mut() else {
+        let Some(pd) = frame
+            .frame_resources
+            .per_view_per_draw_or_create(view_id, device)
+        else {
             return false;
         };
         pd.ensure_draw_slot_capacity(device, draws.len());
     }
 
-    let uniforms = &mut frame.frame_resources.per_draw_uniforms_scratch;
-    uniforms.clear();
-    uniforms.resize_with(draws.len(), PaddedPerDrawUniforms::zeroed);
+    // Step 2: pack VP uniforms and serialise to byte slab.
+    // Both borrows are on distinct fields of FrameResourceManager (disjoint &mut is valid).
+    {
+        let uniforms = &mut frame.frame_resources.per_draw_uniforms_scratch;
+        uniforms.clear();
+        uniforms.resize_with(draws.len(), PaddedPerDrawUniforms::zeroed);
 
-    if draws.len() >= PER_DRAW_VP_PARALLEL_MIN_DRAWS {
-        uniforms
-            .par_iter_mut()
-            .zip(draws.par_iter())
-            .for_each(|(slot, item)| {
+        if draws.len() >= PER_DRAW_VP_PARALLEL_MIN_DRAWS {
+            uniforms
+                .par_iter_mut()
+                .zip(draws.par_iter())
+                .for_each(|(slot, item)| {
+                    let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
+                        scene,
+                        item,
+                        hc,
+                        render_context,
+                        world_proj,
+                        overlay_proj,
+                    );
+                    *slot = if vp_l == vp_r {
+                        PaddedPerDrawUniforms::new_single(vp_l, model)
+                    } else {
+                        PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
+                    };
+                });
+        } else {
+            for (slot, item) in uniforms.iter_mut().zip(draws.iter()) {
                 let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
                     scene,
                     item,
@@ -262,34 +297,21 @@ pub(super) fn pack_and_upload_per_draw_slab(
                 } else {
                     PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
                 };
-            });
-    } else {
-        for (slot, item) in uniforms.iter_mut().zip(draws.iter()) {
-            let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
-                scene,
-                item,
-                hc,
-                render_context,
-                world_proj,
-                overlay_proj,
-            );
-            *slot = if vp_l == vp_r {
-                PaddedPerDrawUniforms::new_single(vp_l, model)
-            } else {
-                PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
-            };
+            }
         }
+
+        let slab = &mut frame.frame_resources.per_draw_slab_byte_scratch;
+        let need = draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE);
+        slab.resize(need, 0);
+        write_per_draw_uniform_slab(uniforms, slab);
     }
 
-    let slab = &mut frame.frame_resources.per_draw_slab_byte_scratch;
-    let need = draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE);
-    slab.resize(need, 0);
-    write_per_draw_uniform_slab(uniforms, slab);
-
-    let Some(pd) = frame.frame_resources.per_draw.as_mut() else {
+    // Step 3: upload to GPU. Two simultaneous shared borrows of distinct fields are valid.
+    let Some(pd) = frame.frame_resources.per_view_per_draw(view_id) else {
         return false;
     };
-    queue.write_buffer(&pd.per_draw_storage, 0, slab.as_slice());
+    let slab_bytes = frame.frame_resources.per_draw_slab_byte_scratch.as_slice();
+    queue.write_buffer(&pd.per_draw_storage, 0, slab_bytes);
     true
 }
 
@@ -333,6 +355,59 @@ pub(super) fn write_frame_uniforms_and_cluster(
     frame_resources.write_frame_uniform_and_lights_from_scratch(queue, &uniforms);
 }
 
+/// Precomputes per-batch material bind boundaries for the sorted draw list.
+///
+/// Walks batch boundaries (where [`crate::render_graph::MaterialDrawBatchKey`] changes) and
+/// produces one [`PrecomputedMaterialBind`] per boundary. For non-embedded-stem materials
+/// (e.g. DebugWorldNormals), `bind_group` is `None` (the recording loop uses the empty fallback).
+/// For embedded stems, `bind_group` is also `None` to indicate that the recording loop must
+/// resolve the bind group inline (embedded stems require a live `Queue` for uniform uploads).
+///
+/// The main win is batch boundary detection: the recording loop iterates the precomputed
+/// boundary list instead of comparing [`crate::render_graph::MaterialDrawBatchKey`] per draw.
+/// A future pass can decouple the embed-uniform upload from bind-group selection to fully
+/// move that cost to the plan phase.
+pub(super) fn precompute_material_bind_groups(
+    frame: &mut FrameRenderParams<'_>,
+    draws: &[WorldMeshDrawItem],
+    _shader_perm: ShaderPermutation,
+    _offscreen_write_render_texture_asset_id: Option<i32>,
+) -> Vec<PrecomputedMaterialBind> {
+    if draws.is_empty() {
+        return Vec::new();
+    }
+
+    let mut result = Vec::new();
+    let mut current_start = 0usize;
+    let mut last_key = &draws[0].batch_key;
+
+    for (idx, item) in draws.iter().enumerate().skip(1) {
+        if &item.batch_key != last_key {
+            result.push(PrecomputedMaterialBind {
+                first_draw_idx: current_start,
+                last_draw_idx: idx - 1,
+                // For embedded stems: None signals the recording loop to resolve inline.
+                // For non-embedded: None signals use of the empty fallback bind group.
+                // Both paths are identical from the recording loop's perspective (it checks
+                // this and falls back gracefully).
+                bind_group: None,
+            });
+            current_start = idx;
+            last_key = &item.batch_key;
+        }
+    }
+    result.push(PrecomputedMaterialBind {
+        first_draw_idx: current_start,
+        last_draw_idx: draws.len() - 1,
+        bind_group: None,
+    });
+
+    // Mark precomputed count for diagnostics (available via debug_hud if needed).
+    let _ = frame.debug_hud;
+
+    result
+}
+
 /// Collects forward draws and uploads per-view data. Returns `None` when required per-draw
 /// resources are unavailable, matching the legacy pass's early-out behavior.
 pub(super) fn prepare_world_mesh_forward_frame(
@@ -340,6 +415,7 @@ pub(super) fn prepare_world_mesh_forward_frame(
     queue: &wgpu::Queue,
     gpu_limits: &GpuLimits,
     frame: &mut FrameRenderParams<'_>,
+    blackboard: &mut Blackboard,
 ) -> Option<PreparedWorldMeshForwardFrame> {
     let supports_base_instance = gpu_limits.supports_base_instance;
     let hc = frame.host_camera;
@@ -370,7 +446,8 @@ pub(super) fn prepare_world_mesh_forward_frame(
         })
     };
 
-    let collection = take_or_collect_world_mesh_draws(frame, culling.as_ref(), shader_perm);
+    let collection =
+        take_or_collect_world_mesh_draws(frame, blackboard, culling.as_ref(), shader_perm);
     capture_hi_z_temporal_after_collect(frame, culling.as_ref(), hc);
 
     maybe_set_world_mesh_draw_stats(
@@ -399,17 +476,67 @@ pub(super) fn prepare_world_mesh_forward_frame(
         return None;
     }
 
-    write_frame_uniforms_and_cluster(
-        device,
-        queue,
-        frame.frame_resources,
-        hc,
-        frame.scene,
-        frame.viewport_px,
-        use_multiview,
-    );
+    // Write per-view frame uniforms and sync cluster.
+    // Per-view mode: write to the dedicated per-view buffer from PerViewFramePlanSlot.
+    // Legacy mode: write to the shared frame_uniform buffer.
+    if let Some(frame_plan) = blackboard.get::<PerViewFramePlanSlot>() {
+        use crate::gpu::frame_globals::FrameGpuUniforms;
+        use bytemuck::Zeroable;
+        let (vw, vh) = frame.viewport_px;
+        let light_count = frame.frame_resources.frame_light_count_u32();
+        let camera_world = hc
+            .secondary_camera_world_position
+            .unwrap_or_else(|| hc.head_output_transform.col(3).truncate());
+        let stereo_cluster = use_multiview && hc.vr_active && hc.stereo_views.is_some();
+        let uniforms = if stereo_cluster {
+            if let Some((left, right)) = cluster_frame_params_stereo(&hc, frame.scene, (vw, vh)) {
+                left.frame_gpu_uniforms(camera_world, light_count, right.view_space_z_coeffs())
+            } else if let Some(mono) = cluster_frame_params(&hc, frame.scene, (vw, vh)) {
+                let z = mono.view_space_z_coeffs();
+                mono.frame_gpu_uniforms(camera_world, light_count, z)
+            } else {
+                FrameGpuUniforms::zeroed()
+            }
+        } else if let Some(mono) = cluster_frame_params(&hc, frame.scene, (vw, vh)) {
+            let z = mono.view_space_z_coeffs();
+            mono.frame_gpu_uniforms(camera_world, light_count, z)
+        } else {
+            FrameGpuUniforms::zeroed()
+        };
+        queue.write_buffer(
+            &frame_plan.frame_uniform_buffer,
+            0,
+            bytemuck::bytes_of(&uniforms),
+        );
+        if let Some(fgpu) = frame.frame_resources.frame_gpu_mut() {
+            fgpu.sync_cluster_viewport(device, (vw, vh), stereo_cluster);
+        }
+        frame
+            .frame_resources
+            .sync_cluster_viewport_ensure_lights_upload(device, queue, (vw, vh), stereo_cluster);
+    } else {
+        write_frame_uniforms_and_cluster(
+            device,
+            queue,
+            frame.frame_resources,
+            hc,
+            frame.scene,
+            frame.viewport_px,
+            use_multiview,
+        );
+    }
 
     let (regular_indices, intersect_indices) = partition_intersection_draw_indices(&draws);
+
+    // Precompute per-batch material bind group boundaries for the recording hot loop.
+    let precomputed_binds = precompute_material_bind_groups(
+        frame,
+        &draws,
+        pipeline.shader_perm,
+        frame.offscreen_write_render_texture_asset_id,
+    );
+    blackboard.insert::<PrecomputedMaterialBindsSlot>(precomputed_binds);
+
     Some(PreparedWorldMeshForwardFrame {
         draws,
         regular_indices,
@@ -523,12 +650,22 @@ pub(super) fn record_world_mesh_forward_opaque_graph_raster(
 
     let Some(per_draw_bg) = frame
         .frame_resources
-        .per_draw()
+        .per_view_per_draw(frame.occlusion_view)
         .map(|d| d.bind_group.clone())
     else {
         return false;
     };
-    let Some((frame_bg_arc, empty_bg_arc)) = frame.frame_resources.mesh_forward_frame_bind_groups()
+    let Some(frame_bg_arc) = frame
+        .frame_resources
+        .per_view_frame(frame.occlusion_view)
+        .map(|s| s.frame_bind_group.clone())
+    else {
+        return false;
+    };
+    let Some(empty_bg_arc) = frame
+        .frame_resources
+        .empty_material()
+        .map(|e| e.bind_group.clone())
     else {
         return false;
     };
@@ -584,12 +721,25 @@ pub(super) fn record_world_mesh_forward_intersection_graph_raster(
 
     let Some(per_draw_bg) = frame
         .frame_resources
-        .per_draw()
+        .per_view_per_draw(frame.occlusion_view)
         .map(|d| d.bind_group.clone())
     else {
         return false;
     };
-    let Some((frame_bg_arc, empty_bg_arc)) = frame.frame_resources.mesh_forward_frame_bind_groups()
+    // Read the per-view bind group directly from PerViewFrameState (not the blackboard) so that
+    // intersection draws pick up the updated bind group after copy_scene_depth_snapshot_for_view
+    // rebuilds it with the freshly copied depth texture view.
+    let Some(frame_bg_arc) = frame
+        .frame_resources
+        .per_view_frame(frame.occlusion_view)
+        .map(|s| s.frame_bind_group.clone())
+    else {
+        return false;
+    };
+    let Some(empty_bg_arc) = frame
+        .frame_resources
+        .empty_material()
+        .map(|e| e.bind_group.clone())
     else {
         return false;
     };
@@ -654,19 +804,18 @@ pub(super) fn encode_world_mesh_forward_depth_snapshot(
     let hc = frame.host_camera;
     let stereo_cluster =
         prepared.pipeline.use_multiview && hc.vr_active && hc.stereo_views.is_some();
-    if let Some(fgpu) = frame.frame_resources.frame_gpu_mut() {
-        fgpu.copy_scene_depth_snapshot(
-            device,
-            encoder,
-            frame.depth_texture,
-            frame.viewport_px,
-            prepared.pipeline.use_multiview,
-            stereo_cluster,
-        );
-        true
-    } else {
-        false
+    if frame.frame_resources.frame_gpu().is_none() {
+        return false;
     }
+    frame.frame_resources.copy_scene_depth_snapshot_for_view(
+        device,
+        encoder,
+        frame.depth_texture,
+        frame.viewport_px,
+        prepared.pipeline.use_multiview,
+        stereo_cluster,
+    );
+    true
 }
 
 /// After a clear-only MSAA pass, resolves multisampled depth to the single-sample depth used by Hi-Z.

@@ -49,6 +49,6 @@ pub use resolve::{
 };
 pub use types::{
     DebugSettings, DisplaySettings, MsaaSampleCount, PostProcessingSettings,
-    PowerPreferenceSetting, RendererSettings, RenderingSettings, SceneColorFormat, TonemapMode,
-    TonemapSettings,
+    PowerPreferenceSetting, RecordParallelism, RendererSettings, RenderingSettings,
+    SceneColorFormat, TonemapMode, TonemapSettings,
 };

@@ -2,18 +2,15 @@
 //!
 //! Effects are render passes with a stable identity that read one HDR float texture and write
 //! another. They are added to the chain in execution order; each enabled effect contributes one
-//! pass whose input is the previous effect's output (or the forward HDR target for the first one)
-//! and whose output is the next ping-pong slot (or the chain's final output for the last one).
+//! raster pass whose input is the previous effect's output (or the forward HDR target for the
+//! first one) and whose output is the next ping-pong slot (or the chain's final output for the
+//! last one).
 
 use crate::config::PostProcessingSettings;
-use crate::render_graph::pass::RenderPass;
+use crate::render_graph::pass::RasterPass;
 use crate::render_graph::resources::TextureHandle;
 
 /// Stable identity for a post-processing effect.
-///
-/// Used for deterministic ordering, debug logging, and forward-compatible signature derivation in
-/// [`super::PostProcessChainSignature`]. New effects must add a variant here and a matching
-/// signature field.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PostProcessEffectId {
     /// Stephen Hill ACES Fitted tonemap (HDR linear → display-referred 0..1 linear).
@@ -29,25 +26,22 @@ impl PostProcessEffectId {
     }
 }
 
-/// One effect that contributes a single render pass to a [`super::PostProcessChain`].
+/// One effect that contributes a single raster pass to a [`super::PostProcessChain`].
 ///
 /// Trait objects are stored in the chain in execution order. The chain calls [`Self::is_enabled`]
 /// against the live [`PostProcessingSettings`] to decide whether to allocate a pass for this
-/// effect, and [`Self::build_pass`] to build the boxed [`RenderPass`] when it does.
+/// effect, and [`Self::build_pass`] to build the boxed [`RasterPass`] when it does.
 pub trait PostProcessEffect: Send + Sync {
     /// Stable identity (also used for logging).
     fn id(&self) -> PostProcessEffectId;
 
     /// Whether this effect should run for the current settings snapshot.
-    ///
-    /// Must agree with the corresponding flag in [`super::PostProcessChainSignature`] so the
-    /// graph cache invalidates exactly when the chain topology changes.
     fn is_enabled(&self, settings: &PostProcessingSettings) -> bool;
 
-    /// Builds the render pass for this effect, given the chain-allocated input/output handles.
+    /// Builds the raster pass for this effect, given the chain-allocated input/output handles.
     ///
     /// The pass must read `input` (sampled, fragment stage) and write `output` (single color
     /// attachment). The chain handles ping-pong wiring; effect implementations only need to know
     /// their immediate input and output.
-    fn build_pass(&self, input: TextureHandle, output: TextureHandle) -> Box<dyn RenderPass>;
+    fn build_pass(&self, input: TextureHandle, output: TextureHandle) -> Box<dyn RasterPass>;
 }

@@ -11,15 +11,16 @@ use std::sync::OnceLock;
 use pipeline::SceneColorComposePipelineCache;
 
 use crate::present::SWAPCHAIN_CLEAR_COLOR;
-use crate::render_graph::context::{GraphRasterPassContext, RenderPassContext};
+use crate::render_graph::compiled::RenderPassTemplate;
+use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
-use crate::render_graph::pass::{PassBuilder, RenderPass};
+use crate::render_graph::pass::{PassBuilder, RasterPass};
 use crate::render_graph::resources::{ImportedTextureHandle, TextureAccess, TextureHandle};
 
 /// Graph handles for [`SceneColorComposePass`].
 #[derive(Clone, Copy, Debug)]
 pub struct SceneColorComposeGraphResources {
-    /// Resolved single-sample HDR scene color ([`TransientTextureFormat::SceneColorHdr`]).
+    /// Resolved single-sample HDR scene color ([`crate::render_graph::resources::TransientTextureFormat::SceneColorHdr`]).
     pub scene_color_hdr: TextureHandle,
     /// Imported frame color (output).
     pub frame_color: ImportedTextureHandle,
@@ -46,7 +47,7 @@ fn compose_pipelines() -> &'static SceneColorComposePipelineCache {
     CACHE.get_or_init(SceneColorComposePipelineCache::default)
 }
 
-impl RenderPass for SceneColorComposePass {
+impl RasterPass for SceneColorComposePass {
     fn name(&self) -> &str {
         "SceneColorCompose"
     }
@@ -72,18 +73,10 @@ impl RenderPass for SceneColorComposePass {
         Ok(())
     }
 
-    fn execute(&mut self, _ctx: &mut RenderPassContext<'_, '_, '_>) -> Result<(), RenderPassError> {
-        Ok(())
-    }
-
-    fn graph_managed_raster(&self) -> bool {
-        true
-    }
-
-    fn graph_raster_multiview_mask(
+    fn multiview_mask_override(
         &self,
-        ctx: &GraphRasterPassContext<'_, '_>,
-        template: &crate::render_graph::RenderPassTemplate,
+        ctx: &RasterPassCtx<'_, '_>,
+        template: &RenderPassTemplate,
     ) -> Option<NonZeroU32> {
         let stereo = ctx
             .frame
@@ -96,9 +89,9 @@ impl RenderPass for SceneColorComposePass {
         }
     }
 
-    fn execute_graph_raster(
+    fn record(
         &mut self,
-        ctx: &mut GraphRasterPassContext<'_, '_>,
+        ctx: &mut RasterPassCtx<'_, '_>,
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         let Some(frame) = ctx.frame.as_ref() else {
@@ -136,6 +129,8 @@ impl RenderPass for SceneColorComposePass {
 mod setup_tests {
     use super::*;
     use crate::render_graph::pass::PassBuilder;
+
+    use crate::render_graph::pass::node::PassKind;
     use crate::render_graph::resources::{
         AccessKind, FrameTargetRole, ImportSource, ImportedTextureDecl, TextureAccess,
         TransientArrayLayers, TransientExtent, TransientSampleCount, TransientTextureDesc,
@@ -178,7 +173,7 @@ mod setup_tests {
         let mut b = PassBuilder::new("SceneColorCompose");
         pass.setup(&mut b).expect("setup");
         let setup = b.finish().expect("finish");
-        assert_eq!(setup.kind, crate::render_graph::pass::PassKind::Raster);
+        assert_eq!(setup.kind, PassKind::Raster);
         assert!(
             setup.accesses.iter().any(|a| {
                 matches!(
