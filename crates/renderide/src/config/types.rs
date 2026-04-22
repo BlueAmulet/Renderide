@@ -65,10 +65,11 @@ pub struct RenderingSettings {
     pub scene_color_format: SceneColorFormat,
     /// Whether to record per-view encoders in parallel using rayon.
     ///
-    /// [`RecordParallelism::Serial`] (default) records views sequentially — safe for all devices
-    /// and easier to debug. [`RecordParallelism::PerViewParallel`] records views on rayon worker
-    /// threads for a potential CPU-side speedup on multi-view workloads. Requires all per-view
-    /// pass nodes to be `Send` (enforced by trait bounds).
+    /// [`RecordParallelism::PerViewParallel`] (default) records views on rayon worker threads
+    /// for a CPU-side speedup on multi-view workloads (stereo VR, secondary-camera RTs).
+    /// [`RecordParallelism::Serial`] records views sequentially on the main thread, which can
+    /// simplify debugging but leaves throughput on the table on multi-view scenes. Requires
+    /// all per-view pass nodes to be `Send` (enforced by trait bounds).
     #[serde(rename = "record_parallelism", default)]
     pub record_parallelism: RecordParallelism,
 }
@@ -90,16 +91,16 @@ impl Default for RenderingSettings {
 
 /// Controls whether per-view encoder recording uses rayon for parallelism.
 ///
-/// The default [`RecordParallelism::Serial`] is always safe. Switch to
-/// [`RecordParallelism::PerViewParallel`] only after verifying that all per-view pass nodes
-/// are free of non-`Send` state.
+/// The default [`RecordParallelism::PerViewParallel`] records per-view encoders on rayon
+/// workers for CPU-side speedup on stereo / multi-camera scenes. Switch to
+/// [`RecordParallelism::Serial`] only for debugging or when isolating regressions.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RecordParallelism {
     /// Record each per-view encoder sequentially on the main thread. Safe and debuggable.
-    #[default]
     Serial,
     /// Record each per-view encoder on a rayon worker thread. Requires all per-view pass nodes
     /// to be `Send` (enforced at compile time by the trait bound on [`crate::render_graph::PassNode`]).
+    #[default]
     PerViewParallel,
 }
 

@@ -41,7 +41,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Check formatting
-        run: cargo fmt --all -- --check && taplo fmt --all --check
+        run: cargo fmt --all -- --check
+
+      - uses: uncenter/setup-taplo@v2
+        with:
+          version: "0.10.0"
+
+      - name: Check TOML formatting (taplo)
+        run: taplo fmt --check --diff
 
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -W clippy::all -D warnings

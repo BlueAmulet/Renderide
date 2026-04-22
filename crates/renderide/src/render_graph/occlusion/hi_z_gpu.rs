@@ -99,9 +99,22 @@ impl HiZGpuState {
     ///
     /// Call at the **start** of each frame (before encoding the render graph). Uses at most one
     /// [`wgpu::Device::poll`] to advance callbacks; if a read is not ready, prior snapshots are kept.
+    ///
+    /// ### Re-entrance
+    ///
+    /// [`crate::backend::OcclusionSystem::hi_z_begin_frame_readback`] now drains its
+    /// `on_submitted_work_done` callbacks with [`wgpu::Device::poll`] **before** locking this
+    /// state, so the `Self::on_frame_submitted_callback` callback does not re-enter the mutex.
+    /// The poll here remains as a safety net for direct callers of this method (mainly tests).
     pub fn begin_frame_readback(&mut self, device: &wgpu::Device) {
         let _ = device.poll(wgpu::PollType::Poll);
+        self.drain_completed_map_async();
+    }
 
+    /// Non-polling variant of [`Self::begin_frame_readback`] used when the caller has already
+    /// drained completed queue callbacks via [`wgpu::Device::poll`] outside any
+    /// [`HiZGpuState`] mutex (see [`crate::backend::OcclusionSystem::hi_z_begin_frame_readback`]).
+    pub(crate) fn drain_completed_map_async(&mut self) {
         let Some(scratch) = self.scratch.as_ref() else {
             return;
         };
@@ -189,6 +202,12 @@ impl HiZGpuState {
     /// Starts `map_async` on the staging buffer(s) written this frame. Call **after**
     /// [`wgpu::Queue::submit`] for the command buffer that contains the Hi-Z copies.
     pub fn on_frame_submitted(&mut self, _device: &wgpu::Device) {
+        self.on_frame_submitted_callback();
+    }
+
+    /// Same as [`Self::on_frame_submitted`] but without the unused device argument so it can
+    /// be invoked cleanly from a [`wgpu::Queue::on_submitted_work_done`] callback.
+    pub fn on_frame_submitted_callback(&mut self) {
         let Some(ws) = self.hi_z_encoded_slot.take() else {
             return;
         };

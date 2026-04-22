@@ -577,21 +577,31 @@ impl CompiledRenderGraph {
                 None
             };
             let _ = queue_ref; // retained above for the HUD encoder; submit path now uses the driver
+
+            // Collect per-view Hi-Z `map_async` work as `on_submitted_work_done` callbacks so
+            // the staging buffers are mapped only after the driver has actually issued the
+            // submit. This replaces the former post-submit `flush_driver` stall: the main
+            // thread continues without blocking on the driver queue.
+            let hi_z_callbacks: Vec<Box<dyn FnOnce() + Send + 'static>> = per_view_occlusion_info
+                .iter()
+                .map(|(occlusion_view, _hc)| {
+                    let state = mv_ctx.backend.occlusion.ensure_hi_z_state(*occlusion_view);
+                    let cb: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
+                        profiling::scope!("hi_z::on_submitted_callback");
+                        state.lock().on_frame_submitted_callback();
+                    });
+                    cb
+                })
+                .collect();
+
             {
                 profiling::scope!("gpu::queue_submit");
-                mv_ctx.gpu.submit_frame_batch(all_cmds, surface_tex, None);
-            }
-            // `submit_frame_batch` only enqueues on the driver thread. Pass `post_submit` hooks
-            // (notably Hi-Z build → [`crate::backend::OcclusionSystem::hi_z_on_frame_submitted_for_view`])
-            // call [`crate::render_graph::occlusion::HiZGpuState::on_frame_submitted`], which
-            // `map_async`s readback staging. wgpu forbids submitting copy commands that target a
-            // buffer while it is mapped, so the real [`wgpu::Queue::submit`] for this frame must
-            // complete before those hooks run. [`crate::gpu::GpuContext::flush_driver`] drains the driver queue
-            // through this batch (and swapchain present when applicable), which also prevents the
-            // next frame's `get_current_texture` from racing a not-yet-presented surface image.
-            {
-                profiling::scope!("gpu::flush_driver");
-                mv_ctx.gpu.flush_driver();
+                mv_ctx.gpu.submit_frame_batch_with_callbacks(
+                    all_cmds,
+                    surface_tex,
+                    None,
+                    hi_z_callbacks,
+                );
             }
 
             for outputs in per_view_hud_outputs.iter().flatten() {

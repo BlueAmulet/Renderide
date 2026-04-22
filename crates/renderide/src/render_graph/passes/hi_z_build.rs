@@ -82,9 +82,11 @@ impl ComputePass for HiZBuildPass {
         Ok(())
     }
 
-    fn post_submit(&mut self, ctx: &mut PostSubmitContext<'_>) -> Result<(), RenderPassError> {
-        ctx.occlusion
-            .hi_z_on_frame_submitted_for_view(ctx.device, ctx.occlusion_view);
+    fn post_submit(&mut self, _ctx: &mut PostSubmitContext<'_>) -> Result<(), RenderPassError> {
+        // Hi-Z staging-buffer `map_async` now runs from a
+        // [`wgpu::Queue::on_submitted_work_done`] callback installed in
+        // [`crate::render_graph::compiled::exec::CompiledRenderGraph::execute_multi_view`],
+        // so this post-submit hook is a no-op on the main thread.
         Ok(())
     }
 }

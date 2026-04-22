@@ -79,15 +79,10 @@ impl SwapchainScope {
         profiling::scope!("gpu::swapchain_acquire");
         // wgpu holds the invariant that a `Surface` has at most one outstanding
         // `SurfaceTexture` — the previous frame's `present()` must complete before the next
-        // `get_current_texture()` call. Phase 2 moved `present()` to the driver thread, so
-        // the main thread has to wait for any prior surface-carrying batch to have been
-        // fully processed (including `present`) before acquiring a new texture here. Using
-        // the FIFO flush sentinel guarantees every earlier batch has completed.
-        //
-        // Steady-state pipelining is preserved: the main thread's recording of frame N+1
-        // still overlaps the driver thread's submit+present of frame N. Only the acquire
-        // itself synchronizes with the prior present, which is wgpu's own requirement.
-        gpu.flush_driver();
+        // `get_current_texture()` call. Wait specifically on the prior present instead of
+        // doing a full `flush_driver` so non-surface batches (e.g. Hi-Z readback submits,
+        // `on_submitted_work_done` callbacks) stay pipelined with frame N+1's recording.
+        gpu.wait_for_previous_present();
         match acquire_surface_outcome(gpu)? {
             SurfaceFrameOutcome::Skip | SurfaceFrameOutcome::Reconfigured => {
                 Ok(SwapchainEnterOutcome::SkipFrame)

@@ -71,6 +71,7 @@ pub fn run_headless(
         }
 
         let now = Instant::now();
+        runtime.tick_frame_wall_clock_begin(now);
         let due_for_full_frame = now >= next_full_frame_at;
 
         // Per-frame work split:
@@ -113,6 +114,7 @@ pub fn run_headless(
             }
         }
 
+        runtime.tick_frame_wall_clock_end(now);
         crate::profiling::emit_frame_mark();
         std::thread::sleep(HEADLESS_TICK_SLEEP);
     }

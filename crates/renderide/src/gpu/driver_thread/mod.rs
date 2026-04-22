@@ -22,6 +22,7 @@
 mod error;
 mod ring;
 mod submit_batch;
+mod surface_counters;
 mod worker;
 
 #[cfg(test)]
@@ -36,6 +37,7 @@ pub use submit_batch::{SubmitBatch, SubmitWait};
 use error::DriverErrorState;
 use ring::BoundedRing;
 use submit_batch::DriverMessage;
+use surface_counters::SurfaceCounters;
 
 /// Maximum number of frames queued in the ring at once. Matches Filament's
 /// `CommandBufferQueue` latency target: one frame in flight on the driver, one being
@@ -49,6 +51,7 @@ pub const RING_CAPACITY: usize = 2;
 pub struct DriverThread {
     ring: Arc<BoundedRing<DriverMessage>>,
     errors: Arc<DriverErrorState>,
+    surface_counters: Arc<SurfaceCounters>,
     handle: Option<thread::JoinHandle<()>>,
 }
 
@@ -59,27 +62,49 @@ impl DriverThread {
     pub fn new(queue: Arc<wgpu::Queue>) -> Self {
         let ring = Arc::new(BoundedRing::<DriverMessage>::new(RING_CAPACITY));
         let errors = Arc::new(DriverErrorState::default());
+        let surface_counters = Arc::new(SurfaceCounters::default());
 
         let ring_clone = Arc::clone(&ring);
         let errors_clone = Arc::clone(&errors);
+        let counters_clone = Arc::clone(&surface_counters);
         let handle = thread::Builder::new()
             .name("renderer-driver".to_string())
             .spawn(move || {
-                worker::driver_loop(ring_clone, queue, errors_clone);
+                worker::driver_loop(ring_clone, queue, errors_clone, counters_clone);
             })
             .expect("spawn renderer-driver thread");
 
         Self {
             ring,
             errors,
+            surface_counters,
             handle: Some(handle),
         }
     }
 
     /// Enqueues a batch for the driver thread to submit and present. Blocks while the
     /// ring is full — that block is the frame-pacing backpressure.
+    ///
+    /// When the batch carries a [`wgpu::SurfaceTexture`], the submitted counter is bumped
+    /// so [`Self::wait_for_previous_present`] can gate the next acquire precisely on the
+    /// previous present completing (rather than flushing the whole ring).
     pub fn submit(&self, batch: SubmitBatch) {
+        let has_surface = batch.surface_texture.is_some();
+        if has_surface {
+            self.surface_counters.note_submitted();
+        }
         self.ring.push(DriverMessage::Submit(batch));
+    }
+
+    /// Blocks until every previously-submitted surface-carrying batch has reached
+    /// [`wgpu::SurfaceTexture::present`] on the driver thread.
+    ///
+    /// Use this right before [`wgpu::Surface::get_current_texture`] to uphold wgpu's
+    /// single-outstanding-surface-texture invariant without draining the full driver ring.
+    /// Unlike [`Self::flush`] this does not block on non-surface batches or on the driver's
+    /// current non-present work — only on the specific "previous present completed" event.
+    pub fn wait_for_previous_present(&self) {
+        self.surface_counters.wait_for_present_catchup(0);
     }
 
     /// Drains and returns any pending driver-thread error, leaving the slot empty.
@@ -104,7 +129,7 @@ impl DriverThread {
         let batch = SubmitBatch {
             command_buffers: Vec::new(),
             surface_texture: None,
-            on_submitted_work_done: None,
+            on_submitted_work_done: Vec::new(),
             wait: Some(wait),
             frame_seq: 0,
         };

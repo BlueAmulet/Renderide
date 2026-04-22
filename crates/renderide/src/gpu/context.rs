@@ -669,7 +669,7 @@ impl GpuContext {
     /// (VR mirror eye-to-staging blit) will migrate to [`Self::submit_frame_batch`] in a
     /// follow-up.
     pub fn submit_tracked_frame_commands(&self, cmd: wgpu::CommandBuffer) {
-        self.submit_frame_batch_inner(vec![cmd], None, None);
+        self.submit_frame_batch_inner(vec![cmd], None, None, Vec::new());
     }
 
     /// Same as [`Self::submit_tracked_frame_commands`] but accepts an externally-held
@@ -681,7 +681,7 @@ impl GpuContext {
         _queue: &wgpu::Queue,
         cmd: wgpu::CommandBuffer,
     ) {
-        self.submit_frame_batch_inner(vec![cmd], None, None);
+        self.submit_frame_batch_inner(vec![cmd], None, None, Vec::new());
     }
 
     /// Submits multiple command buffers through the driver thread in a single
@@ -697,7 +697,7 @@ impl GpuContext {
         _queue: &wgpu::Queue,
         cmds: impl IntoIterator<Item = wgpu::CommandBuffer>,
     ) {
-        self.submit_frame_batch_inner(cmds.into_iter().collect(), None, None);
+        self.submit_frame_batch_inner(cmds.into_iter().collect(), None, None, Vec::new());
     }
 
     /// Hands a finished frame off to the driver thread for submit + present.
@@ -713,7 +713,22 @@ impl GpuContext {
         surface_texture: Option<wgpu::SurfaceTexture>,
         wait: Option<super::driver_thread::SubmitWait>,
     ) {
-        self.submit_frame_batch_inner(cmds, surface_texture, wait);
+        self.submit_frame_batch_inner(cmds, surface_texture, wait, Vec::new());
+    }
+
+    /// Same as [`Self::submit_frame_batch`] but attaches extra `on_submitted_work_done`
+    /// callbacks that fire after the driver has submitted this batch to the queue.
+    ///
+    /// Use this to schedule main-thread work (e.g. `map_async` for Hi-Z readback) that
+    /// depends on the submit having completed without paying a driver-ring flush.
+    pub fn submit_frame_batch_with_callbacks(
+        &self,
+        cmds: Vec<wgpu::CommandBuffer>,
+        surface_texture: Option<wgpu::SurfaceTexture>,
+        wait: Option<super::driver_thread::SubmitWait>,
+        extra_on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>>,
+    ) {
+        self.submit_frame_batch_inner(cmds, surface_texture, wait, extra_on_submitted_work_done);
     }
 
     /// Internal helper that builds the [`super::driver_thread::SubmitBatch`] (including the
@@ -724,21 +739,21 @@ impl GpuContext {
         command_buffers: Vec<wgpu::CommandBuffer>,
         surface_texture: Option<wgpu::SurfaceTexture>,
         wait: Option<super::driver_thread::SubmitWait>,
+        mut extra_on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>>,
     ) {
         let track = {
             let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
             ft.on_before_tracked_submit()
         };
-        let on_submitted_work_done: Option<Box<dyn FnOnce() + Send + 'static>> =
-            if let Some((gen, seq)) = track {
-                let submit_at = Instant::now();
-                let handle = Arc::clone(&self.frame_timing);
-                Some(Box::new(make_gpu_done_callback(
-                    handle, gen, seq, submit_at,
-                )))
-            } else {
-                None
-            };
+        let mut on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>> = Vec::new();
+        if let Some((gen, seq)) = track {
+            let submit_at = Instant::now();
+            let handle = Arc::clone(&self.frame_timing);
+            on_submitted_work_done.push(Box::new(make_gpu_done_callback(
+                handle, gen, seq, submit_at,
+            )));
+        }
+        on_submitted_work_done.append(&mut extra_on_submitted_work_done);
         let frame_seq = track.map(|(_, seq)| seq as u64).unwrap_or(0);
         let batch = super::driver_thread::SubmitBatch {
             command_buffers,
@@ -765,6 +780,18 @@ impl GpuContext {
     /// runs on the main thread). Most code paths never need this.
     pub fn flush_driver(&self) {
         self.driver_thread.flush();
+    }
+
+    /// Blocks only until the most recently submitted surface-carrying batch has reached
+    /// [`wgpu::SurfaceTexture::present`] on the driver thread.
+    ///
+    /// Call this right before [`wgpu::Surface::get_current_texture`] to honour wgpu's
+    /// "only one outstanding surface texture" rule without flushing the whole ring.
+    /// Unlike [`Self::flush_driver`] this permits non-surface work (submits without a
+    /// swapchain texture, [`wgpu::Queue::on_submitted_work_done`] callbacks) to remain
+    /// pipelined alongside the next frame's CPU recording.
+    pub fn wait_for_previous_present(&self) {
+        self.driver_thread.wait_for_previous_present();
     }
 
     /// Call at the start of each winit frame tick (same instant as [`crate::runtime::RendererRuntime::tick_frame_wall_clock_begin`]).
@@ -822,6 +849,18 @@ impl GpuContext {
     /// Does nothing when no GPU profiler is active.
     pub fn end_gpu_profiler_frame(&mut self) {
         profiling::scope!("gpu::drain_gpu_profiler");
+        if self.gpu_profiler.is_none() {
+            return;
+        }
+        // `wgpu_profiler::end_frame` calls `map_async` on the same Query Read Buffer that
+        // `resolve_queries` just wrote a copy into. The render graph hands those resolve
+        // command buffers to the driver thread for an asynchronous `Queue::submit`, so if
+        // the driver has not yet drained the ring by the time we reach this point,
+        // `map_async` would put the buffer in pending-mapped state before the submit runs
+        // and wgpu validation would reject it with "buffer is still mapped". Flushing the
+        // driver guarantees every prior submit has completed before we transition the
+        // buffer.
+        self.driver_thread.flush();
         if let Some(p) = self.gpu_profiler.as_mut() {
             p.end_frame();
             let ts_period = self.queue.get_timestamp_period();

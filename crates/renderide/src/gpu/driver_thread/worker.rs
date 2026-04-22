@@ -10,6 +10,7 @@ use std::sync::Arc;
 use super::error::DriverErrorState;
 use super::ring::BoundedRing;
 use super::submit_batch::{DriverMessage, SubmitBatch};
+use super::surface_counters::SurfaceCounters;
 
 /// Thread entry point spawned from [`super::DriverThread::new`].
 ///
@@ -19,6 +20,7 @@ pub(super) fn driver_loop(
     ring: Arc<BoundedRing<DriverMessage>>,
     queue: Arc<wgpu::Queue>,
     errors: Arc<DriverErrorState>,
+    surface_counters: Arc<SurfaceCounters>,
 ) {
     profiling::register_thread!("renderer-driver");
 
@@ -28,7 +30,7 @@ pub(super) fn driver_loop(
             let DriverMessage::Submit(batch) = ring.pop() else {
                 break;
             };
-            process_batch(queue.as_ref(), &errors, batch);
+            process_batch(queue.as_ref(), &errors, &surface_counters, batch);
         }
     }
     // A `DriverMessage::Shutdown` value breaks the loop above; nothing further to do.
@@ -36,7 +38,12 @@ pub(super) fn driver_loop(
 
 /// Handles one batch end-to-end: submit, install frame-timing callback, present, signal
 /// the oneshot. Each step is instrumented for Tracy.
-fn process_batch(queue: &wgpu::Queue, errors: &DriverErrorState, batch: SubmitBatch) {
+fn process_batch(
+    queue: &wgpu::Queue,
+    errors: &DriverErrorState,
+    surface_counters: &SurfaceCounters,
+    batch: SubmitBatch,
+) {
     profiling::scope!("driver::frame");
     let SubmitBatch {
         command_buffers,
@@ -51,15 +58,21 @@ fn process_batch(queue: &wgpu::Queue, errors: &DriverErrorState, batch: SubmitBa
         queue.submit(command_buffers);
     }
 
-    if let Some(cb) = on_submitted_work_done {
+    for cb in on_submitted_work_done {
         queue.on_submitted_work_done(cb);
     }
 
     if let Some(tex) = surface_texture {
-        profiling::scope!("driver::present");
-        // `SurfaceTexture::present` is infallible in the current wgpu API; if that
-        // changes, route the error into `errors` with `DriverErrorKind::Present`.
-        tex.present();
+        {
+            profiling::scope!("driver::present");
+            // `SurfaceTexture::present` is infallible in the current wgpu API; if that
+            // changes, route the error into `errors` with `DriverErrorKind::Present`.
+            tex.present();
+        }
+        // Signal to the main thread that the previous surface texture is no longer
+        // outstanding so its next `get_current_texture` call can proceed without a
+        // full ring flush.
+        surface_counters.note_presented();
     }
 
     if let Some(wait) = wait {

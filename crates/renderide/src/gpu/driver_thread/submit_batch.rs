@@ -21,9 +21,12 @@ pub struct SubmitBatch {
     /// Swapchain texture to present after submit. `None` when the frame targets an
     /// offscreen render target (e.g. headless rendering to a persistent offscreen image).
     pub surface_texture: Option<wgpu::SurfaceTexture>,
-    /// Installed via `queue.on_submitted_work_done` immediately after submit. Used by the
-    /// frame-timing integration to record GPU completion time.
-    pub on_submitted_work_done: Option<Box<dyn FnOnce() + Send + 'static>>,
+    /// Installed via repeated [`wgpu::Queue::on_submitted_work_done`] calls after submit.
+    /// Callbacks fire on whichever thread next drains the device via [`wgpu::Device::poll`].
+    ///
+    /// Frame timing and Hi-Z staging-buffer `map_async` both ride this channel so the main
+    /// thread can react to submit completion without a full driver-ring flush.
+    pub on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>>,
     /// Optional oneshot fired after submit + present complete on the driver thread.
     ///
     /// Use this when the main thread must block until the frame is known to be on the

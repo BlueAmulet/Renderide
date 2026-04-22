@@ -139,25 +139,20 @@ impl OcclusionSystem {
     ///
     /// Non-blocking: uses at most one [`wgpu::Device::poll`]; if a read is not ready, prior
     /// snapshots are kept.
+    ///
+    /// The poll runs **before** any [`HiZGpuState`] lock so the
+    /// [`wgpu::Queue::on_submitted_work_done`] callback installed by
+    /// [`crate::render_graph::compiled::exec::CompiledRenderGraph::execute_multi_view`]
+    /// (which itself locks the per-view [`HiZGpuState`]) can execute without re-entering
+    /// a lock held by this function.
     pub fn hi_z_begin_frame_readback(&mut self, device: &wgpu::Device) {
         profiling::scope!("hi_z::readback_drain");
-        self.main.lock().begin_frame_readback(device);
+        let _ = device.poll(wgpu::PollType::Poll);
+        self.main.lock().drain_completed_map_async();
         let offscreen = self.offscreen.lock();
         for (_, slot) in offscreen.iter() {
-            slot.lock().begin_frame_readback(device);
+            slot.lock().drain_completed_map_async();
         }
-    }
-
-    /// Call after each successful render-graph submit that recorded Hi-Z copies for the given view.
-    pub(crate) fn hi_z_on_frame_submitted_for_view(
-        &mut self,
-        device: &wgpu::Device,
-        view: OcclusionViewId,
-    ) {
-        profiling::scope!("hi_z::on_frame_submitted");
-        self.ensure_hi_z_state(view)
-            .lock()
-            .on_frame_submitted(device);
     }
 
     /// View/projection snapshot from the **previous** world forward pass (for Hi-Z occlusion tests).

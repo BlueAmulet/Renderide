@@ -41,6 +41,61 @@ enum LastMaterialBindGroup1Key {
     Empty,
 }
 
+/// Compact identity for a [`wgpu::Buffer`] sub-range used to skip redundant vertex / index binds.
+///
+/// `byte_len == None` encodes a full-buffer `.slice(..)` bind; `Some(n)` is a ranged bind
+/// of `byte_offset..byte_offset + n`. Two `BufferBindId`s are equal when they refer to the
+/// same buffer object, offset, and length — a sufficient condition for the bind to be a no-op.
+///
+/// Buffer identity is a raw pointer cast to `usize`; the pointer is stable for the lifetime
+/// of the mesh pool / skin cache (both outlive any single render pass).
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct BufferBindId {
+    ptr: usize,
+    byte_offset: u64,
+    byte_len: Option<u64>,
+}
+
+impl BufferBindId {
+    /// Full-buffer bind (`buf.slice(..)`).
+    fn full(buf: &wgpu::Buffer) -> Self {
+        Self {
+            ptr: buf as *const wgpu::Buffer as usize,
+            byte_offset: 0,
+            byte_len: None,
+        }
+    }
+
+    /// Ranged bind (`buf.slice(byte_start..byte_end)`).
+    fn ranged(buf: &wgpu::Buffer, byte_start: u64, byte_end: u64) -> Self {
+        Self {
+            ptr: buf as *const wgpu::Buffer as usize,
+            byte_offset: byte_start,
+            byte_len: Some(byte_end - byte_start),
+        }
+    }
+}
+
+/// Per-render-pass last-bound vertex and index buffer state for bind deduplication.
+///
+/// Tracks the last-submitted buffer identity for each of the 8 vertex slots and the index
+/// buffer. Reset at every new render pass (i.e. at the start of [`draw_subset`]).
+pub(crate) struct LastMeshBindState {
+    /// Last bound buffer identity per vertex slot 0–7; `None` = never bound this pass.
+    vertex: [Option<BufferBindId>; 8],
+    /// Last bound index buffer (pointer-as-usize identity) and format; `None` = never bound.
+    index: Option<(usize, wgpu::IndexFormat)>,
+}
+
+impl LastMeshBindState {
+    fn new() -> Self {
+        Self {
+            vertex: [None; 8],
+            index: None,
+        }
+    }
+}
+
 /// State for resolving and binding embedded `@group(1)` material data for one draw batch.
 struct MaterialBindState<'a, 'b, 'c, 'd> {
     rpass: &'a mut wgpu::RenderPass<'b>,
@@ -233,6 +288,10 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
     let mut current_pipelines: Option<MaterialPipelineSet> = None;
     let mut current_declared_passes: &'static [MaterialPassDesc] = &[];
     let mut pipeline_ok = false;
+    // Dedup state for binds that are stable across consecutive draws in the same pass.
+    let mut last_mesh = LastMeshBindState::new();
+    let mut last_per_draw_dyn_offset: Option<u32> = None;
+    let mut last_stencil_ref: Option<u32> = None;
 
     rpass.set_bind_group(0, frame_bg, &[]);
 
@@ -274,6 +333,8 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
 
         let storage_align = gpu_limits.min_storage_buffer_offset_alignment();
         let per_draw_dyn_offset = if supports_base_instance {
+            // Base-instance path: all rows accessed via `first_instance`; dynamic offset is
+            // always zero for the entire pass so the bind is skipped after the first draw.
             0u32
         } else {
             // Downlevel: `first_instance` is always zero; select the draw row via dynamic offset.
@@ -286,10 +347,19 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
             );
             raw
         };
-        rpass.set_bind_group(2, per_draw_bind_group, &[per_draw_dyn_offset]);
+        if last_per_draw_dyn_offset != Some(per_draw_dyn_offset) {
+            rpass.set_bind_group(2, per_draw_bind_group, &[per_draw_dyn_offset]);
+            last_per_draw_dyn_offset = Some(per_draw_dyn_offset);
+        }
+
         let inst_range =
             instance_range_for_batch(first_idx, inst_batch.instance_count, supports_base_instance);
-        rpass.set_stencil_reference(item.batch_key.render_state.stencil_reference());
+
+        let stencil_ref = item.batch_key.render_state.stencil_reference();
+        if last_stencil_ref != Some(stencil_ref) {
+            rpass.set_stencil_reference(stencil_ref);
+            last_stencil_ref = Some(stencil_ref);
+        }
 
         let Some(pipelines) = current_pipelines.as_ref() else {
             return;
@@ -315,6 +385,7 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
                         .embedded_needs_extended_vertex_streams,
                 },
                 inst_range.clone(),
+                &mut last_mesh,
             );
         }
     });
@@ -333,12 +404,26 @@ fn instance_range_for_batch(
     }
 }
 
+/// Binds one vertex slot only when the buffer identity or range has changed since the last bind.
+///
+/// Using `global_id()` rather than pointer equality is safe because wgpu `Buffer`s are
+/// refcounted and their IDs are stable for the lifetime of the object.
+macro_rules! bind_vertex_if_changed {
+    ($rpass:expr, $slot:expr, $buf:expr, $id:expr, $last:expr) => {{
+        if $last[$slot as usize] != Some($id) {
+            $rpass.set_vertex_buffer($slot, $buf);
+            $last[$slot as usize] = Some($id);
+        }
+    }};
+}
+
 pub(crate) fn draw_mesh_submesh_instanced(
     rpass: &mut wgpu::RenderPass<'_>,
     item: &WorldMeshDrawItem,
     gpu: WorldMeshDrawGpuRefs<'_>,
     streams: EmbeddedVertexStreamFlags,
     instances: std::ops::Range<u32>,
+    last_mesh: &mut LastMeshBindState,
 ) {
     if item.mesh_asset_id < 0 || item.node_id < 0 || item.index_count == 0 {
         return;
@@ -388,34 +473,78 @@ pub(crate) fn draw_mesh_submesh_instanced(
             return;
         };
         let pos_buf = cache.positions_arena();
-        rpass.set_vertex_buffer(0, pos_buf.slice(entry.positions.byte_range()));
+        let pos_range = entry.positions.byte_range();
+        bind_vertex_if_changed!(
+            rpass,
+            0,
+            pos_buf.slice(pos_range.start..pos_range.end),
+            BufferBindId::ranged(pos_buf, pos_range.start, pos_range.end),
+            last_mesh.vertex
+        );
         if use_deformed {
             let Some(nrm_r) = entry.normals.as_ref() else {
                 return;
             };
             let nrm_buf = cache.normals_arena();
-            rpass.set_vertex_buffer(1, nrm_buf.slice(nrm_r.byte_range()));
+            let nrm_range = nrm_r.byte_range();
+            bind_vertex_if_changed!(
+                rpass,
+                1,
+                nrm_buf.slice(nrm_range.start..nrm_range.end),
+                BufferBindId::ranged(nrm_buf, nrm_range.start, nrm_range.end),
+                last_mesh.vertex
+            );
         } else {
-            rpass.set_vertex_buffer(1, normals_bind.slice(..));
+            bind_vertex_if_changed!(
+                rpass,
+                1,
+                normals_bind.slice(..),
+                BufferBindId::full(normals_bind),
+                last_mesh.vertex
+            );
         }
     } else {
         let Some(pos) = mesh.positions_buffer.as_deref() else {
             return;
         };
-        rpass.set_vertex_buffer(0, pos.slice(..));
-        rpass.set_vertex_buffer(1, normals_bind.slice(..));
+        bind_vertex_if_changed!(
+            rpass,
+            0,
+            pos.slice(..),
+            BufferBindId::full(pos),
+            last_mesh.vertex
+        );
+        bind_vertex_if_changed!(
+            rpass,
+            1,
+            normals_bind.slice(..),
+            BufferBindId::full(normals_bind),
+            last_mesh.vertex
+        );
     }
     if embedded_uv || embedded_color || embedded_extended_vertex_streams {
         let Some(uv) = mesh.uv0_buffer.as_deref() else {
             return;
         };
-        rpass.set_vertex_buffer(2, uv.slice(..));
+        bind_vertex_if_changed!(
+            rpass,
+            2,
+            uv.slice(..),
+            BufferBindId::full(uv),
+            last_mesh.vertex
+        );
     }
     if embedded_color || embedded_extended_vertex_streams {
         let Some(color) = mesh.color_buffer.as_deref() else {
             return;
         };
-        rpass.set_vertex_buffer(3, color.slice(..));
+        bind_vertex_if_changed!(
+            rpass,
+            3,
+            color.slice(..),
+            BufferBindId::full(color),
+            last_mesh.vertex
+        );
     }
     if embedded_extended_vertex_streams {
         let (Some(tangent), Some(uv1), Some(uv2), Some(uv3)) = (
@@ -426,12 +555,44 @@ pub(crate) fn draw_mesh_submesh_instanced(
         ) else {
             return;
         };
-        rpass.set_vertex_buffer(4, tangent.slice(..));
-        rpass.set_vertex_buffer(5, uv1.slice(..));
-        rpass.set_vertex_buffer(6, uv2.slice(..));
-        rpass.set_vertex_buffer(7, uv3.slice(..));
+        bind_vertex_if_changed!(
+            rpass,
+            4,
+            tangent.slice(..),
+            BufferBindId::full(tangent),
+            last_mesh.vertex
+        );
+        bind_vertex_if_changed!(
+            rpass,
+            5,
+            uv1.slice(..),
+            BufferBindId::full(uv1),
+            last_mesh.vertex
+        );
+        bind_vertex_if_changed!(
+            rpass,
+            6,
+            uv2.slice(..),
+            BufferBindId::full(uv2),
+            last_mesh.vertex
+        );
+        bind_vertex_if_changed!(
+            rpass,
+            7,
+            uv3.slice(..),
+            BufferBindId::full(uv3),
+            last_mesh.vertex
+        );
     }
-    rpass.set_index_buffer(mesh.index_buffer.slice(..), mesh.index_format);
+
+    let index_key = (
+        mesh.index_buffer.as_ref() as *const wgpu::Buffer as usize,
+        mesh.index_format,
+    );
+    if last_mesh.index != Some(index_key) {
+        rpass.set_index_buffer(mesh.index_buffer.slice(..), mesh.index_format);
+        last_mesh.index = Some(index_key);
+    }
 
     let first = item.first_index;
     let end = first.saturating_add(item.index_count);

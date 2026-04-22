@@ -195,7 +195,7 @@ impl RenderBackend {
             occlusion: OcclusionSystem::new(),
             transient_pool: TransientPool::new(),
             renderer_settings: None,
-            record_parallelism: crate::config::RecordParallelism::Serial,
+            record_parallelism: crate::config::RecordParallelism::PerViewParallel,
             material_batch_cache: FrameMaterialBatchCache::new(),
         }
     }
