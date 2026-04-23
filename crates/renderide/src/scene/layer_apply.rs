@@ -80,19 +80,40 @@ pub(crate) fn apply_layer_update_extracted(
     }
 }
 
+/// Combined renderer count above which the per-renderer layer resolve fans out to the rayon pool.
+///
+/// Each call to [`resolve_layer_for_node`] walks the parent chain and scans `layer_assignments`,
+/// so per-renderer cost scales with scene depth × assignment count. Above this threshold the
+/// parallel dispatch pays for itself; below it the serial path avoids rayon overhead.
+const LAYER_RESOLVE_PARALLEL_MIN: usize = 256;
+
 pub(crate) fn resolve_mesh_layers_from_assignments(space: &mut RenderSpaceState) {
+    profiling::scope!("scene::resolve_mesh_layers");
     let node_parents = &space.node_parents;
     let layer_assignments = &space.layer_assignments;
+    let total = space.static_mesh_renderers.len() + space.skinned_mesh_renderers.len();
 
-    for renderer in &mut space.static_mesh_renderers {
-        renderer.layer = resolve_layer_for_node(node_parents, layer_assignments, renderer.node_id)
-            .unwrap_or_default();
-    }
-
-    for renderer in &mut space.skinned_mesh_renderers {
-        renderer.base.layer =
-            resolve_layer_for_node(node_parents, layer_assignments, renderer.base.node_id)
+    if total >= LAYER_RESOLVE_PARALLEL_MIN {
+        use rayon::prelude::*;
+        space.static_mesh_renderers.par_iter_mut().for_each(|r| {
+            r.layer = resolve_layer_for_node(node_parents, layer_assignments, r.node_id)
                 .unwrap_or_default();
+        });
+        space.skinned_mesh_renderers.par_iter_mut().for_each(|r| {
+            r.base.layer = resolve_layer_for_node(node_parents, layer_assignments, r.base.node_id)
+                .unwrap_or_default();
+        });
+    } else {
+        for renderer in &mut space.static_mesh_renderers {
+            renderer.layer =
+                resolve_layer_for_node(node_parents, layer_assignments, renderer.node_id)
+                    .unwrap_or_default();
+        }
+        for renderer in &mut space.skinned_mesh_renderers {
+            renderer.base.layer =
+                resolve_layer_for_node(node_parents, layer_assignments, renderer.base.node_id)
+                    .unwrap_or_default();
+        }
     }
 }
 

@@ -93,6 +93,9 @@ pub struct RendererRuntime {
     unhandled_ipc_command_counts: HashMap<&'static str, u64>,
     /// When `true`, ImGui and [`crate::config::save_renderer_settings_from_load`] must not overwrite `config.toml`.
     suppress_renderer_config_disk_writes: bool,
+    /// In-flight shader uploads whose [`crate::assets::resolve_shader_upload`] is running on the
+    /// rayon pool; drained by [`Self::poll_ipc`] before this tick's IPC batch is dispatched.
+    pending_shader_resolutions: Vec<shader_material_ipc::PendingShaderResolution>,
 }
 
 impl RendererRuntime {
@@ -136,6 +139,7 @@ impl RendererRuntime {
             xr_locate_views_failures: 0,
             unhandled_ipc_command_counts: HashMap::new(),
             suppress_renderer_config_disk_writes: false,
+            pending_shader_resolutions: Vec::new(),
         }
     }
 
@@ -241,6 +245,11 @@ impl RendererRuntime {
     /// first, then frame submits, then the rest (see [`RendererFrontend::poll_commands`]).
     pub fn poll_ipc(&mut self) {
         profiling::scope!("ipc::poll_batch");
+        shader_material_ipc::drain_pending_shader_resolutions(
+            &mut self.pending_shader_resolutions,
+            &mut self.backend,
+            &mut self.frontend,
+        );
         let mut batch = self.frontend.poll_commands();
         for cmd in batch.drain(..) {
             let _tag = renderer_command_kind::renderer_command_variant_tag(&cmd);
@@ -349,7 +358,7 @@ impl RendererRuntime {
     }
 
     fn on_shader_upload(&mut self, upload: ShaderUpload) {
-        shader_material_ipc::on_shader_upload(&mut self.frontend, &mut self.backend, upload);
+        shader_material_ipc::on_shader_upload(&mut self.pending_shader_resolutions, upload);
     }
 
     fn on_shader_unload(&mut self, unload: ShaderUnload) {

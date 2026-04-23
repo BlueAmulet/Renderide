@@ -704,31 +704,34 @@ fn downsample_rgba8_box(
     let dw = dst_w as usize;
     let dh = dst_h as usize;
 
-    for dy in 0..dh {
-        let y0 = dy * sh / dh;
-        let y1 = ((dy + 1) * sh).div_ceil(dh).max(y0 + 1).min(sh);
-        for dx in 0..dw {
-            let x0 = dx * sw / dw;
-            let x1 = ((dx + 1) * sw).div_ceil(dw).max(x0 + 1).min(sw);
-            let mut sum = [0u32; 4];
-            let mut count = 0u32;
-            for sy in y0..y1 {
-                for sx in x0..x1 {
-                    let si = (sy * sw + sx) * 4;
-                    sum[0] += u32::from(src[si]);
-                    sum[1] += u32::from(src[si + 1]);
-                    sum[2] += u32::from(src[si + 2]);
-                    sum[3] += u32::from(src[si + 3]);
-                    count += 1;
+    use rayon::prelude::*;
+    out.par_chunks_mut(dw * 4)
+        .enumerate()
+        .for_each(|(dy, row)| {
+            let y0 = dy * sh / dh;
+            let y1 = ((dy + 1) * sh).div_ceil(dh).max(y0 + 1).min(sh);
+            for dx in 0..dw {
+                let x0 = dx * sw / dw;
+                let x1 = ((dx + 1) * sw).div_ceil(dw).max(x0 + 1).min(sw);
+                let mut sum = [0u32; 4];
+                let mut count = 0u32;
+                for sy in y0..y1 {
+                    for sx in x0..x1 {
+                        let si = (sy * sw + sx) * 4;
+                        sum[0] += u32::from(src[si]);
+                        sum[1] += u32::from(src[si + 1]);
+                        sum[2] += u32::from(src[si + 2]);
+                        sum[3] += u32::from(src[si + 3]);
+                        count += 1;
+                    }
                 }
+                let di = dx * 4;
+                row[di] = ((sum[0] + count / 2) / count) as u8;
+                row[di + 1] = ((sum[1] + count / 2) / count) as u8;
+                row[di + 2] = ((sum[2] + count / 2) / count) as u8;
+                row[di + 3] = ((sum[3] + count / 2) / count) as u8;
             }
-            let di = (dy * dw + dx) * 4;
-            out[di] = ((sum[0] + count / 2) / count) as u8;
-            out[di + 1] = ((sum[1] + count / 2) / count) as u8;
-            out[di + 2] = ((sum[2] + count / 2) / count) as u8;
-            out[di + 3] = ((sum[3] + count / 2) / count) as u8;
-        }
-    }
+        });
 
     Ok(out)
 }

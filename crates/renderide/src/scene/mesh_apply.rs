@@ -53,21 +53,47 @@ pub struct ExtractedSkinnedMeshRenderablesUpdate {
 static BONE_INDEX_EMPTY_WARNED_SCENES: LazyLock<Mutex<HashSet<i32>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
+/// Skinned renderer count above which the inner fixup loop fans out to the rayon pool.
+///
+/// Each entry touches its own `bone_transform_indices` slab (often hundreds of ids), so the
+/// removals × renderers × bones product grows quickly. Above this size rayon amortizes its
+/// overhead; below it the serial path avoids the dispatch cost.
+const SKINNED_FIXUP_PARALLEL_MIN: usize = 128;
+
 fn fixup_skinned_bones_for_transform_removals(
     space: &mut RenderSpaceState,
     removals: &[TransformRemovalEvent],
 ) {
+    let use_parallel = space.skinned_mesh_renderers.len() >= SKINNED_FIXUP_PARALLEL_MIN;
     for ev in removals {
         let removed_id = ev.removed_index;
         let last_index = ev.last_index_before_swap;
-        for entry in &mut space.skinned_mesh_renderers {
-            entry.base.node_id = fixup_transform_id(entry.base.node_id, removed_id, last_index);
-            for id in &mut entry.bone_transform_indices {
-                *id = fixup_transform_id(*id, removed_id, last_index);
-            }
-            if let Some(rid) = entry.root_bone_transform_id {
-                entry.root_bone_transform_id =
-                    Some(fixup_transform_id(rid, removed_id, last_index));
+        if use_parallel {
+            use rayon::prelude::*;
+            space
+                .skinned_mesh_renderers
+                .par_iter_mut()
+                .for_each(|entry| {
+                    entry.base.node_id =
+                        fixup_transform_id(entry.base.node_id, removed_id, last_index);
+                    for id in &mut entry.bone_transform_indices {
+                        *id = fixup_transform_id(*id, removed_id, last_index);
+                    }
+                    if let Some(rid) = entry.root_bone_transform_id {
+                        entry.root_bone_transform_id =
+                            Some(fixup_transform_id(rid, removed_id, last_index));
+                    }
+                });
+        } else {
+            for entry in &mut space.skinned_mesh_renderers {
+                entry.base.node_id = fixup_transform_id(entry.base.node_id, removed_id, last_index);
+                for id in &mut entry.bone_transform_indices {
+                    *id = fixup_transform_id(*id, removed_id, last_index);
+                }
+                if let Some(rid) = entry.root_bone_transform_id {
+                    entry.root_bone_transform_id =
+                        Some(fixup_transform_id(rid, removed_id, last_index));
+                }
             }
         }
     }

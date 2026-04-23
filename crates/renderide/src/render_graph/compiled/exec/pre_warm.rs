@@ -11,10 +11,26 @@ use super::super::{CompiledRenderGraph, FrameView, FrameViewTarget, MultiViewExe
 use super::{GraphResolveKey, TransientTextureResolveSurfaceParams};
 use crate::assets::material::MaterialDictionary;
 use crate::materials::{
-    embedded_stem_needs_extended_vertex_streams, resolve_raster_pipeline, RasterPipelineKind,
+    embedded_stem_needs_extended_vertex_streams, resolve_raster_pipeline, MaterialBlendMode,
+    MaterialPipelineDesc, MaterialRenderState, RasterPipelineKind,
 };
 use crate::pipelines::ShaderPermutation;
 use crate::render_graph::world_mesh_draw_prep::FramePreparedRenderables;
+
+/// Pending cache warm-up request fanned out to the rayon pool by
+/// [`CompiledRenderGraph::pre_warm_pipeline_cache_for_views`].
+struct PipelineCompileRequest {
+    /// Attachment format / sample count / multiview mask for the owning view.
+    pass_desc: MaterialPipelineDesc,
+    /// Stereo multiview or single-view permutation selected for the owning view.
+    shader_perm: ShaderPermutation,
+    /// Host shader asset id whose pipeline permutation is being warmed.
+    shader_asset_id: i32,
+    /// Material-level blend mode for this cache key.
+    blend_mode: MaterialBlendMode,
+    /// Material-level stencil/color-write state for this cache key.
+    render_state: MaterialRenderState,
+}
 
 impl CompiledRenderGraph {
     /// Warms the [`crate::materials::MaterialRegistry`] pipeline cache for every prefetched draw
@@ -28,12 +44,12 @@ impl CompiledRenderGraph {
         mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &[FrameView<'_>],
     ) {
-        use crate::materials::MaterialPipelineDesc;
-        use std::num::NonZeroU32;
         profiling::scope!("graph::pre_warm_pipelines");
-        let Some(reg) = mv_ctx.backend.materials.material_registry() else {
+        if mv_ctx.backend.materials.material_registry().is_none() {
             return;
-        };
+        }
+
+        let mut compile_requests: Vec<PipelineCompileRequest> = Vec::new();
         for view in views {
             let Some(collection) = view.prefetched_world_mesh_draws.as_ref() else {
                 continue;
@@ -41,83 +57,39 @@ impl CompiledRenderGraph {
             if collection.items.is_empty() {
                 continue;
             }
-            let host_camera = view.host_camera;
-            let (viewport, multiview_stereo) = match &view.target {
-                FrameViewTarget::ExternalMultiview(ext) => {
-                    let stereo = host_camera.vr_active && host_camera.stereo_views.is_some();
-                    (ext.extent_px, stereo)
-                }
-                FrameViewTarget::OffscreenRt(ext) => (ext.extent_px, false),
-                FrameViewTarget::Swapchain => (mv_ctx.gpu.surface_extent_px(), false),
+            let Some((pass_desc, shader_perm)) = view_pipeline_pass_desc(mv_ctx, view) else {
+                continue;
             };
-            let _ = viewport;
-            let surface_format = match &view.target {
-                FrameViewTarget::ExternalMultiview(ext) => ext.surface_format,
-                FrameViewTarget::OffscreenRt(ext) => ext.color_format,
-                FrameViewTarget::Swapchain => mv_ctx.gpu.config_format(),
-            };
-            let depth_stencil_format = match &view.target {
-                FrameViewTarget::ExternalMultiview(ext) => ext.depth_texture.format(),
-                FrameViewTarget::OffscreenRt(ext) => ext.depth_texture.format(),
-                FrameViewTarget::Swapchain => {
-                    let Ok((depth_tex, _)) = mv_ctx.gpu.ensure_depth_target() else {
-                        continue;
-                    };
-                    depth_tex.format()
-                }
-            };
-            let sample_count = match &view.target {
-                FrameViewTarget::ExternalMultiview(_) => {
-                    mv_ctx.gpu.swapchain_msaa_effective_stereo().max(1)
-                }
-                FrameViewTarget::OffscreenRt(_) => 1,
-                FrameViewTarget::Swapchain => mv_ctx.gpu.swapchain_msaa_effective().max(1),
-            };
-            let use_multiview = multiview_stereo
-                && host_camera.vr_active
-                && host_camera.stereo_view_proj.is_some()
-                && mv_ctx.gpu_limits.supports_multiview;
-            let pass_desc = MaterialPipelineDesc {
-                surface_format,
-                depth_stencil_format: Some(depth_stencil_format),
-                sample_count,
-                multiview_mask: if use_multiview {
-                    NonZeroU32::new(3)
-                } else {
-                    None
-                },
-            };
-            let shader_perm = if use_multiview {
-                crate::pipelines::SHADER_PERM_MULTIVIEW_STEREO
-            } else {
-                crate::pipelines::ShaderPermutation(0)
-            };
-
-            // Walk unique (shader_asset_id, blend_mode, render_state) tuples to avoid duplicate
-            // cache calls for draws that share the same batch key.
-            let mut seen: std::collections::HashSet<(
-                i32,
-                crate::materials::MaterialBlendMode,
-                crate::materials::MaterialRenderState,
-            )> = std::collections::HashSet::new();
-            for item in &collection.items {
-                let key = (
-                    item.batch_key.shader_asset_id,
-                    item.batch_key.blend_mode,
-                    item.batch_key.render_state,
-                );
-                if !seen.insert(key) {
-                    continue;
-                }
-                let _ = reg.pipeline_for_shader_asset(
-                    item.batch_key.shader_asset_id,
-                    &pass_desc,
-                    shader_perm,
-                    item.batch_key.blend_mode,
-                    item.batch_key.render_state,
-                );
-            }
+            collect_unique_pipeline_requests(
+                &collection.items,
+                pass_desc,
+                shader_perm,
+                &mut compile_requests,
+            );
         }
+
+        if compile_requests.is_empty() {
+            return;
+        }
+
+        let Some(reg) = mv_ctx.backend.materials.material_registry() else {
+            return;
+        };
+        // Fan pipeline misses out to the rayon pool so multiple new permutations compile in
+        // parallel instead of serially blocking the main thread. `MaterialPipelineCache`
+        // releases its mutex before `create_shader_module` / `create_render_pipeline` and
+        // elides duplicate inserts on re-lock, so concurrent callers are safe.
+        use rayon::prelude::*;
+        compile_requests.par_iter().for_each(|req| {
+            profiling::scope!("graph::pre_warm_pipelines::compile");
+            let _ = reg.pipeline_for_shader_asset(
+                req.shader_asset_id,
+                &req.pass_desc,
+                req.shader_perm,
+                req.blend_mode,
+                req.render_state,
+            );
+        });
     }
 
     /// Eagerly allocates per-view frame state ([`crate::backend::FrameResourceManager::per_view_frame_or_create`])
@@ -286,6 +258,93 @@ impl CompiledRenderGraph {
             }
         }
         Ok(())
+    }
+}
+
+/// Resolves the view's surface / depth / sample-count / multiview attributes into the
+/// [`MaterialPipelineDesc`] + [`ShaderPermutation`] pair used as the pipeline cache key, or
+/// returns `None` when the swapchain depth target is unavailable this tick.
+fn view_pipeline_pass_desc(
+    mv_ctx: &mut MultiViewExecutionContext<'_>,
+    view: &FrameView<'_>,
+) -> Option<(MaterialPipelineDesc, ShaderPermutation)> {
+    use std::num::NonZeroU32;
+    let host_camera = view.host_camera;
+    let multiview_stereo = match &view.target {
+        FrameViewTarget::ExternalMultiview(_) => {
+            host_camera.vr_active && host_camera.stereo_views.is_some()
+        }
+        FrameViewTarget::OffscreenRt(_) | FrameViewTarget::Swapchain => false,
+    };
+    let surface_format = match &view.target {
+        FrameViewTarget::ExternalMultiview(ext) => ext.surface_format,
+        FrameViewTarget::OffscreenRt(ext) => ext.color_format,
+        FrameViewTarget::Swapchain => mv_ctx.gpu.config_format(),
+    };
+    let depth_stencil_format = match &view.target {
+        FrameViewTarget::ExternalMultiview(ext) => ext.depth_texture.format(),
+        FrameViewTarget::OffscreenRt(ext) => ext.depth_texture.format(),
+        FrameViewTarget::Swapchain => {
+            let (depth_tex, _) = mv_ctx.gpu.ensure_depth_target().ok()?;
+            depth_tex.format()
+        }
+    };
+    let sample_count = match &view.target {
+        FrameViewTarget::ExternalMultiview(_) => {
+            mv_ctx.gpu.swapchain_msaa_effective_stereo().max(1)
+        }
+        FrameViewTarget::OffscreenRt(_) => 1,
+        FrameViewTarget::Swapchain => mv_ctx.gpu.swapchain_msaa_effective().max(1),
+    };
+    let use_multiview = multiview_stereo
+        && host_camera.vr_active
+        && host_camera.stereo_view_proj.is_some()
+        && mv_ctx.gpu_limits.supports_multiview;
+    let pass_desc = MaterialPipelineDesc {
+        surface_format,
+        depth_stencil_format: Some(depth_stencil_format),
+        sample_count,
+        multiview_mask: if use_multiview {
+            NonZeroU32::new(3)
+        } else {
+            None
+        },
+    };
+    let shader_perm = if use_multiview {
+        crate::pipelines::SHADER_PERM_MULTIVIEW_STEREO
+    } else {
+        ShaderPermutation(0)
+    };
+    Some((pass_desc, shader_perm))
+}
+
+/// Appends unique `(shader_asset_id, blend_mode, render_state)` permutations from `items` to
+/// `out`, stamped with the view's `pass_desc` and `shader_perm`. Duplicates within this view
+/// are elided; the LRU cache handles cross-view dedup.
+fn collect_unique_pipeline_requests(
+    items: &[crate::render_graph::world_mesh_draw_prep::WorldMeshDrawItem],
+    pass_desc: MaterialPipelineDesc,
+    shader_perm: ShaderPermutation,
+    out: &mut Vec<PipelineCompileRequest>,
+) {
+    let mut seen: std::collections::HashSet<(i32, MaterialBlendMode, MaterialRenderState)> =
+        std::collections::HashSet::new();
+    for item in items {
+        let key = (
+            item.batch_key.shader_asset_id,
+            item.batch_key.blend_mode,
+            item.batch_key.render_state,
+        );
+        if !seen.insert(key) {
+            continue;
+        }
+        out.push(PipelineCompileRequest {
+            pass_desc,
+            shader_perm,
+            shader_asset_id: key.0,
+            blend_mode: key.1,
+            render_state: key.2,
+        });
     }
 }
 
