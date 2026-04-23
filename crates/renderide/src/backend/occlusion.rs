@@ -114,6 +114,7 @@ impl OcclusionSystem {
     }
 
     /// Records Hi-Z GPU work into `encoder` (staging copy included).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn encode_hi_z_build_pass(
         &self,
         device: &wgpu::Device,
@@ -121,6 +122,7 @@ impl OcclusionSystem {
         encoder: &mut wgpu::CommandEncoder,
         state_slot: &Mutex<HiZGpuState>,
         input: HiZBuildInput<'_>,
+        profiler: Option<&crate::profiling::GpuProfilerHandle>,
     ) {
         profiling::scope!("hi_z::build");
         let mut state = state_slot.lock();
@@ -132,6 +134,7 @@ impl OcclusionSystem {
             input.extent,
             input.mode,
             &mut state,
+            profiler,
         );
     }
 

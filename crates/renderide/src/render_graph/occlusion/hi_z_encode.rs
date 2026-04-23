@@ -35,14 +35,24 @@ enum DepthBinding {
 
 /// Device, encoder, and source/destination views for a single Hi-Z mip0 dispatch from depth.
 struct HiZMip0EncodeContext<'a> {
+    /// Device for bind group creation.
     device: &'a wgpu::Device,
+    /// Queue for uniform writes (`layer_uniform`, `downsample_uniform`).
     queue: &'a wgpu::Queue,
+    /// Active command encoder receiving the mip0 + downsample compute passes.
     encoder: &'a mut wgpu::CommandEncoder,
+    /// Source depth view (sampled in the mip0 pass).
     depth_view: &'a wgpu::TextureView,
+    /// Scratch buffers and viewports (extent, mip count, uniforms).
     scratch: &'a HiZGpuScratch,
+    /// Compiled Hi-Z pipelines (mip0 desktop/stereo + downsample).
     pipes: &'a HiZPipelines,
+    /// Views for each pyramid mip level (written by mip0, read/written by downsample).
     pyramid_views: &'a [wgpu::TextureView],
+    /// Binding flavour for the mip0 pass (D2 vs D2Array with layer).
     depth_bind: DepthBinding,
+    /// GPU profiler for per-dispatch pass-level timestamp queries; [`None`] when disabled.
+    profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
 /// Resets slot validity, invalidates cache, ensures [`HiZGpuScratch`] matches `extent` / stereo layout.
@@ -102,6 +112,7 @@ fn reset_and_prepare_hi_z_scratch(
 ///
 /// Call [`HiZGpuState::on_frame_submitted`] after [`wgpu::Queue::submit`]. Call
 /// [`HiZGpuState::begin_frame_readback`] at the **start** of the next frame to drain completed maps.
+#[allow(clippy::too_many_arguments)]
 pub fn encode_hi_z_build(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -110,6 +121,7 @@ pub fn encode_hi_z_build(
     extent: (u32, u32),
     mode: OutputDepthMode,
     state: &mut HiZGpuState,
+    profiler: Option<&crate::profiling::GpuProfilerHandle>,
 ) {
     if !reset_and_prepare_hi_z_scratch(device, extent, mode, state) {
         return;
@@ -134,6 +146,7 @@ pub fn encode_hi_z_build(
                 pipes,
                 pyramid_views: &scratch.views,
                 depth_bind: DepthBinding::D2,
+                profiler,
             });
             copy_pyramid_to_staging(
                 encoder,
@@ -160,6 +173,7 @@ pub fn encode_hi_z_build(
                 pipes,
                 pyramid_views: &scratch.views,
                 depth_bind: DepthBinding::D2Array { layer: 0 },
+                profiler,
             });
             dispatch_mip0_and_downsample(HiZMip0EncodeContext {
                 device,
@@ -170,6 +184,7 @@ pub fn encode_hi_z_build(
                 pipes,
                 pyramid_views: views_r,
                 depth_bind: DepthBinding::D2Array { layer: 1 },
+                profiler,
             });
             copy_pyramid_to_staging(
                 encoder,
@@ -204,12 +219,17 @@ fn dispatch_hi_z_mip0_from_depth(args: &mut HiZMip0EncodeContext<'_>) {
                     },
                 ],
             });
+            let pass_query = args
+                .profiler
+                .map(|p| p.begin_pass_query("hi_z_mip0_desktop", args.encoder));
+            let timestamp_writes =
+                crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
             {
                 let mut pass = args
                     .encoder
                     .begin_compute_pass(&wgpu::ComputePassDescriptor {
                         label: Some("hi_z_mip0_desktop"),
-                        timestamp_writes: None,
+                        timestamp_writes,
                     });
                 pass.set_pipeline(&args.pipes.mip0_desktop);
                 pass.set_bind_group(0, &bg, &[]);
@@ -218,6 +238,9 @@ fn dispatch_hi_z_mip0_from_depth(args: &mut HiZMip0EncodeContext<'_>) {
                     args.scratch.extent.1.div_ceil(8),
                     1,
                 );
+            }
+            if let (Some(p), Some(q)) = (args.profiler, pass_query) {
+                p.end_query(args.encoder, q);
             }
         }
         DepthBinding::D2Array { layer } => {
@@ -247,12 +270,17 @@ fn dispatch_hi_z_mip0_from_depth(args: &mut HiZMip0EncodeContext<'_>) {
                     },
                 ],
             });
+            let pass_query = args
+                .profiler
+                .map(|p| p.begin_pass_query("hi_z_mip0_stereo", args.encoder));
+            let timestamp_writes =
+                crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
             {
                 let mut pass = args
                     .encoder
                     .begin_compute_pass(&wgpu::ComputePassDescriptor {
                         label: Some("hi_z_mip0_stereo"),
-                        timestamp_writes: None,
+                        timestamp_writes,
                     });
                 pass.set_pipeline(&args.pipes.mip0_stereo);
                 pass.set_bind_group(0, &bg, &[]);
@@ -262,11 +290,15 @@ fn dispatch_hi_z_mip0_from_depth(args: &mut HiZMip0EncodeContext<'_>) {
                     1,
                 );
             }
+            if let (Some(p), Some(q)) = (args.profiler, pass_query) {
+                p.end_query(args.encoder, q);
+            }
         }
     }
 }
 
 /// Max-reduction chain from mip0 through the rest of the R32F pyramid.
+#[allow(clippy::too_many_arguments)]
 fn dispatch_hi_z_downsample_mips(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -274,6 +306,7 @@ fn dispatch_hi_z_downsample_mips(
     scratch: &HiZGpuScratch,
     pipes: &HiZPipelines,
     pyramid_views: &[wgpu::TextureView],
+    profiler: Option<&crate::profiling::GpuProfilerHandle>,
 ) {
     let (bw, bh) = scratch.extent;
     for mip in 0..scratch.mip_levels.saturating_sub(1) {
@@ -304,14 +337,19 @@ fn dispatch_hi_z_downsample_mips(
                 },
             ],
         });
+        let pass_query = profiler.map(|p| p.begin_pass_query("hi_z_downsample", encoder));
+        let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("hi_z_downsample"),
-                timestamp_writes: None,
+                timestamp_writes,
             });
             pass.set_pipeline(&pipes.downsample);
             pass.set_bind_group(0, &bg, &[]);
             pass.dispatch_workgroups(dw.div_ceil(8), dh.div_ceil(8), 1);
+        }
+        if let (Some(p), Some(q)) = (profiler, pass_query) {
+            p.end_query(encoder, q);
         }
     }
 }
@@ -326,6 +364,7 @@ fn dispatch_mip0_and_downsample(mut args: HiZMip0EncodeContext<'_>) {
         args.scratch,
         args.pipes,
         args.pyramid_views,
+        args.profiler,
     );
 }
 

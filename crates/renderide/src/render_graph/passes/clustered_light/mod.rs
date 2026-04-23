@@ -162,16 +162,28 @@ struct ClusterParamsDesc {
 
 /// GPU and uniform state for per-eye clustered light compute dispatches.
 struct ClusteredLightEyePassEnv<'a> {
+    /// Active command encoder for this recording slice.
     encoder: &'a mut wgpu::CommandEncoder,
+    /// Deferred [`wgpu::Queue::write_buffer`] sink shared with the rest of the frame.
     upload_batch: &'a FrameUploadBatch,
+    /// Clustered-light compute pipeline.
     pipeline: &'a wgpu::ComputePipeline,
+    /// Bind group with light/cluster/params resources.
     bind_group: &'a wgpu::BindGroup,
+    /// Uniform buffer holding per-eye [`ClusterFrameParams`].
     params_buffer: &'a wgpu::Buffer,
+    /// Per-eye cluster frame params (one or two entries).
     eye_params: &'a [ClusterFrameParams],
+    /// Number of clusters produced per eye.
     clusters_per_eye: u32,
+    /// Scene light count (driving workgroup extent in Z).
     light_count: u32,
+    /// Target viewport size in pixels.
     viewport: (u32, u32),
+    /// Adapter limits for validating dispatch extents.
     gpu_limits: &'a GpuLimits,
+    /// GPU profiler for the pass-level timestamp query on each eye's compute pass.
+    profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
 /// Per-eye cluster compute dispatches (params upload + 3D grid).
@@ -207,15 +219,24 @@ fn run_clustered_light_eye_passes(env: ClusteredLightEyePassEnv<'_>) {
             continue;
         }
 
-        let mut pass = env
-            .encoder
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("clustered_light"),
-                timestamp_writes: None,
-            });
-        pass.set_pipeline(env.pipeline);
-        pass.set_bind_group(0, env.bind_group, &[buf_offset as u32]);
-        pass.dispatch_workgroups(dx, dy, dz);
+        let pass_query = env
+            .profiler
+            .map(|p| p.begin_pass_query("clustered_light", env.encoder));
+        let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
+        {
+            let mut pass = env
+                .encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("clustered_light"),
+                    timestamp_writes,
+                });
+            pass.set_pipeline(env.pipeline);
+            pass.set_bind_group(0, env.bind_group, &[buf_offset as u32]);
+            pass.dispatch_workgroups(dx, dy, dz);
+        }
+        if let (Some(p), Some(q)) = (env.profiler, pass_query) {
+            p.end_query(env.encoder, q);
+        }
     }
 }
 
@@ -454,6 +475,7 @@ impl ComputePass for ClusteredLightPass {
             light_count,
             viewport,
             gpu_limits: ctx.gpu_limits,
+            profiler: ctx.profiler,
         });
 
         if self

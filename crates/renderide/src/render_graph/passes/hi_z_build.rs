@@ -78,6 +78,7 @@ impl ComputePass for HiZBuildPass {
                 extent: frame.view.viewport_px,
                 mode,
             },
+            ctx.profiler,
         );
         Ok(())
     }

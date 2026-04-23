@@ -379,15 +379,24 @@ pub(super) fn execute_graph_raster_pass_node(
     };
 
     let multiview_mask = pass.multiview_mask_override(ctx, template);
-    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("render-graph-raster"),
-        color_attachments: &color_attachments,
-        depth_stencil_attachment,
-        occlusion_query_set: None,
-        timestamp_writes: None,
-        multiview_mask,
-    });
-    pass.record_raster(ctx, &mut rpass)
-        .map_err(GraphExecuteError::Pass)?;
+    let pass_query = ctx
+        .profiler
+        .map(|p| p.begin_pass_query(pass_name.as_str(), encoder));
+    let timestamp_writes = crate::profiling::render_pass_timestamp_writes(pass_query.as_ref());
+    {
+        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("render-graph-raster"),
+            color_attachments: &color_attachments,
+            depth_stencil_attachment,
+            occlusion_query_set: None,
+            timestamp_writes,
+            multiview_mask,
+        });
+        pass.record_raster(ctx, &mut rpass)
+            .map_err(GraphExecuteError::Pass)?;
+    }
+    if let (Some(p), Some(q)) = (ctx.profiler, pass_query) {
+        p.end_query(encoder, q);
+    }
     Ok(())
 }

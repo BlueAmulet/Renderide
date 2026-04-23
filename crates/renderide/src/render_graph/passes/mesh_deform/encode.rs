@@ -29,6 +29,8 @@ pub(super) struct MeshDeformEncodeGpu<'a> {
     pub pre: &'a crate::backend::mesh_deform::MeshPreprocessPipelines,
     /// Scratch buffers and slab cursors backing.
     pub scratch: &'a mut crate::backend::MeshDeformScratch,
+    /// GPU profiler for per-dispatch pass-level timestamp queries; [`None`] when disabled.
+    pub profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
 /// Scene, mesh snapshot, slab cursors, and GPU skin cache subranges for one deform work item.
@@ -243,15 +245,24 @@ fn blendshape_record_scatter_compute_passes(
             ],
         });
 
-        let mut cpass = gpu
-            .encoder
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("blendshape_scatter"),
-                timestamp_writes: None,
-            });
-        cpass.set_pipeline(&gpu.pre.blendshape_pipeline);
-        cpass.set_bind_group(0, &blend_bg, &[]);
-        cpass.dispatch_workgroups(scatter_wg, 1, 1);
+        let pass_query = gpu
+            .profiler
+            .map(|p| p.begin_pass_query("blendshape_scatter", gpu.encoder));
+        let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
+        {
+            let mut cpass = gpu
+                .encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("blendshape_scatter"),
+                    timestamp_writes,
+                });
+            cpass.set_pipeline(&gpu.pre.blendshape_pipeline);
+            cpass.set_bind_group(0, &blend_bg, &[]);
+            cpass.dispatch_workgroups(scatter_wg, 1, 1);
+        }
+        if let (Some(p), Some(q)) = (gpu.profiler, pass_query) {
+            p.end_query(gpu.encoder, q);
+        }
     }
 
     *blend_weight_cursor = advance_slab_cursor(*blend_weight_cursor, weight_binding_len);
@@ -466,6 +477,7 @@ fn record_skinning_deform(gpu: &mut MeshDeformEncodeGpu<'_>, ctx: SkinningDeform
         bone_binding_size,
         wg: ctx.wg,
         skin_dispatch_offset: sd_cursor,
+        profiler: gpu.profiler,
     });
 
     *ctx.bone_cursor = advance_slab_cursor(*ctx.bone_cursor, palette_len);
@@ -489,6 +501,8 @@ struct SkinningPaletteDispatch<'a> {
     wg: u32,
     /// Byte offset into [`MeshDeformScratch::skin_dispatch`] for this dispatch’s `SkinDispatchParams`.
     skin_dispatch_offset: u64,
+    /// GPU profiler for the pass-level timestamp query on the skinning compute pass.
+    profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
 /// Builds skinning bind group (bone slab + attributes) and dispatches the skinning shader.
@@ -545,15 +559,24 @@ fn skinning_dispatch_with_uploaded_palette(dispatch: SkinningPaletteDispatch<'_>
             ],
         });
 
-    let mut cpass = dispatch
-        .encoder
-        .begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("skinning"),
-            timestamp_writes: None,
-        });
-    cpass.set_pipeline(&dispatch.pre.skinning_pipeline);
-    cpass.set_bind_group(0, &skin_bg, &[]);
-    cpass.dispatch_workgroups(dispatch.wg, 1, 1);
+    let pass_query = dispatch
+        .profiler
+        .map(|p| p.begin_pass_query("skinning", dispatch.encoder));
+    let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
+    {
+        let mut cpass = dispatch
+            .encoder
+            .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("skinning"),
+                timestamp_writes,
+            });
+        cpass.set_pipeline(&dispatch.pre.skinning_pipeline);
+        cpass.set_bind_group(0, &skin_bg, &[]);
+        cpass.dispatch_workgroups(dispatch.wg, 1, 1);
+    }
+    if let (Some(p), Some(q)) = (dispatch.profiler, pass_query) {
+        p.end_query(dispatch.encoder, q);
+    }
 }
 
 fn workgroup_count(count: u32) -> u32 {

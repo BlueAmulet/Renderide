@@ -161,6 +161,13 @@ impl DebugHudBundle {
         }
     }
 
+    /// Forwards the latest flattened GPU pass timings to the wrapped HUD.
+    pub(crate) fn set_gpu_pass_timings(&mut self, timings: Vec<crate::profiling::GpuPassEntry>) {
+        if let Some(hud) = self.hud.as_mut() {
+            hud.set_gpu_pass_timings(timings);
+        }
+    }
+
     /// Clears Stats / Shader routes payloads only (not frame timing or scene transforms).
     pub(crate) fn clear_stats_snapshots(&mut self) {
         if let Some(hud) = self.hud.as_mut() {

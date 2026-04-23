@@ -130,6 +130,13 @@ impl RendererRuntime {
             &self.frame_time_history,
         );
         self.backend.set_debug_hud_frame_timing(frame_timing);
+        let gpu_pass_timings = gpu
+            .latest_gpu_pass_timings_handle()
+            .lock()
+            .map(|guard| guard.clone())
+            .unwrap_or_default();
+        self.backend
+            .set_debug_hud_gpu_pass_timings(gpu_pass_timings);
 
         let (main_hud, transforms_hud, textures_hud) = self
             .settings

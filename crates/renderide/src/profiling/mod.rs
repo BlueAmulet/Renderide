@@ -19,29 +19,43 @@
 //!
 //! # GPU profiling
 //!
-//! [`GpuProfilerHandle`] wraps [`wgpu_profiler::GpuProfiler`] (only compiled with `tracy`).
-//! It inserts timestamp queries around the two render-graph execution sub-phases
-//! (`graph::frame_global` and `graph::per_view`) and bridges results to the Tracy GPU timeline.
+//! [`GpuProfilerHandle`] wraps [`wgpu_profiler::GpuProfiler`] (only compiled with `tracy`). It
+//! connects to the running Tracy client via
+//! [`wgpu_profiler::GpuProfiler::new_with_tracy_client`], so pass-level GPU timestamps are
+//! bridged into Tracy's GPU timeline.
 //!
-//! GPU timestamps require both [`wgpu::Features::TIMESTAMP_QUERY`] and
-//! [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`]. When either is missing on the adapter,
-//! [`GpuProfilerHandle::try_new`] returns [`None`] and a warning is logged; CPU spans still work.
+//! Pass-level timestamp writes (the preferred path) only require [`wgpu::Features::TIMESTAMP_QUERY`].
+//! Encoder-level [`GpuProfilerHandle::begin_query`]/[`GpuProfilerHandle::end_query`] additionally
+//! require [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`]; when the adapter is missing that
+//! feature the handle is still created but encoder-level queries silently do nothing. When the
+//! adapter is also missing [`wgpu::Features::TIMESTAMP_QUERY`], [`GpuProfilerHandle::try_new`]
+//! returns [`None`] and a warning is logged; CPU spans still work.
 //!
 //! # Thread naming
 //!
-//! Call [`register_main_thread`] once at startup so the main thread appears by name in Tracy.
-//! Pass [`rayon_thread_start_handler`] to `rayon::ThreadPoolBuilder::start_handler` so Rayon
-//! workers are also named.
+//! Call [`register_main_thread`] once at startup so the main thread appears by name in Tracy. It
+//! also starts the Tracy client before any other profiling macro runs. Pass
+//! [`rayon_thread_start_handler`] to `rayon::ThreadPoolBuilder::start_handler` so Rayon workers
+//! are also named.
 
 pub use profiling::finish_frame;
 pub use profiling::function_scope;
 pub use profiling::scope;
 
-/// Registers the calling thread as `"renderer-main"` in the active profiler.
+/// Starts the Tracy client (if the `tracy` feature is on) and registers the calling thread as
+/// `"renderer-main"` in the active profiler.
+///
+/// Must be called exactly once, before any other `profiling::scope!` macro or
+/// [`GpuProfilerHandle::try_new`] runs — the `profiling` crate's tracy backend expects a running
+/// `tracy_client::Client` on every span, so the client has to be live first.
 ///
 /// Expands to nothing when the `tracy` feature is off.
 #[inline]
 pub fn register_main_thread() {
+    #[cfg(feature = "tracy")]
+    {
+        let _ = tracy_client::Client::start();
+    }
     profiling::register_thread!("renderer-main");
 }
 
@@ -73,7 +87,8 @@ pub fn rayon_thread_start_handler() -> impl Fn(usize) + Send + Sync + 'static {
 /// actually supports. If `cfg(feature = "tracy")` is not active, always returns empty.
 ///
 /// Call this in [`crate::gpu::context`]'s feature-intersection helpers and OR the result into
-/// the device's requested features.
+/// the device's requested features. `TIMESTAMP_QUERY` alone is enough for pass-level profiling;
+/// `TIMESTAMP_QUERY_INSIDE_ENCODERS` unlocks encoder-level queries on adapters that offer it.
 pub fn timestamp_query_features_if_supported(adapter: &wgpu::Adapter) -> wgpu::Features {
     #[cfg(feature = "tracy")]
     {
@@ -92,7 +107,8 @@ pub fn timestamp_query_features_if_supported(adapter: &wgpu::Adapter) -> wgpu::F
 // PhaseQuery — GPU timestamp query token, with a no-op stub when `tracy` is off
 // ---------------------------------------------------------------------------
 
-/// GPU timestamp query token returned by [`GpuProfilerHandle::begin_query`].
+/// GPU timestamp query token returned by [`GpuProfilerHandle::begin_query`] /
+/// [`GpuProfilerHandle::begin_pass_query`].
 ///
 /// When the `tracy` feature is on this is [`wgpu_profiler::GpuProfilerQuery`]; when it is off
 /// this is a zero-sized placeholder so call sites compile identically under both states.
@@ -102,6 +118,62 @@ pub type PhaseQuery = wgpu_profiler::GpuProfilerQuery;
 /// Zero-sized placeholder for [`wgpu_profiler::GpuProfilerQuery`] when the `tracy` feature is off.
 #[cfg(not(feature = "tracy"))]
 pub struct PhaseQuery;
+
+/// One resolved GPU pass timing, flattened from the `wgpu-profiler` result tree.
+///
+/// Emitted once per frame by [`GpuProfilerHandle::process_finished_frame`] so consumers can
+/// display the per-pass breakdown without depending on `wgpu_profiler`'s types or feature gates.
+#[derive(Clone, Debug)]
+pub struct GpuPassEntry {
+    /// Pass label captured at `begin_query` / `begin_pass_query` time.
+    pub name: String,
+    /// Measured GPU time in milliseconds for this pass.
+    pub ms: f32,
+    /// Depth in the original query tree (0 for top-level scopes, >0 for nested ones).
+    pub depth: u32,
+}
+
+/// Reads the render-pass timestamp writes reserved for a pass-level query.
+///
+/// Forwards to [`wgpu_profiler::GpuProfilerQuery::render_pass_timestamp_writes`] when the
+/// `tracy` feature is on; returns [`None`] otherwise. Feed the result into
+/// [`wgpu::RenderPassDescriptor::timestamp_writes`] when opening the pass, then pair the query
+/// with [`GpuProfilerHandle::end_query`] after the pass drops.
+#[inline]
+pub fn render_pass_timestamp_writes(
+    query: Option<&PhaseQuery>,
+) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+    #[cfg(feature = "tracy")]
+    {
+        query.and_then(|q| q.render_pass_timestamp_writes())
+    }
+    #[cfg(not(feature = "tracy"))]
+    {
+        let _ = query;
+        None
+    }
+}
+
+/// Reads the compute-pass timestamp writes reserved for a pass-level query.
+///
+/// Forwards to [`wgpu_profiler::GpuProfilerQuery::compute_pass_timestamp_writes`] when the
+/// `tracy` feature is on; returns [`None`] otherwise. Feed the result into
+/// [`wgpu::ComputePassDescriptor::timestamp_writes`] when opening the pass, then pair the query
+/// with [`GpuProfilerHandle::end_query`] after the pass drops.
+#[inline]
+pub fn compute_pass_timestamp_writes(
+    query: Option<&PhaseQuery>,
+) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
+    #[cfg(feature = "tracy")]
+    {
+        query.and_then(|q| q.compute_pass_timestamp_writes())
+    }
+    #[cfg(not(feature = "tracy"))]
+    {
+        let _ = query;
+        None
+    }
+}
 
 // ---------------------------------------------------------------------------
 // GPU profiler handle — real implementation when `tracy` is on
@@ -113,8 +185,8 @@ mod gpu_profiler_impl {
 
     use super::PhaseQuery;
 
-    /// Wraps [`GpuProfiler`] and provides a GPU timestamp query interface for the render-graph
-    /// execution sub-phases, bridging results to the Tracy GPU timeline.
+    /// Wraps [`GpuProfiler`] and provides a GPU timestamp query interface for render and
+    /// compute passes, bridging results to the Tracy GPU timeline.
     ///
     /// Created via [`GpuProfilerHandle::try_new`]; only available when the `tracy` feature is on.
     pub struct GpuProfilerHandle {
@@ -122,32 +194,63 @@ mod gpu_profiler_impl {
     }
 
     impl GpuProfilerHandle {
-        /// Creates a new handle if the device supports [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`].
+        /// Creates a new handle if the device supports [`wgpu::Features::TIMESTAMP_QUERY`].
+        ///
+        /// Connects to the running Tracy client so GPU timestamps appear on Tracy's GPU timeline;
+        /// the client is expected to be started from
+        /// [`super::register_main_thread`]. If the Tracy client is unavailable
+        /// (e.g. test harness), falls back to a non-Tracy-bridged profiler — spans still resolve
+        /// but do not reach the Tracy GUI.
         ///
         /// Returns [`None`] when timestamp queries are unavailable; callers fall back to CPU-only
         /// spans without any GPU timeline data.
-        pub fn try_new(device: &wgpu::Device) -> Option<Self> {
-            let has_inside_encoders = device
-                .features()
-                .contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS);
+        pub fn try_new(
+            adapter: &wgpu::Adapter,
+            device: &wgpu::Device,
+            queue: &wgpu::Queue,
+        ) -> Option<Self> {
+            let features = device.features();
+            if !features.contains(wgpu::Features::TIMESTAMP_QUERY) {
+                return None;
+            }
             let settings = GpuProfilerSettings {
-                enable_timer_queries: has_inside_encoders,
+                enable_timer_queries: true,
                 enable_debug_groups: true,
                 max_num_pending_frames: 3,
             };
-            match GpuProfiler::new(device, settings) {
-                Ok(inner) => Some(Self { inner }),
+            let backend = adapter.get_info().backend;
+            let inner_result = if tracy_client::Client::running().is_some() {
+                GpuProfiler::new_with_tracy_client(settings.clone(), backend, device, queue)
+            } else {
+                GpuProfiler::new(device, settings.clone())
+            };
+            let inner = match inner_result {
+                Ok(inner) => inner,
                 Err(e) => {
-                    logger::warn!("GPU profiler creation failed: {e}; GPU timeline unavailable");
-                    None
+                    logger::warn!(
+                        "GPU profiler (Tracy-bridged) creation failed: {e}; falling back to unbridged"
+                    );
+                    match GpuProfiler::new(device, settings) {
+                        Ok(inner) => inner,
+                        Err(e2) => {
+                            logger::warn!(
+                                "GPU profiler creation failed: {e2}; GPU timeline unavailable"
+                            );
+                            return None;
+                        }
+                    }
                 }
-            }
+            };
+            Some(Self { inner })
         }
 
-        /// Opens a GPU timestamp query at the start of a render-graph phase.
+        /// Opens an encoder-level GPU timestamp query.
         ///
-        /// Writes `WriteTimestamp` commands into `encoder`. The returned [`PhaseQuery`]
-        /// must be closed via [`Self::end_query`] before [`Self::resolve_queries`] is called.
+        /// Writes `WriteTimestamp` commands into `encoder` — requires
+        /// [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`]. If the adapter lacks that
+        /// feature the query is silently a no-op. Prefer [`Self::begin_pass_query`] for
+        /// individual passes. The returned [`PhaseQuery`] must be closed via [`Self::end_query`]
+        /// before [`Self::resolve_queries`] is called.
         #[inline]
         pub fn begin_query(
             &self,
@@ -157,7 +260,24 @@ mod gpu_profiler_impl {
             self.inner.begin_query(label, encoder)
         }
 
-        /// Closes a query previously opened with [`Self::begin_query`].
+        /// Reserves a pass-level timestamp query for a single render or compute pass.
+        ///
+        /// The returned [`PhaseQuery`] carries `timestamp_writes` the caller must inject into the
+        /// [`wgpu::RenderPassDescriptor`] / [`wgpu::ComputePassDescriptor`] via
+        /// [`super::render_pass_timestamp_writes`] or [`super::compute_pass_timestamp_writes`].
+        /// After the pass drops, close the query with [`Self::end_query`]. Requires only
+        /// [`wgpu::Features::TIMESTAMP_QUERY`].
+        #[inline]
+        pub fn begin_pass_query(
+            &self,
+            label: impl Into<String>,
+            encoder: &mut wgpu::CommandEncoder,
+        ) -> PhaseQuery {
+            self.inner.begin_pass_query(label, encoder)
+        }
+
+        /// Closes a query previously opened with [`Self::begin_query`] or
+        /// [`Self::begin_pass_query`].
         #[inline]
         pub fn end_query(&self, encoder: &mut wgpu::CommandEncoder, query: PhaseQuery) {
             self.inner.end_query(encoder, query);
@@ -185,14 +305,46 @@ mod gpu_profiler_impl {
             }
         }
 
-        /// Drains results from the oldest completed profiling frame into Tracy.
+        /// Drains results from the oldest completed profiling frame into Tracy and returns a
+        /// flattened list of per-pass timings.
         ///
         /// Call once per render tick after [`Self::end_frame`]. Results are available 1-2 frames
         /// after recording because the GPU needs to finish executing before the timestamps are
         /// readable. `timestamp_period` is from [`wgpu::Queue::get_timestamp_period`].
+        ///
+        /// Returns [`None`] when no frame has completed yet or when `wgpu_profiler` could not
+        /// resolve the frame's timestamps. Otherwise returns a depth-annotated preorder traversal
+        /// of the query tree so callers can render it as a flat table.
         #[inline]
-        pub fn process_finished_frame(&mut self, timestamp_period: f32) {
-            self.inner.process_finished_frame(timestamp_period);
+        pub fn process_finished_frame(
+            &mut self,
+            timestamp_period: f32,
+        ) -> Option<Vec<super::GpuPassEntry>> {
+            let tree = self.inner.process_finished_frame(timestamp_period)?;
+            let mut out = Vec::new();
+            flatten_results(&tree, 0, &mut out);
+            Some(out)
+        }
+    }
+
+    /// Preorder-flattens a [`wgpu_profiler::GpuTimerQueryResult`] tree into
+    /// [`super::GpuPassEntry`] rows. Skips entries with no timing data (queries that were never
+    /// written, e.g. when timestamp writes were not consumed by a pass).
+    fn flatten_results(
+        nodes: &[wgpu_profiler::GpuTimerQueryResult],
+        depth: u32,
+        out: &mut Vec<super::GpuPassEntry>,
+    ) {
+        for node in nodes {
+            if let Some(range) = node.time.as_ref() {
+                let ms = ((range.end - range.start) * 1000.0) as f32;
+                out.push(super::GpuPassEntry {
+                    name: node.label.clone(),
+                    ms,
+                    depth,
+                });
+            }
+            flatten_results(&node.nested_queries, depth + 1, out);
         }
     }
 }
@@ -213,13 +365,27 @@ mod gpu_profiler_stub {
     impl GpuProfilerHandle {
         /// Always returns [`None`]; GPU profiling is unavailable without the `tracy` feature.
         #[inline]
-        pub fn try_new(_device: &wgpu::Device) -> Option<Self> {
+        pub fn try_new(
+            _adapter: &wgpu::Adapter,
+            _device: &wgpu::Device,
+            _queue: &wgpu::Queue,
+        ) -> Option<Self> {
             None
         }
 
         /// No-op stub; see the `tracy` feature variant for the real implementation.
         #[inline]
         pub fn begin_query(
+            &self,
+            _label: impl Into<String>,
+            _encoder: &mut wgpu::CommandEncoder,
+        ) -> PhaseQuery {
+            PhaseQuery
+        }
+
+        /// No-op stub; see the `tracy` feature variant for the real implementation.
+        #[inline]
+        pub fn begin_pass_query(
             &self,
             _label: impl Into<String>,
             _encoder: &mut wgpu::CommandEncoder,
@@ -240,8 +406,15 @@ mod gpu_profiler_stub {
         pub fn end_frame(&mut self) {}
 
         /// No-op stub; see the `tracy` feature variant for the real implementation.
+        ///
+        /// Always returns [`None`] because the stub never opens queries.
         #[inline]
-        pub fn process_finished_frame(&mut self, _timestamp_period: f32) {}
+        pub fn process_finished_frame(
+            &mut self,
+            _timestamp_period: f32,
+        ) -> Option<Vec<super::GpuPassEntry>> {
+            None
+        }
     }
 }
 
@@ -287,7 +460,6 @@ mod tests {
     #[cfg(not(feature = "tracy"))]
     #[test]
     fn timestamp_features_fn_signature_compiles_without_tracy() {
-        // Reference as function pointer to confirm the signature compiles.
         let _fn_ptr: fn(&wgpu::Adapter) -> wgpu::Features = timestamp_query_features_if_supported;
     }
 
@@ -315,5 +487,24 @@ mod tests {
     #[test]
     fn gpu_profiler_handle_stub_is_zero_sized() {
         assert_eq!(std::mem::size_of::<GpuProfilerHandle>(), 0);
+    }
+
+    /// The no-tracy `render_pass_timestamp_writes` helper must always return `None` regardless
+    /// of what `query` is — the `PhaseQuery` placeholder carries no data to reserve writes from.
+    #[cfg(not(feature = "tracy"))]
+    #[test]
+    fn render_pass_timestamp_writes_is_none_without_tracy() {
+        let q = PhaseQuery;
+        assert!(render_pass_timestamp_writes(Some(&q)).is_none());
+        assert!(render_pass_timestamp_writes(None).is_none());
+    }
+
+    /// The no-tracy `compute_pass_timestamp_writes` helper must always return `None`.
+    #[cfg(not(feature = "tracy"))]
+    #[test]
+    fn compute_pass_timestamp_writes_is_none_without_tracy() {
+        let q = PhaseQuery;
+        assert!(compute_pass_timestamp_writes(Some(&q)).is_none());
+        assert!(compute_pass_timestamp_writes(None).is_none());
     }
 }
