@@ -115,9 +115,8 @@ pub(crate) fn queue_loop(
             continue;
         }
 
-        let arguments = match String::from_utf8(msg) {
-            Ok(s) => s,
-            Err(_) => continue,
+        let Ok(arguments) = String::from_utf8(msg) else {
+            continue;
         };
 
         logger::info!("Received message: {}", arguments);

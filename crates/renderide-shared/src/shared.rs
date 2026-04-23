@@ -3,20 +3,12 @@
 
 #![allow(
     missing_docs,
-    missing_debug_implementations,
-    unreachable_pub,
     variant_size_differences,
+    clippy::allow_attributes,
     clippy::large_enum_variant,
     clippy::too_many_lines,
-    clippy::doc_markdown,
-    clippy::match_same_arms,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_possible_wrap,
     clippy::unreadable_literal,
-    clippy::needless_pass_by_value,
     clippy::explicit_iter_loop,
-    clippy::redundant_closure_for_method_calls,
     clippy::match_wildcard_for_single_variants,
     clippy::manual_let_else,
     clippy::unnested_or_patterns

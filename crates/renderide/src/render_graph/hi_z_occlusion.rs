@@ -130,9 +130,8 @@ pub fn mesh_fully_occluded_in_hiz(
         .min(HI_Z_OCCLUSION_MAX_MIP)
         .min(snapshot.mip_levels.saturating_sub(1));
 
-    let (mw, mh) = match mip_dimensions(snapshot.base_width, snapshot.base_height, mip) {
-        Some(d) => d,
-        None => return false,
+    let Some((mw, mh)) = mip_dimensions(snapshot.base_width, snapshot.base_height, mip) else {
+        return false;
     };
     if mw == 0 || mh == 0 {
         return false;

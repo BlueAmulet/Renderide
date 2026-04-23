@@ -727,7 +727,13 @@ fn copy_vendored_openxr_loader_windows(manifest_dir: &Path) {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("renderide build.rs: {e:#}");
+        #[expect(
+            clippy::print_stderr,
+            reason = "build script: errors route to cargo stderr"
+        )]
+        {
+            eprintln!("renderide build.rs: {e:#}");
+        }
         std::process::exit(1);
     }
 }
@@ -740,7 +746,6 @@ fn main() {
 /// shaders both use multiview view-index selection so this is `true` for them; future entry
 /// points that intentionally compose multiview without `view_index` (e.g. layered geometry or
 /// `view_count` drawcall fan-out) can pass `false`.
-#[expect(clippy::too_many_arguments)]
 fn compose_and_emit_variants(
     shader_modules: &[(String, String)],
     source_path: &Path,
@@ -897,6 +902,7 @@ pub fn embedded_target_wgsl(stem: &str) -> Option<&'static str> {{
 }}
 
 /// Declared render passes for `stem`, parsed from `//#pass` directives in the source WGSL.
+#[expect(clippy::too_many_lines, reason = "match arm per embedded shader target; scales with shader count")]
 pub fn embedded_target_passes(stem: &str) -> &'static [crate::materials::MaterialPassDesc] {{
     match stem {{
 {embedded_pass_arms}        _ => &[],

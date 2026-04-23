@@ -583,9 +583,8 @@ pub fn color_float4_stream_bytes(
         if base >= vertex_data.len() {
             return None;
         }
-        let rgba = match decode_vertex_color(vertex_data, base, color_attr) {
-            Some(v) => v,
-            None => return Some(out),
+        let Some(rgba) = decode_vertex_color(vertex_data, base, color_attr) else {
+            return Some(out);
         };
         let o = i * 16;
         for (component, value) in rgba.into_iter().enumerate() {

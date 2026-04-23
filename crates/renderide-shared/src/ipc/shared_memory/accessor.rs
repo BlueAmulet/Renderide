@@ -136,15 +136,12 @@ impl SharedMemoryAccessor {
             )));
         }
         let buffer_id = descriptor.buffer_id;
-        let view = match self.get_view(descriptor) {
-            Some(v) => v,
-            None => {
-                return Err(prefix_err(&format!(
-                    "get_view failed buffer_id={} path/name={}",
-                    buffer_id,
-                    self.shm_path_for_buffer(buffer_id)
-                )));
-            }
+        let Some(view) = self.get_view(descriptor) else {
+            return Err(prefix_err(&format!(
+                "get_view failed buffer_id={} path/name={}",
+                buffer_id,
+                self.shm_path_for_buffer(buffer_id)
+            )));
         };
         let bytes = view
             .slice(descriptor.offset, descriptor.length)
@@ -228,15 +225,12 @@ impl SharedMemoryAccessor {
             )));
         }
         let buffer_id = descriptor.buffer_id;
-        let view = match self.get_view(descriptor) {
-            Some(v) => v,
-            None => {
-                return Err(prefix_err(&format!(
-                    "get_view failed buffer_id={} path/name={}",
-                    buffer_id,
-                    self.shm_path_for_buffer(buffer_id)
-                )));
-            }
+        let Some(view) = self.get_view(descriptor) else {
+            return Err(prefix_err(&format!(
+                "get_view failed buffer_id={} path/name={}",
+                buffer_id,
+                self.shm_path_for_buffer(buffer_id)
+            )));
         };
         let bytes = view
             .slice(descriptor.offset, descriptor.length)

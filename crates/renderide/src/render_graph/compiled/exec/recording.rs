@@ -311,7 +311,10 @@ impl CompiledRenderGraph {
     // ends at the call boundary, and the other `&'a` references must all share the per-view
     // lifetime `'a` without being pulled into a single `'a`-bound struct that would couple
     // their borrow scopes.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "borrow scopes forbid a single context struct"
+    )]
     pub(super) fn execute_pass_node<'a>(
         &self,
         pass_idx: usize,

@@ -23,6 +23,7 @@ pub(crate) struct RingView {
 /// `ptr` must be valid for reads and writes for `capacity` bytes for the lifetime of queue usage,
 /// and `capacity` must be positive. The pointer must refer to the ring region inside the mapping
 /// opened by [`crate::memory::SharedMapping::open_queue`].
+// SAFETY: see the doc comment above — the pointer is valid for the lifetime of queue usage.
 unsafe impl Send for RingView {}
 
 /// # Safety
@@ -30,6 +31,7 @@ unsafe impl Send for RingView {}
 /// All synchronisation for queue data races is provided by atomics in the wire format and by
 /// single-writer / single-reader protocol on message bodies; concurrent raw access is allowed
 /// only through those contracts.
+// SAFETY: see the doc comment above — all data-race synchronization is handled by the wire protocol.
 unsafe impl Sync for RingView {}
 
 impl RingView {

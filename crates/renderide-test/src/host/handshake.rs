@@ -111,10 +111,10 @@ fn random_guid() -> Guid {
         .unwrap_or(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     let mix1 = pid
-        .wrapping_mul(0x9e3779b97f4a7c15)
+        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
         .wrapping_add(now_ns)
         .wrapping_add(n);
-    let mix2 = mix1.wrapping_mul(0xbf58476d1ce4e5b9);
+    let mix2 = mix1.wrapping_mul(0xbf58_476d_1ce4_e5b9);
     Guid {
         a: (mix1 as i32),
         b: ((mix1 >> 32) as i16),

@@ -209,9 +209,7 @@ mod tests {
         writeln!(f, r#" "path" "/data/SteamLibrary" "#,).unwrap();
         let paths = parse_libraryfolders_vdf(&tmp);
         assert!(
-            paths
-                .iter()
-                .any(|p| p == Path::new("/data/SteamLibrary")),
+            paths.iter().any(|p| p == Path::new("/data/SteamLibrary")),
             "paths={paths:?}"
         );
         let _ = fs::remove_dir_all(&tmp);
@@ -241,8 +239,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn find_dotnet_for_host_prefers_bundled_dotnet() {
-        let tmp =
-            env::temp_dir().join(format!("bootstrapper_dotnet_unix_{}", std::process::id()));
+        let tmp = env::temp_dir().join(format!("bootstrapper_dotnet_unix_{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         let bundled = tmp.join("dotnet-runtime").join("dotnet");
         fs::create_dir_all(bundled.parent().unwrap()).unwrap();
@@ -290,8 +287,7 @@ mod tests {
     #[test]
     fn find_resonite_dir_env_override() {
         let _g = ENV_LOCK.lock().expect("env lock");
-        let tmp =
-            env::temp_dir().join(format!("bootstrapper_resonite_env_{}", std::process::id()));
+        let tmp = env::temp_dir().join(format!("bootstrapper_resonite_env_{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).unwrap();
         fs::write(tmp.join(RENDERITE_HOST_DLL), b"").unwrap();

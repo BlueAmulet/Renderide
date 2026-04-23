@@ -16,7 +16,7 @@ pub(crate) struct CheckerboardTexture {
     pub pixels: Vec<u8>,
 }
 
-#[expect(dead_code)]
+#[cfg_attr(not(test), expect(dead_code, reason = "only used by unit tests today"))]
 impl CheckerboardTexture {
     /// Generates a checkerboard with `tile` pixels per cell and the two given colors.
     ///

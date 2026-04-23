@@ -103,7 +103,7 @@ impl HostHarness {
 
     /// Output PNG path the renderer was instructed to write. Useful for callers that want to
     /// inspect or copy the file before [`HostHarness::run`] is called.
-    #[expect(dead_code)]
+    #[cfg_attr(not(test), expect(dead_code, reason = "only used by unit tests today"))]
     pub(crate) fn output_path(&self) -> &PathBuf {
         &self.output_path
     }

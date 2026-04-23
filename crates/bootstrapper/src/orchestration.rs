@@ -233,9 +233,8 @@ fn spawn_host_exit_watcher(
             break;
         }
         let outcome = {
-            let mut guard = match host_child.lock() {
-                Ok(g) => g,
-                Err(_) => break,
+            let Ok(mut guard) = host_child.lock() else {
+                break;
             };
             match guard.as_mut() {
                 None => break,
@@ -277,9 +276,8 @@ fn spawn_renderer_exit_watcher(
         }
         let mut exited: Option<std::process::ExitStatus> = None;
         {
-            let mut guard = match renderer_child.lock() {
-                Ok(g) => g,
-                Err(_) => break,
+            let Ok(mut guard) = renderer_child.lock() else {
+                break;
             };
             if let Some(r) = guard.as_mut() {
                 match r.try_wait() {

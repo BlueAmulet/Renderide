@@ -1,5 +1,11 @@
 //! Command-line interface for the golden-image harness.
 
+#![expect(
+    clippy::print_stdout,
+    clippy::print_stderr,
+    reason = "CLI tool: stdout/stderr is the user-facing interface"
+)]
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;

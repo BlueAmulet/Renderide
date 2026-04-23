@@ -76,14 +76,11 @@ pub(super) fn valid_mip_prefix_len(
             break;
         }
         let start_rel = start_abs - bias;
-        let start = match host_mip_payload_byte_offset(format, start_rel) {
-            Some(b) => b,
-            None => {
-                return Err(TextureUploadError::from(format!(
-                    "mip {i}: could not convert mip_starts offset to bytes for {:?}",
-                    format
-                )));
-            }
+        let Some(start) = host_mip_payload_byte_offset(format, start_rel) else {
+            return Err(TextureUploadError::from(format!(
+                "mip {i}: could not convert mip_starts offset to bytes for {:?}",
+                format
+            )));
         };
         if start
             .checked_add(host_len)

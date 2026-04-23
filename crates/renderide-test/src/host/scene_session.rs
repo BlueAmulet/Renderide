@@ -117,6 +117,10 @@ pub(super) fn run_session(cfg: &SceneSessionConfig) -> Result<SceneSessionOutcom
         scene_submit_instant,
         cfg.timeout,
         Duration::from_millis(cfg.interval_ms.max(1)),
+        #[expect(
+            clippy::expect_used,
+            reason = "child set immediately above by spawn_renderer_child"
+        )]
         spawned.child.as_mut().expect("child set"),
     )?;
     drop(scene); // explicitly hold scene SHM writer alive until after readback
@@ -376,5 +380,4 @@ fn spawn_renderer(
     Ok(SpawnedRenderer { child: Some(child) })
 }
 
-#[expect(dead_code)]
 fn _ipc_session_used(_: &IpcSession) {}
