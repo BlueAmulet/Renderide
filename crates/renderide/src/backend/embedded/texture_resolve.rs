@@ -96,28 +96,6 @@ pub(crate) fn primary_texture_2d_asset_id(
     -1
 }
 
-/// `true` when the first reflected `@group(1)` texture slot has a valid packed host texture of any
-/// supported kind (2D, render texture, etc.).
-///
-/// Used for uniform `flags` bit 0 (`_TEXTURE` / main texture sampling) — Unity enables that path
-/// when any texture is bound, not only [`HostTextureAssetKind::Texture2D`].
-pub(crate) fn primary_texture_any_kind_present(
-    reflected: &ReflectedRasterLayout,
-    ids: &StemEmbeddedPropertyIds,
-    store: &MaterialPropertyStore,
-    lookup: MaterialPropertyLookupIds,
-) -> bool {
-    let Some(binding) = first_material_texture_binding(reflected) else {
-        return false;
-    };
-    for &pid in texture_property_ids_for_binding(ids, binding) {
-        if let Some(MaterialPropertyValue::Texture(packed)) = store.get_merged(lookup, pid) {
-            return unpack_host_texture_packed(*packed).is_some();
-        }
-    }
-    false
-}
-
 /// Whether `host_name` is the canonical primary-texture name for which we should fall back to
 /// the bound primary texture when no explicit binding is present.
 ///
@@ -527,12 +505,6 @@ mod tests {
             primary_texture_2d_asset_id(&reflected, &ids, &store, lookup(6)),
             -1
         );
-        assert!(!primary_texture_any_kind_present(
-            &reflected,
-            &ids,
-            &store,
-            lookup(6)
-        ));
         assert_eq!(
             resolved_texture_binding_for_host(
                 "_MainTex",
@@ -550,11 +522,5 @@ mod tests {
             primary_texture_2d_asset_id(&reflected, &ids, &store, lookup(6)),
             88
         );
-        assert!(primary_texture_any_kind_present(
-            &reflected,
-            &ids,
-            &store,
-            lookup(6)
-        ));
     }
 }

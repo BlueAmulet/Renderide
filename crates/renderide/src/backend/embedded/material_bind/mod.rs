@@ -254,7 +254,6 @@ impl EmbeddedMaterialBindResources {
             uniform_key,
             bind_key,
             texture_2d_asset_id,
-            primary_texture_any_kind_present,
         } = self.resolve_embedded_bind_inputs(
             stem,
             store,
@@ -280,7 +279,6 @@ impl EmbeddedMaterialBindResources {
                     mutation_gen,
                     store,
                     lookup,
-                    primary_texture_any_kind_present,
                 })?;
             return Ok((bind_key, bg));
         }
@@ -294,7 +292,6 @@ impl EmbeddedMaterialBindResources {
                 mutation_gen,
                 store,
                 lookup,
-                primary_texture_any_kind_present,
             })?;
 
         let mut cache = self.bind_cache.lock();

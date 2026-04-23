@@ -3,6 +3,8 @@
 //! This mirrors the renderer's `ui_textunlit` logic, but omits UI-only rect/overlay/stencil paths.
 //! The current mesh forward path still has no vertex color stream, so vertex color is approximated as white.
 
+//#pass main: blend=src_alpha,one_minus_src_alpha,add, alpha=one,one_minus_src_alpha,add, zwrite=off, cull=none, write=all, material=forward_base
+
 #import renderide::globals as rg
 #import renderide::per_draw as pd
 #import renderide::alpha_clip_sample as acs

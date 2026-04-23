@@ -7,6 +7,8 @@
 //! Keyword-style float fields mirror Unity `#pragma multi_compile` values:
 //! `_POLARUV`, `_MUL_RGB_BY_ALPHA`, `_MUL_ALPHA_INTENSITY`.
 
+//#pass main: blend=src_alpha,one_minus_src_alpha,add, alpha=one,one_minus_src_alpha,add, zwrite=off, cull=none, write=all, material=forward_base
+
 #import renderide::globals as rg
 #import renderide::per_draw as pd
 #import renderide::alpha_clip_sample as acs

@@ -2,6 +2,8 @@
 //!
 //! Keep this source in sync with `text_unlit.wgsl`.
 
+//#pass main: blend=src_alpha,one_minus_src_alpha,add, alpha=one,one_minus_src_alpha,add, zwrite=off, cull=none, write=all, material=forward_base
+
 #import renderide::globals as rg
 #import renderide::per_draw as pd
 #import renderide::alpha_clip_sample as acs

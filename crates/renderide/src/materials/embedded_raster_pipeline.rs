@@ -52,6 +52,11 @@ fn embedded_grab_pass_cache() -> &'static Mutex<HashMap<String, bool>> {
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+fn embedded_alpha_blending_cache() -> &'static Mutex<HashMap<String, bool>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, bool>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 /// `true` when composed embedded WGSL's `vs_main` uses `@location(2)` or higher (UV0 vertex stream).
 ///
 /// Uses the same embedded source and reflection as the embedded raster pipeline for the given
@@ -246,8 +251,7 @@ pub(crate) fn create_embedded_render_pipelines(
         );
     }
 
-    let pass =
-        default_pass_for_blend_mode(embedded_stem_uses_alpha_blending(stem.as_ref()), blend_mode);
+    let pass = default_pass_for_blend_mode(false, blend_mode);
     create_reflective_raster_mesh_forward_pipelines(
         shader,
         streams,
@@ -256,20 +260,22 @@ pub(crate) fn create_embedded_render_pipelines(
     )
 }
 
-/// Returns whether the embedded material stem expects alpha blending (UI/text/overlay targets).
-pub fn embedded_stem_uses_alpha_blending(stem: &str) -> bool {
-    let stem = stem
-        .trim_end_matches("_default")
-        .trim_end_matches("_multiview");
-    stem.starts_with("ui_")
-        || stem == "overlayunlit"
-        || stem == "overlayfresnel"
-        || stem == "projection360"
-        || stem == "textunlit"
-        || stem == "textunit"
-        || stem == "text_unlit"
-        || stem == "xiexe_toon2.0_xstoon2.0_fade"
-        || stem == "xiexe_toon2.0_xstoon2.0_transparent"
+/// Returns whether the embedded material stem declares alpha blending (any `//#pass` directive
+/// with non-None blend state). Memoized per base stem.
+pub fn embedded_stem_uses_alpha_blending(base_stem: &str) -> bool {
+    let key = base_stem.to_string();
+    let mut guard = embedded_alpha_blending_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(v) = guard.get(&key) {
+        return *v;
+    }
+    let composed = embedded_composed_stem_for_permutation(base_stem, ShaderPermutation(0));
+    let v = embedded_shaders::embedded_target_passes(&composed)
+        .iter()
+        .any(|p| p.blend.is_some());
+    guard.insert(key, v);
+    v
 }
 
 #[cfg(test)]

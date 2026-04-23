@@ -17,28 +17,15 @@ pub(crate) struct StemMaterialLayout {
     pub(crate) ids: Arc<StemEmbeddedPropertyIds>,
 }
 
-/// Pre-interned property ids for keyword-name and texture probe lists shared by all embedded stems.
-///
-/// Names are the underscore-prefixed forms that FrooxEngine's `MaterialUpdateWriter` sends as
-/// float/texture properties (audited against `references_external/FrooxEngine/`). The
-/// previously-carried no-underscore / CamelCase / case-shifted aliases (`BlendMode`, `MaskMode`,
-/// `_OffsetTexture`, `_MulRgbByAlpha`, `MSDF`, `SDF`, `RASTER`, `RECTCLIP`, lower-case variants,
-/// …) are confirmed never emitted — the host routes text-mode / rect-clip / blend-mode keywords
-/// exclusively through `ShaderKeywords.SetKeyword(..)` into the variant bitmask, which the
-/// renderer never reads. They were removed.
+/// Pre-interned property ids used by [`super::uniform_pack::inferred_keyword_float_f32`] to
+/// probe texture presence (PBS `_NORMALMAP` / `_EMISSION` / `_SPECULARMAP` / … flags) and by
+/// the `_ALPHATEST_ON`/`_ALPHABLEND_ON` inference path that reads a Resonite `BlendMode`
+/// property. The renderer never receives FrooxEngine's `ShaderKeywords.Variant` bitmask over
+/// IPC, so every multi-compile-keyword toggle has to be inferred from what the host does
+/// send: texture bindings and numeric material properties.
 pub(crate) struct EmbeddedSharedKeywordIds {
-    pub(crate) text_mode: i32,
-    pub(crate) rect_clip: i32,
-    pub(crate) flags: i32,
-    pub(crate) offset_texture: i32,
-    pub(crate) mask_texture_mul: i32,
-    pub(crate) mask_texture_clip: i32,
-    pub(crate) mask_mode: i32,
     pub(crate) blend_mode: i32,
-    pub(crate) alpha_cutoff: i32,
     pub(crate) mode: i32,
-    pub(crate) mul_rgb_by_alpha: i32,
-    pub(crate) mul_alpha_intensity: i32,
     pub(crate) lerp_tex: i32,
     pub(crate) main_tex: i32,
     pub(crate) main_tex1: i32,
@@ -65,18 +52,8 @@ pub(crate) struct EmbeddedSharedKeywordIds {
 impl EmbeddedSharedKeywordIds {
     pub(crate) fn new(registry: &PropertyIdRegistry) -> Self {
         Self {
-            text_mode: registry.intern("_TextMode"),
-            rect_clip: registry.intern("_RectClip"),
-            flags: registry.intern("_Flags"),
-            offset_texture: registry.intern("_OFFSET_TEXTURE"),
-            mask_texture_mul: registry.intern("_MASK_TEXTURE_MUL"),
-            mask_texture_clip: registry.intern("_MASK_TEXTURE_CLIP"),
-            mask_mode: registry.intern("_MaskMode"),
             blend_mode: registry.intern("_BlendMode"),
-            alpha_cutoff: registry.intern("_AlphaCutoff"),
             mode: registry.intern("_Mode"),
-            mul_rgb_by_alpha: registry.intern("_MUL_RGB_BY_ALPHA"),
-            mul_alpha_intensity: registry.intern("_MUL_ALPHA_INTENSITY"),
             lerp_tex: registry.intern("_LerpTex"),
             main_tex: registry.intern("_MainTex"),
             main_tex1: registry.intern("_MainTex1"),
