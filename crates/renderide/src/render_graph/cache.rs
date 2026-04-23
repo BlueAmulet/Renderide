@@ -111,7 +111,10 @@ mod tests {
     #[test]
     fn post_processing_signature_change_changes_cache_key_equality() {
         let off = key_with_post(PostProcessChainSignature::default());
-        let on = key_with_post(PostProcessChainSignature { aces_tonemap: true });
+        let on = key_with_post(PostProcessChainSignature {
+            aces_tonemap: true,
+            gtao: false,
+        });
         assert_ne!(off, on);
         assert_eq!(off, key_with_post(PostProcessChainSignature::default()));
     }

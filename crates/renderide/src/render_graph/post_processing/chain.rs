@@ -13,6 +13,8 @@ use super::effect::{PostProcessEffect, PostProcessEffectId};
 /// Topology fingerprint for the post-processing chain at graph compile time.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PostProcessChainSignature {
+    /// Ground-Truth Ambient Occlusion pass active.
+    pub gtao: bool,
     /// Stephen Hill ACES Fitted tonemap pass active.
     pub aces_tonemap: bool,
 }
@@ -22,18 +24,19 @@ impl PostProcessChainSignature {
     pub fn from_settings(settings: &PostProcessingSettings) -> Self {
         let master = settings.enabled;
         Self {
+            gtao: master && settings.gtao.enabled,
             aces_tonemap: master && matches!(settings.tonemap.mode, TonemapMode::AcesFitted),
         }
     }
 
     /// Returns `true` when no effects are active and the chain should be skipped entirely.
     pub fn is_empty(self) -> bool {
-        !self.aces_tonemap
+        !self.gtao && !self.aces_tonemap
     }
 
     /// Number of active effects.
     pub fn active_count(self) -> usize {
-        usize::from(self.aces_tonemap)
+        usize::from(self.gtao) + usize::from(self.aces_tonemap)
     }
 }
 
@@ -317,6 +320,7 @@ mod tests {
             tonemap: TonemapSettings {
                 mode: crate::config::TonemapMode::AcesFitted,
             },
+            ..Default::default()
         };
         let out = chain.build_into_graph(&mut builder, input, &settings);
         match out {
@@ -380,15 +384,38 @@ mod tests {
             tonemap: TonemapSettings {
                 mode: crate::config::TonemapMode::AcesFitted,
             },
+            ..Default::default()
         };
         assert!(PostProcessChainSignature::from_settings(&s).is_empty());
 
         s.enabled = true;
         let sig = PostProcessChainSignature::from_settings(&s);
         assert!(sig.aces_tonemap);
+        assert!(!sig.gtao);
         assert_eq!(sig.active_count(), 1);
 
         s.tonemap.mode = crate::config::TonemapMode::None;
+        assert!(PostProcessChainSignature::from_settings(&s).is_empty());
+    }
+
+    #[test]
+    fn signature_tracks_gtao_toggle_independently_of_tonemap() {
+        let mut s = PostProcessingSettings {
+            enabled: true,
+            tonemap: TonemapSettings {
+                mode: crate::config::TonemapMode::None,
+            },
+            ..Default::default()
+        };
+        assert!(PostProcessChainSignature::from_settings(&s).is_empty());
+
+        s.gtao.enabled = true;
+        let sig = PostProcessChainSignature::from_settings(&s);
+        assert!(sig.gtao);
+        assert!(!sig.aces_tonemap);
+        assert_eq!(sig.active_count(), 1);
+
+        s.enabled = false;
         assert!(PostProcessChainSignature::from_settings(&s).is_empty());
     }
 

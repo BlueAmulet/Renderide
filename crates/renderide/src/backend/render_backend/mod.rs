@@ -730,13 +730,17 @@ mod post_processing_rebuild_tests {
             tonemap: TonemapSettings {
                 mode: TonemapMode::AcesFitted,
             },
+            ..Default::default()
         });
         backend.renderer_settings = Some(handle);
         backend.ensure_frame_graph_post_processing_in_sync();
         assert!(backend.frame_graph.is_some(), "graph should be built");
         assert_eq!(
             backend.frame_graph_post_processing_signature,
-            PostProcessChainSignature { aces_tonemap: true }
+            PostProcessChainSignature {
+                aces_tonemap: true,
+                gtao: false,
+            }
         );
     }
 
@@ -775,6 +779,7 @@ mod post_processing_rebuild_tests {
             tonemap: TonemapSettings {
                 mode: TonemapMode::AcesFitted,
             },
+            ..Default::default()
         });
         backend.renderer_settings = Some(handle);
         backend.ensure_frame_graph_post_processing_in_sync();

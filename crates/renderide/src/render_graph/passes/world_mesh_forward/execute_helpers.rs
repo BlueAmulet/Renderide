@@ -361,19 +361,28 @@ pub(super) fn write_frame_uniforms_and_cluster(
         .unwrap_or_else(|| hc.head_output_transform.col(3).truncate());
 
     let stereo_cluster = use_multiview && hc.vr_active && hc.stereo_views.is_some();
+    let frame_idx = hc.frame_index as u32;
 
     let uniforms = if stereo_cluster {
         if let Some((left, right)) = cluster_frame_params_stereo(&hc, scene, (vw, vh)) {
-            left.frame_gpu_uniforms(camera_world, light_count_u, right.view_space_z_coeffs())
+            left.frame_gpu_uniforms(
+                camera_world,
+                light_count_u,
+                right.view_space_z_coeffs(),
+                right.proj_params(),
+                frame_idx,
+            )
         } else if let Some(mono) = cluster_frame_params(&hc, scene, (vw, vh)) {
             let z = mono.view_space_z_coeffs();
-            mono.frame_gpu_uniforms(camera_world, light_count_u, z)
+            let p = mono.proj_params();
+            mono.frame_gpu_uniforms(camera_world, light_count_u, z, p, frame_idx)
         } else {
             FrameGpuUniforms::zeroed()
         }
     } else if let Some(mono) = cluster_frame_params(&hc, scene, (vw, vh)) {
         let z = mono.view_space_z_coeffs();
-        mono.frame_gpu_uniforms(camera_world, light_count_u, z)
+        let p = mono.proj_params();
+        mono.frame_gpu_uniforms(camera_world, light_count_u, z, p, frame_idx)
     } else {
         FrameGpuUniforms::zeroed()
     };
@@ -519,20 +528,29 @@ pub(super) fn prepare_world_mesh_forward_frame(
             .secondary_camera_world_position
             .unwrap_or_else(|| hc.head_output_transform.col(3).truncate());
         let stereo_cluster = use_multiview && hc.vr_active && hc.stereo_views.is_some();
+        let frame_idx = hc.frame_index as u32;
         let uniforms = if stereo_cluster {
             if let Some((left, right)) =
                 cluster_frame_params_stereo(&hc, frame.shared.scene, (vw, vh))
             {
-                left.frame_gpu_uniforms(camera_world, light_count, right.view_space_z_coeffs())
+                left.frame_gpu_uniforms(
+                    camera_world,
+                    light_count,
+                    right.view_space_z_coeffs(),
+                    right.proj_params(),
+                    frame_idx,
+                )
             } else if let Some(mono) = cluster_frame_params(&hc, frame.shared.scene, (vw, vh)) {
                 let z = mono.view_space_z_coeffs();
-                mono.frame_gpu_uniforms(camera_world, light_count, z)
+                let p = mono.proj_params();
+                mono.frame_gpu_uniforms(camera_world, light_count, z, p, frame_idx)
             } else {
                 FrameGpuUniforms::zeroed()
             }
         } else if let Some(mono) = cluster_frame_params(&hc, frame.shared.scene, (vw, vh)) {
             let z = mono.view_space_z_coeffs();
-            mono.frame_gpu_uniforms(camera_world, light_count, z)
+            let p = mono.proj_params();
+            mono.frame_gpu_uniforms(camera_world, light_count, z, p, frame_idx)
         } else {
             FrameGpuUniforms::zeroed()
         };

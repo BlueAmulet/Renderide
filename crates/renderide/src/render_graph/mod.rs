@@ -494,7 +494,7 @@ fn add_main_graph_passes_and_edges(
         },
     )));
 
-    let chain = build_default_post_processing_chain();
+    let chain = build_default_post_processing_chain(&h, post_processing);
     let chain_output = chain.build_into_graph(&mut builder, h.scene_color_hdr, post_processing);
     let compose_input = chain_output.final_handle();
 
@@ -522,10 +522,22 @@ fn add_main_graph_passes_and_edges(
 
 /// Builds the canonical post-processing chain shipped with the renderer.
 ///
-/// Currently registers a single ACES Fitted tonemap effect; future effects (bloom, color
-/// grading, etc.) join here in execution order and gate themselves via [`PostProcessEffect::is_enabled`].
-fn build_default_post_processing_chain() -> post_processing::PostProcessChain {
+/// Execution order is GTAO → ACES tonemap. GTAO must run first so ambient occlusion modulates
+/// linear HDR light before tonemap compresses it. Each effect gates itself via
+/// [`PostProcessEffect::is_enabled`] against the live [`crate::config::PostProcessingSettings`].
+///
+/// `GtaoEffect` is parameterised with the current [`crate::config::GtaoSettings`] snapshot and
+/// the imported `frame_uniforms` handle (used to access per-eye projection coefficients and the
+/// frame index at record time).
+fn build_default_post_processing_chain(
+    h: &MainGraphHandles,
+    post_processing: &crate::config::PostProcessingSettings,
+) -> post_processing::PostProcessChain {
     let mut chain = post_processing::PostProcessChain::new();
+    chain.push(Box::new(passes::GtaoEffect {
+        settings: post_processing.gtao,
+        frame_uniforms: h.frame_uniforms,
+    }));
     chain.push(Box::new(passes::AcesTonemapEffect));
     chain
 }
@@ -617,6 +629,7 @@ mod default_graph_tests {
             tonemap: TonemapSettings {
                 mode: TonemapMode::AcesFitted,
             },
+            ..Default::default()
         }
     }
 

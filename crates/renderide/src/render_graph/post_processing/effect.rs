@@ -13,6 +13,8 @@ use crate::render_graph::resources::TextureHandle;
 /// Stable identity for a post-processing effect.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum PostProcessEffectId {
+    /// Ground-Truth Ambient Occlusion (Jimenez et al. 2016), pre-tonemap HDR modulation.
+    Gtao,
     /// Stephen Hill ACES Fitted tonemap (HDR linear → display-referred 0..1 linear).
     AcesTonemap,
 }
@@ -21,6 +23,7 @@ impl PostProcessEffectId {
     /// Stable short label for logs and diagnostics.
     pub fn label(self) -> &'static str {
         match self {
+            Self::Gtao => "GTAO",
             Self::AcesTonemap => "ACES Tonemap",
         }
     }

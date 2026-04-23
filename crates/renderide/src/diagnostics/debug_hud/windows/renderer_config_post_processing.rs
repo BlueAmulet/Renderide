@@ -1,6 +1,6 @@
 //! Post-processing tab body for the renderer config window.
 //!
-//! Exposes the master enable toggle and tonemap mode dropdown. The whole
+//! Exposes the master enable toggle, GTAO parameters, and tonemap mode dropdown. The whole
 //! [`crate::config::RendererSettings`] struct (including the `[post_processing]` table) is saved
 //! by the parent panel whenever any tab marks it dirty.
 
@@ -28,6 +28,57 @@ pub(super) fn renderer_config_post_processing_tab(
          Applied on the next frame (the render graph is rebuilt automatically when the chain \
          topology changes).",
     );
+
+    ui.separator();
+    ui.text_disabled(
+        "GTAO (Ground-Truth Ambient Occlusion): reconstructs view-space normals from depth \
+         and modulates HDR scene color by a physical visibility factor. Runs pre-tonemap.",
+    );
+    if ui.checkbox("Enable GTAO", &mut g.post_processing.gtao.enabled) {
+        *dirty = true;
+    }
+    let gtao = &mut g.post_processing.gtao;
+    if ui
+        .slider_config("Radius (m)", 0.05_f32, 2.0_f32)
+        .display_format("%.2f")
+        .build(&mut gtao.radius_meters)
+    {
+        *dirty = true;
+    }
+    if ui
+        .slider_config("Intensity", 0.0_f32, 2.0_f32)
+        .display_format("%.2f")
+        .build(&mut gtao.intensity)
+    {
+        *dirty = true;
+    }
+    if ui
+        .slider_config("Max pixel radius", 16.0_f32, 256.0_f32)
+        .display_format("%.0f")
+        .build(&mut gtao.max_pixel_radius)
+    {
+        *dirty = true;
+    }
+    if ui
+        .slider_config("Steps", 2_u32, 16_u32)
+        .build(&mut gtao.step_count)
+    {
+        *dirty = true;
+    }
+    if ui
+        .slider_config("Thickness heuristic", 0.0_f32, 1.0_f32)
+        .display_format("%.2f")
+        .build(&mut gtao.thickness_heuristic)
+    {
+        *dirty = true;
+    }
+    if ui
+        .slider_config("Multi-bounce albedo", 0.0_f32, 0.9_f32)
+        .display_format("%.2f")
+        .build(&mut gtao.albedo_multibounce)
+    {
+        *dirty = true;
+    }
 
     ui.separator();
     ui.text_disabled("Tonemap (HDR linear → display-referred 0..1 linear).");

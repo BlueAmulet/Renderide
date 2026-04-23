@@ -48,7 +48,7 @@ pub use resolve::{
     resolve_config_path, resolve_save_path, ConfigResolveOutcome, ConfigSource, FILE_NAME_TOML,
 };
 pub use types::{
-    DebugSettings, DisplaySettings, MsaaSampleCount, PostProcessingSettings,
+    DebugSettings, DisplaySettings, GtaoSettings, MsaaSampleCount, PostProcessingSettings,
     PowerPreferenceSetting, RecordParallelism, RendererSettings, RenderingSettings,
     SceneColorFormat, TonemapMode, TonemapSettings,
 };
