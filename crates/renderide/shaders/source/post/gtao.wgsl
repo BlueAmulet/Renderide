@@ -255,11 +255,22 @@ fn compute_gtao(
     let cos_gamma = clamp(dot(n_in_slice, view_dir), -1.0, 1.0);
     let gamma = sign_gamma * acos(cos_gamma);
 
-    // Horizon search in both `+dir_ss` and `-dir_ss`.
-    var cos_h1 = cos(gamma + 1.57079632679);
-    var cos_h2 = cos(gamma - 1.57079632679);
+    // Horizon search in both `+dir_ss` (updates `cos_h2`) and `-dir_ss` (updates `cos_h1`).
+    //
+    // Initialise both horizons to `cos(π) = -1` so that when *no* occluder is found the
+    // post-loop clamp drops them back to the hemisphere bounds `γ ± π/2`, matching
+    // XeGTAO / Activision's GTAO reference. Pre-populating with `cos(γ ± π/2)` (as the first
+    // revision did) produced a negative analytic integral for any non-view-aligned surface,
+    // which `saturate` then clamped to 0 — hence the fully black screen on anything but a
+    // head-on flat wall.
+    var cos_h1 = -1.0;
+    var cos_h2 = -1.0;
     let radius2 = gtao.radius_world * gtao.radius_world;
     let inv_viewport = 1.0 / viewport;
+    // `thickness_heuristic` ∈ [0, 1] controls how much of each horizon jump is committed.
+    // 0 → full commit (standard GTAO); higher values soften the horizon update, reducing
+    // over-occlusion caused by thin occluders such as foliage and branches.
+    let commit_alpha = clamp(1.0 - gtao.thickness_heuristic, 0.0, 1.0);
 
     for (var s: u32 = 1u; s <= step_count; s = s + 1u) {
         let step_len = f32(s) * step_pixels;
@@ -288,33 +299,34 @@ fn compute_gtao(
         let d_pos_len2 = dot(d_pos, d_pos);
         let d_neg_len2 = dot(d_neg, d_neg);
 
-        if (d_pos_len2 < radius2) {
-            let cos_theta = dot(normalize(d_pos), view_dir);
-            let weight = saturate(1.0 - d_pos_len2 / radius2);
-            let blended = mix(cos_h1, cos_theta, gtao.thickness_heuristic);
-            cos_h1 = select(
-                max(cos_h1, cos_theta * weight + cos_h1 * (1.0 - weight)),
-                max(cos_h1, blended),
-                cos_theta < cos_h1,
-            );
+        if (d_pos_len2 < radius2 && d_pos_len2 > 1e-8) {
+            let cos_theta = dot(d_pos * inverseSqrt(d_pos_len2), view_dir);
+            if (cos_theta > cos_h2) {
+                cos_h2 = mix(cos_h2, cos_theta, commit_alpha);
+            }
         }
-        if (d_neg_len2 < radius2) {
-            let cos_theta = dot(normalize(d_neg), view_dir);
-            let weight = saturate(1.0 - d_neg_len2 / radius2);
-            let blended = mix(cos_h2, cos_theta, gtao.thickness_heuristic);
-            cos_h2 = select(
-                max(cos_h2, cos_theta * weight + cos_h2 * (1.0 - weight)),
-                max(cos_h2, blended),
-                cos_theta < cos_h2,
-            );
+        if (d_neg_len2 < radius2 && d_neg_len2 > 1e-8) {
+            let cos_theta = dot(d_neg * inverseSqrt(d_neg_len2), view_dir);
+            if (cos_theta > cos_h1) {
+                cos_h1 = mix(cos_h1, cos_theta, commit_alpha);
+            }
         }
     }
 
-    let h1 = -acos(clamp(cos_h1, -1.0, 1.0));
-    let h2 = acos(clamp(cos_h2, -1.0, 1.0));
+    let half_pi = 1.57079632679;
+    var h1 = -acos(clamp(cos_h1, -1.0, 1.0));
+    var h2 = acos(clamp(cos_h2, -1.0, 1.0));
+    // Clamp each horizon into its slice-plane hemisphere around the surface normal. Without
+    // this clamp, the "no occluder found" initial cosine of -1 leaves `h1 = -π` / `h2 = π`,
+    // which drives the analytic integral (Eq. 7) past its valid domain. XeGTAO uses the same
+    // `[γ - π/2, γ]` / `[γ, γ + π/2]` clamp for the same reason.
+    h1 = clamp(h1, gamma - half_pi, gamma);
+    h2 = clamp(h2, gamma, gamma + half_pi);
 
     let integral = inner_integral_cosine_weighted(h1, h2, gamma);
-    let ao = saturate(n_projected_len * integral);
+    // The `0.5` matches the GTAO reference scaling: Eq. 7 returns twice the per-slice
+    // visibility (the full unoccluded flat-wall case yields `integral = 2` with γ=0).
+    let ao = saturate(0.5 * n_projected_len * integral);
     let boosted = pow(ao, max(gtao.intensity, 0.0));
     return multi_bounce_fit(boosted, gtao.albedo_multibounce);
 }
