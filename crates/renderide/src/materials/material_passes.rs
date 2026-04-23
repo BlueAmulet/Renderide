@@ -47,19 +47,6 @@ pub enum MaterialBlendMode {
 }
 
 impl MaterialBlendMode {
-    /// Converts Resonite's `BlendMode` enum value into a pipeline mode.
-    pub fn from_resonite_value(v: f32) -> Self {
-        match v.round() as i32 {
-            0 => Self::Opaque,
-            1 => Self::Cutout,
-            2 => Self::Alpha,
-            3 => Self::Transparent,
-            4 => Self::Additive,
-            5 => Self::Multiply,
-            _ => Self::StemDefault,
-        }
-    }
-
     fn unity_blend_factors(self) -> Option<(u8, u8)> {
         match self {
             Self::StemDefault => None,
@@ -104,86 +91,59 @@ impl MaterialBlendMode {
 }
 
 /// Property ids used for material-driven pipeline state.
+///
+/// Names are the underscore-prefixed forms FrooxEngine's `MaterialUpdateWriter` actually sends
+/// (audited against `references_external/FrooxEngine/MaterialProvider.cs` and the per-material
+/// subclasses). Previously-carried no-underscore and CamelCase aliases (`ZWrite`, `Cull`,
+/// `_Culling`, `BlendMode`, `SrcBlend`, `_colormask`, `_StencilPass`, …) were confirmed never
+/// emitted by any host code path and were removed. `_SrcBlendBase`/`_DstBlendBase` are kept
+/// because `XiexeToonMaterial` overrides `SrcBlendProp`/`DstBlendProp` to those names.
+/// `_BlendMode` is not carried: the host never sends it; the mode is reconstructed from
+/// `_SrcBlend`/`_DstBlend` factors via [`MaterialBlendMode::from_unity_blend_factors`].
 #[derive(Clone, Copy, Debug)]
 pub struct MaterialPipelinePropertyIds {
-    pub(crate) blend_mode: [i32; 2],
-    pub(crate) src_blend: [i32; 4],
-    pub(crate) dst_blend: [i32; 4],
-    pub(crate) stencil_ref: [i32; 2],
-    pub(crate) stencil_comp: [i32; 2],
-    pub(crate) stencil_op: [i32; 4],
-    pub(crate) stencil_fail_op: [i32; 2],
-    pub(crate) stencil_depth_fail_op: [i32; 2],
-    pub(crate) stencil_read_mask: [i32; 2],
-    pub(crate) stencil_write_mask: [i32; 2],
-    pub(crate) color_mask: [i32; 3],
-    pub(crate) z_write: [i32; 2],
-    pub(crate) z_test: [i32; 2],
-    pub(crate) offset_factor: [i32; 2],
-    pub(crate) offset_units: [i32; 2],
-    pub(crate) cull: [i32; 2],
+    pub(crate) src_blend: [i32; 2],
+    pub(crate) dst_blend: [i32; 2],
+    pub(crate) stencil_ref: [i32; 1],
+    pub(crate) stencil_comp: [i32; 1],
+    pub(crate) stencil_op: [i32; 1],
+    pub(crate) stencil_fail_op: [i32; 1],
+    pub(crate) stencil_depth_fail_op: [i32; 1],
+    pub(crate) stencil_read_mask: [i32; 1],
+    pub(crate) stencil_write_mask: [i32; 1],
+    pub(crate) color_mask: [i32; 1],
+    pub(crate) z_write: [i32; 1],
+    pub(crate) z_test: [i32; 1],
+    pub(crate) offset_factor: [i32; 1],
+    pub(crate) offset_units: [i32; 1],
+    pub(crate) cull: [i32; 1],
 }
 
 impl MaterialPipelinePropertyIds {
-    /// Interns property names used by Resonite material components and Unity-style shaders.
+    /// Interns the underscore-prefixed Unity property names FrooxEngine actually sends.
     pub fn new(registry: &PropertyIdRegistry) -> Self {
         Self {
-            blend_mode: [registry.intern("_BlendMode"), registry.intern("BlendMode")],
             src_blend: [
                 registry.intern("_SrcBlend"),
-                registry.intern("SrcBlend"),
                 registry.intern("_SrcBlendBase"),
-                registry.intern("SrcBlendBase"),
             ],
             dst_blend: [
                 registry.intern("_DstBlend"),
-                registry.intern("DstBlend"),
                 registry.intern("_DstBlendBase"),
-                registry.intern("DstBlendBase"),
             ],
-            stencil_ref: [registry.intern("_Stencil"), registry.intern("Stencil")],
-            stencil_comp: [
-                registry.intern("_StencilComp"),
-                registry.intern("StencilComp"),
-            ],
-            stencil_op: [
-                registry.intern("_StencilOp"),
-                registry.intern("StencilOp"),
-                registry.intern("_StencilPass"),
-                registry.intern("StencilPass"),
-            ],
-            stencil_fail_op: [
-                registry.intern("_StencilFail"),
-                registry.intern("StencilFail"),
-            ],
-            stencil_depth_fail_op: [
-                registry.intern("_StencilZFail"),
-                registry.intern("StencilZFail"),
-            ],
-            stencil_read_mask: [
-                registry.intern("_StencilReadMask"),
-                registry.intern("StencilReadMask"),
-            ],
-            stencil_write_mask: [
-                registry.intern("_StencilWriteMask"),
-                registry.intern("StencilWriteMask"),
-            ],
-            color_mask: [
-                registry.intern("_ColorMask"),
-                registry.intern("ColorMask"),
-                registry.intern("_colormask"),
-            ],
-            z_write: [registry.intern("_ZWrite"), registry.intern("ZWrite")],
-            z_test: [registry.intern("_ZTest"), registry.intern("ZTest")],
-            offset_factor: [
-                registry.intern("_OffsetFactor"),
-                registry.intern("OffsetFactor"),
-            ],
-            offset_units: [
-                registry.intern("_OffsetUnits"),
-                registry.intern("OffsetUnits"),
-            ],
-            cull: [registry.intern("_Cull"), registry.intern("_Culling")],
+            stencil_ref: [registry.intern("_Stencil")],
+            stencil_comp: [registry.intern("_StencilComp")],
+            stencil_op: [registry.intern("_StencilOp")],
+            stencil_fail_op: [registry.intern("_StencilFail")],
+            stencil_depth_fail_op: [registry.intern("_StencilZFail")],
+            stencil_read_mask: [registry.intern("_StencilReadMask")],
+            stencil_write_mask: [registry.intern("_StencilWriteMask")],
+            color_mask: [registry.intern("_ColorMask")],
+            z_write: [registry.intern("_ZWrite")],
+            z_test: [registry.intern("_ZTest")],
+            offset_factor: [registry.intern("_OffsetFactor")],
+            offset_units: [registry.intern("_OffsetUnits")],
+            cull: [registry.intern("_Cull")],
         }
     }
 }
@@ -223,9 +183,6 @@ pub fn material_blend_mode_from_maps(
     property_block_map: PropertyMapRef<'_>,
     ids: &MaterialPipelinePropertyIds,
 ) -> MaterialBlendMode {
-    if let Some(v) = first_float_from_maps(material_map, property_block_map, &ids.blend_mode) {
-        return MaterialBlendMode::from_resonite_value(v);
-    }
     if let (Some(src), Some(dst)) = (
         first_float_from_maps(material_map, property_block_map, &ids.src_blend),
         first_float_from_maps(material_map, property_block_map, &ids.dst_blend),
@@ -392,24 +349,6 @@ mod tests {
     use crate::assets::material::{MaterialPropertyStore, PropertyIdRegistry};
 
     #[test]
-    fn resolves_resonite_blend_mode_property() {
-        let reg = PropertyIdRegistry::new();
-        let ids = MaterialPipelinePropertyIds::new(&reg);
-        let mut store = MaterialPropertyStore::new();
-        let pid = reg.intern("BlendMode");
-        store.set_material(42, pid, MaterialPropertyValue::Float(4.0));
-        let dict = MaterialDictionary::new(&store);
-        let lookup = MaterialPropertyLookupIds {
-            material_asset_id: 42,
-            mesh_property_block_slot0: None,
-        };
-        assert_eq!(
-            material_blend_mode_for_lookup(&dict, lookup, &ids),
-            MaterialBlendMode::Additive
-        );
-    }
-
-    #[test]
     fn resolves_unity_src_dst_blend_properties() {
         let reg = PropertyIdRegistry::new();
         let ids = MaterialPipelinePropertyIds::new(&reg);
@@ -456,7 +395,7 @@ mod tests {
         let mut store = MaterialPropertyStore::new();
         let stencil = reg.intern("_Stencil");
         let comp = reg.intern("_StencilComp");
-        let op = reg.intern("_StencilPass");
+        let op = reg.intern("_StencilOp");
         let fail = reg.intern("_StencilFail");
         let zfail = reg.intern("_StencilZFail");
         let read = reg.intern("_StencilReadMask");
@@ -499,25 +438,6 @@ mod tests {
         assert_eq!(
             state.stencil_state().front.depth_fail_op,
             wgpu::StencilOperation::IncrementClamp
-        );
-    }
-
-    #[test]
-    fn resolves_xiexe_lowercase_color_mask_property() {
-        let reg = PropertyIdRegistry::new();
-        let ids = MaterialPipelinePropertyIds::new(&reg);
-        let mut store = MaterialPropertyStore::new();
-        let color_mask = reg.intern("_colormask");
-        store.set_material(441, color_mask, MaterialPropertyValue::Float(0.0));
-        let dict = MaterialDictionary::new(&store);
-        let lookup = MaterialPropertyLookupIds {
-            material_asset_id: 441,
-            mesh_property_block_slot0: None,
-        };
-        let state = material_render_state_for_lookup(&dict, lookup, &ids);
-        assert_eq!(
-            state.color_writes(wgpu::ColorWrites::ALL),
-            wgpu::ColorWrites::empty()
         );
     }
 
@@ -707,22 +627,6 @@ mod tests {
             state.resolved_cull_mode(Some(wgpu::Face::Back)),
             Some(wgpu::Face::Back)
         );
-    }
-
-    #[test]
-    fn culling_property_alias_resolves_like_cull() {
-        let reg = PropertyIdRegistry::new();
-        let ids = MaterialPipelinePropertyIds::new(&reg);
-        let mut store = MaterialPropertyStore::new();
-        let culling = reg.intern("_Culling");
-        store.set_material(51, culling, MaterialPropertyValue::Float(2.0));
-        let dict = MaterialDictionary::new(&store);
-        let lookup = MaterialPropertyLookupIds {
-            material_asset_id: 51,
-            mesh_property_block_slot0: None,
-        };
-        let state = material_render_state_for_lookup(&dict, lookup, &ids);
-        assert_eq!(state.cull_override, MaterialCullOverride::Back);
     }
 
     #[test]

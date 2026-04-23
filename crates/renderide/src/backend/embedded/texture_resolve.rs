@@ -118,9 +118,16 @@ pub(crate) fn primary_texture_any_kind_present(
     false
 }
 
+/// Whether `host_name` is the canonical primary-texture name for which we should fall back to
+/// the bound primary texture when no explicit binding is present.
+///
+/// Only `_MainTex` and `_Tex` are accepted: FrooxEngine writes one of these from every primary
+/// texture call (`_MainTex` everywhere except `UnlitMaterial.cs:96` which uses `_Tex`). The
+/// previously-carried `_TEXTURE` and `Texture` arms were confirmed dead by grepping
+/// `MaterialProperty("…")` declarations across `references_external/FrooxEngine/`.
 pub(crate) fn should_fallback_to_primary_texture(host_name: &str) -> bool {
     let host_name = shader_writer_unescaped_property_name(host_name);
-    matches!(host_name, "_MainTex" | "_Tex" | "_TEXTURE" | "Texture")
+    matches!(host_name, "_MainTex" | "_Tex")
 }
 
 fn texture_property_binding(

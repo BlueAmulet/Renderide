@@ -13,6 +13,12 @@ mod tables;
 use helpers::{default_vec4_for_field, first_float_by_pids, keyword_float_enabled_by_pid};
 use tables::default_f32_for_field;
 
+/// Default vec4 for a uniform field, with one stem-local override.
+///
+/// `_FarColor` has conflicting Unity `Properties{}` defaults across shaders: `Fresnel.shader`
+/// declares `(0,0,0,1)` (black, the generic default), while `UnlitDistanceLerp.shader` declares
+/// `(1,1,1,1)` (white). Since the renderer's vec4 default table is keyed by field name only,
+/// the stem-name probe is the unavoidable disambiguator.
 fn default_vec4_for_embedded_field(field_name: &str, ids: &StemEmbeddedPropertyIds) -> [f32; 4] {
     let field_name = helpers::shader_writer_unescaped_field_name(field_name);
     if ids.stem.as_ref().starts_with("unlitdistancelerp_") && field_name == "_FarColor" {
@@ -21,7 +27,12 @@ fn default_vec4_for_embedded_field(field_name: &str, ids: &StemEmbeddedPropertyI
     default_vec4_for_field(field_name)
 }
 
-/// Packs `UI_TextUnlit`-style `_TextMode`: explicit `0`/`1`/`2`, else keyword floats `MSDF` / `SDF` / `RASTER`, else `0` (MSDF default).
+/// Packs `UI_TextUnlit`-style `_TextMode`: explicit host value, else `0` (MSDF default).
+///
+/// FrooxEngine routes text-mode selection through `ShaderKeywords.SetKeyword("MSDF"/"SDF"/"RASTER", …)`
+/// which writes to the variant bitmask, not to any float property in the material store. The
+/// renderer never receives that bitmask, so the former `MSDF`/`SDF`/`RASTER` keyword probes
+/// always failed; they were removed.
 fn packed_text_mode_f32(
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
@@ -30,28 +41,14 @@ fn packed_text_mode_f32(
     if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, kw.text_mode) {
         return *f;
     }
-    if keyword_float_enabled_by_pid(store, lookup, kw.msdf) {
-        return 0.0;
-    }
-    if keyword_float_enabled_by_pid(store, lookup, kw.sdf) {
-        return 2.0;
-    }
-    if keyword_float_enabled_by_pid(store, lookup, kw.raster) {
-        return 1.0;
-    }
-    if keyword_float_enabled_by_pid(store, lookup, kw.msdf_lower) {
-        return 0.0;
-    }
-    if keyword_float_enabled_by_pid(store, lookup, kw.sdf_lower) {
-        return 2.0;
-    }
-    if keyword_float_enabled_by_pid(store, lookup, kw.raster_lower) {
-        return 1.0;
-    }
     0.0
 }
 
-/// Packs `_RectClip`: explicit value, else `RECTCLIP` / `rectclip` keyword floats, else `0`.
+/// Packs `_RectClip`: explicit host value, else `0`.
+///
+/// FrooxEngine sets rect-clipping via `ShaderKeywords.SetKeyword("RECTCLIP", …)` (variant
+/// bitmask); the renderer never sees that signal as a float property, so the former `RECTCLIP` /
+/// `rectclip` keyword probes always failed. Removed.
 fn packed_rect_clip_f32(
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
@@ -59,12 +56,6 @@ fn packed_rect_clip_f32(
 ) -> f32 {
     if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, kw.rect_clip) {
         return *f;
-    }
-    if keyword_float_enabled_by_pid(store, lookup, kw.rectclip) {
-        return 1.0;
-    }
-    if keyword_float_enabled_by_pid(store, lookup, kw.rectclip_lower) {
-        return 1.0;
     }
     0.0
 }
@@ -124,9 +115,7 @@ fn pack_flags_u32(
 
     match layout {
         PackedFlagsLayout::Unlit => {
-            if keyword_float_enabled_by_pid(store, lookup, kw.offset_texture)
-                || keyword_float_enabled_by_pid(store, lookup, kw.offset_texture_alt)
-            {
+            if keyword_float_enabled_by_pid(store, lookup, kw.offset_texture) {
                 flags |= 0x04;
             }
         }
@@ -136,17 +125,13 @@ fn pack_flags_u32(
             }
         }
     }
-    if keyword_float_enabled_by_pid(store, lookup, kw.mask_texture_mul)
-        || keyword_float_enabled_by_pid(store, lookup, kw.mask_texture_mul_alt)
-    {
+    if keyword_float_enabled_by_pid(store, lookup, kw.mask_texture_mul) {
         flags |= mask_mul_bit;
     }
-    if keyword_float_enabled_by_pid(store, lookup, kw.mask_texture_clip)
-        || keyword_float_enabled_by_pid(store, lookup, kw.mask_texture_clip_alt)
-    {
+    if keyword_float_enabled_by_pid(store, lookup, kw.mask_texture_clip) {
         flags |= mask_clip_bit;
     }
-    if let Some(mask_mode) = first_float_by_pids(store, lookup, &[kw.mask_mode, kw.mask_mode_alt]) {
+    if let Some(mask_mode) = first_float_by_pids(store, lookup, &[kw.mask_mode]) {
         match mask_mode.round() as i32 {
             // Resonite MaskTextureMode: MultiplyAlpha = 0, Cutoff = 1.
             0 => flags |= mask_mul_bit,
@@ -156,22 +141,18 @@ fn pack_flags_u32(
             _ => {}
         }
     }
-    if let Some(blend_mode) =
-        first_float_by_pids(store, lookup, &[kw.blend_mode, kw.blend_mode_alt])
-    {
+    if let Some(blend_mode) = first_float_by_pids(store, lookup, &[kw.blend_mode]) {
         // Resonite BlendMode.Cutout = 1.
         if blend_mode.round() as i32 == 1 {
             flags |= 0x02;
         }
     }
-    if (keyword_float_enabled_by_pid(store, lookup, kw.mul_rgb_by_alpha)
-        || keyword_float_enabled_by_pid(store, lookup, kw.mul_rgb_by_alpha_alt))
+    if keyword_float_enabled_by_pid(store, lookup, kw.mul_rgb_by_alpha)
         && layout == PackedFlagsLayout::Unlit
     {
         flags |= 0x20;
     }
-    if (keyword_float_enabled_by_pid(store, lookup, kw.mul_alpha_intensity)
-        || keyword_float_enabled_by_pid(store, lookup, kw.mul_alpha_intensity_alt))
+    if keyword_float_enabled_by_pid(store, lookup, kw.mul_alpha_intensity)
         && layout == PackedFlagsLayout::Unlit
     {
         flags |= 0x40;
@@ -236,12 +217,8 @@ pub(crate) fn build_embedded_uniform_bytes(
                 {
                     *f
                 } else if field_name == "_Cutoff" {
-                    first_float_by_pids(
-                        store,
-                        lookup,
-                        &[ids.shared.alpha_cutoff, ids.shared.alpha_cutoff_alt],
-                    )
-                    .unwrap_or_else(|| default_f32_for_field(field_name, store, lookup, ids))
+                    first_float_by_pids(store, lookup, &[ids.shared.alpha_cutoff])
+                        .unwrap_or_else(|| default_f32_for_field(field_name, store, lookup, ids))
                 } else {
                     default_f32_for_field(field_name, store, lookup, ids)
                 };
@@ -299,209 +276,33 @@ mod text_uniform_packing_tests {
     }
 
     #[test]
-    fn packed_text_mode_explicit_overrides_keywords() {
+    fn packed_text_mode_explicit_host_value() {
         let mut store = MaterialPropertyStore::new();
         let reg = PropertyIdRegistry::new();
         let kw = EmbeddedSharedKeywordIds::new(&reg);
         let pid_tm = reg.intern("_TextMode");
-        let pid_msdf = reg.intern("MSDF");
-        store.set_material(1, pid_msdf, MaterialPropertyValue::Float(1.0));
         store.set_material(1, pid_tm, MaterialPropertyValue::Float(1.0));
         assert_eq!(packed_text_mode_f32(&store, lookup(1), &kw), 1.0);
     }
 
     #[test]
-    fn packed_text_mode_raster_from_keyword() {
-        let mut store = MaterialPropertyStore::new();
-        let reg = PropertyIdRegistry::new();
-        let kw = EmbeddedSharedKeywordIds::new(&reg);
-        let pid = reg.intern("RASTER");
-        store.set_material(2, pid, MaterialPropertyValue::Float(1.0));
-        assert_eq!(packed_text_mode_f32(&store, lookup(2), &kw), 1.0);
-    }
-
-    #[test]
-    fn packed_rect_clip_from_rectclip_keyword() {
-        let mut store = MaterialPropertyStore::new();
-        let reg = PropertyIdRegistry::new();
-        let kw = EmbeddedSharedKeywordIds::new(&reg);
-        let pid = reg.intern("RECTCLIP");
-        store.set_material(3, pid, MaterialPropertyValue::Float(1.0));
-        assert_eq!(packed_rect_clip_f32(&store, lookup(3), &kw), 1.0);
-    }
-
-    #[test]
-    fn unlit_mask_mode_derives_mask_flags() {
-        let mut store = MaterialPropertyStore::new();
-        let reg = PropertyIdRegistry::new();
-        let kw = EmbeddedSharedKeywordIds::new(&reg);
-        let pid = reg.intern("MaskMode");
-
-        store.set_material(7, pid, MaterialPropertyValue::Float(0.0));
-        assert_eq!(
-            pack_flags_u32(
-                "flags",
-                &store,
-                lookup(7),
-                &kw,
-                false,
-                0.5,
-                PackedFlagsLayout::Unlit,
-            ) & 0x18,
-            0x08
-        );
-
-        store.set_material(7, pid, MaterialPropertyValue::Float(1.0));
-        assert_eq!(
-            pack_flags_u32(
-                "flags",
-                &store,
-                lookup(7),
-                &kw,
-                false,
-                0.5,
-                PackedFlagsLayout::Unlit,
-            ) & 0x18,
-            0x10
-        );
-    }
-
-    #[test]
-    fn ui_unlit_rectclip_keyword_uses_rect_clip_flag() {
-        let mut store = MaterialPropertyStore::new();
-        let reg = PropertyIdRegistry::new();
-        let kw = EmbeddedSharedKeywordIds::new(&reg);
-        let rectclip = reg.intern("RECTCLIP");
-        let offset_texture = reg.intern("_OFFSET_TEXTURE");
-
-        store.set_material(9, rectclip, MaterialPropertyValue::Float(1.0));
-        assert_eq!(
-            pack_flags_u32(
-                "flags",
-                &store,
-                lookup(9),
-                &kw,
-                false,
-                0.5,
-                PackedFlagsLayout::UiUnlit,
-            ) & 0x04,
-            0x04
-        );
-
-        store.set_material(10, offset_texture, MaterialPropertyValue::Float(1.0));
-        assert_eq!(
-            pack_flags_u32(
-                "flags",
-                &store,
-                lookup(10),
-                &kw,
-                false,
-                0.5,
-                PackedFlagsLayout::UiUnlit,
-            ) & 0x04,
-            0x00
-        );
-    }
-
-    #[test]
-    fn ui_unlit_mask_mode_uses_ui_flag_bits() {
-        let mut store = MaterialPropertyStore::new();
-        let reg = PropertyIdRegistry::new();
-        let kw = EmbeddedSharedKeywordIds::new(&reg);
-        let mask_mode = reg.intern("MaskMode");
-
-        store.set_material(11, mask_mode, MaterialPropertyValue::Float(0.0));
-        assert_eq!(
-            pack_flags_u32(
-                "flags",
-                &store,
-                lookup(11),
-                &kw,
-                false,
-                0.5,
-                PackedFlagsLayout::UiUnlit,
-            ) & 0x30,
-            0x10
-        );
-
-        store.set_material(11, mask_mode, MaterialPropertyValue::Float(1.0));
-        assert_eq!(
-            pack_flags_u32(
-                "flags",
-                &store,
-                lookup(11),
-                &kw,
-                false,
-                0.5,
-                PackedFlagsLayout::UiUnlit,
-            ) & 0x30,
-            0x20
-        );
-    }
-
-    #[test]
-    fn unlit_blend_mode_cutout_enables_alpha_test_flag() {
-        let mut store = MaterialPropertyStore::new();
-        let reg = PropertyIdRegistry::new();
-        let kw = EmbeddedSharedKeywordIds::new(&reg);
-        let pid = reg.intern("BlendMode");
-        store.set_material(8, pid, MaterialPropertyValue::Float(1.0));
-        assert_ne!(
-            pack_flags_u32(
-                "flags",
-                &store,
-                lookup(8),
-                &kw,
-                false,
-                0.5,
-                PackedFlagsLayout::Unlit,
-            ) & 0x02,
-            0
-        );
-    }
-
-    #[test]
-    fn cutout_blend_mode_infers_alpha_clip_keyword_spellings() {
+    fn cutout_blend_mode_infers_alpha_clip_from_canonical_blend_mode() {
         let mut store = MaterialPropertyStore::new();
         let reg = PropertyIdRegistry::new();
         let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
-        let pid = reg.intern("BlendMode");
+        let pid = reg.intern("_BlendMode");
         store.set_material(12, pid, MaterialPropertyValue::Float(1.0));
 
         for field_name in ["_ALPHATEST_ON", "_ALPHATEST", "_ALPHACLIP"] {
             assert_eq!(
                 inferred_keyword_float_f32(field_name, &store, lookup(12), &ids),
                 Some(1.0),
-                "{field_name} should enable for cutout BlendMode"
+                "{field_name} should enable for cutout _BlendMode"
             );
         }
         assert_eq!(
             inferred_keyword_float_f32("_ALPHABLEND_ON", &store, lookup(12), &ids),
             Some(0.0)
-        );
-    }
-
-    #[test]
-    fn unity_mode_infers_alpha_blend_keyword_spellings() {
-        let mut store = MaterialPropertyStore::new();
-        let reg = PropertyIdRegistry::new();
-        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
-        let pid = reg.intern("_Mode");
-
-        store.set_material(13, pid, MaterialPropertyValue::Float(2.0));
-        assert_eq!(
-            inferred_keyword_float_f32("_ALPHABLEND", &store, lookup(13), &ids),
-            Some(1.0)
-        );
-        assert_eq!(
-            inferred_keyword_float_f32("_ALPHATEST", &store, lookup(13), &ids),
-            Some(0.0)
-        );
-
-        store.set_material(13, pid, MaterialPropertyValue::Float(3.0));
-        assert_eq!(
-            inferred_keyword_float_f32("_ALPHAPREMULTIPLY", &store, lookup(13), &ids),
-            Some(1.0)
         );
     }
 
