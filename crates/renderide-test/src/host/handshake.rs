@@ -24,7 +24,7 @@ pub(super) const DEFAULT_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
 ///
 /// The init result is exposed for future callers that want to log GPU caps or condition behavior
 /// on `actual_output_device`; the current harness only verifies the handshake completed.
-#[expect(dead_code)]
+#[expect(dead_code, reason = "exposed for future callers; current harness only checks handshake completion")]
 #[derive(Clone, Debug)]
 pub(super) struct HandshakeOutcome {
     /// The renderer's reply to our `RendererInitData`.

@@ -24,7 +24,7 @@ pub(super) const DEFAULT_ASSET_UPLOAD_TIMEOUT: Duration = Duration::from_secs(10
 ///
 /// Fields are intentionally accessed only via [`Drop`] (writer keeps SHM alive); we expose them
 /// publicly so future host-side code can re-derive descriptors without re-opening the writer.
-#[expect(dead_code)]
+#[expect(dead_code, reason = "fields kept alive via Drop; exposed for future host-side callers")]
 pub(super) struct UploadedMesh {
     /// Asset id assigned to the uploaded mesh.
     pub asset_id: i32,

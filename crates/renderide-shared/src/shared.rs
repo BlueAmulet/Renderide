@@ -11,7 +11,8 @@
     clippy::explicit_iter_loop,
     clippy::match_wildcard_for_single_variants,
     clippy::manual_let_else,
-    clippy::unnested_or_patterns
+    clippy::unnested_or_patterns,
+    reason = "generated code: lints enforced on hand-written code do not apply here"
 )]
 
 use super::buffer::SharedMemoryBufferDescriptor;

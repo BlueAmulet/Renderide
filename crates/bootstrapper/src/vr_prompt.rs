@@ -57,7 +57,7 @@ const CANCEL_BUTTON_LABEL: &str = "Cancel";
 ///
 /// Returns [`None`] when the user clicks **Cancel** or otherwise dismisses
 /// the dialog; callers treat this as a request to abort the launch.
-pub fn prompt_desktop_or_vr() -> Option<bool> {
+pub(crate) fn prompt_desktop_or_vr() -> Option<bool> {
     let res = rfd::MessageDialog::new()
         .set_title("Renderide")
         .set_description("Launch Resonite in VR or desktop mode?")
