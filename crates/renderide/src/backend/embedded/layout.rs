@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn xiexe_module_textures_resolve_to_unmangled_property_ids() {
-        let wgsl = crate::embedded_shaders::embedded_target_wgsl("xiexe_xstoon2.0_default")
+        let wgsl = crate::embedded_shaders::embedded_target_wgsl("xstoon2.0_default")
             .expect("xiexe target WGSL");
         let reflected = reflect_raster_material_wgsl(wgsl).expect("xiexe WGSL reflection");
         let registry = PropertyIdRegistry::new();

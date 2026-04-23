@@ -4,12 +4,15 @@
 //! `{normalized_key}_default`. ShaderLab **path** forms under `UI/…` are mapped to the same asset-style
 //! keys as material sources under `shaders/source/materials/*.wgsl` (see crate `build.rs`).
 
-use crate::assets::util::{compact_alnum_lower, normalize_unity_shader_lookup_key};
+use crate::assets::util::normalize_unity_shader_lookup_key;
 use crate::embedded_shaders;
 
 /// Maps `UI/…` ShaderLab path strings to the compact `ui_*` keys used by on-disk material stems.
 ///
-/// Example: `UI/Text/Unlit` → `ui_textunlit` (matches `ui_textunlit.wgsl`).
+/// Example: `UI/Text/Unlit` → `ui_textunlit` (matches `ui_textunlit.wgsl`). This covers the
+/// case where a shader upload ships inline ShaderLab source with a nested `UI/…/…` path; the
+/// primary filename-based routing handles the AssetBundle case via
+/// [`normalize_unity_shader_lookup_key`] directly.
 fn shader_lab_ui_path_to_asset_lookup_key(name: &str) -> Option<String> {
     let token = name.split_whitespace().next().unwrap_or(name).trim();
     if !token.contains('/') {
@@ -31,45 +34,6 @@ fn shader_lab_ui_path_to_asset_lookup_key(name: &str) -> Option<String> {
     None
 }
 
-/// Maps Xiexe asset/container stems and source filenames to their ShaderLab path-backed material keys.
-///
-/// Some Unity AssetBundle paths expose stems such as `XSToon2.0 CutoutA2C Outlined` instead of the
-/// quoted ShaderLab path `Xiexe/Toon2.0/XSToon2.0_CutoutA2C_Outlined`.
-fn xiexe_toon2_asset_lookup_key(name: &str) -> Option<&'static str> {
-    let raw = name
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .to_ascii_lowercase();
-    match raw.as_str() {
-        "xstoon2.0" => return Some("xiexe_xstoon2.0"),
-        "xstoon2.0_outlined" => return Some("xiexe_xstoon2.0_outlined"),
-        _ => {}
-    }
-
-    match compact_alnum_lower(name).as_str() {
-        "xstoon20cutout" => Some("xiexe_toon2.0_xstoon2.0_cutout"),
-        "xstoon20cutouta2c" => Some("xiexe_toon2.0_xstoon2.0_cutouta2c"),
-        "xstoon20cutouta2coutlined" => Some("xiexe_toon2.0_xstoon2.0_cutouta2c_outlined"),
-        "xstoon20cutouta2cmasked" => Some("xiexe_toon2.0_xstoon2.0_cutouta2c_masked"),
-        "xstoon20dithered" => Some("xiexe_toon2.0_xstoon2.0_dithered"),
-        "xstoon20ditheredoutlined" => Some("xiexe_toon2.0_xstoon2.0_dithered_outlined"),
-        "xstoon20fade" => Some("xiexe_toon2.0_xstoon2.0_fade"),
-        "xstoon20outlined" => Some("xiexe_toon2.0_xstoon2.0_outlined"),
-        "xstoon20transparent" => Some("xiexe_toon2.0_xstoon2.0_transparent"),
-        "xstoonstenciler" => Some("xiexe_toon2.0_xstoonstenciler"),
-        _ => None,
-    }
-}
-
-fn compact_alias_lookup_key(name: &str) -> Option<&'static str> {
-    match compact_alnum_lower(name).as_str() {
-        "billboardunlit" => Some("billboardunlit"),
-        _ => None,
-    }
-}
-
 /// Returns `{normalized_key}_default` when that composed target exists in the embedded table.
 pub fn embedded_default_stem_for_unity_name(name: &str) -> Option<String> {
     let key = normalize_unity_shader_lookup_key(name);
@@ -78,18 +42,6 @@ pub fn embedded_default_stem_for_unity_name(name: &str) -> Option<String> {
         return Some(stem);
     }
     if let Some(asset_key) = shader_lab_ui_path_to_asset_lookup_key(name) {
-        let stem2 = format!("{asset_key}_default");
-        if embedded_shaders::embedded_target_wgsl(&stem2).is_some() {
-            return Some(stem2);
-        }
-    }
-    if let Some(asset_key) = compact_alias_lookup_key(name) {
-        let stem2 = format!("{asset_key}_default");
-        if embedded_shaders::embedded_target_wgsl(&stem2).is_some() {
-            return Some(stem2);
-        }
-    }
-    if let Some(asset_key) = xiexe_toon2_asset_lookup_key(name) {
         let stem2 = format!("{asset_key}_default");
         if embedded_shaders::embedded_target_wgsl(&stem2).is_some() {
             return Some(stem2);
@@ -332,15 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_billboard_unlit_from_shader_lab_name() {
-        assert_eq!(
-            embedded_default_stem_for_unity_name("Billboard/Unlit").as_deref(),
-            Some("billboardunlit_default")
-        );
-    }
-
-    #[test]
-    fn resolves_billboard_unlit_from_compact_name() {
+    fn resolves_billboard_unlit_from_filename() {
         assert_eq!(
             embedded_default_stem_for_unity_name("BillboardUnlit").as_deref(),
             Some("billboardunlit_default")
@@ -356,34 +300,41 @@ mod tests {
     }
 
     #[test]
-    fn resolves_xiexe_toon2_cutout_from_shader_lab_name() {
+    fn resolves_xiexe_toon2_cutout_from_filename() {
         assert_eq!(
-            embedded_default_stem_for_unity_name("Xiexe/Toon2.0/XSToon2.0_Cutout").as_deref(),
-            Some("xiexe_toon2.0_xstoon2.0_cutout_default")
+            embedded_default_stem_for_unity_name("XSToon2.0 Cutout").as_deref(),
+            Some("xstoon2.0-cutout_default")
         );
     }
 
     #[test]
-    fn resolves_xiexe_toon2_cutout_a2c_outlined_from_asset_stem() {
+    fn resolves_xiexe_toon2_cutout_a2c_outlined_from_filename() {
         assert_eq!(
             embedded_default_stem_for_unity_name("XSToon2.0 CutoutA2C Outlined").as_deref(),
-            Some("xiexe_toon2.0_xstoon2.0_cutouta2c_outlined_default")
+            Some("xstoon2.0-cutouta2c-outlined_default")
         );
     }
 
     #[test]
-    fn resolves_xiexe_legacy_outlined_from_underscore_asset_stem() {
+    fn resolves_xiexe_outlined_from_underscore_filename() {
+        // The underscore-spelled `XSToon2.0_Outlined.shader` is a distinct Unity asset from
+        // the space-spelled `XSToon2.0 Outlined.shader` — the normalizer preserves the
+        // underscore/dash distinction so they resolve to different stems.
         assert_eq!(
             embedded_default_stem_for_unity_name("XSToon2.0_Outlined").as_deref(),
-            Some("xiexe_xstoon2.0_outlined_default")
+            Some("xstoon2.0_outlined_default")
+        );
+        assert_eq!(
+            embedded_default_stem_for_unity_name("XSToon2.0 Outlined").as_deref(),
+            Some("xstoon2.0-outlined_default")
         );
     }
 
     #[test]
-    fn resolves_xiexe_stenciler_from_asset_stem() {
+    fn resolves_xiexe_stenciler_from_filename() {
         assert_eq!(
             embedded_default_stem_for_unity_name("XSToonStenciler").as_deref(),
-            Some("xiexe_toon2.0_xstoonstenciler_default")
+            Some("xstoonstenciler_default")
         );
     }
 }

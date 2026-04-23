@@ -20,23 +20,20 @@ use super::material_pass_tables::{
 pub const COLOR_WRITES_NONE: wgpu::ColorWrites = wgpu::ColorWrites::empty();
 
 /// Resonite/Froox material blend mode, or the shader stem's default when no material field is present.
+///
+/// Reconstructed from the `_SrcBlend` / `_DstBlend` Unity blend-factor floats that FrooxEngine
+/// writes for every material (see [`MaterialBlendMode::from_unity_blend_factors`]). The host
+/// never sends a named `BlendMode` enum value on the wire — `MaterialProvider.SetBlendMode(Alpha)`
+/// on the C# side simply translates to `SrcBlend=SrcAlpha` / `DstBlend=OneMinusSrcAlpha` floats —
+/// so only three shapes are observable here: no override, the `(1, 0)` opaque canonical form, and
+/// every other valid `(src, dst)` pair.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MaterialBlendMode {
     /// No material-level override; use the stem's normal static behavior.
     #[default]
     StemDefault,
-    /// `BlendMode.Opaque` (`0`).
+    /// Canonical Unity `Blend One Zero` — opaque, no color blend.
     Opaque,
-    /// `BlendMode.Cutout` (`1`).
-    Cutout,
-    /// `BlendMode.Alpha` (`2`).
-    Alpha,
-    /// `BlendMode.Transparent` (`3`).
-    Transparent,
-    /// `BlendMode.Additive` (`4`).
-    Additive,
-    /// `BlendMode.Multiply` (`5`).
-    Multiply,
     /// Direct Unity `Blend[src][dst], One One` factors from `_SrcBlend` / `_DstBlend`.
     UnityBlend {
         /// Unity source blend factor enum value.
@@ -50,11 +47,7 @@ impl MaterialBlendMode {
     fn unity_blend_factors(self) -> Option<(u8, u8)> {
         match self {
             Self::StemDefault => None,
-            Self::Opaque | Self::Cutout => Some((1, 0)),
-            Self::Alpha => Some((5, 10)),
-            Self::Transparent => Some((1, 10)),
-            Self::Additive => Some((1, 1)),
-            Self::Multiply => Some((2, 0)),
+            Self::Opaque => Some((1, 0)),
             Self::UnityBlend { src, dst } => Some((src, dst)),
         }
     }
@@ -79,14 +72,7 @@ impl MaterialBlendMode {
 
     /// Returns true when the mode must be sorted/drawn as transparent.
     pub fn is_transparent(self) -> bool {
-        matches!(
-            self,
-            Self::Alpha
-                | Self::Transparent
-                | Self::Additive
-                | Self::Multiply
-                | Self::UnityBlend { .. }
-        )
+        matches!(self, Self::UnityBlend { .. })
     }
 }
 
@@ -322,20 +308,9 @@ pub fn materialized_pass_for_blend_mode(
 }
 
 /// Default single-pass descriptor after applying a material `BlendMode` override.
-pub fn default_pass_for_blend_mode(
-    stem_uses_alpha_blending: bool,
-    blend_mode: MaterialBlendMode,
-) -> MaterialPassDesc {
+pub fn default_pass_for_blend_mode(blend_mode: MaterialBlendMode) -> MaterialPassDesc {
     match blend_mode {
-        MaterialBlendMode::StemDefault => {
-            default_pass(stem_uses_alpha_blending, !stem_uses_alpha_blending)
-        }
-        MaterialBlendMode::Opaque | MaterialBlendMode::Cutout => default_pass(false, true),
-        MaterialBlendMode::Alpha => unity_blend_pass("alpha", 5, 10, false),
-        // Resonite's Transparent mode is premultiplied-alpha style.
-        MaterialBlendMode::Transparent => unity_blend_pass("transparent", 1, 10, false),
-        MaterialBlendMode::Additive => unity_blend_pass("additive", 1, 1, false),
-        MaterialBlendMode::Multiply => unity_blend_pass("multiply", 2, 0, false),
+        MaterialBlendMode::StemDefault | MaterialBlendMode::Opaque => default_pass(false, true),
         MaterialBlendMode::UnityBlend { src, dst } => {
             unity_blend_pass("unity_blend", src, dst, src == 1 && dst == 0)
         }
@@ -648,7 +623,7 @@ mod tests {
 
     #[test]
     fn default_blend_mode_alpha_pass_culls_back_faces() {
-        let pass = default_pass_for_blend_mode(false, MaterialBlendMode::Alpha);
+        let pass = default_pass_for_blend_mode(MaterialBlendMode::UnityBlend { src: 5, dst: 10 });
         assert_eq!(pass.cull_mode, Some(wgpu::Face::Back));
     }
 }

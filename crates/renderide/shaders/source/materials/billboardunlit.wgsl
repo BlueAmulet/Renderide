@@ -3,6 +3,12 @@
 //! Unity's source uses a geometry shader to expand one point into four quad vertices. WGSL has no
 //! geometry stage, so this shader billboards already-quad geometry in the vertex stage. Meshes with
 //! duplicated center positions and quad UVs match the original point expansion closely.
+//!
+//! Offset-texture caveat: Unity's BillboardUnlit shader gates UV offset on the `_OFFSET_TEXTURE`
+//! multi-compile keyword, which is carried by `ShaderKeywords.Variant` and not plumbed through IPC
+//! (see `ShaderKeywords.cs`). Without the per-shader keyword-index table we can't decode the
+//! bitmask, so we sample `_OffsetTex` unconditionally; FrooxEngine defaults `_OffsetMagnitude` to
+//! zero, which makes the shift inert for materials that don't opt into offset sampling.
 
 //#pass forward: fs=fs_main, depth=greater, zwrite=on, cull=back, blend=one,zero,add, alpha=one,one,max, material=forward_base
 
@@ -14,6 +20,8 @@
 struct BillboardUnlitMaterial {
     _Color: vec4<f32>,
     _Tex_ST: vec4<f32>,
+    _OffsetTex_ST: vec4<f32>,
+    _OffsetMagnitude: vec4<f32>,
     _RightEye_ST: vec4<f32>,
     _PointSize: vec4<f32>,
     _Cutoff: f32,
@@ -33,6 +41,8 @@ struct BillboardUnlitMaterial {
 @group(1) @binding(0) var<uniform> mat: BillboardUnlitMaterial;
 @group(1) @binding(1) var _Tex: texture_2d<f32>;
 @group(1) @binding(2) var _Tex_sampler: sampler;
+@group(1) @binding(3) var _OffsetTex: texture_2d<f32>;
+@group(1) @binding(4) var _OffsetTex_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -150,10 +160,13 @@ fn main_st(view_layer: u32) -> vec4<f32> {
 
 fn texture_uv(base_uv: vec2<f32>, view_layer: u32) -> vec2<f32> {
     let st = main_st(view_layer);
+    let uv_off = uvu::apply_st(base_uv, mat._OffsetTex_ST);
+    let offset_s = textureSample(_OffsetTex, _OffsetTex_sampler, uv_off);
+    let offset_shift = offset_s.xy * mat._OffsetMagnitude.xy;
     if (mat._POLARUV > 0.5) {
-        return uvu::apply_st(uvu::polar_uv(base_uv, mat._PolarPow), st);
+        return uvu::apply_st(uvu::polar_uv(base_uv, mat._PolarPow), st) + offset_shift;
     }
-    return uvu::apply_st(base_uv, st);
+    return uvu::apply_st(base_uv, st) + offset_shift;
 }
 
 @fragment

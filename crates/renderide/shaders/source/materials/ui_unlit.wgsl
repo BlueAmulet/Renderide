@@ -1,4 +1,4 @@
-//! Canvas UI Unlit (`Shader "UI/Unlit"`): sprite texture, tint, optional alpha clip.
+//! Canvas UI Unlit (`Shader "UI/Unlit"`): sprite texture, tint, optional alpha clip, optional alpha mask.
 //!
 //! Build emits `ui_unlit_default` / `ui_unlit_multiview` via [`MULTIVIEW`](https://docs.rs/naga_oil).
 //! `@group(1)` global names match Unity `UI_Unlit.shader` material property names for host reflection.
@@ -6,11 +6,12 @@
 //! **Vertex color:** Unity multiplies `vertex_color * _Tint`. The mesh pass provides a dense
 //! float4 color stream at `@location(3)` with opaque-white fallback when the host mesh lacks color.
 //!
-//! The previous `flags: u32` bitfield + `_MaskTex` + `_Rect` / `_OverlayTint` paths were all
-//! keyword-driven in Unity (`RECTCLIP`, `OVERLAY`, `_MASK_TEXTURE_*`) and FrooxEngine sets those
-//! only via `ShaderKeywords.SetKeyword`, which the renderer never receives. The inferred flag
-//! bits were permanently zero, so those branches were dead. Alpha-test is read directly from
-//! `_Cutoff`.
+//! Mask-mode caveat: Unity's UI_Unlit shader gates mask handling on
+//! `_MASK_TEXTURE_MUL` / `_MASK_TEXTURE_CLIP` multi-compile keywords. FrooxEngine sets those
+//! through `ShaderKeywords.SetKeyword`, which the renderer never receives. Without the
+//! `ShaderKeywords.Variant` bitmask (and each shader's keyword-index table) on the wire we
+//! default to MUL-mode alpha masking. When no host mask texture is bound the default-white
+//! fallback makes it a no-op (`(1+1+1)/3 * 1 = 1`).
 //!
 //! Per-draw uniforms (`@group(2)`) use [`renderide::per_draw`].
 
@@ -23,6 +24,7 @@
 
 struct UiUnlitMaterial {
     _MainTex_ST: vec4<f32>,
+    _MaskTex_ST: vec4<f32>,
     _Tint: vec4<f32>,
     _Cutoff: f32,
     _SrcBlend: f32,
@@ -40,6 +42,8 @@ struct UiUnlitMaterial {
 @group(1) @binding(0) var<uniform> mat: UiUnlitMaterial;
 @group(1) @binding(1) var _MainTex: texture_2d<f32>;
 @group(1) @binding(2) var _MainTex_sampler: sampler;
+@group(1) @binding(3) var _MaskTex: texture_2d<f32>;
+@group(1) @binding(4) var _MaskTex_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -81,8 +85,14 @@ fn vs_main(
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let uv_s = uvu::apply_st(in.uv, mat._MainTex_ST);
     let t = textureSample(_MainTex, _MainTex_sampler, uv_s);
-    let clip_a = in.color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_s);
-    let color = in.color * t;
+    var color = in.color * t;
+    var clip_a = in.color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_s);
+
+    let uv_mask = uvu::apply_st(in.uv, mat._MaskTex_ST);
+    let mask = textureSample(_MaskTex, _MaskTex_sampler, uv_mask);
+    let mask_mul = (mask.r + mask.g + mask.b) * 0.33333334 * mask.a;
+    color.a = color.a * mask_mul;
+    clip_a = clip_a * acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_mask);
 
     if (mat._Cutoff > 0.0 && mat._Cutoff < 1.0 && clip_a <= mat._Cutoff) {
         discard;

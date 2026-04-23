@@ -251,7 +251,7 @@ pub(crate) fn create_embedded_render_pipelines(
         );
     }
 
-    let pass = default_pass_for_blend_mode(false, blend_mode);
+    let pass = default_pass_for_blend_mode(blend_mode);
     create_reflective_raster_mesh_forward_pipelines(
         shader,
         streams,
