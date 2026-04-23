@@ -99,9 +99,11 @@ mod tests {
     fn all_positions_on_unit_sphere() {
         let m = SphereMesh::generate(8, 12);
         for v in &m.vertices {
-            let r = (v.position[0] * v.position[0]
-                + v.position[1] * v.position[1]
-                + v.position[2] * v.position[2])
+            let r = v.position[2]
+                .mul_add(
+                    v.position[2],
+                    v.position[0].mul_add(v.position[0], v.position[1] * v.position[1]),
+                )
                 .sqrt();
             assert!((r - 1.0).abs() < 1e-4, "position not on unit sphere: r={r}");
         }

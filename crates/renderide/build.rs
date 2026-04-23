@@ -795,16 +795,18 @@ fn compose_and_emit_variants(
             &pass_directives,
         )?;
         let lit = rust_string_literal_token(&wgsl);
-        embedded_arms.push_str(&format!("        \"{target_stem}\" => Some({lit}),\n"));
+        use std::fmt::Write as _;
+        let _ = writeln!(embedded_arms, "        \"{target_stem}\" => Some({lit}),");
         if !pass_directives.is_empty() {
             let pass_literals = pass_directives
                 .iter()
                 .map(pass_literal)
                 .collect::<Vec<_>>()
                 .join(",\n            ");
-            embedded_pass_arms.push_str(&format!(
-                "        \"{target_stem}\" => &[\n            {pass_literals},\n        ],\n"
-            ));
+            let _ = writeln!(
+                embedded_pass_arms,
+                "        \"{target_stem}\" => &[\n            {pass_literals},\n        ],"
+            );
         }
         output_stems.push(target_stem);
     }

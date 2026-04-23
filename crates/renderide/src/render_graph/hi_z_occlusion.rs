@@ -112,10 +112,10 @@ pub fn mesh_fully_occluded_in_hiz(
     let base_w = snapshot.base_width.max(1) as f32;
     let base_h = snapshot.base_height.max(1) as f32;
 
-    let u0 = min_ndc_x * 0.5 + 0.5;
-    let u1 = max_ndc_x * 0.5 + 0.5;
-    let v0 = 1.0 - (max_ndc_y * 0.5 + 0.5);
-    let v1 = 1.0 - (min_ndc_y * 0.5 + 0.5);
+    let u0 = min_ndc_x.mul_add(0.5, 0.5);
+    let u1 = max_ndc_x.mul_add(0.5, 0.5);
+    let v0 = 1.0 - max_ndc_y.mul_add(0.5, 0.5);
+    let v1 = 1.0 - min_ndc_y.mul_add(0.5, 0.5);
 
     let px_min = u0.min(u1);
     let px_max = u0.max(u1);

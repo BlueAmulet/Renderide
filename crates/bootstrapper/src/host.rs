@@ -30,8 +30,7 @@ pub(crate) fn strip_windows_desktop_from_runtime_config(path: &Path) {
             return;
         }
     };
-    let mut stripped_any = false;
-    if let Some(frameworks) = json
+    let stripped_any = if let Some(frameworks) = json
         .get_mut("runtimeOptions")
         .and_then(|o| o.get_mut("frameworks"))
         .and_then(|f| f.as_array_mut())
@@ -40,8 +39,10 @@ pub(crate) fn strip_windows_desktop_from_runtime_config(path: &Path) {
         frameworks.retain(|node| {
             node.get("name").and_then(|n| n.as_str()) != Some("Microsoft.WindowsDesktop.App")
         });
-        stripped_any = before_len != frameworks.len();
-    }
+        before_len != frameworks.len()
+    } else {
+        false
+    };
     if !stripped_any {
         return;
     }
