@@ -11,21 +11,7 @@ mod helpers;
 mod tables;
 
 use helpers::{default_vec4_for_field, first_float_by_pids, keyword_float_enabled_by_pid};
-use tables::default_f32_for_field;
-
-/// Default vec4 for a uniform field, with one stem-local override.
-///
-/// `_FarColor` has conflicting Unity `Properties{}` defaults across shaders: `Fresnel.shader`
-/// declares `(0,0,0,1)` (black, the generic default), while `UnlitDistanceLerp.shader` declares
-/// `(1,1,1,1)` (white). Since the renderer's vec4 default table is keyed by field name only,
-/// the stem-name probe is the unavoidable disambiguator.
-fn default_vec4_for_embedded_field(field_name: &str, ids: &StemEmbeddedPropertyIds) -> [f32; 4] {
-    let field_name = helpers::shader_writer_unescaped_field_name(field_name);
-    if ids.stem.as_ref().starts_with("unlitdistancelerp_") && field_name == "_FarColor" {
-        return [1.0, 1.0, 1.0, 1.0];
-    }
-    default_vec4_for_field(field_name)
-}
+use tables::inferred_keyword_float_f32;
 
 /// Packs `UI_TextUnlit`-style `_TextMode`: explicit host value, else `0` (MSDF default).
 ///
@@ -201,7 +187,8 @@ pub(crate) fn build_embedded_uniform_bytes(
         let pid = *ids.uniform_field_ids.get(field_name)?;
         match field.kind {
             ReflectedUniformScalarKind::Vec4 => {
-                let default = default_vec4_for_embedded_field(field_name, ids);
+                let default =
+                    default_vec4_for_field(helpers::shader_writer_unescaped_field_name(field_name));
                 let mut v = default;
                 if let Some(MaterialPropertyValue::Float4(c)) = store.get_merged(lookup, pid) {
                     v = *c;
@@ -217,10 +204,21 @@ pub(crate) fn build_embedded_uniform_bytes(
                 {
                     *f
                 } else if field_name == "_Cutoff" {
-                    first_float_by_pids(store, lookup, &[ids.shared.alpha_cutoff])
-                        .unwrap_or_else(|| default_f32_for_field(field_name, store, lookup, ids))
+                    // Cutoff materials always have the host writer push `_Cutoff` on first batch;
+                    // 0.5 is the Unity-convention fallback for the unobservable pre-first-batch window.
+                    first_float_by_pids(store, lookup, &[ids.shared.alpha_cutoff]).unwrap_or(0.5)
                 } else {
-                    default_f32_for_field(field_name, store, lookup, ids)
+                    // Multi-compile keyword fields (`_NORMALMAP`, `_ALPHATEST_ON`, …) are inferred
+                    // from texture presence + blend reconstruction. Other unknown fields fall
+                    // through to uniform-buffer zero-init parity; after the orphan-field cleanup
+                    // that branch should be unreachable for any field the renderer actually packs.
+                    inferred_keyword_float_f32(
+                        helpers::shader_writer_unescaped_field_name(field_name),
+                        store,
+                        lookup,
+                        ids,
+                    )
+                    .unwrap_or(0.0)
                 };
                 if field_name == "_Cutoff" {
                     cutoff = v;
@@ -324,16 +322,9 @@ mod text_uniform_packing_tests {
     }
 
     #[test]
-    fn default_pbs_uniforms_match_unity_style_defaults() {
-        let store = MaterialPropertyStore::new();
-        let reg = PropertyIdRegistry::new();
-        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
-        assert_eq!(default_f32_for_field("_Lerp", &store, lookup(5), &ids), 0.0);
-        assert_eq!(
-            default_f32_for_field("_NormalScale", &store, lookup(5), &ids),
-            1.0
-        );
-        assert_eq!(default_f32_for_field("_Cull", &store, lookup(5), &ids), 2.0);
+    fn vec4_defaults_match_documented_unity_conventions() {
+        // Spot-check a few entries in the generic vec4 default table that DO need a non-zero
+        // value because the relevant WGSL shaders rely on them prior to host writes.
         assert_eq!(
             default_vec4_for_field("_EmissionColor"),
             [0.0, 0.0, 0.0, 0.0]
@@ -349,53 +340,7 @@ mod text_uniform_packing_tests {
             default_vec4_for_field("_BehindFarColor"),
             [0.0, 0.0, 0.0, 1.0]
         );
-        assert_eq!(
-            default_f32_for_field("_ZTest", &store, lookup(5), &ids),
-            2.0
-        );
-        assert_eq!(default_f32_for_field("_Exp", &store, lookup(5), &ids), 1.0);
-        assert_eq!(
-            default_f32_for_field("_Distance", &store, lookup(5), &ids),
-            1.0
-        );
-        assert_eq!(
-            default_f32_for_field("_Transition", &store, lookup(5), &ids),
-            0.1
-        );
-        assert_eq!(
-            default_f32_for_field("_GammaCurve", &store, lookup(5), &ids),
-            2.2
-        );
         assert_eq!(default_vec4_for_field("_Tint0_"), [1.0, 0.0, 0.0, 1.0]);
-        assert_eq!(
-            default_f32_for_field("_Metallic1_", &store, lookup(5), &ids),
-            0.0
-        );
-        assert_eq!(
-            default_f32_for_field("_StencilComp", &store, lookup(5), &ids),
-            8.0
-        );
-        assert_eq!(
-            default_f32_for_field("_ColorMask", &store, lookup(5), &ids),
-            15.0
-        );
-    }
-
-    #[test]
-    fn unlit_distance_lerp_far_color_defaults_to_white() {
-        let reg = PropertyIdRegistry::new();
-        let generic_ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
-        let distance_lerp_ids =
-            StemEmbeddedPropertyIds::minimal_for_tests_with_stem(&reg, "unlitdistancelerp_default");
-
-        assert_eq!(
-            default_vec4_for_embedded_field("_FarColor", &generic_ids),
-            [0.0, 0.0, 0.0, 1.0]
-        );
-        assert_eq!(
-            default_vec4_for_embedded_field("_FarColor", &distance_lerp_ids),
-            [1.0, 1.0, 1.0, 1.0]
-        );
     }
 
     #[test]

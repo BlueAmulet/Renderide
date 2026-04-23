@@ -24,7 +24,6 @@ struct Projection360Material {
     _Rect: vec4<f32>,
     _TextureLerp: f32,
     _CubeLOD: f32,
-    _ProjectionLerp: f32,
     _Exposure: f32,
     _Gamma: f32,
     _MaxIntensity: f32,

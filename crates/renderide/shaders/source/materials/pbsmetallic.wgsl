@@ -24,20 +24,14 @@ struct PbsMetallicMaterial {
     _DetailAlbedoMap_ST: vec4<f32>,
     _Cutoff: f32,
     _Glossiness: f32,
-    _GlossMapScale: f32,
     _SmoothnessTextureChannel: f32,
     _Metallic: f32,
     _BumpScale: f32,
     _Parallax: f32,
-    _OcclusionStrength: f32,
     _DetailNormalMapScale: f32,
-    _UVSec: f32,
-    _SpecularHighlights: f32,
-    _GlossyReflections: f32,
     _SrcBlend: f32,
     _DstBlend: f32,
     _ZWrite: f32,
-    _Mode: f32,
     _OffsetFactor: f32,
     _OffsetUnits: f32,
     _NORMALMAP: f32,
@@ -96,24 +90,20 @@ fn kw(v: f32) -> bool {
     return v > 0.5;
 }
 
-fn mode_near(v: f32) -> bool {
-    return abs(mat._Mode - v) < 0.5;
-}
-
 fn alpha_test_enabled() -> bool {
-    return kw(mat._ALPHATEST_ON) || mode_near(1.0);
+    return kw(mat._ALPHATEST_ON);
 }
 
 fn alpha_premultiply_enabled() -> bool {
-    return kw(mat._ALPHAPREMULTIPLY_ON) || mode_near(3.0);
+    return kw(mat._ALPHAPREMULTIPLY_ON);
 }
 
 fn specular_highlights_enabled() -> bool {
-    return mat._SpecularHighlights > 0.5 && !kw(mat._SPECULARHIGHLIGHTS_OFF);
+    return !kw(mat._SPECULARHIGHLIGHTS_OFF);
 }
 
 fn glossy_reflections_enabled() -> bool {
-    return mat._GlossyReflections > 0.5 && !kw(mat._GLOSSYREFLECTIONS_OFF);
+    return !kw(mat._GLOSSYREFLECTIONS_OFF);
 }
 
 fn metallic_gloss_map_enabled() -> bool {
@@ -166,8 +156,7 @@ fn sample_normal_world(
 fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n: vec3<f32>) -> SurfaceData {
     let uv_base = uvu::apply_st(uv0, mat._MainTex_ST);
     let uv_main = uv_with_parallax(uv_base, world_pos);
-    let uv_sec = select(uv0, uv1, mat._UVSec > 0.5);
-    let uv_detail = uvu::apply_st(uv_sec, mat._DetailAlbedoMap_ST);
+    let uv_detail = uvu::apply_st(uv0, mat._DetailAlbedoMap_ST);
 
     let albedo_sample = textureSample(_MainTex, _MainTex_sampler, uv_main);
     let base_alpha = mat._Color.a * albedo_sample.a;
@@ -183,16 +172,15 @@ fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n:
     var smoothness = mat._Glossiness;
     if (metallic_gloss_map_enabled()) {
         metallic = mg.r;
-        smoothness = mg.a * mat._GlossMapScale;
+        smoothness = mg.a;
     }
     if (smoothness_from_albedo_alpha()) {
-        smoothness = albedo_sample.a * mat._GlossMapScale;
+        smoothness = albedo_sample.a;
     }
     metallic = clamp(metallic, 0.0, 1.0);
     let roughness = clamp(1.0 - smoothness, 0.045, 1.0);
 
-    let occlusion_sample = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
-    let occlusion = mix(1.0, occlusion_sample, mat._OcclusionStrength);
+    let occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
 
     var detail_mask = 0.0;
     if (kw(mat._DETAIL_MULX2)) {

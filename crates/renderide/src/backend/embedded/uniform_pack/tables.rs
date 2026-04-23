@@ -99,48 +99,15 @@ fn material_mode_or_blend_mode_is(
     mode == Some(mode_value) || blend == Some(mode_value)
 }
 
-pub(super) fn default_f32_for_field(
-    field_name: &str,
-    store: &MaterialPropertyStore,
-    lookup: MaterialPropertyLookupIds,
-    ids: &StemEmbeddedPropertyIds,
-) -> f32 {
-    let field_name = shader_writer_unescaped_field_name(field_name);
-    if let Some(v) = inferred_keyword_float_f32(field_name, store, lookup, ids) {
-        return v;
-    }
-    // Only arms for field names that actually appear in some WGSL uniform struct. The function
-    // is entered exclusively with names from `reflected.material_uniform.fields.keys()`, so an
-    // arm for a name no WGSL declares is unreachable. Verified by greping every
-    // `crates/renderide/shaders/source/materials/*.wgsl` struct.
-    match field_name {
-        "_Lerp" | "_TextureLerp" | "_ProjectionLerp" | "_CubeLOD" | "_Metallic" | "_Metallic1"
-        | "_UVSec" | "_Mode" | "_OffsetFactor" | "_OffsetUnits" | "_Stencil" | "_StencilOp"
-        | "_StencilFail" | "_StencilZFail" | "_Offset" => 0.0,
-        "_NormalScale"
-        | "_NormalScale1"
-        | "_BumpScale"
-        | "_DetailNormalMapScale"
-        | "_GlossMapScale"
-        | "_OcclusionStrength"
-        | "_SpecularHighlights"
-        | "_GlossyReflections"
-        | "_Exposure"
-        | "_Gamma"
-        | "_ZWrite" => 1.0,
-        "_Exp" | "_Exp0" | "_Exp1" | "_PolarPow" | "_LerpPolarPow" => 1.0,
-        "_Distance" => 1.0,
-        "_Transition" => 0.1,
-        "_MaxIntensity" => 4.0,
-        "_Parallax" => 0.02,
-        "_GammaCurve" => 2.2,
-        "_SrcBlend" | "_SrcBlendBase" => 1.0,
-        "_DstBlend" | "_DstBlendBase" => 0.0,
-        "_ZTest" | "_Cull" => 2.0,
-        "_StencilComp" => 8.0,
-        "_StencilWriteMask" | "_StencilReadMask" => 255.0,
-        "_ColorMask" => 15.0,
-        "_Cutoff" | "_AlphaClip" | "_Glossiness" | "_Glossiness1" => 0.5,
-        _ => 0.5,
-    }
-}
+// `default_f32_for_field` was deleted. After the WGSL orphan-field cleanup (Categories A + B in
+// the plan at /home/doublestyx/.claude/plans/), every uniform field reaching `build_embedded_uniform_bytes`
+// is one of:
+//   1. A host-declared property — `MaterialPropertyStore` always has a value by the time the
+//      renderer reads (first material batch pushes every `Sync<X>` via `MaterialUpdateWriter` per
+//      `MaterialProviderBase.cs:48-51`).
+//   2. A multi-compile keyword field (`_NORMALMAP`, `_ALPHATEST_ON`, etc.) — inferred by
+//      [`inferred_keyword_float_f32`] from texture presence / blend factor reconstruction.
+//   3. `_TextMode` / `_RectClip` / `_Cutoff` — handled by special-case probes in the caller.
+//
+// Previously-held Unity-Properties{} fallback values are irrelevant: FrooxEngine supplies its own
+// initial values (from each `MaterialProvider.OnAwake()`), not Unity's. See the audit for detail.

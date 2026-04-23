@@ -11,13 +11,9 @@ struct XiexeStencilerMaterial {
     _Stencil: f32,
     _StencilComp: f32,
     _StencilOp: f32,
-    _StencilFail: f32,
-    _StencilZFail: f32,
     _ZWrite: f32,
     _ZTest: f32,
-    _Culling: f32,
     _ColorMask: f32,
-    _colormask: f32,
 }
 
 @group(1) @binding(0) var<uniform> mat: XiexeStencilerMaterial;
@@ -54,8 +50,5 @@ fn vs_main(
 
 @fragment
 fn fs_main() -> @location(0) vec4<f32> {
-    let touch = (mat._Stencil + mat._StencilComp + mat._StencilOp + mat._StencilFail +
-        mat._StencilZFail + mat._ZWrite + mat._ZTest + mat._Culling +
-        mat._ColorMask + mat._colormask) * 0.0;
-    return rg::retain_globals_additive(vec4<f32>(touch, touch, touch, 0.0));
+    return rg::retain_globals_additive(vec4<f32>(0.0));
 }
