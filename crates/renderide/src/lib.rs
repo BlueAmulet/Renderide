@@ -19,8 +19,6 @@
 //! `wgpu` dependency**, enforcing the “no GPU in scene” rule via Cargo boundaries; the current
 //! single crate keeps iteration cheaper until the scene API stabilizes.
 
-#![warn(missing_docs)]
-
 mod process_io;
 mod run_error;
 

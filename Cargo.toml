@@ -29,3 +29,6 @@ lto = true
 debug-assertions = false
 # Set a lower panic strategy to reduce binary size (Unwind uses more space)
 panic = "abort"
+
+[workspace.lints.rust]
+missing_docs = "warn"

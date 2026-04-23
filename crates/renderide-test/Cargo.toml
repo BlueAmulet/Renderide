@@ -17,3 +17,6 @@ glam = { version = "0.32", features = ["bytemuck"] }
 bytemuck = { version = "1.25", features = ["derive"] }
 thiserror = "2"
 tempfile = "3"
+
+[lints]
+workspace = true

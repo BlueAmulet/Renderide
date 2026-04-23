@@ -10,8 +10,6 @@
 //!
 //! The binary entry point is [`run`]; use [`BootstrapOptions`] to supply Host arguments and logging.
 
-#![warn(missing_docs)]
-
 mod child_lifetime;
 mod cleanup;
 pub mod cli;

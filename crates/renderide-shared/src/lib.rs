@@ -1,6 +1,3 @@
-#![warn(missing_docs)]
-#![allow(clippy::module_inception)]
-
 //! Shared IPC types, packing helpers, and queue + shared-memory primitives used by both the
 //! Renderide renderer (`renderide`) and any host-side Rust tooling that talks to it (currently
 //! `renderide-test`; potentially future debug CLIs and replay tools).
