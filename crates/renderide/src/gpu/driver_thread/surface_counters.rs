@@ -67,15 +67,24 @@ impl SurfaceCounters {
     /// texture has been presented — the precise barrier needed by the main thread before
     /// it calls [`wgpu::Surface::get_current_texture`]. Using a larger value would require
     /// wgpu to support multiple outstanding surface textures, which it does not today.
+    ///
+    /// The predicate is checked **while holding** [`Self::present_mtx`]. Checking outside
+    /// the mutex would race with [`Self::note_presented`]: a notifier can run the full
+    /// `fetch_add` then `lock` then `notify_all` sequence in the gap between the reader's
+    /// atomic load and its `wait` call, leaving the reader parked on a condvar no one
+    /// will signal again (lost wakeup). Holding the mutex across both the load and the
+    /// `wait` makes the two atomic with respect to the notifier — [`std::sync::Condvar::wait`]
+    /// releases the same mutex the notifier must acquire before `notify_all`. Do not
+    /// hoist the lock back outside the loop.
     pub(super) fn wait_for_present_catchup(&self, max_in_flight: u64) {
+        let mut guard = self.present_mtx.lock().unwrap_or_else(|p| p.into_inner());
         loop {
             let submitted = self.frames_submitted.load(Ordering::Acquire);
             let presented = self.frames_presented.load(Ordering::Acquire);
             if submitted.saturating_sub(presented) <= max_in_flight {
                 return;
             }
-            let guard = self.present_mtx.lock().unwrap_or_else(|p| p.into_inner());
-            let _unused = self
+            guard = self
                 .present_cvar
                 .wait(guard)
                 .unwrap_or_else(|p| p.into_inner());
