@@ -32,3 +32,58 @@ panic = "abort"
 
 [workspace.lints.rust]
 missing_docs = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub = "warn"
+unused_lifetimes = "warn"
+unused_qualifications = "warn"
+let_underscore_drop = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+variant_size_differences = "warn"
+
+[workspace.lints.clippy]
+# Tier 1 — bug-catchers
+undocumented_unsafe_blocks = "warn"
+cast_possible_truncation = "warn"
+cast_sign_loss = "warn"
+cast_possible_wrap = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+print_stdout = "warn"
+print_stderr = "warn"
+mem_forget = "warn"
+float_cmp = "warn"
+
+# Tier 2 — discipline
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+
+# Tier 3 — mechanical cleanup (auto-fixable block)
+semicolon_if_nothing_returned = "warn"
+manual_let_else = "warn"
+manual_assert = "warn"
+if_not_else = "warn"
+match_same_arms = "warn"
+match_wildcard_for_single_variants = "warn"
+redundant_closure_for_method_calls = "warn"
+explicit_iter_loop = "warn"
+inefficient_to_string = "warn"
+implicit_clone = "warn"
+flat_map_option = "warn"
+unnested_or_patterns = "warn"
+doc_markdown = "warn"
+unreadable_literal = "warn"
+
+# Tier 4 — resource-management
+clone_on_ref_ptr = "warn"
+rc_buffer = "warn"
+unused_result_ok = "warn"
+needless_pass_by_value = "warn"
+large_types_passed_by_value = "warn"
+too_many_lines = "warn"
+fn_params_excessive_bools = "warn"
+struct_excessive_bools = "warn"
+debug_assert_with_mut_call = "warn"
