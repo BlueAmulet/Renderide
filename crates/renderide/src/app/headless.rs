@@ -3,7 +3,7 @@
 //! Mirrors the desktop `RenderideApp` driver as closely as possible: builds a [`GpuContext`]
 //! (with no surface) via [`GpuContext::new_headless`], attaches it to the runtime, and then runs
 //! the same per-frame phases as desktop. **Full frames** ([`RendererRuntime::tick_one_frame`],
-//! including `render_all_views`) run on a wall-clock cadence (`--headless-interval-ms`, default
+//! including `render_frame`) run on a wall-clock cadence (`--headless-interval-ms`, default
 //! 1000 ms). Between those ticks the loop only runs
 //! [`RendererRuntime::tick_one_frame_lockstep_only`] so IPC and asset integration stay responsive
 //! on slow adapters (e.g. software Vulkan). After each full frame, the GpuContext's primary offscreen color
@@ -12,7 +12,7 @@
 //! This loop has **no winit / OpenXR involvement** and never threads a window through any
 //! render-path API — the renderer's window lives inside [`GpuContext`] in windowed mode and is
 //! `None` here, with the same render graph executing against `OffscreenRt` views substituted for
-//! `Swapchain` views inside `render_all_views` (see [`crate::runtime::RendererRuntime`]).
+//! `Swapchain` views inside `render_frame` (see [`crate::runtime::RendererRuntime`]).
 
 use std::path::Path;
 use std::sync::atomic::Ordering;
@@ -77,10 +77,10 @@ pub fn run_headless(
         // Per-frame work split:
         //
         // - Most ticks only do `tick_one_frame_lockstep_only`: `poll_ipc + asset_integration +
-        //   pre_frame`. No `render_all_views`. This is cheap (microseconds) and keeps the IPC
+        //   pre_frame`. No `render_frame`. This is cheap (microseconds) and keeps the IPC
         //   queue drained so the host's `FrameSubmitData` is consumed promptly.
         // - On the wall-clock schedule (`render_interval`, default 1s), run the full
-        //   `tick_one_frame` which includes `render_all_views`. Advance the clock **after** that
+        //   `tick_one_frame` which includes `render_frame`. Advance the clock **after** that
         //   attempt so we do not re-enter a full render on every 5ms tick while lavapipe is still
         //   busy or before the offscreen texture exists.
         let outcome = if due_for_full_frame {

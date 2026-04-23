@@ -16,21 +16,6 @@ use super::resources::{
 use super::schedule::FrameSchedule;
 use super::world_mesh_draw_prep::{CameraTransformDrawFilter, WorldMeshDrawCollection};
 
-/// Inputs for [`CompiledRenderGraph::execute_offscreen_single_view`] and
-/// [`crate::backend::RenderBackend::execute_frame_graph_offscreen_single_view`].
-pub struct OffscreenSingleViewExecuteSpec<'a> {
-    /// Scene after cache flush.
-    pub scene: &'a SceneCoordinator,
-    /// Per-view camera and clip data from the host.
-    pub host_camera: HostCameraFrame,
-    /// Pre-built color/depth views for the render texture.
-    pub external: ExternalOffscreenTargets<'a>,
-    /// Optional mesh transform filter for secondary cameras.
-    pub transform_filter: Option<CameraTransformDrawFilter>,
-    /// Optional pre-collected draws when skipping CPU mesh collection.
-    pub prefetched_world_mesh_draws: Option<WorldMeshDrawCollection>,
-}
-
 /// Single-view color + depth for secondary cameras rendering to a host [`crate::resources::GpuRenderTexture`].
 pub struct ExternalOffscreenTargets<'a> {
     /// Host render-texture asset id for `color_view` (used to suppress self-sampling during this pass).

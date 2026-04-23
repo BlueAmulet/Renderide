@@ -34,7 +34,7 @@ use crate::connection::ConnectionParams;
 use crate::frontend::RendererFrontend;
 use crate::gpu::GpuContext;
 
-use crate::render_graph::{ExternalFrameTargets, GraphExecuteError, HostCameraFrame};
+use crate::render_graph::{GraphExecuteError, HostCameraFrame};
 
 pub use crate::frontend::InitState;
 use crate::ipc::SharedMemoryAccessor;
@@ -47,7 +47,7 @@ use crate::shared::{
 /// Result of one [`RendererRuntime::tick_one_frame`] call.
 ///
 /// `shutdown_requested` lets the calling driver exit its event loop; `fatal_error` triggers a
-/// non-zero process exit. `graph_error` carries any failure from [`RendererRuntime::render_all_views`]
+/// non-zero process exit. `graph_error` carries any failure from [`RendererRuntime::render_frame`]
 /// for the caller to decide whether to log + continue or escalate.
 #[derive(Debug, Default)]
 pub struct TickOutcome {
@@ -158,66 +158,6 @@ impl RendererRuntime {
         *self.unhandled_ipc_command_counts.entry(tag).or_insert(0) += 1;
     }
 
-    /// Records and presents one frame via the backend’s compiled render graph.
-    pub fn execute_frame_graph(&mut self, gpu: &mut GpuContext) -> Result<(), GraphExecuteError> {
-        self.backend
-            .frame_resources
-            .prepare_lights_from_scene(&self.scene);
-        self.sync_debug_hud_diagnostics_from_settings();
-        let requested_msaa = self
-            .settings
-            .read()
-            .map(|s| s.rendering.msaa.as_count())
-            .unwrap_or(1);
-        let prev_msaa = gpu.swapchain_msaa_effective();
-        gpu.set_swapchain_msaa_requested(requested_msaa);
-        self.transient_evict_stale_msaa_tiers_if_changed(prev_msaa, gpu.swapchain_msaa_effective());
-        let scene_ref: &SceneCoordinator = &self.scene;
-        self.backend
-            .execute_frame_graph(gpu, scene_ref, self.host_camera)
-    }
-
-    /// Renders to OpenXR multiview array targets (see [`RenderBackend::execute_frame_graph_external_multiview`]).
-    pub fn execute_frame_graph_external_multiview(
-        &mut self,
-        gpu: &mut GpuContext,
-        external: ExternalFrameTargets<'_>,
-        skip_hi_z_begin_readback: bool,
-    ) -> Result<(), GraphExecuteError> {
-        self.run_frame_graph_external_multiview(gpu, external, skip_hi_z_begin_readback)
-    }
-
-    pub(super) fn run_frame_graph_external_multiview(
-        &mut self,
-        gpu: &mut GpuContext,
-        external: ExternalFrameTargets<'_>,
-        skip_hi_z_begin_readback: bool,
-    ) -> Result<(), GraphExecuteError> {
-        self.backend
-            .frame_resources
-            .prepare_lights_from_scene(&self.scene);
-        self.sync_debug_hud_diagnostics_from_settings();
-        let requested_msaa = self
-            .settings
-            .read()
-            .map(|s| s.rendering.msaa.as_count())
-            .unwrap_or(1);
-        let prev_stereo = gpu.swapchain_msaa_effective_stereo();
-        gpu.set_swapchain_msaa_requested_stereo(requested_msaa);
-        self.transient_evict_stale_msaa_tiers_if_changed(
-            prev_stereo,
-            gpu.swapchain_msaa_effective_stereo(),
-        );
-        let scene_ref: &SceneCoordinator = &self.scene;
-        self.backend.execute_frame_graph_external_multiview(
-            gpu,
-            scene_ref,
-            self.host_camera,
-            external,
-            skip_hi_z_begin_readback,
-        )
-    }
-
     /// Drains completed Hi-Z `map_async` readbacks into CPU snapshots (once per tick).
     ///
     /// Call at the top of the render-views phase so both the HMD and desktop paths share one drain.
@@ -315,9 +255,9 @@ impl RendererRuntime {
     /// [`crate::app::headless::run_headless`].
     ///
     /// Phases: drain IPC, dispatch asset integration, emit lock-step `FrameStartData` via
-    /// [`Self::pre_frame`] (when allowed), and call [`Self::render_all_views`]. Mode-specific
-    /// epilogue (HUD overlay encode + present in winit, PNG readback in headless) happens on
-    /// the caller side after this returns.
+    /// [`Self::pre_frame`] (when allowed), and call [`Self::render_frame`] with the main camera
+    /// included. Mode-specific epilogue (HUD overlay encode + present in winit, PNG readback in
+    /// headless) happens on the caller side after this returns.
     pub fn tick_one_frame(
         &mut self,
         gpu: &mut GpuContext,
@@ -341,7 +281,7 @@ impl RendererRuntime {
         if self.should_send_begin_frame() {
             self.pre_frame(inputs);
         }
-        let graph_error = self.render_all_views(gpu).err();
+        let graph_error = self.render_frame(gpu, true, None).err();
         TickOutcome {
             graph_error,
             ..Default::default()
@@ -351,7 +291,7 @@ impl RendererRuntime {
     /// Same as [`Self::tick_one_frame`] but skips the render call.
     ///
     /// Used by the desktop VR path which runs its own HMD multiview submit + secondary cameras
-    /// to render textures + mirror blit instead of [`Self::render_all_views`]. Phase order stays
+    /// to render textures + mirror blit instead of [`Self::render_frame`]. Phase order stays
     /// in this method so VR cannot drift from desktop / headless lock-step semantics.
     pub fn tick_one_frame_lockstep_only(
         &mut self,

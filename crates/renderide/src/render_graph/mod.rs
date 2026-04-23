@@ -120,8 +120,7 @@ pub use camera::{DESKTOP_FOV_DEGREES_MAX, DESKTOP_FOV_DEGREES_MIN};
 pub use cluster_frame::{cluster_frame_params, cluster_frame_params_stereo, ClusterFrameParams};
 pub use compiled::{
     ColorAttachmentTemplate, CompileStats, CompiledRenderGraph, DepthAttachmentTemplate,
-    ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewTarget,
-    OffscreenSingleViewExecuteSpec, RenderPassTemplate,
+    ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewTarget, RenderPassTemplate,
 };
 pub use context::{
     CallbackCtx, ComputePassCtx, CopyPassCtx, GraphRasterPassContext, GraphResolvedResources,

@@ -74,7 +74,7 @@ pub mod prelude {
     pub use crate::config::{MsaaSampleCount, RendererSettings, RendererSettingsHandle};
     pub use crate::render_graph::HostCameraFrame;
     pub use crate::runtime::{InitState, RendererRuntime};
-    pub use crate::xr::{XrHostCameraSync, XrMultiviewFrameRenderer};
+    pub use crate::xr::{XrFrameRenderer, XrHostCameraSync};
 }
 
 pub use run_error::RunError;

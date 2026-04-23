@@ -168,7 +168,7 @@ pub struct GpuContext {
     depth_extent_px: (u32, u32),
     /// Headless primary color/depth target (lazy). Allocated on the first call to
     /// [`Self::ensure_primary_offscreen_targets`] when [`Self::is_headless`] is true so the
-    /// headless `render_all_views` substitution can render the main view to a persistent
+    /// headless `render_frame` substitution can render the main view to a persistent
     /// offscreen RT and the headless driver can copy it back to a PNG. The wrapping `Arc` lets
     /// callers obtain an owned handle that does not borrow from [`GpuContext`], avoiding the
     /// `&mut GpuContext` aliasing that would otherwise prevent passing `gpu` to the backend
@@ -191,7 +191,7 @@ pub struct GpuContext {
 /// Persistent offscreen color + depth pair owned by [`GpuContext`] in headless mode.
 ///
 /// The render graph treats these as a host render-texture (an `OffscreenRt` view) when
-/// `render_all_views` substitutes the main `Swapchain` view in headless mode. The headless
+/// `render_frame` substitutes the main `Swapchain` view in headless mode. The headless
 /// driver then `copy_texture_to_buffer` against [`PrimaryOffscreenTargets::color_texture`]
 /// to read back the pixels and write a PNG.
 pub struct PrimaryOffscreenTargets {
@@ -303,7 +303,7 @@ impl GpuContext {
     /// config.height` and the configured color format. Subsequent calls return the same handles
     /// until the context is dropped.
     ///
-    /// `render_all_views` calls this when `window.is_none()` to substitute the main `Swapchain`
+    /// `render_frame` calls this when `window.is_none()` to substitute the main `Swapchain`
     /// view with a `FrameViewTarget::OffscreenRt` backed by these textures.
     pub fn primary_offscreen_targets(&mut self) -> Option<&PrimaryOffscreenTargets> {
         if !self.is_headless() {

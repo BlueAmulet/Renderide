@@ -176,8 +176,8 @@ impl CompiledRenderGraph {
         }
         if any_view_missing_prefetch {
             // Entry points that hand the graph a [`FrameView`] without prefetched draws — notably
-            // the OpenXR multiview path in
-            // [`CompiledRenderGraph::execute_external_multiview`] — otherwise leave the mesh set
+            // the OpenXR stereo view assembled in
+            // [`crate::runtime::RendererRuntime::render_frame`] — otherwise leave the mesh set
             // above empty, so `ensure_extended_vertex_streams` never runs for materials whose
             // vertex shader reads `@location(4)` or higher. The per-view record path uses an
             // immutable `&MeshPool` and cannot upload those streams itself; a miss there silently
@@ -289,15 +289,15 @@ impl CompiledRenderGraph {
     }
 }
 
-/// Fallback scene walk that mirrors [`crate::runtime::secondary_cameras::RendererRuntime::render_all_views`]'s
+/// Fallback scene walk that mirrors [`crate::runtime::secondary_cameras::RendererRuntime::render_frame`]'s
 /// frame-scope renderable expansion, scoped to the scene's active main render context.
 ///
 /// Invoked by [`CompiledRenderGraph::pre_warm_per_view_resources_for_views`] when at least one
 /// view arrives without prefetched world-mesh draws. Uploads tangent / UV1..3 streams for every
 /// mesh whose resolved material stem has a vertex shader that reads `@location(4)` or higher so
 /// the per-view record path's read-only [`crate::resources::MeshPool`] finds those streams ready
-/// instead of silently skipping the draw. Today this is exercised by the OpenXR multiview entry
-/// in [`CompiledRenderGraph::execute_external_multiview`]; any other caller that passes
+/// instead of silently skipping the draw. Today this is exercised by the OpenXR stereo view
+/// assembled in [`crate::runtime::RendererRuntime::render_frame`]; any other caller that passes
 /// `prefetched_world_mesh_draws: None` will also reuse this fallback.
 fn collect_fallback_extended_stream_mesh_ids(
     mv_ctx: &MultiViewExecutionContext<'_>,

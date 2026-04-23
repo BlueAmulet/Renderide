@@ -14,7 +14,7 @@
 //! 5. [`lock_step_exchange`] — when allowed, [`RendererRuntime::pre_frame`] with winit input + optional VR IPC.
 //! 6. Early exits — shutdown, fatal IPC, missing window/GPU (each runs epilogue timing).
 //! 7. [`render_views`] — HMD multiview submit if XR+GPU; secondary cameras to render textures;
-//!    debug HUD input/time for this frame (must run before desktop [`RendererRuntime::render_all_views`]).
+//!    debug HUD input/time for this frame (must run before [`RendererRuntime::render_frame`] appends the main camera).
 //! 8. [`present_and_diagnostics`] — VR mirror blit or clear (with optional Dear ImGui overlay on the desktop surface); OpenXR `end_frame_empty` when needed (desktop world render is in step 7).
 //! 9. [`frame_tick_epilogue`] — GPU frame timing end and debug HUD capture after the tick.
 //!
@@ -433,15 +433,15 @@ impl RenderideApp {
 
         let gpu = self.gpu.as_mut()?;
 
-        if self.runtime.vr_active() {
-            if let Err(e) = self
-                .runtime
-                .render_secondary_cameras_to_render_textures(gpu)
-            {
-                logger::warn!("secondary camera render-to-texture failed: {e:?}");
+        // When the HMD path submitted the stereo + secondary RT views together, skip the
+        // fallback `render_frame` to avoid a redundant second submit. Otherwise: include the
+        // main swapchain view iff VR is not active (VR without HMD submit still only renders
+        // secondary RTs; the desktop stays on the mirror clear).
+        if !hmd_projection_ended {
+            let include_main_swapchain = !self.runtime.vr_active();
+            if let Err(e) = self.runtime.render_frame(gpu, include_main_swapchain, None) {
+                Self::handle_frame_graph_error(gpu, e);
             }
-        } else if let Err(e) = self.runtime.render_all_views(gpu) {
-            Self::handle_frame_graph_error(gpu, e);
         }
 
         {
@@ -501,7 +501,7 @@ impl RenderideApp {
                 logger::debug!("VR mirror clear (no HMD frame): {e:?}");
             }
         }
-        // Desktop: swapchain world render + present run inside [`RendererRuntime::render_all_views`]
+        // Desktop: swapchain world render + present run inside [`RendererRuntime::render_frame`]
         // during [`Self::render_views`].
 
         if let (Some(bundle), Some(tick)) = (self.xr_session.as_mut(), xr_tick) {

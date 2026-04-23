@@ -47,4 +47,4 @@ pub use swapchain::{
 pub use app_integration::{
     openxr_begin_frame_tick, try_openxr_hmd_multiview_submit, OpenxrFrameTick, XrSessionBundle,
 };
-pub use host_camera_sync::{XrHostCameraSync, XrMultiviewFrameRenderer};
+pub use host_camera_sync::{XrFrameRenderer, XrHostCameraSync};

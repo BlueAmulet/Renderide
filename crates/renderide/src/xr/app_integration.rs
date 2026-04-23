@@ -3,7 +3,7 @@
 use crate::gpu::{GpuContext, VrMirrorBlitResources, VR_MIRROR_EYE_LAYER};
 use crate::render_graph::{effective_head_output_clip_planes, ExternalFrameTargets};
 use crate::xr::{
-    create_stereo_depth_texture, XrHostCameraSync, XrMultiviewFrameRenderer, XrStereoSwapchain,
+    create_stereo_depth_texture, XrFrameRenderer, XrHostCameraSync, XrStereoSwapchain,
     XrWgpuHandles, XR_COLOR_FORMAT, XR_VIEW_COUNT,
 };
 use openxr as xr;
@@ -133,7 +133,7 @@ pub fn openxr_begin_frame_tick(
 fn multiview_submit_prereqs(
     gpu: &GpuContext,
     bundle: &XrSessionBundle,
-    runtime: &impl XrMultiviewFrameRenderer,
+    runtime: &impl XrFrameRenderer,
     tick: &OpenxrFrameTick,
 ) -> bool {
     let handles = &bundle.handles;
@@ -211,7 +211,7 @@ fn ensure_stereo_depth_texture(
 pub fn try_openxr_hmd_multiview_submit(
     gpu: &mut GpuContext,
     bundle: &mut XrSessionBundle,
-    runtime: &mut impl XrMultiviewFrameRenderer,
+    runtime: &mut impl XrFrameRenderer,
     tick: &OpenxrFrameTick,
 ) -> bool {
     if !multiview_submit_prereqs(gpu, bundle, runtime, tick) {
@@ -269,10 +269,10 @@ pub fn try_openxr_hmd_multiview_submit(
     };
     let views_ref = tick.views.as_slice();
     let handles = &mut bundle.handles;
-    if runtime
-        .execute_frame_graph_external_multiview(gpu, ext, true)
-        .is_err()
-    {
+    // Unified submit: HMD stereo + every active secondary RT in one `execute_multi_view_frame`
+    // call. `include_main_swapchain = false` because the HMD view replaces the main camera for
+    // this tick.
+    if runtime.render_frame(gpu, false, Some(ext)).is_err() {
         let _ = sc.handle.release_image();
         return false;
     }

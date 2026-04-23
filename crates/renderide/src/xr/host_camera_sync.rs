@@ -34,16 +34,19 @@ pub trait XrHostCameraSync {
     fn note_openxr_locate_views_failed(&mut self) {}
 }
 
-/// Multiview submission path that reuses the render graph with external stereo targets.
-pub trait XrMultiviewFrameRenderer: XrHostCameraSync {
-    /// Renders to OpenXR array color / depth ([`RenderBackend::execute_frame_graph_external_multiview`](crate::backend::RenderBackend::execute_frame_graph_external_multiview)).
+/// Per-tick unified render entry used by the OpenXR frame submit helper.
+pub trait XrFrameRenderer: XrHostCameraSync {
+    /// Records and submits the compiled render graph for this tick.
     ///
-    /// When `skip_hi_z_begin_readback` is `true`, the caller has already drained Hi-Z readbacks
-    /// this tick (see [`crate::runtime::RendererRuntime::drain_hi_z_readback`]).
-    fn execute_frame_graph_external_multiview(
+    /// `hmd` supplies pre-acquired OpenXR stereo color + depth targets; every active secondary
+    /// render-texture camera is appended automatically. `include_main_swapchain` is `false` on
+    /// VR ticks because the HMD view replaces the main camera.
+    ///
+    /// See [`crate::runtime::RendererRuntime::render_frame`] for the inherent implementation.
+    fn render_frame(
         &mut self,
         gpu: &mut GpuContext,
-        external: ExternalFrameTargets<'_>,
-        skip_hi_z_begin_readback: bool,
+        include_main_swapchain: bool,
+        hmd: Option<ExternalFrameTargets<'_>>,
     ) -> Result<(), GraphExecuteError>;
 }

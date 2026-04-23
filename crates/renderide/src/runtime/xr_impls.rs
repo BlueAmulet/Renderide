@@ -1,4 +1,4 @@
-//! [`crate::xr::XrHostCameraSync`] and [`crate::xr::XrMultiviewFrameRenderer`] for [`super::RendererRuntime`].
+//! [`crate::xr::XrHostCameraSync`] and [`crate::xr::XrFrameRenderer`] for [`super::RendererRuntime`].
 
 use glam::{Mat4, Quat, Vec3};
 
@@ -67,13 +67,13 @@ impl crate::xr::XrHostCameraSync for RendererRuntime {
     }
 }
 
-impl crate::xr::XrMultiviewFrameRenderer for RendererRuntime {
-    fn execute_frame_graph_external_multiview(
+impl crate::xr::XrFrameRenderer for RendererRuntime {
+    fn render_frame(
         &mut self,
         gpu: &mut GpuContext,
-        external: ExternalFrameTargets<'_>,
-        skip_hi_z_begin_readback: bool,
+        include_main_swapchain: bool,
+        hmd: Option<ExternalFrameTargets<'_>>,
     ) -> Result<(), GraphExecuteError> {
-        self.run_frame_graph_external_multiview(gpu, external, skip_hi_z_begin_readback)
+        RendererRuntime::render_frame(self, gpu, include_main_swapchain, hmd)
     }
 }

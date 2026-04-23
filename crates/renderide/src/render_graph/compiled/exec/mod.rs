@@ -28,8 +28,7 @@ use super::super::error::GraphExecuteError;
 use super::super::frame_params::{HostCameraFrame, OcclusionViewId, PerViewHudOutputs};
 use super::super::world_mesh_draw_prep::WorldMeshDrawCollection;
 use super::{
-    CompiledRenderGraph, ExternalFrameTargets, FrameView, FrameViewTarget,
-    MultiViewExecutionContext, OffscreenSingleViewExecuteSpec, ResolvedView,
+    CompiledRenderGraph, FrameView, FrameViewTarget, MultiViewExecutionContext, ResolvedView,
 };
 
 /// Key for reusing transient pool allocations across [`FrameView`]s with identical surface layout.
@@ -247,62 +246,6 @@ impl CompiledRenderGraph {
     /// Called by tests; production code can use this to surface graph build failures early.
     pub fn validate_schedule(&self) -> Result<(), super::super::schedule::ScheduleValidationError> {
         self.schedule.validate()
-    }
-
-    /// Desktop single-view entry: delegates to [`Self::execute_multi_view`] (one swapchain view).
-    pub fn execute(
-        &mut self,
-        gpu: &mut GpuContext,
-        scene: &SceneCoordinator,
-        backend: &mut RenderBackend,
-        host_camera: HostCameraFrame,
-    ) -> Result<(), GraphExecuteError> {
-        let mut single = [FrameView {
-            host_camera,
-            target: FrameViewTarget::Swapchain,
-            draw_filter: None,
-            prefetched_world_mesh_draws: None,
-        }];
-        self.execute_multi_view(gpu, scene, backend, &mut single)
-    }
-
-    /// Records passes against pre-built multiview array targets (OpenXR swapchain path).
-    pub fn execute_external_multiview(
-        &mut self,
-        gpu: &mut GpuContext,
-        scene: &SceneCoordinator,
-        backend: &mut RenderBackend,
-        host_camera: HostCameraFrame,
-        external: ExternalFrameTargets<'_>,
-    ) -> Result<(), GraphExecuteError> {
-        let mut single = [FrameView {
-            host_camera,
-            target: FrameViewTarget::ExternalMultiview(external),
-            draw_filter: None,
-            prefetched_world_mesh_draws: None,
-        }];
-        self.execute_multi_view(gpu, scene, backend, &mut single)
-    }
-
-    /// Renders the graph to a single-view offscreen color/depth target (secondary camera → render texture).
-    pub fn execute_offscreen_single_view(
-        &mut self,
-        gpu: &mut GpuContext,
-        backend: &mut RenderBackend,
-        spec: OffscreenSingleViewExecuteSpec<'_>,
-    ) -> Result<(), GraphExecuteError> {
-        let scene = spec.scene;
-        let host_camera = spec.host_camera;
-        let external = spec.external;
-        let transform_filter = spec.transform_filter;
-        let prefetched_world_mesh_draws = spec.prefetched_world_mesh_draws;
-        let mut single = [FrameView {
-            host_camera,
-            target: FrameViewTarget::OffscreenRt(external),
-            draw_filter: transform_filter,
-            prefetched_world_mesh_draws,
-        }];
-        self.execute_multi_view(gpu, scene, backend, &mut single)
     }
 
     /// Records all views into separate command encoders and submits them in a single

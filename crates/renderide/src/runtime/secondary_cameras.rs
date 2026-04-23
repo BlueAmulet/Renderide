@@ -13,9 +13,9 @@ use crate::render_graph::{
     build_world_mesh_cull_proj_params, camera_state_enabled, collect_and_sort_world_mesh_draws,
     collect_and_sort_world_mesh_draws_with_parallelism, draw_filter_from_camera_entry,
     host_camera_frame_for_render_texture, CameraTransformDrawFilter, DrawCollectionContext,
-    ExternalOffscreenTargets, FramePreparedRenderables, FrameView, FrameViewTarget,
-    GraphExecuteError, HostCameraFrame, OcclusionViewId, OutputDepthMode, WorldMeshCullInput,
-    WorldMeshDrawCollectParallelism, WorldMeshDrawCollection,
+    ExternalFrameTargets, ExternalOffscreenTargets, FramePreparedRenderables, FrameView,
+    FrameViewTarget, GraphExecuteError, HostCameraFrame, OcclusionViewId, OutputDepthMode,
+    WorldMeshCullInput, WorldMeshDrawCollectParallelism, WorldMeshDrawCollection,
 };
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 
@@ -80,14 +80,15 @@ struct SecondaryRtPrepared {
     color_format: wgpu::TextureFormat,
 }
 
-/// Secondary offscreen [`FrameView`]s with prefetched draws, then the main swapchain view.
-fn build_desktop_multi_view_frame_list<'a>(
+/// Builds per-secondary `FrameView`s with prefetched draws, then optionally appends the main
+/// swapchain view.
+fn build_frame_views<'a>(
     prepared: &'a [SecondaryRtPrepared],
     secondary_prefetched: Vec<WorldMeshDrawCollection>,
-    hc: HostCameraFrame,
-    main_collection: WorldMeshDrawCollection,
+    main: Option<(HostCameraFrame, WorldMeshDrawCollection)>,
 ) -> Vec<FrameView<'a>> {
-    let mut views: Vec<FrameView<'a>> = Vec::new();
+    let mut views: Vec<FrameView<'a>> =
+        Vec::with_capacity(prepared.len() + main.is_some() as usize);
     for (prep, collection) in prepared.iter().zip(secondary_prefetched) {
         let ext = ExternalOffscreenTargets {
             render_texture_asset_id: prep.rt_id,
@@ -105,27 +106,44 @@ fn build_desktop_multi_view_frame_list<'a>(
         });
     }
 
-    views.push(FrameView {
-        host_camera: hc,
-        target: FrameViewTarget::Swapchain,
-        draw_filter: None,
-        prefetched_world_mesh_draws: Some(main_collection),
-    });
+    if let Some((hc, main_collection)) = main {
+        views.push(FrameView {
+            host_camera: hc,
+            target: FrameViewTarget::Swapchain,
+            draw_filter: None,
+            prefetched_world_mesh_draws: Some(main_collection),
+        });
+    }
 
     views
 }
 
 impl RendererRuntime {
-    /// Renders secondary cameras to host render textures before the main swapchain pass.
+    /// Unified per-tick world render entry point.
     ///
-    /// Prefer [`Self::render_all_views`] for desktop; this VR path batches all secondary cameras
-    /// into one [`RenderBackend::execute_multi_view_frame`](crate::backend::RenderBackend::execute_multi_view_frame)
-    /// call, skipping redundant mesh deform and Hi-Z readback (already done earlier in the tick).
-    pub fn render_secondary_cameras_to_render_textures(
+    /// Collects every active secondary render-texture camera and — when `include_main_swapchain`
+    /// is `true` — the main camera, optionally prepends an OpenXR stereo multiview view supplied
+    /// via `hmd`, and dispatches the compiled render graph in a single
+    /// [`RenderBackend::execute_multi_view_frame`](crate::backend::RenderBackend::execute_multi_view_frame)
+    /// call. Hi-Z readback has already been drained once at the top of the tick (see
+    /// [`Self::drain_hi_z_readback`]), so the caller always skips the readback pass here.
+    ///
+    /// Mode selection:
+    /// - Desktop (no VR): `include_main_swapchain = true`, `hmd = None`.
+    /// - VR with HMD submit: `include_main_swapchain = false`, `hmd = Some(external)`.
+    /// - VR fallback when HMD swapchain acquire failed: `include_main_swapchain = false`,
+    ///   `hmd = None` so the secondary RTs still render this tick.
+    ///
+    /// In headless mode (`gpu.is_headless()`) the main `Swapchain` view is transparently
+    /// substituted for an `OffscreenRt` view backed by [`GpuContext::primary_offscreen_targets`]
+    /// so the render graph stack stays oblivious to output mode.
+    pub fn render_frame(
         &mut self,
         gpu: &mut GpuContext,
+        include_main_swapchain: bool,
+        hmd: Option<ExternalFrameTargets<'_>>,
     ) -> Result<(), GraphExecuteError> {
-        profiling::scope!("render::secondary_cameras");
+        profiling::scope!("render::render_frame");
         {
             profiling::scope!("render::prepare_lights_from_scene");
             self.backend
@@ -138,7 +156,8 @@ impl RendererRuntime {
             profiling::scope!("render::collect_secondary_rts");
             self.collect_secondary_rt_prepared()
         };
-        if prepared.is_empty() {
+
+        if prepared.is_empty() && !include_main_swapchain && hmd.is_none() {
             return Ok(());
         }
 
@@ -155,162 +174,23 @@ impl RendererRuntime {
                 prev_msaa,
                 gpu.swapchain_msaa_effective(),
             );
+            // Stereo MSAA tier applies to `ExternalMultiview` HMD targets; keep both tiers in sync
+            // so transient textures keyed by sample count invalidate on a mode change.
+            if hmd.is_some() {
+                let prev_stereo = gpu.swapchain_msaa_effective_stereo();
+                gpu.set_swapchain_msaa_requested_stereo(requested_msaa);
+                self.transient_evict_stale_msaa_tiers_if_changed(
+                    prev_stereo,
+                    gpu.swapchain_msaa_effective_stereo(),
+                );
+            }
         }
 
         let render_context = self.scene.active_main_render_context();
         let scene_ref: &SceneCoordinator = &self.scene;
         let fallback_router = MaterialRouter::new(RasterPipelineKind::DebugWorldNormals);
-        // Direct field access enables the split-borrow against `material_batch_cache` below.
-        let property_store = self.backend.materials.material_property_store();
-        let pipeline_property_ids =
-            MaterialPipelinePropertyIds::new(self.backend.materials.property_id_registry());
-        let router_ref = self
-            .backend
-            .materials
-            .material_registry()
-            .map(|r| &r.router)
-            .unwrap_or(&fallback_router);
-        let mesh_pool = &self.backend.asset_transfers.mesh_pool;
-
-        let occlusion_ref: &OcclusionSystem = &self.backend.occlusion;
-        let inner_parallelism = if prepared.len() > 1 {
-            WorldMeshDrawCollectParallelism::SerialInnerForNestedBatch
-        } else {
-            WorldMeshDrawCollectParallelism::Full
-        };
-
-        // Refresh the persistent material batch cache once, then share it across every per-view
-        // collection (mirrors `render_all_views`; without hoisting, each per-view collect would
-        // lazily rebuild the same entries).
-        {
-            profiling::scope!("render::build_frame_material_cache");
-            let dict = MaterialDictionary::new(property_store);
-            self.backend.material_batch_cache.refresh_for_frame(
-                scene_ref,
-                &dict,
-                router_ref,
-                &pipeline_property_ids,
-                ShaderPermutation(0),
-            );
-        }
-        let frame_material_cache = &self.backend.material_batch_cache;
-
-        // Hi-Z snapshot reads are now `Sync` (see `OcclusionSystem` / `HiZGpuState` — the readback
-        // channel type is `crossbeam-channel`, which is `Sync` unlike `std::sync::mpsc`), so the
-        // per-camera gather can fan out across rayon workers.
-        let cull_snapshots: Vec<Option<SecondaryCullSnapshot>> = {
-            profiling::scope!("render::gather_secondary_cull_snapshots");
-            prepared
-                .par_iter()
-                .map(|prep| secondary_cull_snapshot(scene_ref, occlusion_ref, prep))
-                .collect()
-        };
-
-        let prefetched: Vec<crate::render_graph::WorldMeshDrawCollection> = {
-            profiling::scope!("render::collect_secondary_draws");
-            prepared
-                .par_iter()
-                .zip(cull_snapshots.par_iter())
-                .map(|(prep, snap)| {
-                    let dict = MaterialDictionary::new(property_store);
-                    let culling = snap.as_ref().map(|s| WorldMeshCullInput {
-                        proj: s.proj,
-                        host_camera: &prep.host_camera,
-                        hi_z: s.hi_z.clone(),
-                        hi_z_temporal: s.hi_z_temporal.clone(),
-                    });
-                    collect_and_sort_world_mesh_draws_with_parallelism(
-                        &DrawCollectionContext {
-                            scene: scene_ref,
-                            mesh_pool,
-                            material_dict: &dict,
-                            material_router: router_ref,
-                            pipeline_property_ids: &pipeline_property_ids,
-                            shader_perm: ShaderPermutation(0),
-                            render_context,
-                            head_output_transform: prep.host_camera.head_output_transform,
-                            view_origin_world: prep
-                                .host_camera
-                                .secondary_camera_world_position
-                                .unwrap_or_else(|| {
-                                    prep.host_camera.head_output_transform.col(3).truncate()
-                                }),
-                            culling: culling.as_ref(),
-                            transform_filter: Some(&prep.filter),
-                            material_cache: Some(frame_material_cache),
-                            prepared: None,
-                        },
-                        inner_parallelism,
-                    )
-                })
-                .collect()
-        };
-
-        let mut views: Vec<FrameView<'_>> = Vec::with_capacity(prepared.len());
-        for (prep, collection) in prepared.iter().zip(prefetched) {
-            let ext = ExternalOffscreenTargets {
-                render_texture_asset_id: prep.rt_id,
-                color_view: prep.color_view.as_ref(),
-                depth_texture: prep.depth_texture.as_ref(),
-                depth_view: prep.depth_view.as_ref(),
-                extent_px: prep.viewport,
-                color_format: prep.color_format,
-            };
-            views.push(FrameView {
-                host_camera: prep.host_camera,
-                target: FrameViewTarget::OffscreenRt(ext),
-                draw_filter: Some(prep.filter.clone()),
-                prefetched_world_mesh_draws: Some(collection),
-            });
-        }
-        if !views.is_empty() {
-            self.backend
-                .execute_multi_view_frame(gpu, scene_ref, &mut views, true)?;
-        }
-        Ok(())
-    }
-
-    /// Renders all views for this tick (secondary RTs + main camera) in one unified pass.
-    ///
-    /// In headless mode (`gpu.is_headless()`), the main `Swapchain` view is transparently
-    /// substituted for an `OffscreenRt` view backed by [`GpuContext::primary_offscreen_targets`]
-    /// before submission. The render graph stack itself stays oblivious to mode.
-    pub fn render_all_views(&mut self, gpu: &mut GpuContext) -> Result<(), GraphExecuteError> {
-        profiling::scope!("render::render_all_views");
-        {
-            profiling::scope!("render::prepare_lights_from_scene");
-            self.backend
-                .frame_resources
-                .prepare_lights_from_scene(&self.scene);
-        }
-        self.sync_debug_hud_diagnostics_from_settings();
-
-        let prepared = {
-            profiling::scope!("render::collect_secondary_rts");
-            self.collect_secondary_rt_prepared()
-        };
-
-        {
-            profiling::scope!("render::setup_msaa");
-            let requested_msaa = self
-                .settings
-                .read()
-                .map(|s| s.rendering.msaa.as_count())
-                .unwrap_or(1);
-            let prev_msaa = gpu.swapchain_msaa_effective();
-            gpu.set_swapchain_msaa_requested(requested_msaa);
-            self.transient_evict_stale_msaa_tiers_if_changed(
-                prev_msaa,
-                gpu.swapchain_msaa_effective(),
-            );
-        }
-
-        let render_context = self.scene.active_main_render_context();
-        let scene_ref: &SceneCoordinator = &self.scene;
-        let fallback_router = MaterialRouter::new(RasterPipelineKind::DebugWorldNormals);
-        // Use direct field access on `self.backend` so the compiler can split-borrow the disjoint
-        // `materials` (read) and `material_batch_cache` (write) fields during the refresh call
-        // below. Routing through `self.backend.material_property_store()` would borrow the whole
+        // Direct field access enables the split-borrow against `material_batch_cache` below —
+        // routing through `self.backend.material_property_store()` would borrow the whole
         // `RenderBackend` and block the subsequent `&mut material_batch_cache`.
         let property_store = self.backend.materials.material_property_store();
         let pipeline_property_ids =
@@ -330,12 +210,12 @@ impl RendererRuntime {
             WorldMeshDrawCollectParallelism::Full
         };
 
-        // Refresh the persistent material batch cache **once** before any per-view collection
-        // runs. Every per-view call reuses the same immutable cache via `material_cache`, which
-        // removes the N+1 dictionary/router resolution walks that dominated secondary-camera
-        // frame cost. The cache persists across frames on [`RenderBackend::material_batch_cache`]
-        // and invalidates individual entries via monotonic generation counters, so in steady
-        // state this call only touches existing entries with a single HashMap probe each.
+        // Refresh the persistent material batch cache **once** before any per-view collection.
+        // Every per-view call reuses the same immutable cache via `material_cache`, removing the
+        // N+1 dictionary/router resolution walks that used to dominate secondary-camera frame
+        // cost. The cache persists across frames on [`RenderBackend::material_batch_cache`] and
+        // invalidates individual entries via monotonic generation counters; in steady state this
+        // call only touches existing entries with a single HashMap probe each.
         {
             profiling::scope!("render::build_frame_material_cache");
             let dict = MaterialDictionary::new(property_store);
@@ -359,6 +239,9 @@ impl RendererRuntime {
             FramePreparedRenderables::build_for_frame(scene_ref, mesh_pool, render_context)
         };
 
+        // Hi-Z snapshot reads are `Sync` (the `OcclusionSystem` readback channel uses
+        // `crossbeam-channel`, which is `Sync` unlike `std::sync::mpsc`), so per-camera gather
+        // can fan out across rayon workers.
         let cull_snapshots: Vec<Option<SecondaryCullSnapshot>> = {
             profiling::scope!("render::gather_secondary_cull_snapshots");
             prepared
@@ -407,50 +290,56 @@ impl RendererRuntime {
                 .collect()
         };
 
-        let hc = self.host_camera;
-        let dict = MaterialDictionary::new(property_store);
-        let culling_main = if hc.suppress_occlusion_temporal {
-            None
-        } else {
-            profiling::scope!("render::cull_main");
-            let cull_proj =
-                build_world_mesh_cull_proj_params(scene_ref, gpu.surface_extent_px(), &hc);
-            let main_snap = main_cull_snapshot(self);
-            Some(WorldMeshCullInput {
-                proj: cull_proj,
-                host_camera: &hc,
-                hi_z: main_snap.hi_z,
-                hi_z_temporal: main_snap.hi_z_temporal,
-            })
-        };
-        let culling_main_ref = culling_main.as_ref();
-        let main_collection = {
-            profiling::scope!("render::collect_main_draws");
-            collect_and_sort_world_mesh_draws(&DrawCollectionContext {
-                scene: scene_ref,
-                mesh_pool,
-                material_dict: &dict,
-                material_router: router_ref,
-                pipeline_property_ids: &pipeline_property_ids,
-                shader_perm: ShaderPermutation(0),
-                render_context,
-                head_output_transform: hc.head_output_transform,
-                view_origin_world: hc
-                    .secondary_camera_world_position
-                    .unwrap_or_else(|| hc.head_output_transform.col(3).truncate()),
-                culling: culling_main_ref,
-                transform_filter: None,
-                material_cache: Some(frame_material_cache),
-                prepared: Some(&frame_prepared),
-            })
-        };
+        let main_view_data: Option<(HostCameraFrame, WorldMeshDrawCollection)> =
+            if include_main_swapchain {
+                let hc = self.host_camera;
+                let dict = MaterialDictionary::new(property_store);
+                let culling_main = if hc.suppress_occlusion_temporal {
+                    None
+                } else {
+                    profiling::scope!("render::cull_main");
+                    let cull_proj =
+                        build_world_mesh_cull_proj_params(scene_ref, gpu.surface_extent_px(), &hc);
+                    let main_snap = main_cull_snapshot(self);
+                    Some(WorldMeshCullInput {
+                        proj: cull_proj,
+                        host_camera: &hc,
+                        hi_z: main_snap.hi_z,
+                        hi_z_temporal: main_snap.hi_z_temporal,
+                    })
+                };
+                let culling_main_ref = culling_main.as_ref();
+                let main_collection = {
+                    profiling::scope!("render::collect_main_draws");
+                    collect_and_sort_world_mesh_draws(&DrawCollectionContext {
+                        scene: scene_ref,
+                        mesh_pool,
+                        material_dict: &dict,
+                        material_router: router_ref,
+                        pipeline_property_ids: &pipeline_property_ids,
+                        shader_perm: ShaderPermutation(0),
+                        render_context,
+                        head_output_transform: hc.head_output_transform,
+                        view_origin_world: hc
+                            .secondary_camera_world_position
+                            .unwrap_or_else(|| hc.head_output_transform.col(3).truncate()),
+                        culling: culling_main_ref,
+                        transform_filter: None,
+                        material_cache: Some(frame_material_cache),
+                        prepared: Some(&frame_prepared),
+                    })
+                };
+                Some((hc, main_collection))
+            } else {
+                None
+            };
 
         // Headless substitution: snapshot persistent offscreen handles BEFORE building views so
         // we can borrow from a local instead of a long-lived `&mut gpu` (which would conflict
         // with the `&mut gpu` we hand to `execute_multi_view_frame`).
         let headless_snapshot = {
             profiling::scope!("render::headless_snapshot");
-            if gpu.is_headless() {
+            if include_main_swapchain && gpu.is_headless() {
                 HeadlessOffscreenSnapshot::from_gpu(gpu)
             } else {
                 None
@@ -459,16 +348,31 @@ impl RendererRuntime {
 
         let mut views = {
             profiling::scope!("render::build_frame_list");
-            build_desktop_multi_view_frame_list(
-                &prepared,
-                secondary_prefetched,
-                hc,
-                main_collection,
-            )
+            build_frame_views(&prepared, secondary_prefetched, main_view_data)
         };
 
         if let Some(snapshot) = headless_snapshot.as_ref() {
             snapshot.substitute_swapchain_views(&mut views);
+        }
+
+        // Prepend the HMD stereo view so the compiled graph records it before any
+        // secondary-RT views in the same submit. The view host camera reuses
+        // [`Self::host_camera`], which the XR frame tick already populated with
+        // `stereo_view_proj` / `stereo_views` for this tick.
+        if let Some(external) = hmd {
+            views.insert(
+                0,
+                FrameView {
+                    host_camera: self.host_camera,
+                    target: FrameViewTarget::ExternalMultiview(external),
+                    draw_filter: None,
+                    prefetched_world_mesh_draws: None,
+                },
+            );
+        }
+
+        if views.is_empty() {
+            return Ok(());
         }
 
         self.backend
