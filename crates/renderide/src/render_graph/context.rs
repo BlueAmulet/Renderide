@@ -255,6 +255,15 @@ pub struct RasterPassCtx<'a, 'frame> {
     pub graph_resources: Option<&'a GraphResolvedResources>,
     /// Per-scope typed blackboard (read/write; populated by prior callback passes this scope).
     pub blackboard: &'frame mut Blackboard,
+    /// GPU profiler handle for pass-level timestamp queries.
+    ///
+    /// [`None`] when the `tracy` feature is off or when the adapter lacks
+    /// [`wgpu::Features::TIMESTAMP_QUERY`]. Pass bodies that open a render pass should call
+    /// [`crate::profiling::GpuProfilerHandle::begin_pass_query`] and feed
+    /// [`crate::profiling::render_pass_timestamp_writes`] into their descriptor when this is
+    /// [`Some`], then close the query with
+    /// [`crate::profiling::GpuProfilerHandle::end_query`] after the pass drops.
+    pub profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
 /// Context for [`super::pass::ComputePass::record`].
@@ -286,6 +295,15 @@ pub struct ComputePassCtx<'a, 'encoder, 'frame> {
     pub graph_resources: Option<&'a GraphResolvedResources>,
     /// Per-scope typed blackboard (read/write; populated by prior callback passes this scope).
     pub blackboard: &'frame mut Blackboard,
+    /// GPU profiler handle for pass-level timestamp queries.
+    ///
+    /// [`None`] when the `tracy` feature is off or when the adapter lacks
+    /// [`wgpu::Features::TIMESTAMP_QUERY`]. Pass bodies that open a compute pass should call
+    /// [`crate::profiling::GpuProfilerHandle::begin_pass_query`] and feed
+    /// [`crate::profiling::compute_pass_timestamp_writes`] into their descriptor when this is
+    /// [`Some`], then close the query with
+    /// [`crate::profiling::GpuProfilerHandle::end_query`] after the pass drops.
+    pub profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
 /// Context for [`super::pass::CopyPass::record`].

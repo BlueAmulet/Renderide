@@ -1,6 +1,6 @@
 //! [`GpuContext`]: instance, surface, device, and swapchain state.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 /// Compile-time assertion that `wgpu::Queue` is `Send + Sync`; relied on by the submission path.
@@ -80,11 +80,12 @@ fn clamp_msaa_request_to_supported(requested: u32, supported: &[u32]) -> u32 {
 
 /// Intersects [`wgpu::Adapter::features`] with the feature bits Renderide requires for rendering.
 ///
-/// When the `tracy` Cargo feature is active, also requests
-/// `TIMESTAMP_QUERY | TIMESTAMP_QUERY_INSIDE_ENCODERS` so the GPU profiler can insert timestamp
-/// queries around render-graph phases. Either feature being absent is gracefully tolerated:
-/// [`crate::profiling::GpuProfilerHandle::try_new`] disables timer queries when
-/// `TIMESTAMP_QUERY_INSIDE_ENCODERS` is missing.
+/// When the `tracy` Cargo feature is active, also requests the subset of
+/// `TIMESTAMP_QUERY | TIMESTAMP_QUERY_INSIDE_ENCODERS` that the adapter supports. Pass-level
+/// queries only need `TIMESTAMP_QUERY`; `TIMESTAMP_QUERY_INSIDE_ENCODERS` additionally enables
+/// encoder-level queries. Either feature being absent is gracefully tolerated:
+/// [`crate::profiling::GpuProfilerHandle::try_new`] returns [`None`] only when
+/// `TIMESTAMP_QUERY` itself is missing.
 pub(super) fn adapter_render_features_intersection(adapter: &wgpu::Adapter) -> wgpu::Features {
     let compression = wgpu::Features::TEXTURE_COMPRESSION_BC
         | wgpu::Features::TEXTURE_COMPRESSION_ETC2
@@ -175,9 +176,16 @@ pub struct GpuContext {
     primary_offscreen: Option<PrimaryOffscreenTargets>,
     /// Debug HUD: wall-clock CPU (tick start → last submit) and GPU (last submit → idle) timing.
     frame_timing: FrameCpuGpuTimingHandle,
-    /// GPU timestamp profiler for the Tracy timeline. [`None`] when the `tracy` feature is off,
-    /// or when the adapter lacks [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`].
+    /// GPU timestamp profiler for the Tracy timeline. [`None`] when the `tracy` feature is off
+    /// or when the adapter lacks [`wgpu::Features::TIMESTAMP_QUERY`]. Pass-level queries work as
+    /// long as that one feature is present; encoder-level queries additionally require
+    /// [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`].
     gpu_profiler: Option<crate::profiling::GpuProfilerHandle>,
+    /// Flattened per-pass GPU timings from the most recently drained profiling frame.
+    ///
+    /// Written by [`Self::end_gpu_profiler_frame`] and polled by the debug HUD. Empty when no
+    /// profiling frame has completed yet (GPU results lag recording by 1-2 frames).
+    latest_gpu_pass_timings: Arc<Mutex<Vec<crate::profiling::GpuPassEntry>>>,
 }
 
 /// Persistent offscreen color + depth pair owned by [`GpuContext`] in headless mode.
@@ -578,8 +586,23 @@ impl GpuContext {
         if let Some(p) = self.gpu_profiler.as_mut() {
             p.end_frame();
             let ts_period = self.queue.get_timestamp_period();
-            p.process_finished_frame(ts_period);
+            if let Some(timings) = p.process_finished_frame(ts_period) {
+                if let Ok(mut slot) = self.latest_gpu_pass_timings.lock() {
+                    *slot = timings;
+                }
+            }
         }
+    }
+
+    /// Returns a shared handle to the latest flattened per-pass GPU timings.
+    ///
+    /// The debug HUD polls this once per frame. The underlying vector is replaced atomically by
+    /// [`Self::end_gpu_profiler_frame`] on the main thread; readers clone the current contents
+    /// under a short lock and render them without blocking the renderer.
+    pub fn latest_gpu_pass_timings_handle(
+        &self,
+    ) -> Arc<Mutex<Vec<crate::profiling::GpuPassEntry>>> {
+        Arc::clone(&self.latest_gpu_pass_timings)
     }
 
     /// CPU time for this tick and the **latest completed** GPU submit→idle ms (may lag; see

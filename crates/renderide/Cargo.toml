@@ -76,9 +76,11 @@ crash-handler = "0.7"
 ## GPU timestamp query scopes; bridges per-phase GPU timing to Tracy when the `tracy` feature is on.
 ## Only compiled when the `tracy` workspace feature is enabled.
 wgpu-profiler = { version = "0.27", optional = true }
-## Tracy client. `ondemand` drops data when no profiler GUI is attached, keeping the runtime
-## cost near-zero even in profiled builds. Only compiled when the `tracy` feature is enabled.
+## Tracy client. `enable` activates the native client library; `ondemand` keeps runtime cost
+## near-zero by only streaming data while a profiler GUI is attached. Only compiled when the
+## `tracy` feature is enabled.
 tracy-client = { version = "0.18", optional = true, default-features = false, features = [
+  "enable",
   "ondemand",
 ] }
 

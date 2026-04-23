@@ -281,6 +281,7 @@ impl ComputePass for MeshDeformPass {
                     encoder: ctx.encoder,
                     pre,
                     scratch: deform_scratch,
+                    profiler: ctx.profiler,
                 },
                 MeshDeformRecordInputs {
                     scene: frame.shared.scene,

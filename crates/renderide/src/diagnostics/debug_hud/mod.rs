@@ -32,7 +32,8 @@ fn overlay_frame_timing_window(ui: &imgui::Ui, frame_timing: Option<&FrameTiming
     DebugHud::frame_timing_window(ui, frame_timing);
 }
 
-/// Renders the **Renderide debug** tabbed panel (Stats / Shader routes / Draw state / GPU memory).
+/// Renders the **Renderide debug** tabbed panel (Stats / Shader routes / Draw state / GPU memory / GPU passes).
+#[allow(clippy::too_many_arguments)]
 fn overlay_main_debug_window(
     ui: &imgui::Ui,
     width: u32,
@@ -41,6 +42,7 @@ fn overlay_main_debug_window(
     shader_routes_only_fallback: &mut bool,
     draw_state_ui_only: &mut bool,
     draw_state_only_overrides: &mut bool,
+    gpu_pass_timings: &[crate::profiling::GpuPassEntry],
 ) {
     const PANEL_WIDTH: f32 = 760.0;
     let panel_x = (width as f32 - PANEL_WIDTH - layout::MARGIN).max(layout::MARGIN);
@@ -77,6 +79,9 @@ fn overlay_main_debug_window(
                 }
                 if let Some(_tab) = ui.tab_item("GPU memory") {
                     DebugHud::gpu_memory_tab(ui, frame_diagnostics);
+                }
+                if let Some(_tab) = ui.tab_item("GPU passes") {
+                    DebugHud::gpu_passes_tab(ui, gpu_pass_timings);
                 }
             }
         });
@@ -134,6 +139,10 @@ pub struct DebugHud {
     suppress_renderer_config_disk_writes: bool,
     /// Whether the **Renderer config** window is open.
     renderer_config_open: bool,
+    /// Most recent flattened per-pass GPU timings for the **GPU passes** tab. Empty until the
+    /// first profiled frame completes; see
+    /// [`crate::gpu::GpuContext::latest_gpu_pass_timings_handle`].
+    gpu_pass_timings: Vec<crate::profiling::GpuPassEntry>,
 }
 
 impl DebugHud {
@@ -182,7 +191,16 @@ impl DebugHud {
             config_save_path,
             suppress_renderer_config_disk_writes,
             renderer_config_open: true,
+            gpu_pass_timings: Vec::new(),
         }
+    }
+
+    /// Replaces the flattened GPU pass timings shown in the **GPU passes** tab.
+    ///
+    /// Called once per winit tick from the HUD update path with the latest snapshot read out of
+    /// [`crate::gpu::GpuContext::latest_gpu_pass_timings_handle`].
+    pub fn set_gpu_pass_timings(&mut self, timings: Vec<crate::profiling::GpuPassEntry>) {
+        self.gpu_pass_timings = timings;
     }
 
     /// Stores [`FrameTimingHudSnapshot`] for the **Frame timing** window.
@@ -336,6 +354,7 @@ impl DebugHud {
                     &mut self.shader_routes_only_fallback,
                     &mut self.draw_state_ui_only,
                     &mut self.draw_state_only_overrides,
+                    &self.gpu_pass_timings,
                 );
             }
             if transforms_hud {

@@ -91,10 +91,11 @@ impl GpuContext {
             msaa_max_stereo
         );
 
-        let gpu_profiler = crate::profiling::GpuProfilerHandle::try_new(device.as_ref());
+        let gpu_profiler =
+            crate::profiling::GpuProfilerHandle::try_new(&adapter, device.as_ref(), &queue);
         if cfg!(feature = "tracy") && gpu_profiler.is_none() {
             logger::warn!(
-                "GPU profiler unavailable: adapter lacks TIMESTAMP_QUERY_INSIDE_ENCODERS; \
+                "GPU profiler unavailable: adapter lacks TIMESTAMP_QUERY; \
                  Tracy GPU timeline will be empty (CPU spans still work)"
             );
         }
@@ -119,6 +120,7 @@ impl GpuContext {
             primary_offscreen: None,
             frame_timing: Arc::new(Mutex::new(FrameCpuGpuTiming::default())),
             gpu_profiler,
+            latest_gpu_pass_timings: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -193,7 +195,14 @@ impl GpuContext {
             config.format,
             instance_flags,
         );
-        let gpu_profiler = crate::profiling::GpuProfilerHandle::try_new(device.as_ref());
+        let gpu_profiler =
+            crate::profiling::GpuProfilerHandle::try_new(&adapter, device.as_ref(), &queue);
+        if cfg!(feature = "tracy") && gpu_profiler.is_none() {
+            logger::warn!(
+                "GPU profiler unavailable (headless): adapter lacks TIMESTAMP_QUERY; \
+                 Tracy GPU timeline will be empty (CPU spans still work)"
+            );
+        }
         let queue = Arc::new(queue);
         let driver_thread = super::super::driver_thread::DriverThread::new(Arc::clone(&queue));
         Ok(Self {
@@ -215,6 +224,7 @@ impl GpuContext {
             primary_offscreen: None,
             frame_timing: Arc::new(Mutex::new(FrameCpuGpuTiming::default())),
             gpu_profiler,
+            latest_gpu_pass_timings: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -272,11 +282,12 @@ impl GpuContext {
             msaa_supported_sample_counts_stereo,
             msaa_max_stereo
         );
-        let gpu_profiler = crate::profiling::GpuProfilerHandle::try_new(device.as_ref());
+        let gpu_profiler =
+            crate::profiling::GpuProfilerHandle::try_new(adapter, device.as_ref(), queue.as_ref());
         if cfg!(feature = "tracy") && gpu_profiler.is_none() {
             logger::warn!(
                 "GPU profiler unavailable (OpenXR path): adapter lacks \
-                 TIMESTAMP_QUERY_INSIDE_ENCODERS; Tracy GPU timeline will be empty"
+                 TIMESTAMP_QUERY; Tracy GPU timeline will be empty"
             );
         }
         let driver_thread = super::super::driver_thread::DriverThread::new(Arc::clone(&queue));
@@ -299,6 +310,7 @@ impl GpuContext {
             primary_offscreen: None,
             frame_timing: Arc::new(Mutex::new(FrameCpuGpuTiming::default())),
             gpu_profiler,
+            latest_gpu_pass_timings: Arc::new(Mutex::new(Vec::new())),
         })
     }
 }

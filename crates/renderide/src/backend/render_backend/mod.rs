@@ -582,6 +582,14 @@ impl RenderBackend {
         self.debug_hud.set_frame_timing(snapshot);
     }
 
+    /// Pushes the latest flattened GPU pass timings into the debug HUD's **GPU passes** tab.
+    pub(crate) fn set_debug_hud_gpu_pass_timings(
+        &mut self,
+        timings: Vec<crate::profiling::GpuPassEntry>,
+    ) {
+        self.debug_hud.set_gpu_pass_timings(timings);
+    }
+
     /// Clears Stats / Shader routes payloads only (not frame timing or scene transforms).
     pub(crate) fn clear_debug_hud_stats_snapshots(&mut self) {
         self.debug_hud.clear_stats_snapshots();

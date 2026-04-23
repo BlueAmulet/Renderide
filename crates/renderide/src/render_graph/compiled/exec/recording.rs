@@ -133,6 +133,7 @@ impl CompiledRenderGraph {
                 gpu_limits,
                 queue_arc,
                 upload_batch,
+                profiler,
             )?;
 
             if let Some(q) = pass_query {
@@ -185,7 +186,7 @@ impl CompiledRenderGraph {
         let gpu_query = gpu
             .gpu_profiler_mut()
             .map(|p| p.begin_query("graph::frame_global", &mut encoder));
-        let mut pass_profiler = gpu.take_gpu_profiler();
+        let pass_profiler = gpu.take_gpu_profiler();
 
         {
             let resolved =
@@ -257,7 +258,7 @@ impl CompiledRenderGraph {
                     profiling::scope!("graph::pass", pass_name.as_str());
 
                     let pass_query = pass_profiler
-                        .as_mut()
+                        .as_ref()
                         .map(|p| p.begin_query(pass_name.as_str(), &mut encoder));
 
                     self.execute_pass_node(
@@ -271,10 +272,11 @@ impl CompiledRenderGraph {
                         gpu_limits,
                         queue_arc,
                         upload_batch,
+                        pass_profiler.as_ref(),
                     )?;
 
                     if let Some(q) = pass_query {
-                        if let Some(p) = pass_profiler.as_mut() {
+                        if let Some(p) = pass_profiler.as_ref() {
                             p.end_query(&mut encoder, q);
                         }
                     }
@@ -324,6 +326,7 @@ impl CompiledRenderGraph {
         gpu_limits: &'a crate::gpu::GpuLimits,
         queue_arc: &'a std::sync::Arc<wgpu::Queue>,
         upload_batch: &super::super::super::frame_upload_batch::FrameUploadBatch,
+        profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
     ) -> Result<(), GraphExecuteError> {
         let kind = self.passes[pass_idx].kind();
         match kind {
@@ -342,6 +345,7 @@ impl CompiledRenderGraph {
                     upload_batch,
                     graph_resources: Some(graph_resources),
                     blackboard,
+                    profiler,
                 };
                 helpers::execute_graph_raster_pass_node(
                     &self.passes[pass_idx],
@@ -366,6 +370,7 @@ impl CompiledRenderGraph {
                     upload_batch,
                     graph_resources: Some(graph_resources),
                     blackboard,
+                    profiler,
                 };
                 self.passes[pass_idx]
                     .record_compute(&mut ctx)
@@ -385,6 +390,7 @@ impl CompiledRenderGraph {
                     upload_batch,
                     graph_resources: Some(graph_resources),
                     blackboard,
+                    profiler,
                 };
                 self.passes[pass_idx]
                     .record_copy(&mut ctx)
