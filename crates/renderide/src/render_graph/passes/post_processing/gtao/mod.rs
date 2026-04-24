@@ -22,7 +22,7 @@ use crate::config::{GtaoSettings, PostProcessingSettings};
 use crate::render_graph::compiled::RenderPassTemplate;
 use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
-use crate::render_graph::frame_params::PerViewFramePlanSlot;
+use crate::render_graph::frame_params::{GtaoSettingsSlot, PerViewFramePlanSlot};
 use crate::render_graph::pass::{PassBuilder, RasterPass};
 use crate::render_graph::post_processing::{PostProcessEffect, PostProcessEffectId};
 use crate::render_graph::resources::{
@@ -177,13 +177,18 @@ impl RasterPass for GtaoPass {
         let multiview_stereo = frame.view.multiview_stereo;
         let target_format = output_attachment_format(self.resources.output, graph_resources);
 
+        let settings = ctx
+            .blackboard
+            .get::<GtaoSettingsSlot>()
+            .map(|slot| slot.0)
+            .unwrap_or(self.settings);
         let params = GtaoParamsGpu {
-            radius_world: self.settings.radius_meters.max(0.0),
-            max_pixel_radius: self.settings.max_pixel_radius.max(1.0),
-            intensity: self.settings.intensity.max(0.0),
-            step_count: self.settings.step_count.max(1),
-            thickness_heuristic: self.settings.thickness_heuristic.clamp(0.0, 1.0),
-            albedo_multibounce: self.settings.albedo_multibounce.clamp(0.0, 0.99),
+            radius_world: settings.radius_meters.max(0.0),
+            max_pixel_radius: settings.max_pixel_radius.max(1.0),
+            intensity: settings.intensity.max(0.0),
+            step_count: settings.step_count.max(1),
+            falloff_range: settings.falloff_range.clamp(0.05, 1.0),
+            albedo_multibounce: settings.albedo_multibounce.clamp(0.0, 0.99),
             align_pad_tail: [0.0; 2],
         };
         let params_buffer = self.pipelines.params_buffer(ctx.device);

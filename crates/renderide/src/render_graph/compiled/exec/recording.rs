@@ -9,8 +9,8 @@ use super::super::super::context::{
 };
 use super::super::super::error::GraphExecuteError;
 use super::super::super::frame_params::{
-    FrameSystemsShared, MsaaViewsSlot, PerViewFramePlan, PerViewFramePlanSlot,
-    PerViewHudOutputsSlot, PrefetchedWorldMeshDrawsSlot,
+    FrameSystemsShared, GtaoSettingsSlot, GtaoSettingsValue, MsaaViewsSlot, PerViewFramePlan,
+    PerViewFramePlanSlot, PerViewHudOutputsSlot, PrefetchedWorldMeshDrawsSlot,
 };
 use super::super::super::pass::PassKind;
 use super::super::helpers;
@@ -109,6 +109,10 @@ impl CompiledRenderGraph {
                 view_idx,
             });
         }
+        // Propagate the live GTAO settings so `GtaoPass::record` reads the current slider values
+        // every frame without rebuilding the compiled render graph (the chain signature only
+        // tracks enable booleans, so parameter-only edits wouldn't otherwise reach the shader).
+        view_blackboard.insert::<GtaoSettingsSlot>(GtaoSettingsValue(shared.live_gtao_settings));
 
         // Collect indices from the single FrameSchedule source of truth.
         let per_view_indices: Vec<usize> =

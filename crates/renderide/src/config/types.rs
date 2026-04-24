@@ -368,8 +368,11 @@ pub struct GtaoSettings {
     pub max_pixel_radius: f32,
     /// Horizon steps per side (per-pixel samples). 6 matches the paper's recommended default.
     pub step_count: u32,
-    /// Thickness heuristic blend factor (paper Eq. 9). Reduces over-occlusion from thin occluders.
-    pub thickness_heuristic: f32,
+    /// Distance-falloff range as a fraction of [`Self::radius_meters`]. Candidate samples are
+    /// linearly faded toward the tangent-plane horizon over the last `falloff_range ·
+    /// radius_meters` of the search radius (matches XeGTAO's `FalloffRange`). Smaller = harder
+    /// cutoff; larger = smoother transition but more distant influence.
+    pub falloff_range: f32,
     /// Gray-albedo proxy for the multi-bounce fit (paper Eq. 10). Recovers the near-field light
     /// lost by assuming fully-absorbing occluders. Set lower for darker scenes, higher for brighter.
     pub albedo_multibounce: f32,
@@ -383,7 +386,7 @@ impl Default for GtaoSettings {
             intensity: 1.0,
             max_pixel_radius: 96.0,
             step_count: 6,
-            thickness_heuristic: 0.25,
+            falloff_range: 0.615,
             albedo_multibounce: 0.4,
         }
     }
