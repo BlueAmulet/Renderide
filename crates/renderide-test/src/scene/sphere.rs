@@ -22,7 +22,8 @@ pub(crate) struct SphereVertex {
 pub(crate) struct SphereMesh {
     /// Vertices in interleaved struct-of-arrays order.
     pub vertices: Vec<SphereVertex>,
-    /// 32-bit indices in counter-clockwise (right-handed) winding.
+    /// 32-bit indices in clockwise winding (matches the Unity / D3D-style `FrontFace::Cw`
+    /// convention the renderer pipelines expect).
     pub indices: Vec<u32>,
 }
 
@@ -68,7 +69,7 @@ impl SphereMesh {
                 let v1 = (i + 1) * row + j;
                 let v2 = (i + 1) * row + (j + 1);
                 let v3 = i * row + (j + 1);
-                indices.extend_from_slice(&[v0, v1, v2, v0, v2, v3]);
+                indices.extend_from_slice(&[v0, v2, v1, v0, v3, v2]);
             }
         }
         Self { vertices, indices }

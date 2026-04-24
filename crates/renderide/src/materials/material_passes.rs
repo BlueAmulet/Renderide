@@ -230,16 +230,23 @@ pub struct MaterialPassDesc {
 
 /// Default single-pass descriptor matching the pre-multi-pass pipeline builder.
 ///
-/// `use_alpha_blending` picks between opaque (`ColorWrites::COLOR`, `blend: None`) and transparent
-/// (`ColorWrites::ALL`, `ALPHA_BLENDING`). `depth_write` mirrors the old `depth_write_enabled` arg.
+/// `use_alpha_blending` picks between opaque (`ColorWrites::COLOR`, `blend: None`,
+/// `cull_mode: Some(Back)`) and transparent (`ColorWrites::ALL`, `ALPHA_BLENDING`,
+/// `cull_mode: None`). `depth_write` mirrors the old `depth_write_enabled` arg.
+///
+/// The opaque `Cull Back` default mirrors Unity's ShaderLab default for passes that declare
+/// no explicit `Cull` directive. Host materials that want different culling still override
+/// this via the `_Cull` property resolved through
+/// [`MaterialRenderState::resolved_cull_mode`](super::render_state::MaterialRenderState::resolved_cull_mode).
 pub const fn default_pass(use_alpha_blending: bool, depth_write: bool) -> MaterialPassDesc {
-    let (blend, write_mask) = if use_alpha_blending {
+    let (blend, write_mask, cull_mode) = if use_alpha_blending {
         (
             Some(wgpu::BlendState::ALPHA_BLENDING),
             wgpu::ColorWrites::ALL,
+            None,
         )
     } else {
-        (None, wgpu::ColorWrites::COLOR)
+        (None, wgpu::ColorWrites::COLOR, Some(wgpu::Face::Back))
     };
     MaterialPassDesc {
         name: "main",
@@ -247,7 +254,7 @@ pub const fn default_pass(use_alpha_blending: bool, depth_write: bool) -> Materi
         fragment_entry: "fs_main",
         depth_compare: crate::render_graph::MAIN_FORWARD_DEPTH_COMPARE,
         depth_write,
-        cull_mode: None,
+        cull_mode,
         blend,
         write_mask,
         depth_bias_slope_scale: 0.0,
@@ -319,7 +326,9 @@ pub fn default_pass_for_blend_mode(blend_mode: MaterialBlendMode) -> MaterialPas
 
 #[cfg(test)]
 mod tests {
-    use super::super::render_state::{material_render_state_for_lookup, MaterialCullOverride};
+    use super::super::render_state::{
+        material_render_state_for_lookup, MaterialCullOverride, MaterialRenderState,
+    };
     use super::*;
     use crate::assets::material::{MaterialPropertyStore, PropertyIdRegistry};
 
@@ -625,5 +634,27 @@ mod tests {
     fn default_blend_mode_alpha_pass_culls_back_faces() {
         let pass = default_pass_for_blend_mode(MaterialBlendMode::UnityBlend { src: 5, dst: 10 });
         assert_eq!(pass.cull_mode, Some(wgpu::Face::Back));
+    }
+
+    #[test]
+    fn default_pass_opaque_culls_back_faces() {
+        let pass = default_pass(false, true);
+        assert_eq!(pass.cull_mode, Some(wgpu::Face::Back));
+    }
+
+    #[test]
+    fn default_pass_alpha_blended_disables_culling() {
+        let pass = default_pass(true, false);
+        assert_eq!(pass.cull_mode, None);
+    }
+
+    #[test]
+    fn unspecified_cull_preserves_opaque_back_face_default() {
+        let state = MaterialRenderState::default();
+        assert_eq!(state.cull_override, MaterialCullOverride::Unspecified);
+        assert_eq!(
+            state.resolved_cull_mode(default_pass(false, true).cull_mode),
+            Some(wgpu::Face::Back)
+        );
     }
 }
