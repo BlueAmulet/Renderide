@@ -161,10 +161,9 @@ impl CompiledRenderGraph {
     ) {
         profiling::scope!("render::resolve_imported_buffers");
         let frame_gpu = frame_resources.frame_gpu();
-        // Use per-view cluster refs so each view resolves its own independent cluster buffers.
-        let cluster_refs = frame_resources
-            .per_view_frame(resolved.occlusion_view)
-            .and_then(|state| state.cluster_buffer_refs());
+        // All views share one cluster buffer; safe under single-submit because each view's
+        // compute-then-raster sequence completes before the next view's compute overwrites.
+        let cluster_refs = frame_resources.shared_cluster_buffer_refs();
         for (idx, import) in self.imported_buffers.iter().enumerate() {
             let buffer = match &import.source {
                 BufferImportSource::BackendFrameResource(BackendFrameBufferKind::Lights) => {

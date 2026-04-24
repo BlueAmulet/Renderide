@@ -691,7 +691,6 @@ fn clustered_toon_lighting(
         rg::frame.far_clip,
     );
     let count = rg::cluster_light_counts[cluster_id];
-    let base_idx = cluster_id * pcls::MAX_LIGHTS_PER_TILE;
     let i_max = min(count, pcls::MAX_LIGHTS_PER_TILE);
 
     var lit = vec3<f32>(0.0);
@@ -701,7 +700,7 @@ fn clustered_toon_lighting(
     var strongest_shadow = vec3<f32>(1.0);
 
     for (var i = 0u; i < i_max; i++) {
-        let li = rg::cluster_light_indices[base_idx + i];
+        let li = pcls::cluster_light_index_at(cluster_id, i);
         if (li >= rg::frame.light_count) {
             continue;
         }

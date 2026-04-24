@@ -1,10 +1,10 @@
-//! Per-frame `@group(0)` resources: scene uniform, lights storage, and scene snapshot textures.
+//! Per-frame `@group(0)` resources: scene uniform, lights storage, shared cluster buffers, and
+//! scene snapshot textures.
 //!
-//! Per-view cluster buffers and `@group(0)` bind groups live in
-//! [`crate::backend::FrameResourceManager`] (one [`crate::backend::frame_resource_manager::PerViewFrameState`]
-//! per [`crate::render_graph::OcclusionViewId`]). This module provides the shared
-//! immutable resources that per-view bind groups reference: lights storage, scene snapshot
-//! textures, and the `@group(0)` bind group layout.
+//! Cluster buffers ([`ClusterBufferCache`]) and the `@group(0)` layout live here and are
+//! **shared across every view**; per-view uniform buffers and bind groups live in
+//! [`crate::backend::frame_resource_manager::PerViewFrameState`] and reference these shared
+//! cluster buffers (safe under single-submit ordering — see [`ClusterBufferCache`]).
 
 use std::num::NonZeroU64;
 use std::sync::Arc;
@@ -19,10 +19,11 @@ use super::frame_gpu_error::FrameGpuInitError;
 /// GPU buffers and bind groups for `@group(0)` frame globals (camera, lights, cluster lists,
 /// and sampled scene snapshots).
 ///
-/// Per-view cluster buffers and `@group(0)` bind groups are owned by
+/// `@group(0)` bind groups are per-view and are owned by
 /// [`crate::backend::frame_resource_manager::PerViewFrameState`], keyed by
 /// [`crate::render_graph::OcclusionViewId`], and built using
-/// [`Self::build_per_view_bind_group`].
+/// [`Self::build_per_view_bind_group`]. Every per-view bind group references the **same**
+/// shared cluster buffers from [`Self::cluster_cache`].
 pub struct FrameGpuResources {
     /// Uniform buffer for [`FrameGpuUniforms`] (global fallback; per-view uniforms are in
     /// [`crate::backend::frame_resource_manager::PerViewFrameState`]).
@@ -30,10 +31,9 @@ pub struct FrameGpuResources {
     /// Storage buffer holding up to [`MAX_LIGHTS`] [`GpuLight`] records (scene-global; shared
     /// across all views).
     pub lights_buffer: wgpu::Buffer,
-    /// Global cluster buffers used for viewport sync and the global `@group(0)` bind group.
-    ///
-    /// Per-view dispatches use independent [`ClusterBufferCache`] instances owned by
-    /// [`crate::backend::frame_resource_manager::PerViewFrameState`].
+    /// Shared cluster buffers for the whole frame; every view's `@group(0)` bind group
+    /// references this one cache (see [`ClusterBufferCache`] for the ordering argument that
+    /// makes sharing safe under single-submit semantics).
     pub cluster_cache: ClusterBufferCache,
     /// Sampled single-view scene depth snapshot for materials that need `_CameraDepthTexture`.
     scene_depth_2d: (wgpu::Texture, wgpu::TextureView),
@@ -317,16 +317,9 @@ impl FrameGpuResources {
         (tex, view)
     }
 
-    fn rebuild_bind_group(&mut self, device: &wgpu::Device, viewport: (u32, u32), stereo: bool) {
-        let Some(refs) = self
-            .cluster_cache
-            .get_buffers(viewport, CLUSTER_COUNT_Z, stereo)
-        else {
-            logger::warn!(
-                "FrameGpu: cluster buffers missing for viewport {:?} stereo={}; skipping bind group rebuild",
-                viewport,
-                stereo
-            );
+    fn rebuild_bind_group(&mut self, device: &wgpu::Device) {
+        let Some(refs) = self.cluster_cache.current_refs() else {
+            logger::warn!("FrameGpu: cluster buffers missing; skipping bind group rebuild");
             return;
         };
         self.bind_group = Self::create_bind_group(
@@ -527,7 +520,7 @@ impl FrameGpuResources {
             .ok_or(FrameGpuInitError::ClusterEnsureFailed)?;
         let cluster_bind_version = cluster_cache.version;
         let refs = cluster_cache
-            .get_buffers((1, 1), CLUSTER_COUNT_Z, false)
+            .current_refs()
             .ok_or(FrameGpuInitError::ClusterGetBuffersFailed)?;
         let scene_depth_format =
             crate::render_graph::main_forward_depth_stencil_format(device.features());
@@ -585,10 +578,14 @@ impl FrameGpuResources {
         })
     }
 
-    /// Resizes cluster buffers when `viewport` or `stereo` changes; rebuilds [`Self::bind_group`].
+    /// Grows the shared cluster cache to cover `viewport` × `stereo` if needed; rebuilds
+    /// [`Self::bind_group`] when the underlying buffers were reallocated.
     ///
     /// When `stereo` is true, cluster count/index buffers are doubled for per-eye storage.
     /// Returns `true` if the bind group was recreated.
+    ///
+    /// Because the shared cache is grow-only (see [`ClusterBufferCache`]), calling this with
+    /// a smaller viewport than a previous call is a no-op.
     pub fn sync_cluster_viewport(
         &mut self,
         device: &wgpu::Device,
@@ -613,7 +610,7 @@ impl FrameGpuResources {
         if ver == self.cluster_bind_version {
             return false;
         }
-        self.rebuild_bind_group(device, viewport, stereo);
+        self.rebuild_bind_group(device);
         self.cluster_bind_version = ver;
         true
     }
@@ -628,7 +625,7 @@ impl FrameGpuResources {
         source_depth: &wgpu::Texture,
         viewport: (u32, u32),
         multiview: bool,
-        stereo_cluster: bool,
+        _stereo_cluster: bool,
     ) {
         let width = viewport.0.max(1);
         let height = viewport.1.max(1);
@@ -683,7 +680,7 @@ impl FrameGpuResources {
                 extent,
             );
         }
-        self.rebuild_bind_group(device, viewport, stereo_cluster);
+        self.rebuild_bind_group(device);
     }
 
     /// Copies the main depth attachment into an already provisioned scene-depth snapshot without
@@ -779,7 +776,7 @@ impl FrameGpuResources {
         let SceneColorSnapshotCopyParams {
             viewport,
             multiview,
-            stereo_cluster,
+            stereo_cluster: _stereo_cluster,
         } = params;
         let width = viewport.0.max(1);
         let height = viewport.1.max(1);
@@ -833,7 +830,7 @@ impl FrameGpuResources {
                 extent,
             );
         }
-        self.rebuild_bind_group(device, viewport, stereo_cluster);
+        self.rebuild_bind_group(device);
     }
 
     /// Builds a per-view `@group(0)` bind group using this view's own `frame_uniform` and

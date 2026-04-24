@@ -22,7 +22,7 @@ use std::sync::Arc;
 use hashbrown::{HashMap, HashSet};
 use parking_lot::Mutex;
 
-use crate::backend::cluster_gpu::{ClusterBufferCache, ClusterBufferRefs, CLUSTER_COUNT_Z};
+use crate::backend::cluster_gpu::ClusterBufferRefs;
 use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::gpu::GpuLimits;
 use crate::render_graph::OcclusionViewId;
@@ -34,37 +34,23 @@ use super::mesh_deform::PaddedPerDrawUniforms;
 use super::per_draw_resources::PerDrawResources;
 use crate::scene::{light_contributes, ResolvedLight, SceneCoordinator};
 
-/// Per-view `@group(0)` cluster buffers, frame uniform buffer, and bind group.
+/// Per-view `@group(0)` frame uniform buffer + bind group. Cluster storage is NOT per-view —
+/// all views share [`FrameGpuResources::cluster_cache`] (see [`ClusterBufferCache`] for why
+/// sharing is safe across views under single-submit semantics).
 ///
-/// Each [`OcclusionViewId`] owns one of these to ensure its clustered light lists are never
-/// overwritten by another view's compute dispatch under single-submit semantics. The bind group
-/// is rebuilt whenever the view's cluster buffers change (viewport or stereo change) or when the
-/// shared scene snapshot textures are recreated.
+/// The bind group references the shared cluster buffers and is rebuilt whenever those buffers
+/// grow (detected via [`FrameGpuResources::cluster_cache`] version) or when shared scene
+/// snapshot textures are recreated.
 pub struct PerViewFrameState {
-    /// Per-view cluster buffer cache (light counts, light indices, compute params).
-    pub cluster_cache: ClusterBufferCache,
     /// Per-view `@group(0)` frame uniform buffer written by the prepare pass each frame.
     pub frame_uniform_buffer: wgpu::Buffer,
     /// Per-view `@group(0)` bind group referencing [`Self::frame_uniform_buffer`] and the
-    /// per-view cluster buffers alongside shared lights and scene snapshots.
+    /// shared cluster buffers alongside shared lights and scene snapshots.
     pub frame_bind_group: Arc<wgpu::BindGroup>,
-    /// [`ClusterBufferCache::version`] at which [`Self::frame_bind_group`] was last built.
+    /// Shared [`ClusterBufferCache::version`] at which [`Self::frame_bind_group`] was last built.
     last_cluster_version: u64,
-    /// Viewport for which [`Self::cluster_cache`] was last provisioned.
-    last_viewport: (u32, u32),
-    /// Stereo flag for which [`Self::cluster_cache`] was last provisioned.
-    last_stereo: bool,
     /// [`FrameGpuResources::snapshot_version`] at which [`Self::frame_bind_group`] was last built.
     last_snapshot_version: u64,
-}
-
-impl PerViewFrameState {
-    /// Returns the cluster buffer refs using the key that was active when the cache was last
-    /// provisioned, without needing to repeat the viewport/stereo parameters.
-    pub fn cluster_buffer_refs(&self) -> Option<ClusterBufferRefs<'_>> {
-        self.cluster_cache
-            .get_buffers(self.last_viewport, CLUSTER_COUNT_Z, self.last_stereo)
-    }
 }
 
 /// Per-view CPU scratch used to pack `@group(2)` per-draw uniforms before upload.
@@ -252,9 +238,9 @@ impl FrameResourceManager {
 
     /// Returns the per-view frame state for `view_id`, creating it lazily if it does not exist.
     ///
-    /// Internally provisions per-view cluster buffers for `viewport`/`stereo` via
-    /// [`ClusterBufferCache::ensure_buffers`] and rebuilds the `@group(0)` bind group whenever
-    /// the cluster buffer version or shared snapshot version changes.
+    /// Grows the shared cluster buffers (on [`FrameGpuResources`]) to cover this view's
+    /// `viewport` / `stereo` when needed and rebuilds the `@group(0)` bind group whenever the
+    /// shared cluster version or snapshot version changes.
     ///
     /// Returns `None` when the manager has not been attached (no GPU resources available) or
     /// when cluster buffers cannot be allocated for the given viewport.
@@ -266,16 +252,18 @@ impl FrameResourceManager {
         stereo: bool,
     ) -> Option<&mut PerViewFrameState> {
         profiling::scope!("render::ensure_per_view_frame");
-        let limits = self.limits.clone()?;
+        let _limits = self.limits.clone()?;
 
-        // Use field-level split borrows: per_view_frame and frame_gpu are disjoint fields.
         let per_view_frame = &mut self.per_view_frame;
         let frame_gpu_opt = &mut self.frame_gpu;
         let fgpu = frame_gpu_opt.as_mut()?;
+        // Grow the shared cluster buffers to cover this view if needed; `sync_cluster_viewport`
+        // is grow-only so repeated calls from different views consolidate to the max envelope.
+        fgpu.sync_cluster_viewport(device, viewport, stereo);
         let snapshot_ver = fgpu.snapshot_version;
+        let cluster_ver = fgpu.cluster_cache.version;
         let placeholder_bg = fgpu.bind_group.clone();
 
-        // Ensure entry exists with initial cluster buffers.
         if !per_view_frame.contains_key(&view_id) {
             let frame_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("per_view_frame_uniform"),
@@ -283,24 +271,18 @@ impl FrameResourceManager {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            let mut cluster_cache = ClusterBufferCache::new();
-            let _ =
-                cluster_cache.ensure_buffers(device, &limits, viewport, CLUSTER_COUNT_Z, stereo);
-            let cluster_ver = cluster_cache.version;
-            let frame_bind_group = cluster_cache
-                .get_buffers(viewport, CLUSTER_COUNT_Z, stereo)
+            let frame_bind_group = fgpu
+                .cluster_cache
+                .current_refs()
                 .map(|refs| fgpu.build_per_view_bind_group(device, &frame_uniform_buffer, refs))
                 .unwrap_or_else(|| placeholder_bg);
             logger::debug!("per-view frame state: allocating for view {view_id:?}");
             per_view_frame.insert(
                 view_id,
                 PerViewFrameState {
-                    cluster_cache,
                     frame_uniform_buffer,
                     frame_bind_group,
                     last_cluster_version: cluster_ver,
-                    last_viewport: viewport,
-                    last_stereo: stereo,
                     last_snapshot_version: snapshot_ver,
                 },
             );
@@ -308,34 +290,34 @@ impl FrameResourceManager {
 
         let entry = per_view_frame.get_mut(&view_id)?;
 
-        // Ensure cluster buffers are provisioned for the current viewport/stereo.
-        let _ =
-            entry
-                .cluster_cache
-                .ensure_buffers(device, &limits, viewport, CLUSTER_COUNT_Z, stereo);
-        let cluster_ver = entry.cluster_cache.version;
-
         let needs_rebuild = cluster_ver != entry.last_cluster_version
-            || viewport != entry.last_viewport
-            || stereo != entry.last_stereo
             || snapshot_ver != entry.last_snapshot_version;
 
         if needs_rebuild {
-            if let Some(refs) = entry
-                .cluster_cache
-                .get_buffers(viewport, CLUSTER_COUNT_Z, stereo)
-            {
+            if let Some(refs) = fgpu.cluster_cache.current_refs() {
                 let new_bg =
                     fgpu.build_per_view_bind_group(device, &entry.frame_uniform_buffer, refs);
                 entry.frame_bind_group = new_bg;
             }
             entry.last_cluster_version = cluster_ver;
-            entry.last_viewport = viewport;
-            entry.last_stereo = stereo;
             entry.last_snapshot_version = snapshot_ver;
         }
 
         per_view_frame.get_mut(&view_id)
+    }
+
+    /// Refs to the shared cluster buffers (see [`ClusterBufferCache`]). All views share these.
+    pub fn shared_cluster_buffer_refs(&self) -> Option<ClusterBufferRefs<'_>> {
+        self.frame_gpu.as_ref()?.cluster_cache.current_refs()
+    }
+
+    /// Current [`ClusterBufferCache::version`] on the shared cache. Used for bind-group
+    /// invalidation caches that key on cluster-buffer reallocations.
+    pub fn shared_cluster_version(&self) -> u64 {
+        self.frame_gpu
+            .as_ref()
+            .map(|fgpu| fgpu.cluster_cache.version)
+            .unwrap_or(0)
     }
 
     /// Returns the per-view frame state for `view_id`, or `None` if not yet created.

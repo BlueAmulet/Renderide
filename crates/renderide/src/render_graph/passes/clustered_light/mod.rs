@@ -414,16 +414,14 @@ impl ComputePass for ClusteredLightPass {
             return Ok(());
         }
 
-        // Resolve per-view cluster refs (independent from the global cluster_cache).
-        let Some(per_view_state) = frame.shared.frame_resources.per_view_frame(view_id) else {
-            logger::trace!("ClusteredLight: per-view frame state missing for {view_id:?}");
+        // All views share one cluster buffer (see `ClusterBufferCache` docs). Safe under
+        // single-submit ordering: each view's compute→raster pair completes before the next
+        // view's compute overwrites.
+        let Some(refs) = frame.shared.frame_resources.shared_cluster_buffer_refs() else {
+            logger::trace!("ClusteredLight: shared cluster buffers missing for {view_id:?}");
             return Ok(());
         };
-        let Some(refs) = per_view_state.cluster_buffer_refs() else {
-            logger::trace!("ClusteredLight: per-view cluster buffers missing for {view_id:?}");
-            return Ok(());
-        };
-        let cluster_ver = per_view_state.cluster_cache.version;
+        let cluster_ver = frame.shared.frame_resources.shared_cluster_version();
 
         let viewport = (vw, vh);
 

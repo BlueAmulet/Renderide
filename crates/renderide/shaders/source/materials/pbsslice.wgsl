@@ -259,11 +259,10 @@ fn fs_main(
     );
 
     let count = rg::cluster_light_counts[cluster_id];
-    let base_idx = cluster_id * pcls::MAX_LIGHTS_PER_TILE;
     let i_max = min(count, pcls::MAX_LIGHTS_PER_TILE);
     var lo = vec3<f32>(0.0);
     for (var i: u32 = 0u; i < i_max; i = i + 1u) {
-        let li = rg::cluster_light_indices[base_idx + i];
+        let li = pcls::cluster_light_index_at(cluster_id, i);
         if (li >= rg::frame.light_count) {
             continue;
         }

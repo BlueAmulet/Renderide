@@ -9,8 +9,10 @@ use bytemuck::{Pod, Zeroable};
 use crate::scene::ResolvedLight;
 use crate::shared::{LightType, ShadowType};
 
-/// Max lights copied into the scratch buffer (`prepare_lights_from_scene`).
-pub const MAX_LIGHTS: usize = 256;
+/// Max lights copied into the scratch buffer (`prepare_lights_from_scene`). Sized so per-cluster
+/// indices stored in `cluster_light_indices` fit in a `u16` (which enables the 2-per-`u32`
+/// packing in `crate::backend::cluster_gpu`).
+pub const MAX_LIGHTS: usize = 65536;
 
 /// GPU-facing light record for a storage buffer upload.
 ///
