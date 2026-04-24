@@ -9,7 +9,7 @@
 
 use std::num::NonZeroU32;
 
-use super::node::PassKind;
+use super::node::{PassKind, PassMergeHint};
 use super::setup::{PassSetup, RasterColorAttachmentSetup, RasterDepthAttachmentSetup};
 use crate::render_graph::error::SetupError;
 use crate::render_graph::resources::{
@@ -27,6 +27,7 @@ pub struct PassBuilder<'a> {
     pub(crate) depth_stencil_attachment: Option<RasterDepthAttachmentSetup>,
     pub(crate) multiview_mask: Option<NonZeroU32>,
     pub(crate) cull_exempt: bool,
+    pub(crate) merge_hint: PassMergeHint,
 }
 
 impl<'a> PassBuilder<'a> {
@@ -40,6 +41,7 @@ impl<'a> PassBuilder<'a> {
             depth_stencil_attachment: None,
             multiview_mask: None,
             cull_exempt: false,
+            merge_hint: PassMergeHint::default(),
         }
     }
 
@@ -51,6 +53,7 @@ impl<'a> PassBuilder<'a> {
             depth_stencil_attachment: self.depth_stencil_attachment,
             multiview_mask: self.multiview_mask,
             cull_exempt: self.cull_exempt,
+            merge_hint: self.merge_hint,
         }
         .validate()
     }
@@ -84,6 +87,14 @@ impl<'a> PassBuilder<'a> {
     /// Keeps the pass even when it has no graph-visible export.
     pub fn cull_exempt(&mut self) {
         self.cull_exempt = true;
+    }
+
+    /// Sets the backend merge hint for this pass. See [`PassMergeHint`] for details.
+    ///
+    /// The current wgpu executor ignores the hint; it exists so passes can annotate their
+    /// attachment-reuse intent today, ready to be consumed by a future subpass-aware backend.
+    pub fn merge_hint(&mut self, hint: PassMergeHint) {
+        self.merge_hint = hint;
     }
 
     /// Declares a transient texture read.

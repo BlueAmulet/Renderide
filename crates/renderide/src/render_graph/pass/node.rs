@@ -55,6 +55,27 @@ impl From<PassPhase> for GroupScope {
     }
 }
 
+/// Backend hint describing whether a pass is safe to merge with an adjacent pass that reads
+/// the same attachments.
+///
+/// Populated by passes at setup time via [`crate::render_graph::pass::PassBuilder::merge_hint`].
+/// The current wgpu executor ignores the hint (each pass opens its own render pass), so populating
+/// the hint on existing passes is a no-op today. It exists as scaffolding for a future
+/// subpass-aware backend (tile-based mobile GPUs, Vulkan subpasses, Metal tile shading) that can
+/// merge adjacent raster passes sharing attachments to preserve tile memory and avoid redundant
+/// load/store traffic.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PassMergeHint {
+    /// When `true`, adjacent passes writing to the same attachments may reuse the render-pass
+    /// encoder without resolving / storing attachment contents in between. Safe when the next
+    /// pass in the group will read or continue writing the same attachments.
+    pub attachment_reuse: bool,
+    /// When `true`, the pass should prefer keeping attachment data in on-chip tile memory across
+    /// a merge boundary. Used on tiled-GPU backends to skip the tile-store step between merged
+    /// subpasses.
+    pub tile_memory_preferred: bool,
+}
+
 /// One node in the compiled render graph.
 ///
 /// Wraps one of the four pass kinds, each with its own trait object. The executor matches on

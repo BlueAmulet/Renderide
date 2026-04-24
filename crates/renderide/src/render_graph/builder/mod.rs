@@ -26,8 +26,8 @@ use super::pass::{
 };
 use super::resources::{
     BufferHandle, FrameTargetRole, ImportSource, ImportedBufferDecl, ImportedBufferHandle,
-    ImportedTextureDecl, ImportedTextureHandle, ResourceHandle, TextureHandle,
-    TextureResourceHandle, TransientBufferDesc, TransientTextureDesc,
+    ImportedTextureDecl, ImportedTextureHandle, ResourceHandle, SubresourceHandle, TextureHandle,
+    TextureResourceHandle, TransientBufferDesc, TransientSubresourceDesc, TransientTextureDesc,
 };
 use super::schedule::{FrameSchedule, ScheduleStep};
 
@@ -35,6 +35,7 @@ use super::schedule::{FrameSchedule, ScheduleStep};
 pub struct GraphBuilder {
     pub(crate) textures: Vec<TransientTextureDesc>,
     pub(crate) buffers: Vec<TransientBufferDesc>,
+    pub(crate) subresources: Vec<TransientSubresourceDesc>,
     pub(crate) imports_tex: Vec<ImportedTextureDecl>,
     pub(crate) imports_buf: Vec<ImportedBufferDecl>,
     pub(crate) passes: Vec<PassEntry>,
@@ -52,6 +53,7 @@ impl GraphBuilder {
         Self {
             textures: Vec::new(),
             buffers: Vec::new(),
+            subresources: Vec::new(),
             imports_tex: Vec::new(),
             imports_buf: Vec::new(),
             passes: Vec::new(),
@@ -84,6 +86,25 @@ impl GraphBuilder {
     pub fn create_buffer(&mut self, desc: TransientBufferDesc) -> BufferHandle {
         let handle = BufferHandle(self.buffers.len() as u32);
         self.buffers.push(desc);
+        handle
+    }
+
+    /// Declares a subresource view of a transient texture.
+    ///
+    /// The concrete [`wgpu::TextureView`] is created lazily at execute time and cached per-range
+    /// on the graph-resources context. Resolve one at encode time via
+    /// [`crate::render_graph::GraphResolvedResources::subresource_view`].
+    ///
+    /// ## Dependency analysis
+    ///
+    /// Subresources do not participate in dependency analysis today — they are a view-provisioning
+    /// layer only. Passes that read or write a subresource should declare a matching access on
+    /// the parent [`TextureHandle`] so lifetime and alias planning remain correct. A future
+    /// revision may teach the builder to do overlap-aware tracking; for now the conservative path
+    /// just works.
+    pub fn create_subresource(&mut self, desc: TransientSubresourceDesc) -> SubresourceHandle {
+        let handle = SubresourceHandle(self.subresources.len() as u32);
+        self.subresources.push(desc);
         handle
     }
 
@@ -275,6 +296,7 @@ impl GraphBuilder {
             pass_info,
             transient_textures: compiled_textures,
             transient_buffers: compiled_buffers,
+            subresources: self.subresources,
             imported_textures: self.imports_tex,
             imported_buffers: self.imports_buf,
             schedule,
@@ -315,6 +337,7 @@ impl GraphBuilder {
                     physical_slot: usize::MAX,
                 })
                 .collect(),
+            subresources: self.subresources,
             imported_textures: self.imports_tex,
             imported_buffers: self.imports_buf,
             schedule: FrameSchedule::empty(),
@@ -433,6 +456,7 @@ fn compile_pass_info(setups: &[SetupEntry], ordered: &[usize]) -> Vec<CompiledPa
                 accesses: setup.setup.accesses.clone(),
                 multiview_mask: setup.setup.multiview_mask,
                 raster_template,
+                merge_hint: setup.setup.merge_hint,
             }
         })
         .collect()

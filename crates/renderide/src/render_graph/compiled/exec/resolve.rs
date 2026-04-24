@@ -13,7 +13,7 @@ use super::super::super::error::GraphExecuteError;
 use super::super::super::frame_params::OcclusionViewId;
 use super::super::super::resources::{
     BackendFrameBufferKind, BufferImportSource, FrameTargetRole, ImportSource,
-    ImportedBufferHandle, ImportedTextureHandle, TextureHandle,
+    ImportedBufferHandle, ImportedTextureHandle, SubresourceHandle, TextureHandle,
 };
 use super::super::super::transient_pool::{BufferKey, TextureKey, TransientPool};
 use super::super::helpers;
@@ -149,6 +149,34 @@ impl CompiledRenderGraph {
                     ResolvedImportedTexture { view },
                 );
             }
+        }
+    }
+
+    /// Resolves subresource views declared on [`super::super::CompiledRenderGraph::subresources`]
+    /// against their parent transient texture.
+    ///
+    /// Run after [`Self::resolve_transient_textures`] so the parent `wgpu::Texture` handles
+    /// already exist. Subresources whose parent is not resolved (because the parent's transient
+    /// index is culled or its lifetime is `None`) are left as `None` — callers that look them up
+    /// get a harmless `None` instead of an encoder-time panic.
+    pub(super) fn resolve_subresource_views(&self, resources: &mut GraphResolvedResources) {
+        if self.subresources.is_empty() {
+            return;
+        }
+        profiling::scope!("render::resolve_subresource_views");
+        for (idx, desc) in self.subresources.iter().enumerate() {
+            let Some(parent) = resources.transient_texture(desc.parent) else {
+                continue;
+            };
+            let view = parent.texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some(desc.label),
+                base_mip_level: desc.base_mip_level,
+                mip_level_count: Some(desc.mip_level_count.max(1)),
+                base_array_layer: desc.base_array_layer,
+                array_layer_count: Some(desc.array_layer_count.max(1)),
+                ..Default::default()
+            });
+            resources.set_subresource_view(SubresourceHandle(idx as u32), view);
         }
     }
 

@@ -131,6 +131,10 @@ pub struct RenderBackend {
     /// [`crate::materials::MaterialRouter`] generation counters, so steady-state refresh cost is
     /// proportional to the number of mutated materials rather than the total material count.
     pub(crate) material_batch_cache: FrameMaterialBatchCache,
+    /// Registry of persistent ping-pong resources used by graph history slots
+    /// (`ImportSource::PingPong` / `BufferImportSource::PingPong`). New infrastructure; no
+    /// subsystem writes through it yet. Future TAA / SSR / cached-shadow work registers here.
+    pub(crate) history_registry: super::HistoryRegistry,
 }
 
 /// Disjoint borrows of [`MaterialSystem`], [`AssetTransferQueue`], and the GPU skin cache for world mesh forward encoding.
@@ -201,7 +205,22 @@ impl RenderBackend {
             renderer_settings: None,
             record_parallelism: crate::config::RecordParallelism::PerViewParallel,
             material_batch_cache: FrameMaterialBatchCache::new(),
+            history_registry: super::HistoryRegistry::new(),
         }
+    }
+
+    /// Returns a mutable reference to the persistent history registry.
+    ///
+    /// New subsystems (future TAA color, motion vectors, SSR history, cached shadows) register
+    /// their ping-pong slots here at init. Today no subsystem uses this path; the existing Hi-Z
+    /// pyramid keeps its bespoke state on [`OcclusionSystem`] pending a future migration.
+    pub fn history_registry_mut(&mut self) -> &mut super::HistoryRegistry {
+        &mut self.history_registry
+    }
+
+    /// Shared reference to the persistent history registry.
+    pub fn history_registry(&self) -> &super::HistoryRegistry {
+        &self.history_registry
     }
 
     /// Effective HDR scene-color [`wgpu::TextureFormat`] from [`crate::config::RenderingSettings`].

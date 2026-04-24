@@ -19,6 +19,8 @@ use std::any::{Any, TypeId};
 
 use hashbrown::HashMap;
 
+use super::resources::ImportedTextureHandle;
+
 /// Marker trait for blackboard slot keys.
 ///
 /// Implement this on a ZST to define a typed slot. The associated `Value` type is what is
@@ -98,6 +100,21 @@ impl Blackboard {
     pub fn is_empty(&self) -> bool {
         self.slots.is_empty()
     }
+}
+
+/// Blackboard slot reserving the per-view screen-space motion-vector texture for temporal
+/// techniques (TAA, motion blur, temporal denoising).
+///
+/// **No pass produces this slot today.** The slot is declared so downstream work can land a
+/// velocity prepass without coordinating a new blackboard key across the codebase in the same
+/// change. `Value` is the [`ImportedTextureHandle`] of the `Rg16Float` velocity target; the
+/// consumer resolves the actual `wgpu::TextureView` via the graph-resources context at encode
+/// time.
+///
+/// Lives on the per-view blackboard because motion vectors are screen-space and view-specific.
+pub struct FrameMotionVectorsSlot;
+impl BlackboardSlot for FrameMotionVectorsSlot {
+    type Value = ImportedTextureHandle;
 }
 
 #[cfg(test)]
@@ -184,5 +201,16 @@ mod tests {
         bb.insert::<BarSlot>("x".into());
         bb.clear();
         assert!(bb.is_empty());
+    }
+
+    #[test]
+    fn frame_motion_vectors_slot_type_is_insertable() {
+        // Scaffolding-only: confirm the slot key + value type compile and roundtrip.
+        // No producer writes this today; this test exists so the declaration doesn't bit-rot
+        // before a velocity-prepass consumer lands.
+        let mut bb = Blackboard::new();
+        let handle = ImportedTextureHandle(0);
+        bb.insert::<FrameMotionVectorsSlot>(handle);
+        assert_eq!(bb.get::<FrameMotionVectorsSlot>().copied(), Some(handle));
     }
 }

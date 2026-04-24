@@ -5,7 +5,7 @@
 
 use std::num::NonZeroU32;
 
-use super::node::PassKind;
+use super::node::{PassKind, PassMergeHint};
 use crate::render_graph::error::SetupError;
 use crate::render_graph::resources::{
     ResourceAccess, TextureAttachmentResolve, TextureAttachmentTarget,
@@ -50,6 +50,8 @@ pub struct PassSetup {
     pub(crate) multiview_mask: Option<NonZeroU32>,
     /// When `true`, the pass is retained even when it has no import-writing successors.
     pub(crate) cull_exempt: bool,
+    /// Backend merge hint; see [`PassMergeHint`].
+    pub(crate) merge_hint: PassMergeHint,
 }
 
 impl PassSetup {

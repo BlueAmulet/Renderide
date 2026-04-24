@@ -8,10 +8,10 @@ use crate::scene::SceneCoordinator;
 
 use super::frame_params::{HostCameraFrame, OcclusionViewId};
 use super::ids::{GroupId, PassId};
-use super::pass::{GroupScope, PassKind, PassNode};
+use super::pass::{GroupScope, PassKind, PassMergeHint, PassNode};
 use super::resources::{
     ImportedBufferDecl, ImportedTextureDecl, ResourceAccess, TextureAttachmentResolve,
-    TextureAttachmentTarget, TransientBufferDesc, TransientTextureDesc,
+    TextureAttachmentTarget, TransientBufferDesc, TransientSubresourceDesc, TransientTextureDesc,
 };
 use super::schedule::FrameSchedule;
 use super::world_mesh_draw_prep::{CameraTransformDrawFilter, WorldMeshDrawCollection};
@@ -186,6 +186,11 @@ pub struct CompiledPassInfo {
     pub multiview_mask: Option<std::num::NonZeroU32>,
     /// Render-pass attachment template for graph-managed raster passes.
     pub raster_template: Option<RenderPassTemplate>,
+    /// Backend merge hint declared at setup time. See [`PassMergeHint`].
+    ///
+    /// The wgpu executor currently ignores this; the field is populated for use by a future
+    /// subpass-aware backend without a second migration pass across all call sites.
+    pub merge_hint: PassMergeHint,
 }
 
 /// Compiled render-pass attachment template.
@@ -271,6 +276,10 @@ pub struct CompiledRenderGraph {
     pub transient_textures: Vec<CompiledTextureResource>,
     /// Compiled transient buffer metadata.
     pub transient_buffers: Vec<CompiledBufferResource>,
+    /// Declared subresource views of transient textures. Resolved lazily at execute time via
+    /// [`super::context::GraphResolvedResources::subresource_view`]; see
+    /// [`super::resources::SubresourceHandle`].
+    pub subresources: Vec<TransientSubresourceDesc>,
     /// Imported texture declarations.
     pub imported_textures: Vec<ImportedTextureDecl>,
     /// Imported buffer declarations.
@@ -299,3 +308,6 @@ pub(super) struct ResolvedView<'a> {
 
 mod exec;
 mod helpers;
+
+mod dot;
+pub use dot::DotFormat;

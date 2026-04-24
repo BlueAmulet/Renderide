@@ -30,6 +30,6 @@ pub use builder::{PassBuilder, RasterPassBuilder};
 pub use callback::CallbackPass;
 pub use compute::ComputePass;
 pub use copy::CopyPass;
-pub use node::{GroupScope, PassKind, PassNode, PassPhase};
+pub use node::{GroupScope, PassKind, PassMergeHint, PassNode, PassPhase};
 pub use raster::RasterPass;
 pub use setup::PassSetup;

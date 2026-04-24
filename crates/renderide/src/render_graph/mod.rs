@@ -108,7 +108,7 @@ pub use world_mesh_draw_stats::{
     WorldMeshDrawStateRow, WorldMeshDrawStats,
 };
 
-pub use blackboard::{Blackboard, BlackboardSlot};
+pub use blackboard::{Blackboard, BlackboardSlot, FrameMotionVectorsSlot};
 pub use builder::GraphBuilder;
 pub use cache::{GraphCache, GraphCacheKey};
 pub use camera::{
@@ -119,7 +119,7 @@ pub use camera::{
 pub use camera::{DESKTOP_FOV_DEGREES_MAX, DESKTOP_FOV_DEGREES_MIN};
 pub use cluster_frame::{cluster_frame_params, cluster_frame_params_stereo, ClusterFrameParams};
 pub use compiled::{
-    ColorAttachmentTemplate, CompileStats, CompiledRenderGraph, DepthAttachmentTemplate,
+    ColorAttachmentTemplate, CompileStats, CompiledRenderGraph, DepthAttachmentTemplate, DotFormat,
     ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewTarget, RenderPassTemplate,
 };
 pub use context::{
@@ -150,16 +150,16 @@ pub use hi_z_occlusion::{
 pub use ids::{GroupId, PassId};
 pub use output_depth_mode::{OutputDepthMode, OutputDepthModeError};
 pub use pass::{
-    CallbackPass, ComputePass, CopyPass, GroupScope, PassBuilder, PassKind, PassNode, PassPhase,
-    RasterPass, RasterPassBuilder,
+    CallbackPass, ComputePass, CopyPass, GroupScope, PassBuilder, PassKind, PassMergeHint,
+    PassNode, PassPhase, RasterPass, RasterPassBuilder,
 };
 pub use resources::{
     BackendFrameBufferKind, BufferAccess, BufferHandle, BufferImportSource, BufferSizePolicy,
     FrameTargetRole, HistorySlotId, ImportSource, ImportedBufferDecl, ImportedBufferHandle,
-    ImportedTextureDecl, ImportedTextureHandle, StorageAccess, TextureAccess,
+    ImportedTextureDecl, ImportedTextureHandle, StorageAccess, SubresourceHandle, TextureAccess,
     TextureAttachmentResolve, TextureAttachmentTarget, TextureHandle, TextureResourceHandle,
     TransientArrayLayers, TransientBufferDesc, TransientExtent, TransientSampleCount,
-    TransientTextureDesc, TransientTextureFormat,
+    TransientSubresourceDesc, TransientTextureDesc, TransientTextureFormat,
 };
 pub use reverse_z_depth::{
     main_forward_depth_stencil_format, MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE,
@@ -238,7 +238,7 @@ fn import_main_graph_textures(
     });
     let hi_z_current = builder.import_texture(ImportedTextureDecl {
         label: "hi_z_current",
-        source: ImportSource::PingPong(HistorySlotId::HiZ),
+        source: ImportSource::PingPong(HistorySlotId::HI_Z),
         initial_access: TextureAccess::Storage {
             stages: wgpu::ShaderStages::COMPUTE,
             access: StorageAccess::WriteOnly,

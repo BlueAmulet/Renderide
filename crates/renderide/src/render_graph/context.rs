@@ -27,7 +27,8 @@ use super::blackboard::Blackboard;
 use super::frame_params::{FrameRenderParams, FrameRenderParamsView, FrameSystemsShared};
 use super::frame_upload_batch::FrameUploadBatch;
 use super::resources::{
-    BufferHandle, ImportedBufferHandle, ImportedTextureHandle, TextureHandle, TextureResourceHandle,
+    BufferHandle, ImportedBufferHandle, ImportedTextureHandle, SubresourceHandle, TextureHandle,
+    TextureResourceHandle,
 };
 use super::transient_pool::TransientPool;
 
@@ -88,6 +89,9 @@ pub struct GraphResolvedResources {
     transient_buffers: Vec<Option<ResolvedGraphBuffer>>,
     imported_textures: Vec<Option<ResolvedImportedTexture>>,
     imported_buffers: Vec<Option<ResolvedImportedBuffer>>,
+    /// Resolved subresource views, populated eagerly per frame from the parent transient texture.
+    /// Index parallels [`super::compiled::CompiledRenderGraph::subresources`].
+    subresource_views: Vec<Option<wgpu::TextureView>>,
 }
 
 impl GraphResolvedResources {
@@ -97,6 +101,7 @@ impl GraphResolvedResources {
         transient_buffer_count: usize,
         imported_texture_count: usize,
         imported_buffer_count: usize,
+        subresource_count: usize,
     ) -> Self {
         Self {
             transient_textures: std::iter::repeat_with(|| None)
@@ -110,6 +115,9 @@ impl GraphResolvedResources {
                 .collect(),
             imported_buffers: std::iter::repeat_with(|| None)
                 .take(imported_buffer_count)
+                .collect(),
+            subresource_views: std::iter::repeat_with(|| None)
+                .take(subresource_count)
                 .collect(),
         }
     }
@@ -171,6 +179,22 @@ impl GraphResolvedResources {
     /// Looks up an imported buffer.
     pub fn imported_buffer(&self, handle: ImportedBufferHandle) -> Option<&ResolvedImportedBuffer> {
         self.imported_buffers.get(handle.index())?.as_ref()
+    }
+
+    /// Inserts a resolved subresource view. Called by the executor at resolve time.
+    pub fn set_subresource_view(&mut self, handle: SubresourceHandle, view: wgpu::TextureView) {
+        if let Some(slot) = self.subresource_views.get_mut(handle.index()) {
+            *slot = Some(view);
+        }
+    }
+
+    /// Looks up a resolved subresource view.
+    ///
+    /// Returns [`None`] when the subresource index is out of range or the view has not been
+    /// resolved for this frame yet. Pass this directly into bind groups or attachment
+    /// descriptors the way you would any other `wgpu::TextureView`.
+    pub fn subresource_view(&self, handle: SubresourceHandle) -> Option<&wgpu::TextureView> {
+        self.subresource_views.get(handle.index())?.as_ref()
     }
 
     pub(crate) fn texture_view(&self, handle: TextureResourceHandle) -> Option<&wgpu::TextureView> {

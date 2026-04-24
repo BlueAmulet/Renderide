@@ -319,6 +319,7 @@ impl CompiledRenderGraph {
                     self.transient_buffers.len(),
                     self.imported_textures.len(),
                     self.imported_buffers.len(),
+                    self.subresources.len(),
                 );
                 let alloc_viewport = helpers::clamp_viewport_for_transient_alloc(
                     resolved.viewport_px,
@@ -344,6 +345,7 @@ impl CompiledRenderGraph {
                     alloc_viewport,
                     &mut resources,
                 )?;
+                self.resolve_subresource_views(&mut resources);
                 Ok(v.insert(resources))
             }
             Entry::Occupied(o) => Ok(o.into_mut()),

@@ -4,13 +4,16 @@ use super::GraphBuilder;
 use crate::render_graph::context::{ComputePassCtx, RasterPassCtx};
 use crate::render_graph::error::{GraphBuildError, RenderPassError, SetupError};
 use crate::render_graph::ids::PassId;
-use crate::render_graph::pass::{ComputePass, GroupScope, PassBuilder, PassPhase, RasterPass};
+use crate::render_graph::pass::{
+    ComputePass, GroupScope, PassBuilder, PassMergeHint, PassPhase, RasterPass,
+};
 use crate::render_graph::resources::{
     BufferAccess, BufferHandle, BufferImportSource, BufferSizePolicy, FrameTargetRole,
     HistorySlotId, ImportedBufferDecl, ImportedBufferHandle, ImportedTextureDecl,
-    ImportedTextureHandle, StorageAccess, TextureAccess, TextureAttachmentResolve,
-    TextureAttachmentTarget, TextureHandle, TextureResourceHandle, TransientBufferDesc,
-    TransientExtent, TransientTextureDesc, TransientTextureFormat,
+    ImportedTextureHandle, StorageAccess, SubresourceHandle, TextureAccess,
+    TextureAttachmentResolve, TextureAttachmentTarget, TextureHandle, TextureResourceHandle,
+    TransientBufferDesc, TransientExtent, TransientSubresourceDesc, TransientTextureDesc,
+    TransientTextureFormat,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -665,7 +668,7 @@ fn buffer_aliasing_uses_size_and_usage_key() -> Result<(), GraphBuildError> {
     });
     let out = b.import_buffer(ImportedBufferDecl {
         label: "history",
-        source: BufferImportSource::PingPong(HistorySlotId::HiZ),
+        source: BufferImportSource::PingPong(HistorySlotId::HI_Z),
         initial_access: BufferAccess::CopyDst,
         final_access: BufferAccess::CopyDst,
     });
@@ -784,5 +787,98 @@ fn schedule_orders_frame_global_before_per_view() -> Result<(), GraphBuildError>
     assert_eq!(pv.len(), 2, "expected two per-view passes");
     // Validate structural invariants.
     g.schedule.validate().expect("schedule validates");
+    Ok(())
+}
+
+/// Pass that declares a non-default merge hint via [`PassBuilder::merge_hint`]. Used to verify
+/// the hint roundtrips into [`crate::render_graph::compiled::CompiledPassInfo`].
+struct MergeHintPass {
+    name: &'static str,
+    hint: PassMergeHint,
+    out: ImportedTextureHandle,
+}
+
+impl ComputePass for MergeHintPass {
+    fn name(&self) -> &str {
+        self.name
+    }
+
+    fn phase(&self) -> PassPhase {
+        PassPhase::PerView
+    }
+
+    fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
+        b.compute();
+        b.merge_hint(self.hint);
+        b.import_texture(self.out, TextureAccess::Present);
+        Ok(())
+    }
+
+    fn record(&self, _ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
+        Ok(())
+    }
+}
+
+#[test]
+fn create_subresource_assigns_sequential_handles_and_preserves_desc() {
+    let mut b = GraphBuilder::new();
+    let parent = b.create_texture(TransientTextureDesc {
+        label: "mip-chain-parent",
+        format: TransientTextureFormat::Fixed(wgpu::TextureFormat::R32Float),
+        extent: TransientExtent::Custom {
+            width: 256,
+            height: 256,
+        },
+        mip_levels: 4,
+        sample_count: crate::render_graph::resources::TransientSampleCount::Fixed(1),
+        dimension: wgpu::TextureDimension::D2,
+        array_layers: crate::render_graph::resources::TransientArrayLayers::Fixed(1),
+        base_usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+        alias: false,
+    });
+    let h0 = b.create_subresource(TransientSubresourceDesc::single_mip(parent, "mip0", 0));
+    let h1 = b.create_subresource(TransientSubresourceDesc::single_mip(parent, "mip1", 1));
+    let h2 = b.create_subresource(TransientSubresourceDesc::single_mip(parent, "mip2", 2));
+    assert_eq!(h0, SubresourceHandle(0));
+    assert_eq!(h1, SubresourceHandle(1));
+    assert_eq!(h2, SubresourceHandle(2));
+    // Cull-exempt compute pass so the builder keeps the parent alive even with no import edge.
+    b.add_compute_pass(Box::new(
+        TestComputePass::new("keep-parent")
+            .frame_global()
+            .cull_exempt(),
+    ));
+    let g = b.build().expect("graph builds");
+    assert_eq!(g.subresources.len(), 3);
+    assert_eq!(g.subresources[0].base_mip_level, 0);
+    assert_eq!(g.subresources[1].base_mip_level, 1);
+    assert_eq!(g.subresources[2].base_mip_level, 2);
+    assert!(g.subresources.iter().all(|s| s.parent == parent));
+}
+
+#[test]
+fn merge_hint_roundtrips_from_pass_builder_to_compiled_pass_info() -> Result<(), GraphBuildError> {
+    let mut b = GraphBuilder::new();
+    let bb = b.import_texture(backbuffer_import());
+    let hint = PassMergeHint {
+        attachment_reuse: true,
+        tile_memory_preferred: true,
+    };
+    b.add_compute_pass(Box::new(MergeHintPass {
+        name: "merge-hint-pass",
+        hint,
+        out: bb,
+    }));
+    let g = b.build()?;
+    // Exactly one retained pass; its compiled info should carry our hint.
+    let info = g
+        .pass_info
+        .iter()
+        .find(|info| info.name == "merge-hint-pass")
+        .expect("merge-hint-pass is retained");
+    assert_eq!(info.merge_hint, hint);
+    // Passes that do not call `merge_hint` default to the zero hint, i.e. no-op on every backend.
+    assert!(!PassMergeHint::default().attachment_reuse);
+    assert!(!PassMergeHint::default().tile_memory_preferred);
     Ok(())
 }
