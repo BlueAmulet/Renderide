@@ -621,20 +621,22 @@ mod tests {
         let ids = MaterialPipelinePropertyIds::new(&reg);
         let mut store = MaterialPropertyStore::new();
         let ztest = reg.intern("_ZTest");
-        store.set_material(48, ztest, MaterialPropertyValue::Float(8.0));
+        // FrooxEngine `ZTest.Always = 6` inverts to wgpu `Always` under reverse-Z.
+        store.set_material(48, ztest, MaterialPropertyValue::Float(6.0));
         let dict = MaterialDictionary::new(&store);
         let lookup = MaterialPropertyLookupIds {
             material_asset_id: 48,
             mesh_property_block_slot0: None,
         };
         let state = material_render_state_for_lookup(&dict, lookup, &ids);
-        assert_eq!(state.depth_compare, Some(8));
+        assert_eq!(state.depth_compare, Some(6));
         assert_eq!(
             state.depth_compare(wgpu::CompareFunction::GreaterEqual),
             wgpu::CompareFunction::Always
         );
 
-        store.set_property_block(480, ztest, MaterialPropertyValue::Float(4.0));
+        // FrooxEngine `ZTest.LessOrEqual = 2` inverts to wgpu `GreaterEqual` under reverse-Z.
+        store.set_property_block(480, ztest, MaterialPropertyValue::Float(2.0));
         let dict = MaterialDictionary::new(&store);
         let lookup = MaterialPropertyLookupIds {
             material_asset_id: 48,

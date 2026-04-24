@@ -77,7 +77,7 @@ pub struct WorldMeshDrawStateRow {
     pub requires_intersection_pass: bool,
     /// Unity `_ZWrite` / `ZWrite` override. `None` means the shader pass default is used.
     pub depth_write: Option<bool>,
-    /// Unity `_ZTest` / `ZTest` override. `None` means the shader pass default is used.
+    /// FrooxEngine `ZTest` enum override (raw `_ZTest` byte). `None` means the shader pass default is used.
     pub depth_compare: Option<u8>,
     /// Unity `Offset factor, units` override. `None` means the shader pass default is used.
     pub depth_offset: Option<(u32, i32)>,

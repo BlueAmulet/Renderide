@@ -19,21 +19,27 @@ pub(crate) fn unity_compare_function(value: u8) -> wgpu::CompareFunction {
     }
 }
 
-/// Maps a Unity `CompareFunction` depth-test enum value to `wgpu`, accounting for reverse-Z invariants.
-pub(crate) fn unity_depth_compare_function(value: u8) -> Option<wgpu::CompareFunction> {
+/// Maps a FrooxEngine `ZTest` enum value carried on the host `_ZTest` property to the reverse-Z
+/// equivalent `wgpu::CompareFunction`.
+///
+/// The enum layout matches `references_external/FrooxEngine/ZTest.cs`:
+/// `Less=0, Greater=1, LessOrEqual=2, GreaterOrEqual=3, Equal=4, NotEqual=5, Always=6`. This
+/// differs from Unity's `CompareFunction` (which uses `Disabled=0, Never=1, Less=2, Equal=3,
+/// LessEqual=4, Greater=5, NotEqual=6, GreaterEqual=7, Always=8`); the host casts
+/// `Sync<ZTest>.Value` to float without any remapping, so the renderer must decode it with the
+/// FrooxEngine layout.
+///
+/// Depth-test comparisons invert under reverse-Z (near fragments have greater depth), so e.g.
+/// `ZTest.LessOrEqual` — the usual opaque-pass default — becomes `wgpu::CompareFunction::GreaterEqual`.
+pub(crate) fn froox_ztest_depth_compare_function(value: u8) -> Option<wgpu::CompareFunction> {
     match value {
-        // Unity value 0 is "Disabled"; use Always because wgpu has no per-pipeline depth-test off
-        // separate from the depth attachment.
-        0 => Some(wgpu::CompareFunction::Always),
-        1 => Some(wgpu::CompareFunction::Never),
-        // Renderer depth is reverse-Z, so Unity less/greater comparisons invert.
-        2 => Some(wgpu::CompareFunction::Greater),
-        3 => Some(wgpu::CompareFunction::Equal),
-        4 => Some(wgpu::CompareFunction::GreaterEqual),
-        5 => Some(wgpu::CompareFunction::Less),
-        6 => Some(wgpu::CompareFunction::NotEqual),
-        7 => Some(wgpu::CompareFunction::LessEqual),
-        8 => Some(wgpu::CompareFunction::Always),
+        0 => Some(wgpu::CompareFunction::Greater),
+        1 => Some(wgpu::CompareFunction::Less),
+        2 => Some(wgpu::CompareFunction::GreaterEqual),
+        3 => Some(wgpu::CompareFunction::LessEqual),
+        4 => Some(wgpu::CompareFunction::Equal),
+        5 => Some(wgpu::CompareFunction::NotEqual),
+        6 => Some(wgpu::CompareFunction::Always),
         _ => None,
     }
 }
@@ -152,30 +158,40 @@ mod tests {
     }
 
     #[test]
-    fn depth_compare_inverts_for_reverse_z() {
-        // Unity Less (2) inverts to wgpu Greater under reverse-Z.
+    fn froox_ztest_depth_compare_inverts_for_reverse_z() {
+        // `ZTest.Less` (0) inverts to wgpu `Greater` under reverse-Z.
         assert_eq!(
-            unity_depth_compare_function(2),
+            froox_ztest_depth_compare_function(0),
             Some(wgpu::CompareFunction::Greater)
         );
         assert_eq!(
-            unity_depth_compare_function(5),
+            froox_ztest_depth_compare_function(1),
             Some(wgpu::CompareFunction::Less)
         );
+        // `ZTest.LessOrEqual` (2) is Unity's opaque-pass default and must invert to `GreaterEqual`.
         assert_eq!(
-            unity_depth_compare_function(4),
+            froox_ztest_depth_compare_function(2),
             Some(wgpu::CompareFunction::GreaterEqual)
         );
         assert_eq!(
-            unity_depth_compare_function(7),
+            froox_ztest_depth_compare_function(3),
             Some(wgpu::CompareFunction::LessEqual)
         );
-        // Disabled → Always (wgpu has no per-pipeline disable).
         assert_eq!(
-            unity_depth_compare_function(0),
+            froox_ztest_depth_compare_function(4),
+            Some(wgpu::CompareFunction::Equal)
+        );
+        assert_eq!(
+            froox_ztest_depth_compare_function(5),
+            Some(wgpu::CompareFunction::NotEqual)
+        );
+        assert_eq!(
+            froox_ztest_depth_compare_function(6),
             Some(wgpu::CompareFunction::Always)
         );
-        assert_eq!(unity_depth_compare_function(99), None);
+        // Values outside the FrooxEngine `ZTest` enum fall back to the shader pass default.
+        assert_eq!(froox_ztest_depth_compare_function(7), None);
+        assert_eq!(froox_ztest_depth_compare_function(99), None);
     }
 
     #[test]

@@ -6,7 +6,7 @@
 use crate::assets::material::{MaterialDictionary, MaterialPropertyLookupIds};
 
 use super::material_pass_tables::{
-    unity_color_writes, unity_compare_function, unity_depth_compare_function,
+    froox_ztest_depth_compare_function, unity_color_writes, unity_compare_function,
     unity_stencil_operation,
 };
 use super::material_passes::{first_float_from_maps, MaterialPipelinePropertyIds, PropertyMapRef};
@@ -34,7 +34,7 @@ pub struct MaterialRenderState {
     pub color_mask: Option<u8>,
     /// Unity `ZWrite` override. `None` preserves the shader pass default.
     pub depth_write: Option<bool>,
-    /// Unity `ZTest` / `CompareFunction` override. `None` preserves the shader pass default.
+    /// FrooxEngine `ZTest` enum override (raw `_ZTest` byte). `None` preserves the shader pass default.
     pub depth_compare: Option<u8>,
     /// Unity `Offset factor, units` override. `None` preserves the shader pass default.
     pub depth_offset: Option<MaterialDepthOffsetState>,
@@ -95,10 +95,10 @@ impl MaterialRenderState {
         self.depth_write.unwrap_or(fallback)
     }
 
-    /// Applies the optional Unity depth-compare override to a pass default.
+    /// Applies the optional FrooxEngine `ZTest` override to a pass default.
     pub fn depth_compare(self, fallback: wgpu::CompareFunction) -> wgpu::CompareFunction {
         self.depth_compare
-            .and_then(unity_depth_compare_function)
+            .and_then(froox_ztest_depth_compare_function)
             .unwrap_or(fallback)
     }
 
@@ -357,13 +357,14 @@ mod tests {
 
         let st = MaterialRenderState {
             depth_write: Some(false),
+            // FrooxEngine `ZTest.LessOrEqual = 2` inverts to wgpu `GreaterEqual` under reverse-Z.
             depth_compare: Some(2),
             ..MaterialRenderState::default()
         };
         assert!(!st.depth_write(true));
         assert_eq!(
             st.depth_compare(wgpu::CompareFunction::Always),
-            wgpu::CompareFunction::Greater
+            wgpu::CompareFunction::GreaterEqual
         );
     }
 
