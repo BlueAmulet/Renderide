@@ -80,7 +80,7 @@ pub struct DrawCollectionContext<'a> {
     pub head_output_transform: Mat4,
     /// Camera world position for back-to-front distance sorting of transparent draws.
     ///
-    /// Populate from `HostCameraFrame::secondary_camera_world_position.unwrap_or_else(|| head_output_transform.col(3).truncate())`.
+    /// Populate from `HostCameraFrame::explicit_camera_world_position.unwrap_or_else(|| head_output_transform.col(3).truncate())`.
     pub view_origin_world: Vec3,
     /// Optional CPU frustum + Hi-Z cull inputs.
     pub culling: Option<&'a super::super::world_mesh_cull::WorldMeshCullInput<'a>>,

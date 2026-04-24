@@ -135,7 +135,7 @@ pub(super) fn take_or_collect_world_mesh_draws<'a>(
         render_context,
         head_output_transform: hc.head_output_transform,
         view_origin_world: hc
-            .secondary_camera_world_position
+            .explicit_camera_world_position
             .unwrap_or_else(|| hc.head_output_transform.col(3).truncate()),
         culling,
         transform_filter: frame.view.transform_draw_filter.as_ref(),
@@ -165,7 +165,7 @@ pub(super) fn capture_hi_z_temporal_after_collect(
         cull_in.proj,
         frame.view.viewport_px,
         frame.view.hi_z_slot.as_ref(),
-        hc.secondary_camera_world_to_view,
+        hc.explicit_world_to_view,
     );
 }
 
@@ -369,7 +369,7 @@ pub(super) fn write_frame_uniforms_and_cluster(
     let (vw, vh) = viewport_px;
     let light_count_u = frame_resources.frame_light_count_u32();
     let camera_world = hc
-        .secondary_camera_world_position
+        .explicit_camera_world_position
         .unwrap_or_else(|| hc.head_output_transform.col(3).truncate());
 
     let stereo_cluster = use_multiview && hc.vr_active && hc.stereo.is_some();
@@ -703,7 +703,7 @@ fn build_per_view_frame_gpu_uniforms(
     let (vw, vh) = frame.view.viewport_px;
     let light_count = frame.shared.frame_resources.frame_light_count_u32();
     let camera_world = hc
-        .secondary_camera_world_position
+        .explicit_camera_world_position
         .unwrap_or_else(|| hc.head_output_transform.col(3).truncate());
     let stereo_cluster = use_multiview && hc.vr_active && hc.stereo.is_some();
     let frame_idx = hc.frame_index as u32;

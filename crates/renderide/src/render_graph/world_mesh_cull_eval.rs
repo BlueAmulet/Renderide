@@ -2,8 +2,8 @@
 //!
 //! Shares one bounds evaluation per draw slot using the same view–projection rules as the forward pass
 //! ([`super::world_mesh_cull::build_world_mesh_cull_proj_params`]), including
-//! [`super::frame_params::HostCameraFrame::secondary_camera_world_to_view`] when set for secondary
-//! render-texture cameras.
+//! [`super::frame_params::HostCameraFrame::explicit_world_to_view`] when set (e.g. for secondary
+//! render-texture cameras).
 
 use glam::{Mat4, Vec3};
 
@@ -223,7 +223,7 @@ pub(crate) fn mesh_draw_passes_cpu_cull(
     };
     let view = culling
         .host_camera
-        .secondary_camera_world_to_view
+        .explicit_world_to_view
         .unwrap_or_else(|| view_matrix_for_world_mesh_render_space(target.scene, space));
     let proj = &culling.proj;
 

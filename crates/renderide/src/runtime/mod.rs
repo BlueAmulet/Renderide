@@ -14,13 +14,13 @@ mod accessors;
 mod command_dispatch;
 mod commands;
 mod debug_hud_frame;
+mod frame_render;
 mod frame_submit;
 mod host_camera_apply;
 mod ipc_init_dispatch;
 mod lights_ipc;
 mod lockstep;
 mod renderer_command_kind;
-mod secondary_cameras;
 mod shader_material_ipc;
 mod xr_impls;
 

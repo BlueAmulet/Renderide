@@ -2,7 +2,7 @@
 //!
 //! Values match [`super::passes::world_mesh_forward::WorldMeshForwardOpaquePass`] per-space `view` and
 //! global projection state (`HostCameraFrame`, viewport aspect, clip planes). When
-//! [`HostCameraFrame::secondary_camera_world_to_view`] is set, frustum and Hi-Z temporal paths use
+//! [`HostCameraFrame::explicit_world_to_view`] is set, frustum and Hi-Z temporal paths use
 //! that world-to-view (same as the forward pass) instead of [`view_matrix_for_world_mesh_render_space`].
 
 use std::sync::Arc;
@@ -33,9 +33,9 @@ pub struct HiZTemporalState {
     pub prev_cull: WorldMeshCullProjParams,
     /// World-to-camera view matrix per render space at that frame (shared; cloning is cheap).
     ///
-    /// For secondary (render-texture) cameras, every space stores the same
-    /// [`HostCameraFrame::secondary_camera_world_to_view`] snapshot, matching the single view used to
-    /// render that pass’s depth pyramid.
+    /// For views with an explicit camera pose (e.g. secondary render-texture cameras), every space
+    /// stores the same [`HostCameraFrame::explicit_world_to_view`] snapshot, matching the single
+    /// view used to render that pass’s depth pyramid.
     pub prev_view_by_space: Arc<HashMap<RenderSpaceId, Mat4>>,
     /// Hi-Z mip0 size in texels (downscaled from full depth; see [`super::hi_z_cpu::hi_z_pyramid_dimensions`]).
     pub depth_viewport_px: (u32, u32),
@@ -43,17 +43,17 @@ pub struct HiZTemporalState {
 
 /// Records per-space views and pyramid viewport for the next frame’s Hi-Z occlusion tests.
 ///
-/// When `secondary_camera_world_to_view` is [`Some`], that matrix is stored for every active render
+/// When `explicit_world_to_view` is [`Some`], that matrix is stored for every active render
 /// space so Hi-Z tests use the same view as the offscreen depth author pass (see
-/// [`HostCameraFrame::secondary_camera_world_to_view`]).
+/// [`HostCameraFrame::explicit_world_to_view`]).
 pub fn capture_hi_z_temporal(
     scene: &SceneCoordinator,
     prev_cull: WorldMeshCullProjParams,
     full_viewport_px: (u32, u32),
-    secondary_camera_world_to_view: Option<Mat4>,
+    explicit_world_to_view: Option<Mat4>,
 ) -> HiZTemporalState {
     let mut prev_view_by_space = HashMap::new();
-    if let Some(override_view) = secondary_camera_world_to_view {
+    if let Some(override_view) = explicit_world_to_view {
         for id in scene.render_space_ids() {
             if scene.space(id).is_some() {
                 prev_view_by_space.insert(id, override_view);

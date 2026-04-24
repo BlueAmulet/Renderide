@@ -70,10 +70,10 @@ pub fn host_camera_frame_for_render_texture(
         primary_ortho_task,
         stereo: None,
         head_output_transform: base.head_output_transform,
-        secondary_camera_world_to_view: Some(world_to_view),
+        explicit_world_to_view: Some(world_to_view),
         cluster_view_override: Some(world_to_view),
         cluster_proj_override: Some(world_proj),
-        secondary_camera_world_position: Some(camera_world),
+        explicit_camera_world_position: Some(camera_world),
         suppress_occlusion_temporal: false,
     }
 }
@@ -119,7 +119,7 @@ mod tests {
             host_camera_frame_for_render_texture(&base, &state, (1280, 720), cam_world, &scene);
 
         let expected_w2v = apply_view_handedness_fix(cam_world.inverse());
-        assert_eq!(out.secondary_camera_world_to_view, Some(expected_w2v));
+        assert_eq!(out.explicit_world_to_view, Some(expected_w2v));
         assert_eq!(out.cluster_view_override, Some(expected_w2v));
         assert!(out.cluster_proj_override.is_some());
         assert_eq!(out.primary_ortho_task, None);

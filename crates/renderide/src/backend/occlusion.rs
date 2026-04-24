@@ -195,14 +195,14 @@ impl OcclusionSystem {
         prev_cull: WorldMeshCullProjParams,
         viewport_px: (u32, u32),
         state_slot: &Mutex<HiZGpuState>,
-        secondary_camera_world_to_view: Option<Mat4>,
+        explicit_world_to_view: Option<Mat4>,
     ) {
         profiling::scope!("hi_z::capture_temporal");
         let temporal = Some(capture_hi_z_temporal(
             scene,
             prev_cull,
             viewport_px,
-            secondary_camera_world_to_view,
+            explicit_world_to_view,
         ));
         let mut state = state_slot.lock();
         state.temporal = temporal;

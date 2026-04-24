@@ -69,10 +69,18 @@ impl crate::xr::XrFrameRenderer for RendererRuntime {
         gpu: &mut GpuContext,
         hmd: ExternalFrameTargets<'_>,
     ) -> Result<(), GraphExecuteError> {
-        RendererRuntime::render_frame(self, gpu, false, Some(hmd))
+        RendererRuntime::render_frame(
+            self,
+            gpu,
+            super::frame_render::FrameRenderMode::VrWithHmd(hmd),
+        )
     }
 
     fn submit_secondary_only(&mut self, gpu: &mut GpuContext) -> Result<(), GraphExecuteError> {
-        RendererRuntime::render_frame(self, gpu, false, None)
+        RendererRuntime::render_frame(
+            self,
+            gpu,
+            super::frame_render::FrameRenderMode::VrSecondariesOnly,
+        )
     }
 }

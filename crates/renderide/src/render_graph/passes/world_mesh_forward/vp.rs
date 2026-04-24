@@ -40,7 +40,7 @@ pub(crate) fn compute_per_draw_vp_triple(
         return (Mat4::IDENTITY, Mat4::IDENTITY, Mat4::IDENTITY);
     };
     let view = hc
-        .secondary_camera_world_to_view
+        .explicit_world_to_view
         .unwrap_or_else(|| view_matrix_for_world_mesh_render_space(scene, space));
     let vr_stereo_view = Mat4::IDENTITY;
     if let (true, Some(stereo)) = (hc.vr_active, hc.stereo) {

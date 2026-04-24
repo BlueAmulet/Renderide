@@ -84,12 +84,14 @@ pub struct HostCameraFrame {
     /// Overlay render spaces are positioned relative to this transform each frame
     /// (`RenderingManager.HandleFrameUpdate -> RenderSpace.UpdateOverlayPositioning`).
     pub head_output_transform: Mat4,
-    /// When set, non-VR mesh forward uses this world-to-view instead of the main render-space view.
+    /// Explicit per-view world-to-view matrix override.
     ///
-    /// Used for secondary (render-texture) cameras so [`super::passes::world_mesh_forward::vp::compute_per_draw_vp_triple`]
-    /// matches the offscreen projection, and so CPU frustum and Hi-Z temporal culling
+    /// Set on any view that carries its own camera pose (currently secondary render-texture
+    /// cameras). When [`None`], mesh forward and culling paths derive the view matrix from the
+    /// active render space. When [`Some`], [`super::passes::world_mesh_forward::vp::compute_per_draw_vp_triple`]
+    /// matches the offscreen projection, and CPU frustum + Hi-Z temporal culling
     /// ([`super::world_mesh_cull`]) use the same world-to-view as the depth pyramid author pass.
-    pub secondary_camera_world_to_view: Option<Mat4>,
+    pub explicit_world_to_view: Option<Mat4>,
     /// Optional override for cluster + forward projection (reverse-Z perspective or ortho).
     ///
     /// When both [`Self::cluster_view_override`] and [`Self::cluster_proj_override`] are set,
@@ -97,9 +99,12 @@ pub struct HostCameraFrame {
     pub cluster_view_override: Option<Mat4>,
     /// Optional override projection for clustered light assignment (reverse-Z).
     pub cluster_proj_override: Option<Mat4>,
-    /// World position for `@group(0)` camera uniforms when the secondary camera is active.
-    pub secondary_camera_world_position: Option<Vec3>,
-    /// Skips Hi-Z temporal state and uses uncull or frustum-only paths for secondary RT passes.
+    /// Explicit camera world position for `@group(0)` camera uniforms.
+    ///
+    /// Set on views that carry an explicit camera pose (currently secondary render-texture
+    /// cameras). When [`None`], callers fall back to `head_output_transform.col(3).truncate()`.
+    pub explicit_camera_world_position: Option<Vec3>,
+    /// Skips Hi-Z temporal state and uses uncull or frustum-only paths for this view.
     pub suppress_occlusion_temporal: bool,
 }
 
@@ -115,10 +120,10 @@ impl Default for HostCameraFrame {
             primary_ortho_task: None,
             stereo: None,
             head_output_transform: Mat4::IDENTITY,
-            secondary_camera_world_to_view: None,
+            explicit_world_to_view: None,
             cluster_view_override: None,
             cluster_proj_override: None,
-            secondary_camera_world_position: None,
+            explicit_camera_world_position: None,
             suppress_occlusion_temporal: false,
         }
     }
