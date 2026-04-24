@@ -42,21 +42,32 @@ impl CompiledRenderGraph {
             ..
         } = work_item;
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("render-graph-per-view"),
-        });
+        let mut encoder = {
+            profiling::scope!("graph::per_view::create_encoder");
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("render-graph-per-view"),
+            })
+        };
         let gpu_query = profiler.map(|p| p.begin_query("graph::per_view", &mut encoder));
 
         let resolved = resolved.as_resolved();
-        let key = GraphResolveKey::from_resolved(&resolved);
-        // Transients were pre-resolved in `pre_resolve_transients_for_views` before the per-view
-        // loop began, so a missing entry here is a bug.
-        let mut resolved_resources = transient_by_key.get(&key).cloned().ok_or_else(|| {
-            logger::warn!("pre-resolve: missing transient resources for view key {key:?}");
-            GraphExecuteError::MissingTransientResources
-        })?;
-        self.resolve_imported_textures(&resolved, &mut resolved_resources);
-        self.resolve_imported_buffers(shared.frame_resources, &resolved, &mut resolved_resources);
+        let resolved_resources = {
+            profiling::scope!("graph::per_view::resolve_transients");
+            let key = GraphResolveKey::from_resolved(&resolved);
+            // Transients were pre-resolved in `pre_resolve_transients_for_views` before the
+            // per-view loop began, so a missing entry here is a bug.
+            let mut resolved_resources = transient_by_key.get(&key).cloned().ok_or_else(|| {
+                logger::warn!("pre-resolve: missing transient resources for view key {key:?}");
+                GraphExecuteError::MissingTransientResources
+            })?;
+            self.resolve_imported_textures(&resolved, &mut resolved_resources);
+            self.resolve_imported_buffers(
+                shared.frame_resources,
+                &resolved,
+                &mut resolved_resources,
+            );
+            resolved_resources
+        };
         let graph_resources: &GraphResolvedResources = &resolved_resources;
 
         let mut frame_params =
@@ -74,34 +85,39 @@ impl CompiledRenderGraph {
         view_blackboard.insert::<GtaoSettingsSlot>(GtaoSettingsValue(shared.live_gtao_settings));
 
         // Collect indices from the single FrameSchedule source of truth.
-        let per_view_indices: Vec<usize> =
-            self.schedule.per_view_steps().map(|s| s.pass_idx).collect();
+        let per_view_indices: Vec<usize> = {
+            profiling::scope!("graph::per_view::collect_pass_indices");
+            self.schedule.per_view_steps().map(|s| s.pass_idx).collect()
+        };
 
-        for &pass_idx in &per_view_indices {
-            let pass_name = self.passes[pass_idx].name().to_string();
-            profiling::scope!("graph::pass", pass_name.as_str());
+        {
+            profiling::scope!("graph::per_view::pass_loop");
+            for &pass_idx in &per_view_indices {
+                let pass_name = self.passes[pass_idx].name().to_string();
+                profiling::scope!("graph::pass", pass_name.as_str());
 
-            // Open the GPU profiler query before calling execute_pass_node so we can
-            // avoid capturing `encoder` in a closure while also passing it mutably.
-            let pass_query = profiler.map(|p| p.begin_query(pass_name.as_str(), &mut encoder));
+                // Open the GPU profiler query before calling execute_pass_node so we can
+                // avoid capturing `encoder` in a closure while also passing it mutably.
+                let pass_query = profiler.map(|p| p.begin_query(pass_name.as_str(), &mut encoder));
 
-            self.execute_pass_node(
-                pass_idx,
-                &resolved,
-                graph_resources,
-                &mut frame_params,
-                &mut view_blackboard,
-                &mut encoder,
-                shared.device,
-                shared.gpu_limits,
-                shared.queue_arc,
-                upload_batch,
-                profiler,
-            )?;
+                self.execute_pass_node(
+                    pass_idx,
+                    &resolved,
+                    graph_resources,
+                    &mut frame_params,
+                    &mut view_blackboard,
+                    &mut encoder,
+                    shared.device,
+                    shared.gpu_limits,
+                    shared.queue_arc,
+                    upload_batch,
+                    profiler,
+                )?;
 
-            if let Some(q) = pass_query {
-                if let Some(p) = profiler {
-                    p.end_query(&mut encoder, q);
+                if let Some(q) = pass_query {
+                    if let Some(p) = profiler {
+                        p.end_query(&mut encoder, q);
+                    }
                 }
             }
         }
@@ -124,6 +140,7 @@ impl CompiledRenderGraph {
         host_camera: &super::super::super::frame_params::HostCameraFrame,
         draw_filter: Option<crate::render_graph::world_mesh_draw_prep::CameraTransformDrawFilter>,
     ) -> crate::render_graph::frame_params::FrameRenderParams<'a> {
+        profiling::scope!("graph::per_view::build_frame_params");
         let hi_z_slot = shared.occlusion.ensure_hi_z_state(resolved.occlusion_view);
         helpers::frame_render_params_from_shared(
             FrameSystemsShared {
@@ -161,6 +178,7 @@ impl CompiledRenderGraph {
         per_view_frame_bg_and_buf: Option<(std::sync::Arc<wgpu::BindGroup>, wgpu::Buffer)>,
         view_idx: usize,
     ) -> Blackboard {
+        profiling::scope!("graph::per_view::build_blackboard");
         let mut view_blackboard = Blackboard::new();
         if let Some(msaa_views) = helpers::resolve_forward_msaa_views_from_graph_resources(
             frame_params,
