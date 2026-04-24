@@ -3,7 +3,8 @@
 //! Dispatches over a 3D grid (`16×16` pixel tiles × exponential Z slices). Uses the same
 //! [`GpuLight`] buffer and cluster storage as raster `@group(0)` ([`crate::backend::FrameGpuResources`]).
 //!
-//! WGSL source: `shaders/source/compute/clustered_light.wgsl` (included at compile time).
+//! WGSL source: `shaders/source/compute/clustered_light.wgsl` (composed by the build script and
+//! loaded from the embedded shader registry at pipeline creation time).
 
 mod cache;
 
@@ -54,10 +55,8 @@ struct ClusterParams {
     _pad: [u8; 8],
 }
 
-const CLUSTERED_LIGHT_SHADER_SRC: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/shaders/source/compute/clustered_light.wgsl"
-));
+/// Embedded shader stem for the clustered-light compute pass (single-variant).
+const CLUSTERED_LIGHT_STEM: &str = "clustered_light";
 
 fn compute_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -118,9 +117,15 @@ fn ensure_compute_pipeline(
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
+        #[expect(
+            clippy::expect_used,
+            reason = "embedded shader is required; absence is a build script regression"
+        )]
+        let source = crate::embedded_shaders::embedded_target_wgsl(CLUSTERED_LIGHT_STEM)
+            .expect("clustered_light: embedded shader missing (build script regression)");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("clustered_light"),
-            source: wgpu::ShaderSource::Wgsl(CLUSTERED_LIGHT_SHADER_SRC.into()),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("clustered_light"),

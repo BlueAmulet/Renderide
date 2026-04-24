@@ -1,18 +1,21 @@
 //! Cached pipelines and bind layout for [`super::SceneColorComposePass`].
+//!
+//! WGSL is sourced from the build-time embedded shader registry
+//! ([`crate::embedded_shaders::embedded_target_wgsl`]): the single source
+//! `shaders/source/post/scene_color_compose.wgsl` is composed twice with `#ifdef MULTIVIEW` into
+//! `scene_color_compose_default` and `scene_color_compose_multiview` by the build script.
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 
-const WGSL_MONO: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/shaders/source/post/scene_color_compose_mono.wgsl"
-));
-const WGSL_MULTIVIEW: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/shaders/source/post/scene_color_compose_multiview.wgsl"
-));
+use crate::embedded_shaders::embedded_target_wgsl;
+
+/// Embedded shader stem for the mono variant.
+const WGSL_STEM_MONO: &str = "scene_color_compose_default";
+/// Embedded shader stem for the multiview variant.
+const WGSL_STEM_MULTIVIEW: &str = "scene_color_compose_multiview";
 
 /// GPU state shared by all compose passes (bind layout + sampler).
 pub(super) struct SceneColorComposePipelineCache {
@@ -98,28 +101,29 @@ impl SceneColorComposePipelineCache {
             output_format,
             multiview_stereo
         );
-        let label = if multiview_stereo {
-            "scene_color_compose_multiview"
+        let stem = if multiview_stereo {
+            WGSL_STEM_MULTIVIEW
         } else {
-            "scene_color_compose_mono"
+            WGSL_STEM_MONO
         };
-        let source = if multiview_stereo {
-            WGSL_MULTIVIEW
-        } else {
-            WGSL_MONO
-        };
+        #[expect(
+            clippy::expect_used,
+            reason = "embedded shader is required; absence is a build script regression"
+        )]
+        let source = embedded_target_wgsl(stem)
+            .expect("scene_color_compose: embedded shader missing (build script regression)");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
+            label: Some(stem),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some(label),
+            label: Some(stem),
             bind_group_layouts: &[Some(self.bind_group_layout(device))],
             immediate_size: 0,
         });
         let pipeline = Arc::new(
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
+                label: Some(stem),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
