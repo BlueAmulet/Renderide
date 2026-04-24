@@ -1,16 +1,34 @@
 //! [`LightCache`]: merges incremental host light updates and resolves to world space.
+//!
+//! Dense per-space storage mirrors the reference
+//! [`RenderableComponentManager`](https://github.com/Yellow-Dog-Man/FrooxEngine) protocol: the host
+//! pre-assigns a `RenderableIndex` equal to its own list length and applies swap-remove on
+//! removals, and the renderer maintains an identically-ordered list so subsequent state rows can
+//! address renderables by index without any renderer→host handshake.
 
 use hashbrown::HashMap;
-use std::collections::HashSet;
 
 use glam::{Mat4, Quat, Vec3};
 
 use crate::shared::{LightData, LightState, LightsBufferRendererState};
 
+use super::super::transforms_apply::TransformRemovalEvent;
+use super::super::world::fixup_transform_id;
 use super::types::{CachedLight, ResolvedLight};
 
 /// Local axis for light propagation before world transform (host forward = **+Z**).
 const LOCAL_LIGHT_PROPAGATION: Vec3 = Vec3::new(0.0, 0.0, 1.0);
+
+/// Dense buffer-renderer entry. Position in the per-space [`Vec`] equals the host's
+/// `RenderableIndex`; the pointed-to [`LightData`] rows live in [`LightCache::buffers`] keyed by
+/// `state.global_unique_id`.
+#[derive(Clone, Copy, Debug)]
+struct BufferRenderer {
+    /// Dense transform index for world-matrix lookup (from the host additions batch).
+    transform_id: usize,
+    /// Host state (includes `global_unique_id` selecting which [`LightCache::buffers`] payload to fan out).
+    state: LightsBufferRendererState,
+}
 
 /// CPU-side cache: buffer submissions, per-render-space flattened lights, regular vs buffer paths.
 ///
@@ -19,19 +37,18 @@ const LOCAL_LIGHT_PROPAGATION: Vec3 = Vec3::new(0.0, 0.0, 1.0);
 /// [`Self::resolve_lights`] after world matrices are current.
 #[derive(Clone, Debug)]
 pub struct LightCache {
+    /// Monotonic change counter; advanced on any mutation.
     version: u64,
+    /// Shared [`LightData`] payloads keyed by `global_unique_id`. Referenced by every
+    /// [`BufferRenderer`] whose `state.global_unique_id` matches.
     buffers: HashMap<i32, Vec<LightData>>,
+    /// Flattened per-space output, rebuilt after each apply from [`Self::regular_lights`] and
+    /// [`Self::buffer_renderers`] fanning out [`Self::buffers`].
     spaces: HashMap<i32, Vec<CachedLight>>,
-    buffer_contributions: HashMap<(i32, i32), Vec<CachedLight>>,
-    buffer_by_renderable: HashMap<(i32, i32), i32>,
-    buffer_states: HashMap<(i32, i32), LightsBufferRendererState>,
-    regular_lights: HashMap<(i32, i32), CachedLight>,
-    buffer_transforms: HashMap<(i32, i32), usize>,
-    regular_light_transforms: HashMap<(i32, i32), usize>,
-    /// Reused by [`Self::rebuild_space_vec`] for sorted buffer GUID keys (avoids per-update allocations).
-    rebuild_guids_scratch: Vec<i32>,
-    /// Reused by [`Self::rebuild_space_vec`] for sorted regular renderable indices.
-    rebuild_regular_indices_scratch: Vec<i32>,
+    /// Dense per-space list of regular (Unity `Light`) renderables; vec index == host `RenderableIndex`.
+    regular_lights: HashMap<i32, Vec<CachedLight>>,
+    /// Dense per-space list of buffer-renderer entries; vec index == host `RenderableIndex`.
+    buffer_renderers: HashMap<i32, Vec<BufferRenderer>>,
 }
 
 impl LightCache {
@@ -41,14 +58,8 @@ impl LightCache {
             version: 0,
             buffers: HashMap::new(),
             spaces: HashMap::new(),
-            buffer_contributions: HashMap::new(),
-            buffer_by_renderable: HashMap::new(),
-            buffer_states: HashMap::new(),
             regular_lights: HashMap::new(),
-            buffer_transforms: HashMap::new(),
-            regular_light_transforms: HashMap::new(),
-            rebuild_guids_scratch: Vec::new(),
-            rebuild_regular_indices_scratch: Vec::new(),
+            buffer_renderers: HashMap::new(),
         }
     }
 
@@ -66,100 +77,64 @@ impl LightCache {
         self.version = self.version.wrapping_add(1);
     }
 
-    /// Stores full [`LightData`] rows from a host submission (overwrites prior buffer id).
+    /// Stores full [`LightData`] rows from a host submission (overwrites prior buffer id) and
+    /// rebuilds every render space that has a [`BufferRenderer`] pointing at this `global_unique_id`.
     pub fn store_full(&mut self, lights_buffer_unique_id: i32, light_data: Vec<LightData>) {
         self.buffers.insert(lights_buffer_unique_id, light_data);
-        self.refresh_buffer_contributions(lights_buffer_unique_id);
+        let mut dirty_spaces: Vec<i32> = self
+            .buffer_renderers
+            .iter()
+            .filter_map(|(sid, v)| {
+                v.iter()
+                    .any(|br| br.state.global_unique_id == lights_buffer_unique_id)
+                    .then_some(*sid)
+            })
+            .collect();
+        dirty_spaces.sort_unstable();
+        dirty_spaces.dedup();
+        for sid in dirty_spaces {
+            self.rebuild_space_vec(sid);
+        }
         self.mark_changed();
     }
 
-    fn build_buffer_entries(
-        buffer_data: &[LightData],
-        state: LightsBufferRendererState,
-        transform_id: usize,
-    ) -> Vec<CachedLight> {
-        let mut entries = Vec::with_capacity(buffer_data.len());
-        for data in buffer_data {
-            entries.push(CachedLight {
-                data: *data,
-                state,
-                transform_id,
-            });
-        }
-        entries
-    }
-
-    fn refresh_buffer_contributions(&mut self, lights_buffer_unique_id: i32) {
-        profiling::scope!("lights::refresh_buffer_contributions");
-        let Some(buffer_data) = self.buffers.get(&lights_buffer_unique_id).cloned() else {
-            return;
-        };
-
-        let mut keys = Vec::new();
-        keys.extend(
-            self.buffer_states
-                .keys()
-                .filter(|(_, guid)| *guid == lights_buffer_unique_id)
-                .copied(),
-        );
-
-        let mut dirty_spaces = Vec::new();
-        for key in keys {
-            let Some(&state) = self.buffer_states.get(&key) else {
-                continue;
-            };
-            let transform_id = self.buffer_transforms.get(&key).copied().unwrap_or(0);
-            let entries = Self::build_buffer_entries(&buffer_data, state, transform_id);
-            self.buffer_contributions.insert(key, entries);
-            dirty_spaces.push(key.0);
-        }
-
-        dirty_spaces.sort_unstable();
-        dirty_spaces.dedup();
-        for space_id in dirty_spaces {
-            self.rebuild_space_vec(space_id);
-        }
-    }
-
-    /// Rebuilds the flattened per-space light list after buffer or regular-light map changes.
-    ///
-    /// Reuses the [`Vec`] stored in [`Self::spaces`] and scratch buffers for sort keys so steady-state
-    /// updates avoid allocating new vectors every time.
+    /// Rebuilds [`Self::spaces`] for one render space from dense regular and buffer-renderer
+    /// lists. Removes the old entry first so the rebuild can read the other maps without
+    /// aliasing borrows.
     fn rebuild_space_vec(&mut self, space_id: i32) {
         profiling::scope!("lights::rebuild_space_vec");
-        let v = self.spaces.entry(space_id).or_default();
-        v.clear();
+        let mut out = self.spaces.remove(&space_id).unwrap_or_default();
+        out.clear();
 
-        self.rebuild_guids_scratch.clear();
-        self.rebuild_guids_scratch.extend(
-            self.buffer_contributions
-                .keys()
-                .filter(|(sid, _)| *sid == space_id)
-                .map(|(_, g)| *g),
-        );
-        self.rebuild_guids_scratch.sort_unstable();
-        for g in self.rebuild_guids_scratch.iter().copied() {
-            if let Some(chunk) = self.buffer_contributions.get(&(space_id, g)) {
-                v.extend(chunk.iter().cloned());
+        if let Some(regulars) = self.regular_lights.get(&space_id) {
+            out.extend(regulars.iter().cloned());
+        }
+
+        if let Some(renderers) = self.buffer_renderers.get(&space_id) {
+            for br in renderers {
+                let Some(buffer_data) = self.buffers.get(&br.state.global_unique_id) else {
+                    continue;
+                };
+                for data in buffer_data {
+                    out.push(CachedLight {
+                        data: *data,
+                        state: br.state,
+                        transform_id: br.transform_id,
+                    });
+                }
             }
         }
 
-        self.rebuild_regular_indices_scratch.clear();
-        self.rebuild_regular_indices_scratch.extend(
-            self.regular_lights
-                .keys()
-                .filter(|(sid, _)| *sid == space_id)
-                .map(|(_, r)| *r),
-        );
-        self.rebuild_regular_indices_scratch.sort_unstable();
-        for r in self.rebuild_regular_indices_scratch.iter().copied() {
-            if let Some(light) = self.regular_lights.get(&(space_id, r)) {
-                v.push(light.clone());
-            }
-        }
+        self.spaces.insert(space_id, out);
     }
 
-    /// Applies [`LightsBufferRendererUpdate`]: removals, additions (transform indices), states.
+    /// Applies [`crate::shared::LightsBufferRendererUpdate`]: removals, additions (transform indices), states.
+    ///
+    /// Processes in the fixed order **removals → additions → states**, matching the reference
+    /// `RenderableManager.HandleUpdate`. Removal uses [`Vec::swap_remove`] so the renderer's
+    /// dense list stays in lockstep with the host's swap-remove reindexing; additions append
+    /// placeholder entries whose transform ids come from the `additions` buffer; state rows
+    /// address those entries by index.
     pub fn apply_update(
         &mut self,
         space_id: i32,
@@ -168,54 +143,41 @@ impl LightCache {
         states: &[LightsBufferRendererState],
     ) {
         profiling::scope!("lights::apply_update");
-        let removal_set: HashSet<i32> = removals.iter().take_while(|&&i| i >= 0).copied().collect();
+        let v = self.buffer_renderers.entry(space_id).or_default();
 
-        for &ridx in &removal_set {
-            if let Some(guid) = self.buffer_by_renderable.remove(&(space_id, ridx)) {
-                self.buffer_contributions.remove(&(space_id, guid));
-                self.buffer_transforms.remove(&(space_id, guid));
-                self.buffer_states.remove(&(space_id, guid));
+        for &idx in removals.iter().take_while(|&&i| i >= 0) {
+            let idx_usize = idx as usize;
+            if idx_usize >= v.len() {
+                logger::warn!(
+                    "light_cache: buffer-renderer removal index {idx} out of range (space_id={space_id}, len={})",
+                    v.len()
+                );
+                continue;
             }
+            v.swap_remove(idx_usize);
         }
 
-        let mut additions_iter = additions
-            .iter()
-            .take_while(|&&t| t >= 0)
-            .map(|&t| t as usize);
+        for &t in additions.iter().take_while(|&&t| t >= 0) {
+            v.push(BufferRenderer {
+                transform_id: t as usize,
+                state: LightsBufferRendererState::default(),
+            });
+        }
 
         for state in states {
             if state.renderable_index < 0 {
                 break;
             }
-            if removal_set.contains(&state.renderable_index) {
+            let idx_usize = state.renderable_index as usize;
+            let Some(slot) = v.get_mut(idx_usize) else {
+                logger::warn!(
+                    "light_cache: buffer-renderer state index {} out of range (space_id={space_id}, len={})",
+                    state.renderable_index,
+                    v.len()
+                );
                 continue;
-            }
-            let guid = state.global_unique_id;
-            if let Some(previous_guid) = self
-                .buffer_by_renderable
-                .insert((space_id, state.renderable_index), guid)
-            {
-                if previous_guid != guid {
-                    self.buffer_contributions.remove(&(space_id, previous_guid));
-                    self.buffer_transforms.remove(&(space_id, previous_guid));
-                    self.buffer_states.remove(&(space_id, previous_guid));
-                }
-            }
-
-            let key_tf = (space_id, guid);
-            let transform_id = if let Some(&tid) = self.buffer_transforms.get(&key_tf) {
-                tid
-            } else if let Some(tid) = additions_iter.next() {
-                self.buffer_transforms.insert(key_tf, tid);
-                tid
-            } else {
-                0
             };
-            self.buffer_states.insert(key_tf, *state);
-
-            let buffer_data = self.buffers.get(&guid).map(|v| v.as_slice()).unwrap_or(&[]);
-            let entries = Self::build_buffer_entries(buffer_data, *state, transform_id);
-            self.buffer_contributions.insert((space_id, guid), entries);
+            slot.state = *state;
         }
 
         self.rebuild_space_vec(space_id);
@@ -223,6 +185,10 @@ impl LightCache {
     }
 
     /// Applies regular [`LightState`] updates (Unity `Light` components).
+    ///
+    /// Same three-phase pipeline as [`Self::apply_update`]: removals via [`Vec::swap_remove`] to
+    /// mirror the host's reindexing, additions append placeholder [`CachedLight`]s carrying the
+    /// transform id from the `additions` buffer, and states address entries by index.
     pub fn apply_regular_lights_update(
         &mut self,
         space_id: i32,
@@ -230,36 +196,43 @@ impl LightCache {
         additions: &[i32],
         states: &[LightState],
     ) {
-        let removal_set: HashSet<i32> = removals.iter().take_while(|&&i| i >= 0).copied().collect();
+        profiling::scope!("lights::apply_regular_lights_update");
+        let v = self.regular_lights.entry(space_id).or_default();
 
-        for &ridx in &removal_set {
-            self.regular_lights.remove(&(space_id, ridx));
-            self.regular_light_transforms.remove(&(space_id, ridx));
+        for &idx in removals.iter().take_while(|&&i| i >= 0) {
+            let idx_usize = idx as usize;
+            if idx_usize >= v.len() {
+                logger::warn!(
+                    "light_cache: regular-light removal index {idx} out of range (space_id={space_id}, len={})",
+                    v.len()
+                );
+                continue;
+            }
+            v.swap_remove(idx_usize);
         }
 
-        let mut additions_iter = additions
-            .iter()
-            .take_while(|&&t| t >= 0)
-            .map(|&t| t as usize);
+        for &t in additions.iter().take_while(|&&t| t >= 0) {
+            v.push(CachedLight {
+                data: LightData::default(),
+                state: LightsBufferRendererState::default(),
+                transform_id: t as usize,
+            });
+        }
 
         for state in states {
             if state.renderable_index < 0 {
                 break;
             }
-            if removal_set.contains(&state.renderable_index) {
+            let idx_usize = state.renderable_index as usize;
+            let Some(slot) = v.get_mut(idx_usize) else {
+                logger::warn!(
+                    "light_cache: regular-light state index {} out of range (space_id={space_id}, len={})",
+                    state.renderable_index,
+                    v.len()
+                );
                 continue;
-            }
-            let key = (space_id, state.renderable_index);
-            let transform_id = if let Some(&tid) = self.regular_light_transforms.get(&key) {
-                tid
-            } else if let Some(tid) = additions_iter.next() {
-                self.regular_light_transforms.insert(key, tid);
-                tid
-            } else {
-                0
             };
-
-            let data = LightData {
+            slot.data = LightData {
                 point: Vec3::ZERO,
                 orientation: Quat::IDENTITY,
                 color: Vec3::new(state.color.x, state.color.y, state.color.z),
@@ -267,7 +240,7 @@ impl LightCache {
                 range: state.range,
                 angle: state.spot_angle,
             };
-            let state_converted = LightsBufferRendererState {
+            slot.state = LightsBufferRendererState {
                 renderable_index: state.renderable_index,
                 global_unique_id: -1,
                 shadow_strength: state.shadow_strength,
@@ -280,18 +253,111 @@ impl LightCache {
                 shadow_type: state.shadow_type,
                 _padding: [0; 2],
             };
-            self.regular_lights.insert(
-                key,
-                CachedLight {
-                    data,
-                    state: state_converted,
-                    transform_id,
-                },
-            );
         }
 
         self.rebuild_space_vec(space_id);
         self.mark_changed();
+    }
+
+    /// Rolls each cached light's `transform_id` forward through this frame's
+    /// [`TransformRemovalEvent`]s so stored references follow a transform when it was swap-moved
+    /// into a freed slot (matches the host's `RenderableIndex` reindexing). Must run *before* the
+    /// frame's light add/remove/state apply so any new state rows land on the correct entry.
+    ///
+    /// Drops entries whose own transform was the one being removed (fixup returns `-1`) with a
+    /// warning; a well-formed host stream won't produce that case because the light's own
+    /// removal is sent in the same frame as its slot's transform removal, but this keeps the
+    /// cache self-consistent if that invariant ever regresses.
+    pub fn fixup_for_transform_removals(
+        &mut self,
+        space_id: i32,
+        removals: &[TransformRemovalEvent],
+    ) {
+        if removals.is_empty() {
+            return;
+        }
+        profiling::scope!("lights::fixup_for_transform_removals");
+        // Sentinel marking an entry whose transform was removed outright — dropped during retain.
+        const DEAD: usize = usize::MAX;
+
+        let mut dirty = false;
+
+        if let Some(v) = self.regular_lights.get_mut(&space_id) {
+            for removal in removals {
+                for light in v.iter_mut() {
+                    if light.transform_id == DEAD {
+                        continue;
+                    }
+                    let fixed = fixup_transform_id(
+                        light.transform_id as i32,
+                        removal.removed_index,
+                        removal.last_index_before_swap,
+                    );
+                    if fixed < 0 {
+                        light.transform_id = DEAD;
+                        dirty = true;
+                    } else if (fixed as usize) != light.transform_id {
+                        light.transform_id = fixed as usize;
+                        dirty = true;
+                    }
+                }
+            }
+            let before = v.len();
+            v.retain(|l| {
+                if l.transform_id == DEAD {
+                    logger::warn!(
+                        "light_cache: regular light dropped during transform-removal fixup (space_id={space_id})"
+                    );
+                    false
+                } else {
+                    true
+                }
+            });
+            if v.len() != before {
+                dirty = true;
+            }
+        }
+
+        if let Some(v) = self.buffer_renderers.get_mut(&space_id) {
+            for removal in removals {
+                for br in v.iter_mut() {
+                    if br.transform_id == DEAD {
+                        continue;
+                    }
+                    let fixed = fixup_transform_id(
+                        br.transform_id as i32,
+                        removal.removed_index,
+                        removal.last_index_before_swap,
+                    );
+                    if fixed < 0 {
+                        br.transform_id = DEAD;
+                        dirty = true;
+                    } else if (fixed as usize) != br.transform_id {
+                        br.transform_id = fixed as usize;
+                        dirty = true;
+                    }
+                }
+            }
+            let before = v.len();
+            v.retain(|br| {
+                if br.transform_id == DEAD {
+                    logger::warn!(
+                        "light_cache: buffer renderer dropped during transform-removal fixup (space_id={space_id})"
+                    );
+                    false
+                } else {
+                    true
+                }
+            });
+            if v.len() != before {
+                dirty = true;
+            }
+        }
+
+        if dirty {
+            self.rebuild_space_vec(space_id);
+            self.mark_changed();
+        }
     }
 
     /// Cached lights for `space_id` after the last apply.
@@ -302,16 +368,8 @@ impl LightCache {
     /// Drops all light entries tied to a removed render space.
     pub fn remove_space(&mut self, space_id: i32) {
         self.spaces.remove(&space_id);
-        self.buffer_contributions
-            .retain(|(sid, _), _| *sid != space_id);
-        self.buffer_by_renderable
-            .retain(|(sid, _), _| *sid != space_id);
-        self.buffer_states.retain(|(sid, _), _| *sid != space_id);
-        self.regular_lights.retain(|(sid, _), _| *sid != space_id);
-        self.buffer_transforms
-            .retain(|(sid, _), _| *sid != space_id);
-        self.regular_light_transforms
-            .retain(|(sid, _), _| *sid != space_id);
+        self.regular_lights.remove(&space_id);
+        self.buffer_renderers.remove(&space_id);
         self.mark_changed();
     }
 
@@ -416,7 +474,7 @@ impl Default for LightCache {
 mod tests {
     use glam::{Mat4, Quat, Vec3};
 
-    use crate::shared::{LightData, LightType, LightsBufferRendererState, ShadowType};
+    use crate::shared::{LightData, LightState, LightType, LightsBufferRendererState, ShadowType};
 
     use super::LightCache;
 
@@ -446,6 +504,25 @@ mod tests {
             shadow_normal_bias: 0.0,
             cookie_texture_asset_id: -1,
             light_type,
+            shadow_type: ShadowType::None,
+            _padding: [0; 2],
+        }
+    }
+
+    fn make_regular_state(renderable_index: i32, intensity: f32, range: f32) -> LightState {
+        LightState {
+            renderable_index,
+            intensity,
+            range,
+            spot_angle: 45.0,
+            color: glam::Vec4::new(1.0, 1.0, 1.0, 1.0),
+            shadow_strength: 0.0,
+            shadow_near_plane: 0.0,
+            shadow_map_resolution_override: 0,
+            shadow_bias: 0.0,
+            shadow_normal_bias: 0.0,
+            cookie_texture_asset_id: -1,
+            r#type: LightType::Point,
             shadow_type: ShadowType::None,
             _padding: [0; 2],
         }
@@ -579,6 +656,8 @@ mod tests {
             .get_lights_for_space(space_id)
             .expect("test setup: space should have lights");
         assert_eq!(lights.len(), 2);
+        // Swap-remove of index 1 moves the last entry (guid=102) into slot 1. Space vec is
+        // rebuilt from the dense list so output order is [guid=100, guid=102].
         assert_eq!(lights[0].state.global_unique_id, 100);
         assert_eq!(lights[1].state.global_unique_id, 102);
     }
@@ -641,5 +720,362 @@ mod tests {
         let gpu = crate::backend::GpuLight::from_resolved(&resolved[0]);
         assert_eq!(gpu.light_type, 0);
         assert!((gpu.position[0] - 1.0).abs() < 1e-5);
+    }
+
+    /// Regression: removing a middle buffer-renderer slot must swap-remove the last entry into
+    /// the freed index so the dense list stays aligned with the host's swap-remove reindexing.
+    #[test]
+    fn buffer_renderer_swap_remove_middle_preserves_last_entry() {
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        cache.store_full(100, vec![make_light_data((1.0, 0.0, 0.0), (1.0, 0.0, 0.0))]);
+        cache.store_full(101, vec![make_light_data((0.0, 2.0, 0.0), (0.0, 1.0, 0.0))]);
+        cache.store_full(102, vec![make_light_data((0.0, 0.0, 3.0), (0.0, 0.0, 1.0))]);
+
+        cache.apply_update(
+            space_id,
+            &[],
+            &[10, 11, 12],
+            &[
+                make_state(0, 100, LightType::Point),
+                make_state(1, 101, LightType::Point),
+                make_state(2, 102, LightType::Point),
+            ],
+        );
+
+        cache.apply_update(space_id, &[1], &[], &[]);
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 2);
+        assert_eq!(lights[0].state.global_unique_id, 100);
+        assert_eq!(lights[0].transform_id, 10);
+        // Swapped-in entry keeps its original transform id and buffer guid.
+        assert_eq!(lights[1].state.global_unique_id, 102);
+        assert_eq!(lights[1].transform_id, 12);
+    }
+
+    /// Regression: after removing and re-adding, the dense list must have exactly one entry per
+    /// live renderable with its provided transform id — no ghost carrying `transform_id = 0`.
+    #[test]
+    fn buffer_renderer_remove_then_add_has_no_ghost() {
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        cache.store_full(100, vec![make_light_data((1.0, 0.0, 0.0), (1.0, 0.0, 0.0))]);
+        cache.store_full(101, vec![make_light_data((0.0, 2.0, 0.0), (0.0, 1.0, 0.0))]);
+        cache.apply_update(
+            space_id,
+            &[],
+            &[10, 11],
+            &[
+                make_state(0, 100, LightType::Point),
+                make_state(1, 101, LightType::Point),
+            ],
+        );
+
+        cache.store_full(102, vec![make_light_data((0.0, 0.0, 3.0), (0.0, 0.0, 1.0))]);
+        cache.apply_update(
+            space_id,
+            &[0],
+            &[12],
+            &[make_state(1, 102, LightType::Point)],
+        );
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 2);
+        assert_eq!(lights[0].state.global_unique_id, 101);
+        assert_eq!(lights[0].transform_id, 11);
+        assert_eq!(lights[1].state.global_unique_id, 102);
+        assert_eq!(lights[1].transform_id, 12);
+    }
+
+    /// Regression: a state-only update after a swap-remove must apply to the swapped entry —
+    /// the original `transform_id` must be preserved (no fallback to `transform_id = 0`, which
+    /// would render the light at the world origin).
+    #[test]
+    fn buffer_renderer_state_only_update_after_swap_uses_swapped_transform() {
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        cache.store_full(100, vec![make_light_data((1.0, 0.0, 0.0), (1.0, 0.0, 0.0))]);
+        cache.store_full(101, vec![make_light_data((0.0, 2.0, 0.0), (0.0, 1.0, 0.0))]);
+        cache.apply_update(
+            space_id,
+            &[],
+            &[10, 11],
+            &[
+                make_state(0, 100, LightType::Point),
+                make_state(1, 101, LightType::Point),
+            ],
+        );
+
+        cache.apply_update(space_id, &[0], &[], &[]);
+
+        cache.apply_update(
+            space_id,
+            &[],
+            &[],
+            &[make_state(0, 101, LightType::Directional)],
+        );
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 1);
+        assert_eq!(lights[0].state.global_unique_id, 101);
+        assert_eq!(lights[0].state.light_type, LightType::Directional);
+        // Critical: transform id is preserved, not reset to 0 (which would put the light at origin).
+        assert_eq!(lights[0].transform_id, 11);
+    }
+
+    /// Regression: the same swap-remove contract must hold for regular (Unity `Light`)
+    /// renderables — the reported bug was about a Light component added via the component picker
+    /// ending up with `renderable_index = -1` / at the world origin after add/remove cycles.
+    #[test]
+    fn regular_light_swap_remove_middle_preserves_last_entry() {
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        cache.apply_regular_lights_update(
+            space_id,
+            &[],
+            &[10, 11, 12],
+            &[
+                make_regular_state(0, 1.0, 10.0),
+                make_regular_state(1, 2.0, 20.0),
+                make_regular_state(2, 3.0, 30.0),
+            ],
+        );
+
+        cache.apply_regular_lights_update(space_id, &[1], &[], &[]);
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 2);
+        assert!((lights[0].data.intensity - 1.0).abs() < 1e-5);
+        assert_eq!(lights[0].transform_id, 10);
+        // Former index 2 swapped into index 1; its transform id and state follow it.
+        assert!((lights[1].data.intensity - 3.0).abs() < 1e-5);
+        assert_eq!(lights[1].transform_id, 12);
+    }
+
+    #[test]
+    fn regular_light_remove_then_add_has_no_ghost() {
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        cache.apply_regular_lights_update(
+            space_id,
+            &[],
+            &[10, 11],
+            &[
+                make_regular_state(0, 1.0, 10.0),
+                make_regular_state(1, 2.0, 20.0),
+            ],
+        );
+
+        cache.apply_regular_lights_update(
+            space_id,
+            &[0],
+            &[12],
+            &[make_regular_state(1, 3.0, 30.0)],
+        );
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 2);
+        // Former index 1 (intensity 2.0, transform 11) swapped into index 0.
+        assert!((lights[0].data.intensity - 2.0).abs() < 1e-5);
+        assert_eq!(lights[0].transform_id, 11);
+        // New renderable at index 1 with transform id 12.
+        assert!((lights[1].data.intensity - 3.0).abs() < 1e-5);
+        assert_eq!(lights[1].transform_id, 12);
+    }
+
+    /// Regression: reproduces the "light at origin" symptom — a state update for a swapped
+    /// regular light must address the swapped entry and preserve its non-zero transform id.
+    #[test]
+    fn regular_light_state_only_update_after_swap_uses_swapped_transform() {
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        cache.apply_regular_lights_update(
+            space_id,
+            &[],
+            &[10, 11],
+            &[
+                make_regular_state(0, 1.0, 10.0),
+                make_regular_state(1, 2.0, 20.0),
+            ],
+        );
+
+        cache.apply_regular_lights_update(space_id, &[0], &[], &[]);
+
+        cache.apply_regular_lights_update(space_id, &[], &[], &[make_regular_state(0, 5.0, 50.0)]);
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 1);
+        assert!((lights[0].data.intensity - 5.0).abs() < 1e-5);
+        // Critical: the swapped entry keeps its original transform id, not the `0` origin fallback.
+        assert_eq!(lights[0].transform_id, 11);
+    }
+
+    /// Regression: when an unrelated transform elsewhere in the space is swap-removed and the
+    /// host moves the last transform into the freed slot, the light's stored `transform_id`
+    /// must be rolled forward so it still points at its slot's transform. Without the fixup,
+    /// `get_world_matrix` returns `None` and the light falls back to `Mat4::IDENTITY` → visible
+    /// at world origin. Reproduces the user-reported bug directly.
+    #[test]
+    fn regular_light_transform_id_follows_swap_remove() {
+        use crate::scene::transforms_apply::TransformRemovalEvent;
+
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        // Two lights: one at transform 5 (some unrelated slot), one at transform 42 (which
+        // happens to be the last transform in the dense list on the host).
+        cache.apply_regular_lights_update(
+            space_id,
+            &[],
+            &[5, 42],
+            &[
+                make_regular_state(0, 1.0, 10.0),
+                make_regular_state(1, 2.0, 20.0),
+            ],
+        );
+
+        // Simulate: transform 10 was removed on the host (unrelated slot lost its last
+        // renderable); the last transform (index 42) was swap-moved into slot 10.
+        cache.fixup_for_transform_removals(
+            space_id,
+            &[TransformRemovalEvent {
+                removed_index: 10,
+                last_index_before_swap: 42,
+            }],
+        );
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 2);
+        // Unrelated light keeps transform 5.
+        assert_eq!(lights[0].transform_id, 5);
+        assert!((lights[0].data.intensity - 1.0).abs() < 1e-5);
+        // The light whose transform was at the pre-swap last index (42) now points at the
+        // freed slot (10). Without the fixup, this would still read 42 → out of range → origin.
+        assert_eq!(lights[1].transform_id, 10);
+        assert!((lights[1].data.intensity - 2.0).abs() < 1e-5);
+    }
+
+    /// Regression: same swap-remove fixup for buffer-renderer lights.
+    #[test]
+    fn buffer_renderer_transform_id_follows_swap_remove() {
+        use crate::scene::transforms_apply::TransformRemovalEvent;
+
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        cache.store_full(100, vec![make_light_data((1.0, 0.0, 0.0), (1.0, 0.0, 0.0))]);
+        cache.store_full(101, vec![make_light_data((0.0, 2.0, 0.0), (0.0, 1.0, 0.0))]);
+        cache.apply_update(
+            space_id,
+            &[],
+            &[5, 42],
+            &[
+                make_state(0, 100, LightType::Point),
+                make_state(1, 101, LightType::Point),
+            ],
+        );
+
+        cache.fixup_for_transform_removals(
+            space_id,
+            &[TransformRemovalEvent {
+                removed_index: 10,
+                last_index_before_swap: 42,
+            }],
+        );
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 2);
+        // Unrelated renderer (transform 5, buffer 100) is untouched.
+        assert_eq!(lights[0].state.global_unique_id, 100);
+        assert_eq!(lights[0].transform_id, 5);
+        // Swapped-in renderer follows: transform 42 → 10.
+        assert_eq!(lights[1].state.global_unique_id, 101);
+        assert_eq!(lights[1].transform_id, 10);
+    }
+
+    /// Regression: when a light's OWN transform is removed (its slot lost all renderables),
+    /// the fixup drops it defensively. In a real host stream the light would also be in the
+    /// same frame's removals array; this guards against that invariant regressing.
+    #[test]
+    fn regular_light_whose_own_transform_was_removed_is_dropped() {
+        use crate::scene::transforms_apply::TransformRemovalEvent;
+
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        cache.apply_regular_lights_update(
+            space_id,
+            &[],
+            &[5, 42],
+            &[
+                make_regular_state(0, 1.0, 10.0),
+                make_regular_state(1, 2.0, 20.0),
+            ],
+        );
+
+        // Remove transform 5 (which is the first light's transform). last_index_before_swap = 42
+        // → the second light's transform moves into slot 5.
+        cache.fixup_for_transform_removals(
+            space_id,
+            &[TransformRemovalEvent {
+                removed_index: 5,
+                last_index_before_swap: 42,
+            }],
+        );
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 1);
+        assert_eq!(lights[0].transform_id, 5);
+        assert!((lights[0].data.intensity - 2.0).abs() < 1e-5);
+    }
+
+    /// Regression: an unrelated transform removal (not touching any light) must leave every
+    /// cached light's `transform_id` untouched.
+    #[test]
+    fn light_fixup_ignores_unrelated_removals() {
+        use crate::scene::transforms_apply::TransformRemovalEvent;
+
+        let mut cache = LightCache::new();
+        let space_id = 0;
+        cache.apply_regular_lights_update(
+            space_id,
+            &[],
+            &[10, 11],
+            &[
+                make_regular_state(0, 1.0, 10.0),
+                make_regular_state(1, 2.0, 20.0),
+            ],
+        );
+
+        cache.fixup_for_transform_removals(
+            space_id,
+            &[TransformRemovalEvent {
+                removed_index: 5,
+                last_index_before_swap: 42,
+            }],
+        );
+
+        let lights = cache
+            .get_lights_for_space(space_id)
+            .expect("test setup: space should have lights");
+        assert_eq!(lights.len(), 2);
+        assert_eq!(lights[0].transform_id, 10);
+        assert_eq!(lights[1].transform_id, 11);
     }
 }

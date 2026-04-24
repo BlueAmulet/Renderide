@@ -5,6 +5,8 @@ use crate::shared::{CameraRenderablesUpdate, CameraState, CAMERA_STATE_HOST_ROW_
 
 use super::error::SceneError;
 use super::render_space::RenderSpaceState;
+use super::transforms_apply::TransformRemovalEvent;
+use super::world::fixup_transform_id;
 
 /// Owned per-space camera-update payload extracted from shared memory.
 ///
@@ -145,5 +147,105 @@ pub(crate) fn apply_camera_renderables_update_extracted(
             entry.selective_transform_ids.clear();
             entry.exclude_transform_ids.clear();
         }
+    }
+}
+
+/// Rolls each camera's cached transform indices forward through this frame's transform
+/// swap-removals, matching the host-side `RenderableIndex` reindexing done by
+/// `RenderTransformManager.RemoveRenderTransform`. Must run before
+/// [`apply_camera_renderables_update_extracted`] so new state rows land against correctly
+/// reindexed cameras.
+pub(crate) fn fixup_cameras_for_transform_removals(
+    space: &mut RenderSpaceState,
+    removals: &[TransformRemovalEvent],
+) {
+    if removals.is_empty() || space.cameras.is_empty() {
+        return;
+    }
+    for removal in removals {
+        for cam in &mut space.cameras {
+            cam.transform_id = fixup_transform_id(
+                cam.transform_id,
+                removal.removed_index,
+                removal.last_index_before_swap,
+            );
+            for id in &mut cam.selective_transform_ids {
+                *id =
+                    fixup_transform_id(*id, removal.removed_index, removal.last_index_before_swap);
+            }
+            for id in &mut cam.exclude_transform_ids {
+                *id =
+                    fixup_transform_id(*id, removal.removed_index, removal.last_index_before_swap);
+            }
+        }
+    }
+    // Selective/exclude lists treat a collapsed (-1) entry as a dead filter slot; drop them so
+    // the per-frame apply doesn't use a stale index for rendering decisions.
+    for cam in &mut space.cameras {
+        cam.selective_transform_ids.retain(|&id| id >= 0);
+        cam.exclude_transform_ids.retain(|&id| id >= 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scene::ids::RenderSpaceId;
+    use crate::scene::render_space::RenderSpaceState;
+    use crate::scene::transforms_apply::TransformRemovalEvent;
+
+    fn space_with_camera(
+        transform_id: i32,
+        selective: Vec<i32>,
+        exclude: Vec<i32>,
+    ) -> RenderSpaceState {
+        let mut space = RenderSpaceState {
+            id: RenderSpaceId(0),
+            ..Default::default()
+        };
+        space.cameras.push(CameraRenderableEntry {
+            renderable_index: 0,
+            transform_id,
+            state: CameraState::default(),
+            selective_transform_ids: selective,
+            exclude_transform_ids: exclude,
+        });
+        space
+    }
+
+    #[test]
+    fn camera_transform_id_follows_swap_remove() {
+        let mut space = space_with_camera(42, vec![10, 42], vec![5, 42]);
+        fixup_cameras_for_transform_removals(
+            &mut space,
+            &[TransformRemovalEvent {
+                removed_index: 10,
+                last_index_before_swap: 42,
+            }],
+        );
+        let cam = &space.cameras[0];
+        // The camera's transform was at the last index (42) and is now at the freed slot (10).
+        assert_eq!(cam.transform_id, 10);
+        // Selective list: the `10` entry was the removed transform → dropped. The `42` entry
+        // was the swapped-in last → rewritten to `10`.
+        assert_eq!(cam.selective_transform_ids, vec![10]);
+        // Exclude list: `5` unaffected, `42` → `10`.
+        assert_eq!(cam.exclude_transform_ids, vec![5, 10]);
+    }
+
+    #[test]
+    fn camera_fixup_ignores_unrelated_removals() {
+        let mut space = space_with_camera(7, vec![1, 2, 3], vec![4]);
+        fixup_cameras_for_transform_removals(
+            &mut space,
+            &[TransformRemovalEvent {
+                removed_index: 100,
+                last_index_before_swap: 200,
+            }],
+        );
+        let cam = &space.cameras[0];
+        assert_eq!(cam.transform_id, 7);
+        assert_eq!(cam.selective_transform_ids, vec![1, 2, 3]);
+        assert_eq!(cam.exclude_transform_ids, vec![4]);
     }
 }

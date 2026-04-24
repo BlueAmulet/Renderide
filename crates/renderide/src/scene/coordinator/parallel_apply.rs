@@ -19,7 +19,8 @@ use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{LightRenderablesUpdate, LightsBufferRendererUpdate, RenderSpaceUpdate};
 
 use super::super::camera_apply::{
-    extract_camera_renderables_update, ExtractedCameraRenderablesUpdate,
+    extract_camera_renderables_update, fixup_cameras_for_transform_removals,
+    ExtractedCameraRenderablesUpdate,
 };
 use super::super::error::SceneError;
 use super::super::ids::RenderSpaceId;
@@ -29,7 +30,8 @@ use super::super::layer_apply::{
 use super::super::mesh_apply::{
     apply_mesh_renderables_update_extracted, apply_skinned_mesh_renderables_update_extracted,
     extract_mesh_renderables_update, extract_skinned_mesh_renderables_update,
-    ExtractedMeshRenderablesUpdate, ExtractedSkinnedMeshRenderablesUpdate,
+    fixup_static_meshes_for_transform_removals, ExtractedMeshRenderablesUpdate,
+    ExtractedSkinnedMeshRenderablesUpdate,
 };
 use super::super::render_overrides::{
     apply_render_material_overrides_update_extracted,
@@ -155,10 +157,6 @@ pub fn apply_extracted_render_space_update(
         removal_events,
     } = inputs;
 
-    if let Some(ref cu) = extracted.cameras {
-        super::super::camera_apply::apply_camera_renderables_update_extracted(space, cu);
-    }
-
     let mut world_dirty = false;
     if let Some(ref tu) = extracted.transforms {
         if apply_transforms_update_extracted(space, cache, extracted.space_id, tu, removal_events) {
@@ -169,6 +167,14 @@ pub fn apply_extracted_render_space_update(
     }
     let transform_removals: &[TransformRemovalEvent] = removal_events;
 
+    // Roll pre-existing cameras' transform ids forward through this frame's swap-removes before
+    // applying the extracted camera update (whose addition indices are post-swap from the host).
+    fixup_cameras_for_transform_removals(space, transform_removals);
+    if let Some(ref cu) = extracted.cameras {
+        super::super::camera_apply::apply_camera_renderables_update_extracted(space, cu);
+    }
+
+    fixup_static_meshes_for_transform_removals(space, transform_removals);
     if let Some(ref mu) = extracted.meshes {
         apply_mesh_renderables_update_extracted(space, mu);
     }

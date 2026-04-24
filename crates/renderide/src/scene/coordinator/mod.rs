@@ -64,6 +64,13 @@ pub struct SceneCoordinator {
     world_dirty_flush_scratch: Vec<RenderSpaceId>,
     /// Reused in [`Self::remove_render_spaces_not_in_submit`].
     remove_spaces_scratch: Vec<RenderSpaceId>,
+    /// Per-space transform swap-remove events emitted during Phase B of the current frame's
+    /// apply. Consumed by Phase C so [`LightCache::fixup_for_transform_removals`] can roll
+    /// cached `transform_id`s forward before the light update applies. Cleared at the top of
+    /// every [`Self::apply_frame_submit`] so stale events never leak into later frames; the
+    /// per-space [`Vec`] allocations are retained across frames to keep the steady-state path
+    /// allocation-free.
+    transform_removals_by_space: HashMap<RenderSpaceId, Vec<TransformRemovalEvent>>,
 }
 
 impl Default for SceneCoordinator {
@@ -82,6 +89,7 @@ impl SceneCoordinator {
             light_cache: LightCache::new(),
             world_dirty_flush_scratch: Vec::new(),
             remove_spaces_scratch: Vec::new(),
+            transform_removals_by_space: HashMap::new(),
         }
     }
 
@@ -301,6 +309,12 @@ impl SceneCoordinator {
         warn_if_multiple_active_non_overlay_spaces(data);
         mark_reflection_probe_sh2_task_failures(shm, data);
 
+        // Clear last frame's per-space removal events; Phase B refills them, Phase C consumes.
+        // Retain the per-space `Vec` allocations to keep the steady-state path allocation-free.
+        for v in self.transform_removals_by_space.values_mut() {
+            v.clear();
+        }
+
         let mut seen = HashSet::new();
 
         // Phase A: serial pre-extract + ensure entries + apply header fields.
@@ -327,11 +341,21 @@ impl SceneCoordinator {
         // Phase B: per-space apply (parallel for >1 space, serial otherwise).
         self.apply_extracted_per_space(extracted_per_space)?;
 
-        // Phase C: light updates (still serial: shared LightCache).
+        // Phase C: light updates (still serial: shared LightCache). Before applying each space's
+        // update we roll pre-existing cached `transform_id`s forward through any transform
+        // swap-removes that ran in Phase B — mirrors the host's `RenderableIndex` reindexing so a
+        // light whose transform was swap-moved into a freed slot keeps pointing at it.
         {
             profiling::scope!("scene::apply_frame_submit::lights");
             for update in &data.render_spaces {
                 let view = light_updates_view(update);
+                if let Some(removals) = self
+                    .transform_removals_by_space
+                    .get(&RenderSpaceId(view.space_id))
+                {
+                    self.light_cache
+                        .fixup_for_transform_removals(view.space_id, removals);
+                }
                 if let Some(lu) = view.lights_update {
                     apply_light_renderables_update(&mut self.light_cache, shm, lu, view.space_id)?;
                 }
@@ -396,12 +420,19 @@ impl SceneCoordinator {
                 }
                 self.spaces.insert(id, space);
                 self.world_caches.insert(id, cache);
+                self.stash_transform_removals(id, removal_events);
             }
             return Ok(());
         }
 
         use rayon::prelude::*;
-        let processed: Vec<(RenderSpaceId, RenderSpaceState, WorldTransformCache, bool)> = work
+        let processed: Vec<(
+            RenderSpaceId,
+            RenderSpaceState,
+            WorldTransformCache,
+            bool,
+            Vec<TransformRemovalEvent>,
+        )> = work
             .into_par_iter()
             .map(
                 |(id, mut space, mut cache, extracted, mut removal_events)| {
@@ -413,18 +444,32 @@ impl SceneCoordinator {
                             removal_events: &mut removal_events,
                         },
                     );
-                    (id, space, cache, dirty)
+                    (id, space, cache, dirty, removal_events)
                 },
             )
             .collect();
-        for (id, space, cache, dirty) in processed {
+        for (id, space, cache, dirty, removal_events) in processed {
             if dirty {
                 self.world_dirty.insert(id);
             }
             self.spaces.insert(id, space);
             self.world_caches.insert(id, cache);
+            self.stash_transform_removals(id, removal_events);
         }
         Ok(())
+    }
+
+    /// Moves a per-space transform-removal buffer into [`Self::transform_removals_by_space`] so
+    /// Phase C can read it. Reuses the pre-allocated entry when present so the steady-state path
+    /// swaps `Vec` contents instead of reallocating.
+    fn stash_transform_removals(
+        &mut self,
+        id: RenderSpaceId,
+        mut removals: Vec<TransformRemovalEvent>,
+    ) {
+        let slot = self.transform_removals_by_space.entry(id).or_default();
+        slot.clear();
+        slot.append(&mut removals);
     }
 
     /// Drops render spaces that were absent from this submit’s id set.
@@ -437,6 +482,7 @@ impl SceneCoordinator {
             self.spaces.remove(&id);
             self.world_caches.remove(&id);
             self.world_dirty.remove(&id);
+            self.transform_removals_by_space.remove(&id);
         }
     }
 }

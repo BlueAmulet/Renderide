@@ -67,6 +67,41 @@ static BONE_INDEX_EMPTY_WARNED_SCENES: LazyLock<Mutex<HashSet<i32>>> =
 /// overhead; below it the serial path avoids the dispatch cost.
 const SKINNED_FIXUP_PARALLEL_MIN: usize = 128;
 
+/// Static renderer count above which the fixup fans out to the rayon pool (matches
+/// [`SKINNED_FIXUP_PARALLEL_MIN`] / the layer-fixup threshold; a single `node_id` write per
+/// entry is cheap, but large scenes push the removals × renderers product into the tens of
+/// thousands during bulk teardowns).
+const STATIC_FIXUP_PARALLEL_MIN: usize = 128;
+
+/// Rolls each [`StaticMeshRenderer::node_id`] forward through this frame's transform
+/// swap-removals so existing entries follow their transform when it was swap-moved into a
+/// freed slot (host-side `RenderTransformManager.RemoveRenderTransform`). Must run before
+/// [`apply_mesh_renderables_update_extracted`] so any new state rows land on correctly
+/// reindexed entries.
+pub(crate) fn fixup_static_meshes_for_transform_removals(
+    space: &mut RenderSpaceState,
+    removals: &[TransformRemovalEvent],
+) {
+    if removals.is_empty() || space.static_mesh_renderers.is_empty() {
+        return;
+    }
+    let use_parallel = space.static_mesh_renderers.len() >= STATIC_FIXUP_PARALLEL_MIN;
+    for ev in removals {
+        let removed_id = ev.removed_index;
+        let last_index = ev.last_index_before_swap;
+        if use_parallel {
+            use rayon::prelude::*;
+            space.static_mesh_renderers.par_iter_mut().for_each(|m| {
+                m.node_id = fixup_transform_id(m.node_id, removed_id, last_index);
+            });
+        } else {
+            for m in &mut space.static_mesh_renderers {
+                m.node_id = fixup_transform_id(m.node_id, removed_id, last_index);
+            }
+        }
+    }
+}
+
 fn fixup_skinned_bones_for_transform_removals(
     space: &mut RenderSpaceState,
     removals: &[TransformRemovalEvent],
@@ -532,5 +567,62 @@ mod posed_bounds_tests {
         assert!(space.skinned_mesh_renderers[0]
             .posed_object_bounds
             .is_none());
+    }
+}
+
+#[cfg(test)]
+mod static_fixup_tests {
+    //! Regression coverage for [`fixup_static_meshes_for_transform_removals`]: ensures
+    //! [`StaticMeshRenderer::node_id`] follows a transform when the host swap-moves it into a
+    //! freed slot (same contract as the layer / skinned-mesh / override fixups).
+
+    use crate::scene::mesh_renderable::StaticMeshRenderer;
+    use crate::scene::render_space::RenderSpaceState;
+    use crate::scene::transforms_apply::TransformRemovalEvent;
+
+    use super::fixup_static_meshes_for_transform_removals;
+
+    fn space_with_static_meshes(node_ids: &[i32]) -> RenderSpaceState {
+        let mut space = RenderSpaceState::default();
+        for &node_id in node_ids {
+            space.static_mesh_renderers.push(StaticMeshRenderer {
+                node_id,
+                ..Default::default()
+            });
+        }
+        space
+    }
+
+    #[test]
+    fn static_mesh_node_id_follows_swap_remove() {
+        let mut space = space_with_static_meshes(&[5, 42, 7]);
+        fixup_static_meshes_for_transform_removals(
+            &mut space,
+            &[TransformRemovalEvent {
+                removed_index: 5,
+                last_index_before_swap: 42,
+            }],
+        );
+        // Mesh that was at the removed transform collapses to -1 (its renderable will be removed
+        // by the host in the same frame — we verify only the index fixup here).
+        assert_eq!(space.static_mesh_renderers[0].node_id, -1);
+        // Mesh whose transform was swap-moved from 42 into slot 5 follows to 5.
+        assert_eq!(space.static_mesh_renderers[1].node_id, 5);
+        // Unrelated mesh is untouched.
+        assert_eq!(space.static_mesh_renderers[2].node_id, 7);
+    }
+
+    #[test]
+    fn static_mesh_fixup_no_op_when_no_removals() {
+        let mut space = space_with_static_meshes(&[1, 2, 3]);
+        fixup_static_meshes_for_transform_removals(&mut space, &[]);
+        assert_eq!(
+            space
+                .static_mesh_renderers
+                .iter()
+                .map(|m| m.node_id)
+                .collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
     }
 }
