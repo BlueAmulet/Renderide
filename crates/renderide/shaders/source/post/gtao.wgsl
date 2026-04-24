@@ -134,6 +134,15 @@ fn view_pos_from_uv(uv: vec2<f32>, view_z: f32, proj_params: vec4<f32>) -> vec3<
 ///
 /// Uses the 4-neighbor min-depth-delta trick: pick the closer neighbor on each axis so creases
 /// at silhouettes pick the continuous surface instead of averaging across the depth gap.
+///
+/// Coordinate convention (positive-depth mirrored view space, matching [`linearize_depth`]):
+/// `+X` = screen-right, `+Y` = view-up (= **pixel-down**; WebGPU's NDC Y is flipped from pixel
+/// Y), `+Z` = away from camera. `dx` points in `+view_x`, `dy` points in `-view_y`
+/// (screen-down-in-pixel = view-down-in-Y). `cross(dx, dy)` then yields `(0, 0, -ab)` which is
+/// toward the camera — the correct outward-facing surface normal. **Do not flip the cross
+/// order**; `cross(dy, dx)` produces a normal pointing away from the camera, and downstream
+/// `cos_n = dot(normal, view_dir)` comes out negative, collapsing the horizon integral to 0 on
+/// camera-facing surfaces (fresnel-like inversion).
 fn reconstruct_view_normal(
     center_pix: vec2<i32>,
     center_view: vec3<f32>,
@@ -178,7 +187,7 @@ fn reconstruct_view_normal(
     let dx = select(center_view - p_x, p_x - center_view, dx_pos);
     let dy = select(center_view - p_y, p_y - center_view, dy_pos);
 
-    return normalize(cross(dy, dx));
+    return normalize(cross(dx, dy));
 }
 
 /// Interleaved-gradient spatial noise (Jiménez) so adjacent pixels cover different slice angles.
@@ -263,10 +272,13 @@ fn compute_gtao(
         return 1.0;
     }
     let sign_n = sign(dot(ortho_direction_vec, projected_normal_vec));
-    let cos_n = clamp(
+    // `saturate` (not `clamp(-1, 1)`) mirrors XeGTAO: a negative projected dot means the normal
+    // is on the wrong side of the view plane (e.g. a silhouette with an ill-conditioned depth
+    // derivative), which would otherwise drive the integral into the mirrored hemisphere and
+    // flip the sign of the AO contribution. Clamping to 0 collapses that case to `n = π/2`
+    // (fully grazing) — still wrong for the affected pixel, but not inverted.
+    let cos_n = saturate(
         dot(projected_normal_vec, view_dir) / projected_normal_vec_length,
-        -1.0,
-        1.0,
     );
     let n = sign_n * acos(cos_n);
     let sin_n = sin(n);
