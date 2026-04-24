@@ -21,7 +21,7 @@ use crate::backend::MaterialSystem;
 use crate::backend::OcclusionSystem;
 use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
-use crate::materials::MaterialPipelineDesc;
+use crate::materials::{MaterialPassDesc, MaterialPipelineDesc, MaterialPipelineSet};
 use crate::pipelines::ShaderPermutation;
 use crate::render_graph::occlusion::HiZGpuState;
 use crate::scene::SceneCoordinator;
@@ -143,6 +143,12 @@ pub struct PreparedWorldMeshForwardFrame {
     pub depth_snapshot_recorded: bool,
     /// Whether the intersection/color-resolve tail raster was already recorded by a split graph node.
     pub tail_raster_recorded: bool,
+    /// Per-batch resolved pipelines and bind groups, pre-computed by the prepare pass in parallel.
+    ///
+    /// One entry per unique `MaterialDrawBatchKey` run in `draws`, covering `[first_draw_idx,
+    /// last_draw_idx]` (inclusive). Both raster sub-passes (opaque and intersect) share this
+    /// list; each sub-pass only reads entries whose draw-index range overlaps its own index slice.
+    pub precomputed_batches: Vec<PrecomputedMaterialBind>,
 }
 
 /// Blackboard slot for per-view MSAA attachment views resolved from transient graph resources.
@@ -202,25 +208,23 @@ impl BlackboardSlot for PrefetchedWorldMeshDrawsSlot {
     type Value = WorldMeshDrawCollection;
 }
 
-/// Blackboard slot for precomputed per-batch `@group(1)` material bind groups.
+/// One precomputed per-batch record covering a contiguous range of sorted draws with the same
+/// [`crate::render_graph::MaterialDrawBatchKey`].
 ///
-/// Populated by [`crate::render_graph::passes::WorldMeshForwardPreparePass`] during the planning
-/// phase. Each entry covers a contiguous range of sorted draws with the same material batch key.
-/// The recording loop reads from this slot instead of performing per-batch LRU lookups.
-pub struct PrecomputedMaterialBindsSlot;
-impl BlackboardSlot for PrecomputedMaterialBindsSlot {
-    type Value = Vec<PrecomputedMaterialBind>;
-}
-
-/// One precomputed `@group(1)` bind group covering a batch range in the sorted draw list.
+/// Populated by the prepare pass (parallel rayon fan-out) so the recording loop can drive
+/// pipeline and bind-group state entirely from this table — no LRU lookups during `RenderPass`.
 #[derive(Clone)]
 pub struct PrecomputedMaterialBind {
-    /// First draw index (into the sorted draw list) covered by this bind group.
+    /// First draw index (into the sorted draw list) covered by this entry.
     pub first_draw_idx: usize,
-    /// Last draw index (inclusive) covered by this bind group.
+    /// Last draw index (inclusive) covered by this entry.
     pub last_draw_idx: usize,
     /// Resolved `@group(1)` bind group for this batch's material, or `None` for the empty fallback.
     pub bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
+    /// Resolved pipeline set for this batch, or `None` when the pipeline is unavailable (skip draws).
+    pub pipelines: Option<MaterialPipelineSet>,
+    /// Material pass descriptors parallel to `pipelines` (zero-alloc static reference).
+    pub declared_passes: &'static [MaterialPassDesc],
 }
 
 /// Blackboard slot for per-view HUD data collected during recording and merged on the main thread.
