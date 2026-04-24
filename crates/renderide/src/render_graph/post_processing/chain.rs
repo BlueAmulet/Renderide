@@ -15,6 +15,8 @@ use super::effect::{PostProcessEffect, PostProcessEffectId};
 pub struct PostProcessChainSignature {
     /// Ground-Truth Ambient Occlusion pass active.
     pub gtao: bool,
+    /// Dual-filter bloom pass active.
+    pub bloom: bool,
     /// Stephen Hill ACES Fitted tonemap pass active.
     pub aces_tonemap: bool,
 }
@@ -25,18 +27,19 @@ impl PostProcessChainSignature {
         let master = settings.enabled;
         Self {
             gtao: master && settings.gtao.enabled,
+            bloom: master && settings.bloom.enabled && settings.bloom.intensity > 0.0,
             aces_tonemap: master && matches!(settings.tonemap.mode, TonemapMode::AcesFitted),
         }
     }
 
     /// Returns `true` when no effects are active and the chain should be skipped entirely.
     pub fn is_empty(self) -> bool {
-        !self.gtao && !self.aces_tonemap
+        !self.gtao && !self.bloom && !self.aces_tonemap
     }
 
     /// Number of active effects.
     pub fn active_count(self) -> usize {
-        usize::from(self.gtao) + usize::from(self.aces_tonemap)
+        usize::from(self.gtao) + usize::from(self.bloom) + usize::from(self.aces_tonemap)
     }
 }
 
@@ -157,10 +160,12 @@ impl PostProcessChain {
             .filter(|e| e.is_enabled(settings))
             .enumerate()
         {
-            let raster = effect.build_pass(current_in, current_out);
-            let pass_id = builder.add_raster_pass(raster);
-            first_pass.get_or_insert(pass_id);
-            last_pass = Some(pass_id);
+            let registered = effect.register(builder, current_in, current_out);
+            if let Some(prev_tail) = last_pass {
+                builder.add_edge(prev_tail, registered.first);
+            }
+            first_pass.get_or_insert(registered.first);
+            last_pass = Some(registered.last);
 
             if i == 0 {
                 current_in = ping;
@@ -208,6 +213,7 @@ mod tests {
     use crate::render_graph::context::RasterPassCtx;
     use crate::render_graph::error::{RenderPassError, SetupError};
     use crate::render_graph::pass::{PassBuilder, RasterPass};
+    use crate::render_graph::post_processing::effect::EffectPasses;
 
     struct MockEffect {
         id: PostProcessEffectId,
@@ -223,12 +229,18 @@ mod tests {
             self.enabled
         }
 
-        fn build_pass(&self, input: TextureHandle, output: TextureHandle) -> Box<dyn RasterPass> {
-            Box::new(MockPass {
+        fn register(
+            &self,
+            builder: &mut GraphBuilder,
+            input: TextureHandle,
+            output: TextureHandle,
+        ) -> EffectPasses {
+            let pass_id = builder.add_raster_pass(Box::new(MockPass {
                 name: self.id.label(),
                 input,
                 output,
-            })
+            }));
+            EffectPasses::single(pass_id)
         }
     }
 
@@ -392,6 +404,7 @@ mod tests {
         let sig = PostProcessChainSignature::from_settings(&s);
         assert!(sig.aces_tonemap);
         assert!(!sig.gtao);
+        assert!(!sig.bloom);
         assert_eq!(sig.active_count(), 1);
 
         s.tonemap.mode = crate::config::TonemapMode::None;
@@ -413,10 +426,35 @@ mod tests {
         let sig = PostProcessChainSignature::from_settings(&s);
         assert!(sig.gtao);
         assert!(!sig.aces_tonemap);
+        assert!(!sig.bloom);
         assert_eq!(sig.active_count(), 1);
 
         s.enabled = false;
         assert!(PostProcessChainSignature::from_settings(&s).is_empty());
+    }
+
+    #[test]
+    fn signature_tracks_bloom_toggle_and_intensity_gate() {
+        let mut s = PostProcessingSettings {
+            enabled: true,
+            tonemap: TonemapSettings {
+                mode: crate::config::TonemapMode::None,
+            },
+            ..Default::default()
+        };
+        assert!(PostProcessChainSignature::from_settings(&s).is_empty());
+
+        s.bloom.enabled = true;
+        s.bloom.intensity = 0.15;
+        let sig = PostProcessChainSignature::from_settings(&s);
+        assert!(sig.bloom);
+        assert_eq!(sig.active_count(), 1);
+
+        s.bloom.intensity = 0.0;
+        assert!(
+            !PostProcessChainSignature::from_settings(&s).bloom,
+            "intensity=0 must gate bloom off even when enabled"
+        );
     }
 
     #[test]

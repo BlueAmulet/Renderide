@@ -244,13 +244,23 @@ pub enum TransientExtent {
         /// Number of array layers.
         layers: u32,
     },
+    /// Bloom-style mip: resolves to `viewport * (max_dim / viewport.height)` then right-shifted
+    /// by `mip`, clamped to at least 1 pixel per axis. Matches Bevy's `prepare_bloom_textures`
+    /// math so mip 0 is `max_dim` pixels tall (scaled proportionally in width) and each higher
+    /// mip halves both dimensions.
+    BackbufferScaledMip {
+        /// Target height (px) of mip 0 before halving.
+        max_dim: u32,
+        /// Mip level index. Resolved size = `max(1, base_size >> mip)`.
+        mip: u32,
+    },
 }
 
 impl TransientExtent {
     /// Returns a concrete extent when the policy is not backbuffer-relative.
     pub fn fixed_extent(self) -> Option<(u32, u32, u32)> {
         match self {
-            Self::Backbuffer => None,
+            Self::Backbuffer | Self::BackbufferScaledMip { .. } => None,
             Self::Custom { width, height } => Some((width, height, 1)),
             Self::MultiLayer {
                 width,

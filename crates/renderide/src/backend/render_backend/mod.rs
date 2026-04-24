@@ -772,6 +772,7 @@ mod post_processing_rebuild_tests {
             backend.frame_graph_post_processing_signature,
             PostProcessChainSignature {
                 aces_tonemap: true,
+                bloom: false,
                 gtao: false,
             }
         );

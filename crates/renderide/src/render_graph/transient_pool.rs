@@ -372,7 +372,9 @@ fn create_texture_and_view(
     usage: wgpu::TextureUsages,
 ) -> (wgpu::Texture, wgpu::TextureView) {
     let (width, height, layers) = match key.extent {
-        TransientExtent::Backbuffer => (1, 1, key.array_layers),
+        TransientExtent::Backbuffer | TransientExtent::BackbufferScaledMip { .. } => {
+            (1, 1, key.array_layers)
+        }
         TransientExtent::Custom { width, height } => (width, height, key.array_layers),
         TransientExtent::MultiLayer {
             width,

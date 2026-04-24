@@ -270,13 +270,18 @@ fn validate_entry_points(
             .entry_points
             .iter()
             .any(|e| e.stage == naga::ShaderStage::Vertex && e.name == "vs_main");
-        let has_fs = module
+        // Non-material raster shaders (post/backend/present) may declare any number of
+        // `@fragment` entry points — pipelines pick which one to compile via
+        // [`wgpu::FragmentState::entry_point`]. The build script only needs to confirm at
+        // least one fragment stage exists alongside `vs_main`.
+        let has_any_fs = module
             .entry_points
             .iter()
-            .any(|e| e.stage == naga::ShaderStage::Fragment && e.name == "fs_main");
-        if !has_vs || !has_fs {
+            .any(|e| e.stage == naga::ShaderStage::Fragment);
+        if !has_vs || !has_any_fs {
             return Err(BuildError::Message(format!(
-                "{label}: expected entry points vs_main and fs_main (vertex={has_vs} fragment={has_fs})",
+                "{label}: expected a vs_main vertex entry point and at least one @fragment \
+                 entry point (vertex={has_vs} fragment={has_any_fs})",
             )));
         }
         return Ok(());

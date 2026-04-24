@@ -19,12 +19,13 @@ use std::sync::OnceLock;
 use pipeline::{GtaoParamsGpu, GtaoPipelineCache};
 
 use crate::config::{GtaoSettings, PostProcessingSettings};
+use crate::render_graph::builder::GraphBuilder;
 use crate::render_graph::compiled::RenderPassTemplate;
 use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::frame_params::{GtaoSettingsSlot, PerViewFramePlanSlot};
 use crate::render_graph::pass::{PassBuilder, RasterPass};
-use crate::render_graph::post_processing::{PostProcessEffect, PostProcessEffectId};
+use crate::render_graph::post_processing::{EffectPasses, PostProcessEffect, PostProcessEffectId};
 use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, TextureAccess, TextureHandle,
 };
@@ -246,8 +247,13 @@ impl PostProcessEffect for GtaoEffect {
         settings.enabled && settings.gtao.enabled
     }
 
-    fn build_pass(&self, input: TextureHandle, output: TextureHandle) -> Box<dyn RasterPass> {
-        Box::new(GtaoPass::new(
+    fn register(
+        &self,
+        builder: &mut GraphBuilder,
+        input: TextureHandle,
+        output: TextureHandle,
+    ) -> EffectPasses {
+        let pass_id = builder.add_raster_pass(Box::new(GtaoPass::new(
             GtaoGraphResources {
                 input,
                 output,
@@ -255,7 +261,8 @@ impl PostProcessEffect for GtaoEffect {
                 frame_uniforms: self.frame_uniforms,
             },
             self.settings,
-        ))
+        )));
+        EffectPasses::single(pass_id)
     }
 }
 

@@ -210,6 +210,26 @@ pub(super) fn resolve_transient_extent(
             width: viewport_px.0.max(1),
             height: viewport_px.1.max(1),
         },
+        TransientExtent::BackbufferScaledMip { max_dim, mip } => {
+            let (vw, vh) = (viewport_px.0.max(1), viewport_px.1.max(1));
+            let ratio = f64::from(max_dim.max(1)) / f64::from(vh);
+            let base_w = ((f64::from(vw) * ratio).round() as u32).max(1);
+            let base_h = ((f64::from(vh) * ratio).round() as u32).max(1);
+            let w = (base_w >> mip).max(1);
+            let h = (base_h >> mip).max(1);
+            if array_layers > 1 {
+                TransientExtent::MultiLayer {
+                    width: w,
+                    height: h,
+                    layers: array_layers,
+                }
+            } else {
+                TransientExtent::Custom {
+                    width: w,
+                    height: h,
+                }
+            }
+        }
         other => other,
     }
 }

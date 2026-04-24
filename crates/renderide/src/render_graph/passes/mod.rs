@@ -18,8 +18,8 @@ pub use clustered_light::{ClusteredLightGraphResources, ClusteredLightPass};
 pub use hi_z_build::{HiZBuildGraphResources, HiZBuildPass};
 pub use mesh_deform::MeshDeformPass;
 pub use post_processing::{
-    AcesTonemapEffect, AcesTonemapGraphResources, AcesTonemapPass, GtaoEffect, GtaoGraphResources,
-    GtaoPass,
+    AcesTonemapEffect, AcesTonemapGraphResources, AcesTonemapPass, BloomEffect, GtaoEffect,
+    GtaoGraphResources, GtaoPass,
 };
 pub use scene_color_compose::{SceneColorComposeGraphResources, SceneColorComposePass};
 pub use swapchain_clear::SwapchainClearPass;

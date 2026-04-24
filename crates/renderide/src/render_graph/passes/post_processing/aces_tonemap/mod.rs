@@ -14,11 +14,12 @@ use std::sync::OnceLock;
 use pipeline::AcesTonemapPipelineCache;
 
 use crate::config::PostProcessingSettings;
+use crate::render_graph::builder::GraphBuilder;
 use crate::render_graph::compiled::RenderPassTemplate;
 use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::pass::{PassBuilder, RasterPass};
-use crate::render_graph::post_processing::{PostProcessEffect, PostProcessEffectId};
+use crate::render_graph::post_processing::{EffectPasses, PostProcessEffect, PostProcessEffectId};
 use crate::render_graph::resources::{TextureAccess, TextureHandle};
 
 /// Graph handles for [`AcesTonemapPass`].
@@ -159,11 +160,18 @@ impl PostProcessEffect for AcesTonemapEffect {
             )
     }
 
-    fn build_pass(&self, input: TextureHandle, output: TextureHandle) -> Box<dyn RasterPass> {
-        Box::new(AcesTonemapPass::new(AcesTonemapGraphResources {
-            input,
-            output,
-        }))
+    fn register(
+        &self,
+        builder: &mut GraphBuilder,
+        input: TextureHandle,
+        output: TextureHandle,
+    ) -> EffectPasses {
+        let pass_id =
+            builder.add_raster_pass(Box::new(AcesTonemapPass::new(AcesTonemapGraphResources {
+                input,
+                output,
+            })));
+        EffectPasses::single(pass_id)
     }
 }
 

@@ -113,6 +113,7 @@ mod tests {
         let off = key_with_post(PostProcessChainSignature::default());
         let on = key_with_post(PostProcessChainSignature {
             aces_tonemap: true,
+            bloom: false,
             gtao: false,
         });
         assert_ne!(off, on);

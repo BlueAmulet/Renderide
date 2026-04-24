@@ -521,13 +521,16 @@ fn add_main_graph_passes_and_edges(
 
 /// Builds the canonical post-processing chain shipped with the renderer.
 ///
-/// Execution order is GTAO → ACES tonemap. GTAO must run first so ambient occlusion modulates
-/// linear HDR light before tonemap compresses it. Each effect gates itself via
+/// Execution order is GTAO → bloom → ACES tonemap. GTAO runs first so ambient occlusion
+/// modulates linear HDR light before bloom scatter; bloom runs in HDR-linear space so its
+/// dual-filter pyramid operates on scene-referred radiance; then ACES compresses the combined
+/// HDR signal to display-referred `[0, 1]`. Each effect gates itself via
 /// [`PostProcessEffect::is_enabled`] against the live [`crate::config::PostProcessingSettings`].
 ///
 /// `GtaoEffect` is parameterised with the current [`crate::config::GtaoSettings`] snapshot and
 /// the imported `frame_uniforms` handle (used to access per-eye projection coefficients and the
-/// frame index at record time).
+/// frame index at record time). `BloomEffect` captures a [`crate::config::BloomSettings`]
+/// snapshot for its shared params UBO and per-mip blend constants.
 fn build_default_post_processing_chain(
     h: &MainGraphHandles,
     post_processing: &crate::config::PostProcessingSettings,
@@ -537,6 +540,9 @@ fn build_default_post_processing_chain(
         settings: post_processing.gtao,
         depth: h.depth,
         frame_uniforms: h.frame_uniforms,
+    }));
+    chain.push(Box::new(passes::BloomEffect {
+        settings: post_processing.bloom,
     }));
     chain.push(Box::new(passes::AcesTonemapEffect));
     chain
