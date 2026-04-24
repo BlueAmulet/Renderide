@@ -109,6 +109,7 @@ pub(super) fn take_or_collect_world_mesh_draws<'a>(
     culling: Option<&WorldMeshCullInput<'_>>,
     shader_perm: ShaderPermutation,
 ) -> WorldMeshDrawCollection {
+    profiling::scope!("world_mesh::take_or_collect_draws");
     let hc = frame.view.host_camera;
     let render_context = frame.shared.scene.active_main_render_context();
     if let Some(prefetched) = blackboard.take::<PrefetchedWorldMeshDrawsSlot>() {
@@ -260,6 +261,7 @@ pub(super) fn pack_and_upload_per_draw_slab(
     overlay_proj: Option<Mat4>,
     draws: &[WorldMeshDrawItem],
 ) -> bool {
+    profiling::scope!("world_mesh::pack_and_upload_slab");
     if draws.is_empty() {
         return true;
     }
@@ -281,6 +283,7 @@ pub(super) fn pack_and_upload_per_draw_slab(
 
     // Step 1: ensure per-view buffer capacity.
     {
+        profiling::scope!("world_mesh::ensure_slot_capacity");
         let mut per_draw = per_draw_slot.lock();
         per_draw.ensure_draw_slot_capacity(device, draws.len());
     }
@@ -295,11 +298,29 @@ pub(super) fn pack_and_upload_per_draw_slab(
         uniforms.clear();
         uniforms.resize_with(draws.len(), PaddedPerDrawUniforms::zeroed);
 
-        if draws.len() >= PER_DRAW_VP_PARALLEL_MIN_DRAWS {
-            uniforms
-                .par_iter_mut()
-                .zip(draws.par_iter())
-                .for_each(|(slot, item)| {
+        {
+            profiling::scope!("world_mesh::pack_vp_matrices");
+            if draws.len() >= PER_DRAW_VP_PARALLEL_MIN_DRAWS {
+                uniforms
+                    .par_iter_mut()
+                    .zip(draws.par_iter())
+                    .for_each(|(slot, item)| {
+                        let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
+                            scene,
+                            item,
+                            hc,
+                            render_context,
+                            world_proj,
+                            overlay_proj,
+                        );
+                        *slot = if vp_l == vp_r {
+                            PaddedPerDrawUniforms::new_single(vp_l, model)
+                        } else {
+                            PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
+                        };
+                    });
+            } else {
+                for (slot, item) in uniforms.iter_mut().zip(draws.iter()) {
                     let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
                         scene,
                         item,
@@ -313,30 +334,21 @@ pub(super) fn pack_and_upload_per_draw_slab(
                     } else {
                         PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
                     };
-                });
-        } else {
-            for (slot, item) in uniforms.iter_mut().zip(draws.iter()) {
-                let (vp_l, vp_r, model) = compute_per_draw_vp_triple(
-                    scene,
-                    item,
-                    hc,
-                    render_context,
-                    world_proj,
-                    overlay_proj,
-                );
-                *slot = if vp_l == vp_r {
-                    PaddedPerDrawUniforms::new_single(vp_l, model)
-                } else {
-                    PaddedPerDrawUniforms::new_stereo(vp_l, vp_r, model)
-                };
+                }
             }
         }
 
-        let need = draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE);
-        slab.resize(need, 0);
-        write_per_draw_uniform_slab(uniforms, slab);
-        let per_draw = per_draw_slot.lock();
-        upload_batch.write_buffer(&per_draw.per_draw_storage, 0, slab.as_slice());
+        {
+            profiling::scope!("world_mesh::serialise_slab");
+            let need = draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE);
+            slab.resize(need, 0);
+            write_per_draw_uniform_slab(uniforms, slab);
+        }
+        {
+            profiling::scope!("world_mesh::enqueue_slab_upload");
+            let per_draw = per_draw_slot.lock();
+            upload_batch.write_buffer(&per_draw.per_draw_storage, 0, slab.as_slice());
+        }
     }
     true
 }
@@ -408,6 +420,7 @@ pub(super) fn precompute_material_bind_groups(
     _shader_perm: ShaderPermutation,
     _offscreen_write_render_texture_asset_id: Option<i32>,
 ) -> Vec<PrecomputedMaterialBind> {
+    profiling::scope!("world_mesh::precompute_material_binds");
     if draws.is_empty() {
         return Vec::new();
     }
@@ -450,6 +463,7 @@ pub(super) fn prepare_world_mesh_forward_frame(
     frame: &mut FrameRenderParams<'_>,
     blackboard: &mut Blackboard,
 ) -> Option<PreparedWorldMeshForwardFrame> {
+    profiling::scope!("world_mesh::prepare_frame");
     let supports_base_instance = gpu_limits.supports_base_instance;
     let hc = frame.view.host_camera;
     let pipeline = resolve_pass_config(

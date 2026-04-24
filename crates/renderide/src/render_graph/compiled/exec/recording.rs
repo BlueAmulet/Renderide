@@ -84,21 +84,16 @@ impl CompiledRenderGraph {
         // tracks enable booleans, so parameter-only edits wouldn't otherwise reach the shader).
         view_blackboard.insert::<GtaoSettingsSlot>(GtaoSettingsValue(shared.live_gtao_settings));
 
-        // Collect indices from the single FrameSchedule source of truth.
-        let per_view_indices: Vec<usize> = {
-            profiling::scope!("graph::per_view::collect_pass_indices");
-            self.schedule.per_view_steps().map(|s| s.pass_idx).collect()
-        };
-
         {
             profiling::scope!("graph::per_view::pass_loop");
-            for &pass_idx in &per_view_indices {
-                let pass_name = self.passes[pass_idx].name().to_string();
-                profiling::scope!("graph::pass", pass_name.as_str());
+            // Iterate the cached per-view `pass_idx` slice from `FrameSchedule` to avoid
+            // rebuilding a scratch `Vec<usize>` every frame.
+            for &pass_idx in self.schedule.per_view_pass_indices() {
+                let pass_name = self.passes[pass_idx].name();
 
                 // Open the GPU profiler query before calling execute_pass_node so we can
                 // avoid capturing `encoder` in a closure while also passing it mutably.
-                let pass_query = profiler.map(|p| p.begin_query(pass_name.as_str(), &mut encoder));
+                let pass_query = profiler.map(|p| p.begin_query(pass_name, &mut encoder));
 
                 self.execute_pass_node(
                     pass_idx,
@@ -261,20 +256,14 @@ impl CompiledRenderGraph {
             // so no MSAA seed here. Frame-global passes (e.g. mesh deform) don't need MSAA views.
             let mut frame_blackboard = Blackboard::new();
 
-            // Collect from FrameSchedule (single source of truth).
-            let fg_indices: Vec<usize> = self
-                .schedule
-                .frame_global_steps()
-                .map(|s| s.pass_idx)
-                .collect();
-
-            for &pass_idx in &fg_indices {
-                let pass_name = self.passes[pass_idx].name().to_string();
-                profiling::scope!("graph::pass", pass_name.as_str());
+            // Iterate the cached frame-global `pass_idx` slice from `FrameSchedule` to avoid
+            // rebuilding a scratch `Vec<usize>` every frame.
+            for &pass_idx in self.schedule.frame_global_pass_indices() {
+                let pass_name = self.passes[pass_idx].name();
 
                 let pass_query = pass_profiler
                     .as_ref()
-                    .map(|p| p.begin_query(pass_name.as_str(), &mut encoder));
+                    .map(|p| p.begin_query(pass_name, &mut encoder));
 
                 self.execute_pass_node(
                     pass_idx,

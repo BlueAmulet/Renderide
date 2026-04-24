@@ -265,6 +265,7 @@ fn resolve_pipelines_for_batch_item(
 }
 
 pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
+    profiling::scope!("world_mesh::draw_subset");
     let ForwardDrawBatch {
         rpass,
         draw_indices,
