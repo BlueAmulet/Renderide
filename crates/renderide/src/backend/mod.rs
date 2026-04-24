@@ -28,7 +28,6 @@ pub use cluster_gpu::{
     MAX_LIGHTS_PER_TILE, TILE_SIZE,
 };
 pub use debug_hud_bundle::DebugHudBundle;
-pub(crate) use embedded::MaterialBindCacheKey;
 pub use embedded::{
     EmbeddedMaterialBindError, EmbeddedMaterialBindResources, EmbeddedTexturePools,
 };

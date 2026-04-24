@@ -14,13 +14,15 @@ use crate::backend::MaterialSystem;
 use crate::backend::{
     write_per_draw_uniform_slab, WorldMeshForwardEncodeRefs, PER_DRAW_UNIFORM_STRIDE,
 };
+use crate::embedded_shaders;
 use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::gpu::{
     GpuLimits, MsaaDepthResolveMonoTargets, MsaaDepthResolveResources,
     MsaaDepthResolveStereoTargets,
 };
 use crate::materials::{
-    MaterialPipelineDesc, MaterialPipelinePropertyIds, MaterialRouter, RasterPipelineKind,
+    embedded_composed_stem_for_permutation, MaterialPassDesc, MaterialPipelineDesc,
+    MaterialPipelinePropertyIds, MaterialRouter, RasterPipelineKind,
 };
 use crate::pipelines::{ShaderPermutation, SHADER_PERM_MULTIVIEW_STEREO};
 use crate::render_graph::blackboard::Blackboard;
@@ -35,7 +37,7 @@ use crate::render_graph::frame_params::{
 };
 use crate::render_graph::frame_params::{
     PerViewFramePlanSlot, PerViewHudConfig, PerViewHudOutputs, PerViewHudOutputsSlot,
-    PrecomputedMaterialBind, PrecomputedMaterialBindsSlot, PrefetchedWorldMeshDrawsSlot,
+    PrecomputedMaterialBind, PrefetchedWorldMeshDrawsSlot,
 };
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::render_graph::world_mesh_draw_prep::{
@@ -402,55 +404,142 @@ pub(super) fn write_frame_uniforms_and_cluster(
     frame_resources.write_frame_uniform_and_lights_from_scratch(queue, &uniforms);
 }
 
-/// Precomputes per-batch material bind boundaries for the sorted draw list.
+/// Resolves per-batch pipeline sets and `@group(1)` bind groups for the sorted draw list.
 ///
-/// Walks batch boundaries (where [`crate::render_graph::MaterialDrawBatchKey`] changes) and
-/// produces one [`PrecomputedMaterialBind`] per boundary. For non-embedded-stem materials
-/// (e.g. DebugWorldNormals), `bind_group` is `None` (the recording loop uses the empty fallback).
-/// For embedded stems, `bind_group` is also `None` to indicate that the recording loop must
-/// resolve the bind group inline (embedded stems require a live `Queue` for uniform uploads).
+/// Works in two phases:
 ///
-/// The main win is batch boundary detection: the recording loop iterates the precomputed
-/// boundary list instead of comparing [`crate::render_graph::MaterialDrawBatchKey`] per draw.
-/// A future pass can decouple the embed-uniform upload from bind-group selection to fully
-/// move that cost to the plan phase.
-pub(super) fn precompute_material_bind_groups(
-    _frame: &mut FrameRenderParams<'_>,
+/// 1. **Boundary detection (serial)** — single O(N) scan to find where
+///    [`crate::render_graph::MaterialDrawBatchKey`] changes.
+///
+/// 2. **Resolution (parallel via rayon)** — for each unique batch, resolves the pipeline set
+///    from the material registry and the embedded `@group(1)` bind group from the LRU cache.
+///    Rayon workers share borrowed refs to the material system and asset pools (all `Sync`);
+///    cache access uses the existing `Mutex<LruCache>` internals so concurrent hits are cheap
+///    (~50 ns lock + Arc clone) and concurrent misses produce a correct result.
+///
+/// Both raster sub-passes (opaque and intersect) drive `set_pipeline` / `set_bind_group` from
+/// `PreparedWorldMeshForwardFrame::precomputed_batches` — no LRU lookups during `RenderPass`.
+pub(super) fn precompute_material_resolve_batches(
+    encode: &WorldMeshForwardEncodeRefs<'_>,
+    queue: &wgpu::Queue,
     draws: &[WorldMeshDrawItem],
-    _shader_perm: ShaderPermutation,
-    _offscreen_write_render_texture_asset_id: Option<i32>,
+    shader_perm: ShaderPermutation,
+    pass_desc: &MaterialPipelineDesc,
+    offscreen_write_render_texture_asset_id: Option<i32>,
 ) -> Vec<PrecomputedMaterialBind> {
     profiling::scope!("world_mesh::precompute_material_binds");
     if draws.is_empty() {
         return Vec::new();
     }
 
-    let mut result = Vec::new();
+    // Phase 1: collect batch boundaries (serial, O(draws)).
+    let mut boundaries: Vec<(usize, usize)> = Vec::new(); // (first_idx, last_idx) into draws
     let mut current_start = 0usize;
     let mut last_key = &draws[0].batch_key;
-
     for (idx, item) in draws.iter().enumerate().skip(1) {
         if &item.batch_key != last_key {
-            result.push(PrecomputedMaterialBind {
-                first_draw_idx: current_start,
-                last_draw_idx: idx - 1,
-                // For embedded stems: None signals the recording loop to resolve inline.
-                // For non-embedded: None signals use of the empty fallback bind group.
-                // Both paths are identical from the recording loop's perspective (it checks
-                // this and falls back gracefully).
-                bind_group: None,
-            });
+            boundaries.push((current_start, idx - 1));
             current_start = idx;
             last_key = &item.batch_key;
         }
     }
-    result.push(PrecomputedMaterialBind {
-        first_draw_idx: current_start,
-        last_draw_idx: draws.len() - 1,
-        bind_group: None,
-    });
+    boundaries.push((current_start, draws.len() - 1));
 
-    result
+    // Borrow the pieces that rayon workers will share (`&` = Sync).
+    let registry = encode.materials.material_registry();
+    let embedded_bind = encode.materials.embedded_material_bind();
+    let store = encode.materials.material_property_store();
+    let pools = encode.embedded_texture_pools();
+
+    // Phase 2: resolve pipelines + bind groups in parallel.
+    boundaries
+        .into_par_iter()
+        .map(|(first, last)| {
+            let item = &draws[first];
+            let batch_key = &item.batch_key;
+
+            // Pipeline + declared-pass resolution.
+            let (pipelines, declared_passes) = if let Some(reg) = registry {
+                let pipes = reg.pipeline_for_shader_asset(
+                    batch_key.shader_asset_id,
+                    pass_desc,
+                    shader_perm,
+                    batch_key.blend_mode,
+                    batch_key.render_state,
+                );
+                let passes = declared_passes_for_pipeline_kind(&batch_key.pipeline, shader_perm);
+                match pipes {
+                    Some(p) if !p.is_empty() => (Some(p), passes),
+                    Some(_) => {
+                        logger::trace!(
+                            "WorldMeshForward: empty pipeline for shader {:?}, skipping batch",
+                            batch_key.shader_asset_id
+                        );
+                        (None, passes)
+                    }
+                    None => {
+                        logger::trace!(
+                            "WorldMeshForward: no pipeline for shader {:?}, skipping batch",
+                            batch_key.shader_asset_id
+                        );
+                        (None, passes)
+                    }
+                }
+            } else {
+                (None, &[] as &'static [MaterialPassDesc])
+            };
+
+            // @group(1) bind group resolution (embedded stems only).
+            let bind_group = if matches!(&batch_key.pipeline, RasterPipelineKind::EmbeddedStem(_)) {
+                if let (Some(mb), Some(reg)) = (embedded_bind, registry) {
+                    match reg.stem_for_shader_asset(batch_key.shader_asset_id) {
+                        Some(stem) => mb
+                            .embedded_material_bind_group_with_cache_key(
+                                stem,
+                                queue,
+                                store,
+                                &pools,
+                                item.lookup_ids,
+                                offscreen_write_render_texture_asset_id,
+                            )
+                            .ok()
+                            .map(|(_, bg)| bg),
+                        None => None,
+                    }
+                } else {
+                    if embedded_bind.is_none() {
+                        logger::warn!(
+                            "WorldMeshForward: embedded material bind resources unavailable; \
+                                 @group(1) uses empty bind group for embedded raster draws"
+                        );
+                    }
+                    None
+                }
+            } else {
+                None
+            };
+
+            PrecomputedMaterialBind {
+                first_draw_idx: first,
+                last_draw_idx: last,
+                bind_group,
+                pipelines,
+                declared_passes,
+            }
+        })
+        .collect()
+}
+
+/// Returns the declared pass descriptors for `pipeline` at `shader_perm` (zero-alloc `&'static`).
+fn declared_passes_for_pipeline_kind(
+    pipeline: &RasterPipelineKind,
+    shader_perm: ShaderPermutation,
+) -> &'static [MaterialPassDesc] {
+    let RasterPipelineKind::EmbeddedStem(stem) = pipeline else {
+        return &[];
+    };
+    let composed = embedded_composed_stem_for_permutation(stem.as_ref(), shader_perm);
+    embedded_shaders::embedded_target_passes(&composed)
 }
 
 /// Collects forward draws and uploads per-view data. Returns `None` when required per-draw
@@ -534,14 +623,23 @@ pub(super) fn prepare_world_mesh_forward_frame(
 
     let (regular_indices, intersect_indices) = partition_intersection_draw_indices(&draws);
 
-    // Precompute per-batch material bind group boundaries for the recording hot loop.
-    let precomputed_binds = precompute_material_bind_groups(
-        frame,
+    // Read the offscreen RT id before borrowing `frame` for encode_refs.
+    let offscreen_write_rt = frame.view.offscreen_write_render_texture_asset_id;
+
+    // Build a WorldMeshForwardEncodeRefs from the frame so precompute_material_resolve_batches
+    // can access both the material system and the asset transfer pools (texture pools).
+    let encode_refs = frame.world_mesh_forward_encode_refs();
+
+    // Resolve per-batch pipelines and @group(1) bind groups in parallel (Filament phase-A).
+    // Results live on `PreparedWorldMeshForwardFrame`; both raster sub-passes consume them.
+    let precomputed_batches = precompute_material_resolve_batches(
+        &encode_refs,
+        queue,
         &draws,
         pipeline.shader_perm,
-        frame.view.offscreen_write_render_texture_asset_id,
+        &pipeline.pass_desc,
+        offscreen_write_rt,
     );
-    blackboard.insert::<PrecomputedMaterialBindsSlot>(precomputed_binds);
 
     Some(PreparedWorldMeshForwardFrame {
         draws,
@@ -552,6 +650,7 @@ pub(super) fn prepare_world_mesh_forward_frame(
         opaque_recorded: false,
         depth_snapshot_recorded: false,
         tail_raster_recorded: false,
+        precomputed_batches,
     })
 }
 
@@ -663,22 +762,18 @@ struct ForwardPassBindGroups<'a> {
 }
 
 /// Pipeline and embedded-bind state for one opaque or intersection subpass.
-struct ForwardPassRasterConfig<'a> {
-    pass_desc: &'a MaterialPipelineDesc,
-    shader_perm: ShaderPermutation,
+struct ForwardPassRasterConfig {
     supports_base_instance: bool,
-    offscreen_write_render_texture_asset_id: Option<i32>,
     has_local_lights: bool,
-    warned_missing_embedded_bind: &'a mut bool,
 }
 
 /// Draw state for a render pass that has already been opened.
 struct ForwardSubpassDrawRecord<'a, 'c, 'd> {
-    queue: &'a wgpu::Queue,
     gpu_limits: &'a GpuLimits,
     draws: &'c [WorldMeshDrawItem],
     draw_indices: &'c [usize],
-    /// Material registry, mesh pool, and skin cache ([`WorldMeshForwardEncodeRefs`]).
+    precomputed: &'c [PrecomputedMaterialBind],
+    /// Mesh pool and skin cache ([`WorldMeshForwardEncodeRefs`]).
     encode: &'a mut WorldMeshForwardEncodeRefs<'d>,
 }
 
@@ -686,23 +781,19 @@ fn record_world_mesh_forward_subpass(
     rpass: &mut wgpu::RenderPass<'_>,
     sub: ForwardSubpassDrawRecord<'_, '_, '_>,
     bind_groups: &ForwardPassBindGroups<'_>,
-    cfg: &mut ForwardPassRasterConfig<'_>,
+    cfg: &ForwardPassRasterConfig,
 ) {
     profiling::scope!("world_mesh_forward::record_subpass");
     draw_subset(ForwardDrawBatch {
         rpass,
         draw_indices: sub.draw_indices,
         draws: sub.draws,
+        precomputed: sub.precomputed,
         encode: sub.encode,
-        queue: sub.queue,
         gpu_limits: sub.gpu_limits,
         frame_bg: bind_groups.frame.as_ref(),
         empty_bg: bind_groups.empty_material.as_ref(),
         per_draw_bind_group: bind_groups.per_draw,
-        pass_desc: cfg.pass_desc,
-        shader_perm: cfg.shader_perm,
-        warned_missing_embedded_bind: cfg.warned_missing_embedded_bind,
-        offscreen_write_render_texture_asset_id: cfg.offscreen_write_render_texture_asset_id,
         supports_base_instance: cfg.supports_base_instance,
         has_local_lights: cfg.has_local_lights,
     });
@@ -721,7 +812,7 @@ fn frame_has_local_lights(frame: &FrameRenderParams<'_>) -> bool {
 pub(super) fn record_world_mesh_forward_opaque_graph_raster(
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    _queue: &wgpu::Queue,
     frame: &mut FrameRenderParams<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
@@ -760,15 +851,10 @@ pub(super) fn record_world_mesh_forward_opaque_graph_raster(
         empty_material: &empty_bg_arc,
     };
 
-    let mut warned_missing_embedded_bind = false;
     let has_local_lights = frame_has_local_lights(frame);
-    let mut raster_cfg = ForwardPassRasterConfig {
-        pass_desc: &prepared.pipeline.pass_desc,
-        shader_perm: prepared.pipeline.shader_perm,
+    let raster_cfg = ForwardPassRasterConfig {
         supports_base_instance: prepared.supports_base_instance,
-        offscreen_write_render_texture_asset_id: frame.view.offscreen_write_render_texture_asset_id,
         has_local_lights,
-        warned_missing_embedded_bind: &mut warned_missing_embedded_bind,
     };
 
     let Some(gpu_limits) = frame.view.gpu_limits.clone() else {
@@ -778,14 +864,14 @@ pub(super) fn record_world_mesh_forward_opaque_graph_raster(
     record_world_mesh_forward_subpass(
         rpass,
         ForwardSubpassDrawRecord {
-            queue,
             gpu_limits: gpu_limits.as_ref(),
             draws: &prepared.draws,
             draw_indices: &prepared.regular_indices,
+            precomputed: &prepared.precomputed_batches,
             encode: &mut encode_refs,
         },
         &bind_groups,
-        &mut raster_cfg,
+        &raster_cfg,
     );
     true
 }
@@ -794,7 +880,7 @@ pub(super) fn record_world_mesh_forward_opaque_graph_raster(
 pub(super) fn record_world_mesh_forward_intersection_graph_raster(
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
-    queue: &wgpu::Queue,
+    _queue: &wgpu::Queue,
     frame: &mut FrameRenderParams<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
@@ -833,15 +919,10 @@ pub(super) fn record_world_mesh_forward_intersection_graph_raster(
         empty_material: &empty_bg_arc,
     };
 
-    let mut warned_missing_embedded_bind = false;
     let has_local_lights = frame_has_local_lights(frame);
-    let mut raster_cfg = ForwardPassRasterConfig {
-        pass_desc: &prepared.pipeline.pass_desc,
-        shader_perm: prepared.pipeline.shader_perm,
+    let raster_cfg = ForwardPassRasterConfig {
         supports_base_instance: prepared.supports_base_instance,
-        offscreen_write_render_texture_asset_id: frame.view.offscreen_write_render_texture_asset_id,
         has_local_lights,
-        warned_missing_embedded_bind: &mut warned_missing_embedded_bind,
     };
 
     let Some(gpu_limits) = frame.view.gpu_limits.clone() else {
@@ -851,14 +932,14 @@ pub(super) fn record_world_mesh_forward_intersection_graph_raster(
     record_world_mesh_forward_subpass(
         rpass,
         ForwardSubpassDrawRecord {
-            queue,
             gpu_limits: gpu_limits.as_ref(),
             draws: &prepared.draws,
             draw_indices: &prepared.intersect_indices,
+            precomputed: &prepared.precomputed_batches,
             encode: &mut encode_refs,
         },
         &bind_groups,
-        &mut raster_cfg,
+        &raster_cfg,
     );
     true
 }
