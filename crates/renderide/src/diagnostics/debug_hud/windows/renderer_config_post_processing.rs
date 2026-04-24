@@ -66,9 +66,9 @@ pub(super) fn renderer_config_post_processing_tab(
         *dirty = true;
     }
     if ui
-        .slider_config("Thickness heuristic", 0.0_f32, 1.0_f32)
+        .slider_config("Falloff range", 0.05_f32, 1.0_f32)
         .display_format("%.2f")
-        .build(&mut gtao.thickness_heuristic)
+        .build(&mut gtao.falloff_range)
     {
         *dirty = true;
     }

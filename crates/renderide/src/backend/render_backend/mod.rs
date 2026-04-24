@@ -215,6 +215,20 @@ impl RenderBackend {
             .unwrap_or_else(|| SceneColorFormat::default().wgpu_format())
     }
 
+    /// Snapshot of the live GTAO settings for the current frame.
+    ///
+    /// Seeded into each view's blackboard as [`crate::render_graph::frame_params::GtaoSettingsSlot`]
+    /// so the shader UBO reflects slider changes without rebuilding the compiled render graph
+    /// (the chain signature only tracks enable booleans, so parameter edits wouldn't otherwise
+    /// reach the pass).
+    pub(crate) fn live_gtao_settings(&self) -> crate::config::GtaoSettings {
+        self.renderer_settings
+            .as_ref()
+            .and_then(|h| h.read().ok())
+            .map(|s| s.post_processing.gtao)
+            .unwrap_or_default()
+    }
+
     /// Count of host Texture2D asset ids that have received a [`crate::shared::SetTexture2DFormat`] (CPU-side table).
     pub fn texture_format_registration_count(&self) -> usize {
         self.asset_transfers.texture_formats.len()

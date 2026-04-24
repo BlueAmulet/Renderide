@@ -37,8 +37,10 @@ pub(super) struct GtaoParamsGpu {
     pub intensity: f32,
     /// Horizon steps per side.
     pub step_count: u32,
-    /// Thickness-heuristic blend (paper Eq. 9).
-    pub thickness_heuristic: f32,
+    /// Distance-falloff range as a fraction of `radius_world`; candidate samples are linearly
+    /// faded toward the tangent-plane horizon over the last `falloff_range · radius_world` of
+    /// the search radius (matches XeGTAO's `FalloffRange`).
+    pub falloff_range: f32,
     /// Gray-albedo proxy for the multi-bounce fit (paper Eq. 10).
     pub albedo_multibounce: f32,
     /// Padding to 16-byte alignment (two f32 slots, matching WGSL `align_pad_tail: vec2<f32>`).
