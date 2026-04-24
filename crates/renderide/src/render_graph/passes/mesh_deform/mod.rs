@@ -282,6 +282,7 @@ impl ComputePass for MeshDeformPass {
                     encoder: ctx.encoder,
                     pre,
                     scratch: deform_scratch,
+                    upload_batch: ctx.upload_batch,
                     profiler: ctx.profiler,
                 },
                 MeshDeformRecordInputs {

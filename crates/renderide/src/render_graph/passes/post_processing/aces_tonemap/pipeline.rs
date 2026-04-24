@@ -27,6 +27,11 @@ pub(super) struct AcesTonemapPipelineCache {
     sampler: OnceLock<wgpu::Sampler>,
     mono: Mutex<HashMap<wgpu::TextureFormat, Arc<wgpu::RenderPipeline>>>,
     multiview: Mutex<HashMap<wgpu::TextureFormat, Arc<wgpu::RenderPipeline>>>,
+    /// Bind groups keyed by scene-color texture identity + multiview flag. `wgpu::Texture`
+    /// implements `Eq + Hash` over its internal handle, so entries automatically follow the
+    /// transient pool's allocation lifecycle — when the pool drops and recreates a texture,
+    /// the stale entry is orphaned and cleaned up by [`Self::evict_stale_bind_groups`].
+    bind_groups: Mutex<HashMap<(wgpu::Texture, bool), wgpu::BindGroup>>,
 }
 
 impl Default for AcesTonemapPipelineCache {
@@ -36,6 +41,7 @@ impl Default for AcesTonemapPipelineCache {
             sampler: OnceLock::new(),
             mono: Mutex::new(HashMap::new()),
             multiview: Mutex::new(HashMap::new()),
+            bind_groups: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -158,25 +164,64 @@ impl AcesTonemapPipelineCache {
         pipeline
     }
 
-    /// Bind group for one frame's scene-color view.
+    /// Bind group for one frame's scene-color texture, cached by `(Texture, multiview_stereo)`.
+    ///
+    /// Builds a fresh `D2Array` view on cache miss so the cached bind group outlives any single
+    /// per-frame view clone. Hit is a `HashMap` lookup + `wgpu::BindGroup::clone` (Arc bump).
     pub(super) fn bind_group(
         &self,
         device: &wgpu::Device,
-        scene_color_view: &wgpu::TextureView,
+        scene_color_texture: &wgpu::Texture,
+        multiview_stereo: bool,
     ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let key = (scene_color_texture.clone(), multiview_stereo);
+        {
+            let guard = self.bind_groups.lock();
+            if let Some(bg) = guard.get(&key) {
+                return bg.clone();
+            }
+        }
+        let layers_in_texture = scene_color_texture.size().depth_or_array_layers.max(1);
+        let array_layer_count = if multiview_stereo {
+            2.min(layers_in_texture)
+        } else {
+            1
+        };
+        let view = scene_color_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("aces_tonemap_sampled"),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            array_layer_count: Some(array_layer_count),
+            ..Default::default()
+        });
+        let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("aces_tonemap"),
             layout: self.bind_group_layout(device),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(scene_color_view),
+                    resource: wgpu::BindingResource::TextureView(&view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(self.sampler(device)),
                 },
             ],
-        })
+        });
+        let mut guard = self.bind_groups.lock();
+        if let Some(existing) = guard.get(&key) {
+            return existing.clone();
+        }
+        if guard.len() >= MAX_CACHED_BIND_GROUPS {
+            guard.clear();
+        }
+        guard.insert(key, bg.clone());
+        bg
     }
 }
+
+/// Upper bound for cached ACES bind groups before the cache is flushed.
+///
+/// The scene-color transient texture is stable across most frames — the cache normally holds
+/// one or two entries (mono + multiview). This cap protects against unbounded growth when the
+/// swapchain / MSAA setting flips repeatedly and the transient pool cycles allocations.
+const MAX_CACHED_BIND_GROUPS: usize = 8;

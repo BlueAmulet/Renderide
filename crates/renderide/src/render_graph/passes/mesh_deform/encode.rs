@@ -29,6 +29,9 @@ pub(super) struct MeshDeformEncodeGpu<'a> {
     pub pre: &'a crate::backend::mesh_deform::MeshPreprocessPipelines,
     /// Scratch buffers and slab cursors backing.
     pub scratch: &'a mut crate::backend::MeshDeformScratch,
+    /// Deferred [`wgpu::Queue::write_buffer`] sink shared with the rest of the frame; used for
+    /// the per-mesh blendshape weight writes to keep them off the inline encode path.
+    pub upload_batch: &'a crate::render_graph::frame_upload_batch::FrameUploadBatch,
     /// GPU profiler for per-dispatch pass-level timestamp queries; [`None`] when disabled.
     pub profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
@@ -330,7 +333,7 @@ fn record_blendshape_deform(
         gpu.device,
         (*blend_weight_cursor).saturating_add(weight_binding_len),
     );
-    gpu.queue.write_buffer(
+    gpu.upload_batch.write_buffer(
         &gpu.scratch.blendshape_weights,
         *blend_weight_cursor,
         &wbytes,

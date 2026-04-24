@@ -144,17 +144,34 @@ fn resolve_layer_for_node(
     None
 }
 
+/// Layer-assignment count above which the per-removal fixup sweep fans out to the rayon pool.
+///
+/// Each entry's `fixup_transform_id` is a trivial branch, but removals × assignments can grow
+/// into the tens of thousands during bulky scene teardowns.
+const LAYER_FIXUP_PARALLEL_MIN: usize = 128;
+
 pub(crate) fn fixup_layer_assignments_for_transform_removals(
     space: &mut RenderSpaceState,
     removals: &[TransformRemovalEvent],
 ) {
     for removal in removals {
-        for entry in &mut space.layer_assignments {
-            entry.node_id = fixup_transform_id(
-                entry.node_id,
-                removal.removed_index,
-                removal.last_index_before_swap,
-            );
+        if space.layer_assignments.len() >= LAYER_FIXUP_PARALLEL_MIN {
+            use rayon::prelude::*;
+            space.layer_assignments.par_iter_mut().for_each(|entry| {
+                entry.node_id = fixup_transform_id(
+                    entry.node_id,
+                    removal.removed_index,
+                    removal.last_index_before_swap,
+                );
+            });
+        } else {
+            for entry in &mut space.layer_assignments {
+                entry.node_id = fixup_transform_id(
+                    entry.node_id,
+                    removal.removed_index,
+                    removal.last_index_before_swap,
+                );
+            }
         }
         space.layer_assignments.retain(|entry| entry.node_id >= 0);
     }

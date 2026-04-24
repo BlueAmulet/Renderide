@@ -119,8 +119,9 @@ impl RasterPass for SceneColorComposePass {
             frame.view.surface_format,
             frame.view.multiview_stereo,
         );
-        let hdr_sample_view = tex.view_for_sampled_2d_array(frame.view.multiview_stereo);
-        let bind_group = self.pipelines.bind_group(ctx.device, &hdr_sample_view);
+        let bind_group =
+            self.pipelines
+                .bind_group(ctx.device, &tex.texture, frame.view.multiview_stereo);
         rpass.set_pipeline(pipeline.as_ref());
         rpass.set_bind_group(0, &bind_group, &[]);
         rpass.draw(0..3, 0..1);

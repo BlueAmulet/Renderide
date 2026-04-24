@@ -363,16 +363,109 @@ fn unpack_stereo_snapshot(
 
 /// Transient GPU resources reused while extent and mip count stay stable.
 pub(crate) struct HiZGpuScratch {
+    /// Pyramid base extent `(width, height)` in texels.
     pub extent: (u32, u32),
+    /// Total mip count (mip0 through `mip_levels - 1`).
     pub mip_levels: u32,
+    /// Desktop / stereo-left pyramid texture.
     pub pyramid: wgpu::Texture,
+    /// Per-mip views for the desktop / stereo-left pyramid.
     pub views: Vec<wgpu::TextureView>,
+    /// Stereo-right pyramid (texture + per-mip views), populated only in stereo modes.
     pub pyramid_r: Option<(wgpu::Texture, Vec<wgpu::TextureView>)>,
     /// Triple-buffered staging for async readback (see [`HiZGpuState::write_idx`]).
     pub staging_desktop: [wgpu::Buffer; HIZ_STAGING_RING],
+    /// Triple-buffered staging for the stereo-right pyramid.
     pub staging_r: Option<[wgpu::Buffer; HIZ_STAGING_RING]>,
+    /// Uniform buffer carrying the current target array layer for stereo mip0 dispatches.
     pub layer_uniform: wgpu::Buffer,
+    /// Uniform buffer carrying src/dst extents for the active downsample dispatch.
     pub downsample_uniform: wgpu::Buffer,
+    /// Cached bind groups for this scratch's pipelines. Invalidated alongside the scratch itself
+    /// (i.e. when `extent` / `mip_levels` / stereo layout changes trigger a fresh allocation).
+    pub bind_groups: HiZBindGroupCache,
+}
+
+/// Cached Hi-Z encode bind groups whose bindings are stable for the lifetime of a
+/// [`HiZGpuScratch`]. Built lazily on first use so the cache is both cheap to initialise and
+/// self-invalidating: recreating the scratch wipes every slot.
+pub(crate) struct HiZBindGroupCache {
+    /// `depth_view` last bound into the mip0 slots. Mip0 bindings are rebuilt when this changes
+    /// (e.g. depth target reallocation between frames).
+    mip0_depth_view: Option<wgpu::TextureView>,
+    /// Mip0 bind group for desktop (non-stereo) dispatches.
+    mip0_desktop: Option<wgpu::BindGroup>,
+    /// Mip0 bind groups for stereo dispatches, indexed by array layer (`[layer0, layer1]`).
+    mip0_stereo: [Option<wgpu::BindGroup>; 2],
+    /// Downsample bind groups for the desktop / stereo-left pyramid, one per mip transition.
+    downsample_desktop: Vec<Option<wgpu::BindGroup>>,
+    /// Downsample bind groups for the stereo-right pyramid, one per mip transition.
+    downsample_right: Vec<Option<wgpu::BindGroup>>,
+}
+
+impl HiZBindGroupCache {
+    /// Creates an empty cache sized for `mip_levels` transitions; allocates a right-eye slot set
+    /// only when `stereo` is true.
+    fn with_shape(mip_levels: u32, stereo: bool) -> Self {
+        let n = (mip_levels.saturating_sub(1)) as usize;
+        Self {
+            mip0_depth_view: None,
+            mip0_desktop: None,
+            mip0_stereo: [None, None],
+            downsample_desktop: vec![None; n],
+            downsample_right: if stereo { vec![None; n] } else { Vec::new() },
+        }
+    }
+
+    /// Drops the mip0 slots whenever the caller-provided `depth_view` differs from the one used
+    /// to build the cached entries.
+    pub(crate) fn invalidate_mip0_if_depth_changed(&mut self, depth_view: &wgpu::TextureView) {
+        if self.mip0_depth_view.as_ref() != Some(depth_view) {
+            self.mip0_depth_view = Some(depth_view.clone());
+            self.mip0_desktop = None;
+            self.mip0_stereo = [None, None];
+        }
+    }
+
+    /// Returns a clone of the cached mip0 desktop bind group, building it via `build` on miss.
+    pub(crate) fn mip0_desktop_or_build<F: FnOnce() -> wgpu::BindGroup>(
+        &mut self,
+        build: F,
+    ) -> wgpu::BindGroup {
+        self.mip0_desktop.get_or_insert_with(build).clone()
+    }
+
+    /// Returns a clone of the cached mip0 stereo bind group for `layer`, building via `build` on miss.
+    pub(crate) fn mip0_stereo_or_build<F: FnOnce() -> wgpu::BindGroup>(
+        &mut self,
+        layer: u32,
+        build: F,
+    ) -> wgpu::BindGroup {
+        let idx = (layer as usize).min(1);
+        self.mip0_stereo[idx].get_or_insert_with(build).clone()
+    }
+
+    /// Returns a clone of the desktop downsample bind group at `mip`, building via `build` on miss.
+    pub(crate) fn downsample_desktop_or_build<F: FnOnce() -> wgpu::BindGroup>(
+        &mut self,
+        mip: u32,
+        build: F,
+    ) -> wgpu::BindGroup {
+        let idx = mip as usize;
+        self.downsample_desktop[idx]
+            .get_or_insert_with(build)
+            .clone()
+    }
+
+    /// Returns a clone of the stereo-right downsample bind group at `mip`, building via `build` on miss.
+    pub(crate) fn downsample_right_or_build<F: FnOnce() -> wgpu::BindGroup>(
+        &mut self,
+        mip: u32,
+        build: F,
+    ) -> wgpu::BindGroup {
+        let idx = mip as usize;
+        self.downsample_right[idx].get_or_insert_with(build).clone()
+    }
 }
 
 fn staging_size_pyramid(base_w: u32, base_h: u32, mip_levels: u32) -> u64 {
@@ -471,6 +564,7 @@ impl HiZGpuScratch {
             mapped_at_creation: false,
         });
 
+        let bind_groups = HiZBindGroupCache::with_shape(mip_levels, stereo);
         Some(Self {
             extent: (bw, bh),
             mip_levels,
@@ -481,6 +575,7 @@ impl HiZGpuScratch {
             staging_r,
             layer_uniform,
             downsample_uniform,
+            bind_groups,
         })
     }
 }
