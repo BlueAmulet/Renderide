@@ -715,4 +715,12 @@ mod tests {
             Some("pbsdisplaceshadow_default")
         );
     }
+
+    #[test]
+    fn resolves_toonstandard_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("ToonStandard").as_deref(),
+            Some("toonstandard_default")
+        );
+    }
 }
