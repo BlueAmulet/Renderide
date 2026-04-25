@@ -337,4 +337,70 @@ mod tests {
             Some("xstoonstenciler_default")
         );
     }
+
+    #[test]
+    fn resolves_pbs_dual_sided_transparent_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSDualSidedTransparent").as_deref(),
+            Some("pbsdualsidedtransparent_default")
+        );
+    }
+
+    #[test]
+    fn resolves_pbs_dual_sided_transparent_specular_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSDualSidedTransparentSpecular").as_deref(),
+            Some("pbsdualsidedtransparentspecular_default")
+        );
+    }
+
+    #[test]
+    fn resolves_pbs_color_mask_from_asset_filename() {
+        // Unity's `Shader "ColorMask"` ships in `PBSColorMask.shader`; the host can route the
+        // material by either label, so both forms must resolve to the same embedded stem.
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSColorMask").as_deref(),
+            Some("pbscolormask_default")
+        );
+    }
+
+    #[test]
+    fn resolves_pbs_color_mask_specular_from_asset_filename() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSColorMaskSpecular").as_deref(),
+            Some("pbscolormaskspecular_default")
+        );
+    }
+
+    #[test]
+    fn resolves_pbs_triplanar_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSTriplanar").as_deref(),
+            Some("pbstriplanar_default")
+        );
+    }
+
+    #[test]
+    fn resolves_pbs_triplanar_specular_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSTriplanarSpecular").as_deref(),
+            Some("pbstriplanarspecular_default")
+        );
+    }
+
+    #[test]
+    fn resolves_pbs_multi_uv_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSMultiUV").as_deref(),
+            Some("pbsmultiuv_default")
+        );
+    }
+
+    #[test]
+    fn resolves_pbs_multi_uv_specular_from_unity_name() {
+        assert_eq!(
+            embedded_default_stem_for_unity_name("PBSMultiUVSpecular").as_deref(),
+            Some("pbsmultiuvspecular_default")
+        );
+    }
 }
