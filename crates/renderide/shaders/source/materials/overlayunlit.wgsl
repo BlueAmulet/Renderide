@@ -23,7 +23,7 @@ struct OverlayUnlitMaterial {
     _POLARUV: f32,
     _MUL_RGB_BY_ALPHA: f32,
     _MUL_ALPHA_INTENSITY: f32,
-    _pad0: f32,
+    _ALPHATEST_ON: f32,
 }
 
 @group(1) @binding(0) var<uniform> mat: OverlayUnlitMaterial;
@@ -136,7 +136,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     );
     let color_clip = alpha_over(front_clip, behind_clip);
 
-    if (mat._Cutoff > 0.0 && mat._Cutoff < 1.0 && color_clip.a <= mat._Cutoff) {
+    if (uvu::kw_enabled(mat._ALPHATEST_ON) && color_clip.a <= mat._Cutoff) {
         discard;
     }
 

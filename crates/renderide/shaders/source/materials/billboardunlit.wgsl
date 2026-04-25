@@ -30,6 +30,7 @@ struct BillboardUnlitMaterial {
     _POINT_ROTATION: f32,
     _POINT_SIZE: f32,
     _VERTEXCOLORS: f32,
+    _ALPHATEST_ON: f32,
 }
 
 @group(1) @binding(0) var<uniform> mat: BillboardUnlitMaterial;
@@ -171,7 +172,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let clip_a = mat._Color.a * acs::texture_alpha_base_mip(_Tex, _Tex_sampler, uv_main);
     var col = mat._Color * tex;
 
-    if (mat._Cutoff > 0.0 && mat._Cutoff < 1.0 && clip_a <= mat._Cutoff) {
+    if (uvu::kw_enabled(mat._ALPHATEST_ON) && clip_a <= mat._Cutoff) {
         discard;
     }
 

@@ -25,6 +25,16 @@ pub struct ParseMaterialBatchOptions {
     pub persist_extended_payloads: bool,
     /// Reserved for future wire-telemetry (matrix / array opcodes).
     pub record_wire_metrics: bool,
+    /// Interned `_RenderType` property id. When `Some`, [`MaterialPropertyUpdateType::SetRenderType`]
+    /// opcodes write the [`crate::shared::MaterialRenderType`] discriminant (`0` Opaque,
+    /// `1` TransparentCutout, `2` Transparent — see
+    /// `references_external/Renderite.Shared/Models/Assets/Materials/MaterialRenderType.cs`)
+    /// as a synthetic [`MaterialPropertyValue::Float`] at this id. The keyword inference path
+    /// in [`crate::backend::embedded::uniform_pack`] reads it to populate `_ALPHATEST_ON` /
+    /// `_ALPHACLIP` / `_ALPHABLEND_ON` / `_ALPHAPREMULTIPLY_ON` per Unity blend mode semantics.
+    /// `None` skips the capture (default for unit tests that do not exercise render-type-driven
+    /// inference).
+    pub render_type_property_id: Option<i32>,
 }
 
 /// Loads a blob for a [`SharedMemoryBufferDescriptor`] (production: shared-memory mmap).
@@ -158,9 +168,17 @@ fn apply_material_batch_property_opcode<L: MaterialBatchBlobLoader + ?Sized>(
             }
             MaterialBatchTarget::PropertyBlock(_) => {}
         },
-        MaterialPropertyUpdateType::SetRenderQueue
-        | MaterialPropertyUpdateType::SetInstancing
-        | MaterialPropertyUpdateType::SetRenderType => {}
+        MaterialPropertyUpdateType::SetRenderQueue | MaterialPropertyUpdateType::SetInstancing => {}
+        MaterialPropertyUpdateType::SetRenderType => {
+            if let Some(render_type_pid) = options.render_type_property_id {
+                set_property_on_batch_target(
+                    store,
+                    target,
+                    render_type_pid,
+                    MaterialPropertyValue::Float(property_id as f32),
+                );
+            }
+        }
         MaterialPropertyUpdateType::SetFloat => {
             if let Some(v) = p.next_float() {
                 set_property_on_batch_target(
@@ -695,5 +713,67 @@ mod tests {
             store.get_property_block(100, 1),
             Some(&MaterialPropertyValue::Float(2.0))
         );
+    }
+
+    /// `SetRenderType` opcodes carry the [`crate::shared::MaterialRenderType`] discriminant in
+    /// `property_id` (`0` Opaque / `1` TransparentCutout / `2` Transparent). When
+    /// [`ParseMaterialBatchOptions::render_type_property_id`] is set, the parser writes that
+    /// discriminant as a synthetic float on the active material so the keyword inference path
+    /// can read it back.
+    #[test]
+    fn set_render_type_writes_synthetic_render_type_property_when_enabled() {
+        let stream: Vec<u8> = [
+            update_bytes(50, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(1, MaterialPropertyUpdateType::SetRenderType),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let mut loader = TestLoader {
+            blobs: vec![stream.clone()],
+        };
+        let batch = MaterialsUpdateBatch {
+            material_updates: vec![desc(0, &stream)],
+            material_update_count: 1,
+            ..Default::default()
+        };
+        let mut store = MaterialPropertyStore::new();
+        let render_type_pid: i32 = 9999;
+        let opts = ParseMaterialBatchOptions {
+            render_type_property_id: Some(render_type_pid),
+            ..ParseMaterialBatchOptions::default()
+        };
+        parse_materials_update_batch_into_store(&mut loader, &batch, &mut store, &opts);
+        assert_eq!(
+            store.get_material(50, render_type_pid),
+            Some(&MaterialPropertyValue::Float(1.0))
+        );
+    }
+
+    /// When the synthetic id is `None` (default options) the parser must skip the SetRenderType
+    /// opcode so it does not contaminate the property store with a wire-encoded enum.
+    #[test]
+    fn set_render_type_is_dropped_when_property_id_unset() {
+        let stream: Vec<u8> = [
+            update_bytes(60, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(2, MaterialPropertyUpdateType::SetRenderType),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let mut loader = TestLoader {
+            blobs: vec![stream.clone()],
+        };
+        let batch = MaterialsUpdateBatch {
+            material_updates: vec![desc(0, &stream)],
+            material_update_count: 1,
+            ..Default::default()
+        };
+        let mut store = MaterialPropertyStore::new();
+        parse_materials_update_batch_into_store(
+            &mut loader,
+            &batch,
+            &mut store,
+            &ParseMaterialBatchOptions::default(),
+        );
+        assert_eq!(store.material_property_slot_count(), 0);
     }
 }

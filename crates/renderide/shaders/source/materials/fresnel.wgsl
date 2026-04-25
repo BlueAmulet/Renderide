@@ -27,6 +27,7 @@ struct FresnelMaterial {
     _MASK_TEXTURE_MUL: f32,
     _MASK_TEXTURE_CLIP: f32,
     _MUL_ALPHA_INTENSITY: f32,
+    _ALPHATEST_ON: f32,
 }
 
 @group(1) @binding(0) var<uniform> mat: FresnelMaterial;
@@ -132,7 +133,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     }
 
-    if (!(mat._MASK_TEXTURE_CLIP > 0.99) && mat._Cutoff > 0.0 && mat._Cutoff < 1.0 && clip_a <= mat._Cutoff) {
+    if (!(mat._MASK_TEXTURE_CLIP > 0.99) && uvu::kw_enabled(mat._ALPHATEST_ON) && clip_a <= mat._Cutoff) {
         discard;
     }
 

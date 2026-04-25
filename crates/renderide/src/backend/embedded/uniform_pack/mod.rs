@@ -196,6 +196,113 @@ mod text_uniform_packing_tests {
         );
     }
 
+    /// `MaterialRenderType::TransparentCutout` (1) on the wire enables the alpha-test keyword
+    /// family even when the host never sends `_Mode` / `_BlendMode` (the FrooxEngine path).
+    #[test]
+    fn transparent_cutout_render_type_infers_alpha_test_family() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        let render_type_pid = reg.intern("_RenderType");
+        store.set_material(7, render_type_pid, MaterialPropertyValue::Float(1.0));
+
+        for field_name in ["_ALPHATEST_ON", "_ALPHATEST", "_ALPHACLIP"] {
+            assert_eq!(
+                inferred_keyword_float_f32(field_name, &store, lookup(7), &ids),
+                Some(1.0),
+                "{field_name} should enable for TransparentCutout render type"
+            );
+        }
+        assert_eq!(
+            inferred_keyword_float_f32("_ALPHABLEND_ON", &store, lookup(7), &ids),
+            Some(0.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_ALPHAPREMULTIPLY_ON", &store, lookup(7), &ids),
+            Some(0.0)
+        );
+    }
+
+    /// `MaterialRenderType::Opaque` (0) — neither alpha-test nor alpha-blend keyword fires.
+    /// This is the case that previously bit Unlit: default `_Cutoff = 0.98` lit up the
+    /// `_Cutoff ∈ (0, 1)` heuristic even though the host had selected Opaque.
+    #[test]
+    fn opaque_render_type_disables_all_alpha_keywords() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        let render_type_pid = reg.intern("_RenderType");
+        store.set_material(8, render_type_pid, MaterialPropertyValue::Float(0.0));
+
+        for field_name in [
+            "_ALPHATEST_ON",
+            "_ALPHATEST",
+            "_ALPHACLIP",
+            "_ALPHABLEND_ON",
+            "_ALPHAPREMULTIPLY_ON",
+        ] {
+            assert_eq!(
+                inferred_keyword_float_f32(field_name, &store, lookup(8), &ids),
+                Some(0.0),
+                "{field_name} should be disabled for Opaque render type"
+            );
+        }
+    }
+
+    /// `MaterialRenderType::Transparent` (2) with FrooxEngine `BlendMode.Alpha` factors
+    /// (`_SrcBlend = SrcAlpha (5)`, `_DstBlend = OneMinusSrcAlpha (10)`) maps to
+    /// `_ALPHABLEND_ON`, not `_ALPHAPREMULTIPLY_ON`.
+    #[test]
+    fn transparent_render_type_with_alpha_factors_infers_alpha_blend() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        let render_type_pid = reg.intern("_RenderType");
+        let src_blend_pid = reg.intern("_SrcBlend");
+        let dst_blend_pid = reg.intern("_DstBlend");
+        store.set_material(9, render_type_pid, MaterialPropertyValue::Float(2.0));
+        store.set_material(9, src_blend_pid, MaterialPropertyValue::Float(5.0));
+        store.set_material(9, dst_blend_pid, MaterialPropertyValue::Float(10.0));
+
+        assert_eq!(
+            inferred_keyword_float_f32("_ALPHABLEND_ON", &store, lookup(9), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_ALPHAPREMULTIPLY_ON", &store, lookup(9), &ids),
+            Some(0.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_ALPHATEST_ON", &store, lookup(9), &ids),
+            Some(0.0)
+        );
+    }
+
+    /// `MaterialRenderType::Transparent` (2) with FrooxEngine `BlendMode.Transparent`
+    /// (premultiplied) factors `_SrcBlend = One (1)`, `_DstBlend = OneMinusSrcAlpha (10)`
+    /// maps to `_ALPHAPREMULTIPLY_ON`, not `_ALPHABLEND_ON`.
+    #[test]
+    fn transparent_render_type_with_premultiplied_factors_infers_premultiply() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        let render_type_pid = reg.intern("_RenderType");
+        let src_blend_pid = reg.intern("_SrcBlend");
+        let dst_blend_pid = reg.intern("_DstBlend");
+        store.set_material(11, render_type_pid, MaterialPropertyValue::Float(2.0));
+        store.set_material(11, src_blend_pid, MaterialPropertyValue::Float(1.0));
+        store.set_material(11, dst_blend_pid, MaterialPropertyValue::Float(10.0));
+
+        assert_eq!(
+            inferred_keyword_float_f32("_ALPHAPREMULTIPLY_ON", &store, lookup(11), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_ALPHABLEND_ON", &store, lookup(11), &ids),
+            Some(0.0)
+        );
+    }
+
     #[test]
     fn inferred_pbs_keyword_enables_from_texture_presence() {
         let mut store = MaterialPropertyStore::new();

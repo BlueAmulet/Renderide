@@ -19,13 +19,20 @@ pub(crate) struct StemMaterialLayout {
 
 /// Pre-interned property ids used by [`super::uniform_pack::inferred_keyword_float_f32`] to
 /// probe texture presence (PBS `_NORMALMAP` / `_EMISSION` / `_SPECULARMAP` / … flags) and by
-/// the `_ALPHATEST_ON`/`_ALPHABLEND_ON` inference path that reads a Resonite `BlendMode`
-/// property. The renderer never receives FrooxEngine's `ShaderKeywords.Variant` bitmask over
-/// IPC, so every multi-compile-keyword toggle has to be inferred from what the host does
-/// send: texture bindings and numeric material properties.
+/// the `_ALPHATEST_ON`/`_ALPHABLEND_ON` inference path that reads the on-wire
+/// [`crate::shared::MaterialRenderType`] tag (captured under the synthetic `_RenderType`
+/// property by [`crate::assets::material::parse_materials_update_batch_into_store`]) plus
+/// the `_SrcBlend` / `_DstBlend` factors for distinguishing premultiplied blends.
+///
+/// FrooxEngine's `ShaderKeywords.Variant` bitmask is never sent over IPC, so every
+/// multi-compile-keyword toggle has to be inferred from what the host does send: texture
+/// bindings, numeric material properties, render-type tag, and blend factors.
 pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) blend_mode: i32,
     pub(crate) mode: i32,
+    pub(crate) render_type: i32,
+    pub(crate) src_blend: i32,
+    pub(crate) dst_blend: i32,
     pub(crate) lerp_tex: i32,
     pub(crate) main_tex: i32,
     pub(crate) main_tex1: i32,
@@ -54,6 +61,9 @@ impl EmbeddedSharedKeywordIds {
         Self {
             blend_mode: registry.intern("_BlendMode"),
             mode: registry.intern("_Mode"),
+            render_type: registry.intern("_RenderType"),
+            src_blend: registry.intern("_SrcBlend"),
+            dst_blend: registry.intern("_DstBlend"),
             lerp_tex: registry.intern("_LerpTex"),
             main_tex: registry.intern("_MainTex"),
             main_tex1: registry.intern("_MainTex1"),
