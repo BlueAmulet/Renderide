@@ -11,6 +11,7 @@
 //! the runtime façade combines this layer with [`crate::backend::RenderBackend`] and scene.
 
 mod begin_frame;
+mod decoupling;
 mod frame_start_performance;
 mod init_state;
 mod renderer_frontend;
@@ -18,5 +19,6 @@ mod renderer_frontend;
 /// Winit adapter and [`WindowInputAccumulator`](input::WindowInputAccumulator) for [`crate::shared::InputState`].
 pub mod input;
 
+pub use decoupling::DecouplingState;
 pub use init_state::InitState;
 pub use renderer_frontend::RendererFrontend;

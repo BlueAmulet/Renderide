@@ -4,9 +4,13 @@ use std::time::Instant;
 
 use crate::connection::{ConnectionParams, InitError};
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
-use crate::shared::{FrameStartData, InputState, OutputState, RendererCommand, RendererInitData};
+use crate::shared::{
+    FrameStartData, InputState, OutputState, RenderDecouplingConfig, RendererCommand,
+    RendererInitData,
+};
 
 use super::begin_frame::begin_frame_allowed;
+use super::decoupling::DecouplingState;
 use super::init_state::InitState;
 
 /// IPC, shared memory, init sequence, and lock-step fields. Does not own GPU pools or scene graph.
@@ -41,6 +45,8 @@ pub struct RendererFrontend {
     perf_last_render_time_seconds: f32,
     /// Exponentially smoothed FPS for [`crate::shared::FrameStartData::performance`].
     smoothed_fps: Option<f32>,
+    /// Host-driven decoupling state (activation threshold, recouple counter, last submit timing).
+    decoupling: DecouplingState,
 }
 
 impl RendererFrontend {
@@ -71,6 +77,7 @@ impl RendererFrontend {
             wall_interval_us_for_perf: 0,
             perf_last_render_time_seconds: super::frame_start_performance::RENDER_TIME_UNAVAILABLE,
             smoothed_fps: None,
+            decoupling: DecouplingState::default(),
         }
     }
 
@@ -306,6 +313,7 @@ impl RendererFrontend {
             }
         }
         self.last_frame_data_processed = false;
+        self.decoupling.record_frame_start_sent(Instant::now());
         if bootstrap {
             self.sent_bootstrap_frame_start = true;
         }
@@ -338,10 +346,45 @@ impl RendererFrontend {
         self.pending_output_state.take()
     }
 
+    /// Read-only handle to the host-driven decoupling state.
+    ///
+    /// Callers (runtime asset integration, debug HUD) consult this to gate behavior on
+    /// [`DecouplingState::is_active`] and to choose
+    /// [`DecouplingState::effective_asset_integration_budget_ms`].
+    pub fn decoupling_state(&self) -> &DecouplingState {
+        &self.decoupling
+    }
+
+    /// Whether the renderer is currently running decoupled from host lock-step.
+    pub fn is_decoupled(&self) -> bool {
+        self.decoupling.is_active()
+    }
+
+    /// Replaces the renderer-side decoupling thresholds with the host's
+    /// [`RenderDecouplingConfig`]. Active state and recouple progress are preserved across
+    /// updates so a `ForceDecouple` toggle does not bounce the flag mid-tick.
+    pub fn set_decoupling_config(&mut self, cfg: RenderDecouplingConfig) {
+        self.decoupling.apply_config(&cfg);
+    }
+
+    /// Per-tick activation check. Forwards `now` and the current
+    /// [`Self::last_frame_data_processed`] inversion (i.e. "are we waiting on a host submit?") to
+    /// the decoupling state machine. Call once per winit tick before
+    /// [`crate::runtime::RendererRuntime::run_asset_integration`].
+    pub fn update_decoupling_activation(&mut self, now: Instant) {
+        let awaiting_submit = !self.last_frame_data_processed;
+        self.decoupling
+            .update_activation_for_tick(now, awaiting_submit);
+    }
+
     /// Updates lock-step state after the host submits a frame.
+    ///
+    /// Also notifies the host-driven decoupling state machine so the recouple counter advances or
+    /// resets based on the `FrameStartData → FrameSubmitData` round-trip.
     pub fn note_frame_submit_processed(&mut self, frame_index: i32) {
         self.last_frame_index = frame_index;
         self.last_frame_data_processed = true;
+        self.decoupling.record_frame_submit_received(Instant::now());
     }
 
     /// Marks init received after `renderer_init_data` (shared memory may be created here).

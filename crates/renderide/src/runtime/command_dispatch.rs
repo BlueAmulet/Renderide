@@ -4,9 +4,9 @@
 
 use crate::shared::{
     FrameStartData, MaterialPropertyIdRequest, MaterialPropertyIdResult, MeshUploadData,
-    RendererCommand, SetCubemapData, SetCubemapFormat, SetCubemapProperties, SetTexture2DData,
-    SetTexture2DFormat, SetTexture2DProperties, SetTexture3DData, SetTexture3DFormat,
-    SetTexture3DProperties,
+    RenderDecouplingConfig, RendererCommand, SetCubemapData, SetCubemapFormat,
+    SetCubemapProperties, SetTexture2DData, SetTexture2DFormat, SetTexture2DProperties,
+    SetTexture3DData, SetTexture3DFormat, SetTexture3DProperties,
 };
 
 use super::renderer_command_kind::renderer_command_variant_tag;
@@ -86,6 +86,9 @@ pub(super) fn dispatch_running_command(runtime: &mut RendererRuntime, cmd: Rende
                 "runtime: renderer_engine_ready from host (post-init lifecycle ack; no action)"
             );
         }
+        RendererCommand::RenderDecouplingConfig(cfg) => {
+            apply_render_decoupling_config(runtime, cfg)
+        }
         ref cmd => {
             let tag = renderer_command_variant_tag(cmd);
             runtime.record_unhandled_renderer_command(tag);
@@ -164,6 +167,16 @@ fn dispatch_cubemap_properties(runtime: &mut RendererRuntime, p: SetCubemapPrope
 fn dispatch_cubemap_data(runtime: &mut RendererRuntime, d: SetCubemapData) {
     let (shm, ipc) = runtime.frontend.transport_pair_mut();
     runtime.backend.on_set_cubemap_data(d, shm, ipc);
+}
+
+fn apply_render_decoupling_config(runtime: &mut RendererRuntime, cfg: RenderDecouplingConfig) {
+    logger::info!(
+        "runtime: render_decoupling_config activate_interval_s={:.4} decoupled_max_asset_processing_s={:.4} recouple_frame_count={}",
+        cfg.decouple_activate_interval,
+        cfg.decoupled_max_asset_processing_time,
+        cfg.recouple_frame_count
+    );
+    runtime.frontend.set_decoupling_config(cfg);
 }
 
 fn material_property_id_request(runtime: &mut RendererRuntime, req: MaterialPropertyIdRequest) {
