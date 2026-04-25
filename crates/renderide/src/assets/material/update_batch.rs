@@ -943,8 +943,7 @@ mod tests {
         let mut float_buffers: Vec<SharedMemoryBufferDescriptor> = Vec::new();
         let mut float4_buffers: Vec<SharedMemoryBufferDescriptor> = Vec::new();
         let mut matrix_buffers: Vec<SharedMemoryBufferDescriptor> = Vec::new();
-        let mut blob_idx = 1i32;
-        for (kind, bytes) in &side_blobs {
+        for (blob_idx, (kind, bytes)) in (1i32..).zip(side_blobs.iter()) {
             let d = desc(blob_idx, bytes);
             match *kind {
                 0 => int_buffers.push(d),
@@ -953,7 +952,6 @@ mod tests {
                 3 => matrix_buffers.push(d),
                 _ => unreachable!("invalid side-blob kind"),
             }
-            blob_idx += 1;
         }
         let batch = MaterialsUpdateBatch {
             material_updates: vec![desc(0, &script)],
