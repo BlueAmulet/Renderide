@@ -2,7 +2,9 @@
 //! [`crate::render_graph::post_processing::PostProcessChain`].
 //!
 //! The chain currently ships with three effects, executed in this order:
-//! 1. [`GtaoPass`] — Ground-Truth Ambient Occlusion (pre-tonemap HDR modulation).
+//! 1. [`GtaoEffect`] — Ground-Truth Ambient Occlusion with bilateral spatial denoise (pre-tonemap
+//!    HDR modulation). Internally registers a sub-graph of 1 main pass + N denoise passes + 1
+//!    apply pass; only the leading main pass and trailing apply pass are exposed to the chain.
 //! 2. [`BloomEffect`] — dual-filter physically-based bloom (pre-tonemap HDR scatter).
 //! 3. [`AcesTonemapPass`] — Stephen Hill ACES Fitted tonemap.
 //!
@@ -15,4 +17,4 @@ mod gtao;
 
 pub use aces_tonemap::{AcesTonemapEffect, AcesTonemapGraphResources, AcesTonemapPass};
 pub use bloom::BloomEffect;
-pub use gtao::{GtaoEffect, GtaoGraphResources, GtaoPass};
+pub use gtao::GtaoEffect;

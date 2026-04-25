@@ -790,6 +790,7 @@ mod post_processing_rebuild_tests {
                 bloom: false,
                 bloom_max_mip_dimension: 0,
                 gtao: false,
+                gtao_denoise_passes: 0,
             }
         );
     }
