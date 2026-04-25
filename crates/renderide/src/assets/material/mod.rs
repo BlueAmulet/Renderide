@@ -10,5 +10,7 @@ pub use properties::{
 };
 pub use property_registry::{MaterialPropertySemanticHook, PropertyIdRegistry};
 pub use update_batch::{
-    parse_materials_update_batch_into_store, MaterialBatchBlobLoader, ParseMaterialBatchOptions,
+    parse_materials_update_batch_into_store,
+    parse_materials_update_batch_into_store_with_instance_changed, MaterialBatchBlobLoader,
+    ParseMaterialBatchOptions,
 };

@@ -176,7 +176,7 @@ pub fn apply_extracted_render_space_update(
 
     fixup_static_meshes_for_transform_removals(space, transform_removals);
     if let Some(ref mu) = extracted.meshes {
-        apply_mesh_renderables_update_extracted(space, mu);
+        apply_mesh_renderables_update_extracted(space, mu, scene_id);
     }
     if let Some(ref su) = extracted.skinned_meshes {
         apply_skinned_mesh_renderables_update_extracted(space, su, transform_removals, scene_id);

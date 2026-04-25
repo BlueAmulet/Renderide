@@ -5,13 +5,14 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::assets::material::{
-    parse_materials_update_batch_into_store, MaterialPropertyStore, ParseMaterialBatchOptions,
-    PropertyIdRegistry,
+    parse_materials_update_batch_into_store_with_instance_changed, MaterialPropertyStore,
+    ParseMaterialBatchOptions, PropertyIdRegistry,
 };
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::RasterPipelineKind;
 
 use super::embedded::{EmbeddedMaterialBindError, EmbeddedMaterialBindResources};
+use crate::shared::bit_span::BitSpanMut;
 use crate::shared::{MaterialsUpdateBatch, MaterialsUpdateBatchResult, RendererCommand};
 
 /// Max queued [`MaterialsUpdateBatch`] when shared memory is not available.
@@ -157,6 +158,15 @@ impl MaterialSystem {
     }
 
     /// Apply one host materials batch (shared memory must be valid for the batch descriptors).
+    ///
+    /// Writes per-target instance-changed bits into [`MaterialsUpdateBatch::instance_changed_buffer`]
+    /// before sending the [`MaterialsUpdateBatchResult`] ack so the host's
+    /// `MaterialUpdateData.Completed()` (`references_external/FrooxEngine/MaterialUpdateData.cs`)
+    /// reads fresh values when it dispatches `MaterialAssetUpdated(bool)` per material/property block.
+    /// Without this, every bit reads as `false`, the host always takes `AssetUpdated()` instead of
+    /// `AssetCreated()`/`Reinitialize()`, and property blocks (e.g. font atlases) are never re-emitted
+    /// to the renderers using them — see [`MaterialAssetManager.HandlePropertyBlockUpdate`] in
+    /// `references_external/Renderite.Unity/Assets/Material/MaterialAssetManager.cs`.
     pub fn apply_materials_update_batch(
         &mut self,
         batch: MaterialsUpdateBatch,
@@ -169,12 +179,41 @@ impl MaterialSystem {
             render_queue_property_id: Some(self.property_id_registry.intern("_RenderQueue")),
             ..ParseMaterialBatchOptions::default()
         };
-        parse_materials_update_batch_into_store(
+
+        // Capacity in bits derived from the host-allocated u32 slab; padding bits past the actual
+        // material+PB count are harmless (they sit in the trailing element of the bitspan and
+        // never get read by `MaterialUpdateData.RunCompleted`).
+        let bit_capacity = (batch.instance_changed_buffer.length.max(0) as usize / 4) * 32;
+        let mut instance_changed = vec![false; bit_capacity];
+
+        parse_materials_update_batch_into_store_with_instance_changed(
             shm,
             &batch,
             &mut self.material_property_store,
             &opts,
+            &mut instance_changed,
         );
+
+        if batch.instance_changed_buffer.length > 0 {
+            let descriptor = batch.instance_changed_buffer;
+            let written = shm.access_mut::<u32, _>(&descriptor, |slab| {
+                let mut bits = BitSpanMut::new(slab);
+                bits.clear();
+                for (i, &flag) in instance_changed.iter().enumerate() {
+                    if flag {
+                        bits.set(i, true);
+                    }
+                }
+            });
+            if !written {
+                logger::warn!(
+                    "materials update batch {update_batch_id}: failed to write instance_changed_buffer (descriptor offset={} length={})",
+                    descriptor.offset,
+                    descriptor.length,
+                );
+            }
+        }
+
         let _ = ipc.send_background(RendererCommand::MaterialsUpdateBatchResult(
             MaterialsUpdateBatchResult { update_batch_id },
         ));

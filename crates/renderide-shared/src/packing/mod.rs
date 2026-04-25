@@ -3,6 +3,7 @@
 //! Primitives, strings, and collection encodings match the layout produced by the host’s
 //! `MemoryPacker` / `MemoryUnpacker` types so a single binary contract works on all platforms.
 
+pub mod bit_span;
 pub mod default_entity_pool;
 pub mod enum_repr;
 pub mod memory_packable;

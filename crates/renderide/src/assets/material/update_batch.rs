@@ -162,6 +162,18 @@ fn apply_set_float4_array_from_batch<L: MaterialBatchBlobLoader + ?Sized>(
 }
 
 /// Applies one material/property-block opcode after [`MaterialBatchTarget`] is active (excludes target switching).
+///
+/// Returns `true` when the opcode represents an **instance-level** change to the active target,
+/// matching Renderite Unity `MaterialAssetManager.HandleMaterialUpdate` /
+/// `HandlePropertyBlockUpdate` semantics:
+/// - **Property block** ops always return `true` (per the Unity comment: "we always trigger
+///   instance changed, because just changing the values doesn't seem to notify any of the mesh
+///   renderers of this change"). Without this signal, the host's `MaterialAssetUpdated(false)`
+///   path skips `AssetCreated()` / `Reinitialize()` and never re-emits the property block to
+///   renderers — the root cause of intermittent text-quad rendering.
+/// - **Material** ops return `true` only for structural ops that stick to the material instance:
+///   `SetShader`, `SetInstancing`, `SetRenderQueue`, `SetRenderType`. Per-property writes
+///   (`SetFloat`, `SetFloat4`, `SetFloat4x4`, `SetTexture`, array variants) return `false`.
 fn apply_material_batch_property_opcode<L: MaterialBatchBlobLoader + ?Sized>(
     p: &mut BatchParser<'_, L>,
     store: &mut MaterialPropertyStore,
@@ -169,16 +181,20 @@ fn apply_material_batch_property_opcode<L: MaterialBatchBlobLoader + ?Sized>(
     property_id: i32,
     ty: MaterialPropertyUpdateType,
     options: &ParseMaterialBatchOptions,
-) {
+) -> bool {
+    let is_property_block = matches!(target, MaterialBatchTarget::PropertyBlock(_));
     match ty {
-        MaterialPropertyUpdateType::SelectTarget | MaterialPropertyUpdateType::UpdateBatchEnd => {}
+        MaterialPropertyUpdateType::SelectTarget | MaterialPropertyUpdateType::UpdateBatchEnd => {
+            false
+        }
         MaterialPropertyUpdateType::SetShader => match target {
             MaterialBatchTarget::Material(material_id) => {
                 store.set_shader_asset_for_material(material_id, property_id);
+                true
             }
-            MaterialBatchTarget::PropertyBlock(_) => {}
+            MaterialBatchTarget::PropertyBlock(_) => false,
         },
-        MaterialPropertyUpdateType::SetInstancing => {}
+        MaterialPropertyUpdateType::SetInstancing => !is_property_block,
         MaterialPropertyUpdateType::SetRenderQueue => {
             if let Some(render_queue_pid) = options.render_queue_property_id {
                 set_property_on_batch_target(
@@ -188,6 +204,7 @@ fn apply_material_batch_property_opcode<L: MaterialBatchBlobLoader + ?Sized>(
                     MaterialPropertyValue::Float(property_id as f32),
                 );
             }
+            !is_property_block
         }
         MaterialPropertyUpdateType::SetRenderType => {
             if let Some(render_type_pid) = options.render_type_property_id {
@@ -198,6 +215,7 @@ fn apply_material_batch_property_opcode<L: MaterialBatchBlobLoader + ?Sized>(
                     MaterialPropertyValue::Float(property_id as f32),
                 );
             }
+            !is_property_block
         }
         MaterialPropertyUpdateType::SetFloat => {
             if let Some(v) = p.next_float() {
@@ -208,6 +226,7 @@ fn apply_material_batch_property_opcode<L: MaterialBatchBlobLoader + ?Sized>(
                     MaterialPropertyValue::Float(v),
                 );
             }
+            is_property_block
         }
         MaterialPropertyUpdateType::SetFloat4 => {
             if let Some(v) = p.next_float4() {
@@ -218,6 +237,7 @@ fn apply_material_batch_property_opcode<L: MaterialBatchBlobLoader + ?Sized>(
                     MaterialPropertyValue::Float4(v),
                 );
             }
+            is_property_block
         }
         MaterialPropertyUpdateType::SetFloat4x4 => {
             if let Some(mat) = p.next_matrix() {
@@ -230,6 +250,7 @@ fn apply_material_batch_property_opcode<L: MaterialBatchBlobLoader + ?Sized>(
                     );
                 }
             }
+            is_property_block
         }
         MaterialPropertyUpdateType::SetTexture => {
             if let Some(packed) = p.next_int() {
@@ -240,22 +261,63 @@ fn apply_material_batch_property_opcode<L: MaterialBatchBlobLoader + ?Sized>(
                     MaterialPropertyValue::Texture(packed),
                 );
             }
+            is_property_block
         }
         MaterialPropertyUpdateType::SetFloatArray => {
             apply_set_float_array_from_batch(p, store, target, property_id, options);
+            is_property_block
         }
         MaterialPropertyUpdateType::SetFloat4Array => {
             apply_set_float4_array_from_batch(p, store, target, property_id, options);
+            is_property_block
         }
     }
 }
 
 /// Applies all material updates in `batch` into `store` using `loader`.
+///
+/// See [`parse_materials_update_batch_into_store_with_instance_changed`] for the variant that
+/// also reports per-target instance-changed bits required by the host's `MaterialAssetUpdated`
+/// dispatch (see `references_external/FrooxEngine/MaterialUpdateData.cs`).
 pub fn parse_materials_update_batch_into_store(
     loader: &mut impl MaterialBatchBlobLoader,
     batch: &MaterialsUpdateBatch,
     store: &mut MaterialPropertyStore,
     options: &ParseMaterialBatchOptions,
+) {
+    parse_materials_update_batch_into_store_with_instance_changed(
+        loader,
+        batch,
+        store,
+        options,
+        &mut [],
+    );
+}
+
+/// Same as [`parse_materials_update_batch_into_store`] but writes per-target instance-changed
+/// flags into `instance_changed_out`.
+///
+/// `instance_changed_out` is indexed by `SelectTarget` order: bit `i` corresponds to the `i`-th
+/// `SelectTarget` opcode encountered (materials first, then property blocks, matching Unity
+/// `MaterialAssetManager.ApplyUpdate`). When the slice is shorter than the number of
+/// `SelectTarget` ops in the batch, extra targets are silently dropped — the parser still
+/// processes the payload so cursors stay aligned.
+///
+/// Per-target initial value:
+/// - **Material**: `false` — Unity does not call `EnsureInstance` on materials, only OR's per-op
+///   results.
+/// - **Property block**: `true` — mirrors the effect of Unity's
+///   `MaterialPropertyBlockAsset.EnsureInstance()` plus the comment in
+///   `MaterialAssetManager.HandlePropertyBlockUpdate` that says property-block updates always
+///   trigger instance-changed. Without this, the host's `MaterialAssetUpdated(false)` path skips
+///   the `AssetCreated()` re-emission needed for property blocks (e.g. font atlases) to be
+///   re-bound on renderers.
+pub fn parse_materials_update_batch_into_store_with_instance_changed(
+    loader: &mut impl MaterialBatchBlobLoader,
+    batch: &MaterialsUpdateBatch,
+    store: &mut MaterialPropertyStore,
+    options: &ParseMaterialBatchOptions,
+    instance_changed_out: &mut [bool],
 ) {
     profiling::scope!("material::parse_update_batch");
     let _ = options.record_wire_metrics;
@@ -271,6 +333,20 @@ pub fn parse_materials_update_batch_into_store(
     let material_update_count = batch.material_update_count.max(0) as usize;
     let mut select_target_index: usize = 0;
     let mut current: Option<MaterialBatchTarget> = None;
+    // Index into `instance_changed_out` for the active target. Lags `select_target_index` by one
+    // because `select_target_index` is incremented by `select_target_kind` *before* we've finished
+    // accumulating bits for the previous target.
+    let mut active_bit_index: Option<usize> = None;
+
+    fn begin_target_bit(
+        target: MaterialBatchTarget,
+        bit_index: usize,
+        instance_changed_out: &mut [bool],
+    ) {
+        if let Some(slot) = instance_changed_out.get_mut(bit_index) {
+            *slot = matches!(target, MaterialBatchTarget::PropertyBlock(_));
+        }
+    }
 
     while let Some(update) = p.next_update() {
         if update.update_type == MaterialPropertyUpdateType::UpdateBatchEnd {
@@ -279,32 +355,49 @@ pub fn parse_materials_update_batch_into_store(
 
         let Some(target) = current else {
             if update.update_type == MaterialPropertyUpdateType::SelectTarget {
-                current = Some(select_target_kind(
+                let bit_index = select_target_index;
+                let kind = select_target_kind(
                     update.property_id,
                     &mut select_target_index,
                     material_update_count,
-                ));
+                );
+                begin_target_bit(kind, bit_index, instance_changed_out);
+                active_bit_index = Some(bit_index);
+                current = Some(kind);
             }
             continue;
         };
 
         match update.update_type {
             MaterialPropertyUpdateType::SelectTarget => {
-                current = Some(select_target_kind(
+                let bit_index = select_target_index;
+                let kind = select_target_kind(
                     update.property_id,
                     &mut select_target_index,
                     material_update_count,
-                ));
+                );
+                begin_target_bit(kind, bit_index, instance_changed_out);
+                active_bit_index = Some(bit_index);
+                current = Some(kind);
             }
             MaterialPropertyUpdateType::UpdateBatchEnd => break,
-            other => apply_material_batch_property_opcode(
-                &mut p,
-                store,
-                target,
-                update.property_id,
-                other,
-                options,
-            ),
+            other => {
+                let instance_changed = apply_material_batch_property_opcode(
+                    &mut p,
+                    store,
+                    target,
+                    update.property_id,
+                    other,
+                    options,
+                );
+                if instance_changed {
+                    if let Some(bit_index) = active_bit_index {
+                        if let Some(slot) = instance_changed_out.get_mut(bit_index) {
+                            *slot = true;
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -830,5 +923,224 @@ mod tests {
             &ParseMaterialBatchOptions::default(),
         );
         assert_eq!(store.material_property_slot_count(), 0);
+    }
+
+    /// Helper: build a one-buffer batch from a script, parse it with instance-changed reporting,
+    /// and return the populated bit slab plus the resulting store.
+    fn parse_with_bits(
+        material_count: i32,
+        script: Vec<u8>,
+        side_blobs: Vec<(i32, Vec<u8>)>,
+        bit_slab_len: usize,
+    ) -> (Vec<bool>, MaterialPropertyStore) {
+        let mut blobs: Vec<Vec<u8>> = vec![script.clone()];
+        for (_, bytes) in &side_blobs {
+            blobs.push(bytes.clone());
+        }
+        let mut loader = TestLoader { blobs };
+
+        let mut int_buffers: Vec<SharedMemoryBufferDescriptor> = Vec::new();
+        let mut float_buffers: Vec<SharedMemoryBufferDescriptor> = Vec::new();
+        let mut float4_buffers: Vec<SharedMemoryBufferDescriptor> = Vec::new();
+        let mut matrix_buffers: Vec<SharedMemoryBufferDescriptor> = Vec::new();
+        let mut blob_idx = 1i32;
+        for (kind, bytes) in &side_blobs {
+            let d = desc(blob_idx, bytes);
+            match *kind {
+                0 => int_buffers.push(d),
+                1 => float_buffers.push(d),
+                2 => float4_buffers.push(d),
+                3 => matrix_buffers.push(d),
+                _ => unreachable!("invalid side-blob kind"),
+            }
+            blob_idx += 1;
+        }
+        let batch = MaterialsUpdateBatch {
+            material_updates: vec![desc(0, &script)],
+            material_update_count: material_count,
+            int_buffers,
+            float_buffers,
+            float4_buffers,
+            matrix_buffers,
+            ..Default::default()
+        };
+        let mut store = MaterialPropertyStore::new();
+        let mut bits = vec![false; bit_slab_len];
+        parse_materials_update_batch_into_store_with_instance_changed(
+            &mut loader,
+            &batch,
+            &mut store,
+            &ParseMaterialBatchOptions {
+                render_type_property_id: Some(9999),
+                render_queue_property_id: Some(8888),
+                ..ParseMaterialBatchOptions::default()
+            },
+            &mut bits,
+        );
+        (bits, store)
+    }
+
+    /// Property-block targets must report instance-changed=true for every kind of payload, since
+    /// the host's `MaterialAssetUpdated(true)` path is what triggers `AssetCreated()` and the
+    /// re-emission of property block bindings to the renderers using them. Without this, font
+    /// atlas glyph updates do not propagate to text mesh renderers (see
+    /// `references_external/Renderite.Unity/Assets/Material/MaterialAssetManager.cs:369`).
+    #[test]
+    fn instance_changed_property_block_set_float_is_true() {
+        let stream: Vec<u8> = [
+            update_bytes(10, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(2, MaterialPropertyUpdateType::SetFloat),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let fbytes = bytemuck::bytes_of(&3.0f32).to_vec();
+        let (bits, _) = parse_with_bits(0, stream, vec![(1, fbytes)], 8);
+        assert!(bits[0], "PB SetFloat must report instance_changed=true");
+    }
+
+    #[test]
+    fn instance_changed_property_block_set_texture_is_true() {
+        let stream: Vec<u8> = [
+            update_bytes(11, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(1, MaterialPropertyUpdateType::SetTexture),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let int_bytes = bytemuck::bytes_of(&0x00AB_CD01i32).to_vec();
+        let (bits, _) = parse_with_bits(0, stream, vec![(0, int_bytes)], 8);
+        assert!(bits[0], "PB SetTexture must report instance_changed=true");
+    }
+
+    /// Material targets only flip the bit on structural ops (`SetShader` / `SetInstancing` /
+    /// `SetRenderQueue` / `SetRenderType`); per-property writes must not.
+    #[test]
+    fn instance_changed_material_set_float_only_is_false() {
+        let stream: Vec<u8> = [
+            update_bytes(20, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(7, MaterialPropertyUpdateType::SetFloat),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let fbytes = bytemuck::bytes_of(&1.0f32).to_vec();
+        let (bits, _) = parse_with_bits(1, stream, vec![(1, fbytes)], 8);
+        assert!(
+            !bits[0],
+            "material SetFloat alone must not report instance_changed"
+        );
+    }
+
+    #[test]
+    fn instance_changed_material_set_texture_only_is_false() {
+        let stream: Vec<u8> = [
+            update_bytes(21, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(8, MaterialPropertyUpdateType::SetTexture),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let int_bytes = bytemuck::bytes_of(&5i32).to_vec();
+        let (bits, _) = parse_with_bits(1, stream, vec![(0, int_bytes)], 8);
+        assert!(!bits[0], "material SetTexture alone must not flip the bit");
+    }
+
+    #[test]
+    fn instance_changed_material_set_shader_is_true() {
+        let stream: Vec<u8> = [
+            update_bytes(30, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(99, MaterialPropertyUpdateType::SetShader),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let (bits, _) = parse_with_bits(1, stream, vec![], 8);
+        assert!(bits[0], "material SetShader must report instance_changed");
+    }
+
+    #[test]
+    fn instance_changed_material_set_render_queue_is_true() {
+        let stream: Vec<u8> = [
+            update_bytes(31, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(2450, MaterialPropertyUpdateType::SetRenderQueue),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let (bits, _) = parse_with_bits(1, stream, vec![], 8);
+        assert!(
+            bits[0],
+            "material SetRenderQueue must report instance_changed"
+        );
+    }
+
+    #[test]
+    fn instance_changed_material_set_render_type_is_true() {
+        let stream: Vec<u8> = [
+            update_bytes(32, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(1, MaterialPropertyUpdateType::SetRenderType),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let (bits, _) = parse_with_bits(1, stream, vec![], 8);
+        assert!(
+            bits[0],
+            "material SetRenderType must report instance_changed"
+        );
+    }
+
+    #[test]
+    fn instance_changed_material_set_instancing_is_true() {
+        let stream: Vec<u8> = [
+            update_bytes(33, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(0, MaterialPropertyUpdateType::SetInstancing),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        let (bits, _) = parse_with_bits(1, stream, vec![], 8);
+        assert!(
+            bits[0],
+            "material SetInstancing must report instance_changed"
+        );
+    }
+
+    /// Mixing material and PB targets in one batch: bit ordering is materials-first then
+    /// property-blocks, mirroring `MaterialUpdateData.RunCompleted` indexing.
+    #[test]
+    fn instance_changed_mixed_targets_indexed_materials_first_then_pbs() {
+        let stream: Vec<u8> = [
+            // Material #0 with only SetFloat → bit 0 false
+            update_bytes(40, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(1, MaterialPropertyUpdateType::SetFloat),
+            // Material #1 with SetShader → bit 1 true
+            update_bytes(41, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(99, MaterialPropertyUpdateType::SetShader),
+            // PB #0 with SetFloat → bit 2 true
+            update_bytes(50, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(2, MaterialPropertyUpdateType::SetFloat),
+            // PB #1 with no payload after select → bit 3 still true (PB initial)
+            update_bytes(51, MaterialPropertyUpdateType::SelectTarget),
+            update_bytes(0, MaterialPropertyUpdateType::UpdateBatchEnd),
+        ]
+        .concat();
+        // Two SetFloat payloads in float buffer.
+        let fbytes: Vec<u8> = [bytemuck::bytes_of(&1.0f32), bytemuck::bytes_of(&2.0f32)].concat();
+        let (bits, _) = parse_with_bits(2, stream, vec![(1, fbytes)], 8);
+        assert_eq!(bits[..4], [false, true, true, true]);
+    }
+
+    /// Bit indexing into the BitSpanMut packing must land in the right element/bit slot for
+    /// boundary positions across two `u32` elements. Mirrors `Renderite.Shared.BitSpan` exactly.
+    #[test]
+    fn instance_changed_bitspan_packing_at_word_boundaries() {
+        use crate::shared::bit_span::BitSpanMut;
+        let mut data = [0u32; 3];
+        let bools: [bool; 65] = std::array::from_fn(|i| matches!(i, 0 | 31 | 32 | 33 | 63 | 64));
+        {
+            let mut bits = BitSpanMut::new(&mut data);
+            for (i, &v) in bools.iter().enumerate() {
+                if v {
+                    bits.set(i, true);
+                }
+            }
+        }
+        assert_eq!(data[0], 1u32 | (1u32 << 31));
+        assert_eq!(data[1], 1u32 | (1u32 << 1) | (1u32 << 31));
+        assert_eq!(data[2], 1u32);
     }
 }

@@ -186,7 +186,12 @@ pub fn drain_asset_tasks(
     {
         profiling::scope!("asset::normal_priority_drain");
         let mut yielded = 0;
-        while Instant::now() < normal_deadline {
+        let mut budget_exhausted = false;
+        loop {
+            if Instant::now() >= normal_deadline {
+                budget_exhausted = !asset.integrator.normal_priority.is_empty();
+                break;
+            }
             let Some(mut task) = asset.integrator.normal_priority.pop_front() else {
                 break;
             };
@@ -207,6 +212,16 @@ pub fn drain_asset_tasks(
                     yielded = 0;
                 }
             }
+        }
+        if budget_exhausted {
+            // Tasks pending after wall-clock deadline. Not necessarily a bug — asset arrival can
+            // outpace integration on busy frames — but persistent backlog growth indicates the
+            // budget is too tight or a task is stuck. Per-frame at trace level so it does not
+            // spam the default-level log.
+            logger::trace!(
+                "asset integrator: normal-priority budget exhausted with {} task(s) pending",
+                asset.integrator.normal_priority.len()
+            );
         }
     }
 }

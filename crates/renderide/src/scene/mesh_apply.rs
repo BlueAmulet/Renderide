@@ -60,6 +60,37 @@ pub struct ExtractedSkinnedMeshRenderablesUpdate {
 static BONE_INDEX_EMPTY_WARNED_SCENES: LazyLock<Mutex<HashSet<i32>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
+/// Once-per-scene dedup for [`apply_mesh_renderables_update_extracted`] out-of-range
+/// `renderable_index` warnings.
+///
+/// The host's [`crate::shared::MeshRendererState::renderable_index`] should always be in range
+/// `[0, static_mesh_renderers.len())` when state rows are applied. An out-of-range row indicates
+/// a host-renderer protocol drift (e.g. an addition row was dropped, or a previous removals
+/// batch was skipped) — silently ignoring the row leaves the renderable invisible until the
+/// host re-emits, which is exactly the failure mode the `instance_changed_buffer` fix targets.
+static STATIC_MESH_OOB_WARNED_SCENES: LazyLock<Mutex<HashSet<i32>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// Same as [`STATIC_MESH_OOB_WARNED_SCENES`] but for skinned mesh state rows.
+static SKINNED_MESH_OOB_WARNED_SCENES: LazyLock<Mutex<HashSet<i32>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn warn_oob_renderable_index_once(
+    scene_id: i32,
+    kind: &'static str,
+    bad_index: usize,
+    len: usize,
+    warned: &Mutex<HashSet<i32>>,
+) {
+    if let Ok(mut w) = warned.lock() {
+        if w.insert(scene_id) {
+            logger::warn!(
+                "{kind} mesh state: renderable_index {bad_index} out of range (len={len}) in scene_id={scene_id}; row dropped silently. Suggests host-renderer protocol drift; subsequent occurrences in this scene are suppressed."
+            );
+        }
+    }
+}
+
 /// Skinned renderer count above which the inner fixup loop fans out to the rayon pool.
 ///
 /// Each entry touches its own `bone_transform_indices` slab (often hundreds of ids), so the
@@ -187,6 +218,7 @@ pub(crate) fn extract_mesh_renderables_update(
 pub(crate) fn apply_mesh_renderables_update_extracted(
     space: &mut RenderSpaceState,
     extracted: &ExtractedMeshRenderablesUpdate,
+    scene_id: i32,
 ) {
     profiling::scope!("scene::apply_meshes");
     for &raw in extracted.removals.iter().take_while(|&&i| i >= 0) {
@@ -204,12 +236,22 @@ pub(crate) fn apply_mesh_renderables_update_extracted(
     }
     let packed_ref = extracted.mesh_materials_and_property_blocks.as_deref();
     let mut packed_cursor = 0usize;
+    let len = space.static_mesh_renderers.len();
     for state in &extracted.mesh_states {
         if state.renderable_index < 0 {
             break;
         }
         let idx = state.renderable_index as usize;
         let drawable = space.static_mesh_renderers.get_mut(idx);
+        if drawable.is_none() {
+            warn_oob_renderable_index_once(
+                scene_id,
+                "static",
+                idx,
+                len,
+                &STATIC_MESH_OOB_WARNED_SCENES,
+            );
+        }
         apply_mesh_renderer_state_row(drawable, state, packed_ref, &mut packed_cursor);
     }
 }
@@ -328,6 +370,7 @@ fn apply_skinned_removals_and_additions_extracted(
 fn apply_skinned_mesh_state_rows_extracted(
     space: &mut RenderSpaceState,
     extracted: &ExtractedSkinnedMeshRenderablesUpdate,
+    scene_id: i32,
 ) {
     profiling::scope!("scene::apply_skinned_state_rows");
     if extracted.mesh_states.is_empty() {
@@ -335,12 +378,22 @@ fn apply_skinned_mesh_state_rows_extracted(
     }
     let packed_ref = extracted.mesh_materials_and_property_blocks.as_deref();
     let mut packed_cursor = 0usize;
+    let len = space.skinned_mesh_renderers.len();
     for state in &extracted.mesh_states {
         if state.renderable_index < 0 {
             break;
         }
         let idx = state.renderable_index as usize;
         let drawable = space.skinned_mesh_renderers.get_mut(idx);
+        if drawable.is_none() {
+            warn_oob_renderable_index_once(
+                scene_id,
+                "skinned",
+                idx,
+                len,
+                &SKINNED_MESH_OOB_WARNED_SCENES,
+            );
+        }
         apply_mesh_renderer_state_row(drawable, state, packed_ref, &mut packed_cursor);
     }
 }
@@ -450,7 +503,7 @@ pub(crate) fn apply_skinned_mesh_renderables_update_extracted(
     profiling::scope!("scene::apply_skinned_meshes");
     fixup_skinned_bones_for_transform_removals(space, transform_removals);
     apply_skinned_removals_and_additions_extracted(space, extracted);
-    apply_skinned_mesh_state_rows_extracted(space, extracted);
+    apply_skinned_mesh_state_rows_extracted(space, extracted, scene_id);
     apply_skinned_bone_index_buffers_extracted(space, extracted, scene_id);
     apply_skinned_blendshape_weight_batches_extracted(space, extracted);
     apply_skinned_posed_bounds_extracted(space, extracted);

@@ -1,5 +1,8 @@
 //! Host layer assignment ingestion and inherited mesh layer resolution.
 
+use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex};
+
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{LayerType, LayerUpdate};
 
@@ -7,6 +10,29 @@ use super::error::SceneError;
 use super::render_space::{LayerAssignmentEntry, RenderSpaceState};
 use super::transforms_apply::TransformRemovalEvent;
 use super::world::fixup_transform_id;
+
+/// One-shot dedup for [`resolve_mesh_layers_from_assignments`] fallback warnings, keyed by node id.
+///
+/// When a renderable's node has no [`LayerAssignmentEntry`] up its parent chain,
+/// [`resolve_layer_for_node`] returns `None` and the renderable falls through to
+/// [`LayerType::default`] (= [`LayerType::Hidden`]). The host re-emits soon enough that this
+/// self-corrects, but the fallback is a possible co-symptom of the broader instance-changed
+/// host-renderer drift, so log once per node id to make it diagnosable without spamming.
+static LAYER_FALLBACK_WARNED_NODES: LazyLock<Mutex<HashSet<i32>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+fn record_layer_fallback(node_id: i32) {
+    if node_id < 0 {
+        return;
+    }
+    if let Ok(mut w) = LAYER_FALLBACK_WARNED_NODES.lock() {
+        if w.insert(node_id) {
+            logger::trace!(
+                "layer resolve: no LayerAssignmentEntry for node_id={node_id} or any ancestor; falling back to Hidden. Subsequent occurrences for this node are suppressed."
+            );
+        }
+    }
+}
 
 /// Owned per-space layer-update payload extracted from shared memory.
 ///
@@ -93,26 +119,63 @@ pub(crate) fn resolve_mesh_layers_from_assignments(space: &mut RenderSpaceState)
     let layer_assignments = &space.layer_assignments;
     let total = space.static_mesh_renderers.len() + space.skinned_mesh_renderers.len();
 
+    // Collect node ids whose layer resolution falls through to the default; logged after the
+    // borrow on `space` ends. The parallel branch funnels its missing-node ids through a
+    // mutex-guarded vec; the cost is negligible vs. the per-renderable parent walk above it.
+    let fallback_log: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+
     if total >= LAYER_RESOLVE_PARALLEL_MIN {
         use rayon::prelude::*;
         space.static_mesh_renderers.par_iter_mut().for_each(|r| {
-            r.layer = resolve_layer_for_node(node_parents, layer_assignments, r.node_id)
-                .unwrap_or_default();
+            match resolve_layer_for_node(node_parents, layer_assignments, r.node_id) {
+                Some(layer) => r.layer = layer,
+                None => {
+                    r.layer = LayerType::default();
+                    if let Ok(mut v) = fallback_log.lock() {
+                        v.push(r.node_id);
+                    }
+                }
+            }
         });
         space.skinned_mesh_renderers.par_iter_mut().for_each(|r| {
-            r.base.layer = resolve_layer_for_node(node_parents, layer_assignments, r.base.node_id)
-                .unwrap_or_default();
+            match resolve_layer_for_node(node_parents, layer_assignments, r.base.node_id) {
+                Some(layer) => r.base.layer = layer,
+                None => {
+                    r.base.layer = LayerType::default();
+                    if let Ok(mut v) = fallback_log.lock() {
+                        v.push(r.base.node_id);
+                    }
+                }
+            }
         });
     } else {
         for renderer in &mut space.static_mesh_renderers {
-            renderer.layer =
-                resolve_layer_for_node(node_parents, layer_assignments, renderer.node_id)
-                    .unwrap_or_default();
+            match resolve_layer_for_node(node_parents, layer_assignments, renderer.node_id) {
+                Some(layer) => renderer.layer = layer,
+                None => {
+                    renderer.layer = LayerType::default();
+                    if let Ok(mut v) = fallback_log.lock() {
+                        v.push(renderer.node_id);
+                    }
+                }
+            }
         }
         for renderer in &mut space.skinned_mesh_renderers {
-            renderer.base.layer =
-                resolve_layer_for_node(node_parents, layer_assignments, renderer.base.node_id)
-                    .unwrap_or_default();
+            match resolve_layer_for_node(node_parents, layer_assignments, renderer.base.node_id) {
+                Some(layer) => renderer.base.layer = layer,
+                None => {
+                    renderer.base.layer = LayerType::default();
+                    if let Ok(mut v) = fallback_log.lock() {
+                        v.push(renderer.base.node_id);
+                    }
+                }
+            }
+        }
+    }
+
+    if let Ok(v) = fallback_log.into_inner() {
+        for node_id in v {
+            record_layer_fallback(node_id);
         }
     }
 }

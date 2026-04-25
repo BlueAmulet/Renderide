@@ -35,8 +35,8 @@ pub use shared_memory_writer::{
 pub use packing::polymorphic_decode_error::PolymorphicDecodeError;
 pub use packing::wire_decode_error::WireDecodeError;
 pub use packing::{
-    default_entity_pool, enum_repr, memory_packable, memory_packer, memory_packer_entity_pool,
-    memory_unpack_error, memory_unpacker, packed_bools, polymorphic_decode_error,
-    polymorphic_memory_packable_entity, wire_decode_error,
+    bit_span, default_entity_pool, enum_repr, memory_packable, memory_packer,
+    memory_packer_entity_pool, memory_unpack_error, memory_unpacker, packed_bools,
+    polymorphic_decode_error, polymorphic_memory_packable_entity, wire_decode_error,
 };
 pub use shared::*;
