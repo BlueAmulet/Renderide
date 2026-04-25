@@ -29,6 +29,7 @@ pub(super) fn renderer_config_post_processing_tab(
 
 /// Master enable toggle for the whole post-processing stack.
 fn master_section(ui: &imgui::Ui, g: &mut crate::config::RendererSettings, dirty: &mut bool) {
+    let _id = ui.push_id("master");
     if ui.checkbox(
         "Enable post-processing stack",
         &mut g.post_processing.enabled,
@@ -44,6 +45,7 @@ fn master_section(ui: &imgui::Ui, g: &mut crate::config::RendererSettings, dirty
 
 /// GTAO tunables (pre-tonemap HDR modulation).
 fn gtao_section(ui: &imgui::Ui, g: &mut crate::config::RendererSettings, dirty: &mut bool) {
+    let _id = ui.push_id("gtao");
     ui.text_disabled(
         "GTAO (Ground-Truth Ambient Occlusion): reconstructs view-space normals from depth \
          and modulates HDR scene color by a physical visibility factor. Runs pre-tonemap.",
@@ -97,6 +99,7 @@ fn gtao_section(ui: &imgui::Ui, g: &mut crate::config::RendererSettings, dirty: 
 
 /// Bloom tunables (dual-filter HDR scatter; pre-tonemap).
 fn bloom_section(ui: &imgui::Ui, g: &mut crate::config::RendererSettings, dirty: &mut bool) {
+    let _id = ui.push_id("bloom");
     ui.text_disabled(
         "Bloom (dual-filter, COD: Advanced Warfare / Bevy port): HDR-linear scatter via a \
          mip-chain downsample/upsample pyramid with Karis firefly reduction on mip 0. Runs \
@@ -171,6 +174,7 @@ fn bloom_section(ui: &imgui::Ui, g: &mut crate::config::RendererSettings, dirty:
 
 /// Tonemap mode selector (HDR → LDR curve).
 fn tonemap_section(ui: &imgui::Ui, g: &mut crate::config::RendererSettings, dirty: &mut bool) {
+    let _id = ui.push_id("tonemap");
     ui.text_disabled("Tonemap (HDR linear → display-referred 0..1 linear).");
     for (i, &mode) in TonemapMode::ALL.iter().enumerate() {
         let _id = ui.push_id_int(i as i32);
