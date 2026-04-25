@@ -181,6 +181,7 @@ impl RendererRuntime {
         self.frontend.reset_ipc_outbound_drop_tick_flags();
         self.backend.reset_light_prep_for_tick();
         self.frontend.on_tick_frame_wall_clock(now);
+        self.frontend.update_decoupling_activation(now);
     }
 
     /// Forwards the most recently completed GPU submit→idle interval to the frontend so the next
@@ -215,7 +216,10 @@ impl RendererRuntime {
     }
 
     /// Bounded cooperative mesh/texture asset integration (Unity `RunAssetIntegration`–style).
-    /// Uses [`crate::config::RenderingSettings::asset_integration_budget_ms`] for the wall-clock slice.
+    /// Uses [`crate::config::RenderingSettings::asset_integration_budget_ms`] for the wall-clock
+    /// slice while coupled to host lock-step. While decoupled, the host-supplied
+    /// [`crate::frontend::DecouplingState::decoupled_max_asset_processing_seconds`] ceiling
+    /// replaces the local default so the renderer stays responsive while the host catches up.
     ///
     /// At most once per winit tick: a second call in the same tick is a no-op ([`Self::did_integrate_this_tick`]).
     pub fn run_asset_integration(&mut self) {
@@ -223,12 +227,15 @@ impl RendererRuntime {
         if self.did_integrate_this_tick {
             return;
         }
-        let budget_ms = self
+        let coupled_default_ms = self
             .settings
             .read()
             .map(|s| s.rendering.asset_integration_budget_ms)
             .unwrap_or(3);
-        let budget_ms = budget_ms.max(1);
+        let budget_ms = self
+            .frontend
+            .decoupling_state()
+            .effective_asset_integration_budget_ms(coupled_default_ms);
         let deadline = Instant::now() + Duration::from_millis(u64::from(budget_ms));
         let (shm, ipc) = self.frontend.transport_pair_mut();
         let Some(shm) = shm else {
