@@ -74,7 +74,6 @@ fn_params_excessive_bools = "warn"
 debug_assert_with_mut_call = "warn"
 
 # additional bug-catchers
-unused_self = "warn"
 redundant_clone = "warn"
 as_ptr_cast_mut = "warn"
 non_send_fields_in_send_ty = "warn"

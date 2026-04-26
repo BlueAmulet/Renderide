@@ -129,13 +129,9 @@ impl<'a> FrameViewTarget<'a> {
             FrameViewTarget::ExternalMultiview(ext) => Ok(ext.depth_texture.format()),
             FrameViewTarget::OffscreenRt(ext) => Ok(ext.depth_texture.format()),
             FrameViewTarget::Swapchain => {
-                #[expect(
-                    clippy::map_err_ignore,
-                    reason = "GraphExecuteError::DepthTarget is the semantic classification; inner detail is already logged upstream"
-                )]
                 let (depth_tex, _) = gpu
                     .ensure_depth_target()
-                    .map_err(|_| GraphExecuteError::DepthTarget)?;
+                    .map_err(GraphExecuteError::DepthTarget)?;
                 Ok(depth_tex.format())
             }
         }

@@ -60,9 +60,6 @@ struct ClusterParams {
     _pad: [u8; 4],
 }
 
-/// Embedded shader stem for the clustered-light compute pass (single-variant).
-const CLUSTERED_LIGHT_STEM: &str = "clustered_light";
-
 fn compute_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("clustered_light_compute"),
@@ -122,15 +119,9 @@ fn ensure_compute_pipeline(
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
-        #[expect(
-            clippy::expect_used,
-            reason = "embedded shader is required; absence is a build script regression"
-        )]
-        let source = crate::embedded_shaders::embedded_target_wgsl(CLUSTERED_LIGHT_STEM)
-            .expect("clustered_light: embedded shader missing (build script regression)");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("clustered_light"),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
+            source: wgpu::ShaderSource::Wgsl(crate::embedded_shaders::CLUSTERED_LIGHT_WGSL.into()),
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("clustered_light"),

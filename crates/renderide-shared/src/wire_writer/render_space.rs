@@ -20,11 +20,6 @@ use crate::shared::{
     MeshRenderablesUpdate, MeshRendererState, MotionVectorMode, RenderSH2, RenderSpaceUpdate,
     RenderTransform, ShadowCastMode, TransformsUpdate,
 };
-#[expect(
-    unused_imports,
-    reason = "keep `SharedMemoryWriterConfig` cross-reference rustdoc resolvable"
-)]
-use crate::SharedMemoryWriterConfig;
 
 use super::{
     encode_additions, encode_mesh_states, encode_packed_material_ids,

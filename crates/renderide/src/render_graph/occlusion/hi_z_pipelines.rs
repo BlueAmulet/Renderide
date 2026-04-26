@@ -1,30 +1,15 @@
 //! Cached compute pipelines and bind group layouts for Hi-Z pyramid construction.
 //!
-//! WGSL is sourced from the build-time embedded shader registry
-//! ([`crate::embedded_shaders::embedded_target_wgsl`]). The mip0 shader lives in a single
-//! source with `#ifdef MULTIVIEW` and is composed into `hi_z_mip0_default` (2D source) and
-//! `hi_z_mip0_multiview` (2D array source + per-dispatch layer uniform).
+//! WGSL is sourced from the build-time embedded shader registry. The mip0 shader lives in a
+//! single source with `#ifdef MULTIVIEW` and is composed into `hi_z_mip0_default` (2D source)
+//! and `hi_z_mip0_multiview` (2D array source + per-dispatch layer uniform).
 
 use std::num::NonZeroU64;
 use std::sync::OnceLock;
 
-use crate::embedded_shaders::embedded_target_wgsl;
-
-/// Embedded shader stem for the desktop (non-multiview) mip0 compute.
-const MIP0_STEM_DESKTOP: &str = "hi_z_mip0_default";
-/// Embedded shader stem for the stereo (multiview) mip0 compute.
-const MIP0_STEM_STEREO: &str = "hi_z_mip0_multiview";
-/// Embedded shader stem for the pyramid downsample compute (single-variant).
-const DOWNSAMPLE_STEM: &str = "hi_z_downsample_max";
-
-fn load_embedded(stem: &str) -> &'static str {
-    #[expect(
-        clippy::expect_used,
-        reason = "embedded shader is required; absence is a build script regression"
-    )]
-    embedded_target_wgsl(stem)
-        .expect("hi_z_pipelines: embedded shader missing (build script regression)")
-}
+use crate::embedded_shaders::{
+    HI_Z_DOWNSAMPLE_MAX_WGSL, HI_Z_MIP0_DEFAULT_WGSL, HI_Z_MIP0_MULTIVIEW_WGSL,
+};
 
 pub(crate) struct HiZPipelines {
     pub mip0_desktop: wgpu::ComputePipeline,
@@ -187,15 +172,15 @@ impl HiZPipelines {
 
         let shader_m0d = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("hi_z_mip0_desktop"),
-            source: wgpu::ShaderSource::Wgsl(load_embedded(MIP0_STEM_DESKTOP).into()),
+            source: wgpu::ShaderSource::Wgsl(HI_Z_MIP0_DEFAULT_WGSL.into()),
         });
         let shader_m0s = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("hi_z_mip0_stereo"),
-            source: wgpu::ShaderSource::Wgsl(load_embedded(MIP0_STEM_STEREO).into()),
+            source: wgpu::ShaderSource::Wgsl(HI_Z_MIP0_MULTIVIEW_WGSL.into()),
         });
         let shader_ds = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("hi_z_downsample"),
-            source: wgpu::ShaderSource::Wgsl(load_embedded(DOWNSAMPLE_STEM).into()),
+            source: wgpu::ShaderSource::Wgsl(HI_Z_DOWNSAMPLE_MAX_WGSL.into()),
         });
 
         let mip0_desktop =

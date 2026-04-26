@@ -114,10 +114,6 @@ impl OcclusionSystem {
     }
 
     /// Records Hi-Z GPU work into `encoder` (staging copy included).
-    #[expect(
-        clippy::unused_self,
-        reason = "method syntax groups Hi-Z operations on the occlusion system"
-    )]
     pub(crate) fn encode_hi_z_build_pass(
         &self,
         record: HiZBuildRecord<'_>,
@@ -175,14 +171,6 @@ impl OcclusionSystem {
     }
 
     /// Records per-space views and cull params from **this** frame for Hi-Z tests on the **next** frame.
-    #[expect(
-        clippy::large_types_passed_by_value,
-        reason = "Copy value propagates through hot frame-path by design; avoids lifetime threading"
-    )]
-    #[expect(
-        clippy::unused_self,
-        reason = "method syntax groups Hi-Z operations on the occlusion system"
-    )]
     pub(crate) fn capture_hi_z_temporal_for_next_frame(
         &self,
         scene: &SceneCoordinator,

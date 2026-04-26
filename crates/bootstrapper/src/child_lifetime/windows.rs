@@ -73,10 +73,6 @@ impl PlatformGroup {
     }
 
     /// No extra Win32 flags on the [`Command`] beyond job assignment after spawn.
-    #[expect(
-        clippy::unused_self,
-        reason = "matches the cross-platform PlatformGroup API"
-    )]
     pub fn prepare_command(&self, _cmd: &mut Command) {}
 
     /// Assigns the child process to this job object.

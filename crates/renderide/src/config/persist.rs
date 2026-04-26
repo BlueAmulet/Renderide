@@ -19,19 +19,11 @@ fn renderer_settings_figment() -> Figment {
         .merge(Env::prefixed("RENDERIDE_").split("__"))
 }
 
-#[expect(
-    clippy::result_large_err,
-    reason = "`figment::Error` is large; only used on startup paths"
-)]
-fn try_extract_settings(figment: Figment) -> Result<RendererSettings, figment::Error> {
-    figment.extract::<RendererSettings>()
+fn try_extract_settings(figment: Figment) -> Result<RendererSettings, Box<figment::Error>> {
+    figment.extract::<RendererSettings>().map_err(Box::new)
 }
 
-#[expect(
-    clippy::result_large_err,
-    reason = "`figment::Error` is large; only used on startup paths"
-)]
-fn load_settings_from_toml_str(content: &str) -> Result<RendererSettings, figment::Error> {
+fn load_settings_from_toml_str(content: &str) -> Result<RendererSettings, Box<figment::Error>> {
     let figment = Figment::new()
         .merge(Serialized::defaults(RendererSettings::default()))
         .merge(Toml::string(content))

@@ -14,19 +14,11 @@ impl PlatformGroup {
     }
 
     /// Requests `SIGTERM` when the parent (bootstrapper) exits.
-    #[expect(
-        clippy::unused_self,
-        reason = "matches the cross-platform PlatformGroup API"
-    )]
     pub(super) fn prepare_command(&self, cmd: &mut Command) {
         apply_parent_death_signal(cmd);
     }
 
     /// No PID tracking on Linux (kernel handles parent death).
-    #[expect(
-        clippy::unused_self,
-        reason = "matches the cross-platform PlatformGroup API"
-    )]
     pub(super) fn register_spawned(&self, _child: &Child) -> io::Result<()> {
         Ok(())
     }

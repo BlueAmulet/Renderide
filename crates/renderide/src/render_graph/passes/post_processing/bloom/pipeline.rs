@@ -14,12 +14,12 @@ use std::sync::{Arc, OnceLock};
 use bytemuck::{Pod, Zeroable};
 use parking_lot::Mutex;
 
-use crate::embedded_shaders::embedded_target_wgsl;
+use crate::embedded_shaders::{BLOOM_DEFAULT_WGSL, BLOOM_MULTIVIEW_WGSL};
 
-/// Embedded shader stem for the mono variant (no `MULTIVIEW` define).
-const WGSL_STEM_MONO: &str = "bloom_default";
-/// Embedded shader stem for the multiview variant (with `MULTIVIEW = Bool(true)`).
-const WGSL_STEM_MULTIVIEW: &str = "bloom_multiview";
+/// Debug label for the mono shader module (no `MULTIVIEW` define).
+const SHADER_LABEL_MONO: &str = "bloom_default";
+/// Debug label for the multiview shader module (with `MULTIVIEW = Bool(true)`).
+const SHADER_LABEL_MULTIVIEW: &str = "bloom_multiview";
 
 /// `std140`-compatible bloom uniform matching `BloomUniforms` in `bloom.wgsl`.
 #[repr(C)]
@@ -242,19 +242,13 @@ impl BloomPipelineCache {
             &self.shader_mono
         };
         slot.get_or_init(|| {
-            let stem = if multiview_stereo {
-                WGSL_STEM_MULTIVIEW
+            let (label, source) = if multiview_stereo {
+                (SHADER_LABEL_MULTIVIEW, BLOOM_MULTIVIEW_WGSL)
             } else {
-                WGSL_STEM_MONO
+                (SHADER_LABEL_MONO, BLOOM_DEFAULT_WGSL)
             };
-            #[expect(
-                clippy::expect_used,
-                reason = "embedded shader is required; absence is a build script regression"
-            )]
-            let source = embedded_target_wgsl(stem)
-                .expect("bloom: embedded shader missing (build script regression)");
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(stem),
+                label: Some(label),
                 source: wgpu::ShaderSource::Wgsl(source.into()),
             })
         })

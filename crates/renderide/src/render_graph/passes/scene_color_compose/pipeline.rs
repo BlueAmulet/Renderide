@@ -10,12 +10,14 @@ use std::sync::{Arc, OnceLock};
 
 use parking_lot::Mutex;
 
-use crate::embedded_shaders::embedded_target_wgsl;
+use crate::embedded_shaders::{
+    SCENE_COLOR_COMPOSE_DEFAULT_WGSL, SCENE_COLOR_COMPOSE_MULTIVIEW_WGSL,
+};
 
-/// Embedded shader stem for the mono variant.
-const WGSL_STEM_MONO: &str = "scene_color_compose_default";
-/// Embedded shader stem for the multiview variant.
-const WGSL_STEM_MULTIVIEW: &str = "scene_color_compose_multiview";
+/// Debug label for the mono variant pipeline.
+const PIPELINE_LABEL_MONO: &str = "scene_color_compose_default";
+/// Debug label for the multiview variant pipeline.
+const PIPELINE_LABEL_MULTIVIEW: &str = "scene_color_compose_multiview";
 
 /// GPU state shared by all compose passes (bind layout + sampler).
 pub(super) struct SceneColorComposePipelineCache {
@@ -101,29 +103,23 @@ impl SceneColorComposePipelineCache {
             output_format,
             multiview_stereo
         );
-        let stem = if multiview_stereo {
-            WGSL_STEM_MULTIVIEW
+        let (label, source) = if multiview_stereo {
+            (PIPELINE_LABEL_MULTIVIEW, SCENE_COLOR_COMPOSE_MULTIVIEW_WGSL)
         } else {
-            WGSL_STEM_MONO
+            (PIPELINE_LABEL_MONO, SCENE_COLOR_COMPOSE_DEFAULT_WGSL)
         };
-        #[expect(
-            clippy::expect_used,
-            reason = "embedded shader is required; absence is a build script regression"
-        )]
-        let source = embedded_target_wgsl(stem)
-            .expect("scene_color_compose: embedded shader missing (build script regression)");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(stem),
+            label: Some(label),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some(stem),
+            label: Some(label),
             bind_group_layouts: &[Some(self.bind_group_layout(device))],
             immediate_size: 0,
         });
         let pipeline = Arc::new(
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(stem),
+                label: Some(label),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
                     module: &shader,

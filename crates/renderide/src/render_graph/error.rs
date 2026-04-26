@@ -126,8 +126,8 @@ pub enum GraphExecuteError {
     Present(#[from] PresentClearError),
 
     /// Main depth attachment could not be ensured for the current surface extent.
-    #[error("GPU depth attachment unavailable")]
-    DepthTarget,
+    #[error("GPU depth attachment unavailable: {0}")]
+    DepthTarget(&'static str),
 
     /// A [`super::FrameViewTarget::Swapchain`] view was scheduled without an acquired surface texture.
     #[error("swapchain backbuffer missing for swapchain view")]

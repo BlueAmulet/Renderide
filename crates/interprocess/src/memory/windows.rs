@@ -37,10 +37,6 @@ impl WindowsMapping {
     }
 
     /// Always [`None`]; Windows uses named mappings, not a `.qu` path.
-    #[expect(
-        clippy::unused_self,
-        reason = "matches the cross-platform WindowsMapping / UnixMapping API"
-    )]
     pub(super) fn backing_file_path(&self) -> Option<&std::path::PathBuf> {
         None
     }

@@ -247,13 +247,9 @@ impl CompiledRenderGraph {
                     return Err(GraphExecuteError::MissingSwapchainView);
                 };
                 let sample_count = gpu.swapchain_msaa_effective().max(1);
-                #[expect(
-                    clippy::map_err_ignore,
-                    reason = "GraphExecuteError::DepthTarget is the semantic classification; inner detail is already logged upstream"
-                )]
                 let (depth_tex, depth_view) = gpu
                     .ensure_depth_target()
-                    .map_err(|_| GraphExecuteError::DepthTarget)?;
+                    .map_err(GraphExecuteError::DepthTarget)?;
 
                 Ok(ResolvedView {
                     depth_texture: depth_tex,

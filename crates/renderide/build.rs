@@ -392,6 +392,26 @@ fn rust_string_literal_token(s: &str) -> String {
     format!("{s:?}")
 }
 
+/// Maps a shader stem (which may include `.` or `-`, e.g. `xstoon2.0-cutout`) to a
+/// SCREAMING_SNAKE_CASE Rust identifier suitable for the per-stem WGSL constant name.
+///
+/// Unambiguous encoding: ASCII alphanumeric pass through (uppercased), `_` is preserved,
+/// `.` becomes `_DOT_`, `-` becomes `_DASH_`. This keeps `xstoon2.0-outlined` and
+/// `xstoon2.0_outlined` distinct.
+fn stem_to_const_ident(stem: &str) -> String {
+    let mut out = String::with_capacity(stem.len());
+    for c in stem.chars() {
+        match c {
+            c if c.is_ascii_alphanumeric() => out.push(c.to_ascii_uppercase()),
+            '_' => out.push('_'),
+            '.' => out.push_str("_DOT_"),
+            '-' => out.push_str("_DASH_"),
+            _ => out.push('_'),
+        }
+    }
+    out
+}
+
 /// Loads every `*.wgsl` under `shaders/source/modules/` relative to `manifest_dir`.
 ///
 /// Returns `(file_path, source)` where `file_path` uses forward slashes (e.g.
@@ -677,14 +697,24 @@ struct ComposeValidationOpts {
     require_pass_directive: bool,
 }
 
+/// Accumulators populated as each shader source is composed and emitted.
+///
+/// `embedded_arms` and `embedded_pass_arms` are the bodies of the registry-lookup `match` blocks;
+/// `embedded_consts` collects per-stem `pub const <STEM>_WGSL: &str = ...` declarations so static-stem
+/// callers can reference shader source as a compile-time `&'static str` without a runtime lookup.
+struct EmbeddedShaderEmitters<'a> {
+    embedded_arms: &'a mut String,
+    embedded_pass_arms: &'a mut String,
+    embedded_consts: &'a mut String,
+    output_stems: &'a mut Vec<String>,
+}
+
 fn compose_and_emit_variants(
     shader_modules: &[(String, String)],
     source_path: &Path,
     target_dir: &Path,
     opts: ComposeValidationOpts,
-    embedded_arms: &mut String,
-    embedded_pass_arms: &mut String,
-    output_stems: &mut Vec<String>,
+    emitters: &mut EmbeddedShaderEmitters<'_>,
 ) -> Result<(), BuildError> {
     let stem = source_path
         .file_stem()
@@ -743,13 +773,14 @@ fn compose_and_emit_variants(
         let out_path = target_dir.join(format!("{target_stem}.wgsl"));
         fs::write(&out_path, &default_wgsl)?;
         emit_embedded_arms(
-            embedded_arms,
-            embedded_pass_arms,
+            emitters.embedded_arms,
+            emitters.embedded_pass_arms,
+            emitters.embedded_consts,
             &target_stem,
             &default_wgsl,
             &pass_directives,
         );
-        output_stems.push(target_stem);
+        emitters.output_stems.push(target_stem);
     } else {
         for (target_stem, wgsl, multiview) in [
             (format!("{stem}_default"), &default_wgsl, false),
@@ -767,24 +798,28 @@ fn compose_and_emit_variants(
             let out_path = target_dir.join(format!("{target_stem}.wgsl"));
             fs::write(&out_path, wgsl)?;
             emit_embedded_arms(
-                embedded_arms,
-                embedded_pass_arms,
+                emitters.embedded_arms,
+                emitters.embedded_pass_arms,
+                emitters.embedded_consts,
                 &target_stem,
                 wgsl,
                 &pass_directives,
             );
-            output_stems.push(target_stem);
+            emitters.output_stems.push(target_stem);
         }
     }
     Ok(())
 }
 
 /// Appends one `match` arm to `embedded_arms` (and optionally `embedded_pass_arms`) for a
-/// composed shader target. Factored out so the single-variant and fan-out paths share the
-/// registry-emission code without diverging.
+/// composed shader target, plus a `pub const <STEM_UPPER>_WGSL: &str = ...;` to
+/// `embedded_consts` so static-stem callers can reference shader source without a runtime
+/// lookup. Factored out so the single-variant and fan-out paths share the registry-emission
+/// code without diverging.
 fn emit_embedded_arms(
     embedded_arms: &mut String,
     embedded_pass_arms: &mut String,
+    embedded_consts: &mut String,
     target_stem: &str,
     wgsl: &str,
     pass_directives: &[BuildPassDirective],
@@ -792,6 +827,11 @@ fn emit_embedded_arms(
     use std::fmt::Write as _;
     let lit = rust_string_literal_token(wgsl);
     let _ = writeln!(embedded_arms, "        \"{target_stem}\" => Some({lit}),");
+    let const_ident = stem_to_const_ident(target_stem);
+    let _ = writeln!(
+        embedded_consts,
+        "/// Composed WGSL for the `{target_stem}` embedded shader target.\npub const {const_ident}_WGSL: &str = {lit};"
+    );
     if !pass_directives.is_empty() {
         let pass_literals = pass_directives
             .iter()
@@ -818,36 +858,40 @@ fn list_wgsl_files(dir: &Path) -> Result<Vec<PathBuf>, BuildError> {
     Ok(paths)
 }
 
-fn run() -> Result<(), BuildError> {
-    let manifest_dir = PathBuf::from(env_var("CARGO_MANIFEST_DIR")?);
-    let out_dir = PathBuf::from(env_var("OUT_DIR")?);
-    copy_vendored_openxr_loader_windows(&manifest_dir);
-    copy_xr_assets_to_artifact_dir(&manifest_dir, &out_dir);
-    let source_root = manifest_dir.join("shaders/source");
-    let target_dir = manifest_dir.join("shaders/target");
+/// Per-subdirectory composed shader output: stem lists for each scanned source category,
+/// plus the registry-emission accumulators that will feed the generated `embedded_shaders.rs`.
+struct ComposedShaders {
+    material_stems: Vec<String>,
+    post_stems: Vec<String>,
+    backend_stems: Vec<String>,
+    compute_stems: Vec<String>,
+    present_stems: Vec<String>,
+    embedded_arms: String,
+    embedded_pass_arms: String,
+    embedded_consts: String,
+}
 
-    println!("cargo:rerun-if-changed=shaders/source");
-    println!("cargo:rerun-if-changed=build.rs");
-
-    fs::create_dir_all(&source_root)?;
-    fs::create_dir_all(&target_dir)?;
-
-    let shader_modules = discover_shader_modules(&manifest_dir)?;
-
-    let mut embedded_arms = String::new();
-    let mut embedded_pass_arms = String::new();
-    let mut material_stems: Vec<String> = Vec::new();
-    let mut post_stems: Vec<String> = Vec::new();
-    let mut backend_stems: Vec<String> = Vec::new();
-    let mut compute_stems: Vec<String> = Vec::new();
-    let mut present_stems: Vec<String> = Vec::new();
-
+fn compose_all_shaders(
+    shader_modules: &[(String, String)],
+    source_root: &Path,
+    target_dir: &Path,
+) -> Result<ComposedShaders, BuildError> {
+    let mut out = ComposedShaders {
+        material_stems: Vec::new(),
+        post_stems: Vec::new(),
+        backend_stems: Vec::new(),
+        compute_stems: Vec::new(),
+        present_stems: Vec::new(),
+        embedded_arms: String::new(),
+        embedded_pass_arms: String::new(),
+        embedded_consts: String::new(),
+    };
     let scans: [(&str, &mut Vec<String>, bool, bool); 5] = [
-        ("materials", &mut material_stems, true, true),
-        ("post", &mut post_stems, true, false),
-        ("backend", &mut backend_stems, true, false),
-        ("compute", &mut compute_stems, false, false),
-        ("present", &mut present_stems, true, false),
+        ("materials", &mut out.material_stems, true, true),
+        ("post", &mut out.post_stems, true, false),
+        ("backend", &mut out.backend_stems, true, false),
+        ("compute", &mut out.compute_stems, false, false),
+        ("present", &mut out.present_stems, true, false),
     ];
     for (subdir, stems_out, validate_view_index, require_pass_directive) in scans {
         let dir = source_root.join(subdir);
@@ -855,21 +899,28 @@ fn run() -> Result<(), BuildError> {
             continue;
         }
         for path in list_wgsl_files(&dir)? {
+            let mut emitters = EmbeddedShaderEmitters {
+                embedded_arms: &mut out.embedded_arms,
+                embedded_pass_arms: &mut out.embedded_pass_arms,
+                embedded_consts: &mut out.embedded_consts,
+                output_stems: stems_out,
+            };
             compose_and_emit_variants(
-                &shader_modules,
+                shader_modules,
                 &path,
-                &target_dir,
+                target_dir,
                 ComposeValidationOpts {
                     validate_view_index,
                     require_pass_directive,
                 },
-                &mut embedded_arms,
-                &mut embedded_pass_arms,
-                stems_out,
+                &mut emitters,
             )?;
         }
     }
+    Ok(out)
+}
 
+fn render_embedded_shaders_rs(c: &ComposedShaders) -> String {
     let stems_list = |stems: &[String]| {
         stems
             .iter()
@@ -877,15 +928,10 @@ fn run() -> Result<(), BuildError> {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let material_stems_list = stems_list(&material_stems);
-    let post_stems_list = stems_list(&post_stems);
-    let backend_stems_list = stems_list(&backend_stems);
-    let compute_stems_list = stems_list(&compute_stems);
-    let present_stems_list = stems_list(&present_stems);
-
-    let embedded_rs = format!(
+    format!(
         r#"// Generated by `build.rs` — do not edit.
 
+{embedded_consts}
 /// Flattened WGSL for `stem` (also written under `shaders/target/{{stem}}.wgsl` at build time).
 #[expect(clippy::too_many_lines, reason = "match arm per embedded shader target; scales with shader count")]
 pub fn embedded_target_wgsl(stem: &str) -> Option<&'static str> {{
@@ -934,14 +980,34 @@ pub const COMPILED_PRESENT_STEMS: &[&str] = &[
 {present_stems}
 ];
 "#,
-        embedded_arms = embedded_arms,
-        embedded_pass_arms = embedded_pass_arms,
-        material_stems = material_stems_list,
-        post_stems = post_stems_list,
-        backend_stems = backend_stems_list,
-        compute_stems = compute_stems_list,
-        present_stems = present_stems_list,
-    );
+        embedded_arms = c.embedded_arms,
+        embedded_pass_arms = c.embedded_pass_arms,
+        embedded_consts = c.embedded_consts,
+        material_stems = stems_list(&c.material_stems),
+        post_stems = stems_list(&c.post_stems),
+        backend_stems = stems_list(&c.backend_stems),
+        compute_stems = stems_list(&c.compute_stems),
+        present_stems = stems_list(&c.present_stems),
+    )
+}
+
+fn run() -> Result<(), BuildError> {
+    let manifest_dir = PathBuf::from(env_var("CARGO_MANIFEST_DIR")?);
+    let out_dir = PathBuf::from(env_var("OUT_DIR")?);
+    copy_vendored_openxr_loader_windows(&manifest_dir);
+    copy_xr_assets_to_artifact_dir(&manifest_dir, &out_dir);
+    let source_root = manifest_dir.join("shaders/source");
+    let target_dir = manifest_dir.join("shaders/target");
+
+    println!("cargo:rerun-if-changed=shaders/source");
+    println!("cargo:rerun-if-changed=build.rs");
+
+    fs::create_dir_all(&source_root)?;
+    fs::create_dir_all(&target_dir)?;
+
+    let shader_modules = discover_shader_modules(&manifest_dir)?;
+    let composed = compose_all_shaders(&shader_modules, &source_root, &target_dir)?;
+    let embedded_rs = render_embedded_shaders_rs(&composed);
 
     let gen_path = out_dir.join("embedded_shaders.rs");
     fs::write(&gen_path, embedded_rs)?;

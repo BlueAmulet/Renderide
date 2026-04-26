@@ -15,12 +15,12 @@ use std::sync::{Arc, OnceLock};
 use bytemuck::{Pod, Zeroable};
 use parking_lot::Mutex;
 
-use crate::embedded_shaders::embedded_target_wgsl;
+use crate::embedded_shaders::{GTAO_DEFAULT_WGSL, GTAO_MULTIVIEW_WGSL};
 
-/// Embedded shader stem for the mono variant.
-const WGSL_STEM_MONO: &str = "gtao_default";
-/// Embedded shader stem for the multiview variant.
-const WGSL_STEM_MULTIVIEW: &str = "gtao_multiview";
+/// Debug label for the mono variant pipeline.
+const PIPELINE_LABEL_MONO: &str = "gtao_default";
+/// Debug label for the multiview variant pipeline.
+const PIPELINE_LABEL_MULTIVIEW: &str = "gtao_multiview";
 
 /// CPU mirror of the WGSL `GtaoParams` uniform (32 bytes, 16-byte aligned).
 ///
@@ -224,29 +224,23 @@ impl GtaoPipelineCache {
             output_format,
             multiview_stereo
         );
-        let stem = if multiview_stereo {
-            WGSL_STEM_MULTIVIEW
+        let (label, source) = if multiview_stereo {
+            (PIPELINE_LABEL_MULTIVIEW, GTAO_MULTIVIEW_WGSL)
         } else {
-            WGSL_STEM_MONO
+            (PIPELINE_LABEL_MONO, GTAO_DEFAULT_WGSL)
         };
-        #[expect(
-            clippy::expect_used,
-            reason = "embedded shader is required; absence is a build script regression"
-        )]
-        let source = embedded_target_wgsl(stem)
-            .expect("gtao: embedded shader missing (build script regression)");
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(stem),
+            label: Some(label),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some(stem),
+            label: Some(label),
             bind_group_layouts: &[Some(self.bind_group_layout(device, multiview_stereo))],
             immediate_size: 0,
         });
         let pipeline = Arc::new(
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(stem),
+                label: Some(label),
                 layout: Some(&layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
