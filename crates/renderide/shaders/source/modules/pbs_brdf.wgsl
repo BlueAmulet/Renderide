@@ -86,16 +86,6 @@ fn distance_attenuation(dist: f32, range: f32) -> f32 {
     return window / t2;
 }
 
-/// BiRP-style point-light falloff: rational core `1/(1+25 t²)` windowed by a smoothstep that
-/// reaches zero at `t == 1`. Experimental alternative to `distance_attenuation`; selected by
-/// `eval_light` for point and spot lights.
-fn birp_attenuation(d: f32, r: f32) -> f32 {
-    let t = d / r;
-    let core = 1.0 / (1.0 + 25.0 * t * t);
-    let window = smoothstep(1.0, 0.0, t);
-    return core * window;
-}
-
 /// Result of evaluating one punctual light at a surface point.
 struct LightSample {
     /// Direction from the surface toward the light source (unit length when `attenuation > 0`).
@@ -114,7 +104,7 @@ fn eval_light(light: rg::GpuLight, world_pos: vec3<f32>) -> LightSample {
         let to_light = light_pos - world_pos;
         let dist = length(to_light);
         out.l = normalize(to_light);
-        out.attenuation = light.intensity * birp_attenuation(dist, light.range);
+        out.attenuation = light.intensity * distance_attenuation(dist, light.range);
     } else if light.light_type == 1u {
         let dir_len_sq = dot(light_dir, light_dir);
         out.l = select(vec3<f32>(0.0, 0.0, 1.0), normalize(-light_dir), dir_len_sq > 1e-16);
@@ -126,7 +116,7 @@ fn eval_light(light: rg::GpuLight, world_pos: vec3<f32>) -> LightSample {
         let spot_cos = dot(-out.l, normalize(light_dir));
         let inner_cos = min(light.spot_cos_half_angle + 0.1, 1.0);
         let spot_atten = smoothstep(light.spot_cos_half_angle, inner_cos, spot_cos);
-        out.attenuation = light.intensity * spot_atten * birp_attenuation(dist, light.range);
+        out.attenuation = light.intensity * spot_atten * distance_attenuation(dist, light.range);
     }
     return out;
 }
