@@ -33,6 +33,7 @@ use crate::config::RendererSettingsHandle;
 use crate::connection::ConnectionParams;
 use crate::frontend::RendererFrontend;
 use crate::gpu::GpuContext;
+use crate::scene::RenderSpaceId;
 
 use crate::render_graph::{GraphExecuteError, HostCameraFrame};
 
@@ -96,6 +97,10 @@ pub struct RendererRuntime {
     /// In-flight shader uploads whose [`crate::assets::resolve_shader_upload`] is running on the
     /// rayon pool; drained by [`Self::poll_ipc`] before this tick's IPC batch is dispatched.
     pending_shader_resolutions: Vec<shader_material_ipc::PendingShaderResolution>,
+    /// Reusable per-frame scratch for [`Self::collect_secondary_rt_views`]. Holds
+    /// `(render_space_id, camera_depth, camera_index)` tuples for sorting; cleared and refilled
+    /// each tick so secondary-RT scenes don't allocate a fresh `Vec` per frame.
+    secondary_view_tasks_scratch: Vec<(RenderSpaceId, f32, usize)>,
 }
 
 impl RendererRuntime {
@@ -140,6 +145,7 @@ impl RendererRuntime {
             unhandled_ipc_command_counts: HashMap::new(),
             suppress_renderer_config_disk_writes: false,
             pending_shader_resolutions: Vec::new(),
+            secondary_view_tasks_scratch: Vec::new(),
         }
     }
 

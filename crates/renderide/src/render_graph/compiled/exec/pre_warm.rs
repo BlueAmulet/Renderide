@@ -38,8 +38,14 @@ impl CompiledRenderGraph {
     ///
     /// Pre-warming uses [`crate::materials::MaterialPipelineDesc`] derived from each view's
     /// surface format, depth format, sample count, and multiview mask so cache keys match the
-    /// keys the record path will request. Views without prefetched draws (lazy-collect path)
-    /// are skipped — they will fall back to lazy cache build during recording as before.
+    /// keys the record path will request.
+    ///
+    /// Deferred (lazy-collect) views — notably the OpenXR stereo HMD view — have no prefetched
+    /// items at this stage but render the same scene as the prefetched views. The second pass
+    /// below stamps the deferred views' `pass_desc` / `shader_perm` over the union of items from
+    /// every prefetched view so HMD-format cache entries warm in parallel with desktop entries
+    /// and the first VR frame after a scene load doesn't hitch on cold pipeline compilation
+    /// inside the recording phase.
     pub(super) fn pre_warm_pipeline_cache_for_views(
         mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &[FrameView<'_>],
@@ -50,22 +56,43 @@ impl CompiledRenderGraph {
         }
 
         let mut compile_requests: Vec<PipelineCompileRequest> = Vec::new();
+        let mut deferred_pass_descs: Vec<(MaterialPipelineDesc, ShaderPermutation)> = Vec::new();
         for view in views {
-            let Some(collection) = view.prefetched_world_mesh_draws.as_ref() else {
-                continue;
-            };
-            if collection.items.is_empty() {
-                continue;
-            }
             let Some((pass_desc, shader_perm)) = view_pipeline_pass_desc(mv_ctx, view) else {
                 continue;
             };
-            collect_unique_pipeline_requests(
-                &collection.items,
-                pass_desc,
-                shader_perm,
-                &mut compile_requests,
-            );
+            match view.prefetched_world_mesh_draws.as_ref() {
+                Some(collection) if !collection.items.is_empty() => {
+                    collect_unique_pipeline_requests(
+                        &collection.items,
+                        pass_desc,
+                        shader_perm,
+                        &mut compile_requests,
+                    );
+                }
+                _ => {
+                    deferred_pass_descs.push((pass_desc, shader_perm));
+                }
+            }
+        }
+
+        if !deferred_pass_descs.is_empty() {
+            for view in views {
+                let Some(collection) = view.prefetched_world_mesh_draws.as_ref() else {
+                    continue;
+                };
+                if collection.items.is_empty() {
+                    continue;
+                }
+                for &(pass_desc, shader_perm) in &deferred_pass_descs {
+                    collect_unique_pipeline_requests(
+                        &collection.items,
+                        pass_desc,
+                        shader_perm,
+                        &mut compile_requests,
+                    );
+                }
+            }
         }
 
         if compile_requests.is_empty() {

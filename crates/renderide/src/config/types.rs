@@ -33,8 +33,18 @@ impl Default for DisplaySettings {
 #[serde(default)]
 pub struct RenderingSettings {
     /// Vertical sync via swapchain present mode ([`wgpu::PresentMode::AutoVsync`]); applied live
-    /// without restart (see [`crate::gpu::GpuContext::set_vsync`]).
+    /// without restart (see [`crate::gpu::GpuContext::set_present_mode`]).
+    ///
+    /// Acts as the fallback when [`Self::present_mode`] is [`PresentModePref::Auto`]. Existing
+    /// `vsync = true/false` configs keep their current behavior; users who want low-latency
+    /// `Mailbox` or stutter-tolerant `FifoRelaxed` set `present_mode` explicitly.
     pub vsync: bool,
+    /// Explicit swapchain present mode override; [`PresentModePref::Auto`] (default) defers to
+    /// [`Self::vsync`] for backward compatibility with pre-Mailbox configs. Applied live without
+    /// restart through [`crate::gpu::GpuContext::set_present_mode`]; falls back to a supported
+    /// mode at the wgpu layer when the surface doesn't advertise the requested one.
+    #[serde(rename = "present_mode", default)]
+    pub present_mode: PresentModePref,
     /// Wall-clock budget per frame for cooperative mesh/texture integration ([`crate::runtime::RendererRuntime::run_asset_integration`]), in milliseconds.
     #[serde(rename = "asset_integration_budget_ms")]
     pub asset_integration_budget_ms: u32,
@@ -78,6 +88,7 @@ impl Default for RenderingSettings {
     fn default() -> Self {
         Self {
             vsync: false,
+            present_mode: PresentModePref::default(),
             asset_integration_budget_ms: 3,
             reported_max_texture_size: 0,
             render_texture_hdr_color: false,
@@ -85,6 +96,74 @@ impl Default for RenderingSettings {
             msaa: MsaaSampleCount::default(),
             scene_color_format: SceneColorFormat::default(),
             record_parallelism: RecordParallelism::default(),
+        }
+    }
+}
+
+impl RenderingSettings {
+    /// Resolves the explicit [`Self::present_mode`] override against the legacy [`Self::vsync`]
+    /// boolean. [`PresentModePref::Auto`] mirrors the historical `vsync ? AutoVsync : AutoNoVsync`
+    /// mapping; every other variant returns the directly-requested wgpu mode.
+    ///
+    /// The wgpu layer falls back to `Fifo` if the surface doesn't advertise the requested mode,
+    /// so callers can plumb the result of this method directly into `surface.configure(..)`.
+    pub fn resolved_present_mode(&self) -> wgpu::PresentMode {
+        match self.present_mode {
+            PresentModePref::Auto => {
+                if self.vsync {
+                    wgpu::PresentMode::AutoVsync
+                } else {
+                    wgpu::PresentMode::AutoNoVsync
+                }
+            }
+            PresentModePref::Off => wgpu::PresentMode::AutoNoVsync,
+            PresentModePref::Vsync => wgpu::PresentMode::AutoVsync,
+            PresentModePref::Mailbox => wgpu::PresentMode::Mailbox,
+            PresentModePref::FifoRelaxed => wgpu::PresentMode::FifoRelaxed,
+        }
+    }
+}
+
+/// Swapchain present-mode preference persisted in `config.toml` as `[rendering] present_mode`.
+///
+/// Defaults to [`Self::Auto`] so existing configs keep their `vsync = true/false` semantics;
+/// the explicit variants opt into low-latency or stutter-tolerant behaviors that the wgpu surface
+/// may downgrade to `Fifo` when unsupported.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PresentModePref {
+    /// Use the legacy [`RenderingSettings::vsync`] boolean.
+    #[default]
+    Auto,
+    /// Disable vsync regardless of `vsync` (`AutoNoVsync`).
+    Off,
+    /// Force vsync (`AutoVsync`).
+    Vsync,
+    /// Triple-buffered low-latency present (`Mailbox`); falls back to `Fifo` if unsupported.
+    Mailbox,
+    /// Vsync with permitted tearing under deadline misses (`FifoRelaxed`).
+    #[serde(rename = "fifo_relaxed")]
+    FifoRelaxed,
+}
+
+impl PresentModePref {
+    /// All variants for ImGui pickers and config round-trips.
+    pub const ALL: [Self; 5] = [
+        Self::Auto,
+        Self::Off,
+        Self::Vsync,
+        Self::Mailbox,
+        Self::FifoRelaxed,
+    ];
+
+    /// Short label for the renderer config window.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto (follow vsync)",
+            Self::Off => "Off (no vsync)",
+            Self::Vsync => "Vsync (FIFO)",
+            Self::Mailbox => "Mailbox (low latency)",
+            Self::FifoRelaxed => "FIFO Relaxed",
         }
     }
 }

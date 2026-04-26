@@ -491,17 +491,20 @@ impl RendererRuntime {
     /// 2. Secondary render-texture cameras, sorted by camera depth.
     /// 3. Main desktop swapchain (when `mode = DesktopPlusSecondaries`).
     fn collect_prepared_views<'a>(
-        &self,
+        &mut self,
         mode: FrameRenderMode<'a>,
         swapchain_extent_px: (u32, u32),
     ) -> Vec<PreparedView<'a>> {
-        let mut views: Vec<PreparedView<'a>> = Vec::new();
-
         let (includes_main, hmd_target) = match mode {
             FrameRenderMode::DesktopPlusSecondaries => (true, None),
             FrameRenderMode::VrWithHmd(ext) => (false, Some(ext)),
             FrameRenderMode::VrSecondariesOnly => (false, None),
         };
+
+        let mut secondary_views = self.collect_secondary_rt_views();
+        let est_capacity =
+            usize::from(hmd_target.is_some()) + secondary_views.len() + usize::from(includes_main);
+        let mut views: Vec<PreparedView<'a>> = Vec::with_capacity(est_capacity);
 
         if let Some(ext) = hmd_target {
             let extent_px = ext.extent_px;
@@ -515,7 +518,7 @@ impl RendererRuntime {
             });
         }
 
-        views.extend(self.collect_secondary_rt_views());
+        views.append(&mut secondary_views);
 
         if includes_main {
             views.push(self.build_main_swapchain_view(swapchain_extent_px));
@@ -526,9 +529,23 @@ impl RendererRuntime {
 
     /// Builds prepared views for every enabled secondary render-texture camera in the scene,
     /// skipping cameras whose host render texture is not yet resident on the GPU.
-    fn collect_secondary_rt_views<'a>(&self) -> Vec<PreparedView<'a>> {
-        use crate::scene::RenderSpaceId;
-        let mut tasks: Vec<(RenderSpaceId, f32, usize)> = Vec::new();
+    ///
+    /// Reuses [`RendererRuntime::secondary_view_tasks_scratch`] for the depth-sort scratch buffer
+    /// so a frame with secondary cameras does not allocate a fresh `Vec` for the sort each tick.
+    fn collect_secondary_rt_views<'a>(&mut self) -> Vec<PreparedView<'a>> {
+        let mut tasks = std::mem::take(&mut self.secondary_view_tasks_scratch);
+        tasks.clear();
+        let result = self.collect_secondary_rt_views_using(&mut tasks);
+        self.secondary_view_tasks_scratch = tasks;
+        result
+    }
+
+    /// Inner helper that consumes the supplied scratch `tasks` buffer; split out so the outer
+    /// caller can keep the scratch field reachable across the immutable borrow taken here.
+    fn collect_secondary_rt_views_using<'a>(
+        &self,
+        tasks: &mut Vec<(crate::scene::RenderSpaceId, f32, usize)>,
+    ) -> Vec<PreparedView<'a>> {
         for sid in self.scene.render_space_ids() {
             let Some(space) = self.scene.space(sid) else {
                 continue;
@@ -549,7 +566,7 @@ impl RendererRuntime {
         tasks.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let mut views: Vec<PreparedView<'a>> = Vec::with_capacity(tasks.len());
-        for (sid, _, cam_idx) in tasks {
+        for (sid, _, cam_idx) in tasks.drain(..) {
             let Some(space) = self.scene.space(sid) else {
                 continue;
             };
@@ -662,7 +679,7 @@ mod tests {
 
     #[test]
     fn empty_scene_desktop_mode_yields_only_main_view() {
-        let runtime = build_runtime();
+        let mut runtime = build_runtime();
         let views =
             runtime.collect_prepared_views(FrameRenderMode::DesktopPlusSecondaries, TEST_EXTENT);
         assert_eq!(views.len(), 1);
@@ -674,7 +691,7 @@ mod tests {
 
     #[test]
     fn empty_scene_vr_secondaries_only_yields_empty_vec() {
-        let runtime = build_runtime();
+        let mut runtime = build_runtime();
         let views = runtime.collect_prepared_views(FrameRenderMode::VrSecondariesOnly, TEST_EXTENT);
         assert!(
             views.is_empty(),
@@ -700,7 +717,7 @@ mod tests {
     /// scene-object culling.
     #[test]
     fn main_view_viewport_matches_supplied_swapchain_extent() {
-        let runtime = build_runtime();
+        let mut runtime = build_runtime();
         let views =
             runtime.collect_prepared_views(FrameRenderMode::DesktopPlusSecondaries, (1280, 720));
         let main = views

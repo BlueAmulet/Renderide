@@ -260,13 +260,12 @@ pub enum GpuError {
 }
 
 impl GpuContext {
-    /// Updates vertical sync / present mode and reconfigures the surface (hot-reload from settings).
-    pub fn set_vsync(&mut self, vsync: bool) {
-        let mode = if vsync {
-            wgpu::PresentMode::AutoVsync
-        } else {
-            wgpu::PresentMode::AutoNoVsync
-        };
+    /// Updates the swapchain present mode and reconfigures the surface (hot-reload from settings).
+    ///
+    /// Accepts any [`wgpu::PresentMode`] — including `Mailbox` and `FifoRelaxed`. The wgpu layer
+    /// silently falls back to `Fifo` if the surface doesn't advertise the requested variant, so
+    /// callers don't need to query surface capabilities here.
+    pub fn set_present_mode(&mut self, mode: wgpu::PresentMode) {
         if self.config.present_mode == mode {
             return;
         }
@@ -274,11 +273,7 @@ impl GpuContext {
         if let Some(surface) = self.surface.as_ref() {
             surface.configure(&self.device, &self.config);
         }
-        logger::info!(
-            "Present mode set to {:?} (vsync={})",
-            self.config.present_mode,
-            vsync
-        );
+        logger::info!("Present mode set to {:?}", self.config.present_mode);
     }
 
     /// Current swapchain configuration extent.

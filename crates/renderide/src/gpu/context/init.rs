@@ -159,7 +159,7 @@ impl GpuContext {
     /// when [`wgpu::PowerPreference::LowPower`]).
     pub async fn new(
         window: Arc<Window>,
-        vsync: bool,
+        present_mode: wgpu::PresentMode,
         gpu_validation_layers: bool,
         power_preference: wgpu::PowerPreference,
     ) -> Result<Self, GpuError> {
@@ -181,11 +181,7 @@ impl GpuContext {
         let mut config = surface_safe
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
             .ok_or(GpuError::SurfaceUnsupported)?;
-        config.present_mode = if vsync {
-            wgpu::PresentMode::AutoVsync
-        } else {
-            wgpu::PresentMode::AutoNoVsync
-        };
+        config.present_mode = present_mode;
         surface_safe.configure(&device, &config);
 
         let adapter_info = adapter.get_info();
@@ -368,7 +364,7 @@ impl GpuContext {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         window: Arc<Window>,
-        vsync: bool,
+        present_mode: wgpu::PresentMode,
     ) -> Result<Self, GpuError> {
         install_uncaptured_error_handler(device.as_ref());
         // `Arc<Window>` is `Into<SurfaceTarget<'static>>`, so the returned `Surface` is
@@ -380,11 +376,7 @@ impl GpuContext {
         let mut config = surface_safe
             .get_default_config(adapter, size.width.max(1), size.height.max(1))
             .ok_or(GpuError::SurfaceUnsupported)?;
-        config.present_mode = if vsync {
-            wgpu::PresentMode::AutoVsync
-        } else {
-            wgpu::PresentMode::AutoNoVsync
-        };
+        config.present_mode = present_mode;
         surface_safe.configure(&device, &config);
         let adapter_info = adapter.get_info();
         let limits = GpuLimits::try_new(device.as_ref(), adapter)?;

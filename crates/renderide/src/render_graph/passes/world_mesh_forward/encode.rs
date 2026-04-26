@@ -153,6 +153,10 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
     let mut batch_cursor: usize = 0;
     // Track which precomputed batch is currently bound to avoid redundant set_bind_group(1).
     let mut bound_batch_cursor: Option<usize> = None;
+    // Track the last pipeline pointer to skip redundant set_pipeline across instance batches that
+    // share the same pipeline (common when a precomputed batch covers many instance batches, or
+    // when adjacent batches resolve to the same multi-pass pipeline set).
+    let mut last_pipeline: Option<*const wgpu::RenderPipeline> = None;
 
     rpass.set_bind_group(0, frame_bg, &[]);
 
@@ -216,6 +220,7 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
             },
             &inst_range,
             &mut last_mesh,
+            &mut last_pipeline,
         );
     });
 }
@@ -269,6 +274,9 @@ struct ActivePipelineSelection<'a> {
 
 /// Walks the pipeline set for `item`, skipping pass variants that the material doesn't declare
 /// and issuing one [`draw_mesh_submesh_instanced`] per remaining pipeline.
+///
+/// `last_pipeline` is updated and consulted across batches so that adjacent draws sharing a
+/// pipeline (the typical case within a precomputed batch) skip the redundant `set_pipeline`.
 fn issue_material_pipeline_passes(
     rpass: &mut wgpu::RenderPass<'_>,
     encode: &mut crate::backend::WorldMeshForwardEncodeRefs<'_>,
@@ -276,6 +284,7 @@ fn issue_material_pipeline_passes(
     pipeline_sel: ActivePipelineSelection<'_>,
     inst_range: &std::ops::Range<u32>,
     last_mesh: &mut LastMeshBindState,
+    last_pipeline: &mut Option<*const wgpu::RenderPipeline>,
 ) {
     let skin_cache = encode.skin_cache;
     for (pass_idx, pipeline) in pipeline_sel.pipelines.iter().enumerate() {
@@ -286,7 +295,11 @@ fn issue_material_pipeline_passes(
         ) {
             continue;
         }
-        rpass.set_pipeline(pipeline);
+        let pipeline_id: *const wgpu::RenderPipeline = pipeline;
+        if *last_pipeline != Some(pipeline_id) {
+            rpass.set_pipeline(pipeline);
+            *last_pipeline = Some(pipeline_id);
+        }
         draw_mesh_submesh_instanced(
             rpass,
             item,
