@@ -1,0 +1,47 @@
+//! Ground-Truth Ambient Occlusion configuration. Persisted as `[post_processing.gtao]`.
+
+use serde::{Deserialize, Serialize};
+
+/// Ground-Truth Ambient Occlusion (Jimenez et al. 2016) configuration.
+///
+/// Persisted as `[post_processing.gtao]`. GTAO runs pre-tonemap and modulates HDR scene color by
+/// a visibility factor reconstructed from the depth buffer. View-space normals are reconstructed
+/// from depth derivatives (no separate GBuffer). Defaults pick a perceptually neutral strength that
+/// still visibly darkens creases and corners; the implementation uses one horizon direction per
+/// pixel with a 4×4 spatial jitter so aliasing masks as grain rather than structured banding.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GtaoSettings {
+    /// Whether GTAO runs in the post-processing chain. Off by default (opt-in).
+    pub enabled: bool,
+    /// World-space horizon search radius (meters). Larger = broader contact-shadow falloff.
+    pub radius_meters: f32,
+    /// AO strength exponent applied to the occlusion factor (1.0 = physical, >1 darker).
+    pub intensity: f32,
+    /// Screen-space cap on the search radius (pixels) to avoid GPU cache trashing on near geometry.
+    pub max_pixel_radius: f32,
+    /// Horizon steps per side (per-pixel samples). 6 matches the paper's recommended default.
+    pub step_count: u32,
+    /// Distance-falloff range as a fraction of [`Self::radius_meters`]. Candidate samples are
+    /// linearly faded toward the tangent-plane horizon over the last `falloff_range ·
+    /// radius_meters` of the search radius (matches XeGTAO's `FalloffRange`). Smaller = harder
+    /// cutoff; larger = smoother transition but more distant influence.
+    pub falloff_range: f32,
+    /// Gray-albedo proxy for the multi-bounce fit (paper Eq. 10). Recovers the near-field light
+    /// lost by assuming fully-absorbing occluders. Set lower for darker scenes, higher for brighter.
+    pub albedo_multibounce: f32,
+}
+
+impl Default for GtaoSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            radius_meters: 1.0,
+            intensity: 1.0,
+            max_pixel_radius: 256.0,
+            step_count: 16,
+            falloff_range: 0.5,
+            albedo_multibounce: 0.0,
+        }
+    }
+}
