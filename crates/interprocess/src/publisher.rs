@@ -62,12 +62,22 @@ impl Publisher {
 }
 
 /// Writes the provisional header, body, and final [`STATE_READY`] marker at `write_offset`.
+///
+/// The final transition to [`STATE_READY`] is published through the header's
+/// [`crate::layout::MessageHeader::state`] atomic with [`Ordering::Release`] so the subscriber's
+/// CAS sees the body bytes and the [`crate::layout::MessageHeader::body_length`] field written
+/// above. Without this happens-before edge, weak-memory targets (ARM/Apple Silicon) could allow
+/// the subscriber to load `STATE_READY` while still observing a stale `body_length` or
+/// uninitialised body bytes.
 fn write_message_to_ring(ring: RingView, write_offset: i64, len: i64, message: &[u8]) {
     let wire = message_header_wire_bytes(STATE_WRITING, len as i32);
     ring.write(write_offset, &wire);
     ring.write(write_offset + MESSAGE_BODY_OFFSET, message);
-    let state_bytes = STATE_READY.to_le_bytes();
-    ring.write(write_offset, &state_bytes);
+    // SAFETY: `write_offset` was claimed via CAS on `header.write_offset` above; the eight-byte
+    // [`crate::layout::MessageHeader`] lies in the ring at this slot per the wire protocol and no
+    // other writer can target the same slot (single-writer per slot).
+    let header = unsafe { ring.message_header_at(write_offset) };
+    header.state.store(STATE_READY, Ordering::Release);
 }
 
 #[cfg(test)]

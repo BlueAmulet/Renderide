@@ -22,6 +22,16 @@ const DEQUEUE_BACKOFF_HEAVY_PHASE_AFTER: i32 = 10;
 /// Milliseconds for the steady semaphore wait once past [`DEQUEUE_BACKOFF_HEAVY_PHASE_AFTER`].
 const DEQUEUE_BACKOFF_HEAVY_WAIT_MS: u64 = 10;
 
+/// Pure-spin iterations on a `STATE_WRITING` slot before [`Subscriber::try_extract_message`]
+/// graduates to [`std::thread::yield_now`].
+const EXTRACT_SPIN_ITERATIONS: u32 = 1024;
+
+/// Yield iterations after [`EXTRACT_SPIN_ITERATIONS`] before sleeping briefly between checks.
+const EXTRACT_YIELD_ITERATIONS: u32 = 64;
+
+/// Sleep duration between checks once both spin and yield phases are exhausted.
+const EXTRACT_PARK_INTERVAL: Duration = Duration::from_micros(200);
+
 /// Current instant in the same 100 ns tick domain as .NET `DateTime.UtcNow.Ticks`.
 fn utc_now_ticks() -> i64 {
     match SystemTime::now().duration_since(UNIX_EPOCH) {
@@ -83,10 +93,16 @@ pub struct Subscriber {
 
 impl Subscriber {
     /// Opens the backing mapping and semaphore.
+    ///
+    /// On attach, clears [`QueueHeader::read_lock_timestamp`] to zero. The wire protocol is
+    /// single-subscriber by design (the bootstrap handshake creates exactly one subscriber per
+    /// queue), so a non-zero value at attach time can only be a stale lock left by a prior
+    /// crashed subscriber on the same shared mapping. Without this reset, the new subscriber
+    /// would wait up to [`TICKS_FOR_TEN_SECONDS`] before reclaiming on the first dequeue.
     pub fn new(options: QueueOptions) -> Result<Self, crate::OpenError> {
-        Ok(Self {
-            res: QueueResources::open(options)?,
-        })
+        let res = QueueResources::open(options)?;
+        res.header().read_lock_timestamp.store(0, Ordering::SeqCst);
+        Ok(Self { res })
     }
 
     /// Blocks until a message arrives or `cancel` is set, using semaphore-backed backoff.
@@ -142,6 +158,7 @@ impl Subscriber {
         // SAFETY: `read_offset` is produced by the publisher after a space check and the wire
         // protocol guarantees a contiguous eight-byte `MessageHeader` at this slot.
         let msg = unsafe { ring.message_header_at(read_offset) };
+        let mut backoff_iter: u32 = 0;
         loop {
             match msg.state.compare_exchange(
                 STATE_READY,
@@ -155,7 +172,16 @@ impl Subscriber {
                         header.read_offset.store(write_offset, Ordering::SeqCst);
                         return None;
                     }
-                    std::hint::spin_loop();
+                    if backoff_iter < EXTRACT_SPIN_ITERATIONS {
+                        std::hint::spin_loop();
+                    } else if backoff_iter
+                        < EXTRACT_SPIN_ITERATIONS.saturating_add(EXTRACT_YIELD_ITERATIONS)
+                    {
+                        std::thread::yield_now();
+                    } else {
+                        std::thread::sleep(EXTRACT_PARK_INTERVAL);
+                    }
+                    backoff_iter = backoff_iter.saturating_add(1);
                 }
             }
         }
