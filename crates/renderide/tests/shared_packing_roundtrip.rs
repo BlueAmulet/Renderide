@@ -72,7 +72,9 @@ fn underrun_reports_underrun_variant() {
                 "unexpected type name in error: {ty:?}"
             );
         }
-        other @ MemoryUnpackError::LengthOverflow => panic!("expected Underrun, got {other:?}"),
+        other @ (MemoryUnpackError::LengthOverflow | MemoryUnpackError::StringTooLong { .. }) => {
+            panic!("expected Underrun, got {other:?}")
+        }
     }
 }
 
