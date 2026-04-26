@@ -142,30 +142,33 @@ impl WorldTransformCache {
             let mut id = transform_index;
             let mut cycle_detected = false;
 
-            loop {
-                if id >= n {
-                    break;
+            {
+                profiling::scope!("world::upward_walk");
+                loop {
+                    if id >= n {
+                        break;
+                    }
+                    if computed[id] {
+                        maybe_uppermost_matrix = Some(world_matrices[id]);
+                        break;
+                    }
+                    if visit_epoch[id] == epoch {
+                        cycle_detected = true;
+                        logger::trace!(
+                            "parent cycle at scene {} transform {} — local-only fallback",
+                            scene_id,
+                            id
+                        );
+                        break;
+                    }
+                    visit_epoch[id] = epoch;
+                    stack.push(id);
+                    let p = node_parents.get(id).copied().unwrap_or(-1);
+                    if p < 0 || (p as usize) >= n || p == id as i32 {
+                        break;
+                    }
+                    id = p as usize;
                 }
-                if computed[id] {
-                    maybe_uppermost_matrix = Some(world_matrices[id]);
-                    break;
-                }
-                if visit_epoch[id] == epoch {
-                    cycle_detected = true;
-                    logger::trace!(
-                        "parent cycle at scene {} transform {} — local-only fallback",
-                        scene_id,
-                        id
-                    );
-                    break;
-                }
-                visit_epoch[id] = epoch;
-                stack.push(id);
-                let p = node_parents.get(id).copied().unwrap_or(-1);
-                if p < 0 || (p as usize) >= n || p == id as i32 {
-                    break;
-                }
-                id = p as usize;
             }
 
             if cycle_detected {

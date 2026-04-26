@@ -180,6 +180,7 @@ fn apply_render_decoupling_config(runtime: &mut RendererRuntime, cfg: RenderDeco
 }
 
 fn material_property_id_request(runtime: &mut RendererRuntime, req: MaterialPropertyIdRequest) {
+    profiling::scope!("command::material_property_id_request");
     let property_ids: Vec<i32> = {
         let reg = runtime.backend.property_id_registry();
         req.property_names

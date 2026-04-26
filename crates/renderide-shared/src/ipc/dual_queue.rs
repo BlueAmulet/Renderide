@@ -94,8 +94,14 @@ impl DualQueueIpc {
     /// Clears `out` then drains both subscribers so each tick starts from an empty batch.
     pub fn poll_into(&mut self, out: &mut Vec<RendererCommand>) {
         out.clear();
-        drain_subscriber(&mut self.primary_subscriber, &mut self.entity_pool, out);
-        drain_subscriber(&mut self.background_subscriber, &mut self.entity_pool, out);
+        {
+            profiling::scope!("ipc::primary_drain");
+            drain_subscriber(&mut self.primary_subscriber, &mut self.entity_pool, out);
+        }
+        {
+            profiling::scope!("ipc::background_drain");
+            drain_subscriber(&mut self.background_subscriber, &mut self.entity_pool, out);
+        }
     }
 
     /// Encodes and sends a command on the **Primary** publisher (frame handshake, init, etc.).

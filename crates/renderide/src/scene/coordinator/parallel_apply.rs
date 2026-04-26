@@ -181,14 +181,17 @@ pub fn apply_extracted_render_space_update(
     if let Some(ref su) = extracted.skinned_meshes {
         apply_skinned_mesh_renderables_update_extracted(space, su, transform_removals, scene_id);
     }
-    super::super::layer_apply::fixup_layer_assignments_for_transform_removals(
-        space,
-        transform_removals,
-    );
-    if let Some(ref lu) = extracted.layers {
-        apply_layer_update_extracted(space, lu);
+    {
+        profiling::scope!("scene::layers");
+        super::super::layer_apply::fixup_layer_assignments_for_transform_removals(
+            space,
+            transform_removals,
+        );
+        if let Some(ref lu) = extracted.layers {
+            apply_layer_update_extracted(space, lu);
+        }
+        super::super::layer_apply::resolve_mesh_layers_from_assignments(space);
     }
-    super::super::layer_apply::resolve_mesh_layers_from_assignments(space);
     if let Some(ref rtu) = extracted.transform_overrides {
         apply_render_transform_overrides_update_extracted(space, rtu, transform_removals);
     }
