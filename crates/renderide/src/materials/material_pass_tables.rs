@@ -22,12 +22,12 @@ pub(crate) fn unity_compare_function(value: u8) -> wgpu::CompareFunction {
 /// Maps a FrooxEngine `ZTest` enum value carried on the host `_ZTest` property to the reverse-Z
 /// equivalent `wgpu::CompareFunction`.
 ///
-/// The enum layout matches `references_external/FrooxEngine/ZTest.cs`:
+/// The host's `ZTest` enum layout is:
 /// `Less=0, Greater=1, LessOrEqual=2, GreaterOrEqual=3, Equal=4, NotEqual=5, Always=6`. This
 /// differs from Unity's `CompareFunction` (which uses `Disabled=0, Never=1, Less=2, Equal=3,
 /// LessEqual=4, Greater=5, NotEqual=6, GreaterEqual=7, Always=8`); the host casts
 /// `Sync<ZTest>.Value` to float without any remapping, so the renderer must decode it with the
-/// FrooxEngine layout.
+/// host's layout.
 ///
 /// Depth-test comparisons invert under reverse-Z (near fragments have greater depth), so e.g.
 /// `ZTest.LessOrEqual` — the usual opaque-pass default — becomes `wgpu::CompareFunction::GreaterEqual`.

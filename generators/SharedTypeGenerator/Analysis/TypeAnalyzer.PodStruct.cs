@@ -175,7 +175,7 @@ public partial class TypeAnalyzer
             {
                 sz = Marshal.SizeOf(st);
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is ArgumentException or MarshalDirectiveException)
             {
                 continue;
             }

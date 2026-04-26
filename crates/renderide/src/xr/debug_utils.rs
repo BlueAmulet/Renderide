@@ -105,7 +105,7 @@ unsafe extern "system" fn debug_utils_callback(
     // SAFETY: see above.
     let fn_name = unsafe { c_str_to_str(data.function_name) };
     let prefix = if fn_name.is_empty() {
-        String::from("OpenXR")
+        "OpenXR".to_string()
     } else {
         format!("OpenXR ({fn_name})")
     };

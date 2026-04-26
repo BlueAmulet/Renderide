@@ -1,20 +1,19 @@
 //! Synthesises per-finger [`HandState`] data from controller input.
 //!
-//! Without this, the host would receive no hand-tracking data and `HandPoser`
-//! (`references_external/FrooxEngine/HandPoser.cs:501-517`) would reset every finger to its
-//! `OriginalRotation`, leaving the avatar playing the desktop idle pose while the user is in VR.
+//! Without this, the host would receive no hand-tracking data and its `HandPoser` would reset
+//! every finger to its `OriginalRotation`, leaving the avatar playing the desktop idle pose while
+//! the user is in VR.
 //!
-//! The presets below are transcribed from `references_external/FrooxEngine/FingerPosePresets.cs`
-//! (`Idle` and `Fist`). Segment layout matches the host's unpack loop at
-//! `references_external/FrooxEngine/VR_Manager.cs:385-394`: 24 entries indexed by
+//! The presets below are transcribed from the host's `Idle` and `Fist` finger-pose presets.
+//! Segment layout matches the host's unpack loop: 24 entries indexed by
 //! `BodyNode - LeftThumbMetacarpal`, ordered Thumb(Met,Prox,Dist,Tip), Index(Met,Prox,Inter,Dist,Tip),
 //! Middle(..), Ring(..), Pinky(..). Right-hand [`HandState`] values reuse the same indexing but hold
 //! right-hand data; the host mirrors via `bodyNode.GetSide(chirality)`.
 //!
 //! The curl blend is deliberately conservative: metacarpals are left at idle and we set
 //! [`HandState::tracks_metacarpals`] to `false`, so the host overrides non-thumb metacarpals to the
-//! avatar's own rest pose (see `HandPoser.cs:535`). Thumb is held at idle; index curl follows the
-//! trigger analog; middle/ring/pinky follow the squeeze (grip) analog.
+//! avatar's own rest pose. Thumb is held at idle; index curl follows the trigger analog;
+//! middle/ring/pinky follow the squeeze (grip) analog.
 
 #![expect(
     clippy::unreadable_literal,

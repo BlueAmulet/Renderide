@@ -56,7 +56,7 @@ public partial class TypeAnalyzer
                 Path.Combine(Path.GetDirectoryName(assemblyPath)!, "FrooxEngine.dll"));
             return frooxEngine.FullName ?? "Unknown";
         }
-        catch (Exception e)
+        catch (Exception e) when (e is FileNotFoundException or BadImageFormatException or FileLoadException or ReflectionTypeLoadException)
         {
             _logger.LogWarning(LogCategory.Startup, $"Couldn't detect FrooxEngine version: {e.Message}");
             return "Unknown";

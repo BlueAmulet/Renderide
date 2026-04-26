@@ -108,10 +108,10 @@ pub(crate) struct StemEmbeddedPropertyIds {
 
 /// Returns alternate host property names for a canonical texture binding name.
 ///
-/// Only the `_Tex` ⇄ `_MainTex` cross-alias is live (`UnlitMaterial.cs` uses `_Tex`; PBS/Toon
-/// materials use `_MainTex`). The audit of `references_external/FrooxEngine/` confirmed that
-/// the no-underscore forms `Texture`, `MaskTexture`, `OffsetTexture` are never declared as
-/// `MaterialProperty` and thus never sent; they were removed.
+/// Only the `_Tex` ⇄ `_MainTex` cross-alias is live (`UnlitMaterial` uses `_Tex`; PBS/Toon
+/// materials use `_MainTex`). A host-side audit confirmed that the no-underscore forms `Texture`,
+/// `MaskTexture`, `OffsetTexture` are never declared as `MaterialProperty` and thus never sent;
+/// they were removed.
 fn texture_property_aliases(name: &str) -> &'static [&'static str] {
     match name {
         "_Tex" => &["_MainTex"],

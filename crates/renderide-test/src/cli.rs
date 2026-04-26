@@ -150,7 +150,7 @@ fn run_harness(common: &CommonOpts) -> Result<HarnessRunOutcome, HarnessError> {
     let timeout = Duration::from_secs(common.timeout_seconds);
     let renderer_path = match &common.renderer {
         Some(p) => p.clone(),
-        None => resolve_renderer_path(common.release, common.dev_fast),
+        None => resolve_renderer_path(BuildProfile::from_flags(common.release, common.dev_fast)),
     };
     let cfg = HostHarnessConfig {
         renderer_path,
@@ -175,32 +175,58 @@ fn parse_resolution(s: &str) -> (u32, u32) {
     (256, 256)
 }
 
-fn default_renderer_path(release: bool, dev_fast: bool) -> PathBuf {
-    let profile = if dev_fast {
-        "dev-fast"
-    } else if release {
-        "release"
-    } else {
-        "debug"
-    };
+/// Cargo build profile selecting which `target/<profile>/renderide` binary to spawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BuildProfile {
+    /// `target/debug/renderide` — default `cargo build` profile.
+    Debug,
+    /// `target/release/renderide` — `cargo build --release`.
+    Release,
+    /// `target/dev-fast/renderide` — the project's `dev-fast` workspace profile.
+    DevFast,
+}
+
+impl BuildProfile {
+    /// Resolves the profile from the mutually-exclusive `--release` / `--dev-fast` CLI flags.
+    fn from_flags(release: bool, dev_fast: bool) -> Self {
+        if dev_fast {
+            Self::DevFast
+        } else if release {
+            Self::Release
+        } else {
+            Self::Debug
+        }
+    }
+
+    /// Subdirectory name under `target/` for this profile.
+    fn target_dir(self) -> &'static str {
+        match self {
+            Self::Debug => "debug",
+            Self::Release => "release",
+            Self::DevFast => "dev-fast",
+        }
+    }
+}
+
+fn default_renderer_path(profile: BuildProfile) -> PathBuf {
     let exe = if cfg!(windows) {
         "renderide.exe"
     } else {
         "renderide"
     };
-    PathBuf::from("target").join(profile).join(exe)
+    PathBuf::from("target").join(profile.target_dir()).join(exe)
 }
 
 /// Picks a renderer next to this binary when no `--release` / `--dev-fast` flags are set, so
 /// e.g. `target/dev-fast/renderide-test` uses `target/dev-fast/renderide` by default.
-fn resolve_renderer_path(release: bool, dev_fast: bool) -> PathBuf {
-    if release || dev_fast {
-        return default_renderer_path(release, dev_fast);
+fn resolve_renderer_path(profile: BuildProfile) -> PathBuf {
+    if profile != BuildProfile::Debug {
+        return default_renderer_path(profile);
     }
     if let Some(p) = renderide_next_to_this_test_binary() {
         return p;
     }
-    default_renderer_path(false, false)
+    default_renderer_path(BuildProfile::Debug)
 }
 
 fn renderide_next_to_this_test_binary() -> Option<PathBuf> {
@@ -226,7 +252,7 @@ fn renderide_next_to_this_test_binary() -> Option<PathBuf> {
 mod cli_tests {
     use std::path::PathBuf;
 
-    use super::{default_renderer_path, parse_resolution, resolve_renderer_path};
+    use super::{default_renderer_path, parse_resolution, resolve_renderer_path, BuildProfile};
 
     #[test]
     fn parse_resolution_accepts_lowercase_and_uppercase_x() {
@@ -249,17 +275,17 @@ mod cli_tests {
     #[test]
     fn default_renderer_path_profiles_and_exe_name() {
         assert_eq!(
-            default_renderer_path(false, true),
+            default_renderer_path(BuildProfile::DevFast),
             PathBuf::from("target")
                 .join("dev-fast")
                 .join(expected_exe())
         );
         assert_eq!(
-            default_renderer_path(true, false),
+            default_renderer_path(BuildProfile::Release),
             PathBuf::from("target").join("release").join(expected_exe())
         );
         assert_eq!(
-            default_renderer_path(false, false),
+            default_renderer_path(BuildProfile::Debug),
             PathBuf::from("target").join("debug").join(expected_exe())
         );
     }
@@ -267,13 +293,22 @@ mod cli_tests {
     #[test]
     fn resolve_renderer_path_matches_explicit_profiles() {
         assert_eq!(
-            resolve_renderer_path(true, false),
-            default_renderer_path(true, false)
+            resolve_renderer_path(BuildProfile::Release),
+            default_renderer_path(BuildProfile::Release)
         );
         assert_eq!(
-            resolve_renderer_path(false, true),
-            default_renderer_path(false, true)
+            resolve_renderer_path(BuildProfile::DevFast),
+            default_renderer_path(BuildProfile::DevFast)
         );
+    }
+
+    #[test]
+    fn build_profile_from_flags_maps_correctly() {
+        assert_eq!(BuildProfile::from_flags(false, false), BuildProfile::Debug);
+        assert_eq!(BuildProfile::from_flags(true, false), BuildProfile::Release);
+        assert_eq!(BuildProfile::from_flags(false, true), BuildProfile::DevFast);
+        // dev_fast wins when both flags are set; clap rejects that combination at the CLI layer.
+        assert_eq!(BuildProfile::from_flags(true, true), BuildProfile::DevFast);
     }
 
     fn expected_exe() -> &'static str {

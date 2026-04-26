@@ -161,13 +161,11 @@ impl MaterialSystem {
     /// Apply one host materials batch (shared memory must be valid for the batch descriptors).
     ///
     /// Writes per-target instance-changed bits into [`MaterialsUpdateBatch::instance_changed_buffer`]
-    /// before sending the [`MaterialsUpdateBatchResult`] ack so the host's
-    /// `MaterialUpdateData.Completed()` (`references_external/FrooxEngine/MaterialUpdateData.cs`)
-    /// reads fresh values when it dispatches `MaterialAssetUpdated(bool)` per material/property block.
-    /// Without this, every bit reads as `false`, the host always takes `AssetUpdated()` instead of
-    /// `AssetCreated()`/`Reinitialize()`, and property blocks (e.g. font atlases) are never re-emitted
-    /// to the renderers using them — see [`MaterialAssetManager.HandlePropertyBlockUpdate`] in
-    /// `references_external/Renderite.Unity/Assets/Material/MaterialAssetManager.cs`.
+    /// before sending the [`MaterialsUpdateBatchResult`] ack so the host's completion callback reads
+    /// fresh values when it dispatches its per-material/per-property-block "asset updated" signal.
+    /// Without this, every bit reads as `false`, the host always takes its `AssetUpdated()` branch
+    /// instead of `AssetCreated()`/`Reinitialize()`, and property blocks (e.g. font atlases) are
+    /// never re-emitted to the renderers using them.
     pub fn apply_materials_update_batch(
         &mut self,
         batch: MaterialsUpdateBatch,

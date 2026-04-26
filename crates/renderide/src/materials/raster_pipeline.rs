@@ -5,7 +5,7 @@
 //! cull, stencil/color-write, and depth state per material.
 
 use crate::backend::{empty_material_bind_group_layout, FrameGpuResources};
-use crate::materials::material_passes::{default_pass, MaterialPassDesc};
+use crate::materials::material_passes::{default_pass, DefaultPassParams, MaterialPassDesc};
 use crate::materials::pipeline_build_error::PipelineBuildError;
 use crate::materials::MaterialRenderState;
 use crate::materials::{
@@ -300,7 +300,10 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipeline(
     label: &'static str,
     raster: ReflectiveRasterMeshForwardPipelineDesc,
 ) -> Result<wgpu::RenderPipeline, PipelineBuildError> {
-    let pass = default_pass(raster.use_alpha_blending, raster.depth_write_enabled);
+    let pass = default_pass(DefaultPassParams {
+        use_alpha_blending: raster.use_alpha_blending,
+        depth_write: raster.depth_write_enabled,
+    });
     let (layout, vertex_buffers) = pipeline_layout_and_vertex_buffers(
         device,
         limits,
