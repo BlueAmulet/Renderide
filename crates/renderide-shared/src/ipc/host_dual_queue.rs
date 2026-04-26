@@ -94,6 +94,13 @@ fn encode_command(cmd: &mut RendererCommand, buf: &mut [u8]) -> usize {
     let total_len = buf.len();
     let mut packer = MemoryPacker::new(buf);
     cmd.encode(&mut packer);
+    if let Some(err) = packer.overflow_error() {
+        logger::error!(
+            "host IPC encode overflow ({err}); dropping {} byte buffer",
+            total_len
+        );
+        return 0;
+    }
     total_len - packer.remaining_len()
 }
 

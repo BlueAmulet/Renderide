@@ -6,6 +6,7 @@
 pub mod bit_span;
 pub mod default_entity_pool;
 pub mod enum_repr;
+pub mod memory_pack_error;
 pub mod memory_packable;
 pub mod memory_packer;
 pub mod memory_packer_entity_pool;

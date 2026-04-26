@@ -75,9 +75,16 @@ fn write_message_to_ring(ring: RingView, write_offset: i64, len: i64, message: &
     ring.write(write_offset + MESSAGE_BODY_OFFSET, message);
     // SAFETY: `write_offset` was claimed via CAS on `header.write_offset` above; the eight-byte
     // [`crate::layout::MessageHeader`] lies in the ring at this slot per the wire protocol and no
-    // other writer can target the same slot (single-writer per slot).
-    let header = unsafe { ring.message_header_at(write_offset) };
-    header.state.store(STATE_READY, Ordering::Release);
+    // other writer can target the same slot (single-writer per slot). The wire protocol pads
+    // every message to eight bytes, so `message_header_at` always returns `Some`; the
+    // memcpy-based fallback exists only because the API is total.
+    let aligned_header = unsafe { ring.message_header_at(write_offset) };
+    if let Some(header) = aligned_header {
+        header.state.store(STATE_READY, Ordering::Release);
+    } else {
+        let state_bytes = STATE_READY.to_le_bytes();
+        ring.write(write_offset, &state_bytes);
+    }
 }
 
 #[cfg(test)]

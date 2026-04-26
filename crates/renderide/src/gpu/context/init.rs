@@ -165,8 +165,8 @@ impl GpuContext {
     ) -> Result<Self, GpuError> {
         let (instance, instance_flags) = build_wgpu_instance(gpu_validation_layers);
 
-        // wgpu infers `Surface<'static>` directly from an `Arc<Window>` source, so no lifetime
-        // extension is needed; the `Arc` is then stored alongside the surface in `GpuContext`.
+        // `Arc<Window>` is `Into<SurfaceTarget<'static>>`, so the returned `Surface` is
+        // already `'static` — no `transmute` is required to extend the borrow.
         let surface_safe: wgpu::Surface<'static> = instance
             .create_surface(window.clone())
             .map_err(|e| GpuError::Surface(format!("{e:?}")))?;
@@ -359,8 +359,8 @@ impl GpuContext {
         vsync: bool,
     ) -> Result<Self, GpuError> {
         install_uncaptured_error_handler(device.as_ref());
-        // wgpu infers `Surface<'static>` directly from an `Arc<Window>` source, so no lifetime
-        // extension is needed; the `Arc` is then stored alongside the surface in `GpuContext`.
+        // `Arc<Window>` is `Into<SurfaceTarget<'static>>`, so the returned `Surface` is
+        // already `'static` — no `transmute` is required to extend the borrow.
         let surface_safe: wgpu::Surface<'static> = instance
             .create_surface(window.clone())
             .map_err(|e| GpuError::Surface(format!("{e:?}")))?;

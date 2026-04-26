@@ -21,6 +21,13 @@ pub(crate) fn wine_get_version() -> Option<String> {
     }
 }
 
+/// Maximum UTF-16 code units scanned looking for the NUL terminator on Wine's version string.
+///
+/// Wine returns a short version string in practice (e.g. `"10.0"`); a missing terminator from
+/// a corrupted shim must not spin this thread forever during bootstrap.
+#[cfg(target_os = "linux")]
+const WINE_VERSION_MAX_UTF16_UNITS: usize = 256;
+
 /// Loads `wine_get_version` from `ntdll.dll` via [`libloading::Library`] and returns the UTF-16 version string.
 #[cfg(target_os = "linux")]
 fn wine_get_version_linux() -> Option<String> {
@@ -37,12 +44,18 @@ fn wine_get_version_linux() -> Option<String> {
     if ptr.is_null() {
         return None;
     }
-    let mut len = 0usize;
-    // SAFETY: Wine NUL-terminates the version string; we scan only until the terminator.
-    while unsafe { *ptr.add(len) } != 0 {
-        len += 1;
+    let mut len = None;
+    for i in 0..WINE_VERSION_MAX_UTF16_UNITS {
+        // SAFETY: scanning at most `WINE_VERSION_MAX_UTF16_UNITS` code units before bailing;
+        // Wine NUL-terminates the version string well within this bound for any honest shim.
+        if unsafe { *ptr.add(i) } == 0 {
+            len = Some(i);
+            break;
+        }
     }
-    // SAFETY: `ptr` is valid for `len` UTF-16 code units for the lifetime of the returned string.
+    let len = len?;
+    // SAFETY: `ptr` is valid for `len` UTF-16 code units for the lifetime of the returned string;
+    // `len` is bounded by `WINE_VERSION_MAX_UTF16_UNITS`.
     let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
     String::from_utf16(slice).ok()
 }

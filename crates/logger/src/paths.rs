@@ -105,8 +105,36 @@ pub fn log_dir_for(component: LogComponent) -> PathBuf {
 }
 
 /// Full path to a timestamped log file: `<logs>/<component>/<timestamp>.log`.
+///
+/// The `timestamp` is sanitized via [`sanitize_timestamp`] before being joined to the log
+/// directory: any character outside `[A-Za-z0-9_-]` is replaced with `_` so that a caller
+/// passing path-like input (e.g. `"../etc/passwd"`) cannot escape the component log
+/// directory or write to a different file extension. Empty or fully-stripped timestamps fall
+/// back to `"invalid"` so the result is always a single, well-formed filename.
 pub fn log_file_path(component: LogComponent, timestamp: &str) -> PathBuf {
-    log_dir_for(component).join(format!("{timestamp}.log"))
+    let safe = sanitize_timestamp(timestamp);
+    log_dir_for(component).join(format!("{safe}.log"))
+}
+
+/// Replaces every character outside `[A-Za-z0-9_-]` with `_`; empty input becomes `"invalid"`.
+///
+/// This is a defense-in-depth guard for [`log_file_path`]: every current caller produces
+/// timestamps via [`crate::log_filename_timestamp`] (already in the safe alphabet), but the
+/// public signature accepts arbitrary `&str` and we do not want a future caller — or
+/// attacker-influenced input — to slip a `..` segment or `/` into the joined path.
+fn sanitize_timestamp(timestamp: &str) -> String {
+    let mut out = String::with_capacity(timestamp.len());
+    for c in timestamp.chars() {
+        if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+            out.push(c);
+        } else {
+            out.push('_');
+        }
+    }
+    if out.is_empty() {
+        out.push_str("invalid");
+    }
+    out
 }
 
 /// Ensures `<logs>/<component>/` exists.
@@ -199,6 +227,36 @@ mod tests {
     fn log_file_path_appends_dot_log_suffix() {
         let p = log_file_path(LogComponent::Host, "ts");
         assert!(p.to_string_lossy().ends_with("ts.log"));
+    }
+
+    #[test]
+    fn log_file_path_sanitizes_path_traversal_attempts() {
+        let p = log_file_path(LogComponent::Host, "../etc/passwd");
+        let s = p.to_string_lossy();
+        assert!(!s.contains(".."), "must not pass `..` through: {s}");
+        assert!(!s.contains("/etc/"), "must not pass `/` through: {s}");
+        assert!(s.ends_with(".log"));
+        // Component directory is preserved.
+        assert!(s.contains("/host/"), "missing component dir: {s}");
+    }
+
+    #[test]
+    fn log_file_path_empty_timestamp_falls_back_to_invalid() {
+        let p = log_file_path(LogComponent::Host, "");
+        assert!(p.to_string_lossy().ends_with("invalid.log"));
+    }
+
+    #[test]
+    fn sanitize_timestamp_preserves_safe_alphabet() {
+        assert_eq!(
+            sanitize_timestamp("2026-04-25_12-30-00"),
+            "2026-04-25_12-30-00"
+        );
+    }
+
+    #[test]
+    fn sanitize_timestamp_replaces_unsafe_characters() {
+        assert_eq!(sanitize_timestamp("a/b\\c.d"), "a_b_c_d");
     }
 
     #[test]

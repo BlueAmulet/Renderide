@@ -177,6 +177,16 @@ fn encode_command(cmd: &mut RendererCommand, buf: &mut [u8]) -> usize {
     let total_len = buf.len();
     let mut packer = MemoryPacker::new(buf);
     cmd.encode(&mut packer);
+    if let Some(err) = packer.overflow_error() {
+        // The encode buffer was too small for this command. Drop the message rather than send
+        // a truncated frame; the trailing fields are missing and the decoder would surface a
+        // confusing underrun. Caller treats `0` as "nothing to enqueue".
+        logger::error!(
+            "IPC outgoing send: encode overflow ({err}); dropping {} byte buffer",
+            total_len
+        );
+        return 0;
+    }
     total_len - packer.remaining_len()
 }
 
