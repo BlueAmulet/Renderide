@@ -103,6 +103,10 @@ pub(crate) struct RenderideApp {
     previous_tick_end: Option<Instant>,
     /// OS-driven graceful shutdown (Unix signals or Windows Ctrl+C). See [`crate::app::startup`].
     external_shutdown: Option<ExternalShutdownCoordinator>,
+    /// Cooperative hang detector heartbeat for the main / winit thread. Pet once per
+    /// [`Self::tick_frame`] iteration. [`None`] when the watchdog is disabled by config or
+    /// failed to install. See [`crate::diagnostics::Watchdog`].
+    main_heartbeat: Option<crate::diagnostics::Heartbeat>,
 }
 
 /// Reconfigures the swapchain/depth for the given physical dimensions (shared by resize path and helpers).
@@ -132,6 +136,7 @@ impl RenderideApp {
         initial_power_preference: wgpu::PowerPreference,
         log_level_cli: Option<LogLevel>,
         external_shutdown: Option<ExternalShutdownCoordinator>,
+        main_heartbeat: Option<crate::diagnostics::Heartbeat>,
     ) -> Self {
         Self {
             runtime,
@@ -153,6 +158,7 @@ impl RenderideApp {
             last_frame_start: None,
             previous_tick_end: None,
             external_shutdown,
+            main_heartbeat,
         }
     }
 
@@ -605,6 +611,9 @@ impl RenderideApp {
     fn tick_frame(&mut self, event_loop: &ActiveEventLoop) {
         profiling::scope!("tick::frame");
         let frame_start = Instant::now();
+        if let Some(h) = self.main_heartbeat.as_ref() {
+            h.pet();
+        }
         self.frame_tick_prologue(frame_start);
         self.poll_ipc_and_window();
         if self.check_external_shutdown(event_loop) {
@@ -617,7 +626,12 @@ impl RenderideApp {
             profiling::scope!("tick::asset_integration");
             self.runtime.run_asset_integration();
         }
+        // OpenXR `xrWaitFrame` legitimately blocks on the runtime's compositor pacing, which can
+        // exceed the watchdog hitch threshold during normal operation; pause the heartbeat for
+        // the duration of the XR begin-tick so it doesn't trip false-positive reports.
+        let _xr_pause = self.main_heartbeat.as_ref().map(|h| h.pause());
         let xr_tick = self.xr_begin_tick();
+        drop(_xr_pause);
         self.lock_step_exchange();
 
         if let Some(bundle) = self.xr_session.as_ref() {

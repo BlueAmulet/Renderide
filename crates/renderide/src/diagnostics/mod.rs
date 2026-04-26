@@ -2,6 +2,8 @@
 //! **Renderide debug** ([`crate::config::DebugSettings::debug_hud_enabled`]: Stats / Shader routes / Draw state / GPU memory),
 //! **Scene transforms** ([`crate::config::DebugSettings::debug_hud_transforms`]),
 //! and **Textures** ([`crate::config::DebugSettings::debug_hud_textures`]).
+//!
+//! Also hosts the cooperative renderer hang/hitch detector ([`Watchdog`]).
 
 mod debug_hud;
 mod debug_hud_encode_error;
@@ -12,6 +14,7 @@ mod hud_input;
 mod renderer_info_snapshot;
 mod scene_transforms_snapshot;
 mod texture_debug_snapshot;
+mod watchdog;
 
 pub use debug_hud::DebugHud;
 pub use debug_hud_encode_error::DebugHudEncodeError;
@@ -29,3 +32,4 @@ pub use scene_transforms_snapshot::{
     RenderSpaceTransformsSnapshot, SceneTransformsSnapshot, TransformRow, WorldTransformSample,
 };
 pub use texture_debug_snapshot::{TextureDebugRow, TextureDebugSnapshot};
+pub use watchdog::{Heartbeat, Watchdog, WatchdogPause};

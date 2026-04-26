@@ -247,6 +247,9 @@ pub fn run() -> Result<Option<i32>, RunError> {
 
     let external_shutdown = install_external_shutdown();
 
+    let watchdog = crate::diagnostics::Watchdog::install(config_load.settings.watchdog);
+    let main_heartbeat = watchdog.as_ref().map(|w| w.register_current_thread("main"));
+
     crate::profiling::register_main_thread();
     if let Err(e) = rayon::ThreadPoolBuilder::new()
         .thread_name(|i| format!("rayon-worker-{i}"))
@@ -257,6 +260,9 @@ pub fn run() -> Result<Option<i32>, RunError> {
     }
 
     if let Some(headless_params) = get_headless_params() {
+        // Watchdog stays alive in this scope so its drop joins after the headless driver exits.
+        let _watchdog = watchdog;
+        let _main_heartbeat = main_heartbeat;
         return run_headless(
             &mut runtime,
             headless_params,
@@ -278,9 +284,12 @@ pub fn run() -> Result<Option<i32>, RunError> {
         initial_power_preference,
         log_level_cli,
         external_shutdown,
+        main_heartbeat,
     );
 
     let _ = event_loop.run_app(&mut app);
+    // Drop the watchdog after the event loop exits so its background thread joins cleanly.
+    drop(watchdog);
     Ok(app.exit_code)
 }
 

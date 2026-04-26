@@ -51,4 +51,5 @@ pub use types::{
     BloomCompositeMode, BloomSettings, DebugSettings, DisplaySettings, GtaoSettings,
     MsaaSampleCount, PostProcessingSettings, PowerPreferenceSetting, RecordParallelism,
     RendererSettings, RenderingSettings, SceneColorFormat, TonemapMode, TonemapSettings, VsyncMode,
+    WatchdogAction, WatchdogSettings,
 };
