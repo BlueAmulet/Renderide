@@ -13,10 +13,26 @@ use super::submit_batch::{DriverMessage, SubmitBatch};
 use super::surface_counters::SurfaceCounters;
 use crate::gpu::WriteTextureSubmitGate;
 
+/// RAII guard that marks the ring's consumer side dead on drop.
+///
+/// Drop runs on both clean shutdown (loop break) and panic-driven unwind through
+/// [`driver_loop`], so a producer blocked in [`super::ring::BoundedRing::push`] is always
+/// released — preventing the main thread from hanging forever on a crashed driver.
+struct ConsumerLivenessGuard<'a> {
+    ring: &'a BoundedRing<DriverMessage>,
+}
+
+impl Drop for ConsumerLivenessGuard<'_> {
+    fn drop(&mut self) {
+        self.ring.mark_consumer_dead();
+    }
+}
+
 /// Thread entry point spawned from [`super::DriverThread::new`].
 ///
 /// Registers itself as `"renderer-driver"` in the active profiler so Tracy groups its
-/// spans on a single thread row. Exits on the [`DriverMessage::Shutdown`] sentinel.
+/// spans on a single thread row. Exits on the [`DriverMessage::Shutdown`] sentinel. The
+/// [`ConsumerLivenessGuard`] flips the ring's liveness flag on any exit (clean or panic).
 pub(super) fn driver_loop(
     ring: Arc<BoundedRing<DriverMessage>>,
     queue: Arc<wgpu::Queue>,
@@ -26,6 +42,7 @@ pub(super) fn driver_loop(
 ) {
     profiling::register_thread!("renderer-driver");
 
+    let _liveness = ConsumerLivenessGuard { ring: &ring };
     loop {
         {
             profiling::scope!("driver::wait_for_batch");

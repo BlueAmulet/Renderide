@@ -43,15 +43,14 @@ fn per_pass_texture2d_asset_ids_from_draws(
     out
 }
 
-/// Stable dedupe preserving first-seen order.
-fn dedup_visible_texture_asset_ids(ids: Vec<i32>) -> Vec<i32> {
-    let mut out = Vec::new();
-    for id in ids {
-        if !out.contains(&id) {
-            out.push(id);
-        }
-    }
-    out
+/// Sort-then-dedup in O(n log n) instead of the O(n²) `Vec::contains` linear scan.
+///
+/// Sort order is implementation-defined (numeric ascending) since the debug HUD only needs the
+/// set of bound textures, not the original draw-order sequence.
+fn dedup_visible_texture_asset_ids(mut ids: Vec<i32>) -> Vec<i32> {
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 /// Asset ids for 2D textures referenced by embedded materials in the current sorted draw list.

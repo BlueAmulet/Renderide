@@ -12,8 +12,8 @@ use super::submit_batch::SubmitWait;
 #[test]
 fn ring_blocks_producer_when_full_and_wakes_on_pop() {
     let ring: BoundedRing<u32> = BoundedRing::new(2);
-    ring.push(1);
-    ring.push(2);
+    ring.push(1).expect("push succeeds while consumer is alive");
+    ring.push(2).expect("push succeeds while consumer is alive");
     // Ring is now full; consume on a worker so the producer can proceed.
     let ring_arc = std::sync::Arc::new(ring);
     let ring_for_consumer = std::sync::Arc::clone(&ring_arc);
@@ -25,7 +25,9 @@ fn ring_blocks_producer_when_full_and_wakes_on_pop() {
         assert_eq!(popped, 1);
     });
 
-    ring_arc.push(3); // must block briefly, then succeed after the consumer pops.
+    ring_arc
+        .push(3)
+        .expect("push succeeds after consumer drains slot");
     handle.join().expect("consumer thread joined");
     assert_eq!(ring_arc.pop(), 2);
     assert_eq!(ring_arc.pop(), 3);
@@ -39,7 +41,9 @@ fn ring_blocks_consumer_when_empty_and_wakes_on_push() {
 
     let handle = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(50));
-        ring_for_producer.push(42);
+        ring_for_producer
+            .push(42)
+            .expect("push succeeds while consumer is alive");
     });
 
     // Blocks briefly, then returns 42.
@@ -51,10 +55,29 @@ fn ring_blocks_consumer_when_empty_and_wakes_on_push() {
 #[test]
 fn ring_capacity_one_round_trip() {
     let ring: BoundedRing<&'static str> = BoundedRing::new(1);
-    ring.push("hello");
+    ring.push("hello").expect("push succeeds on empty ring");
     assert_eq!(ring.pop(), "hello");
-    ring.push("world");
+    ring.push("world").expect("push succeeds on empty ring");
     assert_eq!(ring.pop(), "world");
+}
+
+/// Once the consumer is marked dead, a producer waiting on a full ring returns the
+/// pushed item rather than blocking forever.
+#[test]
+fn ring_push_returns_err_when_consumer_dies_while_full() {
+    let ring: std::sync::Arc<BoundedRing<u32>> = std::sync::Arc::new(BoundedRing::new(1));
+    ring.push(1).expect("push succeeds on empty ring");
+    // Ring is full; spawn a thread that flips the liveness flag after a short delay.
+    let ring_for_killer = std::sync::Arc::clone(&ring);
+    let killer = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        ring_for_killer.mark_consumer_dead();
+    });
+    // This push would block forever without the liveness wake-up.
+    let pushed_item = 99u32;
+    let result = ring.push(pushed_item);
+    assert_eq!(result, Err(pushed_item));
+    killer.join().expect("killer thread joined");
 }
 
 /// Capacity zero is rejected by `BoundedRing::new`.

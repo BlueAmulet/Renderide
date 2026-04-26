@@ -107,12 +107,24 @@ impl DriverThread {
     /// When the batch carries a [`wgpu::SurfaceTexture`], the submitted counter is bumped
     /// so [`Self::wait_for_previous_present`] can gate the next acquire precisely on the
     /// previous present completing (rather than flushing the whole ring).
+    ///
+    /// If the driver thread has exited (clean shutdown or panic), the batch is dropped
+    /// rather than blocking the caller forever; the existing
+    /// [`Self::take_pending_error`] path surfaces the underlying failure to the main
+    /// render loop on the next tick.
     pub fn submit(&self, batch: SubmitBatch) {
         let has_surface = batch.surface_texture.is_some();
         if has_surface {
             self.surface_counters.note_submitted();
         }
-        self.ring.push(DriverMessage::Submit(batch));
+        if let Err(_dropped) = self.ring.push(DriverMessage::Submit(batch)) {
+            if has_surface {
+                // Roll back the submitted counter so `wait_for_previous_present` does not
+                // wait on a present that will never happen.
+                self.surface_counters.note_presented();
+            }
+            logger::warn!("driver thread exited; dropping submit batch");
+        }
     }
 
     /// Blocks until every previously-submitted surface-carrying batch has reached
@@ -152,7 +164,10 @@ impl DriverThread {
             wait: Some(wait),
             frame_seq: 0,
         };
-        self.ring.push(DriverMessage::Submit(batch));
+        if self.ring.push(DriverMessage::Submit(batch)).is_err() {
+            // Driver thread is gone; no signal will ever arrive, so skip the wait.
+            return;
+        }
         // Any recv error (channel disconnected due to panic inside the driver) is treated
         // as "driver no longer running" — callers handle that via the separate error slot.
         let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
@@ -161,7 +176,9 @@ impl DriverThread {
 
 impl Drop for DriverThread {
     fn drop(&mut self) {
-        self.ring.push(DriverMessage::Shutdown);
+        // If the driver thread is already gone, the push is a no-op; either way the
+        // subsequent join completes once the worker function returns.
+        let _ = self.ring.push(DriverMessage::Shutdown);
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }

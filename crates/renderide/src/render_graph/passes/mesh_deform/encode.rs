@@ -189,27 +189,32 @@ struct SkinningDeformContext<'a, 'b> {
     skin_dispatch_cursor: &'b mut u64,
 }
 
-/// Records compute passes that scatter blendshape deltas using packed params and per-dispatch workgroups.
+/// Records compute passes that scatter blendshape deltas using packed params and per-dispatch
+/// workgroups stored in [`crate::backend::MeshDeformScratch::packed_scatter_params`] /
+/// [`crate::backend::MeshDeformScratch::scatter_dispatch_wgs`].
 fn blendshape_record_scatter_compute_passes(
     gpu: &mut MeshDeformEncodeGpu<'_>,
     dst_buf: &wgpu::Buffer,
     sparse: &wgpu::Buffer,
-    packed_params: &[u8],
-    dispatch_wgs: &[u32],
     weight_binding_len: u64,
     blend_weight_cursor: &mut u64,
 ) {
-    gpu.scratch
-        .ensure_blendshape_params_staging(gpu.device, packed_params.len() as u64);
-    gpu.upload_batch
-        .write_buffer(&gpu.scratch.blendshape_params_staging, 0, packed_params);
+    gpu.scratch.ensure_blendshape_params_staging(
+        gpu.device,
+        gpu.scratch.packed_scatter_params.len() as u64,
+    );
+    gpu.upload_batch.write_buffer(
+        &gpu.scratch.blendshape_params_staging,
+        0,
+        &gpu.scratch.packed_scatter_params,
+    );
 
     let Some(weight_size) = NonZeroU64::new(weight_binding_len) else {
         *blend_weight_cursor = advance_slab_cursor(*blend_weight_cursor, weight_binding_len);
         return;
     };
 
-    for (i, &scatter_wg) in dispatch_wgs.iter().enumerate() {
+    for (i, &scatter_wg) in gpu.scratch.scatter_dispatch_wgs.iter().enumerate() {
         let src_off = (i as u64).saturating_mul(32);
         gpu.encoder.copy_buffer_to_buffer(
             &gpu.scratch.blendshape_params_staging,
@@ -320,13 +325,15 @@ fn record_blendshape_deform(
 
     gpu.scratch
         .ensure_shape_weight_capacity(gpu.device, shape_count);
-    let mut wbytes = vec![0u8; (shape_count as usize) * 4];
+    let weight_byte_len = (shape_count as usize) * 4;
+    gpu.scratch.blend_weight_bytes.clear();
+    gpu.scratch.blend_weight_bytes.resize(weight_byte_len, 0);
     for s in 0..shape_count as usize {
         let w = blend_weights.get(s).copied().unwrap_or(0.0);
-        wbytes[s * 4..s * 4 + 4].copy_from_slice(&w.to_le_bytes());
+        gpu.scratch.blend_weight_bytes[s * 4..s * 4 + 4].copy_from_slice(&w.to_le_bytes());
     }
 
-    let weight_binding_len = wbytes.len() as u64;
+    let weight_binding_len = weight_byte_len as u64;
     gpu.scratch.ensure_blend_weight_byte_capacity(
         gpu.device,
         (*blend_weight_cursor).saturating_add(weight_binding_len),
@@ -334,13 +341,13 @@ fn record_blendshape_deform(
     gpu.upload_batch.write_buffer(
         &gpu.scratch.blendshape_weights,
         *blend_weight_cursor,
-        &wbytes,
+        &gpu.scratch.blend_weight_bytes,
     );
 
     let max_wg = gpu.gpu_limits.max_compute_workgroups_per_dimension();
 
-    let mut packed_params: Vec<u8> = Vec::new();
-    let mut dispatch_wgs: Vec<u32> = Vec::new();
+    gpu.scratch.packed_scatter_params.clear();
+    gpu.scratch.scatter_dispatch_wgs.clear();
 
     for s in 0..shape_count {
         let w = blend_weights.get(s as usize).copied().unwrap_or(0.0);
@@ -361,18 +368,20 @@ fn record_blendshape_deform(
                 );
                 return;
             }
-            packed_params.extend_from_slice(&build_scatter_params(
-                vc,
-                s,
-                sparse_base,
-                sparse_count,
-                base_dst_e,
-            ));
-            dispatch_wgs.push(wg);
+            gpu.scratch
+                .packed_scatter_params
+                .extend_from_slice(&build_scatter_params(
+                    vc,
+                    s,
+                    sparse_base,
+                    sparse_count,
+                    base_dst_e,
+                ));
+            gpu.scratch.scatter_dispatch_wgs.push(wg);
         }
     }
 
-    if packed_params.is_empty() {
+    if gpu.scratch.packed_scatter_params.is_empty() {
         *blend_weight_cursor = advance_slab_cursor(*blend_weight_cursor, weight_binding_len);
         return;
     }
@@ -381,8 +390,6 @@ fn record_blendshape_deform(
         gpu,
         dst_buf,
         sparse.as_ref(),
-        &packed_params,
-        &dispatch_wgs,
         weight_binding_len,
         blend_weight_cursor,
     );

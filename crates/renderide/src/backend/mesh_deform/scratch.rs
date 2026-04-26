@@ -31,6 +31,18 @@ pub struct MeshDeformScratch {
     pub blendshape_weights: wgpu::Buffer,
     /// Slab of `mesh_skinning.wgsl` [`SkinDispatchParams`] (32 bytes per dispatch at 256-byte-aligned offsets).
     pub skin_dispatch: wgpu::Buffer,
+    /// Reusable byte buffer for one mesh's blendshape weight binding before [`crate::render_graph::frame_upload_batch::FrameUploadBatch::write_buffer`].
+    ///
+    /// Cleared (length-only, capacity retained) at the start of each blendshape record call.
+    pub blend_weight_bytes: Vec<u8>,
+    /// Reusable byte buffer for packed scatter `Params` per mesh; one entry per dispatch chunk.
+    ///
+    /// Cleared (length-only, capacity retained) at the start of each blendshape record call.
+    pub packed_scatter_params: Vec<u8>,
+    /// Reusable workgroup count per scatter dispatch chunk; parallels [`Self::packed_scatter_params`].
+    ///
+    /// Cleared (length-only, capacity retained) at the start of each blendshape record call.
+    pub scatter_dispatch_wgs: Vec<u32>,
     max_bones: u32,
     max_shapes: u32,
     /// [`wgpu::Limits::max_buffer_size`]; growth refuses past this cap.
@@ -76,6 +88,9 @@ impl MeshDeformScratch {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
+            blend_weight_bytes: Vec::new(),
+            packed_scatter_params: Vec::new(),
+            scatter_dispatch_wgs: Vec::new(),
             max_bones: INITIAL_MAX_BONES,
             max_shapes: INITIAL_MAX_BLENDSHAPES,
             max_buffer_size,
