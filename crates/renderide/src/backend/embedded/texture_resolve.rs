@@ -12,6 +12,7 @@ use crate::assets::texture::{
 };
 use crate::materials::ReflectedRasterLayout;
 use crate::resources::{CubemapSamplerState, Texture2dSamplerState, Texture3dSamplerState};
+use crate::shared::{TextureFilterMode, TextureWrapMode};
 
 use super::layout::{shader_writer_unescaped_property_name, StemEmbeddedPropertyIds};
 use super::texture_pools::EmbeddedTexturePools;
@@ -265,116 +266,206 @@ pub(crate) fn texture_bind_signature(
     h.finish()
 }
 
+/// Wgpu filter triplet derived from the host texture filter mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedSamplerFilter {
+    /// Magnification filter.
+    pub(crate) mag_filter: wgpu::FilterMode,
+    /// Minification filter.
+    pub(crate) min_filter: wgpu::FilterMode,
+    /// Mip-level selection filter.
+    pub(crate) mipmap_filter: wgpu::MipmapFilterMode,
+}
+
+/// Texture address modes for a sampler descriptor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ResolvedSamplerAddress {
+    /// U/S address mode.
+    pub(crate) u: wgpu::AddressMode,
+    /// V/T address mode.
+    pub(crate) v: wgpu::AddressMode,
+    /// W/R address mode.
+    pub(crate) w: wgpu::AddressMode,
+}
+
+/// Builds a sampler descriptor from host texture settings and current mip residency.
+pub(crate) fn sampler_descriptor_from_parts(
+    label: &'static str,
+    address: ResolvedSamplerAddress,
+    filter_mode: TextureFilterMode,
+    aniso_level: i32,
+    mip_levels_resident: u32,
+) -> wgpu::SamplerDescriptor<'static> {
+    let filter = filter_mode_to_wgpu(filter_mode);
+    wgpu::SamplerDescriptor {
+        label: Some(label),
+        address_mode_u: address.u,
+        address_mode_v: address.v,
+        address_mode_w: address.w,
+        mag_filter: filter.mag_filter,
+        min_filter: filter.min_filter,
+        mipmap_filter: filter.mipmap_filter,
+        lod_min_clamp: 0.0,
+        lod_max_clamp: mip_levels_resident.saturating_sub(1) as f32,
+        anisotropy_clamp: anisotropy_clamp(filter_mode, aniso_level, filter),
+        ..Default::default()
+    }
+}
+
+/// Builds a sampler descriptor for [`Texture2dSamplerState`].
+pub(crate) fn sampler_descriptor_from_state(
+    state: &Texture2dSamplerState,
+    mip_levels_resident: u32,
+) -> wgpu::SamplerDescriptor<'static> {
+    let address_mode_u = wrap_to_address(state.wrap_u);
+    let address_mode_v = wrap_to_address(state.wrap_v);
+    sampler_descriptor_from_parts(
+        "embedded_texture_sampler",
+        ResolvedSamplerAddress {
+            u: address_mode_u,
+            v: address_mode_v,
+            w: address_mode_u,
+        },
+        state.filter_mode,
+        state.aniso_level,
+        mip_levels_resident,
+    )
+}
+
+/// Builds a sampler descriptor for [`Texture3dSamplerState`].
+pub(crate) fn sampler_descriptor_from_texture3d_state(
+    state: &Texture3dSamplerState,
+    mip_levels_resident: u32,
+) -> wgpu::SamplerDescriptor<'static> {
+    sampler_descriptor_from_parts(
+        "embedded_texture3d_sampler",
+        ResolvedSamplerAddress {
+            u: wrap_to_address(state.wrap_u),
+            v: wrap_to_address(state.wrap_v),
+            w: wrap_to_address(state.wrap_w),
+        },
+        state.filter_mode,
+        state.aniso_level,
+        mip_levels_resident,
+    )
+}
+
+/// Builds a sampler descriptor for [`CubemapSamplerState`].
+pub(crate) fn sampler_descriptor_from_cubemap_state(
+    state: &CubemapSamplerState,
+    mip_levels_resident: u32,
+) -> wgpu::SamplerDescriptor<'static> {
+    let address_mode_u = wrap_to_address(state.wrap_u);
+    sampler_descriptor_from_parts(
+        "embedded_cubemap_sampler",
+        ResolvedSamplerAddress {
+            u: address_mode_u,
+            v: wrap_to_address(state.wrap_v),
+            w: address_mode_u,
+        },
+        state.filter_mode,
+        state.aniso_level,
+        mip_levels_resident,
+    )
+}
+
+/// Builds the fallback sampler used with the embedded white placeholder textures.
+pub(crate) fn default_embedded_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    let descriptor = sampler_descriptor_from_parts(
+        "embedded_default_sampler",
+        ResolvedSamplerAddress {
+            u: wgpu::AddressMode::Repeat,
+            v: wgpu::AddressMode::Repeat,
+            w: wgpu::AddressMode::Repeat,
+        },
+        TextureFilterMode::Trilinear,
+        1,
+        1,
+    );
+    device.create_sampler(&descriptor)
+}
+
 /// Builds a sampler for [`Texture3dSamplerState`] (three address modes).
 pub(crate) fn sampler_from_texture3d_state(
     device: &wgpu::Device,
     state: &Texture3dSamplerState,
+    mip_levels_resident: u32,
 ) -> wgpu::Sampler {
-    let address_mode_u = wrap_to_address(state.wrap_u);
-    let address_mode_v = wrap_to_address(state.wrap_v);
-    let address_mode_w = wrap_to_address(state.wrap_w);
-    let (mag, min, mipmap) = filter_mode_to_wgpu(state.filter_mode);
-    device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("embedded_texture3d_sampler"),
-        address_mode_u,
-        address_mode_v,
-        address_mode_w,
-        mag_filter: mag,
-        min_filter: min,
-        mipmap_filter: mipmap,
-        ..Default::default()
-    })
+    let descriptor = sampler_descriptor_from_texture3d_state(state, mip_levels_resident);
+    device.create_sampler(&descriptor)
 }
 
 /// Builds a sampler for [`CubemapSamplerState`].
 pub(crate) fn sampler_from_cubemap_state(
     device: &wgpu::Device,
     state: &CubemapSamplerState,
+    mip_levels_resident: u32,
 ) -> wgpu::Sampler {
-    let address_mode_u = wrap_to_address(state.wrap_u);
-    let address_mode_v = wrap_to_address(state.wrap_v);
-    let (mag, min, mipmap) = filter_mode_to_wgpu(state.filter_mode);
-    device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("embedded_cubemap_sampler"),
-        address_mode_u,
-        address_mode_v,
-        address_mode_w: address_mode_u,
-        mag_filter: mag,
-        min_filter: min,
-        mipmap_filter: mipmap,
-        ..Default::default()
-    })
+    let descriptor = sampler_descriptor_from_cubemap_state(state, mip_levels_resident);
+    device.create_sampler(&descriptor)
 }
 
-fn wrap_to_address(w: crate::shared::TextureWrapMode) -> wgpu::AddressMode {
+/// Converts a host wrap mode to a wgpu address mode.
+fn wrap_to_address(w: TextureWrapMode) -> wgpu::AddressMode {
     match w {
-        crate::shared::TextureWrapMode::Repeat => wgpu::AddressMode::Repeat,
-        crate::shared::TextureWrapMode::Clamp => wgpu::AddressMode::ClampToEdge,
-        crate::shared::TextureWrapMode::Mirror => wgpu::AddressMode::MirrorRepeat,
-        crate::shared::TextureWrapMode::MirrorOnce => wgpu::AddressMode::ClampToEdge,
+        TextureWrapMode::Repeat => wgpu::AddressMode::Repeat,
+        TextureWrapMode::Clamp => wgpu::AddressMode::ClampToEdge,
+        TextureWrapMode::Mirror => wgpu::AddressMode::MirrorRepeat,
+        TextureWrapMode::MirrorOnce => wgpu::AddressMode::ClampToEdge,
     }
 }
 
-fn filter_mode_to_wgpu(
-    filter_mode: crate::shared::TextureFilterMode,
-) -> (wgpu::FilterMode, wgpu::FilterMode, wgpu::MipmapFilterMode) {
+/// Converts a host filter mode to wgpu filter fields without changing host semantics.
+fn filter_mode_to_wgpu(filter_mode: TextureFilterMode) -> ResolvedSamplerFilter {
     match filter_mode {
-        crate::shared::TextureFilterMode::Point => (
-            wgpu::FilterMode::Nearest,
-            wgpu::FilterMode::Nearest,
-            wgpu::MipmapFilterMode::Nearest,
-        ),
-        crate::shared::TextureFilterMode::Bilinear => (
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear,
-            wgpu::MipmapFilterMode::Nearest,
-        ),
-        crate::shared::TextureFilterMode::Trilinear => (
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear,
-            wgpu::MipmapFilterMode::Linear,
-        ),
-        crate::shared::TextureFilterMode::Anisotropic => (
-            wgpu::FilterMode::Linear,
-            wgpu::FilterMode::Linear,
-            wgpu::MipmapFilterMode::Linear,
-        ),
+        TextureFilterMode::Point => ResolvedSamplerFilter {
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        },
+        TextureFilterMode::Bilinear => ResolvedSamplerFilter {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        },
+        TextureFilterMode::Trilinear => ResolvedSamplerFilter {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+        },
+        TextureFilterMode::Anisotropic => ResolvedSamplerFilter {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+        },
     }
 }
 
+/// Returns the wgpu anisotropy clamp for a resolved host sampler mode.
+fn anisotropy_clamp(
+    filter_mode: TextureFilterMode,
+    aniso_level: i32,
+    filter: ResolvedSamplerFilter,
+) -> u16 {
+    if matches!(filter_mode, TextureFilterMode::Anisotropic)
+        && filter.mag_filter == wgpu::FilterMode::Linear
+        && filter.min_filter == wgpu::FilterMode::Linear
+        && filter.mipmap_filter == wgpu::MipmapFilterMode::Linear
+    {
+        aniso_level.clamp(1, 16) as u16
+    } else {
+        1
+    }
+}
+
+/// Builds a sampler for [`Texture2dSamplerState`] (two address modes).
 pub(crate) fn sampler_from_state(
     device: &wgpu::Device,
     state: &Texture2dSamplerState,
     mip_levels_resident: u32,
 ) -> wgpu::Sampler {
-    let address_mode_u = wrap_to_address(state.wrap_u);
-    let address_mode_v = wrap_to_address(state.wrap_v);
-    let (mag, min, mipmap) = filter_mode_to_wgpu(state.filter_mode);
-    let anisotropy_clamp = if matches!(
-        state.filter_mode,
-        crate::shared::TextureFilterMode::Anisotropic
-    ) && mag == wgpu::FilterMode::Linear
-        && min == wgpu::FilterMode::Linear
-        && mipmap == wgpu::MipmapFilterMode::Linear
-    {
-        state.aniso_level.clamp(1, 16) as u16
-    } else {
-        1
-    };
-    let lod_max_clamp = mip_levels_resident.saturating_sub(1) as f32;
-    device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("embedded_texture_sampler"),
-        address_mode_u,
-        address_mode_v,
-        address_mode_w: address_mode_u,
-        mag_filter: mag,
-        min_filter: min,
-        mipmap_filter: mipmap,
-        lod_min_clamp: 0.0,
-        lod_max_clamp,
-        anisotropy_clamp,
-        ..Default::default()
-    })
+    let descriptor = sampler_descriptor_from_state(state, mip_levels_resident);
+    device.create_sampler(&descriptor)
 }
 
 #[cfg(test)]
@@ -443,6 +534,104 @@ mod tests {
             },
             registry,
         )
+    }
+
+    #[test]
+    fn sampler_filter_modes_preserve_host_semantics() {
+        let address = ResolvedSamplerAddress {
+            u: wgpu::AddressMode::Repeat,
+            v: wgpu::AddressMode::Repeat,
+            w: wgpu::AddressMode::Repeat,
+        };
+
+        let point = sampler_descriptor_from_parts("test", address, TextureFilterMode::Point, 16, 4);
+        assert_eq!(point.mag_filter, wgpu::FilterMode::Nearest);
+        assert_eq!(point.min_filter, wgpu::FilterMode::Nearest);
+        assert_eq!(point.mipmap_filter, wgpu::MipmapFilterMode::Nearest);
+        assert_eq!(point.anisotropy_clamp, 1);
+        assert_eq!(point.lod_max_clamp, 3.0);
+
+        let bilinear =
+            sampler_descriptor_from_parts("test", address, TextureFilterMode::Bilinear, 16, 4);
+        assert_eq!(bilinear.mag_filter, wgpu::FilterMode::Linear);
+        assert_eq!(bilinear.min_filter, wgpu::FilterMode::Linear);
+        assert_eq!(bilinear.mipmap_filter, wgpu::MipmapFilterMode::Nearest);
+        assert_eq!(bilinear.anisotropy_clamp, 1);
+
+        let trilinear =
+            sampler_descriptor_from_parts("test", address, TextureFilterMode::Trilinear, 16, 4);
+        assert_eq!(trilinear.mag_filter, wgpu::FilterMode::Linear);
+        assert_eq!(trilinear.min_filter, wgpu::FilterMode::Linear);
+        assert_eq!(trilinear.mipmap_filter, wgpu::MipmapFilterMode::Linear);
+        assert_eq!(trilinear.anisotropy_clamp, 1);
+
+        let anisotropic =
+            sampler_descriptor_from_parts("test", address, TextureFilterMode::Anisotropic, 64, 4);
+        assert_eq!(anisotropic.mag_filter, wgpu::FilterMode::Linear);
+        assert_eq!(anisotropic.min_filter, wgpu::FilterMode::Linear);
+        assert_eq!(anisotropic.mipmap_filter, wgpu::MipmapFilterMode::Linear);
+        assert_eq!(anisotropic.anisotropy_clamp, 16);
+    }
+
+    #[test]
+    fn sampler_descriptors_apply_wrap_anisotropy_and_lod_clamps_for_all_texture_kinds() {
+        let texture2d = Texture2dSamplerState {
+            filter_mode: TextureFilterMode::Anisotropic,
+            aniso_level: 8,
+            wrap_u: TextureWrapMode::Mirror,
+            wrap_v: TextureWrapMode::Clamp,
+            mipmap_bias: 0.0,
+        };
+        let texture2d_desc = sampler_descriptor_from_state(&texture2d, 6);
+        assert_eq!(
+            texture2d_desc.address_mode_u,
+            wgpu::AddressMode::MirrorRepeat
+        );
+        assert_eq!(
+            texture2d_desc.address_mode_v,
+            wgpu::AddressMode::ClampToEdge
+        );
+        assert_eq!(
+            texture2d_desc.address_mode_w,
+            wgpu::AddressMode::MirrorRepeat
+        );
+        assert_eq!(texture2d_desc.anisotropy_clamp, 8);
+        assert_eq!(texture2d_desc.lod_max_clamp, 5.0);
+
+        let texture3d = Texture3dSamplerState {
+            filter_mode: TextureFilterMode::Anisotropic,
+            aniso_level: 12,
+            wrap_u: TextureWrapMode::Repeat,
+            wrap_v: TextureWrapMode::Mirror,
+            wrap_w: TextureWrapMode::Clamp,
+            mipmap_bias: 0.0,
+        };
+        let texture3d_desc = sampler_descriptor_from_texture3d_state(&texture3d, 3);
+        assert_eq!(texture3d_desc.address_mode_u, wgpu::AddressMode::Repeat);
+        assert_eq!(
+            texture3d_desc.address_mode_v,
+            wgpu::AddressMode::MirrorRepeat
+        );
+        assert_eq!(
+            texture3d_desc.address_mode_w,
+            wgpu::AddressMode::ClampToEdge
+        );
+        assert_eq!(texture3d_desc.anisotropy_clamp, 12);
+        assert_eq!(texture3d_desc.lod_max_clamp, 2.0);
+
+        let cubemap = CubemapSamplerState {
+            filter_mode: TextureFilterMode::Anisotropic,
+            aniso_level: 4,
+            mipmap_bias: 0.0,
+            wrap_u: TextureWrapMode::Repeat,
+            wrap_v: TextureWrapMode::Clamp,
+        };
+        let cubemap_desc = sampler_descriptor_from_cubemap_state(&cubemap, 1);
+        assert_eq!(cubemap_desc.address_mode_u, wgpu::AddressMode::Repeat);
+        assert_eq!(cubemap_desc.address_mode_v, wgpu::AddressMode::ClampToEdge);
+        assert_eq!(cubemap_desc.address_mode_w, wgpu::AddressMode::Repeat);
+        assert_eq!(cubemap_desc.anisotropy_clamp, 4);
+        assert_eq!(cubemap_desc.lod_max_clamp, 0.0);
     }
 
     #[test]

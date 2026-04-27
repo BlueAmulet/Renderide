@@ -307,9 +307,16 @@ impl EmbeddedMaterialBindResources {
                     None
                 } else {
                     pools.texture3d.get_texture(asset_id).map(|tex| {
-                        let key = EmbeddedSamplerCacheKey::texture3d(&tex.sampler);
+                        let key = EmbeddedSamplerCacheKey::texture3d(
+                            &tex.sampler,
+                            tex.mip_levels_resident,
+                        );
                         self.cached_sampler(key, || {
-                            sampler_from_texture3d_state(&self.device, &tex.sampler)
+                            sampler_from_texture3d_state(
+                                &self.device,
+                                &tex.sampler,
+                                tex.mip_levels_resident,
+                            )
                         })
                     })
                 }
@@ -319,9 +326,14 @@ impl EmbeddedMaterialBindResources {
                     None
                 } else {
                     pools.cubemap.get_texture(asset_id).map(|tex| {
-                        let key = EmbeddedSamplerCacheKey::cubemap(&tex.sampler);
+                        let key =
+                            EmbeddedSamplerCacheKey::cubemap(&tex.sampler, tex.mip_levels_resident);
                         self.cached_sampler(key, || {
-                            sampler_from_cubemap_state(&self.device, &tex.sampler)
+                            sampler_from_cubemap_state(
+                                &self.device,
+                                &tex.sampler,
+                                tex.mip_levels_resident,
+                            )
                         })
                     })
                 }

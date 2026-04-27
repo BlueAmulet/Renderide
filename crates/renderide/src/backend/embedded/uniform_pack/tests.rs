@@ -569,6 +569,42 @@ mod storage_orientation_uniform_tests {
     }
 
     #[test]
+    fn lod_bias_metadata_uses_only_wire_supported_texture_kinds() {
+        assert_eq!(
+            binding_lod_bias_from_metadata(
+                ResolvedTextureBinding::Texture2D { asset_id: 42 },
+                Some(-0.75),
+                Some(1.25)
+            ),
+            -0.75
+        );
+        assert_eq!(
+            binding_lod_bias_from_metadata(
+                ResolvedTextureBinding::Cubemap { asset_id: 55 },
+                Some(-0.75),
+                Some(1.25)
+            ),
+            1.25
+        );
+        assert_eq!(
+            binding_lod_bias_from_metadata(
+                ResolvedTextureBinding::Texture3D { asset_id: 77 },
+                Some(-0.75),
+                Some(1.25)
+            ),
+            0.0
+        );
+        assert_eq!(
+            binding_lod_bias_from_metadata(
+                ResolvedTextureBinding::RenderTexture { asset_id: 9 },
+                Some(-0.75),
+                Some(1.25)
+            ),
+            0.0
+        );
+    }
+
+    #[test]
     fn unresolved_texture2d_does_not_rewrite_st() {
         let texture_pool = TexturePool::default_pool();
         let texture3d_pool = Texture3dPool::default_pool();

@@ -24,6 +24,7 @@ use parking_lot::Mutex;
 use super::embedded_material_bind_error::EmbeddedMaterialBindError;
 use super::layout::{EmbeddedSharedKeywordIds, StemMaterialLayout};
 use super::texture_pools::EmbeddedTexturePools;
+use super::texture_resolve::default_embedded_sampler;
 use crate::assets::material::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
@@ -120,15 +121,7 @@ impl EmbeddedMaterialBindResources {
             },
         ));
 
-        let default_sampler = Arc::new(device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("embedded_default_sampler"),
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Linear,
-            ..Default::default()
-        }));
+        let default_sampler = Arc::new(default_embedded_sampler(device.as_ref()));
 
         let shared_keyword_ids =
             Arc::new(EmbeddedSharedKeywordIds::new(property_registry.as_ref()));

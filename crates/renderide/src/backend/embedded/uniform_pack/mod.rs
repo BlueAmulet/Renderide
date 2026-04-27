@@ -241,6 +241,45 @@ fn storage_v_inverted_for_field(
     )))
 }
 
+/// Returns the shader LOD bias for texture kinds whose wire properties expose mip bias.
+fn binding_lod_bias_from_metadata(
+    resolved: ResolvedTextureBinding,
+    texture2d_mipmap_bias: Option<f32>,
+    cubemap_mipmap_bias: Option<f32>,
+) -> f32 {
+    match resolved {
+        ResolvedTextureBinding::Texture2D { .. } => texture2d_mipmap_bias.unwrap_or(0.0),
+        ResolvedTextureBinding::Cubemap { .. } => cubemap_mipmap_bias.unwrap_or(0.0),
+        ResolvedTextureBinding::None
+        | ResolvedTextureBinding::Texture3D { .. }
+        | ResolvedTextureBinding::RenderTexture { .. } => 0.0,
+    }
+}
+
+/// Returns the shader LOD bias for a resolved binding from the resident texture pools.
+fn binding_lod_bias(
+    resolved: ResolvedTextureBinding,
+    tex_ctx: &UniformPackTextureContext<'_>,
+) -> f32 {
+    let texture2d_mipmap_bias = match resolved {
+        ResolvedTextureBinding::Texture2D { asset_id } => tex_ctx
+            .pools
+            .texture
+            .get_texture(asset_id)
+            .map(|t| t.sampler.mipmap_bias),
+        _ => None,
+    };
+    let cubemap_mipmap_bias = match resolved {
+        ResolvedTextureBinding::Cubemap { asset_id } => tex_ctx
+            .pools
+            .cubemap
+            .get_texture(asset_id)
+            .map(|t| t.sampler.mipmap_bias),
+        _ => None,
+    };
+    binding_lod_bias_from_metadata(resolved, texture2d_mipmap_bias, cubemap_mipmap_bias)
+}
+
 /// Host `mipmap_bias` for `_<Tex>_LodBias` fields, or [`None`] if `field_name` is not a LOD-bias
 /// field or no texture is currently bound to the matching `_<Tex>` slot.
 ///
@@ -262,27 +301,7 @@ fn lod_bias_for_field(
         lookup,
         tex_ctx,
     )?;
-    match resolved {
-        ResolvedTextureBinding::Texture2D { asset_id } => tex_ctx
-            .pools
-            .texture
-            .get_texture(asset_id)
-            .map(|t| t.sampler.mipmap_bias)
-            .or(Some(0.0)),
-        ResolvedTextureBinding::Texture3D { asset_id } => tex_ctx
-            .pools
-            .texture3d
-            .get_texture(asset_id)
-            .map(|t| t.sampler.mipmap_bias)
-            .or(Some(0.0)),
-        ResolvedTextureBinding::Cubemap { asset_id } => tex_ctx
-            .pools
-            .cubemap
-            .get_texture(asset_id)
-            .map(|t| t.sampler.mipmap_bias)
-            .or(Some(0.0)),
-        ResolvedTextureBinding::None | ResolvedTextureBinding::RenderTexture { .. } => Some(0.0),
-    }
+    Some(binding_lod_bias(resolved, tex_ctx))
 }
 
 #[cfg(test)]

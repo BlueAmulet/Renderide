@@ -72,7 +72,7 @@ impl EmbeddedSamplerCacheKey {
         }
     }
 
-    pub(super) fn texture3d(state: &Texture3dSamplerState) -> Self {
+    pub(super) fn texture3d(state: &Texture3dSamplerState, mip_levels_resident: u32) -> Self {
         Self {
             dimension: 3,
             filter_mode: state.filter_mode as i32,
@@ -81,11 +81,11 @@ impl EmbeddedSamplerCacheKey {
             wrap_v: state.wrap_v as i32,
             wrap_w: state.wrap_w as i32,
             mipmap_bias_bits: state.mipmap_bias.to_bits(),
-            mip_levels_resident: 0,
+            mip_levels_resident,
         }
     }
 
-    pub(super) fn cubemap(state: &CubemapSamplerState) -> Self {
+    pub(super) fn cubemap(state: &CubemapSamplerState, mip_levels_resident: u32) -> Self {
         Self {
             dimension: 4,
             filter_mode: state.filter_mode as i32,
@@ -94,7 +94,7 @@ impl EmbeddedSamplerCacheKey {
             wrap_v: state.wrap_v as i32,
             wrap_w: state.wrap_u as i32,
             mipmap_bias_bits: state.mipmap_bias.to_bits(),
-            mip_levels_resident: 0,
+            mip_levels_resident,
         }
     }
 }
@@ -214,5 +214,81 @@ impl EmbeddedMaterialBindResources {
             drop(evicted);
         }
         sampler
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shared::{TextureFilterMode, TextureWrapMode};
+
+    fn texture2d_state() -> Texture2dSamplerState {
+        Texture2dSamplerState {
+            filter_mode: TextureFilterMode::Bilinear,
+            aniso_level: 4,
+            wrap_u: TextureWrapMode::Repeat,
+            wrap_v: TextureWrapMode::Clamp,
+            mipmap_bias: 0.25,
+        }
+    }
+
+    fn texture3d_state() -> Texture3dSamplerState {
+        Texture3dSamplerState {
+            filter_mode: TextureFilterMode::Trilinear,
+            aniso_level: 8,
+            wrap_u: TextureWrapMode::Repeat,
+            wrap_v: TextureWrapMode::Mirror,
+            wrap_w: TextureWrapMode::Clamp,
+            mipmap_bias: 0.0,
+        }
+    }
+
+    fn cubemap_state() -> CubemapSamplerState {
+        CubemapSamplerState {
+            filter_mode: TextureFilterMode::Anisotropic,
+            aniso_level: 12,
+            mipmap_bias: -0.5,
+            wrap_u: TextureWrapMode::Repeat,
+            wrap_v: TextureWrapMode::Repeat,
+        }
+    }
+
+    #[test]
+    fn texture2d_sampler_cache_key_tracks_mode_affecting_fields() {
+        let base = texture2d_state();
+        let base_key = EmbeddedSamplerCacheKey::texture2d(&base, 4);
+
+        let mut changed = base.clone();
+        changed.filter_mode = TextureFilterMode::Trilinear;
+        assert_ne!(base_key, EmbeddedSamplerCacheKey::texture2d(&changed, 4));
+
+        let mut changed = base.clone();
+        changed.aniso_level = 16;
+        assert_ne!(base_key, EmbeddedSamplerCacheKey::texture2d(&changed, 4));
+
+        let mut changed = base.clone();
+        changed.wrap_v = TextureWrapMode::Mirror;
+        assert_ne!(base_key, EmbeddedSamplerCacheKey::texture2d(&changed, 4));
+
+        let mut changed = base.clone();
+        changed.mipmap_bias = -1.0;
+        assert_ne!(base_key, EmbeddedSamplerCacheKey::texture2d(&changed, 4));
+
+        assert_ne!(base_key, EmbeddedSamplerCacheKey::texture2d(&base, 3));
+    }
+
+    #[test]
+    fn texture3d_and_cubemap_sampler_cache_keys_track_residency() {
+        let texture3d = texture3d_state();
+        assert_ne!(
+            EmbeddedSamplerCacheKey::texture3d(&texture3d, 2),
+            EmbeddedSamplerCacheKey::texture3d(&texture3d, 3)
+        );
+
+        let cubemap = cubemap_state();
+        assert_ne!(
+            EmbeddedSamplerCacheKey::cubemap(&cubemap, 5),
+            EmbeddedSamplerCacheKey::cubemap(&cubemap, 6)
+        );
     }
 }
