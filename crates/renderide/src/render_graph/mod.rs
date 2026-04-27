@@ -610,17 +610,19 @@ pub fn build_main_graph(
 /// an empty post-processing chain. Pass live settings via [`build_default_main_graph_with`] when
 /// the chain should be applied.
 pub fn build_default_main_graph() -> Result<CompiledRenderGraph, GraphBuildError> {
-    build_default_main_graph_with(&crate::config::PostProcessingSettings::default())
+    build_default_main_graph_with(&crate::config::PostProcessingSettings::default(), 1)
 }
 
 /// Builds the main graph with a placeholder cache key but applies `post_processing` so the chain
-/// is wired into the graph at attach time.
+/// is wired into the graph at attach time. `msaa_sample_count` selects whether the HDR-aware
+/// MSAA color resolve pass is included; pass `1` when MSAA is off.
 pub fn build_default_main_graph_with(
     post_processing: &crate::config::PostProcessingSettings,
+    msaa_sample_count: u8,
 ) -> Result<CompiledRenderGraph, GraphBuildError> {
     let key = GraphCacheKey {
         surface_extent: (1, 1),
-        msaa_sample_count: 1,
+        msaa_sample_count,
         multiview_stereo: false,
         surface_format: wgpu::TextureFormat::Bgra8UnormSrgb,
         scene_color_format: wgpu::TextureFormat::Rgba16Float,

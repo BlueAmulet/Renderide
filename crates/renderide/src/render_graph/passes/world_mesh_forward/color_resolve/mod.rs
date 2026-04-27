@@ -73,12 +73,18 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
         );
         {
             let mut r = b.raster();
-            // Clear is fine: the fullscreen draw fills every pixel of `scene_color_hdr` with the
-            // resolved value, so we don't depend on prior contents.
+            // `Load` (not `Clear`) is essential because the same compiled graph runs across
+            // views with different runtime sample counts: the swapchain may be at MSAA 4×
+            // while an offscreen render-texture camera is hardcoded to 1× (`compiled/mod.rs`
+            // `OffscreenRt` arm). In the 1× per-view case our fragment shader doesn't run
+            // (sample_count == 1 early-return below), so `Load` preserves the single-sample
+            // data the intersect pass already wrote via `frame_sampled_color`'s single-sample
+            // target. In the MSAA per-view case the fullscreen draw overwrites every pixel, so
+            // the loaded contents are discarded.
             r.color(
                 self.resources.scene_color_hdr,
                 wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
                 },
                 Option::<ImportedTextureHandle>::None,
@@ -114,6 +120,17 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
                 pass: self.name().to_string(),
             });
         };
+
+        // Per-view runtime sample count: 1 for offscreen render-texture cameras (forced by
+        // `compiled/mod.rs` `OffscreenRt` arm), >1 for swapchain / HMD targets when MSAA is
+        // active. Skip the draw in the 1× case — the framework's render-pass open/close with
+        // `LoadOp::Load` is a no-op against `scene_color_hdr`, preserving the data intersect
+        // already wrote there.
+        let sample_count = frame.view.sample_count;
+        if sample_count <= 1 {
+            return Ok(());
+        }
+
         let Some(graph_resources) = ctx.graph_resources else {
             return Err(RenderPassError::MissingFrameParams {
                 pass: self.name().to_string(),
@@ -129,15 +146,6 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
                 ),
             });
         };
-
-        // Skip when the runtime sample count is 1: there are no multisamples to resolve, and
-        // the intersect pass has already written directly to `scene_color_hdr`. The pass is
-        // expected to be omitted from the graph in that case (the build site only inserts the
-        // resolve when MSAA is active), but guard at runtime to be safe.
-        let sample_count = frame.view.sample_count;
-        if sample_count <= 1 {
-            return Ok(());
-        }
 
         let multiview_stereo = frame.view.multiview_stereo;
         let pipeline = self
