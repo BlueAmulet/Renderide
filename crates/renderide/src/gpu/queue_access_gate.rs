@@ -1,7 +1,6 @@
-//! Mutex that serialises [`wgpu::Queue::write_texture`] against [`wgpu::Queue::submit`]
-//! to work around an ABBA lock-ordering bug in wgpu-core 29.
+//! Mutex that serialises access to the Vulkan queue shared by wgpu and OpenXR.
 //!
-//! # The bug
+//! # wgpu-core lock ordering
 //!
 //! `Queue::write_texture` acquires the destination texture's `initialization_status`
 //! `RwLock` (write) at `wgpu-core-29 queue.rs:821` and then, with that guard still live,
@@ -18,38 +17,44 @@
 //! `initialization_status` second with no nesting (see `queue.rs:689-731`), so it is not
 //! part of this cycle and is left ungated.
 //!
+//! # OpenXR queue ownership
+//!
+//! OpenXR's Vulkan binding requires external synchronization for calls that may access the bound
+//! `VkQueue`. Renderide binds OpenXR to the same Vulkan queue that backs [`wgpu::Queue`], so the
+//! gate is also held around `xrBeginFrame`, `xrAcquireSwapchainImage`,
+//! `xrReleaseSwapchainImage`, and `xrEndFrame`.
+//!
 //! # Scope
 //!
 //! The gate is held around main-thread `Queue::write_texture` call sites in the asset
-//! texture upload path, and around the driver thread's `Queue::submit`. Nothing else
-//! needs it; the serialisation window is tight because each `write_texture` and each
-//! `submit` are short, and the mutex is uncontended outside the narrow race window.
+//! texture upload path, around the driver thread's `Queue::submit`, and around the narrow
+//! OpenXR calls listed above. Long waits such as `xrWaitFrame`, `xrWaitSwapchainImage`,
+//! view location, and input sync stay outside the gate so compositor stalls do not block
+//! unrelated GPU submissions.
 
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-/// Shared mutex acquired before every main-thread [`wgpu::Queue::write_texture`] and
-/// every driver-thread [`wgpu::Queue::submit`]. See module docs for the deadlock it
-/// prevents.
+/// Shared mutex acquired before operations that may access the renderer's Vulkan queue.
 ///
 /// Instantiated once by [`super::GpuContext`] and cloned into the
-/// [`super::driver_thread::DriverThread`] and the texture asset upload path.
+/// [`super::driver_thread::DriverThread`], the texture asset upload path, and OpenXR
+/// frame submission.
 #[derive(Clone, Default)]
-pub struct WriteTextureSubmitGate {
+pub struct GpuQueueAccessGate {
     inner: Arc<Mutex<()>>,
 }
 
-impl WriteTextureSubmitGate {
+impl GpuQueueAccessGate {
     /// Creates an uncontended gate.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Locks the gate for the duration of the returned guard. Call immediately
-    /// before [`wgpu::Queue::write_texture`] or [`wgpu::Queue::submit`] and drop the
-    /// guard as soon as that call returns — no other wgpu work should happen under
-    /// the guard.
+    /// Locks the gate for the duration of the returned guard. Call immediately before
+    /// [`wgpu::Queue::write_texture`], [`wgpu::Queue::submit`], or an OpenXR queue-access
+    /// call and drop the guard as soon as that call returns.
     pub fn lock(&self) -> parking_lot::MutexGuard<'_, ()> {
         self.inner.lock()
     }

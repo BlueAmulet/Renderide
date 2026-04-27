@@ -60,14 +60,13 @@ impl DriverThread {
     /// the main thread keeps the one inside [`crate::gpu::GpuContext`] for
     /// `queue.write_buffer` / `queue.write_texture` use during encoding.
     ///
-    /// `write_texture_submit_gate` is cloned from [`crate::gpu::GpuContext`]; the driver
-    /// loop acquires it around every `Queue::submit` so the main thread's
-    /// `Queue::write_texture` (which acquires the same gate) cannot run concurrently.
-    /// Works around the wgpu-core 29 ABBA documented on
-    /// [`crate::gpu::WriteTextureSubmitGate`].
+    /// `gpu_queue_access_gate` is cloned from [`crate::gpu::GpuContext`]; the driver
+    /// loop acquires it around every `Queue::submit` so submits cannot overlap with
+    /// texture uploads or OpenXR calls that touch the same Vulkan queue. See
+    /// [`crate::gpu::GpuQueueAccessGate`] for the queue-access rules it enforces.
     pub fn new(
         queue: Arc<wgpu::Queue>,
-        write_texture_submit_gate: crate::gpu::WriteTextureSubmitGate,
+        gpu_queue_access_gate: crate::gpu::GpuQueueAccessGate,
     ) -> Self {
         let ring = Arc::new(BoundedRing::<DriverMessage>::new(RING_CAPACITY));
         let errors = Arc::new(DriverErrorState::default());
@@ -86,7 +85,7 @@ impl DriverThread {
                 worker::driver_loop(
                     ring_clone,
                     queue,
-                    write_texture_submit_gate,
+                    gpu_queue_access_gate,
                     errors_clone,
                     counters_clone,
                 );

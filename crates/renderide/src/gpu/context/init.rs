@@ -205,7 +205,7 @@ struct GpuRuntimeHandles {
     /// Shared queue handle stored on [`GpuContext`].
     queue: Arc<wgpu::Queue>,
     /// Driver-thread submit gate paired with [`Self::queue`].
-    write_texture_submit_gate: super::super::WriteTextureSubmitGate,
+    gpu_queue_access_gate: super::super::GpuQueueAccessGate,
     /// Dedicated submit/present worker.
     driver_thread: super::super::driver_thread::DriverThread,
     /// CPU/GPU frame timing accumulator.
@@ -217,14 +217,14 @@ struct GpuRuntimeHandles {
 impl GpuRuntimeHandles {
     /// Builds the driver-thread and timing handles for a queue.
     fn new(queue: Arc<wgpu::Queue>) -> Self {
-        let write_texture_submit_gate = super::super::WriteTextureSubmitGate::new();
+        let gpu_queue_access_gate = super::super::GpuQueueAccessGate::new();
         let driver_thread = super::super::driver_thread::DriverThread::new(
             Arc::clone(&queue),
-            write_texture_submit_gate.clone(),
+            gpu_queue_access_gate.clone(),
         );
         Self {
             queue,
-            write_texture_submit_gate,
+            gpu_queue_access_gate,
             driver_thread,
             frame_timing: Arc::new(Mutex::new(FrameCpuGpuTiming::default())),
             latest_gpu_pass_timings: Arc::new(Mutex::new(Vec::new())),
@@ -247,7 +247,7 @@ struct GpuContextParts {
     /// Submission queue.
     queue: Arc<wgpu::Queue>,
     /// Shared write-texture/submit gate.
-    write_texture_submit_gate: super::super::WriteTextureSubmitGate,
+    gpu_queue_access_gate: super::super::GpuQueueAccessGate,
     /// Optional window-backed surface.
     surface: Option<wgpu::Surface<'static>>,
     /// Active surface/offscreen configuration.
@@ -277,7 +277,7 @@ fn assemble_context(parts: GpuContextParts) -> GpuContext {
         limits: parts.limits,
         device: parts.device,
         queue: parts.queue,
-        write_texture_submit_gate: parts.write_texture_submit_gate,
+        gpu_queue_access_gate: parts.gpu_queue_access_gate,
         surface: parts.surface,
         config: parts.config,
         supported_present_modes: parts.supported_present_modes,
@@ -391,7 +391,7 @@ impl GpuContext {
             limits,
             device,
             queue: runtime.queue,
-            write_texture_submit_gate: runtime.write_texture_submit_gate,
+            gpu_queue_access_gate: runtime.gpu_queue_access_gate,
             surface: Some(surface_safe),
             config,
             supported_present_modes,
@@ -471,7 +471,7 @@ impl GpuContext {
             limits,
             device,
             queue: runtime.queue,
-            write_texture_submit_gate: runtime.write_texture_submit_gate,
+            gpu_queue_access_gate: runtime.gpu_queue_access_gate,
             surface: None,
             config,
             supported_present_modes: Vec::new(),
@@ -551,7 +551,7 @@ impl GpuContext {
             limits,
             device,
             queue: runtime.queue,
-            write_texture_submit_gate: runtime.write_texture_submit_gate,
+            gpu_queue_access_gate: runtime.gpu_queue_access_gate,
             surface: Some(surface_safe),
             config,
             supported_present_modes,

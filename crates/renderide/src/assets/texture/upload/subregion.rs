@@ -82,7 +82,7 @@ pub(super) fn pack_subrect_tight(
 /// Parameters for [`write_texture_subregion`] (partial [`wgpu::Queue::write_texture`]).
 struct TextureWriteSubregion<'a> {
     queue: &'a wgpu::Queue,
-    write_texture_submit_gate: &'a crate::gpu::WriteTextureSubmitGate,
+    gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
     texture: &'a wgpu::Texture,
     mip_level: u32,
     origin_x: u32,
@@ -96,7 +96,7 @@ struct TextureWriteSubregion<'a> {
 /// Writes a tight sub-rectangle of texels into `texture` at the given mip and origin.
 fn write_texture_subregion(w: TextureWriteSubregion<'_>) -> Result<(), TextureUploadError> {
     let queue = w.queue;
-    let write_texture_submit_gate = w.write_texture_submit_gate;
+    let gpu_queue_access_gate = w.gpu_queue_access_gate;
     let texture = w.texture;
     let mip_level = w.mip_level;
     let origin_x = w.origin_x;
@@ -133,8 +133,8 @@ fn write_texture_subregion(w: TextureWriteSubregion<'_>) -> Result<(), TextureUp
         )));
     }
 
-    // Gate against driver-thread `Queue::submit` to avoid the wgpu-core 29 ABBA.
-    let _gate = write_texture_submit_gate.lock();
+    // Gate against submit and OpenXR queue-access calls that use the same Vulkan queue.
+    let _gate = gpu_queue_access_gate.lock();
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture,
@@ -298,7 +298,7 @@ pub(super) fn try_write_texture2d_subregion(
     let origin_y = if ctx.upload.flip_y { h - ry - rh } else { ry };
     match write_texture_subregion(TextureWriteSubregion {
         queue: ctx.queue,
-        write_texture_submit_gate: ctx.write_texture_submit_gate,
+        gpu_queue_access_gate: ctx.gpu_queue_access_gate,
         texture: ctx.texture,
         mip_level: 0,
         origin_x: rx,

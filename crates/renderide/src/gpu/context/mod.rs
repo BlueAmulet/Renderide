@@ -178,10 +178,9 @@ pub struct GpuContext {
     limits: Arc<GpuLimits>,
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
-    /// Gate that serialises main-thread `Queue::write_texture` against driver-thread
-    /// `Queue::submit` to avoid an ABBA lock-ordering bug in wgpu-core 29. See
-    /// [`super::WriteTextureSubmitGate`] for details.
-    write_texture_submit_gate: super::WriteTextureSubmitGate,
+    /// Gate that serialises operations that may access the Vulkan queue shared by wgpu and
+    /// OpenXR. See [`super::GpuQueueAccessGate`] for details.
+    gpu_queue_access_gate: super::GpuQueueAccessGate,
     /// Kept as `'static` so the context can move independently of the window borrow; the window
     /// must outlive this value (owned alongside it in the app handler). [`None`] in headless mode
     /// (see [`Self::new_headless`]).
@@ -432,12 +431,11 @@ impl GpuContext {
         &self.queue
     }
 
-    /// Gate that must be acquired around every main-thread [`wgpu::Queue::write_texture`]
-    /// so it cannot run concurrently with the driver-thread [`wgpu::Queue::submit`] that
-    /// already acquires the same gate. Works around the wgpu-core 29 ABBA bug documented
-    /// on [`super::WriteTextureSubmitGate`].
-    pub fn write_texture_submit_gate(&self) -> &super::WriteTextureSubmitGate {
-        &self.write_texture_submit_gate
+    /// Gate acquired around short operations that may access the Vulkan queue shared by wgpu and
+    /// OpenXR. The driver thread, texture upload path, and OpenXR frame submission all use this
+    /// handle.
+    pub fn gpu_queue_access_gate(&self) -> &super::GpuQueueAccessGate {
+        &self.gpu_queue_access_gate
     }
 
     /// Submits a single command buffer for this frame through the driver thread, tracked for

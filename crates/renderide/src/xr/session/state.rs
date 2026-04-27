@@ -278,13 +278,19 @@ impl XrSessionState {
     ///
     /// On a successful `frame_stream.begin()` sets [`Self::frame_open`] so the outer loop knows a
     /// matching `end_frame_*` must be called.
-    pub fn wait_frame(&mut self) -> Result<Option<xr::FrameState>, xr::sys::Result> {
+    pub fn wait_frame(
+        &mut self,
+        gpu_queue_access_gate: &crate::gpu::GpuQueueAccessGate,
+    ) -> Result<Option<xr::FrameState>, xr::sys::Result> {
         if !self.session_running {
             std::thread::sleep(std::time::Duration::from_millis(10));
             return Ok(None);
         }
         let state = self.frame_wait.wait()?;
-        self.frame_stream.begin()?;
+        {
+            let _gate = gpu_queue_access_gate.lock();
+            self.frame_stream.begin()?;
+        }
         self.frame_open = true;
         Ok(Some(state))
     }
@@ -293,11 +299,14 @@ impl XrSessionState {
     pub fn end_frame_empty(
         &mut self,
         predicted_display_time: xr::Time,
+        gpu_queue_access_gate: &crate::gpu::GpuQueueAccessGate,
     ) -> Result<(), xr::sys::Result> {
         let wd = EndFrameWatchdog::arm(END_FRAME_WATCHDOG_TIMEOUT, "end_frame_empty");
-        let res = self
-            .frame_stream
-            .end(predicted_display_time, self.environment_blend_mode, &[]);
+        let res = {
+            let _gate = gpu_queue_access_gate.lock();
+            self.frame_stream
+                .end(predicted_display_time, self.environment_blend_mode, &[])
+        };
         self.frame_open = false;
         wd.disarm();
         res
@@ -309,11 +318,12 @@ impl XrSessionState {
     pub fn end_frame_if_open(
         &mut self,
         predicted_display_time: xr::Time,
+        gpu_queue_access_gate: &crate::gpu::GpuQueueAccessGate,
     ) -> Result<(), xr::sys::Result> {
         if !self.frame_open {
             return Ok(());
         }
-        self.end_frame_empty(predicted_display_time)
+        self.end_frame_empty(predicted_display_time, gpu_queue_access_gate)
     }
 
     /// Submits a stereo projection layer referencing the acquired swapchain image (`image_rect` in pixels).
@@ -327,10 +337,11 @@ impl XrSessionState {
         swapchain: &xr::Swapchain<xr::Vulkan>,
         views: &[xr::View],
         image_rect: xr::Rect2Di,
+        gpu_queue_access_gate: &crate::gpu::GpuQueueAccessGate,
     ) -> Result<(), xr::sys::Result> {
         profiling::scope!("xr::end_frame");
         if views.len() < 2 {
-            return self.end_frame_empty(predicted_display_time);
+            return self.end_frame_empty(predicted_display_time, gpu_queue_access_gate);
         }
         let v0 = &views[0]; // left eye
         let v1 = &views[1]; // right eye
@@ -360,11 +371,14 @@ impl XrSessionState {
             .space(&self.stage)
             .views(&projection_views);
         let wd = EndFrameWatchdog::arm(END_FRAME_WATCHDOG_TIMEOUT, "end_frame_projection");
-        let res = self.frame_stream.end(
-            predicted_display_time,
-            self.environment_blend_mode,
-            &[&layer],
-        );
+        let res = {
+            let _gate = gpu_queue_access_gate.lock();
+            self.frame_stream.end(
+                predicted_display_time,
+                self.environment_blend_mode,
+                &[&layer],
+            )
+        };
         self.frame_open = false;
         wd.disarm();
         res

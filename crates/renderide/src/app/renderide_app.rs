@@ -387,10 +387,17 @@ impl RenderideApp {
     fn xr_begin_tick(&mut self) -> Option<OpenxrFrameTick> {
         profiling::scope!("tick::xr_begin_tick");
         tick_phase_trace("xr_begin_tick");
-        let xr_tick = self
-            .xr_session
-            .as_mut()
-            .and_then(|b| frame_loop::begin_openxr_frame_tick(&mut b.handles, &mut self.runtime));
+        let gpu_queue_access_gate = self
+            .gpu
+            .as_ref()
+            .map(|gpu| gpu.gpu_queue_access_gate().clone())?;
+        let xr_tick = self.xr_session.as_mut().and_then(|b| {
+            frame_loop::begin_openxr_frame_tick(
+                &mut b.handles,
+                &mut self.runtime,
+                &gpu_queue_access_gate,
+            )
+        });
 
         if let Some(ref tick) = xr_tick {
             crate::xr::OpenxrInput::log_stereo_view_order_once(&tick.views);
@@ -526,6 +533,7 @@ impl RenderideApp {
         let Some(gpu) = self.gpu.as_mut() else {
             return;
         };
+        let gpu_queue_access_gate = gpu.gpu_queue_access_gate().clone();
         // VR: desktop shows a blit of the left HMD eye (`VrMirrorBlitResources`); no second world pass.
         // Dear ImGui is composited on the same swapchain after the mirror (desktop HUD uses `frame_graph::compiled`).
         if self.runtime.vr_active() {
@@ -567,7 +575,7 @@ impl RenderideApp {
                 if let Err(e) = bundle
                     .handles
                     .xr_session
-                    .end_frame_if_open(tick.predicted_display_time)
+                    .end_frame_if_open(tick.predicted_display_time, &gpu_queue_access_gate)
                 {
                     logger::debug!("OpenXR end_frame_if_open: {e:?}");
                 }

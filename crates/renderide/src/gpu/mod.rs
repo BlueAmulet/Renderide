@@ -11,8 +11,8 @@ mod instance_limits;
 pub mod limits;
 pub mod msaa_depth_resolve;
 pub mod present;
+mod queue_access_gate;
 mod vr_mirror;
-mod write_texture_gate;
 
 pub mod frame_globals;
 
@@ -26,5 +26,5 @@ pub use limits::{
 pub use msaa_depth_resolve::{
     MsaaDepthResolveMonoTargets, MsaaDepthResolveResources, MsaaDepthResolveStereoTargets,
 };
+pub use queue_access_gate::GpuQueueAccessGate;
 pub use vr_mirror::{VrMirrorBlitResources, VR_MIRROR_EYE_LAYER};
-pub use write_texture_gate::WriteTextureSubmitGate;

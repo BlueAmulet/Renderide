@@ -11,7 +11,7 @@ use super::error::DriverErrorState;
 use super::ring::BoundedRing;
 use super::submit_batch::{DriverMessage, SubmitBatch};
 use super::surface_counters::SurfaceCounters;
-use crate::gpu::WriteTextureSubmitGate;
+use crate::gpu::GpuQueueAccessGate;
 
 /// RAII guard that marks the ring's consumer side dead on drop.
 ///
@@ -36,7 +36,7 @@ impl Drop for ConsumerLivenessGuard<'_> {
 pub(super) fn driver_loop(
     ring: Arc<BoundedRing<DriverMessage>>,
     queue: Arc<wgpu::Queue>,
-    write_texture_submit_gate: WriteTextureSubmitGate,
+    gpu_queue_access_gate: GpuQueueAccessGate,
     errors: Arc<DriverErrorState>,
     surface_counters: Arc<SurfaceCounters>,
 ) {
@@ -51,7 +51,7 @@ pub(super) fn driver_loop(
             };
             process_batch(
                 queue.as_ref(),
-                &write_texture_submit_gate,
+                &gpu_queue_access_gate,
                 &errors,
                 &surface_counters,
                 batch,
@@ -65,7 +65,7 @@ pub(super) fn driver_loop(
 /// the oneshot. Each step is instrumented for Tracy.
 fn process_batch(
     queue: &wgpu::Queue,
-    write_texture_submit_gate: &WriteTextureSubmitGate,
+    gpu_queue_access_gate: &GpuQueueAccessGate,
     errors: &DriverErrorState,
     surface_counters: &SurfaceCounters,
     batch: SubmitBatch,
@@ -81,9 +81,8 @@ fn process_batch(
 
     {
         profiling::scope!("driver::submit");
-        // Serialise against main-thread `Queue::write_texture` via the shared gate. See
-        // [`crate::gpu::WriteTextureSubmitGate`] for the wgpu-core 29 ABBA it avoids.
-        let _gate = write_texture_submit_gate.lock();
+        // Serialise against texture uploads and OpenXR queue-access calls via the shared gate.
+        let _gate = gpu_queue_access_gate.lock();
         queue.submit(command_buffers);
     }
 

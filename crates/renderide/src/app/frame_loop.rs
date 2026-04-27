@@ -3,7 +3,7 @@
 //! Keeps [`super::renderide_app::RenderideApp::tick_frame`] readable while preserving ordering: OpenXR
 //! `wait_frame` / `locate_views` before lock-step [`crate::runtime::RendererRuntime::pre_frame`].
 
-use crate::gpu::{GpuContext, VrMirrorBlitResources};
+use crate::gpu::{GpuContext, GpuQueueAccessGate, VrMirrorBlitResources};
 use crate::present::PresentClearError;
 use crate::runtime::RendererRuntime;
 use crate::xr::{OpenxrFrameTick, XrSessionBundle, XrWgpuHandles};
@@ -12,8 +12,9 @@ use crate::xr::{OpenxrFrameTick, XrSessionBundle, XrWgpuHandles};
 pub(crate) fn begin_openxr_frame_tick(
     handles: &mut XrWgpuHandles,
     runtime: &mut RendererRuntime,
+    gpu_queue_access_gate: &GpuQueueAccessGate,
 ) -> Option<OpenxrFrameTick> {
-    crate::xr::openxr_begin_frame_tick(handles, runtime)
+    crate::xr::openxr_begin_frame_tick(handles, runtime, gpu_queue_access_gate)
 }
 
 /// Renders to the HMD multiview swapchain when VR is active; returns whether a projection layer was submitted.

@@ -107,9 +107,9 @@ struct AssetUploadGpuContext<'a> {
     gpu_limits: &'a Arc<GpuLimits>,
     /// Queue for [`wgpu::Queue::write_texture`] / [`wgpu::Queue::write_buffer`] uploads.
     queue: &'a Arc<wgpu::Queue>,
-    /// Shared ABBA gate for [`wgpu::Queue::write_texture`]; see
-    /// [`crate::gpu::WriteTextureSubmitGate`].
-    write_texture_submit_gate: &'a crate::gpu::WriteTextureSubmitGate,
+    /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
+    /// [`crate::gpu::GpuQueueAccessGate`].
+    gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
 }
 
 fn step_asset_task(
@@ -122,7 +122,7 @@ fn step_asset_task(
     profiling::scope!("asset::upload", asset_task_kind_tag(task));
     let device = gpu.device;
     let q = gpu.queue.as_ref();
-    let gate = gpu.write_texture_submit_gate;
+    let gate = gpu.gpu_queue_access_gate;
     match task {
         AssetTask::Mesh(m) => m.step(asset, device, gpu.gpu_limits, gpu.queue, shm, ipc),
         AssetTask::Texture(t) => t.step(asset, device, q, gate, shm, ipc),
@@ -149,14 +149,14 @@ pub fn drain_asset_tasks(
     let Some(queue_arc) = asset.gpu_queue.clone() else {
         return;
     };
-    let Some(gate) = asset.write_texture_submit_gate.clone() else {
+    let Some(gate) = asset.gpu_queue_access_gate.clone() else {
         return;
     };
     let gpu = AssetUploadGpuContext {
         device: &device,
         gpu_limits: &gpu_limits,
         queue: &queue_arc,
-        write_texture_submit_gate: &gate,
+        gpu_queue_access_gate: &gate,
     };
 
     {

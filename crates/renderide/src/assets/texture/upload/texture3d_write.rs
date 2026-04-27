@@ -161,9 +161,9 @@ pub struct Texture3dMipUploadStep<'a> {
     pub device: &'a wgpu::Device,
     /// Queue for [`write_texture3d_volume_mip`].
     pub queue: &'a wgpu::Queue,
-    /// Shared ABBA gate for [`wgpu::Queue::write_texture`]; see
-    /// [`crate::gpu::WriteTextureSubmitGate`].
-    pub write_texture_submit_gate: &'a crate::gpu::WriteTextureSubmitGate,
+    /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
+    /// [`crate::gpu::GpuQueueAccessGate`].
+    pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
     /// Destination volume texture.
     pub texture: &'a wgpu::Texture,
     /// Host format descriptor.
@@ -285,7 +285,7 @@ impl Texture3dMipChainUploader {
         let Texture3dMipUploadStep {
             device,
             queue,
-            write_texture_submit_gate,
+            gpu_queue_access_gate,
             texture,
             fmt,
             wgpu_format,
@@ -312,7 +312,7 @@ impl Texture3dMipChainUploader {
 
                     write_texture3d_volume_mip(&Texture3dVolumeMipWrite {
                         queue,
-                        write_texture_submit_gate,
+                        gpu_queue_access_gate,
                         texture,
                         mip_level: level,
                         width: w,
@@ -396,9 +396,9 @@ pub struct Texture3dUploadContext<'a> {
     pub device: &'a wgpu::Device,
     /// Queue for volume mip writes.
     pub queue: &'a wgpu::Queue,
-    /// Shared ABBA gate for [`wgpu::Queue::write_texture`]; see
-    /// [`crate::gpu::WriteTextureSubmitGate`].
-    pub write_texture_submit_gate: &'a crate::gpu::WriteTextureSubmitGate,
+    /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
+    /// [`crate::gpu::GpuQueueAccessGate`].
+    pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
     /// Destination volume texture.
     pub texture: &'a wgpu::Texture,
     /// Host format descriptor (dimensions, mip count, texel format).
@@ -426,7 +426,7 @@ pub fn write_texture3d_mips(ctx: &Texture3dUploadContext<'_>) -> Result<u32, Tex
         match uploader.upload_next_mip(Texture3dMipUploadStep {
             device: ctx.device,
             queue: ctx.queue,
-            write_texture_submit_gate: ctx.write_texture_submit_gate,
+            gpu_queue_access_gate: ctx.gpu_queue_access_gate,
             texture: ctx.texture,
             fmt: ctx.fmt,
             wgpu_format: ctx.wgpu_format,

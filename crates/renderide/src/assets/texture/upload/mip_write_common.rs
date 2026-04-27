@@ -162,9 +162,9 @@ pub(super) fn uncompressed_row_bytes(f: wgpu::TextureFormat) -> Result<usize, Te
 pub(super) struct Texture2dMipWrite<'a> {
     /// Queue used for the texel copy.
     pub queue: &'a wgpu::Queue,
-    /// Shared ABBA gate for [`wgpu::Queue::write_texture`]; see
-    /// [`crate::gpu::WriteTextureSubmitGate`].
-    pub write_texture_submit_gate: &'a crate::gpu::WriteTextureSubmitGate,
+    /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
+    /// [`crate::gpu::GpuQueueAccessGate`].
+    pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
     /// Destination texture.
     pub texture: &'a wgpu::Texture,
     /// Mip level index.
@@ -182,7 +182,7 @@ pub(super) struct Texture2dMipWrite<'a> {
 pub(super) fn write_one_mip(write: &Texture2dMipWrite<'_>) -> Result<(), TextureUploadError> {
     let Texture2dMipWrite {
         queue,
-        write_texture_submit_gate,
+        gpu_queue_access_gate,
         texture,
         mip_level,
         width,
@@ -221,8 +221,8 @@ pub(super) fn write_one_mip(write: &Texture2dMipWrite<'_>) -> Result<(), Texture
         )));
     }
 
-    // Gate against driver-thread `Queue::submit` to avoid the wgpu-core 29 ABBA.
-    let _gate = write_texture_submit_gate.lock();
+    // Gate against submit and OpenXR queue-access calls that use the same Vulkan queue.
+    let _gate = gpu_queue_access_gate.lock();
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture,
@@ -241,9 +241,9 @@ pub(super) fn write_one_mip(write: &Texture2dMipWrite<'_>) -> Result<(), Texture
 pub struct Texture3dVolumeMipWrite<'a> {
     /// Queue used for the texel copy.
     pub queue: &'a wgpu::Queue,
-    /// Shared ABBA gate for [`wgpu::Queue::write_texture`]; see
-    /// [`crate::gpu::WriteTextureSubmitGate`].
-    pub write_texture_submit_gate: &'a crate::gpu::WriteTextureSubmitGate,
+    /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
+    /// [`crate::gpu::GpuQueueAccessGate`].
+    pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
     /// Destination texture.
     pub texture: &'a wgpu::Texture,
     /// Mip level index.
@@ -266,7 +266,7 @@ pub fn write_texture3d_volume_mip(
 ) -> Result<(), TextureUploadError> {
     let Texture3dVolumeMipWrite {
         queue,
-        write_texture_submit_gate,
+        gpu_queue_access_gate,
         texture,
         mip_level,
         width,
@@ -307,8 +307,8 @@ pub fn write_texture3d_volume_mip(
         )));
     }
 
-    // Gate against driver-thread `Queue::submit` to avoid the wgpu-core 29 ABBA.
-    let _gate = write_texture_submit_gate.lock();
+    // Gate against submit and OpenXR queue-access calls that use the same Vulkan queue.
+    let _gate = gpu_queue_access_gate.lock();
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture,
@@ -327,9 +327,9 @@ pub fn write_texture3d_volume_mip(
 pub struct CubemapFaceMipWrite<'a> {
     /// Queue used for the texel copy.
     pub queue: &'a wgpu::Queue,
-    /// Shared ABBA gate for [`wgpu::Queue::write_texture`]; see
-    /// [`crate::gpu::WriteTextureSubmitGate`].
-    pub write_texture_submit_gate: &'a crate::gpu::WriteTextureSubmitGate,
+    /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
+    /// [`crate::gpu::GpuQueueAccessGate`].
+    pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
     /// Destination cubemap texture (`D2` array with six layers).
     pub texture: &'a wgpu::Texture,
     /// Mip level index.
@@ -350,7 +350,7 @@ pub struct CubemapFaceMipWrite<'a> {
 pub fn write_cubemap_face_mip(write: &CubemapFaceMipWrite<'_>) -> Result<(), TextureUploadError> {
     let CubemapFaceMipWrite {
         queue,
-        write_texture_submit_gate,
+        gpu_queue_access_gate,
         texture,
         mip_level,
         face_layer,
@@ -387,8 +387,8 @@ pub fn write_cubemap_face_mip(write: &CubemapFaceMipWrite<'_>) -> Result<(), Tex
         )));
     }
 
-    // Gate against driver-thread `Queue::submit` to avoid the wgpu-core 29 ABBA.
-    let _gate = write_texture_submit_gate.lock();
+    // Gate against submit and OpenXR queue-access calls that use the same Vulkan queue.
+    let _gate = gpu_queue_access_gate.lock();
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture,

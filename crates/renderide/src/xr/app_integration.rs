@@ -1,6 +1,6 @@
 //! OpenXR helpers used by the winit [`crate::app::RenderideApp`] loop: frame tick state and HMD multiview submission.
 
-use crate::gpu::{GpuContext, VrMirrorBlitResources, VR_MIRROR_EYE_LAYER};
+use crate::gpu::{GpuContext, GpuQueueAccessGate, VrMirrorBlitResources, VR_MIRROR_EYE_LAYER};
 use crate::render_graph::{
     effective_head_output_clip_planes, ExternalFrameTargets, StereoViewMatrices,
 };
@@ -65,6 +65,7 @@ pub struct OpenxrFrameTick {
 pub fn openxr_begin_frame_tick(
     handles: &mut XrWgpuHandles,
     runtime: &mut impl XrHostCameraSync,
+    gpu_queue_access_gate: &GpuQueueAccessGate,
 ) -> Option<OpenxrFrameTick> {
     profiling::scope!("xr::begin_frame_tick");
     match handles.xr_session.poll_events() {
@@ -78,7 +79,7 @@ pub fn openxr_begin_frame_tick(
     }
     let fs = {
         profiling::scope!("xr::wait_frame");
-        match handles.xr_session.wait_frame() {
+        match handles.xr_session.wait_frame(gpu_queue_access_gate) {
             Ok(Some(state)) => state,
             Ok(None) => return None,
             Err(e) => {
@@ -150,6 +151,24 @@ pub fn openxr_begin_frame_tick(
         should_render: fs.should_render,
         views,
     })
+}
+
+/// Acquires one OpenXR swapchain image while holding the shared Vulkan queue access gate.
+fn acquire_swapchain_image(
+    gpu: &GpuContext,
+    swapchain: &mut xr::Swapchain<xr::Vulkan>,
+) -> Result<usize, xr::sys::Result> {
+    let _gate = gpu.gpu_queue_access_gate().lock();
+    swapchain.acquire_image().map(|i| i as usize)
+}
+
+/// Releases one OpenXR swapchain image while holding the shared Vulkan queue access gate.
+fn release_swapchain_image(
+    gpu: &GpuContext,
+    swapchain: &mut xr::Swapchain<xr::Vulkan>,
+) -> Result<(), xr::sys::Result> {
+    let _gate = gpu.gpu_queue_access_gate().lock();
+    swapchain.release_image()
 }
 
 fn multiview_submit_prereqs(
@@ -259,8 +278,8 @@ pub fn try_openxr_hmd_multiview_submit(
     };
     let image_index = {
         profiling::scope!("xr::swapchain_acquire");
-        match sc.handle.acquire_image() {
-            Ok(i) => i as usize,
+        match acquire_swapchain_image(gpu, &mut sc.handle) {
+            Ok(i) => i,
             Err(_) => return false,
         }
     };
@@ -274,17 +293,17 @@ pub fn try_openxr_hmd_multiview_submit(
             // `release_image`, even when `wait_image` fails. Without this release the
             // runtime considers the image still in flight and `xrEndFrame` blocks until
             // the swapchain is destroyed.
-            let _ = sc.handle.release_image();
+            let _ = release_swapchain_image(gpu, &mut sc.handle);
             return false;
         }
     }
     let Some(color_view) = sc.color_view_for_image(image_index) else {
-        let _ = sc.handle.release_image();
+        let _ = release_swapchain_image(gpu, &mut sc.handle);
         return false;
     };
     let Some(stereo_depth) = bundle.stereo_depth.as_ref() else {
         logger::debug!("OpenXR stereo depth texture missing after resize");
-        let _ = sc.handle.release_image();
+        let _ = release_swapchain_image(gpu, &mut sc.handle);
         return false;
     };
     let ext = ExternalFrameTargets {
@@ -306,7 +325,7 @@ pub fn try_openxr_hmd_multiview_submit(
     // Unified submit: HMD stereo + every active secondary RT in one `execute_multi_view_frame`
     // call. The HMD view replaces the main camera for this tick.
     if runtime.submit_hmd_view(gpu, ext).is_err() {
-        let _ = sc.handle.release_image();
+        let _ = release_swapchain_image(gpu, &mut sc.handle);
         return false;
     }
     if let Some(layer_view) = sc.color_layer_view_for_image(image_index, VR_MIRROR_EYE_LAYER) {
@@ -324,13 +343,19 @@ pub fn try_openxr_hmd_multiview_submit(
     gpu.flush_driver();
     {
         profiling::scope!("xr::swapchain_release");
-        if sc.handle.release_image().is_err() {
+        if release_swapchain_image(gpu, &mut sc.handle).is_err() {
             return false;
         }
     }
     if handles
         .xr_session
-        .end_frame_projection(tick.predicted_display_time, &sc.handle, views_ref, rect)
+        .end_frame_projection(
+            tick.predicted_display_time,
+            &sc.handle,
+            views_ref,
+            rect,
+            gpu.gpu_queue_access_gate(),
+        )
         .is_err()
     {
         return false;

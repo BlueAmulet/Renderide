@@ -73,9 +73,9 @@ pub struct TextureMipUploadStep<'a> {
     pub device: &'a wgpu::Device,
     /// Queue for [`write_one_mip`].
     pub queue: &'a wgpu::Queue,
-    /// Shared ABBA gate for [`wgpu::Queue::write_texture`]; see
-    /// [`crate::gpu::WriteTextureSubmitGate`].
-    pub write_texture_submit_gate: &'a crate::gpu::WriteTextureSubmitGate,
+    /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
+    /// [`crate::gpu::GpuQueueAccessGate`].
+    pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
     /// Destination texture.
     pub texture: &'a wgpu::Texture,
     /// Host format.
@@ -210,7 +210,7 @@ impl TextureMipChainUploader {
 
                 write_one_mip(&Texture2dMipWrite {
                     queue: step.queue,
-                    write_texture_submit_gate: step.write_texture_submit_gate,
+                    gpu_queue_access_gate: step.gpu_queue_access_gate,
                     texture: step.texture,
                     mip_level,
                     width: gw,
@@ -410,9 +410,9 @@ pub struct Texture2dUploadContext<'a> {
     pub device: &'a wgpu::Device,
     /// Queue for texel copies.
     pub queue: &'a wgpu::Queue,
-    /// Shared ABBA gate for [`wgpu::Queue::write_texture`]; see
-    /// [`crate::gpu::WriteTextureSubmitGate`].
-    pub write_texture_submit_gate: &'a crate::gpu::WriteTextureSubmitGate,
+    /// Shared GPU queue access gate for [`wgpu::Queue::write_texture`]; see
+    /// [`crate::gpu::GpuQueueAccessGate`].
+    pub gpu_queue_access_gate: &'a crate::gpu::GpuQueueAccessGate,
     /// Destination texture (must match `fmt` dimensions).
     pub texture: &'a wgpu::Texture,
     /// Host-side format descriptor (dimensions, mip count, texel format).
@@ -480,7 +480,7 @@ pub fn write_texture2d_mips(ctx: &Texture2dUploadContext<'_>) -> Result<u32, Tex
             match uploader.upload_next_mip(TextureMipUploadStep {
                 device: ctx.device,
                 queue: ctx.queue,
-                write_texture_submit_gate: ctx.write_texture_submit_gate,
+                gpu_queue_access_gate: ctx.gpu_queue_access_gate,
                 texture: ctx.texture,
                 fmt: ctx.fmt,
                 wgpu_format: ctx.wgpu_format,
