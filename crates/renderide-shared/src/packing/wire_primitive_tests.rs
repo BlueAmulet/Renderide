@@ -3,10 +3,13 @@
 
 use super::default_entity_pool::DefaultEntityPool;
 use super::enum_repr::EnumRepr;
+use super::memory_pack_error::MemoryPackError;
+use super::memory_packable::MemoryPackable;
 use super::memory_packer::MemoryPacker;
 use super::memory_unpack_error::MemoryUnpackError;
 use super::memory_unpacker::{MemoryUnpacker, MAX_STRING_LEN};
 use super::packed_bools::PackedBools;
+use super::wire_decode_error::WireDecodeError;
 
 #[test]
 fn pack_unpack_bool_roundtrip() {
@@ -234,6 +237,119 @@ fn pack_unpack_enum_value_list_roundtrip() {
     let mut u = MemoryUnpacker::new(&buf[..written], &mut pool);
     let got: Vec<TestKind> = u.read_enum_value_list().expect("decoded");
     assert_eq!(got, entries);
+}
+
+#[test]
+fn packer_overflow_captures_first_failed_write_and_preserves_cursor() {
+    let mut buf = [0u8; 5];
+    let err = {
+        let full = buf;
+        let mut p = MemoryPacker::new(&mut buf);
+        p.write(&0x1122_3344u32);
+        p.write(&0x5566u16);
+        p.write(&0x77u8);
+
+        assert!(p.had_overflow());
+        assert_eq!(p.remaining_len(), 1);
+        assert_eq!(
+            p.overflow_error(),
+            Some(MemoryPackError::BufferTooSmall {
+                ty: "u16",
+                needed: 2,
+                remaining: 1,
+            })
+        );
+        p.into_result(&full).unwrap_err()
+    };
+
+    assert_eq!(
+        err,
+        MemoryPackError::BufferTooSmall {
+            ty: "u16",
+            needed: 2,
+            remaining: 1,
+        }
+    );
+    assert_eq!(&buf[..4], &0x1122_3344u32.to_le_bytes());
+    assert_eq!(buf[4], 0);
+}
+
+#[test]
+fn pack_unpack_nested_value_list_roundtrip() {
+    let nested = vec![vec![1i16, 2], Vec::new(), vec![-3, 4, 5]];
+    let mut buf = vec![0u8; 128];
+    let cap = buf.len();
+    let written = {
+        let mut p = MemoryPacker::new(&mut buf);
+        p.write_nested_value_list(Some(&nested));
+        cap - p.remaining_len()
+    };
+
+    let mut pool = DefaultEntityPool;
+    let mut u = MemoryUnpacker::new(&buf[..written], &mut pool);
+    let got: Vec<Vec<i16>> = u.read_nested_value_list().expect("nested values");
+    assert_eq!(got, nested);
+    assert_eq!(u.remaining_data(), 0);
+}
+
+/// Small object used to cover object packing helpers without generated IPC types.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct TestObject {
+    /// Signed field to prove multi-byte values keep little-endian layout.
+    value: i32,
+    /// One-byte field that follows immediately after [`Self::value`].
+    tag: u8,
+}
+
+impl MemoryPackable for TestObject {
+    fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
+        packer.write(&self.value);
+        packer.write(&self.tag);
+    }
+
+    fn unpack<P: super::memory_packer_entity_pool::MemoryPackerEntityPool>(
+        &mut self,
+        unpacker: &mut MemoryUnpacker<'_, '_, P>,
+    ) -> Result<(), WireDecodeError> {
+        self.value = unpacker.read::<i32>()?;
+        self.tag = unpacker.read::<u8>()?;
+        Ok(())
+    }
+}
+
+#[test]
+fn pack_unpack_required_optional_and_object_lists() {
+    let mut required = TestObject { value: -42, tag: 7 };
+    let mut optional = TestObject { value: 99, tag: 3 };
+    let mut list = [
+        TestObject { value: 1, tag: 10 },
+        TestObject { value: 2, tag: 20 },
+    ];
+    let mut buf = vec![0u8; 128];
+    let cap = buf.len();
+    let written = {
+        let mut p = MemoryPacker::new(&mut buf);
+        p.write_object_required(&mut required);
+        p.write_object::<TestObject>(None);
+        p.write_object(Some(&mut optional));
+        p.write_object_list(Some(&mut list));
+        cap - p.remaining_len()
+    };
+
+    let mut pool = DefaultEntityPool;
+    let mut u = MemoryUnpacker::new(&buf[..written], &mut pool);
+    let mut decoded_required = TestObject::default();
+    u.read_object_required(&mut decoded_required)
+        .expect("required object");
+    let decoded_none: Option<TestObject> = u.read_object().expect("none");
+    let decoded_optional: Option<TestObject> = u.read_object().expect("optional");
+    let decoded_list: Vec<TestObject> = u.read_object_list().expect("object list");
+
+    assert_eq!(decoded_required, required);
+    assert_eq!(decoded_none, None);
+    assert_eq!(decoded_optional, Some(optional));
+    assert_eq!(decoded_list, list);
+    assert_eq!(u.remaining_data(), 0);
 }
 
 #[test]

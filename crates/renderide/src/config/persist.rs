@@ -305,10 +305,6 @@ pub fn log_config_resolve_trace(resolve: &ConfigResolveOutcome) {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::sync::Mutex;
-
-    /// Serializes tests that mutate `RENDERIDE_*` process environment.
-    static CONFIG_ENV_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn atomic_save_roundtrip() {
@@ -344,7 +340,7 @@ mod tests {
 
     #[test]
     fn apply_renderide_gpu_validation_env_overrides_flag() {
-        let _guard = CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
         let mut s = RendererSettings::from_defaults();
         s.debug.gpu_validation_layers = false;
         std::env::set_var("RENDERIDE_GPU_VALIDATION", "1");
@@ -361,7 +357,7 @@ mod tests {
 
     #[test]
     fn load_settings_from_toml_merges_renderide_env_nested_key() {
-        let _guard = CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
         std::env::set_var("RENDERIDE_DISPLAY__FOCUSED_FPS", "137");
         let toml = r#"
 [display]
@@ -383,7 +379,7 @@ focused_fps = 10
 
     #[test]
     fn ignore_config_env_override_still_applies() {
-        let _guard = CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
         std::env::set_var("RENDERIDE_DISPLAY__FOCUSED_FPS", "137");
         let result = load_renderer_settings(ConfigFilePolicy::Ignore);
         assert_eq!(result.settings.display.focused_fps_cap, 137);

@@ -103,3 +103,61 @@ pub(super) fn device_label(profile: ActiveControllerProfile) -> &'static str {
         ActiveControllerProfile::Simple => "OpenXR Simple Controller",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        decode_profile_code, device_label, is_concrete_profile, profile_code,
+        ActiveControllerProfile,
+    };
+
+    fn all_profiles() -> [ActiveControllerProfile; 11] {
+        [
+            ActiveControllerProfile::Touch,
+            ActiveControllerProfile::Index,
+            ActiveControllerProfile::Vive,
+            ActiveControllerProfile::WindowsMr,
+            ActiveControllerProfile::Pico4,
+            ActiveControllerProfile::PicoNeo3,
+            ActiveControllerProfile::HpReverbG2,
+            ActiveControllerProfile::ViveCosmos,
+            ActiveControllerProfile::ViveFocus3,
+            ActiveControllerProfile::Generic,
+            ActiveControllerProfile::Simple,
+        ]
+    }
+
+    #[test]
+    fn profile_codes_round_trip_for_every_profile() {
+        for profile in all_profiles() {
+            assert_eq!(decode_profile_code(profile_code(profile)), Some(profile));
+        }
+    }
+
+    #[test]
+    fn unknown_profile_codes_decode_to_none() {
+        assert_eq!(decode_profile_code(0), None);
+        assert_eq!(decode_profile_code(12), None);
+        assert_eq!(decode_profile_code(u8::MAX), None);
+    }
+
+    #[test]
+    fn concrete_profile_classification_excludes_fallback_profiles() {
+        for profile in all_profiles() {
+            let expected = !matches!(
+                profile,
+                ActiveControllerProfile::Generic | ActiveControllerProfile::Simple
+            );
+            assert_eq!(is_concrete_profile(profile), expected, "{profile:?}");
+        }
+    }
+
+    #[test]
+    fn device_labels_are_stable_non_empty_openxr_labels() {
+        for profile in all_profiles() {
+            let label = device_label(profile);
+            assert!(label.starts_with("OpenXR "), "{profile:?}: {label}");
+            assert!(label.ends_with("Controller"), "{profile:?}: {label}");
+        }
+    }
+}

@@ -191,4 +191,130 @@ mod tests {
             Some(wgpu::TextureFormat::Rgba8Unorm)
         );
     }
+
+    #[test]
+    fn srgb_profiles_map_color_formats_to_srgb_storage() {
+        for profile in [ColorProfile::SRGB, ColorProfile::SRGBAlpha] {
+            assert_eq!(
+                map_host_format(TextureFormat::RGBA32, profile),
+                Some(wgpu::TextureFormat::Rgba8UnormSrgb)
+            );
+            assert_eq!(
+                map_host_format(TextureFormat::ARGB32, profile),
+                Some(wgpu::TextureFormat::Rgba8UnormSrgb)
+            );
+            assert_eq!(
+                map_host_format(TextureFormat::BGRA32, profile),
+                Some(wgpu::TextureFormat::Rgba8UnormSrgb)
+            );
+            assert_eq!(
+                map_host_format(TextureFormat::BC7, profile),
+                Some(wgpu::TextureFormat::Bc7RgbaUnormSrgb)
+            );
+        }
+    }
+
+    #[test]
+    fn linear_profiles_map_scalar_float_and_half_formats() {
+        assert_eq!(
+            map_host_format(TextureFormat::Alpha8, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::R8Unorm)
+        );
+        assert_eq!(
+            map_host_format(TextureFormat::R8, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::R8Unorm)
+        );
+        assert_eq!(
+            map_host_format(TextureFormat::RGBAHalf, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::Rgba16Float)
+        );
+        assert_eq!(
+            map_host_format(TextureFormat::ARGBHalf, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::Rgba16Float)
+        );
+        assert_eq!(
+            map_host_format(TextureFormat::RHalf, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::R16Float)
+        );
+        assert_eq!(
+            map_host_format(TextureFormat::RGHalf, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::Rg16Float)
+        );
+        assert_eq!(
+            map_host_format(TextureFormat::RGBAFloat, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::Rgba32Float)
+        );
+        assert_eq!(
+            map_host_format(TextureFormat::ARGBFloat, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::Rgba32Float)
+        );
+        assert_eq!(
+            map_host_format(TextureFormat::RFloat, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::R32Float)
+        );
+        assert_eq!(
+            map_host_format(TextureFormat::RGFloat, ColorProfile::Linear),
+            Some(wgpu::TextureFormat::Rg32Float)
+        );
+    }
+
+    #[test]
+    fn unsupported_or_decode_only_host_formats_return_none() {
+        for format in [
+            TextureFormat::Unknown,
+            TextureFormat::RGB24,
+            TextureFormat::RGB565,
+            TextureFormat::BGR565,
+            TextureFormat::ASTC4x4,
+            TextureFormat::ASTC5x5,
+            TextureFormat::ASTC6x6,
+            TextureFormat::ASTC8x8,
+            TextureFormat::ASTC10x10,
+            TextureFormat::ASTC12x12,
+        ] {
+            assert_eq!(
+                map_host_format(format, ColorProfile::Linear),
+                None,
+                "{format:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn compressed_format_feature_classifiers_match_wgpu_formats() {
+        assert!(format_required_bc(wgpu::TextureFormat::Bc1RgbaUnorm));
+        assert!(format_required_bc(wgpu::TextureFormat::Bc7RgbaUnormSrgb));
+        assert!(!format_required_bc(wgpu::TextureFormat::Etc2Rgb8Unorm));
+
+        assert!(format_required_etc2(wgpu::TextureFormat::Etc2Rgb8Unorm));
+        assert!(format_required_etc2(
+            wgpu::TextureFormat::Etc2Rgba8UnormSrgb
+        ));
+        assert!(!format_required_etc2(wgpu::TextureFormat::Bc1RgbaUnorm));
+
+        assert!(format_required_astc(wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B4x4,
+            channel: wgpu::AstcChannel::Unorm,
+        }));
+        assert!(format_required_astc(wgpu::TextureFormat::Astc {
+            block: wgpu::AstcBlock::B8x8,
+            channel: wgpu::AstcChannel::UnormSrgb,
+        }));
+        assert!(!format_required_astc(wgpu::TextureFormat::Rgba8Unorm));
+    }
+
+    #[test]
+    fn supported_host_formats_excludes_unknown_and_includes_decode_formats() {
+        let formats = supported_host_formats_for_init();
+        assert!(!formats.contains(&TextureFormat::Unknown));
+        for format in [
+            TextureFormat::RGB24,
+            TextureFormat::RGBA32,
+            TextureFormat::BC1,
+            TextureFormat::ETC2RGBA8,
+            TextureFormat::ASTC12x12,
+        ] {
+            assert!(formats.contains(&format), "{format:?}");
+        }
+    }
 }

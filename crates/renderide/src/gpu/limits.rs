@@ -581,4 +581,112 @@ mod tests {
         assert_eq!(gl.clamp_texture_2d_edge(1), Some(1));
         assert_eq!(gl.clamp_texture_2d_edge(8192), Some(4096));
     }
+
+    #[test]
+    fn validate_minimums_rejects_insufficient_core_limits() {
+        let mut l = wgpu::Limits {
+            max_bind_groups: 3,
+            max_texture_dimension_2d: 4096,
+            max_storage_buffer_binding_size: 65_536,
+            ..Default::default()
+        };
+        assert!(GpuLimits::validate_wgpu_minimums(&l).is_err());
+
+        l.max_bind_groups = 4;
+        l.max_texture_dimension_2d = 1023;
+        assert!(GpuLimits::validate_wgpu_minimums(&l).is_err());
+
+        l.max_texture_dimension_2d = 4096;
+        l.max_storage_buffer_binding_size = 65_535;
+        assert!(GpuLimits::validate_wgpu_minimums(&l).is_err());
+    }
+
+    #[test]
+    fn validate_minimums_rejects_alignment_larger_than_per_draw_stride() {
+        let mut l = wgpu::Limits {
+            max_bind_groups: 4,
+            max_texture_dimension_2d: 4096,
+            max_storage_buffer_binding_size: 65_536,
+            min_storage_buffer_offset_alignment: 512,
+            ..Default::default()
+        };
+        assert!(GpuLimits::validate_wgpu_minimums(&l).is_err());
+
+        l.min_storage_buffer_offset_alignment = 256;
+        l.min_uniform_buffer_offset_alignment = 512;
+        assert!(GpuLimits::validate_wgpu_minimums(&l).is_err());
+
+        l.min_uniform_buffer_offset_alignment = 256;
+        assert!(GpuLimits::validate_wgpu_minimums(&l).is_ok());
+    }
+
+    #[test]
+    fn align_uniform_offset_rounds_up_and_zero_alignment_is_safe() {
+        let gl = limits_with(wgpu::Limits {
+            min_uniform_buffer_offset_alignment: 128,
+            ..Default::default()
+        });
+        assert_eq!(gl.align_uniform_offset(0), 0);
+        assert_eq!(gl.align_uniform_offset(1), 128);
+        assert_eq!(gl.align_uniform_offset(128), 128);
+        assert_eq!(gl.align_uniform_offset(129), 256);
+
+        let zero = limits_with(wgpu::Limits {
+            min_uniform_buffer_offset_alignment: 0,
+            min_storage_buffer_offset_alignment: 0,
+            ..Default::default()
+        });
+        assert_eq!(zero.align_uniform_offset(13), 13);
+        assert_eq!(zero.align_storage_offset(13), 13);
+    }
+
+    #[test]
+    fn public_limit_getters_mirror_wgpu_limits() {
+        let gl = limits_with(wgpu::Limits {
+            max_buffer_size: 1_000,
+            max_storage_buffer_binding_size: 2_000,
+            max_uniform_buffer_binding_size: 3_000,
+            max_texture_dimension_2d: 4_000,
+            max_texture_dimension_3d: 500,
+            max_texture_array_layers: 64,
+            max_compute_workgroups_per_dimension: 128,
+            max_compute_invocations_per_workgroup: 256,
+            max_compute_workgroup_size_x: 16,
+            max_compute_workgroup_size_y: 32,
+            max_compute_workgroup_size_z: 8,
+            max_bind_groups: 4,
+            max_bindings_per_bind_group: 32,
+            max_samplers_per_shader_stage: 8,
+            max_sampled_textures_per_shader_stage: 16,
+            max_storage_textures_per_shader_stage: 4,
+            max_storage_buffers_per_shader_stage: 6,
+            max_uniform_buffers_per_shader_stage: 10,
+            max_color_attachments: 4,
+            max_vertex_buffers: 12,
+            max_vertex_attributes: 24,
+            ..Default::default()
+        });
+
+        assert_eq!(gl.max_buffer_size(), 1_000);
+        assert_eq!(gl.max_storage_buffer_binding_size(), 2_000);
+        assert_eq!(gl.max_uniform_buffer_binding_size(), 3_000);
+        assert_eq!(gl.max_texture_dimension_2d(), 4_000);
+        assert_eq!(gl.max_texture_dimension_3d(), 500);
+        assert_eq!(gl.max_texture_array_layers(), 64);
+        assert_eq!(gl.max_compute_workgroups_per_dimension(), 128);
+        assert_eq!(gl.max_compute_invocations_per_workgroup(), 256);
+        assert_eq!(gl.max_compute_workgroup_size_x(), 16);
+        assert_eq!(gl.max_compute_workgroup_size_y(), 32);
+        assert_eq!(gl.max_compute_workgroup_size_z(), 8);
+        assert_eq!(gl.max_bind_groups(), 4);
+        assert_eq!(gl.max_bindings_per_bind_group(), 32);
+        assert_eq!(gl.max_samplers_per_shader_stage(), 8);
+        assert_eq!(gl.max_sampled_textures_per_shader_stage(), 16);
+        assert_eq!(gl.max_storage_textures_per_shader_stage(), 4);
+        assert_eq!(gl.max_storage_buffers_per_shader_stage(), 6);
+        assert_eq!(gl.max_uniform_buffers_per_shader_stage(), 10);
+        assert_eq!(gl.max_color_attachments(), 4);
+        assert_eq!(gl.max_vertex_buffers(), 12);
+        assert_eq!(gl.max_vertex_attributes(), 24);
+    }
 }

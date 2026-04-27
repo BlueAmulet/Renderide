@@ -37,6 +37,10 @@ mod reload;
 mod resolve;
 mod types;
 
+/// Serializes tests that mutate or depend on `RENDERIDE_*` process environment variables.
+#[cfg(test)]
+pub(crate) static CONFIG_ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 pub use persist::{
     apply_renderide_gpu_validation_env, load_renderer_settings, log_config_resolve_trace,
     save_renderer_settings, save_renderer_settings_from_load, settings_handle_from,

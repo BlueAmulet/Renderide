@@ -174,4 +174,152 @@ mod tests {
                 .is_none()
         );
     }
+
+    #[test]
+    fn maps_digit_and_letter_keys() {
+        let digits = [
+            (KeyCode::Digit0, Key::Alpha0),
+            (KeyCode::Digit1, Key::Alpha1),
+            (KeyCode::Digit2, Key::Alpha2),
+            (KeyCode::Digit3, Key::Alpha3),
+            (KeyCode::Digit4, Key::Alpha4),
+            (KeyCode::Digit5, Key::Alpha5),
+            (KeyCode::Digit6, Key::Alpha6),
+            (KeyCode::Digit7, Key::Alpha7),
+            (KeyCode::Digit8, Key::Alpha8),
+            (KeyCode::Digit9, Key::Alpha9),
+        ];
+        for (code, expected) in digits {
+            assert_eq!(
+                winit_key_to_renderite_key(PhysicalKey::Code(code)),
+                Some(expected)
+            );
+        }
+
+        let letters = [
+            (KeyCode::KeyA, Key::A),
+            (KeyCode::KeyM, Key::M),
+            (KeyCode::KeyZ, Key::Z),
+        ];
+        for (code, expected) in letters {
+            assert_eq!(
+                winit_key_to_renderite_key(PhysicalKey::Code(code)),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn maps_punctuation_and_basic_control_keys() {
+        for (code, expected) in [
+            (KeyCode::Backspace, Key::Backspace),
+            (KeyCode::Tab, Key::Tab),
+            (KeyCode::Enter, Key::Return),
+            (KeyCode::Escape, Key::Escape),
+            (KeyCode::Space, Key::Space),
+            (KeyCode::BracketLeft, Key::LeftBracket),
+            (KeyCode::Backslash, Key::Backslash),
+            (KeyCode::BracketRight, Key::RightBracket),
+            (KeyCode::Minus, Key::Minus),
+            (KeyCode::Equal, Key::Equals),
+            (KeyCode::Backquote, Key::BackQuote),
+            (KeyCode::Semicolon, Key::Semicolon),
+            (KeyCode::Quote, Key::Quote),
+            (KeyCode::Comma, Key::Comma),
+            (KeyCode::Period, Key::Period),
+            (KeyCode::Slash, Key::Slash),
+        ] {
+            assert_eq!(
+                winit_key_to_renderite_key(PhysicalKey::Code(code)),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn maps_numpad_keys() {
+        for (code, expected) in [
+            (KeyCode::Numpad0, Key::Keypad0),
+            (KeyCode::Numpad1, Key::Keypad1),
+            (KeyCode::Numpad2, Key::Keypad2),
+            (KeyCode::Numpad3, Key::Keypad3),
+            (KeyCode::Numpad4, Key::Keypad4),
+            (KeyCode::Numpad5, Key::Keypad5),
+            (KeyCode::Numpad6, Key::Keypad6),
+            (KeyCode::Numpad7, Key::Keypad7),
+            (KeyCode::Numpad8, Key::Keypad8),
+            (KeyCode::Numpad9, Key::Keypad9),
+            (KeyCode::NumpadDecimal, Key::KeypadPeriod),
+            (KeyCode::NumpadDivide, Key::KeypadDivide),
+            (KeyCode::NumpadMultiply, Key::KeypadMultiply),
+            (KeyCode::NumpadSubtract, Key::KeypadMinus),
+            (KeyCode::NumpadAdd, Key::KeypadPlus),
+            (KeyCode::NumpadEnter, Key::KeypadEnter),
+            (KeyCode::NumpadEqual, Key::KeypadEquals),
+        ] {
+            assert_eq!(
+                winit_key_to_renderite_key(PhysicalKey::Code(code)),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn maps_function_navigation_and_lock_keys() {
+        for (code, expected) in [
+            (KeyCode::F1, Key::F1),
+            (KeyCode::F6, Key::F6),
+            (KeyCode::F12, Key::F12),
+            (KeyCode::F13, Key::F13),
+            (KeyCode::F15, Key::F15),
+            (KeyCode::Insert, Key::Insert),
+            (KeyCode::Home, Key::Home),
+            (KeyCode::End, Key::End),
+            (KeyCode::PageUp, Key::PageUp),
+            (KeyCode::PageDown, Key::PageDown),
+            (KeyCode::Delete, Key::Delete),
+            (KeyCode::PrintScreen, Key::Print),
+            (KeyCode::Pause, Key::Pause),
+            (KeyCode::ContextMenu, Key::Menu),
+            (KeyCode::NumLock, Key::Numlock),
+            (KeyCode::CapsLock, Key::CapsLock),
+            (KeyCode::ScrollLock, Key::ScrollLock),
+        ] {
+            assert_eq!(
+                winit_key_to_renderite_key(PhysicalKey::Code(code)),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn maps_left_and_right_modifiers() {
+        for (code, expected) in [
+            (KeyCode::ShiftLeft, Key::LeftShift),
+            (KeyCode::ShiftRight, Key::RightShift),
+            (KeyCode::ControlLeft, Key::LeftControl),
+            (KeyCode::ControlRight, Key::RightControl),
+            (KeyCode::AltLeft, Key::LeftAlt),
+            (KeyCode::AltRight, Key::RightAlt),
+            (KeyCode::SuperLeft, Key::LeftWindows),
+            (KeyCode::SuperRight, Key::RightWindows),
+        ] {
+            assert_eq!(
+                winit_key_to_renderite_key(PhysicalKey::Code(code)),
+                Some(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_physical_codes_map_to_none() {
+        assert_eq!(
+            winit_key_to_renderite_key(PhysicalKey::Code(KeyCode::MediaPlayPause)),
+            None
+        );
+        assert_eq!(
+            winit_key_to_renderite_key(PhysicalKey::Code(KeyCode::BrowserBack)),
+            None
+        );
+    }
 }

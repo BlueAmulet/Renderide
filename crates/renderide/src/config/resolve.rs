@@ -364,6 +364,7 @@ mod tests {
     #[test]
     fn load_creates_default_config_next_to_binary() {
         let _guard = CWD_TEST_LOCK.lock().expect("lock");
+        let _env_guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
         std::env::remove_var(ENV_OVERRIDE);
 
         let dir = tempfile::tempdir().expect("tempdir");

@@ -412,4 +412,78 @@ mod tests {
             None
         );
     }
+
+    #[test]
+    fn container_asset_path_handles_backslashes_whitespace_and_plain_stems() {
+        assert_eq!(
+            shader_logical_name_from_container_asset_path("Assets\\Shaders\\UI Text Unlit.shader")
+                .as_deref(),
+            Some("UI Text Unlit")
+        );
+        assert_eq!(
+            shader_logical_name_from_container_asset_path("  assets/foo/ToonLit.shader  ")
+                .as_deref(),
+            Some("ToonLit")
+        );
+        assert_eq!(
+            shader_logical_name_from_container_asset_path("assets/foo/AlreadyStem").as_deref(),
+            Some("AlreadyStem")
+        );
+        assert_eq!(
+            shader_logical_name_from_container_asset_path("").as_deref(),
+            None
+        );
+        assert_eq!(
+            shader_logical_name_from_container_asset_path("assets/foo/   ").as_deref(),
+            None
+        );
+    }
+
+    #[test]
+    fn prefix_formatters_are_stable_for_empty_short_and_truncated_inputs() {
+        assert_eq!(format_hex_prefix(&[], 8), "");
+        assert_eq!(format_hex_prefix(&[0, 1, 0xab, 0xff], 8), "00 01 ab ff");
+        assert_eq!(format_hex_prefix(&[0, 1, 2, 3], 2), "00 01");
+        assert_eq!(short_hex_prefix("00 01 02 03", 2), "00 01");
+        assert_eq!(short_hex_prefix("00 01", 8), "00 01");
+    }
+
+    #[test]
+    fn ascii_prefix_hint_only_returns_printable_prefixes() {
+        assert_eq!(ascii_prefix_hint(b"", 8), "");
+        assert_eq!(ascii_prefix_hint(b"UnityFS\nBundle", 32), "UnityFS\nBundle");
+        assert_eq!(ascii_prefix_hint(&[0xff, b'A', b'B'], 32), "");
+        assert_eq!(ascii_prefix_hint(b"abcdef", 3), "abc");
+    }
+
+    #[test]
+    fn truncate_display_preserves_short_errors_and_truncates_long_errors() {
+        assert_eq!(truncate_display("short", 16), "short");
+        let truncated = truncate_display("abcdefghijklmnopqrstuvwxyz", 8);
+        assert_eq!(truncated, "abcdefg…");
+    }
+
+    #[test]
+    fn file_binary_probe_records_prefixes_without_parsing() {
+        let probe = FileBinaryProbe::new(b"UnityFS\0binary");
+        assert_eq!(probe.bytes_len, 14);
+        assert!(probe.prefix_hex.starts_with("55 6e 69 74 79 46 53 00"));
+        assert_eq!(probe.prefix_ascii, "");
+        assert!(!probe.bundle_parse_ok);
+        assert_eq!(probe.bundle_assets, 0);
+        assert_eq!(probe.bundle_err, None);
+    }
+
+    #[test]
+    fn path_hint_rejects_missing_paths_and_empty_directories() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        assert_eq!(
+            try_resolve_shader_name_from_path_hint_raw(&temp.path().join("missing")).as_deref(),
+            None
+        );
+        assert_eq!(
+            try_resolve_shader_name_from_path_hint_raw(temp.path()).as_deref(),
+            None
+        );
+    }
 }
