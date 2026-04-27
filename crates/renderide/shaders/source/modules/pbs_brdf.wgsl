@@ -33,6 +33,12 @@ const SPECULAR_AA_VARIANCE: f32 = 0.25;
 /// the entire surface to a fully-rough lobe.
 const SPECULAR_AA_THRESHOLD: f32 = 0.18;
 
+/// Quadratic coefficient used by Unity BiRP's normalized punctual-light attenuation LUT.
+const BIRP_ATTENUATION_QUADRATIC: f32 = 25.0;
+
+/// Normalized distance where Unity BiRP-style punctual attenuation starts fading to zero at range.
+const BIRP_ATTENUATION_FADE_START: f32 = 0.8;
+
 /// Tokuyoshi & Kaplanyan 2019 "Improved Geometric Specular Antialiasing".
 ///
 /// Widens the GGX lobe by the screen-space variance of the surface normal so that sub-pixel
@@ -102,22 +108,25 @@ fn fd_lambert() -> f32 {
     return 1.0 / 3.14159265;
 }
 
-/// Normalized windowed inverse-square distance attenuation for punctual lights.
-/// `(saturate(1 − t⁴))² / max(t², ε²)` evaluated in `t = dist/range` space so the entire falloff
-/// shape stretches with the light's range slider rather than clipping a world-space inverse-square
-/// curve. Matches Unity BiRP's LUT-style behaviour where the range slider only changes how far the
-/// light reaches, not its peak brightness; the Karis/Lagarde quartic window keeps the boundary at
-/// `dist == range` smooth and exactly zero. The `ε = 0.01` floor (relative to range) caps the
-/// near-light singularity at a range-independent peak. Intensity is applied by the call site.
+/// Masks BiRP punctual attenuation to zero at the light range.
+fn birp_range_fade(t: f32) -> f32 {
+    let fade_width = 1.0 - BIRP_ATTENUATION_FADE_START;
+    return clamp((1.0 - t) / fade_width, 0.0, 1.0);
+}
+
+/// Unity BiRP-style distance attenuation for punctual lights.
+/// The main LUT curve is well-approximated by `1 / (1 + 25·t²)` with `t = dist/range`, so the range
+/// slider stretches the falloff without changing peak brightness. BiRP's lookup also fades near the
+/// range edge; the final 20% mask keeps clustered shading bounded at `dist == range`.
+/// Intensity is applied by the call site.
 fn distance_attenuation(dist: f32, range: f32) -> f32 {
     if (range <= 0.0) {
         return 0.0;
     }
     let t = dist / range;
-    let t2 = max(t * t, 0.0001);
-    let window_inner = clamp(1.0 - t2 * t2, 0.0, 1.0);
-    let window = window_inner * window_inner;
-    return window / t2;
+    let t2 = t * t;
+    let lut = 1.0 / (1.0 + BIRP_ATTENUATION_QUADRATIC * t2);
+    return lut * birp_range_fade(t);
 }
 
 /// Result of evaluating one punctual light at a surface point.
