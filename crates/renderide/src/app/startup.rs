@@ -211,7 +211,7 @@ pub fn run() -> Result<Option<i32>, RunError> {
     ));
     log_config_resolve_trace(&config_load.resolve);
     let settings_handle = settings_handle_from(&config_load);
-    let initial_present_mode = config_load.settings.rendering.resolved_present_mode();
+    let initial_vsync = config_load.settings.rendering.vsync;
     let initial_gpu_validation = config_load.settings.debug.gpu_validation_layers;
     let initial_power_preference = config_load.settings.debug.power_preference.to_wgpu();
 
@@ -279,7 +279,7 @@ pub fn run() -> Result<Option<i32>, RunError> {
 
     let mut app = RenderideApp::new(
         runtime,
-        initial_present_mode,
+        initial_vsync,
         initial_gpu_validation,
         initial_power_preference,
         log_level_cli,

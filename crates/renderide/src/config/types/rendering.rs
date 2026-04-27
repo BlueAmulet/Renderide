@@ -8,10 +8,11 @@ use wgpu::TextureFormat;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RenderingSettings {
-    /// Swapchain vsync mode ([`VsyncMode::Off`] / [`VsyncMode::On`] / [`VsyncMode::Adaptive`]);
+    /// Swapchain vsync mode ([`VsyncMode::Off`] / [`VsyncMode::On`] / [`VsyncMode::Auto`]);
     /// applied live without restart through [`crate::gpu::GpuContext::set_present_mode`]. Old
-    /// `vsync = true/false` configs still load (a custom deserializer maps the booleans to
-    /// [`VsyncMode::On`] and [`VsyncMode::Off`]).
+    /// `vsync = true/false` and `vsync = "adaptive"` configs still load (a custom deserializer
+    /// maps the booleans to [`VsyncMode::On`] / [`VsyncMode::Off`] and the historical `"adaptive"`
+    /// token to [`VsyncMode::Auto`]).
     pub vsync: VsyncMode,
     /// Wall-clock budget per frame for cooperative mesh/texture integration ([`crate::runtime::RendererRuntime::run_asset_integration`]), in milliseconds.
     #[serde(rename = "asset_integration_budget_ms")]
@@ -67,55 +68,95 @@ impl Default for RenderingSettings {
     }
 }
 
-impl RenderingSettings {
-    /// Maps [`Self::vsync`] to the wgpu present mode passed to `surface.configure`.
-    ///
-    /// `Off` → `AutoNoVsync` (immediate, may tear), `On` → `AutoVsync` (FIFO, no tear),
-    /// `Adaptive` → `FifoRelaxed` (vsync most of the time, tears on missed deadlines). The wgpu
-    /// layer falls back to `Fifo` when the surface doesn't advertise the requested mode, so this
-    /// can be plumbed directly into `surface.configure(..)` without surface-cap probing here.
-    pub fn resolved_present_mode(&self) -> wgpu::PresentMode {
-        match self.vsync {
-            VsyncMode::Off => wgpu::PresentMode::AutoNoVsync,
-            VsyncMode::On => wgpu::PresentMode::AutoVsync,
-            VsyncMode::Adaptive => wgpu::PresentMode::FifoRelaxed,
-        }
-    }
-}
-
 /// Swapchain vsync mode persisted in `config.toml` as `[rendering] vsync`.
 ///
 /// Three values matching what desktop and VR titles typically expose: **Off** (tearing, lowest
-/// latency), **On** (vsync, no tearing, smoothest), **Adaptive** (vsync when the renderer hits
-/// the deadline, tear instead of stutter when it misses — `FifoRelaxed`). Defaults to [`Self::Off`].
+/// latency), **On** (no tearing, low latency — prefers `Mailbox` over `Fifo`), **Auto** (vsync
+/// when the renderer hits the deadline, tear instead of stutter when it misses — `FifoRelaxed`).
+/// Defaults to [`Self::Off`].
 ///
-/// A custom [`Deserialize`] also accepts the historical `vsync = true / false` booleans so older
-/// `config.toml` files keep loading without manual migration.
+/// Resolution to a [`wgpu::PresentMode`] happens in [`VsyncMode::resolve_present_mode`], which
+/// probes the surface's actual capabilities rather than trusting wgpu's `Auto*` shortcuts (those
+/// always pick `Fifo` for vsync-on, leaving no-tearing behind a deeper compositor queue than
+/// necessary).
+///
+/// A custom [`Deserialize`] also accepts the historical `vsync = true / false` booleans and the
+/// pre-rename `vsync = "adaptive"` token so older `config.toml` files keep loading without
+/// manual migration.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VsyncMode {
-    /// No vsync. Lowest latency, may tear; CPU/GPU run uncapped.
+    /// No vsync. Lowest latency, may tear; CPU/GPU run uncapped. Resolves to `Immediate` when
+    /// the surface advertises it, otherwise falls through `Mailbox` and finally `Fifo`.
     #[default]
     Off,
-    /// Standard vsync (FIFO). No tearing, highest latency, drops to half-rate on misses.
+    /// Vsync without tearing. Resolves to `Mailbox` when the surface advertises it (no extra
+    /// compositor queueing — DXGI flip-discard parity), otherwise falls back to `Fifo`. Prefer
+    /// this over the deprecated `wgpu::PresentMode::AutoVsync` mapping which always picks `Fifo`.
     On,
-    /// Adaptive vsync (`FifoRelaxed`): vsync until a frame misses its deadline, then tears once
-    /// instead of waiting another full vblank. Falls back to FIFO on surfaces that don't support it.
-    Adaptive,
+    /// Adaptive vsync. Resolves to `FifoRelaxed` when supported (vsync until a frame misses its
+    /// deadline, then tears once instead of waiting another full vblank), otherwise falls back
+    /// to `Fifo`. Renamed from the historical `Adaptive`; the custom [`Deserialize`] still
+    /// accepts `vsync = "adaptive"` (and `"fifo_relaxed"` / `"relaxed"`) for backward compat.
+    Auto,
 }
 
 impl VsyncMode {
     /// All variants for ImGui pickers and config round-trips.
-    pub const ALL: [Self; 3] = [Self::Off, Self::On, Self::Adaptive];
+    pub const ALL: [Self; 3] = [Self::Off, Self::On, Self::Auto];
 
     /// Short label for the renderer config window.
     pub fn label(self) -> &'static str {
         match self {
             Self::Off => "Off",
             Self::On => "On",
-            Self::Adaptive => "Adaptive",
+            Self::Auto => "Auto",
         }
     }
+
+    /// Resolves this mode to a [`wgpu::PresentMode`] that the surface actually supports, using
+    /// AAA-grade preference chains rather than wgpu's lazy `Auto*` shortcuts.
+    ///
+    /// Each variant walks an ordered preference list and picks the first entry present in
+    /// `supported` ([`wgpu::SurfaceCapabilities::present_modes`]). [`wgpu::PresentMode::Fifo`] is
+    /// required to be supported by every conformant surface ([wgpu spec][1]), so the chain
+    /// always terminates.
+    ///
+    /// | Variant            | Preference order                            | Behavior                                                          |
+    /// | ------------------ | ------------------------------------------- | ----------------------------------------------------------------- |
+    /// | [`Self::Off`]      | `Immediate` → `Mailbox` → `Fifo`            | Lowest latency; tears                                             |
+    /// | [`Self::On`]       | `Mailbox` → `Fifo`                          | No-tear vsync without the FIFO queue depth (DXGI flip-discard)    |
+    /// | [`Self::Auto`]     | `FifoRelaxed` → `Fifo`                      | Vsync until a frame misses; then tear once instead of half-rate   |
+    ///
+    /// Unlike `wgpu::PresentMode::AutoVsync` (which always resolves to plain `Fifo`) the [`Self::On`]
+    /// arm probes for `Mailbox` first, which avoids the extra ~one frame of compositor queueing
+    /// on every desktop backend that exposes flip-discard.
+    ///
+    /// [1]: https://www.w3.org/TR/webgpu/#dom-gpupresentmode-fifo
+    pub fn resolve_present_mode(self, supported: &[wgpu::PresentMode]) -> wgpu::PresentMode {
+        use wgpu::PresentMode::*;
+        match self {
+            Self::Off => first_supported_present_mode(&[Immediate, Mailbox, Fifo], supported),
+            Self::On => first_supported_present_mode(&[Mailbox, Fifo], supported),
+            Self::Auto => first_supported_present_mode(&[FifoRelaxed, Fifo], supported),
+        }
+    }
+}
+
+/// Walks `preferred` in order and returns the first variant present in `supported`, falling back
+/// to [`wgpu::PresentMode::Fifo`] when nothing matches.
+///
+/// `Fifo` is the unconditional fallback because every conformant surface advertises it; see
+/// [`VsyncMode::resolve_present_mode`] for the per-mode preference chains that route through here.
+fn first_supported_present_mode(
+    preferred: &[wgpu::PresentMode],
+    supported: &[wgpu::PresentMode],
+) -> wgpu::PresentMode {
+    preferred
+        .iter()
+        .copied()
+        .find(|m| supported.contains(m))
+        .unwrap_or(wgpu::PresentMode::Fifo)
 }
 
 impl<'de> Deserialize<'de> for VsyncMode {
@@ -126,7 +167,7 @@ impl<'de> Deserialize<'de> for VsyncMode {
             type Value = VsyncMode;
 
             fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                f.write_str("a vsync mode (`off` / `on` / `adaptive`) or a boolean")
+                f.write_str("a vsync mode (`off` / `on` / `auto`) or a boolean")
             }
 
             fn visit_bool<E: de::Error>(self, v: bool) -> Result<Self::Value, E> {
@@ -137,11 +178,11 @@ impl<'de> Deserialize<'de> for VsyncMode {
                 match v.trim().to_ascii_lowercase().as_str() {
                     "off" | "false" | "0" | "no" | "none" => Ok(VsyncMode::Off),
                     "on" | "true" | "1" | "yes" | "vsync" | "fifo" => Ok(VsyncMode::On),
-                    "adaptive" | "fifo_relaxed" | "fiforelaxed" | "relaxed" => {
-                        Ok(VsyncMode::Adaptive)
+                    "auto" | "adaptive" | "fifo_relaxed" | "fiforelaxed" | "relaxed" => {
+                        Ok(VsyncMode::Auto)
                     }
                     other => Err(E::custom(format!(
-                        "unknown vsync mode `{other}`; expected `off`, `on`, or `adaptive`"
+                        "unknown vsync mode `{other}`; expected `off`, `on`, or `auto`"
                     ))),
                 }
             }
@@ -379,6 +420,146 @@ mod tests {
         assert_eq!(
             back.rendering.scene_color_format,
             SceneColorFormat::Rg11b10Float
+        );
+    }
+}
+
+#[cfg(test)]
+mod vsync_resolution_tests {
+    use super::VsyncMode;
+    use crate::config::types::RendererSettings;
+    use wgpu::PresentMode;
+
+    #[test]
+    fn off_prefers_immediate_when_supported() {
+        let supported = [
+            PresentMode::Immediate,
+            PresentMode::Mailbox,
+            PresentMode::Fifo,
+        ];
+        assert_eq!(
+            VsyncMode::Off.resolve_present_mode(&supported),
+            PresentMode::Immediate
+        );
+    }
+
+    #[test]
+    fn modes_choose_preferred_modes_when_everything_is_supported() {
+        let supported = [
+            PresentMode::Immediate,
+            PresentMode::Mailbox,
+            PresentMode::FifoRelaxed,
+            PresentMode::Fifo,
+        ];
+
+        assert_eq!(
+            VsyncMode::Off.resolve_present_mode(&supported),
+            PresentMode::Immediate
+        );
+        assert_eq!(
+            VsyncMode::On.resolve_present_mode(&supported),
+            PresentMode::Mailbox
+        );
+        assert_eq!(
+            VsyncMode::Auto.resolve_present_mode(&supported),
+            PresentMode::FifoRelaxed
+        );
+    }
+
+    #[test]
+    fn off_falls_through_to_mailbox_then_fifo() {
+        let mailbox_only = [PresentMode::Mailbox, PresentMode::Fifo];
+        assert_eq!(
+            VsyncMode::Off.resolve_present_mode(&mailbox_only),
+            PresentMode::Mailbox
+        );
+        let fifo_only = [PresentMode::Fifo];
+        assert_eq!(
+            VsyncMode::Off.resolve_present_mode(&fifo_only),
+            PresentMode::Fifo
+        );
+    }
+
+    #[test]
+    fn on_prefers_mailbox_over_fifo() {
+        let supported = [PresentMode::Mailbox, PresentMode::Fifo];
+        assert_eq!(
+            VsyncMode::On.resolve_present_mode(&supported),
+            PresentMode::Mailbox
+        );
+    }
+
+    #[test]
+    fn on_falls_back_to_fifo_when_mailbox_missing() {
+        // Models a Vulkan adapter that exposes only `Fifo` + `FifoRelaxed` (no Mailbox/Immediate).
+        let no_mailbox = [PresentMode::Fifo, PresentMode::FifoRelaxed];
+        assert_eq!(
+            VsyncMode::On.resolve_present_mode(&no_mailbox),
+            PresentMode::Fifo
+        );
+    }
+
+    #[test]
+    fn auto_prefers_fifo_relaxed_when_supported() {
+        let supported = [PresentMode::Fifo, PresentMode::FifoRelaxed];
+        assert_eq!(
+            VsyncMode::Auto.resolve_present_mode(&supported),
+            PresentMode::FifoRelaxed
+        );
+    }
+
+    #[test]
+    fn auto_falls_back_to_fifo_when_relaxed_missing() {
+        let fifo_only = [PresentMode::Fifo];
+        assert_eq!(
+            VsyncMode::Auto.resolve_present_mode(&fifo_only),
+            PresentMode::Fifo
+        );
+    }
+
+    #[test]
+    fn empty_supported_list_falls_back_to_fifo() {
+        // `Fifo` is required to be supported by every conformant surface, so the helper still
+        // returns it even if the caller passes an empty (or stripped) capability list.
+        for mode in VsyncMode::ALL {
+            assert_eq!(
+                mode.resolve_present_mode(&[]),
+                PresentMode::Fifo,
+                "mode {mode:?} must terminate at Fifo when nothing is advertised"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_adaptive_token_loads_as_auto() {
+        let toml = "[rendering]\nvsync = \"adaptive\"\n";
+        let parsed: RendererSettings = toml::from_str(toml).expect("legacy adaptive token");
+        assert_eq!(parsed.rendering.vsync, VsyncMode::Auto);
+    }
+
+    #[test]
+    fn legacy_relaxed_aliases_load_as_auto() {
+        for token in ["fifo_relaxed", "fiforelaxed", "relaxed"] {
+            let toml = format!("[rendering]\nvsync = \"{token}\"\n");
+            let parsed: RendererSettings = toml::from_str(&toml).expect("relaxed alias");
+            assert_eq!(
+                parsed.rendering.vsync,
+                VsyncMode::Auto,
+                "token `{token}` must map to Auto"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_serializes_as_snake_case() {
+        let mut s = RendererSettings::default();
+        s.rendering.vsync = VsyncMode::Auto;
+        let toml = toml::to_string(&s).expect("serialize");
+        let back: RendererSettings = toml::from_str(&toml).expect("deserialize");
+        assert_eq!(back.rendering.vsync, VsyncMode::Auto);
+        assert!(
+            toml.contains("vsync = \"auto\""),
+            "expected snake_case `auto` in serialized TOML, got: {toml}"
         );
     }
 }

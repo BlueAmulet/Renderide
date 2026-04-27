@@ -33,6 +33,7 @@ use winit::event::{DeviceEvent, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents};
 use winit::window::{Window, WindowId};
 
+use crate::config::VsyncMode;
 use crate::frontend::input::{
     apply_device_event, apply_output_state_to_window, apply_per_frame_cursor_lock_when_locked,
     apply_window_event, vr_inputs_for_session, CursorOutputTracking, WindowInputAccumulator,
@@ -64,8 +65,8 @@ fn tick_phase_trace(phase: &'static str) {
 
 pub(crate) struct RenderideApp {
     runtime: RendererRuntime,
-    /// Initial swapchain present mode used for [`GpuContext::new`] before live updates from settings.
-    initial_present_mode: wgpu::PresentMode,
+    /// Initial vsync preference used for [`GpuContext::new`] before live updates from settings.
+    initial_vsync: VsyncMode,
     /// GPU validation layers flag for the initial [`GpuContext::new`] (persisted; restart to apply).
     initial_gpu_validation: bool,
     /// GPU power preference resolved from [`crate::config::DebugSettings::power_preference`].
@@ -131,7 +132,7 @@ impl RenderideApp {
     /// Builds initial app state after IPC bootstrap; window and GPU are created on [`ApplicationHandler::resumed`].
     pub(crate) fn new(
         runtime: RendererRuntime,
-        initial_present_mode: wgpu::PresentMode,
+        initial_vsync: VsyncMode,
         initial_gpu_validation: bool,
         initial_power_preference: wgpu::PowerPreference,
         log_level_cli: Option<LogLevel>,
@@ -140,7 +141,7 @@ impl RenderideApp {
     ) -> Self {
         Self {
             runtime,
-            initial_present_mode,
+            initial_vsync,
             initial_gpu_validation,
             initial_power_preference,
             log_level_cli,
@@ -251,7 +252,7 @@ impl RenderideApp {
                         Arc::clone(&h.device),
                         Arc::clone(&h.queue),
                         Arc::clone(&window),
-                        self.initial_present_mode,
+                        self.initial_vsync,
                     ) {
                         Ok(gpu) => {
                             logger::info!(
@@ -304,7 +305,7 @@ impl RenderideApp {
     fn init_desktop_gpu(&mut self, window: &Arc<Window>, event_loop: &ActiveEventLoop) {
         match pollster::block_on(GpuContext::new(
             Arc::clone(window),
-            self.initial_present_mode,
+            self.initial_vsync,
             self.initial_gpu_validation,
             self.initial_power_preference,
         )) {
@@ -339,7 +340,7 @@ impl RenderideApp {
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.begin_frame_timing(frame_start);
             if let Ok(s) = self.runtime.settings().read() {
-                gpu.set_present_mode(s.rendering.resolved_present_mode());
+                gpu.set_present_mode(s.rendering.vsync);
             }
         }
     }

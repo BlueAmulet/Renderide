@@ -12,6 +12,7 @@ const _: fn() = || {
 use super::frame_cpu_gpu_timing::{make_gpu_done_callback, FrameCpuGpuTimingHandle};
 use super::instance_limits::required_limits_for_adapter;
 use super::limits::{GpuLimits, GpuLimitsError};
+use crate::config::VsyncMode;
 use thiserror::Error;
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -189,6 +190,11 @@ pub struct GpuContext {
     /// format and target extent so [`Self::config_format`] / [`Self::surface_extent_px`] still
     /// return useful values.
     config: wgpu::SurfaceConfiguration,
+    /// Surface-advertised present modes captured at init from
+    /// [`wgpu::SurfaceCapabilities::present_modes`]. Drives the AAA-grade fallback chain in
+    /// [`VsyncMode::resolve_present_mode`] when [`Self::set_present_mode`] reconfigures the
+    /// swapchain at runtime. Empty in headless mode (no surface, no caps to query).
+    supported_present_modes: Vec<wgpu::PresentMode>,
     /// Window the surface was created from, kept so swapchain Lost/Outdated recovery can call
     /// [`Window::inner_size`] without threading `&Window` through every render-path signature.
     /// [`None`] in headless mode (no winit window exists).
@@ -262,18 +268,25 @@ pub enum GpuError {
 impl GpuContext {
     /// Updates the swapchain present mode and reconfigures the surface (hot-reload from settings).
     ///
-    /// Accepts any [`wgpu::PresentMode`] — including `Mailbox` and `FifoRelaxed`. The wgpu layer
-    /// silently falls back to `Fifo` if the surface doesn't advertise the requested variant, so
-    /// callers don't need to query surface capabilities here.
-    pub fn set_present_mode(&mut self, mode: wgpu::PresentMode) {
-        if self.config.present_mode == mode {
+    /// Resolves [`VsyncMode`] against the surface's actual capabilities via
+    /// [`VsyncMode::resolve_present_mode`] so the result is guaranteed to be one of the variants
+    /// the swapchain advertises (no risk of `surface.configure` rejecting an unsupported mode).
+    /// Early-returns when the resolved mode matches the active configuration, so per-frame calls
+    /// from the runtime are cheap.
+    pub fn set_present_mode(&mut self, mode: VsyncMode) {
+        let resolved = mode.resolve_present_mode(&self.supported_present_modes);
+        if self.config.present_mode == resolved {
             return;
         }
-        self.config.present_mode = mode;
+        self.config.present_mode = resolved;
         if let Some(surface) = self.surface.as_ref() {
             surface.configure(&self.device, &self.config);
         }
-        logger::info!("Present mode set to {:?}", self.config.present_mode);
+        logger::info!(
+            "Present mode set to {:?} (vsync={:?})",
+            self.config.present_mode,
+            mode
+        );
     }
 
     /// Current swapchain configuration extent.
