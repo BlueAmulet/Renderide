@@ -363,17 +363,8 @@ fn spawn_renderer(
     backing_dir: &Path,
 ) -> Result<SpawnedRenderer, HarnessError> {
     let mut cmd = Command::new(&cfg.renderer_path);
-    cmd.arg("--headless");
-    cmd.arg("--headless-output").arg(&cfg.output_path);
-    cmd.arg("--headless-resolution")
-        .arg(format!("{}x{}", cfg.width, cfg.height));
-    cmd.arg("--headless-interval-ms")
-        .arg(cfg.interval_ms.to_string());
-    cmd.arg("-QueueName").arg(queue_name);
-    cmd.arg("-QueueCapacity")
-        .arg(DEFAULT_QUEUE_CAPACITY_BYTES.to_string());
-    cmd.arg("-LogLevel").arg("debug");
-    cmd.arg("--ignore-config");
+    let args = renderer_spawn_args(cfg, queue_name);
+    cmd.args(&args);
     cmd.env("RENDERIDE_INTERPROCESS_DIR", backing_dir);
 
     if cfg.verbose_renderer {
@@ -383,18 +374,73 @@ fn spawn_renderer(
     }
 
     logger::info!(
-        "Spawning renderer: {} --headless --headless-output {} --headless-resolution {}x{} --headless-interval-ms {} -QueueName {} -QueueCapacity {} --ignore-config",
+        "Spawning renderer: {} {}",
         cfg.renderer_path.display(),
-        cfg.output_path.display(),
-        cfg.width,
-        cfg.height,
-        cfg.interval_ms,
-        queue_name,
-        DEFAULT_QUEUE_CAPACITY_BYTES,
+        args.join(" "),
     );
 
     let child = cmd.spawn().map_err(HarnessError::SpawnRenderer)?;
     Ok(SpawnedRenderer { child: Some(child) })
 }
 
+/// Builds the renderer process arguments for one harness session.
+fn renderer_spawn_args(cfg: &SceneSessionConfig, queue_name: &str) -> Vec<String> {
+    vec![
+        "--headless".to_string(),
+        "--headless-output".to_string(),
+        cfg.output_path.display().to_string(),
+        "--headless-resolution".to_string(),
+        format!("{}x{}", cfg.width, cfg.height),
+        "--headless-interval-ms".to_string(),
+        cfg.interval_ms.to_string(),
+        "-QueueName".to_string(),
+        queue_name.to_string(),
+        "-QueueCapacity".to_string(),
+        DEFAULT_QUEUE_CAPACITY_BYTES.to_string(),
+        "-LogLevel".to_string(),
+        "debug".to_string(),
+        "--ignore-config".to_string(),
+    ]
+}
+
 fn _ipc_session_used(_: &IpcSession) {}
+
+#[cfg(test)]
+mod spawn_arg_tests {
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use super::{renderer_spawn_args, SceneSessionConfig, DEFAULT_QUEUE_CAPACITY_BYTES};
+
+    fn minimal_config() -> SceneSessionConfig {
+        SceneSessionConfig {
+            renderer_path: PathBuf::from("target/debug/renderide"),
+            output_path: PathBuf::from("target/headless.png"),
+            width: 64,
+            height: 32,
+            interval_ms: 250,
+            timeout: Duration::from_secs(5),
+            verbose_renderer: false,
+        }
+    }
+
+    #[test]
+    fn spawn_args_preserve_required_ipc_and_headless_values() {
+        let args = renderer_spawn_args(&minimal_config(), "queue-a");
+        let capacity = DEFAULT_QUEUE_CAPACITY_BYTES.to_string();
+        assert_eq!(args[0], "--headless");
+        assert!(args
+            .windows(2)
+            .any(|w| w == ["--headless-output", "target/headless.png"]));
+        assert!(args
+            .windows(2)
+            .any(|w| w == ["--headless-resolution", "64x32"]));
+        assert!(args
+            .windows(2)
+            .any(|w| w == ["--headless-interval-ms", "250"]));
+        assert!(args.windows(2).any(|w| w == ["-QueueName", "queue-a"]));
+        assert!(args
+            .windows(2)
+            .any(|w| w[0] == "-QueueCapacity" && w[1] == capacity));
+    }
+}

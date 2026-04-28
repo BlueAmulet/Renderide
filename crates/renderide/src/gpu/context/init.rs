@@ -96,8 +96,9 @@ fn log_adapter_candidates(adapters: &[wgpu::Adapter]) {
 fn build_wgpu_instance(gpu_validation_layers: bool) -> (wgpu::Instance, wgpu::InstanceFlags) {
     let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
     instance_desc.backends = wgpu::Backends::all();
-    let instance_flags = instance_flags_for_gpu_init(gpu_validation_layers);
-    instance_desc.flags = instance_flags;
+    instance_desc.flags = instance_flags_for_gpu_init(gpu_validation_layers);
+    let instance_desc = instance_desc.with_env();
+    let instance_flags = instance_desc.flags;
     (wgpu::Instance::new(instance_desc), instance_flags)
 }
 
@@ -116,20 +117,7 @@ async fn select_adapter(
         Some(s) => pick_adapter_index(&adapters, |a| a.is_surface_supported(s), power_preference),
         None => pick_adapter_index(&adapters, |_| true, power_preference),
     }
-    .ok_or_else(|| {
-        match surface {
-        Some(_) => GpuError::Adapter(format!(
-            "no surface-compatible adapter found among {} candidate(s)",
-            adapters.len()
-        )),
-        None => GpuError::Adapter(
-            "no Vulkan adapter found. \
-             Install drivers for your GPU, or for software rendering install \
-             `mesa-vulkan-drivers` / `vulkan-swrast` (lavapipe) and verify a Vulkan ICD is present."
-                .into(),
-        ),
-    }
-    })?;
+    .ok_or_else(|| adapter_not_found_error(surface, adapters.len()))?;
     let adapter = adapters
         .into_iter()
         .nth(chosen)
@@ -148,6 +136,24 @@ async fn select_adapter(
         power_preference,
     );
     Ok(adapter)
+}
+
+/// Builds the user-facing adapter-selection failure for the active path.
+fn adapter_not_found_error(
+    surface: Option<&wgpu::Surface<'_>>,
+    candidate_count: usize,
+) -> GpuError {
+    if surface.is_some() {
+        GpuError::Adapter(format!(
+            "no surface-compatible adapter found among {candidate_count} candidate(s)"
+        ))
+    } else {
+        GpuError::Adapter(
+            "no headless adapter found. Install graphics drivers or verify that a supported \
+             wgpu backend is available."
+                .into(),
+        )
+    }
 }
 
 /// MSAA sample-count support for desktop and stereo forward targets.
