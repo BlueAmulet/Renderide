@@ -1,6 +1,5 @@
 //! Grab-pass refraction filter (`Shader "Filters/Refract"`).
 
-// unity-shader-name: Filters/Refract
 
 #import renderide::filter_math as fm
 #import renderide::filter_vertex as fv

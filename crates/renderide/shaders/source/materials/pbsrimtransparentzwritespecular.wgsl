@@ -5,7 +5,6 @@
 //! Mirrors [`pbsrimtransparentzwrite`](super::pbsrimtransparentzwrite) but with the SpecularSetup
 //! workflow.
 
-// unity-shader-name: PBSRimTransparentZWriteSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

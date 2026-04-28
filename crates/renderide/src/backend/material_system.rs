@@ -28,7 +28,7 @@ pub struct MaterialSystem {
     pending_material_batches: VecDeque<MaterialsUpdateBatch>,
     /// GPU material families, router, and pipeline cache (after GPU attach).
     pub(crate) material_registry: Option<crate::materials::MaterialRegistry>,
-    /// Shader asset id → pipeline kind and optional HUD label when uploads arrive before GPU attach.
+    /// Shader asset id -> pipeline kind and optional AssetBundle shader asset name before GPU attach.
     pending_shader_routes: HashMap<i32, (RasterPipelineKind, Option<String>)>,
     /// Embedded raster materials (`@group(1)` textures/uniforms), after GPU attach.
     pub(crate) embedded_material_bind: Option<EmbeddedMaterialBindResources>,
@@ -71,8 +71,8 @@ impl MaterialSystem {
             device, limits,
         ));
         if let Some(reg) = self.material_registry.as_mut() {
-            for (asset_id, (pipeline, display_name)) in self.pending_shader_routes.drain() {
-                reg.map_shader_route(asset_id, pipeline, display_name);
+            for (asset_id, (pipeline, shader_asset_name)) in self.pending_shader_routes.drain() {
+                reg.map_shader_route(asset_id, pipeline, shader_asset_name);
             }
         }
         embedded.write_default_white(queue.as_ref());
@@ -110,18 +110,18 @@ impl MaterialSystem {
         self.embedded_material_bind.as_ref()
     }
 
-    /// Maps shader asset to raster pipeline kind and optional HUD display name, or defers until GPU attach.
+    /// Maps shader asset to raster pipeline kind and optional AssetBundle shader asset name, or defers until GPU attach.
     pub fn register_shader_route(
         &mut self,
         asset_id: i32,
         pipeline: RasterPipelineKind,
-        display_name: Option<String>,
+        shader_asset_name: Option<String>,
     ) {
         if let Some(reg) = self.material_registry.as_mut() {
-            reg.map_shader_route(asset_id, pipeline, display_name);
+            reg.map_shader_route(asset_id, pipeline, shader_asset_name);
         } else {
             self.pending_shader_routes
-                .insert(asset_id, (pipeline, display_name));
+                .insert(asset_id, (pipeline, shader_asset_name));
         }
     }
 

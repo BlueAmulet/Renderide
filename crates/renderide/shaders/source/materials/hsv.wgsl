@@ -1,6 +1,5 @@
 //! Grab-pass HSV offset/multiply filter (`Shader "Filters/HSV"`).
 
-// unity-shader-name: Filters/HSV
 
 #import renderide::filter_math as fm
 #import renderide::filter_vertex as fv

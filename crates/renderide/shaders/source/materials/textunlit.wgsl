@@ -1,6 +1,4 @@
-//! World text unlit (route key `textunlit`): alias of `text_unlit` for plain-label routing.
-//!
-//! Keep this source in sync with `text_unlit.wgsl`.
+//! World text unlit (Unity shader asset `TextUnlit`): MSDF / SDF / raster font atlas in world space.
 
 
 #import renderide::globals as rg

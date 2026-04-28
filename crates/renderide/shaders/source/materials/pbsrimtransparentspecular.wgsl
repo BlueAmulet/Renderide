@@ -4,7 +4,6 @@
 //! Transparent default render state is driven by the host's `_SrcBlend` / `_DstBlend` / `_ZWrite`
 //! material properties; the WGSL is identical to the opaque sibling.
 
-// unity-shader-name: PBSRimTransparentSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

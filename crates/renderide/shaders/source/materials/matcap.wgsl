@@ -1,6 +1,5 @@
 //! Matcap (`Shader "Matcap"`): tangent-space normal map, view-space normal matcap lookup.
 
-// unity-shader-name: Matcap
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

@@ -4,8 +4,6 @@
 //! sampler per texture (binding-count cost is minor and well within wgpu limits); the renderer
 //! routes whatever sampler the host supplies, so the visual result matches.
 
-// unity-shader-name: Custom/Nosamplers
-// unity-shader-name: Nosamplers
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

@@ -13,7 +13,6 @@
 //! - [`packing`] — `MemoryPacker` / `MemoryUnpacker` and supporting traits implementing the
 //!   binary contract.
 //! - [`buffer`] — [`buffer::SharedMemoryBufferDescriptor`] for shared-memory regions.
-//! - [`shader_upload_extras`] — optional trailing payload fields on `ShaderUpload`.
 //! - [`ipc`] — Cloudtoid queue helpers, the renderer-side dual-queue wrapper
 //!   ([`ipc::DualQueueIpc`]), and the read-only [`ipc::SharedMemoryAccessor`].
 
@@ -21,7 +20,6 @@ pub mod buffer;
 pub mod ipc;
 pub mod packing;
 pub mod packing_extras;
-pub mod shader_upload_extras;
 pub mod shared_memory_writer;
 pub mod wire_writer;
 

@@ -4,7 +4,6 @@
 //!
 //! Reads tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of metallic-gloss.
 
-// unity-shader-name: PBSDisplaceSpecularTransparent
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

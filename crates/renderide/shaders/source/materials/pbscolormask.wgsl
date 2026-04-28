@@ -6,8 +6,6 @@
 //! follows the same pattern. Mirrors the keyword surface (`_ALBEDOTEX`, `_EMISSIONTEX`,
 //! `_NORMALMAP`, `_METALLICMAP`, `_OCCLUSION`, `_MULTI_VALUES`).
 
-// unity-shader-name: PBSColorMask
-// unity-shader-name: ColorMask
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

@@ -1,6 +1,5 @@
 //! Grab-pass threshold filter (`Shader "Filters/Threshold"`).
 
-// unity-shader-name: Filters/Threshold
 
 #import renderide::filter_vertex as fv
 #import renderide::globals as rg

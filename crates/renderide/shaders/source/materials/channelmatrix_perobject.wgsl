@@ -1,6 +1,5 @@
 //! Per-object grab-pass channel-matrix filter (`Shader "Filters/ChannelMatrix_PerObject"`).
 
-// unity-shader-name: Filters/ChannelMatrix_PerObject
 
 #import renderide::filter_vertex as fv
 #import renderide::globals as rg

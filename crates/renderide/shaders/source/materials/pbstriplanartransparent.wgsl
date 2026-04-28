@@ -8,7 +8,6 @@
 //! `_WORLDSPACE` (1.0) / `_OBJECTSPACE` (1.0); this matches Unity's `_WORLDSPACE`/`_OBJECTSPACE`
 //! `multi_compile`.
 
-// unity-shader-name: PBSTriplanarTransparent
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

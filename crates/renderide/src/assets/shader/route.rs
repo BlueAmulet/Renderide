@@ -1,38 +1,41 @@
 //! Resolves [`ShaderUpload`](crate::shared::ShaderUpload) to a [`RasterPipelineKind`] for [`MaterialRegistry`](crate::materials::MaterialRegistry).
 //!
-//! Extraction of Unity logical names lives in [`super::logical_name`] and [`super::unity_asset`].
-//! [`resolve_shader_upload`] uses
-//! [`super::logical_name::resolve_shader_routing_name_from_upload`] so filesystem paths prefer raw
-//! AssetBundle / container stems before ShaderLab first-token canonicalization.
+//! The stock host sends an on-disk shader AssetBundle path in [`ShaderUpload::file`]. Routing reads
+//! that bundle, extracts the Shader object's `m_Container` asset filename, and maps that filename to
+//! an embedded WGSL stem.
 //!
-//! Names with an embedded `{logical}_default` WGSL target (see [`crate::materials::embedded_shader_stem`]) resolve to
-//! [`RasterPipelineKind::EmbeddedStem`]; unknown or non-embedded shaders use
+//! Names with an embedded `{asset_name}_default` WGSL target (see [`crate::materials::embedded_shader_stem`]) resolve to
+//! [`RasterPipelineKind::EmbeddedStem`]; unresolved or non-embedded shaders use
 //! [`RasterPipelineKind::Null`] (the black/grey checkerboard) as the **only** mesh fallback
 //! (there is no separate solid-color pipeline).
 
+use std::path::Path;
 use std::sync::Arc;
 
-use crate::materials::{embedded_default_stem_for_unity_name, RasterPipelineKind};
+use crate::materials::{embedded_default_stem_for_shader_asset_name, RasterPipelineKind};
 
 use crate::shared::ShaderUpload;
 
-use super::logical_name;
+use super::unity_asset;
 
-/// Resolved upload: optional Unity-style logical name plus the raster pipeline kind for pipeline selection.
+/// Resolved upload: optional AssetBundle shader asset name plus the raster pipeline kind.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ResolvedShaderUpload {
-    /// `Shader "…"` string, container stem, or label when resolution succeeded.
-    pub unity_shader_name: Option<String>,
+    /// Shader asset filename or stem from the AssetBundle `m_Container` entry.
+    pub shader_asset_name: Option<String>,
     /// Pipeline kind passed to [`crate::materials::MaterialRegistry::map_shader_route`].
     pub pipeline: RasterPipelineKind,
 }
 
 /// Full resolution pipeline for a host [`ShaderUpload`].
 pub fn resolve_shader_upload(data: &ShaderUpload) -> ResolvedShaderUpload {
-    let unity_shader_name = logical_name::resolve_shader_routing_name_from_upload(data, None);
-    let pipeline = match unity_shader_name.as_deref() {
+    let shader_asset_name = data
+        .file
+        .as_deref()
+        .and_then(|file| unity_asset::try_resolve_shader_asset_name_from_path(Path::new(file)));
+    let pipeline = match shader_asset_name.as_deref() {
         Some(name) => {
-            if let Some(stem) = embedded_default_stem_for_unity_name(name) {
+            if let Some(stem) = embedded_default_stem_for_shader_asset_name(name) {
                 RasterPipelineKind::EmbeddedStem(Arc::from(stem))
             } else {
                 RasterPipelineKind::Null
@@ -41,7 +44,7 @@ pub fn resolve_shader_upload(data: &ShaderUpload) -> ResolvedShaderUpload {
         None => RasterPipelineKind::Null,
     };
     ResolvedShaderUpload {
-        unity_shader_name,
+        shader_asset_name,
         pipeline,
     }
 }
@@ -52,22 +55,38 @@ mod tests {
     use crate::materials::RasterPipelineKind;
 
     #[test]
-    fn shader_lab_unlit_resolves_embedded_pipeline() {
+    fn missing_file_uses_null_pipeline() {
         let u = ShaderUpload {
             asset_id: 1,
-            file: Some("Shader \"Unlit\"\n{\n".to_string()),
+            file: None,
         };
         let r = resolve_shader_upload(&u);
-        assert!(matches!(r.pipeline, RasterPipelineKind::EmbeddedStem(_)));
+        assert_eq!(r.shader_asset_name, None);
+        assert_eq!(r.pipeline, RasterPipelineKind::Null);
     }
 
     #[test]
-    fn unknown_shader_uses_null_pipeline() {
+    fn inline_shader_lab_text_is_not_a_routing_source() {
         let u = ShaderUpload {
             asset_id: 2,
-            file: Some("Shader \"Custom/NoSuchEmbeddedShader\"\n{\n".to_string()),
+            file: Some("Shader \"Unlit\"\n{\n".to_string()),
         };
         let r = resolve_shader_upload(&u);
+        assert_eq!(r.shader_asset_name, None);
+        assert_eq!(r.pipeline, RasterPipelineKind::Null);
+    }
+
+    #[test]
+    fn non_assetbundle_file_uses_null_pipeline() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("unlit.shader");
+        std::fs::write(&path, "Shader \"Unlit\" { }").expect("write test shader text");
+        let u = ShaderUpload {
+            asset_id: 3,
+            file: Some(path.to_string_lossy().to_string()),
+        };
+        let r = resolve_shader_upload(&u);
+        assert_eq!(r.shader_asset_name, None);
         assert_eq!(r.pipeline, RasterPipelineKind::Null);
     }
 }

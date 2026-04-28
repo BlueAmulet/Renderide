@@ -3,7 +3,6 @@
 //! Mirrors the Unity keyword/property surface for `_TEXTURE`, `_NORMALMAP`, `_LERPTEX`,
 //! `_LERPTEX_POLARUV`, and `_MULTI_VALUES`.
 
-// unity-shader-name: FresnelLerp
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

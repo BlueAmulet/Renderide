@@ -7,7 +7,6 @@
 //! Unity reference's smaller property block. Mirrors `pbsdualsided.wgsl` shading without the
 //! front-face flip.
 
-// unity-shader-name: PBSStencil
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

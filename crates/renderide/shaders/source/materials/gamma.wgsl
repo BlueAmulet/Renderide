@@ -1,6 +1,5 @@
 //! Grab-pass gamma filter (`Shader "Filters/Gamma"`).
 
-// unity-shader-name: Filters/Gamma
 
 #import renderide::filter_vertex as fv
 #import renderide::globals as rg

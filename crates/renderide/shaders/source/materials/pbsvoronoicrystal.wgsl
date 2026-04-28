@@ -7,7 +7,6 @@
 //! Cell centers animate by `_AnimationOffset` (host-driven; this renderer doesn't expose seconds-
 //! since-startup so the host must drive the animation directly).
 
-// unity-shader-name: PBSVoronoiCrystal
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

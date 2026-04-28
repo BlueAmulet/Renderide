@@ -1,6 +1,5 @@
 //! Grab-pass channel-matrix filter (`Shader "Filters/ChannelMatrix"`).
 
-// unity-shader-name: Filters/ChannelMatrix
 
 #import renderide::filter_vertex as fv
 #import renderide::globals as rg

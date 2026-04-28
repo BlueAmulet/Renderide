@@ -5,7 +5,6 @@
 //! packed maps with the SpecularSetup BRDF + per-layer `_SpecularColor*` and optional `_SpecularMap*`
 //! (four separate textures gated by `_SPECULARMAP`).
 
-// unity-shader-name: PBSColorSplatSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

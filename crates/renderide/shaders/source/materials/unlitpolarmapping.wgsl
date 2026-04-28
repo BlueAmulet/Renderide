@@ -3,8 +3,6 @@
 //! discontinuity at the polar seam; this WGSL port mirrors that with `textureSampleGrad` and
 //! the same derivative reconstruction.
 
-// unity-shader-name: Unlit/UnlitPolarMapping
-// unity-shader-name: UnlitPolarMapping
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

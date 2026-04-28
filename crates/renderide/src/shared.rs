@@ -6,7 +6,6 @@
 pub use renderide_shared::buffer;
 pub use renderide_shared::packing;
 pub use renderide_shared::packing_extras;
-pub use renderide_shared::shader_upload_extras;
 
 /// Generated Renderite shared types and decode helpers (re-exported from
 /// [`renderide_shared::shared`]).

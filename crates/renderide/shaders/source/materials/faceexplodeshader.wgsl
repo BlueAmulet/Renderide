@@ -3,8 +3,6 @@
 //!
 //! Mirrors `pbsmetallic` for shading; the only difference is the normal-scaled vertex offset.
 
-// unity-shader-name: Custom/FaceExplodeShader
-// unity-shader-name: FaceExplodeShader
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

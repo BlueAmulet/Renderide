@@ -1,6 +1,5 @@
 //! Xiexe Toon 2.0 outlined (`Shader "Xiexe/Toon2.0/XSToon2.0_Outlined"`).
 
-// unity-shader-name: Xiexe/Toon2.0/XSToon2.0_Outlined
 
 #import renderide::xiexe::toon2 as xs
 #import renderide::xiexe::toon2::base as xb

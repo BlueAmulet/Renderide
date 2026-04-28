@@ -7,13 +7,13 @@ use std::collections::HashMap;
 
 use super::RasterPipelineKind;
 
-/// Host shader route: raster pipeline kind plus optional Unity-style name for the debug HUD.
+/// Host shader route: raster pipeline kind plus optional AssetBundle shader asset name for the debug HUD.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShaderRouteEntry {
     /// Pipeline kind for this host shader asset id.
     pub pipeline: RasterPipelineKind,
-    /// Logical shader label when known (ShaderLab name, WGSL banner, or upload field).
-    pub display_name: Option<String>,
+    /// Shader asset filename or stem from the AssetBundle `m_Container` entry.
+    pub shader_asset_name: Option<String>,
 }
 
 /// Shader asset id → route; unknown ids use the fallback pipeline set via [`Self::new`] /
@@ -65,24 +65,24 @@ impl MaterialRouter {
         &self.fallback
     }
 
-    /// Inserts or replaces a host shader route (pipeline kind and optional HUD label).
+    /// Inserts or replaces a host shader route (pipeline kind and optional shader asset name).
     pub fn set_shader_route(
         &mut self,
         shader_asset_id: i32,
         pipeline: RasterPipelineKind,
-        display_name: Option<String>,
+        shader_asset_name: Option<String>,
     ) {
         self.routes.insert(
             shader_asset_id,
             ShaderRouteEntry {
                 pipeline,
-                display_name,
+                shader_asset_name,
             },
         );
         self.bump();
     }
 
-    /// Inserts a host shader → pipeline mapping with no HUD display name.
+    /// Inserts a host shader -> pipeline mapping with no AssetBundle shader asset name.
     pub fn set_shader_pipeline(&mut self, shader_asset_id: i32, pipeline: RasterPipelineKind) {
         self.set_shader_route(shader_asset_id, pipeline, None);
     }
@@ -129,12 +129,12 @@ impl MaterialRouter {
             .map(|e| e.pipeline.clone())
     }
 
-    /// Host shader asset ids, pipeline kinds, and optional display names, sorted by id (for debug HUD).
+    /// Host shader asset ids, pipeline kinds, and optional AssetBundle shader asset names, sorted by id.
     pub fn routes_sorted_for_hud(&self) -> Vec<(i32, RasterPipelineKind, Option<String>)> {
         let mut v: Vec<_> = self
             .routes
             .iter()
-            .map(|(&k, e)| (k, e.pipeline.clone(), e.display_name.clone()))
+            .map(|(&k, e)| (k, e.pipeline.clone(), e.shader_asset_name.clone()))
             .collect();
         v.sort_by_key(|(k, _, _)| *k);
         v
@@ -174,20 +174,12 @@ mod tests {
     }
 
     #[test]
-    fn set_shader_route_stores_display_name_for_hud() {
+    fn set_shader_route_stores_shader_asset_name_for_hud() {
         let mut r = MaterialRouter::new(RasterPipelineKind::Null);
-        r.set_shader_route(
-            3,
-            test_route_pipeline(),
-            Some("Custom/ExampleShader".to_string()),
-        );
+        r.set_shader_route(3, test_route_pipeline(), Some("ExampleShader".to_string()));
         assert_eq!(
             r.routes_sorted_for_hud(),
-            vec![(
-                3,
-                test_route_pipeline(),
-                Some("Custom/ExampleShader".to_string())
-            )]
+            vec![(3, test_route_pipeline(), Some("ExampleShader".to_string()))]
         );
         assert_eq!(r.get_shader_pipeline(3), Some(test_route_pipeline()));
     }

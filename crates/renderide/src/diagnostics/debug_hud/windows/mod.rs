@@ -55,7 +55,7 @@ impl DebugHud {
         stats_tab::main_debug_panel(ui, renderer, frame);
     }
 
-    /// Host shader asset id, logical name (or `<none>`), and material family per line (see **Shader routes** tab).
+    /// Host shader asset id, AssetBundle shader asset name (or `<none>`), and material family per line.
     pub(super) fn shader_mappings_tab(
         ui: &imgui::Ui,
         frame: Option<&crate::diagnostics::FrameDiagnosticsSnapshot>,

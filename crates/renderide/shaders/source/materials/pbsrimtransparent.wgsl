@@ -3,7 +3,6 @@
 //! The current renderer's mesh-forward pipeline is still opaque/fixed-state, so this shader only preserves
 //! the material's alpha in its output; proper transparent blending depends on future pipeline-state work.
 
-// unity-shader-name: PBSRimTransparent
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

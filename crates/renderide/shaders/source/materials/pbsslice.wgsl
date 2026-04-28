@@ -7,7 +7,6 @@
 //! driven from world space or object space via `_WORLD_SPACE` / `_OBJECT_SPACE` keyword floats
 //! (world space is the default when neither is set).
 
-// unity-shader-name: PBSSlice
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

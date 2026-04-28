@@ -4,7 +4,6 @@
 //! etc.) is available. Multi-view eye separation is handled by the renderer's per-eye render pass,
 //! not the side-by-side `eyeIndex` texture-coordinate offset Unity needs for single-pass stereo.
 
-// unity-shader-name: Reflection
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

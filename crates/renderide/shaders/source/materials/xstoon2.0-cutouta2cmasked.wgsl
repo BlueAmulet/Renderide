@@ -1,6 +1,5 @@
 //! Xiexe Toon 2.0 masked alpha-to-coverage (`Shader "Xiexe/Toon2.0/XSToon2.0_CutoutA2C_Masked"`).
 
-// unity-shader-name: Xiexe/Toon2.0/XSToon2.0_CutoutA2C_Masked
 
 #import renderide::xiexe::toon2 as xs
 #import renderide::xiexe::toon2::base as xb

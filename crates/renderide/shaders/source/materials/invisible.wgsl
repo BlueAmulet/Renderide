@@ -1,7 +1,6 @@
 //! Unity `Shader "Invisible"`: vertex collapses to origin and the fragment unconditionally
 //! discards. Used as a hit-volume material that contributes nothing to color or depth.
 
-// unity-shader-name: Invisible
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

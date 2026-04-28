@@ -1,6 +1,5 @@
 //! Unity GradientSkybox (`Shader "GradientSkybox"`): sky gradient material.
 
-// unity-shader-name: GradientSkybox
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

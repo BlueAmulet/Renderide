@@ -1,6 +1,5 @@
 //! Grab-pass grayscale filter (`Shader "Filters/Grayscale"`).
 
-// unity-shader-name: Filters/Grayscale
 
 #import renderide::filter_math as fm
 #import renderide::filter_vertex as fv

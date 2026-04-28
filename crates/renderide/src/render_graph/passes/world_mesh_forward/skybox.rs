@@ -10,7 +10,6 @@ use parking_lot::Mutex;
 use crate::assets::material::MaterialPropertyLookupIds;
 use crate::backend::{EmbeddedTexturePools, FrameGpuResources};
 use crate::embedded_shaders;
-use crate::materials::embedded_shader_stem::embedded_default_stem_for_unity_name;
 use crate::render_graph::camera::view_matrix_for_world_mesh_render_space;
 use crate::render_graph::frame_params::{
     FrameRenderParams, PreparedClearColorSkybox, PreparedMaterialSkybox, PreparedSkybox,
@@ -506,15 +505,9 @@ fn skybox_stem_for_shader_asset(
     registry: &crate::materials::MaterialRegistry,
     shader_asset_id: i32,
 ) -> Option<String> {
-    if let Some(stem) = registry.stem_for_shader_asset(shader_asset_id) {
-        return Some(stem.to_string());
-    }
-    let display_name = registry
-        .shader_routes_for_hud()
-        .into_iter()
-        .find(|(id, _, _)| *id == shader_asset_id)
-        .and_then(|(_, _, name)| name)?;
-    embedded_default_stem_for_unity_name(&display_name)
+    registry
+        .stem_for_shader_asset(shader_asset_id)
+        .map(str::to_string)
 }
 
 /// Finds the world-to-view matrices used for skybox ray reconstruction.

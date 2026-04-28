@@ -1,8 +1,6 @@
 //! Unity unlit `Shader "Unlit/Overlay"`: texture × tint with `_ZTest=Always` (host-driven) for
 //! HUD-style overlays.
 
-// unity-shader-name: Unlit/Overlay
-// unity-shader-name: Overlay
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

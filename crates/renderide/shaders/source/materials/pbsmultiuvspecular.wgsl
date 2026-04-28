@@ -5,7 +5,6 @@
 //! `< 1.0` resolve to UV0 and `>= 1.0` resolve to UV1; UV2 / UV3 are not yet wired and collapse
 //! to UV1 — supporting them requires plumbing additional vertex streams through the per-draw layout.
 
-// unity-shader-name: PBSMultiUVSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

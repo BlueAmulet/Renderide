@@ -1,8 +1,6 @@
 //! Unity surface shader `Shader "Custom/TestBlend"`: metallic Standard lighting that lerps
 //! between two albedo textures and clips against `_CutOff`.
 
-// unity-shader-name: Custom/TestBlend
-// unity-shader-name: TestBlend
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

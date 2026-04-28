@@ -3,8 +3,6 @@
 //! constant `_node_2829` tint. The shader was a placeholder in the Resonite asset bundle and never
 //! consumed real light data downstream.
 
-// unity-shader-name: Unlit/NewUnlitShader
-// unity-shader-name: NewUnlitShader
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

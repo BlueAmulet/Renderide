@@ -1,6 +1,5 @@
 //! Generic Xiexe Toon 2.0 (`Shader "Xiexe/XSToon2.0"`).
 
-// unity-shader-name: Xiexe/XSToon2.0
 
 #import renderide::xiexe::toon2 as xs
 #import renderide::xiexe::toon2::base as xb

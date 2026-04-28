@@ -8,7 +8,6 @@
 //! (`pbsdualsidedtransparentspecular_default`) so host shader-asset routing maps
 //! `PBSDualSidedTransparentSpecular` to the matching pipeline cache key.
 
-// unity-shader-name: PBSDualSidedTransparentSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

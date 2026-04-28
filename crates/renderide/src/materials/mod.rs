@@ -94,7 +94,7 @@ mod wgsl_reflect;
 /// Pipeline cache keyed by shader route / layout fingerprint.
 pub use cache::{MaterialPipelineCache, MaterialPipelineCacheKey, MaterialPipelineSet};
 
-/// Unity shader names → embedded WGSL stems and permutation flags.
+/// Unity shader asset names → embedded WGSL stems and permutation flags.
 pub use embedded_raster_pipeline::{
     embedded_composed_stem_for_permutation, embedded_stem_needs_color_stream,
     embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_uv0_stream,
@@ -104,9 +104,7 @@ pub use embedded_raster_pipeline::{
     embedded_wgsl_needs_uv0_stream, embedded_wgsl_requires_grab_pass,
     embedded_wgsl_requires_intersection_pass,
 };
-pub use embedded_shader_stem::{
-    embedded_default_stem_for_unity_name, embedded_stem_for_unity_name,
-};
+pub use embedded_shader_stem::embedded_default_stem_for_shader_asset_name;
 
 /// Pipeline family descriptors, per-property GPU layout, and raster kind flags.
 pub use family::MaterialPipelineDesc;

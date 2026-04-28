@@ -5,7 +5,6 @@
 //! accumulates local lights. Unity's ShadowCaster/Deferred/Meta passes are not declared here because
 //! this render path has one forward color target, not shadow-map, G-buffer, or lightmapping targets.
 
-// unity-shader-name: PBSMetallic
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

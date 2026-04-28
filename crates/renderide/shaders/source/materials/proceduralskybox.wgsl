@@ -1,6 +1,5 @@
 //! Unity ProceduralSkybox asset (`Shader "ProceduralSky"`): analytic sky material.
 
-// unity-shader-name: ProceduralSkybox
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

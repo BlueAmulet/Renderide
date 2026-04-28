@@ -5,7 +5,6 @@
 //! Reads tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of `_Metallic` /
 //! `_MetallicMap`.
 
-// unity-shader-name: PBSDistanceLerpSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

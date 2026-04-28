@@ -205,15 +205,15 @@ impl RenderBackend {
         self.materials.on_unload_material_property_block(asset_id);
     }
 
-    /// Maps shader asset to raster pipeline kind and optional HUD display name, or defers until [`super::RenderBackend::attach`].
+    /// Maps shader asset to raster pipeline kind and optional AssetBundle shader asset name, or defers until [`super::RenderBackend::attach`].
     pub fn register_shader_route(
         &mut self,
         asset_id: i32,
         pipeline: RasterPipelineKind,
-        display_name: Option<String>,
+        shader_asset_name: Option<String>,
     ) {
         self.materials
-            .register_shader_route(asset_id, pipeline, display_name);
+            .register_shader_route(asset_id, pipeline, shader_asset_name);
     }
 
     /// Removes shader routing for `asset_id`.

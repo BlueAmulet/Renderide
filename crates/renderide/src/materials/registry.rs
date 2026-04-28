@@ -5,7 +5,6 @@ use std::sync::Arc;
 use crate::pipelines::ShaderPermutation;
 
 use super::cache::{MaterialPipelineCache, MaterialPipelineSet};
-use super::embedded_shader_stem::embedded_default_stem_for_unity_name;
 use super::family::MaterialPipelineDesc;
 use super::material_passes::MaterialBlendMode;
 use super::pipeline_kind::RasterPipelineKind;
@@ -34,7 +33,7 @@ struct PipelineLookupRequest<'a> {
 /// Owning table of material routing and pipeline cache.
 pub struct MaterialRegistry {
     device: Arc<wgpu::Device>,
-    /// Shader asset id → pipeline family and display name routing.
+    /// Shader asset id -> pipeline family and resolved asset-name routing.
     pub router: MaterialRouter,
     cache: MaterialPipelineCache,
 }
@@ -116,36 +115,26 @@ impl MaterialRegistry {
         }
     }
 
-    /// Inserts a host shader id → pipeline mapping and optional HUD display name (Unity-style logical name or upload field).
-    ///
-    /// When `display_name` normalizes to an embedded `{key}_default` WGSL target, records the stem on
-    /// [`MaterialRouter::stem_for_shader_asset`].
+    /// Inserts a host shader id -> pipeline mapping and optional resolved AssetBundle shader asset name.
     pub fn map_shader_route(
         &mut self,
         shader_asset_id: i32,
         pipeline: RasterPipelineKind,
-        display_name: Option<String>,
+        shader_asset_name: Option<String>,
     ) {
-        let stem_from_display = display_name
-            .as_deref()
-            .and_then(embedded_default_stem_for_unity_name);
         self.router
-            .set_shader_route(shader_asset_id, pipeline.clone(), display_name);
+            .set_shader_route(shader_asset_id, pipeline.clone(), shader_asset_name);
         match &pipeline {
             RasterPipelineKind::EmbeddedStem(s) => {
                 self.router.set_shader_stem(shader_asset_id, s.to_string());
             }
             RasterPipelineKind::Null => {
-                if let Some(s) = stem_from_display {
-                    self.router.set_shader_stem(shader_asset_id, s);
-                } else {
-                    self.router.remove_shader_stem(shader_asset_id);
-                }
+                self.router.remove_shader_stem(shader_asset_id);
             }
         }
     }
 
-    /// Inserts a host shader id → pipeline mapping without a HUD display name.
+    /// Inserts a host shader id -> pipeline mapping without an AssetBundle shader asset name.
     pub fn map_shader_pipeline(&mut self, shader_asset_id: i32, pipeline: RasterPipelineKind) {
         self.map_shader_route(shader_asset_id, pipeline, None);
     }
@@ -224,7 +213,7 @@ impl MaterialRegistry {
         &self.device
     }
 
-    /// Shader routes for the debug HUD (`shader_asset_id`, [`RasterPipelineKind`], optional display name), sorted.
+    /// Shader routes for the debug HUD (`shader_asset_id`, [`RasterPipelineKind`], optional AssetBundle shader asset name), sorted.
     pub fn shader_routes_for_hud(&self) -> Vec<(i32, RasterPipelineKind, Option<String>)> {
         self.router.routes_sorted_for_hud()
     }

@@ -1,6 +1,5 @@
 //! Xiexe Toon 2.0 premultiplied transparent (`Shader "Xiexe/Toon2.0/XSToon2.0_Transparent"`).
 
-// unity-shader-name: Xiexe/Toon2.0/XSToon2.0_Transparent
 
 #import renderide::xiexe::toon2 as xs
 #import renderide::xiexe::toon2::base as xb

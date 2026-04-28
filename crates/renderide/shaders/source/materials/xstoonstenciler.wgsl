@@ -1,6 +1,5 @@
 //! Xiexe Toon 2.0 stenciler (`Shader "Xiexe/Toon2.0/XSToonStenciler"`).
 
-// unity-shader-name: Xiexe/Toon2.0/XSToonStenciler
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

@@ -10,7 +10,6 @@
 //! Mirrors the keyword surface (`_DUAL_ALBEDO`, `_EMISSIONTEX`, `_DUAL_EMISSIONTEX`, `_NORMALMAP`,
 //! `_METALLICMAP`, `_OCCLUSION`, `_ALPHACLIP`).
 
-// unity-shader-name: PBSMultiUV
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

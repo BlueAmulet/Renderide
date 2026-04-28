@@ -1,6 +1,5 @@
 //! Xiexe Toon 2.0 dithered transparency (`Shader "Xiexe/Toon2.0/XSToon2.0_Dithered"`).
 
-// unity-shader-name: Xiexe/Toon2.0/XSToon2.0_Dithered
 
 #import renderide::xiexe::toon2 as xs
 #import renderide::xiexe::toon2::base as xb

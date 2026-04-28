@@ -1,7 +1,6 @@
 //! Unity Projection360 (`Shader "Projection360"`): equirectangular/cubemap projection with
 //! optional second texture, tint texture, offset map, rectangular clipping, and Unity UI stencil state.
 
-// unity-shader-name: Projection360
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

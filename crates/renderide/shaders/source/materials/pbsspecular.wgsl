@@ -11,7 +11,6 @@
 //! detail mask). `_DetailAlbedoMap_ST` applies to the detail set (detail albedo, detail normal).
 //! `_UVSec` selects UV0 or UV1 for the detail set.
 
-// unity-shader-name: PBSSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

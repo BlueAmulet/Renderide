@@ -1,6 +1,5 @@
 //! Grab-pass color inversion filter (`Shader "Filters/Invert"`).
 
-// unity-shader-name: Filters/Invert
 
 #import renderide::filter_vertex as fv
 #import renderide::globals as rg

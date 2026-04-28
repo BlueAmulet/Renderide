@@ -6,7 +6,6 @@
 //! it doesn't need a built-in LUT bound. Stepping cadences match the Unity reference
 //! (`max((1-smoothness)*4, 0.01)` for specular, two diffuse bands plus transmission).
 
-// unity-shader-name: ToonStandard
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

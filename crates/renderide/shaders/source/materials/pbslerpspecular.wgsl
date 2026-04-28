@@ -5,7 +5,6 @@
 //! `_LERPTEX`, `_ALBEDOTEX`, `_EMISSIONTEX`, `_NORMALMAP`, `_SPECULARMAP`,
 //! `_OCCLUSION`, `_MULTI_VALUES`, `_DUALSIDED`, `_ALPHACLIP`.
 
-// unity-shader-name: PBSLerpSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

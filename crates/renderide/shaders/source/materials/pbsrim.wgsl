@@ -7,7 +7,6 @@
 //! Transparent blend / raster state is still controlled by the renderer's fixed mesh-forward pipeline,
 //! not the material uniforms.
 
-// unity-shader-name: PBSRim
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

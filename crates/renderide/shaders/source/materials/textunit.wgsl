@@ -1,4 +1,4 @@
-//! World text unlit (route key `textunit`): MSDF / SDF / raster font atlas in world space.
+//! World text unlit (Unity shader asset `TextUnit`): MSDF / SDF / raster font atlas in world space.
 //!
 //! This mirrors the renderer's `ui_textunlit` logic, but omits UI-only rect/overlay/stencil paths.
 //! The current mesh forward path still has no vertex color stream, so vertex color is approximated as white.

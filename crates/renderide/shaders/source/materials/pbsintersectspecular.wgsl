@@ -5,7 +5,6 @@
 //! Keyword-style float fields mirror Unity `#pragma multi_compile` values:
 //! `_ALBEDOTEX`, `_EMISSIONTEX`, `_NORMALMAP`, `_SPECULARMAP`, `_OCCLUSION`.
 
-// unity-shader-name: PBSIntersectSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

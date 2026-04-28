@@ -4,7 +4,6 @@
 //! base, forward additive, and shadow caster passes. This renderer has a forward color path here, so
 //! the shader declares the forward base + forward additive passes and keeps culling disabled.
 
-// unity-shader-name: PBSDualSidedSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

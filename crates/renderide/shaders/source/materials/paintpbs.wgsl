@@ -3,8 +3,6 @@
 //! gated through `pow(paint, _Pow)` × `_PaintGain` × `_OutputScale` for the final alpha mask.
 //! Default render state is transparent (host-driven via `_SrcBlend` / `_DstBlend` / `_ZWrite`).
 
-// unity-shader-name: Art/PaintPBS
-// unity-shader-name: PaintPBS
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

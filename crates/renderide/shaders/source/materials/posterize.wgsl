@@ -1,6 +1,5 @@
 //! Grab-pass posterize filter (`Shader "Filters/Posterize"`).
 
-// unity-shader-name: Filters/Posterize
 
 #import renderide::filter_vertex as fv
 #import renderide::globals as rg

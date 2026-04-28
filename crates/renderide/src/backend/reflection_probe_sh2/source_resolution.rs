@@ -194,14 +194,9 @@ fn shader_route_name(
     shader_asset_id: i32,
 ) -> Option<String> {
     let registry = materials.material_registry()?;
-    if let Some(stem) = registry.stem_for_shader_asset(shader_asset_id) {
-        return Some(stem.to_string());
-    }
     registry
-        .shader_routes_for_hud()
-        .into_iter()
-        .find(|(id, _, _)| *id == shader_asset_id)
-        .and_then(|(_, _, name)| name)
+        .stem_for_shader_asset(shader_asset_id)
+        .map(str::to_string)
 }
 
 /// Resolves a `Projection360` material to a texture-backed source.

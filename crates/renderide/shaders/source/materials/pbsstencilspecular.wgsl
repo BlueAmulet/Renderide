@@ -3,7 +3,6 @@
 //! Sibling of [`pbsstencil`](super::pbsstencil); swaps to the SpecularSetup BRDF and reads
 //! tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of metallic-gloss.
 
-// unity-shader-name: PBSStencilSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

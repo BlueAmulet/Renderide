@@ -1,11 +1,11 @@
-//! Resolve shader routing names from on-disk **Unity AssetBundle** files using `unity-asset`.
+//! Resolve shader asset names from on-disk **Unity AssetBundle** files using `unity-asset`.
 //!
 //! [`crate::shared::ShaderUpload::file`] is typically an **extensionless path** (or any path) whose bytes
 //! parse as UnityFS / AssetBundle data—not a Unity `.asset` YAML file. The resolved name is taken **only**
 //! from [`unity_asset::environment::Environment::bundle_container_entries`]: `AssetBundle.m_Container`
-//! asset paths matched to embedded Shader objects, then stemmed (e.g. `.../ui_unlit.shader` → `ui_unlit`).
+//! asset paths matched to embedded Shader objects, then stemmed (e.g. `.../ui_unlit.shader` -> `ui_unlit`).
 //!
-//! Serialized shader objects are **not** read for ShaderLab strings, typetree names, or other internal names.
+//! Serialized shader objects are **not** read for internal labels, typetree names, or other object names.
 
 use std::fmt::Display;
 use std::path::Path;
@@ -15,8 +15,6 @@ use unity_asset::environment::BinarySource;
 use unity_asset::environment::Environment;
 use unity_asset::load_bundle_from_memory;
 use unity_asset::AssetBundle;
-
-use super::logical_name::canonical_shader_lab_logical_name;
 
 /// Maximum file size to read when probing a bundle.
 const MAX_READ_BYTES: usize = 32 * 1024 * 1024;
@@ -30,28 +28,16 @@ const MAX_ERR_LOG_CHARS: usize = 240;
 /// Hex prefix length for short probe lines.
 const PROBE_HEX_SHORT: usize = 8;
 
-/// Raw shader identifier from a filesystem path: **AssetBundle `m_Container` stem** only,
-/// **before** [`canonical_shader_lab_logical_name`] (first-token) normalization.
-///
-/// Prefer this for **routing** and embedded stem matching so names stay aligned with bundle layout.
-pub(crate) fn try_resolve_shader_name_from_path_hint_raw(path: &Path) -> Option<String> {
+/// Shader asset filename or stem from a filesystem path: **AssetBundle `m_Container` stem** only.
+pub(crate) fn try_resolve_shader_asset_name_from_path(path: &Path) -> Option<String> {
     let meta = std::fs::metadata(path).ok()?;
-    if meta.is_file() {
+    let name = if meta.is_file() {
         try_from_file(path)
     } else if meta.is_dir() {
         try_from_directory(path)
     } else {
         None
-    }
-}
-
-/// Resolves the shader stem from an on-disk AssetBundle path (`m_Container` only).
-///
-/// Logs [`logger::info!`] on success. Failures use one concise [`logger::warn!`] per file or directory;
-/// detailed probe output is [`logger::debug!`].
-pub(crate) fn try_resolve_shader_name_from_path_hint(path: &Path) -> Option<String> {
-    let name = try_resolve_shader_name_from_path_hint_raw(path)
-        .map(|n| canonical_shader_lab_logical_name(&n));
+    };
     if let Some(parsed) = &name {
         logger::info!(
             "shader_unity_asset: resolved {:?} from path {}",
@@ -364,7 +350,7 @@ fn shader_name_from_bundle_container(bundle_path: &Path, bundle: &AssetBundle) -
 
     for pid in shader_path_ids {
         if let Some(entry) = entries.iter().find(|e| e.path_id == pid) {
-            if let Some(name) = shader_logical_name_from_container_asset_path(&entry.asset_path) {
+            if let Some(name) = shader_asset_name_from_container_asset_path(&entry.asset_path) {
                 log_container_resolution(pid, &name, &entry.asset_path);
                 return Some(name);
             }
@@ -373,8 +359,8 @@ fn shader_name_from_bundle_container(bundle_path: &Path, bundle: &AssetBundle) -
     None
 }
 
-/// Derives a shader stem from a Unity `m_Container` asset path (e.g. `.../ui_unlit.shader` → `ui_unlit`).
-fn shader_logical_name_from_container_asset_path(asset_path: &str) -> Option<String> {
+/// Derives a shader asset name from a Unity `m_Container` asset path (e.g. `.../ui_unlit.shader` -> `ui_unlit`).
+fn shader_asset_name_from_container_asset_path(asset_path: &str) -> Option<String> {
     let p = asset_path.replace('\\', "/");
     let seg = p.rsplit('/').next()?.trim();
     if seg.is_empty() {
@@ -404,11 +390,11 @@ mod tests {
     #[test]
     fn container_asset_path_strips_shader_suffix() {
         assert_eq!(
-            shader_logical_name_from_container_asset_path("assets/foo/my_shader.shader").as_deref(),
+            shader_asset_name_from_container_asset_path("assets/foo/my_shader.shader").as_deref(),
             Some("my_shader")
         );
         assert_eq!(
-            shader_logical_name_from_container_asset_path("archive:/CAB-deadbeef").as_deref(),
+            shader_asset_name_from_container_asset_path("archive:/CAB-deadbeef").as_deref(),
             None
         );
     }
@@ -416,25 +402,24 @@ mod tests {
     #[test]
     fn container_asset_path_handles_backslashes_whitespace_and_plain_stems() {
         assert_eq!(
-            shader_logical_name_from_container_asset_path("Assets\\Shaders\\UI Text Unlit.shader")
+            shader_asset_name_from_container_asset_path("Assets\\Shaders\\UI Text Unlit.shader")
                 .as_deref(),
             Some("UI Text Unlit")
         );
         assert_eq!(
-            shader_logical_name_from_container_asset_path("  assets/foo/ToonLit.shader  ")
-                .as_deref(),
+            shader_asset_name_from_container_asset_path("  assets/foo/ToonLit.shader  ").as_deref(),
             Some("ToonLit")
         );
         assert_eq!(
-            shader_logical_name_from_container_asset_path("assets/foo/AlreadyStem").as_deref(),
+            shader_asset_name_from_container_asset_path("assets/foo/AlreadyStem").as_deref(),
             Some("AlreadyStem")
         );
         assert_eq!(
-            shader_logical_name_from_container_asset_path("").as_deref(),
+            shader_asset_name_from_container_asset_path("").as_deref(),
             None
         );
         assert_eq!(
-            shader_logical_name_from_container_asset_path("assets/foo/   ").as_deref(),
+            shader_asset_name_from_container_asset_path("assets/foo/   ").as_deref(),
             None
         );
     }
@@ -478,11 +463,11 @@ mod tests {
     fn path_hint_rejects_missing_paths_and_empty_directories() {
         let temp = tempfile::tempdir().expect("tempdir");
         assert_eq!(
-            try_resolve_shader_name_from_path_hint_raw(&temp.path().join("missing")).as_deref(),
+            try_resolve_shader_asset_name_from_path(&temp.path().join("missing")).as_deref(),
             None
         );
         assert_eq!(
-            try_resolve_shader_name_from_path_hint_raw(temp.path()).as_deref(),
+            try_resolve_shader_asset_name_from_path(temp.path()).as_deref(),
             None
         );
     }

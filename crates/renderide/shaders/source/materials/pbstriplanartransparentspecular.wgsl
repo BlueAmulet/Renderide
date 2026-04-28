@@ -5,7 +5,6 @@
 //! of `_MainTex`, `_SpecularMap`, `_EmissionMap`, `_NormalMap`, `_OcclusionMap` blended by
 //! `pow(abs(world_normal), _TriBlendPower)` with Reoriented Normal Mapping per plane.
 
-// unity-shader-name: PBSTriplanarTransparentSpecular
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

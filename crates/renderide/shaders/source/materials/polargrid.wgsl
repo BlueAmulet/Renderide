@@ -1,7 +1,5 @@
 //! Unity unlit `Shader "Unlit/PolarGrid"`: procedural polar grid visualizing radius bands and density.
 
-// unity-shader-name: Unlit/PolarGrid
-// unity-shader-name: PolarGrid
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

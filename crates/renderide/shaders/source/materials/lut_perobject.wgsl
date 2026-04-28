@@ -1,6 +1,5 @@
 //! Per-object grab-pass 3D LUT filter (`Shader "Filters/LUT_PerObject"`).
 
-// unity-shader-name: Filters/LUT_PerObject
 
 #import renderide::filter_vertex as fv
 #import renderide::globals as rg

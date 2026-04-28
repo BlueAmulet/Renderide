@@ -1,6 +1,5 @@
 //! Per-object grab-pass blur filter (`Shader "Filters/Blur_PerObject"`).
 
-// unity-shader-name: Filters/Blur_PerObject
 
 #import renderide::filter_math as fm
 #import renderide::filter_vertex as fv

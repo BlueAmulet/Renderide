@@ -1,7 +1,5 @@
 //! Unity unlit `Shader "Unlit/TestShader"`: emissive-only single-color shader (Shader Forge output).
 
-// unity-shader-name: Unlit/TestShader
-// unity-shader-name: TestShader
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

@@ -8,7 +8,6 @@
 //! `_MetallicGloss01`/`_MetallicGloss23`); per-layer emission can come from four separate maps
 //! (`_EMISSIONTEX`) or one packed map (`_PACKED_EMISSIONTEX`).
 
-// unity-shader-name: PBSColorSplat
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

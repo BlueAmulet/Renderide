@@ -1,6 +1,5 @@
 //! Grab-pass pixelation filter (`Shader "Filters/Pixelate"`).
 
-// unity-shader-name: Filters/Pixelate
 
 #import renderide::filter_math as fm
 #import renderide::filter_vertex as fv

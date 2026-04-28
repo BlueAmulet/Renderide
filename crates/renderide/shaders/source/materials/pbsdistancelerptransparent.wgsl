@@ -14,7 +14,6 @@
 //! `_Slicers: array<vec4<f32>, 8>` and the host CPU packing is known to support indexed array
 //! material properties.
 
-// unity-shader-name: PBSDistanceLerpTransparent
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

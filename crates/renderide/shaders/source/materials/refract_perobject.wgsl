@@ -1,6 +1,5 @@
 //! Per-object grab-pass refraction filter (`Shader "Filters/Refract_PerObject"`).
 
-// unity-shader-name: Filters/Refract_PerObject
 
 #import renderide::filter_math as fm
 #import renderide::filter_vertex as fv

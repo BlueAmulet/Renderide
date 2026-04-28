@@ -9,7 +9,6 @@
 //! All three sample textures from `vs_main` via `textureSampleLevel(..., 0.0)` — this is the
 //! first WGSL material in the renderer to exercise vertex-stage texture fetch.
 
-// unity-shader-name: PBSDisplaceTransparent
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

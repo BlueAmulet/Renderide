@@ -1,10 +1,9 @@
 //! Small helpers shared across asset ingestion (shader name normalization, etc.).
 
-/// Normalizes a Unity `Shader "…"` label or path / AssetBundle filename for stable dictionary lookup.
+/// Normalizes a Unity shader asset filename or `m_Container` asset path for stable dictionary lookup.
 ///
-/// Rule: lowercase every character, map `/` → `_` (so nested ShaderLab paths become single
-/// underscore-separated stems), and map space → `-` (so `XSToon2.0 Outlined` becomes
-/// `xstoon2.0-outlined`, distinct from the underscore-spelled `XSToon2.0_Outlined` →
+/// Rule: lowercase every character, map `/` to `_`, and map space to `-` (so `XSToon2.0 Outlined` becomes
+/// `xstoon2.0-outlined`, distinct from the underscore-spelled `XSToon2.0_Outlined` to
 /// `xstoon2.0_outlined`). The WGSL stem filenames under `shaders/source/materials/` are named
 /// directly against this rule applied to the Unity `.shader` filename.
 ///

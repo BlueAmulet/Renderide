@@ -3,7 +3,6 @@
 //! forward pass so the surface populates the depth buffer (matches Unity's `Pass { ColorMask 0 }`
 //! prepass + `#pragma surface surf Standard alpha fullforwardshadows` color pass).
 
-// unity-shader-name: PBSRimTransparentZWrite
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

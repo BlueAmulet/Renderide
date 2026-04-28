@@ -7,7 +7,6 @@
 //! The shader is split into its own embedded stem (`pbsdualsidedtransparent_default`) so host
 //! shader-asset routing maps `PBSDualSidedTransparent` to the matching pipeline cache key.
 
-// unity-shader-name: PBSDualSidedTransparent
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

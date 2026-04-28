@@ -2,7 +2,7 @@
 
 use crate::diagnostics::FrameDiagnosticsSnapshot;
 
-/// Host shader asset id, logical name (or `<none>`), and material family per line (see **Shader routes** tab).
+/// Host shader asset id, AssetBundle shader asset name (or `<none>`), and material family per line.
 pub(super) fn shader_mappings_tab(
     ui: &imgui::Ui,
     frame: Option<&FrameDiagnosticsSnapshot>,
@@ -23,7 +23,7 @@ pub(super) fn shader_mappings_tab(
             ui.text_wrapped(format!(
                 "{}  {}  {}  {}",
                 route.shader_asset_id,
-                route.display_name.as_deref().unwrap_or("<none>"),
+                route.shader_asset_name.as_deref().unwrap_or("<none>"),
                 route.pipeline_label,
                 if route.implemented {
                     "implemented"

@@ -4,7 +4,6 @@
 //! only where the geometry lies behind existing depth; the `front` pass uses the standard
 //! `depth=GreaterEqual` (Unity `ZTest LEqual`) for the visible silhouette.
 
-// unity-shader-name: OverlayFresnel
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

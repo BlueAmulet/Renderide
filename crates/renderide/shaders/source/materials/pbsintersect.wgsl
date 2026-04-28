@@ -5,7 +5,6 @@
 //! scene-depth snapshot bound at `@group(0)` by the intersection subpass — see
 //! [`crate::backend::frame_gpu::FrameGpuResources::copy_scene_depth_snapshot`].
 
-// unity-shader-name: PBSIntersect
 
 #import renderide::globals as rg
 #import renderide::sh2_ambient as shamb

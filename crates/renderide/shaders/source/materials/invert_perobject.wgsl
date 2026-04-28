@@ -1,6 +1,5 @@
 //! Per-object grab-pass color inversion filter (`Shader "Filters/Invert_PerObject"`).
 
-// unity-shader-name: Filters/Invert_PerObject
 
 #import renderide::filter_vertex as fv
 #import renderide::globals as rg

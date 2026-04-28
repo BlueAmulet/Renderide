@@ -1,8 +1,6 @@
 //! Unity unlit `Shader "Unlit/TextureDebug"`: visualizes a single texture channel as grayscale.
 //! `_TextureChannel` selects R (0) / G (1) / B (2) / A (3); other values pass the texture through.
 
-// unity-shader-name: Unlit/TextureDebug
-// unity-shader-name: TextureDebug
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

@@ -11,7 +11,7 @@
 //!   at runtime; does not own GPU bind groups.
 //! - **`mesh`** — Host [`mesh::MeshBufferLayout`] contract, [`mesh::GpuMesh`] construction, layout
 //!   fingerprints, and upload validation. [`crate::resources::GpuResource`] is implemented for resident meshes.
-//! - **`shader`** — Resolving [`crate::shared::ShaderUpload`] to routing names and pipeline kinds for
+//! - **`shader`** — Resolving [`crate::shared::ShaderUpload`] AssetBundle paths to pipeline kinds for
 //!   [`crate::materials::MaterialRegistry`].
 //! - **`texture`** — Host Texture2D format/layout, decode/swizzle, mip packing, and
 //!   [`wgpu::Queue::write_texture`] uploads.
@@ -25,9 +25,7 @@ pub mod texture;
 pub mod util;
 
 pub use asset_transfer_queue::AssetTransferQueue;
-pub use shader::{
-    resolve_shader_routing_name_from_upload, resolve_shader_upload, ResolvedShaderUpload,
-};
+pub use shader::{resolve_shader_upload, ResolvedShaderUpload};
 
 /// Alias for [`AssetTransferQueue`] (same type: upload queues, pools, and per-poll budgets).
 pub type AssetSubsystem = AssetTransferQueue;

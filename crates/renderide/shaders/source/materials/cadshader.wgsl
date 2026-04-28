@@ -4,7 +4,6 @@
 //! `_OutlineColor`. Pass 2 (`forward_base`): standard cull-back emissive `_Color` output. Mirrors
 //! the `xstoon2.0-outlined.wgsl` pass structure (`PassKind::Outline` + `PassKind::ForwardBase`).
 
-// unity-shader-name: CADShader
 
 #import renderide::globals as rg
 #import renderide::per_draw as pd

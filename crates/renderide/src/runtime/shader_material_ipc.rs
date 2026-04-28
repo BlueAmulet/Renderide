@@ -12,15 +12,13 @@ use crate::shared::{
 /// In-flight `resolve_shader_upload` work dispatched to the rayon pool by
 /// [`on_shader_upload`].
 ///
-/// The host sends the upload; resolving its Unity logical name can read up to 32 MiB from disk,
+/// The host sends the upload; resolving its AssetBundle shader asset name can read up to 32 MiB from disk,
 /// which must not block the IPC poll on the main thread. The resolver runs on a rayon worker,
 /// and [`drain_pending_shader_resolutions`] applies the result on a subsequent tick by
 /// calling [`RenderBackend::register_shader_route`] and sending `ShaderUploadResult`.
 pub(crate) struct PendingShaderResolution {
     /// Host `asset_id` echoed back in the eventual `ShaderUploadResult`.
     asset_id: i32,
-    /// Fallback HUD display name when the resolver yields no Unity logical name.
-    fallback_file: Option<String>,
     /// Receives the resolved pipeline from the rayon worker (bounded(1)).
     rx: Receiver<ResolvedShaderUpload>,
 }
@@ -32,17 +30,12 @@ pub(crate) struct PendingShaderResolution {
 /// the lock-step invariant that the host sees routing ready before it sends dependent materials.
 pub(crate) fn on_shader_upload(pending: &mut Vec<PendingShaderResolution>, upload: ShaderUpload) {
     let asset_id = upload.asset_id;
-    let fallback_file = upload.file.clone().filter(|s| !s.is_empty());
     let (tx, rx) = bounded::<ResolvedShaderUpload>(1);
     rayon::spawn(move || {
         let resolved = resolve_shader_upload(&upload);
         let _ = tx.send(resolved);
     });
-    pending.push(PendingShaderResolution {
-        asset_id,
-        fallback_file,
-        rx,
-    });
+    pending.push(PendingShaderResolution { asset_id, rx });
 }
 
 /// Applies completed rayon-side [`resolve_shader_upload`] results: registers the pipeline route
@@ -57,10 +50,10 @@ pub(crate) fn drain_pending_shader_resolutions(
     frontend: &mut RendererFrontend,
 ) {
     profiling::scope!("ipc::drain_pending_shader_resolutions");
-    let mut completed: Vec<(i32, Option<String>, ResolvedShaderUpload)> = Vec::new();
+    let mut completed: Vec<(i32, ResolvedShaderUpload)> = Vec::new();
     pending.retain_mut(|p| match p.rx.try_recv() {
         Ok(resolved) => {
-            completed.push((p.asset_id, p.fallback_file.take(), resolved));
+            completed.push((p.asset_id, resolved));
             false
         }
         Err(TryRecvError::Empty) => true,
@@ -72,15 +65,15 @@ pub(crate) fn drain_pending_shader_resolutions(
             false
         }
     });
-    for (asset_id, fallback_file, resolved) in completed {
+    for (asset_id, resolved) in completed {
         logger::info!(
-            "shader_upload: asset_id={} unity_shader_name={:?} raster_pipeline={:?}",
+            "shader_upload: asset_id={} shader_asset_name={:?} raster_pipeline={:?}",
             asset_id,
-            resolved.unity_shader_name.as_deref(),
+            resolved.shader_asset_name.as_deref(),
             resolved.pipeline,
         );
-        let display_name = resolved.unity_shader_name.clone().or(fallback_file);
-        backend.register_shader_route(asset_id, resolved.pipeline, display_name);
+        let shader_asset_name = resolved.shader_asset_name.clone();
+        backend.register_shader_route(asset_id, resolved.pipeline, shader_asset_name);
         if let Some(ipc) = frontend.ipc_mut() {
             let _ = ipc.send_background(RendererCommand::ShaderUploadResult(ShaderUploadResult {
                 asset_id,

@@ -9,7 +9,6 @@ use crate::backend::frame_gpu::{
     SkyboxSpecularCubemapSource, SkyboxSpecularEnvironmentSource, SkyboxSpecularEquirectSource,
 };
 use crate::backend::MaterialSystem;
-use crate::materials::RasterPipelineKind;
 use crate::scene::SceneCoordinator;
 
 /// Default `Projection360` field of view used by Unity material defaults.
@@ -50,17 +49,9 @@ fn active_main_skybox_material_asset_id(scene: &SceneCoordinator) -> Option<i32>
 /// Returns a shader route name or stem for a shader asset id.
 fn shader_route_name(materials: &MaterialSystem, shader_asset_id: i32) -> Option<String> {
     let registry = materials.material_registry()?;
-    if let Some(stem) = registry.stem_for_shader_asset(shader_asset_id) {
-        return Some(stem.to_string());
-    }
     registry
-        .shader_routes_for_hud()
-        .into_iter()
-        .find(|(id, _, _)| *id == shader_asset_id)
-        .and_then(|(_, pipeline, display)| match pipeline {
-            RasterPipelineKind::EmbeddedStem(stem) => Some(stem.to_string()),
-            RasterPipelineKind::Null => display,
-        })
+        .stem_for_shader_asset(shader_asset_id)
+        .map(str::to_string)
 }
 
 /// True for the Projection360 skybox route handled by this v1 environment binding.

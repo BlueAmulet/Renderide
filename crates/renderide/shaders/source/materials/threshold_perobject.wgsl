@@ -1,6 +1,5 @@
 //! Per-object grab-pass threshold filter (`Shader "Filters/Threshold_PerObject"`).
 
-// unity-shader-name: Filters/Threshold_PerObject
 
 #import renderide::filter_vertex as fv
 #import renderide::globals as rg

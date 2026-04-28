@@ -14,8 +14,8 @@ use crate::render_graph::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 pub struct ShaderRouteRow {
     /// Host-assigned shader asset id.
     pub shader_asset_id: i32,
-    /// Logical shader name when known (ShaderLab name, WGSL banner, or upload field).
-    pub display_name: Option<String>,
+    /// Shader asset filename extracted from the uploaded AssetBundle `m_Container` entry.
+    pub shader_asset_name: Option<String>,
     /// Human-readable pipeline label (composed stem, or `null`).
     pub pipeline_label: String,
     /// True when the route resolved to a real embedded shader; false when it fell back to the null fallback.
@@ -218,7 +218,7 @@ impl FrameDiagnosticsSnapshot {
                         };
                         ShaderRouteRow {
                             shader_asset_id: id,
-                            display_name: name,
+                            shader_asset_name: name,
                             pipeline_label,
                             implemented,
                         }

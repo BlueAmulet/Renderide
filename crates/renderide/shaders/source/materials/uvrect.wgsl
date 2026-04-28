@@ -1,4 +1,4 @@
-//! UV Rect (route key `uvrect`, Unity shader `Unlit/UVRect`): colors inside/outside a UV-space rect.
+//! UV Rect (Unity shader asset `UVRect`): colors inside/outside a UV-space rect.
 //!
 //! `_RectClip` is a synthetic helper field so the CPU packer can reuse existing `RECTCLIP` keyword handling.
 

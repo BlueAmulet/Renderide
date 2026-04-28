@@ -5,7 +5,6 @@
 //! COLOR -> fill color, TANGENT -> border color, TEXCOORD1 -> angle data,
 //! TEXCOORD2 -> radius data, TEXCOORD3 -> border/corner data.
 
-// unity-shader-name: UI/CircleSegment
 
 
 #import renderide::globals as rg

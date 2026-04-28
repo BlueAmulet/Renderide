@@ -1,6 +1,5 @@
 //! Grab-pass blur filter (`Shader "Filters/Blur"`).
 
-// unity-shader-name: Filters/Blur
 
 #import renderide::filter_math as fm
 #import renderide::filter_vertex as fv

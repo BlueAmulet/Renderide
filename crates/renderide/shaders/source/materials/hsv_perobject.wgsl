@@ -1,6 +1,5 @@
 //! Per-object grab-pass HSV offset/multiply filter (`Shader "Filters/HSV_PerObject"`).
 
-// unity-shader-name: Filters/HSV_PerObject
 
 #import renderide::filter_math as fm
 #import renderide::filter_vertex as fv
