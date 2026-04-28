@@ -554,7 +554,7 @@ pub struct FrameRenderParams<'a> {
     pub view: FrameRenderParamsView<'a>,
 }
 
-impl<'a> FrameRenderParams<'a> {
+impl FrameRenderParams<'_> {
     /// Output depth layout for Hi-Z and occlusion ([`OutputDepthMode::from_multiview_stereo`]).
     pub fn output_depth_mode(&self) -> OutputDepthMode {
         OutputDepthMode::from_multiview_stereo(self.view.multiview_stereo)

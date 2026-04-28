@@ -36,12 +36,12 @@ pub(super) fn build_with_optional_owned_payload<T>(
                             "raw shorter than descriptor (need {want}, got {})",
                             raw.len()
                         ))),
-                        payload: Arc::from([] as [u8; 0]),
+                        payload: Arc::<[u8]>::from([]),
                     });
                 }
                 Arc::from(&raw[..want])
             }
-            _ => Arc::from([] as [u8; 0]),
+            _ => Arc::<[u8]>::from([]),
         };
         Some(SharedMemoryPayloadBuild {
             result: built,

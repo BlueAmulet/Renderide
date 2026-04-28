@@ -106,7 +106,7 @@ impl PosixSemaphore {
         // SAFETY: `timespec` is a POD struct of integers; all-zero is a valid bit pattern.
         let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
         // SAFETY: `&mut ts` is a valid out-pointer; clockid is a constant.
-        if unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, &mut ts) } != 0 {
+        if unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, core::ptr::addr_of_mut!(ts)) } != 0 {
             return false;
         }
         let cap_ns: u128 = 1_000_000_000u128 * 60 * 60 * 24 * 365;
@@ -122,7 +122,7 @@ impl PosixSemaphore {
         ts.tv_nsec = d_nsec as libc::c_long;
         loop {
             // SAFETY: `self.0` is a live sem handle; `&ts` is a valid absolute timespec.
-            let rc = unsafe { libc::sem_timedwait(self.0, &ts) };
+            let rc = unsafe { libc::sem_timedwait(self.0, core::ptr::addr_of!(ts)) };
             if rc == 0 {
                 return true;
             }

@@ -261,15 +261,18 @@ pub fn run() -> Result<Option<i32>, RunError> {
 
     if let Some(headless_params) = get_headless_params() {
         // Watchdog stays alive in this scope so its drop joins after the headless driver exits.
-        let _watchdog = watchdog;
-        let _main_heartbeat = main_heartbeat;
-        return run_headless(
+        let watchdog_guard = watchdog;
+        let main_heartbeat_guard = main_heartbeat;
+        let headless_result = run_headless(
             &mut runtime,
             headless_params,
             external_shutdown,
             initial_gpu_validation,
             initial_power_preference,
         );
+        drop(main_heartbeat_guard);
+        drop(watchdog_guard);
+        return headless_result;
     }
 
     let event_loop = EventLoop::new().map_err(|e| {

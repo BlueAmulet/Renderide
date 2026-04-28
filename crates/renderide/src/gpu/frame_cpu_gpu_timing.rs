@@ -67,9 +67,9 @@ impl FrameCpuGpuTiming {
         }
     }
 
-    fn record_gpu_done(&mut self, gen: u64, seq: u32, gpu_ms: f64) {
+    fn record_gpu_done(&mut self, submitted_generation: u64, seq: u32, gpu_ms: f64) {
         self.last_completed_gpu_idle_ms = Some(gpu_ms);
-        if gen != self.generation {
+        if submitted_generation != self.generation {
             return;
         }
         self.pending_gpu_by_seq.insert(seq, gpu_ms);
@@ -116,12 +116,12 @@ mod tests {
         let start = Instant::now();
         t.begin_frame(start);
         assert_eq!(t.submit_seq, 0);
-        let (gen, seq) = t.on_before_tracked_submit().expect("tracked");
+        let (submitted_generation, seq) = t.on_before_tracked_submit().expect("tracked");
         assert_eq!(seq, 1);
         t.end_frame();
         // Late callback: generation already advanced.
         t.begin_frame(start + Duration::from_millis(16));
-        t.record_gpu_done(gen, seq, 2.5);
+        t.record_gpu_done(submitted_generation, seq, 2.5);
         assert!(t.gpu_after_submit_ms.is_none());
         assert_eq!(t.last_completed_gpu_idle_ms, Some(2.5));
     }

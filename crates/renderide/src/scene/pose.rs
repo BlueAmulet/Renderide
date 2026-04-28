@@ -74,8 +74,8 @@ mod tests {
     /// Any NaN on any component rejects the pose.
     #[test]
     fn nan_components_are_rejected() {
-        for mutate in [
-            (|p: &mut RenderTransform| p.position.x = f32::NAN) as fn(&mut RenderTransform),
+        let mutators: [fn(&mut RenderTransform); 10] = [
+            |p: &mut RenderTransform| p.position.x = f32::NAN,
             |p: &mut RenderTransform| p.position.y = f32::NAN,
             |p: &mut RenderTransform| p.position.z = f32::NAN,
             |p: &mut RenderTransform| p.scale.x = f32::NAN,
@@ -85,7 +85,8 @@ mod tests {
             |p: &mut RenderTransform| p.rotation.y = f32::NAN,
             |p: &mut RenderTransform| p.rotation.z = f32::NAN,
             |p: &mut RenderTransform| p.rotation.w = f32::NAN,
-        ] {
+        ];
+        for mutate in mutators {
             let mut pose = baseline();
             mutate(&mut pose);
             assert!(

@@ -152,8 +152,8 @@ pub(crate) fn spawn_host(
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 format!(
-                    "Renderite.Host.dll not found at {:?}. Install Resonite with Renderite.",
-                    host_dll
+                    "Renderite.Host.dll not found at {}. Install Resonite with Renderite.",
+                    host_dll.display()
                 ),
             ));
         }

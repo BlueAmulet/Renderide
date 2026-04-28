@@ -293,12 +293,7 @@ fn decode_bc1_block(block: &[u8; 8], tile_rgba: &mut [u8; 64]) {
         [
             [r0, g0, b0, 255],
             [r1, g1, b1, 255],
-            [
-                ((u32::from(r0) + u32::from(r1)) / 2) as u8,
-                ((u32::from(g0) + u32::from(g1)) / 2) as u8,
-                ((u32::from(b0) + u32::from(b1)) / 2) as u8,
-                255,
-            ],
+            [r0.midpoint(r1), g0.midpoint(g1), b0.midpoint(b1), 255],
             [0, 0, 0, 0],
         ]
     };

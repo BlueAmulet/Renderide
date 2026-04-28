@@ -301,12 +301,12 @@ impl CompiledRenderGraph {
     ///
     /// A [`super::super::frame_params::PerViewFramePlanSlot`] is inserted into each view's
     /// per-view blackboard carrying the per-view `@group(0)` frame bind group and uniform buffer.
-    pub fn execute_multi_view<'a>(
+    pub fn execute_multi_view(
         &mut self,
         gpu: &mut GpuContext,
         scene: &SceneCoordinator,
         backend: &mut RenderBackend,
-        views: &mut [FrameView<'a>],
+        views: &mut [FrameView<'_>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::execute_multi_view");
         if views.is_empty() {

@@ -359,7 +359,7 @@ fn create_openxr_vulkan_instance(
             .create_vulkan_instance(
                 xr_system_id,
                 vk_get_instance_proc_addr_shim,
-                &create_info as *const _ as *const _,
+                core::ptr::from_ref(&create_info).cast(),
             )?
             .map_err(vk::Result::from_raw)?;
         let handle = raw as usize as u64;
@@ -554,7 +554,7 @@ fn create_vulkan_logical_device_openxr(
                         -> Option<unsafe extern "system" fn()>,
                 >(desc.vk_entry.static_fn().get_instance_proc_addr),
                 desc.vk_physical_device.as_raw() as *const c_void,
-                &device_create_info as *const _ as *const _,
+                core::ptr::from_ref(&device_create_info).cast(),
             )?
             .map_err(vk::Result::from_raw)?;
         let device_handle = vk::Device::from_raw(raw as usize as u64);

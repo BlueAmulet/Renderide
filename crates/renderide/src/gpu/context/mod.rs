@@ -520,11 +520,11 @@ impl GpuContext {
             ft.on_before_tracked_submit()
         };
         let mut on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>> = Vec::new();
-        if let Some((gen, seq)) = track {
+        if let Some((generation, seq)) = track {
             let submit_at = Instant::now();
             let handle = Arc::clone(&self.frame_timing);
             on_submitted_work_done.push(Box::new(make_gpu_done_callback(
-                handle, gen, seq, submit_at,
+                handle, generation, seq, submit_at,
             )));
         }
         on_submitted_work_done.append(&mut extra_on_submitted_work_done);

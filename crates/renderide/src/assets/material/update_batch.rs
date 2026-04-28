@@ -500,7 +500,7 @@ struct BatchParser<'a, L: MaterialBatchBlobLoader + ?Sized> {
     matrices: ChainCursor<'a>,
 }
 
-impl<'a, L: MaterialBatchBlobLoader + ?Sized> BatchParser<'a, L> {
+impl<L: MaterialBatchBlobLoader + ?Sized> BatchParser<'_, L> {
     fn next_update(&mut self) -> Option<MaterialPropertyUpdate> {
         self.updates
             .next_packable(self.loader, MATERIAL_PROPERTY_UPDATE_HOST_ROW_BYTES)

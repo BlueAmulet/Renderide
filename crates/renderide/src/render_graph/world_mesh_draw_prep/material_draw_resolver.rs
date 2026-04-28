@@ -203,7 +203,7 @@ impl<'a> MaterialDrawResolver<'a> {
         pipeline_key: PipelineVariantKey,
     ) -> (Option<MaterialPipelineSet>, &'static [MaterialPassDesc]) {
         let Some(registry) = self.registry else {
-            return (None, &[] as &'static [MaterialPassDesc]);
+            return (None, &[]);
         };
 
         let pass_desc = pipeline_key.pass_desc();

@@ -35,9 +35,14 @@ impl QueueResources {
 
     /// Shared queue header at the start of the mapping (atomics permit shared references).
     pub(crate) fn header(&self) -> &QueueHeader {
+        #[expect(
+            clippy::cast_ptr_alignment,
+            reason = "shared queue mappings are created at page alignment, which is stricter than QueueHeader alignment"
+        )]
+        let header_ptr = self.mapping.as_ptr().cast::<QueueHeader>();
         // SAFETY: `open_queue` maps at least `BUFFER_BYTE_OFFSET + capacity` bytes; the header is
         // `repr(C)` at offset 0 and fits in `BUFFER_BYTE_OFFSET`.
-        unsafe { &*(self.mapping.as_ptr() as *const QueueHeader) }
+        unsafe { &*header_ptr }
     }
 
     /// View over the byte ring after [`crate::layout::QueueHeader`].

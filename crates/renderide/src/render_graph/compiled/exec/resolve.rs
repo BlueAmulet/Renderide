@@ -282,10 +282,7 @@ impl CompiledRenderGraph {
             FrameViewTarget::Swapchain => {
                 let surface_format = gpu.config_format();
                 let viewport_px = gpu.surface_extent_px();
-                let bb = backbuffer_view_holder
-                    .as_ref()
-                    .map(|v| v as &wgpu::TextureView);
-                let Some(bb_ref) = bb else {
+                let Some(bb_ref) = backbuffer_view_holder.as_ref() else {
                     return Err(GraphExecuteError::MissingSwapchainView);
                 };
                 let sample_count = gpu.swapchain_msaa_effective().max(1);

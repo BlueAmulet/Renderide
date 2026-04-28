@@ -53,7 +53,7 @@ impl BufferBindId {
     /// Full-buffer bind (`buf.slice(..)`).
     fn full(buf: &wgpu::Buffer) -> Self {
         Self {
-            ptr: buf as *const wgpu::Buffer as usize,
+            ptr: core::ptr::from_ref(buf).addr(),
             byte_offset: 0,
             byte_len: None,
         }
@@ -62,7 +62,7 @@ impl BufferBindId {
     /// Ranged bind (`buf.slice(byte_start..byte_end)`).
     fn ranged(buf: &wgpu::Buffer, byte_start: u64, byte_end: u64) -> Self {
         Self {
-            ptr: buf as *const wgpu::Buffer as usize,
+            ptr: core::ptr::from_ref(buf).addr(),
             byte_offset: byte_start,
             byte_len: Some(byte_end - byte_start),
         }
@@ -347,9 +347,10 @@ fn instance_range_for_draw_group(
 /// refcounted and their IDs are stable for the lifetime of the object.
 macro_rules! bind_vertex_if_changed {
     ($rpass:expr, $slot:expr, $buf:expr, $id:expr, $last:expr) => {{
-        if $last[$slot as usize] != Some($id) {
-            $rpass.set_vertex_buffer($slot, $buf);
-            $last[$slot as usize] = Some($id);
+        let slot: usize = $slot;
+        if $last[slot] != Some($id) {
+            $rpass.set_vertex_buffer(slot as u32, $buf);
+            $last[slot] = Some($id);
         }
     }};
 }
@@ -580,7 +581,7 @@ fn bind_index_buffer_if_changed(
     last_mesh: &mut LastMeshBindState,
 ) {
     let index_key = (
-        mesh.index_buffer.as_ref() as *const wgpu::Buffer as usize,
+        core::ptr::from_ref(mesh.index_buffer.as_ref()).addr(),
         mesh.index_format,
     );
     if last_mesh.index != Some(index_key) {
