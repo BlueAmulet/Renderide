@@ -7,9 +7,8 @@ use crate::shared::{
     SetCubemapProperties, SetRenderTextureFormat, SetTexture2DData, SetTexture2DFormat,
     SetTexture2DProperties, SetTexture3DData, SetTexture3DFormat, SetTexture3DProperties,
     UnloadCubemap, UnloadRenderTexture, UnloadTexture2D, UnloadTexture3D, UnloadVideoTexture,
-    VideoTextureLoad, VideoTextureStartAudioTrack, VideoTextureUpdate,
+    VideoTextureLoad, VideoTextureProperties, VideoTextureStartAudioTrack, VideoTextureUpdate,
 };
-use renderide_shared::VideoTextureProperties;
 
 use crate::assets::asset_transfer_queue::{self as asset_uploads};
 
@@ -167,7 +166,7 @@ impl RenderBackend {
         asset_uploads::on_video_texture_update(&mut self.asset_transfers, u);
     }
 
-    /// Handle [`VideoTextureStartAudioTrack`](crate::shared::VideoTextureStartAudioTrack).
+    /// Handle [`VideoTextureProperties`](crate::shared::VideoTextureProperties).
     pub fn on_video_texture_properties(&mut self, p: VideoTextureProperties) {
         asset_uploads::on_video_texture_properties(&mut self.asset_transfers, p);
     }

@@ -4,15 +4,18 @@ use hashbrown::HashMap;
 use renderide_shared::VideoTextureProperties;
 use std::sync::Arc;
 
+/// Bytes per resident RGBA8 video pixel.
+const RGBA8_BYTES_PER_PIXEL: u64 = 4;
+
 /// Host video texture,
-/// holds a dummy texture before an external view gets assigned from the video player
+/// holds a dummy texture before an external view gets assigned from the video player.
 #[derive(Debug)]
 pub struct GpuVideoTexture {
     /// Host VideoTexture asset id.
     pub asset_id: i32,
-    /// The 1×1 placeholder texture used before the first [`set_view`] call.
+    /// The 1x1 placeholder texture used before the first [`Self::set_view`] call.
     dummy_texture: Option<Arc<wgpu::Texture>>,
-    /// Current view - initially from `dummy_texture`, replaced by [`set_view`].
+    /// Current view, initially from `dummy_texture` and then replaced by [`Self::set_view`].
     pub view: Arc<wgpu::TextureView>,
     /// Pixel width of the current frame.
     pub width: u32,
@@ -35,7 +38,7 @@ impl GpuResource for GpuVideoTexture {
 }
 
 impl GpuVideoTexture {
-    /// Creates a 1×1 dummy texture. The real view is installed later via [`set_view`].
+    /// Creates a 1x1 dummy texture. The real view is installed later via [`Self::set_view`].
     pub fn new(device: &wgpu::Device, asset_id: i32, props: &VideoTextureProperties) -> Self {
         let dummy = Arc::new(device.create_texture(&wgpu::TextureDescriptor {
             label: Some(&format!("VideoTexture {asset_id} dummy")),
@@ -60,7 +63,7 @@ impl GpuVideoTexture {
             view,
             width: 1,
             height: 1,
-            resident_bytes: 8,
+            resident_bytes: RGBA8_BYTES_PER_PIXEL,
             sampler: sampler_from_props(props),
         }
     }
@@ -73,7 +76,7 @@ impl GpuVideoTexture {
         height: u32,
         resident_bytes: u64,
     ) {
-        self.dummy_texture = None; // drop the 1×1 placeholder
+        self.dummy_texture = None;
         self.view = view;
         self.width = width;
         self.height = height;
@@ -92,6 +95,7 @@ impl GpuVideoTexture {
     }
 }
 
+/// Converts host video texture properties into the shared 2D sampler state.
 fn sampler_from_props(props: &VideoTextureProperties) -> Texture2dSamplerState {
     Texture2dSamplerState {
         filter_mode: props.filter_mode,
@@ -177,5 +181,29 @@ impl VideoTexturePool {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use renderide_shared::{TextureFilterMode, TextureWrapMode};
+
+    #[test]
+    fn sampler_from_props_clamps_negative_anisotropy() {
+        let props = VideoTextureProperties {
+            filter_mode: TextureFilterMode::Anisotropic,
+            aniso_level: -4,
+            wrap_u: TextureWrapMode::Mirror,
+            wrap_v: TextureWrapMode::Clamp,
+            asset_id: 12,
+        };
+
+        let sampler = sampler_from_props(&props);
+        assert_eq!(sampler.filter_mode, TextureFilterMode::Anisotropic);
+        assert_eq!(sampler.aniso_level, 0);
+        assert_eq!(sampler.wrap_u, TextureWrapMode::Mirror);
+        assert_eq!(sampler.wrap_v, TextureWrapMode::Clamp);
+        assert_eq!(sampler.mipmap_bias, 0.0);
     }
 }

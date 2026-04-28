@@ -12,18 +12,38 @@ use renderide_shared::{
     RendererCommand, VideoAudioTrack, VideoTextureLoad, VideoTextureReady,
     VideoTextureStartAudioTrack, VideoTextureUpdate,
 };
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+/// Fallback audio rate used when the host sends an invalid sample rate.
+const DEFAULT_AUDIO_SAMPLE_RATE: i32 = 48_000;
+
+/// Poll interval for applying host playback updates to GStreamer.
+const UPDATE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+
+/// Maximum tolerated seek drift while video is actively playing.
+const PLAYING_SEEK_DRIFT_SECONDS: f64 = 1.0;
+
+/// Maximum tolerated seek drift while video is paused.
+const PAUSED_SEEK_DRIFT_SECONDS: f64 = 0.01;
+
 /// Holds the GStreamer pipeline and handles incoming updates from host.
 pub struct VideoPlayer {
+    /// Host video texture asset id.
     asset_id: i32,
+    /// GStreamer playbin pipeline for this video texture.
     pipeline: gstreamer::Element,
+    /// AppSink used to forward decoded audio samples to the host.
     audio_sink: AppSink,
+    /// Active decoded-video sink backend.
     video_sink: Box<dyn WgpuGstVideoSink + Send>,
+    /// Audio sample rate requested by the host audio system.
+    audio_sample_rate: i32,
     /// Stores the latest [`VideoTextureUpdate`] until it gets processed by the update thread.
     pending_update: Arc<Mutex<Option<VideoTextureUpdate>>>,
+    /// Shared shutdown flag checked by the update thread.
     shutdown: Arc<AtomicBool>,
 }
 
@@ -35,6 +55,7 @@ impl VideoPlayer {
         queue: Arc<wgpu::Queue>,
     ) -> Option<Self> {
         let id = l.asset_id;
+        let audio_sample_rate = normalized_audio_sample_rate(l.audio_system_sample_rate);
 
         if let Err(e) = gstreamer::init() {
             logger::error!("gstreamer init failed: {e}");
@@ -45,22 +66,29 @@ impl VideoPlayer {
             .caps(
                 &gstreamer::Caps::builder("audio/x-raw")
                     .field("format", "F32LE")
-                    .field("rate", l.audio_system_sample_rate)
+                    .field("rate", audio_sample_rate)
                     .field("channels", 2i32)
                     .field("layout", "interleaved")
                     .build(),
             )
+            .max_buffers(1)
+            .drop(true)
             .sync(true)
             .build();
 
-        // for now there is only one video sink backend
+        // GStreamer-backed video textures currently use the CPU-copy sink on all platforms.
         let video_sink = Box::new(CpuCopyVideoSink::new(id, device, queue));
 
-        let uri = match l.source {
-            Some(src) if src.contains("://") => src,
-            // playbin needs the file:// scheme for accessing the local filesystem
-            Some(src) => format!("file://{}", src),
-            None => return None,
+        let uri = match source_uri(l.source.as_deref()) {
+            Ok(Some(uri)) => uri,
+            Ok(None) => {
+                logger::warn!("video texture {id}: load skipped because source is missing");
+                return None;
+            }
+            Err(e) => {
+                logger::error!("video texture {id}: failed to convert source path to URI: {e}");
+                return None;
+            }
         };
 
         let pipeline = match gstreamer::ElementFactory::make("playbin")
@@ -95,6 +123,7 @@ impl VideoPlayer {
             pipeline,
             audio_sink,
             video_sink,
+            audio_sample_rate,
             pending_update,
             shutdown,
         })
@@ -104,16 +133,27 @@ impl VideoPlayer {
     /// Opens a shared memory queue to send audio back to host, and assigns the callback to the sink.
     pub fn handle_start_audio_track(&mut self, s: VideoTextureStartAudioTrack) {
         let id = self.asset_id;
+        if s.audio_track_index != 0 {
+            logger::warn!(
+                "video texture {id}: unsupported audio track index {}",
+                s.audio_track_index
+            );
+            return;
+        }
 
-        let queue_name = match s.queue_name {
-            Some(name) => name,
-            None => {
-                // TODO: we still want to handle switching audio tracks here
-                return;
-            }
+        let Some(queue_name) = s.queue_name else {
+            return;
         };
 
-        let options = match QueueOptions::new(&queue_name, s.queue_capacity as i64) {
+        let Some(queue_capacity) = positive_queue_capacity(s.queue_capacity) else {
+            logger::warn!(
+                "video texture {id}: invalid audio queue capacity {}",
+                s.queue_capacity
+            );
+            return;
+        };
+
+        let options = match QueueOptions::new(&queue_name, queue_capacity) {
             Ok(o) => o,
             Err(e) => {
                 logger::error!("video texture {}: failed to build QueueOptions: {e}", id);
@@ -133,19 +173,18 @@ impl VideoPlayer {
         self.audio_sink.set_callbacks(
             AppSinkCallbacks::builder()
                 .new_sample(move |appsink| {
-                    let sample = match appsink.pull_sample() {
-                        Ok(s) => s,
-                        Err(_) => return Err(gstreamer::FlowError::Eos),
+                    let Ok(sample) = appsink.pull_sample() else {
+                        return Err(gstreamer::FlowError::Eos);
                     };
-                    let buffer = match sample.buffer() {
-                        Some(b) => b,
-                        None => return Ok(gstreamer::FlowSuccess::Ok),
+                    let Some(buffer) = sample.buffer() else {
+                        return Ok(gstreamer::FlowSuccess::Ok);
                     };
-                    let map = match buffer.map_readable() {
-                        Ok(m) => m,
-                        Err(_) => return Ok(gstreamer::FlowSuccess::Ok),
+                    let Ok(map) = buffer.map_readable() else {
+                        return Ok(gstreamer::FlowSuccess::Ok);
                     };
-                    let _ = publisher.try_enqueue(map.as_slice());
+                    if !publisher.try_enqueue(map.as_slice()) {
+                        logger::trace!("video texture {id}: audio queue is full");
+                    }
                     Ok(gstreamer::FlowSuccess::Ok)
                 })
                 .build(),
@@ -154,7 +193,13 @@ impl VideoPlayer {
 
     /// Schedules a video player state update from [`VideoTextureUpdate`].
     pub fn handle_update(&mut self, u: VideoTextureUpdate) {
-        *self.pending_update.lock().unwrap() = Some(u);
+        match self.pending_update.lock() {
+            Ok(mut pending_update) => *pending_update = Some(u),
+            Err(_) => logger::warn!(
+                "video texture {}: update state lock poisoned; dropping host update",
+                self.asset_id
+            ),
+        }
     }
 
     /// Handles texture changes from the sink and running the GStreamer event loop,
@@ -164,15 +209,20 @@ impl VideoPlayer {
         queue: &mut AssetTransferQueue,
         ipc: &mut Option<&mut DualQueueIpc>,
     ) {
+        profiling::scope!("video::process_events");
         let Some(bus) = self.pipeline.bus() else {
             return;
         };
 
-        // forward any texture the sink created since last frame
+        // Forward any texture the sink created since last frame. Ensure the pool entry exists here
+        // so a frame cannot be lost if video data arrives before sampler properties.
         let id = self.asset_id;
         if let Some((view, w, h, bytes)) = self.video_sink.poll_texture_change() {
-            if let Some(gpu_tex) = queue.video_texture_pool.get_mut(id) {
+            let props = queue.video_texture_properties_or_default(id);
+            if let Some(gpu_tex) = queue.ensure_video_texture_with_props(&props) {
                 gpu_tex.set_view(view, w, h, bytes);
+            } else {
+                logger::warn!("video texture {id}: GPU placeholder unavailable for decoded frame");
             }
         }
 
@@ -227,41 +277,22 @@ impl VideoPlayer {
     ) {
         thread::spawn(move || {
             while !shutdown.load(Ordering::Relaxed) {
-                thread::sleep(std::time::Duration::from_millis(16));
+                thread::sleep(UPDATE_POLL_INTERVAL);
 
-                let update = match pending_update.lock().unwrap().take() {
-                    Some(u) => u,
-                    None => continue,
-                };
-
-                let target_state = if update.play {
-                    gstreamer::State::Playing
-                } else {
-                    gstreamer::State::Paused
-                };
-
-                let _ = pipeline.set_state(target_state);
-
-                let mut query = gstreamer::query::Position::new(gstreamer::Format::Time);
-                if pipeline.query(&mut query) {
-                    if let gstreamer::GenericFormattedValue::Time(Some(current)) = query.result() {
-                        let current_secs = current.nseconds() as f64 / 1_000_000_000.0;
-                        let drift = (current_secs - update.position).abs();
-                        let max_error = if update.play { 1.0 } else { 0.01 };
-
-                        if drift > max_error {
-                            let ns = (update.position * 1_000_000_000.0) as u64;
-                            let _ = pipeline.seek_simple(
-                                gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::KEY_UNIT,
-                                gstreamer::ClockTime::from_nseconds(ns),
-                            );
-                        }
+                let update = match pending_update.lock() {
+                    Ok(mut pending_update) => match pending_update.take() {
+                        Some(update) => update,
+                        None => continue,
+                    },
+                    Err(_) => {
+                        logger::warn!("video texture update thread: update lock poisoned");
+                        break;
                     }
-                }
+                };
+                apply_update_to_pipeline(&pipeline, &update);
             }
 
-            // handle this here because apparently gstreamer can just freeze if the video is evil
-            // it's still not ideal, because it keeps on running, but at least the renderer won't die
+            // GStreamer shutdown can block on damaged media; this work stays off the render thread.
             if let Err(e) = pipeline.set_state(gstreamer::State::Null) {
                 logger::error!("failed to set pipeline to Null on shutdown: {e}");
             }
@@ -286,14 +317,7 @@ impl VideoPlayer {
             asset_id: self.asset_id,
             instance_changed: true,
             playback_engine,
-            // TODO: retrieve audio tracks from gstreamer
-            audio_tracks: vec![VideoAudioTrack {
-                index: 0,
-                channel_count: 2,
-                sample_rate: 48000,
-                name: Some("test".into()),
-                language_code: None,
-            }],
+            audio_tracks: vec![default_audio_track(self.audio_sample_rate)],
         }));
     }
 }
@@ -301,5 +325,197 @@ impl VideoPlayer {
 impl Drop for VideoPlayer {
     fn drop(&mut self) {
         self.shutdown.store(true, Ordering::Relaxed);
+    }
+}
+
+/// Returns a positive host audio sample rate or a stable fallback.
+fn normalized_audio_sample_rate(sample_rate: i32) -> i32 {
+    if sample_rate > 0 {
+        sample_rate
+    } else {
+        DEFAULT_AUDIO_SAMPLE_RATE
+    }
+}
+
+/// Converts host audio queue capacity to the signed queue API type.
+fn positive_queue_capacity(queue_capacity: i32) -> Option<i64> {
+    (queue_capacity > 0).then_some(i64::from(queue_capacity))
+}
+
+/// Returns `true` when `source` already has a URI scheme.
+fn is_uri_source(source: &str) -> bool {
+    source.contains("://")
+}
+
+/// Converts a host source string into a playbin URI.
+fn source_uri(source: Option<&str>) -> Result<Option<String>, gstreamer::glib::Error> {
+    let Some(source) = source else {
+        return Ok(None);
+    };
+    if is_uri_source(source) {
+        return Ok(Some(source.to_owned()));
+    }
+    gstreamer::glib::filename_to_uri(local_source_path(source), None)
+        .map(|uri| Some(uri.to_string()))
+}
+
+/// Returns an absolute local path for GLib URI conversion when possible.
+fn local_source_path(source: &str) -> PathBuf {
+    let path = Path::new(source);
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    match std::env::current_dir() {
+        Ok(cwd) => cwd.join(path),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+/// Returns the pipeline state implied by the host update.
+fn target_state_for_update(update: &VideoTextureUpdate) -> gstreamer::State {
+    if update.play {
+        gstreamer::State::Playing
+    } else {
+        gstreamer::State::Paused
+    }
+}
+
+/// Returns how far the current playback position may drift before seeking.
+fn max_seek_drift_seconds(update: &VideoTextureUpdate) -> f64 {
+    if update.play {
+        PLAYING_SEEK_DRIFT_SECONDS
+    } else {
+        PAUSED_SEEK_DRIFT_SECONDS
+    }
+}
+
+/// Returns `true` when GStreamer should seek to the host clock position.
+fn should_seek_to_host_position(current_seconds: f64, update: &VideoTextureUpdate) -> bool {
+    (current_seconds - update.position).abs() > max_seek_drift_seconds(update)
+}
+
+/// Converts host seconds to a bounded GStreamer clock time.
+fn clock_time_from_seconds(seconds: f64) -> gstreamer::ClockTime {
+    if !seconds.is_finite() || seconds <= 0.0 {
+        return gstreamer::ClockTime::ZERO;
+    }
+    let nanos = (seconds * 1_000_000_000.0).min(u64::MAX as f64) as u64;
+    gstreamer::ClockTime::from_nseconds(nanos)
+}
+
+/// Queries current playback position in seconds.
+fn query_position_seconds(pipeline: &gstreamer::Element) -> Option<f64> {
+    let mut query = gstreamer::query::Position::new(gstreamer::Format::Time);
+    if !pipeline.query(&mut query) {
+        return None;
+    }
+    match query.result() {
+        gstreamer::GenericFormattedValue::Time(Some(current)) => {
+            Some(current.nseconds() as f64 / 1_000_000_000.0)
+        }
+        _ => None,
+    }
+}
+
+/// Applies one host playback update to the GStreamer pipeline.
+fn apply_update_to_pipeline(pipeline: &gstreamer::Element, update: &VideoTextureUpdate) {
+    profiling::scope!("video::apply_update");
+    if let Err(e) = pipeline.set_state(target_state_for_update(update)) {
+        logger::warn!("video texture update: failed to set pipeline state: {e}");
+    }
+    let Some(current_seconds) = query_position_seconds(pipeline) else {
+        return;
+    };
+    if should_seek_to_host_position(current_seconds, update) {
+        let target = clock_time_from_seconds(update.position);
+        if let Err(e) = pipeline.seek_simple(
+            gstreamer::SeekFlags::FLUSH | gstreamer::SeekFlags::KEY_UNIT,
+            target,
+        ) {
+            logger::warn!("video texture update: failed to seek pipeline: {e}");
+        }
+    }
+}
+
+/// Builds the fallback track descriptor sent to the host until GStreamer track metadata is wired.
+fn default_audio_track(sample_rate: i32) -> VideoAudioTrack {
+    VideoAudioTrack {
+        index: 0,
+        channel_count: 2,
+        sample_rate: normalized_audio_sample_rate(sample_rate),
+        name: None,
+        language_code: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn update(position: f64, play: bool) -> VideoTextureUpdate {
+        VideoTextureUpdate {
+            position,
+            play,
+            ..VideoTextureUpdate::default()
+        }
+    }
+
+    #[test]
+    fn invalid_audio_sample_rate_uses_default() {
+        assert_eq!(normalized_audio_sample_rate(0), DEFAULT_AUDIO_SAMPLE_RATE);
+        assert_eq!(
+            normalized_audio_sample_rate(-44_100),
+            DEFAULT_AUDIO_SAMPLE_RATE
+        );
+        assert_eq!(normalized_audio_sample_rate(44_100), 44_100);
+    }
+
+    #[test]
+    fn invalid_audio_queue_capacity_is_rejected() {
+        assert_eq!(positive_queue_capacity(0), None);
+        assert_eq!(positive_queue_capacity(-1), None);
+        assert_eq!(positive_queue_capacity(64), Some(64));
+    }
+
+    #[test]
+    fn seek_threshold_is_tighter_when_paused() {
+        assert!(!should_seek_to_host_position(10.5, &update(10.0, true)));
+        assert!(should_seek_to_host_position(10.5, &update(10.0, false)));
+    }
+
+    #[test]
+    fn clock_time_from_seconds_clamps_invalid_values_to_zero() {
+        assert_eq!(
+            clock_time_from_seconds(f64::NAN),
+            gstreamer::ClockTime::ZERO
+        );
+        assert_eq!(clock_time_from_seconds(-1.0), gstreamer::ClockTime::ZERO);
+        assert_eq!(
+            clock_time_from_seconds(1.25),
+            gstreamer::ClockTime::from_nseconds(1_250_000_000)
+        );
+    }
+
+    #[test]
+    fn uri_sources_pass_through_without_file_conversion() {
+        assert!(is_uri_source("https://example.invalid/video.mp4"));
+        assert!(is_uri_source("file:///tmp/video.mp4"));
+        assert!(!is_uri_source("/tmp/video.mp4"));
+    }
+
+    #[test]
+    fn relative_local_sources_are_made_absolute_before_uri_conversion() {
+        let path = local_source_path("video.mp4");
+        assert!(path.is_absolute());
+        assert!(path.ends_with("video.mp4"));
+    }
+
+    #[test]
+    fn default_audio_track_uses_normalized_sample_rate() {
+        let track = default_audio_track(-1);
+        assert_eq!(track.sample_rate, DEFAULT_AUDIO_SAMPLE_RATE);
+        assert_eq!(track.index, 0);
+        assert_eq!(track.channel_count, 2);
+        assert_eq!(track.name, None);
     }
 }

@@ -1,4 +1,4 @@
-//! GPU resource pools and VRAM hooks (meshes, Texture2D, Texture3D, cubemaps).
+//! GPU resource pools and VRAM hooks (meshes, Texture2D, Texture3D, cubemaps, video textures).
 
 mod budget;
 mod cubemap_pool;
