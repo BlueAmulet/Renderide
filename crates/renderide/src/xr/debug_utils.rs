@@ -47,7 +47,11 @@ impl OpenxrDebugUtilsMessenger {
         // `instance` is a valid live `xr::Instance`; `create_info` is fully initialised and its
         // `next` pointer is null; `&mut messenger` is a valid out-pointer.
         let r = unsafe {
-            (fp.create_debug_utils_messenger)(instance.as_raw(), &create_info, &mut messenger)
+            (fp.create_debug_utils_messenger)(
+                instance.as_raw(),
+                core::ptr::addr_of!(create_info),
+                core::ptr::addr_of_mut!(messenger),
+            )
         };
         if r != xr::sys::Result::SUCCESS {
             logger::warn!(

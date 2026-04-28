@@ -546,7 +546,7 @@ fn copy_pyramid_to_staging(
     let mut offset = 0u64;
     for mip in 0..mip_levels {
         let (w, h) = mip_dimensions(base_w, base_h, mip).unwrap_or((1, 1));
-        let row_pitch = wgpu::util::align_to(w * 4, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) as u32;
+        let row_pitch = wgpu::util::align_to(w * 4, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture,

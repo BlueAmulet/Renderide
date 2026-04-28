@@ -273,7 +273,7 @@ fn ensure_alt_signal_stack() -> Result<(), String> {
     // `Box<[u8]>` that lives for the process lifetime. Passing null for `oss` discards the
     // previous altstack pointer — the previous backing memory leaks, but it was libstd's
     // own per-thread allocation and dropping our reference to it does not invalidate it.
-    let rc = unsafe { libc::sigaltstack(&ss, core::ptr::null_mut()) };
+    let rc = unsafe { libc::sigaltstack(core::ptr::addr_of!(ss), core::ptr::null_mut()) };
     if rc != 0 {
         // Reset the flag so a future caller could retry, though in practice this never
         // happens — if `sigaltstack` rejected our parameters once it will reject them again.

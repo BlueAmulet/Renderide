@@ -124,7 +124,7 @@ pub(super) struct MultiViewExecutionContext<'a> {
     pub(super) backbuffer_view_holder: &'a Option<wgpu::TextureView>,
 }
 
-impl<'a> FrameViewTarget<'a> {
+impl FrameViewTarget<'_> {
     /// `true` when this target renders to a 2-layer multiview color attachment.
     pub fn is_multiview_target(&self) -> bool {
         matches!(self, FrameViewTarget::ExternalMultiview(_))

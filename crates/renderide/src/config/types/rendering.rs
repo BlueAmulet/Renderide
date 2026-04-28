@@ -163,7 +163,7 @@ impl<'de> Deserialize<'de> for VsyncMode {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         struct VsyncModeVisitor;
 
-        impl<'de> Visitor<'de> for VsyncModeVisitor {
+        impl Visitor<'_> for VsyncModeVisitor {
             type Value = VsyncMode;
 
             fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

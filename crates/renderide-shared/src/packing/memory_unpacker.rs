@@ -84,7 +84,7 @@ impl<'a, 'pool, P: MemoryPackerEntityPool> MemoryUnpacker<'a, 'pool, P> {
         unsafe {
             core::ptr::copy_nonoverlapping(
                 consumed.as_ptr(),
-                out.as_mut_ptr() as *mut u8,
+                out.as_mut_ptr().cast::<u8>(),
                 byte_len,
             );
             out.set_len(count);

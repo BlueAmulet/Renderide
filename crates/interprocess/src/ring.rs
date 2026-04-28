@@ -64,6 +64,10 @@ impl RingView {
         let phys = (logical_offset.rem_euclid(self.capacity)) as usize;
         // Compute the candidate header pointer without dereferencing it so the alignment check
         // can run before any potentially-misaligned read.
+        #[expect(
+            clippy::cast_ptr_alignment,
+            reason = "alignment is checked with is_aligned before the MessageHeader pointer is dereferenced"
+        )]
         // SAFETY: `phys < capacity` by Euclidean modulo on a positive `capacity`; the ring base
         // is valid for `capacity` bytes per the `RingView` type-level invariant.
         let header_ptr = unsafe { self.ptr.add(phys) }.cast::<MessageHeader>();

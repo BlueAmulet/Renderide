@@ -54,7 +54,15 @@ pub(super) fn current_os_tid() -> i64 {
     {
         // SAFETY: `gettid()` (via SYS_gettid) is always safe; returns the calling thread's TID
         // and never touches user memory.
-        unsafe { libc::syscall(libc::SYS_gettid) as i64 }
+        let tid = unsafe { libc::syscall(libc::SYS_gettid) };
+        #[cfg(target_pointer_width = "64")]
+        {
+            tid
+        }
+        #[cfg(target_pointer_width = "32")]
+        {
+            i64::from(tid)
+        }
     }
     #[cfg(target_os = "macos")]
     {
@@ -126,12 +134,18 @@ pub(super) fn install() -> Result<(), String> {
     // SAFETY: `sigemptyset` initializes the signal set in place; the pointer is non-null and
     // points to writable memory inside `sa`.
     unsafe {
-        libc::sigemptyset(&mut sa.sa_mask);
+        libc::sigemptyset(core::ptr::addr_of_mut!(sa.sa_mask));
     }
     // SAFETY: registers a process-wide handler for `SIGUSR2`; the handler is async-signal-safe
     // (see its doc-comment). Old handler is discarded — `SIGUSR2` is otherwise unused in the
     // renderer, so there is no preexisting handler to chain to.
-    let rc = unsafe { libc::sigaction(libc::SIGUSR2, &sa, core::ptr::null_mut()) };
+    let rc = unsafe {
+        libc::sigaction(
+            libc::SIGUSR2,
+            core::ptr::addr_of!(sa),
+            core::ptr::null_mut(),
+        )
+    };
     if rc != 0 {
         HANDLER_INSTALLED.store(false, Ordering::Release);
         return Err(format!("sigaction(SIGUSR2) failed (rc={rc})"));
