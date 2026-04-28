@@ -10,6 +10,7 @@ mod render_texture;
 mod texture2d;
 mod texture3d;
 mod texture_common;
+mod video_texture;
 
 pub use attach::attach_flush_pending_asset_uploads;
 pub use cubemap::{
@@ -25,6 +26,10 @@ pub use texture2d::{
 pub use texture3d::{
     on_set_texture_3d_data, on_set_texture_3d_format, on_set_texture_3d_properties,
     on_unload_texture_3d, try_texture3d_upload_with_device,
+};
+pub use video_texture::{
+    on_unload_video_texture, on_video_texture_load, on_video_texture_properties,
+    on_video_texture_start_audio_track, on_video_texture_update,
 };
 
 /// Max queued [`MeshUploadData`](crate::shared::MeshUploadData) when GPU is not ready yet (host data stays in shared memory).

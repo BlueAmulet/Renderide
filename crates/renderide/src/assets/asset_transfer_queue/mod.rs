@@ -21,13 +21,17 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::gpu::GpuLimits;
-use crate::resources::{CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool};
+use crate::resources::{
+    CubemapPool, GpuVideoTexture, MeshPool, RenderTexturePool, Texture3dPool, TexturePool,
+    VideoTexturePool,
+};
 use crate::shared::{
     MeshUploadData, SetCubemapData, SetCubemapFormat, SetCubemapProperties, SetRenderTextureFormat,
     SetTexture2DData, SetTexture2DFormat, SetTexture2DProperties, SetTexture3DData,
-    SetTexture3DFormat, SetTexture3DProperties,
+    SetTexture3DFormat, SetTexture3DProperties, VideoTextureLoad, VideoTextureProperties,
 };
 
+use crate::assets::video::player::VideoPlayer;
 pub use integrator::{
     drain_asset_tasks, drain_asset_tasks_unbounded, AssetIntegrator, AssetTask, StepResult,
     MAX_ASSET_INTEGRATION_QUEUED,
@@ -37,9 +41,11 @@ pub use uploads::{
     on_set_cubemap_properties, on_set_render_texture_format, on_set_texture_2d_data,
     on_set_texture_2d_format, on_set_texture_2d_properties, on_set_texture_3d_data,
     on_set_texture_3d_format, on_set_texture_3d_properties, on_unload_cubemap,
-    on_unload_render_texture, on_unload_texture_2d, on_unload_texture_3d,
-    try_cubemap_upload_with_device, try_process_mesh_upload, try_texture3d_upload_with_device,
-    try_texture_upload_with_device, MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
+    on_unload_render_texture, on_unload_texture_2d, on_unload_texture_3d, on_unload_video_texture,
+    on_video_texture_load, on_video_texture_properties, on_video_texture_start_audio_track,
+    on_video_texture_update, try_cubemap_upload_with_device, try_process_mesh_upload,
+    try_texture3d_upload_with_device, try_texture_upload_with_device, MAX_PENDING_MESH_UPLOADS,
+    MAX_PENDING_TEXTURE_UPLOADS,
 };
 
 /// Pending mesh/texture payloads, CPU texture tables, GPU device/queue, resident pools, and [`AssetIntegrator`].
@@ -54,6 +60,14 @@ pub struct AssetTransferQueue {
     pub(crate) cubemap_pool: CubemapPool,
     /// Resident host render textures (color + optional depth).
     pub(crate) render_texture_pool: RenderTexturePool,
+    /// Resident video textures.
+    pub(crate) video_texture_pool: VideoTexturePool,
+    /// Holder for [`VideoPlayer`] instances.
+    pub(crate) video_players: HashMap<i32, VideoPlayer>,
+    /// Latest [`VideoTextureLoad`] messages received before GPU attach.
+    pub(crate) pending_video_texture_loads: HashMap<i32, VideoTextureLoad>,
+    /// Latest [`VideoTextureProperties`] per video texture asset.
+    pub(crate) video_texture_properties: HashMap<i32, VideoTextureProperties>,
     /// Latest [`SetRenderTextureFormat`] per asset.
     pub(crate) render_texture_formats: HashMap<i32, SetRenderTextureFormat>,
     /// Latest [`SetTexture2DFormat`] per asset (required before data upload).
@@ -95,11 +109,12 @@ pub struct AssetTransferQueue {
 }
 
 impl AssetTransferQueue {
+    /// Mutably borrows the cooperative asset integrator.
     pub(crate) fn integrator_mut(&mut self) -> &mut AssetIntegrator {
         &mut self.integrator
     }
 
-    /// Logs a warning when combined Texture2D + render-texture resident bytes exceed the configured budget.
+    /// Logs a warning when combined sampleable 2D/render/video texture bytes exceed the configured budget.
     pub(crate) fn maybe_warn_texture_vram_budget(&self) {
         let budget = self.texture_vram_budget_bytes;
         if budget == 0 {
@@ -113,14 +128,52 @@ impl AssetTransferQueue {
                 self.render_texture_pool
                     .accounting()
                     .texture_resident_bytes(),
+            )
+            .saturating_add(
+                self.video_texture_pool
+                    .accounting()
+                    .texture_resident_bytes(),
             );
         if used > budget {
             logger::warn!(
-                "texture VRAM over budget: resident≈{} MiB > {} MiB (2D+RT pools; see [rendering].texture_vram_budget_mib)",
+                "texture VRAM over budget: resident~{} MiB > {} MiB (2D+RT+video pools; see [rendering].texture_vram_budget_mib)",
                 used / (1024 * 1024),
                 budget / (1024 * 1024),
             );
         }
+    }
+
+    /// Returns cached video texture properties, or stable defaults tagged with `asset_id`.
+    pub(crate) fn video_texture_properties_or_default(
+        &self,
+        asset_id: i32,
+    ) -> VideoTextureProperties {
+        self.video_texture_properties
+            .get(&asset_id)
+            .cloned()
+            .unwrap_or(VideoTextureProperties {
+                asset_id,
+                ..VideoTextureProperties::default()
+            })
+    }
+
+    /// Ensures a GPU video texture placeholder exists and returns it for mutation.
+    pub(crate) fn ensure_video_texture_with_props(
+        &mut self,
+        props: &VideoTextureProperties,
+    ) -> Option<&mut GpuVideoTexture> {
+        let asset_id = props.asset_id;
+        if self.video_texture_pool.get(asset_id).is_none() {
+            let texture = {
+                let device = self.gpu_device.as_deref()?;
+                GpuVideoTexture::new(device, asset_id, props)
+            };
+            if self.video_texture_pool.insert_texture(texture) {
+                logger::debug!("video texture {asset_id}: replaced placeholder during creation");
+            }
+            self.maybe_warn_texture_vram_budget();
+        }
+        self.video_texture_pool.get_mut(asset_id)
     }
 }
 
@@ -140,6 +193,10 @@ impl AssetTransferQueue {
             cubemap_pool: CubemapPool::default_pool(),
             render_texture_pool: RenderTexturePool::new(),
             render_texture_formats: HashMap::new(),
+            video_players: HashMap::new(),
+            pending_video_texture_loads: HashMap::new(),
+            video_texture_pool: VideoTexturePool::new(),
+            video_texture_properties: HashMap::new(),
             texture_formats: HashMap::new(),
             texture_properties: HashMap::new(),
             texture3d_formats: HashMap::new(),
@@ -158,5 +215,46 @@ impl AssetTransferQueue {
             pending_cubemap_uploads: VecDeque::new(),
             integrator: AssetIntegrator::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shared::{TextureFilterMode, TextureWrapMode};
+
+    #[test]
+    fn video_texture_properties_default_preserves_asset_id() {
+        let queue = AssetTransferQueue::new();
+
+        let props = queue.video_texture_properties_or_default(42);
+
+        assert_eq!(props.asset_id, 42);
+        assert_eq!(props.filter_mode, TextureFilterMode::Point);
+        assert_eq!(props.wrap_u, TextureWrapMode::Repeat);
+        assert_eq!(props.wrap_v, TextureWrapMode::Repeat);
+    }
+
+    #[test]
+    fn video_texture_properties_default_uses_cached_properties() {
+        let mut queue = AssetTransferQueue::new();
+        queue.video_texture_properties.insert(
+            7,
+            VideoTextureProperties {
+                asset_id: 7,
+                filter_mode: TextureFilterMode::Trilinear,
+                aniso_level: 8,
+                wrap_u: TextureWrapMode::Mirror,
+                wrap_v: TextureWrapMode::Clamp,
+            },
+        );
+
+        let props = queue.video_texture_properties_or_default(7);
+
+        assert_eq!(props.asset_id, 7);
+        assert_eq!(props.filter_mode, TextureFilterMode::Trilinear);
+        assert_eq!(props.aniso_level, 8);
+        assert_eq!(props.wrap_u, TextureWrapMode::Mirror);
+        assert_eq!(props.wrap_v, TextureWrapMode::Clamp);
     }
 }

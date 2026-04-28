@@ -14,6 +14,7 @@ use super::cubemap::try_cubemap_upload_with_device;
 use super::mesh::try_process_mesh_upload;
 use super::texture2d::try_texture_upload_with_device;
 use super::texture3d::try_texture3d_upload_with_device;
+use super::video_texture::attach_flush_pending_video_textures;
 
 /// After GPU [`crate::backend::RenderBackend::attach`], allocate textures for pending
 /// formats and replay queued mesh/texture payloads when shared memory is available, then
@@ -27,6 +28,7 @@ pub fn attach_flush_pending_asset_uploads(
     flush_pending_texture3d_allocations(queue, device);
     flush_pending_cubemap_allocations(queue, device);
     flush_pending_render_texture_allocations(queue, device);
+    attach_flush_pending_video_textures(queue);
     let pending_tex: Vec<SetTexture2DData> = queue.pending_texture_uploads.drain(..).collect();
     let pending_tex3d: Vec<SetTexture3DData> = queue.pending_texture3d_uploads.drain(..).collect();
     let pending_cube: Vec<SetCubemapData> = queue.pending_cubemap_uploads.drain(..).collect();

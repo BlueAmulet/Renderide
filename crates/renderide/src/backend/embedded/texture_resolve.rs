@@ -30,6 +30,8 @@ pub(crate) enum ResolvedTextureBinding {
     Cubemap { asset_id: i32 },
     /// [`crate::resources::RenderTexturePool`] entry (unpacked render-texture asset id).
     RenderTexture { asset_id: i32 },
+    /// [`crate::resources::VideoTexturePool`] entry (unpacked 2D asset id).
+    VideoTexture { asset_id: i32 },
 }
 
 impl ResolvedTextureBinding {
@@ -52,6 +54,10 @@ impl ResolvedTextureBinding {
             }
             ResolvedTextureBinding::RenderTexture { asset_id } => {
                 2u8.hash(hasher);
+                asset_id.hash(hasher);
+            }
+            ResolvedTextureBinding::VideoTexture { asset_id } => {
+                5u8.hash(hasher);
                 asset_id.hash(hasher);
             }
         }
@@ -127,6 +133,9 @@ fn texture_property_binding(
             }
             Some((id, HostTextureAssetKind::RenderTexture)) => {
                 ResolvedTextureBinding::RenderTexture { asset_id: id }
+            }
+            Some((id, HostTextureAssetKind::VideoTexture)) => {
+                ResolvedTextureBinding::VideoTexture { asset_id: id }
             }
             _ => ResolvedTextureBinding::None,
         },
@@ -255,6 +264,14 @@ pub(crate) fn texture_bind_signature(
                 if offscreen_write_render_texture_asset_id == Some(asset_id) {
                     false.hash(&mut h);
                 } else if let Some(t) = pools.render_texture.get(asset_id) {
+                    t.is_sampleable().hash(&mut h);
+                    hash_texture2d_sampler(&t.sampler, &mut h);
+                } else {
+                    false.hash(&mut h);
+                }
+            }
+            ResolvedTextureBinding::VideoTexture { asset_id } => {
+                if let Some(t) = pools.video_texture.get(asset_id) {
                     t.is_sampleable().hash(&mut h);
                     hash_texture2d_sampler(&t.sampler, &mut h);
                 } else {
@@ -559,6 +576,11 @@ mod tests {
         }
     }
 
+    /// Packs a host texture id using the same bit layout as `IdPacker<TextureAssetType>`.
+    fn pack_host_texture(asset_id: i32, kind: HostTextureAssetKind) -> i32 {
+        ((asset_id as u32) | ((kind as u32) << 29)) as i32
+    }
+
     #[test]
     fn sampler_filter_modes_preserve_host_semantics() {
         let address = ResolvedSamplerAddress {
@@ -697,6 +719,25 @@ mod tests {
                 lookup(5),
             ),
             ResolvedTextureBinding::Texture2D { asset_id: 200 }
+        );
+    }
+
+    #[test]
+    fn resolved_texture_binding_accepts_video_texture_property() {
+        let mut store = MaterialPropertyStore::new();
+        let main_tex_pid = 30;
+        store.set_material(
+            8,
+            main_tex_pid,
+            MaterialPropertyValue::Texture(pack_host_texture(
+                44,
+                HostTextureAssetKind::VideoTexture,
+            )),
+        );
+
+        assert_eq!(
+            resolved_texture_binding_for_host("_MainTex", &[main_tex_pid], -1, &store, lookup(8)),
+            ResolvedTextureBinding::VideoTexture { asset_id: 44 }
         );
     }
 
