@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GtaoSettings {
-    /// Whether GTAO runs in the post-processing chain. Off by default (opt-in).
+    /// Whether GTAO runs in the post-processing chain when post-processing is enabled.
     pub enabled: bool,
     /// World-space horizon search radius (meters). Larger = broader contact-shadow falloff.
     pub radius_meters: f32,
@@ -35,13 +35,33 @@ pub struct GtaoSettings {
 impl Default for GtaoSettings {
     fn default() -> Self {
         Self {
-            enabled: false,
-            radius_meters: 1.0,
-            intensity: 1.0,
-            max_pixel_radius: 256.0,
+            enabled: true,
+            radius_meters: 2.0,
+            intensity: 0.5,
+            max_pixel_radius: 64.0,
             step_count: 16,
-            falloff_range: 0.5,
+            falloff_range: 1.0,
             albedo_multibounce: 0.0,
         }
+    }
+}
+
+/// Tests for GTAO configuration defaults.
+#[cfg(test)]
+mod tests {
+    use super::GtaoSettings;
+
+    /// Verifies the user-facing GTAO defaults stay aligned with the renderer config contract.
+    #[test]
+    fn defaults_match_config_contract() {
+        let settings = GtaoSettings::default();
+
+        assert!(settings.enabled);
+        assert_eq!(settings.radius_meters, 2.0);
+        assert_eq!(settings.intensity, 0.5);
+        assert_eq!(settings.max_pixel_radius, 64.0);
+        assert_eq!(settings.step_count, 16);
+        assert_eq!(settings.falloff_range, 1.0);
+        assert_eq!(settings.albedo_multibounce, 0.0);
     }
 }

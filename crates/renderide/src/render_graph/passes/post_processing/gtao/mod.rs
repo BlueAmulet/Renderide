@@ -394,11 +394,12 @@ mod tests {
             frame_uniforms: ImportedBufferHandle(0),
         };
         let mut s = PostProcessingSettings::default();
-        assert!(!e.is_enabled(&s), "defaults: master off, gtao off");
+        assert!(!e.is_enabled(&s), "default master off gates GTAO");
         s.enabled = true;
-        assert!(!e.is_enabled(&s), "master on but gtao off");
+        assert!(e.is_enabled(&s), "master on + default GTAO on");
+        s.gtao.enabled = false;
+        assert!(!e.is_enabled(&s), "master on but GTAO off");
         s.gtao.enabled = true;
-        assert!(e.is_enabled(&s), "master on + gtao on");
         s.enabled = false;
         assert!(!e.is_enabled(&s), "master off disables even if gtao on");
     }

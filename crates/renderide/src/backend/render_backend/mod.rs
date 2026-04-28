@@ -802,7 +802,7 @@ mod post_processing_rebuild_tests {
                 aces_tonemap: true,
                 bloom: false,
                 bloom_max_mip_dimension: 0,
-                gtao: false,
+                gtao: true,
             }
         );
     }

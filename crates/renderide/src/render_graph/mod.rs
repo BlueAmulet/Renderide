@@ -633,7 +633,7 @@ mod default_graph_tests {
     use wgpu::TextureFormat;
 
     use super::*;
-    use crate::config::{PostProcessingSettings, TonemapMode, TonemapSettings};
+    use crate::config::{GtaoSettings, PostProcessingSettings, TonemapMode, TonemapSettings};
     use crate::render_graph::post_processing::PostProcessChainSignature;
 
     fn smoke_key() -> GraphCacheKey {
@@ -654,6 +654,10 @@ mod default_graph_tests {
     fn aces_enabled_post() -> PostProcessingSettings {
         PostProcessingSettings {
             enabled: true,
+            gtao: GtaoSettings {
+                enabled: false,
+                ..Default::default()
+            },
             tonemap: TonemapSettings {
                 mode: TonemapMode::AcesFitted,
             },
