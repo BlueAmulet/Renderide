@@ -22,14 +22,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          # Linux is the only runner where GStreamer dev packages are reliably installable
+          # via the system package manager, so it's the only OS that exercises the
+          # `video-textures` feature (which pulls in gstreamer-sys / glib-sys).
+          # `--all-features` here also enables `tracy`, giving us lint coverage of that path.
+          - os: ubuntu-latest
+            clippy_features: --all-features
+          - os: windows-latest
+            clippy_features: ""
+          - os: macos-latest
+            clippy_features: ""
 
     steps:
       - uses: actions/checkout@v4
 
       # `materials::registry` wgpu smoke test requires an adapter when `CI` is set (GitHub sets it by default).
-      # GStreamer dev packages are required by the `gstreamer` / `gstreamer-app` crates pulled in
-      # by `renderide` for video texture support; pkg-config resolves their headers/libs at build time.
+      # GStreamer dev packages are required only when the `video-textures` feature is enabled
+      # (Linux clippy does this via `--all-features`); pkg-config resolves the headers/libs at build time.
       - name: Install Linux system dependencies (Vulkan + GStreamer)
         if: runner.os == 'Linux'
         run: |
@@ -37,34 +47,6 @@ jobs:
           sudo apt-get install -y \
             mesa-vulkan-drivers vulkan-tools \
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-
-      - name: Install macOS system dependencies (GStreamer)
-        if: runner.os == 'macOS'
-        run: |
-          brew update
-          brew install gstreamer
-
-      # The choco GStreamer install is ~3 minutes; cache the install dir so subsequent runs
-      # only need to re-set env vars (and install the tiny pkgconfiglite shim). Keyed on the
-      # workflow file hash so any change to the install commands invalidates the cache.
-      - name: Cache GStreamer (Windows)
-        if: runner.os == 'Windows'
-        id: cache-gstreamer-win
-        uses: actions/cache@v4
-        with:
-          path: C:\gstreamer
-          key: gstreamer-windows-msvc-x64-${{ hashFiles('.github/workflows/rust-ci.yml') }}
-
-      - name: Install Windows system dependencies (GStreamer)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          if ('${{ steps.cache-gstreamer-win.outputs.cache-hit }}' -ne 'true') {
-            choco install -y --no-progress gstreamer gstreamer-devel
-          }
-          choco install -y --no-progress pkgconfiglite
-          "PKG_CONFIG_PATH=C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "C:\gstreamer\1.0\msvc_x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -83,7 +65,7 @@ jobs:
         run: taplo fmt --check --diff
 
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -W clippy::all -D warnings
+        run: cargo clippy --all-targets ${{ matrix.clippy_features }} -- -W clippy::all -D warnings
 
       - name: cargo build
         run: cargo build --workspace --locked
