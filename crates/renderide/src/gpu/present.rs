@@ -200,9 +200,18 @@ where
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("skeleton-clear"),
         });
+    let outer_query = gpu
+        .gpu_profiler_mut()
+        .map(|p| p.begin_query("graph::surface_clear", &mut encoder));
     record_swapchain_clear_pass(&mut encoder, &view, SWAPCHAIN_CLEAR_COLOR, Some("clear"));
     if let Err(e) = overlay(&mut encoder, &view, gpu) {
         logger::warn!("debug HUD overlay (clear frame): {e}");
+    }
+    if let Some(query) = outer_query {
+        if let Some(prof) = gpu.gpu_profiler_mut() {
+            prof.end_query(&mut encoder, query);
+            prof.resolve_queries(&mut encoder);
+        }
     }
     // Hand submit + present to the driver thread so `Queue::submit` runs before
     // `SurfaceTexture::present`. Calling `present()` on the main thread immediately after

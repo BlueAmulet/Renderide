@@ -543,6 +543,15 @@ impl CompiledRenderGraph {
             let mut hud_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("render-graph-hud"),
             });
+            // Wrap the HUD encoder in a GPU profiler scope so Dear ImGui's per-frame draw work
+            // appears as `graph::hud_imgui` on the Tracy GPU timeline. The encoder is its own
+            // command buffer in the submit batch, so the resolve must happen inside the encoder
+            // itself — `prof.resolve_queries` after `end_query` records the resolve copy in the
+            // same buffer that wrote the timestamps, ensuring GPU ordering across the submit.
+            let hud_query = mv_ctx
+                .gpu
+                .gpu_profiler_mut()
+                .map(|p| p.begin_query("graph::hud_imgui", &mut hud_encoder));
             if let Err(e) = mv_ctx.backend.encode_debug_hud_overlay(
                 device,
                 queue_ref,
@@ -551,6 +560,12 @@ impl CompiledRenderGraph {
                 viewport_px,
             ) {
                 logger::warn!("debug HUD overlay: {e}");
+            }
+            if let Some(query) = hud_query {
+                if let Some(prof) = mv_ctx.gpu.gpu_profiler_mut() {
+                    prof.end_query(&mut hud_encoder, query);
+                    prof.resolve_queries(&mut hud_encoder);
+                }
             }
             Some(hud_encoder.finish())
         } else {

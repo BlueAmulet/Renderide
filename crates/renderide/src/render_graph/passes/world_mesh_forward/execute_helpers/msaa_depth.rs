@@ -4,6 +4,7 @@
 use crate::gpu::{
     MsaaDepthResolveMonoTargets, MsaaDepthResolveResources, MsaaDepthResolveStereoTargets,
 };
+use crate::profiling::GpuProfilerHandle;
 use crate::render_graph::context::{GraphResolvedResources, ResolvedGraphTexture};
 use crate::render_graph::frame_params::{
     FrameRenderParams, PreparedWorldMeshForwardFrame, WorldMeshHelperNeeds,
@@ -20,6 +21,7 @@ pub(crate) fn encode_world_mesh_forward_depth_snapshot(
     prepared: &PreparedWorldMeshForwardFrame,
     msaa_views: Option<&ForwardMsaaResolvedViews>,
     msaa_depth_resolve: Option<&MsaaDepthResolveResources>,
+    profiler: Option<&GpuProfilerHandle>,
 ) -> bool {
     if !depth_snapshot_recording_needed(prepared.helper_needs) {
         return false;
@@ -27,7 +29,7 @@ pub(crate) fn encode_world_mesh_forward_depth_snapshot(
 
     if frame.view.sample_count > 1 {
         if let (Some(msaa_views), Some(res)) = (msaa_views, msaa_depth_resolve) {
-            encode_msaa_depth_resolve_for_frame(device, encoder, frame, msaa_views, res);
+            encode_msaa_depth_resolve_for_frame(device, encoder, frame, msaa_views, res, profiler);
         }
     }
 
@@ -59,6 +61,7 @@ pub(crate) fn encode_msaa_depth_resolve_after_clear_only(
     frame: &FrameRenderParams<'_>,
     msaa_views: Option<&ForwardMsaaResolvedViews>,
     msaa_depth_resolve: Option<&MsaaDepthResolveResources>,
+    profiler: Option<&GpuProfilerHandle>,
 ) {
     if frame.view.sample_count <= 1 {
         return;
@@ -66,7 +69,7 @@ pub(crate) fn encode_msaa_depth_resolve_after_clear_only(
     let (Some(msaa_views), Some(res)) = (msaa_views, msaa_depth_resolve) else {
         return;
     };
-    encode_msaa_depth_resolve_for_frame(device, encoder, frame, msaa_views, res);
+    encode_msaa_depth_resolve_for_frame(device, encoder, frame, msaa_views, res, profiler);
 }
 
 /// Dispatches the desktop (`D2`) or stereo (`D2Array` multiview) depth-resolve path based on
@@ -77,6 +80,7 @@ fn encode_msaa_depth_resolve_for_frame(
     frame: &FrameRenderParams<'_>,
     msaa: &ForwardMsaaResolvedViews,
     resolve: &MsaaDepthResolveResources,
+    profiler: Option<&GpuProfilerHandle>,
 ) {
     let Some(limits) = frame.view.gpu_limits.as_ref() else {
         logger::warn!("MSAA depth resolve: gpu_limits missing; skipping resolve");
@@ -102,6 +106,7 @@ fn encode_msaa_depth_resolve_for_frame(
                 dst_depth_format: frame.view.depth_texture.format(),
             },
             limits,
+            profiler,
         );
     } else {
         resolve.encode_resolve(
@@ -115,6 +120,7 @@ fn encode_msaa_depth_resolve_for_frame(
                 dst_depth_format: frame.view.depth_texture.format(),
             },
             limits,
+            profiler,
         );
     }
 }

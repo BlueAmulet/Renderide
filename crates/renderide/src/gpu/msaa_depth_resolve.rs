@@ -11,6 +11,9 @@ use crate::embedded_shaders::{
     DEPTH_BLIT_R32_TO_DEPTH_DEFAULT_WGSL, DEPTH_BLIT_R32_TO_DEPTH_MULTIVIEW_WGSL,
     MSAA_DEPTH_RESOLVE_TO_R32_WGSL,
 };
+use crate::profiling::{
+    compute_pass_timestamp_writes, render_pass_timestamp_writes, GpuProfilerHandle,
+};
 use crate::render_graph::gpu_cache::{storage_texture_layout_entry, texture_layout_entry};
 use crate::render_graph::MAIN_FORWARD_DEPTH_CLEAR;
 
@@ -341,6 +344,10 @@ impl MsaaDepthResolveResources {
     ///
     /// When the 8×8-tiled compute dispatch would exceed [`GpuLimits::compute_dispatch_fits`], logs a
     /// warning and skips compute and blit (degraded depth for intersection / Hi-Z vs invalid GPU work).
+    ///
+    /// `profiler` opens a pass-level GPU timestamp query around each of the two passes (compute
+    /// resolve and depth blit) so they appear individually on the Tracy GPU timeline. Pass [`None`]
+    /// when the GPU profiler is unavailable.
     pub fn encode_resolve(
         &self,
         device: &wgpu::Device,
@@ -348,6 +355,7 @@ impl MsaaDepthResolveResources {
         extent: (u32, u32),
         targets: MsaaDepthResolveMonoTargets<'_>,
         limits: &GpuLimits,
+        profiler: Option<&GpuProfilerHandle>,
     ) {
         let MsaaDepthResolveMonoTargets {
             msaa_depth_view,
@@ -392,14 +400,19 @@ impl MsaaDepthResolveResources {
             }],
         });
 
+        let compute_query =
+            profiler.map(|p| p.begin_pass_query("msaa_depth_resolve.compute", encoder));
         {
             let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("msaa-depth-resolve-r32"),
-                timestamp_writes: None,
+                timestamp_writes: compute_pass_timestamp_writes(compute_query.as_ref()),
             });
             cpass.set_pipeline(&self.compute_pipeline);
             cpass.set_bind_group(0, &compute_bg, &[]);
             cpass.dispatch_workgroups(gx, gy, 1);
+        }
+        if let (Some(q), Some(p)) = (compute_query, profiler) {
+            p.end_query(encoder, q);
         }
 
         let Some(blit_pipeline) = self.blit_pipeline_for_format(dst_depth_format) else {
@@ -409,6 +422,7 @@ impl MsaaDepthResolveResources {
             );
             return;
         };
+        let blit_query = profiler.map(|p| p.begin_pass_query("msaa_depth_resolve.blit", encoder));
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("msaa-depth-blit-r32-to-depth"),
@@ -422,12 +436,15 @@ impl MsaaDepthResolveResources {
                     stencil_ops: None,
                 }),
                 occlusion_query_set: None,
-                timestamp_writes: None,
+                timestamp_writes: render_pass_timestamp_writes(blit_query.as_ref()),
                 multiview_mask: None,
             });
             rpass.set_pipeline(blit_pipeline);
             rpass.set_bind_group(0, &blit_bg, &[]);
             rpass.draw(0..3, 0..1);
+        }
+        if let (Some(q), Some(p)) = (blit_query, profiler) {
+            p.end_query(encoder, q);
         }
     }
 
@@ -442,6 +459,9 @@ impl MsaaDepthResolveResources {
     /// (stereo MSAA is implicitly off in that case via the feature mask in the XR bootstrap).
     ///
     /// See [`Self::encode_resolve`] for compute dispatch limit handling.
+    ///
+    /// `profiler` opens pass-level GPU timestamp queries around each per-eye compute pass and the
+    /// final multiview blit pass.
     pub fn encode_resolve_stereo(
         &self,
         device: &wgpu::Device,
@@ -449,6 +469,7 @@ impl MsaaDepthResolveResources {
         extent: (u32, u32),
         targets: MsaaDepthResolveStereoTargets<'_>,
         limits: &GpuLimits,
+        profiler: Option<&GpuProfilerHandle>,
     ) {
         let MsaaDepthResolveStereoTargets {
             msaa_depth_layer_views,
@@ -492,13 +513,24 @@ impl MsaaDepthResolveResources {
                     },
                 ],
             });
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("msaa-depth-resolve-r32-stereo"),
-                timestamp_writes: None,
-            });
-            cpass.set_pipeline(&self.compute_pipeline);
-            cpass.set_bind_group(0, &compute_bg, &[]);
-            cpass.dispatch_workgroups(gx, gy, 1);
+            let label = if eye == 0 {
+                "msaa_depth_resolve.compute_stereo_eye0"
+            } else {
+                "msaa_depth_resolve.compute_stereo_eye1"
+            };
+            let compute_query = profiler.map(|p| p.begin_pass_query(label, encoder));
+            {
+                let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("msaa-depth-resolve-r32-stereo"),
+                    timestamp_writes: compute_pass_timestamp_writes(compute_query.as_ref()),
+                });
+                cpass.set_pipeline(&self.compute_pipeline);
+                cpass.set_bind_group(0, &compute_bg, &[]);
+                cpass.dispatch_workgroups(gx, gy, 1);
+            }
+            if let (Some(q), Some(p)) = (compute_query, profiler) {
+                p.end_query(encoder, q);
+            }
         }
 
         let blit_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -510,23 +542,30 @@ impl MsaaDepthResolveResources {
             }],
         });
 
-        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("msaa-depth-blit-r32-to-depth-stereo"),
-            color_attachments: &[],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: dst_depth_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(MAIN_FORWARD_DEPTH_CLEAR),
-                    store: wgpu::StoreOp::Store,
+        let blit_query =
+            profiler.map(|p| p.begin_pass_query("msaa_depth_resolve.blit_stereo", encoder));
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("msaa-depth-blit-r32-to-depth-stereo"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: dst_depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(MAIN_FORWARD_DEPTH_CLEAR),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
                 }),
-                stencil_ops: None,
-            }),
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: std::num::NonZeroU32::new(3),
-        });
-        rpass.set_pipeline(blit_stereo_pipeline);
-        rpass.set_bind_group(0, &blit_bg, &[]);
-        rpass.draw(0..3, 0..1);
+                occlusion_query_set: None,
+                timestamp_writes: render_pass_timestamp_writes(blit_query.as_ref()),
+                multiview_mask: std::num::NonZeroU32::new(3),
+            });
+            rpass.set_pipeline(blit_stereo_pipeline);
+            rpass.set_bind_group(0, &blit_bg, &[]);
+            rpass.draw(0..3, 0..1);
+        }
+        if let (Some(q), Some(p)) = (blit_query, profiler) {
+            p.end_query(encoder, q);
+        }
     }
 }
