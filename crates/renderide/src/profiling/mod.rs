@@ -766,7 +766,7 @@ mod tests {
     #[cfg(not(feature = "tracy"))]
     #[test]
     fn timestamp_features_fn_signature_compiles_without_tracy() {
-        let _fn_ptr: fn(&wgpu::Adapter) -> wgpu::Features = timestamp_query_features_if_supported;
+        let _: fn(&wgpu::Adapter) -> wgpu::Features = timestamp_query_features_if_supported;
     }
 
     /// `register_main_thread` and `emit_frame_mark` must be safely callable more than once per

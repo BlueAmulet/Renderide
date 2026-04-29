@@ -83,6 +83,40 @@ Prerequisites: a Vulkan-, Metal-, or DirectX 12-capable GPU and a Steam installa
 
 The bootstrapper will launch the Resonite host and connect Renderide automatically.
 
+## Feature flags
+
+The `renderide` crate exposes opt-in Cargo features for capabilities that depend on platform-specific system libraries or that are only useful in some workflows. Stock builds (`cargo build`) enable none of them.
+
+### `tracy`
+
+CPU and GPU profiling integration. Activates `profiling::scope!` zones, frame marks, and `wgpu-profiler` GPU timestamp queries that stream into the [Tracy](https://github.com/wolfpld/tracy) profiler GUI on port 8086. The Tracy client links statically, so this feature has no system-library prerequisites.
+
+```bash
+cargo build --features tracy
+```
+
+See [Profiling](#profiling) for adapter requirements and connection details.
+
+### `video-textures`
+
+GStreamer-backed video texture playback. With the feature off (the default), video texture IPC commands still allocate a GPU placeholder, but no decoding runs and the placeholder stays black.
+
+System dependencies:
+
+- **Linux**: `libgstreamer1.0-dev` and `libgstreamer-plugins-base1.0-dev` on Debian/Ubuntu, or the equivalent `gstreamer` packages on other distros.
+- **macOS**: `brew install gstreamer`.
+- **Windows**: the official GStreamer MSVC SDK plus a working `pkg-config` (`pkgconf` rather than `pkgconfiglite`); reliably wiring this up is a known sharp edge, so CI exercises this feature on Linux only.
+
+```bash
+cargo build --features video-textures
+```
+
+Multiple features can be combined as a single space-separated argument:
+
+```bash
+cargo build --features "tracy video-textures"
+```
+
 ## Configuration
 
 Renderide reads its settings from a TOML file discovered (or created) at startup, with overrides from `RENDERIDE_*` environment variables. The runtime watches the file and applies most changes without a restart, and the in-renderer ImGui overlay edits the same settings.

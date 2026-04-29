@@ -38,6 +38,14 @@ tracy = [
   "profiling/profile-with-tracy",
   "wgpu-profiler/tracy",
 ]
+## Enables GStreamer-backed video texture playback. When disabled, video texture IPC commands
+## still create GPU placeholders (the host sees a black frame), but no decoding occurs and
+## `VideoPlayer::new` returns `None`. Off by default to keep cross-platform CI lean — GStreamer
+## system libraries are reliably available on Linux but require manual setup on macOS and Windows.
+##
+## Usage: `cargo build --features video-textures` (Linux: install `libgstreamer1.0-dev` and
+## `libgstreamer-plugins-base1.0-dev` first).
+video-textures = ["dep:gstreamer", "dep:gstreamer-app"]
 
 [package.metadata.cargo-machete]
 ignored = ["tracy-client"]
@@ -90,8 +98,11 @@ tracy-client = { version = "0.18", optional = true, default-features = false, fe
   "enable",
   "ondemand",
 ] }
-gstreamer = "0.25"
-gstreamer-app = "0.25"
+## Optional: enabled by the `video-textures` feature. Provides the GStreamer pipeline that
+## decodes video texture sources into wgpu textures. Without this feature, video texture
+## upload paths are stubbed and the host sees a static black placeholder.
+gstreamer = { version = "0.25", optional = true }
+gstreamer-app = { version = "0.25", optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 wgpu = { version = "29.0", features = ["vulkan-portability"] }
