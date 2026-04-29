@@ -26,6 +26,8 @@ mod per_draw_resources;
 mod per_view_resource_map;
 mod reflection_probe_sh2;
 mod render_backend;
+mod skybox_environment;
+mod skybox_params;
 mod skybox_specular;
 mod view_resource_registry;
 
@@ -75,5 +77,6 @@ pub use render_backend::{
     RenderBackend, RenderBackendAttachDesc, RenderBackendAttachError, MAX_ASSET_INTEGRATION_QUEUED,
     MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
 };
+pub(crate) use skybox_environment::SkyboxEnvironmentCache;
 pub(crate) use skybox_specular::resolve_active_main_skybox_specular_environment;
 pub(crate) use view_resource_registry::ViewResourceRegistry;

@@ -138,6 +138,8 @@ pub struct RenderBackend {
     pub(crate) history_registry: super::HistoryRegistry,
     /// Nonblocking reflection-probe SH2 GPU projection service.
     pub(crate) reflection_probe_sh2: super::ReflectionProbeSh2System,
+    /// Nonblocking generated cubemap cache for analytic skybox environments.
+    pub(crate) skybox_environment: super::SkyboxEnvironmentCache,
     /// Retained logical-view ownership for every backend cache that lives beyond one frame.
     view_resources: ViewResourceRegistry,
 }
@@ -214,6 +216,7 @@ impl RenderBackend {
             material_batch_cache: FrameMaterialBatchCache::new(),
             history_registry: super::HistoryRegistry::new(),
             reflection_probe_sh2: super::ReflectionProbeSh2System::new(),
+            skybox_environment: super::SkyboxEnvironmentCache::new(),
             view_resources: ViewResourceRegistry::new(),
         }
     }
@@ -405,6 +408,26 @@ impl RenderBackend {
     pub(crate) fn maintain_reflection_probe_sh2_jobs(&mut self, gpu: &crate::gpu::GpuContext) {
         self.reflection_probe_sh2
             .maintain_gpu_jobs(gpu, &self.asset_transfers);
+    }
+
+    /// Advances generated skybox environment jobs and schedules the active analytic skybox.
+    pub(crate) fn maintain_skybox_environment_jobs(
+        &mut self,
+        gpu: &crate::gpu::GpuContext,
+        scene: &crate::scene::SceneCoordinator,
+    ) {
+        self.skybox_environment
+            .maintain(gpu, scene, &self.materials);
+    }
+
+    /// Resolves a completed generated cubemap for the active analytic skybox, if available.
+    pub(crate) fn active_generated_skybox_specular_source(
+        &self,
+        scene: &crate::scene::SceneCoordinator,
+        limits: &GpuLimits,
+    ) -> Option<super::frame_gpu::SkyboxSpecularEnvironmentSource> {
+        self.skybox_environment
+            .active_specular_source(scene, &self.materials, limits)
     }
 
     /// Borrowed view of all texture pools used for embedded material `@group(1)` bind resolution.

@@ -49,6 +49,23 @@ pub(crate) fn float4_property(
     }
 }
 
+/// Reads up to sixteen float4 rows from a material property.
+pub(crate) fn float4_array16_property(
+    store: &MaterialPropertyStore,
+    registry: &PropertyIdRegistry,
+    lookup: MaterialPropertyLookupIds,
+    name: &str,
+) -> [[f32; 4]; 16] {
+    let pid = registry.intern(name);
+    let mut out = [[0.0; 4]; 16];
+    if let Some(MaterialPropertyValue::Float4Array(values)) = store.get_merged(lookup, pid) {
+        for (dst, src) in out.iter_mut().zip(values.iter()) {
+            *dst = *src;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

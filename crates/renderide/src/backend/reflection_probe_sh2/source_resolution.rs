@@ -7,15 +7,17 @@ use glam::Vec4;
 
 use super::task_rows::TaskHeader;
 use super::{
-    constant_color_sh2, storage_v_inverted_flag, GpuSh2Source, Projection360EquirectKey,
-    Sh2ProjectParams, Sh2SourceKey, SkyParamMode, DEFAULT_MAIN_TEX_ST, DEFAULT_SAMPLE_SIZE,
-    PROJECTION360_DEFAULT_FOV,
+    constant_color_sh2, GpuSh2Source, Projection360EquirectKey, Sh2ProjectParams, Sh2SourceKey,
+    DEFAULT_SAMPLE_SIZE,
 };
 use crate::assets::material::{
-    MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue, PropertyIdRegistry,
+    MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
 use crate::assets::texture::HostTextureAssetKind;
-use crate::backend::material_property_reader::{float4_property, float_property, texture_property};
+use crate::backend::material_property_reader::texture_property;
+use crate::backend::skybox_params::{
+    gradient_sky_params, procedural_sky_params, projection360_equirect_params,
+};
 use crate::scene::{reflection_probe_skybox_only, RenderSpaceId, SceneCoordinator};
 use crate::shared::{ReflectionProbeClear, ReflectionProbeType, RenderSH2};
 
@@ -345,92 +347,6 @@ fn projection360_equirect_source_key(
         material_generation: generation,
         projection: Projection360EquirectKey::from_params(params),
     }
-}
-
-/// Builds the `Projection360` equirectangular sampling payload shared with the compute shader.
-fn projection360_equirect_params(
-    store: &MaterialPropertyStore,
-    registry: &PropertyIdRegistry,
-    lookup: MaterialPropertyLookupIds,
-    storage_v_inverted: bool,
-) -> Sh2ProjectParams {
-    let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
-    params.color0 = float4_property(store, registry, lookup, "_FOV", PROJECTION360_DEFAULT_FOV);
-    params.color1 = float4_property(store, registry, lookup, "_MainTex_ST", DEFAULT_MAIN_TEX_ST);
-    params.scalars = [storage_v_inverted_flag(storage_v_inverted), 0.0, 0.0, 0.0];
-    params
-}
-
-/// Builds parameter payload for a procedural sky material.
-fn procedural_sky_params(
-    store: &MaterialPropertyStore,
-    registry: &PropertyIdRegistry,
-    lookup: MaterialPropertyLookupIds,
-) -> Sh2ProjectParams {
-    let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
-    params.color0 = float4_property(store, registry, lookup, "_SkyTint", [0.5, 0.5, 0.5, 1.0]);
-    params.color1 = float4_property(
-        store,
-        registry,
-        lookup,
-        "_GroundColor",
-        [0.35, 0.35, 0.35, 1.0],
-    );
-    params.direction = float4_property(
-        store,
-        registry,
-        lookup,
-        "_SunDirection",
-        [0.0, 1.0, 0.0, 0.0],
-    );
-    let exposure = float_property(store, registry, lookup, "_Exposure", 1.0);
-    let sun_size = float_property(store, registry, lookup, "_SunSize", 0.04);
-    params.scalars = [exposure, sun_size, 0.0, 0.0];
-    params.gradient_color0[0] =
-        float4_property(store, registry, lookup, "_SunColor", [1.0, 0.95, 0.85, 1.0]);
-    params
-}
-
-/// Builds parameter payload for a gradient sky material.
-fn gradient_sky_params(
-    store: &MaterialPropertyStore,
-    registry: &PropertyIdRegistry,
-    lookup: MaterialPropertyLookupIds,
-) -> Sh2ProjectParams {
-    let mut params = Sh2ProjectParams::empty(SkyParamMode::Gradient);
-    params.color0 = float4_property(store, registry, lookup, "_BaseColor", [0.0, 0.0, 0.0, 1.0]);
-    params.dirs_spread = array16_from_property(store, registry, lookup, "_DirsSpread");
-    params.gradient_color0 = array16_from_property(store, registry, lookup, "_Color0");
-    params.gradient_color1 = array16_from_property(store, registry, lookup, "_Color1");
-    params.gradient_params = array16_from_property(store, registry, lookup, "_Params");
-    params.gradient_count = float_property(store, registry, lookup, "_Gradients", 0.0)
-        .round()
-        .clamp(0.0, 16.0) as u32;
-    if params.gradient_count == 0 {
-        params.gradient_count = params
-            .dirs_spread
-            .iter()
-            .position(|v| v.iter().all(|c| c.abs() < 1e-6))
-            .unwrap_or(16) as u32;
-    }
-    params
-}
-
-/// Reads up to sixteen float4 rows from a material property.
-fn array16_from_property(
-    store: &MaterialPropertyStore,
-    registry: &PropertyIdRegistry,
-    lookup: MaterialPropertyLookupIds,
-    name: &str,
-) -> [[f32; 4]; 16] {
-    let pid = registry.intern(name);
-    let mut out = [[0.0; 4]; 16];
-    if let Some(MaterialPropertyValue::Float4Array(values)) = store.get_merged(lookup, pid) {
-        for (dst, src) in out.iter_mut().zip(values.iter()) {
-            *dst = *src;
-        }
-    }
-    out
 }
 
 /// Bit pattern for a `Vec4`.

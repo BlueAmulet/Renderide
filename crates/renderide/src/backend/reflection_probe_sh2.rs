@@ -2,7 +2,6 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 
 use crate::gpu::GpuContext;
@@ -15,6 +14,7 @@ mod readback_jobs;
 mod source_resolution;
 mod task_rows;
 
+use crate::backend::skybox_params::{SkyboxEvaluatorParams, SkyboxParamMode};
 use projection_pipeline::{
     encode_projection_job, ensure_projection_pipeline, ProjectionBinding, ProjectionPipeline,
 };
@@ -33,66 +33,15 @@ use glam::Vec4;
 use task_rows::read_i32_le;
 
 /// Skybox projection sample resolution per cube face.
-const DEFAULT_SAMPLE_SIZE: u32 = 64;
+const DEFAULT_SAMPLE_SIZE: u32 = crate::backend::skybox_params::DEFAULT_SKYBOX_SAMPLE_SIZE;
 /// Maximum pending GPU jobs kept alive at once.
 const MAX_IN_FLIGHT_JOBS: usize = 6;
 /// Number of renderer ticks before a pending GPU readback is treated as failed.
 const MAX_PENDING_JOB_AGE_FRAMES: u32 = 120;
 /// Bytes copied back from the compute output buffer.
 const SH2_OUTPUT_BYTES: u64 = (9 * 16) as u64;
-/// Default `Projection360` field of view used by Unity material defaults.
-const PROJECTION360_DEFAULT_FOV: [f32; 4] = [std::f32::consts::TAU, std::f32::consts::PI, 0.0, 0.0];
-/// Default texture scale/offset used by Unity `_MainTex_ST` properties.
-const DEFAULT_MAIN_TEX_ST: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 /// Uniform payload shared by SH2 projection compute kernels.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct Sh2ProjectParams {
-    /// Sample grid edge per cube face.
-    sample_size: u32,
-    /// Projection evaluator mode for parameter-only sky sources.
-    mode: u32,
-    /// Number of active gradient lobes.
-    gradient_count: u32,
-    /// Reserved alignment slot.
-    _pad0: u32,
-    /// Generic color slot 0.
-    color0: [f32; 4],
-    /// Generic color slot 1.
-    color1: [f32; 4],
-    /// Generic direction and scalar slot.
-    direction: [f32; 4],
-    /// Generic scalar slot.
-    scalars: [f32; 4],
-    /// Gradient direction/spread rows.
-    dirs_spread: [[f32; 4]; 16],
-    /// Gradient color rows A.
-    gradient_color0: [[f32; 4]; 16],
-    /// Gradient color rows B.
-    gradient_color1: [[f32; 4]; 16],
-    /// Gradient parameter rows.
-    gradient_params: [[f32; 4]; 16],
-}
-
-impl Sh2ProjectParams {
-    /// Creates a parameter block with the default sample grid.
-    fn empty(mode: SkyParamMode) -> Self {
-        Self {
-            sample_size: DEFAULT_SAMPLE_SIZE,
-            mode: mode as u32,
-            gradient_count: 0,
-            _pad0: 0,
-            color0: [0.0; 4],
-            color1: [0.0; 4],
-            direction: [0.0, 1.0, 0.0, 0.0],
-            scalars: [1.0, 0.0, 0.0, 0.0],
-            dirs_spread: [[0.0; 4]; 16],
-            gradient_color0: [[0.0; 4]; 16],
-            gradient_color1: [[0.0; 4]; 16],
-            gradient_params: [[0.0; 4]; 16],
-        }
-    }
-}
+type Sh2ProjectParams = SkyboxEvaluatorParams;
 
 /// Hashable `Projection360` equirectangular sampling state used by SH2 cache keys.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -117,13 +66,7 @@ impl Projection360EquirectKey {
 }
 
 /// Parameter-only sky evaluator mode used by `sh2_project_sky_params`.
-#[derive(Clone, Copy, Debug)]
-enum SkyParamMode {
-    /// Procedural sky approximation from material scalar/color properties.
-    Procedural = 1,
-    /// Gradient sky approximation from material array properties.
-    Gradient = 2,
-}
+type SkyParamMode = SkyboxParamMode;
 
 /// Hashable description of the source projected into SH2.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
