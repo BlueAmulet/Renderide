@@ -471,8 +471,8 @@ pub struct GtaoSettingsValue(pub crate::config::GtaoSettings);
 /// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so the
 /// bloom passes read the current slider values without rebuilding the compiled render graph.
 /// Non-topology edits (intensity, low-frequency boost, threshold, composite mode, …) flow in via
-/// this slot; only `max_mip_dimension` changes force a rebuild because they resize the mip-chain
-/// transient textures — the chain signature tracks that field explicitly.
+/// this slot; only the effective `max_mip_dimension` changes force a rebuild because it resizes
+/// the mip-chain transient textures — the chain signature tracks that value explicitly.
 pub struct BloomSettingsSlot;
 impl BlackboardSlot for BloomSettingsSlot {
     type Value = BloomSettingsValue;

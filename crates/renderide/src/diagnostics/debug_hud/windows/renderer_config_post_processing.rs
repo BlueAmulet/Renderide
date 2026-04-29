@@ -170,6 +170,12 @@ fn bloom_section(ui: &imgui::Ui, g: &mut crate::config::RendererSettings, dirty:
     {
         *dirty = true;
     }
+    let effective_max_mip_dimension = bloom.effective_max_mip_dimension();
+    if effective_max_mip_dimension != bloom.max_mip_dimension {
+        ui.text_disabled(format!(
+            "Effective max mip dimension: {effective_max_mip_dimension} px (rounded down to power of two)."
+        ));
+    }
 }
 
 /// Tonemap mode selector (HDR → LDR curve).

@@ -25,9 +25,10 @@ pub struct PostProcessChainSignature {
     pub bloom: bool,
     /// Stephen Hill ACES Fitted tonemap pass active.
     pub aces_tonemap: bool,
-    /// Bloom mip 0 target height (px). Baked into the mip-chain transient texture extents at
-    /// graph-build time via [`crate::render_graph::resources::TransientExtent::BackbufferScaledMip`],
-    /// so a change here must rebuild. `0` when bloom is inactive.
+    /// Effective bloom mip 0 target height (px). Baked into the mip-chain transient texture
+    /// extents at graph-build time via
+    /// [`crate::render_graph::resources::TransientExtent::BackbufferScaledMip`], so a change here
+    /// must rebuild. `0` when bloom is inactive.
     pub bloom_max_mip_dimension: u32,
 }
 
@@ -41,7 +42,7 @@ impl PostProcessChainSignature {
             bloom,
             aces_tonemap: master && matches!(settings.tonemap.mode, TonemapMode::AcesFitted),
             bloom_max_mip_dimension: if bloom {
-                settings.bloom.max_mip_dimension.max(2)
+                settings.bloom.effective_max_mip_dimension()
             } else {
                 0
             },
@@ -478,6 +479,24 @@ mod tests {
             !PostProcessChainSignature::from_settings(&s).bloom,
             "intensity=0 must gate bloom off even when enabled"
         );
+    }
+
+    #[test]
+    fn signature_tracks_effective_bloom_max_mip_dimension() {
+        let mut s = PostProcessingSettings {
+            enabled: true,
+            tonemap: TonemapSettings {
+                mode: crate::config::TonemapMode::None,
+            },
+            ..Default::default()
+        };
+        s.gtao.enabled = false;
+        s.bloom.max_mip_dimension = 511;
+
+        let sig = PostProcessChainSignature::from_settings(&s);
+
+        assert!(sig.bloom);
+        assert_eq!(sig.bloom_max_mip_dimension, 256);
     }
 
     #[test]

@@ -35,8 +35,30 @@ pub struct BloomSettings {
     /// How the upsample chain composites into the next mip up (and into the scene).
     pub composite_mode: BloomCompositeMode,
     /// Target height (in pixels) of the largest bloom mip. Each subsequent mip halves the
-    /// resolution; smaller values are faster but less wide-spread. 512 matches Bevy's default.
+    /// resolution; smaller values are faster but less wide-spread. Arbitrary values are accepted
+    /// in config/UI, then clamped and rounded down to a power of two by
+    /// [`Self::effective_max_mip_dimension`]. 512 matches Bevy's default.
     pub max_mip_dimension: u32,
+}
+
+impl BloomSettings {
+    /// Smallest effective bloom mip-0 edge exposed by renderer settings.
+    pub const MIN_MIP_DIMENSION: u32 = 64;
+
+    /// Largest effective bloom mip-0 edge exposed by renderer settings.
+    pub const MAX_MIP_DIMENSION: u32 = 2048;
+
+    /// Returns the graph-facing mip-0 edge after clamping and rounding down to a power of two.
+    ///
+    /// The raw [`Self::max_mip_dimension`] remains a continuous integer for configuration and
+    /// HUD editing, but the bloom pyramid is built only from power-of-two dimensions so every
+    /// downsample rung remains stable.
+    pub fn effective_max_mip_dimension(self) -> u32 {
+        round_down_to_power_of_two(
+            self.max_mip_dimension
+                .clamp(Self::MIN_MIP_DIMENSION, Self::MAX_MIP_DIMENSION),
+        )
+    }
 }
 
 impl Default for BloomSettings {
@@ -53,6 +75,12 @@ impl Default for BloomSettings {
             max_mip_dimension: 512,
         }
     }
+}
+
+/// Rounds a non-zero integer down to the nearest power of two.
+fn round_down_to_power_of_two(value: u32) -> u32 {
+    let value = value.max(1);
+    1_u32 << (u32::BITS - value.leading_zeros() - 1)
 }
 
 /// Blend rule used when upsampling the bloom pyramid and compositing back onto the scene color.
@@ -94,18 +122,54 @@ mod tests {
         let settings = BloomSettings::default();
 
         assert!(settings.enabled);
-        assert_eq!(settings.intensity, 0.1);
-        assert_eq!(settings.low_frequency_boost, 1.0);
+        assert_eq!(settings.intensity, 0.667);
+        assert_eq!(settings.low_frequency_boost, 0.0);
         assert_eq!(settings.low_frequency_boost_curvature, 1.0);
         assert_eq!(settings.high_pass_frequency, 1.0);
         assert_eq!(settings.prefilter_threshold, 0.0);
         assert_eq!(settings.prefilter_threshold_softness, 0.0);
-        assert_eq!(settings.composite_mode, BloomCompositeMode::Additive);
+        assert_eq!(
+            settings.composite_mode,
+            BloomCompositeMode::EnergyConserving
+        );
+        assert_eq!(settings.max_mip_dimension, 512);
+        assert_eq!(settings.effective_max_mip_dimension(), 512);
     }
 
     /// Keeps the standalone composite enum default aligned with partial bloom config defaults.
     #[test]
     fn composite_mode_default_is_additive() {
         assert_eq!(BloomCompositeMode::default(), BloomCompositeMode::Additive);
+    }
+
+    /// Continuous bloom dimensions are clamped and rounded down before graph construction.
+    #[test]
+    fn effective_max_mip_dimension_clamps_and_rounds_down_to_power_of_two() {
+        for (raw, effective) in [
+            (0, 64),
+            (1, 64),
+            (63, 64),
+            (64, 64),
+            (65, 64),
+            (127, 64),
+            (128, 128),
+            (511, 256),
+            (512, 512),
+            (1023, 512),
+            (1024, 1024),
+            (2048, 2048),
+            (2049, 2048),
+            (u32::MAX, 2048),
+        ] {
+            let settings = BloomSettings {
+                max_mip_dimension: raw,
+                ..BloomSettings::default()
+            };
+            assert_eq!(
+                settings.effective_max_mip_dimension(),
+                effective,
+                "raw max_mip_dimension {raw} should resolve to {effective}"
+            );
+        }
     }
 }

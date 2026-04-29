@@ -58,8 +58,8 @@ mod tests {
 
         assert!(settings.enabled);
         assert_eq!(settings.radius_meters, 2.0);
-        assert_eq!(settings.intensity, 0.5);
-        assert_eq!(settings.max_pixel_radius, 64.0);
+        assert_eq!(settings.intensity, 1.0);
+        assert_eq!(settings.max_pixel_radius, 256.0);
         assert_eq!(settings.step_count, 16);
         assert_eq!(settings.falloff_range, 1.0);
         assert_eq!(settings.albedo_multibounce, 0.0);

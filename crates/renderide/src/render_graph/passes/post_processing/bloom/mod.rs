@@ -56,9 +56,10 @@ const BLOOM_MIP_LABELS: [&str; 16] = [
 /// Effect descriptor plugged into [`crate::render_graph::post_processing::PostProcessChain`].
 ///
 /// Captures a snapshot of [`BloomSettings`] at chain-build time; when the signature-producing
-/// fields change (enabled, intensity = 0), the chain is rebuilt. Other parameters (composite
-/// mode, low-frequency boost, etc.) take effect on the next frame without a graph rebuild
-/// because they're routed through per-pass blend constants and the shared params UBO.
+/// fields change (enabled, intensity = 0, effective max mip dimension), the chain is rebuilt.
+/// Other parameters (composite mode, low-frequency boost, etc.) take effect on the next frame
+/// without a graph rebuild because they're routed through per-pass blend constants and the shared
+/// params UBO.
 pub struct BloomEffect {
     /// Live bloom tunables captured at chain-build time. Uploaded to the shared params UBO
     /// during the first downsample pass and consumed by the composite for intensity / mode.
@@ -82,7 +83,8 @@ impl PostProcessEffect for BloomEffect {
     ) -> EffectPasses {
         let settings = self.settings;
         let pipelines = bloom_pipelines();
-        let mip_count = bloom_mip_count(settings.max_mip_dimension);
+        let max_mip_dimension = settings.effective_max_mip_dimension();
+        let mip_count = bloom_mip_count(max_mip_dimension);
 
         // One transient texture per mip level — avoids needing mip-level render-target views on
         // a single multi-mipped texture, which the graph builder's attachment API doesn't model.
@@ -97,7 +99,7 @@ impl PostProcessEffect for BloomEffect {
                     label,
                     format: TransientTextureFormat::Fixed(BLOOM_TEXTURE_FORMAT),
                     extent: TransientExtent::BackbufferScaledMip {
-                        max_dim: settings.max_mip_dimension.max(2),
+                        max_dim: max_mip_dimension,
                         mip,
                     },
                     mip_levels: 1,

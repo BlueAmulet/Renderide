@@ -261,9 +261,9 @@ impl RenderBackend {
     ///
     /// Seeded into each view's blackboard as [`crate::render_graph::frame_params::BloomSettingsSlot`]
     /// so the first downsample's params UBO and the upsample blend constants reflect slider
-    /// changes without rebuilding the compiled render graph. `max_mip_dimension` is the one
-    /// exception — it drives mip-chain texture sizes, so it lives on the chain signature and
-    /// triggers a rebuild instead.
+    /// changes without rebuilding the compiled render graph. The effective `max_mip_dimension`
+    /// is the one exception — it drives mip-chain texture sizes, so it lives on the chain
+    /// signature and triggers a rebuild instead.
     pub(crate) fn live_bloom_settings(&self) -> crate::config::BloomSettings {
         self.renderer_settings
             .as_ref()
