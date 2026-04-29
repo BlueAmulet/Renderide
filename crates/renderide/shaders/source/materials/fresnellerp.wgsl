@@ -56,6 +56,7 @@ struct VertexOutput {
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) @interpolate(flat) view_layer: u32,
 }
 
 @vertex
@@ -78,8 +79,10 @@ fn vs_main(
     } else {
         vp = d.view_proj_right;
     }
+    let layer = view_idx;
 #else
     let vp = d.view_proj_left;
+    let layer = 0u;
 #endif
 
     var out: VertexOutput;
@@ -87,6 +90,7 @@ fn vs_main(
     out.world_pos = world_p.xyz;
     out.world_n = wn;
     out.uv = uv;
+    out.view_layer = layer;
     return out;
 }
 
@@ -145,7 +149,7 @@ fn sample_set_color(
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let l = compute_lerp(in.uv);
     let n = sample_normal(in.uv, in.world_n, l);
-    let view_dir = normalize(rg::frame.camera_world_pos.xyz - in.world_pos);
+    let view_dir = rg::view_dir_for_world_pos(in.world_pos, in.view_layer);
 
     let exp = mix(mat._Exp0, mat._Exp1, l);
     let base_fresnel = pow(max(1.0 - abs(dot(n, view_dir)), 0.0), max(exp, 1e-4));

@@ -37,17 +37,19 @@ impl SkyboxSpecularSourceKind {
     }
 }
 
-/// Uniform block matching WGSL `FrameGlobals` (320-byte size, 16-byte aligned).
+/// Uniform block matching WGSL `FrameGlobals` (336-byte size, 16-byte aligned).
 ///
-/// Encodes camera position, per-eye coefficients for view-space Z from world position, clustered
-/// grid dimensions, clip planes, light count, viewport size, per-eye projection coefficients for
-/// screen-space-to-view unprojection, a monotonic frame index for temporal / jittered effects,
-/// skybox specular environment sampling parameters, and ambient SH2.
+/// Encodes per-eye camera positions, per-eye coefficients for view-space Z from world position,
+/// clustered grid dimensions, clip planes, light count, viewport size, per-eye projection
+/// coefficients for screen-space-to-view unprojection, a monotonic frame index for temporal /
+/// jittered effects, skybox specular environment sampling parameters, and ambient SH2.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct FrameGpuUniforms {
     /// World-space camera position (`.w` unused).
     pub camera_world_pos: [f32; 4],
+    /// Right-eye world-space camera position (`.w` unused); equals [`Self::camera_world_pos`] in mono mode.
+    pub camera_world_pos_right: [f32; 4],
     /// Left-eye (or mono) world -> view-space Z: `dot(xyz, world) + w`.
     pub view_space_z_coeffs: [f32; 4],
     /// Right-eye world -> view-space Z. Set equal to `view_space_z_coeffs` in mono mode.
@@ -183,6 +185,8 @@ impl SkyboxSpecularUniformParams {
 pub struct ClusteredFrameGlobalsParams {
     /// World-space camera position for the active view.
     pub camera_world_pos: glam::Vec3,
+    /// Right-eye world-space camera position; equals [`Self::camera_world_pos`] in mono mode.
+    pub camera_world_pos_right: glam::Vec3,
     /// Left-eye (or mono) view-space Z coefficients from world position.
     pub view_space_z_coeffs: [f32; 4],
     /// Right-eye view-space Z coefficients; equals `view_space_z_coeffs` in mono.
@@ -243,6 +247,12 @@ impl FrameGpuUniforms {
                 params.camera_world_pos.x,
                 params.camera_world_pos.y,
                 params.camera_world_pos.z,
+                0.0,
+            ],
+            camera_world_pos_right: [
+                params.camera_world_pos_right.x,
+                params.camera_world_pos_right.y,
+                params.camera_world_pos_right.z,
                 0.0,
             ],
             view_space_z_coeffs: params.view_space_z_coeffs,
@@ -314,9 +324,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn frame_globals_size_320() {
-        assert_eq!(std::mem::size_of::<FrameGpuUniforms>(), 320);
+    fn frame_globals_size_336() {
+        assert_eq!(std::mem::size_of::<FrameGpuUniforms>(), 336);
         assert_eq!(std::mem::size_of::<FrameGpuUniforms>() % 16, 0);
+    }
+
+    #[test]
+    fn frame_globals_offsets_match_wgsl_layout() {
+        assert_eq!(std::mem::offset_of!(FrameGpuUniforms, camera_world_pos), 0);
+        assert_eq!(
+            std::mem::offset_of!(FrameGpuUniforms, camera_world_pos_right),
+            16
+        );
+        assert_eq!(
+            std::mem::offset_of!(FrameGpuUniforms, view_space_z_coeffs),
+            32
+        );
+        assert_eq!(
+            std::mem::offset_of!(FrameGpuUniforms, view_space_z_coeffs_right),
+            48
+        );
+        assert_eq!(std::mem::offset_of!(FrameGpuUniforms, cluster_count_x), 64);
+        assert_eq!(std::mem::offset_of!(FrameGpuUniforms, proj_params_left), 96);
+        assert_eq!(
+            std::mem::offset_of!(FrameGpuUniforms, proj_params_right),
+            112
+        );
+        assert_eq!(std::mem::offset_of!(FrameGpuUniforms, frame_tail), 128);
+        assert_eq!(std::mem::offset_of!(FrameGpuUniforms, skybox_specular), 144);
+        assert_eq!(
+            std::mem::offset_of!(FrameGpuUniforms, skybox_specular_equirect_fov),
+            160
+        );
+        assert_eq!(
+            std::mem::offset_of!(FrameGpuUniforms, skybox_specular_equirect_st),
+            176
+        );
+        assert_eq!(std::mem::offset_of!(FrameGpuUniforms, ambient_sh), 192);
     }
 
     #[test]
@@ -360,6 +404,7 @@ mod tests {
     fn new_clustered_populates_fields_including_zero_w_for_camera_pos() {
         let u = FrameGpuUniforms::new_clustered(ClusteredFrameGlobalsParams {
             camera_world_pos: glam::Vec3::new(1.0, 2.0, 3.0),
+            camera_world_pos_right: glam::Vec3::new(4.0, 5.0, 6.0),
             view_space_z_coeffs: [0.1, 0.2, 0.3, 0.4],
             view_space_z_coeffs_right: [0.5, 0.6, 0.7, 0.8],
             cluster_count_x: 16,
@@ -377,6 +422,7 @@ mod tests {
             ambient_sh: [[0.0; 4]; 9],
         });
         assert_eq!(u.camera_world_pos, [1.0, 2.0, 3.0, 0.0]);
+        assert_eq!(u.camera_world_pos_right, [4.0, 5.0, 6.0, 0.0]);
         assert_eq!(u.view_space_z_coeffs, [0.1, 0.2, 0.3, 0.4]);
         assert_eq!(u.view_space_z_coeffs_right, [0.5, 0.6, 0.7, 0.8]);
         assert_eq!(u.cluster_count_x, 16);
@@ -394,6 +440,32 @@ mod tests {
         assert_eq!(u.skybox_specular_equirect_fov, PROJECTION360_DEFAULT_FOV);
         assert_eq!(u.skybox_specular_equirect_st, DEFAULT_MAIN_TEX_ST);
         assert_eq!(u.ambient_sh, [[0.0; 4]; 9]);
+    }
+
+    #[test]
+    fn new_clustered_can_pack_same_camera_position_for_mono() {
+        let camera_world_pos = glam::Vec3::new(-1.0, 2.5, 8.0);
+        let u = FrameGpuUniforms::new_clustered(ClusteredFrameGlobalsParams {
+            camera_world_pos,
+            camera_world_pos_right: camera_world_pos,
+            view_space_z_coeffs: [0.0, 0.0, 1.0, 0.0],
+            view_space_z_coeffs_right: [0.0, 0.0, 1.0, 0.0],
+            cluster_count_x: 1,
+            cluster_count_y: 1,
+            cluster_count_z: 1,
+            near_clip: 0.01,
+            far_clip: 100.0,
+            light_count: 0,
+            viewport_width: 1,
+            viewport_height: 1,
+            proj_params_left: [1.0, 1.0, 0.0, 0.0],
+            proj_params_right: [1.0, 1.0, 0.0, 0.0],
+            frame_index: 0,
+            skybox_specular: SkyboxSpecularUniformParams::disabled(),
+            ambient_sh: [[0.0; 4]; 9],
+        });
+
+        assert_eq!(u.camera_world_pos, u.camera_world_pos_right);
     }
 
     #[test]

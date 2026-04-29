@@ -49,7 +49,7 @@ fn vertex_outline(
     // Outline mask is authored against UV0 in Unity (`IN[i].uv` in XSGeom.cginc),
     // independent of `_UVSetAlbedo`. Sampling at `uv_primary` directly preserves that.
     let mask = textureSampleLevel(xb::_OutlineMask, xb::_OutlineMask_sampler, uv_primary, 0.0).r;
-    let dist_scale = min(distance(base_world.xyz, rg::frame.camera_world_pos.xyz) * 3.0, 1.0);
+    let dist_scale = min(distance(base_world.xyz, rg::camera_world_pos_for_view(view_idx)) * 3.0, 1.0);
     let outline_width = max(xb::mat._OutlineWidth, 0.0) * 0.01 * mask * dist_scale;
     let outline_pos = vec4<f32>(pos.xyz + xb::safe_normalize(n.xyz, vec3<f32>(0.0, 1.0, 0.0)) * outline_width, 1.0);
 
@@ -76,7 +76,7 @@ fn fragment_outline(
     alpha_mode: u32,
 ) -> vec4<f32> {
     let s = xsurf::sample_surface(false, front_facing, world_pos, world_n, world_t, world_b, uv_primary, uv_secondary, color);
-    _ = xa::apply_alpha(alpha_mode, frag_pos.xy, world_pos, uv_primary, s.albedo.a, s.clip_alpha);
+    _ = xa::apply_alpha(alpha_mode, frag_pos.xy, world_pos, view_layer, uv_primary, s.albedo.a, s.clip_alpha);
 
     var ol = xb::mat._OutlineColor.rgb;
     if (xb::kw(xb::mat._OutlineAlbedoTint)) {

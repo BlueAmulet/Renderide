@@ -46,6 +46,7 @@ struct VertexOutput {
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) @interpolate(flat) view_layer: u32,
 }
 
 @vertex
@@ -68,8 +69,10 @@ fn vs_main(
     } else {
         vp = d.view_proj_right;
     }
+    let layer = view_idx;
 #else
     let vp = d.view_proj_left;
+    let layer = 0u;
 #endif
 
     var out: VertexOutput;
@@ -77,6 +80,7 @@ fn vs_main(
     out.world_pos = world_p.xyz;
     out.world_n = wn;
     out.uv = uv;
+    out.view_layer = layer;
     return out;
 }
 
@@ -100,7 +104,7 @@ fn overlay_normal(in: VertexOutput) -> vec3<f32> {
 
 fn fresnel_value(in: VertexOutput, apply_gamma: bool) -> f32 {
     let n = overlay_normal(in);
-    let view_dir = normalize(rg::frame.camera_world_pos.xyz - in.world_pos);
+    let view_dir = rg::view_dir_for_world_pos(in.world_pos, in.view_layer);
     var fresnel = pow(max(1.0 - abs(dot(n, view_dir)), 0.0), max(mat._Exp, 1e-4));
     if (apply_gamma) {
         fresnel = pow(clamp(fresnel, 0.0, 1.0), max(mat._GammaCurve, 1e-4));

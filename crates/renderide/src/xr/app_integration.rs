@@ -116,6 +116,11 @@ pub fn openxr_begin_frame_tick(
             let center_pose = crate::xr::headset_center_pose_from_stereo_views(&views);
             let world_from_tracking = runtime.world_from_tracking(center_pose);
             runtime.set_head_output_transform(world_from_tracking);
+            let eye_world_l =
+                crate::xr::eye_world_position_from_xr_view_aligned(&views[0], world_from_tracking);
+            let eye_world_r =
+                crate::xr::eye_world_position_from_xr_view_aligned(&views[1], world_from_tracking);
+            runtime.set_eye_world_position((eye_world_l + eye_world_r) * 0.5);
             let l = crate::xr::view_projection_from_xr_view_aligned(
                 &views[0],
                 near,
@@ -133,6 +138,7 @@ pub fn openxr_begin_frame_tick(
             runtime.set_stereo(Some(StereoViewMatrices {
                 view_proj: (l, r),
                 view_only: (vl, vr_view),
+                eye_world_position: (eye_world_l, eye_world_r),
             }));
             return Some(OpenxrFrameTick {
                 predicted_display_time: fs.predicted_display_time,

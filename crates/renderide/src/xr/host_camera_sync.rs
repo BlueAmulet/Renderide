@@ -24,6 +24,8 @@ pub trait XrHostCameraSync {
     fn world_from_tracking(&self, center_pose_tracking: Option<(Vec3, Quat)>) -> Mat4;
     /// Updates the head-output rig transform used for overlay alignment and host IPC replies.
     fn set_head_output_transform(&mut self, transform: Mat4);
+    /// Stores the center-eye world position used by mono fallback paths and CPU view sorting.
+    fn set_eye_world_position(&mut self, position: Vec3);
     /// Stores per-eye stereo matrices used by the HMD multiview view this tick.
     fn set_stereo(&mut self, stereo: Option<StereoViewMatrices>);
     /// Hook when OpenXR `wait_frame` returns an error (recoverable; tick may skip XR work).

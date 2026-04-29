@@ -190,7 +190,7 @@ fn shade(
     let n = sample_normal_world(uv_main, world_n);
     let base_color = c.rgb;
     let f0 = brdf::metallic_f0(base_color, metallic);
-    let cam = rg::frame.camera_world_pos.xyz;
+    let cam = rg::camera_world_pos_for_view(view_layer);
     let v = normalize(cam - world_pos);
 
     let aa_roughness = brdf::filter_perceptual_roughness(roughness, n);

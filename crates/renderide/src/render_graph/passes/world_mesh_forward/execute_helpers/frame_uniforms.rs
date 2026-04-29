@@ -12,7 +12,7 @@ use crate::render_graph::frame_params::{FrameRenderParams, HostCameraFrame, PerV
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::scene::SceneCoordinator;
 
-use super::camera::resolve_camera_world;
+use super::camera::resolve_camera_world_pair;
 
 /// Builds [`FrameGpuUniforms`], syncs cluster viewport, and writes frame + lights.
 pub(super) fn write_frame_uniforms_and_cluster(
@@ -88,7 +88,7 @@ fn build_frame_gpu_uniforms(
     skybox_specular: crate::gpu::frame_globals::SkyboxSpecularUniformParams,
 ) -> FrameGpuUniforms {
     let (vw, vh) = viewport_px;
-    let camera_world = resolve_camera_world(&hc);
+    let (camera_world, camera_world_right) = resolve_camera_world_pair(&hc);
     let ambient_sh =
         FrameGpuUniforms::ambient_sh_from_render_sh2(&scene.active_main_ambient_light());
     let stereo_cluster = use_multiview && hc.vr_active && hc.stereo.is_some();
@@ -97,6 +97,7 @@ fn build_frame_gpu_uniforms(
         if let Some((left, right)) = cluster_frame_params_stereo(&hc, scene, (vw, vh)) {
             return left.frame_gpu_uniforms(FrameGpuUniformBuildParams {
                 camera_world_pos: camera_world,
+                camera_world_pos_right: camera_world_right,
                 light_count,
                 right_z_coeffs: right.view_space_z_coeffs(),
                 right_proj_params: right.proj_params(),
@@ -111,6 +112,7 @@ fn build_frame_gpu_uniforms(
         let p = mono.proj_params();
         return mono.frame_gpu_uniforms(FrameGpuUniformBuildParams {
             camera_world_pos: camera_world,
+            camera_world_pos_right: camera_world_right,
             light_count,
             right_z_coeffs: z,
             right_proj_params: p,

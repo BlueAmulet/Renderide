@@ -117,9 +117,9 @@ fn inside_rect(pos: vec2<f32>, rect: vec4<f32>) -> bool {
     return pos.x >= rect.x && pos.y >= rect.y && pos.x <= rect.z && pos.y <= rect.w;
 }
 
-fn object_space_view_dir(model: mat4x4<f32>, world_pos: vec3<f32>) -> vec3<f32> {
+fn object_space_view_dir(model: mat4x4<f32>, world_pos: vec3<f32>, view_layer: u32) -> vec3<f32> {
     let model3 = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz);
-    return normalize(transpose(model3) * (rg::frame.camera_world_pos.xyz - world_pos));
+    return normalize(transpose(model3) * (rg::camera_world_pos_for_view(view_layer) - world_pos));
 }
 
 fn perspective_view_dir(uv: vec2<f32>) -> vec3<f32> {
@@ -137,7 +137,7 @@ fn base_view_dir(in: VertexOutput) -> vec3<f32> {
         return normalize(in.normal_os);
     }
     if (uvu::kw_enabled(mat._WORLD_VIEW)) {
-        return normalize(rg::frame.camera_world_pos.xyz - in.world_pos);
+        return rg::view_dir_for_world_pos(in.world_pos, in.view_layer);
     }
     return normalize(in.object_view_dir);
 }
@@ -264,8 +264,10 @@ fn vs_main(
     } else {
         vp = d.view_proj_right;
     }
+    let layer = view_idx;
 #else
     let vp = d.view_proj_left;
+    let layer = 0u;
 #endif
     let clip = vp * world_p;
 
@@ -277,12 +279,8 @@ fn vs_main(
     out.uv = uv;
     out.dist = clip.w;
     out.local_xy = pos.xy;
-    out.object_view_dir = object_space_view_dir(d.model, world_p.xyz);
-#ifdef MULTIVIEW
-    out.view_layer = view_idx;
-#else
-    out.view_layer = 0u;
-#endif
+    out.object_view_dir = object_space_view_dir(d.model, world_p.xyz, layer);
+    out.view_layer = layer;
     return out;
 }
 

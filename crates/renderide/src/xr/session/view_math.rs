@@ -43,6 +43,12 @@ pub fn view_from_xr_view_aligned(view: &xr::View, world_from_tracking: Mat4) -> 
     apply_view_handedness_fix(ref_from_view.inverse())
 }
 
+/// Per-eye world-space camera position from an OpenXR [`xr::View`] after host tracking-space alignment.
+pub fn eye_world_position_from_xr_view_aligned(view: &xr::View, world_from_tracking: Mat4) -> Vec3 {
+    let (tracking_position, _) = openxr_pose_to_engine(&view.pose);
+    world_from_tracking.transform_point3(tracking_position)
+}
+
 fn averaged_stereo_fov(views: &[xr::View]) -> Option<xr::Fovf> {
     match views {
         [] => None,

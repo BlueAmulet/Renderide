@@ -46,6 +46,7 @@ struct VertexOutput {
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) @interpolate(flat) view_layer: u32,
 }
 
 @vertex
@@ -68,14 +69,17 @@ fn vs_main(
     } else {
         vp = d.view_proj_right;
     }
+    let layer = view_idx;
 #else
     let vp = d.view_proj_left;
+    let layer = 0u;
 #endif
     var out: VertexOutput;
     out.clip_pos = vp * world_p;
     out.world_pos = world_p.xyz;
     out.world_n = wn;
     out.uv = uv;
+    out.view_layer = layer;
     return out;
 }
 
@@ -106,7 +110,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         n = normalize(tbn * ts_n);
     }
 
-    let view_dir = normalize(rg::frame.camera_world_pos.xyz - in.world_pos);
+    let view_dir = rg::view_dir_for_world_pos(in.world_pos, in.view_layer);
     var fres = pow(1.0 - abs(dot(n, view_dir)), max(mat._Exp, 1e-4));
     fres = pow(clamp(fres, 0.0, 1.0), max(mat._GammaCurve, 1e-4));
 

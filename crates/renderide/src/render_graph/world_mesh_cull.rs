@@ -207,6 +207,7 @@ mod tests {
         let stereo = Some(StereoViewMatrices {
             view_proj: (Mat4::IDENTITY, Mat4::IDENTITY),
             view_only: (Mat4::IDENTITY, Mat4::IDENTITY),
+            eye_world_position: (glam::Vec3::ZERO, glam::Vec3::ZERO),
         });
         let hc = HostCameraFrame {
             vr_active: true,

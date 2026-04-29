@@ -86,8 +86,10 @@ pub struct ClusterFrameParams {
 /// Per-frame values layered on top of [`ClusterFrameParams`] when packing [`FrameGpuUniforms`].
 #[derive(Clone, Copy, Debug)]
 pub struct FrameGpuUniformBuildParams {
-    /// World-space camera position for the current view.
+    /// Left-eye or mono world-space camera position.
     pub camera_world_pos: glam::Vec3,
+    /// Right-eye world-space camera position, or the same value as [`Self::camera_world_pos`] in mono mode.
+    pub camera_world_pos_right: glam::Vec3,
     /// Number of resident lights written to the frame lights buffer.
     pub light_count: u32,
     /// Right-eye view-space-Z coefficients, or the mono coefficients for non-stereo frames.
@@ -148,6 +150,7 @@ impl ClusterFrameParams {
     pub fn frame_gpu_uniforms(&self, params: FrameGpuUniformBuildParams) -> FrameGpuUniforms {
         FrameGpuUniforms::new_clustered(ClusteredFrameGlobalsParams {
             camera_world_pos: params.camera_world_pos,
+            camera_world_pos_right: params.camera_world_pos_right,
             view_space_z_coeffs: self.view_space_z_coeffs(),
             view_space_z_coeffs_right: params.right_z_coeffs,
             cluster_count_x: self.cluster_count_x,

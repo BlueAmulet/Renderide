@@ -171,7 +171,7 @@ fn shade(
     let emission = mix(mat._EdgeEmission.rgb, cell_emission, border_lerp);
 
     let f0 = mix(vec3<f32>(0.04), base_color, metallic);
-    let cam = rg::frame.camera_world_pos.xyz;
+    let cam = rg::camera_world_pos_for_view(view_layer);
     let v = normalize(cam - world_pos);
 
     let aa_roughness = brdf::filter_perceptual_roughness(roughness, n);
