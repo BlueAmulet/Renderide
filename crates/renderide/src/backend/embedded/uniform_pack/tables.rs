@@ -44,6 +44,13 @@ pub(super) fn inferred_keyword_float_f32(
                 0.0
             });
         }
+        "_MUL_RGB_BY_ALPHA_ON" => {
+            return Some(if mul_rgb_by_alpha_on_inferred(store, lookup, kw) {
+                1.0
+            } else {
+                0.0
+            });
+        }
         _ => {}
     }
 
@@ -144,6 +151,15 @@ fn premultiplied_blend_factors(
     let dst = read_int_property(store, lookup, kw.dst_blend);
     src == Some(UNITY_BLEND_FACTOR_ONE) && dst == Some(UNITY_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)
 }
+fn additive_blend_factors(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    kw: &EmbeddedSharedKeywordIds,
+) -> bool {
+    let src = read_int_property(store, lookup, kw.src_blend);
+    let dst = read_int_property(store, lookup, kw.dst_blend);
+    src == Some(UNITY_BLEND_FACTOR_ONE) && dst == Some(UNITY_BLEND_FACTOR_ONE)
+}
 
 /// Classification of an inferred render queue value.
 ///
@@ -229,6 +245,25 @@ fn alpha_premultiply_on_inferred(
     let legacy_blend = read_int_property(store, lookup, kw.blend_mode);
     legacy_mode == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
         || legacy_blend == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
+}
+
+fn mul_rgb_by_alpha_on_inferred(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    kw: &EmbeddedSharedKeywordIds,
+) -> bool {
+    let render_type = read_int_property(store, lookup, kw.render_type);
+    if render_type == Some(RENDER_TYPE_TRANSPARENT)
+        && additive_blend_factors(store, lookup, kw)
+    {
+        return true;
+    }
+    if render_queue_range(store, lookup, kw) == Some(InferredQueueRange::Transparent)
+        && additive_blend_factors(store, lookup, kw)
+    {
+        return true;
+    }
+    false
 }
 
 // Every uniform field reaching `build_embedded_uniform_bytes` is one of:
