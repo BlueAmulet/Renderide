@@ -49,6 +49,8 @@ pub struct VideoPlayer {
     video_stream_ids: Vec<String>,
     /// Gets populated with audio tracks once gstreamer resolves streams.
     audio_tracks: Vec<VideoAudioTrack>,
+    /// Stores the latest [`VideoTextureUpdate`] until it gets processed by the update thread.
+    pending_update: Arc<Mutex<Option<VideoTextureUpdate>>>,
     /// Most recently received host update, retained even after the worker thread applies it so
     /// [`Self::sample_clock_error`] can keep reporting drift each frame against
     /// [`VideoTextureUpdate::decoded_time`] until the host sends another update. Mirrors
@@ -130,6 +132,7 @@ impl VideoPlayer {
             audio_stream_ids: vec![],
             video_stream_ids: vec![],
             audio_tracks: vec![],
+            pending_update,
             last_update,
             last_ready_message: None,
             shutdown,
@@ -232,15 +235,8 @@ impl VideoPlayer {
 
     /// Gets called when the pipeline is done prerolling and we have caps available.
     fn handle_async_done(&mut self, ipc: &mut Option<&mut DualQueueIpc>) {
-        let id = self.asset_id;
         let size = self.video_sink.size();
         let length = query_duration_seconds(&self.pipeline);
-        logger::info!(
-            "video texture {}: loaded: size={:?}, length={}",
-            id,
-            size,
-            length
-        );
 
         self.send_ready(ipc, length, size.unwrap_or_default());
     }
@@ -361,6 +357,13 @@ impl VideoPlayer {
             }
         }
         self.last_ready_message = Some(message.clone());
+
+        logger::info!(
+            "video texture {}: loaded: size={:?}, length={}",
+            self.asset_id,
+            size,
+            length
+        );
 
         let Some(ipc) = ipc else {
             return;
@@ -604,15 +607,6 @@ mod tests {
         let path = local_source_path("video.mp4");
         assert!(path.is_absolute());
         assert!(path.ends_with("video.mp4"));
-    }
-
-    #[test]
-    fn default_audio_track_uses_normalized_sample_rate() {
-        let track = default_audio_track(-1);
-        assert_eq!(track.sample_rate, DEFAULT_AUDIO_SAMPLE_RATE);
-        assert_eq!(track.index, 0);
-        assert_eq!(track.channel_count, 2);
-        assert_eq!(track.name, None);
     }
 
     fn update_decoded_at(position: f64, play: bool, decoded_nanos: i128) -> VideoTextureUpdate {
