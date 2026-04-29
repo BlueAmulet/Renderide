@@ -50,8 +50,8 @@ pub use frame_resource_manager::{
     FrameGpuBindContext, FrameResourceManager, PerViewFrameState, PreRecordViewResourceLayout,
 };
 pub(crate) use gpu_jobs::{
-    GpuJobResources, GpuReadbackJobs, GpuReadbackOutcomes, GpuSubmitJobTracker, GpuSubmitOutcomes,
-    ReadbackJobLifecycle, SubmitJobLifecycle, SubmittedGpuJob, SubmittedReadbackJob,
+    GpuJobResources, GpuReadbackJobs, GpuReadbackOutcomes, GpuSubmitJobTracker, SubmittedGpuJob,
+    SubmittedReadbackJob,
 };
 pub use history_registry::{
     BufferHistorySlot, BufferHistorySpec, HistoryRegistry, HistoryRegistryError,

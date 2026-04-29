@@ -7,12 +7,8 @@
 mod readback;
 mod submit;
 
-pub(crate) use readback::{
-    GpuReadbackJobs, GpuReadbackOutcomes, ReadbackJobLifecycle, SubmittedReadbackJob,
-};
-pub(crate) use submit::{
-    GpuSubmitJobTracker, GpuSubmitOutcomes, SubmitJobLifecycle, SubmittedGpuJob,
-};
+pub(crate) use readback::{GpuReadbackJobs, GpuReadbackOutcomes, SubmittedReadbackJob};
+pub(crate) use submit::{GpuSubmitJobTracker, SubmittedGpuJob};
 
 /// GPU resources retained until an asynchronous backend job is known to be complete.
 ///
@@ -21,15 +17,15 @@ pub(crate) use submit::{
 #[derive(Default)]
 pub(crate) struct GpuJobResources {
     /// Buffers retained until the job completes.
-    pub(crate) buffers: Vec<wgpu::Buffer>,
+    _buffers: Vec<wgpu::Buffer>,
     /// Textures retained until the job completes.
-    pub(crate) textures: Vec<wgpu::Texture>,
+    _textures: Vec<wgpu::Texture>,
     /// Texture views retained until the job completes.
-    pub(crate) texture_views: Vec<wgpu::TextureView>,
+    _texture_views: Vec<wgpu::TextureView>,
     /// Samplers retained until the job completes.
-    pub(crate) samplers: Vec<wgpu::Sampler>,
+    _samplers: Vec<wgpu::Sampler>,
     /// Bind groups retained until the job completes.
-    pub(crate) bind_groups: Vec<wgpu::BindGroup>,
+    _bind_groups: Vec<wgpu::BindGroup>,
 }
 
 impl GpuJobResources {
@@ -40,37 +36,19 @@ impl GpuJobResources {
 
     /// Retains one buffer.
     pub(crate) fn with_buffer(mut self, buffer: wgpu::Buffer) -> Self {
-        self.buffers.push(buffer);
+        self._buffers.push(buffer);
         self
     }
 
     /// Retains multiple buffers.
     pub(crate) fn with_buffers(mut self, buffers: Vec<wgpu::Buffer>) -> Self {
-        self.buffers.extend(buffers);
-        self
-    }
-
-    /// Retains one texture.
-    pub(crate) fn with_texture(mut self, texture: wgpu::Texture) -> Self {
-        self.textures.push(texture);
-        self
-    }
-
-    /// Retains one texture view.
-    pub(crate) fn with_texture_view(mut self, view: wgpu::TextureView) -> Self {
-        self.texture_views.push(view);
-        self
-    }
-
-    /// Retains one sampler.
-    pub(crate) fn with_sampler(mut self, sampler: wgpu::Sampler) -> Self {
-        self.samplers.push(sampler);
+        self._buffers.extend(buffers);
         self
     }
 
     /// Retains one bind group.
     pub(crate) fn with_bind_group(mut self, bind_group: wgpu::BindGroup) -> Self {
-        self.bind_groups.push(bind_group);
+        self._bind_groups.push(bind_group);
         self
     }
 }

@@ -26,6 +26,8 @@ use task_rows::{
 };
 
 #[cfg(test)]
+use crate::backend::skybox_params::{DEFAULT_MAIN_TEX_ST, PROJECTION360_DEFAULT_FOV};
+#[cfg(test)]
 use crate::shared::ReflectionProbeSH2Task;
 #[cfg(test)]
 use glam::Vec4;
@@ -436,15 +438,6 @@ impl ReflectionProbeSh2System {
                 encode_projection_job(gpu, key, pipeline, &[], params.as_ref(), &submit_done_tx)
             }
         }
-    }
-}
-
-/// Converts a storage-orientation boolean to the shader keyword float convention.
-fn storage_v_inverted_flag(storage_v_inverted: bool) -> f32 {
-    if storage_v_inverted {
-        1.0
-    } else {
-        0.0
     }
 }
 
