@@ -832,6 +832,56 @@ mod tests {
         assert_eq!(result, Some(ComputeResult::Postpone as i32));
     }
 
+    /// Per-fragment object-space view direction parity with Unity's `ObjSpaceViewDir(i.pos)`.
+    ///
+    /// The mesh `Projection360` shader passes the object-space view direction through the
+    /// vertex stage *un-normalized* — perspective-correct interpolation of a function that
+    /// is linear in the vertex world position yields the per-fragment direction after
+    /// `normalize`. Normalizing per vertex would distort the interpolated direction (the
+    /// angular error scales with the triangle's angular extent and breaks narrow-FOV
+    /// projections used by video players). This test pins the parity for an orthonormal
+    /// model matrix (rotation + translation), which is the practical case.
+    #[test]
+    fn projection360_object_view_dir_interpolates_to_per_fragment_unity_value() {
+        use glam::{Mat3, Mat4, Quat};
+
+        let rotation = Quat::from_axis_angle(Vec3::new(0.3, 0.7, 0.5).normalize(), 1.1);
+        let translation = Vec3::new(1.5, -0.5, 2.25);
+        let model = Mat4::from_rotation_translation(rotation, translation);
+        let model3 = Mat3::from_quat(rotation);
+
+        let v_obj = [
+            Vec3::new(-1.0, -1.0, 0.0),
+            Vec3::new(1.0, -1.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.5),
+        ];
+        let cam_world = Vec3::new(0.4, 1.2, -3.5);
+
+        // Vertex-shader output (un-normalized).
+        let per_vertex: [Vec3; 3] = std::array::from_fn(|i| {
+            let world = model.transform_point3(v_obj[i]);
+            model3.transpose() * (cam_world - world)
+        });
+
+        // Barycentric center of the triangle.
+        let bary = [1.0 / 3.0; 3];
+        let interpolated =
+            per_vertex[0] * bary[0] + per_vertex[1] * bary[1] + per_vertex[2] * bary[2];
+        let frag_dir = interpolated.normalize();
+
+        // Unity reference: `ObjSpaceViewDir(i.pos)` evaluated at the interpolated object-space
+        // position, normalized. `inverse(model)` of an orthonormal matrix is its transpose.
+        let model_inv = model.inverse();
+        let cam_obj = model_inv.transform_point3(cam_world);
+        let frag_obj = v_obj[0] * bary[0] + v_obj[1] * bary[1] + v_obj[2] * bary[2];
+        let unity_dir = (cam_obj - frag_obj).normalize();
+
+        assert!(
+            (frag_dir - unity_dir).length() < 1e-5,
+            "interpolated obj_view_dir = {frag_dir:?}, unity reference = {unity_dir:?}",
+        );
+    }
+
     #[test]
     fn computed_task_answer_writes_data_before_result_slot() {
         const RESULT_OFFSET: usize = std::mem::offset_of!(ReflectionProbeSH2Task, result);

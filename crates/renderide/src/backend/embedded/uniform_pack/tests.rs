@@ -431,6 +431,144 @@ mod text_uniform_packing_tests {
             Some(1.0)
         );
     }
+
+    /// Builds a `StemEmbeddedPropertyIds` that mirrors the projection360 family — the
+    /// `_FOV` uniform field is registered, gating the OUTSIDE-mode inference path.
+    fn projection360_ids(reg: &PropertyIdRegistry) -> StemEmbeddedPropertyIds {
+        let mut ids = StemEmbeddedPropertyIds::minimal_for_tests(reg);
+        ids.uniform_field_ids
+            .insert("_FOV".to_string(), reg.intern("_FOV"));
+        ids
+    }
+
+    /// Default `Projection360` materials send `_FOV = (TAU, π, 0, 0)` — the OUTSIDE-mode
+    /// inference must leave every keyword field at zero so the fragment shader's existing
+    /// fallthrough behaves like Unity's default `OUTSIDE_CLIP` (and the choice is moot
+    /// since every direction is in-FOV anyway).
+    #[test]
+    fn projection360_full_sphere_fov_keeps_outside_keywords_zero() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = projection360_ids(&reg);
+        store.set_material(
+            30,
+            reg.intern("_FOV"),
+            MaterialPropertyValue::Float4([std::f32::consts::TAU, std::f32::consts::PI, 0.0, 0.0]),
+        );
+        for field_name in ["OUTSIDE_CLIP", "OUTSIDE_COLOR", "OUTSIDE_CLAMP"] {
+            assert_eq!(
+                inferred_keyword_float_f32(field_name, &store, lookup(30), &ids),
+                Some(0.0),
+                "{field_name} should be 0 for full-sphere FOV"
+            );
+        }
+    }
+
+    /// Narrow FOV is what the video player writes — the renderer must enable
+    /// `OUTSIDE_CLAMP` so the partial-FOV pixels render edge-clamped instead of being
+    /// discarded by the default-clip fallthrough.
+    #[test]
+    fn projection360_narrow_fov_enables_outside_clamp() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = projection360_ids(&reg);
+        let one_deg = std::f32::consts::PI / 180.0;
+        store.set_material(
+            31,
+            reg.intern("_FOV"),
+            MaterialPropertyValue::Float4([one_deg, one_deg, 0.0, 0.0]),
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("OUTSIDE_CLAMP", &store, lookup(31), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("OUTSIDE_CLIP", &store, lookup(31), &ids),
+            Some(0.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("OUTSIDE_COLOR", &store, lookup(31), &ids),
+            Some(0.0)
+        );
+    }
+
+    /// Hemispherical FOVs (`180° × 180°`) are partial in X — must enable `OUTSIDE_CLAMP`.
+    #[test]
+    fn projection360_hemispherical_fov_enables_outside_clamp() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = projection360_ids(&reg);
+        store.set_material(
+            32,
+            reg.intern("_FOV"),
+            MaterialPropertyValue::Float4([std::f32::consts::PI, std::f32::consts::PI, 0.0, 0.0]),
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("OUTSIDE_CLAMP", &store, lookup(32), &ids),
+            Some(1.0)
+        );
+    }
+
+    /// Full-azimuth, half-elevation FOV (`360° × 90°`) is partial in Y — must enable
+    /// `OUTSIDE_CLAMP`.
+    #[test]
+    fn projection360_full_azimuth_half_elevation_enables_outside_clamp() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = projection360_ids(&reg);
+        store.set_material(
+            33,
+            reg.intern("_FOV"),
+            MaterialPropertyValue::Float4([
+                std::f32::consts::TAU,
+                std::f32::consts::FRAC_PI_2,
+                0.0,
+                0.0,
+            ]),
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("OUTSIDE_CLAMP", &store, lookup(33), &ids),
+            Some(1.0)
+        );
+    }
+
+    /// Float-precision residuals from the host's degrees→radians conversion
+    /// (`* π / 180`) must still classify whole-sphere defaults as full-sphere.
+    #[test]
+    fn projection360_full_sphere_tolerates_float_residual() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = projection360_ids(&reg);
+        let fov_x = 360.0_f32 * std::f32::consts::PI / 180.0;
+        let fov_y = 180.0_f32 * std::f32::consts::PI / 180.0;
+        store.set_material(
+            34,
+            reg.intern("_FOV"),
+            MaterialPropertyValue::Float4([fov_x, fov_y, 0.0, 0.0]),
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("OUTSIDE_CLAMP", &store, lookup(34), &ids),
+            Some(0.0),
+            "host-computed (TAU, π) within tolerance must remain full-sphere"
+        );
+    }
+
+    /// Stems without an `_FOV` uniform field (i.e., not `Projection360`) must not
+    /// participate in the inference — the call falls through to the generic
+    /// keyword-like-field default of `0`.
+    #[test]
+    fn outside_mode_inference_does_not_fire_for_non_projection360_stems() {
+        let store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        for field_name in ["OUTSIDE_CLIP", "OUTSIDE_COLOR", "OUTSIDE_CLAMP"] {
+            assert_eq!(
+                inferred_keyword_float_f32(field_name, &store, lookup(35), &ids),
+                Some(0.0),
+                "{field_name} should default to 0 when stem has no _FOV"
+            );
+        }
+    }
 }
 
 mod storage_orientation_uniform_tests {

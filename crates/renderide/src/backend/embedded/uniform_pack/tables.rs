@@ -1,12 +1,19 @@
 //! Name-driven keyword inference and scalar default tables for embedded uniform packing.
 
-use crate::assets::material::{MaterialPropertyLookupIds, MaterialPropertyStore};
+use crate::assets::material::{
+    MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
+};
 
 use super::super::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
 use super::helpers::{
     first_float_by_pids, is_keyword_like_field, keyword_float_enabled_any_pids,
     shader_writer_unescaped_field_name, texture_property_present_pids,
 };
+
+/// Tolerance (in radians) for treating a `Projection360` `_FOV.xy` value as the default
+/// full-sphere `(TAU, π)`. Tighter than any FOV the host realistically writes (the host
+/// converts whole-degree values through `* π / 180`, so the residual is below `1e-6`).
+const PROJECTION360_FULL_SPHERE_EPSILON: f32 = 1e-3;
 
 pub(super) fn inferred_keyword_float_f32(
     field_name: &str,
@@ -43,6 +50,12 @@ pub(super) fn inferred_keyword_float_f32(
             } else {
                 0.0
             });
+        }
+        "OUTSIDE_CLIP" | "OUTSIDE_COLOR" | "OUTSIDE_CLAMP" => {
+            if let Some(value) = projection360_outside_mode_inferred(field_name, store, lookup, ids)
+            {
+                return Some(value);
+            }
         }
         _ => {}
     }
@@ -229,6 +242,65 @@ fn alpha_premultiply_on_inferred(
     let legacy_blend = read_int_property(store, lookup, kw.blend_mode);
     legacy_mode == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
         || legacy_blend == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
+}
+
+/// Inferred value for `Projection360`'s `OUTSIDE_CLIP` / `OUTSIDE_COLOR` / `OUTSIDE_CLAMP`
+/// keyword fields, gated on the stem actually owning a `_FOV` uniform field.
+///
+/// FrooxEngine sets exactly one of these via `keywords.SetKeyword(...)` based on
+/// `Projection360Material.OutsideMode`, but `ShaderKeywords.Variant` is never serialized over
+/// IPC (`MaterialUpdateWriter` exposes no `SetKeyword`; `MaterialPropertyUpdateType` has no
+/// keyword opcode). Without a host signal:
+///
+/// - Full-sphere FOV (`(TAU, π)` within tolerance): every OUTSIDE field is `0`. The
+///   fragment shader's existing fallthrough then behaves like Unity's default
+///   `OUTSIDE_CLIP`. The choice is moot in this case — every direction is in-FOV, so the
+///   outside branch is never hit.
+/// - Partial FOV: `OUTSIDE_CLAMP = 1`, the others `0`. Without the keyword channel this is
+///   the only choice that lets a continuous range of partial FOVs render anything (the
+///   default-clip fallthrough would discard every pixel outside the FOV cone — exactly the
+///   `Projection360`-on-narrow-FOV video-player failure).
+///
+/// Returns `None` when the stem has no `_FOV` uniform field (i.e., not the `Projection360`
+/// material family); the caller then falls through to the generic keyword-field default of
+/// `0`. Returns `None` when `_FOV` exists but no value has been written to the property
+/// store yet — the generic fallthrough handles that case identically to the current
+/// behavior.
+fn projection360_outside_mode_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    let fov_pid = *ids.uniform_field_ids.get("_FOV")?;
+    let fov_xy = read_float4_xy(store, lookup, fov_pid)?;
+
+    let eps = PROJECTION360_FULL_SPHERE_EPSILON;
+    let full_sphere = (fov_xy[0] - std::f32::consts::TAU).abs() <= eps
+        && (fov_xy[1] - std::f32::consts::PI).abs() <= eps;
+
+    let value = if !full_sphere && field_name == "OUTSIDE_CLAMP" {
+        1.0
+    } else {
+        0.0
+    };
+    Some(value)
+}
+
+/// Reads the `.xy` of a `Float4` property, ignoring scalar `Float` writes.
+///
+/// `_FOV` is always packed as a `float4` on the host (`Projection360Material.cs:445` writes
+/// `SetFloat4(_FOV, new float4(FieldOfView, AngleOffset) * (π/180))`); a scalar write would
+/// be a host-side bug, so we don't paper over it by accepting a bare `Float`.
+fn read_float4_xy(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    property_id: i32,
+) -> Option<[f32; 2]> {
+    match store.get_merged(lookup, property_id) {
+        Some(MaterialPropertyValue::Float4(v)) => Some([v[0], v[1]]),
+        _ => None,
+    }
 }
 
 // Every uniform field reaching `build_embedded_uniform_bytes` is one of:
