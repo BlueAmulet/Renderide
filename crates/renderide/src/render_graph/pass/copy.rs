@@ -5,6 +5,8 @@
 //! staging uploads). The distinction keeps pass intent explicit and allows future scheduling
 //! or validation to identify copy-only work.
 
+use std::borrow::Cow;
+
 use crate::render_graph::context::{CopyPassCtx, PostSubmitContext};
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::ViewId;
@@ -16,6 +18,14 @@ use super::node::PassPhase;
 pub trait CopyPass: Send + Sync {
     /// Stable name for logging, profiling, and error messages.
     fn name(&self) -> &str;
+
+    /// Human-readable label for GPU profiler markers.
+    ///
+    /// Defaults to [`Self::name`]. Pass families that register multiple instances in one graph
+    /// should include an instance discriminator here so Tracy can distinguish them.
+    fn profiling_label(&self) -> Cow<'_, str> {
+        Cow::Borrowed(self.name())
+    }
 
     /// Declares resource accesses and copy intent.
     ///

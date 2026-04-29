@@ -123,6 +123,7 @@ impl PostProcessEffect for BloomEffect {
             let pass = builder.add_raster_pass(Box::new(BloomDownsamplePass::new(
                 mip_handles[i - 1],
                 mip_handles[i],
+                i as u32,
                 pipelines,
             )));
             builder.add_edge(prev, pass);
@@ -199,6 +200,10 @@ pub(super) fn compute_blend_factor(settings: &BloomSettings, mip: f32, max_mip: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+
+    use crate::render_graph::pass::RasterPass;
+    use crate::render_graph::resources::TextureHandle;
 
     #[test]
     fn mip_count_matches_bevy_formula() {
@@ -210,6 +215,39 @@ mod tests {
         assert_eq!(bloom_mip_count(2), 1);
         assert_eq!(bloom_mip_count(4), 1);
         assert_eq!(bloom_mip_count(8), 2);
+    }
+
+    #[test]
+    fn gpu_profile_labels_identify_each_bloom_mip_pass() {
+        let pipelines = bloom_pipelines();
+        let settings = BloomSettings::default();
+        let first = downsample::BloomDownsampleFirstPass::new(
+            TextureHandle(0),
+            TextureHandle(1),
+            settings,
+            pipelines,
+        );
+        let downsample =
+            downsample::BloomDownsamplePass::new(TextureHandle(1), TextureHandle(2), 1, pipelines);
+        let upsample = upsample::BloomUpsamplePass::new(
+            TextureHandle(2),
+            TextureHandle(1),
+            2,
+            2.0,
+            settings,
+            pipelines,
+        );
+
+        let labels = [
+            first.profiling_label().into_owned(),
+            downsample.profiling_label().into_owned(),
+            upsample.profiling_label().into_owned(),
+        ];
+
+        assert_eq!(labels[0], "BloomDownsampleFirst.mip0");
+        assert_eq!(labels[1], "BloomDownsample.mip1");
+        assert_eq!(labels[2], "BloomUpsample.mip2_to_mip1");
+        assert_eq!(labels.iter().collect::<HashSet<_>>().len(), labels.len());
     }
 
     #[test]

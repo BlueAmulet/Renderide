@@ -70,6 +70,21 @@ pub fn emit_frame_mark() {
     profiling::finish_frame!();
 }
 
+/// Emits a secondary Tracy frame mark for command-buffer batches handed to the GPU driver thread.
+///
+/// The default Tracy frame remains the winit redraw tick. This secondary track marks actual GPU
+/// submits so empty redraw ticks, swapchain acquire skips, and delayed GPU timestamp readback do
+/// not make the pass timeline look like graph work vanished.
+#[inline]
+pub fn emit_render_submit_frame_mark() {
+    #[cfg(feature = "tracy")]
+    {
+        if let Some(client) = tracy_client::Client::running() {
+            client.secondary_frame_mark(tracy_client::frame_name!("render-submit"));
+        }
+    }
+}
+
 /// Records the FPS cap currently applied by
 /// [`crate::app::renderide_app::RenderideApp::about_to_wait`] — either
 /// [`crate::config::DisplaySettings::focused_fps_cap`] or
@@ -137,6 +152,31 @@ pub fn plot_event_loop_idle_ms(ms: f64) {
     tracy_client::plot!("event_loop_idle_ms", ms);
     #[cfg(not(feature = "tracy"))]
     let _ = ms;
+}
+
+/// Records the result of a swapchain acquire attempt as one-hot Tracy plots.
+///
+/// These samples explain CPU frames that have a frame mark but no render-graph GPU markers: a
+/// timeout or occluded surface intentionally skips graph recording for that tick, while a
+/// reconfigure means the graph will resume on a later acquire.
+#[inline]
+pub fn plot_surface_acquire_outcome(acquired: bool, skipped: bool, reconfigured: bool) {
+    #[cfg(feature = "tracy")]
+    {
+        tracy_client::plot!(
+            "surface_acquire::acquired",
+            if acquired { 1.0 } else { 0.0 }
+        );
+        tracy_client::plot!("surface_acquire::skipped", if skipped { 1.0 } else { 0.0 });
+        tracy_client::plot!(
+            "surface_acquire::reconfigured",
+            if reconfigured { 1.0 } else { 0.0 }
+        );
+    }
+    #[cfg(not(feature = "tracy"))]
+    {
+        let _ = (acquired, skipped, reconfigured);
+    }
 }
 
 /// Records, per call to `crate::render_graph::passes::world_mesh_forward::encode::draw_subset`,
@@ -396,16 +436,25 @@ pub fn compute_pass_timestamp_writes(
 
 #[cfg(feature = "tracy")]
 mod gpu_profiler_impl {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     use wgpu_profiler::{GpuProfiler, GpuProfilerSettings};
 
     use super::PhaseQuery;
+
+    /// Number of GPU profiler frames allowed to wait for readback before `wgpu-profiler` starts
+    /// dropping older timing data.
+    const GPU_PROFILER_PENDING_FRAMES: usize = 8;
 
     /// Wraps [`GpuProfiler`] and provides a GPU timestamp query interface for render and
     /// compute passes, bridging results to the Tracy GPU timeline.
     ///
     /// Created via [`GpuProfilerHandle::try_new`]; only available when the `tracy` feature is on.
     pub struct GpuProfilerHandle {
+        /// Underlying query allocator, resolver, readback processor, and Tracy bridge.
         inner: GpuProfiler,
+        /// Whether any query was opened since the previous successful profiler frame boundary.
+        queries_opened_since_frame_end: AtomicBool,
     }
 
     impl GpuProfilerHandle {
@@ -431,7 +480,7 @@ mod gpu_profiler_impl {
             let settings = GpuProfilerSettings {
                 enable_timer_queries: true,
                 enable_debug_groups: true,
-                max_num_pending_frames: 3,
+                max_num_pending_frames: GPU_PROFILER_PENDING_FRAMES,
             };
             let backend = adapter.get_info().backend;
             let inner_result = if tracy_client::Client::running().is_some() {
@@ -456,7 +505,23 @@ mod gpu_profiler_impl {
                     }
                 }
             };
-            Some(Self { inner })
+            Some(Self {
+                inner,
+                queries_opened_since_frame_end: AtomicBool::new(false),
+            })
+        }
+
+        /// Marks the active profiler frame as non-empty.
+        #[inline]
+        fn note_query_opened(&self) {
+            self.queries_opened_since_frame_end
+                .store(true, Ordering::Release);
+        }
+
+        /// Returns whether the current profiler frame has opened any GPU queries.
+        #[inline]
+        pub fn has_queries_opened_since_frame_end(&self) -> bool {
+            self.queries_opened_since_frame_end.load(Ordering::Acquire)
         }
 
         /// Opens an encoder-level GPU timestamp query.
@@ -472,6 +537,7 @@ mod gpu_profiler_impl {
             label: impl Into<String>,
             encoder: &mut wgpu::CommandEncoder,
         ) -> PhaseQuery {
+            self.note_query_opened();
             self.inner.begin_query(label, encoder)
         }
 
@@ -488,6 +554,7 @@ mod gpu_profiler_impl {
             label: impl Into<String>,
             encoder: &mut wgpu::CommandEncoder,
         ) -> PhaseQuery {
+            self.note_query_opened();
             self.inner.begin_pass_query(label, encoder)
         }
 
@@ -508,24 +575,31 @@ mod gpu_profiler_impl {
             self.inner.resolve_queries(encoder);
         }
 
-        /// Marks the end of the current profiling frame and validates that all queries have been
-        /// resolved.
+        /// Marks the end of the current profiling frame only if at least one query was opened.
         ///
-        /// Call once per render tick after all command encoders for this frame have been
-        /// submitted. Logs a warning on failure (e.g. unresolved queries).
+        /// Call once per render tick after all command encoders for this frame have been submitted.
+        /// Empty CPU ticks are intentionally ignored so `wgpu-profiler` does not enqueue empty GPU
+        /// frames that later appear as missing markers in Tracy.
         #[inline]
-        pub fn end_frame(&mut self) {
-            if let Err(e) = self.inner.end_frame() {
-                logger::warn!("GPU profiler end_frame failed: {e}");
+        pub fn end_frame_if_queries_opened(&mut self) -> bool {
+            let had_queries = self
+                .queries_opened_since_frame_end
+                .swap(false, Ordering::AcqRel);
+            if had_queries {
+                if let Err(e) = self.inner.end_frame() {
+                    logger::warn!("GPU profiler end_frame failed: {e}");
+                }
             }
+            had_queries
         }
 
         /// Drains results from the oldest completed profiling frame into Tracy and returns a
         /// flattened list of per-pass timings.
         ///
-        /// Call once per render tick after [`Self::end_frame`]. Results are available 1-2 frames
-        /// after recording because the GPU needs to finish executing before the timestamps are
-        /// readable. `timestamp_period` is from [`wgpu::Queue::get_timestamp_period`].
+        /// Call once per render tick after [`Self::end_frame_if_queries_opened`]. Results are
+        /// available 1-2 frames after recording because the GPU needs to finish executing before
+        /// the timestamps are readable. `timestamp_period` is from
+        /// [`wgpu::Queue::get_timestamp_period`].
         ///
         /// Returns [`None`] when no frame has completed yet or when `wgpu_profiler` could not
         /// resolve the frame's timestamps. Otherwise returns a depth-annotated preorder traversal
@@ -618,7 +692,15 @@ mod gpu_profiler_stub {
 
         /// No-op stub; see the `tracy` feature variant for the real implementation.
         #[inline]
-        pub fn end_frame(&mut self) {}
+        pub fn has_queries_opened_since_frame_end(&self) -> bool {
+            false
+        }
+
+        /// No-op stub; see the `tracy` feature variant for the real implementation.
+        #[inline]
+        pub fn end_frame_if_queries_opened(&mut self) -> bool {
+            false
+        }
 
         /// No-op stub; see the `tracy` feature variant for the real implementation.
         ///
@@ -664,10 +746,15 @@ mod tests {
     fn stubs_are_accessible_without_tracy_feature() {
         register_main_thread();
         emit_frame_mark();
+        emit_render_submit_frame_mark();
         plot_fps_cap_active(240);
         plot_window_focused(true);
+        plot_surface_acquire_outcome(true, false, false);
         plot_event_loop_wait_ms(11.0);
         plot_event_loop_idle_ms(11.0);
+        let mut profiler = GpuProfilerHandle;
+        assert!(!profiler.has_queries_opened_since_frame_end());
+        assert!(!profiler.end_frame_if_queries_opened());
         let _ = rayon_thread_start_handler();
     }
 

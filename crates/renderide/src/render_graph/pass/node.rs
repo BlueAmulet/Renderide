@@ -4,6 +4,8 @@
 //! on the variant to dispatch to the correct context type and recording path without a runtime
 //! `graph_managed_raster()` toggle.
 
+use std::borrow::Cow;
+
 use super::{CallbackPass, ComputePass, CopyPass, RasterPass};
 use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
 use crate::render_graph::context::{
@@ -99,6 +101,16 @@ impl PassNode {
             Self::Compute(p) => p.name(),
             Self::Copy(p) => p.name(),
             Self::Callback(p) => p.name(),
+        }
+    }
+
+    /// Human-readable label for profiler markers.
+    pub fn profiling_label(&self) -> Cow<'_, str> {
+        match self {
+            Self::Raster(p) => p.profiling_label(),
+            Self::Compute(p) => p.profiling_label(),
+            Self::Copy(p) => p.profiling_label(),
+            Self::Callback(p) => p.profiling_label(),
         }
     }
 

@@ -32,6 +32,38 @@ pub enum SurfaceFrameOutcome {
     Acquired(wgpu::SurfaceTexture),
 }
 
+/// Plots the externally visible surface-acquire outcome to Tracy.
+fn plot_acquire_outcome(outcome: &SurfaceFrameOutcome) {
+    match outcome {
+        SurfaceFrameOutcome::Acquired(_) => {
+            crate::profiling::plot_surface_acquire_outcome(true, false, false);
+        }
+        SurfaceFrameOutcome::Skip => {
+            crate::profiling::plot_surface_acquire_outcome(false, true, false);
+        }
+        SurfaceFrameOutcome::Reconfigured => {
+            crate::profiling::plot_surface_acquire_outcome(false, false, true);
+        }
+    }
+}
+
+/// Plots terminal surface-acquire errors that are useful as frame-cadence markers.
+fn plot_acquire_error(status: &wgpu::CurrentSurfaceTexture) {
+    match status {
+        wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+            crate::profiling::plot_surface_acquire_outcome(false, true, false);
+        }
+        wgpu::CurrentSurfaceTexture::Validation
+        | wgpu::CurrentSurfaceTexture::Lost
+        | wgpu::CurrentSurfaceTexture::Outdated => {
+            crate::profiling::plot_surface_acquire_outcome(false, false, true);
+        }
+        wgpu::CurrentSurfaceTexture::Success(_) | wgpu::CurrentSurfaceTexture::Suboptimal(_) => {
+            crate::profiling::plot_surface_acquire_outcome(true, false, false);
+        }
+    }
+}
+
 /// Static Tracy labels for desktop surface acquisition sites.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SurfaceAcquireTrace {
@@ -63,7 +95,7 @@ pub enum SurfaceSubmitTrace {
 pub fn acquire_surface_outcome(
     gpu: &mut GpuContext,
 ) -> Result<SurfaceFrameOutcome, PresentClearError> {
-    match gpu.acquire_with_recovery() {
+    let outcome = match gpu.acquire_with_recovery() {
         Ok(f) => Ok(SurfaceFrameOutcome::Acquired(f)),
         Err(wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded) => {
             logger::debug!("surface timeout or occluded; skipping frame");
@@ -78,7 +110,12 @@ pub fn acquire_surface_outcome(
             Ok(SurfaceFrameOutcome::Reconfigured)
         }
         Err(e) => Err(PresentClearError { status: e }),
+    };
+    match &outcome {
+        Ok(surface_outcome) => plot_acquire_outcome(surface_outcome),
+        Err(e) => plot_acquire_error(&e.status),
     }
+    outcome
 }
 
 /// Acquires the next surface texture under a source-specific Tracy scope.
