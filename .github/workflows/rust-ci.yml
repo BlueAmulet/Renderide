@@ -44,11 +44,25 @@ jobs:
           brew update
           brew install gstreamer
 
+      # The choco GStreamer install is ~3 minutes; cache the install dir so subsequent runs
+      # only need to re-set env vars (and install the tiny pkgconfiglite shim). Keyed on the
+      # workflow file hash so any change to the install commands invalidates the cache.
+      - name: Cache GStreamer (Windows)
+        if: runner.os == 'Windows'
+        id: cache-gstreamer-win
+        uses: actions/cache@v4
+        with:
+          path: C:\gstreamer
+          key: gstreamer-windows-msvc-x64-${{ hashFiles('.github/workflows/rust-ci.yml') }}
+
       - name: Install Windows system dependencies (GStreamer)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install -y --no-progress gstreamer gstreamer-devel pkgconfiglite
+          if ('${{ steps.cache-gstreamer-win.outputs.cache-hit }}' -ne 'true') {
+            choco install -y --no-progress gstreamer gstreamer-devel
+          }
+          choco install -y --no-progress pkgconfiglite
           "PKG_CONFIG_PATH=C:\gstreamer\1.0\msvc_x86_64\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append
           "C:\gstreamer\1.0\msvc_x86_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
