@@ -60,6 +60,44 @@ pub struct RenderingSettings {
     /// CPU path for the first stereo view when the light count is high enough to justify it.
     #[serde(rename = "cluster_assignment", default)]
     pub cluster_assignment: ClusterAssignmentMode,
+    /// Maximum number of frames the GPU may queue ahead of CPU recording. Mirrors
+    /// [`wgpu::SurfaceConfiguration::desired_maximum_frame_latency`].
+    ///
+    /// `1` minimizes input → photon latency but serializes CPU and GPU: the main thread blocks
+    /// inside [`wgpu::Surface::get_current_texture`] waiting for the previous frame's `present`
+    /// to complete, which itself waits on the previous frame's GPU submission. The CPU can only
+    /// start recording frame N+1 *after* frame N's GPU work has finished, leaving a large
+    /// serialization stall visible in profiles as time spent inside the swapchain acquire scope.
+    ///
+    /// `2` (default) lets CPU recording for frame N+1 overlap with GPU work for frame N, so by
+    /// the time the main thread reaches `get_current_texture` a backbuffer is already free.
+    /// This matches the wgpu / Bevy default and Unity's `QualitySettings.maxQueuedFrames` default.
+    ///
+    /// `3` rarely improves throughput further and increases input lag by another frame; use only
+    /// when the renderer is GPU-bound and frame pacing visibly stutters at `2`.
+    ///
+    /// Values outside `1..=3` are clamped at load via [`Self::resolved_max_frame_latency`] so a
+    /// stray config never hands wgpu an unsupported value.
+    #[serde(rename = "max_frame_latency", default = "default_max_frame_latency")]
+    pub max_frame_latency: u32,
+}
+
+/// Default value for [`RenderingSettings::max_frame_latency`]. Matches wgpu and Bevy.
+pub const DEFAULT_MAX_FRAME_LATENCY: u32 = 2;
+
+/// Inclusive lower bound for [`RenderingSettings::max_frame_latency`] (wgpu's hard minimum).
+pub const MIN_MAX_FRAME_LATENCY: u32 = 1;
+
+/// Inclusive upper bound for [`RenderingSettings::max_frame_latency`].
+///
+/// wgpu does not hard-enforce a maximum, but values above `3` only add presentation latency
+/// without measurably improving throughput on the backends Renderide targets.
+pub const MAX_MAX_FRAME_LATENCY: u32 = 3;
+
+/// Default helper for `#[serde(default = …)]` so a missing field round-trips to
+/// [`DEFAULT_MAX_FRAME_LATENCY`] rather than `0`.
+fn default_max_frame_latency() -> u32 {
+    DEFAULT_MAX_FRAME_LATENCY
 }
 
 impl Default for RenderingSettings {
@@ -74,6 +112,23 @@ impl Default for RenderingSettings {
             scene_color_format: SceneColorFormat::default(),
             record_parallelism: RecordParallelism::default(),
             cluster_assignment: ClusterAssignmentMode::default(),
+            max_frame_latency: DEFAULT_MAX_FRAME_LATENCY,
+        }
+    }
+}
+
+impl RenderingSettings {
+    /// Returns [`Self::max_frame_latency`] clamped to `[MIN_MAX_FRAME_LATENCY, MAX_MAX_FRAME_LATENCY]`.
+    ///
+    /// `0` (a stray config or uninitialized struct) is treated as [`DEFAULT_MAX_FRAME_LATENCY`]
+    /// rather than promoted to `1`, since `0` is more likely an "unset" sentinel than a deliberate
+    /// minimum-latency choice.
+    pub fn resolved_max_frame_latency(&self) -> u32 {
+        if self.max_frame_latency == 0 {
+            DEFAULT_MAX_FRAME_LATENCY
+        } else {
+            self.max_frame_latency
+                .clamp(MIN_MAX_FRAME_LATENCY, MAX_MAX_FRAME_LATENCY)
         }
     }
 }
@@ -470,6 +525,59 @@ mod tests {
             let back: RendererSettings = toml::from_str(&toml).expect("deserialize");
             assert_eq!(back.rendering.cluster_assignment, mode);
         }
+    }
+
+    #[test]
+    fn max_frame_latency_default_is_two() {
+        let s = RendererSettings::default();
+        assert_eq!(
+            s.rendering.max_frame_latency,
+            super::DEFAULT_MAX_FRAME_LATENCY
+        );
+        assert_eq!(s.rendering.resolved_max_frame_latency(), 2);
+    }
+
+    #[test]
+    fn max_frame_latency_clamps_to_supported_range() {
+        let mut s = RendererSettings::default();
+        s.rendering.max_frame_latency = 0;
+        assert_eq!(
+            s.rendering.resolved_max_frame_latency(),
+            super::DEFAULT_MAX_FRAME_LATENCY,
+            "0 maps back to the default rather than being treated as a deliberate minimum"
+        );
+        s.rendering.max_frame_latency = 99;
+        assert_eq!(
+            s.rendering.resolved_max_frame_latency(),
+            super::MAX_MAX_FRAME_LATENCY,
+            "values above the supported range clamp at the cap"
+        );
+        s.rendering.max_frame_latency = 1;
+        assert_eq!(s.rendering.resolved_max_frame_latency(), 1);
+        s.rendering.max_frame_latency = 3;
+        assert_eq!(s.rendering.resolved_max_frame_latency(), 3);
+    }
+
+    #[test]
+    fn max_frame_latency_toml_roundtrip() {
+        for value in [1u32, 2, 3] {
+            let mut s = RendererSettings::default();
+            s.rendering.max_frame_latency = value;
+            let toml = toml::to_string(&s).expect("serialize");
+            let back: RendererSettings = toml::from_str(&toml).expect("deserialize");
+            assert_eq!(back.rendering.max_frame_latency, value);
+        }
+    }
+
+    #[test]
+    fn missing_max_frame_latency_loads_as_default() {
+        // Pre-existing configs without the field must keep loading and pick up the new default.
+        let toml = "[rendering]\nvsync = \"on\"\n";
+        let parsed: RendererSettings = toml::from_str(toml).expect("legacy config without field");
+        assert_eq!(
+            parsed.rendering.max_frame_latency,
+            super::DEFAULT_MAX_FRAME_LATENCY
+        );
     }
 }
 

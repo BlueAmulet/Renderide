@@ -68,15 +68,36 @@ fn tick_phase_trace(phase: &'static str) {
     logger::trace!("{} phase={phase}", TICK_TRACE_PREFIX);
 }
 
+/// Initial GPU/swapchain knobs read from settings at startup and consumed by
+/// [`GpuContext::new`] / [`GpuContext::new_from_openxr_bootstrap`].
+///
+/// Bundles the swapchain-shape and adapter-selection inputs that are read once at process start
+/// (and not refreshed mid-session) so the [`RenderideApp`] constructor stays under the
+/// `clippy::too_many_arguments` threshold and the call sites in [`crate::app::startup`] can
+/// build them in one place. Live-tunable swapchain settings (vsync, max frame latency) still
+/// apply per-tick via [`crate::gpu::GpuContext::set_present_mode`] /
+/// [`crate::gpu::GpuContext::set_max_frame_latency`]; this struct only seeds the initial values.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct InitialGpuConfig {
+    /// Initial vsync preference; resolved against the actual surface present-mode capabilities
+    /// inside [`GpuContext::new`].
+    pub(crate) vsync: VsyncMode,
+    /// Initial [`wgpu::SurfaceConfiguration::desired_maximum_frame_latency`]. Pre-clamped via
+    /// [`crate::config::RenderingSettings::resolved_max_frame_latency`].
+    pub(crate) max_frame_latency: u32,
+    /// Whether to enable wgpu/Vulkan validation layers at instance creation. Persisted setting;
+    /// requires restart to change.
+    pub(crate) gpu_validation_layers: bool,
+    /// Adapter ranking preference (high-performance / low-power). Persisted setting; requires
+    /// restart to change.
+    pub(crate) power_preference: wgpu::PowerPreference,
+}
+
 pub(crate) struct RenderideApp {
     runtime: RendererRuntime,
-    /// Initial vsync preference used for [`GpuContext::new`] before live updates from settings.
-    initial_vsync: VsyncMode,
-    /// GPU validation layers flag for the initial [`GpuContext::new`] (persisted; restart to apply).
-    initial_gpu_validation: bool,
-    /// GPU power preference resolved from [`crate::config::DebugSettings::power_preference`].
-    /// Applied to both the desktop adapter selection and the OpenXR diagnostic log; restart to change.
-    initial_power_preference: wgpu::PowerPreference,
+    /// Initial GPU/swapchain knobs consumed by the lazy [`GpuContext::new`] /
+    /// [`GpuContext::new_from_openxr_bootstrap`] inside [`Self::ensure_window_gpu`].
+    initial_gpu: InitialGpuConfig,
     /// Parsed `-LogLevel` from startup, if any. When [`Some`], always overrides [`crate::config::DebugSettings::log_verbose`].
     log_level_cli: Option<LogLevel>,
     /// Copied from host [`crate::shared::RendererInitData::output_device`] when the window is created.
@@ -137,18 +158,14 @@ impl RenderideApp {
     /// Builds initial app state after IPC bootstrap; window and GPU are created on [`ApplicationHandler::resumed`].
     pub(crate) fn new(
         runtime: RendererRuntime,
-        initial_vsync: VsyncMode,
-        initial_gpu_validation: bool,
-        initial_power_preference: wgpu::PowerPreference,
+        initial_gpu: InitialGpuConfig,
         log_level_cli: Option<LogLevel>,
         external_shutdown: Option<ExternalShutdownCoordinator>,
         main_heartbeat: Option<crate::diagnostics::Heartbeat>,
     ) -> Self {
         Self {
             runtime,
-            initial_vsync,
-            initial_gpu_validation,
-            initial_power_preference,
+            initial_gpu,
             log_level_cli,
             session_output_device: HeadOutputDevice::Screen,
             cached_head_pose: None,
@@ -247,8 +264,8 @@ impl RenderideApp {
         let wants_openxr = head_output_device_wants_openxr(output_device);
         if wants_openxr {
             match crate::xr::init_wgpu_openxr(
-                self.initial_gpu_validation,
-                self.initial_power_preference,
+                self.initial_gpu.gpu_validation_layers,
+                self.initial_gpu.power_preference,
             ) {
                 Ok(h) => {
                     match GpuContext::new_from_openxr_bootstrap(
@@ -257,7 +274,8 @@ impl RenderideApp {
                         Arc::clone(&h.device),
                         Arc::clone(&h.queue),
                         Arc::clone(&window),
-                        self.initial_vsync,
+                        self.initial_gpu.vsync,
+                        self.initial_gpu.max_frame_latency,
                     ) {
                         Ok(gpu) => {
                             logger::info!(
@@ -310,9 +328,10 @@ impl RenderideApp {
     fn init_desktop_gpu(&mut self, window: &Arc<Window>, event_loop: &ActiveEventLoop) {
         match pollster::block_on(GpuContext::new(
             Arc::clone(window),
-            self.initial_vsync,
-            self.initial_gpu_validation,
-            self.initial_power_preference,
+            self.initial_gpu.vsync,
+            self.initial_gpu.max_frame_latency,
+            self.initial_gpu.gpu_validation_layers,
+            self.initial_gpu.power_preference,
         )) {
             Ok(gpu) => {
                 logger::info!("GPU initialized (desktop)");

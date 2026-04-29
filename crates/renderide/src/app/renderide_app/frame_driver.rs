@@ -61,6 +61,7 @@ impl RenderideApp {
             gpu.begin_frame_timing(frame_start);
             if let Ok(settings) = self.runtime.settings().read() {
                 gpu.set_present_mode(settings.rendering.vsync);
+                gpu.set_max_frame_latency(settings.rendering.resolved_max_frame_latency());
             }
         }
     }
