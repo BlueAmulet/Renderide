@@ -11,6 +11,7 @@ use super::error::DriverErrorState;
 use super::ring::BoundedRing;
 use super::submit_batch::{DriverMessage, SubmitBatch};
 use super::surface_counters::SurfaceCounters;
+use crate::gpu::frame_cpu_gpu_timing::{make_gpu_done_callback, record_real_submit};
 use crate::gpu::GpuQueueAccessGate;
 
 /// RAII guard that marks the ring's consumer side dead on drop.
@@ -54,7 +55,7 @@ pub(super) fn driver_loop(
                 &gpu_queue_access_gate,
                 &errors,
                 &surface_counters,
-                batch,
+                *batch,
             );
         }
     }
@@ -75,6 +76,7 @@ fn process_batch(
         command_buffers,
         surface_texture,
         on_submitted_work_done,
+        frame_timing,
         wait,
         frame_seq,
     } = batch;
@@ -84,6 +86,16 @@ fn process_batch(
         // Serialise against texture uploads and OpenXR queue-access calls via the shared gate.
         let _gate = gpu_queue_access_gate.lock();
         queue.submit(command_buffers);
+    }
+
+    if let Some(track) = frame_timing {
+        // Capture the post-submit instant on this thread so it represents "CPU is done preparing
+        // the frame" / "GPU is about to start." Reuse it as the baseline for the GPU completion
+        // callback so `gpu_ms` excludes driver-ring wait time.
+        let real_submit_at = record_real_submit(&track);
+        let gpu_done =
+            make_gpu_done_callback(track.handle, track.generation, track.seq, real_submit_at);
+        queue.on_submitted_work_done(Box::new(gpu_done));
     }
 
     for cb in on_submitted_work_done {

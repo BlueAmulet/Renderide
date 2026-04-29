@@ -51,17 +51,26 @@ impl FrameTimeHistory {
     }
 }
 
-/// Minimal HUD payload: wall-clock pacing, CPU/GPU submit splits, memory totals, and frametime graph.
+/// Minimal HUD payload: wall-clock roundtrip, CPU/GPU per-frame ms, memory totals, and frametime graph.
 #[derive(Clone, Debug, Default)]
 pub struct FrameTimingHudSnapshot {
-    /// Wall-clock time between consecutive redraw ticks (ms); FPS = `1000.0 / wall_frame_time_ms`.
+    /// Wall-clock roundtrip between consecutive winit ticks (ms): the time between when one frame
+    /// started and the next one started. FPS = `1000.0 / wall_frame_time_ms`.
     pub wall_frame_time_ms: f64,
-    /// Wall-clock from the start of the winit frame tick to the last tracked `Queue::submit` (ms).
-    pub cpu_frame_until_submit_ms: Option<f64>,
-    /// Wall-clock from submit to GPU idle for the **most recently completed** tracked submission (ms).
+    /// CPU per-frame ms: from the start of the winit tick (CPU begins preparing the frame) to
+    /// the moment `Queue::submit` returns on the driver thread for that tick's last submit.
     ///
-    /// May lag the current frame; see [`crate::gpu::frame_cpu_gpu_timing::FrameCpuGpuTiming`].
-    pub gpu_frame_after_submit_ms: Option<f64>,
+    /// Comes from the most recent frame whose submit has reached the driver thread, so it may
+    /// lag the current tick by one frame; see
+    /// [`crate::gpu::frame_cpu_gpu_timing::FrameCpuGpuTiming`].
+    pub cpu_frame_ms: Option<f64>,
+    /// GPU per-frame ms: from `Queue::submit` returning on the driver thread to the
+    /// `on_submitted_work_done` callback firing for that submit (i.e. wgpu reports the GPU has
+    /// no more work for this frame).
+    ///
+    /// Comes from the most recent frame whose completion callback has fired, so it may lag the
+    /// current tick by one or more frames.
+    pub gpu_frame_ms: Option<f64>,
     /// Rolling frametime samples (ms, oldest-first) for the sparkline plot.
     pub frame_time_history: Vec<f32>,
     /// Global host CPU usage 0–100 (sysinfo, throttled).
@@ -83,11 +92,11 @@ impl FrameTimingHudSnapshot {
         history: &FrameTimeHistory,
     ) -> Self {
         profiling::scope!("hud::build_timing_snapshot");
-        let (cpu_frame_until_submit_ms, gpu_frame_after_submit_ms) = gpu.frame_cpu_gpu_ms_for_hud();
+        let (cpu_frame_ms, gpu_frame_ms) = gpu.frame_cpu_gpu_ms_for_hud();
         Self {
             wall_frame_time_ms,
-            cpu_frame_until_submit_ms,
-            gpu_frame_after_submit_ms,
+            cpu_frame_ms,
+            gpu_frame_ms,
             frame_time_history: history.to_vec(),
             host_cpu_usage_percent: host.cpu_usage_percent,
             host_ram_total_bytes: host.ram_total_bytes,
@@ -114,8 +123,8 @@ mod tests {
     fn fps_from_wall_matches_inverse_ms() {
         let s = FrameTimingHudSnapshot {
             wall_frame_time_ms: 16.0,
-            cpu_frame_until_submit_ms: Some(2.0),
-            gpu_frame_after_submit_ms: Some(1.0),
+            cpu_frame_ms: Some(2.0),
+            gpu_frame_ms: Some(1.0),
             ..Default::default()
         };
         assert!((s.fps_from_wall() - 62.5).abs() < 0.01);

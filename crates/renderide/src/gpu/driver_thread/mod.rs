@@ -111,7 +111,7 @@ impl DriverThread {
         if has_surface {
             self.surface_counters.note_submitted();
         }
-        if let Err(_dropped) = self.ring.push(DriverMessage::Submit(batch)) {
+        if let Err(_dropped) = self.ring.push(DriverMessage::Submit(Box::new(batch))) {
             if has_surface {
                 // Roll back the submitted counter so `wait_for_previous_present` does not
                 // wait on a present that will never happen.
@@ -155,10 +155,15 @@ impl DriverThread {
             command_buffers: Vec::new(),
             surface_texture: None,
             on_submitted_work_done: Vec::new(),
+            frame_timing: None,
             wait: Some(wait),
             frame_seq: 0,
         };
-        if self.ring.push(DriverMessage::Submit(batch)).is_err() {
+        if self
+            .ring
+            .push(DriverMessage::Submit(Box::new(batch)))
+            .is_err()
+        {
             // Driver thread is gone; no signal will ever arrive, so skip the wait.
             return;
         }

@@ -119,14 +119,22 @@ pub struct GpuAllocatorHud {
 /// Snapshot assembled after the winit frame tick ends (draw stats, timings, host metrics).
 #[derive(Clone, Debug)]
 pub struct FrameDiagnosticsSnapshot {
-    /// Wall-clock time between consecutive redraw ticks (ms): **total frame time** for pacing; FPS = `1000.0 / wall_frame_time_ms`.
+    /// Wall-clock roundtrip between consecutive winit ticks (ms): the time between when one frame
+    /// started and the next one started. FPS = `1000.0 / wall_frame_time_ms`.
     pub wall_frame_time_ms: f64,
-    /// Wall-clock from the start of the winit frame tick to the last tracked `Queue::submit` (ms).
-    pub cpu_frame_until_submit_ms: Option<f64>,
-    /// Wall-clock from submit to GPU idle for the **most recently completed** tracked submission (ms).
+    /// CPU per-frame ms: from the start of the winit tick to the moment `Queue::submit` returns
+    /// on the driver thread for that tick's last submit. Matches the Frame timing HUD CPU line.
     ///
-    /// May lag the current frame; matches the Frame timing HUD GPU line.
-    pub gpu_frame_after_submit_ms: Option<f64>,
+    /// Comes from the most recent frame whose submit has reached the driver thread, so it may
+    /// lag the current tick by one frame.
+    pub cpu_frame_ms: Option<f64>,
+    /// GPU per-frame ms: from `Queue::submit` returning on the driver thread to the
+    /// `on_submitted_work_done` callback firing for that submit. Matches the Frame timing HUD
+    /// GPU line.
+    ///
+    /// Comes from the most recent frame whose completion callback has fired, so it may lag the
+    /// current tick by one or more frames.
+    pub gpu_frame_ms: Option<f64>,
     /// Optional wgpu allocator byte totals when exposed by the device.
     pub gpu_allocator: GpuAllocatorHud,
     /// Throttled full allocator report for the **GPU memory** tab (`None` if unsupported or before first refresh).
@@ -192,7 +200,7 @@ impl FrameDiagnosticsSnapshot {
             frame_submit_apply_failures,
             unhandled_ipc_command_event_total,
         } = capture;
-        let (cpu_frame_until_submit_ms, gpu_frame_after_submit_ms) = gpu.frame_cpu_gpu_ms_for_hud();
+        let (cpu_frame_ms, gpu_frame_ms) = gpu.frame_cpu_gpu_ms_for_hud();
         let (alloc, resv) = gpu.gpu_allocator_bytes();
         let gpu_allocator = GpuAllocatorHud {
             allocated_bytes: alloc,
@@ -235,8 +243,8 @@ impl FrameDiagnosticsSnapshot {
 
         Self {
             wall_frame_time_ms,
-            cpu_frame_until_submit_ms,
-            gpu_frame_after_submit_ms,
+            cpu_frame_ms,
+            gpu_frame_ms,
             gpu_allocator,
             gpu_allocator_report: allocator.gpu_allocator_report,
             gpu_allocator_report_next_refresh_in_secs: allocator
@@ -280,8 +288,8 @@ mod tests {
     fn fps_from_wall_matches_inverse_ms() {
         let s = FrameDiagnosticsSnapshot {
             wall_frame_time_ms: 16.0,
-            cpu_frame_until_submit_ms: Some(2.0),
-            gpu_frame_after_submit_ms: Some(1.0),
+            cpu_frame_ms: Some(2.0),
+            gpu_frame_ms: Some(1.0),
             gpu_allocator: Default::default(),
             gpu_allocator_report: None,
             gpu_allocator_report_next_refresh_in_secs: 0.0,
@@ -311,8 +319,8 @@ mod tests {
     fn fps_from_wall_zero_interval() {
         let s = FrameDiagnosticsSnapshot {
             wall_frame_time_ms: 0.0,
-            cpu_frame_until_submit_ms: None,
-            gpu_frame_after_submit_ms: None,
+            cpu_frame_ms: None,
+            gpu_frame_ms: None,
             gpu_allocator: Default::default(),
             gpu_allocator_report: None,
             gpu_allocator_report_next_refresh_in_secs: 0.0,

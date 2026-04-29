@@ -65,16 +65,16 @@ fn render_rows(ui: &imgui::Ui, t: &FrameTimingHudSnapshot) {
         Some((format!("{:5.2} ms", t.wall_frame_time_ms), VALUE_COLOR)),
     );
 
-    let cpu_ms = ms_or_dash(t.cpu_frame_until_submit_ms);
+    let cpu_ms = ms_or_dash(t.cpu_frame_ms);
     row(
         ui,
         ("CPU", CPU_HEAD_COLOR),
         (format!("{:5.1}%", t.host_cpu_usage_percent), VALUE_COLOR),
-        Some(("tick", LABEL_COLOR)),
+        Some(("frame", LABEL_COLOR)),
         Some((format!("{cpu_ms} ms"), VALUE_COLOR)),
     );
 
-    let gpu_ms = ms_or_dash(t.gpu_frame_after_submit_ms);
+    let gpu_ms = ms_or_dash(t.gpu_frame_ms);
     row(
         ui,
         ("GPU", GPU_HEAD_COLOR),

@@ -9,7 +9,7 @@ const _: fn() = || {
     assert_send_sync::<wgpu::Queue>();
 };
 
-use super::frame_cpu_gpu_timing::{make_gpu_done_callback, FrameCpuGpuTimingHandle};
+use super::frame_cpu_gpu_timing::FrameCpuGpuTimingHandle;
 use super::instance_limits::required_limits_for_adapter;
 use super::limits::{GpuLimits, GpuLimitsError};
 use crate::config::VsyncMode;
@@ -534,14 +534,14 @@ impl GpuContext {
     }
 
     /// Internal helper that builds the [`super::driver_thread::SubmitBatch`] (including the
-    /// frame-timing callback) and pushes it into the driver thread's ring. Blocks when the
-    /// ring is full — that block is the frame-pacing backpressure.
+    /// frame-timing track) and pushes it into the driver thread's ring. Blocks when the ring
+    /// is full — that block is the frame-pacing backpressure.
     fn submit_frame_batch_inner(
         &self,
         command_buffers: Vec<wgpu::CommandBuffer>,
         surface_texture: Option<wgpu::SurfaceTexture>,
         wait: Option<super::driver_thread::SubmitWait>,
-        mut extra_on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>>,
+        extra_on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>>,
     ) {
         if !command_buffers.is_empty() {
             crate::profiling::emit_render_submit_frame_mark();
@@ -550,20 +550,20 @@ impl GpuContext {
             let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
             ft.on_before_tracked_submit()
         };
-        let mut on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>> = Vec::new();
-        if let Some((generation, seq)) = track {
-            let submit_at = Instant::now();
-            let handle = Arc::clone(&self.frame_timing);
-            on_submitted_work_done.push(Box::new(make_gpu_done_callback(
-                handle, generation, seq, submit_at,
-            )));
-        }
-        on_submitted_work_done.append(&mut extra_on_submitted_work_done);
-        let frame_seq = track.map(|(_, seq)| seq as u64).unwrap_or(0);
+        let frame_timing = track.map(|(generation, seq, frame_start)| {
+            super::frame_cpu_gpu_timing::FrameTimingTrack {
+                handle: Arc::clone(&self.frame_timing),
+                generation,
+                seq,
+                frame_start,
+            }
+        });
+        let frame_seq = track.map(|(_, seq, _)| seq as u64).unwrap_or(0);
         let batch = super::driver_thread::SubmitBatch {
             command_buffers,
             surface_texture,
-            on_submitted_work_done,
+            on_submitted_work_done: extra_on_submitted_work_done,
+            frame_timing,
             wait,
             frame_seq,
         };
@@ -610,9 +610,10 @@ impl GpuContext {
 
     /// Call after all tracked queue submits for this tick (before reading HUD metrics).
     ///
-    /// Finalizes CPU-until-submit for this tick. GPU idle time for the HUD comes from
-    /// [`super::frame_cpu_gpu_timing::FrameCpuGpuTiming::last_completed_gpu_idle_ms`], which is
-    /// updated asynchronously when [`wgpu::Queue::on_submitted_work_done`] runs—no blocking poll here.
+    /// Folds in this tick's CPU/GPU values when the driver thread already reported them; both
+    /// numbers are updated asynchronously on the driver thread / completion-callback thread, so
+    /// the HUD reads `last_completed_*_frame_ms` instead of blocking on
+    /// [`wgpu::Device::poll`].
     pub fn end_frame_timing(&self) {
         profiling::scope!("gpu::end_frame_timing");
         let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
@@ -698,14 +699,20 @@ impl GpuContext {
         Arc::clone(&self.latest_gpu_pass_timings)
     }
 
-    /// CPU time for this tick and the **latest completed** GPU submit→idle ms (may lag; see
-    /// [`super::frame_cpu_gpu_timing::FrameCpuGpuTiming::last_completed_gpu_idle_ms`]).
+    /// Most recently completed CPU and GPU per-frame ms for the debug HUD.
+    ///
+    /// Both values come from the **last frame whose driver-thread submit/completion arrived**,
+    /// which may be one or more ticks behind the current one. CPU ms is `frame_start → real
+    /// Queue::submit return`; GPU ms is `real Queue::submit return → on_submitted_work_done`.
     pub fn frame_cpu_gpu_ms_for_hud(&self) -> (Option<f64>, Option<f64>) {
         let ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
-        (ft.cpu_until_submit_ms, ft.last_completed_gpu_idle_ms)
+        (
+            ft.last_completed_cpu_frame_ms,
+            ft.last_completed_gpu_frame_ms,
+        )
     }
 
-    /// Most recently completed GPU submit→idle interval in **seconds**, for the IPC
+    /// Most recently completed GPU frame ms in **seconds**, for the IPC
     /// [`crate::shared::PerformanceState::render_time`] field consumed by
     /// `FrooxEngine.PerformanceMetrics.RenderTime`.
     ///
@@ -714,7 +721,8 @@ impl GpuContext {
     /// matching the Renderite.Unity `XRStats.TryGetGPUTimeLastFrame` contract.
     pub fn last_completed_gpu_render_time_seconds(&self) -> Option<f32> {
         let ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
-        ft.last_completed_gpu_idle_ms.map(|ms| (ms / 1000.0) as f32)
+        ft.last_completed_gpu_frame_ms
+            .map(|ms| (ms / 1000.0) as f32)
     }
 
     /// Swapchain color format from the active surface configuration.

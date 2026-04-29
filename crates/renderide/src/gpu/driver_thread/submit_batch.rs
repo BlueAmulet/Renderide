@@ -10,6 +10,8 @@
 
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 
+use crate::gpu::frame_cpu_gpu_timing::FrameTimingTrack;
+
 /// One frame's worth of GPU work queued for the driver thread.
 ///
 /// Built by the main thread after all command encoders for the frame have been finished.
@@ -24,9 +26,18 @@ pub struct SubmitBatch {
     /// Installed via repeated [`wgpu::Queue::on_submitted_work_done`] calls after submit.
     /// Callbacks fire on whichever thread next drains the device via [`wgpu::Device::poll`].
     ///
-    /// Frame timing and Hi-Z staging-buffer `map_async` both ride this channel so the main
-    /// thread can react to submit completion without a full driver-ring flush.
+    /// Hi-Z staging-buffer `map_async` and other auxiliary completion work ride this channel
+    /// so the main thread can react to submit completion without a full driver-ring flush.
+    /// Frame-timing's GPU completion callback is **not** routed through here; it is registered
+    /// on the driver thread immediately after submit using [`Self::frame_timing`] so its
+    /// baseline instant is taken on the same thread as `Queue::submit`.
     pub on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>>,
+    /// Frame-timing track for this batch; the driver thread captures the post-submit instant
+    /// and registers a [`wgpu::Queue::on_submitted_work_done`] callback against it.
+    ///
+    /// `None` for non-tracked submits (e.g. probe-bake one-shots that should not contribute to
+    /// the per-frame HUD readouts).
+    pub frame_timing: Option<FrameTimingTrack>,
     /// Optional oneshot fired after submit + present complete on the driver thread.
     ///
     /// Use this when the main thread must block until the frame is known to be on the
@@ -62,10 +73,12 @@ impl SubmitWait {
 /// Internal payload the main thread pushes into the ring.
 ///
 /// The shutdown variant lets [`super::DriverThread::Drop`] terminate the driver loop
-/// without forcing consumers of the public API to handle a sentinel value.
+/// without forcing consumers of the public API to handle a sentinel value. The
+/// [`Submit`](Self::Submit) variant is boxed so the enum stays small in the ring's slot array
+/// even though [`SubmitBatch`] itself is many hundreds of bytes.
 pub(super) enum DriverMessage {
     /// A frame's command-buffer batch ready for submit + present.
-    Submit(SubmitBatch),
+    Submit(Box<SubmitBatch>),
     /// Tells the driver loop to exit. Any batches left in the ring after this message are
     /// dropped (their surface textures are dropped without presenting).
     Shutdown,
