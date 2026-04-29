@@ -20,7 +20,7 @@ use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Fallback audio rate used when the host sends an invalid sample rate.
-pub(self) const DEFAULT_AUDIO_SAMPLE_RATE: i32 = 48_000;
+const DEFAULT_AUDIO_SAMPLE_RATE: i32 = 48_000;
 
 /// Poll interval for applying host playback updates to GStreamer.
 const UPDATE_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
@@ -219,7 +219,7 @@ impl VideoPlayer {
             match msg.view() {
                 gstreamer::MessageView::AsyncDone(_) => self.handle_async_done(ipc),
                 gstreamer::MessageView::StreamCollection(sc) => {
-                    self.handle_stream_collection(sc.stream_collection())
+                    self.handle_stream_collection(sc.stream_collection());
                 }
                 gstreamer::MessageView::Error(e) => {
                     logger::error!(
@@ -490,7 +490,7 @@ fn apply_update_to_pipeline(pipeline: &gstreamer::Element, update: &VideoTexture
     if let Err(e) = pipeline.set_state(target_state_for_update(update)) {
         logger::warn!("video texture update: failed to set pipeline state: {e}");
     }
-    if query_duration_seconds(&pipeline) < 0.0 {
+    if query_duration_seconds(pipeline) < 0.0 {
         // video stream, do not seek
         return;
     }
