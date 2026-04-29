@@ -2,7 +2,7 @@
 //!
 //! The resolver is the single boundary between sorted draw runs and concrete raster state. Both
 //! pre-warm and record-time preparation build [`PipelineVariantKey`] with the same helper so they
-//! cannot drift on MSAA/grab-pass, front-face, blend, or render-state permutations.
+//! cannot drift on MSAA, front-face, blend, or render-state permutations.
 
 use rayon::prelude::*;
 
@@ -26,8 +26,6 @@ pub(crate) struct PipelineVariantKeyInput {
     pub pass_desc: MaterialPipelineDesc,
     /// Shader permutation selected for the owning view.
     pub shader_perm: ShaderPermutation,
-    /// Whether the material samples the grab-pass scene-color snapshot.
-    pub requires_grab_pass: bool,
     /// Host shader asset id for diagnostics and material registry lookup.
     pub shader_asset_id: i32,
     /// Resolved material blend state.
@@ -47,7 +45,7 @@ pub(crate) struct PipelineVariantKey {
     pub surface_format: wgpu::TextureFormat,
     /// Optional depth/stencil format.
     pub depth_stencil_format: Option<wgpu::TextureFormat>,
-    /// Effective sample count. Grab-pass transparent draws force this to `1`.
+    /// Effective sample count for the active render pass.
     pub sample_count: u32,
     /// Optional multiview mask.
     pub multiview_mask: Option<std::num::NonZeroU32>,
@@ -67,13 +65,11 @@ impl PipelineVariantKey {
         let PipelineVariantKeyInput {
             pass_desc,
             shader_perm,
-            requires_grab_pass,
             shader_asset_id,
             blend_mode,
             render_state,
             front_face,
         } = input;
-        let pass_desc = pipeline_desc_for_grab_pass(pass_desc, requires_grab_pass);
         Self {
             shader_asset_id,
             surface_format: pass_desc.surface_format,
@@ -107,7 +103,6 @@ impl PipelineVariantKey {
         Self::new(PipelineVariantKeyInput {
             pass_desc,
             shader_perm,
-            requires_grab_pass: batch_key.embedded_requires_grab_pass,
             shader_asset_id: batch_key.shader_asset_id,
             blend_mode: batch_key.blend_mode,
             render_state: batch_key.render_state,
@@ -274,21 +269,6 @@ impl<'a> MaterialDrawResolver<'a> {
     }
 }
 
-/// Returns the pipeline descriptor used by the record path for a material.
-fn pipeline_desc_for_grab_pass(
-    pass_desc: MaterialPipelineDesc,
-    requires_grab_pass: bool,
-) -> MaterialPipelineDesc {
-    if requires_grab_pass && pass_desc.sample_count > 1 {
-        MaterialPipelineDesc {
-            sample_count: 1,
-            ..pass_desc
-        }
-    } else {
-        pass_desc
-    }
-}
-
 /// Walks `draws` once and emits `(first_idx, last_idx)` runs of identical material batch keys.
 fn collect_material_batch_boundaries(draws: &[WorldMeshDrawItem]) -> Vec<(usize, usize)> {
     let mut boundaries: Vec<(usize, usize)> = Vec::new();
@@ -322,6 +302,7 @@ mod tests {
     use std::num::NonZeroU32;
 
     use super::*;
+    use crate::render_graph::test_fixtures::{dummy_world_mesh_draw_item, DummyDrawItemSpec};
 
     fn base_desc() -> MaterialPipelineDesc {
         MaterialPipelineDesc {
@@ -332,11 +313,10 @@ mod tests {
         }
     }
 
-    fn key_for(requires_grab_pass: bool) -> PipelineVariantKey {
+    fn key_for() -> PipelineVariantKey {
         PipelineVariantKey::new(PipelineVariantKeyInput {
             pass_desc: base_desc(),
             shader_perm: ShaderPermutation(1),
-            requires_grab_pass,
             shader_asset_id: 42,
             blend_mode: MaterialBlendMode::Opaque,
             render_state: MaterialRenderState::default(),
@@ -346,16 +326,32 @@ mod tests {
 
     #[test]
     fn pipeline_key_preserves_regular_sample_count() {
-        let key = key_for(false);
+        let key = key_for();
         assert_eq!(key.sample_count, 4);
         assert_eq!(key.pass_desc().sample_count, 4);
     }
 
     #[test]
-    fn pipeline_key_forces_grab_pass_to_single_sample() {
-        let key = key_for(true);
-        assert_eq!(key.sample_count, 1);
-        assert_eq!(key.pass_desc().sample_count, 1);
+    fn pipeline_key_preserves_grab_pass_sample_count() {
+        let mut item = dummy_world_mesh_draw_item(DummyDrawItemSpec {
+            material_asset_id: 42,
+            property_block: None,
+            skinned: false,
+            sorting_order: 0,
+            mesh_asset_id: 7,
+            node_id: 1,
+            slot_index: 0,
+            collect_order: 0,
+            alpha_blended: false,
+        });
+        item.batch_key.shader_asset_id = 42;
+        item.batch_key.blend_mode = MaterialBlendMode::Opaque;
+        item.batch_key.front_face = RasterFrontFace::CounterClockwise;
+        item.batch_key.embedded_requires_grab_pass = true;
+
+        let key = PipelineVariantKey::for_draw_item(&item, base_desc(), ShaderPermutation(1));
+        assert_eq!(key.sample_count, 4);
+        assert_eq!(key.pass_desc().sample_count, 4);
         assert_eq!(key.surface_format, wgpu::TextureFormat::Rgba16Float);
         assert_eq!(
             key.depth_stencil_format,
@@ -366,8 +362,8 @@ mod tests {
 
     #[test]
     fn pipeline_key_changes_when_front_face_changes() {
-        let mut a = key_for(false);
-        let mut b = key_for(false);
+        let mut a = key_for();
+        let mut b = key_for();
         a.front_face = RasterFrontFace::Clockwise;
         b.front_face = RasterFrontFace::CounterClockwise;
         assert_ne!(a, b);

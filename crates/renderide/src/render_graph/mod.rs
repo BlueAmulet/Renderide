@@ -478,16 +478,18 @@ fn add_main_graph_passes_and_edges(
     let forward_intersect = builder.add_raster_pass(Box::new(
         passes::WorldMeshForwardIntersectPass::new(forward_resources),
     ));
-    // Color resolve replaces the wgpu automatic linear `resolve_target`. Only added when MSAA is
-    // active; in 1× mode the intersect pass writes `scene_color_hdr` directly via
-    // `frame_sampled_color`'s single-sample target and no resolve work is needed.
-    let color_resolve = (msaa_sample_count > 1).then(|| {
-        builder.add_raster_pass(Box::new(passes::WorldMeshForwardColorResolvePass::new(
-            passes::WorldMeshForwardColorResolveGraphResources {
-                scene_color_hdr_msaa: h.scene_color_hdr_msaa,
-                scene_color_hdr: h.scene_color_hdr,
-            },
-        )))
+    // Color resolve replaces the wgpu automatic linear `resolve_target`. The pre-grab resolve
+    // makes a single-sample HDR snapshot available to grab-pass shaders; the final resolve moves
+    // any grab-pass transparent MSAA color back into the single-sample HDR target consumed by
+    // post-processing. In 1× mode each forward pass writes `scene_color_hdr` directly.
+    let color_resolve_resources = passes::WorldMeshForwardColorResolveGraphResources {
+        scene_color_hdr_msaa: h.scene_color_hdr_msaa,
+        scene_color_hdr: h.scene_color_hdr,
+    };
+    let pre_grab_color_resolve = (msaa_sample_count > 1).then(|| {
+        builder.add_raster_pass(Box::new(
+            passes::WorldMeshForwardColorResolvePass::new_pre_grab(color_resolve_resources),
+        ))
     });
     let color_snapshot = builder.add_compute_pass(Box::new(
         passes::WorldMeshColorSnapshotPass::new(forward_resources),
@@ -495,6 +497,11 @@ fn add_main_graph_passes_and_edges(
     let forward_transparent = builder.add_raster_pass(Box::new(
         passes::WorldMeshForwardTransparentPass::new(forward_resources),
     ));
+    let final_color_resolve = (msaa_sample_count > 1).then(|| {
+        builder.add_raster_pass(Box::new(
+            passes::WorldMeshForwardColorResolvePass::new_final(color_resolve_resources),
+        ))
+    });
     let depth_resolve = builder.add_compute_pass(Box::new(
         passes::WorldMeshForwardDepthResolvePass::new(forward_resources),
     ));
@@ -520,17 +527,21 @@ fn add_main_graph_passes_and_edges(
     builder.add_edge(forward_prepare, forward_opaque);
     builder.add_edge(forward_opaque, depth_snapshot);
     builder.add_edge(depth_snapshot, forward_intersect);
-    if let Some(color_resolve) = color_resolve {
-        builder.add_edge(forward_intersect, color_resolve);
-        builder.add_edge(color_resolve, color_snapshot);
+    if let Some(pre_grab_color_resolve) = pre_grab_color_resolve {
+        builder.add_edge(forward_intersect, pre_grab_color_resolve);
+        builder.add_edge(pre_grab_color_resolve, color_snapshot);
     } else {
         builder.add_edge(forward_intersect, color_snapshot);
     }
     builder.add_edge(color_snapshot, forward_transparent);
-    builder.add_edge(forward_transparent, depth_resolve);
+    if let Some(final_color_resolve) = final_color_resolve {
+        builder.add_edge(forward_transparent, final_color_resolve);
+        builder.add_edge(final_color_resolve, depth_resolve);
+    } else {
+        builder.add_edge(forward_transparent, depth_resolve);
+    }
     builder.add_edge(depth_resolve, hiz);
-    // Sequence the color resolve before the grab-pass snapshot. Post-processing reads the
-    // single-sample HDR target after grab-pass transparent draws have been recorded.
+    // Sequence post-processing after the final forward HDR target is available.
     if let Some((first_post, last_post)) = chain_output.pass_range() {
         builder.add_edge(hiz, first_post);
         builder.add_edge(last_post, compose);
@@ -619,7 +630,7 @@ pub fn build_default_main_graph() -> Result<CompiledRenderGraph, GraphBuildError
 
 /// Builds the main graph with a placeholder cache key but applies `post_processing` so the chain
 /// is wired into the graph at attach time. `msaa_sample_count` selects whether the HDR-aware
-/// MSAA color resolve pass is included; pass `1` when MSAA is off.
+/// MSAA color resolve passes are included; pass `1` when MSAA is off.
 pub fn build_default_main_graph_with(
     post_processing: &crate::config::PostProcessingSettings,
     msaa_sample_count: u8,
@@ -692,23 +703,33 @@ mod default_graph_tests {
     }
 
     #[test]
-    fn msaa_main_graph_inserts_color_resolve_before_snapshot() {
+    fn msaa_main_graph_brackets_grab_pass_with_color_resolves() {
         let mut key = smoke_key();
         key.msaa_sample_count = 4;
         let g = build_main_graph(key, &no_post()).expect("MSAA graph");
         let pass_names: Vec<&str> = g.pass_info.iter().map(|p| p.name.as_str()).collect();
-        let resolve_pos = pass_names
+        let pre_grab_resolve_pos = pass_names
             .iter()
-            .position(|name| *name == "WorldMeshForwardColorResolve")
-            .expect("color resolve pass");
+            .position(|name| *name == "WorldMeshForwardColorResolvePreGrab")
+            .expect("pre-grab color resolve pass");
         let snapshot_pos = pass_names
             .iter()
             .position(|name| *name == "WorldMeshColorSnapshot")
             .expect("color snapshot pass");
+        let transparent_pos = pass_names
+            .iter()
+            .position(|name| *name == "WorldMeshForwardTransparent")
+            .expect("transparent pass");
+        let final_resolve_pos = pass_names
+            .iter()
+            .position(|name| *name == "WorldMeshForwardColorResolveFinal")
+            .expect("final color resolve pass");
 
-        assert!(resolve_pos < snapshot_pos);
-        assert_eq!(g.pass_count(), 12);
-        assert_eq!(g.compile_stats.topo_levels, 12);
+        assert!(pre_grab_resolve_pos < snapshot_pos);
+        assert!(snapshot_pos < transparent_pos);
+        assert!(transparent_pos < final_resolve_pos);
+        assert_eq!(g.pass_count(), 13);
+        assert_eq!(g.compile_stats.topo_levels, 13);
     }
 
     #[test]

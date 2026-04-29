@@ -12,9 +12,10 @@
 //! sandwich approximates "tonemap each sample, average, untonemap" while keeping an HDR result
 //! for downstream bloom and tonemap to consume.
 //!
-//! Only registered in the graph when MSAA is active (sample count > 1). When MSAA is off, the
-//! intersect pass writes directly to the single-sample `scene_color_hdr` and no resolve pass is
-//! needed.
+//! Registered in the graph when MSAA is active (sample count > 1). The pre-grab instance resolves
+//! opaque/intersection color before the scene-color snapshot, while the final instance resolves
+//! grab-pass transparent draws before post-processing and composition. When MSAA is off, forward
+//! passes write directly to the single-sample `scene_color_hdr` and the resolve pass is skipped.
 
 mod pipeline;
 
@@ -40,15 +41,53 @@ pub struct WorldMeshForwardColorResolveGraphResources {
 
 /// Resolves multisampled HDR scene color to single-sample HDR using the Karis bracket.
 pub struct WorldMeshForwardColorResolvePass {
+    /// Graph resources read and written by this resolve pass.
     resources: WorldMeshForwardColorResolveGraphResources,
+    /// Logical stage for pass naming and runtime skip policy.
+    stage: WorldMeshForwardColorResolveStage,
+    /// Shared color-resolve pipeline cache.
     pipelines: &'static MsaaResolveHdrPipelineCache,
 }
 
+/// Logical position of an MSAA color resolve within the world-mesh forward path.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WorldMeshForwardColorResolveStage {
+    /// Resolves opaque/intersection scene color before copying the grab-pass snapshot.
+    PreGrabSnapshot,
+    /// Resolves grab-pass transparent scene color before post-processing.
+    FinalSceneColor,
+}
+
+impl WorldMeshForwardColorResolveStage {
+    /// Render-graph pass label for this resolve stage.
+    fn pass_name(self) -> &'static str {
+        match self {
+            Self::PreGrabSnapshot => "WorldMeshForwardColorResolvePreGrab",
+            Self::FinalSceneColor => "WorldMeshForwardColorResolveFinal",
+        }
+    }
+}
+
 impl WorldMeshForwardColorResolvePass {
-    /// Creates a color-resolve pass instance.
+    /// Creates the pre-grab color-resolve pass instance.
     pub fn new(resources: WorldMeshForwardColorResolveGraphResources) -> Self {
+        Self::new_pre_grab(resources)
+    }
+
+    /// Creates the pre-grab color-resolve pass instance.
+    pub fn new_pre_grab(resources: WorldMeshForwardColorResolveGraphResources) -> Self {
         Self {
             resources,
+            stage: WorldMeshForwardColorResolveStage::PreGrabSnapshot,
+            pipelines: pipeline_cache(),
+        }
+    }
+
+    /// Creates the final color-resolve pass instance.
+    pub fn new_final(resources: WorldMeshForwardColorResolveGraphResources) -> Self {
+        Self {
+            resources,
+            stage: WorldMeshForwardColorResolveStage::FinalSceneColor,
             pipelines: pipeline_cache(),
         }
     }
@@ -59,14 +98,22 @@ fn pipeline_cache() -> &'static MsaaResolveHdrPipelineCache {
     CACHE.get_or_init(MsaaResolveHdrPipelineCache::default)
 }
 
-/// Returns whether a runtime view needs the MSAA color resolve draw.
-fn color_resolve_raster_needed(sample_count: u32) -> bool {
+/// Returns whether a runtime view needs this MSAA color resolve draw.
+fn color_resolve_raster_needed(
+    stage: WorldMeshForwardColorResolveStage,
+    sample_count: u32,
+    has_grab_pass_transparent_work: bool,
+) -> bool {
     sample_count > 1
+        && match stage {
+            WorldMeshForwardColorResolveStage::PreGrabSnapshot => true,
+            WorldMeshForwardColorResolveStage::FinalSceneColor => has_grab_pass_transparent_work,
+        }
 }
 
 impl RasterPass for WorldMeshForwardColorResolvePass {
     fn name(&self) -> &str {
-        "WorldMeshForwardColorResolve"
+        self.stage.pass_name()
     }
 
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
@@ -120,7 +167,15 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
                 pass: self.name().to_string(),
             });
         };
-        Ok(color_resolve_raster_needed(frame.view.sample_count))
+        let has_grab_pass_transparent_work = ctx
+            .blackboard
+            .get::<crate::render_graph::WorldMeshForwardPlanSlot>()
+            .is_some_and(|prepared| !prepared.plan.transparent_groups.is_empty());
+        Ok(color_resolve_raster_needed(
+            self.stage,
+            frame.view.sample_count,
+            has_grab_pass_transparent_work,
+        ))
     }
 
     fn record(
@@ -243,13 +298,50 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
 
 #[cfg(test)]
 mod tests {
-    use super::color_resolve_raster_needed;
+    use super::{color_resolve_raster_needed, WorldMeshForwardColorResolveStage};
 
-    /// Runtime 1x views skip the raster pass; MSAA views keep the resolve draw.
+    /// Runtime 1x views skip both resolve stages.
     #[test]
-    fn color_resolve_raster_needed_tracks_runtime_sample_count() {
-        assert!(!color_resolve_raster_needed(1));
-        assert!(color_resolve_raster_needed(2));
-        assert!(color_resolve_raster_needed(4));
+    fn color_resolve_raster_needed_skips_runtime_one_sample_views() {
+        assert!(!color_resolve_raster_needed(
+            WorldMeshForwardColorResolveStage::PreGrabSnapshot,
+            1,
+            true
+        ));
+        assert!(!color_resolve_raster_needed(
+            WorldMeshForwardColorResolveStage::FinalSceneColor,
+            1,
+            true
+        ));
+    }
+
+    /// Pre-grab resolve always runs in MSAA so downstream passes have resolved HDR scene color.
+    #[test]
+    fn pre_grab_color_resolve_raster_needed_tracks_runtime_sample_count() {
+        assert!(color_resolve_raster_needed(
+            WorldMeshForwardColorResolveStage::PreGrabSnapshot,
+            2,
+            false
+        ));
+        assert!(color_resolve_raster_needed(
+            WorldMeshForwardColorResolveStage::PreGrabSnapshot,
+            4,
+            true
+        ));
+    }
+
+    /// Final resolve only runs when the grab-pass transparent tail can change MSAA scene color.
+    #[test]
+    fn final_color_resolve_raster_needed_requires_grab_pass_work() {
+        assert!(!color_resolve_raster_needed(
+            WorldMeshForwardColorResolveStage::FinalSceneColor,
+            4,
+            false
+        ));
+        assert!(color_resolve_raster_needed(
+            WorldMeshForwardColorResolveStage::FinalSceneColor,
+            4,
+            true
+        ));
     }
 }

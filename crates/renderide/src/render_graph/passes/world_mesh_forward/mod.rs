@@ -2,7 +2,7 @@
 //!
 //! ## Pass graph structure
 //!
-//! World-mesh forward rendering is split across seven passes:
+//! World-mesh forward rendering is split across these graph passes:
 //!
 //! 1. [`WorldMeshForwardPreparePass`] — **[`CallbackPass`]** that collects + sorts draws, packs
 //!    per-draw VP/model uniforms (rayon-parallel above the existing threshold), and uploads the
@@ -12,13 +12,16 @@
 //!    attachments with `LoadOp::Clear` and records opaque draws.
 //! 3. [`WorldMeshDepthSnapshotPass`] — **[`ComputePass`]** that resolves MSAA depth (when active)
 //!    and copies single-sample depth into the scene-depth snapshot for intersection materials.
-//! 4. [`WorldMeshForwardIntersectPass`] — **[`RasterPass`]** that draws intersection materials
-//!    and resolves MSAA color when active.
-//! 5. [`WorldMeshColorSnapshotPass`] — **[`ComputePass`]** that copies resolved HDR color into
+//! 4. [`WorldMeshForwardIntersectPass`] — **[`RasterPass`]** that draws intersection materials.
+//! 5. [`WorldMeshForwardColorResolvePass`] — optional **[`RasterPass`]** that resolves MSAA
+//!    scene color before the grab-pass snapshot.
+//! 6. [`WorldMeshColorSnapshotPass`] — **[`ComputePass`]** that copies resolved HDR color into
 //!    the grab-pass scene-color snapshot.
-//! 6. [`WorldMeshForwardTransparentPass`] — **[`RasterPass`]** that draws grab-pass transparent
-//!    materials into the single-sample HDR target.
-//! 7. [`WorldMeshForwardDepthResolvePass`] — **[`ComputePass`]** that resolves the final MSAA
+//! 7. [`WorldMeshForwardTransparentPass`] — **[`RasterPass`]** that draws grab-pass transparent
+//!    materials into the active frame-sampled HDR target.
+//! 8. [`WorldMeshForwardColorResolvePass`] — optional final **[`RasterPass`]** that resolves
+//!    MSAA scene color after grab-pass transparent draws.
+//! 9. [`WorldMeshForwardDepthResolvePass`] — **[`ComputePass`]** that resolves the final MSAA
 //!    depth into the single-sample frame depth used by Hi-Z.
 //!
 //! ## VR stereo world draws
@@ -578,16 +581,22 @@ impl RasterPass for WorldMeshForwardTransparentPass {
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
         {
             let mut r = b.raster();
-            r.color(
+            // Keep grab-pass transparent draws on the same active color/depth sample tier as the
+            // opaque/intersection passes. In MSAA mode this preserves the current MSAA stencil
+            // attachment for UI masks; a final color resolve moves the updated HDR color back to
+            // the single-sample scene target for post-processing.
+            r.frame_sampled_color(
                 self.resources.scene_color_hdr,
+                self.resources.scene_color_hdr_msaa,
                 wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
                 },
                 Option::<ImportedTextureHandle>::None,
             );
-            r.depth(
+            r.frame_sampled_depth(
                 self.resources.depth,
+                self.resources.msaa_depth,
                 wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
