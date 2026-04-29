@@ -20,6 +20,7 @@ fn apply_alpha(
     alpha_mode: u32,
     frag_xy: vec2<f32>,
     world_pos: vec3<f32>,
+    view_layer: u32,
     uv_primary: vec2<f32>,
     alpha: f32,
     clip_alpha: f32,
@@ -53,7 +54,7 @@ fn apply_alpha(
         let dither = xb::bayer_threshold(frag_xy);
         if (xb::kw(xb::mat._FadeDither)) {
             let mask = acs::texture_rgba_base_mip(xb::_CutoutMask, xb::_CutoutMask_sampler, uv_primary).r;
-            let dist = distance(rg::frame.camera_world_pos.xyz, world_pos);
+            let dist = distance(rg::camera_world_pos_for_view(view_layer), world_pos);
             let d = smoothstep(xb::mat._FadeDitherDistance, xb::mat._FadeDitherDistance + 0.02, dist);
             if (((1.0 - mask) + d) <= dither) {
                 discard;

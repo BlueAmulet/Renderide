@@ -66,7 +66,7 @@ fn fragment_forward(
     alpha_mode: u32,
 ) -> vec4<f32> {
     let s = xsurf::sample_surface(true, front_facing, world_pos, world_n, world_t, world_b, uv_primary, uv_secondary, color);
-    let alpha = xa::apply_alpha(alpha_mode, frag_pos.xy, world_pos, uv_primary, s.albedo.a, s.clip_alpha);
+    let alpha = xa::apply_alpha(alpha_mode, frag_pos.xy, world_pos, view_layer, uv_primary, s.albedo.a, s.clip_alpha);
     var rgb = xl::clustered_toon_lighting(frag_pos.xy, s, world_pos, view_layer, true, true, true);
     if (alpha_mode == xb::ALPHA_TRANSPARENT) {
         rgb = rgb * alpha;

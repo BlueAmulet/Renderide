@@ -377,7 +377,7 @@ fn clustered_toon_lighting(
     include_local: bool,
     base_pass: bool,
 ) -> vec3<f32> {
-    let view_dir = xb::safe_normalize(rg::frame.camera_world_pos.xyz - world_pos, vec3<f32>(0.0, 0.0, 1.0));
+    let view_dir = xb::safe_normalize(rg::camera_world_pos_for_view(view_layer) - world_pos, vec3<f32>(0.0, 0.0, 1.0));
     let ambient = indirect_diffuse(s);
     let env = environment_tint(s, view_dir);
     let direct_specular_occlusion = occlusion_scalar(s);

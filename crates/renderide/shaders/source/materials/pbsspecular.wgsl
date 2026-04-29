@@ -198,7 +198,7 @@ fn fs_main(
     base_color = base_color * detail_blend;
 
     // --- Lighting ---
-    let cam = rg::frame.camera_world_pos.xyz;
+    let cam = rg::camera_world_pos_for_view(view_layer);
     let v   = normalize(cam - world_pos);
 
     let aa_roughness = brdf::filter_perceptual_roughness(roughness, n);

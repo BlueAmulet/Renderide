@@ -2,7 +2,6 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
 
 use crate::gpu::GpuContext;
@@ -15,6 +14,7 @@ mod readback_jobs;
 mod source_resolution;
 mod task_rows;
 
+use crate::backend::skybox_params::{SkyboxEvaluatorParams, SkyboxParamMode};
 use projection_pipeline::{
     encode_projection_job, ensure_projection_pipeline, ProjectionBinding, ProjectionPipeline,
 };
@@ -26,6 +26,8 @@ use task_rows::{
 };
 
 #[cfg(test)]
+use crate::backend::skybox_params::{DEFAULT_MAIN_TEX_ST, PROJECTION360_DEFAULT_FOV};
+#[cfg(test)]
 use crate::shared::ReflectionProbeSH2Task;
 #[cfg(test)]
 use glam::Vec4;
@@ -33,66 +35,15 @@ use glam::Vec4;
 use task_rows::read_i32_le;
 
 /// Skybox projection sample resolution per cube face.
-const DEFAULT_SAMPLE_SIZE: u32 = 64;
+const DEFAULT_SAMPLE_SIZE: u32 = crate::backend::skybox_params::DEFAULT_SKYBOX_SAMPLE_SIZE;
 /// Maximum pending GPU jobs kept alive at once.
 const MAX_IN_FLIGHT_JOBS: usize = 6;
 /// Number of renderer ticks before a pending GPU readback is treated as failed.
 const MAX_PENDING_JOB_AGE_FRAMES: u32 = 120;
 /// Bytes copied back from the compute output buffer.
 const SH2_OUTPUT_BYTES: u64 = (9 * 16) as u64;
-/// Default `Projection360` field of view used by Unity material defaults.
-const PROJECTION360_DEFAULT_FOV: [f32; 4] = [std::f32::consts::TAU, std::f32::consts::PI, 0.0, 0.0];
-/// Default texture scale/offset used by Unity `_MainTex_ST` properties.
-const DEFAULT_MAIN_TEX_ST: [f32; 4] = [1.0, 1.0, 0.0, 0.0];
 /// Uniform payload shared by SH2 projection compute kernels.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct Sh2ProjectParams {
-    /// Sample grid edge per cube face.
-    sample_size: u32,
-    /// Projection evaluator mode for parameter-only sky sources.
-    mode: u32,
-    /// Number of active gradient lobes.
-    gradient_count: u32,
-    /// Reserved alignment slot.
-    _pad0: u32,
-    /// Generic color slot 0.
-    color0: [f32; 4],
-    /// Generic color slot 1.
-    color1: [f32; 4],
-    /// Generic direction and scalar slot.
-    direction: [f32; 4],
-    /// Generic scalar slot.
-    scalars: [f32; 4],
-    /// Gradient direction/spread rows.
-    dirs_spread: [[f32; 4]; 16],
-    /// Gradient color rows A.
-    gradient_color0: [[f32; 4]; 16],
-    /// Gradient color rows B.
-    gradient_color1: [[f32; 4]; 16],
-    /// Gradient parameter rows.
-    gradient_params: [[f32; 4]; 16],
-}
-
-impl Sh2ProjectParams {
-    /// Creates a parameter block with the default sample grid.
-    fn empty(mode: SkyParamMode) -> Self {
-        Self {
-            sample_size: DEFAULT_SAMPLE_SIZE,
-            mode: mode as u32,
-            gradient_count: 0,
-            _pad0: 0,
-            color0: [0.0; 4],
-            color1: [0.0; 4],
-            direction: [0.0, 1.0, 0.0, 0.0],
-            scalars: [1.0, 0.0, 0.0, 0.0],
-            dirs_spread: [[0.0; 4]; 16],
-            gradient_color0: [[0.0; 4]; 16],
-            gradient_color1: [[0.0; 4]; 16],
-            gradient_params: [[0.0; 4]; 16],
-        }
-    }
-}
+type Sh2ProjectParams = SkyboxEvaluatorParams;
 
 /// Hashable `Projection360` equirectangular sampling state used by SH2 cache keys.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -117,13 +68,7 @@ impl Projection360EquirectKey {
 }
 
 /// Parameter-only sky evaluator mode used by `sh2_project_sky_params`.
-#[derive(Clone, Copy, Debug)]
-enum SkyParamMode {
-    /// Procedural sky approximation from material scalar/color properties.
-    Procedural = 1,
-    /// Gradient sky approximation from material array properties.
-    Gradient = 2,
-}
+type SkyParamMode = SkyboxParamMode;
 
 /// Hashable description of the source projected into SH2.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -277,7 +222,8 @@ impl ReflectionProbeSh2System {
             self.failed.remove(&key);
             self.completed.insert(key, sh);
         }
-        for key in outcomes.failed {
+        for (key, reason) in outcomes.failed {
+            logger::warn!("reflection_probe_sh2: GPU SH2 readback failed for {key:?}: {reason:?}");
             self.failed.insert(key);
         }
         self.schedule_queued_sources(gpu, assets);
@@ -496,15 +442,6 @@ impl ReflectionProbeSh2System {
     }
 }
 
-/// Converts a storage-orientation boolean to the shader keyword float convention.
-fn storage_v_inverted_flag(storage_v_inverted: bool) -> f32 {
-    if storage_v_inverted {
-        1.0
-    } else {
-        0.0
-    }
-}
-
 /// Bit pattern for a packed float4.
 fn f32x4_bits(v: [f32; 4]) -> [u32; 4] {
     [
@@ -645,6 +582,50 @@ fn gradient_sky_visible_color_for_dir(dir: Vec3, params: &Sh2ProjectParams) -> V
         }
     }
     color
+}
+
+/// Evaluates the ProceduralSkybox color using the visible shader formula.
+#[cfg(test)]
+fn procedural_sky_visible_color_for_dir(dir: Vec3, params: &Sh2ProjectParams) -> Vec3 {
+    let horizon = (1.0 - dir.y.abs().clamp(0.0, 1.0)).powi(2);
+    let sky_amount = smoothstep_for_test(-0.02, 0.08, dir.y);
+    let atmosphere = params.scalars[2].max(0.0);
+    let scatter = Vec3::new(0.20, 0.36, 0.75) * (0.25 + atmosphere * 0.25) * dir.y.max(0.0);
+    let sky_tint = Vec3::from_array([params.color0[0], params.color0[1], params.color0[2]]);
+    let ground_color = Vec3::from_array([params.color1[0], params.color1[1], params.color1[2]]);
+    let sky = sky_tint * (0.35 + 0.65 * dir.y.max(0.0)) + scatter;
+    let ground = ground_color * (0.55 + 0.45 * horizon);
+    let mut color = ground.lerp(sky, sky_amount) + sky_tint * horizon * 0.18;
+
+    if params.scalars[3] > 0.5 {
+        let sun_dir = Vec3::new(
+            params.direction[0],
+            params.direction[1] + 0.000_01,
+            params.direction[2],
+        )
+        .normalize();
+        let sun_dot = dir.dot(sun_dir).max(0.0);
+        let size = params.scalars[1].clamp(0.0001, 1.0);
+        let exponent = 4096.0 + (48.0 - 4096.0) * size;
+        let mut sun = sun_dot.powf(exponent);
+        if params.scalars[3] > 1.5 {
+            sun += sun_dot.powf((exponent * 0.18).max(4.0)) * 0.18;
+        }
+        color += Vec3::from_array([
+            params.gradient_color0[0][0],
+            params.gradient_color0[0][1],
+            params.gradient_color0[0][2],
+        ]) * sun;
+    }
+
+    (color * params.scalars[0].max(0.0)).max(Vec3::ZERO)
+}
+
+/// Applies the WGSL `smoothstep` helper for CPU parity tests.
+#[cfg(test)]
+fn smoothstep_for_test(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 /// Computes the cubemap texel solid-angle helper used by the GPU SH kernels.
@@ -805,6 +786,26 @@ mod tests {
         assert!((minus_x - Vec3::new(0.0, 0.0, 1.0)).length() < 1e-6);
         assert!((plus_y - Vec3::new(0.5, 0.0, 0.5)).length() < 1e-6);
         assert!((plus_z - Vec3::new(0.5, 0.0, 0.5)).length() < 1e-6);
+    }
+
+    /// Verifies procedural sky params preserve visible-shader sun and exposure semantics.
+    #[test]
+    fn procedural_sky_sampling_uses_packed_sun_and_exposure() {
+        let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
+        params.color0 = [0.4, 0.5, 0.6, 1.0];
+        params.color1 = [0.1, 0.1, 0.1, 1.0];
+        params.direction = [0.0, 1.0, 0.0, 0.0];
+        params.scalars = [2.0, 0.5, 1.0, 1.0];
+        params.gradient_color0[0] = [1.0, 0.9, 0.8, 1.0];
+
+        let with_sun = procedural_sky_visible_color_for_dir(Vec3::Y, &params);
+        params.scalars[3] = 0.0;
+        let without_sun = procedural_sky_visible_color_for_dir(Vec3::Y, &params);
+        params.scalars[0] = 1.0;
+        let half_exposure = procedural_sky_visible_color_for_dir(Vec3::Y, &params);
+
+        assert!(with_sun.x > without_sun.x);
+        assert!((without_sun - half_exposure * 2.0).length() < 1e-5);
     }
 
     #[test]

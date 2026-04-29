@@ -1,19 +1,6 @@
-struct Params {
-    sample_size: u32,
-    mode: u32,
-    gradient_count: u32,
-    _pad0: u32,
-    color0: vec4<f32>,
-    color1: vec4<f32>,
-    direction: vec4<f32>,
-    scalars: vec4<f32>,
-    dirs_spread: array<vec4<f32>, 16>,
-    gradient_color0: array<vec4<f32>, 16>,
-    gradient_color1: array<vec4<f32>, 16>,
-    gradient_params: array<vec4<f32>, 16>,
-}
+#import renderide::skybox_evaluator as sky
 
-@group(0) @binding(0) var<uniform> params: Params;
+@group(0) @binding(0) var<uniform> params: sky::SkyboxEvaluatorParams;
 @group(0) @binding(3) var<storage, read_write> output_coeffs: array<vec4<f32>, 9>;
 
 const WORKGROUP_SIZE: u32 = 64u;
@@ -37,61 +24,6 @@ fn texel_solid_angle(x: u32, y: u32, n: u32) -> f32 {
     let x1 = (f32(x + 1u) * inv) * 2.0 - 1.0;
     let y1 = (f32(y + 1u) * inv) * 2.0 - 1.0;
     return abs(area_element(x0, y0) - area_element(x0, y1) - area_element(x1, y0) + area_element(x1, y1));
-}
-
-fn cube_dir(face: u32, x: u32, y: u32, n: u32) -> vec3<f32> {
-    let u = (f32(x) + 0.5) / f32(n);
-    let v = (f32(y) + 0.5) / f32(n);
-    if (face == 0u) { return normalize(vec3<f32>(1.0, v * -2.0 + 1.0, u * -2.0 + 1.0)); }
-    if (face == 1u) { return normalize(vec3<f32>(-1.0, v * -2.0 + 1.0, u * 2.0 - 1.0)); }
-    if (face == 2u) { return normalize(vec3<f32>(u * 2.0 - 1.0, 1.0, v * 2.0 - 1.0)); }
-    if (face == 3u) { return normalize(vec3<f32>(u * 2.0 - 1.0, -1.0, v * -2.0 + 1.0)); }
-    if (face == 4u) { return normalize(vec3<f32>(u * 2.0 - 1.0, v * -2.0 + 1.0, 1.0)); }
-    return normalize(vec3<f32>(u * -2.0 + 1.0, v * -2.0 + 1.0, -1.0));
-}
-
-fn sample_procedural(dir: vec3<f32>) -> vec3<f32> {
-    let sky = max(params.color0.rgb, vec3<f32>(0.0));
-    let ground = max(params.color1.rgb, vec3<f32>(0.0));
-    let exposure = max(params.scalars.x, 0.0);
-    let sun_size = max(params.scalars.y, 0.001);
-    let sun_dir = normalize(params.direction.xyz + vec3<f32>(0.0, 0.00001, 0.0));
-    let t = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
-    let sun = pow(max(dot(dir, sun_dir), 0.0), 1.0 / sun_size) * params.gradient_color0[0].rgb;
-    return (mix(ground, sky, t) + sun) * exposure;
-}
-
-fn sample_gradient(dir: vec3<f32>) -> vec3<f32> {
-    var color = params.color0.rgb;
-    let count = min(params.gradient_count, 16u);
-    for (var i = 0u; i < count; i = i + 1u) {
-        let dirs_spread = params.dirs_spread[i];
-        let gradient_params = params.gradient_params[i];
-        let spread = max(abs(dirs_spread.w), 0.000001);
-        let expv = max(gradient_params.y, 0.000001);
-        let fromv = gradient_params.z;
-        let tov = gradient_params.w;
-        let denom = max(abs(tov - fromv), 0.000001);
-        var r = (0.5 - dot(dir, normalize(dirs_spread.xyz)) * 0.5) / spread;
-        if (r <= 1.0) {
-            r = pow(max(r, 0.0), expv);
-            r = clamp((r - fromv) / denom, 0.0, 1.0);
-            let c = mix(params.gradient_color0[i], params.gradient_color1[i], r);
-            if (gradient_params.x == 0.0) {
-                color = color * (1.0 - c.a) + c.rgb * c.a;
-            } else {
-                color = color + c.rgb * c.a;
-            }
-        }
-    }
-    return color;
-}
-
-fn sample_sky(dir: vec3<f32>) -> vec3<f32> {
-    if (params.mode == 2u) {
-        return sample_gradient(dir);
-    }
-    return sample_procedural(dir);
 }
 
 fn add_coeffs(base: u32, c: vec3<f32>, dir: vec3<f32>, weight: f32) {
@@ -121,8 +53,8 @@ fn main(@builtin(local_invocation_id) local_id: vec3<u32>) {
         let rem = i - face * face_size;
         let y = rem / n;
         let x = rem - y * n;
-        let dir = cube_dir(face, x, y, n);
-        add_coeffs(base, sample_sky(dir), dir, texel_solid_angle(x, y, n));
+        let dir = sky::cube_dir(face, x, y, n);
+        add_coeffs(base, sky::sample_sky(params, dir), dir, texel_solid_angle(x, y, n));
         i = i + WORKGROUP_SIZE;
     }
     workgroupBarrier();

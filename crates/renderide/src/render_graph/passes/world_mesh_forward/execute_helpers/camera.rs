@@ -16,19 +16,30 @@ use crate::render_graph::world_mesh_draw_prep::WorldMeshDrawItem;
 use crate::scene::SceneCoordinator;
 use crate::shared::RenderingContext;
 
-/// Selects the camera world-space position fed into `frame.camera_world_pos` for shader view-direction math.
+/// Selects left/right camera world-space positions fed into frame globals for shader view-direction math.
 ///
 /// Preference order:
 /// 1. `explicit_camera_world_position` — secondary RT cameras carry their own pose.
-/// 2. `eye_world_position` — main-space eye derived from the active render space's `view_transform`.
-/// 3. `head_output_transform.col(3)` — last-ditch fallback (the render-space *root*, used by overlay
+/// 2. `stereo.eye_world_position` — HMD left/right eyes for multiview shader view-vector math.
+/// 3. `eye_world_position` — main-space eye derived from the active render space's `view_transform`.
+/// 4. `head_output_transform.col(3)` — last-ditch fallback (the render-space *root*, used by overlay
 ///    positioning) for any path that has not yet propagated the eye position. Using this as the
 ///    camera caused PBS specular highlights to converge at the space root (typically "the player's
 ///    feet") because every fragment's `v = normalize(cam - world_pos)` then pointed at the root.
-pub(super) fn resolve_camera_world(hc: &HostCameraFrame) -> glam::Vec3 {
-    hc.explicit_camera_world_position
-        .or(hc.eye_world_position)
-        .unwrap_or_else(|| hc.head_output_transform.col(3).truncate())
+///
+/// Explicit camera poses are mono offscreen views, so both eyes receive the same value. Desktop
+/// and fallback paths reuse the single resolved eye position for both slots.
+pub(super) fn resolve_camera_world_pair(hc: &HostCameraFrame) -> (glam::Vec3, glam::Vec3) {
+    if let Some(camera_world) = hc.explicit_camera_world_position {
+        return (camera_world, camera_world);
+    }
+    if let Some(stereo) = hc.stereo {
+        return stereo.eye_world_position;
+    }
+    let camera_world = hc
+        .eye_world_position
+        .unwrap_or_else(|| hc.head_output_transform.col(3).truncate());
+    (camera_world, camera_world)
 }
 
 /// Resolves multiview use, [`MaterialPipelineDesc`], and [`ShaderPermutation`].

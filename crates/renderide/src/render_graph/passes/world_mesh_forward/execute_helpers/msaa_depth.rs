@@ -4,8 +4,11 @@
 use crate::gpu::{
     MsaaDepthResolveMonoTargets, MsaaDepthResolveResources, MsaaDepthResolveStereoTargets,
 };
+use crate::profiling::GpuProfilerHandle;
 use crate::render_graph::context::{GraphResolvedResources, ResolvedGraphTexture};
-use crate::render_graph::frame_params::{FrameRenderParams, PreparedWorldMeshForwardFrame};
+use crate::render_graph::frame_params::{
+    FrameRenderParams, PreparedWorldMeshForwardFrame, WorldMeshHelperNeeds,
+};
 
 use super::super::WorldMeshForwardGraphResources;
 
@@ -18,14 +21,15 @@ pub(crate) fn encode_world_mesh_forward_depth_snapshot(
     prepared: &PreparedWorldMeshForwardFrame,
     msaa_views: Option<&ForwardMsaaResolvedViews>,
     msaa_depth_resolve: Option<&MsaaDepthResolveResources>,
+    profiler: Option<&GpuProfilerHandle>,
 ) -> bool {
-    if prepared.plan.intersect_groups.is_empty() {
+    if !depth_snapshot_recording_needed(prepared.helper_needs) {
         return false;
     }
 
     if frame.view.sample_count > 1 {
         if let (Some(msaa_views), Some(res)) = (msaa_views, msaa_depth_resolve) {
-            encode_msaa_depth_resolve_for_frame(device, encoder, frame, msaa_views, res);
+            encode_msaa_depth_resolve_for_frame(device, encoder, frame, msaa_views, res, profiler);
         }
     }
 
@@ -45,6 +49,11 @@ pub(crate) fn encode_world_mesh_forward_depth_snapshot(
     true
 }
 
+/// Returns whether the scene-depth snapshot copy should be recorded for this view.
+fn depth_snapshot_recording_needed(helper_needs: WorldMeshHelperNeeds) -> bool {
+    helper_needs.depth_snapshot
+}
+
 /// After a clear-only MSAA pass, resolves multisampled depth to the single-sample depth used by Hi-Z.
 pub(crate) fn encode_msaa_depth_resolve_after_clear_only(
     device: &wgpu::Device,
@@ -52,6 +61,7 @@ pub(crate) fn encode_msaa_depth_resolve_after_clear_only(
     frame: &FrameRenderParams<'_>,
     msaa_views: Option<&ForwardMsaaResolvedViews>,
     msaa_depth_resolve: Option<&MsaaDepthResolveResources>,
+    profiler: Option<&GpuProfilerHandle>,
 ) {
     if frame.view.sample_count <= 1 {
         return;
@@ -59,7 +69,7 @@ pub(crate) fn encode_msaa_depth_resolve_after_clear_only(
     let (Some(msaa_views), Some(res)) = (msaa_views, msaa_depth_resolve) else {
         return;
     };
-    encode_msaa_depth_resolve_for_frame(device, encoder, frame, msaa_views, res);
+    encode_msaa_depth_resolve_for_frame(device, encoder, frame, msaa_views, res, profiler);
 }
 
 /// Dispatches the desktop (`D2`) or stereo (`D2Array` multiview) depth-resolve path based on
@@ -70,6 +80,7 @@ fn encode_msaa_depth_resolve_for_frame(
     frame: &FrameRenderParams<'_>,
     msaa: &ForwardMsaaResolvedViews,
     resolve: &MsaaDepthResolveResources,
+    profiler: Option<&GpuProfilerHandle>,
 ) {
     let Some(limits) = frame.view.gpu_limits.as_ref() else {
         logger::warn!("MSAA depth resolve: gpu_limits missing; skipping resolve");
@@ -95,6 +106,7 @@ fn encode_msaa_depth_resolve_for_frame(
                 dst_depth_format: frame.view.depth_texture.format(),
             },
             limits,
+            profiler,
         );
     } else {
         resolve.encode_resolve(
@@ -108,6 +120,7 @@ fn encode_msaa_depth_resolve_for_frame(
                 dst_depth_format: frame.view.depth_texture.format(),
             },
             limits,
+            profiler,
         );
     }
 }
@@ -191,4 +204,23 @@ fn first_two_depth_sample_layer_views(
         depth_sample_view(texture, Some(0)),
         depth_sample_view(texture, Some(1)),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::render_graph::frame_params::WorldMeshHelperNeeds;
+
+    use super::depth_snapshot_recording_needed;
+
+    #[test]
+    fn depth_snapshot_recording_follows_helper_needs() {
+        assert!(!depth_snapshot_recording_needed(WorldMeshHelperNeeds {
+            depth_snapshot: false,
+            color_snapshot: true,
+        }));
+        assert!(depth_snapshot_recording_needed(WorldMeshHelperNeeds {
+            depth_snapshot: true,
+            color_snapshot: false,
+        }));
+    }
 }

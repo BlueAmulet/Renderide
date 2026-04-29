@@ -156,7 +156,7 @@ fn shade(
     let emission = textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb * mat._EmissionColor.rgb;
 
     let n = sample_normal_world(uv_main, world_n);
-    let cam = rg::frame.camera_world_pos.xyz;
+    let cam = rg::camera_world_pos_for_view(view_layer);
     let v = normalize(cam - world_pos);
 
     let cluster_id = pcls::cluster_id_from_frag(

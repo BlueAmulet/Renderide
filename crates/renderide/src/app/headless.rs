@@ -38,6 +38,7 @@ pub fn run_headless(
     runtime: &mut RendererRuntime,
     params: HeadlessParams,
     external_shutdown: Option<ExternalShutdownCoordinator>,
+    initial_max_frame_latency: u32,
     initial_gpu_validation: bool,
     initial_power_preference: wgpu::PowerPreference,
 ) -> Result<Option<i32>, RunError> {
@@ -52,6 +53,7 @@ pub fn run_headless(
     let mut gpu = pollster::block_on(GpuContext::new_headless(
         params.width,
         params.height,
+        initial_max_frame_latency,
         initial_gpu_validation,
         initial_power_preference,
     ))?;

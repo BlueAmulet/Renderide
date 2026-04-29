@@ -119,12 +119,12 @@ fn smoothness_from_albedo_alpha() -> bool {
     return mat._SmoothnessTextureChannel > 0.5 || kw(mat._SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A);
 }
 
-fn uv_with_parallax(uv: vec2<f32>, world_pos: vec3<f32>) -> vec2<f32> {
+fn uv_with_parallax(uv: vec2<f32>, world_pos: vec3<f32>, view_layer: u32) -> vec2<f32> {
     if (!kw(mat._PARALLAXMAP)) {
         return uv;
     }
     let h = ts::sample_tex_2d(_ParallaxMap, _ParallaxMap_sampler, uv, mat._ParallaxMap_LodBias).r;
-    let view_dir = normalize(rg::frame.camera_world_pos.xyz - world_pos);
+    let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
     let view_xy = view_dir.xy / max(abs(view_dir.z), 0.25);
     return uv + (h - 0.5) * mat._Parallax * view_xy;
 }
@@ -158,9 +158,9 @@ fn sample_normal_world(
     return n;
 }
 
-fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n: vec3<f32>) -> SurfaceData {
+fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n: vec3<f32>, view_layer: u32) -> SurfaceData {
     let uv_base = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
-    let uv_main = uv_with_parallax(uv_base, world_pos);
+    let uv_main = uv_with_parallax(uv_base, world_pos, view_layer);
     let uv_detail = uvu::apply_st(uv0, mat._DetailAlbedoMap_ST);
 
     let albedo_sample = ts::sample_tex_2d(_MainTex, _MainTex_sampler, uv_main, mat._MainTex_LodBias);
@@ -213,7 +213,7 @@ fn clustered_direct_lighting(
     include_directional: bool,
     include_local: bool,
 ) -> vec3<f32> {
-    let cam = rg::frame.camera_world_pos.xyz;
+    let cam = rg::camera_world_pos_for_view(view_layer);
     let v = normalize(cam - world_pos);
     let f0 = mix(vec3<f32>(0.04), s.base_color, s.metallic);
 
@@ -319,9 +319,9 @@ fn fs_forward_base(
     @location(3) uv1: vec2<f32>,
     @location(4) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let s = sample_surface(uv0, uv1, world_pos, world_n);
+    let s = sample_surface(uv0, uv1, world_pos, world_n, view_layer);
     let direct = clustered_direct_lighting(frag_pos.xy, world_pos, view_layer, s, true, true);
-    let view_dir = normalize(rg::frame.camera_world_pos.xyz - world_pos);
+    let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
     let f0 = brdf::metallic_f0(s.base_color, s.metallic);
     let ambient = brdf::indirect_diffuse_metallic(
         shamb::ambient_probe(s.normal),

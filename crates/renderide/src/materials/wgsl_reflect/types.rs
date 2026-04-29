@@ -54,15 +54,14 @@ pub struct ReflectedRasterLayout {
     pub material_group1_names: HashMap<u32, String>,
     /// Highest `@location` index on `vs_main` vertex inputs (excluding builtins); `>= 2` implies a UV stream at `location(2)`.
     pub vs_max_vertex_location: Option<u32>,
+    /// `true` when the shader declares a scene-depth snapshot binding at `@group(0)`.
+    pub uses_scene_depth_snapshot: bool,
+    /// `true` when the shader declares a scene-color snapshot binding at `@group(0)`.
+    pub uses_scene_color_snapshot: bool,
     /// `true` when the material uniform block declares intersection tint (e.g. `_IntersectColor`), used for a second forward subpass.
     ///
     /// Derived from reflection only (no shader stem string checks in the render graph).
     pub requires_intersection_pass: bool,
-    /// `true` when the material declares a grab-pass marker (e.g. `_GrabPass` uniform field),
-    /// triggering a scene color snapshot before this material is drawn.
-    ///
-    /// Derived from reflection only (no shader stem string checks in the render graph).
-    pub requires_grab_pass: bool,
 }
 
 /// Errors from `reflect_raster_material_wgsl` in the parent `wgsl_reflect` module.

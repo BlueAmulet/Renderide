@@ -66,8 +66,8 @@ fn rotate_billboard_axes(angle: f32, right: vec3<f32>, up: vec3<f32>) -> Billboa
     return BillboardBasis(right * c - up * s, right * s + up * c);
 }
 
-fn billboard_axes(center_world: vec3<f32>, pointdata: vec3<f32>) -> BillboardBasis {
-    let cam = rg::frame.camera_world_pos.xyz;
+fn billboard_axes(center_world: vec3<f32>, pointdata: vec3<f32>, view_layer: u32) -> BillboardBasis {
+    let cam = rg::camera_world_pos_for_view(view_layer);
     let forward = safe_normalize(center_world - cam, vec3<f32>(0.0, 0.0, 1.0));
     var right = safe_normalize(cross(vec3<f32>(0.0, 1.0, 0.0), forward), vec3<f32>(1.0, 0.0, 0.0));
     var up = safe_normalize(cross(forward, right), vec3<f32>(0.0, 1.0, 0.0));
@@ -116,12 +116,17 @@ fn vs_main(
 ) -> VertexOutput {
     let d = pd::get_draw(instance_index);
     let pointdata = pointdata_in.xyz;
+#ifdef MULTIVIEW
+    let layer = view_idx;
+#else
+    let layer = 0u;
+#endif
 
     // In point-expanded meshes `pos` is the billboard center for all four vertices. In regular
     // quad meshes the local origin is usually the center, but using `pos` still preserves authored
     // per-vertex offsets when the host already expanded the geometry.
     let center_world = (d.model * vec4<f32>(pos.xyz, 1.0)).xyz;
-    let axes = billboard_axes(center_world, pointdata);
+    let axes = billboard_axes(center_world, pointdata, layer);
     let corner = billboard_corner(pos.xyz, uv);
     let size = billboard_size(pointdata, d.model);
     let world_p = center_world + axes.right * (corner.x * size.x) + axes.up * (corner.y * size.y);
@@ -133,10 +138,8 @@ fn vs_main(
     } else {
         vp = d.view_proj_right;
     }
-    let layer = view_idx;
 #else
     let vp = d.view_proj_left;
-    let layer = 0u;
 #endif
 
     var out: VertexOutput;

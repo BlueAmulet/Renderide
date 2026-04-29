@@ -3,9 +3,12 @@
 use glam::{Mat4, Quat, Vec3, Vec4};
 use openxr as xr;
 
+use crate::shared::RenderTransform;
+
 use super::view_math::{
-    headset_center_pose_from_stereo_views, openxr_pose_to_engine, openxr_pose_to_host_tracking,
-    ref_from_view_matrix, view_projection_from_xr_view,
+    eye_world_position_from_xr_view_aligned, headset_center_pose_from_stereo_views,
+    openxr_pose_to_engine, openxr_pose_to_host_tracking, ref_from_view_matrix,
+    tracking_space_to_world_matrix, view_projection_from_xr_view,
 };
 
 fn pose_identity() -> xr::Posef {
@@ -124,6 +127,106 @@ fn headset_center_pose_averages_positions_and_slerps_rotation() {
         "p={p:?} expected {expected_p:?}"
     );
     assert!(q.abs_diff_eq(Quat::IDENTITY, 1e-4));
+}
+
+#[test]
+fn eye_world_position_applies_root_tracking_alignment() {
+    let pose = xr::Posef {
+        orientation: xr::Quaternionf {
+            x: 0.0,
+            y: 0.0,
+            z: 0.0,
+            w: 1.0,
+        },
+        position: xr::Vector3f {
+            x: 1.0,
+            y: 2.0,
+            z: -3.0,
+        },
+    };
+    let view = xr::View {
+        pose,
+        fov: xr::Fovf {
+            angle_left: 0.0,
+            angle_right: 0.0,
+            angle_up: 0.0,
+            angle_down: 0.0,
+        },
+    };
+    let root = RenderTransform {
+        position: Vec3::new(10.0, 20.0, 30.0),
+        rotation: Quat::IDENTITY,
+        scale: Vec3::ONE,
+    };
+    let world_from_tracking =
+        tracking_space_to_world_matrix(&root, &RenderTransform::default(), false, None);
+
+    let eye_world = eye_world_position_from_xr_view_aligned(&view, world_from_tracking);
+
+    assert!(eye_world.abs_diff_eq(Vec3::new(11.0, 22.0, 33.0), 1e-5));
+}
+
+#[test]
+fn override_tracking_alignment_centers_eye_positions_on_view_transform() {
+    let fov = xr::Fovf {
+        angle_left: 0.0,
+        angle_right: 0.0,
+        angle_up: 0.0,
+        angle_down: 0.0,
+    };
+    let left = xr::View {
+        pose: xr::Posef {
+            orientation: xr::Quaternionf {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+            position: xr::Vector3f {
+                x: -0.04,
+                y: 1.6,
+                z: -0.5,
+            },
+        },
+        fov,
+    };
+    let right = xr::View {
+        pose: xr::Posef {
+            orientation: xr::Quaternionf {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+                w: 1.0,
+            },
+            position: xr::Vector3f {
+                x: 0.04,
+                y: 1.6,
+                z: -0.5,
+            },
+        },
+        fov,
+    };
+    let root = RenderTransform {
+        position: Vec3::new(50.0, 0.0, 10.0),
+        rotation: Quat::IDENTITY,
+        scale: Vec3::ONE,
+    };
+    let view_transform = RenderTransform {
+        position: Vec3::new(4.0, 5.0, 6.0),
+        rotation: Quat::IDENTITY,
+        scale: Vec3::ONE,
+    };
+    let views = [left, right];
+    let center_pose = headset_center_pose_from_stereo_views(&views);
+    let world_from_tracking =
+        tracking_space_to_world_matrix(&root, &view_transform, true, center_pose);
+
+    let left_world = eye_world_position_from_xr_view_aligned(&views[0], world_from_tracking);
+    let right_world = eye_world_position_from_xr_view_aligned(&views[1], world_from_tracking);
+    let center_world = (left_world + right_world) * 0.5;
+
+    assert!(left_world.x < right_world.x);
+    assert!(center_world.abs_diff_eq(view_transform.position, 1e-5));
 }
 
 #[test]

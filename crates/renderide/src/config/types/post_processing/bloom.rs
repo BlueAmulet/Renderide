@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize};
 /// Persisted as `[post_processing.bloom]`. Implements the Call of Duty: Advanced Warfare
 /// dual-filter technique (13-tap downsample + 3×3 tent upsample) with Karis-average firefly
 /// reduction on the first downsample. Runs **pre-tonemap** so it scatters HDR-linear light; the
-/// tonemap pass then compresses the combined value. Defaults favor a subtle additive glow without
-/// thresholding, so dim HDR-linear contributions can still participate in the bloom pyramid.
+/// tonemap pass then compresses the combined value. Defaults favor energy-conserving scatter
+/// without thresholding, so dim HDR-linear contributions can still participate in the bloom pyramid.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BloomSettings {
@@ -65,7 +65,7 @@ impl Default for BloomSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            intensity: 0.667,
+            intensity: 0.5,
             low_frequency_boost: 0.0,
             low_frequency_boost_curvature: 1.0,
             high_pass_frequency: 1.0,
@@ -91,10 +91,10 @@ fn round_down_to_power_of_two(value: u32) -> u32 {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BloomCompositeMode {
-    /// Energy-conserving blend (physically-based).
-    EnergyConserving,
-    /// Additive blend (brightens the scene). Default.
+    /// Energy-conserving blend (physically-based). Default.
     #[default]
+    EnergyConserving,
+    /// Additive blend (brightens the scene).
     Additive,
 }
 
@@ -122,7 +122,7 @@ mod tests {
         let settings = BloomSettings::default();
 
         assert!(settings.enabled);
-        assert_eq!(settings.intensity, 0.667);
+        assert_eq!(settings.intensity, 0.5);
         assert_eq!(settings.low_frequency_boost, 0.0);
         assert_eq!(settings.low_frequency_boost_curvature, 1.0);
         assert_eq!(settings.high_pass_frequency, 1.0);
@@ -138,8 +138,11 @@ mod tests {
 
     /// Keeps the standalone composite enum default aligned with partial bloom config defaults.
     #[test]
-    fn composite_mode_default_is_additive() {
-        assert_eq!(BloomCompositeMode::default(), BloomCompositeMode::Additive);
+    fn composite_mode_default_is_energy_conserving() {
+        assert_eq!(
+            BloomCompositeMode::default(),
+            BloomCompositeMode::EnergyConserving
+        );
     }
 
     /// Continuous bloom dimensions are clamped and rounded down before graph construction.

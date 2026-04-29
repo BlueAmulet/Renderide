@@ -34,13 +34,15 @@
 @group(0) @binding(2) var scene_depth: texture_depth_2d;
 #endif
 
-/// Matches [`crate::gpu::frame_globals::FrameGpuUniforms`] exactly (128 bytes).
+/// Matches the GTAO-visible prefix of [`crate::gpu::frame_globals::FrameGpuUniforms`] through
+/// `frame_tail` exactly (144 bytes).
 ///
 /// We duplicate the struct here rather than `#import renderide::globals` because post-processing
 /// shaders run with a bespoke `@group(0)` layout (no lights / cluster storage), so the full
 /// globals module would introduce unreferenced bindings that naga-oil would drop.
 struct FrameGlobals {
     camera_world_pos: vec4<f32>,
+    camera_world_pos_right: vec4<f32>,
     view_space_z_coeffs: vec4<f32>,
     view_space_z_coeffs_right: vec4<f32>,
     cluster_count_x: u32,

@@ -110,11 +110,14 @@ impl VrMirrorBlitResources {
     /// Call after the multiview render graph submit, before [`openxr::Swapchain::release_image`].
     pub fn submit_eye_to_staging(
         &mut self,
-        gpu: &GpuContext,
+        gpu: &mut GpuContext,
         eye_extent: (u32, u32),
         source_layer_view: &wgpu::TextureView,
     ) {
-        let device = gpu.device().as_ref();
+        // Clone the device Arc so `device` doesn't hold a borrow on `gpu`; the GPU profiler
+        // wrappers below need `gpu.gpu_profiler_mut()` which is `&mut self`.
+        let device_arc = gpu.device().clone();
+        let device = device_arc.as_ref();
         let limits = gpu.limits().clone();
         self.ensure_staging(device, &limits, eye_extent);
         self.ensure_surface_uniform(device);
@@ -143,6 +146,9 @@ impl VrMirrorBlitResources {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("vr_mirror_eye_to_staging"),
         });
+        let outer_query = gpu
+            .gpu_profiler_mut()
+            .map(|p| p.begin_query("graph::vr_mirror.eye_to_staging", &mut encoder));
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("vr_mirror_eye_to_staging"),
@@ -163,6 +169,12 @@ impl VrMirrorBlitResources {
             pass.set_pipeline(eye_pipeline(device));
             pass.set_bind_group(0, &bind_group, &[]);
             pass.draw(0..3, 0..1);
+        }
+        if let Some(query) = outer_query {
+            if let Some(prof) = gpu.gpu_profiler_mut() {
+                prof.end_query(&mut encoder, query);
+                prof.resolve_queries(&mut encoder);
+            }
         }
 
         gpu.submit_tracked_frame_commands(encoder.finish());
@@ -211,7 +223,10 @@ impl VrMirrorBlitResources {
 
         let u = cover_uv_params(ew, eh, sw, sh);
         let uniform_bytes = bytemuck::bytes_of(&u);
-        let device = gpu.device().as_ref();
+        // Clone the device Arc so `device` doesn't hold a borrow on `gpu`; the GPU profiler
+        // wrappers below need `gpu.gpu_profiler_mut()` which is `&mut self`.
+        let device_arc = gpu.device().clone();
+        let device = device_arc.as_ref();
         self.ensure_surface_uniform(device);
         let Some(uniform_buf) = self.surface_uniform.as_ref() else {
             logger::warn!("vr_mirror: surface uniform buffer missing after ensure_surface_uniform");
@@ -255,10 +270,19 @@ impl VrMirrorBlitResources {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("vr_mirror_surface"),
         });
+        let outer_query = gpu
+            .gpu_profiler_mut()
+            .map(|p| p.begin_query("graph::vr_mirror.staging_to_surface", &mut encoder));
         encode_vr_mirror_cover_blit_pass(&mut encoder, &surface_view, pipeline, &bind_group);
 
         if let Err(e) = overlay(&mut encoder, &surface_view, gpu) {
             logger::warn!("debug HUD overlay (VR mirror): {e}");
+        }
+        if let Some(query) = outer_query {
+            if let Some(prof) = gpu.gpu_profiler_mut() {
+                prof.end_query(&mut encoder, query);
+                prof.resolve_queries(&mut encoder);
+            }
         }
 
         // Hand the surface texture to the driver thread along with the command buffer so the

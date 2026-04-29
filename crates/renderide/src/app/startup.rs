@@ -41,7 +41,7 @@ use crate::runtime::RendererRuntime;
 use crate::shared::{HeadOutputDevice, RendererInitData};
 
 use super::headless::run_headless;
-use super::renderide_app::RenderideApp;
+use super::renderide_app::{InitialGpuConfig, RenderideApp};
 
 /// Interval between log flushes when using file logging in the winit handler.
 pub(super) const LOG_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
@@ -211,9 +211,12 @@ pub fn run() -> Result<Option<i32>, RunError> {
     ));
     log_config_resolve_trace(&config_load.resolve);
     let settings_handle = settings_handle_from(&config_load);
-    let initial_vsync = config_load.settings.rendering.vsync;
-    let initial_gpu_validation = config_load.settings.debug.gpu_validation_layers;
-    let initial_power_preference = config_load.settings.debug.power_preference.to_wgpu();
+    let initial_gpu = InitialGpuConfig {
+        vsync: config_load.settings.rendering.vsync,
+        max_frame_latency: config_load.settings.rendering.resolved_max_frame_latency(),
+        gpu_validation_layers: config_load.settings.debug.gpu_validation_layers,
+        power_preference: config_load.settings.debug.power_preference.to_wgpu(),
+    };
 
     let log_path_hook = log_path;
     std::panic::set_hook(Box::new(move |info| {
@@ -267,8 +270,9 @@ pub fn run() -> Result<Option<i32>, RunError> {
             &mut runtime,
             headless_params,
             external_shutdown,
-            initial_gpu_validation,
-            initial_power_preference,
+            initial_gpu.max_frame_latency,
+            initial_gpu.gpu_validation_layers,
+            initial_gpu.power_preference,
         );
         drop(main_heartbeat_guard);
         drop(watchdog_guard);
@@ -282,9 +286,7 @@ pub fn run() -> Result<Option<i32>, RunError> {
 
     let mut app = RenderideApp::new(
         runtime,
-        initial_vsync,
-        initial_gpu_validation,
-        initial_power_preference,
+        initial_gpu,
         log_level_cli,
         external_shutdown,
         main_heartbeat,

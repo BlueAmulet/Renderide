@@ -18,11 +18,11 @@ use hashbrown::HashMap;
 use crate::assets::material::{MaterialDictionary, MaterialPropertyLookupIds};
 use crate::materials::{
     embedded_stem_needs_color_stream, embedded_stem_needs_extended_vertex_streams,
-    embedded_stem_needs_uv0_stream, embedded_stem_requires_grab_pass,
-    embedded_stem_requires_intersection_pass, embedded_stem_uses_alpha_blending,
-    material_blend_mode_from_maps, material_render_state_from_maps, resolve_raster_pipeline,
-    MaterialBlendMode, MaterialPipelinePropertyIds, MaterialRenderState, MaterialRouter,
-    RasterPipelineKind,
+    embedded_stem_needs_uv0_stream, embedded_stem_requires_intersection_pass,
+    embedded_stem_uses_alpha_blending, embedded_stem_uses_scene_color_snapshot,
+    embedded_stem_uses_scene_depth_snapshot, material_blend_mode_from_maps,
+    material_render_state_from_maps, resolve_raster_pipeline, MaterialBlendMode,
+    MaterialPipelinePropertyIds, MaterialRenderState, MaterialRouter, RasterPipelineKind,
 };
 use crate::pipelines::ShaderPermutation;
 use crate::scene::{MeshMaterialSlot, RenderSpaceId, SceneCoordinator, StaticMeshRenderer};
@@ -63,8 +63,11 @@ pub(super) struct ResolvedMaterialBatch {
     pub embedded_needs_extended_vertex_streams: bool,
     /// Whether the material requires a second forward subpass with a depth snapshot.
     pub embedded_requires_intersection_pass: bool,
-    /// Whether the material requires the grab-pass transparent subpass with a scene-color snapshot.
-    pub embedded_requires_grab_pass: bool,
+    /// Whether the active shader permutation declares a scene-depth snapshot binding.
+    pub embedded_uses_scene_depth_snapshot: bool,
+    /// Whether the active shader permutation declares a scene-color snapshot binding
+    /// (drives grab-pass transparent subpass routing).
+    pub embedded_uses_scene_color_snapshot: bool,
     /// Resolved material blend mode.
     pub blend_mode: MaterialBlendMode,
     /// Runtime color, stencil, and depth state for this material/property-block pair.
@@ -179,34 +182,51 @@ impl FrameMaterialBatchCache {
             shader_perm,
         };
 
-        let active_space_ids: Vec<RenderSpaceId> = scene
+        // Walk active spaces lazily so the single-space steady state skips the
+        // `Vec<RenderSpaceId>` allocation entirely.
+        let mut active_space_ids = scene
             .render_space_ids()
-            .filter(|id| scene.space(*id).map(|s| s.is_active).unwrap_or(false))
-            .collect();
+            .filter(|id| scene.space(*id).map(|s| s.is_active).unwrap_or(false));
+        let first = active_space_ids.next();
+        let second = active_space_ids.next();
 
-        // Phase A: collect `(material_asset_id, property_block_id)` keys per space. This is the
-        // O(renderers × slots) walk; parallelising it across spaces keeps the serial Phase B work
-        // bounded by unique materials rather than per-draw references.
-        let keys_per_space: Vec<Vec<(i32, Option<i32>)>> = if active_space_ids.len() >= 2 {
-            use rayon::prelude::*;
-            active_space_ids
-                .par_iter()
-                .map(|&space_id| collect_material_keys_for_space(scene, space_id))
-                .collect()
-        } else {
-            active_space_ids
-                .iter()
-                .map(|&space_id| collect_material_keys_for_space(scene, space_id))
-                .collect()
-        };
-
-        // Phase B: serial dedup + cache probe/insert. Each unique key is touched once; the cache
-        // entry's `last_used_frame` stamp makes the visit count-invariant.
         let mut seen: hashbrown::HashSet<(i32, Option<i32>)> = hashbrown::HashSet::new();
-        for keys in &keys_per_space {
-            for &key in keys {
-                if seen.insert(key) {
-                    self.touch_or_refresh(key.0, key.1, ctx, router_gen, current_frame);
+
+        match (first, second) {
+            (None, _) => {}
+            (Some(only), None) => {
+                // Single-space fast path: probe directly without intermediate Vec allocations.
+                for key in collect_material_keys_for_space(scene, only) {
+                    if seen.insert(key) {
+                        self.touch_or_refresh(key.0, key.1, ctx, router_gen, current_frame);
+                    }
+                }
+            }
+            (Some(first), Some(second)) => {
+                let mut active: Vec<RenderSpaceId> =
+                    Vec::with_capacity(2 + active_space_ids.size_hint().0);
+                active.push(first);
+                active.push(second);
+                active.extend(active_space_ids);
+
+                // Phase A: collect `(material_asset_id, property_block_id)` keys per space in
+                // parallel. The walk is O(renderers × slots); parallelising it across spaces
+                // keeps the serial Phase B work bounded by unique materials rather than per-draw
+                // references.
+                use rayon::prelude::*;
+                let keys_per_space: Vec<Vec<(i32, Option<i32>)>> = active
+                    .par_iter()
+                    .map(|&space_id| collect_material_keys_for_space(scene, space_id))
+                    .collect();
+
+                // Phase B: serial dedup + cache probe/insert. Each unique key is touched once;
+                // the cache entry's `last_used_frame` stamp makes the visit count-invariant.
+                for keys in &keys_per_space {
+                    for &key in keys {
+                        if seen.insert(key) {
+                            self.touch_or_refresh(key.0, key.1, ctx, router_gen, current_frame);
+                        }
+                    }
                 }
             }
         }
@@ -334,7 +354,8 @@ fn resolve_material_batch(
         embedded_needs_color,
         embedded_needs_extended_vertex_streams,
         embedded_requires_intersection_pass,
-        embedded_requires_grab_pass,
+        embedded_uses_scene_depth_snapshot,
+        embedded_uses_scene_color_snapshot,
         embedded_uses_alpha_blending,
     ) = match &pipeline {
         RasterPipelineKind::EmbeddedStem(stem) => {
@@ -344,11 +365,12 @@ fn resolve_material_batch(
                 embedded_stem_needs_color_stream(s, shader_perm),
                 embedded_stem_needs_extended_vertex_streams(s, shader_perm),
                 embedded_stem_requires_intersection_pass(s, shader_perm),
-                embedded_stem_requires_grab_pass(s, shader_perm),
+                embedded_stem_uses_scene_depth_snapshot(s, shader_perm),
+                embedded_stem_uses_scene_color_snapshot(s, shader_perm),
                 embedded_stem_uses_alpha_blending(s),
             )
         }
-        RasterPipelineKind::Null => (false, false, false, false, false, false),
+        RasterPipelineKind::Null => (false, false, false, false, false, false, false),
     };
     let lookup_ids = MaterialPropertyLookupIds {
         material_asset_id,
@@ -360,8 +382,9 @@ fn resolve_material_batch(
     let (mat_map, pb_map) = dict.fetch_property_maps(lookup_ids);
     let blend_mode = material_blend_mode_from_maps(mat_map, pb_map, pipeline_property_ids);
     let render_state = material_render_state_from_maps(mat_map, pb_map, pipeline_property_ids);
-    let alpha_blended =
-        embedded_uses_alpha_blending || blend_mode.is_transparent() || embedded_requires_grab_pass;
+    let alpha_blended = embedded_uses_alpha_blending
+        || blend_mode.is_transparent()
+        || embedded_uses_scene_color_snapshot;
     ResolvedMaterialBatch {
         shader_asset_id,
         pipeline,
@@ -369,7 +392,8 @@ fn resolve_material_batch(
         embedded_needs_color,
         embedded_needs_extended_vertex_streams,
         embedded_requires_intersection_pass,
-        embedded_requires_grab_pass,
+        embedded_uses_scene_depth_snapshot,
+        embedded_uses_scene_color_snapshot,
         blend_mode,
         render_state,
         alpha_blended,

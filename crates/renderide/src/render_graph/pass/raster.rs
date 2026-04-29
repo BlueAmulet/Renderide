@@ -4,6 +4,7 @@
 //! and attachment views resolved from the transient pool. The pass records draw commands into the
 //! already-open render pass via [`RasterPass::record`].
 
+use std::borrow::Cow;
 use std::num::NonZeroU32;
 
 use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
@@ -22,6 +23,14 @@ use super::node::PassPhase;
 pub trait RasterPass: Send + Sync {
     /// Stable name for logging, profiling, and error messages.
     fn name(&self) -> &str;
+
+    /// Human-readable label for GPU profiler markers.
+    ///
+    /// Defaults to [`Self::name`]. Pass families that register multiple instances in one graph
+    /// should include an instance discriminator here so Tracy can distinguish them.
+    fn profiling_label(&self) -> Cow<'_, str> {
+        Cow::Borrowed(self.name())
+    }
 
     /// Declares resource accesses and raster attachment intent.
     ///

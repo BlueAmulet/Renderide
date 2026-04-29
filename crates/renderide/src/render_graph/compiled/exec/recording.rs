@@ -98,12 +98,6 @@ impl CompiledRenderGraph {
             // Iterate the cached per-view `pass_idx` slice from `FrameSchedule` to avoid
             // rebuilding a scratch `Vec<usize>` every frame.
             for &pass_idx in self.schedule.per_view_pass_indices() {
-                let pass_name = self.passes[pass_idx].name();
-
-                // Open the GPU profiler query before calling execute_pass_node so we can
-                // avoid capturing `encoder` in a closure while also passing it mutably.
-                let pass_query = profiler.map(|p| p.begin_query(pass_name, &mut encoder));
-
                 self.execute_pass_node(
                     pass_idx,
                     &resolved,
@@ -117,12 +111,6 @@ impl CompiledRenderGraph {
                     upload_batch,
                     profiler,
                 )?;
-
-                if let Some(q) = pass_query {
-                    if let Some(p) = profiler {
-                        p.end_query(&mut encoder, q);
-                    }
-                }
             }
         }
         if let Some(query) = gpu_query {
@@ -247,7 +235,7 @@ impl CompiledRenderGraph {
             .map(|p| p.begin_query("graph::frame_global", &mut encoder));
         let pass_profiler = gpu.take_gpu_profiler();
 
-        {
+        let record_result = (|| -> Result<(), GraphExecuteError> {
             let resolved = Self::resolve_view_from_target(
                 first.view_id(),
                 &first.target,
@@ -289,12 +277,6 @@ impl CompiledRenderGraph {
             // Iterate the cached frame-global `pass_idx` slice from `FrameSchedule` to avoid
             // rebuilding a scratch `Vec<usize>` every frame.
             for &pass_idx in self.schedule.frame_global_pass_indices() {
-                let pass_name = self.passes[pass_idx].name();
-
-                let pass_query = pass_profiler
-                    .as_ref()
-                    .map(|p| p.begin_query(pass_name, &mut encoder));
-
                 self.execute_pass_node(
                     pass_idx,
                     &resolved,
@@ -308,16 +290,12 @@ impl CompiledRenderGraph {
                     upload_batch,
                     pass_profiler.as_ref(),
                 )?;
-
-                if let Some(q) = pass_query {
-                    if let Some(p) = pass_profiler.as_ref() {
-                        p.end_query(&mut encoder, q);
-                    }
-                }
             }
-        }
+            Ok(())
+        })();
 
         gpu.restore_gpu_profiler(pass_profiler);
+        record_result?;
         if let Some(query) = gpu_query {
             if let Some(prof) = gpu.gpu_profiler_mut() {
                 prof.end_query(&mut encoder, query);

@@ -1,5 +1,6 @@
 //! Bloom upsample pass: 3×3 tent filter blended into the target mip with a per-pass blend factor.
 
+use std::borrow::Cow;
 use std::num::NonZeroU32;
 
 use super::helpers::{attachment_format, stereo_mask_override};
@@ -23,7 +24,9 @@ use crate::render_graph::resources::TextureHandle;
 /// also chosen at record time from the live composite-mode setting, so slider edits propagate
 /// without rebuilding the render graph.
 pub(super) struct BloomUpsamplePass {
+    /// Source bloom pyramid mip.
     input: TextureHandle,
+    /// Destination bloom pyramid mip.
     output: TextureHandle,
     /// Source mip being read by this pass (higher = lower frequency).
     mip: u32,
@@ -32,6 +35,9 @@ pub(super) struct BloomUpsamplePass {
     max_mip_f32: f32,
     /// Snapshot used when the live blackboard slot is absent (tests / pre-lifecycle paths).
     fallback_settings: BloomSettings,
+    /// Per-instance profiler label including the source and destination mip indices.
+    profile_label: String,
+    /// Shared pipeline and bind-group cache for all bloom passes.
     pipelines: &'static BloomPipelineCache,
 }
 
@@ -50,6 +56,7 @@ impl BloomUpsamplePass {
             mip,
             max_mip_f32,
             fallback_settings,
+            profile_label: format!("BloomUpsample.mip{mip}_to_mip{}", mip.saturating_sub(1)),
             pipelines,
         }
     }
@@ -58,6 +65,10 @@ impl BloomUpsamplePass {
 impl RasterPass for BloomUpsamplePass {
     fn name(&self) -> &str {
         "BloomUpsample"
+    }
+
+    fn profiling_label(&self) -> Cow<'_, str> {
+        Cow::Borrowed(self.profile_label.as_str())
     }
 
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {

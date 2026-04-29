@@ -68,9 +68,12 @@ pub fn openxr_begin_frame_tick(
     gpu_queue_access_gate: &GpuQueueAccessGate,
 ) -> Option<OpenxrFrameTick> {
     profiling::scope!("xr::begin_frame_tick");
-    match handles.xr_session.poll_events() {
-        Ok(_) => {}
-        Err(e) => logger::warn!("OpenXR poll_events failed: {e:?}"),
+    {
+        profiling::scope!("xr::poll_events");
+        match handles.xr_session.poll_events() {
+            Ok(_) => {}
+            Err(e) => logger::warn!("OpenXR poll_events failed: {e:?}"),
+        }
     }
     if handles.xr_session.exit_requested() {
         // Exit is driven by the app loop reading `exit_requested()`; here we just skip starting a
@@ -113,6 +116,11 @@ pub fn openxr_begin_frame_tick(
             let center_pose = crate::xr::headset_center_pose_from_stereo_views(&views);
             let world_from_tracking = runtime.world_from_tracking(center_pose);
             runtime.set_head_output_transform(world_from_tracking);
+            let eye_world_l =
+                crate::xr::eye_world_position_from_xr_view_aligned(&views[0], world_from_tracking);
+            let eye_world_r =
+                crate::xr::eye_world_position_from_xr_view_aligned(&views[1], world_from_tracking);
+            runtime.set_eye_world_position((eye_world_l + eye_world_r) * 0.5);
             let l = crate::xr::view_projection_from_xr_view_aligned(
                 &views[0],
                 near,
@@ -130,6 +138,7 @@ pub fn openxr_begin_frame_tick(
             runtime.set_stereo(Some(StereoViewMatrices {
                 view_proj: (l, r),
                 view_only: (vl, vr_view),
+                eye_world_position: (eye_world_l, eye_world_r),
             }));
             return Some(OpenxrFrameTick {
                 predicted_display_time: fs.predicted_display_time,
@@ -200,6 +209,7 @@ fn multiview_submit_prereqs(
 
 /// Creates the lazy stereo swapchain on first successful HMD path.
 fn ensure_stereo_swapchain(bundle: &mut XrSessionBundle) -> bool {
+    profiling::scope!("xr::ensure_stereo_swapchain");
     if bundle.stereo_swapchain.is_some() {
         return true;
     }
@@ -235,6 +245,7 @@ fn ensure_stereo_depth_texture(
     bundle: &mut XrSessionBundle,
     extent: (u32, u32),
 ) -> bool {
+    profiling::scope!("xr::ensure_stereo_depth_texture");
     let need_new_depth = bundle
         .stereo_depth
         .as_ref()
@@ -324,23 +335,24 @@ pub fn try_openxr_hmd_multiview_submit(
     let handles = &mut bundle.handles;
     // Unified submit: HMD stereo + every active secondary RT in one `execute_multi_view_frame`
     // call. The HMD view replaces the main camera for this tick.
-    if runtime.submit_hmd_view(gpu, ext).is_err() {
-        let _ = release_swapchain_image(gpu, &mut sc.handle);
-        return false;
+    {
+        profiling::scope!("xr::submit_hmd_view");
+        if runtime.submit_hmd_view(gpu, ext).is_err() {
+            let _ = release_swapchain_image(gpu, &mut sc.handle);
+            return false;
+        }
     }
     if let Some(layer_view) = sc.color_layer_view_for_image(image_index, VR_MIRROR_EYE_LAYER) {
+        profiling::scope!("xr::mirror_staging_submit");
         bundle
             .mirror_blit
             .submit_eye_to_staging(gpu, extent, &layer_view);
     }
-    // Drain the renderer-driver queue so every command buffer that touches the OpenXR swapchain
-    // image (the multiview render-graph submit and the eye→staging copy) has reached
-    // `wgpu::Queue::submit` **before** `xrReleaseSwapchainImage` / `xrEndFrame`. OpenXR runtimes
-    // (WiVRn, Monado, SteamVR/Vulkan, …) wait on the application's queue at end-frame to know the
-    // image is ready for compositing; if our submits are still parked on
-    // [`crate::gpu::driver_thread::DriverThread`], `xrEndFrame` blocks indefinitely waiting on
-    // GPU work that has not been issued yet.
-    gpu.flush_driver();
+    // Ensure all queued work touching the OpenXR swapchain is submitted before release/end_frame.
+    {
+        profiling::scope!("xr::flush_driver_before_release");
+        gpu.flush_driver();
+    }
     {
         profiling::scope!("xr::swapchain_release");
         if release_swapchain_image(gpu, &mut sc.handle).is_err() {

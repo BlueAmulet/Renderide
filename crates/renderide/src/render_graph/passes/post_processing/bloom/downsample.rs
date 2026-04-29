@@ -1,5 +1,6 @@
 //! First and subsequent bloom downsample passes.
 
+use std::borrow::Cow;
 use std::num::NonZeroU32;
 
 use super::helpers::{attachment_format, stereo_mask_override};
@@ -24,9 +25,13 @@ use crate::render_graph::resources::TextureHandle;
 /// graph rebuild. `fallback_settings` is used when the blackboard isn't populated (tests / pre-
 /// lifecycle paths).
 pub(super) struct BloomDownsampleFirstPass {
+    /// HDR source texture for the bloom chain.
     input: TextureHandle,
+    /// First bloom pyramid mip written by the pass.
     output: TextureHandle,
+    /// Settings snapshot used when the live blackboard slot is absent.
     fallback_settings: BloomSettings,
+    /// Shared pipeline and bind-group cache for all bloom passes.
     pipelines: &'static BloomPipelineCache,
 }
 
@@ -49,6 +54,10 @@ impl BloomDownsampleFirstPass {
 impl RasterPass for BloomDownsampleFirstPass {
     fn name(&self) -> &str {
         "BloomDownsampleFirst"
+    }
+
+    fn profiling_label(&self) -> Cow<'_, str> {
+        Cow::Borrowed("BloomDownsampleFirst.mip0")
     }
 
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
@@ -124,8 +133,13 @@ impl RasterPass for BloomDownsampleFirstPass {
 /// the first pass already absorbed those costs. Shares pipelines and bind groups with the first
 /// downsample via [`BloomPipelineCache`].
 pub(super) struct BloomDownsamplePass {
+    /// Source bloom pyramid mip.
     input: TextureHandle,
+    /// Destination bloom pyramid mip.
     output: TextureHandle,
+    /// Per-instance profiler label including the destination mip index.
+    profile_label: String,
+    /// Shared pipeline and bind-group cache for all bloom passes.
     pipelines: &'static BloomPipelineCache,
 }
 
@@ -133,11 +147,13 @@ impl BloomDownsamplePass {
     pub(super) fn new(
         input: TextureHandle,
         output: TextureHandle,
+        mip: u32,
         pipelines: &'static BloomPipelineCache,
     ) -> Self {
         Self {
             input,
             output,
+            profile_label: format!("BloomDownsample.mip{mip}"),
             pipelines,
         }
     }
@@ -146,6 +162,10 @@ impl BloomDownsamplePass {
 impl RasterPass for BloomDownsamplePass {
     fn name(&self) -> &str {
         "BloomDownsample"
+    }
+
+    fn profiling_label(&self) -> Cow<'_, str> {
+        Cow::Borrowed(self.profile_label.as_str())
     }
 
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {

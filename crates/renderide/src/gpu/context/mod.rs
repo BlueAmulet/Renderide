@@ -291,6 +291,31 @@ impl GpuContext {
         );
     }
 
+    /// Updates [`wgpu::SurfaceConfiguration::desired_maximum_frame_latency`] and reconfigures the
+    /// surface (hot-reload from settings).
+    ///
+    /// Early-returns when the requested value already matches the active configuration so the
+    /// per-tick call from the runtime is cheap. Headless contexts still update the cached config
+    /// for parity, but skip the surface reconfigure since there is no surface.
+    ///
+    /// Callers must pass a value in `1..=3`; use
+    /// [`crate::config::RenderingSettings::resolved_max_frame_latency`] which clamps for you.
+    pub fn set_max_frame_latency(&mut self, max_frame_latency: u32) {
+        if self.config.desired_maximum_frame_latency == max_frame_latency {
+            return;
+        }
+        let previous = self.config.desired_maximum_frame_latency;
+        self.config.desired_maximum_frame_latency = max_frame_latency;
+        if let Some(surface) = self.surface.as_ref() {
+            surface.configure(&self.device, &self.config);
+        }
+        logger::info!(
+            "desired_maximum_frame_latency set to {} (was {})",
+            max_frame_latency,
+            previous
+        );
+    }
+
     /// Current swapchain configuration extent.
     pub fn size(&self) -> PhysicalSize<u32> {
         PhysicalSize::new(self.config.width, self.config.height)
@@ -518,6 +543,9 @@ impl GpuContext {
         wait: Option<super::driver_thread::SubmitWait>,
         mut extra_on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>>,
     ) {
+        if !command_buffers.is_empty() {
+            crate::profiling::emit_render_submit_frame_mark();
+        }
         let track = {
             let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
             ft.on_before_tracked_submit()
@@ -629,19 +657,29 @@ impl GpuContext {
         if self.gpu_profiler.is_none() {
             return;
         }
-        // `wgpu_profiler::end_frame` calls `map_async` on the same Query Read Buffer that
-        // `resolve_queries` just wrote a copy into. The render graph hands those resolve
-        // command buffers to the driver thread for an asynchronous `Queue::submit`, so if
-        // the driver has not yet drained the ring by the time we reach this point,
-        // `map_async` would put the buffer in pending-mapped state before the submit runs
-        // and wgpu validation would reject it with "buffer is still mapped". Flushing the
-        // driver guarantees every prior submit has completed before we transition the
-        // buffer.
-        self.driver_thread.flush();
+        let had_queries = self
+            .gpu_profiler
+            .as_ref()
+            .is_some_and(crate::profiling::GpuProfilerHandle::has_queries_opened_since_frame_end);
+        if had_queries {
+            // `wgpu_profiler::end_frame` calls `map_async` on the same Query Read Buffer that
+            // `resolve_queries` just wrote a copy into. The render graph hands those resolve
+            // command buffers to the driver thread for an asynchronous `Queue::submit`, so if
+            // the driver has not yet drained the ring by the time we reach this point,
+            // `map_async` would put the buffer in pending-mapped state before the submit runs
+            // and wgpu validation would reject it with "buffer is still mapped". Flushing the
+            // driver guarantees every prior submit has completed before we transition the
+            // buffer. Empty redraw ticks skip the flush and the profiler frame close.
+            self.driver_thread.flush();
+        }
         if let Some(p) = self.gpu_profiler.as_mut() {
-            p.end_frame();
+            p.end_frame_if_queries_opened();
             let ts_period = self.queue.get_timestamp_period();
-            if let Some(timings) = p.process_finished_frame(ts_period) {
+            let mut latest_timings = None;
+            while let Some(timings) = p.process_finished_frame(ts_period) {
+                latest_timings = Some(timings);
+            }
+            if let Some(timings) = latest_timings {
                 if let Ok(mut slot) = self.latest_gpu_pass_timings.lock() {
                     *slot = timings;
                 }

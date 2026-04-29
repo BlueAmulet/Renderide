@@ -234,7 +234,7 @@ fn fs_main(
 
     let n = sample_normal_world(uv_main0, uv_main1, world_n, front_facing, l);
 
-    let cam = rg::frame.camera_world_pos.xyz;
+    let cam = rg::camera_world_pos_for_view(view_layer);
     let v = normalize(cam - world_pos);
     let f0 = mix(vec3<f32>(0.04), base_color, metallic);
 

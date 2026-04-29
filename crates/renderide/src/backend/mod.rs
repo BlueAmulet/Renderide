@@ -15,6 +15,7 @@ mod frame_gpu;
 mod frame_gpu_bindings;
 mod frame_gpu_error;
 mod frame_resource_manager;
+mod gpu_jobs;
 mod history_registry;
 mod light_gpu;
 mod material_property_reader;
@@ -25,6 +26,8 @@ mod per_draw_resources;
 mod per_view_resource_map;
 mod reflection_probe_sh2;
 mod render_backend;
+mod skybox_environment;
+mod skybox_params;
 mod skybox_specular;
 mod view_resource_registry;
 
@@ -45,6 +48,10 @@ pub use frame_gpu_bindings::{FrameGpuBindings, FrameGpuBindingsError};
 pub use frame_gpu_error::FrameGpuInitError;
 pub use frame_resource_manager::{
     FrameGpuBindContext, FrameResourceManager, PerViewFrameState, PreRecordViewResourceLayout,
+};
+pub(crate) use gpu_jobs::{
+    GpuJobResources, GpuReadbackJobs, GpuReadbackOutcomes, GpuSubmitJobTracker, SubmittedGpuJob,
+    SubmittedReadbackJob,
 };
 pub use history_registry::{
     BufferHistorySlot, BufferHistorySpec, HistoryRegistry, HistoryRegistryError,
@@ -70,5 +77,6 @@ pub use render_backend::{
     RenderBackend, RenderBackendAttachDesc, RenderBackendAttachError, MAX_ASSET_INTEGRATION_QUEUED,
     MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
 };
+pub(crate) use skybox_environment::SkyboxEnvironmentCache;
 pub(crate) use skybox_specular::resolve_active_main_skybox_specular_environment;
 pub(crate) use view_resource_registry::ViewResourceRegistry;

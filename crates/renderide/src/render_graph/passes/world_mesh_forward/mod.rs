@@ -426,6 +426,7 @@ impl ComputePass for WorldMeshDepthSnapshotPass {
             &prepared,
             msaa_views.as_ref(),
             msaa_depth_resolve.as_deref(),
+            ctx.profiler,
         );
         if recorded {
             prepared.depth_snapshot_recorded = true;
@@ -727,6 +728,7 @@ impl ComputePass for WorldMeshForwardDepthResolvePass {
             frame,
             msaa_views.as_ref(),
             msaa_depth_resolve.as_deref(),
+            ctx.profiler,
         );
         // No blackboard interaction needed: depth resolve is purely encoder-driven.
         Ok(())

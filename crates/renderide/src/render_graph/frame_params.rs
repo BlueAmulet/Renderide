@@ -73,9 +73,9 @@ impl ViewId {
 
 /// Per-eye matrices for an OpenXR stereo multiview view.
 ///
-/// Consolidates the view-projection (stage → clip) and view-only (world → view) pairs so that
-/// callers cannot set one without the other. Present only on the HMD view; non-HMD views carry
-/// [`None`] for this slot on [`HostCameraFrame::stereo`].
+/// Consolidates the view-projection (stage → clip), view-only (world → view), and eye positions
+/// so that callers cannot set one without the others. Present only on the HMD view; non-HMD views
+/// carry [`None`] for this slot on [`HostCameraFrame::stereo`].
 #[derive(Clone, Copy, Debug)]
 pub struct StereoViewMatrices {
     /// Per-eye view–projection (reverse-Z), mapping **stage** space to clip. World mesh passes
@@ -84,6 +84,8 @@ pub struct StereoViewMatrices {
     /// Per-eye **view** matrices (world-to-view, handedness fix applied). Clustered lighting
     /// decomposes view and projection per eye without re-deriving from HMD poses.
     pub view_only: (Mat4, Mat4),
+    /// Per-eye world-space camera positions used by shader view-vector math.
+    pub eye_world_position: (Vec3, Vec3),
 }
 
 /// Latest camera-related fields from host [`crate::shared::FrameSubmitData`], updated each `frame_submit`.
@@ -105,8 +107,9 @@ pub struct HostCameraFrame {
     /// parameters use orthographic projection (overlay main-camera ortho override).
     pub primary_ortho_task: Option<(f32, f32, f32)>,
     /// Per-eye stereo matrices when this frame renders the OpenXR multiview view; [`None`] on
-    /// desktop or secondary-RT views. Set together via [`StereoViewMatrices`] so the view-projection
-    /// and view-only matrices cannot drift out of sync. See [`StereoViewMatrices`] for field details.
+    /// desktop or secondary-RT views. Set together via [`StereoViewMatrices`] so the view-projection,
+    /// view-only matrices, and per-eye camera positions cannot drift out of sync. See
+    /// [`StereoViewMatrices`] for field details.
     pub stereo: Option<StereoViewMatrices>,
     /// Legacy Unity `HeadOutput.transform` in renderer world space.
     ///
@@ -139,9 +142,10 @@ pub struct HostCameraFrame {
     /// `head_output_transform` is the render-space *root* (often the world or play-area anchor),
     /// which differs from the eye whenever the host sets `override_view_position`. Populated each
     /// `frame_submit` for desktop and overwritten by the OpenXR head pose for VR. PBS shaders read
-    /// this through the `frame.camera_world_pos` uniform; using the root translation made
-    /// `v = normalize(cam - world_pos)` point at the space root, biasing every specular highlight
-    /// toward "the player's feet."
+    /// this through the `frame.camera_world_pos` uniform; HMD views use
+    /// [`StereoViewMatrices::eye_world_position`] for per-eye shader view vectors. Using the root
+    /// translation made `v = normalize(cam - world_pos)` point at the space root, biasing every
+    /// specular highlight toward "the player's feet."
     pub eye_world_position: Option<Vec3>,
     /// Skips Hi-Z temporal state and uses uncull or frustum-only paths for this view.
     pub suppress_occlusion_temporal: bool,
@@ -260,8 +264,8 @@ impl WorldMeshHelperNeeds {
     pub fn from_collection(collection: &WorldMeshDrawCollection) -> Self {
         let mut needs = Self::default();
         for item in &collection.items {
-            needs.depth_snapshot |= item.batch_key.embedded_requires_intersection_pass;
-            needs.color_snapshot |= item.batch_key.embedded_requires_grab_pass;
+            needs.depth_snapshot |= item.batch_key.embedded_uses_scene_depth_snapshot;
+            needs.color_snapshot |= item.batch_key.embedded_uses_scene_color_snapshot;
             if needs.depth_snapshot && needs.color_snapshot {
                 break;
             }
@@ -314,6 +318,8 @@ pub struct PreparedWorldMeshForwardFrame {
     pub plan: InstancePlan,
     /// Pipeline format/sample/multiview state.
     pub pipeline: WorldMeshForwardPipelineState,
+    /// Scene snapshot helper work needed by the prepared draw list.
+    pub helper_needs: WorldMeshHelperNeeds,
     /// Whether indexed draws may use base instance.
     pub supports_base_instance: bool,
     /// Whether the opaque/clear forward subpass was already recorded by a split graph node.
@@ -620,7 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn helper_needs_are_derived_from_collected_material_flags() {
+    fn helper_needs_are_derived_from_scene_snapshot_usage_flags() {
         let regular = dummy_world_mesh_draw_item(DummyDrawItemSpec {
             material_asset_id: 1,
             property_block: None,
@@ -632,10 +638,10 @@ mod tests {
             collect_order: 0,
             alpha_blended: false,
         });
-        let mut intersection = regular.clone();
-        intersection.batch_key.embedded_requires_intersection_pass = true;
-        let mut grab = regular.clone();
-        grab.batch_key.embedded_requires_grab_pass = true;
+        let mut depth = regular.clone();
+        depth.batch_key.embedded_uses_scene_depth_snapshot = true;
+        let mut color = regular.clone();
+        color.batch_key.embedded_uses_scene_color_snapshot = true;
 
         let collection = WorldMeshDrawCollection {
             items: vec![regular.clone()],
@@ -649,8 +655,25 @@ mod tests {
         );
 
         let collection = WorldMeshDrawCollection {
-            items: vec![regular, intersection, grab],
+            items: vec![regular.clone(), depth, color],
             draws_pre_cull: 3,
+            draws_culled: 0,
+            draws_hi_z_culled: 0,
+        };
+        assert_eq!(
+            WorldMeshHelperNeeds::from_collection(&collection),
+            WorldMeshHelperNeeds {
+                depth_snapshot: true,
+                color_snapshot: true,
+            }
+        );
+
+        let mut refract_like = regular;
+        refract_like.batch_key.embedded_uses_scene_depth_snapshot = true;
+        refract_like.batch_key.embedded_uses_scene_color_snapshot = true;
+        let collection = WorldMeshDrawCollection {
+            items: vec![refract_like],
+            draws_pre_cull: 1,
             draws_culled: 0,
             draws_hi_z_culled: 0,
         };

@@ -94,6 +94,8 @@ pub struct FrameGpuResources {
 pub enum SkyboxSpecularEnvironmentSource {
     /// A resident cubemap source sampled through `@group(0) @binding(9)`.
     Cubemap(SkyboxSpecularCubemapSource),
+    /// A renderer-generated cubemap sampled through `@group(0) @binding(9)`.
+    GeneratedCubemap(SkyboxSpecularGeneratedCubemapSource),
     /// A resident Projection360 equirect source sampled through `@group(0) @binding(11)`.
     Projection360Equirect(SkyboxSpecularEquirectSource),
 }
@@ -106,6 +108,12 @@ impl SkyboxSpecularEnvironmentSource {
                 source.mip_levels_resident,
                 source.storage_v_inverted,
             ),
+            Self::GeneratedCubemap(source) => {
+                SkyboxSpecularUniformParams::from_cubemap_resident_mips(
+                    source.mip_levels_resident,
+                    source.storage_v_inverted,
+                )
+            }
             Self::Projection360Equirect(source) => {
                 SkyboxSpecularUniformParams::from_equirect_resident_mips(
                     source.mip_levels_resident,
@@ -125,6 +133,20 @@ pub struct SkyboxSpecularCubemapSource {
     /// Resident full cube texture view.
     pub view: Arc<wgpu::TextureView>,
     /// Host sampler settings copied from the cubemap pool.
+    pub sampler: CubemapSamplerState,
+    /// Resident mip count available for roughness-driven LOD sampling.
+    pub mip_levels_resident: u32,
+    /// Whether shader sampling needs V-axis storage compensation.
+    pub storage_v_inverted: bool,
+}
+
+/// Renderer-generated cubemap source that can be bound as frame-global indirect specular.
+pub struct SkyboxSpecularGeneratedCubemapSource {
+    /// Stable renderer-side source hash.
+    pub key_hash: u64,
+    /// Resident full cube texture view.
+    pub view: Arc<wgpu::TextureView>,
+    /// Sampler settings used for the generated mip chain.
     pub sampler: CubemapSamplerState,
     /// Resident mip count available for roughness-driven LOD sampling.
     pub mip_levels_resident: u32,
@@ -165,6 +187,8 @@ struct SkyboxSpecularEnvironmentKey {
     storage_v_inverted: bool,
     /// Hash of host sampler fields used to rebuild the wgpu sampler.
     sampler_signature: u64,
+    /// Renderer-side generated-source hash, or zero for host texture sources.
+    generated_hash: u64,
 }
 
 /// Texture/sampler resources bound to the frame-global skybox specular slots.
@@ -189,6 +213,7 @@ impl Default for SkyboxSpecularEnvironmentKey {
             mip_levels_resident: 0,
             storage_v_inverted: false,
             sampler_signature: 0,
+            generated_hash: 0,
         }
     }
 }
@@ -203,6 +228,20 @@ impl SkyboxSpecularEnvironmentKey {
             mip_levels_resident: source.mip_levels_resident,
             storage_v_inverted: source.storage_v_inverted,
             sampler_signature: cubemap_sampler_signature(&source.sampler),
+            generated_hash: 0,
+        }
+    }
+
+    /// Builds a key for a renderer-generated skybox cubemap source.
+    fn from_generated_cubemap_source(source: &SkyboxSpecularGeneratedCubemapSource) -> Self {
+        Self {
+            source_kind: SkyboxSpecularSourceKind::Cubemap,
+            asset_id: -1,
+            view_identity: Arc::as_ptr(&source.view) as usize,
+            mip_levels_resident: source.mip_levels_resident,
+            storage_v_inverted: source.storage_v_inverted,
+            sampler_signature: cubemap_sampler_signature(&source.sampler),
+            generated_hash: source.key_hash,
         }
     }
 
@@ -215,6 +254,7 @@ impl SkyboxSpecularEnvironmentKey {
             mip_levels_resident: source.mip_levels_resident,
             storage_v_inverted: source.storage_v_inverted,
             sampler_signature: texture2d_sampler_signature(&source.sampler),
+            generated_hash: 0,
         }
     }
 
@@ -222,6 +262,9 @@ impl SkyboxSpecularEnvironmentKey {
     fn from_source(source: &SkyboxSpecularEnvironmentSource) -> Self {
         match source {
             SkyboxSpecularEnvironmentSource::Cubemap(source) => Self::from_cubemap_source(source),
+            SkyboxSpecularEnvironmentSource::GeneratedCubemap(source) => {
+                Self::from_generated_cubemap_source(source)
+            }
             SkyboxSpecularEnvironmentSource::Projection360Equirect(source) => {
                 Self::from_equirect_source(source)
             }
@@ -914,6 +957,19 @@ impl FrameGpuResources {
 
         match source {
             SkyboxSpecularEnvironmentSource::Cubemap(source) => {
+                let sampler = Arc::new(sampler_from_cubemap_state(
+                    device,
+                    &source.sampler,
+                    source.mip_levels_resident,
+                ));
+                self.skybox_specular_view = source.view;
+                self.skybox_specular_sampler = sampler;
+                self.skybox_specular_equirect_view =
+                    self.skybox_specular_equirect_fallback_view.clone();
+                self.skybox_specular_equirect_sampler =
+                    self.skybox_specular_equirect_fallback_sampler.clone();
+            }
+            SkyboxSpecularEnvironmentSource::GeneratedCubemap(source) => {
                 let sampler = Arc::new(sampler_from_cubemap_state(
                     device,
                     &source.sampler,

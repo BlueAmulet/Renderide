@@ -203,7 +203,7 @@ fn clustered_direct_lighting(
     include_directional: bool,
     include_local: bool,
 ) -> vec3<f32> {
-    let cam = rg::frame.camera_world_pos.xyz;
+    let cam = rg::camera_world_pos_for_view(view_layer);
     let v = normalize(cam - world_pos);
 
     let aa_roughness = brdf::filter_perceptual_roughness(s.roughness, s.normal);
@@ -291,7 +291,7 @@ fn fs_forward_base(
 ) -> @location(0) vec4<f32> {
     let s = sample_surface(uv0, world_n);
     let direct = clustered_direct_lighting(frag_pos.xy, world_pos, view_layer, s, true, true);
-    let view_dir = normalize(rg::frame.camera_world_pos.xyz - world_pos);
+    let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
     let ambient = brdf::indirect_diffuse_specular(
         shamb::ambient_probe(s.normal),
         s.base_color,

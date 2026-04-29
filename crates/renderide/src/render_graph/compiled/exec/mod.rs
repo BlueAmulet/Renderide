@@ -469,42 +469,46 @@ impl CompiledRenderGraph {
             live_bloom_settings: mv_ctx.backend.live_bloom_settings(),
         };
         let mut per_view_profiler = mv_ctx.gpu.take_gpu_profiler();
-        let per_view_outputs = self.record_per_view_outputs(
-            per_view_work_items,
-            PerViewRecordInputs {
-                transient_by_key,
-                upload_batch,
-                per_view_shared: &per_view_shared,
-                profiler: per_view_profiler.as_ref(),
-            },
-            record_parallelism,
-            n_views,
-        )?;
-        let mut per_view_cmds: Vec<wgpu::CommandBuffer> = Vec::with_capacity(n_views);
-        let mut per_view_occlusion_info: Vec<(ViewId, HostCameraFrame)> =
-            Vec::with_capacity(n_views);
-        let mut per_view_hud_outputs: Vec<Option<PerViewHudOutputs>> = Vec::with_capacity(n_views);
-        for output in per_view_outputs {
-            per_view_cmds.push(output.command_buffer);
-            per_view_occlusion_info.push((output.view_id, output.host_camera));
-            per_view_hud_outputs.push(output.hud_outputs);
-        }
-        let per_view_profiler_cmd = per_view_profiler.as_mut().map(|profiler| {
-            let mut profiler_encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("render-graph-per-view-profiler-resolve"),
-                });
-            profiler.resolve_queries(&mut profiler_encoder);
-            profiler_encoder.finish()
-        });
+        let record_result = (|| -> Result<RecordedPerViewBatch, GraphExecuteError> {
+            let per_view_outputs = self.record_per_view_outputs(
+                per_view_work_items,
+                PerViewRecordInputs {
+                    transient_by_key,
+                    upload_batch,
+                    per_view_shared: &per_view_shared,
+                    profiler: per_view_profiler.as_ref(),
+                },
+                record_parallelism,
+                n_views,
+            )?;
+            let mut per_view_cmds: Vec<wgpu::CommandBuffer> = Vec::with_capacity(n_views);
+            let mut per_view_occlusion_info: Vec<(ViewId, HostCameraFrame)> =
+                Vec::with_capacity(n_views);
+            let mut per_view_hud_outputs: Vec<Option<PerViewHudOutputs>> =
+                Vec::with_capacity(n_views);
+            for output in per_view_outputs {
+                per_view_cmds.push(output.command_buffer);
+                per_view_occlusion_info.push((output.view_id, output.host_camera));
+                per_view_hud_outputs.push(output.hud_outputs);
+            }
+            let per_view_profiler_cmd = per_view_profiler.as_mut().map(|profiler| {
+                let mut profiler_encoder =
+                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("render-graph-per-view-profiler-resolve"),
+                    });
+                profiler.resolve_queries(&mut profiler_encoder);
+                profiler_encoder.finish()
+            });
+            Ok(RecordedPerViewBatch {
+                per_view_cmds,
+                per_view_occlusion_info,
+                per_view_hud_outputs,
+                per_view_profiler_cmd,
+            })
+        })();
         mv_ctx.gpu.restore_gpu_profiler(per_view_profiler);
 
-        Ok(RecordedPerViewBatch {
-            per_view_cmds,
-            per_view_occlusion_info,
-            per_view_hud_outputs,
-            per_view_profiler_cmd,
-        })
+        record_result
     }
 
     /// Encodes the debug HUD overlay (swapchain path only), drains the deferred upload batch, and
@@ -543,6 +547,15 @@ impl CompiledRenderGraph {
             let mut hud_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("render-graph-hud"),
             });
+            // Wrap the HUD encoder in a GPU profiler scope so Dear ImGui's per-frame draw work
+            // appears as `graph::hud_imgui` on the Tracy GPU timeline. The encoder is its own
+            // command buffer in the submit batch, so the resolve must happen inside the encoder
+            // itself — `prof.resolve_queries` after `end_query` records the resolve copy in the
+            // same buffer that wrote the timestamps, ensuring GPU ordering across the submit.
+            let hud_query = mv_ctx
+                .gpu
+                .gpu_profiler_mut()
+                .map(|p| p.begin_query("graph::hud_imgui", &mut hud_encoder));
             if let Err(e) = mv_ctx.backend.encode_debug_hud_overlay(
                 device,
                 queue_ref,
@@ -551,6 +564,12 @@ impl CompiledRenderGraph {
                 viewport_px,
             ) {
                 logger::warn!("debug HUD overlay: {e}");
+            }
+            if let Some(query) = hud_query {
+                if let Some(prof) = mv_ctx.gpu.gpu_profiler_mut() {
+                    prof.end_query(&mut hud_encoder, query);
+                    prof.resolve_queries(&mut hud_encoder);
+                }
             }
             Some(hud_encoder.finish())
         } else {

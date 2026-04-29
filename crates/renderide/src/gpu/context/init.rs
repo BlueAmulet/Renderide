@@ -323,12 +323,18 @@ impl GpuContext {
     ///
     /// `vsync` is resolved against the surface's actual present-mode capabilities via
     /// [`VsyncMode::resolve_present_mode`] (so e.g. [`VsyncMode::On`] picks `Mailbox` when
-    /// available rather than the deeper-queue plain `Fifo`). The swapchain is also pinned to
-    /// `desired_maximum_frame_latency = 1` to match Unity's `QualitySettings.maxQueuedFrames`
-    /// default and keep input → photon latency at one frame of OS-side queueing.
+    /// available rather than the deeper-queue plain `Fifo`).
+    ///
+    /// `max_frame_latency` is the initial value for
+    /// [`wgpu::SurfaceConfiguration::desired_maximum_frame_latency`]. Pass the resolved value
+    /// from [`crate::config::RenderingSettings::resolved_max_frame_latency`]. The default of `2`
+    /// allows CPU recording for frame N+1 to overlap with GPU work for frame N; lowering to `1`
+    /// reduces input latency at the cost of stalls inside [`wgpu::Surface::get_current_texture`].
+    /// The setting is live-tunable via [`crate::gpu::GpuContext::set_max_frame_latency`].
     pub async fn new(
         window: Arc<Window>,
         vsync: VsyncMode,
+        max_frame_latency: u32,
         gpu_validation_layers: bool,
         power_preference: wgpu::PowerPreference,
     ) -> Result<Self, GpuError> {
@@ -352,7 +358,7 @@ impl GpuContext {
             .get_default_config(&adapter, size.width.max(1), size.height.max(1))
             .ok_or(GpuError::SurfaceUnsupported)?;
         config.present_mode = vsync.resolve_present_mode(&supported_present_modes);
-        config.desired_maximum_frame_latency = 1;
+        config.desired_maximum_frame_latency = max_frame_latency;
         surface_safe.configure(&device, &config);
 
         let adapter_info = adapter.get_info();
@@ -418,9 +424,16 @@ impl GpuContext {
     ///
     /// The synthesized [`wgpu::SurfaceConfiguration`] has `format = Rgba8UnormSrgb` and the
     /// requested extent so the material system and render graph compile pipelines unchanged.
+    ///
+    /// `max_frame_latency` populates
+    /// [`wgpu::SurfaceConfiguration::desired_maximum_frame_latency`] for parity with the
+    /// windowed path; headless rendering has no swapchain so the value mostly affects internal
+    /// frame-resource allocation. Pass the resolved value from
+    /// [`crate::config::RenderingSettings::resolved_max_frame_latency`].
     pub async fn new_headless(
         width: u32,
         height: u32,
+        max_frame_latency: u32,
         gpu_validation_layers: bool,
         power_preference: wgpu::PowerPreference,
     ) -> Result<Self, GpuError> {
@@ -440,7 +453,7 @@ impl GpuContext {
             width: width.max(1),
             height: height.max(1),
             present_mode: wgpu::PresentMode::AutoNoVsync,
-            desired_maximum_frame_latency: 1,
+            desired_maximum_frame_latency: max_frame_latency,
             alpha_mode: wgpu::CompositeAlphaMode::Opaque,
             view_formats: Vec::new(),
         };
@@ -491,9 +504,9 @@ impl GpuContext {
 
     /// Builds GPU state using an existing wgpu instance/device from OpenXR bootstrap (mirror window).
     ///
-    /// The mirror surface uses the same capability-aware [`VsyncMode`] mapping and one-frame
-    /// swapchain latency cap as the desktop constructor so windowed presentation behaves
-    /// consistently across desktop and VR startup paths.
+    /// The mirror surface uses the same capability-aware [`VsyncMode`] mapping and
+    /// `max_frame_latency` semantics as the desktop constructor so windowed presentation
+    /// behaves consistently across desktop and VR startup paths.
     pub fn new_from_openxr_bootstrap(
         instance: &wgpu::Instance,
         adapter: &wgpu::Adapter,
@@ -501,6 +514,7 @@ impl GpuContext {
         queue: Arc<wgpu::Queue>,
         window: Arc<Window>,
         vsync: VsyncMode,
+        max_frame_latency: u32,
     ) -> Result<Self, GpuError> {
         install_uncaptured_error_handler(device.as_ref());
         // `Arc<Window>` is `Into<SurfaceTarget<'static>>`, so the returned `Surface` is
@@ -514,7 +528,7 @@ impl GpuContext {
             .get_default_config(adapter, size.width.max(1), size.height.max(1))
             .ok_or(GpuError::SurfaceUnsupported)?;
         config.present_mode = vsync.resolve_present_mode(&supported_present_modes);
-        config.desired_maximum_frame_latency = 1;
+        config.desired_maximum_frame_latency = max_frame_latency;
         surface_safe.configure(&device, &config);
         let adapter_info = adapter.get_info();
         let limits = GpuLimits::try_new(device.as_ref(), adapter)?;

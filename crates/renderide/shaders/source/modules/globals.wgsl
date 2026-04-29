@@ -33,6 +33,8 @@ struct GpuLight {
 /// Per-frame scene + clustered grid (matches [`crate::gpu::frame_globals::FrameGpuUniforms`]).
 struct FrameGlobals {
     camera_world_pos: vec4<f32>,
+    /// Right-eye world-space camera position (equals left/mono outside stereo multiview).
+    camera_world_pos_right: vec4<f32>,
     /// Left-eye (or mono) world -> view-space Z coefficients.
     view_space_z_coeffs: vec4<f32>,
     /// Right-eye world -> view-space Z coefficients (equals left in mono mode).
@@ -93,6 +95,21 @@ struct FrameGlobals {
 @group(0) @binding(10) var skybox_specular_sampler: sampler;
 @group(0) @binding(11) var skybox_specular_equirect: texture_2d<f32>;
 @group(0) @binding(12) var skybox_specular_equirect_sampler: sampler;
+
+/// World-space camera position for the current view layer.
+fn camera_world_pos_for_view(view_layer: u32) -> vec3<f32> {
+#ifdef MULTIVIEW
+    if (view_layer != 0u) {
+        return frame.camera_world_pos_right.xyz;
+    }
+#endif
+    return frame.camera_world_pos.xyz;
+}
+
+/// Unit vector from `world_pos` toward the current view-layer camera.
+fn view_dir_for_world_pos(world_pos: vec3<f32>, view_layer: u32) -> vec3<f32> {
+    return normalize(camera_world_pos_for_view(view_layer) - world_pos);
+}
 
 /// Adds infinitesimal terms tied to lights/cluster storage so every frame binding stays referenced
 /// when a material would otherwise not touch storage (naga-oil drops unused globals).

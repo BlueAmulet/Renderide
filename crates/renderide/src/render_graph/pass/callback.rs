@@ -12,6 +12,8 @@
 //! (upload recorder writes, blackboard mutations) are not visible through graph resource
 //! declarations.
 
+use std::borrow::Cow;
+
 use crate::render_graph::context::{CallbackCtx, PostSubmitContext};
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::ViewId;
@@ -28,6 +30,14 @@ use super::node::PassPhase;
 pub trait CallbackPass: Send + Sync {
     /// Stable name for logging, profiling, and error messages.
     fn name(&self) -> &str;
+
+    /// Human-readable label for CPU/GPU profiler markers owned by graph execution.
+    ///
+    /// Defaults to [`Self::name`]. Callback families that register multiple instances in one
+    /// graph should include an instance discriminator here so traces can distinguish them.
+    fn profiling_label(&self) -> Cow<'_, str> {
+        Cow::Borrowed(self.name())
+    }
 
     /// Declares the pass kind and any cull-exempt flag.
     ///

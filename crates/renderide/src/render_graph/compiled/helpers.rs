@@ -437,7 +437,10 @@ pub(super) fn execute_graph_raster_pass_node(
     };
 
     let multiview_mask = pass.multiview_mask_override(ctx, template);
-    let pass_query = ctx.profiler.map(|p| p.begin_pass_query(pass_name, encoder));
+    let pass_profile_label = pass.profiling_label();
+    let pass_query = ctx
+        .profiler
+        .map(|p| p.begin_pass_query(pass_profile_label, encoder));
     let timestamp_writes = crate::profiling::render_pass_timestamp_writes(pass_query.as_ref());
     let mut rpass = {
         profiling::scope!("graph::raster::begin_render_pass");

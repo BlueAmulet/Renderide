@@ -82,6 +82,12 @@ impl SwapchainScope {
         // `get_current_texture()` call. Wait specifically on the prior present instead of
         // doing a full `flush_driver` so non-surface batches (e.g. Hi-Z readback submits,
         // `on_submitted_work_done` callbacks) stay pipelined with frame N+1's recording.
+        // With `desired_maximum_frame_latency >= 2` (the default) the driver thread can
+        // present frame N's image while frame N+1 is still recording, so by the time the
+        // main thread reaches this barrier the previous present has typically already
+        // completed and the wait is near-instant. With `max_frame_latency = 1` this becomes
+        // the dominant frame stall; that tradeoff is documented on
+        // `RenderingSettings::max_frame_latency`.
         {
             profiling::scope!("gpu::wait_previous_present.desktop_graph");
             gpu.wait_for_previous_present();

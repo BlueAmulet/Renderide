@@ -26,11 +26,10 @@ use crate::backend::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 
 use self::bind_layout::global_to_layout_entry;
 use self::fingerprint::fingerprint_layout;
-use self::frame_group0::validate_frame_group0;
+use self::frame_group0::{reflect_frame_snapshot_usage, validate_frame_group0};
 use self::uniform_vertex::{
-    material_uniform_requires_grab_pass_subpass, material_uniform_requires_intersection_subpass,
-    reflect_first_group1_uniform_struct, reflect_group1_global_binding_names,
-    reflect_vs_main_max_vertex_location,
+    material_uniform_requires_intersection_subpass, reflect_first_group1_uniform_struct,
+    reflect_group1_global_binding_names, reflect_vs_main_max_vertex_location,
 };
 
 /// Parses and validates WGSL, checks frame globals, and builds layout entries for groups 1 and 2.
@@ -82,6 +81,7 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
     let material_uniform = reflect_first_group1_uniform_struct(&module, &layouter);
     let material_group1_names = reflect_group1_global_binding_names(&module);
     let vs_max_vertex_location = reflect_vs_main_max_vertex_location(&module);
+    let snapshot_usage = reflect_frame_snapshot_usage(&module);
 
     let layout_fingerprint = fingerprint_layout(
         &material_entries,
@@ -92,7 +92,6 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
 
     let requires_intersection_pass =
         material_uniform_requires_intersection_subpass(&material_uniform);
-    let requires_grab_pass = material_uniform_requires_grab_pass_subpass(&material_uniform);
 
     Ok(ReflectedRasterLayout {
         layout_fingerprint,
@@ -101,8 +100,9 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
         material_uniform,
         material_group1_names,
         vs_max_vertex_location,
+        uses_scene_depth_snapshot: snapshot_usage.depth,
+        uses_scene_color_snapshot: snapshot_usage.color,
         requires_intersection_pass,
-        requires_grab_pass,
     })
 }
 
@@ -131,11 +131,18 @@ pub fn reflect_raster_material_requires_intersection_pass(wgsl_source: &str) -> 
         .is_some_and(|r| r.requires_intersection_pass)
 }
 
-/// `true` when reflection reports a grab-pass material (uniform field `_GrabPass`).
-pub fn reflect_raster_material_requires_grab_pass(wgsl_source: &str) -> bool {
+/// `true` when reflection reports that a material declares a scene-depth snapshot binding.
+pub fn reflect_raster_material_uses_scene_depth_snapshot(wgsl_source: &str) -> bool {
     reflect_raster_material_wgsl(wgsl_source)
         .ok()
-        .is_some_and(|r| r.requires_grab_pass)
+        .is_some_and(|r| r.uses_scene_depth_snapshot)
+}
+
+/// `true` when reflection reports that a material declares a scene-color snapshot binding.
+pub fn reflect_raster_material_uses_scene_color_snapshot(wgsl_source: &str) -> bool {
+    reflect_raster_material_wgsl(wgsl_source)
+        .ok()
+        .is_some_and(|r| r.uses_scene_color_snapshot)
 }
 
 /// Validates a reflected raster layout against device caps from [`crate::gpu::GpuLimits`].
