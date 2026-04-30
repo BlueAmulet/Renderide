@@ -31,6 +31,48 @@ const PLAYING_SEEK_DRIFT_SECONDS: f64 = 1.0;
 /// Maximum tolerated seek drift while video is paused.
 const PAUSED_SEEK_DRIFT_SECONDS: f64 = 0.01;
 
+/// Host-visible interpretation of the current media duration.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MediaDuration {
+    /// Seekable media with a positive finite duration in seconds.
+    Finite {
+        /// Duration in seconds.
+        seconds: f64,
+    },
+    /// Stream-like media without a stable timeline length.
+    Stream,
+}
+
+impl MediaDuration {
+    /// Converts an optional GStreamer clock duration into host-visible duration semantics.
+    fn from_clock_time(duration: Option<gstreamer::ClockTime>) -> Self {
+        match duration {
+            Some(duration) if duration != gstreamer::ClockTime::ZERO => Self::Finite {
+                seconds: duration.nseconds() as f64 / 1_000_000_000.0,
+            },
+            _ => Self::Stream,
+        }
+    }
+
+    /// Returns the length value sent through [`VideoTextureReady`].
+    fn ready_length_seconds(self) -> f64 {
+        match self {
+            Self::Finite { seconds } => seconds,
+            Self::Stream => f64::INFINITY,
+        }
+    }
+
+    /// Returns whether traditional timeline seeking is valid for this media.
+    fn supports_timeline_seeking(self) -> bool {
+        matches!(self, Self::Finite { .. })
+    }
+
+    /// Returns whether this media should report [`VideoTextureClockErrorState`].
+    fn reports_clock_error(self) -> bool {
+        self.supports_timeline_seeking()
+    }
+}
+
 /// Holds the GStreamer pipeline and handles incoming updates from host.
 pub struct VideoPlayer {
     /// Host video texture asset id.
@@ -344,9 +386,13 @@ impl VideoPlayer {
     /// Gets called when the pipeline is done prerolling and we have caps available.
     fn handle_async_done(&mut self, ipc: &mut Option<&mut DualQueueIpc>) {
         let size = self.video_sink.size();
-        let length = query_duration_seconds(&self.pipeline);
+        let duration = query_media_duration(&self.pipeline);
 
-        self.send_ready(ipc, length, size.unwrap_or_default());
+        self.send_ready(
+            ipc,
+            duration.ready_length_seconds(),
+            size.unwrap_or_default(),
+        );
     }
 
     /// Gets called when the video player becomes aware of audio/video streams.
@@ -407,6 +453,10 @@ impl VideoPlayer {
     /// [`VideoTextureUpdate::decoded_time`] (set by the IPC unpack at receive time). Returns `None`
     /// until at least one update has arrived or when the pipeline position cannot be queried.
     pub fn sample_clock_error(&self) -> Option<VideoTextureClockErrorState> {
+        if !query_media_duration(&self.pipeline).reports_clock_error() {
+            return None;
+        }
+
         let update = match self.last_update.lock() {
             Ok(slot) => slot.clone()?,
             Err(_) => {
@@ -433,8 +483,8 @@ impl VideoPlayer {
         }
 
         let size = self.video_sink.size().unwrap_or_default();
-        let length = query_duration_seconds(&self.pipeline);
-        self.send_ready(ipc, length, size);
+        let duration = query_media_duration(&self.pipeline);
+        self.send_ready(ipc, duration.ready_length_seconds(), size);
     }
 
     /// Sends a ready message when it differs from the last successfully queued one.
@@ -599,8 +649,7 @@ fn apply_update_to_pipeline(pipeline: &gstreamer::Element, update: &VideoTexture
     if let Err(e) = pipeline.set_state(target_state_for_update(update)) {
         logger::warn!("video texture update: failed to set pipeline state: {e}");
     }
-    if query_duration_seconds(pipeline) < 0.0 {
-        // video stream, do not seek
+    if !query_media_duration(pipeline).supports_timeline_seeking() {
         return;
     }
     let Some(current_seconds) = query_position_seconds(pipeline) else {
@@ -617,17 +666,17 @@ fn apply_update_to_pipeline(pipeline: &gstreamer::Element, update: &VideoTexture
     }
 }
 
-/// Queries the pipeline for the media duration.
-fn query_duration_seconds(pipeline: &gstreamer::Element) -> f64 {
+/// Queries the pipeline for the host-visible media duration.
+fn query_media_duration(pipeline: &gstreamer::Element) -> MediaDuration {
     let mut query = gstreamer::query::Duration::new(gstreamer::Format::Time);
     if !pipeline.query(&mut query) {
-        return -1.0;
+        return MediaDuration::Stream;
     }
     match query.result() {
-        gstreamer::GenericFormattedValue::Time(Some(t)) if t != gstreamer::ClockTime::ZERO => {
-            t.nseconds() as f64 / 1_000_000_000.0
+        gstreamer::GenericFormattedValue::Time(duration) => {
+            MediaDuration::from_clock_time(duration)
         }
-        _ => -1.0,
+        _ => MediaDuration::Stream,
     }
 }
 
@@ -764,6 +813,35 @@ mod tests {
             clock_time_from_seconds(1.25),
             gstreamer::ClockTime::from_nseconds(1_250_000_000)
         );
+    }
+
+    #[test]
+    fn finite_media_duration_reports_ready_length_and_clock_error() {
+        let duration = MediaDuration::from_clock_time(Some(gstreamer::ClockTime::from_nseconds(
+            3_000_000_000,
+        )));
+
+        assert_eq!(duration.ready_length_seconds(), 3.0);
+        assert!(duration.supports_timeline_seeking());
+        assert!(duration.reports_clock_error());
+    }
+
+    #[test]
+    fn missing_media_duration_is_stream_length_without_clock_error() {
+        let duration = MediaDuration::from_clock_time(None);
+
+        assert!(duration.ready_length_seconds().is_infinite());
+        assert!(!duration.supports_timeline_seeking());
+        assert!(!duration.reports_clock_error());
+    }
+
+    #[test]
+    fn zero_media_duration_is_stream_length_without_clock_error() {
+        let duration = MediaDuration::from_clock_time(Some(gstreamer::ClockTime::ZERO));
+
+        assert!(duration.ready_length_seconds().is_infinite());
+        assert!(!duration.supports_timeline_seeking());
+        assert!(!duration.reports_clock_error());
     }
 
     #[test]
