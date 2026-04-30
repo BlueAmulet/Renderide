@@ -15,11 +15,11 @@ use crate::assets::material::{
 };
 use crate::assets::texture::HostTextureAssetKind;
 use crate::backend::material_property_reader::texture_property;
-use crate::backend::skybox_params::{
-    gradient_sky_params, procedural_sky_params, projection360_equirect_params,
-};
 use crate::scene::{RenderSpaceId, SceneCoordinator, reflection_probe_skybox_only};
 use crate::shared::{ReflectionProbeClear, ReflectionProbeType, RenderSH2};
+use crate::skybox::params::{
+    gradient_sky_params, procedural_sky_params, projection360_equirect_params,
+};
 
 /// Either a synchronous CPU result or a GPU source to project.
 pub(super) enum Sh2ResolvedSource {

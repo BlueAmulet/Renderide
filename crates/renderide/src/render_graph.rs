@@ -78,7 +78,6 @@ mod resources;
 mod reverse_z_depth;
 mod schedule;
 mod secondary_camera;
-mod skinning_palette;
 mod swapchain_scope;
 mod transient_pool;
 
@@ -140,6 +139,7 @@ pub use frame_params::{
     WorldMeshHelperNeeds,
 };
 // Hi-Z extracted to `crate::occlusion`; re-exports kept for graph/passes/backend consumers.
+pub use crate::mesh_deform::{SkinningPaletteParams, build_skinning_palette};
 pub use crate::occlusion::{
     HI_Z_PYRAMID_MAX_LONG_EDGE, HiZBuildRecord, HiZCpuSnapshot, HiZCullData, HiZGpuState,
     HiZHistoryTarget, HiZStereoCpuSnapshot, encode_hi_z_build, hi_z_pyramid_dimensions,
@@ -165,7 +165,6 @@ pub use reverse_z_depth::{
 };
 pub use schedule::{FrameSchedule, ScheduleHudSnapshot, ScheduleStep, ScheduleValidationError};
 pub use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};
-pub use skinning_palette::{SkinningPaletteParams, build_skinning_palette};
 pub use swapchain_scope::{SwapchainEnterOutcome, SwapchainScope};
 pub use transient_pool::{
     BufferKey, TextureKey, TransientPool, TransientPoolError, TransientPoolMetrics,

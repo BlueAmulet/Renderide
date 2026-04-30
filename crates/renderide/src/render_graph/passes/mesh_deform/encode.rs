@@ -9,7 +9,7 @@ use crate::backend::advance_slab_cursor;
 use crate::backend::mesh_deform::SkinCacheEntry;
 use crate::backend::mesh_deform::plan_blendshape_scatter_chunks;
 use crate::gpu::GpuLimits;
-use crate::render_graph::skinning_palette::{SkinningPaletteParams, build_skinning_palette};
+use crate::mesh_deform::{SkinningPaletteParams, build_skinning_palette};
 use crate::scene::RenderSpaceId;
 
 use super::snapshot::{

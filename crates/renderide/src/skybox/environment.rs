@@ -14,16 +14,16 @@ use crate::assets::material::MaterialPropertyLookupIds;
 use crate::backend::frame_gpu::{
     SkyboxSpecularEnvironmentSource, SkyboxSpecularGeneratedCubemapSource,
 };
-use crate::backend::skybox_params::{
-    DEFAULT_GENERATED_SKYBOX_FACE_SIZE, gradient_sky_params, procedural_sky_params,
-};
 use crate::embedded_shaders;
 use crate::gpu::{GpuContext, GpuLimits};
 use crate::resources::CubemapSamplerState;
 use crate::scene::SceneCoordinator;
 use crate::shared::{TextureFilterMode, TextureWrapMode};
+use crate::skybox::params::{
+    DEFAULT_GENERATED_SKYBOX_FACE_SIZE, gradient_sky_params, procedural_sky_params,
+};
 
-use super::{GpuJobResources, GpuSubmitJobTracker, SubmittedGpuJob};
+use crate::backend::gpu_jobs::{GpuJobResources, GpuSubmitJobTracker, SubmittedGpuJob};
 
 /// Maximum generated skybox bake jobs allowed in flight at once.
 const MAX_IN_FLIGHT_SKYBOX_BAKES: usize = 2;
@@ -85,7 +85,7 @@ struct SkyboxBakeRequest {
     /// Generated cubemap identity.
     key: GeneratedSkyboxKey,
     /// Packed material evaluator parameters for the bake shader.
-    params: crate::backend::skybox_params::SkyboxEvaluatorParams,
+    params: crate::skybox::params::SkyboxEvaluatorParams,
 }
 
 /// Completed generated skybox cubemap ready for frame-global specular binding.
@@ -159,7 +159,7 @@ struct BakeMip0EncodeContext<'a> {
     /// Generated cubemap texture.
     texture: &'a wgpu::Texture,
     /// Packed skybox evaluator parameters.
-    params: &'a crate::backend::skybox_params::SkyboxEvaluatorParams,
+    params: &'a crate::skybox::params::SkyboxEvaluatorParams,
     /// Cubemap face edge for mip zero.
     face_size: u32,
 }
@@ -175,7 +175,7 @@ struct PrefilterEncodeContext<'a> {
     /// Generated cubemap texture.
     texture: &'a wgpu::Texture,
     /// Packed skybox evaluator parameters.
-    params: &'a crate::backend::skybox_params::SkyboxEvaluatorParams,
+    params: &'a crate::skybox::params::SkyboxEvaluatorParams,
     /// Total mip count in the generated cubemap.
     mip_levels: u32,
 }

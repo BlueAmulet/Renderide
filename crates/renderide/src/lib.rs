@@ -53,6 +53,15 @@ pub mod embedded_shaders {
 /// per-view [`occlusion::OcclusionSystem`] facade.
 pub mod occlusion;
 
+/// Mesh skinning / blendshape scatter compute, per-draw uniform packing, skin cache, palette upload.
+pub mod mesh_deform;
+
+/// Skybox rendering: environment cube cache, IBL specular params, active-main resolution.
+pub mod skybox;
+
+/// Reflection probes: nonblocking GPU SH2 projection for host reflection-probe tasks.
+pub mod reflection_probes;
+
 /// IPC queues, shared-memory accessor, init handshake, and dual-queue dispatch.
 pub mod ipc;
 /// CLI IPC queue parameters and queue name helpers ([`ipc::connection`]).

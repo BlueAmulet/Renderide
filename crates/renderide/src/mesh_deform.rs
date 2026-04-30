@@ -8,6 +8,9 @@ mod blendshape_bind_chunks;
 mod mesh_preprocess;
 mod per_draw_uniforms;
 mod scratch;
+mod skinning_palette;
+
+pub use skinning_palette::{SkinningPaletteParams, build_skinning_palette};
 
 pub use blendshape_bind_chunks::{
     BLENDSHAPE_SPARSE_MIN_BUFFER_BYTES, blendshape_sparse_buffers_fit_device,

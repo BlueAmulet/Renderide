@@ -14,7 +14,7 @@ mod readback_jobs;
 mod source_resolution;
 mod task_rows;
 
-use crate::backend::skybox_params::{SkyboxEvaluatorParams, SkyboxParamMode};
+use crate::skybox::params::{SkyboxEvaluatorParams, SkyboxParamMode};
 use projection_pipeline::{
     ProjectionBinding, ProjectionPipeline, encode_projection_job, ensure_projection_pipeline,
 };
@@ -26,16 +26,16 @@ use task_rows::{
 };
 
 #[cfg(test)]
-use crate::backend::skybox_params::{DEFAULT_MAIN_TEX_ST, PROJECTION360_DEFAULT_FOV};
-#[cfg(test)]
 use crate::shared::ReflectionProbeSH2Task;
+#[cfg(test)]
+use crate::skybox::params::{DEFAULT_MAIN_TEX_ST, PROJECTION360_DEFAULT_FOV};
 #[cfg(test)]
 use glam::Vec4;
 #[cfg(test)]
 use task_rows::read_i32_le;
 
 /// Skybox projection sample resolution per cube face.
-const DEFAULT_SAMPLE_SIZE: u32 = crate::backend::skybox_params::DEFAULT_SKYBOX_SAMPLE_SIZE;
+const DEFAULT_SAMPLE_SIZE: u32 = crate::skybox::params::DEFAULT_SKYBOX_SAMPLE_SIZE;
 /// Maximum pending GPU jobs kept alive at once.
 const MAX_IN_FLIGHT_JOBS: usize = 6;
 /// Number of renderer ticks before a pending GPU readback is treated as failed.
