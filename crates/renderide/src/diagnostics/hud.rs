@@ -6,131 +6,52 @@
 //! **[`crate::config::DebugSettings::debug_hud_transforms`]** toggles the **Scene transforms** window.
 //! **[`crate::config::DebugSettings::debug_hud_textures`]** toggles the **Textures** window.
 //!
-//! Window bodies live in [`mod@windows`].
+//! HUD-rendering infrastructure lives in submodules:
+//!
+//! - [`layout`]: declarative window placement (`Viewport`, `WindowAnchor`, `WindowSlot`) plus
+//!   the stacked-column constants and helpers used by the four anchored HUD windows.
+//! - [`state`]: [`state::HudUiState`], the grouped per-window open flags and per-tab filter
+//!   toggles owned by [`DebugHud`].
+//! - [`view`]: rendering algebra (`HudWindow`, `TabView`).
+//! - [`registry`]: static-dispatch [`registry::DebugWindow`] enum + [`registry::OverlayFeatureFlags`].
+//! - [`fmt`]: right-aligned numeric formatters and byte-compaction helpers.
+//! - [`input`]: per-frame ImGui IO bridge for [`super::DebugHudInput`].
+//! - [`windows`]: concrete window/tab impls.
 
-mod fmt;
-mod layout;
-mod windows;
+pub mod fmt;
+pub(crate) mod input;
+pub mod layout;
+pub mod registry;
+pub mod state;
+pub mod view;
+pub mod windows;
+
+pub use state::HudUiState;
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::config::RendererSettingsHandle;
-use imgui::{Condition, Context, FontConfig, FontSource, WindowFlags};
+use imgui::{Condition, Context, FontConfig, FontSource};
 use imgui_wgpu::{Renderer as ImguiWgpuRenderer, RendererConfig};
 
-use super::debug_hud_encode_error::DebugHudEncodeError;
-use super::frame_diagnostics_snapshot::FrameDiagnosticsSnapshot;
-use super::frame_timing_hud_snapshot::FrameTimingHudSnapshot;
-use super::hud_input::DebugHudInput;
-use super::renderer_info_snapshot::RendererInfoSnapshot;
-use super::scene_transforms_snapshot::SceneTransformsSnapshot;
-use super::texture_debug_snapshot::TextureDebugSnapshot;
+use crate::config::RendererSettingsHandle;
 
-/// Renders the **Frame timing** overlay window when enabled.
-fn overlay_frame_timing_window(ui: &imgui::Ui, frame_timing: Option<&FrameTimingHudSnapshot>) {
-    DebugHud::frame_timing_window(ui, frame_timing);
-}
-
-/// Per-frame read-only snapshots shown in the **Renderide debug** tabbed panel.
-struct MainDebugWindowSnapshots<'a> {
-    /// IPC / adapter / scene / materials / graph stats for the **Stats** tab.
-    latest: Option<&'a RendererInfoSnapshot>,
-    /// Timing, host/allocator, draws, shader routes, GPU memory tab payload.
-    frame_diagnostics: Option<&'a FrameDiagnosticsSnapshot>,
-    /// Flattened per-pass GPU timings for the **GPU passes** tab.
-    gpu_pass_timings: &'a [crate::profiling::GpuPassEntry],
-}
-
-/// Mutable tab filter toggles owned by [`DebugHud`] and borrowed into the main debug window.
-struct MainDebugTabFilters<'a> {
-    /// **Shader routes** tab: show only fallback routes when set.
-    shader_routes_only_fallback: &'a mut bool,
-    /// **Draw state** tab: show only overlay/UI-ish draws when set.
-    draw_state_ui_only: &'a mut bool,
-    /// **Draw state** tab: show only material rows with render-state overrides when set.
-    draw_state_only_overrides: &'a mut bool,
-}
-
-/// Renders the **Renderide debug** tabbed panel (Stats / Shader routes / Draw state / GPU memory / GPU passes).
-fn overlay_main_debug_window(
-    ui: &imgui::Ui,
-    width: u32,
-    snapshots: MainDebugWindowSnapshots<'_>,
-    filters: MainDebugTabFilters<'_>,
-) {
-    const PANEL_WIDTH: f32 = 760.0;
-    let panel_x = (width as f32 - PANEL_WIDTH - layout::MARGIN).max(layout::MARGIN);
-    let window_flags = WindowFlags::ALWAYS_AUTO_RESIZE
-        | WindowFlags::NO_RESIZE
-        | WindowFlags::NO_SAVED_SETTINGS
-        | WindowFlags::NO_FOCUS_ON_APPEARING
-        | WindowFlags::NO_NAV;
-
-    let MainDebugWindowSnapshots {
-        latest,
-        frame_diagnostics,
-        gpu_pass_timings,
-    } = snapshots;
-    let MainDebugTabFilters {
-        shader_routes_only_fallback,
-        draw_state_ui_only,
-        draw_state_only_overrides,
-    } = filters;
-
-    ui.window("Renderide debug")
-        .position([panel_x, layout::MARGIN], Condition::FirstUseEver)
-        .size_constraints([PANEL_WIDTH, 0.0], [PANEL_WIDTH, 1.0e9])
-        .bg_alpha(0.72)
-        .flags(window_flags)
-        .build(|| {
-            if let Some(_tab_bar) = ui.tab_bar("debug_tabs") {
-                if let Some(_tab) = ui.tab_item("Stats") {
-                    DebugHud::main_debug_panel(ui, latest, frame_diagnostics);
-                }
-                if let Some(_tab) = ui.tab_item("Shader routes") {
-                    DebugHud::shader_mappings_tab(
-                        ui,
-                        frame_diagnostics,
-                        shader_routes_only_fallback,
-                    );
-                }
-                if let Some(_tab) = ui.tab_item("Draw state") {
-                    DebugHud::draw_state_tab(
-                        ui,
-                        frame_diagnostics,
-                        draw_state_ui_only,
-                        draw_state_only_overrides,
-                    );
-                }
-                if let Some(_tab) = ui.tab_item("GPU memory") {
-                    DebugHud::gpu_memory_tab(ui, frame_diagnostics);
-                }
-                if let Some(_tab) = ui.tab_item("GPU passes") {
-                    DebugHud::gpu_passes_tab(ui, gpu_pass_timings);
-                }
-            }
-        });
-}
-
-/// Renders the **Scene transforms** window when enabled.
-fn overlay_scene_transforms_window(
-    ui: &imgui::Ui,
-    scene_transforms: &SceneTransformsSnapshot,
-    scene_transforms_open: &mut bool,
-) {
-    DebugHud::scene_transforms_window(ui, scene_transforms, scene_transforms_open);
-}
-
-/// Renders the **Textures** window when enabled.
-fn overlay_texture_debug_window(
-    ui: &imgui::Ui,
-    texture_debug: &TextureDebugSnapshot,
-    texture_debug_open: &mut bool,
-    current_view_only: &mut bool,
-) {
-    DebugHud::texture_debug_window(ui, texture_debug, texture_debug_open, current_view_only);
-}
+use self::input::apply_input;
+use self::layout::Viewport;
+use self::registry::{DebugWindow, OverlayFeatureFlags};
+use self::view::HudWindow;
+use self::windows::frame_timing::FrameTimingWindow;
+use self::windows::main_debug::{MainDebugWindow, MainDebugWindowData};
+use self::windows::renderer_config::{RendererConfigData, RendererConfigWindow};
+use self::windows::scene_transforms::SceneTransformsWindow;
+use self::windows::texture_debug::TextureDebugWindow;
+use super::encode_error::DebugHudEncodeError;
+use super::input::DebugHudInput;
+use super::snapshots::frame_diagnostics::FrameDiagnosticsSnapshot;
+use super::snapshots::frame_timing::FrameTimingHudSnapshot;
+use super::snapshots::renderer_info::RendererInfoSnapshot;
+use super::snapshots::scene_transforms::SceneTransformsSnapshot;
+use super::snapshots::texture_debug::TextureDebugSnapshot;
 
 /// Dear ImGui overlay: frame timing, renderer stats, shader routes, scene transforms, and config UI.
 pub struct DebugHud {
@@ -146,25 +67,13 @@ pub struct DebugHud {
     scene_transforms: SceneTransformsSnapshot,
     /// Per-frame texture pool listing for the **Textures** window.
     texture_debug: TextureDebugSnapshot,
-    /// Whether the **Scene transforms** window is open (independent of the stats panel).
-    scene_transforms_open: bool,
-    /// Whether the **Textures** window is open.
-    texture_debug_open: bool,
-    /// Show only textures referenced by the current view in the **Textures** window.
-    texture_debug_current_view_only: bool,
-    /// Show only overlay/UI-ish draws in the **Draw state** tab.
-    draw_state_ui_only: bool,
-    /// Show only material rows with render-state overrides in the **Draw state** tab.
-    draw_state_only_overrides: bool,
-    /// Show only fallback shader routes in the **Shader routes** tab.
-    shader_routes_only_fallback: bool,
+    /// Per-window open flags and per-tab filter toggles.
+    ui_state: HudUiState,
     /// Live settings + persistence target for the **Renderer config** window.
     renderer_settings: RendererSettingsHandle,
     config_save_path: PathBuf,
     /// When `true`, do not write `config.toml` from the overlay (startup Figment extract failed).
     suppress_renderer_config_disk_writes: bool,
-    /// Whether the **Renderer config** window is open.
-    renderer_config_open: bool,
     /// Most recent flattened per-pass GPU timings for the **GPU passes** tab. Empty until the
     /// first profiled frame completes; see
     /// [`crate::gpu::GpuContext::latest_gpu_pass_timings_handle`].
@@ -207,16 +116,10 @@ impl DebugHud {
             frame_diagnostics: None,
             scene_transforms: SceneTransformsSnapshot::default(),
             texture_debug: TextureDebugSnapshot::default(),
-            scene_transforms_open: true,
-            texture_debug_open: true,
-            texture_debug_current_view_only: false,
-            draw_state_ui_only: false,
-            draw_state_only_overrides: false,
-            shader_routes_only_fallback: false,
+            ui_state: HudUiState::default(),
             renderer_settings,
             config_save_path,
             suppress_renderer_config_disk_writes,
-            renderer_config_open: true,
             gpu_pass_timings: Vec::new(),
         }
     }
@@ -288,7 +191,7 @@ impl DebugHud {
         io.display_size = [width as f32, height as f32];
         io.display_framebuffer_scale = [1.0, 1.0];
         io.update_delta_time(delta);
-        windows::apply_input(io, input);
+        apply_input(io, input);
     }
 
     /// Returns `true` when at least one HUD window will draw something this frame.
@@ -299,32 +202,8 @@ impl DebugHud {
     /// [`Self::encode_overlay`] runs, so dropping a frame's encode does not corrupt later frames'
     /// drawing.
     pub fn has_visible_content(&self) -> bool {
-        let (_, _, _, _, any_debug_content) = self.overlay_feature_flags();
-        any_debug_content || self.renderer_config_open
-    }
-
-    /// Reads which optional HUD windows are enabled from live settings.
-    fn overlay_feature_flags(&self) -> (bool, bool, bool, bool, bool) {
-        let (frame_timing_hud, main_hud, transforms_hud, textures_hud) = self
-            .renderer_settings
-            .read()
-            .map(|g| {
-                (
-                    g.debug.debug_hud_frame_timing,
-                    g.debug.debug_hud_enabled,
-                    g.debug.debug_hud_transforms,
-                    g.debug.debug_hud_textures,
-                )
-            })
-            .unwrap_or((true, false, false, false));
-        let any_debug_content = frame_timing_hud || main_hud || transforms_hud || textures_hud;
-        (
-            frame_timing_hud,
-            main_hud,
-            transforms_hud,
-            textures_hud,
-            any_debug_content,
-        )
+        let flags = OverlayFeatureFlags::from_settings(&self.renderer_settings);
+        flags.any_debug_content() || self.ui_state.renderer_config_open
     }
 
     /// Encodes ImGui draw lists into a load-on-top pass over `backbuffer` and returns want-capture flags.
@@ -363,6 +242,11 @@ impl DebugHud {
     }
 
     /// Records ImGui into `encoder` as a load-on-top pass over `backbuffer`.
+    ///
+    /// Iterates [`DebugWindow::ALL`] and dispatches to the matching [`HudWindow`] impl per
+    /// variant; [`DebugWindow::enabled`] gates each window from
+    /// [`OverlayFeatureFlags::from_settings`]. Adding a new window means adding an enum variant
+    /// + one match arm; the encode path stays a single for-loop.
     pub fn encode_overlay(
         &mut self,
         device: &wgpu::Device,
@@ -375,55 +259,96 @@ impl DebugHud {
         profiling::scope!("hud::encode_overlay");
         self.apply_overlay_frame_io((width, height), input);
 
-        let (frame_timing_hud, main_hud, transforms_hud, textures_hud, any_debug_content) =
-            self.overlay_feature_flags();
+        let flags = OverlayFeatureFlags::from_settings(&self.renderer_settings);
+        let viewport = Viewport { width, height };
 
+        // `self.imgui.frame()` already holds a mutable borrow on `self.imgui`, so the dispatch
+        // loop cannot also take `&mut self`. Field-disjoint borrows let each match arm borrow
+        // exactly the snapshot it needs while sharing `&mut self.ui_state`.
         let ui = self.imgui.frame();
-        if any_debug_content {
-            if frame_timing_hud {
-                overlay_frame_timing_window(ui, self.frame_timing.as_ref());
+        let ui_state = &mut self.ui_state;
+        let frame_timing = self.frame_timing.as_ref();
+        let renderer_info = self.latest.as_ref();
+        let frame_diagnostics = self.frame_diagnostics.as_ref();
+        let gpu_pass_timings: &[crate::profiling::GpuPassEntry] = &self.gpu_pass_timings;
+        let scene_transforms = &self.scene_transforms;
+        let texture_debug = &self.texture_debug;
+        let renderer_settings = &self.renderer_settings;
+        let config_save_path = self.config_save_path.as_path();
+        let suppress_renderer_config_disk_writes = self.suppress_renderer_config_disk_writes;
+
+        for &window in DebugWindow::ALL {
+            if !window.enabled(flags) {
+                continue;
             }
-            if main_hud {
-                overlay_main_debug_window(
+            match window {
+                DebugWindow::FrameTiming => {
+                    render_window(ui, viewport, &FrameTimingWindow, frame_timing, ui_state);
+                }
+                DebugWindow::Main => render_window(
                     ui,
-                    width,
-                    MainDebugWindowSnapshots {
-                        latest: self.latest.as_ref(),
-                        frame_diagnostics: self.frame_diagnostics.as_ref(),
-                        gpu_pass_timings: &self.gpu_pass_timings,
+                    viewport,
+                    &MainDebugWindow,
+                    MainDebugWindowData {
+                        renderer_info,
+                        frame_diagnostics,
+                        gpu_pass_timings,
                     },
-                    MainDebugTabFilters {
-                        shader_routes_only_fallback: &mut self.shader_routes_only_fallback,
-                        draw_state_ui_only: &mut self.draw_state_ui_only,
-                        draw_state_only_overrides: &mut self.draw_state_only_overrides,
+                    ui_state,
+                ),
+                DebugWindow::SceneTransforms => render_window(
+                    ui,
+                    viewport,
+                    &SceneTransformsWindow,
+                    scene_transforms,
+                    ui_state,
+                ),
+                DebugWindow::Textures => {
+                    render_window(ui, viewport, &TextureDebugWindow, texture_debug, ui_state);
+                }
+                DebugWindow::RendererConfig => render_window(
+                    ui,
+                    viewport,
+                    &RendererConfigWindow,
+                    RendererConfigData {
+                        settings: renderer_settings,
+                        save_path: config_save_path,
+                        suppress_renderer_config_disk_writes,
                     },
-                );
-            }
-            if transforms_hud {
-                overlay_scene_transforms_window(
-                    ui,
-                    &self.scene_transforms,
-                    &mut self.scene_transforms_open,
-                );
-            }
-            if textures_hud {
-                overlay_texture_debug_window(
-                    ui,
-                    &self.texture_debug,
-                    &mut self.texture_debug_open,
-                    &mut self.texture_debug_current_view_only,
-                );
+                    ui_state,
+                ),
             }
         }
 
-        Self::renderer_config_window(
-            ui,
-            &self.renderer_settings,
-            &self.config_save_path,
-            self.suppress_renderer_config_disk_writes,
-            &mut self.renderer_config_open,
-        );
-
         self.encode_imgui_wgpu_pass(device, queue, encoder, backbuffer)
+    }
+}
+
+/// Renders one [`HudWindow`] in the standard ImGui envelope (position, size, flags, bg alpha,
+/// optional open flag, body).
+fn render_window<W>(
+    ui: &imgui::Ui,
+    viewport: Viewport,
+    window: &W,
+    data: W::Data<'_>,
+    state: &mut W::State,
+) where
+    W: HudWindow,
+{
+    profiling::scope!("hud::render_window");
+    let slot = window.anchor(viewport);
+    let mut open_local = window.read_open_flag(state);
+    let mut builder = ui
+        .window(window.title())
+        .position(slot.position, Condition::FirstUseEver)
+        .size_constraints(slot.size_min, slot.size_max)
+        .bg_alpha(window.bg_alpha())
+        .flags(window.flags());
+    if let Some(open) = open_local.as_mut() {
+        builder = builder.opened(open);
+    }
+    builder.build(|| window.body(ui, data, state));
+    if let Some(new_open) = open_local {
+        window.write_open_flag(state, new_open);
     }
 }
