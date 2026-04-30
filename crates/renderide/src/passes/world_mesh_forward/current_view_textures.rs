@@ -1,7 +1,7 @@
 //! Debug HUD: current-view 2D texture asset ids derived from sorted world-mesh draws.
 
-use crate::backend::MaterialSystem;
 use crate::materials::EmbeddedMaterialBindResources;
+use crate::materials::MaterialSystem;
 use crate::materials::RasterPipelineKind;
 use crate::materials::host_data::MaterialPropertyStore;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;

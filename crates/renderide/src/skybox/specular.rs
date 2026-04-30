@@ -2,11 +2,11 @@
 
 use crate::assets::asset_transfer_queue::AssetTransferQueue;
 use crate::assets::texture::HostTextureAssetKind;
-use crate::backend::MaterialSystem;
 use crate::backend::frame_gpu::{
     SkyboxSpecularCubemapSource, SkyboxSpecularEnvironmentSource, SkyboxSpecularEquirectSource,
 };
 use crate::backend::material_property_reader::{float4_property, texture_property};
+use crate::materials::MaterialSystem;
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };

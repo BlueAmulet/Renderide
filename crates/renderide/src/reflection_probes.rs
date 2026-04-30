@@ -194,7 +194,7 @@ impl ReflectionProbeSh2System {
         &mut self,
         shm: &mut SharedMemoryAccessor,
         scene: &SceneCoordinator,
-        materials: &crate::backend::MaterialSystem,
+        materials: &crate::materials::MaterialSystem,
         assets: &crate::backend::AssetTransferQueue,
         data: &FrameSubmitData,
     ) {
@@ -234,7 +234,7 @@ impl ReflectionProbeSh2System {
         &mut self,
         shm: &mut SharedMemoryAccessor,
         scene: &SceneCoordinator,
-        materials: &crate::backend::MaterialSystem,
+        materials: &crate::materials::MaterialSystem,
         assets: &crate::backend::AssetTransferQueue,
         render_space_id: i32,
         tasks: &ReflectionProbeSH2Tasks,
@@ -270,7 +270,7 @@ impl ReflectionProbeSh2System {
     fn answer_for_task(
         &mut self,
         scene: &SceneCoordinator,
-        materials: &crate::backend::MaterialSystem,
+        materials: &crate::materials::MaterialSystem,
         assets: &crate::backend::AssetTransferQueue,
         render_space_id: i32,
         task: TaskHeader,

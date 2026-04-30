@@ -34,7 +34,7 @@ pub(super) enum Sh2ResolvedSource {
 /// Resolves a host task into a cache key and source payload.
 pub(super) fn resolve_task_source(
     scene: &SceneCoordinator,
-    materials: &crate::backend::MaterialSystem,
+    materials: &crate::materials::MaterialSystem,
     assets: &crate::backend::AssetTransferQueue,
     render_space_id: i32,
     task: TaskHeader,
@@ -120,7 +120,7 @@ pub(super) fn resolve_task_source(
 fn resolve_skybox_source(
     render_space_id: i32,
     material_asset_id: i32,
-    materials: &crate::backend::MaterialSystem,
+    materials: &crate::materials::MaterialSystem,
     assets: &crate::backend::AssetTransferQueue,
 ) -> Option<(Sh2SourceKey, Sh2ResolvedSource)> {
     if material_asset_id < 0 {
@@ -193,7 +193,7 @@ fn resolve_skybox_source(
 
 /// Returns a shader route name or stem for a shader asset id.
 fn shader_route_name(
-    materials: &crate::backend::MaterialSystem,
+    materials: &crate::materials::MaterialSystem,
     shader_asset_id: i32,
 ) -> Option<String> {
     let registry = materials.material_registry()?;

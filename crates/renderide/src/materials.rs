@@ -90,6 +90,7 @@ mod registry;
 mod render_state;
 mod resolve_raster;
 mod router;
+mod system;
 mod wgsl;
 mod wgsl_reflect;
 
@@ -147,6 +148,7 @@ pub use wgsl_reflect::{
 pub use registry::MaterialRegistry;
 pub use resolve_raster::resolve_raster_pipeline;
 pub use router::{MaterialRouter, ShaderRouteEntry};
+pub use system::{MAX_PENDING_MATERIAL_BATCHES, MaterialSystem};
 pub use wgsl::{WgslPatch, compose_wgsl};
 
 pub use crate::pipelines::raster::NullFamily;

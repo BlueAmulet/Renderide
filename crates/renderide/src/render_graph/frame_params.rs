@@ -14,10 +14,10 @@ use parking_lot::Mutex;
 
 use crate::assets::AssetTransferQueue;
 use crate::backend::FrameResourceManager;
-use crate::backend::MaterialSystem;
 use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
+use crate::materials::MaterialSystem;
 use crate::materials::{
     MaterialPassDesc, MaterialPipelineDesc, MaterialPipelineSet, RasterFrontFace,
 };

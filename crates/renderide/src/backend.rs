@@ -19,7 +19,6 @@ pub(crate) mod gpu_jobs;
 mod history_registry;
 mod light_gpu;
 pub(crate) mod material_property_reader;
-mod material_system;
 mod per_draw_resources;
 mod per_view_resource_map;
 mod view_resource_registry;
@@ -56,6 +55,5 @@ pub use light_gpu::{
     GpuLight, MAX_LIGHTS, order_lights_for_clustered_shading,
     order_lights_for_clustered_shading_in_place,
 };
-pub use material_system::{MAX_PENDING_MATERIAL_BATCHES, MaterialSystem};
 pub use per_draw_resources::PerDrawResources;
 pub(crate) use view_resource_registry::ViewResourceRegistry;

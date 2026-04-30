@@ -1,8 +1,8 @@
 //! Prepare callback helpers for world-mesh forward passes.
 
-use crate::backend::MaterialSystem;
 use crate::camera::HostCameraFrame;
 use crate::gpu::GpuLimits;
+use crate::materials::MaterialSystem;
 use crate::pipelines::ShaderPermutation;
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::frame_params::{

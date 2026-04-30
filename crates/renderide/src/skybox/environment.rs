@@ -217,7 +217,7 @@ impl SkyboxEnvironmentCache {
         &mut self,
         gpu: &GpuContext,
         scene: &SceneCoordinator,
-        materials: &crate::backend::MaterialSystem,
+        materials: &crate::materials::MaterialSystem,
     ) {
         profiling::scope!("skybox_environment::maintain");
         let _ = gpu.device().poll(wgpu::PollType::Poll);
@@ -244,7 +244,7 @@ impl SkyboxEnvironmentCache {
     pub(crate) fn active_specular_source(
         &self,
         scene: &SceneCoordinator,
-        materials: &crate::backend::MaterialSystem,
+        materials: &crate::materials::MaterialSystem,
         limits: &GpuLimits,
     ) -> Option<SkyboxSpecularEnvironmentSource> {
         let request = resolve_active_bake_request(scene, materials, limits)?;
@@ -451,7 +451,7 @@ fn generated_environment_sampler_state() -> CubemapSamplerState {
 /// Resolves the active skybox material into a generated cubemap request.
 fn resolve_active_bake_request(
     scene: &SceneCoordinator,
-    materials: &crate::backend::MaterialSystem,
+    materials: &crate::materials::MaterialSystem,
     limits: &GpuLimits,
 ) -> Option<SkyboxBakeRequest> {
     let material_asset_id = scene.active_main_space()?.skybox_material_asset_id;
@@ -488,7 +488,7 @@ fn resolve_active_bake_request(
 
 /// Returns a shader route name or stem for a shader asset id.
 fn shader_route_name(
-    materials: &crate::backend::MaterialSystem,
+    materials: &crate::materials::MaterialSystem,
     shader_asset_id: i32,
 ) -> Option<String> {
     let registry = materials.material_registry()?;

@@ -139,7 +139,7 @@ pub(super) struct PerViewRecordShared<'a> {
     /// Persistent history resources resolved for ping-pong graph imports.
     pub(super) history: &'a crate::backend::HistoryRegistry,
     /// Shared material system for pipeline and bind lookups.
-    pub(super) materials: &'a crate::backend::MaterialSystem,
+    pub(super) materials: &'a crate::materials::MaterialSystem,
     /// Shared asset pools for meshes and textures.
     pub(super) asset_transfers: &'a crate::assets::asset_transfer_queue::AssetTransferQueue,
     /// Optional mesh preprocess pipelines (unused in per-view recording, kept for completeness).

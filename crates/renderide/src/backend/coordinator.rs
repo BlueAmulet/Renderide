@@ -34,7 +34,7 @@ use super::FrameGpuBindingsError;
 use super::FrameResourceManager;
 use super::ViewResourceRegistry;
 use super::debug_hud_bundle::DebugHudBundle;
-use super::material_system::MaterialSystem;
+use crate::materials::MaterialSystem;
 use crate::materials::embedded::{EmbeddedMaterialBindError, EmbeddedTexturePools};
 use crate::occlusion::OcclusionSystem;
 

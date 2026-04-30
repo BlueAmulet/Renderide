@@ -1,4 +1,4 @@
-//! Host IPC handlers for asset transfers, material batches, and shader routing (delegates to the asset queue and [`crate::backend::MaterialSystem`]).
+//! Host IPC handlers for asset transfers, material batches, and shader routing (delegates to the asset queue and [`crate::materials::MaterialSystem`]).
 
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::RasterPipelineKind;
