@@ -1,12 +1,13 @@
 //! The [`VideoPlayer`] holds the GStreamer pipeline and handles incoming updates from host.
 
-use crate::assets::video::cpu_copy::CpuCopyVideoSink;
-use crate::assets::video::WgpuGstVideoSink;
+use super::audio_sink::ResoniteAudioSink;
+use super::cpu_copy::CpuCopyVideoSink;
+use super::WgpuGstVideoSink;
 use crate::assets::AssetTransferQueue;
 use glam::IVec2;
 use gstreamer::prelude::{ElementExt, ElementExtManual};
-use gstreamer_app::AppSink;
-use interprocess::{QueueFactory, QueueOptions};
+
+use gstreamer::StreamCollection;
 use renderide_shared::ipc::DualQueueIpc;
 use renderide_shared::{
     RendererCommand, VideoAudioTrack, VideoTextureClockErrorState, VideoTextureLoad,
@@ -30,6 +31,48 @@ const PLAYING_SEEK_DRIFT_SECONDS: f64 = 1.0;
 /// Maximum tolerated seek drift while video is paused.
 const PAUSED_SEEK_DRIFT_SECONDS: f64 = 0.01;
 
+/// Host-visible interpretation of the current media duration.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum MediaDuration {
+    /// Seekable media with a positive finite duration in seconds.
+    Finite {
+        /// Duration in seconds.
+        seconds: f64,
+    },
+    /// Stream-like media without a stable timeline length.
+    Stream,
+}
+
+impl MediaDuration {
+    /// Converts an optional GStreamer clock duration into host-visible duration semantics.
+    fn from_clock_time(duration: Option<gstreamer::ClockTime>) -> Self {
+        match duration {
+            Some(duration) if duration != gstreamer::ClockTime::ZERO => Self::Finite {
+                seconds: duration.nseconds() as f64 / 1_000_000_000.0,
+            },
+            _ => Self::Stream,
+        }
+    }
+
+    /// Returns the length value sent through [`VideoTextureReady`].
+    fn ready_length_seconds(self) -> f64 {
+        match self {
+            Self::Finite { seconds } => seconds,
+            Self::Stream => f64::INFINITY,
+        }
+    }
+
+    /// Returns whether traditional timeline seeking is valid for this media.
+    fn supports_timeline_seeking(self) -> bool {
+        matches!(self, Self::Finite { .. })
+    }
+
+    /// Returns whether this media should report [`VideoTextureClockErrorState`].
+    fn reports_clock_error(self) -> bool {
+        self.supports_timeline_seeking()
+    }
+}
+
 /// Holds the GStreamer pipeline and handles incoming updates from host.
 pub struct VideoPlayer {
     /// Host video texture asset id.
@@ -37,11 +80,13 @@ pub struct VideoPlayer {
     /// GStreamer playbin pipeline for this video texture.
     pipeline: gstreamer::Element,
     /// AppSink used to forward decoded audio samples to the host.
-    audio_sink: AppSink,
+    audio_sink: ResoniteAudioSink,
     /// Active decoded-video sink backend.
     video_sink: Box<dyn WgpuGstVideoSink + Send>,
     /// Audio sample rate requested by the host audio system.
     audio_sample_rate: i32,
+    /// Stream metadata discovered from GStreamer stream-collection messages.
+    streams: VideoStreamCatalog,
     /// Stores the latest [`VideoTextureUpdate`] until it gets processed by the update thread.
     pending_update: Arc<Mutex<Option<VideoTextureUpdate>>>,
     /// Most recently received host update, retained even after the worker thread applies it so
@@ -50,8 +95,122 @@ pub struct VideoPlayer {
     /// `_update` in `UnityVideoTextureBehaviour`, which is re-armed each frame with the same
     /// last-received instance.
     last_update: Arc<Mutex<Option<VideoTextureUpdate>>>,
+    /// Last successfully queued ready message, used to avoid redundant background IPC.
+    last_ready_message: Option<VideoTextureReady>,
     /// Shared shutdown flag checked by the update thread.
     shutdown: Arc<AtomicBool>,
+}
+
+/// Selectable audio stream metadata paired with the host-facing track descriptor.
+struct AudioStreamMetadata {
+    /// GStreamer stream id used in `select-streams` events.
+    stream_id: String,
+    /// Track descriptor sent to the host.
+    track: VideoAudioTrack,
+}
+
+/// Stream metadata discovered for one video player.
+#[derive(Default)]
+struct VideoStreamCatalog {
+    /// Selectable audio streams, ordered by host track index.
+    audio_streams: Vec<AudioStreamMetadata>,
+    /// GStreamer stream ids for video streams that should stay selected with audio.
+    video_stream_ids: Vec<String>,
+}
+
+impl VideoStreamCatalog {
+    /// Builds a stream catalog from a GStreamer stream collection.
+    fn from_collection(collection: &StreamCollection, sample_rate: i32) -> Self {
+        let mut audio_streams = Vec::new();
+        let mut video_stream_ids = Vec::new();
+
+        for stream in collection {
+            let stream_type = stream.stream_type();
+            if stream_type.contains(gstreamer::StreamType::VIDEO) {
+                if let Some(stream_id) = stream.stream_id() {
+                    video_stream_ids.push(stream_id.to_string());
+                }
+            }
+
+            if stream_type.contains(gstreamer::StreamType::AUDIO) {
+                let Ok(track_index) = i32::try_from(audio_streams.len()) else {
+                    break;
+                };
+                if let Some(metadata) =
+                    AudioStreamMetadata::from_stream(track_index, &stream, sample_rate)
+                {
+                    audio_streams.push(metadata);
+                }
+            }
+        }
+
+        Self {
+            audio_streams,
+            video_stream_ids,
+        }
+    }
+
+    /// Replaces this catalog with metadata from `collection` and returns whether it changed.
+    fn replace_from_collection(&mut self, collection: &StreamCollection, sample_rate: i32) -> bool {
+        let next = Self::from_collection(collection, sample_rate);
+        if self.same_as(&next) {
+            return false;
+        }
+        *self = next;
+        true
+    }
+
+    /// Returns host-facing audio track descriptors.
+    fn audio_tracks(&self) -> Vec<VideoAudioTrack> {
+        self.audio_streams
+            .iter()
+            .map(|metadata| metadata.track.clone())
+            .collect()
+    }
+
+    /// Returns the number of selectable audio streams.
+    fn audio_track_count(&self) -> usize {
+        self.audio_streams.len()
+    }
+
+    /// Builds stream ids for selecting one host audio track while retaining video streams.
+    fn selected_stream_ids(&self, audio_track_index: usize) -> Option<Vec<&str>> {
+        let audio_stream = self.audio_streams.get(audio_track_index)?;
+        let mut stream_ids = Vec::with_capacity(self.video_stream_ids.len() + 1);
+        stream_ids.extend(self.video_stream_ids.iter().map(String::as_str));
+        stream_ids.push(audio_stream.stream_id.as_str());
+        Some(stream_ids)
+    }
+
+    /// Returns whether this catalog has the same host-visible and GStreamer stream metadata.
+    fn same_as(&self, other: &Self) -> bool {
+        self.video_stream_ids == other.video_stream_ids
+            && audio_stream_metadata_eq(&self.audio_streams, &other.audio_streams)
+    }
+}
+
+impl AudioStreamMetadata {
+    /// Builds selectable audio metadata from a GStreamer stream.
+    fn from_stream(track_index: i32, stream: &gstreamer::Stream, sample_rate: i32) -> Option<Self> {
+        let stream_id = stream.stream_id()?.to_string();
+        let tags = stream.tags();
+        Some(Self {
+            stream_id,
+            track: VideoAudioTrack {
+                index: track_index,
+                channel_count: channel_count_from_stream(stream),
+                sample_rate: normalized_audio_sample_rate(sample_rate),
+                language_code: tags
+                    .as_ref()
+                    .and_then(|t| t.get::<gstreamer::tags::LanguageCode>())
+                    .map(|v| v.get().to_owned()),
+                name: tags
+                    .as_ref()
+                    .and_then(|t| t.get::<gstreamer::tags::Title>())
+                    .map(|v| v.get().to_owned()),
+            },
+        })
+    }
 }
 
 impl VideoPlayer {
@@ -69,19 +228,7 @@ impl VideoPlayer {
             return None;
         }
 
-        let audio_sink = AppSink::builder()
-            .caps(
-                &gstreamer::Caps::builder("audio/x-raw")
-                    .field("format", "F32LE")
-                    .field("rate", audio_sample_rate)
-                    .field("channels", 2i32)
-                    .field("layout", "interleaved")
-                    .build(),
-            )
-            .max_buffers(1)
-            .drop(true)
-            .sync(true)
-            .build();
+        let audio_sink = ResoniteAudioSink::new(audio_sample_rate);
 
         // GStreamer-backed video textures currently use the CPU-copy sink on all platforms.
         let video_sink = Box::new(CpuCopyVideoSink::new(id, device, queue));
@@ -98,9 +245,9 @@ impl VideoPlayer {
             }
         };
 
-        let pipeline = match gstreamer::ElementFactory::make("playbin")
+        let pipeline = match gstreamer::ElementFactory::make("playbin3")
             .property("uri", &uri)
-            .property("audio-sink", &audio_sink)
+            .property("audio-sink", audio_sink.appsink())
             .property("video-sink", video_sink.appsink())
             .build()
         {
@@ -132,8 +279,10 @@ impl VideoPlayer {
             audio_sink,
             video_sink,
             audio_sample_rate,
+            streams: VideoStreamCatalog::default(),
             pending_update,
             last_update,
+            last_ready_message: None,
             shutdown,
         })
     }
@@ -142,62 +291,31 @@ impl VideoPlayer {
     /// Opens a shared memory queue to send audio back to host, and assigns the callback to the sink.
     pub fn handle_start_audio_track(&mut self, s: VideoTextureStartAudioTrack) {
         let id = self.asset_id;
-        if s.audio_track_index != 0 {
+        let Some(index) = validated_audio_track_index(s.audio_track_index) else {
             logger::warn!(
-                "video texture {id}: unsupported audio track index {}",
+                "video texture {id}: invalid audio track index {}",
                 s.audio_track_index
             );
             return;
+        };
+
+        let Some(stream_ids) = self.streams.selected_stream_ids(index) else {
+            logger::warn!("video texture {id}: audio track index {index} out of range");
+            return;
+        };
+
+        let event = gstreamer::event::SelectStreams::new(stream_ids);
+        if !self.pipeline.send_event(event) {
+            logger::warn!("video texture {id}: failed to select audio track {index}");
         }
 
         let Some(queue_name) = s.queue_name else {
             return;
         };
 
-        let Some(queue_capacity) = positive_queue_capacity(s.queue_capacity) else {
-            logger::warn!(
-                "video texture {id}: invalid audio queue capacity {}",
-                s.queue_capacity
-            );
-            return;
-        };
-
-        let options = match QueueOptions::new(&queue_name, queue_capacity) {
-            Ok(o) => o,
-            Err(e) => {
-                logger::error!("video texture {}: failed to build QueueOptions: {e}", id);
-                return;
-            }
-        };
-
-        let mut publisher = match QueueFactory::new().create_publisher(options) {
-            Ok(p) => p,
-            Err(e) => {
-                logger::error!("video texture {}: failed to create publisher: {e}", id);
-                return;
-            }
-        };
-
-        use gstreamer_app::AppSinkCallbacks;
-        self.audio_sink.set_callbacks(
-            AppSinkCallbacks::builder()
-                .new_sample(move |appsink| {
-                    let Ok(sample) = appsink.pull_sample() else {
-                        return Err(gstreamer::FlowError::Eos);
-                    };
-                    let Some(buffer) = sample.buffer() else {
-                        return Ok(gstreamer::FlowSuccess::Ok);
-                    };
-                    let Ok(map) = buffer.map_readable() else {
-                        return Ok(gstreamer::FlowSuccess::Ok);
-                    };
-                    if !publisher.try_enqueue(map.as_slice()) {
-                        logger::trace!("video texture {id}: audio queue is full");
-                    }
-                    Ok(gstreamer::FlowSuccess::Ok)
-                })
-                .build(),
-        );
+        if let Err(e) = self.audio_sink.attach_queue(&queue_name, s.queue_capacity) {
+            logger::warn!("video texture {id}: failed to attach audio queue: {e}");
+        }
     }
 
     /// Schedules a video player state update from [`VideoTextureUpdate`].
@@ -249,22 +367,9 @@ impl VideoPlayer {
 
         while let Some(msg) = bus.timed_pop(gstreamer::ClockTime::ZERO) {
             match msg.view() {
-                gstreamer::MessageView::AsyncDone(_) => {
-                    let size = self.video_sink.size();
-                    let length = self.get_duration();
-                    logger::info!(
-                        "video texture {}: loaded: size={:?}, length={}",
-                        id,
-                        size,
-                        length
-                    );
-
-                    self.send_ready(
-                        ipc,
-                        length,
-                        size.unwrap_or_default(),
-                        Some(format!("GStreamer ({})", self.video_sink.name())),
-                    );
+                gstreamer::MessageView::AsyncDone(_) => self.handle_async_done(ipc),
+                gstreamer::MessageView::StreamCollection(sc) => {
+                    self.handle_stream_collection(sc.stream_collection(), ipc);
                 }
                 gstreamer::MessageView::Error(e) => {
                     logger::error!(
@@ -278,19 +383,40 @@ impl VideoPlayer {
         }
     }
 
-    fn get_duration(&self) -> f64 {
-        let mut query = gstreamer::query::Duration::new(gstreamer::Format::Time);
-        if !self.pipeline.query(&mut query) {
-            return -1.0;
-        }
-        match query.result() {
-            gstreamer::GenericFormattedValue::Time(Some(t)) if t != gstreamer::ClockTime::ZERO => {
-                t.nseconds() as f64 / 1_000_000_000.0
-            }
-            _ => -1.0,
-        }
+    /// Gets called when the pipeline is done prerolling and we have caps available.
+    fn handle_async_done(&mut self, ipc: &mut Option<&mut DualQueueIpc>) {
+        let size = self.video_sink.size();
+        let duration = query_media_duration(&self.pipeline);
+
+        self.send_ready(
+            ipc,
+            duration.ready_length_seconds(),
+            size.unwrap_or_default(),
+        );
     }
 
+    /// Gets called when the video player becomes aware of audio/video streams.
+    fn handle_stream_collection(
+        &mut self,
+        collection: StreamCollection,
+        ipc: &mut Option<&mut DualQueueIpc>,
+    ) {
+        let id = self.asset_id;
+        if !self
+            .streams
+            .replace_from_collection(&collection, self.audio_sample_rate)
+        {
+            return;
+        }
+
+        logger::info!(
+            "video texture {id}: discovered {} audio tracks",
+            self.streams.audio_track_count()
+        );
+        self.refresh_ready_if_already_sent(ipc);
+    }
+
+    /// Spawns the worker that applies playback state updates off the render thread.
     fn spawn_update_thread(
         pipeline: gstreamer::Element,
         pending_update: Arc<Mutex<Option<VideoTextureUpdate>>>,
@@ -327,6 +453,10 @@ impl VideoPlayer {
     /// [`VideoTextureUpdate::decoded_time`] (set by the IPC unpack at receive time). Returns `None`
     /// until at least one update has arrived or when the pipeline position cannot be queried.
     pub fn sample_clock_error(&self) -> Option<VideoTextureClockErrorState> {
+        if !query_media_duration(&self.pipeline).reports_clock_error() {
+            return None;
+        }
+
         let update = match self.last_update.lock() {
             Ok(slot) => slot.clone()?,
             Err(_) => {
@@ -346,26 +476,54 @@ impl VideoPlayer {
         })
     }
 
-    fn send_ready(
-        &self,
-        ipc: &mut Option<&mut DualQueueIpc>,
-        length: f64,
-        size: IVec2,
-        playback_engine: Option<String>,
-    ) {
-        let Some(ipc) = ipc else {
+    /// Resends readiness after metadata changes when the host has already seen an initial ready.
+    fn refresh_ready_if_already_sent(&mut self, ipc: &mut Option<&mut DualQueueIpc>) {
+        if self.last_ready_message.is_none() {
             return;
-        };
+        }
 
-        ipc.send_background(RendererCommand::VideoTextureReady(VideoTextureReady {
+        let size = self.video_sink.size().unwrap_or_default();
+        let duration = query_media_duration(&self.pipeline);
+        self.send_ready(ipc, duration.ready_length_seconds(), size);
+    }
+
+    /// Sends a ready message when it differs from the last successfully queued one.
+    fn send_ready(&mut self, ipc: &mut Option<&mut DualQueueIpc>, length: f64, size: IVec2) {
+        let message = VideoTextureReady {
             length,
             size,
             has_alpha: false,
             asset_id: self.asset_id,
             instance_changed: true,
-            playback_engine,
-            audio_tracks: vec![default_audio_track(self.audio_sample_rate)],
-        }));
+            playback_engine: Some(format!("GStreamer ({})", self.video_sink.name())),
+            audio_tracks: self.streams.audio_tracks(),
+        };
+
+        if let Some(last) = self.last_ready_message.as_ref() {
+            if video_texture_ready_eq(last, &message) {
+                return;
+            }
+        }
+
+        logger::info!(
+            "video texture {}: loaded: size={:?}, length={}",
+            self.asset_id,
+            size,
+            length
+        );
+
+        let Some(ipc) = ipc else {
+            return;
+        };
+
+        if ipc.send_background(RendererCommand::VideoTextureReady(message.clone())) {
+            self.last_ready_message = Some(message);
+        } else {
+            logger::warn!(
+                "video texture {}: failed to queue ready message",
+                self.asset_id
+            );
+        }
     }
 }
 
@@ -384,9 +542,9 @@ fn normalized_audio_sample_rate(sample_rate: i32) -> i32 {
     }
 }
 
-/// Converts host audio queue capacity to the signed queue API type.
-fn positive_queue_capacity(queue_capacity: i32) -> Option<i64> {
-    (queue_capacity > 0).then_some(i64::from(queue_capacity))
+/// Converts a host audio track index into a safe vector index.
+fn validated_audio_track_index(index: i32) -> Option<usize> {
+    usize::try_from(index).ok()
 }
 
 /// Returns `true` when `source` already has a URI scheme.
@@ -491,6 +649,9 @@ fn apply_update_to_pipeline(pipeline: &gstreamer::Element, update: &VideoTexture
     if let Err(e) = pipeline.set_state(target_state_for_update(update)) {
         logger::warn!("video texture update: failed to set pipeline state: {e}");
     }
+    if !query_media_duration(pipeline).supports_timeline_seeking() {
+        return;
+    }
     let Some(current_seconds) = query_position_seconds(pipeline) else {
         return;
     };
@@ -505,15 +666,66 @@ fn apply_update_to_pipeline(pipeline: &gstreamer::Element, update: &VideoTexture
     }
 }
 
-/// Builds the fallback track descriptor sent to the host until GStreamer track metadata is wired.
-fn default_audio_track(sample_rate: i32) -> VideoAudioTrack {
-    VideoAudioTrack {
-        index: 0,
-        channel_count: 2,
-        sample_rate: normalized_audio_sample_rate(sample_rate),
-        name: None,
-        language_code: None,
+/// Queries the pipeline for the host-visible media duration.
+fn query_media_duration(pipeline: &gstreamer::Element) -> MediaDuration {
+    let mut query = gstreamer::query::Duration::new(gstreamer::Format::Time);
+    if !pipeline.query(&mut query) {
+        return MediaDuration::Stream;
     }
+    match query.result() {
+        gstreamer::GenericFormattedValue::Time(duration) => {
+            MediaDuration::from_clock_time(duration)
+        }
+        _ => MediaDuration::Stream,
+    }
+}
+
+/// Extracts the channel count out of a stream.
+fn channel_count_from_stream(stream: &gstreamer::Stream) -> i32 {
+    stream
+        .caps()
+        .and_then(|caps| {
+            caps.structure(0)
+                .and_then(|s| s.get::<i32>("channels").ok())
+        })
+        .unwrap_or(2)
+}
+
+/// Compares selectable audio stream metadata slices.
+fn audio_stream_metadata_eq(a: &[AudioStreamMetadata], b: &[AudioStreamMetadata]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(a_stream, b_stream)| {
+            a_stream.stream_id == b_stream.stream_id
+                && video_audio_track_eq(&a_stream.track, &b_stream.track)
+        })
+}
+
+/// Compares a [`VideoTextureReady`] message to another.
+fn video_texture_ready_eq(a: &VideoTextureReady, b: &VideoTextureReady) -> bool {
+    a.asset_id == b.asset_id
+        && a.has_alpha == b.has_alpha
+        && a.instance_changed == b.instance_changed
+        && a.size == b.size
+        && a.length.to_bits() == b.length.to_bits()
+        && a.playback_engine == b.playback_engine
+        && video_audio_tracks_eq(&a.audio_tracks, &b.audio_tracks)
+}
+
+/// Compares audio track slices.
+fn video_audio_tracks_eq(a: &[VideoAudioTrack], b: &[VideoAudioTrack]) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(a_track, b_track)| video_audio_track_eq(a_track, b_track))
+}
+
+/// Compares a [`VideoAudioTrack`] to another.
+fn video_audio_track_eq(a: &VideoAudioTrack, b: &VideoAudioTrack) -> bool {
+    a.sample_rate == b.sample_rate
+        && a.index == b.index
+        && a.name == b.name
+        && a.language_code == b.language_code
+        && a.channel_count == b.channel_count
 }
 
 #[cfg(test)]
@@ -528,6 +740,28 @@ mod tests {
         }
     }
 
+    fn audio_track(index: i32) -> VideoAudioTrack {
+        VideoAudioTrack {
+            index,
+            channel_count: 2,
+            sample_rate: DEFAULT_AUDIO_SAMPLE_RATE,
+            name: None,
+            language_code: None,
+        }
+    }
+
+    fn ready_with_tracks(audio_tracks: Vec<VideoAudioTrack>) -> VideoTextureReady {
+        VideoTextureReady {
+            length: 12.5,
+            size: IVec2::new(640, 480),
+            has_alpha: false,
+            playback_engine: Some(String::from("GStreamer test")),
+            instance_changed: true,
+            audio_tracks,
+            asset_id: 42,
+        }
+    }
+
     #[test]
     fn invalid_audio_sample_rate_uses_default() {
         assert_eq!(normalized_audio_sample_rate(0), DEFAULT_AUDIO_SAMPLE_RATE);
@@ -539,10 +773,27 @@ mod tests {
     }
 
     #[test]
-    fn invalid_audio_queue_capacity_is_rejected() {
-        assert_eq!(positive_queue_capacity(0), None);
-        assert_eq!(positive_queue_capacity(-1), None);
-        assert_eq!(positive_queue_capacity(64), Some(64));
+    fn audio_track_index_rejects_negative_values() {
+        assert_eq!(validated_audio_track_index(-1), None);
+        assert_eq!(validated_audio_track_index(0), Some(0));
+        assert_eq!(validated_audio_track_index(2), Some(2));
+    }
+
+    #[test]
+    fn ready_message_comparison_rejects_different_track_counts() {
+        let first = ready_with_tracks(vec![audio_track(0)]);
+        let second = ready_with_tracks(vec![audio_track(0), audio_track(1)]);
+
+        assert!(!video_texture_ready_eq(&first, &second));
+    }
+
+    #[test]
+    fn ready_message_comparison_rejects_playback_engine_changes() {
+        let first = ready_with_tracks(vec![audio_track(0)]);
+        let mut second = ready_with_tracks(vec![audio_track(0)]);
+        second.playback_engine = Some(String::from("Other engine"));
+
+        assert!(!video_texture_ready_eq(&first, &second));
     }
 
     #[test]
@@ -565,6 +816,35 @@ mod tests {
     }
 
     #[test]
+    fn finite_media_duration_reports_ready_length_and_clock_error() {
+        let duration = MediaDuration::from_clock_time(Some(gstreamer::ClockTime::from_nseconds(
+            3_000_000_000,
+        )));
+
+        assert_eq!(duration.ready_length_seconds(), 3.0);
+        assert!(duration.supports_timeline_seeking());
+        assert!(duration.reports_clock_error());
+    }
+
+    #[test]
+    fn missing_media_duration_is_stream_length_without_clock_error() {
+        let duration = MediaDuration::from_clock_time(None);
+
+        assert!(duration.ready_length_seconds().is_infinite());
+        assert!(!duration.supports_timeline_seeking());
+        assert!(!duration.reports_clock_error());
+    }
+
+    #[test]
+    fn zero_media_duration_is_stream_length_without_clock_error() {
+        let duration = MediaDuration::from_clock_time(Some(gstreamer::ClockTime::ZERO));
+
+        assert!(duration.ready_length_seconds().is_infinite());
+        assert!(!duration.supports_timeline_seeking());
+        assert!(!duration.reports_clock_error());
+    }
+
+    #[test]
     fn uri_sources_pass_through_without_file_conversion() {
         assert!(is_uri_source("https://example.invalid/video.mp4"));
         assert!(is_uri_source("file:///tmp/video.mp4"));
@@ -576,15 +856,6 @@ mod tests {
         let path = local_source_path("video.mp4");
         assert!(path.is_absolute());
         assert!(path.ends_with("video.mp4"));
-    }
-
-    #[test]
-    fn default_audio_track_uses_normalized_sample_rate() {
-        let track = default_audio_track(-1);
-        assert_eq!(track.sample_rate, DEFAULT_AUDIO_SAMPLE_RATE);
-        assert_eq!(track.index, 0);
-        assert_eq!(track.channel_count, 2);
-        assert_eq!(track.name, None);
     }
 
     fn update_decoded_at(position: f64, play: bool, decoded_nanos: i128) -> VideoTextureUpdate {
