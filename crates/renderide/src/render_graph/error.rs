@@ -200,7 +200,7 @@ pub enum GraphExecuteError {
 
     /// Transient GPU pool could not produce a lease (internal invariant violated).
     #[error(transparent)]
-    TransientPool(#[from] super::transient_pool::TransientPoolError),
+    TransientPool(#[from] super::pool::TransientPoolError),
 
     /// History registry rejected a slot registration.
     #[error(transparent)]

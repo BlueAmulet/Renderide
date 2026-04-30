@@ -282,7 +282,7 @@ fn mip_chain_tex_desc(label: &'static str, mip_levels: u32) -> TransientTextureD
 fn backbuffer_import() -> ImportedTextureDecl {
     ImportedTextureDecl {
         label: "backbuffer",
-        source: crate::render_graph::resources::ImportSource::FrameTarget(
+        source: crate::render_graph::resources::ImportSource::Frame(
             FrameTargetRole::ColorAttachment,
         ),
         initial_access: TextureAccess::ColorAttachment {
@@ -297,7 +297,7 @@ fn backbuffer_import() -> ImportedTextureDecl {
 fn depth_import() -> ImportedTextureDecl {
     ImportedTextureDecl {
         label: "depth",
-        source: crate::render_graph::resources::ImportSource::FrameTarget(
+        source: crate::render_graph::resources::ImportSource::Frame(
             FrameTargetRole::DepthAttachment,
         ),
         initial_access: TextureAccess::DepthAttachment {

@@ -147,6 +147,27 @@ impl TransientSampleCount {
 }
 
 impl TransientTextureDesc {
+    /// Returns a single-layer 2D descriptor template parameterised by format and sample policies.
+    fn single_layer_2d(
+        label: &'static str,
+        format: TransientTextureFormat,
+        extent: TransientExtent,
+        sample_count: TransientSampleCount,
+        base_usage: wgpu::TextureUsages,
+    ) -> Self {
+        Self {
+            label,
+            format,
+            extent,
+            mip_levels: 1,
+            sample_count,
+            dimension: wgpu::TextureDimension::D2,
+            array_layers: TransientArrayLayers::Fixed(1),
+            base_usage,
+            alias: true,
+        }
+    }
+
     /// Creates a standard single-layer 2D transient texture descriptor.
     pub fn texture_2d(
         label: &'static str,
@@ -155,17 +176,13 @@ impl TransientTextureDesc {
         sample_count: u32,
         base_usage: wgpu::TextureUsages,
     ) -> Self {
-        Self {
+        Self::single_layer_2d(
             label,
-            format: TransientTextureFormat::Fixed(format),
+            TransientTextureFormat::Fixed(format),
             extent,
-            mip_levels: 1,
-            sample_count: TransientSampleCount::Fixed(sample_count),
-            dimension: wgpu::TextureDimension::D2,
-            array_layers: TransientArrayLayers::Fixed(1),
+            TransientSampleCount::Fixed(sample_count),
             base_usage,
-            alias: true,
-        }
+        )
     }
 
     /// Creates a standard single-layer 2D transient texture descriptor that uses the frame sample count.
@@ -175,17 +192,13 @@ impl TransientTextureDesc {
         extent: TransientExtent,
         base_usage: wgpu::TextureUsages,
     ) -> Self {
-        Self {
+        Self::single_layer_2d(
             label,
-            format: TransientTextureFormat::Fixed(format),
+            TransientTextureFormat::Fixed(format),
             extent,
-            mip_levels: 1,
-            sample_count: TransientSampleCount::Frame,
-            dimension: wgpu::TextureDimension::D2,
-            array_layers: TransientArrayLayers::Fixed(1),
+            TransientSampleCount::Frame,
             base_usage,
-            alias: true,
-        }
+        )
     }
 
     /// Creates a standard single-layer 2D transient texture that uses the frame color format and sample count.
@@ -194,17 +207,13 @@ impl TransientTextureDesc {
         extent: TransientExtent,
         base_usage: wgpu::TextureUsages,
     ) -> Self {
-        Self {
+        Self::single_layer_2d(
             label,
-            format: TransientTextureFormat::FrameColor,
+            TransientTextureFormat::FrameColor,
             extent,
-            mip_levels: 1,
-            sample_count: TransientSampleCount::Frame,
-            dimension: wgpu::TextureDimension::D2,
-            array_layers: TransientArrayLayers::Fixed(1),
+            TransientSampleCount::Frame,
             base_usage,
-            alias: true,
-        }
+        )
     }
 
     /// Creates a standard depth/stencil transient texture that uses the frame depth/stencil format and sample count.
@@ -213,17 +222,13 @@ impl TransientTextureDesc {
         extent: TransientExtent,
         base_usage: wgpu::TextureUsages,
     ) -> Self {
-        Self {
+        Self::single_layer_2d(
             label,
-            format: TransientTextureFormat::FrameDepthStencil,
+            TransientTextureFormat::FrameDepthStencil,
             extent,
-            mip_levels: 1,
-            sample_count: TransientSampleCount::Frame,
-            dimension: wgpu::TextureDimension::D2,
-            array_layers: TransientArrayLayers::Fixed(1),
+            TransientSampleCount::Frame,
             base_usage,
-            alias: true,
-        }
+        )
     }
 
     /// Sets a fixed array-layer count.

@@ -3,12 +3,10 @@
 use crate::config::{PostProcessingSettings, TonemapMode};
 use crate::render_graph::builder::GraphBuilder;
 use crate::render_graph::ids::PassId;
-use crate::render_graph::resources::{
-    TextureHandle, TransientArrayLayers, TransientExtent, TransientSampleCount,
-    TransientTextureDesc, TransientTextureFormat,
-};
+use crate::render_graph::resources::TextureHandle;
 
 use super::effect::{PostProcessEffect, PostProcessEffectId};
+use super::ping_pong::{PingPongCursor, PingPongHdrSlots};
 
 /// Topology fingerprint for the post-processing chain at graph compile time.
 ///
@@ -159,44 +157,25 @@ impl PostProcessChain {
             active.join(", ")
         );
 
-        let ping = builder.create_texture(post_process_color_transient_desc(
-            "post_processed_color_hdr_a",
-        ));
-        let pong = builder.create_texture(post_process_color_transient_desc(
-            "post_processed_color_hdr_b",
-        ));
-
-        let mut current_in = input;
-        let mut current_out = ping;
+        let mut cursor = PingPongCursor::start(PingPongHdrSlots::new(builder), input);
         let mut first_pass: Option<PassId> = None;
         let mut last_pass: Option<PassId> = None;
 
-        for (i, effect) in self
-            .effects
-            .iter()
-            .filter(|e| e.is_enabled(settings))
-            .enumerate()
-        {
-            let registered = effect.register(builder, current_in, current_out);
+        for effect in self.effects.iter().filter(|e| e.is_enabled(settings)) {
+            let registered = effect.register(builder, cursor.input(), cursor.output());
             if let Some(prev_tail) = last_pass {
                 builder.add_edge(prev_tail, registered.first);
             }
             first_pass.get_or_insert(registered.first);
             last_pass = Some(registered.last);
-
-            if i == 0 {
-                current_in = ping;
-                current_out = pong;
-            } else {
-                std::mem::swap(&mut current_in, &mut current_out);
-            }
+            cursor.advance();
         }
 
         let Some((first_pass, last_pass)) = first_pass.zip(last_pass) else {
             return ChainOutput::PassThrough(input);
         };
         ChainOutput::Chained {
-            final_handle: current_in,
+            final_handle: cursor.last_output(),
             first_pass,
             last_pass,
         }
@@ -209,20 +188,6 @@ impl Default for PostProcessChain {
     }
 }
 
-fn post_process_color_transient_desc(label: &'static str) -> TransientTextureDesc {
-    TransientTextureDesc {
-        label,
-        format: TransientTextureFormat::SceneColorHdr,
-        extent: TransientExtent::Backbuffer,
-        mip_levels: 1,
-        sample_count: TransientSampleCount::Fixed(1),
-        dimension: wgpu::TextureDimension::D2,
-        array_layers: TransientArrayLayers::Frame,
-        base_usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        alias: true,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,6 +196,25 @@ mod tests {
     use crate::render_graph::error::{RenderPassError, SetupError};
     use crate::render_graph::pass::{PassBuilder, RasterPass};
     use crate::render_graph::post_processing::effect::EffectPasses;
+    use crate::render_graph::resources::{
+        TransientArrayLayers, TransientExtent, TransientSampleCount, TransientTextureDesc,
+        TransientTextureFormat,
+    };
+
+    fn post_process_color_transient_desc(label: &'static str) -> TransientTextureDesc {
+        TransientTextureDesc {
+            label,
+            format: TransientTextureFormat::SceneColorHdr,
+            extent: TransientExtent::Backbuffer,
+            mip_levels: 1,
+            sample_count: TransientSampleCount::Fixed(1),
+            dimension: wgpu::TextureDimension::D2,
+            array_layers: TransientArrayLayers::Frame,
+            base_usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING,
+            alias: true,
+        }
+    }
 
     struct MockEffect {
         id: PostProcessEffectId,

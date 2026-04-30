@@ -9,13 +9,14 @@
 
 use std::num::NonZeroU32;
 
+use super::attachments::{declare_color_attachment, declare_depth_attachment};
 use super::node::{PassKind, PassMergeHint};
 use super::setup::{PassSetup, RasterColorAttachmentSetup, RasterDepthAttachmentSetup};
 use crate::render_graph::error::SetupError;
 use crate::render_graph::resources::{
     BufferAccess, BufferHandle, BufferResourceHandle, ImportedBufferHandle, ImportedTextureHandle,
-    ResourceAccess, StorageAccess, SubresourceHandle, TextureAccess, TextureAttachmentResolve,
-    TextureAttachmentTarget, TextureHandle, TextureResourceHandle,
+    ResourceAccess, StorageAccess, SubresourceHandle, TextureAccess, TextureAttachmentTarget,
+    TextureHandle, TextureResourceHandle,
 };
 
 /// Setup-time builder used by a pass to declare resource access and command kind.
@@ -218,28 +219,12 @@ impl RasterPassBuilder<'_, '_> {
         ops: wgpu::Operations<wgpu::Color>,
         resolve_to: Option<impl Into<TextureResourceHandle>>,
     ) {
-        let handle = handle.into();
-        let resolve_to = resolve_to.map(Into::into);
-        self.parent.write_texture_resource(
-            handle,
-            TextureAccess::ColorAttachment {
-                load: ops.load,
-                store: ops.store,
-                resolve_to,
-            },
+        declare_color_attachment(
+            self.parent,
+            TextureAttachmentTarget::Resource(handle.into()),
+            ops,
+            resolve_to.map(Into::into),
         );
-        if let Some(target) = resolve_to {
-            self.parent
-                .write_texture_resource(target, TextureAccess::Present);
-        }
-        self.parent
-            .color_attachments
-            .push(RasterColorAttachmentSetup {
-                target: TextureAttachmentTarget::Resource(handle),
-                load: ops.load,
-                store: ops.store,
-                resolve_to: resolve_to.map(TextureAttachmentResolve::Always),
-            });
     }
 
     /// Declares a color attachment that switches between single-sample and MSAA targets per frame.
@@ -250,40 +235,15 @@ impl RasterPassBuilder<'_, '_> {
         ops: wgpu::Operations<wgpu::Color>,
         resolve_to: Option<impl Into<TextureResourceHandle>>,
     ) {
-        let single_sample = single_sample.into();
-        let multisampled = multisampled.into();
-        let resolve_to = resolve_to.map(Into::into);
-        self.parent.write_texture_resource(
-            single_sample,
-            TextureAccess::ColorAttachment {
-                load: ops.load,
-                store: ops.store,
-                resolve_to: None,
+        declare_color_attachment(
+            self.parent,
+            TextureAttachmentTarget::FrameSampled {
+                single_sample: single_sample.into(),
+                multisampled: multisampled.into(),
             },
+            ops,
+            resolve_to.map(Into::into),
         );
-        self.parent.write_texture_resource(
-            multisampled,
-            TextureAccess::ColorAttachment {
-                load: ops.load,
-                store: ops.store,
-                resolve_to,
-            },
-        );
-        if let Some(target) = resolve_to {
-            self.parent
-                .write_texture_resource(target, TextureAccess::Present);
-        }
-        self.parent
-            .color_attachments
-            .push(RasterColorAttachmentSetup {
-                target: TextureAttachmentTarget::FrameSampled {
-                    single_sample,
-                    multisampled,
-                },
-                load: ops.load,
-                store: ops.store,
-                resolve_to: resolve_to.map(TextureAttachmentResolve::FrameMultisampled),
-            });
     }
 
     /// Declares a depth/stencil attachment.
@@ -293,14 +253,12 @@ impl RasterPassBuilder<'_, '_> {
         depth: wgpu::Operations<f32>,
         stencil: Option<wgpu::Operations<u32>>,
     ) {
-        let handle = handle.into();
-        self.parent
-            .write_texture_resource(handle, TextureAccess::DepthAttachment { depth, stencil });
-        self.parent.depth_stencil_attachment = Some(RasterDepthAttachmentSetup {
-            target: TextureAttachmentTarget::Resource(handle),
+        declare_depth_attachment(
+            self.parent,
+            TextureAttachmentTarget::Resource(handle.into()),
             depth,
             stencil,
-        });
+        );
     }
 
     /// Declares a depth/stencil attachment that switches between single-sample and MSAA targets per frame.
@@ -311,24 +269,15 @@ impl RasterPassBuilder<'_, '_> {
         depth: wgpu::Operations<f32>,
         stencil: Option<wgpu::Operations<u32>>,
     ) {
-        let single_sample = single_sample.into();
-        let multisampled = multisampled.into();
-        self.parent.write_texture_resource(
-            single_sample,
-            TextureAccess::DepthAttachment { depth, stencil },
-        );
-        self.parent.write_texture_resource(
-            multisampled,
-            TextureAccess::DepthAttachment { depth, stencil },
-        );
-        self.parent.depth_stencil_attachment = Some(RasterDepthAttachmentSetup {
-            target: TextureAttachmentTarget::FrameSampled {
-                single_sample,
-                multisampled,
+        declare_depth_attachment(
+            self.parent,
+            TextureAttachmentTarget::FrameSampled {
+                single_sample: single_sample.into(),
+                multisampled: multisampled.into(),
             },
             depth,
             stencil,
-        });
+        );
     }
 
     /// Declares a multiview render-pass mask.

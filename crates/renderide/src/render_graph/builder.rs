@@ -582,7 +582,7 @@ fn needs_surface_acquire(pass_info: &[CompiledPassInfo], imports: &[ImportedText
             imports.get(handle.index()).is_some_and(|decl| {
                 matches!(
                     decl.source,
-                    ImportSource::FrameTarget(FrameTargetRole::ColorAttachment)
+                    ImportSource::Frame(FrameTargetRole::ColorAttachment)
                 )
             })
         })

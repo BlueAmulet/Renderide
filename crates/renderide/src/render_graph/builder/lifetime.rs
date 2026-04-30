@@ -41,7 +41,7 @@ pub(super) fn compile_textures(
         }
     }
 
-    let slot_count = assign_texture_slots(&mut resources);
+    let slot_count = assign_aliased_slots(&mut resources);
     (resources, slot_count)
 }
 
@@ -91,7 +91,7 @@ pub(super) fn compile_buffers(
         }
     }
 
-    let slot_count = assign_buffer_slots(&mut resources);
+    let slot_count = assign_aliased_slots(&mut resources);
     (resources, slot_count)
 }
 
@@ -108,54 +108,91 @@ fn merge_lifetime(existing: Option<ResourceLifetime>, ordinal: usize) -> Option<
     })
 }
 
-fn assign_texture_slots(resources: &mut [CompiledTextureResource]) -> usize {
-    let mut slots: Vec<(TextureAliasKey, Vec<ResourceLifetime>)> = Vec::new();
-    for resource in resources {
-        let Some(lifetime) = resource.lifetime else {
-            continue;
-        };
-        let key = TextureAliasKey {
-            format: resource.desc.format,
-            extent: resource.desc.extent,
-            mip_levels: resource.desc.mip_levels,
-            sample_count: resource.desc.sample_count,
-            dimension: resource.desc.dimension,
-            array_layers: resource.desc.array_layers,
-            usage_bits: u64::from(resource.usage.bits()),
-        };
-        let existing_slot = resource
-            .desc
-            .alias
-            .then(|| {
-                slots.iter().position(|(slot_key, lifetimes)| {
-                    *slot_key == key && lifetimes.iter().all(|other| other.disjoint(lifetime))
-                })
-            })
-            .flatten();
-        if let Some(slot) = existing_slot {
-            resource.physical_slot = slot;
-            slots[slot].1.push(lifetime);
-        } else {
-            resource.physical_slot = slots.len();
-            slots.push((key, vec![lifetime]));
-        }
-    }
-    slots.len()
+/// Resource shape required for physical-slot aliasing.
+///
+/// Texture and buffer compilation share the exact same disjoint-lifetime alias-slot algorithm —
+/// only the alias key shape differs. Implementing this trait lets [`assign_aliased_slots`] run
+/// once over either kind of resource list.
+trait AliasResource {
+    /// Alias-equivalence key. Two resources may share a slot only when their keys compare equal.
+    type Key: PartialEq;
+
+    /// Lifetime span (first/last retained pass ordinal) when this resource is reachable.
+    fn lifetime(&self) -> Option<ResourceLifetime>;
+
+    /// Whether this resource is allowed to share a slot with disjoint equal-key resources.
+    fn alias(&self) -> bool;
+
+    /// Builds the alias key from the resource's descriptor and accumulated usage.
+    fn alias_key(&self) -> Self::Key;
+
+    /// Records the chosen physical slot index back on the resource.
+    fn set_physical_slot(&mut self, slot: usize);
 }
 
-fn assign_buffer_slots(resources: &mut [CompiledBufferResource]) -> usize {
-    let mut slots: Vec<(BufferAliasKey, Vec<ResourceLifetime>)> = Vec::new();
+impl AliasResource for CompiledTextureResource {
+    type Key = TextureAliasKey;
+
+    fn lifetime(&self) -> Option<ResourceLifetime> {
+        self.lifetime
+    }
+
+    fn alias(&self) -> bool {
+        self.desc.alias
+    }
+
+    fn alias_key(&self) -> Self::Key {
+        TextureAliasKey {
+            format: self.desc.format,
+            extent: self.desc.extent,
+            mip_levels: self.desc.mip_levels,
+            sample_count: self.desc.sample_count,
+            dimension: self.desc.dimension,
+            array_layers: self.desc.array_layers,
+            usage_bits: u64::from(self.usage.bits()),
+        }
+    }
+
+    fn set_physical_slot(&mut self, slot: usize) {
+        self.physical_slot = slot;
+    }
+}
+
+impl AliasResource for CompiledBufferResource {
+    type Key = BufferAliasKey;
+
+    fn lifetime(&self) -> Option<ResourceLifetime> {
+        self.lifetime
+    }
+
+    fn alias(&self) -> bool {
+        self.desc.alias
+    }
+
+    fn alias_key(&self) -> Self::Key {
+        BufferAliasKey {
+            size_policy: self.desc.size_policy,
+            usage_bits: u64::from(self.usage.bits()),
+        }
+    }
+
+    fn set_physical_slot(&mut self, slot: usize) {
+        self.physical_slot = slot;
+    }
+}
+
+/// Walks `resources` in order, assigning each a physical slot. Resources whose `alias()` is `true`
+/// reuse a prior slot when the keys match and lifetimes are disjoint; otherwise they take a fresh
+/// slot. Returns the total number of distinct physical slots.
+fn assign_aliased_slots<R: AliasResource>(resources: &mut [R]) -> usize {
+    let mut slots: Vec<(R::Key, Vec<ResourceLifetime>)> = Vec::new();
     for resource in resources {
-        let Some(lifetime) = resource.lifetime else {
+        let Some(lifetime) = resource.lifetime() else {
             continue;
         };
-        let key = BufferAliasKey {
-            size_policy: resource.desc.size_policy,
-            usage_bits: u64::from(resource.usage.bits()),
-        };
+        let key = resource.alias_key();
         let existing_slot = resource
-            .desc
-            .alias
+            .alias()
             .then(|| {
                 slots.iter().position(|(slot_key, lifetimes)| {
                     *slot_key == key && lifetimes.iter().all(|other| other.disjoint(lifetime))
@@ -163,10 +200,10 @@ fn assign_buffer_slots(resources: &mut [CompiledBufferResource]) -> usize {
             })
             .flatten();
         if let Some(slot) = existing_slot {
-            resource.physical_slot = slot;
+            resource.set_physical_slot(slot);
             slots[slot].1.push(lifetime);
         } else {
-            resource.physical_slot = slots.len();
+            resource.set_physical_slot(slots.len());
             slots.push((key, vec![lifetime]));
         }
     }

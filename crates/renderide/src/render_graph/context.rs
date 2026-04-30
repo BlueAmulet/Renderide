@@ -27,11 +27,11 @@ use crate::gpu::GpuLimits;
 use super::blackboard::Blackboard;
 use super::frame_params::GraphPassFrame;
 use super::frame_upload_batch::FrameUploadBatch;
+use super::pool::TransientPool;
 use super::resources::{
     BufferHandle, ImportedBufferHandle, ImportedTextureHandle, SubresourceHandle, TextureHandle,
     TextureResourceHandle,
 };
-use super::transient_pool::TransientPool;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Resolved resource types

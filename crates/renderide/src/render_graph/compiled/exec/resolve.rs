@@ -11,12 +11,12 @@ use super::super::super::context::{
     ResolvedImportedHistoryTexture, ResolvedImportedTexture,
 };
 use super::super::super::error::GraphExecuteError;
+use super::super::super::pool::{BufferKey, TextureKey, TransientPool};
 use super::super::super::resources::{
     BackendFrameBufferKind, BufferImportSource, FrameTargetRole, HistorySlotId, ImportSource,
     ImportedBufferDecl, ImportedBufferHandle, ImportedTextureDecl, ImportedTextureHandle,
     SubresourceHandle, TextureHandle,
 };
-use super::super::super::transient_pool::{BufferKey, TextureKey, TransientPool};
 use super::super::helpers;
 use super::super::{CompiledRenderGraph, FrameViewTarget, ResolvedView};
 use super::{OwnedResolvedView, TransientTextureResolveSurfaceParams};
@@ -36,6 +36,33 @@ fn subresource_view_dimension(
     }
 }
 
+/// Walks `compiled`, skipping entries with no physical slot, deduplicating leases per slot, and
+/// invoking `store` with the resolved resource for each compiled index. `build` is called at most
+/// once per physical slot and caches its result for subsequent compiled entries that alias to the
+/// same slot. Shared by transient texture and buffer resolution.
+fn resolve_transient_resources<C, R: Clone>(
+    compiled: &[C],
+    physical_slot: impl Fn(&C) -> Option<usize>,
+    mut build: impl FnMut(&C) -> Result<R, GraphExecuteError>,
+    mut store: impl FnMut(usize, R),
+) -> Result<(), GraphExecuteError> {
+    let mut slots: HashMap<usize, R> = HashMap::new();
+    for (idx, c) in compiled.iter().enumerate() {
+        let Some(slot) = physical_slot(c) else {
+            continue;
+        };
+        let resolved = if let Some(existing) = slots.get(&slot) {
+            existing.clone()
+        } else {
+            let r = build(c)?;
+            slots.insert(slot, r.clone());
+            r
+        };
+        store(idx, resolved);
+    }
+    Ok(())
+}
+
 impl CompiledRenderGraph {
     /// Acquires transient texture leases for this view and inserts them into `resources`.
     pub(super) fn resolve_transient_textures(
@@ -47,14 +74,13 @@ impl CompiledRenderGraph {
         resources: &mut GraphResolvedResources,
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("render::resolve_transient_textures");
-        let mut physical_slots: HashMap<usize, ResolvedGraphTexture> = HashMap::new();
-        for (idx, compiled) in self.transient_textures.iter().enumerate() {
-            if compiled.lifetime.is_none() || compiled.physical_slot == usize::MAX {
-                continue;
-            }
-            let resolved = if let Some(existing) = physical_slots.get(&compiled.physical_slot) {
-                existing.clone()
-            } else {
+        resolve_transient_resources(
+            &self.transient_textures,
+            |compiled| {
+                (compiled.lifetime.is_some() && compiled.physical_slot != usize::MAX)
+                    .then_some(compiled.physical_slot)
+            },
+            |compiled| {
                 let array_layers = compiled.desc.array_layers.resolve(surface.multiview_stereo);
                 let key = TextureKey {
                     format: compiled.desc.format.resolve(
@@ -81,7 +107,7 @@ impl CompiledRenderGraph {
                     compiled.usage,
                 )?;
                 let layer_views = helpers::create_transient_layer_views(&lease.texture, key);
-                let inserted = ResolvedGraphTexture {
+                Ok(ResolvedGraphTexture {
                     pool_id: lease.pool_id,
                     physical_slot: compiled.physical_slot,
                     texture: lease.texture,
@@ -90,14 +116,12 @@ impl CompiledRenderGraph {
                     mip_levels: key.mip_levels.max(1),
                     array_layers: key.array_layers.max(1),
                     dimension: key.dimension,
-                };
-                let cloned = inserted.clone();
-                physical_slots.insert(compiled.physical_slot, inserted);
-                cloned
-            };
-            resources.set_transient_texture(TextureHandle(idx as u32), resolved);
-        }
-        Ok(())
+                })
+            },
+            |idx, resolved| {
+                resources.set_transient_texture(TextureHandle(idx as u32), resolved);
+            },
+        )
     }
 
     /// Acquires transient buffer leases for this view and inserts them into `resources`.
@@ -110,14 +134,13 @@ impl CompiledRenderGraph {
         resources: &mut GraphResolvedResources,
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("render::resolve_transient_buffers");
-        let mut physical_slots: HashMap<usize, ResolvedGraphBuffer> = HashMap::new();
-        for (idx, compiled) in self.transient_buffers.iter().enumerate() {
-            if compiled.lifetime.is_none() || compiled.physical_slot == usize::MAX {
-                continue;
-            }
-            let resolved = if let Some(existing) = physical_slots.get(&compiled.physical_slot) {
-                existing.clone()
-            } else {
+        resolve_transient_resources(
+            &self.transient_buffers,
+            |compiled| {
+                (compiled.lifetime.is_some() && compiled.physical_slot != usize::MAX)
+                    .then_some(compiled.physical_slot)
+            },
+            |compiled| {
                 let key = BufferKey {
                     size_policy: compiled.desc.size_policy,
                     usage_bits: u64::from(compiled.usage.bits()),
@@ -131,22 +154,20 @@ impl CompiledRenderGraph {
                     compiled.usage,
                     size,
                 )?;
-                let inserted = ResolvedGraphBuffer {
+                Ok(ResolvedGraphBuffer {
                     pool_id: lease.pool_id,
                     physical_slot: compiled.physical_slot,
                     buffer: lease.buffer,
                     size: lease.size,
-                };
-                let cloned = inserted.clone();
-                physical_slots.insert(compiled.physical_slot, inserted);
-                cloned
-            };
-            resources.set_transient_buffer(
-                super::super::super::resources::BufferHandle(idx as u32),
-                resolved,
-            );
-        }
-        Ok(())
+                })
+            },
+            |idx, resolved| {
+                resources.set_transient_buffer(
+                    super::super::super::resources::BufferHandle(idx as u32),
+                    resolved,
+                );
+            },
+        )
     }
 
     /// Binds imported textures (frame color / depth attachments) into `resources`.
@@ -159,14 +180,14 @@ impl CompiledRenderGraph {
         profiling::scope!("render::resolve_imported_textures");
         for (idx, import) in self.imported_textures.iter().enumerate() {
             let resolved_import = match &import.source {
-                ImportSource::FrameTarget(FrameTargetRole::ColorAttachment) => resolved
+                ImportSource::Frame(FrameTargetRole::ColorAttachment) => resolved
                     .backbuffer
                     .cloned()
                     .map(|view| ResolvedImportedTexture {
                         view,
                         history: None,
                     }),
-                ImportSource::FrameTarget(FrameTargetRole::DepthAttachment) => {
+                ImportSource::Frame(FrameTargetRole::DepthAttachment) => {
                     Some(ResolvedImportedTexture {
                         view: resolved.depth_view.clone(),
                         history: None,
@@ -265,27 +286,25 @@ impl CompiledRenderGraph {
         let cluster_refs = frame_resources.shared_cluster_buffer_refs();
         for (idx, import) in self.imported_buffers.iter().enumerate() {
             let buffer = match &import.source {
-                BufferImportSource::BackendFrameResource(BackendFrameBufferKind::Lights) => {
+                BufferImportSource::Frame(BackendFrameBufferKind::Lights) => {
                     frame_gpu.map(|fgpu| fgpu.lights_buffer.clone())
                 }
-                BufferImportSource::BackendFrameResource(BackendFrameBufferKind::FrameUniforms) => {
+                BufferImportSource::Frame(BackendFrameBufferKind::FrameUniforms) => {
                     frame_gpu.map(|fgpu| fgpu.frame_uniform.clone())
                 }
-                BufferImportSource::BackendFrameResource(
-                    BackendFrameBufferKind::ClusterLightCounts,
-                ) => cluster_refs
-                    .as_ref()
-                    .map(|refs| refs.cluster_light_counts.clone()),
-                BufferImportSource::BackendFrameResource(
-                    BackendFrameBufferKind::ClusterLightIndices,
-                ) => cluster_refs
-                    .as_ref()
-                    .map(|refs| refs.cluster_light_indices.clone()),
-                BufferImportSource::BackendFrameResource(BackendFrameBufferKind::PerDrawSlab) => {
-                    frame_resources
-                        .per_view_per_draw(resolved.view_id)
-                        .map(|per_draw| per_draw.lock().per_draw_storage.clone())
+                BufferImportSource::Frame(BackendFrameBufferKind::ClusterLightCounts) => {
+                    cluster_refs
+                        .as_ref()
+                        .map(|refs| refs.cluster_light_counts.clone())
                 }
+                BufferImportSource::Frame(BackendFrameBufferKind::ClusterLightIndices) => {
+                    cluster_refs
+                        .as_ref()
+                        .map(|refs| refs.cluster_light_indices.clone())
+                }
+                BufferImportSource::Frame(BackendFrameBufferKind::PerDrawSlab) => frame_resources
+                    .per_view_per_draw(resolved.view_id)
+                    .map(|per_draw| per_draw.lock().per_draw_storage.clone()),
                 BufferImportSource::External => None,
                 BufferImportSource::PingPong(slot) => {
                     let scope = history_scope_for_buffer(*slot, resolved);

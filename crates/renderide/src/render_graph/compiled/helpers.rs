@@ -11,11 +11,11 @@ use super::super::error::GraphExecuteError;
 use super::super::frame_params::FrameViewClear;
 use super::super::frame_params::{FrameSystemsShared, GraphPassFrame, GraphPassFrameView};
 use super::super::pass::PassNode;
+use super::super::pool::TextureKey;
 use super::super::resources::{
     BufferSizePolicy, TextureAttachmentResolve, TextureAttachmentTarget, TextureHandle,
     TextureResourceHandle, TransientExtent,
 };
-use super::super::transient_pool::TextureKey;
 use crate::camera::HostCameraFrame;
 use crate::world_mesh::draw_prep::CameraTransformDrawFilter;
 
@@ -358,10 +358,80 @@ pub(super) fn resolve_attachment_resolve_target(
     }
 }
 
+/// Resolves the raster pass template's color attachments to live `wgpu::TextureView`s.
+fn resolve_color_attachments<'a>(
+    pass_name: &str,
+    template: &RenderPassTemplate,
+    graph_resources: &'a GraphResolvedResources,
+    sample_count: u32,
+) -> Result<Vec<Option<wgpu::RenderPassColorAttachment<'a>>>, GraphExecuteError> {
+    profiling::scope!("graph::raster::resolve_color_attachments");
+    let mut color_attachments = Vec::with_capacity(template.color_attachments.len());
+    for color in &template.color_attachments {
+        let target = resolve_attachment_target(color.target, sample_count);
+        let view = graph_resources.texture_view(target).ok_or_else(|| {
+            GraphExecuteError::MissingGraphAttachment {
+                pass: pass_name.to_owned(),
+                resource: format!("{target:?}"),
+            }
+        })?;
+        let resolve_target = match color
+            .resolve_to
+            .and_then(|t| resolve_attachment_resolve_target(t, sample_count))
+        {
+            Some(target) => Some(graph_resources.texture_view(target).ok_or_else(|| {
+                GraphExecuteError::MissingGraphAttachment {
+                    pass: pass_name.to_owned(),
+                    resource: format!("{target:?}"),
+                }
+            })?),
+            None => None,
+        };
+        color_attachments.push(Some(wgpu::RenderPassColorAttachment {
+            view,
+            resolve_target,
+            ops: wgpu::Operations {
+                load: color.load,
+                store: color.store,
+            },
+            depth_slice: None,
+        }));
+    }
+    Ok(color_attachments)
+}
+
+/// Resolves the raster pass template's depth/stencil attachment, if any, to a live view.
+fn resolve_depth_attachment<'a>(
+    pass: &PassNode,
+    template: &RenderPassTemplate,
+    graph_resources: &'a GraphResolvedResources,
+    sample_count: u32,
+    ctx: &RasterPassCtx<'_, '_>,
+) -> Result<Option<wgpu::RenderPassDepthStencilAttachment<'a>>, GraphExecuteError> {
+    let Some(depth) = &template.depth_stencil_attachment else {
+        return Ok(None);
+    };
+    let target = resolve_attachment_target(depth.target, sample_count);
+    let view = graph_resources.texture_view(target).ok_or_else(|| {
+        GraphExecuteError::MissingGraphAttachment {
+            pass: pass.name().to_owned(),
+            resource: format!("{target:?}"),
+        }
+    })?;
+    let stencil_ops = pass.stencil_ops_override(ctx, depth);
+    Ok(Some(wgpu::RenderPassDepthStencilAttachment {
+        view,
+        depth_ops: Some(depth.depth),
+        stencil_ops,
+    }))
+}
+
 /// Opens a graph-managed raster render pass for a [`PassNode::Raster`] variant and calls
 /// [`super::super::pass::PassNode::record_raster`].
 ///
-/// This is the primary path for raster passes in the new pass-node system.
+/// This is the primary path for raster passes in the new pass-node system. Attachment resolution
+/// is delegated to [`resolve_color_attachments`] and [`resolve_depth_attachment`]; the body here
+/// owns only the wgpu render-pass lifecycle and the GPU-profiler query bracketing.
 pub(super) fn execute_graph_raster_pass_node(
     pass: &PassNode,
     template: &RenderPassTemplate,
@@ -369,9 +439,6 @@ pub(super) fn execute_graph_raster_pass_node(
     encoder: &mut wgpu::CommandEncoder,
     ctx: &mut RasterPassCtx<'_, '_>,
 ) -> Result<(), GraphExecuteError> {
-    let sample_count = frame_sample_count_from_raster_ctx(ctx);
-    let pass_name = pass.name();
-
     if !pass
         .should_record_raster(ctx)
         .map_err(GraphExecuteError::Pass)?
@@ -379,61 +446,13 @@ pub(super) fn execute_graph_raster_pass_node(
         return Ok(());
     }
 
-    let color_attachments = {
-        profiling::scope!("graph::raster::resolve_color_attachments");
-        let mut color_attachments = Vec::with_capacity(template.color_attachments.len());
-        for color in &template.color_attachments {
-            let target = resolve_attachment_target(color.target, sample_count);
-            let view = graph_resources.texture_view(target).ok_or_else(|| {
-                GraphExecuteError::MissingGraphAttachment {
-                    pass: pass_name.to_owned(),
-                    resource: format!("{target:?}"),
-                }
-            })?;
-            let resolve_target = match color
-                .resolve_to
-                .and_then(|t| resolve_attachment_resolve_target(t, sample_count))
-            {
-                Some(target) => Some(graph_resources.texture_view(target).ok_or_else(|| {
-                    GraphExecuteError::MissingGraphAttachment {
-                        pass: pass_name.to_owned(),
-                        resource: format!("{target:?}"),
-                    }
-                })?),
-                None => None,
-            };
-            color_attachments.push(Some(wgpu::RenderPassColorAttachment {
-                view,
-                resolve_target,
-                ops: wgpu::Operations {
-                    load: color.load,
-                    store: color.store,
-                },
-                depth_slice: None,
-            }));
-        }
-        color_attachments
-    };
-
-    let depth_stencil_attachment = if let Some(depth) = &template.depth_stencil_attachment {
-        let target = resolve_attachment_target(depth.target, sample_count);
-        let view = graph_resources.texture_view(target).ok_or_else(|| {
-            GraphExecuteError::MissingGraphAttachment {
-                pass: pass_name.to_owned(),
-                resource: format!("{target:?}"),
-            }
-        })?;
-        let stencil_ops = pass.stencil_ops_override(ctx, depth);
-        Some(wgpu::RenderPassDepthStencilAttachment {
-            view,
-            depth_ops: Some(depth.depth),
-            stencil_ops,
-        })
-    } else {
-        None
-    };
-
+    let sample_count = frame_sample_count_from_raster_ctx(ctx);
+    let color_attachments =
+        resolve_color_attachments(pass.name(), template, graph_resources, sample_count)?;
+    let depth_stencil_attachment =
+        resolve_depth_attachment(pass, template, graph_resources, sample_count, ctx)?;
     let multiview_mask = pass.multiview_mask_override(ctx, template);
+
     let pass_profile_label = pass.profiling_label();
     let pass_query = ctx
         .profiler
@@ -454,11 +473,11 @@ pub(super) fn execute_graph_raster_pass_node(
         profiling::scope!("graph::raster::record_draws");
         pass.record_raster(ctx, &mut rpass)
             .map_err(GraphExecuteError::Pass)?;
-    };
+    }
     {
         profiling::scope!("graph::raster::end_render_pass");
         drop(rpass);
-    };
+    }
     if let (Some(p), Some(q)) = (ctx.profiler, pass_query) {
         p.end_query(encoder, q);
     }

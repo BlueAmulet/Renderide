@@ -18,6 +18,7 @@
 //! templates, and the pass kind flag (`raster()` / `compute()` / `copy()` / `callback()`).
 //! [`PassBuilder::finish`] validates the combination and emits a [`PassSetup`].
 
+mod attachments;
 pub mod builder;
 pub mod callback;
 pub mod compute;

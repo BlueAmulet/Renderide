@@ -278,7 +278,7 @@ mod tests {
         let output = builder.create_texture(desc());
         let depth = builder.import_texture(ImportedTextureDecl {
             label: "frame_depth",
-            source: ImportSource::FrameTarget(
+            source: ImportSource::Frame(
                 crate::render_graph::resources::FrameTargetRole::DepthAttachment,
             ),
             initial_access: TextureAccess::Sampled {
@@ -290,7 +290,7 @@ mod tests {
         });
         let frame_uniforms = builder.import_buffer(ImportedBufferDecl {
             label: "frame_uniforms",
-            source: BufferImportSource::BackendFrameResource(
+            source: BufferImportSource::Frame(
                 crate::render_graph::resources::BackendFrameBufferKind::FrameUniforms,
             ),
             initial_access: BufferAccess::Uniform {

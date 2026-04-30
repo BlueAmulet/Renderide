@@ -140,7 +140,7 @@ mod setup_tests {
         });
         let frame_color = builder.import_texture(ImportedTextureDecl {
             label: "frame_color",
-            source: ImportSource::FrameTarget(FrameTargetRole::ColorAttachment),
+            source: ImportSource::Frame(FrameTargetRole::ColorAttachment),
             initial_access: TextureAccess::ColorAttachment {
                 load: wgpu::LoadOp::Load,
                 store: wgpu::StoreOp::Store,

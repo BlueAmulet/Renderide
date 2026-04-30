@@ -1,33 +1,43 @@
 //! Typed render-graph handles and attachment target selectors.
 
-/// A transient texture allocated and owned by the graph.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TextureHandle(pub(crate) u32);
+/// Generates an opaque `u32` newtype handle with a documented `index()` accessor.
+macro_rules! define_handle {
+    (
+        $(#[$type_attr:meta])*
+        $name:ident,
+        $(#[$index_attr:meta])*
+    ) => {
+        $(#[$type_attr])*
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub struct $name(pub(crate) u32);
 
-impl TextureHandle {
-    /// Zero-based index into the graph texture declaration table.
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
+        impl $name {
+            $(#[$index_attr])*
+            pub fn index(self) -> usize {
+                self.0 as usize
+            }
+        }
+    };
 }
 
-/// A named view into a subrange (mip levels, array layers) of a transient texture.
-///
-/// Subresource handles are graph-time declarations; the concrete [`wgpu::TextureView`] is created
-/// on demand at execute time and cached per-range by the graph resources context. Passes may
-/// declare reads and writes against a subresource so the graph can order overlapping mip/layer
-/// ranges without forcing unrelated slices of the parent texture to serialize.
-///
-/// Motivating consumers: bloom / SSR mip-chain passes that sample mip N and write mip N+1;
-/// future CSM shadow atlas slice writes; per-mip Hi-Z pyramid builds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SubresourceHandle(pub(crate) u32);
+define_handle! {
+    /// A transient texture allocated and owned by the graph.
+    TextureHandle,
+    /// Zero-based index into the graph texture declaration table.
+}
 
-impl SubresourceHandle {
+define_handle! {
+    /// A named view into a subrange (mip levels, array layers) of a transient texture.
+    ///
+    /// Subresource handles are graph-time declarations; the concrete [`wgpu::TextureView`] is created
+    /// on demand at execute time and cached per-range by the graph resources context. Passes may
+    /// declare reads and writes against a subresource so the graph can order overlapping mip/layer
+    /// ranges without forcing unrelated slices of the parent texture to serialize.
+    ///
+    /// Motivating consumers: bloom / SSR mip-chain passes that sample mip N and write mip N+1;
+    /// future CSM shadow atlas slice writes; per-mip Hi-Z pyramid builds.
+    SubresourceHandle,
     /// Zero-based index into the graph subresource declaration table.
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
 }
 
 /// Mip and array-layer span used for overlap-aware texture dependency analysis.
@@ -171,37 +181,22 @@ impl TransientSubresourceDesc {
     }
 }
 
-/// A transient buffer allocated and owned by the graph.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct BufferHandle(pub(crate) u32);
-
-impl BufferHandle {
+define_handle! {
+    /// A transient buffer allocated and owned by the graph.
+    BufferHandle,
     /// Zero-based index into the graph buffer declaration table.
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
 }
 
-/// A texture owned outside the transient pool and resolved at execute time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ImportedTextureHandle(pub(crate) u32);
-
-impl ImportedTextureHandle {
+define_handle! {
+    /// A texture owned outside the transient pool and resolved at execute time.
+    ImportedTextureHandle,
     /// Zero-based index into the graph imported texture declaration table.
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
 }
 
-/// A buffer owned outside the transient pool and resolved at execute time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ImportedBufferHandle(pub(crate) u32);
-
-impl ImportedBufferHandle {
+define_handle! {
+    /// A buffer owned outside the transient pool and resolved at execute time.
+    ImportedBufferHandle,
     /// Zero-based index into the graph imported buffer declaration table.
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
 }
 
 /// Either a transient or imported texture handle.

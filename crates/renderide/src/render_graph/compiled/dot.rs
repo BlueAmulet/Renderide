@@ -253,7 +253,7 @@ mod tests {
     fn color_import() -> ImportedTextureDecl {
         ImportedTextureDecl {
             label: "color-bb",
-            source: ImportSource::FrameTarget(FrameTargetRole::ColorAttachment),
+            source: ImportSource::Frame(FrameTargetRole::ColorAttachment),
             initial_access: TextureAccess::Present,
             final_access: TextureAccess::Present,
         }
@@ -262,7 +262,7 @@ mod tests {
     fn uniform_buffer_import() -> ImportedBufferDecl {
         ImportedBufferDecl {
             label: "frame-uniforms",
-            source: BufferImportSource::BackendFrameResource(
+            source: BufferImportSource::Frame(
                 crate::render_graph::resources::BackendFrameBufferKind::FrameUniforms,
             ),
             initial_access: BufferAccess::Uniform {

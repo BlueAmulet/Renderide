@@ -14,8 +14,8 @@ pub enum FrameTargetRole {
 /// Stable identifier for a persistent graph history slot.
 ///
 /// A **history slot** is a ping-pong pair of GPU resources (textures or buffers) that survive
-/// across frames. [`ImportSource::PingPong`] and [`BufferImportSource::PingPong`] reference a
-/// slot by this id; a [`crate::backend::HistoryRegistry`] owns the concrete resources.
+/// across frames. [`ImportSourceKind::PingPong`] references a slot by this id; a
+/// [`crate::backend::HistoryRegistry`] owns the concrete resources.
 ///
 /// Slots are identified by a stable `&'static str` id so subsystems can register their own slot
 /// names without editing a centralized enum. Use [`HistorySlotId::new`] to declare new ids; the
@@ -39,25 +39,33 @@ impl HistorySlotId {
     }
 }
 
-/// Texture import source.
+/// Generic import source shared by texture and buffer imports.
 ///
-/// The [`Self::PingPong`] variant carries a [`HistorySlotId`] ([`&'static str`] newtype) so slot
-/// names stay readable in logs and registry errors. The size-difference lint is allowed because
-/// the alternative — an interned `u32` id — loses the debug name without meaningful payoff for a
-/// type instantiated a handful of times at graph build.
-#[expect(
-    variant_size_differences,
-    reason = "trade enum payload uniformity for debug-readable history slot names"
-)]
+/// `F` carries the frame-resolved kind: [`FrameTargetRole`] for textures (swapchain / depth)
+/// and [`BackendFrameBufferKind`] for buffers (lights, cluster tables, per-draw slab,
+/// frame uniforms). The [`Self::PingPong`] variant carries a [`HistorySlotId`]
+/// ([`&'static str`] newtype) so slot names stay readable in logs and registry errors. The
+/// alternative — an interned `u32` id — would lose the debug name without meaningful payoff for
+/// a type instantiated a handful of times at graph build.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum ImportSource {
-    /// Resolved from the frame target at execute time.
-    FrameTarget(FrameTargetRole),
-    /// Externally owned texture view.
+pub enum ImportSourceKind<F> {
+    /// Resolved from the frame target / backend frame resource at execute time.
+    Frame(F),
+    /// Externally owned resource view.
     External,
     /// Ping-pong history slot owned by backend history.
     PingPong(HistorySlotId),
 }
+
+/// Texture import source.
+///
+/// See [`ImportSourceKind`] for the underlying generic enum.
+pub type ImportSource = ImportSourceKind<FrameTargetRole>;
+
+/// Buffer import source.
+///
+/// See [`ImportSourceKind`] for the underlying generic enum.
+pub type BufferImportSource = ImportSourceKind<BackendFrameBufferKind>;
 
 /// Imported texture declaration.
 #[derive(Clone, Debug, PartialEq)]
@@ -98,24 +106,6 @@ impl BackendFrameBufferKind {
             Self::FrameUniforms => "frame_uniforms",
         }
     }
-}
-
-/// Buffer import source.
-///
-/// See [`ImportSource`] for the rationale behind the size-difference allow — the
-/// [`HistorySlotId`] carries a debug-readable name over an opaque id on purpose.
-#[expect(
-    variant_size_differences,
-    reason = "trade enum payload uniformity for debug-readable history slot names"
-)]
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum BufferImportSource {
-    /// Backend frame resource buffer resolved at execute time.
-    BackendFrameResource(BackendFrameBufferKind),
-    /// Externally owned buffer.
-    External,
-    /// Ping-pong history slot.
-    PingPong(HistorySlotId),
 }
 
 /// Imported buffer declaration.

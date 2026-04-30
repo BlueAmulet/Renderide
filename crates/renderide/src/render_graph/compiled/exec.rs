@@ -532,59 +532,17 @@ impl CompiledRenderGraph {
             upload_batch,
             queue_arc,
         } = inputs;
-        let device: &wgpu::Device = mv_ctx.device;
         let target_is_swapchain = views
             .iter()
             .any(|v| matches!(v.target, FrameViewTarget::Swapchain));
         let queue_ref: &wgpu::Queue = queue_arc.as_ref();
 
-        // Debug HUD overlay encodes into a fresh encoder on the swapchain path; for offscreen /
-        // external multi-view paths the HUD is not composited into the final target. The encoder
-        // is also skipped entirely when no HUD window is currently visible: in that mode the
-        // overlay would record an empty `LoadOp::Load` pass plus a GPU profiler scope, which
-        // wastes per-frame CPU time and a command-buffer submit slot for no visible work.
-        let hud_cmd = if target_is_swapchain && mv_ctx.backend.debug_hud_has_visible_content() {
-            let Some(bb) = backbuffer_view_holder.as_ref() else {
-                return Err(GraphExecuteError::MissingSwapchainView);
-            };
-            let viewport_px = mv_ctx.gpu.surface_extent_px();
-            let mut hud_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("render-graph-hud"),
-            });
-            // Wrap the HUD encoder in a GPU profiler scope so Dear ImGui's per-frame draw work
-            // appears as `graph::hud_imgui` on the Tracy GPU timeline. The encoder is its own
-            // command buffer in the submit batch, so the resolve must happen inside the encoder
-            // itself — `prof.resolve_queries` after `end_query` records the resolve copy in the
-            // same buffer that wrote the timestamps, ensuring GPU ordering across the submit.
-            let hud_query = mv_ctx
-                .gpu
-                .gpu_profiler_mut()
-                .map(|p| p.begin_query("graph::hud_imgui", &mut hud_encoder));
-            if let Err(e) = mv_ctx.backend.encode_debug_hud_overlay(
-                device,
-                queue_ref,
-                &mut hud_encoder,
-                bb,
-                viewport_px,
-            ) {
-                logger::warn!("debug HUD overlay: {e}");
-            }
-            if let Some(query) = hud_query
-                && let Some(prof) = mv_ctx.gpu.gpu_profiler_mut()
-            {
-                prof.end_query(&mut hud_encoder, query);
-                prof.resolve_queries(&mut hud_encoder);
-            }
-            Some(hud_encoder.finish())
-        } else {
-            // No visible HUD content — drop cached input-capture flags so stale "want capture
-            // keyboard/mouse" state from a previously visible HUD does not block input dispatch
-            // to the world while the HUD is hidden.
-            if target_is_swapchain {
-                mv_ctx.backend.clear_debug_hud_input_capture();
-            }
-            None
-        };
+        let hud_cmd = encode_swapchain_hud_overlay(
+            mv_ctx,
+            queue_ref,
+            target_is_swapchain,
+            backbuffer_view_holder.as_ref(),
+        )?;
 
         // Drain all per-view and frame-global deferred writes onto the main thread before submit
         // so every command buffer sees a coherent queue state.
@@ -608,32 +566,8 @@ impl CompiledRenderGraph {
         } else {
             None
         };
-        let _ = queue_ref; // retained above for the HUD encoder; submit path now uses the driver
 
-        // Collect per-view Hi-Z submit-done notifications as `on_submitted_work_done`
-        // callbacks. Each callback only marks the readback-ring slot as submit-done; the
-        // real `map_async` runs on the main thread from the next frame's
-        // [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`]. Doing wgpu work
-        // inside a device-poll callback can deadlock against wgpu-internal locks that also
-        // serialize `queue.write_texture` on the main thread (observed as a futex-wait hang
-        // inside `write_one_mip`).
-        //
-        // The encoded slot is captured out of the per-view state here (main thread, under
-        // the Hi-Z state lock) and baked into the closure by value — a late-firing callback
-        // cannot consume a newer frame's slot and alias two submits to the same staging
-        // buffer.
-        let hi_z_callbacks: Vec<Box<dyn FnOnce() + Send + 'static>> = per_view_occlusion_info
-            .iter()
-            .filter_map(|(view_id, _hc)| {
-                let state = mv_ctx.backend.occlusion.ensure_hi_z_state(*view_id);
-                let ws = state.lock().take_encoded_slot()?;
-                let cb: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
-                    profiling::scope!("hi_z::on_submitted_callback");
-                    state.lock().mark_submit_done(ws);
-                });
-                Some(cb)
-            })
-            .collect();
+        let hi_z_callbacks = collect_hi_z_submit_callbacks(mv_ctx, per_view_occlusion_info);
 
         {
             profiling::scope!("gpu::queue_submit");
@@ -841,3 +775,88 @@ impl CompiledRenderGraph {
 mod pre_warm;
 mod recording;
 mod resolve;
+
+/// Encodes the debug HUD overlay into its own command buffer for the swapchain path.
+///
+/// Returns `None` when the target isn't the swapchain or the HUD has no visible window for this
+/// frame. In the no-content case, cached input-capture flags are cleared so a hidden HUD does not
+/// block input dispatch to the world.
+fn encode_swapchain_hud_overlay(
+    mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+    queue_ref: &wgpu::Queue,
+    target_is_swapchain: bool,
+    backbuffer_view: Option<&wgpu::TextureView>,
+) -> Result<Option<wgpu::CommandBuffer>, GraphExecuteError> {
+    if !target_is_swapchain {
+        return Ok(None);
+    }
+    if !mv_ctx.backend.debug_hud_has_visible_content() {
+        // No visible HUD content — drop cached input-capture flags so stale "want capture
+        // keyboard/mouse" state from a previously visible HUD does not block input dispatch
+        // to the world while the HUD is hidden.
+        mv_ctx.backend.clear_debug_hud_input_capture();
+        return Ok(None);
+    }
+    let Some(bb) = backbuffer_view else {
+        return Err(GraphExecuteError::MissingSwapchainView);
+    };
+    let device: &wgpu::Device = mv_ctx.device;
+    let viewport_px = mv_ctx.gpu.surface_extent_px();
+    let mut hud_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("render-graph-hud"),
+    });
+    // Wrap the HUD encoder in a GPU profiler scope so Dear ImGui's per-frame draw work
+    // appears as `graph::hud_imgui` on the Tracy GPU timeline. The encoder is its own
+    // command buffer in the submit batch, so the resolve must happen inside the encoder
+    // itself — `prof.resolve_queries` after `end_query` records the resolve copy in the
+    // same buffer that wrote the timestamps, ensuring GPU ordering across the submit.
+    let hud_query = mv_ctx
+        .gpu
+        .gpu_profiler_mut()
+        .map(|p| p.begin_query("graph::hud_imgui", &mut hud_encoder));
+    if let Err(e) = mv_ctx.backend.encode_debug_hud_overlay(
+        device,
+        queue_ref,
+        &mut hud_encoder,
+        bb,
+        viewport_px,
+    ) {
+        logger::warn!("debug HUD overlay: {e}");
+    }
+    if let Some(query) = hud_query
+        && let Some(prof) = mv_ctx.gpu.gpu_profiler_mut()
+    {
+        prof.end_query(&mut hud_encoder, query);
+        prof.resolve_queries(&mut hud_encoder);
+    }
+    Ok(Some(hud_encoder.finish()))
+}
+
+/// Collects per-view Hi-Z submit-done notifications as `on_submitted_work_done` callbacks. Each
+/// callback only marks the readback-ring slot as submit-done; the real `map_async` runs on the
+/// main thread from the next frame's
+/// [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`]. Doing wgpu work inside a
+/// device-poll callback can deadlock against wgpu-internal locks that also serialize
+/// `queue.write_texture` on the main thread (observed as a futex-wait hang inside
+/// `write_one_mip`).
+///
+/// The encoded slot is captured out of the per-view state here (main thread, under the Hi-Z state
+/// lock) and baked into the closure by value — a late-firing callback cannot consume a newer
+/// frame's slot and alias two submits to the same staging buffer.
+fn collect_hi_z_submit_callbacks(
+    mv_ctx: &MultiViewExecutionContext<'_, '_>,
+    per_view_occlusion_info: &[(ViewId, HostCameraFrame)],
+) -> Vec<Box<dyn FnOnce() + Send + 'static>> {
+    per_view_occlusion_info
+        .iter()
+        .filter_map(|(view_id, _hc)| {
+            let state = mv_ctx.backend.occlusion.ensure_hi_z_state(*view_id);
+            let ws = state.lock().take_encoded_slot()?;
+            let cb: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
+                profiling::scope!("hi_z::on_submitted_callback");
+                state.lock().mark_submit_done(ws);
+            });
+            Some(cb)
+        })
+        .collect()
+}

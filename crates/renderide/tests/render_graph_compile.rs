@@ -126,7 +126,7 @@ fn tex_desc(label: &'static str) -> TransientTextureDesc {
 const fn backbuffer_import() -> ImportedTextureDecl {
     ImportedTextureDecl {
         label: "backbuffer",
-        source: ImportSource::FrameTarget(FrameTargetRole::ColorAttachment),
+        source: ImportSource::Frame(FrameTargetRole::ColorAttachment),
         initial_access: TextureAccess::ColorAttachment {
             load: wgpu::LoadOp::Load,
             store: wgpu::StoreOp::Store,
