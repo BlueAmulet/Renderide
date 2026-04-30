@@ -13,24 +13,26 @@ labeled_enum! {
 
         /// Record each per-view encoder sequentially on the main thread. Safe and debuggable.
         ///
-        /// Persisted as `"Serial"` (PascalCase) to match the original `serde` derive that ran
-        /// without `rename_all`; existing `config.toml` files keep loading without rewrite.
-        /// `"serial"` (snake_case) is accepted as an alias for ergonomics.
+        /// Canonical persist string is `"serial"` (snake_case) to match the project-wide TOML
+        /// convention. The historical `"Serial"` PascalCase token from the pre-`rename_all`
+        /// derive is accepted as an alias so existing config files keep loading; the next
+        /// HUD-triggered save migrates them to snake_case.
         Serial => {
-            persist: "Serial",
+            persist: "serial",
             label: "Serial",
-            aliases: ["serial"],
+            aliases: ["Serial"],
         },
         /// Record each per-view encoder on a rayon worker thread. Requires all per-view pass
         /// nodes to be `Send` (enforced at compile time by the trait bound on
         /// [`crate::render_graph::PassNode`]).
         ///
-        /// Persisted as `"PerViewParallel"` (PascalCase) to match the original on-disk format;
-        /// `"per_view_parallel"` (snake_case) is accepted as an alias.
+        /// Canonical persist string is `"per_view_parallel"` (snake_case); `"PerViewParallel"`
+        /// (the historical PascalCase form from the pre-`rename_all` derive) is accepted as an
+        /// alias for backwards-compat loading.
         PerViewParallel => {
-            persist: "PerViewParallel",
+            persist: "per_view_parallel",
             label: "Per-view parallel",
-            aliases: ["per_view_parallel"],
+            aliases: ["PerViewParallel"],
         },
     }
 }
@@ -63,13 +65,13 @@ mod tests {
     }
 
     #[test]
-    fn serializes_in_original_pascal_case() {
+    fn serializes_in_canonical_snake_case() {
         let mut s = RendererSettings::default();
         s.rendering.record_parallelism = RecordParallelism::PerViewParallel;
         let toml = toml::to_string(&s).expect("serialize");
         assert!(
-            toml.contains("record_parallelism = \"PerViewParallel\""),
-            "expected PascalCase persist string for byte-for-byte format parity, got:\n{toml}"
+            toml.contains("record_parallelism = \"per_view_parallel\""),
+            "expected snake_case persist string for project-wide convention parity, got:\n{toml}"
         );
     }
 }
