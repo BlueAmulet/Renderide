@@ -5,17 +5,20 @@
 
 use interprocess::{Publisher, QueueFactory, QueueOptions, Subscriber};
 
+use super::dual_queue_shared::{drain_subscriber, encode_command};
 use crate::ipc::connection::{
     publisher_queue_name, subscriber_queue_name, ConnectionParams, InitError,
 };
 use crate::packing::default_entity_pool::DefaultEntityPool;
-use crate::packing::memory_packer::MemoryPacker;
-use crate::packing::memory_unpacker::MemoryUnpacker;
-use crate::packing::polymorphic_memory_packable_entity::PolymorphicEncode;
-use crate::packing::wire_decode_error::WireDecodeError;
-use crate::shared::{decode_renderer_command, RendererCommand};
+use crate::shared::RendererCommand;
 
 const SEND_BUFFER_CAP: usize = 65536;
+
+/// Log prefix used when [`encode_command`] overflows the send buffer on the renderer side.
+const ENCODE_OVERFLOW_LOG_PREFIX: &str = "IPC outgoing send: encode overflow";
+
+/// Log prefix used when [`drain_subscriber`] decodes an invalid command on the renderer side.
+const INVALID_MESSAGE_LOG_PREFIX: &str = "IPC";
 
 /// After this many consecutive `try_enqueue` failures on one channel, log at [`logger::error!`].
 const IPC_CONSECUTIVE_DROP_ERROR_AFTER: u32 = 16;
@@ -96,11 +99,21 @@ impl DualQueueIpc {
         out.clear();
         {
             profiling::scope!("ipc::primary_drain");
-            drain_subscriber(&mut self.primary_subscriber, &mut self.entity_pool, out);
+            drain_subscriber(
+                &mut self.primary_subscriber,
+                &mut self.entity_pool,
+                out,
+                INVALID_MESSAGE_LOG_PREFIX,
+            );
         }
         {
             profiling::scope!("ipc::background_drain");
-            drain_subscriber(&mut self.background_subscriber, &mut self.entity_pool, out);
+            drain_subscriber(
+                &mut self.background_subscriber,
+                &mut self.entity_pool,
+                out,
+                INVALID_MESSAGE_LOG_PREFIX,
+            );
         }
     }
 
@@ -108,7 +121,7 @@ impl DualQueueIpc {
     ///
     /// Returns `true` if the message was queued, `false` if encoding produced no bytes or the queue was full.
     pub fn send_primary(&mut self, mut cmd: RendererCommand) -> bool {
-        let written = encode_command(&mut cmd, &mut self.send_buffer);
+        let written = encode_command(&mut cmd, &mut self.send_buffer, ENCODE_OVERFLOW_LOG_PREFIX);
         if written == 0 {
             return false;
         }
@@ -128,7 +141,7 @@ impl DualQueueIpc {
     ///
     /// Returns `true` if the message was queued, `false` if encoding produced no bytes or the queue was full.
     pub fn send_background(&mut self, mut cmd: RendererCommand) -> bool {
-        let written = encode_command(&mut cmd, &mut self.send_buffer);
+        let written = encode_command(&mut cmd, &mut self.send_buffer, ENCODE_OVERFLOW_LOG_PREFIX);
         if written == 0 {
             return false;
         }
@@ -179,41 +192,6 @@ fn send_on_publisher(
     false
 }
 
-fn encode_command(cmd: &mut RendererCommand, buf: &mut [u8]) -> usize {
-    let total_len = buf.len();
-    let mut packer = MemoryPacker::new(buf);
-    cmd.encode(&mut packer);
-    if let Some(err) = packer.overflow_error() {
-        // The encode buffer was too small for this command. Drop the message rather than send
-        // a truncated frame; the trailing fields are missing and the decoder would surface a
-        // confusing underrun. Caller treats `0` as "nothing to enqueue".
-        logger::error!(
-            "IPC outgoing send: encode overflow ({err}); dropping {} byte buffer",
-            total_len
-        );
-        return 0;
-    }
-    total_len - packer.remaining_len()
-}
-
-fn drain_subscriber(
-    sub: &mut Subscriber,
-    pool: &mut DefaultEntityPool,
-    out: &mut Vec<RendererCommand>,
-) {
-    while let Some(msg) = sub.try_dequeue() {
-        let mut unpacker = MemoryUnpacker::new(&msg, pool);
-        match decode_renderer_command(&mut unpacker) {
-            Ok(cmd) => out.push(cmd),
-            Err(e) => log_invalid_renderer_command(e),
-        }
-    }
-}
-
-fn log_invalid_renderer_command(err: WireDecodeError) {
-    logger::warn!("IPC: dropped message ({err})");
-}
-
 fn open_subscriber(
     factory: &QueueFactory,
     params: &ConnectionParams,
@@ -242,7 +220,8 @@ fn open_publisher(
 
 #[cfg(test)]
 mod renderer_command_roundtrip_tests {
-    use super::encode_command;
+    use super::ENCODE_OVERFLOW_LOG_PREFIX;
+    use crate::ipc::dual_queue_shared::encode_command;
     use crate::packing::default_entity_pool::DefaultEntityPool;
     use crate::packing::memory_unpacker::MemoryUnpacker;
     use crate::shared::{
@@ -253,7 +232,7 @@ mod renderer_command_roundtrip_tests {
     fn assert_roundtrip(mut cmd: RendererCommand) {
         let expect = format!("{cmd:?}");
         let mut buf = vec![0u8; 65536];
-        let n = encode_command(&mut cmd, &mut buf);
+        let n = encode_command(&mut cmd, &mut buf, ENCODE_OVERFLOW_LOG_PREFIX);
         let mut pool = DefaultEntityPool;
         let mut unpacker = MemoryUnpacker::new(&buf[..n], &mut pool);
         let decoded = decode_renderer_command(&mut unpacker).expect("decode");

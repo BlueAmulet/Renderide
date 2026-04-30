@@ -1,15 +1,15 @@
-//! Unit tests for [`super::memory_packer::MemoryPacker`] and [`super::memory_unpacker::MemoryUnpacker`]
-//! wire primitives (host-compatible layout).
+//! Integration: roundtrip tests for [`MemoryPacker`] and [`MemoryUnpacker`] wire primitives
+//! (host-compatible layout).
 
-use super::default_entity_pool::DefaultEntityPool;
-use super::enum_repr::EnumRepr;
-use super::memory_pack_error::MemoryPackError;
-use super::memory_packable::MemoryPackable;
-use super::memory_packer::MemoryPacker;
-use super::memory_unpack_error::MemoryUnpackError;
-use super::memory_unpacker::{MemoryUnpacker, MAX_STRING_LEN};
-use super::packed_bools::PackedBools;
-use super::wire_decode_error::WireDecodeError;
+use renderide_shared::default_entity_pool::DefaultEntityPool;
+use renderide_shared::enum_repr::EnumRepr;
+use renderide_shared::memory_packable::MemoryPackable;
+use renderide_shared::memory_packer::MemoryPacker;
+use renderide_shared::memory_unpack_error::MemoryUnpackError;
+use renderide_shared::memory_unpacker::{MemoryUnpacker, MAX_STRING_LEN};
+use renderide_shared::packed_bools::PackedBools;
+use renderide_shared::packing::memory_pack_error::MemoryPackError;
+use renderide_shared::WireDecodeError;
 
 #[test]
 fn pack_unpack_bool_roundtrip() {
@@ -307,7 +307,7 @@ impl MemoryPackable for TestObject {
         packer.write(&self.tag);
     }
 
-    fn unpack<P: super::memory_packer_entity_pool::MemoryPackerEntityPool>(
+    fn unpack<P: renderide_shared::memory_packer_entity_pool::MemoryPackerEntityPool>(
         &mut self,
         unpacker: &mut MemoryUnpacker<'_, '_, P>,
     ) -> Result<(), WireDecodeError> {

@@ -9,6 +9,8 @@ pub mod dual_queue;
 pub mod host_dual_queue;
 pub mod shared_memory;
 
+mod dual_queue_shared;
+
 pub use dual_queue::DualQueueIpc;
 pub use host_dual_queue::HostDualQueueIpc;
 pub use shared_memory::{

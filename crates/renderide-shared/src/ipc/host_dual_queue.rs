@@ -10,15 +10,18 @@
 use interprocess::{Publisher, QueueFactory, QueueOptions, Subscriber};
 
 use super::connection::{publisher_queue_name, subscriber_queue_name, ConnectionParams, InitError};
+use super::dual_queue_shared::{drain_subscriber, encode_command};
 use crate::packing::default_entity_pool::DefaultEntityPool;
-use crate::packing::memory_packer::MemoryPacker;
-use crate::packing::memory_unpacker::MemoryUnpacker;
-use crate::packing::polymorphic_memory_packable_entity::PolymorphicEncode;
-use crate::packing::wire_decode_error::WireDecodeError;
-use crate::shared::{decode_renderer_command, RendererCommand};
+use crate::shared::RendererCommand;
 
 /// Send buffer capacity reused across encodes (matches [`super::dual_queue::DualQueueIpc`]).
 const SEND_BUFFER_CAP: usize = 65536;
+
+/// Log prefix used when [`encode_command`] overflows the send buffer on the host side.
+const ENCODE_OVERFLOW_LOG_PREFIX: &str = "host IPC encode overflow";
+
+/// Log prefix used when [`drain_subscriber`] decodes an invalid command on the host side.
+const INVALID_MESSAGE_LOG_PREFIX: &str = "Host IPC";
 
 /// Authority-side dual-queue endpoints used by the host to talk to the renderer.
 ///
@@ -62,8 +65,18 @@ impl HostDualQueueIpc {
     /// message is dropped (matches the renderer-side behavior).
     pub fn poll_into(&mut self, out: &mut Vec<RendererCommand>) {
         out.clear();
-        drain_subscriber(&mut self.primary_subscriber, &mut self.entity_pool, out);
-        drain_subscriber(&mut self.background_subscriber, &mut self.entity_pool, out);
+        drain_subscriber(
+            &mut self.primary_subscriber,
+            &mut self.entity_pool,
+            out,
+            INVALID_MESSAGE_LOG_PREFIX,
+        );
+        drain_subscriber(
+            &mut self.background_subscriber,
+            &mut self.entity_pool,
+            out,
+            INVALID_MESSAGE_LOG_PREFIX,
+        );
     }
 
     /// Encodes and publishes `cmd` on the Primary `…A` queue (renderer reads it as Primary).
@@ -71,7 +84,7 @@ impl HostDualQueueIpc {
     /// Returns `true` when the message was queued, `false` when encoding produced no bytes or
     /// the queue was full (caller may retry next tick).
     pub fn send_primary(&mut self, mut cmd: RendererCommand) -> bool {
-        let written = encode_command(&mut cmd, &mut self.send_buffer);
+        let written = encode_command(&mut cmd, &mut self.send_buffer, ENCODE_OVERFLOW_LOG_PREFIX);
         if written == 0 {
             return false;
         }
@@ -81,45 +94,13 @@ impl HostDualQueueIpc {
 
     /// Encodes and publishes `cmd` on the Background `…A` queue (renderer reads it as Background).
     pub fn send_background(&mut self, mut cmd: RendererCommand) -> bool {
-        let written = encode_command(&mut cmd, &mut self.send_buffer);
+        let written = encode_command(&mut cmd, &mut self.send_buffer, ENCODE_OVERFLOW_LOG_PREFIX);
         if written == 0 {
             return false;
         }
         self.background_publisher
             .try_enqueue(&self.send_buffer[..written])
     }
-}
-
-fn encode_command(cmd: &mut RendererCommand, buf: &mut [u8]) -> usize {
-    let total_len = buf.len();
-    let mut packer = MemoryPacker::new(buf);
-    cmd.encode(&mut packer);
-    if let Some(err) = packer.overflow_error() {
-        logger::error!(
-            "host IPC encode overflow ({err}); dropping {} byte buffer",
-            total_len
-        );
-        return 0;
-    }
-    total_len - packer.remaining_len()
-}
-
-fn drain_subscriber(
-    sub: &mut Subscriber,
-    pool: &mut DefaultEntityPool,
-    out: &mut Vec<RendererCommand>,
-) {
-    while let Some(msg) = sub.try_dequeue() {
-        let mut unpacker = MemoryUnpacker::new(&msg, pool);
-        match decode_renderer_command(&mut unpacker) {
-            Ok(cmd) => out.push(cmd),
-            Err(e) => log_invalid_renderer_command(e),
-        }
-    }
-}
-
-fn log_invalid_renderer_command(err: WireDecodeError) {
-    logger::warn!("Host IPC: dropped message ({err})");
 }
 
 /// Authority-side publisher: opens the `…A` queue (renderer subscribes here).

@@ -119,44 +119,24 @@ impl SharedMemoryAccessor {
         context: Option<&str>,
     ) -> Result<Vec<T>, String> {
         profiling::scope!("shared_memory::access_copy");
-        let prefix_err = |msg: &str| {
-            if let Some(ctx) = context {
-                format!("{ctx}: {msg}")
-            } else {
-                msg.to_string()
-            }
-        };
-        if descriptor.length <= 0 {
-            return Err(prefix_err(&format!(
-                "length<=0 (buffer_id={} offset={} length={})",
-                descriptor.buffer_id, descriptor.offset, descriptor.length
-            )));
-        }
-        if descriptor.length > Self::MAX_ACCESS_COPY_BYTES {
-            return Err(prefix_err(&format!(
-                "length {} exceeds max {} (buffer_id={})",
-                descriptor.length,
-                Self::MAX_ACCESS_COPY_BYTES,
-                descriptor.buffer_id
-            )));
-        }
+        let prefix_err = make_context_prefixer(context);
+        validate_access_copy_descriptor(descriptor, Self::MAX_ACCESS_COPY_BYTES, &prefix_err)?;
         let buffer_id = descriptor.buffer_id;
+        let path_for_diag = self.shm_path_for_buffer(buffer_id);
         let Some(view) = self.get_view(descriptor) else {
-            return Err(prefix_err(&format!(
-                "get_view failed buffer_id={} path/name={}",
+            return Err(prefix_err(&describe_get_view_failure(
                 buffer_id,
-                self.shm_path_for_buffer(buffer_id)
+                &path_for_diag,
             )));
         };
         let bytes = view
             .slice(descriptor.offset, descriptor.length)
             .ok_or_else(|| {
-                prefix_err(&format!(
-                    "slice failed buffer_id={} offset={} length={} view_len={}",
+                prefix_err(&describe_slice_failure(
                     buffer_id,
                     descriptor.offset,
                     descriptor.length,
-                    view.len()
+                    view.len(),
                 ))
             })?;
         let type_size = size_of::<T>();
@@ -206,47 +186,27 @@ impl SharedMemoryAccessor {
         context: Option<&str>,
     ) -> Result<Vec<T>, String> {
         profiling::scope!("shared_memory::access_packable_rows");
-        let prefix_err = |msg: &str| {
-            if let Some(ctx) = context {
-                format!("{ctx}: {msg}")
-            } else {
-                msg.to_string()
-            }
-        };
+        let prefix_err = make_context_prefixer(context);
         if element_stride == 0 {
             return Err(prefix_err("element_stride must be nonzero"));
         }
-        if descriptor.length <= 0 {
-            return Err(prefix_err(&format!(
-                "length<=0 (buffer_id={} offset={} length={})",
-                descriptor.buffer_id, descriptor.offset, descriptor.length
-            )));
-        }
-        if descriptor.length > Self::MAX_ACCESS_COPY_BYTES {
-            return Err(prefix_err(&format!(
-                "length {} exceeds max {} (buffer_id={})",
-                descriptor.length,
-                Self::MAX_ACCESS_COPY_BYTES,
-                descriptor.buffer_id
-            )));
-        }
+        validate_access_copy_descriptor(descriptor, Self::MAX_ACCESS_COPY_BYTES, &prefix_err)?;
         let buffer_id = descriptor.buffer_id;
+        let path_for_diag = self.shm_path_for_buffer(buffer_id);
         let Some(view) = self.get_view(descriptor) else {
-            return Err(prefix_err(&format!(
-                "get_view failed buffer_id={} path/name={}",
+            return Err(prefix_err(&describe_get_view_failure(
                 buffer_id,
-                self.shm_path_for_buffer(buffer_id)
+                &path_for_diag,
             )));
         };
         let bytes = view
             .slice(descriptor.offset, descriptor.length)
             .ok_or_else(|| {
-                prefix_err(&format!(
-                    "slice failed buffer_id={} offset={} length={} view_len={}",
+                prefix_err(&describe_slice_failure(
                     buffer_id,
                     descriptor.offset,
                     descriptor.length,
-                    view.len()
+                    view.len(),
                 ))
             })?;
         let length = descriptor.length as usize;
@@ -344,6 +304,53 @@ impl SharedMemoryAccessor {
         }
         true
     }
+}
+
+/// Builds a closure that prepends `context: ` to error messages when `context` is `Some`,
+/// and passes them through unchanged otherwise. The same pattern is repeated by every
+/// `access_copy_*` method that takes a caller-supplied diagnostic context.
+fn make_context_prefixer(context: Option<&str>) -> impl Fn(&str) -> String + '_ {
+    move |msg: &str| match context {
+        Some(ctx) => format!("{ctx}: {msg}"),
+        None => msg.to_string(),
+    }
+}
+
+/// Validates the descriptor invariants shared by all `access_copy_*` paths: positive length and
+/// length within the `MAX_ACCESS_COPY_BYTES` ceiling. Errors are routed through `prefix_err` so
+/// the caller's diagnostic context is preserved in the returned message.
+fn validate_access_copy_descriptor(
+    descriptor: &SharedMemoryBufferDescriptor,
+    max_bytes: i32,
+    prefix_err: &impl Fn(&str) -> String,
+) -> Result<(), String> {
+    if descriptor.length <= 0 {
+        return Err(prefix_err(&format!(
+            "length<=0 (buffer_id={} offset={} length={})",
+            descriptor.buffer_id, descriptor.offset, descriptor.length
+        )));
+    }
+    if descriptor.length > max_bytes {
+        return Err(prefix_err(&format!(
+            "length {} exceeds max {} (buffer_id={})",
+            descriptor.length, max_bytes, descriptor.buffer_id
+        )));
+    }
+    Ok(())
+}
+
+/// Renders the diagnostic string used when [`SharedMemoryAccessor::get_view`] fails to map a
+/// shared buffer (the most common cause is a missing or truncated backing file).
+fn describe_get_view_failure(buffer_id: i32, path_or_name: &str) -> String {
+    format!("get_view failed buffer_id={buffer_id} path/name={path_or_name}")
+}
+
+/// Renders the diagnostic string used when slicing a successfully-mapped view fails (the requested
+/// offset/length range fell outside the mapped capacity).
+fn describe_slice_failure(buffer_id: i32, offset: i32, length: i32, view_len: usize) -> String {
+    format!(
+        "slice failed buffer_id={buffer_id} offset={offset} length={length} view_len={view_len}"
+    )
 }
 
 #[cfg(test)]

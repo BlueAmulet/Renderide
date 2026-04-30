@@ -1,4 +1,4 @@
-//! Host-side shared memory writer (mirror of [`SharedMemoryAccessor`](crate::ipc::SharedMemoryAccessor)).
+//! Host-side shared memory writer (mirror of [`SharedMemoryAccessor`](super::SharedMemoryAccessor)).
 //!
 //! The renderer reads host-supplied shared-memory regions (mesh vertex/index buffers, texture pixel
 //! data, material-batch side buffers) via `SharedMemoryAccessor`. This writer is the inverse: a
@@ -7,8 +7,8 @@
 //!
 //! ## Naming
 //!
-//! Matches `Helper.ComposeMemoryViewName` exactly (see
-//! [`crate::ipc::compose_memory_view_name`]) so renderer-side reads find the mapping.
+//! Matches `Helper.ComposeMemoryViewName` exactly (see [`super::compose_memory_view_name`]) so
+//! renderer-side reads find the mapping.
 //!
 //! - Unix: `{prefix}_{bufferId:X}.qu` under `{RENDERIDE_INTERPROCESS_DIR or default_memory_dir()}`.
 //! - Windows: named file mapping `CT_IP_{prefix}_{bufferId:X}` (anonymous backing — no on-disk file).
@@ -29,14 +29,14 @@ use std::fs::{File, OpenOptions};
 #[cfg(unix)]
 use memmap2::MmapMut;
 
+use super::compose_memory_view_name;
 use crate::buffer::SharedMemoryBufferDescriptor;
-use crate::ipc::shared_memory::compose_memory_view_name;
+
+#[cfg(unix)]
+use super::RENDERIDE_INTERPROCESS_DIR_ENV;
 
 #[cfg(unix)]
 use std::env;
-
-#[cfg(unix)]
-const RENDERIDE_INTERPROCESS_DIR_ENV: &str = "RENDERIDE_INTERPROCESS_DIR";
 
 /// Unix backing-file directory matching the renderer's resolution.
 ///
@@ -107,7 +107,6 @@ impl From<io::Error> for SharedMemoryWriterError {
 #[cfg(unix)]
 mod platform {
     use super::*;
-    use crate::ipc::shared_memory::RENDERIDE_INTERPROCESS_DIR_ENV;
 
     #[derive(Debug)]
     pub(super) struct PlatformWriter {

@@ -1,14 +1,14 @@
-//! Supplementary [`crate::packing::memory_packable::MemoryPackable`] impls for generated
+//! Supplementary [`super::memory_packable::MemoryPackable`] impls for generated
 //! [`crate::shared`] structs the generator's Pod classifier skipped (non-primitive composites
 //! whose serialization plumbing would otherwise have to be hand-rolled at every call site).
 //!
 //! Byte layout must match the host's `StructLayout.Sequential` records field-for-field.
 
-use crate::packing::memory_packable::MemoryPackable;
-use crate::packing::memory_packer::MemoryPacker;
-use crate::packing::memory_packer_entity_pool::MemoryPackerEntityPool;
-use crate::packing::memory_unpacker::MemoryUnpacker;
-use crate::packing::wire_decode_error::WireDecodeError;
+use super::memory_packable::MemoryPackable;
+use super::memory_packer::MemoryPacker;
+use super::memory_packer_entity_pool::MemoryPackerEntityPool;
+use super::memory_unpacker::MemoryUnpacker;
+use super::wire_decode_error::WireDecodeError;
 use crate::shared::{SkinnedMeshBoundsUpdate, SkinnedMeshRealtimeBoundsUpdate};
 
 /// Host interop size for a [`SkinnedMeshBoundsUpdate`] row in shared memory

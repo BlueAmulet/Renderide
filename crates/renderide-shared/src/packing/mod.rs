@@ -6,6 +6,7 @@
 pub mod bit_span;
 pub mod default_entity_pool;
 pub mod enum_repr;
+pub mod extras;
 pub mod memory_pack_error;
 pub mod memory_packable;
 pub mod memory_packer;
@@ -16,6 +17,3 @@ pub mod packed_bools;
 pub mod polymorphic_decode_error;
 pub mod polymorphic_memory_packable_entity;
 pub mod wire_decode_error;
-
-#[cfg(test)]
-mod wire_primitive_tests;
