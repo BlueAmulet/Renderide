@@ -131,4 +131,128 @@ public sealed class RustWriterTests
         string text = sw.ToString();
         Assert.Contains("#[default]", text, StringComparison.Ordinal);
     }
+
+    /// <summary><see cref="RustWriter.BeginUnion"/> emits a tagged enum without <c>#[repr(...)]</c>.</summary>
+    [Fact]
+    public void BeginUnion_emits_pub_enum_without_repr()
+    {
+        using var sw = new StringWriter(CultureInfo.InvariantCulture);
+        using (var w = new RustWriter(sw))
+        using (w.BeginUnion("U"))
+        {
+            w.EnumVariantWithPayload("First", "i32");
+        }
+
+        string text = sw.ToString();
+        Assert.Contains("pub enum U {", text, StringComparison.Ordinal);
+        Assert.Contains("#[derive(Debug)]", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("#[repr(", text, StringComparison.Ordinal);
+    }
+
+    /// <summary><see cref="RustWriter.TransparentStruct"/> emits a Pod/Zeroable single-field newtype with <c>#[repr(transparent)]</c>.</summary>
+    [Fact]
+    public void TransparentStruct_emits_repr_transparent_with_pod_zeroable_derives()
+    {
+        using var sw = new StringWriter(CultureInfo.InvariantCulture);
+        using (var w = new RustWriter(sw))
+        {
+            w.TransparentStruct("Wrapper", "u32");
+        }
+
+        string text = sw.ToString();
+        Assert.Contains("#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]", text, StringComparison.Ordinal);
+        Assert.Contains("#[repr(transparent)]", text, StringComparison.Ordinal);
+        Assert.Contains("pub struct Wrapper(pub u32);", text, StringComparison.Ordinal);
+    }
+
+    /// <summary><see cref="RustWriter.BeginImpl"/> emits an inherent impl block.</summary>
+    [Fact]
+    public void BeginImpl_emits_impl_block()
+    {
+        using var sw = new StringWriter(CultureInfo.InvariantCulture);
+        using (var w = new RustWriter(sw))
+        using (w.BeginImpl("Foo"))
+        {
+            w.Line("// body");
+        }
+
+        Assert.Contains("impl Foo {", sw.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary><see cref="RustWriter.BeginTraitImpl"/> emits <c>impl Trait for Type</c>.</summary>
+    [Fact]
+    public void BeginTraitImpl_emits_impl_trait_for_type()
+    {
+        using var sw = new StringWriter(CultureInfo.InvariantCulture);
+        using (var w = new RustWriter(sw))
+        using (w.BeginTraitImpl("MyTrait", "Foo"))
+        {
+            w.Line("// body");
+        }
+
+        Assert.Contains("impl MyTrait for Foo {", sw.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary><see cref="RustWriter.BeginMethod"/> emits <c>pub fn</c> with generics, parameters, and a return type.</summary>
+    [Fact]
+    public void BeginMethod_public_with_return_and_generics()
+    {
+        using var sw = new StringWriter(CultureInfo.InvariantCulture);
+        using (var w = new RustWriter(sw))
+        using (w.BeginMethod("name", "bool", ["T", "U"], ["a: i32"]))
+        {
+            w.Line("true");
+        }
+
+        Assert.Contains("pub fn name<T, U>(a: i32) -> bool {", sw.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>Private methods omit <c>pub</c>; missing return types omit the arrow.</summary>
+    [Fact]
+    public void BeginMethod_private_no_return_and_no_generics()
+    {
+        using var sw = new StringWriter(CultureInfo.InvariantCulture);
+        using (var w = new RustWriter(sw))
+        using (w.BeginMethod("name", string.Empty, generics: null, ["a: i32"], isPublic: false))
+        {
+            w.Line("// body");
+        }
+
+        string text = sw.ToString();
+        Assert.Contains("fn name(a: i32) {", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("pub fn name", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("->", text, StringComparison.Ordinal);
+    }
+
+    /// <summary><see cref="RustWriter.EnumMemberWithValue"/> emits an explicit discriminant; <c>isDefault</c> precedes it.</summary>
+    [Fact]
+    public void EnumMemberWithValue_emits_explicit_discriminant()
+    {
+        using var sw = new StringWriter(CultureInfo.InvariantCulture);
+        using (var w = new RustWriter(sw))
+        using (w.BeginEnum("E", "u8"))
+        {
+            w.EnumMemberWithValue("Seven", "7", isDefault: true);
+            w.EnumMemberWithValue("Nine", "9");
+        }
+
+        string text = sw.ToString();
+        Assert.Contains("Seven = 7,", text, StringComparison.Ordinal);
+        Assert.Contains("Nine = 9,", text, StringComparison.Ordinal);
+        Assert.Contains("#[default]", text, StringComparison.Ordinal);
+    }
+
+    /// <summary><see cref="RustWriter.EnumVariantWithPayload"/> emits a tuple-style variant.</summary>
+    [Fact]
+    public void EnumVariantWithPayload_emits_tuple_variant()
+    {
+        using var sw = new StringWriter(CultureInfo.InvariantCulture);
+        using (var w = new RustWriter(sw))
+        using (w.BeginUnion("U"))
+        {
+            w.EnumVariantWithPayload("Wrap", "Payload");
+        }
+
+        Assert.Contains("Wrap(Payload),", sw.ToString(), StringComparison.Ordinal);
+    }
 }
