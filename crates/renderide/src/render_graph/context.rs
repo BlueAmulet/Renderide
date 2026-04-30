@@ -268,7 +268,7 @@ pub struct RasterPassCtx<'a, 'frame> {
     /// encoding completes and before submit.
     pub upload_batch: &'frame FrameUploadBatch,
     /// Typed graph resources resolved for this execution scope.
-    pub graph_resources: Option<&'a GraphResolvedResources>,
+    pub graph_resources: &'a GraphResolvedResources,
     /// Per-scope typed blackboard (read/write; populated by prior callback passes this scope).
     pub blackboard: &'frame mut Blackboard,
     /// GPU profiler handle for pass-level timestamp queries.
@@ -315,7 +315,7 @@ pub struct ComputePassCtx<'a, 'encoder, 'frame> {
     /// encoding completes and before submit.
     pub upload_batch: &'frame FrameUploadBatch,
     /// Typed graph resources resolved for this execution scope.
-    pub graph_resources: Option<&'a GraphResolvedResources>,
+    pub graph_resources: &'a GraphResolvedResources,
     /// Per-scope typed blackboard (read/write; populated by prior callback passes this scope).
     pub blackboard: &'frame mut Blackboard,
     /// GPU profiler handle for pass-level timestamp queries.
@@ -363,7 +363,7 @@ pub struct CallbackCtx<'a, 'frame> {
     /// encoding completes and before submit.
     pub upload_batch: &'frame FrameUploadBatch,
     /// Typed graph resources resolved for this execution scope.
-    pub graph_resources: Option<&'a GraphResolvedResources>,
+    pub graph_resources: &'a GraphResolvedResources,
     /// Per-scope typed blackboard (read/write; the primary output of callback passes).
     pub blackboard: &'frame mut Blackboard,
 }
@@ -418,7 +418,7 @@ pub struct RenderPassContext<'a, 'encoder, 'frame> {
     /// Scene + backend frame params.
     pub frame: Option<&'frame mut FrameRenderParams<'a>>,
     /// Typed graph resources resolved for this execution scope.
-    pub graph_resources: Option<&'a GraphResolvedResources>,
+    pub graph_resources: &'a GraphResolvedResources,
 }
 
 /// Compatibility graph-raster pass context. Prefer [`RasterPassCtx`] for new code.
@@ -438,5 +438,5 @@ pub struct GraphRasterPassContext<'a, 'frame> {
     /// Scene + backend frame params.
     pub frame: Option<&'frame mut FrameRenderParams<'a>>,
     /// Typed graph resources resolved for this execution scope.
-    pub graph_resources: Option<&'a GraphResolvedResources>,
+    pub graph_resources: &'a GraphResolvedResources,
 }

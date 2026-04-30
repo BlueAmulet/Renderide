@@ -151,18 +151,17 @@ fn first_two_layer_views(texture: &ResolvedGraphTexture) -> Option<[wgpu::Textur
 
 /// Resolves MSAA attachment views from graph transient textures for the main graph.
 ///
-/// Returns `None` when MSAA is inactive (`sample_count <= 1`), graph resources are missing,
-/// or the transient handles are unavailable. The executor inserts the returned value into the
+/// Returns `None` when MSAA is inactive (`sample_count <= 1`) or the transient handles are
+/// unavailable. The executor inserts the returned value into the
 /// per-view [`super::super::blackboard::Blackboard`] as a
 /// [`super::super::frame_params::MsaaViewsSlot`].
 pub(super) fn resolve_forward_msaa_views_from_graph_resources(
     frame: &FrameRenderParams<'_>,
-    graph_resources: Option<&GraphResolvedResources>,
+    graph_resources: &GraphResolvedResources,
     msaa_handles: Option<[TextureHandle; 3]>,
 ) -> Option<super::super::frame_params::MsaaViews> {
     let handles = msaa_handles?;
     let [color_h, depth_h, r32_h] = handles;
-    let graph_resources = graph_resources?;
     if frame.view.sample_count <= 1 {
         return None;
     }

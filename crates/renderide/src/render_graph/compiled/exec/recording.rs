@@ -179,7 +179,7 @@ impl CompiledRenderGraph {
         let mut view_blackboard = Blackboard::new();
         if let Some(msaa_views) = helpers::resolve_forward_msaa_views_from_graph_resources(
             frame_params,
-            Some(graph_resources),
+            graph_resources,
             self.main_graph_msaa_transient_handles,
         ) {
             view_blackboard.insert::<MsaaViewsSlot>(msaa_views);
@@ -421,7 +421,7 @@ impl CompiledRenderGraph {
                     frame_shared: None,
                     frame_view: None,
                     upload_batch,
-                    graph_resources: Some(graph_resources),
+                    graph_resources,
                     blackboard,
                     profiler,
                 };
@@ -446,7 +446,7 @@ impl CompiledRenderGraph {
                     frame_shared: None,
                     frame_view: None,
                     upload_batch,
-                    graph_resources: Some(graph_resources),
+                    graph_resources,
                     blackboard,
                     profiler,
                 };
@@ -466,7 +466,7 @@ impl CompiledRenderGraph {
                     frame_shared: None,
                     frame_view: None,
                     upload_batch,
-                    graph_resources: Some(graph_resources),
+                    graph_resources,
                     blackboard,
                     profiler,
                 };
@@ -484,7 +484,7 @@ impl CompiledRenderGraph {
                     frame_shared: None,
                     frame_view: None,
                     upload_batch,
-                    graph_resources: Some(graph_resources),
+                    graph_resources,
                     blackboard,
                 };
                 self.passes[pass_idx]

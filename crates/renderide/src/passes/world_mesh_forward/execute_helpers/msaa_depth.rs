@@ -142,7 +142,7 @@ pub(crate) struct ForwardMsaaResolvedViews {
 
 /// Resolves the MSAA transient textures for a forward pass when MSAA is active.
 pub(crate) fn resolve_forward_msaa_views(
-    graph_resources: Option<&GraphResolvedResources>,
+    graph_resources: &GraphResolvedResources,
     resources: WorldMeshForwardGraphResources,
     sample_count: u32,
     multiview_stereo: bool,
@@ -150,7 +150,6 @@ pub(crate) fn resolve_forward_msaa_views(
     if sample_count <= 1 {
         return None;
     }
-    let graph_resources = graph_resources?;
     graph_resources.transient_texture(resources.scene_color_hdr_msaa)?;
     let depth = graph_resources.transient_texture(resources.msaa_depth)?;
     let r32 = graph_resources.transient_texture(resources.msaa_depth_r32)?;

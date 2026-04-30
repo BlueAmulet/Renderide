@@ -64,7 +64,7 @@ impl ComputePass for HiZBuildPass {
         };
         let hi_z_history = ctx
             .graph_resources
-            .and_then(|resources| resources.imported_texture(self.resources.hi_z_current))
+            .imported_texture(self.resources.hi_z_current)
             .ok_or_else(|| RenderPassError::MissingImportedTexture {
                 pass: self.name().to_owned(),
                 resource: "hi_z_current",

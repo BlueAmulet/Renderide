@@ -194,11 +194,7 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
             return Ok(());
         }
 
-        let Some(graph_resources) = ctx.graph_resources else {
-            return Err(RenderPassError::MissingFrameParams {
-                pass: self.name().to_string(),
-            });
-        };
+        let graph_resources = ctx.graph_resources;
         let Some(src) = graph_resources.transient_texture(self.resources.scene_color_hdr_msaa)
         else {
             return Err(RenderPassError::MissingFrameParams {

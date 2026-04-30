@@ -125,9 +125,7 @@ impl RasterPass for GtaoPass {
         let Some(frame) = ctx.frame.as_ref() else {
             return Err(missing_frame_params(self.name()));
         };
-        let Some(graph_resources) = ctx.graph_resources else {
-            return Err(missing_frame_params(self.name()));
-        };
+        let graph_resources = ctx.graph_resources;
         let Some(input_tex) = graph_resources.transient_texture(self.resources.input) else {
             return Err(missing_pass_resource(
                 self.name(),
