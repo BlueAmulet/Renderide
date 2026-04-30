@@ -23,7 +23,7 @@ pub mod panic_hook;
 mod paths;
 mod protocol;
 mod protocol_handlers;
-mod renderer_stub;
+mod renderer_link;
 pub mod vr_prompt;
 mod wine_detect;
 

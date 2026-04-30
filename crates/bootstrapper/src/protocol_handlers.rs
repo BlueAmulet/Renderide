@@ -10,7 +10,7 @@ use crate::child_lifetime::ChildLifetimeGroup;
 use crate::config::ResoBootConfig;
 use crate::constants::heartbeat_refresh_timeout;
 use crate::protocol::{HostCommand, LoopAction};
-use crate::renderer_stub;
+use crate::renderer_link;
 
 /// Extends the IPC watchdog deadline and logs receipt.
 pub(crate) fn handle_heartbeat(heartbeat_deadline: &Arc<Mutex<Instant>>) -> LoopAction {
@@ -30,10 +30,16 @@ pub(crate) fn handle_shutdown() -> LoopAction {
 /// Reads the system clipboard and enqueues UTF-8 bytes (empty string on failure).
 pub(crate) fn handle_get_text(outgoing: &mut Publisher) -> LoopAction {
     logger::info!("Getting clipboard text");
-    let text = arboard::Clipboard::new()
-        .and_then(|mut c| c.get_text())
-        .unwrap_or_default();
-    let _ = outgoing.try_enqueue(text.as_bytes());
+    let text = match arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
+        Ok(t) => t,
+        Err(e) => {
+            logger::warn!("Clipboard read failed, returning empty string to Host: {e}");
+            String::new()
+        }
+    };
+    if !outgoing.try_enqueue(text.as_bytes()) {
+        logger::warn!("Failed to enqueue GETTEXT response on bootstrapper_out");
+    }
     LoopAction::Continue
 }
 
@@ -65,7 +71,7 @@ pub(crate) fn handle_start_renderer(
     }
     let args_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    renderer_stub::ensure_link(config);
+    renderer_link::ensure_link(config);
 
     logger::info!(
         "Spawning renderer: {:?} with args: {:?}",
@@ -98,7 +104,9 @@ pub(crate) fn handle_start_renderer(
                 }
                 logger::info!("Renderer started PID {} with args: {}", pid, args.join(" "));
                 let response = format!("RENDERITE_STARTED:{pid}");
-                let _ = outgoing.try_enqueue(response.as_bytes());
+                if !outgoing.try_enqueue(response.as_bytes()) {
+                    logger::warn!("Failed to enqueue RENDERITE_STARTED:{pid} on bootstrapper_out");
+                }
             }
         }
         Err(e) => {

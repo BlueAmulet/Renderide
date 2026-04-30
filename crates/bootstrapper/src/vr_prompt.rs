@@ -15,16 +15,13 @@ use std::env;
 /// When set, the bootstrapper does not show the desktop vs VR dialog (automation / headless).
 pub const ENV_SKIP_VR_DIALOG: &str = "RENDERIDE_SKIP_VR_DIALOG";
 
-/// Strips a leading `-` (if present) and lowercases, matching `FrooxEngine`'s normalized argv tokens.
+/// Forwards to [`crate::cli::normalize_flag_token`].
 ///
-/// Used so `-Screen`, `-screen`, and `Screen` are treated consistently when scanning for output flags.
+/// Kept as a module-local alias so VR-prompt callers reference the operation by the
+/// argv-scanning name they already use, while the implementation lives in [`crate::cli`]
+/// alongside the other flag-parsing logic.
 fn normalized_flag_token(arg: &str) -> String {
-    let s = arg.trim();
-    if let Some(rest) = s.strip_prefix('-') {
-        rest.to_ascii_lowercase()
-    } else {
-        s.to_ascii_lowercase()
-    }
+    crate::cli::normalize_flag_token(arg)
 }
 
 /// Returns `true` when `args` already specify `FrooxEngine` output via `-Screen` or `-Device …`.

@@ -206,7 +206,11 @@ fn spawn_heartbeat_watchdog(
         while !cancel_wd.load(Ordering::Relaxed) {
             std::thread::sleep(watchdog_poll_interval());
             let Ok(deadline) = deadline_wd.lock() else {
-                continue;
+                logger::error!(
+                    "heartbeat watchdog: deadline mutex poisoned, terminating watchdog and signalling cancel"
+                );
+                cancel_wd.store(true, Ordering::SeqCst);
+                break;
             };
             if Instant::now() > *deadline {
                 cancel_wd.store(true, Ordering::SeqCst);
@@ -234,6 +238,10 @@ fn spawn_host_exit_watcher(
         }
         let outcome = {
             let Ok(mut guard) = host_child.lock() else {
+                logger::error!(
+                    "host exit watcher: host_child mutex poisoned, terminating watchdog and signalling cancel"
+                );
+                cancel_host.store(true, Ordering::SeqCst);
                 break;
             };
             match guard.as_mut() {
@@ -277,6 +285,10 @@ fn spawn_renderer_exit_watcher(
         let mut exited: Option<std::process::ExitStatus> = None;
         {
             let Ok(mut guard) = renderer_child.lock() else {
+                logger::error!(
+                    "renderer exit watcher: renderer_child mutex poisoned, terminating watchdog and signalling cancel"
+                );
+                cancel.store(true, Ordering::SeqCst);
                 break;
             };
             if let Some(r) = guard.as_mut() {
@@ -296,11 +308,19 @@ fn spawn_renderer_exit_watcher(
                 "Renderer process exited ({status}); terminating Host and stopping bootstrapper"
             );
             cancel.store(true, Ordering::SeqCst);
-            if let Ok(mut h) = host_child.lock() {
-                if let Some(mut hc) = h.take() {
-                    logger::info!("Terminating Host PID {} after renderer exit", hc.id());
-                    let _ = hc.kill();
-                    let _ = hc.wait();
+            match host_child.lock() {
+                Ok(mut h) => {
+                    if let Some(mut hc) = h.take() {
+                        logger::info!("Terminating Host PID {} after renderer exit", hc.id());
+                        let _ = hc.kill();
+                        let _ = hc.wait();
+                    }
+                }
+                Err(_) => {
+                    logger::error!(
+                        "renderer exit watcher: host_child mutex poisoned during teardown; \
+                         could not kill Host (relying on lifetime group cleanup)"
+                    );
                 }
             }
             break;

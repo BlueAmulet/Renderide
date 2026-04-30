@@ -23,6 +23,14 @@ pub(crate) const HOST_EXIT_WATCHER_POLL_INTERVAL_SECS: u64 = 1;
 /// Poll interval for the renderer exit watcher (`Child::try_wait` loop).
 pub(crate) const RENDERER_EXIT_WATCHER_POLL_INTERVAL_MS: u64 = 250;
 
+/// macOS: grace period between `SIGINT` and `SIGTERM` during child shutdown escalation.
+#[cfg(target_os = "macos")]
+pub(crate) const MACOS_SHUTDOWN_SIGINT_TO_SIGTERM_DELAY_MS: u64 = 400;
+
+/// macOS: grace period between `SIGTERM` and `SIGKILL` during child shutdown escalation.
+#[cfg(target_os = "macos")]
+pub(crate) const MACOS_SHUTDOWN_SIGTERM_TO_SIGKILL_DELAY_MS: u64 = 800;
+
 /// Returns [`Duration`] for the initial IPC idle watchdog.
 #[inline]
 pub(crate) fn initial_heartbeat_timeout() -> Duration {
@@ -65,6 +73,20 @@ pub(crate) fn renderer_exit_watcher_poll_interval() -> Duration {
     Duration::from_millis(RENDERER_EXIT_WATCHER_POLL_INTERVAL_MS)
 }
 
+/// Returns the macOS `SIGINT` → `SIGTERM` shutdown grace period.
+#[cfg(target_os = "macos")]
+#[inline]
+pub(crate) fn macos_shutdown_sigint_to_sigterm_delay() -> Duration {
+    Duration::from_millis(MACOS_SHUTDOWN_SIGINT_TO_SIGTERM_DELAY_MS)
+}
+
+/// Returns the macOS `SIGTERM` → `SIGKILL` shutdown grace period.
+#[cfg(target_os = "macos")]
+#[inline]
+pub(crate) fn macos_shutdown_sigterm_to_sigkill_delay() -> Duration {
+    Duration::from_millis(MACOS_SHUTDOWN_SIGTERM_TO_SIGKILL_DELAY_MS)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,6 +120,19 @@ mod tests {
         assert_eq!(
             renderer_exit_watcher_poll_interval().as_millis(),
             u128::from(RENDERER_EXIT_WATCHER_POLL_INTERVAL_MS)
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_shutdown_helpers_match_constants() {
+        assert_eq!(
+            macos_shutdown_sigint_to_sigterm_delay().as_millis(),
+            u128::from(MACOS_SHUTDOWN_SIGINT_TO_SIGTERM_DELAY_MS)
+        );
+        assert_eq!(
+            macos_shutdown_sigterm_to_sigkill_delay().as_millis(),
+            u128::from(MACOS_SHUTDOWN_SIGTERM_TO_SIGKILL_DELAY_MS)
         );
     }
 }

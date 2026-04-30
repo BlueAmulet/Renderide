@@ -12,6 +12,20 @@ use logger::LogLevel;
 
 use crate::vr_prompt;
 
+/// Trims `token`, strips a single leading `-` (if present), and ASCII-lowercases the rest.
+///
+/// Used by argv scanning to compare a flag-shaped token against canonical lowercase forms
+/// regardless of leading dashes or letter case, matching `FrooxEngine`'s normalized argv tokens.
+/// Only one leading `-` is stripped — `--log-level` normalizes to `-log-level`, not `log-level`.
+pub(crate) fn normalize_flag_token(token: &str) -> String {
+    let s = token.trim();
+    if let Some(rest) = s.strip_prefix('-') {
+        rest.to_ascii_lowercase()
+    } else {
+        s.to_ascii_lowercase()
+    }
+}
+
 /// Parses bootstrapper args, extracting `--log-level` / `-l` for bootstrapper and Renderide.
 ///
 /// Returns `(arguments to forward to Host, optional log level)`.
@@ -33,8 +47,8 @@ pub fn parse_host_args_tokens(args: &[String]) -> (Vec<String>, Option<LogLevel>
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
-        let arg_lower = arg.to_lowercase();
-        if (arg_lower == "--log-level" || arg_lower == "-l") && i + 1 < args.len() {
+        let normalized = normalize_flag_token(arg);
+        if (normalized == "-log-level" || normalized == "l") && i + 1 < args.len() {
             log_level = LogLevel::parse(&args[i + 1]);
             i += 2;
             continue;
@@ -79,6 +93,31 @@ mod tests {
 
     fn tokens(args: &[&str]) -> Vec<String> {
         args.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn normalize_flag_token_no_leading_dash_lowercases() {
+        assert_eq!(normalize_flag_token("Screen"), "screen");
+    }
+
+    #[test]
+    fn normalize_flag_token_strips_single_dash() {
+        assert_eq!(normalize_flag_token("-Screen"), "screen");
+    }
+
+    #[test]
+    fn normalize_flag_token_strips_only_one_dash_for_double_dash() {
+        assert_eq!(normalize_flag_token("--log-level"), "-log-level");
+    }
+
+    #[test]
+    fn normalize_flag_token_trims_whitespace() {
+        assert_eq!(normalize_flag_token("  -L  "), "l");
+    }
+
+    #[test]
+    fn normalize_flag_token_empty_input() {
+        assert_eq!(normalize_flag_token(""), "");
     }
 
     #[test]

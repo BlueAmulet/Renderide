@@ -3,7 +3,10 @@
 use std::io;
 use std::process::{Child, Command};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+
+use crate::constants::{
+    macos_shutdown_sigint_to_sigterm_delay, macos_shutdown_sigterm_to_sigkill_delay,
+};
 
 /// Records PIDs from [`Self::register_spawned`] for coordinated teardown.
 pub struct PlatformGroup {
@@ -51,11 +54,11 @@ impl PlatformGroup {
         for &pid in &pids {
             macos_kill(pid, libc::SIGINT);
         }
-        std::thread::sleep(Duration::from_millis(400));
+        std::thread::sleep(macos_shutdown_sigint_to_sigterm_delay());
         for &pid in &pids {
             macos_kill(pid, libc::SIGTERM);
         }
-        std::thread::sleep(Duration::from_millis(800));
+        std::thread::sleep(macos_shutdown_sigterm_to_sigkill_delay());
         for &pid in &pids {
             macos_kill(pid, libc::SIGKILL);
         }

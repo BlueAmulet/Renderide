@@ -40,6 +40,12 @@ pub(crate) enum LoopAction {
 }
 
 /// Parses a UTF-8 message from the Host into a [`HostCommand`].
+///
+/// Recognized prefixes: `HEARTBEAT`, `SHUTDOWN`, `GETTEXT`, `SETTEXT<payload>`.
+/// Any other input is treated as whitespace-separated argv for [`HostCommand::StartRenderer`];
+/// this catch-all is how `BootstrapperManager` requests a renderer launch (no command keyword,
+/// just the argv to forward). The fallback is logged at `debug` so unexpected tokens are visible
+/// in support traces while preserving the existing wire contract.
 pub(crate) fn parse_host_command(s: &str) -> HostCommand {
     match s {
         "HEARTBEAT" => HostCommand::Heartbeat,
@@ -50,7 +56,14 @@ pub(crate) fn parse_host_command(s: &str) -> HostCommand {
                 .map(str::to_string)
                 .unwrap_or_default(),
         ),
-        _ => HostCommand::StartRenderer(s.split_whitespace().map(String::from).collect()),
+        _ => {
+            let argv: Vec<String> = s.split_whitespace().map(String::from).collect();
+            let first = argv.first().map(String::as_str).unwrap_or("<empty>");
+            logger::debug!(
+                "Bootstrap message did not match a known command; treating as renderer argv (first token: {first})"
+            );
+            HostCommand::StartRenderer(argv)
+        }
     }
 }
 
