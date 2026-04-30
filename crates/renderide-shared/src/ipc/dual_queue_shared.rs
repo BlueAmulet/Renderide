@@ -61,3 +61,34 @@ pub(super) fn drain_subscriber(
 fn log_invalid_renderer_command(prefix: &'static str, err: WireDecodeError) {
     logger::warn!("{prefix}: dropped message ({err})");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shared::{KeepAlive, RendererCommand, decode_renderer_command};
+
+    const TEST_OVERFLOW_PREFIX: &str = "test::overflow";
+
+    #[test]
+    fn encode_command_returns_zero_when_buffer_too_small() {
+        let mut cmd = RendererCommand::KeepAlive(KeepAlive {});
+        let mut buf = [0u8; 1];
+        let n = encode_command(&mut cmd, &mut buf, TEST_OVERFLOW_PREFIX);
+        assert_eq!(n, 0, "buffer too small must signal nothing-to-enqueue");
+    }
+
+    #[test]
+    fn encode_command_returns_byte_count_on_success_and_decodes_back() {
+        let mut cmd = RendererCommand::KeepAlive(KeepAlive {});
+        let mut buf = vec![0u8; 64];
+        let n = encode_command(&mut cmd, &mut buf, TEST_OVERFLOW_PREFIX);
+        assert!(n > 0, "should write at least one byte");
+        assert!(n <= buf.len(), "must not exceed buffer length");
+
+        let mut pool = DefaultEntityPool;
+        let mut unpacker = MemoryUnpacker::new(&buf[..n], &mut pool);
+        let decoded = decode_renderer_command(&mut unpacker).expect("decode");
+        assert!(matches!(decoded, RendererCommand::KeepAlive(_)));
+        assert_eq!(unpacker.remaining_data(), 0, "no trailing bytes");
+    }
+}
