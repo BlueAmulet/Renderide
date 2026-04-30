@@ -17,7 +17,7 @@ pub(crate) fn process_frame_submit(runtime: &mut RendererRuntime, data: FrameSub
         runtime
             .frontend
             .apply_frame_submit_output(data.output_state.clone());
-        runtime.last_submit_render_task_count = data.render_tasks.len();
+        runtime.set_last_submit_render_task_count(data.render_tasks.len());
     };
 
     {
@@ -57,7 +57,7 @@ pub(crate) fn process_frame_submit(runtime: &mut RendererRuntime, data: FrameSub
         .frontend
         .enqueue_rendered_reflection_probes(rendered_reflection_probes);
     if apply_failed {
-        runtime.frame_submit_apply_failures = runtime.frame_submit_apply_failures.saturating_add(1);
+        runtime.note_frame_submit_apply_failure();
         runtime.frontend.set_fatal_error(true);
     }
     {

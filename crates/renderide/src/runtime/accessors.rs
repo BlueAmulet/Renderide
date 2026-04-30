@@ -12,6 +12,16 @@ use crate::shared::RendererInitData;
 use super::RendererRuntime;
 
 impl RendererRuntime {
+    /// Updates the latest [`crate::shared::FrameSubmitData::render_tasks`] count for the HUD.
+    pub(crate) fn set_last_submit_render_task_count(&mut self, n: usize) {
+        self.last_submit_render_task_count = n;
+    }
+
+    /// Increments the cumulative scene-apply failure counter surfaced on the diagnostics HUD.
+    pub(crate) fn note_frame_submit_apply_failure(&mut self) {
+        self.frame_submit_apply_failures = self.frame_submit_apply_failures.saturating_add(1);
+    }
+
     /// Shared settings store ([`crate::config::RendererSettings`]).
     pub fn settings(&self) -> &RendererSettingsHandle {
         &self.settings

@@ -88,7 +88,7 @@ pub struct RendererRuntime {
     /// Render spaces and dense transform / mesh state from [`FrameSubmitData`](crate::shared::FrameSubmitData).
     pub(crate) scene: SceneCoordinator,
     /// Last host clip / FOV / VR / ortho task state for [`crate::render_graph::FrameRenderParams`].
-    pub host_camera: HostCameraFrame,
+    pub(crate) host_camera: HostCameraFrame,
     /// Process-wide renderer settings (shared with the debug HUD and the frame loop).
     pub(crate) settings: RendererSettingsHandle,
     /// Target path for persisting [`Self::settings`] from the ImGui config window.
@@ -98,7 +98,7 @@ pub struct RendererRuntime {
     /// Rolling per-frame wall time history that feeds the Frame timing sparkline.
     frame_time_history: crate::diagnostics::FrameTimeHistory,
     /// [`FrameSubmitData::render_tasks`] length from the last applied frame submit (HUD).
-    pub(crate) last_submit_render_task_count: usize,
+    last_submit_render_task_count: usize,
     /// Cached full [`wgpu::AllocatorReport`] for the **GPU memory** HUD tab (refreshed on a timer).
     allocator_report_hud: Option<crate::diagnostics::GpuAllocatorReportHud>,
     /// Wall clock when a **GPU memory** tab refresh was last attempted (typically every 2s while the main debug HUD runs).
@@ -106,7 +106,7 @@ pub struct RendererRuntime {
     /// Set when [`Self::run_asset_integration`] completed for the current winit tick (cleared in [`Self::tick_frame_wall_clock_begin`]).
     did_integrate_this_tick: bool,
     /// Count of failed [`SceneCoordinator::apply_frame_submit`] or [`SceneCoordinator::flush_world_caches`] after a host submit (HUD / drift).
-    pub(crate) frame_submit_apply_failures: u64,
+    frame_submit_apply_failures: u64,
     /// Count of OpenXR `wait_frame` errors since startup (recoverable).
     pub(crate) xr_wait_frame_failures: u64,
     /// Count of OpenXR `locate_views` errors when `should_render` was true (recoverable).
