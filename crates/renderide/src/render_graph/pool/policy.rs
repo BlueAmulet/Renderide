@@ -177,3 +177,82 @@ pub(super) fn create_buffer(
         mapped_at_creation: false,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn texture_key(extent: TransientExtent, array_layers: u32) -> TextureKey {
+        TextureKey {
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            extent,
+            mip_levels: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            array_layers,
+            usage_bits: u64::from(wgpu::TextureUsages::RENDER_ATTACHMENT.bits()),
+        }
+    }
+
+    #[test]
+    fn texture_key_dims_uses_array_layers_for_backbuffer_relative_extents() {
+        assert_eq!(
+            texture_key_dims(texture_key(TransientExtent::Backbuffer, 2)),
+            (1, 1, 2)
+        );
+        assert_eq!(
+            texture_key_dims(texture_key(
+                TransientExtent::BackbufferScaledMip {
+                    max_dim: 1024,
+                    mip: 2,
+                },
+                4,
+            )),
+            (1, 1, 4)
+        );
+    }
+
+    #[test]
+    fn texture_key_dims_preserves_custom_dimensions() {
+        assert_eq!(
+            texture_key_dims(texture_key(
+                TransientExtent::Custom {
+                    width: 320,
+                    height: 180,
+                },
+                3,
+            )),
+            (320, 180, 3)
+        );
+    }
+
+    #[test]
+    fn texture_key_dims_prefers_multilayer_extent_layers() {
+        assert_eq!(
+            texture_key_dims(texture_key(
+                TransientExtent::MultiLayer {
+                    width: 64,
+                    height: 32,
+                    layers: 6,
+                },
+                2,
+            )),
+            (64, 32, 6)
+        );
+    }
+
+    #[test]
+    fn empty_slot_values_report_absent_and_clear_to_default_state() {
+        let mut texture_slot = TextureSlotValue::default();
+        texture_slot.clear();
+        assert!(!texture_slot.is_present());
+
+        let mut buffer_slot = BufferSlotValue {
+            buffer: None,
+            size: 4096,
+        };
+        buffer_slot.clear();
+        assert!(!buffer_slot.is_present());
+        assert_eq!(buffer_slot.size, 0);
+    }
+}

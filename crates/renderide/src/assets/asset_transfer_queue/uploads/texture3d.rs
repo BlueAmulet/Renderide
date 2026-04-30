@@ -179,3 +179,95 @@ fn enqueue_texture3d_upload_task(queue: &mut AssetTransferQueue, d: SetTexture3D
     let task = AssetTask::Texture3d(Texture3dUploadTask::new(d, fmt, wgpu_fmt));
     queue.integrator_mut().try_enqueue(task, high)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::shared::buffer::SharedMemoryBufferDescriptor;
+    use crate::shared::{TextureFilterMode, TextureFormat, TextureWrapMode};
+
+    use super::*;
+
+    fn format(asset_id: i32) -> SetTexture3DFormat {
+        SetTexture3DFormat {
+            asset_id,
+            width: 16,
+            height: 8,
+            depth: 4,
+            mipmap_count: 1,
+            format: TextureFormat::RGBA32,
+            ..Default::default()
+        }
+    }
+
+    fn data(asset_id: i32) -> SetTexture3DData {
+        SetTexture3DData {
+            asset_id,
+            data: SharedMemoryBufferDescriptor {
+                length: 16,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn format_without_gpu_updates_catalog_but_not_resident_pool() {
+        let mut queue = AssetTransferQueue::new();
+
+        on_set_texture_3d_format(&mut queue, format(9), None);
+
+        assert_eq!(
+            queue
+                .catalogs
+                .texture3d_formats
+                .get(&9)
+                .map(|fmt| fmt.depth),
+            Some(4)
+        );
+        assert!(queue.pools.texture3d_pool.get(9).is_none());
+    }
+
+    #[test]
+    fn properties_without_resident_texture_update_catalog() {
+        let mut queue = AssetTransferQueue::new();
+
+        on_set_texture_3d_properties(
+            &mut queue,
+            SetTexture3DProperties {
+                asset_id: 9,
+                filter_mode: TextureFilterMode::Bilinear,
+                wrap_w: TextureWrapMode::Mirror,
+                ..Default::default()
+            },
+            None,
+        );
+
+        let props = queue
+            .catalogs
+            .texture3d_properties
+            .get(&9)
+            .expect("stored props");
+        assert_eq!(props.filter_mode, TextureFilterMode::Bilinear);
+        assert_eq!(props.wrap_w, TextureWrapMode::Mirror);
+    }
+
+    #[test]
+    fn data_without_format_is_dropped_before_pending_queue() {
+        let mut queue = AssetTransferQueue::new();
+
+        on_set_texture_3d_data(&mut queue, data(9), None, None);
+
+        assert!(queue.pending.pending_texture3d_uploads.is_empty());
+    }
+
+    #[test]
+    fn data_with_format_but_no_gpu_is_deferred() {
+        let mut queue = AssetTransferQueue::new();
+        on_set_texture_3d_format(&mut queue, format(9), None);
+
+        on_set_texture_3d_data(&mut queue, data(9), None, None);
+
+        assert_eq!(queue.pending.pending_texture3d_uploads.len(), 1);
+        assert_eq!(queue.pending.pending_texture3d_uploads[0].asset_id, 9);
+    }
+}

@@ -25,3 +25,38 @@ impl SnapshotRequirements {
         self.uses_scene_color || self.uses_scene_depth || self.requires_intersection_pass
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn any_is_false_for_default_requirements() {
+        assert!(!SnapshotRequirements::default().any());
+    }
+
+    #[test]
+    fn any_is_true_for_each_individual_requirement() {
+        assert!(
+            SnapshotRequirements {
+                uses_scene_color: true,
+                ..Default::default()
+            }
+            .any()
+        );
+        assert!(
+            SnapshotRequirements {
+                uses_scene_depth: true,
+                ..Default::default()
+            }
+            .any()
+        );
+        assert!(
+            SnapshotRequirements {
+                requires_intersection_pass: true,
+                ..Default::default()
+            }
+            .any()
+        );
+    }
+}

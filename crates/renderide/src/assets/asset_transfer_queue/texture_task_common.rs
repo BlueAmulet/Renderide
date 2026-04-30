@@ -84,3 +84,55 @@ pub(super) fn storage_orientation_allows_mark(
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn storage_orientation_upload_allows_empty_resident_texture() {
+        assert!(storage_orientation_allows_upload(
+            "texture", 7, 0, false, true, "mips",
+        ));
+    }
+
+    #[test]
+    fn storage_orientation_upload_rejects_mixed_resident_texture() {
+        assert!(!storage_orientation_allows_upload(
+            "texture", 7, 1, false, true, "mips",
+        ));
+    }
+
+    #[test]
+    fn storage_orientation_mark_matches_upload_policy() {
+        assert!(storage_orientation_allows_mark(
+            "cubemap",
+            3,
+            4,
+            true,
+            true,
+            "after write",
+        ));
+        assert!(!storage_orientation_allows_mark(
+            "cubemap",
+            3,
+            4,
+            true,
+            false,
+            "after write",
+        ));
+    }
+
+    #[test]
+    fn missing_payload_and_failed_upload_finish_task() {
+        assert_eq!(missing_payload("texture", 1), StepResult::Done);
+        assert_eq!(
+            failed_upload(
+                "texture",
+                1,
+                &crate::assets::texture::TextureUploadError::from("bad upload"),
+            ),
+            StepResult::Done,
+        );
+    }
+}

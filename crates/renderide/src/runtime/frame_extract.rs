@@ -255,3 +255,44 @@ fn cull_snapshot_for_view(
         hi_z_temporal: setup.occlusion.hi_z_temporal_snapshot(prep.view_id),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::camera::{HostCameraFrame, ViewId};
+    use crate::render_graph::FrameViewClear;
+    use crate::world_mesh::WorldMeshDrawCollectParallelism;
+
+    use super::super::frame_view_plan::{FrameViewPlan, FrameViewPlanTarget};
+    use super::*;
+
+    fn main_swapchain_plan() -> FrameViewPlan<'static> {
+        FrameViewPlan {
+            host_camera: HostCameraFrame::default(),
+            draw_filter: None,
+            view_id: ViewId::Main,
+            viewport_px: (640, 480),
+            clear: FrameViewClear::default(),
+            target: FrameViewPlanTarget::MainSwapchain,
+        }
+    }
+
+    #[test]
+    fn select_inner_parallelism_uses_full_for_zero_or_one_view() {
+        assert_eq!(
+            select_inner_parallelism(&[]),
+            WorldMeshDrawCollectParallelism::Full
+        );
+        assert_eq!(
+            select_inner_parallelism(&[main_swapchain_plan()]),
+            WorldMeshDrawCollectParallelism::Full
+        );
+    }
+
+    #[test]
+    fn select_inner_parallelism_disables_nested_parallelism_for_multiple_views() {
+        assert_eq!(
+            select_inner_parallelism(&[main_swapchain_plan(), main_swapchain_plan()]),
+            WorldMeshDrawCollectParallelism::SerialInnerForNestedBatch
+        );
+    }
+}

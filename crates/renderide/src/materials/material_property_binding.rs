@@ -20,3 +20,16 @@ impl MaterialPropertyGpuLayout {
         Self::default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_layout_matches_default_layout() {
+        assert_eq!(
+            format!("{:?}", MaterialPropertyGpuLayout::empty()),
+            format!("{:?}", MaterialPropertyGpuLayout::default())
+        );
+    }
+}

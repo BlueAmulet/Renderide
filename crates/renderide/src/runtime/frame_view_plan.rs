@@ -177,3 +177,48 @@ impl FrameViewPlan<'_> {
         OutputDepthMode::from_multiview_stereo(self.is_multiview_stereo_active())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::camera::{HostCameraFrame, ViewId};
+    use crate::gpu::OutputDepthMode;
+    use crate::materials::ShaderPermutation;
+    use crate::render_graph::{FrameViewClear, FrameViewTarget, WorldMeshDrawPlan};
+
+    use super::*;
+
+    fn main_swapchain_plan() -> FrameViewPlan<'static> {
+        FrameViewPlan {
+            host_camera: HostCameraFrame::default(),
+            draw_filter: None,
+            view_id: ViewId::Main,
+            viewport_px: (1280, 720),
+            clear: FrameViewClear::color(glam::Vec4::new(0.1, 0.2, 0.3, 1.0)),
+            target: FrameViewPlanTarget::MainSwapchain,
+        }
+    }
+
+    #[test]
+    fn main_swapchain_plan_uses_default_shader_and_desktop_depth_mode() {
+        let plan = main_swapchain_plan();
+
+        assert!(!plan.is_multiview_stereo_active());
+        assert_eq!(plan.shader_permutation(), ShaderPermutation(0));
+        assert_eq!(plan.output_depth_mode(), OutputDepthMode::DesktopSingle);
+    }
+
+    #[test]
+    fn to_frame_view_preserves_cpu_view_fields() {
+        let plan = main_swapchain_plan();
+        let frame_view = plan.to_frame_view(WorldMeshDrawPlan::Empty);
+
+        assert_eq!(frame_view.view_id, ViewId::Main);
+        assert_eq!(frame_view.host_camera.frame_index, -1);
+        assert_eq!(frame_view.clear, plan.clear);
+        assert!(matches!(frame_view.target, FrameViewTarget::Swapchain));
+        assert!(matches!(
+            frame_view.world_mesh_draw_plan,
+            WorldMeshDrawPlan::Empty
+        ));
+    }
+}

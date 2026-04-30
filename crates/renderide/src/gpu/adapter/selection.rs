@@ -151,3 +151,71 @@ fn adapter_not_found_error(
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn high_performance_preference_ranks_discrete_before_integrated() {
+        assert!(
+            power_preference_score(
+                wgpu::DeviceType::DiscreteGpu,
+                wgpu::PowerPreference::HighPerformance,
+            ) < power_preference_score(
+                wgpu::DeviceType::IntegratedGpu,
+                wgpu::PowerPreference::HighPerformance,
+            )
+        );
+        assert_eq!(
+            power_preference_score(wgpu::DeviceType::DiscreteGpu, wgpu::PowerPreference::None),
+            power_preference_score(
+                wgpu::DeviceType::DiscreteGpu,
+                wgpu::PowerPreference::HighPerformance,
+            )
+        );
+    }
+
+    #[test]
+    fn low_power_preference_ranks_integrated_before_discrete() {
+        assert!(
+            power_preference_score(
+                wgpu::DeviceType::IntegratedGpu,
+                wgpu::PowerPreference::LowPower
+            ) < power_preference_score(
+                wgpu::DeviceType::DiscreteGpu,
+                wgpu::PowerPreference::LowPower,
+            )
+        );
+    }
+
+    #[test]
+    fn fallback_device_type_scores_are_stable() {
+        assert_eq!(
+            power_preference_score(
+                wgpu::DeviceType::VirtualGpu,
+                wgpu::PowerPreference::LowPower
+            ),
+            2
+        );
+        assert_eq!(
+            power_preference_score(
+                wgpu::DeviceType::Cpu,
+                wgpu::PowerPreference::HighPerformance
+            ),
+            3
+        );
+        assert_eq!(
+            power_preference_score(wgpu::DeviceType::Other, wgpu::PowerPreference::None),
+            4
+        );
+    }
+
+    #[test]
+    fn headless_adapter_error_reports_driver_backend_guidance() {
+        let error = adapter_not_found_error(None, 3).to_string();
+
+        assert!(error.contains("no headless adapter found"));
+        assert!(error.contains("supported wgpu backend"));
+    }
+}

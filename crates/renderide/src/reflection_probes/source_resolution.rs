@@ -360,3 +360,56 @@ fn hash_route_name(route: &str) -> u64 {
     route.hash(&mut h);
     h.finish()
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::skybox::params::SkyboxParamMode;
+
+    use super::*;
+
+    #[test]
+    fn vec4_bits_preserves_exact_float_bit_patterns() {
+        let bits = vec4_bits(Vec4::new(0.0, -0.0, f32::INFINITY, f32::NAN));
+
+        assert_eq!(bits[0], 0.0f32.to_bits());
+        assert_eq!(bits[1], (-0.0f32).to_bits());
+        assert_eq!(bits[2], f32::INFINITY.to_bits());
+        assert_eq!(bits[3], f32::NAN.to_bits());
+    }
+
+    #[test]
+    fn route_hash_is_stable_and_route_sensitive() {
+        assert_eq!(
+            hash_route_name("Projection360"),
+            hash_route_name("Projection360")
+        );
+        assert_ne!(
+            hash_route_name("Projection360"),
+            hash_route_name("GradientSky")
+        );
+    }
+
+    #[test]
+    fn projection360_equirect_source_key_includes_texture_and_projection_state() {
+        let mut params = Sh2ProjectParams::empty(SkyboxParamMode::Procedural);
+        params.color0 = [1.0, 2.0, 3.0, 4.0];
+        params.color1 = [0.5, 0.5, 0.25, 0.75];
+        params.scalars = [1.0, 0.0, 0.0, 0.0];
+
+        let key = projection360_equirect_source_key(7, 11, 512, 256, 3, 99, &params);
+
+        assert_eq!(
+            key,
+            Sh2SourceKey::EquirectTexture2D {
+                render_space_id: 7,
+                asset_id: 11,
+                width: 512,
+                height: 256,
+                resident_mips: 3,
+                sample_size: DEFAULT_SAMPLE_SIZE,
+                material_generation: 99,
+                projection: Projection360EquirectKey::from_params(&params),
+            }
+        );
+    }
+}

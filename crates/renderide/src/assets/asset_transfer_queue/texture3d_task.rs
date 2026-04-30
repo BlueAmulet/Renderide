@@ -122,3 +122,27 @@ impl Texture3dUploadTask {
         logger::trace!("texture3d {id}: data upload ok ({uploaded_mips} mips, integrator)");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::shared::{SetTexture3DData, SetTexture3DFormat};
+
+    use super::*;
+
+    fn task(high_priority: bool) -> Texture3dUploadTask {
+        Texture3dUploadTask::new(
+            SetTexture3DData {
+                high_priority,
+                ..Default::default()
+            },
+            SetTexture3DFormat::default(),
+            wgpu::TextureFormat::Rgba8Unorm,
+        )
+    }
+
+    #[test]
+    fn high_priority_reflects_upload_command() {
+        assert!(task(true).high_priority());
+        assert!(!task(false).high_priority());
+    }
+}

@@ -41,9 +41,12 @@ pub(super) struct DriverErrorState {
 impl DriverErrorState {
     /// Records a failure unless one is already pending. Keeps the earliest failure so the
     /// main thread can correlate subsequent cascade failures without losing the root cause.
-    #[expect(
-        dead_code,
-        reason = "wired once wgpu surfaces fallible submit/present results"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "wired once wgpu surfaces fallible submit/present results"
+        )
     )]
     pub(super) fn record(&self, err: DriverError) {
         let mut guard = self
@@ -62,5 +65,43 @@ impl DriverErrorState {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.take()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn error(frame_seq: u64, label: &str) -> DriverError {
+        DriverError {
+            frame_seq,
+            kind: DriverErrorKind::Submit(label.into()),
+        }
+    }
+
+    #[test]
+    fn driver_error_display_includes_frame_and_kind() {
+        let err = DriverError {
+            frame_seq: 12,
+            kind: DriverErrorKind::Present(String::from("lost")),
+        };
+
+        assert_eq!(
+            err.to_string(),
+            "driver error in frame 12: present failed: lost"
+        );
+    }
+
+    #[test]
+    fn driver_error_state_keeps_first_pending_error_and_take_clears() {
+        let state = DriverErrorState::default();
+
+        state.record(error(1, "first"));
+        state.record(error(2, "second"));
+
+        let first = state.take().expect("pending error");
+        assert_eq!(first.frame_seq, 1);
+        assert_eq!(first.kind.to_string(), "submit failed: first");
+        assert!(state.take().is_none());
     }
 }

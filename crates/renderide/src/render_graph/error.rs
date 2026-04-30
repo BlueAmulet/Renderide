@@ -284,3 +284,47 @@ impl GraphExecuteError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setup_error_display_includes_unknown_handles() {
+        assert_eq!(
+            SetupError::UnknownTexture(TextureHandle(3)).to_string(),
+            "unknown transient texture handle TextureHandle(3)"
+        );
+        assert_eq!(
+            SetupError::UnknownImportedBuffer(ImportedBufferHandle(4)).to_string(),
+            "unknown imported buffer handle ImportedBufferHandle(4)"
+        );
+    }
+
+    #[test]
+    fn graph_build_error_display_includes_pass_and_resource_context() {
+        let error = GraphBuildError::MissingDependency {
+            pass: PassId(2),
+            resource: String::from("scene-color"),
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "pass PassId(2) reads transient resource `scene-color` but no earlier pass writes it"
+        );
+    }
+
+    #[test]
+    fn history_error_constructors_use_slot_names() {
+        let slot = HistorySlotId::new("temporal");
+
+        assert_eq!(
+            GraphExecuteError::missing_history_texture(slot, "history-color").to_string(),
+            "history texture slot `temporal` was not registered for graph import `history-color`"
+        );
+        assert_eq!(
+            GraphExecuteError::unallocated_history_buffer(slot, "previous").to_string(),
+            "history buffer slot `temporal` has no allocated previous half"
+        );
+    }
+}

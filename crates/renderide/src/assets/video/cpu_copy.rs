@@ -327,4 +327,21 @@ mod tests {
     fn rgba8_frame_byte_count_rejects_overflow() {
         assert_eq!(rgba8_frame_bytes_u64(u32::MAX, u32::MAX), None);
     }
+
+    #[test]
+    fn validated_frame_layout_returns_tight_rgba_row_stride() {
+        assert_eq!(validated_frame_layout(7, 8, 4, 8 * 4 * 4), Some(32));
+    }
+
+    #[test]
+    fn validated_frame_layout_rejects_size_mismatch() {
+        assert_eq!(validated_frame_layout(7, 8, 4, 8 * 4 * 4 - 1), None);
+    }
+
+    #[test]
+    fn validated_frame_layout_rejects_row_stride_overflow() {
+        let exact_len = rgba8_frame_bytes_usize(u32::MAX, 1).unwrap();
+
+        assert_eq!(validated_frame_layout(7, u32::MAX, 1, exact_len), None);
+    }
 }

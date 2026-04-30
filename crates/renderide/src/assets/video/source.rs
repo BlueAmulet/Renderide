@@ -30,3 +30,28 @@ pub(super) fn local_source_path(source: &str) -> PathBuf {
         Err(_) => path.to_path_buf(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_source_yields_no_uri() {
+        assert_eq!(source_uri(None).unwrap(), None);
+    }
+
+    #[test]
+    fn uri_source_is_preserved_verbatim() {
+        assert_eq!(
+            source_uri(Some("https://example.invalid/movie.mp4")).unwrap(),
+            Some(String::from("https://example.invalid/movie.mp4"))
+        );
+    }
+
+    #[test]
+    fn absolute_local_path_is_not_rebased() {
+        let path = local_source_path("/tmp/renderide-video.mp4");
+
+        assert_eq!(path, PathBuf::from("/tmp/renderide-video.mp4"));
+    }
+}

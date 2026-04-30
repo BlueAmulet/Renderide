@@ -20,3 +20,25 @@ impl VideoAssetRuntime {
         std::mem::take(&mut self.pending_video_clock_errors)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn take_pending_clock_errors_drains_accumulator() {
+        let mut runtime = VideoAssetRuntime {
+            pending_video_clock_errors: vec![VideoTextureClockErrorState {
+                asset_id: 4,
+                current_clock_error: 0.25,
+            }],
+            ..Default::default()
+        };
+
+        let drained = runtime.take_pending_clock_errors();
+
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].asset_id, 4);
+        assert!(runtime.pending_video_clock_errors.is_empty());
+    }
+}

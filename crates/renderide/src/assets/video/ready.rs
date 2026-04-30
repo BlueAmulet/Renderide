@@ -29,3 +29,64 @@ pub(super) fn video_audio_track_eq(a: &VideoAudioTrack, b: &VideoAudioTrack) -> 
         && a.language_code == b.language_code
         && a.channel_count == b.channel_count
 }
+
+#[cfg(test)]
+mod tests {
+    use glam::IVec2;
+
+    use super::*;
+
+    fn track(index: i32) -> VideoAudioTrack {
+        VideoAudioTrack {
+            index,
+            channel_count: 2,
+            sample_rate: 48_000,
+            language_code: Some(String::from("en")),
+            name: Some(format!("Track {index}")),
+        }
+    }
+
+    fn ready(length: f64, tracks: Vec<VideoAudioTrack>) -> VideoTextureReady {
+        VideoTextureReady {
+            length,
+            size: IVec2::new(320, 240),
+            has_alpha: false,
+            asset_id: 9,
+            instance_changed: true,
+            playback_engine: Some(String::from("test")),
+            audio_tracks: tracks,
+        }
+    }
+
+    #[test]
+    fn ready_messages_compare_full_payload() {
+        let a = ready(1.5, vec![track(0)]);
+        let b = ready(1.5, vec![track(0)]);
+
+        assert!(video_texture_ready_eq(&a, &b));
+    }
+
+    #[test]
+    fn ready_messages_reject_size_and_alpha_differences() {
+        let a = ready(1.5, Vec::new());
+        let mut b = ready(1.5, Vec::new());
+        b.size = IVec2::new(640, 480);
+        assert!(!video_texture_ready_eq(&a, &b));
+
+        b = ready(1.5, Vec::new());
+        b.has_alpha = true;
+        assert!(!video_texture_ready_eq(&a, &b));
+    }
+
+    #[test]
+    fn audio_track_comparison_rejects_metadata_differences() {
+        let a = track(0);
+        let mut b = track(0);
+        b.language_code = Some(String::from("ja"));
+        assert!(!video_audio_track_eq(&a, &b));
+
+        b = track(0);
+        b.channel_count = 6;
+        assert!(!video_audio_track_eq(&a, &b));
+    }
+}

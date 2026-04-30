@@ -337,6 +337,27 @@ pub fn drain_asset_tasks_unbounded(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::{SetTexture2DData, SetTexture2DFormat};
+
+    fn texture_task(high_priority: bool) -> AssetTask {
+        AssetTask::Texture(TextureUploadTask::new(
+            SetTexture2DData {
+                high_priority,
+                ..Default::default()
+            },
+            SetTexture2DFormat::default(),
+            wgpu::TextureFormat::Rgba8Unorm,
+        ))
+    }
+
+    fn task_is_high_priority(task: &AssetTask) -> bool {
+        match task {
+            AssetTask::Mesh(task) => task.high_priority(),
+            AssetTask::Texture(task) => task.high_priority(),
+            AssetTask::Texture3d(task) => task.high_priority(),
+            AssetTask::Cubemap(task) => task.high_priority(),
+        }
+    }
 
     #[test]
     fn high_priority_emergency_deadline_extends_normal_budget() {
@@ -365,5 +386,43 @@ mod tests {
             deadline.checked_duration_since(start),
             Some(MIN_HIGH_PRIORITY_EMERGENCY_BUDGET)
         );
+    }
+
+    #[test]
+    fn pop_next_prefers_high_priority_queue() {
+        let mut integrator = AssetIntegrator::default();
+        assert!(integrator.try_enqueue(texture_task(false), false));
+        assert!(integrator.try_enqueue(texture_task(true), true));
+
+        let first = integrator.pop_next().unwrap();
+        let second = integrator.pop_next().unwrap();
+
+        assert!(task_is_high_priority(&first));
+        assert!(!task_is_high_priority(&second));
+        assert_eq!(integrator.total_queued(), 0);
+    }
+
+    #[test]
+    fn push_front_preserves_priority_lane() {
+        let mut integrator = AssetIntegrator::default();
+        integrator.push_front(texture_task(false), false);
+        integrator.push_front(texture_task(true), true);
+
+        assert_eq!(integrator.high_priority.len(), 1);
+        assert_eq!(integrator.normal_priority.len(), 1);
+        assert!(task_is_high_priority(
+            integrator.pop_next().as_ref().unwrap()
+        ));
+    }
+
+    #[test]
+    fn try_enqueue_rejects_when_combined_capacity_is_full() {
+        let mut integrator = AssetIntegrator::default();
+        for _ in 0..MAX_ASSET_INTEGRATION_QUEUED {
+            assert!(integrator.try_enqueue(texture_task(false), false));
+        }
+
+        assert!(!integrator.try_enqueue(texture_task(true), true));
+        assert_eq!(integrator.total_queued(), MAX_ASSET_INTEGRATION_QUEUED);
     }
 }

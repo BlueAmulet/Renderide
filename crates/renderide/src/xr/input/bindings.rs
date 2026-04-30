@@ -222,3 +222,50 @@ pub(super) fn build_action_handle_map(
 
     map
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::manifest::ExtensionGate;
+    use super::*;
+
+    fn gates(enabled: bool) -> ProfileExtensionGates {
+        ProfileExtensionGates {
+            khr_generic_controller: enabled,
+            bd_controller: enabled,
+            ext_hp_mixed_reality_controller: enabled,
+            ext_samsung_odyssey_controller: enabled,
+            htc_vive_cosmos_controller_interaction: enabled,
+            htc_vive_focus3_controller_interaction: enabled,
+            fb_touch_controller_pro: enabled,
+            meta_touch_controller_plus: enabled,
+        }
+    }
+
+    #[test]
+    fn extension_gates_report_disabled_profiles() {
+        let gates = gates(false);
+
+        assert!(!gates.is_enabled(ExtensionGate::KhrGenericController));
+        assert!(!gates.is_enabled(ExtensionGate::BdController));
+        assert!(!gates.is_enabled(ExtensionGate::ExtHpMixedRealityController));
+        assert!(!gates.is_enabled(ExtensionGate::ExtSamsungOdysseyController));
+        assert!(!gates.is_enabled(ExtensionGate::HtcViveCosmosControllerInteraction));
+        assert!(!gates.is_enabled(ExtensionGate::HtcViveFocus3ControllerInteraction));
+        assert!(!gates.is_enabled(ExtensionGate::FbTouchControllerPro));
+        assert!(!gates.is_enabled(ExtensionGate::MetaTouchControllerPlus));
+    }
+
+    #[test]
+    fn extension_gates_report_enabled_profiles() {
+        let gates = gates(true);
+
+        assert!(gates.is_enabled(ExtensionGate::KhrGenericController));
+        assert!(gates.is_enabled(ExtensionGate::BdController));
+        assert!(gates.is_enabled(ExtensionGate::ExtHpMixedRealityController));
+        assert!(gates.is_enabled(ExtensionGate::ExtSamsungOdysseyController));
+        assert!(gates.is_enabled(ExtensionGate::HtcViveCosmosControllerInteraction));
+        assert!(gates.is_enabled(ExtensionGate::HtcViveFocus3ControllerInteraction));
+        assert!(gates.is_enabled(ExtensionGate::FbTouchControllerPro));
+        assert!(gates.is_enabled(ExtensionGate::MetaTouchControllerPlus));
+    }
+}

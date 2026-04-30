@@ -574,6 +574,7 @@ fn audio_stream_metadata_eq(a: &[AudioStreamMetadata], b: &[AudioStreamMetadata]
 
 #[cfg(test)]
 mod tests {
+    use super::super::clock::max_seek_drift_seconds;
     use super::super::source::{is_uri_source, local_source_path};
     use super::*;
 
@@ -648,6 +649,29 @@ mod tests {
     }
 
     #[test]
+    fn max_seek_drift_tracks_play_state() {
+        assert_eq!(max_seek_drift_seconds(&update(0.0, true)), 1.0);
+        assert_eq!(max_seek_drift_seconds(&update(0.0, false)), 0.01);
+    }
+
+    #[test]
+    fn target_state_tracks_play_state() {
+        assert_eq!(
+            target_state_for_update(&update(0.0, true)),
+            gstreamer::State::Playing
+        );
+        assert_eq!(
+            target_state_for_update(&update(0.0, false)),
+            gstreamer::State::Paused
+        );
+    }
+
+    #[test]
+    fn clock_time_from_seconds_clamps_large_values() {
+        assert_eq!(clock_time_from_seconds(f64::MAX), gstreamer::ClockTime::MAX);
+    }
+
+    #[test]
     fn clock_time_from_seconds_clamps_invalid_values_to_zero() {
         assert_eq!(
             clock_time_from_seconds(f64::NAN),
@@ -669,6 +693,28 @@ mod tests {
         assert_eq!(duration.ready_length_seconds(), 3.0);
         assert!(duration.supports_timeline_seeking());
         assert!(duration.reports_clock_error());
+    }
+
+    #[test]
+    fn ready_message_comparison_accepts_identical_tracks() {
+        let first = ready_with_tracks(vec![audio_track(0), audio_track(1)]);
+        let second = ready_with_tracks(vec![audio_track(0), audio_track(1)]);
+
+        assert!(video_texture_ready_eq(&first, &second));
+    }
+
+    #[test]
+    fn ready_message_comparison_uses_float_bits_for_length() {
+        let first = VideoTextureReady {
+            length: 0.0,
+            ..ready_with_tracks(Vec::new())
+        };
+        let second = VideoTextureReady {
+            length: -0.0,
+            ..ready_with_tracks(Vec::new())
+        };
+
+        assert!(!video_texture_ready_eq(&first, &second));
     }
 
     #[test]

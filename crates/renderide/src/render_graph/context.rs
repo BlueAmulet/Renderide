@@ -428,3 +428,53 @@ pub struct GraphRasterPassContext<'a, 'frame> {
     /// Typed graph resources resolved for this execution scope.
     pub graph_resources: &'a GraphResolvedResources,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn graph_resources_missing_and_out_of_range_handles_return_none() {
+        let resources = GraphResolvedResources::with_capacity(1, 1, 1, 1, 1);
+
+        assert!(resources.transient_texture(TextureHandle(0)).is_none());
+        assert!(resources.transient_texture(TextureHandle(1)).is_none());
+        assert!(resources.transient_buffer(BufferHandle(0)).is_none());
+        assert!(resources.transient_buffer(BufferHandle(1)).is_none());
+        assert!(
+            resources
+                .imported_texture(ImportedTextureHandle(0))
+                .is_none()
+        );
+        assert!(
+            resources
+                .imported_texture(ImportedTextureHandle(1))
+                .is_none()
+        );
+        assert!(resources.imported_buffer(ImportedBufferHandle(0)).is_none());
+        assert!(resources.imported_buffer(ImportedBufferHandle(1)).is_none());
+        assert!(resources.subresource_view(SubresourceHandle(0)).is_none());
+        assert!(resources.subresource_view(SubresourceHandle(1)).is_none());
+    }
+
+    #[test]
+    fn graph_texture_view_lookup_returns_none_for_unresolved_resources() {
+        let resources = GraphResolvedResources::with_capacity(1, 0, 1, 0, 0);
+
+        assert!(
+            resources
+                .texture_view(TextureResourceHandle::Transient(TextureHandle(0)))
+                .is_none()
+        );
+        assert!(
+            resources
+                .texture_view(TextureResourceHandle::Imported(ImportedTextureHandle(0)))
+                .is_none()
+        );
+        assert!(
+            resources
+                .texture_view(TextureResourceHandle::Transient(TextureHandle(2)))
+                .is_none()
+        );
+    }
+}

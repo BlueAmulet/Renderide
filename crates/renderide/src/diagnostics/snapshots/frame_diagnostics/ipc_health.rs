@@ -41,3 +41,27 @@ impl IpcHealthFragment {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_preserves_queue_and_counter_inputs() {
+        let queues = FrameDiagnosticsIpcQueues {
+            ipc_primary_outbound_drop_this_tick: true,
+            ipc_background_outbound_drop_this_tick: false,
+            ipc_primary_consecutive_fail_streak: 3,
+            ipc_background_consecutive_fail_streak: 5,
+        };
+
+        let fragment = IpcHealthFragment::capture(queues, 7, 11);
+
+        assert!(fragment.queues.ipc_primary_outbound_drop_this_tick);
+        assert!(!fragment.queues.ipc_background_outbound_drop_this_tick);
+        assert_eq!(fragment.queues.ipc_primary_consecutive_fail_streak, 3);
+        assert_eq!(fragment.queues.ipc_background_consecutive_fail_streak, 5);
+        assert_eq!(fragment.frame_submit_apply_failures, 7);
+        assert_eq!(fragment.unhandled_ipc_command_event_total, 11);
+    }
+}

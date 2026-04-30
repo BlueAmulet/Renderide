@@ -136,3 +136,55 @@ pub fn load_manifest() -> Result<(Manifest, XrAssetsLocation), ManifestError> {
     let manifest = build_manifest(&actions_src, &source_refs)?;
     Ok((manifest, location))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn list_binding_files_rejects_missing_directory() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let missing = root.path().join("bindings");
+
+        assert!(matches!(
+            list_binding_files(&missing),
+            Err(ManifestError::BindingsDirMissing { .. })
+        ));
+    }
+
+    #[test]
+    fn list_binding_files_rejects_empty_directory() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let bindings = root.path().join("bindings");
+        fs::create_dir_all(&bindings).expect("create bindings");
+
+        assert!(matches!(
+            list_binding_files(&bindings),
+            Err(ManifestError::BindingsDirMissing { .. })
+        ));
+    }
+
+    #[test]
+    fn list_binding_files_returns_sorted_toml_paths_only() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let bindings = root.path().join("bindings");
+        fs::create_dir_all(&bindings).expect("create bindings");
+        fs::write(bindings.join("z.toml"), "").expect("write z");
+        fs::write(bindings.join("a.toml"), "").expect("write a");
+        fs::write(bindings.join("ignored.txt"), "").expect("write txt");
+
+        let files = list_binding_files(&bindings).expect("binding files");
+        let names: Vec<_> = files
+            .iter()
+            .map(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .expect("file name")
+            })
+            .collect();
+
+        assert_eq!(names, ["a.toml", "z.toml"]);
+    }
+}

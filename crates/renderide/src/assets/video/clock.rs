@@ -82,7 +82,13 @@ pub(super) fn clock_time_from_seconds(seconds: f64) -> gstreamer::ClockTime {
     if !seconds.is_finite() || seconds <= 0.0 {
         return gstreamer::ClockTime::ZERO;
     }
-    let nanos = (seconds * 1_000_000_000.0).min(u64::MAX as f64) as u64;
+    let max_nanos = gstreamer::ClockTime::MAX.nseconds();
+    let requested_nanos = seconds * 1_000_000_000.0;
+    let nanos = if requested_nanos >= max_nanos as f64 {
+        max_nanos
+    } else {
+        requested_nanos as u64
+    };
     gstreamer::ClockTime::from_nseconds(nanos)
 }
 

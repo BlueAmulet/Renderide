@@ -40,3 +40,49 @@ impl MeshDrawFragment {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::diagnostics::ShaderRouteSnapshot;
+    use crate::materials::RasterPipelineKind;
+
+    use super::*;
+
+    #[test]
+    fn capture_copies_backend_counts_and_draw_rows() {
+        let backend = BackendDiagSnapshot {
+            texture_format_registration_count: 2,
+            texture_mip0_ready_count: 3,
+            texture_pool_resident_count: 4,
+            render_texture_pool_len: 5,
+            mesh_pool_entry_count: 6,
+            shader_routes: vec![ShaderRouteSnapshot {
+                shader_asset_id: 10,
+                pipeline: RasterPipelineKind::Null,
+                shader_asset_name: Some(String::from("fallback.shader")),
+            }],
+            last_world_mesh_draw_stats: WorldMeshDrawStats {
+                draws_total: 12,
+                ..Default::default()
+            },
+            last_world_mesh_draw_state_rows: Vec::new(),
+            material_property_slots: 7,
+            property_block_slots: 8,
+            material_shader_bindings: 9,
+            frame_graph_pass_count: 10,
+            frame_graph_topo_levels: 11,
+            gpu_light_count: 12,
+        };
+
+        let fragment = MeshDrawFragment::capture(&backend, 13);
+
+        assert_eq!(fragment.stats.draws_total, 12);
+        assert_eq!(fragment.last_submit_render_task_count, 13);
+        assert_eq!(fragment.textures_cpu_registered, 2);
+        assert_eq!(fragment.textures_cpu_mip0_ready, 3);
+        assert_eq!(fragment.textures_gpu_resident, 4);
+        assert_eq!(fragment.render_textures_gpu_resident, 5);
+        assert_eq!(fragment.mesh_pool_entry_count, 6);
+        assert!(fragment.draw_state_rows.is_empty());
+    }
+}

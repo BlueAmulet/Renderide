@@ -121,4 +121,12 @@ mod tests {
         assert!(positive_queue_capacity(-1).is_err());
         assert!(matches!(positive_queue_capacity(64), Ok(64)));
     }
+
+    #[test]
+    fn positive_audio_queue_capacity_accepts_i32_max() {
+        assert!(matches!(
+            positive_queue_capacity(i32::MAX),
+            Ok(value) if value == i64::from(i32::MAX)
+        ));
+    }
 }

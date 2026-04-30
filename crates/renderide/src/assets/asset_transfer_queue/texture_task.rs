@@ -189,3 +189,38 @@ impl TextureUploadTask {
         logger::trace!("texture {id}: data upload ok ({uploaded_mips} mips, integrator)");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::shared::{SetTexture2DData, SetTexture2DFormat, TextureFormat};
+
+    use super::*;
+
+    fn task(high_priority: bool, flip_y: bool, host_format: TextureFormat) -> TextureUploadTask {
+        TextureUploadTask::new(
+            SetTexture2DData {
+                high_priority,
+                flip_y,
+                ..Default::default()
+            },
+            SetTexture2DFormat {
+                format: host_format,
+                ..Default::default()
+            },
+            wgpu::TextureFormat::Bc7RgbaUnorm,
+        )
+    }
+
+    #[test]
+    fn high_priority_reflects_upload_command() {
+        assert!(task(true, false, TextureFormat::RGBA32).high_priority());
+        assert!(!task(false, false, TextureFormat::RGBA32).high_priority());
+    }
+
+    #[test]
+    fn storage_v_inversion_requires_flip_y_and_native_compressed_format() {
+        assert!(task(false, true, TextureFormat::BC7).upload_uses_storage_v_inversion());
+        assert!(!task(false, false, TextureFormat::BC7).upload_uses_storage_v_inversion());
+        assert!(!task(false, true, TextureFormat::BC1).upload_uses_storage_v_inversion());
+    }
+}

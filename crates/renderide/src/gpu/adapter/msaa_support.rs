@@ -115,3 +115,33 @@ impl MsaaSupport {
         self.stereo.last().copied().unwrap_or(1)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_msaa_request_turns_off_for_empty_support_or_low_request() {
+        assert_eq!(clamp_msaa_request_to_supported(0, &[2, 4]), 1);
+        assert_eq!(clamp_msaa_request_to_supported(1, &[2, 4]), 1);
+        assert_eq!(clamp_msaa_request_to_supported(4, &[]), 1);
+    }
+
+    #[test]
+    fn clamp_msaa_request_chooses_next_supported_tier_or_maximum() {
+        assert_eq!(clamp_msaa_request_to_supported(2, &[4, 8]), 4);
+        assert_eq!(clamp_msaa_request_to_supported(4, &[2, 4, 8]), 4);
+        assert_eq!(clamp_msaa_request_to_supported(6, &[2, 4, 8]), 8);
+        assert_eq!(clamp_msaa_request_to_supported(16, &[2, 4, 8]), 8);
+    }
+
+    #[test]
+    fn msaa_support_maximums_fall_back_to_one_when_empty() {
+        let support = MsaaSupport {
+            desktop: vec![2, 8],
+            stereo: Vec::new(),
+        };
+        assert_eq!(support.desktop_max(), 8);
+        assert_eq!(support.stereo_max(), 1);
+    }
+}

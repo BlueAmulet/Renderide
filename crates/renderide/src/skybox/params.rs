@@ -176,3 +176,33 @@ fn procedural_sun_disk_mode(
     }
     1.0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_params_use_documented_defaults() {
+        let params = SkyboxEvaluatorParams::empty(SkyboxParamMode::Procedural);
+
+        assert_eq!(params.sample_size, DEFAULT_SKYBOX_SAMPLE_SIZE);
+        assert_eq!(params.mode, SkyboxParamMode::Procedural as u32);
+        assert_eq!(params.gradient_count, 0);
+        assert_eq!(params.direction, [0.0, 1.0, 0.0, 0.0]);
+        assert_eq!(params.scalars, [1.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn with_sample_size_clamps_zero_to_one() {
+        let params = SkyboxEvaluatorParams::empty(SkyboxParamMode::Gradient).with_sample_size(0);
+
+        assert_eq!(params.sample_size, 1);
+        assert_eq!(params.mode, SkyboxParamMode::Gradient as u32);
+    }
+
+    #[test]
+    fn storage_v_inverted_flag_matches_shader_float_convention() {
+        assert_eq!(storage_v_inverted_flag(false), 0.0);
+        assert_eq!(storage_v_inverted_flag(true), 1.0);
+    }
+}

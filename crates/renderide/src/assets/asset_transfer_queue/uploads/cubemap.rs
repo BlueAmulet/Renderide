@@ -176,3 +176,89 @@ fn enqueue_cubemap_upload_task(queue: &mut AssetTransferQueue, d: SetCubemapData
     let task = AssetTask::Cubemap(CubemapUploadTask::new(d, fmt, wgpu_fmt));
     queue.integrator_mut().try_enqueue(task, high)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::shared::buffer::SharedMemoryBufferDescriptor;
+    use crate::shared::{TextureFilterMode, TextureFormat};
+
+    use super::*;
+
+    fn format(asset_id: i32) -> SetCubemapFormat {
+        SetCubemapFormat {
+            asset_id,
+            size: 64,
+            mipmap_count: 1,
+            format: TextureFormat::RGBA32,
+            ..Default::default()
+        }
+    }
+
+    fn data(asset_id: i32) -> SetCubemapData {
+        SetCubemapData {
+            asset_id,
+            data: SharedMemoryBufferDescriptor {
+                length: 16,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn format_without_gpu_updates_catalog_but_not_resident_pool() {
+        let mut queue = AssetTransferQueue::new();
+
+        on_set_cubemap_format(&mut queue, format(11), None);
+
+        assert_eq!(
+            queue.catalogs.cubemap_formats.get(&11).map(|fmt| fmt.size),
+            Some(64)
+        );
+        assert!(queue.pools.cubemap_pool.get(11).is_none());
+    }
+
+    #[test]
+    fn properties_without_resident_cubemap_update_catalog() {
+        let mut queue = AssetTransferQueue::new();
+
+        on_set_cubemap_properties(
+            &mut queue,
+            SetCubemapProperties {
+                asset_id: 11,
+                filter_mode: TextureFilterMode::Trilinear,
+                aniso_level: 8,
+                ..Default::default()
+            },
+            None,
+        );
+
+        let props = queue
+            .catalogs
+            .cubemap_properties
+            .get(&11)
+            .expect("stored props");
+        assert_eq!(props.filter_mode, TextureFilterMode::Trilinear);
+        assert_eq!(props.aniso_level, 8);
+    }
+
+    #[test]
+    fn data_without_format_is_dropped_before_pending_queue() {
+        let mut queue = AssetTransferQueue::new();
+
+        on_set_cubemap_data(&mut queue, data(11), None, None);
+
+        assert!(queue.pending.pending_cubemap_uploads.is_empty());
+    }
+
+    #[test]
+    fn data_with_format_but_no_gpu_is_deferred() {
+        let mut queue = AssetTransferQueue::new();
+        on_set_cubemap_format(&mut queue, format(11), None);
+
+        on_set_cubemap_data(&mut queue, data(11), None, None);
+
+        assert_eq!(queue.pending.pending_cubemap_uploads.len(), 1);
+        assert_eq!(queue.pending.pending_cubemap_uploads[0].asset_id, 11);
+    }
+}
