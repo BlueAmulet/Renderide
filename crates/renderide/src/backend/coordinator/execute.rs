@@ -30,17 +30,17 @@ impl RenderBackend {
         if !skip_hi_z_begin_readback {
             self.hi_z_begin_frame_readback(gpu.device());
         }
-        self.history_registry.advance_frame();
+        self.graph_state.history_registry_mut().advance_frame();
         // Live HUD edits to `[post_processing]` only take effect when the graph is rebuilt; check
         // each tick so signature flips (effect added or removed) take effect on the next frame.
         // Parameter-only edits do not flip the signature and avoid the rebuild cost.
         let multiview_stereo = views.iter().any(FrameView::is_multiview_stereo_active);
         self.ensure_frame_graph_in_sync(multiview_stereo);
-        let Some(mut graph) = self.frame_graph_cache.take_graph() else {
+        let Some(mut graph) = self.graph_state.frame_graph_cache.take_graph() else {
             return Err(GraphExecuteError::NoFrameGraph);
         };
         let res = graph.execute_multi_view(gpu, scene, self, views.as_mut_slice());
-        self.frame_graph_cache.restore_graph(graph);
+        self.graph_state.frame_graph_cache.restore_graph(graph);
         res
     }
 }

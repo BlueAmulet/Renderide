@@ -10,6 +10,7 @@ mod asset_ipc;
 mod execute;
 mod frame_packet;
 mod graph_cache;
+mod graph_state;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -28,16 +29,16 @@ use crate::gpu_pools::{
 use crate::materials::host_data::MaterialPropertyStore;
 use crate::materials::{MaterialRouter, RasterPipelineKind};
 use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
-use crate::render_graph::{GraphCache, TransientPool};
+use crate::render_graph::TransientPool;
 use crate::world_mesh::{FrameMaterialBatchCache, WorldMeshDrawStateRow, WorldMeshDrawStats};
 
 use super::FrameGpuBindingsError;
 use super::FrameResourceManager;
-use super::ViewResourceRegistry;
 use super::debug_hud_bundle::DebugHudBundle;
 use crate::materials::MaterialSystem;
 use crate::materials::embedded::{EmbeddedMaterialBindError, EmbeddedTexturePools};
 use crate::occlusion::OcclusionSystem;
+use graph_state::RenderGraphState;
 
 /// Disjoint backend slices assembled into [`crate::render_graph::FrameRenderParams`].
 type GraphFrameParamsSplit<'a> = (
@@ -100,8 +101,8 @@ pub struct RenderBackend {
     null_material_router: MaterialRouter,
     /// Optional mesh skinning / blendshape compute pipelines (after [`Self::attach`]).
     mesh_preprocess: Option<MeshPreprocessPipelines>,
-    /// Cached compiled frame graph keyed by the shared render-graph cache inputs.
-    frame_graph_cache: GraphCache,
+    /// Render-graph cache, transient pool, history registry, and view-scoped graph resource ownership.
+    graph_state: RenderGraphState,
     /// Scratch buffers for mesh deformation compute (after [`Self::attach`]).
     mesh_deform_scratch: Option<MeshDeformScratch>,
     /// Arena-backed deformed vertex streams (after [`Self::attach`]); sibling to [`Self::frame_resources`] for borrow splitting.
@@ -114,8 +115,6 @@ pub struct RenderBackend {
     debug_hud: DebugHudBundle,
     /// Hierarchical depth pyramid, CPU readback, and temporal cull state for occlusion culling.
     pub(crate) occlusion: OcclusionSystem,
-    /// Render-graph transient texture/buffer pool retained across frames.
-    pub(crate) transient_pool: TransientPool,
     /// Swapchain or primary output color format used for frame-graph cache identity.
     surface_format: Option<wgpu::TextureFormat>,
     /// Live settings for per-frame graph parameters (scene HDR format, etc.); set in [`Self::attach`].
@@ -136,15 +135,10 @@ pub struct RenderBackend {
     /// underlying `Vec` capacities across frames. Built fresh by
     /// [`Self::extract_frame_shared`] before per-view draw collection consumes it.
     pub(crate) prepared_renderables: crate::world_mesh::FramePreparedRenderables,
-    /// Registry of persistent ping-pong resources used by graph history slots
-    /// (`ImportSource::PingPong` / `BufferImportSource::PingPong`).
-    pub(crate) history_registry: super::HistoryRegistry,
     /// Nonblocking reflection-probe SH2 GPU projection service.
     pub(crate) reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System,
     /// Nonblocking generated cubemap cache for analytic skybox environments.
     pub(crate) skybox_environment: crate::skybox::SkyboxEnvironmentCache,
-    /// Retained logical-view ownership for every backend cache that lives beyond one frame.
-    view_resources: ViewResourceRegistry,
 }
 
 /// Disjoint borrows of [`MaterialSystem`], [`AssetTransferQueue`], and the GPU skin cache for world mesh forward encoding.
@@ -205,14 +199,13 @@ impl RenderBackend {
             asset_transfers: AssetTransferQueue::new(),
             null_material_router: MaterialRouter::new(RasterPipelineKind::Null),
             mesh_preprocess: None,
-            frame_graph_cache: GraphCache::default(),
+            graph_state: RenderGraphState::new(),
             mesh_deform_scratch: None,
             skin_cache: None,
             msaa_depth_resolve: None,
             frame_resources: FrameResourceManager::new(),
             debug_hud: DebugHudBundle::new(),
             occlusion: OcclusionSystem::new(),
-            transient_pool: TransientPool::new(),
             surface_format: None,
             renderer_settings: None,
             record_parallelism: crate::config::RecordParallelism::PerViewParallel,
@@ -220,10 +213,8 @@ impl RenderBackend {
             prepared_renderables: crate::world_mesh::FramePreparedRenderables::empty(
                 crate::shared::RenderingContext::default(),
             ),
-            history_registry: super::HistoryRegistry::new(),
             reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System::new(),
             skybox_environment: crate::skybox::SkyboxEnvironmentCache::new(),
-            view_resources: ViewResourceRegistry::new(),
         }
     }
 
@@ -233,12 +224,12 @@ impl RenderBackend {
     /// texture history through this path while [`OcclusionSystem`] keeps CPU snapshots, temporal
     /// cull data, and readback policy.
     pub fn history_registry_mut(&mut self) -> &mut super::HistoryRegistry {
-        &mut self.history_registry
+        self.graph_state.history_registry_mut()
     }
 
     /// Shared reference to the persistent history registry.
     pub fn history_registry(&self) -> &super::HistoryRegistry {
-        &self.history_registry
+        self.graph_state.history_registry()
     }
 
     /// Effective HDR scene-color [`wgpu::TextureFormat`] from [`crate::config::RenderingSettings`].
@@ -493,12 +484,12 @@ impl RenderBackend {
 
     /// Number of schedules passes in the compiled frame graph, or `0` if none.
     pub fn frame_graph_pass_count(&self) -> usize {
-        self.frame_graph_cache.pass_count()
+        self.graph_state.frame_graph_cache.pass_count()
     }
 
     /// Compile-time topological wave count for the cached frame graph, or `0` if none has been built yet.
     pub fn frame_graph_topo_levels(&self) -> usize {
-        self.frame_graph_cache.topo_levels()
+        self.graph_state.frame_graph_cache.topo_levels()
     }
 
     /// Call after [`crate::gpu::GpuContext`] is created so mesh/texture uploads can use the GPU.
@@ -790,7 +781,7 @@ impl RenderBackend {
 
     /// Mutable render-graph transient resource pool.
     pub(crate) fn transient_pool_mut(&mut self) -> &mut TransientPool {
-        &mut self.transient_pool
+        self.graph_state.transient_pool_mut()
     }
 
     /// Synchronizes backend view-scoped resource ownership against the runtime's active view list.
@@ -798,7 +789,7 @@ impl RenderBackend {
     where
         I: IntoIterator<Item = crate::camera::ViewId>,
     {
-        let retired = self.view_resources.sync_active_views(active_views);
+        let retired = self.graph_state.sync_active_views(active_views);
         if retired.is_empty() {
             return;
         }
@@ -806,10 +797,9 @@ impl RenderBackend {
             "retiring {} inactive view-scoped resource sets",
             retired.len()
         );
-        self.frame_graph_cache.release_view_resources(&retired);
         for view_id in retired {
             self.frame_resources.retire_view(view_id);
-            self.history_registry.retire_view(view_id);
+            self.graph_state.history_registry_mut().retire_view(view_id);
             let _ = self.occlusion.retire_view(view_id);
         }
     }
@@ -885,6 +875,7 @@ mod post_processing_rebuild_tests {
     /// Returns the current cached graph key.
     fn cached_graph_key(backend: &RenderBackend) -> GraphCacheKey {
         backend
+            .graph_state
             .frame_graph_cache
             .last_key()
             .expect("graph key should exist after sync")

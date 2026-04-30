@@ -74,7 +74,7 @@ impl RenderBackend {
         shape: FrameGraphShape,
     ) {
         let key = shape.into_cache_key();
-        let previous_key = self.frame_graph_cache.last_key();
+        let previous_key = self.graph_state.frame_graph_cache.last_key();
         if let Some(previous_key) = previous_key.filter(|previous| *previous != key) {
             logger::info!(
                 "graph inputs changed (post-processing {:?} -> {:?}, msaa {}x -> {}x, multiview {} -> {}, surface {:?} -> {:?}, scene color {:?} -> {:?}, cluster assignment {:?} -> {:?}); rebuilding render graph",
@@ -92,7 +92,7 @@ impl RenderBackend {
                 key.cluster_assignment,
             );
         }
-        if let Err(error) = self.frame_graph_cache.ensure(key, || {
+        if let Err(error) = self.graph_state.frame_graph_cache.ensure(key, || {
             crate::render_graph::build_main_graph(key, post_processing)
         }) {
             logger::warn!("render graph build failed: {error}");
