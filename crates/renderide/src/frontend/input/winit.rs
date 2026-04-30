@@ -112,15 +112,13 @@ fn apply_keyboard_transition(
     transition: KeyboardEventTransition,
 ) {
     match transition.held_key {
-        Some(HeldKeyTransition::Press(key)) => {
-            if !acc.held_keys.contains(&key) {
-                acc.held_keys.push(key);
-            }
+        Some(HeldKeyTransition::Press(key)) if !acc.held_keys.contains(&key) => {
+            acc.held_keys.push(key);
         }
         Some(HeldKeyTransition::Release(key)) => {
             acc.held_keys.retain(|held| *held != key);
         }
-        None => {}
+        Some(HeldKeyTransition::Press(_)) | None => {}
     }
     if let Some(text) = transition.text {
         acc.push_key_text(text.as_str());
