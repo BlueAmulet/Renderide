@@ -9,9 +9,9 @@ const _: fn() = || {
     assert_send_sync::<wgpu::Queue>();
 };
 
-use super::frame_cpu_gpu_timing::FrameCpuGpuTimingHandle;
 use super::instance_limits::required_limits_for_adapter;
 use super::limits::{GpuLimits, GpuLimitsError};
+use super::submission_state::GpuSubmissionState;
 use crate::config::VsyncMode;
 use thiserror::Error;
 use winit::dpi::PhysicalSize;
@@ -149,15 +149,15 @@ pub(super) fn install_uncaptured_error_handler(device: &wgpu::Device) {
 
 /// GPU stack for presentation and future render passes.
 pub struct GpuContext {
-    /// Dedicated GPU-submission thread. All main-frame `Queue::submit` and
-    /// `SurfaceTexture::present` calls flow through this handle; the main tick only records
+    /// Submission, frame timing, and GPU profiling state. All main-frame `Queue::submit` and
+    /// `SurfaceTexture::present` calls flow through this bundle; the main tick only records
     /// command buffers and hands a [`super::driver_thread::SubmitBatch`] to the driver.
     ///
     /// Declared **first** so it drops before `queue`, `surface`, and `device`. On drop the
     /// driver pushes a shutdown sentinel, the worker drains remaining batches (dropping any
     /// unpresented [`wgpu::SurfaceTexture`] cleanly), and the thread joins — after which
     /// the queue and surface are safe to tear down.
-    driver_thread: super::driver_thread::DriverThread,
+    submission: GpuSubmissionState,
     /// Adapter metadata from construction (for diagnostics).
     adapter_info: wgpu::AdapterInfo,
     /// MSAA tiers supported for the configured surface color format and forward depth/stencil format.
@@ -209,18 +209,6 @@ pub struct GpuContext {
     /// `&mut GpuContext` aliasing that would otherwise prevent passing `gpu` to the backend
     /// after substituting view targets.
     primary_offscreen: Option<PrimaryOffscreenTargets>,
-    /// Debug HUD: wall-clock CPU (tick start → last submit) and GPU (last submit → idle) timing.
-    frame_timing: FrameCpuGpuTimingHandle,
-    /// GPU timestamp profiler for the Tracy timeline. [`None`] when the `tracy` feature is off
-    /// or when the adapter lacks [`wgpu::Features::TIMESTAMP_QUERY`]. Pass-level queries work as
-    /// long as that one feature is present; encoder-level queries additionally require
-    /// [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`].
-    gpu_profiler: Option<crate::profiling::GpuProfilerHandle>,
-    /// Flattened per-pass GPU timings from the most recently drained profiling frame.
-    ///
-    /// Written by [`Self::end_gpu_profiler_frame`] and polled by the debug HUD. Empty when no
-    /// profiling frame has completed yet (GPU results lag recording by 1-2 frames).
-    latest_gpu_pass_timings: Arc<Mutex<Vec<crate::profiling::GpuPassEntry>>>,
 }
 
 /// Persistent offscreen color + depth pair owned by [`GpuContext`] in headless mode.
@@ -548,6 +536,7 @@ impl GpuContext {
         }
         let track = {
             let mut ft = self
+                .submission
                 .frame_timing
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -555,7 +544,7 @@ impl GpuContext {
         };
         let frame_timing = track.map(|(generation, seq, frame_start)| {
             super::frame_cpu_gpu_timing::FrameTimingTrack {
-                handle: Arc::clone(&self.frame_timing),
+                handle: Arc::clone(&self.submission.frame_timing),
                 generation,
                 seq,
                 frame_start,
@@ -570,7 +559,7 @@ impl GpuContext {
             wait,
             frame_seq,
         };
-        self.driver_thread.submit(batch);
+        self.submission.driver_thread.submit(batch);
     }
 
     /// Drains any driver-thread error captured since the last check, leaving the slot empty.
@@ -578,7 +567,7 @@ impl GpuContext {
     /// Call once per tick from the frame epilogue; route the returned error through the
     /// existing device-recovery path (same as a swapchain `SurfaceError::Lost`).
     pub fn take_driver_error(&self) -> Option<super::driver_thread::DriverError> {
-        self.driver_thread.take_pending_error()
+        self.submission.driver_thread.take_pending_error()
     }
 
     /// Blocks until the driver thread has processed every previously-submitted batch.
@@ -587,7 +576,7 @@ impl GpuContext {
     /// frame's submit (which runs on the driver thread) and the readback copy (which
     /// runs on the main thread). Most code paths never need this.
     pub fn flush_driver(&self) {
-        self.driver_thread.flush();
+        self.submission.driver_thread.flush();
     }
 
     /// Blocks only until the most recently submitted surface-carrying batch has reached
@@ -599,13 +588,14 @@ impl GpuContext {
     /// swapchain texture, [`wgpu::Queue::on_submitted_work_done`] callbacks) to remain
     /// pipelined alongside the next frame's CPU recording.
     pub fn wait_for_previous_present(&self) {
-        self.driver_thread.wait_for_previous_present();
+        self.submission.driver_thread.wait_for_previous_present();
     }
 
     /// Call at the start of each winit frame tick (same instant as [`crate::runtime::RendererRuntime::tick_frame_wall_clock_begin`]).
     pub fn begin_frame_timing(&self, frame_start: Instant) {
         profiling::scope!("gpu::begin_frame_timing");
-        self.frame_timing
+        self.submission
+            .frame_timing
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .begin_frame(frame_start);
@@ -620,6 +610,7 @@ impl GpuContext {
     pub fn end_frame_timing(&self) {
         profiling::scope!("gpu::end_frame_timing");
         let mut ft = self
+            .submission
             .frame_timing
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -631,7 +622,7 @@ impl GpuContext {
     /// Returns [`None`] when the `tracy` feature is off, or when the adapter lacks the required
     /// timestamp-query features (see [`crate::profiling::GpuProfilerHandle::try_new`]).
     pub fn gpu_profiler_mut(&mut self) -> Option<&mut crate::profiling::GpuProfilerHandle> {
-        self.gpu_profiler.as_mut()
+        self.submission.gpu_profiler.as_mut()
     }
 
     /// Temporarily removes the GPU profiler handle from [`GpuContext`] and returns it.
@@ -642,15 +633,15 @@ impl GpuContext {
     ///
     /// Returns [`None`] when no profiler is active (feature off or adapter unsupported).
     pub fn take_gpu_profiler(&mut self) -> Option<crate::profiling::GpuProfilerHandle> {
-        self.gpu_profiler.take()
+        self.submission.gpu_profiler.take()
     }
 
     /// Restores a profiler handle previously removed by [`Self::take_gpu_profiler`].
     ///
     /// If `profiler` is [`None`], this is a no-op.
     pub fn restore_gpu_profiler(&mut self, profiler: Option<crate::profiling::GpuProfilerHandle>) {
-        if self.gpu_profiler.is_none() {
-            self.gpu_profiler = profiler;
+        if self.submission.gpu_profiler.is_none() {
+            self.submission.gpu_profiler = profiler;
         }
     }
 
@@ -661,13 +652,13 @@ impl GpuContext {
     /// Does nothing when no GPU profiler is active.
     pub fn end_gpu_profiler_frame(&mut self) {
         profiling::scope!("gpu::drain_gpu_profiler");
-        if self.gpu_profiler.is_none() {
+        if self.submission.gpu_profiler.is_none() {
             return;
         }
-        let had_queries = self
-            .gpu_profiler
-            .as_ref()
-            .is_some_and(crate::profiling::GpuProfilerHandle::has_queries_opened_since_frame_end);
+        let had_queries =
+            self.submission.gpu_profiler.as_ref().is_some_and(
+                crate::profiling::GpuProfilerHandle::has_queries_opened_since_frame_end,
+            );
         if had_queries {
             // `wgpu_profiler::end_frame` calls `map_async` on the same Query Read Buffer that
             // `resolve_queries` just wrote a copy into. The render graph hands those resolve
@@ -677,9 +668,9 @@ impl GpuContext {
             // and wgpu validation would reject it with "buffer is still mapped". Flushing the
             // driver guarantees every prior submit has completed before we transition the
             // buffer. Empty redraw ticks skip the flush and the profiler frame close.
-            self.driver_thread.flush();
+            self.submission.driver_thread.flush();
         }
-        if let Some(p) = self.gpu_profiler.as_mut() {
+        if let Some(p) = self.submission.gpu_profiler.as_mut() {
             p.end_frame_if_queries_opened();
             let ts_period = self.queue.get_timestamp_period();
             let mut latest_timings = None;
@@ -687,7 +678,7 @@ impl GpuContext {
                 latest_timings = Some(timings);
             }
             if let Some(timings) = latest_timings
-                && let Ok(mut slot) = self.latest_gpu_pass_timings.lock()
+                && let Ok(mut slot) = self.submission.latest_gpu_pass_timings.lock()
             {
                 *slot = timings;
             }
@@ -702,7 +693,7 @@ impl GpuContext {
     pub fn latest_gpu_pass_timings_handle(
         &self,
     ) -> Arc<Mutex<Vec<crate::profiling::GpuPassEntry>>> {
-        Arc::clone(&self.latest_gpu_pass_timings)
+        Arc::clone(&self.submission.latest_gpu_pass_timings)
     }
 
     /// Most recently completed CPU and GPU per-frame ms for the debug HUD, paired so both
@@ -715,6 +706,7 @@ impl GpuContext {
     /// frame N typically arrives after frame N+1's tick has begun.
     pub fn frame_cpu_gpu_ms_for_hud(&self) -> (Option<f64>, Option<f64>) {
         let ft = self
+            .submission
             .frame_timing
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -733,6 +725,7 @@ impl GpuContext {
     /// matching the Renderite.Unity `XRStats.TryGetGPUTimeLastFrame` contract.
     pub fn last_completed_gpu_render_time_seconds(&self) -> Option<f32> {
         let ft = self
+            .submission
             .frame_timing
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);

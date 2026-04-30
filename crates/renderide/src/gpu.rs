@@ -15,6 +15,7 @@ pub mod msaa_depth_resolve;
 pub mod output_depth_mode;
 pub mod present;
 mod queue_access_gate;
+mod submission_state;
 mod vr_mirror;
 
 pub mod frame_globals;

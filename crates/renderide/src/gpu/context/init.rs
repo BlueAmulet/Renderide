@@ -13,6 +13,7 @@ use super::{
     msaa_supported_sample_counts_stereo, request_device_for_adapter,
 };
 use crate::config::VsyncMode;
+use crate::gpu::submission_state::GpuSubmissionState;
 
 /// Lower scores rank earlier. Stable across systems so Vulkan ICD reordering does not flip the
 /// chosen adapter.
@@ -241,8 +242,8 @@ impl GpuRuntimeHandles {
 
 /// Inputs that differ between the three [`GpuContext`] construction paths.
 struct GpuContextParts {
-    /// Dedicated GPU-submission thread.
-    driver_thread: super::super::driver_thread::DriverThread,
+    /// Submission, timing, and profiling state.
+    submission: GpuSubmissionState,
     /// Adapter metadata captured at construction.
     adapter_info: wgpu::AdapterInfo,
     /// MSAA support lists for desktop and stereo paths.
@@ -263,18 +264,12 @@ struct GpuContextParts {
     supported_present_modes: Vec<wgpu::PresentMode>,
     /// Optional window owner.
     window: Option<Arc<Window>>,
-    /// Optional GPU profiler.
-    gpu_profiler: Option<crate::profiling::GpuProfilerHandle>,
-    /// CPU/GPU timing accumulator.
-    frame_timing: FrameCpuGpuTimingHandle,
-    /// Latest flattened GPU pass timings.
-    latest_gpu_pass_timings: Arc<Mutex<Vec<crate::profiling::GpuPassEntry>>>,
 }
 
 /// Builds the common [`GpuContext`] field set once all path-specific resources are ready.
 fn assemble_context(parts: GpuContextParts) -> GpuContext {
     GpuContext {
-        driver_thread: parts.driver_thread,
+        submission: parts.submission,
         adapter_info: parts.adapter_info,
         msaa_supported_sample_counts: parts.msaa.desktop,
         msaa_supported_sample_counts_stereo: parts.msaa.stereo,
@@ -292,9 +287,6 @@ fn assemble_context(parts: GpuContextParts) -> GpuContext {
         depth_attachment: None,
         depth_extent_px: (0, 0),
         primary_offscreen: Option::<PrimaryOffscreenTargets>::None,
-        frame_timing: parts.frame_timing,
-        gpu_profiler: parts.gpu_profiler,
-        latest_gpu_pass_timings: parts.latest_gpu_pass_timings,
     }
 }
 
@@ -396,8 +388,14 @@ impl GpuContext {
              Tracy GPU timeline will be empty (CPU spans still work)",
         );
         let runtime = GpuRuntimeHandles::new(Arc::new(queue))?;
+        let submission = GpuSubmissionState::new(
+            runtime.driver_thread,
+            runtime.frame_timing,
+            gpu_profiler,
+            runtime.latest_gpu_pass_timings,
+        );
         Ok(assemble_context(GpuContextParts {
-            driver_thread: runtime.driver_thread,
+            submission,
             adapter_info,
             msaa,
             limits,
@@ -408,9 +406,6 @@ impl GpuContext {
             config,
             supported_present_modes,
             window: Some(window),
-            gpu_profiler,
-            frame_timing: runtime.frame_timing,
-            latest_gpu_pass_timings: runtime.latest_gpu_pass_timings,
         }))
     }
 
@@ -482,8 +477,14 @@ impl GpuContext {
              Tracy GPU timeline will be empty (CPU spans still work)",
         );
         let runtime = GpuRuntimeHandles::new(Arc::new(queue))?;
+        let submission = GpuSubmissionState::new(
+            runtime.driver_thread,
+            runtime.frame_timing,
+            gpu_profiler,
+            runtime.latest_gpu_pass_timings,
+        );
         Ok(assemble_context(GpuContextParts {
-            driver_thread: runtime.driver_thread,
+            submission,
             adapter_info,
             msaa,
             limits,
@@ -494,9 +495,6 @@ impl GpuContext {
             config,
             supported_present_modes: Vec::new(),
             window: None,
-            gpu_profiler,
-            frame_timing: runtime.frame_timing,
-            latest_gpu_pass_timings: runtime.latest_gpu_pass_timings,
         }))
     }
 
@@ -562,8 +560,14 @@ impl GpuContext {
              TIMESTAMP_QUERY; Tracy GPU timeline will be empty",
         );
         let runtime = GpuRuntimeHandles::new(queue)?;
+        let submission = GpuSubmissionState::new(
+            runtime.driver_thread,
+            runtime.frame_timing,
+            gpu_profiler,
+            runtime.latest_gpu_pass_timings,
+        );
         Ok(assemble_context(GpuContextParts {
-            driver_thread: runtime.driver_thread,
+            submission,
             adapter_info,
             msaa,
             limits,
@@ -574,9 +578,6 @@ impl GpuContext {
             config,
             supported_present_modes,
             window: Some(window),
-            gpu_profiler,
-            frame_timing: runtime.frame_timing,
-            latest_gpu_pass_timings: runtime.latest_gpu_pass_timings,
         }))
     }
 }
