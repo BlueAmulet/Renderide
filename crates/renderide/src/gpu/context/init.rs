@@ -4,208 +4,17 @@ use std::sync::{Arc, Mutex};
 
 use winit::window::Window;
 
-use super::super::frame_cpu_gpu_timing::{FrameCpuGpuTiming, FrameCpuGpuTimingHandle};
-use super::super::instance_limits::instance_flags_for_gpu_init;
-use super::super::limits::GpuLimits;
-use super::{
-    GpuContext, GpuError, PrimaryOffscreenTargets, adapter_render_features_intersection,
-    install_uncaptured_error_handler, msaa_supported_sample_counts,
-    msaa_supported_sample_counts_stereo, request_device_for_adapter,
+use super::super::adapter::device::{
+    install_uncaptured_error_handler, request_device_for_adapter, try_gpu_profiler,
 };
+use super::super::adapter::features::adapter_render_features_intersection;
+use super::super::adapter::msaa_support::MsaaSupport;
+use super::super::adapter::selection::{build_wgpu_instance, select_adapter};
+use super::super::frame_cpu_gpu_timing::{FrameCpuGpuTiming, FrameCpuGpuTimingHandle};
+use super::super::limits::GpuLimits;
+use super::{GpuContext, GpuError, PrimaryOffscreenTargets};
 use crate::config::VsyncMode;
 use crate::gpu::submission_state::GpuSubmissionState;
-
-/// Lower scores rank earlier. Stable across systems so Vulkan ICD reordering does not flip the
-/// chosen adapter.
-///
-/// [`wgpu::PowerPreference::None`] is treated as [`wgpu::PowerPreference::HighPerformance`] so that
-/// callers without an explicit preference still get the discrete GPU on hybrid systems — matches
-/// Renderide's `[debug] power_preference` default.
-fn power_preference_score(
-    device_type: wgpu::DeviceType,
-    power_preference: wgpu::PowerPreference,
-) -> u8 {
-    use wgpu::DeviceType::*;
-    let prefer_low_power = power_preference == wgpu::PowerPreference::LowPower;
-    match device_type {
-        DiscreteGpu => {
-            if prefer_low_power {
-                1
-            } else {
-                0
-            }
-        }
-        IntegratedGpu => {
-            if prefer_low_power {
-                0
-            } else {
-                1
-            }
-        }
-        VirtualGpu => 2,
-        Cpu => 3,
-        Other => 4,
-    }
-}
-
-/// Returns the index of the best compatible adapter, or [`None`] if none pass `is_compatible`.
-///
-/// Ranking uses [`power_preference_score`]; ties break on enumeration order so the result is
-/// deterministic given the same adapter list.
-fn pick_adapter_index<F>(
-    adapters: &[wgpu::Adapter],
-    is_compatible: F,
-    power_preference: wgpu::PowerPreference,
-) -> Option<usize>
-where
-    F: Fn(&wgpu::Adapter) -> bool,
-{
-    adapters
-        .iter()
-        .enumerate()
-        .filter(|(_, a)| is_compatible(a))
-        .min_by_key(|(i, a)| {
-            (
-                power_preference_score(a.get_info().device_type, power_preference),
-                *i,
-            )
-        })
-        .map(|(i, _)| i)
-}
-
-/// Logs every enumerated adapter at info level so users can see what wgpu found and why one was chosen.
-fn log_adapter_candidates(adapters: &[wgpu::Adapter]) {
-    if adapters.is_empty() {
-        logger::warn!("wgpu adapter candidates: <none enumerated>");
-        return;
-    }
-    for a in adapters {
-        let info = a.get_info();
-        logger::info!(
-            "wgpu adapter candidate: {} type={:?} backend={:?} vendor=0x{:04x} device=0x{:04x}",
-            info.name,
-            info.device_type,
-            info.backend,
-            info.vendor,
-            info.device,
-        );
-    }
-}
-
-/// Builds the [`wgpu::Instance`] used by both windowed and headless paths and returns the
-/// derived [`wgpu::InstanceFlags`] for logging.
-fn build_wgpu_instance(gpu_validation_layers: bool) -> (wgpu::Instance, wgpu::InstanceFlags) {
-    let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
-    instance_desc.backends = wgpu::Backends::all();
-    instance_desc.flags = instance_flags_for_gpu_init(gpu_validation_layers);
-    let instance_desc = instance_desc.with_env();
-    let instance_flags = instance_desc.flags;
-    (wgpu::Instance::new(instance_desc), instance_flags)
-}
-
-/// Enumerates adapters, logs all candidates, and returns the best match for `power_preference`.
-///
-/// When `surface` is [`Some`], adapters that cannot present to it are filtered out. Errors are
-/// returned as [`GpuError::Adapter`] with messages distinguishing the windowed and headless paths.
-async fn select_adapter(
-    instance: &wgpu::Instance,
-    surface: Option<&wgpu::Surface<'_>>,
-    power_preference: wgpu::PowerPreference,
-) -> Result<wgpu::Adapter, GpuError> {
-    let adapters = instance.enumerate_adapters(wgpu::Backends::all()).await;
-    log_adapter_candidates(&adapters);
-    let chosen = match surface {
-        Some(s) => pick_adapter_index(&adapters, |a| a.is_surface_supported(s), power_preference),
-        None => pick_adapter_index(&adapters, |_| true, power_preference),
-    }
-    .ok_or_else(|| adapter_not_found_error(surface, adapters.len()))?;
-    let adapter = adapters
-        .into_iter()
-        .nth(chosen)
-        .ok_or_else(|| GpuError::Adapter("adapter index out of range".into()))?;
-    let info = adapter.get_info();
-    let label = if surface.is_some() {
-        "wgpu adapter selected"
-    } else {
-        "wgpu adapter selected (headless)"
-    };
-    logger::info!(
-        "{label}: {} type={:?} backend={:?} (preference={:?})",
-        info.name,
-        info.device_type,
-        info.backend,
-        power_preference,
-    );
-    Ok(adapter)
-}
-
-/// Builds the user-facing adapter-selection failure for the active path.
-fn adapter_not_found_error(
-    surface: Option<&wgpu::Surface<'_>>,
-    candidate_count: usize,
-) -> GpuError {
-    if surface.is_some() {
-        GpuError::Adapter(format!(
-            "no surface-compatible adapter found among {candidate_count} candidate(s)"
-        ))
-    } else {
-        GpuError::Adapter(
-            "no headless adapter found. Install graphics drivers or verify that a supported \
-             wgpu backend is available."
-                .into(),
-        )
-    }
-}
-
-/// MSAA sample-count support for desktop and stereo forward targets.
-struct MsaaSupport {
-    /// Desktop swapchain/offscreen MSAA tiers.
-    desktop: Vec<u32>,
-    /// Stereo 2D-array MSAA tiers.
-    stereo: Vec<u32>,
-}
-
-impl MsaaSupport {
-    /// Discovers MSAA support for a color/depth pair and logs path-specific fallbacks.
-    fn discover(
-        adapter: &wgpu::Adapter,
-        color_format: wgpu::TextureFormat,
-        depth_stencil_format: wgpu::TextureFormat,
-        features: wgpu::Features,
-        log_prefix: &str,
-    ) -> Self {
-        let desktop = msaa_supported_sample_counts(adapter, color_format, depth_stencil_format);
-        if desktop.is_empty() {
-            logger::warn!(
-                "{log_prefix}: adapter reported no supported MSAA sample counts (1× is always \
-                 supported by spec); MSAA disabled for the desktop swapchain"
-            );
-        }
-        let stereo = msaa_supported_sample_counts_stereo(
-            adapter,
-            color_format,
-            depth_stencil_format,
-            features,
-        );
-        if stereo.is_empty() {
-            logger::warn!(
-                "{log_prefix}: adapter reported no supported MSAA sample counts for stereo; \
-                 MSAA disabled for the HMD multiview path"
-            );
-        }
-        Self { desktop, stereo }
-    }
-
-    /// Maximum desktop tier, or `1` when MSAA is unavailable.
-    fn desktop_max(&self) -> u32 {
-        self.desktop.last().copied().unwrap_or(1)
-    }
-
-    /// Maximum stereo tier, or `1` when stereo MSAA is unavailable.
-    fn stereo_max(&self) -> u32 {
-        self.stereo.last().copied().unwrap_or(1)
-    }
-}
 
 /// Runtime handles derived from a queue and shared by all GPU construction paths.
 struct GpuRuntimeHandles {
@@ -288,20 +97,6 @@ fn assemble_context(parts: GpuContextParts) -> GpuContext {
         depth_extent_px: (0, 0),
         primary_offscreen: Option::<PrimaryOffscreenTargets>::None,
     }
-}
-
-/// Attempts to create the Tracy GPU profiler and logs a path-specific fallback when unavailable.
-fn try_gpu_profiler(
-    adapter: &wgpu::Adapter,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    unavailable_message: &str,
-) -> Option<crate::profiling::GpuProfilerHandle> {
-    let gpu_profiler = crate::profiling::GpuProfilerHandle::try_new(adapter, device, queue);
-    if cfg!(feature = "tracy") && gpu_profiler.is_none() {
-        logger::warn!("{unavailable_message}");
-    }
-    gpu_profiler
 }
 
 impl GpuContext {
@@ -579,56 +374,5 @@ impl GpuContext {
             supported_present_modes,
             window: Some(window),
         }))
-    }
-}
-
-#[cfg(test)]
-mod power_preference_score_tests {
-    use super::power_preference_score;
-    use wgpu::{DeviceType, PowerPreference};
-
-    #[test]
-    fn high_performance_prefers_discrete_over_integrated() {
-        assert!(
-            power_preference_score(DeviceType::DiscreteGpu, PowerPreference::HighPerformance)
-                < power_preference_score(
-                    DeviceType::IntegratedGpu,
-                    PowerPreference::HighPerformance,
-                )
-        );
-    }
-
-    #[test]
-    fn low_power_prefers_integrated_over_discrete() {
-        assert!(
-            power_preference_score(DeviceType::IntegratedGpu, PowerPreference::LowPower)
-                < power_preference_score(DeviceType::DiscreteGpu, PowerPreference::LowPower)
-        );
-    }
-
-    #[test]
-    fn cpu_and_other_rank_below_real_gpus() {
-        for pref in [PowerPreference::HighPerformance, PowerPreference::LowPower] {
-            let cpu = power_preference_score(DeviceType::Cpu, pref);
-            let other = power_preference_score(DeviceType::Other, pref);
-            let discrete = power_preference_score(DeviceType::DiscreteGpu, pref);
-            let integrated = power_preference_score(DeviceType::IntegratedGpu, pref);
-            assert!(cpu > discrete && cpu > integrated, "Cpu rank too high");
-            assert!(
-                other > discrete && other > integrated,
-                "Other rank too high"
-            );
-        }
-    }
-
-    #[test]
-    fn virtual_gpu_ranks_below_real_gpus_but_above_cpu() {
-        for pref in [PowerPreference::HighPerformance, PowerPreference::LowPower] {
-            let virt = power_preference_score(DeviceType::VirtualGpu, pref);
-            let cpu = power_preference_score(DeviceType::Cpu, pref);
-            let discrete = power_preference_score(DeviceType::DiscreteGpu, pref);
-            assert!(virt > discrete);
-            assert!(virt < cpu);
-        }
     }
 }

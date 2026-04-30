@@ -10,8 +10,10 @@
 //! already-resolved color and does not need to be aware of the sample count.
 
 mod cover;
+mod eye_blit;
 mod pipelines;
 mod resources;
+mod surface_blit;
 
 /// OpenXR `PRIMARY_STEREO` layer index used for the desktop mirror (left eye).
 pub const VR_MIRROR_EYE_LAYER: u32 = 0;

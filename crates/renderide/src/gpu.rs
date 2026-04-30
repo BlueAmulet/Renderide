@@ -4,6 +4,7 @@
 //! [`frame_globals`] ([`FrameGpuUniforms`]), [`frame_cpu_gpu_timing`] (debug HUD CPU/GPU intervals),
 //! [`present`] (surface acquire / clear helpers), [`vr_mirror`] (HMD eye → staging → window).
 
+mod adapter;
 pub mod bind_layout;
 mod context;
 pub mod depth;
