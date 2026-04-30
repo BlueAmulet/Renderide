@@ -208,27 +208,24 @@ impl RendererFrontend {
     pub fn ipc_outbound_primary_drop_this_tick(&self) -> bool {
         self.ipc
             .as_ref()
-            .is_some_and(|i| i.had_outbound_primary_drop_this_tick())
+            .is_some_and(DualQueueIpc::had_outbound_primary_drop_this_tick)
     }
 
     /// Whether any **background** outbound send failed since the last [`Self::reset_ipc_outbound_drop_tick_flags`].
     pub fn ipc_outbound_background_drop_this_tick(&self) -> bool {
         self.ipc
             .as_ref()
-            .is_some_and(|i| i.had_outbound_background_drop_this_tick())
+            .is_some_and(DualQueueIpc::had_outbound_background_drop_this_tick)
     }
 
     /// Current consecutive outbound drop streaks per channel (`0` when disconnected or after a successful send).
     pub fn ipc_consecutive_outbound_drop_streaks(&self) -> (u32, u32) {
-        self.ipc
-            .as_ref()
-            .map(|i| {
-                (
-                    i.consecutive_primary_drop_streak(),
-                    i.consecutive_background_drop_streak(),
-                )
-            })
-            .unwrap_or((0, 0))
+        self.ipc.as_ref().map_or((0, 0), |i| {
+            (
+                i.consecutive_primary_drop_streak(),
+                i.consecutive_background_drop_streak(),
+            )
+        })
     }
 
     /// Records wall-clock spacing for FPS / [`crate::shared::PerformanceState`] before lock-step
@@ -238,8 +235,7 @@ impl RendererFrontend {
     pub fn on_tick_frame_wall_clock(&mut self, now: Instant) {
         let wall_interval_us = self
             .last_tick_wall_start
-            .map(|t| now.duration_since(t).as_micros() as u64)
-            .unwrap_or(0);
+            .map_or(0, |t| now.duration_since(t).as_micros() as u64);
         self.wall_interval_us_for_perf = wall_interval_us;
         self.last_tick_wall_start = Some(now);
     }

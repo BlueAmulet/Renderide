@@ -31,8 +31,7 @@ fn bootstrap_queues_open_drop_succeeds_with_env_override() {
         {
             assert!(
                 in_qu.exists() || out_qu.exists(),
-                "expected at least one .qu under {:?}",
-                tmp
+                "expected at least one .qu under {tmp:?}"
             );
         }
         #[cfg(windows)]
@@ -51,7 +50,7 @@ fn bootstrap_queues_open_drop_succeeds_with_env_override() {
             !tmp.join(format!("{out_name}.qu")).exists(),
             "outgoing .qu should be removed on drop"
         );
-    }
+    };
 
     std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
     let _ = std::fs::remove_dir_all(&tmp);

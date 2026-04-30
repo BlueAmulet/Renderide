@@ -24,7 +24,7 @@ pub struct PackedBools {
 impl PackedBools {
     /// Decodes a byte from the wire into eight flags.
     #[inline]
-    pub fn from_byte(byte: u8) -> Self {
+    pub const fn from_byte(byte: u8) -> Self {
         Self {
             bit0: (byte & 1) != 0,
             bit1: (byte & 2) != 0,
@@ -39,31 +39,31 @@ impl PackedBools {
 
     /// First two flags.
     #[inline]
-    pub fn two(self) -> (bool, bool) {
+    pub const fn two(self) -> (bool, bool) {
         (self.bit0, self.bit1)
     }
 
     /// First three flags.
     #[inline]
-    pub fn three(self) -> (bool, bool, bool) {
+    pub const fn three(self) -> (bool, bool, bool) {
         (self.bit0, self.bit1, self.bit2)
     }
 
     /// First four flags.
     #[inline]
-    pub fn four(self) -> (bool, bool, bool, bool) {
+    pub const fn four(self) -> (bool, bool, bool, bool) {
         (self.bit0, self.bit1, self.bit2, self.bit3)
     }
 
     /// First five flags.
     #[inline]
-    pub fn five(self) -> (bool, bool, bool, bool, bool) {
+    pub const fn five(self) -> (bool, bool, bool, bool, bool) {
         (self.bit0, self.bit1, self.bit2, self.bit3, self.bit4)
     }
 
     /// First six flags.
     #[inline]
-    pub fn six(self) -> (bool, bool, bool, bool, bool, bool) {
+    pub const fn six(self) -> (bool, bool, bool, bool, bool, bool) {
         (
             self.bit0, self.bit1, self.bit2, self.bit3, self.bit4, self.bit5,
         )
@@ -71,7 +71,7 @@ impl PackedBools {
 
     /// First seven flags.
     #[inline]
-    pub fn seven(self) -> (bool, bool, bool, bool, bool, bool, bool) {
+    pub const fn seven(self) -> (bool, bool, bool, bool, bool, bool, bool) {
         (
             self.bit0, self.bit1, self.bit2, self.bit3, self.bit4, self.bit5, self.bit6,
         )
@@ -79,7 +79,7 @@ impl PackedBools {
 
     /// All eight flags.
     #[inline]
-    pub fn eight(self) -> (bool, bool, bool, bool, bool, bool, bool, bool) {
+    pub const fn eight(self) -> (bool, bool, bool, bool, bool, bool, bool, bool) {
         (
             self.bit0, self.bit1, self.bit2, self.bit3, self.bit4, self.bit5, self.bit6, self.bit7,
         )

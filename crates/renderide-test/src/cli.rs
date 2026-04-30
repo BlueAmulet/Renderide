@@ -16,7 +16,7 @@ use crate::error::HarnessError;
 use crate::host::{HarnessRunOutcome, HostHarness, HostHarnessConfig};
 
 /// CLI entry point.
-pub(crate) fn run() -> ExitCode {
+pub fn run() -> ExitCode {
     let cli = Cli::parse();
     init_logger();
     match dispatch(cli) {
@@ -188,7 +188,7 @@ enum BuildProfile {
 
 impl BuildProfile {
     /// Resolves the profile from the mutually-exclusive `--release` / `--dev-fast` CLI flags.
-    fn from_flags(release: bool, dev_fast: bool) -> Self {
+    const fn from_flags(release: bool, dev_fast: bool) -> Self {
         if dev_fast {
             Self::DevFast
         } else if release {
@@ -199,7 +199,7 @@ impl BuildProfile {
     }
 
     /// Subdirectory name under `target/` for this profile.
-    fn target_dir(self) -> &'static str {
+    const fn target_dir(self) -> &'static str {
         match self {
             Self::Debug => "debug",
             Self::Release => "release",

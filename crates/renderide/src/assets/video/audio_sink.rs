@@ -105,7 +105,7 @@ pub enum ResoniteAudioSinkError {
 /// Converts host audio queue capacity to the signed queue API type.
 pub fn positive_queue_capacity(queue_capacity: i32) -> Result<i64, ResoniteAudioSinkError> {
     if queue_capacity > 0 {
-        Ok(queue_capacity as i64)
+        Ok(i64::from(queue_capacity))
     } else {
         Err(ResoniteAudioSinkError::InvalidQueueCapacity(queue_capacity))
     }

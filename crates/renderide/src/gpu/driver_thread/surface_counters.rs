@@ -57,7 +57,10 @@ impl SurfaceCounters {
         self.frames_presented.fetch_add(1, Ordering::Release);
         // `notify_all` rather than `notify_one` keeps the primitive correct even if more
         // than one caller ever waits (not expected today, but cheap insurance).
-        let _g = self.present_mtx.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = self
+            .present_mtx
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         self.present_cvar.notify_all();
     }
 
@@ -77,7 +80,10 @@ impl SurfaceCounters {
     /// releases the same mutex the notifier must acquire before `notify_all`. Do not
     /// hoist the lock back outside the loop.
     pub(super) fn wait_for_present_catchup(&self, max_in_flight: u64) {
-        let mut guard = self.present_mtx.lock().unwrap_or_else(|p| p.into_inner());
+        let mut guard = self
+            .present_mtx
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             let submitted = self.frames_submitted.load(Ordering::Acquire);
             let presented = self.frames_presented.load(Ordering::Acquire);
@@ -87,7 +93,7 @@ impl SurfaceCounters {
             guard = self
                 .present_cvar
                 .wait(guard)
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 }

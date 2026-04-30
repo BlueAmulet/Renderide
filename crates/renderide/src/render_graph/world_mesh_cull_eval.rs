@@ -156,8 +156,7 @@ fn mesh_world_geometry_for_cull(
         let root_node = sk
             .root_bone_transform_id
             .filter(|&id| id >= 0)
-            .map(|id| id as usize)
-            .unwrap_or(target.node_id as usize);
+            .map_or(target.node_id as usize, |id| id as usize);
         let Some(root_world) = target.scene.world_matrix_for_render_context(
             target.space_id,
             root_node,

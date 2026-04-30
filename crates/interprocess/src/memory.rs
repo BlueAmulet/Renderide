@@ -14,7 +14,7 @@ use crate::semaphore::Semaphore;
 /// Read/write mapping of the queue file (Unix) or named section (Windows), plus a paired semaphore.
 ///
 /// Obtained via [`SharedMapping::open_queue`]; size matches [`QueueOptions::actual_storage_size`].
-pub(crate) struct SharedMapping {
+pub struct SharedMapping {
     /// Platform-specific mapping implementation.
     #[cfg(unix)]
     inner: unix::UnixMapping,
@@ -53,12 +53,12 @@ impl SharedMapping {
     }
 
     /// Byte length of the mapping (queue header plus ring).
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.inner.len()
     }
 
     /// Path to the backing `.qu` file when file-backed; `None` on Windows named mappings.
-    pub(crate) fn backing_file_path(&self) -> Option<&PathBuf> {
+    pub(crate) const fn backing_file_path(&self) -> Option<&PathBuf> {
         self.inner.backing_file_path()
     }
 }

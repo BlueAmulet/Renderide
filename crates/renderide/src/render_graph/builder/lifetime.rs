@@ -121,7 +121,7 @@ fn assign_texture_slots(resources: &mut [CompiledTextureResource]) -> usize {
             sample_count: resource.desc.sample_count,
             dimension: resource.desc.dimension,
             array_layers: resource.desc.array_layers,
-            usage_bits: resource.usage.bits() as u64,
+            usage_bits: u64::from(resource.usage.bits()),
         };
         let existing_slot = resource
             .desc
@@ -132,15 +132,12 @@ fn assign_texture_slots(resources: &mut [CompiledTextureResource]) -> usize {
                 })
             })
             .flatten();
-        match existing_slot {
-            Some(slot) => {
-                resource.physical_slot = slot;
-                slots[slot].1.push(lifetime);
-            }
-            None => {
-                resource.physical_slot = slots.len();
-                slots.push((key, vec![lifetime]));
-            }
+        if let Some(slot) = existing_slot {
+            resource.physical_slot = slot;
+            slots[slot].1.push(lifetime);
+        } else {
+            resource.physical_slot = slots.len();
+            slots.push((key, vec![lifetime]));
         }
     }
     slots.len()
@@ -154,7 +151,7 @@ fn assign_buffer_slots(resources: &mut [CompiledBufferResource]) -> usize {
         };
         let key = BufferAliasKey {
             size_policy: resource.desc.size_policy,
-            usage_bits: resource.usage.bits() as u64,
+            usage_bits: u64::from(resource.usage.bits()),
         };
         let existing_slot = resource
             .desc
@@ -165,15 +162,12 @@ fn assign_buffer_slots(resources: &mut [CompiledBufferResource]) -> usize {
                 })
             })
             .flatten();
-        match existing_slot {
-            Some(slot) => {
-                resource.physical_slot = slot;
-                slots[slot].1.push(lifetime);
-            }
-            None => {
-                resource.physical_slot = slots.len();
-                slots.push((key, vec![lifetime]));
-            }
+        if let Some(slot) = existing_slot {
+            resource.physical_slot = slot;
+            slots[slot].1.push(lifetime);
+        } else {
+            resource.physical_slot = slots.len();
+            slots.push((key, vec![lifetime]));
         }
     }
     slots.len()

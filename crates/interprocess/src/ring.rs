@@ -11,7 +11,7 @@ use crate::layout::MessageHeader;
 
 /// View of the ring bytes (`capacity` is the user ring length only; excludes [`crate::layout::QueueHeader`]).
 #[derive(Copy, Clone)]
-pub(crate) struct RingView {
+pub struct RingView {
     /// Base pointer to the first byte of the ring (immediately after the queue header in the mapping).
     ptr: *mut u8,
     /// Ring length in bytes (matches [`crate::QueueOptions::capacity`]).
@@ -162,7 +162,7 @@ fn split_at_wrap(offset: i64, capacity: i64, len: usize) -> (usize, usize, usize
 ///
 /// When [`crate::layout::QueueHeader::read_offset`] equals [`crate::layout::QueueHeader::write_offset`],
 /// the queue is empty and the full `capacity` is available.
-pub(crate) fn available_space(header: &crate::layout::QueueHeader, capacity: i64) -> i64 {
+pub fn available_space(header: &crate::layout::QueueHeader, capacity: i64) -> i64 {
     if capacity <= 0 {
         return 0;
     }

@@ -50,7 +50,7 @@ impl LogLevel {
     }
 
     /// Returns the string to pass as `-LogLevel` value.
-    pub fn as_arg(&self) -> &'static str {
+    pub const fn as_arg(&self) -> &'static str {
         match self {
             Self::Error => "error",
             Self::Warn => "warn",
@@ -66,7 +66,7 @@ impl LogLevel {
     /// [`std::fmt::Display`] on every log call and is shared by [`std::fmt::Display`] and
     /// [`std::fmt::Debug`].
     #[inline]
-    pub(crate) fn as_label(self) -> &'static str {
+    pub(crate) const fn as_label(self) -> &'static str {
         match self {
             Self::Error => "ERROR",
             Self::Warn => "WARN",
@@ -94,7 +94,7 @@ impl std::fmt::Display for LogLevel {
 /// The forward direction is `level as u8`; this decoder is needed because `AtomicU8` storage can
 /// in principle hold any byte and the logger must remain robust to unexpected values.
 #[inline]
-pub(crate) fn tag_to_level(tag: u8) -> LogLevel {
+pub fn tag_to_level(tag: u8) -> LogLevel {
     match tag.min(4) {
         0 => LogLevel::Error,
         1 => LogLevel::Warn,

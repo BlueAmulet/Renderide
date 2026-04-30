@@ -400,7 +400,7 @@ pub fn render_pass_timestamp_writes(
 ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
     #[cfg(feature = "tracy")]
     {
-        query.and_then(|q| q.render_pass_timestamp_writes())
+        query.and_then(wgpu_profiler::GpuProfilerQuery::render_pass_timestamp_writes)
     }
     #[cfg(not(feature = "tracy"))]
     {
@@ -421,7 +421,7 @@ pub fn compute_pass_timestamp_writes(
 ) -> Option<wgpu::ComputePassTimestampWrites<'_>> {
     #[cfg(feature = "tracy")]
     {
-        query.and_then(|q| q.compute_pass_timestamp_writes())
+        query.and_then(wgpu_profiler::GpuProfilerQuery::compute_pass_timestamp_writes)
     }
     #[cfg(not(feature = "tracy"))]
     {

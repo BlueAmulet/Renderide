@@ -44,10 +44,10 @@ pub(super) fn write_frame_uniforms_and_cluster(
 pub(super) fn write_per_view_frame_uniforms(
     queue: &wgpu::Queue,
     upload_batch: &FrameUploadBatch,
-    frame: &mut FrameRenderParams<'_>,
-    blackboard: &mut Blackboard,
+    frame: &FrameRenderParams<'_>,
+    blackboard: &Blackboard,
     use_multiview: bool,
-    hc: crate::render_graph::frame_params::HostCameraFrame,
+    hc: HostCameraFrame,
 ) {
     if let Some(frame_plan) = blackboard.get::<PerViewFramePlanSlot>() {
         let uniforms = build_frame_gpu_uniforms(

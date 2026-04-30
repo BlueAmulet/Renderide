@@ -47,8 +47,7 @@ use std::env;
 pub fn host_writer_backing_dir() -> PathBuf {
     env::var_os(RENDERIDE_INTERPROCESS_DIR_ENV)
         .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(interprocess::default_memory_dir)
+        .map_or_else(interprocess::default_memory_dir, PathBuf::from)
 }
 
 /// Windows fallback: returns the same name the renderer-side `SharedMemoryAccessor` derives so
@@ -124,8 +123,7 @@ mod platform {
         ) -> Result<Self, SharedMemoryWriterError> {
             let dir = env::var_os(RENDERIDE_INTERPROCESS_DIR_ENV)
                 .filter(|s| !s.is_empty())
-                .map(PathBuf::from)
-                .unwrap_or_else(interprocess::default_memory_dir);
+                .map_or_else(interprocess::default_memory_dir, PathBuf::from);
             std::fs::create_dir_all(&dir).map_err(SharedMemoryWriterError::Io)?;
             let file_path = dir.join(format!(
                 "{}.qu",
@@ -396,7 +394,7 @@ impl SharedMemoryWriter {
     /// `SetTexture2DData.data`, `MaterialsUpdateBatch.material_updates[i]`). The renderer's
     /// `SharedMemoryAccessor` opens the mapping for `self.buffer_id` and reads from
     /// `[offset, offset+length)`.
-    pub fn descriptor_for(&self, offset: i32, length: i32) -> SharedMemoryBufferDescriptor {
+    pub const fn descriptor_for(&self, offset: i32, length: i32) -> SharedMemoryBufferDescriptor {
         SharedMemoryBufferDescriptor {
             buffer_id: self.buffer_id,
             buffer_capacity: self.capacity_bytes,
@@ -406,17 +404,17 @@ impl SharedMemoryWriter {
     }
 
     /// Buffer id (matches `SharedMemoryBufferDescriptor::buffer_id`).
-    pub fn buffer_id(&self) -> i32 {
+    pub const fn buffer_id(&self) -> i32 {
         self.buffer_id
     }
 
     /// Capacity in bytes.
-    pub fn capacity_bytes(&self) -> i32 {
+    pub const fn capacity_bytes(&self) -> i32 {
         self.capacity_bytes
     }
 
     /// Configured prefix and `destroy_on_drop` flag.
-    pub fn config(&self) -> &SharedMemoryWriterConfig {
+    pub const fn config(&self) -> &SharedMemoryWriterConfig {
         &self.cfg
     }
 }

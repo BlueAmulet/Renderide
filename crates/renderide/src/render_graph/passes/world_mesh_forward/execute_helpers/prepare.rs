@@ -33,7 +33,7 @@ pub(super) fn take_world_mesh_draws(blackboard: &mut Blackboard) -> PrefetchedWo
 
 /// Copies Hi-Z temporal state for the next frame when culling is active.
 pub(super) fn capture_hi_z_temporal_after_collect(
-    frame: &mut FrameRenderParams<'_>,
+    frame: &FrameRenderParams<'_>,
     cull_proj: Option<WorldMeshCullProjParams>,
     hc: HostCameraFrame,
 ) {
@@ -94,7 +94,7 @@ pub(in crate::render_graph::passes::world_mesh_forward) fn prepare_world_mesh_fo
     queue: &wgpu::Queue,
     upload_batch: &FrameUploadBatch,
     gpu_limits: &GpuLimits,
-    frame: &mut FrameRenderParams<'_>,
+    frame: &FrameRenderParams<'_>,
     blackboard: &mut Blackboard,
     skybox_renderer: &SkyboxRenderer,
 ) -> Option<PreparedWorldMeshForwardFrame> {

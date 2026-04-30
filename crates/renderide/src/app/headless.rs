@@ -145,7 +145,7 @@ fn readback_and_write_png_atomically(
     let bytes_per_row_tight = width * 4;
     let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
     let bytes_per_row_padded = bytes_per_row_tight.div_ceil(alignment) * alignment;
-    let buffer_size = (bytes_per_row_padded as u64) * (height as u64);
+    let buffer_size = u64::from(bytes_per_row_padded) * u64::from(height);
 
     let limits = gpu.limits();
     if !limits.buffer_size_fits(buffer_size) {

@@ -147,12 +147,14 @@ mod tests {
             .iter()
             .filter(|d| d.lookup_ids.material_asset_id == 1)
             .collect();
-        let mat2: Vec<_> = v
-            .iter()
-            .filter(|d| d.lookup_ids.material_asset_id == 2)
-            .collect();
+
         assert_eq!(mat1.len(), 3);
-        assert_eq!(mat2.len(), 1);
+        assert_eq!(
+            v.iter()
+                .filter(|d| d.lookup_ids.material_asset_id == 2)
+                .count(),
+            1
+        );
         // Within material 1, opaque draws sort by descending `sorting_order` (preserved from the
         // original comparator chain after the new hash tiebreaker).
         assert_eq!(mat1[0].sorting_order, 10);

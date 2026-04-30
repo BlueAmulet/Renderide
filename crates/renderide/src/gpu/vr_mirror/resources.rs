@@ -169,7 +169,7 @@ impl VrMirrorBlitResources {
             pass.set_pipeline(eye_pipeline(device));
             pass.set_bind_group(0, &bind_group, &[]);
             pass.draw(0..3, 0..1);
-        }
+        };
         if let Some(query) = outer_query {
             if let Some(prof) = gpu.gpu_profiler_mut() {
                 prof.end_query(&mut encoder, query);

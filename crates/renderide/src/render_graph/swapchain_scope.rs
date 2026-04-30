@@ -91,7 +91,7 @@ impl SwapchainScope {
         {
             profiling::scope!("gpu::wait_previous_present.desktop_graph");
             gpu.wait_for_previous_present();
-        }
+        };
         let outcome = acquire_surface_outcome_traced(gpu, SurfaceAcquireTrace::DesktopGraph)?;
         match outcome {
             SurfaceFrameOutcome::Skip | SurfaceFrameOutcome::Reconfigured => {

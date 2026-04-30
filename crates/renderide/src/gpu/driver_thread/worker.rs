@@ -85,8 +85,8 @@ fn process_batch(
         profiling::scope!("driver::submit");
         // Serialise against texture uploads and OpenXR queue-access calls via the shared gate.
         let _gate = gpu_queue_access_gate.lock();
-        queue.submit(command_buffers);
-    }
+        queue.submit(command_buffers)
+    };
 
     if let Some(track) = frame_timing {
         // Capture the post-submit instant on this thread so it represents "CPU is done preparing
@@ -108,7 +108,7 @@ fn process_batch(
             // `SurfaceTexture::present` is infallible in the current wgpu API; if that
             // changes, route the error into `errors` with `DriverErrorKind::Present`.
             tex.present();
-        }
+        };
         // Signal to the main thread that the previous surface texture is no longer
         // outstanding so its next `get_current_texture` call can proceed without a
         // full ring flush.

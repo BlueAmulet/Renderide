@@ -22,7 +22,7 @@ use crate::protocol;
 use crate::BootstrapError;
 
 /// Paths and argv for a single bootstrap run (owned so a panic boundary can move it).
-pub(crate) struct RunContext {
+pub struct RunContext {
     /// Extra Host CLI args (before `-Invisible` / `-shmprefix` are appended).
     pub host_args: Vec<String>,
     /// Shared basename (no `.log`) for paths like `logs/host/{timestamp}.log` under [`logger::logs_root`].
@@ -46,10 +46,7 @@ fn log_run_intro(config: &ResoBootConfig) {
 }
 
 /// Appends `-shmprefix` and the generated prefix to Host argv.
-pub(crate) fn assemble_host_args(
-    mut host_args: Vec<String>,
-    shared_memory_prefix: &str,
-) -> Vec<String> {
+pub fn assemble_host_args(mut host_args: Vec<String>, shared_memory_prefix: &str) -> Vec<String> {
     host_args.push("-shmprefix".to_string());
     host_args.push(shared_memory_prefix.to_string());
     host_args
@@ -140,7 +137,7 @@ fn finalize(config: &ResoBootConfig, lifetime: &ChildLifetimeGroup) {
 }
 
 /// Runs the bootstrapper main loop after logging is initialized.
-pub(crate) fn run(config: &ResoBootConfig, ctx: RunContext) -> Result<(), BootstrapError> {
+pub fn run(config: &ResoBootConfig, ctx: RunContext) -> Result<(), BootstrapError> {
     log_run_intro(config);
 
     let lifetime = ChildLifetimeGroup::new().map_err(BootstrapError::Io)?;

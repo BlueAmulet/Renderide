@@ -343,11 +343,7 @@ impl RendererRuntime {
     /// [`Self::pre_frame`] (when allowed), and call [`Self::render_frame`] with the main camera
     /// included. Mode-specific epilogue (HUD overlay encode + present in winit, PNG readback in
     /// headless) happens on the caller side after this returns.
-    pub fn tick_one_frame(
-        &mut self,
-        gpu: &mut GpuContext,
-        inputs: crate::shared::InputState,
-    ) -> TickOutcome {
+    pub fn tick_one_frame(&mut self, gpu: &mut GpuContext, inputs: InputState) -> TickOutcome {
         profiling::scope!("tick::one_frame");
         self.poll_ipc();
         if self.shutdown_requested() {
@@ -382,7 +378,7 @@ impl RendererRuntime {
     pub fn tick_one_frame_lockstep_only(
         &mut self,
         gpu: Option<&GpuContext>,
-        inputs: crate::shared::InputState,
+        inputs: InputState,
     ) -> TickOutcome {
         profiling::scope!("tick::one_frame_lockstep_only");
         self.poll_ipc();

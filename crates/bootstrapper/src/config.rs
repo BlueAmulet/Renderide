@@ -10,7 +10,7 @@ use crate::wine_detect;
 /// Generates a ResoBoot-style alphanumeric prefix for shared-memory queue names.
 ///
 /// Uses rejection sampling so every character in the charset is equally likely (no modulo bias).
-pub(crate) fn generate_shared_memory_prefix(len: usize) -> Result<String, getrandom::Error> {
+pub fn generate_shared_memory_prefix(len: usize) -> Result<String, getrandom::Error> {
     const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     const N: usize = CHARSET.len();
     /// Largest multiple of `N` below 256; bytes in `0..THRESHOLD` map uniformly to indices.
@@ -39,7 +39,7 @@ pub(crate) fn generate_shared_memory_prefix(len: usize) -> Result<String, getran
 }
 
 /// Resolved paths and flags for one bootstrapper run.
-pub(crate) struct ResoBootConfig {
+pub struct ResoBootConfig {
     // --- Paths (working directory and Host layout) ---
     /// Current working directory (Resonite install root when launched from there).
     pub current_directory: PathBuf,

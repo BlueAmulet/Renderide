@@ -80,7 +80,7 @@ fn binary_output_dir() -> Option<PathBuf> {
     }
     std::env::current_exe()
         .ok()
-        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+        .and_then(|p| p.parent().map(Path::to_path_buf))
 }
 
 fn discover_workspace_roots() -> Vec<PathBuf> {

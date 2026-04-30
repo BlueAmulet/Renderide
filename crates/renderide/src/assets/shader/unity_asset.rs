@@ -243,7 +243,7 @@ fn try_from_directory(dir: &Path) -> Option<String> {
     };
 
     let mut paths: Vec<std::path::PathBuf> = read_dir
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| p.is_file())
         .collect();

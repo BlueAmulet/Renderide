@@ -150,9 +150,9 @@ pub fn compute_mesh_buffer_layout(
         .checked_mul(64)
         .ok_or("Mesh buffer size overflow")?;
     let blendshape_data_start = bind_poses_start + bind_poses_length;
-    let blendshape_data_length = blendshape_buffers
-        .map(|b| compute_blendshape_data_length(b, vertex_count as i32))
-        .unwrap_or(0);
+    let blendshape_data_length = blendshape_buffers.map_or(0, |b| {
+        compute_blendshape_data_length(b, vertex_count as i32)
+    });
     let total_buffer_length = blendshape_data_start + blendshape_data_length;
 
     if total_buffer_length > MAX_BUFFER_SIZE {
@@ -856,7 +856,7 @@ pub fn color_float4_stream_bytes(
         if base >= vertex_data.len() {
             return None;
         }
-        let Some(rgba) = decode_vertex_color(vertex_data, base, color_attr) else {
+        let Some(rgba) = decode_vertex_color(vertex_data, base, *color_attr) else {
             return Some(out);
         };
         let o = i * 16;
@@ -881,7 +881,7 @@ fn fill_color_stream_with_white(out: &mut [u8]) {
 fn decode_vertex_color(
     vertex_data: &[u8],
     base: usize,
-    attr: &VertexAttributeDescriptor,
+    attr: VertexAttributeDescriptor,
 ) -> Option<[f32; 4]> {
     let dims = attr.dimensions.clamp(1, 4) as usize;
     let mut rgba = [1.0f32; 4];
@@ -890,14 +890,14 @@ fn decode_vertex_color(
             let end = base.checked_add(dims)?;
             let src = vertex_data.get(base..end)?;
             for (i, byte) in src.iter().take(dims).enumerate() {
-                rgba[i] = *byte as f32 / 255.0;
+                rgba[i] = f32::from(*byte) / 255.0;
             }
         }
         VertexAttributeFormat::UNorm16 | VertexAttributeFormat::UInt16 => {
             let end = base.checked_add(dims.checked_mul(2)?)?;
             let src = vertex_data.get(base..end)?;
             for (i, chunk) in src.chunks(2).take(dims).enumerate() {
-                rgba[i] = u16::from_le_bytes(chunk.try_into().ok()?) as f32 / 65535.0;
+                rgba[i] = f32::from(u16::from_le_bytes(chunk.try_into().ok()?)) / 65535.0;
             }
         }
         VertexAttributeFormat::Float32 => {

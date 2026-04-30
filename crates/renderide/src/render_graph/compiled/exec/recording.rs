@@ -240,7 +240,7 @@ impl CompiledRenderGraph {
                 first.view_id(),
                 &first.target,
                 gpu,
-                backbuffer_view_holder,
+                backbuffer_view_holder.as_ref(),
             )?;
             let resolved_resources = self.resolve_frame_global_transients(
                 &resolved,

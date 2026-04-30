@@ -244,7 +244,7 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
 fn bind_per_draw_slab_if_changed(
     rpass: &mut wgpu::RenderPass<'_>,
     per_draw_bind_group: &wgpu::BindGroup,
-    gpu_limits: &crate::gpu::GpuLimits,
+    gpu_limits: &GpuLimits,
     slab_first_instance: usize,
     instance_count: u32,
     supports_base_instance: bool,
@@ -284,7 +284,7 @@ struct ActivePipelineSelection<'a> {
 /// pipeline (the typical case within a precomputed batch) skip the redundant `set_pipeline`.
 fn issue_material_pipeline_passes(
     rpass: &mut wgpu::RenderPass<'_>,
-    encode: &mut crate::backend::WorldMeshForwardEncodeRefs<'_>,
+    encode: &WorldMeshForwardEncodeRefs<'_>,
     item: &WorldMeshDrawItem,
     pipeline_sel: ActivePipelineSelection<'_>,
     inst_range: &std::ops::Range<u32>,

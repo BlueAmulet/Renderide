@@ -28,7 +28,7 @@ pub struct SharedMemoryBufferDescriptor {
 impl SharedMemoryBufferDescriptor {
     /// Returns `true` when the descriptor refers to no data (`length == 0`).
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.length == 0
     }
 }

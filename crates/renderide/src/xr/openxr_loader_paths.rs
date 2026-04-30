@@ -155,7 +155,7 @@ mod path_tests {
         let name = openxr_loader_library_filename();
         let exe_parent = std::env::current_exe()
             .ok()
-            .and_then(|p| p.parent().map(|p| p.to_path_buf()));
+            .and_then(|p| p.parent().map(Path::to_path_buf));
         if let Some(parent) = exe_parent {
             assert!(
                 paths.contains(&parent.join(name)),
@@ -172,10 +172,10 @@ mod path_tests {
         let mut out: Vec<PathBuf> = Vec::new();
         let a = PathBuf::from("/tmp/a");
         let b = PathBuf::from("/tmp/b");
-        super::push_unique(&mut out, a.clone());
-        super::push_unique(&mut out, b.clone());
-        super::push_unique(&mut out, a.clone());
-        super::push_unique(&mut out, b.clone());
+        push_unique(&mut out, a.clone());
+        push_unique(&mut out, b.clone());
+        push_unique(&mut out, a.clone());
+        push_unique(&mut out, b.clone());
         assert_eq!(out, vec![a, b]);
     }
 
@@ -189,19 +189,18 @@ mod path_tests {
 
         std::env::remove_var(RENDERIDE_OPENXR_LOADER);
         assert!(
-            super::path_from_renderide_openxr_loader_env(name).is_none(),
+            path_from_renderide_openxr_loader_env(name).is_none(),
             "unset env should return None"
         );
 
         let tmp_dir = std::env::temp_dir();
         std::env::set_var(RENDERIDE_OPENXR_LOADER, &tmp_dir);
-        let resolved =
-            super::path_from_renderide_openxr_loader_env(name).expect("directory override");
+        let resolved = path_from_renderide_openxr_loader_env(name).expect("directory override");
         assert_eq!(resolved, tmp_dir.join(name));
 
         let made_up = tmp_dir.join("renderide-openxr-test-this-path-should-not-exist.dll");
         std::env::set_var(RENDERIDE_OPENXR_LOADER, &made_up);
-        let resolved = super::path_from_renderide_openxr_loader_env(name).expect("file override");
+        let resolved = path_from_renderide_openxr_loader_env(name).expect("file override");
         assert_eq!(resolved, made_up);
     }
 

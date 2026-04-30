@@ -32,7 +32,7 @@ pub struct DrawGroup {
     pub representative_draw_idx: usize,
     /// Slab-coordinate range to pass as `first_instance..first_instance + count` to
     /// `draw_indexed`. Indexes into [`InstancePlan::slab_layout`], not into `draws`.
-    pub instance_range: std::ops::Range<u32>,
+    pub instance_range: Range<u32>,
 }
 
 /// Per-view instance plan: slab layout plus groups for regular, intersection, and grab-pass

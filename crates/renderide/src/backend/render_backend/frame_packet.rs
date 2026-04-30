@@ -64,8 +64,7 @@ impl RenderBackend {
         let router = self
             .materials
             .material_registry()
-            .map(|registry| &registry.router)
-            .unwrap_or(&self.null_material_router);
+            .map_or(&self.null_material_router, |registry| &registry.router);
         let pipeline_property_ids =
             MaterialPipelinePropertyIds::new(self.materials.property_id_registry());
 
@@ -79,7 +78,7 @@ impl RenderBackend {
                 &pipeline_property_ids,
                 ShaderPermutation(0),
             );
-        }
+        };
 
         {
             profiling::scope!("render::build_frame_prepared_renderables");
@@ -88,7 +87,7 @@ impl RenderBackend {
                 &self.asset_transfers.mesh_pool,
                 render_context,
             );
-        }
+        };
 
         ExtractedFrameShared {
             scene,

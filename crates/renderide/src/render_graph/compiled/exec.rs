@@ -590,7 +590,7 @@ impl CompiledRenderGraph {
         {
             profiling::scope!("gpu::drain_upload_batch");
             upload_batch.drain_and_flush(queue_ref);
-        }
+        };
 
         let all_cmds: Vec<wgpu::CommandBuffer> = frame_global_cmd
             .into_iter()
@@ -642,7 +642,7 @@ impl CompiledRenderGraph {
                 None,
                 hi_z_callbacks,
             );
-        }
+        };
 
         for outputs in per_view_hud_outputs.iter().flatten() {
             mv_ctx.backend.apply_per_view_hud_outputs(outputs);
@@ -730,7 +730,7 @@ impl CompiledRenderGraph {
                     view_id,
                     &view.target,
                     mv_ctx.gpu,
-                    mv_ctx.backbuffer_view_holder,
+                    mv_ctx.backbuffer_view_holder.as_ref(),
                 )?,
                 per_view_frame_bg_and_buf,
             });

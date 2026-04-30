@@ -8,7 +8,7 @@ use glam::{Vec2, Vec3};
 /// One vertex of the test sphere (deterministic packing for `bytemuck` shared-memory transfer).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Pod, Zeroable)]
-pub(crate) struct SphereVertex {
+pub struct SphereVertex {
     /// Object-space position (radius `1.0`).
     pub position: [f32; 3],
     /// Smooth shading normal (unit length).
@@ -19,7 +19,7 @@ pub(crate) struct SphereVertex {
 
 /// Procedural UV sphere geometry.
 #[derive(Clone, Debug)]
-pub(crate) struct SphereMesh {
+pub struct SphereMesh {
     /// Vertices in interleaved struct-of-arrays order.
     pub vertices: Vec<SphereVertex>,
     /// 32-bit indices in clockwise winding (matches the Unity / D3D-style `FrontFace::Cw`

@@ -44,7 +44,7 @@ fn hash_binding_type(ty: &wgpu::BindingType, h: &mut impl Hasher) {
             0u8.hash(h);
             std::mem::discriminant(ty).hash(h);
             has_dynamic_offset.hash(h);
-            min_binding_size.map(|n| n.get()).hash(h);
+            min_binding_size.map(std::num::NonZero::get).hash(h);
         }
         wgpu::BindingType::Texture {
             sample_type,

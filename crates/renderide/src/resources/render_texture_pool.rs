@@ -189,8 +189,8 @@ fn estimate_texture_bytes(format: wgpu::TextureFormat, width: u32, height: u32, 
         _ => 4u64,
     };
     let mut total = 0u64;
-    let mut w = width as u64;
-    let mut h = height as u64;
+    let mut w = u64::from(width);
+    let mut h = u64::from(height);
     for _ in 0..mips {
         total = total.saturating_add(w.saturating_mul(h).saturating_mul(bpp));
         w = (w / 2).max(1);

@@ -124,7 +124,7 @@ impl MaterialRenderState {
 
     /// Applies the optional Unity color-mask override to a pass write mask.
     pub fn color_writes(self, fallback: wgpu::ColorWrites) -> wgpu::ColorWrites {
-        self.color_mask.map(unity_color_writes).unwrap_or(fallback)
+        self.color_mask.map_or(fallback, unity_color_writes)
     }
 
     /// Applies the optional Unity depth-write override to a pass default.
@@ -272,7 +272,7 @@ pub fn material_render_state_from_maps(
         if factor.is_some() || units.is_some() {
             MaterialDepthOffsetState::new(
                 factor.unwrap_or(0.0),
-                units.map(unity_offset_units).unwrap_or(0),
+                units.map_or(0, unity_offset_units),
             )
         } else {
             None
@@ -286,16 +286,16 @@ pub fn material_render_state_from_maps(
         || stencil_depth_fail_op.is_some()
         || stencil_read_mask.is_some()
         || stencil_write_mask.is_some();
-    let compare = stencil_comp.map(unity_u8).unwrap_or(8);
+    let compare = stencil_comp.map_or(8, unity_u8);
     let stencil = MaterialStencilState {
         enabled: stencil_present && compare != 0,
-        reference: stencil_ref.map(unity_mask).unwrap_or(0),
+        reference: stencil_ref.map_or(0, unity_mask),
         compare,
-        pass_op: stencil_op.map(unity_u8).unwrap_or(0),
-        fail_op: stencil_fail_op.map(unity_u8).unwrap_or(0),
-        depth_fail_op: stencil_depth_fail_op.map(unity_u8).unwrap_or(0),
-        read_mask: stencil_read_mask.map(unity_mask).unwrap_or(0xff),
-        write_mask: stencil_write_mask.map(unity_mask).unwrap_or(0xff),
+        pass_op: stencil_op.map_or(0, unity_u8),
+        fail_op: stencil_fail_op.map_or(0, unity_u8),
+        depth_fail_op: stencil_depth_fail_op.map_or(0, unity_u8),
+        read_mask: stencil_read_mask.map_or(0xff, unity_mask),
+        write_mask: stencil_write_mask.map_or(0xff, unity_mask),
     };
 
     MaterialRenderState {

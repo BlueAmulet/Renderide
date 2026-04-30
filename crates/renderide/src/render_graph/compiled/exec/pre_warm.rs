@@ -265,7 +265,7 @@ impl CompiledRenderGraph {
                 view.view_id(),
                 &view.target,
                 mv_ctx.gpu,
-                mv_ctx.backbuffer_view_holder,
+                mv_ctx.backbuffer_view_holder.as_ref(),
             )?;
             let key = GraphResolveKey::from_resolved(&resolved);
             if let Entry::Vacant(v) = transient_by_key.entry(key) {

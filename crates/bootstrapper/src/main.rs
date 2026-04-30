@@ -39,7 +39,7 @@ fn main() {
             #[expect(clippy::print_stderr, reason = "logger failed to initialize")]
             {
                 eprintln!("bootstrapper: failed to initialize logging: {e}");
-            }
+            };
             std::process::exit(1);
         }
     };

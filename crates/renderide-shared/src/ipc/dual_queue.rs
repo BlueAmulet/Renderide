@@ -47,10 +47,10 @@ impl DualQueueIpc {
         let factory = QueueFactory::new();
         let cap = params.queue_capacity;
 
-        let primary_sub = open_subscriber(&factory, params, "Primary", cap)?;
-        let background_sub = open_subscriber(&factory, params, "Background", cap)?;
-        let primary_pub = open_publisher(&factory, params, "Primary", cap)?;
-        let background_pub = open_publisher(&factory, params, "Background", cap)?;
+        let primary_sub = open_subscriber(factory, params, "Primary", cap)?;
+        let background_sub = open_subscriber(factory, params, "Background", cap)?;
+        let primary_pub = open_publisher(factory, params, "Primary", cap)?;
+        let background_pub = open_publisher(factory, params, "Background", cap)?;
 
         Ok(Self {
             primary_subscriber: primary_sub,
@@ -67,28 +67,28 @@ impl DualQueueIpc {
     }
 
     /// Clears per-tick outbound drop flags; call once at the start of each winit frame tick.
-    pub fn reset_outbound_drop_tick_flags(&mut self) {
+    pub const fn reset_outbound_drop_tick_flags(&mut self) {
         self.had_primary_outbound_drop_this_tick = false;
         self.had_background_outbound_drop_this_tick = false;
     }
 
     /// Whether any **primary** outbound send failed since the last [`Self::reset_outbound_drop_tick_flags`].
-    pub fn had_outbound_primary_drop_this_tick(&self) -> bool {
+    pub const fn had_outbound_primary_drop_this_tick(&self) -> bool {
         self.had_primary_outbound_drop_this_tick
     }
 
     /// Whether any **background** outbound send failed since the last [`Self::reset_outbound_drop_tick_flags`].
-    pub fn had_outbound_background_drop_this_tick(&self) -> bool {
+    pub const fn had_outbound_background_drop_this_tick(&self) -> bool {
         self.had_background_outbound_drop_this_tick
     }
 
     /// Current consecutive primary-queue drop streak (resets on next successful enqueue).
-    pub fn consecutive_primary_drop_streak(&self) -> u32 {
+    pub const fn consecutive_primary_drop_streak(&self) -> u32 {
         self.primary_drops_since_log
     }
 
     /// Current consecutive background-queue drop streak (resets on next successful enqueue).
-    pub fn consecutive_background_drop_streak(&self) -> u32 {
+    pub const fn consecutive_background_drop_streak(&self) -> u32 {
         self.background_drops_since_log
     }
 
@@ -105,7 +105,7 @@ impl DualQueueIpc {
                 out,
                 INVALID_MESSAGE_LOG_PREFIX,
             );
-        }
+        };
         {
             profiling::scope!("ipc::background_drain");
             drain_subscriber(
@@ -193,7 +193,7 @@ fn send_on_publisher(
 }
 
 fn open_subscriber(
-    factory: &QueueFactory,
+    factory: QueueFactory,
     params: &ConnectionParams,
     channel: &str,
     capacity: i64,
@@ -206,7 +206,7 @@ fn open_subscriber(
 }
 
 fn open_publisher(
-    factory: &QueueFactory,
+    factory: QueueFactory,
     params: &ConnectionParams,
     channel: &str,
     capacity: i64,

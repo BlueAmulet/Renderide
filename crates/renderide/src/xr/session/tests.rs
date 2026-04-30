@@ -284,7 +284,7 @@ fn non_finite_quat_falls_back_to_identity() {
             z: 0.0,
         },
     };
-    let (_p, q) = super::view_math::openxr_pose_to_host_tracking(&pose);
+    let (_p, q) = openxr_pose_to_host_tracking(&pose);
     assert!(q.abs_diff_eq(Quat::IDENTITY, 1e-4));
 }
 

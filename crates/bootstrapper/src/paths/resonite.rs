@@ -6,14 +6,14 @@ use std::path::{Path, PathBuf};
 use super::steam;
 
 /// Steam app folder name for Resonite.
-pub(crate) const RESONITE_APP_NAME: &str = "Resonite";
+pub const RESONITE_APP_NAME: &str = "Resonite";
 /// Windows host launcher (native / Wine).
-pub(crate) const RENDERITE_HOST_EXE: &str = "Renderite.Host.exe";
+pub const RENDERITE_HOST_EXE: &str = "Renderite.Host.exe";
 /// Host assembly for `dotnet` launch.
-pub(crate) const RENDERITE_HOST_DLL: &str = "Renderite.Host.dll";
+pub const RENDERITE_HOST_DLL: &str = "Renderite.Host.dll";
 
 /// Returns true if `dir` looks like a Resonite root (host exe or host DLL present).
-pub(crate) fn is_resonite_install_dir(dir: &Path) -> bool {
+pub fn is_resonite_install_dir(dir: &Path) -> bool {
     dir.join(RENDERITE_HOST_EXE).exists() || dir.join(RENDERITE_HOST_DLL).exists()
 }
 
@@ -57,7 +57,7 @@ fn resonite_candidate_dirs() -> impl Iterator<Item = PathBuf> {
 ///
 /// Order: `RESONITE_DIR`, `STEAM_PATH` + `steamapps/common/Resonite`, platform Steam roots,
 /// then libraries from `libraryfolders.vdf`.
-pub(crate) fn find_resonite_dir() -> Option<PathBuf> {
+pub fn find_resonite_dir() -> Option<PathBuf> {
     resonite_candidate_dirs().find(|p| is_resonite_install_dir(p))
 }
 

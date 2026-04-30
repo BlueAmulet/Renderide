@@ -17,7 +17,7 @@ use crate::protocol_handlers;
 
 /// Command sent from the Host over `bootstrapper_in`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum HostCommand {
+pub enum HostCommand {
     /// Extends the IPC watchdog deadline.
     Heartbeat,
     /// Clean shutdown request.
@@ -32,7 +32,7 @@ pub(crate) enum HostCommand {
 
 /// Action for the queue loop after handling one message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum LoopAction {
+pub enum LoopAction {
     /// Continue dequeuing.
     Continue,
     /// Exit the loop (e.g. `SHUTDOWN`).
@@ -46,7 +46,7 @@ pub(crate) enum LoopAction {
 /// this catch-all is how `BootstrapperManager` requests a renderer launch (no command keyword,
 /// just the argv to forward). The fallback is logged at `debug` so unexpected tokens are visible
 /// in support traces while preserving the existing wire contract.
-pub(crate) fn parse_host_command(s: &str) -> HostCommand {
+pub fn parse_host_command(s: &str) -> HostCommand {
     match s {
         "HEARTBEAT" => HostCommand::Heartbeat,
         "SHUTDOWN" => HostCommand::Shutdown,
@@ -58,7 +58,7 @@ pub(crate) fn parse_host_command(s: &str) -> HostCommand {
         ),
         _ => {
             let argv: Vec<String> = s.split_whitespace().map(String::from).collect();
-            let first = argv.first().map(String::as_str).unwrap_or("<empty>");
+            let first = argv.first().map_or("<empty>", String::as_str);
             logger::debug!(
                 "Bootstrap message did not match a known command; treating as renderer argv (first token: {first})"
             );
@@ -68,14 +68,14 @@ pub(crate) fn parse_host_command(s: &str) -> HostCommand {
 }
 
 /// Returns `true` when queue-loop trace logging should run for this iteration counter.
-pub(crate) fn should_trace_iter(loop_iter: u64) -> bool {
+pub const fn should_trace_iter(loop_iter: u64) -> bool {
     loop_iter <= 3 || loop_iter.is_multiple_of(1000)
 }
 
 /// Blocks on `incoming` until `cancel`, handling messages. Initial watchdog uses
 /// [`INITIAL_HEARTBEAT_TIMEOUT_SECS`], extended to [`HEARTBEAT_REFRESH_TIMEOUT_SECS`] on each
 /// [`HostCommand::Heartbeat`] via `heartbeat_deadline`.
-pub(crate) fn queue_loop(
+pub fn queue_loop(
     incoming: &mut Subscriber,
     outgoing: &mut Publisher,
     config: &ResoBootConfig,

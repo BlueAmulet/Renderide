@@ -9,7 +9,7 @@
 mod pipeline;
 
 use std::num::NonZeroU32;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use pipeline::AcesTonemapPipelineCache;
 
@@ -54,8 +54,9 @@ impl AcesTonemapPass {
 
 /// Process-wide pipeline cache shared by every ACES pass instance.
 fn aces_tonemap_pipelines() -> &'static AcesTonemapPipelineCache {
-    static CACHE: OnceLock<AcesTonemapPipelineCache> = OnceLock::new();
-    CACHE.get_or_init(AcesTonemapPipelineCache::default)
+    static CACHE: LazyLock<AcesTonemapPipelineCache> =
+        LazyLock::new(AcesTonemapPipelineCache::default);
+    &CACHE
 }
 
 impl RasterPass for AcesTonemapPass {
@@ -120,8 +121,7 @@ fn output_attachment_format(
 ) -> wgpu::TextureFormat {
     graph_resources
         .transient_texture(output)
-        .map(|t| t.texture.format())
-        .unwrap_or(wgpu::TextureFormat::Rgba16Float)
+        .map_or(wgpu::TextureFormat::Rgba16Float, |t| t.texture.format())
 }
 
 /// Effect descriptor that contributes an [`AcesTonemapPass`] to the post-processing chain.

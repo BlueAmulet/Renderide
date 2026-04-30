@@ -296,7 +296,7 @@ impl GpuLimits {
         x <= self.wgpu.max_compute_workgroup_size_x
             && y <= self.wgpu.max_compute_workgroup_size_y
             && z <= self.wgpu.max_compute_workgroup_size_z
-            && (x as u64) * (y as u64) * (z as u64)
+            && u64::from(x) * u64::from(y) * u64::from(z)
                 <= u64::from(self.wgpu.max_compute_invocations_per_workgroup)
     }
 

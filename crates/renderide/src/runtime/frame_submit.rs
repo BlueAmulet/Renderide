@@ -18,12 +18,12 @@ pub(crate) fn process_frame_submit(runtime: &mut RendererRuntime, data: FrameSub
             .frontend
             .apply_frame_submit_output(data.output_state.clone());
         runtime.last_submit_render_task_count = data.render_tasks.len();
-    }
+    };
 
     {
         profiling::scope!("scene::frame_submit_camera_fields");
         host_camera_apply::apply_frame_submit_fields(&mut runtime.host_camera, &data);
-    }
+    };
 
     let start = Instant::now();
     let mut apply_failed = false;
@@ -66,7 +66,7 @@ pub(crate) fn process_frame_submit(runtime: &mut RendererRuntime, data: FrameSub
             host_camera_apply::head_output_from_active_main_space(&runtime.scene);
         runtime.host_camera.eye_world_position =
             host_camera_apply::eye_world_position_from_active_main_space(&runtime.scene);
-    }
+    };
 
     logger::trace!(
         "frame_submit frame_index={} near_clip={} far_clip={} desktop_fov_deg={} vr_active={} scene_apply_ms={:.3}",

@@ -320,9 +320,7 @@ fn wait_for_renderer_init_data(runtime: &mut RendererRuntime) -> Result<(), RunE
 pub(super) fn effective_output_device_for_gpu(
     pending: Option<&RendererInitData>,
 ) -> HeadOutputDevice {
-    pending
-        .map(|i| i.output_device)
-        .unwrap_or(HeadOutputDevice::Screen)
+    pending.map_or(HeadOutputDevice::Screen, |i| i.output_device)
 }
 
 pub(super) fn apply_window_title_from_init(

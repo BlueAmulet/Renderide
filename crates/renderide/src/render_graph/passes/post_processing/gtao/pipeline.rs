@@ -112,11 +112,7 @@ impl GtaoPipelineCache {
     /// Process-wide `GtaoParams` uniform buffer. Created on first access.
     pub(super) fn params_buffer(&self, device: &wgpu::Device) -> &wgpu::Buffer {
         self.params_buffer.get_or_create(|| {
-            create_uniform_buffer(
-                device,
-                "gtao-params",
-                std::mem::size_of::<GtaoParamsGpu>() as u64,
-            )
+            create_uniform_buffer(device, "gtao-params", size_of::<GtaoParamsGpu>() as u64)
         })
     }
 

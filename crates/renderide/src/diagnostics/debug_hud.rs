@@ -357,7 +357,7 @@ impl DebugHud {
             self.renderer
                 .render(draw_data, queue, device, &mut pass)
                 .map_err(|e| DebugHudEncodeError::ImguiWgpu(e.to_string()))?;
-        }
+        };
         let io = self.imgui.io();
         Ok((io.want_capture_mouse, io.want_capture_keyboard))
     }

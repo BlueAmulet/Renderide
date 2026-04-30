@@ -168,11 +168,7 @@ impl BloomPipelineCache {
     /// Process-wide bloom params UBO. Overwritten once per frame by the first downsample pass.
     pub(super) fn params_buffer(&self, device: &wgpu::Device) -> &wgpu::Buffer {
         self.params_buffer.get_or_create(|| {
-            create_uniform_buffer(
-                device,
-                "bloom-params",
-                std::mem::size_of::<BloomParamsGpu>() as u64,
-            )
+            create_uniform_buffer(device, "bloom-params", size_of::<BloomParamsGpu>() as u64)
         })
     }
 
@@ -187,7 +183,7 @@ impl BloomPipelineCache {
                     uniform_buffer_layout_entry(
                         2,
                         wgpu::ShaderStages::FRAGMENT,
-                        wgpu::BufferSize::new(std::mem::size_of::<BloomParamsGpu>() as u64),
+                        wgpu::BufferSize::new(size_of::<BloomParamsGpu>() as u64),
                     ),
                 ],
             })

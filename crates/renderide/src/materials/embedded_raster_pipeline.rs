@@ -1,7 +1,7 @@
 //! Embedded mesh raster materials: composed WGSL stems under `shaders/target/` (see crate `build.rs`).
 
 use hashbrown::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::embedded_shaders;
 use crate::materials::pipeline_build_error::PipelineBuildError;
@@ -85,9 +85,9 @@ impl EmbeddedStemMetadata {
 
 fn embedded_stem_metadata_cache(
 ) -> &'static Mutex<HashMap<EmbeddedStemMetadataKey, EmbeddedStemMetadata>> {
-    static CACHE: OnceLock<Mutex<HashMap<EmbeddedStemMetadataKey, EmbeddedStemMetadata>>> =
-        OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+    static CACHE: LazyLock<Mutex<HashMap<EmbeddedStemMetadataKey, EmbeddedStemMetadata>>> =
+        LazyLock::new(|| Mutex::new(HashMap::new()));
+    &CACHE
 }
 
 /// Returns cached metadata for an embedded material stem and permutation.
@@ -98,7 +98,7 @@ fn embedded_stem_metadata(base_stem: &str, permutation: ShaderPermutation) -> Em
     };
     let mut guard = embedded_stem_metadata_cache()
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(metadata) = guard.get(&key) {
         return metadata.clone();
     }

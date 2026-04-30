@@ -20,7 +20,7 @@ enum MeshStage {
     PendingLayout,
     /// Background thread extraction and GPU upload.
     Decoding {
-        rx: crossbeam_channel::Receiver<Option<crate::assets::mesh::GpuMesh>>,
+        rx: crossbeam_channel::Receiver<Option<GpuMesh>>,
     },
 }
 

@@ -9,7 +9,7 @@ pub(super) struct PlatformGroup;
 
 impl PlatformGroup {
     /// Always succeeds (no resources).
-    pub(super) fn new() -> io::Result<Self> {
+    pub(super) const fn new() -> io::Result<Self> {
         Ok(Self)
     }
 
@@ -19,7 +19,7 @@ impl PlatformGroup {
     }
 
     /// No PID tracking on Linux (kernel handles parent death).
-    pub(super) fn register_spawned(&self, _child: &Child) -> io::Result<()> {
+    pub(super) const fn register_spawned(&self, _child: &Child) -> io::Result<()> {
         Ok(())
     }
 }

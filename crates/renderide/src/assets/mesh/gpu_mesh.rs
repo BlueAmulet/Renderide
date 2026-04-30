@@ -230,11 +230,15 @@ pub(super) fn compatible_for_in_place_synthetic_blendshape_skeleton(
     } else {
         return false;
     }
-    let bp_bytes: Vec<u8> = bind_poses_arr
-        .iter()
-        .flat_map(|m| bytemuck::bytes_of(m).iter().copied())
-        .collect();
-    if mesh.bind_poses_buffer.as_ref().map(|b| b.size()) != Some(bp_bytes.len() as u64) {
+
+    if mesh.bind_poses_buffer.as_ref().map(|b| b.size())
+        != Some(
+            bind_poses_arr
+                .iter()
+                .flat_map(|m| bytemuck::bytes_of(m).iter().copied())
+                .count() as u64,
+        )
+    {
         return false;
     }
     if mesh.skinning_bind_matrices.len() != 1 {
@@ -554,8 +558,8 @@ impl GpuMesh {
                 &core.ib,
                 &derived,
                 &bone_skin,
-                &blend_up.sparse_buffer,
-                &blend_up.shape_descriptor_buffer,
+                blend_up.sparse_buffer.as_ref(),
+                blend_up.shape_descriptor_buffer.as_ref(),
             )
         };
 

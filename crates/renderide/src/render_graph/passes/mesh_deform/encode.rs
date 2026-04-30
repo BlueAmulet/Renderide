@@ -329,7 +329,7 @@ fn blendshape_record_scatter_compute_passes(
             cpass.set_pipeline(&gpu.pre.blendshape_pipeline);
             cpass.set_bind_group(0, &blend_bg, &[]);
             cpass.dispatch_workgroups(scatter_wg, 1, 1);
-        }
+        };
         if let (Some(p), Some(q)) = (gpu.profiler, pass_query) {
             p.end_query(gpu.encoder, q);
         }
@@ -695,7 +695,7 @@ fn skinning_dispatch_with_uploaded_palette(dispatch: SkinningPaletteDispatch<'_>
         cpass.set_pipeline(&dispatch.pre.skinning_pipeline);
         cpass.set_bind_group(0, &skin_bg, &[]);
         cpass.dispatch_workgroups(dispatch.wg, 1, 1);
-    }
+    };
     if let (Some(p), Some(q)) = (dispatch.profiler, pass_query) {
         p.end_query(dispatch.encoder, q);
     }

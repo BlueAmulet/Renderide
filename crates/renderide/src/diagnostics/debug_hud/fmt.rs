@@ -2,7 +2,7 @@
 
 /// Formats `value` as a right-aligned decimal with `decimals` places and total width `width`.
 pub fn f64_field(width: usize, decimals: usize, value: f64) -> String {
-    format!("{value:>w$.d$}", w = width, d = decimals)
+    format!("{value:>width$.decimals$}")
 }
 
 /// Human-readable gibibytes from bytes (numeric part only; caller adds `GiB` suffix).

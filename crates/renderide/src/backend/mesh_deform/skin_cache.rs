@@ -127,7 +127,7 @@ fn arena_usage() -> wgpu::BufferUsages {
 }
 
 fn bytes_for_vertices(vertex_count: u32) -> u64 {
-    (vertex_count as u64).saturating_mul(16).max(16)
+    u64::from(vertex_count).saturating_mul(16).max(16)
 }
 
 fn entry_layout_matches(e: &SkinCacheEntry, need: EntryNeed) -> bool {
@@ -330,27 +330,25 @@ impl GpuSkinCache {
         };
 
         let normals = if need.needs_skin {
-            match self.nrm_alloc.allocate(b) {
-                Some(n) => Some(n),
-                None => {
-                    self.pos_alloc.free(pos);
-                    return Err(());
-                }
+            if let Some(n) = self.nrm_alloc.allocate(b) {
+                Some(n)
+            } else {
+                self.pos_alloc.free(pos);
+                return Err(());
             }
         } else {
             None
         };
 
         let temp = if need.needs_blend && need.needs_skin {
-            match self.tmp_alloc.allocate(b) {
-                Some(t) => Some(t),
-                None => {
-                    self.pos_alloc.free(pos);
-                    if let Some(n) = normals {
-                        self.nrm_alloc.free(n);
-                    }
-                    return Err(());
+            if let Some(t) = self.tmp_alloc.allocate(b) {
+                Some(t)
+            } else {
+                self.pos_alloc.free(pos);
+                if let Some(n) = normals {
+                    self.nrm_alloc.free(n);
                 }
+                return Err(());
             }
         } else {
             None

@@ -10,7 +10,7 @@ pub const BITS_PER_ELEMENT: usize = u32::BITS as usize;
 
 /// Minimum `u32` slab length needed to hold `total_bits` bits.
 #[inline]
-pub fn elements_for_bits(total_bits: usize) -> usize {
+pub const fn elements_for_bits(total_bits: usize) -> usize {
     total_bits.div_ceil(BITS_PER_ELEMENT)
 }
 
@@ -23,19 +23,19 @@ pub struct BitSpanMut<'a> {
 impl<'a> BitSpanMut<'a> {
     /// Wraps the given slab; capacity in bits is `data.len() * BITS_PER_ELEMENT`.
     #[inline]
-    pub fn new(data: &'a mut [u32]) -> Self {
+    pub const fn new(data: &'a mut [u32]) -> Self {
         Self { data }
     }
 
     /// Bit capacity of the underlying slab.
     #[inline]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.data.len() * BITS_PER_ELEMENT
     }
 
     /// Returns `true` when the slab has no capacity.
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 

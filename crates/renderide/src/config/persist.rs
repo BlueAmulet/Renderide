@@ -144,49 +144,46 @@ fn initial_settings_from_resolve(
     suppress_config_disk_writes: &mut bool,
     resolve: &ConfigResolveOutcome,
 ) -> RendererSettings {
-    match resolve.loaded_path.as_ref() {
-        Some(path) => {
-            logger::info!("Loading renderer config from {}", path.display());
-            match read_config_file(path) {
-                Ok(content) => match load_settings_from_toml_str(&content) {
+    if let Some(path) = resolve.loaded_path.as_ref() {
+        logger::info!("Loading renderer config from {}", path.display());
+        match read_config_file(path) {
+            Ok(content) => match load_settings_from_toml_str(&content) {
+                Ok(s) => s,
+                Err(e) => {
+                    logger::error!(
+                        "Renderer config Figment extract failed for {}: {e:#}",
+                        path.display()
+                    );
+                    *suppress_config_disk_writes = true;
+                    RendererSettings::default()
+                }
+            },
+            Err(e) => {
+                logger::warn!("Failed to read {}: {e}; using defaults", path.display());
+                match try_extract_settings(renderer_settings_figment()) {
                     Ok(s) => s,
-                    Err(e) => {
+                    Err(e2) => {
                         logger::error!(
-                            "Renderer config Figment extract failed for {}: {e:#}",
-                            path.display()
+                            "Renderer config Figment extract failed (defaults+env only): {e2:#}"
                         );
                         *suppress_config_disk_writes = true;
                         RendererSettings::default()
                     }
-                },
-                Err(e) => {
-                    logger::warn!("Failed to read {}: {e}; using defaults", path.display());
-                    match try_extract_settings(renderer_settings_figment()) {
-                        Ok(s) => s,
-                        Err(e2) => {
-                            logger::error!(
-                                "Renderer config Figment extract failed (defaults+env only): {e2:#}"
-                            );
-                            *suppress_config_disk_writes = true;
-                            RendererSettings::default()
-                        }
-                    }
                 }
             }
         }
-        None => {
-            logger::info!("Renderer config file not found; using built-in defaults");
-            logger::trace!(
-                "config search tried {} path(s)",
-                resolve.attempted_paths.len()
-            );
-            match try_extract_settings(renderer_settings_figment()) {
-                Ok(s) => s,
-                Err(e) => {
-                    logger::error!("Renderer config Figment extract failed (defaults+env): {e:#}");
-                    *suppress_config_disk_writes = true;
-                    RendererSettings::default()
-                }
+    } else {
+        logger::info!("Renderer config file not found; using built-in defaults");
+        logger::trace!(
+            "config search tried {} path(s)",
+            resolve.attempted_paths.len()
+        );
+        match try_extract_settings(renderer_settings_figment()) {
+            Ok(s) => s,
+            Err(e) => {
+                logger::error!("Renderer config Figment extract failed (defaults+env): {e:#}");
+                *suppress_config_disk_writes = true;
+                RendererSettings::default()
             }
         }
     }

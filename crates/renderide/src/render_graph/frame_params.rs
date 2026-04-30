@@ -235,19 +235,19 @@ pub enum PreparedSkybox {
 /// Prepared material-driven skybox resources.
 pub struct PreparedMaterialSkybox {
     /// Cached render pipeline for the skybox family and view target layout.
-    pub pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    pub pipeline: Arc<wgpu::RenderPipeline>,
     /// `@group(1)` material bind group resolved from the host material store.
-    pub material_bind_group: std::sync::Arc<wgpu::BindGroup>,
+    pub material_bind_group: Arc<wgpu::BindGroup>,
     /// `@group(2)` draw-local skybox view uniform bind group.
-    pub view_bind_group: std::sync::Arc<wgpu::BindGroup>,
+    pub view_bind_group: Arc<wgpu::BindGroup>,
 }
 
 /// Prepared solid-color background resources.
 pub struct PreparedClearColorSkybox {
     /// Cached render pipeline for the color background draw.
-    pub pipeline: std::sync::Arc<wgpu::RenderPipeline>,
+    pub pipeline: Arc<wgpu::RenderPipeline>,
     /// `@group(0)` bind group carrying the background color uniform.
-    pub view_bind_group: std::sync::Arc<wgpu::BindGroup>,
+    pub view_bind_group: Arc<wgpu::BindGroup>,
 }
 
 /// Snapshot-dependent helper work required by a prefetched world-mesh view.
@@ -411,7 +411,7 @@ pub struct MaterialBatchPacket {
     /// Front-face winding used by the resolved pipeline set.
     pub front_face: RasterFrontFace,
     /// Resolved `@group(1)` bind group for this batch's material, or `None` for the empty fallback.
-    pub bind_group: Option<std::sync::Arc<wgpu::BindGroup>>,
+    pub bind_group: Option<Arc<wgpu::BindGroup>>,
     /// Resolved pipeline set for this batch, or `None` when the pipeline is unavailable (skip draws).
     pub pipelines: Option<MaterialPipelineSet>,
     /// Material pass descriptors parallel to `pipelines` (zero-alloc static reference).
@@ -496,7 +496,7 @@ pub struct BloomSettingsValue(pub crate::config::BloomSettings);
 #[derive(Clone)]
 pub struct PerViewFramePlan {
     /// `@group(0)` bind group that uses this view's dedicated frame-uniform buffer.
-    pub frame_bind_group: std::sync::Arc<wgpu::BindGroup>,
+    pub frame_bind_group: Arc<wgpu::BindGroup>,
     /// Per-view frame uniform buffer (written by the plan pass via `Queue::write_buffer`).
     ///
     /// [`wgpu::Buffer`] is internally ref-counted, so cloning is cheap.
@@ -590,7 +590,7 @@ impl FrameRenderParams<'_> {
     }
 
     /// Disjoint material/pool/skin borrows for world-mesh forward raster encoding.
-    pub(crate) fn world_mesh_forward_encode_refs(&mut self) -> WorldMeshForwardEncodeRefs<'_> {
+    pub(crate) fn world_mesh_forward_encode_refs(&self) -> WorldMeshForwardEncodeRefs<'_> {
         WorldMeshForwardEncodeRefs::from_frame_params(
             self.shared.materials,
             self.shared.asset_transfers,

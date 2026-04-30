@@ -37,8 +37,7 @@ pub fn bootstrap_queue_base_names(shared_memory_prefix: &str) -> (String, String
 pub fn interprocess_backing_dir() -> PathBuf {
     std::env::var_os(RENDERIDE_INTERPROCESS_DIR_ENV)
         .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(default_memory_dir)
+        .map_or_else(default_memory_dir, PathBuf::from)
 }
 
 /// Builds validated [`QueueOptions`] for one bootstrap queue with `destroy_on_dispose`.
@@ -198,10 +197,9 @@ mod tests {
             let out_qu = tmp.join(format!("{out_name}.qu"));
             assert!(
                 in_qu.exists() || out_qu.exists(),
-                "expected at least one .qu under {:?}",
-                tmp
+                "expected at least one .qu under {tmp:?}"
             );
-        }
+        };
         assert!(!tmp.join(format!("{in_name}.qu")).exists());
         assert!(!tmp.join(format!("{out_name}.qu")).exists());
 

@@ -226,7 +226,7 @@ impl ScheduleHudSnapshot {
             wave_count: schedule.wave_count(),
             frame_global_count: schedule.frame_global_steps().count(),
             per_view_count: schedule.per_view_steps().count(),
-            passes_per_wave: schedule.waves.iter().map(|r| r.len()).collect(),
+            passes_per_wave: schedule.waves.iter().map(ExactSizeIterator::len).collect(),
         }
     }
 }

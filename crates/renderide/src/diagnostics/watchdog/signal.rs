@@ -126,7 +126,7 @@ extern "C" fn capture_signal_handler(
                 false
             }
         });
-    }
+    };
     CAPTURE_FRAME_COUNT.store(n, Ordering::Release);
     CAPTURE_DONE.store(true, Ordering::Release);
 }
@@ -142,9 +142,7 @@ pub(super) fn install() -> Result<(), String> {
     sa.sa_flags = libc::SA_SIGINFO | libc::SA_RESTART;
     // SAFETY: `sigemptyset` initializes the signal set in place; the pointer is non-null and
     // points to writable memory inside `sa`.
-    unsafe {
-        libc::sigemptyset(core::ptr::addr_of_mut!(sa.sa_mask));
-    }
+    unsafe { libc::sigemptyset(core::ptr::addr_of_mut!(sa.sa_mask)) };
     // SAFETY: registers a process-wide handler for `SIGUSR2`; the handler is async-signal-safe
     // (see its doc-comment). Old handler is discarded — `SIGUSR2` is otherwise unused in the
     // renderer, so there is no preexisting handler to chain to.

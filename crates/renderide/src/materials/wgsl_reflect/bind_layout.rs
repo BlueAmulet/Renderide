@@ -50,63 +50,60 @@ fn layout_entry_for_storage(
 ) -> Result<wgpu::BindGroupLayoutEntry, ReflectError> {
     let read_only = !access.contains(StorageAccess::STORE);
     let base_ty = &module.types[data_ty];
-    let (min_binding_size, buf_ty) = match &base_ty.inner {
-        TypeInner::Array {
-            base: elem, size, ..
-        } => {
-            let stride = layouter[*elem].to_stride();
-            let min = match size {
-                ArraySize::Dynamic => NonZeroU64::new(u64::from(stride)).ok_or_else(|| {
-                    ReflectError::UnsupportedBinding {
-                        group,
-                        binding,
-                        reason: "zero stride storage array".into(),
-                    }
-                })?,
-                ArraySize::Constant(n) => {
-                    let n = n.get();
-                    if group == 2 {
-                        // Per-draw slab: `set_bind_group` dynamic offset selects one row; the shader still
-                        // indexes `instances[instance_index]` within the bound window (base instance or row 0).
-                        NonZeroU64::new(u64::from(stride)).ok_or_else(|| {
-                            ReflectError::UnsupportedBinding {
-                                group,
-                                binding,
-                                reason: "zero stride per-draw storage array".into(),
-                            }
-                        })?
-                    } else {
-                        let total = stride.saturating_mul(n);
-                        NonZeroU64::new(u64::from(total)).ok_or_else(|| {
-                            ReflectError::UnsupportedBinding {
-                                group,
-                                binding,
-                                reason: "zero-sized storage array".into(),
-                            }
-                        })?
-                    }
-                }
-                ArraySize::Pending(_) => {
-                    return Err(ReflectError::UnsupportedBinding {
-                        group,
-                        binding,
-                        reason: "pending array size".into(),
-                    });
-                }
-            };
-            (min, wgpu::BufferBindingType::Storage { read_only })
-        }
-        _ => {
-            let size = layouter[data_ty].size;
-            let min = NonZeroU64::new(u64::from(size)).ok_or_else(|| {
+    let (min_binding_size, buf_ty) = if let TypeInner::Array {
+        base: elem, size, ..
+    } = &base_ty.inner
+    {
+        let stride = layouter[*elem].to_stride();
+        let min = match size {
+            ArraySize::Dynamic => NonZeroU64::new(u64::from(stride)).ok_or_else(|| {
                 ReflectError::UnsupportedBinding {
                     group,
                     binding,
-                    reason: "zero-sized storage buffer".into(),
+                    reason: "zero stride storage array".into(),
                 }
+            })?,
+            ArraySize::Constant(n) => {
+                let n = n.get();
+                if group == 2 {
+                    // Per-draw slab: `set_bind_group` dynamic offset selects one row; the shader still
+                    // indexes `instances[instance_index]` within the bound window (base instance or row 0).
+                    NonZeroU64::new(u64::from(stride)).ok_or_else(|| {
+                        ReflectError::UnsupportedBinding {
+                            group,
+                            binding,
+                            reason: "zero stride per-draw storage array".into(),
+                        }
+                    })?
+                } else {
+                    let total = stride.saturating_mul(n);
+                    NonZeroU64::new(u64::from(total)).ok_or_else(|| {
+                        ReflectError::UnsupportedBinding {
+                            group,
+                            binding,
+                            reason: "zero-sized storage array".into(),
+                        }
+                    })?
+                }
+            }
+            ArraySize::Pending(_) => {
+                return Err(ReflectError::UnsupportedBinding {
+                    group,
+                    binding,
+                    reason: "pending array size".into(),
+                });
+            }
+        };
+        (min, wgpu::BufferBindingType::Storage { read_only })
+    } else {
+        let size = layouter[data_ty].size;
+        let min =
+            NonZeroU64::new(u64::from(size)).ok_or_else(|| ReflectError::UnsupportedBinding {
+                group,
+                binding,
+                reason: "zero-sized storage buffer".into(),
             })?;
-            (min, wgpu::BufferBindingType::Storage { read_only })
-        }
+        (min, wgpu::BufferBindingType::Storage { read_only })
     };
     Ok(wgpu::BindGroupLayoutEntry {
         binding,
@@ -123,13 +120,13 @@ fn layout_entry_for_storage(
 
 /// Maps a WGSL `texture_*` [`ImageClass`] to the corresponding [`wgpu::TextureSampleType`].
 fn texture_sample_type_for_image_class(
-    class: &ImageClass,
+    class: ImageClass,
     group: u32,
     binding: u32,
 ) -> Result<wgpu::TextureSampleType, ReflectError> {
     match class {
         ImageClass::Sampled { kind, multi } => {
-            if *multi {
+            if multi {
                 return Err(ReflectError::UnsupportedBinding {
                     group,
                     binding,
@@ -155,7 +152,7 @@ fn texture_sample_type_for_image_class(
             }
         }
         ImageClass::Depth { multi } => {
-            if *multi {
+            if multi {
                 return Err(ReflectError::UnsupportedBinding {
                     group,
                     binding,
@@ -176,9 +173,9 @@ fn texture_sample_type_for_image_class(
 
 /// Layout entry for a sampled WGSL texture binding.
 fn layout_entry_for_sampled_image(
-    dim: &ImageDimension,
+    dim: ImageDimension,
     arrayed: bool,
-    class: &ImageClass,
+    class: ImageClass,
     group: u32,
     binding: u32,
     visibility: wgpu::ShaderStages,
@@ -190,7 +187,7 @@ fn layout_entry_for_sampled_image(
             reason: "arrayed images not supported yet".into(),
         });
     }
-    let view_dimension = match *dim {
+    let view_dimension = match dim {
         ImageDimension::D2 => wgpu::TextureViewDimension::D2,
         ImageDimension::D3 => wgpu::TextureViewDimension::D3,
         ImageDimension::Cube => wgpu::TextureViewDimension::Cube,
@@ -247,7 +244,7 @@ fn layout_entry_for_handle(
             dim,
             arrayed,
             class,
-        } => layout_entry_for_sampled_image(dim, *arrayed, class, group, binding, visibility),
+        } => layout_entry_for_sampled_image(*dim, *arrayed, *class, group, binding, visibility),
         TypeInner::Sampler { comparison } => Ok(layout_entry_for_sampler_handle(
             *comparison,
             binding,

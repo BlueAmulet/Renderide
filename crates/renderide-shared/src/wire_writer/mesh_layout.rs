@@ -100,7 +100,7 @@ pub enum MeshLayoutError {
 }
 
 /// Returns bytes per scalar for the given vertex attribute format.
-pub fn vertex_format_size(format: VertexAttributeFormat) -> usize {
+pub const fn vertex_format_size(format: VertexAttributeFormat) -> usize {
     match format {
         VertexAttributeFormat::Float32 => 4,
         VertexAttributeFormat::Half16 => 2,
@@ -116,7 +116,7 @@ pub fn vertex_format_size(format: VertexAttributeFormat) -> usize {
 }
 
 /// Returns bytes per index element for the given index buffer format.
-pub fn index_bytes_per_element(format: IndexBufferFormat) -> usize {
+pub const fn index_bytes_per_element(format: IndexBufferFormat) -> usize {
     match format {
         IndexBufferFormat::UInt16 => 2,
         IndexBufferFormat::UInt32 => 4,
@@ -221,7 +221,7 @@ pub fn write_mesh_payload(input: &MeshLayoutInput<'_>) -> Result<MeshPayload, Me
 }
 
 /// Convenience helper: float3 positions in tightly packed `[f32; 3]` per vertex.
-pub fn position_float3_attr() -> VertexAttributeDescriptor {
+pub const fn position_float3_attr() -> VertexAttributeDescriptor {
     VertexAttributeDescriptor {
         attribute: crate::shared::VertexAttributeType::Position,
         format: VertexAttributeFormat::Float32,
@@ -230,7 +230,7 @@ pub fn position_float3_attr() -> VertexAttributeDescriptor {
 }
 
 /// Convenience helper: float3 normals in tightly packed `[f32; 3]` per vertex.
-pub fn normal_float3_attr() -> VertexAttributeDescriptor {
+pub const fn normal_float3_attr() -> VertexAttributeDescriptor {
     VertexAttributeDescriptor {
         attribute: crate::shared::VertexAttributeType::Normal,
         format: VertexAttributeFormat::Float32,

@@ -13,7 +13,7 @@ use std::time::Duration;
 /// Clamping the requested timeout keeps `clock_gettime` arithmetic far below `i128::MAX`, so the
 /// nanosecond conversion to `i128` is exact without a defensive fallback.
 #[cfg(unix)]
-pub(super) const MAX_WAIT_DURATION: Duration = Duration::from_secs(60 * 60 * 24 * 365);
+pub const MAX_WAIT_DURATION: Duration = Duration::from_secs(60 * 60 * 24 * 365);
 
 /// Threshold above which the Windows wait helper switches to `WaitForSingleObject(INFINITE)`
 /// instead of converting the timeout to milliseconds.
@@ -28,7 +28,7 @@ pub(super) const WIN_WAIT_INFINITE_THRESHOLD: Duration = Duration::from_secs(60 
 ///
 /// The OS primitives are designed for cross-thread and cross-process use; this wrapper carries no
 /// additional mutable Rust state between calls.
-pub(crate) struct Semaphore {
+pub struct Semaphore {
     /// Platform semaphore implementation.
     #[cfg(unix)]
     inner: posix::PosixSemaphore,

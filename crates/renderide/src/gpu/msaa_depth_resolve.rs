@@ -410,7 +410,7 @@ impl MsaaDepthResolveResources {
             cpass.set_pipeline(&self.compute_pipeline);
             cpass.set_bind_group(0, &compute_bg, &[]);
             cpass.dispatch_workgroups(gx, gy, 1);
-        }
+        };
         if let (Some(q), Some(p)) = (compute_query, profiler) {
             p.end_query(encoder, q);
         }
@@ -442,7 +442,7 @@ impl MsaaDepthResolveResources {
             rpass.set_pipeline(blit_pipeline);
             rpass.set_bind_group(0, &blit_bg, &[]);
             rpass.draw(0..3, 0..1);
-        }
+        };
         if let (Some(q), Some(p)) = (blit_query, profiler) {
             p.end_query(encoder, q);
         }
@@ -527,7 +527,7 @@ impl MsaaDepthResolveResources {
                 cpass.set_pipeline(&self.compute_pipeline);
                 cpass.set_bind_group(0, &compute_bg, &[]);
                 cpass.dispatch_workgroups(gx, gy, 1);
-            }
+            };
             if let (Some(q), Some(p)) = (compute_query, profiler) {
                 p.end_query(encoder, q);
             }
@@ -563,7 +563,7 @@ impl MsaaDepthResolveResources {
             rpass.set_pipeline(blit_stereo_pipeline);
             rpass.set_bind_group(0, &blit_bg, &[]);
             rpass.draw(0..3, 0..1);
-        }
+        };
         if let (Some(q), Some(p)) = (blit_query, profiler) {
             p.end_query(encoder, q);
         }

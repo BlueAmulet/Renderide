@@ -82,11 +82,11 @@ pub(super) fn mark_descendants_uncomputed(children: &[Vec<usize>], computed: &mu
             continue;
         }
         stack.clear();
-        let child_list = children.get(i).map(Vec::as_slice).unwrap_or(&[]);
+        let child_list: &[usize] = children.get(i).map_or(&[], Vec::as_slice);
         stack.extend_from_slice(child_list);
         while let Some(child) = stack.pop() {
             computed[child] = false;
-            let child_list = children.get(child).map(Vec::as_slice).unwrap_or(&[]);
+            let child_list: &[usize] = children.get(child).map_or(&[], Vec::as_slice);
             stack.extend_from_slice(child_list);
         }
     }
@@ -190,19 +190,19 @@ impl WorldTransformCache {
                 continue;
             }
 
-            let (mut parent_matrix, mut parent_degenerate) = match maybe_uppermost_matrix {
-                Some(m) => (m, degenerate_scales.get(id).copied().unwrap_or(false)),
-                None => {
-                    let Some(top) = stack.pop() else {
-                        continue;
-                    };
-                    let local = get_local_matrix(nodes, local_matrices, local_dirty, top);
-                    let degenerate = render_transform_has_degenerate_scale(&nodes[top]);
-                    world_matrices[top] = local;
-                    degenerate_scales[top] = degenerate;
-                    computed[top] = true;
-                    (local, degenerate)
-                }
+            let (mut parent_matrix, mut parent_degenerate) = if let Some(m) = maybe_uppermost_matrix
+            {
+                (m, degenerate_scales.get(id).copied().unwrap_or(false))
+            } else {
+                let Some(top) = stack.pop() else {
+                    continue;
+                };
+                let local = get_local_matrix(nodes, local_matrices, local_dirty, top);
+                let degenerate = render_transform_has_degenerate_scale(&nodes[top]);
+                world_matrices[top] = local;
+                degenerate_scales[top] = degenerate;
+                computed[top] = true;
+                (local, degenerate)
             };
 
             while let Some(child_id) = stack.pop() {

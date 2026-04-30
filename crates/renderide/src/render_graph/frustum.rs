@@ -423,7 +423,7 @@ mod tests {
         for (mn, mx) in boxes {
             let clip = world_aabb_visible_in_homogeneous_clip(view_proj, mn, mx);
             let planes = frustum.intersects_aabb(mn, mx);
-            assert_eq!(clip, planes, "mismatch for aabb {:?} {:?}", mn, mx);
+            assert_eq!(clip, planes, "mismatch for aabb {mn:?} {mx:?}");
         }
     }
 
@@ -446,7 +446,7 @@ mod tests {
     fn degenerate_bounds_detected() {
         let mut b = RenderBoundingBox::default();
         assert!(mesh_bounds_degenerate_for_cull(&b));
-        b.extents = glam::Vec3::new(1.0, 0.0, 0.0);
+        b.extents = Vec3::new(1.0, 0.0, 0.0);
         assert!(!mesh_bounds_degenerate_for_cull(&b));
     }
 

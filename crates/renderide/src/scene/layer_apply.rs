@@ -74,7 +74,7 @@ pub(crate) fn extract_layer_update(
         out.layer_assignments = shm
             .access_copy_memory_packable_rows::<LayerType>(
                 &update.layer_assignments,
-                std::mem::size_of::<LayerType>(),
+                size_of::<LayerType>(),
                 Some(&ctx),
             )
             .map_err(SceneError::SharedMemoryAccess)?;
@@ -146,40 +146,42 @@ pub(crate) fn resolve_mesh_layers_from_assignments(space: &mut RenderSpaceState)
     if total >= LAYER_RESOLVE_PARALLEL_MIN {
         use rayon::prelude::*;
         space.static_mesh_renderers.par_iter_mut().for_each(|r| {
-            match resolve_layer_for_node(node_parents, &layer_for_node, r.node_id) {
-                Some(layer) => r.layer = layer,
-                None => {
-                    r.layer = LayerType::default();
-                    fallback_log.lock().push(r.node_id);
-                }
+            if let Some(layer) = resolve_layer_for_node(node_parents, &layer_for_node, r.node_id) {
+                r.layer = layer;
+            } else {
+                r.layer = LayerType::default();
+                fallback_log.lock().push(r.node_id);
             }
         });
         space.skinned_mesh_renderers.par_iter_mut().for_each(|r| {
-            match resolve_layer_for_node(node_parents, &layer_for_node, r.base.node_id) {
-                Some(layer) => r.base.layer = layer,
-                None => {
-                    r.base.layer = LayerType::default();
-                    fallback_log.lock().push(r.base.node_id);
-                }
+            if let Some(layer) =
+                resolve_layer_for_node(node_parents, &layer_for_node, r.base.node_id)
+            {
+                r.base.layer = layer;
+            } else {
+                r.base.layer = LayerType::default();
+                fallback_log.lock().push(r.base.node_id);
             }
         });
     } else {
         for renderer in &mut space.static_mesh_renderers {
-            match resolve_layer_for_node(node_parents, &layer_for_node, renderer.node_id) {
-                Some(layer) => renderer.layer = layer,
-                None => {
-                    renderer.layer = LayerType::default();
-                    fallback_log.lock().push(renderer.node_id);
-                }
+            if let Some(layer) =
+                resolve_layer_for_node(node_parents, &layer_for_node, renderer.node_id)
+            {
+                renderer.layer = layer;
+            } else {
+                renderer.layer = LayerType::default();
+                fallback_log.lock().push(renderer.node_id);
             }
         }
         for renderer in &mut space.skinned_mesh_renderers {
-            match resolve_layer_for_node(node_parents, &layer_for_node, renderer.base.node_id) {
-                Some(layer) => renderer.base.layer = layer,
-                None => {
-                    renderer.base.layer = LayerType::default();
-                    fallback_log.lock().push(renderer.base.node_id);
-                }
+            if let Some(layer) =
+                resolve_layer_for_node(node_parents, &layer_for_node, renderer.base.node_id)
+            {
+                renderer.base.layer = layer;
+            } else {
+                renderer.base.layer = LayerType::default();
+                fallback_log.lock().push(renderer.base.node_id);
             }
         }
     }

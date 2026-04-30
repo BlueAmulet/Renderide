@@ -15,7 +15,7 @@ use interprocess::LINUX_SHM_MEMORY_DIR;
 ///
 /// Linux only; other platforms compile to a no-op.
 #[cfg(target_os = "linux")]
-pub(crate) fn remove_wine_queue_backing_files(shared_memory_prefix: &str) {
+pub fn remove_wine_queue_backing_files(shared_memory_prefix: &str) {
     let shm = Path::new("/dev/shm");
     let mmf = Path::new(LINUX_SHM_MEMORY_DIR);
 

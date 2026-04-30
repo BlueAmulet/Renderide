@@ -305,7 +305,7 @@ impl RasterPass for WorldMeshForwardOpaquePass {
                 },
                 None,
             );
-        }
+        };
         declare_forward_draw_reads(b, self.resources);
         Ok(())
     }
@@ -467,7 +467,7 @@ impl RasterPass for WorldMeshForwardIntersectPass {
                 },
                 None,
             );
-        }
+        };
         declare_forward_draw_reads(b, self.resources);
         Ok(())
     }
@@ -604,7 +604,7 @@ impl RasterPass for WorldMeshForwardTransparentPass {
                 },
                 None,
             );
-        }
+        };
         declare_forward_draw_reads(b, self.resources);
         Ok(())
     }

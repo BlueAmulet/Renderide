@@ -62,7 +62,7 @@ impl HostHudGatherer {
                     true,
                     ProcessRefreshKind::nothing().with_memory(),
                 );
-                sys.process(pid).map(|p| p.memory())
+                sys.process(pid).map(sysinfo::Process::memory)
             });
 
             let cpu_model = sys

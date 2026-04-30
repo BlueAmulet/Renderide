@@ -12,7 +12,7 @@ use super::super::WorldMeshForwardGraphResources;
 pub(crate) fn encode_world_mesh_forward_color_snapshot(
     graph_resources: Option<&GraphResolvedResources>,
     encoder: &mut wgpu::CommandEncoder,
-    frame: &mut FrameRenderParams<'_>,
+    frame: &FrameRenderParams<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
     resources: WorldMeshForwardGraphResources,
 ) -> bool {

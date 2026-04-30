@@ -54,10 +54,9 @@ impl RenderideApp {
                 * 1000.0;
             crate::profiling::plot_event_loop_idle_ms(idle_ms);
         }
-        let wall_frame_time_ms = self
-            .last_frame_start
-            .map(|prev| frame_start.duration_since(prev).as_secs_f64() * 1000.0)
-            .unwrap_or(16.67);
+        let wall_frame_time_ms = self.last_frame_start.map_or(16.67, |prev| {
+            frame_start.duration_since(prev).as_secs_f64() * 1000.0
+        });
         self.runtime
             .set_debug_hud_wall_frame_time_ms(wall_frame_time_ms);
         self.record_frame_tick_start(frame_start);
@@ -326,7 +325,7 @@ impl RenderideApp {
     /// this path is reserved for future wgpu versions that return fallible submits or
     /// explicit present errors. The check is cheap (one mutex acquire on an empty slot)
     /// and keeps the wiring in place for when it begins firing.
-    fn drain_driver_thread_error(&mut self) {
+    fn drain_driver_thread_error(&self) {
         let Some(gpu) = self.gpu.as_ref() else {
             return;
         };
@@ -352,7 +351,7 @@ impl RenderideApp {
         {
             profiling::scope!("tick::asset_integration");
             self.runtime.run_asset_integration();
-        }
+        };
         if let Some(gpu) = self.gpu.as_ref() {
             self.runtime.maintain_nonblocking_gpu_jobs(gpu);
         }
@@ -394,17 +393,14 @@ impl RenderideApp {
     }
 
     fn handle_frame_graph_error(gpu: &mut GpuContext, error: GraphExecuteError) {
-        match error {
-            GraphExecuteError::NoFrameGraph => {
-                if let Err(present_error) = present_clear_frame(gpu) {
-                    logger::warn!("present fallback failed: {present_error:?}");
-                    reconfigure_gpu_for_window(gpu);
-                }
-            }
-            _ => {
-                logger::warn!("frame graph failed: {error:?}");
+        if let GraphExecuteError::NoFrameGraph = error {
+            if let Err(present_error) = present_clear_frame(gpu) {
+                logger::warn!("present fallback failed: {present_error:?}");
                 reconfigure_gpu_for_window(gpu);
             }
+        } else {
+            logger::warn!("frame graph failed: {error:?}");
+            reconfigure_gpu_for_window(gpu);
         }
     }
 }

@@ -42,9 +42,9 @@ pub(super) fn validate_frame_group0(
     module: &Module,
     layouter: &Layouter,
 ) -> Result<(), ReflectError> {
-    let expected_frame = std::mem::size_of::<FrameGpuUniforms>() as u32;
-    let expected_light = std::mem::size_of::<GpuLight>() as u32;
-    let expected_cluster_u32 = std::mem::size_of::<u32>() as u32;
+    let expected_frame = size_of::<FrameGpuUniforms>() as u32;
+    let expected_light = size_of::<GpuLight>() as u32;
+    let expected_cluster_u32 = size_of::<u32>() as u32;
 
     let mut b0_size: Option<u32> = None;
     let mut b1_stride: Option<u32> = None;

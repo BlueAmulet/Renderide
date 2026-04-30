@@ -20,7 +20,7 @@ use crate::render_graph::ViewId;
 use crate::shared::CameraClearMode;
 
 /// Minimum binding size for [`SkyboxViewUniforms`].
-const SKYBOX_VIEW_UNIFORM_SIZE: u64 = std::mem::size_of::<SkyboxViewUniforms>() as u64;
+const SKYBOX_VIEW_UNIFORM_SIZE: u64 = size_of::<SkyboxViewUniforms>() as u64;
 
 /// Skybox material family supported by the dedicated background draw.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -533,8 +533,9 @@ fn skybox_world_to_view_pair(frame: &FrameRenderParams<'_>) -> (glam::Mat4, glam
             .shared
             .scene
             .active_main_space()
-            .map(|space| view_matrix_for_world_mesh_render_space(frame.shared.scene, space))
-            .unwrap_or(glam::Mat4::IDENTITY)
+            .map_or(glam::Mat4::IDENTITY, |space| {
+                view_matrix_for_world_mesh_render_space(frame.shared.scene, space)
+            })
     });
     (view, view)
 }
@@ -573,7 +574,7 @@ mod tests {
 
     #[test]
     fn skybox_view_uniforms_are_16_byte_aligned() {
-        assert_eq!(std::mem::size_of::<SkyboxViewUniforms>() % 16, 0);
+        assert_eq!(size_of::<SkyboxViewUniforms>() % 16, 0);
         assert_eq!(SKYBOX_VIEW_UNIFORM_SIZE, 128);
     }
 

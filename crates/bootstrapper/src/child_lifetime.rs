@@ -30,7 +30,7 @@ use std::io;
 use std::process::{Child, Command};
 
 /// Holds OS resources so direct children are terminated when the bootstrapper exits unexpectedly.
-pub(crate) struct ChildLifetimeGroup(Inner);
+pub struct ChildLifetimeGroup(Inner);
 
 impl ChildLifetimeGroup {
     /// Creates a lifetime group (job object on Windows, PID list on macOS, otherwise empty).
@@ -44,7 +44,7 @@ impl ChildLifetimeGroup {
     }
 
     /// Registers a spawned direct child (required on Windows for job assignment; tracks PIDs on macOS).
-    pub(crate) fn register_spawned(&self, child: &Child) -> io::Result<()> {
+    pub(crate) const fn register_spawned(&self, child: &Child) -> io::Result<()> {
         self.0.register_spawned(child)
     }
 

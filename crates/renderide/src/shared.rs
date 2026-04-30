@@ -44,7 +44,7 @@ mod reexport_tests {
     /// the first IPC call site.
     #[test]
     fn packing_reexports_are_reachable() {
-        let _ = std::mem::size_of::<crate::shared::PolymorphicDecodeError>();
-        let _ = std::mem::size_of::<crate::shared::WireDecodeError>();
+        let _ = size_of::<crate::shared::PolymorphicDecodeError>();
+        let _ = size_of::<crate::shared::WireDecodeError>();
     }
 }

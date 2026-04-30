@@ -289,28 +289,27 @@ fn resource_label(builder: &GraphBuilder, resource: ResourceHandle) -> String {
         ResourceHandle::Texture(TextureResourceHandle::Transient(h)) => builder
             .textures
             .get(h.index())
-            .map(|d| d.label.to_string())
-            .unwrap_or_else(|| format!("texture#{}", h.index())),
-        ResourceHandle::Texture(TextureResourceHandle::Imported(h)) => builder
-            .imports_tex
-            .get(h.index())
-            .map(|d| d.label.to_string())
-            .unwrap_or_else(|| format!("imported_texture#{}", h.index())),
+            .map_or_else(|| format!("texture#{}", h.index()), |d| d.label.to_string()),
+        ResourceHandle::Texture(TextureResourceHandle::Imported(h)) => {
+            builder.imports_tex.get(h.index()).map_or_else(
+                || format!("imported_texture#{}", h.index()),
+                |d| d.label.to_string(),
+            )
+        }
         ResourceHandle::Buffer(BufferResourceHandle::Transient(h)) => builder
             .buffers
             .get(h.index())
-            .map(|d| d.label.to_string())
-            .unwrap_or_else(|| format!("buffer#{}", h.index())),
-        ResourceHandle::Buffer(BufferResourceHandle::Imported(h)) => builder
-            .imports_buf
-            .get(h.index())
-            .map(|d| d.label.to_string())
-            .unwrap_or_else(|| format!("imported_buffer#{}", h.index())),
-        ResourceHandle::TextureSubresource(h) => builder
-            .subresources
-            .get(h.index())
-            .map(|d| d.label.to_string())
-            .unwrap_or_else(|| format!("subresource#{}", h.index())),
+            .map_or_else(|| format!("buffer#{}", h.index()), |d| d.label.to_string()),
+        ResourceHandle::Buffer(BufferResourceHandle::Imported(h)) => {
+            builder.imports_buf.get(h.index()).map_or_else(
+                || format!("imported_buffer#{}", h.index()),
+                |d| d.label.to_string(),
+            )
+        }
+        ResourceHandle::TextureSubresource(h) => builder.subresources.get(h.index()).map_or_else(
+            || format!("subresource#{}", h.index()),
+            |d| d.label.to_string(),
+        ),
     }
 }
 

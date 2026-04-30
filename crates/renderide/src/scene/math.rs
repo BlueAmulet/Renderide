@@ -151,7 +151,7 @@ mod tests {
             rotation: Quat::from_xyzw(0.0, 0.0, 0.0, 0.0),
         };
         let m = render_transform_to_matrix(&t);
-        assert!(m.abs_diff_eq(glam::Mat4::IDENTITY, 1e-6));
+        assert!(m.abs_diff_eq(Mat4::IDENTITY, 1e-6));
     }
 
     /// Non-finite position components collapse the translation column to the origin so the matrix
@@ -179,8 +179,8 @@ mod tests {
             scale: Vec3::ONE,
             rotation: Quat::IDENTITY,
         };
-        let world_local = glam::Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0));
-        let composed = super::multiply_root(world_local, &root);
+        let world_local = Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0));
+        let composed = multiply_root(world_local, &root);
         let col3 = composed.col(3);
         assert!((col3.x - 11.0).abs() < 1e-5);
         assert!(col3.y.abs() < 1e-6);

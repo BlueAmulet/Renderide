@@ -133,7 +133,7 @@ impl FramePreparedRenderables {
         self.active_space_ids.extend(
             scene
                 .render_space_ids()
-                .filter(|id| scene.space(*id).map(|s| s.is_active).unwrap_or(false)),
+                .filter(|id| scene.space(*id).is_some_and(|s| s.is_active)),
         );
 
         if self.active_space_ids.is_empty() {

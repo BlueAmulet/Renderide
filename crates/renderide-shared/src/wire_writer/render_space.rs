@@ -113,7 +113,7 @@ impl SphereSceneSharedMemoryRegions {
 
     /// Total bytes needed when each region is laid out back-to-back inside one SHM buffer (no
     /// padding between regions).
-    pub fn total_bytes(&self) -> usize {
+    pub const fn total_bytes(&self) -> usize {
         self.pose_updates_bytes.len()
             + self.additions_bytes.len()
             + self.mesh_states_bytes.len()
@@ -146,7 +146,7 @@ pub struct SphereSceneSharedMemoryLayout {
 impl SphereSceneSharedMemoryLayout {
     /// Computes a back-to-back layout (no gaps) for `regions` inside a buffer of size
     /// `regions.total_bytes()`.
-    pub fn pack_back_to_back(
+    pub const fn pack_back_to_back(
         buffer_id: i32,
         buffer_capacity: i32,
         regions: &SphereSceneSharedMemoryRegions,

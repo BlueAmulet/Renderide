@@ -100,8 +100,8 @@ fn split_bone_weights_four_influences_roundtrip() {
     let mut tail = Vec::new();
     for v in 0..2u8 {
         for k in 0..4u8 {
-            let w = (v + k) as f32 * 0.1;
-            let j = (k as i32) + (v as i32) * 10;
+            let w = f32::from(v + k) * 0.1;
+            let j = i32::from(k) + i32::from(v) * 10;
             tail.extend_from_slice(&w.to_le_bytes());
             tail.extend_from_slice(&j.to_le_bytes());
         }

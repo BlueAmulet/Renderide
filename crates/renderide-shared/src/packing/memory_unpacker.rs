@@ -37,12 +37,12 @@ fn alloc_hint(count: usize, remaining_bytes: usize) -> usize {
 
 impl<'a, 'pool, P: MemoryPackerEntityPool> MemoryUnpacker<'a, 'pool, P> {
     /// Starts at the beginning of `buffer`.
-    pub fn new(buffer: &'a [u8], pool: &'pool mut P) -> Self {
+    pub const fn new(buffer: &'a [u8], pool: &'pool mut P) -> Self {
         Self { buffer, pool }
     }
 
     /// Bytes not yet read.
-    pub fn remaining_data(&self) -> usize {
+    pub const fn remaining_data(&self) -> usize {
         self.buffer.len()
     }
 
@@ -88,7 +88,7 @@ impl<'a, 'pool, P: MemoryPackerEntityPool> MemoryUnpacker<'a, 'pool, P> {
                 byte_len,
             );
             out.set_len(count);
-        }
+        };
         Ok(out)
     }
 

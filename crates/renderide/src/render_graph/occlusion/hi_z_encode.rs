@@ -266,14 +266,13 @@ fn resolve_history_views(
     let right = match mode {
         OutputDepthMode::DesktopSingle => None,
         OutputDepthMode::StereoArray { .. } => {
-            match history_layer_mip_views(mip_views, 1, required_mips) {
-                Some(views) => Some(views),
-                None => {
-                    logger::warn!(
-                        "hi_z stereo history texture missing layer 1 mip views; skipping encode"
-                    );
-                    return None;
-                }
+            if let Some(views) = history_layer_mip_views(mip_views, 1, required_mips) {
+                Some(views)
+            } else {
+                logger::warn!(
+                    "hi_z stereo history texture missing layer 1 mip views; skipping encode"
+                );
+                return None;
             }
         }
     };
@@ -341,7 +340,7 @@ fn dispatch_hi_z_mip0_desktop(args: &mut HiZMip0EncodeContext<'_>) {
             args.scratch.extent.1.div_ceil(8),
             1,
         );
-    }
+    };
     if let (Some(p), Some(q)) = (args.profiler, pass_query) {
         p.end_query(args.encoder, q);
     }
@@ -400,7 +399,7 @@ fn dispatch_hi_z_mip0_stereo(args: &mut HiZMip0EncodeContext<'_>, layer: u32) {
             args.scratch.extent.1.div_ceil(8),
             1,
         );
-    }
+    };
     if let (Some(p), Some(q)) = (args.profiler, pass_query) {
         p.end_query(args.encoder, q);
     }
@@ -490,7 +489,7 @@ fn dispatch_hi_z_downsample_mips(args: &mut HiZDownsampleContext<'_>) {
             pass.set_pipeline(&args.pipes.downsample);
             pass.set_bind_group(0, &bg, &[]);
             pass.dispatch_workgroups(dw.div_ceil(8), dh.div_ceil(8), 1);
-        }
+        };
         if let (Some(p), Some(q)) = (args.profiler, pass_query) {
             p.end_query(args.encoder, q);
         }

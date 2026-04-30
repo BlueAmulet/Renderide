@@ -19,8 +19,8 @@ pub struct CursorOutputTracking {
     last_lock_position: Option<IVec2>,
 }
 
-fn warp_cursor_logical(window: &Window, p: &IVec2) -> Result<(), winit::error::ExternalError> {
-    let logical = LogicalPosition::new(p.x as f64, p.y as f64);
+fn warp_cursor_logical(window: &Window, p: IVec2) -> Result<(), winit::error::ExternalError> {
+    let logical = LogicalPosition::new(f64::from(p.x), f64::from(p.y));
     let physical = logical.to_physical::<f64>(window.scale_factor());
     window.set_cursor_position(physical)
 }
@@ -44,7 +44,7 @@ pub fn apply_per_frame_cursor_lock_when_locked(
             .set_cursor_grab(CursorGrabMode::Confined)
             .or_else(|_| window.set_cursor_grab(CursorGrabMode::Locked))?;
         window.set_cursor_visible(false);
-        warp_cursor_logical(window, &p)?;
+        warp_cursor_logical(window, p)?;
         acc.set_window_position_from_logical(Vec2::new(p.x as f32, p.y as f32), sf);
     } else {
         window
@@ -55,7 +55,7 @@ pub fn apply_per_frame_cursor_lock_when_locked(
         let logical_sz: LogicalSize<f64> = physical.to_logical(sf);
         let cx = (logical_sz.width / 2.0) as f32;
         let cy = (logical_sz.height / 2.0) as f32;
-        let logical_center = LogicalPosition::new(cx as f64, cy as f64);
+        let logical_center = LogicalPosition::new(f64::from(cx), f64::from(cy));
         let phys_center = logical_center.to_physical::<f64>(sf);
         window.set_cursor_position(phys_center)?;
         acc.set_window_position_from_logical(Vec2::new(cx, cy), sf);
@@ -87,7 +87,7 @@ pub fn apply_output_state_to_window(
 ) -> Result<(), winit::error::ExternalError> {
     window.set_ime_allowed(state.keyboard_input_active);
 
-    if let Some(ref p) = state.lock_cursor_position {
+    if let Some(p) = state.lock_cursor_position {
         let _ = warp_cursor_logical(window, p);
     }
 
@@ -118,7 +118,7 @@ pub fn apply_output_state_to_window(
 
     window.set_cursor_grab(CursorGrabMode::None)?;
     window.set_cursor_visible(true);
-    if let Some(ref p) = prev_lock_position_for_unlock {
+    if let Some(p) = prev_lock_position_for_unlock {
         let _ = warp_cursor_logical(window, p);
     }
     Ok(())

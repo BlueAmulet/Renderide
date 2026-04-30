@@ -155,20 +155,19 @@ pub fn collect_and_sort_world_mesh_draws_with_parallelism(
     let cap_hint = estimate_active_renderable_count(space_ids, ctx);
 
     let owned_cache;
-    let cache: &FrameMaterialBatchCache = match ctx.material_cache {
-        Some(shared) => shared,
-        None => {
-            let mut local = FrameMaterialBatchCache::new();
-            local.refresh_for_frame(
-                ctx.scene,
-                ctx.material_dict,
-                ctx.material_router,
-                ctx.pipeline_property_ids,
-                ctx.shader_perm,
-            );
-            owned_cache = local;
-            &owned_cache
-        }
+    let cache: &FrameMaterialBatchCache = if let Some(shared) = ctx.material_cache {
+        shared
+    } else {
+        let mut local = FrameMaterialBatchCache::new();
+        local.refresh_for_frame(
+            ctx.scene,
+            ctx.material_dict,
+            ctx.material_router,
+            ctx.pipeline_property_ids,
+            ctx.shader_perm,
+        );
+        owned_cache = local;
+        &owned_cache
     };
     let filter_masks = build_per_space_filter_masks(space_ids, ctx);
 

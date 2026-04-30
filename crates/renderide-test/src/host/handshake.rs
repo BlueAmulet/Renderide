@@ -93,7 +93,7 @@ fn random_guid() -> Guid {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let pid = std::process::id() as u64;
+    let pid = u64::from(std::process::id());
     let now_ns = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)

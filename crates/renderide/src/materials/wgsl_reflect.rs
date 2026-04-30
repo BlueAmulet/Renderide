@@ -91,7 +91,7 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
     );
 
     let requires_intersection_pass =
-        material_uniform_requires_intersection_subpass(&material_uniform);
+        material_uniform_requires_intersection_subpass(material_uniform.as_ref());
 
     Ok(ReflectedRasterLayout {
         layout_fingerprint,
@@ -111,8 +111,7 @@ pub fn reflect_vertex_shader_needs_uv0_stream(wgsl_source: &str) -> bool {
     reflect_raster_material_wgsl(wgsl_source)
         .ok()
         .and_then(|r| r.vs_max_vertex_location)
-        .map(|m| m >= 2)
-        .unwrap_or(false)
+        .is_some_and(|m| m >= 2)
 }
 
 /// Returns true when `vs_main` uses vertex `@location` 3 or higher (extra color stream).
@@ -120,8 +119,7 @@ pub fn reflect_vertex_shader_needs_color_stream(wgsl_source: &str) -> bool {
     reflect_raster_material_wgsl(wgsl_source)
         .ok()
         .and_then(|r| r.vs_max_vertex_location)
-        .map(|m| m >= 3)
-        .unwrap_or(false)
+        .is_some_and(|m| m >= 3)
 }
 
 /// `true` when reflection reports an intersect-style material (uniform field `_IntersectColor`).

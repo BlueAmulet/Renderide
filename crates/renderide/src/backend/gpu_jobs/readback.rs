@@ -25,7 +25,7 @@ impl ReadbackJobLifecycle {
     }
 
     /// Returns true when the job can start a main-thread `map_async`.
-    pub(crate) fn should_start_map(&self) -> bool {
+    pub(crate) fn should_start_map(self) -> bool {
         self.submit_done && !self.map_started
     }
 
@@ -35,7 +35,7 @@ impl ReadbackJobLifecycle {
     }
 
     /// Returns true after this lifecycle has requested a staging-buffer map.
-    pub(crate) fn has_started_map(&self) -> bool {
+    pub(crate) fn has_started_map(self) -> bool {
         self.map_started
     }
 

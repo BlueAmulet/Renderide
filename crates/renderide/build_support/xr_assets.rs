@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 /// three components recovers `.../target/<profile-dir>/` even when `PROFILE` is `debug` for a
 /// custom profile that inherits from `dev` (like this workspace's `dev-fast`).
 fn artifact_dir_from_out_dir(out_dir: &Path) -> Option<PathBuf> {
-    out_dir.ancestors().nth(3).map(std::path::Path::to_path_buf)
+    out_dir.ancestors().nth(3).map(Path::to_path_buf)
 }
 
 /// Copies the XR action manifest and per-profile binding tables into the artifact directory so the
@@ -19,7 +19,7 @@ fn artifact_dir_from_out_dir(out_dir: &Path) -> Option<PathBuf> {
 /// `target/<profile-dir>/xr/` with `actions.toml` at the root and `bindings/*.toml` below.
 /// `cargo:rerun-if-changed` is emitted for the source directory so TOML edits trigger a rebuild
 /// copy.
-pub(crate) fn copy_xr_assets_to_artifact_dir(manifest_dir: &Path, out_dir: &Path) {
+pub fn copy_xr_assets_to_artifact_dir(manifest_dir: &Path, out_dir: &Path) {
     let src_root = manifest_dir.join("assets/xr");
     println!("cargo:rerun-if-changed={}", src_root.display());
     if !src_root.is_dir() {

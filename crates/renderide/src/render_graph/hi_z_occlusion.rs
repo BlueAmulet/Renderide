@@ -7,7 +7,7 @@
 //! occluded (can be verbose).
 
 use std::env;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use glam::{Mat4, Vec3, Vec4};
 
@@ -25,10 +25,10 @@ const HI_Z_OCCLUSION_MARGIN: f32 = 5e-4;
 const HI_Z_OCCLUSION_MAX_MIP: u32 = 2;
 
 fn hiz_trace_enabled() -> bool {
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| {
+    static FLAG: LazyLock<bool> = LazyLock::new(|| {
         env::var_os("RENDERIDE_HIZ_TRACE").is_some_and(|v| !v.is_empty() && v != "0")
-    })
+    });
+    *FLAG
 }
 
 /// Picks a mip level from an approximate footprint (in **base** Hi-Z texels, not full viewport pixels).

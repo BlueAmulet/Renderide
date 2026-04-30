@@ -480,7 +480,7 @@ fn build_frame_schedule(
         // Map schedule_idx back to original pass idx to find the setup entry.
         // Since ordered_passes is in the same order as ordered[], schedule_idx == ordered[schedule_idx].
         let orig_idx = ordered[schedule_idx];
-        let wave_idx = setups.get(orig_idx).map(|_| 0).unwrap_or(0);
+        let wave_idx = setups.get(orig_idx).map_or(0, |_| 0);
         steps.push(ScheduleStep {
             phase: pass.phase(),
             pass_idx: schedule_idx,

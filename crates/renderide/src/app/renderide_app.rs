@@ -208,8 +208,7 @@ impl RenderideApp {
         let now = Instant::now();
         let should = self
             .last_log_flush
-            .map(|t| now.duration_since(t) >= LOG_FLUSH_INTERVAL)
-            .unwrap_or(true);
+            .is_none_or(|t| now.duration_since(t) >= LOG_FLUSH_INTERVAL);
         if should {
             logger::flush();
             self.last_log_flush = Some(now);
@@ -236,7 +235,7 @@ impl RenderideApp {
         }
         profiling::scope!("startup::ensure_window_gpu");
 
-        let attrs = winit::window::Window::default_attributes()
+        let attrs = Window::default_attributes()
             .with_title("Renderide")
             .with_maximized(true)
             .with_visible(true)

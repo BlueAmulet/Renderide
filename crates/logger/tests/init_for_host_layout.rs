@@ -32,8 +32,7 @@ fn init_for_host_under_temp_logs_root() {
     );
     assert!(
         log_path.ends_with(format!("{ts}.log")),
-        "expected {:?} to end with {ts}.log",
-        log_path
+        "expected {log_path:?} to end with {ts}.log"
     );
     assert_eq!(
         log_path

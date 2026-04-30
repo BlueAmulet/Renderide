@@ -59,7 +59,7 @@ fn blendshape_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout 
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: std::num::NonZeroU64::new(32),
+                    min_binding_size: NonZeroU64::new(32),
                 },
                 count: None,
             },

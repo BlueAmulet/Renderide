@@ -241,20 +241,16 @@ fn ensure_stereo_swapchain(bundle: &mut XrSessionBundle) -> bool {
 
 /// Resizes the wgpu depth texture when the swapchain resolution or layer count changes.
 fn ensure_stereo_depth_texture(
-    gpu: &mut GpuContext,
+    gpu: &GpuContext,
     bundle: &mut XrSessionBundle,
     extent: (u32, u32),
 ) -> bool {
     profiling::scope!("xr::ensure_stereo_depth_texture");
-    let need_new_depth = bundle
-        .stereo_depth
-        .as_ref()
-        .map(|(tex, _)| {
-            tex.size().width != extent.0
-                || tex.size().height != extent.1
-                || tex.size().depth_or_array_layers != XR_VIEW_COUNT
-        })
-        .unwrap_or(true);
+    let need_new_depth = bundle.stereo_depth.as_ref().is_none_or(|(tex, _)| {
+        tex.size().width != extent.0
+            || tex.size().height != extent.1
+            || tex.size().depth_or_array_layers != XR_VIEW_COUNT
+    });
     if need_new_depth {
         let limits = gpu.limits().clone();
         bundle.stereo_depth = create_stereo_depth_texture(gpu.device().as_ref(), &limits, extent);
@@ -352,7 +348,7 @@ pub fn try_openxr_hmd_multiview_submit(
     {
         profiling::scope!("xr::flush_driver_before_release");
         gpu.flush_driver();
-    }
+    };
     {
         profiling::scope!("xr::swapchain_release");
         if release_swapchain_image(gpu, &mut sc.handle).is_err() {

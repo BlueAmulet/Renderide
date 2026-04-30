@@ -370,7 +370,7 @@ impl FrameResourceManager {
         if !per_view_frame.contains_key(view_id) {
             let frame_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("per_view_frame_uniform"),
-                size: std::mem::size_of::<FrameGpuUniforms>() as u64,
+                size: size_of::<FrameGpuUniforms>() as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -378,18 +378,17 @@ impl FrameResourceManager {
             let mut scene_snapshots =
                 PerViewSceneSnapshots::new(device, layout.depth_format, layout.color_format);
             scene_snapshots.sync(device, limits.as_ref(), snapshot_sync);
-            let frame_bind_group = fgpu
-                .cluster_cache
-                .current_refs()
-                .map(|refs| {
+            let frame_bind_group = fgpu.cluster_cache.current_refs().map_or_else(
+                || placeholder_bg,
+                |refs| {
                     fgpu.build_per_view_bind_group(
                         device,
                         &frame_uniform_buffer,
                         refs,
                         scene_snapshots.views(),
                     )
-                })
-                .unwrap_or_else(|| placeholder_bg);
+                },
+            );
             logger::debug!("per-view frame state: allocating for view {view_id:?}");
             let state = PerViewFrameState {
                 frame_uniform_buffer,
@@ -437,10 +436,10 @@ impl FrameResourceManager {
 
     /// Uniform parameters for the frame-global skybox specular environment.
     pub fn skybox_specular_uniform_params(&self) -> SkyboxSpecularUniformParams {
-        self.frame_gpu
-            .as_ref()
-            .map(FrameGpuResources::skybox_specular_uniform_params)
-            .unwrap_or_else(SkyboxSpecularUniformParams::disabled)
+        self.frame_gpu.as_ref().map_or_else(
+            SkyboxSpecularUniformParams::disabled,
+            FrameGpuResources::skybox_specular_uniform_params,
+        )
     }
 
     /// Synchronizes the frame-global skybox specular environment binding.
@@ -451,8 +450,7 @@ impl FrameResourceManager {
     ) -> bool {
         self.frame_gpu
             .as_mut()
-            .map(|fgpu| fgpu.sync_skybox_specular_environment(device, source))
-            .unwrap_or(false)
+            .is_some_and(|fgpu| fgpu.sync_skybox_specular_environment(device, source))
     }
 
     /// Refs to the shared cluster buffers (see [`ClusterBufferCache`]). All views share these.
@@ -465,8 +463,7 @@ impl FrameResourceManager {
     pub fn shared_cluster_version(&self) -> u64 {
         self.frame_gpu
             .as_ref()
-            .map(|fgpu| fgpu.cluster_cache.version)
-            .unwrap_or(0)
+            .map_or(0, |fgpu| fgpu.cluster_cache.version)
     }
 
     /// Returns the per-view frame state for `view_id`, or `None` if not yet created.
@@ -596,7 +593,7 @@ impl FrameResourceManager {
 
         let space_ids: Vec<_> = scene
             .render_space_ids()
-            .filter(|id| scene.space(*id).map(|s| s.is_active).unwrap_or(false))
+            .filter(|id| scene.space(*id).is_some_and(|s| s.is_active))
             .collect();
         match space_ids.len() {
             0 => {}
@@ -696,8 +693,8 @@ impl FrameResourceManager {
         let skip = self.lights_gpu_uploaded_this_tick.load(Ordering::Acquire);
         {
             let fgpu = self.frame_gpu_mut()?;
-            fgpu.sync_cluster_viewport(device, viewport, stereo);
-        }
+            fgpu.sync_cluster_viewport(device, viewport, stereo)
+        };
         if !skip {
             let fgpu = self.frame_gpu.as_ref()?;
             fgpu.write_lights_buffer(queue, &self.light_scratch);

@@ -24,7 +24,7 @@ pub fn log_filename_timestamp() -> String {
 ///
 /// If wall time is before [`UNIX_EPOCH`], appends `"?"`. The underlying [`std::fmt::Write`] impl
 /// for [`String`] is infallible, so the write result is intentionally discarded.
-pub(crate) fn write_line_timestamp(out: &mut String) {
+pub fn write_line_timestamp(out: &mut String) {
     let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) else {
         out.push('?');
         return;

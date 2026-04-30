@@ -54,8 +54,8 @@ impl MeshDeformScratch {
     ///
     /// `max_buffer_size` must be [`wgpu::Device::limits`].`max_buffer_size` (see [`crate::gpu::GpuLimits::max_buffer_size`]).
     pub fn new(device: &wgpu::Device, max_buffer_size: u64) -> Self {
-        let bone_bytes = (INITIAL_MAX_BONES as u64) * 64;
-        let weight_bytes = (INITIAL_MAX_BLENDSHAPES as u64) * 4;
+        let bone_bytes = u64::from(INITIAL_MAX_BONES) * 64;
+        let weight_bytes = u64::from(INITIAL_MAX_BLENDSHAPES) * 4;
         let skin_dispatch_bytes = INITIAL_SKIN_DISPATCH_SLOTS.saturating_mul(256);
         Self {
             bone_matrices: device.create_buffer(&wgpu::BufferDescriptor {
@@ -114,7 +114,7 @@ impl MeshDeformScratch {
             return;
         }
         let next = need_bones.next_power_of_two().max(INITIAL_MAX_BONES);
-        let bone_bytes = (next as u64) * 64;
+        let bone_bytes = u64::from(next) * 64;
         if !self.grow_allowed(bone_bytes, "bone_matrices") {
             return;
         }
@@ -150,7 +150,7 @@ impl MeshDeformScratch {
             return;
         }
         let next = need_shapes.next_power_of_two().max(INITIAL_MAX_BLENDSHAPES);
-        let weight_bytes = (next as u64) * 4;
+        let weight_bytes = u64::from(next) * 4;
         if !self.grow_allowed(weight_bytes, "blendshape_weights") {
             return;
         }

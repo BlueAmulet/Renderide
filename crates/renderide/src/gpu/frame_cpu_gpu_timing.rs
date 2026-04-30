@@ -204,7 +204,10 @@ pub type FrameCpuGpuTimingHandle = Arc<Mutex<FrameCpuGpuTiming>>;
 /// the same instant so callers can reuse it as the baseline for the GPU completion callback.
 pub fn record_real_submit(track: &FrameTimingTrack) -> Instant {
     let real_submit_at = Instant::now();
-    let mut g = track.handle.lock().unwrap_or_else(|e| e.into_inner());
+    let mut g = track
+        .handle
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     g.record_real_submit(
         track.generation,
         track.seq,
@@ -227,7 +230,9 @@ pub fn make_gpu_done_callback(
 ) -> impl FnOnce() + Send + 'static {
     move || {
         let gpu_ms = real_submit_at.elapsed().as_secs_f64() * 1000.0;
-        let mut g = handle.lock().unwrap_or_else(|e| e.into_inner());
+        let mut g = handle
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         g.record_gpu_done(generation, seq, gpu_ms);
     }
 }

@@ -17,8 +17,7 @@ impl RendererRuntime {
     fn refresh_gpu_allocator_report_hud(&mut self, gpu: &GpuContext, now: Instant) {
         let should_refresh = self
             .allocator_report_last_refresh
-            .map(|t| now.duration_since(t) >= GPU_ALLOCATOR_FULL_REPORT_INTERVAL)
-            .unwrap_or(true);
+            .is_none_or(|t| now.duration_since(t) >= GPU_ALLOCATOR_FULL_REPORT_INTERVAL);
         if !should_refresh {
             return;
         }
@@ -37,15 +36,15 @@ impl RendererRuntime {
     fn capture_main_debug_hud_panels(&mut self, gpu: &GpuContext, now: Instant) {
         let host = self.host_hud.snapshot();
         self.refresh_gpu_allocator_report_hud(gpu, now);
-        let next_refresh_in_secs = self
-            .allocator_report_last_refresh
-            .map(|t| {
+        let next_refresh_in_secs = self.allocator_report_last_refresh.map_or(
+            GPU_ALLOCATOR_FULL_REPORT_INTERVAL.as_secs_f32(),
+            |t| {
                 let elapsed = now.saturating_duration_since(t);
                 GPU_ALLOCATOR_FULL_REPORT_INTERVAL
                     .saturating_sub(elapsed)
                     .as_secs_f32()
-            })
-            .unwrap_or(GPU_ALLOCATOR_FULL_REPORT_INTERVAL.as_secs_f32());
+            },
+        );
         let (ipc_pri_str, ipc_bg_str) = self.frontend.ipc_consecutive_outbound_drop_streaks();
         let frame_diag = crate::diagnostics::FrameDiagnosticsSnapshot::capture(
             crate::diagnostics::FrameDiagnosticsSnapshotCapture {

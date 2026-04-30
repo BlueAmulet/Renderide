@@ -547,7 +547,10 @@ impl GpuContext {
             crate::profiling::emit_render_submit_frame_mark();
         }
         let track = {
-            let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
+            let mut ft = self
+                .frame_timing
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             ft.on_before_tracked_submit()
         };
         let frame_timing = track.map(|(generation, seq, frame_start)| {
@@ -558,7 +561,7 @@ impl GpuContext {
                 frame_start,
             }
         });
-        let frame_seq = track.map(|(_, seq, _)| seq as u64).unwrap_or(0);
+        let frame_seq = track.map_or(0, |(_, seq, _)| u64::from(seq));
         let batch = super::driver_thread::SubmitBatch {
             command_buffers,
             surface_texture,
@@ -604,7 +607,7 @@ impl GpuContext {
         profiling::scope!("gpu::begin_frame_timing");
         self.frame_timing
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .begin_frame(frame_start);
     }
 
@@ -616,7 +619,10 @@ impl GpuContext {
     /// [`wgpu::Device::poll`].
     pub fn end_frame_timing(&self) {
         profiling::scope!("gpu::end_frame_timing");
-        let mut ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
+        let mut ft = self
+            .frame_timing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         ft.end_frame();
     }
 
@@ -708,7 +714,10 @@ impl GpuContext {
     /// Lags the current tick by at least one frame in steady state, since the callback for
     /// frame N typically arrives after frame N+1's tick has begun.
     pub fn frame_cpu_gpu_ms_for_hud(&self) -> (Option<f64>, Option<f64>) {
-        let ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
+        let ft = self
+            .frame_timing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         match ft.last_completed_paired_frame_ms {
             Some((cpu, gpu)) => (Some(cpu), Some(gpu)),
             None => (None, None),
@@ -723,7 +732,10 @@ impl GpuContext {
     /// callers that need the host-visible "unavailable" sentinel should map [`None`] to `-1.0`,
     /// matching the Renderite.Unity `XRStats.TryGetGPUTimeLastFrame` contract.
     pub fn last_completed_gpu_render_time_seconds(&self) -> Option<f32> {
-        let ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
+        let ft = self
+            .frame_timing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         ft.last_completed_gpu_frame_ms
             .map(|ms| (ms / 1000.0) as f32)
     }
@@ -747,8 +759,9 @@ impl GpuContext {
     pub fn gpu_allocator_bytes(&self) -> (Option<u64>, Option<u64>) {
         self.device
             .generate_allocator_report()
-            .map(|r| (Some(r.total_allocated_bytes), Some(r.total_reserved_bytes)))
-            .unwrap_or((None, None))
+            .map_or((None, None), |r| {
+                (Some(r.total_allocated_bytes), Some(r.total_reserved_bytes))
+            })
     }
 
     /// Swapchain present mode (vsync policy).

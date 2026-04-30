@@ -111,8 +111,7 @@ impl RasterPass for BloomUpsamplePass {
         let settings = ctx
             .blackboard
             .get::<BloomSettingsSlot>()
-            .map(|slot| slot.0)
-            .unwrap_or(self.fallback_settings);
+            .map_or(self.fallback_settings, |slot| slot.0);
         let blend = super::compute_blend_factor(&settings, self.mip as f32, self.max_mip_f32)
             .clamp(0.0, 1.0);
         let kind = match settings.composite_mode {

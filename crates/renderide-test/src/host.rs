@@ -21,11 +21,11 @@ mod ipc_setup;
 mod lockstep;
 mod scene_session;
 
-pub(crate) use scene_session::SceneSessionConfig;
+pub use scene_session::SceneSessionConfig;
 
 /// Configuration for [`HostHarness::start`].
 #[derive(Clone, Debug)]
-pub(crate) struct HostHarnessConfig {
+pub struct HostHarnessConfig {
     /// Path to the `renderide` binary to spawn.
     pub renderer_path: PathBuf,
     /// Optional explicit PNG output path (overrides the default tempfile under the OS temp dir).
@@ -45,7 +45,7 @@ pub(crate) struct HostHarnessConfig {
 /// Outcome of a successful harness run. Holds an optional tempdir guard so callers (e.g. the
 /// `generate` subcommand) can read the PNG file before the directory is reaped.
 #[derive(Debug)]
-pub(crate) struct HarnessRunOutcome {
+pub struct HarnessRunOutcome {
     /// Path to the freshly written PNG produced by the renderer.
     pub png_path: PathBuf,
     /// When the output path was auto-allocated under a tempdir, this guard keeps the directory
@@ -55,7 +55,7 @@ pub(crate) struct HarnessRunOutcome {
 
 /// Live harness state. The renderer process itself is owned by the underlying
 /// [`SceneSessionConfig`] flow and exits via `RendererShutdownRequest` on success.
-pub(crate) struct HostHarness {
+pub struct HostHarness {
     cfg: HostHarnessConfig,
     output_path: PathBuf,
     output_dir_guard: Option<tempfile::TempDir>,
@@ -65,15 +65,14 @@ impl HostHarness {
     /// Prepares an output PNG path (either the caller-supplied one or a tempfile) and stashes the
     /// configuration; the actual session runs in [`HostHarness::run`].
     pub(crate) fn start(cfg: HostHarnessConfig) -> Result<Self, HarnessError> {
-        let (output_path, output_dir_guard) = match cfg.forced_output_path.clone() {
-            Some(p) => (p, None),
-            None => {
-                let dir = tempfile::Builder::new()
-                    .prefix("renderide-test-")
-                    .tempdir()?;
-                let path = dir.path().join("headless.png");
-                (path, Some(dir))
-            }
+        let (output_path, output_dir_guard) = if let Some(p) = cfg.forced_output_path.clone() {
+            (p, None)
+        } else {
+            let dir = tempfile::Builder::new()
+                .prefix("renderide-test-")
+                .tempdir()?;
+            let path = dir.path().join("headless.png");
+            (path, Some(dir))
         };
         Ok(Self {
             cfg,
@@ -104,7 +103,7 @@ impl HostHarness {
     /// Output PNG path the renderer was instructed to write. Useful for callers that want to
     /// inspect or copy the file before [`HostHarness::run`] is called.
     #[cfg_attr(not(test), expect(dead_code, reason = "only used by unit tests today"))]
-    pub(crate) fn output_path(&self) -> &PathBuf {
+    pub(crate) const fn output_path(&self) -> &PathBuf {
         &self.output_path
     }
 }

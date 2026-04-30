@@ -27,12 +27,12 @@ impl UnixMapping {
     }
 
     /// Length of the mapping in bytes.
-    pub(super) fn len(&self) -> usize {
+    pub(super) const fn len(&self) -> usize {
         self.len
     }
 
     /// Path to the backing `.qu` file (always [`Some`] on Unix).
-    pub(super) fn backing_file_path(&self) -> Option<&PathBuf> {
+    pub(super) const fn backing_file_path(&self) -> Option<&PathBuf> {
         Some(&self.file_path)
     }
 }

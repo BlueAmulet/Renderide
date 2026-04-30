@@ -7,7 +7,7 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 /// Returns likely Steam installation roots for the current platform (env vars and registry on Windows).
-pub(crate) fn base_paths() -> Vec<PathBuf> {
+pub fn base_paths() -> Vec<PathBuf> {
     #[cfg(windows)]
     {
         let mut bases = Vec::new();
@@ -68,7 +68,7 @@ pub(crate) fn base_paths() -> Vec<PathBuf> {
 }
 
 /// Extracts `"path"` values from Steam's `libraryfolders.vdf` under `steam_base`.
-pub(crate) fn library_paths_from_vdf(steam_base: &Path) -> Vec<PathBuf> {
+pub fn library_paths_from_vdf(steam_base: &Path) -> Vec<PathBuf> {
     let vdf_path = steam_base.join("steamapps").join("libraryfolders.vdf");
     let Ok(file) = fs::File::open(&vdf_path) else {
         return Vec::new();

@@ -256,12 +256,7 @@ mod tests {
 
     #[test]
     fn world_mesh_draw_stats_empty() {
-        let s = world_mesh_draw_stats_from_sorted(
-            &[],
-            None,
-            true,
-            crate::pipelines::ShaderPermutation(0),
-        );
+        let s = world_mesh_draw_stats_from_sorted(&[], None, true, ShaderPermutation(0));
         assert_eq!(s.batch_total, 0);
         assert_eq!(s.draws_total, 0);
         assert_eq!(s.instance_batch_total, 0);
@@ -296,12 +291,7 @@ mod tests {
             alpha_blended: false,
         });
         let draws = vec![a, b];
-        let s = world_mesh_draw_stats_from_sorted(
-            &draws,
-            None,
-            true,
-            crate::pipelines::ShaderPermutation(0),
-        );
+        let s = world_mesh_draw_stats_from_sorted(&draws, None, true, ShaderPermutation(0));
         assert_eq!(s.batch_total, 1);
         assert_eq!(s.draws_total, 2);
         assert_eq!(s.rigid_draws, 2);
@@ -326,12 +316,7 @@ mod tests {
             alpha_blended: false,
         });
         draw.batch_key.embedded_uses_scene_color_snapshot = true;
-        let s = world_mesh_draw_stats_from_sorted(
-            &[draw],
-            None,
-            true,
-            crate::pipelines::ShaderPermutation(0),
-        );
+        let s = world_mesh_draw_stats_from_sorted(&[draw], None, true, ShaderPermutation(0));
         assert_eq!(s.instance_batch_total, 1);
         assert_eq!(s.intersect_pass_batches, 0);
         assert_eq!(s.transparent_pass_batches, 1);

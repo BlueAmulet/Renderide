@@ -21,7 +21,7 @@ mod openxr_win {
 fn find_latest_openxr_windows_package_dir(third_party_openxr: &Path) -> Option<PathBuf> {
     let rd = fs::read_dir(third_party_openxr).ok()?;
     let mut candidates: Vec<PathBuf> = rd
-        .filter_map(std::result::Result::ok)
+        .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| {
             p.is_dir()
@@ -50,7 +50,7 @@ fn cargo_artifact_profile_dir(cargo_target_dir: &Path, profile: &str) -> Option<
 }
 
 /// Copies the Khronos `OpenXR` loader DLL next to the build output for Windows targets only.
-pub(crate) fn copy_vendored_openxr_loader_windows(manifest_dir: &Path) {
+pub fn copy_vendored_openxr_loader_windows(manifest_dir: &Path) {
     let Ok(target_os) = std::env::var("CARGO_CFG_TARGET_OS") else {
         return;
     };
@@ -92,8 +92,7 @@ pub(crate) fn copy_vendored_openxr_loader_windows(manifest_dir: &Path) {
     }
 
     let cargo_target_dir = std::env::var("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| manifest_dir.join("../../target"));
+        .map_or_else(|_| manifest_dir.join("../../target"), PathBuf::from);
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
 
     let Some(dest_dir) = cargo_artifact_profile_dir(&cargo_target_dir, &profile) else {

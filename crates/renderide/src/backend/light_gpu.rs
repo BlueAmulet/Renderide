@@ -174,7 +174,7 @@ mod layout_tests {
     #[test]
     fn gpu_light_stride_matches_wgsl() {
         assert_eq!(
-            std::mem::size_of::<GpuLight>(),
+            size_of::<GpuLight>(),
             112,
             "must match WGSL storage layout for `array<GpuLight>` (naga stride)"
         );

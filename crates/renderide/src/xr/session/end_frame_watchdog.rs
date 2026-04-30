@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn timeout_fires_then_disarm_still_returns() {
         let wd = EndFrameWatchdog::arm(Duration::from_millis(10), "test_timeout");
-        std::thread::sleep(Duration::from_millis(50));
+        thread::sleep(Duration::from_millis(50));
         wd.disarm();
     }
 }

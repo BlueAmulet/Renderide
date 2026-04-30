@@ -102,7 +102,7 @@ fn record_world_mesh_forward_subpass(
 /// Records one world-mesh forward subset into a render pass already opened by the graph.
 fn record_world_mesh_forward_graph_raster(
     rpass: &mut wgpu::RenderPass<'_>,
-    frame: &mut FrameRenderParams<'_>,
+    frame: &FrameRenderParams<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
     subpass: ForwardSubpassKind,
 ) -> bool {
@@ -170,7 +170,7 @@ pub(in crate::render_graph::passes::world_mesh_forward) fn record_world_mesh_for
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
-    frame: &mut FrameRenderParams<'_>,
+    frame: &FrameRenderParams<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
     record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Opaque)
@@ -181,7 +181,7 @@ pub(in crate::render_graph::passes::world_mesh_forward) fn record_world_mesh_for
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
-    frame: &mut FrameRenderParams<'_>,
+    frame: &FrameRenderParams<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
     record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Intersection)
@@ -192,7 +192,7 @@ pub(in crate::render_graph::passes::world_mesh_forward) fn record_world_mesh_for
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
-    frame: &mut FrameRenderParams<'_>,
+    frame: &FrameRenderParams<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
     record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Transparent)

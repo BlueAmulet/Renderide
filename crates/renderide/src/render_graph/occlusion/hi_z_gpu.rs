@@ -275,12 +275,11 @@ fn unpack_desktop_snapshot(
         logger::warn!("Hi-Z desktop readback unpack failed");
         return None;
     };
-    match hi_z_snapshot_from_linear_linear(extent.0, extent.1, mip_levels, mips) {
-        Some(s) => Some(s),
-        None => {
-            logger::warn!("Hi-Z desktop snapshot validation failed");
-            None
-        }
+    if let Some(s) = hi_z_snapshot_from_linear_linear(extent.0, extent.1, mip_levels, mips) {
+        Some(s)
+    } else {
+        logger::warn!("Hi-Z desktop snapshot validation failed");
+        None
     }
 }
 
@@ -301,12 +300,11 @@ fn unpack_stereo_snapshot(
             logger::warn!("Hi-Z stereo {label} readback unpack failed");
             return None;
         };
-        match hi_z_snapshot_from_linear_linear(extent.0, extent.1, mip_levels, mips) {
-            Some(s) => Some(s),
-            None => {
-                logger::warn!("Hi-Z stereo {label} snapshot validation failed");
-                None
-            }
+        if let Some(s) = hi_z_snapshot_from_linear_linear(extent.0, extent.1, mip_levels, mips) {
+            Some(s)
+        } else {
+            logger::warn!("Hi-Z stereo {label} snapshot validation failed");
+            None
         }
     };
 
@@ -454,7 +452,10 @@ fn staging_size_pyramid(base_w: u32, base_h: u32, mip_levels: u32) -> u64 {
     let mut total = 0u64;
     for mip in 0..mip_levels {
         let (w, h) = mip_dimensions(base_w, base_h, mip).unwrap_or((0, 0));
-        let row_pitch = wgpu::util::align_to(w * 4, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) as u64;
+        let row_pitch = u64::from(wgpu::util::align_to(
+            w * 4,
+            wgpu::COPY_BYTES_PER_ROW_ALIGNMENT,
+        ));
         total += row_pitch * u64::from(h);
     }
     total

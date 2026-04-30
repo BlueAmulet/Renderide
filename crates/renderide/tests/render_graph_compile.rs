@@ -30,7 +30,7 @@ struct TestComputePass {
 }
 
 impl TestComputePass {
-    fn new(name: &'static str) -> Self {
+    const fn new(name: &'static str) -> Self {
         Self {
             name,
             phase: PassPhase::PerView,
@@ -44,12 +44,12 @@ impl TestComputePass {
         }
     }
 
-    fn frame_global(mut self) -> Self {
+    const fn frame_global(mut self) -> Self {
         self.phase = PassPhase::FrameGlobal;
         self
     }
 
-    fn cull_exempt(mut self) -> Self {
+    const fn cull_exempt(mut self) -> Self {
         self.cull_exempt = true;
         self
     }
@@ -123,7 +123,7 @@ fn tex_desc(label: &'static str) -> TransientTextureDesc {
     )
 }
 
-fn backbuffer_import() -> ImportedTextureDecl {
+const fn backbuffer_import() -> ImportedTextureDecl {
     ImportedTextureDecl {
         label: "backbuffer",
         source: ImportSource::FrameTarget(FrameTargetRole::ColorAttachment),

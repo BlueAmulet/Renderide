@@ -23,7 +23,7 @@ impl SubmitJobLifecycle {
     }
 
     /// Returns true after the queue callback has run.
-    pub(crate) fn is_submit_done(&self) -> bool {
+    pub(crate) fn is_submit_done(self) -> bool {
         self.submit_done
     }
 

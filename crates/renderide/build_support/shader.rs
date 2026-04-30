@@ -59,7 +59,7 @@ use thiserror::Error;
 
 /// Errors from shader discovery, composition, validation, and generated code I/O.
 #[derive(Debug, Error)]
-pub(crate) enum BuildError {
+pub enum BuildError {
     /// User-facing message (directive parse, validation, naga errors).
     #[error("{0}")]
     Message(String),
@@ -70,7 +70,7 @@ pub(crate) enum BuildError {
     MissingEnv(&'static str),
 }
 
-pub(crate) fn env_var(name: &'static str) -> Result<String, BuildError> {
+pub fn env_var(name: &'static str) -> Result<String, BuildError> {
     #[expect(
         clippy::map_err_ignore,
         reason = "MissingEnv carries the variable name; `VarError` provides no additional detail"
@@ -472,7 +472,7 @@ fn discover_shader_modules(manifest_dir: &Path) -> Result<Vec<(String, String)>,
     let modules_dir = manifest_dir.join("shaders/source/modules");
     let mut paths: Vec<PathBuf> = fs::read_dir(&modules_dir)
         .map_err(|e| BuildError::Message(format!("read {}: {e}", modules_dir.display())))?
-        .filter_map(std::result::Result::ok)
+        .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "wgsl"))
         .collect();
@@ -870,7 +870,9 @@ fn next_shader_job(
 
 /// Locks a mutex while ignoring poisoning so worker panics do not hide the original build error.
 fn lock_unpoisoned<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|err| err.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Stores the first build error and requests that all workers stop after their current job.
@@ -1074,7 +1076,7 @@ fn compile_shader_jobs(
 
     let mut compiled = results
         .into_inner()
-        .unwrap_or_else(|err| err.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .into_iter()
         .enumerate()
         .map(|(job_index, result)| {
@@ -1145,7 +1147,7 @@ fn emit_embedded_arms(
 fn list_wgsl_files(dir: &Path) -> Result<Vec<PathBuf>, BuildError> {
     let mut paths: Vec<PathBuf> = fs::read_dir(dir)
         .map_err(|e| BuildError::Message(format!("read {}: {e}", dir.display())))?
-        .filter_map(std::result::Result::ok)
+        .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "wgsl"))
         .collect();
@@ -1169,7 +1171,7 @@ struct ComposedShaders {
 
 impl ComposedShaders {
     /// Creates empty shader-output accumulators.
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             material_stems: Vec::new(),
             post_stems: Vec::new(),
@@ -1305,7 +1307,7 @@ pub const COMPILED_PRESENT_STEMS: &[&str] = &[
     )
 }
 
-pub(crate) fn compile(manifest_dir: &Path, out_dir: &Path) -> Result<(), BuildError> {
+pub fn compile(manifest_dir: &Path, out_dir: &Path) -> Result<(), BuildError> {
     let source_root = manifest_dir.join("shaders/source");
     let target_dir = manifest_dir.join("shaders/target");
 

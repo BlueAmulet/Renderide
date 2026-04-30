@@ -456,7 +456,7 @@ impl<'a> ChainCursor<'a> {
         &mut self,
         loader: &mut L,
     ) -> Option<T> {
-        let elem_size = std::mem::size_of::<T>();
+        let elem_size = size_of::<T>();
         if elem_size == 0 {
             return Some(T::zeroed());
         }

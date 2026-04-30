@@ -413,8 +413,8 @@ pub(super) fn sampler_pairs_texture_binding(sampler_binding: u32) -> u32 {
 /// state, but [`MaterialPropertyStore::mutation_generation`] does not bump when textures update,
 /// so this signature drives uniform-buffer refresh on those metadata changes.
 fn compute_uniform_texture_state_signature(
-    layout: &std::sync::Arc<super::layout::StemMaterialLayout>,
-    pools: &super::texture_pools::EmbeddedTexturePools<'_>,
+    layout: &Arc<StemMaterialLayout>,
+    pools: &EmbeddedTexturePools<'_>,
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
     primary_texture_2d: i32,
@@ -450,18 +450,19 @@ fn compute_uniform_texture_state_signature(
             ResolvedTextureBinding::Texture2D { asset_id } => pools
                 .texture
                 .get_texture(asset_id)
-                .map(|t| (t.sampler.mipmap_bias, t.storage_v_inverted))
-                .unwrap_or((0.0, false)),
+                .map_or((0.0, false), |t| {
+                    (t.sampler.mipmap_bias, t.storage_v_inverted)
+                }),
             ResolvedTextureBinding::Texture3D { asset_id } => pools
                 .texture3d
                 .get_texture(asset_id)
-                .map(|t| (t.sampler.mipmap_bias, false))
-                .unwrap_or((0.0, false)),
+                .map_or((0.0, false), |t| (t.sampler.mipmap_bias, false)),
             ResolvedTextureBinding::Cubemap { asset_id } => pools
                 .cubemap
                 .get_texture(asset_id)
-                .map(|t| (t.sampler.mipmap_bias, t.storage_v_inverted))
-                .unwrap_or((0.0, false)),
+                .map_or((0.0, false), |t| {
+                    (t.sampler.mipmap_bias, t.storage_v_inverted)
+                }),
             ResolvedTextureBinding::RenderTexture { .. } => (0.0, true),
             ResolvedTextureBinding::VideoTexture { .. } => (0.0, false),
             ResolvedTextureBinding::None => (0.0, false),

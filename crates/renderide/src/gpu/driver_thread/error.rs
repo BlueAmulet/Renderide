@@ -46,7 +46,10 @@ impl DriverErrorState {
         reason = "wired once wgpu surfaces fallible submit/present results"
     )]
     pub(super) fn record(&self, err: DriverError) {
-        let mut guard = self.slot.lock().unwrap_or_else(|p| p.into_inner());
+        let mut guard = self
+            .slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if guard.is_none() {
             *guard = Some(err);
         }
@@ -54,7 +57,10 @@ impl DriverErrorState {
 
     /// Drains and returns any pending error, leaving the slot empty.
     pub(super) fn take(&self) -> Option<DriverError> {
-        let mut guard = self.slot.lock().unwrap_or_else(|p| p.into_inner());
+        let mut guard = self
+            .slot
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.take()
     }
 }

@@ -91,8 +91,7 @@ impl MaterialRouter {
     pub fn pipeline_for_shader_asset(&self, shader_asset_id: i32) -> RasterPipelineKind {
         self.routes
             .get(&shader_asset_id)
-            .map(|e| e.pipeline.clone())
-            .unwrap_or_else(|| self.fallback.clone())
+            .map_or_else(|| self.fallback.clone(), |e| e.pipeline.clone())
     }
 
     /// Records a target WGSL stem for `shader_asset_id` (from embedded Unity name resolution).

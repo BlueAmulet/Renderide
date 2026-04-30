@@ -176,9 +176,10 @@ impl SceneCoordinator {
 
     /// Current head-output render context for the main view.
     pub fn active_main_render_context(&self) -> RenderingContext {
-        self.active_main_space()
-            .map(RenderSpaceState::main_render_context)
-            .unwrap_or(RenderingContext::UserView)
+        self.active_main_space().map_or(
+            RenderingContext::UserView,
+            RenderSpaceState::main_render_context,
+        )
     }
 
     /// Cached world matrix from the host transform hierarchy (parent chain only).

@@ -200,7 +200,7 @@ impl FrameMaterialBatchCache {
         // `Vec<RenderSpaceId>` allocation entirely.
         let mut active_space_ids = scene
             .render_space_ids()
-            .filter(|id| scene.space(*id).map(|s| s.is_active).unwrap_or(false));
+            .filter(|id| scene.space(*id).is_some_and(|s| s.is_active));
         let first = active_space_ids.next();
         let second = active_space_ids.next();
 
@@ -280,9 +280,8 @@ impl FrameMaterialBatchCache {
         current_frame: u64,
     ) {
         let material_gen = ctx.dict.material_generation(material_asset_id);
-        let property_block_gen = property_block_id
-            .map(|b| ctx.dict.property_block_generation(b))
-            .unwrap_or(0);
+        let property_block_gen =
+            property_block_id.map_or(0, |b| ctx.dict.property_block_generation(b));
 
         let key = (material_asset_id, property_block_id);
         match self.entries.get_mut(&key) {
@@ -552,7 +551,7 @@ mod tests {
                 make_ctx(&dict, &router, &ids, ShaderPermutation(0)),
                 1,
             );
-        }
+        };
         let gen_before = cache.entries.get(&(1, None)).unwrap().material_gen;
         store.set_material(1, 7, MaterialPropertyValue::Float(0.25));
         {
@@ -564,7 +563,7 @@ mod tests {
                 make_ctx(&dict, &router, &ids, ShaderPermutation(0)),
                 2,
             );
-        }
+        };
         let gen_after = cache.entries.get(&(1, None)).unwrap().material_gen;
         assert_ne!(gen_before, gen_after);
     }

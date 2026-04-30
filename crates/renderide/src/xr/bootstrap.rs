@@ -86,7 +86,7 @@ impl From<vk::Result> for XrBootstrapError {
 
 /// Converts an OpenXR [`xr::Version`] to a Vulkan `VkApplicationInfo::apiVersion` value.
 fn xr_version_to_vulkan_api_version(xr: xr::Version) -> u32 {
-    vk::make_api_version(0, xr.major() as u32, xr.minor() as u32, xr.patch())
+    vk::make_api_version(0, u32::from(xr.major()), u32::from(xr.minor()), xr.patch())
 }
 
 fn format_vk_api_version(version: u32) -> String {
@@ -768,7 +768,7 @@ pub fn init_wgpu_openxr(
             vk_device_properties.device_id,
             power_preference,
         );
-    }
+    };
 
     let (wgpu_features, enabled_device_extensions, vk_device) =
         create_vulkan_logical_device_openxr(VulkanOpenXrDeviceCreateDescriptor {

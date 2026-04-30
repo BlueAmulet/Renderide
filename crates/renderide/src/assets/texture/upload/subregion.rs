@@ -178,8 +178,7 @@ fn subregion_resolve_mip0_slice<'a>(
     let start_abs = start_raw as usize;
     if start_abs < start_bias {
         return Err(TextureUploadError::from(format!(
-            "mip 0 start {} is before descriptor offset {}",
-            start_abs, start_bias
+            "mip 0 start {start_abs} is before descriptor offset {start_bias}"
         )));
     }
     let start = start_abs - start_bias;

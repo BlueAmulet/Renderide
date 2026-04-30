@@ -46,10 +46,10 @@ pub fn view_matrix_for_world_mesh_render_space(
     space: &RenderSpaceState,
 ) -> Mat4 {
     if space.is_overlay {
-        scene
-            .active_main_space()
-            .map(|main| view_matrix_from_render_transform(&main.view_transform))
-            .unwrap_or_else(|| view_matrix_from_render_transform(&space.view_transform))
+        scene.active_main_space().map_or_else(
+            || view_matrix_from_render_transform(&space.view_transform),
+            |main| view_matrix_from_render_transform(&main.view_transform),
+        )
     } else {
         view_matrix_from_render_transform(&space.view_transform)
     }

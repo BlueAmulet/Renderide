@@ -32,7 +32,8 @@ pub(super) fn validated_submesh_ranges(
         .iter()
         .filter(|s| {
             s.index_count > 0
-                && (s.index_start as i64 + s.index_count as i64) <= index_count_u32 as i64
+                && (i64::from(s.index_start) + i64::from(s.index_count))
+                    <= i64::from(index_count_u32)
         })
         .map(|s| (s.index_start as u32, s.index_count as u32))
         .collect();

@@ -110,7 +110,7 @@ pub struct RenderBackend {
     /// MSAA depth -> R32F -> single-sample depth resolve resources when supported.
     msaa_depth_resolve: Option<Arc<MsaaDepthResolveResources>>,
     /// Per-frame bind groups, light staging, and debug draw slab.
-    pub(crate) frame_resources: super::FrameResourceManager,
+    pub(crate) frame_resources: FrameResourceManager,
     /// Dear ImGui overlay and capture state.
     debug_hud: DebugHudBundle,
     /// Hierarchical depth pyramid, CPU readback, and temporal cull state for occlusion culling.
@@ -210,7 +210,7 @@ impl RenderBackend {
             mesh_deform_scratch: None,
             skin_cache: None,
             msaa_depth_resolve: None,
-            frame_resources: super::FrameResourceManager::new(),
+            frame_resources: FrameResourceManager::new(),
             debug_hud: DebugHudBundle::new(),
             occlusion: OcclusionSystem::new(),
             transient_pool: TransientPool::new(),
@@ -249,8 +249,10 @@ impl RenderBackend {
         self.renderer_settings
             .as_ref()
             .and_then(|h| h.read().ok())
-            .map(|s| s.rendering.scene_color_format.wgpu_format())
-            .unwrap_or_else(|| SceneColorFormat::default().wgpu_format())
+            .map_or_else(
+                || SceneColorFormat::default().wgpu_format(),
+                |s| s.rendering.scene_color_format.wgpu_format(),
+            )
     }
 
     /// Snapshot of the live GTAO settings for the current frame.
@@ -537,7 +539,7 @@ impl RenderBackend {
             self.asset_transfers.render_texture_hdr_color = s.rendering.render_texture_hdr_color;
             self.asset_transfers.texture_vram_budget_bytes =
                 u64::from(s.rendering.texture_vram_budget_mib).saturating_mul(1024 * 1024);
-        }
+        };
         let max_buffer_size = gpu_limits.max_buffer_size();
         self.mesh_deform_scratch = Some(MeshDeformScratch::new(device.as_ref(), max_buffer_size));
         self.frame_resources

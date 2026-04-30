@@ -809,14 +809,17 @@ fn schedule_orders_frame_global_before_per_view() -> Result<(), GraphBuildError>
     ));
     let g = b.build()?;
     // FrameSchedule is the single source of truth.
-    let fg: Vec<usize> = g
-        .schedule
-        .frame_global_steps()
-        .map(|s| s.pass_idx)
-        .collect();
-    let pv: Vec<usize> = g.schedule.per_view_steps().map(|s| s.pass_idx).collect();
-    assert_eq!(fg.len(), 1, "expected one frame-global pass");
-    assert_eq!(pv.len(), 2, "expected two per-view passes");
+
+    assert_eq!(
+        g.schedule.frame_global_steps().count(),
+        1,
+        "expected one frame-global pass"
+    );
+    assert_eq!(
+        g.schedule.per_view_steps().count(),
+        2,
+        "expected two per-view passes"
+    );
     // Validate structural invariants.
     g.schedule.validate().expect("schedule validates");
     Ok(())

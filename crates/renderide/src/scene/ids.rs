@@ -68,9 +68,6 @@ mod tests {
         let b = a;
         assert_eq!(a, b);
         assert_ne!(a, RenderSpaceId(8));
-        assert_eq!(
-            std::mem::size_of::<RenderSpaceId>(),
-            std::mem::size_of::<i32>()
-        );
+        assert_eq!(size_of::<RenderSpaceId>(), size_of::<i32>());
     }
 }

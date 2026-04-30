@@ -35,7 +35,7 @@ impl crate::xr::XrHostCameraSync for RendererRuntime {
     fn world_from_tracking(&self, center_pose_tracking: Option<(Vec3, Quat)>) -> Mat4 {
         self.scene
             .active_main_space()
-            .map(|space| {
+            .map_or(Mat4::IDENTITY, |space| {
                 crate::xr::tracking_space_to_world_matrix(
                     &space.root_transform,
                     &space.view_transform,
@@ -43,7 +43,6 @@ impl crate::xr::XrHostCameraSync for RendererRuntime {
                     center_pose_tracking,
                 )
             })
-            .unwrap_or(Mat4::IDENTITY)
     }
 
     fn set_head_output_transform(&mut self, transform: Mat4) {

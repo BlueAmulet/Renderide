@@ -426,15 +426,14 @@ impl VideoPlayer {
             while !shutdown.load(Ordering::Relaxed) {
                 thread::sleep(UPDATE_POLL_INTERVAL);
 
-                let update = match pending_update.lock() {
-                    Ok(mut pending_update) => match pending_update.take() {
+                let update = if let Ok(mut pending_update) = pending_update.lock() {
+                    match pending_update.take() {
                         Some(update) => update,
                         None => continue,
-                    },
-                    Err(_) => {
-                        logger::warn!("video texture update thread: update lock poisoned");
-                        break;
                     }
+                } else {
+                    logger::warn!("video texture update thread: update lock poisoned");
+                    break;
                 };
                 apply_update_to_pipeline(&pipeline, &update);
             }
@@ -457,15 +456,14 @@ impl VideoPlayer {
             return None;
         }
 
-        let update = match self.last_update.lock() {
-            Ok(slot) => slot.clone()?,
-            Err(_) => {
-                logger::warn!(
-                    "video texture {}: last-update lock poisoned; skipping clock error sample",
-                    self.asset_id
-                );
-                return None;
-            }
+        let update = if let Ok(slot) = self.last_update.lock() {
+            slot.clone()?
+        } else {
+            logger::warn!(
+                "video texture {}: last-update lock poisoned; skipping clock error sample",
+                self.asset_id
+            );
+            return None;
         };
         let current = query_position_seconds(&self.pipeline)?;
         let now_nanos = unix_nanos_now();

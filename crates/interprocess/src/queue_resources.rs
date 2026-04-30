@@ -11,7 +11,7 @@ use crate::ring::RingView;
 use crate::semaphore::Semaphore;
 
 /// Shared resources opened by both [`crate::Publisher::new`] and [`crate::Subscriber::new`].
-pub(crate) struct QueueResources {
+pub struct QueueResources {
     /// Read/write mapping of the queue header plus byte ring.
     mapping: SharedMapping,
     /// Ring buffer capacity in bytes (user payload only; excludes the queue header).

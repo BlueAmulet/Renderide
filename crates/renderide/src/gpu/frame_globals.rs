@@ -325,8 +325,8 @@ mod tests {
 
     #[test]
     fn frame_globals_size_336() {
-        assert_eq!(std::mem::size_of::<FrameGpuUniforms>(), 336);
-        assert_eq!(std::mem::size_of::<FrameGpuUniforms>() % 16, 0);
+        assert_eq!(size_of::<FrameGpuUniforms>(), 336);
+        assert_eq!(size_of::<FrameGpuUniforms>() % 16, 0);
     }
 
     #[test]

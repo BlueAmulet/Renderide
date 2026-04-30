@@ -85,8 +85,7 @@ fn render_rows(ui: &imgui::Ui, t: &FrameTimingHudSnapshot) {
 
     let proc_ram = t
         .process_ram_bytes
-        .map(format_bytes_gib)
-        .unwrap_or_else(|| "-".to_string());
+        .map_or_else(|| "-".to_string(), format_bytes_gib);
     let host_ram = format_bytes_gib(t.host_ram_used_bytes);
     let host_ram_pct = if t.host_ram_total_bytes > 0 {
         (t.host_ram_used_bytes as f64 / t.host_ram_total_bytes as f64) * 100.0

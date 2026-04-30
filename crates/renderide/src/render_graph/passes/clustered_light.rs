@@ -84,7 +84,7 @@ fn compute_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: NonZeroU64::new(std::mem::size_of::<GpuLight>() as u64),
+                    min_binding_size: NonZeroU64::new(size_of::<GpuLight>() as u64),
                 },
                 count: None,
             },
@@ -263,8 +263,8 @@ struct ClusteredLightGpuScanData {
 
 /// Returns the byte range for a contiguous cluster-count slice.
 fn cluster_count_clear_range(cluster_offset: u32, cluster_count: u32) -> Option<(u64, u64)> {
-    let byte_offset = u64::from(cluster_offset).checked_mul(std::mem::size_of::<u32>() as u64)?;
-    let byte_size = u64::from(cluster_count).checked_mul(std::mem::size_of::<u32>() as u64)?;
+    let byte_offset = u64::from(cluster_offset).checked_mul(size_of::<u32>() as u64)?;
+    let byte_size = u64::from(cluster_count).checked_mul(size_of::<u32>() as u64)?;
     Some((byte_offset, byte_size))
 }
 
@@ -291,7 +291,7 @@ fn clear_zero_light_cluster_counts(
         );
         return;
     };
-    let Some(counts_bytes) = total_clusters.checked_mul(std::mem::size_of::<u32>() as u64) else {
+    let Some(counts_bytes) = total_clusters.checked_mul(size_of::<u32>() as u64) else {
         logger::warn!(
             "ClusteredLight: zero-light count clear byte size overflows for {total_clusters} clusters"
         );
@@ -394,7 +394,7 @@ fn run_clustered_light_eye_passes(env: ClusteredLightEyePassEnv<'_>) {
             pass.set_pipeline(env.pipeline);
             pass.set_bind_group(0, env.bind_group, &[buf_offset as u32]);
             pass.dispatch_workgroups(dx, dy, dz);
-        }
+        };
         if let (Some(p), Some(q)) = (env.profiler, pass_query) {
             p.end_query(env.encoder, q);
         }
@@ -831,13 +831,13 @@ mod tests {
     #[test]
     fn cluster_params_struct_fits_uniform_slot() {
         assert!(
-            std::mem::size_of::<ClusterParams>() as u64 <= CLUSTER_PARAMS_UNIFORM_SIZE,
+            size_of::<ClusterParams>() as u64 <= CLUSTER_PARAMS_UNIFORM_SIZE,
             "ClusterParams ({} bytes) exceeds CLUSTER_PARAMS_UNIFORM_SIZE ({} bytes)",
-            std::mem::size_of::<ClusterParams>(),
+            size_of::<ClusterParams>(),
             CLUSTER_PARAMS_UNIFORM_SIZE,
         );
         assert_eq!(
-            std::mem::size_of::<ClusterParams>() % 16,
+            size_of::<ClusterParams>() % 16,
             0,
             "ClusterParams must be 16-byte aligned for WGSL std140 uniform layout"
         );

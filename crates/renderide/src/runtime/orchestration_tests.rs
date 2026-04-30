@@ -97,7 +97,7 @@ fn dispatch_desktop_config_updates_fps_caps_without_overriding_renderer_vsync() 
     {
         let mut settings = rt.settings().write().expect("settings writable");
         settings.rendering.vsync = VsyncMode::Auto;
-    }
+    };
 
     handle_running_command(
         &mut rt,
@@ -114,7 +114,7 @@ fn dispatch_desktop_config_updates_fps_caps_without_overriding_renderer_vsync() 
         assert_eq!(settings.display.focused_fps_cap, 0);
         assert_eq!(settings.display.unfocused_fps_cap, 30);
         drop(settings);
-    }
+    };
     assert_eq!(rt.unhandled_ipc_command_event_total(), before);
 }
 
@@ -124,7 +124,7 @@ fn dispatch_desktop_config_clamps_enabled_caps_to_host_minimum() {
     {
         let mut settings = rt.settings().write().expect("settings writable");
         settings.rendering.vsync = VsyncMode::On;
-    }
+    };
 
     handle_running_command(
         &mut rt,

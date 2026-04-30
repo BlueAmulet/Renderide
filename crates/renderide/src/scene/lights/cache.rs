@@ -362,7 +362,7 @@ impl LightCache {
 
     /// Cached lights for `space_id` after the last apply.
     pub fn get_lights_for_space(&self, space_id: i32) -> Option<&[CachedLight]> {
-        self.spaces.get(&space_id).map(|v| v.as_slice())
+        self.spaces.get(&space_id).map(Vec::as_slice)
     }
 
     /// Drops all light entries tied to a removed render space.

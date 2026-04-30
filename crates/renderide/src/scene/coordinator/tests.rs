@@ -25,7 +25,7 @@ impl SceneCoordinator {
     pub(crate) fn test_seed_space_identity_worlds(
         &mut self,
         id: RenderSpaceId,
-        nodes: Vec<crate::shared::RenderTransform>,
+        nodes: Vec<RenderTransform>,
         node_parents: Vec<i32>,
     ) {
         assert_eq!(
@@ -108,12 +108,12 @@ fn world_matrix_excludes_render_space_root() {
         RenderSpaceState {
             id,
             is_active: true,
-            root_transform: crate::shared::RenderTransform {
+            root_transform: RenderTransform {
                 position: Vec3::new(100.0, 0.0, 0.0),
                 scale: Vec3::ONE,
                 rotation: Quat::IDENTITY,
             },
-            nodes: vec![crate::shared::RenderTransform {
+            nodes: vec![RenderTransform {
                 position: Vec3::new(1.0, 2.0, 3.0),
                 scale: Vec3::ONE,
                 rotation: Quat::IDENTITY,
@@ -157,12 +157,12 @@ fn overlay_render_matrix_tracks_head_output_transform() {
             id,
             is_active: true,
             is_overlay: true,
-            root_transform: crate::shared::RenderTransform {
+            root_transform: RenderTransform {
                 position: Vec3::new(2.0, 3.0, 4.0),
                 scale: Vec3::ONE,
                 rotation: Quat::IDENTITY,
             },
-            nodes: vec![crate::shared::RenderTransform {
+            nodes: vec![RenderTransform {
                 position: Vec3::new(1.0, 0.0, 0.0),
                 scale: Vec3::ONE,
                 rotation: Quat::IDENTITY,
@@ -348,12 +348,12 @@ fn overlay_render_space_view_matrix_matches_main_space() {
             is_active: true,
             is_overlay: false,
             override_view_position: true,
-            root_transform: crate::shared::RenderTransform {
+            root_transform: RenderTransform {
                 position: Vec3::new(10.0, 0.0, 0.0),
                 scale: Vec3::ONE,
                 rotation: Quat::IDENTITY,
             },
-            view_transform: crate::shared::RenderTransform {
+            view_transform: RenderTransform {
                 position: Vec3::new(10.0, 1.7, 5.0),
                 scale: Vec3::ONE,
                 rotation: Quat::IDENTITY,
@@ -368,12 +368,12 @@ fn overlay_render_space_view_matrix_matches_main_space() {
             is_active: true,
             is_overlay: true,
             override_view_position: true,
-            root_transform: crate::shared::RenderTransform {
+            root_transform: RenderTransform {
                 position: Vec3::new(2.0, 0.0, 0.0),
                 scale: Vec3::ONE,
                 rotation: Quat::IDENTITY,
             },
-            view_transform: crate::shared::RenderTransform {
+            view_transform: RenderTransform {
                 position: Vec3::new(99.0, 0.0, 0.0),
                 scale: Vec3::ONE,
                 rotation: Quat::IDENTITY,

@@ -57,7 +57,7 @@ impl CompiledRenderGraph {
                     sample_count: compiled.desc.sample_count.resolve(surface.sample_count),
                     dimension: compiled.desc.dimension,
                     array_layers,
-                    usage_bits: compiled.usage.bits() as u64,
+                    usage_bits: u64::from(compiled.usage.bits()),
                 };
                 let lease = pool.acquire_texture_resource(
                     device,
@@ -103,7 +103,7 @@ impl CompiledRenderGraph {
             } else {
                 let key = BufferKey {
                     size_policy: compiled.desc.size_policy,
-                    usage_bits: compiled.usage.bits() as u64,
+                    usage_bits: u64::from(compiled.usage.bits()),
                 };
                 let size = helpers::resolve_buffer_size(compiled.desc.size_policy, viewport_px);
                 let lease = pool.acquire_buffer_resource(
@@ -288,13 +288,13 @@ impl CompiledRenderGraph {
         view_id: ViewId,
         target: &'a FrameViewTarget<'a>,
         gpu: &'a mut GpuContext,
-        backbuffer_view_holder: &'a Option<wgpu::TextureView>,
+        backbuffer_view_holder: Option<&'a wgpu::TextureView>,
     ) -> Result<ResolvedView<'a>, GraphExecuteError> {
         match target {
             FrameViewTarget::Swapchain => {
                 let surface_format = gpu.config_format();
                 let viewport_px = gpu.surface_extent_px();
-                let Some(bb_ref) = backbuffer_view_holder.as_ref() else {
+                let Some(bb_ref) = backbuffer_view_holder else {
                     return Err(GraphExecuteError::MissingSwapchainView);
                 };
                 let sample_count = gpu.swapchain_msaa_effective().max(1);
@@ -347,7 +347,7 @@ impl CompiledRenderGraph {
         view_id: ViewId,
         target: &FrameViewTarget<'_>,
         gpu: &mut GpuContext,
-        backbuffer_view_holder: &Option<wgpu::TextureView>,
+        backbuffer_view_holder: Option<&wgpu::TextureView>,
     ) -> Result<OwnedResolvedView, GraphExecuteError> {
         let resolved =
             Self::resolve_view_from_target(view_id, target, gpu, backbuffer_view_holder)?;

@@ -524,19 +524,19 @@ mod tests {
     fn pose_terminator_index_finds_first_sentinel() {
         let pose = node_tagged(0.0);
         let rows = vec![
-            crate::shared::TransformPoseUpdate {
+            TransformPoseUpdate {
                 transform_id: 0,
                 pose,
             },
-            crate::shared::TransformPoseUpdate {
+            TransformPoseUpdate {
                 transform_id: 1,
                 pose,
             },
-            crate::shared::TransformPoseUpdate {
+            TransformPoseUpdate {
                 transform_id: -1,
                 pose,
             },
-            crate::shared::TransformPoseUpdate {
+            TransformPoseUpdate {
                 transform_id: 2,
                 pose,
             },
@@ -549,7 +549,7 @@ mod tests {
     #[test]
     fn pose_terminator_index_no_sentinel_returns_len() {
         let pose = node_tagged(0.0);
-        let rows = vec![crate::shared::TransformPoseUpdate {
+        let rows = vec![TransformPoseUpdate {
             transform_id: 0,
             pose,
         }];
@@ -564,19 +564,19 @@ mod tests {
         let mut bad = node_tagged(0.0);
         bad.position.x = f32::NAN;
         let rows = vec![
-            crate::shared::TransformPoseUpdate {
+            TransformPoseUpdate {
                 transform_id: 0,
                 pose: valid,
             },
-            crate::shared::TransformPoseUpdate {
+            TransformPoseUpdate {
                 transform_id: 7,
                 pose: valid,
             },
-            crate::shared::TransformPoseUpdate {
+            TransformPoseUpdate {
                 transform_id: 1,
                 pose: bad,
             },
-            crate::shared::TransformPoseUpdate {
+            TransformPoseUpdate {
                 transform_id: -1,
                 pose: valid,
             },
@@ -605,12 +605,12 @@ mod tests {
         let n = POSE_UPDATE_PARALLEL_MIN_ROWS + 16;
         let mut rows = Vec::with_capacity(n + 1);
         for i in 0..n {
-            rows.push(crate::shared::TransformPoseUpdate {
+            rows.push(TransformPoseUpdate {
                 transform_id: i as i32,
                 pose,
             });
         }
-        rows.push(crate::shared::TransformPoseUpdate {
+        rows.push(TransformPoseUpdate {
             transform_id: -1,
             pose,
         });

@@ -44,8 +44,7 @@ fn resolve_cubemap_face_mip_slice<'a>(
     let start_abs = start_raw as usize;
     if start_abs < start_bias {
         return Err(TextureUploadError::from(format!(
-            "mip start {} is before descriptor offset {}",
-            start_abs, start_bias
+            "mip start {start_abs} is before descriptor offset {start_bias}"
         )));
     }
     let start = start_abs - start_bias;
@@ -380,8 +379,7 @@ fn choose_mip_start_bias_cubemap(
     }
     if best_prefix == 0 {
         return Err(TextureUploadError::from(format!(
-            "cubemap mip region exceeds shared memory descriptor (payload_len={}, descriptor_offset={})",
-            payload_len, offset_bias
+            "cubemap mip region exceeds shared memory descriptor (payload_len={payload_len}, descriptor_offset={offset_bias})"
         )));
     }
     Ok((best_bias, best_prefix))
@@ -402,7 +400,7 @@ fn valid_cubemap_mip_prefix_len(
             let w = sz.x as u32;
             let h = sz.y as u32;
             let host_len = mip_byte_len(format, w, h).ok_or_else(|| {
-                TextureUploadError::from(format!("mip byte size unsupported for {:?}", format))
+                TextureUploadError::from(format!("mip byte size unsupported for {format:?}"))
             })? as usize;
             let starts = upload
                 .mip_starts

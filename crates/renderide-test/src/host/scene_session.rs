@@ -29,7 +29,7 @@ mod scene_state;
 mod shutdown;
 mod spawn;
 
-pub(crate) use config::SceneSessionConfig;
+pub use config::SceneSessionConfig;
 
 use config::SceneSessionOutcome;
 use consts::{asset_ids, sphere_tessellation};

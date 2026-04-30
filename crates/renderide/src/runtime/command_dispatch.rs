@@ -196,7 +196,7 @@ fn apply_render_decoupling_config(runtime: &mut RendererRuntime, cfg: RenderDeco
 /// The host command also carries a `v_sync` boolean, but the renderer exposes a richer
 /// [`crate::config::VsyncMode`] policy (`Off` / `On` / `Auto`). The renderer config remains
 /// authoritative for vsync so host IPC cannot collapse `Auto` back to a boolean mode.
-fn apply_desktop_config(runtime: &mut RendererRuntime, cfg: DesktopConfig) {
+fn apply_desktop_config(runtime: &RendererRuntime, cfg: DesktopConfig) {
     let focused_fps_cap = desktop_config_fps_cap(cfg.maximum_foreground_framerate);
     let unfocused_fps_cap = desktop_config_fps_cap(cfg.maximum_background_framerate);
 

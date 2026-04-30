@@ -69,7 +69,10 @@ impl<T> BoundedRing<T> {
     /// of the project's "log and keep going" policy — driver failures surface via the
     /// separate error state rather than thread poisoning.
     pub(super) fn push(&self, item: T) -> Result<(), T> {
-        let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         while guard.len() >= self.capacity {
             if !self.is_consumer_alive() {
                 return Err(item);
@@ -91,7 +94,10 @@ impl<T> BoundedRing<T> {
 
     /// Pops the next item, blocking the caller while the ring is empty.
     pub(super) fn pop(&self) -> T {
-        let mut guard = self.inner.lock().unwrap_or_else(|p| p.into_inner());
+        let mut guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             if let Some(item) = guard.pop_front() {
                 drop(guard);
@@ -101,7 +107,7 @@ impl<T> BoundedRing<T> {
             guard = self
                 .message_ready
                 .wait(guard)
-                .unwrap_or_else(|p| p.into_inner());
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
     }
 }

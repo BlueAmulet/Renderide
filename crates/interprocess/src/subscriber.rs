@@ -63,7 +63,7 @@ struct DequeueBackoff {
 
 impl DequeueBackoff {
     /// Builds a backoff state machine starting in the yield-heavy phase.
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             counter: DEQUEUE_BACKOFF_COUNTER_INITIAL,
         }
@@ -165,32 +165,34 @@ impl Subscriber {
         };
         let mut backoff_iter: u32 = 0;
         loop {
-            match msg.state.compare_exchange(
-                STATE_READY,
-                STATE_LOCKED,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            ) {
-                Ok(_) => break,
-                Err(_) => {
-                    if utc_now_ticks() - spin_start_ticks > TICKS_FOR_TEN_SECONDS {
-                        header.read_offset.store(write_offset, Ordering::SeqCst);
-                        return None;
-                    }
-                    if backoff_iter < EXTRACT_SPIN_ITERATIONS {
-                        std::hint::spin_loop();
-                    } else if backoff_iter
-                        < EXTRACT_SPIN_ITERATIONS.saturating_add(EXTRACT_YIELD_ITERATIONS)
-                    {
-                        std::thread::yield_now();
-                    } else {
-                        std::thread::sleep(EXTRACT_PARK_INTERVAL);
-                    }
-                    backoff_iter = backoff_iter.saturating_add(1);
-                }
+            if msg
+                .state
+                .compare_exchange(
+                    STATE_READY,
+                    STATE_LOCKED,
+                    Ordering::SeqCst,
+                    Ordering::SeqCst,
+                )
+                .is_ok()
+            {
+                break;
             }
+            if utc_now_ticks() - spin_start_ticks > TICKS_FOR_TEN_SECONDS {
+                header.read_offset.store(write_offset, Ordering::SeqCst);
+                return None;
+            }
+            if backoff_iter < EXTRACT_SPIN_ITERATIONS {
+                std::hint::spin_loop();
+            } else if backoff_iter
+                < EXTRACT_SPIN_ITERATIONS.saturating_add(EXTRACT_YIELD_ITERATIONS)
+            {
+                std::thread::yield_now();
+            } else {
+                std::thread::sleep(EXTRACT_PARK_INTERVAL);
+            }
+            backoff_iter = backoff_iter.saturating_add(1);
         }
-        let body_len = msg.body_length as i64;
+        let body_len = i64::from(msg.body_length);
         let capacity = self.res.capacity;
         if body_len < 0 || body_len > capacity {
             // Corrupted slot: a sane publisher only writes message bodies whose padded length

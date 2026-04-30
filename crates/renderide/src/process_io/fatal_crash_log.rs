@@ -132,7 +132,8 @@ fn install_impl(log_path: &Path) -> Result<(), String> {
         .open(log_path)
         .map_err(|e| e.to_string())?;
     let log_fd = log_f.into_raw_fd();
-    let term_fd = crate::native_stdio::duplicate_preserved_stderr_raw_fd().map(|o| o.into_raw_fd());
+    let term_fd =
+        crate::native_stdio::duplicate_preserved_stderr_raw_fd().map(IntoRawFd::into_raw_fd);
 
     UNIX_CRASH_FDS
         .set(UnixCrashFds { log_fd, term_fd })
@@ -551,7 +552,7 @@ unsafe fn capture_frame_ips(out: &mut [*mut c_void; MAX_FRAMES]) -> usize {
                 false
             }
         });
-    }
+    };
     n
 }
 

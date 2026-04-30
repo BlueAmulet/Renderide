@@ -64,7 +64,7 @@ impl Default for FrameSubmitScalars {
 impl LockstepDriver {
     /// Creates a driver with `frame_index = 0` and no scene attached yet (handshake / upload
     /// phase).
-    pub(super) fn new(frame_scalars: FrameSubmitScalars) -> Self {
+    pub(super) const fn new(frame_scalars: FrameSubmitScalars) -> Self {
         Self {
             frame_index: 0,
             frame_scalars,
@@ -79,7 +79,7 @@ impl LockstepDriver {
     }
 
     /// Current frame index that will be assigned to the **next** outgoing `FrameSubmitData`.
-    pub(super) fn current_frame_index(&self) -> i32 {
+    pub(super) const fn current_frame_index(&self) -> i32 {
         self.frame_index
     }
 

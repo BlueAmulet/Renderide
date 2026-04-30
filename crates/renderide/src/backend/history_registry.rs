@@ -111,7 +111,7 @@ impl HistoryTextureMipViews {
 
     /// Returns all mip views for one array layer.
     pub fn layer_mip_views(&self, layer: u32) -> Option<&[wgpu::TextureView]> {
-        self.layers.get(layer as usize).map(|views| views.as_ref())
+        self.layers.get(layer as usize).map(AsRef::as_ref)
     }
 }
 

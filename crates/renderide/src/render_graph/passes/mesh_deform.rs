@@ -204,7 +204,7 @@ fn collect_deform_work_into_scratch(
             .for_each(|(space_id, chunk)| {
                 collect_deform_work_for_space(scene, mesh_pool, space_id, chunk);
             });
-    }
+    };
 
     scratch.work.clear();
     scratch.work.reserve(est);

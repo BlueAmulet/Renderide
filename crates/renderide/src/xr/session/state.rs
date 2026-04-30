@@ -284,7 +284,7 @@ impl XrSessionState {
         gpu_queue_access_gate: &crate::gpu::GpuQueueAccessGate,
     ) -> Result<Option<xr::FrameState>, xr::sys::Result> {
         if !self.session_running {
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(10));
             return Ok(None);
         }
         let state = self.frame_wait.wait()?;
@@ -292,7 +292,7 @@ impl XrSessionState {
             profiling::scope!("xr::frame_stream_begin");
             let _gate = gpu_queue_access_gate.lock();
             self.frame_stream.begin()?;
-        }
+        };
         self.frame_open = true;
         Ok(Some(state))
     }

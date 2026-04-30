@@ -310,7 +310,7 @@ impl RendererRuntime {
         {
             profiling::scope!("render::prepare_lights_from_scene");
             self.backend.prepare_lights_from_scene(&self.scene);
-        }
+        };
         self.sync_debug_hud_diagnostics_from_settings();
         self.setup_msaa_for_mode(gpu, &mode);
 

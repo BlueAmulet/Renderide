@@ -501,14 +501,14 @@ mod tests {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             array_layers: 1,
-            usage_bits: usage.bits() as u64,
+            usage_bits: u64::from(usage.bits()),
         }
     }
 
     fn buf_key(usage: wgpu::BufferUsages) -> BufferKey {
         BufferKey {
             size_policy: BufferSizePolicy::Fixed(256),
-            usage_bits: usage.bits() as u64,
+            usage_bits: u64::from(usage.bits()),
         }
     }
 

@@ -25,7 +25,7 @@ const CANCEL_BUTTON_LABEL: &str = "Cancel";
 ///
 /// Requires the global logger to be initialized before invocation so that the before/after
 /// log lines reach disk.
-pub(crate) fn prompt_desktop_or_vr() -> Option<bool> {
+pub fn prompt_desktop_or_vr() -> Option<bool> {
     logger::info!("Showing desktop/VR selection dialog via rfd backend.");
     let res = rfd::MessageDialog::new()
         .set_title("Renderide")

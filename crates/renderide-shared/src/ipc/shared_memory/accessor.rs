@@ -37,7 +37,7 @@ impl SharedMemoryAccessor {
     }
 
     /// Returns `true` if host buffers can be opened (`prefix` non-empty).
-    pub fn is_available(&self) -> bool {
+    pub const fn is_available(&self) -> bool {
         !self.prefix.is_empty()
     }
 
@@ -278,7 +278,7 @@ impl SharedMemoryAccessor {
             profiling::scope!("shared_memory::flush_mut");
             bytes.copy_from_slice(bytemuck::cast_slice(slice));
             view.flush_range(descriptor.offset, descriptor.length);
-        }
+        };
         true
     }
 
@@ -301,7 +301,7 @@ impl SharedMemoryAccessor {
         {
             profiling::scope!("shared_memory::flush_mut_bytes");
             view.flush_range(descriptor.offset, descriptor.length);
-        }
+        };
         true
     }
 }

@@ -531,7 +531,7 @@ fn append_frame_buffer_layout_entries(entries: &mut Vec<wgpu::BindGroupLayoutEnt
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(std::mem::size_of::<FrameGpuUniforms>() as u64),
+                min_binding_size: NonZeroU64::new(size_of::<FrameGpuUniforms>() as u64),
             },
             count: None,
         },
@@ -541,7 +541,7 @@ fn append_frame_buffer_layout_entries(entries: &mut Vec<wgpu::BindGroupLayoutEnt
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Storage { read_only: true },
                 has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(std::mem::size_of::<GpuLight>() as u64),
+                min_binding_size: NonZeroU64::new(size_of::<GpuLight>() as u64),
             },
             count: None,
         },
@@ -775,7 +775,7 @@ impl FrameGpuResources {
         queue: &wgpu::Queue,
         limits: Arc<GpuLimits>,
     ) -> Result<Self, FrameGpuInitError> {
-        let lights_size = (MAX_LIGHTS * std::mem::size_of::<GpuLight>()) as u64;
+        let lights_size = (MAX_LIGHTS * size_of::<GpuLight>()) as u64;
         if lights_size > limits.max_storage_buffer_binding_size()
             || lights_size > limits.max_buffer_size()
         {
@@ -783,7 +783,7 @@ impl FrameGpuResources {
         }
         let frame_uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frame_globals_uniform"),
-            size: std::mem::size_of::<FrameGpuUniforms>() as u64,
+            size: size_of::<FrameGpuUniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -1032,7 +1032,7 @@ impl FrameGpuResources {
             let bytes = bytemuck::cast_slice(&lights[..n]);
             queue.write_buffer(lights_buffer, 0, bytes);
         } else {
-            let zero = [0u8; std::mem::size_of::<GpuLight>()];
+            let zero = [0u8; size_of::<GpuLight>()];
             queue.write_buffer(lights_buffer, 0, &zero);
         }
     }

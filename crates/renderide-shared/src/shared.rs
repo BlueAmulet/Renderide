@@ -3298,7 +3298,7 @@ impl MemoryPackable for ReflectionProbeChangeRenderResult {
     ) -> Result<(), WireDecodeError> {
         self.render_space_id = unpacker.read()?;
         self.render_probe_unique_id = unpacker.read()?;
-        self.require_reset = unpacker.read_bool()? as u8;
+        self.require_reset = u8::from(unpacker.read_bool()?);
         self._padding = unpacker.read()?;
         Ok(())
     }
@@ -4181,8 +4181,8 @@ impl MemoryPackable for TextureUploadHint {
         unpacker: &mut MemoryUnpacker<'_, '_, P>,
     ) -> Result<(), WireDecodeError> {
         self.region_data = unpacker.read()?;
-        self.readable = unpacker.read_bool()? as u8;
-        self.has_region = unpacker.read_bool()? as u8;
+        self.readable = u8::from(unpacker.read_bool()?);
+        self.has_region = u8::from(unpacker.read_bool()?);
         self._padding = unpacker.read()?;
         Ok(())
     }
@@ -4196,13 +4196,13 @@ impl TextureUpdateResultType {
     pub const FORMAT_SET: i32 = 1;
     pub const PROPERTIES_SET: i32 = 2;
     pub const DATA_UPLOAD: i32 = 4;
-    pub fn format_set(&self) -> bool {
+    pub const fn format_set(&self) -> bool {
         self.0 & Self::FORMAT_SET != 0
     }
-    pub fn properties_set(&self) -> bool {
+    pub const fn properties_set(&self) -> bool {
         self.0 & Self::PROPERTIES_SET != 0
     }
-    pub fn data_upload(&self) -> bool {
+    pub const fn data_upload(&self) -> bool {
         self.0 & Self::DATA_UPLOAD != 0
     }
 }
@@ -4236,7 +4236,7 @@ impl MemoryPackable for Texture3DUploadHint {
         &mut self,
         unpacker: &mut MemoryUnpacker<'_, '_, P>,
     ) -> Result<(), WireDecodeError> {
-        self.readable = unpacker.read_bool()? as u8;
+        self.readable = u8::from(unpacker.read_bool()?);
         Ok(())
     }
 }
@@ -4314,15 +4314,14 @@ impl MemoryPackable for GaussianRotationFormat {
         unpacker: &mut MemoryUnpacker<'_, '_, P>,
     ) -> Result<(), WireDecodeError> {
         let raw = unpacker.read::<i32>()?;
-        *self = match raw {
-            0 => Self::PackedNorm10,
-            _ => {
-                trace!(
-                    "invalid GaussianRotationFormat wire value {}; using default",
-                    raw
-                );
-                Self::PackedNorm10
-            }
+        *self = if raw == 0 {
+            Self::PackedNorm10
+        } else {
+            trace!(
+                "invalid GaussianRotationFormat wire value {}; using default",
+                raw
+            );
+            Self::PackedNorm10
         };
         Ok(())
     }
@@ -4333,15 +4332,14 @@ impl EnumRepr for GaussianRotationFormat {
         self as i32
     }
     fn from_i32(i: i32) -> Self {
-        match i {
-            0 => Self::PackedNorm10,
-            _ => {
-                trace!(
-                    "invalid GaussianRotationFormat discriminant {}; using default",
-                    i
-                );
-                Self::PackedNorm10
-            }
+        if i == 0 {
+            Self::PackedNorm10
+        } else {
+            trace!(
+                "invalid GaussianRotationFormat discriminant {}; using default",
+                i
+            );
+            Self::PackedNorm10
         }
     }
 }
@@ -5734,13 +5732,13 @@ impl BlendshapeDataFlags {
     pub const POSITIONS: i32 = 1;
     pub const NORMALS: i32 = 2;
     pub const TANGETS: i32 = 4;
-    pub fn positions(&self) -> bool {
+    pub const fn positions(&self) -> bool {
         self.0 & Self::POSITIONS != 0
     }
-    pub fn normals(&self) -> bool {
+    pub const fn normals(&self) -> bool {
         self.0 & Self::NORMALS != 0
     }
-    pub fn tangets(&self) -> bool {
+    pub const fn tangets(&self) -> bool {
         self.0 & Self::TANGETS != 0
     }
 }
@@ -5784,67 +5782,67 @@ impl MeshUploadHintFlag {
     pub const DYNAMIC: i32 = 262144;
     pub const READABLE: i32 = 524288;
     pub const DEBUG: i32 = 1048576;
-    pub fn vertex_layout(&self) -> bool {
+    pub const fn vertex_layout(&self) -> bool {
         self.0 & Self::VERTEX_LAYOUT != 0
     }
-    pub fn submesh_layout(&self) -> bool {
+    pub const fn submesh_layout(&self) -> bool {
         self.0 & Self::SUBMESH_LAYOUT != 0
     }
-    pub fn geometry(&self) -> bool {
+    pub const fn geometry(&self) -> bool {
         self.0 & Self::GEOMETRY != 0
     }
-    pub fn positions(&self) -> bool {
+    pub const fn positions(&self) -> bool {
         self.0 & Self::POSITIONS != 0
     }
-    pub fn normals(&self) -> bool {
+    pub const fn normals(&self) -> bool {
         self.0 & Self::NORMALS != 0
     }
-    pub fn tangents(&self) -> bool {
+    pub const fn tangents(&self) -> bool {
         self.0 & Self::TANGENTS != 0
     }
-    pub fn colors(&self) -> bool {
+    pub const fn colors(&self) -> bool {
         self.0 & Self::COLORS != 0
     }
-    pub fn uv0s(&self) -> bool {
+    pub const fn uv0s(&self) -> bool {
         self.0 & Self::UV0S != 0
     }
-    pub fn uv1s(&self) -> bool {
+    pub const fn uv1s(&self) -> bool {
         self.0 & Self::UV1S != 0
     }
-    pub fn uv2s(&self) -> bool {
+    pub const fn uv2s(&self) -> bool {
         self.0 & Self::UV2S != 0
     }
-    pub fn uv3s(&self) -> bool {
+    pub const fn uv3s(&self) -> bool {
         self.0 & Self::UV3S != 0
     }
-    pub fn uv4s(&self) -> bool {
+    pub const fn uv4s(&self) -> bool {
         self.0 & Self::UV4S != 0
     }
-    pub fn uv5s(&self) -> bool {
+    pub const fn uv5s(&self) -> bool {
         self.0 & Self::UV5S != 0
     }
-    pub fn uv6s(&self) -> bool {
+    pub const fn uv6s(&self) -> bool {
         self.0 & Self::UV6S != 0
     }
-    pub fn uv7s(&self) -> bool {
+    pub const fn uv7s(&self) -> bool {
         self.0 & Self::UV7S != 0
     }
-    pub fn bind_poses(&self) -> bool {
+    pub const fn bind_poses(&self) -> bool {
         self.0 & Self::BIND_POSES != 0
     }
-    pub fn bone_weights(&self) -> bool {
+    pub const fn bone_weights(&self) -> bool {
         self.0 & Self::BONE_WEIGHTS != 0
     }
-    pub fn blendshapes(&self) -> bool {
+    pub const fn blendshapes(&self) -> bool {
         self.0 & Self::BLENDSHAPES != 0
     }
-    pub fn dynamic(&self) -> bool {
+    pub const fn dynamic(&self) -> bool {
         self.0 & Self::DYNAMIC != 0
     }
-    pub fn readable(&self) -> bool {
+    pub const fn readable(&self) -> bool {
         self.0 & Self::READABLE != 0
     }
-    pub fn debug(&self) -> bool {
+    pub const fn debug(&self) -> bool {
         self.0 & Self::DEBUG != 0
     }
 }
@@ -7611,7 +7609,7 @@ impl MemoryPackable for TrailsRendererState {
             unpacker.read_object_required(&mut x)?;
             x
         };
-        self.generate_lighting_data = unpacker.read_bool()? as u8;
+        self.generate_lighting_data = u8::from(unpacker.read_bool()?);
         self._padding = unpacker.read()?;
         Ok(())
     }
@@ -10771,7 +10769,7 @@ pub fn roundtrip_dispatch(type_name: &str, input: &[u8]) -> std::io::Result<Vec<
         _ => {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("Unknown type: {}", type_name),
+                format!("Unknown type: {type_name}"),
             ))
         }
     }

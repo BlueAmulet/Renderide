@@ -52,7 +52,7 @@ pub(super) struct SlabPackInputs<'a> {
 pub(super) fn pack_and_upload_per_draw_slab(
     device: &wgpu::Device,
     upload_batch: &FrameUploadBatch,
-    frame: &mut FrameRenderParams<'_>,
+    frame: &FrameRenderParams<'_>,
     inputs: SlabPackInputs<'_>,
 ) -> bool {
     profiling::scope!("world_mesh::pack_and_upload_slab");
@@ -84,7 +84,7 @@ pub(super) fn pack_and_upload_per_draw_slab(
         profiling::scope!("world_mesh::ensure_slot_capacity");
         let mut per_draw = per_draw_slot.lock();
         per_draw.ensure_draw_slot_capacity(device, inputs.draws.len());
-    }
+    };
 
     // Step 2: pack VP uniforms in `slab_layout` order and serialise to byte slab.
     {
@@ -103,7 +103,7 @@ pub(super) fn pack_and_upload_per_draw_slab(
             let need = inputs.draws.len().saturating_mul(PER_DRAW_UNIFORM_STRIDE);
             slab.resize(need, 0);
             write_per_draw_uniform_slab(uniforms, slab);
-        }
+        };
         {
             profiling::scope!("world_mesh::enqueue_slab_upload");
             let per_draw = per_draw_slot.lock();

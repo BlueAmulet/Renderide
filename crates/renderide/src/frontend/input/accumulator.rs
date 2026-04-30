@@ -114,7 +114,7 @@ impl WindowInputAccumulator {
     /// to the corresponding physical point (for drag/drop parity).
     pub fn set_window_position_from_logical(&mut self, logical: Vec2, scale_factor: f64) {
         self.window_position = logical;
-        let logical_pos = LogicalPosition::new(logical.x as f64, logical.y as f64);
+        let logical_pos = LogicalPosition::new(f64::from(logical.x), f64::from(logical.y));
         let physical = logical_pos.to_physical::<f64>(scale_factor);
         self.last_cursor_pixel.x = physical.x.round() as i32;
         self.last_cursor_pixel.y = physical.y.round() as i32;

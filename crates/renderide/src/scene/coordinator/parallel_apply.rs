@@ -211,7 +211,7 @@ pub fn apply_extracted_render_space_update(
             apply_layer_update_extracted(space, lu);
         }
         super::super::layer_apply::resolve_mesh_layers_from_assignments(space);
-    }
+    };
     if let Some(ref rtu) = extracted.transform_overrides {
         apply_render_transform_overrides_update_extracted(space, rtu, transform_removals);
     }

@@ -328,8 +328,7 @@ pub(super) fn pass_info_raster_template(
 pub(super) fn frame_sample_count_from_raster_ctx(ctx: &RasterPassCtx<'_, '_>) -> u32 {
     ctx.frame
         .as_ref()
-        .map(|frame| frame.view.sample_count.max(1))
-        .unwrap_or(1)
+        .map_or(1, |frame| frame.view.sample_count.max(1))
 }
 
 pub(super) fn resolve_attachment_target(
@@ -457,11 +456,11 @@ pub(super) fn execute_graph_raster_pass_node(
         profiling::scope!("graph::raster::record_draws");
         pass.record_raster(ctx, &mut rpass)
             .map_err(GraphExecuteError::Pass)?;
-    }
+    };
     {
         profiling::scope!("graph::raster::end_render_pass");
         drop(rpass);
-    }
+    };
     if let (Some(p), Some(q)) = (ctx.profiler, pass_query) {
         p.end_query(encoder, q);
     }

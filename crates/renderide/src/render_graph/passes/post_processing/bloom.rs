@@ -13,7 +13,7 @@ mod helpers;
 mod pipeline;
 mod upsample;
 
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use composite::BloomCompositePass;
 use downsample::{BloomDownsampleFirstPass, BloomDownsamplePass};
@@ -163,8 +163,8 @@ impl PostProcessEffect for BloomEffect {
 
 /// Process-wide bloom pipeline cache shared across every chain rebuild.
 fn bloom_pipelines() -> &'static BloomPipelineCache {
-    static CACHE: OnceLock<BloomPipelineCache> = OnceLock::new();
-    CACHE.get_or_init(BloomPipelineCache::default)
+    static CACHE: LazyLock<BloomPipelineCache> = LazyLock::new(BloomPipelineCache::default);
+    &CACHE
 }
 
 /// Bloom pyramid mip count (matches Bevy `prepare_bloom_textures`): `max(2, log2(max_mip_dim)) - 1`.
@@ -223,15 +223,10 @@ mod tests {
     fn gpu_profile_labels_identify_each_bloom_mip_pass() {
         let pipelines = bloom_pipelines();
         let settings = BloomSettings::default();
-        let first = downsample::BloomDownsampleFirstPass::new(
-            TextureHandle(0),
-            TextureHandle(1),
-            settings,
-            pipelines,
-        );
-        let downsample =
-            downsample::BloomDownsamplePass::new(TextureHandle(1), TextureHandle(2), 1, pipelines);
-        let upsample = upsample::BloomUpsamplePass::new(
+        let first =
+            BloomDownsampleFirstPass::new(TextureHandle(0), TextureHandle(1), settings, pipelines);
+        let downsample = BloomDownsamplePass::new(TextureHandle(1), TextureHandle(2), 1, pipelines);
+        let upsample = BloomUpsamplePass::new(
             TextureHandle(2),
             TextureHandle(1),
             2,

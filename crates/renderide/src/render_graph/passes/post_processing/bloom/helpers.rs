@@ -24,6 +24,5 @@ pub(super) fn attachment_format(
 ) -> wgpu::TextureFormat {
     graph_resources
         .transient_texture(handle)
-        .map(|t| t.texture.format())
-        .unwrap_or(wgpu::TextureFormat::Rg11b10Ufloat)
+        .map_or(wgpu::TextureFormat::Rg11b10Ufloat, |t| t.texture.format())
 }

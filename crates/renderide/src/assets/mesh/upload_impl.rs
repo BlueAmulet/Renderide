@@ -175,36 +175,33 @@ fn upload_positions_normals(
     vc_usize: usize,
     vertex_stride_us: usize,
 ) -> (Option<Arc<wgpu::Buffer>>, Option<Arc<wgpu::Buffer>>) {
-    match extract_float3_position_normal_as_vec4_streams(
+    if let Some((pb, nb)) = extract_float3_position_normal_as_vec4_streams(
         vertex_slice,
         vc_usize,
         vertex_stride_us,
         &data.vertex_attributes,
     ) {
-        Some((pb, nb)) => {
-            let usage = wgpu::BufferUsages::STORAGE
-                | wgpu::BufferUsages::VERTEX
-                | wgpu::BufferUsages::COPY_DST
-                | wgpu::BufferUsages::COPY_SRC;
-            let pbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("mesh {} positions_stream", data.asset_id)),
-                contents: &pb,
-                usage,
-            });
-            let nbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("mesh {} normals_stream", data.asset_id)),
-                contents: &nb,
-                usage,
-            });
-            (Some(Arc::new(pbuf)), Some(Arc::new(nbuf)))
-        }
-        None => {
-            logger::warn!(
-                "mesh {}: missing float3 position+normal attributes — debug/deform path disabled",
-                data.asset_id
-            );
-            (None, None)
-        }
+        let usage = wgpu::BufferUsages::STORAGE
+            | wgpu::BufferUsages::VERTEX
+            | wgpu::BufferUsages::COPY_DST
+            | wgpu::BufferUsages::COPY_SRC;
+        let pbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("mesh {} positions_stream", data.asset_id)),
+            contents: &pb,
+            usage,
+        });
+        let nbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("mesh {} normals_stream", data.asset_id)),
+            contents: &nb,
+            usage,
+        });
+        (Some(Arc::new(pbuf)), Some(Arc::new(nbuf)))
+    } else {
+        logger::warn!(
+            "mesh {}: missing float3 position+normal attributes — debug/deform path disabled",
+            data.asset_id
+        );
+        (None, None)
     }
 }
 
@@ -271,7 +268,7 @@ fn create_vertex_stream_buffer(
 ) -> Arc<wgpu::Buffer> {
     Arc::new(
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(&format!("mesh {} {label}_stream", asset_id)),
+            label: Some(&format!("mesh {asset_id} {label}_stream")),
             contents: bytes,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         }),
@@ -394,27 +391,24 @@ fn upload_skeleton_bone_buffers(
     let bc = &raw[layout.bone_counts_start..layout.bone_counts_start + layout.bone_counts_length];
     let bw =
         &raw[layout.bone_weights_start..layout.bone_weights_start + layout.bone_weights_length];
-    let (bi_buf, bw_buf) = match split_bone_weights_tail_for_gpu(bw, vc_usize) {
-        Some((ib, wb)) => {
-            let bi = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("mesh {} bone_indices", data.asset_id)),
-                contents: &ib,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
-            let bwt = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("mesh {} bone_weights_vec4", data.asset_id)),
-                contents: &wb,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            });
-            (Some(Arc::new(bi)), Some(Arc::new(bwt)))
-        }
-        None => {
-            logger::warn!(
-                "mesh {}: bone weight tail could not be repacked for GPU skinning",
-                data.asset_id
-            );
-            (None, None)
-        }
+    let (bi_buf, bw_buf) = if let Some((ib, wb)) = split_bone_weights_tail_for_gpu(bw, vc_usize) {
+        let bi = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("mesh {} bone_indices", data.asset_id)),
+            contents: &ib,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+        let bwt = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("mesh {} bone_weights_vec4", data.asset_id)),
+            contents: &wb,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+        (Some(Arc::new(bi)), Some(Arc::new(bwt)))
+    } else {
+        logger::warn!(
+            "mesh {}: bone weight tail could not be repacked for GPU skinning",
+            data.asset_id
+        );
+        (None, None)
     };
 
     let bc_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -452,8 +446,9 @@ fn upload_synthetic_blend_bone_buffers(
         .iter()
         .map(Mat4::from_cols_array_2d)
         .collect();
-    let (bi_buf, bw_buf) = split_bone_weights_tail_for_gpu(&bone_weights, vc_usize)
-        .map(|(ib, wb)| {
+    let (bi_buf, bw_buf) = split_bone_weights_tail_for_gpu(&bone_weights, vc_usize).map_or(
+        (None, None),
+        |(ib, wb)| {
             let bi = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(&format!("mesh {} bone_indices synth", data.asset_id)),
                 contents: &ib,
@@ -465,8 +460,8 @@ fn upload_synthetic_blend_bone_buffers(
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             });
             (Some(Arc::new(bi)), Some(Arc::new(bwt)))
-        })
-        .unwrap_or((None, None));
+        },
+    );
     let bc_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some(&format!("mesh {} bone_counts synth", data.asset_id)),
         contents: &bone_counts,
@@ -627,8 +622,8 @@ pub(super) fn resident_bytes_for_mesh_upload(
     core_ib: &wgpu::Buffer,
     derived: &DerivedStreams,
     bone_skin: &BoneSkinUpload,
-    blend_sparse: &Option<Arc<wgpu::Buffer>>,
-    blend_shape_desc: &Option<Arc<wgpu::Buffer>>,
+    blend_sparse: Option<&Arc<wgpu::Buffer>>,
+    blend_shape_desc: Option<&Arc<wgpu::Buffer>>,
 ) -> u64 {
     let mut n = core_vb.size() + core_ib.size();
     n += sum_optional_buffer_bytes(&[
@@ -645,10 +640,10 @@ pub(super) fn resident_bytes_for_mesh_upload(
         derived.uv2_buffer.as_ref(),
         derived.uv3_buffer.as_ref(),
     ]);
-    if let Some(ref b) = blend_sparse {
+    if let Some(b) = blend_sparse {
         n += b.size();
     }
-    if let Some(ref b) = blend_shape_desc {
+    if let Some(b) = blend_shape_desc {
         n += b.size();
     }
     n

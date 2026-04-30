@@ -169,7 +169,7 @@ impl TextureUploadTask {
     }
 
     fn finalize_success(
-        &mut self,
+        &self,
         queue: &mut AssetTransferQueue,
         ipc: &mut Option<&mut DualQueueIpc>,
         uploaded_mips: u32,

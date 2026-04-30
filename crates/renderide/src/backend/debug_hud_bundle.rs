@@ -233,8 +233,7 @@ impl DebugHudBundle {
     pub(crate) fn has_visible_content(&self) -> bool {
         self.hud
             .as_ref()
-            .map(|h| h.has_visible_content())
-            .unwrap_or(false)
+            .is_some_and(|hud| hud.has_visible_content())
     }
 
     /// Forces input-capture flags to `false`; called when the HUD encoder is skipped so the rest

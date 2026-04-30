@@ -135,11 +135,7 @@ fn every_sampling_material_applies_v_flip() -> Result<(), Box<dyn std::error::Er
         }
     }
 
-    assert!(
-        audited > 0,
-        "audit found no sampling materials in {:?}",
-        dir
-    );
+    assert!(audited > 0, "audit found no sampling materials in {dir:?}");
 
     if !offenders.is_empty() {
         offenders.sort();

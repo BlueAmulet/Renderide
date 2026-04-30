@@ -669,7 +669,7 @@ fn encode_mip0_bake(ctx: BakeMip0EncodeContext<'_>, resources: &mut PendingBakeR
             dispatch_groups(ctx.face_size),
             6,
         );
-    }
+    };
     resources.buffers.push(params_buffer);
     resources.bind_groups.push(bind_group);
     resources.texture_views.push(mip0_storage);
@@ -731,7 +731,7 @@ fn encode_prefilter_mips(ctx: PrefilterEncodeContext<'_>, resources: &mut Pendin
             pass.set_pipeline(&ctx.pipeline.pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(dispatch_groups(dst_size), dispatch_groups(dst_size), 6);
-        }
+        };
         resources.buffers.push(params_buffer);
         resources.bind_groups.push(bind_group);
         resources.texture_views.push(dst_view);
@@ -828,15 +828,15 @@ mod tests {
     #[test]
     fn generated_cube_face_corners_keep_expected_signs() {
         assert_eq!(
-            cube_dir_for_test(0, 0, 0, 2).map(|component| component.signum()),
+            cube_dir_for_test(0, 0, 0, 2).map(f32::signum),
             [1.0, 1.0, 1.0]
         );
         assert_eq!(
-            cube_dir_for_test(1, 0, 0, 2).map(|component| component.signum()),
+            cube_dir_for_test(1, 0, 0, 2).map(f32::signum),
             [-1.0, 1.0, -1.0]
         );
         assert_eq!(
-            cube_dir_for_test(5, 0, 0, 2).map(|component| component.signum()),
+            cube_dir_for_test(5, 0, 0, 2).map(f32::signum),
             [1.0, 1.0, -1.0]
         );
     }

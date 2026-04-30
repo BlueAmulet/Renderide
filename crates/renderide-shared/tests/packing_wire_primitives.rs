@@ -20,7 +20,7 @@ fn pack_unpack_bool_roundtrip() {
         p.write_bool(true);
         p.write_bool(false);
         assert_eq!(full - p.remaining_len(), 2);
-    }
+    };
     let mut pool = DefaultEntityPool;
     let mut u = MemoryUnpacker::new(&buf[..2], &mut pool);
     assert!(u.read_bool().expect("bool"));
@@ -34,7 +34,7 @@ fn pack_unpack_i32_and_u8_roundtrip() {
         let mut p = MemoryPacker::new(&mut buf);
         p.write(&42i32);
         p.write(&0xabu8);
-    }
+    };
     let mut pool = DefaultEntityPool;
     let mut u = MemoryUnpacker::new(&buf, &mut pool);
     assert_eq!(u.read::<i32>().expect("i32"), 42);
@@ -48,7 +48,7 @@ fn pack_unpack_option_roundtrip() {
         let mut p = MemoryPacker::new(&mut buf);
         p.write_option::<i32>(None);
         p.write_option(Some(&7i32));
-    }
+    };
     let mut pool = DefaultEntityPool;
     let mut u = MemoryUnpacker::new(&buf, &mut pool);
     assert_eq!(u.read_option::<i32>().expect("opt"), None);
@@ -126,7 +126,7 @@ fn write_packed_bools_array_roundtrips_through_unpacker() {
     {
         let mut p = MemoryPacker::new(&mut buf);
         p.write_packed_bools_array(pattern);
-    }
+    };
     let mut pool = DefaultEntityPool;
     let mut u = MemoryUnpacker::new(&buf[..1], &mut pool);
     let got = u.read_packed_bools().expect("packed");
@@ -160,7 +160,7 @@ fn pack_unpack_value_list_none_writes_zero_count() {
     {
         let mut p = MemoryPacker::new(&mut buf);
         p.write_value_list::<u8>(None);
-    }
+    };
     let mut pool = DefaultEntityPool;
     let mut u = MemoryUnpacker::new(&buf[..4], &mut pool);
     let got: Vec<u8> = u.read_value_list().expect("ok");
@@ -358,7 +358,7 @@ fn read_value_list_negative_count_yields_empty_vec() {
     {
         let mut p = MemoryPacker::new(&mut buf);
         p.write(&-1i32);
-    }
+    };
     let mut pool = DefaultEntityPool;
     let mut u = MemoryUnpacker::new(&buf, &mut pool);
     let got: Vec<u8> = u.read_value_list().expect("decoded");
@@ -374,7 +374,7 @@ fn read_string_list_giant_count_returns_underrun_without_oom() {
     {
         let mut p = MemoryPacker::new(&mut buf);
         p.write(&1_000_000i32);
-    }
+    };
     let mut pool = DefaultEntityPool;
     let mut u = MemoryUnpacker::new(&buf, &mut pool);
     let err = u.read_string_list().unwrap_err();
@@ -409,7 +409,7 @@ fn read_str_rejects_length_above_max() {
         let mut p = MemoryPacker::new(&mut buf);
         let oversized = (MAX_STRING_LEN + 1) as i32;
         p.write(&oversized);
-    }
+    };
     let mut pool = DefaultEntityPool;
     let mut u = MemoryUnpacker::new(&buf, &mut pool);
     let err = u.read_str().unwrap_err();

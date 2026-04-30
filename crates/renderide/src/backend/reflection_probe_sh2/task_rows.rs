@@ -38,7 +38,7 @@ impl TaskAnswer {
 
 /// Stride of a host SH2 task row.
 pub(super) fn task_stride() -> usize {
-    std::mem::size_of::<ReflectionProbeSH2Task>()
+    size_of::<ReflectionProbeSH2Task>()
 }
 
 /// Reads the two index fields from one SH2 task row.

@@ -90,7 +90,7 @@ impl PngStabilityState {
     }
 
     /// Floor on the post-submit wait before any PNG is accepted; exposed for deadline computation.
-    pub(super) fn min_wall_after_submit(&self) -> Duration {
+    pub(super) const fn min_wall_after_submit(&self) -> Duration {
         self.min_wall_after_submit
     }
 
@@ -102,7 +102,7 @@ impl PngStabilityState {
 
     /// Mtime most recently considered as a stability candidate (`None` if none seen yet).
     /// Exposed for log-line context.
-    pub(super) fn last_seen_mtime(&self) -> Option<SystemTime> {
+    pub(super) const fn last_seen_mtime(&self) -> Option<SystemTime> {
         self.last_seen_mtime
     }
 

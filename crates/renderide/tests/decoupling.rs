@@ -14,7 +14,7 @@ use std::time::Instant;
 use renderide::frontend::RendererFrontend;
 use renderide::shared::RenderDecouplingConfig;
 
-fn cfg(interval: f32, decoupled_max: f32, recouple: i32) -> RenderDecouplingConfig {
+const fn cfg(interval: f32, decoupled_max: f32, recouple: i32) -> RenderDecouplingConfig {
     RenderDecouplingConfig {
         decouple_activate_interval: interval,
         decoupled_max_asset_processing_time: decoupled_max,

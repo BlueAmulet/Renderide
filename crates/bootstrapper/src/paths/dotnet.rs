@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 /// Prefers bundled `dotnet-runtime` under the Resonite folder (`dotnet.exe` then `dotnet` on Windows),
 /// else `dotnet` on `PATH`.
-pub(crate) fn find_dotnet_for_host(resonite_dir: &Path) -> PathBuf {
+pub fn find_dotnet_for_host(resonite_dir: &Path) -> PathBuf {
     let candidates: Vec<PathBuf> = {
         #[cfg(windows)]
         {

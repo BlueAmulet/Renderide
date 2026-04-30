@@ -151,8 +151,7 @@ pub(super) fn choose_mip_start_bias(
     }
     if best_prefix == 0 {
         return Err(TextureUploadError::from(format!(
-            "mip region exceeds shared memory descriptor (payload_len={}, descriptor_offset={})",
-            payload_len, offset_bias
+            "mip region exceeds shared memory descriptor (payload_len={payload_len}, descriptor_offset={offset_bias})"
         )));
     }
     Ok((best_bias, best_prefix))
@@ -173,7 +172,7 @@ pub(super) fn valid_mip_prefix_len(
         let w = sz.x as u32;
         let h = sz.y as u32;
         let host_len = mip_byte_len(format, w, h).ok_or_else(|| {
-            TextureUploadError::from(format!("mip byte size unsupported for {:?}", format))
+            TextureUploadError::from(format!("mip byte size unsupported for {format:?}"))
         })? as usize;
         let start_raw = upload.mip_starts[i];
         if start_raw < 0 {
@@ -186,8 +185,7 @@ pub(super) fn valid_mip_prefix_len(
         let start_rel = start_abs - bias;
         let Some(start) = host_mip_payload_byte_offset(format, start_rel) else {
             return Err(TextureUploadError::from(format!(
-                "mip {i}: could not convert mip_starts offset to bytes for {:?}",
-                format
+                "mip {i}: could not convert mip_starts offset to bytes for {format:?}"
             )));
         };
         if start
@@ -307,8 +305,7 @@ pub(super) fn mip_src_to_upload_pixels(
         }
     } else if needs_rgba8_decode {
         Err(TextureUploadError::from(format!(
-            "host {:?} must use RGBA decode but GPU format is {:?}",
-            fmt_format, wgpu_format
+            "host {fmt_format:?} must use RGBA decode but GPU format is {wgpu_format:?}"
         )))
     } else if flip_y && !host_format_is_compressed(fmt_format) {
         let mut v = mip_src.to_vec();
@@ -612,7 +609,7 @@ pub(super) fn copy_layout_for_mip(
     let (bw, bh) = format.block_dimensions();
     let block_bytes = format
         .block_copy_size(None)
-        .ok_or_else(|| TextureUploadError::from(format!("no block copy size for {:?}", format)))?;
+        .ok_or_else(|| TextureUploadError::from(format!("no block copy size for {format:?}")))?;
     if bw == 1 && bh == 1 {
         let bpp = block_bytes as usize;
         let bpr = bpp

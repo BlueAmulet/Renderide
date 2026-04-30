@@ -12,7 +12,7 @@ use crate::config::ResoBootConfig;
 use crate::paths;
 
 /// Removes `Microsoft.WindowsDesktop.App` from `runtimeOptions.frameworks` for Wine compatibility.
-pub(crate) fn strip_windows_desktop_from_runtime_config(path: &Path) {
+pub fn strip_windows_desktop_from_runtime_config(path: &Path) {
     if !path.exists() {
         return;
     }
@@ -59,7 +59,7 @@ pub(crate) fn strip_windows_desktop_from_runtime_config(path: &Path) {
 }
 
 /// Drains a reader into a log file line-by-line with a prefix.
-pub(crate) fn spawn_output_drainer(
+pub fn spawn_output_drainer(
     log_path: PathBuf,
     reader: impl Read + Send + 'static,
     prefix: &'static str,
@@ -121,10 +121,10 @@ pub fn set_host_above_normal_priority(child: &Child) {
 }
 
 #[cfg(not(windows))]
-pub(crate) fn set_host_above_normal_priority(_child: &Child) {}
+pub const fn set_host_above_normal_priority(_child: &Child) {}
 
 /// Spawns the Renderite Host and registers it with `lifetime`.
-pub(crate) fn spawn_host(
+pub fn spawn_host(
     config: &ResoBootConfig,
     args: &[String],
     lifetime: &ChildLifetimeGroup,

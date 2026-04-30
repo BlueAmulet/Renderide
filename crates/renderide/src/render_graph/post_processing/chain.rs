@@ -347,7 +347,7 @@ mod tests {
         let settings = PostProcessingSettings {
             enabled: true,
             tonemap: TonemapSettings {
-                mode: crate::config::TonemapMode::AcesFitted,
+                mode: TonemapMode::AcesFitted,
             },
             ..Default::default()
         };
@@ -411,7 +411,7 @@ mod tests {
         let mut s = PostProcessingSettings {
             enabled: false,
             tonemap: TonemapSettings {
-                mode: crate::config::TonemapMode::AcesFitted,
+                mode: TonemapMode::AcesFitted,
             },
             ..Default::default()
         };
@@ -424,7 +424,7 @@ mod tests {
         assert!(sig.bloom);
         assert_eq!(sig.active_count(), 3);
 
-        s.tonemap.mode = crate::config::TonemapMode::None;
+        s.tonemap.mode = TonemapMode::None;
         assert!(PostProcessChainSignature::from_settings(&s).gtao);
         assert!(PostProcessChainSignature::from_settings(&s).bloom);
         s.gtao.enabled = false;
@@ -437,7 +437,7 @@ mod tests {
         let mut s = PostProcessingSettings {
             enabled: true,
             tonemap: TonemapSettings {
-                mode: crate::config::TonemapMode::None,
+                mode: TonemapMode::None,
             },
             ..Default::default()
         };
@@ -460,7 +460,7 @@ mod tests {
         let mut s = PostProcessingSettings {
             enabled: true,
             tonemap: TonemapSettings {
-                mode: crate::config::TonemapMode::None,
+                mode: TonemapMode::None,
             },
             ..Default::default()
         };
@@ -486,7 +486,7 @@ mod tests {
         let mut s = PostProcessingSettings {
             enabled: true,
             tonemap: TonemapSettings {
-                mode: crate::config::TonemapMode::None,
+                mode: TonemapMode::None,
             },
             ..Default::default()
         };

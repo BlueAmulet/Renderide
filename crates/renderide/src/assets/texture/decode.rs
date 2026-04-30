@@ -266,7 +266,7 @@ fn rgb565_to_rgb8(c: u16) -> (u8, u8, u8) {
     (r, g, b)
 }
 
-fn decode_bc1_block(block: &[u8; 8], tile_rgba: &mut [u8; 64]) {
+fn decode_bc1_block(block: [u8; 8], tile_rgba: &mut [u8; 64]) {
     let c0 = u16::from_le_bytes([block[0], block[1]]);
     let c1 = u16::from_le_bytes([block[2], block[3]]);
     let bits = u32::from_le_bytes([block[4], block[5], block[6], block[7]]);
@@ -304,7 +304,7 @@ fn decode_bc1_block(block: &[u8; 8], tile_rgba: &mut [u8; 64]) {
     }
 }
 
-fn decode_bc3_alpha_block(block_alpha: &[u8; 8], out_alpha: &mut [u8; 16]) {
+fn decode_bc3_alpha_block(block_alpha: [u8; 8], out_alpha: &mut [u8; 16]) {
     let a0 = u32::from(block_alpha[0]);
     let a1 = u32::from(block_alpha[1]);
     let mut bits = 0u64;
@@ -356,7 +356,7 @@ fn decode_bc1_to_rgba8(width: usize, height: usize, raw: &[u8]) -> Option<Vec<u8
             let off = (byi * bx + bxi) * 8;
             let block: &[u8; 8] = raw.get(off..off + 8)?.try_into().ok()?;
             let mut tile = [0u8; 64];
-            decode_bc1_block(block, &mut tile);
+            decode_bc1_block(*block, &mut tile);
             for y in 0..4 {
                 for x in 0..4 {
                     let gx = bxi * 4 + x;
@@ -391,9 +391,9 @@ fn decode_bc3_to_rgba8(width: usize, height: usize, raw: &[u8]) -> Option<Vec<u8
             let alpha: &[u8; 8] = chunk.get(0..8)?.try_into().ok()?;
             let color: &[u8; 8] = chunk.get(8..16)?.try_into().ok()?;
             let mut tile = [0u8; 64];
-            decode_bc1_block(color, &mut tile);
+            decode_bc1_block(*color, &mut tile);
             let mut alphas = [0u8; 16];
-            decode_bc3_alpha_block(alpha, &mut alphas);
+            decode_bc3_alpha_block(*alpha, &mut alphas);
             for i in 0..16 {
                 tile[i * 4 + 3] = alphas[i];
             }
@@ -544,7 +544,7 @@ mod tests {
             tile[i * 4 + 2] = 127;
             tile[i * 4 + 3] = 42;
         }
-        super::swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
+        swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
         for i in 0..16 {
             assert_eq!(tile[i * 4], 42, "texel {i}");
             assert_eq!(tile[i * 4 + 1], 128);
@@ -562,7 +562,7 @@ mod tests {
             tile[i * 4 + 2] = 126;
             tile[i * 4 + 3] = 99;
         }
-        super::swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
+        swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
         for i in 0..16 {
             assert_eq!(tile[i * 4], 99, "texel {i}");
             assert_eq!(tile[i * 4 + 1], 128);
@@ -582,7 +582,7 @@ mod tests {
         }
         tile[0] = 200;
         let expected = tile;
-        super::swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
+        swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
         assert_eq!(tile, expected);
     }
 
@@ -596,14 +596,14 @@ mod tests {
             tile[i * 4 + 3] = 42;
         }
         let expected = tile;
-        super::swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
+        swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
         assert_eq!(tile, expected);
     }
 
     #[test]
     fn bc3nm_swizzle_all_white_rgba_unchanged_visual() {
         let mut tile = [255u8; 64];
-        super::swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
+        swizzle_bc3nm_normal_map_tile_if_detected(&mut tile);
         assert_eq!(tile, [255u8; 64]);
     }
 

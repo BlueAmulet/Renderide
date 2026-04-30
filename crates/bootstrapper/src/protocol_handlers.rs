@@ -13,7 +13,7 @@ use crate::protocol::{HostCommand, LoopAction};
 use crate::renderer_link;
 
 /// Extends the IPC watchdog deadline and logs receipt.
-pub(crate) fn handle_heartbeat(heartbeat_deadline: &Arc<Mutex<Instant>>) -> LoopAction {
+pub fn handle_heartbeat(heartbeat_deadline: &Arc<Mutex<Instant>>) -> LoopAction {
     if let Ok(mut d) = heartbeat_deadline.lock() {
         *d = Instant::now() + heartbeat_refresh_timeout();
     }
@@ -22,13 +22,13 @@ pub(crate) fn handle_heartbeat(heartbeat_deadline: &Arc<Mutex<Instant>>) -> Loop
 }
 
 /// Acknowledges shutdown; the queue loop sets `cancel` when this returns [`LoopAction::Break`].
-pub(crate) fn handle_shutdown() -> LoopAction {
+pub fn handle_shutdown() -> LoopAction {
     logger::info!("Got shutdown command");
     LoopAction::Break
 }
 
 /// Reads the system clipboard and enqueues UTF-8 bytes (empty string on failure).
-pub(crate) fn handle_get_text(outgoing: &mut Publisher) -> LoopAction {
+pub fn handle_get_text(outgoing: &mut Publisher) -> LoopAction {
     logger::info!("Getting clipboard text");
     let text = match arboard::Clipboard::new().and_then(|mut c| c.get_text()) {
         Ok(t) => t,
@@ -44,7 +44,7 @@ pub(crate) fn handle_get_text(outgoing: &mut Publisher) -> LoopAction {
 }
 
 /// Writes UTF-8 text to the system clipboard (best-effort).
-pub(crate) fn handle_set_text(text: &str) -> LoopAction {
+pub fn handle_set_text(text: &str) -> LoopAction {
     logger::info!("Setting clipboard text");
     if let Ok(mut clipboard) = arboard::Clipboard::new() {
         let _ = clipboard.set_text(text);
@@ -57,7 +57,7 @@ pub(crate) fn handle_set_text(text: &str) -> LoopAction {
 /// enqueues `RENDERITE_STARTED:{pid}`.
 ///
 /// If a renderer was already registered (restart), the previous process is killed and reaped first.
-pub(crate) fn handle_start_renderer(
+pub fn handle_start_renderer(
     renderer_args: &[String],
     outgoing: &mut Publisher,
     config: &ResoBootConfig,
@@ -117,7 +117,7 @@ pub(crate) fn handle_start_renderer(
 }
 
 /// Dispatches one parsed [`HostCommand`].
-pub(crate) fn dispatch_command(
+pub fn dispatch_command(
     cmd: HostCommand,
     outgoing: &mut Publisher,
     config: &ResoBootConfig,

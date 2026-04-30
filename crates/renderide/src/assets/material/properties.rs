@@ -125,8 +125,7 @@ impl MaterialPropertyStore {
         let m = self.material_generation(ids.material_asset_id);
         let pb = ids
             .mesh_property_block_slot0
-            .map(|b| self.property_block_generation(b))
-            .unwrap_or(0);
+            .map_or(0, |b| self.property_block_generation(b));
         m ^ pb.rotate_left(17)
     }
 

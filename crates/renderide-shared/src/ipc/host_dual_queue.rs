@@ -44,10 +44,10 @@ impl HostDualQueueIpc {
     pub fn connect(params: &ConnectionParams) -> Result<Self, InitError> {
         let factory = QueueFactory::new();
         let cap = params.queue_capacity;
-        let primary_pub = open_authority_publisher(&factory, params, "Primary", cap)?;
-        let background_pub = open_authority_publisher(&factory, params, "Background", cap)?;
-        let primary_sub = open_authority_subscriber(&factory, params, "Primary", cap)?;
-        let background_sub = open_authority_subscriber(&factory, params, "Background", cap)?;
+        let primary_pub = open_authority_publisher(factory, params, "Primary", cap)?;
+        let background_pub = open_authority_publisher(factory, params, "Background", cap)?;
+        let primary_sub = open_authority_subscriber(factory, params, "Primary", cap)?;
+        let background_sub = open_authority_subscriber(factory, params, "Background", cap)?;
         Ok(Self {
             primary_publisher: primary_pub,
             background_publisher: background_pub,
@@ -105,7 +105,7 @@ impl HostDualQueueIpc {
 
 /// Authority-side publisher: opens the `…A` queue (renderer subscribes here).
 fn open_authority_publisher(
-    factory: &QueueFactory,
+    factory: QueueFactory,
     params: &ConnectionParams,
     channel: &str,
     capacity: i64,
@@ -121,7 +121,7 @@ fn open_authority_publisher(
 
 /// Authority-side subscriber: opens the `…S` queue (renderer publishes here).
 fn open_authority_subscriber(
-    factory: &QueueFactory,
+    factory: QueueFactory,
     params: &ConnectionParams,
     channel: &str,
     capacity: i64,

@@ -20,7 +20,7 @@
 mod pipeline;
 
 use std::num::NonZeroU32;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use pipeline::{MsaaResolveHdrPipelineCache, ResolveParamsUbo};
 
@@ -95,8 +95,9 @@ impl WorldMeshForwardColorResolvePass {
 }
 
 fn pipeline_cache() -> &'static MsaaResolveHdrPipelineCache {
-    static CACHE: OnceLock<MsaaResolveHdrPipelineCache> = OnceLock::new();
-    CACHE.get_or_init(MsaaResolveHdrPipelineCache::default)
+    static CACHE: LazyLock<MsaaResolveHdrPipelineCache> =
+        LazyLock::new(MsaaResolveHdrPipelineCache::default);
+    &CACHE
 }
 
 /// Returns whether a runtime view needs this MSAA color resolve draw.
@@ -142,7 +143,7 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
                 },
                 Option::<ImportedTextureHandle>::None,
             );
-        }
+        };
         Ok(())
     }
 

@@ -145,9 +145,9 @@ fn prepared_run_view_state(
             world_matrix_for_local_vertex_stream(ctx, first.space_id, first.node_id);
     }
     let front_face = front_face_for_world_matrix(rigid_world_matrix);
-    let alpha_distance_sq = rigid_world_matrix
-        .map(|m| (m.col(3).truncate() - ctx.view_origin_world).length_squared())
-        .unwrap_or(0.0);
+    let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
+        (m.col(3).truncate() - ctx.view_origin_world).length_squared()
+    });
     (
         Some(PreparedRunViewState {
             rigid_world_matrix,

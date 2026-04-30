@@ -31,7 +31,7 @@ impl PosixSemaphore {
         #[cfg(not(target_os = "macos"))]
         {
             full_name = format!("/ct.ip.{memory_view_name}");
-        }
+        };
         #[cfg(target_os = "macos")]
         {
             let path_for_hash = format!("/ct.ip.{memory_view_name}");
@@ -71,7 +71,7 @@ impl PosixSemaphore {
                 self.queue_name,
                 err
             );
-            debug_assert!(false, "sem_post: {:?}", err);
+            debug_assert!(false, "sem_post: {err:?}");
         }
     }
 
@@ -128,11 +128,11 @@ impl PosixSemaphore {
         }
         let clamped = timeout.min(MAX_WAIT_DURATION);
         let add_ns = clamped.as_nanos() as i128;
-        let cur_ns = ts.tv_sec as i128 * 1_000_000_000i128 + ts.tv_nsec as i128;
+        let cur_ns = i128::from(ts.tv_sec) * 1_000_000_000i128 + i128::from(ts.tv_nsec);
         let deadline_ns = cur_ns.saturating_add(add_ns);
         let d_sec = deadline_ns.div_euclid(1_000_000_000);
         let d_nsec = deadline_ns.rem_euclid(1_000_000_000);
-        if d_sec > i64::MAX as i128 || d_sec < i64::MIN as i128 {
+        if d_sec > i128::from(i64::MAX) || d_sec < i128::from(i64::MIN) {
             return false;
         }
         ts.tv_sec = d_sec as libc::time_t;

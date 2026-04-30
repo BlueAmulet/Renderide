@@ -17,8 +17,7 @@ impl Range {
     pub fn first_element_index(self, element_stride_bytes: u64) -> u32 {
         self.offset_bytes
             .checked_div(element_stride_bytes)
-            .map(|v| v.min(u32::MAX as u64) as u32)
-            .unwrap_or(0)
+            .map_or(0, |v| v.min(u64::from(u32::MAX)) as u32)
     }
 
     /// Number of elements of `element_stride_bytes` that fit in this range (may truncate if `len_bytes` is not a multiple).
@@ -28,7 +27,7 @@ impl Range {
             return 0;
         }
         let n = self.len_bytes / element_stride_bytes;
-        n.min(u32::MAX as u64) as u32
+        n.min(u64::from(u32::MAX)) as u32
     }
 
     /// Half-open byte range for [`wgpu::Buffer::slice`].

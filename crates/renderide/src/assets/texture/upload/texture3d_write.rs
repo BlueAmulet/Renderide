@@ -46,8 +46,7 @@ fn texture3d_chain_byte_offset_to_level(
         let (lw, lh, ld) = mip_dimensions_at_level_3d(base_w, base_h, base_d, l);
         let slice = mip_byte_len(format, lw, lh).ok_or_else(|| {
             TextureUploadError::from(format!(
-                "texture3d {}: mip byte size unsupported for {:?}",
-                asset_id, format
+                "texture3d {asset_id}: mip byte size unsupported for {format:?}"
             ))
         })? as usize;
         let vol = slice
@@ -133,8 +132,7 @@ fn texture3d_mip_to_upload_pixels(
                 let decoded =
                     decode_mip_to_rgba8(fmt_format, w, h, false, slice_raw).ok_or_else(|| {
                         TextureUploadError::from(format!(
-                            "texture3d {}: RGBA decode failed mip {level_idx}",
-                            asset_id
+                            "texture3d {asset_id}: RGBA decode failed mip {level_idx}"
                         ))
                     })?;
                 out.extend_from_slice(&decoded);
@@ -147,8 +145,7 @@ fn texture3d_mip_to_upload_pixels(
     } else {
         if needs_rgba8_decode {
             return Err(TextureUploadError::from(format!(
-                "texture3d {}: host {:?} must decode to RGBA but GPU format is {:?}",
-                asset_id, fmt_format, wgpu_format
+                "texture3d {asset_id}: host {fmt_format:?} must decode to RGBA but GPU format is {wgpu_format:?}"
             )));
         }
         mip_src.to_vec()
@@ -369,7 +366,7 @@ impl Texture3dMipChainUploader {
         let asset_id = upload.asset_id;
         let fmt_format = fmt.format;
         let needs_rgba8_decode = needs_rgba8_decode_before_upload(device, fmt_format);
-        let payload_arc = std::sync::Arc::clone(payload);
+        let payload_arc = Arc::clone(payload);
 
         let ctx = MipUploadFormatCtx {
             asset_id,
@@ -427,7 +424,7 @@ pub fn write_texture3d_mips(ctx: &Texture3dUploadContext<'_>) -> Result<u32, Tex
             ctx.raw.len()
         )));
     }
-    let payload = std::sync::Arc::from(&ctx.raw[..want]);
+    let payload = Arc::from(&ctx.raw[..want]);
     let mut uploader = Texture3dMipChainUploader::new(ctx.texture, ctx.fmt, ctx.upload, ctx.raw)?;
     loop {
         match uploader.upload_next_mip(Texture3dMipUploadStep {

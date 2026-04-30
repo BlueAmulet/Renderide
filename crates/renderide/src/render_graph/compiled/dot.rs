@@ -119,7 +119,12 @@ impl CompiledRenderGraph {
         let _ = writeln!(out, "    label=\"{title}\";");
         let _ = writeln!(out, "    style=dashed;");
         for (pass_idx, info) in self.pass_info.iter().enumerate() {
-            if self.passes.get(pass_idx).map(|p| p.phase()) != Some(phase) {
+            if self
+                .passes
+                .get(pass_idx)
+                .map(super::super::pass::node::PassNode::phase)
+                != Some(phase)
+            {
                 continue;
             }
             let name = escape_label(&info.name);
@@ -260,11 +265,11 @@ mod tests {
             source: BufferImportSource::BackendFrameResource(
                 crate::render_graph::resources::BackendFrameBufferKind::FrameUniforms,
             ),
-            initial_access: crate::render_graph::resources::BufferAccess::Uniform {
+            initial_access: BufferAccess::Uniform {
                 stages: wgpu::ShaderStages::FRAGMENT,
                 dynamic_offset: false,
             },
-            final_access: crate::render_graph::resources::BufferAccess::Uniform {
+            final_access: BufferAccess::Uniform {
                 stages: wgpu::ShaderStages::FRAGMENT,
                 dynamic_offset: false,
             },
@@ -290,7 +295,7 @@ mod tests {
                     },
                     None::<ImportedTextureHandle>,
                 );
-            }
+            };
             Ok(())
         }
         fn record(
@@ -315,7 +320,7 @@ mod tests {
             b.cull_exempt();
             b.import_buffer(
                 self.1,
-                crate::render_graph::resources::BufferAccess::Uniform {
+                BufferAccess::Uniform {
                     stages: wgpu::ShaderStages::COMPUTE,
                     dynamic_offset: false,
                 },

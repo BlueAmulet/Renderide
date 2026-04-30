@@ -14,7 +14,7 @@
 mod pipeline;
 
 use std::num::NonZeroU32;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use pipeline::{GtaoParamsGpu, GtaoPipelineCache};
 
@@ -75,8 +75,8 @@ impl GtaoPass {
 
 /// Process-wide pipeline cache shared by every GTAO pass instance.
 fn gtao_pipelines() -> &'static GtaoPipelineCache {
-    static CACHE: OnceLock<GtaoPipelineCache> = OnceLock::new();
-    CACHE.get_or_init(GtaoPipelineCache::default)
+    static CACHE: LazyLock<GtaoPipelineCache> = LazyLock::new(GtaoPipelineCache::default);
+    &CACHE
 }
 
 impl RasterPass for GtaoPass {
@@ -162,8 +162,7 @@ impl RasterPass for GtaoPass {
         let settings = ctx
             .blackboard
             .get::<GtaoSettingsSlot>()
-            .map(|slot| slot.0)
-            .unwrap_or(self.settings);
+            .map_or(self.settings, |slot| slot.0);
         let params = GtaoParamsGpu {
             radius_world: settings.radius_meters.max(0.0),
             max_pixel_radius: settings.max_pixel_radius.max(1.0),
@@ -204,8 +203,7 @@ fn output_attachment_format(
 ) -> wgpu::TextureFormat {
     graph_resources
         .transient_texture(output)
-        .map(|t| t.texture.format())
-        .unwrap_or(wgpu::TextureFormat::Rgba16Float)
+        .map_or(wgpu::TextureFormat::Rgba16Float, |t| t.texture.format())
 }
 
 /// Effect descriptor that contributes a [`GtaoPass`] to the post-processing chain.

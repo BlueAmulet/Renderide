@@ -17,7 +17,7 @@ fn main() {
         )]
         {
             eprintln!("renderide build.rs: {e:#}");
-        }
+        };
         std::process::exit(1);
     }
 }

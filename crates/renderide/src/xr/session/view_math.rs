@@ -149,7 +149,8 @@ pub fn tracking_space_to_world_matrix(
         return render_transform_to_matrix(root_transform);
     }
     let center_from_tracking = center_pose_tracking
-        .map(|(position, rotation)| Mat4::from_rotation_translation(rotation, position))
-        .unwrap_or(Mat4::IDENTITY);
+        .map_or(Mat4::IDENTITY, |(position, rotation)| {
+            Mat4::from_rotation_translation(rotation, position)
+        });
     render_transform_to_matrix(view_transform) * center_from_tracking.inverse()
 }

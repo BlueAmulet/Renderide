@@ -12,7 +12,7 @@ pub const RENDERIDE_INTERPROCESS_DIR_ENV: &str = "RENDERIDE_INTERPROCESS_DIR";
 
 /// Composes the memory view name per Renderite `Helper.ComposeMemoryViewName` (prefix + hex id).
 pub fn compose_memory_view_name(prefix: &str, buffer_id: i32) -> String {
-    format!("{}_{:X}", prefix, buffer_id)
+    format!("{prefix}_{buffer_id:X}")
 }
 
 /// Unix-only: resolved directory containing `{composed}.qu` backing files.
@@ -20,8 +20,7 @@ pub fn compose_memory_view_name(prefix: &str, buffer_id: i32) -> String {
 pub(super) fn unix_mmf_backing_dir() -> PathBuf {
     std::env::var_os(RENDERIDE_INTERPROCESS_DIR_ENV)
         .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(interprocess::default_memory_dir)
+        .map_or_else(interprocess::default_memory_dir, PathBuf::from)
 }
 
 /// Full path to the `.qu` file for a buffer on Unix.

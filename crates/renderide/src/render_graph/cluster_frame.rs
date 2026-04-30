@@ -317,10 +317,9 @@ impl CommonClusterInputs {
                 .active_main_space()
                 .map(|space| space.root_transform.scale),
         );
-        let scene_view = scene
-            .active_main_space()
-            .map(|s| view_matrix_from_render_transform(&s.view_transform))
-            .unwrap_or(Mat4::IDENTITY);
+        let scene_view = scene.active_main_space().map_or(Mat4::IDENTITY, |s| {
+            view_matrix_from_render_transform(&s.view_transform)
+        });
         let aspect = vw as f32 / vh.max(1) as f32;
         let fov_rad = clamp_desktop_fov_degrees(host_camera.desktop_fov_degrees).to_radians();
         let cluster_count_x = vw.div_ceil(TILE_SIZE);

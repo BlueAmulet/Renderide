@@ -17,7 +17,7 @@ use super::super::WorldMeshForwardGraphResources;
 pub(crate) fn encode_world_mesh_forward_depth_snapshot(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    frame: &mut FrameRenderParams<'_>,
+    frame: &FrameRenderParams<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
     msaa_views: Option<&ForwardMsaaResolvedViews>,
     msaa_depth_resolve: Option<&MsaaDepthResolveResources>,

@@ -106,8 +106,7 @@ impl RasterPass for BloomDownsampleFirstPass {
         let settings = ctx
             .blackboard
             .get::<BloomSettingsSlot>()
-            .map(|slot| slot.0)
-            .unwrap_or(self.fallback_settings);
+            .map_or(self.fallback_settings, |slot| slot.0);
         let params = BloomParamsGpu::from_settings(&settings);
         let params_buffer = self.pipelines.params_buffer(ctx.device);
         ctx.upload_batch

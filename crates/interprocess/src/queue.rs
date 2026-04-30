@@ -14,7 +14,7 @@ pub struct QueueFactory;
 
 impl QueueFactory {
     /// Creates a factory with no state; matches the managed `QueueFactory` usage pattern.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 

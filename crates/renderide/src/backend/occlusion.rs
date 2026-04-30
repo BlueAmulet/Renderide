@@ -172,7 +172,7 @@ impl OcclusionSystem {
             let mut main = self.main.lock();
             main.drain_completed_map_async();
             main.start_ready_maps();
-        }
+        };
         let offscreen = self.offscreen.lock();
         for slot in offscreen.values() {
             let mut state = slot.lock();
@@ -236,15 +236,12 @@ mod tests {
     #[test]
     fn ensure_hi_z_state_is_thread_safe_for_shared_view() {
         let system = Arc::new(OcclusionSystem::new());
-        let threads: Vec<_> = (0..8)
+
+        let first = (0..8)
             .map(|_| {
                 let system = Arc::clone(&system);
                 std::thread::spawn(move || system.ensure_hi_z_state(secondary_view(99, 0)))
             })
-            .collect();
-
-        let first = threads
-            .into_iter()
             .map(|thread| thread.join().expect("thread should finish"))
             .reduce(|first, next| {
                 assert!(Arc::ptr_eq(&first, &next));

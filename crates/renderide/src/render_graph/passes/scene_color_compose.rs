@@ -6,7 +6,7 @@
 mod pipeline;
 
 use std::num::NonZeroU32;
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use pipeline::SceneColorComposePipelineCache;
 
@@ -48,8 +48,9 @@ impl SceneColorComposePass {
 }
 
 fn compose_pipelines() -> &'static SceneColorComposePipelineCache {
-    static CACHE: OnceLock<SceneColorComposePipelineCache> = OnceLock::new();
-    CACHE.get_or_init(SceneColorComposePipelineCache::default)
+    static CACHE: LazyLock<SceneColorComposePipelineCache> =
+        LazyLock::new(SceneColorComposePipelineCache::default);
+    &CACHE
 }
 
 impl RasterPass for SceneColorComposePass {

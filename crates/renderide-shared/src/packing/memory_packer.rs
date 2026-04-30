@@ -27,7 +27,7 @@ pub struct MemoryPacker<'a> {
 
 impl<'a> MemoryPacker<'a> {
     /// Wraps `buffer`; writing advances an internal cursor toward the end of the slice.
-    pub fn new(buffer: &'a mut [u8]) -> Self {
+    pub const fn new(buffer: &'a mut [u8]) -> Self {
         Self {
             buffer,
             overflow: None,
@@ -35,17 +35,17 @@ impl<'a> MemoryPacker<'a> {
     }
 
     /// Returns how many bytes were written relative to the original full slice length.
-    pub fn compute_length(&self, original_buffer: &[u8]) -> i32 {
+    pub const fn compute_length(&self, original_buffer: &[u8]) -> i32 {
         (original_buffer.len() - self.buffer.len()) as i32
     }
 
     /// Bytes not yet consumed at the front of the backing slice.
-    pub fn remaining_len(&self) -> usize {
+    pub const fn remaining_len(&self) -> usize {
         self.buffer.len()
     }
 
     /// Returns `true` once any write has failed because the buffer ran out of space.
-    pub fn had_overflow(&self) -> bool {
+    pub const fn had_overflow(&self) -> bool {
         self.overflow.is_some()
     }
 
@@ -53,7 +53,7 @@ impl<'a> MemoryPacker<'a> {
     ///
     /// The byte count is computed against `original_buffer` (the same slice handed to
     /// [`MemoryPacker::new`]); pass that through if the caller needs to send the prefix length.
-    pub fn into_result(self, original_buffer: &[u8]) -> Result<i32, MemoryPackError> {
+    pub const fn into_result(self, original_buffer: &[u8]) -> Result<i32, MemoryPackError> {
         if let Some(err) = self.overflow {
             return Err(err);
         }
@@ -61,13 +61,13 @@ impl<'a> MemoryPacker<'a> {
     }
 
     /// Returns the captured [`MemoryPackError`] if the encode overflowed.
-    pub fn overflow_error(&self) -> Option<MemoryPackError> {
+    pub const fn overflow_error(&self) -> Option<MemoryPackError> {
         self.overflow
     }
 
     /// Writes one byte: `1` for true, `0` for false.
     pub fn write_bool(&mut self, value: bool) {
-        self.write(&(value as u8));
+        self.write(&u8::from(value));
     }
 
     /// Writes a plain data value with potentially unaligned storage (safe for shared-memory views).
@@ -130,14 +130,14 @@ impl<'a> MemoryPacker<'a> {
     ///
     /// `SharedTypeGenerator` emits `packer.write_packed_bools_array([...])` for packed-bool fields in the generated shared types.
     pub fn write_packed_bools_array(&mut self, bits: [bool; 8]) {
-        let byte = (bits[0] as u8)
-            | (bits[1] as u8) << 1
-            | (bits[2] as u8) << 2
-            | (bits[3] as u8) << 3
-            | (bits[4] as u8) << 4
-            | (bits[5] as u8) << 5
-            | (bits[6] as u8) << 6
-            | (bits[7] as u8) << 7;
+        let byte = u8::from(bits[0])
+            | u8::from(bits[1]) << 1
+            | u8::from(bits[2]) << 2
+            | u8::from(bits[3]) << 3
+            | u8::from(bits[4]) << 4
+            | u8::from(bits[5]) << 5
+            | u8::from(bits[6]) << 6
+            | u8::from(bits[7]) << 7;
         self.write(&byte);
     }
 
@@ -169,7 +169,7 @@ impl<'a> MemoryPacker<'a> {
     where
         F: FnMut(&mut MemoryPacker<'a>, &T),
     {
-        let count = list.map(<[T]>::len).unwrap_or(0) as i32;
+        let count = list.map_or(0, <[T]>::len) as i32;
         self.write(&count);
         if let Some(list) = list {
             for item in list {
@@ -180,7 +180,7 @@ impl<'a> MemoryPacker<'a> {
 
     /// Object list: count then each element packed in order.
     pub fn write_object_list<T: MemoryPackable>(&mut self, list: Option<&mut [T]>) {
-        let count = list.as_deref().map(<[T]>::len).unwrap_or(0) as i32;
+        let count = list.as_deref().map_or(0, <[T]>::len) as i32;
         self.write(&count);
         if let Some(list) = list {
             for item in list.iter_mut() {
@@ -191,7 +191,7 @@ impl<'a> MemoryPacker<'a> {
 
     /// Polymorphic list: count then each element’s `encode`.
     pub fn write_polymorphic_list<T: PolymorphicEncode>(&mut self, list: Option<&mut [T]>) {
-        let count = list.as_deref().map(<[T]>::len).unwrap_or(0) as i32;
+        let count = list.as_deref().map_or(0, <[T]>::len) as i32;
         self.write(&count);
         if let Some(list) = list {
             for item in list.iter_mut() {
@@ -202,7 +202,7 @@ impl<'a> MemoryPacker<'a> {
 
     /// Homogeneous POD list: count then each element.
     pub fn write_value_list<T: Pod>(&mut self, list: Option<&[T]>) {
-        let count = list.map(<[T]>::len).unwrap_or(0) as i32;
+        let count = list.map_or(0, <[T]>::len) as i32;
         self.write(&count);
         if let Some(list) = list {
             for item in list {
@@ -213,7 +213,7 @@ impl<'a> MemoryPacker<'a> {
 
     /// Like [`Self::write_value_list`] but each item is an enum stored as `i32`.
     pub fn write_enum_value_list<E: EnumRepr>(&mut self, list: Option<&[E]>) {
-        let count = list.map(<[E]>::len).unwrap_or(0) as i32;
+        let count = list.map_or(0, <[E]>::len) as i32;
         self.write(&count);
         if let Some(list) = list {
             for e in list {
@@ -224,7 +224,7 @@ impl<'a> MemoryPacker<'a> {
 
     /// List of nullable strings in host format.
     pub fn write_string_list(&mut self, list: Option<&[Option<&str>]>) {
-        let count = list.map(<[Option<&str>]>::len).unwrap_or(0) as i32;
+        let count = list.map_or(0, <[Option<&str>]>::len) as i32;
         self.write(&count);
         if let Some(list) = list {
             for s in list {

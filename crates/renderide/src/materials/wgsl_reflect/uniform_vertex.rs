@@ -12,11 +12,9 @@ use super::types::{
 
 /// `true` when `@group(1)` uniform struct includes `_IntersectColor` (PBS intersect materials).
 pub(super) fn material_uniform_requires_intersection_subpass(
-    material_uniform: &Option<ReflectedMaterialUniformBlock>,
+    material_uniform: Option<&ReflectedMaterialUniformBlock>,
 ) -> bool {
-    material_uniform
-        .as_ref()
-        .is_some_and(|u| u.fields.contains_key("_IntersectColor"))
+    material_uniform.is_some_and(|u| u.fields.contains_key("_IntersectColor"))
 }
 
 pub(super) fn reflect_group1_global_binding_names(module: &Module) -> HashMap<u32, String> {

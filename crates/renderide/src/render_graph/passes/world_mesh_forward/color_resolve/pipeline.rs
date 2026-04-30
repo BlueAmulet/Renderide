@@ -36,7 +36,7 @@ pub(super) struct ResolveParamsUbo {
 
 impl ResolveParamsUbo {
     /// Size in bytes of the WGSL `ResolveParams` struct (one `u32` plus 12 bytes of padding).
-    pub const SIZE: u64 = std::mem::size_of::<Self>() as u64;
+    pub const SIZE: u64 = size_of::<Self>() as u64;
 }
 
 /// GPU state shared across all MSAA color resolve invocations: bind layouts, pipelines, and the

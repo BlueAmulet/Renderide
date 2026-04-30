@@ -773,8 +773,18 @@ mod tests {
         };
 
         let state = material_render_state_for_lookup(&dict, lookup, &ids);
-        assert_eq!(state.depth_offset.map(|offset| offset.factor()), Some(-1.0));
-        assert_eq!(state.depth_offset.map(|offset| offset.units()), Some(-2));
+        assert_eq!(
+            state
+                .depth_offset
+                .map(super::super::render_state::MaterialDepthOffsetState::factor),
+            Some(-1.0)
+        );
+        assert_eq!(
+            state
+                .depth_offset
+                .map(super::super::render_state::MaterialDepthOffsetState::units),
+            Some(-2)
+        );
         let bias = state.depth_bias(7, 0.25);
         assert_eq!(bias.constant, 2);
         assert_eq!(bias.slope_scale, 1.0);

@@ -32,10 +32,9 @@ pub(crate) fn apply_frame_submit_fields(host_camera: &mut HostCameraFrame, data:
 
 /// Head-output matrix derived from the active main render space root (the host `HeadOutput` pose).
 pub(crate) fn head_output_from_active_main_space(scene: &SceneCoordinator) -> Mat4 {
-    scene
-        .active_main_space()
-        .map(|space| crate::scene::render_transform_to_matrix(&space.root_transform))
-        .unwrap_or(Mat4::IDENTITY)
+    scene.active_main_space().map_or(Mat4::IDENTITY, |space| {
+        crate::scene::render_transform_to_matrix(&space.root_transform)
+    })
 }
 
 /// Eye/camera world position derived from the active main render space's resolved view transform.

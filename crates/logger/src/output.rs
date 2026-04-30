@@ -175,9 +175,10 @@ fn write_line_locked(logger: &Logger, bytes: &[u8]) {
 /// returns `R::default()` so the logger remains a no-op rather than panicking.
 fn with_line_buf<R: Default>(f: impl FnOnce(&mut String) -> R) -> R {
     LINE_BUF
-        .try_with(|cell| match cell.try_borrow_mut() {
-            Ok(mut buf) => f(&mut buf),
-            Err(_) => {
+        .try_with(|cell| {
+            if let Ok(mut buf) = cell.try_borrow_mut() {
+                f(&mut buf)
+            } else {
                 let mut fallback = String::with_capacity(LINE_BUF_INITIAL_CAPACITY);
                 f(&mut fallback)
             }

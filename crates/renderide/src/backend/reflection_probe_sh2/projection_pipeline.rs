@@ -198,7 +198,7 @@ pub(super) fn encode_projection_job(
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.dispatch_workgroups(1, 1, 1);
-    }
+    };
     encoder.copy_buffer_to_buffer(&output, 0, &staging, 0, SH2_OUTPUT_BYTES);
 
     let tx = submit_done_tx.clone();

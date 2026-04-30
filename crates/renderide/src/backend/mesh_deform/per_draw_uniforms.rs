@@ -174,10 +174,7 @@ mod tests {
 
     #[test]
     fn padded_size_is_256() {
-        assert_eq!(
-            std::mem::size_of::<PaddedPerDrawUniforms>(),
-            PER_DRAW_UNIFORM_STRIDE
-        );
+        assert_eq!(size_of::<PaddedPerDrawUniforms>(), PER_DRAW_UNIFORM_STRIDE);
     }
 
     /// Forward pass WGSL uses `clip = view_proj * (model * local)`. Packing PV×model into

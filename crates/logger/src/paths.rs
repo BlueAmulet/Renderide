@@ -8,7 +8,7 @@ use crate::level::LogLevel;
 use crate::output;
 
 /// Environment variable that overrides the default `Renderide/logs` root directory.
-pub(crate) const LOGS_ROOT_ENV: &str = "RENDERIDE_LOGS_ROOT";
+pub const LOGS_ROOT_ENV: &str = "RENDERIDE_LOGS_ROOT";
 
 /// Failure to resolve the default `Renderide/logs` root from a crate manifest path.
 #[derive(Debug, thiserror::Error)]
@@ -36,7 +36,7 @@ pub enum LogComponent {
 
 impl LogComponent {
     /// Subdirectory name under `logs/` for this component.
-    pub fn subdir(self) -> &'static str {
+    pub const fn subdir(self) -> &'static str {
         match self {
             Self::Bootstrapper => "bootstrapper",
             Self::Host => "host",
@@ -92,10 +92,8 @@ pub fn logs_root() -> PathBuf {
         )]
         {
             eprintln!("Renderide logger: {e}; using fallback logs directory");
-        }
-        std::env::current_dir()
-            .map(|p| p.join("logs"))
-            .unwrap_or_else(|_| PathBuf::from("logs"))
+        };
+        std::env::current_dir().map_or_else(|_| PathBuf::from("logs"), |p| p.join("logs"))
     })
 }
 
