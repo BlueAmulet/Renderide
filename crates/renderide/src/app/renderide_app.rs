@@ -117,11 +117,10 @@ pub(crate) struct RenderideApp {
     cursor_output_tracking: CursorOutputTracking,
     /// OpenXR bootstrap plus stereo swapchain/depth and mirror blit when the Vulkan path succeeded.
     xr_session: Option<XrSessionBundle>,
-    /// Previous redraw instant for HUD FPS ([`crate::diagnostics::DebugHud`]).
-    hud_frame_last: Option<Instant>,
     /// Wall-clock start of the last [`Self::tick_frame`]; anchors desktop FPS caps so the cap
     /// is a true period between frame starts rather than an end-to-start spacing that would
-    /// add [`Self::tick_frame`]'s own duration on top of `1/cap`.
+    /// add [`Self::tick_frame`]'s own duration on top of `1/cap`. Also used in the prologue
+    /// to compute the HUD's wall-clock roundtrip from `frame_start - prev_frame_start`.
     last_frame_start: Option<Instant>,
     /// Wall-clock end of the previous [`Self::tick_frame`]; used only to emit the
     /// [`crate::profiling::plot_event_loop_idle_ms`] Tracy plot at the top of the next tick so
@@ -177,7 +176,6 @@ impl RenderideApp {
             input: WindowInputAccumulator::default(),
             cursor_output_tracking: CursorOutputTracking::default(),
             xr_session: None,
-            hud_frame_last: None,
             last_frame_start: None,
             previous_tick_end: None,
             external_shutdown,

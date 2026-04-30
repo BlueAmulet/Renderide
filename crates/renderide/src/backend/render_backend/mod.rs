@@ -629,9 +629,14 @@ impl RenderBackend {
         self.debug_hud.current_view_texture_2d_asset_ids()
     }
 
-    /// Updates pointer state and frame delta for the ImGui overlay.
-    pub fn set_debug_hud_frame_data(&mut self, input: DebugHudInput, frame_time_ms: f64) {
-        self.debug_hud.set_frame_data(input, frame_time_ms);
+    /// Updates pointer state for the ImGui overlay (called once per render_views).
+    pub fn set_debug_hud_input(&mut self, input: DebugHudInput) {
+        self.debug_hud.set_input(input);
+    }
+
+    /// Updates the wall-clock roundtrip (ms) for the HUD's FPS / Frame readout.
+    pub fn set_debug_hud_wall_frame_time_ms(&mut self, frame_time_ms: f64) {
+        self.debug_hud.set_wall_frame_time_ms(frame_time_ms);
     }
 
     /// Last inter-frame time in milliseconds supplied by the app for HUD FPS.

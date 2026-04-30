@@ -54,6 +54,12 @@ impl RenderideApp {
                 * 1000.0;
             crate::profiling::plot_event_loop_idle_ms(idle_ms);
         }
+        let wall_frame_time_ms = self
+            .last_frame_start
+            .map(|prev| frame_start.duration_since(prev).as_secs_f64() * 1000.0)
+            .unwrap_or(16.67);
+        self.runtime
+            .set_debug_hud_wall_frame_time_ms(wall_frame_time_ms);
         self.record_frame_tick_start(frame_start);
         self.sync_log_level_from_settings();
         self.runtime.tick_frame_wall_clock_begin(frame_start);
@@ -221,17 +227,9 @@ impl RenderideApp {
             }
         }
 
-        {
-            let now = Instant::now();
-            let ms = self
-                .hud_frame_last
-                .map(|time| now.duration_since(time).as_secs_f64() * 1000.0)
-                .unwrap_or(16.67);
-            self.hud_frame_last = Some(now);
-            let hud_in =
-                crate::diagnostics::DebugHudInput::from_winit(window.as_ref(), &mut self.input);
-            self.runtime.set_debug_hud_frame_data(hud_in, ms);
-        }
+        let hud_in =
+            crate::diagnostics::DebugHudInput::from_winit(window.as_ref(), &mut self.input);
+        self.runtime.set_debug_hud_input(hud_in);
 
         Some(hmd_projection_ended)
     }

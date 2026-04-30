@@ -16,13 +16,19 @@
 //!
 //! Both CPU and GPU values are populated **on the driver thread**, which means they may arrive
 //! after the originating winit tick has already ended its [`FrameCpuGpuTiming::end_frame`]. The
-//! HUD reads [`FrameCpuGpuTiming::last_completed_cpu_frame_ms`] /
-//! [`FrameCpuGpuTiming::last_completed_gpu_frame_ms`], which survive across [`Self::begin_frame`]
-//! so the overlay can keep showing the most recent completed numbers without blocking.
+//! HUD reads [`FrameCpuGpuTiming::last_completed_paired_frame_ms`], which is updated only when
+//! a CPU value and a GPU value have *both* arrived for the same `(generation, seq)` — that way
+//! the two numbers shown to the user always belong to the same frame, so the relationship
+//! `Frame ≥ max(CPU, GPU)` (in steady state) is observable on the overlay.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+/// Maximum number of pending submit→completion pairs retained while waiting for a matching
+/// `record_gpu_done`. The driver ring is bounded to a couple of frames; this generous cap
+/// covers transient spikes where multiple frames' submits land before any of them complete.
+const MAX_PENDING_PAIRS: usize = 16;
 
 /// Per-tick state for AAA-style CPU/GPU frame metrics (see [`GpuContext`](super::GpuContext)).
 #[derive(Debug, Default)]
@@ -39,17 +45,23 @@ pub struct FrameCpuGpuTiming {
     pending_real_submit_by_seq: HashMap<u32, Instant>,
     /// GPU duration (ms) per submit index, filled asynchronously by wgpu callbacks.
     pending_gpu_by_seq: HashMap<u32, f64>,
+    /// CPU ms keyed by `(generation, seq)` for submits whose `record_real_submit` has fired but
+    /// whose `record_gpu_done` callback has not yet arrived. Kept ordered by insertion so the
+    /// oldest entry is evicted first when [`MAX_PENDING_PAIRS`] is exceeded.
+    pending_paired_cpu_ms: VecDeque<((u64, u32), f64)>,
     /// CPU ms (frame_start → real `Queue::submit` return) for the current tick when the driver
     /// thread reported the last submit before [`Self::end_frame`] picked it up.
     pub(crate) cpu_frame_ms: Option<f64>,
     /// GPU ms (real `Queue::submit` return → completion callback) for the current tick when the
     /// callback arrived in time for [`Self::end_frame`].
     pub(crate) gpu_frame_ms: Option<f64>,
-    /// Most recent CPU frame ms reported by any driver-thread submit, regardless of generation.
-    /// Survives [`Self::begin_frame`] so the HUD always has a value to render.
-    pub(crate) last_completed_cpu_frame_ms: Option<f64>,
-    /// Most recent GPU frame ms reported by any completion callback, regardless of generation.
-    /// Survives [`Self::begin_frame`] so the HUD always has a value to render.
+    /// Most recent `(cpu_ms, gpu_ms)` pair where both values describe the *same* completed
+    /// submit. The HUD uses this so its CPU and GPU columns always belong to the same frame.
+    /// Survives [`Self::begin_frame`] so the overlay never goes blank.
+    pub(crate) last_completed_paired_frame_ms: Option<(f64, f64)>,
+    /// Most recent GPU frame ms reported by any completion callback, regardless of pairing.
+    /// Used by [`crate::gpu::GpuContext::last_completed_gpu_render_time_seconds`] for the IPC
+    /// `PerformanceState::render_time` field, which only needs the freshest GPU number.
     pub(crate) last_completed_gpu_frame_ms: Option<f64>,
 }
 
@@ -109,8 +121,10 @@ impl FrameCpuGpuTiming {
 
     /// Records that the driver thread has finished `Queue::submit` for `seq`.
     ///
-    /// Updates [`Self::last_completed_cpu_frame_ms`] unconditionally so the HUD never goes blank,
-    /// and folds the value into the per-tick `cpu_frame_ms` when the tick is still current.
+    /// Stages the CPU ms into [`Self::pending_paired_cpu_ms`] so a later
+    /// [`Self::record_gpu_done`] for the same `(generation, seq)` can publish a coherent
+    /// `(cpu_ms, gpu_ms)` pair, and folds the value into the per-tick `cpu_frame_ms` when the
+    /// tick is still current.
     fn record_real_submit(
         &mut self,
         submitted_generation: u64,
@@ -122,7 +136,11 @@ impl FrameCpuGpuTiming {
             .saturating_duration_since(frame_start)
             .as_secs_f64()
             * 1000.0;
-        self.last_completed_cpu_frame_ms = Some(cpu_ms);
+        if self.pending_paired_cpu_ms.len() >= MAX_PENDING_PAIRS {
+            self.pending_paired_cpu_ms.pop_front();
+        }
+        self.pending_paired_cpu_ms
+            .push_back(((submitted_generation, seq), cpu_ms));
         if submitted_generation != self.generation {
             return;
         }
@@ -133,8 +151,29 @@ impl FrameCpuGpuTiming {
     }
 
     /// Records the GPU side of a tracked submit when its completion callback fires.
+    ///
+    /// If a matching CPU ms is staged in [`Self::pending_paired_cpu_ms`] for the same
+    /// `(generation, seq)`, both values are published together as a frame-coherent pair on
+    /// [`Self::last_completed_paired_frame_ms`].
     fn record_gpu_done(&mut self, submitted_generation: u64, seq: u32, gpu_ms: f64) {
         self.last_completed_gpu_frame_ms = Some(gpu_ms);
+        let key = (submitted_generation, seq);
+        if let Some(pos) = self
+            .pending_paired_cpu_ms
+            .iter()
+            .position(|(k, _)| *k == key)
+        {
+            // Drain everything up to and including this entry: any older still-pending submits
+            // have effectively been overtaken by this completion, so dropping their staged CPU
+            // ms keeps the deque from growing across stalls.
+            let mut last_cpu_ms = None;
+            for _ in 0..=pos {
+                last_cpu_ms = self.pending_paired_cpu_ms.pop_front().map(|(_, ms)| ms);
+            }
+            if let Some(cpu_ms) = last_cpu_ms {
+                self.last_completed_paired_frame_ms = Some((cpu_ms, gpu_ms));
+            }
+        }
         if submitted_generation != self.generation {
             return;
         }
@@ -195,7 +234,7 @@ pub fn make_gpu_done_callback(
 
 #[cfg(test)]
 mod tests {
-    use super::FrameCpuGpuTiming;
+    use super::{FrameCpuGpuTiming, MAX_PENDING_PAIRS};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -213,36 +252,56 @@ mod tests {
         let cpu = t.cpu_frame_ms.expect("cpu_frame_ms");
         assert!((2.5..3.5).contains(&cpu), "cpu={cpu}");
         assert_eq!(t.gpu_frame_ms, Some(4.0));
+        let (paired_cpu, paired_gpu) = t.last_completed_paired_frame_ms.expect("paired");
+        assert!((2.5..3.5).contains(&paired_cpu), "paired_cpu={paired_cpu}");
+        assert_eq!(paired_gpu, 4.0);
         assert_eq!(t.last_completed_gpu_frame_ms, Some(4.0));
     }
 
     #[test]
-    fn last_completed_cpu_frame_ms_survives_begin_frame_and_late_submit_record() {
+    fn paired_frame_ms_survives_begin_frame_when_callback_arrives_late() {
         let mut t = FrameCpuGpuTiming::default();
         let start = Instant::now();
         t.begin_frame(start);
         let (generation, seq, fs) = t.on_before_tracked_submit().expect("tracked");
-        t.end_frame();
-        // Late record: generation already advanced.
-        t.begin_frame(start + Duration::from_millis(16));
         let real_submit_at = fs + Duration::from_millis(2);
         t.record_real_submit(generation, seq, fs, real_submit_at);
-        assert!(t.cpu_frame_ms.is_none());
-        let last = t.last_completed_cpu_frame_ms.expect("last cpu frame ms");
-        assert!((1.5..2.5).contains(&last), "last={last}");
+        t.end_frame();
+        // Next tick has already started by the time the GPU completion fires.
+        t.begin_frame(start + Duration::from_millis(16));
+        t.record_gpu_done(generation, seq, 2.5);
+        assert!(t.gpu_frame_ms.is_none());
+        let (cpu, gpu) = t.last_completed_paired_frame_ms.expect("paired");
+        assert!((1.5..2.5).contains(&cpu), "cpu={cpu}");
+        assert_eq!(gpu, 2.5);
+        assert_eq!(t.last_completed_gpu_frame_ms, Some(2.5));
     }
 
     #[test]
-    fn last_completed_gpu_frame_ms_survives_begin_frame_and_late_callback() {
+    fn unmatched_gpu_done_does_not_publish_a_pair() {
         let mut t = FrameCpuGpuTiming::default();
         let start = Instant::now();
         t.begin_frame(start);
         let (generation, seq, _fs) = t.on_before_tracked_submit().expect("tracked");
         t.end_frame();
-        // Late callback: generation already advanced.
-        t.begin_frame(start + Duration::from_millis(16));
-        t.record_gpu_done(generation, seq, 2.5);
-        assert!(t.gpu_frame_ms.is_none());
-        assert_eq!(t.last_completed_gpu_frame_ms, Some(2.5));
+        // No record_real_submit ever fires for this submit; HUD pair must stay None.
+        t.record_gpu_done(generation, seq, 7.0);
+        assert!(t.last_completed_paired_frame_ms.is_none());
+        assert_eq!(t.last_completed_gpu_frame_ms, Some(7.0));
+    }
+
+    #[test]
+    fn pending_paired_cpu_evicts_oldest_at_capacity() {
+        let mut t = FrameCpuGpuTiming::default();
+        let start = Instant::now();
+        t.begin_frame(start);
+        // Push more pending CPU records than the cap, all without a matching GPU done. The
+        // deque must stay at exactly MAX_PENDING_PAIRS, dropping the oldest entries.
+        for i in 0..(MAX_PENDING_PAIRS as u32 + 5) {
+            t.record_real_submit(0, i + 1, start, start + Duration::from_millis(1));
+        }
+        assert_eq!(t.pending_paired_cpu_ms.len(), MAX_PENDING_PAIRS);
+        let oldest_seq = t.pending_paired_cpu_ms.front().expect("front").0 .1;
+        assert_eq!(oldest_seq, 6);
     }
 }

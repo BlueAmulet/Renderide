@@ -105,9 +105,16 @@ impl RendererRuntime {
         }
     }
 
-    /// Per-frame pointer state and timing for the ImGui overlay ([`diagnostics::DebugHud`]).
-    pub fn set_debug_hud_frame_data(&mut self, input: DebugHudInput, frame_time_ms: f64) {
-        self.backend.set_debug_hud_frame_data(input, frame_time_ms);
+    /// Per-frame pointer state for the ImGui overlay ([`diagnostics::DebugHud`]).
+    pub fn set_debug_hud_input(&mut self, input: DebugHudInput) {
+        self.backend.set_debug_hud_input(input);
+    }
+
+    /// Wall-clock roundtrip (ms) between consecutive `tick_frame` starts; drives the HUD's
+    /// FPS / Frame readout. Set in the tick prologue so the value cleanly reflects the
+    /// roundtrip period.
+    pub fn set_debug_hud_wall_frame_time_ms(&mut self, frame_time_ms: f64) {
+        self.backend.set_debug_hud_wall_frame_time_ms(frame_time_ms);
     }
 
     /// Last ImGui `want_capture_mouse` after the previous successful HUD encode; used when filtering [`InputState`] for the host.

@@ -121,9 +121,16 @@ impl DebugHudBundle {
         &self.current_view_texture_2d_asset_ids
     }
 
-    /// Updates pointer state and frame delta for the optional ImGui overlay.
-    pub fn set_frame_data(&mut self, input: DebugHudInput, frame_time_ms: f64) {
+    /// Updates pointer state for the optional ImGui overlay (called once per render_views).
+    pub fn set_input(&mut self, input: DebugHudInput) {
         self.input = input;
+    }
+
+    /// Updates the wall-clock roundtrip (ms) for the HUD's FPS / Frame readout.
+    ///
+    /// Set in the tick prologue from the delta between consecutive `tick_frame` starts so the
+    /// value cleanly reflects the roundtrip period rather than a sub-tick window.
+    pub fn set_wall_frame_time_ms(&mut self, frame_time_ms: f64) {
         self.frame_time_ms = frame_time_ms;
     }
 

@@ -699,17 +699,20 @@ impl GpuContext {
         Arc::clone(&self.latest_gpu_pass_timings)
     }
 
-    /// Most recently completed CPU and GPU per-frame ms for the debug HUD.
+    /// Most recently completed CPU and GPU per-frame ms for the debug HUD, paired so both
+    /// values describe the **same** frame.
     ///
-    /// Both values come from the **last frame whose driver-thread submit/completion arrived**,
-    /// which may be one or more ticks behind the current one. CPU ms is `frame_start → real
-    /// Queue::submit return`; GPU ms is `real Queue::submit return → on_submitted_work_done`.
+    /// Returns `(None, None)` until the first submit has both reported its driver-thread
+    /// `Queue::submit` return *and* fired its `on_submitted_work_done` callback. Once a pair
+    /// has been observed, the values survive across frames so the overlay never goes blank.
+    /// Lags the current tick by at least one frame in steady state, since the callback for
+    /// frame N typically arrives after frame N+1's tick has begun.
     pub fn frame_cpu_gpu_ms_for_hud(&self) -> (Option<f64>, Option<f64>) {
         let ft = self.frame_timing.lock().unwrap_or_else(|e| e.into_inner());
-        (
-            ft.last_completed_cpu_frame_ms,
-            ft.last_completed_gpu_frame_ms,
-        )
+        match ft.last_completed_paired_frame_ms {
+            Some((cpu, gpu)) => (Some(cpu), Some(gpu)),
+            None => (None, None),
+        }
     }
 
     /// Most recently completed GPU frame ms in **seconds**, for the IPC
