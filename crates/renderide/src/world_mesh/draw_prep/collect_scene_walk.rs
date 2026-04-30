@@ -370,7 +370,7 @@ pub(super) fn collect_chunk(
                 if r.mesh_asset_id < 0 || r.node_id < 0 {
                     continue;
                 }
-                let Some(mesh) = ctx.mesh_pool.get_mesh(r.mesh_asset_id) else {
+                let Some(mesh) = ctx.mesh_pool.get(r.mesh_asset_id) else {
                     continue;
                 };
                 if mesh.submeshes.is_empty() {
@@ -400,7 +400,7 @@ pub(super) fn collect_chunk(
                 if r.mesh_asset_id < 0 || r.node_id < 0 {
                     continue;
                 }
-                let Some(mesh) = ctx.mesh_pool.get_mesh(r.mesh_asset_id) else {
+                let Some(mesh) = ctx.mesh_pool.get(r.mesh_asset_id) else {
                     continue;
                 };
                 if mesh.submeshes.is_empty() {
@@ -446,7 +446,7 @@ pub(super) fn estimate_active_renderable_count(
             }
             if ctx
                 .mesh_pool
-                .get_mesh(renderer.mesh_asset_id)
+                .get(renderer.mesh_asset_id)
                 .is_some_and(|mesh| !mesh.submeshes.is_empty())
             {
                 cap_hint = cap_hint.saturating_add(resolved_material_slot_count(renderer));
@@ -459,7 +459,7 @@ pub(super) fn estimate_active_renderable_count(
             }
             if ctx
                 .mesh_pool
-                .get_mesh(renderer.mesh_asset_id)
+                .get(renderer.mesh_asset_id)
                 .is_some_and(|mesh| !mesh.submeshes.is_empty())
             {
                 cap_hint = cap_hint.saturating_add(resolved_material_slot_count(renderer));

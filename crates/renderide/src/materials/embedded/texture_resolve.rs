@@ -7,7 +7,7 @@ use ahash::AHasher;
 use crate::assets::texture::{
     HostTextureAssetKind, texture2d_asset_id_from_packed, unpack_host_texture_packed,
 };
-use crate::gpu_pools::{CubemapSamplerState, Texture2dSamplerState, Texture3dSamplerState};
+use crate::gpu_pools::SamplerState;
 use crate::materials::ReflectedRasterLayout;
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
@@ -165,29 +165,14 @@ pub(crate) fn resolved_texture_binding_for_host(
     ResolvedTextureBinding::None
 }
 
-fn hash_texture2d_sampler(state: &Texture2dSamplerState, h: &mut impl Hasher) {
-    (state.filter_mode as i32).hash(h);
-    state.aniso_level.hash(h);
-    (state.wrap_u as i32).hash(h);
-    (state.wrap_v as i32).hash(h);
-    state.mipmap_bias.to_bits().hash(h);
-}
-
-fn hash_texture3d_sampler(state: &Texture3dSamplerState, h: &mut impl Hasher) {
+/// Hashes the mode-affecting fields of a unified [`SamplerState`] for bind-cache invalidation.
+fn hash_sampler_state(state: &SamplerState, h: &mut impl Hasher) {
     (state.filter_mode as i32).hash(h);
     state.aniso_level.hash(h);
     (state.wrap_u as i32).hash(h);
     (state.wrap_v as i32).hash(h);
     (state.wrap_w as i32).hash(h);
     state.mipmap_bias.to_bits().hash(h);
-}
-
-fn hash_cubemap_sampler(state: &CubemapSamplerState, h: &mut impl Hasher) {
-    (state.filter_mode as i32).hash(h);
-    state.aniso_level.hash(h);
-    state.mipmap_bias.to_bits().hash(h);
-    (state.wrap_u as i32).hash(h);
-    (state.wrap_v as i32).hash(h);
 }
 
 /// Fingerprint for bind cache invalidation when texture views or residency change.
@@ -229,33 +214,33 @@ pub(crate) fn texture_bind_signature(
         match binding {
             ResolvedTextureBinding::None => false.hash(&mut h),
             ResolvedTextureBinding::Texture2D { asset_id } => {
-                if let Some(t) = pools.texture.get_texture(asset_id) {
+                if let Some(t) = pools.texture.get(asset_id) {
                     let resident = t.mip_levels_resident > 0;
                     resident.hash(&mut h);
                     t.mip_levels_resident.hash(&mut h);
                     t.storage_v_inverted.hash(&mut h);
-                    hash_texture2d_sampler(&t.sampler, &mut h);
+                    hash_sampler_state(&t.sampler, &mut h);
                 } else {
                     false.hash(&mut h);
                 }
             }
             ResolvedTextureBinding::Texture3D { asset_id } => {
-                if let Some(t) = pools.texture3d.get_texture(asset_id) {
+                if let Some(t) = pools.texture3d.get(asset_id) {
                     let resident = t.mip_levels_resident > 0;
                     resident.hash(&mut h);
                     t.mip_levels_resident.hash(&mut h);
-                    hash_texture3d_sampler(&t.sampler, &mut h);
+                    hash_sampler_state(&t.sampler, &mut h);
                 } else {
                     false.hash(&mut h);
                 }
             }
             ResolvedTextureBinding::Cubemap { asset_id } => {
-                if let Some(t) = pools.cubemap.get_texture(asset_id) {
+                if let Some(t) = pools.cubemap.get(asset_id) {
                     let resident = t.mip_levels_resident > 0;
                     resident.hash(&mut h);
                     t.mip_levels_resident.hash(&mut h);
                     t.storage_v_inverted.hash(&mut h);
-                    hash_cubemap_sampler(&t.sampler, &mut h);
+                    hash_sampler_state(&t.sampler, &mut h);
                 } else {
                     false.hash(&mut h);
                 }
@@ -265,7 +250,7 @@ pub(crate) fn texture_bind_signature(
                     false.hash(&mut h);
                 } else if let Some(t) = pools.render_texture.get(asset_id) {
                     t.is_sampleable().hash(&mut h);
-                    hash_texture2d_sampler(&t.sampler, &mut h);
+                    hash_sampler_state(&t.sampler, &mut h);
                 } else {
                     false.hash(&mut h);
                 }
@@ -273,7 +258,7 @@ pub(crate) fn texture_bind_signature(
             ResolvedTextureBinding::VideoTexture { asset_id } => {
                 if let Some(t) = pools.video_texture.get(asset_id) {
                     t.is_sampleable().hash(&mut h);
-                    hash_texture2d_sampler(&t.sampler, &mut h);
+                    hash_sampler_state(&t.sampler, &mut h);
                 } else {
                     false.hash(&mut h);
                 }
@@ -329,18 +314,18 @@ pub(crate) fn sampler_descriptor_from_parts(
     }
 }
 
-/// Builds a sampler descriptor for [`Texture2dSamplerState`].
+/// Builds a sampler descriptor for a 2D texture binding (W axis mirrors U because 2D shaders
+/// never sample on the third axis but the descriptor still requires one).
 pub(crate) fn sampler_descriptor_from_state(
-    state: &Texture2dSamplerState,
+    state: &SamplerState,
     mip_levels_resident: u32,
 ) -> wgpu::SamplerDescriptor<'static> {
     let address_mode_u = wrap_to_address(state.wrap_u);
-    let address_mode_v = wrap_to_address(state.wrap_v);
     sampler_descriptor_from_parts(
         "embedded_texture_sampler",
         ResolvedSamplerAddress {
             u: address_mode_u,
-            v: address_mode_v,
+            v: wrap_to_address(state.wrap_v),
             w: address_mode_u,
         },
         state.filter_mode,
@@ -349,9 +334,9 @@ pub(crate) fn sampler_descriptor_from_state(
     )
 }
 
-/// Builds a sampler descriptor for [`Texture3dSamplerState`].
+/// Builds a sampler descriptor for a 3D texture binding (consumes `wrap_w`).
 pub(crate) fn sampler_descriptor_from_texture3d_state(
-    state: &Texture3dSamplerState,
+    state: &SamplerState,
     mip_levels_resident: u32,
 ) -> wgpu::SamplerDescriptor<'static> {
     sampler_descriptor_from_parts(
@@ -367,9 +352,9 @@ pub(crate) fn sampler_descriptor_from_texture3d_state(
     )
 }
 
-/// Builds a sampler descriptor for [`CubemapSamplerState`].
+/// Builds a sampler descriptor for a cubemap binding (W axis mirrors U).
 pub(crate) fn sampler_descriptor_from_cubemap_state(
-    state: &CubemapSamplerState,
+    state: &SamplerState,
     mip_levels_resident: u32,
 ) -> wgpu::SamplerDescriptor<'static> {
     let address_mode_u = wrap_to_address(state.wrap_u);
@@ -402,20 +387,20 @@ pub(crate) fn default_embedded_sampler(device: &wgpu::Device) -> wgpu::Sampler {
     device.create_sampler(&descriptor)
 }
 
-/// Builds a sampler for [`Texture3dSamplerState`] (three address modes).
+/// Builds a sampler for a 3D texture binding (three address modes from [`SamplerState`]).
 pub(crate) fn sampler_from_texture3d_state(
     device: &wgpu::Device,
-    state: &Texture3dSamplerState,
+    state: &SamplerState,
     mip_levels_resident: u32,
 ) -> wgpu::Sampler {
     let descriptor = sampler_descriptor_from_texture3d_state(state, mip_levels_resident);
     device.create_sampler(&descriptor)
 }
 
-/// Builds a sampler for [`CubemapSamplerState`].
+/// Builds a sampler for a cubemap binding from [`SamplerState`].
 pub(crate) fn sampler_from_cubemap_state(
     device: &wgpu::Device,
-    state: &CubemapSamplerState,
+    state: &SamplerState,
     mip_levels_resident: u32,
 ) -> wgpu::Sampler {
     let descriptor = sampler_descriptor_from_cubemap_state(state, mip_levels_resident);
@@ -475,10 +460,10 @@ fn anisotropy_clamp(
     }
 }
 
-/// Builds a sampler for [`Texture2dSamplerState`] (two address modes).
+/// Builds a sampler for a 2D texture binding from [`SamplerState`].
 pub(crate) fn sampler_from_state(
     device: &wgpu::Device,
-    state: &Texture2dSamplerState,
+    state: &SamplerState,
     mip_levels_resident: u32,
 ) -> wgpu::Sampler {
     let descriptor = sampler_descriptor_from_state(state, mip_levels_resident);
@@ -492,7 +477,7 @@ mod tests {
 
     use hashbrown::HashMap;
 
-    use crate::gpu_pools::Texture2dSamplerState;
+    use crate::gpu_pools::SamplerState;
     use crate::materials::embedded::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
     use crate::materials::host_data::PropertyIdRegistry;
     use crate::shared::{TextureFilterMode, TextureWrapMode};
@@ -557,22 +542,20 @@ mod tests {
     }
 
     /// Hashes the same sampler fields used by `texture_bind_signature` for 2D/render textures.
-    fn sampler_signature_for(state: &Texture2dSamplerState) -> u64 {
+    fn sampler_signature_for(state: &SamplerState) -> u64 {
         let mut hasher = AHasher::default();
-        hash_texture2d_sampler(state, &mut hasher);
+        hash_sampler_state(state, &mut hasher);
         hasher.finish()
     }
 
     /// Builds a 2D sampler state with the supplied U/V wrap modes.
-    fn texture2d_sampler_state(
-        wrap_u: TextureWrapMode,
-        wrap_v: TextureWrapMode,
-    ) -> Texture2dSamplerState {
-        Texture2dSamplerState {
+    fn texture2d_sampler_state(wrap_u: TextureWrapMode, wrap_v: TextureWrapMode) -> SamplerState {
+        SamplerState {
             filter_mode: TextureFilterMode::Bilinear,
             aniso_level: 8,
             wrap_u,
             wrap_v,
+            wrap_w: TextureWrapMode::default(),
             mipmap_bias: 0.0,
         }
     }
@@ -621,11 +604,12 @@ mod tests {
 
     #[test]
     fn sampler_descriptors_apply_wrap_anisotropy_and_lod_clamps_for_all_texture_kinds() {
-        let texture2d = Texture2dSamplerState {
+        let texture2d = SamplerState {
             filter_mode: TextureFilterMode::Anisotropic,
             aniso_level: 8,
             wrap_u: TextureWrapMode::Mirror,
             wrap_v: TextureWrapMode::Clamp,
+            wrap_w: TextureWrapMode::default(),
             mipmap_bias: 0.0,
         };
         let texture2d_desc = sampler_descriptor_from_state(&texture2d, 6);
@@ -644,7 +628,7 @@ mod tests {
         assert_eq!(texture2d_desc.anisotropy_clamp, 8);
         assert_eq!(texture2d_desc.lod_max_clamp, 5.0);
 
-        let texture3d = Texture3dSamplerState {
+        let texture3d = SamplerState {
             filter_mode: TextureFilterMode::Anisotropic,
             aniso_level: 12,
             wrap_u: TextureWrapMode::Repeat,
@@ -665,12 +649,13 @@ mod tests {
         assert_eq!(texture3d_desc.anisotropy_clamp, 12);
         assert_eq!(texture3d_desc.lod_max_clamp, 2.0);
 
-        let cubemap = CubemapSamplerState {
+        let cubemap = SamplerState {
             filter_mode: TextureFilterMode::Anisotropic,
             aniso_level: 4,
-            mipmap_bias: 0.0,
             wrap_u: TextureWrapMode::Repeat,
             wrap_v: TextureWrapMode::Clamp,
+            wrap_w: TextureWrapMode::default(),
+            mipmap_bias: 0.0,
         };
         let cubemap_desc = sampler_descriptor_from_cubemap_state(&cubemap, 1);
         assert_eq!(cubemap_desc.address_mode_u, wgpu::AddressMode::Repeat);

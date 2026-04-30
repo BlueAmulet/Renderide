@@ -363,7 +363,7 @@ impl ReflectionProbeSh2System {
             GpuSh2Source::Cubemap { asset_id } => {
                 let tex = assets
                     .cubemap_pool()
-                    .get_texture(asset_id)
+                    .get(asset_id)
                     .filter(|t| t.mip_levels_resident > 0)
                     .ok_or_else(|| format!("cubemap {asset_id} not resident"))?;
                 let sampler = gpu.device().create_sampler(&wgpu::SamplerDescriptor {
@@ -398,7 +398,7 @@ impl ReflectionProbeSh2System {
             GpuSh2Source::EquirectTexture2D { asset_id, params } => {
                 let tex = assets
                     .texture_pool()
-                    .get_texture(asset_id)
+                    .get(asset_id)
                     .filter(|t| t.mip_levels_resident > 0)
                     .ok_or_else(|| format!("texture2d {asset_id} not resident"))?;
                 let sampler = gpu.device().create_sampler(&wgpu::SamplerDescriptor {

@@ -9,7 +9,7 @@ use super::super::texture_resolve::{
     ResolvedTextureBinding, primary_texture_2d_asset_id, resolved_texture_binding_for_host,
     texture_property_ids_for_binding,
 };
-use crate::gpu_pools::{CubemapSamplerState, Texture2dSamplerState, Texture3dSamplerState};
+use crate::gpu_pools::SamplerState;
 use crate::materials::host_data::{MaterialPropertyLookupIds, MaterialPropertyStore};
 
 /// LRU cap for `@group(1)` bind groups (per unique material/texture signature).
@@ -54,7 +54,9 @@ pub(super) struct EmbeddedSamplerCacheKey {
 }
 
 impl EmbeddedSamplerCacheKey {
-    pub(super) fn texture2d(state: &Texture2dSamplerState, mip_levels_resident: u32) -> Self {
+    /// Builds a Texture2D sampler cache key. `wrap_w` is intentionally set to `wrap_u` to
+    /// preserve the prior cache distribution; 2D bind paths never sample on the W axis.
+    pub(super) fn texture2d(state: &SamplerState, mip_levels_resident: u32) -> Self {
         Self {
             dimension: 2,
             filter_mode: state.filter_mode as i32,
@@ -67,7 +69,8 @@ impl EmbeddedSamplerCacheKey {
         }
     }
 
-    pub(super) fn texture3d(state: &Texture3dSamplerState, mip_levels_resident: u32) -> Self {
+    /// Builds a Texture3D sampler cache key, including the W wrap mode.
+    pub(super) fn texture3d(state: &SamplerState, mip_levels_resident: u32) -> Self {
         Self {
             dimension: 3,
             filter_mode: state.filter_mode as i32,
@@ -80,7 +83,9 @@ impl EmbeddedSamplerCacheKey {
         }
     }
 
-    pub(super) fn cubemap(state: &CubemapSamplerState, mip_levels_resident: u32) -> Self {
+    /// Builds a cubemap sampler cache key. `wrap_w` mirrors `wrap_u` because the host cubemap
+    /// properties carry no third axis.
+    pub(super) fn cubemap(state: &SamplerState, mip_levels_resident: u32) -> Self {
         Self {
             dimension: 4,
             filter_mode: state.filter_mode as i32,
@@ -216,18 +221,19 @@ mod tests {
     use super::*;
     use crate::shared::{TextureFilterMode, TextureWrapMode};
 
-    fn texture2d_state() -> Texture2dSamplerState {
-        Texture2dSamplerState {
+    fn texture2d_state() -> SamplerState {
+        SamplerState {
             filter_mode: TextureFilterMode::Bilinear,
             aniso_level: 4,
             wrap_u: TextureWrapMode::Repeat,
             wrap_v: TextureWrapMode::Clamp,
+            wrap_w: TextureWrapMode::default(),
             mipmap_bias: 0.25,
         }
     }
 
-    fn texture3d_state() -> Texture3dSamplerState {
-        Texture3dSamplerState {
+    fn texture3d_state() -> SamplerState {
+        SamplerState {
             filter_mode: TextureFilterMode::Trilinear,
             aniso_level: 8,
             wrap_u: TextureWrapMode::Repeat,
@@ -237,13 +243,14 @@ mod tests {
         }
     }
 
-    fn cubemap_state() -> CubemapSamplerState {
-        CubemapSamplerState {
+    fn cubemap_state() -> SamplerState {
+        SamplerState {
             filter_mode: TextureFilterMode::Anisotropic,
             aniso_level: 12,
-            mipmap_bias: -0.5,
             wrap_u: TextureWrapMode::Repeat,
             wrap_v: TextureWrapMode::Repeat,
+            wrap_w: TextureWrapMode::default(),
+            mipmap_bias: -0.5,
         }
     }
 

@@ -4,60 +4,17 @@ use std::sync::Arc;
 
 use crate::assets::texture::{estimate_gpu_cubemap_bytes, resolve_cubemap_wgpu_format};
 use crate::gpu::GpuLimits;
-use crate::shared::{
-    ColorProfile, SetCubemapFormat, SetCubemapProperties, TextureFilterMode, TextureFormat,
-    TextureWrapMode,
-};
+use crate::shared::{ColorProfile, SetCubemapFormat, SetCubemapProperties, TextureFormat};
 
-use super::GpuResource;
-use super::budget::TextureResidencyMeta;
-use super::resource_pool::{GpuResourcePool, TexturePoolAccess, impl_texture_pool_facade};
-use super::texture_allocation::{
+use crate::gpu_pools::GpuResource;
+use crate::gpu_pools::budget::TextureResidencyMeta;
+use crate::gpu_pools::resource_pool::{
+    GpuResourcePool, StreamingAccess, impl_streaming_pool_facade,
+};
+use crate::gpu_pools::sampler_state::SamplerState;
+use crate::gpu_pools::texture_allocation::{
     SampledTextureAllocation, TextureViewInit, create_sampled_copy_dst_texture,
 };
-
-/// Sampler-related fields mirrored from [`SetCubemapProperties`](crate::shared::SetCubemapProperties).
-#[derive(Clone, Debug)]
-pub struct CubemapSamplerState {
-    /// Min/mag filter from host.
-    pub filter_mode: TextureFilterMode,
-    /// Anisotropic filtering level (host units).
-    pub aniso_level: i32,
-    /// Mip bias applied when sampling.
-    pub mipmap_bias: f32,
-    /// Default U address mode (repeat; host cubemap properties do not carry wrap).
-    pub wrap_u: TextureWrapMode,
-    /// Default V address mode (repeat).
-    pub wrap_v: TextureWrapMode,
-}
-
-impl Default for CubemapSamplerState {
-    fn default() -> Self {
-        Self {
-            filter_mode: TextureFilterMode::default(),
-            aniso_level: 1,
-            mipmap_bias: 0.0,
-            wrap_u: TextureWrapMode::Repeat,
-            wrap_v: TextureWrapMode::Repeat,
-        }
-    }
-}
-
-impl CubemapSamplerState {
-    /// Copies fields from host properties.
-    pub fn from_props(props: Option<&SetCubemapProperties>) -> Self {
-        let Some(p) = props else {
-            return Self::default();
-        };
-        Self {
-            filter_mode: p.filter_mode,
-            aniso_level: p.aniso_level,
-            mipmap_bias: p.mipmap_bias,
-            wrap_u: TextureWrapMode::Repeat,
-            wrap_v: TextureWrapMode::Repeat,
-        }
-    }
-}
 
 /// GPU cubemap: six faces in one array texture (`TextureViewDimension::Cube`).
 #[derive(Debug)]
@@ -85,7 +42,7 @@ pub struct GpuCubemap {
     /// Estimated VRAM for allocated mips.
     pub resident_bytes: u64,
     /// Sampler fields for material bind groups.
-    pub sampler: CubemapSamplerState,
+    pub sampler: SamplerState,
     /// Streaming / eviction hints from host properties.
     pub residency: TextureResidencyMeta,
 }
@@ -147,9 +104,9 @@ impl GpuCubemap {
             },
         );
         let resident_bytes = estimate_gpu_cubemap_bytes(wgpu_format, s, mips);
-        let sampler = CubemapSamplerState::from_props(props);
+        let sampler = SamplerState::from_cubemap_props(props);
         let residency = props
-            .map(TextureResidencyMeta::from_cubemap_props)
+            .map(TextureResidencyMeta::from_host_props)
             .unwrap_or_default();
         Some(Self {
             asset_id: fmt.asset_id,
@@ -170,8 +127,8 @@ impl GpuCubemap {
 
     /// Updates sampler fields and residency hints from host properties.
     pub fn apply_properties(&mut self, p: &SetCubemapProperties) {
-        self.sampler = CubemapSamplerState::from_props(Some(p));
-        self.residency = TextureResidencyMeta::from_cubemap_props(p);
+        self.sampler = SamplerState::from_cubemap_props(Some(p));
+        self.residency = TextureResidencyMeta::from_host_props(p);
     }
 }
 
@@ -188,7 +145,12 @@ impl GpuResource for GpuCubemap {
 /// Resident cubemap table.
 pub struct CubemapPool {
     /// Shared resident GPU resource table.
-    inner: GpuResourcePool<GpuCubemap, TexturePoolAccess>,
+    inner: GpuResourcePool<GpuCubemap, StreamingAccess>,
 }
 
-impl_texture_pool_facade!(CubemapPool, GpuCubemap);
+impl_streaming_pool_facade!(
+    CubemapPool,
+    GpuCubemap,
+    StreamingAccess::texture,
+    StreamingAccess::texture_noop,
+);

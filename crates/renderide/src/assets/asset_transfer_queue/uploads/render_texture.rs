@@ -48,7 +48,7 @@ pub fn on_set_render_texture_format(
         logger::warn!("render texture {id}: SetRenderTextureFormat rejected (bad size or device)");
         return;
     };
-    let existed_before = queue.pools.render_texture_pool.insert_texture(tex);
+    let existed_before = queue.pools.render_texture_pool.insert(tex);
     queue.maybe_warn_texture_vram_budget();
     send_render_texture_result(ipc, id, !existed_before);
     logger::trace!(

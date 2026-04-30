@@ -270,8 +270,7 @@ impl RenderBackend {
     pub fn texture_mip0_ready_count(&self) -> usize {
         self.asset_transfers
             .texture_pool()
-            .textures()
-            .values()
+            .iter()
             .filter(|t| t.mip_levels_resident > 0)
             .count()
     }
@@ -661,9 +660,9 @@ impl RenderBackend {
         crate::diagnostics::BackendDiagSnapshot {
             texture_format_registration_count: self.texture_format_registration_count(),
             texture_mip0_ready_count: self.texture_mip0_ready_count(),
-            texture_pool_resident_count: self.texture_pool().resident_texture_count(),
+            texture_pool_resident_count: self.texture_pool().len(),
             render_texture_pool_len: self.render_texture_pool().len(),
-            mesh_pool_entry_count: self.mesh_pool().meshes().len(),
+            mesh_pool_entry_count: self.mesh_pool().len(),
             shader_routes,
             last_world_mesh_draw_stats: self.last_world_mesh_draw_stats(),
             last_world_mesh_draw_state_rows: self.last_world_mesh_draw_state_rows(),

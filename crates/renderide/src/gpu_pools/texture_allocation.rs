@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 /// View configuration for a newly allocated sampled texture.
-pub(super) struct TextureViewInit<'a> {
+pub(crate) struct TextureViewInit<'a> {
     /// Optional debug label for the view.
     pub label: Option<&'a str>,
     /// Optional explicit view dimension.
@@ -11,7 +11,7 @@ pub(super) struct TextureViewInit<'a> {
 }
 
 /// Allocation descriptor for resident sampled textures.
-pub(super) struct SampledTextureAllocation<'a> {
+pub(crate) struct SampledTextureAllocation<'a> {
     /// Debug label for the texture.
     pub label: &'a str,
     /// Texture extent.
@@ -27,7 +27,7 @@ pub(super) struct SampledTextureAllocation<'a> {
 }
 
 /// Creates resident texture storage and its default binding view.
-pub(super) fn create_sampled_copy_dst_texture(
+pub(crate) fn create_sampled_copy_dst_texture(
     device: &wgpu::Device,
     desc: SampledTextureAllocation<'_>,
 ) -> (Arc<wgpu::Texture>, Arc<wgpu::TextureView>) {

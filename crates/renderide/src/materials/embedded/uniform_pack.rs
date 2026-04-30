@@ -192,7 +192,7 @@ fn binding_storage_v_inverted(
         ResolvedTextureBinding::Texture2D { asset_id } => tex_ctx
             .pools
             .texture
-            .get_texture(asset_id)
+            .get(asset_id)
             .map(|t| t.storage_v_inverted),
         _ => None,
     };
@@ -200,7 +200,7 @@ fn binding_storage_v_inverted(
         ResolvedTextureBinding::Cubemap { asset_id } => tex_ctx
             .pools
             .cubemap
-            .get_texture(asset_id)
+            .get(asset_id)
             .map(|t| t.storage_v_inverted),
         _ => None,
     };
@@ -264,7 +264,7 @@ fn binding_lod_bias(
         ResolvedTextureBinding::Texture2D { asset_id } => tex_ctx
             .pools
             .texture
-            .get_texture(asset_id)
+            .get(asset_id)
             .map(|t| t.sampler.mipmap_bias),
         _ => None,
     };
@@ -272,7 +272,7 @@ fn binding_lod_bias(
         ResolvedTextureBinding::Cubemap { asset_id } => tex_ctx
             .pools
             .cubemap
-            .get_texture(asset_id)
+            .get(asset_id)
             .map(|t| t.sampler.mipmap_bias),
         _ => None,
     };

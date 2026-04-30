@@ -10,7 +10,7 @@ use super::MAX_PENDING_MESH_UPLOADS;
 
 /// Remove a mesh from the pool.
 pub fn on_mesh_unload(queue: &mut AssetTransferQueue, u: MeshUnload) {
-    if queue.pools.mesh_pool.remove_mesh(u.asset_id) {
+    if queue.pools.mesh_pool.remove(u.asset_id) {
         logger::info!(
             "mesh {} unloaded (resident_bytes≈{})",
             u.asset_id,

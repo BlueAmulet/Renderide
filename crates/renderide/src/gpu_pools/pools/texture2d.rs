@@ -4,60 +4,17 @@ use std::sync::Arc;
 
 use crate::assets::texture::{estimate_gpu_texture_bytes, resolve_texture2d_wgpu_format};
 use crate::gpu::GpuLimits;
-use crate::shared::{
-    ColorProfile, SetTexture2DFormat, SetTexture2DProperties, TextureFilterMode, TextureFormat,
-    TextureWrapMode,
-};
+use crate::shared::{ColorProfile, SetTexture2DFormat, SetTexture2DProperties, TextureFormat};
 
-use super::GpuResource;
-use super::budget::TextureResidencyMeta;
-use super::resource_pool::{GpuResourcePool, TexturePoolAccess, impl_texture_pool_facade};
-use super::texture_allocation::{
+use crate::gpu_pools::GpuResource;
+use crate::gpu_pools::budget::TextureResidencyMeta;
+use crate::gpu_pools::resource_pool::{
+    GpuResourcePool, StreamingAccess, impl_streaming_pool_facade,
+};
+use crate::gpu_pools::sampler_state::SamplerState;
+use crate::gpu_pools::texture_allocation::{
     SampledTextureAllocation, TextureViewInit, create_sampled_copy_dst_texture,
 };
-
-/// Sampler-related fields mirrored from [`SetTexture2DProperties`](crate::shared::SetTexture2DProperties) for future bind groups.
-#[derive(Clone, Debug)]
-pub struct Texture2dSamplerState {
-    /// Min/mag filter from host.
-    pub filter_mode: TextureFilterMode,
-    /// Anisotropic filtering level (host units).
-    pub aniso_level: i32,
-    /// U address mode.
-    pub wrap_u: TextureWrapMode,
-    /// V address mode.
-    pub wrap_v: TextureWrapMode,
-    /// Mip bias applied when sampling.
-    pub mipmap_bias: f32,
-}
-
-impl Default for Texture2dSamplerState {
-    fn default() -> Self {
-        Self {
-            filter_mode: TextureFilterMode::default(),
-            aniso_level: 1,
-            wrap_u: TextureWrapMode::default(),
-            wrap_v: TextureWrapMode::default(),
-            mipmap_bias: 0.0,
-        }
-    }
-}
-
-impl Texture2dSamplerState {
-    /// Copies fields from host properties.
-    pub fn from_props(props: Option<&SetTexture2DProperties>) -> Self {
-        let Some(p) = props else {
-            return Self::default();
-        };
-        Self {
-            filter_mode: p.filter_mode,
-            aniso_level: p.aniso_level,
-            wrap_u: p.wrap_u,
-            wrap_v: p.wrap_v,
-            mipmap_bias: p.mipmap_bias,
-        }
-    }
-}
 
 /// GPU Texture2D: no CPU mip storage; mips live only in [`wgpu::Texture`].
 ///
@@ -93,8 +50,8 @@ pub struct GpuTexture2d {
     resident_mip_mask: u64,
     /// Estimated VRAM for allocated mips.
     pub resident_bytes: u64,
-    /// Sampler fields for future bind groups.
-    pub sampler: Texture2dSamplerState,
+    /// Sampler fields for material bind groups.
+    pub sampler: SamplerState,
     /// Streaming / eviction hints from host properties.
     pub residency: TextureResidencyMeta,
 }
@@ -148,9 +105,9 @@ impl GpuTexture2d {
             },
         );
         let resident_bytes = estimate_gpu_texture_bytes(wgpu_format, w, h, mips);
-        let sampler = Texture2dSamplerState::from_props(props);
+        let sampler = SamplerState::from_texture2d_props(props);
         let residency = props
-            .map(TextureResidencyMeta::from_texture_props)
+            .map(TextureResidencyMeta::from_host_props)
             .unwrap_or_default();
         Some(Self {
             asset_id: fmt.asset_id,
@@ -183,8 +140,8 @@ impl GpuTexture2d {
 
     /// Updates sampler fields and residency hints from host properties.
     pub fn apply_properties(&mut self, p: &SetTexture2DProperties) {
-        self.sampler = Texture2dSamplerState::from_props(Some(p));
-        self.residency = TextureResidencyMeta::from_texture_props(p);
+        self.sampler = SamplerState::from_texture2d_props(Some(p));
+        self.residency = TextureResidencyMeta::from_host_props(p);
     }
 }
 
@@ -230,10 +187,15 @@ fn resident_prefix_len(resident_mip_mask: u64, mip_levels_total: u32) -> u32 {
 /// Resident Texture2D table; pairs with [`super::MeshPool`] under one renderer.
 pub struct TexturePool {
     /// Shared resident GPU resource table.
-    inner: GpuResourcePool<GpuTexture2d, TexturePoolAccess>,
+    inner: GpuResourcePool<GpuTexture2d, StreamingAccess>,
 }
 
-impl_texture_pool_facade!(TexturePool, GpuTexture2d);
+impl_streaming_pool_facade!(
+    TexturePool,
+    GpuTexture2d,
+    StreamingAccess::texture,
+    StreamingAccess::texture_noop,
+);
 
 #[cfg(test)]
 mod tests {

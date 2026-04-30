@@ -1,25 +1,33 @@
-//! GPU resource pools and VRAM hooks (meshes, Texture2D, Texture3D, cubemaps, video textures).
+//! GPU resource pools and VRAM hooks (meshes, Texture2D, Texture3D, cubemaps, render textures, video textures).
+//!
+//! ## Module layout
+//!
+//! * [`budget`] — VRAM accounting, residency tiers, streaming policy trait, residency-meta hints.
+//! * [`resource_pool`] — generic `GpuResourcePool<T, A>` + `PoolResourceAccess` trait + the two
+//!   facade macros (streaming vs untracked).
+//! * [`sampler_state`] — unified [`SamplerState`] consumed by every texture-bearing pool and the
+//!   material bind layer.
+//! * [`texture_allocation`] — `wgpu::Texture` + `wgpu::TextureView` factory shared by the three
+//!   sampled-texture pools.
+//! * [`pools`] — concrete pool newtypes, one submodule per asset kind.
 
-mod budget;
-mod cubemap_pool;
-mod mesh_pool;
-mod render_texture_pool;
-mod resource_pool;
-mod texture3d_pool;
-mod texture_allocation;
-mod texture_pool;
-mod video_texture_pool;
+pub(crate) mod budget;
+pub(crate) mod pools;
+pub(crate) mod resource_pool;
+pub(crate) mod sampler_state;
+pub(crate) mod texture_allocation;
 
 pub use budget::{
     MeshResidencyMeta, NoopStreamingPolicy, ResidencyTier, StreamingPolicy, TextureResidencyMeta,
     VramAccounting, VramResourceKind,
 };
-pub use cubemap_pool::{CubemapPool, CubemapSamplerState, GpuCubemap};
-pub use mesh_pool::MeshPool;
-pub use render_texture_pool::{GpuRenderTexture, RenderTexturePool};
-pub use texture_pool::{GpuTexture2d, Texture2dSamplerState, TexturePool};
-pub use texture3d_pool::{GpuTexture3d, Texture3dPool, Texture3dSamplerState};
-pub use video_texture_pool::{GpuVideoTexture, VideoTexturePool};
+pub use pools::cubemap::{CubemapPool, GpuCubemap};
+pub use pools::mesh::MeshPool;
+pub use pools::render_texture::{GpuRenderTexture, RenderTexturePool};
+pub use pools::texture2d::{GpuTexture2d, TexturePool};
+pub use pools::texture3d::{GpuTexture3d, Texture3dPool};
+pub use pools::video_texture::{GpuVideoTexture, VideoTexturePool};
+pub use sampler_state::SamplerState;
 
 /// Common surface for resident GPU resources (extend for textures, buffers, etc.).
 pub trait GpuResource {

@@ -181,7 +181,7 @@ impl AssetTransferQueue {
                 let device = self.gpu.gpu_device.as_deref()?;
                 GpuVideoTexture::new(device, asset_id, props)
             };
-            if self.pools.video_texture_pool.insert_texture(texture) {
+            if self.pools.video_texture_pool.insert(texture) {
                 logger::debug!("video texture {asset_id}: replaced placeholder during creation");
             }
             self.maybe_warn_texture_vram_budget();

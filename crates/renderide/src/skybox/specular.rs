@@ -105,7 +105,7 @@ fn resolve_projection360_cubemap_source(
     assets: &AssetTransferQueue,
     asset_id: i32,
 ) -> Option<SkyboxSpecularEnvironmentSource> {
-    let Some(cubemap) = assets.cubemap_pool().get_texture(asset_id) else {
+    let Some(cubemap) = assets.cubemap_pool().get(asset_id) else {
         logger::trace!("skybox specular: cubemap asset {asset_id} is not allocated yet");
         return None;
     };
@@ -132,7 +132,7 @@ fn resolve_projection360_equirect_source(
     lookup: MaterialPropertyLookupIds,
     asset_id: i32,
 ) -> Option<SkyboxSpecularEnvironmentSource> {
-    let Some(texture) = assets.texture_pool().get_texture(asset_id) else {
+    let Some(texture) = assets.texture_pool().get(asset_id) else {
         logger::trace!("skybox specular: equirect Texture2D asset {asset_id} is not allocated yet");
         return None;
     };

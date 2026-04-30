@@ -40,7 +40,7 @@ pub(super) struct FramePreparedDraw {
     pub instance_id: MeshRendererInstanceId,
     /// Scene node id for rigid transform lookup and filter-mask indexing.
     pub node_id: i32,
-    /// Resident mesh asset id (always matches `mesh_pool.get_mesh(...)` being `Some`).
+    /// Resident mesh asset id (always matches `mesh_pool.get(...)` being `Some`).
     pub mesh_asset_id: i32,
     /// Precomputed overlay flag from the renderer's [`LayerType`].
     pub is_overlay: bool,
@@ -252,7 +252,7 @@ fn expand_space_into(
         ) {
             continue;
         }
-        let Some(mesh) = mesh_pool.get_mesh(r.mesh_asset_id) else {
+        let Some(mesh) = mesh_pool.get(r.mesh_asset_id) else {
             continue;
         };
         if mesh.submeshes.is_empty() {
@@ -287,7 +287,7 @@ fn expand_space_into(
         ) {
             continue;
         }
-        let Some(mesh) = mesh_pool.get_mesh(r.mesh_asset_id) else {
+        let Some(mesh) = mesh_pool.get(r.mesh_asset_id) else {
             continue;
         };
         if mesh.submeshes.is_empty() {

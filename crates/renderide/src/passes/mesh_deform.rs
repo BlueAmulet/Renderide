@@ -114,7 +114,7 @@ fn collect_deform_work_for_space(
         if r.mesh_asset_id < 0 {
             continue;
         }
-        let Some(m) = mesh_pool.get_mesh(r.mesh_asset_id) else {
+        let Some(m) = mesh_pool.get(r.mesh_asset_id) else {
             continue;
         };
         if !gpu_mesh_needs_deform_dispatch(m, None, &r.blend_shape_weights) {
@@ -138,7 +138,7 @@ fn collect_deform_work_for_space(
         if r.mesh_asset_id < 0 {
             continue;
         }
-        let Some(m) = mesh_pool.get_mesh(r.mesh_asset_id) else {
+        let Some(m) = mesh_pool.get(r.mesh_asset_id) else {
             continue;
         };
         let bone_ix = skinned.bone_transform_indices.as_slice();

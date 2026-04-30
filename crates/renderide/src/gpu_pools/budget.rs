@@ -125,43 +125,69 @@ impl Default for TextureResidencyMeta {
     }
 }
 
+/// Host texture-property fields needed to derive a [`TextureResidencyMeta`].
+///
+/// Implemented privately for each `Set*Properties` IPC struct so the residency-meta builder is
+/// one function instead of one per kind. `mipmap_bias` returns `0.0` for kinds whose host
+/// wire format does not carry a bias (e.g. [`crate::shared::SetTexture3DProperties`]).
+pub(crate) trait HostTextureResidencyProps {
+    /// Host hint that the asset must be applied this tick.
+    fn apply_immediatelly(&self) -> bool;
+    /// Host hint that the asset is high-priority (kept hot).
+    fn high_priority(&self) -> bool;
+    /// Mip bias from host properties, or `0.0` when the host wire format omits one.
+    fn mipmap_bias(&self) -> f32;
+}
+
+impl HostTextureResidencyProps for crate::shared::SetTexture2DProperties {
+    fn apply_immediatelly(&self) -> bool {
+        self.apply_immediatelly
+    }
+    fn high_priority(&self) -> bool {
+        self.high_priority
+    }
+    fn mipmap_bias(&self) -> f32 {
+        self.mipmap_bias
+    }
+}
+
+impl HostTextureResidencyProps for crate::shared::SetTexture3DProperties {
+    fn apply_immediatelly(&self) -> bool {
+        self.apply_immediatelly
+    }
+    fn high_priority(&self) -> bool {
+        self.high_priority
+    }
+    fn mipmap_bias(&self) -> f32 {
+        0.0
+    }
+}
+
+impl HostTextureResidencyProps for crate::shared::SetCubemapProperties {
+    fn apply_immediatelly(&self) -> bool {
+        self.apply_immediatelly
+    }
+    fn high_priority(&self) -> bool {
+        self.high_priority
+    }
+    fn mipmap_bias(&self) -> f32 {
+        self.mipmap_bias
+    }
+}
+
 impl TextureResidencyMeta {
-    /// Builds meta from host texture properties (partial: `high_priority` may be unset in IPC v1).
-    pub fn from_texture_props(props: &crate::shared::SetTexture2DProperties) -> Self {
+    /// Builds meta from any host texture-property struct that implements
+    /// [`HostTextureResidencyProps`]. Returns [`ResidencyTier::Hot`] when the host marks the
+    /// asset urgent or high-priority, otherwise [`ResidencyTier::Streaming`].
+    pub(crate) fn from_host_props<P: HostTextureResidencyProps>(props: &P) -> Self {
         Self {
-            tier: if props.apply_immediatelly || props.high_priority {
+            tier: if props.apply_immediatelly() || props.high_priority() {
                 ResidencyTier::Hot
             } else {
                 ResidencyTier::Streaming
             },
-            integration_urgent: props.apply_immediatelly,
-            mipmap_bias: props.mipmap_bias,
-        }
-    }
-
-    /// Builds meta from host [`crate::shared::SetTexture3DProperties`].
-    pub fn from_texture3d_props(props: &crate::shared::SetTexture3DProperties) -> Self {
-        Self {
-            tier: if props.apply_immediatelly || props.high_priority {
-                ResidencyTier::Hot
-            } else {
-                ResidencyTier::Streaming
-            },
-            integration_urgent: props.apply_immediatelly,
-            mipmap_bias: 0.0,
-        }
-    }
-
-    /// Builds meta from host [`crate::shared::SetCubemapProperties`].
-    pub fn from_cubemap_props(props: &crate::shared::SetCubemapProperties) -> Self {
-        Self {
-            tier: if props.apply_immediatelly || props.high_priority {
-                ResidencyTier::Hot
-            } else {
-                ResidencyTier::Streaming
-            },
-            integration_urgent: props.apply_immediatelly,
-            mipmap_bias: props.mipmap_bias,
+            integration_urgent: props.apply_immediatelly(),
+            mipmap_bias: props.mipmap_bias(),
         }
     }
 }
@@ -228,7 +254,7 @@ mod tests {
             mipmap_bias: -0.5,
             ..Default::default()
         };
-        let m = TextureResidencyMeta::from_texture_props(&p);
+        let m = TextureResidencyMeta::from_host_props(&p);
         assert_eq!(m.tier, ResidencyTier::Hot);
         assert!(m.integration_urgent);
         assert_eq!(m.mipmap_bias, -0.5);
@@ -238,7 +264,7 @@ mod tests {
             high_priority: true,
             ..Default::default()
         };
-        let m2 = TextureResidencyMeta::from_texture_props(&p2);
+        let m2 = TextureResidencyMeta::from_host_props(&p2);
         assert_eq!(m2.tier, ResidencyTier::Hot);
         assert!(!m2.integration_urgent);
     }
@@ -250,7 +276,7 @@ mod tests {
             high_priority: false,
             ..Default::default()
         };
-        let m = TextureResidencyMeta::from_texture_props(&p);
+        let m = TextureResidencyMeta::from_host_props(&p);
         assert_eq!(m.tier, ResidencyTier::Streaming);
         assert!(!m.integration_urgent);
     }
@@ -262,7 +288,7 @@ mod tests {
             high_priority: true,
             ..Default::default()
         };
-        let m = TextureResidencyMeta::from_texture3d_props(&p);
+        let m = TextureResidencyMeta::from_host_props(&p);
         assert_eq!(m.tier, ResidencyTier::Hot);
         assert!(!m.integration_urgent);
         assert_eq!(m.mipmap_bias, 0.0);
@@ -271,7 +297,7 @@ mod tests {
             apply_immediatelly: true,
             ..Default::default()
         };
-        let m2 = TextureResidencyMeta::from_texture3d_props(&p2);
+        let m2 = TextureResidencyMeta::from_host_props(&p2);
         assert_eq!(m2.tier, ResidencyTier::Hot);
         assert!(m2.integration_urgent);
     }
@@ -284,7 +310,7 @@ mod tests {
             mipmap_bias: 1.25,
             ..Default::default()
         };
-        let m = TextureResidencyMeta::from_cubemap_props(&p);
+        let m = TextureResidencyMeta::from_host_props(&p);
         assert_eq!(m.tier, ResidencyTier::Streaming);
         assert_eq!(m.mipmap_bias, 1.25);
     }

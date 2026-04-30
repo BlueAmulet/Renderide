@@ -13,7 +13,7 @@ pub fn flush_pending_texture_allocations(
 ) {
     let ids: Vec<i32> = queue.catalogs.texture_formats.keys().copied().collect();
     for id in ids {
-        if queue.pools.texture_pool.get_texture(id).is_some() {
+        if queue.pools.texture_pool.get(id).is_some() {
             continue;
         }
         let Some(fmt) = queue.catalogs.texture_formats.get(&id).cloned() else {
@@ -30,7 +30,7 @@ pub fn flush_pending_texture_allocations(
             logger::warn!("texture {id}: failed to allocate GPU texture on attach");
             continue;
         };
-        let _ = queue.pools.texture_pool.insert_texture(tex);
+        let _ = queue.pools.texture_pool.insert(tex);
     }
 }
 
@@ -65,7 +65,7 @@ pub fn flush_pending_render_texture_allocations(
             logger::warn!("render texture {id}: failed to allocate GPU targets on attach");
             continue;
         };
-        let _ = queue.pools.render_texture_pool.insert_texture(tex);
+        let _ = queue.pools.render_texture_pool.insert(tex);
     }
 }
 
@@ -76,7 +76,7 @@ pub fn flush_pending_texture3d_allocations(
 ) {
     let ids: Vec<i32> = queue.catalogs.texture3d_formats.keys().copied().collect();
     for id in ids {
-        if queue.pools.texture3d_pool.get_texture(id).is_some() {
+        if queue.pools.texture3d_pool.get(id).is_some() {
             continue;
         }
         let Some(fmt) = queue.catalogs.texture3d_formats.get(&id).cloned() else {
@@ -93,7 +93,7 @@ pub fn flush_pending_texture3d_allocations(
             logger::warn!("texture3d {id}: failed to allocate GPU texture on attach");
             continue;
         };
-        let _ = queue.pools.texture3d_pool.insert_texture(tex);
+        let _ = queue.pools.texture3d_pool.insert(tex);
     }
 }
 
@@ -104,7 +104,7 @@ pub fn flush_pending_cubemap_allocations(
 ) {
     let ids: Vec<i32> = queue.catalogs.cubemap_formats.keys().copied().collect();
     for id in ids {
-        if queue.pools.cubemap_pool.get_texture(id).is_some() {
+        if queue.pools.cubemap_pool.get(id).is_some() {
             continue;
         }
         let Some(fmt) = queue.catalogs.cubemap_formats.get(&id).cloned() else {
@@ -120,6 +120,6 @@ pub fn flush_pending_cubemap_allocations(
             logger::warn!("cubemap {id}: failed to allocate GPU texture on attach");
             continue;
         };
-        let _ = queue.pools.cubemap_pool.insert_texture(tex);
+        let _ = queue.pools.cubemap_pool.insert(tex);
     }
 }

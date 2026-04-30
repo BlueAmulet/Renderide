@@ -20,13 +20,16 @@
 //! "is written by a camera" because repeat is valid authorable behavior for sampled render
 //! textures.
 
-use hashbrown::HashMap;
 use std::sync::Arc;
 
+use crate::assets::texture::estimate_gpu_texture_bytes;
 use crate::gpu::GpuLimits;
-use crate::gpu_pools::budget::VramAccounting;
-use crate::gpu_pools::resource_pool::{GpuResourcePool, RenderTexturePoolAccess};
-use crate::gpu_pools::{GpuResource, Texture2dSamplerState};
+use crate::gpu_pools::GpuResource;
+use crate::gpu_pools::VramResourceKind;
+use crate::gpu_pools::resource_pool::{
+    GpuResourcePool, UntrackedAccess, impl_resident_pool_facade,
+};
+use crate::gpu_pools::sampler_state::SamplerState;
 use crate::shared::SetRenderTextureFormat;
 
 /// Host render texture mirrored as a wgpu color target + optional depth.
@@ -48,10 +51,10 @@ pub struct GpuRenderTexture {
     pub width: u32,
     /// Pixel height of the render target.
     pub height: u32,
-    /// Estimated VRAM for color + depth (see [`estimate_texture_bytes`]).
+    /// Estimated VRAM for color + depth.
     pub resident_bytes: u64,
     /// Sampler state mirrored from host format for material binds.
-    pub sampler: Texture2dSamplerState,
+    pub sampler: SamplerState,
 }
 
 impl GpuResource for GpuRenderTexture {
@@ -68,8 +71,9 @@ impl GpuRenderTexture {
     /// Creates GPU storage for a host [`SetRenderTextureFormat`].
     ///
     /// Color format: **`Rgba16Float`** when `hdr_color` (Unity `ARGBHalf` / HDR parity), else
-    /// **`Rgba8Unorm`** for lower VRAM on typical LDR targets. Depth is always [`Depth32Float`].
-    /// Size is clamped per edge via [`GpuLimits::clamp_render_texture_edge`] (Unity-style bounds).
+    /// **`Rgba8Unorm`** for lower VRAM on typical LDR targets. Depth is always [`Depth32Float`]
+    /// (or the device-preferred depth/stencil chosen by [`crate::gpu::main_forward_depth_stencil_format`]).
+    /// Size is clamped per edge via [`GpuLimits::clamp_render_texture_edge`].
     pub fn new_from_format(
         device: &wgpu::Device,
         limits: &GpuLimits,
@@ -139,11 +143,11 @@ impl GpuRenderTexture {
         let depth_texture = Some(dt);
         let depth_view = Some(dv);
 
-        let color_bytes = estimate_texture_bytes(wgpu_color_format, w, h, 1);
-        let depth_bytes = estimate_texture_bytes(depth_format, w, h, 1);
+        let color_bytes = estimate_gpu_texture_bytes(wgpu_color_format, w, h, 1);
+        let depth_bytes = estimate_gpu_texture_bytes(depth_format, w, h, 1);
         let resident_bytes = color_bytes.saturating_add(depth_bytes);
 
-        let sampler = sampler_state_from_render_texture_format(fmt);
+        let sampler = SamplerState::from_render_texture_format(fmt);
 
         Some(Self {
             asset_id: fmt.asset_id,
@@ -166,46 +170,26 @@ impl GpuRenderTexture {
     }
 }
 
-/// Builds material-sampling state from the host render-texture format without changing wrap.
-fn sampler_state_from_render_texture_format(fmt: &SetRenderTextureFormat) -> Texture2dSamplerState {
-    Texture2dSamplerState {
-        filter_mode: fmt.filter_mode,
-        aniso_level: fmt.aniso_level.max(0),
-        wrap_u: fmt.wrap_u,
-        wrap_v: fmt.wrap_v,
-        mipmap_bias: 0.0,
-    }
+/// Pool of [`GpuRenderTexture`] entries keyed by host asset id.
+#[derive(Debug)]
+pub struct RenderTexturePool {
+    /// Shared resident GPU resource table.
+    inner: GpuResourcePool<GpuRenderTexture, UntrackedAccess>,
 }
 
-/// Estimates byte cost for one mip chain of a texture format.
-fn estimate_texture_bytes(format: wgpu::TextureFormat, width: u32, height: u32, mips: u32) -> u64 {
-    let bpp = match format {
-        wgpu::TextureFormat::Rgba16Float => 8u64,
-        wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => 4u64,
-        wgpu::TextureFormat::Depth32Float => 4u64,
-        wgpu::TextureFormat::Depth24PlusStencil8 => 4u64,
-        wgpu::TextureFormat::Depth32FloatStencil8 => 8u64,
-        _ => 4u64,
-    };
-    let mut total = 0u64;
-    let mut w = u64::from(width);
-    let mut h = u64::from(height);
-    for _ in 0..mips {
-        total = total.saturating_add(w.saturating_mul(h).saturating_mul(bpp));
-        w = (w / 2).max(1);
-        h = (h / 2).max(1);
-    }
-    total
-}
+impl_resident_pool_facade!(
+    RenderTexturePool,
+    GpuRenderTexture,
+    VramResourceKind::Texture,
+);
 
 #[cfg(test)]
 mod tests {
     //! Unit tests for host-driven render-texture sampler metadata.
 
-    use glam::IVec2;
-
-    use super::sampler_state_from_render_texture_format;
+    use crate::gpu_pools::sampler_state::SamplerState;
     use crate::shared::{SetRenderTextureFormat, TextureFilterMode, TextureWrapMode};
+    use glam::IVec2;
 
     /// Builds a format row with the supplied wrap modes.
     fn render_texture_format(
@@ -227,7 +211,7 @@ mod tests {
     #[test]
     fn sampler_state_preserves_host_wrap_modes() {
         let fmt = render_texture_format(TextureWrapMode::Mirror, TextureWrapMode::Clamp);
-        let sampler = sampler_state_from_render_texture_format(&fmt);
+        let sampler = SamplerState::from_render_texture_format(&fmt);
 
         assert_eq!(sampler.wrap_u, TextureWrapMode::Mirror);
         assert_eq!(sampler.wrap_v, TextureWrapMode::Clamp);
@@ -237,7 +221,7 @@ mod tests {
     #[test]
     fn sampler_state_preserves_explicit_repeat() {
         let fmt = render_texture_format(TextureWrapMode::Repeat, TextureWrapMode::Repeat);
-        let sampler = sampler_state_from_render_texture_format(&fmt);
+        let sampler = SamplerState::from_render_texture_format(&fmt);
 
         assert_eq!(sampler.wrap_u, TextureWrapMode::Repeat);
         assert_eq!(sampler.wrap_v, TextureWrapMode::Repeat);
@@ -249,77 +233,8 @@ mod tests {
         let mut fmt = render_texture_format(TextureWrapMode::Clamp, TextureWrapMode::Clamp);
         fmt.aniso_level = -4;
 
-        let sampler = sampler_state_from_render_texture_format(&fmt);
+        let sampler = SamplerState::from_render_texture_format(&fmt);
 
         assert_eq!(sampler.aniso_level, 0);
-    }
-}
-
-/// Pool of [`GpuRenderTexture`] entries keyed by host asset id (per-type id; disambiguate with packed texture type in materials).
-#[derive(Debug)]
-pub struct RenderTexturePool {
-    /// Shared resident GPU resource table.
-    inner: GpuResourcePool<GpuRenderTexture, RenderTexturePoolAccess>,
-}
-
-impl Default for RenderTexturePool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RenderTexturePool {
-    /// Empty pool.
-    pub fn new() -> Self {
-        Self {
-            inner: GpuResourcePool::new(RenderTexturePoolAccess),
-        }
-    }
-
-    /// VRAM accounting for resident render textures.
-    pub fn accounting(&self) -> &VramAccounting {
-        self.inner.accounting()
-    }
-
-    /// Inserts or replaces a render texture; returns `true` if a previous entry was replaced.
-    pub fn insert_texture(&mut self, tex: GpuRenderTexture) -> bool {
-        self.inner.insert(tex)
-    }
-
-    /// Removes by asset id; returns `true` if present.
-    pub fn remove(&mut self, asset_id: i32) -> bool {
-        self.inner.remove(asset_id)
-    }
-
-    /// Borrows a resident render texture by host asset id.
-    #[inline]
-    pub fn get(&self, asset_id: i32) -> Option<&GpuRenderTexture> {
-        self.inner.get(asset_id)
-    }
-
-    /// Mutably borrows a resident render texture for in-place updates.
-    #[inline]
-    pub fn get_mut(&mut self, asset_id: i32) -> Option<&mut GpuRenderTexture> {
-        self.inner.get_mut(asset_id)
-    }
-
-    /// Full map for diagnostics and iteration.
-    #[inline]
-    pub fn textures(&self) -> &HashMap<i32, GpuRenderTexture> {
-        self.inner.resources()
-    }
-
-    /// Number of host render-texture assets currently resident on the GPU.
-    #[must_use]
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    /// Whether the pool has no render textures.
-    #[must_use]
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
     }
 }

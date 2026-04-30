@@ -84,7 +84,7 @@ impl MeshUploadTask {
         };
 
         let data = self.data.clone();
-        let existing = queue.pools.mesh_pool.get_mesh(asset_id).cloned();
+        let existing = queue.pools.mesh_pool.get(asset_id).cloned();
         let raw_len = data.buffer.length.max(0) as usize;
         let raw_arc = Self::copy_mesh_payload(shm, &data, raw_len);
         let Some(raw) = raw_arc else {
@@ -194,7 +194,7 @@ impl MeshUploadTask {
             return StepResult::Done;
         };
         profiling::scope!("asset::mesh_upload_finalize");
-        let existed_before = queue.pools.mesh_pool.insert_mesh(mesh);
+        let existed_before = queue.pools.mesh_pool.insert(mesh);
         if let Some(ipc) = ipc.as_mut() {
             use crate::shared::{MeshUploadResult, RendererCommand};
             let _ = ipc.send_background(RendererCommand::MeshUploadResult(MeshUploadResult {

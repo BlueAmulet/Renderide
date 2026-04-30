@@ -44,7 +44,7 @@ pub fn on_set_cubemap_format(
             ipc,
             id,
             TextureUpdateResultType::FORMAT_SET,
-            queue.pools.cubemap_pool.get_texture(id).is_none(),
+            queue.pools.cubemap_pool.get(id).is_none(),
         );
         return;
     };
@@ -54,7 +54,7 @@ pub fn on_set_cubemap_format(
             ipc,
             id,
             TextureUpdateResultType::FORMAT_SET,
-            queue.pools.cubemap_pool.get_texture(id).is_none(),
+            queue.pools.cubemap_pool.get(id).is_none(),
         );
         return;
     };
@@ -62,7 +62,7 @@ pub fn on_set_cubemap_format(
         logger::warn!("cubemap {id}: SetCubemapFormat rejected (bad size or device)");
         return;
     };
-    let existed_before = queue.pools.cubemap_pool.insert_texture(tex);
+    let existed_before = queue.pools.cubemap_pool.insert(tex);
     send_cubemap_result(
         ipc,
         id,
@@ -91,7 +91,7 @@ pub fn on_set_cubemap_properties(
 ) {
     let id = p.asset_id;
     queue.catalogs.cubemap_properties.insert(id, p.clone());
-    if let Some(t) = queue.pools.cubemap_pool.get_texture_mut(id) {
+    if let Some(t) = queue.pools.cubemap_pool.get_mut(id) {
         t.apply_properties(&p);
     }
     send_cubemap_result(ipc, id, TextureUpdateResultType::PROPERTIES_SET, false);
@@ -115,7 +115,7 @@ pub fn on_set_cubemap_data(
         has_format: |queue, id| queue.catalogs.cubemap_formats.contains_key(&id),
         pending_len: |queue| queue.pending.pending_cubemap_uploads.len(),
         push_pending: |queue, data| queue.pending.pending_cubemap_uploads.push_back(data),
-        has_resident: |queue, id| queue.pools.cubemap_pool.get_texture(id).is_some(),
+        has_resident: |queue, id| queue.pools.cubemap_pool.get(id).is_some(),
         flush_allocations: flush_pending_cubemap_allocations,
     }) else {
         return;
@@ -149,7 +149,7 @@ pub fn on_unload_cubemap(queue: &mut AssetTransferQueue, u: UnloadCubemap) {
     let id = u.asset_id;
     queue.catalogs.cubemap_formats.remove(&id);
     queue.catalogs.cubemap_properties.remove(&id);
-    if queue.pools.cubemap_pool.remove_texture(id) {
+    if queue.pools.cubemap_pool.remove(id) {
         logger::info!(
             "cubemap {id} unloaded (tex≈{} total≈{})",
             queue
@@ -168,12 +168,7 @@ fn enqueue_cubemap_upload_task(queue: &mut AssetTransferQueue, d: SetCubemapData
         logger::warn!("cubemap {id}: missing format");
         return false;
     };
-    let Some(wgpu_fmt) = queue
-        .pools
-        .cubemap_pool
-        .get_texture(id)
-        .map(|t| t.wgpu_format)
-    else {
+    let Some(wgpu_fmt) = queue.pools.cubemap_pool.get(id).map(|t| t.wgpu_format) else {
         logger::warn!("cubemap {id}: missing GPU texture");
         return false;
     };

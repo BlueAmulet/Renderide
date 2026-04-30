@@ -1,11 +1,11 @@
-//! Resident [`GpuMesh`] table with optional layout fingerprint cache and VRAM accounting.
+//! Resident [`GpuMesh`] table with layout fingerprint cache and VRAM accounting.
 
 use hashbrown::HashMap;
 
 use crate::assets::mesh::{GpuMesh, MeshBufferLayout};
 
-use super::resource_pool::{GpuResourcePool, MeshPoolAccess};
-use super::{GpuResource, StreamingPolicy, VramAccounting};
+use crate::gpu_pools::resource_pool::{GpuResourcePool, StreamingAccess};
+use crate::gpu_pools::{GpuResource, StreamingPolicy, VramAccounting};
 
 impl GpuResource for GpuMesh {
     fn resident_bytes(&self) -> u64 {
@@ -17,10 +17,11 @@ impl GpuResource for GpuMesh {
     }
 }
 
-/// Insert / remove pool for meshes; evictions call [`VramAccounting`] and optional [`StreamingPolicy`].
+/// Insert / remove pool for meshes; insert / remove update [`VramAccounting`] and notify the
+/// wired [`StreamingPolicy`].
 pub struct MeshPool {
     /// Shared resident GPU resource table.
-    inner: GpuResourcePool<GpuMesh, MeshPoolAccess>,
+    inner: GpuResourcePool<GpuMesh, StreamingAccess>,
     /// Last successful [`MeshBufferLayout`] for [`mesh_upload_input_fingerprint`](crate::assets::mesh::mesh_upload_input_fingerprint) (skips `compute_mesh_buffer_layout` on hot uploads).
     layout_cache: HashMap<i32, (u64, MeshBufferLayout)>,
 }
@@ -29,37 +30,84 @@ impl MeshPool {
     /// Creates an empty pool with the given streaming policy.
     pub fn new(streaming: Box<dyn StreamingPolicy>) -> Self {
         Self {
-            inner: GpuResourcePool::new(MeshPoolAccess::new(streaming)),
+            inner: GpuResourcePool::new(StreamingAccess::mesh(streaming)),
             layout_cache: HashMap::new(),
         }
     }
 
-    /// Default pool with [`NoopStreamingPolicy`].
+    /// Default pool with [`crate::gpu_pools::NoopStreamingPolicy`].
     pub fn default_pool() -> Self {
         Self {
-            inner: GpuResourcePool::new(MeshPoolAccess::noop()),
+            inner: GpuResourcePool::new(StreamingAccess::mesh_noop()),
             layout_cache: HashMap::new(),
         }
     }
 
-    /// VRAM accounting totals for resident meshes.
+    /// VRAM accounting for resident meshes.
+    #[inline]
     pub fn accounting(&self) -> &VramAccounting {
         self.inner.accounting()
     }
 
-    /// Mutable VRAM accounting (evictions and uploads update totals).
+    /// Mutable VRAM accounting (uploads adjust totals through this).
+    #[inline]
     pub fn accounting_mut(&mut self) -> &mut VramAccounting {
         self.inner.accounting_mut()
     }
 
-    /// Streaming policy hook for mip / eviction suggestions.
+    /// Streaming policy hook for eviction suggestions.
+    #[inline]
     pub fn streaming_mut(&mut self) -> &mut dyn StreamingPolicy {
         self.inner.access_mut().streaming_mut()
     }
 
-    /// Inserts or replaces a mesh; returns `existed_before` (true if an entry was replaced).
-    pub fn insert_mesh(&mut self, mesh: GpuMesh) -> bool {
+    /// Inserts or replaces a mesh; returns `true` if a previous entry was replaced.
+    #[inline]
+    pub fn insert(&mut self, mesh: GpuMesh) -> bool {
         self.inner.insert(mesh)
+    }
+
+    /// Removes a mesh by host id; returns `true` if it was present. Also clears any cached
+    /// layout for the asset.
+    pub fn remove(&mut self, asset_id: i32) -> bool {
+        self.layout_cache.remove(&asset_id);
+        self.inner.remove(asset_id)
+    }
+
+    /// Borrows a resident mesh by host asset id.
+    #[inline]
+    pub fn get(&self, asset_id: i32) -> Option<&GpuMesh> {
+        self.inner.get(asset_id)
+    }
+
+    /// Mutably borrows a resident mesh by host asset id.
+    #[inline]
+    pub fn get_mut(&mut self, asset_id: i32) -> Option<&mut GpuMesh> {
+        self.inner.get_mut(asset_id)
+    }
+
+    /// Iterates resident meshes (read-only draw prep).
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = &GpuMesh> {
+        self.inner.resources().values()
+    }
+
+    /// Borrows the resident map for callers that need keyed access.
+    #[inline]
+    pub fn as_map(&self) -> &HashMap<i32, GpuMesh> {
+        self.inner.resources()
+    }
+
+    /// Number of resident meshes.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Whether the pool has no resident meshes.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
     }
 
     /// Cached [`MeshBufferLayout`] when [`crate::assets::mesh::mesh_upload_input_fingerprint`] matches.
@@ -80,12 +128,6 @@ impl MeshPool {
         self.layout_cache.insert(asset_id, (input_fp, layout));
     }
 
-    /// Removes a mesh by host id; returns `true` if it was present.
-    pub fn remove_mesh(&mut self, asset_id: i32) -> bool {
-        self.layout_cache.remove(&asset_id);
-        self.inner.remove(asset_id)
-    }
-
     /// Lazily creates tangent / UV1-3 buffers for meshes drawn by extended embedded shaders.
     pub fn ensure_extended_vertex_streams(&mut self, device: &wgpu::Device, asset_id: i32) -> bool {
         let (ok, before, after) = {
@@ -102,18 +144,6 @@ impl MeshPool {
             self.inner.note_access(asset_id);
         }
         ok
-    }
-
-    /// Borrows a resident mesh by host asset id.
-    #[inline]
-    pub fn get_mesh(&self, asset_id: i32) -> Option<&GpuMesh> {
-        self.inner.get(asset_id)
-    }
-
-    /// Borrows the map for iteration (read-only draw prep).
-    #[inline]
-    pub fn meshes(&self) -> &HashMap<i32, GpuMesh> {
-        self.inner.resources()
     }
 }
 

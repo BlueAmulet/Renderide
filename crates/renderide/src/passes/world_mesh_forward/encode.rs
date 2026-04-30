@@ -395,7 +395,7 @@ fn resident_draw_mesh<'a>(
     if item.mesh_asset_id < 0 || item.node_id < 0 || item.index_count == 0 {
         return None;
     }
-    let mesh = gpu.mesh_pool.get_mesh(item.mesh_asset_id)?;
+    let mesh = gpu.mesh_pool.get(item.mesh_asset_id)?;
     if streams.embedded_extended_vertex_streams && !mesh.extended_vertex_streams_ready() {
         logger::trace!(
             "WorldMeshForward: extended vertex streams missing for mesh_asset_id {}; draw skipped until pre-warm catches up",

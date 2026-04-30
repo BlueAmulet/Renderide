@@ -55,8 +55,7 @@ impl TextureDebugSnapshot {
     /// Collects a row per resident texture, sorted by asset id for stable listing.
     pub fn capture(pool: &TexturePool, current_view_texture_ids: &BTreeSet<i32>) -> Self {
         let mut rows: Vec<TextureDebugRow> = pool
-            .textures()
-            .values()
+            .iter()
             .map(|t| TextureDebugRow {
                 asset_id: t.asset_id,
                 width: t.width,

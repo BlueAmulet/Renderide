@@ -4,64 +4,17 @@ use std::sync::Arc;
 
 use crate::assets::texture::{estimate_gpu_texture3d_bytes, resolve_texture3d_wgpu_format};
 use crate::gpu::GpuLimits;
-use crate::shared::{
-    ColorProfile, SetTexture3DFormat, SetTexture3DProperties, TextureFilterMode, TextureFormat,
-    TextureWrapMode,
-};
+use crate::shared::{ColorProfile, SetTexture3DFormat, SetTexture3DProperties, TextureFormat};
 
-use super::GpuResource;
-use super::budget::TextureResidencyMeta;
-use super::resource_pool::{GpuResourcePool, TexturePoolAccess, impl_texture_pool_facade};
-use super::texture_allocation::{
+use crate::gpu_pools::GpuResource;
+use crate::gpu_pools::budget::TextureResidencyMeta;
+use crate::gpu_pools::resource_pool::{
+    GpuResourcePool, StreamingAccess, impl_streaming_pool_facade,
+};
+use crate::gpu_pools::sampler_state::SamplerState;
+use crate::gpu_pools::texture_allocation::{
     SampledTextureAllocation, TextureViewInit, create_sampled_copy_dst_texture,
 };
-
-/// Sampler-related fields mirrored from [`SetTexture3DProperties`](crate::shared::SetTexture3DProperties).
-#[derive(Clone, Debug)]
-pub struct Texture3dSamplerState {
-    /// Min/mag filter from host.
-    pub filter_mode: TextureFilterMode,
-    /// Anisotropic filtering level (host units).
-    pub aniso_level: i32,
-    /// U address mode.
-    pub wrap_u: TextureWrapMode,
-    /// V address mode.
-    pub wrap_v: TextureWrapMode,
-    /// W address mode (depth).
-    pub wrap_w: TextureWrapMode,
-    /// Mip bias applied when sampling.
-    pub mipmap_bias: f32,
-}
-
-impl Default for Texture3dSamplerState {
-    fn default() -> Self {
-        Self {
-            filter_mode: TextureFilterMode::default(),
-            aniso_level: 1,
-            wrap_u: TextureWrapMode::default(),
-            wrap_v: TextureWrapMode::default(),
-            wrap_w: TextureWrapMode::default(),
-            mipmap_bias: 0.0,
-        }
-    }
-}
-
-impl Texture3dSamplerState {
-    /// Copies fields from host properties.
-    pub fn from_props(props: Option<&SetTexture3DProperties>) -> Self {
-        let Some(p) = props else {
-            return Self::default();
-        };
-        Self {
-            filter_mode: p.filter_mode,
-            aniso_level: p.aniso_level,
-            wrap_u: p.wrap_u,
-            wrap_v: p.wrap_v,
-            wrap_w: p.wrap_w,
-            mipmap_bias: 0.0,
-        }
-    }
-}
 
 /// GPU Texture3D: mips live only in [`wgpu::Texture`].
 #[derive(Debug)]
@@ -91,7 +44,7 @@ pub struct GpuTexture3d {
     /// Estimated VRAM for allocated mips.
     pub resident_bytes: u64,
     /// Sampler fields for material bind groups.
-    pub sampler: Texture3dSamplerState,
+    pub sampler: SamplerState,
     /// Streaming / eviction hints from host properties.
     pub residency: TextureResidencyMeta,
 }
@@ -148,9 +101,9 @@ impl GpuTexture3d {
             },
         );
         let resident_bytes = estimate_gpu_texture3d_bytes(wgpu_format, w, h, d, mips);
-        let sampler = Texture3dSamplerState::from_props(props);
+        let sampler = SamplerState::from_texture3d_props(props);
         let residency = props
-            .map(TextureResidencyMeta::from_texture3d_props)
+            .map(TextureResidencyMeta::from_host_props)
             .unwrap_or_default();
         Some(Self {
             asset_id: fmt.asset_id,
@@ -172,8 +125,8 @@ impl GpuTexture3d {
 
     /// Updates sampler fields and residency hints from host properties.
     pub fn apply_properties(&mut self, p: &SetTexture3DProperties) {
-        self.sampler = Texture3dSamplerState::from_props(Some(p));
-        self.residency = TextureResidencyMeta::from_texture3d_props(p);
+        self.sampler = SamplerState::from_texture3d_props(Some(p));
+        self.residency = TextureResidencyMeta::from_host_props(p);
     }
 }
 
@@ -190,7 +143,12 @@ impl GpuResource for GpuTexture3d {
 /// Resident Texture3D table; pairs with [`super::TexturePool`] under one renderer.
 pub struct Texture3dPool {
     /// Shared resident GPU resource table.
-    inner: GpuResourcePool<GpuTexture3d, TexturePoolAccess>,
+    inner: GpuResourcePool<GpuTexture3d, StreamingAccess>,
 }
 
-impl_texture_pool_facade!(Texture3dPool, GpuTexture3d);
+impl_streaming_pool_facade!(
+    Texture3dPool,
+    GpuTexture3d,
+    StreamingAccess::texture,
+    StreamingAccess::texture_noop,
+);

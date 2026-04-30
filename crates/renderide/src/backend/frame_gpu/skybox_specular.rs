@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use crate::gpu::frame_globals::{SkyboxSpecularSourceKind, SkyboxSpecularUniformParams};
-use crate::gpu_pools::{CubemapSamplerState, Texture2dSamplerState};
+use crate::gpu_pools::SamplerState;
 
 /// Resident skybox source that can be bound as frame-global indirect specular.
 pub enum SkyboxSpecularEnvironmentSource {
@@ -50,7 +50,7 @@ pub struct SkyboxSpecularCubemapSource {
     /// Resident full cube texture view.
     pub view: Arc<wgpu::TextureView>,
     /// Host sampler settings copied from the cubemap pool.
-    pub sampler: CubemapSamplerState,
+    pub sampler: SamplerState,
     /// Resident mip count available for roughness-driven LOD sampling.
     pub mip_levels_resident: u32,
     /// Whether shader sampling needs V-axis storage compensation.
@@ -64,7 +64,7 @@ pub struct SkyboxSpecularGeneratedCubemapSource {
     /// Resident full cube texture view.
     pub view: Arc<wgpu::TextureView>,
     /// Sampler settings used for the generated mip chain.
-    pub sampler: CubemapSamplerState,
+    pub sampler: SamplerState,
     /// Resident mip count available for roughness-driven LOD sampling.
     pub mip_levels_resident: u32,
     /// Whether shader sampling needs V-axis storage compensation.
@@ -78,7 +78,7 @@ pub struct SkyboxSpecularEquirectSource {
     /// Resident full 2D texture view.
     pub view: Arc<wgpu::TextureView>,
     /// Host sampler settings copied from the Texture2D pool.
-    pub sampler: Texture2dSamplerState,
+    pub sampler: SamplerState,
     /// Resident mip count available for roughness-driven LOD sampling.
     pub mip_levels_resident: u32,
     /// Whether shader sampling needs V-axis storage compensation.
@@ -144,7 +144,7 @@ impl SkyboxSpecularEnvironmentKey {
             view_identity: Arc::as_ptr(&source.view) as usize,
             mip_levels_resident: source.mip_levels_resident,
             storage_v_inverted: source.storage_v_inverted,
-            sampler_signature: cubemap_sampler_signature(&source.sampler),
+            sampler_signature: sampler_signature(&source.sampler),
             generated_hash: 0,
         }
     }
@@ -157,7 +157,7 @@ impl SkyboxSpecularEnvironmentKey {
             view_identity: Arc::as_ptr(&source.view) as usize,
             mip_levels_resident: source.mip_levels_resident,
             storage_v_inverted: source.storage_v_inverted,
-            sampler_signature: cubemap_sampler_signature(&source.sampler),
+            sampler_signature: sampler_signature(&source.sampler),
             generated_hash: source.key_hash,
         }
     }
@@ -170,7 +170,7 @@ impl SkyboxSpecularEnvironmentKey {
             view_identity: Arc::as_ptr(&source.view) as usize,
             mip_levels_resident: source.mip_levels_resident,
             storage_v_inverted: source.storage_v_inverted,
-            sampler_signature: texture2d_sampler_signature(&source.sampler),
+            sampler_signature: sampler_signature(&source.sampler),
             generated_hash: 0,
         }
     }
@@ -189,19 +189,8 @@ impl SkyboxSpecularEnvironmentKey {
     }
 }
 
-/// Hashes cubemap sampler fields that affect the wgpu sampler descriptor.
-fn cubemap_sampler_signature(state: &CubemapSamplerState) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    (state.filter_mode as i32).hash(&mut hasher);
-    state.aniso_level.hash(&mut hasher);
-    state.mipmap_bias.to_bits().hash(&mut hasher);
-    (state.wrap_u as i32).hash(&mut hasher);
-    (state.wrap_v as i32).hash(&mut hasher);
-    hasher.finish()
-}
-
-/// Hashes Texture2D sampler fields that affect the wgpu sampler descriptor.
-fn texture2d_sampler_signature(state: &Texture2dSamplerState) -> u64 {
+/// Hashes sampler fields that affect the wgpu sampler descriptor for any skybox source kind.
+fn sampler_signature(state: &SamplerState) -> u64 {
     let mut hasher = DefaultHasher::new();
     (state.filter_mode as i32).hash(&mut hasher);
     state.aniso_level.hash(&mut hasher);

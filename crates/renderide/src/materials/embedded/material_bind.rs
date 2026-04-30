@@ -447,22 +447,20 @@ fn compute_uniform_texture_state_signature(
         );
         entry.binding.hash(&mut h);
         let (bias, storage_v_inverted): (f32, bool) = match binding {
-            ResolvedTextureBinding::Texture2D { asset_id } => pools
-                .texture
-                .get_texture(asset_id)
-                .map_or((0.0, false), |t| {
+            ResolvedTextureBinding::Texture2D { asset_id } => {
+                pools.texture.get(asset_id).map_or((0.0, false), |t| {
                     (t.sampler.mipmap_bias, t.storage_v_inverted)
-                }),
+                })
+            }
             ResolvedTextureBinding::Texture3D { asset_id } => pools
                 .texture3d
-                .get_texture(asset_id)
+                .get(asset_id)
                 .map_or((0.0, false), |t| (t.sampler.mipmap_bias, false)),
-            ResolvedTextureBinding::Cubemap { asset_id } => pools
-                .cubemap
-                .get_texture(asset_id)
-                .map_or((0.0, false), |t| {
+            ResolvedTextureBinding::Cubemap { asset_id } => {
+                pools.cubemap.get(asset_id).map_or((0.0, false), |t| {
                     (t.sampler.mipmap_bias, t.storage_v_inverted)
-                }),
+                })
+            }
             ResolvedTextureBinding::RenderTexture { .. } => (0.0, true),
             ResolvedTextureBinding::VideoTexture { .. } => (0.0, false),
             ResolvedTextureBinding::None => (0.0, false),

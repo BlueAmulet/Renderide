@@ -63,7 +63,7 @@ pub(super) fn resolve_task_source(
         if state.cubemap_asset_id < 0 {
             return None;
         }
-        let Some(cubemap) = assets.cubemap_pool().get_texture(state.cubemap_asset_id) else {
+        let Some(cubemap) = assets.cubemap_pool().get(state.cubemap_asset_id) else {
             return Some((
                 Sh2SourceKey::Cubemap {
                     render_space_id,
@@ -250,7 +250,7 @@ fn resolve_projection360_cubemap_source(
     asset_id: i32,
     generation: u64,
 ) -> (Sh2SourceKey, Sh2ResolvedSource) {
-    let Some(cubemap) = assets.cubemap_pool().get_texture(asset_id) else {
+    let Some(cubemap) = assets.cubemap_pool().get(asset_id) else {
         return (
             Sh2SourceKey::Cubemap {
                 render_space_id,
@@ -291,7 +291,7 @@ fn resolve_projection360_texture2d_source(
     generation: u64,
 ) -> (Sh2SourceKey, Sh2ResolvedSource) {
     let mut params = projection360_equirect_params(store, registry, lookup, false);
-    let Some(tex) = assets.texture_pool().get_texture(asset_id) else {
+    let Some(tex) = assets.texture_pool().get(asset_id) else {
         return (
             projection360_equirect_source_key(
                 render_space_id,

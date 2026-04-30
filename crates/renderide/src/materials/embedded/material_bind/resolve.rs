@@ -237,7 +237,7 @@ impl EmbeddedMaterialBindResources {
                 }
                 pools
                     .texture
-                    .get_texture(asset_id)
+                    .get(asset_id)
                     .filter(|t| t.mip_levels_resident > 0)
                     .map(|t| t.view.clone())
             }
@@ -247,7 +247,7 @@ impl EmbeddedMaterialBindResources {
                 }
                 pools
                     .texture3d
-                    .get_texture(asset_id)
+                    .get(asset_id)
                     .filter(|t| t.mip_levels_resident > 0)
                     .map(|t| t.view.clone())
             }
@@ -257,7 +257,7 @@ impl EmbeddedMaterialBindResources {
                 }
                 pools
                     .cubemap
-                    .get_texture(asset_id)
+                    .get(asset_id)
                     .filter(|t| t.mip_levels_resident > 0)
                     .map(|t| t.view.clone())
             }
@@ -299,7 +299,7 @@ impl EmbeddedMaterialBindResources {
                 if asset_id < 0 {
                     None
                 } else {
-                    pools.texture.get_texture(asset_id).map(|tex| {
+                    pools.texture.get(asset_id).map(|tex| {
                         let key = EmbeddedSamplerCacheKey::texture2d(
                             &tex.sampler,
                             tex.mip_levels_resident,
@@ -314,7 +314,7 @@ impl EmbeddedMaterialBindResources {
                 if asset_id < 0 {
                     None
                 } else {
-                    pools.texture3d.get_texture(asset_id).map(|tex| {
+                    pools.texture3d.get(asset_id).map(|tex| {
                         let key = EmbeddedSamplerCacheKey::texture3d(
                             &tex.sampler,
                             tex.mip_levels_resident,
@@ -333,7 +333,7 @@ impl EmbeddedMaterialBindResources {
                 if asset_id < 0 {
                     None
                 } else {
-                    pools.cubemap.get_texture(asset_id).map(|tex| {
+                    pools.cubemap.get(asset_id).map(|tex| {
                         let key =
                             EmbeddedSamplerCacheKey::cubemap(&tex.sampler, tex.mip_levels_resident);
                         self.cached_sampler(key, || {

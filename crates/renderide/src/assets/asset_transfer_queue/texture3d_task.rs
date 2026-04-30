@@ -64,7 +64,7 @@ impl Texture3dUploadTask {
             queue
                 .pools
                 .texture3d_pool
-                .get_texture(id)
+                .get(id)
                 .map(|texture| texture.texture.clone()),
         ) else {
             return StepResult::Done;
@@ -105,7 +105,7 @@ impl Texture3dUploadTask {
     ) {
         let id = self.data.asset_id;
         if uploaded_mips > 0
-            && let Some(t) = queue.pools.texture3d_pool.get_texture_mut(id)
+            && let Some(t) = queue.pools.texture3d_pool.get_mut(id)
         {
             t.mip_levels_resident = t
                 .mip_levels_resident

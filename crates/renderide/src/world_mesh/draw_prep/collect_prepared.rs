@@ -209,7 +209,7 @@ fn collect_prepared_renderer_run(
     if !prepared_run_passes_filter(first, ctx, filter_masks) {
         return (0, 0, 0);
     }
-    let Some(mesh) = ctx.mesh_pool.get_mesh(first.mesh_asset_id) else {
+    let Some(mesh) = ctx.mesh_pool.get(first.mesh_asset_id) else {
         return (0, 0, 0);
     };
     let skinning = prepared_run_skinned_renderer(first, ctx);
