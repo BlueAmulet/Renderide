@@ -117,6 +117,29 @@ public sealed class RustTypeMapperTests
         Assert.Equal("Thing", RustTypeMapper.StripVecElementType("Option<Vec<Thing>>"));
     }
 
+    /// <summary><see cref="RustTypeMapper.MapPrimitiveType"/> covers each supported integer family.</summary>
+    [Theory]
+    [InlineData(typeof(byte), "u8")]
+    [InlineData(typeof(sbyte), "i8")]
+    [InlineData(typeof(short), "i16")]
+    [InlineData(typeof(ushort), "u16")]
+    [InlineData(typeof(int), "i32")]
+    [InlineData(typeof(uint), "u32")]
+    [InlineData(typeof(long), "i64")]
+    [InlineData(typeof(ulong), "u64")]
+    public void MapPrimitiveType_handles_each_supported_primitive(Type type, string expected)
+    {
+        Assert.Equal(expected, RustTypeMapper.MapPrimitiveType(type));
+    }
+
+    /// <summary>Non-integer types fall back to <c>i32</c> (the documented default for enum underlying types).</summary>
+    [Fact]
+    public void MapPrimitiveType_falls_back_to_i32_for_unknown()
+    {
+        Assert.Equal("i32", RustTypeMapper.MapPrimitiveType(typeof(float)));
+        Assert.Equal("i32", RustTypeMapper.MapPrimitiveType(typeof(string)));
+    }
+
     private sealed class TestReferenced
     {
     }
