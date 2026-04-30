@@ -62,6 +62,16 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) occlusion: i32,
     pub(crate) occlusion1: i32,
     pub(crate) occlusion_map: i32,
+    /// `Projection360` secondary equirectangular texture binding.
+    pub(crate) second_tex: i32,
+    /// `Projection360` tint-modulation texture binding.
+    pub(crate) tint_tex: i32,
+    /// `Projection360` direction-perturbation texture binding.
+    pub(crate) offset_tex: i32,
+    /// `Projection360` primary cubemap texture binding.
+    pub(crate) main_cube: i32,
+    /// `Projection360` secondary cubemap texture binding.
+    pub(crate) second_cube: i32,
 }
 
 impl EmbeddedSharedKeywordIds {
@@ -94,6 +104,11 @@ impl EmbeddedSharedKeywordIds {
             occlusion: registry.intern("_Occlusion"),
             occlusion1: registry.intern("_Occlusion1"),
             occlusion_map: registry.intern("_OcclusionMap"),
+            second_tex: registry.intern("_SecondTex"),
+            tint_tex: registry.intern("_TintTex"),
+            offset_tex: registry.intern("_OffsetTex"),
+            main_cube: registry.intern("_MainCube"),
+            second_cube: registry.intern("_SecondCube"),
         }
     }
 }

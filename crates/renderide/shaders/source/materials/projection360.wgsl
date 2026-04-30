@@ -117,9 +117,17 @@ fn inside_rect(pos: vec2<f32>, rect: vec4<f32>) -> bool {
     return pos.x >= rect.x && pos.y >= rect.y && pos.x <= rect.z && pos.y <= rect.w;
 }
 
+/// Object-space view direction at the vertex, intentionally un-normalized.
+///
+/// The result is linear in `world_pos`, so perspective-correct interpolation across the
+/// triangle yields the per-fragment direction from the surface point to the camera.
+/// Normalizing per vertex would skew the interpolated direction (the angular error scales
+/// with the triangle's angular extent and breaks narrow-FOV projections); the fragment
+/// shader normalizes the interpolated value, matching the per-fragment recompute used by
+/// the original Unity shader.
 fn object_space_view_dir(model: mat4x4<f32>, world_pos: vec3<f32>, view_layer: u32) -> vec3<f32> {
     let model3 = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz);
-    return normalize(transpose(model3) * (rg::camera_world_pos_for_view(view_layer) - world_pos));
+    return transpose(model3) * (rg::camera_world_pos_for_view(view_layer) - world_pos);
 }
 
 fn perspective_view_dir(uv: vec2<f32>) -> vec3<f32> {

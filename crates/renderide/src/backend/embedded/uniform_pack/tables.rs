@@ -1,12 +1,19 @@
 //! Name-driven keyword inference and scalar default tables for embedded uniform packing.
 
-use crate::assets::material::{MaterialPropertyLookupIds, MaterialPropertyStore};
+use crate::assets::material::{
+    MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
+};
 
 use super::super::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
 use super::helpers::{
     first_float_by_pids, is_keyword_like_field, keyword_float_enabled_any_pids,
     shader_writer_unescaped_field_name, texture_property_present_pids,
 };
+
+/// Tolerance (in radians) for treating a `Projection360` `_FOV.xy` value as the default
+/// full-sphere `(TAU, π)`. Tighter than any FOV the host realistically writes (the host
+/// converts whole-degree values through `* π / 180`, so the residual is below `1e-6`).
+const PROJECTION360_FULL_SPHERE_EPSILON: f32 = 1e-3;
 
 pub(super) fn inferred_keyword_float_f32(
     field_name: &str,
@@ -43,6 +50,13 @@ pub(super) fn inferred_keyword_float_f32(
             } else {
                 0.0
             });
+        }
+        "OUTSIDE_CLIP" | "OUTSIDE_COLOR" | "OUTSIDE_CLAMP" | "_PERSPECTIVE" | "CUBEMAP"
+        | "CUBEMAP_LOD" | "SECOND_TEXTURE" | "_OFFSET" | "_CLAMP_INTENSITY" | "TINT_TEX_DIRECT"
+        | "TINT_TEX_LERP" => {
+            if let Some(value) = projection360_keyword_inferred(field_name, store, lookup, ids) {
+                return Some(value);
+            }
         }
         _ => {}
     }
@@ -229,6 +243,117 @@ fn alpha_premultiply_on_inferred(
     let legacy_blend = read_int_property(store, lookup, kw.blend_mode);
     legacy_mode == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
         || legacy_blend == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
+}
+
+/// Inferred values for the `Projection360` material family's multi_compile keyword fields,
+/// gated on the stem owning a `_FOV` uniform field.
+///
+/// FrooxEngine sets every keyword via `keywords.SetKeyword(...)`, but `ShaderKeywords.Variant`
+/// is never serialized over IPC (`MaterialUpdateWriter` exposes no `SetKeyword`;
+/// `MaterialPropertyUpdateType` has no keyword opcode). The renderer reconstructs each
+/// keyword from a property the host *does* send, mirroring exactly the predicate FrooxEngine
+/// uses host-side in `Projection360Material.UpdateKeywords`:
+///
+/// | Keyword           | Host predicate                                         | Renderer probe                                        |
+/// |-------------------|--------------------------------------------------------|-------------------------------------------------------|
+/// | `_PERSPECTIVE`    | `Projection.Value == Mode.Perspective`                 | `_PerspectiveFOV` written (only sent in Perspective)  |
+/// | `OUTSIDE_CLAMP`   | `OutsideMode.Value == Outside.Clamp` (no wire signal)  | partial `_FOV` (full-sphere `(TAU, π)` keeps default) |
+/// | `CUBEMAP_LOD`     | cubemap target + `CubemapLOD.Value.HasValue`           | `_MainCube`/`_SecondCube` texture + `_CubeLOD`        |
+/// | `CUBEMAP`         | cubemap target + no LOD                                | `_MainCube`/`_SecondCube` texture, no `_CubeLOD`      |
+/// | `SECOND_TEXTURE`  | `SecondaryTexture/Cubemap` set or `TextureLerp != 0`   | `_SecondTex`/`_SecondCube` texture                    |
+/// | `_OFFSET`         | `OffsetTexture.Asset != null`                          | `_OffsetTex` texture                                  |
+/// | `_CLAMP_INTENSITY`| `MaxIntensity.HasValue || HDR texture`                 | `_MaxIntensity` written (only sent when enabled)      |
+/// | `TINT_TEX_LERP`   | `TintTexture` + `TintTextureMode == Lerp`              | `_TintTex` texture + `_Tint0` written (Lerp-only send)|
+/// | `TINT_TEX_DIRECT` | `TintTexture` + `TintTextureMode == Direct`            | `_TintTex` texture, no `_Tint0`                       |
+///
+/// `_VIEW`/`_NORMAL`/`_WORLD_VIEW`, `OUTSIDE_COLOR`, `_RIGHT_EYE_ST`, and `RECTCLIP` have no
+/// property-stream signal (they map to `bool`/`enum` fields the host never writes as
+/// properties). These default to `0`; the shader's existing fallthrough renders such
+/// materials in the most common configuration (`_VIEW` + `OUTSIDE_CLIP` + non-stereo +
+/// non-rect-clip), and they would only become observable if a host change starts sending
+/// the discriminator.
+///
+/// Returns `None` when the stem has no `_FOV` uniform field (i.e., not the `Projection360`
+/// family) so the generic keyword-like fallthrough handles those identically to the current
+/// behavior.
+fn projection360_keyword_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    let fov_pid = *ids.uniform_field_ids.get("_FOV")?;
+    if !uniform_property_present(store, lookup, fov_pid) {
+        return None;
+    }
+
+    let kw = ids.shared.as_ref();
+    let uniform_pid = |name: &str| ids.uniform_field_ids.get(name).copied();
+    let uniform_written = |name: &str| {
+        uniform_pid(name).is_some_and(|pid| uniform_property_present(store, lookup, pid))
+    };
+    let texture_lerp_nonzero = uniform_pid("_TextureLerp")
+        .and_then(|pid| match store.get_merged(lookup, pid) {
+            Some(MaterialPropertyValue::Float(f)) => Some(*f),
+            _ => None,
+        })
+        .is_some_and(|v| v != 0.0);
+
+    let cubemap_present =
+        texture_property_present_pids(store, lookup, &[kw.main_cube, kw.second_cube]);
+    let cube_lod_written = uniform_written("_CubeLOD");
+    let secondary_texture_present =
+        texture_property_present_pids(store, lookup, &[kw.second_tex, kw.second_cube]);
+    let tint_tex_present = texture_property_present_pids(store, lookup, &[kw.tint_tex]);
+    let tint0_written = uniform_written("_Tint0");
+
+    let enabled = match field_name {
+        "OUTSIDE_CLAMP" => {
+            let fov_xy = read_float4_xy(store, lookup, fov_pid)?;
+            let eps = PROJECTION360_FULL_SPHERE_EPSILON;
+            let full_sphere = (fov_xy[0] - std::f32::consts::TAU).abs() <= eps
+                && (fov_xy[1] - std::f32::consts::PI).abs() <= eps;
+            !full_sphere
+        }
+        "OUTSIDE_CLIP" | "OUTSIDE_COLOR" => false,
+        "_PERSPECTIVE" => uniform_written("_PerspectiveFOV"),
+        "CUBEMAP_LOD" => cubemap_present && cube_lod_written,
+        "CUBEMAP" => cubemap_present && !cube_lod_written,
+        "SECOND_TEXTURE" => secondary_texture_present || texture_lerp_nonzero,
+        "_OFFSET" => texture_property_present_pids(store, lookup, &[kw.offset_tex]),
+        "_CLAMP_INTENSITY" => uniform_written("_MaxIntensity"),
+        "TINT_TEX_LERP" => tint_tex_present && tint0_written,
+        "TINT_TEX_DIRECT" => tint_tex_present && !tint0_written,
+        _ => return None,
+    };
+    Some(if enabled { 1.0 } else { 0.0 })
+}
+
+/// Reads the `.xy` of a `Float4` property, ignoring scalar `Float` writes.
+///
+/// `_FOV` is always packed as a `float4` on the host (`Projection360Material.cs:445` writes
+/// `SetFloat4(_FOV, new float4(FieldOfView, AngleOffset) * (π/180))`); a scalar write would
+/// be a host-side bug, so we don't paper over it by accepting a bare `Float`.
+fn read_float4_xy(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    property_id: i32,
+) -> Option<[f32; 2]> {
+    match store.get_merged(lookup, property_id) {
+        Some(MaterialPropertyValue::Float4(v)) => Some([v[0], v[1]]),
+        _ => None,
+    }
+}
+
+/// `true` when the host has written *any* value to `property_id` — used to mirror the
+/// FrooxEngine predicate that gates whether a property is sent at all (e.g., `_PerspectiveFOV`
+/// only travels the wire when the material is in `Mode.Perspective`).
+fn uniform_property_present(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    property_id: i32,
+) -> bool {
+    store.get_merged(lookup, property_id).is_some()
 }
 
 // Every uniform field reaching `build_embedded_uniform_bytes` is one of:
