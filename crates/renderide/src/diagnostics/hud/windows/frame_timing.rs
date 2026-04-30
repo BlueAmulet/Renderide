@@ -1,9 +1,12 @@
 //! Frame timing HUD window — MangoHud-style overlay with FPS, CPU/GPU, RAM/VRAM and a frametime graph.
 
-use crate::diagnostics::FrameTimingHudSnapshot;
-use imgui::{Condition, WindowFlags};
+use imgui::WindowFlags;
 
-use super::super::layout as overlay_layout;
+use crate::diagnostics::FrameTimingHudSnapshot;
+
+use super::super::layout::{self, Viewport, WindowSlot};
+use super::super::state::HudUiState;
+use super::super::view::HudWindow;
 
 const LABEL_COLOR: [f32; 4] = [0.75, 0.75, 0.80, 1.0];
 const VALUE_COLOR: [f32; 4] = [1.00, 1.00, 1.00, 1.0];
@@ -23,28 +26,50 @@ const COL_SECONDARY_VALUE_X: f32 = 196.0;
 const CONTENT_WIDTH: f32 = 320.0;
 const GRAPH_HEIGHT: f32 = 46.0;
 
-pub(super) fn frame_timing_window(ui: &imgui::Ui, timing: Option<&FrameTimingHudSnapshot>) {
-    let window_flags = WindowFlags::ALWAYS_AUTO_RESIZE
-        | WindowFlags::NO_SAVED_SETTINGS
-        | WindowFlags::NO_FOCUS_ON_APPEARING
-        | WindowFlags::NO_NAV;
-    ui.window("Frame timing")
-        .position(overlay_layout::frame_timing_xy(), Condition::FirstUseEver)
-        .bg_alpha(0.82)
-        .flags(window_flags)
-        .build(|| {
-            let Some(t) = timing else {
-                ui.text("Waiting for snapshot...");
-                return;
-            };
-            // Reserve a fixed content width so every row and the graph share the same extent.
-            ui.dummy([CONTENT_WIDTH, 0.0]);
-            render_rows(ui, t);
-            ui.separator();
-            render_frametime_graph(ui, t);
-        });
+/// **Frame timing** HUD window — anchored under the **Renderer config** column.
+pub struct FrameTimingWindow;
+
+impl HudWindow for FrameTimingWindow {
+    type Data<'a> = Option<&'a FrameTimingHudSnapshot>;
+    type State = HudUiState;
+
+    fn title(&self) -> &str {
+        "Frame timing"
+    }
+
+    fn anchor(&self, _viewport: Viewport) -> WindowSlot {
+        let xy = layout::frame_timing_xy();
+        WindowSlot {
+            position: xy,
+            size_min: [CONTENT_WIDTH, 0.0],
+            size_max: [f32::INFINITY, f32::INFINITY],
+        }
+    }
+
+    fn flags(&self) -> WindowFlags {
+        WindowFlags::ALWAYS_AUTO_RESIZE
+            | WindowFlags::NO_SAVED_SETTINGS
+            | WindowFlags::NO_FOCUS_ON_APPEARING
+            | WindowFlags::NO_NAV
+    }
+
+    fn bg_alpha(&self) -> f32 {
+        0.82
+    }
+
+    fn body(&self, ui: &imgui::Ui, data: Self::Data<'_>, _state: &mut Self::State) {
+        let Some(t) = data else {
+            ui.text("Waiting for snapshot...");
+            return;
+        };
+        ui.dummy([CONTENT_WIDTH, 0.0]);
+        render_rows(ui, t);
+        ui.separator();
+        render_frametime_graph(ui, t);
+    }
 }
 
+/// FPS color: green ≥90, yellow ≥45, red below.
 fn fps_color(fps: f64) -> [f32; 4] {
     if fps >= 90.0 {
         [0.50, 1.00, 0.55, 1.0]
@@ -108,8 +133,6 @@ fn row(
     secondary_label: Option<(&str, [f32; 4])>,
     secondary_value: Option<(String, [f32; 4])>,
 ) {
-    // Start the row at the natural cursor (respects window padding), then align columns with
-    // `same_line_with_pos` which is window-local, padding-aware.
     if COL_LABEL_X > 0.0 {
         ui.same_line_with_pos(COL_LABEL_X);
     }
