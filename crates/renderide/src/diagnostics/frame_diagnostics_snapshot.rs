@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use crate::backend::RenderBackend;
+use crate::diagnostics::BackendDiagSnapshot;
 use crate::gpu::GpuContext;
 use crate::materials::RasterPipelineKind;
 use crate::world_mesh::{WorldMeshDrawStateRow, WorldMeshDrawStats};
@@ -93,8 +93,8 @@ pub struct FrameDiagnosticsSnapshotCapture<'a> {
     pub host: HostCpuMemoryHud,
     /// Host [`FrameSubmitData::render_tasks`] count from the last applied submit.
     pub last_submit_render_task_count: usize,
-    /// Backend pools and draw stats source.
-    pub backend: &'a RenderBackend,
+    /// Plain-data backend snapshot capturing pools, draw stats, shader routes, and graph counts.
+    pub backend: &'a BackendDiagSnapshot,
     /// Outbound IPC queue drops and streaks.
     pub ipc: FrameDiagnosticsIpcQueues,
     /// OpenXR recoverable failure counters.
@@ -207,33 +207,29 @@ impl FrameDiagnosticsSnapshot {
             reserved_bytes: resv,
         };
 
-        let textures_cpu_registered = backend.texture_format_registration_count();
-        let textures_cpu_mip0_ready = backend.texture_mip0_ready_count();
-        let textures_gpu_resident = backend.texture_pool().resident_texture_count();
-        let render_textures_gpu_resident = backend.render_texture_pool().len();
-        let mesh_pool_entry_count = backend.mesh_pool().meshes().len();
+        let textures_cpu_registered = backend.texture_format_registration_count;
+        let textures_cpu_mip0_ready = backend.texture_mip0_ready_count;
+        let textures_gpu_resident = backend.texture_pool_resident_count;
+        let render_textures_gpu_resident = backend.render_texture_pool_len;
+        let mesh_pool_entry_count = backend.mesh_pool_entry_count;
 
         let mut shader_routes: Vec<ShaderRouteRow> = backend
-            .material_registry()
-            .map(|reg| {
-                reg.shader_routes_for_hud()
-                    .into_iter()
-                    .map(|(id, pipeline, name)| {
-                        let implemented = !matches!(pipeline, RasterPipelineKind::Null);
-                        let pipeline_label = match &pipeline {
-                            RasterPipelineKind::EmbeddedStem(stem) => stem.to_string(),
-                            RasterPipelineKind::Null => "null".to_string(),
-                        };
-                        ShaderRouteRow {
-                            shader_asset_id: id,
-                            shader_asset_name: name,
-                            pipeline_label,
-                            implemented,
-                        }
-                    })
-                    .collect()
+            .shader_routes
+            .iter()
+            .map(|row| {
+                let implemented = !matches!(row.pipeline, RasterPipelineKind::Null);
+                let pipeline_label = match &row.pipeline {
+                    RasterPipelineKind::EmbeddedStem(stem) => stem.to_string(),
+                    RasterPipelineKind::Null => "null".to_string(),
+                };
+                ShaderRouteRow {
+                    shader_asset_id: row.shader_asset_id,
+                    shader_asset_name: row.shader_asset_name.clone(),
+                    pipeline_label,
+                    implemented,
+                }
             })
-            .unwrap_or_default();
+            .collect();
         // Implemented routes first, then fallbacks; preserve id-ascending order within each group.
         shader_routes.sort_by(|a, b| {
             b.implemented
@@ -250,8 +246,8 @@ impl FrameDiagnosticsSnapshot {
             gpu_allocator_report_next_refresh_in_secs: allocator
                 .gpu_allocator_report_next_refresh_in_secs,
             host,
-            mesh_draw: backend.last_world_mesh_draw_stats(),
-            draw_state_rows: backend.last_world_mesh_draw_state_rows(),
+            mesh_draw: backend.last_world_mesh_draw_stats,
+            draw_state_rows: backend.last_world_mesh_draw_state_rows.clone(),
             last_submit_render_task_count,
             textures_cpu_registered,
             textures_cpu_mip0_ready,

@@ -46,13 +46,14 @@ impl RendererRuntime {
             },
         );
         let (ipc_pri_str, ipc_bg_str) = self.frontend.ipc_consecutive_outbound_drop_streaks();
+        let backend_diag = self.backend.snapshot_for_diagnostics();
         let frame_diag = crate::diagnostics::FrameDiagnosticsSnapshot::capture(
             crate::diagnostics::FrameDiagnosticsSnapshotCapture {
                 gpu,
                 wall_frame_time_ms: self.backend.debug_frame_time_ms(),
                 host,
                 last_submit_render_task_count: self.last_submit_render_task_count,
-                backend: &self.backend,
+                backend: &backend_diag,
                 ipc: crate::diagnostics::FrameDiagnosticsIpcQueues {
                     ipc_primary_outbound_drop_this_tick: self
                         .frontend
@@ -92,7 +93,7 @@ impl RendererRuntime {
                 present_mode: gpu.present_mode(),
                 frame_time_ms: self.backend.debug_frame_time_ms(),
                 scene: &self.scene,
-                backend: &self.backend,
+                backend: &backend_diag,
                 gpu,
                 msaa_requested_samples: msaa_requested,
             },

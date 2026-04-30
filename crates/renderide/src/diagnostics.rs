@@ -14,6 +14,7 @@ mod hud_input;
 pub mod per_view;
 mod renderer_info_snapshot;
 mod scene_transforms_snapshot;
+pub mod snapshot;
 mod texture_debug_snapshot;
 mod watchdog;
 
@@ -33,5 +34,6 @@ pub use renderer_info_snapshot::{RendererInfoSnapshot, RendererInfoSnapshotCaptu
 pub use scene_transforms_snapshot::{
     RenderSpaceTransformsSnapshot, SceneTransformsSnapshot, TransformRow, WorldTransformSample,
 };
+pub use snapshot::{BackendDiagSnapshot, ShaderRouteSnapshot};
 pub use texture_debug_snapshot::{TextureDebugRow, TextureDebugSnapshot};
 pub use watchdog::{Heartbeat, Watchdog, WatchdogPause};

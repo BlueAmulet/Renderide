@@ -703,6 +703,46 @@ impl RenderBackend {
         self.debug_hud.last_world_mesh_draw_state_rows()
     }
 
+    /// Plain-data backend snapshot consumed by the diagnostics HUD.
+    ///
+    /// Returns a [`crate::diagnostics::BackendDiagSnapshot`] capturing the fields
+    /// `FrameDiagnosticsSnapshot::capture` and `RendererInfoSnapshot::capture` need, so the
+    /// diagnostics layer never borrows `&RenderBackend` directly.
+    pub fn snapshot_for_diagnostics(&self) -> crate::diagnostics::BackendDiagSnapshot {
+        let store = self.material_property_store();
+        let shader_routes = self
+            .material_registry()
+            .map(|reg| {
+                reg.shader_routes_for_hud()
+                    .into_iter()
+                    .map(
+                        |(id, pipeline, name)| crate::diagnostics::ShaderRouteSnapshot {
+                            shader_asset_id: id,
+                            pipeline,
+                            shader_asset_name: name,
+                        },
+                    )
+                    .collect()
+            })
+            .unwrap_or_default();
+        crate::diagnostics::BackendDiagSnapshot {
+            texture_format_registration_count: self.texture_format_registration_count(),
+            texture_mip0_ready_count: self.texture_mip0_ready_count(),
+            texture_pool_resident_count: self.texture_pool().resident_texture_count(),
+            render_texture_pool_len: self.render_texture_pool().len(),
+            mesh_pool_entry_count: self.mesh_pool().meshes().len(),
+            shader_routes,
+            last_world_mesh_draw_stats: self.last_world_mesh_draw_stats(),
+            last_world_mesh_draw_state_rows: self.last_world_mesh_draw_state_rows(),
+            material_property_slots: store.material_property_slot_count(),
+            property_block_slots: store.property_block_slot_count(),
+            material_shader_bindings: store.material_shader_binding_count(),
+            frame_graph_pass_count: self.frame_graph_pass_count(),
+            frame_graph_topo_levels: self.frame_graph_topo_levels(),
+            gpu_light_count: self.frame_resources.frame_lights().len(),
+        }
+    }
+
     /// Updates the **Scene transforms** Dear ImGui window payload for the next composite pass.
     pub(crate) fn set_debug_hud_scene_transforms_snapshot(
         &mut self,

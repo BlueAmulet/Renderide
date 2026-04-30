@@ -1,6 +1,6 @@
 //! Read-only snapshot of renderer state for the debug HUD “Renderer” tab (no ImGui types).
 
-use crate::backend::RenderBackend;
+use crate::diagnostics::BackendDiagSnapshot;
 use crate::frontend::InitState;
 use crate::gpu::{GpuContext, GpuLimits};
 use crate::scene::SceneCoordinator;
@@ -52,7 +52,7 @@ pub struct RendererInfoSnapshot {
     pub frame_graph_pass_count: usize,
     /// Kahn-style DAG wave count at compile time ([`crate::render_graph::CompileStats::topo_levels`]); same graph as [`Self::frame_graph_pass_count`].
     pub frame_graph_topo_levels: usize,
-    /// Packed lights after [`RenderBackend::prepare_lights_from_scene`].
+    /// Packed lights after [`crate::backend::RenderBackend::prepare_lights_from_scene`].
     pub gpu_light_count: usize,
     /// `max_texture_dimension_2d` from [`GpuLimits`].
     pub gpu_max_texture_dim_2d: u32,
@@ -101,8 +101,8 @@ pub struct RendererInfoSnapshotCapture<'a> {
     pub frame_time_ms: f64,
     /// Scene coordinator for space/renderable counts.
     pub scene: &'a SceneCoordinator,
-    /// Backend pools, graph, and lights.
-    pub backend: &'a RenderBackend,
+    /// Plain-data backend snapshot capturing pools, graph counts, and packed lights.
+    pub backend: &'a BackendDiagSnapshot,
     /// GPU context (MSAA effective/max).
     pub gpu: &'a GpuContext,
     /// Requested MSAA sample count from settings (before clamp).
@@ -112,7 +112,6 @@ pub struct RendererInfoSnapshotCapture<'a> {
 impl RendererInfoSnapshot {
     /// Fills all fields from the scene, backend, and swapchain (call after light prep for `gpu_light_count`).
     pub fn capture(args: RendererInfoSnapshotCapture<'_>) -> Self {
-        let store = args.backend.material_property_store();
         Self {
             ipc_connected: args.ipc_connected,
             init_state: args.init_state,
@@ -128,15 +127,15 @@ impl RendererInfoSnapshot {
             frame_time_ms: args.frame_time_ms,
             render_space_count: args.scene.render_space_count(),
             mesh_renderable_count: args.scene.total_mesh_renderable_count(),
-            resident_mesh_count: args.backend.mesh_pool().meshes().len(),
-            resident_texture_count: args.backend.texture_pool().resident_texture_count(),
-            resident_render_texture_count: args.backend.render_texture_pool().len(),
-            material_property_slots: store.material_property_slot_count(),
-            property_block_slots: store.property_block_slot_count(),
-            material_shader_bindings: store.material_shader_binding_count(),
-            frame_graph_pass_count: args.backend.frame_graph_pass_count(),
-            frame_graph_topo_levels: args.backend.frame_graph_topo_levels(),
-            gpu_light_count: args.backend.frame_resources.frame_lights().len(),
+            resident_mesh_count: args.backend.mesh_pool_entry_count,
+            resident_texture_count: args.backend.texture_pool_resident_count,
+            resident_render_texture_count: args.backend.render_texture_pool_len,
+            material_property_slots: args.backend.material_property_slots,
+            property_block_slots: args.backend.property_block_slots,
+            material_shader_bindings: args.backend.material_shader_bindings,
+            frame_graph_pass_count: args.backend.frame_graph_pass_count,
+            frame_graph_topo_levels: args.backend.frame_graph_topo_levels,
+            gpu_light_count: args.backend.gpu_light_count,
             gpu_max_texture_dim_2d: args.gpu_limits.max_texture_dimension_2d(),
             gpu_max_buffer_size: args.gpu_limits.max_buffer_size(),
             gpu_max_storage_binding: args.gpu_limits.max_storage_buffer_binding_size(),
