@@ -71,8 +71,8 @@ pub mod ipc;
 pub use ipc::connection;
 /// Material registry, shader routing, pipeline cache, and naga-reflection-driven layout.
 pub mod materials;
-/// Host `HeadOutputDevice` → VR / OpenXR GPU path ([`output_device::head_output_device_wants_openxr`]).
-pub mod output_device;
+/// Host `HeadOutputDevice` → VR / OpenXR GPU path. Lives in `xr/` (was top-level `output_device.rs`).
+pub use crate::xr::output_device;
 /// Pipeline-primitive vocabulary: shader permutations and the null/debug raster fallback.
 pub mod pipelines;
 /// Tracy profiling integration: CPU spans, frame marks, and optional GPU timestamp queries.

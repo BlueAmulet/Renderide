@@ -9,6 +9,7 @@
 //! callers pass those in where a command requires both transport and GPU work.
 
 mod cluster_gpu;
+mod coordinator;
 mod debug_hud_bundle;
 mod embedded;
 pub(crate) mod frame_gpu;
@@ -22,7 +23,6 @@ pub(crate) mod material_property_reader;
 mod material_system;
 mod per_draw_resources;
 mod per_view_resource_map;
-mod render_backend;
 mod view_resource_registry;
 
 pub use crate::assets::AssetTransferQueue;
@@ -41,6 +41,11 @@ pub(crate) use crate::skybox::resolve_active_main_skybox_specular_environment;
 pub use cluster_gpu::{
     CLUSTER_COUNT_Z, CLUSTER_PARAMS_UNIFORM_SIZE, ClusterBufferCache, ClusterBufferRefs,
     MAX_LIGHTS_PER_TILE, TILE_SIZE,
+};
+pub(crate) use coordinator::{ExtractedFrameShared, WorldMeshForwardEncodeRefs};
+pub use coordinator::{
+    MAX_ASSET_INTEGRATION_QUEUED, MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
+    RenderBackend, RenderBackendAttachDesc, RenderBackendAttachError,
 };
 pub use debug_hud_bundle::DebugHudBundle;
 pub use embedded::{
@@ -69,9 +74,4 @@ pub use light_gpu::{
 };
 pub use material_system::{MAX_PENDING_MATERIAL_BATCHES, MaterialSystem};
 pub use per_draw_resources::PerDrawResources;
-pub(crate) use render_backend::{ExtractedFrameShared, WorldMeshForwardEncodeRefs};
-pub use render_backend::{
-    MAX_ASSET_INTEGRATION_QUEUED, MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
-    RenderBackend, RenderBackendAttachDesc, RenderBackendAttachError,
-};
 pub(crate) use view_resource_registry::ViewResourceRegistry;

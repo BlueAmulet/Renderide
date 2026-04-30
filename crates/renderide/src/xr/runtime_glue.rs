@@ -7,7 +7,7 @@ use crate::render_graph::ExternalFrameTargets;
 use crate::render_graph::{GraphExecuteError, StereoViewMatrices};
 use crate::shared::HeadOutputDevice;
 
-use super::RendererRuntime;
+use crate::runtime::RendererRuntime;
 
 impl crate::xr::XrHostCameraSync for RendererRuntime {
     fn near_clip(&self) -> f32 {
@@ -75,7 +75,7 @@ impl crate::xr::XrFrameRenderer for RendererRuntime {
         RendererRuntime::render_frame(
             self,
             gpu,
-            super::frame_render::FrameRenderMode::VrWithHmd(hmd),
+            crate::runtime::frame_render::FrameRenderMode::VrWithHmd(hmd),
         )
     }
 
@@ -83,7 +83,7 @@ impl crate::xr::XrFrameRenderer for RendererRuntime {
         RendererRuntime::render_frame(
             self,
             gpu,
-            super::frame_render::FrameRenderMode::VrSecondariesOnly,
+            crate::runtime::frame_render::FrameRenderMode::VrSecondariesOnly,
         )
     }
 }

@@ -35,10 +35,10 @@
 
 mod accessors;
 mod debug_hud_frame;
-mod frame_render;
+pub(crate) mod frame_render;
 mod frame_view_plan;
 mod lockstep;
-mod xr_impls;
+// xr_impls.rs moved to crate::xr::runtime_glue (XR ↔ runtime glue belongs next to xr/).
 
 // IPC dispatch (RendererCommand routing, frame submit, lights/shader/material IPC, init handshake)
 // extracted to `crate::frontend::dispatch`. Dispatch reaches into RendererRuntime's `pub(crate)`
@@ -107,9 +107,9 @@ pub struct RendererRuntime {
     /// Count of failed [`SceneCoordinator::apply_frame_submit`] or [`SceneCoordinator::flush_world_caches`] after a host submit (HUD / drift).
     pub(crate) frame_submit_apply_failures: u64,
     /// Count of OpenXR `wait_frame` errors since startup (recoverable).
-    xr_wait_frame_failures: u64,
+    pub(crate) xr_wait_frame_failures: u64,
     /// Count of OpenXR `locate_views` errors when `should_render` was true (recoverable).
-    xr_locate_views_failures: u64,
+    pub(crate) xr_locate_views_failures: u64,
     /// Running counts of post-init [`RendererCommand`] variants seen without a running handler.
     pub(crate) unhandled_ipc_command_counts: HashMap<&'static str, u64>,
     /// When `true`, ImGui and [`crate::config::save_renderer_settings_from_load`] must not overwrite `config.toml`.
