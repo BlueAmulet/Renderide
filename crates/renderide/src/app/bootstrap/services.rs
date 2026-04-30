@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(windows))]
 use std::thread;
 
 use crate::config::WatchdogSettings;
