@@ -48,7 +48,7 @@ fn contains_raw_cluster_storage_read(src: &str) -> bool {
 #[test]
 fn clustered_light_storage_uses_shared_helpers() -> io::Result<()> {
     let mut offenders = Vec::new();
-    for dir in ["shaders/source/materials", "shaders/source/modules"] {
+    for dir in ["shaders/materials", "shaders/modules"] {
         for path in wgsl_files(dir)? {
             if raw_cluster_storage_reader_allowed(&path) {
                 continue;

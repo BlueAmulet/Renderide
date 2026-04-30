@@ -1,5 +1,5 @@
 //! Shared per-frame bindings (`@group(0)`) for all raster materials.
-//! Import with `#import renderide::globals` from `source/materials/*.wgsl`.
+//! Import with `#import renderide::globals` from `shaders/materials/*.wgsl`.
 //!
 //! Composed materials that do not otherwise touch lighting storage must retain `lights`,
 //! `cluster_light_counts`, and `cluster_light_indices` (e.g. through `retain_globals_additive`);

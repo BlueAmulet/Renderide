@@ -16,7 +16,7 @@ pub const MAX_LIGHTS: usize = 65536;
 
 /// GPU-facing light record for a storage buffer upload.
 ///
-/// Layout must match `GpuLight` in `shaders/source/modules/globals.wgsl`: WGSL aligns `vec3<u32>`
+/// Layout must match `GpuLight` in `shaders/modules/globals.wgsl`: WGSL aligns `vec3<u32>`
 /// (`_pad_trailing`) to **16 bytes**, so 4 bytes of implicit padding follow `shadow_type`, and the
 /// struct size rounds up to **112** bytes (see naga / WebGPU validation).
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]

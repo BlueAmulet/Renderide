@@ -90,12 +90,12 @@ fn shader_samples_textures(src: &str) -> bool {
 
 fn materials_dir() -> PathBuf {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    Path::new(manifest).join("shaders/source/materials")
+    Path::new(manifest).join("shaders/materials")
 }
 
 fn modules_dir() -> PathBuf {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    Path::new(manifest).join("shaders/source/modules")
+    Path::new(manifest).join("shaders/modules")
 }
 
 fn wgsl_files_in(dir: &Path) -> std::io::Result<Vec<PathBuf>> {

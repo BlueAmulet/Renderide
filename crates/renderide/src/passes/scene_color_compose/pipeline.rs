@@ -2,7 +2,7 @@
 //!
 //! WGSL is sourced from the build-time embedded shader registry
 //! ([`crate::embedded_shaders::embedded_target_wgsl`]): the single source
-//! `shaders/source/post/scene_color_compose.wgsl` is composed twice with `#ifdef MULTIVIEW` into
+//! `shaders/passes/post/scene_color_compose.wgsl` is composed twice with `#ifdef MULTIVIEW` into
 //! `scene_color_compose_default` and `scene_color_compose_multiview` by the build script.
 
 use std::sync::Arc;

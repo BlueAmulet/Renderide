@@ -4,7 +4,7 @@
 ///
 /// Rule: lowercase every character, map `/` to `_`, and map space to `-` (so `XSToon2.0 Outlined` becomes
 /// `xstoon2.0-outlined`, distinct from the underscore-spelled `XSToon2.0_Outlined` to
-/// `xstoon2.0_outlined`). The WGSL stem filenames under `shaders/source/materials/` are named
+/// `xstoon2.0_outlined`). The WGSL stem filenames under `shaders/materials/` are named
 /// directly against this rule applied to the Unity `.shader` filename.
 ///
 /// Shared by shader routing and embedded `{key}_default` stem resolution so lookups stay

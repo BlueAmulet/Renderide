@@ -1,7 +1,7 @@
 //! Unity shader asset names mapped to composed WGSL stems under `shaders/target/` (embedded at build time).
 //!
 //! Resolution uses [`crate::assets::util::normalize_unity_shader_lookup_key`] and probes
-//! `{normalized_key}_default`, matching material source stems under `shaders/source/materials/*.wgsl`
+//! `{normalized_key}_default`, matching material source stems under `shaders/materials/*.wgsl`
 //! (see crate `build.rs`).
 
 use crate::assets::util::normalize_unity_shader_lookup_key;

@@ -20,15 +20,15 @@ use crate::scene::SceneCoordinator;
 
 /// Minimum positive near distance used only by clustered Z slicing.
 ///
-/// Keep in sync with `CLUSTER_NEAR_CLIP_MIN` in `shaders/source/modules/cluster_math.wgsl`.
+/// Keep in sync with `CLUSTER_NEAR_CLIP_MIN` in `shaders/modules/cluster_math.wgsl`.
 pub const CLUSTER_NEAR_CLIP_MIN: f32 = 0.0001;
 /// Minimum positive far-minus-near span used only by clustered Z slicing.
 ///
-/// Keep in sync with `CLUSTER_FAR_CLIP_MIN_SPAN` in `shaders/source/modules/cluster_math.wgsl`.
+/// Keep in sync with `CLUSTER_FAR_CLIP_MIN_SPAN` in `shaders/modules/cluster_math.wgsl`.
 pub const CLUSTER_FAR_CLIP_MIN_SPAN: f32 = 0.0001;
 /// Screen tile size in pixels (DOOM-style cluster grid XY).
 ///
-/// Keep in sync with `TILE_SIZE` in `shaders/source/modules/pbs_cluster.wgsl`.
+/// Keep in sync with `TILE_SIZE` in `shaders/modules/pbs_cluster.wgsl`.
 pub const TILE_SIZE: u32 = 32;
 /// Exponential depth slice count (view-space Z bins).
 pub const CLUSTER_COUNT_Z: u32 = 16;
@@ -470,7 +470,7 @@ mod tests {
     fn wgsl_cluster_clip_constants_match_rust() {
         let wgsl = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/shaders/source/modules/cluster_math.wgsl"
+            "/shaders/modules/cluster_math.wgsl"
         ));
 
         assert!(wgsl.contains("const CLUSTER_NEAR_CLIP_MIN: f32 = 0.0001;"));

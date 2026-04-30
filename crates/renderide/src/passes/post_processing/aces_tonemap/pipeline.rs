@@ -6,7 +6,7 @@
 //!
 //! WGSL is sourced from the build-time embedded shader registry
 //! ([`crate::embedded_shaders::embedded_target_wgsl`]) so the same
-//! `shaders/source/post/aces_tonemap.wgsl` source is composed once into mono and multiview
+//! `shaders/passes/post/aces_tonemap.wgsl` source is composed once into mono and multiview
 //! variants by the build script's `#ifdef MULTIVIEW` path (no runtime composition needed).
 
 use std::sync::Arc;

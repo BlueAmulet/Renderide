@@ -31,7 +31,7 @@
 //!
 //! # Pass system
 //!
-//! Every material WGSL under `shaders/source/materials/*.wgsl` declares one or more `//#pass <kind>`
+//! Every material WGSL under `shaders/materials/*.wgsl` declares one or more `//#pass <kind>`
 //! comment directives, each sitting directly above an `@fragment` entry point. The build script
 //! parses them into a static [`MaterialPassDesc`] table per stem. Each desc becomes one
 //! `wgpu::RenderPipeline`; the forward encode loop dispatches all pipelines for every draw that

@@ -705,7 +705,7 @@ fn workgroup_count(count: u32) -> u32 {
     (count.saturating_add(63)) / 64
 }
 
-/// `source/compute/mesh_blendshape.wgsl` `Params` (32 bytes).
+/// `shaders/passes/compute/mesh_blendshape.wgsl` `Params` (32 bytes).
 fn build_scatter_params(
     vertex_count: u32,
     sparse_base: u32,
@@ -722,7 +722,7 @@ fn build_scatter_params(
     o
 }
 
-/// `source/compute/mesh_skinning.wgsl` [`SkinDispatchParams`] (32 bytes).
+/// `shaders/passes/compute/mesh_skinning.wgsl` [`SkinDispatchParams`] (32 bytes).
 fn pack_skin_dispatch_params(
     vertex_count: u32,
     base_src_pos_e: u32,

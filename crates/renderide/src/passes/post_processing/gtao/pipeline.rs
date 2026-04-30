@@ -6,7 +6,7 @@
 //! singleton effect in the chain, so a process-wide buffer avoids per-frame allocation churn.
 //!
 //! WGSL is sourced from the build-time embedded shader registry ([`embedded_target_wgsl`]) so
-//! the same `shaders/source/post/gtao.wgsl` source is composed once into mono and multiview
+//! the same `shaders/passes/post/gtao.wgsl` source is composed once into mono and multiview
 //! variants by the build script's `#ifdef MULTIVIEW` path.
 
 use std::sync::Arc;

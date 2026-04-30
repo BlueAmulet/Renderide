@@ -1,7 +1,7 @@
 //! Cached pipelines, bind-group layouts, sampler, and shared params UBO for the bloom passes.
 //!
 //! Bloom is a multi-pass effect (first downsample, N-1 subsequent downsamples, N-1 upsamples, one
-//! composite). Every pipeline shares the same WGSL source (`shaders/source/post/bloom.wgsl`) but
+//! composite). Every pipeline shares the same WGSL source (`shaders/passes/post/bloom.wgsl`) but
 //! differs by entry point, blend state, and bind-group layout (downsample/upsample use 1 group;
 //! composite uses 2). The cache keys pipelines by [`BloomPipelineKind`] + output format +
 //! multiview stereo, mirroring [`super::super::aces_tonemap::pipeline::AcesTonemapPipelineCache`]

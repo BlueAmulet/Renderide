@@ -1,6 +1,6 @@
 //! Per-draw instance data (`@group(2)`) shared by mesh materials — storage buffer indexed by
 //! `@builtin(instance_index)`.
-//! Import with `#import renderide::per_draw as pd` from `source/materials/*.wgsl` and use
+//! Import with `#import renderide::per_draw as pd` from `shaders/materials/*.wgsl` and use
 //! `pd::get_draw(instance_index)` in `vs_main`. Do not redeclare `@group(2)` in material roots.
 //!
 //! CPU packing must match [`crate::backend::mesh_deform::PaddedPerDrawUniforms`].

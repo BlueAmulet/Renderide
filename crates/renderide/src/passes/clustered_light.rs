@@ -3,7 +3,7 @@
 //! Dispatches over a 3D grid (`16×16` pixel tiles × exponential Z slices). Uses the same
 //! [`GpuLight`] buffer and cluster storage as raster `@group(0)` ([`crate::backend::FrameGpuResources`]).
 //!
-//! WGSL source: `shaders/source/compute/clustered_light.wgsl` (composed by the build script and
+//! WGSL source: `shaders/passes/compute/clustered_light.wgsl` (composed by the build script and
 //! loaded from the embedded shader registry at pipeline creation time).
 
 mod cache;

@@ -12,8 +12,8 @@ use crate::gpu::GpuLimits;
 pub use crate::world_mesh::cluster_frame::{CLUSTER_COUNT_Z, TILE_SIZE};
 
 /// Maximum lights assigned to a single cluster (buffer index order). Keep in sync with
-/// `MAX_LIGHTS_PER_TILE` in `shaders/source/modules/pbs_cluster.wgsl` and
-/// `shaders/source/compute/clustered_light.wgsl`. Bumped from 32 to reduce far-cluster overflow
+/// `MAX_LIGHTS_PER_TILE` in `shaders/modules/pbs_cluster.wgsl` and
+/// `shaders/passes/compute/clustered_light.wgsl`. Bumped from 32 to reduce far-cluster overflow
 /// that produced dark "splotches" in scenes with many lights.
 ///
 /// Indices are packed 2-per-`u32` in `cluster_light_indices` (low 16 bits = even slot, high 16

@@ -18,7 +18,7 @@ fn cluster_light_count_at(cluster_id: u32) -> u32 {
 /// Fetches the packed `u16` light index at `slot` within cluster `cluster_id`. Indices are stored
 /// 2 × `u16` per `u32` in `rg::cluster_light_indices` (low 16 bits = even slot, high 16 bits = odd
 /// slot). Must stay in sync with the compute-side writer in
-/// `shaders/source/compute/clustered_light.wgsl` and the Rust-side layout documented on
+/// `shaders/passes/compute/clustered_light.wgsl` and the Rust-side layout documented on
 /// `ClusterBufferRefs::cluster_light_indices`.
 fn cluster_light_index_at(cluster_id: u32, slot: u32) -> u32 {
     let base_word = cluster_id * (MAX_LIGHTS_PER_TILE / 2u);

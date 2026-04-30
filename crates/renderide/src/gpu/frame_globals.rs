@@ -1,4 +1,4 @@
-//! CPU layout for `shaders/source/modules/globals.wgsl` (`FrameGlobals` at `@group(0) @binding(0)`).
+//! CPU layout for `shaders/modules/globals.wgsl` (`FrameGlobals` at `@group(0) @binding(0)`).
 
 use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
