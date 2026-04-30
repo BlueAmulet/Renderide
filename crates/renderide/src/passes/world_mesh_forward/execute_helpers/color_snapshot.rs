@@ -1,7 +1,7 @@
 //! Scene-color snapshot helper for the graph-managed world-mesh forward pass.
 
 use crate::render_graph::context::GraphResolvedResources;
-use crate::render_graph::frame_params::FrameRenderParams;
+use crate::render_graph::frame_params::GraphPassFrame;
 use crate::world_mesh::WorldMeshHelperNeeds;
 
 use super::super::PreparedWorldMeshForwardFrame;
@@ -13,7 +13,7 @@ use super::super::WorldMeshForwardGraphResources;
 pub(crate) fn encode_world_mesh_forward_color_snapshot(
     graph_resources: &GraphResolvedResources,
     encoder: &mut wgpu::CommandEncoder,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
     resources: WorldMeshForwardGraphResources,
 ) -> bool {

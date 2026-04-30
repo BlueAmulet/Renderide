@@ -130,10 +130,7 @@ pub(crate) fn raster_stereo_mask_override(
     ctx: &RasterPassCtx<'_, '_>,
     template: &RenderPassTemplate,
 ) -> Option<NonZeroU32> {
-    let stereo = ctx
-        .frame
-        .as_ref()
-        .is_some_and(|frame| frame.view.multiview_stereo);
+    let stereo = ctx.pass_frame.view.multiview_stereo;
     stereo_mask_or_template(stereo, template.multiview_mask)
 }
 

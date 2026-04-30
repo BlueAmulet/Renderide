@@ -25,7 +25,7 @@ use crate::backend::HistoryTextureMipViews;
 use crate::gpu::GpuLimits;
 
 use super::blackboard::Blackboard;
-use super::frame_params::{FrameRenderParams, FrameRenderParamsView, FrameSystemsShared};
+use super::frame_params::GraphPassFrame;
 use super::frame_upload_batch::FrameUploadBatch;
 use super::resources::{
     BufferHandle, ImportedBufferHandle, ImportedTextureHandle, SubresourceHandle, TextureHandle,
@@ -258,12 +258,8 @@ pub struct RasterPassCtx<'a, 'frame> {
     pub backbuffer: Option<&'a wgpu::TextureView>,
     /// Depth attachment for the main forward pass.
     pub depth_view: Option<&'a wgpu::TextureView>,
-    /// Scene + backend frame params for this view (serial path; `None` in parallel path).
-    pub frame: Option<&'frame mut FrameRenderParams<'a>>,
-    /// Shared system handles (parallel path; `None` in serial path — use `frame.shared`).
-    pub frame_shared: Option<&'frame FrameSystemsShared<'a>>,
-    /// Per-view surface state (parallel path; `None` in serial path — use `frame.view`).
-    pub frame_view: Option<&'frame FrameRenderParamsView<'a>>,
+    /// Scene, backend system handles, and per-view frame state for this pass.
+    pub pass_frame: &'frame mut GraphPassFrame<'a>,
     /// Deferred [`wgpu::Queue::write_buffer`] sink; drained on the main thread after all per-view
     /// encoding completes and before submit.
     pub upload_batch: &'frame FrameUploadBatch,
@@ -305,12 +301,8 @@ pub struct ComputePassCtx<'a, 'encoder, 'frame> {
     /// Depth attachment for the main forward pass (often needed by compute passes that
     /// read or copy the depth buffer).
     pub depth_view: Option<&'a wgpu::TextureView>,
-    /// Scene + backend frame params for this view (serial path; `None` in parallel path).
-    pub frame: Option<&'frame mut FrameRenderParams<'a>>,
-    /// Shared system handles (parallel path; `None` in serial path — use `frame.shared`).
-    pub frame_shared: Option<&'frame FrameSystemsShared<'a>>,
-    /// Per-view surface state (parallel path; `None` in serial path — use `frame.view`).
-    pub frame_view: Option<&'frame FrameRenderParamsView<'a>>,
+    /// Scene, backend system handles, and per-view frame state for this pass.
+    pub pass_frame: &'frame mut GraphPassFrame<'a>,
     /// Deferred [`wgpu::Queue::write_buffer`] sink; drained on the main thread after all per-view
     /// encoding completes and before submit.
     pub upload_batch: &'frame FrameUploadBatch,
@@ -353,12 +345,8 @@ pub struct CallbackCtx<'a, 'frame> {
     pub gpu_limits: &'a GpuLimits,
     /// Submission queue for resource creation paths that still require wgpu queue access.
     pub queue: &'a Arc<wgpu::Queue>,
-    /// Scene + backend frame params for this view (serial path; `None` in parallel path).
-    pub frame: Option<&'frame mut FrameRenderParams<'a>>,
-    /// Shared system handles (parallel path; `None` in serial path — use `frame.shared`).
-    pub frame_shared: Option<&'frame FrameSystemsShared<'a>>,
-    /// Per-view surface state (parallel path; `None` in serial path — use `frame.view`).
-    pub frame_view: Option<&'frame FrameRenderParamsView<'a>>,
+    /// Scene, backend system handles, and per-view frame state for this pass.
+    pub pass_frame: &'frame mut GraphPassFrame<'a>,
     /// Deferred [`wgpu::Queue::write_buffer`] sink; drained on the main thread after all per-view
     /// encoding completes and before submit.
     pub upload_batch: &'frame FrameUploadBatch,
@@ -416,7 +404,7 @@ pub struct RenderPassContext<'a, 'encoder, 'frame> {
     /// Depth attachment for the main forward pass.
     pub depth_view: Option<&'a wgpu::TextureView>,
     /// Scene + backend frame params.
-    pub frame: Option<&'frame mut FrameRenderParams<'a>>,
+    pub frame: Option<&'frame mut GraphPassFrame<'a>>,
     /// Typed graph resources resolved for this execution scope.
     pub graph_resources: &'a GraphResolvedResources,
 }
@@ -436,7 +424,7 @@ pub struct GraphRasterPassContext<'a, 'frame> {
     /// Depth attachment for the main forward pass.
     pub depth_view: Option<&'a wgpu::TextureView>,
     /// Scene + backend frame params.
-    pub frame: Option<&'frame mut FrameRenderParams<'a>>,
+    pub frame: Option<&'frame mut GraphPassFrame<'a>>,
     /// Typed graph resources resolved for this execution scope.
     pub graph_resources: &'a GraphResolvedResources,
 }

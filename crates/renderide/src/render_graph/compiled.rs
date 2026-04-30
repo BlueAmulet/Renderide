@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::backend::RenderBackend;
+use crate::backend::BackendGraphAccess;
 use crate::gpu::{GpuContext, GpuLimits};
 use crate::scene::SceneCoordinator;
 
@@ -108,13 +108,13 @@ impl WorldMeshDrawPlan {
 }
 
 /// Borrows shared across frame-global and per-view [`CompiledRenderGraph::execute_multi_view`] passes.
-pub(super) struct MultiViewExecutionContext<'a> {
+pub(super) struct MultiViewExecutionContext<'a, 'backend> {
     /// GPU context (surface, swapchain, submits).
     pub(super) gpu: &'a mut GpuContext,
     /// Scene after cache flush.
     pub(super) scene: &'a SceneCoordinator,
-    /// Render backend (materials, occlusion, HUD overlay).
-    pub(super) backend: &'a mut RenderBackend,
+    /// Narrow graph-facing backend access packet.
+    pub(super) backend: &'a mut BackendGraphAccess<'backend>,
     /// Device for encoders and pipeline state.
     pub(super) device: &'a wgpu::Device,
     /// Limits for pass contexts.

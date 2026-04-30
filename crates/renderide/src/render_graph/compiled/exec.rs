@@ -19,7 +19,7 @@
 
 use hashbrown::HashMap;
 
-use crate::backend::RenderBackend;
+use crate::backend::BackendGraphAccess;
 use crate::gpu::GpuContext;
 use crate::scene::SceneCoordinator;
 
@@ -203,7 +203,7 @@ struct RecordedPerViewBatch {
 
 /// Releases all transient resource leases back to the pool and ticks the global GC counter.
 fn release_transients_and_gc(
-    mv_ctx: &mut MultiViewExecutionContext<'_>,
+    mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
     transient_by_key: HashMap<GraphResolveKey, GraphResolvedResources>,
 ) {
     let pool = mv_ctx.backend.transient_pool_mut();
@@ -300,11 +300,11 @@ impl CompiledRenderGraph {
     ///
     /// A [`super::super::frame_params::PerViewFramePlanSlot`] is inserted into each view's
     /// per-view blackboard carrying the per-view `@group(0)` frame bind group and uniform buffer.
-    pub fn execute_multi_view(
+    pub(crate) fn execute_multi_view(
         &mut self,
         gpu: &mut GpuContext,
         scene: &SceneCoordinator,
-        backend: &mut RenderBackend,
+        backend: &mut BackendGraphAccess<'_>,
         views: &mut [FrameView<'_>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::execute_multi_view");
@@ -442,7 +442,7 @@ impl CompiledRenderGraph {
     /// splits the owned outputs into the parallel vectors consumed by [`SubmitFrameInputs`].
     fn record_per_view_batch(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         per_view_work_items: Vec<PerViewWorkItem>,
         transient_by_key: &HashMap<GraphResolveKey, GraphResolvedResources>,
         upload_batch: &super::super::frame_upload_batch::FrameUploadBatch,
@@ -516,7 +516,7 @@ impl CompiledRenderGraph {
     /// submits the assembled command buffers as a single batch through the GPU driver thread.
     fn submit_frame_batch(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         inputs: SubmitFrameInputs<'_>,
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::single_submit");
@@ -654,7 +654,7 @@ impl CompiledRenderGraph {
     /// Runs frame-global and per-view `post_submit` hooks on every pass in schedule order.
     fn run_post_submit_passes(
         &mut self,
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &[FrameView<'_>],
         device: &wgpu::Device,
         per_view_occlusion_info: &[(ViewId, HostCameraFrame)],
@@ -664,7 +664,7 @@ impl CompiledRenderGraph {
             profiling::scope!("graph::post_submit_frame_global");
             let mut post_ctx = PostSubmitContext {
                 device,
-                occlusion: &mut mv_ctx.backend.occlusion,
+                occlusion: mv_ctx.backend.occlusion_mut(),
                 view_id: first_occlusion,
                 host_camera: first_hc,
             };
@@ -682,7 +682,7 @@ impl CompiledRenderGraph {
                 let _ = view;
                 let mut post_ctx = PostSubmitContext {
                     device,
-                    occlusion: &mut mv_ctx.backend.occlusion,
+                    occlusion: mv_ctx.backend.occlusion_mut(),
                     view_id: *view_id,
                     host_camera: *host_camera,
                 };
@@ -699,7 +699,7 @@ impl CompiledRenderGraph {
     /// Prepares owned per-view work items on the main thread before serial or parallel recording.
     fn prepare_per_view_work_items(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &mut [FrameView<'_>],
     ) -> Result<Vec<PerViewWorkItem>, GraphExecuteError> {
         profiling::scope!("graph::prepare_per_view_work_items");

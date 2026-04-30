@@ -56,9 +56,7 @@ impl ComputePass for HiZBuildPass {
         if ctx.depth_view.is_none() {
             return Ok(());
         }
-        let Some(frame) = ctx.frame.as_mut() else {
-            return Ok(());
-        };
+        let frame = &mut *ctx.pass_frame;
         let Some(depth_sample_view) = frame.view.depth_sample_view.as_ref() else {
             return Ok(());
         };

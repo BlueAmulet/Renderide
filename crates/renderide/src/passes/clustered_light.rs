@@ -562,9 +562,7 @@ impl ClusteredLightPass {
         &self,
         ctx: &mut ComputePassCtx<'_, '_, '_>,
     ) -> ClusteredLightRecordAction {
-        let Some(frame) = ctx.frame.as_mut() else {
-            return ClusteredLightRecordAction::Skip;
-        };
+        let frame = &mut *ctx.pass_frame;
 
         let (vw, vh) = frame.view.viewport_px;
         if vw == 0 || vh == 0 || frame.shared.frame_resources.frame_gpu().is_none() {

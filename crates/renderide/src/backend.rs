@@ -9,8 +9,8 @@
 //! callers pass those in where a command requires both transport and GPU work.
 
 mod cluster_gpu;
-mod coordinator;
 mod debug_hud_bundle;
+mod facade;
 pub(crate) mod frame_gpu;
 mod frame_gpu_bindings;
 mod frame_gpu_error;
@@ -27,12 +27,12 @@ pub use cluster_gpu::{
     CLUSTER_COUNT_Z, CLUSTER_PARAMS_UNIFORM_SIZE, ClusterBufferCache, ClusterBufferRefs,
     MAX_LIGHTS_PER_TILE, TILE_SIZE,
 };
-pub(crate) use coordinator::{ExtractedFrameShared, WorldMeshForwardEncodeRefs};
-pub use coordinator::{
+pub use debug_hud_bundle::DebugHudBundle;
+pub(crate) use facade::{BackendGraphAccess, ExtractedFrameShared, WorldMeshForwardEncodeRefs};
+pub use facade::{
     MAX_ASSET_INTEGRATION_QUEUED, MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
     RenderBackend, RenderBackendAttachDesc, RenderBackendAttachError,
 };
-pub use debug_hud_bundle::DebugHudBundle;
 pub use frame_gpu::{
     EmptyMaterialBindGroup, FrameGpuResources, FrameSceneSnapshotTextureViews,
     empty_material_bind_group_layout,

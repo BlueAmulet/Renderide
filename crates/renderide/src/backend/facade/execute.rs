@@ -39,7 +39,10 @@ impl RenderBackend {
         let Some(mut graph) = self.graph_state.frame_graph_cache.take_graph() else {
             return Err(GraphExecuteError::NoFrameGraph);
         };
-        let res = graph.execute_multi_view(gpu, scene, self, views.as_mut_slice());
+        let res = {
+            let mut backend_access = self.graph_access();
+            graph.execute_multi_view(gpu, scene, &mut backend_access, views.as_mut_slice())
+        };
         self.graph_state.frame_graph_cache.restore_graph(graph);
         res
     }

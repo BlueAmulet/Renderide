@@ -263,9 +263,7 @@ impl ComputePass for MeshDeformPass {
     }
 
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
-        let Some(frame) = ctx.frame.as_mut() else {
-            return Ok(());
-        };
+        let frame = &mut *ctx.pass_frame;
 
         if frame
             .shared

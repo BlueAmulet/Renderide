@@ -119,7 +119,7 @@ pub enum RenderPassError {
     },
 
     /// Frame params (scene/backend) were not supplied for a mesh pass.
-    #[error("pass `{pass}` requires FrameRenderParams but none was provided")]
+    #[error("pass `{pass}` requires GraphPassFrame but none was provided")]
     MissingFrameParams {
         /// Pass name from [`super::RenderPass::name`].
         pass: String,

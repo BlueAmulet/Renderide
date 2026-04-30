@@ -22,7 +22,7 @@ impl CompiledRenderGraph {
     /// Prepares shared frame resources, per-view resource slots, mesh streams, and material
     /// pipelines for every view before command recording begins.
     pub(super) fn prepare_view_resources_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &[FrameView<'_>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::prepare_view_resources");
@@ -35,7 +35,9 @@ impl CompiledRenderGraph {
     }
 
     /// Resolves the active main skybox specular source before per-view `@group(0)` bind groups are cached.
-    pub(super) fn pre_sync_skybox_specular_environment(mv_ctx: &mut MultiViewExecutionContext<'_>) {
+    pub(super) fn pre_sync_skybox_specular_environment(
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+    ) {
         profiling::scope!("graph::pre_sync_skybox_specular");
         let source = mv_ctx
             .backend
@@ -43,8 +45,8 @@ impl CompiledRenderGraph {
             .or_else(|| {
                 crate::skybox::resolve_active_main_skybox_specular_environment(
                     mv_ctx.scene,
-                    &mv_ctx.backend.materials,
-                    &mv_ctx.backend.asset_transfers,
+                    mv_ctx.backend.materials,
+                    &*mv_ctx.backend.asset_transfers,
                 )
             });
         let _ = mv_ctx
@@ -61,7 +63,7 @@ impl CompiledRenderGraph {
     /// keys the record path will request.
     ///
     pub(super) fn pre_warm_pipeline_cache_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &[FrameView<'_>],
     ) {
         profiling::scope!("graph::pre_warm_pipelines");
@@ -123,7 +125,7 @@ impl CompiledRenderGraph {
     /// Also primes a freshly added secondary RT camera so its first frame does not pay the
     /// cluster-buffer / frame-uniform-buffer allocation cost mid-recording.
     pub(super) fn pre_warm_per_view_resources_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &[FrameView<'_>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::pre_warm_per_view");
@@ -185,7 +187,7 @@ impl CompiledRenderGraph {
     /// but its graph-declared persistent pyramid now has a registry-backed lifetime keyed by
     /// [`HistorySlotId::HI_Z`] plus the view's [`crate::camera::ViewId`].
     pub(super) fn register_history_resources_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &[FrameView<'_>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::register_history_resources");
@@ -216,7 +218,7 @@ impl CompiledRenderGraph {
     /// This hoists the shared `FrameGpuResources::sync_cluster_viewport` and one-time lights upload
     /// out of the per-view record path so rayon workers only touch per-view state during recording.
     pub(super) fn pre_sync_shared_frame_resources_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &[FrameView<'_>],
     ) {
         profiling::scope!("graph::pre_sync_frame_gpu");
@@ -255,7 +257,7 @@ impl CompiledRenderGraph {
     /// bindings (backbuffer, per-view cluster refs) differ across views that share a key.
     pub(super) fn pre_resolve_transients_for_views(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &mut [FrameView<'_>],
         transient_by_key: &mut HashMap<GraphResolveKey, GraphResolvedResources>,
     ) -> Result<(), GraphExecuteError> {
@@ -343,7 +345,7 @@ fn hi_z_history_spec(
 /// [`MaterialPipelineDesc`] + [`ShaderPermutation`] pair used as the pipeline cache key, or
 /// returns `None` when the swapchain depth target is unavailable this tick.
 fn view_pipeline_pass_desc(
-    mv_ctx: &mut MultiViewExecutionContext<'_>,
+    mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
     view: &FrameView<'_>,
 ) -> Option<(MaterialPipelineDesc, ShaderPermutation)> {
     use std::num::NonZeroU32;

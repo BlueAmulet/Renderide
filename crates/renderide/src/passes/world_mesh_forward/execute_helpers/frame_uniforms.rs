@@ -6,7 +6,7 @@ use crate::backend::FrameResourceManager;
 use crate::camera::HostCameraFrame;
 use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::render_graph::blackboard::Blackboard;
-use crate::render_graph::frame_params::{FrameRenderParams, PerViewFramePlanSlot};
+use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlanSlot};
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::scene::SceneCoordinator;
 use crate::world_mesh::cluster_frame::{
@@ -45,7 +45,7 @@ pub(super) fn write_frame_uniforms_and_cluster(
 pub(super) fn write_per_view_frame_uniforms(
     queue: &wgpu::Queue,
     upload_batch: &FrameUploadBatch,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     blackboard: &Blackboard,
     use_multiview: bool,
     hc: HostCameraFrame,

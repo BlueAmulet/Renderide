@@ -6,7 +6,7 @@ use std::num::NonZeroU32;
 use super::helpers::{attachment_format, stereo_mask_override};
 use super::pipeline::{BloomPipelineCache, BloomPipelineKind};
 use crate::passes::helpers::{
-    color_attachment, missing_frame_params, missing_pass_resource, read_fragment_sampled_texture,
+    color_attachment, missing_pass_resource, read_fragment_sampled_texture,
 };
 use crate::render_graph::compiled::RenderPassTemplate;
 use crate::render_graph::context::RasterPassCtx;
@@ -71,9 +71,7 @@ impl RasterPass for BloomCompositePass {
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         profiling::scope!("post_processing::bloom::composite");
-        let Some(frame) = ctx.frame.as_ref() else {
-            return Err(missing_frame_params(self.name()));
-        };
+        let frame = &*ctx.pass_frame;
         let graph_resources = ctx.graph_resources;
         let Some(scene_tex) = graph_resources.transient_texture(self.scene_input) else {
             return Err(missing_pass_resource(self.name(), "missing scene input"));

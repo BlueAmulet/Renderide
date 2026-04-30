@@ -130,14 +130,14 @@ impl CompiledRenderGraph {
         })
     }
 
-    /// Builds [`FrameRenderParams`](crate::render_graph::frame_params::FrameRenderParams) for one per-view pass batch.
+    /// Builds [`GraphPassFrame`](crate::render_graph::frame_params::GraphPassFrame) for one per-view pass batch.
     fn build_per_view_frame_params<'a>(
         shared: &'a PerViewRecordShared<'a>,
         resolved: &'a ResolvedView<'a>,
         host_camera: &crate::camera::HostCameraFrame,
         draw_filter: Option<crate::world_mesh::draw_prep::CameraTransformDrawFilter>,
         clear: super::super::super::frame_params::FrameViewClear,
-    ) -> crate::render_graph::frame_params::FrameRenderParams<'a> {
+    ) -> crate::render_graph::frame_params::GraphPassFrame<'a> {
         profiling::scope!("graph::per_view::build_frame_params");
         let hi_z_slot = shared.occlusion.ensure_hi_z_state(resolved.view_id);
         helpers::frame_render_params_from_shared(
@@ -153,7 +153,7 @@ impl CompiledRenderGraph {
                 skin_cache: shared.skin_cache,
                 debug_hud: shared.debug_hud,
             },
-            helpers::FrameRenderParamsViewInputs {
+            helpers::GraphPassFrameViewInputs {
                 resolved,
                 scene_color_format: shared.scene_color_format,
                 host_camera: *host_camera,
@@ -169,7 +169,7 @@ impl CompiledRenderGraph {
     /// Builds the per-view [`Blackboard`] seeded with MSAA views, draw plan, and the frame plan.
     fn build_per_view_blackboard(
         &self,
-        frame_params: &crate::render_graph::frame_params::FrameRenderParams<'_>,
+        frame_params: &crate::render_graph::frame_params::GraphPassFrame<'_>,
         graph_resources: &GraphResolvedResources,
         world_mesh_draw_plan: WorldMeshDrawPlan,
         per_view_frame_bg_and_buf: Option<(std::sync::Arc<wgpu::BindGroup>, wgpu::Buffer)>,
@@ -212,7 +212,7 @@ impl CompiledRenderGraph {
     /// The caller is responsible for including the returned buffer in the single-submit batch.
     pub(super) fn encode_frame_global_passes(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &[FrameView<'_>],
         transient_by_key: &mut HashMap<GraphResolveKey, GraphResolvedResources>,
         upload_batch: &super::super::super::frame_upload_batch::FrameUploadBatch,
@@ -260,7 +260,7 @@ impl CompiledRenderGraph {
                 resolved_resources,
             )?;
             self.resolve_imported_buffers(
-                &backend.frame_resources,
+                backend.frame_resources(),
                 backend.history_registry(),
                 &resolved,
                 resolved_resources,
@@ -321,7 +321,7 @@ impl CompiledRenderGraph {
         resolved: &ResolvedView<'_>,
         transient_by_key: &'t mut HashMap<GraphResolveKey, GraphResolvedResources>,
         device: &wgpu::Device,
-        backend: &mut crate::backend::RenderBackend,
+        backend: &mut crate::backend::BackendGraphAccess<'_>,
         gpu_limits: &crate::gpu::GpuLimits,
     ) -> Result<&'t mut GraphResolvedResources, GraphExecuteError> {
         let key = GraphResolveKey::from_resolved(resolved);
@@ -394,7 +394,7 @@ impl CompiledRenderGraph {
         upload_scope: FrameUploadScope,
         resolved: &'a ResolvedView<'a>,
         graph_resources: &'a GraphResolvedResources,
-        frame_params: &mut crate::render_graph::frame_params::FrameRenderParams<'a>,
+        frame_params: &mut crate::render_graph::frame_params::GraphPassFrame<'a>,
         blackboard: &mut Blackboard,
         // `encoder` intentionally uses no named lifetime so each call's borrow
         // ends at the call boundary, avoiding cross-iteration borrow conflicts.
@@ -417,9 +417,7 @@ impl CompiledRenderGraph {
                     queue: queue_arc,
                     backbuffer: resolved.backbuffer,
                     depth_view: Some(resolved.depth_view),
-                    frame: Some(frame_params),
-                    frame_shared: None,
-                    frame_view: None,
+                    pass_frame: frame_params,
                     upload_batch,
                     graph_resources,
                     blackboard,
@@ -442,9 +440,7 @@ impl CompiledRenderGraph {
                     queue: queue_arc,
                     encoder,
                     depth_view: Some(resolved.depth_view),
-                    frame: Some(frame_params),
-                    frame_shared: None,
-                    frame_view: None,
+                    pass_frame: frame_params,
                     upload_batch,
                     graph_resources,
                     blackboard,
@@ -462,9 +458,7 @@ impl CompiledRenderGraph {
                     queue: queue_arc,
                     encoder,
                     depth_view: Some(resolved.depth_view),
-                    frame: Some(frame_params),
-                    frame_shared: None,
-                    frame_view: None,
+                    pass_frame: frame_params,
                     upload_batch,
                     graph_resources,
                     blackboard,
@@ -480,9 +474,7 @@ impl CompiledRenderGraph {
                     device,
                     gpu_limits,
                     queue: queue_arc,
-                    frame: Some(frame_params),
-                    frame_shared: None,
-                    frame_view: None,
+                    pass_frame: frame_params,
                     upload_batch,
                     graph_resources,
                     blackboard,

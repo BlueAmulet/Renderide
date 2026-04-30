@@ -1,7 +1,7 @@
 //! Render-graph lifetime state owned by [`super::RenderBackend`].
 //!
 //! This keeps graph cache/history/transient ownership together instead of scattering long-lived
-//! graph resources across the backend coordinator.
+//! graph resources across the backend facade.
 
 use crate::camera::ViewId;
 use crate::render_graph::{GraphCache, TransientPool};
@@ -45,6 +45,12 @@ impl RenderGraphState {
     /// Shared history registry.
     pub(super) fn history_registry(&self) -> &HistoryRegistry {
         &self.history_registry
+    }
+
+    /// Mutable transient pool and history registry for graph execution after the cached graph
+    /// has been temporarily removed from [`Self::frame_graph_cache`].
+    pub(super) fn execution_resources_mut(&mut self) -> (&mut TransientPool, &mut HistoryRegistry) {
+        (&mut self.transient_pool, &mut self.history_registry)
     }
 
     /// Synchronizes active view ownership and releases graph-owned view resources immediately.

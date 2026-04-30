@@ -74,9 +74,9 @@ impl GraphCache {
 
     /// Takes the compiled graph out for recording (matches prior `frame_graph.take()`).
     ///
-    /// Graph execution borrows this cache, [`crate::backend::RenderBackend`] (orchestration, transient pool,
-    /// HUD overlay), and per-pass [`crate::render_graph::FrameRenderParams`] built via
-    /// [`crate::backend::RenderBackend::split_for_graph_frame_params`].
+    /// Graph execution borrows this cache, [`crate::backend::BackendGraphAccess`] (orchestration, transient pool,
+    /// HUD overlay), and per-pass [`crate::render_graph::GraphPassFrame`] built via
+    /// [`crate::backend::BackendGraphAccess::split_for_graph_frame_params`].
     #[must_use]
     pub fn take_graph(&mut self) -> Option<CompiledRenderGraph> {
         self.graph.take()

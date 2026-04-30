@@ -50,13 +50,6 @@ pub(super) fn imported_color_attachment(
     );
 }
 
-/// Builds the standard missing-frame-params render-pass error.
-pub(super) fn missing_frame_params(pass: &str) -> RenderPassError {
-    RenderPassError::MissingFrameParams {
-        pass: pass.to_string(),
-    }
-}
-
 /// Builds a missing-frame-params error with pass-specific context.
 pub(super) fn missing_pass_resource(pass: &str, detail: impl std::fmt::Display) -> RenderPassError {
     RenderPassError::MissingFrameParams {

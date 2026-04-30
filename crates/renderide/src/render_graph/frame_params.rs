@@ -3,8 +3,8 @@
 //! Cross-pass per-view state that is too large or too volatile to live on the pass struct lives
 //! in the per-view [`crate::render_graph::blackboard::Blackboard`] via typed slots defined here.
 //!
-//! [`FrameRenderParams`] is a thin compositor over [`FrameSystemsShared`] (once-per-frame system
-//! handles) and [`FrameRenderParamsView`] (per-view surface state). This separation keeps the
+//! [`GraphPassFrame`] is a thin compositor over [`FrameSystemsShared`] (once-per-frame system
+//! handles) and [`GraphPassFrameView`] (per-view surface state). This separation keeps the
 //! record path focused on view-local data while shared systems are borrowed through explicit
 //! fields.
 
@@ -73,7 +73,7 @@ impl Default for FrameViewClear {
 ///
 /// Populated by the executor (before per-view passes run) from
 /// [`super::compiled::helpers::populate_forward_msaa_from_graph_resources`] output.
-/// Replaces the six `msaa_*` fields that previously lived on [`FrameRenderParams`].
+/// Replaces the six `msaa_*` fields that previously lived on [`GraphPassFrame`].
 pub struct MsaaViewsSlot;
 impl BlackboardSlot for MsaaViewsSlot {
     type Value = MsaaViews;
@@ -162,8 +162,8 @@ pub struct FrameSystemsShared<'a> {
 ///
 /// All fields are value types or immutable references: they are derived from the resolved view
 /// target before recording begins and do not change during per-view pass execution. This is the
-/// primary per-view context type; [`FrameRenderParams`] remains during a staged migration.
-pub struct FrameRenderParamsView<'a> {
+/// primary per-view context type; [`GraphPassFrame`] remains during a staged migration.
+pub struct GraphPassFrameView<'a> {
     /// Backing depth texture for the main forward pass (copy source for scene-depth snapshots).
     pub depth_texture: &'a wgpu::Texture,
     /// Depth attachment view for the main forward pass.
@@ -199,18 +199,18 @@ pub struct FrameRenderParamsView<'a> {
     pub clear: FrameViewClear,
 }
 
-/// Compositor over [`FrameSystemsShared`] and [`FrameRenderParamsView`].
+/// Compositor over [`FrameSystemsShared`] and [`GraphPassFrameView`].
 ///
-/// Built with disjoint borrows from [`crate::backend::RenderBackend`] so passes do not take a
+/// Built with disjoint borrows from [`crate::backend::BackendGraphAccess`] so passes do not take a
 /// full backend handle.
-pub struct FrameRenderParams<'a> {
+pub struct GraphPassFrame<'a> {
     /// System handles shared across all views for this frame.
     pub shared: FrameSystemsShared<'a>,
     /// Per-view surface and camera state.
-    pub view: FrameRenderParamsView<'a>,
+    pub view: GraphPassFrameView<'a>,
 }
 
-impl FrameRenderParams<'_> {
+impl GraphPassFrame<'_> {
     /// Output depth layout for Hi-Z and occlusion ([`OutputDepthMode::from_multiview_stereo`]).
     pub fn output_depth_mode(&self) -> OutputDepthMode {
         OutputDepthMode::from_multiview_stereo(self.view.multiview_stereo)

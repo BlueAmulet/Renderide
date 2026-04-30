@@ -48,7 +48,7 @@ pub trait CallbackPass: Send + Sync {
     /// Runs as a CPU callback during graph execution.
     ///
     /// No encoder is provided. The pass may record buffer uploads via
-    /// [`CallbackCtx::write_buffer`], read scene data via `ctx.frame`, and mutate
+    /// [`CallbackCtx::write_buffer`], read scene data via `ctx.pass_frame`, and mutate
     /// `ctx.blackboard`.
     ///
     /// Takes `&self` so per-view passes can be recorded on rayon workers concurrently.

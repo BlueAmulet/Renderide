@@ -15,7 +15,7 @@ use pipeline::AcesTonemapPipelineCache;
 
 use crate::config::PostProcessingSettings;
 use crate::passes::helpers::{
-    color_attachment, missing_frame_params, missing_pass_resource, read_fragment_sampled_texture,
+    color_attachment, missing_pass_resource, read_fragment_sampled_texture,
 };
 use crate::render_graph::builder::GraphBuilder;
 use crate::render_graph::compiled::RenderPassTemplate;
@@ -88,9 +88,7 @@ impl RasterPass for AcesTonemapPass {
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         profiling::scope!("post_processing::aces_tonemap");
-        let Some(frame) = ctx.frame.as_ref() else {
-            return Err(missing_frame_params(self.name()));
-        };
+        let frame = &*ctx.pass_frame;
         let graph_resources = ctx.graph_resources;
         let Some(tex) = graph_resources.transient_texture(self.resources.input) else {
             return Err(missing_pass_resource(

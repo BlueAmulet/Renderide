@@ -88,7 +88,7 @@ pub struct RendererRuntime {
     pub(crate) backend: RenderBackend,
     /// Render spaces and dense transform / mesh state from [`FrameSubmitData`](crate::shared::FrameSubmitData).
     pub(crate) scene: SceneCoordinator,
-    /// Last host clip / FOV / VR / ortho task state for [`crate::render_graph::FrameRenderParams`].
+    /// Last host clip / FOV / VR / ortho task state for [`crate::render_graph::GraphPassFrame`].
     pub(crate) host_camera: HostCameraFrame,
     /// Process-wide renderer settings (shared with the debug HUD and the frame loop).
     pub(crate) settings: RendererSettingsHandle,

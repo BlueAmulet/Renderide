@@ -6,7 +6,7 @@ use crate::gpu::GpuLimits;
 use crate::materials::MaterialSystem;
 use crate::materials::ShaderPermutation;
 use crate::render_graph::blackboard::Blackboard;
-use crate::render_graph::frame_params::FrameRenderParams;
+use crate::render_graph::frame_params::GraphPassFrame;
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::world_mesh::draw_prep::{WorldMeshDrawCollection, WorldMeshDrawItem};
 use crate::world_mesh::{
@@ -33,7 +33,7 @@ pub(super) fn take_world_mesh_draws(blackboard: &mut Blackboard) -> PrefetchedWo
 
 /// Copies Hi-Z temporal state for the next frame when culling is active.
 pub(super) fn capture_hi_z_temporal_after_collect(
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     cull_proj: Option<WorldMeshCullProjParams>,
     hc: HostCameraFrame,
 ) {
@@ -94,7 +94,7 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
     queue: &wgpu::Queue,
     upload_batch: &FrameUploadBatch,
     gpu_limits: &GpuLimits,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     blackboard: &mut Blackboard,
     skybox_renderer: &SkyboxRenderer,
 ) -> Option<PreparedWorldMeshForwardFrame> {
@@ -185,7 +185,7 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
 /// Computes [`PerViewHudOutputs`] from the collected draws and inserts them on `blackboard` if any
 /// HUD field is non-empty (avoids planting an empty slot for the common no-HUD frame).
 fn publish_world_mesh_hud_outputs(
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     blackboard: &mut Blackboard,
     collection: &WorldMeshDrawCollection,
     supports_base_instance: bool,

@@ -18,8 +18,8 @@ pub enum OutputDepthModeError {
 
 /// How the main forward depth buffer is laid out for GPU sampling and CPU readback.
 ///
-/// Derived from [`super::frame_params::FrameRenderParams::multiview_stereo`] and the same signals
-/// used for multiview world draws: stereo uses a two-layer `D2Array` depth target; desktop uses a
+/// Derived from [`crate::render_graph::GraphPassFrame`] view state and the same signals used for
+/// multiview world draws: stereo uses a two-layer `D2Array` depth target; desktop uses a
 /// single-layer depth texture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OutputDepthMode {

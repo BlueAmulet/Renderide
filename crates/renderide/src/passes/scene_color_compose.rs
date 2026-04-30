@@ -11,8 +11,7 @@ use std::sync::LazyLock;
 use pipeline::SceneColorComposePipelineCache;
 
 use crate::passes::helpers::{
-    imported_color_attachment, missing_frame_params, missing_pass_resource,
-    read_fragment_sampled_texture,
+    imported_color_attachment, missing_pass_resource, read_fragment_sampled_texture,
 };
 use crate::present::SWAPCHAIN_CLEAR_COLOR;
 use crate::render_graph::compiled::RenderPassTemplate;
@@ -82,9 +81,7 @@ impl RasterPass for SceneColorComposePass {
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         profiling::scope!("scene_color_compose::record");
-        let Some(frame) = ctx.frame.as_ref() else {
-            return Err(missing_frame_params(self.name()));
-        };
+        let frame = &*ctx.pass_frame;
         let graph_resources = ctx.graph_resources;
         let Some(tex) = graph_resources.transient_texture(self.resources.scene_color_hdr) else {
             return Err(missing_pass_resource(

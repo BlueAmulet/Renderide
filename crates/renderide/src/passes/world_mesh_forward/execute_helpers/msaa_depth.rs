@@ -6,7 +6,7 @@ use crate::gpu::{
 };
 use crate::profiling::GpuProfilerHandle;
 use crate::render_graph::context::{GraphResolvedResources, ResolvedGraphTexture};
-use crate::render_graph::frame_params::FrameRenderParams;
+use crate::render_graph::frame_params::GraphPassFrame;
 use crate::world_mesh::WorldMeshHelperNeeds;
 
 use super::super::PreparedWorldMeshForwardFrame;
@@ -18,7 +18,7 @@ use super::super::WorldMeshForwardGraphResources;
 pub(crate) fn encode_world_mesh_forward_depth_snapshot(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
     msaa_views: Option<&ForwardMsaaResolvedViews>,
     msaa_depth_resolve: Option<&MsaaDepthResolveResources>,
@@ -59,7 +59,7 @@ fn depth_snapshot_recording_needed(helper_needs: WorldMeshHelperNeeds) -> bool {
 pub(crate) fn encode_msaa_depth_resolve_after_clear_only(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     msaa_views: Option<&ForwardMsaaResolvedViews>,
     msaa_depth_resolve: Option<&MsaaDepthResolveResources>,
     profiler: Option<&GpuProfilerHandle>,
@@ -78,7 +78,7 @@ pub(crate) fn encode_msaa_depth_resolve_after_clear_only(
 fn encode_msaa_depth_resolve_for_frame(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     msaa: &ForwardMsaaResolvedViews,
     resolve: &MsaaDepthResolveResources,
     profiler: Option<&GpuProfilerHandle>,

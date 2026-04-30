@@ -45,7 +45,7 @@
 //!
 //! 1. **LightPrep** — [`crate::backend::FrameResourceManager::prepare_lights_from_scene`] packs
 //!    clustered lights (see [`cluster_frame`]); at most one full pack per winit tick (coalesced across graph entry points).
-//! 2. **Camera / cluster params** — [`frame_params::FrameRenderParams`] + [`cluster_frame`] from
+//! 2. **Camera / cluster params** — [`frame_params::GraphPassFrame`] + [`cluster_frame`] from
 //!    host camera and [`HostCameraFrame`].
 //! 3. **Cull** — frustum and Hi-Z occlusion in [`world_mesh_cull`] (inputs to forward pass).
 //! 4. **Sort** — [`world_mesh_draw_prep`] builds draw order and batch keys.
@@ -95,7 +95,7 @@ pub use context::{
     ResolvedImportedBuffer, ResolvedImportedTexture,
 };
 pub use error::{GraphBuildError, GraphExecuteError, RenderPassError, SetupError};
-pub use frame_params::{FrameRenderParams, FrameViewClear, PerViewFramePlan, PerViewFramePlanSlot};
+pub use frame_params::{FrameViewClear, GraphPassFrame, PerViewFramePlan, PerViewFramePlanSlot};
 pub use ids::{GroupId, PassId};
 pub use pass::{
     CallbackPass, ComputePass, CopyPass, GroupScope, PassBuilder, PassKind, PassMergeHint,

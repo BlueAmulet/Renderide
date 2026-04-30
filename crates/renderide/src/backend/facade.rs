@@ -1,4 +1,4 @@
-//! [`RenderBackend`] — thin coordinator for frame execution and IPC-facing GPU work.
+//! [`RenderBackend`] — thin facade for frame execution and IPC-facing GPU work.
 //!
 //! Core subsystems live in [`super::MaterialSystem`], [`crate::assets::AssetTransferQueue`],
 //! [`super::FrameResourceManager`], and [`crate::occlusion::OcclusionSystem`]; this type wires attach,
@@ -9,6 +9,7 @@
 mod asset_ipc;
 mod execute;
 mod frame_packet;
+mod graph_access;
 mod graph_cache;
 mod graph_state;
 
@@ -21,7 +22,6 @@ use thiserror::Error;
 use crate::assets::asset_transfer_queue::{self as asset_uploads, AssetTransferQueue};
 use crate::config::{PostProcessingSettings, RendererSettingsHandle, SceneColorFormat};
 use crate::diagnostics::{DebugHudEncodeError, DebugHudInput, SceneTransformsSnapshot};
-use crate::diagnostics::{PerViewHudConfig, PerViewHudOutputs};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::gpu_pools::{
     CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool, VideoTexturePool,
@@ -38,21 +38,8 @@ use super::debug_hud_bundle::DebugHudBundle;
 use crate::materials::MaterialSystem;
 use crate::materials::embedded::{EmbeddedMaterialBindError, EmbeddedTexturePools};
 use crate::occlusion::OcclusionSystem;
+pub(crate) use graph_access::BackendGraphAccess;
 use graph_state::RenderGraphState;
-
-/// Disjoint backend slices assembled into [`crate::render_graph::FrameRenderParams`].
-type GraphFrameParamsSplit<'a> = (
-    &'a OcclusionSystem,
-    &'a FrameResourceManager,
-    &'a MaterialSystem,
-    &'a AssetTransferQueue,
-    Option<&'a MeshPreprocessPipelines>,
-    Option<&'a mut MeshDeformScratch>,
-    Option<&'a mut GpuSkinCache>,
-    Option<Arc<GpuLimits>>,
-    Option<Arc<MsaaDepthResolveResources>>,
-    PerViewHudConfig,
-);
 
 pub use crate::assets::asset_transfer_queue::{
     MAX_ASSET_INTEGRATION_QUEUED, MAX_PENDING_MESH_UPLOADS, MAX_PENDING_TEXTURE_UPLOADS,
@@ -143,7 +130,7 @@ pub struct RenderBackend {
 
 /// Disjoint borrows of [`MaterialSystem`], [`AssetTransferQueue`], and the GPU skin cache for world mesh forward encoding.
 ///
-/// Obtained from [`crate::render_graph::FrameRenderParams::world_mesh_forward_encode_refs`] so the raster
+/// Obtained from [`crate::render_graph::GraphPassFrame::world_mesh_forward_encode_refs`] so the raster
 /// encoder never holds `&mut RenderBackend` while also borrowing the deform cache.
 pub(crate) struct WorldMeshForwardEncodeRefs<'a> {
     /// Material registry, embedded binds, and property store.
@@ -155,7 +142,7 @@ pub(crate) struct WorldMeshForwardEncodeRefs<'a> {
 }
 
 impl<'a> WorldMeshForwardEncodeRefs<'a> {
-    /// Builds encode refs from disjoint [`crate::render_graph::FrameRenderParams`] slices.
+    /// Builds encode refs from disjoint [`crate::render_graph::GraphPassFrame`] slices.
     pub fn from_frame_params(
         materials: &'a MaterialSystem,
         asset_transfers: &'a AssetTransferQueue,
@@ -299,39 +286,6 @@ impl RenderBackend {
         self.skin_cache.as_ref()
     }
 
-    /// Shared occlusion system view for per-view recording.
-    pub(crate) fn occlusion(&self) -> &OcclusionSystem {
-        &self.occlusion
-    }
-
-    /// Shared frame-resource manager view for per-view recording.
-    pub(crate) fn frame_resources(&self) -> &FrameResourceManager {
-        &self.frame_resources
-    }
-
-    /// Shared material system view for per-view recording.
-    pub(crate) fn materials(&self) -> &MaterialSystem {
-        &self.materials
-    }
-
-    /// Shared asset-transfer queues and pools for per-view recording.
-    pub(crate) fn asset_transfers(&self) -> &AssetTransferQueue {
-        &self.asset_transfers
-    }
-
-    /// Shared debug HUD view for per-view recording.
-    pub(crate) fn per_view_hud_config(&self) -> PerViewHudConfig {
-        PerViewHudConfig {
-            main_enabled: self.debug_hud.main_enabled(),
-            textures_enabled: self.debug_hud.textures_enabled(),
-        }
-    }
-
-    /// MSAA depth resolve resources snapshot for per-view recording.
-    pub(crate) fn msaa_depth_resolve(&self) -> Option<Arc<MsaaDepthResolveResources>> {
-        self.msaa_depth_resolve.clone()
-    }
-
     /// Mutable skin cache for mesh deform compute and cache sweeps.
     pub fn skin_cache_mut(&mut self) -> Option<&mut GpuSkinCache> {
         self.skin_cache.as_mut()
@@ -419,16 +373,6 @@ impl RenderBackend {
             .maintain(gpu, scene, &self.materials);
     }
 
-    /// Resolves a completed generated cubemap for the active analytic skybox, if available.
-    pub(crate) fn active_generated_skybox_specular_source(
-        &self,
-        scene: &crate::scene::SceneCoordinator,
-        limits: &GpuLimits,
-    ) -> Option<super::frame_gpu::SkyboxSpecularEnvironmentSource> {
-        self.skybox_environment
-            .active_specular_source(scene, &self.materials, limits)
-    }
-
     /// Borrowed view of all texture pools used for embedded material `@group(1)` bind resolution.
     pub fn embedded_texture_pools(&self) -> EmbeddedTexturePools<'_> {
         EmbeddedTexturePools {
@@ -468,11 +412,6 @@ impl RenderBackend {
     /// Mutable registry (pipeline cache and shader routes).
     pub fn material_registry_mut(&mut self) -> Option<&mut crate::materials::MaterialRegistry> {
         self.materials.material_registry_mut()
-    }
-
-    /// Merges one deferred per-view HUD payload into the live debug HUD bundle.
-    pub(crate) fn apply_per_view_hud_outputs(&mut self, outputs: &PerViewHudOutputs) {
-        self.debug_hud.apply_per_view_outputs(outputs);
     }
 
     /// Embedded material bind groups (world Unlit, etc.) after [`Self::attach`].
@@ -769,16 +708,6 @@ impl RenderBackend {
             .encode_overlay(device, queue, encoder, backbuffer, extent)
     }
 
-    /// Returns `true` when the debug HUD will draw at least one window this frame.
-    pub(crate) fn debug_hud_has_visible_content(&self) -> bool {
-        self.debug_hud.has_visible_content()
-    }
-
-    /// Drops cached input-capture flags; called when the HUD encoder is skipped.
-    pub(crate) fn clear_debug_hud_input_capture(&mut self) {
-        self.debug_hud.clear_input_capture();
-    }
-
     /// Mutable render-graph transient resource pool.
     pub(crate) fn transient_pool_mut(&mut self) -> &mut TransientPool {
         self.graph_state.transient_pool_mut()
@@ -804,26 +733,33 @@ impl RenderBackend {
         }
     }
 
-    /// Disjoint mutable borrows and attach-time snapshots for [`crate::render_graph::FrameRenderParams`].
-    ///
-    /// Centralizes the split so the graph executor can build per-view frame parameters without
-    /// violating the borrow checker on field-by-field struct literals.
-    pub(crate) fn split_for_graph_frame_params(&mut self) -> GraphFrameParamsSplit<'_> {
+    /// Builds the narrow graph-execution access packet from disjoint backend owners.
+    pub(crate) fn graph_access(&mut self) -> BackendGraphAccess<'_> {
+        let scene_color_format = self.scene_color_format_wgpu();
         let gpu_limits = self.gpu_limits().cloned();
         let msaa_depth_resolve = self.msaa_depth_resolve.clone();
-        let per_view_hud_config = self.per_view_hud_config();
-        (
-            &self.occlusion,
-            &self.frame_resources,
-            &self.materials,
-            &self.asset_transfers,
-            self.mesh_preprocess.as_ref(),
-            self.mesh_deform_scratch.as_mut(),
-            self.skin_cache.as_mut(),
+        let live_gtao_settings = self.live_gtao_settings();
+        let live_bloom_settings = self.live_bloom_settings();
+        let (transient_pool, history_registry) = self.graph_state.execution_resources_mut();
+        BackendGraphAccess {
+            occlusion: &mut self.occlusion,
+            frame_resources: &mut self.frame_resources,
+            materials: &self.materials,
+            asset_transfers: &mut self.asset_transfers,
+            mesh_preprocess: self.mesh_preprocess.as_ref(),
+            mesh_deform_scratch: self.mesh_deform_scratch.as_mut(),
+            skin_cache: self.skin_cache.as_mut(),
+            transient_pool,
+            history_registry,
+            debug_hud: &mut self.debug_hud,
+            skybox_environment: &self.skybox_environment,
+            record_parallelism: self.record_parallelism,
+            scene_color_format,
             gpu_limits,
             msaa_depth_resolve,
-            per_view_hud_config,
-        )
+            live_gtao_settings,
+            live_bloom_settings,
+        }
     }
 
     /// Scratch buffers for mesh deformation (`MeshDeformPass`).

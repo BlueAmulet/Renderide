@@ -5,7 +5,7 @@ use std::sync::Arc;
 use super::super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
 use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::gpu::GpuLimits;
-use crate::render_graph::frame_params::FrameRenderParams;
+use crate::render_graph::frame_params::GraphPassFrame;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
 use super::super::encode::{ForwardDrawBatch, draw_subset};
@@ -101,7 +101,7 @@ fn record_world_mesh_forward_subpass(
 /// Records one world-mesh forward subset into a render pass already opened by the graph.
 fn record_world_mesh_forward_graph_raster(
     rpass: &mut wgpu::RenderPass<'_>,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
     subpass: ForwardSubpassKind,
 ) -> bool {
@@ -169,7 +169,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_opaque_gr
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
     record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Opaque)
@@ -180,7 +180,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_intersect
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
     record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Intersection)
@@ -191,7 +191,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_transpare
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
     record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Transparent)

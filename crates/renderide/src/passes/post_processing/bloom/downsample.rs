@@ -7,7 +7,7 @@ use super::helpers::{attachment_format, stereo_mask_override};
 use super::pipeline::{BloomParamsGpu, BloomPipelineCache, BloomPipelineKind};
 use crate::config::BloomSettings;
 use crate::passes::helpers::{
-    color_attachment, missing_frame_params, missing_pass_resource, read_fragment_sampled_texture,
+    color_attachment, missing_pass_resource, read_fragment_sampled_texture,
 };
 use crate::passes::post_processing::settings_slot::BloomSettingsSlot;
 use crate::render_graph::compiled::RenderPassTemplate;
@@ -84,9 +84,7 @@ impl RasterPass for BloomDownsampleFirstPass {
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         profiling::scope!("post_processing::bloom::downsample_first");
-        let Some(frame) = ctx.frame.as_ref() else {
-            return Err(missing_frame_params(self.name()));
-        };
+        let frame = &*ctx.pass_frame;
         let graph_resources = ctx.graph_resources;
         let Some(input_tex) = graph_resources.transient_texture(self.input) else {
             return Err(missing_pass_resource(
@@ -189,9 +187,7 @@ impl RasterPass for BloomDownsamplePass {
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         profiling::scope!("post_processing::bloom::downsample");
-        let Some(frame) = ctx.frame.as_ref() else {
-            return Err(missing_frame_params(self.name()));
-        };
+        let frame = &*ctx.pass_frame;
         let graph_resources = ctx.graph_resources;
         let Some(input_tex) = graph_resources.transient_texture(self.input) else {
             return Err(missing_pass_resource(

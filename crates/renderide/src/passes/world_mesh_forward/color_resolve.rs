@@ -156,11 +156,7 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
     }
 
     fn should_record(&self, ctx: &RasterPassCtx<'_, '_>) -> Result<bool, RenderPassError> {
-        let Some(frame) = ctx.frame.as_ref() else {
-            return Err(RenderPassError::MissingFrameParams {
-                pass: self.name().to_string(),
-            });
-        };
+        let frame = &*ctx.pass_frame;
         let has_grab_pass_transparent_work = ctx
             .blackboard
             .get::<super::WorldMeshForwardPlanSlot>()
@@ -178,11 +174,7 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         profiling::scope!("world_mesh_forward::color_resolve_record");
-        let Some(frame) = ctx.frame.as_ref() else {
-            return Err(RenderPassError::MissingFrameParams {
-                pass: self.name().to_string(),
-            });
-        };
+        let frame = &*ctx.pass_frame;
 
         // Per-view runtime sample count: 1 for offscreen render-texture cameras (forced by
         // `compiled.rs` `OffscreenRt` arm), >1 for swapchain / HMD targets when MSAA is

@@ -8,7 +8,7 @@ use crate::camera::HostCameraFrame;
 use crate::mesh_deform::{
     PER_DRAW_UNIFORM_STRIDE, PaddedPerDrawUniforms, write_per_draw_uniform_slab,
 };
-use crate::render_graph::frame_params::FrameRenderParams;
+use crate::render_graph::frame_params::GraphPassFrame;
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::scene::SceneCoordinator;
 use crate::shared::RenderingContext;
@@ -45,7 +45,7 @@ pub(super) struct SlabPackInputs<'a> {
 /// stays one contiguous storage buffer per view.
 ///
 /// Uses the per-view [`crate::backend::PerDrawResources`] identified by
-/// [`FrameRenderParams::view_id`], growing it as needed. Writes at byte offset 0 of the
+/// [`GraphPassFrame::view_id`], growing it as needed. Writes at byte offset 0 of the
 /// view's own buffer. Returns `false` if per-draw resources cannot be created (not yet attached).
 #[expect(
     clippy::significant_drop_tightening,
@@ -54,7 +54,7 @@ pub(super) struct SlabPackInputs<'a> {
 pub(super) fn pack_and_upload_per_draw_slab(
     device: &wgpu::Device,
     upload_batch: &FrameUploadBatch,
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     inputs: SlabPackInputs<'_>,
 ) -> bool {
     profiling::scope!("world_mesh::pack_and_upload_slab");

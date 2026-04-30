@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use crate::backend::RenderBackend;
+use crate::backend::BackendGraphAccess;
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::scene::SceneCoordinator;
 
 use super::super::context::{GraphResolvedResources, RasterPassCtx, ResolvedGraphTexture};
 use super::super::error::GraphExecuteError;
 use super::super::frame_params::FrameViewClear;
-use super::super::frame_params::{FrameRenderParams, FrameRenderParamsView, FrameSystemsShared};
+use super::super::frame_params::{FrameSystemsShared, GraphPassFrame, GraphPassFrameView};
 use super::super::pass::PassNode;
 use super::super::resources::{
     BufferSizePolicy, TextureAttachmentResolve, TextureAttachmentTarget, TextureHandle,
@@ -26,7 +26,7 @@ use super::{CompiledPassInfo, RenderPassTemplate, ResolvedView};
 /// Groups the view-side data that would otherwise inflate the builder's parameter list: the
 /// resolved surface handles, host camera, per-view overrides, and the GPU / MSAA / Hi-Z resources
 /// scoped to this view.
-pub(super) struct FrameRenderParamsViewInputs<'a, 'r> {
+pub(super) struct GraphPassFrameViewInputs<'a, 'r> {
     /// Resolved surface targets, viewport, and view flags for this view.
     pub resolved: &'r ResolvedView<'a>,
     /// Scene color format used by the render graph.
@@ -45,12 +45,12 @@ pub(super) struct FrameRenderParamsViewInputs<'a, 'r> {
     pub hi_z_slot: Arc<parking_lot::Mutex<crate::occlusion::gpu::HiZGpuState>>,
 }
 
-/// Builds [`FrameRenderParams`] from pre-split shared backend slices and per-view surface state.
+/// Builds [`GraphPassFrame`] from pre-split shared backend slices and per-view surface state.
 pub(super) fn frame_render_params_from_shared<'a>(
     shared: FrameSystemsShared<'a>,
-    view_inputs: FrameRenderParamsViewInputs<'a, '_>,
-) -> FrameRenderParams<'a> {
-    let FrameRenderParamsViewInputs {
+    view_inputs: GraphPassFrameViewInputs<'a, '_>,
+) -> GraphPassFrame<'a> {
+    let GraphPassFrameViewInputs {
         resolved,
         scene_color_format,
         host_camera,
@@ -67,9 +67,9 @@ pub(super) fn frame_render_params_from_shared<'a>(
             aspect: wgpu::TextureAspect::DepthOnly,
             ..Default::default()
         });
-    FrameRenderParams {
+    GraphPassFrame {
         shared,
-        view: FrameRenderParamsView {
+        view: GraphPassFrameView {
             depth_texture: resolved.depth_texture,
             depth_view: resolved.depth_view,
             depth_sample_view: Some(depth_sample_view),
@@ -93,15 +93,15 @@ pub(super) fn frame_render_params_from_shared<'a>(
     }
 }
 
-/// Builds [`FrameRenderParams`] from a resolved target and per-view host/IPC fields.
+/// Builds [`GraphPassFrame`] from a resolved target and per-view host/IPC fields.
 pub(super) fn frame_render_params_from_resolved<'a>(
     scene: &'a SceneCoordinator,
-    backend: &'a mut RenderBackend,
+    backend: &'a mut BackendGraphAccess<'_>,
     resolved: &ResolvedView<'a>,
     host_camera: HostCameraFrame,
     transform_draw_filter: Option<CameraTransformDrawFilter>,
     clear: FrameViewClear,
-) -> FrameRenderParams<'a> {
+) -> GraphPassFrame<'a> {
     let scene_color_format = backend.scene_color_format_wgpu();
     let (
         occlusion,
@@ -129,7 +129,7 @@ pub(super) fn frame_render_params_from_resolved<'a>(
             skin_cache: None,
             debug_hud,
         },
-        FrameRenderParamsViewInputs {
+        GraphPassFrameViewInputs {
             resolved,
             scene_color_format,
             host_camera,
@@ -156,7 +156,7 @@ fn first_two_layer_views(texture: &ResolvedGraphTexture) -> Option<[wgpu::Textur
 /// per-view [`super::super::blackboard::Blackboard`] as a
 /// [`super::super::frame_params::MsaaViewsSlot`].
 pub(super) fn resolve_forward_msaa_views_from_graph_resources(
-    frame: &FrameRenderParams<'_>,
+    frame: &GraphPassFrame<'_>,
     graph_resources: &GraphResolvedResources,
     msaa_handles: Option<[TextureHandle; 3]>,
 ) -> Option<super::super::frame_params::MsaaViews> {
@@ -326,9 +326,7 @@ pub(super) fn pass_info_raster_template(
 }
 
 pub(super) fn frame_sample_count_from_raster_ctx(ctx: &RasterPassCtx<'_, '_>) -> u32 {
-    ctx.frame
-        .as_ref()
-        .map_or(1, |frame| frame.view.sample_count.max(1))
+    ctx.pass_frame.view.sample_count.max(1)
 }
 
 pub(super) fn resolve_attachment_target(
