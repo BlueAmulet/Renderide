@@ -145,6 +145,15 @@ pub fn spawn_host(
             )
         })?;
         logger::info!("Resonite dir: {:?}", resonite_dir);
+        #[cfg(target_os = "linux")]
+        {
+            // Native Linux launches can still inherit a runtimeconfig that references
+            // Microsoft.WindowsDesktop.App; strip it so `dotnet` only resolves
+            // Microsoft.NETCore.App from the bundled runtime.
+            strip_windows_desktop_from_runtime_config(
+                &resonite_dir.join("Renderite.Host.runtimeconfig.json"),
+            );
+        }
 
         let dotnet = paths::find_dotnet_for_host(&resonite_dir);
         let host_dll: PathBuf = resonite_dir.join(paths::RENDERITE_HOST_DLL);
