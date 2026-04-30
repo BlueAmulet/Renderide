@@ -492,8 +492,8 @@ mod tests {
 
     use hashbrown::HashMap;
 
-    use crate::backend::embedded::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
     use crate::gpu_pools::Texture2dSamplerState;
+    use crate::materials::embedded::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
     use crate::materials::host_data::PropertyIdRegistry;
     use crate::shared::{TextureFilterMode, TextureWrapMode};
 

@@ -1,7 +1,7 @@
 //! Stem-level reflection cache for embedded raster materials: composed WGSL, [`wgpu::BindGroupLayout`],
 //! and interned property ids per [`crate::materials::ReflectedRasterLayout`].
 //!
-//! Per-frame uniform bytes and [`wgpu::BindGroup`] instances are built in [`crate::backend::embedded::material_bind`].
+//! Per-frame uniform bytes and [`wgpu::BindGroup`] instances are built in [`crate::materials::embedded::material_bind`].
 
 use hashbrown::HashMap;
 use std::sync::Arc;

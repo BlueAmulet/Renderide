@@ -7,8 +7,8 @@
 use rayon::prelude::*;
 
 use crate::backend::WorldMeshForwardEncodeRefs;
-use crate::backend::{EmbeddedMaterialBindResources, EmbeddedTexturePools};
 use crate::embedded_shaders;
+use crate::materials::{EmbeddedMaterialBindResources, EmbeddedTexturePools};
 use crate::materials::{
     MaterialBlendMode, MaterialPassDesc, MaterialPipelineDesc, MaterialPipelineSet,
     MaterialRegistry, MaterialRenderState, RasterFrontFace, RasterPipelineKind,

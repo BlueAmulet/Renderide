@@ -34,8 +34,8 @@ use super::FrameGpuBindingsError;
 use super::FrameResourceManager;
 use super::ViewResourceRegistry;
 use super::debug_hud_bundle::DebugHudBundle;
-use super::embedded::{EmbeddedMaterialBindError, EmbeddedTexturePools};
 use super::material_system::MaterialSystem;
+use crate::materials::embedded::{EmbeddedMaterialBindError, EmbeddedTexturePools};
 use crate::occlusion::OcclusionSystem;
 
 /// Disjoint backend slices assembled into [`crate::render_graph::FrameRenderParams`].
@@ -486,7 +486,7 @@ impl RenderBackend {
     /// Embedded material bind groups (world Unlit, etc.) after [`Self::attach`].
     pub fn embedded_material_bind(
         &self,
-    ) -> Option<&super::embedded::EmbeddedMaterialBindResources> {
+    ) -> Option<&crate::materials::embedded::EmbeddedMaterialBindResources> {
         self.materials.embedded_material_bind()
     }
 

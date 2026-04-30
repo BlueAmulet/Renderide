@@ -16,13 +16,13 @@ use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use crate::backend::cluster_gpu::{CLUSTER_COUNT_Z, ClusterBufferCache, ClusterBufferRefs};
-use crate::backend::embedded::texture_resolve::{sampler_from_cubemap_state, sampler_from_state};
 use crate::backend::light_gpu::{GpuLight, MAX_LIGHTS};
 use crate::gpu::GpuLimits;
 use crate::gpu::frame_globals::{
     FrameGpuUniforms, SkyboxSpecularSourceKind, SkyboxSpecularUniformParams,
 };
 use crate::gpu_pools::{CubemapSamplerState, Texture2dSamplerState};
+use crate::materials::embedded::texture_resolve::{sampler_from_cubemap_state, sampler_from_state};
 
 use super::frame_gpu_error::FrameGpuInitError;
 pub use empty_material::{EmptyMaterialBindGroup, empty_material_bind_group_layout};

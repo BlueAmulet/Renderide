@@ -7,10 +7,10 @@ mod text_uniform_packing_tests {
 
     use super::super::tables::inferred_keyword_float_f32;
     use super::super::*;
-    use crate::backend::embedded::layout::StemEmbeddedPropertyIds;
     use crate::gpu_pools::{
         CubemapPool, RenderTexturePool, Texture3dPool, TexturePool, VideoTexturePool,
     };
+    use crate::materials::embedded::layout::StemEmbeddedPropertyIds;
     use crate::materials::host_data::PropertyIdRegistry;
     use crate::materials::host_data::{MaterialPropertyLookupIds, MaterialPropertyStore};
     use crate::materials::{ReflectedMaterialUniformBlock, ReflectedUniformScalarKind};
@@ -465,7 +465,7 @@ mod text_uniform_packing_tests {
 
     #[test]
     fn only_main_texture_bindings_fallback_to_primary_texture() {
-        use crate::backend::embedded::texture_resolve::should_fallback_to_primary_texture;
+        use crate::materials::embedded::texture_resolve::should_fallback_to_primary_texture;
         assert!(should_fallback_to_primary_texture("_MainTex"));
         assert!(!should_fallback_to_primary_texture("_MainTex1"));
         assert!(!should_fallback_to_primary_texture("_SpecularMap"));
@@ -918,12 +918,12 @@ mod storage_orientation_uniform_tests {
     use hashbrown::HashMap;
 
     use crate::assets::texture::HostTextureAssetKind;
-    use crate::backend::embedded::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
-    use crate::backend::embedded::texture_pools::EmbeddedTexturePools;
     use crate::gpu_pools::{
         CubemapPool, RenderTexturePool, Texture3dPool, TexturePool, VideoTexturePool,
     };
     use crate::materials::ReflectedMaterialUniformBlock;
+    use crate::materials::embedded::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
+    use crate::materials::embedded::texture_pools::EmbeddedTexturePools;
     use crate::materials::host_data::PropertyIdRegistry;
 
     fn lookup(material_id: i32) -> MaterialPropertyLookupIds {

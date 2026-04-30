@@ -119,7 +119,7 @@ fn embedded_stem_metadata(base_stem: &str, permutation: ShaderPermutation) -> Em
 /// `true` when composed embedded WGSL's `vs_main` uses `@location(2)` or higher (UV0 vertex stream).
 ///
 /// Uses the same embedded source and reflection as the embedded raster pipeline for the given
-/// [`ShaderPermutation`], independent of [`crate::backend::EmbeddedMaterialBindResources`].
+/// [`ShaderPermutation`], independent of [`crate::materials::EmbeddedMaterialBindResources`].
 ///
 /// Results are memoized per `(base_stem, permutation)` so draw collection and other hot paths do not
 /// re-run naga reflection once per mesh draw.

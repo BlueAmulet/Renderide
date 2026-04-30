@@ -11,7 +11,7 @@ use crate::materials::host_data::{
     parse_materials_update_batch_into_store_with_instance_changed,
 };
 
-use super::embedded::{EmbeddedMaterialBindError, EmbeddedMaterialBindResources};
+use crate::materials::embedded::{EmbeddedMaterialBindError, EmbeddedMaterialBindResources};
 use crate::shared::bit_span::BitSpanMut;
 use crate::shared::{MaterialsUpdateBatch, MaterialsUpdateBatchResult, RendererCommand};
 

@@ -11,7 +11,6 @@
 mod cluster_gpu;
 mod coordinator;
 mod debug_hud_bundle;
-mod embedded;
 pub(crate) mod frame_gpu;
 mod frame_gpu_bindings;
 mod frame_gpu_error;
@@ -36,9 +35,6 @@ pub use coordinator::{
     RenderBackend, RenderBackendAttachDesc, RenderBackendAttachError,
 };
 pub use debug_hud_bundle::DebugHudBundle;
-pub use embedded::{
-    EmbeddedMaterialBindError, EmbeddedMaterialBindResources, EmbeddedTexturePools,
-};
 pub use frame_gpu::{
     EmptyMaterialBindGroup, FrameGpuResources, FrameSceneSnapshotTextureViews,
     empty_material_bind_group_layout,

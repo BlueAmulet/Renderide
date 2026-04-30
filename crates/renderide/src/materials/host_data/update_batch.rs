@@ -29,7 +29,7 @@ pub struct ParseMaterialBatchOptions {
     /// opcodes write the [`crate::shared::MaterialRenderType`] discriminant (`0` Opaque,
     /// `1` TransparentCutout, `2` Transparent — matches the host's `MaterialRenderType` enum)
     /// as a synthetic [`MaterialPropertyValue::Float`] at this id. The keyword inference path
-    /// in [`crate::backend::embedded::uniform_pack`] reads it to populate `_ALPHATEST_ON` /
+    /// in [`crate::materials::embedded::uniform_pack`] reads it to populate `_ALPHATEST_ON` /
     /// `_ALPHACLIP` / `_ALPHABLEND_ON` / `_ALPHAPREMULTIPLY_ON` per Unity blend mode semantics.
     /// `None` skips the capture (default for unit tests that do not exercise render-type-driven
     /// inference).

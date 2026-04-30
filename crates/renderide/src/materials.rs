@@ -13,7 +13,7 @@
 //! |---|---|---|---|
 //! | Pipeline state | `_SrcBlend`, `_DstBlend`, `_ZWrite`, `_ZTest`, `_Cull`, `_Stencil*`, `_ColorMask`, `_OffsetFactor`, `_OffsetUnits` | [`MaterialBlendMode`] + [`MaterialRenderState`] | [`MaterialPipelineCacheKey`] (`wgpu::RenderPipeline` build) |
 //! | Shader uniform — value | `_Color`, `_Tint`, `_Cutoff`, `_Glossiness`, `*_ST` | Host property store, packed by reflection | `@group(1) @binding(0)` material struct |
-//! | Shader uniform — keyword | `_NORMALMAP`, `_ALPHATEST_ON`, `_ALPHABLEND_ON` | Host property OR [`crate::backend::embedded::uniform_pack`] inference (Unity routes these through `ShaderKeywords`, never on the wire) | `@group(1) @binding(0)` material struct |
+//! | Shader uniform — keyword | `_NORMALMAP`, `_ALPHATEST_ON`, `_ALPHABLEND_ON` | Host property OR [`crate::materials::embedded::uniform_pack`] inference (Unity routes these through `ShaderKeywords`, never on the wire) | `@group(1) @binding(0)` material struct |
 //! | Texture | `_MainTex`, `_NormalMap`, … | Host texture pools, bound by reflection | `@group(1) @binding(N)` |
 //!
 //! **Pipeline-state property names must NEVER appear in a shader's `@group(1) @binding(0)`
@@ -75,6 +75,7 @@
 //! here; add new permutation flags or fallback pipelines under [`crate::pipelines`].
 
 mod cache;
+pub mod embedded;
 mod embedded_raster_pipeline;
 pub(crate) mod embedded_shader_stem;
 mod family;
@@ -96,6 +97,11 @@ mod wgsl_reflect;
 pub use cache::{
     MaterialPipelineCache, MaterialPipelineCacheKey, MaterialPipelineCacheStats,
     MaterialPipelineSet,
+};
+
+/// Embedded raster materials: bind groups, texture pools, uniform packing for embedded WGSL stems.
+pub use embedded::{
+    EmbeddedMaterialBindError, EmbeddedMaterialBindResources, EmbeddedTexturePools,
 };
 
 /// Unity shader asset names → embedded WGSL stems and permutation flags.

@@ -62,7 +62,7 @@ fn write_f32x4_array_at(buf: &mut [u8], field: &ReflectedUniformField, values: &
 pub(crate) struct UniformPackTextureContext<'a> {
     /// Resident texture pools (2D / 3D / cubemap / render-texture).
     pub pools: &'a EmbeddedTexturePools<'a>,
-    /// Primary 2D texture asset id for `_MainTex` / `_Tex` fallback (from [`crate::backend::embedded::texture_resolve::primary_texture_2d_asset_id`]).
+    /// Primary 2D texture asset id for `_MainTex` / `_Tex` fallback (from [`crate::materials::embedded::texture_resolve::primary_texture_2d_asset_id`]).
     pub primary_texture_2d: i32,
 }
 

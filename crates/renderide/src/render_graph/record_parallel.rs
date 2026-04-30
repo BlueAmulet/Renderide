@@ -23,7 +23,8 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::{EmbeddedMaterialBindResources, FrameResourceManager};
+    use crate::backend::FrameResourceManager;
+    use crate::materials::EmbeddedMaterialBindResources;
     use crate::materials::MaterialPipelineCache;
     use crate::occlusion::OcclusionSystem;
 
