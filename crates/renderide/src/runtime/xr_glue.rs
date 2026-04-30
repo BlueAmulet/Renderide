@@ -14,11 +14,11 @@ use super::RendererRuntime;
 
 impl crate::xr::XrHostCameraSync for RendererRuntime {
     fn near_clip(&self) -> f32 {
-        self.host_camera.near_clip
+        self.host_camera.clip.near
     }
 
     fn far_clip(&self) -> f32 {
-        self.host_camera.far_clip
+        self.host_camera.clip.far
     }
 
     fn output_device(&self) -> HeadOutputDevice {

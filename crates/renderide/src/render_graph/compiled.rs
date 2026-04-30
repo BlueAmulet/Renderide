@@ -247,9 +247,7 @@ impl<'a> FrameView<'a> {
     /// Single source of truth; every caller that gates on "is this the stereo multiview view?"
     /// goes through this method rather than re-deriving the AND-chain.
     pub fn is_multiview_stereo_active(&self) -> bool {
-        self.target.is_multiview_target()
-            && self.host_camera.vr_active
-            && self.host_camera.stereo.is_some()
+        self.target.is_multiview_target() && self.host_camera.active_stereo().is_some()
     }
 }
 

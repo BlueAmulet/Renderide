@@ -92,7 +92,7 @@ fn build_frame_gpu_uniforms(
     let (camera_world, camera_world_right) = resolve_camera_world_pair(&hc);
     let ambient_sh =
         FrameGpuUniforms::ambient_sh_from_render_sh2(&scene.active_main_ambient_light());
-    let stereo_cluster = use_multiview && hc.vr_active && hc.stereo.is_some();
+    let stereo_cluster = use_multiview && hc.active_stereo().is_some();
     let frame_idx = hc.frame_index as u32;
     if stereo_cluster && let Some((left, right)) = cluster_frame_params_stereo(&hc, scene, (vw, vh))
     {

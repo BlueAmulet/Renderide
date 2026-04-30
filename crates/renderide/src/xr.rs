@@ -36,10 +36,10 @@ pub use bootstrap::{XrWgpuHandles, init_wgpu_openxr};
 pub use input::{OpenxrInput, synthesize_hand_states};
 pub use session::{
     TrackedSessionState, XrSessionState, center_view_projection_from_stereo_views_aligned,
-    eye_world_position_from_xr_view_aligned, headset_center_pose_from_stereo_views,
-    headset_pose_from_xr_view, openxr_pose_to_engine, openxr_pose_to_host_tracking,
-    tracking_space_to_world_matrix, view_from_xr_view_aligned, view_projection_from_xr_view,
-    view_projection_from_xr_view_aligned,
+    eye_view_from_xr_view_aligned, eye_world_position_from_xr_view_aligned,
+    headset_center_pose_from_stereo_views, headset_pose_from_xr_view, openxr_pose_to_engine,
+    openxr_pose_to_host_tracking, tracking_space_to_world_matrix, view_from_xr_view_aligned,
+    view_projection_from_xr_view, view_projection_from_xr_view_aligned,
 };
 pub use swapchain::{
     XR_COLOR_FORMAT, XR_VIEW_COUNT, XrStereoSwapchain, XrSwapchainError,

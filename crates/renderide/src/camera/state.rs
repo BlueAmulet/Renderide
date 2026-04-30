@@ -10,6 +10,9 @@ use glam::{Mat4, Vec3};
 use crate::scene::RenderSpaceId;
 use crate::shared::HeadOutputDevice;
 
+use super::geometry::{CameraClipPlanes, EyeView, OrthographicProjectionSpec, Viewport};
+use super::stereo::StereoViewMatrices;
+
 /// Stable logical identity for one secondary camera view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SecondaryCameraId {
@@ -45,55 +48,29 @@ impl ViewId {
     }
 }
 
-/// Per-eye matrices for an OpenXR stereo multiview view.
-///
-/// Consolidates the view-projection (stage → clip), view-only (world → view), and eye positions
-/// so that callers cannot set one without the others. Present only on the HMD view; non-HMD views
-/// carry [`None`] for this slot on [`HostCameraFrame::stereo`].
-#[derive(Clone, Copy, Debug)]
-pub struct StereoViewMatrices {
-    /// Per-eye view–projection (reverse-Z), mapping **stage** space to clip. World mesh passes
-    /// combine this with object transforms; the host `view_transform` is not multiplied again.
-    pub view_proj: (Mat4, Mat4),
-    /// Per-eye **view** matrices (world-to-view, handedness fix applied). Clustered lighting
-    /// decomposes view and projection per eye without re-deriving from HMD poses.
-    pub view_only: (Mat4, Mat4),
-    /// Per-eye world-space camera positions used by shader view-vector math.
-    pub eye_world_position: (Vec3, Vec3),
-}
-
 /// Latest camera-related fields from host [`crate::shared::FrameSubmitData`], updated each `frame_submit`.
 #[derive(Clone, Copy, Debug)]
 pub struct HostCameraFrame {
     /// Host lock-step frame index (`-1` before the first submit in standalone).
     pub frame_index: i32,
-    /// Near clip distance from the host frame submission.
-    pub near_clip: f32,
-    /// Far clip distance from the host frame submission.
-    pub far_clip: f32,
+    /// Clip distances from the host frame submission.
+    pub clip: CameraClipPlanes,
     /// Vertical field of view in **degrees** (matches host `desktopFOV`).
     pub desktop_fov_degrees: f32,
     /// Whether the host reported VR output as active for this frame.
     pub vr_active: bool,
     /// Init-time head output device selected by the host.
     pub output_device: HeadOutputDevice,
-    /// `(orthographic_half_height, near, far)` from the first [`crate::shared::CameraRenderTask`] whose
-    /// parameters use orthographic projection (overlay main-camera ortho override).
-    pub primary_ortho_task: Option<(f32, f32, f32)>,
+    /// First orthographic render-task projection (overlay main-camera ortho override).
+    pub primary_ortho_task: Option<OrthographicProjectionSpec>,
     /// Per-eye stereo matrices when this frame renders the OpenXR multiview view; [`None`] on
     /// desktop or secondary-RT views. Set together via [`StereoViewMatrices`] so the view-projection,
     /// view-only matrices, and per-eye camera positions cannot drift out of sync.
     pub stereo: Option<StereoViewMatrices>,
     /// Legacy Unity `HeadOutput.transform` in renderer world space.
     pub head_output_transform: Mat4,
-    /// Explicit per-view world-to-view matrix override (e.g. secondary render-texture cameras).
-    pub explicit_world_to_view: Option<Mat4>,
-    /// Optional override view matrix for cluster + forward projection.
-    pub cluster_view_override: Option<Mat4>,
-    /// Optional override projection for clustered light assignment (reverse-Z).
-    pub cluster_proj_override: Option<Mat4>,
-    /// Explicit camera world position for `@group(0)` camera uniforms.
-    pub explicit_camera_world_position: Option<Vec3>,
+    /// Explicit per-view camera data (e.g. secondary render-texture cameras).
+    pub explicit_view: Option<EyeView>,
     /// Eye/camera world position derived from the active main render space's `view_transform`.
     pub eye_world_position: Option<Vec3>,
     /// Skips Hi-Z temporal state and uses uncull or frustum-only paths for this view.
@@ -104,20 +81,129 @@ impl Default for HostCameraFrame {
     fn default() -> Self {
         Self {
             frame_index: -1,
-            near_clip: 0.01,
-            far_clip: 10_000.0,
+            clip: CameraClipPlanes::default(),
             desktop_fov_degrees: 60.0,
             vr_active: false,
             output_device: HeadOutputDevice::Screen,
             primary_ortho_task: None,
             stereo: None,
             head_output_transform: Mat4::IDENTITY,
-            explicit_world_to_view: None,
-            cluster_view_override: None,
-            cluster_proj_override: None,
-            explicit_camera_world_position: None,
+            explicit_view: None,
             eye_world_position: None,
             suppress_occlusion_temporal: false,
         }
+    }
+}
+
+impl HostCameraFrame {
+    /// Returns the near clip distance.
+    pub const fn near_clip(self) -> f32 {
+        self.clip.near
+    }
+
+    /// Returns the far clip distance.
+    pub const fn far_clip(self) -> f32 {
+        self.clip.far
+    }
+
+    /// Returns the explicit world-to-view override when present.
+    pub fn explicit_world_to_view(self) -> Option<Mat4> {
+        self.explicit_view.map(|view| view.view)
+    }
+
+    /// Returns the explicit camera world position when present.
+    pub fn explicit_world_position(self) -> Option<Vec3> {
+        self.explicit_view.map(|view| view.world_position)
+    }
+
+    /// Returns the explicit view and projection override when present.
+    pub fn explicit_view_projection(self) -> Option<(Mat4, Mat4)> {
+        self.explicit_view.map(|view| (view.view, view.proj))
+    }
+
+    /// Returns active stereo only when the host frame is currently VR-active.
+    pub fn active_stereo(self) -> Option<StereoViewMatrices> {
+        if self.vr_active { self.stereo } else { None }
+    }
+
+    /// Returns the primary orthographic projection, or a unit fallback for overlay rendering.
+    pub fn overlay_projection(self, viewport: Viewport, fallback_clip: CameraClipPlanes) -> Mat4 {
+        self.primary_ortho_task
+            .unwrap_or_else(|| OrthographicProjectionSpec::new(1.0, fallback_clip))
+            .projection(viewport)
+    }
+
+    /// Resolves the world-space origin used for view-distance sorting.
+    pub fn view_origin_world(self) -> Vec3 {
+        self.explicit_world_position()
+            .or(self.eye_world_position)
+            .unwrap_or_else(|| self.head_output_transform.col(3).truncate())
+    }
+
+    /// Resolves left/right world camera positions for frame globals.
+    pub fn camera_world_pair(self) -> (Vec3, Vec3) {
+        if let Some(camera_world) = self.explicit_world_position() {
+            return (camera_world, camera_world);
+        }
+        if let Some(stereo) = self.stereo {
+            return stereo.world_position_pair();
+        }
+        let camera_world = self
+            .eye_world_position
+            .unwrap_or_else(|| self.head_output_transform.col(3).truncate());
+        (camera_world, camera_world)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use glam::{Mat4, Vec3};
+
+    use super::{EyeView, HostCameraFrame, StereoViewMatrices};
+
+    fn eye_at(position: Vec3) -> EyeView {
+        EyeView::new(Mat4::IDENTITY, Mat4::IDENTITY, Mat4::IDENTITY, position)
+    }
+
+    #[test]
+    fn view_origin_prefers_explicit_then_eye_then_head_output() {
+        let mut camera = HostCameraFrame {
+            head_output_transform: Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+            ..Default::default()
+        };
+        assert_eq!(camera.view_origin_world(), Vec3::new(1.0, 2.0, 3.0));
+
+        camera.eye_world_position = Some(Vec3::new(4.0, 5.0, 6.0));
+        assert_eq!(camera.view_origin_world(), Vec3::new(4.0, 5.0, 6.0));
+
+        camera.explicit_view = Some(eye_at(Vec3::new(7.0, 8.0, 9.0)));
+        assert_eq!(camera.view_origin_world(), Vec3::new(7.0, 8.0, 9.0));
+    }
+
+    #[test]
+    fn camera_world_pair_prefers_explicit_then_stereo_then_eye() {
+        let mut camera = HostCameraFrame {
+            eye_world_position: Some(Vec3::new(1.0, 0.0, 0.0)),
+            ..Default::default()
+        };
+        assert_eq!(
+            camera.camera_world_pair(),
+            (Vec3::new(1.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0))
+        );
+
+        camera.stereo = Some(StereoViewMatrices::new(
+            eye_at(Vec3::new(2.0, 0.0, 0.0)),
+            eye_at(Vec3::new(3.0, 0.0, 0.0)),
+        ));
+        assert_eq!(
+            camera.camera_world_pair(),
+            (Vec3::new(2.0, 0.0, 0.0), Vec3::new(3.0, 0.0, 0.0))
+        );
+
+        camera.explicit_view = Some(eye_at(Vec3::new(4.0, 0.0, 0.0)));
+        assert_eq!(
+            camera.camera_world_pair(),
+            (Vec3::new(4.0, 0.0, 0.0), Vec3::new(4.0, 0.0, 0.0))
+        );
     }
 }

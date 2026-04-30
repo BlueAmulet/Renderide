@@ -2,8 +2,9 @@
 //!
 //! Values match [`super::passes::world_mesh_forward::WorldMeshForwardOpaquePass`] per-space `view` and
 //! global projection state (`HostCameraFrame`, viewport aspect, clip planes). When
-//! [`HostCameraFrame::explicit_world_to_view`] is set, frustum and Hi-Z temporal paths use
-//! that world-to-view (same as the forward pass) instead of [`view_matrix_for_world_mesh_render_space`].
+//! [`HostCameraFrame::explicit_world_to_view`] returns a secondary-camera view, frustum and Hi-Z
+//! temporal paths use that world-to-view (same as the forward pass) instead of
+//! [`view_matrix_for_world_mesh_render_space`].
 
 use std::sync::Arc;
 
@@ -13,11 +14,7 @@ use glam::Mat4;
 
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 
-use crate::camera::HostCameraFrame;
-use crate::camera::{
-    clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_orthographic,
-    reverse_z_perspective, view_matrix_from_render_transform,
-};
+use crate::camera::{HostCameraFrame, WorldProjectionSet, view_matrix_from_render_transform};
 use crate::occlusion::HiZCullData;
 use crate::occlusion::hi_z_cpu::hi_z_pyramid_dimensions;
 
@@ -34,8 +31,8 @@ pub struct HiZTemporalState {
     /// World-to-camera view matrix per render space at that frame (shared; cloning is cheap).
     ///
     /// For views with an explicit camera pose (e.g. secondary render-texture cameras), every space
-    /// stores the same [`HostCameraFrame::explicit_world_to_view`] snapshot, matching the single
-    /// view used to render that pass’s depth pyramid.
+    /// stores the same explicit world-to-view snapshot, matching the single view used to render
+    /// that pass's depth pyramid.
     pub prev_view_by_space: Arc<HashMap<RenderSpaceId, Mat4>>,
     /// Hi-Z mip0 size in texels (downscaled from full depth; see [`crate::occlusion::hi_z_cpu::hi_z_pyramid_dimensions`]).
     pub depth_viewport_px: (u32, u32),
@@ -104,34 +101,12 @@ pub fn build_world_mesh_cull_proj_params(
     viewport_px: (u32, u32),
     hc: &HostCameraFrame,
 ) -> WorldMeshCullProjParams {
-    let (vw, vh) = viewport_px;
-    let aspect = vw as f32 / vh.max(1) as f32;
-    let (near, far) = effective_head_output_clip_planes(
-        hc.near_clip,
-        hc.far_clip,
-        hc.output_device,
-        scene
-            .active_main_space()
-            .map(|space| space.root_transform.scale),
-    );
-    let fov_rad = clamp_desktop_fov_degrees(hc.desktop_fov_degrees).to_radians();
-    let world_proj = reverse_z_perspective(aspect, fov_rad, near, far);
-
-    let overlay_proj = if let Some((half_h, on, of)) = hc.primary_ortho_task {
-        reverse_z_orthographic(half_h * aspect, half_h, on, of)
-    } else {
-        reverse_z_orthographic(1.0 * aspect, 1.0, near, far)
-    };
-
-    let vr_stereo = match (hc.vr_active, hc.stereo) {
-        (true, Some(stereo)) => Some(stereo.view_proj),
-        _ => None,
-    };
+    let projections = WorldProjectionSet::from_scene_host(scene, viewport_px, hc);
 
     WorldMeshCullProjParams {
-        world_proj,
-        overlay_proj,
-        vr_stereo,
+        world_proj: projections.world_proj,
+        overlay_proj: projections.overlay_proj,
+        vr_stereo: projections.stereo_view_proj,
     }
 }
 
@@ -202,13 +177,15 @@ mod tests {
 
     #[test]
     fn build_world_mesh_cull_proj_params_sets_vr_stereo_only_when_active_and_pair_present() {
-        use crate::camera::StereoViewMatrices;
+        use crate::camera::{EyeView, StereoViewMatrices};
         let scene = SceneCoordinator::new();
-        let stereo = Some(StereoViewMatrices {
-            view_proj: (Mat4::IDENTITY, Mat4::IDENTITY),
-            view_only: (Mat4::IDENTITY, Mat4::IDENTITY),
-            eye_world_position: (glam::Vec3::ZERO, glam::Vec3::ZERO),
-        });
+        let eye = EyeView::new(
+            Mat4::IDENTITY,
+            Mat4::IDENTITY,
+            Mat4::IDENTITY,
+            glam::Vec3::ZERO,
+        );
+        let stereo = Some(StereoViewMatrices::new(eye, eye));
         let hc = HostCameraFrame {
             vr_active: true,
             stereo,
@@ -228,12 +205,17 @@ mod tests {
 
     #[test]
     fn build_world_mesh_cull_proj_params_overlay_uses_primary_ortho_task_when_present() {
+        use crate::camera::{CameraClipPlanes, OrthographicProjectionSpec};
+
         let scene = SceneCoordinator::new();
         let hc = HostCameraFrame::default();
         let p_no = build_world_mesh_cull_proj_params(&scene, (800, 600), &hc);
 
         let hc_ortho = HostCameraFrame {
-            primary_ortho_task: Some((10.0, 0.01, 5000.0)),
+            primary_ortho_task: Some(OrthographicProjectionSpec::new(
+                10.0,
+                CameraClipPlanes::new(0.01, 5000.0),
+            )),
             ..Default::default()
         };
         let p_ortho = build_world_mesh_cull_proj_params(&scene, (800, 600), &hc_ortho);

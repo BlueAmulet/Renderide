@@ -352,8 +352,9 @@ fn view_pipeline_pass_desc(
     let surface_format = view.target.color_format(mv_ctx.gpu);
     let depth_stencil_format = view.target.depth_format(mv_ctx.gpu).ok()?;
     let sample_count = view.target.sample_count(mv_ctx.gpu);
-    let use_multiview =
-        multiview_stereo && host_camera.stereo.is_some() && mv_ctx.gpu_limits.supports_multiview;
+    let use_multiview = multiview_stereo
+        && host_camera.active_stereo().is_some()
+        && mv_ctx.gpu_limits.supports_multiview;
     let pass_desc = MaterialPipelineDesc {
         surface_format,
         depth_stencil_format: Some(depth_stencil_format),
