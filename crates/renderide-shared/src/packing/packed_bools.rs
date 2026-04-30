@@ -85,3 +85,76 @@ impl PackedBools {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_byte_zero_yields_all_false() {
+        let pb = PackedBools::from_byte(0x00);
+        assert_eq!(
+            pb,
+            PackedBools {
+                bit0: false,
+                bit1: false,
+                bit2: false,
+                bit3: false,
+                bit4: false,
+                bit5: false,
+                bit6: false,
+                bit7: false,
+            }
+        );
+    }
+
+    #[test]
+    fn from_byte_ff_yields_all_true() {
+        let pb = PackedBools::from_byte(0xFF);
+        assert_eq!(pb.eight(), (true, true, true, true, true, true, true, true));
+    }
+
+    #[test]
+    fn from_byte_walks_each_bit_independently() {
+        for i in 0..8u32 {
+            let byte = 1u8 << i;
+            let pb = PackedBools::from_byte(byte);
+            let bits = [
+                pb.bit0, pb.bit1, pb.bit2, pb.bit3, pb.bit4, pb.bit5, pb.bit6, pb.bit7,
+            ];
+            for (j, set) in bits.iter().enumerate() {
+                assert_eq!(
+                    *set,
+                    j as u32 == i,
+                    "byte=0x{byte:02X} bit{j} expected {} got {set}",
+                    j as u32 == i,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tuple_accessors_match_underlying_fields() {
+        let pb = PackedBools::from_byte(0xA5);
+        let bits = (true, false, true, false, false, true, false, true);
+        assert_eq!(pb.two(), (bits.0, bits.1));
+        assert_eq!(pb.three(), (bits.0, bits.1, bits.2));
+        assert_eq!(pb.four(), (bits.0, bits.1, bits.2, bits.3));
+        assert_eq!(pb.five(), (bits.0, bits.1, bits.2, bits.3, bits.4));
+        assert_eq!(pb.six(), (bits.0, bits.1, bits.2, bits.3, bits.4, bits.5));
+        assert_eq!(
+            pb.seven(),
+            (bits.0, bits.1, bits.2, bits.3, bits.4, bits.5, bits.6)
+        );
+        assert_eq!(pb.eight(), bits);
+    }
+
+    #[test]
+    fn default_yields_all_false() {
+        let pb = PackedBools::default();
+        assert_eq!(
+            pb.eight(),
+            (false, false, false, false, false, false, false, false),
+        );
+    }
+}

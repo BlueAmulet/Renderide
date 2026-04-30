@@ -247,3 +247,285 @@ impl<'a, 'pool, P: MemoryPackerEntityPool> MemoryUnpacker<'a, 'pool, P> {
         Ok(list)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::packing::default_entity_pool::DefaultEntityPool;
+    use crate::packing::memory_packer::MemoryPacker;
+    use crate::packing::polymorphic_memory_packable_entity::PolymorphicEncode;
+    use crate::packing::wire_decode_error::WireDecodeError;
+
+    fn pack(write: impl FnOnce(&mut MemoryPacker<'_>)) -> Vec<u8> {
+        let mut buf = vec![0u8; 4096];
+        let cap = buf.len();
+        let written = {
+            let mut p = MemoryPacker::new(&mut buf);
+            write(&mut p);
+            cap - p.remaining_len()
+        };
+        buf.truncate(written);
+        buf
+    }
+
+    #[test]
+    fn access_returns_empty_vec_for_zero_count() {
+        let bytes = [1u8, 2, 3, 4];
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let out: Vec<u32> = u.access::<u32>(0).expect("zero count");
+        assert!(out.is_empty());
+        assert_eq!(u.remaining_data(), 4, "no bytes should be consumed");
+    }
+
+    #[test]
+    fn access_returns_underrun_when_buffer_too_small() {
+        let bytes = [0u8; 3];
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let err = u.access::<u32>(1).expect_err("should underrun");
+        match err {
+            MemoryUnpackError::Underrun {
+                needed, remaining, ..
+            } => {
+                assert_eq!(needed, 4);
+                assert_eq!(remaining, 3);
+            }
+            other => panic!("expected Underrun, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn access_returns_length_overflow_when_count_size_overflows_usize() {
+        let bytes = [0u8; 16];
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let err = u
+            .access::<u64>(usize::MAX)
+            .expect_err("count * size_of::<u64>() must overflow");
+        assert!(matches!(err, MemoryUnpackError::LengthOverflow));
+    }
+
+    #[test]
+    fn access_handles_unaligned_source_for_pod() {
+        let mut backing = [0u8; 9];
+        backing[1..].copy_from_slice(&[0x44, 0x33, 0x22, 0x11, 0x88, 0x77, 0x66, 0x55]);
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&backing[1..], &mut pool);
+        let values: Vec<u32> = u.access::<u32>(2).expect("two u32s");
+        assert_eq!(values, vec![0x1122_3344, 0x5566_7788]);
+        assert_eq!(u.remaining_data(), 0);
+    }
+
+    #[test]
+    fn read_str_negative_length_returns_none() {
+        let bytes = pack(|p| p.write_str(None));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        assert_eq!(u.read_str().expect("str"), None);
+    }
+
+    #[test]
+    fn read_str_zero_length_returns_some_empty() {
+        let bytes = pack(|p| p.write_str(Some("")));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        assert_eq!(u.read_str().expect("str").as_deref(), Some(""));
+    }
+
+    #[test]
+    fn read_str_above_max_returns_string_too_long() {
+        let too_long = (MAX_STRING_LEN + 1) as i32;
+        let bytes = pack(|p| p.write(&too_long));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let err = u.read_str().expect_err("must reject oversize string");
+        match err {
+            MemoryUnpackError::StringTooLong { requested, max } => {
+                assert_eq!(requested, MAX_STRING_LEN + 1);
+                assert_eq!(max, MAX_STRING_LEN);
+            }
+            other => panic!("expected StringTooLong, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_str_invalid_utf16_decodes_to_empty_string_defensively() {
+        let mut bytes = pack(|p| p.write(&1i32));
+        bytes.extend_from_slice(&[0x00, 0xD8]);
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        assert_eq!(
+            u.read_str().expect("invalid utf16 must not error"),
+            Some(String::new())
+        );
+    }
+
+    #[test]
+    fn read_value_list_negative_count_returns_empty() {
+        let bytes = pack(|p| p.write(&-7i32));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let out: Vec<i32> = u.read_value_list().expect("decoded");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn read_object_list_negative_count_returns_empty() {
+        let bytes = pack(|p| p.write(&-1i32));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let out: Vec<DummyObj> = u.read_object_list().expect("decoded");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn read_polymorphic_list_negative_count_returns_empty() {
+        let bytes = pack(|p| p.write(&-3i32));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let out: Vec<i32> = u
+            .read_polymorphic_list(|_| panic!("decode closure must not run for negative count"))
+            .expect("decoded");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn read_enum_value_list_negative_count_returns_empty() {
+        let bytes = pack(|p| p.write(&-5i32));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let out: Vec<DummyEnum> = u.read_enum_value_list().expect("decoded");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn read_string_list_negative_count_returns_empty() {
+        let bytes = pack(|p| p.write(&-2i32));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let out = u.read_string_list().expect("decoded");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn read_nested_value_list_negative_count_returns_empty() {
+        let bytes = pack(|p| p.write(&-9i32));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let out: Vec<Vec<u32>> = u.read_nested_value_list().expect("decoded");
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn read_value_list_caps_preallocation_to_remaining_bytes_then_underruns() {
+        let mut bytes = pack(|p| p.write(&i32::MAX));
+        bytes.extend_from_slice(&[0u8; 2]);
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let err = u
+            .read_value_list::<u32>()
+            .expect_err("must underrun, not allocate gigabytes");
+        assert!(matches!(err, MemoryUnpackError::Underrun { .. }));
+    }
+
+    #[test]
+    fn read_object_list_caps_preallocation_to_remaining_bytes_then_underruns() {
+        let bytes = pack(|p| p.write(&i32::MAX));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let err = u
+            .read_object_list::<DummyObj>()
+            .expect_err("must underrun, not allocate gigabytes");
+        assert!(matches!(
+            err,
+            WireDecodeError::Unpack(MemoryUnpackError::Underrun { .. })
+        ));
+    }
+
+    #[test]
+    fn read_polymorphic_list_caps_preallocation_to_remaining_bytes_then_underruns() {
+        let bytes = pack(|p| p.write(&i32::MAX));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let err = u
+            .read_polymorphic_list::<_, i32>(|reader| {
+                let v: i32 = reader.read().map_err(WireDecodeError::from)?;
+                Ok(v)
+            })
+            .expect_err("must underrun, not allocate gigabytes");
+        assert!(matches!(
+            err,
+            WireDecodeError::Unpack(MemoryUnpackError::Underrun { .. })
+        ));
+    }
+
+    #[test]
+    fn read_option_zero_discriminant_returns_none() {
+        let bytes = pack(|p| p.write_option::<i32>(None));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        assert_eq!(u.read_option::<i32>().expect("opt"), None);
+    }
+
+    #[test]
+    fn read_option_nonzero_discriminant_reads_value() {
+        let bytes = pack(|p| p.write_option(Some(&0x55aau16)));
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        assert_eq!(u.read_option::<u16>().expect("opt"), Some(0x55aa));
+    }
+
+    #[test]
+    fn read_packed_bools_round_trips_byte() {
+        let bytes = pack(|p| {
+            p.write_packed_bools_array([true, false, true, true, false, true, false, true]);
+        });
+        let mut pool = DefaultEntityPool;
+        let mut u = MemoryUnpacker::new(&bytes, &mut pool);
+        let pb = u.read_packed_bools().expect("packed bools");
+        assert_eq!(
+            (
+                pb.bit0, pb.bit1, pb.bit2, pb.bit3, pb.bit4, pb.bit5, pb.bit6, pb.bit7,
+            ),
+            (true, false, true, true, false, true, false, true),
+        );
+    }
+
+    #[derive(Debug, Default)]
+    struct DummyObj {
+        v: i32,
+    }
+
+    impl MemoryPackable for DummyObj {
+        fn pack(&mut self, packer: &mut MemoryPacker<'_>) {
+            packer.write(&self.v);
+        }
+
+        fn unpack<P: MemoryPackerEntityPool>(
+            &mut self,
+            unpacker: &mut MemoryUnpacker<'_, '_, P>,
+        ) -> Result<(), WireDecodeError> {
+            self.v = unpacker.read::<i32>()?;
+            Ok(())
+        }
+    }
+
+    impl PolymorphicEncode for DummyObj {
+        fn encode(&mut self, packer: &mut MemoryPacker<'_>) {
+            packer.write(&self.v);
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    struct DummyEnum(i32);
+
+    impl EnumRepr for DummyEnum {
+        fn as_i32(self) -> i32 {
+            self.0
+        }
+        fn from_i32(i: i32) -> Self {
+            Self(i)
+        }
+    }
+}

@@ -345,6 +345,95 @@ mod tests {
     }
 
     #[test]
+    fn rejects_negative_vertex_count() {
+        let input = MeshLayoutInput {
+            vertex_count: -1,
+            vertex_attributes: vec![position_float3_attr()],
+            sources: vec![InterleavedAttribute { bytes: &[] }],
+            indices: &[],
+            index_buffer_format: IndexBufferFormat::UInt16,
+        };
+        let err = write_mesh_payload(&input).expect_err("should reject");
+        assert!(matches!(err, MeshLayoutError::NegativeVertexCount(-1)));
+    }
+
+    #[test]
+    fn rejects_attribute_source_count_mismatch() {
+        let input = MeshLayoutInput {
+            vertex_count: 1,
+            vertex_attributes: vec![position_float3_attr(), normal_float3_attr()],
+            sources: vec![InterleavedAttribute { bytes: &[0u8; 12] }],
+            indices: &[],
+            index_buffer_format: IndexBufferFormat::UInt16,
+        };
+        let err = write_mesh_payload(&input).expect_err("should reject");
+        match err {
+            MeshLayoutError::AttributeSourceMismatch { attrs, srcs } => {
+                assert_eq!(attrs, 2);
+                assert_eq!(srcs, 1);
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_misaligned_index_bytes() {
+        let pos = pos_bytes(&[[0.0, 0.0, 0.0]]);
+        let bad_indices = [0u8; 3];
+        let input = MeshLayoutInput {
+            vertex_count: 1,
+            vertex_attributes: vec![position_float3_attr()],
+            sources: vec![InterleavedAttribute { bytes: &pos }],
+            indices: &bad_indices,
+            index_buffer_format: IndexBufferFormat::UInt16,
+        };
+        let err = write_mesh_payload(&input).expect_err("should reject");
+        match err {
+            MeshLayoutError::IndexBytesMisaligned {
+                got,
+                bytes_per_index,
+            } => {
+                assert_eq!(got, 3);
+                assert_eq!(bytes_per_index, 2);
+            }
+            other => panic!("unexpected error variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn vertex_format_size_table_matches_format_widths() {
+        assert_eq!(vertex_format_size(VertexAttributeFormat::Float32), 4);
+        assert_eq!(vertex_format_size(VertexAttributeFormat::Half16), 2);
+        assert_eq!(vertex_format_size(VertexAttributeFormat::UNorm8), 1);
+        assert_eq!(vertex_format_size(VertexAttributeFormat::UNorm16), 2);
+        assert_eq!(vertex_format_size(VertexAttributeFormat::SInt8), 1);
+        assert_eq!(vertex_format_size(VertexAttributeFormat::SInt16), 2);
+        assert_eq!(vertex_format_size(VertexAttributeFormat::SInt32), 4);
+        assert_eq!(vertex_format_size(VertexAttributeFormat::UInt8), 1);
+        assert_eq!(vertex_format_size(VertexAttributeFormat::UInt16), 2);
+        assert_eq!(vertex_format_size(VertexAttributeFormat::UInt32), 4);
+    }
+
+    #[test]
+    fn index_bytes_per_element_table_matches_format_widths() {
+        assert_eq!(index_bytes_per_element(IndexBufferFormat::UInt16), 2);
+        assert_eq!(index_bytes_per_element(IndexBufferFormat::UInt32), 4);
+    }
+
+    #[test]
+    fn compute_vertex_stride_clamps_negative_dimensions_to_zero() {
+        let attrs = vec![
+            VertexAttributeDescriptor {
+                attribute: crate::shared::VertexAttributeType::Position,
+                format: VertexAttributeFormat::Float32,
+                dimensions: -1,
+            },
+            normal_float3_attr(),
+        ];
+        assert_eq!(compute_vertex_stride(&attrs), 12);
+    }
+
+    #[test]
     fn round_trip_pos_normal_streams_via_renderer_layout_helpers() {
         // This mirrors the renderer-side `extract_float3_position_normal_as_vec4_streams` reader.
         // We assert the encoder's output reads back correctly when interpreted with the same
