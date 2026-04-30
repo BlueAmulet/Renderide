@@ -154,17 +154,13 @@ impl FrameViewPlan<'_> {
     /// Preference order matches the world-mesh forward path: explicit camera world position
     /// (secondary RT cameras) → main-space eye position → head-output translation as fallback.
     pub(super) fn view_origin_world(&self) -> glam::Vec3 {
-        self.host_camera
-            .explicit_camera_world_position
-            .or(self.host_camera.eye_world_position)
-            .unwrap_or_else(|| self.host_camera.head_output_transform.col(3).truncate())
+        self.host_camera.view_origin_world()
     }
 
     /// `true` when this view records the OpenXR stereo multiview draw path.
     pub(super) fn is_multiview_stereo_active(&self) -> bool {
         matches!(self.target, FrameViewPlanTarget::Hmd(_))
-            && self.host_camera.vr_active
-            && self.host_camera.stereo.is_some()
+            && self.host_camera.active_stereo().is_some()
     }
 
     /// Shader permutation used by CPU draw collection and material metadata for this view.

@@ -573,7 +573,7 @@ impl ClusteredLightPass {
 
         let hc = frame.view.host_camera;
         let scene = frame.shared.scene;
-        let stereo = hc.vr_active && hc.stereo.is_some() && frame.view.multiview_stereo;
+        let stereo = frame.view.multiview_stereo && hc.active_stereo().is_some();
         let view_id = frame.view.view_id;
         let view_idx = ctx
             .blackboard

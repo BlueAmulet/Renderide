@@ -6,6 +6,8 @@ use crate::scene::render_transform_to_matrix;
 use crate::scene::{RenderSpaceState, SceneCoordinator};
 use crate::shared::RenderTransform;
 
+use super::state::HostCameraFrame;
+
 /// Clamps scale for view matrix construction: if any axis is nearly zero, use unit scale.
 pub fn filter_scale_legacy(scale: Vec3) -> Vec3 {
     if scale.x.min(scale.y).min(scale.z) <= 1e-8 {
@@ -53,4 +55,31 @@ pub fn view_matrix_for_world_mesh_render_space(
     } else {
         view_matrix_from_render_transform(&space.view_transform)
     }
+}
+
+/// World-to-view for mesh rendering, honoring an explicit camera override when present.
+pub fn view_matrix_for_host_world_mesh_space(
+    scene: &SceneCoordinator,
+    space: &RenderSpaceState,
+    host_camera: &HostCameraFrame,
+) -> Mat4 {
+    host_camera
+        .explicit_world_to_view()
+        .unwrap_or_else(|| view_matrix_for_world_mesh_render_space(scene, space))
+}
+
+/// Left/right world-to-view matrices used by skybox ray reconstruction.
+pub fn world_to_view_pair_for_skybox(
+    scene: &SceneCoordinator,
+    host_camera: &HostCameraFrame,
+) -> (Mat4, Mat4) {
+    if let Some(stereo) = host_camera.active_stereo() {
+        return stereo.view_pair();
+    }
+    let view = host_camera.explicit_world_to_view().unwrap_or_else(|| {
+        scene.active_main_space().map_or(Mat4::IDENTITY, |space| {
+            view_matrix_for_world_mesh_render_space(scene, space)
+        })
+    });
+    (view, view)
 }

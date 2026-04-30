@@ -1,47 +1,6 @@
-//! Centralized updates to [`crate::camera::HostCameraFrame`] from host [`FrameSubmitData`] and scene.
-//!
-//! OpenXR integration must use [`crate::xr::XrHostCameraSync`] for stereo / head-output writes so
-//! stereo clearing when `!vr_active` stays consistent with [`apply_frame_submit_fields`].
+//! Compatibility imports for camera frame-submit reduction.
 
-use glam::{Mat4, Vec3};
-
-use crate::camera::HostCameraFrame;
-use crate::scene::SceneCoordinator;
-use crate::shared::{CameraProjection, FrameSubmitData};
-
-/// Applies host clip, FOV, VR flag, ortho hint, and clears stereo when desktop mode.
-pub(crate) fn apply_frame_submit_fields(host_camera: &mut HostCameraFrame, data: &FrameSubmitData) {
-    host_camera.frame_index = data.frame_index;
-    host_camera.near_clip = data.near_clip;
-    host_camera.far_clip = data.far_clip;
-    host_camera.desktop_fov_degrees = data.desktop_fov;
-    host_camera.vr_active = data.vr_active;
-    if !data.vr_active {
-        host_camera.stereo = None;
-    }
-    host_camera.primary_ortho_task = data.render_tasks.iter().find_map(|t| {
-        t.parameters.as_ref().and_then(|p| {
-            (p.projection == CameraProjection::Orthographic)
-                .then(|| (p.orthographic_size, p.near_clip.max(0.01), p.far_clip))
-        })
-    });
-}
-
-/// Head-output matrix derived from the active main render space root (the host `HeadOutput` pose).
-pub(crate) fn head_output_from_active_main_space(scene: &SceneCoordinator) -> Mat4 {
-    scene.active_main_space().map_or(Mat4::IDENTITY, |space| {
-        crate::scene::render_transform_to_matrix(&space.root_transform)
-    })
-}
-
-/// Eye/camera world position derived from the active main render space's resolved view transform.
-///
-/// Distinct from [`head_output_from_active_main_space`] — that returns the space *root* (used for
-/// overlay positioning), this returns the *eye* (used for shader view-direction math). When the
-/// host enables `override_view_position`, the two diverge: root stays at the world/play-area
-/// anchor while the eye moves with the camera. Returns [`None`] when no main space is active.
-pub(crate) fn eye_world_position_from_active_main_space(scene: &SceneCoordinator) -> Option<Vec3> {
-    scene
-        .active_main_space()
-        .map(|space| space.view_transform.position)
-}
+pub(crate) use crate::camera::{
+    apply_frame_submit_fields, eye_world_position_from_active_main_space,
+    head_output_from_active_main_space,
+};

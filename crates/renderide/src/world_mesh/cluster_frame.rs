@@ -8,7 +8,7 @@
 
 use glam::Mat4;
 
-use crate::camera::HostCameraFrame;
+use crate::camera::{HostCameraFrame, Viewport};
 use crate::camera::{
     clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_perspective,
     view_matrix_from_render_transform,
@@ -183,24 +183,21 @@ pub fn cluster_frame_params(
     scene: &SceneCoordinator,
     viewport_px: (u32, u32),
 ) -> Option<ClusterFrameParams> {
-    if let (Some(view), Some(proj)) = (
-        host_camera.cluster_view_override,
-        host_camera.cluster_proj_override,
-    ) {
-        let (vw, vh) = viewport_px;
-        if vw == 0 || vh == 0 {
+    if let Some((view, proj)) = host_camera.explicit_view_projection() {
+        let viewport = Viewport::from_tuple(viewport_px);
+        if viewport.is_empty() {
             return None;
         }
         let (near_clip, far_clip) = effective_head_output_clip_planes(
-            host_camera.near_clip,
-            host_camera.far_clip,
+            host_camera.clip.near,
+            host_camera.clip.far,
             host_camera.output_device,
             scene
                 .active_main_space()
                 .map(|space| space.root_transform.scale),
         );
-        let cluster_count_x = vw.div_ceil(TILE_SIZE);
-        let cluster_count_y = vh.div_ceil(TILE_SIZE);
+        let cluster_count_x = viewport.tile_columns(TILE_SIZE);
+        let cluster_count_y = viewport.tile_rows(TILE_SIZE);
         return Some(ClusterFrameParams {
             near_clip,
             far_clip,
@@ -208,8 +205,8 @@ pub fn cluster_frame_params(
             proj,
             cluster_count_x,
             cluster_count_y,
-            viewport_width: vw,
-            viewport_height: vh,
+            viewport_width: viewport.width,
+            viewport_height: viewport.height,
         });
     }
 
@@ -246,9 +243,9 @@ pub fn cluster_frame_params_stereo(
     viewport_px: (u32, u32),
 ) -> Option<(ClusterFrameParams, ClusterFrameParams)> {
     let common = CommonClusterInputs::compute(host_camera, scene, viewport_px)?;
-    let stereo = host_camera.stereo?;
-    let (sl, sr) = stereo.view_proj;
-    let (view_l, view_r) = stereo.view_only;
+    let stereo = host_camera.active_stereo()?;
+    let (sl, sr) = stereo.view_proj_pair();
+    let (view_l, view_r) = stereo.view_pair();
 
     let proj_l = extract_proj(
         sl,
@@ -309,13 +306,13 @@ impl CommonClusterInputs {
         scene: &SceneCoordinator,
         viewport_px: (u32, u32),
     ) -> Option<Self> {
-        let (vw, vh) = viewport_px;
-        if vw == 0 || vh == 0 {
+        let viewport = Viewport::from_tuple(viewport_px);
+        if viewport.is_empty() {
             return None;
         }
         let (near_clip, far_clip) = effective_head_output_clip_planes(
-            host_camera.near_clip,
-            host_camera.far_clip,
+            host_camera.clip.near,
+            host_camera.clip.far,
             host_camera.output_device,
             scene
                 .active_main_space()
@@ -324,10 +321,10 @@ impl CommonClusterInputs {
         let scene_view = scene.active_main_space().map_or(Mat4::IDENTITY, |s| {
             view_matrix_from_render_transform(&s.view_transform)
         });
-        let aspect = vw as f32 / vh.max(1) as f32;
+        let aspect = viewport.aspect();
         let fov_rad = clamp_desktop_fov_degrees(host_camera.desktop_fov_degrees).to_radians();
-        let cluster_count_x = vw.div_ceil(TILE_SIZE);
-        let cluster_count_y = vh.div_ceil(TILE_SIZE);
+        let cluster_count_x = viewport.tile_columns(TILE_SIZE);
+        let cluster_count_y = viewport.tile_rows(TILE_SIZE);
         Some(Self {
             near_clip,
             far_clip,
@@ -336,8 +333,8 @@ impl CommonClusterInputs {
             fov_rad,
             cluster_count_x,
             cluster_count_y,
-            vw,
-            vh,
+            vw: viewport.width,
+            vh: viewport.height,
         })
     }
 }

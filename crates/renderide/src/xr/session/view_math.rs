@@ -3,7 +3,7 @@
 use glam::{Mat4, Quat, Vec3};
 use openxr as xr;
 
-use crate::camera::{apply_view_handedness_fix, reverse_z_perspective_openxr_fov};
+use crate::camera::{EyeView, apply_view_handedness_fix, reverse_z_perspective_openxr_fov};
 use crate::scene::render_transform_to_matrix;
 use crate::shared::RenderTransform;
 
@@ -35,6 +35,20 @@ pub fn view_projection_from_xr_view_aligned(
     let view_mat = apply_view_handedness_fix(ref_from_view.inverse());
     let proj = reverse_z_perspective_openxr_fov(&view.fov, near, far);
     proj * view_mat
+}
+
+/// Complete single-eye camera data from an OpenXR view after host tracking-space alignment.
+pub fn eye_view_from_xr_view_aligned(
+    view: &xr::View,
+    near: f32,
+    far: f32,
+    world_from_tracking: Mat4,
+) -> EyeView {
+    let ref_from_view = world_from_tracking * ref_from_view_matrix(&view.pose);
+    let view_mat = apply_view_handedness_fix(ref_from_view.inverse());
+    let proj = reverse_z_perspective_openxr_fov(&view.fov, near, far);
+    let world_position = eye_world_position_from_xr_view_aligned(view, world_from_tracking);
+    EyeView::new(view_mat, proj, proj * view_mat, world_position)
 }
 
 /// Per-eye **view-only** matrix (world-to-view, handedness-fixed) for clustered lighting decomposition.

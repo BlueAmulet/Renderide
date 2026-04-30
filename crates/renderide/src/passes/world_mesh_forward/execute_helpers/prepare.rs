@@ -48,7 +48,7 @@ pub(super) fn capture_hi_z_temporal_after_collect(
         cull_proj,
         frame.view.viewport_px,
         frame.view.hi_z_slot.as_ref(),
-        hc.explicit_world_to_view,
+        hc.explicit_world_to_view(),
     );
 }
 

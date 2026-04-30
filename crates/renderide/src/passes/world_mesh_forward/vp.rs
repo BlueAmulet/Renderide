@@ -5,7 +5,7 @@
 use glam::Mat4;
 
 use crate::camera::HostCameraFrame;
-use crate::camera::view_matrix_for_world_mesh_render_space;
+use crate::camera::view_matrix_for_host_world_mesh_space;
 use crate::materials::RasterPipelineKind;
 use crate::scene::SceneCoordinator;
 use crate::shared::RenderingContext;
@@ -157,13 +157,11 @@ pub(crate) fn compute_per_draw_vp_matrices(
     let Some(space) = scene.space(item.space_id) else {
         return PerDrawVpMatrices::identity();
     };
-    let view = hc
-        .explicit_world_to_view
-        .unwrap_or_else(|| view_matrix_for_world_mesh_render_space(scene, space));
+    let view = view_matrix_for_host_world_mesh_space(scene, space, &hc);
     let model = || resolve_model_selection(scene, item, hc, render_context);
     let vr_stereo_view = Mat4::IDENTITY;
-    if let (true, Some(stereo)) = (hc.vr_active, hc.stereo) {
-        let (sl, sr) = stereo.view_proj;
+    if let Some(stereo) = hc.active_stereo() {
+        let (sl, sr) = stereo.view_proj_pair();
         if item.is_overlay {
             let op = projection_for_world_mesh_draw(true, overlay_proj, world_proj);
             let base_vp = op * view;

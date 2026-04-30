@@ -9,8 +9,7 @@ use parking_lot::Mutex;
 
 use super::WorldMeshForwardPipelineState;
 use crate::backend::FrameGpuResources;
-use crate::camera::ViewId;
-use crate::camera::view_matrix_for_world_mesh_render_space;
+use crate::camera::{ViewId, world_to_view_pair_for_skybox};
 use crate::embedded_shaders;
 use crate::materials::EmbeddedTexturePools;
 use crate::materials::host_data::MaterialPropertyLookupIds;
@@ -524,20 +523,7 @@ fn skybox_stem_for_shader_asset(
 
 /// Finds the world-to-view matrices used for skybox ray reconstruction.
 fn skybox_world_to_view_pair(frame: &FrameRenderParams<'_>) -> (glam::Mat4, glam::Mat4) {
-    let hc = frame.view.host_camera;
-    if let (true, Some(stereo)) = (hc.vr_active, hc.stereo) {
-        return stereo.view_only;
-    }
-    let view = hc.explicit_world_to_view.unwrap_or_else(|| {
-        frame
-            .shared
-            .scene
-            .active_main_space()
-            .map_or(glam::Mat4::IDENTITY, |space| {
-                view_matrix_for_world_mesh_render_space(frame.shared.scene, space)
-            })
-    });
-    (view, view)
+    world_to_view_pair_for_skybox(frame.shared.scene, &frame.view.host_camera)
 }
 
 /// Converts a world-to-view matrix into packed view-to-world basis vectors.

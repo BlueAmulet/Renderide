@@ -5,11 +5,7 @@ use std::num::NonZeroU32;
 use glam::Mat4;
 
 use super::super::WorldMeshForwardPipelineState;
-use crate::camera::HostCameraFrame;
-use crate::camera::clamp_desktop_fov_degrees;
-use crate::camera::{
-    effective_head_output_clip_planes, reverse_z_orthographic, reverse_z_perspective,
-};
+use crate::camera::{HostCameraFrame, WorldProjectionSet};
 use crate::gpu::GpuLimits;
 use crate::materials::MaterialPipelineDesc;
 use crate::materials::{SHADER_PERM_MULTIVIEW_STEREO, ShaderPermutation};
@@ -20,8 +16,8 @@ use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 /// Selects left/right camera world-space positions fed into frame globals for shader view-direction math.
 ///
 /// Preference order:
-/// 1. `explicit_camera_world_position` — secondary RT cameras carry their own pose.
-/// 2. `stereo.eye_world_position` — HMD left/right eyes for multiview shader view-vector math.
+/// 1. `explicit_view.world_position` — secondary RT cameras carry their own pose.
+/// 2. `stereo` eye positions — HMD left/right eyes for multiview shader view-vector math.
 /// 3. `eye_world_position` — main-space eye derived from the active render space's `view_transform`.
 /// 4. `head_output_transform.col(3)` — last-ditch fallback (the render-space *root*, used by overlay
 ///    positioning) for any path that has not yet propagated the eye position. Using this as the
@@ -31,16 +27,7 @@ use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 /// Explicit camera poses are mono offscreen views, so both eyes receive the same value. Desktop
 /// and fallback paths reuse the single resolved eye position for both slots.
 pub(super) fn resolve_camera_world_pair(hc: &HostCameraFrame) -> (glam::Vec3, glam::Vec3) {
-    if let Some(camera_world) = hc.explicit_camera_world_position {
-        return (camera_world, camera_world);
-    }
-    if let Some(stereo) = hc.stereo {
-        return stereo.eye_world_position;
-    }
-    let camera_world = hc
-        .eye_world_position
-        .unwrap_or_else(|| hc.head_output_transform.col(3).truncate());
-    (camera_world, camera_world)
+    hc.camera_world_pair()
 }
 
 /// Resolves multiview use, [`MaterialPipelineDesc`], and [`ShaderPermutation`].
@@ -53,7 +40,7 @@ pub(super) fn resolve_pass_config(
     sample_count: u32,
 ) -> WorldMeshForwardPipelineState {
     let use_multiview =
-        multiview_stereo && hc.vr_active && hc.stereo.is_some() && gpu_limits.supports_multiview;
+        multiview_stereo && hc.active_stereo().is_some() && gpu_limits.supports_multiview;
 
     let sc = sample_count.max(1);
 
@@ -89,27 +76,10 @@ pub(super) fn compute_view_projections(
     draws: &[WorldMeshDrawItem],
 ) -> (RenderingContext, Mat4, Option<Mat4>) {
     let render_context = scene.active_main_render_context();
-    let (vw, vh) = viewport_px;
-    let aspect = vw as f32 / vh.max(1) as f32;
-    let (near, far) = effective_head_output_clip_planes(
-        hc.near_clip,
-        hc.far_clip,
-        hc.output_device,
-        scene
-            .active_main_space()
-            .map(|space| space.root_transform.scale),
-    );
-    let fov_rad = clamp_desktop_fov_degrees(hc.desktop_fov_degrees).to_radians();
-    let world_proj = reverse_z_perspective(aspect, fov_rad, near, far);
+    let projections = WorldProjectionSet::from_scene_host(scene, viewport_px, &hc);
 
     let has_overlay = !draws.is_empty() && draws.iter().any(|d| d.is_overlay);
-    let overlay_proj = has_overlay.then(|| {
-        if let Some((half_h, on, of)) = hc.primary_ortho_task {
-            reverse_z_orthographic(half_h * aspect, half_h, on, of)
-        } else {
-            reverse_z_orthographic(1.0 * aspect, 1.0, near, far)
-        }
-    });
+    let overlay_proj = has_overlay.then_some(projections.overlay_proj);
 
-    (render_context, world_proj, overlay_proj)
+    (render_context, projections.world_proj, overlay_proj)
 }

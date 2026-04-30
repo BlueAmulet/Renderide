@@ -7,19 +7,33 @@
 //!
 //! OpenXR HMD views use [`reverse_z_perspective_openxr_fov`] (asymmetric frustum from tangents).
 
+mod frame;
+mod geometry;
 mod projection;
+mod projection_plan;
+mod secondary;
 mod state;
+mod stereo;
 mod view;
 
+pub(crate) use frame::{
+    apply_frame_submit_fields, eye_world_position_from_active_main_space,
+    head_output_from_active_main_space,
+};
+pub use geometry::{CameraClipPlanes, CameraPose, EyeView, OrthographicProjectionSpec, Viewport};
 pub use projection::{DESKTOP_FOV_DEGREES_MAX, DESKTOP_FOV_DEGREES_MIN};
 pub use projection::{
     clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_orthographic,
     reverse_z_perspective, reverse_z_perspective_openxr_fov,
 };
-pub use state::{HostCameraFrame, SecondaryCameraId, StereoViewMatrices, ViewId};
+pub use projection_plan::WorldProjectionSet;
+pub use secondary::{camera_state_enabled, host_camera_frame_for_render_texture};
+pub use state::{HostCameraFrame, SecondaryCameraId, ViewId};
+pub use stereo::StereoViewMatrices;
 pub use view::{
-    apply_view_handedness_fix, view_matrix_for_world_mesh_render_space,
-    view_matrix_from_render_transform,
+    apply_view_handedness_fix, view_matrix_for_host_world_mesh_space,
+    view_matrix_for_world_mesh_render_space, view_matrix_from_render_transform,
+    world_to_view_pair_for_skybox,
 };
 
 #[cfg(test)]

@@ -479,13 +479,18 @@ mod tests {
     }
 
     #[test]
-    fn prepared_view_helpers_honor_explicit_camera_world_position() {
+    fn prepared_view_helpers_honor_explicit_camera_view_origin() {
         let runtime = build_runtime();
         let mut view = runtime.build_main_swapchain_view(TEST_EXTENT);
         view.host_camera.head_output_transform =
             glam::Mat4::from_translation(glam::Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(view.view_origin_world(), glam::Vec3::new(1.0, 2.0, 3.0));
-        view.host_camera.explicit_camera_world_position = Some(glam::Vec3::new(7.0, 8.0, 9.0));
+        view.host_camera.explicit_view = Some(crate::camera::EyeView::new(
+            glam::Mat4::IDENTITY,
+            glam::Mat4::IDENTITY,
+            glam::Mat4::IDENTITY,
+            glam::Vec3::new(7.0, 8.0, 9.0),
+        ));
         assert_eq!(view.view_origin_world(), glam::Vec3::new(7.0, 8.0, 9.0));
     }
 
@@ -502,11 +507,16 @@ mod tests {
             "eye_world_position must override the head-output (render-space root) translation \
              so PBS view-direction math sees the eye, not the floor anchor"
         );
-        view.host_camera.explicit_camera_world_position = Some(glam::Vec3::new(7.0, 8.0, 9.0));
+        view.host_camera.explicit_view = Some(crate::camera::EyeView::new(
+            glam::Mat4::IDENTITY,
+            glam::Mat4::IDENTITY,
+            glam::Mat4::IDENTITY,
+            glam::Vec3::new(7.0, 8.0, 9.0),
+        ));
         assert_eq!(
             view.view_origin_world(),
             glam::Vec3::new(7.0, 8.0, 9.0),
-            "explicit_camera_world_position still wins over eye_world_position"
+            "explicit camera view still wins over eye_world_position"
         );
     }
 }
