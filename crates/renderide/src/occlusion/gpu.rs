@@ -1,6 +1,6 @@
 //! GPU hierarchical depth pyramid construction and readback for Hi-Z occlusion culling.
 //!
-//! Used by [`crate::backend::OcclusionSystem`] and [`crate::render_graph::passes::HiZBuildPass`].
+//! Used by [`crate::occlusion::OcclusionSystem`] and [`crate::passes::HiZBuildPass`].
 
 mod hi_z_encode;
 mod hi_z_gpu;

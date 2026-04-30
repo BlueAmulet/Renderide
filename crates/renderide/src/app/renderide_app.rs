@@ -41,7 +41,6 @@ use crate::frontend::input::{
     apply_per_frame_cursor_lock_when_locked, apply_window_event, vr_inputs_for_session,
 };
 use crate::gpu::GpuContext;
-use crate::output_device::head_output_device_wants_openxr;
 use crate::present::{
     SurfaceAcquireTrace, SurfaceSubmitTrace, present_clear_frame,
     present_clear_frame_overlay_traced,
@@ -49,6 +48,7 @@ use crate::present::{
 use crate::render_graph::GraphExecuteError;
 use crate::runtime::RendererRuntime;
 use crate::shared::{HeadOutputDevice, VRControllerState};
+use crate::xr::output_device::head_output_device_wants_openxr;
 use crate::xr::{OpenxrFrameTick, XrSessionBundle, synthesize_hand_states};
 use glam::{Quat, Vec3};
 

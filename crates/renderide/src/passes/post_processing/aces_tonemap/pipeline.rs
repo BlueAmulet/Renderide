@@ -1,6 +1,6 @@
 //! Cached pipelines and bind layout for [`super::AcesTonemapPass`].
 //!
-//! Mirrors the structure of [`crate::render_graph::passes::scene_color_compose`]'s pipeline
+//! Mirrors the structure of [`crate::passes::scene_color_compose`]'s pipeline
 //! cache: per-output-format `wgpu::RenderPipeline` map for mono and multiview, with a single
 //! linear-clamp sampler shared across all instances.
 //!

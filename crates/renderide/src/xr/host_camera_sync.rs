@@ -4,8 +4,9 @@
 
 use glam::{Mat4, Quat, Vec3};
 
+use crate::camera::StereoViewMatrices;
 use crate::gpu::GpuContext;
-use crate::render_graph::{ExternalFrameTargets, GraphExecuteError, StereoViewMatrices};
+use crate::render_graph::{ExternalFrameTargets, GraphExecuteError};
 use crate::shared::HeadOutputDevice;
 
 /// Read/write hooks for per-eye matrices and head-output positioning used by OpenXR frame ticks.

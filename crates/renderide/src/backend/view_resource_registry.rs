@@ -1,12 +1,12 @@
 //! Tracks which logical render views are currently active.
 //!
-//! Runtime view planning is the authoritative source of which [`crate::render_graph::ViewId`]s
+//! Runtime view planning is the authoritative source of which [`crate::camera::ViewId`]s
 //! exist in a frame. This registry turns that frame-local list into a stable ownership boundary
 //! for backend systems that keep view-scoped state across frames.
 
 use hashbrown::HashSet;
 
-use crate::render_graph::ViewId;
+use crate::camera::ViewId;
 
 /// Retained set of view identities that currently own backend state.
 #[derive(Default)]
@@ -46,7 +46,7 @@ impl ViewResourceRegistry {
 #[cfg(test)]
 mod tests {
     use super::ViewResourceRegistry;
-    use crate::render_graph::ViewId;
+    use crate::camera::ViewId;
     use crate::scene::RenderSpaceId;
 
     /// Builds a secondary-camera view id for registry tests.

@@ -14,7 +14,7 @@
 
 use std::borrow::Cow;
 
-use crate::render_graph::ViewId;
+use crate::camera::ViewId;
 use crate::render_graph::context::{CallbackCtx, PostSubmitContext};
 use crate::render_graph::error::{RenderPassError, SetupError};
 

@@ -3,7 +3,7 @@
 //! Effects read one HDR float texture and write another, but are free to register an arbitrary
 //! subgraph in between (a single raster pass, a compute → raster pair, a bloom mip-chain ladder,
 //! etc.). They are added to the chain in execution order; each enabled effect's terminal pass
-//! hands its output to the next effect (or to [`crate::render_graph::passes::SceneColorComposePass`]
+//! hands its output to the next effect (or to [`crate::passes::SceneColorComposePass`]
 //! for the final one).
 
 use crate::config::PostProcessingSettings;

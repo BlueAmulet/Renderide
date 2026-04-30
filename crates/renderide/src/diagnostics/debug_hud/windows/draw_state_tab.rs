@@ -1,7 +1,7 @@
 //! Draw-state table: sorted mesh draws with material pipeline state.
 
 use crate::diagnostics::FrameDiagnosticsSnapshot;
-use crate::render_graph::WorldMeshDrawStateRow;
+use crate::world_mesh::WorldMeshDrawStateRow;
 use imgui::ListClipper;
 
 use super::labels::{

@@ -381,11 +381,11 @@ pub struct PostSubmitContext<'a> {
     /// WGPU device for `map_async` and device polling.
     pub device: &'a wgpu::Device,
     /// Hi-Z readback and temporal bookkeeping for this view after submit.
-    pub occlusion: &'a mut crate::backend::OcclusionSystem,
+    pub occlusion: &'a mut crate::occlusion::OcclusionSystem,
     /// Which occlusion view this submit covered.
-    pub view_id: super::ViewId,
+    pub view_id: crate::camera::ViewId,
     /// Host camera snapshot for the view.
-    pub host_camera: super::HostCameraFrame,
+    pub host_camera: crate::camera::HostCameraFrame,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

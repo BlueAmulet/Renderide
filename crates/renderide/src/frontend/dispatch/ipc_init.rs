@@ -4,9 +4,9 @@ use crate::assets::texture::supported_host_formats_for_init;
 use crate::config::RendererSettings;
 use crate::frontend::InitState;
 use crate::ipc::DualQueueIpc;
-use crate::output_device::head_output_device_wants_openxr;
 use crate::runtime::RendererRuntime;
 use crate::shared::{HeadOutputDevice, RendererCommand, RendererInitResult};
+use crate::xr::output_device::head_output_device_wants_openxr;
 
 /// `Renderide` plus the `renderide` crate version (`env!("CARGO_PKG_VERSION")` at compile time).
 const RENDERER_IDENTIFIER: &str = concat!("Renderide ", env!("CARGO_PKG_VERSION"));

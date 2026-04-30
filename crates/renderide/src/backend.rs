@@ -26,18 +26,6 @@ mod per_view_resource_map;
 mod view_resource_registry;
 
 pub use crate::assets::AssetTransferQueue;
-pub use crate::mesh_deform;
-pub use crate::mesh_deform::{
-    INITIAL_PER_DRAW_UNIFORM_SLOTS, MeshDeformScratch, MeshPreprocessPipelines,
-    PER_DRAW_UNIFORM_STRIDE, PaddedPerDrawUniforms, WgslMat3x3, advance_slab_cursor,
-    blendshape_sparse_buffers_fit_device, plan_blendshape_scatter_chunks,
-    write_per_draw_uniform_slab,
-};
-pub(crate) use crate::occlusion::HiZBuildInput;
-pub use crate::occlusion::OcclusionSystem;
-pub(crate) use crate::reflection_probes::ReflectionProbeSh2System;
-pub(crate) use crate::skybox::SkyboxEnvironmentCache;
-pub(crate) use crate::skybox::resolve_active_main_skybox_specular_environment;
 pub use cluster_gpu::{
     CLUSTER_COUNT_Z, CLUSTER_PARAMS_UNIFORM_SIZE, ClusterBufferCache, ClusterBufferRefs,
     MAX_LIGHTS_PER_TILE, TILE_SIZE,

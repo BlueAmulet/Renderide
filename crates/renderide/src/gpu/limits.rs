@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use thiserror::Error;
 
-/// Per-draw row size in bytes; must match [`crate::backend::mesh_deform::PER_DRAW_UNIFORM_STRIDE`].
+/// Per-draw row size in bytes; must match [`crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE`].
 const PER_DRAW_UNIFORM_STRIDE: usize = 256;
-/// Initial slab row count; must match [`crate::backend::mesh_deform::INITIAL_PER_DRAW_UNIFORM_SLOTS`].
+/// Initial slab row count; must match [`crate::mesh_deform::INITIAL_PER_DRAW_UNIFORM_SLOTS`].
 const INITIAL_PER_DRAW_UNIFORM_SLOTS: usize = 256;
 
 /// Number of array layers used for a GPU cubemap (six faces).

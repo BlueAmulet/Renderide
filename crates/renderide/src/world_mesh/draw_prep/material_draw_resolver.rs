@@ -194,7 +194,7 @@ impl<'a> MaterialDrawResolver<'a> {
     /// Resolves the material pipeline set and declared pass table for one batch.
     fn resolve_pipelines(
         &self,
-        batch_key: &crate::render_graph::MaterialDrawBatchKey,
+        batch_key: &crate::world_mesh::MaterialDrawBatchKey,
         pipeline_key: PipelineVariantKey,
     ) -> (Option<MaterialPipelineSet>, &'static [MaterialPassDesc]) {
         let Some(registry) = self.registry else {

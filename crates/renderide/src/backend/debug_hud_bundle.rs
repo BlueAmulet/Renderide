@@ -8,7 +8,8 @@ use crate::diagnostics::{
     DebugHud, DebugHudEncodeError, DebugHudInput, FrameDiagnosticsSnapshot, FrameTimingHudSnapshot,
     RendererInfoSnapshot, SceneTransformsSnapshot, TextureDebugSnapshot,
 };
-use crate::render_graph::{PerViewHudOutputs, WorldMeshDrawStateRow, WorldMeshDrawStats};
+use crate::render_graph::PerViewHudOutputs;
+use crate::world_mesh::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
 /// ImGui overlay, input/timing state, and mesh-draw stats for the diagnostics HUD.
 pub struct DebugHudBundle {
@@ -72,7 +73,7 @@ impl DebugHudBundle {
         self.main_enabled = enabled;
     }
 
-    /// Whether main debug HUD is on (mesh-draw stats for [`crate::render_graph::passes::WorldMeshForwardOpaquePass`]).
+    /// Whether main debug HUD is on (mesh-draw stats for [`crate::passes::WorldMeshForwardOpaquePass`]).
     pub(crate) fn main_enabled(&self) -> bool {
         self.main_enabled
     }

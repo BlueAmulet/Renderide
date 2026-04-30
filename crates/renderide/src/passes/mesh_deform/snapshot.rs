@@ -11,7 +11,7 @@ use crate::assets::mesh::{
 /// GPU buffer handles + metadata copied from [`crate::assets::mesh::GpuMesh`] so we can hold
 /// deform state without borrowing the mesh pool across preprocess/scratch access.
 ///
-/// Deformed positions/normals and blend temp live in [`crate::backend::mesh_deform::GpuSkinCache`]
+/// Deformed positions/normals and blend temp live in [`crate::mesh_deform::GpuSkinCache`]
 /// per instance, not on the mesh.
 pub(super) struct MeshDeformSnapshot {
     pub(super) vertex_count: u32,

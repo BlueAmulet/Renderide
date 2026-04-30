@@ -1,11 +1,11 @@
-//! Centralized updates to [`crate::render_graph::HostCameraFrame`] from host [`FrameSubmitData`] and scene.
+//! Centralized updates to [`crate::camera::HostCameraFrame`] from host [`FrameSubmitData`] and scene.
 //!
 //! OpenXR integration must use [`crate::xr::XrHostCameraSync`] for stereo / head-output writes so
 //! stereo clearing when `!vr_active` stays consistent with [`apply_frame_submit_fields`].
 
 use glam::{Mat4, Vec3};
 
-use crate::render_graph::HostCameraFrame;
+use crate::camera::HostCameraFrame;
 use crate::scene::SceneCoordinator;
 use crate::shared::{CameraProjection, FrameSubmitData};
 

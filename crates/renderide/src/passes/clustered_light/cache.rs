@@ -1,7 +1,7 @@
 //! Per-view compute bind group cache for [`super::ClusteredLightPass`].
 //!
 //! Each view accumulates a `(cluster_version, BindGroup)` entry keyed by
-//! [`crate::render_graph::ViewId`]. The version field tracks whether the per-view
+//! [`crate::camera::ViewId`]. The version field tracks whether the per-view
 //! cluster buffers changed since the last dispatch; when it does the bind group is rebuilt.
 
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
 
-use crate::render_graph::ViewId;
+use crate::camera::ViewId;
 
 /// Interior-mutable per-view bind group cache for the clustered light compute pass.
 ///

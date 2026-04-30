@@ -8,7 +8,7 @@
 //! alive across frames so the read of last frame's data is just a lookup, not a re-copy.
 //!
 //! Hi-Z registers view-scoped texture history here while keeping CPU snapshots and readback policy
-//! on [`crate::backend::OcclusionSystem`]. Future TAA, SSR, or cached-shadow systems can declare
+//! on [`crate::occlusion::OcclusionSystem`]. Future TAA, SSR, or cached-shadow systems can declare
 //! their persistent resources through the same owner instead of hand-rolling ping-pong pairs.
 
 use std::sync::Arc;
@@ -16,7 +16,8 @@ use std::sync::Arc;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
 
-use crate::render_graph::{HistorySlotId, ViewId};
+use crate::camera::ViewId;
+use crate::render_graph::HistorySlotId;
 
 /// Errors returned by [`HistoryRegistry`] registration APIs.
 #[derive(Debug, thiserror::Error)]

@@ -2,13 +2,13 @@
 
 use crate::assets::mesh::GpuMesh;
 use crate::backend::WorldMeshForwardEncodeRefs;
-use crate::backend::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
-use crate::backend::mesh_deform::{GpuSkinCache, SkinCacheKey};
 use crate::gpu::GpuLimits;
 use crate::materials::MaterialPipelineSet;
-use crate::render_graph::WorldMeshDrawItem;
+use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
+use crate::mesh_deform::{GpuSkinCache, SkinCacheKey};
 use crate::render_graph::frame_params::MaterialBatchPacket;
 use crate::resources::MeshPool;
+use crate::world_mesh::WorldMeshDrawItem;
 use crate::world_mesh::draw_prep::DrawGroup;
 
 /// Embedded material vertex stream requirements for one draw (matches pipeline reflection flags).
@@ -93,7 +93,7 @@ impl LastMeshBindState {
 /// Pre-grouped draws, bind groups, and precomputed-batch table for one mesh-forward raster subpass.
 ///
 /// Pipelines and `@group(1)` bind groups are pre-resolved in
-/// [`crate::render_graph::passes::world_mesh_forward::execute_helpers::precompute_material_resolve_batches`]
+/// [`crate::passes::world_mesh_forward::execute_helpers::precompute_material_resolve_batches`]
 /// during the prepare pass, so this struct carries no material-system references and makes no
 /// LRU cache lookups during recording.
 pub(crate) struct ForwardDrawBatch<'a, 'b, 'c, 'd> {

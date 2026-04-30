@@ -179,13 +179,13 @@ pub fn plot_surface_acquire_outcome(acquired: bool, skipped: bool, reconfigured:
     }
 }
 
-/// Records, per call to `crate::render_graph::passes::world_mesh_forward::encode::draw_subset`,
+/// Records, per call to `crate::passes::world_mesh_forward::encode::draw_subset`,
 /// how many instance batches and how many input draws were submitted in that subpass.
 ///
 /// One sample lands on the Tracy timeline per opaque or intersection subpass record, so the
 /// plot trace shows fragmentation visually: when batches ≈ draws, the merge isn't compressing;
 /// when batches ≪ draws, instancing is collapsing same-mesh runs as intended. Pair with
-/// [`crate::render_graph::WorldMeshDrawStats::gpu_instances_emitted`] in the HUD for a
+/// [`crate::world_mesh::WorldMeshDrawStats::gpu_instances_emitted`] in the HUD for a
 /// per-frame integral. Expands to nothing when the `tracy` feature is off.
 #[inline]
 pub fn plot_world_mesh_subpass(batches: usize, draws: usize) {

@@ -242,7 +242,7 @@ impl PassNode {
     }
 
     /// Releases view-scoped caches for views that are no longer active.
-    pub(crate) fn release_view_resources(&mut self, retired_views: &[crate::render_graph::ViewId]) {
+    pub(crate) fn release_view_resources(&mut self, retired_views: &[crate::camera::ViewId]) {
         match self {
             Self::Raster(p) => p.release_view_resources(retired_views),
             Self::Compute(p) => p.release_view_resources(retired_views),

@@ -116,7 +116,7 @@ pub struct WorldMeshDrawStateRow {
 
 /// Computes batch boundaries from material/property-block/skin/overlay changes after sorting.
 ///
-/// `supports_base_instance` should match the forward pass (see [`crate::render_graph::passes::WorldMeshForwardOpaquePass`])
+/// `supports_base_instance` should match the forward pass (see [`crate::passes::WorldMeshForwardOpaquePass`])
 /// so [`WorldMeshDrawStats::instance_batch_total`] reflects the same merge policy.
 pub fn world_mesh_draw_stats_from_sorted(
     draws: &[WorldMeshDrawItem],

@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::num::NonZeroU32;
 
-use crate::render_graph::ViewId;
+use crate::camera::ViewId;
 use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
 use crate::render_graph::context::{PostSubmitContext, RasterPassCtx};
 use crate::render_graph::error::{RenderPassError, SetupError};
@@ -59,7 +59,7 @@ pub trait RasterPass: Send + Sync {
     /// Optional: runtime multiview mask override for the render pass.
     ///
     /// Defaults to the mask baked into the compiled attachment template. Passes that select
-    /// multiview based on runtime VR state (e.g. [`crate::render_graph::passes::WorldMeshForwardOpaquePass`])
+    /// multiview based on runtime VR state (e.g. [`crate::passes::WorldMeshForwardOpaquePass`])
     /// return `Some` when stereo is active.
     fn multiview_mask_override(
         &self,

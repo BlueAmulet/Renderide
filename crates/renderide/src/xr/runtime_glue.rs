@@ -2,9 +2,10 @@
 
 use glam::{Mat4, Quat, Vec3};
 
+use crate::camera::StereoViewMatrices;
 use crate::gpu::GpuContext;
 use crate::render_graph::ExternalFrameTargets;
-use crate::render_graph::{GraphExecuteError, StereoViewMatrices};
+use crate::render_graph::GraphExecuteError;
 use crate::shared::HeadOutputDevice;
 
 use crate::runtime::RendererRuntime;

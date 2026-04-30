@@ -13,13 +13,13 @@ use glam::Mat4;
 
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 
+use crate::camera::HostCameraFrame;
 use crate::camera::{
     clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_orthographic,
     reverse_z_perspective, view_matrix_from_render_transform,
 };
+use crate::occlusion::HiZCullData;
 use crate::occlusion::hi_z_cpu::hi_z_pyramid_dimensions;
-use crate::render_graph::HiZCullData;
-use crate::render_graph::frame_params::HostCameraFrame;
 
 /// View and projection snapshot from the **frame that produced** the Hi-Z depth buffer (used for
 /// CPU occlusion tests against the previous frame’s pyramid).
@@ -147,9 +147,9 @@ mod tests {
     use super::{
         WorldMeshCullProjParams, build_world_mesh_cull_proj_params, capture_hi_z_temporal,
     };
+    use crate::camera::HostCameraFrame;
     use crate::camera::view_matrix_from_render_transform;
     use crate::occlusion::hi_z_cpu::hi_z_pyramid_dimensions;
-    use crate::render_graph::frame_params::HostCameraFrame;
 
     #[test]
     fn capture_hi_z_temporal_secondary_override_fills_all_spaces() {
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn build_world_mesh_cull_proj_params_sets_vr_stereo_only_when_active_and_pair_present() {
-        use crate::render_graph::StereoViewMatrices;
+        use crate::camera::StereoViewMatrices;
         let scene = SceneCoordinator::new();
         let stereo = Some(StereoViewMatrices {
             view_proj: (Mat4::IDENTITY, Mat4::IDENTITY),

@@ -10,7 +10,7 @@
 
 use renderide::pipelines::ShaderPermutation;
 use renderide::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
-use renderide::render_graph::{sort_world_mesh_draws, world_mesh_draw_stats_from_sorted};
+use renderide::world_mesh::{sort_world_mesh_draws, world_mesh_draw_stats_from_sorted};
 
 /// Baseline: N opaque draws sharing every batch-key field merge into a single instance batch
 /// because the sort places them adjacent. Locks in the current batcher behaviour so the

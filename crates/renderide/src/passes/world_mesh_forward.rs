@@ -27,7 +27,7 @@
 //! ## VR stereo world draws
 //!
 //! OpenXR per-eye view–projection maps **stage** space to clip. For non-overlay draws with
-//! [`crate::render_graph::StereoViewMatrices`], identity is used instead of the host
+//! [`crate::camera::StereoViewMatrices`], identity is used instead of the host
 //! `view_transform` world-to-camera to avoid mixing stage with the host rig. Overlays keep
 //! `view` for orthographic / UI alignment. Matrix composition lives in [`vp`].
 
@@ -44,7 +44,6 @@ pub use color_resolve::{
 
 use std::num::NonZeroU32;
 
-use crate::render_graph::InstancePlan;
 use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
 use crate::render_graph::context::{CallbackCtx, ComputePassCtx, RasterPassCtx};
 use crate::render_graph::error::{RenderPassError, SetupError};
@@ -55,6 +54,7 @@ use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, StorageAccess, TextureAccess,
     TextureHandle,
 };
+use crate::world_mesh::InstancePlan;
 
 use execute_helpers::{
     encode_msaa_depth_resolve_after_clear_only, encode_world_mesh_forward_color_snapshot,
@@ -274,7 +274,7 @@ impl CallbackPass for WorldMeshForwardPreparePass {
         Ok(())
     }
 
-    fn release_view_resources(&mut self, retired_views: &[crate::render_graph::ViewId]) {
+    fn release_view_resources(&mut self, retired_views: &[crate::camera::ViewId]) {
         self.skybox.release_view_resources(retired_views);
     }
 }
@@ -300,7 +300,7 @@ impl RasterPass for WorldMeshForwardOpaquePass {
                 self.resources.depth,
                 self.resources.msaa_depth,
                 wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(crate::render_graph::MAIN_FORWARD_DEPTH_CLEAR),
+                    load: wgpu::LoadOp::Clear(crate::gpu::MAIN_FORWARD_DEPTH_CLEAR),
                     store: wgpu::StoreOp::Store,
                 },
                 None,
@@ -740,7 +740,7 @@ mod tests {
     use super::{
         InstancePlan, forward_intersection_raster_needed, forward_transparent_raster_needed,
     };
-    use crate::render_graph::DrawGroup;
+    use crate::world_mesh::DrawGroup;
 
     /// Empty helper plans skip their raster pass even after opaque work records successfully.
     #[test]

@@ -4,11 +4,12 @@
 
 use glam::Mat4;
 
+use crate::camera::HostCameraFrame;
 use crate::camera::view_matrix_for_world_mesh_render_space;
 use crate::materials::RasterPipelineKind;
-use crate::render_graph::{HostCameraFrame, WorldMeshDrawItem};
 use crate::scene::SceneCoordinator;
 use crate::shared::RenderingContext;
+use crate::world_mesh::WorldMeshDrawItem;
 
 /// Chooses perspective vs orthographic projection for a draw (overlay vs world).
 #[inline]
@@ -188,7 +189,7 @@ mod tests {
 
     use super::{projection_for_world_mesh_draw, select_model_for_vertex_stream};
 
-    fn draw_item(skinned: bool) -> crate::render_graph::WorldMeshDrawItem {
+    fn draw_item(skinned: bool) -> crate::world_mesh::WorldMeshDrawItem {
         dummy_world_mesh_draw_item(DummyDrawItemSpec {
             material_asset_id: 1,
             property_block: None,

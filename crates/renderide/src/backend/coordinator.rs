@@ -1,7 +1,7 @@
 //! [`RenderBackend`] — thin coordinator for frame execution and IPC-facing GPU work.
 //!
 //! Core subsystems live in [`super::MaterialSystem`], [`crate::assets::AssetTransferQueue`],
-//! [`super::FrameResourceManager`], and [`super::OcclusionSystem`]; this type wires attach,
+//! [`super::FrameResourceManager`], and [`crate::occlusion::OcclusionSystem`]; this type wires attach,
 //! the compiled render graph, mesh deform preprocess, and debug HUD.
 //!
 //! Graph execution lives in the `execute` submodule; IPC-facing asset handlers in `asset_ipc`.
@@ -19,18 +19,16 @@ use thiserror::Error;
 
 use crate::assets::asset_transfer_queue::{self as asset_uploads, AssetTransferQueue};
 use crate::assets::material::MaterialPropertyStore;
-use crate::backend::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
 use crate::config::{PostProcessingSettings, RendererSettingsHandle, SceneColorFormat};
 use crate::diagnostics::{DebugHudEncodeError, DebugHudInput, SceneTransformsSnapshot};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::materials::{MaterialRouter, RasterPipelineKind};
-use crate::render_graph::{
-    FrameMaterialBatchCache, GraphCache, PerViewHudConfig, PerViewHudOutputs, TransientPool,
-    WorldMeshDrawStateRow, WorldMeshDrawStats,
-};
+use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
+use crate::render_graph::{GraphCache, PerViewHudConfig, PerViewHudOutputs, TransientPool};
 use crate::resources::{
     CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool, VideoTexturePool,
 };
+use crate::world_mesh::{FrameMaterialBatchCache, WorldMeshDrawStateRow, WorldMeshDrawStats};
 
 use super::FrameGpuBindingsError;
 use super::FrameResourceManager;
@@ -136,14 +134,14 @@ pub struct RenderBackend {
     /// Pooled prepared-renderables snapshot, rebuilt in place each frame to retain the
     /// underlying `Vec` capacities across frames. Built fresh by
     /// [`Self::extract_frame_shared`] before per-view draw collection consumes it.
-    pub(crate) prepared_renderables: crate::render_graph::FramePreparedRenderables,
+    pub(crate) prepared_renderables: crate::world_mesh::FramePreparedRenderables,
     /// Registry of persistent ping-pong resources used by graph history slots
     /// (`ImportSource::PingPong` / `BufferImportSource::PingPong`).
     pub(crate) history_registry: super::HistoryRegistry,
     /// Nonblocking reflection-probe SH2 GPU projection service.
-    pub(crate) reflection_probe_sh2: super::ReflectionProbeSh2System,
+    pub(crate) reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System,
     /// Nonblocking generated cubemap cache for analytic skybox environments.
-    pub(crate) skybox_environment: super::SkyboxEnvironmentCache,
+    pub(crate) skybox_environment: crate::skybox::SkyboxEnvironmentCache,
     /// Retained logical-view ownership for every backend cache that lives beyond one frame.
     view_resources: ViewResourceRegistry,
 }
@@ -218,12 +216,12 @@ impl RenderBackend {
             renderer_settings: None,
             record_parallelism: crate::config::RecordParallelism::PerViewParallel,
             material_batch_cache: FrameMaterialBatchCache::new(),
-            prepared_renderables: crate::render_graph::FramePreparedRenderables::empty(
+            prepared_renderables: crate::world_mesh::FramePreparedRenderables::empty(
                 crate::shared::RenderingContext::default(),
             ),
             history_registry: super::HistoryRegistry::new(),
-            reflection_probe_sh2: super::ReflectionProbeSh2System::new(),
-            skybox_environment: super::SkyboxEnvironmentCache::new(),
+            reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System::new(),
+            skybox_environment: crate::skybox::SkyboxEnvironmentCache::new(),
             view_resources: ViewResourceRegistry::new(),
         }
     }
@@ -757,7 +755,7 @@ impl RenderBackend {
     /// Synchronizes backend view-scoped resource ownership against the runtime's active view list.
     pub(crate) fn sync_active_views<I>(&mut self, active_views: I)
     where
-        I: IntoIterator<Item = crate::render_graph::ViewId>,
+        I: IntoIterator<Item = crate::camera::ViewId>,
     {
         let retired = self.view_resources.sync_active_views(active_views);
         if retired.is_empty() {

@@ -4,10 +4,10 @@ use wgpu::TextureFormat;
 
 use crate::config::ClusterAssignmentMode;
 
-use super::ViewId;
 use super::compiled::CompiledRenderGraph;
 use super::error::GraphBuildError;
 use super::post_processing::PostProcessChainSignature;
+use crate::camera::ViewId;
 
 /// Inputs that invalidate a compiled main graph (extent, MSAA, multiview, surface format,
 /// post-processing chain topology).

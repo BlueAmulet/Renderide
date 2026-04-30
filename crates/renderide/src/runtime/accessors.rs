@@ -23,7 +23,7 @@ impl RendererRuntime {
     }
 
     /// Mesh deformation compute pipelines when GPU init succeeded.
-    pub fn mesh_preprocess(&self) -> Option<&crate::backend::mesh_deform::MeshPreprocessPipelines> {
+    pub fn mesh_preprocess(&self) -> Option<&crate::mesh_deform::MeshPreprocessPipelines> {
         self.backend.mesh_preprocess()
     }
 
@@ -62,7 +62,7 @@ impl RendererRuntime {
         self.frontend.fatal_error()
     }
 
-    /// Whether the host last reported VR mode as active (see [`crate::render_graph::HostCameraFrame::vr_active`]).
+    /// Whether the host last reported VR mode as active (see [`crate::camera::HostCameraFrame::vr_active`]).
     pub fn vr_active(&self) -> bool {
         self.host_camera.vr_active
     }

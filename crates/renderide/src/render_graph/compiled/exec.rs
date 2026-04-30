@@ -25,11 +25,12 @@ use crate::scene::SceneCoordinator;
 
 use super::super::context::{GraphResolvedResources, PostSubmitContext};
 use super::super::error::GraphExecuteError;
-use super::super::frame_params::{FrameViewClear, HostCameraFrame, PerViewHudOutputs, ViewId};
+use super::super::frame_params::{FrameViewClear, PerViewHudOutputs};
 use super::{
     CompiledRenderGraph, FrameView, FrameViewTarget, MultiViewExecutionContext, ResolvedView,
     WorldMeshDrawPlan,
 };
+use crate::camera::{HostCameraFrame, ViewId};
 
 /// Key for reusing transient pool allocations across [`FrameView`]s with identical surface layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -132,7 +133,7 @@ pub(super) struct PerViewRecordShared<'a> {
     /// Submission queue used by deferred uploads and pass callbacks.
     pub(super) queue_arc: &'a std::sync::Arc<wgpu::Queue>,
     /// Shared occlusion system for Hi-Z snapshots and temporal state.
-    pub(super) occlusion: &'a crate::backend::OcclusionSystem,
+    pub(super) occlusion: &'a crate::occlusion::OcclusionSystem,
     /// Shared frame resources for bind groups, lights, and per-view slabs.
     pub(super) frame_resources: &'a crate::backend::FrameResourceManager,
     /// Persistent history resources resolved for ping-pong graph imports.
@@ -142,9 +143,9 @@ pub(super) struct PerViewRecordShared<'a> {
     /// Shared asset pools for meshes and textures.
     pub(super) asset_transfers: &'a crate::assets::asset_transfer_queue::AssetTransferQueue,
     /// Optional mesh preprocess pipelines (unused in per-view recording, kept for completeness).
-    pub(super) mesh_preprocess: Option<&'a crate::backend::mesh_deform::MeshPreprocessPipelines>,
+    pub(super) mesh_preprocess: Option<&'a crate::mesh_deform::MeshPreprocessPipelines>,
     /// Optional read-only skin cache for deformed forward draws.
-    pub(super) skin_cache: Option<&'a crate::backend::mesh_deform::GpuSkinCache>,
+    pub(super) skin_cache: Option<&'a crate::mesh_deform::GpuSkinCache>,
     /// Read-only HUD capture switches for deferred per-view diagnostics.
     pub(super) debug_hud: crate::render_graph::PerViewHudConfig,
     /// Scene-color format selected for the frame.
@@ -154,7 +155,7 @@ pub(super) struct PerViewRecordShared<'a> {
     /// Optional MSAA depth-resolve resources for the frame.
     pub(super) msaa_depth_resolve: Option<std::sync::Arc<crate::gpu::MsaaDepthResolveResources>>,
     /// Live GTAO settings snapshot for the frame, seeded into each view's blackboard so
-    /// [`crate::render_graph::passes::post_processing::gtao::GtaoPass`] can read the current
+    /// [`crate::passes::post_processing::gtao::GtaoPass`] can read the current
     /// slider values without rebuilding the compiled render graph.
     pub(super) live_gtao_settings: crate::config::GtaoSettings,
     /// Live bloom settings snapshot for the frame, seeded into each view's blackboard so the
@@ -611,7 +612,7 @@ impl CompiledRenderGraph {
         // Collect per-view Hi-Z submit-done notifications as `on_submitted_work_done`
         // callbacks. Each callback only marks the readback-ring slot as submit-done; the
         // real `map_async` runs on the main thread from the next frame's
-        // [`crate::backend::OcclusionSystem::hi_z_begin_frame_readback`]. Doing wgpu work
+        // [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`]. Doing wgpu work
         // inside a device-poll callback can deadlock against wgpu-internal locks that also
         // serialize `queue.write_texture` on the main thread (observed as a futex-wait hang
         // inside `write_one_mip`).

@@ -23,8 +23,9 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::{EmbeddedMaterialBindResources, FrameResourceManager, OcclusionSystem};
+    use crate::backend::{EmbeddedMaterialBindResources, FrameResourceManager};
     use crate::materials::MaterialPipelineCache;
+    use crate::occlusion::OcclusionSystem;
 
     fn assert_send_sync<T: Send + Sync>() {}
 

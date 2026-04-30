@@ -8,7 +8,7 @@ const INITIAL_BLENDSHAPE_PARAMS_STAGING: u64 = 4096;
 /// Initial number of 256-byte slots for per-dispatch `SkinDispatchParams` (32 B payload each).
 const INITIAL_SKIN_DISPATCH_SLOTS: u64 = 16;
 
-/// Pads to the per-draw slab stride (matches [`crate::backend::mesh_deform::PER_DRAW_UNIFORM_STRIDE`]).
+/// Pads to the per-draw slab stride (matches [`crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE`]).
 ///
 /// The device's `min_storage_buffer_offset_alignment` is verified to be `<= 256` in
 /// [`crate::gpu::GpuLimits::try_new`], so this constant satisfies dynamic-offset alignment for

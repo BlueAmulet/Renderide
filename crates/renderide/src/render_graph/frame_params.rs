@@ -15,20 +15,14 @@ use parking_lot::Mutex;
 use crate::assets::AssetTransferQueue;
 use crate::backend::FrameResourceManager;
 use crate::backend::MaterialSystem;
-use crate::backend::OcclusionSystem;
 use crate::backend::WorldMeshForwardEncodeRefs;
-use crate::backend::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
-// Re-exported for back-compat: consumers using `crate::render_graph::frame_params::HostCameraFrame`
-// keep working until Phase D migrates them to `crate::camera::*`.
-#[expect(
-    unused_imports,
-    reason = "back-compat re-export; consumers reach these via crate::render_graph::frame_params::*"
-)]
-pub use crate::camera::{HostCameraFrame, SecondaryCameraId, StereoViewMatrices, ViewId};
+use crate::camera::{HostCameraFrame, ViewId};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::materials::{
     MaterialPassDesc, MaterialPipelineDesc, MaterialPipelineSet, RasterFrontFace,
 };
+use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
+use crate::occlusion::OcclusionSystem;
 use crate::occlusion::gpu::HiZGpuState;
 use crate::pipelines::ShaderPermutation;
 use crate::scene::SceneCoordinator;
@@ -297,9 +291,9 @@ impl BlackboardSlot for PerViewHudOutputsSlot {
 #[derive(Default)]
 pub struct PerViewHudOutputs {
     /// Latest world-mesh draw stats for the view when the main HUD is enabled.
-    pub world_mesh_draw_stats: Option<crate::render_graph::WorldMeshDrawStats>,
+    pub world_mesh_draw_stats: Option<crate::world_mesh::WorldMeshDrawStats>,
     /// Latest world-mesh draw-state rows for the view when the main HUD is enabled.
-    pub world_mesh_draw_state_rows: Option<Vec<crate::render_graph::WorldMeshDrawStateRow>>,
+    pub world_mesh_draw_state_rows: Option<Vec<crate::world_mesh::WorldMeshDrawStateRow>>,
     /// Texture2D asset ids used by the view when the textures HUD is enabled.
     pub current_view_texture_2d_asset_ids: Vec<i32>,
 }
@@ -471,9 +465,9 @@ impl FrameRenderParams<'_> {
 #[cfg(test)]
 mod tests {
     use super::{FrameViewClear, WorldMeshHelperNeeds};
-    use crate::render_graph::WorldMeshDrawCollection;
     use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::shared::{CameraClearMode, CameraState};
+    use crate::world_mesh::WorldMeshDrawCollection;
 
     #[test]
     fn main_view_clear_defaults_to_skybox() {

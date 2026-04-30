@@ -5,10 +5,10 @@ use std::num::NonZeroU64;
 use glam::Mat4;
 
 use crate::assets::mesh::select_blendshape_frame_coefficients;
-use crate::backend::advance_slab_cursor;
-use crate::backend::mesh_deform::SkinCacheEntry;
-use crate::backend::mesh_deform::plan_blendshape_scatter_chunks;
 use crate::gpu::GpuLimits;
+use crate::mesh_deform::SkinCacheEntry;
+use crate::mesh_deform::advance_slab_cursor;
+use crate::mesh_deform::plan_blendshape_scatter_chunks;
 use crate::mesh_deform::{SkinningPaletteParams, build_skinning_palette};
 use crate::scene::RenderSpaceId;
 
@@ -25,9 +25,9 @@ pub(super) struct MeshDeformEncodeGpu<'a> {
     /// Encoder receiving compute passes.
     pub encoder: &'a mut wgpu::CommandEncoder,
     /// Preprocess pipelines (blendshape + skinning).
-    pub pre: &'a crate::backend::mesh_deform::MeshPreprocessPipelines,
+    pub pre: &'a crate::mesh_deform::MeshPreprocessPipelines,
     /// Scratch buffers and slab cursors backing.
-    pub scratch: &'a mut crate::backend::MeshDeformScratch,
+    pub scratch: &'a mut crate::mesh_deform::MeshDeformScratch,
     /// Deferred [`wgpu::Queue::write_buffer`] sink shared with the rest of the frame; used for
     /// the per-mesh blendshape weight writes to keep them off the inline encode path.
     pub upload_batch: &'a crate::render_graph::frame_upload_batch::FrameUploadBatch,
@@ -213,7 +213,7 @@ struct SkinningDeformContext<'a, 'b> {
 /// Reserved staging range for packed blendshape scatter params.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct BlendshapeParamReservation {
-    /// Byte offset inside [`crate::backend::MeshDeformScratch::blendshape_params_staging`].
+    /// Byte offset inside [`crate::mesh_deform::MeshDeformScratch::blendshape_params_staging`].
     offset: u64,
     /// Number of bytes occupied by this mesh's packed scatter params.
     byte_len: u64,
@@ -240,8 +240,8 @@ fn reserve_blendshape_param_range(
 }
 
 /// Records compute passes that scatter blendshape deltas using packed params and per-dispatch
-/// workgroups stored in [`crate::backend::MeshDeformScratch::packed_scatter_params`] /
-/// [`crate::backend::MeshDeformScratch::scatter_dispatch_wgs`].
+/// workgroups stored in [`crate::mesh_deform::MeshDeformScratch::packed_scatter_params`] /
+/// [`crate::mesh_deform::MeshDeformScratch::scatter_dispatch_wgs`].
 fn blendshape_record_scatter_compute_passes(
     gpu: &mut MeshDeformEncodeGpu<'_>,
     dst_buf: &wgpu::Buffer,
@@ -339,7 +339,7 @@ fn blendshape_record_scatter_compute_passes(
     dispatch_count
 }
 
-/// Fills [`crate::backend::MeshDeformScratch::blend_weight_bytes`] with the per-shape weights and
+/// Fills [`crate::mesh_deform::MeshDeformScratch::blend_weight_bytes`] with the per-shape weights and
 /// queues one upload of the bound subrange. Returns the binding length in bytes (always
 /// `shape_count * 4`); the caller threads it through subsequent slab advances.
 fn stage_blendshape_weights(
@@ -371,8 +371,8 @@ fn stage_blendshape_weights(
 }
 
 /// Builds the packed scatter `Params` and per-dispatch workgroup counts into
-/// [`crate::backend::MeshDeformScratch::packed_scatter_params`] /
-/// [`crate::backend::MeshDeformScratch::scatter_dispatch_wgs`]. Returns `false` when a dispatch
+/// [`crate::mesh_deform::MeshDeformScratch::packed_scatter_params`] /
+/// [`crate::mesh_deform::MeshDeformScratch::scatter_dispatch_wgs`]. Returns `false` when a dispatch
 /// would exceed `max_compute_workgroups_per_dimension` (in which case the caller bails).
 fn pack_blendshape_scatter_params(
     gpu: &mut MeshDeformEncodeGpu<'_>,
@@ -610,8 +610,8 @@ fn record_skinning_deform(
 struct SkinningPaletteDispatch<'a> {
     device: &'a wgpu::Device,
     encoder: &'a mut wgpu::CommandEncoder,
-    pre: &'a crate::backend::mesh_deform::MeshPreprocessPipelines,
-    scratch: &'a crate::backend::MeshDeformScratch,
+    pre: &'a crate::mesh_deform::MeshPreprocessPipelines,
+    scratch: &'a crate::mesh_deform::MeshDeformScratch,
     src_positions: &'a wgpu::Buffer,
     bone_idx: &'a wgpu::Buffer,
     bone_wt: &'a wgpu::Buffer,

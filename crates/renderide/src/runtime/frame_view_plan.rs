@@ -6,12 +6,14 @@
 
 use std::sync::Arc;
 
+use crate::camera::{HostCameraFrame, ViewId};
 use crate::gpu::GpuContext;
 use crate::pipelines::{SHADER_PERM_MULTIVIEW_STEREO, ShaderPermutation};
 use crate::render_graph::{
-    CameraTransformDrawFilter, ExternalFrameTargets, ExternalOffscreenTargets, FrameView,
-    FrameViewClear, FrameViewTarget, HostCameraFrame, OutputDepthMode, ViewId, WorldMeshDrawPlan,
+    ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewClear, FrameViewTarget,
+    OutputDepthMode, WorldMeshDrawPlan,
 };
+use crate::world_mesh::CameraTransformDrawFilter;
 
 /// Cheap-clone snapshot of [`crate::gpu::PrimaryOffscreenTargets`] used by the headless render path.
 ///

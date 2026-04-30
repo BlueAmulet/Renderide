@@ -12,10 +12,9 @@ use super::{GraphResolveKey, TransientTextureResolveSurfaceParams};
 use crate::backend::{HistoryResourceScope, TextureHistorySpec};
 use crate::materials::MaterialPipelineDesc;
 use crate::occlusion::gpu::HIZ_MAX_MIPS;
+use crate::occlusion::{hi_z_pyramid_dimensions, mip_levels_for_extent};
 use crate::pipelines::ShaderPermutation;
-use crate::render_graph::{
-    HistorySlotId, OutputDepthMode, hi_z_pyramid_dimensions, mip_levels_for_extent,
-};
+use crate::render_graph::{HistorySlotId, OutputDepthMode};
 use crate::world_mesh::draw_prep::PipelineVariantKey;
 
 impl CompiledRenderGraph {
@@ -41,7 +40,7 @@ impl CompiledRenderGraph {
             .backend
             .active_generated_skybox_specular_source(mv_ctx.scene, mv_ctx.gpu_limits)
             .or_else(|| {
-                crate::backend::resolve_active_main_skybox_specular_environment(
+                crate::skybox::resolve_active_main_skybox_specular_environment(
                     mv_ctx.scene,
                     &mv_ctx.backend.materials,
                     &mv_ctx.backend.asset_transfers,
@@ -181,9 +180,9 @@ impl CompiledRenderGraph {
 
     /// Registers view-scoped history resources required by ping-pong graph imports.
     ///
-    /// Hi-Z still owns CPU snapshots and readback policy through [`crate::backend::OcclusionSystem`],
+    /// Hi-Z still owns CPU snapshots and readback policy through [`crate::occlusion::OcclusionSystem`],
     /// but its graph-declared persistent pyramid now has a registry-backed lifetime keyed by
-    /// [`HistorySlotId::HI_Z`] plus the view's [`crate::render_graph::ViewId`].
+    /// [`HistorySlotId::HI_Z`] plus the view's [`crate::camera::ViewId`].
     pub(super) fn register_history_resources_for_views(
         mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &[FrameView<'_>],

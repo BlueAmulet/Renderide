@@ -82,46 +82,9 @@ pub(crate) mod transient_pool;
 #[doc(hidden)]
 pub mod test_fixtures;
 
-// Pass implementations were extracted to `crate::passes`. Re-exported here so existing
-// imports through `crate::render_graph::passes::…` keep working.
-pub use crate::passes;
-
-// World-mesh visibility planning was extracted to `crate::world_mesh`. Re-export the surface
-// here so existing callers (compiled/exec, passes, materials/router, diagnostics) keep
-// working through `crate::render_graph::…` paths until the per-module refactor migrates them.
-pub use crate::world_mesh::{
-    CameraTransformDrawFilter, DrawCollectionContext, DrawGroup, FrameMaterialBatchCache,
-    FramePreparedRenderables, InstancePlan, MaterialDrawBatchKey, WorldMeshDrawCollectParallelism,
-    WorldMeshDrawCollection, WorldMeshDrawItem, WorldMeshDrawStateRow, WorldMeshDrawStats,
-    build_instance_plan, collect_and_sort_world_mesh_draws,
-    collect_and_sort_world_mesh_draws_with_parallelism, draw_filter_from_camera_entry,
-    resolved_material_slots, sort_world_mesh_draws, world_mesh_draw_state_rows_from_sorted,
-    world_mesh_draw_stats_from_sorted,
-};
-
-pub use crate::world_mesh::{
-    ClusterFrameParams, cluster_frame_params, cluster_frame_params_stereo,
-};
-pub use crate::world_mesh::{
-    Frustum, HOMOGENEOUS_CLIP_EPS, Plane, mesh_bounds_degenerate_for_cull,
-    world_aabb_from_local_bounds, world_aabb_visible_in_homogeneous_clip,
-};
-pub use crate::world_mesh::{
-    HiZTemporalState, WorldMeshCullInput, WorldMeshCullProjParams,
-    build_world_mesh_cull_proj_params, capture_hi_z_temporal,
-};
 pub use blackboard::{Blackboard, BlackboardSlot, FrameMotionVectorsSlot};
 pub use builder::GraphBuilder;
 pub use cache::{GraphCache, GraphCacheKey};
-// camera math + state extracted to `crate::camera`. Re-exports kept here so `crate::render_graph::…`
-// paths resolve until consumers migrate (Phase D).
-pub use crate::camera::{
-    DESKTOP_FOV_DEGREES_MAX, DESKTOP_FOV_DEGREES_MIN, HostCameraFrame, SecondaryCameraId,
-    StereoViewMatrices, ViewId, apply_view_handedness_fix, clamp_desktop_fov_degrees,
-    effective_head_output_clip_planes, reverse_z_orthographic, reverse_z_perspective,
-    reverse_z_perspective_openxr_fov, view_matrix_for_world_mesh_render_space,
-    view_matrix_from_render_transform,
-};
 pub use compiled::{
     ColorAttachmentTemplate, CompileStats, CompiledRenderGraph, DepthAttachmentTemplate, DotFormat,
     ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewTarget, RenderPassTemplate,
@@ -140,14 +103,6 @@ pub use frame_params::{
     PreparedWorldMeshForwardFrame, WorldMeshForwardPipelineState, WorldMeshForwardPlanSlot,
     WorldMeshHelperNeeds,
 };
-// Hi-Z extracted to `crate::occlusion`; re-exports kept for graph/passes/backend consumers.
-pub use crate::mesh_deform::{SkinningPaletteParams, build_skinning_palette};
-pub use crate::occlusion::{
-    HI_Z_PYRAMID_MAX_LONG_EDGE, HiZBuildRecord, HiZCpuSnapshot, HiZCullData, HiZGpuState,
-    HiZHistoryTarget, HiZStereoCpuSnapshot, encode_hi_z_build, hi_z_pyramid_dimensions,
-    hi_z_snapshot_from_linear_linear, hi_z_view_proj_matrices, mesh_fully_occluded_in_hiz,
-    mip_dimensions, mip_levels_for_extent, stereo_hiz_keeps_draw, unpack_linear_rows_to_mips,
-};
 pub use ids::{GroupId, PassId};
 pub use output_depth_mode::{OutputDepthMode, OutputDepthModeError};
 pub use pass::{
@@ -161,10 +116,6 @@ pub use resources::{
     TextureAttachmentResolve, TextureAttachmentTarget, TextureHandle, TextureResourceHandle,
     TransientArrayLayers, TransientBufferDesc, TransientExtent, TransientSampleCount,
     TransientSubresourceDesc, TransientTextureDesc, TransientTextureFormat,
-};
-// Depth-clear / compare constants moved to `crate::gpu::depth`. Re-exported for back-compat.
-pub use crate::gpu::{
-    MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE, main_forward_depth_stencil_format,
 };
 pub use schedule::{FrameSchedule, ScheduleHudSnapshot, ScheduleStep, ScheduleValidationError};
 pub use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};
@@ -438,9 +389,9 @@ fn add_main_graph_passes_and_edges(
     msaa_sample_count: u8,
     cluster_assignment: crate::config::ClusterAssignmentMode,
 ) -> Result<CompiledRenderGraph, GraphBuildError> {
-    let deform = builder.add_compute_pass(Box::new(passes::MeshDeformPass::new()));
-    let clustered = builder.add_compute_pass(Box::new(passes::ClusteredLightPass::new(
-        passes::ClusteredLightGraphResources {
+    let deform = builder.add_compute_pass(Box::new(crate::passes::MeshDeformPass::new()));
+    let clustered = builder.add_compute_pass(Box::new(crate::passes::ClusteredLightPass::new(
+        crate::passes::ClusteredLightGraphResources {
             lights: h.lights,
             cluster_light_counts: h.cluster_light_counts,
             cluster_light_indices: h.cluster_light_indices,
@@ -448,7 +399,7 @@ fn add_main_graph_passes_and_edges(
         },
         cluster_assignment,
     )));
-    let forward_resources = passes::WorldMeshForwardGraphResources {
+    let forward_resources = crate::passes::WorldMeshForwardGraphResources {
         scene_color_hdr: h.scene_color_hdr,
         scene_color_hdr_msaa: h.scene_color_hdr_msaa,
         depth: h.depth,
@@ -461,46 +412,46 @@ fn add_main_graph_passes_and_edges(
         frame_uniforms: h.frame_uniforms,
     };
     let forward_prepare = builder.add_callback_pass(Box::new(
-        passes::WorldMeshForwardPreparePass::new(forward_resources),
+        crate::passes::WorldMeshForwardPreparePass::new(forward_resources),
     ));
     let forward_opaque = builder.add_raster_pass(Box::new(
-        passes::WorldMeshForwardOpaquePass::new(forward_resources),
+        crate::passes::WorldMeshForwardOpaquePass::new(forward_resources),
     ));
     let depth_snapshot = builder.add_compute_pass(Box::new(
-        passes::WorldMeshDepthSnapshotPass::new(forward_resources),
+        crate::passes::WorldMeshDepthSnapshotPass::new(forward_resources),
     ));
     let forward_intersect = builder.add_raster_pass(Box::new(
-        passes::WorldMeshForwardIntersectPass::new(forward_resources),
+        crate::passes::WorldMeshForwardIntersectPass::new(forward_resources),
     ));
     // Color resolve replaces the wgpu automatic linear `resolve_target`. The pre-grab resolve
     // makes a single-sample HDR snapshot available to grab-pass shaders; the final resolve moves
     // any grab-pass transparent MSAA color back into the single-sample HDR target consumed by
     // post-processing. In 1× mode each forward pass writes `scene_color_hdr` directly.
-    let color_resolve_resources = passes::WorldMeshForwardColorResolveGraphResources {
+    let color_resolve_resources = crate::passes::WorldMeshForwardColorResolveGraphResources {
         scene_color_hdr_msaa: h.scene_color_hdr_msaa,
         scene_color_hdr: h.scene_color_hdr,
     };
     let pre_grab_color_resolve = (msaa_sample_count > 1).then(|| {
         builder.add_raster_pass(Box::new(
-            passes::WorldMeshForwardColorResolvePass::new_pre_grab(color_resolve_resources),
+            crate::passes::WorldMeshForwardColorResolvePass::new_pre_grab(color_resolve_resources),
         ))
     });
     let color_snapshot = builder.add_compute_pass(Box::new(
-        passes::WorldMeshColorSnapshotPass::new(forward_resources),
+        crate::passes::WorldMeshColorSnapshotPass::new(forward_resources),
     ));
     let forward_transparent = builder.add_raster_pass(Box::new(
-        passes::WorldMeshForwardTransparentPass::new(forward_resources),
+        crate::passes::WorldMeshForwardTransparentPass::new(forward_resources),
     ));
     let final_color_resolve = (msaa_sample_count > 1).then(|| {
         builder.add_raster_pass(Box::new(
-            passes::WorldMeshForwardColorResolvePass::new_final(color_resolve_resources),
+            crate::passes::WorldMeshForwardColorResolvePass::new_final(color_resolve_resources),
         ))
     });
     let depth_resolve = builder.add_compute_pass(Box::new(
-        passes::WorldMeshForwardDepthResolvePass::new(forward_resources),
+        crate::passes::WorldMeshForwardDepthResolvePass::new(forward_resources),
     ));
-    let hiz = builder.add_compute_pass(Box::new(passes::HiZBuildPass::new(
-        passes::HiZBuildGraphResources {
+    let hiz = builder.add_compute_pass(Box::new(crate::passes::HiZBuildPass::new(
+        crate::passes::HiZBuildGraphResources {
             depth: h.depth,
             hi_z_current: h.hi_z_current,
         },
@@ -510,8 +461,8 @@ fn add_main_graph_passes_and_edges(
     let chain_output = chain.build_into_graph(&mut builder, h.scene_color_hdr, post_processing);
     let compose_input = chain_output.final_handle();
 
-    let compose = builder.add_raster_pass(Box::new(passes::SceneColorComposePass::new(
-        passes::SceneColorComposeGraphResources {
+    let compose = builder.add_raster_pass(Box::new(crate::passes::SceneColorComposePass::new(
+        crate::passes::SceneColorComposeGraphResources {
             scene_color_hdr: compose_input,
             frame_color: h.color,
         },
@@ -562,15 +513,15 @@ fn build_default_post_processing_chain(
     post_processing: &crate::config::PostProcessingSettings,
 ) -> post_processing::PostProcessChain {
     let mut chain = post_processing::PostProcessChain::new();
-    chain.push(Box::new(passes::GtaoEffect {
+    chain.push(Box::new(crate::passes::GtaoEffect {
         settings: post_processing.gtao,
         depth: h.depth,
         frame_uniforms: h.frame_uniforms,
     }));
-    chain.push(Box::new(passes::BloomEffect {
+    chain.push(Box::new(crate::passes::BloomEffect {
         settings: post_processing.bloom,
     }));
-    chain.push(Box::new(passes::AcesTonemapEffect));
+    chain.push(Box::new(crate::passes::AcesTonemapEffect));
     chain
 }
 

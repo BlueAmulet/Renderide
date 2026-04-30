@@ -7,9 +7,7 @@ use crate::gpu::{GpuContext, GpuLimits};
 use crate::scene::SceneCoordinator;
 
 use super::error::GraphExecuteError;
-use super::frame_params::{
-    FrameViewClear, HostCameraFrame, PrefetchedWorldMeshViewDraws, ViewId, WorldMeshHelperNeeds,
-};
+use super::frame_params::{FrameViewClear, PrefetchedWorldMeshViewDraws, WorldMeshHelperNeeds};
 use super::ids::{GroupId, PassId};
 use super::pass::{GroupScope, PassKind, PassMergeHint, PassNode};
 use super::resources::{
@@ -17,6 +15,7 @@ use super::resources::{
     TextureAttachmentTarget, TransientBufferDesc, TransientSubresourceDesc, TransientTextureDesc,
 };
 use super::schedule::FrameSchedule;
+use crate::camera::{HostCameraFrame, ViewId};
 use crate::world_mesh::draw_prep::{CameraTransformDrawFilter, WorldMeshDrawCollection};
 
 /// Single-view color + depth for secondary cameras rendering to a host [`crate::resources::GpuRenderTexture`].

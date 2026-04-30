@@ -6,7 +6,7 @@
 //! multi-bounce fit for near-field indirect light, and writes the HDR scene color modulated by
 //! the resulting visibility factor. Must run **before** tonemapping so AO acts on linear light.
 //!
-//! Multiview is handled the same way as [`crate::render_graph::passes::AcesTonemapPass`]: two
+//! Multiview is handled the same way as [`crate::passes::AcesTonemapPass`]: two
 //! pipeline variants (mono / multiview) picked via a `multiview_mask_override` of
 //! `NonZeroU32::new(3)` in stereo, with `#ifdef MULTIVIEW` in the shader selecting
 //! `@builtin(view_index)` and the depth-array sample path.
@@ -19,6 +19,9 @@ use std::sync::LazyLock;
 use pipeline::{GtaoParamsGpu, GtaoPipelineCache};
 
 use crate::config::{GtaoSettings, PostProcessingSettings};
+use crate::passes::helpers::{
+    color_attachment, missing_frame_params, missing_pass_resource, read_fragment_sampled_texture,
+};
 use crate::render_graph::builder::GraphBuilder;
 use crate::render_graph::compiled::RenderPassTemplate;
 use crate::render_graph::context::RasterPassCtx;
@@ -26,9 +29,6 @@ use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::frame_params::{GtaoSettingsSlot, PerViewFramePlanSlot};
 use crate::render_graph::gpu_cache::raster_stereo_mask_override;
 use crate::render_graph::pass::{PassBuilder, RasterPass};
-use crate::render_graph::passes::helpers::{
-    color_attachment, missing_frame_params, missing_pass_resource, read_fragment_sampled_texture,
-};
 use crate::render_graph::post_processing::{EffectPasses, PostProcessEffect, PostProcessEffectId};
 use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, TextureAccess, TextureHandle,

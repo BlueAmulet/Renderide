@@ -129,7 +129,7 @@ impl CompiledRenderGraph {
     fn build_per_view_frame_params<'a>(
         shared: &'a PerViewRecordShared<'a>,
         resolved: &'a ResolvedView<'a>,
-        host_camera: &super::super::super::frame_params::HostCameraFrame,
+        host_camera: &crate::camera::HostCameraFrame,
         draw_filter: Option<crate::world_mesh::draw_prep::CameraTransformDrawFilter>,
         clear: super::super::super::frame_params::FrameViewClear,
     ) -> crate::render_graph::frame_params::FrameRenderParams<'a> {

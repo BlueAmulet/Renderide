@@ -36,7 +36,7 @@ use scene_snapshot::{
 ///
 /// `@group(0)` bind groups are per-view and are owned by
 /// [`crate::backend::frame_resource_manager::PerViewFrameState`], keyed by
-/// [`crate::render_graph::ViewId`], and built using
+/// [`crate::camera::ViewId`], and built using
 /// [`Self::build_per_view_bind_group`]. Every per-view bind group references the **same**
 /// shared cluster buffers from [`Self::cluster_cache`].
 pub struct FrameGpuResources {
@@ -801,8 +801,7 @@ impl FrameGpuResources {
         let refs = cluster_cache
             .current_refs()
             .ok_or(FrameGpuInitError::ClusterGetBuffersFailed)?;
-        let scene_depth_format =
-            crate::render_graph::main_forward_depth_stencil_format(device.features());
+        let scene_depth_format = crate::gpu::main_forward_depth_stencil_format(device.features());
         let scene_snapshots =
             SceneSnapshotSet::new(device, scene_depth_format, DEFAULT_SCENE_COLOR_FORMAT);
         let (
@@ -1017,7 +1016,7 @@ impl FrameGpuResources {
         Self::write_lights_buffer_inner(queue, &self.lights_buffer, lights);
     }
 
-    /// Uploads only the lights storage buffer (used by [`crate::render_graph::passes::ClusteredLightPass`]).
+    /// Uploads only the lights storage buffer (used by [`crate::passes::ClusteredLightPass`]).
     pub fn write_lights_buffer(&self, queue: &wgpu::Queue, lights: &[GpuLight]) {
         Self::write_lights_buffer_inner(queue, &self.lights_buffer, lights);
     }

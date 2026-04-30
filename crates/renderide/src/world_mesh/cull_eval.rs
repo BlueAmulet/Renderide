@@ -2,7 +2,7 @@
 //!
 //! Shares one bounds evaluation per draw slot using the same view–projection rules as the forward pass
 //! ([`super::cull::build_world_mesh_cull_proj_params`]), including
-//! [`crate::render_graph::frame_params::HostCameraFrame::explicit_world_to_view`] when set (e.g. for secondary
+//! [`crate::camera::HostCameraFrame::explicit_world_to_view`] when set (e.g. for secondary
 //! render-texture cameras).
 
 use glam::{Mat4, Vec3};
@@ -17,10 +17,10 @@ use super::frustum::{
     world_aabb_visible_in_homogeneous_clip,
 };
 use crate::camera::view_matrix_for_world_mesh_render_space;
-use crate::render_graph::HiZCullData;
-use crate::render_graph::hi_z_view_proj_matrices;
-use crate::render_graph::mesh_fully_occluded_in_hiz;
-use crate::render_graph::stereo_hiz_keeps_draw;
+use crate::occlusion::HiZCullData;
+use crate::occlusion::hi_z_view_proj_matrices;
+use crate::occlusion::mesh_fully_occluded_in_hiz;
+use crate::occlusion::stereo_hiz_keeps_draw;
 
 /// Frustum acceptance for one world AABB using the same stereo / overlay rules as the forward pass.
 fn cpu_cull_frustum_visible(
@@ -256,8 +256,8 @@ mod hi_z_temporal_match_tests {
     use hashbrown::HashMap;
 
     use super::hi_z_snapshot_matches_temporal;
+    use crate::occlusion::HiZCullData;
     use crate::occlusion::hi_z_cpu::{HiZCpuSnapshot, total_float_count};
-    use crate::render_graph::HiZCullData;
     use crate::world_mesh::cull::{HiZTemporalState, WorldMeshCullProjParams};
 
     fn dummy_temporal(depth_viewport_px: (u32, u32)) -> HiZTemporalState {

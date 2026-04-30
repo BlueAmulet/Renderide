@@ -6,12 +6,12 @@
 
 use std::sync::Arc;
 
-use crate::backend::mesh_deform::{INITIAL_PER_DRAW_UNIFORM_SLOTS, PER_DRAW_UNIFORM_STRIDE};
 use crate::gpu::GpuLimits;
 use crate::materials::PipelineBuildError;
+use crate::mesh_deform::{INITIAL_PER_DRAW_UNIFORM_SLOTS, PER_DRAW_UNIFORM_STRIDE};
 use crate::pipelines::raster::NullFamily;
 
-/// GPU storage slab: one [`crate::backend::mesh_deform::PaddedPerDrawUniforms`] slot (256 bytes) per
+/// GPU storage slab: one [`crate::mesh_deform::PaddedPerDrawUniforms`] slot (256 bytes) per
 /// mesh draw. Shaders use `instance_index` to select the per-draw row; the downlevel path uses a
 /// per-draw dynamic storage offset at bind time instead.
 ///
@@ -130,7 +130,7 @@ impl PerDrawResources {
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
+    use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 
     /// Pure Filament growth formula for unit testing (no GPU device needed).
     fn filament_growth(need_slots: usize, cap: usize) -> usize {

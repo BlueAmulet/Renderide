@@ -9,7 +9,7 @@
 //!   and window [`input`](crate::frontend::input) (winit to [`InputState`](crate::shared::InputState)).
 //! - **[`scene`]** — Render spaces, transforms, mesh renderables, host light cache (no wgpu).
 //! - **[`backend`]** — GPU device usage, mesh/texture pools, material property store, uploads,
-//!   [`MeshPreprocessPipelines`](crate::backend::mesh_deform::MeshPreprocessPipelines), and the compiled
+//!   [`MeshPreprocessPipelines`](crate::mesh_deform::MeshPreprocessPipelines), and the compiled
 //!   [`render_graph`](crate::render_graph).
 //!
 //! [`RendererRuntime`](crate::runtime::RendererRuntime) composes these three; prefer adding new
@@ -103,8 +103,8 @@ pub mod xr;
 /// Small set of types for embedding the renderer; import everything else via submodules
 /// (for example `crate::materials::MaterialRegistry` in-tree, `renderide::materials::…` externally).
 pub mod prelude {
+    pub use crate::camera::HostCameraFrame;
     pub use crate::config::{MsaaSampleCount, RendererSettings, RendererSettingsHandle};
-    pub use crate::render_graph::HostCameraFrame;
     pub use crate::runtime::{InitState, RendererRuntime};
     pub use crate::xr::{XrFrameRenderer, XrHostCameraSync};
 }

@@ -89,7 +89,7 @@ pub struct GpuMesh {
     /// Decomposed position stream (`vec4<f32>` per vertex) for compute + debug raster.
     pub positions_buffer: Option<Arc<wgpu::Buffer>>,
     /// Bind-pose normal stream (`vec4<f32>` per vertex; xyz used). Skinning writes deformed normals
-    /// to the GPU skin cache arena; see [`crate::backend::mesh_deform::GpuSkinCache`].
+    /// to the GPU skin cache arena; see [`crate::mesh_deform::GpuSkinCache`].
     pub normals_buffer: Option<Arc<wgpu::Buffer>>,
     /// `vec2<f32>` UV0 stream (`8` bytes/vertex) for embedded raster materials; zeros when uv0 is absent.
     pub uv0_buffer: Option<Arc<wgpu::Buffer>>,

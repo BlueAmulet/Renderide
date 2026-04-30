@@ -3,12 +3,12 @@
 use crate::assets::material::{MaterialDictionary, MaterialPropertyStore};
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter};
 use crate::pipelines::ShaderPermutation;
-use crate::render_graph::{
-    FrameMaterialBatchCache, FramePreparedRenderables, WorldMeshDrawCollectParallelism,
-};
 use crate::resources::MeshPool;
 use crate::scene::SceneCoordinator;
 use crate::shared::RenderingContext;
+use crate::world_mesh::{
+    FrameMaterialBatchCache, FramePreparedRenderables, WorldMeshDrawCollectParallelism,
+};
 
 use super::{OcclusionSystem, RenderBackend};
 

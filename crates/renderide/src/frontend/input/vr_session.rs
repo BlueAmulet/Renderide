@@ -9,10 +9,10 @@
 
 use glam::{Quat, Vec3};
 
-use crate::output_device::head_output_device_is_vr;
 use crate::shared::{
     HandState, HeadOutputDevice, HeadsetConnection, HeadsetState, VRControllerState, VRInputsState,
 };
+use crate::xr::output_device::head_output_device_is_vr;
 
 /// Builds VR input for the host when the session targets a VR [`HeadOutputDevice`].
 ///

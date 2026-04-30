@@ -2,7 +2,7 @@
 
 use hashbrown::HashMap;
 
-use crate::render_graph::ViewId;
+use crate::camera::ViewId;
 
 /// Per-view resource map with the repeated create/get/retire lifecycle used by frame resources.
 pub(crate) struct PerViewResourceMap<T> {

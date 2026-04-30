@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::backend::RenderBackend;
 use crate::gpu::GpuContext;
 use crate::materials::RasterPipelineKind;
-use crate::render_graph::{WorldMeshDrawStateRow, WorldMeshDrawStats};
+use crate::world_mesh::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
 /// One row in the **Shader routes** tab: identifies the host shader, its backing pipeline, and
 /// whether the renderer has a real embedded shader for it or falls back to `null`.

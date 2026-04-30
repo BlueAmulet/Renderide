@@ -22,12 +22,13 @@ use froxel_cpu::{AUTO_CPU_FROXEL_LIGHT_THRESHOLD, FroxelLightPlanner};
 
 use crate::backend::GpuLight;
 use crate::backend::{CLUSTER_COUNT_Z, CLUSTER_PARAMS_UNIFORM_SIZE, TILE_SIZE};
+use crate::camera::HostCameraFrame;
+use crate::camera::ViewId;
 use crate::config::ClusterAssignmentMode;
 use crate::gpu::GpuLimits;
-use crate::render_graph::ViewId;
 use crate::render_graph::context::ComputePassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
-use crate::render_graph::frame_params::{HostCameraFrame, PerViewFramePlanSlot};
+use crate::render_graph::frame_params::PerViewFramePlanSlot;
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::render_graph::pass::{ComputePass, PassBuilder};
 use crate::render_graph::resources::{

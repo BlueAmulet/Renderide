@@ -5,10 +5,10 @@ use std::sync::Arc;
 use glam::Mat4;
 use wgpu::util::DeviceExt;
 
-use crate::backend::mesh_deform::{
+use crate::gpu::GpuLimits;
+use crate::mesh_deform::{
     BLENDSHAPE_SPARSE_MIN_BUFFER_BYTES, blendshape_sparse_buffers_fit_device,
 };
-use crate::gpu::GpuLimits;
 use crate::shared::{MeshUploadData, VertexAttributeDescriptor, VertexAttributeType};
 
 use super::gpu_mesh_hints::wgpu_index_format;

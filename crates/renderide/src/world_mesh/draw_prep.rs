@@ -1,4 +1,4 @@
-//! Flatten scene mesh renderables into sorted draw items for [`super::passes::WorldMeshForwardPreparePass`](crate::render_graph::passes::WorldMeshForwardPreparePass).
+//! Flatten scene mesh renderables into sorted draw items for [`super::passes::WorldMeshForwardPreparePass`](crate::passes::WorldMeshForwardPreparePass).
 //!
 //! Batches are keyed by raster pipeline kind (from host shader → [`crate::materials::resolve_raster_pipeline`]),
 //! material asset id, property block slot0, and skinned—ordering mirrors Unity-style batch boundaries so

@@ -5,7 +5,7 @@ use glam::Mat4;
 use crate::scene::SceneCoordinator;
 use crate::shared::{CameraProjection, CameraState, HeadOutputDevice};
 
-use super::frame_params::HostCameraFrame;
+use crate::camera::HostCameraFrame;
 use crate::camera::{
     apply_view_handedness_fix, clamp_desktop_fov_degrees, effective_head_output_clip_planes,
     reverse_z_orthographic, reverse_z_perspective,
@@ -88,8 +88,8 @@ mod tests {
     use crate::scene::{RenderSpaceId, SceneCoordinator};
     use crate::shared::{CameraProjection, CameraState, HeadOutputDevice};
 
-    use super::super::frame_params::HostCameraFrame;
     use super::{camera_state_enabled, host_camera_frame_for_render_texture};
+    use crate::camera::HostCameraFrame;
     use crate::camera::apply_view_handedness_fix;
 
     #[test]

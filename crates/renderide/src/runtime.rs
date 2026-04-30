@@ -55,7 +55,8 @@ use crate::frontend::RendererFrontend;
 use crate::gpu::GpuContext;
 use crate::scene::RenderSpaceId;
 
-use crate::render_graph::{GraphExecuteError, HostCameraFrame};
+use crate::camera::HostCameraFrame;
+use crate::render_graph::GraphExecuteError;
 
 pub use crate::frontend::InitState;
 use crate::ipc::SharedMemoryAccessor;

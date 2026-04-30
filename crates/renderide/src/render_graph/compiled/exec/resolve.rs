@@ -11,7 +11,6 @@ use super::super::super::context::{
     ResolvedImportedHistoryTexture, ResolvedImportedTexture,
 };
 use super::super::super::error::GraphExecuteError;
-use super::super::super::frame_params::ViewId;
 use super::super::super::resources::{
     BackendFrameBufferKind, BufferImportSource, FrameTargetRole, HistorySlotId, ImportSource,
     ImportedBufferDecl, ImportedBufferHandle, ImportedTextureDecl, ImportedTextureHandle,
@@ -21,6 +20,7 @@ use super::super::super::transient_pool::{BufferKey, TextureKey, TransientPool};
 use super::super::helpers;
 use super::super::{CompiledRenderGraph, FrameViewTarget, ResolvedView};
 use super::{OwnedResolvedView, TransientTextureResolveSurfaceParams};
+use crate::camera::ViewId;
 
 impl CompiledRenderGraph {
     /// Acquires transient texture leases for this view and inserts them into `resources`.

@@ -3,7 +3,7 @@
 use glam::{Mat4, Quat, Vec3};
 use openxr as xr;
 
-use crate::render_graph::{apply_view_handedness_fix, reverse_z_perspective_openxr_fov};
+use crate::camera::{apply_view_handedness_fix, reverse_z_perspective_openxr_fov};
 use crate::scene::render_transform_to_matrix;
 use crate::shared::RenderTransform;
 

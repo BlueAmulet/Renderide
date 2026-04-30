@@ -10,7 +10,7 @@ impl RenderBackend {
     /// Unified multi-view entry: one Hi-Z readback (unless skipped), one encoder, one submit.
     ///
     /// When `skip_hi_z_begin_readback` is `false`, drains Hi-Z `map_async` readbacks first
-    /// ([`crate::backend::OcclusionSystem::hi_z_begin_frame_readback`]). Set to `true` when the
+    /// ([`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`]). Set to `true` when the
     /// caller already invoked readback this tick (e.g. the runtime drains Hi-Z once at the top
     /// of [`crate::app::RenderideApp::tick_frame`] via
     /// [`crate::runtime::RendererRuntime::drain_hi_z_readback`]).

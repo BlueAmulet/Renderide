@@ -2,11 +2,12 @@
 
 use crossbeam_channel as mpsc;
 
-use crate::render_graph::{
-    HiZCpuSnapshot, HiZStereoCpuSnapshot, HiZTemporalState, OutputDepthMode,
-    hi_z_snapshot_from_linear_linear, mip_dimensions, mip_levels_for_extent,
-    unpack_linear_rows_to_mips,
+use crate::occlusion::{
+    HiZCpuSnapshot, HiZStereoCpuSnapshot, hi_z_snapshot_from_linear_linear, mip_dimensions,
+    mip_levels_for_extent, unpack_linear_rows_to_mips,
 };
+use crate::render_graph::OutputDepthMode;
+use crate::world_mesh::HiZTemporalState;
 
 use super::readback_ring::{GpuReadbackRing, pending_none_array};
 
@@ -16,7 +17,7 @@ pub(crate) const HIZ_MAX_MIPS: u32 = 8;
 /// Triple-buffered staging so a slot is not reused until prior `map_async` completes (non-blocking).
 pub(crate) use super::readback_ring::HIZ_STAGING_RING;
 
-/// GPU + CPU Hi-Z state owned by [`crate::backend::OcclusionSystem`].
+/// GPU + CPU Hi-Z state owned by [`crate::occlusion::OcclusionSystem`].
 pub struct HiZGpuState {
     /// Last successfully read desktop pyramid (previous frame).
     pub desktop: Option<HiZCpuSnapshot>,
@@ -85,7 +86,7 @@ impl HiZGpuState {
     ///
     /// ### Re-entrance
     ///
-    /// [`crate::backend::OcclusionSystem::hi_z_begin_frame_readback`] drains
+    /// [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`] drains
     /// `on_submitted_work_done` callbacks via [`wgpu::Device::poll`] **before** locking this
     /// state, so the [`Self::mark_submit_done`] callback does not re-enter the mutex.
     /// This helper polls-then-locks itself and is meant for direct callers (mainly tests).
@@ -97,7 +98,7 @@ impl HiZGpuState {
 
     /// Non-polling variant of [`Self::begin_frame_readback`] used when the caller has already
     /// drained completed queue callbacks via [`wgpu::Device::poll`] outside any
-    /// [`HiZGpuState`] mutex (see [`crate::backend::OcclusionSystem::hi_z_begin_frame_readback`]).
+    /// [`HiZGpuState`] mutex (see [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`]).
     pub(crate) fn drain_completed_map_async(&mut self) {
         let Some(scratch) = self.scratch.as_ref() else {
             return;
@@ -208,7 +209,7 @@ impl HiZGpuState {
     }
 
     /// Issues `map_async` for every slot whose submit has completed since the last call.
-    /// Runs on the main thread from [`crate::backend::OcclusionSystem::hi_z_begin_frame_readback`].
+    /// Runs on the main thread from [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`].
     pub(crate) fn start_ready_maps(&mut self) {
         let primary_staging = self
             .scratch

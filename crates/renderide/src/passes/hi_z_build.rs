@@ -1,6 +1,6 @@
 //! Builds a CPU-readable hierarchical depth pyramid from the main depth attachment after the forward pass.
 
-use crate::backend::HiZBuildInput;
+use crate::occlusion::HiZBuildInput;
 use crate::render_graph::context::{ComputePassCtx, PostSubmitContext};
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::pass::{ComputePass, PassBuilder};

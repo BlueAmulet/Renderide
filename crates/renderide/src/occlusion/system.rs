@@ -1,8 +1,8 @@
 //! Hierarchical depth (Hi-Z) occlusion culling subsystem.
 //!
 //! Owns GPU pyramid state per logical view ([`ViewId`]), CPU readback snapshots, and
-//! temporal view/projection data used by [`crate::render_graph::passes::WorldMeshForwardOpaquePass`] and
-//! [`crate::render_graph::passes::HiZBuildPass`].
+//! temporal view/projection data used by [`crate::passes::WorldMeshForwardOpaquePass`] and
+//! [`crate::passes::HiZBuildPass`].
 
 use std::sync::Arc;
 
@@ -10,12 +10,12 @@ use glam::Mat4;
 use hashbrown::HashMap;
 use parking_lot::Mutex;
 
+use crate::camera::ViewId;
+use crate::occlusion::HiZCullData;
 use crate::occlusion::gpu::{HiZBuildRecord, HiZGpuState, HiZHistoryTarget, encode_hi_z_build};
-use crate::render_graph::ViewId;
-use crate::render_graph::{
-    HiZCullData, HiZTemporalState, OutputDepthMode, WorldMeshCullProjParams, capture_hi_z_temporal,
-};
+use crate::render_graph::OutputDepthMode;
 use crate::scene::SceneCoordinator;
+use crate::world_mesh::{HiZTemporalState, WorldMeshCullProjParams, capture_hi_z_temporal};
 
 /// Depth source, layout, and logical view for [`OcclusionSystem::encode_hi_z_build_pass`].
 pub(crate) struct HiZBuildInput<'a> {
@@ -210,7 +210,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::OcclusionSystem;
-    use crate::render_graph::ViewId;
+    use crate::camera::ViewId;
     use crate::scene::RenderSpaceId;
 
     /// Builds a secondary-camera view id for occlusion tests.

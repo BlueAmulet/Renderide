@@ -1,9 +1,8 @@
 //! OpenXR helpers used by the winit [`crate::app::RenderideApp`] loop: frame tick state and HMD multiview submission.
 
+use crate::camera::{StereoViewMatrices, effective_head_output_clip_planes};
 use crate::gpu::{GpuContext, GpuQueueAccessGate, VR_MIRROR_EYE_LAYER, VrMirrorBlitResources};
-use crate::render_graph::{
-    ExternalFrameTargets, StereoViewMatrices, effective_head_output_clip_planes,
-};
+use crate::render_graph::ExternalFrameTargets;
 use crate::xr::{
     XR_COLOR_FORMAT, XR_VIEW_COUNT, XrFrameRenderer, XrHostCameraSync, XrStereoSwapchain,
     XrWgpuHandles, create_stereo_depth_texture,

@@ -36,7 +36,7 @@ pub struct RenderingSettings {
     /// render textures stay at 1× until extended separately.
     pub msaa: MsaaSampleCount,
     /// Format for the **scene-color** HDR target the forward pass renders into before
-    /// [`crate::render_graph::passes::SceneColorComposePass`] writes the displayable target.
+    /// [`crate::passes::SceneColorComposePass`] writes the displayable target.
     ///
     /// This is intermediate precision/range (e.g. [`SceneColorFormat::Rgba16Float`]), not the OS
     /// swapchain HDR mode.

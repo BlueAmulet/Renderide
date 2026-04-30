@@ -1,7 +1,7 @@
 //! Label strings and draw-row predicates for debug HUD tables.
 
 use crate::materials::{MaterialBlendMode, RasterPipelineKind};
-use crate::render_graph::WorldMeshDrawStateRow;
+use crate::world_mesh::WorldMeshDrawStateRow;
 
 pub(super) fn device_type_label(kind: wgpu::DeviceType) -> &'static str {
     match kind {

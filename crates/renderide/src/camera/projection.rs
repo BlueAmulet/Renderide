@@ -15,7 +15,7 @@ pub const DESKTOP_FOV_DEGREES_MIN: f32 = 1e-4;
 /// Maximum desktop vertical FOV in **degrees** after clamping (non-inclusive of 180° degeneracy).
 pub const DESKTOP_FOV_DEGREES_MAX: f32 = 179.0;
 
-/// Default fallback when the host sends non-finite FOV (matches [`crate::render_graph::frame_params::HostCameraFrame::default`]).
+/// Default fallback when the host sends non-finite FOV (matches [`crate::camera::HostCameraFrame::default`]).
 pub(crate) const DEFAULT_DESKTOP_FOV_DEGREES: f32 = 60.0;
 
 /// Clamps host `desktopFOV` to a sane range before perspective projection.

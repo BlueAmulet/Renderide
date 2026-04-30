@@ -22,7 +22,7 @@ use naga::front::wgsl::parse_str;
 use naga::proc::Layouter;
 use naga::valid::{Capabilities, ValidationFlags, Validator};
 
-use crate::backend::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
+use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 
 use self::bind_layout::global_to_layout_entry;
 use self::fingerprint::fingerprint_layout;

@@ -6,14 +6,14 @@ use std::num::NonZeroU32;
 use super::helpers::{attachment_format, stereo_mask_override};
 use super::pipeline::{BloomPipelineCache, BloomPipelineKind};
 use crate::config::{BloomCompositeMode, BloomSettings};
+use crate::passes::helpers::{
+    color_attachment, missing_frame_params, missing_pass_resource, read_fragment_sampled_texture,
+};
 use crate::render_graph::compiled::RenderPassTemplate;
 use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::frame_params::BloomSettingsSlot;
 use crate::render_graph::pass::{PassBuilder, RasterPass};
-use crate::render_graph::passes::helpers::{
-    color_attachment, missing_frame_params, missing_pass_resource, read_fragment_sampled_texture,
-};
 use crate::render_graph::resources::TextureHandle;
 
 /// Reads bloom mip `i` (input) and blends into bloom mip `i-1` (output) using a constant-factor

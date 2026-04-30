@@ -11,7 +11,7 @@ use std::fmt;
 use parking_lot::Mutex;
 use rayon::prelude::*;
 
-use crate::backend::mesh_deform::{EntryNeed, SkinCacheKey, SkinCacheRendererKind};
+use crate::mesh_deform::{EntryNeed, SkinCacheKey, SkinCacheRendererKind};
 use crate::render_graph::context::ComputePassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::pass::{ComputePass, PassBuilder, PassPhase};
@@ -218,7 +218,7 @@ fn report_mesh_deform_stats(
     work_item_count: u64,
     dispatch_stats: MeshDeformRecordStats,
     skipped_allocations: u64,
-    skin_cache: &crate::backend::mesh_deform::GpuSkinCache,
+    skin_cache: &crate::mesh_deform::GpuSkinCache,
 ) {
     let cache_stats = skin_cache.frame_stats();
     crate::profiling::plot_mesh_deform(crate::profiling::MeshDeformProfileSample {

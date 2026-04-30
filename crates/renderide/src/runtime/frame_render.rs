@@ -5,14 +5,18 @@
 use rayon::prelude::*;
 
 use crate::backend::{ExtractedFrameShared, RenderBackend};
+use crate::camera::ViewId;
 use crate::gpu::GpuContext;
+use crate::occlusion::HiZCullData;
 use crate::render_graph::{
-    DrawCollectionContext, ExternalFrameTargets, FrameView, FrameViewClear, GraphExecuteError,
-    HiZCullData, HiZTemporalState, PrefetchedWorldMeshViewDraws, ViewId, WorldMeshCullInput,
-    WorldMeshCullProjParams, WorldMeshDrawCollectParallelism, WorldMeshDrawPlan,
-    build_world_mesh_cull_proj_params, camera_state_enabled,
-    collect_and_sort_world_mesh_draws_with_parallelism, draw_filter_from_camera_entry,
+    ExternalFrameTargets, FrameView, FrameViewClear, GraphExecuteError,
+    PrefetchedWorldMeshViewDraws, WorldMeshDrawPlan, camera_state_enabled,
     host_camera_frame_for_render_texture,
+};
+use crate::world_mesh::{
+    DrawCollectionContext, HiZTemporalState, WorldMeshCullInput, WorldMeshCullProjParams,
+    WorldMeshDrawCollectParallelism, build_world_mesh_cull_proj_params,
+    collect_and_sort_world_mesh_draws_with_parallelism, draw_filter_from_camera_entry,
 };
 
 use super::RendererRuntime;
@@ -680,7 +684,7 @@ mod tests {
         assert_ne!(first, fallback);
         assert_eq!(
             fallback,
-            ViewId::SecondaryCamera(crate::render_graph::SecondaryCameraId::new(
+            ViewId::SecondaryCamera(crate::camera::SecondaryCameraId::new(
                 crate::scene::RenderSpaceId(9),
                 2
             ))

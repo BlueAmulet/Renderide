@@ -5,7 +5,7 @@
 //! ([`FrameGpuResources`]), the empty `@group(1)` fallback ([`EmptyMaterialBindGroup`]),
 //! per-view cluster buffer caches and `@group(0)` bind groups ([`PerViewFrameState`]), a
 //! `@group(2)` per-draw instance storage slab per render view ([`PerDrawResources`]), and the
-//! CPU-side packed light buffer used by [`crate::render_graph::passes::ClusteredLightPass`] and
+//! CPU-side packed light buffer used by [`crate::passes::ClusteredLightPass`] and
 //! the forward pass.
 //!
 //! Per-view cluster buffers are each view's own independent storage so that views cannot stomp
@@ -23,9 +23,9 @@ use hashbrown::HashSet;
 use parking_lot::Mutex;
 
 use crate::backend::cluster_gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, ClusterBufferRefs};
+use crate::camera::ViewId;
 use crate::gpu::GpuLimits;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
-use crate::render_graph::ViewId;
 
 use super::frame_gpu::{
     EmptyMaterialBindGroup, FrameGpuResources, PerViewSceneSnapshotSyncParams,
@@ -33,9 +33,9 @@ use super::frame_gpu::{
 };
 use super::frame_gpu_bindings::{FrameGpuBindings, FrameGpuBindingsError};
 use super::light_gpu::{GpuLight, MAX_LIGHTS, order_lights_for_clustered_shading_in_place};
-use super::mesh_deform::PaddedPerDrawUniforms;
 use super::per_draw_resources::PerDrawResources;
 use super::per_view_resource_map::PerViewResourceMap;
+use crate::mesh_deform::PaddedPerDrawUniforms;
 use crate::scene::{ResolvedLight, SceneCoordinator, light_contributes};
 
 /// Per-view `@group(0)` frame uniform buffer + bind group.
@@ -186,15 +186,15 @@ pub struct FrameResourceManager {
     light_prep_done_this_tick: bool,
     /// When true, the packed light buffer was already uploaded to the GPU this tick (multi-view path).
     ///
-    /// Reset with [`Self::reset_light_prep_for_tick`]. [`crate::render_graph::passes::ClusteredLightPass`]
+    /// Reset with [`Self::reset_light_prep_for_tick`]. [`crate::passes::ClusteredLightPass`]
     /// skips redundant `write_lights_buffer` while still dispatching per view.
     lights_gpu_uploaded_this_tick: AtomicBool,
-    /// When true, [`crate::render_graph::passes::MeshDeformPass`] already dispatched this tick.
+    /// When true, [`crate::passes::MeshDeformPass`] already dispatched this tick.
     ///
     /// In VR, the HMD graph runs mesh deform first; secondary cameras skip it via this flag.
     /// Reset with [`Self::reset_light_prep_for_tick`].
     mesh_deform_dispatched_this_tick: AtomicBool,
-    /// Reused per-view scratch for per-draw VP/pack before [`crate::backend::mesh_deform::write_per_draw_uniform_slab`].
+    /// Reused per-view scratch for per-draw VP/pack before [`crate::mesh_deform::write_per_draw_uniform_slab`].
     ///
     /// Each view owns its own mutex-wrapped slot so rayon workers never alias the same scratch.
     per_view_per_draw_scratch: PerViewResourceMap<Mutex<PerViewPerDrawScratch>>,
@@ -262,7 +262,7 @@ impl FrameResourceManager {
             .store(false, Ordering::Release);
     }
 
-    /// Whether [`crate::render_graph::passes::ClusteredLightPass`] already uploaded lights this tick.
+    /// Whether [`crate::passes::ClusteredLightPass`] already uploaded lights this tick.
     ///
     /// Acquire-load pairs with the [`Ordering::Release`] store in
     /// [`Self::write_frame_uniform_and_lights_from_scratch`] so a worker that sees `true` is
@@ -271,7 +271,7 @@ impl FrameResourceManager {
         self.lights_gpu_uploaded_this_tick.load(Ordering::Acquire)
     }
 
-    /// Whether [`crate::render_graph::passes::MeshDeformPass`] already dispatched this tick.
+    /// Whether [`crate::passes::MeshDeformPass`] already dispatched this tick.
     ///
     /// Acquire-load pairs with the [`Ordering::Release`] store in
     /// [`Self::set_mesh_deform_dispatched_this_tick`] so a multi-view worker that sees `true` is
@@ -300,7 +300,7 @@ impl FrameResourceManager {
     /// Writes camera frame uniform and, if lights were not yet uploaded this tick, the lights storage buffer.
     ///
     /// Skips [`FrameGpuResources::write_lights_buffer`] when [`Self::lights_gpu_uploaded_this_tick`] is already
-    /// true (e.g. [`crate::render_graph::passes::ClusteredLightPass`] ran first), avoiding duplicate uploads
+    /// true (e.g. [`crate::passes::ClusteredLightPass`] ran first), avoiding duplicate uploads
     /// on multi-view paths while still refreshing frame uniforms every view.
     pub fn write_frame_uniform_and_lights_from_scratch(
         &self,
