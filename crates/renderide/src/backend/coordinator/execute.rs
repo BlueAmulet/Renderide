@@ -12,7 +12,7 @@ impl RenderBackend {
     /// When `skip_hi_z_begin_readback` is `false`, drains Hi-Z `map_async` readbacks first
     /// ([`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`]). Set to `true` when the
     /// caller already invoked readback this tick (e.g. the runtime drains Hi-Z once at the top
-    /// of [`crate::app::RenderideApp::tick_frame`] via
+    /// of the app driver's redraw tick via
     /// [`crate::runtime::RendererRuntime::drain_hi_z_readback`]).
     ///
     /// `views` is not consumed; callers can clear and repopulate the same [`Vec`] each frame to

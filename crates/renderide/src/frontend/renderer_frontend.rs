@@ -34,7 +34,7 @@ pub struct RendererFrontend {
     pending_output_state: Option<OutputState>,
     /// Last non-null [`OutputState`] from the host (retained for per-frame cursor policy).
     last_output_state: Option<OutputState>,
-    /// Wall-clock start of the previous [`crate::app::RenderideApp::tick_frame`] (for FPS interval).
+    /// Wall-clock start of the previous app-driver frame tick (for FPS interval).
     last_tick_wall_start: Option<Instant>,
     /// Microseconds between the last two tick starts; fed into [`crate::frontend::frame_start_performance`].
     wall_interval_us_for_perf: u64,

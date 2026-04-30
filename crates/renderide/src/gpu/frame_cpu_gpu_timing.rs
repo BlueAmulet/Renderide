@@ -35,7 +35,7 @@ const MAX_PENDING_PAIRS: usize = 16;
 pub struct FrameCpuGpuTiming {
     /// Monotonic id; callbacks ignore stale generations after a new [`Self::begin_frame`].
     generation: u64,
-    /// Start of the winit frame tick ([`crate::app::RenderideApp::tick_frame`]).
+    /// Start of the winit app-driver frame tick.
     frame_start: Option<Instant>,
     /// Number of tracked submits this tick (1-based).
     submit_seq: u32,

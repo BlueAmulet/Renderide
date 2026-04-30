@@ -24,7 +24,7 @@ use super::signal;
 
 /// Process-global watchdog. Owns the background poll thread and the heartbeat registry.
 ///
-/// Construct via [`Self::install`] from `app::startup::run` and keep the returned [`Watchdog`]
+/// Construct via [`Self::install`] from `app::run` and keep the returned [`Watchdog`]
 /// alive for the lifetime of the renderer process — when it drops, the poll thread joins.
 pub struct Watchdog {
     inner: Arc<WatchdogInner>,
@@ -90,7 +90,7 @@ impl Watchdog {
     /// thresholds.
     ///
     /// The returned [`Heartbeat`] should be stored on the watched thread's stack-rooted state
-    /// (e.g. `RenderideApp`); calling [`Heartbeat::pet`] is the per-iteration liveness signal.
+    /// (e.g. the app driver); calling [`Heartbeat::pet`] is the per-iteration liveness signal.
     pub fn register_current_thread(&self, name: &'static str) -> Heartbeat {
         let s = self.inner.settings.read();
         let hitch = Duration::from_millis(u64::from(s.hitch_threshold_ms));

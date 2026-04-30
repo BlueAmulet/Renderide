@@ -1,4 +1,4 @@
-//! OpenXR helpers used by the winit [`crate::app::RenderideApp`] loop: frame tick state and HMD multiview submission.
+//! OpenXR helpers used by the winit app driver: frame tick state and HMD multiview submission.
 
 use crate::camera::{StereoViewMatrices, effective_head_output_clip_planes};
 use crate::gpu::{GpuContext, GpuQueueAccessGate, VR_MIRROR_EYE_LAYER, VrMirrorBlitResources};

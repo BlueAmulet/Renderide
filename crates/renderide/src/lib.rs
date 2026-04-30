@@ -117,11 +117,10 @@ pub fn ensure_native_stdio_forwarded_to_logger() {
     native_stdio::ensure_stdio_forwarded_to_logger();
 }
 
-/// Runs the renderer process: logging, optional IPC, winit loop, and wgpu presentation.
+/// Runs the renderer process: logging, optional IPC, app driver, and wgpu presentation.
 ///
-/// Returns [`Ok`] with [`None`] when the event loop exits without a host-requested exit code,
-/// [`Ok`] with [`Some`] when the host (or handler) sets a process exit code, and [`Err`] for
-/// fatal failures during startup (logging, IPC, event loop creation, and similar).
-pub fn run() -> Result<Option<i32>, RunError> {
+/// Returns [`Ok`] for normal windowed/headless exits and [`Err`] for fatal startup failures
+/// (logging, IPC, event loop creation, and similar).
+pub fn run() -> Result<app::RunExit, RunError> {
     app::run()
 }

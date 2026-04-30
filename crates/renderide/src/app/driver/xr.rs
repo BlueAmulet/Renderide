@@ -1,0 +1,118 @@
+//! OpenXR frame begin and IPC input cache for the app driver.
+
+use glam::{Quat, Vec3};
+
+use crate::frontend::input::vr_inputs_for_session;
+use crate::gpu::GpuQueueAccessGate;
+use crate::shared::{HeadOutputDevice, VRControllerState, VRInputsState};
+use crate::xr::{OpenxrFrameTick, synthesize_hand_states};
+
+use super::AppDriver;
+
+/// Latest OpenXR input state sampled for host IPC.
+#[derive(Debug, Default)]
+pub(super) struct XrInputCache {
+    head_pose: Option<(Vec3, Quat)>,
+    controllers: Vec<VRControllerState>,
+}
+
+impl XrInputCache {
+    /// Builds host-facing VR input for the current session output device.
+    pub(super) fn build_vr_input(&self, output_device: HeadOutputDevice) -> Option<VRInputsState> {
+        let synthesised_hands = synthesize_hand_states(&self.controllers);
+        vr_inputs_for_session(
+            output_device,
+            self.head_pose,
+            &self.controllers,
+            synthesised_hands,
+        )
+    }
+}
+
+impl AppDriver {
+    /// Runs OpenXR wait/locate and samples input before lock-step IPC input is built.
+    pub(super) fn xr_begin_tick(&mut self) -> Option<OpenxrFrameTick> {
+        profiling::scope!("tick::xr_begin_tick");
+        super::frame::tick_phase_trace("xr_begin_tick");
+        let gpu_queue_access_gate = self
+            .target
+            .as_ref()
+            .map(|target| target.gpu().gpu_queue_access_gate().clone())?;
+        let tick = self.begin_openxr_frame_tick(&gpu_queue_access_gate);
+        if let Some(ref tick) = tick {
+            self.update_xr_input_cache(tick);
+        }
+        tick
+    }
+
+    fn begin_openxr_frame_tick(
+        &mut self,
+        gpu_queue_access_gate: &GpuQueueAccessGate,
+    ) -> Option<OpenxrFrameTick> {
+        let target = self.target.as_mut()?;
+        let session = target.xr_session_mut()?;
+        crate::xr::openxr_begin_frame_tick(
+            &mut session.handles,
+            &mut self.runtime,
+            gpu_queue_access_gate,
+        )
+    }
+
+    fn update_xr_input_cache(&mut self, tick: &OpenxrFrameTick) {
+        crate::xr::OpenxrInput::log_stereo_view_order_once(&tick.views);
+        self.sample_openxr_controllers(tick);
+        self.xr_input_cache.head_pose =
+            crate::xr::headset_center_pose_from_stereo_views(tick.views.as_slice());
+        if let Some(head_pose) = self.xr_input_cache.head_pose {
+            trace_head_pose(tick, head_pose);
+        }
+    }
+
+    fn sample_openxr_controllers(&mut self, tick: &OpenxrFrameTick) {
+        let Some(target) = self.target.as_ref() else {
+            return;
+        };
+        let Some(session) = target.xr_session() else {
+            return;
+        };
+        let Some(input) = session.handles.openxr_input.as_ref() else {
+            return;
+        };
+        if !session.handles.xr_session.session_running() {
+            return;
+        }
+
+        match input.sync_and_sample(
+            session.handles.xr_session.xr_vulkan_session(),
+            session.handles.xr_session.stage_space(),
+            tick.predicted_display_time,
+        ) {
+            Ok(controllers) => self.xr_input_cache.controllers = controllers,
+            Err(error) => logger::trace!("OpenXR input sync: {error:?}"),
+        }
+    }
+}
+
+fn trace_head_pose(tick: &OpenxrFrameTick, (ipc_p, ipc_q): (Vec3, Quat)) {
+    let (Some(v0), Some(v1)) = (tick.views.first(), tick.views.get(1)) else {
+        return;
+    };
+    let rp0 = &v0.pose.position;
+    let rp1 = &v1.pose.position;
+    let render_center_x = (rp0.x + rp1.x) * 0.5;
+    let render_center_y = (rp0.y + rp1.y) * 0.5;
+    let render_center_z = (rp0.z + rp1.z) * 0.5;
+    logger::trace!(
+        "HEAD POS | render(OpenXR RH): ({:.3},{:.3},{:.3}) | ipc->host(Unity LH): ({:.3},{:.3},{:.3}) | ipc_quat: ({:.4},{:.4},{:.4},{:.4})",
+        render_center_x,
+        render_center_y,
+        render_center_z,
+        ipc_p.x,
+        ipc_p.y,
+        ipc_p.z,
+        ipc_q.x,
+        ipc_q.y,
+        ipc_q.z,
+        ipc_q.w,
+    );
+}

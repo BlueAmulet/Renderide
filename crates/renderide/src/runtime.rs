@@ -9,7 +9,7 @@
 //!
 //! # Per-tick phase order
 //!
-//! The authoritative call site is [`crate::app::renderide_app::RenderideApp::tick_frame`]; this
+//! The authoritative call site is the app driver's redraw tick; this
 //! module's methods correspond to the named phases:
 //!
 //! 1. **Wall-clock prologue** — [`RendererRuntime::tick_frame_wall_clock_begin`]; resets per-tick flags.
@@ -233,7 +233,7 @@ impl RendererRuntime {
 
     /// Increments the renderer-tick counter feeding
     /// [`crate::shared::PerformanceState::rendered_frames_since_last`]. Call once per completed
-    /// tick from [`crate::app::RenderideApp::tick_frame`]'s epilogue.
+    /// tick from the app driver's redraw epilogue.
     pub fn note_render_tick_complete(&mut self) {
         self.frontend.note_render_tick_complete();
     }
@@ -243,7 +243,7 @@ impl RendererRuntime {
     /// present/vsync block). Pass [`None`] when no GPU completion has fired yet — the frontend
     /// maps that to the Renderite.Unity `-1.0` sentinel.
     ///
-    /// Call once before every return from [`crate::app::RenderideApp::tick_frame`].
+    /// Call once before every return from the app driver's redraw tick.
     pub fn tick_frame_render_time_end(&mut self, gpu_render_time_seconds: Option<f32>) {
         self.frontend
             .set_perf_last_render_time_seconds(gpu_render_time_seconds);
@@ -338,8 +338,7 @@ impl RendererRuntime {
     }
 
     /// Runs the canonical per-frame phase order shared between the winit-driven
-    /// [`crate::app::RenderideApp::tick_frame`] (non-VR) and the headless interval driver
-    /// [`crate::app::headless::run_headless`].
+    /// app-driver redraw tick (non-VR) and the headless interval driver.
     ///
     /// Phases: drain IPC, dispatch asset integration, emit lock-step `FrameStartData` via
     /// [`Self::pre_frame`] (when allowed), and call [`Self::render_frame`] with the main camera

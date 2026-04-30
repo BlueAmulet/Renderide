@@ -648,7 +648,7 @@ impl GpuContext {
     /// Ends the GPU profiling frame and drains completed query results into Tracy.
     ///
     /// Call once per render tick after all command encoders for the tick have been submitted
-    /// (e.g. from [`crate::app::renderide_app::RenderideApp::frame_tick_epilogue`]).
+    /// (e.g. from the app driver's frame epilogue).
     /// Does nothing when no GPU profiler is active.
     pub fn end_gpu_profiler_frame(&mut self) {
         profiling::scope!("gpu::drain_gpu_profiler");

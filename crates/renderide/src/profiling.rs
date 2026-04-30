@@ -61,7 +61,7 @@ pub fn register_main_thread() {
 
 /// Emits a frame mark to the active profiler, closing the current frame boundary.
 ///
-/// Call exactly once per winit tick, at the very end of [`crate::app::RenderideApp::tick_frame`].
+/// Call exactly once per winit tick, at the very end of the app driver's redraw tick.
 /// Without frame marks Tracy still records spans but the frame timeline and histogram are empty.
 ///
 /// Expands to nothing when the `tracy` feature is off.
@@ -86,7 +86,7 @@ pub fn emit_render_submit_frame_mark() {
 }
 
 /// Records the FPS cap currently applied by
-/// [`crate::app::renderide_app::RenderideApp::about_to_wait`] — either
+/// the app driver's `about_to_wait` handler — either
 /// [`crate::config::DisplaySettings::focused_fps_cap`] or
 /// [`crate::config::DisplaySettings::unfocused_fps_cap`], whichever matches the current focus
 /// state. Zero means uncapped (winit is told `ControlFlow::Poll`); a VR tick emits zero because
@@ -104,7 +104,7 @@ pub fn plot_fps_cap_active(cap: u32) {
 }
 
 /// Records window focus (`1.0` focused, `0.0` unfocused) as a Tracy plot so focus-driven cap
-/// switches in [`crate::app::renderide_app::RenderideApp::about_to_wait`] are visible at a glance.
+/// switches in the app driver's `about_to_wait` handler are visible at a glance.
 ///
 /// Intended to be plotted next to [`plot_fps_cap_active`]: a drop from `1.0` to `0.0` should line
 /// up with the cap changing from `focused_fps_cap` to `unfocused_fps_cap` (or vice versa), which
@@ -120,7 +120,7 @@ pub fn plot_window_focused(focused: bool) {
 }
 
 /// Records, in milliseconds, how long
-/// [`crate::app::renderide_app::RenderideApp::about_to_wait`] asked winit to park before the next
+/// the app driver's `about_to_wait` handler asked winit to park before the next
 /// `RedrawRequested`. Emit the [`std::time::Duration`] between `now` and the
 /// [`winit::event_loop::ControlFlow::WaitUntil`] deadline when the capped branch is taken, and
 /// `0.0` when the handler returns with [`winit::event_loop::ControlFlow::Poll`].
@@ -138,7 +138,7 @@ pub fn plot_event_loop_wait_ms(ms: f64) {
 }
 
 /// Records, in milliseconds, the wall-clock gap between the end of the previous
-/// [`crate::app::renderide_app::RenderideApp::tick_frame`] and the start of the current one.
+/// app-driver redraw tick and the start of the current one.
 ///
 /// Complements [`plot_event_loop_wait_ms`] (the *requested* wait) by showing the *actual* slept
 /// duration — divergence between the two points at additional blocking outside the pacing cap
