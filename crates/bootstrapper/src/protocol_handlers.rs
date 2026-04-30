@@ -305,4 +305,87 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// `handle_set_text` swallows clipboard backend failures (best-effort write); on a headless test
+    /// runner where `arboard::Clipboard::new()` fails the function still returns `Continue` so the
+    /// queue loop keeps draining.
+    #[test]
+    fn set_text_returns_continue() {
+        assert_eq!(handle_set_text("hello"), LoopAction::Continue);
+        assert_eq!(handle_set_text(""), LoopAction::Continue);
+    }
+
+    /// `handle_get_text` always enqueues a response (empty UTF-8 on clipboard failure) so the Host
+    /// is never left waiting on a `GETTEXT` reply, then returns `Continue`.
+    #[test]
+    fn get_text_enqueues_response_and_continues() {
+        let dir = std::env::temp_dir().join(format!("bootstrapper_ph_gt_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (mut publisher, mut subscriber) = make_publisher_subscriber(&dir);
+        assert_eq!(handle_get_text(&mut publisher), LoopAction::Continue);
+        let mut received = false;
+        for _ in 0..50 {
+            if subscriber.try_dequeue().is_some() {
+                received = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(received, "expected GETTEXT response on outgoing queue");
+    }
+
+    /// Routing coverage for the remaining `HostCommand` variants the original
+    /// `dispatch_forwards_to_handlers` did not exercise. `StartRenderer` with a missing executable
+    /// reproduces the spawn-failure branch (already tested directly) but proves the dispatch arm is
+    /// reached and yields `Continue`.
+    #[test]
+    fn dispatch_forwards_gettext_settext_and_start_renderer() {
+        let dir =
+            std::env::temp_dir().join(format!("bootstrapper_ph_disp2_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let tmp = dir.join("g");
+        std::fs::create_dir_all(&tmp).unwrap();
+        let cfg = sample_config(tmp.join("definitely_missing_exe"), tmp);
+        let lifetime = ChildLifetimeGroup::new().expect("lifetime");
+        let (mut publisher, _subscriber) = make_publisher_subscriber(&dir);
+        let deadline = Arc::new(Mutex::new(Instant::now()));
+        let slot = renderer_slot();
+        assert_eq!(
+            dispatch_command(
+                HostCommand::GetText,
+                &mut publisher,
+                &cfg,
+                &lifetime,
+                &deadline,
+                &slot
+            ),
+            LoopAction::Continue
+        );
+        assert_eq!(
+            dispatch_command(
+                HostCommand::SetText("payload".into()),
+                &mut publisher,
+                &cfg,
+                &lifetime,
+                &deadline,
+                &slot
+            ),
+            LoopAction::Continue
+        );
+        assert_eq!(
+            dispatch_command(
+                HostCommand::StartRenderer(Vec::new()),
+                &mut publisher,
+                &cfg,
+                &lifetime,
+                &deadline,
+                &slot
+            ),
+            LoopAction::Continue
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

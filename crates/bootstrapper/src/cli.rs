@@ -272,4 +272,60 @@ mod tests {
         restore(vr_prompt::ENV_SKIP_VR_DIALOG, prev_skip);
         restore("CI", prev_ci);
     }
+
+    /// When the dialog runs and the user cancels (`prompt` returns [`None`]), [`resolve_vr_choice`]
+    /// propagates the cancellation as `None` so `main` can exit cleanly without launching the Host.
+    #[test]
+    fn resolve_vr_choice_returns_none_when_prompt_cancels() {
+        let _g = ENV_LOCK.lock().expect("env lock");
+        let prev_skip = env::var_os(vr_prompt::ENV_SKIP_VR_DIALOG);
+        let prev_ci = env::var_os("CI");
+        let prev_display = env::var_os("DISPLAY");
+        let prev_wayland = env::var_os("WAYLAND_DISPLAY");
+        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        unsafe {
+            env::remove_var(vr_prompt::ENV_SKIP_VR_DIALOG);
+            env::remove_var("CI");
+            env::set_var("DISPLAY", ":0");
+            env::remove_var("WAYLAND_DISPLAY");
+        }
+        let result = resolve_vr_choice(vec!["-Invisible".to_string()], || None);
+        assert!(result.is_none(), "cancelled dialog must yield None");
+        restore(vr_prompt::ENV_SKIP_VR_DIALOG, prev_skip);
+        restore("CI", prev_ci);
+        restore("DISPLAY", prev_display);
+        restore("WAYLAND_DISPLAY", prev_wayland);
+    }
+
+    /// When the dialog runs and the user picks VR (`prompt` returns `Some(true)`), the Host argv is
+    /// prepended with `-Device SteamVR` ahead of any forwarded tokens.
+    #[test]
+    fn resolve_vr_choice_applies_vr_device_when_prompt_confirms() {
+        let _g = ENV_LOCK.lock().expect("env lock");
+        let prev_skip = env::var_os(vr_prompt::ENV_SKIP_VR_DIALOG);
+        let prev_ci = env::var_os("CI");
+        let prev_display = env::var_os("DISPLAY");
+        let prev_wayland = env::var_os("WAYLAND_DISPLAY");
+        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        unsafe {
+            env::remove_var(vr_prompt::ENV_SKIP_VR_DIALOG);
+            env::remove_var("CI");
+            env::set_var("DISPLAY", ":0");
+            env::remove_var("WAYLAND_DISPLAY");
+        }
+        let out = resolve_vr_choice(vec!["-Invisible".to_string()], || Some(true))
+            .expect("vr choice must yield host args");
+        assert_eq!(
+            out,
+            vec![
+                "-Device".to_string(),
+                "SteamVR".to_string(),
+                "-Invisible".to_string(),
+            ]
+        );
+        restore(vr_prompt::ENV_SKIP_VR_DIALOG, prev_skip);
+        restore("CI", prev_ci);
+        restore("DISPLAY", prev_display);
+        restore("WAYLAND_DISPLAY", prev_wayland);
+    }
 }

@@ -85,6 +85,18 @@ impl BootstrapQueues {
 pub(crate) fn open_bootstrap_queues_host_publisher_first(
     shared_memory_prefix: &str,
 ) -> Result<(BootstrapQueues, Publisher), BootstrapError> {
+    let (queues, host_incoming, _) =
+        open_bootstrap_queues_with_host_endpoints(shared_memory_prefix)?;
+    Ok((queues, host_incoming))
+}
+
+/// Variant of [`open_bootstrap_queues_host_publisher_first`] that also returns a Host-side
+/// [`Subscriber`] for the bootstrapper's outgoing queue, enabling round-trip tests that drive a
+/// command in and observe the response on the way back out.
+#[cfg(test)]
+pub(crate) fn open_bootstrap_queues_with_host_endpoints(
+    shared_memory_prefix: &str,
+) -> Result<(BootstrapQueues, Publisher, Subscriber), BootstrapError> {
     let dir = interprocess_backing_dir();
     let (incoming_name, outgoing_name) = bootstrap_queue_base_names(shared_memory_prefix);
     let incoming_opts = make_queue_options(&incoming_name, &dir)?;
@@ -93,8 +105,13 @@ pub(crate) fn open_bootstrap_queues_host_publisher_first(
     let host_incoming = Publisher::new(incoming_opts.clone()).map_err(BootstrapError::from)?;
     let incoming = Subscriber::new(incoming_opts).map_err(BootstrapError::from)?;
     let factory = QueueFactory::new();
-    let outgoing = factory.create_publisher(outgoing_opts)?;
-    Ok((BootstrapQueues { incoming, outgoing }, host_incoming))
+    let outgoing = factory.create_publisher(outgoing_opts.clone())?;
+    let host_outgoing = Subscriber::new(outgoing_opts).map_err(BootstrapError::from)?;
+    Ok((
+        BootstrapQueues { incoming, outgoing },
+        host_incoming,
+        host_outgoing,
+    ))
 }
 
 #[cfg(test)]

@@ -251,7 +251,8 @@ mod queue_loop_tests {
     use crate::child_lifetime::ChildLifetimeGroup;
     use crate::config::ResoBootConfig;
     use crate::ipc::{
-        BootstrapQueues, RENDERIDE_INTERPROCESS_DIR_ENV, open_bootstrap_queues_host_publisher_first,
+        BootstrapQueues, RENDERIDE_INTERPROCESS_DIR_ENV,
+        open_bootstrap_queues_host_publisher_first, open_bootstrap_queues_with_host_endpoints,
     };
 
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -339,6 +340,129 @@ mod queue_loop_tests {
         );
 
         drop(host_publisher);
+        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        unsafe {
+            std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// `HEARTBEAT` followed by `SHUTDOWN`: the loop must process the heartbeat (advancing the
+    /// shared deadline) before the shutdown breaks the loop, proving the watchdog refresh path
+    /// runs end-to-end via the real `Subscriber::dequeue` + `dispatch_command` chain.
+    #[test]
+    fn queue_loop_handles_heartbeat_then_shutdown() {
+        let _g = lock_env();
+        let tmp = std::env::temp_dir().join(format!("bootstrapper_ql_hb_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        unsafe {
+            std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
+        }
+
+        let prefix = format!("hb{}", std::process::id());
+        let (mut queues, mut host_publisher) =
+            open_bootstrap_queues_host_publisher_first(&prefix).expect("open queues");
+
+        assert!(
+            host_publisher.try_enqueue(b"HEARTBEAT"),
+            "enqueue heartbeat"
+        );
+        assert!(host_publisher.try_enqueue(b"SHUTDOWN"), "enqueue shutdown");
+
+        let config = ResoBootConfig::new(prefix, None).expect("config");
+        let lifetime = ChildLifetimeGroup::new().expect("lifetime");
+        let cancel = AtomicBool::new(false);
+        let deadline = std::sync::Arc::new(Mutex::new(Instant::now()));
+        let renderer: std::sync::Arc<Mutex<Option<Child>>> = std::sync::Arc::new(Mutex::new(None));
+        let initial_deadline = *deadline.lock().expect("lock");
+
+        queue_loop(
+            &mut queues.incoming,
+            &mut queues.outgoing,
+            &config,
+            &cancel,
+            &lifetime,
+            &deadline,
+            &renderer,
+        );
+
+        let final_deadline = *deadline.lock().expect("lock");
+        assert!(
+            final_deadline > initial_deadline,
+            "HEARTBEAT must advance the shared deadline before SHUTDOWN exits the loop"
+        );
+        assert!(
+            cancel.load(std::sync::atomic::Ordering::SeqCst),
+            "SHUTDOWN must still set cancel after a preceding HEARTBEAT"
+        );
+
+        drop(host_publisher);
+        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        unsafe {
+            std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// `GETTEXT` followed by `SHUTDOWN`: the loop must enqueue a clipboard response on the
+    /// outgoing queue before the shutdown breaks the loop. Content is not asserted because the
+    /// clipboard backend may not be available on a headless test runner; what matters is that the
+    /// dispatch path produced a response (empty UTF-8 on backend failure) and the loop continued.
+    #[test]
+    fn queue_loop_handles_gettext_then_shutdown() {
+        let _g = lock_env();
+        let tmp = std::env::temp_dir().join(format!("bootstrapper_ql_gt_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
+        unsafe {
+            std::env::set_var(RENDERIDE_INTERPROCESS_DIR_ENV, &tmp);
+        }
+
+        let prefix = format!("gt{}", std::process::id());
+        let (mut queues, mut host_publisher, mut host_subscriber) =
+            open_bootstrap_queues_with_host_endpoints(&prefix).expect("open queues");
+
+        assert!(host_publisher.try_enqueue(b"GETTEXT"), "enqueue gettext");
+        assert!(host_publisher.try_enqueue(b"SHUTDOWN"), "enqueue shutdown");
+
+        let config = ResoBootConfig::new(prefix, None).expect("config");
+        let lifetime = ChildLifetimeGroup::new().expect("lifetime");
+        let cancel = AtomicBool::new(false);
+        let deadline = std::sync::Arc::new(Mutex::new(Instant::now()));
+        let renderer: std::sync::Arc<Mutex<Option<Child>>> = std::sync::Arc::new(Mutex::new(None));
+
+        queue_loop(
+            &mut queues.incoming,
+            &mut queues.outgoing,
+            &config,
+            &cancel,
+            &lifetime,
+            &deadline,
+            &renderer,
+        );
+
+        let mut received = false;
+        for _ in 0..50 {
+            if host_subscriber.try_dequeue().is_some() {
+                received = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(
+            received,
+            "GETTEXT must produce an outgoing response before SHUTDOWN exits the loop"
+        );
+        assert!(
+            cancel.load(std::sync::atomic::Ordering::SeqCst),
+            "SHUTDOWN must still set cancel after a preceding GETTEXT"
+        );
+
+        drop(host_publisher);
+        drop(host_subscriber);
         // SAFETY: env mutation in test; serialized via ENV_LOCK / cargo test single-thread.
         unsafe {
             std::env::remove_var(RENDERIDE_INTERPROCESS_DIR_ENV);

@@ -100,6 +100,24 @@ mod tests {
         assert_eq!(fs::read_link(&link).unwrap(), target);
         let _ = fs::remove_dir_all(&tmp);
     }
+
+    /// When the renderer binary is not yet present (early-startup race or non-bundled deployment),
+    /// `ensure_link` must not create a dangling symlink — the linker stub is only useful when the
+    /// real `renderide` binary already exists in the renderer directory.
+    #[test]
+    fn ensure_link_is_noop_when_target_missing() {
+        let tmp = std::env::temp_dir().join(format!("bootstrapper_stub3_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let link = tmp.join("Renderite.Renderer");
+        let c = cfg_with_dirs(&tmp, &link);
+        ensure_link(&c);
+        assert!(
+            !link.exists() && fs::symlink_metadata(&link).is_err(),
+            "no symlink should be created when target is missing"
+        );
+        let _ = fs::remove_dir_all(&tmp);
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
@@ -108,6 +126,18 @@ mod tests_macos {
 
     use super::ensure_link;
     use crate::config::ResoBootConfig;
+
+    fn cfg_with_dirs(tmp: &std::path::Path, link: &std::path::Path) -> ResoBootConfig {
+        ResoBootConfig {
+            current_directory: tmp.to_path_buf(),
+            runtime_config: tmp.join("Renderite.Host.runtimeconfig.json"),
+            renderite_directory: tmp.to_path_buf(),
+            renderite_executable: link.to_path_buf(),
+            shared_memory_prefix: "t".into(),
+            is_wine: false,
+            renderide_log_level: None,
+        }
+    }
 
     #[test]
     fn ensure_link_hardlinks_when_missing() {
@@ -118,17 +148,28 @@ mod tests_macos {
         let target = tmp.join("renderide");
         fs::write(&target, b"bin").unwrap();
         let link = tmp.join("Renderite.Renderer");
-        let c = ResoBootConfig {
-            current_directory: tmp.clone(),
-            runtime_config: tmp.join("Renderite.Host.runtimeconfig.json"),
-            renderite_directory: tmp.clone(),
-            renderite_executable: link.clone(),
-            shared_memory_prefix: "t".into(),
-            is_wine: false,
-            renderide_log_level: None,
-        };
+        let c = cfg_with_dirs(&tmp, &link);
         ensure_link(&c);
         assert!(link.exists());
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// When the renderer binary is not yet present (early-startup race or non-bundled deployment),
+    /// `ensure_link` must not create a dangling hard link — the linker stub is only useful when the
+    /// real `renderide` binary already exists in the renderer directory.
+    #[test]
+    fn ensure_link_is_noop_when_target_missing() {
+        let tmp =
+            std::env::temp_dir().join(format!("bootstrapper_stub_mac2_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let link = tmp.join("Renderite.Renderer");
+        let c = cfg_with_dirs(&tmp, &link);
+        ensure_link(&c);
+        assert!(
+            !link.exists() && fs::symlink_metadata(&link).is_err(),
+            "no link should be created when target is missing"
+        );
         let _ = fs::remove_dir_all(&tmp);
     }
 }
