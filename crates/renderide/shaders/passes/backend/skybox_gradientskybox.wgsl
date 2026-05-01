@@ -53,7 +53,7 @@ fn vs_main(
     let clip = skybox::fullscreen_clip_pos(vertex_index);
     var out: VertexOutput;
     out.clip_pos = clip;
-    out.ndc = clip.xy;
+    out.ndc = vec2<f32>(clip.x, clip.y * view.ndc_y_sign_pad.x);
 #ifdef MULTIVIEW
     out.view_layer = view_idx;
 #else

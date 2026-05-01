@@ -44,7 +44,8 @@ mod timestamp;
 
 pub use level::{LogLevel, parse_log_level_from_args};
 pub use output::{
-    enabled, flush, init, init_with_mirror, is_initialized, log, set_max_level, try_log,
+    enabled, flush, init, init_with_mirror, is_initialized, log, set_max_level, set_mirror_writer,
+    try_log,
 };
 pub use panic::{append_panic_report_to_file, log_panic, log_panic_payload, panic_report};
 pub use paths::{

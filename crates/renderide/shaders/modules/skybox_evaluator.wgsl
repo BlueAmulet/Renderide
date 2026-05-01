@@ -2,6 +2,8 @@
 
 #define_import_path renderide::skybox_evaluator
 
+#import renderide::ggx_prefilter as ggx
+
 const MAX_GRADIENTS: u32 = 16u;
 
 struct SkyboxEvaluatorParams {
@@ -18,15 +20,9 @@ struct SkyboxEvaluatorParams {
     gradient_params: array<vec4<f32>, 16>,
 }
 
+/// Cubemap face direction at integer face/texel coordinates `(face, x, y)` for an `n`-edge face.
 fn cube_dir(face: u32, x: u32, y: u32, n: u32) -> vec3<f32> {
-    let u = (f32(x) + 0.5) / f32(n);
-    let v = (f32(y) + 0.5) / f32(n);
-    if (face == 0u) { return normalize(vec3<f32>(1.0, v * -2.0 + 1.0, u * -2.0 + 1.0)); }
-    if (face == 1u) { return normalize(vec3<f32>(-1.0, v * -2.0 + 1.0, u * 2.0 - 1.0)); }
-    if (face == 2u) { return normalize(vec3<f32>(u * 2.0 - 1.0, 1.0, v * 2.0 - 1.0)); }
-    if (face == 3u) { return normalize(vec3<f32>(u * 2.0 - 1.0, -1.0, v * -2.0 + 1.0)); }
-    if (face == 4u) { return normalize(vec3<f32>(u * 2.0 - 1.0, v * -2.0 + 1.0, 1.0)); }
-    return normalize(vec3<f32>(u * -2.0 + 1.0, v * -2.0 + 1.0, -1.0));
+    return ggx::cube_dir(face, x, y, n);
 }
 
 fn sample_procedural(params: SkyboxEvaluatorParams, ray: vec3<f32>) -> vec3<f32> {

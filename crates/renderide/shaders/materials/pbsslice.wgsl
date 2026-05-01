@@ -23,7 +23,6 @@ struct PBSSliceMaterial {
     _EmissionColor: vec4<f32>,
     _EdgeEmissionColor: vec4<f32>,
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _DetailAlbedoMap_ST: vec4<f32>,
     _DetailNormalMap_ST: vec4<f32>,
     _EdgeTransitionStart: f32,
@@ -150,7 +149,7 @@ fn fs_main(
     @location(4) uv0: vec2<f32>,
     @location(5) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
     let uv_detail_albedo = uvu::apply_st(uv0, mat._DetailAlbedoMap_ST);
     let uv_detail_normal = uvu::apply_st(uv0, mat._DetailNormalMap_ST);
 

@@ -11,8 +11,6 @@ use crate::materials::host_data::{
 
 /// Default sky parameter sample grid used by SH2 projection.
 pub(crate) const DEFAULT_SKYBOX_SAMPLE_SIZE: u32 = 64;
-/// Default generated cubemap face size for analytic skybox baking.
-pub(crate) const DEFAULT_GENERATED_SKYBOX_FACE_SIZE: u32 = 128;
 /// Default `Projection360` field of view used by Unity material defaults.
 pub(crate) const PROJECTION360_DEFAULT_FOV: [f32; 4] =
     [std::f32::consts::TAU, std::f32::consts::PI, 0.0, 0.0];

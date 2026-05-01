@@ -28,12 +28,9 @@ use scene_snapshot::{
 };
 use skybox_specular::{
     SkyboxSpecularBindGroupResources, SkyboxSpecularEnvironmentKey,
-    create_black_skybox_specular_equirect_fallback, create_black_skybox_specular_fallback,
+    create_black_skybox_specular_fallback,
 };
-pub use skybox_specular::{
-    SkyboxSpecularCubemapSource, SkyboxSpecularEnvironmentSource, SkyboxSpecularEquirectSource,
-    SkyboxSpecularGeneratedCubemapSource,
-};
+pub use skybox_specular::{SkyboxSpecularCubemapSource, SkyboxSpecularEnvironmentSource};
 
 /// GPU buffers and bind groups for `@group(0)` frame globals (camera, lights, cluster lists,
 /// fallback sampled scene snapshots, and skybox indirect specular).
@@ -59,26 +56,16 @@ pub struct FrameGpuResources {
     /// Actual render views use per-view snapshots owned by
     /// [`crate::backend::frame_resource_manager::PerViewFrameState`].
     scene_snapshots: SceneSnapshotSet,
-    /// Zero cubemap kept alive for frames without a resident cubemap skybox environment.
+    /// Zero cubemap kept alive for frames without a resident skybox specular cube.
     _skybox_specular_fallback_texture: Arc<wgpu::Texture>,
     /// Zero cubemap view used by `@group(0) @binding(9)` when indirect specular is disabled.
     skybox_specular_fallback_view: Arc<wgpu::TextureView>,
     /// Fallback sampler used by `@group(0) @binding(10)` when indirect specular is disabled.
     skybox_specular_fallback_sampler: Arc<wgpu::Sampler>,
-    /// Zero equirect texture kept alive for frames without a resident equirect skybox environment.
-    _skybox_specular_equirect_fallback_texture: Arc<wgpu::Texture>,
-    /// Zero equirect view used by `@group(0) @binding(11)` when indirect specular is disabled.
-    skybox_specular_equirect_fallback_view: Arc<wgpu::TextureView>,
-    /// Fallback sampler used by `@group(0) @binding(12)` when indirect specular is disabled.
-    skybox_specular_equirect_fallback_sampler: Arc<wgpu::Sampler>,
     /// Current cubemap view bound as the frame-global indirect specular environment.
     skybox_specular_view: Arc<wgpu::TextureView>,
     /// Current sampler paired with [`Self::skybox_specular_view`].
     skybox_specular_sampler: Arc<wgpu::Sampler>,
-    /// Current equirect view bound as the frame-global indirect specular environment.
-    skybox_specular_equirect_view: Arc<wgpu::TextureView>,
-    /// Current sampler paired with [`Self::skybox_specular_equirect_view`].
-    skybox_specular_equirect_sampler: Arc<wgpu::Sampler>,
     /// Uniform parameters describing the currently bound skybox specular source.
     skybox_specular_params: SkyboxSpecularUniformParams,
     /// Stable key for the current skybox specular binding.
@@ -315,30 +302,14 @@ fn append_skybox_specular_layout_entries(entries: &mut Vec<wgpu::BindGroupLayout
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         },
-        wgpu::BindGroupLayoutEntry {
-            binding: 11,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 12,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        },
     ]);
 }
 
 impl FrameGpuResources {
     /// Layout for `@group(0)`: uniform frame + lights + cluster counts + cluster indices +
-    /// scene snapshots + skybox specular sources.
+    /// scene snapshots + skybox specular cubemap.
     pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-        let mut entries = Vec::with_capacity(13);
+        let mut entries = Vec::with_capacity(11);
         append_frame_buffer_layout_entries(&mut entries);
         append_scene_snapshot_layout_entries(&mut entries);
         append_skybox_specular_layout_entries(&mut entries);
@@ -405,14 +376,6 @@ impl FrameGpuResources {
                     binding: 10,
                     resource: wgpu::BindingResource::Sampler(skybox_specular.cubemap_sampler),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 11,
-                    resource: wgpu::BindingResource::TextureView(skybox_specular.equirect_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 12,
-                    resource: wgpu::BindingResource::Sampler(skybox_specular.equirect_sampler),
-                },
             ],
         }))
     }
@@ -422,8 +385,6 @@ impl FrameGpuResources {
         SkyboxSpecularBindGroupResources {
             cubemap_view: self.skybox_specular_view.as_ref(),
             cubemap_sampler: self.skybox_specular_sampler.as_ref(),
-            equirect_view: self.skybox_specular_equirect_view.as_ref(),
-            equirect_sampler: self.skybox_specular_equirect_sampler.as_ref(),
         }
     }
 
@@ -485,15 +446,8 @@ impl FrameGpuResources {
             skybox_specular_fallback_view,
             skybox_specular_fallback_sampler,
         ) = create_black_skybox_specular_fallback(device, queue);
-        let (
-            skybox_specular_equirect_fallback_texture,
-            skybox_specular_equirect_fallback_view,
-            skybox_specular_equirect_fallback_sampler,
-        ) = create_black_skybox_specular_equirect_fallback(device, queue);
         let skybox_specular_view = skybox_specular_fallback_view.clone();
         let skybox_specular_sampler = skybox_specular_fallback_sampler.clone();
-        let skybox_specular_equirect_view = skybox_specular_equirect_fallback_view.clone();
-        let skybox_specular_equirect_sampler = skybox_specular_equirect_fallback_sampler.clone();
         let bind_group = Self::create_bind_group(
             device,
             &frame_uniform,
@@ -503,8 +457,6 @@ impl FrameGpuResources {
             SkyboxSpecularBindGroupResources {
                 cubemap_view: skybox_specular_view.as_ref(),
                 cubemap_sampler: skybox_specular_sampler.as_ref(),
-                equirect_view: skybox_specular_equirect_view.as_ref(),
-                equirect_sampler: skybox_specular_equirect_sampler.as_ref(),
             },
         );
         Ok(Self {
@@ -515,13 +467,8 @@ impl FrameGpuResources {
             _skybox_specular_fallback_texture: skybox_specular_fallback_texture,
             skybox_specular_fallback_view,
             skybox_specular_fallback_sampler,
-            _skybox_specular_equirect_fallback_texture: skybox_specular_equirect_fallback_texture,
-            skybox_specular_equirect_fallback_view,
-            skybox_specular_equirect_fallback_sampler,
             skybox_specular_view,
             skybox_specular_sampler,
-            skybox_specular_equirect_view,
-            skybox_specular_equirect_sampler,
             skybox_specular_params: SkyboxSpecularUniformParams::disabled(),
             skybox_specular_key: SkyboxSpecularEnvironmentKey::default(),
             skybox_specular_version: 0,
@@ -612,10 +559,6 @@ impl FrameGpuResources {
             }
             self.skybox_specular_view = self.skybox_specular_fallback_view.clone();
             self.skybox_specular_sampler = self.skybox_specular_fallback_sampler.clone();
-            self.skybox_specular_equirect_view =
-                self.skybox_specular_equirect_fallback_view.clone();
-            self.skybox_specular_equirect_sampler =
-                self.skybox_specular_equirect_fallback_sampler.clone();
             self.skybox_specular_params = SkyboxSpecularUniformParams::disabled();
             self.skybox_specular_key = SkyboxSpecularEnvironmentKey::default();
             self.skybox_specular_version = self.skybox_specular_version.wrapping_add(1);
@@ -640,36 +583,6 @@ impl FrameGpuResources {
                 ));
                 self.skybox_specular_view = source.view;
                 self.skybox_specular_sampler = sampler;
-                self.skybox_specular_equirect_view =
-                    self.skybox_specular_equirect_fallback_view.clone();
-                self.skybox_specular_equirect_sampler =
-                    self.skybox_specular_equirect_fallback_sampler.clone();
-            }
-            SkyboxSpecularEnvironmentSource::GeneratedCubemap(source) => {
-                let sampler = Arc::new(create_sampler(
-                    device,
-                    &source.sampler,
-                    TextureBindKind::Cube,
-                    source.mip_levels_resident,
-                ));
-                self.skybox_specular_view = source.view;
-                self.skybox_specular_sampler = sampler;
-                self.skybox_specular_equirect_view =
-                    self.skybox_specular_equirect_fallback_view.clone();
-                self.skybox_specular_equirect_sampler =
-                    self.skybox_specular_equirect_fallback_sampler.clone();
-            }
-            SkyboxSpecularEnvironmentSource::Projection360Equirect(source) => {
-                let sampler = Arc::new(create_sampler(
-                    device,
-                    &source.sampler,
-                    TextureBindKind::Tex2D,
-                    source.mip_levels_resident,
-                ));
-                self.skybox_specular_view = self.skybox_specular_fallback_view.clone();
-                self.skybox_specular_sampler = self.skybox_specular_fallback_sampler.clone();
-                self.skybox_specular_equirect_view = source.view;
-                self.skybox_specular_equirect_sampler = sampler;
             }
         }
         self.skybox_specular_params = new_params;

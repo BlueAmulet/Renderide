@@ -26,7 +26,6 @@ struct UnlitMaterial {
     _Color: vec4<f32>,
     _Tex_ST: vec4<f32>,
     _RightEye_ST: vec4<f32>,
-    _Tex_StorageVInverted: f32,
     _MaskTex_ST: vec4<f32>,
     _OffsetTex_ST: vec4<f32>,
     _OffsetMagnitude: vec4<f32>,
@@ -109,9 +108,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var uv_main: vec2<f32>;
     if (use_polar_uv) {
         let polar = uvu::polar_uv(in.uv, max(mat._PolarPow, 1e-4));
-        uv_main = uvu::apply_st_for_storage(polar, main_st, mat._Tex_StorageVInverted);
+        uv_main = uvu::apply_st(polar, main_st);
     } else {
-        uv_main = uvu::apply_st_for_storage(in.uv, main_st, mat._Tex_StorageVInverted);
+        uv_main = uvu::apply_st(in.uv, main_st);
     }
     let ddx_uv = dpdx(uv_main);
     let ddy_uv = dpdy(uv_main);

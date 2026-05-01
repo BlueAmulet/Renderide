@@ -40,6 +40,17 @@ impl RasterFrontFace {
             Self::CounterClockwise => wgpu::FrontFace::Ccw,
         }
     }
+
+    /// Returns the opposite winding. Used by render-texture-targeting passes that pre-multiply a
+    /// clip-space Y flip into the view-projection matrix; the Y flip mirrors triangle winding in
+    /// framebuffer space, so back-face culling needs the inverted `front_face` to match.
+    #[must_use]
+    pub fn flipped(self) -> Self {
+        match self {
+            Self::Clockwise => Self::CounterClockwise,
+            Self::CounterClockwise => Self::Clockwise,
+        }
+    }
 }
 
 /// Unity `Cull` / `CullMode` material override for raster pipeline keys and

@@ -218,9 +218,12 @@ mod tests {
     }
 
     #[test]
-    fn storage_v_inversion_requires_flip_y_and_native_compressed_format() {
+    fn host_uploads_always_use_unity_orientation() {
+        // After the unified-orientation refactor every host upload is treated as Unity
+        // V=0 bottom regardless of host format or `flip_y`.
         assert!(task(false, true, TextureFormat::BC7).upload_uses_storage_v_inversion());
-        assert!(!task(false, false, TextureFormat::BC7).upload_uses_storage_v_inversion());
-        assert!(!task(false, true, TextureFormat::BC1).upload_uses_storage_v_inversion());
+        assert!(task(false, false, TextureFormat::BC7).upload_uses_storage_v_inversion());
+        assert!(task(false, true, TextureFormat::BC1).upload_uses_storage_v_inversion());
+        assert!(task(false, false, TextureFormat::RGBA32).upload_uses_storage_v_inversion());
     }
 }

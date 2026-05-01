@@ -13,17 +13,6 @@ fn sample_uv(raw_uv: vec2<f32>, st: vec4<f32>, polar_power: f32, polar_enabled: 
     return uvu::apply_st(selected_uv, st);
 }
 
-fn sample_uv_for_storage(
-    raw_uv: vec2<f32>,
-    st: vec4<f32>,
-    storage_v_inverted: f32,
-    polar_power: f32,
-    polar_enabled: bool,
-) -> vec2<f32> {
-    let selected_uv = select(raw_uv, uvu::polar_uv(raw_uv, polar_power), polar_enabled);
-    return uvu::apply_st_for_storage(selected_uv, st, storage_v_inverted);
-}
-
 fn sample_rgba(
     tex: texture_2d<f32>,
     samp: sampler,

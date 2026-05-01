@@ -129,8 +129,8 @@ pub struct RenderBackend {
     pub(crate) prepared_renderables: crate::world_mesh::FramePreparedRenderables,
     /// Nonblocking reflection-probe SH2 GPU projection service.
     pub(crate) reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System,
-    /// Nonblocking generated cubemap cache for analytic skybox environments.
-    pub(crate) skybox_environment: crate::skybox::SkyboxEnvironmentCache,
+    /// Unified IBL prefilter cache covering analytic, cubemap, and equirect skybox sources.
+    pub(crate) skybox_ibl: crate::skybox::SkyboxIblCache,
 }
 
 /// Disjoint borrows of [`MaterialSystem`], [`AssetTransferQueue`], and the GPU skin cache for world mesh forward encoding.
@@ -206,7 +206,7 @@ impl RenderBackend {
                 crate::shared::RenderingContext::default(),
             ),
             reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System::new(),
-            skybox_environment: crate::skybox::SkyboxEnvironmentCache::new(),
+            skybox_ibl: crate::skybox::SkyboxIblCache::new(),
         }
     }
 
@@ -367,14 +367,14 @@ impl RenderBackend {
             .maintain_gpu_jobs(gpu, &self.asset_transfers);
     }
 
-    /// Advances generated skybox environment jobs and schedules the active analytic skybox.
-    pub(crate) fn maintain_skybox_environment_jobs(
+    /// Advances unified skybox IBL bake jobs and schedules the active source's prefilter.
+    pub(crate) fn maintain_skybox_ibl_jobs(
         &mut self,
         gpu: &mut crate::gpu::GpuContext,
         scene: &crate::scene::SceneCoordinator,
     ) {
-        self.skybox_environment
-            .maintain(gpu, scene, &self.materials);
+        self.skybox_ibl
+            .maintain(gpu, scene, &self.materials, &self.asset_transfers);
     }
 
     /// Borrowed view of all texture pools used for embedded material `@group(1)` bind resolution.
@@ -528,6 +528,16 @@ impl RenderBackend {
             cluster_assignment,
         );
         self.sync_frame_graph_cache(&post_processing_settings, shape);
+        logger::info!(
+            "backend attached: surface_format={:?} scene_color_format={:?} msaa_sample_count={} mesh_preprocess={} msaa_depth_resolve={} frame_graph_passes={} frame_graph_topo_levels={}",
+            surface_format,
+            self.scene_color_format_wgpu(),
+            msaa_sample_count,
+            self.mesh_preprocess.is_some(),
+            self.msaa_depth_resolve.is_some(),
+            self.frame_graph_pass_count(),
+            self.frame_graph_topo_levels(),
+        );
         Ok(())
     }
 
@@ -759,7 +769,7 @@ impl RenderBackend {
             transient_pool,
             history_registry,
             debug_hud: &mut self.debug_hud,
-            skybox_environment: &self.skybox_environment,
+            skybox_ibl: &self.skybox_ibl,
             record_parallelism: self.record_parallelism,
             scene_color_format,
             gpu_limits,

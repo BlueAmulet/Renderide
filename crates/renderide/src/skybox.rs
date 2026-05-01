@@ -1,10 +1,9 @@
-//! Skybox rendering: environment cube cache, IBL specular params, and active-main resolution.
+//! Skybox rendering: unified IBL prefilter cache, sky evaluator params, and active-main resolution.
 
-mod environment;
+pub(crate) mod ibl_cache;
 pub(crate) mod params;
 mod prepared;
-mod specular;
+pub(crate) mod specular;
 
-pub(crate) use environment::SkyboxEnvironmentCache;
+pub(crate) use ibl_cache::SkyboxIblCache;
 pub use prepared::{PreparedClearColorSkybox, PreparedMaterialSkybox, PreparedSkybox};
-pub(crate) use specular::resolve_active_main_skybox_specular_environment;

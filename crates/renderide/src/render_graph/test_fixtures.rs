@@ -1,7 +1,10 @@
 //! Test-only helpers for building synthetic [`crate::world_mesh::draw_prep::WorldMeshDrawItem`] values.
 
 use crate::materials::host_data::MaterialPropertyLookupIds;
-use crate::materials::{RasterFrontFace, RasterPipelineKind};
+use crate::materials::{
+    RasterFrontFace, RasterPipelineKind, UNITY_RENDER_QUEUE_GEOMETRY,
+    UNITY_RENDER_QUEUE_TRANSPARENT,
+};
 use crate::scene::{MeshRendererInstanceId, RenderSpaceId};
 
 use crate::world_mesh::{MaterialDrawBatchKey, WorldMeshDrawItem, compute_batch_key_hash};
@@ -48,6 +51,11 @@ pub fn dummy_world_mesh_draw_item(spec: DummyDrawItemSpec) -> WorldMeshDrawItem 
         collect_order,
         alpha_blended,
     } = spec;
+    let render_queue = if alpha_blended {
+        UNITY_RENDER_QUEUE_TRANSPARENT
+    } else {
+        UNITY_RENDER_QUEUE_GEOMETRY
+    };
 
     let batch_key = MaterialDrawBatchKey {
         pipeline: RasterPipelineKind::Null,
@@ -63,6 +71,7 @@ pub fn dummy_world_mesh_draw_item(spec: DummyDrawItemSpec) -> WorldMeshDrawItem 
         embedded_requires_intersection_pass: false,
         embedded_uses_scene_depth_snapshot: false,
         embedded_uses_scene_color_snapshot: false,
+        render_queue,
         render_state: Default::default(),
         blend_mode: Default::default(),
         alpha_blended,

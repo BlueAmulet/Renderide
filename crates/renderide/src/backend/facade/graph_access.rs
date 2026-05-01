@@ -53,8 +53,8 @@ pub(crate) struct BackendGraphAccess<'a> {
     pub(crate) history_registry: &'a mut HistoryRegistry,
     /// Debug HUD state and encoder.
     pub(crate) debug_hud: &'a mut DebugHudBundle,
-    /// Generated skybox environment cache.
-    pub(crate) skybox_environment: &'a crate::skybox::SkyboxEnvironmentCache,
+    /// Unified skybox IBL prefilter cache.
+    pub(crate) skybox_ibl: &'a crate::skybox::SkyboxIblCache,
     /// Per-view recording mode snapshot for this frame.
     pub(crate) record_parallelism: crate::config::RecordParallelism,
     /// Scene-color format snapshot selected before graph execution borrows backend fields.
@@ -153,14 +153,14 @@ impl<'a> BackendGraphAccess<'a> {
         }
     }
 
-    /// Returns generated skybox specular source for the active analytic skybox, if present.
-    pub(crate) fn active_generated_skybox_specular_source(
+    /// Returns the prefiltered IBL cubemap source for the active skybox, if ready.
+    pub(crate) fn active_ibl_cubemap_source(
         &self,
         scene: &crate::scene::SceneCoordinator,
         limits: &GpuLimits,
     ) -> Option<super::super::frame_gpu::SkyboxSpecularEnvironmentSource> {
-        self.skybox_environment
-            .active_specular_source(scene, self.materials, limits)
+        self.skybox_ibl
+            .active_specular_source(scene, self.materials, self.asset_transfers, limits)
     }
 
     /// Whether the HUD will draw visible content this frame.

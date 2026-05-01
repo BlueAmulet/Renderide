@@ -8,8 +8,8 @@ use crate::materials::{
     embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_uv0_stream,
     embedded_stem_needs_uv1_stream, embedded_stem_requires_intersection_pass,
     embedded_stem_uses_alpha_blending, embedded_stem_uses_scene_color_snapshot,
-    embedded_stem_uses_scene_depth_snapshot, material_blend_mode_for_lookup,
-    material_blend_mode_from_maps, material_render_state_for_lookup,
+    embedded_stem_uses_scene_depth_snapshot, fallback_render_queue_for_material,
+    material_blend_mode_from_maps, material_render_queue_from_maps,
     material_render_state_from_maps, resolve_raster_pipeline,
 };
 
@@ -53,6 +53,8 @@ pub(crate) struct ResolvedMaterialBatch {
     pub embedded_uses_scene_color_snapshot: bool,
     /// Resolved material blend mode.
     pub blend_mode: MaterialBlendMode,
+    /// Effective Unity render queue for draw ordering.
+    pub render_queue: i32,
     /// Runtime color, stencil, and depth state for this material/property-block pair.
     pub render_state: MaterialRenderState,
     /// Whether draws using this material should be sorted back-to-front.
@@ -121,15 +123,21 @@ pub(crate) fn batch_key_for_slot(
         material_asset_id,
         mesh_property_block_slot0: property_block_id,
     };
+    let (mat_map, pb_map) = ctx.dict.fetch_property_maps(lookup_ids);
     let material_blend_mode =
-        material_blend_mode_for_lookup(ctx.dict, lookup_ids, ctx.pipeline_property_ids);
-    let render_state =
-        material_render_state_for_lookup(ctx.dict, lookup_ids, ctx.pipeline_property_ids);
+        material_blend_mode_from_maps(mat_map, pb_map, ctx.pipeline_property_ids);
+    let render_state = material_render_state_from_maps(mat_map, pb_map, ctx.pipeline_property_ids);
     let alpha_blended = match &pipeline {
         RasterPipelineKind::EmbeddedStem(stem) => embedded_stem_uses_alpha_blending(stem.as_ref()),
         RasterPipelineKind::Null => false,
     } || material_blend_mode.is_transparent()
         || embedded_uses_scene_color_snapshot;
+    let render_queue = material_render_queue_from_maps(
+        mat_map,
+        pb_map,
+        ctx.pipeline_property_ids,
+        fallback_render_queue_for_material(alpha_blended),
+    );
     MaterialDrawBatchKey {
         pipeline,
         shader_asset_id,
@@ -144,6 +152,7 @@ pub(crate) fn batch_key_for_slot(
         embedded_requires_intersection_pass,
         embedded_uses_scene_depth_snapshot,
         embedded_uses_scene_color_snapshot,
+        render_queue,
         render_state,
         blend_mode: material_blend_mode,
         alpha_blended,
@@ -228,6 +237,12 @@ pub(crate) fn resolve_material_batch(
     let alpha_blended = embedded_uses_alpha_blending
         || blend_mode.is_transparent()
         || embedded_uses_scene_color_snapshot;
+    let render_queue = material_render_queue_from_maps(
+        mat_map,
+        pb_map,
+        pipeline_property_ids,
+        fallback_render_queue_for_material(alpha_blended),
+    );
     ResolvedMaterialBatch {
         shader_asset_id,
         pipeline,
@@ -239,6 +254,7 @@ pub(crate) fn resolve_material_batch(
         embedded_uses_scene_depth_snapshot,
         embedded_uses_scene_color_snapshot,
         blend_mode,
+        render_queue,
         render_state,
         alpha_blended,
     }
@@ -267,6 +283,7 @@ fn batch_key_from_resolved(
         embedded_requires_intersection_pass: r.embedded_requires_intersection_pass,
         embedded_uses_scene_depth_snapshot: r.embedded_uses_scene_depth_snapshot,
         embedded_uses_scene_color_snapshot: r.embedded_uses_scene_color_snapshot,
+        render_queue: r.render_queue,
         render_state: r.render_state,
         blend_mode: r.blend_mode,
         alpha_blended: r.alpha_blended,

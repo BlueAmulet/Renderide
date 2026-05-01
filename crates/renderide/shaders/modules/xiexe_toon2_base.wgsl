@@ -64,35 +64,26 @@ struct XiexeToon2Material {
 
     /// `_MainTex` UV scale/offset.
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     /// `_BumpMap` UV scale/offset.
     _BumpMap_ST: vec4<f32>,
-    _BumpMap_StorageVInverted: f32,
     /// `_DetailNormalMap` UV scale/offset.
     _DetailNormalMap_ST: vec4<f32>,
-    _DetailNormalMap_StorageVInverted: f32,
     /// `_DetailMask` UV scale/offset.
     _DetailMask_ST: vec4<f32>,
     /// `_MetallicGlossMap` UV scale/offset.
     _MetallicGlossMap_ST: vec4<f32>,
-    _MetallicGlossMap_StorageVInverted: f32,
     /// `_EmissionMap` UV scale/offset.
     _EmissionMap_ST: vec4<f32>,
-    _EmissionMap_StorageVInverted: f32,
     /// `_OcclusionMap` UV scale/offset.
     _OcclusionMap_ST: vec4<f32>,
-    _OcclusionMap_StorageVInverted: f32,
     /// `_ThicknessMap` UV scale/offset.
     _ThicknessMap_ST: vec4<f32>,
-    _ThicknessMap_StorageVInverted: f32,
     /// `_CutoutMask` UV scale/offset.
     _CutoutMask_ST: vec4<f32>,
     /// `_ReflectivityMask` UV scale/offset.
     _ReflectivityMask_ST: vec4<f32>,
-    _ReflectivityMask_StorageVInverted: f32,
     /// `_SpecularMap` UV scale/offset.
     _SpecularMap_ST: vec4<f32>,
-    _SpecularMap_StorageVInverted: f32,
 
     /// Alpha cutoff threshold for the cutout / masked-coverage paths.
     _Cutoff: f32,

@@ -8,7 +8,6 @@
 
 struct TextureDebugMaterial {
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _TextureChannel: f32,
 }
 
@@ -26,7 +25,7 @@ fn vs_main(
     @location(1) _n: vec4<f32>,
     @location(2) uv: vec2<f32>,
 ) -> mv::UvVertexOutput {
-    let material_uv = uvu::apply_st_for_storage(uv, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let material_uv = uvu::apply_st(uv, mat._MainTex_ST);
 #ifdef MULTIVIEW
     return mv::uv_vertex_main(instance_index, view_idx, pos, material_uv);
 #else

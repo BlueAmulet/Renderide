@@ -16,8 +16,6 @@ struct OverlayUnlitMaterial {
     _FrontColor: vec4<f32>,
     _BehindTex_ST: vec4<f32>,
     _FrontTex_ST: vec4<f32>,
-    _BehindTex_StorageVInverted: f32,
-    _FrontTex_StorageVInverted: f32,
     _Cutoff: f32,
     _PolarPow: f32,
     _POLARUV: f32,
@@ -56,12 +54,10 @@ fn sample_layer(
     tint: vec4<f32>,
     uv: vec2<f32>,
     st: vec4<f32>,
-    storage_v_inverted: f32,
 ) -> vec4<f32> {
-    let sample_uv = ms::sample_uv_for_storage(
+    let sample_uv = ms::sample_uv(
         uv,
         st,
-        storage_v_inverted,
         mat._PolarPow,
         mat._POLARUV > 0.99,
     );
@@ -75,12 +71,10 @@ fn sample_layer_lod0(
     tint: vec4<f32>,
     uv: vec2<f32>,
     st: vec4<f32>,
-    storage_v_inverted: f32,
 ) -> vec4<f32> {
-    let sample_uv = ms::sample_uv_for_storage(
+    let sample_uv = ms::sample_uv(
         uv,
         st,
-        storage_v_inverted,
         mat._PolarPow,
         mat._POLARUV > 0.99,
     );
@@ -114,7 +108,6 @@ fn fs_behind(in: mv::UvColorVertexOutput) -> @location(0) vec4<f32> {
         mat._BehindColor,
         in.uv,
         mat._BehindTex_ST,
-        mat._BehindTex_StorageVInverted,
     );
     let clip_color = sample_layer_lod0(
         _BehindTex,
@@ -122,7 +115,6 @@ fn fs_behind(in: mv::UvColorVertexOutput) -> @location(0) vec4<f32> {
         mat._BehindColor,
         in.uv,
         mat._BehindTex_ST,
-        mat._BehindTex_StorageVInverted,
     );
     return finalize_layer_color(color, clip_color, in.color);
 }
@@ -136,7 +128,6 @@ fn fs_front(in: mv::UvColorVertexOutput) -> @location(0) vec4<f32> {
         mat._FrontColor,
         in.uv,
         mat._FrontTex_ST,
-        mat._FrontTex_StorageVInverted,
     );
     let clip_color = sample_layer_lod0(
         _FrontTex,
@@ -144,7 +135,6 @@ fn fs_front(in: mv::UvColorVertexOutput) -> @location(0) vec4<f32> {
         mat._FrontColor,
         in.uv,
         mat._FrontTex_ST,
-        mat._FrontTex_StorageVInverted,
     );
     return finalize_layer_color(color, clip_color, in.color);
 }

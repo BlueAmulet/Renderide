@@ -11,6 +11,8 @@ use crate::materials::host_data::PropertyIdRegistry;
 /// `_BlendMode` is not carried: the host never sends it; the mode is reconstructed from
 /// `_SrcBlend`/`_DstBlend` factors via
 /// [`super::blend_mode::MaterialBlendMode::from_unity_blend_factors`].
+/// `_RenderQueue` is synthetic host state captured from `SetRenderQueue`; it is not pipeline
+/// state, but it shares this per-material resolution path and must stay out of shader uniforms.
 #[derive(Clone, Copy, Debug)]
 pub struct MaterialPipelinePropertyIds {
     pub(crate) src_blend: [i32; 2],
@@ -28,6 +30,7 @@ pub struct MaterialPipelinePropertyIds {
     pub(crate) offset_factor: [i32; 1],
     pub(crate) offset_units: [i32; 1],
     pub(crate) cull: [i32; 1],
+    pub(crate) render_queue: [i32; 1],
 }
 
 impl MaterialPipelinePropertyIds {
@@ -55,6 +58,7 @@ impl MaterialPipelinePropertyIds {
             offset_factor: [registry.intern("_OffsetFactor")],
             offset_units: [registry.intern("_OffsetUnits")],
             cull: [registry.intern("_Cull")],
+            render_queue: [registry.intern("_RenderQueue")],
         }
     }
 }

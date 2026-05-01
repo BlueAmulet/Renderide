@@ -128,6 +128,21 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
     let (render_context, world_proj, overlay_proj) =
         compute_view_projections(frame.shared.scene, hc, frame.view.viewport_px, &draws);
 
+    // Read the offscreen RT id before borrowing `frame` for encode_refs.
+    let offscreen_write_rt = frame.view.offscreen_write_render_texture_asset_id;
+
+    // Render-texture color attachments must land in Unity (V=0 bottom) orientation so material
+    // shaders sample them through the same `apply_st(uv, ST)` convention as host-uploaded textures.
+    // Pre-multiply a clip-space Y flip into the projection matrices and flip pipeline winding at
+    // the batch resolver below so back-face culling stays correct. The skybox carries the same
+    // sign through `SkyboxViewUniforms.clip_y_sign` so its fullscreen pass agrees on orientation.
+    let (world_proj, overlay_proj) = if offscreen_write_rt.is_some() {
+        let y_flip = glam::Mat4::from_diagonal(glam::Vec4::new(1.0, -1.0, 1.0, 1.0));
+        (y_flip * world_proj, overlay_proj.map(|p| y_flip * p))
+    } else {
+        (world_proj, overlay_proj)
+    };
+
     // Build the Bevy-style instance plan up front so the slab is packed in the same order
     // the forward pass will read it via `instance_index` / `first_instance`.
     let plan = crate::world_mesh::build_plan(&draws, supports_base_instance);
@@ -149,9 +164,6 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
 
     write_per_view_frame_uniforms(queue, upload_batch, frame, blackboard, use_multiview, hc);
     let skybox = skybox_renderer.prepare(device, queue, upload_batch, frame, &pipeline);
-
-    // Read the offscreen RT id before borrowing `frame` for encode_refs.
-    let offscreen_write_rt = frame.view.offscreen_write_render_texture_asset_id;
 
     // Build a WorldMeshForwardEncodeRefs from the frame so precompute_material_resolve_batches
     // can access both the material system and the asset transfer pools (texture pools).

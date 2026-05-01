@@ -2,6 +2,7 @@
 //! loop so the loop can later fan out across rayon workers without mutating shared backend state.
 
 use hashbrown::HashMap;
+use hashbrown::HashSet;
 use hashbrown::hash_map::Entry;
 
 use super::super::super::context::GraphResolvedResources;
@@ -34,21 +35,16 @@ impl CompiledRenderGraph {
         Ok(())
     }
 
-    /// Resolves the active main skybox specular source before per-view `@group(0)` bind groups are cached.
+    /// Resolves the active main skybox prefiltered cubemap before per-view `@group(0)` bind
+    /// groups are cached. While the IBL bake is in flight (or no source resolves) the frame
+    /// falls back to the existing black cubemap binding.
     pub(super) fn pre_sync_skybox_specular_environment(
         mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
     ) {
         profiling::scope!("graph::pre_sync_skybox_specular");
         let source = mv_ctx
             .backend
-            .active_generated_skybox_specular_source(mv_ctx.scene, mv_ctx.gpu_limits)
-            .or_else(|| {
-                crate::skybox::resolve_active_main_skybox_specular_environment(
-                    mv_ctx.scene,
-                    mv_ctx.backend.materials,
-                    &*mv_ctx.backend.asset_transfers,
-                )
-            });
+            .active_ibl_cubemap_source(mv_ctx.scene, mv_ctx.gpu_limits);
         let _ = mv_ctx
             .backend
             .frame_resources
@@ -67,9 +63,9 @@ impl CompiledRenderGraph {
         views: &[FrameView<'_>],
     ) {
         profiling::scope!("graph::pre_warm_pipelines");
-        if mv_ctx.backend.materials.material_registry().is_none() {
+        let Some(reg) = mv_ctx.backend.materials.material_registry() else {
             return;
-        }
+        };
 
         let mut compile_requests: Vec<PipelineVariantKey> = Vec::new();
         for view in views {
@@ -84,6 +80,7 @@ impl CompiledRenderGraph {
                     &collection.items,
                     pass_desc,
                     shader_perm,
+                    reg,
                     &mut compile_requests,
                 );
             }
@@ -92,10 +89,11 @@ impl CompiledRenderGraph {
         if compile_requests.is_empty() {
             return;
         }
+        logger::trace!(
+            "graph pipeline prewarm: compiling {} warmed-miss variant(s)",
+            compile_requests.len()
+        );
 
-        let Some(reg) = mv_ctx.backend.materials.material_registry() else {
-            return;
-        };
         // Fan pipeline misses out to the rayon pool so multiple new permutations compile in
         // parallel instead of serially blocking the main thread. `MaterialPipelineCache`
         // releases its mutex before `create_shader_module` / `create_render_pipeline` and
@@ -113,6 +111,9 @@ impl CompiledRenderGraph {
                 req.front_face,
             );
         });
+        // Stamp the warmed set so the next frame's walk can skip these variants entirely. We
+        // mark every requested key, even if its compile failed: a later retry would re-add it.
+        reg.mark_pipeline_variants_warmed(compile_requests.iter().copied());
     }
 
     /// Eagerly allocates per-view frame state ([`crate::backend::FrameResourceManager::per_view_frame_or_create`])
@@ -129,8 +130,8 @@ impl CompiledRenderGraph {
         views: &[FrameView<'_>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::pre_warm_per_view");
-        let mut mesh_ids_needing_uv1_stream = std::collections::HashSet::new();
-        let mut mesh_ids_needing_extended_streams = std::collections::HashSet::new();
+        let mut mesh_ids_needing_uv1_stream: HashSet<i32> = HashSet::new();
+        let mut mesh_ids_needing_extended_streams: HashSet<i32> = HashSet::new();
         for view in views {
             let view_id = view.view_id();
             let viewport = view.target.extent_px(mv_ctx.gpu);
@@ -178,6 +179,12 @@ impl CompiledRenderGraph {
                 }
             }
         }
+        logger::trace!(
+            "graph pre-warm per-view resources: views={} uv1_stream_meshes={} extended_stream_meshes={}",
+            views.len(),
+            mesh_ids_needing_uv1_stream.len(),
+            mesh_ids_needing_extended_streams.len(),
+        );
         for mesh_asset_id in mesh_ids_needing_uv1_stream {
             let _ = mv_ctx
                 .backend
@@ -390,21 +397,23 @@ fn view_pipeline_pass_desc(
 }
 
 /// Appends unique `(shader_asset_id, blend_mode, render_state, front_face)` permutations from `items` to
-/// `out`, stamped with the view's `pass_desc` and `shader_perm`. Duplicates within this view
-/// are elided; the LRU cache handles cross-view dedup.
+/// `out`, stamped with the view's `pass_desc` and `shader_perm`. Duplicates within this view are
+/// elided; cross-frame dedup against `registry`'s warmed-variants set skips keys the pre-warm
+/// path has already requested in a prior frame, eliminating the rayon dispatch on steady state.
 fn collect_unique_pipeline_requests(
     items: &[crate::world_mesh::draw_prep::WorldMeshDrawItem],
     pass_desc: MaterialPipelineDesc,
     shader_perm: ShaderPermutation,
+    registry: &crate::materials::MaterialRegistry,
     out: &mut Vec<PipelineVariantKey>,
 ) {
-    let mut seen: std::collections::HashSet<(
+    let mut seen: HashSet<(
         i32,
         crate::materials::MaterialBlendMode,
         crate::materials::MaterialRenderState,
         crate::materials::RasterFrontFace,
         bool,
-    )> = std::collections::HashSet::new();
+    )> = HashSet::new();
     for item in items {
         let grab_pass = item.batch_key.embedded_uses_scene_color_snapshot;
         let key = (
@@ -417,10 +426,10 @@ fn collect_unique_pipeline_requests(
         if !seen.insert(key) {
             continue;
         }
-        out.push(PipelineVariantKey::for_draw_item(
-            item,
-            pass_desc,
-            shader_perm,
-        ));
+        let variant_key = PipelineVariantKey::for_draw_item(item, pass_desc, shader_perm);
+        if registry.is_pipeline_variant_warmed(&variant_key) {
+            continue;
+        }
+        out.push(variant_key);
     }
 }

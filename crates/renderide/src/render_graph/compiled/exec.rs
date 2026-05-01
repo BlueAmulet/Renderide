@@ -552,6 +552,11 @@ impl CompiledRenderGraph {
             upload_batch.drain_and_flush(mv_ctx.device, queue_ref)
         };
 
+        let has_upload_cmd = upload_cmd.is_some();
+        let has_frame_global_cmd = frame_global_cmd.is_some();
+        let per_view_command_count = per_view_cmds.len();
+        let has_per_view_profiler_cmd = per_view_profiler_cmd.is_some();
+        let has_hud_cmd = hud_cmd.is_some();
         let all_cmds: Vec<wgpu::CommandBuffer> = upload_cmd
             .into_iter()
             .chain(frame_global_cmd)
@@ -559,6 +564,7 @@ impl CompiledRenderGraph {
             .chain(per_view_profiler_cmd)
             .chain(hud_cmd)
             .collect();
+        let command_buffer_count = all_cmds.len();
 
         // Hand the swapchain texture (if any) to the driver thread so `queue.submit` and
         // `SurfaceTexture::present` run off the main thread. The scope still drops cleanly — with
@@ -570,6 +576,18 @@ impl CompiledRenderGraph {
         };
 
         let hi_z_callbacks = collect_hi_z_submit_callbacks(mv_ctx, per_view_occlusion_info);
+        logger::trace!(
+            "graph submit batch: views={} swapchain={} command_buffers={} upload={} frame_global={} per_view={} profiler={} hud={} hi_z_callbacks={}",
+            views.len(),
+            target_is_swapchain,
+            command_buffer_count,
+            has_upload_cmd,
+            has_frame_global_cmd,
+            per_view_command_count,
+            has_per_view_profiler_cmd,
+            has_hud_cmd,
+            hi_z_callbacks.len(),
+        );
 
         {
             profiling::scope!("gpu::queue_submit");
@@ -698,19 +716,22 @@ impl CompiledRenderGraph {
         } = inputs;
         if record_parallelism == crate::config::RecordParallelism::PerViewParallel && n_views > 1 {
             profiling::scope!("graph::per_view_fan_out");
-            let results = parking_lot::Mutex::new(
-                std::iter::repeat_with(|| None)
-                    .take(n_views)
-                    .collect::<Vec<Option<PerViewRecordOutput>>>(),
-            );
-            let first_error = parking_lot::Mutex::new(None::<GraphExecuteError>);
+            use std::sync::OnceLock;
+            // Per-slot mailbox: each rayon worker writes its own `view_idx` exactly once via
+            // `OnceLock::set`, which is wait-free in the uncontended case (single atomic CAS).
+            // Replaces the prior `parking_lot::Mutex<Vec<Option<_>>>` that allocated a Vec
+            // and acquired a global lock for every successful write.
+            let slots: Vec<OnceLock<PerViewRecordOutput>> = std::iter::repeat_with(OnceLock::new)
+                .take(n_views)
+                .collect();
+            let first_error: OnceLock<GraphExecuteError> = OnceLock::new();
             rayon::scope(|scope| {
                 for work_item in per_view_work_items {
-                    let results = &results;
+                    let slots = &slots;
                     let first_error = &first_error;
                     let shared = per_view_shared;
                     scope.spawn(move |_| {
-                        if first_error.lock().is_some() {
+                        if first_error.get().is_some() {
                             return;
                         }
                         let view_idx = work_item.view_idx;
@@ -724,7 +745,10 @@ impl CompiledRenderGraph {
                             profiler,
                         ) {
                             Ok(encoded) => {
-                                results.lock()[view_idx] = Some(PerViewRecordOutput {
+                                // Each rayon worker owns a unique `view_idx`, so this `set`
+                                // always succeeds on the happy path; the `Err` arm is dead code
+                                // in practice but discarded silently to keep the closure infallible.
+                                let _ = slots[view_idx].set(PerViewRecordOutput {
                                     view_id,
                                     host_camera,
                                     command_buffer: encoded.command_buffer,
@@ -732,10 +756,8 @@ impl CompiledRenderGraph {
                                 });
                             }
                             Err(err) => {
-                                let mut first_error = first_error.lock();
-                                if first_error.is_none() {
-                                    *first_error = Some(err);
-                                }
+                                // Only the first erroring worker wins; later sets discard.
+                                let _ = first_error.set(err);
                             }
                         }
                     });
@@ -744,10 +766,9 @@ impl CompiledRenderGraph {
             if let Some(err) = first_error.into_inner() {
                 return Err(err);
             }
-            results
-                .into_inner()
+            slots
                 .into_iter()
-                .map(|item| item.ok_or(GraphExecuteError::NoViewsInBatch))
+                .map(|slot| slot.into_inner().ok_or(GraphExecuteError::NoViewsInBatch))
                 .collect::<Result<Vec<_>, _>>()
         } else {
             profiling::scope!("graph::per_view_serial");

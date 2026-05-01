@@ -56,12 +56,9 @@ struct FrameGlobals {
     /// Packed tail: `.x` is the monotonic frame index (for temporal / jittered screen-space
     /// effects); `.yzw` are reserved padding to keep the trailing `vec4` slot aligned to 16 bytes.
     frame_tail: vec4<u32>,
-    /// Skybox indirect specular: `.x` max resident LOD, `.y` enabled flag, `.z` storage-V inverted flag, `.w` source kind.
+    /// Skybox indirect specular: `.x` max resident LOD, `.y` enabled flag,
+    /// `.z` source kind tag, `.w` reserved padding.
     skybox_specular: vec4<f32>,
-    /// Projection360 equirectangular `_FOV` for source kind 2.
-    skybox_specular_equirect_fov: vec4<f32>,
-    /// Projection360 equirectangular `_MainTex_ST` for source kind 2.
-    skybox_specular_equirect_st: vec4<f32>,
     /// Ambient SH2 coefficient 0, padded to a vec4 slot.
     ambient_sh_a: vec4<f32>,
     /// Ambient SH2 coefficient 1, padded to a vec4 slot.
@@ -93,8 +90,6 @@ struct FrameGlobals {
 @group(0) @binding(8) var scene_color_sampler: sampler;
 @group(0) @binding(9) var skybox_specular: texture_cube<f32>;
 @group(0) @binding(10) var skybox_specular_sampler: sampler;
-@group(0) @binding(11) var skybox_specular_equirect: texture_2d<f32>;
-@group(0) @binding(12) var skybox_specular_equirect_sampler: sampler;
 
 /// World-space camera position for the current view layer.
 fn camera_world_pos_for_view(view_layer: u32) -> vec3<f32> {

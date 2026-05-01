@@ -61,7 +61,7 @@ impl<'views, 'backend> ExtractedFrame<'views, 'backend> {
                 .map(|prep| cull_snapshot_for_view(&shared, prep))
                 .collect()
         };
-        let view_draws = collect_view_draws(&shared, prepared_views.plans(), &cull_snapshots);
+        let view_draws = collect_view_draws(&shared, prepared_views.plans(), cull_snapshots);
         PreparedDraws {
             prepared_views,
             view_draws,
@@ -171,10 +171,14 @@ struct ViewCullSnapshot {
 ///
 /// Returns one explicit [`WorldMeshDrawPlan`] per prepared view, preserving input order so the
 /// compiled graph never has to infer whether draws were intentionally omitted or merely missing.
+///
+/// Takes ownership of `cull_snapshots` so each view moves its `hi_z` / `hi_z_temporal` payloads
+/// (already `Arc`-shared internally) into the cull input instead of cloning, avoiding a per-view
+/// refcount bump on the heaviest-view path.
 fn collect_view_draws(
     setup: &ExtractedFrameShared<'_>,
     prepared: &[FrameViewPlan<'_>],
-    cull_snapshots: &[Option<ViewCullSnapshot>],
+    cull_snapshots: Vec<Option<ViewCullSnapshot>>,
 ) -> Vec<WorldMeshDrawPlan> {
     profiling::scope!("render::collect_view_draws");
     // The MaterialDictionary wraps the property store with read-only views; building it once
@@ -183,9 +187,9 @@ fn collect_view_draws(
         profiling::scope!("collect::shared_dictionary");
         crate::materials::host_data::MaterialDictionary::new(setup.property_store)
     };
-    prepared
+    let draw_plans: Vec<WorldMeshDrawPlan> = prepared
         .par_iter()
-        .zip(cull_snapshots.par_iter())
+        .zip(cull_snapshots.into_par_iter())
         .map(|(prep, snap)| {
             let shader_perm = prep.shader_permutation();
             // The backend pre-refreshed one material batch cache per shader permutation in
@@ -193,11 +197,11 @@ fn collect_view_draws(
             // previous mono-only fast path collapsed into this lookup.
             let material_cache = setup.material_caches.get(&shader_perm);
             let cull_proj = snap.as_ref().map(|s| s.proj);
-            let culling = snap.as_ref().map(|s| WorldMeshCullInput {
+            let culling = snap.map(|s| WorldMeshCullInput {
                 proj: s.proj,
                 host_camera: &prep.host_camera,
-                hi_z: s.hi_z.clone(),
-                hi_z_temporal: s.hi_z_temporal.clone(),
+                hi_z: s.hi_z,
+                hi_z_temporal: s.hi_z_temporal,
             });
             let collection = collect_and_sort_draws_with_parallelism(
                 &DrawCollectionContext {
@@ -221,7 +225,41 @@ fn collect_view_draws(
                 collection, cull_proj,
             )))
         })
-        .collect()
+        .collect();
+    trace_view_draw_plans(prepared, &draw_plans);
+    draw_plans
+}
+
+fn trace_view_draw_plans(prepared: &[FrameViewPlan<'_>], draw_plans: &[WorldMeshDrawPlan]) {
+    if !logger::enabled(logger::LogLevel::Trace) {
+        return;
+    }
+    for (prep, draw_plan) in prepared.iter().zip(draw_plans.iter()) {
+        let Some(collection) = draw_plan.as_prefetched() else {
+            logger::trace!(
+                "render view draws: view_id={:?} extent={}x{} shader_perm={:?} empty_plan=true",
+                prep.view_id,
+                prep.viewport_px.0,
+                prep.viewport_px.1,
+                prep.shader_permutation(),
+            );
+            continue;
+        };
+        let helper_needs = draw_plan.helper_needs();
+        logger::trace!(
+            "render view draws: view_id={:?} extent={}x{} shader_perm={:?} draws={} pre_cull={} frustum_culled={} hi_z_culled={} helper_depth_snapshot={} helper_color_snapshot={}",
+            prep.view_id,
+            prep.viewport_px.0,
+            prep.viewport_px.1,
+            prep.shader_permutation(),
+            collection.items.len(),
+            collection.draws_pre_cull,
+            collection.draws_culled,
+            collection.draws_hi_z_culled,
+            helper_needs.depth_snapshot,
+            helper_needs.color_snapshot,
+        );
+    }
 }
 
 /// Selects the per-view inner-walk parallelism tier for a tick based on how many views will

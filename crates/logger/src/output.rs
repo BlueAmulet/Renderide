@@ -30,10 +30,19 @@ struct Logger {
     file: Mutex<std::fs::File>,
     /// When true, each log line is also written to stderr.
     mirror_stderr: bool,
+    /// Optional process-specific sink for already-formatted lines that should also reach a
+    /// preserved terminal or supervisor-visible stream.
+    mirror_writer: Mutex<Option<MirrorWriter>>,
     /// Maximum level to log. Messages at or below this level are written (see [`LogLevel`] ordering).
     ///
     /// Atomic so [`set_max_level`] can change filtering after [`init_with_mirror`] without re-init.
     max_level: AtomicU8,
+}
+
+#[derive(Clone, Copy)]
+struct MirrorWriter {
+    max_level: LogLevel,
+    write: fn(&[u8]),
 }
 
 /// Global logger instance. Set by [`init`] or [`init_with_mirror`].
@@ -91,10 +100,35 @@ pub fn init_with_mirror(
         path: path.to_path_buf(),
         file: Mutex::new(file),
         mirror_stderr,
+        mirror_writer: Mutex::new(None),
         max_level: AtomicU8::new(max_level as u8),
     };
     let _ = LOGGER.set(logger);
     Ok(())
+}
+
+/// Installs or replaces a severity-filtered mirror for already-formatted log lines.
+///
+/// The writer is invoked after the primary file write and only for lines at or above
+/// `max_level`. For example, `LogLevel::Error` mirrors only error-level lines. Writer failures
+/// cannot be observed because the callback returns `()`, keeping terminal visibility best-effort
+/// and never blocking file logging policy.
+///
+/// This is intentionally separate from [`init_with_mirror`]: renderide redirects current stderr
+/// into the file logger, then uses this hook to write error lines to the preserved original
+/// terminal handle without feeding them back into the redirected stderr pipe.
+///
+/// Calling this before [`init`] / [`init_with_mirror`] succeeds has no effect.
+pub fn set_mirror_writer(max_level: LogLevel, writer: fn(&[u8])) {
+    let Some(logger) = LOGGER.get() else {
+        return;
+    };
+    if let Ok(mut mirror) = logger.mirror_writer.lock() {
+        *mirror = Some(MirrorWriter {
+            max_level,
+            write: writer,
+        });
+    }
 }
 
 /// Sets the maximum log level for the initialized global logger.
@@ -156,9 +190,8 @@ fn format_log_line_into(out: &mut String, level: LogLevel, args: std::fmt::Argum
     out.push('\n');
 }
 
-/// Writes the formatted line in `bytes` to the global logger's file (locking the mutex) and to
-/// stderr if mirroring is enabled.
-fn write_line_locked(logger: &Logger, bytes: &[u8]) {
+/// Writes the formatted line in `bytes` to the global logger's file and configured mirrors.
+fn write_line_locked(logger: &Logger, level: LogLevel, bytes: &[u8]) {
     if let Ok(mut file) = logger.file.lock() {
         let _ = file.write_all(bytes);
         let _ = file.flush();
@@ -166,6 +199,12 @@ fn write_line_locked(logger: &Logger, bytes: &[u8]) {
     if logger.mirror_stderr {
         let _ = std::io::stderr().write_all(bytes);
         let _ = std::io::stderr().flush();
+    }
+    let mirror = logger.mirror_writer.lock().ok().and_then(|guard| *guard);
+    if let Some(mirror) = mirror
+        && level <= mirror.max_level
+    {
+        let _ = std::panic::catch_unwind(|| (mirror.write)(bytes));
     }
 }
 
@@ -200,7 +239,7 @@ pub fn log(level: LogLevel, args: std::fmt::Arguments<'_>) {
     }
     with_line_buf(|buf| {
         format_log_line_into(buf, level, args);
-        write_line_locked(logger, buf.as_bytes());
+        write_line_locked(logger, level, buf.as_bytes());
     });
 }
 
@@ -209,6 +248,10 @@ pub fn log(level: LogLevel, args: std::fmt::Arguments<'_>) {
 ///
 /// Intended for **background threads** (such as a stderr pipe reader) that must not block on the
 /// global logger mutex while other code may be writing to the same log or to stderr.
+///
+/// This fallback path is file-only and deliberately does not invoke configured mirror writers.
+/// Native stdio forwarders use it after stdout/stderr redirection; mirroring here would duplicate
+/// terminal output and could feed logs back into the redirected pipe.
 ///
 /// Returns `true` if the line was written (primary or fallback), `false` if the logger is not
 /// initialized, the line is filtered by max level, or the fallback open fails.

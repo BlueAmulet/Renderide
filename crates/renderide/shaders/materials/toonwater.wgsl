@@ -46,7 +46,6 @@ struct ToonWaterMaterial {
     _SpecularHighlights: f32,
     _PlanarReflection: f32,
     _SmoothnessTextureChannel: f32,
-    _MainTex_StorageVInverted: f32,
     _pad0: vec3<f32>,
 }
 
@@ -156,7 +155,7 @@ fn fs_main(
     @location(4) uv1: vec2<f32>,
     @location(5) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
     let voronoi_f = voronoi_sample_at_fragment(uv0);
 

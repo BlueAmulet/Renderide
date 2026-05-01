@@ -60,13 +60,9 @@ pub struct FrameGpuUniforms {
     /// reserved padding so the struct aligns to a 16-byte boundary without tripping naga-oil's
     /// composable-identifier substitution rules (numeric-suffix names are rejected).
     pub frame_tail: [u32; 4],
-    /// Skybox specular parameters: `.x` max resident LOD, `.y` enabled flag, `.z` storage-V
-    /// inversion flag, `.w` [`super::skybox_specular::SkyboxSpecularSourceKind`] tag.
+    /// Skybox specular parameters: `.x` max resident LOD, `.y` enabled flag,
+    /// `.z` [`super::skybox_specular::SkyboxSpecularSourceKind`] tag, `.w` reserved.
     pub skybox_specular: [f32; 4],
-    /// Projection360 equirectangular `_FOV` parameters for `Texture2D` skybox specular sampling.
-    pub skybox_specular_equirect_fov: [f32; 4],
-    /// Projection360 equirectangular `_MainTex_ST` parameters for skybox specular sampling.
-    pub skybox_specular_equirect_st: [f32; 4],
     /// Ambient SH2 coefficients (`RenderSH2` order), padded to WGSL `vec4<f32>` slots.
     pub ambient_sh: [[f32; 4]; 9],
 }

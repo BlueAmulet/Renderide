@@ -3,16 +3,14 @@
 #[cfg(test)]
 mod offset_and_packing_tests {
     use super::super::clustered::ClusteredFrameGlobalsParams;
-    use super::super::skybox_specular::{
-        DEFAULT_MAIN_TEX_ST, PROJECTION360_DEFAULT_FOV, SkyboxSpecularUniformParams,
-    };
+    use super::super::skybox_specular::SkyboxSpecularUniformParams;
     use super::super::uniforms::FrameGpuUniforms;
     use crate::shared::RenderSH2;
     use glam::Mat4;
 
     #[test]
-    fn frame_globals_size_336() {
-        assert_eq!(size_of::<FrameGpuUniforms>(), 336);
+    fn frame_globals_size_304() {
+        assert_eq!(size_of::<FrameGpuUniforms>(), 304);
         assert_eq!(size_of::<FrameGpuUniforms>() % 16, 0);
     }
 
@@ -39,15 +37,7 @@ mod offset_and_packing_tests {
         );
         assert_eq!(std::mem::offset_of!(FrameGpuUniforms, frame_tail), 128);
         assert_eq!(std::mem::offset_of!(FrameGpuUniforms, skybox_specular), 144);
-        assert_eq!(
-            std::mem::offset_of!(FrameGpuUniforms, skybox_specular_equirect_fov),
-            160
-        );
-        assert_eq!(
-            std::mem::offset_of!(FrameGpuUniforms, skybox_specular_equirect_st),
-            176
-        );
-        assert_eq!(std::mem::offset_of!(FrameGpuUniforms, ambient_sh), 192);
+        assert_eq!(std::mem::offset_of!(FrameGpuUniforms, ambient_sh), 160);
     }
 
     #[test]
@@ -105,7 +95,7 @@ mod offset_and_packing_tests {
             proj_params_left: [1.5, 2.5, 0.0, 0.0],
             proj_params_right: [1.5, 2.5, 0.1, -0.2],
             frame_index: 7,
-            skybox_specular: SkyboxSpecularUniformParams::from_resident_mips(6, true),
+            skybox_specular: SkyboxSpecularUniformParams::from_cubemap_resident_mips(6),
             ambient_sh: [[0.0; 4]; 9],
         });
         assert_eq!(u.camera_world_pos, [1.0, 2.0, 3.0, 0.0]);
@@ -123,9 +113,7 @@ mod offset_and_packing_tests {
         assert_eq!(u.proj_params_left, [1.5, 2.5, 0.0, 0.0]);
         assert_eq!(u.proj_params_right, [1.5, 2.5, 0.1, -0.2]);
         assert_eq!(u.frame_tail, [7, 0, 0, 0]);
-        assert_eq!(u.skybox_specular, [5.0, 1.0, 1.0, 1.0]);
-        assert_eq!(u.skybox_specular_equirect_fov, PROJECTION360_DEFAULT_FOV);
-        assert_eq!(u.skybox_specular_equirect_st, DEFAULT_MAIN_TEX_ST);
+        assert_eq!(u.skybox_specular, [5.0, 1.0, 1.0, 0.0]);
         assert_eq!(u.ambient_sh, [[0.0; 4]; 9]);
     }
 
@@ -156,24 +144,19 @@ mod offset_and_packing_tests {
     }
 
     #[test]
-    fn skybox_specular_params_pack_disabled_cubemap_and_equirect() {
+    fn skybox_specular_params_pack_disabled_and_cubemap() {
         assert_eq!(
             SkyboxSpecularUniformParams::disabled().to_vec4(),
             [0.0, 0.0, 0.0, 0.0]
         );
         assert_eq!(
-            SkyboxSpecularUniformParams::from_resident_mips(6, true).to_vec4(),
-            [5.0, 1.0, 1.0, 1.0]
+            SkyboxSpecularUniformParams::from_cubemap_resident_mips(6).to_vec4(),
+            [5.0, 1.0, 1.0, 0.0]
         );
         assert_eq!(
-            SkyboxSpecularUniformParams::from_resident_mips(0, true).to_vec4(),
-            [0.0, 0.0, 1.0, 0.0]
+            SkyboxSpecularUniformParams::from_cubemap_resident_mips(0).to_vec4(),
+            [0.0, 0.0, 0.0, 0.0]
         );
-        let equirect =
-            SkyboxSpecularUniformParams::from_equirect_resident_mips(3, true, [1.0; 4], [2.0; 4]);
-        assert_eq!(equirect.to_vec4(), [2.0, 1.0, 1.0, 2.0]);
-        assert_eq!(equirect.equirect_fov, [1.0; 4]);
-        assert_eq!(equirect.equirect_st, [2.0; 4]);
     }
 
     #[test]

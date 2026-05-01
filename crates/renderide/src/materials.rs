@@ -91,6 +91,7 @@ mod pipeline_kind;
 mod pipeline_property_resolver;
 pub(crate) mod raster_pipeline;
 mod registry;
+mod render_queue;
 mod render_state;
 mod resolve_raster;
 mod router;
@@ -136,6 +137,14 @@ pub use material_passes::{
 pub use material_property_binding::MaterialPropertyGpuLayout;
 pub use pipeline_build_error::PipelineBuildError;
 pub use pipeline_kind::RasterPipelineKind;
+pub use render_queue::{
+    UNITY_OPAQUE_RENDER_QUEUE_MAX, UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_RENDER_QUEUE_BACKGROUND,
+    UNITY_RENDER_QUEUE_GEOMETRY, UNITY_RENDER_QUEUE_OVERLAY, UNITY_RENDER_QUEUE_TRANSPARENT,
+    UNITY_TRANSPARENT_RENDER_QUEUE_MIN, render_queue_is_transparent,
+};
+pub(crate) use render_queue::{
+    fallback_render_queue_for_material, material_render_queue_from_maps,
+};
 pub use render_state::{
     MaterialCullOverride, MaterialDepthOffsetState, MaterialRenderState, MaterialStencilState,
     RasterFrontFace, material_render_state_for_lookup, material_render_state_from_maps,

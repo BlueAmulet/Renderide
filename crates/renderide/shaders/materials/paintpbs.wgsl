@@ -17,9 +17,7 @@ struct PaintPBSMaterial {
     _PaintTexShifts: vec4<f32>,
     _PaintTexScales: vec4<f32>,
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _PaintTex_ST: vec4<f32>,
-    _PaintTex_StorageVInverted: f32,
     _SideFadeSize: f32,
     _Glossiness: f32,
     _Metallic: f32,
@@ -66,8 +64,8 @@ fn vs_main(
     out.clip_pos = vp * world_p;
     out.world_pos = world_p.xyz;
     out.world_n = wn;
-    out.uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
-    out.uv_paint = uvu::apply_st_for_storage(uv0, mat._PaintTex_ST, mat._PaintTex_StorageVInverted);
+    out.uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
+    out.uv_paint = uvu::apply_st(uv0, mat._PaintTex_ST);
 #ifdef MULTIVIEW
     out.view_layer = view_idx;
 #else

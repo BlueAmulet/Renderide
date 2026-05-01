@@ -45,7 +45,6 @@ struct UiTextUnlitMaterial {
     /// `1` when overlay depth compositing is enabled (Unity `OVERLAY`).
     _OVERLAY: f32,
     /// `1` when `_FontAtlas` storage is already V-inverted and shader V-flip must be skipped.
-    _FontAtlas_StorageVInverted: f32,
     _pad: f32,
 }
 
@@ -83,7 +82,7 @@ fn vs_main(
 #endif
     var out: VertexOutput;
     out.clip_pos = vp * world_p;
-    out.uv = uvu::flip_v_for_storage(uv, mat._FontAtlas_StorageVInverted);
+    out.uv = uv;
     out.extra_data = extra_n;
     out.vtx_color = color;
     out.obj_xy = pos.xy;

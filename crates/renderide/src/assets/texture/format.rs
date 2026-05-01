@@ -97,12 +97,9 @@ pub fn map_host_format(host: TextureFormat, profile: ColorProfile) -> Option<wgp
                 wgpu::TextureFormat::Etc2Rgba8Unorm
             }
         }
-        // ASTC always routes through the RGBA8 CPU decode path. Native ASTC GPU storage cannot
-        // be vertically flipped on upload (block layout is mode-dependent at granularities up
-        // to 12×12 texels — see [`crate::assets::texture::layout::flip_compressed_mip_block_rows_y_supported`])
-        // and FrooxEngine's `Bitmap2D.FlipY=true` convention requires per-asset flips. Returning
-        // [`None`] forces the upload path to allocate `Rgba8Unorm{Srgb}` and decode each mip via
-        // [`crate::assets::texture::decode::decode_mip_to_rgba8`], which supports the V flip.
+        // ASTC always routes through the RGBA8 CPU decode path. Returning [`None`] forces the
+        // upload path to allocate `Rgba8Unorm{Srgb}` and decode each mip via
+        // [`crate::assets::texture::decode::decode_mip_to_rgba8`].
         ASTC4x4 | ASTC5x5 | ASTC6x6 | ASTC8x8 | ASTC10x10 | ASTC12x12 => return None,
     })
 }

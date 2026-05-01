@@ -19,7 +19,6 @@ struct TextUnitMaterial {
     _FaceSoftness: f32,
     _OutlineSize: f32,
     _TextMode: f32,
-    _FontAtlas_StorageVInverted: f32,
     _pad0: f32,
     _pad1: f32,
     _pad2: f32,
@@ -56,7 +55,7 @@ fn vs_main(
 #endif
     var out: VertexOutput;
     out.clip_pos = vp * world_p;
-    out.uv = uvu::flip_v_for_storage(uv, mat._FontAtlas_StorageVInverted);
+    out.uv = uv;
     out.extra_data = extra_n;
     out.vtx_color = color;
     return out;

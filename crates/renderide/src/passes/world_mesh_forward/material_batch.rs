@@ -190,8 +190,15 @@ impl<'a> MaterialDrawResolver<'a> {
         last: usize,
     ) -> MaterialBatchPacket {
         let item = &draws[first];
-        let pipeline_key =
+        let mut pipeline_key =
             PipelineVariantKey::for_draw_item(item, self.pass_desc, self.shader_perm);
+        if self.offscreen_write_render_texture_asset_id.is_some() {
+            // View-projection matrices for offscreen-RT views are pre-multiplied by a clip-space
+            // Y flip so the resulting render-texture lands in Unity (V=0 bottom) orientation.
+            // That mirrors triangle winding, so the pipeline needs the inverted `front_face` to
+            // keep back-face culling correct.
+            pipeline_key.front_face = pipeline_key.front_face.flipped();
+        }
 
         let pipelines = self.resolve_pipelines(pipeline_key);
         let bind_group = self.resolve_embedded_bind_group(item);

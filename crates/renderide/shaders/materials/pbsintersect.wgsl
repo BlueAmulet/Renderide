@@ -21,7 +21,6 @@ struct PbsIntersectMaterial {
     _IntersectEmissionColor: vec4<f32>,
     _EmissionColor: vec4<f32>,
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _BeginTransitionStart: f32,
     _BeginTransitionEnd: f32,
     _EndTransitionStart: f32,
@@ -106,7 +105,7 @@ fn fs_main(
     @location(3) uv0: vec2<f32>,
     @location(4) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
     let intersect_lerp = intersection_lerp(frag_pos, world_pos, view_layer);
 
     var c0 = mix(mat._Color, mat._IntersectColor, intersect_lerp);

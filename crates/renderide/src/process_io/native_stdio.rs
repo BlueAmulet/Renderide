@@ -20,6 +20,10 @@
 //! output appears on the launching terminal as well as in the log file. Disable with
 //! **`RENDERIDE_LOG_TEE_TERMINAL=0`** (or `false` / `no`) for CI or headless runs.
 //!
+//! Renderer `logger::error!` lines are also mirrored to the preserved original stderr handle after
+//! redirection. This makes Rust-routed errors, including wgpu uncaptured validation callbacks and
+//! watchdog hang reports, visible in both `logs/renderer/*.log` and the launching terminal.
+//!
 //! On other targets this module is a no-op.
 //!
 //! Avoid enabling the logger’s **mirror-to-stderr** option together with this redirect: mirrored
@@ -106,6 +110,7 @@ pub(crate) fn ensure_stdio_forwarded_to_logger() {
                 logger::warn!("Native stdout could not be redirected to log file: {e}");
             }
         }
+        logger::set_mirror_writer(LogLevel::Error, try_write_preserved_stderr);
     });
 }
 

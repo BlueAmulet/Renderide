@@ -13,7 +13,6 @@
 struct NosamplersMaterial {
     _Color: vec4<f32>,
     _Albedo_ST: vec4<f32>,
-    _Albedo_StorageVInverted: f32,
     _Glossiness: f32,
     _Metallic: f32,
 }
@@ -63,7 +62,7 @@ fn vs_main(
     out.clip_pos = vp * world_p;
     out.world_pos = world_p.xyz;
     out.world_n = wn;
-    out.uv = uvu::apply_st_for_storage(uv0, mat._Albedo_ST, mat._Albedo_StorageVInverted);
+    out.uv = uvu::apply_st(uv0, mat._Albedo_ST);
 #ifdef MULTIVIEW
     out.view_layer = view_idx;
 #else

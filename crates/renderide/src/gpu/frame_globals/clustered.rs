@@ -80,8 +80,6 @@ impl FrameGpuUniforms {
             proj_params_right: params.proj_params_right,
             frame_tail: [params.frame_index, 0, 0, 0],
             skybox_specular: params.skybox_specular.to_vec4(),
-            skybox_specular_equirect_fov: params.skybox_specular.equirect_fov,
-            skybox_specular_equirect_st: params.skybox_specular.equirect_st,
             ambient_sh: params.ambient_sh,
         }
     }

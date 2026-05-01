@@ -9,7 +9,6 @@
 struct OverlayMaterial {
     _Blend: vec4<f32>,
     _MainTexture_ST: vec4<f32>,
-    _MainTexture_StorageVInverted: f32,
 }
 
 @group(1) @binding(0) var<uniform> mat: OverlayMaterial;
@@ -26,7 +25,7 @@ fn vs_main(
     @location(1) _n: vec4<f32>,
     @location(2) uv: vec2<f32>,
 ) -> mv::UvVertexOutput {
-    let material_uv = uvu::apply_st_for_storage(uv, mat._MainTexture_ST, mat._MainTexture_StorageVInverted);
+    let material_uv = uvu::apply_st(uv, mat._MainTexture_ST);
 #ifdef MULTIVIEW
     return mv::uv_vertex_main(instance_index, view_idx, pos, material_uv);
 #else

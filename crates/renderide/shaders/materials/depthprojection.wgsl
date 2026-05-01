@@ -26,8 +26,6 @@ struct DepthProjectionMaterial {
     _DiscardOffset: f32,
     /// Unity `DEPTH_HUE` keyword; grayscale (`1 - r`) is the default when disabled.
     DEPTH_HUE: f32,
-    _MainTex_StorageVInverted: f32,
-    _DepthTex_StorageVInverted: f32,
     _pad0: f32,
     _pad1: vec2<f32>,
 }
@@ -65,7 +63,7 @@ fn rgb_to_hue(c: vec3<f32>) -> f32 {
 }
 
 fn sample_depth_at(uv: vec2<f32>) -> f32 {
-    let suv = uvu::apply_st_for_storage(uv, mat._DepthTex_ST, mat._DepthTex_StorageVInverted);
+    let suv = uvu::apply_st(uv, mat._DepthTex_ST);
     let c = textureSampleLevel(_DepthTex, _DepthTex_sampler, suv, 0.0);
     if (mat.DEPTH_HUE > 0.5) {
         return rgb_to_hue(c.rgb);
@@ -129,7 +127,7 @@ fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
     if (vout.diff > mat._DiscardThreshold || vout.norm_depth < mat._NearClip || vout.norm_depth > mat._FarClip) {
         discard;
     }
-    let main_uv = uvu::apply_st_for_storage(vout.uv, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let main_uv = uvu::apply_st(vout.uv, mat._MainTex_ST);
     let col = textureSample(_MainTex, _MainTex_sampler, main_uv);
     return rg::retain_globals_additive(col);
 }
