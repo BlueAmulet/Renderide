@@ -24,6 +24,13 @@ use crate::world_mesh::FramePreparedRenderables;
 use super::keys::{collect_material_keys_for_space, collect_material_keys_into};
 use super::resolve::{MaterialResolveCtx, ResolvedMaterialBatch, resolve_material_batch};
 
+/// Minimum prepared-draw count before [`FrameMaterialBatchCache::refresh_for_prepared`] uses the
+/// chunked rayon dedup path. Below this, per-draw work is small enough that the serial walk wins.
+const PARALLEL_REFRESH_THRESHOLD: usize = 512;
+/// Chunk size for the parallel dedup phase. Larger values improve dedup density per chunk; smaller
+/// values give finer-grained parallelism. 256 strikes a balance for typical scenes.
+const PARALLEL_REFRESH_CHUNK_SIZE: usize = 256;
+
 /// Cached resolution plus the validation keys captured at resolve time.
 #[derive(Clone)]
 struct CacheEntry {
@@ -68,6 +75,13 @@ pub struct FrameMaterialBatchCache {
     /// cleared and resized to the active-space count; each inner [`Vec`] is cleared inside the
     /// rayon worker before [`collect_material_keys_into`] re-fills it. Capacities persist.
     keys_per_space_scratch: Vec<Vec<(i32, Option<i32>)>>,
+    /// Reused materialised pair buffer for [`Self::refresh_for_prepared`]: lets that path call
+    /// `par_chunks` directly instead of streaming an iterator.
+    pairs_scratch: Vec<(i32, Option<i32>)>,
+    /// Per-chunk unique-key buffers for [`Self::refresh_for_prepared`]. Each rayon worker writes
+    /// into one inner `Vec`; the serial merge pass only walks unique-per-chunk keys instead of
+    /// every prepared draw.
+    chunks_unique_scratch: Vec<Vec<(i32, Option<i32>)>>,
 }
 
 impl Default for FrameMaterialBatchCache {
@@ -85,6 +99,8 @@ impl FrameMaterialBatchCache {
             seen_scratch: hashbrown::HashSet::new(),
             active_scratch: Vec::new(),
             keys_per_space_scratch: Vec::new(),
+            pairs_scratch: Vec::new(),
+            chunks_unique_scratch: Vec::new(),
         }
     }
 
@@ -222,6 +238,11 @@ impl FrameMaterialBatchCache {
     /// `FramePreparedRenderables` already resolves render-context material overrides and
     /// per-slot property blocks once for the frame. Reusing those keys avoids a second
     /// O(renderers × material slots) scene walk in `render::build_frame_material_cache`.
+    ///
+    /// For larger draw lists the per-draw dedup walk is parallelised: rayon workers each dedup
+    /// a [`PARALLEL_REFRESH_CHUNK_SIZE`]-sized chunk into their own buffer, and a single serial
+    /// pass merges chunk-unique keys into the cache. Below [`PARALLEL_REFRESH_THRESHOLD`] the
+    /// serial path is used directly to avoid rayon scope overhead on small frames.
     pub fn refresh_for_prepared(
         &mut self,
         prepared: &FramePreparedRenderables,
@@ -243,11 +264,51 @@ impl FrameMaterialBatchCache {
 
         let mut seen = std::mem::take(&mut self.seen_scratch);
         seen.clear();
-        for key in prepared.material_property_pairs() {
-            if seen.insert(key) {
-                self.touch_or_refresh(key.0, key.1, ctx, router_gen, current_frame);
+        let mut pairs = std::mem::take(&mut self.pairs_scratch);
+        pairs.clear();
+        pairs.extend(prepared.material_property_pairs());
+
+        if pairs.len() < PARALLEL_REFRESH_THRESHOLD {
+            for &key in &pairs {
+                if seen.insert(key) {
+                    self.touch_or_refresh(key.0, key.1, ctx, router_gen, current_frame);
+                }
             }
+        } else {
+            use rayon::prelude::*;
+            let mut chunks_unique = std::mem::take(&mut self.chunks_unique_scratch);
+            let n_chunks = pairs.len().div_ceil(PARALLEL_REFRESH_CHUNK_SIZE);
+            chunks_unique.resize_with(n_chunks, Vec::new);
+            for buf in chunks_unique.iter_mut().take(n_chunks) {
+                buf.clear();
+            }
+            // Phase 1: parallel chunked dedup. Each rayon worker owns its chunk's input slice
+            // and the matching output buffer in `chunks_unique`, so the writes never alias.
+            pairs
+                .par_chunks(PARALLEL_REFRESH_CHUNK_SIZE)
+                .zip(chunks_unique.par_iter_mut())
+                .for_each(|(chunk, out)| {
+                    let mut local: hashbrown::HashSet<(i32, Option<i32>)> =
+                        hashbrown::HashSet::with_capacity(chunk.len());
+                    for &key in chunk {
+                        if local.insert(key) {
+                            out.push(key);
+                        }
+                    }
+                });
+            // Phase 2: serial merge over chunk-unique keys only. Total work here is bounded by
+            // (n_chunks × distinct materials), which is far smaller than the per-draw walk.
+            for chunk_unique in &chunks_unique {
+                for &key in chunk_unique {
+                    if seen.insert(key) {
+                        self.touch_or_refresh(key.0, key.1, ctx, router_gen, current_frame);
+                    }
+                }
+            }
+            self.chunks_unique_scratch = chunks_unique;
         }
+
+        self.pairs_scratch = pairs;
         self.seen_scratch = seen;
         self.entries
             .retain(|_, entry| entry.last_used_frame == current_frame);

@@ -80,6 +80,20 @@ pub struct RenderSpaceState {
     /// [`Self::layer_assignments`] (`apply_layer_update_extracted`,
     /// `fixup_layer_assignments_for_transform_removals`); cleared by the resolver after rebuild.
     pub layer_index_dirty: bool,
+    /// Cross-frame `node_id -> Option<LayerType>` resolution cache used by
+    /// `resolve_mesh_layers_from_assignments` to skip parent-chain walks once a node has been
+    /// resolved. `None` records "no ancestor carries a layer assignment", so repeated fallback
+    /// nodes also avoid the walk. Cleared whenever [`Self::layer_index_dirty`] or
+    /// [`Self::hierarchy_dirty`] is observed by the resolver.
+    pub resolved_layer_cache: HashMap<i32, Option<LayerType>>,
+    /// Marks [`Self::resolved_layer_cache`] as stale due to a structural change in
+    /// [`Self::node_parents`]. Set by the transform-apply path on growth, removals, and parent
+    /// updates; cleared by the resolver after the cache is repopulated. `Self::layer_index_dirty`
+    /// covers the layer-assignment side; this flag covers the hierarchy side.
+    pub hierarchy_dirty: bool,
+    /// Reused dedup set for [`resolve_mesh_layers_from_assignments`]'s ensure-cache pass; cleared
+    /// at the start of every resolve and refilled by walking unique renderer node ids.
+    pub layer_resolve_seen_scratch: hashbrown::HashSet<i32>,
     /// Render-context-local transform substitutions from the host.
     pub render_transform_overrides: Vec<RenderTransformOverrideEntry>,
     /// Render-context-local material substitutions from the host.
@@ -137,6 +151,9 @@ impl Default for RenderSpaceState {
             layer_assignments: Vec::new(),
             layer_index: HashMap::new(),
             layer_index_dirty: true,
+            resolved_layer_cache: HashMap::new(),
+            hierarchy_dirty: true,
+            layer_resolve_seen_scratch: hashbrown::HashSet::new(),
             render_transform_overrides: Vec::new(),
             render_material_overrides: Vec::new(),
         }

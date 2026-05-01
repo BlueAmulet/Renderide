@@ -96,5 +96,6 @@ pub(super) fn apply_transform_parent_updates_extracted(
     if had_parent {
         cache.children_dirty = true;
         *invalidate_world = true;
+        space.hierarchy_dirty = true;
     }
 }

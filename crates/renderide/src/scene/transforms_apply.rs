@@ -159,6 +159,7 @@ fn grow_transform_buffers_to_target(
     }
     if space.nodes.len() != nodes_before {
         *invalidate_world = true;
+        space.hierarchy_dirty = true;
     }
 }
 
@@ -236,6 +237,7 @@ pub fn apply_transforms_update_extracted(
             cache.children_dirty = true;
             invalidate_world = true;
             full_invalidate_world = true;
+            space.hierarchy_dirty = true;
         }
     }
 

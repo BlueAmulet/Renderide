@@ -129,6 +129,7 @@ pub(crate) fn resolve_mesh_layers_from_assignments(space: &mut RenderSpaceState)
     // last resolve. The forward `insert` matches the prior `iter().rev().find()` "latest
     // assignment wins" semantics: when the host re-emits an entry for an existing node_id, the
     // later push overwrites. The index is reused across frames otherwise.
+    let layer_index_changed = space.layer_index_dirty;
     if space.layer_index_dirty {
         profiling::scope!("scene::apply::layer_resolve::build_index");
         space.layer_index.clear();
@@ -141,61 +142,138 @@ pub(crate) fn resolve_mesh_layers_from_assignments(space: &mut RenderSpaceState)
         space.layer_index_dirty = false;
     }
 
-    let node_parents = &space.node_parents;
-    let layer_for_node = &space.layer_index;
+    // Cross-frame resolution cache is valid as long as neither the layer assignments nor the
+    // node-parent hierarchy have mutated since it was last populated. Either signal forces a
+    // full repopulate.
+    if layer_index_changed || space.hierarchy_dirty {
+        space.resolved_layer_cache.clear();
+        space.hierarchy_dirty = false;
+    }
+
+    // Phase 1 (serial): ensure every renderer's `node_id` has a resolution recorded in the
+    // cross-frame cache, including `None` for nodes whose ancestry carries no layer assignment.
+    // Steady-state hits are a single hashbrown probe per unique renderer node id; misses do the
+    // same parent walk the previous code did, but only once per node id per cache lifetime.
+    {
+        profiling::scope!("scene::apply::layer_resolve::ensure_cache");
+        let RenderSpaceState {
+            node_parents,
+            layer_index,
+            resolved_layer_cache,
+            static_mesh_renderers,
+            skinned_mesh_renderers,
+            layer_resolve_seen_scratch,
+            ..
+        } = space;
+        layer_resolve_seen_scratch.clear();
+        layer_resolve_seen_scratch
+            .reserve(static_mesh_renderers.len() + skinned_mesh_renderers.len());
+        for r in static_mesh_renderers.iter() {
+            ensure_resolved_cache_entry(
+                node_parents,
+                layer_index,
+                resolved_layer_cache,
+                layer_resolve_seen_scratch,
+                r.node_id,
+            );
+        }
+        for r in skinned_mesh_renderers.iter() {
+            ensure_resolved_cache_entry(
+                node_parents,
+                layer_index,
+                resolved_layer_cache,
+                layer_resolve_seen_scratch,
+                r.base.node_id,
+            );
+        }
+    }
 
     let total = space.static_mesh_renderers.len() + space.skinned_mesh_renderers.len();
+    let resolved_cache = &space.resolved_layer_cache;
 
     // Collect node ids whose layer resolution falls through to the default; logged after the
-    // borrow on `space` ends. The parallel branch funnels its missing-node ids through a
-    // mutex-guarded vec; the cost is negligible vs. the per-renderable parent walk above it.
+    // borrow on `space` ends. Both the parallel and serial branches funnel missing-node ids
+    // through this mutex-guarded vec; the cost is negligible vs. the per-renderable cache probe.
     let fallback_log: Mutex<Vec<i32>> = Mutex::new(Vec::new());
 
+    // Phase 2 (parallel above the threshold): walk renderers and consume the cache. Reads are
+    // safe to share across rayon workers because `hashbrown::HashMap` is `Sync` for `&` access.
     if total >= LAYER_RESOLVE_PARALLEL_MIN {
         use rayon::prelude::*;
         space.static_mesh_renderers.par_iter_mut().for_each(|r| {
-            if let Some(layer) = resolve_layer_for_node(node_parents, layer_for_node, r.node_id) {
-                r.layer = layer;
-            } else {
-                r.layer = LayerType::default();
-                fallback_log.lock().push(r.node_id);
-            }
+            apply_cached_layer(resolved_cache, &fallback_log, &mut r.layer, r.node_id);
         });
         space.skinned_mesh_renderers.par_iter_mut().for_each(|r| {
-            if let Some(layer) =
-                resolve_layer_for_node(node_parents, layer_for_node, r.base.node_id)
-            {
-                r.base.layer = layer;
-            } else {
-                r.base.layer = LayerType::default();
-                fallback_log.lock().push(r.base.node_id);
-            }
+            apply_cached_layer(
+                resolved_cache,
+                &fallback_log,
+                &mut r.base.layer,
+                r.base.node_id,
+            );
         });
     } else {
         for renderer in &mut space.static_mesh_renderers {
-            if let Some(layer) =
-                resolve_layer_for_node(node_parents, layer_for_node, renderer.node_id)
-            {
-                renderer.layer = layer;
-            } else {
-                renderer.layer = LayerType::default();
-                fallback_log.lock().push(renderer.node_id);
-            }
+            apply_cached_layer(
+                resolved_cache,
+                &fallback_log,
+                &mut renderer.layer,
+                renderer.node_id,
+            );
         }
         for renderer in &mut space.skinned_mesh_renderers {
-            if let Some(layer) =
-                resolve_layer_for_node(node_parents, layer_for_node, renderer.base.node_id)
-            {
-                renderer.base.layer = layer;
-            } else {
-                renderer.base.layer = LayerType::default();
-                fallback_log.lock().push(renderer.base.node_id);
-            }
+            apply_cached_layer(
+                resolved_cache,
+                &fallback_log,
+                &mut renderer.base.layer,
+                renderer.base.node_id,
+            );
         }
     }
 
     for node_id in fallback_log.into_inner() {
         record_layer_fallback(node_id);
+    }
+}
+
+/// Populates [`RenderSpaceState::resolved_layer_cache`] for `node_id` if it is not already
+/// recorded. Records `Some(layer)` on a successful parent-chain walk and `None` otherwise so the
+/// fallback path also avoids the walk on later frames.
+fn ensure_resolved_cache_entry(
+    node_parents: &[i32],
+    layer_for_node: &HashMap<i32, LayerType>,
+    cache: &mut HashMap<i32, Option<LayerType>>,
+    seen: &mut hashbrown::HashSet<i32>,
+    node_id: i32,
+) {
+    if node_id < 0 {
+        return;
+    }
+    if !seen.insert(node_id) {
+        return;
+    }
+    if cache.contains_key(&node_id) {
+        return;
+    }
+    let resolved = resolve_layer_for_node(node_parents, layer_for_node, node_id);
+    cache.insert(node_id, resolved);
+}
+
+/// Reads the cached resolution for `node_id` and applies it to `out_layer`. Falls back to the
+/// default (and records the node id for one-shot warning) when no entry is present or the cached
+/// resolution is `None`.
+#[inline]
+fn apply_cached_layer(
+    cache: &HashMap<i32, Option<LayerType>>,
+    fallback_log: &Mutex<Vec<i32>>,
+    out_layer: &mut LayerType,
+    node_id: i32,
+) {
+    match cache.get(&node_id).copied() {
+        Some(Some(layer)) => *out_layer = layer,
+        Some(None) | None => {
+            *out_layer = LayerType::default();
+            fallback_log.lock().push(node_id);
+        }
     }
 }
 

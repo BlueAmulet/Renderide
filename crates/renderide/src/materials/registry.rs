@@ -2,7 +2,11 @@
 
 use std::sync::Arc;
 
+use hashbrown::HashSet;
+use parking_lot::Mutex;
+
 use crate::materials::ShaderPermutation;
+use crate::passes::PipelineVariantKey;
 
 use super::cache::{MaterialPipelineCache, MaterialPipelineCacheStats, MaterialPipelineSet};
 use super::family::MaterialPipelineDesc;
@@ -36,6 +40,12 @@ pub struct MaterialRegistry {
     /// Shader asset id -> pipeline family and resolved asset-name routing.
     pub router: MaterialRouter,
     cache: MaterialPipelineCache,
+    /// Cross-frame set of pipeline variants the pre-warm path has already requested. Lets
+    /// `pre_warm_pipeline_cache_for_views` skip the rayon dispatch (and the per-call cache mutex
+    /// acquisition) for variants that are already cached in steady state. The set is best-effort:
+    /// LRU eviction in [`MaterialPipelineCache`] may cause an entry here to outlive its cached
+    /// pipeline, but the lazy compile inside the record path still matches today's behavior.
+    warmed_variants: Mutex<HashSet<PipelineVariantKey>>,
 }
 
 impl MaterialRegistry {
@@ -112,6 +122,7 @@ impl MaterialRegistry {
             device: device.clone(),
             router: MaterialRouter::new(RasterPipelineKind::Null),
             cache: MaterialPipelineCache::new(device, limits),
+            warmed_variants: Mutex::new(HashSet::new()),
         }
     }
 
@@ -142,6 +153,24 @@ impl MaterialRegistry {
     /// Removes routing for a host shader id [`crate::shared::ShaderUnload`].
     pub fn unmap_shader(&mut self, shader_asset_id: i32) {
         self.router.remove_shader_route(shader_asset_id);
+        self.warmed_variants
+            .lock()
+            .retain(|v| v.shader_asset_id != shader_asset_id);
+    }
+
+    /// Returns `true` when `key` has already been requested through the pre-warm path. See
+    /// [`Self::warmed_variants`].
+    pub(crate) fn is_pipeline_variant_warmed(&self, key: &PipelineVariantKey) -> bool {
+        self.warmed_variants.lock().contains(key)
+    }
+
+    /// Marks `keys` as warmed so the next frame's pre-warm walk can skip them.
+    pub(crate) fn mark_pipeline_variants_warmed<I>(&self, keys: I)
+    where
+        I: IntoIterator<Item = PipelineVariantKey>,
+    {
+        let mut set = self.warmed_variants.lock();
+        set.extend(keys);
     }
 
     /// Resolves a cached or new pipeline for a host shader asset (via router + embedded stem when applicable).
