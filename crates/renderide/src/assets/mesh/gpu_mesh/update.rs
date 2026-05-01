@@ -15,7 +15,8 @@ use super::super::layout::{
     extract_bind_poses, synthetic_bone_data_for_blendshape_only,
 };
 use super::super::upload_impl::{
-    upload_default_extended_vertex_streams, upload_extended_vertex_streams,
+    upload_default_extended_vertex_streams, upload_default_uv1_vertex_stream,
+    upload_extended_vertex_streams, upload_uv1_vertex_stream,
 };
 use super::{
     GpuMesh, MeshInPlaceWriteContext, blendshape_and_deform_buffers_match_for_in_place,
@@ -37,6 +38,11 @@ impl GpuMesh {
             && self.uv1_buffer.is_some()
             && self.uv2_buffer.is_some()
             && self.uv3_buffer.is_some()
+    }
+
+    /// `true` when this mesh has the standalone UV1 stream required by compact UV1 shaders.
+    pub fn uv1_vertex_stream_ready(&self) -> bool {
+        self.uv1_buffer.is_some()
     }
 
     /// Returns whether this mesh has every GPU stream needed to produce world-space skinned output.
@@ -101,6 +107,40 @@ impl GpuMesh {
             .saturating_sub(old_bytes)
             .saturating_add(new_bytes);
         self.extended_vertex_stream_source = None;
+        true
+    }
+
+    /// Creates a UV1 stream the first time an embedded shader needs it without other extended streams.
+    pub(crate) fn ensure_uv1_vertex_stream(&mut self, device: &wgpu::Device) -> bool {
+        profiling::scope!("asset::mesh_ensure_uv1_vertex_stream");
+        if self.uv1_vertex_stream_ready() {
+            return true;
+        }
+
+        let old_bytes = self.uv1_buffer.as_ref().map_or(0, |buffer| buffer.size());
+        let vc_usize = self.vertex_count as usize;
+        let uv1_buffer = if let Some(source) = self.extended_vertex_stream_source.as_ref() {
+            upload_uv1_vertex_stream(
+                device,
+                self.asset_id,
+                source.vertex_bytes.as_ref(),
+                vc_usize,
+                self.vertex_stride as usize,
+                source.vertex_attributes.as_ref(),
+            )
+        } else {
+            upload_default_uv1_vertex_stream(device, self.asset_id, vc_usize)
+        };
+
+        let Some(uv1_buffer) = uv1_buffer else {
+            return false;
+        };
+        self.uv1_buffer = Some(uv1_buffer);
+        let new_bytes = self.uv1_buffer.as_ref().map_or(0, |buffer| buffer.size());
+        self.resident_bytes = self
+            .resident_bytes
+            .saturating_sub(old_bytes)
+            .saturating_add(new_bytes);
         true
     }
 

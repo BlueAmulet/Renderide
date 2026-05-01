@@ -14,7 +14,7 @@ use super::texture_resolve::{
 mod helpers;
 mod tables;
 
-use helpers::{default_vec4_for_field, shader_writer_unescaped_field_name};
+use helpers::{default_f32_for_field, default_vec4_for_field, shader_writer_unescaped_field_name};
 use tables::inferred_keyword_float_f32;
 
 /// Suffix convention that opts a uniform field in to host `mipmap_bias` population.
@@ -74,8 +74,8 @@ pub(crate) struct UniformPackTextureContext<'a> {
 /// property store (for host-declared properties), explicit-only zero-default fields such as UI
 /// text controls, [`inferred_keyword_float_f32`] for multi-compile keyword fields (`_NORMALMAP`,
 /// `_ALPHATEST_ON`, …) the host cannot write because FrooxEngine routes them through the
-/// `ShaderKeywords.Variant` bitmask the renderer never receives, or the `default_vec4_for_field`
-/// table / a zero for the unobservable pre-first-batch window.
+/// `ShaderKeywords.Variant` bitmask the renderer never receives, or the scalar/vector default
+/// tables / a zero for the unobservable pre-first-batch window.
 pub(crate) fn build_embedded_uniform_bytes(
     reflected: &ReflectedRasterLayout,
     ids: &StemEmbeddedPropertyIds,
@@ -111,9 +111,8 @@ pub(crate) fn build_embedded_uniform_bytes(
                 } else if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, pid)
                 {
                     *f
-                } else if field_name == "_Cutoff" {
-                    // Unity-convention cutoff fallback for the pre-first-batch window.
-                    0.5
+                } else if let Some(default_value) = default_f32_for_field(field_name) {
+                    default_value
                 } else if explicit_zero_default_f32_field(field_name) {
                     0.0
                 } else {

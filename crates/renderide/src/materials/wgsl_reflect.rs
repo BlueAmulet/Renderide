@@ -13,7 +13,7 @@ mod uniform_vertex;
 
 pub use types::{
     ReflectError, ReflectedMaterialUniformBlock, ReflectedRasterLayout, ReflectedUniformField,
-    ReflectedUniformScalarKind,
+    ReflectedUniformScalarKind, ReflectedVertexInput, ReflectedVertexInputFormat,
 };
 
 use std::collections::BTreeMap;
@@ -29,7 +29,7 @@ use self::fingerprint::fingerprint_layout;
 use self::frame_group0::{reflect_frame_snapshot_usage, validate_frame_group0};
 use self::uniform_vertex::{
     material_uniform_requires_intersection_subpass, reflect_first_group1_uniform_struct,
-    reflect_group1_global_binding_names, reflect_vs_main_max_vertex_location,
+    reflect_group1_global_binding_names, reflect_vs_main_vertex_inputs,
 };
 
 /// Parses and validates WGSL, checks frame globals, and builds layout entries for groups 1 and 2.
@@ -80,13 +80,15 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
 
     let material_uniform = reflect_first_group1_uniform_struct(&module, &layouter);
     let material_group1_names = reflect_group1_global_binding_names(&module);
-    let vs_max_vertex_location = reflect_vs_main_max_vertex_location(&module);
+    let vs_vertex_inputs = reflect_vs_main_vertex_inputs(&module);
+    let vs_max_vertex_location = vs_vertex_inputs.iter().map(|input| input.location).max();
     let snapshot_usage = reflect_frame_snapshot_usage(&module);
 
     let layout_fingerprint = fingerprint_layout(
         &material_entries,
         &per_draw_entries,
         vs_max_vertex_location,
+        &vs_vertex_inputs,
         &material_group1_names,
     );
 
@@ -99,6 +101,7 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
         per_draw_entries,
         material_uniform,
         material_group1_names,
+        vs_vertex_inputs,
         vs_max_vertex_location,
         uses_scene_depth_snapshot: snapshot_usage.depth,
         uses_scene_color_snapshot: snapshot_usage.color,
@@ -106,20 +109,46 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
     })
 }
 
-/// Returns true when `vs_main` uses vertex `@location` 2 or higher (UV0 stream).
-pub fn reflect_vertex_shader_needs_uv0_stream(wgsl_source: &str) -> bool {
+fn reflected_vertex_shader_has_input(
+    wgsl_source: &str,
+    location: u32,
+    format: ReflectedVertexInputFormat,
+) -> bool {
     reflect_raster_material_wgsl(wgsl_source)
         .ok()
-        .and_then(|r| r.vs_max_vertex_location)
-        .is_some_and(|m| m >= 2)
+        .is_some_and(|r| {
+            r.vs_vertex_inputs
+                .iter()
+                .any(|input| input.location == location && input.format == format)
+        })
 }
 
-/// Returns true when `vs_main` uses vertex `@location` 3 or higher (extra color stream).
+/// Returns true when `vs_main` uses vertex `@location(2)` as a `vec2<f32>` UV0 stream.
+pub fn reflect_vertex_shader_needs_uv0_stream(wgsl_source: &str) -> bool {
+    reflected_vertex_shader_has_input(wgsl_source, 2, ReflectedVertexInputFormat::Float32x2)
+}
+
+/// Returns true when `vs_main` uses vertex `@location(3)` as a `vec4<f32>` color stream.
 pub fn reflect_vertex_shader_needs_color_stream(wgsl_source: &str) -> bool {
+    reflected_vertex_shader_has_input(wgsl_source, 3, ReflectedVertexInputFormat::Float32x4)
+}
+
+/// Returns true when `vs_main` uses vertex `@location(5)` as a `vec2<f32>` UV1 stream.
+pub fn reflect_vertex_shader_needs_uv1_stream(wgsl_source: &str) -> bool {
+    reflected_vertex_shader_has_input(wgsl_source, 5, ReflectedVertexInputFormat::Float32x2)
+}
+
+/// Returns true when `vs_main` needs the full extended tangent/UV1-UV3 stream set.
+pub fn reflect_vertex_shader_needs_extended_vertex_streams(wgsl_source: &str) -> bool {
     reflect_raster_material_wgsl(wgsl_source)
         .ok()
-        .and_then(|r| r.vs_max_vertex_location)
-        .is_some_and(|m| m >= 3)
+        .is_some_and(|r| {
+            r.vs_vertex_inputs.iter().any(|input| {
+                matches!(input.location, 4 | 6 | 7)
+                    || (input.location == 5
+                        && input.format != ReflectedVertexInputFormat::Float32x2)
+            })
+        })
 }
 
 /// `true` when reflection reports an intersect-style material (uniform field `_IntersectColor`).

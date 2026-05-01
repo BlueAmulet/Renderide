@@ -78,6 +78,7 @@ pub(crate) fn create_null_render_pipeline(
         ReflectiveRasterMeshForwardPipelineDesc {
             include_uv_vertex_buffer: false,
             include_color_vertex_buffer: false,
+            include_uv1_vertex_buffer: false,
             use_alpha_blending: false,
             depth_write_enabled: true,
             render_state: MaterialRenderState::default(),

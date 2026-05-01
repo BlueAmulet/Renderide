@@ -22,6 +22,13 @@ struct PbsRimTransparentSpecularMaterial {
     _MainTex_StorageVInverted: f32,
     _NormalScale: f32,
     _RimPower: f32,
+    _ALBEDOTEX: f32,
+    _EMISSIONTEX: f32,
+    _NORMALMAP: f32,
+    _SPECULARMAP: f32,
+    _OCCLUSION: f32,
+    _pad0: f32,
+    _pad1: f32,
 }
 
 @group(1) @binding(0)  var<uniform> mat: PbsRimTransparentSpecularMaterial;
@@ -37,7 +44,15 @@ struct PbsRimTransparentSpecularMaterial {
 @group(1) @binding(10) var _SpecularMap_sampler: sampler;
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>) -> vec3<f32> {
-    return psamp::sample_world_normal(_NormalMap, _NormalMap_sampler, uv_main, 0.0, mat._NormalScale, world_n);
+    return psamp::sample_optional_world_normal(
+        uvu::kw_enabled(mat._NORMALMAP),
+        _NormalMap,
+        _NormalMap_sampler,
+        uv_main,
+        0.0,
+        mat._NormalScale,
+        world_n,
+    );
 }
 
 @vertex
@@ -61,6 +76,7 @@ fn vs_main(
 @fragment
 fn fs_main(
     @builtin(position) frag_pos: vec4<f32>,
+    @builtin(front_facing) front_facing: bool,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
     @location(2) uv0: vec2<f32>,
@@ -68,22 +84,36 @@ fn fs_main(
 ) -> @location(0) vec4<f32> {
     let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
 
-    let albedo_s = textureSample(_MainTex, _MainTex_sampler, uv_main);
-    let base_color = mat._Color.xyz * albedo_s.xyz;
-    let alpha = mat._Color.a * albedo_s.a;
+    var c0 = mat._Color;
+    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+        c0 = c0 * textureSample(_MainTex, _MainTex_sampler, uv_main);
+    }
+    let base_color = c0.rgb;
+    let alpha = c0.a;
 
-    let spec_s = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
-    let spec = mat._SpecularColor * spec_s;
+    var spec = mat._SpecularColor;
+    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+        spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
+    }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let smoothness = clamp(spec.a, 0.0, 1.0);
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
-    let occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).x;
+    var occlusion = 1.0;
+    if (uvu::kw_enabled(mat._OCCLUSION)) {
+        occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
+    }
 
     var n = normalize(world_n);
     n = sample_normal_world(uv_main, n);
+    if (!front_facing) {
+        n = -n;
+    }
 
-    let emission = textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).xyz * mat._EmissionColor.xyz;
+    var emission = mat._EmissionColor.rgb;
+    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+        emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
+    }
 
     let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
     let rim = mf::rim_factor(n, view_dir, mat._RimPower);

@@ -74,7 +74,7 @@ fn blend_detail_normal(base_ts: vec3<f32>, detail_ts: vec3<f32>) -> vec3<f32> {
 
 fn sample_albedo_color(uv_main: vec2<f32>, edge_lerp: f32) -> vec4<f32> {
     let tint = mix(mat._Color, mat._EdgeColor, edge_lerp);
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (uvu::kw_enabled(mat._ALBEDOTEX) || uvu::kw_enabled(mat._DETAIL_ALBEDOTEX)) {
         return textureSample(_MainTex, _MainTex_sampler, uv_main) * tint;
     }
     return tint;

@@ -12,7 +12,7 @@ use crate::materials::raster_pipeline::{
 };
 use crate::materials::{
     MaterialBlendMode, MaterialRenderState, RasterFrontFace, ReflectedRasterLayout,
-    SnapshotRequirements, materialized_pass_for_blend_mode,
+    ReflectedVertexInputFormat, SnapshotRequirements, materialized_pass_for_blend_mode,
 };
 
 /// Host material identity and blend/render state for embedded raster pipeline creation (separate from WGSL build inputs).
@@ -50,15 +50,24 @@ struct EmbeddedStemMetadata {
 }
 
 impl EmbeddedStemMetadata {
-    /// Highest reflected vertex input location on `vs_main`.
-    fn vs_max_vertex_location(&self) -> Option<u32> {
-        self.reflected.as_ref()?.vs_max_vertex_location
+    /// Whether `vs_main` declares a vertex input with this exact location and format.
+    fn needs_vertex_input(&self, location: u32, format: ReflectedVertexInputFormat) -> bool {
+        self.reflected.as_ref().is_some_and(|r| {
+            r.vs_vertex_inputs
+                .iter()
+                .any(|input| input.location == location && input.format == format)
+        })
     }
 
-    /// Whether `vs_main` needs the given vertex location or higher.
-    fn needs_vertex_location(&self, min_location: u32) -> bool {
-        self.vs_max_vertex_location()
-            .is_some_and(|loc| loc >= min_location)
+    /// Whether `vs_main` needs tangent/UV2/UV3 or an unsupported UV1 shape.
+    fn needs_extended_vertex_streams(&self) -> bool {
+        self.reflected.as_ref().is_some_and(|r| {
+            r.vs_vertex_inputs.iter().any(|input| {
+                matches!(input.location, 4 | 6 | 7)
+                    || (input.location == 5
+                        && input.format != ReflectedVertexInputFormat::Float32x2)
+            })
+        })
     }
 }
 
@@ -83,17 +92,25 @@ impl EmbeddedStemQuery {
 
     /// `true` when `vs_main` uses `@location(2)` or higher (UV0 stream).
     pub fn needs_uv0_stream(&self) -> bool {
-        self.metadata.needs_vertex_location(2)
+        self.metadata
+            .needs_vertex_input(2, ReflectedVertexInputFormat::Float32x2)
     }
 
-    /// `true` when `vs_main` uses `@location(3)` or higher (color stream).
+    /// `true` when `vs_main` uses `@location(3)` as a `vec4<f32>` color stream.
     pub fn needs_color_stream(&self) -> bool {
-        self.metadata.needs_vertex_location(3)
+        self.metadata
+            .needs_vertex_input(3, ReflectedVertexInputFormat::Float32x4)
     }
 
-    /// `true` when `vs_main` uses `@location(4)` or higher (extended vertex streams).
+    /// `true` when `vs_main` uses `@location(5)` as a `vec2<f32>` UV1 stream.
+    pub fn needs_uv1_stream(&self) -> bool {
+        self.metadata
+            .needs_vertex_input(5, ReflectedVertexInputFormat::Float32x2)
+    }
+
+    /// `true` when `vs_main` needs the full tangent/UV1-UV3 extended stream set.
     pub fn needs_extended_vertex_streams(&self) -> bool {
-        self.metadata.needs_vertex_location(4)
+        self.metadata.needs_extended_vertex_streams()
     }
 
     /// Number of raster passes that will be submitted for one embedded draw batch.
@@ -151,24 +168,34 @@ fn embedded_stem_metadata(base_stem: &str, permutation: ShaderPermutation) -> Em
     metadata
 }
 
-/// `true` when composed embedded WGSL's `vs_main` uses `@location(2)` or higher (UV0 vertex stream).
+/// `true` when composed embedded WGSL's `vs_main` uses `@location(2)` as a UV0 vertex stream.
 pub fn embedded_stem_needs_uv0_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_uv0_stream()
 }
 
-/// `true` when `vs_main` reflection reports a highest vertex `@location` index ≥ 2 (UV at `location(2)`).
+/// `true` when `vs_main` reflection reports a UV0 input at `@location(2)`.
 pub fn embedded_wgsl_needs_uv0_stream(wgsl_source: &str) -> bool {
     crate::materials::wgsl_reflect::reflect_vertex_shader_needs_uv0_stream(wgsl_source)
 }
 
-/// `true` when composed embedded WGSL's `vs_main` uses `@location(3)` or higher (vertex color stream).
+/// `true` when composed embedded WGSL's `vs_main` uses `@location(3)` as vertex color.
 pub fn embedded_stem_needs_color_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_color_stream()
 }
 
-/// `true` when `vs_main` reflection reports a highest vertex `@location` index >= 3 (color at `location(3)`).
+/// `true` when `vs_main` reflection reports a color input at `@location(3)`.
 pub fn embedded_wgsl_needs_color_stream(wgsl_source: &str) -> bool {
     crate::materials::wgsl_reflect::reflect_vertex_shader_needs_color_stream(wgsl_source)
+}
+
+/// `true` when composed embedded WGSL's `vs_main` uses `@location(5)` as UV1.
+pub fn embedded_stem_needs_uv1_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
+    EmbeddedStemQuery::for_stem(base_stem, permutation).needs_uv1_stream()
+}
+
+/// `true` when `vs_main` reflection reports a UV1 input at `@location(5)`.
+pub fn embedded_wgsl_needs_uv1_stream(wgsl_source: &str) -> bool {
+    crate::materials::wgsl_reflect::reflect_vertex_shader_needs_uv1_stream(wgsl_source)
 }
 
 /// `true` when composed embedded WGSL's `vs_main` uses `@location(4)` or higher.
@@ -179,12 +206,9 @@ pub fn embedded_stem_needs_extended_vertex_streams(
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_extended_vertex_streams()
 }
 
-/// `true` when `vs_main` reflection reports a highest vertex `@location` index >= 4.
+/// `true` when `vs_main` reflection requires the full extended tangent/UV stream set.
 pub fn embedded_wgsl_needs_extended_vertex_streams(wgsl_source: &str) -> bool {
-    crate::materials::wgsl_reflect::reflect_raster_material_wgsl(wgsl_source)
-        .ok()
-        .and_then(|r| r.vs_max_vertex_location)
-        .is_some_and(|m| m >= 4)
+    crate::materials::wgsl_reflect::reflect_vertex_shader_needs_extended_vertex_streams(wgsl_source)
 }
 
 /// Number of raster passes that will be submitted for one embedded draw batch.
@@ -279,6 +303,7 @@ pub(crate) fn create_embedded_render_pipelines(
     let streams = VertexStreamToggles {
         include_uv_vertex_buffer: true,
         include_color_vertex_buffer: true,
+        include_uv1_vertex_buffer: true,
     };
     let composed = embedded_composed_stem_for_permutation(stem.as_ref(), permutation);
     let declared_passes = embedded_shaders::embedded_target_passes(&composed);
@@ -309,9 +334,34 @@ pub fn embedded_stem_uses_alpha_blending(base_stem: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use hashbrown::HashMap;
+
     use super::*;
     use crate::materials::MaterialPassState;
     use crate::materials::ShaderPermutation;
+    use crate::materials::{ReflectedVertexInput, ReflectedVertexInputFormat};
+
+    fn query_with_vertex_inputs(inputs: Vec<ReflectedVertexInput>) -> EmbeddedStemQuery {
+        let max_location = inputs.iter().map(|input| input.location).max();
+        EmbeddedStemQuery {
+            metadata: EmbeddedStemMetadata {
+                reflected: Some(ReflectedRasterLayout {
+                    layout_fingerprint: 0,
+                    material_entries: Vec::new(),
+                    per_draw_entries: Vec::new(),
+                    material_uniform: None,
+                    material_group1_names: HashMap::new(),
+                    vs_vertex_inputs: inputs,
+                    vs_max_vertex_location: max_location,
+                    uses_scene_depth_snapshot: false,
+                    uses_scene_color_snapshot: false,
+                    requires_intersection_pass: false,
+                }),
+                pass_count: 1,
+                uses_alpha_blending: false,
+            },
+        }
+    }
 
     #[test]
     fn null_no_uv0_stream() {
@@ -357,6 +407,46 @@ mod tests {
             "ui_textunlit_default",
             SHADER_PERM_MULTIVIEW_STEREO,
         ));
+    }
+
+    #[test]
+    fn metadata_flags_distinguish_uv1_only_from_color_and_extended_streams() {
+        let uv1_only = query_with_vertex_inputs(vec![
+            ReflectedVertexInput {
+                location: 0,
+                format: ReflectedVertexInputFormat::Float32x4,
+            },
+            ReflectedVertexInput {
+                location: 1,
+                format: ReflectedVertexInputFormat::Float32x4,
+            },
+            ReflectedVertexInput {
+                location: 2,
+                format: ReflectedVertexInputFormat::Float32x2,
+            },
+            ReflectedVertexInput {
+                location: 5,
+                format: ReflectedVertexInputFormat::Float32x2,
+            },
+        ]);
+        assert!(uv1_only.needs_uv0_stream());
+        assert!(uv1_only.needs_uv1_stream());
+        assert!(!uv1_only.needs_color_stream());
+        assert!(!uv1_only.needs_extended_vertex_streams());
+
+        let color = query_with_vertex_inputs(vec![ReflectedVertexInput {
+            location: 3,
+            format: ReflectedVertexInputFormat::Float32x4,
+        }]);
+        assert!(color.needs_color_stream());
+        assert!(!color.needs_uv1_stream());
+        assert!(!color.needs_extended_vertex_streams());
+
+        let tangent = query_with_vertex_inputs(vec![ReflectedVertexInput {
+            location: 4,
+            format: ReflectedVertexInputFormat::Float32x4,
+        }]);
+        assert!(tangent.needs_extended_vertex_streams());
     }
 
     #[test]

@@ -93,6 +93,7 @@ mod text_uniform_packing_tests {
                 fields,
             }),
             material_group1_names: HashMap::new(),
+            vs_vertex_inputs: Vec::new(),
             vs_max_vertex_location: None,
             uses_scene_depth_snapshot: false,
             uses_scene_color_snapshot: false,
@@ -121,6 +122,38 @@ mod text_uniform_packing_tests {
         let type_bits = 3u32;
         let pack_type_shift = 32u32.saturating_sub(type_bits);
         asset_id | ((HostTextureAssetKind::Texture2D as i32) << pack_type_shift)
+    }
+
+    #[test]
+    fn standard_scalar_defaults_pack_without_host_values() {
+        let (reflected, ids, _) = reflected_with_f32_fields(&[
+            ("_GlossMapScale", 0),
+            ("_OcclusionStrength", 4),
+            ("_UVSec", 8),
+        ]);
+        let (textures, texture3d, cubemaps, render_textures, videos) = empty_texture_pools();
+        let pools = EmbeddedTexturePools {
+            texture: &textures,
+            texture3d: &texture3d,
+            cubemap: &cubemaps,
+            render_texture: &render_textures,
+            video_texture: &videos,
+        };
+        let bytes = build_embedded_uniform_bytes(
+            &reflected,
+            &ids,
+            &MaterialPropertyStore::new(),
+            lookup(1),
+            &UniformPackTextureContext {
+                pools: &pools,
+                primary_texture_2d: -1,
+            },
+        )
+        .expect("uniform bytes");
+
+        assert_eq!(read_f32_at(&bytes, 0), 1.0);
+        assert_eq!(read_f32_at(&bytes, 4), 1.0);
+        assert_eq!(read_f32_at(&bytes, 8), 0.0);
     }
 
     #[test]
@@ -486,6 +519,7 @@ mod text_uniform_packing_tests {
                 fields,
             }),
             material_group1_names,
+            vs_vertex_inputs: Vec::new(),
             vs_max_vertex_location: None,
             uses_scene_depth_snapshot: false,
             uses_scene_color_snapshot: false,
@@ -616,6 +650,16 @@ mod text_uniform_packing_tests {
         store.set_material(4, pid, MaterialPropertyValue::Texture(123));
         assert_eq!(
             inferred_keyword_float_f32("_SPECULARMAP", &store, lookup(4), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_SPECGLOSSMAP", &store, lookup(4), &ids),
+            Some(0.0)
+        );
+        let spec_gloss_pid = reg.intern("_SpecGlossMap");
+        store.set_material(4, spec_gloss_pid, MaterialPropertyValue::Texture(456));
+        assert_eq!(
+            inferred_keyword_float_f32("_SPECGLOSSMAP", &store, lookup(4), &ids),
             Some(1.0)
         );
         assert_eq!(
@@ -1331,6 +1375,7 @@ mod storage_orientation_uniform_tests {
                 fields,
             }),
             material_group1_names,
+            vs_vertex_inputs: Vec::new(),
             vs_max_vertex_location: None,
             uses_scene_depth_snapshot: false,
             uses_scene_color_snapshot: false,

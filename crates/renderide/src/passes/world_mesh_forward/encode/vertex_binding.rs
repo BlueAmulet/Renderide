@@ -17,8 +17,20 @@ pub(super) struct EmbeddedVertexStreamFlags {
     embedded_uv: bool,
     /// Vertex color at `@location(3)`.
     embedded_color: bool,
+    /// UV1 at `@location(5)` without requiring the full extended stream set.
+    embedded_uv1: bool,
     /// Extended streams (tangents, extra UVs) at `@location(4)` and above.
     embedded_extended_vertex_streams: bool,
+}
+
+impl EmbeddedVertexStreamFlags {
+    /// Slot used by the compact UV1 layout when the pipeline does not use full extended streams.
+    fn compact_uv1_slot(self) -> Option<usize> {
+        if !self.embedded_uv1 || self.embedded_extended_vertex_streams {
+            return None;
+        }
+        Some(if self.embedded_color { 4 } else { 3 })
+    }
 }
 
 /// GPU mesh pool and optional skin cache for [`draw_mesh_submesh_instanced`].
@@ -147,6 +159,16 @@ fn resident_draw_mesh<'a>(
         );
         return None;
     }
+    if streams.embedded_uv1
+        && !streams.embedded_extended_vertex_streams
+        && !mesh.uv1_vertex_stream_ready()
+    {
+        logger::trace!(
+            "WorldMeshForward: UV1 vertex stream missing for mesh_asset_id {}; draw skipped until pre-warm catches up",
+            item.mesh_asset_id
+        );
+        return None;
+    }
     mesh.debug_streams_ready().then_some(mesh)
 }
 
@@ -256,7 +278,11 @@ fn bind_optional_vertex_streams(
     streams: EmbeddedVertexStreamFlags,
     last_mesh: &mut LastMeshBindState,
 ) -> bool {
-    if streams.embedded_uv || streams.embedded_color || streams.embedded_extended_vertex_streams {
+    if streams.embedded_uv
+        || streams.embedded_color
+        || streams.embedded_uv1
+        || streams.embedded_extended_vertex_streams
+    {
         let Some(uv) = mesh.uv0_buffer.as_deref() else {
             return false;
         };
@@ -277,6 +303,18 @@ fn bind_optional_vertex_streams(
             3,
             color.slice(..),
             BufferBindId::full(color),
+            last_mesh.vertex
+        );
+    }
+    if let Some(slot) = streams.compact_uv1_slot() {
+        let Some(uv1) = mesh.uv1_buffer.as_deref() else {
+            return false;
+        };
+        bind_vertex_if_changed!(
+            rpass,
+            slot,
+            uv1.slice(..),
+            BufferBindId::full(uv1),
             last_mesh.vertex
         );
     }
@@ -352,6 +390,7 @@ pub(super) fn streams_for_item(item: &WorldMeshDrawItem) -> EmbeddedVertexStream
     EmbeddedVertexStreamFlags {
         embedded_uv: item.batch_key.embedded_needs_uv0,
         embedded_color: item.batch_key.embedded_needs_color,
+        embedded_uv1: item.batch_key.embedded_needs_uv1,
         embedded_extended_vertex_streams: item.batch_key.embedded_needs_extended_vertex_streams,
     }
 }

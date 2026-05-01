@@ -170,6 +170,7 @@ fn texture_keyword_pids(field_name: &str, kw: &EmbeddedSharedKeywordIds) -> Opti
             kw.specular_map3,
             kw.spec_gloss_map,
         ],
+        "_SPECGLOSSMAP" => vec![kw.spec_gloss_map],
         "_METALLICGLOSSMAP" => vec![kw.metallic_gloss_map],
         "_METALLICMAP" => vec![
             kw.metallic_map,
