@@ -15,7 +15,6 @@ mod upload;
 pub use format::{pick_wgpu_storage_format, supported_host_formats_for_init};
 pub use layout::{
     estimate_gpu_cubemap_bytes, estimate_gpu_texture_bytes, estimate_gpu_texture3d_bytes,
-    flip_compressed_mip_block_rows_y, flip_compressed_mip_block_rows_y_supported,
     host_format_is_compressed, mip_byte_len, mip_dimensions_at_level_3d, mip_tight_bytes_per_texel,
     total_mip_chain_byte_len, total_mip_chain_volume_byte_len, validate_mip_upload_layout,
 };

@@ -41,13 +41,12 @@ pub(super) fn hint_region_is_empty(hint: &TextureUploadHint) -> bool {
 
 /// Packs a tight row-major buffer for `write_texture` from a rectangular sub-region of a full mip.
 ///
-/// When `flip_y` is `true`, the source rows are read in bottom-to-top order so the produced
-/// buffer matches the GPU bottom-up storage convention; the caller adjusts the GPU `origin_y`
-/// to land at `full_height - r.y - r.h` (see [`try_write_texture2d_subregion`]).
+/// Rows are copied in source order. GPU storage matches host (Unity V=0 bottom) orientation, so
+/// no row flip is performed regardless of the `_flip_y` hint.
 pub(super) fn pack_subrect_tight(
     full: &[u8],
     r: &MipSubrectCopy,
-    flip_y: bool,
+    _flip_y: bool,
 ) -> Result<Vec<u8>, TextureUploadError> {
     profiling::scope!("asset::texture_pack_subregion");
     let row_stride = (r.full_width as usize)
@@ -62,8 +61,7 @@ pub(super) fn pack_subrect_tight(
     let mut out = Vec::new();
     out.try_reserve(total).map_err(|e| e.to_string())?;
     for row in 0..r.h {
-        let src_row = if flip_y { r.h - 1 - row } else { row };
-        let y = r.y + src_row;
+        let y = r.y + row;
         if y >= r.full_height {
             return Err("subrect row out of bounds".into());
         }
@@ -269,18 +267,13 @@ pub(super) fn try_write_texture2d_subregion(
         Err(e) => return Some(Err(e)),
     };
 
-    // GPU storage is bottom-up (the engine's V-flip convention); when `flip_y` is set, the
-    // host-space `(rx, ry)..(rx+rw, ry+rh)` rectangle maps to the GPU rectangle anchored at the
-    // mirrored Y origin so the destination region corresponds to the same texels as the
-    // (now-bottom-up) packed rows produced by [`pack_subrect_tight`].
-    let origin_y = if ctx.upload.flip_y { h - ry - rh } else { ry };
     match write_texture_subregion(TextureWriteSubregion {
         queue: ctx.queue,
         gpu_queue_access_gate: ctx.gpu_queue_access_gate,
         texture: ctx.texture,
         mip_level: 0,
         origin_x: rx,
-        origin_y,
+        origin_y: ry,
         width: rw,
         height: rh,
         format: ctx.wgpu_format,
@@ -340,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_subrect_tight_flips_rows_when_flip_y() {
+    fn pack_subrect_tight_keeps_source_row_order_regardless_of_flip_y() {
         // 4x4 RGBA8 mip with row 0 = 0xAA, row 1 = 0xBB, row 2 = 0xCC, row 3 = 0xDD (per byte).
         let mut v = vec![0u8; 4 * 4 * 4];
         for y in 0..4 {
@@ -354,7 +347,8 @@ mod tests {
                 *byte = val;
             }
         }
-        // Pack rows 1..3 (inclusive of 1, exclusive of 3) flipped.
+        // Pack rows 1..3 (inclusive of 1, exclusive of 3); GPU storage uses Unity (V=0 bottom)
+        // orientation, so the packed buffer matches host row order regardless of `flip_y`.
         let out = pack_subrect_tight(
             &v,
             &MipSubrectCopy {
@@ -370,13 +364,13 @@ mod tests {
         )
         .unwrap();
         assert_eq!(out.len(), 4 * 2 * 4);
-        // Output row 0 should be source row (1 + (h-1-0)) = (1 + 1) = 2 -> 0xCC.
+        // Output row 0 = source row 1 = 0xBB.
         for byte in &out[0..16] {
-            assert_eq!(*byte, 0xCC);
-        }
-        // Output row 1 should be source row (1 + (h-1-1)) = (1 + 0) = 1 -> 0xBB.
-        for byte in &out[16..32] {
             assert_eq!(*byte, 0xBB);
+        }
+        // Output row 1 = source row 2 = 0xCC.
+        for byte in &out[16..32] {
+            assert_eq!(*byte, 0xCC);
         }
     }
 }

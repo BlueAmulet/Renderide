@@ -38,8 +38,6 @@ struct PbsColorMaskSpecularMaterial {
     _MainTex_ST: vec4<f32>,
     /// Color mask `_ST` (xy = scale, zw = offset).
     _ColorMask_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
-    _ColorMask_StorageVInverted: f32,
     /// Tangent-space normal scale.
     _NormalScale: f32,
     /// Keyword: enable albedo texture multiply.
@@ -97,9 +95,9 @@ fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>) -> vec3<f32> {
 
 /// Resolve the [`SurfaceData`] for a fragment, mirroring Unity's `surf` for `ColorMaskSpecular`.
 fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>) -> SurfaceData {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
     let uv_mask =
-        uvu::apply_st_for_storage(uv0, mat._ColorMask_ST, mat._ColorMask_StorageVInverted);
+        uvu::apply_st(uv0, mat._ColorMask_ST);
 
     let mask = textureSample(_ColorMask, _ColorMask_sampler, uv_mask);
     let weight_inv = max(mask.r + mask.g + mask.b + mask.a, 1e-5);

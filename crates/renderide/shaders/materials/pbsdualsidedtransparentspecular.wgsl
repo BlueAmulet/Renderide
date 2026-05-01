@@ -27,7 +27,6 @@ struct PbsDualSidedTransparentSpecularMaterial {
     _SpecularColor: vec4<f32>,
     /// Albedo `_ST` (xy = scale, zw = offset).
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     /// Tangent-space normal scale.
     _NormalScale: f32,
     /// Alpha-clip threshold; applied only when `_ALPHACLIP` is enabled.
@@ -99,7 +98,7 @@ fn sample_surface(
     front_facing: bool,
     vertex_color: vec4<f32>,
 ) -> SurfaceData {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
     var albedo = mat._Color;
     if (uvu::kw_enabled(mat._ALBEDOTEX)) {

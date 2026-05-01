@@ -12,8 +12,6 @@ struct PbsDisplaceShadowMaterial {
     _Color: vec4<f32>,
     _MainTex_ST: vec4<f32>,
     _VertexOffsetMap_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
-    _VertexOffsetMap_StorageVInverted: f32,
     _VertexOffsetMagnitude: f32,
     _VertexOffsetBias: f32,
 }
@@ -40,11 +38,7 @@ fn vs_main(
     @location(2) uv0: vec2<f32>,
 ) -> VertexOutput {
     let d = pd::get_draw(instance_index);
-    let vertex_offset_uv = uvu::apply_st_for_storage(
-        uv0,
-        mat._VertexOffsetMap_ST,
-        mat._VertexOffsetMap_StorageVInverted,
-    );
+    let vertex_offset_uv = uvu::apply_st(uv0, mat._VertexOffsetMap_ST);
     let height = textureSampleLevel(
         _VertexOffsetMap,
         _VertexOffsetMap_sampler,
@@ -68,7 +62,7 @@ fn vs_main(
 //#pass depth_prepass
 @fragment
 fn fs_depth_only(in: VertexOutput) -> @location(0) vec4<f32> {
-    let uv_main = uvu::apply_st_for_storage(in.uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(in.uv0, mat._MainTex_ST);
     let albedo = textureSample(_MainTex, _MainTex_sampler, uv_main) * mat._Color;
     let touch = (albedo.x + in.uv0.x) * 0.0;
     return rg::retain_globals_additive(vec4<f32>(touch, touch, touch, 0.0));

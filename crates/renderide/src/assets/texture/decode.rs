@@ -2,20 +2,6 @@
 
 use crate::shared::TextureFormat;
 
-/// Applies [`flip_rgba_image_rows`] when `flip_y` (host top-down vs GPU bottom-up).
-#[inline]
-fn apply_optional_rgba_vertical_flip(
-    mut rgba: Vec<u8>,
-    width: usize,
-    height: usize,
-    flip_y: bool,
-) -> Vec<u8> {
-    if flip_y {
-        flip_rgba_image_rows(&mut rgba, width, height);
-    }
-    rgba
-}
-
 /// Expands tight RGB24 texels to RGBA8 (alpha 255).
 fn decode_rgb24_mip_to_rgba8(w: usize, h: usize, raw: &[u8]) -> Option<Vec<u8>> {
     let count = w.checked_mul(h)?;
@@ -129,14 +115,16 @@ fn decode_rgb565_family_mip_to_rgba8(
     Some(out)
 }
 
-/// Decodes one mip level from `raw` to tightly packed RGBA8 (row-major, top-first after optional flip).
+/// Decodes one mip level from `raw` to tightly packed RGBA8 (row-major, source orientation).
 ///
-/// Used as a fallback for missing compression features or packed formats without a direct `wgpu` layout match.
+/// Used as a fallback for missing compression features or packed formats without a direct `wgpu`
+/// layout match. The renderer keeps host bytes in Unity (V=0 bottom) orientation throughout, so
+/// no row flip is applied here — `_flip_y` is retained for IPC compatibility only.
 pub fn decode_mip_to_rgba8(
     format: TextureFormat,
     width: u32,
     height: u32,
-    flip_y: bool,
+    _flip_y: bool,
     raw: &[u8],
 ) -> Option<Vec<u8>> {
     let w = width as usize;
@@ -175,7 +163,7 @@ pub fn decode_mip_to_rgba8(
         TextureFormat::ASTC12x12 => decode_astc_with_block(w, h, raw, 12, 12)?,
         _ => return None,
     };
-    Some(apply_optional_rgba_vertical_flip(rgba, w, h, flip_y))
+    Some(rgba)
 }
 
 /// `texture2ddecoder` packs each decoded texel as `u32::from_le_bytes([b, g, r, a])` (its
@@ -445,75 +433,6 @@ fn swizzle_bc3nm_normal_map_tile_if_detected(tile: &mut [u8; 64]) {
         let a = tile[i * 4 + 3];
         tile[i * 4] = a;
         tile[i * 4 + 3] = 255;
-    }
-}
-
-fn flip_rgba_image_rows(buf: &mut [u8], width: usize, height: usize) {
-    let row = width.saturating_mul(4);
-    if row == 0 || height < 2 {
-        return;
-    }
-    let Some(required) = row.checked_mul(height) else {
-        return;
-    };
-    if buf.len() != required {
-        logger::warn!(
-            "flip_rgba_image_rows: buffer len {} != expected {} ({}×{} RGBA); skip",
-            buf.len(),
-            required,
-            width,
-            height
-        );
-        return;
-    }
-    let mut tmp = vec![0u8; row];
-    for y in 0..height / 2 {
-        let a = y * row;
-        let b = (height - 1 - y) * row;
-        let (before, after) = buf.split_at_mut(b);
-        let row_a = &mut before[a..a + row];
-        let row_b = &mut after[..row];
-        tmp.copy_from_slice(row_a);
-        row_a.copy_from_slice(row_b);
-        row_b.copy_from_slice(&tmp);
-    }
-}
-
-/// Flips rows for a **tightly packed** mip (`buffer.len() == width × height × bytes_per_pixel`).
-///
-/// If the slice length does not match, logs and returns without mutating (avoids `split_at` panics
-/// when host stride and GPU format size disagree).
-pub fn flip_mip_rows(buf: &mut [u8], width: u32, height: u32, bytes_per_pixel: usize) {
-    let w = width as usize;
-    let h = height as usize;
-    let row = w.saturating_mul(bytes_per_pixel);
-    if row == 0 || h < 2 {
-        return;
-    }
-    let Some(required) = row.checked_mul(h) else {
-        return;
-    };
-    if buf.len() != required {
-        logger::warn!(
-            "flip_mip_rows: buffer len {} != tight packed {} ({}×{} × {} B/texel); skip flip",
-            buf.len(),
-            required,
-            width,
-            height,
-            bytes_per_pixel
-        );
-        return;
-    }
-    let mut tmp = vec![0u8; row];
-    for y in 0..h / 2 {
-        let a = y * row;
-        let b = (h - 1 - y) * row;
-        let (before, after) = buf.split_at_mut(b);
-        let row_a = &mut before[a..a + row];
-        let row_b = &mut after[..row];
-        tmp.copy_from_slice(row_a);
-        row_a.copy_from_slice(row_b);
-        row_b.copy_from_slice(&tmp);
     }
 }
 

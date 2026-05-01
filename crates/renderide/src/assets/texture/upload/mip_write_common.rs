@@ -2,12 +2,8 @@
 
 use crate::shared::SetTexture2DData;
 
-use super::super::decode::{decode_mip_to_rgba8, flip_mip_rows};
-use super::super::layout::{
-    compressed_flip_y_needs_storage_v_inversion, flip_compressed_mip_block_rows_y,
-    host_format_is_compressed, host_mip_payload_byte_offset, mip_byte_len,
-    mip_tight_bytes_per_texel,
-};
+use super::super::decode::decode_mip_to_rgba8;
+use super::super::layout::{host_format_is_compressed, host_mip_payload_byte_offset, mip_byte_len};
 use super::error::TextureUploadError;
 
 /// Format-side context shared by every mip in one texture upload (2D, cubemap, 3D).
@@ -26,30 +22,35 @@ pub(super) struct MipUploadFormatCtx {
     pub needs_rgba8_decode: bool,
 }
 
-/// CPU-side bytes for one mip plus the storage-orientation side effect they imply.
+/// CPU-side bytes for one mip plus the storage-orientation flag.
+///
+/// The renderer uploads host bytes as-is (Unity V=0 bottom). For host-uploaded textures and cubemaps
+/// `storage_v_inverted` is `true` (bytes are in Unity orientation). For renderer-baked sources
+/// it is `false` (wgpu native orientation). Texture2D shaders no longer consume the flag — only
+/// cubemap sampling helpers in `projection360` / `skybox_projection360` do, to compensate for the
+/// Unity-vs-wgpu cube face orientation difference.
 #[derive(Debug)]
 pub(super) struct MipUploadPixels {
     /// Bytes ready for [`wgpu::Queue::write_texture`].
     pub bytes: Vec<u8>,
-    /// Whether the bytes were intentionally left in host V orientation and need shader-side compensation.
+    /// Whether the bytes are in Unity V=0 bottom orientation (host-uploaded). Always `true` for
+    /// host upload paths after the unified-orientation refactor; renderer-baked paths set it to
+    /// `false` directly when constructing pool entries.
     pub storage_v_inverted: bool,
 }
 
 impl MipUploadPixels {
-    /// Builds a normal-orientation mip upload.
-    pub fn normal(bytes: Vec<u8>) -> Self {
-        Self {
-            bytes,
-            storage_v_inverted: false,
-        }
-    }
-
-    /// Builds an upload whose compressed block bytes must stay unmodified.
-    pub fn storage_v_inverted(bytes: Vec<u8>) -> Self {
+    /// Builds an upload from host bytes (Unity V=0 bottom).
+    pub fn host(bytes: Vec<u8>) -> Self {
         Self {
             bytes,
             storage_v_inverted: true,
         }
+    }
+
+    /// Backwards-compatible alias for [`Self::host`] retained for renderer-baked tail synthesis.
+    pub fn normal(bytes: Vec<u8>) -> Self {
+        Self::host(bytes)
     }
 }
 
@@ -100,32 +101,16 @@ impl MipUploadLabel {
             }
         }
     }
-
-    /// Short diagnostic label when the asset id is already obvious.
-    fn short_mip(self) -> String {
-        match self.kind {
-            MipUploadKind::Texture2d => format!("mip {}", self.mip_index),
-            MipUploadKind::Cubemap { .. } => format!("cubemap mip {}", self.mip_index),
-        }
-    }
 }
 
-/// Whether this upload should keep native compressed bytes unchanged and compensate during sampling.
+/// Whether the upload path keeps host bytes in Unity orientation (always true for host uploads
+/// after the unified-orientation refactor).
 pub(crate) fn upload_uses_storage_v_inversion(
-    host_format: crate::shared::TextureFormat,
-    wgpu_format: wgpu::TextureFormat,
-    flip_y: bool,
+    _host_format: crate::shared::TextureFormat,
+    _wgpu_format: wgpu::TextureFormat,
+    _flip_y: bool,
 ) -> bool {
-    flip_y
-        && wgpu_format.is_compressed()
-        && compressed_flip_y_needs_storage_v_inversion(host_format)
-}
-
-/// Whether the per-mip conversion should emit a storage V-inversion hint.
-pub(super) fn mip_ctx_uses_storage_v_inversion(ctx: MipUploadFormatCtx, flip_y: bool) -> bool {
-    flip_y
-        && !ctx.needs_rgba8_decode
-        && upload_uses_storage_v_inversion(ctx.fmt_format, ctx.wgpu_format, flip_y)
+    true
 }
 
 /// Picks the descriptor offset bias that maximizes how many mips fit in the SHM payload.
@@ -207,61 +192,21 @@ pub(super) fn is_rgba8_family(gpu: wgpu::TextureFormat) -> bool {
     )
 }
 
-/// Returns bytes per texel for an uncompressed GPU texture format.
-pub(super) fn uncompressed_row_bytes(f: wgpu::TextureFormat) -> Result<usize, TextureUploadError> {
-    let (bw, bh) = f.block_dimensions();
-    if bw != 1 || bh != 1 {
-        return Err("internal: expected uncompressed format".into());
-    }
-    let bsz = f
-        .block_copy_size(None)
-        .ok_or_else(|| TextureUploadError::from(format!("wgpu format {f:?} has no block size")))?;
-    Ok(bsz as usize)
-}
-
-/// Converts a compressed mip that requested `flip_y` into bytes or a storage-orientation hint.
-fn compressed_mip_src_to_upload_pixels(
-    ctx: MipUploadFormatCtx,
-    width: u32,
-    height: u32,
-    mip_src: &[u8],
-    label: MipUploadLabel,
-) -> Result<Vec<u8>, TextureUploadError> {
-    let expected_len = mip_byte_len(ctx.fmt_format, width, height).ok_or_else(|| {
-        TextureUploadError::from(format!(
-            "{}: mip byte size unknown for {:?}",
-            label.asset_mip(ctx.asset_id),
-            ctx.fmt_format
-        ))
-    })? as usize;
-    if mip_src.len() != expected_len {
-        return Err(TextureUploadError::from(format!(
-            "{}: mip len {} != expected {} for {:?}",
-            label.asset_mip(ctx.asset_id),
-            mip_src.len(),
-            expected_len,
-            ctx.fmt_format
-        )));
-    }
-    if let Some(v) = flip_compressed_mip_block_rows_y(ctx.fmt_format, width, height, mip_src) {
-        return Ok(v);
-    }
-    if mip_ctx_uses_storage_v_inversion(ctx, true) {
-        return Ok(mip_src.to_vec());
-    }
-    Err(TextureUploadError::from(format!(
-        "{}: flip_y unsupported for compressed {:?}; reject to avoid uploading inverted data under the engine's V-flip sampling convention",
-        label.asset_mip(ctx.asset_id),
-        ctx.fmt_format
-    )))
-}
-
-/// Converts host mip bytes into a buffer suitable for a full-mip texture upload.
+/// Validates host mip bytes and produces a buffer for a full-mip texture upload.
+///
+/// The renderer no longer flips host data on ingestion. Sampled textures use Unity (V=0 bottom)
+/// orientation throughout: host bytes are stored as-is, mesh UVs match, and shaders apply no V flip.
+/// Cubemap face orientation is the only remaining storage-orientation concern; that is handled in
+/// the cubemap pool and the projection360 sampling helpers, not here.
+///
+/// `_flip_y` is currently ignored: the host contract is to send Unity-oriented bytes regardless.
+/// The parameter is retained for IPC compatibility and to keep call sites stable while the host
+/// continues to set it.
 pub(super) fn mip_src_to_upload_pixels(
     ctx: MipUploadFormatCtx,
     width: u32,
     height: u32,
-    flip_y: bool,
+    _flip_y: bool,
     mip_src: &[u8],
     label: MipUploadLabel,
 ) -> Result<MipUploadPixels, TextureUploadError> {
@@ -272,34 +217,15 @@ pub(super) fn mip_src_to_upload_pixels(
         wgpu_format,
         needs_rgba8_decode,
     } = ctx;
-    if is_rgba8_family(wgpu_format) {
+    let bytes_result: Result<Vec<u8>, TextureUploadError> = if is_rgba8_family(wgpu_format) {
         if needs_rgba8_decode || host_format_is_compressed(fmt_format) {
-            decode_mip_to_rgba8(fmt_format, width, height, flip_y, mip_src).ok_or_else(|| {
+            decode_mip_to_rgba8(fmt_format, width, height, false, mip_src).ok_or_else(|| {
                 TextureUploadError::from(format!(
                     "RGBA decode failed for {} ({:?})",
                     label.asset_mip(asset_id),
                     fmt_format
                 ))
             })
-        } else if flip_y {
-            let mut v = mip_src.to_vec();
-            let bpp = mip_tight_bytes_per_texel(v.len(), width, height).ok_or_else(|| {
-                TextureUploadError::from(format!(
-                    "{}: RGBA8 upload len {} not divisible by {}x{} texels",
-                    label.short_mip(),
-                    v.len(),
-                    width,
-                    height
-                ))
-            })?;
-            if bpp != 4 {
-                return Err(TextureUploadError::from(format!(
-                    "{}: RGBA8 family expects 4 bytes per texel, got {bpp}",
-                    label.short_mip()
-                )));
-            }
-            flip_mip_rows(&mut v, width, height, bpp);
-            Ok(v)
         } else {
             Ok(mip_src.to_vec())
         }
@@ -307,42 +233,28 @@ pub(super) fn mip_src_to_upload_pixels(
         Err(TextureUploadError::from(format!(
             "host {fmt_format:?} must use RGBA decode but GPU format is {wgpu_format:?}"
         )))
-    } else if flip_y && !host_format_is_compressed(fmt_format) {
-        let mut v = mip_src.to_vec();
-        let bpp_host = mip_tight_bytes_per_texel(v.len(), width, height).ok_or_else(|| {
+    } else if host_format_is_compressed(fmt_format) {
+        let expected_len = mip_byte_len(fmt_format, width, height).ok_or_else(|| {
             TextureUploadError::from(format!(
-                "{}: len {} not divisible by {}x{} texels (cannot infer row stride for flip_y)",
-                label.short_mip(),
-                v.len(),
-                width,
-                height
-            ))
-        })?;
-        if let Ok(bpp_gpu) = uncompressed_row_bytes(wgpu_format)
-            && bpp_host != bpp_gpu
-        {
-            logger::warn!(
-                "{}: host texel stride {} B != GPU {:?} stride {} B; flip_y uses host packing",
+                "{}: mip byte size unknown for {:?}",
                 label.asset_mip(asset_id),
-                bpp_host,
-                wgpu_format,
-                bpp_gpu
-            );
+                fmt_format
+            ))
+        })? as usize;
+        if mip_src.len() != expected_len {
+            return Err(TextureUploadError::from(format!(
+                "{}: mip len {} != expected {} for {:?}",
+                label.asset_mip(asset_id),
+                mip_src.len(),
+                expected_len,
+                fmt_format
+            )));
         }
-        flip_mip_rows(&mut v, width, height, bpp_host);
-        Ok(v)
-    } else if flip_y && host_format_is_compressed(fmt_format) {
-        compressed_mip_src_to_upload_pixels(ctx, width, height, mip_src, label)
+        Ok(mip_src.to_vec())
     } else {
         Ok(mip_src.to_vec())
-    }
-    .map(|bytes| {
-        if mip_ctx_uses_storage_v_inversion(ctx, flip_y) {
-            MipUploadPixels::storage_v_inverted(bytes)
-        } else {
-            MipUploadPixels::normal(bytes)
-        }
-    })
+    };
+    bytes_result.map(MipUploadPixels::host)
 }
 
 /// Descriptor for [`write_one_mip`]: one mip of a 2D texture via [`wgpu::Queue::write_texture`].

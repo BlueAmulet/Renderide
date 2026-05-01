@@ -25,7 +25,6 @@ struct PbsTriplanarMaterial {
     _EmissionColor: vec4<f32>,
     /// Albedo `_ST` applied to all three projected planes.
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     /// Tangent-space normal scale (`Normal Scale`).
     _NormalScale: f32,
     /// Smoothness fallback when `_METALLICMAP` is disabled.
@@ -96,7 +95,7 @@ fn blend_rnm(n1_in: vec3<f32>, n2_in: vec3<f32>) -> vec3<f32> {
 
 /// Apply Unity's `TRANSFORM_TEX` against `_MainTex_ST` to a planar projection coordinate.
 fn apply_main_st(uv: vec2<f32>) -> vec2<f32> {
-    return uvu::apply_st_for_storage(uv, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    return uvu::apply_st(uv, mat._MainTex_ST);
 }
 
 /// Triplanar weights from a world-space normal: `pow(|n|, _TriBlendPower)` normalized so that

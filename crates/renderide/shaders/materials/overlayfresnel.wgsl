@@ -21,11 +21,6 @@ struct OverlayFresnelMaterial {
     _FrontFarTex_ST: vec4<f32>,
     _FrontNearTex_ST: vec4<f32>,
     _NormalMap_ST: vec4<f32>,
-    _BehindFarTex_StorageVInverted: f32,
-    _BehindNearTex_StorageVInverted: f32,
-    _FrontFarTex_StorageVInverted: f32,
-    _FrontNearTex_StorageVInverted: f32,
-    _NormalMap_StorageVInverted: f32,
     _Exp: f32,
     _GammaCurve: f32,
     _PolarPow: f32,
@@ -68,14 +63,9 @@ fn sample_overlay_tex(
     samp: sampler,
     uv: vec2<f32>,
     st: vec4<f32>,
-    storage_v_inverted: f32,
 ) -> vec4<f32> {
-    let uv_regular = uvu::apply_st_for_storage(uv, st, storage_v_inverted);
-    let uv_polar = uvu::apply_st_for_storage(
-        uvu::polar_uv(uv, mat._PolarPow),
-        st,
-        storage_v_inverted,
-    );
+    let uv_regular = uvu::apply_st(uv, st);
+    let uv_polar = uvu::apply_st(uvu::polar_uv(uv, mat._PolarPow), st);
     let sample_uv = select(uv_regular, uv_polar, mat._POLARUV > 0.5);
     return textureSample(tex, samp, sample_uv);
 }
@@ -83,11 +73,7 @@ fn sample_overlay_tex(
 fn overlay_normal(in: mv::WorldVertexOutput) -> vec3<f32> {
     var n = normalize(in.world_n);
     if (mat._NORMALMAP > 0.5) {
-        let uv_n = uvu::apply_st_for_storage(
-            in.primary_uv,
-            mat._NormalMap_ST,
-            mat._NormalMap_StorageVInverted,
-        );
+        let uv_n = uvu::apply_st(in.primary_uv, mat._NormalMap_ST);
         let ts_n = psamp::sample_tangent_normal(_NormalMap, _NormalMap_sampler, uv_n, 0.0, 1.0);
         n = psamp::tangent_to_world(n, ts_n);
     }
@@ -119,7 +105,6 @@ fn fs_main_behind(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
             _BehindFarTex_sampler,
             in.primary_uv,
             mat._BehindFarTex_ST,
-            mat._BehindFarTex_StorageVInverted,
         );
     let near_color = mat._BehindNearColor
         * sample_overlay_tex(
@@ -127,7 +112,6 @@ fn fs_main_behind(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
             _BehindNearTex_sampler,
             in.primary_uv,
             mat._BehindNearTex_ST,
-            mat._BehindNearTex_StorageVInverted,
         );
     let color = apply_alpha_intensity(mf::near_far_color(near_color, far_color, fresnel));
     return rg::retain_globals_additive(color);
@@ -143,7 +127,6 @@ fn fs_main_front(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
             _FrontFarTex_sampler,
             in.primary_uv,
             mat._FrontFarTex_ST,
-            mat._FrontFarTex_StorageVInverted,
         );
     let near_color = mat._FrontNearColor
         * sample_overlay_tex(
@@ -151,7 +134,6 @@ fn fs_main_front(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
             _FrontNearTex_sampler,
             in.primary_uv,
             mat._FrontNearTex_ST,
-            mat._FrontNearTex_StorageVInverted,
         );
     let color = apply_alpha_intensity(mf::near_far_color(near_color, far_color, fresnel));
     return rg::retain_globals_additive(color);

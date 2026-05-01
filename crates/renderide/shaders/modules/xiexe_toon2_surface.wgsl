@@ -121,16 +121,16 @@ fn sample_surface(
     uv_secondary: vec2<f32>,
     color: vec4<f32>,
 ) -> xb::SurfaceData {
-    let uv_albedo = uvu::apply_st_for_storage(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetAlbedo), xb::mat._MainTex_ST, xb::mat._MainTex_StorageVInverted);
-    let uv_normal = uvu::apply_st_for_storage(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetNormal), xb::mat._BumpMap_ST, xb::mat._BumpMap_StorageVInverted);
-    let uv_detail_normal = uvu::apply_st_for_storage(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetDetNormal), xb::mat._DetailNormalMap_ST, xb::mat._DetailNormalMap_StorageVInverted);
+    let uv_albedo = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetAlbedo), xb::mat._MainTex_ST);
+    let uv_normal = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetNormal), xb::mat._BumpMap_ST);
+    let uv_detail_normal = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetDetNormal), xb::mat._DetailNormalMap_ST);
     let uv_detail_mask = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetDetMask), xb::mat._DetailMask_ST);
-    let uv_metallic = uvu::apply_st_for_storage(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetMetallic), xb::mat._MetallicGlossMap_ST, xb::mat._MetallicGlossMap_StorageVInverted);
-    let uv_emission = uvu::apply_st_for_storage(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetEmission), xb::mat._EmissionMap_ST, xb::mat._EmissionMap_StorageVInverted);
-    let uv_occlusion = uvu::apply_st_for_storage(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetOcclusion), xb::mat._OcclusionMap_ST, xb::mat._OcclusionMap_StorageVInverted);
-    let uv_thickness = uvu::apply_st_for_storage(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetThickness), xb::mat._ThicknessMap_ST, xb::mat._ThicknessMap_StorageVInverted);
-    let uv_reflectivity = uvu::apply_st_for_storage(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetReflectivity), xb::mat._ReflectivityMask_ST, xb::mat._ReflectivityMask_StorageVInverted);
-    let uv_specular = uvu::apply_st_for_storage(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetSpecular), xb::mat._SpecularMap_ST, xb::mat._SpecularMap_StorageVInverted);
+    let uv_metallic = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetMetallic), xb::mat._MetallicGlossMap_ST);
+    let uv_emission = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetEmission), xb::mat._EmissionMap_ST);
+    let uv_occlusion = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetOcclusion), xb::mat._OcclusionMap_ST);
+    let uv_thickness = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetThickness), xb::mat._ThicknessMap_ST);
+    let uv_reflectivity = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetReflectivity), xb::mat._ReflectivityMask_ST);
+    let uv_specular = uvu::apply_st(xb::uv_select(uv_primary, uv_secondary, xb::mat._UVSetSpecular), xb::mat._SpecularMap_ST);
 
     var albedo = textureSample(xb::_MainTex, xb::_MainTex_sampler, uv_albedo) * xb::mat._Color;
     let clip_alpha = xb::mat._Color.a * acs::texture_alpha_base_mip(xb::_MainTex, xb::_MainTex_sampler, uv_albedo);

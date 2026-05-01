@@ -10,8 +10,6 @@
 #import renderide::view_basis as vb
 
 struct MatcapMaterial {
-    _MainTex_StorageVInverted: f32,
-    _NormalMap_StorageVInverted: f32,
     _NORMALMAP: f32,
     _pad0: f32,
     _NormalMap_ST: vec4<f32>,
@@ -62,7 +60,7 @@ fn vs_main(
 
     var out: VertexOutput;
     out.clip_pos = vp * world_p;
-    out.uv_normal = uvu::apply_st_for_storage(uv0, mat._NormalMap_ST, mat._NormalMap_StorageVInverted);
+    out.uv_normal = uvu::apply_st(uv0, mat._NormalMap_ST);
     out.world_n = world_n;
     out.world_t = world_t;
     out.world_b = world_b;
@@ -99,6 +97,6 @@ fn fs_main(
         dot(rmath::safe_normalize(view_y, vec3<f32>(0.0, 1.0, 0.0)), n_world),
     );
     let uv = n_view_xy * 0.5 + vec2<f32>(0.5);
-    let col = textureSample(_MainTex, _MainTex_sampler, uvu::flip_v_for_storage(uv, mat._MainTex_StorageVInverted));
+    let col = textureSample(_MainTex, _MainTex_sampler, uv);
     return rg::retain_globals_additive(col);
 }

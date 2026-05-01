@@ -17,7 +17,6 @@ struct PbsRimTransparentZWriteMaterial {
     _EmissionColor: vec4<f32>,
     _RimColor: vec4<f32>,
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _Glossiness: f32,
     _Metallic: f32,
     _NormalScale: f32,
@@ -83,7 +82,7 @@ fn fs_depth_only(
     @location(2) uv0: vec2<f32>,
     @location(3) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
     let albedo_s = textureSample(_MainTex, _MainTex_sampler, uv_main);
     let normal_s = textureSample(_NormalMap, _NormalMap_sampler, uv_main);
     let emit_s = textureSample(_EmissionMap, _EmissionMap_sampler, uv_main);
@@ -107,7 +106,7 @@ fn fs_main(
     @location(2) uv0: vec2<f32>,
     @location(3) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
     var c0 = mat._Color;
     if (uvu::kw_enabled(mat._ALBEDOTEX)) {

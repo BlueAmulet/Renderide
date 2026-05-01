@@ -15,7 +15,6 @@ struct PbsDistanceLerpTransparentMaterial {
     _Color: vec4<f32>,
     _EmissionColor: vec4<f32>,
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _DistanceGridSize: vec4<f32>,
     _DistanceGridOffset: vec4<f32>,
     _EmissionColorFrom: vec4<f32>,
@@ -173,7 +172,7 @@ fn shade(
     include_directional: bool,
     include_local: bool,
 ) -> vec4<f32> {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
     let albedo_s = textureSample(_MainTex, _MainTex_sampler, uv_main);
     let base_color = (mat._Color * albedo_s).rgb;
     let alpha = mat._Color.a * albedo_s.a;

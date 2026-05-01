@@ -14,7 +14,6 @@
 struct FaceExplodeMaterial {
     _Color: vec4<f32>,
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _Glossiness: f32,
     _Metallic: f32,
     _Explode: f32,
@@ -71,7 +70,7 @@ fn shade(
     uv0: vec2<f32>,
     view_layer: u32,
 ) -> vec4<f32> {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
     let albedo_s = textureSample(_MainTex, _MainTex_sampler, uv_main);
     let base_color = (mat._Color * albedo_s).rgb;
     let alpha = mat._Color.a * albedo_s.a;

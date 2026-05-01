@@ -14,7 +14,6 @@ struct Projection360Material {
     _OffsetMagnitude: vec4<f32>,
     _PerspectiveFOV: vec4<f32>,
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _RightEye_ST: vec4<f32>,
     _TintTex_ST: vec4<f32>,
     _OffsetTex_ST: vec4<f32>,
@@ -121,7 +120,7 @@ fn apply_offset(view_dir: vec3<f32>) -> vec3<f32> {
     let offset_uv = dir_to_uv(view_dir);
     let offset_sample =
         textureSampleLevel(_OffsetTex, _OffsetTex_sampler, uvu::apply_st(offset_uv, mat._OffsetTex_ST), 0.0).rg;
-    let offset_mask = textureSampleLevel(_OffsetMask, _OffsetMask_sampler, uvu::flip_v(offset_uv), 0.0).rg;
+    let offset_mask = textureSampleLevel(_OffsetMask, _OffsetMask_sampler, offset_uv, 0.0).rg;
     let offset = (offset_sample * 2.0 - vec2<f32>(1.0)) * offset_mask * mat._OffsetMagnitude.xy;
     return rotate_dir(view_dir, offset);
 }
@@ -146,7 +145,7 @@ fn sample_equirect(view_dir: vec3<f32>, view_layer: u32) -> vec4<f32> {
     if (uvu::kw_enabled(mat._RIGHT_EYE_ST) && view_layer != 0u) {
         st = mat._RightEye_ST;
     }
-    let sample_uv = uvu::apply_st_for_storage(uv, st, mat._MainTex_StorageVInverted);
+    let sample_uv = uvu::apply_st(uv, st);
     var c = textureSampleLevel(_MainTex, _MainTex_sampler, sample_uv, 0.0);
     if (uvu::kw_enabled(mat.SECOND_TEXTURE)) {
         let secondary_offset = vec2<f32>(mat._SecondTexOffset.x, -mat._SecondTexOffset.y);

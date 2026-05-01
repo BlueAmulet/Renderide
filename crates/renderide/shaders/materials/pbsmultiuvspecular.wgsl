@@ -4,9 +4,6 @@
 //! Mirrors [`pbsmultiuv`](super::pbsmultiuv) for the SpecularSetup workflow. All four Unity UV
 //! channels (`texcoord` … `texcoord3`) are wired through. Per-texture `_*UV` values `< 1.0`
 //! resolve to UV0, `< 2.0` to UV1, `< 3.0` to UV2, and `>= 3.0` to UV3.
-//!
-//! Each per-binding texture also carries its own `_<Tex>_StorageVInverted` flag so native
-//! compressed (BC) uploads that intentionally arrive top-down can opt out of the V-flip.
 
 
 #import renderide::mesh::vertex as mv
@@ -30,31 +27,24 @@ struct PbsMultiUVSpecularMaterial {
     /// Albedo tile/offset.
     _MainTex_ST: vec4<f32>,
     /// Storage-V-inverted flag for `_MainTex` (non-zero ⇒ skip the final V-flip).
-    _MainTex_StorageVInverted: f32,
     /// Secondary albedo tile/offset.
     _SecondaryAlbedo_ST: vec4<f32>,
     /// Storage-V-inverted flag for `_SecondaryAlbedo`.
-    _SecondaryAlbedo_StorageVInverted: f32,
     /// Normal map tile/offset.
     _NormalMap_ST: vec4<f32>,
     /// Storage-V-inverted flag for `_NormalMap`.
-    _NormalMap_StorageVInverted: f32,
     /// Emission map tile/offset.
     _EmissionMap_ST: vec4<f32>,
     /// Storage-V-inverted flag for `_EmissionMap`.
-    _EmissionMap_StorageVInverted: f32,
     /// Secondary emission map tile/offset.
     _SecondaryEmissionMap_ST: vec4<f32>,
     /// Storage-V-inverted flag for `_SecondaryEmissionMap`.
-    _SecondaryEmissionMap_StorageVInverted: f32,
     /// Specular map tile/offset.
     _SpecularMap_ST: vec4<f32>,
     /// Storage-V-inverted flag for `_SpecularMap`.
-    _SpecularMap_StorageVInverted: f32,
     /// Occlusion map tile/offset.
     _OcclusionMap_ST: vec4<f32>,
     /// Storage-V-inverted flag for `_OcclusionMap`.
-    _OcclusionMap_StorageVInverted: f32,
     /// Tangent-space normal scale.
     _NormalScale: f32,
     /// Alpha-clip threshold; applied only when `_ALPHACLIP` is enabled.
@@ -136,11 +126,7 @@ fn sample_normal_world(
     let tbn = pnorm::orthonormal_tbn(normalize(world_n));
     var ts_n = vec3<f32>(0.0, 0.0, 1.0);
     if (uvu::kw_enabled(mat._NORMALMAP)) {
-        let uv_n = uvu::apply_st_for_storage(
-            pick_uv(uv0, uv1, uv2, uv3, mat._NormalUV),
-            mat._NormalMap_ST,
-            mat._NormalMap_StorageVInverted,
-        );
+        let uv_n = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._NormalUV), mat._NormalMap_ST);
         ts_n = nd::decode_ts_normal_with_placeholder(
             textureSample(_NormalMap, _NormalMap_sampler, uv_n).xyz,
             mat._NormalScale,
@@ -157,19 +143,11 @@ fn sample_surface(
     uv3: vec2<f32>,
     world_n: vec3<f32>,
 ) -> SurfaceData {
-    let uv_albedo = uvu::apply_st_for_storage(
-        pick_uv(uv0, uv1, uv2, uv3, mat._AlbedoUV),
-        mat._MainTex_ST,
-        mat._MainTex_StorageVInverted,
-    );
+    let uv_albedo = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._AlbedoUV), mat._MainTex_ST);
 
     var c = mat._Color * textureSample(_MainTex, _MainTex_sampler, uv_albedo);
     if (uvu::kw_enabled(mat._DUAL_ALBEDO)) {
-        let uv_albedo2 = uvu::apply_st_for_storage(
-            pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryAlbedoUV),
-            mat._SecondaryAlbedo_ST,
-            mat._SecondaryAlbedo_StorageVInverted,
-        );
+        let uv_albedo2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryAlbedoUV), mat._SecondaryAlbedo_ST);
         c = c * textureSample(_SecondaryAlbedo, _SecondaryAlbedo_sampler, uv_albedo2);
     }
     let clip_alpha = mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_albedo);
@@ -179,11 +157,7 @@ fn sample_surface(
 
     var spec = mat._SpecularColor;
     if (uvu::kw_enabled(mat._SPECULARMAP)) {
-        let uv_spec = uvu::apply_st_for_storage(
-            pick_uv(uv0, uv1, uv2, uv3, mat._SpecularUV),
-            mat._SpecularMap_ST,
-            mat._SpecularMap_StorageVInverted,
-        );
+        let uv_spec = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SpecularUV), mat._SpecularMap_ST);
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_spec);
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -193,29 +167,17 @@ fn sample_surface(
 
     var occlusion = 1.0;
     if (uvu::kw_enabled(mat._OCCLUSION)) {
-        let uv_occ = uvu::apply_st_for_storage(
-            pick_uv(uv0, uv1, uv2, uv3, mat._OcclusionUV),
-            mat._OcclusionMap_ST,
-            mat._OcclusionMap_StorageVInverted,
-        );
+        let uv_occ = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._OcclusionUV), mat._OcclusionMap_ST);
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_occ).r;
     }
 
     var emission = mat._EmissionColor.rgb;
     if (uvu::kw_enabled(mat._EMISSIONTEX) || uvu::kw_enabled(mat._DUAL_EMISSIONTEX)) {
-        let uv_em = uvu::apply_st_for_storage(
-            pick_uv(uv0, uv1, uv2, uv3, mat._EmissionUV),
-            mat._EmissionMap_ST,
-            mat._EmissionMap_StorageVInverted,
-        );
+        let uv_em = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._EmissionUV), mat._EmissionMap_ST);
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_em).rgb;
     }
     if (uvu::kw_enabled(mat._DUAL_EMISSIONTEX)) {
-        let uv_em2 = uvu::apply_st_for_storage(
-            pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryEmissionUV),
-            mat._SecondaryEmissionMap_ST,
-            mat._SecondaryEmissionMap_StorageVInverted,
-        );
+        let uv_em2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryEmissionUV), mat._SecondaryEmissionMap_ST);
         let secondary =
             textureSample(_SecondaryEmissionMap, _SecondaryEmissionMap_sampler, uv_em2).rgb;
         emission = emission + secondary * mat._SecondaryEmissionColor.rgb;

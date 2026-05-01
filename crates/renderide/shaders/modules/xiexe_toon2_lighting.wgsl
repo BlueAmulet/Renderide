@@ -251,7 +251,7 @@ fn indirect_reflection_branch(
     }
 
     if (xb::matcap_enabled()) {
-        let uv = uvu::flip_v(matcap_uv(view_dir, normal));
+        let uv = matcap_uv(view_dir, normal);
         let lod = clamp((1.0 - clamp(perceptual_roughness, 0.0, 1.0)) * SPECCUBE_LOD_STEPS, 0.0, SPECCUBE_LOD_STEPS);
         var spec = textureSampleLevel(xb::_Matcap, xb::_Matcap_sampler, uv, lod).rgb * xb::mat._MatcapTint.rgb;
         if (!reflection_is_multiplicative()) {

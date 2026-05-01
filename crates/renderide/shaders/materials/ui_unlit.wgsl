@@ -31,8 +31,6 @@ struct UiUnlitMaterial {
     _Tint: vec4<f32>,
     _OverlayTint: vec4<f32>,
     _Rect: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
-    _MaskTex_StorageVInverted: f32,
     _Cutoff: f32,
     _ALPHACLIP: f32,
     _ALPHATEST_ON: f32,
@@ -98,12 +96,12 @@ fn vs_main(
 }
 
 fn main_uv_for_storage(uv_main: vec2<f32>) -> vec2<f32> {
-    return uvu::flip_v_for_storage(uv_main, mat._MainTex_StorageVInverted);
+    return uv_main;
 }
 
 fn mask_uv_for_storage(uv_main: vec2<f32>) -> vec2<f32> {
     let uv_mask = uv_main * mat._MaskTex_ST.xy + mat._MaskTex_ST.zw;
-    return uvu::flip_v_for_storage(uv_mask, mat._MaskTex_StorageVInverted);
+    return uv_mask;
 }
 
 fn main_uv_no_storage_flip(uv: vec2<f32>) -> vec2<f32> {

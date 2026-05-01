@@ -10,7 +10,6 @@
 
 struct UnlitPolarMappingMaterial {
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _Pow: f32,
 }
 
@@ -42,7 +41,7 @@ fn fs_main(
 ) -> @location(0) vec4<f32> {
     let centered = uv_in * 2.0 - 1.0;
     let polar = uvu::polar_uv(uv_in, max(mat._Pow, 1e-4));
-    let polar_st = uvu::apply_st_for_storage(polar, mat._MainTex_ST, mat._MainTex_StorageVInverted);
+    let polar_st = uvu::apply_st(polar, mat._MainTex_ST);
     // Reconstruct derivatives from screen-space derivatives of the centered UV; this matches the
     // Unity reference's `tex2Dgrad` call which avoids the discontinuity at the polar seam.
     let ddx_uv = dpdx(polar_st);

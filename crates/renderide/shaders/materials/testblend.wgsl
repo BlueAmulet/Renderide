@@ -14,9 +14,7 @@
 struct TestBlendMaterial {
     _Color: vec4<f32>,
     _MainTex_ST: vec4<f32>,
-    _MainTex_StorageVInverted: f32,
     _MainTex2_ST: vec4<f32>,
-    _MainTex2_StorageVInverted: f32,
     _Glossiness: f32,
     _Metallic: f32,
     _Lerp: f32,
@@ -75,8 +73,8 @@ fn shade(
     uv0: vec2<f32>,
     view_layer: u32,
 ) -> vec4<f32> {
-    let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
-    let uv_main2 = uvu::apply_st_for_storage(uv0, mat._MainTex2_ST, mat._MainTex2_StorageVInverted);
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
+    let uv_main2 = uvu::apply_st(uv0, mat._MainTex2_ST);
     let c1 = textureSample(_MainTex, _MainTex_sampler, uv_main);
     let c2 = textureSample(_MainTex2, _MainTex2_sampler, uv_main2);
     let lerp_factor = clamp(mat._Lerp, 0.0, 1.0);
