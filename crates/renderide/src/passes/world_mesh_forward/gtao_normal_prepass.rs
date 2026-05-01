@@ -1,10 +1,9 @@
 //! GTAO normal prepass for graph-managed world-mesh forward rendering.
 //!
-//! The pass runs after the final forward depth resolve and before Hi-Z/post-processing. It follows
-//! the forward pass's active sample tier: single-sample views write the GTAO normals texture
-//! directly, while MSAA views write a multisampled normal attachment against the forward MSAA
-//! depth and resolve it into the single-sample texture sampled by GTAO. Alpha stays zero where no
-//! matching mesh sample writes a normal, letting GTAO fall back to depth-derived reconstruction.
+//! The pass runs after the final forward depth resolve and before Hi-Z/post-processing. It writes
+//! smooth, interpolated mesh normals into a transient texture only where the base mesh still
+//! matches the resolved depth, leaving alpha at zero elsewhere so GTAO can fall back to its
+//! depth-derived reconstruction.
 
 use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::{Arc, LazyLock};
@@ -38,12 +37,8 @@ use super::encode::{GeometryDrawGroupBatch, GeometryDrawState, draw_geometry_gro
 pub struct WorldMeshGtaoNormalPrepassGraphResources {
     /// Transient normal target sampled by GTAO.
     pub normals: TextureHandle,
-    /// Multisampled normal target used when the forward view renders with MSAA.
-    pub msaa_normals: TextureHandle,
     /// Imported single-sample frame depth after forward depth resolve.
     pub depth: ImportedTextureHandle,
-    /// Multisampled forward depth used when the forward view renders with MSAA.
-    pub msaa_depth: TextureHandle,
     /// Imported per-draw storage slab used by the mesh vertex shader.
     pub per_draw_slab: ImportedBufferHandle,
 }
@@ -75,18 +70,16 @@ impl RasterPass for WorldMeshGtaoNormalPrepass {
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
         {
             let mut r = b.raster();
-            r.frame_sampled_color(
+            r.color(
                 self.resources.normals,
-                self.resources.msaa_normals,
                 wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                     store: wgpu::StoreOp::Store,
                 },
-                Some(self.resources.normals),
+                Option::<TextureHandle>::None,
             );
-            r.frame_sampled_depth(
+            r.depth(
                 self.resources.depth,
-                self.resources.msaa_depth,
                 wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
@@ -157,7 +150,6 @@ impl RasterPass for WorldMeshGtaoNormalPrepass {
         let target = NormalPrepassTarget {
             normal_format: normals.texture.format(),
             depth_format: frame.view.depth_texture.format(),
-            sample_count: frame.view.sample_count.max(1),
             multiview_stereo: frame.view.multiview_stereo,
         };
         record_normal_groups(NormalPrepassRecordInputs {
@@ -188,8 +180,6 @@ struct NormalPrepassTarget {
     normal_format: wgpu::TextureFormat,
     /// Depth attachment format.
     depth_format: wgpu::TextureFormat,
-    /// Color/depth sample count for the active normal prepass attachment.
-    sample_count: u32,
     /// Whether this pass records as a two-eye multiview pass.
     multiview_stereo: bool,
 }
@@ -247,7 +237,6 @@ fn record_normal_groups(inputs: NormalPrepassRecordInputs<'_, '_>) {
                 GtaoNormalPrepassPipelineKey {
                     normal_format: target.normal_format,
                     depth_format: target.depth_format,
-                    sample_count: target.sample_count,
                     multiview_stereo: target.multiview_stereo,
                     front_face,
                 },
@@ -319,8 +308,6 @@ struct GtaoNormalPrepassPipelineKey {
     normal_format: wgpu::TextureFormat,
     /// Depth attachment format.
     depth_format: wgpu::TextureFormat,
-    /// Raster sample count.
-    sample_count: u32,
     /// Whether this pipeline records as a two-eye multiview pass.
     multiview_stereo: bool,
     /// Front-face winding for the current draw group.
@@ -391,10 +378,9 @@ impl GtaoNormalPrepassPipelineCache {
         key: GtaoNormalPrepassPipelineKey,
     ) -> wgpu::RenderPipeline {
         logger::debug!(
-            "gtao normal prepass: building pipeline (normal={:?}, depth={:?}, samples={}, multiview={}, front_face={:?})",
+            "gtao normal prepass: building pipeline (normal={:?}, depth={:?}, multiview={}, front_face={:?})",
             key.normal_format,
             key.depth_format,
-            key.sample_count,
             key.multiview_stereo,
             key.front_face
         );
@@ -476,11 +462,7 @@ impl GtaoNormalPrepassPipelineCache {
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
-            multisample: wgpu::MultisampleState {
-                count: key.sample_count,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
+            multisample: wgpu::MultisampleState::default(),
             multiview_mask: key.multiview_stereo.then(|| NonZeroU32::new(3)).flatten(),
             cache: None,
         })
