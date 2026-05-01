@@ -1,8 +1,6 @@
 //! Unity surface shader `Shader "Custom/Nosamplers"`: metallic Standard lighting that demos
 //! Unity's `UNITY_DECLARE_TEX2D_NOSAMPLER` aliasing — `_MetallicMap` shares the `_Albedo` sampler
-//! and `_EmissionMap`/`_EmissionMap1` are sampled with their own. In WGSL we declare a separate
-//! sampler per texture (binding-count cost is minor and well within wgpu limits); the renderer
-//! routes whatever sampler the host supplies, so the visual result matches.
+//! and `_EmissionMap`/`_EmissionMap1` are sampled with their own.
 
 
 #import renderide::per_draw as pd
@@ -30,11 +28,10 @@ struct NosamplersMaterial {
 @group(1) @binding(7) var _Albedo3: texture_2d<f32>;
 @group(1) @binding(8) var _Albedo3_sampler: sampler;
 @group(1) @binding(9) var _MetallicMap: texture_2d<f32>;
-@group(1) @binding(10) var _MetallicMap_sampler: sampler;
-@group(1) @binding(11) var _EmissionMap: texture_2d<f32>;
-@group(1) @binding(12) var _EmissionMap_sampler: sampler;
-@group(1) @binding(13) var _EmissionMap1: texture_2d<f32>;
-@group(1) @binding(14) var _EmissionMap1_sampler: sampler;
+@group(1) @binding(10) var _EmissionMap: texture_2d<f32>;
+@group(1) @binding(11) var _EmissionMap_sampler: sampler;
+@group(1) @binding(12) var _EmissionMap1: texture_2d<f32>;
+@group(1) @binding(13) var _EmissionMap1_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -89,7 +86,7 @@ fn shade(
         + textureSample(_Albedo2, _Albedo2_sampler, uv).r
         + textureSample(_Albedo3, _Albedo3_sampler, uv).r) * 0.0;
 
-    let m = textureSample(_MetallicMap, _MetallicMap_sampler, uv);
+    let m = textureSample(_MetallicMap, _Albedo_sampler, uv);
     let e0 = textureSample(_EmissionMap, _EmissionMap_sampler, uv).rgb;
     let e1 = textureSample(_EmissionMap1, _EmissionMap1_sampler, uv).rgb;
     let emission = mix(e0, e1, 0.5);

@@ -11,6 +11,9 @@
 
 struct MatcapMaterial {
     _MainTex_StorageVInverted: f32,
+    _NormalMap_StorageVInverted: f32,
+    _NORMALMAP: f32,
+    _pad0: f32,
     _NormalMap_ST: vec4<f32>,
 }
 
@@ -59,7 +62,7 @@ fn vs_main(
 
     var out: VertexOutput;
     out.clip_pos = vp * world_p;
-    out.uv_normal = uvu::apply_st(uv0, mat._NormalMap_ST);
+    out.uv_normal = uvu::apply_st_for_storage(uv0, mat._NormalMap_ST, mat._NormalMap_StorageVInverted);
     out.world_n = world_n;
     out.world_t = world_t;
     out.world_b = world_b;
@@ -78,10 +81,13 @@ fn fs_main(
     @location(4) view_x: vec3<f32>,
     @location(5) view_y: vec3<f32>,
 ) -> @location(0) vec4<f32> {
-    let normal_ts = nd::decode_ts_normal_with_placeholder(
-        textureSample(_NormalMap, _NormalMap_sampler, uv_normal).xyz,
-        1.0,
-    );
+    var normal_ts = vec3<f32>(0.0, 0.0, 1.0);
+    if (uvu::kw_enabled(mat._NORMALMAP)) {
+        normal_ts = nd::decode_ts_normal_with_placeholder(
+            textureSample(_NormalMap, _NormalMap_sampler, uv_normal).xyz,
+            1.0,
+        );
+    }
     let tbn = mat3x3<f32>(
         rmath::safe_normalize(world_t, vec3<f32>(1.0, 0.0, 0.0)),
         rmath::safe_normalize(world_b, vec3<f32>(0.0, 0.0, 1.0)),
