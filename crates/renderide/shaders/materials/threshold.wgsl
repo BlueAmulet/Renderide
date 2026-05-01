@@ -1,10 +1,9 @@
 //! Grab-pass threshold filter (`Shader "Filters/Threshold"`).
 
 
+#import renderide::filter_vertex as fv
 #import renderide::globals as rg
 #import renderide::grab_pass as gp
-#import renderide::mesh::vertex as mv
-#import renderide::per_draw as pd
 #import renderide::ui::rect_clip as uirc
 
 struct FiltersThresholdMaterial {
@@ -17,12 +16,6 @@ struct FiltersThresholdMaterial {
 
 @group(1) @binding(0) var<uniform> mat: FiltersThresholdMaterial;
 
-struct VertexOutput {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) obj_xy: vec2<f32>,
-    @location(1) @interpolate(flat) view_layer: u32,
-}
-
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -30,38 +23,25 @@ fn vs_main(
     @builtin(view_index) view_idx: u32,
 #endif
     @location(0) pos: vec4<f32>,
-    @location(1) _n: vec4<f32>,
-    @location(2) _uv0: vec2<f32>,
-) -> VertexOutput {
-    let d = pd::get_draw(instance_index);
-    let world_p = mv::world_position(d, pos);
+    @location(1) n: vec4<f32>,
+    @location(2) uv0: vec2<f32>,
+    @location(4) t: vec4<f32>,
+) -> fv::RectVertexOutput {
 #ifdef MULTIVIEW
-    let vp = mv::select_view_proj(d, view_idx);
-    let layer = view_idx;
+    return fv::rect_vertex_main(instance_index, view_idx, pos, n, t, uv0);
 #else
-    let vp = mv::select_view_proj(d, 0u);
-    let layer = 0u;
+    return fv::rect_vertex_main(instance_index, 0u, pos, n, t, uv0);
 #endif
-
-    var out: VertexOutput;
-    out.clip_pos = vp * world_p;
-    out.obj_xy = pos.xy;
-    out.view_layer = layer;
-    return out;
 }
 
 //#pass forward
 @fragment
-fn fs_main(
-    @builtin(position) frag_pos: vec4<f32>,
-    @location(0) obj_xy: vec2<f32>,
-    @location(1) @interpolate(flat) view_layer: u32,
-) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect(obj_xy, mat._Rect, mat._RectClip)) {
+fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
+    if (uirc::should_clip_rect(in.obj_xy, mat._Rect, mat._RectClip)) {
         discard;
     }
 
-    let c = gp::sample_scene_color(gp::frag_screen_uv(frag_pos), view_layer);
+    let c = gp::sample_scene_color(gp::frag_screen_uv(in.clip_pos), in.view_layer);
     let transition = max(abs(mat._Transition), 1e-6);
     let filtered = clamp(((c.rgb - vec3<f32>(mat._Threshold)) / transition) + vec3<f32>(mat._Transition * 0.5), vec3<f32>(0.0), vec3<f32>(1.0));
     return rg::retain_globals_additive(vec4<f32>(filtered, c.a));
