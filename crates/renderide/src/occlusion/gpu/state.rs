@@ -10,7 +10,7 @@ use crate::occlusion::cpu::snapshot::{HiZCpuSnapshot, HiZStereoCpuSnapshot};
 use crate::world_mesh::HiZTemporalState;
 
 use super::readback::StereoStash;
-use super::readback_ring::GpuReadbackRing;
+use super::readback_ring::{GpuReadbackRing, ReadbackTicket};
 use super::scratch::HiZGpuScratch;
 
 /// GPU + CPU Hi-Z state owned by [`crate::occlusion::OcclusionSystem`].
@@ -55,16 +55,25 @@ impl HiZGpuState {
             self.desktop = None;
             self.stereo = None;
             self.temporal = None;
+            self.clear_pending();
             self.scratch = None;
-            self.readback.reset();
-            self.stereo_stash.clear();
         }
         self.last_extent = extent;
         self.last_mode = mode;
     }
 
-    /// Clears ring readback state without mapping (e.g. device loss).
+    /// Cancels active staging maps and clears ring readback state (e.g. device loss).
     pub fn clear_pending(&mut self) {
+        let primary_staging = self
+            .scratch
+            .as_ref()
+            .map(|scratch| &scratch.staging_desktop);
+        let secondary_staging = self
+            .scratch
+            .as_ref()
+            .and_then(|scratch| scratch.staging_right());
+        self.readback
+            .cancel_pending_maps(primary_staging, secondary_staging);
         self.readback.reset();
         self.stereo_stash.clear();
     }
@@ -94,14 +103,14 @@ impl HiZGpuState {
         super::readback::drain(self);
     }
 
-    /// Records that the driver-thread submit carrying the copy-to-staging for `ws` has
+    /// Records that the driver-thread submit carrying a copy-to-staging ticket has
     /// completed. Does not touch wgpu — [`Self::start_ready_maps`] promotes the slot to a real
     /// `map_async` on the main thread. Keeping this callback pure (just a flag flip) avoids
     /// running any wgpu call from inside a [`wgpu::Device::poll`] callback, which can hold
     /// wgpu-internal locks that also serialize [`wgpu::Queue::write_texture`] and would
     /// otherwise risk a futex-wait deadlock with the asset-upload path on the main thread.
-    pub fn mark_submit_done(&mut self, ws: usize) {
-        self.readback.mark_submit_done(ws);
+    pub(crate) fn mark_submit_done(&mut self, ticket: ReadbackTicket) {
+        self.readback.mark_submit_done(ticket);
     }
 
     /// Issues `map_async` for every slot whose submit has completed since the last call.
@@ -126,7 +135,7 @@ impl HiZGpuState {
     }
 
     /// Takes the encoded-slot handoff for queue-submit callback installation.
-    pub(crate) fn take_encoded_slot(&mut self) -> Option<usize> {
+    pub(crate) fn take_encoded_slot(&mut self) -> Option<ReadbackTicket> {
         self.readback.take_encoded_slot()
     }
 
@@ -142,8 +151,8 @@ impl HiZGpuState {
 
     /// Replaces the GPU scratch for this view, clearing any stale ring state and stashed bytes.
     pub(super) fn replace_scratch(&mut self, scratch: Option<HiZGpuScratch>) {
-        self.scratch = scratch;
         self.clear_pending();
+        self.scratch = scratch;
     }
 
     /// Returns immutable access to the active GPU scratch for callers in the encode path.

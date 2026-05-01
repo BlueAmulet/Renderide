@@ -129,6 +129,7 @@ impl CompiledRenderGraph {
         views: &[FrameView<'_>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::pre_warm_per_view");
+        let mut mesh_ids_needing_uv1_stream = std::collections::HashSet::new();
         let mut mesh_ids_needing_extended_streams = std::collections::HashSet::new();
         for view in views {
             let view_id = view.view_id();
@@ -163,13 +164,26 @@ impl CompiledRenderGraph {
                 .per_view_per_draw_scratch_or_create(view_id);
             if let Some(collection) = view.world_mesh_draw_plan.as_prefetched() {
                 for item in &collection.items {
-                    if item.batch_key.embedded_needs_extended_vertex_streams
-                        && item.mesh_asset_id >= 0
+                    if item.mesh_asset_id < 0 {
+                        continue;
+                    }
+                    if item.batch_key.embedded_needs_uv1
+                        && !item.batch_key.embedded_needs_extended_vertex_streams
                     {
+                        mesh_ids_needing_uv1_stream.insert(item.mesh_asset_id);
+                    }
+                    if item.batch_key.embedded_needs_extended_vertex_streams {
                         mesh_ids_needing_extended_streams.insert(item.mesh_asset_id);
                     }
                 }
             }
+        }
+        for mesh_asset_id in mesh_ids_needing_uv1_stream {
+            let _ = mv_ctx
+                .backend
+                .asset_transfers
+                .mesh_pool_mut()
+                .ensure_uv1_vertex_stream(mv_ctx.device, mesh_asset_id);
         }
         for mesh_asset_id in mesh_ids_needing_extended_streams {
             let _ = mv_ctx

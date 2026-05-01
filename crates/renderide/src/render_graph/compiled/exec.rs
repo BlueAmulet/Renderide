@@ -835,16 +835,16 @@ fn encode_swapchain_hud_overlay(
 }
 
 /// Collects per-view Hi-Z submit-done notifications as `on_submitted_work_done` callbacks. Each
-/// callback only marks the readback-ring slot as submit-done; the real `map_async` runs on the
+/// callback only marks the readback-ring ticket as submit-done; the real `map_async` runs on the
 /// main thread from the next frame's
 /// [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`]. Doing wgpu work inside a
 /// device-poll callback can deadlock against wgpu-internal locks that also serialize
 /// `queue.write_texture` on the main thread (observed as a futex-wait hang inside
 /// `write_one_mip`).
 ///
-/// The encoded slot is captured out of the per-view state here (main thread, under the Hi-Z state
-/// lock) and baked into the closure by value — a late-firing callback cannot consume a newer
-/// frame's slot and alias two submits to the same staging buffer.
+/// The encoded ticket is captured out of the per-view state here (main thread, under the Hi-Z
+/// state lock) and baked into the closure by value. The ticket includes the staging generation, so
+/// a late-firing callback from before a resize cannot mark a newer scratch slot as ready.
 fn collect_hi_z_submit_callbacks(
     mv_ctx: &MultiViewExecutionContext<'_, '_>,
     per_view_occlusion_info: &[(ViewId, HostCameraFrame)],
@@ -853,10 +853,10 @@ fn collect_hi_z_submit_callbacks(
         .iter()
         .filter_map(|(view_id, _hc)| {
             let state = mv_ctx.backend.occlusion.ensure_hi_z_state(*view_id);
-            let ws = state.lock().take_encoded_slot()?;
+            let ticket = state.lock().take_encoded_slot()?;
             let cb: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
                 profiling::scope!("hi_z::on_submitted_callback");
-                state.lock().mark_submit_done(ws);
+                state.lock().mark_submit_done(ticket);
             });
             Some(cb)
         })

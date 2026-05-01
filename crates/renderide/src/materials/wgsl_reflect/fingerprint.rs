@@ -3,10 +3,13 @@
 use hashbrown::HashMap;
 use std::hash::{Hash, Hasher};
 
+use super::types::ReflectedVertexInput;
+
 pub(super) fn fingerprint_layout(
     material: &[wgpu::BindGroupLayoutEntry],
     per_draw: &[wgpu::BindGroupLayoutEntry],
     vs_max_vertex_location: Option<u32>,
+    vs_vertex_inputs: &[ReflectedVertexInput],
     group1_names: &HashMap<u32, String>,
 ) -> u64 {
     use std::collections::hash_map::DefaultHasher;
@@ -17,6 +20,8 @@ pub(super) fn fingerprint_layout(
     hash_entries(per_draw, &mut h);
     3u8.hash(&mut h);
     vs_max_vertex_location.hash(&mut h);
+    4u8.hash(&mut h);
+    vs_vertex_inputs.hash(&mut h);
     let mut keys: Vec<u32> = group1_names.keys().copied().collect();
     keys.sort_unstable();
     for k in keys {

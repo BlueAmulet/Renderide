@@ -1,6 +1,7 @@
 //! Unity surface shader `Shader "PBSDistanceLerpSpecular"`: SpecularSetup lighting with the same
 //! 16-point distance-driven vertex displacement and per-point emission as
-//! [`pbsdistancelerp`](super::pbsdistancelerp).
+//! [`pbsdistancelerp`](super::pbsdistancelerp). Reference space is selected by `WORLD_SPACE` /
+//! `OBJECT_SPACE`; if neither host keyword is present, the shader defaults to world space.
 //!
 //! Reads tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of `_Metallic` /
 //! `_MetallicMap`.
@@ -32,7 +33,7 @@ struct PbsDistanceLerpSpecularMaterial {
     _EmissionDistanceTo: f32,
     _PointCount: f32,
     WORLD_SPACE: f32,
-    LOCAL_SPACE: f32,
+    OBJECT_SPACE: f32,
     OVERRIDE_DISPLACE_DIRECTION: f32,
     _SPECULARMAP: f32,
     _NORMALMAP: f32,
@@ -107,8 +108,8 @@ fn accumulate_points(reference: vec3<f32>) -> DisplaceResult {
     return DisplaceResult(displace, emission);
 }
 
-fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
-    return psamp::sample_optional_world_normal(
+fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
+    var ts_n = psamp::sample_optional_world_normal(
         uvu::kw_enabled(mat._NORMALMAP),
         _NormalMap,
         _NormalMap_sampler,
@@ -116,8 +117,11 @@ fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32
         0.0,
         mat._NormalScale,
         world_n,
-        world_t,
     );
+    if (!front_facing) {
+        ts_n.z = -ts_n.z;
+    }
+    return ts_n;
 }
 
 @vertex
@@ -133,7 +137,7 @@ fn vs_main(
 ) -> VertexOutput {
     let d = pd::get_draw(instance_index);
     let world_p_pre = d.model * vec4<f32>(pos.xyz, 1.0);
-    let use_world = uvu::kw_enabled(mat.WORLD_SPACE) || (!uvu::kw_enabled(mat.LOCAL_SPACE));
+    let use_world = uvu::kw_enabled(mat.WORLD_SPACE) || (!uvu::kw_enabled(mat.OBJECT_SPACE));
     let reference_raw = select(pos.xyz, world_p_pre.xyz, use_world);
     let reference = snap_reference(reference_raw);
     let acc = accumulate_points(reference);
@@ -176,6 +180,7 @@ fn shade(
     uv0: vec2<f32>,
     point_emission: vec3<f32>,
     view_layer: u32,
+    front_facing: bool,
     include_directional: bool,
     include_local: bool,
 ) -> vec4<f32> {
@@ -194,7 +199,7 @@ fn shade(
     let smoothness = clamp(spec.a, 0.0, 1.0);
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
-    let n = sample_normal_world(uv_main, world_n, world_t);
+    let n = sample_normal_world(uv_main, world_n, world_t, front_facing);
 
     let emission_tex = textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     let emission = mat._EmissionColor.rgb * emission_tex + point_emission;
@@ -208,6 +213,7 @@ fn shade(
 @fragment
 fn fs_forward_base(
     @builtin(position) frag_pos: vec4<f32>,
+    @builtin(front_facing) front_facing: bool,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
     @location(2) world_t: vec4<f32>,
@@ -215,5 +221,5 @@ fn fs_forward_base(
     @location(4) point_emission: vec3<f32>,
     @location(5) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    return shade(frag_pos.xy, world_pos, world_n, world_t, uv0, point_emission, view_layer, true, true);
+    return shade(frag_pos.xy, world_pos, world_n, world_t, uv0, point_emission, view_layer, front_facing, true, true);
 }

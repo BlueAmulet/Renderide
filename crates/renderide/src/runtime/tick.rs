@@ -127,7 +127,7 @@ impl RendererRuntime {
     /// in this method so VR cannot drift from desktop / headless lock-step semantics.
     pub fn tick_one_frame_lockstep_only(
         &mut self,
-        gpu: Option<&GpuContext>,
+        gpu: Option<&mut GpuContext>,
         inputs: InputState,
     ) -> TickOutcome {
         profiling::scope!("tick::one_frame_lockstep_only");

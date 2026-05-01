@@ -11,6 +11,13 @@ pub(crate) const HIZ_STAGING_RING: usize = 3;
 /// rayon workers after command submission. `std::sync::mpsc::Receiver` is only `Send`.
 pub(crate) type MapRecv = mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>;
 
+/// Generation-tagged staging slot claimed by a recorded Hi-Z readback copy.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ReadbackTicket {
+    slot: usize,
+    generation: u64,
+}
+
 /// Creates a fixed-size optional slot array for ring-owned pending work.
 pub(crate) const fn pending_none_array<T>() -> [Option<T>; HIZ_STAGING_RING] {
     [None, None, None]
@@ -23,10 +30,12 @@ const fn pending_bool_array() -> [bool; HIZ_STAGING_RING] {
 
 /// Ownership state for a fixed-size GPU staging readback ring.
 pub(crate) struct GpuReadbackRing {
+    /// Monotonic identity for callbacks issued against the current staging resources.
+    generation: u64,
     /// Next slot that an encode pass may write when [`Self::can_claim_next_slot`] returns true.
     write_idx: usize,
     /// Transient submit handoff captured after encode and consumed when the queue callback is built.
-    encoded_slot: Option<usize>,
+    encoded_slot: Option<ReadbackTicket>,
     /// Slots whose copy-to-staging command has been recorded but not confirmed by the driver.
     pending_submit: [bool; HIZ_STAGING_RING],
     /// Slots whose submit callback has fired but whose map request has not been issued yet.
@@ -40,6 +49,7 @@ pub(crate) struct GpuReadbackRing {
 impl Default for GpuReadbackRing {
     fn default() -> Self {
         Self {
+            generation: 0,
             write_idx: 0,
             encoded_slot: None,
             pending_submit: pending_bool_array(),
@@ -53,7 +63,10 @@ impl Default for GpuReadbackRing {
 impl GpuReadbackRing {
     /// Resets all slot ownership and pending callback state.
     pub(crate) fn reset(&mut self) {
-        *self = Self::default();
+        *self = Self {
+            generation: self.generation.wrapping_add(1),
+            ..Self::default()
+        };
     }
 
     /// Returns the slot that the next successful encode should target.
@@ -67,7 +80,7 @@ impl GpuReadbackRing {
     }
 
     /// Takes the encoded-slot handoff for queue-submit callback installation.
-    pub(crate) fn take_encoded_slot(&mut self) -> Option<usize> {
+    pub(crate) fn take_encoded_slot(&mut self) -> Option<ReadbackTicket> {
         self.encoded_slot.take()
     }
 
@@ -99,14 +112,20 @@ impl GpuReadbackRing {
         let slot = self.write_idx;
         self.pending_submit[slot] = true;
         self.write_idx = (slot + 1) % HIZ_STAGING_RING;
-        self.encoded_slot = Some(slot);
+        self.encoded_slot = Some(ReadbackTicket {
+            slot,
+            generation: self.generation,
+        });
         slot
     }
 
-    /// Marks that the queue submit containing `slot` has completed.
-    pub(crate) fn mark_submit_done(&mut self, slot: usize) {
-        debug_assert!(slot < HIZ_STAGING_RING);
-        self.submit_done[slot] = true;
+    /// Marks that the queue submit containing `ticket` has completed.
+    pub(crate) fn mark_submit_done(&mut self, ticket: ReadbackTicket) {
+        debug_assert!(ticket.slot < HIZ_STAGING_RING);
+        if ticket.generation != self.generation || !self.pending_submit[ticket.slot] {
+            return;
+        }
+        self.submit_done[ticket.slot] = true;
     }
 
     /// Returns mutable access to the primary pending map receiver for `slot`.
@@ -121,6 +140,32 @@ impl GpuReadbackRing {
         self.secondary_pending
             .as_mut()
             .map(|pending| &mut pending[slot])
+    }
+
+    /// Cancels active `map_async` work before the ring drops its receivers.
+    pub(crate) fn cancel_pending_maps(
+        &mut self,
+        primary_staging: Option<&[wgpu::Buffer; HIZ_STAGING_RING]>,
+        secondary_staging: Option<&[wgpu::Buffer; HIZ_STAGING_RING]>,
+    ) {
+        for slot in 0..HIZ_STAGING_RING {
+            if self.primary_pending[slot].take().is_some()
+                && let Some(primary_staging) = primary_staging
+            {
+                primary_staging[slot].unmap();
+            }
+        }
+
+        let Some(secondary_pending) = self.secondary_pending.as_mut() else {
+            return;
+        };
+        for slot in 0..HIZ_STAGING_RING {
+            if secondary_pending[slot].take().is_some()
+                && let Some(secondary_staging) = secondary_staging
+            {
+                secondary_staging[slot].unmap();
+            }
+        }
     }
 
     /// Issues `map_async` for every slot whose submit callback has completed.
@@ -210,7 +255,40 @@ mod tests {
 
         let slot = ring.claim_next_slot();
 
-        assert_eq!(ring.take_encoded_slot(), Some(slot));
+        let ticket = ring.take_encoded_slot().unwrap();
+        assert_eq!(ticket.slot, slot);
+        assert_eq!(ticket.generation, ring.generation);
         assert_eq!(ring.take_encoded_slot(), None);
+    }
+
+    #[test]
+    fn stale_submit_ticket_is_ignored_after_reset() {
+        let mut ring = GpuReadbackRing::default();
+
+        let slot = ring.claim_next_slot();
+        let ticket = ring.take_encoded_slot().unwrap();
+        ring.reset();
+        ring.mark_submit_done(ticket);
+
+        assert!(!ring.submit_done[slot]);
+        assert!(!ring.pending_submit[slot]);
+    }
+
+    #[test]
+    fn submit_done_requires_current_claimed_ticket() {
+        let mut ring = GpuReadbackRing::default();
+
+        let unclaimed_ticket = super::ReadbackTicket {
+            slot: 0,
+            generation: ring.generation,
+        };
+        ring.mark_submit_done(unclaimed_ticket);
+        assert!(!ring.submit_done[0]);
+
+        let slot = ring.claim_next_slot();
+        let ticket = ring.take_encoded_slot().unwrap();
+        ring.mark_submit_done(ticket);
+
+        assert!(ring.submit_done[slot]);
     }
 }

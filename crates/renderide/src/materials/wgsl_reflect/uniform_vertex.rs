@@ -8,6 +8,7 @@ use naga::{AddressSpace, Binding, Module, ShaderStage, TypeInner, VectorSize};
 use super::resource::resource_data_ty;
 use super::types::{
     ReflectedMaterialUniformBlock, ReflectedUniformField, ReflectedUniformScalarKind,
+    ReflectedVertexInput, ReflectedVertexInputFormat,
 };
 
 /// `true` when `@group(1)` uniform struct includes `_IntersectColor` (PBS intersect materials).
@@ -34,19 +35,45 @@ pub(super) fn reflect_group1_global_binding_names(module: &Module) -> HashMap<u3
     out
 }
 
-pub(super) fn reflect_vs_main_max_vertex_location(module: &Module) -> Option<u32> {
+fn vertex_input_format(
+    module: &Module,
+    ty: naga::Handle<naga::Type>,
+) -> ReflectedVertexInputFormat {
+    match &module.types[ty].inner {
+        TypeInner::Vector { size, scalar }
+            if scalar.kind == naga::ScalarKind::Float && *size == VectorSize::Bi =>
+        {
+            ReflectedVertexInputFormat::Float32x2
+        }
+        TypeInner::Vector { size, scalar }
+            if scalar.kind == naga::ScalarKind::Float && *size == VectorSize::Quad =>
+        {
+            ReflectedVertexInputFormat::Float32x4
+        }
+        _ => ReflectedVertexInputFormat::Unsupported,
+    }
+}
+
+pub(super) fn reflect_vs_main_vertex_inputs(module: &Module) -> Vec<ReflectedVertexInput> {
     let ep = module
         .entry_points
         .iter()
-        .find(|e| e.stage == ShaderStage::Vertex && e.name == "vs_main")?;
+        .find(|e| e.stage == ShaderStage::Vertex && e.name == "vs_main");
+    let Some(ep) = ep else {
+        return Vec::new();
+    };
     let func = &ep.function;
-    let mut max: Option<u32> = None;
+    let mut inputs = Vec::new();
     for arg in &func.arguments {
         if let Some(Binding::Location { location, .. }) = arg.binding {
-            max = Some(max.map_or(location, |m| m.max(location)));
+            inputs.push(ReflectedVertexInput {
+                location,
+                format: vertex_input_format(module, arg.ty),
+            });
         }
     }
-    max
+    inputs.sort_by_key(|input| input.location);
+    inputs
 }
 
 fn uniform_member_kind(
@@ -118,4 +145,82 @@ pub(super) fn reflect_first_group1_uniform_struct(
         });
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use naga::front::wgsl::parse_str;
+
+    use super::*;
+
+    #[test]
+    fn reflects_exact_vertex_input_formats() {
+        let module = parse_str(
+            r#"
+struct VsOut {
+    @builtin(position) position: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @location(0) position: vec4<f32>,
+    @location(1) normal: vec4<f32>,
+    @location(2) uv0: vec2<f32>,
+    @location(3) color: vec4<f32>,
+    @location(5) uv1: vec2<f32>,
+) -> VsOut {
+    var out: VsOut;
+    out.position = position + normal * 0.0 + color * 0.0 + vec4<f32>(uv0, uv1) * 0.0;
+    return out;
+}
+"#,
+        )
+        .expect("parse synthetic vertex shader");
+
+        let inputs = reflect_vs_main_vertex_inputs(&module);
+        assert!(inputs.contains(&ReflectedVertexInput {
+            location: 2,
+            format: ReflectedVertexInputFormat::Float32x2,
+        }));
+        assert!(inputs.contains(&ReflectedVertexInput {
+            location: 3,
+            format: ReflectedVertexInputFormat::Float32x4,
+        }));
+        assert!(inputs.contains(&ReflectedVertexInput {
+            location: 5,
+            format: ReflectedVertexInputFormat::Float32x2,
+        }));
+    }
+
+    #[test]
+    fn distinguishes_location_three_uv_from_vertex_color() {
+        let module = parse_str(
+            r#"
+struct VsOut {
+    @builtin(position) position: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @location(0) position: vec4<f32>,
+    @location(3) uv: vec2<f32>,
+) -> VsOut {
+    var out: VsOut;
+    out.position = position + vec4<f32>(uv, 0.0, 0.0) * 0.0;
+    return out;
+}
+"#,
+        )
+        .expect("parse synthetic vertex shader");
+
+        let inputs = reflect_vs_main_vertex_inputs(&module);
+        assert!(inputs.contains(&ReflectedVertexInput {
+            location: 3,
+            format: ReflectedVertexInputFormat::Float32x2,
+        }));
+        assert!(!inputs.contains(&ReflectedVertexInput {
+            location: 3,
+            format: ReflectedVertexInputFormat::Float32x4,
+        }));
+    }
 }

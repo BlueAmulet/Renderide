@@ -5,8 +5,8 @@
 //! averaging plus a max-difference silhouette term per Unity reference; the fragment then
 //! samples `_MainTex` and discards along silhouette edges and outside the near/far clip range.
 //!
-//! `_DepthMode` selects decoding: `0` = grayscale (`1 - r`), `1` = hue (assume full saturation,
-//! map dominant channel to `[0,1)`). Mirrors Unity `#pragma multi_compile DEPTH_GRAYSCALE DEPTH_HUE`.
+//! `DEPTH_HUE` selects hue decoding (dominant-channel hue mapped to `[0,1)`); otherwise depth
+//! defaults to grayscale (`1 - r`). Mirrors Unity `#pragma multi_compile DEPTH_GRAYSCALE DEPTH_HUE`.
 
 
 #import renderide::globals as rg
@@ -24,8 +24,8 @@ struct DepthProjectionMaterial {
     _FarClip: f32,
     _DiscardThreshold: f32,
     _DiscardOffset: f32,
-    /// `0` = grayscale (`1 - r`), `1` = hue (Unity `DEPTH_HUE` keyword).
-    _DepthMode: f32,
+    /// Unity `DEPTH_HUE` keyword; grayscale (`1 - r`) is the default when disabled.
+    DEPTH_HUE: f32,
     _MainTex_StorageVInverted: f32,
     _DepthTex_StorageVInverted: f32,
     _pad0: f32,
@@ -67,7 +67,7 @@ fn rgb_to_hue(c: vec3<f32>) -> f32 {
 fn sample_depth_at(uv: vec2<f32>) -> f32 {
     let suv = uvu::apply_st_for_storage(uv, mat._DepthTex_ST, mat._DepthTex_StorageVInverted);
     let c = textureSampleLevel(_DepthTex, _DepthTex_sampler, suv, 0.0);
-    if (mat._DepthMode > 0.5) {
+    if (mat.DEPTH_HUE > 0.5) {
         return rgb_to_hue(c.rgb);
     }
     return 1.0 - c.r;
@@ -123,7 +123,7 @@ fn vs_main(
     return out;
 }
 
-//#pass forward
+//#pass forward_two_sided
 @fragment
 fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
     if (vout.diff > mat._DiscardThreshold || vout.norm_depth < mat._NearClip || vout.norm_depth > mat._FarClip) {

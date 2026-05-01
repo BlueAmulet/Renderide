@@ -9,7 +9,8 @@ use crate::materials::material_passes::{DefaultPassParams, MaterialPassDesc, def
 use crate::materials::pipeline_build_error::PipelineBuildError;
 use crate::materials::{
     MaterialPipelineDesc, reflect_raster_material_wgsl, reflect_vertex_shader_needs_color_stream,
-    reflect_vertex_shader_needs_uv0_stream, validate_layout_against_limits,
+    reflect_vertex_shader_needs_extended_vertex_streams, reflect_vertex_shader_needs_uv0_stream,
+    reflect_vertex_shader_needs_uv1_stream, validate_layout_against_limits,
     validate_per_draw_group2, validate_vertex_layout_against_limits,
 };
 use crate::materials::{MaterialRenderState, RasterFrontFace};
@@ -64,6 +65,8 @@ pub(crate) struct VertexStreamToggles {
     pub include_uv_vertex_buffer: bool,
     /// Request vertex color stream when the shader references it.
     pub include_color_vertex_buffer: bool,
+    /// Request UV1 stream when the shader references it.
+    pub include_uv1_vertex_buffer: bool,
 }
 
 /// Reflected bind-group layout and vertex buffer layouts reused for each [`MaterialPassDesc`] in a batch.
@@ -91,6 +94,8 @@ pub(crate) struct ReflectiveRasterMeshForwardPipelineDesc {
     pub include_uv_vertex_buffer: bool,
     /// Include vertex color stream when the shader references it.
     pub include_color_vertex_buffer: bool,
+    /// Include UV1 vertex stream when the shader references it.
+    pub include_uv1_vertex_buffer: bool,
     /// Alpha blending vs opaque RGB-only writes for the default single pass.
     pub use_alpha_blending: bool,
     /// Depth write flag for the default single pass.
@@ -103,7 +108,7 @@ pub(crate) struct ReflectiveRasterMeshForwardPipelineDesc {
 
 mod vertex_layouts;
 
-use vertex_layouts::mesh_forward_vertex_buffer_layouts;
+use vertex_layouts::{mesh_forward_uv1_vertex_buffer_layout, mesh_forward_vertex_buffer_layouts};
 
 fn pipeline_layout_and_vertex_buffers(
     device: &wgpu::Device,
@@ -112,6 +117,7 @@ fn pipeline_layout_and_vertex_buffers(
     label: &'static str,
     include_uv_vertex_buffer: bool,
     include_color_vertex_buffer: bool,
+    include_uv1_vertex_buffer: bool,
 ) -> Result<(wgpu::PipelineLayout, Vec<wgpu::VertexBufferLayout<'static>>), PipelineBuildError> {
     let reflected = reflect_raster_material_wgsl(wgsl_source)?;
     validate_per_draw_group2(&reflected.per_draw_entries)?;
@@ -141,10 +147,19 @@ fn pipeline_layout_and_vertex_buffers(
     let use_uv = include_uv_vertex_buffer && reflect_vertex_shader_needs_uv0_stream(wgsl_source);
     let use_color =
         include_color_vertex_buffer && reflect_vertex_shader_needs_color_stream(wgsl_source);
-    let use_extended = reflected.vs_max_vertex_location.is_some_and(|m| m >= 4);
+    let use_uv1 = include_uv1_vertex_buffer && reflect_vertex_shader_needs_uv1_stream(wgsl_source);
+    let use_extended = reflect_vertex_shader_needs_extended_vertex_streams(wgsl_source);
 
     let vertex_buffers = if use_extended {
         layouts[..8].to_vec()
+    } else if use_uv1 {
+        let mut buffers = if use_color {
+            layouts[..4].to_vec()
+        } else {
+            layouts[..3].to_vec()
+        };
+        buffers.push(mesh_forward_uv1_vertex_buffer_layout());
+        buffers
     } else if use_color {
         layouts[..4].to_vec()
     } else if use_uv {
@@ -210,7 +225,8 @@ pub(crate) fn build_pipeline_from_pass(
                 multisample: wgpu::MultisampleState {
                     count: shared.desc.sample_count,
                     mask: !0,
-                    alpha_to_coverage_enabled: false,
+                    alpha_to_coverage_enabled: pass.alpha_to_coverage
+                        && shared.desc.sample_count > 1,
                 },
                 multiview_mask: shared.desc.multiview_mask,
                 cache: None,
@@ -239,6 +255,7 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipeline(
         label,
         raster.include_uv_vertex_buffer,
         raster.include_color_vertex_buffer,
+        raster.include_uv1_vertex_buffer,
     )?;
     let shared = MeshForwardSharedPipelineBuild {
         device,
@@ -276,6 +293,7 @@ pub(crate) fn create_reflective_raster_mesh_forward_pipelines(
         shader.label,
         streams.include_uv_vertex_buffer,
         streams.include_color_vertex_buffer,
+        streams.include_uv1_vertex_buffer,
     )?;
 
     let shared = MeshForwardSharedPipelineBuild {

@@ -76,6 +76,12 @@ const MESH_FORWARD_ATTRIBUTES: [[wgpu::VertexAttribute; 1]; 8] = {
     out
 };
 
+const UV1_AT_LOCATION5_ATTRIBUTES: [wgpu::VertexAttribute; 1] = [wgpu::VertexAttribute {
+    offset: 0,
+    shader_location: 5,
+    format: wgpu::VertexFormat::Float32x2,
+}];
+
 /// Returns the mesh-forward vertex buffer layout table.
 pub(super) fn mesh_forward_vertex_buffer_layouts() -> [wgpu::VertexBufferLayout<'static>; 8] {
     [
@@ -88,6 +94,15 @@ pub(super) fn mesh_forward_vertex_buffer_layouts() -> [wgpu::VertexBufferLayout<
         layout_at(6),
         layout_at(7),
     ]
+}
+
+/// Returns a compact vertex-buffer slot for UV1 when no other extended streams are needed.
+pub(super) fn mesh_forward_uv1_vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
+    wgpu::VertexBufferLayout {
+        array_stride: 8,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &UV1_AT_LOCATION5_ATTRIBUTES,
+    }
 }
 
 const fn layout_at(index: usize) -> wgpu::VertexBufferLayout<'static> {

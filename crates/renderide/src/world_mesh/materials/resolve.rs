@@ -6,10 +6,11 @@ use crate::materials::{
     MaterialBlendMode, MaterialPipelinePropertyIds, MaterialRenderState, MaterialRouter,
     RasterFrontFace, RasterPipelineKind, embedded_stem_needs_color_stream,
     embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_uv0_stream,
-    embedded_stem_requires_intersection_pass, embedded_stem_uses_alpha_blending,
-    embedded_stem_uses_scene_color_snapshot, embedded_stem_uses_scene_depth_snapshot,
-    material_blend_mode_for_lookup, material_blend_mode_from_maps,
-    material_render_state_for_lookup, material_render_state_from_maps, resolve_raster_pipeline,
+    embedded_stem_needs_uv1_stream, embedded_stem_requires_intersection_pass,
+    embedded_stem_uses_alpha_blending, embedded_stem_uses_scene_color_snapshot,
+    embedded_stem_uses_scene_depth_snapshot, material_blend_mode_for_lookup,
+    material_blend_mode_from_maps, material_render_state_for_lookup,
+    material_render_state_from_maps, resolve_raster_pipeline,
 };
 
 use super::FrameMaterialBatchCache;
@@ -40,6 +41,8 @@ pub(crate) struct ResolvedMaterialBatch {
     pub embedded_needs_uv0: bool,
     /// Whether the active shader permutation requires a color vertex stream.
     pub embedded_needs_color: bool,
+    /// Whether the active shader permutation requires a UV1 vertex stream.
+    pub embedded_needs_uv1: bool,
     /// Whether the active shader permutation requires extended vertex streams.
     pub embedded_needs_extended_vertex_streams: bool,
     /// Whether the material requires a second forward subpass with a depth snapshot.
@@ -81,6 +84,12 @@ pub(crate) fn batch_key_for_slot(
     let embedded_needs_color = match &pipeline {
         RasterPipelineKind::EmbeddedStem(stem) => {
             embedded_stem_needs_color_stream(stem.as_ref(), ctx.shader_perm)
+        }
+        RasterPipelineKind::Null => false,
+    };
+    let embedded_needs_uv1 = match &pipeline {
+        RasterPipelineKind::EmbeddedStem(stem) => {
+            embedded_stem_needs_uv1_stream(stem.as_ref(), ctx.shader_perm)
         }
         RasterPipelineKind::Null => false,
     };
@@ -130,6 +139,7 @@ pub(crate) fn batch_key_for_slot(
         front_face,
         embedded_needs_uv0,
         embedded_needs_color,
+        embedded_needs_uv1,
         embedded_needs_extended_vertex_streams,
         embedded_requires_intersection_pass,
         embedded_uses_scene_depth_snapshot,
@@ -186,6 +196,7 @@ pub(crate) fn resolve_material_batch(
     let (
         embedded_needs_uv0,
         embedded_needs_color,
+        embedded_needs_uv1,
         embedded_needs_extended_vertex_streams,
         embedded_requires_intersection_pass,
         embedded_uses_scene_depth_snapshot,
@@ -197,6 +208,7 @@ pub(crate) fn resolve_material_batch(
             (
                 embedded_stem_needs_uv0_stream(s, shader_perm),
                 embedded_stem_needs_color_stream(s, shader_perm),
+                embedded_stem_needs_uv1_stream(s, shader_perm),
                 embedded_stem_needs_extended_vertex_streams(s, shader_perm),
                 embedded_stem_requires_intersection_pass(s, shader_perm),
                 embedded_stem_uses_scene_depth_snapshot(s, shader_perm),
@@ -204,7 +216,7 @@ pub(crate) fn resolve_material_batch(
                 embedded_stem_uses_alpha_blending(s),
             )
         }
-        RasterPipelineKind::Null => (false, false, false, false, false, false, false),
+        RasterPipelineKind::Null => (false, false, false, false, false, false, false, false),
     };
     let lookup_ids = MaterialPropertyLookupIds {
         material_asset_id,
@@ -221,6 +233,7 @@ pub(crate) fn resolve_material_batch(
         pipeline,
         embedded_needs_uv0,
         embedded_needs_color,
+        embedded_needs_uv1,
         embedded_needs_extended_vertex_streams,
         embedded_requires_intersection_pass,
         embedded_uses_scene_depth_snapshot,
@@ -249,6 +262,7 @@ fn batch_key_from_resolved(
         front_face,
         embedded_needs_uv0: r.embedded_needs_uv0,
         embedded_needs_color: r.embedded_needs_color,
+        embedded_needs_uv1: r.embedded_needs_uv1,
         embedded_needs_extended_vertex_streams: r.embedded_needs_extended_vertex_streams,
         embedded_requires_intersection_pass: r.embedded_requires_intersection_pass,
         embedded_uses_scene_depth_snapshot: r.embedded_uses_scene_depth_snapshot,

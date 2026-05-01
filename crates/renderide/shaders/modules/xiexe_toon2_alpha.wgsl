@@ -3,8 +3,9 @@
 //! Each `XIEE_ALPHA_MODE` constant declared by a dispatcher selects one of seven
 //! branches: opaque (no-op), hard cutout, alpha-to-coverage, mask-modulated A2C,
 //! Bayer-dithered cutout (with optional `_FadeDither` distance falloff), and the two
-//! straight blend modes (`fade` / `transparent`). The Bayer threshold is shared with
-//! the dithered alpha modes via `xiexe_toon2_base::bayer_threshold`.
+//! straight blend modes (`fade` / `transparent`). A2C returns coverage alpha for the
+//! pipeline's hardware alpha-to-coverage state; only the cutout and dithered branches
+//! discard.
 
 #define_import_path renderide::xiexe::toon2::alpha
 
@@ -34,19 +35,13 @@ fn apply_alpha(
 
     if (alpha_mode == xb::ALPHA_A2C) {
         let d = xb::bayer_threshold(frag_xy);
-        if (clip_alpha <= d) {
-            discard;
-        }
-        return xb::saturate(alpha);
+        return xb::saturate(alpha - (d * (1.0 - alpha) * 0.15));
     }
 
     if (alpha_mode == xb::ALPHA_A2C_MASKED) {
         let mask = acs::texture_rgba_base_mip(xb::_CutoutMask, xb::_CutoutMask_sampler, uv_primary).r;
         var coverage = xb::saturate(mask + xb::mat._Cutoff);
-        coverage = mix(1.0 - coverage, coverage, xb::saturate(clip_alpha));
-        if (coverage <= xb::bayer_threshold(frag_xy)) {
-            discard;
-        }
+        coverage = mix(1.0 - coverage, coverage, xb::saturate(alpha));
         return coverage;
     }
 

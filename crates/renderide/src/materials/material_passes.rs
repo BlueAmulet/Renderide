@@ -1,6 +1,6 @@
 //! Per-pass pipeline descriptor for multi-pass material shaders.
 //!
-//! A material stem may declare multiple passes via `//#material <kind>` tags parsed in `build.rs`
+//! A material stem may declare multiple passes via `//#pass <kind>` tags parsed in `build.rs`
 //! and embedded alongside the composed WGSL (see [`crate::embedded_shaders::embedded_target_passes`]).
 //! Each tag sits directly above an `@fragment` entry point and names one [`PassKind`]; the build
 //! script turns each tag into a [`MaterialPassDesc`] via [`pass_from_kind`]. Every descriptor becomes
@@ -13,8 +13,8 @@
 //! `_OffsetFactor`, `_OffsetUnits`, `_SrcBlend`, `_DstBlend`, stencil) may override those defaults.
 //! Shaders carry no depth / blend / cull metadata of their own.
 //!
-//! Single-pass materials that declare no `//#material` tag fall through to [`default_pass`],
-//! preserving the pre-multi-pass opaque default exactly.
+//! Embedded material WGSL must declare at least one `//#pass` tag. [`default_pass`] remains only for
+//! fallback / null pipelines that do not come from embedded material source.
 
 mod blend_mode;
 mod pass_kind;

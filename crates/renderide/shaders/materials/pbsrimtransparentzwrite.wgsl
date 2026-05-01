@@ -134,8 +134,8 @@ fn fs_main(
     var smoothness = mat._Glossiness;
     if (uvu::kw_enabled(mat._METALLICMAP)) {
         let m = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
-        metallic = metallic * m.r;
-        smoothness = smoothness * m.a;
+        metallic = m.r;
+        smoothness = m.a;
     }
     metallic = clamp(metallic, 0.0, 1.0);
     smoothness = clamp(smoothness, 0.0, 1.0);

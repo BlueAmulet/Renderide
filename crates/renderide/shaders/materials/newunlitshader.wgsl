@@ -1,10 +1,10 @@
-//! Unity unlit `Shader "Unlit/NewUnlitShader"`: Shader Forge "diffuse-only" output collapsed to an
-//! emissive solid color in this renderer — Unity's `_LightColor0` / per-light path is replaced by a
-//! constant `_node_2829` tint. The shader was a placeholder in the Resonite asset bundle and never
-//! consumed real light data downstream.
+//! Unity unlit `Shader "Unlit/NewUnlitShader"`: Shader Forge diffuse output driven by
+//! `_node_2829` and scene lighting.
 
 
-#import renderide::globals as rg
+#import renderide::diffuse_lighting as dl
+#import renderide::math as rmath
+#import renderide::per_draw as pd
 #import renderide::mesh::vertex as mv
 
 struct NewUnlitMaterial {
@@ -13,6 +13,13 @@ struct NewUnlitMaterial {
 
 @group(1) @binding(0) var<uniform> mat: NewUnlitMaterial;
 
+struct VertexOutput {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+    @location(1) world_n: vec3<f32>,
+    @location(2) @interpolate(flat) view_layer: u32,
+}
+
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -20,17 +27,33 @@ fn vs_main(
     @builtin(view_index) view_idx: u32,
 #endif
     @location(0) pos: vec4<f32>,
-    @location(1) _n: vec4<f32>,
-) -> mv::ClipVertexOutput {
+    @location(1) n: vec4<f32>,
+) -> VertexOutput {
+    let d = pd::get_draw(instance_index);
 #ifdef MULTIVIEW
-    return mv::clip_vertex_main(instance_index, view_idx, pos);
+    let view_layer = view_idx;
 #else
-    return mv::clip_vertex_main(instance_index, 0u, pos);
+    let view_layer = 0u;
 #endif
+    let world_p = mv::world_position(d, pos);
+    let vp = mv::select_view_proj(d, view_layer);
+    var out: VertexOutput;
+    out.clip_pos = vp * world_p;
+    out.world_pos = world_p.xyz;
+    out.world_n = rmath::safe_normalize(d.normal_matrix * n.xyz, vec3<f32>(0.0, 1.0, 0.0));
+    out.view_layer = view_layer;
+    return out;
 }
 
 //#pass forward
 @fragment
-fn fs_main() -> @location(0) vec4<f32> {
-    return rg::retain_globals_additive(vec4<f32>(mat._node_2829.rgb, 1.0));
+fn fs_main(
+    @builtin(position) frag_pos: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+    @location(1) world_n: vec3<f32>,
+    @location(2) @interpolate(flat) view_layer: u32,
+) -> @location(0) vec4<f32> {
+    let n = rmath::safe_normalize(world_n, vec3<f32>(0.0, 1.0, 0.0));
+    let lit = dl::shade_clustered_diffuse(frag_pos.xy, world_pos, n, mat._node_2829.rgb, view_layer);
+    return vec4<f32>(lit, 1.0);
 }

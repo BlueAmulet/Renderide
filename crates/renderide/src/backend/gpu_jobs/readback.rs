@@ -153,6 +153,7 @@ where
 
     /// Advances submit notifications, mapping, completion, and age/failure handling.
     pub(crate) fn maintain(&mut self) -> GpuReadbackOutcomes<K, T> {
+        profiling::scope!("gpu_jobs::readback_maintain");
         self.drain_submit_done();
         self.start_ready_maps();
         let mut outcomes = self.drain_completed_maps();
@@ -162,6 +163,7 @@ where
 
     /// Marks jobs whose queue submit has completed.
     fn drain_submit_done(&mut self) {
+        profiling::scope!("gpu_jobs::readback_drain_submit_done");
         while let Ok(key) = self.submit_done_rx.try_recv() {
             if let Some(job) = self.pending.get_mut(&key) {
                 job.lifecycle.mark_submit_done();
@@ -171,6 +173,7 @@ where
 
     /// Starts `map_async` for submitted jobs on the main thread.
     fn start_ready_maps(&mut self) {
+        profiling::scope!("gpu_jobs::readback_start_ready_maps");
         for job in self.pending.values_mut() {
             if !job.lifecycle.should_start_map() {
                 continue;
@@ -187,6 +190,7 @@ where
 
     /// Moves completed mapped buffers into an outcome batch.
     fn drain_completed_maps(&mut self) -> GpuReadbackOutcomes<K, T> {
+        profiling::scope!("gpu_jobs::readback_drain_completed_maps");
         let mut completed = Vec::new();
         let mut failed = Vec::new();
         for (key, job) in &mut self.pending {
@@ -220,6 +224,7 @@ where
 
     /// Ages in-flight jobs and returns sources that never mapped back.
     fn age_pending_jobs(&mut self) -> Vec<(K, GpuReadbackFailure)> {
+        profiling::scope!("gpu_jobs::readback_age_pending");
         let mut expired = Vec::new();
         for (key, job) in &mut self.pending {
             if job
@@ -244,6 +249,7 @@ where
 
 /// Reads a mapped staging buffer into a typed payload.
 fn read_from_staging<T>(staging: &wgpu::Buffer, parse: fn(&[u8]) -> Option<T>) -> Option<T> {
+    profiling::scope!("gpu_jobs::readback_parse_staging");
     let mapped = staging.slice(..).get_mapped_range();
     let result = parse(&mapped);
     drop(mapped);

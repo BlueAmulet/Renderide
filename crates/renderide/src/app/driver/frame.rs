@@ -76,8 +76,8 @@ impl AppDriver {
             profiling::scope!("tick::asset_integration");
             self.runtime.run_asset_integration();
         };
-        if let Some(target) = self.target.as_ref() {
-            self.runtime.maintain_nonblocking_gpu_jobs(target.gpu());
+        if let Some(target) = self.target.as_mut() {
+            self.runtime.maintain_nonblocking_gpu_jobs(target.gpu_mut());
         }
 
         let xr_pause = self

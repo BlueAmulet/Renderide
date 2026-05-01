@@ -33,9 +33,18 @@ pub(super) fn inferred_keyword_float_f32(
     if let Some(value) = blend_keyword_inferred(field_name, store, lookup, kw) {
         return Some(value);
     }
+    if let Some(value) = scalar_keyword_inferred(field_name, store, lookup, ids) {
+        return Some(value);
+    }
     if is_projection360_keyword(field_name)
         && let Some(value) = projection360_keyword_inferred(field_name, store, lookup, ids)
     {
+        return Some(value);
+    }
+    if let Some(value) = pbs_displace_keyword_inferred(field_name, store, lookup, ids) {
+        return Some(value);
+    }
+    if let Some(value) = unlit_keyword_inferred(field_name, store, lookup, ids) {
         return Some(value);
     }
 
@@ -45,6 +54,58 @@ pub(super) fn inferred_keyword_float_f32(
         None => return None,
     };
     Some(if inferred { 1.0 } else { 0.0 })
+}
+
+/// Infers scalar keyword fields that are driven by non-keyword host properties.
+fn scalar_keyword_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    match field_name {
+        "LERP" => {
+            if let Some(value) = keyword_probe_float(field_name, store, lookup, ids) {
+                return Some(keyword_float_value(value));
+            }
+            let lerp = uniform_field_float("_Lerp", store, lookup, ids).unwrap_or(0.0);
+            Some(if lerp > 0.0 { 1.0 } else { 0.0 })
+        }
+        "SRGB" => {
+            if let Some(value) = keyword_probe_float(field_name, store, lookup, ids) {
+                return Some(keyword_float_value(value));
+            }
+            Some(1.0)
+        }
+        _ => None,
+    }
+}
+
+/// Converts Unity-style float keyword values into the renderer's packed scalar convention.
+fn keyword_float_value(value: f32) -> f32 {
+    if value >= 0.5 { 1.0 } else { 0.0 }
+}
+
+/// Reads a direct keyword probe value, including explicit false values.
+fn keyword_probe_float(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    let probes = ids.keyword_field_probe_ids.get(field_name)?;
+    first_float_by_pids(store, lookup, probes)
+}
+
+/// Reads a reflected uniform field's canonical host value as a scalar float.
+fn uniform_field_float(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    let pid = *ids.uniform_field_ids.get(field_name)?;
+    first_float_by_pids(store, lookup, &[pid])
 }
 
 /// True for any keyword name that participates in `Projection360` keyword inference.
@@ -88,17 +149,70 @@ fn blend_keyword_inferred(
 fn texture_keyword_pids(field_name: &str, kw: &EmbeddedSharedKeywordIds) -> Option<Vec<i32>> {
     Some(match field_name {
         "_LERPTEX" => vec![kw.lerp_tex],
+        "_TEXTURE" => vec![
+            kw.tex,
+            kw.main_tex,
+            kw.far_tex,
+            kw.near_tex,
+            kw.far_tex0,
+            kw.near_tex0,
+            kw.far_tex1,
+            kw.near_tex1,
+        ],
+        "GRADIENT" => vec![kw.gradient],
         "_ALBEDOTEX" => vec![kw.main_tex, kw.main_tex1],
-        "_EMISSION" | "_EMISSIONTEX" => vec![kw.emission_map, kw.emission_map1],
-        "_NORMALMAP" => vec![kw.normal_map, kw.normal_map1, kw.bump_map],
-        "_SPECULARMAP" => vec![kw.specular_map, kw.specular_map1, kw.spec_gloss_map],
+        "_EMISSION" | "_EMISSIONTEX" => vec![
+            kw.emission_map,
+            kw.emission_map1,
+            kw.emission_map2,
+            kw.emission_map3,
+        ],
+        "_NORMALMAP" => vec![kw.normal_map, kw.normal_map0, kw.normal_map1, kw.bump_map],
+        "_SPECULARMAP" => vec![
+            kw.specular_map,
+            kw.specular_map1,
+            kw.specular_map2,
+            kw.specular_map3,
+            kw.spec_gloss_map,
+        ],
+        "_SPECGLOSSMAP" => vec![kw.spec_gloss_map],
         "_METALLICGLOSSMAP" => vec![kw.metallic_gloss_map],
-        "_METALLICMAP" => vec![kw.metallic_map, kw.metallic_map1, kw.metallic_gloss_map],
+        "_METALLICMAP" => vec![
+            kw.metallic_map,
+            kw.metallic_map1,
+            kw.metallic_gloss_map,
+            kw.metallic_gloss01,
+            kw.metallic_gloss23,
+        ],
         "_DETAIL_MULX2" => vec![kw.detail_albedo_map, kw.detail_normal_map, kw.detail_mask],
         "_PARALLAXMAP" => vec![kw.parallax_map],
         "_OCCLUSION" => vec![kw.occlusion, kw.occlusion1, kw.occlusion_map],
+        "_HEIGHTMAP" => vec![kw.packed_height_map],
+        "_PACKED_NORMALMAP" => vec![kw.packed_normal_map01, kw.packed_normal_map23],
+        "_PACKED_EMISSIONTEX" => vec![kw.packed_emission_map],
         _ => return None,
     })
+}
+
+/// Inferred values for Unlit-family keyword fields with observable host signals.
+fn unlit_keyword_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    let kw = ids.shared.as_ref();
+    let enabled = match field_name {
+        "_OFFSET_TEXTURE" => texture_property_present_pids(store, lookup, &[kw.offset_tex]),
+        "_MASK_TEXTURE_MUL" => texture_property_present_pids(store, lookup, &[kw.mask_tex]),
+        "_MASK_TEXTURE_CLIP" => false,
+        "_RIGHT_EYE_ST" => ids
+            .uniform_field_ids
+            .get("_RightEye_ST")
+            .is_some_and(|pid| uniform_property_present(store, lookup, *pid)),
+        _ => return None,
+    };
+    Some(if enabled { 1.0 } else { 0.0 })
 }
 
 /// Discriminant of [`crate::shared::MaterialRenderType::TransparentCutout`] on the wire.
@@ -304,7 +418,7 @@ fn alpha_premultiply_on_inferred(
 /// | `TINT_TEX_LERP`   | `TintTexture` + `TintTextureMode == Lerp`              | `_TintTex` texture + `_Tint0` written (Lerp-only send)|
 /// | `TINT_TEX_DIRECT` | `TintTexture` + `TintTextureMode == Direct`            | `_TintTex` texture, no `_Tint0`                       |
 ///
-/// `_VIEW`/`_NORMAL`/`_WORLD_VIEW`, `OUTSIDE_COLOR`, `_RIGHT_EYE_ST`, and `RECTCLIP` have no
+/// `_VIEW`/`_NORMAL`/`_WORLD_VIEW`, `OUTSIDE_COLOR`, and `RECTCLIP` have no
 /// property-stream signal (they map to `bool`/`enum` fields the host never writes as
 /// properties). These default to `0`; the shader's existing fallthrough renders such
 /// materials in the most common configuration (`_VIEW` + `OUTSIDE_CLIP` + non-stereo +
@@ -362,6 +476,46 @@ fn projection360_keyword_inferred(
         "_CLAMP_INTENSITY" => uniform_written("_MaxIntensity"),
         "TINT_TEX_LERP" => tint_tex_present && tint0_written,
         "TINT_TEX_DIRECT" => tint_tex_present && !tint0_written,
+        _ => return None,
+    };
+    Some(if enabled { 1.0 } else { 0.0 })
+}
+
+/// Infers PBSDisplace keyword fields from the properties the host serializes.
+///
+/// `ShaderKeywords.Variant` is not present on the wire. The host toggles `VERTEX_OFFSET` from
+/// either a vertex-offset texture or non-zero bias, `UV_OFFSET` from either a UV-offset texture or
+/// non-zero bias, and `OBJECT_POS_OFFSET` / `VERTEX_POS_OFFSET` from the world-space offset texture
+/// plus a bool that is not serialized. Without that bool, the renderer uses the host's default
+/// object-space variant when the texture is present and leaves the per-vertex variant disabled
+/// unless an explicit float property is ever supplied.
+fn pbs_displace_keyword_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    let kw = ids.shared.as_ref();
+    let uniform_nonzero = |name: &str| {
+        ids.uniform_field_ids
+            .get(name)
+            .and_then(|&pid| first_float_by_pids(store, lookup, &[pid]))
+            .is_some_and(|value| value != 0.0)
+    };
+
+    let enabled = match field_name {
+        "VERTEX_OFFSET" => {
+            texture_property_present_pids(store, lookup, &[kw.vertex_offset_map])
+                || uniform_nonzero("_VertexOffsetBias")
+        }
+        "UV_OFFSET" => {
+            texture_property_present_pids(store, lookup, &[kw.uv_offset_map])
+                || uniform_nonzero("_UVOffsetBias")
+        }
+        "OBJECT_POS_OFFSET" => {
+            texture_property_present_pids(store, lookup, &[kw.position_offset_map])
+        }
+        "VERTEX_POS_OFFSET" => false,
         _ => return None,
     };
     Some(if enabled { 1.0 } else { 0.0 })

@@ -111,7 +111,7 @@ impl<'a> HeadlessDriver<'a> {
             HeadlessTickKind::LockstepOnly => {
                 profiling::scope!("headless::lockstep_tick");
                 self.runtime
-                    .tick_one_frame_lockstep_only(Some(&self.gpu), InputState::default())
+                    .tick_one_frame_lockstep_only(Some(&mut self.gpu), InputState::default())
             }
         }
     }

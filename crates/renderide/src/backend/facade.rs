@@ -362,7 +362,7 @@ impl RenderBackend {
     }
 
     /// Advances nonblocking SH2 GPU jobs and schedules queued projection work.
-    pub(crate) fn maintain_reflection_probe_sh2_jobs(&mut self, gpu: &crate::gpu::GpuContext) {
+    pub(crate) fn maintain_reflection_probe_sh2_jobs(&mut self, gpu: &mut crate::gpu::GpuContext) {
         self.reflection_probe_sh2
             .maintain_gpu_jobs(gpu, &self.asset_transfers);
     }
@@ -370,7 +370,7 @@ impl RenderBackend {
     /// Advances generated skybox environment jobs and schedules the active analytic skybox.
     pub(crate) fn maintain_skybox_environment_jobs(
         &mut self,
-        gpu: &crate::gpu::GpuContext,
+        gpu: &mut crate::gpu::GpuContext,
         scene: &crate::scene::SceneCoordinator,
     ) {
         self.skybox_environment

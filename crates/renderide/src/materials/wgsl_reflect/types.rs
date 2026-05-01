@@ -39,6 +39,26 @@ pub struct ReflectedMaterialUniformBlock {
     pub fields: HashMap<String, ReflectedUniformField>,
 }
 
+/// Vertex attribute format reflected from `vs_main` input arguments.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ReflectedVertexInputFormat {
+    /// `vec2<f32>`.
+    Float32x2,
+    /// `vec4<f32>`.
+    Float32x4,
+    /// Any currently unsupported vertex input shape.
+    Unsupported,
+}
+
+/// One reflected `vs_main` vertex input location and its shader-visible format.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ReflectedVertexInput {
+    /// Shader input location.
+    pub location: u32,
+    /// Shader-visible attribute format.
+    pub format: ReflectedVertexInputFormat,
+}
+
 /// Result of `reflect_raster_material_wgsl` in the parent `wgsl_reflect` module.
 #[derive(Clone, Debug)]
 pub struct ReflectedRasterLayout {
@@ -52,6 +72,8 @@ pub struct ReflectedRasterLayout {
     pub material_uniform: Option<ReflectedMaterialUniformBlock>,
     /// `@group(1)` `@binding` → WGSL global identifier (matches Unity host property names where applicable).
     pub material_group1_names: HashMap<u32, String>,
+    /// Exact `vs_main` vertex input locations and formats, sorted by location.
+    pub vs_vertex_inputs: Vec<ReflectedVertexInput>,
     /// Highest `@location` index on `vs_main` vertex inputs (excluding builtins); `>= 2` implies a UV stream at `location(2)`.
     pub vs_max_vertex_location: Option<u32>,
     /// `true` when the shader declares a scene-depth snapshot binding at `@group(0)`.

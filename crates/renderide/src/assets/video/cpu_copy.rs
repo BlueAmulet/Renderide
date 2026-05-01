@@ -32,6 +32,7 @@ impl SinkState {
     /// Reallocates the write texture when the video size changes.
     /// Returns `true` if a new texture was created.
     fn resize_if_needed(&mut self, asset_id: i32, width: u32, height: u32) -> bool {
+        profiling::scope!("video::cpu_copy_resize_if_needed");
         if self.width == width && self.height == height && self.write_texture.is_some() {
             return false;
         }
@@ -136,11 +137,14 @@ fn handle_sample(
     appsink: &AppSink,
 ) -> Result<gstreamer::FlowSuccess, gstreamer::FlowError> {
     profiling::scope!("video::cpu_copy_sample");
-    let sample = match appsink.pull_sample() {
-        Ok(sample) => sample,
-        Err(e) => {
-            logger::warn!("CpuCopyVideoSink {asset_id}: failed to pull sample: {e}");
-            return Err(gstreamer::FlowError::Eos);
+    let sample = {
+        profiling::scope!("video::pull_sample");
+        match appsink.pull_sample() {
+            Ok(sample) => sample,
+            Err(e) => {
+                logger::warn!("CpuCopyVideoSink {asset_id}: failed to pull sample: {e}");
+                return Err(gstreamer::FlowError::Eos);
+            }
         }
     };
     let Some((width, height)) = sample_dimensions(asset_id, &sample) else {
@@ -150,11 +154,14 @@ fn handle_sample(
         logger::warn!("CpuCopyVideoSink {asset_id}: sample without buffer");
         return Ok(gstreamer::FlowSuccess::Ok);
     };
-    let map = match buffer.map_readable() {
-        Ok(map) => map,
-        Err(e) => {
-            logger::warn!("CpuCopyVideoSink {asset_id}: failed to map buffer: {e}");
-            return Ok(gstreamer::FlowSuccess::Ok);
+    let map = {
+        profiling::scope!("video::map_sample_buffer");
+        match buffer.map_readable() {
+            Ok(map) => map,
+            Err(e) => {
+                logger::warn!("CpuCopyVideoSink {asset_id}: failed to map buffer: {e}");
+                return Ok(gstreamer::FlowSuccess::Ok);
+            }
         }
     };
     upload_mapped_rgba_frame(asset_id, state, width, height, map.as_slice());
@@ -202,6 +209,7 @@ fn upload_mapped_rgba_frame(
     height: u32,
     bytes: &[u8],
 ) {
+    profiling::scope!("video::upload_mapped_rgba_frame");
     let Ok(mut state) = state.lock() else {
         return;
     };
@@ -218,6 +226,7 @@ fn upload_mapped_rgba_frame(
 
 /// Validates the mapped frame size and returns `bytes_per_row`.
 fn validated_frame_layout(asset_id: i32, width: u32, height: u32, byte_len: usize) -> Option<u32> {
+    profiling::scope!("video::validate_frame_layout");
     let Some(expected) = rgba8_frame_bytes_usize(width, height) else {
         logger::warn!("CpuCopyVideoSink {asset_id}: frame dimensions overflow byte count");
         return None;
@@ -244,6 +253,7 @@ fn write_rgba_frame_to_texture(
     height: u32,
     bytes_per_row: u32,
 ) {
+    profiling::scope!("video::write_rgba_frame_to_texture");
     queue.write_texture(
         wgpu::TexelCopyTextureInfo {
             texture,
@@ -275,6 +285,7 @@ impl WgpuGstVideoSink for CpuCopyVideoSink {
     }
 
     fn poll_texture_change(&mut self) -> Option<(Arc<wgpu::TextureView>, u32, u32, u64)> {
+        profiling::scope!("video::poll_texture_change");
         let (view, w, h) = {
             let mut state = self.state.lock().ok()?;
             let view = state.pending_view.take()?;

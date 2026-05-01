@@ -263,121 +263,52 @@ impl FrameUploadBatch {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Option<wgpu::CommandBuffer> {
-        // Take the recorded writes + payload arena out under a short lock so the wgpu work below
-        // (buffer alloc, mapped memcpy, encoder ops, fallback write_buffer calls) does not run
-        // with the recording mutex held. Capacities are restored to the field at the end so the
-        // next frame's `write_buffer` calls grow into the same allocations.
-        let (mut writes, payload_bytes) = {
-            let mut recorded = self.recorded.lock();
-            crate::profiling::plot_frame_upload_batch(recorded.writes.len(), recorded.bytes.len());
-            if recorded.writes.is_empty() {
-                return None;
-            }
-            if !recorded.writes.is_sorted_by_key(queue_write_order) {
-                recorded.writes.sort_by_key(queue_write_order);
-            }
-            (
-                std::mem::take(&mut recorded.writes),
-                std::mem::take(&mut recorded.bytes),
-            )
-        };
-
-        // First pass: assign each aligned write a slot in the staging buffer; mark unaligned
-        // writes for the `queue.write_buffer` fallback.
-        let mut plans: Vec<WritePlan> = Vec::with_capacity(writes.len());
-        let mut staging_size: u64 = 0;
-        for write in &writes {
-            let QueueWrite::Buffer { offset, data, .. } = write;
-            let len = (data.end - data.start) as u64;
-            let aligned = len > 0
-                && (*offset).is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
-                && len.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
-            if aligned {
-                let aligned_off = staging_size.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
-                plans.push(WritePlan::Stage {
-                    staging_offset: aligned_off,
-                    len,
-                });
-                staging_size = aligned_off + len;
-            } else {
-                plans.push(WritePlan::Fallback);
-            }
-        }
-
-        let staging = (staging_size > 0).then(|| {
-            let buf = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("frame_upload_staging"),
-                size: staging_size,
-                usage: wgpu::BufferUsages::COPY_SRC,
-                mapped_at_creation: true,
-            });
-            {
-                let mut mapped = buf.slice(..).get_mapped_range_mut();
-                for (write, plan) in writes.iter().zip(plans.iter()) {
-                    let (
-                        QueueWrite::Buffer { data, .. },
-                        WritePlan::Stage {
-                            staging_offset,
-                            len,
-                        },
-                    ) = (write, plan)
-                    else {
-                        continue;
-                    };
-                    let dst_start = *staging_offset as usize;
-                    let dst_end = dst_start + *len as usize;
-                    mapped
-                        .slice(dst_start..dst_end)
-                        .copy_from_slice(&payload_bytes[data.clone()]);
-                }
-            }
-            buf.unmap();
-            buf
-        });
-
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("frame_upload_staging_belt"),
-        });
-        for (write, plan) in writes.iter().zip(plans.iter()) {
-            let QueueWrite::Buffer {
-                buffer,
-                offset,
-                data,
-                ..
-            } = write;
-            match plan {
-                WritePlan::Stage {
-                    staging_offset,
-                    len,
-                } => {
-                    let Some(staging_buf) = staging.as_ref() else {
-                        continue;
-                    };
-                    encoder.copy_buffer_to_buffer(
-                        staging_buf,
-                        *staging_offset,
-                        buffer,
-                        *offset,
-                        *len,
-                    );
-                }
-                WritePlan::Fallback => {
-                    queue.write_buffer(buffer, *offset, &payload_bytes[data.clone()]);
-                }
-            }
-        }
-        let cmd = encoder.finish();
-
-        // Restore the cleared scratch buffers so the next frame reuses their grown capacities.
-        writes.clear();
-        let mut payload_bytes = payload_bytes;
-        payload_bytes.clear();
-        {
-            let mut recorded = self.recorded.lock();
-            recorded.writes = writes;
-            recorded.bytes = payload_bytes;
-        }
+        crate::profiling::scope!("frame_upload::drain_and_flush");
+        let (writes, payload_bytes) = self.take_recorded_uploads()?;
+        let (plans, staging_size) = plan_staging_writes(&writes);
+        let staging = build_staging_buffer(device, &writes, &plans, &payload_bytes, staging_size);
+        let cmd = record_upload_command_buffer(
+            device,
+            queue,
+            &writes,
+            &plans,
+            &payload_bytes,
+            staging.as_ref(),
+        );
+        self.restore_recorded_upload_capacity(writes, payload_bytes);
         Some(cmd)
+    }
+
+    /// Takes pending writes and payload bytes while preserving reusable capacity for restore.
+    fn take_recorded_uploads(&self) -> Option<(Vec<QueueWrite>, Vec<u8>)> {
+        crate::profiling::scope!("frame_upload::take_recorded");
+        let mut recorded = self.recorded.lock();
+        crate::profiling::plot_frame_upload_batch(recorded.writes.len(), recorded.bytes.len());
+        if recorded.writes.is_empty() {
+            return None;
+        }
+        if !recorded.writes.is_sorted_by_key(queue_write_order) {
+            crate::profiling::scope!("frame_upload::sort_writes");
+            recorded.writes.sort_by_key(queue_write_order);
+        }
+        Some((
+            std::mem::take(&mut recorded.writes),
+            std::mem::take(&mut recorded.bytes),
+        ))
+    }
+
+    /// Restores cleared scratch buffers so later frames reuse the grown allocations.
+    fn restore_recorded_upload_capacity(
+        &self,
+        mut writes: Vec<QueueWrite>,
+        mut payload_bytes: Vec<u8>,
+    ) {
+        crate::profiling::scope!("frame_upload::restore_capacity");
+        writes.clear();
+        payload_bytes.clear();
+        let mut recorded = self.recorded.lock();
+        recorded.writes = writes;
+        recorded.bytes = payload_bytes;
     }
 
     /// Returns the number of pending writes (diagnostics / tests).
@@ -396,6 +327,132 @@ impl FrameUploadBatch {
 impl Default for FrameUploadBatch {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Assigns each aligned write a staging-buffer slot and marks unaligned writes for fallback.
+fn plan_staging_writes(writes: &[QueueWrite]) -> (Vec<WritePlan>, u64) {
+    crate::profiling::scope!("frame_upload::plan_staging");
+    let mut plans = Vec::with_capacity(writes.len());
+    let mut staging_size: u64 = 0;
+    for write in writes {
+        let QueueWrite::Buffer { offset, data, .. } = write;
+        let len = (data.end - data.start) as u64;
+        let aligned = len > 0
+            && (*offset).is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+            && len.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
+        if aligned {
+            let aligned_off = staging_size.next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT);
+            plans.push(WritePlan::Stage {
+                staging_offset: aligned_off,
+                len,
+            });
+            staging_size = aligned_off + len;
+        } else {
+            plans.push(WritePlan::Fallback);
+        }
+    }
+    (plans, staging_size)
+}
+
+/// Builds and fills the single staging buffer used by all aligned writes in this batch.
+fn build_staging_buffer(
+    device: &wgpu::Device,
+    writes: &[QueueWrite],
+    plans: &[WritePlan],
+    payload_bytes: &[u8],
+    staging_size: u64,
+) -> Option<wgpu::Buffer> {
+    (staging_size > 0).then(|| {
+        crate::profiling::scope!("frame_upload::build_staging_buffer");
+        let buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("frame_upload_staging"),
+            size: staging_size,
+            usage: wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: true,
+        });
+        fill_staging_buffer(&buf, writes, plans, payload_bytes);
+        buf.unmap();
+        buf
+    })
+}
+
+/// Copies each staged payload slice into its mapped staging-buffer offset.
+fn fill_staging_buffer(
+    buf: &wgpu::Buffer,
+    writes: &[QueueWrite],
+    plans: &[WritePlan],
+    payload_bytes: &[u8],
+) {
+    crate::profiling::scope!("frame_upload::copy_to_staging");
+    let mut mapped = buf.slice(..).get_mapped_range_mut();
+    for (write, plan) in writes.iter().zip(plans.iter()) {
+        let (
+            QueueWrite::Buffer { data, .. },
+            WritePlan::Stage {
+                staging_offset,
+                len,
+            },
+        ) = (write, plan)
+        else {
+            continue;
+        };
+        let dst_start = *staging_offset as usize;
+        let dst_end = dst_start + *len as usize;
+        mapped
+            .slice(dst_start..dst_end)
+            .copy_from_slice(&payload_bytes[data.clone()]);
+    }
+}
+
+/// Records copy commands for staged writes and replays unaligned writes through the queue.
+fn record_upload_command_buffer(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    writes: &[QueueWrite],
+    plans: &[WritePlan],
+    payload_bytes: &[u8],
+    staging: Option<&wgpu::Buffer>,
+) -> wgpu::CommandBuffer {
+    crate::profiling::scope!("frame_upload::record_encoder");
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("frame_upload_staging_belt"),
+    });
+    for (write, plan) in writes.iter().zip(plans.iter()) {
+        record_upload_write(&mut encoder, queue, write, plan, payload_bytes, staging);
+    }
+    encoder.finish()
+}
+
+/// Records one staged copy or fallback queue write.
+fn record_upload_write(
+    encoder: &mut wgpu::CommandEncoder,
+    queue: &wgpu::Queue,
+    write: &QueueWrite,
+    plan: &WritePlan,
+    payload_bytes: &[u8],
+    staging: Option<&wgpu::Buffer>,
+) {
+    let QueueWrite::Buffer {
+        buffer,
+        offset,
+        data,
+        ..
+    } = write;
+    match plan {
+        WritePlan::Stage {
+            staging_offset,
+            len,
+        } => {
+            let Some(staging_buf) = staging else {
+                return;
+            };
+            encoder.copy_buffer_to_buffer(staging_buf, *staging_offset, buffer, *offset, *len);
+        }
+        WritePlan::Fallback => {
+            profiling::scope!("frame_upload::fallback_write_buffer");
+            queue.write_buffer(buffer, *offset, &payload_bytes[data.clone()]);
+        }
     }
 }
 

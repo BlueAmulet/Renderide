@@ -58,6 +58,7 @@ pub fn dummy_world_mesh_draw_item(spec: DummyDrawItemSpec) -> WorldMeshDrawItem 
         front_face: RasterFrontFace::Clockwise,
         embedded_needs_uv0: false,
         embedded_needs_color: false,
+        embedded_needs_uv1: false,
         embedded_needs_extended_vertex_streams: false,
         embedded_requires_intersection_pass: false,
         embedded_uses_scene_depth_snapshot: false,

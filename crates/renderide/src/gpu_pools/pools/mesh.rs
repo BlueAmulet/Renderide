@@ -145,6 +145,24 @@ impl MeshPool {
         }
         ok
     }
+
+    /// Lazily creates the UV1 buffer for meshes drawn by UV1-only embedded shaders.
+    pub fn ensure_uv1_vertex_stream(&mut self, device: &wgpu::Device, asset_id: i32) -> bool {
+        let (ok, before, after) = {
+            let Some(mesh) = self.inner.get_mut(asset_id) else {
+                return false;
+            };
+            let before = mesh.resident_bytes();
+            let ok = mesh.ensure_uv1_vertex_stream(device);
+            let after = mesh.resident_bytes();
+            (ok, before, after)
+        };
+        if ok {
+            self.inner.account_resident_delta(before, after);
+            self.inner.note_access(asset_id);
+        }
+        ok
+    }
 }
 
 #[cfg(test)]

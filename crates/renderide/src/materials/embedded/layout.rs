@@ -42,19 +42,35 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) src_blend: i32,
     pub(crate) dst_blend: i32,
     pub(crate) lerp_tex: i32,
+    pub(crate) tex: i32,
+    pub(crate) far_tex: i32,
+    pub(crate) near_tex: i32,
+    pub(crate) far_tex0: i32,
+    pub(crate) near_tex0: i32,
+    pub(crate) far_tex1: i32,
+    pub(crate) near_tex1: i32,
+    pub(crate) gradient: i32,
     pub(crate) main_tex: i32,
     pub(crate) main_tex1: i32,
+    pub(crate) mask_tex: i32,
     pub(crate) emission_map: i32,
     pub(crate) emission_map1: i32,
+    pub(crate) emission_map2: i32,
+    pub(crate) emission_map3: i32,
     pub(crate) normal_map: i32,
+    pub(crate) normal_map0: i32,
     pub(crate) normal_map1: i32,
     pub(crate) bump_map: i32,
     pub(crate) specular_map: i32,
     pub(crate) specular_map1: i32,
+    pub(crate) specular_map2: i32,
+    pub(crate) specular_map3: i32,
     pub(crate) spec_gloss_map: i32,
     pub(crate) metallic_map: i32,
     pub(crate) metallic_map1: i32,
     pub(crate) metallic_gloss_map: i32,
+    pub(crate) metallic_gloss01: i32,
+    pub(crate) metallic_gloss23: i32,
     pub(crate) detail_albedo_map: i32,
     pub(crate) detail_normal_map: i32,
     pub(crate) detail_mask: i32,
@@ -62,6 +78,20 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) occlusion: i32,
     pub(crate) occlusion1: i32,
     pub(crate) occlusion_map: i32,
+    /// `PBSColorSplat` height blend texture.
+    pub(crate) packed_height_map: i32,
+    /// `PBSColorSplat` packed layer-normal texture for layers 0 and 1.
+    pub(crate) packed_normal_map01: i32,
+    /// `PBSColorSplat` packed layer-normal texture for layers 2 and 3.
+    pub(crate) packed_normal_map23: i32,
+    /// `PBSColorSplat` packed emission texture.
+    pub(crate) packed_emission_map: i32,
+    /// `PBSDisplace` vertex-height texture.
+    pub(crate) vertex_offset_map: i32,
+    /// `PBSDisplace` fragment UV-offset texture.
+    pub(crate) uv_offset_map: i32,
+    /// `PBSDisplace` world/object-position texture used to offset vertex-offset sampling UVs.
+    pub(crate) position_offset_map: i32,
     /// `Projection360` secondary equirectangular texture binding.
     pub(crate) second_tex: i32,
     /// `Projection360` tint-modulation texture binding.
@@ -84,19 +114,35 @@ impl EmbeddedSharedKeywordIds {
             src_blend: registry.intern("_SrcBlend"),
             dst_blend: registry.intern("_DstBlend"),
             lerp_tex: registry.intern("_LerpTex"),
+            tex: registry.intern("_Tex"),
+            far_tex: registry.intern("_FarTex"),
+            near_tex: registry.intern("_NearTex"),
+            far_tex0: registry.intern("_FarTex0"),
+            near_tex0: registry.intern("_NearTex0"),
+            far_tex1: registry.intern("_FarTex1"),
+            near_tex1: registry.intern("_NearTex1"),
+            gradient: registry.intern("_Gradient"),
             main_tex: registry.intern("_MainTex"),
             main_tex1: registry.intern("_MainTex1"),
+            mask_tex: registry.intern("_MaskTex"),
             emission_map: registry.intern("_EmissionMap"),
             emission_map1: registry.intern("_EmissionMap1"),
+            emission_map2: registry.intern("_EmissionMap2"),
+            emission_map3: registry.intern("_EmissionMap3"),
             normal_map: registry.intern("_NormalMap"),
+            normal_map0: registry.intern("_NormalMap0"),
             normal_map1: registry.intern("_NormalMap1"),
             bump_map: registry.intern("_BumpMap"),
             specular_map: registry.intern("_SpecularMap"),
             specular_map1: registry.intern("_SpecularMap1"),
+            specular_map2: registry.intern("_SpecularMap2"),
+            specular_map3: registry.intern("_SpecularMap3"),
             spec_gloss_map: registry.intern("_SpecGlossMap"),
             metallic_map: registry.intern("_MetallicMap"),
             metallic_map1: registry.intern("_MetallicMap1"),
             metallic_gloss_map: registry.intern("_MetallicGlossMap"),
+            metallic_gloss01: registry.intern("_MetallicGloss01"),
+            metallic_gloss23: registry.intern("_MetallicGloss23"),
             detail_albedo_map: registry.intern("_DetailAlbedoMap"),
             detail_normal_map: registry.intern("_DetailNormalMap"),
             detail_mask: registry.intern("_DetailMask"),
@@ -104,6 +150,13 @@ impl EmbeddedSharedKeywordIds {
             occlusion: registry.intern("_Occlusion"),
             occlusion1: registry.intern("_Occlusion1"),
             occlusion_map: registry.intern("_OcclusionMap"),
+            packed_height_map: registry.intern("_PackedHeightMap"),
+            packed_normal_map01: registry.intern("_PackedNormalMap01"),
+            packed_normal_map23: registry.intern("_PackedNormalMap23"),
+            packed_emission_map: registry.intern("_PackedEmissionMap"),
+            vertex_offset_map: registry.intern("_VertexOffsetMap"),
+            uv_offset_map: registry.intern("_UVOffsetMap"),
+            position_offset_map: registry.intern("_PositionOffsetMap"),
             second_tex: registry.intern("_SecondTex"),
             tint_tex: registry.intern("_TintTex"),
             offset_tex: registry.intern("_OffsetTex"),
@@ -243,7 +296,9 @@ pub(crate) fn build_stem_material_layout(
 mod tests {
     use std::sync::Arc;
 
-    use super::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
+    use super::{
+        EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds, shader_writer_unescaped_property_name,
+    };
     use crate::materials::host_data::PropertyIdRegistry;
     use crate::materials::reflect_raster_material_wgsl;
 
@@ -260,6 +315,41 @@ mod tests {
         assert_eq!(
             ids.texture_binding_property_ids.get(&1).map(|p| &**p),
             Some([registry.intern("_MainTex"), registry.intern("_Tex"),].as_slice())
+        );
+    }
+
+    #[test]
+    fn xiexe_outline_emissive_typo_alias_is_preserved() {
+        let wgsl = crate::embedded_shaders::embedded_target_wgsl("xstoon2.0_default")
+            .expect("xiexe target WGSL");
+        let reflected = reflect_raster_material_wgsl(wgsl).expect("xiexe WGSL reflection");
+        let uniform = reflected
+            .material_uniform
+            .as_ref()
+            .expect("xiexe material uniform block");
+        assert!(
+            uniform.fields.contains_key("_OutlineEmissiveues"),
+            "the deliberate `_OutlineEmissiveues` Unity-property typo must remain in the reflected uniform block; XSToon2.0.shader sets this name and removing it would break outline-mode lookup"
+        );
+    }
+
+    #[test]
+    fn xiexe_baked_cubemap_binding_is_reflected() {
+        let wgsl = crate::embedded_shaders::embedded_target_wgsl("xstoon2.0_default")
+            .expect("xiexe target WGSL");
+        let reflected = reflect_raster_material_wgsl(wgsl).expect("xiexe WGSL reflection");
+        let unmangled: Vec<String> = reflected
+            .material_group1_names
+            .values()
+            .map(|n| shader_writer_unescaped_property_name(n).to_string())
+            .collect();
+        assert!(
+            unmangled.iter().any(|n| n == "_BakedCubemap"),
+            "missing `_BakedCubemap` cube binding in xstoon2 layout: {unmangled:?}"
+        );
+        assert!(
+            unmangled.iter().any(|n| n == "_BakedCubemap_sampler"),
+            "missing `_BakedCubemap_sampler` in xstoon2 layout: {unmangled:?}"
         );
     }
 }

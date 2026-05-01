@@ -93,6 +93,7 @@ mod text_uniform_packing_tests {
                 fields,
             }),
             material_group1_names: HashMap::new(),
+            vs_vertex_inputs: Vec::new(),
             vs_max_vertex_location: None,
             uses_scene_depth_snapshot: false,
             uses_scene_color_snapshot: false,
@@ -113,6 +114,101 @@ mod text_uniform_packing_tests {
         let type_bits = 3u32;
         let pack_type_shift = 32u32.saturating_sub(type_bits);
         asset_id | ((HostTextureAssetKind::RenderTexture as i32) << pack_type_shift)
+    }
+
+    fn packed_texture2d(asset_id: i32) -> i32 {
+        use crate::assets::texture::HostTextureAssetKind;
+
+        let type_bits = 3u32;
+        let pack_type_shift = 32u32.saturating_sub(type_bits);
+        asset_id | ((HostTextureAssetKind::Texture2D as i32) << pack_type_shift)
+    }
+
+    #[test]
+    fn standard_scalar_defaults_pack_without_host_values() {
+        let (reflected, ids, _) = reflected_with_f32_fields(&[
+            ("_GlossMapScale", 0),
+            ("_OcclusionStrength", 4),
+            ("_UVSec", 8),
+        ]);
+        let (textures, texture3d, cubemaps, render_textures, videos) = empty_texture_pools();
+        let pools = EmbeddedTexturePools {
+            texture: &textures,
+            texture3d: &texture3d,
+            cubemap: &cubemaps,
+            render_texture: &render_textures,
+            video_texture: &videos,
+        };
+        let bytes = build_embedded_uniform_bytes(
+            &reflected,
+            &ids,
+            &MaterialPropertyStore::new(),
+            lookup(1),
+            &UniformPackTextureContext {
+                pools: &pools,
+                primary_texture_2d: -1,
+            },
+        )
+        .expect("uniform bytes");
+
+        assert_eq!(read_f32_at(&bytes, 0), 1.0);
+        assert_eq!(read_f32_at(&bytes, 4), 1.0);
+        assert_eq!(read_f32_at(&bytes, 8), 0.0);
+    }
+
+    #[test]
+    fn unlit_texture_presence_infers_observable_keywords() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        store.set_material(
+            50,
+            reg.intern("_Tex"),
+            MaterialPropertyValue::Texture(packed_render_texture(1)),
+        );
+        store.set_material(
+            50,
+            reg.intern("_MaskTex"),
+            MaterialPropertyValue::Texture(packed_render_texture(2)),
+        );
+        store.set_material(
+            50,
+            reg.intern("_OffsetTex"),
+            MaterialPropertyValue::Texture(packed_render_texture(3)),
+        );
+
+        assert_eq!(
+            inferred_keyword_float_f32("_TEXTURE", &store, lookup(50), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_MASK_TEXTURE_MUL", &store, lookup(50), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_MASK_TEXTURE_CLIP", &store, lookup(50), &ids),
+            Some(0.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_OFFSET_TEXTURE", &store, lookup(50), &ids),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn right_eye_keyword_infers_from_right_eye_st_presence() {
+        let (_reflected, ids, registry) = reflected_with_f32_fields(&[("_RightEye_ST", 0)]);
+        let mut store = MaterialPropertyStore::new();
+        store.set_material(
+            51,
+            registry.intern("_RightEye_ST"),
+            MaterialPropertyValue::Float4([0.5, 1.0, 0.5, 0.0]),
+        );
+
+        assert_eq!(
+            inferred_keyword_float_f32("_RIGHT_EYE_ST", &store, lookup(51), &ids),
+            Some(1.0)
+        );
     }
 
     #[test]
@@ -263,6 +359,52 @@ mod text_uniform_packing_tests {
         );
         assert_eq!(
             inferred_keyword_float_f32("_ALPHAPREMULTIPLY_ON", &store, lookup(13), &ids),
+            Some(0.0)
+        );
+    }
+
+    /// FrooxEngine drives the LUT `LERP` keyword from `_Lerp > 0` rather than sending a
+    /// standalone keyword material property.
+    #[test]
+    fn lut_lerp_keyword_infers_from_lerp_uniform() {
+        let (_reflected, ids, reg) = reflected_with_f32_fields(&[("_Lerp", 0), ("LERP", 4)]);
+        let mut store = MaterialPropertyStore::new();
+        let lerp_pid = reg.intern("_Lerp");
+
+        assert_eq!(
+            inferred_keyword_float_f32("LERP", &store, lookup(24), &ids),
+            Some(0.0)
+        );
+
+        store.set_material(24, lerp_pid, MaterialPropertyValue::Float(0.0));
+        assert_eq!(
+            inferred_keyword_float_f32("LERP", &store, lookup(24), &ids),
+            Some(0.0)
+        );
+
+        store.set_material(24, lerp_pid, MaterialPropertyValue::Float(0.25));
+        assert_eq!(
+            inferred_keyword_float_f32("LERP", &store, lookup(24), &ids),
+            Some(1.0)
+        );
+    }
+
+    /// Base LUT materials default to the Unity/FrooxEngine `SRGB` variant unless the reflected
+    /// keyword field is explicitly supplied as false.
+    #[test]
+    fn lut_srgb_keyword_defaults_on() {
+        let (_reflected, ids, reg) = reflected_with_f32_fields(&[("SRGB", 0)]);
+        let mut store = MaterialPropertyStore::new();
+
+        assert_eq!(
+            inferred_keyword_float_f32("SRGB", &store, lookup(25), &ids),
+            Some(1.0)
+        );
+
+        let srgb_pid = reg.intern("SRGB");
+        store.set_material(25, srgb_pid, MaterialPropertyValue::Float(0.0));
+        assert_eq!(
+            inferred_keyword_float_f32("SRGB", &store, lookup(25), &ids),
             Some(0.0)
         );
     }
@@ -432,6 +574,7 @@ mod text_uniform_packing_tests {
                 fields,
             }),
             material_group1_names,
+            vs_vertex_inputs: Vec::new(),
             vs_max_vertex_location: None,
             uses_scene_depth_snapshot: false,
             uses_scene_color_snapshot: false,
@@ -565,7 +708,181 @@ mod text_uniform_packing_tests {
             Some(1.0)
         );
         assert_eq!(
+            inferred_keyword_float_f32("_SPECGLOSSMAP", &store, lookup(4), &ids),
+            Some(0.0)
+        );
+        let spec_gloss_pid = reg.intern("_SpecGlossMap");
+        store.set_material(4, spec_gloss_pid, MaterialPropertyValue::Texture(456));
+        assert_eq!(
+            inferred_keyword_float_f32("_SPECGLOSSMAP", &store, lookup(4), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
             inferred_keyword_float_f32("_ALBEDOTEX", &store, lookup(4), &ids),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn fresnel_texture_keyword_infers_from_far_or_near_textures() {
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+
+        for (i, property_name) in [
+            "_FarTex",
+            "_NearTex",
+            "_FarTex0",
+            "_NearTex0",
+            "_FarTex1",
+            "_NearTex1",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let material_id = 50 + i as i32;
+            let mut store = MaterialPropertyStore::new();
+            store.set_material(
+                material_id,
+                reg.intern(property_name),
+                MaterialPropertyValue::Texture(packed_texture2d(100 + i as i32)),
+            );
+            assert_eq!(
+                inferred_keyword_float_f32("_TEXTURE", &store, lookup(material_id), &ids),
+                Some(1.0),
+                "{property_name} should enable _TEXTURE"
+            );
+        }
+    }
+
+    #[test]
+    fn inferred_pbs_splat_keywords_enable_from_texture_presence() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        for property_name in [
+            "_PackedHeightMap",
+            "_PackedNormalMap23",
+            "_PackedEmissionMap",
+            "_MetallicGloss23",
+            "_SpecularMap3",
+        ] {
+            store.set_material(
+                54,
+                reg.intern(property_name),
+                MaterialPropertyValue::Texture(packed_texture2d(123)),
+            );
+        }
+
+        for field_name in [
+            "_HEIGHTMAP",
+            "_PACKED_NORMALMAP",
+            "_PACKED_EMISSIONTEX",
+            "_METALLICMAP",
+            "_SPECULARMAP",
+        ] {
+            assert_eq!(
+                inferred_keyword_float_f32(field_name, &store, lookup(54), &ids),
+                Some(1.0),
+                "{field_name} should infer from its selected texture family"
+            );
+        }
+    }
+
+    #[test]
+    fn gradient_keyword_infers_from_gradient_texture() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        store.set_material(
+            60,
+            reg.intern("_Gradient"),
+            MaterialPropertyValue::Texture(packed_texture2d(14)),
+        );
+
+        assert_eq!(
+            inferred_keyword_float_f32("GRADIENT", &store, lookup(60), &ids),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn normalmap_keyword_infers_from_normal_map_zero() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        store.set_material(
+            61,
+            reg.intern("_NormalMap0"),
+            MaterialPropertyValue::Texture(packed_texture2d(15)),
+        );
+
+        assert_eq!(
+            inferred_keyword_float_f32("_NORMALMAP", &store, lookup(61), &ids),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn clip_keyword_stays_off_from_clip_range_properties_only() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        store.set_material(
+            62,
+            reg.intern("_ClipMin"),
+            MaterialPropertyValue::Float(0.0),
+        );
+        store.set_material(
+            62,
+            reg.intern("_ClipMax"),
+            MaterialPropertyValue::Float(10.0),
+        );
+
+        assert_eq!(
+            inferred_keyword_float_f32("CLIP", &store, lookup(62), &ids),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn inferred_pbs_displace_keywords_follow_host_keyword_predicates() {
+        let (_reflected, ids, reg) =
+            reflected_with_f32_fields(&[("_VertexOffsetBias", 0), ("_UVOffsetBias", 4)]);
+        let mut store = MaterialPropertyStore::new();
+        store.set_material(
+            55,
+            reg.intern("_VertexOffsetMap"),
+            MaterialPropertyValue::Texture(packed_texture2d(123)),
+        );
+        store.set_material(
+            55,
+            reg.intern("_UVOffsetBias"),
+            MaterialPropertyValue::Float(0.25),
+        );
+        store.set_material(
+            55,
+            reg.intern("_PositionOffsetMap"),
+            MaterialPropertyValue::Texture(packed_texture2d(456)),
+        );
+
+        assert_eq!(
+            inferred_keyword_float_f32("VERTEX_OFFSET", &store, lookup(55), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("UV_OFFSET", &store, lookup(55), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("OBJECT_POS_OFFSET", &store, lookup(55), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("VERTEX_POS_OFFSET", &store, lookup(55), &ids),
+            Some(0.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("VERTEX_OFFSET", &store, lookup(56), &ids),
             Some(0.0)
         );
     }
@@ -1113,6 +1430,7 @@ mod storage_orientation_uniform_tests {
                 fields,
             }),
             material_group1_names,
+            vs_vertex_inputs: Vec::new(),
             vs_max_vertex_location: None,
             uses_scene_depth_snapshot: false,
             uses_scene_color_snapshot: false,

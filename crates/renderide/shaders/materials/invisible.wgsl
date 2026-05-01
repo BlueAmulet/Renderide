@@ -23,12 +23,12 @@ fn vs_main(
 ) -> mv::ClipVertexOutput {
     let d = pd::get_draw(instance_index);
 #ifdef MULTIVIEW
-    let vp = mv::select_view_proj(d, view_idx);
+    let view_zero = f32(view_idx) * 0.0;
 #else
-    let vp = mv::select_view_proj(d, 0u);
+    let view_zero = 0.0;
 #endif
     var out: mv::ClipVertexOutput;
-    out.clip_pos = vp * vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    out.clip_pos = d.model[0] * 0.0 + vec4<f32>(view_zero);
     return out;
 }
 

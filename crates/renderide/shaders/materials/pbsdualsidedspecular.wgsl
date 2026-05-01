@@ -4,8 +4,6 @@
 //! base, forward additive, and shadow caster passes. This renderer has a forward color path here, so
 //! the shader declares the forward base + forward additive passes and keeps culling disabled.
 
-
-#import renderide::per_draw as pd
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
@@ -57,31 +55,43 @@ struct SurfaceData {
 }
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
-    let tbn = pnorm::orthonormal_tbn(normalize(world_n), normalize(world_t));
-    var ts_n = vec3<f32>(0.0, 0.0, 1.0);
-    if (uvu::kw_enabled(mat._NORMALMAP)) {
-        ts_n = nd::decode_ts_normal_with_placeholder_sample(
-            textureSample(_NormalMap, _NormalMap_sampler, uv_main),
-            mat._NormalScale,
-        );
-    }
-    // Unity surface shader path flips tangent-space Z for backfaces.
+    var ts_n = psamp::sample_optional_world_normal(
+        uvu::kw_enabled(mat._NORMALMAP),
+        _NormalMap,
+        _NormalMap_sampler,
+        uv_main,
+        0.0,
+        mat._NormalScale,
+        world_n,
+    );
     if (!front_facing) {
         ts_n.z = -ts_n.z;
     }
-    return normalize(tbn * ts_n);
+    return ts_n;
 }
 
-fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> SurfaceData {
+fn sample_surface(
+    uv0: vec2<f32>,
+    world_n: vec3<f32>,
+    world_t: vec4<f32>,
+    front_facing: bool,
+    vertex_color: vec4<f32>,
+) -> SurfaceData {
     let uv_main = uvu::apply_st_for_storage(uv0, mat._MainTex_ST, mat._MainTex_StorageVInverted);
 
     var albedo = mat._Color;
     if (uvu::kw_enabled(mat._ALBEDOTEX)) {
         albedo = albedo * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
+    if (uvu::kw_enabled(mat.VCOLOR_ALBEDO)) {
+        albedo = albedo * vertex_color;
+    }
+    let vertex_alpha = select(1.0, vertex_color.a, uvu::kw_enabled(mat.VCOLOR_ALBEDO));
     let clip_alpha = select(
         albedo.a,
-        mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main),
+        mat._Color.a
+            * vertex_alpha
+            * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main),
         uvu::kw_enabled(mat._ALBEDOTEX),
     );
     if (uvu::kw_enabled(mat._ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
@@ -91,6 +101,9 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_
     var spec = mat._SpecularColor;
     if (uvu::kw_enabled(mat._SPECULARMAP)) {
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
+    }
+    if (uvu::kw_enabled(mat.VCOLOR_SPECULAR)) {
+        spec = spec * vertex_color;
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let smoothness = clamp(spec.a, 0.0, 1.0);
@@ -108,6 +121,9 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_
         if (uvu::kw_enabled(mat._EMISSIONTEX)) {
             emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
         }
+    }
+    if (uvu::kw_enabled(mat.VCOLOR_EMIT)) {
+        emission = emission * vertex_color.rgb;
     }
 
     return SurfaceData(
@@ -152,7 +168,7 @@ fn fs_forward_base(
     @location(4) color: vec4<f32>,
     @location(5) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let s = sample_surface(uv0, world_n, world_t, front_facing);
+    let s = sample_surface(uv0, world_n, world_t, front_facing, color);
     let surface = psurf::specular(
         s.base_color,
         s.alpha,

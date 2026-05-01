@@ -304,11 +304,13 @@ mod tests {
                     kind: BuildPassKind::Forward,
                     fragment_entry: "fs_main".to_string(),
                     vertex_entry: "vs_main".to_string(),
+                    alpha_to_coverage: true,
                 },
                 BuildPassDirective {
                     kind: BuildPassKind::Outline,
                     fragment_entry: "fs_outline".to_string(),
                     vertex_entry: "vs_outline".to_string(),
+                    alpha_to_coverage: false,
                 },
             ],
         );
@@ -319,6 +321,7 @@ mod tests {
         assert!(
             embedded.contains("pass_from_kind(crate::materials::PassKind::Forward, \"fs_main\")")
         );
+        assert!(embedded.contains("alpha_to_coverage: true"));
         assert!(embedded.contains(
             "MaterialPassDesc { vertex_entry: \"vs_outline\", ..crate::materials::pass_from_kind(crate::materials::PassKind::Outline, \"fs_outline\") }"
         ));

@@ -234,6 +234,7 @@ mod tests {
                 per_draw_entries: Vec::new(),
                 material_uniform: None,
                 material_group1_names,
+                vs_vertex_inputs: Vec::new(),
                 vs_max_vertex_location: None,
                 uses_scene_depth_snapshot: false,
                 uses_scene_color_snapshot: false,
