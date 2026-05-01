@@ -65,18 +65,25 @@ impl StereoStash {
 /// Caller must already have run [`wgpu::Device::poll`] **outside** any [`HiZGpuState`] mutex (see
 /// [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`]).
 pub(super) fn drain(state: &mut HiZGpuState) {
+    profiling::scope!("hi_z::readback_drain_state");
     let Some(shape) = ScratchShape::from(state) else {
         return;
     };
 
-    for slot in 0..HIZ_STAGING_RING {
-        drain_primary_slot(state, slot, shape);
+    {
+        profiling::scope!("hi_z::readback_drain_primary_slots");
+        for slot in 0..HIZ_STAGING_RING {
+            drain_primary_slot(state, slot, shape);
+        }
     }
 
     if shape.stereo {
         state.readback.set_secondary_enabled(true);
-        for slot in 0..HIZ_STAGING_RING {
-            drain_secondary_slot(state, slot);
+        {
+            profiling::scope!("hi_z::readback_drain_secondary_slots");
+            for slot in 0..HIZ_STAGING_RING {
+                drain_secondary_slot(state, slot);
+            }
         }
         combine_paired_stereo(state, shape);
     }
@@ -84,6 +91,7 @@ pub(super) fn drain(state: &mut HiZGpuState) {
 
 /// Issues `map_async` for every slot whose submit has completed since the last call.
 pub(super) fn start_ready_maps(state: &mut HiZGpuState) {
+    profiling::scope!("hi_z::start_ready_maps");
     let primary_staging = state
         .scratch
         .as_ref()
@@ -127,6 +135,7 @@ fn drain_primary_slot(state: &mut HiZGpuState, slot: usize, shape: ScratchShape)
 
     match recv_result {
         Ok(Ok(())) => {
+            profiling::scope!("hi_z::readback_primary_slot");
             let buf = primary_staging_buffer(state, slot);
             let Some(raw) = buf.and_then(read_mapped_buffer) else {
                 *state.readback.primary_pending_mut(slot) = None;
@@ -168,6 +177,7 @@ fn drain_secondary_slot(state: &mut HiZGpuState, slot: usize) {
 
     match recv_result {
         Ok(Ok(())) => {
+            profiling::scope!("hi_z::readback_secondary_slot");
             let buf = secondary_staging_buffer(state, slot);
             let Some(raw) = buf.and_then(read_mapped_buffer) else {
                 if let Some(pending) = state.readback.secondary_pending_mut(slot) {
@@ -198,6 +208,7 @@ fn drain_secondary_slot(state: &mut HiZGpuState, slot: usize) {
 }
 
 fn combine_paired_stereo(state: &mut HiZGpuState, shape: ScratchShape) {
+    profiling::scope!("hi_z::combine_paired_stereo");
     for slot in 0..HIZ_STAGING_RING {
         let Some((left_raw, right_raw)) = state.stereo_stash.take_pair(slot) else {
             continue;
@@ -227,6 +238,7 @@ fn secondary_staging_buffer(state: &HiZGpuState, slot: usize) -> Option<&wgpu::B
 
 /// Reads and unmaps a completed staging buffer into CPU-owned bytes.
 fn read_mapped_buffer(buf: &wgpu::Buffer) -> Option<Vec<u8>> {
+    profiling::scope!("hi_z::read_mapped_buffer");
     let range = buf.slice(..).get_mapped_range().to_vec();
     buf.unmap();
     Some(range)
@@ -237,6 +249,7 @@ fn unpack_desktop_snapshot(
     mip_levels: u32,
     raw: &[u8],
 ) -> Option<HiZCpuSnapshot> {
+    profiling::scope!("hi_z::unpack_desktop_snapshot");
     let Some(mips) = unpack_linear_rows_to_mips(extent.0, extent.1, mip_levels, raw) else {
         logger::warn!("Hi-Z desktop readback unpack failed");
         return None;
@@ -261,7 +274,9 @@ fn unpack_stereo_snapshot(
     left_raw: &[u8],
     right_raw: &[u8],
 ) -> Option<HiZStereoCpuSnapshot> {
+    profiling::scope!("hi_z::unpack_stereo_snapshot");
     let unpack_eye = |label: &'static str, raw: &[u8]| -> Option<HiZCpuSnapshot> {
+        profiling::scope!("hi_z::unpack_stereo_eye", label);
         let Some(mips) = unpack_linear_rows_to_mips(extent.0, extent.1, mip_levels, raw) else {
             logger::warn!("Hi-Z stereo {label} readback unpack failed");
             return None;

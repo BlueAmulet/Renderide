@@ -17,6 +17,7 @@ use crate::embedded_shaders;
 use crate::gpu::{GpuContext, GpuLimits};
 use crate::gpu_pools::SamplerState;
 use crate::materials::host_data::MaterialPropertyLookupIds;
+use crate::profiling::{GpuProfilerHandle, compute_pass_timestamp_writes};
 use crate::scene::SceneCoordinator;
 use crate::shared::{TextureFilterMode, TextureWrapMode};
 use crate::skybox::params::{
@@ -162,6 +163,8 @@ struct BakeMip0EncodeContext<'a> {
     params: &'a crate::skybox::params::SkyboxEvaluatorParams,
     /// Cubemap face edge for mip zero.
     face_size: u32,
+    /// Optional GPU profiler for pass-level timestamp writes.
+    profiler: Option<&'a GpuProfilerHandle>,
 }
 
 /// Inputs needed to encode generated cubemap roughness prefiltering.
@@ -178,6 +181,8 @@ struct PrefilterEncodeContext<'a> {
     params: &'a crate::skybox::params::SkyboxEvaluatorParams,
     /// Total mip count in the generated cubemap.
     mip_levels: u32,
+    /// Optional GPU profiler for pass-level timestamp writes.
+    profiler: Option<&'a GpuProfilerHandle>,
 }
 
 /// Owns generated skybox environment bakes and completed cubemap cache entries.
@@ -215,14 +220,20 @@ impl SkyboxEnvironmentCache {
     /// Advances bake completions and schedules the active analytic skybox if needed.
     pub(crate) fn maintain(
         &mut self,
-        gpu: &GpuContext,
+        gpu: &mut GpuContext,
         scene: &SceneCoordinator,
         materials: &crate::materials::MaterialSystem,
     ) {
         profiling::scope!("skybox_environment::maintain");
         let _ = gpu.device().poll(wgpu::PollType::Poll);
-        self.drain_completed_jobs();
-        let active = resolve_active_bake_request(scene, materials, gpu.limits());
+        {
+            profiling::scope!("skybox_environment::drain_completed_jobs");
+            self.drain_completed_jobs();
+        }
+        let active = {
+            profiling::scope!("skybox_environment::resolve_active_request");
+            resolve_active_bake_request(scene, materials, gpu.limits())
+        };
         self.prune_completed(active.as_ref().map(|request| &request.key));
         let Some(request) = active else {
             return;
@@ -276,15 +287,31 @@ impl SkyboxEnvironmentCache {
     /// Encodes and submits one generated cubemap bake.
     fn schedule_bake(
         &mut self,
+        gpu: &mut GpuContext,
+        request: SkyboxBakeRequest,
+    ) -> Result<(), SkyboxEnvironmentBakeError> {
+        profiling::scope!("skybox_environment::schedule_bake");
+        let mut profiler = gpu.take_gpu_profiler();
+        let result = self.schedule_bake_with_profiler(gpu, request, profiler.as_mut());
+        gpu.restore_gpu_profiler(profiler);
+        result
+    }
+
+    fn schedule_bake_with_profiler(
+        &mut self,
         gpu: &GpuContext,
         request: SkyboxBakeRequest,
+        mut profiler: Option<&mut GpuProfilerHandle>,
     ) -> Result<(), SkyboxEnvironmentBakeError> {
         self.ensure_pipelines(gpu.device())?;
         let bake_pipeline = self.bake_pipeline()?;
         let prefilter_pipeline = self.prefilter_pipeline()?;
         let face_size = request.key.face_size;
         let mip_levels = mip_levels_for_edge(face_size);
-        let texture = create_generated_skybox_texture(gpu.device(), face_size, mip_levels);
+        let texture = {
+            profiling::scope!("skybox_environment::create_texture");
+            create_generated_skybox_texture(gpu.device(), face_size, mip_levels)
+        };
         let mut resources = PendingBakeResources::default();
         let mut encoder = gpu
             .device()
@@ -299,6 +326,7 @@ impl SkyboxEnvironmentCache {
                 texture: texture.texture.as_ref(),
                 params: &request.params,
                 face_size,
+                profiler: profiler.as_deref(),
             },
             &mut resources,
         );
@@ -310,9 +338,14 @@ impl SkyboxEnvironmentCache {
                 texture: texture.texture.as_ref(),
                 params: &request.params,
                 mip_levels,
+                profiler: profiler.as_deref(),
             },
             &mut resources,
         );
+        if let Some(profiler) = profiler.as_mut() {
+            profiling::scope!("skybox_environment::resolve_profiler_queries");
+            profiler.resolve_queries(&mut encoder);
+        }
         let pending = make_pending_generated_skybox(texture, resources, mip_levels);
         self.submit_pending_bake(gpu, request.key, encoder, pending);
         Ok(())
@@ -323,6 +356,7 @@ impl SkyboxEnvironmentCache {
         &mut self,
         device: &wgpu::Device,
     ) -> Result<(), SkyboxEnvironmentBakeError> {
+        profiling::scope!("skybox_environment::ensure_pipelines");
         let _ = ensure_pipeline(
             &mut self.bake_pipeline,
             device,
@@ -364,6 +398,7 @@ impl SkyboxEnvironmentCache {
         encoder: wgpu::CommandEncoder,
         pending: PendingGeneratedSkybox,
     ) {
+        profiling::scope!("skybox_environment::submit_bake");
         let tx = self.jobs.submit_done_sender();
         let callback_key = key.clone();
         self.jobs.insert(
@@ -530,6 +565,7 @@ fn ensure_pipeline<'a>(
     entries: &[wgpu::BindGroupLayoutEntry],
 ) -> Result<&'a ComputePipelineWithLayout, SkyboxEnvironmentBakeError> {
     if slot.is_none() {
+        profiling::scope!("skybox_environment::create_pipeline", stem);
         let source = embedded_shaders::embedded_target_wgsl(stem)
             .ok_or(SkyboxEnvironmentBakeError::MissingShader(stem))?;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -634,6 +670,7 @@ fn create_mip_storage_view(texture: &wgpu::Texture, mip: u32) -> wgpu::TextureVi
 
 /// Encodes the analytic skybox evaluator into mip zero of the generated cubemap.
 fn encode_mip0_bake(ctx: BakeMip0EncodeContext<'_>, resources: &mut PendingBakeResources) {
+    profiling::scope!("skybox_environment::encode_mip0_bake");
     let params_buffer = ctx
         .device
         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -656,12 +693,15 @@ fn encode_mip0_bake(ctx: BakeMip0EncodeContext<'_>, resources: &mut PendingBakeR
             },
         ],
     });
+    let pass_query = ctx
+        .profiler
+        .map(|profiler| profiler.begin_pass_query("skybox_environment::bake_mip0", ctx.encoder));
     {
         let mut pass = ctx
             .encoder
             .begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("generated skybox bake"),
-                timestamp_writes: None,
+                timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
             });
         pass.set_pipeline(&ctx.pipeline.pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
@@ -671,6 +711,9 @@ fn encode_mip0_bake(ctx: BakeMip0EncodeContext<'_>, resources: &mut PendingBakeR
             6,
         );
     };
+    if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
+        profiler.end_query(ctx.encoder, query);
+    }
     resources.buffers.push(params_buffer);
     resources.bind_groups.push(bind_group);
     resources.texture_views.push(mip0_storage);
@@ -678,6 +721,7 @@ fn encode_mip0_bake(ctx: BakeMip0EncodeContext<'_>, resources: &mut PendingBakeR
 
 /// Encodes roughness-prefiltered mip generation after mip zero.
 fn encode_prefilter_mips(ctx: PrefilterEncodeContext<'_>, resources: &mut PendingBakeResources) {
+    profiling::scope!("skybox_environment::encode_prefilter_mips");
     if ctx.mip_levels <= 1 {
         return;
     }
@@ -722,17 +766,27 @@ fn encode_prefilter_mips(ctx: PrefilterEncodeContext<'_>, resources: &mut Pendin
                 },
             ],
         });
+        let pass_query = ctx.profiler.map(|profiler| {
+            profiler.begin_pass_query(
+                format!("skybox_environment::prefilter_mip{mip}"),
+                ctx.encoder,
+            )
+        });
         {
+            profiling::scope!("skybox_environment::encode_prefilter_mip");
             let mut pass = ctx
                 .encoder
                 .begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("generated skybox roughness prefilter"),
-                    timestamp_writes: None,
+                    timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
                 });
             pass.set_pipeline(&ctx.pipeline.pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
             pass.dispatch_workgroups(dispatch_groups(dst_size), dispatch_groups(dst_size), 6);
         };
+        if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
+            profiler.end_query(ctx.encoder, query);
+        }
         resources.buffers.push(params_buffer);
         resources.bind_groups.push(bind_group);
         resources.texture_views.push(dst_view);

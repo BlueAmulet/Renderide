@@ -117,6 +117,7 @@ where
 
     /// Advances submit notifications and timeout handling.
     pub(crate) fn maintain(&mut self) -> GpuSubmitOutcomes<K> {
+        profiling::scope!("gpu_jobs::submit_maintain");
         self.drain_submit_done();
         let completed = self.drain_completed_jobs();
         let failed = self.age_pending_jobs();
@@ -125,6 +126,7 @@ where
 
     /// Marks jobs whose queue submit has completed.
     fn drain_submit_done(&mut self) {
+        profiling::scope!("gpu_jobs::submit_drain_done");
         while let Ok(key) = self.submit_done_rx.try_recv() {
             if let Some(job) = self.pending.get_mut(&key) {
                 job.lifecycle.mark_submit_done();
@@ -134,6 +136,7 @@ where
 
     /// Removes jobs whose completion callback has fired.
     fn drain_completed_jobs(&mut self) -> Vec<K> {
+        profiling::scope!("gpu_jobs::submit_drain_completed");
         let completed = self
             .pending
             .iter()
@@ -147,6 +150,7 @@ where
 
     /// Ages in-flight jobs and returns keys whose completion callback did not arrive in time.
     fn age_pending_jobs(&mut self) -> Vec<K> {
+        profiling::scope!("gpu_jobs::submit_age_pending");
         let mut expired = Vec::new();
         for (key, job) in &mut self.pending {
             if job

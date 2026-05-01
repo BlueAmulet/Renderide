@@ -212,7 +212,7 @@ impl ReflectionProbeSh2System {
     /// Advances GPU callbacks, maps completed buffers, and schedules queued work.
     pub fn maintain_gpu_jobs(
         &mut self,
-        gpu: &GpuContext,
+        gpu: &mut GpuContext,
         assets: &crate::assets::AssetTransferQueue,
     ) {
         profiling::scope!("reflection_probe_sh2::maintain_gpu_jobs");
@@ -239,11 +239,13 @@ impl ReflectionProbeSh2System {
         render_space_id: i32,
         tasks: &ReflectionProbeSH2Tasks,
     ) {
+        profiling::scope!("reflection_probe_sh2::answer_task_buffer");
         if tasks.tasks.length <= 0 {
             return;
         }
 
         let ok = shm.access_mut_bytes(&tasks.tasks, |bytes| {
+            profiling::scope!("reflection_probe_sh2::task_buffer_scan");
             let mut offset = 0usize;
             while offset + task_stride() <= bytes.len() {
                 let Some(task) = read_task_header(bytes, offset) else {
@@ -323,9 +325,10 @@ impl ReflectionProbeSh2System {
     /// Schedules queued sources until the in-flight cap is reached.
     fn schedule_queued_sources(
         &mut self,
-        gpu: &GpuContext,
+        gpu: &mut GpuContext,
         assets: &crate::assets::AssetTransferQueue,
     ) {
+        profiling::scope!("reflection_probe_sh2::schedule_queued_sources");
         while self.readback_jobs.len() < MAX_IN_FLIGHT_JOBS {
             let Some(key) = self.queue_order.pop_front() else {
                 break;
@@ -354,13 +357,15 @@ impl ReflectionProbeSh2System {
     /// Encodes and submits one source projection.
     fn schedule_source(
         &mut self,
-        gpu: &GpuContext,
+        gpu: &mut GpuContext,
         assets: &crate::assets::AssetTransferQueue,
         key: Sh2SourceKey,
         source: GpuSh2Source,
     ) -> Result<SubmittedGpuSh2Job, String> {
+        profiling::scope!("reflection_probe_sh2::schedule_source");
         match source {
             GpuSh2Source::Cubemap { asset_id } => {
+                profiling::scope!("reflection_probe_sh2::schedule_cubemap");
                 let tex = assets
                     .cubemap_pool()
                     .get(asset_id)
@@ -393,9 +398,11 @@ impl ReflectionProbeSh2System {
                     ],
                     &Sh2ProjectParams::empty(SkyParamMode::Procedural),
                     &submit_done_tx,
+                    "reflection_probe_sh2::project_cubemap",
                 )
             }
             GpuSh2Source::EquirectTexture2D { asset_id, params } => {
+                profiling::scope!("reflection_probe_sh2::schedule_equirect");
                 let tex = assets
                     .texture_pool()
                     .get(asset_id)
@@ -427,16 +434,26 @@ impl ReflectionProbeSh2System {
                     ],
                     params.as_ref(),
                     &submit_done_tx,
+                    "reflection_probe_sh2::project_equirect",
                 )
             }
             GpuSh2Source::SkyParams { params } => {
+                profiling::scope!("reflection_probe_sh2::schedule_sky_params");
                 let submit_done_tx = self.readback_jobs.submit_done_sender();
                 let pipeline = ensure_projection_pipeline(
                     &mut self.sky_params_pipeline,
                     gpu.device(),
                     "sh2_project_sky_params",
                 )?;
-                encode_projection_job(gpu, key, pipeline, &[], params.as_ref(), &submit_done_tx)
+                encode_projection_job(
+                    gpu,
+                    key,
+                    pipeline,
+                    &[],
+                    params.as_ref(),
+                    &submit_done_tx,
+                    "reflection_probe_sh2::project_sky_params",
+                )
             }
         }
     }

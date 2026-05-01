@@ -8,6 +8,7 @@ use super::readback_jobs::SubmittedGpuSh2Job;
 use super::{SH2_OUTPUT_BYTES, Sh2ProjectParams, Sh2SourceKey};
 use crate::embedded_shaders;
 use crate::gpu::GpuContext;
+use crate::profiling::{GpuProfilerHandle, compute_pass_timestamp_writes};
 
 /// Lazily-created compute pipeline and bind-group layout.
 pub(super) struct ProjectionPipeline {
@@ -25,6 +26,16 @@ pub(super) enum ProjectionBinding<'a> {
     Sampler(&'a wgpu::Sampler),
 }
 
+/// GPU buffers used by one SH2 projection job.
+struct ProjectionJobBuffers {
+    /// Uniform parameters consumed by the projection shader.
+    params: wgpu::Buffer,
+    /// Storage-buffer output written by the projection shader.
+    output: wgpu::Buffer,
+    /// CPU-readable staging buffer receiving the copied output.
+    staging: wgpu::Buffer,
+}
+
 /// Ensures a projection pipeline exists for an embedded compute shader.
 pub(super) fn ensure_projection_pipeline<'a>(
     slot: &'a mut Option<ProjectionPipeline>,
@@ -32,6 +43,7 @@ pub(super) fn ensure_projection_pipeline<'a>(
     stem: &str,
 ) -> Result<&'a ProjectionPipeline, String> {
     if slot.is_none() {
+        profiling::scope!("reflection_probe_sh2::create_projection_pipeline", stem);
         let source = embedded_shaders::embedded_target_wgsl(stem)
             .ok_or_else(|| format!("embedded shader {stem} not found"))?;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -130,14 +142,77 @@ fn sampler_layout_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
 
 /// Encodes one projection dispatch and queues it through the GPU driver thread.
 pub(super) fn encode_projection_job(
-    gpu: &GpuContext,
+    gpu: &mut GpuContext,
     key: Sh2SourceKey,
     pipeline: &ProjectionPipeline,
     extra_bindings: &[ProjectionBinding<'_>],
     params: &Sh2ProjectParams,
     submit_done_tx: &crossbeam_channel::Sender<Sh2SourceKey>,
+    profile_label: &'static str,
 ) -> Result<SubmittedGpuSh2Job, String> {
-    let params_buffer = gpu
+    let mut profiler = gpu.take_gpu_profiler();
+    let request = ProjectionJobRequest {
+        key,
+        pipeline,
+        extra_bindings,
+        params,
+        submit_done_tx,
+        profile_label,
+    };
+    let result = encode_projection_job_with_profiler(gpu, request, profiler.as_mut());
+    gpu.restore_gpu_profiler(profiler);
+    result
+}
+
+struct ProjectionJobRequest<'request, 'resource> {
+    key: Sh2SourceKey,
+    pipeline: &'request ProjectionPipeline,
+    extra_bindings: &'request [ProjectionBinding<'resource>],
+    params: &'request Sh2ProjectParams,
+    submit_done_tx: &'request crossbeam_channel::Sender<Sh2SourceKey>,
+    profile_label: &'static str,
+}
+
+fn encode_projection_job_with_profiler(
+    gpu: &GpuContext,
+    request: ProjectionJobRequest<'_, '_>,
+    mut profiler: Option<&mut GpuProfilerHandle>,
+) -> Result<SubmittedGpuSh2Job, String> {
+    profiling::scope!("reflection_probe_sh2::encode_projection_job");
+    let buffers = create_projection_buffers(gpu, request.params);
+    let bind_group =
+        create_projection_bind_group(gpu, request.pipeline, &buffers, request.extra_bindings);
+    let mut encoder = gpu
+        .device()
+        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("SH2 projection encoder"),
+        });
+    record_projection_dispatch(
+        &mut encoder,
+        request.pipeline,
+        &bind_group,
+        request.profile_label,
+        profiler.as_deref(),
+    );
+    record_projection_readback_copy(&mut encoder, &buffers);
+    if let Some(profiler) = profiler.as_mut() {
+        profiling::scope!("reflection_probe_sh2::resolve_profiler_queries");
+        profiler.resolve_queries(&mut encoder);
+    }
+    submit_projection_job(gpu, encoder, request.key, request.submit_done_tx);
+
+    Ok(SubmittedGpuSh2Job {
+        staging: buffers.staging,
+        output: buffers.output,
+        bind_group,
+        buffers: vec![buffers.params],
+    })
+}
+
+/// Creates the uniform, storage output, and staging buffers for one projection job.
+fn create_projection_buffers(gpu: &GpuContext, params: &Sh2ProjectParams) -> ProjectionJobBuffers {
+    profiling::scope!("reflection_probe_sh2::projection_buffers");
+    let params = gpu
         .device()
         .create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("SH2 projection params"),
@@ -156,15 +231,44 @@ pub(super) fn encode_projection_job(
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
+    ProjectionJobBuffers {
+        params,
+        output,
+        staging,
+    }
+}
 
+/// Creates the projection bind group for the source-specific shader layout.
+fn create_projection_bind_group(
+    gpu: &GpuContext,
+    pipeline: &ProjectionPipeline,
+    buffers: &ProjectionJobBuffers,
+    extra_bindings: &[ProjectionBinding<'_>],
+) -> wgpu::BindGroup {
+    profiling::scope!("reflection_probe_sh2::projection_bind_group");
+    let mut entries = projection_bind_entries(buffers, extra_bindings);
+    entries.sort_by_key(|entry| entry.binding);
+    gpu.device().create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("SH2 projection bind group"),
+        layout: &pipeline.layout,
+        entries: &entries,
+    })
+}
+
+/// Builds bind entries for the projection bind group.
+fn projection_bind_entries<'a>(
+    buffers: &'a ProjectionJobBuffers,
+    extra_bindings: &[ProjectionBinding<'a>],
+) -> Vec<wgpu::BindGroupEntry<'a>> {
+    profiling::scope!("reflection_probe_sh2::projection_bind_entries");
     let mut entries = vec![
         wgpu::BindGroupEntry {
             binding: 0,
-            resource: params_buffer.as_entire_binding(),
+            resource: buffers.params.as_entire_binding(),
         },
         wgpu::BindGroupEntry {
             binding: 3,
-            resource: output.as_entire_binding(),
+            resource: buffers.output.as_entire_binding(),
         },
     ];
     for (i, binding) in extra_bindings.iter().enumerate() {
@@ -178,44 +282,57 @@ pub(super) fn encode_projection_job(
             resource,
         });
     }
-    entries.sort_by_key(|entry| entry.binding);
-    let bind_group = gpu.device().create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("SH2 projection bind group"),
-        layout: &pipeline.layout,
-        entries: &entries,
-    });
+    entries
+}
 
-    let mut encoder = gpu
-        .device()
-        .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("SH2 projection encoder"),
-        });
+/// Records the projection compute pass with optional GPU timestamp writes.
+fn record_projection_dispatch(
+    encoder: &mut wgpu::CommandEncoder,
+    pipeline: &ProjectionPipeline,
+    bind_group: &wgpu::BindGroup,
+    profile_label: &'static str,
+    profiler: Option<&GpuProfilerHandle>,
+) {
+    profiling::scope!("reflection_probe_sh2::record_projection_pass");
+    let pass_query = profiler.map(|profiler| profiler.begin_pass_query(profile_label, encoder));
     {
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("SH2 projection"),
-            timestamp_writes: None,
+            timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
         });
         pass.set_pipeline(&pipeline.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_bind_group(0, bind_group, &[]);
         pass.dispatch_workgroups(1, 1, 1);
     };
-    encoder.copy_buffer_to_buffer(&output, 0, &staging, 0, SH2_OUTPUT_BYTES);
+    if let (Some(profiler), Some(query)) = (profiler, pass_query) {
+        profiler.end_query(encoder, query);
+    }
+}
 
+/// Records the GPU-to-staging copy used by the async readback tracker.
+fn record_projection_readback_copy(
+    encoder: &mut wgpu::CommandEncoder,
+    buffers: &ProjectionJobBuffers,
+) {
+    profiling::scope!("reflection_probe_sh2::record_staging_copy");
+    encoder.copy_buffer_to_buffer(&buffers.output, 0, &buffers.staging, 0, SH2_OUTPUT_BYTES);
+}
+
+/// Submits the projection command buffer through the renderer driver thread.
+fn submit_projection_job(
+    gpu: &GpuContext,
+    encoder: wgpu::CommandEncoder,
+    key: Sh2SourceKey,
+    submit_done_tx: &crossbeam_channel::Sender<Sh2SourceKey>,
+) {
+    profiling::scope!("reflection_probe_sh2::submit_projection_job");
     let tx = submit_done_tx.clone();
-    let key_for_callback = key;
     gpu.submit_frame_batch_with_callbacks(
         vec![encoder.finish()],
         None,
         None,
         vec![Box::new(move || {
-            let _ = tx.send(key_for_callback);
+            let _ = tx.send(key);
         })],
     );
-
-    Ok(SubmittedGpuSh2Job {
-        staging,
-        output,
-        bind_group,
-        buffers: vec![params_buffer],
-    })
 }

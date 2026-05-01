@@ -591,16 +591,21 @@ impl FrameResourceManager {
         self.light_scratch.clear();
         self.resolved_flatten_scratch.clear();
 
-        let space_ids: Vec<_> = scene
-            .render_space_ids()
-            .filter(|id| scene.space(*id).is_some_and(|s| s.is_active))
-            .collect();
+        let space_ids: Vec<_> = {
+            profiling::scope!("render::prepare_lights::collect_active_spaces");
+            scene
+                .render_space_ids()
+                .filter(|id| scene.space(*id).is_some_and(|s| s.is_active))
+                .collect()
+        };
         match space_ids.len() {
             0 => {}
             1 => {
+                profiling::scope!("render::prepare_lights::resolve_single_space");
                 scene.resolve_lights_world_into(space_ids[0], &mut self.resolved_flatten_scratch);
             }
             _ => {
+                profiling::scope!("render::prepare_lights::resolve_parallel");
                 use rayon::prelude::*;
                 let per_space: Vec<Vec<ResolvedLight>> = space_ids
                     .par_iter()
@@ -611,14 +616,20 @@ impl FrameResourceManager {
                     })
                     .collect();
                 let total: usize = per_space.iter().map(Vec::len).sum();
-                self.resolved_flatten_scratch.reserve(total);
-                for chunk in per_space {
-                    self.resolved_flatten_scratch.extend(chunk);
+                {
+                    profiling::scope!("render::prepare_lights::flatten_parallel");
+                    self.resolved_flatten_scratch.reserve(total);
+                    for chunk in per_space {
+                        self.resolved_flatten_scratch.extend(chunk);
+                    }
                 }
             }
         }
 
-        self.resolved_flatten_scratch.retain(light_contributes);
+        {
+            profiling::scope!("render::prepare_lights::filter_contributors");
+            self.resolved_flatten_scratch.retain(light_contributes);
+        }
         order_lights_for_clustered_shading_in_place(&mut self.resolved_flatten_scratch);
         let resolved_len = self.resolved_flatten_scratch.len();
         if resolved_len > MAX_LIGHTS && !self.lights_overflow_warned {
@@ -630,13 +641,16 @@ impl FrameResourceManager {
             self.lights_overflow_warned = true;
         }
         let kept = resolved_len.min(MAX_LIGHTS);
-        self.light_scratch.reserve(kept);
-        self.light_scratch.extend(
-            self.resolved_flatten_scratch
-                .iter()
-                .take(kept)
-                .map(GpuLight::from_resolved),
-        );
+        {
+            profiling::scope!("render::prepare_lights::pack_gpu_lights");
+            self.light_scratch.reserve(kept);
+            self.light_scratch.extend(
+                self.resolved_flatten_scratch
+                    .iter()
+                    .take(kept)
+                    .map(GpuLight::from_resolved),
+            );
+        }
         self.light_prep_done_this_tick = true;
         self.lights_gpu_uploaded_this_tick
             .store(false, Ordering::Release);
@@ -658,7 +672,9 @@ impl FrameResourceManager {
         queue: &wgpu::Queue,
         view_layouts: &[PreRecordViewResourceLayout],
     ) {
+        profiling::scope!("render::pre_record_sync_for_views");
         for layout in unique_cluster_pre_record_layouts(view_layouts) {
+            profiling::scope!("render::pre_record_sync_for_views::cluster_viewport");
             let Some(fgpu) = self.frame_gpu_mut() else {
                 return;
             };
@@ -672,6 +688,7 @@ impl FrameResourceManager {
             let Some(fgpu) = self.frame_gpu.as_ref() else {
                 return;
             };
+            profiling::scope!("render::pre_record_sync_for_views::write_lights");
             fgpu.write_lights_buffer(queue, &self.light_scratch);
         }
     }
