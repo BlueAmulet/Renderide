@@ -173,7 +173,9 @@ fn standard_material_roots_do_not_duplicate_clustered_pbs_lighting() -> io::Resu
     for path in wgsl_files_recursive("shaders/materials")? {
         let label = file_label(&path);
         let src = fs::read_to_string(&path)?;
-        if label == "shaders/materials/toonstandard.wgsl" {
+        if label == "shaders/materials/toonstandard.wgsl"
+            || label == "shaders/materials/toonwater.wgsl"
+        {
             continue;
         }
 

@@ -15,6 +15,7 @@
 #import renderide::pbs::surface as psurf
 #import renderide::uv_utils as uvu
 #import renderide::normal_decode as nd
+#import renderide::voronoi as vor
 
 struct PbsVoronoiCrystalMaterial {
     _ColorTint: vec4<f32>,
@@ -84,50 +85,6 @@ fn vs_main(
     return out;
 }
 
-fn random2(p: vec2<f32>) -> vec2<f32> {
-    let s = vec2<f32>(dot(p, vec2<f32>(127.1, 311.7)), dot(p, vec2<f32>(269.5, 183.3)));
-    return fract(sin(s) * 43758.5453);
-}
-
-fn wrap_tile(tile_in: vec2<f32>, scale: vec2<f32>) -> vec2<f32> {
-    var tile = tile_in - floor(tile_in / scale) * scale;
-    if (tile.x < 0.0) { tile.x = tile.x + scale.x; }
-    if (tile.y < 0.0) { tile.y = tile.y + scale.y; }
-    return tile;
-}
-
-struct VoronoiResult {
-    min_dist: f32,
-    second_min_dist: f32,
-    min_point: vec2<f32>,
-}
-
-fn voronoi(uv_scaled: vec2<f32>, scale: vec2<f32>) -> VoronoiResult {
-    let i_uv = floor(uv_scaled);
-    let f_uv = fract(uv_scaled);
-    var min_dist: f32 = 2.0;
-    var second_min: f32 = 2.0;
-    var min_point: vec2<f32> = vec2<f32>(0.0);
-    for (var y: i32 = -1; y <= 1; y = y + 1) {
-        for (var x: i32 = -1; x <= 1; x = x + 1) {
-            let neighbor = vec2<f32>(f32(x), f32(y));
-            let tile = wrap_tile(i_uv + neighbor, scale);
-            let p_orig = random2(tile);
-            let p = vec2<f32>(0.5) + vec2<f32>(0.5) * sin(mat._AnimationOffset + 6.2831 * p_orig);
-            let diff = neighbor + p - f_uv;
-            let dist = length(diff);
-            if (dist < min_dist) {
-                second_min = min_dist;
-                min_dist = dist;
-                min_point = p_orig;
-            } else if (dist < second_min) {
-                second_min = dist;
-            }
-        }
-    }
-    return VoronoiResult(min_dist, second_min, min_point);
-}
-
 fn shade(
     frag_xy: vec2<f32>,
     world_pos: vec3<f32>,
@@ -137,7 +94,7 @@ fn shade(
     view_layer: u32,
 ) -> vec4<f32> {
     let scale = mat._Scale.xy;
-    let v_result = voronoi(uv * scale, scale);
+    let v_result = vor::voronoi_full(uv * scale, scale, mat._AnimationOffset);
     let cell_offset = vec2<f32>(0.5) + vec2<f32>(0.5) * sin(mat._AnimationOffset + 6.2831 * v_result.min_point);
     let border_dist = v_result.second_min_dist - v_result.min_dist;
     let aaf = fwidth(border_dist);
