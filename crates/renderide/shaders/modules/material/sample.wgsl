@@ -44,7 +44,7 @@ fn sample_world_normal(
     normal_scale: f32,
 ) -> vec3<f32> {
     let base_normal = normalize(world_normal);
-    let tbn = pnorm::orthonormal_tbn(base_normal);
+    let tbn = pnorm::orthonormal_tbn_fallback(base_normal);
     let tangent_normal = nd::decode_ts_normal_with_placeholder_sample(
         textureSample(tex, samp, transformed_uv),
         normal_scale,
