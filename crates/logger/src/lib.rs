@@ -1,4 +1,5 @@
-//! File-first logging for the Renderide workspace (bootstrapper, captured host output, renderer).
+//! File-first logging for the Renderide workspace (bootstrapper, captured host output, renderer,
+//! and renderer-test harness).
 //!
 //! ## API split
 //!

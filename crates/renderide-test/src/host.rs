@@ -65,15 +65,30 @@ impl HostHarness {
     /// Prepares an output PNG path (either the caller-supplied one or a tempfile) and stashes the
     /// configuration; the actual session runs in [`HostHarness::run`].
     pub(crate) fn start(cfg: HostHarnessConfig) -> Result<Self, HarnessError> {
+        let _ = crate::logging::init_renderer_test_logging()?;
         let (output_path, output_dir_guard) = if let Some(p) = cfg.forced_output_path.clone() {
+            logger::info!("Harness: using forced PNG output path {}", p.display());
             (p, None)
         } else {
             let dir = tempfile::Builder::new()
                 .prefix("renderide-test-")
                 .tempdir()?;
             let path = dir.path().join("headless.png");
+            logger::info!(
+                "Harness: allocated temporary PNG output path {}",
+                path.display()
+            );
             (path, Some(dir))
         };
+        logger::info!(
+            "Harness: configured renderer_path={}, resolution={}x{}, interval_ms={}, timeout={:?}, verbose_renderer={}",
+            cfg.renderer_path.display(),
+            cfg.width,
+            cfg.height,
+            cfg.interval_ms,
+            cfg.timeout,
+            cfg.verbose_renderer
+        );
         Ok(Self {
             cfg,
             output_path,
@@ -93,11 +108,26 @@ impl HostHarness {
             timeout: self.cfg.timeout,
             verbose_renderer: self.cfg.verbose_renderer,
         };
-        let outcome = scene_session::run_session(&session_cfg)?;
-        Ok(HarnessRunOutcome {
-            png_path: outcome.png_path,
-            _output_dir_guard: self.output_dir_guard.take(),
-        })
+        logger::info!(
+            "Harness: starting scene session (output_path={})",
+            session_cfg.output_path.display()
+        );
+        match scene_session::run_session(&session_cfg) {
+            Ok(outcome) => {
+                logger::info!(
+                    "Harness: scene session completed (png_path={})",
+                    outcome.png_path.display()
+                );
+                Ok(HarnessRunOutcome {
+                    png_path: outcome.png_path,
+                    _output_dir_guard: self.output_dir_guard.take(),
+                })
+            }
+            Err(err) => {
+                logger::error!("Harness: scene session failed: {err}");
+                Err(err)
+            }
+        }
     }
 
     /// Output PNG path the renderer was instructed to write. Useful for callers that want to
