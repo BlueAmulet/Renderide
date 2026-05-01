@@ -310,6 +310,7 @@ pub fn embedded_stem_uses_alpha_blending(base_stem: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::materials::MaterialPassState;
     use crate::materials::ShaderPermutation;
 
     #[test]
@@ -415,6 +416,8 @@ mod tests {
             mono
         ));
 
+        assert!(embedded_stem_uses_alpha_blending("circle_default"));
+
         assert!(embedded_stem_uses_scene_color_snapshot(
             "refract_default",
             mono
@@ -461,5 +464,26 @@ mod tests {
             "xstoon2.0_default",
             mono
         ));
+    }
+
+    #[test]
+    fn first_shader_batch_fixed_state_stems_keep_expected_passes() {
+        let circle = embedded_shaders::embedded_target_passes("circle_default");
+        assert_eq!(circle.len(), 1);
+        assert_eq!(circle[0].name, "transparent_rgb");
+        assert_eq!(circle[0].material_state, MaterialPassState::Static);
+        assert_eq!(circle[0].write_mask, wgpu::ColorWrites::COLOR);
+        assert!(!circle[0].depth_write);
+        assert_eq!(circle[0].cull_mode, None);
+        assert!(circle[0].blend.is_some());
+
+        let depth_projection = embedded_shaders::embedded_target_passes("depthprojection_default");
+        assert_eq!(depth_projection.len(), 1);
+        assert_eq!(depth_projection[0].name, "forward_two_sided");
+        assert_eq!(
+            depth_projection[0].material_state,
+            MaterialPassState::Forward
+        );
+        assert_eq!(depth_projection[0].cull_mode, None);
     }
 }

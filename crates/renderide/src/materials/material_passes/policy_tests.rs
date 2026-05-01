@@ -79,6 +79,14 @@ fn pass_policy_resolves_expected_material_overrides_by_kind() {
         None,
     );
     assert_resolved_pass(
+        pass_from_kind(PassKind::ForwardTwoSided, "fs_main"),
+        disabled_depth,
+        wgpu::ColorWrites::ALL,
+        false,
+        wgpu::CompareFunction::Always,
+        None,
+    );
+    assert_resolved_pass(
         pass_from_kind(PassKind::Outline, "fs_outline"),
         disabled_depth,
         wgpu::ColorWrites::ALL,
@@ -94,6 +102,39 @@ fn pass_policy_resolves_expected_material_overrides_by_kind() {
         wgpu::CompareFunction::Less,
         None,
     );
+}
+
+/// Verifies fixed transparent RGB passes preserve Unity-authored state even when host overrides exist.
+#[test]
+fn transparent_rgb_pass_ignores_material_render_state_overrides() {
+    let pass = pass_from_kind(PassKind::TransparentRgb, "fs_circle");
+    let override_state = override_state(true);
+
+    assert_eq!(
+        pass.resolved_color_writes(override_state),
+        wgpu::ColorWrites::COLOR
+    );
+    assert!(!pass.resolved_depth_write(override_state));
+    assert_eq!(
+        pass.resolved_depth_compare(override_state),
+        crate::gpu::MAIN_FORWARD_DEPTH_COMPARE
+    );
+    assert_eq!(pass.resolved_cull_mode(override_state), None);
+    assert_eq!(
+        pass.resolved_stencil_state(override_state),
+        wgpu::StencilState::default()
+    );
+    assert_eq!(
+        pass.resolved_depth_bias(override_state),
+        wgpu::DepthBiasState::default()
+    );
+
+    let blend = pass
+        .blend
+        .expect("transparent RGB pass should have static alpha blending");
+    assert_eq!(blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
+    assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
+    assert_eq!(pass.material_state, MaterialPassState::Static);
 }
 
 /// Verifies PBSRim transparent zwrite variants preserve their depth-only stem before color.

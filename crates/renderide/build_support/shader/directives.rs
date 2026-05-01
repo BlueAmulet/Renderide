@@ -7,6 +7,10 @@ use super::error::BuildError;
 pub(super) enum BuildPassKind {
     /// Main forward material pass.
     Forward,
+    /// Main forward material pass with authored two-sided culling.
+    ForwardTwoSided,
+    /// Static transparent RGB-only material pass.
+    TransparentRgb,
     /// Outline shell pass.
     Outline,
     /// Stencil-only pass.
@@ -24,6 +28,10 @@ impl BuildPassKind {
     fn parse(value: &str, file: &str, line: usize) -> Result<Self, BuildError> {
         match value.trim().to_ascii_lowercase().as_str() {
             "forward" => Ok(Self::Forward),
+            "forward_two_sided" | "forwardtwosided" | "two_sided" | "twosided" => {
+                Ok(Self::ForwardTwoSided)
+            }
+            "transparent_rgb" | "transparentrgb" => Ok(Self::TransparentRgb),
             "outline" => Ok(Self::Outline),
             "stencil" => Ok(Self::Stencil),
             "depth_prepass" | "depthprepass" | "prepass" => Ok(Self::DepthPrepass),
@@ -39,6 +47,8 @@ impl BuildPassKind {
     const fn rust_variant(self) -> &'static str {
         match self {
             Self::Forward => "Forward",
+            Self::ForwardTwoSided => "ForwardTwoSided",
+            Self::TransparentRgb => "TransparentRgb",
             Self::Outline => "Outline",
             Self::Stencil => "Stencil",
             Self::DepthPrepass => "DepthPrepass",
@@ -256,6 +266,44 @@ fn fs_outline() -> @location(0) vec4<f32> {
                 fragment_entry: "fs_outline".to_string(),
                 vertex_entry: "vs_outline".to_string(),
             }]
+        );
+        Ok(())
+    }
+
+    /// Fixed-state Unity pass aliases parse to the generated pass-kind variants used at runtime.
+    #[test]
+    fn pass_directive_parses_fixed_state_kinds() -> Result<(), BuildError> {
+        let passes = parse_pass_directives(
+            r#"
+//#pass forward_two_sided
+@fragment
+fn fs_depth_projection() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0);
+}
+
+//#pass transparent_rgb
+@fragment
+fn fs_circle() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0);
+}
+"#,
+            "test.wgsl",
+        )?;
+
+        assert_eq!(
+            passes,
+            [
+                BuildPassDirective {
+                    kind: BuildPassKind::ForwardTwoSided,
+                    fragment_entry: "fs_depth_projection".to_string(),
+                    vertex_entry: "vs_main".to_string(),
+                },
+                BuildPassDirective {
+                    kind: BuildPassKind::TransparentRgb,
+                    fragment_entry: "fs_circle".to_string(),
+                    vertex_entry: "vs_main".to_string(),
+                },
+            ]
         );
         Ok(())
     }

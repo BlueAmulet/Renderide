@@ -33,7 +33,9 @@ struct BillboardUnlitMaterial {
     _POINT_ROTATION: f32,
     _POINT_SIZE: f32,
     _VERTEXCOLORS: f32,
-    _ALPHATEST_ON: f32,
+    _ALPHATEST: f32,
+    _MUL_RGB_BY_ALPHA: f32,
+    _MUL_ALPHA_INTENSITY: f32,
 }
 
 @group(1) @binding(0) var<uniform> mat: BillboardUnlitMaterial;
@@ -121,12 +123,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let clip_a = mat._Color.a * acs::texture_alpha_base_mip(_Tex, _Tex_sampler, uv_main);
     var col = mat._Color * tex;
 
-    if (uvu::kw_enabled(mat._ALPHATEST_ON) && clip_a <= mat._Cutoff) {
+    if (uvu::kw_enabled(mat._ALPHATEST) && clip_a <= mat._Cutoff) {
         discard;
     }
 
     if (mat._VERTEXCOLORS > 0.5) {
         col = col * in.color;
+    }
+
+    if (uvu::kw_enabled(mat._MUL_RGB_BY_ALPHA)) {
+        col = vec4<f32>(col.rgb * col.a, col.a);
+    }
+
+    if (uvu::kw_enabled(mat._MUL_ALPHA_INTENSITY)) {
+        col = vec4<f32>(col.rgb, col.a * dot(col.rgb, vec3<f32>(0.3333333)));
     }
 
     return rg::retain_globals_additive(col);

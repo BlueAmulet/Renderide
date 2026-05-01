@@ -27,7 +27,7 @@ fn vs_main(
 #endif
 }
 
-//#pass forward
+//#pass transparent_rgb
 @fragment
 fn fs_main(
     @location(0) uv: vec2<f32>,
@@ -37,5 +37,5 @@ fn fs_main(
     let dst = dot(abs(coord - center), vec2<f32>(1.0, 1.0));
     let aaf = fwidth(dst);
     let mask = 1.0 - smoothstep(0.2 - aaf, 0.2, dst);
-    return rg::retain_globals_additive(vec4<f32>(mat._Color.rgb, mask));
+    return rg::retain_globals_additive(vec4<f32>(1.0, 1.0, 1.0, mask));
 }

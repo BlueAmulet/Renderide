@@ -16,7 +16,9 @@ struct FiltersBlurMaterial {
     _Iterations: f32,
     _RefractionStrength: f32,
     _DepthDivisor: f32,
-    _NORMALMAP: f32,
+    REFRACT: f32,
+    REFRACT_NORMALMAP: f32,
+    POISSON_DISC: f32,
 }
 
 @group(1) @binding(0) var<uniform> mat: FiltersBlurMaterial;
@@ -42,25 +44,38 @@ fn vs_main(
 #endif
 }
 
-fn refract_offset(uv0: vec2<f32>, world_n: vec3<f32>) -> vec2<f32> {
-    var n = normalize(world_n);
-    if (uvu::kw_enabled(mat._NORMALMAP)) {
+fn refraction_enabled() -> bool {
+    return uvu::kw_enabled(mat.REFRACT) || uvu::kw_enabled(mat.REFRACT_NORMALMAP);
+}
+
+fn refract_offset(uv0: vec2<f32>, view_n: vec3<f32>, clip_recip_w: f32) -> vec2<f32> {
+    if (!refraction_enabled()) {
+        return vec2<f32>(0.0);
+    }
+    var n = normalize(view_n);
+    if (uvu::kw_enabled(mat.REFRACT_NORMALMAP)) {
         let ts = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uvu::apply_st(uv0, mat._NormalMap_ST)),
             1.0,
         );
         n = normalize(vec3<f32>(n.xy + ts.xy, n.z));
     }
-    return n.xy * mat._RefractionStrength;
+    return n.xy * clip_recip_w * mat._RefractionStrength;
 }
 
 fn sample_blur(center_uv: vec2<f32>, spread: vec2<f32>, iterations: u32, view_layer: u32) -> vec4<f32> {
     var c = vec4<f32>(0.0);
-    for (var i = 0u; i < 64u; i = i + 1u) {
+    let use_poisson = uvu::kw_enabled(mat.POISSON_DISC);
+    for (var i = 0u; i < 128u; i = i + 1u) {
         if (i >= iterations) {
             break;
         }
-        c = c + gp::sample_scene_color(center_uv + fm::circular_blur_offset(i, iterations, spread), view_layer);
+        let offset = select(
+            fm::circular_blur_offset(i, iterations, spread),
+            fm::poisson_blur_offset(i, spread),
+            use_poisson,
+        );
+        c = c + gp::sample_scene_color(center_uv + offset, view_layer);
     }
     return c / max(f32(iterations), 1.0);
 }
@@ -71,14 +86,14 @@ fn fs_main(
     @builtin(position) frag_pos: vec4<f32>,
     @location(0) uv0: vec2<f32>,
     @location(1) world_pos: vec3<f32>,
-    @location(2) world_n: vec3<f32>,
     @location(3) @interpolate(flat) view_layer: u32,
+    @location(4) view_n: vec3<f32>,
 ) -> @location(0) vec4<f32> {
     let screen_uv = gp::frag_screen_uv(frag_pos);
-    let fade = sds::depth_fade(frag_pos, world_pos, view_layer, max(mat._DepthDivisor, 1.0));
+    let fade = sds::depth_fade(frag_pos, world_pos, view_layer, mat._DepthDivisor);
     let spread_tex = textureSample(_SpreadTex, _SpreadTex_sampler, uvu::apply_st(uv0, mat._SpreadTex_ST)).rg;
     let spread = mat._Spread.xy * spread_tex * fade;
-    let center_uv = screen_uv - refract_offset(uv0, world_n) * fade;
-    let iterations = u32(clamp(mat._Iterations, 1.0, 64.0));
+    let center_uv = screen_uv - refract_offset(uv0, view_n, frag_pos.w) * fade;
+    let iterations = u32(clamp(mat._Iterations, 1.0, 128.0));
     return rg::retain_globals_additive(sample_blur(center_uv, spread, iterations, view_layer));
 }

@@ -2,7 +2,7 @@
 //!
 //! Treats the mesh UV0 as equirectangular angles, builds a unit direction (X-axis tilt by
 //! latitude, Y-axis spin by longitude), applies the host-supplied `_Rotation` orthonormal basis,
-//! and samples the cubemap. `_FLIP > 0.5` negates the direction (Unity `FLIP` multi-compile).
+//! and samples the cubemap. `FLIP > 0.5` negates the direction (Unity `FLIP` multi-compile).
 
 
 #import renderide::filter_vertex as fv
@@ -10,7 +10,7 @@
 
 struct CubemapProjectionMaterial {
     _Rotation: mat4x4<f32>,
-    _FLIP: f32,
+    FLIP: f32,
     _pad0: f32,
     _pad1: vec2<f32>,
 }
@@ -62,7 +62,7 @@ fn fs_main(
     var dir = equirect_to_dir(primary_uv);
     let rot3 = mat3x3<f32>(mat._Rotation[0].xyz, mat._Rotation[1].xyz, mat._Rotation[2].xyz);
     dir = rot3 * dir;
-    if (mat._FLIP > 0.5) {
+    if (mat.FLIP > 0.5) {
         dir = -dir;
     }
     let color = textureSample(_Cube, _Cube_sampler, dir);

@@ -1,6 +1,6 @@
-//! Per-pass pipeline descriptor and `//#material <kind>` directive table.
+//! Per-pass pipeline descriptor and `//#pass <kind>` directive table.
 //!
-//! Every material WGSL declares one or more `//#material <kind>` tags, each sitting directly
+//! Every material WGSL declares one or more `//#pass <kind>` tags, each sitting directly
 //! above an `@fragment` entry point. The build script parses them into [`MaterialPassDesc`]
 //! tables; each desc becomes one `wgpu::RenderPipeline`. [`pass_from_kind`] is the canonical
 //! mapping from declared kind to pipeline state, and [`MaterialRenderStatePolicy`] decides
@@ -68,6 +68,26 @@ impl MaterialRenderStatePolicy {
         depth_offset: true,
     };
 
+    /// Main material color draw that preserves an authored two-sided cull mode.
+    pub(crate) const FORWARD_TWO_SIDED: Self = Self {
+        color_mask: true,
+        depth_write: true,
+        depth_compare: true,
+        cull: false,
+        stencil: true,
+        depth_offset: true,
+    };
+
+    /// Fully authored static render state; host pipeline-state properties are ignored.
+    pub(crate) const STATIC: Self = Self {
+        color_mask: false,
+        depth_write: false,
+        depth_compare: false,
+        cull: false,
+        stencil: false,
+        depth_offset: false,
+    };
+
     /// Depth-only draw: preserve authored color/depth writes while allowing test/mask/offset state.
     pub(crate) const DEPTH_PREPASS: Self = Self {
         color_mask: false,
@@ -109,7 +129,7 @@ impl MaterialRenderStatePolicy {
     };
 }
 
-/// Semantic pass kind authored as `//#material <kind>` above an `@fragment` entry point.
+/// Semantic pass kind authored as `//#pass <kind>` above an `@fragment` entry point.
 ///
 /// Maps to a canonical set of static defaults (depth compare, cull, blend, write mask) plus
 /// policies for runtime blend and render-state overrides. Parsed in the build script; each tag
@@ -124,6 +144,10 @@ impl MaterialRenderStatePolicy {
 pub enum PassKind {
     /// Forward pass with material-driven blend / depth-write driven by `_SrcBlend`/`_DstBlend`/`_ZWrite`.
     Forward,
+    /// Forward pass with material-driven blend / depth-write and authored `Cull Off`.
+    ForwardTwoSided,
+    /// Transparent unlit draw: `Blend SrcAlpha OneMinusSrcAlpha`, `ColorMask RGB`, `ZWrite Off`, `Cull Off`.
+    TransparentRgb,
     /// Outline silhouette pass: `Cull Front` so back faces of an inflated shell show.
     Outline,
     /// Stencil-only pass: `Cull Front`, `ColorMask 0`, `ZWrite Off`; writes only to the stencil buffer.
@@ -160,6 +184,20 @@ pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> Mat
     match kind {
         PassKind::Forward => MaterialPassDesc {
             material_state: MaterialPassState::Forward,
+            ..base
+        },
+        PassKind::ForwardTwoSided => MaterialPassDesc {
+            cull_mode: None,
+            material_state: MaterialPassState::Forward,
+            render_state_policy: MaterialRenderStatePolicy::FORWARD_TWO_SIDED,
+            ..base
+        },
+        PassKind::TransparentRgb => MaterialPassDesc {
+            depth_write: false,
+            cull_mode: None,
+            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            write_mask: wgpu::ColorWrites::COLOR,
+            render_state_policy: MaterialRenderStatePolicy::STATIC,
             ..base
         },
         PassKind::Outline => MaterialPassDesc {
@@ -199,6 +237,8 @@ pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> Mat
 const fn pass_kind_label(kind: PassKind) -> &'static str {
     match kind {
         PassKind::Forward => "forward",
+        PassKind::ForwardTwoSided => "forward_two_sided",
+        PassKind::TransparentRgb => "transparent_rgb",
         PassKind::Outline => "outline",
         PassKind::Stencil => "stencil",
         PassKind::DepthPrepass => "depth_prepass",

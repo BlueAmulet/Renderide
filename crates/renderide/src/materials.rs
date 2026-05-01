@@ -47,6 +47,8 @@
 //! | Kind | Render-state recipe | Use case |
 //! |---|---|---|
 //! | `forward` | `Cull Back`, `ZWrite On`, blend driven by host `_SrcBlend`/`_DstBlend` at draw time | the main color draw |
+//! | `forward_two_sided` | `Cull Off`, `ZWrite On`, blend driven by host `_SrcBlend`/`_DstBlend` at draw time | main color draw for authored two-sided materials |
+//! | `transparent_rgb` | `Blend SrcAlpha OneMinusSrcAlpha`, `ColorMask RGB`, `ZWrite Off`, `Cull Off` | fixed-state transparent RGB-only unlit draw |
 //! | `outline` | `Cull Front` | silhouette over an inflated geometry shell |
 //! | `stencil` | `Cull Front`, `ColorMask 0`, `ZWrite Off` | stencil mask draw |
 //! | `depth_prepass` | `ColorMask 0` | early-Z prepass (depth only) |
