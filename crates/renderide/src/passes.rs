@@ -30,6 +30,5 @@ pub use world_mesh_forward::{
     WorldMeshForwardColorResolveGraphResources, WorldMeshForwardColorResolvePass,
     WorldMeshForwardDepthResolvePass, WorldMeshForwardGraphResources,
     WorldMeshForwardIntersectPass, WorldMeshForwardOpaquePass, WorldMeshForwardPreparePass,
-    WorldMeshForwardTransparentPass, WorldMeshGtaoNormalPrepass,
-    WorldMeshGtaoNormalPrepassGraphResources,
+    WorldMeshForwardTransparentPass,
 };
