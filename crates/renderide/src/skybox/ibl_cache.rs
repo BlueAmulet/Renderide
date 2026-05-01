@@ -351,7 +351,7 @@ impl SkyboxIblCache {
         let mip_levels = mip_levels_for_edge(face_size);
         let cube = create_ibl_cube(gpu.device(), face_size, mip_levels);
         let mut resources = PendingBakeResources::default();
-        let dst_sample_view = Arc::new(create_full_mip_cube_view(&cube.texture, mip_levels));
+        let dst_sample_view = Arc::new(create_mip0_cube_sample_view(&cube.texture));
         resources.dst_sample_view = Some(dst_sample_view.clone());
         let mut encoder = gpu
             .device()
@@ -659,16 +659,20 @@ fn create_ibl_cube(device: &wgpu::Device, face_size: u32, mip_levels: u32) -> Ib
     IblCubeTexture { texture, full_view }
 }
 
-/// Creates a cube-dimension sampling view spanning all mips of the destination cube.
-fn create_full_mip_cube_view(texture: &wgpu::Texture, mip_levels: u32) -> wgpu::TextureView {
+/// Creates a cube-dimension sampling view of mip 0 only, used as the convolve input source.
+///
+/// The view must not overlap any storage-bound mip in the same compute dispatch — wgpu treats
+/// overlapping subresources as a usage conflict between `RESOURCE` and `STORAGE_WRITE_ONLY`.
+/// A mip-0-only view is non-overlapping with every per-mip storage view (mip ≥ 1).
+fn create_mip0_cube_sample_view(texture: &wgpu::Texture) -> wgpu::TextureView {
     texture.create_view(&wgpu::TextureViewDescriptor {
-        label: Some("skybox_ibl_cube_sample_view"),
+        label: Some("skybox_ibl_cube_mip0_sample_view"),
         format: Some(IBL_CUBE_FORMAT),
         dimension: Some(wgpu::TextureViewDimension::Cube),
         usage: Some(wgpu::TextureUsages::TEXTURE_BINDING),
         aspect: wgpu::TextureAspect::All,
         base_mip_level: 0,
-        mip_level_count: Some(mip_levels),
+        mip_level_count: Some(1),
         base_array_layer: 0,
         array_layer_count: Some(6),
     })
@@ -1033,7 +1037,9 @@ fn encode_convolve_mips(ctx: ConvolveEncodeContext<'_>, resources: &mut PendingB
     if ctx.mip_levels <= 1 {
         return;
     }
-    let src_max_lod = (ctx.mip_levels - 1) as f32;
+    // Source view is mip 0 only (see create_mip0_cube_sample_view) — clamp source LOD to zero so
+    // the shader's solid-angle source-mip selection collapses to a plain mip-0 sample.
+    let src_max_lod = 0.0_f32;
     for mip in 1..ctx.mip_levels {
         profiling::scope!("skybox_ibl::encode_convolve_mip");
         let dst_size = mip_extent(ctx.face_size, mip);
