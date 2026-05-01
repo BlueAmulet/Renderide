@@ -90,7 +90,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var near = textureSample(_NearTex, _NearTex_sampler, near_uv) * mat._NearColor;
     var far = textureSample(_FarTex, _FarTex_sampler, far_uv) * mat._FarColor;
 
-    if (uvu::kw_enabled(mat._VERTEXCOLORS)) {
+    let use_vertex_colors = uvu::kw_enabled(mat._VERTEXCOLORS);
+    if (use_vertex_colors) {
         near = near * in.color;
         far = far * in.color;
     }
@@ -100,7 +101,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     if (uvu::kw_enabled(mat._ALPHATEST)) {
         let near_alpha = acs::texture_alpha_base_mip(_NearTex, _NearTex_sampler, near_uv) * mat._NearColor.a;
         let far_alpha = acs::texture_alpha_base_mip(_FarTex, _FarTex_sampler, far_uv) * mat._FarColor.a;
-        let clip_a = mix(near_alpha, far_alpha, l);
+        let clip_a = mix(near_alpha, far_alpha, l) * select(1.0, in.color.a, use_vertex_colors);
         if (ma::should_clip_alpha(clip_a, mat._Cutoff, true)) {
             discard;
         }

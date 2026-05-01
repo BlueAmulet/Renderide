@@ -191,6 +191,12 @@ struct XiexeToon2Material {
     _FadeDither: f32,
     /// Distance at which the fade-dither starts to take effect.
     _FadeDitherDistance: f32,
+    /// Reserved halftone dot-size control kept for material property parity.
+    _HalftoneDotSize: f32,
+    /// Reserved halftone dot-amount control kept for material property parity.
+    _HalftoneDotAmount: f32,
+    /// Reserved halftone line-amount control kept for material property parity.
+    _HalftoneLineAmount: f32,
 
     /// Enables vertex-color-tinted albedo (Unity `VERTEX_COLOR_ALBEDO`).
     _VertexColorAlbedo: f32,

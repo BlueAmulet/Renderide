@@ -225,7 +225,8 @@ pub(crate) fn build_pipeline_from_pass(
                 multisample: wgpu::MultisampleState {
                     count: shared.desc.sample_count,
                     mask: !0,
-                    alpha_to_coverage_enabled: false,
+                    alpha_to_coverage_enabled: pass.alpha_to_coverage
+                        && shared.desc.sample_count > 1,
                 },
                 multiview_mask: shared.desc.multiview_mask,
                 cache: None,

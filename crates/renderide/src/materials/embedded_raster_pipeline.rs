@@ -452,6 +452,7 @@ mod tests {
     #[test]
     fn metadata_flags_cover_common_material_classes() {
         let mono = ShaderPermutation(0);
+
         assert_eq!(embedded_stem_pipeline_pass_count("null_default", mono), 1);
         assert!(!embedded_stem_uses_scene_color_snapshot(
             "null_default",
@@ -471,6 +472,11 @@ mod tests {
             "ui_textunlit_default",
             mono
         ));
+        assert!(embedded_stem_needs_color_stream("unlit_default", mono));
+        assert!(embedded_stem_needs_color_stream(
+            "unlit_default",
+            SHADER_PERM_MULTIVIEW_STEREO
+        ));
         assert!(!embedded_stem_needs_extended_vertex_streams(
             "ui_textunlit_default",
             mono
@@ -489,6 +495,13 @@ mod tests {
             SHADER_PERM_MULTIVIEW_STEREO
         ));
 
+        assert!(embedded_stem_uses_alpha_blending("circle_default"));
+    }
+
+    #[test]
+    fn metadata_flags_cover_snapshot_and_intersection_material_classes() {
+        let mono = ShaderPermutation(0);
+
         assert!(embedded_stem_uses_scene_color_snapshot(
             "blur_default",
             mono
@@ -505,8 +518,6 @@ mod tests {
             "blur_default",
             mono
         ));
-
-        assert!(embedded_stem_uses_alpha_blending("circle_default"));
 
         assert!(embedded_stem_uses_scene_color_snapshot(
             "refract_default",
@@ -533,6 +544,11 @@ mod tests {
             "pbsintersect_default",
             mono
         ));
+    }
+
+    #[test]
+    fn metadata_flags_cover_xstoon_material_class() {
+        let mono = ShaderPermutation(0);
 
         assert_eq!(
             embedded_stem_pipeline_pass_count("xstoon2.0_default", mono),

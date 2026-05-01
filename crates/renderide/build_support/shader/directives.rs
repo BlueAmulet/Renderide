@@ -72,6 +72,8 @@ pub(super) struct BuildPassDirective {
     pub fragment_entry: String,
     /// Vertex entry point for this pass. Defaults to `vs_main`; overridden via `vs=...`.
     pub vertex_entry: String,
+    /// Whether this pass enables hardware alpha-to-coverage.
+    pub alpha_to_coverage: bool,
 }
 
 /// Parses `fn <name>(...)` out of a line.
@@ -149,6 +151,7 @@ pub(super) fn parse_pass_directives(
         let kind_value = tokens.next().unwrap_or("");
         let kind = BuildPassKind::parse(kind_value, file, line_no)?;
         let mut vertex_entry = "vs_main".to_string();
+        let mut alpha_to_coverage = false;
         for token in tokens {
             let (key, value) = token.split_once('=').ok_or_else(|| {
                 BuildError::Message(format!(
@@ -157,9 +160,12 @@ pub(super) fn parse_pass_directives(
             })?;
             match key.trim().to_ascii_lowercase().as_str() {
                 "vs" | "vertex" => vertex_entry = value.trim().to_string(),
+                "a2c" | "alpha_to_coverage" => {
+                    alpha_to_coverage = parse_bool_value(value.trim(), file, line_no, key.trim())?;
+                }
                 _ => {
                     return Err(BuildError::Message(format!(
-                        "{file}:{line_no}: unknown `//#pass` override `{key}` (only `vs=` is allowed)"
+                        "{file}:{line_no}: unknown `//#pass` override `{key}` (allowed: `vs=`, `a2c=`)"
                     )));
                 }
             }
@@ -169,9 +175,21 @@ pub(super) fn parse_pass_directives(
             kind,
             fragment_entry,
             vertex_entry,
+            alpha_to_coverage,
         });
     }
     Ok(passes)
+}
+
+/// Parses a directive boolean value.
+fn parse_bool_value(value: &str, file: &str, line: usize, key: &str) -> Result<bool, BuildError> {
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Ok(true),
+        "false" | "0" | "no" | "off" => Ok(false),
+        _ => Err(BuildError::Message(format!(
+            "{file}:{line}: `//#pass` override `{key}` expects a boolean value, got `{value}`"
+        ))),
+    }
 }
 
 /// Parses an optional `//#source_alias <stem>` directive from a thin shader wrapper.
@@ -211,17 +229,23 @@ pub(super) fn parse_source_alias(source: &str, file: &str) -> Result<Option<Stri
 /// Renders a generated Rust expression for one pass directive.
 pub(super) fn pass_literal(pass: &BuildPassDirective) -> String {
     let kind = pass.kind.rust_variant();
-    if pass.vertex_entry == "vs_main" {
-        format!(
-            "crate::materials::pass_from_kind(crate::materials::PassKind::{kind}, {fs:?})",
-            fs = pass.fragment_entry.as_str(),
-        )
-    } else {
-        format!(
-            "crate::materials::MaterialPassDesc {{ vertex_entry: {vs:?}, ..crate::materials::pass_from_kind(crate::materials::PassKind::{kind}, {fs:?}) }}",
-            fs = pass.fragment_entry.as_str(),
+    let base = format!(
+        "crate::materials::pass_from_kind(crate::materials::PassKind::{kind}, {fs:?})",
+        fs = pass.fragment_entry.as_str(),
+    );
+    match (pass.vertex_entry == "vs_main", pass.alpha_to_coverage) {
+        (true, false) => base,
+        (false, false) => format!(
+            "crate::materials::MaterialPassDesc {{ vertex_entry: {vs:?}, ..{base} }}",
             vs = pass.vertex_entry.as_str(),
-        )
+        ),
+        (true, true) => {
+            format!("crate::materials::MaterialPassDesc {{ alpha_to_coverage: true, ..{base} }}")
+        }
+        (false, true) => format!(
+            "crate::materials::MaterialPassDesc {{ vertex_entry: {vs:?}, alpha_to_coverage: true, ..{base} }}",
+            vs = pass.vertex_entry.as_str(),
+        ),
     }
 }
 
@@ -270,6 +294,33 @@ fn fs_outline() -> @location(0) vec4<f32> {
                 kind: BuildPassKind::Outline,
                 fragment_entry: "fs_outline".to_string(),
                 vertex_entry: "vs_outline".to_string(),
+                alpha_to_coverage: false,
+            }]
+        );
+        Ok(())
+    }
+
+    /// Pass directives can opt into hardware alpha-to-coverage.
+    #[test]
+    fn pass_directive_extracts_alpha_to_coverage() -> Result<(), BuildError> {
+        let passes = parse_pass_directives(
+            r#"
+//#pass forward a2c=true
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0);
+}
+"#,
+            "test.wgsl",
+        )?;
+
+        assert_eq!(
+            passes,
+            [BuildPassDirective {
+                kind: BuildPassKind::Forward,
+                fragment_entry: "fs_main".to_string(),
+                vertex_entry: "vs_main".to_string(),
+                alpha_to_coverage: true,
             }]
         );
         Ok(())
@@ -302,11 +353,13 @@ fn fs_circle() -> @location(0) vec4<f32> {
                     kind: BuildPassKind::ForwardTwoSided,
                     fragment_entry: "fs_depth_projection".to_string(),
                     vertex_entry: "vs_main".to_string(),
+                    alpha_to_coverage: false,
                 },
                 BuildPassDirective {
                     kind: BuildPassKind::TransparentRgb,
                     fragment_entry: "fs_circle".to_string(),
                     vertex_entry: "vs_main".to_string(),
+                    alpha_to_coverage: false,
                 },
             ]
         );

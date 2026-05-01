@@ -44,6 +44,9 @@ pub(super) fn inferred_keyword_float_f32(
     if let Some(value) = pbs_displace_keyword_inferred(field_name, store, lookup, ids) {
         return Some(value);
     }
+    if let Some(value) = unlit_keyword_inferred(field_name, store, lookup, ids) {
+        return Some(value);
+    }
 
     let inferred = match texture_keyword_pids(field_name, kw) {
         Some(pids) => texture_property_present_pids(store, lookup, &pids),
@@ -147,6 +150,8 @@ fn texture_keyword_pids(field_name: &str, kw: &EmbeddedSharedKeywordIds) -> Opti
     Some(match field_name {
         "_LERPTEX" => vec![kw.lerp_tex],
         "_TEXTURE" => vec![
+            kw.tex,
+            kw.main_tex,
             kw.far_tex,
             kw.near_tex,
             kw.far_tex0,
@@ -187,6 +192,27 @@ fn texture_keyword_pids(field_name: &str, kw: &EmbeddedSharedKeywordIds) -> Opti
         "_PACKED_EMISSIONTEX" => vec![kw.packed_emission_map],
         _ => return None,
     })
+}
+
+/// Inferred values for Unlit-family keyword fields with observable host signals.
+fn unlit_keyword_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    let kw = ids.shared.as_ref();
+    let enabled = match field_name {
+        "_OFFSET_TEXTURE" => texture_property_present_pids(store, lookup, &[kw.offset_tex]),
+        "_MASK_TEXTURE_MUL" => texture_property_present_pids(store, lookup, &[kw.mask_tex]),
+        "_MASK_TEXTURE_CLIP" => false,
+        "_RIGHT_EYE_ST" => ids
+            .uniform_field_ids
+            .get("_RightEye_ST")
+            .is_some_and(|pid| uniform_property_present(store, lookup, *pid)),
+        _ => return None,
+    };
+    Some(if enabled { 1.0 } else { 0.0 })
 }
 
 /// Discriminant of [`crate::shared::MaterialRenderType::TransparentCutout`] on the wire.
@@ -392,7 +418,7 @@ fn alpha_premultiply_on_inferred(
 /// | `TINT_TEX_LERP`   | `TintTexture` + `TintTextureMode == Lerp`              | `_TintTex` texture + `_Tint0` written (Lerp-only send)|
 /// | `TINT_TEX_DIRECT` | `TintTexture` + `TintTextureMode == Direct`            | `_TintTex` texture, no `_Tint0`                       |
 ///
-/// `_VIEW`/`_NORMAL`/`_WORLD_VIEW`, `OUTSIDE_COLOR`, `_RIGHT_EYE_ST`, and `RECTCLIP` have no
+/// `_VIEW`/`_NORMAL`/`_WORLD_VIEW`, `OUTSIDE_COLOR`, and `RECTCLIP` have no
 /// property-stream signal (they map to `bool`/`enum` fields the host never writes as
 /// properties). These default to `0`; the shader's existing fallthrough renders such
 /// materials in the most common configuration (`_VIEW` + `OUTSIDE_CLIP` + non-stereo +

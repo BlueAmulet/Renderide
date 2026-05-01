@@ -157,6 +157,61 @@ mod text_uniform_packing_tests {
     }
 
     #[test]
+    fn unlit_texture_presence_infers_observable_keywords() {
+        let mut store = MaterialPropertyStore::new();
+        let reg = PropertyIdRegistry::new();
+        let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+        store.set_material(
+            50,
+            reg.intern("_Tex"),
+            MaterialPropertyValue::Texture(packed_render_texture(1)),
+        );
+        store.set_material(
+            50,
+            reg.intern("_MaskTex"),
+            MaterialPropertyValue::Texture(packed_render_texture(2)),
+        );
+        store.set_material(
+            50,
+            reg.intern("_OffsetTex"),
+            MaterialPropertyValue::Texture(packed_render_texture(3)),
+        );
+
+        assert_eq!(
+            inferred_keyword_float_f32("_TEXTURE", &store, lookup(50), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_MASK_TEXTURE_MUL", &store, lookup(50), &ids),
+            Some(1.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_MASK_TEXTURE_CLIP", &store, lookup(50), &ids),
+            Some(0.0)
+        );
+        assert_eq!(
+            inferred_keyword_float_f32("_OFFSET_TEXTURE", &store, lookup(50), &ids),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn right_eye_keyword_infers_from_right_eye_st_presence() {
+        let (_reflected, ids, registry) = reflected_with_f32_fields(&[("_RightEye_ST", 0)]);
+        let mut store = MaterialPropertyStore::new();
+        store.set_material(
+            51,
+            registry.intern("_RightEye_ST"),
+            MaterialPropertyValue::Float4([0.5, 1.0, 0.5, 0.0]),
+        );
+
+        assert_eq!(
+            inferred_keyword_float_f32("_RIGHT_EYE_ST", &store, lookup(51), &ids),
+            Some(1.0)
+        );
+    }
+
+    #[test]
     fn cutout_blend_mode_infers_alpha_clip_from_canonical_blend_mode() {
         let mut store = MaterialPropertyStore::new();
         let reg = PropertyIdRegistry::new();

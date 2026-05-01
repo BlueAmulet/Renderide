@@ -196,6 +196,7 @@ pub const fn pass_from_kind(kind: PassKind, fragment_entry: &'static str) -> Mat
         write_mask: wgpu::ColorWrites::COLOR,
         depth_bias_slope_scale: 0.0,
         depth_bias_constant: 0,
+        alpha_to_coverage: false,
         material_state: MaterialPassState::Static,
         render_state_policy: MaterialRenderStatePolicy::FORWARD,
     };
@@ -300,6 +301,8 @@ pub struct MaterialPassDesc {
     pub depth_bias_slope_scale: f32,
     /// Constant depth bias.
     pub depth_bias_constant: i32,
+    /// Whether this pass enables hardware alpha-to-coverage for MSAA targets.
+    pub alpha_to_coverage: bool,
     /// Optional material-driven Unity pass-state override.
     pub material_state: MaterialPassState,
     /// Per-field policy for host-authored Unity render-state overrides.
@@ -418,6 +421,7 @@ pub const fn default_pass(params: DefaultPassParams) -> MaterialPassDesc {
         write_mask,
         depth_bias_slope_scale: 0.0,
         depth_bias_constant: 0,
+        alpha_to_coverage: false,
         material_state: MaterialPassState::Static,
         render_state_policy: MaterialRenderStatePolicy::FORWARD,
     }

@@ -228,3 +228,37 @@ fn xstoon_stems_keep_expected_outline_and_stencil_pass_order() {
     assert_eq!(stencil_passes.len(), 1, "xstoonstenciler_default");
     assert_eq!(stencil_passes[0].name, "stencil", "xstoonstenciler_default");
 }
+
+/// Verifies XSToon alpha-to-coverage variants request the matching pipeline state.
+#[test]
+fn xstoon_a2c_stems_enable_alpha_to_coverage() {
+    for stem in [
+        "xstoon2.0-cutouta2c_default",
+        "xstoon2.0-cutouta2cmasked_default",
+    ] {
+        let passes = crate::embedded_shaders::embedded_target_passes(stem);
+        assert_eq!(
+            passes.len(),
+            1,
+            "{stem} should declare a single forward pass"
+        );
+        assert!(passes[0].alpha_to_coverage, "{stem}");
+    }
+
+    let outlined =
+        crate::embedded_shaders::embedded_target_passes("xstoon2.0-cutouta2c-outlined_default");
+    assert_eq!(outlined.len(), 2, "xstoon2.0-cutouta2c-outlined_default");
+    assert!(
+        outlined.iter().all(|pass| pass.alpha_to_coverage),
+        "xstoon2.0-cutouta2c-outlined_default"
+    );
+
+    for stem in [
+        "xstoon2.0-cutout_default",
+        "xstoon2.0-dithered_default",
+        "xstoon2.0-dithered-outlined_default",
+    ] {
+        let passes = crate::embedded_shaders::embedded_target_passes(stem);
+        assert!(passes.iter().all(|pass| !pass.alpha_to_coverage), "{stem}");
+    }
+}
