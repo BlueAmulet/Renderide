@@ -31,7 +31,7 @@ pub use sort::sort_draws;
 #[cfg(test)]
 mod tests {
     use super::{resolved_material_slots, sort_draws};
-    use crate::materials::{RasterFrontFace, RasterPipelineKind};
+    use crate::materials::{RasterFrontFace, RasterPipelineKind, UNITY_RENDER_QUEUE_GEOMETRY};
     use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::scene::{MeshMaterialSlot, StaticMeshRenderer};
     use crate::world_mesh::materials::MaterialDrawBatchKey;
@@ -172,6 +172,7 @@ mod tests {
             embedded_requires_intersection_pass: false,
             embedded_uses_scene_depth_snapshot: false,
             embedded_uses_scene_color_snapshot: false,
+            render_queue: UNITY_RENDER_QUEUE_GEOMETRY,
             render_state: Default::default(),
             blend_mode: Default::default(),
             alpha_blended: false,
@@ -190,6 +191,7 @@ mod tests {
             embedded_requires_intersection_pass: false,
             embedded_uses_scene_depth_snapshot: false,
             embedded_uses_scene_color_snapshot: false,
+            render_queue: UNITY_RENDER_QUEUE_GEOMETRY,
             render_state: Default::default(),
             blend_mode: Default::default(),
             alpha_blended: false,

@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::materials::host_data::MaterialPropertyLookupIds;
+use crate::materials::render_queue_is_transparent;
 use crate::scene::MeshRendererInstanceId;
 use crate::world_mesh::materials::compute_batch_key_hash;
 
@@ -68,7 +69,7 @@ pub(super) fn evaluate_draw_candidate(
             shader_perm: ctx.shader_perm,
         },
     );
-    let camera_distance_sq = if batch_key.alpha_blended {
+    let camera_distance_sq = if render_queue_is_transparent(batch_key.render_queue) {
         alpha_distance_sq
     } else {
         0.0
@@ -76,9 +77,9 @@ pub(super) fn evaluate_draw_candidate(
     let batch_key_hash = compute_batch_key_hash(&batch_key);
     // Precompute the opaque depth bucket here so the sort comparator does not redo `sqrt + log2`
     // on every pairwise compare. The argument matches the previous comparator-side computation
-    // (`opaque_depth_bucket(item.camera_distance_sq)`) so the resulting order is identical:
-    // alpha-blended draws use `alpha_distance_sq` (preserved on `camera_distance_sq` above) while
-    // opaque draws always feed `0.0` and bucket to `0`, leaving batch-key tiebreaking intact.
+    // (`opaque_depth_bucket(item.camera_distance_sq)`) so the resulting order is stable:
+    // transparent-queue draws use `alpha_distance_sq` (preserved on `camera_distance_sq` above)
+    // while opaque-queue draws feed `0.0` and bucket to `0`, leaving batch-key tiebreaking intact.
     let opaque_depth_bucket =
         crate::world_mesh::draw_prep::sort::opaque_depth_bucket(camera_distance_sq);
     Some(WorldMeshDrawItem {

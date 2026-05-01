@@ -4,7 +4,8 @@ use crate::materials::{
     MaterialBlendMode, MaterialRenderState, RasterFrontFace, RasterPipelineKind,
 };
 
-/// Groups draws that can share the same raster pipeline and material bind data (Unity material +
+/// Groups draws that can share the same raster pipeline, material bind data, and Unity render-queue
+/// ordering bucket (Unity material +
 /// [`MaterialPropertyBlock`](https://docs.unity3d.com/ScriptReference/MaterialPropertyBlock.html)-style slot0).
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct MaterialDrawBatchKey {
@@ -34,6 +35,8 @@ pub struct MaterialDrawBatchKey {
     pub embedded_uses_scene_depth_snapshot: bool,
     /// Whether the shader samples the scene-color snapshot through frame globals.
     pub embedded_uses_scene_color_snapshot: bool,
+    /// Effective Unity render queue after material override / fallback resolution.
+    pub render_queue: i32,
     /// Runtime color, stencil, and depth state for this material/property-block pair.
     pub render_state: MaterialRenderState,
     /// Resolved material blend mode for pipeline selection and diagnostics.
