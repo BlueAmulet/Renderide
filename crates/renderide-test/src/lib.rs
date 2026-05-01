@@ -10,6 +10,7 @@ pub mod cli;
 pub mod error;
 pub mod golden;
 pub mod host;
+pub mod logging;
 pub mod scene;
 
 pub use error::HarnessError;

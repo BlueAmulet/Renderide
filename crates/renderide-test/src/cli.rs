@@ -18,26 +18,24 @@ use crate::host::{HarnessRunOutcome, HostHarness, HostHarnessConfig};
 /// CLI entry point.
 pub fn run() -> ExitCode {
     let cli = Cli::parse();
-    init_logger();
-    match dispatch(cli) {
-        Ok(()) => ExitCode::SUCCESS,
+    if let Err(err) = crate::logging::init_renderer_test_logging() {
+        eprintln!("renderide-test: failed to initialize logging: {err}");
+        return ExitCode::FAILURE;
+    }
+
+    let exit_code = match dispatch(cli) {
+        Ok(()) => {
+            logger::info!("renderide-test completed successfully");
+            ExitCode::SUCCESS
+        }
         Err(err) => {
             logger::error!("renderide-test failed: {err}");
             eprintln!("renderide-test: {err}");
             ExitCode::FAILURE
         }
-    }
-}
-
-fn init_logger() {
-    use logger::{LogComponent, LogLevel};
-    let timestamp = logger::log_filename_timestamp();
-    let _ = logger::init_for(
-        LogComponent::Bootstrapper,
-        &timestamp,
-        LogLevel::Info,
-        false,
-    );
+    };
+    logger::flush();
+    exit_code
 }
 
 #[derive(Parser, Debug)]
@@ -152,6 +150,14 @@ fn run_harness(common: &CommonOpts) -> Result<HarnessRunOutcome, HarnessError> {
         Some(p) => p.clone(),
         None => resolve_renderer_path(BuildProfile::from_flags(common.release, common.dev_fast)),
     };
+    logger::info!(
+        "Harness: resolved renderer_path={}, resolution={}x{}, timeout={timeout:?}, interval_ms={}, verbose_renderer={}",
+        renderer_path.display(),
+        width,
+        height,
+        common.interval_ms,
+        common.verbose_renderer
+    );
     let cfg = HostHarnessConfig {
         renderer_path,
         forced_output_path: common.output.clone(),

@@ -32,6 +32,8 @@ pub enum LogComponent {
     Host,
     /// Renderer process (Rust).
     Renderer,
+    /// Renderer integration-test harness process (Rust).
+    RendererTest,
 }
 
 impl LogComponent {
@@ -41,6 +43,7 @@ impl LogComponent {
             Self::Bootstrapper => "bootstrapper",
             Self::Host => "host",
             Self::Renderer => "renderer",
+            Self::RendererTest => "renderer-test",
         }
     }
 }
@@ -74,7 +77,8 @@ pub fn logs_root_with(
     Ok(renderide_root.join("logs"))
 }
 
-/// Root directory containing per-component folders (`bootstrapper`, `host`, `renderer`).
+/// Root directory containing per-component folders (`bootstrapper`, `host`, `renderer`,
+/// `renderer-test`).
 ///
 /// By default this is `Renderide/logs` next to the workspace `crates/` directory. If the
 /// `RENDERIDE_LOGS_ROOT` environment variable is set, that path is used instead (no subdirectory
@@ -236,6 +240,7 @@ mod tests {
         assert_eq!(LogComponent::Bootstrapper.subdir(), "bootstrapper");
         assert_eq!(LogComponent::Host.subdir(), "host");
         assert_eq!(LogComponent::Renderer.subdir(), "renderer");
+        assert_eq!(LogComponent::RendererTest.subdir(), "renderer-test");
     }
 
     #[test]
@@ -243,6 +248,7 @@ mod tests {
         assert_eq!(format!("{}", LogComponent::Bootstrapper), "bootstrapper");
         assert_eq!(format!("{}", LogComponent::Host), "host");
         assert_eq!(format!("{}", LogComponent::Renderer), "renderer");
+        assert_eq!(format!("{}", LogComponent::RendererTest), "renderer-test");
     }
 
     #[test]
@@ -305,9 +311,13 @@ mod tests {
         let a = root.join(LogComponent::Bootstrapper.subdir());
         let b = root.join(LogComponent::Host.subdir());
         let c = root.join(LogComponent::Renderer.subdir());
+        let d = root.join(LogComponent::RendererTest.subdir());
         assert_ne!(a, b);
         assert_ne!(b, c);
         assert_ne!(a, c);
+        assert_ne!(a, d);
+        assert_ne!(b, d);
+        assert_ne!(c, d);
     }
 
     #[test]

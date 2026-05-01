@@ -185,6 +185,11 @@ pub(super) fn run_lockstep_until_png_stable(
             state.observe(now, read_png_observation(output_path)),
             PngStabilityVerdict::Stable
         ) {
+            logger::info!(
+                "Session: fresh PNG stabilized at {} after {:?}",
+                output_path.display(),
+                wait_timing.scene_submit_instant.elapsed()
+            );
             return Ok(SceneSessionOutcome {
                 png_path: output_path.to_path_buf(),
             });
