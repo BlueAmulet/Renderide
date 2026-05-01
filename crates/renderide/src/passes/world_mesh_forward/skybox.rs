@@ -53,8 +53,13 @@ struct SkyboxViewUniforms {
     view_z_right: [f32; 4],
     /// Background color for `CameraClearMode::Color`.
     clear_color: [f32; 4],
-    /// Reserved padding.
-    _pad: [f32; 4],
+    /// `.x`: ndc Y sign passed to the fragment shader (1.0 normal, -1.0 for offscreen-RT views).
+    /// Offscreen-RT views pre-multiply a clip-space Y flip into the world view-projection so the
+    /// render-texture lands V=0 bottom. The skybox is a fullscreen pass whose vertex Y flip is a
+    /// rasterization no-op, so we flip the ndc.y the fragment receives instead — that inverts the
+    /// computed view ray, which is what actually changes which sky direction is sampled per
+    /// framebuffer row. `.yzw` reserved padding.
+    ndc_y_sign_pad: [f32; 4],
 }
 
 impl SkyboxViewUniforms {
@@ -63,6 +68,11 @@ impl SkyboxViewUniforms {
         let (left, right) = skybox_world_to_view_pair(frame);
         let (lx, ly, lz) = view_to_world_basis(left);
         let (rx, ry, rz) = view_to_world_basis(right);
+        let ndc_y_sign = if frame.view.offscreen_write_render_texture_asset_id.is_some() {
+            -1.0
+        } else {
+            1.0
+        };
         Self {
             view_x_left: lx,
             view_y_left: ly,
@@ -71,7 +81,7 @@ impl SkyboxViewUniforms {
             view_y_right: ry,
             view_z_right: rz,
             clear_color: frame.view.clear.color.to_array(),
-            _pad: [0.0; 4],
+            ndc_y_sign_pad: [ndc_y_sign, 0.0, 0.0, 0.0],
         }
     }
 }
