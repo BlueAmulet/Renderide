@@ -12,7 +12,9 @@ use super::ring::BoundedRing;
 use super::submit_batch::{DriverMessage, SubmitBatch};
 use super::surface_counters::SurfaceCounters;
 use crate::gpu::GpuQueueAccessGate;
-use crate::gpu::frame_cpu_gpu_timing::{make_gpu_done_callback, record_real_submit};
+use crate::gpu::frame_cpu_gpu_timing::{
+    FrameTimingTrack, make_gpu_done_callback, record_frame_bracket_gpu_ms, record_real_submit,
+};
 
 /// RAII guard that marks the ring's consumer side dead on drop.
 ///
@@ -77,6 +79,7 @@ fn process_batch(
         surface_texture,
         on_submitted_work_done,
         frame_timing,
+        frame_bracket_readback,
         wait,
         frame_seq,
     } = batch;
@@ -89,13 +92,11 @@ fn process_batch(
     };
 
     if let Some(track) = frame_timing {
-        // Capture the post-submit instant on this thread so it represents "CPU is done preparing
-        // the frame" / "GPU is about to start." Reuse it as the baseline for the GPU completion
-        // callback so `gpu_ms` excludes driver-ring wait time.
+        // Capture the post-submit instant on this thread for the `submit_latency_ms`
+        // diagnostic. The HUD's CPU column is published synchronously from the runtime tick
+        // epilogue via `record_main_thread_cpu_end` and does not depend on this instant.
         let real_submit_at = record_real_submit(&track);
-        let gpu_done =
-            make_gpu_done_callback(track.handle, track.generation, track.seq, real_submit_at);
-        queue.on_submitted_work_done(Box::new(gpu_done));
+        register_gpu_completion(queue, track, real_submit_at, frame_bracket_readback);
     }
 
     for cb in on_submitted_work_done {
@@ -123,4 +124,33 @@ fn process_batch(
     // compiler does not warn about unused fields while we grow the error path.
     let _ = frame_seq;
     let _ = errors; // `errors` will fill in once wgpu surfaces fallible submit/present.
+}
+
+/// Picks the GPU-completion path for a tracked submit.
+///
+/// When `bracket_readback` is `Some`, schedules a `map_async` on the timestamp readback buffer
+/// and publishes the resulting `gpu_frame_ms` (real GPU time) into the timing accumulator
+/// labelled as [`crate::gpu::frame_cpu_gpu_timing::GpuMsSource::FrameBracket`]. Otherwise
+/// registers a `Queue::on_submitted_work_done` callback that publishes the wall-clock
+/// callback-fire latency labelled as [`crate::gpu::frame_cpu_gpu_timing::GpuMsSource::CallbackLatency`].
+fn register_gpu_completion(
+    queue: &wgpu::Queue,
+    track: FrameTimingTrack,
+    real_submit_at: std::time::Instant,
+    bracket_readback: Option<crate::gpu::frame_bracket::FrameBracketReadback>,
+) {
+    if let Some(readback) = bracket_readback {
+        let handle = track.handle;
+        let generation = track.generation;
+        let seq = track.seq;
+        readback.schedule_readback(move |gpu_ms| {
+            if let Some(ms) = gpu_ms {
+                record_frame_bracket_gpu_ms(&handle, generation, seq, ms);
+            }
+        });
+        return;
+    }
+    let gpu_done =
+        make_gpu_done_callback(track.handle, track.generation, track.seq, real_submit_at);
+    queue.on_submitted_work_done(Box::new(gpu_done));
 }

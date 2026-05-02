@@ -339,23 +339,17 @@ pub fn rayon_thread_start_handler() -> impl Fn(usize) + Send + Sync + 'static {
 /// Requests the GPU features needed for timestamp-query-based profiling.
 ///
 /// Returns the subset of `{TIMESTAMP_QUERY, TIMESTAMP_QUERY_INSIDE_ENCODERS}` that the adapter
-/// actually supports. If `cfg(feature = "tracy")` is not active, always returns empty.
+/// actually supports. Always queries the adapter regardless of Cargo features so the debug HUD's
+/// frame-bracket GPU timing can use real hardware timestamps even in non-Tracy builds; the
+/// `tracy`-gated [`GpuProfilerHandle`] consumes the same features for its pass-level path.
 ///
 /// Call this in [`crate::gpu::context`]'s feature-intersection helpers and OR the result into
 /// the device's requested features. `TIMESTAMP_QUERY` alone is enough for pass-level profiling;
-/// `TIMESTAMP_QUERY_INSIDE_ENCODERS` unlocks encoder-level queries on adapters that offer it.
+/// `TIMESTAMP_QUERY_INSIDE_ENCODERS` unlocks encoder-level queries on adapters that offer it,
+/// which is what the frame-bracket writes use to surround the entire tick of work.
 pub fn timestamp_query_features_if_supported(adapter: &wgpu::Adapter) -> wgpu::Features {
-    #[cfg(feature = "tracy")]
-    {
-        let needed =
-            wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
-        adapter.features() & needed
-    }
-    #[cfg(not(feature = "tracy"))]
-    {
-        let _ = adapter;
-        wgpu::Features::empty()
-    }
+    let needed = wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
+    adapter.features() & needed
 }
 
 // ---------------------------------------------------------------------------

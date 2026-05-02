@@ -78,11 +78,12 @@ impl GpuContext {
     }
 
     /// Internal helper that builds the [`crate::gpu::driver_thread::SubmitBatch`] (including the
-    /// frame-timing track) and pushes it into the driver thread's ring. Blocks when the ring
-    /// is full — that block is the frame-pacing backpressure.
+    /// frame-timing track and an optional frame-bracket timestamp readback) and pushes it into
+    /// the driver thread's ring. Blocks when the ring is full — that block is the frame-pacing
+    /// backpressure.
     fn submit_frame_batch_inner(
         &self,
-        command_buffers: Vec<wgpu::CommandBuffer>,
+        mut command_buffers: Vec<wgpu::CommandBuffer>,
         surface_texture: Option<wgpu::SurfaceTexture>,
         wait: Option<crate::gpu::driver_thread::SubmitWait>,
         extra_on_submitted_work_done: Vec<Box<dyn FnOnce() + Send + 'static>>,
@@ -106,12 +107,26 @@ impl GpuContext {
                 frame_start,
             }
         });
+        // Only bracket tracked submits with non-empty work — empty submits (driver flush
+        // sentinels) have no GPU time to measure, and untracked submits have no HUD slot.
+        let frame_bracket_readback = if track.is_some() && !command_buffers.is_empty() {
+            self.submission.frame_bracket.open_session().map(|session| {
+                let begin = session.begin_command_buffer();
+                let end = session.end_command_buffer();
+                command_buffers.insert(0, begin);
+                command_buffers.push(end);
+                session.into_readback()
+            })
+        } else {
+            None
+        };
         let frame_seq = track.map_or(0, |(_, seq, _)| u64::from(seq));
         let batch = crate::gpu::driver_thread::SubmitBatch {
             command_buffers,
             surface_texture,
             on_submitted_work_done: extra_on_submitted_work_done,
             frame_timing,
+            frame_bracket_readback,
             wait,
             frame_seq,
         };

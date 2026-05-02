@@ -156,6 +156,7 @@ impl DriverThread {
             surface_texture: None,
             on_submitted_work_done: Vec::new(),
             frame_timing: None,
+            frame_bracket_readback: None,
             wait: Some(wait),
             frame_seq: 0,
         };
