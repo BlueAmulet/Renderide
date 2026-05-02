@@ -151,23 +151,25 @@ fn triplanar_rgba(
 }
 
 /// Build a triplanar world-space normal via Reoriented Normal Mapping when `_NORMALMAP` is on,
-/// otherwise return the interpolated geometric normal (renormalized).
+/// otherwise return the interpolated geometric normal (renormalized). Triplanar shading does not
+/// rely on the mesh tangent — RNM rotates each per-plane tangent-space normal directly onto the
+/// interpolated world normal — so no tangent is plumbed through this material.
 fn sample_normal_world(uvs: PlanarUvs, world_n: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
     let n_geo = normalize(world_n);
     if (!uvu::kw_enabled(mat._NORMALMAP)) {
         return n_geo;
     }
 
-    var t_x = nd::decode_ts_normal_with_placeholder(
-        textureSample(_NormalMap, _NormalMap_sampler, uvs.uv_x).xyz,
+    var t_x = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_NormalMap, _NormalMap_sampler, uvs.uv_x),
         mat._NormalScale,
     );
-    var t_y = nd::decode_ts_normal_with_placeholder(
-        textureSample(_NormalMap, _NormalMap_sampler, uvs.uv_y).xyz,
+    var t_y = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_NormalMap, _NormalMap_sampler, uvs.uv_y),
         mat._NormalScale,
     );
-    var t_z = nd::decode_ts_normal_with_placeholder(
-        textureSample(_NormalMap, _NormalMap_sampler, uvs.uv_z).xyz,
+    var t_z = nd::decode_ts_normal_with_placeholder_sample(
+        textureSample(_NormalMap, _NormalMap_sampler, uvs.uv_z),
         mat._NormalScale,
     );
 

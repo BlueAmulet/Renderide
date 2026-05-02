@@ -35,7 +35,7 @@ fn vertex_main(
     let world_p = d.model * vec4<f32>(pos.xyz, 1.0);
     let world_n = xb::safe_normalize(d.normal_matrix * n.xyz, vec3<f32>(0.0, 1.0, 0.0));
     let world_tangent = vec4<f32>((d.model * vec4<f32>(tangent.xyz, 0.0)).xyz, tangent.w);
-    let tbn = xb::tangent_frame(world_n, world_tangent);
+    let tbn = pnorm::orthonormal_tbn(world_n, world_tangent);
     let vp = xb::view_projection_for_draw(d, view_idx);
 
     var out: xb::VertexOutput;
@@ -71,9 +71,9 @@ fn decode_normal_world(
     front_facing: bool,
     flip_back_face: bool,
 ) -> mat3x3<f32> {
-    var n = xb::safe_normalize(world_n, vec3<f32>(0.0, 1.0, 0.0));
-    var t = xb::safe_normalize(world_t, pnorm::orthonormal_tbn(n)[0]);
-    var b = xb::safe_normalize(world_b, pnorm::orthonormal_tbn(n)[1]);
+    var n = xb::safe_normalize(world_n, vec3<f32>(0.0, 0.0, 1.0));
+    var t = xb::safe_normalize(world_t, vec3<f32>(1.0, 0.0, 0.0));
+    var b = xb::safe_normalize(world_b, vec3<f32>(0.0, 1.0, 0.0));
 
     if (flip_back_face && !front_facing) {
         n = -n;
@@ -82,13 +82,13 @@ fn decode_normal_world(
     }
 
     if (xb::normal_map_enabled()) {
-        let base_ts = nd::decode_ts_normal_with_placeholder(
-            textureSample(xb::_BumpMap, xb::_BumpMap_sampler, uv_normal).xyz,
+        let base_ts = nd::decode_ts_normal_with_placeholder_sample(
+            textureSample(xb::_BumpMap, xb::_BumpMap_sampler, uv_normal),
             xb::mat._BumpScale,
         );
         let detail_mask = textureSample(xb::_DetailMask, xb::_DetailMask_sampler, uv_detail_mask).r;
-        let detail_ts = nd::decode_ts_normal_with_placeholder(
-            textureSample(xb::_DetailNormalMap, xb::_DetailNormalMap_sampler, uv_detail_normal).xyz,
+        let detail_ts = nd::decode_ts_normal_with_placeholder_sample(
+            textureSample(xb::_DetailNormalMap, xb::_DetailNormalMap_sampler, uv_detail_normal),
             xb::mat._DetailNormalMapScale,
         );
         let blended_ts = xb::safe_normalize(
