@@ -1,4 +1,10 @@
 //! CPU-copy GStreamer sink that uploads decoded RGBA frames into wgpu textures.
+//!
+//! The pipeline inserts a `videoflip method=vertical-flip` element upstream of
+//! this sink (see [`crate::assets::video::player::VideoPlayer::new`]) so frames
+//! arrive in the Unity V=0-bottom convention shared by all sampled textures.
+//! This sink therefore writes the mapped buffer directly with no orientation
+//! transform.
 
 use crate::assets::video::WgpuGstVideoSink;
 use glam::IVec2;
