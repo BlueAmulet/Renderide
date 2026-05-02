@@ -127,13 +127,13 @@ The full schema lives next to the loader in [`crates/renderide/src/config`](crat
 
 ## Debugging
 
-1. Build the workspace in dev mode:
+1. Build the workspace in release mode:
 
    ```bash
-   cargo build --profile dev-fast
+   cargo build --release
    ```
 
-1. Run the bootstrapper in dev mode:
+1. Run the bootstrapper with Rust backtrace enabled:
 
    ```bash
    RUST_BACKTRACE=1 ./target/dev-fast/bootstrapper
