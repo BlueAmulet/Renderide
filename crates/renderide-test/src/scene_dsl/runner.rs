@@ -15,7 +15,8 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::error::HarnessError;
-use crate::host::{HostHarness, HostHarnessConfig};
+use crate::host::{HostHarness, HostHarnessConfig, SessionTemplate};
+use crate::scene::perlin::generate_perlin_rgba;
 
 use super::cases::{CaseTemplate, IntegrationCase};
 use super::output::{
@@ -121,6 +122,8 @@ pub fn run_integration_case(
         HarnessError::QueueOptions(format!("prepare {}: {e}", layout.root.display()))
     })?;
 
+    write_template_side_artifacts(&case.template, &layout)?;
+
     let harness_cfg = HostHarnessConfig {
         renderer_path: runner.renderer_path.clone(),
         forced_output_path: Some(layout.actual_png.clone()),
@@ -129,9 +132,10 @@ pub fn run_integration_case(
         interval_ms: runner.interval_ms,
         timeout: runner.timeout,
         verbose_renderer: runner.verbose_renderer,
+        template: session_template_for(&case.template),
     };
 
-    match drive_template(case.template, harness_cfg) {
+    match drive_template(harness_cfg) {
         Ok(()) => evaluate_and_finalize(case, layout),
         Err(err) => {
             let report = report_from_error(case, format!("harness error: {err}"));
@@ -141,11 +145,39 @@ pub fn run_integration_case(
     }
 }
 
-fn drive_template(template: CaseTemplate, cfg: HostHarnessConfig) -> Result<(), HarnessError> {
+fn drive_template(cfg: HostHarnessConfig) -> Result<(), HarnessError> {
+    let mut h = HostHarness::start(cfg)?;
+    h.run().map(|_| ())
+}
+
+fn session_template_for(template: &CaseTemplate) -> SessionTemplate {
     match template {
-        CaseTemplate::SphereNull => {
-            let mut h = HostHarness::start(cfg)?;
-            h.run().map(|_| ())
+        CaseTemplate::SphereNull => SessionTemplate::Sphere,
+        CaseTemplate::TorusUnlitPerlin { .. } => SessionTemplate::Torus,
+    }
+}
+
+fn write_template_side_artifacts(
+    template: &CaseTemplate,
+    layout: &CaseOutputLayout,
+) -> Result<(), HarnessError> {
+    match template {
+        CaseTemplate::SphereNull => Ok(()),
+        CaseTemplate::TorusUnlitPerlin { perlin } => {
+            let img = generate_perlin_rgba(perlin);
+            let path = layout.root.join("perlin_texture.png");
+            img.save(&path).map_err(|e| HarnessError::PngWrite {
+                path: path.clone(),
+                source: e,
+            })?;
+            logger::info!(
+                "runner: wrote Perlin noise side artifact ({}x{}, seed=0x{:X}) to {}",
+                perlin.width,
+                perlin.height,
+                perlin.seed,
+                path.display()
+            );
+            Ok(())
         }
     }
 }

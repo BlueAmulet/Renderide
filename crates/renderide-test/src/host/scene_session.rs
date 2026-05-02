@@ -1,5 +1,5 @@
 //! End-to-end orchestration of the harness lifecycle: open IPC → spawn renderer → handshake →
-//! upload sphere mesh → swap to scene `FrameSubmitData` → wait for the renderer to write a fresh
+//! upload mesh → swap to scene `FrameSubmitData` → wait for the renderer to write a fresh
 //! PNG → request shutdown.
 //!
 //! The implementation is split across focused submodules:
@@ -13,9 +13,13 @@
 
 use std::time::{Duration, Instant, SystemTime};
 
+use renderide_shared::shared::RenderBoundingBox;
+
 use crate::error::HarnessError;
-use crate::scene::mesh_payload::pack_sphere_mesh_upload;
-use crate::scene::sphere::SphereMesh;
+use crate::scene::mesh::Mesh;
+use crate::scene::mesh_payload::pack_mesh_upload;
+use crate::scene::sphere::generate_sphere;
+use crate::scene::torus::generate_torus;
 
 use super::asset_upload::{DEFAULT_ASSET_UPLOAD_TIMEOUT, MeshUploadRequest, upload_sphere_mesh};
 use super::handshake::{DEFAULT_HANDSHAKE_TIMEOUT, run_handshake};
@@ -32,15 +36,27 @@ pub mod spawn;
 pub use config::SceneSessionConfig;
 
 use config::SceneSessionOutcome;
-use consts::{asset_ids, sphere_tessellation};
+use consts::{asset_ids, sphere_tessellation, torus_geometry};
 use png_readback::{PngStabilityWaitTiming, run_lockstep_until_png_stable};
-use scene_state::{build_scene_state, ensure_scene_submitted};
+use scene_state::{SceneAssetIds, build_scene_state, ensure_scene_submitted};
 use shutdown::request_shutdown_and_wait;
 use spawn::spawn_renderer;
 
+/// Selects which procedural geometry the session uploads and renders.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SessionTemplate {
+    /// Original UV sphere baseline.
+    Sphere,
+    /// Procedural torus sized to fit comfortably inside a unit cube.
+    Torus,
+}
+
 /// Drives the full session end-to-end. The renderer process is killed on `Err` via [`Drop`] of
 /// the spawned-renderer guard.
-pub(super) fn run_session(cfg: &SceneSessionConfig) -> Result<SceneSessionOutcome, HarnessError> {
+pub(super) fn run_session(
+    cfg: &SceneSessionConfig,
+    template: SessionTemplate,
+) -> Result<SceneSessionOutcome, HarnessError> {
     if !cfg.renderer_path.exists() {
         return Err(HarnessError::RendererBinaryMissing(
             cfg.renderer_path.clone(),
@@ -51,7 +67,7 @@ pub(super) fn run_session(cfg: &SceneSessionConfig) -> Result<SceneSessionOutcom
     let prefix = session.shared_memory_prefix.clone();
     let backing_dir = session.tempdir_guard.path().to_path_buf();
     logger::info!(
-        "Session: opened authority queues (prefix={prefix}, backing_dir={})",
+        "Session: opened authority queues (prefix={prefix}, backing_dir={}, template={template:?})",
         backing_dir.display()
     );
 
@@ -65,26 +81,23 @@ pub(super) fn run_session(cfg: &SceneSessionConfig) -> Result<SceneSessionOutcom
         DEFAULT_HANDSHAKE_TIMEOUT,
     )?;
 
-    let mesh = SphereMesh::generate(
-        sphere_tessellation::LATITUDE_BANDS,
-        sphere_tessellation::LONGITUDE_BANDS,
-    );
-    let upload = pack_sphere_mesh_upload(&mesh)
-        .map_err(|e| HarnessError::QueueOptions(format!("pack sphere upload: {e}")))?;
+    let geometry = build_geometry_for_template(template);
+    let upload = pack_mesh_upload(&geometry.mesh, geometry.bounds)
+        .map_err(|e| HarnessError::QueueOptions(format!("pack {template:?} mesh upload: {e}")))?;
     let _uploaded = upload_sphere_mesh(
         &mut session.queues,
         &mut lockstep,
         MeshUploadRequest {
             shared_memory_prefix: &prefix,
             backing_dir: &backing_dir,
-            buffer_id: asset_ids::SPHERE_MESH_BUFFER,
-            asset_id: asset_ids::SPHERE_MESH,
+            buffer_id: asset_ids::MESH_BUFFER,
+            asset_id: geometry.assets.mesh,
             mesh: &upload,
             timeout: DEFAULT_ASSET_UPLOAD_TIMEOUT,
         },
     )?;
 
-    let scene = build_scene_state(&prefix, &backing_dir, &mut lockstep)?;
+    let scene = build_scene_state(&prefix, &backing_dir, geometry.assets, &mut lockstep)?;
 
     let scene_submit_index =
         ensure_scene_submitted(&mut session.queues, &mut lockstep, cfg.timeout)?;
@@ -115,4 +128,52 @@ pub(super) fn run_session(cfg: &SceneSessionConfig) -> Result<SceneSessionOutcom
     request_shutdown_and_wait(&mut session.queues, &mut spawned)?;
 
     Ok(png_outcome)
+}
+
+struct GeometrySetup {
+    mesh: Mesh,
+    bounds: RenderBoundingBox,
+    assets: SceneAssetIds,
+}
+
+fn build_geometry_for_template(template: SessionTemplate) -> GeometrySetup {
+    match template {
+        SessionTemplate::Sphere => GeometrySetup {
+            mesh: generate_sphere(
+                sphere_tessellation::LATITUDE_BANDS,
+                sphere_tessellation::LONGITUDE_BANDS,
+            ),
+            bounds: RenderBoundingBox {
+                center: glam::Vec3::ZERO,
+                extents: glam::Vec3::splat(1.05),
+            },
+            assets: SceneAssetIds {
+                mesh: asset_ids::SPHERE_MESH,
+                material: asset_ids::SPHERE_MATERIAL,
+            },
+        },
+        SessionTemplate::Torus => {
+            let outer = torus_geometry::MAJOR_RADIUS + torus_geometry::MINOR_RADIUS;
+            GeometrySetup {
+                mesh: generate_torus(
+                    torus_geometry::MAJOR_SEGMENTS,
+                    torus_geometry::MINOR_SEGMENTS,
+                    torus_geometry::MAJOR_RADIUS,
+                    torus_geometry::MINOR_RADIUS,
+                ),
+                bounds: RenderBoundingBox {
+                    center: glam::Vec3::ZERO,
+                    extents: glam::Vec3::new(
+                        outer * 1.05,
+                        torus_geometry::MINOR_RADIUS * 1.1,
+                        outer * 1.05,
+                    ),
+                },
+                assets: SceneAssetIds {
+                    mesh: asset_ids::TORUS_MESH,
+                    material: asset_ids::TORUS_MATERIAL,
+                },
+            }
+        }
+    }
 }

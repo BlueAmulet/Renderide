@@ -12,6 +12,8 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::scene::perlin::PerlinTextureSpec;
+
 use super::tolerance::{Combine, Tolerance};
 
 /// A single named integration test case.
@@ -33,13 +35,21 @@ pub struct IntegrationCase {
 
 /// Built-in scene templates. New cases extend this enum and add a matching arm in
 /// [`super::runner::run_integration_case`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CaseTemplate {
     /// Single procedurally-tessellated UV sphere on the renderer's `Null` fallback pipeline
     /// (no shader uploaded). Smallest end-to-end smoke test of IPC, mesh upload, frame loop,
     /// and PNG capture.
     SphereNull,
+    /// Procedural torus rendered through the harness; a deterministic CPU-generated Perlin
+    /// noise RGBA texture is also written to the per-case output directory as a side artifact
+    /// (`perlin_texture.png`). This proves the suite is modular — different geometry plus a
+    /// CPU-generated content artifact alongside the renderer's PNG.
+    TorusUnlitPerlin {
+        /// Perlin noise generator parameters used for the side artifact.
+        perlin: PerlinTextureSpec,
+    },
 }
 
 /// Default golden directory, relative to the workspace root: `crates/renderide-test/goldens/`.
@@ -75,9 +85,45 @@ pub fn unlit_sphere() -> IntegrationCase {
     }
 }
 
+/// Procedural torus rendered through the Null fallback pipeline; the runner writes a
+/// CPU-generated Perlin noise PNG into the per-case output dir alongside the renderer's
+/// `actual.png` to exercise the suite's modular content pipeline.
+///
+/// The renderer pipeline path is the same Null/checkerboard fallback as
+/// [`unlit_sphere`] — only the geometry differs and an additional artifact is written.
+/// Tolerance loosened the same way as `unlit_sphere` to absorb adapter variance.
+pub fn torus_unlit_perlin() -> IntegrationCase {
+    IntegrationCase {
+        name: "torus_unlit_perlin".to_string(),
+        description:
+            "Procedural torus on the Null fallback pipeline; per-case output also receives a CPU-generated Perlin noise PNG."
+                .to_string(),
+        golden_path: default_goldens_dir().join("torus_unlit_perlin.png"),
+        resolution: (256, 256),
+        tolerance: Tolerance {
+            ssim_min: Some(0.65),
+            max_abs_diff: Some(64),
+            max_failing_pixel_fraction: Some(0.40),
+            combine: Combine::Or,
+        },
+        template: CaseTemplate::TorusUnlitPerlin {
+            perlin: PerlinTextureSpec {
+                width: 256,
+                height: 256,
+                seed: 0x00C0_FFEE,
+                octaves: 5,
+                lacunarity: 2.0,
+                gain: 0.5,
+                scale: 4.0,
+                tint: [240, 200, 96],
+            },
+        },
+    }
+}
+
 /// Returns every case in the suite. The order is stable; CLI listings and reports rely on it.
 pub fn registry() -> Vec<IntegrationCase> {
-    vec![unlit_sphere()]
+    vec![unlit_sphere(), torus_unlit_perlin()]
 }
 
 /// Looks up a case by [`IntegrationCase::name`].

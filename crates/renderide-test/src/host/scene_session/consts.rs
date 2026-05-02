@@ -13,8 +13,14 @@ pub(super) mod asset_ids {
     pub(in crate::host::scene_session) const SPHERE_MESH: i32 = 2;
     /// Sphere material asset id; same rationale as [`SPHERE_MESH`].
     pub(in crate::host::scene_session) const SPHERE_MATERIAL: i32 = 4;
-    /// Buffer id for the sphere mesh shared-memory region.
-    pub(in crate::host::scene_session) const SPHERE_MESH_BUFFER: i32 = 0;
+    /// Torus mesh asset id; distinct from the sphere id so a future multi-case session can
+    /// keep both resident.
+    pub(in crate::host::scene_session) const TORUS_MESH: i32 = 3;
+    /// Torus material asset id.
+    pub(in crate::host::scene_session) const TORUS_MATERIAL: i32 = 5;
+    /// Buffer id for any mesh shared-memory region (sphere or torus). Each case re-uses
+    /// buffer id 0 for its own session.
+    pub(in crate::host::scene_session) const MESH_BUFFER: i32 = 0;
     /// Buffer id for the scene-state shared-memory region (pose updates, additions, mesh
     /// states, packed material ids).
     pub(in crate::host::scene_session) const SCENE_STATE_BUFFER: i32 = 1;
@@ -31,6 +37,21 @@ pub(super) mod sphere_tessellation {
     pub(in crate::host::scene_session) const LATITUDE_BANDS: u32 = 16;
     /// Number of longitude bands; `24` keeps triangle count small while preserving the silhouette.
     pub(in crate::host::scene_session) const LONGITUDE_BANDS: u32 = 24;
+}
+
+/// Procedural torus tessellation and dimensions.
+///
+/// Values must match the golden image's vertex layout — changing them invalidates the committed
+/// `goldens/torus.png`.
+pub(super) mod torus_geometry {
+    /// Number of segments around the major circle.
+    pub(in crate::host::scene_session) const MAJOR_SEGMENTS: u32 = 48;
+    /// Number of segments around the tube cross-section.
+    pub(in crate::host::scene_session) const MINOR_SEGMENTS: u32 = 24;
+    /// Major radius (center of tube to torus center).
+    pub(in crate::host::scene_session) const MAJOR_RADIUS: f32 = 0.65;
+    /// Minor radius (tube cross-section).
+    pub(in crate::host::scene_session) const MINOR_RADIUS: f32 = 0.25;
 }
 
 /// Wall-clock timing parameters governing PNG readback, lockstep pumping, and shutdown.
