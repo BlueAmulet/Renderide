@@ -47,7 +47,7 @@ fn orthonormal_tbn_fallback(n: vec3<f32>) -> mat3x3<f32> {
 /// perturbed world-space normal. `world_n` is assumed non-zero; it is normalized internally.
 fn tangent_to_world(world_n: vec3<f32>, ts_n: vec3<f32>) -> vec3<f32> {
     let n = normalize(world_n);
-    let tbn = orthonormal_tbn_fallback(n);
+    let tbn = orthonormal_tbn(n);
     return normalize(tbn * ts_n);
 }
 
