@@ -80,7 +80,7 @@ impl GpuSkinCache {
         self.arenas.tangents()
     }
 
-    /// Blendshape → skin intermediate positions when both passes run.
+    /// Blendshape -> skin intermediate positions when both passes run.
     #[inline]
     pub fn temp_arena(&self) -> &wgpu::Buffer {
         self.arenas.temp()
