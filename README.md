@@ -27,10 +27,10 @@ The split lets the engine and renderer evolve independently and lets the rendere
 Renderide runs as a sibling process to the Resonite host. The bootstrapper launches both and wires up the IPC channels:
 
 ```
-Bootstrapper  ──shm queues──>  Host (.NET / Resonite)
-                                   │
+Bootstrapper  --shm queues-->  Host (.NET / Resonite)
+                                   |
                               shm queues (Primary + Background)
-                                   │
+                                   |
                                    v
                               Renderer (renderide)
 ```
