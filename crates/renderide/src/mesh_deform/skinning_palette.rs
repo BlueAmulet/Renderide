@@ -124,7 +124,7 @@ pub fn write_skinning_palette_bytes(
     }
     let total_bytes = bone_count.saturating_mul(PALETTE_BONE_BYTES);
     out.clear();
-    out.resize(total_bytes, 0);
+    out.reserve(total_bytes);
 
     let smr_world = (smr_node_id >= 0)
         .then(|| {
@@ -138,9 +138,9 @@ pub fn write_skinning_palette_bytes(
         .flatten()
         .unwrap_or(Mat4::IDENTITY);
 
-    let write_one = |slot: &mut [u8], bi: usize, bind_mat: &Mat4| {
+    let palette_matrix = |bi: usize, bind_mat: &Mat4| -> Mat4 {
         let tid = bone_transform_indices.get(bi).copied().unwrap_or(-1);
-        let pal = if tid < 0 {
+        if tid < 0 {
             smr_world
         } else {
             match scene.world_matrix_for_render_context(
@@ -152,20 +152,30 @@ pub fn write_skinning_palette_bytes(
                 Some(world) => world * bind_mat,
                 None => smr_world,
             }
-        };
-        slot.copy_from_slice(bytemuck::cast_slice(&pal.to_cols_array()));
+        }
     };
 
     if bone_count >= SKINNING_PALETTE_PARALLEL_MIN {
+        // SAFETY: `reserve(total_bytes)` above guarantees capacity for `total_bytes` bytes. The
+        // par_chunks_exact_mut loop below fully overwrites every byte via `copy_from_slice`
+        // before any read of `out`, so exposing the uninitialised range as `&mut [u8]` is sound.
+        // `set_len` is the only way to materialise the parallel slot iterator without a wasted
+        // O(N) zero-fill memset before the bone writes overwrite every byte.
+        unsafe {
+            out.set_len(total_bytes);
+        }
         out.par_chunks_exact_mut(PALETTE_BONE_BYTES)
             .zip(skinning_bind_matrices.par_iter().enumerate())
-            .for_each(|(slot, (bi, bind_mat))| write_one(slot, bi, bind_mat));
+            .for_each(|(slot, (bi, bind_mat))| {
+                let pal = palette_matrix(bi, bind_mat);
+                slot.copy_from_slice(bytemuck::cast_slice(&pal.to_cols_array()));
+            });
     } else {
-        for (slot, (bi, bind_mat)) in out
-            .chunks_exact_mut(PALETTE_BONE_BYTES)
-            .zip(skinning_bind_matrices.iter().enumerate())
-        {
-            write_one(slot, bi, bind_mat);
+        // Serial path grows `out` from zero via extend_from_slice per bone -- no zero-fill, no
+        // unsafe.
+        for (bi, bind_mat) in skinning_bind_matrices.iter().enumerate() {
+            let pal = palette_matrix(bi, bind_mat);
+            out.extend_from_slice(bytemuck::cast_slice(&pal.to_cols_array()));
         }
     }
     Some(bone_count)

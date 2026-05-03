@@ -27,11 +27,12 @@ pub fn hi_z_snapshot_from_linear_linear(
 
 /// Unpacks GPU readback with `bytes_per_row` alignment (256-byte aligned rows) into dense `mips`.
 ///
-/// The output is pre-sized to [`total_float_count`] and rows are copied as bulk byte ranges into
-/// the pre-aligned `Vec<f32>` storage. When the row's source byte range happens to satisfy `f32`
-/// alignment (the typical case for `wgpu::BufferSlice::get_mapped_range`), the copy goes through
-/// [`bytemuck::cast_slice`]; otherwise a [`f32::from_le_bytes`] fallback handles unaligned bytes.
-/// Both paths produce identical values on little-endian targets.
+/// The output is grown via `extend_from_slice` per row so the pyramid bytes are written exactly
+/// once -- no zero-fill memset before the row copy overwrites every element. When the row's
+/// source byte range happens to satisfy `f32` alignment (the typical case for
+/// `wgpu::BufferSlice::get_mapped_range`), the bulk path goes through [`bytemuck::cast_slice`];
+/// otherwise a [`f32::from_le_bytes`] fallback handles unaligned bytes. Both paths produce
+/// identical values on little-endian targets.
 pub fn unpack_linear_rows_to_mips(
     base_width: u32,
     base_height: u32,
@@ -45,9 +46,8 @@ pub fn unpack_linear_rows_to_mips(
 
     profiling::scope!("hi_z::unpack_linear_rows");
     let expected = total_float_count(base_width, base_height, mip_levels);
-    let mut out: Vec<f32> = vec![0.0; expected];
+    let mut out: Vec<f32> = Vec::with_capacity(expected);
     let mut staging_off = 0usize;
-    let mut out_off = 0usize;
     for mip in 0..mip_levels {
         let (w, h) = mip_dimensions(base_width, base_height, mip)?;
         let row_pitch = wgpu::util::align_to(w * 4, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) as usize;
@@ -56,20 +56,17 @@ pub fn unpack_linear_rows_to_mips(
             return None;
         }
         let dense_row_bytes = (w as usize) * 4;
-        let dense_row_floats = w as usize;
         for row in 0..h {
             let row_start = staging_off + row as usize * row_pitch;
             let row_bytes = staging.get(row_start..row_start + dense_row_bytes)?;
-            let dst = out.get_mut(out_off..out_off + dense_row_floats)?;
             match bytemuck::try_cast_slice::<u8, f32>(row_bytes) {
-                Ok(src_floats) => dst.copy_from_slice(src_floats),
-                Err(_) => {
-                    for (slot, c) in dst.iter_mut().zip(row_bytes.chunks_exact(4)) {
-                        *slot = f32::from_le_bytes([c[0], c[1], c[2], c[3]]);
-                    }
-                }
+                Ok(src_floats) => out.extend_from_slice(src_floats),
+                Err(_) => out.extend(
+                    row_bytes
+                        .chunks_exact(4)
+                        .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])),
+                ),
             }
-            out_off += dense_row_floats;
         }
         staging_off += mip_bytes;
     }
