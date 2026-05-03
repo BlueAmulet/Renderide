@@ -19,7 +19,10 @@ use crate::shared::{
 };
 
 /// Touched-renderer count above which blendshape weight apply fans out across rayon.
-const BLENDSHAPE_APPLY_PARALLEL_MIN: usize = 128;
+///
+/// 1024 matches Godot's `threaded_cull_minimum_instances` default. Below this point the
+/// per-batch grouping + rayon dispatch overhead dominates the simple serial loop.
+const BLENDSHAPE_APPLY_PARALLEL_MIN: usize = 1024;
 
 use super::diagnostics::{
     BONE_INDEX_EMPTY_WARNED_SCENES, SKINNED_MESH_OOB_WARNED_SCENES, warn_oob_renderable_index_once,
