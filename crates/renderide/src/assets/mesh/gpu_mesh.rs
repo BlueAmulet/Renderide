@@ -29,7 +29,10 @@ use super::upload_impl::{
 
 use super::gpu_mesh_hints::{
     blendshape_descriptor_count, derived_streams_compatible_for_in_place, validated_submesh_ranges,
+    validated_submesh_topologies,
 };
+
+use crate::materials::RasterPrimitiveTopology;
 
 #[derive(Clone)]
 pub(super) struct ExtendedVertexStreamSource {
@@ -68,7 +71,15 @@ pub struct GpuMesh {
     /// Total index elements across all submeshes.
     pub index_count: u32,
     /// Per-submesh `(first_index, index_count)` in elements of `index_format`.
+    ///
+    /// Aligned row-for-row with [`Self::submesh_topologies`].
     pub submeshes: Vec<(u32, u32)>,
+    /// Per-submesh primitive topology, aligned row-for-row with [`Self::submeshes`].
+    ///
+    /// Sourced from [`crate::shared::SubmeshBufferDescriptor::topology`] at upload time.
+    /// The synthesized fallback range used when the host sends no submeshes (or every submesh
+    /// fails validation) defaults to [`RasterPrimitiveTopology::TriangleList`].
+    pub submesh_topologies: Vec<RasterPrimitiveTopology>,
     /// Vertex count from the host upload (used for deform and draw ranges).
     pub vertex_count: u32,
     /// Byte stride of one interleaved vertex in `vertex_buffer`.
@@ -627,9 +638,12 @@ impl GpuMesh {
         );
         let num_blendshapes = blend_up.num_blendshapes;
 
-        let submeshes = {
+        let (submeshes, submesh_topologies) = {
             profiling::scope!("asset::mesh_validate_submesh_ranges");
-            validated_submesh_ranges(&data.submeshes, core.index_count_u32)
+            (
+                validated_submesh_ranges(&data.submeshes, core.index_count_u32),
+                validated_submesh_topologies(&data.submeshes, core.index_count_u32),
+            )
         };
 
         let resident_bytes = {
@@ -651,6 +665,7 @@ impl GpuMesh {
             index_format: core.index_format,
             index_count: core.index_count_u32,
             submeshes,
+            submesh_topologies,
             vertex_count: data.vertex_count.max(0) as u32,
             vertex_stride: core.vertex_stride,
             bounds: data.bounds,

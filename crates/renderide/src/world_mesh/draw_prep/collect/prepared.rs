@@ -13,7 +13,7 @@ use crate::world_mesh::culling::{
 };
 use crate::world_mesh::materials::FrameMaterialBatchCache;
 
-use super::super::item::WorldMeshDrawItem;
+use super::super::item::{WorldMeshDrawItem, stacked_material_submesh_topology};
 use super::super::prepared_renderables::FramePreparedDraw;
 use super::candidate::{DrawCandidate, evaluate_draw_candidate};
 use super::{
@@ -178,10 +178,13 @@ fn append_prepared_run_draws(
     run: &[FramePreparedDraw],
     ctx: &DrawCollectionContext<'_>,
     cache: &FrameMaterialBatchCache,
+    mesh: &crate::assets::mesh::GpuMesh,
     state: PreparedRunViewState,
     out: &mut Vec<WorldMeshDrawItem>,
 ) {
     for d in run {
+        let primitive_topology =
+            stacked_material_submesh_topology(d.slot_index, &mesh.submesh_topologies);
         let candidate = DrawCandidate {
             space_id: d.space_id,
             node_id: d.node_id,
@@ -204,6 +207,7 @@ fn append_prepared_run_draws(
             cache,
             candidate,
             state.front_face,
+            primitive_topology,
             state.rigid_world_matrix,
             state.alpha_distance_sq,
         ) {
@@ -235,7 +239,7 @@ fn collect_prepared_renderer_run(
     }
     let (state, cull_stats) = prepared_run_view_state(run, first, mesh, &skinning, ctx);
     if let Some(state) = state {
-        append_prepared_run_draws(run, ctx, cache, state, out);
+        append_prepared_run_draws(run, ctx, cache, mesh, state, out);
     }
     cull_stats
 }

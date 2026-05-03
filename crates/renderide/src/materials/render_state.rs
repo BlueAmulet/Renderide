@@ -10,5 +10,5 @@ mod unity_mapping;
 pub use from_maps::{material_render_state_for_lookup, material_render_state_from_maps};
 pub use types::{
     MaterialCullOverride, MaterialDepthOffsetState, MaterialRenderState, MaterialStencilState,
-    RasterFrontFace,
+    RasterFrontFace, RasterPrimitiveTopology,
 };
