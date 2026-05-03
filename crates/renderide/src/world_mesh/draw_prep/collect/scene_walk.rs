@@ -298,37 +298,33 @@ fn push_one_slot_draw(
     if index_count == 0 || material_asset_id < 0 {
         return;
     }
+    let cull_result: Option<Result<Option<glam::Mat4>, CpuCullFailure>> = match cached_cull {
+        Some(CachedCull::Accepted(m)) => Some(Ok(*m)),
+        Some(CachedCull::RejectedFrustum) => Some(Err(CpuCullFailure::Frustum)),
+        Some(CachedCull::RejectedHiZ) => Some(Err(CpuCullFailure::HiZ)),
+        // Single-slot renderer bypassed the hoist: cull inline so per-slot work matches the
+        // cached path without paying the CachedCull wrapper cost.
+        None if !draw.skinned => ctx.culling.map(|culling| {
+            mesh_draw_passes_cpu_cull(
+                &MeshCullTarget {
+                    scene: ctx.scene,
+                    space_id: draw.space_id,
+                    mesh: draw.mesh,
+                    skinned: draw.skinned,
+                    skinned_renderer: draw.skinned_renderer,
+                    node_id: draw.renderer.node_id,
+                },
+                is_overlay,
+                culling,
+                ctx.render_context,
+            )
+        }),
+        None => None,
+    };
     let mut rigid_world_matrix = None;
-    if let Some(outcome) = cached_cull {
+    if let Some(outcome) = cull_result {
         acc.cull_stats.0 += 1;
         match outcome {
-            CachedCull::RejectedFrustum => {
-                acc.cull_stats.1 += 1;
-                return;
-            }
-            CachedCull::RejectedHiZ => {
-                acc.cull_stats.2 += 1;
-                return;
-            }
-            CachedCull::Accepted(m) => {
-                rigid_world_matrix = *m;
-            }
-        }
-    } else if !draw.skinned
-        && let Some(culling) = ctx.culling
-    {
-        // Single-slot renderer that bypassed the hoist: do the cull inline so the per-slot work
-        // is identical to the cached path without paying the `CachedCull` enum / wrapper cost.
-        acc.cull_stats.0 += 1;
-        let target = MeshCullTarget {
-            scene: ctx.scene,
-            space_id: draw.space_id,
-            mesh: draw.mesh,
-            skinned: draw.skinned,
-            skinned_renderer: draw.skinned_renderer,
-            node_id: draw.renderer.node_id,
-        };
-        match mesh_draw_passes_cpu_cull(&target, is_overlay, culling, ctx.render_context) {
             Err(CpuCullFailure::Frustum) => {
                 acc.cull_stats.1 += 1;
                 return;
@@ -337,9 +333,7 @@ fn push_one_slot_draw(
                 acc.cull_stats.2 += 1;
                 return;
             }
-            Ok(m) => {
-                rigid_world_matrix = m;
-            }
+            Ok(m) => rigid_world_matrix = m,
         }
     }
     if !world_space_deformed && rigid_world_matrix.is_none() {

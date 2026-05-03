@@ -286,8 +286,7 @@ impl WorldTransformCache {
             );
             let local = local_matrices[*cycle_id];
             world_matrices[*cycle_id] = local;
-            degenerate_scales[*cycle_id] =
-                render_transform_has_degenerate_scale(&nodes[*cycle_id]);
+            degenerate_scales[*cycle_id] = render_transform_has_degenerate_scale(&nodes[*cycle_id]);
             computed[*cycle_id] = true;
         }
 
@@ -316,15 +315,15 @@ impl WorldTransformCache {
         // Subsequent levels read the previous level's world / degenerate state, multiply locally,
         // and write back disjoint indices. The collect-then-apply split avoids needing unsafe
         // disjoint-index access into world_matrices.
-        for level_idx in 1..bfs_levels.len() {
-            if bfs_levels[level_idx].is_empty() {
+        for level in bfs_levels.iter().skip(1) {
+            if level.is_empty() {
                 continue;
             }
             let local_ro: &[Mat4] = local_matrices;
             let world_ro: &[Mat4] = world_matrices;
             let degen_ro: &[bool] = degenerate_scales;
             bfs_writes.clear();
-            bfs_levels[level_idx]
+            level
                 .par_iter()
                 .map(|&i| {
                     let p = node_parents[i] as usize;
@@ -335,7 +334,7 @@ impl WorldTransformCache {
                     (parent_world * local, parent_degen | degen_self)
                 })
                 .collect_into_vec(bfs_writes);
-            for (slot, &i) in bfs_writes.iter().zip(bfs_levels[level_idx].iter()) {
+            for (slot, &i) in bfs_writes.iter().zip(level.iter()) {
                 world_matrices[i] = slot.0;
                 degenerate_scales[i] = slot.1;
                 computed[i] = true;
