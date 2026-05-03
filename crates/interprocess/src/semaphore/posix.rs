@@ -125,8 +125,10 @@ impl PosixSemaphore {
     /// edge cases remain well-defined.
     #[cfg(not(target_vendor = "apple"))]
     fn wait_timed(&self, timeout: Duration) -> bool {
-        // SAFETY: `timespec` is a POD struct of integers; all-zero is a valid bit pattern.
-        let mut ts: libc::timespec = unsafe { std::mem::zeroed() };
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
         // SAFETY: `&mut ts` is a valid out-pointer; clockid is a constant.
         if unsafe { libc::clock_gettime(libc::CLOCK_REALTIME, core::ptr::addr_of_mut!(ts)) } != 0 {
             return false;

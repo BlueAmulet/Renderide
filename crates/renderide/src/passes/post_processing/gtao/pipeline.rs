@@ -29,12 +29,14 @@ use crate::embedded_shaders::{
     GTAO_APPLY_DEFAULT_WGSL, GTAO_APPLY_MULTIVIEW_WGSL, GTAO_DENOISE_DEFAULT_WGSL,
     GTAO_DENOISE_MULTIVIEW_WGSL, GTAO_MAIN_DEFAULT_WGSL, GTAO_MAIN_MULTIVIEW_WGSL,
 };
+use crate::gpu::bind_layout::{
+    fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry, texture_layout_entry,
+    uniform_buffer_layout_entry,
+};
 use crate::render_graph::gpu_cache::{
     BindGroupMap, FullscreenPipelineVariantDesc, FullscreenShaderVariants, OnceGpu,
     RenderPipelineMap, create_d2_array_view, create_linear_clamp_sampler, create_uniform_buffer,
-    create_wgsl_shader_module, fragment_filterable_d2_array_entry,
-    fragment_filtering_sampler_entry, fullscreen_pipeline_variant, stereo_mask_or_template,
-    texture_layout_entry, uniform_buffer_layout_entry,
+    create_wgsl_shader_module, fullscreen_pipeline_variant, stereo_mask_or_template,
 };
 
 /// AO term and packed-edges target format. R8 unorm matches XeGTAO's reference shape (the AO

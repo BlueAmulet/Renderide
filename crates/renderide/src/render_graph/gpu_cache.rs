@@ -31,17 +31,6 @@ pub(crate) use samplers::{
 };
 pub(crate) use shader::create_wgsl_shader_module;
 
-// Bind-group layout entry helpers moved to `crate::gpu::bind_layout`. Re-exported here so
-// existing render_graph internal callers keep using `super::gpu_cache::*` paths.
-#[expect(
-    unused_imports,
-    reason = "back-compat: render_graph internals reach these via super::gpu_cache::*"
-)]
-pub(crate) use crate::gpu::bind_layout::{
-    fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry, sampler_layout_entry,
-    storage_texture_layout_entry, texture_layout_entry, uniform_buffer_layout_entry,
-};
-
 #[cfg(test)]
 mod tests {
     use crate::gpu::bind_layout::texture_layout_entry;

@@ -466,19 +466,37 @@ pub(super) fn write_in_place_index_buffer(
     queue.write_buffer(mesh.index_buffer.as_ref(), 0, ib_slice);
 }
 
-/// Writes bone/synthetic bone buffers from `raw` according to hint flags.
-#[expect(
-    clippy::fn_params_excessive_bools,
-    reason = "per-buffer hint flags from the host; grouping them obscures the per-buffer intent"
-)]
+/// Per-buffer hint flags driving [`write_in_place_bone_buffers`].
+///
+/// Each field maps one-to-one to a host upload hint and selects which bone-related buffers are
+/// rewritten in this in-place update.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct BoneBufferWriteHints {
+    /// Whole upload involves bone buffers; if `false`, the call is a no-op.
+    pub needs_bone_buffers: bool,
+    /// The mesh has no real bones and is using synthesised single-bone data for blendshape-only
+    /// skinning.
+    pub synthetic_bones: bool,
+    /// Full upload: every bone buffer should be rewritten irrespective of the per-buffer flags.
+    pub full: bool,
+    /// Bone counts and bone weights/indices should be rewritten.
+    pub write_bone_weights: bool,
+    /// Bind poses should be rewritten.
+    pub write_bind_poses: bool,
+}
+
+/// Writes bone/synthetic bone buffers from `raw` according to `hints`.
 pub(super) fn write_in_place_bone_buffers(
     ctx: &MeshInPlaceWriteContext<'_>,
-    needs_bone_buffers: bool,
-    synthetic_bones: bool,
-    full: bool,
-    write_bone_weights: bool,
-    write_bind_poses: bool,
+    hints: BoneBufferWriteHints,
 ) -> Option<()> {
+    let BoneBufferWriteHints {
+        needs_bone_buffers,
+        synthetic_bones,
+        full,
+        write_bone_weights,
+        write_bind_poses,
+    } = hints;
     if !needs_bone_buffers {
         return Some(());
     }

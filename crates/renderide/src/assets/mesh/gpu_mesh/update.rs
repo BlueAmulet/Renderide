@@ -19,7 +19,7 @@ use super::super::upload_impl::{
     upload_default_uv1_vertex_stream, upload_extended_vertex_streams, upload_uv1_vertex_stream,
 };
 use super::{
-    ExtendedVertexStreamSource, GpuMesh, MeshInPlaceWriteContext,
+    BoneBufferWriteHints, ExtendedVertexStreamSource, GpuMesh, MeshInPlaceWriteContext,
     blendshape_and_deform_buffers_match_for_in_place, compatible_for_in_place_real_skeleton,
     compatible_for_in_place_synthetic_blendshape_skeleton, extended_vertex_stream_bytes,
     extended_vertex_stream_source_from_raw, write_in_place_blendshape_buffer,
@@ -323,11 +323,13 @@ impl GpuMesh {
                 vertex_count: vc_usize,
                 vertex_stride: vertex_stride_us,
             },
-            needs_bone_buffers,
-            synthetic_bones,
-            full,
-            write_bone_weights,
-            write_bind_poses,
+            BoneBufferWriteHints {
+                needs_bone_buffers,
+                synthetic_bones,
+                full,
+                write_bone_weights,
+                write_bind_poses,
+            },
         )?;
         write_in_place_blendshape_buffer(self, queue, raw, layout, data, write_blend)?;
 

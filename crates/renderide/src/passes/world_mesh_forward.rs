@@ -54,6 +54,7 @@ use std::num::NonZeroU32;
 use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
 use crate::render_graph::context::{CallbackCtx, ComputePassCtx, RasterPassCtx};
 use crate::render_graph::error::{RenderPassError, SetupError};
+use crate::render_graph::frame_params::MsaaViewsSlot;
 use crate::render_graph::gpu_cache::stereo_mask_or_template;
 use crate::render_graph::pass::{CallbackPass, ComputePass, PassBuilder, RasterPass};
 use crate::render_graph::resources::{
@@ -67,8 +68,7 @@ use execute_helpers::{
     encode_world_mesh_forward_depth_snapshot, prepare_world_mesh_forward_frame,
     record_world_mesh_forward_intersection_graph_raster,
     record_world_mesh_forward_opaque_graph_raster,
-    record_world_mesh_forward_transparent_graph_raster, resolve_forward_msaa_views,
-    stencil_load_ops,
+    record_world_mesh_forward_transparent_graph_raster, stencil_load_ops,
 };
 use skybox::{SkyboxRenderer, record_prepared_skybox};
 
@@ -402,23 +402,17 @@ impl ComputePass for WorldMeshDepthSnapshotPass {
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
         profiling::scope!("world_mesh_forward::depth_snapshot_record");
         let frame = &mut *ctx.pass_frame;
-        let msaa_views = resolve_forward_msaa_views(
-            ctx.graph_resources,
-            self.resources,
-            frame.view.sample_count,
-            frame.view.multiview_stereo,
-        );
-
         let Some(mut prepared) = ctx.blackboard.take::<WorldMeshForwardPlanSlot>() else {
             return Ok(());
         };
+        let msaa_views = ctx.blackboard.get::<MsaaViewsSlot>();
         let msaa_depth_resolve = frame.view.msaa_depth_resolve.clone();
         let recorded = encode_world_mesh_forward_depth_snapshot(
             ctx.device,
             ctx.encoder,
             frame,
             &prepared,
-            msaa_views.as_ref(),
+            msaa_views,
             msaa_depth_resolve.as_deref(),
             ctx.profiler,
         );
@@ -693,22 +687,16 @@ impl ComputePass for WorldMeshForwardDepthResolvePass {
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
         profiling::scope!("world_mesh_forward::depth_resolve_record");
         let frame = &mut *ctx.pass_frame;
-        let msaa_views = resolve_forward_msaa_views(
-            ctx.graph_resources,
-            self.resources,
-            frame.view.sample_count,
-            frame.view.multiview_stereo,
-        );
+        let msaa_views = ctx.blackboard.get::<MsaaViewsSlot>();
         let msaa_depth_resolve = frame.view.msaa_depth_resolve.clone();
         encode_msaa_depth_resolve_after_clear_only(
             ctx.device,
             ctx.encoder,
             frame,
-            msaa_views.as_ref(),
+            msaa_views,
             msaa_depth_resolve.as_deref(),
             ctx.profiler,
         );
-        // No blackboard interaction needed: depth resolve is purely encoder-driven.
         Ok(())
     }
 }

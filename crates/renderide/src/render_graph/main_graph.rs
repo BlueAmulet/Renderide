@@ -439,11 +439,7 @@ pub fn build_main_graph(
     );
     let mut builder = GraphBuilder::new();
     let handles = import_main_graph_resources(&mut builder);
-    let msaa_handles = [
-        handles.scene_color_hdr_msaa,
-        handles.forward_msaa_depth,
-        handles.forward_msaa_depth_r32,
-    ];
+    let msaa_handles = [handles.forward_msaa_depth, handles.forward_msaa_depth_r32];
     let mut graph = add_main_graph_passes_and_edges(
         builder,
         handles,
