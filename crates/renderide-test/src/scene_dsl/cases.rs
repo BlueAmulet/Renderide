@@ -86,20 +86,23 @@ pub fn unlit_sphere() -> IntegrationCase {
 }
 
 /// Procedural torus rendered with an embedded unlit shader (`Unlit.shader` resolved through
-/// the test-only `RENDERIDE_TEST_STEM:` sentinel). The runner additionally writes a
-/// CPU-generated Perlin noise PNG into the per-case output dir alongside `actual.png` to
-/// exercise the suite's modular content pipeline.
+/// the test-only `RENDERIDE_TEST_STEM:` sentinel) and the CPU-generated Perlin noise bound
+/// to the material's `_Tex` slot via the IPC upload chain
+/// (`SetTexture2D{Format,Properties,Data}`, `MaterialPropertyIdRequest`, then a
+/// `MaterialsUpdateBatch` carrying `SetShader` / `SetTexture` / `SetFloat4` opcodes). The
+/// same Perlin PNG is also written to the per-case output dir as a side artifact so
+/// reviewers can compare the texture against the rendered surface directly.
 ///
 /// Distinct from [`unlit_sphere`] in three ways: different geometry (torus instead of
-/// sphere), a real shader is uploaded and bound to the material (so the rendering is the
-/// embedded `unlit_default` WGSL stem rather than the Null/checkerboard fallback), and the
-/// case emits a side artifact. Tolerance is still relatively loose to absorb adapter
-/// variance under software rasterizers.
+/// sphere), a real shader is uploaded with a real texture bound to it (so the rendering is
+/// the embedded `unlit_default` WGSL stem sampling the Perlin pattern, not the
+/// Null/checkerboard fallback), and the case emits a side artifact. Tolerance is the
+/// standard SSIM-or-pixel-diff form to absorb adapter variance under software rasterizers.
 pub fn torus_unlit_perlin() -> IntegrationCase {
     IntegrationCase {
         name: "torus_unlit_perlin".to_string(),
         description:
-            "Procedural torus rendered with the embedded unlit shader; per-case output also receives a CPU-generated Perlin noise PNG."
+            "Procedural torus rendered with the embedded unlit shader and a CPU-generated Perlin noise texture bound to `_Tex`; the same Perlin PNG is emitted as a per-case side artifact."
                 .to_string(),
         golden_path: default_goldens_dir().join("torus_unlit_perlin.png"),
         resolution: (256, 256),

@@ -20,7 +20,8 @@ fn sphere_mesh_to_upload_data_pipeline_is_self_consistent() {
 
     let upload = pack_sphere_mesh_upload(&mesh).expect("pack");
     assert_eq!(upload.vertex_count as usize, mesh.vertices.len());
-    assert_eq!(upload.vertex_attributes.len(), 2);
+    // pos + normal + uv + color = 4 attributes
+    assert_eq!(upload.vertex_attributes.len(), 4);
     assert_eq!(upload.submeshes.len(), 1);
     assert_eq!(
         upload.submeshes[0].index_count,

@@ -153,7 +153,15 @@ fn drive_template(cfg: HostHarnessConfig) -> Result<(), HarnessError> {
 fn session_template_for(template: &CaseTemplate) -> SessionTemplate {
     match template {
         CaseTemplate::SphereNull => SessionTemplate::Sphere,
-        CaseTemplate::TorusUnlitPerlin { .. } => SessionTemplate::Torus,
+        CaseTemplate::TorusUnlitPerlin { perlin } => {
+            let img = generate_perlin_rgba(perlin);
+            let texture_size = (img.width(), img.height());
+            let texture_rgba = img.into_raw();
+            SessionTemplate::Torus {
+                texture_rgba,
+                texture_size,
+            }
+        }
     }
 }
 

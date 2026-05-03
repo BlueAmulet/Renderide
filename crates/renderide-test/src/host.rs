@@ -115,7 +115,7 @@ impl HostHarness {
             "Harness: starting scene session (output_path={})",
             session_cfg.output_path.display()
         );
-        match scene_session::run_session(&session_cfg, self.cfg.template) {
+        match scene_session::run_session(&session_cfg, self.cfg.template.clone()) {
             Ok(outcome) => {
                 logger::info!(
                     "Harness: scene session completed (png_path={})",

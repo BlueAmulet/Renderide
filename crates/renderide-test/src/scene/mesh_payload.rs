@@ -10,7 +10,7 @@ use renderide_shared::buffer::SharedMemoryBufferDescriptor;
 use renderide_shared::shared::{
     BlendshapeBufferDescriptor, IndexBufferFormat, MeshUploadData, MeshUploadHint,
     MeshUploadHintFlag, RenderBoundingBox, SubmeshBufferDescriptor, SubmeshTopology,
-    VertexAttributeDescriptor,
+    VertexAttributeDescriptor, VertexAttributeFormat, VertexAttributeType,
 };
 use renderide_shared::wire_writer::mesh_layout::{
     self, InterleavedAttribute, MeshLayoutInput, MeshPayload, normal_float3_attr,
@@ -66,11 +66,18 @@ pub enum MeshUploadDescriptorError {
 /// Backwards-compatible alias for the historical name.
 pub type SphereMeshDescriptorError = MeshUploadDescriptorError;
 
-/// Encodes any [`Mesh`] (sphere, torus, custom) to a [`MeshUpload`].
+/// Encodes any [`Mesh`] (sphere, torus, custom) to a [`MeshUpload`] with position, normal,
+/// UV0, and color (white) attributes.
 ///
 /// The result is independent of the asset id and the SHM descriptor so the same upload payload
 /// can be reused across runs (the harness picks the asset id and writes the bytes into its own
 /// shared-memory buffer). `bounds` should fully contain the mesh in object space.
+///
+/// All four attributes are always emitted: the unlit material's vertex stage reads
+/// `@location(0..3)` (position, normal, uv, color) and unbound attribute slots read garbage
+/// on some drivers, so cases that don't otherwise care about UV / color still need them
+/// present and well-defined. Color is filled with `(1, 1, 1, 1)` so the unlit fragment's
+/// `color * vertex_color` term passes through unchanged.
 pub fn pack_mesh_upload(
     mesh: &Mesh,
     bounds: RenderBoundingBox,
@@ -86,6 +93,14 @@ pub fn pack_mesh_upload(
         .iter()
         .flat_map(|v| v.normal.iter().flat_map(|c| c.to_le_bytes()))
         .collect();
+    let uvs: Vec<u8> = mesh
+        .vertices
+        .iter()
+        .flat_map(|v| v.uv.iter().flat_map(|c| c.to_le_bytes()))
+        .collect();
+    let colors: Vec<u8> = (0..mesh.vertices.len())
+        .flat_map(|_| [1.0f32, 1.0, 1.0, 1.0].iter().flat_map(|c| c.to_le_bytes()))
+        .collect();
 
     let index_buffer_format = if u16::try_from(mesh.vertices.len()).is_ok() {
         IndexBufferFormat::UInt16
@@ -95,13 +110,20 @@ pub fn pack_mesh_upload(
     let index_bytes = encode_indices(&mesh.indices, index_buffer_format);
     let index_count = mesh.indices.len() as i32;
 
-    let vertex_attributes = vec![position_float3_attr(), normal_float3_attr()];
+    let vertex_attributes = vec![
+        position_float3_attr(),
+        normal_float3_attr(),
+        uv0_float2_attr(),
+        color_float4_attr(),
+    ];
     let payload = write_mesh_payload(&MeshLayoutInput {
         vertex_count,
         vertex_attributes: vertex_attributes.clone(),
         sources: vec![
             InterleavedAttribute { bytes: &positions },
             InterleavedAttribute { bytes: &normals },
+            InterleavedAttribute { bytes: &uvs },
+            InterleavedAttribute { bytes: &colors },
         ],
         indices: &index_bytes,
         index_buffer_format,
@@ -122,6 +144,25 @@ pub fn pack_mesh_upload(
         submeshes,
         bounds,
     })
+}
+
+/// Float2 UV0 attribute descriptor. Mirrors the `position_float3_attr` / `normal_float3_attr`
+/// helpers in `renderide_shared::wire_writer::mesh_layout`.
+fn uv0_float2_attr() -> VertexAttributeDescriptor {
+    VertexAttributeDescriptor {
+        attribute: VertexAttributeType::UV0,
+        format: VertexAttributeFormat::Float32,
+        dimensions: 2,
+    }
+}
+
+/// Float4 vertex-color attribute descriptor.
+fn color_float4_attr() -> VertexAttributeDescriptor {
+    VertexAttributeDescriptor {
+        attribute: VertexAttributeType::Color,
+        format: VertexAttributeFormat::Float32,
+        dimensions: 4,
+    }
 }
 
 /// Backwards-compatible wrapper that packs the unit sphere using the historical bounds margin.
@@ -203,11 +244,12 @@ mod tests {
         let upload = pack_sphere_mesh_upload(&mesh).expect("pack");
         assert_eq!(upload.vertex_count as usize, mesh.vertices.len());
         assert_eq!(upload.index_buffer_format, IndexBufferFormat::UInt16);
-        assert_eq!(upload.payload.vertex_stride_bytes, 12 + 12);
-        // vertices (24B/vertex) + indices (2B each) + bone_counts (vertex_count zeroed bytes)
+        // position(12) + normal(12) + uv(8) + color(16) = 48 bytes per vertex
+        const STRIDE: usize = 12 + 12 + 8 + 16;
+        assert_eq!(upload.payload.vertex_stride_bytes, STRIDE);
         assert_eq!(
             upload.payload.bytes.len(),
-            upload.vertex_count as usize * 24
+            upload.vertex_count as usize * STRIDE
                 + mesh.indices.len() * 2
                 + upload.vertex_count as usize
         );
@@ -248,7 +290,7 @@ mod tests {
         assert_eq!(upload_data.bone_count, 0);
         assert_eq!(upload_data.bone_weight_count, 0);
         assert_eq!(upload_data.index_buffer_format, IndexBufferFormat::UInt16);
-        assert_eq!(upload_data.vertex_attributes.len(), 2);
+        assert_eq!(upload_data.vertex_attributes.len(), 4);
         assert_eq!(upload_data.submeshes.len(), 1);
         assert!(upload_data.blendshape_buffers.is_empty());
         assert!(!upload_data.high_priority);
