@@ -224,28 +224,30 @@ fn collect_world_mesh_chunks(
         // view (the prior `par_chunks(PREPARED_CHUNK_SIZE)` path duplicated that work whenever a
         // chunk seam fell inside a renderer run).
         let run_chunks = prepared.run_aligned_chunks(PREPARED_CHUNK_SIZE);
-        match parallelism {
-            WorldMeshDrawCollectParallelism::Full => run_chunks
+        if parallelism == WorldMeshDrawCollectParallelism::Full && run_chunks.len() >= 2 {
+            run_chunks
                 .par_iter()
                 .map(|chunk| collect_prepared_chunk(chunk, ctx, cache, filter_masks))
-                .collect(),
-            WorldMeshDrawCollectParallelism::SerialInnerForNestedBatch => run_chunks
+                .collect()
+        } else {
+            run_chunks
                 .iter()
                 .map(|chunk| collect_prepared_chunk(chunk, ctx, cache, filter_masks))
-                .collect(),
+                .collect()
         }
     } else {
         let chunks = build_chunk_specs(space_ids, ctx);
         profiling::scope!("mesh::collect");
-        match parallelism {
-            WorldMeshDrawCollectParallelism::Full => chunks
+        if parallelism == WorldMeshDrawCollectParallelism::Full && chunks.len() >= 2 {
+            chunks
                 .par_iter()
                 .map(|spec| collect_chunk(spec, ctx, cache, filter_masks))
-                .collect(),
-            WorldMeshDrawCollectParallelism::SerialInnerForNestedBatch => chunks
+                .collect()
+        } else {
+            chunks
                 .iter()
                 .map(|spec| collect_chunk(spec, ctx, cache, filter_masks))
-                .collect(),
+                .collect()
         }
     }
 }
