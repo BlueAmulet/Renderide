@@ -8,7 +8,8 @@ use crate::shared::{MeshUploadData, MeshUploadHintFlag};
 
 use super::super::gpu_mesh_hints::{
     derived_streams_compatible_for_in_place, mesh_upload_hint_any_selective,
-    mesh_upload_hint_touches_vertex_streams, validated_submesh_ranges, wgpu_index_format,
+    mesh_upload_hint_touches_vertex_streams, validated_submesh_ranges,
+    validated_submesh_topologies, wgpu_index_format,
 };
 use super::super::layout::{
     MeshBufferLayout, blendshape_deform_is_active, compute_index_count, compute_vertex_stride,
@@ -298,6 +299,8 @@ impl GpuMesh {
         let write_blend = full || hint.blendshapes();
 
         let want_submeshes = validated_submesh_ranges(&data.submeshes, self.index_count);
+        let want_submesh_topologies =
+            validated_submesh_topologies(&data.submeshes, self.index_count);
 
         write_in_place_vertex_and_derived_streams(
             &MeshInPlaceWriteContext {
@@ -356,6 +359,7 @@ impl GpuMesh {
             index_format: self.index_format,
             index_count: self.index_count,
             submeshes: want_submeshes,
+            submesh_topologies: want_submesh_topologies,
             vertex_count: self.vertex_count,
             vertex_stride: self.vertex_stride,
             bounds: data.bounds,

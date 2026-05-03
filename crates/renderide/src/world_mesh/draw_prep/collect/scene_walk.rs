@@ -14,6 +14,7 @@ use super::{
 
 use super::super::item::{
     WorldMeshDrawItem, resolved_material_slot_count, stacked_material_submesh_range,
+    stacked_material_submesh_topology,
 };
 
 /// Renders per chunk (static or skinned slice of one render space).
@@ -268,6 +269,8 @@ fn push_one_slot_draw(
             world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id);
     }
     let front_face = front_face_for_world_matrix(rigid_world_matrix);
+    let primitive_topology =
+        stacked_material_submesh_topology(slot_index, &draw.mesh.submesh_topologies);
     let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
         (m.col(3).truncate() - ctx.view_origin_world).length_squared()
     });
@@ -293,6 +296,7 @@ fn push_one_slot_draw(
         cache,
         candidate,
         front_face,
+        primitive_topology,
         rigid_world_matrix,
         alpha_distance_sq,
     ) {
