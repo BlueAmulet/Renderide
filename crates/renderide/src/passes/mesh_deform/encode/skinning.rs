@@ -294,14 +294,14 @@ fn skinning_dispatch_with_uploaded_palette(dispatch: SkinningPaletteDispatch<'_>
                     binding: 8,
                     resource: dispatch
                         .src_tangent
-                        .unwrap_or(&dispatch.scratch.dummy_vec4)
+                        .unwrap_or(&dispatch.scratch.dummy_vec4_read)
                         .as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 9,
                     resource: dispatch
                         .dst_tangent
-                        .unwrap_or(&dispatch.scratch.dummy_vec4)
+                        .unwrap_or(&dispatch.scratch.dummy_vec4_write)
                         .as_entire_binding(),
                 },
             ],

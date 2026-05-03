@@ -326,14 +326,14 @@ fn blendshape_record_scatter_compute_passes(
                     binding: 4,
                     resource: destinations
                         .normals_buffer
-                        .unwrap_or(&gpu.scratch.dummy_vec4)
+                        .unwrap_or(&gpu.scratch.dummy_vec4_write)
                         .as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: destinations
                         .tangents_buffer
-                        .unwrap_or(&gpu.scratch.dummy_vec4)
+                        .unwrap_or(&gpu.scratch.dummy_vec4_write_alt)
                         .as_entire_binding(),
                 },
             ],
