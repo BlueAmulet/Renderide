@@ -281,9 +281,11 @@ mod tests {
             space.render_transform_overrides[0].skinned_mesh_renderer_indices,
             vec![7, 8]
         );
-        assert!(space.render_transform_overrides[1]
-            .skinned_mesh_renderer_indices
-            .is_empty());
+        assert!(
+            space.render_transform_overrides[1]
+                .skinned_mesh_renderer_indices
+                .is_empty()
+        );
     }
 
     #[test]
@@ -517,9 +519,11 @@ mod tests {
                 },
             ]
         );
-        assert!(space.render_material_overrides[1]
-            .material_overrides
-            .is_empty());
+        assert!(
+            space.render_material_overrides[1]
+                .material_overrides
+                .is_empty()
+        );
         assert_eq!(
             space.render_material_overrides[0].target,
             MeshRendererOverrideTarget::Static(3)

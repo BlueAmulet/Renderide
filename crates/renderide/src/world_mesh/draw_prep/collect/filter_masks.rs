@@ -94,8 +94,7 @@ mod tests {
         let filter = CameraTransformDrawFilter::default();
 
         with_draw_context(&scene, Some(&filter), |ctx| {
-            let masks =
-                build_per_space_filter_masks(&[RenderSpaceId(1), RenderSpaceId(2)], ctx);
+            let masks = build_per_space_filter_masks(&[RenderSpaceId(1), RenderSpaceId(2)], ctx);
             assert!(masks.is_empty());
         });
     }
