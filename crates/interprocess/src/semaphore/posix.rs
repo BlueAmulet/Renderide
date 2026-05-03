@@ -50,8 +50,12 @@ impl PosixSemaphore {
                 ),
             )
         })?;
+        // Mode `0o600` so the named semaphore is reachable only by the owning user. With
+        // the historical `0o777`, any local process could `sem_open` the same name and call
+        // `sem_wait` (draining wakeups) or `sem_post` (spurious wakeups) -- a DoS vector on
+        // multi-user systems. Single-user systems see no behavioural change.
         // SAFETY: `c_name` is a NUL-terminated C string; remaining args are constants.
-        let h = unsafe { libc::sem_open(c_name.as_ptr(), libc::O_CREAT, 0o777, 0) };
+        let h = unsafe { libc::sem_open(c_name.as_ptr(), libc::O_CREAT, 0o600, 0) };
         if h == libc::SEM_FAILED {
             return Err(io::Error::last_os_error());
         }
