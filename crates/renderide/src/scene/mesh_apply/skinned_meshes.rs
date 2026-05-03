@@ -1,7 +1,6 @@
 //! Skinned mesh renderable updates: extraction, dense apply orchestration, and the bone /
 //! blendshape / bounds sub-applies that the orchestration calls.
 
-use hashbrown::HashMap;
 use rayon::prelude::*;
 
 use crate::ipc::SharedMemoryAccessor;
@@ -297,17 +296,25 @@ fn apply_skinned_blendshape_weight_batches_extracted(
         // Group accepted batches by destination renderable so the parallel apply can take a
         // unique &mut to each renderer without aliasing. Iteration order of a single renderer's
         // batches is preserved (push order matches the original batch stream order).
-        let mut by_renderable: HashMap<usize, Vec<std::ops::Range<usize>>> =
-            HashMap::with_capacity(accepted.len());
+        //
+        // The grouping HashMap and its inner Vecs live on `RenderSpaceState` so capacity carries
+        // across frames -- the parallel path no longer allocates after the first frame.
+        let by_renderable = &mut space.blendshape_apply_groups;
+        for inner in by_renderable.values_mut() {
+            inner.clear();
+        }
         for (idx, range) in accepted {
             by_renderable.entry(idx).or_default().push(range);
         }
-        space
-            .skinned_mesh_renderers
+        // The shared borrow of `by_renderable` and the unique borrow of
+        // `space.skinned_mesh_renderers` can't coexist via `space.*` access, so split fields.
+        let renderers = &mut space.skinned_mesh_renderers;
+        let groups = &*by_renderable;
+        renderers
             .par_iter_mut()
             .enumerate()
             .for_each(|(idx, renderer)| {
-                let Some(ranges) = by_renderable.get(&idx) else {
+                let Some(ranges) = groups.get(&idx) else {
                     return;
                 };
                 let weights = &mut renderer.base.blend_shape_weights;
