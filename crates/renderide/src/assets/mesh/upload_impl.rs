@@ -107,9 +107,10 @@ pub(super) fn validate_mesh_upload_layout(
 
     // (label, size in bytes, requires storage-binding limit)
     //
-    // Derived per-vertex storage streams (positions, normals, bone_indices, bone_weights_vec4)
-    // are all `vc * 16` and bound to STORAGE bindings, so a single entry covers all of them.
-    // Likewise the largest VERTEX-only derived stream (color, tangent) is `vc * 16`.
+    // Derived per-vertex storage streams (positions, normals, tangents, bone_indices,
+    // bone_weights_vec4) are all `vc * 16` and bound to STORAGE bindings, so a single
+    // entry covers all of them. Likewise the largest VERTEX-only derived stream (color)
+    // is `vc * 16`.
     let checks: [(&str, u64, bool); 7] = [
         ("interleaved vertices", layout.vertex_size as u64, false),
         ("indices", layout.index_buffer_length as u64, false),
@@ -281,6 +282,16 @@ fn float2_zero_stream_bytes(vertex_count: usize) -> Vec<u8> {
     vec![0u8; vertex_count * 8]
 }
 
+#[inline]
+fn vertex_stream_usage() -> wgpu::BufferUsages {
+    wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST
+}
+
+#[inline]
+fn tangent_stream_usage() -> wgpu::BufferUsages {
+    vertex_stream_usage() | wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC
+}
+
 fn create_vertex_stream_buffer(
     device: &wgpu::Device,
     asset_id: i32,
@@ -291,7 +302,21 @@ fn create_vertex_stream_buffer(
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("mesh {asset_id} {label}_stream")),
             contents: bytes,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            usage: vertex_stream_usage(),
+        }),
+    )
+}
+
+fn create_tangent_stream_buffer(
+    device: &wgpu::Device,
+    asset_id: i32,
+    bytes: &[u8],
+) -> Arc<wgpu::Buffer> {
+    Arc::new(
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("mesh {asset_id} tangent_stream")),
+            contents: bytes,
+            usage: tangent_stream_usage(),
         }),
     )
 }
@@ -330,10 +355,9 @@ pub(super) fn upload_extended_vertex_streams(
     };
 
     (
-        Some(create_vertex_stream_buffer(
+        Some(create_tangent_stream_buffer(
             device,
             asset_id,
-            "tangent",
             &tangent_bytes,
         )),
         Some(make_uv(VertexAttributeType::UV1, "uv1")),
@@ -391,10 +415,9 @@ pub(super) fn upload_default_extended_vertex_streams(
     let tangent_bytes = float4_default_stream_bytes(vc_usize, [1.0, 0.0, 0.0, 1.0]);
     let uv_bytes = float2_zero_stream_bytes(vc_usize);
     (
-        Some(create_vertex_stream_buffer(
+        Some(create_tangent_stream_buffer(
             device,
             asset_id,
-            "tangent",
             &tangent_bytes,
         )),
         Some(create_vertex_stream_buffer(
@@ -733,4 +756,29 @@ pub(super) fn resident_bytes_for_mesh_upload(
         n += b.size();
     }
     n
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{tangent_stream_usage, vertex_stream_usage};
+
+    #[test]
+    fn tangent_streams_can_feed_deform_compute_and_forward_draws() {
+        let usage = tangent_stream_usage();
+
+        assert!(usage.contains(wgpu::BufferUsages::VERTEX));
+        assert!(usage.contains(wgpu::BufferUsages::STORAGE));
+        assert!(usage.contains(wgpu::BufferUsages::COPY_DST));
+        assert!(usage.contains(wgpu::BufferUsages::COPY_SRC));
+    }
+
+    #[test]
+    fn ordinary_vertex_streams_remain_vertex_only_upload_targets() {
+        let usage = vertex_stream_usage();
+
+        assert!(usage.contains(wgpu::BufferUsages::VERTEX));
+        assert!(usage.contains(wgpu::BufferUsages::COPY_DST));
+        assert!(!usage.contains(wgpu::BufferUsages::STORAGE));
+        assert!(!usage.contains(wgpu::BufferUsages::COPY_SRC));
+    }
 }
