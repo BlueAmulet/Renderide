@@ -114,6 +114,115 @@ labeled_enum! {
     }
 }
 
+/// Visibility of closable tabs in the **Renderide debug** HUD window.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DebugHudMainTabVisibility {
+    /// Whether the **Stats** tab is open.
+    pub stats: bool,
+    /// Whether the **Shader routes** tab is open.
+    pub shader_routes: bool,
+    /// Whether the **Draw state** tab is open.
+    pub draw_state: bool,
+    /// Whether the **GPU memory** tab is open.
+    pub gpu_memory: bool,
+    /// Whether the **GPU passes** tab is open.
+    pub gpu_passes: bool,
+}
+
+impl Default for DebugHudMainTabVisibility {
+    fn default() -> Self {
+        Self {
+            stats: true,
+            shader_routes: true,
+            draw_state: true,
+            gpu_memory: true,
+            gpu_passes: true,
+        }
+    }
+}
+
+impl DebugHudMainTabVisibility {
+    /// Returns whether `tab` is currently open.
+    pub fn is_open(self, tab: DebugHudMainTab) -> bool {
+        match tab {
+            DebugHudMainTab::Stats => self.stats,
+            DebugHudMainTab::ShaderRoutes => self.shader_routes,
+            DebugHudMainTab::DrawState => self.draw_state,
+            DebugHudMainTab::GpuMemory => self.gpu_memory,
+            DebugHudMainTab::GpuPasses => self.gpu_passes,
+        }
+    }
+
+    /// Updates whether `tab` is currently open.
+    pub fn set_open(&mut self, tab: DebugHudMainTab, value: bool) {
+        match tab {
+            DebugHudMainTab::Stats => self.stats = value,
+            DebugHudMainTab::ShaderRoutes => self.shader_routes = value,
+            DebugHudMainTab::DrawState => self.draw_state = value,
+            DebugHudMainTab::GpuMemory => self.gpu_memory = value,
+            DebugHudMainTab::GpuPasses => self.gpu_passes = value,
+        }
+    }
+
+    /// Returns `true` when every tab is open.
+    pub fn all_open(self) -> bool {
+        self.stats && self.shader_routes && self.draw_state && self.gpu_memory && self.gpu_passes
+    }
+}
+
+/// Visibility of closable tabs in the **Renderer config** HUD window.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DebugHudRendererConfigTabVisibility {
+    /// Whether the **Display** tab is open.
+    pub display: bool,
+    /// Whether the **Rendering** tab is open.
+    pub rendering: bool,
+    /// Whether the **Debug** tab is open.
+    pub debug: bool,
+    /// Whether the **Post-Processing** tab is open.
+    pub post_processing: bool,
+}
+
+impl Default for DebugHudRendererConfigTabVisibility {
+    fn default() -> Self {
+        Self {
+            display: true,
+            rendering: true,
+            debug: true,
+            post_processing: true,
+        }
+    }
+}
+
+impl DebugHudRendererConfigTabVisibility {
+    /// Returns whether `tab` is currently open.
+    pub fn is_open(self, tab: DebugHudRendererConfigTab) -> bool {
+        match tab {
+            DebugHudRendererConfigTab::Display => self.display,
+            DebugHudRendererConfigTab::Rendering => self.rendering,
+            DebugHudRendererConfigTab::Debug => self.debug,
+            DebugHudRendererConfigTab::PostProcessing => self.post_processing,
+        }
+    }
+
+    /// Updates whether `tab` is currently open.
+    pub fn set_open(&mut self, tab: DebugHudRendererConfigTab, value: bool) {
+        match tab {
+            DebugHudRendererConfigTab::Display => self.display = value,
+            DebugHudRendererConfigTab::Rendering => self.rendering = value,
+            DebugHudRendererConfigTab::Debug => self.debug = value,
+            DebugHudRendererConfigTab::PostProcessing => self.post_processing = value,
+        }
+    }
+
+    /// Returns `true` when every tab is open.
+    pub fn all_open(self) -> bool {
+        self.display && self.rendering && self.debug && self.post_processing
+    }
+}
+
 /// Persisted semantic state for the Dear ImGui diagnostics HUD.
 ///
 /// ImGui-owned window placement and collapse data lives in the sidecar `.ini` file; this struct
@@ -142,8 +251,12 @@ pub struct DebugHudSettings {
     pub shader_routes_only_fallback: bool,
     /// Last selected tab in **Renderide debug**.
     pub main_tab: DebugHudMainTab,
+    /// Open/closed state for tabs in **Renderide debug**.
+    pub main_tabs: DebugHudMainTabVisibility,
     /// Last selected tab in **Renderer config**.
     pub renderer_config_tab: DebugHudRendererConfigTab,
+    /// Open/closed state for tabs in **Renderer config**.
+    pub renderer_config_tabs: DebugHudRendererConfigTabVisibility,
     /// Last selected render-space tab in **Scene transforms**.
     pub scene_transforms_space_id: Option<i32>,
 }
@@ -161,7 +274,9 @@ impl Default for DebugHudSettings {
             draw_state_only_overrides: false,
             shader_routes_only_fallback: false,
             main_tab: DebugHudMainTab::default(),
+            main_tabs: DebugHudMainTabVisibility::default(),
             renderer_config_tab: DebugHudRendererConfigTab::default(),
+            renderer_config_tabs: DebugHudRendererConfigTabVisibility::default(),
             scene_transforms_space_id: None,
         }
     }
@@ -248,7 +363,8 @@ fn default_debug_hud_frame_timing() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        DebugHudMainTab, DebugHudRendererConfigTab, DebugHudSettings, PowerPreferenceSetting,
+        DebugHudMainTab, DebugHudMainTabVisibility, DebugHudRendererConfigTab,
+        DebugHudRendererConfigTabVisibility, DebugHudSettings, PowerPreferenceSetting,
     };
     use crate::config::RendererSettings;
 
@@ -318,5 +434,20 @@ mod tests {
 
         s.ui_scale = f32::NAN;
         assert_eq!(s.resolved_ui_scale(), DebugHudSettings::DEFAULT_UI_SCALE);
+    }
+
+    #[test]
+    fn hud_tab_visibility_defaults_open_and_maps_tabs() {
+        let mut main = DebugHudMainTabVisibility::default();
+        assert!(main.all_open());
+        main.set_open(DebugHudMainTab::DrawState, false);
+        assert!(!main.is_open(DebugHudMainTab::DrawState));
+        assert!(!main.all_open());
+
+        let mut config = DebugHudRendererConfigTabVisibility::default();
+        assert!(config.all_open());
+        config.set_open(DebugHudRendererConfigTab::Debug, false);
+        assert!(!config.is_open(DebugHudRendererConfigTab::Debug));
+        assert!(!config.all_open());
     }
 }

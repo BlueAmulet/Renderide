@@ -19,8 +19,8 @@ mod rendering;
 mod watchdog;
 
 pub use debug::{
-    DebugHudMainTab, DebugHudRendererConfigTab, DebugHudSettings, DebugSettings,
-    PowerPreferenceSetting,
+    DebugHudMainTab, DebugHudMainTabVisibility, DebugHudRendererConfigTab,
+    DebugHudRendererConfigTabVisibility, DebugHudSettings, DebugSettings, PowerPreferenceSetting,
 };
 pub use display::DisplaySettings;
 pub use post_processing::{

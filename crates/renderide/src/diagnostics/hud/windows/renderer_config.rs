@@ -110,15 +110,28 @@ fn renderer_config_panel_body(
     state: &mut HudUiState,
 ) {
     let mut dirty = false;
+    if !state.renderer_config_tabs.all_open() && ui.small_button("Show all config tabs") {
+        state.renderer_config_tabs = Default::default();
+        state.renderer_config_tab_restore_pending = true;
+    }
+
     if let Some(_bar) = ui.tab_bar("renderer_config_tabs") {
         for &tab in DebugHudRendererConfigTab::ALL {
+            let mut tab_open = state.renderer_config_tabs.is_open(tab);
+            if !tab_open {
+                continue;
+            }
             let flags =
                 if state.renderer_config_tab_restore_pending && state.renderer_config_tab == tab {
                     TabItemFlags::SET_SELECTED
                 } else {
                     TabItemFlags::empty()
                 };
-            if let Some(_t) = TabItem::new(tab.label()).flags(flags).begin(ui) {
+            if let Some(_t) = TabItem::new(tab.label())
+                .opened(&mut tab_open)
+                .flags(flags)
+                .begin(ui)
+            {
                 state.renderer_config_tab = tab;
                 state.renderer_config_tab_restore_pending = false;
                 match tab {
@@ -130,6 +143,7 @@ fn renderer_config_panel_body(
                     }
                 }
             }
+            state.renderer_config_tabs.set_open(tab, tab_open);
         }
     }
 

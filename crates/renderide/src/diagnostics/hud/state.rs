@@ -3,7 +3,10 @@
 //! Lives on [`crate::diagnostics::DebugHud`] so window bodies can borrow exactly the field they
 //! need without the host struct exposing seven independent booleans.
 
-use crate::config::{DebugHudMainTab, DebugHudRendererConfigTab, DebugHudSettings};
+use crate::config::{
+    DebugHudMainTab, DebugHudMainTabVisibility, DebugHudRendererConfigTab,
+    DebugHudRendererConfigTabVisibility, DebugHudSettings,
+};
 
 /// Per-window open flags and per-tab filter toggles owned by [`crate::diagnostics::DebugHud`].
 ///
@@ -28,8 +31,12 @@ pub struct HudUiState {
     pub renderer_config_open: bool,
     /// Last selected tab in **Renderide debug**.
     pub main_tab: DebugHudMainTab,
+    /// Open/closed state for tabs in **Renderide debug**.
+    pub main_tabs: DebugHudMainTabVisibility,
     /// Last selected tab in **Renderer config**.
     pub renderer_config_tab: DebugHudRendererConfigTab,
+    /// Open/closed state for tabs in **Renderer config**.
+    pub renderer_config_tabs: DebugHudRendererConfigTabVisibility,
     /// Last selected render-space tab in **Scene transforms**.
     pub scene_transforms_space_id: Option<i32>,
     /// Whether the main debug tab selection still needs to be restored into ImGui.
@@ -58,7 +65,9 @@ impl HudUiState {
             shader_routes_only_fallback: settings.shader_routes_only_fallback,
             renderer_config_open: settings.renderer_config_open,
             main_tab: settings.main_tab,
+            main_tabs: settings.main_tabs,
             renderer_config_tab: settings.renderer_config_tab,
+            renderer_config_tabs: settings.renderer_config_tabs,
             scene_transforms_space_id: settings.scene_transforms_space_id,
             main_tab_restore_pending: true,
             renderer_config_tab_restore_pending: true,
@@ -79,7 +88,9 @@ impl HudUiState {
         settings.shader_routes_only_fallback = self.shader_routes_only_fallback;
         settings.renderer_config_open = self.renderer_config_open;
         settings.main_tab = self.main_tab;
+        settings.main_tabs = self.main_tabs;
         settings.renderer_config_tab = self.renderer_config_tab;
+        settings.renderer_config_tabs = self.renderer_config_tabs;
         settings.scene_transforms_space_id = self.scene_transforms_space_id;
         before != *settings
     }
@@ -87,7 +98,10 @@ impl HudUiState {
 
 #[cfg(test)]
 mod tests {
-    use crate::config::{DebugHudMainTab, DebugHudRendererConfigTab, DebugHudSettings};
+    use crate::config::{
+        DebugHudMainTab, DebugHudMainTabVisibility, DebugHudRendererConfigTab,
+        DebugHudRendererConfigTabVisibility, DebugHudSettings,
+    };
 
     use super::HudUiState;
 
@@ -102,7 +116,12 @@ mod tests {
         assert!(!s.draw_state_only_overrides);
         assert!(!s.shader_routes_only_fallback);
         assert_eq!(s.main_tab, DebugHudMainTab::Stats);
+        assert_eq!(s.main_tabs, DebugHudMainTabVisibility::default());
         assert_eq!(s.renderer_config_tab, DebugHudRendererConfigTab::Display);
+        assert_eq!(
+            s.renderer_config_tabs,
+            DebugHudRendererConfigTabVisibility::default()
+        );
         assert_eq!(s.scene_transforms_space_id, None);
         assert!(s.main_tab_restore_pending);
         assert!(s.renderer_config_tab_restore_pending);
@@ -120,7 +139,15 @@ mod tests {
             draw_state_only_overrides: true,
             shader_routes_only_fallback: true,
             main_tab: DebugHudMainTab::GpuMemory,
+            main_tabs: DebugHudMainTabVisibility {
+                gpu_memory: false,
+                ..Default::default()
+            },
             renderer_config_tab: DebugHudRendererConfigTab::PostProcessing,
+            renderer_config_tabs: DebugHudRendererConfigTabVisibility {
+                post_processing: false,
+                ..Default::default()
+            },
             scene_transforms_space_id: Some(42),
             ..Default::default()
         };
@@ -135,9 +162,15 @@ mod tests {
         assert!(state.draw_state_only_overrides);
         assert!(state.shader_routes_only_fallback);
         assert_eq!(state.main_tab, DebugHudMainTab::GpuMemory);
+        assert!(!state.main_tabs.is_open(DebugHudMainTab::GpuMemory));
         assert_eq!(
             state.renderer_config_tab,
             DebugHudRendererConfigTab::PostProcessing
+        );
+        assert!(
+            !state
+                .renderer_config_tabs
+                .is_open(DebugHudRendererConfigTab::PostProcessing)
         );
         assert_eq!(state.scene_transforms_space_id, Some(42));
     }
@@ -155,5 +188,10 @@ mod tests {
         state.texture_debug_current_view_only = true;
         assert!(state.write_to_settings(&mut settings));
         assert!(settings.texture_debug_current_view_only);
+
+        assert!(!state.write_to_settings(&mut settings));
+        state.main_tabs.set_open(DebugHudMainTab::Stats, false);
+        assert!(state.write_to_settings(&mut settings));
+        assert!(!settings.main_tabs.stats);
     }
 }
