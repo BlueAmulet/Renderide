@@ -1986,6 +1986,48 @@ mod storage_orientation_uniform_tests {
     }
 
     #[test]
+    fn font_atlas_lod_bias_field_resolves_font_atlas_binding() {
+        let texture_pool = TexturePool::default_pool();
+        let texture3d_pool = Texture3dPool::default_pool();
+        let cubemap_pool = CubemapPool::default_pool();
+        let render_texture_pool = RenderTexturePool::new();
+        let video_texture_pool = VideoTexturePool::new();
+        let pools = EmbeddedTexturePools {
+            texture: &texture_pool,
+            texture3d: &texture3d_pool,
+            cubemap: &cubemap_pool,
+            render_texture: &render_texture_pool,
+            video_texture: &video_texture_pool,
+        };
+        let (reflected, ids, registry) = reflected_with_texture_and_field(
+            "_FontAtlas",
+            wgpu::TextureViewDimension::D2,
+            "_FontAtlas_LodBias",
+            ReflectedUniformScalarKind::F32,
+            4,
+        );
+        let mut store = MaterialPropertyStore::new();
+        store.set_material(
+            8,
+            registry.intern("_FontAtlas"),
+            MaterialPropertyValue::Texture(42),
+        );
+        store.set_material(
+            8,
+            registry.intern("_FontAtlas_LodBias"),
+            MaterialPropertyValue::Float(7.0),
+        );
+        let tex_ctx = UniformPackTextureContext {
+            pools: &pools,
+            primary_texture_2d: -1,
+        };
+
+        let bytes =
+            build_embedded_uniform_bytes(&reflected, &ids, &store, lookup(8), &tex_ctx).unwrap();
+        assert_eq!(read_f32_at(&bytes, 0), 0.0);
+    }
+
+    #[test]
     fn nonresident_font_atlas_keeps_text_mode_msdf_fallback() {
         let texture_pool = TexturePool::default_pool();
         let texture3d_pool = Texture3dPool::default_pool();
