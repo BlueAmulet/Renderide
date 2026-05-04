@@ -30,7 +30,9 @@ use crate::materials::host_data::MaterialPropertyStore;
 use crate::materials::{MaterialRouter, RasterPipelineKind};
 use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
 use crate::render_graph::TransientPool;
-use crate::world_mesh::{FrameMaterialBatchCache, WorldMeshDrawStateRow, WorldMeshDrawStats};
+use crate::world_mesh::{
+    FrameMaterialBatchCache, RenderWorld, WorldMeshDrawStateRow, WorldMeshDrawStats,
+};
 
 use super::FrameGpuBindingsError;
 use super::FrameResourceManager;
@@ -123,10 +125,8 @@ pub struct RenderBackend {
     /// throwaway local cache inside `collect_view_draws`).
     pub(crate) material_batch_caches:
         hashbrown::HashMap<crate::materials::ShaderPermutation, FrameMaterialBatchCache>,
-    /// Pooled prepared-renderables snapshot, rebuilt in place each frame to retain the
-    /// underlying `Vec` capacities across frames. Built fresh by
-    /// [`Self::extract_frame_shared`] before per-view draw collection consumes it.
-    pub(crate) prepared_renderables: crate::world_mesh::FramePreparedRenderables,
+    /// Backend-owned CPU render-world cache used to amortize world-mesh draw preparation.
+    pub(crate) render_world: RenderWorld,
     /// Nonblocking reflection-probe SH2 GPU projection service.
     pub(crate) reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System,
     /// Unified IBL prefilter cache covering analytic, cubemap, and equirect skybox sources.
@@ -202,9 +202,7 @@ impl RenderBackend {
             renderer_settings: None,
             record_parallelism: crate::config::RecordParallelism::PerViewParallel,
             material_batch_caches: hashbrown::HashMap::new(),
-            prepared_renderables: crate::world_mesh::FramePreparedRenderables::empty(
-                crate::shared::RenderingContext::default(),
-            ),
+            render_world: RenderWorld::new(crate::shared::RenderingContext::default()),
             reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System::new(),
             skybox_ibl: crate::skybox::SkyboxIblCache::new(),
         }
