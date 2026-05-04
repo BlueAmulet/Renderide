@@ -91,14 +91,14 @@ impl Default for AutoExposureSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            min_ev: -8.0,
-            max_ev: 8.0,
+            min_ev: -16.0,
+            max_ev: 16.0,
             low_percent: 0.10,
             high_percent: 0.90,
             speed_brighten: 3.0,
-            speed_darken: 1.0,
+            speed_darken: 3.0,
             exponential_transition_distance: 1.5,
-            compensation_ev: 0.0,
+            compensation_ev: -2.0,
         }
     }
 }
