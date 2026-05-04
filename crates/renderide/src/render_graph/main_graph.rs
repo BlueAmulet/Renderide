@@ -276,6 +276,7 @@ fn add_main_graph_passes_and_edges(
     h: MainGraphHandles,
     post_processing_settings: &crate::config::PostProcessingSettings,
     msaa_sample_count: u8,
+    multiview_stereo: bool,
     cluster_assignment: crate::config::ClusterAssignmentMode,
 ) -> Result<CompiledRenderGraph, GraphBuildError> {
     let deform = builder.add_compute_pass(Box::new(crate::passes::MeshDeformPass::new()));
@@ -346,7 +347,7 @@ fn add_main_graph_passes_and_edges(
         },
     )));
 
-    let chain = build_default_post_processing_chain(&h, post_processing_settings);
+    let chain = build_default_post_processing_chain(&h, post_processing_settings, multiview_stereo);
     let chain_output =
         chain.build_into_graph(&mut builder, h.scene_color_hdr, post_processing_settings);
     let compose_input = chain_output.final_handle();
@@ -402,12 +403,14 @@ fn add_main_graph_passes_and_edges(
 fn build_default_post_processing_chain(
     h: &MainGraphHandles,
     post_processing_settings: &crate::config::PostProcessingSettings,
+    multiview_stereo: bool,
 ) -> post_processing::PostProcessChain {
     let mut chain = post_processing::PostProcessChain::new();
     chain.push(Box::new(crate::passes::GtaoEffect {
         settings: post_processing_settings.gtao,
         depth: h.depth,
         frame_uniforms: h.frame_uniforms,
+        multiview_stereo,
     }));
     chain.push(Box::new(crate::passes::BloomEffect {
         settings: post_processing_settings.bloom,
@@ -445,6 +448,7 @@ pub fn build_main_graph(
         handles,
         post_processing_settings,
         key.msaa_sample_count,
+        key.multiview_stereo,
         key.cluster_assignment,
     )?;
     graph.main_graph_msaa_transient_handles = Some(msaa_handles);
@@ -528,6 +532,20 @@ mod tests {
         }
     }
 
+    fn gtao_only_post() -> PostProcessingSettings {
+        PostProcessingSettings {
+            enabled: true,
+            gtao: GtaoSettings::default(),
+            bloom: BloomSettings {
+                enabled: false,
+                ..Default::default()
+            },
+            tonemap: TonemapSettings {
+                mode: TonemapMode::None,
+            },
+        }
+    }
+
     #[test]
     fn default_main_needs_surface_and_eleven_passes() {
         let g = build_main_graph(smoke_key(), &no_post()).expect("default graph");
@@ -579,6 +597,57 @@ mod tests {
             g_on.compile_stats.transient_texture_count
                 >= g_off.compile_stats.transient_texture_count
         );
+    }
+
+    #[test]
+    fn mono_gtao_graph_declares_no_layer_one_view_depth() {
+        let post = gtao_only_post();
+        let mut key = smoke_key();
+        key.multiview_stereo = false;
+        key.post_processing = PostProcessChainSignature::from_settings(&post);
+        let graph = build_main_graph(key, &post).expect("mono gtao graph");
+
+        assert!(
+            graph
+                .subresources
+                .iter()
+                .any(|desc| desc.label == "gtao_view_depth_mip4_l0")
+        );
+        assert!(
+            !graph
+                .subresources
+                .iter()
+                .any(|desc| desc.label.starts_with("gtao_view_depth_")
+                    && desc.label.ends_with("_l1"))
+        );
+        let view_depth = graph
+            .transient_textures
+            .iter()
+            .find(|texture| texture.desc.label == "gtao_view_depth")
+            .expect("gtao view depth transient");
+        assert_eq!(view_depth.desc.array_layers, TransientArrayLayers::Frame);
+    }
+
+    #[test]
+    fn stereo_gtao_graph_declares_layer_one_view_depth() {
+        let post = gtao_only_post();
+        let mut key = smoke_key();
+        key.multiview_stereo = true;
+        key.post_processing = PostProcessChainSignature::from_settings(&post);
+        let graph = build_main_graph(key, &post).expect("stereo gtao graph");
+
+        assert!(
+            graph
+                .subresources
+                .iter()
+                .any(|desc| desc.label == "gtao_view_depth_mip4_l1")
+        );
+        let view_depth = graph
+            .transient_textures
+            .iter()
+            .find(|texture| texture.desc.label == "gtao_view_depth")
+            .expect("gtao view depth transient");
+        assert_eq!(view_depth.desc.array_layers, TransientArrayLayers::Fixed(2));
     }
 
     #[test]
