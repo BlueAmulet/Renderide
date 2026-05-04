@@ -624,6 +624,10 @@ mod tests {
                 enabled: false,
                 ..Default::default()
             },
+            auto_exposure: crate::config::AutoExposureSettings {
+                enabled: false,
+                ..Default::default()
+            },
             tonemap: TonemapSettings {
                 mode: TonemapMode::None,
             },
