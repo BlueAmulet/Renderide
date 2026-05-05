@@ -10,6 +10,7 @@ use super::modules::{ShaderModuleSources, register_composable_modules};
 use super::source::shader_source_for_compile;
 use super::validation::{
     module_to_wgsl, validate_entry_points, validate_no_pipeline_state_uniform_fields,
+    validate_pass_interfaces,
 };
 
 /// Composes one source variant through naga-oil.
@@ -79,7 +80,17 @@ pub(super) fn compile_shader_job(
         &format!("{stem} ({})", ShaderVariant::Default.label()),
         &pass_directives,
     )?;
+    validate_pass_interfaces(
+        &default_module,
+        &format!("{stem} ({})", ShaderVariant::Default.label()),
+        &pass_directives,
+    )?;
     validate_entry_points(
+        &multiview_module,
+        &format!("{stem} ({})", ShaderVariant::Multiview.label()),
+        &pass_directives,
+    )?;
+    validate_pass_interfaces(
         &multiview_module,
         &format!("{stem} ({})", ShaderVariant::Multiview.label()),
         &pass_directives,
