@@ -9,10 +9,10 @@ use std::path::Path;
 use imgui::{Drag, TabItem, TabItemFlags};
 
 use crate::config::{
-    AutoExposureSettings, BloomCompositeMode, ClusterAssignmentMode, DebugHudRendererConfigTab,
-    DebugHudSettings, GraphicsApiSetting, GtaoSettings, MsaaSampleCount, PowerPreferenceSetting,
-    RecordParallelism, RendererSettings, RendererSettingsHandle, SceneColorFormat, TonemapMode,
-    VsyncMode, WatchdogAction, save_renderer_settings,
+    AutoExposureSettings, BloomCompositeMode, DebugHudRendererConfigTab, DebugHudSettings,
+    GraphicsApiSetting, GtaoSettings, MsaaSampleCount, PowerPreferenceSetting, RendererSettings,
+    RendererSettingsHandle, SceneColorFormat, TonemapMode, VsyncMode, WatchdogAction,
+    save_renderer_settings,
 };
 
 use super::super::layout::{self, Viewport, WindowSlot};
@@ -20,8 +20,6 @@ use super::super::state::HudUiState;
 use super::super::view::HudWindow;
 
 const MAX_ASSET_INTEGRATION_BUDGET_MS: u32 = 100;
-const MAX_REPORTED_TEXTURE_SIZE: u32 = 65_536;
-const MAX_TEXTURE_VRAM_BUDGET_MIB: u32 = 65_536;
 const MIN_WATCHDOG_POLL_INTERVAL_MS: u32 = 10;
 const MAX_WATCHDOG_POLL_INTERVAL_MS: u32 = 10_000;
 const MAX_WATCHDOG_THRESHOLD_MS: u32 = 600_000;
@@ -218,7 +216,7 @@ fn drag_u32_setting(
     false
 }
 
-/// VSync, MSAA, scene color format, clustered light backend.
+/// VSync, graphics API, MSAA, scene color format, and asset integration budget.
 fn rendering_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
     ui.text("Rendering");
     ui.indent();
@@ -227,8 +225,6 @@ fn rendering_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool)
     rendering_graph_section(ui, g, dirty);
     ui.separator();
     rendering_asset_section(ui, g, dirty);
-    ui.separator();
-    rendering_host_limits_section(ui, g, dirty);
     ui.unindent();
 }
 
@@ -247,13 +243,6 @@ fn rendering_presentation_section(ui: &imgui::Ui, g: &mut RendererSettings, dirt
             *dirty = true;
         }
     }
-    if ui
-        .slider_config("Max frame latency", 1_u32, 3_u32)
-        .build(&mut g.rendering.max_frame_latency)
-    {
-        *dirty = true;
-    }
-    ui.text_disabled("Backbuffers queued ahead of CPU recording; applies immediately.");
     ui.text_disabled(
         "Graphics API (startup only; restart required, falls back to Auto if unavailable).",
     );
@@ -300,30 +289,6 @@ fn rendering_graph_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut
             *dirty = true;
         }
     }
-    ui.text_disabled("Per-view encoder recording strategy; applies on the next graph execution.");
-    for (i, &mode) in RecordParallelism::ALL.iter().enumerate() {
-        let _id = ui.push_id_int(500 + i as i32);
-        if ui
-            .selectable_config(mode.label())
-            .selected(g.rendering.record_parallelism == mode)
-            .build()
-        {
-            g.rendering.record_parallelism = mode;
-            *dirty = true;
-        }
-    }
-    ui.text_disabled("Clustered-light assignment backend.");
-    for (i, &mode) in ClusterAssignmentMode::ALL.iter().enumerate() {
-        let _id = ui.push_id_int(300 + i as i32);
-        if ui
-            .selectable_config(mode.label())
-            .selected(g.rendering.cluster_assignment == mode)
-            .build()
-        {
-            g.rendering.cluster_assignment = mode;
-            *dirty = true;
-        }
-    }
     ui.unindent();
 }
 
@@ -341,43 +306,6 @@ fn rendering_asset_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut
         *dirty = true;
     }
     ui.text_disabled("Cooperative per-frame mesh/texture integration budget.");
-    if ui.checkbox(
-        "HDR render texture color",
-        &mut g.rendering.render_texture_hdr_color,
-    ) {
-        *dirty = true;
-    }
-    ui.text_disabled("Uses Rgba16Float for future host render-texture allocations.");
-    if drag_u32_setting(
-        ui,
-        "Texture VRAM budget (MiB, 0 = disabled)",
-        &mut g.rendering.texture_vram_budget_mib,
-        0,
-        MAX_TEXTURE_VRAM_BUDGET_MIB,
-        16.0,
-    ) {
-        *dirty = true;
-    }
-    ui.text_disabled("Warning threshold for resident Texture2D, render-texture, and video bytes.");
-    ui.unindent();
-}
-
-fn rendering_host_limits_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
-    ui.text("Host limits");
-    ui.indent();
-    if drag_u32_setting(
-        ui,
-        "Reported max texture size (0 = GPU limit)",
-        &mut g.rendering.reported_max_texture_size,
-        0,
-        MAX_REPORTED_TEXTURE_SIZE,
-        64.0,
-    ) {
-        *dirty = true;
-    }
-    ui.text_disabled(
-        "Upper bound sent to the host during renderer init; restart or reconnect required.",
-    );
     ui.unindent();
 }
 

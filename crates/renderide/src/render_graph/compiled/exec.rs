@@ -295,7 +295,6 @@ impl CompiledRenderGraph {
     ) -> Result<RecordedPerViewBatch, GraphExecuteError> {
         let n_views = per_view_work_items.len();
         let device = mv_ctx.device;
-        let record_parallelism = mv_ctx.backend.record_parallelism;
         let per_view_shared = PerViewRecordShared {
             scene: mv_ctx.scene,
             device,
@@ -327,7 +326,6 @@ impl CompiledRenderGraph {
                     per_view_shared: &per_view_shared,
                     profiler: per_view_profiler.as_ref(),
                 },
-                record_parallelism,
                 n_views,
             )?;
             let mut per_view_cmds: Vec<wgpu::CommandBuffer> = Vec::with_capacity(n_views);

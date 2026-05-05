@@ -109,12 +109,6 @@ pub struct RenderBackend {
     surface_format: Option<wgpu::TextureFormat>,
     /// Live settings for per-frame graph parameters (scene HDR format, etc.); set in [`Self::attach`].
     renderer_settings: Option<RendererSettingsHandle>,
-    /// Whether per-view encoder recording runs on rayon workers or sequentially on the main thread.
-    ///
-    /// Defaults to [`crate::config::RecordParallelism::PerViewParallel`]. Switch via
-    /// `[rendering] record_parallelism` in the renderer config once
-    /// in the renderer config once per-view pass state is fully validated as `Send`-safe.
-    pub(crate) record_parallelism: crate::config::RecordParallelism,
     /// Persistent resolved-material caches keyed by [`crate::materials::ShaderPermutation`].
     ///
     /// Refreshed once per frame before per-view draw collection. Each cache invalidates against
@@ -201,7 +195,6 @@ impl RenderBackend {
             occlusion: OcclusionSystem::new(),
             surface_format: None,
             renderer_settings: None,
-            record_parallelism: crate::config::RecordParallelism::PerViewParallel,
             material_batch_caches: hashbrown::HashMap::new(),
             render_world: RenderWorld::new(crate::shared::RenderingContext::default()),
             reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System::new(),
@@ -478,7 +471,6 @@ impl RenderBackend {
             gpu_queue_access_gate,
             Arc::clone(&gpu_limits),
         );
-        self.sync_asset_runtime_settings_from_config();
         let max_buffer_size = gpu_limits.max_buffer_size();
         self.mesh_deform_scratch = Some(MeshDeformScratch::new(device.as_ref(), max_buffer_size));
         self.frame_resources
@@ -505,31 +497,16 @@ impl RenderBackend {
 
         self.msaa_depth_resolve = MsaaDepthResolveResources::try_new(device.as_ref()).map(Arc::new);
 
-        let (post_processing_settings, msaa_sample_count, cluster_assignment) = self
+        let (post_processing_settings, msaa_sample_count) = self
             .renderer_settings
             .as_ref()
             .and_then(|h| {
-                h.read().ok().map(|g| {
-                    (
-                        g.post_processing.clone(),
-                        g.rendering.msaa.as_count() as u8,
-                        g.rendering.cluster_assignment,
-                    )
-                })
+                h.read()
+                    .ok()
+                    .map(|g| (g.post_processing.clone(), g.rendering.msaa.as_count() as u8))
             })
-            .unwrap_or_else(|| {
-                (
-                    PostProcessingSettings::default(),
-                    1,
-                    crate::config::ClusterAssignmentMode::default(),
-                )
-            });
-        let shape = self.frame_graph_shape_for(
-            &post_processing_settings,
-            msaa_sample_count,
-            false,
-            cluster_assignment,
-        );
+            .unwrap_or_else(|| (PostProcessingSettings::default(), 1));
+        let shape = self.frame_graph_shape_for(&post_processing_settings, msaa_sample_count, false);
         self.sync_frame_graph_cache(&post_processing_settings, shape);
         logger::info!(
             "backend attached: surface_format={:?} scene_color_format={:?} msaa_sample_count={} mesh_preprocess={} msaa_depth_resolve={} frame_graph_passes={} frame_graph_topo_levels={}",
@@ -542,22 +519,6 @@ impl RenderBackend {
             self.frame_graph_topo_levels(),
         );
         Ok(())
-    }
-
-    /// Updates the per-view record parallelism mode from live [`crate::config::RenderingSettings`].
-    ///
-    /// On the first frame after the effective mode changes, logs the new mode at `info!`. Runtime
-    /// changes take effect on the next `execute_multi_view` call. See
-    /// [`crate::render_graph::CompiledRenderGraph::execute_multi_view`] for the parallel branch.
-    pub fn set_record_parallelism(&mut self, mode: crate::config::RecordParallelism) {
-        if self.record_parallelism != mode {
-            logger::info!(
-                "record parallelism mode change: {:?} -> {:?}",
-                self.record_parallelism,
-                mode
-            );
-            self.record_parallelism = mode;
-        }
     }
 
     /// Updates whether main HUD diagnostics run (mirrors [`crate::config::DebugSettings::debug_hud_enabled`]).
@@ -775,7 +736,6 @@ impl RenderBackend {
             history_registry,
             debug_hud: &mut self.debug_hud,
             skybox_ibl: &self.skybox_ibl,
-            record_parallelism: self.record_parallelism,
             scene_color_format,
             gpu_limits,
             msaa_depth_resolve,

@@ -70,15 +70,14 @@ impl GpuResource for GpuRenderTexture {
 impl GpuRenderTexture {
     /// Creates GPU storage for a host [`SetRenderTextureFormat`].
     ///
-    /// Color format: **`Rgba16Float`** when `hdr_color` (Unity `ARGBHalf` / HDR parity), else
-    /// **`Rgba8Unorm`** for lower VRAM on typical LDR targets. Depth is always [`Depth32Float`]
-    /// (or the device-preferred depth/stencil chosen by [`crate::gpu::main_forward_depth_stencil_format`]).
-    /// Size is clamped per edge via [`GpuLimits::clamp_render_texture_edge`].
+    /// Color format is always [`wgpu::TextureFormat::Rgba16Float`] for host render-texture parity.
+    /// Depth is always [`Depth32Float`] (or the device-preferred depth/stencil chosen by
+    /// [`crate::gpu::main_forward_depth_stencil_format`]). Size is clamped per edge via
+    /// [`GpuLimits::clamp_render_texture_edge`].
     pub fn new_from_format(
         device: &wgpu::Device,
         limits: &GpuLimits,
         fmt: &SetRenderTextureFormat,
-        hdr_color: bool,
     ) -> Option<Self> {
         let w = limits.clamp_render_texture_edge(fmt.size.x);
         let h = limits.clamp_render_texture_edge(fmt.size.y);
@@ -96,11 +95,7 @@ impl GpuRenderTexture {
             return None;
         }
 
-        let wgpu_color_format = if hdr_color {
-            wgpu::TextureFormat::Rgba16Float
-        } else {
-            wgpu::TextureFormat::Rgba8Unorm
-        };
+        let wgpu_color_format = wgpu::TextureFormat::Rgba16Float;
         let size = wgpu::Extent3d {
             width: w,
             height: h,

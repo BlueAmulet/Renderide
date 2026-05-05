@@ -8,6 +8,9 @@ use crate::config::{
 };
 use crate::ipc::get_ignore_config;
 
+/// Fixed swapchain frame latency used for every GPU startup path.
+pub(crate) const MAX_FRAME_LATENCY: u32 = 2;
+
 /// Initial GPU/swapchain knobs read once during process bootstrap.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct GpuStartupConfig {
@@ -58,7 +61,7 @@ pub(crate) fn load_app_config(log_level_cli: Option<LogLevel>) -> AppConfig {
 
     let gpu = GpuStartupConfig {
         vsync: load.settings.rendering.vsync,
-        max_frame_latency: load.settings.rendering.resolved_max_frame_latency(),
+        max_frame_latency: MAX_FRAME_LATENCY,
         gpu_validation_layers: load.settings.debug.gpu_validation_layers,
         power_preference: load.settings.debug.power_preference.to_wgpu(),
         graphics_api: load.settings.rendering.graphics_api,

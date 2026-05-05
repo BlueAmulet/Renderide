@@ -5,9 +5,9 @@
 //!
 //! ## Why
 //!
-//! Every renderer config enum (vsync mode, MSAA sample count, scene-color format, cluster
-//! assignment, record parallelism, power preference, tonemap mode, bloom composite mode, watchdog
-//! action) used to repeat the same quadruplet of helpers by hand:
+//! Every renderer config enum (vsync mode, MSAA sample count, scene-color format, power preference,
+//! tonemap mode, bloom composite mode, watchdog action) used to repeat the same quadruplet of
+//! helpers by hand:
 //!
 //! - `const ALL: [Self; N]` for ImGui pickers and round-trip tests,
 //! - `fn label(self) -> &'static str` for the renderer config window,

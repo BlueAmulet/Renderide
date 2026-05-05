@@ -32,22 +32,3 @@ impl Default for ResidentAssetPools {
         }
     }
 }
-
-impl ResidentAssetPools {
-    /// Returns sampleable 2D/render/video texture bytes covered by the texture VRAM budget.
-    pub(crate) fn budgeted_texture_bytes(&self) -> u64 {
-        self.texture_pool
-            .accounting()
-            .texture_resident_bytes()
-            .saturating_add(
-                self.render_texture_pool
-                    .accounting()
-                    .texture_resident_bytes(),
-            )
-            .saturating_add(
-                self.video_texture_pool
-                    .accounting()
-                    .texture_resident_bytes(),
-            )
-    }
-}

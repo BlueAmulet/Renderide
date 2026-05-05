@@ -22,7 +22,7 @@ mod pipeline;
 mod record_action;
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 
 use std::num::NonZeroU64;
 
@@ -41,7 +41,6 @@ use record_action::{
 
 use crate::backend::CLUSTER_PARAMS_UNIFORM_SIZE;
 use crate::camera::ViewId;
-use crate::config::ClusterAssignmentMode;
 use crate::render_graph::context::ComputePassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::frame_params::PerViewFramePlanSlot;
@@ -54,12 +53,8 @@ use crate::render_graph::resources::{
 #[derive(Debug)]
 pub struct ClusteredLightPass {
     resources: ClusteredLightGraphResources,
-    /// Assignment backend selected when this graph was compiled.
-    assignment_mode: ClusterAssignmentMode,
     /// Logged once on first successful dispatch; uses an atomic to allow `record(&self, ...)`.
     logged_active_once: AtomicBool,
-    /// Logged once when CPU froxel mode is requested for a view that cannot safely use it.
-    logged_cpu_fallback_once: AtomicBool,
     /// Per-view compute bind group cache: invalidated when the per-view cluster buffer version changes.
     bind_group_cache: ClusteredLightBindGroupCache,
 }
@@ -91,15 +86,10 @@ struct ClusterComputeBuffers<'a> {
 
 impl ClusteredLightPass {
     /// Creates a clustered light pass (pipeline is created lazily on first execute).
-    pub fn new(
-        resources: ClusteredLightGraphResources,
-        assignment_mode: ClusterAssignmentMode,
-    ) -> Self {
+    pub fn new(resources: ClusteredLightGraphResources) -> Self {
         Self {
             resources,
-            assignment_mode,
             logged_active_once: AtomicBool::new(false),
-            logged_cpu_fallback_once: AtomicBool::new(false),
             bind_group_cache: ClusteredLightBindGroupCache::new(),
         }
     }
@@ -149,33 +139,7 @@ impl ClusteredLightPass {
 
     /// Returns whether this pass should use CPU froxel assignment for the current view.
     fn should_use_cpu_froxel(&self, view_idx: usize, stereo: bool, light_count: u32) -> bool {
-        match self.assignment_mode {
-            ClusterAssignmentMode::GpuScan => false,
-            ClusterAssignmentMode::Auto => {
-                view_idx == 0 && stereo && light_count >= AUTO_CPU_FROXEL_LIGHT_THRESHOLD
-            }
-            ClusterAssignmentMode::CpuFroxel => {
-                if view_idx == 0 {
-                    true
-                } else {
-                    self.log_cpu_froxel_fallback(view_idx);
-                    false
-                }
-            }
-        }
-    }
-
-    /// Logs the shared-buffer ordering fallback once.
-    fn log_cpu_froxel_fallback(&self, view_idx: usize) {
-        if self
-            .logged_cpu_fallback_once
-            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-        {
-            logger::warn!(
-                "ClusteredLight: CPU froxel assignment requested for view index {view_idx}, but only view 0 can safely use pre-submit CPU writes with the current shared cluster buffers; falling back to GPU scan for later views"
-            );
-        }
+        view_idx == 0 && stereo && light_count >= AUTO_CPU_FROXEL_LIGHT_THRESHOLD
     }
 
     /// Selects and prepares the clustered-light work for the current graph view.

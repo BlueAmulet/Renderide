@@ -2,7 +2,7 @@
 
 /// Renderer policy clamp on [`wgpu::Limits::max_texture_dimension_2d`]; matches the host's
 /// maximum 2D texture size and avoids encouraging textures larger than the engine ever exposes.
-const RENDERER_MAX_TEXTURE_DIMENSION_2D: u32 = 16384;
+pub const RENDERER_MAX_TEXTURE_DIMENSION_2D: u32 = 16384;
 
 /// Requests [`wgpu::Limits`] for [`wgpu::Adapter::request_device`].
 ///

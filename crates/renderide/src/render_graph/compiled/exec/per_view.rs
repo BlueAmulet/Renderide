@@ -6,26 +6,20 @@ use super::{
 };
 
 impl CompiledRenderGraph {
-    /// Drives the per-view recording phase either serially or across a `rayon::scope` fan-out,
-    /// returning one [`PerViewRecordOutput`] per input work item in submission order.
-    ///
-    /// `PerViewParallel` scaffolding is in place across the pass traits, frame-params split,
-    /// upload batch, and transient resolve; remaining serialization points around shared backend
-    /// systems are gated in [`super::super::record_parallel`].
+    /// Drives the per-view recording phase serially for a single view or across a `rayon::scope`
+    /// fan-out for multi-view batches, returning one [`PerViewRecordOutput`] per input work item
+    /// in submission order.
     pub(super) fn record_per_view_outputs(
         &self,
         per_view_work_items: Vec<PerViewWorkItem>,
         inputs: PerViewRecordInputs<'_>,
-        record_parallelism: crate::config::RecordParallelism,
         n_views: usize,
     ) -> Result<Vec<PerViewRecordOutput>, GraphExecuteError> {
         profiling::scope!("graph::record_per_view_outputs");
         // One view records serially. Two or more independent views can use worker threads, which
         // lets OpenXR stereo record both eyes in parallel.
         const MIN_VIEWS_FOR_PARALLEL_RECORD: usize = 2;
-        if record_parallelism == crate::config::RecordParallelism::PerViewParallel
-            && n_views >= MIN_VIEWS_FOR_PARALLEL_RECORD
-        {
+        if n_views >= MIN_VIEWS_FOR_PARALLEL_RECORD {
             self.record_per_view_outputs_parallel(per_view_work_items, inputs, n_views)
         } else {
             self.record_per_view_outputs_serial(per_view_work_items, inputs, n_views)

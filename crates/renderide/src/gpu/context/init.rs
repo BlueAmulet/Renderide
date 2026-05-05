@@ -242,12 +242,10 @@ impl GpuContext {
     /// [`VsyncMode::resolve_present_mode`] (so e.g. [`VsyncMode::On`] picks `Mailbox` when
     /// available rather than the deeper-queue plain `Fifo`).
     ///
-    /// `max_frame_latency` is the initial value for
-    /// [`wgpu::SurfaceConfiguration::desired_maximum_frame_latency`]. Pass the resolved value
-    /// from [`crate::config::RenderingSettings::resolved_max_frame_latency`]. The default of `2`
-    /// allows CPU recording for frame N+1 to overlap with GPU work for frame N; lowering to `1`
-    /// reduces input latency at the cost of stalls inside [`wgpu::Surface::get_current_texture`].
-    /// The setting is live-tunable via [`crate::gpu::GpuContext::set_max_frame_latency`].
+    /// `max_frame_latency` is the initial fixed value for
+    /// [`wgpu::SurfaceConfiguration::desired_maximum_frame_latency`]. The renderer uses `2`,
+    /// allowing CPU recording for frame N+1 to overlap with GPU work for frame N without adding
+    /// another queued frame.
     ///
     /// `graphics_api` chooses the first backend set used for instance and adapter selection. An
     /// explicit API is retried with [`GraphicsApiSetting::Auto`] when it finds no compatible
@@ -355,8 +353,7 @@ impl GpuContext {
     /// `max_frame_latency` populates
     /// [`wgpu::SurfaceConfiguration::desired_maximum_frame_latency`] for parity with the
     /// windowed path; headless rendering has no swapchain so the value mostly affects internal
-    /// frame-resource allocation. Pass the resolved value from
-    /// [`crate::config::RenderingSettings::resolved_max_frame_latency`].
+    /// frame-resource allocation.
     ///
     /// `graphics_api` follows the same startup-only first-attempt and auto-fallback policy as the
     /// windowed constructor.
@@ -450,9 +447,9 @@ impl GpuContext {
 
     /// Builds GPU state using an existing wgpu instance/device from OpenXR bootstrap (mirror window).
     ///
-    /// The mirror surface uses the same capability-aware [`VsyncMode`] mapping and
-    /// `max_frame_latency` semantics as the desktop constructor so windowed presentation
-    /// behaves consistently across desktop and VR startup paths.
+    /// The mirror surface uses the same capability-aware [`VsyncMode`] mapping and fixed
+    /// `max_frame_latency` semantics as the desktop constructor so windowed presentation behaves
+    /// consistently across desktop and VR startup paths.
     pub fn new_from_openxr_bootstrap(
         instance: &wgpu::Instance,
         adapter: &wgpu::Adapter,

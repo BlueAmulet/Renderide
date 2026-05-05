@@ -28,10 +28,8 @@ pub use depth::{
 };
 pub use driver_thread::{DriverError, DriverErrorKind, DriverThread, SubmitBatch, SubmitWait};
 pub use frame_globals::{ClusteredFrameGlobalsParams, FrameGpuUniforms};
-pub use instance_limits::instance_flags_for_gpu_init;
-pub use limits::{
-    CUBEMAP_ARRAY_LAYERS, GpuLimits, GpuLimitsError, REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE,
-};
+pub use instance_limits::{RENDERER_MAX_TEXTURE_DIMENSION_2D, instance_flags_for_gpu_init};
+pub use limits::{CUBEMAP_ARRAY_LAYERS, GpuLimits, GpuLimitsError, MAX_RENDER_TEXTURE_EDGE};
 pub use msaa_depth_resolve::{
     MsaaDepthResolveMonoTargets, MsaaDepthResolveResources, MsaaDepthResolveStereoTargets,
 };

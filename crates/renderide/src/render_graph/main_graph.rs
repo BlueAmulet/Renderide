@@ -388,7 +388,6 @@ fn add_main_graph_passes_and_edges(
     post_processing_resources: &MainGraphPostProcessingResources,
     msaa_sample_count: u8,
     multiview_stereo: bool,
-    cluster_assignment: crate::config::ClusterAssignmentMode,
 ) -> Result<CompiledRenderGraph, GraphBuildError> {
     let deform = builder.add_compute_pass(Box::new(crate::passes::MeshDeformPass::new()));
     let clustered = builder.add_compute_pass(Box::new(crate::passes::ClusteredLightPass::new(
@@ -398,7 +397,6 @@ fn add_main_graph_passes_and_edges(
             cluster_light_indices: h.cluster_light_indices,
             params: h.cluster_params,
         },
-        cluster_assignment,
     )));
     let forward_resources = main_forward_resources(&h);
     let forward_prepare = builder.add_callback_pass(Box::new(
@@ -579,7 +577,6 @@ pub(crate) fn build_main_graph_with_resources(
         post_processing_resources,
         key.msaa_sample_count,
         key.multiview_stereo,
-        key.cluster_assignment,
     )?;
     graph.main_graph_msaa_transient_handles = Some(msaa_handles);
     Ok(graph)
@@ -610,7 +607,6 @@ pub fn build_default_main_graph_with(
         post_processing: post_processing::PostProcessChainSignature::from_settings(
             post_processing_settings,
         ),
-        cluster_assignment: crate::config::ClusterAssignmentMode::Auto,
     };
     build_main_graph(key, post_processing_settings)
 }
@@ -634,7 +630,6 @@ mod tests {
             surface_format: TextureFormat::Bgra8UnormSrgb,
             scene_color_format: TextureFormat::Rgba16Float,
             post_processing: PostProcessChainSignature::default(),
-            cluster_assignment: crate::config::ClusterAssignmentMode::Auto,
         }
     }
 

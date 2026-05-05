@@ -1,5 +1,5 @@
-//! Surface lifecycle methods on [`GpuContext`]: present mode / latency hot-reload,
-//! resize, swapchain acquire-with-recovery, and small surface accessors.
+//! Surface lifecycle methods on [`GpuContext`]: present mode hot-reload, resize,
+//! swapchain acquire-with-recovery, and small surface accessors.
 
 use winit::dpi::PhysicalSize;
 
@@ -29,32 +29,6 @@ impl GpuContext {
             "Present mode set to {:?} (vsync={:?})",
             self.config.present_mode,
             mode
-        );
-    }
-
-    /// Updates [`wgpu::SurfaceConfiguration::desired_maximum_frame_latency`] and reconfigures the
-    /// surface (hot-reload from settings).
-    ///
-    /// Early-returns when the requested value already matches the active configuration so the
-    /// per-tick call from the runtime is cheap. Headless contexts still update the cached config
-    /// for parity, but skip the surface reconfigure since there is no surface.
-    ///
-    /// Callers must pass a value in `1..=3`; use
-    /// [`crate::config::RenderingSettings::resolved_max_frame_latency`] which clamps for you.
-    pub fn set_max_frame_latency(&mut self, max_frame_latency: u32) {
-        if self.config.desired_maximum_frame_latency == max_frame_latency {
-            return;
-        }
-        let previous = self.config.desired_maximum_frame_latency;
-        self.config.desired_maximum_frame_latency = max_frame_latency;
-        if let Some(surface) = self.surface.as_ref() {
-            self.wait_for_previous_present();
-            surface.configure(&self.device, &self.config);
-        }
-        logger::info!(
-            "desired_maximum_frame_latency set to {} (was {})",
-            max_frame_latency,
-            previous
         );
     }
 

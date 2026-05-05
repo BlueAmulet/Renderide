@@ -62,10 +62,10 @@ pub use resolve::{
 };
 pub use save::{save_renderer_settings, save_renderer_settings_from_load};
 pub use types::{
-    AutoExposureSettings, BloomCompositeMode, BloomSettings, ClusterAssignmentMode,
-    DebugHudMainTab, DebugHudMainTabVisibility, DebugHudRendererConfigTab,
-    DebugHudRendererConfigTabVisibility, DebugHudSettings, DebugSettings, DisplaySettings,
-    GraphicsApiSetting, GtaoSettings, MsaaSampleCount, PostProcessingSettings,
-    PowerPreferenceSetting, RecordParallelism, RendererSettings, RenderingSettings,
-    SceneColorFormat, TonemapMode, TonemapSettings, VsyncMode, WatchdogAction, WatchdogSettings,
+    AutoExposureSettings, BloomCompositeMode, BloomSettings, DebugHudMainTab,
+    DebugHudMainTabVisibility, DebugHudRendererConfigTab, DebugHudRendererConfigTabVisibility,
+    DebugHudSettings, DebugSettings, DisplaySettings, GraphicsApiSetting, GtaoSettings,
+    MsaaSampleCount, PostProcessingSettings, PowerPreferenceSetting, RendererSettings,
+    RenderingSettings, SceneColorFormat, TonemapMode, TonemapSettings, VsyncMode, WatchdogAction,
+    WatchdogSettings,
 };

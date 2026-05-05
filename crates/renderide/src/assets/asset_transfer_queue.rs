@@ -145,35 +145,9 @@ impl AssetTransferQueue {
         self.gpu.gpu_limits.as_ref()
     }
 
-    /// Applies renderer settings that affect asset allocation and diagnostics.
-    pub(crate) fn apply_runtime_settings(
-        &mut self,
-        render_texture_hdr_color: bool,
-        texture_vram_budget_bytes: u64,
-    ) {
-        self.gpu.render_texture_hdr_color = render_texture_hdr_color;
-        self.gpu.texture_vram_budget_bytes = texture_vram_budget_bytes;
-    }
-
     /// Number of host Texture2D format rows known to the asset catalog.
     pub(crate) fn texture_format_registration_count(&self) -> usize {
         self.catalogs.texture_formats.len()
-    }
-
-    /// Logs a warning when combined sampleable 2D/render/video texture bytes exceed the configured budget.
-    pub(crate) fn maybe_warn_texture_vram_budget(&self) {
-        let budget = self.gpu.texture_vram_budget_bytes;
-        if budget == 0 {
-            return;
-        }
-        let used = self.pools.budgeted_texture_bytes();
-        if used > budget {
-            logger::warn!(
-                "texture VRAM over budget: resident~{} MiB > {} MiB (2D+RT+video pools; see [rendering].texture_vram_budget_mib)",
-                used / (1024 * 1024),
-                budget / (1024 * 1024),
-            );
-        }
     }
 
     /// Drains the per-frame accumulator of video clock-error samples for transmission to the host.
@@ -199,7 +173,6 @@ impl AssetTransferQueue {
             if self.pools.video_texture_pool.insert(texture) {
                 logger::debug!("video texture {asset_id}: replaced placeholder during creation");
             }
-            self.maybe_warn_texture_vram_budget();
         }
         self.pools.video_texture_pool.get_mut(asset_id)
     }

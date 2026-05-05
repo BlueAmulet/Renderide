@@ -13,10 +13,11 @@ mod validation;
 /// Number of array layers used for a GPU cubemap (six faces).
 pub const CUBEMAP_ARRAY_LAYERS: u32 = 6;
 
-/// Product cap (texels per edge) for host-reported max texture size when the GPU is not yet
-/// available, and upper bound used by [`GpuLimits::clamp_render_texture_edge`] together with
-/// [`wgpu::Limits::max_texture_dimension_2d`] (see [`crate::config::RendererSettings::reported_max_texture_dimension_for_host`]).
-pub const REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE: u32 = 8192;
+/// Per-edge cap for host render-texture assets.
+///
+/// This is separate from [`crate::gpu::RENDERER_MAX_TEXTURE_DIMENSION_2D`], which is reported to
+/// the host during init and mirrors the GPU's effective max 2D texture size.
+pub const MAX_RENDER_TEXTURE_EDGE: u32 = 8192;
 
 /// Renderer-specific GPU limits and feature flags (immutable after construction).
 #[derive(Clone, Debug)]
@@ -278,13 +279,13 @@ impl GpuLimits {
         self.wgpu.max_vertex_attributes
     }
 
-    /// Clamps host edge length for render textures: `[4, min(REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE, max_texture_dimension_2d)]`.
+    /// Clamps host edge length for render textures: `[4, min(MAX_RENDER_TEXTURE_EDGE, max_texture_dimension_2d)]`.
     #[inline]
     pub fn clamp_render_texture_edge(&self, edge: i32) -> u32 {
         let cap = self
             .wgpu
             .max_texture_dimension_2d
-            .min(REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE);
+            .min(MAX_RENDER_TEXTURE_EDGE);
         edge.clamp(4, cap as i32) as u32
     }
 
@@ -366,14 +367,14 @@ mod tests {
     }
 
     #[test]
-    fn clamp_render_texture_edge_caps_at_min_of_fallback_edge_and_gpu_max() {
+    fn clamp_render_texture_edge_caps_at_min_of_render_texture_edge_and_gpu_max() {
         let gl_small = synthetic_limits(512);
         assert_eq!(gl_small.clamp_render_texture_edge(10_000), 512);
 
         let gl_large = synthetic_limits(16384);
         assert_eq!(
             gl_large.clamp_render_texture_edge(100_000),
-            REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE
+            MAX_RENDER_TEXTURE_EDGE
         );
         assert_eq!(gl_large.clamp_render_texture_edge(4096), 4096);
     }

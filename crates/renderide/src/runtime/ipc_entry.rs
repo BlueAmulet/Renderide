@@ -65,20 +65,18 @@ impl RendererRuntime {
             }
         }
         self.frontend.set_pending_init(d.clone());
-        if let Some(ref mut ipc) = self.frontend.ipc_mut() {
-            let settings = self.settings.read().map(|g| g.clone()).unwrap_or_default();
-            if !crate::frontend::dispatch::ipc_init::send_renderer_init_result(
+        if let Some(ref mut ipc) = self.frontend.ipc_mut()
+            && !crate::frontend::dispatch::ipc_init::send_renderer_init_result(
                 ipc,
                 d.output_device,
-                &settings,
                 None,
-            ) {
-                logger::error!(
-                    "IPC: RendererInitResult was not sent (primary queue full); stopping init handshake"
-                );
-                self.frontend.set_fatal_error(true);
-                return;
-            }
+            )
+        {
+            logger::error!(
+                "IPC: RendererInitResult was not sent (primary queue full); stopping init handshake"
+            );
+            self.frontend.set_fatal_error(true);
+            return;
         }
         self.frontend.on_init_received();
     }

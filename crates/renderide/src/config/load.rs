@@ -454,11 +454,9 @@ focused_fps = 10
         );
     }
 
-    /// Regression test: loads a `config.toml` whose every enum token uses the original
-    /// pre-refactor on-disk format (serde's `snake_case` for the section that had it,
-    /// PascalCase for `RecordParallelism` which had no `rename_all`). Goes through the full
-    /// figment pipeline rather than a bare `toml::from_str` so it catches the path the
-    /// renderer actually exercises at startup.
+    /// Regression test: loads a `config.toml` whose enum tokens use older on-disk formats.
+    /// Removed policy knobs are intentionally still present in the TOML so the full figment
+    /// pipeline proves stale user configs remain harmless.
     #[test]
     fn pre_refactor_format_loads_through_figment() {
         let content = r#"
@@ -502,8 +500,8 @@ action = "log_and_continue"
         let s =
             run_pipeline(Some(content.to_string())).expect("figment must accept original tokens");
         use crate::config::types::{
-            ClusterAssignmentMode, MsaaSampleCount, PowerPreferenceSetting, RecordParallelism,
-            SceneColorFormat, TonemapMode, VsyncMode, WatchdogAction,
+            MsaaSampleCount, PowerPreferenceSetting, SceneColorFormat, TonemapMode, VsyncMode,
+            WatchdogAction,
         };
         assert_eq!(s.rendering.vsync, VsyncMode::Off);
         assert_eq!(s.rendering.msaa, MsaaSampleCount::X8);
@@ -511,11 +509,6 @@ action = "log_and_continue"
             s.rendering.scene_color_format,
             SceneColorFormat::Rgba16Float
         );
-        assert_eq!(
-            s.rendering.record_parallelism,
-            RecordParallelism::PerViewParallel
-        );
-        assert_eq!(s.rendering.cluster_assignment, ClusterAssignmentMode::Auto);
         assert_eq!(
             s.debug.power_preference,
             PowerPreferenceSetting::HighPerformance

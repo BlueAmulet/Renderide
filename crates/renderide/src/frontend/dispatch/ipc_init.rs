@@ -1,7 +1,6 @@
 //! IPC command routing by [`crate::frontend::InitState`]: init handshake vs running dispatch.
 
 use crate::assets::texture::supported_host_formats_for_init;
-use crate::config::RendererSettings;
 use crate::frontend::InitState;
 use crate::ipc::DualQueueIpc;
 use crate::runtime::RendererRuntime;
@@ -57,14 +56,10 @@ pub(crate) fn init_dispatch_decision(
 /// Returns `false` if the primary queue rejected the message (caller should treat as fatal / retry init).
 ///
 /// `gpu_max_texture_dim_2d` should be [`None`] until a [`wgpu::Device`] exists; the host only
-/// accepts **one** init result (see FrooxEngine `RenderSystem.HandleCommand`), so this is sent once
-/// from [`crate::runtime::RendererRuntime::on_init_data`] with [`None`] before GPU init. The
-/// [`RendererSettings::reported_max_texture_dimension_for_host`] fallback ([`crate::gpu::REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE`]
-/// when GPU limits are unknown) matches typical GPUs; non-zero config caps are still clamped.
+/// accepts one init result, so startup normally reports the renderer policy max before GPU init.
 pub(crate) fn send_renderer_init_result(
     ipc: &mut DualQueueIpc,
     output_device: HeadOutputDevice,
-    settings: &RendererSettings,
     gpu_max_texture_dim_2d: Option<u32>,
 ) -> bool {
     let stereo = if head_output_device_wants_openxr(output_device) {
@@ -72,7 +67,7 @@ pub(crate) fn send_renderer_init_result(
     } else {
         "None"
     };
-    let max_texture_size = settings.reported_max_texture_dimension_for_host(gpu_max_texture_dim_2d);
+    let max_texture_size = max_texture_size_for_init(gpu_max_texture_dim_2d);
     let result = RendererInitResult {
         actual_output_device: output_device,
         renderer_identifier: Some(RENDERER_IDENTIFIER.to_string()),
@@ -83,6 +78,10 @@ pub(crate) fn send_renderer_init_result(
         supported_texture_formats: supported_host_formats_for_init(),
     };
     ipc.send_primary(RendererCommand::RendererInitResult(result))
+}
+
+fn max_texture_size_for_init(gpu_max_texture_dim_2d: Option<u32>) -> i32 {
+    gpu_max_texture_dim_2d.unwrap_or(crate::gpu::RENDERER_MAX_TEXTURE_DIMENSION_2D) as i32
 }
 
 /// Dispatches a single command according to the current init phase.
@@ -115,9 +114,22 @@ pub(crate) fn dispatch_ipc_command(runtime: &mut RendererRuntime, cmd: RendererC
 
 #[cfg(test)]
 mod tests {
-    use super::{InitDispatchDecision, init_dispatch_decision};
+    use super::{InitDispatchDecision, init_dispatch_decision, max_texture_size_for_init};
     use crate::frontend::InitState;
     use crate::frontend::dispatch::command_kind::RendererCommandLifecycle;
+
+    #[test]
+    fn max_texture_size_uses_gpu_limit_when_available() {
+        assert_eq!(max_texture_size_for_init(Some(4096)), 4096);
+    }
+
+    #[test]
+    fn max_texture_size_uses_renderer_policy_before_gpu_init() {
+        assert_eq!(
+            max_texture_size_for_init(None),
+            crate::gpu::RENDERER_MAX_TEXTURE_DIMENSION_2D as i32
+        );
+    }
 
     #[test]
     fn uninitialized_accepts_keepalive_and_init_only() {

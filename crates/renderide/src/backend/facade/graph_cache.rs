@@ -1,6 +1,6 @@
 //! Render-graph cache synchronization and frame-shape invalidation policy.
 
-use crate::config::{ClusterAssignmentMode, PostProcessingSettings};
+use crate::config::PostProcessingSettings;
 use crate::render_graph::GraphCacheKey;
 use crate::render_graph::post_processing::PostProcessChainSignature;
 
@@ -23,8 +23,6 @@ pub(super) struct FrameGraphShape {
     scene_color_format: wgpu::TextureFormat,
     /// Active post-processing topology.
     post_processing: PostProcessChainSignature,
-    /// Clustered-light assignment backend compiled into the cluster pass.
-    cluster_assignment: ClusterAssignmentMode,
 }
 
 impl FrameGraphShape {
@@ -37,7 +35,6 @@ impl FrameGraphShape {
             surface_format: self.surface_format,
             scene_color_format: self.scene_color_format,
             post_processing: self.post_processing,
-            cluster_assignment: self.cluster_assignment,
         }
     }
 }
@@ -50,7 +47,6 @@ impl RenderBackend {
         post_processing: &PostProcessingSettings,
         msaa_sample_count: u8,
         multiview_stereo: bool,
-        cluster_assignment: ClusterAssignmentMode,
     ) -> FrameGraphShape {
         FrameGraphShape {
             msaa_sample_count,
@@ -60,7 +56,6 @@ impl RenderBackend {
                 .unwrap_or(wgpu::TextureFormat::Bgra8UnormSrgb),
             scene_color_format: self.scene_color_format_wgpu(),
             post_processing: PostProcessChainSignature::from_settings(post_processing),
-            cluster_assignment,
         }
     }
 
@@ -77,7 +72,7 @@ impl RenderBackend {
         let previous_key = self.graph_state.frame_graph_cache.last_key();
         if let Some(previous_key) = previous_key.filter(|previous| *previous != key) {
             logger::info!(
-                "graph inputs changed (post-processing {:?} -> {:?}, msaa {}x -> {}x, multiview {} -> {}, surface {:?} -> {:?}, scene color {:?} -> {:?}, cluster assignment {:?} -> {:?}); rebuilding render graph",
+                "graph inputs changed (post-processing {:?} -> {:?}, msaa {}x -> {}x, multiview {} -> {}, surface {:?} -> {:?}, scene color {:?} -> {:?}); rebuilding render graph",
                 previous_key.post_processing,
                 key.post_processing,
                 previous_key.msaa_sample_count,
@@ -88,8 +83,6 @@ impl RenderBackend {
                 key.surface_format,
                 previous_key.scene_color_format,
                 key.scene_color_format,
-                previous_key.cluster_assignment,
-                key.cluster_assignment,
             );
         }
         let post_processing_resources = self.graph_state.post_processing_resources().clone();
@@ -109,23 +102,14 @@ impl RenderBackend {
         let Some(handle) = self.renderer_settings.as_ref() else {
             return;
         };
-        let (live_parallelism, live_settings, live_msaa, live_cluster_assignment) =
-            match handle.read() {
-                Ok(guard) => (
-                    guard.rendering.record_parallelism,
-                    guard.post_processing.clone(),
-                    guard.rendering.msaa.as_count() as u8,
-                    guard.rendering.cluster_assignment,
-                ),
-                Err(_) => return,
-            };
-        self.set_record_parallelism(live_parallelism);
-        let shape = self.frame_graph_shape_for(
-            &live_settings,
-            live_msaa,
-            multiview_stereo,
-            live_cluster_assignment,
-        );
+        let (live_settings, live_msaa) = match handle.read() {
+            Ok(guard) => (
+                guard.post_processing.clone(),
+                guard.rendering.msaa.as_count() as u8,
+            ),
+            Err(_) => return,
+        };
+        let shape = self.frame_graph_shape_for(&live_settings, live_msaa, multiview_stereo);
         self.sync_frame_graph_cache(&live_settings, shape);
     }
 }

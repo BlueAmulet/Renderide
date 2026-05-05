@@ -85,9 +85,8 @@ impl SwapchainScope {
         // With `desired_maximum_frame_latency >= 2` (the default) the driver thread can
         // present frame N's image while frame N+1 is still recording, so by the time the
         // main thread reaches this barrier the previous present has typically already
-        // completed and the wait is near-instant. With `max_frame_latency = 1` this becomes
-        // the dominant frame stall; that tradeoff is documented on
-        // `RenderingSettings::max_frame_latency`.
+        // completed and the wait is near-instant. With lower frame latency this would become a
+        // dominant frame stall, so keep the wait bracketed for profiling.
         {
             profiling::scope!("gpu::wait_previous_present.desktop_graph");
             gpu.wait_for_previous_present();

@@ -55,8 +55,6 @@ pub(crate) struct BackendGraphAccess<'a> {
     pub(crate) debug_hud: &'a mut DebugHudBundle,
     /// Unified skybox IBL prefilter cache.
     pub(crate) skybox_ibl: &'a crate::skybox::SkyboxIblCache,
-    /// Per-view recording mode snapshot for this frame.
-    pub(crate) record_parallelism: crate::config::RecordParallelism,
     /// Scene-color format snapshot selected before graph execution borrows backend fields.
     pub(super) scene_color_format: wgpu::TextureFormat,
     /// GPU limits snapshot selected before graph execution borrows backend fields.

@@ -5,13 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Fallback per-edge cap for `RendererInitResult::max_texture_size` when the GPU's actual
-/// `max_texture_dimension_2d` isn't available yet (pre-init or queried path).
-///
-/// Mirrors `gpu::REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE` so config can avoid importing gpu;
-/// both definitions trace to the same hardware-fact value.
-const REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE: u32 = 8192;
-
 mod debug;
 mod display;
 mod post_processing;
@@ -28,8 +21,7 @@ pub use post_processing::{
     TonemapMode, TonemapSettings,
 };
 pub use rendering::{
-    ClusterAssignmentMode, GraphicsApiSetting, MsaaSampleCount, RecordParallelism,
-    RenderingSettings, SceneColorFormat, VsyncMode,
+    GraphicsApiSetting, MsaaSampleCount, RenderingSettings, SceneColorFormat, VsyncMode,
 };
 pub use watchdog::{WatchdogAction, WatchdogSettings};
 
@@ -53,50 +45,5 @@ impl RendererSettings {
     /// Hardcoded defaults only.
     pub fn from_defaults() -> Self {
         Self::default()
-    }
-
-    /// Effective value for [`crate::shared::RendererInitResult::max_texture_size`].
-    ///
-    /// `gpu_max_texture_dim_2d` should be [`wgpu::Limits::max_texture_dimension_2d`] when the device
-    /// exists; use [`None`] before GPU init (conservative [`REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE`]).
-    pub fn reported_max_texture_dimension_for_host(
-        &self,
-        gpu_max_texture_dim_2d: Option<u32>,
-    ) -> i32 {
-        let gpu_cap = gpu_max_texture_dim_2d.unwrap_or(REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE);
-        let cap = self.rendering.reported_max_texture_size;
-        let v = if cap == 0 { gpu_cap } else { cap.min(gpu_cap) };
-        v as i32
-    }
-}
-
-#[cfg(test)]
-mod reported_max_texture_tests {
-    use super::{REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE, RendererSettings};
-
-    #[test]
-    fn reported_max_texture_matches_gpu_when_config_zero() {
-        let s = RendererSettings::default();
-        assert_eq!(
-            s.reported_max_texture_dimension_for_host(Some(16384)),
-            16384
-        );
-    }
-
-    #[test]
-    fn reported_max_texture_clamps_config_to_gpu() {
-        let mut s = RendererSettings::default();
-        s.rendering.reported_max_texture_size = 4096;
-        assert_eq!(s.reported_max_texture_dimension_for_host(Some(16384)), 4096);
-        assert_eq!(s.reported_max_texture_dimension_for_host(Some(2048)), 2048);
-    }
-
-    #[test]
-    fn reported_max_texture_fallback_without_gpu() {
-        let s = RendererSettings::default();
-        assert_eq!(
-            s.reported_max_texture_dimension_for_host(None),
-            REPORTED_MAX_TEXTURE_SIZE_FALLBACK_EDGE as i32
-        );
     }
 }

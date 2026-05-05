@@ -1,4 +1,4 @@
-//! Per-view parallel command encoding under [`crate::config::RecordParallelism::PerViewParallel`].
+//! Per-view parallel command encoding for multi-view graph batches.
 //!
 //! The executor now prepares immutable per-view work items on the main thread, then fans them out
 //! with `rayon::scope` so each worker records one view's command encoder independently. The
