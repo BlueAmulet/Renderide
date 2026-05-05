@@ -28,8 +28,8 @@ pub use post_processing::{
     TonemapMode, TonemapSettings,
 };
 pub use rendering::{
-    ClusterAssignmentMode, MsaaSampleCount, RecordParallelism, RenderingSettings, SceneColorFormat,
-    VsyncMode,
+    ClusterAssignmentMode, GraphicsApiSetting, MsaaSampleCount, RecordParallelism,
+    RenderingSettings, SceneColorFormat, VsyncMode,
 };
 pub use watchdog::{WatchdogAction, WatchdogSettings};
 

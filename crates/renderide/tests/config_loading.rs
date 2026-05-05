@@ -12,12 +12,13 @@
 
 use std::ffi::OsString;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use renderide::config::{ConfigFilePolicy, ConfigSource, load_renderer_settings};
 
 const CONFIG_VAR: &str = "RENDERIDE_CONFIG";
 const GPU_VALIDATION_VAR: &str = "RENDERIDE_GPU_VALIDATION";
+const GRAPHICS_API_ENV_VAR: &str = "RENDERIDE_RENDERING__GRAPHICS_API";
 const VSYNC_ENV_VAR: &str = "RENDERIDE_RENDERING__VSYNC";
 
 /// RAII guard that restores a set of environment variables to their pre-test state on drop so one
@@ -51,39 +52,32 @@ impl Drop for EnvGuard {
     }
 }
 
-fn write_toml(dir: &std::path::Path, body: &str) -> PathBuf {
+fn write_toml(dir: &Path, body: &str) -> PathBuf {
     let path = dir.join("config.toml");
     let mut f = std::fs::File::create(&path).expect("create fixture file");
     f.write_all(body.as_bytes()).expect("write fixture body");
     path
 }
 
-/// All cases run under one `#[test]` so they serialize on process-wide env vars. Each case sets
-/// its own env state before calling `load_renderer_settings()` and resets the env vars that would
-/// otherwise bleed across cases.
-#[test]
-fn load_renderer_settings_from_toml_and_env() {
-    let _guard = EnvGuard::capture(&[CONFIG_VAR, GPU_VALIDATION_VAR, VSYNC_ENV_VAR]);
-    let tmp = tempfile::tempdir().expect("tempdir");
-
+fn clear_case_env_overrides() {
     // SAFETY: env mutation in test; this is the only test in this binary that mutates env.
     unsafe {
         // Clear overrides that might leak from the host shell.
         std::env::remove_var(GPU_VALIDATION_VAR);
+        std::env::remove_var(GRAPHICS_API_ENV_VAR);
         std::env::remove_var(VSYNC_ENV_VAR);
     }
+}
 
-    // --- Case 1: TOML file values reach the resolved settings ---
-    // vsync default is `false`; set it to `true` so the override is observable. focused_fps default
-    // is `240`, so 30 is distinct.
-    let toml = write_toml(
-        tmp.path(),
-        "[rendering]\nvsync = true\n[display]\nfocused_fps = 30\n",
-    );
+fn set_config_path(path: &Path) {
     // SAFETY: env mutation in test; this is the only test in this binary that mutates env.
     unsafe {
-        std::env::set_var(CONFIG_VAR, &toml);
+        std::env::set_var(CONFIG_VAR, path);
     }
+}
+
+fn assert_toml_values_load(toml: &Path) {
+    set_config_path(toml);
 
     let result = load_renderer_settings(ConfigFilePolicy::Load);
     assert_eq!(
@@ -94,7 +88,7 @@ fn load_renderer_settings_from_toml_and_env() {
     );
     assert_eq!(
         result.resolve.loaded_path.as_deref(),
-        Some(toml.as_path()),
+        Some(toml),
         "resolve.loaded_path must match the fixture"
     );
     assert_eq!(
@@ -103,11 +97,17 @@ fn load_renderer_settings_from_toml_and_env() {
         "TOML vsync=true must deserialize as VsyncMode::On"
     );
     assert_eq!(
+        result.settings.rendering.graphics_api,
+        renderide::config::GraphicsApiSetting::Vulkan,
+        "TOML graphics_api=vulkan must reach the loaded settings"
+    );
+    assert_eq!(
         result.settings.display.focused_fps_cap, 30,
         "TOML display.focused_fps (serde rename of focused_fps_cap) should reach the loaded settings"
     );
+}
 
-    // --- Case 2: RENDERIDE_* env override beats the TOML value ---
+fn assert_vsync_env_override_loads() {
     // SAFETY: env mutation in test; this is the only test in this binary that mutates env.
     unsafe {
         std::env::set_var(VSYNC_ENV_VAR, "false");
@@ -122,8 +122,26 @@ fn load_renderer_settings_from_toml_and_env() {
     unsafe {
         std::env::remove_var(VSYNC_ENV_VAR);
     }
+}
 
-    // --- Case 3: RENDERIDE_GPU_VALIDATION flips the post-extract override ---
+fn assert_graphics_api_env_override_loads() {
+    // SAFETY: env mutation in test; this is the only test in this binary that mutates env.
+    unsafe {
+        std::env::set_var(GRAPHICS_API_ENV_VAR, "dx12");
+    }
+    let result = load_renderer_settings(ConfigFilePolicy::Load);
+    assert_eq!(
+        result.settings.rendering.graphics_api,
+        renderide::config::GraphicsApiSetting::Dx12,
+        "RENDERIDE_RENDERING__GRAPHICS_API=dx12 must override TOML graphics_api=vulkan"
+    );
+    // SAFETY: env mutation in test; this is the only test in this binary that mutates env.
+    unsafe {
+        std::env::remove_var(GRAPHICS_API_ENV_VAR);
+    }
+}
+
+fn assert_gpu_validation_env_override_loads() {
     // SAFETY: env mutation in test; this is the only test in this binary that mutates env.
     unsafe {
         std::env::set_var(GPU_VALIDATION_VAR, "1");
@@ -146,13 +164,12 @@ fn load_renderer_settings_from_toml_and_env() {
     unsafe {
         std::env::remove_var(GPU_VALIDATION_VAR);
     }
+}
 
-    // --- Case 4: RENDERIDE_CONFIG pointing at a missing file falls through to search / defaults ---
-    let missing = tmp.path().join("does_not_exist.toml");
-    // SAFETY: env mutation in test; this is the only test in this binary that mutates env.
-    unsafe {
-        std::env::set_var(CONFIG_VAR, &missing);
-    }
+fn assert_missing_config_path_falls_through(tmp: &Path) {
+    let missing = tmp.join("does_not_exist.toml");
+    set_config_path(&missing);
+
     let result = load_renderer_settings(ConfigFilePolicy::Load);
     // Loader may or may not find a file via the subsequent search; the contract is that
     // RENDERIDE_CONFIG pointing at a non-existent path does not become the effective `loaded_path`.
@@ -166,4 +183,40 @@ fn load_renderer_settings_from_toml_and_env() {
         "missing RENDERIDE_CONFIG path must appear in attempted_paths: {:?}",
         result.resolve.attempted_paths
     );
+}
+
+/// All cases run under one `#[test]` so they serialize on process-wide env vars. Each case sets
+/// its own env state before calling `load_renderer_settings()` and resets the env vars that would
+/// otherwise bleed across cases.
+#[test]
+fn load_renderer_settings_from_toml_and_env() {
+    let _guard = EnvGuard::capture(&[
+        CONFIG_VAR,
+        GPU_VALIDATION_VAR,
+        GRAPHICS_API_ENV_VAR,
+        VSYNC_ENV_VAR,
+    ]);
+    let tmp = tempfile::tempdir().expect("tempdir");
+    clear_case_env_overrides();
+
+    // --- Case 1: TOML file values reach the resolved settings ---
+    // vsync default is `false`; set it to `true` so the override is observable. focused_fps default
+    // is `240`, so 30 is distinct.
+    let toml = write_toml(
+        tmp.path(),
+        "[rendering]\nvsync = true\ngraphics_api = \"vulkan\"\n[display]\nfocused_fps = 30\n",
+    );
+    assert_toml_values_load(&toml);
+
+    // --- Case 2: RENDERIDE_* env override beats the TOML value ---
+    assert_vsync_env_override_loads();
+
+    // --- Case 2b: RENDERIDE_* env override works for graphics_api ---
+    assert_graphics_api_env_override_loads();
+
+    // --- Case 3: RENDERIDE_GPU_VALIDATION flips the post-extract override ---
+    assert_gpu_validation_env_override_loads();
+
+    // --- Case 4: RENDERIDE_CONFIG pointing at a missing file falls through to search / defaults ---
+    assert_missing_config_path_falls_through(tmp.path());
 }

@@ -4,6 +4,7 @@
 //! canonical persist string, label, and any aliases.
 
 mod cluster;
+mod graphics_api;
 mod limits;
 mod msaa;
 mod record_parallelism;
@@ -11,6 +12,7 @@ mod scene_color;
 mod vsync;
 
 pub use cluster::ClusterAssignmentMode;
+pub use graphics_api::GraphicsApiSetting;
 pub use msaa::MsaaSampleCount;
 pub use record_parallelism::RecordParallelism;
 pub use scene_color::SceneColorFormat;
@@ -29,6 +31,12 @@ pub struct RenderingSettings {
     /// `vsync = true / false` and `vsync = "adaptive"` configs still load via the bool-aware
     /// `labeled_enum!` deserializer.
     pub vsync: VsyncMode,
+    /// Startup graphics API preference. `Auto` preserves wgpu's default backend discovery; an
+    /// explicit API constrains the first adapter-selection attempt and falls back to automatic
+    /// selection if that API has no compatible adapter. Applied only when the GPU stack is created,
+    /// so changes require a renderer restart.
+    #[serde(rename = "graphics_api", default)]
+    pub graphics_api: GraphicsApiSetting,
     /// Wall-clock budget per frame for cooperative mesh/texture integration
     /// ([`crate::runtime::RendererRuntime::run_asset_integration`]), in milliseconds.
     #[serde(rename = "asset_integration_budget_ms")]
@@ -102,6 +110,7 @@ impl Default for RenderingSettings {
     fn default() -> Self {
         Self {
             vsync: VsyncMode::default(),
+            graphics_api: GraphicsApiSetting::default(),
             asset_integration_budget_ms: 3,
             reported_max_texture_size: 0,
             render_texture_hdr_color: false,

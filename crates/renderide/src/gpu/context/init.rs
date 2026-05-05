@@ -14,7 +14,7 @@ use super::super::frame_bracket::FrameBracket;
 use super::super::frame_cpu_gpu_timing::{FrameCpuGpuTiming, FrameCpuGpuTimingHandle};
 use super::super::limits::GpuLimits;
 use super::{GpuContext, GpuError, PrimaryOffscreenTargets};
-use crate::config::VsyncMode;
+use crate::config::{GraphicsApiSetting, VsyncMode};
 use crate::gpu::submission_state::GpuSubmissionState;
 
 /// Runtime handles derived from a queue and shared by all GPU construction paths.
@@ -81,6 +81,32 @@ struct GpuContextParts {
     window: Option<Arc<Window>>,
 }
 
+/// Windowed adapter-selection result before device creation.
+struct WindowAdapterSelection {
+    /// Graphics API attempt that produced the adapter.
+    graphics_api: GraphicsApiSetting,
+    /// Instance flags after wgpu environment overrides.
+    instance_flags: wgpu::InstanceFlags,
+    /// Active backend set after wgpu environment overrides.
+    active_backends: wgpu::Backends,
+    /// Surface created from the same wgpu instance used for adapter selection.
+    surface: wgpu::Surface<'static>,
+    /// Selected adapter.
+    adapter: wgpu::Adapter,
+}
+
+/// Headless adapter-selection result before device creation.
+struct HeadlessAdapterSelection {
+    /// Graphics API attempt that produced the adapter.
+    graphics_api: GraphicsApiSetting,
+    /// Instance flags after wgpu environment overrides.
+    instance_flags: wgpu::InstanceFlags,
+    /// Active backend set after wgpu environment overrides.
+    active_backends: wgpu::Backends,
+    /// Selected adapter.
+    adapter: wgpu::Adapter,
+}
+
 /// Builds the common [`GpuContext`] field set once all path-specific resources are ready.
 fn assemble_context(parts: GpuContextParts) -> GpuContext {
     GpuContext {
@@ -105,6 +131,104 @@ fn assemble_context(parts: GpuContextParts) -> GpuContext {
     }
 }
 
+async fn select_window_adapter_with_fallback(
+    window: &Arc<Window>,
+    graphics_api: GraphicsApiSetting,
+    gpu_validation_layers: bool,
+    power_preference: wgpu::PowerPreference,
+) -> Result<WindowAdapterSelection, GpuError> {
+    match select_window_adapter(
+        window,
+        graphics_api,
+        gpu_validation_layers,
+        power_preference,
+    )
+    .await
+    {
+        Ok(selection) => Ok(selection),
+        Err(error) if graphics_api.should_retry_auto_on_adapter_failure() => {
+            logger::warn!(
+                "Configured graphics_api={} did not produce a compatible windowed adapter: {error}. Retrying with graphics_api=auto.",
+                graphics_api.as_persist_str()
+            );
+            select_window_adapter(
+                window,
+                GraphicsApiSetting::Auto,
+                gpu_validation_layers,
+                power_preference,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn select_window_adapter(
+    window: &Arc<Window>,
+    graphics_api: GraphicsApiSetting,
+    gpu_validation_layers: bool,
+    power_preference: wgpu::PowerPreference,
+) -> Result<WindowAdapterSelection, GpuError> {
+    let (instance, instance_flags, active_backends) =
+        build_wgpu_instance(gpu_validation_layers, graphics_api.requested_backends());
+
+    // `Arc<Window>` is `Into<SurfaceTarget<'static>>`, so the returned `Surface` is
+    // already `'static` -- no `transmute` is required to extend the borrow.
+    let surface: wgpu::Surface<'static> = instance
+        .create_surface(Arc::clone(window))
+        .map_err(|e| GpuError::Surface(format!("{e:?}")))?;
+
+    let adapter =
+        select_adapter(&instance, Some(&surface), power_preference, active_backends).await?;
+
+    Ok(WindowAdapterSelection {
+        graphics_api,
+        instance_flags,
+        active_backends,
+        surface,
+        adapter,
+    })
+}
+
+async fn select_headless_adapter_with_fallback(
+    graphics_api: GraphicsApiSetting,
+    gpu_validation_layers: bool,
+    power_preference: wgpu::PowerPreference,
+) -> Result<HeadlessAdapterSelection, GpuError> {
+    match select_headless_adapter(graphics_api, gpu_validation_layers, power_preference).await {
+        Ok(selection) => Ok(selection),
+        Err(error) if graphics_api.should_retry_auto_on_adapter_failure() => {
+            logger::warn!(
+                "Configured graphics_api={} did not produce a compatible headless adapter: {error}. Retrying with graphics_api=auto.",
+                graphics_api.as_persist_str()
+            );
+            select_headless_adapter(
+                GraphicsApiSetting::Auto,
+                gpu_validation_layers,
+                power_preference,
+            )
+            .await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn select_headless_adapter(
+    graphics_api: GraphicsApiSetting,
+    gpu_validation_layers: bool,
+    power_preference: wgpu::PowerPreference,
+) -> Result<HeadlessAdapterSelection, GpuError> {
+    let (instance, instance_flags, active_backends) =
+        build_wgpu_instance(gpu_validation_layers, graphics_api.requested_backends());
+    let adapter = select_adapter(&instance, None, power_preference, active_backends).await?;
+    Ok(HeadlessAdapterSelection {
+        graphics_api,
+        instance_flags,
+        active_backends,
+        adapter,
+    })
+}
+
 impl GpuContext {
     /// Asynchronously builds GPU state for `window`.
     ///
@@ -124,22 +248,27 @@ impl GpuContext {
     /// allows CPU recording for frame N+1 to overlap with GPU work for frame N; lowering to `1`
     /// reduces input latency at the cost of stalls inside [`wgpu::Surface::get_current_texture`].
     /// The setting is live-tunable via [`crate::gpu::GpuContext::set_max_frame_latency`].
+    ///
+    /// `graphics_api` chooses the first backend set used for instance and adapter selection. An
+    /// explicit API is retried with [`GraphicsApiSetting::Auto`] when it finds no compatible
+    /// adapter. The final backend set may still be overridden by `WGPU_BACKEND`.
     pub async fn new(
         window: Arc<Window>,
         vsync: VsyncMode,
         max_frame_latency: u32,
         gpu_validation_layers: bool,
         power_preference: wgpu::PowerPreference,
+        graphics_api: GraphicsApiSetting,
     ) -> Result<Self, GpuError> {
-        let (instance, instance_flags) = build_wgpu_instance(gpu_validation_layers);
-
-        // `Arc<Window>` is `Into<SurfaceTarget<'static>>`, so the returned `Surface` is
-        // already `'static` -- no `transmute` is required to extend the borrow.
-        let surface_safe: wgpu::Surface<'static> = instance
-            .create_surface(window.clone())
-            .map_err(|e| GpuError::Surface(format!("{e:?}")))?;
-
-        let adapter = select_adapter(&instance, Some(&surface_safe), power_preference).await?;
+        let selection = select_window_adapter_with_fallback(
+            &window,
+            graphics_api,
+            gpu_validation_layers,
+            power_preference,
+        )
+        .await?;
+        let surface_safe = selection.surface;
+        let adapter = selection.adapter;
 
         let required_features = adapter_render_features_intersection(&adapter);
         let (device, queue) = request_device_for_adapter(&adapter, required_features).await?;
@@ -164,17 +293,19 @@ impl GpuContext {
             "GPU",
         );
         logger::info!(
-            "GPU: adapter={} backend={:?} vsync={:?} present_mode={:?} \
+            "GPU: adapter={} backend={:?} graphics_api={} active_backends={:?} vsync={:?} present_mode={:?} \
              supported_present_modes={:?} desired_maximum_frame_latency={} instance_flags={:?} \
              msaa_supported_sample_counts={:?} msaa_max_sample_count={} \
              msaa_supported_sample_counts_stereo={:?} msaa_max_sample_count_stereo={}",
             adapter_info.name,
             adapter_info.backend,
+            selection.graphics_api.as_persist_str(),
+            selection.active_backends,
             vsync,
             config.present_mode,
             supported_present_modes,
             config.desired_maximum_frame_latency,
-            instance_flags,
+            selection.instance_flags,
             &msaa.desktop,
             msaa.desktop_max(),
             &msaa.stereo,
@@ -226,16 +357,24 @@ impl GpuContext {
     /// windowed path; headless rendering has no swapchain so the value mostly affects internal
     /// frame-resource allocation. Pass the resolved value from
     /// [`crate::config::RenderingSettings::resolved_max_frame_latency`].
+    ///
+    /// `graphics_api` follows the same startup-only first-attempt and auto-fallback policy as the
+    /// windowed constructor.
     pub async fn new_headless(
         width: u32,
         height: u32,
         max_frame_latency: u32,
         gpu_validation_layers: bool,
         power_preference: wgpu::PowerPreference,
+        graphics_api: GraphicsApiSetting,
     ) -> Result<Self, GpuError> {
-        let (instance, instance_flags) = build_wgpu_instance(gpu_validation_layers);
-
-        let adapter = select_adapter(&instance, None, power_preference).await?;
+        let selection = select_headless_adapter_with_fallback(
+            graphics_api,
+            gpu_validation_layers,
+            power_preference,
+        )
+        .await?;
+        let adapter = selection.adapter;
 
         let required_features = adapter_render_features_intersection(&adapter);
         let (device, queue) = request_device_for_adapter(&adapter, required_features).await?;
@@ -263,15 +402,17 @@ impl GpuContext {
             "GPU (headless)",
         );
         logger::info!(
-            "GPU (headless): adapter={} backend={:?} extent={}x{} format={:?} instance_flags={:?} \
+            "GPU (headless): adapter={} backend={:?} graphics_api={} active_backends={:?} extent={}x{} format={:?} instance_flags={:?} \
              msaa_supported_sample_counts={:?} msaa_max_sample_count={} \
              msaa_supported_sample_counts_stereo={:?} msaa_max_sample_count_stereo={}",
             adapter_info.name,
             adapter_info.backend,
+            selection.graphics_api.as_persist_str(),
+            selection.active_backends,
             config.width,
             config.height,
             config.format,
-            instance_flags,
+            selection.instance_flags,
             &msaa.desktop,
             msaa.desktop_max(),
             &msaa.stereo,

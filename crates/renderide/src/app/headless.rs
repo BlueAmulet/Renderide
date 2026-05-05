@@ -58,6 +58,7 @@ impl<'a> HeadlessDriver<'a> {
             gpu_config.max_frame_latency,
             gpu_config.gpu_validation_layers,
             gpu_config.power_preference,
+            gpu_config.graphics_api,
         ))?;
         runtime.attach_gpu(&gpu);
         let schedule = HeadlessSchedule::new(params.interval_ms, Instant::now());

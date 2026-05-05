@@ -3,7 +3,8 @@
 use logger::LogLevel;
 
 use crate::config::{
-    ConfigFilePolicy, ConfigLoadResult, VsyncMode, load_renderer_settings, log_config_resolve_trace,
+    ConfigFilePolicy, ConfigLoadResult, GraphicsApiSetting, VsyncMode, load_renderer_settings,
+    log_config_resolve_trace,
 };
 use crate::ipc::get_ignore_config;
 
@@ -18,6 +19,8 @@ pub(crate) struct GpuStartupConfig {
     pub(crate) gpu_validation_layers: bool,
     /// Adapter ranking preference for desktop/headless GPU selection.
     pub(crate) power_preference: wgpu::PowerPreference,
+    /// Startup graphics API preference for desktop/headless GPU selection.
+    pub(crate) graphics_api: GraphicsApiSetting,
 }
 
 /// App configuration bundle consumed by bootstrap dispatch.
@@ -58,6 +61,7 @@ pub(crate) fn load_app_config(log_level_cli: Option<LogLevel>) -> AppConfig {
         max_frame_latency: load.settings.rendering.resolved_max_frame_latency(),
         gpu_validation_layers: load.settings.debug.gpu_validation_layers,
         power_preference: load.settings.debug.power_preference.to_wgpu(),
+        graphics_api: load.settings.rendering.graphics_api,
     };
 
     AppConfig { load, gpu }

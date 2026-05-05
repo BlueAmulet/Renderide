@@ -221,6 +221,7 @@ fn create_desktop_target(
         startup_gpu.max_frame_latency,
         startup_gpu.gpu_validation_layers,
         startup_gpu.power_preference,
+        startup_gpu.graphics_api,
     ))
     .map(|gpu| {
         logger::info!("GPU initialized (desktop)");
@@ -233,6 +234,12 @@ fn create_openxr_target(
     window: &Arc<Window>,
     startup_gpu: GpuStartupConfig,
 ) -> Result<(GpuContext, RenderTargetMode), TargetInitError> {
+    if !startup_gpu.graphics_api.is_openxr_compatible() {
+        logger::warn!(
+            "Configured graphics_api={} is incompatible with the OpenXR path; using Vulkan for OpenXR startup.",
+            startup_gpu.graphics_api.as_persist_str()
+        );
+    }
     let handles = crate::xr::init_wgpu_openxr(
         startup_gpu.gpu_validation_layers,
         startup_gpu.power_preference,

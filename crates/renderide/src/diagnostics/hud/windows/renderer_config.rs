@@ -10,8 +10,9 @@ use imgui::{Drag, TabItem, TabItemFlags};
 
 use crate::config::{
     AutoExposureSettings, BloomCompositeMode, ClusterAssignmentMode, DebugHudRendererConfigTab,
-    DebugHudSettings, MsaaSampleCount, PowerPreferenceSetting, RendererSettings,
-    RendererSettingsHandle, SceneColorFormat, TonemapMode, VsyncMode, save_renderer_settings,
+    DebugHudSettings, GraphicsApiSetting, MsaaSampleCount, PowerPreferenceSetting,
+    RendererSettings, RendererSettingsHandle, SceneColorFormat, TonemapMode, VsyncMode,
+    save_renderer_settings,
 };
 
 use super::super::layout::{self, Viewport, WindowSlot};
@@ -203,6 +204,20 @@ fn rendering_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool)
             .build()
         {
             g.rendering.vsync = mode;
+            *dirty = true;
+        }
+    }
+    ui.text_disabled(
+        "Graphics API (startup only; restart required, falls back to Auto if unavailable).",
+    );
+    for (i, &api) in GraphicsApiSetting::ALL.iter().enumerate() {
+        let _id = ui.push_id_int(400 + i as i32);
+        if ui
+            .selectable_config(api.label())
+            .selected(g.rendering.graphics_api == api)
+            .build()
+        {
+            g.rendering.graphics_api = api;
             *dirty = true;
         }
     }

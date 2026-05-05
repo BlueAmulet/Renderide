@@ -67,35 +67,45 @@ where
 }
 
 /// Logs every enumerated adapter at info level so users can see what wgpu found and why one was chosen.
-fn log_adapter_candidates(adapters: &[wgpu::Adapter]) {
+fn log_adapter_candidates(active_backends: wgpu::Backends, adapters: &[wgpu::Adapter]) {
     if adapters.is_empty() {
-        logger::warn!("wgpu adapter candidates: <none enumerated>");
+        logger::warn!("wgpu adapter candidates: <none enumerated> for {active_backends:?}");
         return;
     }
     for a in adapters {
         let info = a.get_info();
         logger::info!(
-            "wgpu adapter candidate: {} type={:?} backend={:?} vendor=0x{:04x} device=0x{:04x}",
+            "wgpu adapter candidate: {} type={:?} backend={:?} vendor=0x{:04x} device=0x{:04x} active_backends={:?}",
             info.name,
             info.device_type,
             info.backend,
             info.vendor,
             info.device,
+            active_backends,
         );
     }
 }
 
 /// Builds the [`wgpu::Instance`] used by both windowed and headless paths and returns the
-/// derived [`wgpu::InstanceFlags`] for logging.
+/// derived [`wgpu::InstanceFlags`] and active [`wgpu::Backends`] for logging.
+///
+/// `requested_backends` comes from the renderer config. [`wgpu::InstanceDescriptor::with_env`]
+/// is still applied afterward, preserving `WGPU_BACKEND` as the final override.
 pub(crate) fn build_wgpu_instance(
     gpu_validation_layers: bool,
-) -> (wgpu::Instance, wgpu::InstanceFlags) {
+    requested_backends: wgpu::Backends,
+) -> (wgpu::Instance, wgpu::InstanceFlags, wgpu::Backends) {
     let mut instance_desc = wgpu::InstanceDescriptor::new_without_display_handle();
-    instance_desc.backends = wgpu::Backends::all();
+    instance_desc.backends = requested_backends;
     instance_desc.flags = instance_flags_for_gpu_init(gpu_validation_layers);
     let instance_desc = instance_desc.with_env();
     let instance_flags = instance_desc.flags;
-    (wgpu::Instance::new(instance_desc), instance_flags)
+    let active_backends = instance_desc.backends;
+    (
+        wgpu::Instance::new(instance_desc),
+        instance_flags,
+        active_backends,
+    )
 }
 
 /// Enumerates adapters, logs all candidates, and returns the best match for `power_preference`.
@@ -106,14 +116,15 @@ pub(crate) async fn select_adapter(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
     power_preference: wgpu::PowerPreference,
+    active_backends: wgpu::Backends,
 ) -> Result<wgpu::Adapter, GpuError> {
-    let adapters = instance.enumerate_adapters(wgpu::Backends::all()).await;
-    log_adapter_candidates(&adapters);
+    let adapters = instance.enumerate_adapters(active_backends).await;
+    log_adapter_candidates(active_backends, &adapters);
     let chosen = match surface {
         Some(s) => pick_adapter_index(&adapters, |a| a.is_surface_supported(s), power_preference),
         None => pick_adapter_index(&adapters, |_| true, power_preference),
     }
-    .ok_or_else(|| adapter_not_found_error(surface, adapters.len()))?;
+    .ok_or_else(|| adapter_not_found_error(surface, adapters.len(), active_backends))?;
     let adapter = adapters
         .into_iter()
         .nth(chosen)
@@ -138,17 +149,17 @@ pub(crate) async fn select_adapter(
 fn adapter_not_found_error(
     surface: Option<&wgpu::Surface<'_>>,
     candidate_count: usize,
+    active_backends: wgpu::Backends,
 ) -> GpuError {
     if surface.is_some() {
         GpuError::Adapter(format!(
-            "no surface-compatible adapter found among {candidate_count} candidate(s)"
+            "no surface-compatible adapter found among {candidate_count} candidate(s) for {active_backends:?}"
         ))
     } else {
-        GpuError::Adapter(
+        GpuError::Adapter(format!(
             "no headless adapter found. Install graphics drivers or verify that a supported \
-             wgpu backend is available."
-                .into(),
-        )
+             wgpu backend is available. active_backends={active_backends:?}"
+        ))
     }
 }
 
@@ -213,7 +224,7 @@ mod tests {
 
     #[test]
     fn headless_adapter_error_reports_driver_backend_guidance() {
-        let error = adapter_not_found_error(None, 3).to_string();
+        let error = adapter_not_found_error(None, 3, wgpu::Backends::VULKAN).to_string();
 
         assert!(error.contains("no headless adapter found"));
         assert!(error.contains("supported wgpu backend"));

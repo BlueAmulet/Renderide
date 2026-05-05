@@ -65,7 +65,7 @@ pub use types::{
     AutoExposureSettings, BloomCompositeMode, BloomSettings, ClusterAssignmentMode,
     DebugHudMainTab, DebugHudMainTabVisibility, DebugHudRendererConfigTab,
     DebugHudRendererConfigTabVisibility, DebugHudSettings, DebugSettings, DisplaySettings,
-    GtaoSettings, MsaaSampleCount, PostProcessingSettings, PowerPreferenceSetting,
-    RecordParallelism, RendererSettings, RenderingSettings, SceneColorFormat, TonemapMode,
-    TonemapSettings, VsyncMode, WatchdogAction, WatchdogSettings,
+    GraphicsApiSetting, GtaoSettings, MsaaSampleCount, PostProcessingSettings,
+    PowerPreferenceSetting, RecordParallelism, RendererSettings, RenderingSettings,
+    SceneColorFormat, TonemapMode, TonemapSettings, VsyncMode, WatchdogAction, WatchdogSettings,
 };
