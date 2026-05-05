@@ -408,6 +408,7 @@ mod tests {
             cluster_count_y: 2,
             viewport_width: 64,
             viewport_height: 64,
+            projection_flags: 0,
         }
     }
 

@@ -10,13 +10,14 @@ mod clip;
 
 use glam::Mat4;
 
-use crate::camera::{HostCameraFrame, Viewport};
+use crate::camera::{CameraProjectionKind, HostCameraFrame, Viewport};
 use crate::camera::{
     clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_perspective,
     view_matrix_from_render_transform,
 };
 use crate::gpu::frame_globals::{
-    ClusteredFrameGlobalsParams, FrameGpuUniforms, SkyboxSpecularUniformParams,
+    ClusteredFrameGlobalsParams, FRAME_PROJECTION_FLAG_ORTHOGRAPHIC, FrameGpuUniforms,
+    SkyboxSpecularUniformParams,
 };
 use crate::scene::SceneCoordinator;
 
@@ -47,6 +48,8 @@ pub struct ClusterFrameParams {
     pub viewport_width: u32,
     /// Viewport height in pixels for cluster grid sizing.
     pub viewport_height: u32,
+    /// Projection flags packed into the frame uniform for this view.
+    pub projection_flags: u32,
 }
 
 /// Per-frame values layered on top of [`ClusterFrameParams`] when packing [`FrameGpuUniforms`].
@@ -62,6 +65,8 @@ pub struct FrameGpuUniformBuildParams {
     pub right_z_coeffs: [f32; 4],
     /// Right-eye projection parameters, or the mono parameters for non-stereo frames.
     pub right_proj_params: [f32; 4],
+    /// Right-eye projection flags, or the mono flags for non-stereo frames.
+    pub right_projection_flags: u32,
     /// Monotonic host frame index used by temporal effects.
     pub frame_index: u32,
     /// Packed skybox indirect-specular state for shader sampling.
@@ -130,6 +135,8 @@ impl ClusterFrameParams {
             proj_params_left: self.proj_params(),
             proj_params_right: params.right_proj_params,
             frame_index: params.frame_index,
+            projection_flags_left: self.projection_flags,
+            projection_flags_right: params.right_projection_flags,
             skybox_specular: params.skybox_specular,
             ambient_sh: params.ambient_sh,
         })
@@ -169,6 +176,7 @@ pub fn cluster_frame_params(
             cluster_count_y,
             viewport_width: viewport.width,
             viewport_height: viewport.height,
+            projection_flags: projection_flags_for_host_camera(host_camera),
         });
     }
 
@@ -191,6 +199,7 @@ pub fn cluster_frame_params(
         cluster_count_y: common.cluster_count_y,
         viewport_width: common.vw,
         viewport_height: common.vh,
+        projection_flags: 0,
     })
 }
 
@@ -235,6 +244,7 @@ pub fn cluster_frame_params_stereo(
         cluster_count_y: common.cluster_count_y,
         viewport_width: common.vw,
         viewport_height: common.vh,
+        projection_flags: 0,
     };
     let right = ClusterFrameParams {
         near_clip: common.near_clip,
@@ -245,6 +255,7 @@ pub fn cluster_frame_params_stereo(
         cluster_count_y: common.cluster_count_y,
         viewport_width: common.vw,
         viewport_height: common.vh,
+        projection_flags: 0,
     };
     Some((left, right))
 }
@@ -316,9 +327,18 @@ fn mat4_all_finite(m: Mat4) -> bool {
     m.to_cols_array().iter().all(|f| f.is_finite())
 }
 
+fn projection_flags_for_host_camera(host_camera: &HostCameraFrame) -> u32 {
+    if host_camera.projection_kind == CameraProjectionKind::Orthographic {
+        FRAME_PROJECTION_FLAG_ORTHOGRAPHIC
+    } else {
+        0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::camera::EyeView;
     use glam::Vec3;
 
     /// Builds a minimal `ClusterFrameParams` with the supplied world-to-view; other fields are
@@ -333,6 +353,7 @@ mod tests {
             cluster_count_y: 1,
             viewport_width: 1,
             viewport_height: 1,
+            projection_flags: 0,
         }
     }
 
@@ -422,9 +443,30 @@ mod tests {
             cluster_count_y: 1,
             viewport_width: 1,
             viewport_height: 1,
+            projection_flags: 0,
         };
 
         assert_eq!(cfp.sanitized_clip_planes(), (CLUSTER_NEAR_CLIP_MIN, 10.0));
+    }
+
+    #[test]
+    fn explicit_orthographic_camera_sets_cluster_projection_flag() {
+        let scene = SceneCoordinator::new();
+        let host_camera = HostCameraFrame {
+            projection_kind: CameraProjectionKind::Orthographic,
+            explicit_view: Some(EyeView::new(
+                Mat4::IDENTITY,
+                Mat4::IDENTITY,
+                Mat4::IDENTITY,
+                Vec3::ZERO,
+            )),
+            ..Default::default()
+        };
+
+        let params = cluster_frame_params(&host_camera, &scene, (64, 64))
+            .expect("non-empty explicit camera viewport");
+
+        assert_eq!(params.projection_flags, FRAME_PROJECTION_FLAG_ORTHOGRAPHIC);
     }
 
     /// The WGSL constants stay manually synchronized with the Rust constants.

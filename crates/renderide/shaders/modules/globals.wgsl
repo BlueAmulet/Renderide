@@ -11,6 +11,8 @@
 
 #define_import_path renderide::globals
 
+const FRAME_PROJECTION_FLAG_ORTHOGRAPHIC: u32 = 1u;
+
 struct GpuLight {
     position: vec3<f32>,
     align_pad_vec3_pos: f32,
@@ -49,12 +51,13 @@ struct FrameGlobals {
     viewport_height: u32,
     /// Left-eye (or mono) projection coefficients `(P[0][0], P[1][1], P[0][2], P[1][2])`.
     /// Screen-to-view unprojection (view Z known):
-    /// `view_x = (ndc_x - c.z) * view_z / c.x`, `view_y = (ndc_y - c.w) * view_z / c.y`.
+    /// `view_x = (ndc_x + c.z) * view_z / c.x`, `view_y = (ndc_y + c.w) * view_z / c.y`.
     proj_params_left: vec4<f32>,
     /// Right-eye projection coefficients (equals left in mono mode).
     proj_params_right: vec4<f32>,
     /// Packed tail: `.x` is the monotonic frame index (for temporal / jittered screen-space
-    /// effects); `.yzw` are reserved padding to keep the trailing `vec4` slot aligned to 16 bytes.
+    /// effects), `.y` holds left/mono projection flags, `.z` holds right-eye projection flags,
+    /// and `.w` is reserved padding.
     frame_tail: vec4<u32>,
     /// Skybox indirect specular: `.x` max resident LOD, `.y` enabled flag,
     /// `.z` source kind tag, `.w` reserved padding.
@@ -102,9 +105,52 @@ fn camera_world_pos_for_view(view_layer: u32) -> vec3<f32> {
     return frame.camera_world_pos.xyz;
 }
 
+/// World -> view-space Z coefficients for the current view layer.
+fn view_space_z_coeffs_for_view(view_layer: u32) -> vec4<f32> {
+#ifdef MULTIVIEW
+    if (view_layer != 0u) {
+        return frame.view_space_z_coeffs_right;
+    }
+#endif
+    return frame.view_space_z_coeffs;
+}
+
+/// Projection flags for the current view layer.
+fn projection_flags_for_view(view_layer: u32) -> u32 {
+#ifdef MULTIVIEW
+    if (view_layer != 0u) {
+        return frame.frame_tail.z;
+    }
+#endif
+    return frame.frame_tail.y;
+}
+
+/// Returns true when the current view layer is orthographic.
+fn view_is_orthographic(view_layer: u32) -> bool {
+    return (projection_flags_for_view(view_layer) & FRAME_PROJECTION_FLAG_ORTHOGRAPHIC) != 0u;
+}
+
+fn safe_normalize_or(v: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
+    let len = length(v);
+    if (len <= 0.000001) {
+        return fallback;
+    }
+    return v / len;
+}
+
+/// Unit vector from a world position toward the orthographic camera plane.
+fn orthographic_view_dir_for_view(view_layer: u32) -> vec3<f32> {
+    let z_coeffs = view_space_z_coeffs_for_view(view_layer);
+    return safe_normalize_or(z_coeffs.xyz, vec3<f32>(0.0, 0.0, -1.0));
+}
+
 /// Unit vector from `world_pos` toward the current view-layer camera.
 fn view_dir_for_world_pos(world_pos: vec3<f32>, view_layer: u32) -> vec3<f32> {
-    return normalize(camera_world_pos_for_view(view_layer) - world_pos);
+    let fallback = orthographic_view_dir_for_view(view_layer);
+    if (view_is_orthographic(view_layer)) {
+        return fallback;
+    }
+    return safe_normalize_or(camera_world_pos_for_view(view_layer) - world_pos, fallback);
 }
 
 /// Adds infinitesimal terms tied to lights/cluster storage so every frame binding stays referenced

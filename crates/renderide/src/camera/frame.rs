@@ -5,7 +5,7 @@ use glam::{Mat4, Vec3};
 use crate::scene::SceneCoordinator;
 use crate::shared::{CameraProjection, FrameSubmitData};
 
-use super::{CameraClipPlanes, HostCameraFrame, OrthographicProjectionSpec};
+use super::{CameraClipPlanes, CameraProjectionKind, HostCameraFrame, OrthographicProjectionSpec};
 
 /// Applies host clip, FOV, VR flag, ortho hint, and clears stereo when desktop mode.
 pub(crate) fn apply_frame_submit_fields(host_camera: &mut HostCameraFrame, data: &FrameSubmitData) {
@@ -13,6 +13,7 @@ pub(crate) fn apply_frame_submit_fields(host_camera: &mut HostCameraFrame, data:
     host_camera.clip = CameraClipPlanes::new(data.near_clip, data.far_clip);
     host_camera.desktop_fov_degrees = data.desktop_fov;
     host_camera.vr_active = data.vr_active;
+    host_camera.projection_kind = CameraProjectionKind::Perspective;
     if !data.vr_active {
         host_camera.stereo = None;
     }

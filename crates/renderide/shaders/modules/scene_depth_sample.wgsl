@@ -21,7 +21,10 @@ fn scene_depth_xy_from_uv(uv: vec2<f32>) -> vec2<i32> {
     return clamp(vec2<i32>(clamped_uv * size), vec2<i32>(0, 0), scene_depth_max_xy());
 }
 
-fn linear_depth_from_raw(raw_depth: f32) -> f32 {
+fn linear_depth_from_raw(raw_depth: f32, view_layer: u32) -> f32 {
+    if (rg::view_is_orthographic(view_layer)) {
+        return rg::frame.far_clip - raw_depth * (rg::frame.far_clip - rg::frame.near_clip);
+    }
     let denom = max(
         raw_depth * (rg::frame.far_clip - rg::frame.near_clip) + rg::frame.near_clip,
         1e-6,
@@ -35,7 +38,7 @@ fn scene_linear_depth_at_xy(xy: vec2<i32>, view_layer: u32) -> f32 {
 #else
     let raw_depth = textureLoad(rg::scene_depth, xy, 0);
 #endif
-    return linear_depth_from_raw(raw_depth);
+    return linear_depth_from_raw(raw_depth, view_layer);
 }
 
 fn scene_linear_depth(frag_pos: vec4<f32>, view_layer: u32) -> f32 {
@@ -47,7 +50,7 @@ fn scene_linear_depth_at_uv(uv: vec2<f32>, view_layer: u32) -> f32 {
 }
 
 fn fragment_linear_depth(world_pos: vec3<f32>, view_layer: u32) -> f32 {
-    let z_coeffs = select(rg::frame.view_space_z_coeffs, rg::frame.view_space_z_coeffs_right, view_layer != 0u);
+    let z_coeffs = rg::view_space_z_coeffs_for_view(view_layer);
     let view_z = dot(z_coeffs.xyz, world_pos) + z_coeffs.w;
     return -view_z;
 }

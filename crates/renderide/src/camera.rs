@@ -27,8 +27,11 @@ pub use projection::{
     reverse_z_perspective, reverse_z_perspective_openxr_fov,
 };
 pub use projection_plan::WorldProjectionSet;
-pub use secondary::{camera_state_enabled, host_camera_frame_for_render_texture};
-pub use state::{HostCameraFrame, SecondaryCameraId, ViewId};
+pub use secondary::{
+    camera_state_enabled, camera_state_render_private_ui, camera_state_use_transform_scale,
+    host_camera_frame_for_render_texture,
+};
+pub use state::{CameraProjectionKind, HostCameraFrame, SecondaryCameraId, ViewId};
 pub use stereo::StereoViewMatrices;
 pub use view::{
     apply_view_handedness_fix, view_matrix_for_host_world_mesh_space,
@@ -150,13 +153,13 @@ mod tests {
     }
 
     #[test]
-    fn orthographic_matches_legacy_z_coeffs() {
+    fn orthographic_reverse_z_depth_maps_near_to_one_far_to_zero() {
         let m = reverse_z_orthographic(2.0, 1.0, 0.05, 100.0);
-        let range = 100.0 - 0.05;
-        let z_scale = -2.0 / range;
-        let z_off = (100.0 + 0.05) / range;
-        assert!((m.z_axis.z - z_scale).abs() < 1e-5);
-        assert!((m.w_axis.z - z_off).abs() < 1e-5);
+        let near_clip = m * Vec3::new(0.0, 0.0, -0.05).extend(1.0);
+        let far_clip = m * Vec3::new(0.0, 0.0, -100.0).extend(1.0);
+
+        assert!((near_clip.z / near_clip.w - 1.0).abs() < 1e-5);
+        assert!((far_clip.z / far_clip.w).abs() < 1e-5);
     }
 
     #[test]

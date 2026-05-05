@@ -48,6 +48,16 @@ impl ViewId {
     }
 }
 
+/// Projection family used by shader helpers that need to distinguish perspective from orthographic math.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum CameraProjectionKind {
+    /// Perspective projection with rays converging on the camera position.
+    #[default]
+    Perspective,
+    /// Orthographic projection with parallel camera rays.
+    Orthographic,
+}
+
 /// Latest camera-related fields from host [`crate::shared::FrameSubmitData`], updated each `frame_submit`.
 #[derive(Clone, Copy, Debug)]
 pub struct HostCameraFrame {
@@ -61,6 +71,8 @@ pub struct HostCameraFrame {
     pub vr_active: bool,
     /// Init-time head output device selected by the host.
     pub output_device: HeadOutputDevice,
+    /// Active projection family for the view represented by this frame.
+    pub projection_kind: CameraProjectionKind,
     /// First orthographic render-task projection (overlay main-camera ortho override).
     pub primary_ortho_task: Option<OrthographicProjectionSpec>,
     /// Per-eye stereo matrices when this frame renders the OpenXR multiview view; [`None`] on
@@ -85,6 +97,7 @@ impl Default for HostCameraFrame {
             desktop_fov_degrees: 60.0,
             vr_active: false,
             output_device: HeadOutputDevice::Screen,
+            projection_kind: CameraProjectionKind::Perspective,
             primary_ortho_task: None,
             stereo: None,
             head_output_transform: Mat4::IDENTITY,
@@ -159,7 +172,7 @@ impl HostCameraFrame {
 mod tests {
     use glam::{Mat4, Vec3};
 
-    use super::{EyeView, HostCameraFrame, StereoViewMatrices};
+    use super::{CameraProjectionKind, EyeView, HostCameraFrame, StereoViewMatrices};
 
     fn eye_at(position: Vec3) -> EyeView {
         EyeView::new(Mat4::IDENTITY, Mat4::IDENTITY, Mat4::IDENTITY, position)
@@ -204,6 +217,14 @@ mod tests {
         assert_eq!(
             camera.camera_world_pair(),
             (Vec3::new(4.0, 0.0, 0.0), Vec3::new(4.0, 0.0, 0.0))
+        );
+    }
+
+    #[test]
+    fn host_camera_defaults_to_perspective_projection_kind() {
+        assert_eq!(
+            HostCameraFrame::default().projection_kind,
+            CameraProjectionKind::Perspective
         );
     }
 }

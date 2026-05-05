@@ -1,5 +1,7 @@
 //! Compute pass: raw reverse-Z depth -> XeGTAO view-space depth mip 0.
 
+const FRAME_PROJECTION_FLAG_ORTHOGRAPHIC: u32 = 1u;
+
 struct FrameGlobals {
     camera_world_pos: vec4<f32>,
     camera_world_pos_right: vec4<f32>,
@@ -42,7 +44,16 @@ struct GtaoParams {
 @group(0) @binding(2) var<uniform> gtao: GtaoParams;
 @group(0) @binding(3) var dst_mip0: texture_storage_2d<r32float, write>;
 
-fn linearize_depth(d: f32, near: f32, far: f32) -> f32 {
+fn view_is_orthographic() -> bool {
+    return (frame.frame_tail.y & FRAME_PROJECTION_FLAG_ORTHOGRAPHIC) != 0u;
+}
+
+fn linearize_depth(d: f32) -> f32 {
+    let near = frame.near_clip;
+    let far = frame.far_clip;
+    if (view_is_orthographic()) {
+        return far - d * (far - near);
+    }
     let denom = d * (far - near) + near;
     return (near * far) / max(denom, 1e-6);
 }
@@ -56,6 +67,6 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     let pix = vec2<i32>(i32(gid.x), i32(gid.y));
     let raw = textureLoad(raw_depth, pix, 0);
-    let view_z = select(0.0, linearize_depth(raw, frame.near_clip, frame.far_clip), raw > 0.0);
+    let view_z = select(0.0, linearize_depth(raw), raw > 0.0);
     textureStore(dst_mip0, pix, vec4<f32>(view_z, 0.0, 0.0, 1.0));
 }

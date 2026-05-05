@@ -167,7 +167,6 @@ impl RendererRuntime {
                 &entry.state,
                 viewport,
                 world_m,
-                &self.scene,
             );
             let filter = draw_filter_from_camera_entry(entry);
             // Selective secondary cameras (dashboards, in-world UI panels, mirrors on specific

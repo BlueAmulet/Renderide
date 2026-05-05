@@ -74,7 +74,11 @@ fn vs_main(
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let proj_params = select(rg::frame.proj_params_left, rg::frame.proj_params_right, in.view_layer != 0u);
-    let view_ray = skybox::view_ray_from_ndc(in.ndc, proj_params);
+    let view_ray = skybox::view_ray_from_ndc(
+        in.ndc,
+        proj_params,
+        skybox::view_is_orthographic(view, in.view_layer),
+    );
     let world_ray = skybox::world_ray_from_view_ray(view_ray, view, in.view_layer);
     return procedural_color(world_ray);
 }

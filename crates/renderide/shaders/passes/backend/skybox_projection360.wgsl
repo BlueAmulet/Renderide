@@ -208,7 +208,11 @@ fn finish_color(c_in: vec4<f32>) -> vec4<f32> {
 
 fn base_view_dir(ndc: vec2<f32>, view_layer: u32) -> vec3<f32> {
     let proj_params = select(rg::frame.proj_params_left, rg::frame.proj_params_right, view_layer != 0u);
-    let camera_ray_view = skybox::view_ray_from_ndc(ndc, proj_params);
+    let camera_ray_view = skybox::view_ray_from_ndc(
+        ndc,
+        proj_params,
+        skybox::view_is_orthographic(view, view_layer),
+    );
     let camera_ray_world = skybox::world_ray_from_view_ray(camera_ray_view, view, view_layer);
 
     if (uvu::kw_enabled(mat._PERSPECTIVE)) {

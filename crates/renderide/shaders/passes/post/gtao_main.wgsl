@@ -12,6 +12,7 @@ const PI_HALF: f32 = 1.57079632679;
 const HILBERT_WIDTH: u32 = 64u;
 const HILBERT_INDEX_FRAME_OFFSET: u32 = 288u;
 const MIN_VISIBILITY: f32 = 0.03;
+const FRAME_PROJECTION_FLAG_ORTHOGRAPHIC: u32 = 1u;
 
 #ifdef MULTIVIEW
 @group(0) @binding(0) var view_depth: texture_2d_array<f32>;
@@ -84,8 +85,29 @@ fn proj_params_for_view(view_layer: u32) -> vec4<f32> {
     return frame.proj_params_right;
 }
 
-fn view_pos_from_uv(uv: vec2<f32>, view_z: f32, proj_params: vec4<f32>) -> vec3<f32> {
+fn projection_flags_for_view(view_layer: u32) -> u32 {
+    if (view_layer == 0u) {
+        return frame.frame_tail.y;
+    }
+    return frame.frame_tail.z;
+}
+
+fn view_is_orthographic(view_layer: u32) -> bool {
+    return (projection_flags_for_view(view_layer) & FRAME_PROJECTION_FLAG_ORTHOGRAPHIC) != 0u;
+}
+
+fn view_pos_from_uv(
+    uv: vec2<f32>,
+    view_z: f32,
+    proj_params: vec4<f32>,
+    view_layer: u32,
+) -> vec3<f32> {
     let ndc_xy = vec2<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0);
+    if (view_is_orthographic(view_layer)) {
+        let view_x = (ndc_xy.x + proj_params.z) / max(abs(proj_params.x), 1e-6);
+        let view_y = (ndc_xy.y + proj_params.w) / max(abs(proj_params.y), 1e-6);
+        return vec3<f32>(view_x, view_y, view_z);
+    }
     let view_x = (ndc_xy.x + proj_params.z) * view_z / proj_params.x;
     let view_y = (ndc_xy.y + proj_params.w) * view_z / proj_params.y;
     return vec3<f32>(view_x, view_y, view_z);
@@ -180,13 +202,14 @@ fn reconstruct_view_normal(
     z_top: f32,
     z_bottom: f32,
     edges_lrtb: vec4<f32>,
+    view_layer: u32,
 ) -> vec3<f32> {
     let inv_viewport = 1.0 / vec2<f32>(f32(frame.viewport_width), f32(frame.viewport_height));
-    let center = view_pos_from_uv(uv, z_center, proj_params);
-    let left = view_pos_from_uv(uv + vec2<f32>(-inv_viewport.x, 0.0), z_left, proj_params);
-    let right = view_pos_from_uv(uv + vec2<f32>(inv_viewport.x, 0.0), z_right, proj_params);
-    let top = view_pos_from_uv(uv + vec2<f32>(0.0, -inv_viewport.y), z_top, proj_params);
-    let bottom = view_pos_from_uv(uv + vec2<f32>(0.0, inv_viewport.y), z_bottom, proj_params);
+    let center = view_pos_from_uv(uv, z_center, proj_params, view_layer);
+    let left = view_pos_from_uv(uv + vec2<f32>(-inv_viewport.x, 0.0), z_left, proj_params, view_layer);
+    let right = view_pos_from_uv(uv + vec2<f32>(inv_viewport.x, 0.0), z_right, proj_params, view_layer);
+    let top = view_pos_from_uv(uv + vec2<f32>(0.0, -inv_viewport.y), z_top, proj_params, view_layer);
+    let bottom = view_pos_from_uv(uv + vec2<f32>(0.0, inv_viewport.y), z_bottom, proj_params, view_layer);
     return calculate_view_normal(edges_lrtb, center, left, right, top, bottom);
 }
 
@@ -216,6 +239,7 @@ fn select_view_normal(
         z_top,
         z_bottom,
         edges_lrtb,
+        view_layer,
     );
 }
 
@@ -286,7 +310,7 @@ fn add_horizon_sample(
         return low_horizon_cos;
     }
 
-    let sample_pos = view_pos_from_uv(sample_uv, sample_z, proj_params);
+    let sample_pos = view_pos_from_uv(sample_uv, sample_z, proj_params, view_layer);
     let delta = sample_pos - view_pos;
     let dist = length(delta);
     if (dist <= 1e-4) {
@@ -333,10 +357,17 @@ fn compute_gtao(pix: vec2<i32>, uv: vec2<f32>, view_layer: u32) -> GtaoSampleOut
     );
 
     let biased_z = z_center * 0.99999;
-    let view_pos = view_pos_from_uv(uv, biased_z, proj_params);
-    let view_dir = normalize(-view_pos);
+    let view_pos = view_pos_from_uv(uv, biased_z, proj_params, view_layer);
+    let orthographic = view_is_orthographic(view_layer);
+    let view_dir = select(normalize(-view_pos), vec3<f32>(0.0, 0.0, -1.0), orthographic);
     let effect_radius = max(gtao.radius_world * gtao.radius_multiplier, 1e-4);
-    let pixel_view_size = max(biased_z * 2.0 / max(proj_params.x * viewport.x, 1e-4), 1e-6);
+    let perspective_pixel_view_size = biased_z * 2.0 / max(abs(proj_params.x) * viewport.x, 1e-4);
+    let orthographic_pixel_view_size = 2.0 / max(abs(proj_params.x) * viewport.x, 1e-4);
+    let pixel_view_size = max(select(
+        perspective_pixel_view_size,
+        orthographic_pixel_view_size,
+        orthographic,
+    ), 1e-6);
     let screenspace_radius = min(gtao.max_pixel_radius, effect_radius / pixel_view_size);
 
     var visibility = clamp((10.0 - screenspace_radius) / 100.0, 0.0, 1.0) * 0.5;

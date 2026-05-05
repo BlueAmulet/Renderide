@@ -41,6 +41,10 @@ pub struct ClusteredFrameGlobalsParams {
     pub proj_params_right: [f32; 4],
     /// Monotonic frame index (wraps `HostCameraFrame::frame_index`).
     pub frame_index: u32,
+    /// Left-eye or mono projection flags.
+    pub projection_flags_left: u32,
+    /// Right-eye projection flags, or the same value as [`Self::projection_flags_left`] in mono mode.
+    pub projection_flags_right: u32,
     /// Skybox indirect specular sampling parameters.
     pub skybox_specular: SkyboxSpecularUniformParams,
     /// Ambient SH2 coefficients for the active main render space.
@@ -78,7 +82,12 @@ impl FrameGpuUniforms {
             viewport_height: params.viewport_height,
             proj_params_left: params.proj_params_left,
             proj_params_right: params.proj_params_right,
-            frame_tail: [params.frame_index, 0, 0, 0],
+            frame_tail: [
+                params.frame_index,
+                params.projection_flags_left,
+                params.projection_flags_right,
+                0,
+            ],
             skybox_specular: params.skybox_specular.to_vec4(),
             ambient_sh: params.ambient_sh,
         }

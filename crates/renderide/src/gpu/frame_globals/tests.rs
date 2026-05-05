@@ -4,7 +4,7 @@
 mod offset_and_packing_tests {
     use super::super::clustered::ClusteredFrameGlobalsParams;
     use super::super::skybox_specular::SkyboxSpecularUniformParams;
-    use super::super::uniforms::FrameGpuUniforms;
+    use super::super::uniforms::{FRAME_PROJECTION_FLAG_ORTHOGRAPHIC, FrameGpuUniforms};
     use crate::shared::RenderSH2;
     use glam::Mat4;
 
@@ -95,6 +95,8 @@ mod offset_and_packing_tests {
             proj_params_left: [1.5, 2.5, 0.0, 0.0],
             proj_params_right: [1.5, 2.5, 0.1, -0.2],
             frame_index: 7,
+            projection_flags_left: FRAME_PROJECTION_FLAG_ORTHOGRAPHIC,
+            projection_flags_right: 0,
             skybox_specular: SkyboxSpecularUniformParams::from_cubemap_resident_mips(6),
             ambient_sh: [[0.0; 4]; 9],
         });
@@ -112,7 +114,7 @@ mod offset_and_packing_tests {
         assert_eq!(u.viewport_height, 1080);
         assert_eq!(u.proj_params_left, [1.5, 2.5, 0.0, 0.0]);
         assert_eq!(u.proj_params_right, [1.5, 2.5, 0.1, -0.2]);
-        assert_eq!(u.frame_tail, [7, 0, 0, 0]);
+        assert_eq!(u.frame_tail, [7, FRAME_PROJECTION_FLAG_ORTHOGRAPHIC, 0, 0]);
         assert_eq!(u.skybox_specular, [5.0, 1.0, 1.0, 0.0]);
         assert_eq!(u.ambient_sh, [[0.0; 4]; 9]);
     }
@@ -136,11 +138,14 @@ mod offset_and_packing_tests {
             proj_params_left: [1.0, 1.0, 0.0, 0.0],
             proj_params_right: [1.0, 1.0, 0.0, 0.0],
             frame_index: 0,
+            projection_flags_left: 0,
+            projection_flags_right: 0,
             skybox_specular: SkyboxSpecularUniformParams::disabled(),
             ambient_sh: [[0.0; 4]; 9],
         });
 
         assert_eq!(u.camera_world_pos, u.camera_world_pos_right);
+        assert_eq!(u.frame_tail, [0, 0, 0, 0]);
     }
 
     #[test]

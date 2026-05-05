@@ -255,6 +255,7 @@ mod tests {
             cluster_count_y: 3,
             viewport_width: 128,
             viewport_height: 96,
+            projection_flags: 0,
         };
 
         assert_eq!(

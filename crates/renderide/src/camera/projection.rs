@@ -122,8 +122,8 @@ pub fn reverse_z_perspective_openxr_fov(fov: &Fovf, near: f32, far: f32) -> Mat4
 /// Reverse-Z orthographic projection (`half_width`, `half_height` in view space).
 pub fn reverse_z_orthographic(half_width: f32, half_height: f32, near: f32, far: f32) -> Mat4 {
     let range = far - near;
-    let z_scale = -2.0 / range;
-    let z_offset = (far + near) / range;
+    let z_scale = 1.0 / range;
+    let z_offset = far / range;
     Mat4::from_cols(
         Vec4::new(1.0 / half_width, 0.0, 0.0, 0.0),
         Vec4::new(0.0, 1.0 / half_height, 0.0, 0.0),
@@ -179,7 +179,8 @@ mod projection_math_tests {
 
     use super::{
         DEFAULT_DESKTOP_FOV_DEGREES, DESKTOP_FOV_DEGREES_MAX, DESKTOP_FOV_DEGREES_MIN,
-        clamp_desktop_fov_degrees, reverse_z_perspective, reverse_z_perspective_openxr_fov,
+        clamp_desktop_fov_degrees, reverse_z_orthographic, reverse_z_perspective,
+        reverse_z_perspective_openxr_fov,
     };
 
     /// Projects a view-space point through `m` and returns its `z / w` clip depth.
@@ -200,7 +201,14 @@ mod projection_math_tests {
     }
 
     /// Mirrors `skybox_common.wgsl::view_ray_from_ndc`.
-    fn skybox_view_ray_from_ndc_for_test(ndc: Vec2, proj_params: [f32; 4]) -> Vec3 {
+    fn skybox_view_ray_from_ndc_for_test(
+        ndc: Vec2,
+        proj_params: [f32; 4],
+        orthographic: bool,
+    ) -> Vec3 {
+        if orthographic {
+            return Vec3::new(0.0, 0.0, -1.0);
+        }
         let view_x = (ndc.x + proj_params[2]) / proj_params[0].abs().max(1e-6);
         let view_y = (ndc.y + proj_params[3]) / proj_params[1].abs().max(1e-6);
         Vec3::new(view_x, view_y, -1.0).normalize()
@@ -244,6 +252,19 @@ mod projection_math_tests {
         assert!(project_depth(&m, -far).abs() < 1e-4);
     }
 
+    /// Reverse-Z orthographic depth maps the near plane to depth `1` and the far plane to `0`.
+    #[test]
+    fn reverse_z_orthographic_near_and_far_depth_values() {
+        let near = 0.05_f32;
+        let far = 100.0_f32;
+        let m = reverse_z_orthographic(2.0, 1.0, near, far);
+
+        assert!((project_depth(&m, -near) - 1.0).abs() < 1e-5);
+        assert!(project_depth(&m, -far).abs() < 1e-5);
+        assert!((m.x_axis.x - 0.5).abs() < 1e-6);
+        assert!((m.y_axis.y - 1.0).abs() < 1e-6);
+    }
+
     /// Fullscreen skybox ray reconstruction must invert asymmetric OpenXR skew with a plus sign.
     #[test]
     fn skybox_view_ray_roundtrips_asymmetric_openxr_projection() {
@@ -258,7 +279,7 @@ mod projection_math_tests {
 
         for view_xy in [Vec2::new(-0.35, 0.22), Vec2::ZERO, Vec2::new(0.28, -0.31)] {
             let ndc = project_unit_depth_view_xy(&m, view_xy);
-            let actual = skybox_view_ray_from_ndc_for_test(ndc, proj_params);
+            let actual = skybox_view_ray_from_ndc_for_test(ndc, proj_params, false);
             let expected = Vec3::new(view_xy.x, view_xy.y, -1.0).normalize();
             assert!(
                 actual.dot(expected) > 0.999_99,
@@ -273,6 +294,16 @@ mod projection_math_tests {
         let source = include_str!("../../shaders/modules/skybox_common.wgsl");
         assert!(source.contains("ndc.x + proj_params.z"));
         assert!(source.contains("ndc.y + proj_params.w"));
+    }
+
+    /// Orthographic skyboxes use a parallel view ray instead of unprojecting NDC as a perspective
+    /// frustum.
+    #[test]
+    fn skybox_orthographic_view_ray_is_constant() {
+        let actual =
+            skybox_view_ray_from_ndc_for_test(Vec2::new(0.75, -0.25), [0.5, 1.0, 0.0, 0.0], true);
+
+        assert_eq!(actual, Vec3::new(0.0, 0.0, -1.0));
     }
 
     /// A degenerate all-zero OpenXR FOV takes the symmetric 16:9 fallback and yields a finite

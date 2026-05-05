@@ -11,7 +11,7 @@ use parking_lot::Mutex;
 
 use super::WorldMeshForwardPipelineState;
 use crate::backend::FrameGpuResources;
-use crate::camera::{ViewId, world_to_view_pair_for_skybox};
+use crate::camera::{CameraProjectionKind, ViewId, world_to_view_pair_for_skybox};
 use crate::embedded_shaders;
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyLookupIds};
 use crate::materials::{
@@ -61,7 +61,8 @@ struct SkyboxViewUniforms {
     /// render-texture lands V=0 bottom. The skybox is a fullscreen pass whose vertex Y flip is a
     /// rasterization no-op, so we flip the ndc.y the fragment receives instead -- that inverts the
     /// computed view ray, which is what actually changes which sky direction is sampled per
-    /// framebuffer row. `.yzw` reserved padding.
+    /// framebuffer row. `.y` is the left/mono orthographic flag, `.z` is the right-eye
+    /// orthographic flag, and `.w` is reserved padding.
     ndc_y_sign_pad: [f32; 4],
 }
 
@@ -76,6 +77,7 @@ impl SkyboxViewUniforms {
         } else {
             1.0
         };
+        let ortho_flag = projection_kind_orthographic_flag(frame.view.host_camera.projection_kind);
         Self {
             view_x_left: lx,
             view_y_left: ly,
@@ -84,7 +86,7 @@ impl SkyboxViewUniforms {
             view_y_right: ry,
             view_z_right: rz,
             clear_color: frame.view.clear.color.to_array(),
-            ndc_y_sign_pad: [ndc_y_sign, 0.0, 0.0, 0.0],
+            ndc_y_sign_pad: [ndc_y_sign, ortho_flag, ortho_flag, 0.0],
         }
     }
 }
@@ -440,6 +442,14 @@ fn view_to_world_basis(world_to_view: glam::Mat4) -> ([f32; 4], [f32; 4], [f32; 
         view_to_world.y_axis.truncate().extend(0.0).to_array(),
         view_to_world.z_axis.truncate().extend(0.0).to_array(),
     )
+}
+
+fn projection_kind_orthographic_flag(kind: CameraProjectionKind) -> f32 {
+    if kind == CameraProjectionKind::Orthographic {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]

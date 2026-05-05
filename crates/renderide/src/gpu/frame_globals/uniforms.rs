@@ -11,7 +11,10 @@ pub(super) const FALLBACK_AMBIENT_COLOR: f32 = 0.03;
 /// Zeroth-order SH basis constant used for fallback packing.
 pub(super) const SH_C0: f32 = 0.282_094_8;
 
-/// Uniform block matching WGSL `FrameGlobals` (336-byte size, 16-byte aligned).
+/// Frame projection flag indicating that the corresponding view uses orthographic projection.
+pub const FRAME_PROJECTION_FLAG_ORTHOGRAPHIC: u32 = 1;
+
+/// Uniform block matching WGSL `FrameGlobals` (304-byte size, 16-byte aligned).
 ///
 /// Encodes per-eye camera positions, per-eye coefficients for view-space Z from world position,
 /// clustered grid dimensions, clip planes, light count, viewport size, per-eye projection
@@ -47,7 +50,7 @@ pub struct FrameGpuUniforms {
     /// Left-eye (or mono) projection coefficients: `(P[0][0], P[1][1], P[0][2], P[1][2])`.
     ///
     /// Column-major `glam::Mat4` indexing. Screen-space -> view-space unprojection (view Z known)
-    /// uses `view_x = (ndc_x - c.z) * view_z / c.x` and `view_y = (ndc_y - c.w) * view_z / c.y`,
+    /// uses `view_x = (ndc_x + c.z) * view_z / c.x` and `view_y = (ndc_y + c.w) * view_z / c.y`,
     /// where `c` is this vec4. Encodes both symmetric (desktop) and asymmetric (per-eye VR)
     /// perspective projections exactly.
     pub proj_params_left: [f32; 4],
@@ -56,9 +59,9 @@ pub struct FrameGpuUniforms {
     /// Equals [`Self::proj_params_left`] in mono mode.
     pub proj_params_right: [f32; 4],
     /// Packed trailing `vec4<u32>` slot: `.x` is the monotonic frame index (wraps
-    /// `host_camera.frame_index`; used for temporal / jittered screen-space effects), `.yzw` are
-    /// reserved padding so the struct aligns to a 16-byte boundary without tripping naga-oil's
-    /// composable-identifier substitution rules (numeric-suffix names are rejected).
+    /// `host_camera.frame_index`; used for temporal / jittered screen-space effects), `.y` holds
+    /// left/mono projection flags, `.z` holds right-eye projection flags, and `.w` is reserved
+    /// padding.
     pub frame_tail: [u32; 4],
     /// Skybox specular parameters: `.x` max resident LOD, `.y` enabled flag,
     /// `.z` [`super::skybox_specular::SkyboxSpecularSourceKind`] tag, `.w` reserved.
