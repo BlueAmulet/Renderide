@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-/// Prepared draw that fills the forward color target before world meshes.
+/// Prepared draw that fills the forward color target after opaque world meshes.
 pub enum PreparedSkybox {
     /// Host material-driven skybox draw.
     Material(PreparedMaterialSkybox),

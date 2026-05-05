@@ -13,15 +13,18 @@ use super::WorldMeshForwardPipelineState;
 use crate::backend::FrameGpuResources;
 use crate::camera::{ViewId, world_to_view_pair_for_skybox};
 use crate::embedded_shaders;
-use crate::materials::EmbeddedTexturePools;
-use crate::materials::host_data::MaterialPropertyLookupIds;
+use crate::materials::host_data::{MaterialDictionary, MaterialPropertyLookupIds};
+use crate::materials::{
+    EmbeddedTexturePools, MaterialRenderState, material_render_state_for_lookup,
+};
 use crate::render_graph::frame_params::GraphPassFrame;
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::shared::CameraClearMode;
 use crate::skybox::{PreparedClearColorSkybox, PreparedMaterialSkybox, PreparedSkybox};
 
 use pipeline::{
-    ClearPipelineKey, SkyboxFamily, SkyboxPipelineKey, SkyboxPipelineTarget, create_skybox_pipeline,
+    ClearPipelineKey, SkyboxDepthState, SkyboxFamily, SkyboxPipelineKey, SkyboxPipelineTarget,
+    create_skybox_pipeline,
 };
 
 /// Minimum binding size for [`SkyboxViewUniforms`].
@@ -179,6 +182,16 @@ impl SkyboxRenderer {
             material_asset_id,
             mesh_property_block_slot0: None,
         };
+        let depth = if family == SkyboxFamily::Projection360 {
+            let dict = MaterialDictionary::new(store);
+            let ids = materials.pipeline_property_resolver().resolve();
+            SkyboxDepthState::for_family(
+                family,
+                material_render_state_for_lookup(&dict, lookup, &ids),
+            )
+        } else {
+            SkyboxDepthState::for_family(family, MaterialRenderState::default())
+        };
         let material_bind_group = embedded_bind
             .embedded_material_bind_group(
                 stem.as_str(),
@@ -194,7 +207,7 @@ impl SkyboxRenderer {
             .ok()?;
         let view_bind_group = self.view_bind_group(device, upload_batch, frame);
         let target = SkyboxPipelineTarget::from_forward_state(pipeline_state);
-        let pipeline = self.material_pipeline(device, &material_layout, family, target)?;
+        let pipeline = self.material_pipeline(device, &material_layout, family, target, depth)?;
         Some(PreparedSkybox::Material(PreparedMaterialSkybox {
             pipeline,
             material_bind_group,
@@ -281,8 +294,13 @@ impl SkyboxRenderer {
         material_layout: &wgpu::BindGroupLayout,
         family: SkyboxFamily,
         target: SkyboxPipelineTarget,
+        depth: SkyboxDepthState,
     ) -> Option<Arc<wgpu::RenderPipeline>> {
-        let key = SkyboxPipelineKey { family, target };
+        let key = SkyboxPipelineKey {
+            family,
+            target,
+            depth,
+        };
         {
             let guard = self.material_pipelines.lock();
             if let Some(pipeline) = guard.get(&key) {
@@ -312,6 +330,7 @@ impl SkyboxRenderer {
             &shader,
             &layout,
             target,
+            depth,
         ));
         let mut guard = self.material_pipelines.lock();
         if let Some(existing) = guard.get(&key) {
@@ -353,6 +372,7 @@ impl SkyboxRenderer {
             &shader,
             &layout,
             key,
+            SkyboxDepthState::fixed_background(),
         ));
         let mut guard = self.clear_pipelines.lock();
         if let Some(existing) = guard.get(&key) {
@@ -364,7 +384,7 @@ impl SkyboxRenderer {
     }
 }
 
-/// Records a prepared skybox/background draw before world meshes.
+/// Records a prepared skybox/background draw after opaque world meshes.
 pub(super) fn record_prepared_skybox(
     rpass: &mut wgpu::RenderPass<'_>,
     frame: &GraphPassFrame<'_>,

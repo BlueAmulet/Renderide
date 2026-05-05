@@ -358,10 +358,6 @@ impl RasterPass for WorldMeshForwardOpaquePass {
         let Some(mut prepared) = ctx.blackboard.take::<WorldMeshForwardPlanSlot>() else {
             return Ok(());
         };
-        let skybox_recorded = prepared
-            .skybox
-            .as_ref()
-            .is_none_or(|skybox| record_prepared_skybox(rpass, frame, skybox));
         let mesh_recorded = record_world_mesh_forward_opaque_graph_raster(
             rpass,
             ctx.device,
@@ -369,7 +365,11 @@ impl RasterPass for WorldMeshForwardOpaquePass {
             frame,
             &prepared,
         );
-        prepared.opaque_recorded = skybox_recorded && mesh_recorded;
+        let skybox_recorded = prepared
+            .skybox
+            .as_ref()
+            .is_none_or(|skybox| record_prepared_skybox(rpass, frame, skybox));
+        prepared.opaque_recorded = mesh_recorded && skybox_recorded;
         ctx.blackboard.insert::<WorldMeshForwardPlanSlot>(prepared);
         Ok(())
     }

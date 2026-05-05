@@ -5,6 +5,8 @@
 //! `RenderPipeline` factory invoked on cache miss.
 
 use super::super::state::WorldMeshForwardPipelineState;
+use crate::gpu::MAIN_FORWARD_DEPTH_COMPARE;
+use crate::materials::MaterialRenderState;
 
 /// Skybox material family supported by the dedicated background draw.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -45,6 +47,42 @@ impl SkyboxFamily {
     }
 }
 
+/// Depth state used by a fullscreen skybox pipeline.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(super) struct SkyboxDepthState {
+    /// Whether the skybox updates the depth buffer.
+    pub(super) write_enabled: bool,
+    /// Depth compare used for the skybox draw.
+    pub(super) compare: wgpu::CompareFunction,
+}
+
+impl SkyboxDepthState {
+    /// Depth state used by fixed-background skyboxes.
+    pub(super) const fn fixed_background() -> Self {
+        Self {
+            write_enabled: false,
+            compare: MAIN_FORWARD_DEPTH_COMPARE,
+        }
+    }
+
+    /// Resolves skybox depth state for a material family.
+    pub(super) fn for_family(family: SkyboxFamily, render_state: MaterialRenderState) -> Self {
+        match family {
+            SkyboxFamily::Projection360 => Self {
+                write_enabled: render_state.depth_write(false),
+                compare: render_state.depth_compare(MAIN_FORWARD_DEPTH_COMPARE),
+            },
+            SkyboxFamily::Gradient | SkyboxFamily::Procedural => Self::fixed_background(),
+        }
+    }
+}
+
+impl Default for SkyboxDepthState {
+    fn default() -> Self {
+        Self::fixed_background()
+    }
+}
+
 /// Render-target state that must match the containing skybox render pass.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) struct SkyboxPipelineTarget {
@@ -77,6 +115,8 @@ pub(super) struct SkyboxPipelineKey {
     pub(super) family: SkyboxFamily,
     /// Render-target state required by wgpu pipeline/pass compatibility.
     pub(super) target: SkyboxPipelineTarget,
+    /// Depth state selected for this skybox material.
+    pub(super) depth: SkyboxDepthState,
 }
 
 /// Cached solid-color background pipeline key.
@@ -89,6 +129,7 @@ pub(super) fn create_skybox_pipeline(
     shader: &wgpu::ShaderModule,
     layout: &wgpu::PipelineLayout,
     target: SkyboxPipelineTarget,
+    depth: SkyboxDepthState,
 ) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
@@ -118,8 +159,8 @@ pub(super) fn create_skybox_pipeline(
             .depth_stencil_format
             .map(|format| wgpu::DepthStencilState {
                 format,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Always),
+                depth_write_enabled: Some(depth.write_enabled),
+                depth_compare: Some(depth.compare),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
@@ -138,7 +179,9 @@ pub(super) fn create_skybox_pipeline(
 
 #[cfg(test)]
 mod tests {
-    use super::SkyboxFamily;
+    use super::{SkyboxDepthState, SkyboxFamily};
+    use crate::gpu::MAIN_FORWARD_DEPTH_COMPARE;
+    use crate::materials::MaterialRenderState;
 
     #[test]
     fn skybox_family_resolves_supported_stems() {
@@ -167,5 +210,62 @@ mod tests {
             SkyboxFamily::Gradient.shader_target(true),
             "skybox_gradientskybox_multiview"
         );
+    }
+
+    #[test]
+    fn fixed_background_skybox_depth_uses_reverse_z_compare_without_writes() {
+        let depth = SkyboxDepthState::fixed_background();
+
+        assert!(!depth.write_enabled);
+        assert_eq!(depth.compare, MAIN_FORWARD_DEPTH_COMPARE);
+    }
+
+    #[test]
+    fn projection360_skybox_honors_zwrite_override() {
+        let write_on = SkyboxDepthState::for_family(
+            SkyboxFamily::Projection360,
+            MaterialRenderState {
+                depth_write: Some(true),
+                ..MaterialRenderState::default()
+            },
+        );
+        let write_off = SkyboxDepthState::for_family(
+            SkyboxFamily::Projection360,
+            MaterialRenderState {
+                depth_write: Some(false),
+                ..MaterialRenderState::default()
+            },
+        );
+
+        assert!(write_on.write_enabled);
+        assert!(!write_off.write_enabled);
+    }
+
+    #[test]
+    fn projection360_skybox_honors_ztest_reverse_z_mapping() {
+        let depth = SkyboxDepthState::for_family(
+            SkyboxFamily::Projection360,
+            MaterialRenderState {
+                // FrooxEngine `ZTest.Less` maps to `Greater` in Renderide's reverse-Z depth buffer.
+                depth_compare: Some(0),
+                ..MaterialRenderState::default()
+            },
+        );
+
+        assert_eq!(depth.compare, wgpu::CompareFunction::Greater);
+    }
+
+    #[test]
+    fn analytic_skyboxes_ignore_material_depth_state() {
+        let render_state = MaterialRenderState {
+            depth_write: Some(true),
+            depth_compare: Some(6),
+            ..MaterialRenderState::default()
+        };
+
+        for family in [SkyboxFamily::Gradient, SkyboxFamily::Procedural] {
+            let depth = SkyboxDepthState::for_family(family, render_state);
+            assert_eq!(depth, SkyboxDepthState::fixed_background());
+        }
     }
 }
