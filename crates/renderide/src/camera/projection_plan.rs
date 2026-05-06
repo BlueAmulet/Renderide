@@ -16,9 +16,9 @@ pub struct WorldProjectionSet {
     pub clip: CameraClipPlanes,
     /// Viewport this projection was built for.
     pub viewport: Viewport,
-    /// Reverse-Z perspective for world draws.
+    /// Projection for world draws.
     pub world_proj: Mat4,
-    /// Orthographic projection for overlay draws.
+    /// Projection for overlay draws.
     pub overlay_proj: Mat4,
     /// Stereo view-projection pair when the host camera is actively stereo.
     pub stereo_view_proj: Option<(Mat4, Mat4)>,
@@ -32,18 +32,25 @@ impl WorldProjectionSet {
         host_camera: &HostCameraFrame,
     ) -> Self {
         let viewport = Viewport::from_tuple(viewport_px);
+        let explicit_proj = host_camera.explicit_view_projection().map(|(_, proj)| proj);
+        let root_scale = explicit_proj.is_none().then(|| {
+            scene
+                .active_main_space()
+                .map(|space| space.root_transform.scale)
+        });
         let (near, far) = effective_head_output_clip_planes(
             host_camera.clip.near,
             host_camera.clip.far,
             host_camera.output_device,
-            scene
-                .active_main_space()
-                .map(|space| space.root_transform.scale),
+            root_scale.flatten(),
         );
         let clip = CameraClipPlanes::new(near, far);
         let fov_rad = clamp_desktop_fov_degrees(host_camera.desktop_fov_degrees).to_radians();
-        let world_proj = reverse_z_perspective(viewport.aspect(), fov_rad, clip.near, clip.far);
-        let overlay_proj = host_camera.overlay_projection(viewport, clip);
+        let world_proj = explicit_proj.unwrap_or_else(|| {
+            reverse_z_perspective(viewport.aspect(), fov_rad, clip.near, clip.far)
+        });
+        let overlay_proj =
+            explicit_proj.unwrap_or_else(|| host_camera.overlay_projection(viewport, clip));
         let stereo_view_proj = host_camera
             .active_stereo()
             .map(|stereo| stereo.view_proj_pair());
@@ -54,5 +61,34 @@ impl WorldProjectionSet {
             overlay_proj,
             stereo_view_proj,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use glam::{Mat4, Vec3};
+
+    use super::WorldProjectionSet;
+    use crate::camera::{EyeView, HostCameraFrame};
+    use crate::scene::SceneCoordinator;
+
+    #[test]
+    fn explicit_secondary_projection_replaces_world_and_overlay_projection() {
+        let scene = SceneCoordinator::new();
+        let explicit_proj = Mat4::from_scale(Vec3::new(2.0, 3.0, 1.0));
+        let host_camera = HostCameraFrame {
+            explicit_view: Some(EyeView::new(
+                Mat4::IDENTITY,
+                explicit_proj,
+                Mat4::IDENTITY,
+                Vec3::ZERO,
+            )),
+            ..Default::default()
+        };
+
+        let set = WorldProjectionSet::from_scene_host(&scene, (1280, 720), &host_camera);
+
+        assert_eq!(set.world_proj, explicit_proj);
+        assert_eq!(set.overlay_proj, explicit_proj);
     }
 }

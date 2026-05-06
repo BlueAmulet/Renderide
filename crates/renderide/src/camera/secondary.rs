@@ -112,8 +112,9 @@ mod tests {
     };
     use crate::camera::{
         CameraProjectionKind, HostCameraFrame, OrthographicProjectionSpec, Viewport,
-        apply_view_handedness_fix,
+        WorldProjectionSet, apply_view_handedness_fix,
     };
+    use crate::scene::SceneCoordinator;
 
     #[test]
     fn camera_state_enabled_reads_bit_zero() {
@@ -211,6 +212,30 @@ mod tests {
         let orthographic_proj = orthographic.explicit_view.expect("orthographic view").proj;
         assert_eq!(orthographic_proj, expected_ortho);
         assert_ne!(orthographic_proj, perspective_proj);
+    }
+
+    #[test]
+    fn orthographic_camera_state_reaches_world_projection_set() {
+        let base = HostCameraFrame::default();
+        let cam_world = Mat4::IDENTITY;
+        let viewport = (640, 480);
+        let clip = crate::camera::CameraClipPlanes::new(0.1, 500.0);
+        let state = CameraState {
+            projection: CameraProjection::Orthographic,
+            orthographic_size: 8.0,
+            near_clip: clip.near,
+            far_clip: clip.far,
+            ..Default::default()
+        };
+
+        let host_camera = host_camera_frame_for_render_texture(&base, &state, viewport, cam_world);
+        let expected_ortho =
+            OrthographicProjectionSpec::new(8.0, clip).projection(Viewport::from_tuple(viewport));
+        let projections =
+            WorldProjectionSet::from_scene_host(&SceneCoordinator::new(), viewport, &host_camera);
+
+        assert_eq!(projections.world_proj, expected_ortho);
+        assert_eq!(projections.overlay_proj, expected_ortho);
     }
 
     #[test]

@@ -161,9 +161,7 @@ pub fn cluster_frame_params(
             host_camera.clip.near,
             host_camera.clip.far,
             host_camera.output_device,
-            scene
-                .active_main_space()
-                .map(|space| space.root_transform.scale),
+            None,
         );
         let cluster_count_x = viewport.tile_columns(TILE_SIZE);
         let cluster_count_y = viewport.tile_rows(TILE_SIZE);
@@ -339,6 +337,7 @@ fn projection_flags_for_host_camera(host_camera: &HostCameraFrame) -> u32 {
 mod tests {
     use super::*;
     use crate::camera::EyeView;
+    use crate::scene::RenderSpaceId;
     use glam::Vec3;
 
     /// Builds a minimal `ClusterFrameParams` with the supplied world-to-view; other fields are
@@ -467,6 +466,32 @@ mod tests {
             .expect("non-empty explicit camera viewport");
 
         assert_eq!(params.projection_flags, FRAME_PROJECTION_FLAG_ORTHOGRAPHIC);
+    }
+
+    #[test]
+    fn explicit_camera_cluster_params_do_not_apply_main_space_root_scale() {
+        let mut scene = SceneCoordinator::new();
+        let root = crate::shared::RenderTransform {
+            scale: Vec3::splat(3.0),
+            ..Default::default()
+        };
+        scene.test_seed_space_identity_worlds(RenderSpaceId(1), vec![root], vec![-1]);
+        let host_camera = HostCameraFrame {
+            clip: crate::camera::CameraClipPlanes::new(0.2, 100.0),
+            explicit_view: Some(EyeView::new(
+                Mat4::IDENTITY,
+                Mat4::IDENTITY,
+                Mat4::IDENTITY,
+                Vec3::ZERO,
+            )),
+            ..Default::default()
+        };
+
+        let params = cluster_frame_params(&host_camera, &scene, (64, 64))
+            .expect("non-empty explicit camera viewport");
+
+        assert!((params.near_clip - 0.2).abs() < 1e-6);
+        assert!((params.far_clip - 100.0).abs() < 1e-6);
     }
 
     /// The WGSL constants stay manually synchronized with the Rust constants.
