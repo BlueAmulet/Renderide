@@ -461,4 +461,3 @@ config.toml
 *.log
 profile.json.gz
 !crates/renderide/src/bin/**
-.claude/
