@@ -61,11 +61,11 @@ impl crate::xr::XrHostCameraSync for RendererRuntime {
     }
 
     fn note_openxr_wait_frame_failed(&mut self) {
-        self.xr_wait_frame_failures = self.xr_wait_frame_failures.saturating_add(1);
+        self.xr_stats.note_wait_frame_failed();
     }
 
     fn note_openxr_locate_views_failed(&mut self) {
-        self.xr_locate_views_failures = self.xr_locate_views_failures.saturating_add(1);
+        self.xr_stats.note_locate_views_failed();
     }
 }
 

@@ -98,6 +98,7 @@ impl RendererRuntime {
     fn setup_msaa_for_mode(&mut self, gpu: &mut GpuContext, mode: &FrameRenderMode<'_>) {
         profiling::scope!("render::setup_msaa");
         let requested_msaa = self
+            .config
             .settings
             .read()
             .map(|s| s.rendering.msaa.as_count())

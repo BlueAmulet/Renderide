@@ -23,14 +23,14 @@ impl RendererRuntime {
     /// frame submit is outstanding.
     pub fn run_asset_integration(&mut self) {
         profiling::scope!("tick::asset_integration_runtime");
-        if self.did_integrate_this_tick {
+        if self.tick_state.did_integrate_assets_this_tick() {
             return;
         }
         let Some(summary) = self.run_asset_integration_pass() else {
             return;
         };
         trace_asset_integration_summary(self.asset_integration_budget_ms(), summary);
-        self.did_integrate_this_tick = true;
+        self.tick_state.mark_integrated_assets_this_tick();
     }
 
     /// Runs an extra asset-integration slice while the renderer is waiting for a host frame submit.
@@ -56,6 +56,7 @@ impl RendererRuntime {
 
     fn asset_integration_budget_ms(&self) -> u32 {
         let coupled_default_ms = self
+            .config
             .settings
             .read()
             .map(|s| s.rendering.asset_integration_budget_ms)
@@ -79,7 +80,7 @@ impl RendererRuntime {
 
     /// Whether [`Self::run_asset_integration`] already ran this tick.
     pub fn did_integrate_assets_this_tick(&self) -> bool {
-        self.did_integrate_this_tick
+        self.tick_state.did_integrate_assets_this_tick()
     }
 
     /// Whether upload or material work is queued or deferred on missing prerequisites.
