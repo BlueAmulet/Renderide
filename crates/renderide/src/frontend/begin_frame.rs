@@ -53,7 +53,7 @@ pub(crate) struct BeginFrameBuildInput {
     pub(crate) inputs: InputState,
     /// Reflection probes completed since the previous successful frame-start send.
     pub(crate) rendered_reflection_probes: Vec<ReflectionProbeChangeRenderResult>,
-    /// Video clock-error samples captured since the previous successful frame-start send.
+    /// Latest video clock-error samples captured since the previous successful frame-start send.
     pub(crate) video_clock_errors: Vec<VideoTextureClockErrorState>,
 }
 

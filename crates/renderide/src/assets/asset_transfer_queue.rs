@@ -150,11 +150,11 @@ impl AssetTransferQueue {
         self.catalogs.texture_formats.len()
     }
 
-    /// Drains the per-frame accumulator of video clock-error samples for transmission to the host.
+    /// Drains the latest video clock-error samples for transmission to the host.
     ///
     /// The runtime calls this once per tick before [`crate::frontend::RendererFrontend::pre_frame`]
-    /// so the next [`crate::shared::FrameStartData`] carries the latest drift snapshot per active
-    /// video player.
+    /// so the next [`crate::shared::FrameStartData`] carries the latest drift snapshot per video
+    /// asset.
     pub fn take_pending_video_clock_errors(&mut self) -> Vec<VideoTextureClockErrorState> {
         self.video.take_pending_clock_errors()
     }

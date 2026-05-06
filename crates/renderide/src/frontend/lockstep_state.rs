@@ -65,12 +65,14 @@ impl LockstepState {
         self.pending_rendered_reflection_probes.extend(probes);
     }
 
-    /// Appends video texture clock-error samples for the next outgoing frame-start.
+    /// Records latest video texture clock-error samples for the next outgoing frame-start.
     pub(crate) fn enqueue_video_clock_errors(
         &mut self,
         errors: impl IntoIterator<Item = VideoTextureClockErrorState>,
     ) {
-        self.pending_video_clock_errors.extend(errors);
+        for state in errors {
+            upsert_video_clock_error(&mut self.pending_video_clock_errors, state);
+        }
     }
 
     /// Computes whether a begin-frame send is allowed this tick.
@@ -114,5 +116,86 @@ impl LockstepState {
         if commit.mark_bootstrap_sent {
             self.sent_bootstrap_frame_start = true;
         }
+    }
+}
+
+fn upsert_video_clock_error(
+    pending: &mut Vec<VideoTextureClockErrorState>,
+    state: VideoTextureClockErrorState,
+) {
+    if let Some(existing) = pending
+        .iter_mut()
+        .find(|existing| existing.asset_id == state.asset_id)
+    {
+        *existing = state;
+    } else {
+        pending.push(state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LockstepState;
+    use crate::shared::memory_packer::MemoryPacker;
+    use crate::shared::polymorphic_memory_packable_entity::PolymorphicEncode;
+    use crate::shared::{InputState, RendererCommand, VideoTextureClockErrorState};
+
+    const IPC_SEND_BUFFER_CAP: usize = 65_536;
+
+    #[test]
+    fn enqueue_video_clock_errors_keeps_latest_sample_per_asset() {
+        let mut state = LockstepState::new(false);
+
+        state.enqueue_video_clock_errors([
+            VideoTextureClockErrorState {
+                asset_id: 4,
+                current_clock_error: 0.25,
+            },
+            VideoTextureClockErrorState {
+                asset_id: 9,
+                current_clock_error: -0.5,
+            },
+        ]);
+        state.enqueue_video_clock_errors([VideoTextureClockErrorState {
+            asset_id: 4,
+            current_clock_error: 0.75,
+        }]);
+
+        let (frame_start, _) = state.build_frame_start(InputState::default(), None);
+
+        assert_eq!(frame_start.video_clock_errors.len(), 2);
+        assert_eq!(frame_start.video_clock_errors[0].asset_id, 4);
+        assert_eq!(frame_start.video_clock_errors[0].current_clock_error, 0.75);
+        assert_eq!(frame_start.video_clock_errors[1].asset_id, 9);
+        assert_eq!(frame_start.video_clock_errors[1].current_clock_error, -0.5);
+    }
+
+    #[test]
+    fn repeated_video_clock_error_retries_stay_within_ipc_send_buffer() {
+        let mut state = LockstepState::new(false);
+        for retry in 0..10_000 {
+            state.enqueue_video_clock_errors([VideoTextureClockErrorState {
+                asset_id: 4,
+                current_clock_error: retry as f32,
+            }]);
+        }
+
+        let (frame_start, _) = state.build_frame_start(InputState::default(), None);
+        assert_eq!(frame_start.video_clock_errors.len(), 1);
+        assert_eq!(frame_start.video_clock_errors[0].asset_id, 4);
+        assert_eq!(
+            frame_start.video_clock_errors[0].current_clock_error,
+            9_999.0
+        );
+
+        let mut command = RendererCommand::FrameStartData(frame_start);
+        let mut buffer = vec![0u8; IPC_SEND_BUFFER_CAP];
+        let mut packer = MemoryPacker::new(&mut buffer);
+        command.encode(&mut packer);
+
+        assert!(
+            !packer.had_overflow(),
+            "repeated retries for one video asset must not overflow the IPC send buffer"
+        );
     }
 }

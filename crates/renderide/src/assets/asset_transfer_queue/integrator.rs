@@ -369,23 +369,21 @@ fn is_lane_nonempty(asset: &AssetTransferQueue, is_high_priority: bool) -> bool 
 /// Polls video texture players after upload integration.
 ///
 /// Also samples each player's clock error against the host's last-applied playback request and
-/// appends the result to [`AssetTransferQueue::pending_video_clock_errors`] so the runtime can
-/// flush it into the next [`crate::shared::FrameStartData`].
+/// records the latest result so the runtime can flush it into the next
+/// [`crate::shared::FrameStartData`].
 fn poll_video_texture_events(asset: &mut AssetTransferQueue, ipc: &mut Option<&mut DualQueueIpc>) {
     profiling::scope!("asset::video_texture_poll_events");
     let mut video_textures = std::mem::take(&mut asset.video.video_players);
-    let mut clock_errors = std::mem::take(&mut asset.video.pending_video_clock_errors);
     {
         profiling::scope!("video::sample_clock_errors");
         for player in video_textures.values_mut() {
             player.process_events(asset, ipc);
             if let Some(state) = player.sample_clock_error() {
-                clock_errors.push(state);
+                asset.video.record_pending_clock_error(state);
             }
         }
     }
     asset.video.video_players = video_textures;
-    asset.video.pending_video_clock_errors = clock_errors;
 }
 
 /// Runs integration steps: high-priority tasks get an emergency ceiling, then normal-priority tasks

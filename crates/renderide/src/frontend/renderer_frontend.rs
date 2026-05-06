@@ -207,7 +207,7 @@ impl RendererFrontend {
         self.lockstep.enqueue_rendered_reflection_probes(probes);
     }
 
-    /// Appends video texture clock-error samples for the next outgoing frame-start.
+    /// Records latest video texture clock-error samples for the next outgoing frame-start.
     pub fn enqueue_video_clock_errors(
         &mut self,
         errors: impl IntoIterator<Item = VideoTextureClockErrorState>,

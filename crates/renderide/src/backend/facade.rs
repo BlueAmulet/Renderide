@@ -294,7 +294,7 @@ impl RenderBackend {
         &mut self.frame_services.frame_resources
     }
 
-    /// Drains per-frame video clock-error samples produced by asset integration.
+    /// Drains latest video clock-error samples produced by asset integration.
     pub(crate) fn take_pending_video_clock_errors(
         &mut self,
     ) -> Vec<crate::shared::VideoTextureClockErrorState> {
