@@ -35,6 +35,15 @@ struct GpuReflectionProbe {
     box_max: vec4<f32>,
     position: vec4<f32>,
     params: vec4<f32>,
+    sh2_a: vec4<f32>,
+    sh2_b: vec4<f32>,
+    sh2_c: vec4<f32>,
+    sh2_d: vec4<f32>,
+    sh2_e: vec4<f32>,
+    sh2_f: vec4<f32>,
+    sh2_g: vec4<f32>,
+    sh2_h: vec4<f32>,
+    sh2_i: vec4<f32>,
 }
 
 /// Per-frame scene + clustered grid (matches [`crate::gpu::frame_globals::FrameGpuUniforms`]).

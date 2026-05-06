@@ -387,6 +387,7 @@ impl RenderBackend {
             &self.materials,
             &self.asset_transfers,
             render_context,
+            &mut self.reflection_probe_sh2,
         );
         let resources = self.reflection_probe_specular.resources();
         let _ = self

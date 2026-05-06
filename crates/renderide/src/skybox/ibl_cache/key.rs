@@ -32,6 +32,8 @@ pub(crate) enum SkyboxIblKey {
         asset_id: i32,
         /// Source resident mip count; growth re-bakes once more mips arrive.
         mip_levels_resident: u32,
+        /// Source content generation; re-uploading the same mips re-bakes.
+        content_generation: u64,
         /// Storage V-flip flag for the source cube.
         storage_v_inverted: bool,
         /// Destination cube face edge.
@@ -43,6 +45,8 @@ pub(crate) enum SkyboxIblKey {
         asset_id: i32,
         /// Source resident mip count.
         mip_levels_resident: u32,
+        /// Source content generation; re-uploading the same mips re-bakes.
+        content_generation: u64,
         /// Storage V-flip flag for the source texture.
         storage_v_inverted: bool,
         /// Bit-stable hash of `_FOV` material parameters.
@@ -95,12 +99,14 @@ pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKe
         SkyboxIblSource::Cubemap(src) => SkyboxIblKey::Cubemap {
             asset_id: src.asset_id,
             mip_levels_resident: src.mip_levels_resident,
+            content_generation: src.content_generation,
             storage_v_inverted: src.storage_v_inverted,
             face_size,
         },
         SkyboxIblSource::Equirect(src) => SkyboxIblKey::Equirect {
             asset_id: src.asset_id,
             mip_levels_resident: src.mip_levels_resident,
+            content_generation: src.content_generation,
             storage_v_inverted: src.storage_v_inverted,
             fov_hash: hash_float4(&src.equirect_fov),
             st_hash: hash_float4(&src.equirect_st),

@@ -5,8 +5,15 @@
 #import renderide::globals as rg
 #import renderide::pbs::brdf as brdf
 #import renderide::per_draw as pd
+#import renderide::sh2_ambient as shamb
 
 const PROBE_FLAG_BOX_PROJECTION: f32 = 1.0;
+const PROBE_SH2_VALID: f32 = 1.0;
+const SH_C0: f32 = 0.2820948;
+const SH_C1: f32 = 0.48860252;
+const SH_C2: f32 = 1.0925485;
+const SH_C3: f32 = 0.31539157;
+const SH_C4: f32 = 0.54627424;
 
 fn selected_draw(view_layer: u32) -> pd::PerDrawUniforms {
     return pd::get_draw(rg::draw_index_from_layer(view_layer));
@@ -93,6 +100,47 @@ fn indirect_radiance(
         return first;
     }
     let second = sample_probe_radiance(indices.y, world_pos, dir, perceptual_roughness);
+    return mix(first, second, pd::reflection_probe_second_weight(draw));
+}
+
+fn probe_has_sh2(atlas_index: u32) -> bool {
+    return atlas_index != 0u && rg::reflection_probes[atlas_index].params.w >= PROBE_SH2_VALID;
+}
+
+fn sample_probe_sh2(atlas_index: u32, normal_ws: vec3<f32>) -> vec3<f32> {
+    if (!probe_has_sh2(atlas_index)) {
+        return shamb::ambient_probe(normal_ws);
+    }
+    let probe = rg::reflection_probes[atlas_index];
+    let n = normalize(normal_ws);
+    let sh =
+        probe.sh2_a.xyz * SH_C0 +
+        probe.sh2_b.xyz * (SH_C1 * n.y) +
+        probe.sh2_c.xyz * (SH_C1 * n.z) +
+        probe.sh2_d.xyz * (SH_C1 * n.x) +
+        probe.sh2_e.xyz * (SH_C2 * n.x * n.y) +
+        probe.sh2_f.xyz * (SH_C2 * n.y * n.z) +
+        probe.sh2_g.xyz * (SH_C3 * (3.0 * n.z * n.z - 1.0)) +
+        probe.sh2_h.xyz * (SH_C2 * n.x * n.z) +
+        probe.sh2_i.xyz * (SH_C4 * (n.x * n.x - n.y * n.y));
+    return max(sh * max(probe.params.x, 0.0), vec3<f32>(0.0));
+}
+
+fn indirect_diffuse(normal_ws: vec3<f32>, view_layer: u32, enabled: bool) -> vec3<f32> {
+    if (!enabled) {
+        return vec3<f32>(0.0);
+    }
+    let draw = selected_draw(view_layer);
+    let count = pd::reflection_probe_hit_count(draw);
+    if (count == 0u) {
+        return shamb::ambient_probe(normal_ws);
+    }
+    let indices = pd::reflection_probe_indices(draw);
+    let first = sample_probe_sh2(indices.x, normal_ws);
+    if (count < 2u || indices.y == 0u) {
+        return first;
+    }
+    let second = sample_probe_sh2(indices.y, normal_ws);
     return mix(first, second, pd::reflection_probe_second_weight(draw));
 }
 

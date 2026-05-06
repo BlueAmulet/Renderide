@@ -485,23 +485,34 @@ mod tests {
         let a = SkyboxIblKey::Cubemap {
             asset_id: 7,
             mip_levels_resident: 1,
+            content_generation: 1,
             storage_v_inverted: false,
             face_size: 256,
         };
         let b = SkyboxIblKey::Cubemap {
             asset_id: 7,
             mip_levels_resident: 4,
+            content_generation: 1,
             storage_v_inverted: false,
             face_size: 256,
         };
         let c = SkyboxIblKey::Cubemap {
             asset_id: 7,
             mip_levels_resident: 1,
+            content_generation: 1,
             storage_v_inverted: false,
             face_size: 128,
         };
         assert_ne!(a, b);
         assert_ne!(a, c);
+        let d = SkyboxIblKey::Cubemap {
+            asset_id: 7,
+            mip_levels_resident: 1,
+            content_generation: 2,
+            storage_v_inverted: false,
+            face_size: 256,
+        };
+        assert_ne!(a, d);
     }
 
     /// Equirect key invariants: FOV / ST hash inputs invalidate the bake.
@@ -510,6 +521,7 @@ mod tests {
         let base = SkyboxIblKey::Equirect {
             asset_id: 9,
             mip_levels_resident: 3,
+            content_generation: 1,
             storage_v_inverted: false,
             fov_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
             st_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
@@ -518,6 +530,7 @@ mod tests {
         let altered_fov = SkyboxIblKey::Equirect {
             asset_id: 9,
             mip_levels_resident: 3,
+            content_generation: 1,
             storage_v_inverted: false,
             fov_hash: hash_float4(&[2.0, 1.0, 0.0, 0.0]),
             st_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
@@ -526,6 +539,7 @@ mod tests {
         let altered_st = SkyboxIblKey::Equirect {
             asset_id: 9,
             mip_levels_resident: 3,
+            content_generation: 1,
             storage_v_inverted: false,
             fov_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
             st_hash: hash_float4(&[2.0, 1.0, 0.0, 0.0]),
@@ -533,5 +547,15 @@ mod tests {
         };
         assert_ne!(base, altered_fov);
         assert_ne!(base, altered_st);
+        let altered_content = SkyboxIblKey::Equirect {
+            asset_id: 9,
+            mip_levels_resident: 3,
+            content_generation: 2,
+            storage_v_inverted: false,
+            fov_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
+            st_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
+            face_size: 256,
+        };
+        assert_ne!(base, altered_content);
     }
 }

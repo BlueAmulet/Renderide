@@ -8,7 +8,8 @@ use hashbrown::{HashMap, HashSet};
 use crate::assets::AssetTransferQueue;
 use crate::backend::frame_gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT,
-    REFLECTION_PROBE_METADATA_BOX_PROJECTION, ReflectionProbeSpecularResources,
+    REFLECTION_PROBE_METADATA_BOX_PROJECTION, REFLECTION_PROBE_METADATA_SH2_VALID,
+    ReflectionProbeSpecularResources,
 };
 use crate::gpu::{GpuContext, GpuLimits};
 use crate::materials::MaterialSystem;
@@ -16,7 +17,7 @@ use crate::scene::{
     ReflectionProbeEntry, RenderSpaceId, SceneCoordinator, reflection_probe_skybox_only,
     reflection_probe_use_box_projection,
 };
-use crate::shared::{ReflectionProbeClear, ReflectionProbeState, ReflectionProbeType};
+use crate::shared::{ReflectionProbeClear, ReflectionProbeState, ReflectionProbeType, RenderSH2};
 use crate::skybox::ibl_cache::{
     SkyboxIblCache, SkyboxIblKey, build_key, clamp_face_size, mip_extent, mip_levels_for_edge,
 };
@@ -33,8 +34,6 @@ const FIRST_PROBE_ATLAS_SLOT: u16 = 1;
 const BVH_LEAF_SIZE: usize = 8;
 /// Minimum object volume used when normalizing intersection weights.
 const MIN_OBJECT_VOLUME: f32 = 1e-12;
-/// Epsilon for the contained-probe special case.
-const CONTAINED_VOLUME_EPS: f32 = 1e-4;
 
 /// Per-draw reflection-probe selection stored in the per-draw slab.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -149,6 +148,7 @@ impl ReflectionProbeSpecularSystem {
         materials: &MaterialSystem,
         assets: &AssetTransferQueue,
         render_context: crate::shared::RenderingContext,
+        sh2_system: &mut super::ReflectionProbeSh2System,
     ) {
         profiling::scope!("reflection_probes::specular::maintain");
         self.ibl_cache.maintain_completed_jobs(gpu.device());
@@ -175,6 +175,7 @@ impl ReflectionProbeSpecularSystem {
                 };
                 let key = build_key(&source, face_size);
                 active_keys.insert(key.clone());
+                let sh2 = sh2_system.ensure_ibl_source(space_id.0, &source);
                 self.ibl_cache.ensure_source(gpu, key.clone(), source);
                 let Some(cube) = self.ibl_cache.completed_cube(&key) else {
                     continue;
@@ -184,7 +185,7 @@ impl ReflectionProbeSpecularSystem {
                 else {
                     continue;
                 };
-                let mut metadata = metadata_for_spatial(&spatial, probe.state);
+                let mut metadata = metadata_for_spatial(&spatial, probe.state, sh2.as_ref());
                 metadata.params[1] = cube.mip_levels.saturating_sub(1) as f32;
                 ready.push(ReadyProbe {
                     identity,
@@ -472,6 +473,7 @@ fn resolve_baked_probe_source(
         asset_id: state.cubemap_asset_id,
         face_size: cubemap.size,
         mip_levels_resident: cubemap.mip_levels_resident,
+        content_generation: cubemap.content_generation,
         storage_v_inverted: cubemap.storage_v_inverted,
         view: cubemap.view.clone(),
     }))
@@ -530,13 +532,14 @@ fn spatial_probe_for_state(
 fn metadata_for_spatial(
     spatial: &SpatialProbe,
     state: ReflectionProbeState,
+    sh2: Option<&RenderSH2>,
 ) -> GpuReflectionProbeMetadata {
     let flags = if reflection_probe_use_box_projection(state.flags) {
         REFLECTION_PROBE_METADATA_BOX_PROJECTION
     } else {
         0
     };
-    GpuReflectionProbeMetadata {
+    let mut metadata = GpuReflectionProbeMetadata {
         box_min: [
             spatial.aabb_min.x,
             spatial.aabb_min.y,
@@ -551,7 +554,27 @@ fn metadata_for_spatial(
         ],
         position: [spatial.center.x, spatial.center.y, spatial.center.z, 0.0],
         params: [state.intensity.max(0.0), 0.0, flags as f32, 0.0],
+        sh2: [[0.0; 4]; 9],
+    };
+    if let Some(sh2) = sh2 {
+        metadata.params[3] = REFLECTION_PROBE_METADATA_SH2_VALID;
+        metadata.sh2 = pack_render_sh2_raw(sh2);
     }
+    metadata
+}
+
+fn pack_render_sh2_raw(sh: &RenderSH2) -> [[f32; 4]; 9] {
+    [
+        [sh.sh0.x, sh.sh0.y, sh.sh0.z, 0.0],
+        [sh.sh1.x, sh.sh1.y, sh.sh1.z, 0.0],
+        [sh.sh2.x, sh.sh2.y, sh.sh2.z, 0.0],
+        [sh.sh3.x, sh.sh3.y, sh.sh3.z, 0.0],
+        [sh.sh4.x, sh.sh4.y, sh.sh4.z, 0.0],
+        [sh.sh5.x, sh.sh5.y, sh.sh5.z, 0.0],
+        [sh.sh6.x, sh.sh6.y, sh.sh6.z, 0.0],
+        [sh.sh7.x, sh.sh7.y, sh.sh7.z, 0.0],
+        [sh.sh8.x, sh.sh8.y, sh.sh8.z, 0.0],
+    ]
 }
 
 fn aabb_valid(min: Vec3, max: Vec3) -> bool {
@@ -657,7 +680,7 @@ impl ReflectionProbeSpatialIndex {
                 stack.push(node.right);
             }
         }
-        selection_from_scores(top, aabb_volume(object_aabb.0, object_aabb.1))
+        selection_from_scores(top)
     }
 
     fn build_node(&mut self, order: &mut [usize], start: usize, end: usize) -> usize {
@@ -733,18 +756,10 @@ fn score_better(a: ProbeScore, b: ProbeScore) -> bool {
         .is_lt()
 }
 
-fn selection_from_scores(
-    top: [Option<ProbeScore>; 2],
-    object_volume: f32,
-) -> ReflectionProbeDrawSelection {
+fn selection_from_scores(top: [Option<ProbeScore>; 2]) -> ReflectionProbeDrawSelection {
     let Some(first) = top[0] else {
         return ReflectionProbeDrawSelection::default();
     };
-    if object_volume > MIN_OBJECT_VOLUME
-        && first.intersection >= object_volume * (1.0 - CONTAINED_VOLUME_EPS)
-    {
-        return ReflectionProbeDrawSelection::one(first.atlas_index);
-    }
     let Some(second) = top[1] else {
         return ReflectionProbeDrawSelection::one(first.atlas_index);
     };
@@ -863,7 +878,7 @@ mod tests {
     }
 
     #[test]
-    fn contained_probe_wins_without_blend() {
+    fn contained_same_priority_probes_still_blend() {
         let index = ReflectionProbeSpatialIndex::build(vec![
             probe(0, 1, 1, Vec3::splat(-10.0), Vec3::splat(10.0)),
             probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
@@ -871,7 +886,10 @@ mod tests {
 
         let selection = index.select((Vec3::splat(-0.5), Vec3::splat(0.5)));
 
-        assert_eq!(selection, ReflectionProbeDrawSelection::one(2));
+        assert_eq!(selection.hit_count, 2);
+        assert_eq!(selection.first_atlas_index, 2);
+        assert_eq!(selection.second_atlas_index, 1);
+        assert!(selection.second_weight > 0.0 && selection.second_weight < 1.0);
     }
 
     #[test]

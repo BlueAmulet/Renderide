@@ -13,12 +13,11 @@
 #import renderide::pbs::brdf as brdf
 #import renderide::birp::light as bl
 #import renderide::reflection_probes as rprobe
-#import renderide::sh2_ambient as shamb
 #import renderide::uv_utils as uvu
 
 /// SH-probe sample used for xiexe's uncoloured indirect-diffuse term.
-fn indirect_diffuse(s: xb::SurfaceData) -> vec3<f32> {
-    return shamb::ambient_probe(s.normal);
+fn indirect_diffuse(s: xb::SurfaceData, view_layer: u32) -> vec3<f32> {
+    return rprobe::indirect_diffuse(s.normal, view_layer, true);
 }
 
 /// Scalar AO weight used when modern XSToon3 paths expect a single occlusion factor.
@@ -404,7 +403,7 @@ fn clustered_toon_lighting(
     base_pass: bool,
 ) -> vec3<f32> {
     let view_dir = xb::safe_normalize(rg::camera_world_pos_for_view(view_layer) - world_pos, vec3<f32>(0.0, 0.0, 1.0));
-    let ambient = indirect_diffuse(s);
+    let ambient = indirect_diffuse(s, view_layer);
     let env = environment_tint(s, view_dir, world_pos, view_layer);
     let direct_specular_occlusion = occlusion_scalar(s);
 
@@ -497,7 +496,7 @@ fn clustered_outline_lighting(
     world_pos: vec3<f32>,
     view_layer: u32,
 ) -> vec3<f32> {
-    let ambient = indirect_diffuse(s);
+    let ambient = indirect_diffuse(s, view_layer);
     let cluster_id = pcls::cluster_id_from_frag(
         frag_xy,
         world_pos,

@@ -14,12 +14,16 @@ pub struct GpuReflectionProbeMetadata {
     pub box_max: [f32; 4],
     /// World-space probe position, padded to a vec4.
     pub position: [f32; 4],
-    /// `.x` intensity, `.y` max LOD, `.z` flags, `.w` reserved.
+    /// `.x` intensity, `.y` max LOD, `.z` flags, `.w` SH2 valid flag.
     pub params: [f32; 4],
+    /// Probe SH2 coefficients in [`crate::shared::RenderSH2`] order, padded to vec4 rows.
+    pub sh2: [[f32; 4]; 9],
 }
 
 /// Probe metadata flag for box-projected reflection sampling.
 pub const REFLECTION_PROBE_METADATA_BOX_PROJECTION: u32 = 1;
+/// Probe metadata parameter value marking resident SH2 coefficients.
+pub const REFLECTION_PROBE_METADATA_SH2_VALID: f32 = 1.0;
 
 /// Texture format used by prefiltered reflection-probe IBL cubemaps.
 pub const REFLECTION_PROBE_ATLAS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
@@ -107,4 +111,14 @@ pub(super) fn create_reflection_probe_specular_fallback(
         .copy_from_slice(bytemuck::cast_slice(&metadata));
     metadata_buffer.unmap();
     (texture, view, sampler, metadata_buffer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GpuReflectionProbeMetadata;
+
+    #[test]
+    fn reflection_probe_metadata_stride_includes_sh2_rows() {
+        assert_eq!(size_of::<GpuReflectionProbeMetadata>(), 208);
+    }
 }

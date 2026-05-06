@@ -7,7 +7,6 @@
 #import renderide::pbs::cluster as pcls
 #import renderide::pbs::surface as surface
 #import renderide::reflection_probes as rprobe
-#import renderide::sh2_ambient as shamb
 
 struct ClusterLightingOptions {
     include_directional: bool,
@@ -156,7 +155,7 @@ fn shade_metallic_clustered(
         specular_color,
         indirect_specular_enabled,
     );
-    let ambient_probe = select(vec3<f32>(0.0), shamb::ambient_probe(s.normal), options.include_directional);
+    let ambient_probe = rprobe::indirect_diffuse(s.normal, view_layer, options.include_directional);
     let ambient = brdf::indirect_diffuse_metallic(
         ambient_probe,
         s.base_color,
@@ -197,7 +196,7 @@ fn shade_specular_clustered(
         s.specular_color,
         indirect_specular_enabled,
     );
-    let ambient_probe = select(vec3<f32>(0.0), shamb::ambient_probe(s.normal), options.include_directional);
+    let ambient_probe = rprobe::indirect_diffuse(s.normal, view_layer, options.include_directional);
     let ambient = brdf::indirect_diffuse_specular(
         ambient_probe,
         s.base_color,

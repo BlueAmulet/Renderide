@@ -170,6 +170,7 @@ impl CubemapUploadTask {
             }
             t.storage_v_inverted = storage_v_inverted;
             t.mip_levels_resident = t.mip_levels_total;
+            t.mark_content_uploaded();
         }
         send_background_result(
             ipc,

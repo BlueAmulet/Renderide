@@ -58,6 +58,8 @@ pub(crate) struct CubemapIblSource {
     pub face_size: u32,
     /// Resident mip count of the source cubemap.
     pub mip_levels_resident: u32,
+    /// Source cubemap content generation; invalidates bakes when texels are re-uploaded.
+    pub content_generation: u64,
     /// Whether sampling needs V-axis storage compensation.
     pub storage_v_inverted: bool,
     /// Cube-dimension texture view used as the bake input.
@@ -68,8 +70,14 @@ pub(crate) struct CubemapIblSource {
 pub(crate) struct EquirectIblSource {
     /// Source Texture2D asset id.
     pub asset_id: i32,
+    /// Mip0 width in texels.
+    pub width: u32,
+    /// Mip0 height in texels.
+    pub height: u32,
     /// Resident mip count of the source texture.
     pub mip_levels_resident: u32,
+    /// Source texture content generation; invalidates bakes when texels are re-uploaded.
+    pub content_generation: u64,
     /// Whether sampling needs V-axis storage compensation.
     pub storage_v_inverted: bool,
     /// 2D texture view used as the bake input.
@@ -220,6 +228,7 @@ fn resolve_projection360_cubemap_source(
         asset_id,
         face_size: cubemap.size,
         mip_levels_resident: cubemap.mip_levels_resident,
+        content_generation: cubemap.content_generation,
         storage_v_inverted: cubemap.storage_v_inverted,
         view: cubemap.view.clone(),
     }))
@@ -243,7 +252,10 @@ fn resolve_projection360_equirect_source(
     }
     Some(SkyboxIblSource::Equirect(EquirectIblSource {
         asset_id,
+        width: texture.width,
+        height: texture.height,
         mip_levels_resident: texture.mip_levels_resident,
+        content_generation: texture.content_generation,
         storage_v_inverted: texture.storage_v_inverted,
         view: texture.view.clone(),
         equirect_fov: float4_property(store, registry, lookup, "_FOV", PROJECTION360_DEFAULT_FOV),
