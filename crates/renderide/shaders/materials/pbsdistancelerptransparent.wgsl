@@ -164,9 +164,9 @@ fn vs_main(
     out.uv0 = uv0;
     out.point_emission = acc.emission;
 #ifdef MULTIVIEW
-    out.view_layer = view_idx;
+    out.view_layer = mv::packed_view_layer(instance_index, view_idx);
 #else
-    out.view_layer = 0u;
+    out.view_layer = mv::packed_view_layer(instance_index, 0u);
 #endif
     return out;
 }

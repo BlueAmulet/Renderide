@@ -6,6 +6,7 @@ use crate::gpu_pools::MeshPool;
 use crate::materials::ShaderPermutation;
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyStore};
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter};
+use crate::reflection_probes::specular::ReflectionProbeFrameSelection;
 use crate::scene::{SceneApplyReport, SceneCacheFlushReport, SceneCoordinator};
 use crate::shared::RenderingContext;
 use crate::world_mesh::{
@@ -41,6 +42,8 @@ pub(crate) struct ExtractedFrameShared<'a> {
     pub(crate) prepared_renderables: &'a FramePreparedRenderables,
     /// Shared occlusion state used for Hi-Z snapshots and temporal cull data.
     pub(crate) occlusion: &'a OcclusionSystem,
+    /// CPU-side specular reflection-probe selector for per-object probe assignment.
+    pub(crate) reflection_probes: &'a ReflectionProbeFrameSelection,
     /// Rayon parallelism tier for each view's inner walk.
     pub(crate) inner_parallelism: WorldMeshDrawCollectParallelism,
 }
@@ -139,6 +142,7 @@ impl RenderBackend {
             material_caches: &self.material_batch_caches,
             prepared_renderables,
             occlusion: &self.occlusion,
+            reflection_probes: self.reflection_probe_specular.selection(),
             inner_parallelism,
         }
     }

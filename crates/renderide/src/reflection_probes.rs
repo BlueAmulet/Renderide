@@ -8,10 +8,12 @@ use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
 use crate::scene::SceneCoordinator;
 use crate::shared::{ComputeResult, FrameSubmitData, ReflectionProbeSH2Tasks, RenderSH2};
+use crate::skybox::specular::SkyboxIblSource;
 
 mod projection_pipeline;
 mod readback_jobs;
 mod source_resolution;
+pub(crate) mod specular;
 mod task_rows;
 
 use crate::skybox::params::{SkyboxEvaluatorParams, SkyboxParamMode};
@@ -90,6 +92,8 @@ pub(crate) enum Sh2SourceKey {
         size: u32,
         /// Contiguous resident mip count.
         resident_mips: u32,
+        /// Source cubemap content generation.
+        content_generation: u64,
         /// Projection sample grid edge per cube face.
         sample_size: u32,
         /// Host material generation mixed into skybox sources.
@@ -107,6 +111,8 @@ pub(crate) enum Sh2SourceKey {
         height: u32,
         /// Contiguous resident mip count.
         resident_mips: u32,
+        /// Source texture content generation.
+        content_generation: u64,
         /// Projection sample grid edge per cube face.
         sample_size: u32,
         /// Host material generation.
@@ -229,6 +235,45 @@ impl ReflectionProbeSh2System {
         self.schedule_queued_sources(gpu, assets);
     }
 
+    /// Ensures an SH2 projection exists for a renderer-owned reflection-probe IBL source.
+    ///
+    /// Returns [`Some`] only after the source has a completed CPU or GPU projection. GPU-backed
+    /// sources are queued on cache misses and complete through [`Self::maintain_gpu_jobs`].
+    pub(crate) fn ensure_ibl_source(
+        &mut self,
+        render_space_id: i32,
+        source: &SkyboxIblSource,
+    ) -> Option<RenderSH2> {
+        let (key, source) = sh2_source_from_ibl_source(render_space_id, source);
+        self.ensure_resolved_source(key, source)
+    }
+
+    fn ensure_resolved_source(
+        &mut self,
+        key: Sh2SourceKey,
+        source: Sh2ResolvedSource,
+    ) -> Option<RenderSH2> {
+        self.touched_this_pass.insert(key.clone());
+        if let Some(sh) = self.completed.get(&key) {
+            return Some(*sh);
+        }
+        if self.readback_jobs.contains_key(&key) || self.failed.contains(&key) {
+            return None;
+        }
+        match source {
+            Sh2ResolvedSource::Cpu(sh) => {
+                let sh = *sh;
+                self.completed.insert(key, sh);
+                Some(sh)
+            }
+            Sh2ResolvedSource::Gpu(gpu_source) => {
+                self.queue_source(key, gpu_source);
+                None
+            }
+            Sh2ResolvedSource::Postpone => None,
+        }
+    }
+
     /// Answers all rows in one shared-memory task descriptor.
     fn answer_task_buffer(
         &mut self,
@@ -283,27 +328,11 @@ impl ReflectionProbeSh2System {
             return TaskAnswer::status(ComputeResult::Failed);
         };
 
-        self.touched_this_pass.insert(key.clone());
-        if let Some(sh) = self.completed.get(&key) {
-            return TaskAnswer::computed(*sh);
-        }
-        if self.readback_jobs.contains_key(&key) {
-            return TaskAnswer::status(ComputeResult::Postpone);
-        }
-        if self.failed.contains(&key) {
-            return TaskAnswer::status(ComputeResult::Failed);
-        }
-        match source {
-            Sh2ResolvedSource::Cpu(sh) => {
-                let sh = *sh;
-                self.completed.insert(key, sh);
-                TaskAnswer::computed(sh)
-            }
-            Sh2ResolvedSource::Gpu(gpu_source) => {
-                self.queue_source(key, gpu_source);
-                TaskAnswer::status(ComputeResult::Postpone)
-            }
-            Sh2ResolvedSource::Postpone => TaskAnswer::status(ComputeResult::Postpone),
+        let key_failed = self.failed.contains(&key);
+        match self.ensure_resolved_source(key, source) {
+            Some(sh) => TaskAnswer::computed(sh),
+            None if key_failed => TaskAnswer::status(ComputeResult::Failed),
+            None => TaskAnswer::status(ComputeResult::Postpone),
         }
     }
 
@@ -456,6 +485,78 @@ impl ReflectionProbeSh2System {
                 )
             }
         }
+    }
+}
+
+fn sh2_source_from_ibl_source(
+    render_space_id: i32,
+    source: &SkyboxIblSource,
+) -> (Sh2SourceKey, Sh2ResolvedSource) {
+    match source {
+        SkyboxIblSource::Analytic(src) => {
+            let mut params = src.params;
+            params.sample_size = DEFAULT_SAMPLE_SIZE;
+            (
+                Sh2SourceKey::SkyParams {
+                    render_space_id,
+                    material_asset_id: src.material_asset_id,
+                    material_generation: src.material_generation,
+                    sample_size: DEFAULT_SAMPLE_SIZE,
+                    route_hash: src.route_hash,
+                },
+                Sh2ResolvedSource::Gpu(GpuSh2Source::SkyParams {
+                    params: Box::new(params),
+                }),
+            )
+        }
+        SkyboxIblSource::Cubemap(src) => (
+            Sh2SourceKey::Cubemap {
+                render_space_id,
+                asset_id: src.asset_id,
+                size: src.face_size,
+                resident_mips: src.mip_levels_resident,
+                content_generation: src.content_generation,
+                sample_size: DEFAULT_SAMPLE_SIZE,
+                material_generation: 0,
+            },
+            Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
+                asset_id: src.asset_id,
+            }),
+        ),
+        SkyboxIblSource::Equirect(src) => {
+            let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
+            params.color0 = src.equirect_fov;
+            params.color1 = src.equirect_st;
+            params.scalars[0] = if src.storage_v_inverted { 1.0 } else { 0.0 };
+            (
+                Sh2SourceKey::EquirectTexture2D {
+                    render_space_id,
+                    asset_id: src.asset_id,
+                    width: src.width,
+                    height: src.height,
+                    resident_mips: src.mip_levels_resident,
+                    content_generation: src.content_generation,
+                    sample_size: DEFAULT_SAMPLE_SIZE,
+                    material_generation: 0,
+                    projection: Projection360EquirectKey::from_params(&params),
+                },
+                Sh2ResolvedSource::Gpu(GpuSh2Source::EquirectTexture2D {
+                    asset_id: src.asset_id,
+                    params: Box::new(params),
+                }),
+            )
+        }
+        SkyboxIblSource::SolidColor(src) => (
+            Sh2SourceKey::ConstantColor {
+                render_space_id,
+                color_bits: f32x4_bits(src.color),
+            },
+            Sh2ResolvedSource::Cpu(Box::new(constant_color_sh2(Vec3::new(
+                src.color[0],
+                src.color[1],
+                src.color[2],
+            )))),
+        ),
     }
 }
 

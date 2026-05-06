@@ -9,8 +9,8 @@
 
 mod empty_material;
 mod ibl_dfg;
+mod reflection_probe_specular;
 mod scene_snapshot;
-mod skybox_specular;
 
 use std::num::NonZeroU64;
 use std::sync::Arc;
@@ -19,23 +19,25 @@ use crate::backend::cluster_gpu::{CLUSTER_COUNT_Z, ClusterBufferCache, ClusterBu
 use crate::backend::light_gpu::{GpuLight, MAX_LIGHTS};
 use crate::gpu::GpuLimits;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
-use crate::materials::embedded::texture_resolve::{TextureBindKind, create_sampler};
 
 use super::frame_gpu_error::FrameGpuInitError;
 pub use empty_material::{EmptyMaterialBindGroup, empty_material_bind_group_layout};
 use ibl_dfg::create_ibl_dfg_lut;
+pub use reflection_probe_specular::{
+    GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT,
+    REFLECTION_PROBE_METADATA_BOX_PROJECTION, REFLECTION_PROBE_METADATA_SH2_VALID,
+    ReflectionProbeSpecularResources,
+};
+use reflection_probe_specular::{
+    ReflectionProbeSpecularBindGroupResources, create_reflection_probe_specular_fallback,
+};
 pub use scene_snapshot::FrameSceneSnapshotTextureViews;
 use scene_snapshot::{
     DEFAULT_SCENE_COLOR_FORMAT, SceneSnapshotKind, SceneSnapshotLayout, SceneSnapshotSet,
 };
-use skybox_specular::{
-    SkyboxSpecularBindGroupResources, SkyboxSpecularEnvironmentKey,
-    create_black_skybox_specular_fallback,
-};
-pub use skybox_specular::{SkyboxSpecularCubemapSource, SkyboxSpecularEnvironmentSource};
 
 /// GPU buffers and bind groups for `@group(0)` frame globals (camera, lights, cluster lists,
-/// fallback sampled scene snapshots, and skybox indirect specular).
+/// fallback sampled scene snapshots, and reflection-probe specular IBL).
 ///
 /// `@group(0)` bind groups are per-view and are owned by
 /// [`crate::backend::frame_resource_manager::PerViewFrameState`], keyed by
@@ -58,22 +60,16 @@ pub struct FrameGpuResources {
     /// Actual render views use per-view snapshots owned by
     /// [`crate::backend::frame_resource_manager::PerViewFrameState`].
     scene_snapshots: SceneSnapshotSet,
-    /// Zero cubemap kept alive for frames without a resident skybox specular cube.
-    _skybox_specular_fallback_texture: Arc<wgpu::Texture>,
-    /// Zero cubemap view used by `@group(0) @binding(9)` when indirect specular is disabled.
-    skybox_specular_fallback_view: Arc<wgpu::TextureView>,
-    /// Fallback sampler used by `@group(0) @binding(10)` when indirect specular is disabled.
-    skybox_specular_fallback_sampler: Arc<wgpu::Sampler>,
-    /// Current cubemap view bound as the frame-global indirect specular environment.
-    skybox_specular_view: Arc<wgpu::TextureView>,
-    /// Current sampler paired with [`Self::skybox_specular_view`].
-    skybox_specular_sampler: Arc<wgpu::Sampler>,
-    /// Uniform parameters describing the currently bound skybox specular source.
-    skybox_specular_params: SkyboxSpecularUniformParams,
-    /// Stable key for the current skybox specular binding.
-    skybox_specular_key: SkyboxSpecularEnvironmentKey,
-    /// Monotonic version incremented whenever the skybox specular binding changes.
-    skybox_specular_version: u64,
+    /// Black cube-array kept alive for frames without resident reflection probes.
+    _reflection_probe_fallback_texture: Arc<wgpu::Texture>,
+    /// Current cube-array view bound for reflection-probe specular IBL.
+    reflection_probe_cube_array_view: Arc<wgpu::TextureView>,
+    /// Current sampler paired with [`Self::reflection_probe_cube_array_view`].
+    reflection_probe_sampler: Arc<wgpu::Sampler>,
+    /// Current metadata buffer for reflection-probe specular IBL.
+    reflection_probe_metadata_buffer: Arc<wgpu::Buffer>,
+    /// Monotonic version incremented whenever reflection-probe bind resources change.
+    reflection_probe_version: u64,
     /// Texture backing the static DFG LUT used by split-sum IBL.
     _ibl_dfg_lut_texture: Arc<wgpu::Texture>,
     /// Frame-global DFG LUT view bound at `@group(0) @binding(11)`.
@@ -297,7 +293,7 @@ fn append_ibl_layout_entries(entries: &mut Vec<wgpu::BindGroupLayoutEntry>) {
             visibility: wgpu::ShaderStages::FRAGMENT,
             ty: wgpu::BindingType::Texture {
                 sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::Cube,
+                view_dimension: wgpu::TextureViewDimension::CubeArray,
                 multisampled: false,
             },
             count: None,
@@ -318,14 +314,24 @@ fn append_ibl_layout_entries(entries: &mut Vec<wgpu::BindGroupLayoutEntry>) {
             },
             count: None,
         },
+        wgpu::BindGroupLayoutEntry {
+            binding: 12,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: NonZeroU64::new(size_of::<GpuReflectionProbeMetadata>() as u64),
+            },
+            count: None,
+        },
     ]);
 }
 
 impl FrameGpuResources {
     /// Layout for `@group(0)`: uniform frame + lights + cluster counts + cluster indices +
-    /// scene snapshots + skybox specular cubemap.
+    /// scene snapshots + reflection-probe specular resources.
     pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-        let mut entries = Vec::with_capacity(12);
+        let mut entries = Vec::with_capacity(13);
         append_frame_buffer_layout_entries(&mut entries);
         append_scene_snapshot_layout_entries(&mut entries);
         append_ibl_layout_entries(&mut entries);
@@ -341,7 +347,7 @@ impl FrameGpuResources {
         lights_buffer: &wgpu::Buffer,
         refs: ClusterBufferRefs<'_>,
         snapshots: FrameSceneSnapshotTextureViews<'_>,
-        skybox_specular: SkyboxSpecularBindGroupResources<'_>,
+        reflection_probes: ReflectionProbeSpecularBindGroupResources<'_>,
         ibl_dfg_lut_view: &wgpu::TextureView,
     ) -> Arc<wgpu::BindGroup> {
         let layout = Self::bind_group_layout(device);
@@ -387,25 +393,32 @@ impl FrameGpuResources {
                 },
                 wgpu::BindGroupEntry {
                     binding: 9,
-                    resource: wgpu::BindingResource::TextureView(skybox_specular.cubemap_view),
+                    resource: wgpu::BindingResource::TextureView(reflection_probes.cube_array_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 10,
-                    resource: wgpu::BindingResource::Sampler(skybox_specular.cubemap_sampler),
+                    resource: wgpu::BindingResource::Sampler(reflection_probes.sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 11,
                     resource: wgpu::BindingResource::TextureView(ibl_dfg_lut_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 12,
+                    resource: reflection_probes.metadata_buffer.as_entire_binding(),
+                },
             ],
         }))
     }
 
-    /// Returns the currently selected skybox specular bind-group resources.
-    fn skybox_specular_bind_group_resources(&self) -> SkyboxSpecularBindGroupResources<'_> {
-        SkyboxSpecularBindGroupResources {
-            cubemap_view: self.skybox_specular_view.as_ref(),
-            cubemap_sampler: self.skybox_specular_sampler.as_ref(),
+    /// Returns the currently selected reflection-probe bind-group resources.
+    fn reflection_probe_bind_group_resources(
+        &self,
+    ) -> ReflectionProbeSpecularBindGroupResources<'_> {
+        ReflectionProbeSpecularBindGroupResources {
+            cube_array_view: self.reflection_probe_cube_array_view.as_ref(),
+            sampler: self.reflection_probe_sampler.as_ref(),
+            metadata_buffer: self.reflection_probe_metadata_buffer.as_ref(),
         }
     }
 
@@ -420,7 +433,7 @@ impl FrameGpuResources {
             &self.lights_buffer,
             refs,
             self.scene_snapshots.views(),
-            self.skybox_specular_bind_group_resources(),
+            self.reflection_probe_bind_group_resources(),
             self.ibl_dfg_lut_view.as_ref(),
         );
     }
@@ -464,12 +477,11 @@ impl FrameGpuResources {
         let scene_snapshots =
             SceneSnapshotSet::new(device, scene_depth_format, DEFAULT_SCENE_COLOR_FORMAT);
         let (
-            skybox_specular_fallback_texture,
-            skybox_specular_fallback_view,
-            skybox_specular_fallback_sampler,
-        ) = create_black_skybox_specular_fallback(device, queue);
-        let skybox_specular_view = skybox_specular_fallback_view.clone();
-        let skybox_specular_sampler = skybox_specular_fallback_sampler.clone();
+            reflection_probe_fallback_texture,
+            reflection_probe_cube_array_view,
+            reflection_probe_sampler,
+            reflection_probe_metadata_buffer,
+        ) = create_reflection_probe_specular_fallback(device);
         let (ibl_dfg_lut_texture, ibl_dfg_lut_view) = create_ibl_dfg_lut(device, queue);
         let bind_group = Self::create_bind_group(
             device,
@@ -477,9 +489,10 @@ impl FrameGpuResources {
             &lights_buffer,
             refs,
             scene_snapshots.views(),
-            SkyboxSpecularBindGroupResources {
-                cubemap_view: skybox_specular_view.as_ref(),
-                cubemap_sampler: skybox_specular_sampler.as_ref(),
+            ReflectionProbeSpecularBindGroupResources {
+                cube_array_view: reflection_probe_cube_array_view.as_ref(),
+                sampler: reflection_probe_sampler.as_ref(),
+                metadata_buffer: reflection_probe_metadata_buffer.as_ref(),
             },
             ibl_dfg_lut_view.as_ref(),
         );
@@ -488,14 +501,11 @@ impl FrameGpuResources {
             lights_buffer,
             cluster_cache,
             scene_snapshots,
-            _skybox_specular_fallback_texture: skybox_specular_fallback_texture,
-            skybox_specular_fallback_view,
-            skybox_specular_fallback_sampler,
-            skybox_specular_view,
-            skybox_specular_sampler,
-            skybox_specular_params: SkyboxSpecularUniformParams::disabled(),
-            skybox_specular_key: SkyboxSpecularEnvironmentKey::default(),
-            skybox_specular_version: 0,
+            _reflection_probe_fallback_texture: reflection_probe_fallback_texture,
+            reflection_probe_cube_array_view,
+            reflection_probe_sampler,
+            reflection_probe_metadata_buffer,
+            reflection_probe_version: 0,
             _ibl_dfg_lut_texture: ibl_dfg_lut_texture,
             ibl_dfg_lut_view,
             bind_group,
@@ -559,62 +569,37 @@ impl FrameGpuResources {
             &self.lights_buffer,
             cluster_refs,
             snapshots,
-            self.skybox_specular_bind_group_resources(),
+            self.reflection_probe_bind_group_resources(),
             self.ibl_dfg_lut_view.as_ref(),
         )
     }
 
-    /// Current skybox specular environment version for per-view bind-group invalidation.
+    /// Current reflection-probe resource version for per-view bind-group invalidation.
     pub fn skybox_specular_version(&self) -> u64 {
-        self.skybox_specular_version
+        self.reflection_probe_version
     }
 
-    /// Uniform parameters for the currently bound skybox specular environment.
+    /// Uniform parameters for the removed direct skybox specular path.
     pub fn skybox_specular_uniform_params(&self) -> SkyboxSpecularUniformParams {
-        self.skybox_specular_params
+        SkyboxSpecularUniformParams::disabled()
     }
 
-    /// Synchronizes the frame-global skybox specular source and rebuilds bind groups when needed.
-    pub fn sync_skybox_specular_environment(
+    /// Synchronizes frame-global reflection-probe resources and rebuilds bind groups when needed.
+    pub fn sync_reflection_probe_specular_resources(
         &mut self,
         device: &wgpu::Device,
-        source: Option<SkyboxSpecularEnvironmentSource>,
+        resources: Option<ReflectionProbeSpecularResources>,
     ) -> bool {
-        let Some(source) = source else {
-            if self.skybox_specular_key == SkyboxSpecularEnvironmentKey::default() {
-                return false;
-            }
-            self.skybox_specular_view = self.skybox_specular_fallback_view.clone();
-            self.skybox_specular_sampler = self.skybox_specular_fallback_sampler.clone();
-            self.skybox_specular_params = SkyboxSpecularUniformParams::disabled();
-            self.skybox_specular_key = SkyboxSpecularEnvironmentKey::default();
-            self.skybox_specular_version = self.skybox_specular_version.wrapping_add(1);
-            self.rebuild_bind_group(device);
-            return true;
+        let Some(resources) = resources else {
+            return false;
         };
-
-        let new_key = SkyboxSpecularEnvironmentKey::from_source(&source);
-        let new_params = source.uniform_params();
-        if new_key == self.skybox_specular_key {
-            self.skybox_specular_params = new_params;
+        if resources.version == self.reflection_probe_version {
             return false;
         }
-
-        match source {
-            SkyboxSpecularEnvironmentSource::Cubemap(source) => {
-                let sampler = Arc::new(create_sampler(
-                    device,
-                    &source.sampler,
-                    TextureBindKind::Cube,
-                    source.mip_levels_resident,
-                ));
-                self.skybox_specular_view = source.view;
-                self.skybox_specular_sampler = sampler;
-            }
-        }
-        self.skybox_specular_params = new_params;
-        self.skybox_specular_key = new_key;
-        self.skybox_specular_version = self.skybox_specular_version.wrapping_add(1);
+        self.reflection_probe_cube_array_view = resources.cube_array_view;
+        self.reflection_probe_sampler = resources.sampler;
+        self.reflection_probe_metadata_buffer = resources.metadata_buffer;
+        self.reflection_probe_version = resources.version;
         self.rebuild_bind_group(device);
         true
     }

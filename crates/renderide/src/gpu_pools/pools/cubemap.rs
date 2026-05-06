@@ -37,6 +37,8 @@ pub struct GpuCubemap {
     pub mip_levels_total: u32,
     /// Mips with authored texels uploaded so far.
     pub mip_levels_resident: u32,
+    /// Monotonic generation bumped whenever this cubemap's GPU texel contents are uploaded.
+    pub content_generation: u64,
     /// Whether native compressed face bytes were left in host V orientation and need sampling compensation.
     pub storage_v_inverted: bool,
     /// Estimated VRAM for allocated mips.
@@ -118,11 +120,17 @@ impl GpuCubemap {
             size: s,
             mip_levels_total: mips,
             mip_levels_resident: 0,
+            content_generation: 0,
             storage_v_inverted: false,
             resident_bytes,
             sampler,
             residency,
         })
+    }
+
+    /// Marks that at least one face/mip upload changed this cubemap's GPU contents.
+    pub fn mark_content_uploaded(&mut self) {
+        self.content_generation = self.content_generation.wrapping_add(1).max(1);
     }
 
     /// Updates sampler fields and residency hints from host properties.

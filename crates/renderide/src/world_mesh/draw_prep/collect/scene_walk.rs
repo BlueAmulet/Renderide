@@ -4,7 +4,10 @@ use hashbrown::HashMap;
 
 use crate::scene::{MeshMaterialSlot, RenderSpaceId, SkinnedMeshRenderer, StaticMeshRenderer};
 
-use crate::world_mesh::culling::{CpuCullFailure, MeshCullTarget, mesh_draw_passes_cpu_cull};
+use crate::world_mesh::culling::{
+    CpuCullFailure, MeshCullTarget, mesh_draw_passes_cpu_cull,
+    mesh_world_geometry_for_cull_with_head,
+};
 use crate::world_mesh::materials::FrameMaterialBatchCache;
 
 use super::candidate::{DrawCandidate, evaluate_draw_candidate};
@@ -264,6 +267,53 @@ fn compute_cached_cull(
     }
 }
 
+fn cull_result_for_slot(
+    ctx: &DrawCollectionContext<'_>,
+    draw: &StaticMeshDrawSource<'_>,
+    is_overlay: bool,
+    cached_cull: Option<&CachedCull>,
+) -> Option<Result<Option<glam::Mat4>, CpuCullFailure>> {
+    match cached_cull {
+        Some(CachedCull::Accepted(m)) => Some(Ok(*m)),
+        Some(CachedCull::RejectedFrustum) => Some(Err(CpuCullFailure::Frustum)),
+        Some(CachedCull::RejectedHiZ) => Some(Err(CpuCullFailure::HiZ)),
+        // Single-slot renderer bypassed the hoist: cull inline so per-slot work matches the
+        // cached path without paying the CachedCull wrapper cost.
+        None if !draw.skinned => ctx.culling.map(|culling| {
+            mesh_draw_passes_cpu_cull(
+                &MeshCullTarget {
+                    scene: ctx.scene,
+                    space_id: draw.space_id,
+                    mesh: draw.mesh,
+                    skinned: draw.skinned,
+                    skinned_renderer: draw.skinned_renderer,
+                    node_id: draw.renderer.node_id,
+                },
+                is_overlay,
+                culling,
+                ctx.render_context,
+            )
+        }),
+        None => None,
+    }
+}
+
+fn world_aabb_for_reflection_probe_selection(
+    ctx: &DrawCollectionContext<'_>,
+    draw: &StaticMeshDrawSource<'_>,
+) -> Option<(glam::Vec3, glam::Vec3)> {
+    ctx.reflection_probes?;
+    let target = MeshCullTarget {
+        scene: ctx.scene,
+        space_id: draw.space_id,
+        mesh: draw.mesh,
+        skinned: draw.skinned,
+        skinned_renderer: draw.skinned_renderer,
+        node_id: draw.renderer.node_id,
+    };
+    mesh_world_geometry_for_cull_with_head(&target, ctx.head_output_transform, ctx.render_context)
+        .world_aabb
+}
 /// One material slot mapped to a submesh range: optional CPU cull, batch key, and [`WorldMeshDrawItem`] push.
 fn push_one_slot_draw(
     ctx: &DrawCollectionContext<'_>,
@@ -298,29 +348,7 @@ fn push_one_slot_draw(
     if index_count == 0 || material_asset_id < 0 {
         return;
     }
-    let cull_result: Option<Result<Option<glam::Mat4>, CpuCullFailure>> = match cached_cull {
-        Some(CachedCull::Accepted(m)) => Some(Ok(*m)),
-        Some(CachedCull::RejectedFrustum) => Some(Err(CpuCullFailure::Frustum)),
-        Some(CachedCull::RejectedHiZ) => Some(Err(CpuCullFailure::HiZ)),
-        // Single-slot renderer bypassed the hoist: cull inline so per-slot work matches the
-        // cached path without paying the CachedCull wrapper cost.
-        None if !draw.skinned => ctx.culling.map(|culling| {
-            mesh_draw_passes_cpu_cull(
-                &MeshCullTarget {
-                    scene: ctx.scene,
-                    space_id: draw.space_id,
-                    mesh: draw.mesh,
-                    skinned: draw.skinned,
-                    skinned_renderer: draw.skinned_renderer,
-                    node_id: draw.renderer.node_id,
-                },
-                is_overlay,
-                culling,
-                ctx.render_context,
-            )
-        }),
-        None => None,
-    };
+    let cull_result = cull_result_for_slot(ctx, draw, is_overlay, cached_cull);
     let mut rigid_world_matrix = None;
     if let Some(outcome) = cull_result {
         acc.cull_stats.0 += 1;
@@ -346,6 +374,7 @@ fn push_one_slot_draw(
     let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
         (m.col(3).truncate() - ctx.view_origin_world).length_squared()
     });
+    let world_aabb = world_aabb_for_reflection_probe_selection(ctx, draw);
     let candidate = DrawCandidate {
         space_id: draw.space_id,
         node_id: draw.renderer.node_id,
@@ -362,6 +391,7 @@ fn push_one_slot_draw(
         blendshape_deformed,
         material_asset_id,
         property_block_id: slot.property_block_id,
+        world_aabb,
     };
     if let Some(item) = evaluate_draw_candidate(
         ctx,

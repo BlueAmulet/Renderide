@@ -11,6 +11,7 @@
 
 #import renderide::xiexe::toon2::base as xb
 #import renderide::globals as rg
+#import renderide::mesh::vertex as mv
 #import renderide::per_draw as pd
 #import renderide::pbs::normal as pnorm
 #import renderide::normal_decode as nd
@@ -51,7 +52,7 @@ fn vertex_main(
     out.uv_secondary = uv_secondary;
     out.color = color;
     out.obj_pos = xb::safe_normalize(pos.xyz, vec3<f32>(0.0, 0.0, 1.0));
-    out.view_layer = view_idx;
+    out.view_layer = mv::packed_view_layer(instance_index, view_idx);
     return out;
 }
 

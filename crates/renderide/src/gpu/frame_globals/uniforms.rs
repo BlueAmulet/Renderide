@@ -16,7 +16,7 @@ pub(super) const SH_C0: f32 = 0.282_094_8;
 /// Encodes per-eye camera positions, per-eye coefficients for view-space Z from world position,
 /// clustered grid dimensions, clip planes, light count, viewport size, per-eye projection
 /// coefficients for screen-space-to-view unprojection, a monotonic frame index for temporal /
-/// jittered effects, skybox specular environment sampling parameters, and ambient SH2.
+/// jittered effects, a reserved direct skybox specular slot, and ambient SH2.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct FrameGpuUniforms {
@@ -60,7 +60,7 @@ pub struct FrameGpuUniforms {
     /// reserved padding so the struct aligns to a 16-byte boundary without tripping naga-oil's
     /// composable-identifier substitution rules (numeric-suffix names are rejected).
     pub frame_tail: [u32; 4],
-    /// Skybox specular parameters: `.x` max resident LOD, `.y` enabled flag,
+    /// Reserved direct skybox specular parameters: `.x` max resident LOD, `.y` enabled flag,
     /// `.z` [`super::skybox_specular::SkyboxSpecularSourceKind`] tag, `.w` reserved.
     pub skybox_specular: [f32; 4],
     /// Ambient SH2 coefficients (`RenderSH2` order), padded to WGSL `vec4<f32>` slots.

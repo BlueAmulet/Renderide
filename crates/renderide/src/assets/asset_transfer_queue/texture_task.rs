@@ -139,9 +139,9 @@ impl TextureUploadTask {
         queue: &mut AssetTransferQueue,
         uploaded_mips: u32,
         storage_v_inverted: bool,
-    ) {
+    ) -> bool {
         if uploaded_mips == 0 {
-            return;
+            return false;
         }
         if let Some(t) = queue.pools.texture_pool.get_mut(self.data.asset_id) {
             if !storage_orientation_allows_mark(
@@ -152,7 +152,7 @@ impl TextureUploadTask {
                 storage_v_inverted,
                 "after write",
             ) {
-                return;
+                return false;
             }
             t.storage_v_inverted = storage_v_inverted;
             let start = self.data.start_mip_level.max(0) as u32;
@@ -166,7 +166,9 @@ impl TextureUploadTask {
                     t.mip_levels_resident.saturating_sub(1)
                 );
             }
+            return true;
         }
+        false
     }
 
     fn finalize_success(
@@ -177,7 +179,11 @@ impl TextureUploadTask {
         storage_v_inverted: bool,
     ) {
         let id = self.data.asset_id;
-        self.mark_uploaded_mips(queue, uploaded_mips, storage_v_inverted);
+        if self.mark_uploaded_mips(queue, uploaded_mips, storage_v_inverted)
+            && let Some(t) = queue.pools.texture_pool.get_mut(id)
+        {
+            t.mark_content_uploaded();
+        }
         send_background_result(
             ipc,
             RendererCommand::SetTexture2DResult(SetTexture2DResult {

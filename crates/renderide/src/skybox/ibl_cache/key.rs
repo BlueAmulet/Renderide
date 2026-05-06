@@ -32,6 +32,8 @@ pub(crate) enum SkyboxIblKey {
         asset_id: i32,
         /// Source resident mip count; growth re-bakes once more mips arrive.
         mip_levels_resident: u32,
+        /// Source content generation; re-uploading the same mips re-bakes.
+        content_generation: u64,
         /// Storage V-flip flag for the source cube.
         storage_v_inverted: bool,
         /// Destination cube face edge.
@@ -43,12 +45,23 @@ pub(crate) enum SkyboxIblKey {
         asset_id: i32,
         /// Source resident mip count.
         mip_levels_resident: u32,
+        /// Source content generation; re-uploading the same mips re-bakes.
+        content_generation: u64,
         /// Storage V-flip flag for the source texture.
         storage_v_inverted: bool,
         /// Bit-stable hash of `_FOV` material parameters.
         fov_hash: u64,
         /// Bit-stable hash of `_MainTex_ST` material parameters.
         st_hash: u64,
+        /// Destination cube face edge.
+        face_size: u32,
+    },
+    /// Analytic constant-color identity.
+    SolidColor {
+        /// Renderer-side identity for this color source.
+        identity: u64,
+        /// Linear RGBA color bit hash.
+        color_hash: u64,
         /// Destination cube face edge.
         face_size: u32,
     },
@@ -60,11 +73,13 @@ impl SkyboxIblKey {
         match *self {
             Self::Analytic { face_size, .. }
             | Self::Cubemap { face_size, .. }
-            | Self::Equirect { face_size, .. } => face_size,
+            | Self::Equirect { face_size, .. }
+            | Self::SolidColor { face_size, .. } => face_size,
         }
     }
 
     /// Returns a stable renderer-side identity hash for the frame-global binding key.
+    #[cfg(test)]
     pub(super) fn source_hash(&self) -> u64 {
         let mut hasher = DefaultHasher::new();
         self.hash(&mut hasher);
@@ -73,7 +88,7 @@ impl SkyboxIblKey {
 }
 
 /// Builds a cache key for an active source using an already-clamped destination face size.
-pub(super) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKey {
+pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKey {
     match source {
         SkyboxIblSource::Analytic(src) => SkyboxIblKey::Analytic {
             material_asset_id: src.material_asset_id,
@@ -84,15 +99,22 @@ pub(super) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKe
         SkyboxIblSource::Cubemap(src) => SkyboxIblKey::Cubemap {
             asset_id: src.asset_id,
             mip_levels_resident: src.mip_levels_resident,
+            content_generation: src.content_generation,
             storage_v_inverted: src.storage_v_inverted,
             face_size,
         },
         SkyboxIblSource::Equirect(src) => SkyboxIblKey::Equirect {
             asset_id: src.asset_id,
             mip_levels_resident: src.mip_levels_resident,
+            content_generation: src.content_generation,
             storage_v_inverted: src.storage_v_inverted,
             fov_hash: hash_float4(&src.equirect_fov),
             st_hash: hash_float4(&src.equirect_st),
+            face_size,
+        },
+        SkyboxIblSource::SolidColor(src) => SkyboxIblKey::SolidColor {
+            identity: src.identity,
+            color_hash: hash_float4(&src.color),
             face_size,
         },
     }
@@ -118,7 +140,7 @@ pub(super) fn dispatch_groups(size: u32) -> u32 {
 }
 
 /// Returns a mip edge clamped to one texel.
-pub(super) fn mip_extent(base: u32, mip: u32) -> u32 {
+pub(crate) fn mip_extent(base: u32, mip: u32) -> u32 {
     (base >> mip).max(1)
 }
 

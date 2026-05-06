@@ -64,7 +64,7 @@ pub struct FrameGpuUniformBuildParams {
     pub right_proj_params: [f32; 4],
     /// Monotonic host frame index used by temporal effects.
     pub frame_index: u32,
-    /// Packed skybox indirect-specular state for shader sampling.
+    /// Reserved direct skybox specular state; specular IBL comes from reflection probes.
     pub skybox_specular: SkyboxSpecularUniformParams,
     /// Skybox-derived SH2 irradiance coefficients for indirect diffuse.
     pub ambient_sh: [[f32; 4]; 9],

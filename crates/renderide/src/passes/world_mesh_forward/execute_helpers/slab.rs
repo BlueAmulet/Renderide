@@ -149,7 +149,14 @@ fn pack_per_draw_vp_uniforms(
                 matrices.model,
             )
         };
-        *slot = packed.with_position_stream_world_space(matrices.position_stream_world_space);
+        *slot = packed
+            .with_position_stream_world_space(matrices.position_stream_world_space)
+            .with_reflection_probe_selection(
+                item.reflection_probes.first_atlas_index,
+                item.reflection_probes.second_atlas_index,
+                item.reflection_probes.second_weight,
+                item.reflection_probes.hit_count,
+            );
     };
     if inputs.draws.len() >= PER_DRAW_VP_PARALLEL_MIN_DRAWS {
         uniforms

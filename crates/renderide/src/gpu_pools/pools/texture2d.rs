@@ -44,6 +44,8 @@ pub struct GpuTexture2d {
     pub mip_levels_total: u32,
     /// Contiguous mips with uploaded or synthesized texels available for sampling.
     pub mip_levels_resident: u32,
+    /// Monotonic generation bumped whenever this texture's GPU texel contents are uploaded.
+    pub content_generation: u64,
     /// Whether native compressed bytes were left in host V orientation and need sampling compensation.
     pub storage_v_inverted: bool,
     /// Uploaded mip-level bitset; [`Self::mip_levels_resident`] is the contiguous prefix from mip 0.
@@ -120,6 +122,7 @@ impl GpuTexture2d {
             height: h,
             mip_levels_total: mips,
             mip_levels_resident: 0,
+            content_generation: 0,
             storage_v_inverted: false,
             resident_mip_mask: 0,
             resident_bytes,
@@ -130,12 +133,20 @@ impl GpuTexture2d {
 
     /// Marks uploaded mip levels and updates the contiguous resident prefix used for sampler LOD clamps.
     pub fn mark_mips_resident(&mut self, start_mip: u32, uploaded_mips: u32) {
+        if uploaded_mips == 0 {
+            return;
+        }
         self.mip_levels_resident = mark_resident_mip_mask(
             &mut self.resident_mip_mask,
             self.mip_levels_total,
             start_mip,
             uploaded_mips,
         );
+    }
+
+    /// Marks that a completed upload changed this texture's GPU contents.
+    pub fn mark_content_uploaded(&mut self) {
+        self.content_generation = self.content_generation.wrapping_add(1).max(1);
     }
 
     /// Updates sampler fields and residency hints from host properties.

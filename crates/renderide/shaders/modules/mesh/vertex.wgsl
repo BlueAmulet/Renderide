@@ -101,8 +101,8 @@ fn world_tangent(draw: pd::PerDrawUniforms, t: vec4<f32>) -> vec4<f32> {
     return vec4<f32>(normalize(model_vector(draw, t.xyz)), t.w);
 }
 
-fn view_layer_from_index(view_idx: u32) -> u32 {
-    return view_idx;
+fn packed_view_layer(instance_index: u32, view_idx: u32) -> u32 {
+    return (instance_index << 1u) | (view_idx & 1u);
 }
 
 fn clip_vertex_main(instance_index: u32, view_idx: u32, pos: vec4<f32>) -> ClipVertexOutput {
@@ -162,7 +162,7 @@ fn world_vertex_main(
     out.world_n = world_normal(draw, n);
     out.world_t = world_tangent(draw, t);
     out.primary_uv = primary_uv;
-    out.view_layer = view_idx;
+    out.view_layer = packed_view_layer(instance_index, view_idx);
     return out;
 }
 
@@ -184,7 +184,7 @@ fn world_model_normal_vertex_main(
     out.world_n = model_world_normal(draw, n);
     out.world_t = world_tangent(draw, t);
     out.primary_uv = primary_uv;
-    out.view_layer = view_idx;
+    out.view_layer = packed_view_layer(instance_index, view_idx);
     return out;
 }
 
@@ -208,7 +208,7 @@ fn world_uv2_vertex_main(
     out.world_t = world_tangent(draw, t);
     out.primary_uv = primary_uv;
     out.secondary_uv = secondary_uv;
-    out.view_layer = view_idx;
+    out.view_layer = packed_view_layer(instance_index, view_idx);
     return out;
 }
 
@@ -236,7 +236,7 @@ fn world_uv4_vertex_main(
     out.uv_b = uv_b;
     out.uv_c = uv_c;
     out.uv_d = uv_d;
-    out.view_layer = view_idx;
+    out.view_layer = packed_view_layer(instance_index, view_idx);
     return out;
 }
 
@@ -259,7 +259,7 @@ fn world_object_vertex_main(
     out.world_n = world_normal(draw, n);
     out.world_t = world_tangent(draw, t);
     out.primary_uv = primary_uv;
-    out.view_layer = view_idx;
+    out.view_layer = packed_view_layer(instance_index, view_idx);
     return out;
 }
 
@@ -283,6 +283,6 @@ fn world_color_vertex_main(
     out.world_t = world_tangent(draw, t);
     out.primary_uv = primary_uv;
     out.color = color;
-    out.view_layer = view_idx;
+    out.view_layer = packed_view_layer(instance_index, view_idx);
     return out;
 }

@@ -29,7 +29,7 @@ use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
 
 use super::frame_gpu::{
     EmptyMaterialBindGroup, FrameGpuResources, PerViewSceneSnapshotSyncParams,
-    PerViewSceneSnapshots, SkyboxSpecularEnvironmentSource,
+    PerViewSceneSnapshots, ReflectionProbeSpecularResources,
 };
 use super::frame_gpu_bindings::{FrameGpuBindings, FrameGpuBindingsError};
 use super::light_gpu::{GpuLight, MAX_LIGHTS, order_lights_for_clustered_shading_in_place};
@@ -65,7 +65,7 @@ pub struct PerViewFrameState {
     scene_snapshots: PerViewSceneSnapshots,
     /// Shared [`ClusterBufferCache::version`] at which [`Self::frame_bind_group`] was last built.
     last_cluster_version: u64,
-    /// Skybox specular environment version at which [`Self::frame_bind_group`] was last built.
+    /// Reflection-probe resource version at which [`Self::frame_bind_group`] was last built.
     last_skybox_specular_version: u64,
     /// Stereo flag at which [`Self::cluster_params_buffer`] was last allocated.
     last_stereo: bool,
@@ -371,7 +371,7 @@ impl FrameResourceManager {
     ///
     /// Grows the shared cluster buffers (on [`FrameGpuResources`]) to cover this view's
     /// layout in `layout` when needed and rebuilds the `@group(0)` bind group whenever the
-    /// shared cluster buffers, skybox specular environment, or this view's snapshots change.
+    /// shared cluster buffers, reflection-probe resources, or this view's snapshots change.
     ///
     /// Returns `None` when the manager has not been attached (no GPU resources available) or
     /// when cluster buffers cannot be allocated for the given viewport.
@@ -464,7 +464,7 @@ impl FrameResourceManager {
         per_view_frame.get_mut(view_id)
     }
 
-    /// Uniform parameters for the frame-global skybox specular environment.
+    /// Uniform parameters for the disabled direct skybox specular slot.
     pub fn skybox_specular_uniform_params(&self) -> SkyboxSpecularUniformParams {
         self.frame_gpu.as_ref().map_or_else(
             SkyboxSpecularUniformParams::disabled,
@@ -472,15 +472,15 @@ impl FrameResourceManager {
         )
     }
 
-    /// Synchronizes the frame-global skybox specular environment binding.
-    pub fn sync_skybox_specular_environment(
+    /// Synchronizes the frame-global reflection-probe specular resources.
+    pub fn sync_reflection_probe_specular_resources(
         &mut self,
         device: &wgpu::Device,
-        source: Option<SkyboxSpecularEnvironmentSource>,
+        resources: Option<ReflectionProbeSpecularResources>,
     ) -> bool {
         self.frame_gpu
             .as_mut()
-            .is_some_and(|fgpu| fgpu.sync_skybox_specular_environment(device, source))
+            .is_some_and(|fgpu| fgpu.sync_reflection_probe_specular_resources(device, resources))
     }
 
     /// Refs to the shared cluster buffers (see [`ClusterBufferCache`]). All views share these.
