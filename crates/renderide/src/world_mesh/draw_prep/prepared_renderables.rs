@@ -32,8 +32,7 @@ use super::item::stacked_material_submesh_range;
 /// outcome, transparent sort distance) is computed while consuming this list, not here.
 ///
 /// [`Self::skinned`] implicitly selects which renderer list [`Self::renderable_index`] targets
-/// ([`crate::scene::RenderSpaceState::static_mesh_renderers`] when `false`,
-/// [`crate::scene::RenderSpaceState::skinned_mesh_renderers`] when `true`).
+/// (static renderers when `false`, skinned renderers when `true`).
 #[derive(Clone, Debug)]
 pub(super) struct FramePreparedDraw {
     /// Host render space that owns the source renderer.
@@ -175,7 +174,7 @@ impl FramePreparedRenderables {
             self.active_space_ids.extend(
                 scene
                     .render_space_ids()
-                    .filter(|id| scene.space(*id).is_some_and(|s| s.is_active)),
+                    .filter(|id| scene.space(*id).is_some_and(|s| s.is_active())),
             );
         }
 
@@ -386,9 +385,9 @@ pub(super) fn populate_runs_and_material_keys(
 /// triggers the doubling growth path.
 pub(super) fn estimated_draw_count(scene: &SceneCoordinator, space_id: RenderSpaceId) -> usize {
     scene.space(space_id).map_or(0, |s| {
-        s.static_mesh_renderers
+        s.static_mesh_renderers()
             .len()
-            .saturating_add(s.skinned_mesh_renderers.len())
+            .saturating_add(s.skinned_mesh_renderers().len())
             .saturating_mul(2)
     })
 }
@@ -404,13 +403,13 @@ pub(super) fn expand_space_into(
     let Some(space) = scene.space(space_id) else {
         return;
     };
-    if !space.is_active {
+    if !space.is_active() {
         return;
     }
 
-    let space_is_overlay = space.is_overlay;
+    let space_is_overlay = space.is_overlay();
 
-    for (renderable_index, r) in space.static_mesh_renderers.iter().enumerate() {
+    for (renderable_index, r) in space.static_mesh_renderers().iter().enumerate() {
         if r.mesh_asset_id < 0 || r.node_id < 0 {
             continue;
         }
@@ -455,7 +454,7 @@ pub(super) fn expand_space_into(
         );
     }
 
-    for (renderable_index, sk) in space.skinned_mesh_renderers.iter().enumerate() {
+    for (renderable_index, sk) in space.skinned_mesh_renderers().iter().enumerate() {
         let r = &sk.base;
         if r.mesh_asset_id < 0 || r.node_id < 0 {
             continue;

@@ -55,7 +55,7 @@ pub(crate) fn mesh_world_geometry_for_cull(
 /// directly so non-overlay frame-time precompute (which has no view yet) can pass `Mat4::IDENTITY`.
 ///
 /// Caller is responsible for ensuring overlay spaces use the live per-view transform; the result
-/// is only view-invariant when `target.scene.space(target.space_id).is_overlay == false`.
+/// is only view-invariant when `target.scene.space(target.space_id).is_overlay() == false`.
 pub(crate) fn mesh_world_geometry_for_cull_with_head(
     target: &MeshCullTarget<'_>,
     head_output_transform: Mat4,

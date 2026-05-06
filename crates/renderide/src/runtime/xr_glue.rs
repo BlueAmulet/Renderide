@@ -32,7 +32,7 @@ impl crate::xr::XrHostCameraSync for RendererRuntime {
     fn scene_root_scale_for_clip(&self) -> Option<Vec3> {
         self.scene
             .active_main_space()
-            .map(|space| space.root_transform.scale)
+            .map(|space| space.root_transform().scale)
     }
 
     fn world_from_tracking(&self, center_pose_tracking: Option<(Vec3, Quat)>) -> Mat4 {
@@ -40,9 +40,9 @@ impl crate::xr::XrHostCameraSync for RendererRuntime {
             .active_main_space()
             .map_or(Mat4::IDENTITY, |space| {
                 crate::xr::tracking_space_to_world_matrix(
-                    &space.root_transform,
-                    &space.view_transform,
-                    space.override_view_position,
+                    space.root_transform(),
+                    space.view_transform(),
+                    space.override_view_position(),
                     center_pose_tracking,
                 )
             })

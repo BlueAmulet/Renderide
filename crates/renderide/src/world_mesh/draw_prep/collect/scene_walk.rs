@@ -417,10 +417,10 @@ pub(super) fn build_chunk_specs(
         let Some(space) = ctx.scene.space(space_id) else {
             continue;
         };
-        if !space.is_active {
+        if !space.is_active() {
             continue;
         }
-        let n_static = space.static_mesh_renderers.len();
+        let n_static = space.static_mesh_renderers().len();
         let mut start = 0;
         while start < n_static {
             let end = n_static.min(start + WORLD_MESH_COLLECT_CHUNK_SIZE);
@@ -431,7 +431,7 @@ pub(super) fn build_chunk_specs(
             });
             start = end;
         }
-        let n_skinned = space.skinned_mesh_renderers.len();
+        let n_skinned = space.skinned_mesh_renderers().len();
         start = 0;
         while start < n_skinned {
             let end = n_skinned.min(start + WORLD_MESH_COLLECT_CHUNK_SIZE);
@@ -459,7 +459,7 @@ pub(super) fn collect_chunk(
     let Some(space) = ctx.scene.space(spec.space_id) else {
         return (out, cull_stats);
     };
-    if !space.is_active {
+    if !space.is_active() {
         return (out, cull_stats);
     }
 
@@ -473,7 +473,7 @@ pub(super) fn collect_chunk(
     match spec.kind {
         ChunkKind::Static => {
             for renderable_index in spec.range.clone() {
-                let r = &space.static_mesh_renderers[renderable_index];
+                let r = &space.static_mesh_renderers()[renderable_index];
                 if r.mesh_asset_id < 0 || r.node_id < 0 {
                     continue;
                 }
@@ -502,7 +502,7 @@ pub(super) fn collect_chunk(
         }
         ChunkKind::Skinned => {
             for renderable_index in spec.range.clone() {
-                let skinned = &space.skinned_mesh_renderers[renderable_index];
+                let skinned = &space.skinned_mesh_renderers()[renderable_index];
                 let r = &skinned.base;
                 if r.mesh_asset_id < 0 || r.node_id < 0 {
                     continue;
@@ -544,10 +544,10 @@ pub(super) fn estimate_active_renderable_count(
         let Some(space) = ctx.scene.space(*space_id) else {
             continue;
         };
-        if !space.is_active {
+        if !space.is_active() {
             continue;
         }
-        for renderer in &space.static_mesh_renderers {
+        for renderer in space.static_mesh_renderers() {
             if renderer.mesh_asset_id < 0 || renderer.node_id < 0 {
                 continue;
             }
@@ -559,7 +559,7 @@ pub(super) fn estimate_active_renderable_count(
                 cap_hint = cap_hint.saturating_add(resolved_material_slot_count(renderer));
             }
         }
-        for skinned in &space.skinned_mesh_renderers {
+        for skinned in space.skinned_mesh_renderers() {
             let renderer = &skinned.base;
             if renderer.mesh_asset_id < 0 || renderer.node_id < 0 {
                 continue;

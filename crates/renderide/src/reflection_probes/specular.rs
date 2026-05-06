@@ -200,11 +200,11 @@ impl ReflectionProbeSpecularSystem {
             let Some(space) = scene.space(space_id) else {
                 continue;
             };
-            if !space.is_active {
+            if !space.is_active() {
                 continue;
             }
             if let Some(source) = resolve_space_skybox_fallback_source(
-                space.skybox_material_asset_id,
+                space.skybox_material_asset_id(),
                 materials,
                 assets,
             ) {
@@ -222,14 +222,17 @@ impl ReflectionProbeSpecularSystem {
                     });
                 }
             }
-            for probe in &space.reflection_probes {
+            for probe in space.reflection_probes() {
                 let identity = ProbeIdentity {
                     space_id,
                     renderable_index: probe.renderable_index,
                 };
-                let Some(source) =
-                    resolve_probe_source(space.skybox_material_asset_id, probe, materials, assets)
-                else {
+                let Some(source) = resolve_probe_source(
+                    space.skybox_material_asset_id(),
+                    probe,
+                    materials,
+                    assets,
+                ) else {
                     continue;
                 };
                 let key = build_key(&source, face_size);

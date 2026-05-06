@@ -13,12 +13,12 @@ pub(super) fn collect_material_keys_into(
     let Some(space) = scene.space(space_id) else {
         return;
     };
-    for r in &space.static_mesh_renderers {
+    for r in space.static_mesh_renderers() {
         if r.mesh_asset_id >= 0 {
             append_renderer_material_keys(r, out);
         }
     }
-    for sk in &space.skinned_mesh_renderers {
+    for sk in space.skinned_mesh_renderers() {
         if sk.base.mesh_asset_id >= 0 {
             append_renderer_material_keys(&sk.base, out);
         }
@@ -61,21 +61,7 @@ fn append_renderer_material_keys(r: &StaticMeshRenderer, out: &mut Vec<(i32, Opt
 mod tests {
     use super::*;
 
-    use crate::scene::{RenderSpaceState, SkinnedMeshRenderer};
-
-    fn space_with_static(renderers: Vec<StaticMeshRenderer>) -> RenderSpaceState {
-        RenderSpaceState {
-            static_mesh_renderers: renderers,
-            ..Default::default()
-        }
-    }
-
-    fn space_with_skinned(renderers: Vec<SkinnedMeshRenderer>) -> RenderSpaceState {
-        RenderSpaceState {
-            skinned_mesh_renderers: renderers,
-            ..Default::default()
-        }
-    }
+    use crate::scene::SkinnedMeshRenderer;
 
     fn renderer_with_mesh_asset(mesh_asset_id: i32) -> StaticMeshRenderer {
         StaticMeshRenderer {
@@ -101,7 +87,7 @@ mod tests {
             material_asset_id: 17,
             property_block_id: Some(3),
         });
-        scene.test_insert_space(id, space_with_static(vec![renderer]));
+        scene.test_insert_static_mesh_renderers(id, vec![renderer]);
 
         let mut out = Vec::new();
         collect_material_keys_into(&scene, id, &mut out);
@@ -127,7 +113,7 @@ mod tests {
                 property_block_id: None,
             },
         ];
-        scene.test_insert_space(id, space_with_static(vec![renderer]));
+        scene.test_insert_static_mesh_renderers(id, vec![renderer]);
 
         let mut out = Vec::new();
         collect_material_keys_into(&scene, id, &mut out);
@@ -145,7 +131,7 @@ mod tests {
             primary_property_block_id: Some(7),
             ..Default::default()
         };
-        scene.test_insert_space(id, space_with_static(vec![renderer]));
+        scene.test_insert_static_mesh_renderers(id, vec![renderer]);
 
         let mut out = Vec::new();
         collect_material_keys_into(&scene, id, &mut out);
@@ -162,7 +148,7 @@ mod tests {
             primary_property_block_id: None,
             ..Default::default()
         };
-        scene.test_insert_space(id, space_with_static(vec![renderer]));
+        scene.test_insert_static_mesh_renderers(id, vec![renderer]);
 
         let mut out = Vec::new();
         collect_material_keys_into(&scene, id, &mut out);
@@ -177,7 +163,7 @@ mod tests {
             mesh_asset_id: 0,
             ..Default::default()
         };
-        scene.test_insert_space(id, space_with_static(vec![renderer]));
+        scene.test_insert_static_mesh_renderers(id, vec![renderer]);
 
         let mut out = Vec::new();
         collect_material_keys_into(&scene, id, &mut out);
@@ -194,7 +180,7 @@ mod tests {
             material_asset_id: 88,
             property_block_id: Some(3),
         });
-        scene.test_insert_space(id, space_with_skinned(vec![sk]));
+        scene.test_insert_skinned_mesh_renderers(id, vec![sk]);
 
         let mut out = Vec::new();
         collect_material_keys_into(&scene, id, &mut out);
@@ -210,7 +196,7 @@ mod tests {
             material_asset_id: 5,
             property_block_id: None,
         });
-        scene.test_insert_space(id, space_with_static(vec![renderer]));
+        scene.test_insert_static_mesh_renderers(id, vec![renderer]);
 
         let mut out = vec![(1, None), (2, Some(9))];
         collect_material_keys_into(&scene, id, &mut out);
@@ -228,7 +214,7 @@ mod tests {
             material_asset_id: 2,
             property_block_id: Some(3),
         });
-        scene.test_insert_space(id, space_with_static(vec![a, b]));
+        scene.test_insert_static_mesh_renderers(id, vec![a, b]);
 
         let out = collect_material_keys_for_space(&scene, id);
         assert_eq!(out, vec![(1, None), (2, Some(3))]);

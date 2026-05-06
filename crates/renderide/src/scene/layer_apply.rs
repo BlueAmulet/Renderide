@@ -323,7 +323,8 @@ pub(crate) fn fixup_layer_assignments_for_transform_removals(
 
 #[cfg(test)]
 mod tests {
-    use crate::scene::{LayerAssignmentEntry, RenderSpaceState, StaticMeshRenderer};
+    use crate::scene::StaticMeshRenderer;
+    use crate::scene::render_space::{LayerAssignmentEntry, RenderSpaceState};
     use crate::shared::LayerType;
 
     use super::resolve_mesh_layers_from_assignments;

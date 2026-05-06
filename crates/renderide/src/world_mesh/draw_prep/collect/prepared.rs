@@ -108,7 +108,7 @@ fn prepared_run_skinned_renderer<'a>(
         return PreparedRunSkinning::Stale;
     };
     space
-        .skinned_mesh_renderers
+        .skinned_mesh_renderers()
         .get(first.renderable_index)
         .map_or(PreparedRunSkinning::Stale, PreparedRunSkinning::Skinned)
 }

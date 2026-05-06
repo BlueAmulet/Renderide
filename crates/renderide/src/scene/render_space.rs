@@ -1,8 +1,11 @@
 //! Per-render-space state mirrored from [`crate::shared::RenderSpaceUpdate`].
 
-use super::render_overrides::{RenderMaterialOverrideEntry, RenderTransformOverrideEntry};
+use super::render_overrides::{
+    MeshRendererOverrideTarget, RenderMaterialOverrideEntry, RenderTransformOverrideEntry,
+};
 use crate::shared::{
     LayerType, ReflectionProbeChangeRenderTask, RenderSH2, RenderSpaceUpdate, RenderTransform,
+    RenderingContext,
 };
 
 use hashbrown::HashMap;
@@ -14,11 +17,11 @@ use super::reflection_probe::ReflectionProbeEntry;
 
 /// One host layer component / assignment anchored to a transform node.
 #[derive(Debug, Clone, Copy)]
-pub struct LayerAssignmentEntry {
+pub(in crate::scene) struct LayerAssignmentEntry {
     /// Dense transform index the layer assignment is attached to.
-    pub node_id: i32,
+    pub(in crate::scene) node_id: i32,
     /// Host layer value inherited by descendant renderers until another assignment overrides it.
-    pub layer: LayerType,
+    pub(in crate::scene) layer: LayerType,
 }
 
 impl Default for LayerAssignmentEntry {
@@ -30,83 +33,218 @@ impl Default for LayerAssignmentEntry {
     }
 }
 
+/// Read-only borrow of one host render space.
+#[derive(Clone, Copy, Debug)]
+pub struct RenderSpaceView<'a> {
+    state: &'a RenderSpaceState,
+}
+
+impl<'a> RenderSpaceView<'a> {
+    /// Creates a view over internal render-space storage.
+    pub(in crate::scene) fn new(state: &'a RenderSpaceState) -> Self {
+        Self { state }
+    }
+
+    /// Host render-space id.
+    pub fn id(self) -> RenderSpaceId {
+        self.state.id
+    }
+
+    /// Returns whether the host render space is active.
+    pub fn is_active(self) -> bool {
+        self.state.is_active
+    }
+
+    /// Returns whether this render space is an overlay space.
+    pub fn is_overlay(self) -> bool {
+        self.state.is_overlay
+    }
+
+    /// Returns whether this render space is private.
+    pub fn is_private(self) -> bool {
+        self.state.is_private
+    }
+
+    /// Returns whether the view transform was overridden by the host.
+    pub fn override_view_position(self) -> bool {
+        self.state.override_view_position
+    }
+
+    /// Returns whether the view position comes from the external render context.
+    pub fn view_position_is_external(self) -> bool {
+        self.state.view_position_is_external
+    }
+
+    /// Skybox material asset id for this render space.
+    pub fn skybox_material_asset_id(self) -> i32 {
+        self.state.skybox_material_asset_id
+    }
+
+    /// Ambient spherical harmonics for this render space.
+    pub fn ambient_light(self) -> RenderSH2 {
+        self.state.ambient_light
+    }
+
+    /// Space root transform from the host.
+    pub fn root_transform(self) -> &'a RenderTransform {
+        &self.state.root_transform
+    }
+
+    /// Resolved eye/root transform used for view construction.
+    pub fn view_transform(self) -> &'a RenderTransform {
+        &self.state.view_transform
+    }
+
+    /// Local transforms indexed by dense transform id.
+    pub fn local_transforms(self) -> &'a [RenderTransform] {
+        &self.state.nodes
+    }
+
+    /// Parent ids indexed by dense transform id.
+    pub fn node_parents(self) -> &'a [i32] {
+        &self.state.node_parents
+    }
+
+    /// Static mesh renderers indexed by static renderable id.
+    pub fn static_mesh_renderers(self) -> &'a [StaticMeshRenderer] {
+        &self.state.static_mesh_renderers
+    }
+
+    /// Skinned mesh renderers indexed by skinned renderable id.
+    pub fn skinned_mesh_renderers(self) -> &'a [SkinnedMeshRenderer] {
+        &self.state.skinned_mesh_renderers
+    }
+
+    /// Camera renderers indexed by camera renderable id.
+    pub fn cameras(self) -> &'a [CameraRenderableEntry] {
+        &self.state.cameras
+    }
+
+    /// Reflection probes indexed by reflection-probe renderable id.
+    pub fn reflection_probes(self) -> &'a [ReflectionProbeEntry] {
+        &self.state.reflection_probes
+    }
+
+    /// Total dense mesh-renderer count across static and skinned renderers.
+    pub fn mesh_renderable_count(self) -> usize {
+        self.state.static_mesh_renderers.len() + self.state.skinned_mesh_renderers.len()
+    }
+
+    /// Primary render context for this render space.
+    pub fn main_render_context(self) -> RenderingContext {
+        self.state.main_render_context()
+    }
+
+    /// Returns whether any transform override rows exist for `context`.
+    pub fn has_transform_overrides_in_context(self, context: RenderingContext) -> bool {
+        self.state.has_transform_overrides_in_context(context)
+    }
+
+    /// Applies transform overrides for `node_id` in `context` atop the dense local transform.
+    pub fn overridden_local_transform(
+        self,
+        node_id: i32,
+        context: RenderingContext,
+    ) -> Option<RenderTransform> {
+        self.state.overridden_local_transform(node_id, context)
+    }
+
+    /// Resolves a material override for one renderer slot in `context`.
+    pub fn overridden_material_asset_id(
+        self,
+        context: RenderingContext,
+        skinned: bool,
+        renderable_index: usize,
+        slot_index: usize,
+    ) -> Option<i32> {
+        let target = if skinned {
+            MeshRendererOverrideTarget::Skinned(renderable_index as i32)
+        } else {
+            MeshRendererOverrideTarget::Static(renderable_index as i32)
+        };
+        self.state
+            .overridden_material_asset_id(context, target, slot_index)
+    }
+}
+
 /// One host render space: flags, root/view TRS, dense transform arena, and mesh renderable tables.
 #[derive(Debug)]
-pub struct RenderSpaceState {
+pub(in crate::scene) struct RenderSpaceState {
     /// Host id (matches dictionary key).
-    pub id: RenderSpaceId,
+    pub(in crate::scene) id: RenderSpaceId,
     /// `RenderSpaceUpdate.is_active`
-    pub is_active: bool,
+    pub(in crate::scene) is_active: bool,
     /// `RenderSpaceUpdate.is_overlay`
-    pub is_overlay: bool,
+    pub(in crate::scene) is_overlay: bool,
     /// `RenderSpaceUpdate.is_private`
-    pub is_private: bool,
+    pub(in crate::scene) is_private: bool,
     /// `RenderSpaceUpdate.override_view_position`
-    pub override_view_position: bool,
+    pub(in crate::scene) override_view_position: bool,
     /// `RenderSpaceUpdate.view_position_is_external`
-    pub view_position_is_external: bool,
+    pub(in crate::scene) view_position_is_external: bool,
     /// `RenderSpaceUpdate.skybox_material_asset_id`.
-    pub skybox_material_asset_id: i32,
+    pub(in crate::scene) skybox_material_asset_id: i32,
     /// `RenderSpaceUpdate.ambient_light`.
-    pub ambient_light: RenderSH2,
+    pub(in crate::scene) ambient_light: RenderSH2,
     /// Space root TRS from host.
-    pub root_transform: RenderTransform,
+    pub(in crate::scene) root_transform: RenderTransform,
     /// Resolved eye / root TRS for view (`override_view_position` selects overridden view).
-    pub view_transform: RenderTransform,
+    pub(in crate::scene) view_transform: RenderTransform,
     /// Local TRS per dense index `0..nodes.len()`.
-    pub nodes: Vec<RenderTransform>,
+    pub(in crate::scene) nodes: Vec<RenderTransform>,
     /// Parent index per node; `-1` = hierarchy root under [`Self::root_transform`].
-    pub node_parents: Vec<i32>,
+    pub(in crate::scene) node_parents: Vec<i32>,
     /// Static mesh renderables; `renderable_index` <-> dense index in this vec.
-    pub static_mesh_renderers: Vec<StaticMeshRenderer>,
+    pub(in crate::scene) static_mesh_renderers: Vec<StaticMeshRenderer>,
     /// Skinned mesh renderables; separate dense table from static.
-    pub skinned_mesh_renderers: Vec<SkinnedMeshRenderer>,
+    pub(in crate::scene) skinned_mesh_renderers: Vec<SkinnedMeshRenderer>,
     /// Next renderer-local identity assigned to static or skinned mesh additions.
-    pub next_mesh_renderer_instance_id: MeshRendererInstanceId,
+    pub(in crate::scene) next_mesh_renderer_instance_id: MeshRendererInstanceId,
     /// Host camera components (secondary cameras, render texture targets).
-    pub cameras: Vec<CameraRenderableEntry>,
+    pub(in crate::scene) cameras: Vec<CameraRenderableEntry>,
     /// Host reflection probe components.
-    pub reflection_probes: Vec<ReflectionProbeEntry>,
+    pub(in crate::scene) reflection_probes: Vec<ReflectionProbeEntry>,
     /// Changed reflection-probe render requests from the most recent update.
-    pub pending_reflection_probe_render_changes: Vec<ReflectionProbeChangeRenderTask>,
+    pub(in crate::scene) pending_reflection_probe_render_changes:
+        Vec<ReflectionProbeChangeRenderTask>,
     /// Host layer components. Resolved onto mesh renderers each frame by closest ancestor.
-    pub layer_assignments: Vec<LayerAssignmentEntry>,
+    pub(in crate::scene) layer_assignments: Vec<LayerAssignmentEntry>,
     /// `node_id -> LayerType` index built from [`Self::layer_assignments`] and consumed by
     /// `resolve_mesh_layers_from_assignments` to collapse per-renderable parent walks from
     /// O(scene_depth x assignment_count) to O(scene_depth). Rebuilt only when
     /// [`Self::layer_index_dirty`] is set; otherwise reused across frames.
-    pub layer_index: HashMap<i32, LayerType>,
+    pub(in crate::scene) layer_index: HashMap<i32, LayerType>,
     /// Marks [`Self::layer_index`] as stale. Set whenever code mutates
     /// [`Self::layer_assignments`] (`apply_layer_update_extracted`,
     /// `fixup_layer_assignments_for_transform_removals`); cleared by the resolver after rebuild.
-    pub layer_index_dirty: bool,
+    pub(in crate::scene) layer_index_dirty: bool,
     /// Cross-frame `node_id -> Option<LayerType>` resolution cache used by
     /// `resolve_mesh_layers_from_assignments` to skip parent-chain walks once a node has been
     /// resolved. `None` records "no ancestor carries a layer assignment", so repeated fallback
     /// nodes also avoid the walk. Cleared whenever [`Self::layer_index_dirty`] or
     /// [`Self::hierarchy_dirty`] is observed by the resolver.
-    pub resolved_layer_cache: HashMap<i32, Option<LayerType>>,
+    pub(in crate::scene) resolved_layer_cache: HashMap<i32, Option<LayerType>>,
     /// Marks [`Self::resolved_layer_cache`] as stale due to a structural change in
     /// [`Self::node_parents`]. Set by the transform-apply path on growth, removals, and parent
     /// updates; cleared by the resolver after the cache is repopulated. `Self::layer_index_dirty`
     /// covers the layer-assignment side; this flag covers the hierarchy side.
-    pub hierarchy_dirty: bool,
+    pub(in crate::scene) hierarchy_dirty: bool,
     /// Reused dedup set for [`resolve_mesh_layers_from_assignments`]'s ensure-cache pass; cleared
     /// at the start of every resolve and refilled by walking unique renderer node ids.
-    pub layer_resolve_seen_scratch: hashbrown::HashSet<i32>,
+    pub(in crate::scene) layer_resolve_seen_scratch: hashbrown::HashSet<i32>,
     /// Reused per-renderer batch grouping for the parallel blendshape weight apply path.
     /// Cleared at the start of every apply that crosses the parallel threshold; reused so the
     /// HashMap and inner Vec capacities persist across frames.
-    pub blendshape_apply_groups: HashMap<usize, Vec<std::ops::Range<usize>>>,
+    pub(in crate::scene) blendshape_apply_groups: HashMap<usize, Vec<std::ops::Range<usize>>>,
     /// Render-context-local transform substitutions from the host.
-    pub render_transform_overrides: Vec<RenderTransformOverrideEntry>,
+    pub(in crate::scene) render_transform_overrides: Vec<RenderTransformOverrideEntry>,
     /// Render-context-local material substitutions from the host.
-    pub render_material_overrides: Vec<RenderMaterialOverrideEntry>,
+    pub(in crate::scene) render_material_overrides: Vec<RenderMaterialOverrideEntry>,
 }
 
 impl RenderSpaceState {
     /// Applies non-transform fields from a host update and recomputes [`Self::view_transform`].
-    pub fn apply_update_header(&mut self, update: &RenderSpaceUpdate) {
+    pub(in crate::scene) fn apply_update_header(&mut self, update: &RenderSpaceUpdate) {
         self.is_active = update.is_active;
         self.is_overlay = update.is_overlay;
         self.is_private = update.is_private;
@@ -123,7 +261,9 @@ impl RenderSpaceState {
     }
 
     /// Allocates a renderer-local identity for a new static or skinned mesh renderable.
-    pub(crate) fn allocate_mesh_renderer_instance_id(&mut self) -> MeshRendererInstanceId {
+    pub(in crate::scene) fn allocate_mesh_renderer_instance_id(
+        &mut self,
+    ) -> MeshRendererInstanceId {
         let id = self.next_mesh_renderer_instance_id;
         self.next_mesh_renderer_instance_id =
             MeshRendererInstanceId(self.next_mesh_renderer_instance_id.0.saturating_add(1));
@@ -247,6 +387,52 @@ mod tests {
 
         assert_eq!(state.skybox_material_asset_id, 42);
         assert_eq!(state.ambient_light.sh0, ambient.sh0);
+    }
+
+    #[test]
+    fn render_space_view_exposes_read_only_scene_data() {
+        let root = xform_with_x(1.0);
+        let view_transform = xform_with_x(2.0);
+        let local = xform_with_x(3.0);
+        let ambient = RenderSH2 {
+            sh0: Vec3::new(4.0, 5.0, 6.0),
+            ..RenderSH2::default()
+        };
+        let state = RenderSpaceState {
+            id: RenderSpaceId(42),
+            is_active: true,
+            is_overlay: true,
+            is_private: true,
+            override_view_position: true,
+            view_position_is_external: true,
+            skybox_material_asset_id: 77,
+            ambient_light: ambient,
+            root_transform: root,
+            view_transform,
+            nodes: vec![local],
+            node_parents: vec![-1],
+            static_mesh_renderers: vec![StaticMeshRenderer::default()],
+            skinned_mesh_renderers: vec![SkinnedMeshRenderer::default()],
+            ..Default::default()
+        };
+
+        let view = RenderSpaceView::new(&state);
+
+        assert_eq!(view.id(), RenderSpaceId(42));
+        assert!(view.is_active());
+        assert!(view.is_overlay());
+        assert!(view.is_private());
+        assert!(view.override_view_position());
+        assert!(view.view_position_is_external());
+        assert_eq!(view.skybox_material_asset_id(), 77);
+        assert_eq!(view.ambient_light().sh0, ambient.sh0);
+        assert_eq!(view.root_transform().position.x, 1.0);
+        assert_eq!(view.view_transform().position.x, 2.0);
+        assert_eq!(view.local_transforms()[0].position.x, 3.0);
+        assert_eq!(view.node_parents(), &[-1]);
+        assert_eq!(view.static_mesh_renderers().len(), 1);
+        assert_eq!(view.skinned_mesh_renderers().len(), 1);
+        assert_eq!(view.mesh_renderable_count(), 2);
     }
 
     #[test]

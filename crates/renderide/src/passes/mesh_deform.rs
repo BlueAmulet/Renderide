@@ -112,10 +112,10 @@ fn collect_deform_work_for_space(
     let Some(space) = scene.space(space_id) else {
         return;
     };
-    if !space.is_active {
+    if !space.is_active() {
         return;
     }
-    for r in &space.static_mesh_renderers {
+    for r in space.static_mesh_renderers() {
         if r.mesh_asset_id < 0 {
             continue;
         }
@@ -139,7 +139,7 @@ fn collect_deform_work_for_space(
             blend_weights: r.blend_shape_weights.clone(),
         });
     }
-    for skinned in &space.skinned_mesh_renderers {
+    for skinned in space.skinned_mesh_renderers() {
         let r = &skinned.base;
         if r.mesh_asset_id < 0 {
             continue;
@@ -175,10 +175,10 @@ fn deform_work_upper_bound(scene: &SceneCoordinator) -> usize {
         let Some(space) = scene.space(space_id) else {
             continue;
         };
-        if space.is_active {
+        if space.is_active() {
             est = est
-                .saturating_add(space.static_mesh_renderers.len())
-                .saturating_add(space.skinned_mesh_renderers.len());
+                .saturating_add(space.static_mesh_renderers().len())
+                .saturating_add(space.skinned_mesh_renderers().len());
         }
     }
     est

@@ -5,6 +5,7 @@ use glam::{Mat4, Quat, Vec3};
 use crate::camera::{view_matrix_for_world_mesh_render_space, view_matrix_from_render_transform};
 use crate::scene::render_overrides::RenderTransformOverrideEntry;
 use crate::scene::render_space::RenderSpaceState;
+use crate::scene::{SkinnedMeshRenderer, StaticMeshRenderer};
 use crate::shared::{RenderSpaceUpdate, RenderTransform, RenderingContext};
 
 use super::super::ids::RenderSpaceId;
@@ -49,13 +50,36 @@ impl SceneCoordinator {
         self.world_caches.insert(id, cache);
     }
 
-    /// Inserts a fully constructed [`RenderSpaceState`] under `id` (unit tests only).
-    ///
-    /// Bypasses the host frame-submit path so tests can populate
-    /// `static_mesh_renderers`, `skinned_mesh_renderers`, and other fields directly without
-    /// going through shared memory.
-    pub(crate) fn test_insert_space(&mut self, id: RenderSpaceId, space: RenderSpaceState) {
-        self.spaces.insert(id, space);
+    /// Inserts a render space with static mesh renderers (unit tests only).
+    pub(crate) fn test_insert_static_mesh_renderers(
+        &mut self,
+        id: RenderSpaceId,
+        renderers: Vec<StaticMeshRenderer>,
+    ) {
+        self.spaces.insert(
+            id,
+            RenderSpaceState {
+                id,
+                static_mesh_renderers: renderers,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// Inserts a render space with skinned mesh renderers (unit tests only).
+    pub(crate) fn test_insert_skinned_mesh_renderers(
+        &mut self,
+        id: RenderSpaceId,
+        renderers: Vec<SkinnedMeshRenderer>,
+    ) {
+        self.spaces.insert(
+            id,
+            RenderSpaceState {
+                id,
+                skinned_mesh_renderers: renderers,
+                ..Default::default()
+            },
+        );
     }
 }
 
@@ -489,7 +513,7 @@ fn overlay_render_space_view_matrix_matches_main_space() {
     let overlay = scene.space(overlay_id).expect("overlay space");
     let main = scene.active_main_space().expect("main space");
     let v_overlay_rule = view_matrix_for_world_mesh_render_space(&scene, overlay);
-    let v_main = view_matrix_from_render_transform(&main.view_transform);
+    let v_main = view_matrix_from_render_transform(main.view_transform());
     let diff = (v_overlay_rule - v_main).to_cols_array();
     let err: f32 = diff.iter().map(|&x| x.abs()).sum();
     assert!(
@@ -497,7 +521,7 @@ fn overlay_render_space_view_matrix_matches_main_space() {
         "overlay space view matrix must match main space (got err sum {err})"
     );
 
-    let v_from_overlay_only = view_matrix_from_render_transform(&overlay.view_transform);
+    let v_from_overlay_only = view_matrix_from_render_transform(overlay.view_transform());
     let diff_wrong = (v_overlay_rule - v_from_overlay_only).to_cols_array();
     let err_wrong: f32 = diff_wrong.iter().map(|&x| x.abs()).sum();
     assert!(

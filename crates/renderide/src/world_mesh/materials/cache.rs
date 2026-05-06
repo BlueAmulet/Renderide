@@ -214,7 +214,7 @@ impl FrameMaterialBatchCache {
         // `Vec<RenderSpaceId>` allocation entirely.
         let mut active_space_ids = scene
             .render_space_ids()
-            .filter(|id| scene.space(*id).is_some_and(|s| s.is_active));
+            .filter(|id| scene.space(*id).is_some_and(|s| s.is_active()));
         let first = active_space_ids.next();
         let second = active_space_ids.next();
 
