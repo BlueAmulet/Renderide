@@ -19,12 +19,10 @@ fn selected_draw(view_layer: u32) -> pd::PerDrawUniforms {
     return pd::get_draw(rg::draw_index_from_layer(view_layer));
 }
 
-fn selected_probe_hit_count(view_layer: u32) -> u32 {
-    return pd::reflection_probe_hit_count(selected_draw(view_layer));
-}
-
 fn has_indirect_specular(view_layer: u32, enabled: bool) -> bool {
-    return enabled && selected_probe_hit_count(view_layer) > 0u;
+    let draw = selected_draw(view_layer);
+    let indices = pd::reflection_probe_indices(draw);
+    return enabled && (pd::reflection_probe_hit_count(draw) > 0u || indices.x != 0u);
 }
 
 fn dominant_reflection_dir(n: vec3<f32>, v: vec3<f32>, perceptual_roughness: f32) -> vec3<f32> {
@@ -90,11 +88,11 @@ fn indirect_radiance(
     }
     let draw = selected_draw(view_layer);
     let count = pd::reflection_probe_hit_count(draw);
-    if (count == 0u) {
-        return vec3<f32>(0.0);
-    }
     let indices = pd::reflection_probe_indices(draw);
     let dir = dominant_reflection_dir(n, v, perceptual_roughness);
+    if (count == 0u) {
+        return sample_probe_radiance(indices.x, world_pos, dir, perceptual_roughness);
+    }
     let first = sample_probe_radiance(indices.x, world_pos, dir, perceptual_roughness);
     if (count < 2u || indices.y == 0u) {
         return first;
@@ -109,7 +107,7 @@ fn probe_has_sh2(atlas_index: u32) -> bool {
 
 fn sample_probe_sh2(atlas_index: u32, normal_ws: vec3<f32>) -> vec3<f32> {
     if (!probe_has_sh2(atlas_index)) {
-        return shamb::ambient_probe(normal_ws);
+        return vec3<f32>(0.0);
     }
     let probe = rg::reflection_probes[atlas_index];
     let n = normalize(normal_ws);
