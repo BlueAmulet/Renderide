@@ -16,6 +16,8 @@ use super::exit::RunExit;
 
 /// Sleep granularity inside the headless tick loop.
 const HEADLESS_TICK_SLEEP: Duration = Duration::from_millis(5);
+/// Maximum time headless mode waits for cooperative resource shutdown.
+const HEADLESS_GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Runs the renderer in headless offscreen mode until shutdown or fatal IPC.
 pub(crate) fn run_headless(
@@ -78,6 +80,7 @@ impl<'a> HeadlessDriver<'a> {
         loop {
             if self.external_shutdown_requested() {
                 logger::info!("Headless: external shutdown requested, exiting");
+                self.drain_graceful_shutdown();
                 break;
             }
 
@@ -118,9 +121,10 @@ impl<'a> HeadlessDriver<'a> {
         }
     }
 
-    fn handle_tick_outcome(&self, outcome: TickOutcome) -> Option<RunExit> {
+    fn handle_tick_outcome(&mut self, outcome: TickOutcome) -> Option<RunExit> {
         if outcome.shutdown_requested {
             logger::info!("Headless: host shutdown requested, exiting");
+            self.drain_graceful_shutdown();
             return Some(RunExit::Clean);
         }
         if outcome.fatal_error {
@@ -132,6 +136,24 @@ impl<'a> HeadlessDriver<'a> {
             logger::warn!("Headless: render graph error this tick: {err:?}");
         }
         None
+    }
+
+    fn drain_graceful_shutdown(&mut self) {
+        profiling::scope!("headless::graceful_shutdown");
+        self.gpu.wait_for_previous_present();
+        self.runtime.begin_graceful_shutdown();
+
+        let deadline = Instant::now() + HEADLESS_GRACEFUL_SHUTDOWN_TIMEOUT;
+        while !self.runtime.graceful_shutdown_complete() {
+            if Instant::now() >= deadline {
+                logger::warn!(
+                    "Headless graceful shutdown timed out after {}ms; exiting",
+                    HEADLESS_GRACEFUL_SHUTDOWN_TIMEOUT.as_millis()
+                );
+                break;
+            }
+            std::thread::sleep(HEADLESS_TICK_SLEEP);
+        }
     }
 
     fn after_tick(&mut self, kind: HeadlessTickKind) {

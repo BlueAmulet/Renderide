@@ -159,6 +159,16 @@ impl AssetTransferQueue {
         self.video.take_pending_clock_errors()
     }
 
+    /// Starts cooperative shutdown for active video texture players.
+    pub(crate) fn begin_video_shutdown(&mut self) {
+        self.video.begin_shutdown();
+    }
+
+    /// Returns `true` once all video texture players have finished shutdown.
+    pub(crate) fn video_shutdown_complete(&mut self) -> bool {
+        self.video.shutdown_complete()
+    }
+
     /// Ensures a GPU video texture placeholder exists and returns it for mutation.
     pub(crate) fn ensure_video_texture_with_props(
         &mut self,

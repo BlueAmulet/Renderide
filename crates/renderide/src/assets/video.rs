@@ -44,6 +44,9 @@ mod sink {
         /// Returns `None` if nothing changed.
         fn poll_texture_change(&mut self) -> Option<(Arc<wgpu::TextureView>, u32, u32, u64)>;
 
+        /// Stops accepting decoded samples and releases callback-owned GPU handles.
+        fn begin_shutdown(&mut self);
+
         /// Returns the current video frame size from negotiated caps,
         /// or `None` if caps are not yet available.
         fn size(&self) -> Option<IVec2>;

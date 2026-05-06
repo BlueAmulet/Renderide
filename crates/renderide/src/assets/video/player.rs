@@ -21,7 +21,7 @@ use renderide_shared::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::thread::{self, JoinHandle};
 
 /// Fallback audio rate used when the host sends an invalid sample rate.
 const DEFAULT_AUDIO_SAMPLE_RATE: i32 = 48_000;
@@ -55,6 +55,8 @@ pub struct VideoPlayer {
     last_ready_message: Option<VideoTextureReady>,
     /// Shared shutdown flag checked by the update thread.
     shutdown: Arc<AtomicBool>,
+    /// Worker applying GStreamer playback updates and driving the pipeline to `Null` on shutdown.
+    update_thread: Option<JoinHandle<()>>,
 }
 
 /// Selectable audio stream metadata paired with the host-facing track descriptor.
@@ -252,11 +254,11 @@ impl VideoPlayer {
         let last_update: Arc<Mutex<Option<VideoTextureUpdate>>> = Arc::new(Mutex::new(None));
         let shutdown: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
-        Self::spawn_update_thread(
+        let update_thread = Some(Self::spawn_update_thread(
             pipeline.clone(),
             Arc::clone(&pending_update),
             Arc::clone(&shutdown),
-        );
+        ));
 
         Some(Self {
             asset_id: id,
@@ -269,12 +271,16 @@ impl VideoPlayer {
             last_update,
             last_ready_message: None,
             shutdown,
+            update_thread,
         })
     }
 
     /// Handles [`VideoTextureStartAudioTrack`].
     /// Opens a shared memory queue to send audio back to host, and assigns the callback to the sink.
     pub fn handle_start_audio_track(&self, s: VideoTextureStartAudioTrack) {
+        if self.shutdown.load(Ordering::Acquire) {
+            return;
+        }
         let id = self.asset_id;
         let Some(index) = validated_audio_track_index(s.audio_track_index) else {
             logger::warn!(
@@ -310,6 +316,9 @@ impl VideoPlayer {
     /// update across multiple frames is correct: `(now - decoded_time)` keeps growing until the
     /// host sends a fresh update, matching Renderite.Unity's `_update` reuse behaviour.
     pub fn handle_update(&self, u: VideoTextureUpdate) {
+        if self.shutdown.load(Ordering::Acquire) {
+            return;
+        }
         match self.last_update.lock() {
             Ok(mut slot) => *slot = Some(u.clone()),
             Err(_) => logger::warn!(
@@ -334,6 +343,9 @@ impl VideoPlayer {
         ipc: &mut Option<&mut DualQueueIpc>,
     ) {
         profiling::scope!("video::process_events");
+        if self.shutdown.load(Ordering::Acquire) {
+            return;
+        }
         let Some(bus) = self.pipeline.bus() else {
             return;
         };
@@ -406,9 +418,9 @@ impl VideoPlayer {
         pipeline: gstreamer::Element,
         pending_update: Arc<Mutex<Option<VideoTextureUpdate>>>,
         shutdown: Arc<AtomicBool>,
-    ) {
+    ) -> JoinHandle<()> {
         thread::spawn(move || {
-            while !shutdown.load(Ordering::Relaxed) {
+            while !shutdown.load(Ordering::Acquire) {
                 thread::sleep(UPDATE_POLL_INTERVAL);
 
                 let update = if let Ok(mut pending_update) = pending_update.lock() {
@@ -427,7 +439,50 @@ impl VideoPlayer {
             if let Err(e) = pipeline.set_state(gstreamer::State::Null) {
                 logger::error!("failed to set pipeline to Null on shutdown: {e}");
             }
-        });
+        })
+    }
+
+    /// Starts cooperative shutdown without blocking the render thread.
+    pub fn begin_shutdown(&mut self) {
+        profiling::scope!("video::begin_shutdown");
+        if self.shutdown.swap(true, Ordering::AcqRel) {
+            return;
+        }
+
+        if let Ok(mut pending_update) = self.pending_update.lock() {
+            let _ = pending_update.take();
+        } else {
+            logger::warn!(
+                "video texture {}: update lock poisoned during shutdown",
+                self.asset_id
+            );
+        }
+
+        self.audio_sink.begin_shutdown();
+        self.video_sink.begin_shutdown();
+    }
+
+    /// Joins the update worker once it has completed pipeline shutdown.
+    pub fn poll_shutdown_complete(&mut self) -> bool {
+        if !self.shutdown.load(Ordering::Acquire) {
+            self.begin_shutdown();
+        }
+        let Some(handle) = self.update_thread.as_ref() else {
+            return true;
+        };
+        if !handle.is_finished() {
+            return false;
+        }
+        let Some(handle) = self.update_thread.take() else {
+            return true;
+        };
+        if handle.join().is_err() {
+            logger::warn!(
+                "video texture {}: update thread panicked during shutdown",
+                self.asset_id
+            );
+        }
+        true
     }
 
     /// Samples this player's clock error against the host's most recently received playback request.
@@ -437,6 +492,9 @@ impl VideoPlayer {
     /// [`VideoTextureUpdate::decoded_time`] (set by the IPC unpack at receive time). Returns `None`
     /// until at least one update has arrived or when the pipeline position cannot be queried.
     pub fn sample_clock_error(&self) -> Option<VideoTextureClockErrorState> {
+        if self.shutdown.load(Ordering::Acquire) {
+            return None;
+        }
         if !query_media_duration(&self.pipeline).reports_clock_error() {
             return None;
         }
@@ -512,7 +570,8 @@ impl VideoPlayer {
 
 impl Drop for VideoPlayer {
     fn drop(&mut self) {
-        self.shutdown.store(true, Ordering::Relaxed);
+        self.begin_shutdown();
+        let _ = self.poll_shutdown_complete();
     }
 }
 

@@ -39,6 +39,13 @@ impl ResoniteAudioSink {
         &self.sink
     }
 
+    /// Detaches the sample callback so shutdown does not retain queue publishers.
+    pub fn begin_shutdown(&self) {
+        use gstreamer_app::AppSinkCallbacks;
+
+        self.sink.set_callbacks(AppSinkCallbacks::builder().build());
+    }
+
     /// Connects a shared-memory publisher identified by `queue_name` and `queue_capacity`.
     ///
     /// When the queue cannot be opened, the sink is left without a new callback and no audio is
