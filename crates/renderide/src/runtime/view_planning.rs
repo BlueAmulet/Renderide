@@ -92,10 +92,10 @@ impl RendererRuntime {
     /// Reuses [`RendererRuntime::secondary_view_tasks_scratch`] for the depth-sort scratch buffer
     /// so a frame with secondary cameras does not allocate a fresh `Vec` for the sort each tick.
     fn collect_secondary_rt_views<'a>(&mut self) -> Vec<FrameViewPlan<'a>> {
-        let mut tasks = std::mem::take(&mut self.secondary_view_tasks_scratch);
+        let mut tasks = std::mem::take(&mut self.tick_state.secondary_view_tasks_scratch);
         tasks.clear();
         let result = self.collect_secondary_rt_views_using(&mut tasks);
-        self.secondary_view_tasks_scratch = tasks;
+        self.tick_state.secondary_view_tasks_scratch = tasks;
         result
     }
 

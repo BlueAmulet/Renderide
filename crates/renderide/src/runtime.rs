@@ -57,20 +57,23 @@
 
 mod accessors;
 mod asset_integration;
+mod config_state;
 mod debug_hud_frame;
+mod diagnostics_state;
 mod frame_extract;
 pub(crate) mod frame_render;
 mod frame_view_plan;
 mod gpu_services;
 mod ipc_entry;
+mod ipc_state;
 mod lockstep;
 mod tick;
+mod tick_state;
 mod view_planning;
 mod xr_glue;
+mod xr_stats;
 
-use hashbrown::HashMap;
 use std::path::PathBuf;
-use std::time::Instant;
 
 use crate::backend::RenderBackend;
 use crate::camera::HostCameraFrame;
@@ -78,7 +81,13 @@ use crate::config::RendererSettingsHandle;
 use crate::connection::ConnectionParams;
 use crate::frontend::RendererFrontend;
 use crate::render_graph::GraphExecuteError;
-use crate::scene::{RenderSpaceId, SceneCoordinator};
+use crate::scene::SceneCoordinator;
+
+use config_state::RuntimeConfigState;
+use diagnostics_state::RuntimeDiagnosticsState;
+use ipc_state::RuntimeIpcState;
+use tick_state::RuntimeTickState;
+use xr_stats::RuntimeXrStats;
 
 pub use crate::frontend::InitState;
 
@@ -105,46 +114,16 @@ pub struct RendererRuntime {
     pub(crate) scene: SceneCoordinator,
     /// Last host clip / FOV / VR / ortho task state for [`crate::render_graph::GraphPassFrame`].
     pub(crate) host_camera: HostCameraFrame,
-    /// Process-wide renderer settings (shared with the debug HUD and the frame loop).
-    pub(crate) settings: RendererSettingsHandle,
-    /// Target path for persisting [`Self::settings`] from the ImGui config window.
-    pub(crate) config_save_path: PathBuf,
-    /// Throttled host CPU/RAM sampling for the debug HUD.
-    pub(super) host_hud: crate::diagnostics::HostHudGatherer,
-    /// Rolling per-frame wall time history that feeds the Frame timing sparkline.
-    pub(super) frame_time_history: crate::diagnostics::FrameTimeHistory,
-    /// Persistent EMA state for the Frame / CPU / GPU scalar readouts in the Frame timing HUD.
-    /// The sparkline still consumes raw samples from [`Self::frame_time_history`]; only the
-    /// numeric overlay cells are smoothed.
-    pub(super) frame_timing_ema: crate::diagnostics::FrameTimingEma,
-    /// [`crate::shared::FrameSubmitData::render_tasks`] length from the last applied frame submit (HUD).
-    pub(super) last_submit_render_task_count: usize,
-    /// Cached full [`wgpu::AllocatorReport`] for the **GPU memory** HUD tab (refreshed on a timer).
-    pub(super) allocator_report_hud: Option<crate::diagnostics::GpuAllocatorReportHud>,
-    /// Cached allocator totals from the same throttled report as [`Self::allocator_report_hud`].
-    pub(super) allocator_report_totals: crate::diagnostics::GpuAllocatorHud,
-    /// Wall clock when a **GPU memory** tab refresh was last attempted (typically every 2s while the main debug HUD runs).
-    pub(super) allocator_report_last_refresh: Option<Instant>,
-    /// Set when [`Self::run_asset_integration`] completed for the current winit tick (cleared in [`Self::tick_frame_wall_clock_begin`]).
-    pub(super) did_integrate_this_tick: bool,
-    /// Count of failed [`SceneCoordinator::apply_frame_submit`] or [`SceneCoordinator::flush_world_caches`] after a host submit (HUD / drift).
-    pub(super) frame_submit_apply_failures: u64,
-    /// Count of OpenXR `wait_frame` errors since startup (recoverable).
-    pub(crate) xr_wait_frame_failures: u64,
-    /// Count of OpenXR `locate_views` errors when `should_render` was true (recoverable).
-    pub(crate) xr_locate_views_failures: u64,
-    /// Running counts of post-init [`crate::shared::RendererCommand`] variants seen without a running handler.
-    pub(crate) unhandled_ipc_command_counts: HashMap<&'static str, u64>,
-    /// When `true`, ImGui and [`crate::config::save_renderer_settings_from_load`] must not overwrite `config.toml`.
-    pub(crate) suppress_renderer_config_disk_writes: bool,
-    /// In-flight shader uploads whose [`crate::assets::resolve_shader_upload`] is running on the
-    /// rayon pool; drained by [`Self::poll_ipc`] before this tick's IPC batch is dispatched.
-    pub(crate) pending_shader_resolutions:
-        Vec<crate::frontend::dispatch::shader_material_ipc::PendingShaderResolution>,
-    /// Reusable per-frame scratch for secondary render-texture view collection. Holds
-    /// `(render_space_id, camera_depth, camera_index)` tuples for sorting; cleared and refilled
-    /// each tick so secondary-RT scenes don't allocate a fresh `Vec` per frame.
-    pub(super) secondary_view_tasks_scratch: Vec<(RenderSpaceId, f32, usize)>,
+    /// Settings handle, config path, and disk-write suppression.
+    config: RuntimeConfigState,
+    /// Runtime-side diagnostics accumulation.
+    diagnostics: RuntimeDiagnosticsState,
+    /// IPC scratch and unhandled-command counters.
+    ipc_state: RuntimeIpcState,
+    /// Per-tick gates and reusable view-planning scratch.
+    tick_state: RuntimeTickState,
+    /// Cumulative recoverable OpenXR failure counts.
+    xr_stats: RuntimeXrStats,
 }
 
 impl RendererRuntime {
@@ -159,23 +138,11 @@ impl RendererRuntime {
             backend: RenderBackend::new(),
             scene: SceneCoordinator::new(),
             host_camera: HostCameraFrame::default(),
-            settings,
-            config_save_path,
-            host_hud: crate::diagnostics::HostHudGatherer::default(),
-            frame_time_history: crate::diagnostics::FrameTimeHistory::new(),
-            frame_timing_ema: crate::diagnostics::FrameTimingEma::default(),
-            last_submit_render_task_count: 0,
-            allocator_report_hud: None,
-            allocator_report_totals: crate::diagnostics::GpuAllocatorHud::default(),
-            allocator_report_last_refresh: None,
-            did_integrate_this_tick: false,
-            frame_submit_apply_failures: 0,
-            xr_wait_frame_failures: 0,
-            xr_locate_views_failures: 0,
-            unhandled_ipc_command_counts: HashMap::new(),
-            suppress_renderer_config_disk_writes: false,
-            pending_shader_resolutions: Vec::new(),
-            secondary_view_tasks_scratch: Vec::new(),
+            config: RuntimeConfigState::new(settings, config_save_path),
+            diagnostics: RuntimeDiagnosticsState::new(),
+            ipc_state: RuntimeIpcState::new(),
+            tick_state: RuntimeTickState::new(),
+            xr_stats: RuntimeXrStats::default(),
         }
     }
 }

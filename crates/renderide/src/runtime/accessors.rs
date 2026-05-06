@@ -14,32 +14,32 @@ use super::RendererRuntime;
 impl RendererRuntime {
     /// Updates the latest [`crate::shared::FrameSubmitData::render_tasks`] count for the HUD.
     pub(crate) fn set_last_submit_render_task_count(&mut self, n: usize) {
-        self.last_submit_render_task_count = n;
+        self.diagnostics.set_last_submit_render_task_count(n);
     }
 
     /// Increments the cumulative scene-apply failure counter surfaced on the diagnostics HUD.
     pub(crate) fn note_frame_submit_apply_failure(&mut self) {
-        self.frame_submit_apply_failures = self.frame_submit_apply_failures.saturating_add(1);
+        self.diagnostics.note_frame_submit_apply_failure();
     }
 
     /// Disables writing `config.toml` from the HUD when load-time Figment extraction failed.
     pub fn set_suppress_renderer_config_disk_writes(&mut self, value: bool) {
-        self.suppress_renderer_config_disk_writes = value;
+        self.config.set_suppress_renderer_config_disk_writes(value);
     }
 
     /// Whether disk persistence of renderer settings is blocked (bad on-disk config at startup).
     pub fn suppress_renderer_config_disk_writes(&self) -> bool {
-        self.suppress_renderer_config_disk_writes
+        self.config.suppress_renderer_config_disk_writes()
     }
 
     /// Shared settings store ([`crate::config::RendererSettings`]).
     pub fn settings(&self) -> &RendererSettingsHandle {
-        &self.settings
+        &self.config.settings
     }
 
     /// Path written by the **Renderer config** ImGui window and [`crate::config::save_renderer_settings`].
     pub fn config_save_path(&self) -> &PathBuf {
-        &self.config_save_path
+        self.config.config_save_path()
     }
 
     /// Mesh deformation compute pipelines when GPU init succeeded.
@@ -107,6 +107,10 @@ impl RendererRuntime {
         let device = gpu.device().clone();
         let queue = Arc::clone(gpu.queue());
         let gpu_queue_access_gate = gpu.gpu_queue_access_gate().clone();
+        let renderer_settings = Arc::clone(&self.config.settings);
+        let config_save_path = self.config.cloned_config_save_path();
+        let suppress_renderer_config_disk_writes =
+            self.config.suppress_renderer_config_disk_writes();
         let shm = self.frontend.shared_memory_mut();
         if let Err(e) = self.backend.attach(
             crate::backend::RenderBackendAttachDesc {
@@ -115,9 +119,9 @@ impl RendererRuntime {
                 gpu_queue_access_gate,
                 gpu_limits: Arc::clone(gpu.limits()),
                 surface_format: gpu.config_format(),
-                renderer_settings: Arc::clone(&self.settings),
-                config_save_path: self.config_save_path.clone(),
-                suppress_renderer_config_disk_writes: self.suppress_renderer_config_disk_writes,
+                renderer_settings,
+                config_save_path,
+                suppress_renderer_config_disk_writes,
             },
             shm,
         ) {

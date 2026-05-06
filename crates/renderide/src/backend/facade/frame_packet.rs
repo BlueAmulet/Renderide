@@ -4,7 +4,7 @@ use hashbrown::HashMap;
 
 use crate::gpu_pools::MeshPool;
 use crate::materials::ShaderPermutation;
-use crate::materials::host_data::{MaterialDictionary, MaterialPropertyStore};
+use crate::materials::host_data::MaterialPropertyStore;
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter};
 use crate::reflection_probes::specular::ReflectionProbeFrameSelection;
 use crate::scene::{SceneApplyReport, SceneCacheFlushReport, SceneCoordinator};
@@ -13,6 +13,7 @@ use crate::world_mesh::{
     FrameMaterialBatchCache, FramePreparedRenderables, WorldMeshDrawCollectParallelism,
 };
 
+use super::draw_preparation::DrawPreparationExtractDesc;
 use super::{OcclusionSystem, RenderBackend};
 
 /// Immutable backend-owned extraction snapshot produced by [`RenderBackend::extract_frame_shared`].
@@ -51,17 +52,19 @@ pub(crate) struct ExtractedFrameShared<'a> {
 impl RenderBackend {
     /// Applies scene mutation reports to backend-owned CPU render-world caches.
     pub(crate) fn note_scene_apply_report(&mut self, report: &SceneApplyReport) {
-        self.render_world.note_scene_apply_report(report);
+        self.draw_preparation.note_scene_apply_report(report);
     }
 
     /// Applies world-cache flush reports to backend-owned CPU render-world caches.
     pub(crate) fn note_scene_cache_flush_report(&mut self, report: &SceneCacheFlushReport) {
-        self.render_world.note_cache_flush_report(report);
+        self.draw_preparation.note_scene_cache_flush_report(report);
     }
 
     /// Prepares clustered-light frame resources from the current scene once for the tick.
     pub(crate) fn prepare_lights_from_scene(&mut self, scene: &SceneCoordinator) {
-        self.frame_resources.prepare_lights_from_scene(scene);
+        self.frame_services
+            .frame_resources
+            .prepare_lights_from_scene(scene);
     }
 
     /// Drains completed Hi-Z readbacks into CPU snapshots at the top of the tick.
@@ -84,66 +87,16 @@ impl RenderBackend {
         inner_parallelism: WorldMeshDrawCollectParallelism,
         view_shader_permutations: impl IntoIterator<Item = ShaderPermutation>,
     ) -> ExtractedFrameShared<'a> {
-        let property_store = self.materials.material_property_store();
-        let router = self
-            .materials
-            .material_registry()
-            .map_or(&self.null_material_router, |registry| &registry.router);
-        let pipeline_property_ids = self.materials.pipeline_property_resolver().resolve();
-
-        let prepared_renderables = {
-            profiling::scope!("render::build_frame_prepared_renderables");
-            self.render_world.prepare_for_frame(
+        self.draw_preparation
+            .extract_frame_shared(DrawPreparationExtractDesc {
                 scene,
-                self.asset_transfers.mesh_pool(),
+                materials: &self.materials,
+                asset_transfers: &self.asset_transfers,
+                occlusion: &self.occlusion,
+                reflection_probes: self.reflection_probes.selection(),
                 render_context,
-            )
-        };
-
-        {
-            profiling::scope!("render::build_frame_material_cache");
-            let dict = MaterialDictionary::new(property_store);
-            // Always refresh the mono cache so the steady-state working set stays warm even when
-            // every view uses a non-mono permutation this frame.
-            self.material_batch_caches
-                .entry(ShaderPermutation(0))
-                .or_default()
-                .refresh_for_prepared(
-                    prepared_renderables,
-                    &dict,
-                    router,
-                    &pipeline_property_ids,
-                    ShaderPermutation(0),
-                );
-            for perm in view_shader_permutations {
-                if perm == ShaderPermutation(0) {
-                    continue;
-                }
-                self.material_batch_caches
-                    .entry(perm)
-                    .or_default()
-                    .refresh_for_prepared(
-                        prepared_renderables,
-                        &dict,
-                        router,
-                        &pipeline_property_ids,
-                        perm,
-                    );
-            }
-        };
-
-        ExtractedFrameShared {
-            scene,
-            mesh_pool: self.asset_transfers.mesh_pool(),
-            property_store,
-            router,
-            pipeline_property_ids,
-            render_context,
-            material_caches: &self.material_batch_caches,
-            prepared_renderables,
-            occlusion: &self.occlusion,
-            reflection_probes: self.reflection_probe_specular.selection(),
-            inner_parallelism,
-        }
+                inner_parallelism,
+                view_shader_permutations,
+            })
     }
 }

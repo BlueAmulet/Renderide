@@ -18,11 +18,11 @@ use super::{RendererRuntime, lockstep};
 impl RendererRuntime {
     /// Total number of post-handshake IPC commands logged as unhandled (sum of per-variant counters).
     pub fn unhandled_ipc_command_event_total(&self) -> u64 {
-        self.unhandled_ipc_command_counts.values().copied().sum()
+        self.ipc_state.unhandled_command_event_total()
     }
 
     pub(crate) fn record_unhandled_renderer_command(&mut self, tag: &'static str) {
-        *self.unhandled_ipc_command_counts.entry(tag).or_insert(0) += 1;
+        self.ipc_state.record_unhandled_renderer_command(tag);
     }
 
     /// Drains IPC and dispatches commands. Each poll batch is ordered so `renderer_init_data` runs
@@ -30,7 +30,7 @@ impl RendererRuntime {
     pub fn poll_ipc(&mut self) {
         profiling::scope!("ipc::poll_batch");
         crate::frontend::dispatch::shader_material_ipc::drain_pending_shader_resolutions(
-            &mut self.pending_shader_resolutions,
+            &mut self.ipc_state.pending_shader_resolutions,
             &mut self.backend,
             &mut self.frontend,
         );
@@ -38,7 +38,7 @@ impl RendererRuntime {
         trace_ipc_batch(
             &batch,
             self.frontend.init_state(),
-            self.pending_shader_resolutions.len(),
+            self.ipc_state.pending_shader_resolutions.len(),
         );
         for cmd in batch.drain(..) {
             let _tag = renderer_command_variant_tag(&cmd);
@@ -87,7 +87,7 @@ impl RendererRuntime {
 
     pub(crate) fn on_shader_upload(&mut self, upload: ShaderUpload) {
         crate::frontend::dispatch::shader_material_ipc::on_shader_upload(
-            &mut self.pending_shader_resolutions,
+            &mut self.ipc_state.pending_shader_resolutions,
             upload,
         );
     }

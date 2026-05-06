@@ -21,7 +21,7 @@ impl RendererRuntime {
     /// Records wall-clock spacing for host FPS metrics. Call at the very start of each winit tick,
     /// before [`Self::poll_ipc`], OpenXR, and [`Self::pre_frame`].
     pub fn tick_frame_wall_clock_begin(&mut self, now: Instant) {
-        self.did_integrate_this_tick = false;
+        self.tick_state.reset_for_tick();
         self.frontend.reset_ipc_outbound_drop_tick_flags();
         self.backend.reset_light_prep_for_tick();
         self.frontend.on_tick_frame_wall_clock(now);
@@ -68,10 +68,7 @@ impl RendererRuntime {
     /// the begin-frame send fires; if the send is skipped, samples accumulate harmlessly until the
     /// next allowed send.
     pub fn pre_frame(&mut self, inputs: InputState) {
-        let video_clock_errors = self
-            .backend
-            .asset_transfers
-            .take_pending_video_clock_errors();
+        let video_clock_errors = self.backend.take_pending_video_clock_errors();
         self.frontend.enqueue_video_clock_errors(video_clock_errors);
         self.frontend.pre_frame(inputs);
     }
