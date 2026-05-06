@@ -69,9 +69,11 @@ pub struct FrameGpuUniformBuildParams {
     pub right_projection_flags: u32,
     /// Monotonic host frame index used by temporal effects.
     pub frame_index: u32,
-    /// Packed skybox indirect-specular state for shader sampling.
+    /// Whether `ambient_sh` contains host-authored lighting data.
+    pub ambient_sh_valid: bool,
+    /// Reserved direct skybox specular state; specular IBL comes from reflection probes.
     pub skybox_specular: SkyboxSpecularUniformParams,
-    /// Skybox-derived SH2 irradiance coefficients for indirect diffuse.
+    /// Host ambient SH2 coefficients for indirect diffuse.
     pub ambient_sh: [[f32; 4]; 9],
 }
 
@@ -137,6 +139,7 @@ impl ClusterFrameParams {
             frame_index: params.frame_index,
             projection_flags_left: self.projection_flags,
             projection_flags_right: params.right_projection_flags,
+            ambient_sh_valid: params.ambient_sh_valid,
             skybox_specular: params.skybox_specular,
             ambient_sh: params.ambient_sh,
         })

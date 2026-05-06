@@ -1,6 +1,6 @@
-//! Resolves the active main render space's skybox material into a unified IBL bake source.
+//! Resolves a skybox material into a unified IBL bake source.
 //!
-//! Returns an [`SkyboxIblSource`] that the [`crate::skybox::SkyboxIblCache`] consumes to schedule
+//! Returns an [`SkyboxIblSource`] that the [`crate::skybox::ibl_cache::SkyboxIblCache`] consumes to schedule
 //! a GGX-prefiltered cubemap bake. Three source variants are produced today:
 //! - [`SkyboxIblSource::Analytic`] for procedural / gradient skyboxes.
 //! - [`SkyboxIblSource::Cubemap`] for Projection360 `_MainCube` (or `_MainTex` cubemap fallback).
@@ -17,10 +17,9 @@ use crate::materials::MaterialSystem;
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
-use crate::scene::SceneCoordinator;
 use crate::skybox::params::{
-    DEFAULT_MAIN_TEX_ST, PROJECTION360_DEFAULT_FOV, SkyboxEvaluatorParams, gradient_sky_params,
-    procedural_sky_params,
+    DEFAULT_MAIN_TEX_ST, PROJECTION360_DEFAULT_FOV, SkyboxEvaluatorParams, SkyboxParamMode,
+    gradient_sky_params, procedural_sky_params,
 };
 
 /// Active skybox source to be baked into a GGX-prefiltered cubemap.
@@ -35,6 +34,8 @@ pub(crate) enum SkyboxIblSource {
     Cubemap(CubemapIblSource),
     /// Resident host-uploaded equirect Texture2D (`Projection360 _MainTex`).
     Equirect(EquirectIblSource),
+    /// Analytic constant-color source.
+    SolidColor(SolidColorIblSource),
 }
 
 /// Analytic skybox material identity and evaluator parameters.
@@ -57,6 +58,8 @@ pub(crate) struct CubemapIblSource {
     pub face_size: u32,
     /// Resident mip count of the source cubemap.
     pub mip_levels_resident: u32,
+    /// Source cubemap content generation; invalidates bakes when texels are re-uploaded.
+    pub content_generation: u64,
     /// Whether sampling needs V-axis storage compensation.
     pub storage_v_inverted: bool,
     /// Cube-dimension texture view used as the bake input.
@@ -67,8 +70,14 @@ pub(crate) struct CubemapIblSource {
 pub(crate) struct EquirectIblSource {
     /// Source Texture2D asset id.
     pub asset_id: i32,
+    /// Mip0 width in texels.
+    pub width: u32,
+    /// Mip0 height in texels.
+    pub height: u32,
     /// Resident mip count of the source texture.
     pub mip_levels_resident: u32,
+    /// Source texture content generation; invalidates bakes when texels are re-uploaded.
+    pub content_generation: u64,
     /// Whether sampling needs V-axis storage compensation.
     pub storage_v_inverted: bool,
     /// 2D texture view used as the bake input.
@@ -79,13 +88,20 @@ pub(crate) struct EquirectIblSource {
     pub equirect_st: [f32; 4],
 }
 
-/// Resolves the active main render space's skybox material into an IBL bake source.
-pub(crate) fn resolve_active_main_skybox_ibl_source(
-    scene: &SceneCoordinator,
+/// Constant-color source identity and color.
+pub(crate) struct SolidColorIblSource {
+    /// Renderer-side identity for this color source.
+    pub identity: u64,
+    /// Linear RGB color with alpha padding.
+    pub color: [f32; 4],
+}
+
+/// Resolves one skybox material into an IBL bake source.
+pub(crate) fn resolve_skybox_material_ibl_source(
+    material_asset_id: i32,
     materials: &MaterialSystem,
     assets: &AssetTransferQueue,
 ) -> Option<SkyboxIblSource> {
-    let material_asset_id = active_main_skybox_material_asset_id(scene)?;
     let store = materials.material_property_store();
     let shader_asset_id = store.shader_asset_for_material(material_asset_id)?;
     let route_name = shader_route_name(materials, shader_asset_id)?;
@@ -127,10 +143,17 @@ pub(crate) fn resolve_active_main_skybox_ibl_source(
     None
 }
 
-/// Returns the skybox material id from the active non-overlay render space.
-fn active_main_skybox_material_asset_id(scene: &SceneCoordinator) -> Option<i32> {
-    let material_asset_id = scene.active_main_space()?.skybox_material_asset_id;
-    (material_asset_id >= 0).then_some(material_asset_id)
+/// Builds a constant-color IBL source.
+pub(crate) fn solid_color_ibl_source(identity: u64, color: [f32; 4]) -> SkyboxIblSource {
+    SkyboxIblSource::SolidColor(SolidColorIblSource { identity, color })
+}
+
+/// Builds analytic evaluator params for a constant-color source.
+pub(crate) fn solid_color_params(color: [f32; 4]) -> SkyboxEvaluatorParams {
+    let mut params = SkyboxEvaluatorParams::empty(SkyboxParamMode::Gradient);
+    params.color0 = color;
+    params.gradient_count = 0;
+    params
 }
 
 /// Returns a shader route name or stem for a shader asset id.
@@ -205,6 +228,7 @@ fn resolve_projection360_cubemap_source(
         asset_id,
         face_size: cubemap.size,
         mip_levels_resident: cubemap.mip_levels_resident,
+        content_generation: cubemap.content_generation,
         storage_v_inverted: cubemap.storage_v_inverted,
         view: cubemap.view.clone(),
     }))
@@ -228,7 +252,10 @@ fn resolve_projection360_equirect_source(
     }
     Some(SkyboxIblSource::Equirect(EquirectIblSource {
         asset_id,
+        width: texture.width,
+        height: texture.height,
         mip_levels_resident: texture.mip_levels_resident,
+        content_generation: texture.content_generation,
         storage_v_inverted: texture.storage_v_inverted,
         view: texture.view.clone(),
         equirect_fov: float4_property(store, registry, lookup, "_FOV", PROJECTION360_DEFAULT_FOV),
@@ -240,10 +267,7 @@ fn resolve_projection360_equirect_source(
 mod tests {
     use super::*;
 
-    use crate::ipc::SharedMemoryAccessor;
     use crate::materials::host_data::MaterialPropertyValue;
-    use crate::scene::SceneCoordinator;
-    use crate::shared::{FrameSubmitData, RenderSpaceUpdate};
 
     /// Packs a host texture id using the same high-bit asset-kind tag as the shared host packer.
     fn pack_host_texture(asset_id: i32, kind: HostTextureAssetKind) -> i32 {
@@ -354,44 +378,5 @@ mod tests {
             )) => Some((asset_id, kind)),
             _ => None,
         }
-    }
-
-    #[test]
-    fn active_main_skybox_uses_lowest_active_non_overlay_space() {
-        let mut scene = SceneCoordinator::new();
-        let mut shm = SharedMemoryAccessor::new(String::new());
-        scene
-            .apply_frame_submit(
-                &mut shm,
-                &FrameSubmitData {
-                    render_spaces: vec![
-                        RenderSpaceUpdate {
-                            id: 10,
-                            is_active: true,
-                            is_overlay: false,
-                            skybox_material_asset_id: 100,
-                            ..RenderSpaceUpdate::default()
-                        },
-                        RenderSpaceUpdate {
-                            id: 2,
-                            is_active: true,
-                            is_overlay: false,
-                            skybox_material_asset_id: 200,
-                            ..RenderSpaceUpdate::default()
-                        },
-                        RenderSpaceUpdate {
-                            id: 1,
-                            is_active: true,
-                            is_overlay: true,
-                            skybox_material_asset_id: 300,
-                            ..RenderSpaceUpdate::default()
-                        },
-                    ],
-                    ..FrameSubmitData::default()
-                },
-            )
-            .expect("empty render-space headers should apply without shared buffers");
-
-        assert_eq!(active_main_skybox_material_asset_id(&scene), Some(200));
     }
 }

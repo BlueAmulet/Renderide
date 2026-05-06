@@ -2,8 +2,8 @@
 //!
 //! Submodules:
 //! - [`uniforms`] -- the [`FrameGpuUniforms`] WGSL-matched Pod struct + per-eye / SH math.
-//! - [`skybox_specular`] -- [`SkyboxSpecularUniformParams`] / [`SkyboxSpecularSourceKind`]
-//!   for indirect specular sampling.
+//! - [`skybox_specular`] -- reserved [`SkyboxSpecularUniformParams`] /
+//!   [`SkyboxSpecularSourceKind`] packing for the disabled direct skybox specular slot.
 //! - [`clustered`] -- [`ClusteredFrameGlobalsParams`] input bundle and the
 //!   [`FrameGpuUniforms::new_clustered`] constructor.
 

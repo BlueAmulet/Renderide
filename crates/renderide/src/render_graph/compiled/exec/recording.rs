@@ -47,6 +47,12 @@ fn world_mesh_command_stats_from_blackboard(blackboard: &Blackboard) -> WorldMes
         .iter()
         .map(&group_pipeline_passes)
         .sum();
+    let post_skybox_pipeline_passes: usize = prepared
+        .plan
+        .post_skybox_groups
+        .iter()
+        .map(&group_pipeline_passes)
+        .sum();
     let intersect_pipeline_passes: usize = prepared
         .plan
         .intersect_groups
@@ -65,9 +71,11 @@ fn world_mesh_command_stats_from_blackboard(blackboard: &Blackboard) -> WorldMes
             .plan
             .regular_groups
             .len()
+            .saturating_add(prepared.plan.post_skybox_groups.len())
             .saturating_add(prepared.plan.intersect_groups.len())
             .saturating_add(prepared.plan.transparent_groups.len()),
         pipeline_pass_submits: regular_pipeline_passes
+            .saturating_add(post_skybox_pipeline_passes)
             .saturating_add(intersect_pipeline_passes)
             .saturating_add(transparent_pipeline_passes),
     }

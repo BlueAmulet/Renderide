@@ -1,19 +1,17 @@
-//! Frame-global skybox specular sampling parameters.
+//! Reserved frame-global skybox specular sampling parameters.
 //!
 //! Pure data: packs sampling state ([`SkyboxSpecularUniformParams`]) into the trailing
 //! `vec4<f32>` slot of [`crate::gpu::frame_globals::FrameGpuUniforms`].
 //!
-//! The renderer always converts the active skybox into a single GGX-prefiltered cubemap before
-//! binding it as the indirect specular source, so equirect-specific sampling state is no longer
-//! plumbed through the frame globals. The runtime sample path is a single
-//! `textureSampleLevel(skybox_specular, dir, lod)` against that cube.
+//! Direct skybox specular lighting is disabled. Skybox-authored specular IBL is supplied through
+//! reflection probes, so this slot is preserved only for uniform layout stability.
 
-/// Frame-global indicator that the indirect-specular source is active.
+/// Frame-global indicator for the disabled direct skybox specular source.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SkyboxSpecularSourceKind {
-    /// No resident indirect-specular cube is bound.
+    /// No direct skybox specular cube is bound.
     Disabled,
-    /// `@group(0) @binding(9)` is a GGX-prefiltered cubemap.
+    /// Reserved cubemap tag retained for frame-uniform compatibility.
     Cubemap,
 }
 
@@ -31,16 +29,16 @@ impl SkyboxSpecularSourceKind {
 /// [`crate::gpu::frame_globals::FrameGpuUniforms::skybox_specular`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SkyboxSpecularUniformParams {
-    /// Highest resident source mip available for roughness-driven sampling.
+    /// Highest resident source mip available for the disabled direct skybox path.
     pub max_lod: f32,
-    /// Whether the frame has a resident skybox source bound for indirect specular.
+    /// Whether the disabled direct skybox path has a source bound.
     pub enabled: bool,
-    /// Active source kind (cube or disabled).
+    /// Reserved source kind (cube or disabled).
     pub source_kind: SkyboxSpecularSourceKind,
 }
 
 impl SkyboxSpecularUniformParams {
-    /// Disabled skybox specular environment.
+    /// Disabled direct skybox specular state.
     pub const fn disabled() -> Self {
         Self {
             max_lod: 0.0,

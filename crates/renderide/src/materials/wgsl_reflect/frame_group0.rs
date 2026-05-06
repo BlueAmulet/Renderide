@@ -4,6 +4,7 @@ use naga::proc::Layouter;
 use naga::{AddressSpace, ImageClass, ImageDimension, Module, ScalarKind, TypeInner};
 
 use crate::backend::GpuLight;
+use crate::backend::frame_gpu::GpuReflectionProbeMetadata;
 use crate::gpu::frame_globals::FrameGpuUniforms;
 
 use super::resource::{resource_data_ty, storage_array_element_stride};
@@ -45,11 +46,13 @@ pub(super) fn validate_frame_group0(
     let expected_frame = size_of::<FrameGpuUniforms>() as u32;
     let expected_light = size_of::<GpuLight>() as u32;
     let expected_cluster_u32 = size_of::<u32>() as u32;
+    let expected_probe = size_of::<GpuReflectionProbeMetadata>() as u32;
 
     let mut b0_size: Option<u32> = None;
     let mut b1_stride: Option<u32> = None;
     let mut b2_stride: Option<u32> = None;
     let mut b3_stride: Option<u32> = None;
+    let mut b12_stride: Option<u32> = None;
 
     for (_, gv) in module.global_variables.iter() {
         let Some(rb) = gv.binding else {
@@ -58,11 +61,11 @@ pub(super) fn validate_frame_group0(
         if rb.group != 0 {
             continue;
         }
-        if rb.binding > 11 {
+        if rb.binding > 12 {
             return Err(ReflectError::UnsupportedBinding {
                 group: 0,
                 binding: rb.binding,
-                reason: "only bindings 0..=11 are supported for raster frame globals".into(),
+                reason: "only bindings 0..=12 are supported for raster frame globals".into(),
             });
         }
         let (space, data_ty) = resource_data_ty(module, gv);
@@ -83,7 +86,7 @@ pub(super) fn validate_frame_group0(
                 validate_frame_color_sampler_binding(module, data_ty, rb.binding)?;
             }
             (9, AddressSpace::Handle) => {
-                validate_frame_skybox_specular_cube_binding(module, data_ty, rb.binding)?;
+                validate_frame_reflection_probe_cube_array_binding(module, data_ty, rb.binding)?;
             }
             (10, AddressSpace::Handle) => {
                 validate_frame_color_sampler_binding(module, data_ty, rb.binding)?;
@@ -100,6 +103,7 @@ pub(super) fn validate_frame_group0(
                     1 => b1_stride = Some(stride),
                     2 => b2_stride = Some(stride),
                     3 => b3_stride = Some(stride),
+                    12 => b12_stride = Some(stride),
                     _ => {}
                 }
             }
@@ -107,10 +111,12 @@ pub(super) fn validate_frame_group0(
         }
     }
 
+    let probe_stride_matches = b12_stride.is_none_or(|stride| stride == expected_probe);
     if b0_size == Some(expected_frame)
         && b1_stride == Some(expected_light)
         && b2_stride == Some(expected_cluster_u32)
         && b3_stride == Some(expected_cluster_u32)
+        && probe_stride_matches
     {
         Ok(())
     } else {
@@ -118,15 +124,17 @@ pub(super) fn validate_frame_group0(
             expected_frame,
             expected_light,
             expected_cluster_u32,
+            expected_probe,
             got0: b0_size,
             got1: b1_stride,
             got2: b2_stride,
             got3: b3_stride,
+            got12: b12_stride,
         })
     }
 }
 
-fn validate_frame_skybox_specular_cube_binding(
+fn validate_frame_reflection_probe_cube_array_binding(
     module: &Module,
     data_ty: naga::Handle<naga::Type>,
     binding: u32,
@@ -134,7 +142,7 @@ fn validate_frame_skybox_specular_cube_binding(
     match &module.types[data_ty].inner {
         TypeInner::Image {
             dim: ImageDimension::Cube,
-            arrayed: false,
+            arrayed: true,
             class:
                 ImageClass::Sampled {
                     kind: ScalarKind::Float,
@@ -144,7 +152,7 @@ fn validate_frame_skybox_specular_cube_binding(
         TypeInner::Image { .. } => Err(ReflectError::UnsupportedBinding {
             group: 0,
             binding,
-            reason: "expected texture_cube<f32>".into(),
+            reason: "expected texture_cube_array<f32>".into(),
         }),
         _ => Err(ReflectError::UnsupportedBinding {
             group: 0,

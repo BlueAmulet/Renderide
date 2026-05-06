@@ -70,6 +70,7 @@ pub(super) fn resolve_task_source(
                     asset_id: state.cubemap_asset_id,
                     size: 0,
                     resident_mips: 0,
+                    content_generation: 0,
                     sample_size: DEFAULT_SAMPLE_SIZE,
                     material_generation: 0,
                 },
@@ -83,6 +84,7 @@ pub(super) fn resolve_task_source(
                     asset_id: state.cubemap_asset_id,
                     size: cubemap.size,
                     resident_mips: 0,
+                    content_generation: cubemap.content_generation,
                     sample_size: DEFAULT_SAMPLE_SIZE,
                     material_generation: 0,
                 },
@@ -94,6 +96,7 @@ pub(super) fn resolve_task_source(
             asset_id: state.cubemap_asset_id,
             size: cubemap.size,
             resident_mips: cubemap.mip_levels_resident,
+            content_generation: cubemap.content_generation,
             sample_size: DEFAULT_SAMPLE_SIZE,
             material_generation: 0,
         };
@@ -257,6 +260,7 @@ fn resolve_projection360_cubemap_source(
                 asset_id,
                 size: 0,
                 resident_mips: 0,
+                content_generation: 0,
                 sample_size: DEFAULT_SAMPLE_SIZE,
                 material_generation: generation,
             },
@@ -268,6 +272,7 @@ fn resolve_projection360_cubemap_source(
         asset_id,
         size: cubemap.size,
         resident_mips: cubemap.mip_levels_resident,
+        content_generation: cubemap.content_generation,
         sample_size: DEFAULT_SAMPLE_SIZE,
         material_generation: generation,
     };
@@ -296,9 +301,7 @@ fn resolve_projection360_texture2d_source(
             projection360_equirect_source_key(
                 render_space_id,
                 asset_id,
-                0,
-                0,
-                0,
+                Projection360TextureSourceState::default(),
                 generation,
                 &params,
             ),
@@ -309,9 +312,12 @@ fn resolve_projection360_texture2d_source(
     let key = projection360_equirect_source_key(
         render_space_id,
         asset_id,
-        tex.width,
-        tex.height,
-        tex.mip_levels_resident,
+        Projection360TextureSourceState {
+            width: tex.width,
+            height: tex.height,
+            resident_mips: tex.mip_levels_resident,
+            content_generation: tex.content_generation,
+        },
         generation,
         &params,
     );
@@ -327,22 +333,29 @@ fn resolve_projection360_texture2d_source(
     )
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+struct Projection360TextureSourceState {
+    width: u32,
+    height: u32,
+    resident_mips: u32,
+    content_generation: u64,
+}
+
 /// Builds an equirectangular source key from texture residency and Projection360 parameters.
 fn projection360_equirect_source_key(
     render_space_id: i32,
     asset_id: i32,
-    width: u32,
-    height: u32,
-    resident_mips: u32,
+    texture: Projection360TextureSourceState,
     generation: u64,
     params: &Sh2ProjectParams,
 ) -> Sh2SourceKey {
     Sh2SourceKey::EquirectTexture2D {
         render_space_id,
         asset_id,
-        width,
-        height,
-        resident_mips,
+        width: texture.width,
+        height: texture.height,
+        resident_mips: texture.resident_mips,
+        content_generation: texture.content_generation,
         sample_size: DEFAULT_SAMPLE_SIZE,
         material_generation: generation,
         projection: Projection360EquirectKey::from_params(params),
@@ -396,7 +409,18 @@ mod tests {
         params.color1 = [0.5, 0.5, 0.25, 0.75];
         params.scalars = [1.0, 0.0, 0.0, 0.0];
 
-        let key = projection360_equirect_source_key(7, 11, 512, 256, 3, 99, &params);
+        let key = projection360_equirect_source_key(
+            7,
+            11,
+            Projection360TextureSourceState {
+                width: 512,
+                height: 256,
+                resident_mips: 3,
+                content_generation: 42,
+            },
+            99,
+            &params,
+        );
 
         assert_eq!(
             key,
@@ -406,6 +430,7 @@ mod tests {
                 width: 512,
                 height: 256,
                 resident_mips: 3,
+                content_generation: 42,
                 sample_size: DEFAULT_SAMPLE_SIZE,
                 material_generation: 99,
                 projection: Projection360EquirectKey::from_params(&params),

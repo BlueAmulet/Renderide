@@ -5,5 +5,4 @@ pub(crate) mod params;
 mod prepared;
 pub(crate) mod specular;
 
-pub(crate) use ibl_cache::SkyboxIblCache;
 pub use prepared::{PreparedClearColorSkybox, PreparedMaterialSkybox, PreparedSkybox};

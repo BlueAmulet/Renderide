@@ -83,6 +83,7 @@ fn draw_transform_scale_filter_allows_unit_scale() {
         culling: None,
         transform_filter: None,
         material_cache: None,
+        reflection_probes: None,
         prepared: None,
     };
 

@@ -60,13 +60,14 @@ fn cluster_id_from_frag(
     let count_x = max(cluster_count_x, 1u);
     let count_y = max(cluster_count_y, 1u);
     let count_z = max(cluster_count_z, 1u);
-    let z_coeffs = select(view_space_z_coeffs, view_space_z_coeffs_right, view_index != 0u);
+    let physical_view_index = rg::view_index_from_layer(view_index);
+    let z_coeffs = select(view_space_z_coeffs, view_space_z_coeffs_right, physical_view_index != 0u);
     let view_z = dot(z_coeffs.xyz, world_pos) + z_coeffs.w;
     let cluster_z = cluster_z_from_view_z(view_z, near_clip, far_clip, count_z);
     let cluster_xy = cluster_xy_from_frag(clip_xy, viewport_w, viewport_h);
     let cx = min(cluster_xy.x, count_x - 1u);
     let cy = min(cluster_xy.y, count_y - 1u);
     let local_id = cx + count_x * (cy + count_y * cluster_z);
-    let cluster_offset = view_index * count_x * count_y * count_z;
+    let cluster_offset = physical_view_index * count_x * count_y * count_z;
     return cluster_offset + local_id;
 }

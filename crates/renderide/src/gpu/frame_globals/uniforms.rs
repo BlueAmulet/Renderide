@@ -6,10 +6,8 @@ use glam::Mat4;
 
 use crate::shared::RenderSH2;
 
-/// Diffuse fallback used before host ambient SH arrives.
-pub(super) const FALLBACK_AMBIENT_COLOR: f32 = 0.03;
-/// Zeroth-order SH basis constant used for fallback packing.
-pub(super) const SH_C0: f32 = 0.282_094_8;
+/// Frame tail bit that indicates frame ambient SH2 contains host-authored data.
+pub const FRAME_TAIL_AMBIENT_SH_VALID: u32 = 1;
 
 /// Frame projection flag indicating that the corresponding view uses orthographic projection.
 pub const FRAME_PROJECTION_FLAG_ORTHOGRAPHIC: u32 = 1;
@@ -19,7 +17,7 @@ pub const FRAME_PROJECTION_FLAG_ORTHOGRAPHIC: u32 = 1;
 /// Encodes per-eye camera positions, per-eye coefficients for view-space Z from world position,
 /// clustered grid dimensions, clip planes, light count, viewport size, per-eye projection
 /// coefficients for screen-space-to-view unprojection, a monotonic frame index for temporal /
-/// jittered effects, skybox specular environment sampling parameters, and ambient SH2.
+/// jittered effects, a reserved direct skybox specular slot, and ambient SH2.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct FrameGpuUniforms {
@@ -60,10 +58,10 @@ pub struct FrameGpuUniforms {
     pub proj_params_right: [f32; 4],
     /// Packed trailing `vec4<u32>` slot: `.x` is the monotonic frame index (wraps
     /// `host_camera.frame_index`; used for temporal / jittered screen-space effects), `.y` holds
-    /// left/mono projection flags, `.z` holds right-eye projection flags, and `.w` is reserved
-    /// padding.
+    /// left/mono projection flags, `.z` holds right-eye projection flags, and `.w` is
+    /// [`FRAME_TAIL_AMBIENT_SH_VALID`] when ambient SH2 is host-authored.
     pub frame_tail: [u32; 4],
-    /// Skybox specular parameters: `.x` max resident LOD, `.y` enabled flag,
+    /// Reserved direct skybox specular parameters: `.x` max resident LOD, `.y` enabled flag,
     /// `.z` [`super::skybox_specular::SkyboxSpecularSourceKind`] tag, `.w` reserved.
     pub skybox_specular: [f32; 4],
     /// Ambient SH2 coefficients (`RenderSH2` order), padded to WGSL `vec4<f32>` slots.
@@ -90,20 +88,6 @@ impl FrameGpuUniforms {
 
     /// Pads host SH2 coefficients into WGSL-friendly vec4 slots.
     pub fn ambient_sh_from_render_sh2(sh: &RenderSH2) -> [[f32; 4]; 9] {
-        if render_sh2_is_zero(sh) {
-            let sh0 = FALLBACK_AMBIENT_COLOR * (4.0 * std::f32::consts::PI * SH_C0);
-            return [
-                [sh0, sh0, sh0, 0.0],
-                [0.0; 4],
-                [0.0; 4],
-                [0.0; 4],
-                [0.0; 4],
-                [0.0; 4],
-                [0.0; 4],
-                [0.0; 4],
-                [0.0; 4],
-            ];
-        }
         [
             [sh.sh0.x, sh.sh0.y, sh.sh0.z, 0.0],
             [sh.sh1.x, sh.sh1.y, sh.sh1.z, 0.0],
@@ -116,10 +100,15 @@ impl FrameGpuUniforms {
             [sh.sh8.x, sh.sh8.y, sh.sh8.z, 0.0],
         ]
     }
+
+    /// Returns true when the host SH2 payload contains nonzero lighting data.
+    pub fn ambient_sh_is_valid(sh: &RenderSH2) -> bool {
+        render_sh2_is_nonzero(sh)
+    }
 }
 
-/// Returns true when the host SH payload is still the all-zero default.
-fn render_sh2_is_zero(sh: &RenderSH2) -> bool {
+/// Returns true when the host SH payload contains nonzero lighting data.
+fn render_sh2_is_nonzero(sh: &RenderSH2) -> bool {
     let energy = sh.sh0.abs().element_sum()
         + sh.sh1.abs().element_sum()
         + sh.sh2.abs().element_sum()
@@ -129,5 +118,5 @@ fn render_sh2_is_zero(sh: &RenderSH2) -> bool {
         + sh.sh6.abs().element_sum()
         + sh.sh7.abs().element_sum()
         + sh.sh8.abs().element_sum();
-    energy < 1e-8
+    energy >= 1e-8
 }

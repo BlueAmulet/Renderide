@@ -4,7 +4,6 @@ mod bind_signature;
 mod lookup;
 mod sampler;
 
-pub(crate) use super::bind_kind::TextureBindKind;
 pub(crate) use bind_signature::texture_bind_signature;
 pub(crate) use lookup::{
     ResolvedTextureBinding, primary_texture_2d_asset_id, resolved_texture_binding_for_host,

@@ -4,7 +4,9 @@
 mod offset_and_packing_tests {
     use super::super::clustered::ClusteredFrameGlobalsParams;
     use super::super::skybox_specular::SkyboxSpecularUniformParams;
-    use super::super::uniforms::{FRAME_PROJECTION_FLAG_ORTHOGRAPHIC, FrameGpuUniforms};
+    use super::super::uniforms::{
+        FRAME_PROJECTION_FLAG_ORTHOGRAPHIC, FRAME_TAIL_AMBIENT_SH_VALID, FrameGpuUniforms,
+    };
     use crate::shared::RenderSH2;
     use glam::Mat4;
 
@@ -97,6 +99,7 @@ mod offset_and_packing_tests {
             frame_index: 7,
             projection_flags_left: FRAME_PROJECTION_FLAG_ORTHOGRAPHIC,
             projection_flags_right: 0,
+            ambient_sh_valid: true,
             skybox_specular: SkyboxSpecularUniformParams::from_cubemap_resident_mips(6),
             ambient_sh: [[0.0; 4]; 9],
         });
@@ -114,7 +117,15 @@ mod offset_and_packing_tests {
         assert_eq!(u.viewport_height, 1080);
         assert_eq!(u.proj_params_left, [1.5, 2.5, 0.0, 0.0]);
         assert_eq!(u.proj_params_right, [1.5, 2.5, 0.1, -0.2]);
-        assert_eq!(u.frame_tail, [7, FRAME_PROJECTION_FLAG_ORTHOGRAPHIC, 0, 0]);
+        assert_eq!(
+            u.frame_tail,
+            [
+                7,
+                FRAME_PROJECTION_FLAG_ORTHOGRAPHIC,
+                0,
+                FRAME_TAIL_AMBIENT_SH_VALID
+            ]
+        );
         assert_eq!(u.skybox_specular, [5.0, 1.0, 1.0, 0.0]);
         assert_eq!(u.ambient_sh, [[0.0; 4]; 9]);
     }
@@ -140,6 +151,7 @@ mod offset_and_packing_tests {
             frame_index: 0,
             projection_flags_left: 0,
             projection_flags_right: 0,
+            ambient_sh_valid: false,
             skybox_specular: SkyboxSpecularUniformParams::disabled(),
             ambient_sh: [[0.0; 4]; 9],
         });
@@ -179,10 +191,21 @@ mod offset_and_packing_tests {
     }
 
     #[test]
-    fn zero_render_sh2_packs_startup_fallback() {
+    fn zero_render_sh2_packs_black_and_is_invalid() {
         let packed = FrameGpuUniforms::ambient_sh_from_render_sh2(&RenderSH2::default());
 
-        assert!(packed[0][0] > 0.0);
+        assert_eq!(packed[0], [0.0; 4]);
         assert_eq!(packed[1], [0.0; 4]);
+        assert!(!FrameGpuUniforms::ambient_sh_is_valid(&RenderSH2::default()));
+    }
+
+    #[test]
+    fn nonzero_render_sh2_is_valid() {
+        let sh = RenderSH2 {
+            sh0: glam::Vec3::new(0.01, 0.0, 0.0),
+            ..RenderSH2::default()
+        };
+
+        assert!(FrameGpuUniforms::ambient_sh_is_valid(&sh));
     }
 }

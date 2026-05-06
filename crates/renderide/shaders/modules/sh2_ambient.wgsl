@@ -30,6 +30,11 @@ fn ambient_probe(normal_ws: vec3<f32>) -> vec3<f32> {
     return max(sh, vec3<f32>(0.0));
 }
 
+/// Returns true when the host supplied nonzero frame ambient SH2 data.
+fn ambient_probe_is_valid() -> bool {
+    return rg::frame.frame_tail.w != 0u;
+}
+
 /// Applies diffuse albedo and occlusion to a world-normal ambient probe sample.
 fn ambient_diffuse(normal_ws: vec3<f32>, base_color: vec3<f32>, occlusion: f32) -> vec3<f32> {
     return ambient_probe(normal_ws) * base_color * occlusion;

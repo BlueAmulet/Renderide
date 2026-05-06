@@ -4,8 +4,10 @@ use super::*;
 use crate::materials::RasterPrimitiveTopology;
 use crate::materials::host_data::MaterialPropertyLookupIds;
 use crate::materials::render_queue_is_transparent;
+use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
 use crate::scene::MeshRendererInstanceId;
 use crate::world_mesh::materials::compute_batch_key_hash;
+use glam::Vec3;
 
 /// View-local material-slot draw candidate shared by scene-walk and prepared collection.
 pub(super) struct DrawCandidate {
@@ -39,6 +41,8 @@ pub(super) struct DrawCandidate {
     pub(super) material_asset_id: i32,
     /// Property block associated with material slot zero.
     pub(super) property_block_id: Option<i32>,
+    /// World-space object AABB used for CPU reflection-probe selection.
+    pub(super) world_aabb: Option<(Vec3, Vec3)>,
 }
 
 /// Builds a draw item from a cull-surviving material-slot candidate without allocating.
@@ -91,6 +95,11 @@ pub(super) fn evaluate_draw_candidate(
         opaque_depth_bucket,
         batch_key_hash,
     );
+    let reflection_probes = match (ctx.reflection_probes, candidate.world_aabb) {
+        (Some(selection), Some(aabb)) => selection.select(candidate.space_id, aabb),
+        (Some(selection), None) => selection.fallback(candidate.space_id),
+        _ => ReflectionProbeDrawSelection::default(),
+    };
     Some(WorldMeshDrawItem {
         space_id: candidate.space_id,
         node_id: candidate.node_id,
@@ -113,6 +122,7 @@ pub(super) fn evaluate_draw_candidate(
         opaque_depth_bucket,
         sort_prefix,
         rigid_world_matrix,
+        reflection_probes,
     })
 }
 
@@ -154,6 +164,7 @@ mod tests {
             culling: None,
             transform_filter: None,
             material_cache: None,
+            reflection_probes: None,
             prepared: None,
         };
         let candidate = DrawCandidate {
@@ -172,6 +183,7 @@ mod tests {
             blendshape_deformed: true,
             material_asset_id: 11,
             property_block_id: None,
+            world_aabb: None,
         };
 
         let item = evaluate_draw_candidate(

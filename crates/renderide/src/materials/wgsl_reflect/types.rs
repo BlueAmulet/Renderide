@@ -109,9 +109,9 @@ pub enum ReflectError {
     /// Layouter could not compute buffer/struct sizes.
     #[error("layout computation: {0}")]
     Layout(String),
-    /// `@group(0)` sizes did not match [`FrameGpuUniforms`](crate::gpu::frame_globals::FrameGpuUniforms), [`GpuLight`](crate::backend::GpuLight), or cluster buffers.
+    /// `@group(0)` sizes did not match frame globals, light/cluster buffers, or declared reflection-probe metadata.
     #[error(
-        "group(0) must have uniform binding 0 size {expected_frame}, storage binding 1 stride {expected_light}, bindings 2-3 u32 stride {expected_cluster_u32}; got b0={got0:?} b1={got1:?} b2={got2:?} b3={got3:?}"
+        "group(0) must have uniform binding 0 size {expected_frame}, storage binding 1 stride {expected_light}, bindings 2-3 u32 stride {expected_cluster_u32}, optional binding 12 stride {expected_probe}; got b0={got0:?} b1={got1:?} b2={got2:?} b3={got3:?} b12={got12:?}"
     )]
     FrameGroupMismatch {
         /// Expected `FrameGpuUniforms` uniform size in bytes.
@@ -120,6 +120,8 @@ pub enum ReflectError {
         expected_light: u32,
         /// Expected `u32` stride for cluster count / index buffers.
         expected_cluster_u32: u32,
+        /// Expected reflection-probe metadata stride.
+        expected_probe: u32,
         /// Observed binding 0 size, if any.
         got0: Option<u32>,
         /// Observed binding 1 stride, if any.
@@ -128,6 +130,8 @@ pub enum ReflectError {
         got2: Option<u32>,
         /// Observed binding 3 stride, if any.
         got3: Option<u32>,
+        /// Observed binding 12 stride, if any.
+        got12: Option<u32>,
     },
     /// A global resource at the given group/binding is not supported for raster materials.
     #[error("unsupported global resource at group {group} binding {binding}: {reason}")]

@@ -9,7 +9,8 @@
 //!    per-draw slab and frame uniforms via `Queue::write_buffer`. Stores the prepared state in
 //!    [`WorldMeshForwardPlanSlot`] for downstream passes.
 //! 2. [`WorldMeshForwardOpaquePass`] -- **[`RasterPass`]** that opens the HDR color + depth
-//!    attachments with `LoadOp::Clear` and records opaque draws.
+//!    attachments with `LoadOp::Clear`, records pre-skybox regular draws, records the
+//!    skybox/background, then records regular draws that need the skybox as background.
 //! 3. [`WorldMeshForwardNormalPass`] -- optional **[`RasterPass`]** that writes smooth
 //!    view-space vertex normals for GTAO, using the opaque depth buffer as an equality mask.
 //! 4. [`WorldMeshDepthSnapshotPass`] -- **[`ComputePass`]** that resolves MSAA depth (when active)
@@ -73,6 +74,7 @@ use execute_helpers::{
     encode_world_mesh_forward_depth_snapshot, prepare_world_mesh_forward_frame,
     record_world_mesh_forward_intersection_graph_raster,
     record_world_mesh_forward_opaque_graph_raster,
+    record_world_mesh_forward_post_skybox_graph_raster,
     record_world_mesh_forward_transparent_graph_raster, stencil_load_ops,
 };
 use skybox::{SkyboxRenderer, record_prepared_skybox};
@@ -358,7 +360,7 @@ impl RasterPass for WorldMeshForwardOpaquePass {
         let Some(mut prepared) = ctx.blackboard.take::<WorldMeshForwardPlanSlot>() else {
             return Ok(());
         };
-        let mesh_recorded = record_world_mesh_forward_opaque_graph_raster(
+        let pre_skybox_recorded = record_world_mesh_forward_opaque_graph_raster(
             rpass,
             ctx.device,
             ctx.queue.as_ref(),
@@ -369,7 +371,14 @@ impl RasterPass for WorldMeshForwardOpaquePass {
             .skybox
             .as_ref()
             .is_none_or(|skybox| record_prepared_skybox(rpass, frame, skybox));
-        prepared.opaque_recorded = mesh_recorded && skybox_recorded;
+        let post_skybox_recorded = record_world_mesh_forward_post_skybox_graph_raster(
+            rpass,
+            ctx.device,
+            ctx.queue.as_ref(),
+            frame,
+            &prepared,
+        );
+        prepared.opaque_recorded = pre_skybox_recorded && skybox_recorded && post_skybox_recorded;
         ctx.blackboard.insert::<WorldMeshForwardPlanSlot>(prepared);
         Ok(())
     }

@@ -14,6 +14,12 @@ pub const PER_DRAW_POSITION_STREAM_WORLD_SPACE_FLAG: f32 = 1.0;
 
 /// Metadata flag offset inside [`PaddedPerDrawUniforms::_pad`].
 const PER_DRAW_POSITION_STREAM_WORLD_SPACE_PAD_SLOT: usize = 0;
+/// Packed reflection-probe atlas indices offset inside [`PaddedPerDrawUniforms::_pad`].
+const PER_DRAW_REFLECTION_PROBE_INDICES_PAD_SLOT: usize = 1;
+/// Reflection-probe second-weight offset inside [`PaddedPerDrawUniforms::_pad`].
+const PER_DRAW_REFLECTION_PROBE_SECOND_WEIGHT_PAD_SLOT: usize = 2;
+/// Reflection-probe hit-count offset inside [`PaddedPerDrawUniforms::_pad`].
+const PER_DRAW_REFLECTION_PROBE_HIT_COUNT_PAD_SLOT: usize = 3;
 
 /// Column-major `mat3x3` with WGSL storage layout: each column is `vec3` padded to 16 bytes.
 ///
@@ -96,9 +102,9 @@ pub struct PaddedPerDrawUniforms {
     /// Metadata plus padding to [`PER_DRAW_UNIFORM_STRIDE`] bytes.
     ///
     /// Slot 0 is [`PER_DRAW_POSITION_STREAM_WORLD_SPACE_FLAG`] when the vertex position stream is
-    /// already world-space. Consumers either branch on it or bake the required correction into other
-    /// per-draw fields.
-    /// Remaining slots are reserved and must stay zero until explicitly assigned.
+    /// already world-space. Slot 1 stores two `u16` reflection-probe atlas indices via
+    /// [`f32::from_bits`]. Slot 2 stores the second probe's blend weight, and slot 3 stores the hit
+    /// count as `0.0`, `1.0`, or `2.0`.
     pub _pad: [f32; 4],
 }
 
@@ -144,6 +150,37 @@ impl PaddedPerDrawUniforms {
             0.0
         };
         self
+    }
+
+    /// Returns a copy with packed reflection-probe selection metadata.
+    #[inline]
+    #[must_use]
+    pub fn with_reflection_probe_selection(
+        mut self,
+        first_atlas_index: u16,
+        second_atlas_index: u16,
+        second_weight: f32,
+        hit_count: u8,
+    ) -> Self {
+        let packed = u32::from(first_atlas_index) | (u32::from(second_atlas_index) << 16);
+        self._pad[PER_DRAW_REFLECTION_PROBE_INDICES_PAD_SLOT] = f32::from_bits(packed);
+        self._pad[PER_DRAW_REFLECTION_PROBE_SECOND_WEIGHT_PAD_SLOT] = second_weight.clamp(0.0, 1.0);
+        self._pad[PER_DRAW_REFLECTION_PROBE_HIT_COUNT_PAD_SLOT] = hit_count.min(2) as f32;
+        self
+    }
+
+    /// Unpacks reflection-probe selection metadata.
+    #[inline]
+    #[must_use]
+    pub fn reflection_probe_selection(&self) -> (u16, u16, f32, u8) {
+        let packed = self._pad[PER_DRAW_REFLECTION_PROBE_INDICES_PAD_SLOT].to_bits();
+        let first = (packed & 0xFFFF) as u16;
+        let second = (packed >> 16) as u16;
+        let second_weight = self._pad[PER_DRAW_REFLECTION_PROBE_SECOND_WEIGHT_PAD_SLOT];
+        let hit_count = self._pad[PER_DRAW_REFLECTION_PROBE_HIT_COUNT_PAD_SLOT]
+            .round()
+            .clamp(0.0, 2.0) as u8;
+        (first, second, second_weight, hit_count)
     }
 
     /// Whether the metadata says the bound vertex position stream is already in world space.
@@ -253,6 +290,17 @@ mod tests {
         let b: &PaddedPerDrawUniforms =
             bytemuck::from_bytes(&buf[PER_DRAW_UNIFORM_STRIDE..PER_DRAW_UNIFORM_STRIDE * 2]);
         assert!(!b.position_stream_world_space());
+    }
+
+    #[test]
+    fn reflection_probe_selection_packs_into_reserved_slots() {
+        let slot = PaddedPerDrawUniforms::new_single(Mat4::IDENTITY, Mat4::IDENTITY)
+            .with_position_stream_world_space(true)
+            .with_reflection_probe_selection(17, 23, 0.375, 2);
+
+        assert!(slot.position_stream_world_space());
+        assert_eq!(slot.reflection_probe_selection(), (17, 23, 0.375, 2));
+        assert_eq!(size_of::<PaddedPerDrawUniforms>(), PER_DRAW_UNIFORM_STRIDE);
     }
 
     #[test]
