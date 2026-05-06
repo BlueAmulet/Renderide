@@ -76,6 +76,7 @@ impl ReflectionProbeDrawSelection {
 #[derive(Default)]
 pub struct ReflectionProbeFrameSelection {
     spaces: HashMap<RenderSpaceId, ReflectionProbeSpatialIndex>,
+    skybox_fallback_slots: HashMap<RenderSpaceId, u16>,
 }
 
 impl ReflectionProbeFrameSelection {
@@ -86,24 +87,62 @@ impl ReflectionProbeFrameSelection {
         space_id: RenderSpaceId,
         object_aabb: (Vec3, Vec3),
     ) -> ReflectionProbeDrawSelection {
-        self.spaces
+        if let Some(selection) = self
+            .spaces
             .get(&space_id)
-            .map_or_else(ReflectionProbeDrawSelection::default, |index| {
-                index.select(object_aabb)
+            .map(|index| index.select(object_aabb))
+            && selection.hit_count > 0
+        {
+            return selection;
+        }
+        self.fallback(space_id)
+    }
+
+    /// Returns the render-space skybox fallback selection, if its specular IBL is ready.
+    #[must_use]
+    pub fn fallback(&self, space_id: RenderSpaceId) -> ReflectionProbeDrawSelection {
+        self.skybox_fallback_slots
+            .get(&space_id)
+            .copied()
+            .filter(|slot| *slot != 0)
+            .map_or_else(ReflectionProbeDrawSelection::default, |slot| {
+                ReflectionProbeDrawSelection {
+                    first_atlas_index: slot,
+                    second_atlas_index: 0,
+                    second_weight: 0.0,
+                    hit_count: 0,
+                }
             })
     }
 
-    fn rebuild<I>(&mut self, probes: I)
+    fn rebuild<I, J>(&mut self, probes: I, skybox_fallback_slots: J)
     where
         I: IntoIterator<Item = ReadyProbe>,
+        J: IntoIterator<Item = (RenderSpaceId, u16)>,
+    {
+        self.rebuild_spatial(
+            probes
+                .into_iter()
+                .map(|probe| (probe.identity.space_id, probe.spatial)),
+            skybox_fallback_slots,
+        );
+    }
+
+    fn rebuild_spatial<I, J>(&mut self, probes: I, skybox_fallback_slots: J)
+    where
+        I: IntoIterator<Item = (RenderSpaceId, SpatialProbe)>,
+        J: IntoIterator<Item = (RenderSpaceId, u16)>,
     {
         self.spaces.clear();
+        self.skybox_fallback_slots.clear();
+        self.skybox_fallback_slots.extend(
+            skybox_fallback_slots
+                .into_iter()
+                .filter(|(_, slot)| *slot != 0),
+        );
         let mut by_space: HashMap<RenderSpaceId, Vec<SpatialProbe>> = HashMap::new();
-        for probe in probes {
-            by_space
-                .entry(probe.identity.space_id)
-                .or_default()
-                .push(probe.spatial);
+        for (space_id, probe) in probes {
+            by_space.entry(space_id).or_default().push(probe);
         }
         for (space_id, probes) in by_space {
             self.spaces
@@ -155,6 +194,7 @@ impl ReflectionProbeSpecularSystem {
         let face_size = clamp_face_size(DEFAULT_REFLECTION_PROBE_FACE_SIZE, gpu.limits());
         let mut active_keys = HashSet::new();
         let mut ready = Vec::new();
+        let mut skybox_fallbacks = Vec::new();
 
         for space_id in scene.render_space_ids() {
             let Some(space) = scene.space(space_id) else {
@@ -162,6 +202,23 @@ impl ReflectionProbeSpecularSystem {
             };
             if !space.is_active {
                 continue;
+            }
+            if let Some(source) = resolve_space_skybox_fallback_source(
+                space.skybox_material_asset_id,
+                materials,
+                assets,
+            ) {
+                let key = build_key(&source, face_size);
+                active_keys.insert(key.clone());
+                self.ibl_cache.ensure_source(gpu, key.clone(), source);
+                if let Some(cube) = self.ibl_cache.completed_cube(&key) {
+                    skybox_fallbacks.push(ReadySkyboxFallback {
+                        space_id,
+                        key,
+                        texture: cube.texture.clone(),
+                        mip_levels: cube.mip_levels,
+                    });
+                }
             }
             for probe in &space.reflection_probes {
                 let identity = ProbeIdentity {
@@ -180,12 +237,15 @@ impl ReflectionProbeSpecularSystem {
                 let Some(cube) = self.ibl_cache.completed_cube(&key) else {
                     continue;
                 };
+                let Some(sh2) = sh2 else {
+                    continue;
+                };
                 let Some(spatial) =
                     spatial_probe_for_state(scene, space_id, probe, render_context, 0)
                 else {
                     continue;
                 };
-                let mut metadata = metadata_for_spatial(&spatial, probe.state, sh2.as_ref());
+                let mut metadata = metadata_for_spatial(&spatial, probe.state, &sh2);
                 metadata.params[1] = cube.mip_levels.saturating_sub(1) as f32;
                 ready.push(ReadyProbe {
                     identity,
@@ -201,7 +261,8 @@ impl ReflectionProbeSpecularSystem {
         ready.sort_unstable_by_key(|probe| {
             (probe.identity.space_id.0, probe.identity.renderable_index)
         });
-        self.sync_atlas_and_selection(gpu, face_size, ready);
+        skybox_fallbacks.sort_unstable_by_key(|fallback| fallback.space_id.0);
+        self.sync_atlas_and_selection(gpu, face_size, ready, skybox_fallbacks);
     }
 
     /// Current frame-global GPU resources, if allocated.
@@ -221,10 +282,11 @@ impl ReflectionProbeSpecularSystem {
         gpu: &GpuContext,
         face_size: u32,
         mut ready: Vec<ReadyProbe>,
+        mut skybox_fallbacks: Vec<ReadySkyboxFallback>,
     ) {
         let max_slots = max_atlas_slots(gpu.limits());
         if max_slots <= 1 {
-            self.selection.rebuild(Vec::new());
+            self.selection.rebuild(Vec::new(), Vec::new());
             return;
         }
         let usable_slots = usize::from(max_slots.saturating_sub(FIRST_PROBE_ATLAS_SLOT));
@@ -236,19 +298,31 @@ impl ReflectionProbeSpecularSystem {
             );
             ready.truncate(usable_slots);
         }
-        let required_slots = (ready.len() + usize::from(FIRST_PROBE_ATLAS_SLOT)).max(1);
+        let fallback_slots = usable_slots.saturating_sub(ready.len());
+        if skybox_fallbacks.len() > fallback_slots {
+            logger::warn!(
+                "reflection probes: {} ready skybox fallbacks exceed remaining atlas capacity {}; truncating",
+                skybox_fallbacks.len(),
+                fallback_slots
+            );
+            skybox_fallbacks.truncate(fallback_slots);
+        }
+        let used_slots = ready.len() + skybox_fallbacks.len();
+        let required_slots = (used_slots + usize::from(FIRST_PROBE_ATLAS_SLOT)).max(1);
         self.ensure_atlas(gpu.device(), face_size, required_slots as u16);
 
         let Some(atlas) = self.atlas.as_mut() else {
-            self.selection.rebuild(Vec::new());
+            self.selection.rebuild(Vec::new(), Vec::new());
             return;
         };
         let mip_levels = atlas.mip_levels;
         let mut metadata = vec![GpuReflectionProbeMetadata::default(); atlas.capacity as usize];
         let mut copy_jobs = Vec::new();
         let mut selectable = Vec::with_capacity(ready.len());
+        let mut next_slot = FIRST_PROBE_ATLAS_SLOT;
         for (i, mut probe) in ready.into_iter().enumerate() {
             let slot = FIRST_PROBE_ATLAS_SLOT + i as u16;
+            next_slot = slot + 1;
             if atlas.keys[slot as usize].as_ref() != Some(&probe.key) {
                 atlas.keys[slot as usize] = Some(probe.key.clone());
                 copy_jobs.push(AtlasCopyJob {
@@ -261,9 +335,24 @@ impl ReflectionProbeSpecularSystem {
             metadata[slot as usize] = probe.metadata;
             selectable.push(probe);
         }
+        let mut skybox_fallback_slots = Vec::with_capacity(skybox_fallbacks.len());
+        for fallback in skybox_fallbacks {
+            let slot = next_slot;
+            next_slot = next_slot.saturating_add(1);
+            if atlas.keys[slot as usize].as_ref() != Some(&fallback.key) {
+                atlas.keys[slot as usize] = Some(fallback.key.clone());
+                copy_jobs.push(AtlasCopyJob {
+                    slot,
+                    texture: fallback.texture.clone(),
+                    mip_levels: fallback.mip_levels.min(mip_levels),
+                });
+            }
+            metadata[slot as usize] = skybox_fallback_metadata(fallback.mip_levels);
+            skybox_fallback_slots.push((fallback.space_id, slot));
+        }
         self.write_metadata(gpu.queue(), &metadata);
         self.encode_atlas_copies(gpu, face_size, mip_levels, copy_jobs);
-        self.selection.rebuild(selectable);
+        self.selection.rebuild(selectable, skybox_fallback_slots);
     }
 
     fn ensure_atlas(&mut self, device: &wgpu::Device, face_size: u32, required_slots: u16) {
@@ -420,6 +509,13 @@ struct ReadyProbe {
     spatial: SpatialProbe,
 }
 
+struct ReadySkyboxFallback {
+    space_id: RenderSpaceId,
+    key: SkyboxIblKey,
+    texture: Arc<wgpu::Texture>,
+    mip_levels: u32,
+}
+
 struct AtlasCopyJob {
     slot: u16,
     texture: Arc<wgpu::Texture>,
@@ -456,6 +552,17 @@ fn resolve_probe_source(
         return resolve_skybox_material_ibl_source(skybox_material_asset_id, materials, assets);
     }
     None
+}
+
+fn resolve_space_skybox_fallback_source(
+    skybox_material_asset_id: i32,
+    materials: &MaterialSystem,
+    assets: &AssetTransferQueue,
+) -> Option<SkyboxIblSource> {
+    if skybox_material_asset_id < 0 {
+        return None;
+    }
+    resolve_skybox_material_ibl_source(skybox_material_asset_id, materials, assets)
 }
 
 fn resolve_baked_probe_source(
@@ -532,14 +639,14 @@ fn spatial_probe_for_state(
 fn metadata_for_spatial(
     spatial: &SpatialProbe,
     state: ReflectionProbeState,
-    sh2: Option<&RenderSH2>,
+    sh2: &RenderSH2,
 ) -> GpuReflectionProbeMetadata {
     let flags = if reflection_probe_use_box_projection(state.flags) {
         REFLECTION_PROBE_METADATA_BOX_PROJECTION
     } else {
         0
     };
-    let mut metadata = GpuReflectionProbeMetadata {
+    GpuReflectionProbeMetadata {
         box_min: [
             spatial.aabb_min.x,
             spatial.aabb_min.y,
@@ -553,14 +660,21 @@ fn metadata_for_spatial(
             0.0,
         ],
         position: [spatial.center.x, spatial.center.y, spatial.center.z, 0.0],
-        params: [state.intensity.max(0.0), 0.0, flags as f32, 0.0],
-        sh2: [[0.0; 4]; 9],
-    };
-    if let Some(sh2) = sh2 {
-        metadata.params[3] = REFLECTION_PROBE_METADATA_SH2_VALID;
-        metadata.sh2 = pack_render_sh2_raw(sh2);
+        params: [
+            state.intensity.max(0.0),
+            0.0,
+            flags as f32,
+            REFLECTION_PROBE_METADATA_SH2_VALID,
+        ],
+        sh2: pack_render_sh2_raw(sh2),
     }
-    metadata
+}
+
+fn skybox_fallback_metadata(mip_levels: u32) -> GpuReflectionProbeMetadata {
+    GpuReflectionProbeMetadata {
+        params: [1.0, mip_levels.saturating_sub(1) as f32, 0.0, 0.0],
+        ..GpuReflectionProbeMetadata::default()
+    }
 }
 
 fn pack_render_sh2_raw(sh: &RenderSH2) -> [[f32; 4]; 9] {
@@ -819,6 +933,8 @@ fn axis_value(v: Vec3A, axis: usize) -> f32 {
 mod tests {
     use super::*;
 
+    use crate::assets::AssetTransferQueue;
+
     fn probe(index: i32, atlas: u16, importance: i32, min: Vec3, max: Vec3) -> SpatialProbe {
         SpatialProbe {
             renderable_index: index,
@@ -841,6 +957,55 @@ mod tests {
         let selection = index.select((Vec3::splat(-0.25), Vec3::splat(0.25)));
 
         assert_eq!(selection, ReflectionProbeDrawSelection::one(2));
+    }
+
+    #[test]
+    fn missing_baked_cubemap_is_not_a_probe_source() {
+        let assets = AssetTransferQueue::new();
+        let state = ReflectionProbeState {
+            intensity: 1.0,
+            cubemap_asset_id: 42,
+            r#type: ReflectionProbeType::Baked,
+            ..ReflectionProbeState::default()
+        };
+
+        assert!(resolve_baked_probe_source(state, &assets).is_none());
+    }
+
+    #[test]
+    fn frame_selection_uses_skybox_fallback_when_no_probe_hits() {
+        let mut selection = ReflectionProbeFrameSelection::default();
+        let space_id = RenderSpaceId(7);
+        selection.rebuild_spatial(Vec::new(), [(space_id, 9)]);
+
+        let draw = selection.select(space_id, (Vec3::splat(-1.0), Vec3::splat(1.0)));
+
+        assert_eq!(
+            draw,
+            ReflectionProbeDrawSelection {
+                first_atlas_index: 9,
+                second_atlas_index: 0,
+                second_weight: 0.0,
+                hit_count: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn frame_selection_prefers_probe_hit_over_skybox_fallback() {
+        let mut selection = ReflectionProbeFrameSelection::default();
+        let space_id = RenderSpaceId(7);
+        selection.rebuild_spatial(
+            [(
+                space_id,
+                probe(0, 3, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+            )],
+            [(space_id, 9)],
+        );
+
+        let draw = selection.select(space_id, (Vec3::splat(-0.5), Vec3::splat(0.5)));
+
+        assert_eq!(draw, ReflectionProbeDrawSelection::one(3));
     }
 
     #[test]
