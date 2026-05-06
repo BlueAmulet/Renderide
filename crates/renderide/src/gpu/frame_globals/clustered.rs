@@ -6,7 +6,7 @@
 //! WGSL-matched struct.
 
 use super::skybox_specular::SkyboxSpecularUniformParams;
-use super::uniforms::FrameGpuUniforms;
+use super::uniforms::{FRAME_TAIL_AMBIENT_SH_VALID, FrameGpuUniforms};
 
 /// Inputs for [`FrameGpuUniforms::new_clustered`] (clustered forward + lighting).
 #[derive(Clone, Copy, Debug)]
@@ -41,6 +41,8 @@ pub struct ClusteredFrameGlobalsParams {
     pub proj_params_right: [f32; 4],
     /// Monotonic frame index (wraps `HostCameraFrame::frame_index`).
     pub frame_index: u32,
+    /// Whether `ambient_sh` contains host-authored lighting data.
+    pub ambient_sh_valid: bool,
     /// Skybox indirect specular sampling parameters.
     pub skybox_specular: SkyboxSpecularUniformParams,
     /// Ambient SH2 coefficients for the active main render space.
@@ -78,7 +80,16 @@ impl FrameGpuUniforms {
             viewport_height: params.viewport_height,
             proj_params_left: params.proj_params_left,
             proj_params_right: params.proj_params_right,
-            frame_tail: [params.frame_index, 0, 0, 0],
+            frame_tail: [
+                params.frame_index,
+                if params.ambient_sh_valid {
+                    FRAME_TAIL_AMBIENT_SH_VALID
+                } else {
+                    0
+                },
+                0,
+                0,
+            ],
             skybox_specular: params.skybox_specular.to_vec4(),
             ambient_sh: params.ambient_sh,
         }

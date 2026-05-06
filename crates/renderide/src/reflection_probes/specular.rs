@@ -210,6 +210,7 @@ impl ReflectionProbeSpecularSystem {
             ) {
                 let key = build_key(&source, face_size);
                 active_keys.insert(key.clone());
+                let sh2 = sh2_system.ensure_ibl_source(space_id.0, &source);
                 self.ibl_cache.ensure_source(gpu, key.clone(), source);
                 if let Some(cube) = self.ibl_cache.completed_cube(&key) {
                     skybox_fallbacks.push(ReadySkyboxFallback {
@@ -217,6 +218,7 @@ impl ReflectionProbeSpecularSystem {
                         key,
                         texture: cube.texture.clone(),
                         mip_levels: cube.mip_levels,
+                        sh2,
                     });
                 }
             }
@@ -347,7 +349,8 @@ impl ReflectionProbeSpecularSystem {
                     mip_levels: fallback.mip_levels.min(mip_levels),
                 });
             }
-            metadata[slot as usize] = skybox_fallback_metadata(fallback.mip_levels);
+            metadata[slot as usize] =
+                skybox_fallback_metadata(fallback.mip_levels, fallback.sh2.as_ref());
             skybox_fallback_slots.push((fallback.space_id, slot));
         }
         self.write_metadata(gpu.queue(), &metadata);
@@ -514,6 +517,7 @@ struct ReadySkyboxFallback {
     key: SkyboxIblKey,
     texture: Arc<wgpu::Texture>,
     mip_levels: u32,
+    sh2: Option<RenderSH2>,
 }
 
 struct AtlasCopyJob {
@@ -670,11 +674,19 @@ fn metadata_for_spatial(
     }
 }
 
-fn skybox_fallback_metadata(mip_levels: u32) -> GpuReflectionProbeMetadata {
-    GpuReflectionProbeMetadata {
+fn skybox_fallback_metadata(
+    mip_levels: u32,
+    sh2: Option<&RenderSH2>,
+) -> GpuReflectionProbeMetadata {
+    let mut metadata = GpuReflectionProbeMetadata {
         params: [1.0, mip_levels.saturating_sub(1) as f32, 0.0, 0.0],
         ..GpuReflectionProbeMetadata::default()
+    };
+    if let Some(sh2) = sh2 {
+        metadata.params[3] = REFLECTION_PROBE_METADATA_SH2_VALID;
+        metadata.sh2 = pack_render_sh2_raw(sh2);
     }
+    metadata
 }
 
 fn pack_render_sh2_raw(sh: &RenderSH2) -> [[f32; 4]; 9] {
@@ -934,6 +946,7 @@ mod tests {
     use super::*;
 
     use crate::assets::AssetTransferQueue;
+    use crate::materials::MaterialSystem;
 
     fn probe(index: i32, atlas: u16, importance: i32, min: Vec3, max: Vec3) -> SpatialProbe {
         SpatialProbe {
@@ -1006,6 +1019,37 @@ mod tests {
         let draw = selection.select(space_id, (Vec3::splat(-0.5), Vec3::splat(0.5)));
 
         assert_eq!(draw, ReflectionProbeDrawSelection::one(3));
+    }
+
+    #[test]
+    fn missing_skybox_material_is_not_skybox_fallback_source() {
+        let materials = MaterialSystem::new();
+        let assets = AssetTransferQueue::new();
+
+        assert!(resolve_space_skybox_fallback_source(-1, &materials, &assets).is_none());
+    }
+
+    #[test]
+    fn skybox_fallback_metadata_allows_specular_while_sh2_is_pending() {
+        let metadata = skybox_fallback_metadata(5, None);
+
+        assert_eq!(metadata.params, [1.0, 4.0, 0.0, 0.0]);
+        assert_eq!(metadata.sh2, [[0.0; 4]; 9]);
+    }
+
+    #[test]
+    fn skybox_fallback_metadata_marks_completed_sh2_valid() {
+        let sh = RenderSH2 {
+            sh0: Vec3::new(1.0, 2.0, 3.0),
+            sh8: Vec3::new(4.0, 5.0, 6.0),
+            ..RenderSH2::default()
+        };
+
+        let metadata = skybox_fallback_metadata(5, Some(&sh));
+
+        assert_eq!(metadata.params, [1.0, 4.0, 0.0, 1.0]);
+        assert_eq!(metadata.sh2[0], [1.0, 2.0, 3.0, 0.0]);
+        assert_eq!(metadata.sh2[8], [4.0, 5.0, 6.0, 0.0]);
     }
 
     #[test]

@@ -130,10 +130,13 @@ fn indirect_diffuse(normal_ws: vec3<f32>, view_layer: u32, enabled: bool) -> vec
     }
     let draw = selected_draw(view_layer);
     let count = pd::reflection_probe_hit_count(draw);
-    if (count == 0u) {
-        return shamb::ambient_probe(normal_ws);
-    }
     let indices = pd::reflection_probe_indices(draw);
+    if (count == 0u) {
+        if (shamb::ambient_probe_is_valid()) {
+            return shamb::ambient_probe(normal_ws);
+        }
+        return sample_probe_sh2(indices.x, normal_ws);
+    }
     let first = sample_probe_sh2(indices.x, normal_ws);
     if (count < 2u || indices.y == 0u) {
         return first;

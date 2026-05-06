@@ -70,7 +70,7 @@ struct FrameGlobals {
     /// Right-eye projection coefficients (equals left in mono mode).
     proj_params_right: vec4<f32>,
     /// Packed tail: `.x` is the monotonic frame index (for temporal / jittered screen-space
-    /// effects); `.yzw` are reserved padding to keep the trailing `vec4` slot aligned to 16 bytes.
+    /// effects); `.y` is nonzero when frame ambient SH2 is valid; `.zw` are reserved padding.
     frame_tail: vec4<u32>,
     /// Reserved. Skybox specular lighting is supplied by reflection probes.
     skybox_specular: vec4<f32>,
