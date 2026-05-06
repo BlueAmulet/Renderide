@@ -24,6 +24,10 @@
 /// Lower bound on linear roughness `alpha`. Below this the GGX lobe becomes a near-delta that produces
 /// fp16 sparkles and division-by-near-zero artefacts; matches Filament `MIN_ROUGHNESS` for desktop.
 const MIN_ALPHA: f32 = 0.002025;
+/// Default dielectric reflectance slider value for the Standard PBS path.
+const DEFAULT_DIELECTRIC_REFLECTANCE: f32 = 0.5;
+/// Default dielectric F0 for an air-to-1.5-IOR interface.
+const DEFAULT_DIELECTRIC_F0: f32 = 0.16 * DEFAULT_DIELECTRIC_REFLECTANCE * DEFAULT_DIELECTRIC_REFLECTANCE;
 /// Pi.
 const PI: f32 = 3.14159265359;
 
@@ -125,17 +129,42 @@ fn sample_ibl_dfg_lut(perceptual_roughness: f32, n_dot_v: f32) -> vec2<f32> {
 }
 
 /// Split-sum specular energy for the frame-global DFG LUT.
+fn specular_energy_from_dfg(dfg: vec2<f32>, f0: vec3<f32>) -> vec3<f32> {
+    return mix(vec3<f32>(dfg.x), vec3<f32>(dfg.y), clamp(f0, vec3<f32>(0.0), vec3<f32>(1.0)));
+}
+
+/// Multiple-scattering compensation for the direct microfacet lobe.
+fn energy_compensation_from_dfg(dfg: vec2<f32>, f0: vec3<f32>) -> vec3<f32> {
+    let clamped_f0 = clamp(f0, vec3<f32>(0.0), vec3<f32>(1.0));
+    return vec3<f32>(1.0) + clamped_f0 * (vec3<f32>(1.0 / max(dfg.y, 1e-4)) - vec3<f32>(1.0));
+}
+
+/// Split-sum specular energy for the frame-global DFG LUT.
+fn indirect_specular_energy_from_dfg(dfg: vec2<f32>, f0: vec3<f32>, enabled: bool) -> vec3<f32> {
+    if (!enabled) {
+        return vec3<f32>(0.0);
+    }
+    return specular_energy_from_dfg(dfg, f0);
+}
+
+/// Split-sum specular energy for the frame-global DFG LUT.
 fn indirect_specular_energy(
     perceptual_roughness: f32,
     n_dot_v: f32,
     f0: vec3<f32>,
     enabled: bool,
 ) -> vec3<f32> {
-    if (!enabled) {
-        return vec3<f32>(0.0);
-    }
     let dfg = sample_ibl_dfg_lut(perceptual_roughness, n_dot_v);
-    return mix(vec3<f32>(dfg.x), vec3<f32>(dfg.y), clamp(f0, vec3<f32>(0.0), vec3<f32>(1.0)));
+    return indirect_specular_energy_from_dfg(dfg, f0, enabled);
+}
+
+/// Simple material-AO to specular-AO remap for indirect reflections.
+fn specular_ao_lagarde(n_dot_v: f32, visibility: f32, perceptual_roughness: f32) -> f32 {
+    let no_v = clamp(n_dot_v, 0.0, 1.0);
+    let ao = clamp(visibility, 0.0, 1.0);
+    let linear_roughness = clamp(perceptual_roughness, 0.0, 1.0) * clamp(perceptual_roughness, 0.0, 1.0);
+    let exponent = exp2(-16.0 * linear_roughness - 1.0);
+    return clamp(pow(no_v + ao, exponent) - 1.0 + ao, 0.0, 1.0);
 }
 
 /// Indirect-diffuse scale paired with the split-sum specular energy.
@@ -174,7 +203,7 @@ fn indirect_diffuse_specular(
 
 /// Unity Standard metallic workflow F0 tint.
 fn metallic_f0(base_color: vec3<f32>, metallic: f32) -> vec3<f32> {
-    return mix(vec3<f32>(0.04), base_color, metallic);
+    return mix(vec3<f32>(DEFAULT_DIELECTRIC_F0), base_color, metallic);
 }
 
 /// Unity Standard SpecularSetup F0 tint.
@@ -253,6 +282,7 @@ fn direct_radiance_metallic(
     metallic: f32,
     base_color: vec3<f32>,
     f0: vec3<f32>,
+    energy_compensation: vec3<f32>,
 ) -> vec3<f32> {
     let ls = eval_light(light, world_pos);
     let n_dot_l = max(dot(n, ls.l), 0.0);
@@ -269,7 +299,7 @@ fn direct_radiance_metallic(
     let f = f_schlick(f0, f90, v_dot_h);
     let d = d_ggx(n_dot_h, alpha);
     let vis = v_smith_ggx_correlated(n_dot_v, n_dot_l, alpha);
-    let fr = (d * vis) * f;
+    let fr = (d * vis) * f * energy_compensation;
 
     let diffuse_color = base_color * (1.0 - metallic);
     let fd = diffuse_color * fd_lambert();
@@ -293,6 +323,7 @@ fn direct_radiance_specular(
     base_color: vec3<f32>,
     f0: vec3<f32>,
     one_minus_reflectivity: f32,
+    energy_compensation: vec3<f32>,
 ) -> vec3<f32> {
     let ls = eval_light(light, world_pos);
     let n_dot_l = max(dot(n, ls.l), 0.0);
@@ -309,7 +340,7 @@ fn direct_radiance_specular(
     let f = f_schlick(f0, f90, v_dot_h);
     let d = d_ggx(n_dot_h, alpha);
     let vis = v_smith_ggx_correlated(n_dot_v, n_dot_l, alpha);
-    let fr = (d * vis) * f;
+    let fr = (d * vis) * f * energy_compensation;
 
     let diffuse_color = base_color * one_minus_reflectivity;
     let fd = diffuse_color * fd_lambert();

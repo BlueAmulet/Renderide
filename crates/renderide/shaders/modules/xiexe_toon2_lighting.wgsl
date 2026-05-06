@@ -31,7 +31,7 @@ fn environment_tint(s: xb::SurfaceData, view_dir: vec3<f32>, world_pos: vec3<f32
     if (!rprobe::has_indirect_specular(view_layer, true)) {
         return vec3<f32>(1.0);
     }
-    return rprobe::indirect_specular(world_pos, s.normal, view_dir, s.roughness, vec3<f32>(1.0), 1.0, true, view_layer);
+    return rprobe::raw_indirect_specular(world_pos, s.normal, view_dir, s.roughness, true, view_layer);
 }
 
 /// `UNITY_SPECCUBE_LOD_STEPS` on PC/console.
@@ -228,7 +228,7 @@ fn reflection_is_multiplicative() -> bool {
 
 /// Samples one indirect-reflection branch using the current reflection mode.
 ///
-/// Mode `0` ("PBR") routes through the renderer reflection-probe `rprobe::indirect_specular`, mode
+/// Mode `0` ("PBR") routes through the renderer reflection-probe radiance, mode
 /// `1` ("baked cubemap") samples the per-material `_BakedCubemap` directly with a roughness-LOD
 /// reflection vector, and mode `2` ("matcap") samples `_Matcap` with the view-space matcap UV.
 fn indirect_reflection_branch(
@@ -279,16 +279,14 @@ fn indirect_reflection_branch(
         return spec;
     }
 
-    let spec = rprobe::indirect_specular(
+    let spec = rprobe::raw_indirect_specular(
         world_pos,
         normal,
         view_dir,
         clamp(perceptual_roughness, 0.0, 1.0),
-        fresnel,
-        occlusion_scalar(s),
         xb::reflection_uses_pbr(),
         view_layer,
-    ) * reflectivity_mask;
+    ) * fresnel * occlusion_scalar(s) * reflectivity_mask;
     return spec;
 }
 

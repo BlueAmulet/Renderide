@@ -145,18 +145,32 @@ fn indirect_diffuse(normal_ws: vec3<f32>, view_layer: u32, enabled: bool) -> vec
     return mix(first, second, pd::reflection_probe_second_weight(draw));
 }
 
+fn raw_indirect_specular(
+    world_pos: vec3<f32>,
+    n: vec3<f32>,
+    v: vec3<f32>,
+    perceptual_roughness: f32,
+    enabled: bool,
+    view_layer: u32,
+) -> vec3<f32> {
+    if (!has_indirect_specular(view_layer, enabled)) {
+        return vec3<f32>(0.0);
+    }
+    return indirect_radiance(world_pos, n, v, perceptual_roughness, view_layer, true);
+}
+
 fn indirect_specular_with_energy(
     world_pos: vec3<f32>,
     n: vec3<f32>,
     v: vec3<f32>,
     perceptual_roughness: f32,
     specular_energy: vec3<f32>,
-    occlusion: f32,
+    specular_occlusion: f32,
     enabled: bool,
     view_layer: u32,
 ) -> vec3<f32> {
     let radiance = indirect_radiance(world_pos, n, v, perceptual_roughness, view_layer, enabled);
-    return radiance * specular_energy * max(occlusion, 0.0);
+    return radiance * specular_energy * clamp(specular_occlusion, 0.0, 1.0);
 }
 
 fn indirect_specular(
@@ -173,6 +187,8 @@ fn indirect_specular(
         return vec3<f32>(0.0);
     }
     let n_dot_v = clamp(dot(n, v), 0.0, 1.0);
-    let energy = brdf::indirect_specular_energy(perceptual_roughness, n_dot_v, f0, true);
-    return indirect_specular_with_energy(world_pos, n, v, perceptual_roughness, energy, occlusion, true, view_layer);
+    let dfg = brdf::sample_ibl_dfg_lut(perceptual_roughness, n_dot_v);
+    let energy = brdf::indirect_specular_energy_from_dfg(dfg, f0, true);
+    let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion, perceptual_roughness);
+    return indirect_specular_with_energy(world_pos, n, v, perceptual_roughness, energy, specular_occlusion, true, view_layer);
 }

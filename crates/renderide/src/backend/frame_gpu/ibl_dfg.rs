@@ -199,6 +199,29 @@ mod tests {
     }
 
     #[test]
+    fn generated_lut_supports_direct_energy_compensation() {
+        let lut = generate_ibl_dfg_lut_rg32f();
+
+        for y in 0..IBL_DFG_LUT_SIZE {
+            for x in 0..IBL_DFG_LUT_SIZE {
+                let dfg = texel(&lut, x, y);
+                assert!(dfg[1] > 0.0, "DFG y is zero at ({x}, {y})");
+
+                let dielectric_f0 = 0.04;
+                let compensation = 1.0 + dielectric_f0 * (1.0 / dfg[1] - 1.0);
+                assert!(
+                    compensation.is_finite(),
+                    "energy compensation is not finite at ({x}, {y})"
+                );
+                assert!(
+                    compensation > 0.0,
+                    "energy compensation is not positive at ({x}, {y})"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn dfv_multiscatter_outputs_unit_energy_for_smooth_facing_mirror() {
         let dfg = dfv_multiscatter(1.0, 0.0, IBL_DFG_SAMPLE_COUNT);
 
