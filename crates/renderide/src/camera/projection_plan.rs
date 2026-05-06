@@ -36,7 +36,7 @@ impl WorldProjectionSet {
         let root_scale = explicit_proj.is_none().then(|| {
             scene
                 .active_main_space()
-                .map(|space| space.root_transform.scale)
+                .map(|space| space.root_transform().scale)
         });
         let (near, far) = effective_head_output_clip_planes(
             host_camera.clip.near,

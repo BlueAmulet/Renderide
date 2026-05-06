@@ -604,7 +604,7 @@ impl FrameResourceManager {
     ///
     /// Inactive spaces are skipped so lights from a previously focused world do not persist into
     /// the next frame's shading. This matches how renderables, mesh deform, secondary cameras,
-    /// and the material-batch cache already filter by [`crate::scene::RenderSpaceState::is_active`].
+    /// and the material-batch cache already filter by the render-space active flag.
     ///
     /// After the first successful run in a winit tick, subsequent calls are skipped until
     /// [`Self::reset_light_prep_for_tick`] runs, so secondary RT and main passes share one pack.
@@ -625,7 +625,7 @@ impl FrameResourceManager {
             profiling::scope!("render::prepare_lights::collect_active_spaces");
             scene
                 .render_space_ids()
-                .filter(|id| scene.space(*id).is_some_and(|s| s.is_active))
+                .filter(|id| scene.space(*id).is_some_and(|s| s.is_active()))
                 .collect()
         };
         match space_ids.len() {

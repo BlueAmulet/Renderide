@@ -161,7 +161,7 @@ impl SkyboxRenderer {
             .shared
             .scene
             .active_main_space()?
-            .skybox_material_asset_id;
+            .skybox_material_asset_id();
         if material_asset_id < 0 {
             return None;
         }

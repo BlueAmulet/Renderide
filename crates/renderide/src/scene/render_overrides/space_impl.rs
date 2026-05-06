@@ -7,7 +7,7 @@ use super::types::MeshRendererOverrideTarget;
 
 impl RenderSpaceState {
     /// Primary rendering context for this space (user view vs external mirror).
-    pub fn main_render_context(&self) -> RenderingContext {
+    pub(in crate::scene) fn main_render_context(&self) -> RenderingContext {
         if self.view_position_is_external {
             RenderingContext::ExternalView
         } else {
@@ -16,14 +16,17 @@ impl RenderSpaceState {
     }
 
     /// Returns whether any transform override rows exist for `context`.
-    pub fn has_transform_overrides_in_context(&self, context: RenderingContext) -> bool {
+    pub(in crate::scene) fn has_transform_overrides_in_context(
+        &self,
+        context: RenderingContext,
+    ) -> bool {
         self.render_transform_overrides
             .iter()
             .any(|entry| entry.context == context && entry.node_id >= 0)
     }
 
     /// Applies transform overrides for `node_id` in `context` atop the dense local transform.
-    pub fn overridden_local_transform(
+    pub(in crate::scene) fn overridden_local_transform(
         &self,
         node_id: i32,
         context: RenderingContext,
@@ -51,7 +54,7 @@ impl RenderSpaceState {
     }
 
     /// Resolves a material override for `target` and slot, if any, in `context`.
-    pub fn overridden_material_asset_id(
+    pub(in crate::scene) fn overridden_material_asset_id(
         &self,
         context: RenderingContext,
         target: MeshRendererOverrideTarget,

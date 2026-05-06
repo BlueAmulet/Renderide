@@ -21,7 +21,7 @@ use super::lights::{
 };
 use super::math::multiply_root;
 use super::render_overrides::MeshRendererOverrideTarget;
-use super::render_space::RenderSpaceState;
+use super::render_space::{RenderSpaceState, RenderSpaceView};
 use super::transforms_apply::TransformRemovalEvent;
 use super::world::{WorldTransformCache, compute_world_matrices_for_space, ensure_cache_shapes};
 
@@ -253,22 +253,23 @@ impl SceneCoordinator {
     }
 
     /// Read-only access for debugging / future systems.
-    pub fn space(&self, id: RenderSpaceId) -> Option<&RenderSpaceState> {
-        self.spaces.get(&id)
+    pub fn space(&self, id: RenderSpaceId) -> Option<RenderSpaceView<'_>> {
+        self.spaces.get(&id).map(RenderSpaceView::new)
     }
 
     /// Main non-overlay render space, matching Unity's single active main-space expectation.
-    pub fn active_main_space(&self) -> Option<&RenderSpaceState> {
+    pub fn active_main_space(&self) -> Option<RenderSpaceView<'_>> {
         self.spaces
             .values()
             .filter(|s| s.is_active && !s.is_overlay)
             .min_by_key(|s| s.id.0)
+            .map(RenderSpaceView::new)
     }
 
     /// Ambient SH2 from the active non-overlay render space.
     pub fn active_main_ambient_light(&self) -> RenderSH2 {
         self.active_main_space()
-            .map(|s| s.ambient_light)
+            .map(|s| s.ambient_light())
             .unwrap_or_default()
     }
 
@@ -287,10 +288,10 @@ impl SceneCoordinator {
 
     /// Current head-output render context for the main view.
     pub fn active_main_render_context(&self) -> RenderingContext {
-        self.active_main_space().map_or(
-            RenderingContext::UserView,
-            RenderSpaceState::main_render_context,
-        )
+        self.active_main_space()
+            .map_or(RenderingContext::UserView, |space| {
+                space.main_render_context()
+            })
     }
 
     /// Cached world matrix from the host transform hierarchy (parent chain only).

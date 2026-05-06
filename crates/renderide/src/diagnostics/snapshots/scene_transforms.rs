@@ -16,11 +16,11 @@ pub struct SceneTransformsSnapshot {
 pub struct RenderSpaceTransformsSnapshot {
     /// Host dictionary key for this space.
     pub space_id: i32,
-    /// Mirrors [`crate::scene::RenderSpaceState::is_active`].
+    /// Mirrors the render-space active flag.
     pub is_active: bool,
-    /// Mirrors [`crate::scene::RenderSpaceState::is_overlay`].
+    /// Mirrors the render-space overlay flag.
     pub is_overlay: bool,
-    /// Mirrors [`crate::scene::RenderSpaceState::is_private`].
+    /// Mirrors the render-space private flag.
     pub is_private: bool,
     /// One row per dense transform node in this space.
     pub rows: Vec<TransformRow>,
@@ -65,9 +65,11 @@ impl RenderSpaceTransformsSnapshot {
     fn capture_one(scene: &SceneCoordinator, id: RenderSpaceId) -> Option<Self> {
         let space = scene.space(id)?;
         let space_id = id.0;
-        let mut rows = Vec::with_capacity(space.nodes.len());
-        for transform_id in 0..space.nodes.len() {
-            let parent_id = space.node_parents.get(transform_id).copied().unwrap_or(-1);
+        let transforms = space.local_transforms();
+        let parents = space.node_parents();
+        let mut rows = Vec::with_capacity(transforms.len());
+        for transform_id in 0..transforms.len() {
+            let parent_id = parents.get(transform_id).copied().unwrap_or(-1);
             let world = scene
                 .world_matrix(id, transform_id)
                 .and_then(world_sample_from_mat4);
@@ -79,9 +81,9 @@ impl RenderSpaceTransformsSnapshot {
         }
         Some(Self {
             space_id,
-            is_active: space.is_active,
-            is_overlay: space.is_overlay,
-            is_private: space.is_private,
+            is_active: space.is_active(),
+            is_overlay: space.is_overlay(),
+            is_private: space.is_private(),
             rows,
         })
     }

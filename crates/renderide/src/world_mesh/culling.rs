@@ -72,7 +72,7 @@ pub fn capture_hi_z_temporal(
     } else {
         for id in scene.render_space_ids() {
             if let Some(space) = scene.space(id) {
-                let v = view_matrix_from_render_transform(&space.view_transform);
+                let v = view_matrix_from_render_transform(space.view_transform());
                 prev_view_by_space.insert(id, v);
             }
         }
@@ -175,7 +175,7 @@ mod tests {
             vec![-1],
         );
         let space = scene.space(RenderSpaceId(5)).expect("space");
-        let expected = view_matrix_from_render_transform(&space.view_transform);
+        let expected = view_matrix_from_render_transform(space.view_transform());
         let prev = WorldMeshCullProjParams {
             world_proj: Mat4::IDENTITY,
             overlay_proj: Mat4::IDENTITY,

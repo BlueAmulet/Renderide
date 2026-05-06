@@ -290,10 +290,10 @@ impl CommonClusterInputs {
             host_camera.output_device,
             scene
                 .active_main_space()
-                .map(|space| space.root_transform.scale),
+                .map(|space| space.root_transform().scale),
         );
         let scene_view = scene.active_main_space().map_or(Mat4::IDENTITY, |s| {
-            view_matrix_from_render_transform(&s.view_transform)
+            view_matrix_from_render_transform(s.view_transform())
         });
         let aspect = viewport.aspect();
         let fov_rad = clamp_desktop_fov_degrees(host_camera.desktop_fov_degrees).to_radians();

@@ -3,7 +3,7 @@
 use glam::{Mat4, Vec3};
 
 use crate::scene::render_transform_to_matrix;
-use crate::scene::{RenderSpaceState, SceneCoordinator};
+use crate::scene::{RenderSpaceView, SceneCoordinator};
 use crate::shared::RenderTransform;
 
 use super::state::HostCameraFrame;
@@ -37,7 +37,7 @@ pub fn view_matrix_from_render_transform(tr: &RenderTransform) -> Mat4 {
     apply_view_handedness_fix(cam.inverse())
 }
 
-/// World-to-view for mesh rendering in `space`, accounting for [`RenderSpaceState::is_overlay`].
+/// World-to-view for mesh rendering in `space`, accounting for overlay render spaces.
 ///
 /// Overlay render spaces re-root object meshes into the main world's coordinates via
 /// [`SceneCoordinator::world_matrix_for_render_context`]; the camera view must therefore match the
@@ -45,22 +45,22 @@ pub fn view_matrix_from_render_transform(tr: &RenderTransform) -> Mat4 {
 /// head output + overlay positioning parity).
 pub fn view_matrix_for_world_mesh_render_space(
     scene: &SceneCoordinator,
-    space: &RenderSpaceState,
+    space: RenderSpaceView<'_>,
 ) -> Mat4 {
-    if space.is_overlay {
+    if space.is_overlay() {
         scene.active_main_space().map_or_else(
-            || view_matrix_from_render_transform(&space.view_transform),
-            |main| view_matrix_from_render_transform(&main.view_transform),
+            || view_matrix_from_render_transform(space.view_transform()),
+            |main| view_matrix_from_render_transform(main.view_transform()),
         )
     } else {
-        view_matrix_from_render_transform(&space.view_transform)
+        view_matrix_from_render_transform(space.view_transform())
     }
 }
 
 /// World-to-view for mesh rendering, honoring an explicit camera override when present.
 pub fn view_matrix_for_host_world_mesh_space(
     scene: &SceneCoordinator,
-    space: &RenderSpaceState,
+    space: RenderSpaceView<'_>,
     host_camera: &HostCameraFrame,
 ) -> Mat4 {
     host_camera

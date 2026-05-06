@@ -120,9 +120,9 @@ impl RenderWorld {
                 continue;
             };
             let cached = self.spaces.entry(id).or_default();
-            cached.active = space.is_active;
+            cached.active = space.is_active();
             cached.draws.clear();
-            if !space.is_active {
+            if !space.is_active() {
                 continue;
             }
             let estimate = estimated_draw_count(scene, id);

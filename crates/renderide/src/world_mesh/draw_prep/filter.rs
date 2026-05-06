@@ -51,14 +51,14 @@ impl CameraTransformDrawFilter {
     /// becomes an O(1) index lookup instead of repeated ancestor walks.
     ///
     /// Returns `None` when the space is missing; otherwise returns a `Vec<bool>` of length
-    /// `space.nodes.len()` where `mask[node_id as usize] == true` iff the draw should render.
+    /// `space.local_transforms().len()` where `mask[node_id as usize] == true` iff the draw should render.
     pub fn build_pass_mask(
         &self,
         scene: &SceneCoordinator,
         space_id: RenderSpaceId,
     ) -> Option<Vec<bool>> {
         let space = scene.space(space_id)?;
-        let n = space.nodes.len();
+        let n = space.local_transforms().len();
         if let Some(only) = &self.only {
             if only.is_empty() {
                 return Some(vec![false; n]);
@@ -86,14 +86,16 @@ fn node_or_ancestor_in_set(
         return false;
     };
     let mut cursor = node_id;
-    for _ in 0..space.nodes.len() {
+    let parents = space.node_parents();
+    let node_count = space.local_transforms().len();
+    for _ in 0..node_count {
         if set.contains(&cursor) {
             return true;
         }
-        let Some(&parent) = space.node_parents.get(cursor as usize) else {
+        let Some(&parent) = parents.get(cursor as usize) else {
             return false;
         };
-        if parent < 0 || parent == cursor || parent as usize >= space.nodes.len() {
+        if parent < 0 || parent == cursor || parent as usize >= node_count {
             return false;
         }
         cursor = parent;
@@ -111,7 +113,7 @@ fn ancestor_membership_mask(
     let Some(space) = scene.space(space_id) else {
         return Vec::new();
     };
-    let n = space.nodes.len();
+    let n = space.local_transforms().len();
     if n == 0 || set.is_empty() {
         return vec![false; n];
     }
@@ -156,7 +158,7 @@ fn ancestor_membership_mask(
                 hit = false;
                 break;
             }
-            let Some(&parent) = space.node_parents.get(cu) else {
+            let Some(&parent) = space.node_parents().get(cu) else {
                 hit = false;
                 break;
             };

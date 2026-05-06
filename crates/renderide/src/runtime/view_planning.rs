@@ -109,10 +109,10 @@ impl RendererRuntime {
             let Some(space) = self.scene.space(sid) else {
                 continue;
             };
-            if !space.is_active {
+            if !space.is_active() {
                 continue;
             }
-            for (idx, cam) in space.cameras.iter().enumerate() {
+            for (idx, cam) in space.cameras().iter().enumerate() {
                 if !camera_state_enabled(cam.state.flags) {
                     continue;
                 }
@@ -129,7 +129,7 @@ impl RendererRuntime {
             let Some(space) = self.scene.space(sid) else {
                 continue;
             };
-            let Some(entry) = space.cameras.get(cam_idx) else {
+            let Some(entry) = space.cameras().get(cam_idx) else {
                 continue;
             };
             if !camera_state_enabled(entry.state.flags) {

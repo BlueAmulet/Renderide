@@ -15,8 +15,8 @@
 //!
 //! Cached [`WorldTransformCache::world_matrices`](WorldTransformCache) are the full hierarchy
 //! result per node (parent chain). Use [`SceneCoordinator::world_matrix`] for meshes, lights, and
-//! bones. [`RenderSpaceState::root_transform`](render_space::RenderSpaceState) applies to the
-//! **view** ([`RenderSpaceState::view_transform`](render_space::RenderSpaceState)), not to object
+//! bones. The render-space root transform applies to the
+//! **view**, not to object
 //! matrices; only use [`SceneCoordinator::world_matrix_including_space_root`] when a host contract
 //! explicitly requires that composite.
 //!
@@ -28,8 +28,7 @@
 //!
 //! ## Mesh renderables
 //!
-//! [`RenderSpaceState::static_mesh_renderers`](RenderSpaceState::static_mesh_renderers) and
-//! [`RenderSpaceState::skinned_mesh_renderers`](RenderSpaceState::skinned_mesh_renderers) use dense
+//! Static and skinned mesh renderers use dense
 //! `renderable_index` <-> `Vec` index, with removals in buffer order (swap-with-last).
 //!
 //! ## Lights
@@ -82,6 +81,6 @@ pub use reflection_probe::{
     ReflectionProbeEntry, reflection_probe_hdr, reflection_probe_skybox_only,
     reflection_probe_use_box_projection,
 };
-pub use render_space::{LayerAssignmentEntry, RenderSpaceState};
+pub use render_space::RenderSpaceView;
 pub use transforms_apply::TransformRemovalEvent;
 pub use world::WorldTransformCache;

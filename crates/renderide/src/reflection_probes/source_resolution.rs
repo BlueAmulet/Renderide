@@ -44,7 +44,7 @@ pub(super) fn resolve_task_source(
     }
     let space = scene.space(RenderSpaceId(render_space_id))?;
     let probe = space
-        .reflection_probes
+        .reflection_probes()
         .get(task.reflection_probe_renderable_index as usize)?;
     let state = probe.state;
     if state.clear_flags == ReflectionProbeClear::Color {
@@ -113,7 +113,7 @@ pub(super) fn resolve_task_source(
     }
     resolve_skybox_source(
         render_space_id,
-        space.skybox_material_asset_id,
+        space.skybox_material_asset_id(),
         materials,
         assets,
     )
