@@ -244,6 +244,7 @@ fn precompute_and_assign_material_batches(
 /// Stamps each draw group with the material packet covering its representative draw.
 fn assign_material_packet_indices(plan: &mut InstancePlan, packets: &[MaterialBatchPacket]) {
     assign_group_packet_indices(&mut plan.regular_groups, packets);
+    assign_group_packet_indices(&mut plan.post_skybox_groups, packets);
     assign_group_packet_indices(&mut plan.intersect_groups, packets);
     assign_group_packet_indices(&mut plan.transparent_groups, packets);
 }

@@ -58,6 +58,8 @@ struct ForwardSubpassDrawRecord<'a, 'c, 'd> {
 enum ForwardSubpassKind {
     /// Opaque and alpha-cutout draws before scene-depth snapshotting.
     Opaque,
+    /// Regular transparent or non-depth-occluding draws after the skybox/background draw.
+    PostSkybox,
     /// Intersection material draws after the depth snapshot.
     Intersection,
     /// Transparent and grab-pass tail draws.
@@ -69,6 +71,7 @@ impl ForwardSubpassKind {
     fn groups(self, plan: &crate::world_mesh::InstancePlan) -> &[crate::world_mesh::DrawGroup] {
         match self {
             Self::Opaque => &plan.regular_groups,
+            Self::PostSkybox => &plan.post_skybox_groups,
             Self::Intersection => &plan.intersect_groups,
             Self::Transparent => &plan.transparent_groups,
         }
@@ -171,6 +174,17 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_opaque_gr
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
     record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Opaque)
+}
+
+/// Records the post-skybox regular draw subset into a render pass already opened by the graph.
+pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_post_skybox_graph_raster(
+    rpass: &mut wgpu::RenderPass<'_>,
+    _device: &wgpu::Device,
+    _queue: &wgpu::Queue,
+    frame: &GraphPassFrame<'_>,
+    prepared: &PreparedWorldMeshForwardFrame,
+) -> bool {
+    record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::PostSkybox)
 }
 
 /// Records the GTAO normal draw subset into a render pass already opened by the graph.

@@ -16,6 +16,8 @@
 use hashbrown::HashMap;
 use std::ops::Range;
 
+use crate::materials::render_queue_is_transparent;
+
 use super::draw_prep::WorldMeshDrawItem;
 
 /// One emitted indexed draw covering a contiguous slab range of identical instances.
@@ -40,8 +42,8 @@ pub struct DrawGroup {
     pub material_packet_idx: usize,
 }
 
-/// Per-view instance plan: slab layout plus groups for regular, intersection, and grab-pass
-/// transparent subpasses.
+/// Per-view instance plan: slab layout plus groups for pre-skybox regular, post-skybox regular,
+/// intersection, and grab-pass transparent subpasses.
 ///
 /// The forward pass packs the per-draw slab in `slab_layout` order -- slot `i` holds the
 /// per-draw uniforms for `draws[slab_layout[i]]` -- and emits each group's `instance_range`
@@ -53,9 +55,11 @@ pub struct InstancePlan {
     /// New slab order. `slab_layout[i]` is the sorted-draw index whose per-draw uniforms
     /// go into per-draw slot `i`. Length equals `draws.len()` (every draw gets one slot).
     pub slab_layout: Vec<usize>,
-    /// Groups emitted by the regular opaque/transparent forward subpass (one
-    /// `draw_indexed` each), in ascending `representative_draw_idx` order.
+    /// Groups emitted before the skybox draw, in ascending `representative_draw_idx` order.
     pub regular_groups: Vec<DrawGroup>,
+    /// Regular forward groups emitted after the skybox draw, in ascending
+    /// `representative_draw_idx` order.
+    pub post_skybox_groups: Vec<DrawGroup>,
     /// Groups emitted by the intersection-pass subpass (post depth-snapshot), in
     /// ascending `representative_draw_idx` order.
     pub intersect_groups: Vec<DrawGroup>,
@@ -107,8 +111,10 @@ pub fn build_plan(draws: &[WorldMeshDrawItem], supports_base_instance: bool) -> 
 struct InstancePlanBuilder {
     /// Per-draw slab order emitted for the frame.
     slab_layout: Vec<usize>,
-    /// Regular forward draw groups.
+    /// Regular forward draw groups emitted before the skybox draw.
     regular_groups: Vec<DrawGroup>,
+    /// Regular forward draw groups emitted after the skybox draw.
+    post_skybox_groups: Vec<DrawGroup>,
     /// Intersection-pass draw groups.
     intersect_groups: Vec<DrawGroup>,
     /// Grab-pass transparent draw groups.
@@ -123,6 +129,7 @@ impl InstancePlanBuilder {
         Self {
             slab_layout: Vec::with_capacity(draw_count),
             regular_groups: Vec::new(),
+            post_skybox_groups: Vec::new(),
             intersect_groups: Vec::new(),
             transparent_groups: Vec::new(),
             scratch: InstancePlanScratch::default(),
@@ -142,8 +149,10 @@ impl InstancePlanBuilder {
     fn emit_singletons(&mut self, window: BatchWindow) {
         let target = subpass_groups(
             &mut self.regular_groups,
+            &mut self.post_skybox_groups,
             &mut self.intersect_groups,
             &mut self.transparent_groups,
+            window.post_skybox,
             window.intersect,
             window.grab_pass,
         );
@@ -157,8 +166,10 @@ impl InstancePlanBuilder {
         self.scratch.rebuild(draws, window.range.clone());
         let target = subpass_groups(
             &mut self.regular_groups,
+            &mut self.post_skybox_groups,
             &mut self.intersect_groups,
             &mut self.transparent_groups,
+            window.post_skybox,
             window.intersect,
             window.grab_pass,
         );
@@ -190,6 +201,11 @@ impl InstancePlanBuilder {
                 .all(|w| w[0].representative_draw_idx <= w[1].representative_draw_idx)
         );
         debug_assert!(
+            self.post_skybox_groups
+                .windows(2)
+                .all(|w| w[0].representative_draw_idx <= w[1].representative_draw_idx)
+        );
+        debug_assert!(
             self.transparent_groups
                 .windows(2)
                 .all(|w| w[0].representative_draw_idx <= w[1].representative_draw_idx)
@@ -198,6 +214,7 @@ impl InstancePlanBuilder {
         InstancePlan {
             slab_layout: self.slab_layout,
             regular_groups: self.regular_groups,
+            post_skybox_groups: self.post_skybox_groups,
             intersect_groups: self.intersect_groups,
             transparent_groups: self.transparent_groups,
         }
@@ -290,6 +307,8 @@ struct BatchWindow {
     range: Range<usize>,
     /// Whether the window belongs to the intersection subpass.
     intersect: bool,
+    /// Whether the window belongs to the regular post-skybox subpass.
+    post_skybox: bool,
     /// Whether the window belongs to the grab-pass transparent subpass.
     grab_pass: bool,
     /// Whether every draw must remain a singleton group.
@@ -310,6 +329,7 @@ fn next_batch_window(
 
     let intersect = key.embedded_requires_intersection_pass;
     let grab_pass = key.embedded_uses_scene_color_snapshot;
+    let post_skybox = !intersect && !grab_pass && regular_window_records_after_skybox(key);
     debug_assert!(
         !(intersect && grab_pass),
         "intersection and grab-pass subpasses are mutually exclusive"
@@ -318,12 +338,21 @@ fn next_batch_window(
     BatchWindow {
         range: start..end,
         intersect,
+        post_skybox,
         grab_pass,
         singleton: !supports_base_instance
             || draws[start].skinned
+            || post_skybox
             || key.alpha_blended
             || grab_pass,
     }
+}
+
+/// Returns whether a regular forward draw must render after the skybox/background draw.
+fn regular_window_records_after_skybox(key: &crate::world_mesh::MaterialDrawBatchKey) -> bool {
+    key.alpha_blended
+        || render_queue_is_transparent(key.render_queue)
+        || key.render_state.depth_write == Some(false)
 }
 
 /// Builds the grouping key for one draw item.
@@ -338,8 +367,10 @@ fn mesh_submesh_key(item: &WorldMeshDrawItem) -> MeshSubmeshKey {
 /// Selects the subpass group vector for a batch window.
 fn subpass_groups<'a>(
     regular_groups: &'a mut Vec<DrawGroup>,
+    post_skybox_groups: &'a mut Vec<DrawGroup>,
     intersect_groups: &'a mut Vec<DrawGroup>,
     transparent_groups: &'a mut Vec<DrawGroup>,
+    post_skybox: bool,
     intersect: bool,
     grab_pass: bool,
 ) -> &'a mut Vec<DrawGroup> {
@@ -347,6 +378,8 @@ fn subpass_groups<'a>(
         intersect_groups
     } else if grab_pass {
         transparent_groups
+    } else if post_skybox {
+        post_skybox_groups
     } else {
         regular_groups
     }
@@ -373,9 +406,12 @@ fn emit_group(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::materials::RasterFrontFace;
+    use crate::materials::{
+        RasterFrontFace, UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_RENDER_QUEUE_TRANSPARENT,
+    };
     use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
-    use crate::world_mesh::draw_prep::sort_draws;
+    use crate::world_mesh::draw_prep::{pack_sort_prefix, sort_draws};
+    use crate::world_mesh::materials::compute_batch_key_hash;
 
     fn opaque(mesh: i32, mat: i32, sort: i32, node: i32) -> WorldMeshDrawItem {
         dummy_world_mesh_draw_item(DummyDrawItemSpec {
@@ -391,11 +427,27 @@ mod tests {
         })
     }
 
+    fn refresh_sort_keys(item: &mut WorldMeshDrawItem) {
+        item.batch_key_hash = compute_batch_key_hash(&item.batch_key);
+        item.sort_prefix = pack_sort_prefix(
+            item.is_overlay,
+            item.batch_key.render_queue,
+            item.opaque_depth_bucket,
+            item.batch_key_hash,
+        );
+    }
+
+    fn set_render_queue(item: &mut WorldMeshDrawItem, render_queue: i32) {
+        item.batch_key.render_queue = render_queue;
+        refresh_sort_keys(item);
+    }
+
     #[test]
     fn empty_yields_empty_plan() {
         let plan = build_plan(&[], true);
         assert!(plan.slab_layout.is_empty());
         assert!(plan.regular_groups.is_empty());
+        assert!(plan.post_skybox_groups.is_empty());
         assert!(plan.intersect_groups.is_empty());
         assert!(plan.transparent_groups.is_empty());
     }
@@ -409,6 +461,7 @@ mod tests {
         assert_eq!(plan.regular_groups.len(), 1);
         assert_eq!(plan.regular_groups[0].instance_range, 0..6);
         assert_eq!(plan.slab_layout.len(), 6);
+        assert!(plan.post_skybox_groups.is_empty());
         assert!(plan.intersect_groups.is_empty());
         assert!(plan.transparent_groups.is_empty());
     }
@@ -427,6 +480,7 @@ mod tests {
             assert_eq!(group.instance_range.end - group.instance_range.start, 1);
         }
         assert_eq!(plan.slab_layout.len(), 2);
+        assert!(plan.post_skybox_groups.is_empty());
         assert!(plan.intersect_groups.is_empty());
         assert!(plan.transparent_groups.is_empty());
     }
@@ -450,6 +504,7 @@ mod tests {
         assert_eq!(plan.regular_groups.len(), 1);
         assert_eq!(plan.regular_groups[0].instance_range, 0..2);
         assert_eq!(plan.slab_layout.len(), 2);
+        assert!(plan.post_skybox_groups.is_empty());
         assert!(plan.intersect_groups.is_empty());
     }
 
@@ -474,6 +529,7 @@ mod tests {
             .sum();
         assert_eq!(total_instances, 5);
         assert_eq!(plan.slab_layout.len(), 5);
+        assert!(plan.post_skybox_groups.is_empty());
         assert!(plan.intersect_groups.is_empty());
         assert!(plan.transparent_groups.is_empty());
     }
@@ -505,7 +561,7 @@ mod tests {
     }
 
     #[test]
-    fn alpha_blended_window_emits_singletons() {
+    fn alpha_blended_regular_window_emits_post_skybox_singletons() {
         let mut draws: Vec<_> = (0..3)
             .map(|n| {
                 dummy_world_mesh_draw_item(DummyDrawItemSpec {
@@ -524,7 +580,68 @@ mod tests {
         sort_draws(&mut draws);
 
         let plan = build_plan(&draws, true);
-        assert_eq!(plan.regular_groups.len(), 3);
+        assert!(plan.regular_groups.is_empty());
+        assert_eq!(plan.post_skybox_groups.len(), 3);
+        for group in &plan.post_skybox_groups {
+            assert_eq!(group.instance_range.end - group.instance_range.start, 1);
+        }
+        assert!(plan.intersect_groups.is_empty());
+        assert!(plan.transparent_groups.is_empty());
+    }
+
+    #[test]
+    fn transparent_render_queue_regular_window_emits_post_skybox_singletons() {
+        let mut draws: Vec<_> = (0..3)
+            .map(|n| {
+                let mut item = opaque(7, 1, 0, n);
+                set_render_queue(&mut item, UNITY_RENDER_QUEUE_TRANSPARENT);
+                item
+            })
+            .collect();
+        sort_draws(&mut draws);
+
+        let plan = build_plan(&draws, true);
+        assert!(plan.regular_groups.is_empty());
+        assert_eq!(plan.post_skybox_groups.len(), 3);
+        assert!(plan.intersect_groups.is_empty());
+        assert!(plan.transparent_groups.is_empty());
+    }
+
+    #[test]
+    fn zwrite_off_regular_window_emits_post_skybox_singletons() {
+        let mut draws: Vec<_> = (0..3)
+            .map(|n| {
+                let mut item = opaque(7, 1, 0, n);
+                item.batch_key.render_state.depth_write = Some(false);
+                refresh_sort_keys(&mut item);
+                item
+            })
+            .collect();
+        sort_draws(&mut draws);
+
+        let plan = build_plan(&draws, true);
+        assert!(plan.regular_groups.is_empty());
+        assert_eq!(plan.post_skybox_groups.len(), 3);
+        assert!(plan.intersect_groups.is_empty());
+        assert!(plan.transparent_groups.is_empty());
+    }
+
+    #[test]
+    fn alpha_test_regular_window_stays_before_skybox() {
+        let mut draws: Vec<_> = (0..3)
+            .map(|n| {
+                let mut item = opaque(7, 1, 0, n);
+                set_render_queue(&mut item, UNITY_RENDER_QUEUE_ALPHA_TEST);
+                item
+            })
+            .collect();
+        sort_draws(&mut draws);
+
+        let plan = build_plan(&draws, true);
+        assert_eq!(plan.regular_groups.len(), 1);
+        assert!(plan.post_skybox_groups.is_empty());
+        assert!(plan.intersect_groups.is_empty());
+        assert!(plan.transparent_groups.is_empty());
     }
 
     #[test]
@@ -551,6 +668,7 @@ mod tests {
 
         let plan = build_plan(&draws, true);
         assert!(plan.regular_groups.is_empty());
+        assert!(plan.post_skybox_groups.is_empty());
         assert!(plan.intersect_groups.is_empty());
         assert_eq!(plan.transparent_groups.len(), 3);
         for group in &plan.transparent_groups {
@@ -570,6 +688,7 @@ mod tests {
 
         let plan = build_plan(&draws, true);
         assert!(plan.regular_groups.is_empty());
+        assert!(plan.post_skybox_groups.is_empty());
         assert_eq!(plan.intersect_groups.len(), 1);
         assert_eq!(plan.transparent_groups.len(), 1);
     }

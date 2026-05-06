@@ -157,13 +157,17 @@ pub fn stats_from_sorted(
     // The forward pass drives both subpasses from this same `InstancePlan`, so the HUD
     // counts are exactly what `draw_subset` ends up submitting.
     let plan = build_plan(draws, supports_base_instance);
+    let post_skybox_pass_batches = plan.post_skybox_groups.len();
     let intersect_pass_batches = plan.intersect_groups.len();
     let transparent_pass_batches = plan.transparent_groups.len();
-    let instance_batch_total =
-        plan.regular_groups.len() + intersect_pass_batches + transparent_pass_batches;
+    let instance_batch_total = plan.regular_groups.len()
+        + post_skybox_pass_batches
+        + intersect_pass_batches
+        + transparent_pass_batches;
     let gpu_instances_emitted: usize = plan
         .regular_groups
         .iter()
+        .chain(plan.post_skybox_groups.iter())
         .chain(plan.intersect_groups.iter())
         .chain(plan.transparent_groups.iter())
         .map(|g| (g.instance_range.end - g.instance_range.start) as usize)
@@ -172,6 +176,7 @@ pub fn stats_from_sorted(
     let submitted_pipeline_pass_total = plan
         .regular_groups
         .iter()
+        .chain(plan.post_skybox_groups.iter())
         .chain(plan.intersect_groups.iter())
         .chain(plan.transparent_groups.iter())
         .map(|group: &DrawGroup| {
