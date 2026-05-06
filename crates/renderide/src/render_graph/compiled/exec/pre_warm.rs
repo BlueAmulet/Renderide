@@ -132,21 +132,42 @@ impl CompiledRenderGraph {
         profiling::scope!("graph::pre_warm_per_view");
         let mut mesh_ids_needing_uv1_stream: HashSet<i32> = HashSet::new();
         let mut mesh_ids_needing_extended_streams: HashSet<i32> = HashSet::new();
+        let mut prepared_frame_layouts = Vec::with_capacity(views.len());
         for (view, layout_opt) in views.iter().zip(view_layouts.iter()) {
             let view_id = view.view_id();
             let Some(layout) = *layout_opt else {
                 continue;
             };
-            let _ = mv_ctx.backend.frame_resources.per_view_frame_or_create(
-                view_id,
-                mv_ctx.device,
-                layout,
-            );
-            let _ = mv_ctx.backend.occlusion.ensure_hi_z_state(view_id);
-            let _ = mv_ctx
+            if mv_ctx
                 .backend
                 .frame_resources
-                .per_view_per_draw_or_create(view_id, mv_ctx.device);
+                .per_view_frame_or_create(view_id, mv_ctx.device, layout)
+                .is_none()
+            {
+                logger::warn!(
+                    "graph pre-warm: per-view frame resources unavailable for view {view_id:?} layout={layout:?}"
+                );
+                return Err(GraphExecuteError::MissingPerViewResources {
+                    view_id,
+                    resource: "frame",
+                });
+            }
+            prepared_frame_layouts.push((view_id, layout));
+            let _ = mv_ctx.backend.occlusion.ensure_hi_z_state(view_id);
+            if mv_ctx
+                .backend
+                .frame_resources
+                .per_view_per_draw_or_create(view_id, mv_ctx.device)
+                .is_none()
+            {
+                logger::warn!(
+                    "graph pre-warm: per-draw resources unavailable for view {view_id:?}"
+                );
+                return Err(GraphExecuteError::MissingPerViewResources {
+                    view_id,
+                    resource: "per-draw",
+                });
+            }
             let _ = mv_ctx
                 .backend
                 .frame_resources
@@ -165,6 +186,22 @@ impl CompiledRenderGraph {
                         mesh_ids_needing_extended_streams.insert(item.mesh_asset_id);
                     }
                 }
+            }
+        }
+        for (view_id, layout) in prepared_frame_layouts {
+            if mv_ctx
+                .backend
+                .frame_resources
+                .per_view_frame_or_create(view_id, mv_ctx.device, layout)
+                .is_none()
+            {
+                logger::warn!(
+                    "graph pre-warm: per-view frame resources became stale for view {view_id:?} layout={layout:?}"
+                );
+                return Err(GraphExecuteError::MissingPerViewResources {
+                    view_id,
+                    resource: "frame",
+                });
             }
         }
         logger::trace!(

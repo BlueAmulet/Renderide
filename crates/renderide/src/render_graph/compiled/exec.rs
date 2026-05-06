@@ -431,7 +431,13 @@ impl CompiledRenderGraph {
         for (view_idx, view) in views.iter_mut().enumerate() {
             let view_id = view.view_id();
             let host_camera = view.host_camera;
-            let per_view_frame_bg_and_buf = mv_ctx
+            let resolved = Self::resolve_owned_view_from_target(
+                view_id,
+                &view.target,
+                mv_ctx.gpu,
+                mv_ctx.backbuffer_view_holder.as_ref(),
+            )?;
+            let Some(per_view_frame_bg_and_buf) = mv_ctx
                 .backend
                 .frame_resources
                 .per_view_frame(view_id)
@@ -440,7 +446,16 @@ impl CompiledRenderGraph {
                         state.frame_bind_group.clone(),
                         state.frame_uniform_buffer.clone(),
                     )
+                })
+            else {
+                logger::warn!(
+                    "graph prepare: missing per-view frame resources for view {view_id:?}"
+                );
+                return Err(GraphExecuteError::MissingPerViewResources {
+                    view_id,
+                    resource: "frame",
                 });
+            };
             work_items.push(PerViewWorkItem {
                 view_idx,
                 host_camera,
@@ -451,12 +466,7 @@ impl CompiledRenderGraph {
                     &mut view.world_mesh_draw_plan,
                     WorldMeshDrawPlan::Empty,
                 ),
-                resolved: Self::resolve_owned_view_from_target(
-                    view_id,
-                    &view.target,
-                    mv_ctx.gpu,
-                    mv_ctx.backbuffer_view_holder.as_ref(),
-                )?,
+                resolved,
                 per_view_frame_bg_and_buf,
             });
         }

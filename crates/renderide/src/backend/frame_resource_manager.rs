@@ -392,10 +392,9 @@ impl FrameResourceManager {
         let fgpu = frame_gpu_opt.as_mut()?;
         // Grow the shared cluster buffers to cover this view if needed; `sync_cluster_viewport`
         // is grow-only so repeated calls from different views consolidate to the max envelope.
-        fgpu.sync_cluster_viewport(device, viewport, stereo);
+        fgpu.sync_cluster_viewport(device, viewport, stereo)?;
         let cluster_ver = fgpu.cluster_cache.version;
         let skybox_specular_version = fgpu.skybox_specular_version();
-        let placeholder_bg = fgpu.bind_group.clone();
 
         if !per_view_frame.contains_key(view_id) {
             let frame_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -408,16 +407,12 @@ impl FrameResourceManager {
             let mut scene_snapshots =
                 PerViewSceneSnapshots::new(device, layout.depth_format, layout.color_format);
             scene_snapshots.sync(device, limits.as_ref(), snapshot_sync);
-            let frame_bind_group = fgpu.cluster_cache.current_refs().map_or_else(
-                || placeholder_bg,
-                |refs| {
-                    fgpu.build_per_view_bind_group(
-                        device,
-                        &frame_uniform_buffer,
-                        refs,
-                        scene_snapshots.views(),
-                    )
-                },
+            let refs = fgpu.cluster_cache.current_refs()?;
+            let frame_bind_group = fgpu.build_per_view_bind_group(
+                device,
+                &frame_uniform_buffer,
+                refs,
+                scene_snapshots.views(),
             );
             logger::debug!("per-view frame state: allocating for view {view_id:?}");
             let state = PerViewFrameState {
@@ -448,15 +443,14 @@ impl FrameResourceManager {
             || snapshots_changed;
 
         if needs_rebuild {
-            if let Some(refs) = fgpu.cluster_cache.current_refs() {
-                let new_bg = fgpu.build_per_view_bind_group(
-                    device,
-                    &entry.frame_uniform_buffer,
-                    refs,
-                    entry.scene_snapshots.views(),
-                );
-                entry.frame_bind_group = new_bg;
-            }
+            let refs = fgpu.cluster_cache.current_refs()?;
+            let new_bg = fgpu.build_per_view_bind_group(
+                device,
+                &entry.frame_uniform_buffer,
+                refs,
+                entry.scene_snapshots.views(),
+            );
+            entry.frame_bind_group = new_bg;
             entry.last_cluster_version = cluster_ver;
             entry.last_skybox_specular_version = skybox_specular_version;
         }
@@ -708,7 +702,17 @@ impl FrameResourceManager {
             let Some(fgpu) = self.frame_gpu_mut() else {
                 return;
             };
-            fgpu.sync_cluster_viewport(device, (layout.width, layout.height), layout.stereo);
+            if fgpu
+                .sync_cluster_viewport(device, (layout.width, layout.height), layout.stereo)
+                .is_none()
+            {
+                logger::warn!(
+                    "pre-record cluster sync failed for viewport {}x{} stereo={}",
+                    layout.width,
+                    layout.height,
+                    layout.stereo
+                );
+            }
         }
         if self
             .lights_gpu_uploaded_this_tick
@@ -740,7 +744,7 @@ impl FrameResourceManager {
         let skip = self.lights_gpu_uploaded_this_tick.load(Ordering::Acquire);
         {
             let fgpu = self.frame_gpu_mut()?;
-            fgpu.sync_cluster_viewport(device, viewport, stereo)
+            fgpu.sync_cluster_viewport(device, viewport, stereo)?;
         };
         if !skip {
             let fgpu = self.frame_gpu.as_ref()?;

@@ -244,7 +244,7 @@ impl CompiledRenderGraph {
         frame_params: &crate::render_graph::frame_params::GraphPassFrame<'_>,
         graph_resources: &GraphResolvedResources,
         world_mesh_draw_plan: WorldMeshDrawPlan,
-        per_view_frame_bg_and_buf: Option<(std::sync::Arc<wgpu::BindGroup>, wgpu::Buffer)>,
+        per_view_frame_bg_and_buf: (std::sync::Arc<wgpu::BindGroup>, wgpu::Buffer),
         view_idx: usize,
     ) -> Blackboard {
         profiling::scope!("graph::per_view::build_blackboard");
@@ -266,15 +266,14 @@ impl CompiledRenderGraph {
                 );
             }
         }
+        let (frame_bg, frame_buf) = per_view_frame_bg_and_buf;
         // Seed per-view frame plan so the prepare pass can write frame uniforms to the
         // correct per-view buffer and bind the right @group(0) bind group.
-        if let Some((frame_bg, frame_buf)) = per_view_frame_bg_and_buf {
-            view_blackboard.insert::<PerViewFramePlanSlot>(PerViewFramePlan {
-                frame_bind_group: frame_bg,
-                frame_uniform_buffer: frame_buf,
-                view_idx,
-            });
-        }
+        view_blackboard.insert::<PerViewFramePlanSlot>(PerViewFramePlan {
+            frame_bind_group: frame_bg,
+            frame_uniform_buffer: frame_buf,
+            view_idx,
+        });
         view_blackboard
     }
 

@@ -365,17 +365,19 @@ impl RasterPass for WorldMeshForwardOpaquePass {
             ctx.device,
             ctx.queue.as_ref(),
             frame,
+            ctx.blackboard,
             &prepared,
         );
         let skybox_recorded = prepared
             .skybox
             .as_ref()
-            .is_none_or(|skybox| record_prepared_skybox(rpass, frame, skybox));
+            .is_none_or(|skybox| record_prepared_skybox(rpass, frame, ctx.blackboard, skybox));
         let post_skybox_recorded = record_world_mesh_forward_post_skybox_graph_raster(
             rpass,
             ctx.device,
             ctx.queue.as_ref(),
             frame,
+            ctx.blackboard,
             &prepared,
         );
         prepared.opaque_recorded = pre_skybox_recorded && skybox_recorded && post_skybox_recorded;
@@ -527,6 +529,7 @@ impl RasterPass for WorldMeshForwardIntersectPass {
                 ctx.device,
                 ctx.queue.as_ref(),
                 frame,
+                ctx.blackboard,
                 &prepared,
             )
         } else {
@@ -656,6 +659,7 @@ impl RasterPass for WorldMeshForwardTransparentPass {
                 ctx.device,
                 ctx.queue.as_ref(),
                 frame,
+                ctx.blackboard,
                 &prepared,
             )
         } else {

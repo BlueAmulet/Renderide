@@ -140,8 +140,8 @@ pub(super) struct PerViewWorkItem {
     pub(super) world_mesh_draw_plan: WorldMeshDrawPlan,
     /// Owned resolved view snapshot safe to move to a worker thread.
     pub(super) resolved: OwnedResolvedView,
-    /// Optional per-view `@group(0)` bind group and uniform buffer.
-    pub(super) per_view_frame_bg_and_buf: Option<(std::sync::Arc<wgpu::BindGroup>, wgpu::Buffer)>,
+    /// Per-view `@group(0)` bind group and uniform buffer captured before recording.
+    pub(super) per_view_frame_bg_and_buf: (std::sync::Arc<wgpu::BindGroup>, wgpu::Buffer),
 }
 
 /// Immutable shared inputs required to record one per-view command buffer.

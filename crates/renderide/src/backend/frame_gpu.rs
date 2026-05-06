@@ -514,11 +514,12 @@ impl FrameGpuResources {
         })
     }
 
-    /// Grows the shared cluster cache to cover `viewport` x `stereo` if needed; rebuilds
+    /// Grows the shared cluster cache to cover `viewport` x `stereo` if possible; rebuilds
     /// [`Self::bind_group`] when the underlying buffers were reallocated.
     ///
     /// When `stereo` is true, cluster count/index buffers are doubled for per-eye storage.
-    /// Returns `true` if the bind group was recreated.
+    /// Returns [`None`] when the requested layout exceeds device limits. Otherwise returns
+    /// whether the bind group was recreated.
     ///
     /// Because the shared cache is grow-only (see [`ClusterBufferCache`]), calling this with
     /// a smaller viewport than a previous call is a no-op.
@@ -527,28 +528,22 @@ impl FrameGpuResources {
         device: &wgpu::Device,
         viewport: (u32, u32),
         stereo: bool,
-    ) -> bool {
+    ) -> Option<bool> {
         profiling::scope!("render::sync_cluster_viewport");
-        if self
-            .cluster_cache
-            .ensure_buffers(
-                device,
-                self.limits.as_ref(),
-                viewport,
-                CLUSTER_COUNT_Z,
-                stereo,
-            )
-            .is_none()
-        {
-            return false;
-        }
+        self.cluster_cache.ensure_buffers(
+            device,
+            self.limits.as_ref(),
+            viewport,
+            CLUSTER_COUNT_Z,
+            stereo,
+        )?;
         let ver = self.cluster_cache.version;
         if ver == self.cluster_bind_version {
-            return false;
+            return Some(false);
         }
         self.rebuild_bind_group(device);
         self.cluster_bind_version = ver;
-        true
+        Some(true)
     }
 
     /// Builds a per-view `@group(0)` bind group using this view's own `frame_uniform` and

@@ -7,6 +7,7 @@ use super::resources::{
     BufferHandle, HistorySlotId, ImportedBufferHandle, ImportedTextureHandle, SubresourceHandle,
     TextureHandle,
 };
+use crate::camera::ViewId;
 
 /// Setup-time validation errors reported by a [`super::RenderPass`].
 #[derive(Debug, thiserror::Error)]
@@ -214,6 +215,15 @@ pub enum GraphExecuteError {
     #[error("per-view record missing pre-resolved transient resources")]
     MissingTransientResources,
 
+    /// A per-view frame resource required for command recording was not prepared.
+    #[error("per-view {resource} resources were not prepared for view {view_id:?}")]
+    MissingPerViewResources {
+        /// View whose resource was missing.
+        view_id: ViewId,
+        /// Short resource name, such as `frame` or `per-draw`.
+        resource: &'static str,
+    },
+
     /// A graph ping-pong texture import referenced a history slot that was not registered.
     #[error("history texture slot `{slot}` was not registered for graph import `{import_label}`")]
     MissingHistoryTexture {
@@ -325,6 +335,18 @@ mod tests {
         assert_eq!(
             GraphExecuteError::unallocated_history_buffer(slot, "previous").to_string(),
             "history buffer slot `temporal` has no allocated previous half"
+        );
+    }
+
+    #[test]
+    fn missing_per_view_resources_display_includes_view_and_resource() {
+        assert_eq!(
+            GraphExecuteError::MissingPerViewResources {
+                view_id: ViewId::Main,
+                resource: "frame",
+            }
+            .to_string(),
+            "per-view frame resources were not prepared for view Main"
         );
     }
 }

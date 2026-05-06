@@ -10,6 +10,7 @@ use bytemuck::{Pod, Zeroable};
 use parking_lot::Mutex;
 
 use super::WorldMeshForwardPipelineState;
+use super::execute_helpers::frame_bind_group_for_view;
 use crate::backend::FrameGpuResources;
 use crate::camera::{CameraProjectionKind, ViewId, world_to_view_pair_for_skybox};
 use crate::embedded_shaders;
@@ -17,6 +18,7 @@ use crate::materials::host_data::{MaterialDictionary, MaterialPropertyLookupIds}
 use crate::materials::{
     EmbeddedTexturePools, MaterialRenderState, material_render_state_for_lookup,
 };
+use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::frame_params::GraphPassFrame;
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::shared::CameraClearMode;
@@ -390,17 +392,13 @@ impl SkyboxRenderer {
 pub(super) fn record_prepared_skybox(
     rpass: &mut wgpu::RenderPass<'_>,
     frame: &GraphPassFrame<'_>,
+    blackboard: &Blackboard,
     prepared: &PreparedSkybox,
 ) -> bool {
     profiling::scope!("world_mesh_forward::skybox_record");
     match prepared {
         PreparedSkybox::Material(skybox) => {
-            let Some(frame_bg) = frame
-                .shared
-                .frame_resources
-                .per_view_frame(frame.view.view_id)
-                .map(|s| s.frame_bind_group.clone())
-            else {
+            let Some(frame_bg) = frame_bind_group_for_view(frame, blackboard) else {
                 return false;
             };
             rpass.set_pipeline(skybox.pipeline.as_ref());

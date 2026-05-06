@@ -5,7 +5,8 @@ use std::sync::Arc;
 use super::super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
 use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::gpu::GpuLimits;
-use crate::render_graph::frame_params::GraphPassFrame;
+use crate::render_graph::blackboard::Blackboard;
+use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlanSlot};
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
 use super::super::encode::{ForwardDrawBatch, NormalDrawBatch, draw_normals_subset, draw_subset};
@@ -99,10 +100,28 @@ fn record_world_mesh_forward_subpass(
     });
 }
 
+/// Returns the per-view frame bind group captured before command recording.
+pub(in crate::passes::world_mesh_forward) fn frame_bind_group_for_view(
+    frame: &GraphPassFrame<'_>,
+    blackboard: &Blackboard,
+) -> Option<Arc<wgpu::BindGroup>> {
+    blackboard
+        .get::<PerViewFramePlanSlot>()
+        .map(|plan| plan.frame_bind_group.clone())
+        .or_else(|| {
+            frame
+                .shared
+                .frame_resources
+                .per_view_frame(frame.view.view_id)
+                .map(|s| s.frame_bind_group.clone())
+        })
+}
+
 /// Records one world-mesh forward subset into a render pass already opened by the graph.
 fn record_world_mesh_forward_graph_raster(
     rpass: &mut wgpu::RenderPass<'_>,
     frame: &GraphPassFrame<'_>,
+    blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
     subpass: ForwardSubpassKind,
 ) -> bool {
@@ -119,12 +138,7 @@ fn record_world_mesh_forward_graph_raster(
     else {
         return false;
     };
-    let Some(frame_bg_arc) = frame
-        .shared
-        .frame_resources
-        .per_view_frame(frame.view.view_id)
-        .map(|s| s.frame_bind_group.clone())
-    else {
+    let Some(frame_bg_arc) = frame_bind_group_for_view(frame, blackboard) else {
         return false;
     };
     let Some(empty_bg_arc) = frame
@@ -171,9 +185,16 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_opaque_gr
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
     frame: &GraphPassFrame<'_>,
+    blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
-    record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Opaque)
+    record_world_mesh_forward_graph_raster(
+        rpass,
+        frame,
+        blackboard,
+        prepared,
+        ForwardSubpassKind::Opaque,
+    )
 }
 
 /// Records the post-skybox regular draw subset into a render pass already opened by the graph.
@@ -182,9 +203,16 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_post_skyb
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
     frame: &GraphPassFrame<'_>,
+    blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
-    record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::PostSkybox)
+    record_world_mesh_forward_graph_raster(
+        rpass,
+        frame,
+        blackboard,
+        prepared,
+        ForwardSubpassKind::PostSkybox,
+    )
 }
 
 /// Records the GTAO normal draw subset into a render pass already opened by the graph.
@@ -233,9 +261,16 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_intersect
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
     frame: &GraphPassFrame<'_>,
+    blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
-    record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Intersection)
+    record_world_mesh_forward_graph_raster(
+        rpass,
+        frame,
+        blackboard,
+        prepared,
+        ForwardSubpassKind::Intersection,
+    )
 }
 
 /// Records the grab-pass transparent draw subset into a render pass already opened by the graph.
@@ -244,7 +279,14 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_transpare
     _device: &wgpu::Device,
     _queue: &wgpu::Queue,
     frame: &GraphPassFrame<'_>,
+    blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
-    record_world_mesh_forward_graph_raster(rpass, frame, prepared, ForwardSubpassKind::Transparent)
+    record_world_mesh_forward_graph_raster(
+        rpass,
+        frame,
+        blackboard,
+        prepared,
+        ForwardSubpassKind::Transparent,
+    )
 }
