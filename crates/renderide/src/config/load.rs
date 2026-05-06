@@ -347,6 +347,44 @@ pub fn log_config_resolve_trace(resolve: &ConfigResolveOutcome) {
 mod tests {
     use super::*;
     use crate::config::resolve::ConfigSource;
+    use std::ffi::OsString;
+    use std::io::Write;
+    use std::path::{Path, PathBuf};
+
+    struct EnvGuard {
+        saved: Vec<(&'static str, Option<OsString>)>,
+    }
+
+    impl EnvGuard {
+        fn capture(vars: &[&'static str]) -> Self {
+            let saved = vars
+                .iter()
+                .map(|name| (*name, std::env::var_os(name)))
+                .collect();
+            Self { saved }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            for (name, value) in &self.saved {
+                // SAFETY: env mutation in test; restored while the config env lock is held.
+                unsafe {
+                    match value {
+                        Some(v) => std::env::set_var(name, v),
+                        None => std::env::remove_var(name),
+                    }
+                }
+            }
+        }
+    }
+
+    fn write_toml(dir: &Path, body: &str) -> PathBuf {
+        let path = dir.join("config.toml");
+        let mut file = std::fs::File::create(&path).expect("create fixture file");
+        file.write_all(body.as_bytes()).expect("write fixture body");
+        path
+    }
 
     /// Test helper: run the canonical pipeline with an inline TOML string.
     fn load_settings_from_toml_str(content: &str) -> Result<RendererSettings, Box<figment::Error>> {
@@ -515,5 +553,96 @@ action = "log_and_continue"
         );
         assert_eq!(s.post_processing.tonemap.mode, TonemapMode::AcesFitted);
         assert_eq!(s.watchdog.action, WatchdogAction::LogAndContinue);
+    }
+
+    #[test]
+    fn load_renderer_settings_from_toml_and_env() {
+        const CONFIG_VAR: &str = "RENDERIDE_CONFIG";
+        const GPU_VALIDATION_VAR: &str = "RENDERIDE_GPU_VALIDATION";
+        const GRAPHICS_API_ENV_VAR: &str = "RENDERIDE_RENDERING__GRAPHICS_API";
+        const VSYNC_ENV_VAR: &str = "RENDERIDE_RENDERING__VSYNC";
+
+        let _lock = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let _guard = EnvGuard::capture(&[
+            CONFIG_VAR,
+            GPU_VALIDATION_VAR,
+            GRAPHICS_API_ENV_VAR,
+            VSYNC_ENV_VAR,
+        ]);
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::remove_var(GPU_VALIDATION_VAR);
+            std::env::remove_var(GRAPHICS_API_ENV_VAR);
+            std::env::remove_var(VSYNC_ENV_VAR);
+        }
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let toml = write_toml(
+            tmp.path(),
+            "[rendering]\nvsync = true\ngraphics_api = \"vulkan\"\n[display]\nfocused_fps = 30\n",
+        );
+
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::set_var(CONFIG_VAR, &toml);
+        }
+        let result = load_renderer_settings(ConfigFilePolicy::Load);
+        assert_eq!(result.resolve.source, ConfigSource::Env);
+        assert_eq!(result.resolve.loaded_path.as_deref(), Some(toml.as_path()));
+        assert_eq!(
+            result.settings.rendering.vsync,
+            crate::config::VsyncMode::On
+        );
+        assert_eq!(
+            result.settings.rendering.graphics_api,
+            crate::config::GraphicsApiSetting::Vulkan
+        );
+        assert_eq!(result.settings.display.focused_fps_cap, 30);
+
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::set_var(VSYNC_ENV_VAR, "false");
+        }
+        let result = load_renderer_settings(ConfigFilePolicy::Load);
+        assert_eq!(
+            result.settings.rendering.vsync,
+            crate::config::VsyncMode::Off
+        );
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::remove_var(VSYNC_ENV_VAR);
+            std::env::set_var(GRAPHICS_API_ENV_VAR, "dx12");
+        }
+        let result = load_renderer_settings(ConfigFilePolicy::Load);
+        assert_eq!(
+            result.settings.rendering.graphics_api,
+            crate::config::GraphicsApiSetting::Dx12
+        );
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::remove_var(GRAPHICS_API_ENV_VAR);
+            std::env::set_var(GPU_VALIDATION_VAR, "1");
+        }
+        let result = load_renderer_settings(ConfigFilePolicy::Load);
+        assert!(result.settings.debug.gpu_validation_layers);
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::set_var(GPU_VALIDATION_VAR, "0");
+        }
+        let result = load_renderer_settings(ConfigFilePolicy::Load);
+        assert!(!result.settings.debug.gpu_validation_layers);
+
+        let missing = tmp.path().join("does_not_exist.toml");
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::remove_var(GPU_VALIDATION_VAR);
+            std::env::set_var(CONFIG_VAR, &missing);
+        }
+        let result = load_renderer_settings(ConfigFilePolicy::Load);
+        assert_ne!(
+            result.resolve.loaded_path.as_deref(),
+            Some(missing.as_path())
+        );
+        assert!(result.resolve.attempted_paths.iter().any(|p| p == &missing));
     }
 }

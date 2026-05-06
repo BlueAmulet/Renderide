@@ -21,7 +21,7 @@ pub(crate) use services::ExternalShutdownCoordinator;
 
 /// Runs the renderer process until the selected app driver exits normally.
 pub fn run() -> Result<RunExit, RunError> {
-    try_claim_renderer_singleton()?;
+    try_claim_renderer_singleton().map_err(RunError::connection)?;
 
     let logging = logging::init_logging()?;
     let app_config = config::load_app_config(logging.log_level_cli);
@@ -47,7 +47,7 @@ pub fn run() -> Result<RunExit, RunError> {
 
     let event_loop = EventLoop::new().map_err(|e| {
         logger::error!("EventLoop::new failed: {e}");
-        e
+        RunError::event_loop_create(e)
     })?;
 
     let AppServices {

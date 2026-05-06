@@ -28,7 +28,7 @@ impl RendererRuntime {
     /// Drains completed Hi-Z `map_async` readbacks into CPU snapshots (once per tick).
     ///
     /// Call at the top of the render-views phase so both the HMD and desktop paths share one drain.
-    pub fn drain_hi_z_readback(&mut self, device: &wgpu::Device) {
+    pub fn drain_hi_z_readback(&self, device: &wgpu::Device) {
         profiling::scope!("tick::drain_hi_z_readback");
         self.backend.hi_z_begin_frame_readback(device);
     }

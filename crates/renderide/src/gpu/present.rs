@@ -145,7 +145,7 @@ pub fn acquire_surface_outcome_traced(
 
 /// Submits command buffers with a presentable surface texture under a source-specific Tracy scope.
 pub fn submit_surface_frame_traced(
-    gpu: &mut GpuContext,
+    gpu: &GpuContext,
     command_buffers: Vec<wgpu::CommandBuffer>,
     frame: wgpu::SurfaceTexture,
     trace: SurfaceSubmitTrace,

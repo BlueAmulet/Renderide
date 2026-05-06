@@ -13,7 +13,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use renderide::shared;
+use renderide_shared::shared;
 use thiserror::Error;
 
 /// Parsed command-line arguments for a single roundtrip invocation.

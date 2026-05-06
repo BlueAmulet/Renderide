@@ -26,7 +26,7 @@ pub(crate) fn build_runtime(config: &ConfigLoadResult) -> Result<RendererRuntime
         && params.is_some()
     {
         logger::error!("IPC connect failed: {e}");
-        return Err(e.into());
+        return Err(RunError::connection(e));
     }
 
     if params.is_some() && runtime.is_ipc_connected() {
@@ -46,12 +46,12 @@ fn wait_for_renderer_init_data(runtime: &mut RendererRuntime) -> Result<(), RunE
     while runtime.init_state() == InitState::Uninitialized {
         if Instant::now() > deadline {
             logger::error!("Timed out waiting for RendererInitData from host");
-            return Err(RunError::RendererInitDataTimeout);
+            return Err(RunError::renderer_init_data_timeout());
         }
         runtime.poll_ipc();
         if runtime.fatal_error() {
             logger::error!("Fatal IPC error while waiting for RendererInitData");
-            return Err(RunError::RendererInitDataFatalIpc);
+            return Err(RunError::renderer_init_data_fatal_ipc());
         }
         thread::sleep(Duration::from_millis(1));
     }

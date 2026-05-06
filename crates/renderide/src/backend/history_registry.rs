@@ -328,13 +328,13 @@ impl HistoryRegistry {
     /// Updates the spec for an already-registered texture slot, dropping its halves so they are
     /// reallocated on the next [`HistoryRegistry::ensure_resources`]. Returns `false` when no
     /// slot was registered under `id`.
-    pub fn update_texture_spec(&mut self, id: HistorySlotId, spec: TextureHistorySpec) -> bool {
+    pub fn update_texture_spec(&self, id: HistorySlotId, spec: TextureHistorySpec) -> bool {
         self.update_texture_spec_scoped(id, HistoryResourceScope::Global, spec)
     }
 
     /// Updates the spec for a scoped texture slot. See [`Self::update_texture_spec`].
     pub fn update_texture_spec_scoped(
-        &mut self,
+        &self,
         id: HistorySlotId,
         scope: HistoryResourceScope,
         spec: TextureHistorySpec,
@@ -351,13 +351,13 @@ impl HistoryRegistry {
     }
 
     /// Updates the spec for an already-registered buffer slot. See [`Self::update_texture_spec`].
-    pub fn update_buffer_spec(&mut self, id: HistorySlotId, spec: BufferHistorySpec) -> bool {
+    pub fn update_buffer_spec(&self, id: HistorySlotId, spec: BufferHistorySpec) -> bool {
         self.update_buffer_spec_scoped(id, HistoryResourceScope::Global, spec)
     }
 
     /// Updates the spec for a scoped buffer slot. See [`Self::update_buffer_spec`].
     pub fn update_buffer_spec_scoped(
-        &mut self,
+        &self,
         id: HistorySlotId,
         scope: HistoryResourceScope,
         spec: BufferHistorySpec,

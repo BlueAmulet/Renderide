@@ -70,10 +70,10 @@ pub(crate) mod frame_params;
 pub(crate) mod frame_upload_batch;
 pub(crate) mod gpu_cache;
 pub(crate) mod ids;
-pub mod main_graph;
-pub mod pass;
+pub(crate) mod main_graph;
+pub(crate) mod pass;
 pub(crate) mod pool;
-pub mod post_processing;
+pub(crate) mod post_processing;
 mod record_parallel;
 pub(crate) mod resources;
 pub(crate) mod schedule;
@@ -81,38 +81,15 @@ pub(crate) mod secondary_camera;
 pub(crate) mod swapchain_scope;
 
 #[doc(hidden)]
-pub mod test_fixtures;
+#[cfg(test)]
+pub(crate) mod test_fixtures;
 
-pub use blackboard::{Blackboard, BlackboardSlot, FrameMotionVectorsSlot};
-pub use builder::GraphBuilder;
-pub use cache::{GraphCache, GraphCacheKey};
-pub use compiled::{
-    ColorAttachmentTemplate, CompileStats, CompiledRenderGraph, DepthAttachmentTemplate, DotFormat,
-    ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewTarget, RenderPassTemplate,
-    WorldMeshDrawPlan,
+pub(crate) use cache::{GraphCache, GraphCacheKey};
+pub(crate) use compiled::{
+    ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewTarget, WorldMeshDrawPlan,
 };
-pub use context::{
-    CallbackCtx, ComputePassCtx, CopyPassCtx, GraphRasterPassContext, GraphResolvedResources,
-    PostSubmitContext, RasterPassCtx, RenderPassContext, ResolvedGraphBuffer, ResolvedGraphTexture,
-    ResolvedImportedBuffer, ResolvedImportedTexture,
-};
-pub use error::{GraphBuildError, GraphExecuteError, RenderPassError, SetupError};
-pub use frame_params::{FrameViewClear, GraphPassFrame, PerViewFramePlan, PerViewFramePlanSlot};
-pub use ids::{GroupId, PassId};
-pub use main_graph::{build_default_main_graph, build_default_main_graph_with, build_main_graph};
-pub use pass::{
-    CallbackPass, ComputePass, CopyPass, GroupScope, PassBuilder, PassKind, PassMergeHint,
-    PassNode, PassPhase, RasterPass, RasterPassBuilder,
-};
-pub use pool::{BufferKey, TextureKey, TransientPool, TransientPoolError, TransientPoolMetrics};
-pub use resources::{
-    BackendFrameBufferKind, BufferAccess, BufferHandle, BufferImportSource, BufferSizePolicy,
-    FrameTargetRole, HistorySlotId, ImportSource, ImportedBufferDecl, ImportedBufferHandle,
-    ImportedTextureDecl, ImportedTextureHandle, StorageAccess, SubresourceHandle, TextureAccess,
-    TextureAttachmentResolve, TextureAttachmentTarget, TextureHandle, TextureResourceHandle,
-    TransientArrayLayers, TransientBufferDesc, TransientExtent, TransientSampleCount,
-    TransientSubresourceDesc, TransientTextureDesc, TransientTextureFormat,
-};
-pub use schedule::{FrameSchedule, ScheduleHudSnapshot, ScheduleStep, ScheduleValidationError};
-pub use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};
-pub use swapchain_scope::{SwapchainEnterOutcome, SwapchainScope};
+pub(crate) use error::GraphExecuteError;
+pub(crate) use frame_params::FrameViewClear;
+pub(crate) use pool::TransientPool;
+pub(crate) use resources::HistorySlotId;
+pub(crate) use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};

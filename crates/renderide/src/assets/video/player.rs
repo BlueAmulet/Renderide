@@ -274,7 +274,7 @@ impl VideoPlayer {
 
     /// Handles [`VideoTextureStartAudioTrack`].
     /// Opens a shared memory queue to send audio back to host, and assigns the callback to the sink.
-    pub fn handle_start_audio_track(&mut self, s: VideoTextureStartAudioTrack) {
+    pub fn handle_start_audio_track(&self, s: VideoTextureStartAudioTrack) {
         let id = self.asset_id;
         let Some(index) = validated_audio_track_index(s.audio_track_index) else {
             logger::warn!(
@@ -309,7 +309,7 @@ impl VideoPlayer {
     /// `decoded_time` field is set by the IPC unpack at receive time, so retaining the same
     /// update across multiple frames is correct: `(now - decoded_time)` keeps growing until the
     /// host sends a fresh update, matching Renderite.Unity's `_update` reuse behaviour.
-    pub fn handle_update(&mut self, u: VideoTextureUpdate) {
+    pub fn handle_update(&self, u: VideoTextureUpdate) {
         match self.last_update.lock() {
             Ok(mut slot) => *slot = Some(u.clone()),
             Err(_) => logger::warn!(

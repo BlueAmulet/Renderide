@@ -65,7 +65,7 @@ impl RenderBackend {
     }
 
     /// Drains completed Hi-Z readbacks into CPU snapshots at the top of the tick.
-    pub(crate) fn hi_z_begin_frame_readback(&mut self, device: &wgpu::Device) {
+    pub(crate) fn hi_z_begin_frame_readback(&self, device: &wgpu::Device) {
         self.occlusion.hi_z_begin_frame_readback(device);
     }
 

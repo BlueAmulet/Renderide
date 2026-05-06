@@ -318,7 +318,7 @@ fn output_attachment_format(
 mod tests {
     use super::*;
 
-    use crate::render_graph::GraphBuilder;
+    use crate::render_graph::builder::GraphBuilder;
     use crate::render_graph::pass::PassBuilder;
     use crate::render_graph::pass::node::PassKind;
     use crate::render_graph::resources::{

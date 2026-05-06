@@ -59,7 +59,8 @@ impl<'a> HeadlessDriver<'a> {
             gpu_config.gpu_validation_layers,
             gpu_config.power_preference,
             gpu_config.graphics_api,
-        ))?;
+        ))
+        .map_err(RunError::gpu)?;
         runtime.attach_gpu(&gpu);
         let schedule = HeadlessSchedule::new(params.interval_ms, Instant::now());
 

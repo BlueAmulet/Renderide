@@ -161,7 +161,7 @@ impl OcclusionSystem {
     /// wgpu call is issued from inside the device-poll callback (which would risk deadlocks
     /// with wgpu's internal queue-write locks -- observed as a futex hang inside
     /// `queue.write_texture` during asset upload).
-    pub fn hi_z_begin_frame_readback(&mut self, device: &wgpu::Device) {
+    pub fn hi_z_begin_frame_readback(&self, device: &wgpu::Device) {
         profiling::scope!("hi_z::readback_drain");
         let _ = device.poll(wgpu::PollType::Poll);
         {
