@@ -55,6 +55,16 @@ impl VideoPlayer {
         match self._never {}
     }
 
+    /// No-op stand-in for starting cooperative shutdown.
+    pub fn begin_shutdown(&mut self) {
+        match self._never {}
+    }
+
+    /// No-op stand-in for polling cooperative shutdown completion.
+    pub fn poll_shutdown_complete(&mut self) -> bool {
+        match self._never {}
+    }
+
     /// No-op stand-in for the GStreamer-backed implementation. The stub never produces samples.
     pub fn sample_clock_error(&self) -> Option<VideoTextureClockErrorState> {
         match self._never {}

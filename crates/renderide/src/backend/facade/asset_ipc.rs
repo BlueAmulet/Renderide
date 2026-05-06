@@ -37,6 +37,16 @@ impl RenderBackend {
         self.asset_transfers.asset_gpu_ready()
     }
 
+    /// Starts cooperative shutdown for backend-owned video texture players.
+    pub(crate) fn begin_video_shutdown(&mut self) {
+        self.asset_transfers.begin_video_shutdown();
+    }
+
+    /// Returns `true` once backend-owned video texture players are quiescent.
+    pub(crate) fn video_shutdown_complete(&mut self) -> bool {
+        self.asset_transfers.video_shutdown_complete()
+    }
+
     /// Handle [`SetTexture2DFormat`](crate::shared::SetTexture2DFormat).
     pub fn on_set_texture_2d_format(
         &mut self,

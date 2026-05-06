@@ -10,6 +10,7 @@ use crate::assets::video::WgpuGstVideoSink;
 use glam::IVec2;
 use gstreamer::prelude::ElementExt;
 use gstreamer_app::{AppSink, AppSinkCallbacks};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// Bytes per RGBA8 pixel.
@@ -21,9 +22,9 @@ const RGBA8_BYTES_PER_PIXEL_U64: u64 = 4;
 /// Internal state shared between [`CpuCopyVideoSink`] and the appsink callback.
 struct SinkState {
     /// Device used to allocate replacement textures when the decoded size changes.
-    device: Arc<wgpu::Device>,
+    device: Option<Arc<wgpu::Device>>,
     /// Queue used for CPU-to-GPU frame uploads.
-    queue: Arc<wgpu::Queue>,
+    queue: Option<Arc<wgpu::Queue>>,
     /// The texture currently being written into by the callback.
     write_texture: Option<Arc<wgpu::Texture>>,
     /// Width of [`Self::write_texture`].
@@ -32,6 +33,8 @@ struct SinkState {
     height: u32,
     /// Set to `Some` when a new texture is created, consumed by [`CpuCopyVideoSink::poll_texture_change`].
     pending_view: Option<Arc<wgpu::TextureView>>,
+    /// Stops callbacks from allocating or uploading after renderer shutdown begins.
+    shutdown: bool,
 }
 
 impl SinkState {
@@ -39,11 +42,14 @@ impl SinkState {
     /// Returns `true` if a new texture was created.
     fn resize_if_needed(&mut self, asset_id: i32, width: u32, height: u32) -> bool {
         profiling::scope!("video::cpu_copy_resize_if_needed");
+        let Some(device) = self.device.as_ref() else {
+            return false;
+        };
         if self.width == width && self.height == height && self.write_texture.is_some() {
             return false;
         }
 
-        let max_dimension = self.device.limits().max_texture_dimension_2d;
+        let max_dimension = device.limits().max_texture_dimension_2d;
         if width > max_dimension || height > max_dimension {
             logger::warn!(
                 "CpuCopyVideoSink {asset_id}: dimensions {width}x{height} exceed device limit {max_dimension}"
@@ -55,7 +61,7 @@ impl SinkState {
             return false;
         }
 
-        let texture = Arc::new(self.device.create_texture(&wgpu::TextureDescriptor {
+        let texture = Arc::new(device.create_texture(&wgpu::TextureDescriptor {
             label: Some(&format!("VideoTexture {asset_id}")),
             size: wgpu::Extent3d {
                 width,
@@ -81,6 +87,17 @@ impl SinkState {
 
         true
     }
+
+    /// Releases all GPU handles held by the callback state.
+    fn begin_shutdown(&mut self) {
+        self.shutdown = true;
+        self.device = None;
+        self.queue = None;
+        self.write_texture = None;
+        self.pending_view = None;
+        self.width = 0;
+        self.height = 0;
+    }
 }
 
 /// Owns the video [`AppSink`], the wgpu texture it writes into.
@@ -91,25 +108,30 @@ pub struct CpuCopyVideoSink {
     sink: AppSink,
     /// Shared GPU upload state.
     state: Arc<Mutex<SinkState>>,
+    /// Fast shutdown flag checked before callbacks pull or map samples.
+    shutdown: Arc<AtomicBool>,
 }
 
 impl CpuCopyVideoSink {
     /// Creates a CPU-copy sink backed by the supplied wgpu device and queue.
     pub fn new(asset_id: i32, device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let sink = build_rgba_appsink();
+        let shutdown = Arc::new(AtomicBool::new(false));
         let state = Arc::new(Mutex::new(SinkState {
-            device,
-            queue,
+            device: Some(device),
+            queue: Some(queue),
             write_texture: None,
             width: 0,
             height: 0,
             pending_view: None,
+            shutdown: false,
         }));
-        install_sample_callback(&sink, asset_id, Arc::clone(&state));
+        install_sample_callback(&sink, asset_id, Arc::clone(&state), Arc::clone(&shutdown));
         Self {
             asset_id,
             sink,
             state,
+            shutdown,
         }
     }
 }
@@ -128,10 +150,15 @@ fn build_rgba_appsink() -> AppSink {
 }
 
 /// Installs the decoded-frame callback on the appsink.
-fn install_sample_callback(sink: &AppSink, asset_id: i32, state: Arc<Mutex<SinkState>>) {
+fn install_sample_callback(
+    sink: &AppSink,
+    asset_id: i32,
+    state: Arc<Mutex<SinkState>>,
+    shutdown: Arc<AtomicBool>,
+) {
     sink.set_callbacks(
         AppSinkCallbacks::builder()
-            .new_sample(move |appsink| handle_sample(asset_id, &state, appsink))
+            .new_sample(move |appsink| handle_sample(asset_id, &state, &shutdown, appsink))
             .build(),
     );
 }
@@ -140,9 +167,13 @@ fn install_sample_callback(sink: &AppSink, asset_id: i32, state: Arc<Mutex<SinkS
 fn handle_sample(
     asset_id: i32,
     state: &Arc<Mutex<SinkState>>,
+    shutdown: &AtomicBool,
     appsink: &AppSink,
 ) -> Result<gstreamer::FlowSuccess, gstreamer::FlowError> {
     profiling::scope!("video::cpu_copy_sample");
+    if shutdown.load(Ordering::Acquire) {
+        return Ok(gstreamer::FlowSuccess::Ok);
+    }
     let sample = {
         profiling::scope!("video::pull_sample");
         match appsink.pull_sample() {
@@ -153,6 +184,9 @@ fn handle_sample(
             }
         }
     };
+    if shutdown.load(Ordering::Acquire) {
+        return Ok(gstreamer::FlowSuccess::Ok);
+    }
     let Some((width, height)) = sample_dimensions(asset_id, &sample) else {
         return Ok(gstreamer::FlowSuccess::Ok);
     };
@@ -170,6 +204,9 @@ fn handle_sample(
             }
         }
     };
+    if shutdown.load(Ordering::Acquire) {
+        return Ok(gstreamer::FlowSuccess::Ok);
+    }
     upload_mapped_rgba_frame(asset_id, state, width, height, map.as_slice());
     Ok(gstreamer::FlowSuccess::Ok)
 }
@@ -219,7 +256,13 @@ fn upload_mapped_rgba_frame(
     let Ok(mut state) = state.lock() else {
         return;
     };
+    if state.shutdown {
+        return;
+    }
     state.resize_if_needed(asset_id, width, height);
+    let Some(queue) = state.queue.as_ref() else {
+        return;
+    };
     let Some(texture) = state.write_texture.as_ref() else {
         logger::warn!("CpuCopyVideoSink {asset_id}: no texture available after resize");
         return;
@@ -227,7 +270,7 @@ fn upload_mapped_rgba_frame(
     let Some(bytes_per_row) = validated_frame_layout(asset_id, width, height, bytes.len()) else {
         return;
     };
-    write_rgba_frame_to_texture(&state.queue, texture, bytes, width, height, bytes_per_row);
+    write_rgba_frame_to_texture(queue, texture, bytes, width, height, bytes_per_row);
 }
 
 /// Validates the mapped frame size and returns `bytes_per_row`.
@@ -292,8 +335,14 @@ impl WgpuGstVideoSink for CpuCopyVideoSink {
 
     fn poll_texture_change(&mut self) -> Option<(Arc<wgpu::TextureView>, u32, u32, u64)> {
         profiling::scope!("video::poll_texture_change");
+        if self.shutdown.load(Ordering::Acquire) {
+            return None;
+        }
         let (view, w, h) = {
             let mut state = self.state.lock().ok()?;
+            if state.shutdown {
+                return None;
+            }
             let view = state.pending_view.take()?;
             (view, state.width, state.height)
         };
@@ -307,7 +356,26 @@ impl WgpuGstVideoSink for CpuCopyVideoSink {
         Some((view, w, h, bytes))
     }
 
+    fn begin_shutdown(&mut self) {
+        profiling::scope!("video::cpu_copy_begin_shutdown");
+        self.shutdown.store(true, Ordering::Release);
+        self.sink.set_callbacks(AppSinkCallbacks::builder().build());
+        match self.state.lock() {
+            Ok(mut state) => state.begin_shutdown(),
+            Err(poisoned) => {
+                logger::warn!(
+                    "CpuCopyVideoSink {}: state lock poisoned during shutdown",
+                    self.asset_id
+                );
+                poisoned.into_inner().begin_shutdown();
+            }
+        }
+    }
+
     fn size(&self) -> Option<IVec2> {
+        if self.shutdown.load(Ordering::Acquire) {
+            return None;
+        }
         use gstreamer::prelude::PadExt;
         let pad = self.sink.static_pad("sink")?;
         let caps = pad.current_caps()?;

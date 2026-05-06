@@ -84,6 +84,7 @@ impl AppDriver {
             return;
         }
         if first_request && self.shutdown.begin(Instant::now()) {
+            self.runtime.begin_graceful_shutdown();
             logger::info!("Graceful renderer shutdown started: {:?}", request.reason());
         }
         if self.openxr_frame_open() {
@@ -112,10 +113,12 @@ impl AppDriver {
         }
 
         let now = Instant::now();
-        let complete = self
+        let target_complete = self
             .target
             .as_mut()
             .is_none_or(|target| target.poll_graceful_shutdown(&mut self.shutdown));
+        let runtime_complete = self.runtime.graceful_shutdown_complete();
+        let complete = target_complete && runtime_complete;
 
         if complete {
             logger::info!("Graceful renderer shutdown completed");

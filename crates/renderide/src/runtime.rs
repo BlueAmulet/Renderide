@@ -67,6 +67,7 @@ mod gpu_services;
 mod ipc_entry;
 mod ipc_state;
 mod lockstep;
+mod shutdown;
 mod tick;
 mod tick_state;
 mod view_planning;
