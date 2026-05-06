@@ -2,7 +2,7 @@
 
 use hashbrown::HashMap;
 
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 
 use crate::materials::RasterFrontFace;
 use crate::scene::{RenderSpaceId, SkinnedMeshRenderer};
@@ -49,6 +49,8 @@ pub(in crate::world_mesh::draw_prep) fn prepared_draws_share_renderer(
 struct PreparedRunViewState {
     /// Rigid model matrix reused by all emitted slot draws.
     rigid_world_matrix: Option<Mat4>,
+    /// World-space object AABB reused by all emitted slot draws for reflection-probe selection.
+    world_aabb: Option<(Vec3, Vec3)>,
     /// Raster front-face winding selected from [`Self::rigid_world_matrix`].
     front_face: RasterFrontFace,
     /// Camera distance reused by alpha-blended slot draws.
@@ -121,41 +123,48 @@ fn prepared_run_view_state(
 ) -> (Option<PreparedRunViewState>, (usize, usize, usize)) {
     let mut cull_stats = (0usize, 0usize, 0usize);
     let mut rigid_world_matrix = None;
-    if let Some(c) = ctx.culling {
-        cull_stats.0 += run.len();
+    let mut world_aabb = None;
+    let needs_geometry = ctx.reflection_probes.is_some() || ctx.culling.is_some();
+    let geometry = needs_geometry.then(|| {
         // Reuse the per-renderer geometry that `FramePreparedRenderables::build_for_frame` already
         // computed for non-overlay spaces. Overlay spaces (geometry depends on the per-view
         // `head_output_transform`) keep recomputing per-view via the fallback path below.
-        let geom = match first.cull_geometry {
-            Some(g) => g,
-            None => {
-                let target = MeshCullTarget {
-                    scene: ctx.scene,
-                    space_id: first.space_id,
-                    mesh,
-                    skinned: first.skinned,
-                    skinned_renderer: skinning.as_renderer(),
-                    node_id: first.node_id,
-                };
-                mesh_world_geometry_for_cull_with_head(
-                    &target,
-                    c.host_camera.head_output_transform,
-                    ctx.render_context,
-                )
+        first.cull_geometry.unwrap_or_else(|| {
+            let target = MeshCullTarget {
+                scene: ctx.scene,
+                space_id: first.space_id,
+                mesh,
+                skinned: first.skinned,
+                skinned_renderer: skinning.as_renderer(),
+                node_id: first.node_id,
+            };
+            mesh_world_geometry_for_cull_with_head(
+                &target,
+                ctx.head_output_transform,
+                ctx.render_context,
+            )
+        })
+    });
+    if let Some(geom) = geometry {
+        world_aabb = geom.world_aabb;
+        if let Some(c) = ctx.culling {
+            cull_stats.0 += run.len();
+            match mesh_cpu_cull_with_geometry(geom, ctx.scene, first.space_id, first.is_overlay, c)
+            {
+                Err(CpuCullFailure::Frustum) => {
+                    cull_stats.1 += run.len();
+                    return (None, cull_stats);
+                }
+                Err(CpuCullFailure::HiZ) => {
+                    cull_stats.2 += run.len();
+                    return (None, cull_stats);
+                }
+                Ok(m) => {
+                    rigid_world_matrix = m;
+                }
             }
-        };
-        match mesh_cpu_cull_with_geometry(geom, ctx.scene, first.space_id, first.is_overlay, c) {
-            Err(CpuCullFailure::Frustum) => {
-                cull_stats.1 += run.len();
-                return (None, cull_stats);
-            }
-            Err(CpuCullFailure::HiZ) => {
-                cull_stats.2 += run.len();
-                return (None, cull_stats);
-            }
-            Ok(m) => {
-                rigid_world_matrix = m;
-            }
+        } else if rigid_world_matrix.is_none() {
+            rigid_world_matrix = geom.rigid_world_matrix;
         }
     }
     if !first.world_space_deformed && rigid_world_matrix.is_none() {
@@ -169,6 +178,7 @@ fn prepared_run_view_state(
     (
         Some(PreparedRunViewState {
             rigid_world_matrix,
+            world_aabb,
             front_face,
             alpha_distance_sq,
         }),
@@ -204,6 +214,7 @@ fn append_prepared_run_draws(
             blendshape_deformed: d.blendshape_deformed,
             material_asset_id: d.material_asset_id,
             property_block_id: d.property_block_id,
+            world_aabb: state.world_aabb,
         };
         if let Some(item) = evaluate_draw_candidate(
             ctx,

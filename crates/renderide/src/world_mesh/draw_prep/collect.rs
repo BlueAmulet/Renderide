@@ -18,6 +18,7 @@ use crate::gpu_pools::MeshPool;
 use crate::materials::ShaderPermutation;
 use crate::materials::host_data::MaterialDictionary;
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter, RasterFrontFace};
+use crate::reflection_probes::specular::ReflectionProbeFrameSelection;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::RenderingContext;
 use crate::world_mesh::culling::WorldMeshCullInput;
@@ -106,6 +107,8 @@ pub struct DrawCollectionContext<'a> {
     /// hand the same borrow to every per-view context. When `None`, a fresh cache is built
     /// internally for this call (backwards-compatible single-view path).
     pub material_cache: Option<&'a FrameMaterialBatchCache>,
+    /// Optional frame reflection-probe selector used to choose up to two specular IBL probes per draw.
+    pub reflection_probes: Option<&'a ReflectionProbeFrameSelection>,
     /// Optional pre-expanded dense draw list shared across multiple views in the same frame.
     ///
     /// When `Some`, collection iterates the flat list instead of walking every active render

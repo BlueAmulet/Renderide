@@ -100,33 +100,6 @@ fn f90_from_f0(f0: vec3<f32>) -> f32 {
     return clamp(dot(f0, vec3<f32>(50.0 / 3.0)), 0.0, 1.0);
 }
 
-/// Filament-style dominant reflection direction for rough environment sampling.
-fn skybox_specular_dominant_dir(n: vec3<f32>, v: vec3<f32>, perceptual_roughness: f32) -> vec3<f32> {
-    let r = reflect(-v, n);
-    let blend = perceptual_roughness * perceptual_roughness;
-    return normalize(mix(r, n, blend));
-}
-
-/// Roughness-to-cubemap LOD mapping from Filament's IBL path.
-fn skybox_specular_lod(perceptual_roughness: f32) -> f32 {
-    let r = clamp(perceptual_roughness, 0.0, 1.0);
-    return clamp(rg::frame.skybox_specular.x * r * (2.0 - r), 0.0, rg::frame.skybox_specular.x);
-}
-
-/// Samples the GGX-prefiltered frame-global skybox specular cubemap at the requested LOD.
-fn sample_skybox_specular_radiance(dir: vec3<f32>, perceptual_roughness: f32) -> vec3<f32> {
-    if (rg::frame.skybox_specular.z <= 0.5) {
-        return vec3<f32>(0.0);
-    }
-    let lod = skybox_specular_lod(perceptual_roughness);
-    return textureSampleLevel(
-        rg::skybox_specular,
-        rg::skybox_specular_sampler,
-        dir,
-        lod,
-    ).rgb;
-}
-
 /// Samples the frame-global DFG LUT with manual bilinear filtering.
 fn sample_ibl_dfg_lut(perceptual_roughness: f32, n_dot_v: f32) -> vec2<f32> {
     let dims_u = textureDimensions(rg::ibl_dfg_lut);
@@ -158,7 +131,7 @@ fn indirect_specular_energy(
     f0: vec3<f32>,
     enabled: bool,
 ) -> vec3<f32> {
-    if (!enabled || rg::frame.skybox_specular.y <= 0.5) {
+    if (!enabled) {
         return vec3<f32>(0.0);
     }
     let dfg = sample_ibl_dfg_lut(perceptual_roughness, n_dot_v);
@@ -167,44 +140,10 @@ fn indirect_specular_energy(
 
 /// Indirect-diffuse scale paired with the split-sum specular energy.
 fn indirect_diffuse_energy_scale(specular_energy: vec3<f32>, enabled: bool) -> vec3<f32> {
-    if (!enabled || rg::frame.skybox_specular.y <= 0.5) {
+    if (!enabled) {
         return vec3<f32>(1.0);
     }
     return max(vec3<f32>(0.0), vec3<f32>(1.0) - specular_energy);
-}
-
-/// Applies precomputed split-sum energy to frame-global skybox indirect specular.
-fn indirect_specular_with_energy(
-    n: vec3<f32>,
-    v: vec3<f32>,
-    perceptual_roughness: f32,
-    specular_energy: vec3<f32>,
-    occlusion: f32,
-    enabled: bool,
-) -> vec3<f32> {
-    if (!enabled || rg::frame.skybox_specular.y <= 0.5) {
-        return vec3<f32>(0.0);
-    }
-    let dir = skybox_specular_dominant_dir(n, v, perceptual_roughness);
-    let radiance = sample_skybox_specular_radiance(dir, perceptual_roughness);
-    return radiance * specular_energy * max(occlusion, 0.0);
-}
-
-/// Samples frame-global skybox indirect specular with split-sum DFG energy.
-fn indirect_specular(
-    n: vec3<f32>,
-    v: vec3<f32>,
-    perceptual_roughness: f32,
-    f0: vec3<f32>,
-    occlusion: f32,
-    enabled: bool,
-) -> vec3<f32> {
-    if (!enabled || rg::frame.skybox_specular.y <= 0.5) {
-        return vec3<f32>(0.0);
-    }
-    let n_dot_v = clamp(dot(n, v), 0.0, 1.0);
-    let energy = indirect_specular_energy(perceptual_roughness, n_dot_v, f0, enabled);
-    return indirect_specular_with_energy(n, v, perceptual_roughness, energy, occlusion, enabled);
 }
 
 /// Indirect diffuse term for Unity Standard metallic materials.

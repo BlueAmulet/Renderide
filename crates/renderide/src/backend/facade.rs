@@ -124,8 +124,9 @@ pub struct RenderBackend {
     pub(crate) render_world: RenderWorld,
     /// Nonblocking reflection-probe SH2 GPU projection service.
     pub(crate) reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System,
-    /// Unified IBL prefilter cache covering analytic, cubemap, and equirect skybox sources.
-    pub(crate) skybox_ibl: crate::skybox::SkyboxIblCache,
+    /// Reflection-probe specular IBL bake/cache/selection system.
+    pub(crate) reflection_probe_specular:
+        crate::reflection_probes::specular::ReflectionProbeSpecularSystem,
 }
 
 /// Disjoint borrows of [`MaterialSystem`], [`AssetTransferQueue`], and the GPU skin cache for world mesh forward encoding.
@@ -198,7 +199,8 @@ impl RenderBackend {
             material_batch_caches: hashbrown::HashMap::new(),
             render_world: RenderWorld::new(crate::shared::RenderingContext::default()),
             reflection_probe_sh2: crate::reflection_probes::ReflectionProbeSh2System::new(),
-            skybox_ibl: crate::skybox::SkyboxIblCache::new(),
+            reflection_probe_specular:
+                crate::reflection_probes::specular::ReflectionProbeSpecularSystem::new(),
         }
     }
 
@@ -372,14 +374,24 @@ impl RenderBackend {
             .maintain_gpu_jobs(gpu, &self.asset_transfers);
     }
 
-    /// Advances unified skybox IBL bake jobs and schedules the active source's prefilter.
-    pub(crate) fn maintain_skybox_ibl_jobs(
+    /// Advances reflection-probe specular IBL jobs and syncs frame-global probe bindings.
+    pub(crate) fn maintain_reflection_probe_specular_jobs(
         &mut self,
         gpu: &mut crate::gpu::GpuContext,
         scene: &crate::scene::SceneCoordinator,
+        render_context: crate::shared::RenderingContext,
     ) {
-        self.skybox_ibl
-            .maintain(gpu, scene, &self.materials, &self.asset_transfers);
+        self.reflection_probe_specular.maintain(
+            gpu,
+            scene,
+            &self.materials,
+            &self.asset_transfers,
+            render_context,
+        );
+        let resources = self.reflection_probe_specular.resources();
+        let _ = self
+            .frame_resources
+            .sync_reflection_probe_specular_resources(gpu.device(), resources);
     }
 
     /// Borrowed view of all texture pools used for embedded material `@group(1)` bind resolution.
@@ -735,7 +747,6 @@ impl RenderBackend {
             transient_pool,
             history_registry,
             debug_hud: &mut self.debug_hud,
-            skybox_ibl: &self.skybox_ibl,
             scene_color_format,
             gpu_limits,
             msaa_depth_resolve,

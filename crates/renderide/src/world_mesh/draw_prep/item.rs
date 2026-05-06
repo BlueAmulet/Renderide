@@ -6,6 +6,7 @@ use glam::Mat4;
 
 use crate::materials::RasterPrimitiveTopology;
 use crate::materials::host_data::MaterialPropertyLookupIds;
+use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
 use crate::scene::{MeshMaterialSlot, MeshRendererInstanceId, RenderSpaceId, StaticMeshRenderer};
 use crate::world_mesh::materials::MaterialDrawBatchKey;
 
@@ -103,6 +104,8 @@ pub struct WorldMeshDrawItem {
     /// Rigid-body world matrix for non-skinned draws, filled during draw collection to avoid
     /// recomputing [`crate::scene::SceneCoordinator::world_matrix_for_render_context`] in the forward pass.
     pub rigid_world_matrix: Option<Mat4>,
+    /// CPU-selected specular reflection probes for this draw.
+    pub reflection_probes: ReflectionProbeDrawSelection,
 }
 
 /// Returns the submesh index range that should be drawn for one renderer material slot.

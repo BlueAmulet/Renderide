@@ -1,8 +1,8 @@
-//! Unified IBL bake cache for the active skybox specular source.
+//! Unified IBL bake cache for specular reflection sources.
 //!
 //! Owns one in-flight bake job tracker, three lazily-built mip-0 producer pipelines (analytic
 //! procedural / gradient skies, host cubemaps, and Projection360 equirect Texture2Ds), and one
-//! GGX convolve pipeline. For each new active skybox source the cache:
+//! GGX convolve pipeline. For each new active reflection source the cache:
 //!
 //! 1. Allocates a fresh Rgba16Float cubemap with a full mip chain (`STORAGE_BINDING |
 //!    TEXTURE_BINDING | COPY_SRC`).
@@ -12,24 +12,18 @@
 //! 4. Submits the encoder through [`GpuSubmitJobTracker`] and parks the cube in `pending` until
 //!    the submit-completion callback promotes it to `completed`.
 //!
-//! The completed prefiltered cube is exposed as a
-//! [`SkyboxSpecularEnvironmentSource::Cubemap`] for the frame-global skybox specular binding,
-//! mirroring how Unity BiRP and Filament's `IBLPrefilterContext` unify all skybox source types
-//! through a single GGX-prefiltered cube.
+//! The completed prefiltered cube is reused by reflection probes so every source type reaches
+//! shader sampling through a single GGX-prefiltered cube.
 
 use std::sync::Arc;
 
 use hashbrown::HashMap;
 use thiserror::Error;
 
-use crate::assets::asset_transfer_queue::AssetTransferQueue;
-use crate::backend::frame_gpu::{SkyboxSpecularCubemapSource, SkyboxSpecularEnvironmentSource};
 use crate::backend::gpu_jobs::{GpuJobResources, GpuSubmitJobTracker, SubmittedGpuJob};
 use crate::gpu::{GpuContext, GpuLimits};
-use crate::materials::MaterialSystem;
 use crate::profiling::GpuProfilerHandle;
-use crate::scene::SceneCoordinator;
-use crate::skybox::specular::{SkyboxIblSource, resolve_active_main_skybox_ibl_source};
+use crate::skybox::specular::{SkyboxIblSource, solid_color_params};
 
 mod encode;
 mod key;
@@ -40,8 +34,7 @@ use encode::{
     AnalyticEncodeContext, ConvolveEncodeContext, CubeEncodeContext, EquirectEncodeContext,
     encode_analytic_mip0, encode_convolve_mips, encode_cube_mip0, encode_equirect_mip0,
 };
-use key::build_key;
-pub(crate) use key::{SkyboxIblKey, mip_levels_for_edge};
+pub(crate) use key::{SkyboxIblKey, build_key, mip_extent, mip_levels_for_edge};
 #[cfg(test)]
 use key::{convolve_sample_count, hash_float4};
 use pipeline::{
@@ -49,16 +42,13 @@ use pipeline::{
 };
 use resources::{
     PendingBake, PendingBakeResources, PrefilteredCube, create_ibl_cube,
-    create_mip0_cube_sample_view, prefiltered_sampler_state,
+    create_mip0_cube_sample_view,
 };
 
 /// Maximum concurrent in-flight bakes; matches the analytic-only ceiling we used previously.
 const MAX_IN_FLIGHT_IBL_BAKES: usize = 2;
 /// Tick budget after which a missing submit-completion callback is treated as lost.
 const MAX_PENDING_IBL_BAKE_AGE_FRAMES: u32 = 120;
-/// Default destination cube face edge in texels (clamped to portable device limits).
-const DEFAULT_IBL_FACE_SIZE: u32 = 256;
-
 /// Clamps the configured cube face size against the device texture limit.
 pub(crate) fn clamp_face_size(face_size: u32, limits: &GpuLimits) -> u32 {
     face_size.min(limits.max_texture_dimension_2d()).max(1)
@@ -72,7 +62,16 @@ enum SkyboxIblBakeError {
     MissingShader(&'static str),
 }
 
-/// Owns IBL bakes and serves the active prefiltered skybox specular cubemap.
+struct SourceMip0EncodeContext<'a> {
+    gpu: &'a GpuContext,
+    encoder: &'a mut wgpu::CommandEncoder,
+    texture: &'a wgpu::Texture,
+    face_size: u32,
+    sampler: &'a wgpu::Sampler,
+    profiler: Option<&'a GpuProfilerHandle>,
+}
+
+/// Owns IBL bakes for prefiltered specular reflection cubemaps.
 pub(crate) struct SkyboxIblCache {
     /// Submit-completion tracker for in-flight bakes.
     jobs: GpuSubmitJobTracker<SkyboxIblKey>,
@@ -113,31 +112,24 @@ impl SkyboxIblCache {
         }
     }
 
-    /// Drains submit completions, prunes stale entries, and schedules a new bake when needed.
-    pub(crate) fn maintain(
+    /// Drains submit-completed bakes.
+    pub(crate) fn maintain_completed_jobs(&mut self, device: &wgpu::Device) {
+        let _ = device.poll(wgpu::PollType::Poll);
+        self.drain_completed_jobs();
+    }
+
+    /// Removes completed cubes whose keys are not retained by the caller.
+    pub(crate) fn prune_completed_except(&mut self, retain: &hashbrown::HashSet<SkyboxIblKey>) {
+        self.completed.retain(|key, _| retain.contains(key));
+    }
+
+    /// Ensures one arbitrary IBL source is scheduled for baking.
+    pub(crate) fn ensure_source(
         &mut self,
         gpu: &mut GpuContext,
-        scene: &SceneCoordinator,
-        materials: &MaterialSystem,
-        assets: &AssetTransferQueue,
+        key: SkyboxIblKey,
+        source: SkyboxIblSource,
     ) {
-        profiling::scope!("skybox_ibl::maintain");
-        let _ = gpu.device().poll(wgpu::PollType::Poll);
-        {
-            profiling::scope!("skybox_ibl::drain_completed_jobs");
-            self.drain_completed_jobs();
-        }
-        let active = {
-            profiling::scope!("skybox_ibl::resolve_active_source");
-            resolve_active_main_skybox_ibl_source(scene, materials, assets)
-        };
-        let active_key = active
-            .as_ref()
-            .map(|source| build_key(source, clamp_face_size(DEFAULT_IBL_FACE_SIZE, gpu.limits())));
-        self.prune_completed(active_key.as_ref());
-        let (Some(source), Some(key)) = (active, active_key) else {
-            return;
-        };
         if self.completed.contains_key(&key)
             || self.pending.contains_key(&key)
             || self.jobs.contains_key(&key)
@@ -145,31 +137,14 @@ impl SkyboxIblCache {
         {
             return;
         }
-        match self.schedule_bake(gpu, key, source) {
-            Ok(()) => {}
-            Err(e) => logger::warn!("skybox_ibl: bake failed: {e}"),
+        if let Err(e) = self.schedule_bake(gpu, key, source) {
+            logger::warn!("skybox_ibl: bake failed: {e}");
         }
     }
 
-    /// Returns the prefiltered cube source for the active skybox, when ready.
-    pub(crate) fn active_specular_source(
-        &self,
-        scene: &SceneCoordinator,
-        materials: &MaterialSystem,
-        assets: &AssetTransferQueue,
-        limits: &GpuLimits,
-    ) -> Option<SkyboxSpecularEnvironmentSource> {
-        let source = resolve_active_main_skybox_ibl_source(scene, materials, assets)?;
-        let key = build_key(&source, clamp_face_size(DEFAULT_IBL_FACE_SIZE, limits));
-        let cube = self.completed.get(&key)?;
-        Some(SkyboxSpecularEnvironmentSource::Cubemap(
-            SkyboxSpecularCubemapSource {
-                key_hash: key.source_hash(),
-                view: cube.view.clone(),
-                sampler: cube.sampler.clone(),
-                mip_levels_resident: cube.mip_levels,
-            },
-        ))
+    /// Returns a completed prefiltered cube by key.
+    pub(crate) fn completed_cube(&self, key: &SkyboxIblKey) -> Option<&PrefilteredCube> {
+        self.completed.get(key)
     }
 
     /// Promotes submit-completed bakes into the completed cache.
@@ -184,12 +159,6 @@ impl SkyboxIblCache {
             self.pending.remove(&key);
             logger::warn!("skybox_ibl: bake expired before submit completion (key {key:?})");
         }
-    }
-
-    /// Drops completed cubes that no longer match the active skybox key.
-    fn prune_completed(&mut self, active: Option<&SkyboxIblKey>) {
-        self.completed
-            .retain(|key, _| active.is_some_and(|active_key| active_key == key));
     }
 
     /// Encodes one IBL bake (mip-0 producer + per-mip GGX convolves) and submits it.
@@ -226,55 +195,18 @@ impl SkyboxIblCache {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("skybox_ibl bake encoder"),
             });
-        match source {
-            SkyboxIblSource::Analytic(src) => {
-                let pipeline = self.analytic_pipeline()?;
-                encode_analytic_mip0(
-                    AnalyticEncodeContext {
-                        device: gpu.device(),
-                        encoder: &mut encoder,
-                        pipeline,
-                        texture: cube.texture.as_ref(),
-                        face_size,
-                        params: &src.params,
-                        profiler: profiler.as_deref(),
-                    },
-                    &mut resources,
-                );
-            }
-            SkyboxIblSource::Cubemap(src) => {
-                let pipeline = self.cube_pipeline()?;
-                encode_cube_mip0(
-                    CubeEncodeContext {
-                        device: gpu.device(),
-                        encoder: &mut encoder,
-                        pipeline,
-                        texture: cube.texture.as_ref(),
-                        face_size,
-                        src,
-                        sampler: input_sampler.as_ref(),
-                        profiler: profiler.as_deref(),
-                    },
-                    &mut resources,
-                );
-            }
-            SkyboxIblSource::Equirect(src) => {
-                let pipeline = self.equirect_pipeline()?;
-                encode_equirect_mip0(
-                    EquirectEncodeContext {
-                        device: gpu.device(),
-                        encoder: &mut encoder,
-                        pipeline,
-                        texture: cube.texture.as_ref(),
-                        face_size,
-                        src,
-                        sampler: input_sampler.as_ref(),
-                        profiler: profiler.as_deref(),
-                    },
-                    &mut resources,
-                );
-            }
-        }
+        self.encode_source_mip0(
+            SourceMip0EncodeContext {
+                gpu,
+                encoder: &mut encoder,
+                texture: cube.texture.as_ref(),
+                face_size,
+                sampler: input_sampler.as_ref(),
+                profiler: profiler.as_deref(),
+            },
+            source,
+            &mut resources,
+        )?;
         let convolve_pipeline = self.convolve_pipeline()?;
         encode_convolve_mips(
             ConvolveEncodeContext {
@@ -296,14 +228,86 @@ impl SkyboxIblCache {
         }
         let pending = PendingBake {
             cube: PrefilteredCube {
-                _texture: cube.texture,
-                view: cube.full_view,
-                sampler: prefiltered_sampler_state(),
+                texture: cube.texture,
                 mip_levels,
             },
             _resources: resources,
         };
         self.submit_pending_bake(gpu, key, encoder, pending);
+        Ok(())
+    }
+
+    fn encode_source_mip0(
+        &self,
+        ctx: SourceMip0EncodeContext<'_>,
+        source: SkyboxIblSource,
+        resources: &mut PendingBakeResources,
+    ) -> Result<(), SkyboxIblBakeError> {
+        match source {
+            SkyboxIblSource::Analytic(src) => {
+                let pipeline = self.analytic_pipeline()?;
+                encode_analytic_mip0(
+                    AnalyticEncodeContext {
+                        device: ctx.gpu.device(),
+                        encoder: ctx.encoder,
+                        pipeline,
+                        texture: ctx.texture,
+                        face_size: ctx.face_size,
+                        params: &src.params,
+                        profiler: ctx.profiler,
+                    },
+                    resources,
+                );
+            }
+            SkyboxIblSource::Cubemap(src) => {
+                let pipeline = self.cube_pipeline()?;
+                encode_cube_mip0(
+                    CubeEncodeContext {
+                        device: ctx.gpu.device(),
+                        encoder: ctx.encoder,
+                        pipeline,
+                        texture: ctx.texture,
+                        face_size: ctx.face_size,
+                        src,
+                        sampler: ctx.sampler,
+                        profiler: ctx.profiler,
+                    },
+                    resources,
+                );
+            }
+            SkyboxIblSource::Equirect(src) => {
+                let pipeline = self.equirect_pipeline()?;
+                encode_equirect_mip0(
+                    EquirectEncodeContext {
+                        device: ctx.gpu.device(),
+                        encoder: ctx.encoder,
+                        pipeline,
+                        texture: ctx.texture,
+                        face_size: ctx.face_size,
+                        src,
+                        sampler: ctx.sampler,
+                        profiler: ctx.profiler,
+                    },
+                    resources,
+                );
+            }
+            SkyboxIblSource::SolidColor(src) => {
+                let params = solid_color_params(src.color);
+                let pipeline = self.analytic_pipeline()?;
+                encode_analytic_mip0(
+                    AnalyticEncodeContext {
+                        device: ctx.gpu.device(),
+                        encoder: ctx.encoder,
+                        pipeline,
+                        texture: ctx.texture,
+                        face_size: ctx.face_size,
+                        params: &params,
+                        profiler: ctx.profiler,
+                    },
+                    resources,
+                );
+            }
+        }
         Ok(())
     }
 

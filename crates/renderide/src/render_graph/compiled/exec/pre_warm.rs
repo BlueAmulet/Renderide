@@ -35,28 +35,11 @@ impl CompiledRenderGraph {
         // tick maps to `None` and every phase short-circuits for that index in lock-step.
         let view_layouts: Vec<Option<crate::backend::PreRecordViewResourceLayout>> =
             build_view_layouts(mv_ctx, views);
-        Self::pre_sync_skybox_specular_environment(mv_ctx);
         Self::pre_sync_shared_frame_resources_for_views(mv_ctx, &view_layouts);
         Self::pre_warm_per_view_resources_for_views(mv_ctx, views, &view_layouts)?;
         Self::register_history_resources_for_views(mv_ctx, views)?;
         Self::pre_warm_pipeline_cache_for_views(mv_ctx, views);
         Ok(())
-    }
-
-    /// Resolves the active main skybox prefiltered cubemap before per-view `@group(0)` bind
-    /// groups are cached. While the IBL bake is in flight (or no source resolves) the frame
-    /// falls back to the existing black cubemap binding.
-    pub(super) fn pre_sync_skybox_specular_environment(
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
-    ) {
-        profiling::scope!("graph::pre_sync_skybox_specular");
-        let source = mv_ctx
-            .backend
-            .active_ibl_cubemap_source(mv_ctx.scene, mv_ctx.gpu_limits);
-        let _ = mv_ctx
-            .backend
-            .frame_resources
-            .sync_skybox_specular_environment(mv_ctx.device, source);
     }
 
     /// Warms the [`crate::materials::MaterialRegistry`] pipeline cache for every prefetched draw

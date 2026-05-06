@@ -7,6 +7,7 @@ use crate::materials::{
 };
 use crate::scene::{MeshRendererInstanceId, RenderSpaceId};
 
+use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
 use crate::world_mesh::{MaterialDrawBatchKey, WorldMeshDrawItem, compute_batch_key_hash};
 
 /// Named parameters for [`dummy_world_mesh_draw_item`].
@@ -109,5 +110,6 @@ pub fn dummy_world_mesh_draw_item(spec: DummyDrawItemSpec) -> WorldMeshDrawItem 
         opaque_depth_bucket: 0,
         sort_prefix,
         rigid_world_matrix: None,
+        reflection_probes: ReflectionProbeDrawSelection::default(),
     }
 }

@@ -260,6 +260,7 @@ fn collect_view_draws(
                 culling: culling.as_ref(),
                 transform_filter: prep.draw_filter.as_ref(),
                 material_cache,
+                reflection_probes: Some(setup.reflection_probes),
                 prepared: Some(setup.prepared_renderables),
             },
             inner_parallelism,

@@ -4,7 +4,7 @@
 //! via Karis-style split-sum + Filament solid-angle source-mip selection.
 //!
 //! Roughness convention: every helper takes **perceptual roughness** `r in [0, 1]`. The runtime
-//! sampling side ([`renderide::pbs::brdf::skybox_specular_lod`]) uses the parabolic
+//! sampling side ([`renderide::reflection_probes::roughness_lod`]) uses the parabolic
 //! `lod = max_lod * r * (2 - r)`. The prefilter side inverts it via [`lod_to_perceptual_roughness`]
 //! so mip *i* is filtered for the roughness that the runtime LOD lookup will land on.
 

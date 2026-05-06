@@ -12,6 +12,7 @@
 #import renderide::pbs::cluster as pcls
 #import renderide::pbs::brdf as brdf
 #import renderide::birp::light as bl
+#import renderide::reflection_probes as rprobe
 #import renderide::sh2_ambient as shamb
 #import renderide::uv_utils as uvu
 
@@ -25,13 +26,13 @@ fn occlusion_scalar(s: xb::SurfaceData) -> f32 {
     return clamp(xb::grayscale(s.occlusion), 0.0, 1.0);
 }
 
-/// Skybox tint used by `_RimCubemapTint`. Falls back to white when no specular skybox is bound so
+/// Reflection tint used by `_RimCubemapTint`. Falls back to white when no specular probe is bound so
 /// the tint slider does not collapse the rim light to black.
-fn environment_tint(s: xb::SurfaceData, view_dir: vec3<f32>) -> vec3<f32> {
-    if (rg::frame.skybox_specular.y <= 0.5) {
+fn environment_tint(s: xb::SurfaceData, view_dir: vec3<f32>, world_pos: vec3<f32>, view_layer: u32) -> vec3<f32> {
+    if (!rprobe::has_indirect_specular(view_layer, true)) {
         return vec3<f32>(1.0);
     }
-    return brdf::indirect_specular(s.normal, view_dir, s.roughness, vec3<f32>(1.0), 1.0, true);
+    return rprobe::indirect_specular(world_pos, s.normal, view_dir, s.roughness, vec3<f32>(1.0), 1.0, true, view_layer);
 }
 
 /// `UNITY_SPECCUBE_LOD_STEPS` on PC/console.
@@ -228,13 +229,15 @@ fn reflection_is_multiplicative() -> bool {
 
 /// Samples one indirect-reflection branch using the current reflection mode.
 ///
-/// Mode `0` ("PBR") routes through the renderer skybox-driven `brdf::indirect_specular`, mode
+/// Mode `0` ("PBR") routes through the renderer reflection-probe `rprobe::indirect_specular`, mode
 /// `1` ("baked cubemap") samples the per-material `_BakedCubemap` directly with a roughness-LOD
 /// reflection vector, and mode `2` ("matcap") samples `_Matcap` with the view-space matcap UV.
 fn indirect_reflection_branch(
     s: xb::SurfaceData,
     normal: vec3<f32>,
     view_dir: vec3<f32>,
+    world_pos: vec3<f32>,
+    view_layer: u32,
     perceptual_roughness: f32,
     fresnel: vec3<f32>,
     ambient: vec3<f32>,
@@ -277,13 +280,15 @@ fn indirect_reflection_branch(
         return spec;
     }
 
-    let spec = brdf::indirect_specular(
+    let spec = rprobe::indirect_specular(
+        world_pos,
         normal,
         view_dir,
         clamp(perceptual_roughness, 0.0, 1.0),
         fresnel,
         occlusion_scalar(s),
         xb::reflection_uses_pbr(),
+        view_layer,
     ) * reflectivity_mask;
     return spec;
 }
@@ -292,6 +297,8 @@ fn indirect_reflection_branch(
 fn indirect_specular(
     s: xb::SurfaceData,
     view_dir: vec3<f32>,
+    world_pos: vec3<f32>,
+    view_layer: u32,
     ambient: vec3<f32>,
     dominant_light_col_atten: vec3<f32>,
 ) -> vec3<f32> {
@@ -302,6 +309,8 @@ fn indirect_specular(
         s,
         s.normal,
         view_dir,
+        world_pos,
+        view_layer,
         s.roughness,
         fresnel,
         ambient,
@@ -315,6 +324,8 @@ fn indirect_specular(
             s,
             s.raw_normal,
             view_dir,
+            world_pos,
+            view_layer,
             1.0 - s.clearcoat_smoothness,
             clearcoat_f0,
             ambient,
@@ -394,7 +405,7 @@ fn clustered_toon_lighting(
 ) -> vec3<f32> {
     let view_dir = xb::safe_normalize(rg::camera_world_pos_for_view(view_layer) - world_pos, vec3<f32>(0.0, 0.0, 1.0));
     let ambient = indirect_diffuse(s);
-    let env = environment_tint(s, view_dir);
+    let env = environment_tint(s, view_dir, world_pos, view_layer);
     let direct_specular_occlusion = occlusion_scalar(s);
 
     let cluster_id = pcls::cluster_id_from_frag(
@@ -456,7 +467,7 @@ fn clustered_toon_lighting(
     surface = surface * s.occlusion;
 
     if (base_pass) {
-        let reflection = indirect_specular(s, view_dir, ambient, dominant_light_col_atten);
+        let reflection = indirect_specular(s, view_dir, world_pos, view_layer, ambient, dominant_light_col_atten);
         surface = apply_reflection_blend(surface, reflection, reflection_blend_weight(s));
     }
 

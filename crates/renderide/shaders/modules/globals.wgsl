@@ -30,6 +30,13 @@ struct GpuLight {
     align_pad_vec3_tail: vec3<u32>,
 }
 
+struct GpuReflectionProbe {
+    box_min: vec4<f32>,
+    box_max: vec4<f32>,
+    position: vec4<f32>,
+    params: vec4<f32>,
+}
+
 /// Per-frame scene + clustered grid (matches [`crate::gpu::frame_globals::FrameGpuUniforms`]).
 struct FrameGlobals {
     camera_world_pos: vec4<f32>,
@@ -56,8 +63,7 @@ struct FrameGlobals {
     /// Packed tail: `.x` is the monotonic frame index (for temporal / jittered screen-space
     /// effects); `.yzw` are reserved padding to keep the trailing `vec4` slot aligned to 16 bytes.
     frame_tail: vec4<u32>,
-    /// Skybox indirect specular: `.x` max resident LOD, `.y` enabled flag,
-    /// `.z` source kind tag, `.w` reserved padding.
+    /// Reserved. Skybox specular lighting is supplied by reflection probes.
     skybox_specular: vec4<f32>,
     /// Ambient SH2 coefficient 0, padded to a vec4 slot.
     ambient_sh_a: vec4<f32>,
@@ -88,14 +94,15 @@ struct FrameGlobals {
 @group(0) @binding(6) var scene_color: texture_2d<f32>;
 @group(0) @binding(7) var scene_color_array: texture_2d_array<f32>;
 @group(0) @binding(8) var scene_color_sampler: sampler;
-@group(0) @binding(9) var skybox_specular: texture_cube<f32>;
-@group(0) @binding(10) var skybox_specular_sampler: sampler;
+@group(0) @binding(9) var reflection_probe_specular: texture_cube_array<f32>;
+@group(0) @binding(10) var reflection_probe_specular_sampler: sampler;
 @group(0) @binding(11) var ibl_dfg_lut: texture_2d<f32>;
+@group(0) @binding(12) var<storage, read> reflection_probes: array<GpuReflectionProbe>;
 
 /// World-space camera position for the current view layer.
 fn camera_world_pos_for_view(view_layer: u32) -> vec3<f32> {
 #ifdef MULTIVIEW
-    if (view_layer != 0u) {
+    if ((view_layer & 1u) != 0u) {
         return frame.camera_world_pos_right.xyz;
     }
 #endif
@@ -105,6 +112,16 @@ fn camera_world_pos_for_view(view_layer: u32) -> vec3<f32> {
 /// Unit vector from `world_pos` toward the current view-layer camera.
 fn view_dir_for_world_pos(world_pos: vec3<f32>, view_layer: u32) -> vec3<f32> {
     return normalize(camera_world_pos_for_view(view_layer) - world_pos);
+}
+
+/// View index encoded in a material varying.
+fn view_index_from_layer(view_layer: u32) -> u32 {
+    return view_layer & 1u;
+}
+
+/// Draw row encoded in a material varying.
+fn draw_index_from_layer(view_layer: u32) -> u32 {
+    return view_layer >> 1u;
 }
 
 /// Adds infinitesimal terms tied to lights/cluster storage so every frame binding stays referenced
@@ -117,5 +134,6 @@ fn retain_globals_additive(color: vec4<f32>) -> vec4<f32> {
     let cluster_touch =
         f32(cluster_light_counts[0u] & 255u) * 1e-10 +
         f32(cluster_light_indices[0u] & 255u) * 1e-10;
-    return color + vec4<f32>(vec3<f32>(f32(lit) * 1e-10 + cluster_touch), 0.0);
+    let probe_touch = reflection_probes[0u].params.x * 1e-10;
+    return color + vec4<f32>(vec3<f32>(f32(lit) * 1e-10 + cluster_touch + probe_touch), 0.0);
 }

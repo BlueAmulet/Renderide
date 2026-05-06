@@ -12,6 +12,7 @@ use crate::shared::{ComputeResult, FrameSubmitData, ReflectionProbeSH2Tasks, Ren
 mod projection_pipeline;
 mod readback_jobs;
 mod source_resolution;
+pub(crate) mod specular;
 mod task_rows;
 
 use crate::skybox::params::{SkyboxEvaluatorParams, SkyboxParamMode};

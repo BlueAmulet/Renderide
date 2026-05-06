@@ -31,7 +31,7 @@ fn linear_depth_from_raw(raw_depth: f32) -> f32 {
 
 fn scene_linear_depth_at_xy(xy: vec2<i32>, view_layer: u32) -> f32 {
 #ifdef MULTIVIEW
-    let raw_depth = textureLoad(rg::scene_depth_array, xy, i32(view_layer), 0);
+    let raw_depth = textureLoad(rg::scene_depth_array, xy, i32(rg::view_index_from_layer(view_layer)), 0);
 #else
     let raw_depth = textureLoad(rg::scene_depth, xy, 0);
 #endif
@@ -47,7 +47,11 @@ fn scene_linear_depth_at_uv(uv: vec2<f32>, view_layer: u32) -> f32 {
 }
 
 fn fragment_linear_depth(world_pos: vec3<f32>, view_layer: u32) -> f32 {
-    let z_coeffs = select(rg::frame.view_space_z_coeffs, rg::frame.view_space_z_coeffs_right, view_layer != 0u);
+    let z_coeffs = select(
+        rg::frame.view_space_z_coeffs,
+        rg::frame.view_space_z_coeffs_right,
+        rg::view_index_from_layer(view_layer) != 0u,
+    );
     let view_z = dot(z_coeffs.xyz, world_pos) + z_coeffs.w;
     return -view_z;
 }

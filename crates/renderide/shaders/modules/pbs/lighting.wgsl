@@ -6,6 +6,7 @@
 #import renderide::pbs::brdf as brdf
 #import renderide::pbs::cluster as pcls
 #import renderide::pbs::surface as surface
+#import renderide::reflection_probes as rprobe
 #import renderide::sh2_ambient as shamb
 
 struct ClusterLightingOptions {
@@ -147,11 +148,13 @@ fn shade_metallic_clustered(
     let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
     let specular_color = brdf::metallic_f0(s.base_color, s.metallic);
     let n_dot_v = clamp(dot(s.normal, view_dir), 0.0, 1.0);
+    let indirect_specular_enabled =
+        rprobe::has_indirect_specular(view_layer, options.glossy_reflections_enabled);
     let specular_energy = brdf::indirect_specular_energy(
         s.roughness,
         n_dot_v,
         specular_color,
-        options.glossy_reflections_enabled,
+        indirect_specular_enabled,
     );
     let ambient_probe = select(vec3<f32>(0.0), shamb::ambient_probe(s.normal), options.include_directional);
     let ambient = brdf::indirect_diffuse_metallic(
@@ -160,15 +163,17 @@ fn shade_metallic_clustered(
         s.metallic,
         specular_energy,
         s.occlusion,
-        options.glossy_reflections_enabled,
+        indirect_specular_enabled,
     );
-    let indirect_specular = brdf::indirect_specular_with_energy(
+    let indirect_specular = rprobe::indirect_specular_with_energy(
+        world_pos,
         s.normal,
         view_dir,
         s.roughness,
         specular_energy,
         s.occlusion,
-        options.glossy_reflections_enabled,
+        indirect_specular_enabled,
+        view_layer,
     );
     let extra = select(vec3<f32>(0.0), s.emission, options.include_directional);
     return ambient + indirect_specular + direct + extra;
@@ -184,11 +189,13 @@ fn shade_specular_clustered(
     let direct = direct_specular_clustered(frag_xy, world_pos, view_layer, s, options);
     let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
     let n_dot_v = clamp(dot(s.normal, view_dir), 0.0, 1.0);
+    let indirect_specular_enabled =
+        rprobe::has_indirect_specular(view_layer, options.glossy_reflections_enabled);
     let specular_energy = brdf::indirect_specular_energy(
         s.roughness,
         n_dot_v,
         s.specular_color,
-        options.glossy_reflections_enabled,
+        indirect_specular_enabled,
     );
     let ambient_probe = select(vec3<f32>(0.0), shamb::ambient_probe(s.normal), options.include_directional);
     let ambient = brdf::indirect_diffuse_specular(
@@ -197,15 +204,17 @@ fn shade_specular_clustered(
         s.one_minus_reflectivity,
         specular_energy,
         s.occlusion,
-        options.glossy_reflections_enabled,
+        indirect_specular_enabled,
     );
-    let indirect_specular = brdf::indirect_specular_with_energy(
+    let indirect_specular = rprobe::indirect_specular_with_energy(
+        world_pos,
         s.normal,
         view_dir,
         s.roughness,
         specular_energy,
         s.occlusion,
-        options.glossy_reflections_enabled,
+        indirect_specular_enabled,
+        view_layer,
     );
     let extra = select(vec3<f32>(0.0), s.emission, options.include_directional);
     return ambient + indirect_specular + direct + extra;

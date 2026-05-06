@@ -66,6 +66,7 @@ mod tests {
             culling: None,
             transform_filter,
             material_cache: None,
+            reflection_probes: None,
             prepared: None,
         };
         test(&ctx);
