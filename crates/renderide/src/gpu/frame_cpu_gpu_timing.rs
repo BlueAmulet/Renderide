@@ -33,9 +33,11 @@
 //! -> `Queue::submit` returning on the driver thread) but is not displayed in the default HUD;
 //! reach for it when investigating driver-thread back-pressure.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+
+use hashbrown::HashMap;
 
 /// Maximum number of pending submit->completion pairs retained while waiting for a matching
 /// `record_gpu_done`. The driver ring is bounded to a couple of frames; this generous cap

@@ -6,8 +6,7 @@
 //! entry into a typed [`xr::Binding`], and [`apply_suggested_interaction_bindings`] which submits
 //! each profile table to the runtime.
 
-use std::collections::HashMap;
-
+use hashbrown::HashMap;
 use openxr as xr;
 
 use super::manifest::{ExtensionGate, Manifest};

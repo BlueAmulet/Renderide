@@ -1,9 +1,9 @@
 //! Completion tracking for submitted non-readback GPU jobs.
 
-use std::collections::HashMap;
 use std::hash::Hash;
 
 use crossbeam_channel as mpsc;
+use hashbrown::HashMap;
 
 use super::GpuJobResources;
 

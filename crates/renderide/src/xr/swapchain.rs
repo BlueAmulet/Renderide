@@ -16,6 +16,8 @@ use wgpu::TextureUses;
 use wgpu::hal::api::Vulkan as HalVulkan;
 use wgpu::hal::{self, MemoryFlags};
 
+use super::XrWgpuHandles;
+
 /// Two array layers (left / right) for `PRIMARY_STEREO`.
 pub const XR_VIEW_COUNT: u32 = 2;
 
@@ -57,16 +59,11 @@ pub struct XrStereoSwapchain {
 
 impl XrStereoSwapchain {
     /// Creates an OpenXR swapchain and imports each Vulkan image into wgpu.
-    ///
-    /// # Safety
-    ///
-    /// `device` must be the same Vulkan `VkDevice` used to create the OpenXR session.
-    pub unsafe fn new(
-        session: &xr::Session<xr::Vulkan>,
-        xr_instance: &xr::Instance,
-        system_id: xr::SystemId,
-        device: &wgpu::Device,
-    ) -> Result<Self, XrSwapchainError> {
+    pub fn new(handles: &XrWgpuHandles) -> Result<Self, XrSwapchainError> {
+        let session = handles.xr_session.xr_vulkan_session();
+        let xr_instance = handles.xr_session.xr_instance();
+        let system_id = handles.xr_system_id;
+        let device = handles.device.as_ref();
         let views = xr_instance.enumerate_view_configuration_views(
             system_id,
             xr::ViewConfigurationType::PRIMARY_STEREO,
@@ -91,69 +88,7 @@ impl XrStereoSwapchain {
         })?;
 
         let images = handle.enumerate_images()?;
-        // SAFETY: `device` is a Vulkan wgpu device per this function's safety contract; taking a
-        // HAL handle to it is sound for the scope of this block (no aliasing with wgpu API use).
-        let hal_device =
-            unsafe { device.as_hal::<HalVulkan>() }.ok_or(XrSwapchainError::NotVulkanHal)?;
-
-        let mut wgpu_buffers = Vec::with_capacity(images.len());
-
-        for vk_handle in images {
-            let vk_image = vk::Image::from_raw(vk_handle);
-            let hal_desc = hal::TextureDescriptor {
-                label: Some("xr_swapchain"),
-                size: wgpu::Extent3d {
-                    width: resolution.0,
-                    height: resolution.1,
-                    depth_or_array_layers: XR_VIEW_COUNT,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: XR_COLOR_FORMAT,
-                usage: TextureUses::COLOR_TARGET
-                    | TextureUses::COPY_DST
-                    | TextureUses::COPY_SRC
-                    | TextureUses::RESOURCE,
-                memory_flags: MemoryFlags::empty(),
-                view_formats: Vec::new(),
-            };
-            // SAFETY: `vk_image` was returned by `xrEnumerateSwapchainImages` on a swapchain
-            // created from `session`, whose `VkDevice` equals `hal_device`'s per this function's
-            // safety contract. The descriptor matches the swapchain's create info.
-            let hal_tex = unsafe {
-                hal_device.texture_from_raw(
-                    vk_image,
-                    &hal_desc,
-                    None,
-                    hal::vulkan::TextureMemory::External,
-                )
-            };
-            let wgpu_desc = wgpu::TextureDescriptor {
-                label: Some("xr_swapchain"),
-                size: hal_desc.size,
-                mip_level_count: hal_desc.mip_level_count,
-                sample_count: hal_desc.sample_count,
-                dimension: hal_desc.dimension,
-                format: XR_COLOR_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::COPY_DST
-                    | wgpu::TextureUsages::COPY_SRC
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            };
-            // SAFETY: `hal_tex` was just produced from the same Vulkan device backing `device`
-            // (the function's safety contract); `wgpu_desc` matches `hal_desc`.
-            let texture =
-                unsafe { device.create_texture_from_hal::<HalVulkan>(hal_tex, &wgpu_desc) };
-            let view = texture.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("xr_swapchain_array"),
-                dimension: Some(wgpu::TextureViewDimension::D2Array),
-                array_layer_count: Some(XR_VIEW_COUNT),
-                ..Default::default()
-            });
-            wgpu_buffers.push((texture, view));
-        }
+        let wgpu_buffers = import_openxr_swapchain_images(device, resolution, images)?;
 
         Ok(Self {
             handle: Arc::new(Mutex::new(handle)),
@@ -191,6 +126,99 @@ impl XrStereoSwapchain {
             array_layer_count: Some(1),
             ..Default::default()
         }))
+    }
+}
+
+fn import_openxr_swapchain_images(
+    device: &wgpu::Device,
+    resolution: (u32, u32),
+    images: Vec<u64>,
+) -> Result<Vec<(wgpu::Texture, wgpu::TextureView)>, XrSwapchainError> {
+    // SAFETY: `XrWgpuHandles` is produced by XR bootstrap from the same Vulkan device used to
+    // create the OpenXR session, and this function is only called from `XrStereoSwapchain::new`.
+    let hal_device =
+        unsafe { device.as_hal::<HalVulkan>() }.ok_or(XrSwapchainError::NotVulkanHal)?;
+
+    let mut wgpu_buffers = Vec::with_capacity(images.len());
+    for vk_handle in images {
+        let vk_image = vk::Image::from_raw(vk_handle);
+        wgpu_buffers.push(import_openxr_swapchain_image(
+            device,
+            &hal_device,
+            vk_image,
+            resolution,
+        ));
+    }
+    Ok(wgpu_buffers)
+}
+
+fn import_openxr_swapchain_image(
+    device: &wgpu::Device,
+    hal_device: &<HalVulkan as hal::Api>::Device,
+    vk_image: vk::Image,
+    resolution: (u32, u32),
+) -> (wgpu::Texture, wgpu::TextureView) {
+    let hal_desc = xr_swapchain_hal_descriptor(resolution);
+    // SAFETY: `vk_image` was returned by `xrEnumerateSwapchainImages` on a swapchain created from
+    // the OpenXR session inside `XrWgpuHandles`; that session and `hal_device` come from the same
+    // bootstrap-created Vulkan device. The descriptor mirrors the swapchain create info.
+    let hal_tex = unsafe {
+        hal_device.texture_from_raw(
+            vk_image,
+            &hal_desc,
+            None,
+            hal::vulkan::TextureMemory::External,
+        )
+    };
+    let wgpu_desc = xr_swapchain_wgpu_descriptor(&hal_desc);
+    // SAFETY: `hal_tex` was imported from the Vulkan device backing `device`, and `wgpu_desc`
+    // matches the HAL descriptor used for the import.
+    let texture = unsafe { device.create_texture_from_hal::<HalVulkan>(hal_tex, &wgpu_desc) };
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        label: Some("xr_swapchain_array"),
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        array_layer_count: Some(XR_VIEW_COUNT),
+        ..Default::default()
+    });
+    (texture, view)
+}
+
+fn xr_swapchain_hal_descriptor(resolution: (u32, u32)) -> hal::TextureDescriptor<'static> {
+    hal::TextureDescriptor {
+        label: Some("xr_swapchain"),
+        size: wgpu::Extent3d {
+            width: resolution.0,
+            height: resolution.1,
+            depth_or_array_layers: XR_VIEW_COUNT,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: XR_COLOR_FORMAT,
+        usage: TextureUses::COLOR_TARGET
+            | TextureUses::COPY_DST
+            | TextureUses::COPY_SRC
+            | TextureUses::RESOURCE,
+        memory_flags: MemoryFlags::empty(),
+        view_formats: Vec::new(),
+    }
+}
+
+fn xr_swapchain_wgpu_descriptor(
+    hal_desc: &hal::TextureDescriptor<'_>,
+) -> wgpu::TextureDescriptor<'static> {
+    wgpu::TextureDescriptor {
+        label: Some("xr_swapchain"),
+        size: hal_desc.size,
+        mip_level_count: hal_desc.mip_level_count,
+        sample_count: hal_desc.sample_count,
+        dimension: hal_desc.dimension,
+        format: XR_COLOR_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
     }
 }
 

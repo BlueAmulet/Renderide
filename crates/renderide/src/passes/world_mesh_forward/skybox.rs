@@ -2,11 +2,11 @@
 
 mod pipeline;
 
-use std::collections::HashMap;
 use std::num::NonZeroU64;
 use std::sync::{Arc, OnceLock};
 
 use bytemuck::{Pod, Zeroable};
+use hashbrown::HashMap;
 use parking_lot::Mutex;
 
 use super::WorldMeshForwardPipelineState;

@@ -83,8 +83,10 @@ pub(super) fn create_openxr_input_parts(
     let actions = build_actions(&action_set, &manifest.actions)?;
     let profile_paths = ResolvedProfilePaths::from_manifest(instance, manifest)?;
 
-    let action_handle_map = build_action_handle_map(&actions);
-    apply_suggested_interaction_bindings(instance, manifest, &action_handle_map, gates)?;
+    {
+        let action_handle_map = build_action_handle_map(&actions);
+        apply_suggested_interaction_bindings(instance, manifest, &action_handle_map, gates)?;
+    }
 
     session.attach_action_sets(&[&action_set])?;
 

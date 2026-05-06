@@ -64,8 +64,7 @@ impl MaterialBlendMode {
 /// One side of a [`MaterialPropertyLookupIds`] fetched via
 /// [`MaterialDictionary::fetch_property_maps`]: the inner `property_id -> value` map for either the
 /// material or the property block. `None` when no properties have been stored for that id.
-pub(crate) type PropertyMapRef<'a> =
-    Option<&'a std::collections::HashMap<i32, MaterialPropertyValue>>;
+pub(crate) type PropertyMapRef<'a> = Option<&'a hashbrown::HashMap<i32, MaterialPropertyValue>>;
 
 /// Iterates `pids` against pre-fetched material / property-block inner maps doing only one
 /// inner-map lookup per side per id, matching the

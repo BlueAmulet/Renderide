@@ -70,10 +70,9 @@ fn sanitized_render_queue_override(raw: f32) -> Option<i32> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
     use crate::materials::host_data::{MaterialPropertyValue, PropertyIdRegistry};
+    use hashbrown::HashMap;
 
     #[test]
     fn transparent_sorting_starts_after_opaque_cutoff() {

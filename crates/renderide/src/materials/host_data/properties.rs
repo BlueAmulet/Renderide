@@ -4,7 +4,7 @@
 //! Parity with FrooxEngine / Renderite `MaterialUpdateWriter` / `MaterialUpdateReader` is documented
 //! in [`super::update_batch::parse_materials_update_batch_into_store`].
 
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 /// Maximum `set_float_array` elements stored when extended persistence is enabled.
 pub const MATERIAL_BATCH_MAX_FLOAT_ARRAY_LEN: usize = 256;

@@ -1,8 +1,9 @@
 //! Nonblocking GPU SH2 projection for reflection-probe host tasks.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::VecDeque;
 
 use glam::Vec3;
+use hashbrown::{HashMap, HashSet};
 
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;

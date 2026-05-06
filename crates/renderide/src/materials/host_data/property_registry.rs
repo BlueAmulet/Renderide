@@ -4,8 +4,9 @@
 //! host must use the returned [`crate::shared::MaterialPropertyIdResult`] values in subsequent
 //! [`crate::shared::MaterialsUpdateBatch`] records.
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+use hashbrown::HashMap;
 
 /// Callback invoked when the host resolves a material property name (see [`PropertyIdRegistry`]).
 pub type MaterialPropertySemanticHook = Arc<dyn Fn(&str, i32) + Send + Sync>;

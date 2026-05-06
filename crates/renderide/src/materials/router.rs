@@ -3,9 +3,8 @@
 //! Populated from [`crate::assets::shader::resolve_shader_upload`] when the host sends
 //! [`crate::shared::ShaderUpload`]. Unknown ids use [`MaterialRouter::fallback`].
 
-use std::collections::HashMap;
-
 use super::RasterPipelineKind;
+use hashbrown::HashMap;
 
 /// Host shader route: raster pipeline kind plus optional AssetBundle shader asset name for the debug HUD.
 #[derive(Clone, Debug, Eq, PartialEq)]
