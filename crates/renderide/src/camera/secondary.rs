@@ -110,7 +110,10 @@ mod tests {
         camera_state_enabled, camera_state_render_private_ui, camera_state_use_transform_scale,
         host_camera_frame_for_render_texture,
     };
-    use crate::camera::{CameraProjectionKind, HostCameraFrame, apply_view_handedness_fix};
+    use crate::camera::{
+        CameraProjectionKind, HostCameraFrame, OrthographicProjectionSpec, Viewport,
+        apply_view_handedness_fix,
+    };
 
     #[test]
     fn camera_state_enabled_reads_bit_zero() {
@@ -174,6 +177,40 @@ mod tests {
         assert_eq!(ortho.clip, out.clip);
         assert_eq!(out.projection_kind, CameraProjectionKind::Orthographic);
         assert!(out.explicit_view.expect("explicit view").proj.is_finite());
+    }
+
+    #[test]
+    fn host_camera_frame_secondary_orthographic_uses_state_projection_matrix() {
+        let base = HostCameraFrame::default();
+        let cam_world = Mat4::IDENTITY;
+        let viewport = (640, 480);
+        let clip = crate::camera::CameraClipPlanes::new(0.1, 500.0);
+        let perspective_state = CameraState {
+            projection: CameraProjection::Perspective,
+            field_of_view: 60.0,
+            near_clip: clip.near,
+            far_clip: clip.far,
+            ..Default::default()
+        };
+        let orthographic_state = CameraState {
+            projection: CameraProjection::Orthographic,
+            orthographic_size: 8.0,
+            near_clip: clip.near,
+            far_clip: clip.far,
+            ..Default::default()
+        };
+
+        let perspective =
+            host_camera_frame_for_render_texture(&base, &perspective_state, viewport, cam_world);
+        let orthographic =
+            host_camera_frame_for_render_texture(&base, &orthographic_state, viewport, cam_world);
+        let expected_ortho =
+            OrthographicProjectionSpec::new(8.0, clip).projection(Viewport::from_tuple(viewport));
+
+        let perspective_proj = perspective.explicit_view.expect("perspective view").proj;
+        let orthographic_proj = orthographic.explicit_view.expect("orthographic view").proj;
+        assert_eq!(orthographic_proj, expected_ortho);
+        assert_ne!(orthographic_proj, perspective_proj);
     }
 
     #[test]

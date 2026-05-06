@@ -236,6 +236,31 @@ mod tests {
     }
 
     #[test]
+    fn camera_update_preserves_projection_state() {
+        let mut space = space_with_camera(7, vec![], vec![]);
+        let update = ExtractedCameraRenderablesUpdate {
+            states: vec![CameraState {
+                renderable_index: 0,
+                projection: crate::shared::CameraProjection::Orthographic,
+                orthographic_size: 6.5,
+                field_of_view: 42.0,
+                ..CameraState::default()
+            }],
+            ..ExtractedCameraRenderablesUpdate::default()
+        };
+
+        apply_camera_renderables_update_extracted(&mut space, &update);
+
+        let state = space.cameras[0].state;
+        assert_eq!(
+            state.projection,
+            crate::shared::CameraProjection::Orthographic
+        );
+        assert_eq!(state.orthographic_size, 6.5);
+        assert_eq!(state.field_of_view, 42.0);
+    }
+
+    #[test]
     fn camera_transform_id_follows_swap_remove() {
         let mut space = space_with_camera(42, vec![10, 42], vec![5, 42]);
         fixup_cameras_for_transform_removals(

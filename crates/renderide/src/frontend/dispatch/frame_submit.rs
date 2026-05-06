@@ -1,5 +1,6 @@
 //! Host [`crate::shared::FrameSubmitData`] application: scene caches, HUD counters, and camera fields.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use rayon::prelude::*;
@@ -7,7 +8,7 @@ use rayon::prelude::*;
 use super::host_camera_apply;
 use crate::ipc::SharedMemoryAccessor;
 use crate::runtime::RendererRuntime;
-use crate::shared::FrameSubmitData;
+use crate::shared::{CameraProjection, FrameSubmitData};
 
 /// Buffers at or above this size are filled via rayon `par_chunks_mut`; smaller
 /// buffers fall back to a single SIMD memset to avoid rayon dispatch overhead.
@@ -24,6 +25,7 @@ const PAR_FILL_CHUNK: usize = 64 * 1024;
 /// HDR/float pixel formats would interpret this as NaN; revisit when those
 /// camera paths land.
 const CAMERA_TASK_FILL_BYTE: u8 = 0xFF;
+static ORTHOGRAPHIC_CAMERA_RENDER_TASK_WARNING_LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// Applies a host frame submit: lock-step note, output state, camera fields, scene caches, head-output transform.
 pub(crate) fn process_frame_submit(runtime: &mut RendererRuntime, data: FrameSubmitData) {
@@ -76,6 +78,7 @@ pub(crate) fn process_frame_submit(runtime: &mut RendererRuntime, data: FrameSub
             rendered_reflection_probes = runtime
                 .scene
                 .take_supported_reflection_probe_render_results();
+            log_unimplemented_camera_render_task_parameters(&data);
             clear_unimplemented_camera_render_tasks(shm, &data);
         }
     }
@@ -123,6 +126,30 @@ fn fill_bytes_simd(bytes: &mut [u8], value: u8) {
     }
 }
 
+fn orthographic_camera_render_task_count(data: &FrameSubmitData) -> usize {
+    data.render_tasks
+        .iter()
+        .filter(|task| {
+            task.parameters
+                .as_ref()
+                .is_some_and(|parameters| parameters.projection == CameraProjection::Orthographic)
+        })
+        .count()
+}
+
+fn log_unimplemented_camera_render_task_parameters(data: &FrameSubmitData) {
+    let orthographic_count = orthographic_camera_render_task_count(data);
+    if orthographic_count == 0 {
+        return;
+    }
+    if ORTHOGRAPHIC_CAMERA_RENDER_TASK_WARNING_LOGGED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    logger::warn!(
+        "received {orthographic_count} orthographic CameraRenderTask(s), but CameraRenderTask rendering is not implemented yet; using placeholder result buffers"
+    );
+}
+
 /// Stopgap for unimplemented camera readback: fills every
 /// [`crate::shared::CameraRenderTask`] result buffer in `data` with
 /// [`CAMERA_TASK_FILL_BYTE`].
@@ -151,4 +178,49 @@ fn clear_unimplemented_camera_render_tasks(shm: &mut SharedMemoryAccessor, data:
     logger::debug!(
         "filled {filled} unimplemented CameraRenderTask result buffers with 0x{CAMERA_TASK_FILL_BYTE:02X} ({failed} failed)"
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::shared::{
+        CameraProjection, CameraRenderParameters, CameraRenderTask, FrameSubmitData,
+    };
+
+    use super::orthographic_camera_render_task_count;
+
+    #[test]
+    fn orthographic_camera_render_task_count_uses_task_parameters_projection() {
+        let data = FrameSubmitData {
+            render_tasks: vec![
+                CameraRenderTask {
+                    parameters: Some(CameraRenderParameters {
+                        projection: CameraProjection::Orthographic,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                CameraRenderTask {
+                    parameters: Some(CameraRenderParameters {
+                        projection: CameraProjection::Perspective,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+                CameraRenderTask {
+                    parameters: None,
+                    ..Default::default()
+                },
+                CameraRenderTask {
+                    parameters: Some(CameraRenderParameters {
+                        projection: CameraProjection::Orthographic,
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        assert_eq!(orthographic_camera_render_task_count(&data), 2);
+    }
 }
