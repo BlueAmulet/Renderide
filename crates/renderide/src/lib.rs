@@ -9,12 +9,6 @@
 //! such as IPC, scene mirroring, GPU resources, materials, and the render graph are implementation
 //! details of this process crate.
 
-#![expect(
-    dead_code,
-    unused_imports,
-    reason = "renderer subsystems keep crate-internal facade APIs behind the process-only crate boundary"
-)]
-
 mod process_io;
 mod run_error;
 

@@ -7,15 +7,6 @@
 use super::GpuContext;
 
 impl GpuContext {
-    /// Ensures a stencil-capable depth attachment exists for the current surface extent.
-    ///
-    /// Call after [`Self::reconfigure`] or when the swapchain size may have changed.
-    ///
-    /// Returns an error string only if the depth attachment could not be read after allocation (defensive).
-    pub fn ensure_depth_view(&mut self) -> Result<&wgpu::TextureView, &'static str> {
-        self.ensure_depth_target().map(|(_, v)| v)
-    }
-
     /// Ensures the main depth attachment exists and returns both the texture and its default view.
     ///
     /// Returns an error string only if the depth attachment could not be read after allocation (defensive).

@@ -50,11 +50,6 @@ impl Viewport {
         Self::new(value.0, value.1)
     }
 
-    /// Returns the viewport as a tuple extent.
-    pub const fn as_tuple(self) -> (u32, u32) {
-        (self.width, self.height)
-    }
-
     /// Returns `true` when either dimension is zero.
     pub const fn is_empty(self) -> bool {
         self.width == 0 || self.height == 0
@@ -116,14 +111,6 @@ impl CameraPose {
         Self {
             world_to_view: apply_view_handedness_fix(camera_world_matrix.inverse()),
             world_position: camera_world_matrix.col(3).truncate(),
-        }
-    }
-
-    /// Builds a pose from already-resolved components.
-    pub const fn new(world_to_view: Mat4, world_position: Vec3) -> Self {
-        Self {
-            world_to_view,
-            world_position,
         }
     }
 }

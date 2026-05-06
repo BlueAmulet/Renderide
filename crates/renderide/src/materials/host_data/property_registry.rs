@@ -38,6 +38,7 @@ impl PropertyIdRegistry {
     }
 
     /// Registers a callback invoked for every name in each [`crate::shared::MaterialPropertyIdRequest`].
+    #[cfg(test)]
     pub fn add_semantic_hook(&self, hook: MaterialPropertySemanticHook) {
         let mut g = match self.inner.lock() {
             Ok(g) => g,

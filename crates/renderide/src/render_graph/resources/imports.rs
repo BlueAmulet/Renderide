@@ -29,6 +29,7 @@ impl HistorySlotId {
 
     /// Declares a new history slot id with a stable name. The name must be unique across
     /// subsystems and stable across frames (it is the hash key of the backing resources).
+    #[cfg(test)]
     pub const fn new(name: &'static str) -> Self {
         Self(name)
     }
@@ -52,6 +53,7 @@ pub enum ImportSourceKind<F> {
     /// Resolved from the frame target / backend frame resource at execute time.
     Frame(F),
     /// Externally owned resource view.
+    #[cfg(test)]
     External,
     /// Ping-pong history slot owned by backend history.
     PingPong(HistorySlotId),
@@ -97,6 +99,7 @@ pub enum BackendFrameBufferKind {
 
 impl BackendFrameBufferKind {
     /// Debug label matching [`ImportedBufferDecl::label`] for this kind.
+    #[cfg(test)]
     pub const fn label(self) -> &'static str {
         match self {
             Self::Lights => "lights",

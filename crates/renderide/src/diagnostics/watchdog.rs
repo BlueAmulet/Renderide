@@ -29,5 +29,5 @@ mod registry;
 mod signal;
 mod thread;
 
-pub use registry::{Heartbeat, WatchdogPause};
+pub use registry::Heartbeat;
 pub use thread::Watchdog;

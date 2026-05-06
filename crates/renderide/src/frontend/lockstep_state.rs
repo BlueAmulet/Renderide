@@ -37,6 +37,7 @@ impl LockstepState {
     }
 
     /// Whether a host frame submit was applied since the last begin-frame send.
+    #[cfg(test)]
     pub(crate) fn last_frame_data_processed(&self) -> bool {
         self.last_frame_data_processed
     }

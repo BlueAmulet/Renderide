@@ -19,6 +19,7 @@ use super::ids::RenderSpaceId;
 use super::lights::{
     LightCache, ResolvedLight, apply_light_renderables_update, apply_lights_buffer_renderers_update,
 };
+#[cfg(test)]
 use super::math::multiply_root;
 use super::render_overrides::MeshRendererOverrideTarget;
 use super::render_space::{RenderSpaceState, RenderSpaceView};
@@ -154,11 +155,6 @@ impl SceneApplyReport {
             self.changed_spaces.push(id);
         }
     }
-
-    /// Returns `true` when no render-world-affecting scene change was observed.
-    pub fn is_empty(&self) -> bool {
-        self.changed_spaces.is_empty() && self.removed_spaces.is_empty()
-    }
 }
 
 /// World-cache flushes completed after scene apply.
@@ -168,12 +164,7 @@ pub struct SceneCacheFlushReport {
     pub flushed_spaces: Vec<RenderSpaceId>,
 }
 
-impl SceneCacheFlushReport {
-    /// Returns `true` when no world transform cache was flushed.
-    pub fn is_empty(&self) -> bool {
-        self.flushed_spaces.is_empty()
-    }
-}
+impl SceneCacheFlushReport {}
 
 impl Default for SceneCoordinator {
     fn default() -> Self {
@@ -196,11 +187,6 @@ impl SceneCoordinator {
             apply_extracted_scratch: Vec::new(),
             apply_work_scratch: Vec::new(),
         }
-    }
-
-    /// Host light cache (submissions + incremental updates); CPU-side only.
-    pub fn light_cache(&self) -> &LightCache {
-        &self.light_cache
     }
 
     /// Mutable light cache ([`LightsBufferRendererSubmission`](crate::shared::LightsBufferRendererSubmission) store, tests).
@@ -232,13 +218,6 @@ impl SceneCoordinator {
             .values()
             .map(|s| s.static_mesh_renderers.len() + s.skinned_mesh_renderers.len())
             .sum()
-    }
-
-    /// Resolves active lights in world space for `id`.
-    pub fn resolve_lights_world(&self, id: RenderSpaceId) -> Vec<ResolvedLight> {
-        let sid = id.0;
-        self.light_cache
-            .resolve_lights(sid, |transform_idx| self.world_matrix(id, transform_idx))
     }
 
     /// Appends world-space lights for `id` into `out` (caller typically [`Vec::clear`]s once per frame).
@@ -307,15 +286,11 @@ impl SceneCoordinator {
             .copied()
     }
 
-    /// Alias for [`Self::world_matrix`].
-    pub fn world_matrix_local(&self, id: RenderSpaceId, transform_index: usize) -> Option<Mat4> {
-        self.world_matrix(id, transform_index)
-    }
-
     /// Hierarchy world matrix left-multiplied by [`RenderSpaceState::root_transform`].
     ///
     /// Use only when a host contract explicitly requires this composite. Default rendering uses
     /// [`Self::world_matrix`].
+    #[cfg(test)]
     pub fn world_matrix_including_space_root(
         &self,
         id: RenderSpaceId,

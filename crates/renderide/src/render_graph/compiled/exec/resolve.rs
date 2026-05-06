@@ -109,7 +109,6 @@ impl CompiledRenderGraph {
                 let layer_views = helpers::create_transient_layer_views(&lease.texture, key);
                 Ok(ResolvedGraphTexture {
                     pool_id: lease.pool_id,
-                    physical_slot: compiled.physical_slot,
                     texture: lease.texture,
                     view: lease.view,
                     layer_views,
@@ -156,9 +155,6 @@ impl CompiledRenderGraph {
                 )?;
                 Ok(ResolvedGraphBuffer {
                     pool_id: lease.pool_id,
-                    physical_slot: compiled.physical_slot,
-                    buffer: lease.buffer,
-                    size: lease.size,
                 })
             },
             |idx, resolved| {
@@ -193,6 +189,7 @@ impl CompiledRenderGraph {
                         history: None,
                     })
                 }
+                #[cfg(test)]
                 ImportSource::External => None,
                 ImportSource::PingPong(slot) => {
                     let scope = history_scope_for_texture(*slot, resolved);
@@ -305,6 +302,7 @@ impl CompiledRenderGraph {
                 BufferImportSource::Frame(BackendFrameBufferKind::PerDrawSlab) => frame_resources
                     .per_view_per_draw(resolved.view_id)
                     .map(|per_draw| per_draw.lock().per_draw_storage.clone()),
+                #[cfg(test)]
                 BufferImportSource::External => None,
                 BufferImportSource::PingPong(slot) => {
                     let scope = history_scope_for_buffer(*slot, resolved);

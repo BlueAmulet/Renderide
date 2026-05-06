@@ -51,11 +51,6 @@ impl<T> PerViewResourceMap<T> {
     pub(crate) fn retire(&mut self, view_id: ViewId) -> bool {
         self.entries.remove(&view_id).is_some()
     }
-
-    /// Returns the number of live per-view entries.
-    pub(crate) fn len(&self) -> usize {
-        self.entries.len()
-    }
 }
 
 #[cfg(test)]

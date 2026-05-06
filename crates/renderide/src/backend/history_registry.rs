@@ -95,21 +95,9 @@ pub struct BufferHistorySpec {
 pub struct HistoryTextureMipViews {
     /// Views grouped as `layers[layer][mip]`.
     layers: Arc<[Arc<[wgpu::TextureView]>]>,
-    /// Number of mip levels represented by every layer.
-    mip_level_count: u32,
 }
 
 impl HistoryTextureMipViews {
-    /// Returns the number of array layers represented by this view table.
-    pub fn layer_count(&self) -> u32 {
-        self.layers.len() as u32
-    }
-
-    /// Returns the number of mip views represented for every layer.
-    pub fn mip_level_count(&self) -> u32 {
-        self.mip_level_count
-    }
-
     /// Returns all mip views for one array layer.
     pub fn layer_mip_views(&self, layer: u32) -> Option<&[wgpu::TextureView]> {
         self.layers.get(layer as usize).map(AsRef::as_ref)
@@ -168,6 +156,7 @@ impl TextureHistorySlot {
     }
 
     /// Current spec used for allocation; compared against reallocation requests.
+    #[cfg(test)]
     pub fn spec(&self) -> &TextureHistorySpec {
         &self.spec
     }
@@ -200,11 +189,6 @@ impl BufferHistorySlot {
         }
     }
 
-    /// Current spec used for allocation.
-    pub fn spec(&self) -> &BufferHistorySpec {
-        &self.spec
-    }
-
     /// Borrows a half of the ping-pong pair; returns [`None`] until the first
     /// [`HistoryRegistry::ensure_resources`] call has allocated it.
     pub fn half(&self, index: usize) -> Option<&wgpu::Buffer> {
@@ -218,8 +202,8 @@ impl BufferHistorySlot {
 /// [`HistoryRegistry::advance_frame`]; [`HistoryRegistry::current_index`] and
 /// [`HistoryRegistry::previous_index`] return the two halves of any slot pair. Reallocation of
 /// slots with changed specs is explicit: call [`HistoryRegistry::update_texture_spec`] or
-/// [`HistoryRegistry::update_buffer_spec`] with the new shape and drop-then-resize happens on the
-/// next [`HistoryRegistry::ensure_resources`].
+/// texture specs can be updated with the new shape and drop-then-resize happens on the next
+/// [`HistoryRegistry::ensure_resources`].
 #[derive(Default)]
 pub struct HistoryRegistry {
     textures: HashMap<HistoryResourceKey, Arc<Mutex<TextureHistorySlot>>>,
@@ -236,6 +220,7 @@ impl HistoryRegistry {
     /// Registers a texture slot under `id`. Idempotent when called with the same spec; when
     /// called with a different spec, the stored spec is updated and both halves are dropped so
     /// the next [`HistoryRegistry::ensure_resources`] reallocates.
+    #[cfg(test)]
     pub fn register_texture(
         &mut self,
         id: HistorySlotId,
@@ -282,6 +267,7 @@ impl HistoryRegistry {
     /// Registers a buffer slot under `id`. Idempotent when called with the same spec; when
     /// called with a different spec, the stored spec is updated and both halves are dropped so
     /// the next [`HistoryRegistry::ensure_resources`] reallocates.
+    #[cfg(test)]
     pub fn register_buffer(
         &mut self,
         id: HistorySlotId,
@@ -291,6 +277,7 @@ impl HistoryRegistry {
     }
 
     /// Registers a buffer slot under `id` and `scope`. See [`Self::register_buffer`].
+    #[cfg(test)]
     pub fn register_buffer_scoped(
         &mut self,
         id: HistorySlotId,
@@ -328,11 +315,13 @@ impl HistoryRegistry {
     /// Updates the spec for an already-registered texture slot, dropping its halves so they are
     /// reallocated on the next [`HistoryRegistry::ensure_resources`]. Returns `false` when no
     /// slot was registered under `id`.
+    #[cfg(test)]
     pub fn update_texture_spec(&self, id: HistorySlotId, spec: TextureHistorySpec) -> bool {
         self.update_texture_spec_scoped(id, HistoryResourceScope::Global, spec)
     }
 
     /// Updates the spec for a scoped texture slot. See [`Self::update_texture_spec`].
+    #[cfg(test)]
     pub fn update_texture_spec_scoped(
         &self,
         id: HistorySlotId,
@@ -350,30 +339,8 @@ impl HistoryRegistry {
         }
     }
 
-    /// Updates the spec for an already-registered buffer slot. See [`Self::update_texture_spec`].
-    pub fn update_buffer_spec(&self, id: HistorySlotId, spec: BufferHistorySpec) -> bool {
-        self.update_buffer_spec_scoped(id, HistoryResourceScope::Global, spec)
-    }
-
-    /// Updates the spec for a scoped buffer slot. See [`Self::update_buffer_spec`].
-    pub fn update_buffer_spec_scoped(
-        &self,
-        id: HistorySlotId,
-        scope: HistoryResourceScope,
-        spec: BufferHistorySpec,
-    ) -> bool {
-        match self.buffers.get(&HistoryResourceKey::new(id, scope)) {
-            Some(slot) => {
-                let mut guard = slot.lock();
-                guard.spec = spec;
-                guard.pair = [None, None];
-                true
-            }
-            None => false,
-        }
-    }
-
     /// Returns the shared handle for a texture slot, or [`None`] when unregistered.
+    #[cfg(test)]
     pub fn texture_slot(&self, id: HistorySlotId) -> Option<Arc<Mutex<TextureHistorySlot>>> {
         self.texture_slot_scoped(id, HistoryResourceScope::Global)
     }
@@ -390,6 +357,7 @@ impl HistoryRegistry {
     }
 
     /// Returns the shared handle for a buffer slot, or [`None`] when unregistered.
+    #[cfg(test)]
     pub fn buffer_slot(&self, id: HistorySlotId) -> Option<Arc<Mutex<BufferHistorySlot>>> {
         self.buffer_slot_scoped(id, HistoryResourceScope::Global)
     }
@@ -421,11 +389,6 @@ impl HistoryRegistry {
         self.frame_counter = self.frame_counter.wrapping_add(1);
     }
 
-    /// Current frame counter value, for callers that want to plot or log registry churn.
-    pub fn frame_counter(&self) -> u64 {
-        self.frame_counter
-    }
-
     /// Index (0 or 1) of the slot half that is current-frame writable.
     pub fn current_index(&self) -> usize {
         (self.frame_counter & 1) as usize
@@ -437,11 +400,13 @@ impl HistoryRegistry {
     }
 
     /// Number of registered texture slots.
+    #[cfg(test)]
     pub fn texture_slot_count(&self) -> usize {
         self.textures.len()
     }
 
     /// Number of registered buffer slots.
+    #[cfg(test)]
     pub fn buffer_slot_count(&self) -> usize {
         self.buffers.len()
     }
@@ -468,6 +433,7 @@ fn texture_specs_equivalent(a: &TextureHistorySpec, b: &TextureHistorySpec) -> b
         && a.dimension == b.dimension
 }
 
+#[cfg(test)]
 fn buffer_specs_equivalent(a: &BufferHistorySpec, b: &BufferHistorySpec) -> bool {
     a.label == b.label && a.size == b.size && a.usage == b.usage
 }
@@ -510,7 +476,6 @@ fn create_texture_history_mip_views(
     }
     HistoryTextureMipViews {
         layers: Arc::<[Arc<[wgpu::TextureView]>]>::from(layers),
-        mip_level_count: shape.mip_level_count,
     }
 }
 

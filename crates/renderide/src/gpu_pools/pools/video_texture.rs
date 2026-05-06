@@ -21,13 +21,9 @@ pub struct GpuVideoTexture {
     /// Host VideoTexture asset id.
     pub asset_id: i32,
     /// The 1x1 placeholder texture used before the first [`Self::set_view`] call.
-    dummy_texture: Option<Arc<wgpu::Texture>>,
+    _dummy_texture: Option<Arc<wgpu::Texture>>,
     /// Current view, initially from `dummy_texture` and then replaced by [`Self::set_view`].
     pub view: Arc<wgpu::TextureView>,
-    /// Pixel width of the current frame.
-    pub width: u32,
-    /// Pixel height of the current frame.
-    pub height: u32,
     /// Estimated VRAM for the current view.
     pub resident_bytes: u64,
     /// Sampler state mirrored from host format for material binds.
@@ -66,27 +62,24 @@ impl GpuVideoTexture {
 
         Self {
             asset_id,
-            dummy_texture: Some(dummy),
+            _dummy_texture: Some(dummy),
             view,
-            width: 1,
-            height: 1,
             resident_bytes: RGBA8_BYTES_PER_PIXEL,
             sampler: SamplerState::from_video_props(props),
         }
     }
 
     /// Replaces the current view with one pointing at an externally-managed texture.
+    #[cfg(feature = "video-textures")]
     pub fn set_view(
         &mut self,
         view: Arc<wgpu::TextureView>,
-        width: u32,
-        height: u32,
+        _width: u32,
+        _height: u32,
         resident_bytes: u64,
     ) {
-        self.dummy_texture = None;
+        self._dummy_texture = None;
         self.view = view;
-        self.width = width;
-        self.height = height;
         self.resident_bytes = resident_bytes;
     }
 
@@ -110,6 +103,14 @@ pub struct VideoTexturePool {
 }
 
 impl_resident_pool_facade!(VideoTexturePool, GpuVideoTexture, VramResourceKind::Texture,);
+
+impl VideoTexturePool {
+    /// Mutably borrows a resident video texture by host asset id.
+    #[inline]
+    pub fn get_mut(&mut self, asset_id: i32) -> Option<&mut GpuVideoTexture> {
+        self.inner.get_mut(asset_id)
+    }
+}
 
 #[cfg(test)]
 mod tests {

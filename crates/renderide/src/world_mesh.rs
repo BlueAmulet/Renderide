@@ -11,22 +11,22 @@ pub(crate) mod instances;
 pub(crate) mod materials;
 pub mod prefetch;
 
-pub use cluster::{ClusterFrameParams, cluster_frame_params, cluster_frame_params_stereo};
 pub use culling::{
-    Frustum, HOMOGENEOUS_CLIP_EPS, HiZTemporalState, Plane, WorldMeshCullInput,
-    WorldMeshCullProjParams, build_world_mesh_cull_proj_params, capture_hi_z_temporal,
-    mesh_bounds_degenerate_for_cull, world_aabb_from_local_bounds,
-    world_aabb_visible_in_homogeneous_clip,
+    HiZTemporalState, WorldMeshCullInput, WorldMeshCullProjParams,
+    build_world_mesh_cull_proj_params, capture_hi_z_temporal,
 };
 pub use diagnostics::{
     WorldMeshDrawStateRow, WorldMeshDrawStats, state_rows_from_sorted, stats_from_sorted,
 };
+#[cfg(test)]
+pub(crate) use draw_prep::WorldMeshDrawCollection;
 pub use draw_prep::{
     CameraTransformDrawFilter, DrawCollectionContext, FramePreparedRenderables, RenderWorld,
-    WorldMeshDrawCollectParallelism, WorldMeshDrawCollection, WorldMeshDrawItem,
-    collect_and_sort_draws, collect_and_sort_draws_with_parallelism, draw_filter_from_camera_entry,
-    resolved_material_slots, sort_draws,
+    WorldMeshDrawCollectParallelism, WorldMeshDrawItem, collect_and_sort_draws_with_parallelism,
+    draw_filter_from_camera_entry,
 };
 pub use instances::{DrawGroup, InstancePlan, build_plan};
-pub use materials::{FrameMaterialBatchCache, MaterialDrawBatchKey, compute_batch_key_hash};
+#[cfg(test)]
+pub(crate) use materials::compute_batch_key_hash;
+pub use materials::{FrameMaterialBatchCache, MaterialDrawBatchKey};
 pub use prefetch::{PrefetchedWorldMeshViewDraws, WorldMeshHelperNeeds};

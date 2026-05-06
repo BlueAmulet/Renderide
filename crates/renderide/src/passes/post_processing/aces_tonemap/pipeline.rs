@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use crate::embedded_shaders::{ACES_TONEMAP_DEFAULT_WGSL, ACES_TONEMAP_MULTIVIEW_WGSL};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{
     fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry,
 };
@@ -92,9 +92,9 @@ impl AcesTonemapPipelineCache {
                 multiview: &self.multiview,
                 shader: FullscreenShaderVariants {
                     mono_label: PIPELINE_LABEL_MONO,
-                    mono_source: ACES_TONEMAP_DEFAULT_WGSL,
+                    mono_source: embedded_wgsl!("aces_tonemap_default"),
                     multiview_label: PIPELINE_LABEL_MULTIVIEW,
-                    multiview_source: ACES_TONEMAP_MULTIVIEW_WGSL,
+                    multiview_source: embedded_wgsl!("aces_tonemap_multiview"),
                 },
                 bind_group_layouts: &[Some(bind_group_layout)],
                 log_name: "aces_tonemap",

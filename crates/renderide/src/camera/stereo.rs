@@ -33,11 +33,6 @@ impl StereoViewMatrices {
         (self.left.view, self.right.view)
     }
 
-    /// Per-eye projection matrices.
-    pub const fn proj_pair(self) -> (Mat4, Mat4) {
-        (self.left.proj, self.right.proj)
-    }
-
     /// Per-eye world-space camera positions.
     pub const fn world_position_pair(self) -> (Vec3, Vec3) {
         (self.left.world_position, self.right.world_position)

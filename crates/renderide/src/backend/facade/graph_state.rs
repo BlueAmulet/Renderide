@@ -47,11 +47,6 @@ impl RenderGraphState {
         &mut self.history_registry
     }
 
-    /// Shared history registry.
-    pub(super) fn history_registry(&self) -> &HistoryRegistry {
-        &self.history_registry
-    }
-
     /// Mutable transient pool and history registry for graph execution after the cached graph
     /// has been temporarily removed from [`Self::frame_graph_cache`].
     pub(super) fn execution_resources_mut(&mut self) -> (&mut TransientPool, &mut HistoryRegistry) {

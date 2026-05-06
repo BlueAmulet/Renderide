@@ -194,14 +194,6 @@ impl DebugHud {
         self.texture_debug = TextureDebugSnapshot::default();
     }
 
-    /// Clears all HUD payloads (including frame timing).
-    pub fn clear_diagnostic_snapshots(&mut self) {
-        self.frame_timing = None;
-        self.clear_stats_hud_payloads();
-        self.clear_scene_transforms_snapshot();
-        self.clear_texture_debug_snapshot();
-    }
-
     /// Updates ImGui delta time, display size, and injects [`DebugHudInput`] for this frame.
     fn apply_overlay_frame_io(&mut self, (width, height): (u32, u32), input: &DebugHudInput) {
         profiling::scope!("hud::apply_input");

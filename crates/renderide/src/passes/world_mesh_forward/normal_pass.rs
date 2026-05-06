@@ -8,7 +8,7 @@ use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-use crate::embedded_shaders::{GTAO_VIEW_NORMALS_DEFAULT_WGSL, GTAO_VIEW_NORMALS_MULTIVIEW_WGSL};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::materials::{RasterFrontFace, RasterPrimitiveTopology};
 use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
@@ -114,10 +114,13 @@ impl WorldMeshForwardNormalPipelineCache {
         let (label, source) = if multiview {
             (
                 "gtao_view_normals_multiview",
-                GTAO_VIEW_NORMALS_MULTIVIEW_WGSL,
+                embedded_wgsl!("gtao_view_normals_multiview"),
             )
         } else {
-            ("gtao_view_normals_default", GTAO_VIEW_NORMALS_DEFAULT_WGSL)
+            (
+                "gtao_view_normals_default",
+                embedded_wgsl!("gtao_view_normals_default"),
+            )
         };
         logger::debug!(
             "world mesh normal prepass: building pipeline sample_count={} multiview={} topology={:?}",
@@ -242,12 +245,8 @@ fn triangle_normal_topology(
     primitive_topology: RasterPrimitiveTopology,
 ) -> Option<RasterPrimitiveTopology> {
     match primitive_topology {
-        RasterPrimitiveTopology::TriangleList | RasterPrimitiveTopology::TriangleStrip => {
-            Some(primitive_topology)
-        }
-        RasterPrimitiveTopology::PointList
-        | RasterPrimitiveTopology::LineList
-        | RasterPrimitiveTopology::LineStrip => None,
+        RasterPrimitiveTopology::TriangleList => Some(primitive_topology),
+        RasterPrimitiveTopology::PointList => None,
     }
 }
 
@@ -352,22 +351,10 @@ mod tests {
     use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 
     #[test]
-    fn normal_prepass_only_supports_triangle_topologies() {
+    fn normal_prepass_only_supports_triangle_lists() {
         assert_eq!(
             triangle_normal_topology(RasterPrimitiveTopology::TriangleList),
             Some(RasterPrimitiveTopology::TriangleList)
-        );
-        assert_eq!(
-            triangle_normal_topology(RasterPrimitiveTopology::TriangleStrip),
-            Some(RasterPrimitiveTopology::TriangleStrip)
-        );
-        assert_eq!(
-            triangle_normal_topology(RasterPrimitiveTopology::LineList),
-            None
-        );
-        assert_eq!(
-            triangle_normal_topology(RasterPrimitiveTopology::LineStrip),
-            None
         );
         assert_eq!(
             triangle_normal_topology(RasterPrimitiveTopology::PointList),

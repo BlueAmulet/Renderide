@@ -79,12 +79,8 @@ impl LightCache {
         }
     }
 
-    /// Number of distinct light buffers stored from submissions (diagnostics).
-    pub fn buffer_count(&self) -> usize {
-        self.buffers.len()
-    }
-
     /// Monotonic generation for renderable light output.
+    #[cfg(test)]
     pub fn version(&self) -> u64 {
         self.version
     }
@@ -190,6 +186,7 @@ impl LightCache {
     }
 
     /// Resolves cached lights using space-local transform world matrices (caller composes root).
+    #[cfg(test)]
     pub fn resolve_lights(
         &self,
         space_id: i32,
@@ -248,7 +245,6 @@ impl LightCache {
                 range,
                 spot_angle: cached.data.angle,
                 light_type: cached.state.light_type,
-                global_unique_id: cached.state.global_unique_id,
                 shadow_type: cached.state.shadow_type,
                 shadow_strength: cached.state.shadow_strength,
                 shadow_near_plane: cached.state.shadow_near_plane,
@@ -261,22 +257,13 @@ impl LightCache {
     /// Alias for [`Self::resolve_lights`] kept for callers that distinguish the "with fallback" name.
     ///
     /// Raw buffer submissions are not renderable by themselves; a matching renderer state is required.
+    #[cfg(test)]
     pub fn resolve_lights_with_fallback(
         &self,
         space_id: i32,
         get_world_matrix: impl Fn(usize) -> Option<Mat4>,
     ) -> Vec<ResolvedLight> {
         self.resolve_lights(space_id, get_world_matrix)
-    }
-
-    /// Alias for [`Self::resolve_lights_into`] kept for callers that distinguish the "with fallback" name.
-    pub fn resolve_lights_with_fallback_into(
-        &self,
-        space_id: i32,
-        get_world_matrix: impl Fn(usize) -> Option<Mat4>,
-        out: &mut Vec<ResolvedLight>,
-    ) {
-        self.resolve_lights_into(space_id, get_world_matrix, out);
     }
 }
 

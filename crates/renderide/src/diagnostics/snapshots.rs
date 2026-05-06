@@ -17,7 +17,5 @@ pub use frame_diagnostics::{
 };
 pub use frame_timing::FrameTimingHudSnapshot;
 pub use renderer_info::{RendererInfoSnapshot, RendererInfoSnapshotCapture};
-pub use scene_transforms::{
-    RenderSpaceTransformsSnapshot, SceneTransformsSnapshot, TransformRow, WorldTransformSample,
-};
-pub use texture_debug::{TextureDebugRow, TextureDebugSnapshot};
+pub use scene_transforms::{RenderSpaceTransformsSnapshot, SceneTransformsSnapshot};
+pub use texture_debug::TextureDebugSnapshot;

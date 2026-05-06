@@ -17,11 +17,6 @@ use super::texture3d_task::Texture3dUploadTask;
 /// Combined queued integration task count that emits queue-pressure diagnostics.
 pub const ASSET_INTEGRATION_QUEUE_WARN_THRESHOLD: usize = 2048;
 
-/// Compatibility alias for the asset-integration backlog warning threshold.
-///
-/// This is no longer a hard capacity; queued asset integration work is retained beyond this count.
-pub const MAX_ASSET_INTEGRATION_QUEUED: usize = ASSET_INTEGRATION_QUEUE_WARN_THRESHOLD;
-
 /// Queue-pressure log stride after [`ASSET_INTEGRATION_QUEUE_WARN_THRESHOLD`] is exceeded.
 const ASSET_INTEGRATION_QUEUE_WARN_STRIDE: usize = 1024;
 
@@ -143,6 +138,7 @@ impl AssetIntegrator {
     }
 
     /// Pops the next task, preferring the high-priority queue.
+    #[cfg(test)]
     pub fn pop_next(&mut self) -> Option<AssetTask> {
         self.high_priority
             .pop_front()

@@ -17,10 +17,7 @@ pub(crate) mod resource_pool;
 pub(crate) mod sampler_state;
 pub(crate) mod texture_allocation;
 
-pub use budget::{
-    MeshResidencyMeta, NoopStreamingPolicy, ResidencyTier, StreamingPolicy, TextureResidencyMeta,
-    VramAccounting, VramResourceKind,
-};
+pub use budget::{NoopStreamingPolicy, StreamingPolicy, VramAccounting, VramResourceKind};
 pub use pools::cubemap::{CubemapPool, GpuCubemap};
 pub use pools::mesh::MeshPool;
 pub use pools::render_texture::{GpuRenderTexture, RenderTexturePool};

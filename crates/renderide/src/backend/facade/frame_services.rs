@@ -66,21 +66,6 @@ impl BackendFrameServices {
         }
     }
 
-    /// Mesh deformation compute pipelines when GPU init succeeded.
-    pub(super) fn mesh_preprocess(&self) -> Option<&MeshPreprocessPipelines> {
-        self.mesh_preprocess.as_ref()
-    }
-
-    /// Arena-backed deformed vertex streams shared by mesh deform compute and mesh forward draws.
-    pub(super) fn skin_cache(&self) -> Option<&GpuSkinCache> {
-        self.skin_cache.as_ref()
-    }
-
-    /// Mutable skin cache for mesh deform compute and cache sweeps.
-    pub(super) fn skin_cache_mut(&mut self) -> Option<&mut GpuSkinCache> {
-        self.skin_cache.as_mut()
-    }
-
     /// Optional MSAA depth resolve resources.
     pub(super) fn msaa_depth_resolve(&self) -> Option<Arc<MsaaDepthResolveResources>> {
         self.msaa_depth_resolve.clone()
@@ -111,33 +96,5 @@ impl BackendFrameServices {
     /// `true` when MSAA depth resolve resources are available.
     pub(super) fn msaa_depth_resolve_enabled(&self) -> bool {
         self.msaa_depth_resolve.is_some()
-    }
-
-    /// Scratch buffers for mesh deformation.
-    pub(super) fn mesh_deform_scratch_mut(&mut self) -> Option<&mut MeshDeformScratch> {
-        self.mesh_deform_scratch.as_mut()
-    }
-
-    /// Compute preprocess pipelines and deform scratch as one disjoint borrow.
-    pub(super) fn mesh_deform_pre_and_scratch(
-        &mut self,
-    ) -> Option<(&MeshPreprocessPipelines, &mut MeshDeformScratch)> {
-        let pre = self.mesh_preprocess.as_ref()?;
-        let scratch = self.mesh_deform_scratch.as_mut()?;
-        Some((pre, scratch))
-    }
-
-    /// Preprocess pipelines, deform scratch, and GPU skin cache as one disjoint borrow.
-    pub(super) fn mesh_deform_pre_scratch_and_skin_cache(
-        &mut self,
-    ) -> Option<(
-        &MeshPreprocessPipelines,
-        &mut MeshDeformScratch,
-        &mut GpuSkinCache,
-    )> {
-        let pre = self.mesh_preprocess.as_ref()?;
-        let scratch = self.mesh_deform_scratch.as_mut()?;
-        let skin = self.skin_cache.as_mut()?;
-        Some((pre, scratch, skin))
     }
 }

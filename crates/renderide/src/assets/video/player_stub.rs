@@ -14,10 +14,7 @@ use renderide_shared::{
 use std::sync::Arc;
 
 /// Stand-in for the real GStreamer-backed player. Cannot be constructed.
-pub struct VideoPlayer {
-    /// Uninhabited marker; prevents instantiation outside `Self::new`.
-    _never: std::convert::Infallible,
-}
+pub enum VideoPlayer {}
 
 impl VideoPlayer {
     /// Always returns `None` because video playback is not compiled in.
@@ -37,36 +34,36 @@ impl VideoPlayer {
     }
 
     /// No-op stand-in for the GStreamer-backed implementation.
-    pub fn handle_update(&mut self, _u: VideoTextureUpdate) {
-        match self._never {}
+    pub fn handle_update(&self, _u: VideoTextureUpdate) {
+        match *self {}
     }
 
     /// No-op stand-in for the GStreamer-backed implementation.
-    pub fn handle_start_audio_track(&mut self, _s: VideoTextureStartAudioTrack) {
-        match self._never {}
+    pub fn handle_start_audio_track(&self, _s: VideoTextureStartAudioTrack) {
+        match *self {}
     }
 
     /// No-op stand-in for the GStreamer-backed implementation.
     pub fn process_events(
-        &mut self,
+        &self,
         _queue: &mut AssetTransferQueue,
         _ipc: &mut Option<&mut DualQueueIpc>,
     ) {
-        match self._never {}
+        match *self {}
     }
 
     /// No-op stand-in for starting cooperative shutdown.
-    pub fn begin_shutdown(&mut self) {
-        match self._never {}
+    pub fn begin_shutdown(&self) {
+        match *self {}
     }
 
     /// No-op stand-in for polling cooperative shutdown completion.
-    pub fn poll_shutdown_complete(&mut self) -> bool {
-        match self._never {}
+    pub fn poll_shutdown_complete(&self) -> bool {
+        match *self {}
     }
 
     /// No-op stand-in for the GStreamer-backed implementation. The stub never produces samples.
     pub fn sample_clock_error(&self) -> Option<VideoTextureClockErrorState> {
-        match self._never {}
+        match *self {}
     }
 }

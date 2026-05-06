@@ -9,5 +9,5 @@ mod tests;
 
 pub use uploader::{
     MipChainAdvance, Texture2dUploadContext, TextureDataStart, TextureMipChainUploader,
-    TextureMipUploadStep, texture_upload_start, write_texture2d_mips,
+    TextureMipUploadStep, texture_upload_start,
 };

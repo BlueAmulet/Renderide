@@ -71,6 +71,7 @@ impl MaterialBatchBlobLoader for crate::ipc::SharedMemoryAccessor {
 /// See [`parse_materials_update_batch_into_store_with_instance_changed`] for the variant that
 /// also reports per-target instance-changed bits required by the host's `MaterialAssetUpdated`
 /// dispatch.
+#[cfg(test)]
 pub fn parse_materials_update_batch_into_store(
     loader: &mut impl MaterialBatchBlobLoader,
     batch: &MaterialsUpdateBatch,

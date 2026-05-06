@@ -7,9 +7,7 @@
 use std::num::NonZeroU64;
 use std::sync::OnceLock;
 
-use crate::embedded_shaders::{
-    HI_Z_DOWNSAMPLE_MAX_WGSL, HI_Z_MIP0_DEFAULT_WGSL, HI_Z_MIP0_MULTIVIEW_WGSL,
-};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{
     storage_texture_layout_entry, texture_layout_entry, uniform_buffer_layout_entry,
 };
@@ -139,15 +137,15 @@ impl HiZPipelines {
 
         let shader_m0d = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("hi_z_mip0_desktop"),
-            source: wgpu::ShaderSource::Wgsl(HI_Z_MIP0_DEFAULT_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("hi_z_mip0_default").into()),
         });
         let shader_m0s = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("hi_z_mip0_stereo"),
-            source: wgpu::ShaderSource::Wgsl(HI_Z_MIP0_MULTIVIEW_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("hi_z_mip0_multiview").into()),
         });
         let shader_ds = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("hi_z_downsample"),
-            source: wgpu::ShaderSource::Wgsl(HI_Z_DOWNSAMPLE_MAX_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("hi_z_downsample_max").into()),
         });
 
         let mip0_desktop =

@@ -78,25 +78,7 @@ impl HiZGpuState {
         self.stereo_stash.clear();
     }
 
-    /// Drains completed `map_async` work into [`Self::desktop`] / [`Self::stereo`] and promotes
-    /// any newly-`submit_done` slots into fresh `map_async` requests. Non-blocking.
-    ///
-    /// Call at the **start** of each frame (before encoding the render graph). Uses at most one
-    /// [`wgpu::Device::poll`] to advance callbacks; if a read is not ready, prior snapshots are kept.
-    ///
-    /// ### Re-entrance
-    ///
-    /// [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`] drains
-    /// `on_submitted_work_done` callbacks via [`wgpu::Device::poll`] **before** locking this
-    /// state, so the [`Self::mark_submit_done`] callback does not re-enter the mutex.
-    /// This helper polls-then-locks itself and is meant for direct callers (mainly tests).
-    pub fn begin_frame_readback(&mut self, device: &wgpu::Device) {
-        let _ = device.poll(wgpu::PollType::Poll);
-        self.drain_completed_map_async();
-        self.start_ready_maps();
-    }
-
-    /// Non-polling variant of [`Self::begin_frame_readback`] used when the caller has already
+    /// Non-polling readback drain used when the caller has already
     /// drained completed queue callbacks via [`wgpu::Device::poll`] outside any
     /// [`HiZGpuState`] mutex (see [`crate::occlusion::OcclusionSystem::hi_z_begin_frame_readback`]).
     pub(crate) fn drain_completed_map_async(&mut self) {

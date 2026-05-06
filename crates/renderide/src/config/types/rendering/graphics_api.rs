@@ -53,6 +53,7 @@ impl GraphicsApiSetting {
 
     /// Parses case-insensitive persisted or UI tokens. Historical-style alias for
     /// [`Self::parse_persist`].
+    #[cfg(test)]
     pub fn from_persist_str(s: &str) -> Option<Self> {
         Self::parse_persist(s)
     }

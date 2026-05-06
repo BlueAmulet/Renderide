@@ -51,12 +51,14 @@ impl MsaaSampleCount {
     }
 
     /// Stable string for TOML / UI (`off`, `x2`, ...). Historical alias for [`Self::persist_str`].
+    #[cfg(test)]
     pub fn as_persist_str(self) -> &'static str {
         self.persist_str()
     }
 
     /// Parses case-insensitive persisted or UI tokens. Historical alias for
     /// [`Self::parse_persist`].
+    #[cfg(test)]
     pub fn from_persist_str(s: &str) -> Option<Self> {
         Self::parse_persist(s)
     }

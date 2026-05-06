@@ -22,7 +22,6 @@ mod transport;
 /// Winit adapter and [`WindowInputAccumulator`](input::WindowInputAccumulator) for [`crate::shared::InputState`].
 pub mod input;
 
-pub use decoupling::DecouplingState;
 pub use init_state::InitState;
 pub use renderer_frontend::RendererFrontend;
 

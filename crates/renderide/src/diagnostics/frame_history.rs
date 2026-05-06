@@ -36,11 +36,13 @@ impl FrameTimeHistory {
     }
 
     /// Number of stored samples (`0..=FRAME_TIME_HISTORY_LEN`).
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.samples.len()
     }
 
     /// `true` when no samples have been pushed yet.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.samples.is_empty()
     }
@@ -53,6 +55,7 @@ mod tests {
     #[test]
     fn history_caps_at_configured_length() {
         let mut h = FrameTimeHistory::new();
+        assert!(h.is_empty());
         for i in 0..(FRAME_TIME_HISTORY_LEN + 10) {
             h.push(i as f32);
         }

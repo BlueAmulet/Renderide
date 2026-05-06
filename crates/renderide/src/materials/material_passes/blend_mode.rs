@@ -1,8 +1,8 @@
 //! Material blend mode reconstructed from `_SrcBlend` / `_DstBlend` host properties.
 
-use crate::materials::host_data::{
-    MaterialDictionary, MaterialPropertyLookupIds, MaterialPropertyValue,
-};
+use crate::materials::host_data::MaterialPropertyValue;
+#[cfg(test)]
+use crate::materials::host_data::{MaterialDictionary, MaterialPropertyLookupIds};
 
 use super::super::material_pass_tables::unity_blend_factor;
 use super::property_ids::MaterialPipelinePropertyIds;
@@ -105,6 +105,7 @@ pub fn material_blend_mode_from_maps(
 }
 
 /// Resolves a material/property-block `BlendMode` override.
+#[cfg(test)]
 pub fn material_blend_mode_for_lookup(
     dict: &MaterialDictionary<'_>,
     lookup: MaterialPropertyLookupIds,

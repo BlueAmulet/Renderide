@@ -16,9 +16,11 @@ pub use debug::{
     DebugHudRendererConfigTabVisibility, DebugHudSettings, DebugSettings, PowerPreferenceSetting,
 };
 pub use display::DisplaySettings;
+#[cfg(test)]
+pub(crate) use post_processing::TonemapSettings;
 pub use post_processing::{
     AutoExposureSettings, BloomCompositeMode, BloomSettings, GtaoSettings, PostProcessingSettings,
-    TonemapMode, TonemapSettings,
+    TonemapMode,
 };
 pub use rendering::{
     GraphicsApiSetting, MsaaSampleCount, RenderingSettings, SceneColorFormat, VsyncMode,

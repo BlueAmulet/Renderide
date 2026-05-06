@@ -76,7 +76,8 @@ impl MeshUploadTask {
         }
     }
 
-    /// [`MeshUploadData::high_priority`].
+    /// Returns whether this upload came from a high-priority host command.
+    #[cfg(test)]
     pub fn high_priority(&self) -> bool {
         self.data.high_priority
     }

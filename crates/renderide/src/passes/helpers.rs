@@ -52,7 +52,7 @@ pub(super) fn imported_color_attachment(
 
 /// Builds a missing-frame-params error with pass-specific context.
 pub(super) fn missing_pass_resource(pass: &str, detail: impl std::fmt::Display) -> RenderPassError {
-    RenderPassError::MissingFrameParams {
+    RenderPassError::FrameParamsRequired {
         pass: format!("{pass} ({detail})"),
     }
 }

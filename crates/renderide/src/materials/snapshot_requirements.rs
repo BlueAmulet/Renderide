@@ -21,6 +21,7 @@ pub struct SnapshotRequirements {
 
 impl SnapshotRequirements {
     /// Returns true when any snapshot flag is set.
+    #[cfg(test)]
     pub fn any(self) -> bool {
         self.uses_scene_color || self.uses_scene_depth || self.requires_intersection_pass
     }

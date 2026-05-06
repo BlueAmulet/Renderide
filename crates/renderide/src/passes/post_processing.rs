@@ -17,12 +17,8 @@ mod bloom;
 mod gtao;
 pub mod settings_slot;
 
-pub use aces_tonemap::{AcesTonemapEffect, AcesTonemapGraphResources, AcesTonemapPass};
+pub use aces_tonemap::AcesTonemapEffect;
+pub use auto_exposure::AutoExposureEffect;
 pub(crate) use auto_exposure::AutoExposureStateCache;
-pub use auto_exposure::{AutoExposureApplyPass, AutoExposureComputePass, AutoExposureEffect};
 pub use bloom::BloomEffect;
 pub use gtao::GtaoEffect;
-pub use settings_slot::{
-    AutoExposureSettingsSlot, AutoExposureSettingsValue, BloomSettingsSlot, BloomSettingsValue,
-    GtaoSettingsSlot, GtaoSettingsValue,
-};

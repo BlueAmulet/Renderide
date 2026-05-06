@@ -69,17 +69,6 @@ impl ShaderSourceClass {
             },
         }
     }
-
-    /// Generated Rust enum variant for this class.
-    pub const fn embedded_class_variant(self) -> &'static str {
-        match self {
-            Self::Material => "Material",
-            Self::Post => "Post",
-            Self::Backend => "Backend",
-            Self::Compute => "Compute",
-            Self::Present => "Present",
-        }
-    }
 }
 
 /// One shader source discovered for build-time composition.

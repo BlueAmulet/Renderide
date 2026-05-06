@@ -143,7 +143,6 @@ impl FrameViewPlan<'_> {
             view_id: self.view_id,
             host_camera: self.host_camera,
             target: self.target(),
-            draw_filter: self.draw_filter.clone(),
             clear: self.clear,
             world_mesh_draw_plan,
         }

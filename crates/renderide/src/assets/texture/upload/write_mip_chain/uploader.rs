@@ -411,7 +411,7 @@ pub enum TextureDataStart {
     MipChain(TextureMipChainUploader),
 }
 
-/// GPU target, host format, and raw payload for one [`texture_upload_start`] / [`write_texture2d_mips`] call.
+/// GPU target, host format, and raw payload for one [`texture_upload_start`] call.
 pub struct Texture2dUploadContext<'a> {
     /// Device for decode-path capability checks.
     pub device: &'a wgpu::Device,
@@ -469,41 +469,4 @@ pub fn texture_upload_start(
         ctx.upload,
         ctx.raw,
     )?))
-}
-
-/// Uploads mips from `ctx.raw` (exact shared-memory descriptor window) into `ctx.texture` using `ctx.wgpu_format`.
-pub fn write_texture2d_mips(ctx: &Texture2dUploadContext<'_>) -> Result<u32, TextureUploadError> {
-    profiling::scope!("asset::texture2d_write_mips");
-    let want = ctx.upload.data.length.max(0) as usize;
-    if ctx.raw.len() < want {
-        return Err(TextureUploadError::from(format!(
-            "raw shorter than descriptor (need {want}, got {})",
-            ctx.raw.len()
-        )));
-    }
-    let payload = Arc::from(&ctx.raw[..want]);
-
-    match texture_upload_start(ctx)? {
-        TextureDataStart::SubregionComplete(n) => Ok(n),
-        TextureDataStart::MipChain(mut uploader) => loop {
-            match uploader.upload_next_mip(TextureMipUploadStep {
-                device: ctx.device,
-                queue: ctx.queue,
-                gpu_queue_access_gate: ctx.gpu_queue_access_gate,
-                texture: ctx.texture,
-                fmt: ctx.fmt,
-                wgpu_format: ctx.wgpu_format,
-                upload: ctx.upload,
-                payload: &payload,
-            })? {
-                MipChainAdvance::UploadedOne { .. } => {}
-                MipChainAdvance::Finished { total_uploaded, .. } => {
-                    return Ok(total_uploaded);
-                }
-                MipChainAdvance::YieldBackground => {
-                    std::thread::yield_now();
-                }
-            }
-        },
-    }
 }

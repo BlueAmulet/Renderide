@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::embedded_shaders::{BLOOM_DEFAULT_WGSL, BLOOM_MULTIVIEW_WGSL};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{
     fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry,
     uniform_buffer_layout_entry,
@@ -211,9 +211,9 @@ impl BloomPipelineCache {
         };
         slot.get_or_create(|| {
             let (label, source) = if multiview_stereo {
-                (SHADER_LABEL_MULTIVIEW, BLOOM_MULTIVIEW_WGSL)
+                (SHADER_LABEL_MULTIVIEW, embedded_wgsl!("bloom_multiview"))
             } else {
-                (SHADER_LABEL_MONO, BLOOM_DEFAULT_WGSL)
+                (SHADER_LABEL_MONO, embedded_wgsl!("bloom_default"))
             };
             create_wgsl_shader_module(device, label, source)
         })

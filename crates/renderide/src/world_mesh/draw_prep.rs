@@ -21,14 +21,18 @@ mod render_world;
 mod sort;
 
 pub use collect::{
-    DrawCollectionContext, WorldMeshDrawCollectParallelism, collect_and_sort_draws,
-    collect_and_sort_draws_with_parallelism,
+    DrawCollectionContext, WorldMeshDrawCollectParallelism, collect_and_sort_draws_with_parallelism,
 };
 pub use filter::{CameraTransformDrawFilter, draw_filter_from_camera_entry};
-pub use item::{WorldMeshDrawCollection, WorldMeshDrawItem, resolved_material_slots};
+#[cfg(test)]
+pub(crate) use item::resolved_material_slots;
+pub use item::{WorldMeshDrawCollection, WorldMeshDrawItem};
 pub use prepared_renderables::FramePreparedRenderables;
 pub use render_world::RenderWorld;
-pub use sort::{pack_sort_prefix, sort_draws};
+#[cfg(test)]
+pub use sort::pack_sort_prefix;
+#[cfg(test)]
+pub(crate) use sort::sort_draws;
 
 #[cfg(test)]
 mod tests {

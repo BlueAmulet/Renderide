@@ -60,7 +60,7 @@ impl VramAccounting {
     }
 }
 
-/// Future **LRU / priority / budget clamp** / mipmap residency: suggest IDs to drop under pressure.
+/// Future **LRU / priority / budget clamp** / mipmap residency hook.
 ///
 /// Default implementation is a no-op. Replace with a policy that tracks last frame touched,
 /// material importance, or host hints when implementing streaming.
@@ -71,19 +71,6 @@ pub trait StreamingPolicy: Send + Sync {
 
     /// Called when a texture is sampled or uploaded (for future LRU / residency tiers).
     fn note_texture_access(&mut self, _asset_id: i32) {}
-
-    /// Under memory pressure, return mesh asset IDs to evict (highest priority first).
-    fn suggest_mesh_evictions(&self, _budget: &VramAccounting) -> Vec<i32> {
-        Vec::new()
-    }
-
-    /// Under memory pressure, return texture id + **minimum mip level to keep resident**; mips
-    /// finer than the returned level may be dropped or re-streamed later.
-    ///
-    /// Example: `(asset_id, 2)` means keep mips 2..N, evict 0-1.
-    fn suggest_texture_mip_evictions(&self, _budget: &VramAccounting) -> Vec<(i32, u8)> {
-        Vec::new()
-    }
 }
 
 /// No-op policy until streaming is implemented.
@@ -93,6 +80,7 @@ pub struct NoopStreamingPolicy;
 impl StreamingPolicy for NoopStreamingPolicy {}
 
 /// Extension hook: classify resources for future tiered residency (`Hot`, `Streaming`, ...).
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ResidencyTier {
     /// Always try to keep resident (hero assets, bound materials).
@@ -100,29 +88,20 @@ pub enum ResidencyTier {
     Hot,
     /// May be evicted when over budget (background LODs).
     Streaming,
-    /// Not required to stay resident across frames.
-    Volatile,
 }
 
-/// Host-driven hints for future texture mip streaming (see [`StreamingPolicy::suggest_texture_mip_evictions`]).
-#[derive(Clone, Debug)]
+/// Host-driven hints for future texture mip streaming.
+#[derive(Clone, Debug, Default)]
 pub struct TextureResidencyMeta {
     /// Retention priority for streaming decisions.
+    #[cfg(test)]
     pub tier: ResidencyTier,
     /// From host `apply_immediatelly` / integration priority (best-effort).
+    #[cfg(test)]
     pub integration_urgent: bool,
     /// Mipmap bias from [`SetTexture2DProperties`](crate::shared::SetTexture2DProperties) (inform policy).
+    #[cfg(test)]
     pub mipmap_bias: f32,
-}
-
-impl Default for TextureResidencyMeta {
-    fn default() -> Self {
-        Self {
-            tier: ResidencyTier::Hot,
-            integration_urgent: false,
-            mipmap_bias: 0.0,
-        }
-    }
 }
 
 /// Host texture-property fields needed to derive a [`TextureResidencyMeta`].
@@ -130,6 +109,7 @@ impl Default for TextureResidencyMeta {
 /// Implemented privately for each `Set*Properties` IPC struct so the residency-meta builder is
 /// one function instead of one per kind. `mipmap_bias` returns `0.0` for kinds whose host
 /// wire format does not carry a bias (e.g. [`crate::shared::SetTexture3DProperties`]).
+#[cfg(test)]
 pub(crate) trait HostTextureResidencyProps {
     /// Host hint that the asset must be applied this tick.
     fn apply_immediatelly(&self) -> bool;
@@ -139,6 +119,7 @@ pub(crate) trait HostTextureResidencyProps {
     fn mipmap_bias(&self) -> f32;
 }
 
+#[cfg(test)]
 impl HostTextureResidencyProps for crate::shared::SetTexture2DProperties {
     fn apply_immediatelly(&self) -> bool {
         self.apply_immediatelly
@@ -151,6 +132,7 @@ impl HostTextureResidencyProps for crate::shared::SetTexture2DProperties {
     }
 }
 
+#[cfg(test)]
 impl HostTextureResidencyProps for crate::shared::SetTexture3DProperties {
     fn apply_immediatelly(&self) -> bool {
         self.apply_immediatelly
@@ -163,6 +145,7 @@ impl HostTextureResidencyProps for crate::shared::SetTexture3DProperties {
     }
 }
 
+#[cfg(test)]
 impl HostTextureResidencyProps for crate::shared::SetCubemapProperties {
     fn apply_immediatelly(&self) -> bool {
         self.apply_immediatelly
@@ -177,8 +160,9 @@ impl HostTextureResidencyProps for crate::shared::SetCubemapProperties {
 
 impl TextureResidencyMeta {
     /// Builds meta from any host texture-property struct that implements
-    /// [`HostTextureResidencyProps`]. Returns [`ResidencyTier::Hot`] when the host marks the
-    /// asset urgent or high-priority, otherwise [`ResidencyTier::Streaming`].
+    /// [`HostTextureResidencyProps`]. Tests keep the derived fields observable; runtime stores the
+    /// marker until a streaming policy consumes these hints.
+    #[cfg(test)]
     pub(crate) fn from_host_props<P: HostTextureResidencyProps>(props: &P) -> Self {
         Self {
             tier: if props.apply_immediatelly() || props.high_priority() {
@@ -190,15 +174,23 @@ impl TextureResidencyMeta {
             mipmap_bias: props.mipmap_bias(),
         }
     }
+
+    /// Builds marker meta for runtime until residency hints are consumed by streaming.
+    #[cfg(not(test))]
+    pub(crate) fn from_host_props<P>(_props: &P) -> Self {
+        Self {}
+    }
 }
 
 /// Metadata for future mesh eviction (not enforced yet).
+#[cfg(test)]
 #[derive(Clone, Debug)]
 pub struct MeshResidencyMeta {
     /// Retention priority for future mesh eviction.
     pub tier: ResidencyTier,
 }
 
+#[cfg(test)]
 impl Default for MeshResidencyMeta {
     fn default() -> Self {
         Self {

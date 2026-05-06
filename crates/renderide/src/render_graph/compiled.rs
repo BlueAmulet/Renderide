@@ -8,15 +8,16 @@ use crate::scene::SceneCoordinator;
 
 use super::error::GraphExecuteError;
 use super::frame_params::FrameViewClear;
-use super::ids::{GroupId, PassId};
-use super::pass::{GroupScope, PassKind, PassMergeHint, PassNode};
+use super::pass::PassNode;
+#[cfg(test)]
+use super::pass::{PassKind, PassMergeHint};
 use super::resources::{
     ImportedBufferDecl, ImportedTextureDecl, ResourceAccess, TextureAttachmentResolve,
     TextureAttachmentTarget, TransientBufferDesc, TransientSubresourceDesc, TransientTextureDesc,
 };
 use super::schedule::FrameSchedule;
 use crate::camera::{HostCameraFrame, ViewId};
-use crate::world_mesh::draw_prep::{CameraTransformDrawFilter, WorldMeshDrawCollection};
+use crate::world_mesh::draw_prep::WorldMeshDrawCollection;
 use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshHelperNeeds};
 
 /// Single-view color + depth for secondary cameras rendering to a host [`crate::gpu_pools::GpuRenderTexture`].
@@ -67,8 +68,6 @@ pub struct FrameView<'a> {
     pub host_camera: HostCameraFrame,
     /// Color/depth destination.
     pub target: FrameViewTarget<'a>,
-    /// Optional transform filter for secondary cameras.
-    pub draw_filter: Option<CameraTransformDrawFilter>,
     /// Background clear/skybox behavior for this view.
     pub clear: FrameViewClear,
     /// Explicit world-mesh draw plan for this view.
@@ -131,14 +130,6 @@ impl FrameViewTarget<'_> {
         matches!(self, FrameViewTarget::ExternalMultiview(_))
     }
 
-    /// Host render-texture asset id this target writes, or [`None`] when not an offscreen RT.
-    pub fn offscreen_rt_asset_id(&self) -> Option<i32> {
-        match self {
-            FrameViewTarget::OffscreenRt(ext) => Some(ext.render_texture_asset_id),
-            FrameViewTarget::Swapchain | FrameViewTarget::ExternalMultiview(_) => None,
-        }
-    }
-
     /// Viewport extent in pixels for this target.
     pub fn extent_px(&self, gpu: &GpuContext) -> (u32, u32) {
         match self {
@@ -186,56 +177,6 @@ impl FrameViewTarget<'_> {
 }
 
 impl<'a> FrameView<'a> {
-    /// Builds a view that renders the main desktop swapchain.
-    pub fn for_swapchain(
-        host_camera: HostCameraFrame,
-        world_mesh_draw_plan: WorldMeshDrawPlan,
-    ) -> Self {
-        Self {
-            view_id: ViewId::Main,
-            host_camera,
-            target: FrameViewTarget::Swapchain,
-            draw_filter: None,
-            clear: FrameViewClear::skybox(),
-            world_mesh_draw_plan,
-        }
-    }
-
-    /// Builds a view that renders an OpenXR stereo multiview pair of eye layers.
-    pub fn for_hmd(
-        host_camera: HostCameraFrame,
-        external: ExternalFrameTargets<'a>,
-        world_mesh_draw_plan: WorldMeshDrawPlan,
-    ) -> Self {
-        Self {
-            view_id: ViewId::Main,
-            host_camera,
-            target: FrameViewTarget::ExternalMultiview(external),
-            draw_filter: None,
-            clear: FrameViewClear::skybox(),
-            world_mesh_draw_plan,
-        }
-    }
-
-    /// Builds a view that renders a secondary camera to a host render texture.
-    pub fn for_offscreen_rt(
-        view_id: ViewId,
-        host_camera: HostCameraFrame,
-        external: ExternalOffscreenTargets<'a>,
-        draw_filter: Option<CameraTransformDrawFilter>,
-        clear: FrameViewClear,
-        world_mesh_draw_plan: WorldMeshDrawPlan,
-    ) -> Self {
-        Self {
-            view_id,
-            host_camera,
-            target: FrameViewTarget::OffscreenRt(external),
-            draw_filter,
-            clear,
-            world_mesh_draw_plan,
-        }
-    }
-
     /// Stable logical identity for this view.
     pub fn view_id(&self) -> ViewId {
         self.view_id
@@ -335,17 +276,15 @@ pub struct CompiledBufferResource {
 /// Compiled setup metadata for one retained pass.
 #[derive(Clone, Debug)]
 pub struct CompiledPassInfo {
-    /// Original pass id in the builder.
-    pub id: PassId,
     /// Pass name.
     pub name: String,
-    /// Group id.
-    pub group: GroupId,
     /// Command kind.
+    #[cfg(test)]
     pub kind: PassKind,
     /// Declared accesses.
     pub(crate) accesses: Vec<ResourceAccess>,
     /// Optional multiview mask for raster passes.
+    #[cfg(test)]
     pub multiview_mask: Option<std::num::NonZeroU32>,
     /// Render-pass attachment template for graph-managed raster passes.
     pub raster_template: Option<RenderPassTemplate>,
@@ -353,6 +292,7 @@ pub struct CompiledPassInfo {
     ///
     /// The wgpu executor currently ignores this; the field is populated for use by a future
     /// subpass-aware backend without a second migration pass across all call sites.
+    #[cfg(test)]
     pub merge_hint: PassMergeHint,
 }
 
@@ -391,19 +331,6 @@ pub struct DepthAttachmentTemplate {
     pub stencil: Option<wgpu::Operations<u32>>,
 }
 
-/// Ordered compiled group.
-#[derive(Clone, Debug)]
-pub struct CompiledGroup {
-    /// Group id.
-    pub id: GroupId,
-    /// Group label.
-    pub name: &'static str,
-    /// Execution scope.
-    pub scope: GroupScope,
-    /// Indices into [`CompiledRenderGraph::pass_info`].
-    pub pass_indices: Vec<usize>,
-}
-
 /// Immutable execution schedule produced by [`super::GraphBuilder::build`].
 ///
 /// ## Pass storage
@@ -430,8 +357,6 @@ pub struct CompiledRenderGraph {
     pub needs_surface_acquire: bool,
     /// Build-time stats for tests and profiling hooks.
     pub compile_stats: CompileStats,
-    /// Ordered groups and retained pass membership.
-    pub groups: Vec<CompiledGroup>,
     /// Retained pass metadata in execution order.
     pub pass_info: Vec<CompiledPassInfo>,
     /// Compiled transient texture metadata.
@@ -471,5 +396,5 @@ pub(super) struct ResolvedView<'a> {
 mod exec;
 mod helpers;
 
+#[cfg(test)]
 mod dot;
-pub use dot::DotFormat;

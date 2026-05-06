@@ -545,6 +545,7 @@ fn build_default_post_processing_chain(
 /// identity ([`GraphCacheKey::surface_format`], [`GraphCacheKey::multiview_stereo`],
 /// [`GraphCacheKey::msaa_sample_count`]). Imported sources resolve at execute time via
 /// [`crate::backend::FrameResourceManager`].
+#[cfg(test)]
 pub fn build_main_graph(
     key: GraphCacheKey,
     post_processing_settings: &crate::config::PostProcessingSettings,
@@ -580,35 +581,6 @@ pub(crate) fn build_main_graph_with_resources(
     )?;
     graph.main_graph_msaa_transient_handles = Some(msaa_handles);
     Ok(graph)
-}
-
-/// Builds the main graph with a placeholder cache key for callers that still compile it once at attach.
-///
-/// Uses [`crate::config::PostProcessingSettings::default`], yielding a graph with the built-in
-/// default post-processing chain. Pass live settings via [`build_default_main_graph_with`] when
-/// the chain should mirror a resolved config value.
-pub fn build_default_main_graph() -> Result<CompiledRenderGraph, GraphBuildError> {
-    build_default_main_graph_with(&crate::config::PostProcessingSettings::default(), 1)
-}
-
-/// Builds the main graph with a placeholder cache key but applies `post_processing_settings` so
-/// the chain is wired into the graph at attach time. `msaa_sample_count` selects whether the
-/// HDR-aware MSAA color resolve passes are included; pass `1` when MSAA is off.
-pub fn build_default_main_graph_with(
-    post_processing_settings: &crate::config::PostProcessingSettings,
-    msaa_sample_count: u8,
-) -> Result<CompiledRenderGraph, GraphBuildError> {
-    let key = GraphCacheKey {
-        surface_extent: (1, 1),
-        msaa_sample_count,
-        multiview_stereo: false,
-        surface_format: wgpu::TextureFormat::Bgra8UnormSrgb,
-        scene_color_format: wgpu::TextureFormat::Rgba16Float,
-        post_processing: post_processing::PostProcessChainSignature::from_settings(
-            post_processing_settings,
-        ),
-    };
-    build_main_graph(key, post_processing_settings)
 }
 
 #[cfg(test)]

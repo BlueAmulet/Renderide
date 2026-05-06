@@ -19,6 +19,7 @@ use std::any::{Any, TypeId};
 
 use hashbrown::HashMap;
 
+#[cfg(test)]
 use super::resources::ImportedTextureHandle;
 
 /// Marker trait for blackboard slot keys.
@@ -68,6 +69,7 @@ impl Blackboard {
     }
 
     /// Returns a mutable reference to the value stored under slot `S`, or [`None`] if absent.
+    #[cfg(test)]
     pub fn get_mut<S: BlackboardSlot>(&mut self) -> Option<&mut S::Value> {
         self.slots
             .get_mut(&TypeId::of::<S>())
@@ -82,21 +84,19 @@ impl Blackboard {
     }
 
     /// Returns `true` when slot `S` has a stored value.
+    #[cfg(test)]
     pub fn contains<S: BlackboardSlot>(&self) -> bool {
         self.slots.contains_key(&TypeId::of::<S>())
     }
 
     /// Removes all stored values.
+    #[cfg(test)]
     pub fn clear(&mut self) {
         self.slots.clear();
     }
 
-    /// Number of stored slots.
-    pub fn len(&self) -> usize {
-        self.slots.len()
-    }
-
     /// Whether the blackboard has no stored slots.
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.slots.is_empty()
     }
@@ -112,7 +112,9 @@ impl Blackboard {
 /// time.
 ///
 /// Lives on the per-view blackboard because motion vectors are screen-space and view-specific.
+#[cfg(test)]
 pub struct FrameMotionVectorsSlot;
+#[cfg(test)]
 impl BlackboardSlot for FrameMotionVectorsSlot {
     type Value = ImportedTextureHandle;
 }

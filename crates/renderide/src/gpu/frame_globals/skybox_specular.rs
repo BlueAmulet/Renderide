@@ -12,6 +12,7 @@ pub enum SkyboxSpecularSourceKind {
     /// No direct skybox specular cube is bound.
     Disabled,
     /// Reserved cubemap tag retained for frame-uniform compatibility.
+    #[cfg(test)]
     Cubemap,
 }
 
@@ -20,6 +21,7 @@ impl SkyboxSpecularSourceKind {
     pub const fn to_f32(self) -> f32 {
         match self {
             Self::Disabled => 0.0,
+            #[cfg(test)]
             Self::Cubemap => 1.0,
         }
     }
@@ -48,6 +50,7 @@ impl SkyboxSpecularUniformParams {
     }
 
     /// Builds enabled parameters from a resident cubemap mip count.
+    #[cfg(test)]
     pub fn from_cubemap_resident_mips(mip_levels_resident: u32) -> Self {
         Self {
             max_lod: mip_levels_resident.saturating_sub(1) as f32,

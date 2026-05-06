@@ -46,6 +46,7 @@ pub fn reflection_probe_skybox_only(flags: u8) -> bool {
 
 /// Returns whether a probe state requests HDR rendering.
 #[inline]
+#[cfg(test)]
 pub fn reflection_probe_hdr(flags: u8) -> bool {
     flags & 0b010 != 0
 }

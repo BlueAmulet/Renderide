@@ -6,10 +6,7 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 
 use crate::config::AutoExposureSettings;
-use crate::embedded_shaders::{
-    AUTO_EXPOSURE_APPLY_DEFAULT_WGSL, AUTO_EXPOSURE_APPLY_MULTIVIEW_WGSL,
-    AUTO_EXPOSURE_HISTOGRAM_WGSL,
-};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{
     fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry, texture_layout_entry,
     uniform_buffer_layout_entry,
@@ -210,9 +207,9 @@ impl AutoExposurePipelineCache {
                 multiview: &self.multiview_apply,
                 shader: FullscreenShaderVariants {
                     mono_label: "auto_exposure_apply_default",
-                    mono_source: AUTO_EXPOSURE_APPLY_DEFAULT_WGSL,
+                    mono_source: embedded_wgsl!("auto_exposure_apply_default"),
                     multiview_label: "auto_exposure_apply_multiview",
-                    multiview_source: AUTO_EXPOSURE_APPLY_MULTIVIEW_WGSL,
+                    multiview_source: embedded_wgsl!("auto_exposure_apply_multiview"),
                 },
                 bind_group_layouts: &[Some(bind_group_layout)],
                 log_name: "auto_exposure_apply",
@@ -321,7 +318,7 @@ fn create_auto_exposure_compute_pipeline(
     let shader = create_wgsl_shader_module(
         device,
         "auto_exposure_histogram",
-        AUTO_EXPOSURE_HISTOGRAM_WGSL,
+        embedded_wgsl!("auto_exposure_histogram"),
     );
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("auto_exposure_histogram"),

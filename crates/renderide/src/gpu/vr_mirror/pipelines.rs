@@ -5,7 +5,7 @@
 
 use std::sync::OnceLock;
 
-use crate::embedded_shaders::{VR_MIRROR_EYE_TO_STAGING_WGSL, VR_MIRROR_SURFACE_WGSL};
+use crate::embedded_shaders::embedded_wgsl;
 
 use super::HMD_MIRROR_SOURCE_FORMAT;
 
@@ -14,7 +14,7 @@ pub(super) fn eye_pipeline(device: &wgpu::Device) -> &'static wgpu::RenderPipeli
     PIPE.get_or_init(|| {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("vr_mirror_eye_to_staging"),
-            source: wgpu::ShaderSource::Wgsl(VR_MIRROR_EYE_TO_STAGING_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("vr_mirror_eye_to_staging").into()),
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("vr_mirror_eye_to_staging"),
@@ -122,7 +122,7 @@ pub(super) fn surface_pipeline(
 ) -> wgpu::RenderPipeline {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("vr_mirror_surface"),
-        source: wgpu::ShaderSource::Wgsl(VR_MIRROR_SURFACE_WGSL.into()),
+        source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("vr_mirror_surface").into()),
     });
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("vr_mirror_surface"),

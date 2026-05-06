@@ -170,6 +170,7 @@ impl PaddedPerDrawUniforms {
     }
 
     /// Unpacks reflection-probe selection metadata.
+    #[cfg(test)]
     #[inline]
     #[must_use]
     pub fn reflection_probe_selection(&self) -> (u16, u16, f32, u8) {
@@ -184,6 +185,7 @@ impl PaddedPerDrawUniforms {
     }
 
     /// Whether the metadata says the bound vertex position stream is already in world space.
+    #[cfg(test)]
     #[inline]
     #[must_use]
     pub fn position_stream_world_space(&self) -> bool {

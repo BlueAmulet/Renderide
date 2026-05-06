@@ -54,14 +54,10 @@ impl MaterialRouter {
     }
 
     /// Replaces the fallback pipeline kind used when no route is registered for a shader id.
+    #[cfg(test)]
     pub fn set_fallback(&mut self, fallback: RasterPipelineKind) {
         self.fallback = fallback;
         self.bump();
-    }
-
-    /// Returns the current fallback pipeline kind.
-    pub fn fallback(&self) -> &RasterPipelineKind {
-        &self.fallback
     }
 
     /// Inserts or replaces a host shader route (pipeline kind and optional shader asset name).
@@ -82,6 +78,7 @@ impl MaterialRouter {
     }
 
     /// Inserts a host shader -> pipeline mapping with no AssetBundle shader asset name.
+    #[cfg(test)]
     pub fn set_shader_pipeline(&mut self, shader_asset_id: i32, pipeline: RasterPipelineKind) {
         self.set_shader_route(shader_asset_id, pipeline, None);
     }
@@ -121,6 +118,7 @@ impl MaterialRouter {
     }
 
     /// Returns the mapped pipeline kind when the host id was registered via [`Self::set_shader_route`].
+    #[cfg(test)]
     pub fn get_shader_pipeline(&self, shader_asset_id: i32) -> Option<RasterPipelineKind> {
         self.routes
             .get(&shader_asset_id)

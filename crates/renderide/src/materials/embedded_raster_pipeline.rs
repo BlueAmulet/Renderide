@@ -176,29 +176,14 @@ pub fn embedded_stem_needs_uv0_stream(base_stem: &str, permutation: ShaderPermut
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_uv0_stream()
 }
 
-/// `true` when `vs_main` reflection reports a UV0 input at `@location(2)`.
-pub fn embedded_wgsl_needs_uv0_stream(wgsl_source: &str) -> bool {
-    crate::materials::wgsl_reflect::reflect_vertex_shader_needs_uv0_stream(wgsl_source)
-}
-
 /// `true` when composed embedded WGSL's `vs_main` uses `@location(3)` as vertex color.
 pub fn embedded_stem_needs_color_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_color_stream()
 }
 
-/// `true` when `vs_main` reflection reports a color input at `@location(3)`.
-pub fn embedded_wgsl_needs_color_stream(wgsl_source: &str) -> bool {
-    crate::materials::wgsl_reflect::reflect_vertex_shader_needs_color_stream(wgsl_source)
-}
-
 /// `true` when composed embedded WGSL's `vs_main` uses `@location(5)` as UV1.
 pub fn embedded_stem_needs_uv1_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_uv1_stream()
-}
-
-/// `true` when `vs_main` reflection reports a UV1 input at `@location(5)`.
-pub fn embedded_wgsl_needs_uv1_stream(wgsl_source: &str) -> bool {
-    crate::materials::wgsl_reflect::reflect_vertex_shader_needs_uv1_stream(wgsl_source)
 }
 
 /// `true` when composed embedded WGSL's `vs_main` uses `@location(4)` or higher.
@@ -209,19 +194,9 @@ pub fn embedded_stem_needs_extended_vertex_streams(
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_extended_vertex_streams()
 }
 
-/// `true` when `vs_main` reflection requires the full extended tangent/UV stream set.
-pub fn embedded_wgsl_needs_extended_vertex_streams(wgsl_source: &str) -> bool {
-    crate::materials::wgsl_reflect::reflect_vertex_shader_needs_extended_vertex_streams(wgsl_source)
-}
-
 /// Number of raster passes that will be submitted for one embedded draw batch.
 pub fn embedded_stem_pipeline_pass_count(base_stem: &str, permutation: ShaderPermutation) -> usize {
     EmbeddedStemQuery::for_stem(base_stem, permutation).pipeline_pass_count()
-}
-
-/// `true` when reflection reports `_IntersectColor` in the material uniform (intersection forward subpass).
-pub fn embedded_wgsl_requires_intersection_pass(wgsl_source: &str) -> bool {
-    crate::materials::wgsl_reflect::reflect_raster_material_requires_intersection_pass(wgsl_source)
 }
 
 /// `true` when the composed embedded target uses an intersection subpass.
@@ -234,11 +209,6 @@ pub fn embedded_stem_requires_intersection_pass(
         .requires_intersection_pass
 }
 
-/// `true` when reflection reports that the WGSL declares a scene-depth snapshot binding.
-pub fn embedded_wgsl_uses_scene_depth_snapshot(wgsl_source: &str) -> bool {
-    crate::materials::wgsl_reflect::reflect_raster_material_uses_scene_depth_snapshot(wgsl_source)
-}
-
 /// `true` when the composed embedded target declares a scene-depth snapshot binding.
 pub fn embedded_stem_uses_scene_depth_snapshot(
     base_stem: &str,
@@ -247,11 +217,6 @@ pub fn embedded_stem_uses_scene_depth_snapshot(
     EmbeddedStemQuery::for_stem(base_stem, permutation)
         .snapshot_requirements()
         .uses_scene_depth
-}
-
-/// `true` when reflection reports that the WGSL declares a scene-color snapshot binding.
-pub fn embedded_wgsl_uses_scene_color_snapshot(wgsl_source: &str) -> bool {
-    crate::materials::wgsl_reflect::reflect_raster_material_uses_scene_color_snapshot(wgsl_source)
 }
 
 /// `true` when the composed embedded target declares a scene-color snapshot binding.

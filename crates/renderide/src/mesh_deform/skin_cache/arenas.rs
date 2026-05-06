@@ -225,15 +225,6 @@ impl SkinArenas {
         &self.temp.buffer
     }
 
-    /// Total VRAM for the arenas (bytes).
-    #[inline]
-    pub fn resident_bytes(&self) -> u64 {
-        self.positions.buffer.size()
-            + self.normals.buffer.size()
-            + self.tangents.buffer.size()
-            + self.temp.buffer.size()
-    }
-
     /// Capacity ceiling shared by every arena (bytes).
     #[inline]
     pub fn capacity_cap_bytes(&self) -> u64 {

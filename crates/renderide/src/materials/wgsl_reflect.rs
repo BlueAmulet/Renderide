@@ -5,6 +5,7 @@
 //! scene-depth snapshot bindings.
 
 mod bind_layout;
+#[cfg(test)]
 mod fingerprint;
 mod frame_group0;
 mod resource;
@@ -12,9 +13,11 @@ mod types;
 mod uniform_vertex;
 
 pub use types::{
-    ReflectError, ReflectedMaterialUniformBlock, ReflectedRasterLayout, ReflectedUniformField,
-    ReflectedUniformScalarKind, ReflectedVertexInput, ReflectedVertexInputFormat,
+    ReflectError, ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind,
+    ReflectedVertexInputFormat,
 };
+#[cfg(test)]
+pub(crate) use types::{ReflectedMaterialUniformBlock, ReflectedVertexInput};
 
 use std::collections::BTreeMap;
 
@@ -25,6 +28,7 @@ use naga::valid::{Capabilities, ValidationFlags, Validator};
 use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 
 use self::bind_layout::global_to_layout_entry;
+#[cfg(test)]
 use self::fingerprint::fingerprint_layout;
 use self::frame_group0::{reflect_frame_snapshot_usage, validate_frame_group0};
 use self::uniform_vertex::{
@@ -81,9 +85,11 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
     let material_uniform = reflect_first_group1_uniform_struct(&module, &layouter);
     let material_group1_names = reflect_group1_global_binding_names(&module);
     let vs_vertex_inputs = reflect_vs_main_vertex_inputs(&module);
-    let vs_max_vertex_location = vs_vertex_inputs.iter().map(|input| input.location).max();
     let snapshot_usage = reflect_frame_snapshot_usage(&module);
 
+    #[cfg(test)]
+    let vs_max_vertex_location = vs_vertex_inputs.iter().map(|input| input.location).max();
+    #[cfg(test)]
     let layout_fingerprint = fingerprint_layout(
         &material_entries,
         &per_draw_entries,
@@ -96,12 +102,14 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
         material_uniform_requires_intersection_subpass(material_uniform.as_ref());
 
     Ok(ReflectedRasterLayout {
+        #[cfg(test)]
         layout_fingerprint,
         material_entries,
         per_draw_entries,
         material_uniform,
         material_group1_names,
         vs_vertex_inputs,
+        #[cfg(test)]
         vs_max_vertex_location,
         uses_scene_depth_snapshot: snapshot_usage.depth,
         uses_scene_color_snapshot: snapshot_usage.color,
@@ -149,27 +157,6 @@ pub fn reflect_vertex_shader_needs_extended_vertex_streams(wgsl_source: &str) ->
                         && input.format != ReflectedVertexInputFormat::Float32x2)
             })
         })
-}
-
-/// `true` when reflection reports an intersect-style material (uniform field `_IntersectColor`).
-pub fn reflect_raster_material_requires_intersection_pass(wgsl_source: &str) -> bool {
-    reflect_raster_material_wgsl(wgsl_source)
-        .ok()
-        .is_some_and(|r| r.requires_intersection_pass)
-}
-
-/// `true` when reflection reports that a material declares a scene-depth snapshot binding.
-pub fn reflect_raster_material_uses_scene_depth_snapshot(wgsl_source: &str) -> bool {
-    reflect_raster_material_wgsl(wgsl_source)
-        .ok()
-        .is_some_and(|r| r.uses_scene_depth_snapshot)
-}
-
-/// `true` when reflection reports that a material declares a scene-color snapshot binding.
-pub fn reflect_raster_material_uses_scene_color_snapshot(wgsl_source: &str) -> bool {
-    reflect_raster_material_wgsl(wgsl_source)
-        .ok()
-        .is_some_and(|r| r.uses_scene_color_snapshot)
 }
 
 /// Validates a reflected raster layout against device caps from [`crate::gpu::GpuLimits`].

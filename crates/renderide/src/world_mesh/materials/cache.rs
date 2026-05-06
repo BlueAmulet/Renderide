@@ -146,11 +146,6 @@ impl FrameMaterialBatchCache {
         self.last_refresh_shader_perm = Some(shader_perm);
     }
 
-    /// Clears all entries while retaining allocated capacity.
-    pub fn clear(&mut self) {
-        self.entries.clear();
-    }
-
     /// Number of cached entries (debug / diagnostics).
     #[cfg(test)]
     pub(super) fn len(&self) -> usize {

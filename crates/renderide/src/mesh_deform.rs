@@ -10,9 +10,7 @@ mod per_draw_uniforms;
 mod scratch;
 mod skinning_palette;
 
-pub use skinning_palette::{
-    SkinningPaletteParams, build_skinning_palette, write_skinning_palette_bytes,
-};
+pub use skinning_palette::{SkinningPaletteParams, write_skinning_palette_bytes};
 
 pub use blendshape_bind_chunks::{
     BLENDSHAPE_SPARSE_MIN_BUFFER_BYTES, blendshape_sparse_buffers_fit_device,
@@ -20,7 +18,7 @@ pub use blendshape_bind_chunks::{
 };
 pub use mesh_preprocess::MeshPreprocessPipelines;
 pub use per_draw_uniforms::{
-    INITIAL_PER_DRAW_UNIFORM_SLOTS, PER_DRAW_UNIFORM_STRIDE, PaddedPerDrawUniforms, WgslMat3x3,
+    INITIAL_PER_DRAW_UNIFORM_SLOTS, PER_DRAW_UNIFORM_STRIDE, PaddedPerDrawUniforms,
     write_per_draw_uniform_slab,
 };
 pub use range_alloc::Range;

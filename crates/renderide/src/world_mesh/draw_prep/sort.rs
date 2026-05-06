@@ -27,7 +27,7 @@ const SORT_PREFIX_BATCH_HASH_SHIFT: u32 = 4;
 /// Maps camera-distance squared into a coarse logarithmic front-to-back bucket.
 ///
 /// Called once per draw at candidate evaluation and the result stored on
-/// [`WorldMeshDrawItem::opaque_depth_bucket`]; the comparator then reads the field directly
+/// [`WorldMeshDrawItem::_opaque_depth_bucket`]; the comparator then reads the field directly
 /// instead of recomputing `sqrt` + `log2` on every pairwise compare.
 pub(super) fn opaque_depth_bucket(distance_sq: f32) -> u16 {
     if !distance_sq.is_finite() || distance_sq <= 0.0 {
@@ -230,11 +230,11 @@ mod tests {
     /// production.
     fn set_camera_distance(item: &mut WorldMeshDrawItem, distance_sq: f32) {
         item.camera_distance_sq = distance_sq;
-        item.opaque_depth_bucket = opaque_depth_bucket(distance_sq);
+        item._opaque_depth_bucket = opaque_depth_bucket(distance_sq);
         item.sort_prefix = pack_sort_prefix(
             item.is_overlay,
             item.batch_key.render_queue,
-            item.opaque_depth_bucket,
+            item._opaque_depth_bucket,
             item.batch_key_hash,
         );
     }
@@ -245,7 +245,7 @@ mod tests {
         item.sort_prefix = pack_sort_prefix(
             item.is_overlay,
             item.batch_key.render_queue,
-            item.opaque_depth_bucket,
+            item._opaque_depth_bucket,
             item.batch_key_hash,
         );
     }

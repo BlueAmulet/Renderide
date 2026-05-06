@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use super::pyramid::{mip_dimensions, total_float_count};
+#[cfg(test)]
+use super::pyramid::mip_dimensions;
+use super::pyramid::total_float_count;
 
 /// Packed reverse-Z depth values (greater = closer) for one eye / one desktop pyramid.
 ///
@@ -35,6 +37,7 @@ impl HiZCpuSnapshot {
     }
 
     /// Linear index of texel `(x, y)` at `mip` (clamped dimensions).
+    #[cfg(test)]
     pub fn texel_index(&self, mip: u32, x: u32, y: u32) -> Option<usize> {
         let (w, h) = mip_dimensions(self.base_width, self.base_height, mip)?;
         if x >= w || y >= h {
@@ -45,6 +48,7 @@ impl HiZCpuSnapshot {
     }
 
     /// Samples a depth value at integer texel coordinates for `mip`, or `None` if out of range.
+    #[cfg(test)]
     pub fn sample_texel(&self, mip: u32, x: u32, y: u32) -> Option<f32> {
         let i = self.texel_index(mip, x, y)?;
         self.mips.get(i).copied()

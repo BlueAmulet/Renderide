@@ -11,6 +11,7 @@ use std::num::NonZeroU64;
 use bytemuck::{Pod, Zeroable};
 
 use crate::backend::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::render_graph::gpu_cache::OnceGpu;
 use crate::world_mesh::cluster::{CLUSTER_COUNT_Z, TILE_SIZE, sanitize_cluster_clip_planes};
@@ -122,9 +123,7 @@ impl ClusteredLightPipelineCache {
             });
             let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("clustered_light"),
-                source: wgpu::ShaderSource::Wgsl(
-                    crate::embedded_shaders::CLUSTERED_LIGHT_WGSL.into(),
-                ),
+                source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("clustered_light").into()),
             });
             device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("clustered_light"),

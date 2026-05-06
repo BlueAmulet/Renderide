@@ -6,11 +6,9 @@
 
 use std::borrow::Cow;
 
-use super::{CallbackPass, ComputePass, CopyPass, RasterPass};
+use super::{CallbackPass, ComputePass, RasterPass};
 use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
-use crate::render_graph::context::{
-    CallbackCtx, ComputePassCtx, CopyPassCtx, PostSubmitContext, RasterPassCtx,
-};
+use crate::render_graph::context::{CallbackCtx, ComputePassCtx, PostSubmitContext, RasterPassCtx};
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::pass::builder::PassBuilder;
 
@@ -24,8 +22,6 @@ pub enum PassKind {
     Raster,
     /// Encoder-driven compute pass.
     Compute,
-    /// Encoder-driven copy-only pass.
-    Copy,
     /// CPU callback with no encoder (planning, uploads, blackboard mutations).
     Callback,
 }
@@ -67,6 +63,7 @@ impl From<PassPhase> for GroupScope {
 /// merge adjacent raster passes sharing attachments to preserve tile memory and avoid redundant
 /// load/store traffic.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg(test)]
 pub struct PassMergeHint {
     /// When `true`, adjacent passes writing to the same attachments may reuse the render-pass
     /// encoder without resolving / storing attachment contents in between. Safe when the next
@@ -87,8 +84,6 @@ pub enum PassNode {
     Raster(Box<dyn RasterPass>),
     /// Encoder-driven compute pass.
     Compute(Box<dyn ComputePass>),
-    /// Encoder-driven copy-only pass.
-    Copy(Box<dyn CopyPass>),
     /// CPU callback pass (no encoder).
     Callback(Box<dyn CallbackPass>),
 }
@@ -99,7 +94,6 @@ impl PassNode {
         match self {
             Self::Raster(p) => p.name(),
             Self::Compute(p) => p.name(),
-            Self::Copy(p) => p.name(),
             Self::Callback(p) => p.name(),
         }
     }
@@ -109,7 +103,6 @@ impl PassNode {
         match self {
             Self::Raster(p) => p.profiling_label(),
             Self::Compute(p) => p.profiling_label(),
-            Self::Copy(p) => p.profiling_label(),
             Self::Callback(p) => p.profiling_label(),
         }
     }
@@ -119,7 +112,6 @@ impl PassNode {
         match self {
             Self::Raster(_) => PassKind::Raster,
             Self::Compute(_) => PassKind::Compute,
-            Self::Copy(_) => PassKind::Copy,
             Self::Callback(_) => PassKind::Callback,
         }
     }
@@ -129,7 +121,6 @@ impl PassNode {
         match self {
             Self::Raster(p) => p.phase(),
             Self::Compute(p) => p.phase(),
-            Self::Copy(p) => p.phase(),
             Self::Callback(p) => p.phase(),
         }
     }
@@ -142,7 +133,6 @@ impl PassNode {
         match self {
             Self::Raster(p) => p.setup(builder),
             Self::Compute(p) => p.setup(builder),
-            Self::Copy(p) => p.setup(builder),
             Self::Callback(p) => p.setup(builder),
         }
     }
@@ -165,17 +155,6 @@ impl PassNode {
     ) -> Result<(), RenderPassError> {
         match self {
             Self::Compute(p) => p.record(ctx),
-            _ => Ok(()),
-        }
-    }
-
-    /// Records copy commands into the encoder held in `ctx`. Returns `Ok(())` for non-copy variants.
-    pub(crate) fn record_copy(
-        &self,
-        ctx: &mut CopyPassCtx<'_, '_, '_>,
-    ) -> Result<(), RenderPassError> {
-        match self {
-            Self::Copy(p) => p.record(ctx),
             _ => Ok(()),
         }
     }
@@ -236,7 +215,6 @@ impl PassNode {
         match self {
             Self::Raster(p) => p.post_submit(ctx),
             Self::Compute(p) => p.post_submit(ctx),
-            Self::Copy(p) => p.post_submit(ctx),
             Self::Callback(p) => p.post_submit(ctx),
         }
     }
@@ -246,7 +224,6 @@ impl PassNode {
         match self {
             Self::Raster(p) => p.release_view_resources(retired_views),
             Self::Compute(p) => p.release_view_resources(retired_views),
-            Self::Copy(p) => p.release_view_resources(retired_views),
             Self::Callback(p) => p.release_view_resources(retired_views),
         }
     }

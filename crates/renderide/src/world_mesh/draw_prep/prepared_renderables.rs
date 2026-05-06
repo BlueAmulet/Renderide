@@ -14,6 +14,7 @@
 
 use glam::Mat4;
 use hashbrown::HashSet;
+#[cfg(test)]
 use rayon::prelude::*;
 
 use crate::gpu_pools::MeshPool;
@@ -112,6 +113,7 @@ pub struct FramePreparedRenderables {
     /// [`Vec`] is resized to [`Self::active_space_ids`] length; each inner [`Vec`] is cleared and
     /// re-filled inside the rayon worker before [`expand_space_into`] runs. Capacities persist
     /// across frames so the steady-state path does not reallocate the per-space buffers.
+    #[cfg(test)]
     space_scratch: Vec<Vec<FramePreparedDraw>>,
     /// Reused dedup set for rebuilding [`Self::material_property_keys`].
     pub(super) material_property_seen_scratch: HashSet<(i32, Option<i32>)>,
@@ -127,6 +129,7 @@ impl FramePreparedRenderables {
             runs: Vec::new(),
             material_property_keys: Vec::new(),
             render_context,
+            #[cfg(test)]
             space_scratch: Vec::new(),
             material_property_seen_scratch: HashSet::new(),
         }
@@ -139,6 +142,7 @@ impl FramePreparedRenderables {
     /// would survive [`super::collect::collect_chunk`]'s transform-scale, resident-mesh, and
     /// slot-validity checks -- per-view collection can iterate unconditionally without duplicating
     /// those guards.
+    #[cfg(test)]
     pub fn build_for_frame(
         scene: &SceneCoordinator,
         mesh_pool: &MeshPool,
@@ -156,6 +160,7 @@ impl FramePreparedRenderables {
     /// material slots -- typically hundreds to thousands of entries. Allocating and freeing the
     /// backing buffer each frame shows up in `extract_frame_shared` zone profiles; clearing in
     /// place keeps the allocation count flat in steady state.
+    #[cfg(test)]
     pub fn rebuild_for_frame(
         &mut self,
         scene: &SceneCoordinator,
@@ -282,6 +287,7 @@ impl FramePreparedRenderables {
 
     /// `true` when no renderers expanded to any draw (no active space, no resident meshes).
     #[inline]
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.draws.is_empty()
     }
@@ -302,6 +308,7 @@ impl FramePreparedRenderables {
 
     /// Iterator of `(mesh_asset_id, material_asset_id)` pairs for every prepared draw.
     #[inline]
+    #[cfg(test)]
     pub fn mesh_material_pairs(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
         self.draws
             .iter()

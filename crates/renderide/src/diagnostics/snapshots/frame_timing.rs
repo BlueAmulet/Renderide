@@ -23,8 +23,6 @@ pub struct FrameTimingHudSnapshot {
     /// frame started and the next one started. FPS = `1000.0 / wall_frame_time_ms_smoothed`.
     /// EMA-smoothed for display.
     pub wall_frame_time_ms_smoothed: f64,
-    /// Raw wall-clock roundtrip used to drive the sparkline's most recent sample.
-    pub wall_frame_time_ms_raw: f64,
     /// CPU per-frame ms (EMA-smoothed): main-thread tick duration from
     /// [`crate::gpu::frame_cpu_gpu_timing::FrameCpuGpuTiming`]. Excludes FPS-gating sleeps,
     /// lockstep waits, and event-loop idles.
@@ -64,7 +62,6 @@ impl FrameTimingHudSnapshot {
         let gpu_frame_ms_smoothed = gpu_frame_ms_raw.map(|v| ema.gpu.update(v));
         Self {
             wall_frame_time_ms_smoothed,
-            wall_frame_time_ms_raw: wall_frame_time_ms,
             cpu_frame_ms_smoothed,
             gpu_frame_ms_smoothed,
             gpu_ms_source,
@@ -95,7 +92,6 @@ mod tests {
     fn fps_from_wall_matches_inverse_smoothed_ms() {
         let s = FrameTimingHudSnapshot {
             wall_frame_time_ms_smoothed: 16.0,
-            wall_frame_time_ms_raw: 16.0,
             cpu_frame_ms_smoothed: Some(2.0),
             gpu_frame_ms_smoothed: Some(1.0),
             ..Default::default()

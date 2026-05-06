@@ -15,9 +15,9 @@ pub mod per_view;
 mod snapshots;
 mod watchdog;
 
-pub use ema::{EMA_HISTORY_LEN, EmaScalar, FrameTimingEma};
+pub use ema::FrameTimingEma;
 pub use encode_error::DebugHudEncodeError;
-pub use frame_history::{FRAME_TIME_HISTORY_LEN, FrameTimeHistory};
+pub use frame_history::FrameTimeHistory;
 pub use host_metrics::HostHudGatherer;
 pub use hud::DebugHud;
 pub use input::{DebugHudInput, sanitize_input_state_for_imgui_host};
@@ -27,7 +27,6 @@ pub use snapshots::{
     FrameDiagnosticsSnapshotCapture, FrameTimingHudSnapshot, GpuAllocatorHud,
     GpuAllocatorHudRefresh, GpuAllocatorReportHud, RenderSpaceTransformsSnapshot,
     RendererInfoSnapshot, RendererInfoSnapshotCapture, SceneTransformsSnapshot,
-    ShaderRouteSnapshot, TextureDebugRow, TextureDebugSnapshot, TransformRow, WorldTransformSample,
-    XrRecoverableFailureCounts,
+    ShaderRouteSnapshot, TextureDebugSnapshot, XrRecoverableFailureCounts,
 };
-pub use watchdog::{Heartbeat, Watchdog, WatchdogPause};
+pub use watchdog::{Heartbeat, Watchdog};

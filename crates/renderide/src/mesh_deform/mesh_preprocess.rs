@@ -7,9 +7,7 @@
 
 use std::num::NonZeroU64;
 
-use wgpu::util::DeviceExt;
-
-use crate::embedded_shaders::{MESH_BLENDSHAPE_WGSL, MESH_SKINNING_WGSL};
+use crate::embedded_shaders::embedded_wgsl;
 
 fn storage_buffer_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
@@ -88,11 +86,11 @@ impl MeshPreprocessPipelines {
     pub fn new(device: &wgpu::Device) -> Result<Self, String> {
         let skin_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh_skinning"),
-            source: wgpu::ShaderSource::Wgsl(MESH_SKINNING_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("mesh_skinning").into()),
         });
         let blend_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh_blendshape"),
-            source: wgpu::ShaderSource::Wgsl(MESH_BLENDSHAPE_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("mesh_blendshape").into()),
         });
 
         let skin_bgl = skinning_bind_group_layout(device);
@@ -131,15 +129,6 @@ impl MeshPreprocessPipelines {
             skinning_pipeline,
             blendshape_bind_group_layout: blend_bgl,
             blendshape_pipeline,
-        })
-    }
-
-    /// Records no drawing; reserved for future per-frame preprocess encode from [`crate::scene`].
-    pub fn placeholder_uniform_slice(device: &wgpu::Device) -> wgpu::Buffer {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("mesh_preprocess_placeholder_uniform"),
-            contents: &[0u8; 32],
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         })
     }
 }

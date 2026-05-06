@@ -30,8 +30,6 @@ pub struct RendererInfoSnapshot {
     pub viewport_px: (u32, u32),
     /// Swapchain present mode (fifo, mailbox, etc.).
     pub present_mode: wgpu::PresentMode,
-    /// Wall-clock time between redraw ticks (ms): same basis as HUD **total frame time**; FPS = `1000.0 / frame_time_ms`.
-    pub frame_time_ms: f64,
     /// Active render spaces in the scene coordinator.
     pub render_space_count: usize,
     /// Mesh renderable records across spaces.
@@ -64,6 +62,10 @@ pub struct RendererInfoSnapshot {
     pub gpu_supports_base_instance: bool,
     /// Whether stereo multiview shaders may be used.
     pub gpu_supports_multiview: bool,
+    /// Whether filterable 32-bit float textures are available.
+    pub gpu_supports_float32_filterable: bool,
+    /// Enabled texture compression feature bits.
+    pub gpu_texture_compression_features: wgpu::Features,
     /// MSAA sample count from [`crate::config::RenderingSettings::msaa`] (before GPU clamp).
     pub msaa_requested_samples: u32,
     /// Effective MSAA for the swapchain forward path after clamping to [`Self::msaa_max_samples`].
@@ -97,8 +99,6 @@ pub struct RendererInfoSnapshotCapture<'a> {
     pub viewport_px: (u32, u32),
     /// Swapchain present mode.
     pub present_mode: wgpu::PresentMode,
-    /// Wall-clock ms between redraw ticks (HUD frame time).
-    pub frame_time_ms: f64,
     /// Scene coordinator for space/renderable counts.
     pub scene: &'a SceneCoordinator,
     /// Plain-data backend snapshot capturing pools, graph counts, and packed lights.
@@ -124,7 +124,6 @@ impl RendererInfoSnapshot {
             surface_format: args.surface_format,
             viewport_px: args.viewport_px,
             present_mode: args.present_mode,
-            frame_time_ms: args.frame_time_ms,
             render_space_count: args.scene.render_space_count(),
             mesh_renderable_count: args.scene.total_mesh_renderable_count(),
             resident_mesh_count: args.backend.mesh_pool_entry_count,
@@ -141,6 +140,8 @@ impl RendererInfoSnapshot {
             gpu_max_storage_binding: args.gpu_limits.max_storage_buffer_binding_size(),
             gpu_supports_base_instance: args.gpu_limits.supports_base_instance,
             gpu_supports_multiview: args.gpu_limits.supports_multiview,
+            gpu_supports_float32_filterable: args.gpu_limits.supports_float32_filterable,
+            gpu_texture_compression_features: args.gpu_limits.texture_compression_features,
             msaa_requested_samples: args.msaa_requested_samples,
             msaa_effective_samples: args.gpu.swapchain_msaa_effective(),
             msaa_max_samples: args.gpu.msaa_max_sample_count(),

@@ -26,11 +26,9 @@ use crate::assets::asset_transfer_queue::{self as asset_uploads, AssetTransferQu
 use crate::config::{PostProcessingSettings, RendererSettingsHandle, SceneColorFormat};
 use crate::diagnostics::{DebugHudEncodeError, DebugHudInput, SceneTransformsSnapshot};
 use crate::gpu::GpuLimits;
-use crate::gpu_pools::{
-    CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool, VideoTexturePool,
-};
+use crate::gpu_pools::{MeshPool, RenderTexturePool, TexturePool};
 use crate::materials::host_data::MaterialPropertyStore;
-use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
+use crate::mesh_deform::GpuSkinCache;
 use crate::render_graph::TransientPool;
 use crate::world_mesh::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
@@ -45,10 +43,6 @@ pub(crate) use graph_access::BackendGraphAccess;
 use graph_state::RenderGraphState;
 use reflection_services::ReflectionProbeServices;
 
-pub use crate::assets::asset_transfer_queue::{
-    ASSET_INTEGRATION_QUEUE_WARN_THRESHOLD, MAX_ASSET_INTEGRATION_QUEUED, MAX_PENDING_MESH_UPLOADS,
-    MAX_PENDING_TEXTURE_UPLOADS,
-};
 pub(crate) use frame_packet::ExtractedFrameShared;
 
 /// GPU attach failed for frame binds (`@group(0/1/2)`) or embedded materials (`@group(1)`).
@@ -174,20 +168,6 @@ impl RenderBackend {
         }
     }
 
-    /// Returns a mutable reference to the persistent history registry.
-    ///
-    /// Subsystems register ping-pong slots here before graph execution. Hi-Z uses view-scoped
-    /// texture history through this path while [`OcclusionSystem`] keeps CPU snapshots, temporal
-    /// cull data, and readback policy.
-    pub fn history_registry_mut(&mut self) -> &mut super::HistoryRegistry {
-        self.graph_state.history_registry_mut()
-    }
-
-    /// Shared reference to the persistent history registry.
-    pub fn history_registry(&self) -> &super::HistoryRegistry {
-        self.graph_state.history_registry()
-    }
-
     /// Effective HDR scene-color [`wgpu::TextureFormat`] from [`crate::config::RenderingSettings`].
     ///
     /// Falls back to [`SceneColorFormat::default`] when settings are unavailable (pre-attach).
@@ -257,21 +237,6 @@ impl RenderBackend {
             .count()
     }
 
-    /// Mesh deformation compute pipelines when GPU init succeeded.
-    pub fn mesh_preprocess(&self) -> Option<&MeshPreprocessPipelines> {
-        self.frame_services.mesh_preprocess()
-    }
-
-    /// Arena-backed deformed vertex streams shared by mesh deform compute and mesh forward draws.
-    pub fn skin_cache(&self) -> Option<&GpuSkinCache> {
-        self.frame_services.skin_cache()
-    }
-
-    /// Mutable skin cache for mesh deform compute and cache sweeps.
-    pub fn skin_cache_mut(&mut self) -> Option<&mut GpuSkinCache> {
-        self.frame_services.skin_cache_mut()
-    }
-
     /// Resets per-tick light prep flags, mesh deform coalescing, and advances the skin cache frame counter.
     ///
     /// Call once per winit tick before IPC and frame work (see [`crate::runtime::RendererRuntime::tick_frame_wall_clock_begin`]).
@@ -282,11 +247,6 @@ impl RenderBackend {
     /// GPU limits snapshot after [`Self::attach`], if attach succeeded.
     pub fn gpu_limits(&self) -> Option<&Arc<GpuLimits>> {
         self.asset_transfers.gpu_limits()
-    }
-
-    /// Shared frame resources for render-graph pre-warm and diagnostics.
-    pub(crate) fn frame_resources(&self) -> &FrameResourceManager {
-        &self.frame_services.frame_resources
     }
 
     /// Mutable frame resources for runtime draw-preparation handoffs.
@@ -306,34 +266,14 @@ impl RenderBackend {
         self.asset_transfers.mesh_pool()
     }
 
-    /// Mutable mesh pool (eviction experiments).
-    pub fn mesh_pool_mut(&mut self) -> &mut MeshPool {
-        self.asset_transfers.mesh_pool_mut()
-    }
-
     /// Resident Texture2D table (bind-group prep).
     pub fn texture_pool(&self) -> &TexturePool {
         self.asset_transfers.texture_pool()
     }
 
-    /// Resident Texture3D table.
-    pub fn texture3d_pool(&self) -> &Texture3dPool {
-        self.asset_transfers.texture3d_pool()
-    }
-
-    /// Resident cubemap table.
-    pub fn cubemap_pool(&self) -> &CubemapPool {
-        self.asset_transfers.cubemap_pool()
-    }
-
     /// Host render texture targets (secondary cameras, material sampling).
     pub fn render_texture_pool(&self) -> &RenderTexturePool {
         self.asset_transfers.render_texture_pool()
-    }
-
-    /// Resident video texture table.
-    pub fn video_texture_pool(&self) -> &VideoTexturePool {
-        self.asset_transfers.video_texture_pool()
     }
 
     /// Answers host SH2 task rows for the latest frame submit without blocking GPU readback.
@@ -378,30 +318,9 @@ impl RenderBackend {
             .sync_reflection_probe_specular_resources(gpu.device(), resources);
     }
 
-    /// Borrowed view of all texture pools used for embedded material `@group(1)` bind resolution.
-    pub fn embedded_texture_pools(&self) -> EmbeddedTexturePools<'_> {
-        EmbeddedTexturePools {
-            texture: self.texture_pool(),
-            texture3d: self.texture3d_pool(),
-            cubemap: self.cubemap_pool(),
-            render_texture: self.render_texture_pool(),
-            video_texture: self.video_texture_pool(),
-        }
-    }
-
-    /// Mutable texture pool.
-    pub fn texture_pool_mut(&mut self) -> &mut TexturePool {
-        self.asset_transfers.texture_pool_mut()
-    }
-
     /// Material property store (host uniforms, textures, shader asset bindings).
     pub fn material_property_store(&self) -> &MaterialPropertyStore {
         self.materials.material_property_store()
-    }
-
-    /// Mutable store for tests and tooling.
-    pub fn material_property_store_mut(&mut self) -> &mut MaterialPropertyStore {
-        self.materials.material_property_store_mut()
     }
 
     /// Property name interning for material batches.
@@ -412,18 +331,6 @@ impl RenderBackend {
     /// Registered material families and pipeline cache (after GPU attach).
     pub fn material_registry(&self) -> Option<&crate::materials::MaterialRegistry> {
         self.materials.material_registry()
-    }
-
-    /// Mutable registry (pipeline cache and shader routes).
-    pub fn material_registry_mut(&mut self) -> Option<&mut crate::materials::MaterialRegistry> {
-        self.materials.material_registry_mut()
-    }
-
-    /// Embedded material bind groups (world Unlit, etc.) after [`Self::attach`].
-    pub fn embedded_material_bind(
-        &self,
-    ) -> Option<&crate::materials::embedded::EmbeddedMaterialBindResources> {
-        self.materials.embedded_material_bind()
     }
 
     /// Number of schedules passes in the compiled frame graph, or `0` if none.
@@ -730,31 +637,6 @@ impl RenderBackend {
             live_auto_exposure_settings,
             wall_frame_time_ms,
         }
-    }
-
-    /// Scratch buffers for mesh deformation (`MeshDeformPass`).
-    pub fn mesh_deform_scratch_mut(&mut self) -> Option<&mut MeshDeformScratch> {
-        self.frame_services.mesh_deform_scratch_mut()
-    }
-
-    /// Compute preprocess pipelines + deform scratch (`MeshDeformPass`) as one disjoint borrow.
-    pub fn mesh_deform_pre_and_scratch(
-        &mut self,
-    ) -> Option<(&MeshPreprocessPipelines, &mut MeshDeformScratch)> {
-        self.frame_services.mesh_deform_pre_and_scratch()
-    }
-
-    /// Preprocess pipelines, deform scratch, and GPU skin cache as one disjoint borrow for [`MeshDeformPass`].
-    ///
-    /// Bundles [`Self::mesh_preprocess`], [`Self::mesh_deform_scratch`], and [`Self::skin_cache`].
-    pub fn mesh_deform_pre_scratch_and_skin_cache(
-        &mut self,
-    ) -> Option<(
-        &MeshPreprocessPipelines,
-        &mut MeshDeformScratch,
-        &mut GpuSkinCache,
-    )> {
-        self.frame_services.mesh_deform_pre_scratch_and_skin_cache()
     }
 }
 

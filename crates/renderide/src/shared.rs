@@ -7,16 +7,11 @@ pub use renderide_shared::buffer;
 pub use renderide_shared::packing;
 pub use renderide_shared::packing::extras as packing_extras;
 
-/// Generated Renderite shared types and decode helpers (re-exported from
-/// [`renderide_shared::shared`]).
-pub use renderide_shared::shared;
-
-pub use renderide_shared::packing::polymorphic_decode_error::PolymorphicDecodeError;
-pub use renderide_shared::packing::wire_decode_error::WireDecodeError;
-pub use renderide_shared::packing::{
-    bit_span, default_entity_pool, enum_repr, memory_packable, memory_packer,
-    memory_packer_entity_pool, memory_unpack_error, memory_unpacker, packed_bools,
-    polymorphic_decode_error, polymorphic_memory_packable_entity, wire_decode_error,
+pub use renderide_shared::packing::{bit_span, memory_packable, memory_packer};
+#[cfg(test)]
+pub(crate) use renderide_shared::packing::{
+    polymorphic_decode_error::PolymorphicDecodeError, polymorphic_memory_packable_entity,
+    wire_decode_error::WireDecodeError,
 };
 pub use renderide_shared::shared::*;
 

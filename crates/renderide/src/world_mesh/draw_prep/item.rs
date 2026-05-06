@@ -1,5 +1,6 @@
 //! Collected draw item types and material-slot helpers for world mesh forward drawing.
 
+#[cfg(test)]
 use std::borrow::Cow;
 
 use glam::Mat4;
@@ -7,7 +8,9 @@ use glam::Mat4;
 use crate::materials::RasterPrimitiveTopology;
 use crate::materials::host_data::MaterialPropertyLookupIds;
 use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
-use crate::scene::{MeshMaterialSlot, MeshRendererInstanceId, RenderSpaceId, StaticMeshRenderer};
+#[cfg(test)]
+use crate::scene::MeshMaterialSlot;
+use crate::scene::{MeshRendererInstanceId, RenderSpaceId, StaticMeshRenderer};
 use crate::world_mesh::materials::MaterialDrawBatchKey;
 
 /// Result of `collect_and_sort_draws` including optional frustum cull counts.
@@ -90,7 +93,7 @@ pub struct WorldMeshDrawItem {
     /// Coarse front-to-back bucket for opaque draws, precomputed from [`Self::camera_distance_sq`]
     /// at draw-item construction so [`super::sort::cmp_world_mesh_draw_items`] does not recompute
     /// `sqrt`/`log2` on every pairwise compare.
-    pub opaque_depth_bucket: u16,
+    pub _opaque_depth_bucket: u16,
     /// Packed 64-bit ordering prefix consumed by [`super::sort::sort_draws`]. Built once at
     /// draw-item construction by [`super::sort::pack_sort_prefix`] so the hot sort path uses a
     /// single `u64::cmp` instead of a multi-field comparator chain.
@@ -157,6 +160,7 @@ pub(crate) fn resolved_material_slot_count(renderer: &StaticMeshRenderer) -> usi
 ///
 /// Returns a borrow of [`StaticMeshRenderer::material_slots`] when non-empty; otherwise a single
 /// owned slot from the primary material, or an empty slice.
+#[cfg(test)]
 pub fn resolved_material_slots<'a>(
     renderer: &'a StaticMeshRenderer,
 ) -> Cow<'a, [MeshMaterialSlot]> {

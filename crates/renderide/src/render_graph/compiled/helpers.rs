@@ -17,7 +17,6 @@ use super::super::resources::{
     TextureResourceHandle, TransientExtent,
 };
 use crate::camera::HostCameraFrame;
-use crate::world_mesh::draw_prep::CameraTransformDrawFilter;
 
 use super::{CompiledPassInfo, RenderPassTemplate, ResolvedView};
 
@@ -33,8 +32,6 @@ pub(super) struct GraphPassFrameViewInputs<'a, 'r> {
     pub scene_color_format: wgpu::TextureFormat,
     /// Host camera inputs forwarded to per-pass logic.
     pub host_camera: HostCameraFrame,
-    /// Optional per-camera draw-list filter applied before world-mesh recording.
-    pub transform_draw_filter: Option<CameraTransformDrawFilter>,
     /// Background clear/skybox behavior for this view.
     pub clear: FrameViewClear,
     /// GPU capability limits, shared with passes that need to clamp against them.
@@ -54,7 +51,6 @@ pub(super) fn frame_render_params_from_shared<'a>(
         resolved,
         scene_color_format,
         host_camera,
-        transform_draw_filter,
         clear,
         gpu_limits,
         msaa_depth_resolve,
@@ -78,7 +74,6 @@ pub(super) fn frame_render_params_from_shared<'a>(
             viewport_px: resolved.viewport_px,
             host_camera,
             multiview_stereo: resolved.multiview_stereo,
-            transform_draw_filter,
             offscreen_write_render_texture_asset_id: resolved
                 .offscreen_write_render_texture_asset_id,
             view_id: resolved.view_id,
@@ -99,7 +94,6 @@ pub(super) fn frame_render_params_from_resolved<'a>(
     backend: &'a mut BackendGraphAccess<'_>,
     resolved: &ResolvedView<'a>,
     host_camera: HostCameraFrame,
-    transform_draw_filter: Option<CameraTransformDrawFilter>,
     clear: FrameViewClear,
 ) -> GraphPassFrame<'a> {
     let scene_color_format = backend.scene_color_format_wgpu();
@@ -133,7 +127,6 @@ pub(super) fn frame_render_params_from_resolved<'a>(
             resolved,
             scene_color_format,
             host_camera,
-            transform_draw_filter,
             clear,
             gpu_limits,
             msaa_depth_resolve,
@@ -304,13 +297,9 @@ pub(super) fn clamp_viewport_for_transient_alloc(
     (w, h)
 }
 
-pub(super) fn resolve_buffer_size(size_policy: BufferSizePolicy, viewport_px: (u32, u32)) -> u64 {
+pub(super) fn resolve_buffer_size(size_policy: BufferSizePolicy, _viewport_px: (u32, u32)) -> u64 {
     match size_policy {
         BufferSizePolicy::Fixed(size) => size.max(1),
-        BufferSizePolicy::PerViewport { bytes_per_px } => u64::from(viewport_px.0.max(1))
-            .saturating_mul(u64::from(viewport_px.1.max(1)))
-            .saturating_mul(bytes_per_px)
-            .max(1),
     }
 }
 

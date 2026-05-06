@@ -25,12 +25,14 @@ mod policy_tests;
 #[cfg(test)]
 mod tests;
 
-pub use blend_mode::{
-    MaterialBlendMode, material_blend_mode_for_lookup, material_blend_mode_from_maps,
-};
+#[cfg(test)]
+pub(crate) use blend_mode::material_blend_mode_for_lookup;
+pub use blend_mode::{MaterialBlendMode, material_blend_mode_from_maps};
+#[cfg(test)]
+pub(crate) use pass_kind::{COLOR_WRITES_NONE, MaterialPassState};
 pub use pass_kind::{
-    COLOR_WRITES_NONE, DefaultPassParams, MaterialPassDesc, MaterialPassState, PassKind,
-    default_pass, materialized_pass_for_blend_mode, pass_from_kind,
+    DefaultPassParams, MaterialPassDesc, PassKind, default_pass, materialized_pass_for_blend_mode,
+    pass_from_kind,
 };
 pub use property_ids::MaterialPipelinePropertyIds;
 

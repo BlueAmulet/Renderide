@@ -13,9 +13,11 @@ use thiserror::Error;
 pub enum DriverErrorKind {
     /// `wgpu::Queue::submit` itself reported an error (reserved for future wgpu versions
     /// that return a `Result` from submit -- current wgpu 29 submit is infallible).
+    #[cfg(test)]
     #[error("submit failed: {0}")]
     Submit(String),
     /// `SurfaceTexture::present` reported an error (reserved for future wgpu versions).
+    #[cfg(test)]
     #[error("present failed: {0}")]
     Present(String),
 }
@@ -41,13 +43,7 @@ pub(super) struct DriverErrorState {
 impl DriverErrorState {
     /// Records a failure unless one is already pending. Keeps the earliest failure so the
     /// main thread can correlate subsequent cascade failures without losing the root cause.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "wired once wgpu surfaces fallible submit/present results"
-        )
-    )]
+    #[cfg(test)]
     pub(super) fn record(&self, err: DriverError) {
         let mut guard = self
             .slot

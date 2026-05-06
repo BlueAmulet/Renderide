@@ -39,9 +39,6 @@ pub enum XrSwapchainError {
     /// Device is not Vulkan / hal interop unavailable.
     #[error("wgpu device is not Vulkan or as_hal failed")]
     NotVulkanHal,
-    /// `create_texture_from_hal` failed validation.
-    #[error("wgpu: {0}")]
-    Wgpu(String),
 }
 
 /// OpenXR swapchain plus one wgpu texture + D2Array view per swapchain image.
@@ -100,11 +97,6 @@ impl XrStereoSwapchain {
     /// `wgpu` color array view for a swapchain image index from [`xr::Swapchain::acquire_image`].
     pub fn color_view_for_image(&self, image_index: usize) -> Option<&wgpu::TextureView> {
         self.wgpu_buffers.get(image_index).map(|(_, v)| v)
-    }
-
-    /// Backing [`wgpu::Texture`] for a swapchain image index (array texture, two layers).
-    pub fn color_texture_for_image(&self, image_index: usize) -> Option<&wgpu::Texture> {
-        self.wgpu_buffers.get(image_index).map(|(t, _)| t)
     }
 
     /// Single-eye [`wgpu::TextureView`] (`D2`) for sampling one layer of the acquired swapchain image.

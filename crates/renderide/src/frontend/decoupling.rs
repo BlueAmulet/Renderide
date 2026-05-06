@@ -164,6 +164,7 @@ impl DecouplingState {
     }
 
     /// Whether the renderer is currently running decoupled from host lock-step.
+    #[cfg(test)]
     pub fn is_active(&self) -> bool {
         self.active
     }
@@ -180,6 +181,7 @@ impl DecouplingState {
     }
 
     /// Asset-integration ceiling in seconds while decoupled (host-controlled).
+    #[cfg(test)]
     pub fn decoupled_max_asset_processing_seconds(&self) -> f32 {
         self.decoupled_max_asset_processing_seconds
     }

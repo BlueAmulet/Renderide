@@ -57,23 +57,9 @@ impl CompiledRenderGraph {
     }
 
     /// Whether this graph targets the swapchain this frame.
+    #[cfg(test)]
     pub fn needs_surface_acquire(&self) -> bool {
         self.needs_surface_acquire
-    }
-
-    /// Returns a CPU-side snapshot of the compiled schedule for the debug HUD.
-    ///
-    /// Captures pass count, wave count, phase distribution, and per-wave pass counts.
-    pub fn schedule_hud_snapshot(&self) -> super::super::schedule::ScheduleHudSnapshot {
-        super::super::schedule::ScheduleHudSnapshot::from_schedule(&self.schedule)
-    }
-
-    /// Validates the compiled schedule for structural invariants
-    /// (frame-global before per-view, monotonic waves, wave ranges cover steps).
-    ///
-    /// Called by tests; production code can use this to surface graph build failures early.
-    pub fn validate_schedule(&self) -> Result<(), super::super::schedule::ScheduleValidationError> {
-        self.schedule.validate()
     }
 
     /// Records one view work item and wraps the encoded command buffer with submit-order metadata.
@@ -387,10 +373,10 @@ impl CompiledRenderGraph {
         if let Some((first_occlusion, first_hc)) = per_view_occlusion_info.first().copied() {
             profiling::scope!("graph::post_submit_frame_global");
             let mut post_ctx = PostSubmitContext {
-                device,
-                occlusion: mv_ctx.backend.occlusion_mut(),
-                view_id: first_occlusion,
-                host_camera: first_hc,
+                _device: device,
+                _occlusion: mv_ctx.backend.occlusion_mut(),
+                _view_id: first_occlusion,
+                _host_camera: first_hc,
             };
             for &pass_idx in self.schedule.frame_global_pass_indices() {
                 self.passes[pass_idx]
@@ -405,10 +391,10 @@ impl CompiledRenderGraph {
             for (view, (view_id, host_camera)) in views.iter().zip(per_view_occlusion_info.iter()) {
                 let _ = view;
                 let mut post_ctx = PostSubmitContext {
-                    device,
-                    occlusion: mv_ctx.backend.occlusion_mut(),
-                    view_id: *view_id,
-                    host_camera: *host_camera,
+                    _device: device,
+                    _occlusion: mv_ctx.backend.occlusion_mut(),
+                    _view_id: *view_id,
+                    _host_camera: *host_camera,
                 };
                 for &pass_idx in self.schedule.per_view_pass_indices() {
                     self.passes[pass_idx]
@@ -460,7 +446,6 @@ impl CompiledRenderGraph {
                 view_idx,
                 host_camera,
                 view_id,
-                draw_filter: view.draw_filter.clone(),
                 clear: view.clear,
                 world_mesh_draw_plan: std::mem::replace(
                     &mut view.world_mesh_draw_plan,

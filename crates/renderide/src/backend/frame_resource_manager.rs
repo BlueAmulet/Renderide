@@ -80,17 +80,6 @@ pub struct PerViewPerDrawScratch {
     pub slab_bytes: Vec<u8>,
 }
 
-/// Immutable snapshot of `@group(0)` / empty `@group(1)` resources for one frame.
-///
-/// Obtained via [`FrameResourceManager::gpu_bind_context`]; intended to narrow pass APIs that
-/// should not take the full [`super::RenderBackend`].
-pub struct FrameGpuBindContext<'a> {
-    /// Camera + lights (`@group(0)`).
-    pub frame_gpu: Option<&'a FrameGpuResources>,
-    /// Fallback material (`@group(1)`).
-    pub empty_material: Option<&'a EmptyMaterialBindGroup>,
-}
-
 /// Frame-resource layout needed before graph recording starts for one view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PreRecordViewResourceLayout {
@@ -266,15 +255,6 @@ impl FrameResourceManager {
         *self.visible_mesh_deform_keys.lock() = None;
     }
 
-    /// Whether [`crate::passes::ClusteredLightPass`] already uploaded lights this tick.
-    ///
-    /// Acquire-load pairs with the [`Ordering::Release`] store in
-    /// [`Self::write_frame_uniform_and_lights_from_scratch`] so a worker that sees `true` is
-    /// guaranteed to see the GPU queue writes that produced the upload.
-    pub fn lights_gpu_uploaded_this_tick(&self) -> bool {
-        self.lights_gpu_uploaded_this_tick.load(Ordering::Acquire)
-    }
-
     /// Whether [`crate::passes::MeshDeformPass`] already dispatched this tick.
     ///
     /// Acquire-load pairs with the [`Ordering::Release`] store in
@@ -294,14 +274,6 @@ impl FrameResourceManager {
     /// Replaces the optional visible deform filter for this graph frame.
     pub fn set_visible_mesh_deform_keys(&mut self, keys: HashSet<SkinCacheKey>) {
         *self.visible_mesh_deform_keys.get_mut() = Some(keys);
-    }
-
-    /// Returns whether the deform pass should process `key` for the current graph frame.
-    pub fn mesh_deform_key_is_visible(&self, key: SkinCacheKey) -> bool {
-        self.visible_mesh_deform_keys
-            .lock()
-            .as_ref()
-            .is_none_or(|keys| keys.contains(&key))
     }
 
     /// Clones the current visible deform filter for lock-free worker iteration.
@@ -505,11 +477,6 @@ impl FrameResourceManager {
         }
     }
 
-    /// Number of live per-view frame-state entries.
-    pub fn per_view_frame_count(&self) -> usize {
-        self.per_view_frame.len()
-    }
-
     /// Returns the per-draw slab for the given view, creating it if it does not yet exist.
     ///
     /// Returns `None` when the manager has not been attached (no device limits / layout available).
@@ -540,11 +507,6 @@ impl FrameResourceManager {
         if self.per_view_draw.retire(view_id) {
             logger::debug!("per-draw slab: retired slab for view {view_id:?}");
         }
-    }
-
-    /// Number of live per-view per-draw slabs.
-    pub fn per_view_per_draw_count(&self) -> usize {
-        self.per_view_draw.len()
     }
 
     /// Returns the per-view scratch slot used for per-draw uniform packing, creating it on first use.
@@ -579,11 +541,6 @@ impl FrameResourceManager {
         if self.per_view_per_draw_scratch.retire(view_id) {
             logger::debug!("per-draw slab scratch: retired for view {view_id:?}");
         }
-    }
-
-    /// Number of live per-view CPU scratch slots.
-    pub fn per_view_per_draw_scratch_count(&self) -> usize {
-        self.per_view_per_draw_scratch.len()
     }
 
     /// Retires all view-scoped frame resources for `view_id`.
@@ -680,14 +637,6 @@ impl FrameResourceManager {
             .store(false, Ordering::Release);
     }
 
-    /// Bundles frame/empty-material bind resources for render passes.
-    pub fn gpu_bind_context(&self) -> FrameGpuBindContext<'_> {
-        FrameGpuBindContext {
-            frame_gpu: self.frame_gpu.as_ref(),
-            empty_material: self.empty_material.as_ref(),
-        }
-    }
-
     /// Pre-synchronizes shared cluster buffers for every unique view layout before per-view
     /// recording starts and uploads the packed lights buffer at most once for the tick.
     pub fn pre_record_sync_for_views(
@@ -725,34 +674,6 @@ impl FrameResourceManager {
             profiling::scope!("render::pre_record_sync_for_views::write_lights");
             fgpu.write_lights_buffer(queue, &self.light_scratch);
         }
-    }
-
-    /// Syncs the global cluster viewport and uploads the packed light buffer once per tick.
-    ///
-    /// The global cluster viewport sync keeps the shared bind group consistent with the current
-    /// viewport/stereo. Per-view cluster buffers (in [`PerViewFrameState`]) are synced separately
-    /// via [`Self::per_view_frame_or_create`]. Lights upload is coalesced: after the first
-    /// successful upload this tick, subsequent calls skip
-    /// [`super::frame_gpu::FrameGpuResources::write_lights_buffer`].
-    pub fn sync_cluster_viewport_ensure_lights_upload(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        viewport: (u32, u32),
-        stereo: bool,
-    ) -> Option<&mut FrameGpuResources> {
-        let skip = self.lights_gpu_uploaded_this_tick.load(Ordering::Acquire);
-        {
-            let fgpu = self.frame_gpu_mut()?;
-            fgpu.sync_cluster_viewport(device, viewport, stereo)?;
-        };
-        if !skip {
-            let fgpu = self.frame_gpu.as_ref()?;
-            fgpu.write_lights_buffer(queue, &self.light_scratch);
-            self.lights_gpu_uploaded_this_tick
-                .store(true, Ordering::Release);
-        }
-        self.frame_gpu_mut()
     }
 
     /// Copies the main depth attachment into this view's scene-depth snapshot.

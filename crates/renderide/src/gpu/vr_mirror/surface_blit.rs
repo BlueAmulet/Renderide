@@ -1,7 +1,7 @@
 //! Staging->surface blit for the VR desktop mirror.
 //!
 //! Per-frame effect: blits the persistent staging texture (filled by
-//! [`super::resources::VrMirrorBlitResources::submit_eye_to_staging`]) into the swapchain
+//! [`super::resources::VrMirrorBlitResources::submit_eye_to_staging_with_finalize`]) into the swapchain
 //! using **cover** UV mapping (fills the window, crops staging center). Optionally
 //! composites an overlay (e.g. Dear ImGui) on the same encoder.
 
@@ -16,18 +16,9 @@ use super::pipelines::{linear_sampler, surface_bind_group_layout};
 use super::resources::VrMirrorBlitResources;
 
 impl VrMirrorBlitResources {
-    /// Blits staging to the window with **cover** mapping (fills the window, crops staging as needed).
-    /// No-op when [`Self::staging_valid`] is false
-    /// (caller may [`crate::present::present_clear_frame`] instead).
-    pub fn present_staging_to_surface(
-        &mut self,
-        gpu: &mut GpuContext,
-    ) -> Result<(), PresentClearError> {
-        self.present_staging_to_surface_overlay(gpu, |_, _, _| Ok::<(), String>(()))
-    }
-
-    /// Same as [`Self::present_staging_to_surface`], then runs `overlay` on the same encoder and swapchain view
-    /// (e.g. Dear ImGui with `LoadOp::Load` over the mirror image).
+    /// Blits staging to the window with **cover** mapping, then runs `overlay` on the same encoder
+    /// and swapchain view (e.g. Dear ImGui with `LoadOp::Load` over the mirror image). No-op when
+    /// [`Self::staging_valid`] is false (caller may [`crate::present::present_clear_frame`] instead).
     pub fn present_staging_to_surface_overlay<F, E>(
         &mut self,
         gpu: &mut GpuContext,

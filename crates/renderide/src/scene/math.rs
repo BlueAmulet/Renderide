@@ -60,6 +60,7 @@ pub fn render_transform_to_matrix(t: &RenderTransform) -> Mat4 {
 /// for the **view / rig** basis; combining it with object matrices is only for exceptional host
 /// contracts--not default mesh, light, or skinning paths.
 #[inline]
+#[cfg(test)]
 pub fn multiply_root(world_local: Mat4, root: &RenderTransform) -> Mat4 {
     render_transform_to_matrix(root) * world_local
 }

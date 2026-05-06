@@ -17,8 +17,6 @@ impl RendererRuntime {
         let backend_diag = self.backend.snapshot_for_diagnostics();
         let frame_diag = crate::diagnostics::FrameDiagnosticsSnapshot::capture(
             crate::diagnostics::FrameDiagnosticsSnapshotCapture {
-                gpu,
-                wall_frame_time_ms: self.backend.debug_frame_time_ms(),
                 host,
                 last_submit_render_task_count: self.diagnostics.last_submit_render_task_count,
                 backend: &backend_diag,
@@ -61,7 +59,6 @@ impl RendererRuntime {
                 surface_format: gpu.config_format(),
                 viewport_px: gpu.surface_extent_px(),
                 present_mode: gpu.present_mode(),
-                frame_time_ms: self.backend.debug_frame_time_ms(),
                 scene: &self.scene,
                 backend: &backend_diag,
                 gpu,

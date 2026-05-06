@@ -5,7 +5,9 @@ use crate::render_graph::builder::GraphBuilder;
 use crate::render_graph::ids::PassId;
 use crate::render_graph::resources::TextureHandle;
 
-use super::effect::{PostProcessEffect, PostProcessEffectId};
+use super::effect::PostProcessEffect;
+#[cfg(test)]
+use super::effect::PostProcessEffectId;
 use super::ping_pong::{PingPongCursor, PingPongHdrSlots};
 
 /// Topology fingerprint for the post-processing chain at graph compile time.
@@ -64,6 +66,7 @@ impl PostProcessChainSignature {
     }
 
     /// Returns `true` when no effects are active and the chain should be skipped entirely.
+    #[cfg(test)]
     pub fn is_empty(self) -> bool {
         !self.gtao && !self.bloom && !self.auto_exposure && !self.aces_tonemap
     }
@@ -136,21 +139,6 @@ impl PostProcessChain {
     /// Pushes an effect onto the chain.
     pub fn push(&mut self, effect: Box<dyn PostProcessEffect>) {
         self.effects.push(effect);
-    }
-
-    /// Iterates over effect identities in execution order.
-    pub fn effect_ids(&self) -> impl Iterator<Item = PostProcessEffectId> + '_ {
-        self.effects.iter().map(|e| e.id())
-    }
-
-    /// Number of registered effects (regardless of enable state).
-    pub fn len(&self) -> usize {
-        self.effects.len()
-    }
-
-    /// Whether the chain has zero registered effects.
-    pub fn is_empty(&self) -> bool {
-        self.effects.is_empty()
     }
 
     /// Inserts the chain's enabled passes into `builder`, returning the wiring info.

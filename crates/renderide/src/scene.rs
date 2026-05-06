@@ -70,17 +70,13 @@ mod world;
 
 pub use camera_apply::CameraRenderableEntry;
 pub use coordinator::{SceneApplyReport, SceneCacheFlushReport, SceneCoordinator};
-pub use error::SceneError;
-pub use ids::{RenderSpaceId, TransformIndex};
-pub use lights::{CachedLight, LightCache, ResolvedLight, light_casts_shadows, light_contributes};
+pub use ids::RenderSpaceId;
+pub use lights::{ResolvedLight, light_contributes};
 pub use math::render_transform_to_matrix;
 pub use mesh_renderable::{
     MeshMaterialSlot, MeshRendererInstanceId, SkinnedMeshRenderer, StaticMeshRenderer,
 };
 pub use reflection_probe::{
-    ReflectionProbeEntry, reflection_probe_hdr, reflection_probe_skybox_only,
-    reflection_probe_use_box_projection,
+    ReflectionProbeEntry, reflection_probe_skybox_only, reflection_probe_use_box_projection,
 };
 pub use render_space::RenderSpaceView;
-pub use transforms_apply::TransformRemovalEvent;
-pub use world::WorldTransformCache;

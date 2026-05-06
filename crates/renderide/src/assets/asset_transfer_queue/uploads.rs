@@ -15,17 +15,16 @@ mod video_texture;
 pub use attach::attach_flush_pending_asset_uploads;
 pub use cubemap::{
     on_set_cubemap_data, on_set_cubemap_format, on_set_cubemap_properties, on_unload_cubemap,
-    try_cubemap_upload_with_device,
 };
 pub use mesh::{on_mesh_unload, try_process_mesh_upload};
 pub use render_texture::{on_set_render_texture_format, on_unload_render_texture};
 pub use texture2d::{
     on_set_texture_2d_data, on_set_texture_2d_format, on_set_texture_2d_properties,
-    on_unload_texture_2d, try_texture_upload_with_device,
+    on_unload_texture_2d,
 };
 pub use texture3d::{
     on_set_texture_3d_data, on_set_texture_3d_format, on_set_texture_3d_properties,
-    on_unload_texture_3d, try_texture3d_upload_with_device,
+    on_unload_texture_3d,
 };
 pub use video_texture::{
     on_unload_video_texture, on_video_texture_load, on_video_texture_properties,

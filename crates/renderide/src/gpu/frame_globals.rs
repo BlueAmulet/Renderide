@@ -15,5 +15,5 @@ mod uniforms;
 mod tests;
 
 pub use clustered::ClusteredFrameGlobalsParams;
-pub use skybox_specular::{SkyboxSpecularSourceKind, SkyboxSpecularUniformParams};
+pub use skybox_specular::SkyboxSpecularUniformParams;
 pub use uniforms::{FRAME_PROJECTION_FLAG_ORTHOGRAPHIC, FrameGpuUniforms};

@@ -15,17 +15,6 @@ pub struct CachedLight {
     pub transform_id: usize,
 }
 
-impl CachedLight {
-    /// Creates a cached light with default buffer state when only [`LightData`] is available.
-    pub fn from_data(data: LightData) -> Self {
-        Self {
-            data,
-            state: LightsBufferRendererState::default(),
-            transform_id: 0,
-        }
-    }
-}
-
 /// Resolved light in world space, ready for GPU packing and shading.
 #[derive(Clone, Debug)]
 pub struct ResolvedLight {
@@ -43,8 +32,6 @@ pub struct ResolvedLight {
     pub spot_angle: f32,
     /// Light type: point, directional, or spot.
     pub light_type: LightType,
-    /// Buffer global unique id, or `-1` for regular [`crate::shared::LightState`] lights.
-    pub global_unique_id: i32,
     /// Shadow mode from the host.
     pub shadow_type: ShadowType,
     /// Shadow strength multiplier (0 = no shadow contribution).
@@ -60,6 +47,7 @@ pub struct ResolvedLight {
 /// Whether `resolved` should cast shadows (ray-traced path guard).
 ///
 /// [`ShadowType::None`] or non-positive [`ResolvedLight::shadow_strength`] disables shadow rays.
+#[cfg(test)]
 pub fn light_casts_shadows(resolved: &ResolvedLight) -> bool {
     resolved.shadow_type != ShadowType::None && resolved.shadow_strength > 0.0
 }
@@ -102,7 +90,6 @@ mod tests {
             range: 10.0,
             spot_angle: 45.0,
             light_type: LightType::Point,
-            global_unique_id: 1,
             shadow_type: ShadowType::None,
             shadow_strength: 0.0,
             shadow_near_plane: 0.0,

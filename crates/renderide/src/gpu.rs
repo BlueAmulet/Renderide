@@ -26,13 +26,11 @@ pub use context::{GpuContext, GpuError};
 pub use depth::{
     MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE, main_forward_depth_stencil_format,
 };
-pub use driver_thread::{DriverError, DriverErrorKind, DriverThread, SubmitBatch, SubmitWait};
-pub use frame_globals::{ClusteredFrameGlobalsParams, FrameGpuUniforms};
 pub use instance_limits::{RENDERER_MAX_TEXTURE_DIMENSION_2D, instance_flags_for_gpu_init};
-pub use limits::{CUBEMAP_ARRAY_LAYERS, GpuLimits, GpuLimitsError, MAX_RENDER_TEXTURE_EDGE};
+pub use limits::{CUBEMAP_ARRAY_LAYERS, GpuLimits};
 pub use msaa_depth_resolve::{
     MsaaDepthResolveMonoTargets, MsaaDepthResolveResources, MsaaDepthResolveStereoTargets,
 };
-pub use output_depth_mode::{OutputDepthMode, OutputDepthModeError};
+pub use output_depth_mode::OutputDepthMode;
 pub use queue_access_gate::GpuQueueAccessGate;
 pub use vr_mirror::{VR_MIRROR_EYE_LAYER, VrMirrorBlitResources};

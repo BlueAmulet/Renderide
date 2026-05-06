@@ -155,13 +155,6 @@ pub fn order_lights_for_clustered_shading_in_place(lights: &mut Vec<ResolvedLigh
     }
 }
 
-/// Allocates a new [`Vec`]; use [`order_lights_for_clustered_shading_in_place`] for hot paths.
-pub fn order_lights_for_clustered_shading(lights: &[ResolvedLight]) -> Vec<ResolvedLight> {
-    let mut v = lights.to_vec();
-    order_lights_for_clustered_shading_in_place(&mut v);
-    v
-}
-
 #[cfg(test)]
 mod layout_tests {
     use glam::Vec3;
@@ -189,7 +182,6 @@ mod layout_tests {
             range: 10.0,
             spot_angle: 45.0,
             light_type,
-            global_unique_id: -1,
             shadow_type: ShadowType::None,
             shadow_strength: 0.0,
             shadow_near_plane: 0.0,

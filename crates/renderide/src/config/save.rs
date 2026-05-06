@@ -7,7 +7,6 @@
 use std::io;
 use std::path::Path;
 
-use super::load::ConfigLoadResult;
 use super::resolve::FILE_NAME_TOML;
 use super::types::RendererSettings;
 
@@ -34,29 +33,6 @@ pub fn save_renderer_settings(path: &Path, settings: &RendererSettings) -> io::R
     std::fs::write(&tmp, contents.as_bytes())?;
     std::fs::rename(&tmp, path)?;
     Ok(())
-}
-
-/// Persists using [`ConfigLoadResult::save_path`] and logs failures.
-///
-/// Skipped when [`ConfigLoadResult::suppress_config_disk_writes`] is set, which signals the
-/// initial load hit a Figment extract error against an existing file (any save would risk
-/// silently overwriting the user's broken-but-recoverable file).
-pub fn save_renderer_settings_from_load(load: &ConfigLoadResult, settings: &RendererSettings) {
-    if load.suppress_config_disk_writes {
-        logger::error!(
-            "Refusing to save renderer config to {}: initial load had Figment extraction errors; fix the file and restart",
-            load.save_path.display()
-        );
-        return;
-    }
-    if let Err(e) = save_renderer_settings(&load.save_path, settings) {
-        logger::warn!(
-            "Failed to save renderer config to {}: {e}",
-            load.save_path.display()
-        );
-    } else {
-        logger::trace!("Saved renderer config to {}", load.save_path.display());
-    }
 }
 
 #[cfg(test)]

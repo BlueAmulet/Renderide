@@ -105,12 +105,17 @@ impl StatsSection for GpuAdapterSection {
             r.msaa_effective_samples_stereo, r.msaa_max_samples_stereo
         ));
         ui.text(format!(
-            "Limits: tex2d<={}  max_buf={}  storage_bind={}  |  base_instance={}  multiview={}",
+            "Limits: tex2d<={}  max_buf={}  storage_bind={}  |  base_instance={}  multiview={}  f32_filter={}",
             r.gpu_max_texture_dim_2d,
             r.gpu_max_buffer_size,
             r.gpu_max_storage_binding,
             r.gpu_supports_base_instance,
-            r.gpu_supports_multiview
+            r.gpu_supports_multiview,
+            r.gpu_supports_float32_filterable
+        ));
+        ui.text(format!(
+            "Texture compression features: {:?}",
+            r.gpu_texture_compression_features
         ));
     }
 }
@@ -271,7 +276,14 @@ impl StatsSection for ResourcesAndGraphSection {
             ui.text(format!("Mesh pool: {n}"));
         }
         if let Some(n) = texture_pool {
-            ui.text(format!("Textures (pool): {n}"));
+            if let Some(f) = ctx.frame {
+                ui.text(format!(
+                    "Textures: {n} GPU resident  |  {} CPU registered  |  {} mip0 ready",
+                    f.mesh_draw.textures_cpu_registered, f.mesh_draw.textures_cpu_mip0_ready
+                ));
+            } else {
+                ui.text(format!("Textures (pool): {n}"));
+            }
         }
         if let Some(n) = render_texture_pool {
             ui.text(format!("Render textures (pool): {n}"));

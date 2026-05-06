@@ -110,11 +110,13 @@ impl Default for HostCameraFrame {
 
 impl HostCameraFrame {
     /// Returns the near clip distance.
+    #[cfg(test)]
     pub const fn near_clip(self) -> f32 {
         self.clip.near
     }
 
     /// Returns the far clip distance.
+    #[cfg(test)]
     pub const fn far_clip(self) -> f32 {
         self.clip.far
     }

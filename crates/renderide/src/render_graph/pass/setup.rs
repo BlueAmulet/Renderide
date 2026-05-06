@@ -5,7 +5,9 @@
 
 use std::num::NonZeroU32;
 
-use super::node::{PassKind, PassMergeHint};
+use super::node::PassKind;
+#[cfg(test)]
+use super::node::PassMergeHint;
 use crate::render_graph::error::SetupError;
 use crate::render_graph::resources::{
     ResourceAccess, TextureAttachmentResolve, TextureAttachmentTarget,
@@ -51,6 +53,7 @@ pub struct PassSetup {
     /// When `true`, the pass is retained even when it has no import-writing successors.
     pub(crate) cull_exempt: bool,
     /// Backend merge hint; see [`PassMergeHint`].
+    #[cfg(test)]
     pub(crate) merge_hint: PassMergeHint,
 }
 
@@ -62,9 +65,7 @@ impl PassSetup {
             || self.accesses.iter().any(ResourceAccess::is_attachment);
         match self.kind {
             PassKind::Raster if !has_attachment => Err(SetupError::RasterWithoutAttachments),
-            PassKind::Compute | PassKind::Copy if has_attachment => {
-                Err(SetupError::NonRasterPassHasAttachment)
-            }
+            PassKind::Compute if has_attachment => Err(SetupError::NonRasterPassHasAttachment),
             PassKind::Callback if !self.accesses.is_empty() => {
                 Err(SetupError::CallbackPassHasAccesses)
             }

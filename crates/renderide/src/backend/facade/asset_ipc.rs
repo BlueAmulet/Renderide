@@ -76,26 +76,6 @@ impl RenderBackend {
         asset_uploads::on_set_texture_2d_data(&mut self.asset_transfers, d, shm, ipc);
     }
 
-    /// Upload texture mips from shared memory and optionally notify the host on the background queue.
-    ///
-    /// `consume_texture_upload_budget` should be `true` for normal IPC handling; use `false` when
-    /// draining deferred uploads or replaying pending uploads on GPU attach.
-    pub fn try_texture_upload_with_device(
-        &mut self,
-        data: SetTexture2DData,
-        shm: &mut SharedMemoryAccessor,
-        ipc: Option<&mut DualQueueIpc>,
-        consume_texture_upload_budget: bool,
-    ) {
-        asset_uploads::try_texture_upload_with_device(
-            &mut self.asset_transfers,
-            data,
-            shm,
-            ipc,
-            consume_texture_upload_budget,
-        );
-    }
-
     /// Remove a texture asset from CPU tables and the pool.
     pub fn on_unload_texture_2d(&mut self, u: UnloadTexture2D) {
         asset_uploads::on_unload_texture_2d(&mut self.asset_transfers, u);

@@ -7,10 +7,7 @@ use parking_lot::Mutex;
 
 use crate::passes::PipelineVariantKey;
 
-use super::cache::{
-    MaterialPipelineCache, MaterialPipelineCacheStats, MaterialPipelineSet,
-    MaterialPipelineVariantSpec,
-};
+use super::cache::{MaterialPipelineCache, MaterialPipelineSet, MaterialPipelineVariantSpec};
 use super::family::MaterialPipelineDesc;
 use super::pipeline_kind::RasterPipelineKind;
 use super::resolve_raster::resolve_raster_pipeline;
@@ -31,7 +28,6 @@ struct PipelineLookupRequest<'a> {
 
 /// Owning table of material routing and pipeline cache.
 pub struct MaterialRegistry {
-    device: Arc<wgpu::Device>,
     /// Shader asset id -> pipeline family and resolved asset-name routing.
     pub router: MaterialRouter,
     cache: MaterialPipelineCache,
@@ -97,7 +93,6 @@ impl MaterialRegistry {
         limits: Arc<crate::gpu::GpuLimits>,
     ) -> Self {
         Self {
-            device: device.clone(),
             router: MaterialRouter::new(RasterPipelineKind::Null),
             cache: MaterialPipelineCache::new(device, limits),
             warmed_variants: Mutex::new(HashSet::new()),
@@ -121,11 +116,6 @@ impl MaterialRegistry {
                 self.router.remove_shader_stem(shader_asset_id);
             }
         }
-    }
-
-    /// Inserts a host shader id -> pipeline mapping without an AssetBundle shader asset name.
-    pub fn map_shader_pipeline(&mut self, shader_asset_id: i32, pipeline: RasterPipelineKind) {
-        self.map_shader_route(shader_asset_id, pipeline, None);
     }
 
     /// Removes routing for a host shader id [`crate::shared::ShaderUnload`].
@@ -165,46 +155,6 @@ impl MaterialRegistry {
             desc,
             variant,
         })
-    }
-
-    /// Looks up a pipeline by explicit kind (for example tests or tools that do not use a host shader id).
-    pub fn pipeline_for_kind(
-        &self,
-        kind: &RasterPipelineKind,
-        desc: &MaterialPipelineDesc,
-        variant: MaterialPipelineVariantSpec,
-    ) -> Option<MaterialPipelineSet> {
-        self.try_pipeline_with_fallback(PipelineLookupRequest {
-            shader_asset_id: None,
-            kind,
-            desc,
-            variant,
-        })
-    }
-
-    /// Low-level cache access keyed by [`RasterPipelineKind`].
-    pub fn get_or_create_pipeline(
-        &self,
-        kind: &RasterPipelineKind,
-        desc: &MaterialPipelineDesc,
-        variant: MaterialPipelineVariantSpec,
-    ) -> Option<MaterialPipelineSet> {
-        self.try_pipeline_with_fallback(PipelineLookupRequest {
-            shader_asset_id: None,
-            kind,
-            desc,
-            variant,
-        })
-    }
-
-    /// Borrow the wgpu device held by this registry.
-    pub fn device(&self) -> &Arc<wgpu::Device> {
-        &self.device
-    }
-
-    /// Diagnostic snapshot of the material pipeline cache.
-    pub fn pipeline_cache_stats(&self) -> MaterialPipelineCacheStats {
-        self.cache.stats()
     }
 
     /// Shader routes for the debug HUD (`shader_asset_id`, [`RasterPipelineKind`], optional AssetBundle shader asset name), sorted.

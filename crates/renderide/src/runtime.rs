@@ -90,8 +90,6 @@ use ipc_state::RuntimeIpcState;
 use tick_state::RuntimeTickState;
 use xr_stats::RuntimeXrStats;
 
-pub use crate::frontend::InitState;
-
 /// Result of one [`RendererRuntime::tick_one_frame`] call.
 ///
 /// `shutdown_requested` lets the calling driver exit its event loop; `fatal_error` triggers a

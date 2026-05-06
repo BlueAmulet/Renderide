@@ -97,7 +97,6 @@ impl CompiledRenderGraph {
         let PerViewWorkItem {
             view_idx,
             host_camera,
-            draw_filter,
             clear,
             world_mesh_draw_plan,
             resolved,
@@ -135,7 +134,7 @@ impl CompiledRenderGraph {
         let graph_resources: &GraphResolvedResources = &resolved_resources;
 
         let mut frame_params =
-            Self::build_per_view_frame_params(shared, &resolved, &host_camera, draw_filter, clear);
+            Self::build_per_view_frame_params(shared, &resolved, &host_camera, clear);
         let mut view_blackboard = self.build_per_view_blackboard(
             &frame_params,
             graph_resources,
@@ -207,7 +206,6 @@ impl CompiledRenderGraph {
         shared: &'a PerViewRecordShared<'a>,
         resolved: &'a ResolvedView<'a>,
         host_camera: &crate::camera::HostCameraFrame,
-        draw_filter: Option<crate::world_mesh::draw_prep::CameraTransformDrawFilter>,
         clear: super::super::super::frame_params::FrameViewClear,
     ) -> crate::render_graph::frame_params::GraphPassFrame<'a> {
         profiling::scope!("graph::per_view::build_frame_params");
@@ -229,7 +227,6 @@ impl CompiledRenderGraph {
                 resolved,
                 scene_color_format: shared.scene_color_format,
                 host_camera: *host_camera,
-                transform_draw_filter: draw_filter,
                 clear,
                 gpu_limits: shared.gpu_limits_arc.clone(),
                 msaa_depth_resolve: shared.msaa_depth_resolve.clone(),
@@ -358,7 +355,6 @@ impl CompiledRenderGraph {
                     backend,
                     &resolved,
                     first.host_camera,
-                    first.draw_filter.clone(),
                     first.clear,
                 )
             };
@@ -498,7 +494,6 @@ impl CompiledRenderGraph {
     ///
     /// - `Raster` -> opens `wgpu::RenderPass` from template, calls `record_raster`.
     /// - `Compute` -> calls `record_compute` with raw encoder.
-    /// - `Copy` -> calls `record_copy` with raw encoder.
     /// - `Callback` -> calls `run_callback` (no encoder).
     ///
     /// Takes `&self` so per-view recording can be hoisted onto rayon workers without serialising
@@ -544,10 +539,7 @@ impl CompiledRenderGraph {
                 let template = helpers::pass_info_raster_template(&self.pass_info, pass_idx)?;
                 let mut ctx = RasterPassCtx {
                     device,
-                    gpu_limits,
                     queue: queue_arc,
-                    backbuffer: resolved.backbuffer,
-                    depth_view: Some(resolved.depth_view),
                     pass_frame: frame_params,
                     upload_batch,
                     graph_resources,
@@ -586,23 +578,6 @@ impl CompiledRenderGraph {
                         .map_err(GraphExecuteError::Pass)?;
                 }
             }
-            PassKind::Copy => {
-                profiling::scope!("graph::record_copy");
-                let mut ctx = ComputePassCtx {
-                    device,
-                    gpu_limits,
-                    queue: queue_arc,
-                    encoder,
-                    depth_view: Some(resolved.depth_view),
-                    pass_frame: frame_params,
-                    upload_batch,
-                    graph_resources,
-                    blackboard,
-                    profiler,
-                };
-                pass.record_copy(&mut ctx)
-                    .map_err(GraphExecuteError::Pass)?;
-            }
             PassKind::Callback => {
                 profiling::scope!("graph::record_callback");
                 let mut ctx = CallbackCtx {
@@ -611,7 +586,6 @@ impl CompiledRenderGraph {
                     queue: queue_arc,
                     pass_frame: frame_params,
                     upload_batch,
-                    graph_resources,
                     blackboard,
                 };
                 pass.run_callback(&mut ctx)

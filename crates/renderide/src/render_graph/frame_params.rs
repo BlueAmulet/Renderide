@@ -26,7 +26,6 @@ use crate::shared::CameraClearMode;
 
 use super::blackboard::BlackboardSlot;
 use crate::gpu::OutputDepthMode;
-use crate::world_mesh::draw_prep::CameraTransformDrawFilter;
 
 /// Per-view background clear contract propagated from host camera state.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -47,6 +46,7 @@ impl FrameViewClear {
     }
 
     /// Color clear mode with the supplied linear RGBA background.
+    #[cfg(test)]
     pub fn color(color: glam::Vec4) -> Self {
         Self {
             mode: CameraClearMode::Color,
@@ -172,8 +172,6 @@ pub struct GraphPassFrameView<'a> {
     pub host_camera: HostCameraFrame,
     /// When `true`, the forward pass targets 2-layer array attachments and may use multiview.
     pub multiview_stereo: bool,
-    /// Optional transform filter for secondary cameras (selective / exclude lists).
-    pub transform_draw_filter: Option<CameraTransformDrawFilter>,
     /// When rendering a secondary camera to a host render texture, the asset id of the color
     /// target being written. Materials must not sample that texture in the same pass.
     pub offscreen_write_render_texture_asset_id: Option<i32>,

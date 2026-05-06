@@ -38,7 +38,7 @@ pub struct GpuRenderTexture {
     /// Host render-texture asset id.
     pub asset_id: i32,
     /// Color target (`Rgba16Float`); sampleable after offscreen draws.
-    pub color_texture: Arc<wgpu::Texture>,
+    pub _color_texture: Arc<wgpu::Texture>,
     /// Default view over the full color mip.
     pub color_view: Arc<wgpu::TextureView>,
     /// Optional depth texture (always allocated for scene draws in [`Self::new_from_format`]).
@@ -146,7 +146,7 @@ impl GpuRenderTexture {
 
         Some(Self {
             asset_id: fmt.asset_id,
-            color_texture,
+            _color_texture: color_texture,
             color_view,
             depth_texture,
             depth_view,
@@ -177,6 +177,14 @@ impl_resident_pool_facade!(
     GpuRenderTexture,
     VramResourceKind::Texture,
 );
+
+impl RenderTexturePool {
+    /// Number of resident render texture entries.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
 
 #[cfg(test)]
 mod tests {

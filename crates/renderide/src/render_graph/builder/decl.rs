@@ -1,6 +1,6 @@
 //! Internal types backing [`super::GraphBuilder`] declarations.
 
-use super::super::ids::{GroupId, PassId};
+use super::super::ids::GroupId;
 use super::super::pass::{GroupScope, PassNode, PassSetup};
 use super::super::resources::{
     TransientArrayLayers, TransientExtent, TransientSampleCount, TransientTextureFormat,
@@ -17,8 +17,6 @@ pub(crate) struct PassEntry {
 /// Internal group declaration.
 #[derive(Clone, Debug)]
 pub(crate) struct GroupEntry {
-    /// Stable label for logging and debug HUD.
-    pub(crate) name: &'static str,
     /// Whether passes in this group run once per frame or once per view.
     pub(crate) scope: GroupScope,
     /// This group must execute after these groups.
@@ -27,8 +25,6 @@ pub(crate) struct GroupEntry {
 
 /// Compiled setup data for one pass indexed by its declaration position.
 pub(super) struct SetupEntry {
-    /// Pass id (position in declaration order).
-    pub(super) id: PassId,
     /// Group id for this pass.
     pub(super) group: GroupId,
     /// Pass name (owned for error messages).

@@ -11,23 +11,9 @@ use super::pipelines::{eye_bind_group_layout, eye_pipeline, linear_sampler};
 use super::resources::VrMirrorBlitResources;
 
 impl VrMirrorBlitResources {
-    /// Copies the acquired swapchain eye layer into the staging texture and submits GPU work.
-    ///
-    /// Call after the multiview render graph submit, before [`openxr::Swapchain::release_image`].
-    pub fn submit_eye_to_staging(
-        &mut self,
-        gpu: &mut GpuContext,
-        eye_extent: (u32, u32),
-        source_layer_view: &wgpu::TextureView,
-    ) {
-        self.submit_eye_to_staging_inner(gpu, eye_extent, source_layer_view, None);
-    }
-
-    /// Same as [`Self::submit_eye_to_staging`] but attaches an OpenXR finalize payload to
-    /// the submitted batch so the driver thread can release the swapchain image and call
-    /// `xrEndFrame` immediately after `Queue::submit` returns. Used by the VR HMD path so
-    /// the main thread does not have to wait on the driver to drain the ring before the
-    /// OpenXR finalize.
+    /// Copies the acquired swapchain eye layer into the staging texture, submits GPU work,
+    /// and attaches an OpenXR finalize payload so the driver thread can release the swapchain
+    /// image and call `xrEndFrame` immediately after `Queue::submit` returns.
     pub fn submit_eye_to_staging_with_finalize(
         &mut self,
         gpu: &mut GpuContext,

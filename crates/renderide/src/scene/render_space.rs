@@ -1,8 +1,6 @@
 //! Per-render-space state mirrored from [`crate::shared::RenderSpaceUpdate`].
 
-use super::render_overrides::{
-    MeshRendererOverrideTarget, RenderMaterialOverrideEntry, RenderTransformOverrideEntry,
-};
+use super::render_overrides::{RenderMaterialOverrideEntry, RenderTransformOverrideEntry};
 use crate::shared::{
     LayerType, ReflectionProbeChangeRenderTask, RenderSH2, RenderSpaceUpdate, RenderTransform,
     RenderingContext,
@@ -46,6 +44,7 @@ impl<'a> RenderSpaceView<'a> {
     }
 
     /// Host render-space id.
+    #[cfg(test)]
     pub fn id(self) -> RenderSpaceId {
         self.state.id
     }
@@ -71,6 +70,7 @@ impl<'a> RenderSpaceView<'a> {
     }
 
     /// Returns whether the view position comes from the external render context.
+    #[cfg(test)]
     pub fn view_position_is_external(self) -> bool {
         self.state.view_position_is_external
     }
@@ -126,6 +126,7 @@ impl<'a> RenderSpaceView<'a> {
     }
 
     /// Total dense mesh-renderer count across static and skinned renderers.
+    #[cfg(test)]
     pub fn mesh_renderable_count(self) -> usize {
         self.state.static_mesh_renderers.len() + self.state.skinned_mesh_renderers.len()
     }
@@ -133,37 +134,6 @@ impl<'a> RenderSpaceView<'a> {
     /// Primary render context for this render space.
     pub fn main_render_context(self) -> RenderingContext {
         self.state.main_render_context()
-    }
-
-    /// Returns whether any transform override rows exist for `context`.
-    pub fn has_transform_overrides_in_context(self, context: RenderingContext) -> bool {
-        self.state.has_transform_overrides_in_context(context)
-    }
-
-    /// Applies transform overrides for `node_id` in `context` atop the dense local transform.
-    pub fn overridden_local_transform(
-        self,
-        node_id: i32,
-        context: RenderingContext,
-    ) -> Option<RenderTransform> {
-        self.state.overridden_local_transform(node_id, context)
-    }
-
-    /// Resolves a material override for one renderer slot in `context`.
-    pub fn overridden_material_asset_id(
-        self,
-        context: RenderingContext,
-        skinned: bool,
-        renderable_index: usize,
-        slot_index: usize,
-    ) -> Option<i32> {
-        let target = if skinned {
-            MeshRendererOverrideTarget::Skinned(renderable_index as i32)
-        } else {
-            MeshRendererOverrideTarget::Static(renderable_index as i32)
-        };
-        self.state
-            .overridden_material_asset_id(context, target, slot_index)
     }
 }
 

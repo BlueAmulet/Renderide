@@ -11,16 +11,11 @@ mod tangent_generation;
 mod upload_impl;
 
 pub use gpu_mesh::GpuMesh;
-pub use gpu_mesh_fingerprint::{mesh_layout_fingerprint, mesh_upload_input_fingerprint};
+pub use gpu_mesh_fingerprint::mesh_upload_input_fingerprint;
 pub use gpu_mesh_validation::{compute_and_validate_mesh_layout, try_upload_mesh_from_raw};
 pub use layout::{
-    BLENDSHAPE_PACKED_VECTOR_DELTA_RANGE, BLENDSHAPE_PACKED_VECTOR_SPARSE_ENTRY_SIZE,
     BLENDSHAPE_PACKED_VECTOR_SPARSE_ENTRY_WORDS, BLENDSHAPE_POSITION_SPARSE_ENTRY_SIZE,
-    BLENDSHAPE_POSITION_SPARSE_ENTRY_WORDS, BlendshapeFrameCoefficient, BlendshapeFrameRange,
-    BlendshapeFrameSpan, BlendshapeGpuPack, MAX_BUFFER_SIZE, MeshBufferLayout,
-    attribute_offset_and_size, blendshape_deform_is_active, color_float4_stream_bytes,
-    compute_index_count, compute_mesh_buffer_layout, compute_vertex_stride, extract_bind_poses,
-    extract_blendshape_offsets, extract_float3_position_normal_as_vec4_streams,
-    index_bytes_per_element, select_blendshape_frame_coefficients, split_bone_weights_tail_for_gpu,
-    uv0_float2_stream_bytes,
+    BLENDSHAPE_POSITION_SPARSE_ENTRY_WORDS, BlendshapeFrameRange, BlendshapeFrameSpan,
+    BlendshapeGpuPack, MeshBufferLayout, blendshape_deform_is_active,
+    select_blendshape_frame_coefficients,
 };

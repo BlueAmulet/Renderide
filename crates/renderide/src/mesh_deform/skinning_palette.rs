@@ -36,6 +36,7 @@ pub struct SkinningPaletteParams<'a> {
 }
 
 /// Builds the same `world_bone * skinning_bind_matrices[i]` palette as the skinning compute pass.
+#[cfg(test)]
 pub fn build_skinning_palette(params: SkinningPaletteParams<'_>) -> Option<Vec<Mat4>> {
     let SkinningPaletteParams {
         scene,
@@ -98,7 +99,7 @@ pub fn build_skinning_palette(params: SkinningPaletteParams<'_>) -> Option<Vec<M
     Some(out)
 }
 
-/// Writes the same palette as [`build_skinning_palette`] directly into `out` as column-major
+/// Writes the skinning palette directly into `out` as column-major
 /// `mat4<f32>` bytes.
 ///
 /// `out` is cleared before writing and retains its capacity between calls, which avoids the

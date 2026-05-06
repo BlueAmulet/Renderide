@@ -29,8 +29,10 @@ pub struct ScheduleStep {
 #[derive(Clone, Debug, Default)]
 pub struct FrameSchedule {
     /// All retained passes in execution order.
+    #[cfg(test)]
     pub steps: Vec<ScheduleStep>,
     /// Per-wave index ranges into `steps` (`steps[waves[w]]` are in wave `w`).
+    #[cfg(test)]
     pub waves: Vec<std::ops::Range<usize>>,
     /// Cached `pass_idx` values for [`PassPhase::FrameGlobal`] steps, in execution order.
     ///
@@ -50,6 +52,8 @@ impl FrameSchedule {
     /// [`FrameSchedule::frame_global_pass_indices`] and
     /// [`FrameSchedule::per_view_pass_indices`].
     pub fn new(steps: Vec<ScheduleStep>, waves: Vec<std::ops::Range<usize>>) -> Self {
+        #[cfg(not(test))]
+        let _ = waves;
         let frame_global_pass_indices = steps
             .iter()
             .filter(|s| s.phase == PassPhase::FrameGlobal)
@@ -61,7 +65,9 @@ impl FrameSchedule {
             .map(|s| s.pass_idx)
             .collect();
         Self {
+            #[cfg(test)]
             steps,
+            #[cfg(test)]
             waves,
             frame_global_pass_indices,
             per_view_pass_indices,
@@ -74,6 +80,7 @@ impl FrameSchedule {
     }
 
     /// Iterates over [`PassPhase::FrameGlobal`] steps in execution order.
+    #[cfg(test)]
     pub fn frame_global_steps(&self) -> impl Iterator<Item = ScheduleStep> + '_ {
         self.steps
             .iter()
@@ -82,6 +89,7 @@ impl FrameSchedule {
     }
 
     /// Iterates over [`PassPhase::PerView`] steps in execution order.
+    #[cfg(test)]
     pub fn per_view_steps(&self) -> impl Iterator<Item = ScheduleStep> + '_ {
         self.steps
             .iter()
@@ -102,11 +110,13 @@ impl FrameSchedule {
     }
 
     /// Number of retained passes.
+    #[cfg(test)]
     pub fn pass_count(&self) -> usize {
         self.steps.len()
     }
 
     /// Number of topological waves (parallel layers in the DAG).
+    #[cfg(test)]
     pub fn wave_count(&self) -> usize {
         self.waves.len()
     }
@@ -118,6 +128,7 @@ impl FrameSchedule {
     ///   [`super::builder::edges::add_group_edges`]).
     /// - `wave_idx` values are non-decreasing in execution order (Kahn topology invariant).
     /// - Wave ranges cover `steps` without gaps or overlaps when present.
+    #[cfg(test)]
     pub fn validate(&self) -> Result<(), ScheduleValidationError> {
         // 1. FrameGlobal steps precede PerView steps.
         let mut seen_per_view = false;
@@ -166,6 +177,7 @@ impl FrameSchedule {
 }
 
 /// Validation failure modes for [`FrameSchedule::validate`].
+#[cfg(test)]
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ScheduleValidationError {
     /// A frame-global pass appears after a per-view pass in the flat schedule.
@@ -205,6 +217,7 @@ pub enum ScheduleValidationError {
 /// Captured once per graph build/rebuild and surfaced in the diagnostics overlay so developers
 /// can see pass count, wave layout, and phase distribution at a glance.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg(test)]
 pub struct ScheduleHudSnapshot {
     /// Total retained pass count.
     pub pass_count: usize,
@@ -218,6 +231,7 @@ pub struct ScheduleHudSnapshot {
     pub passes_per_wave: Vec<usize>,
 }
 
+#[cfg(test)]
 impl ScheduleHudSnapshot {
     /// Builds a snapshot from a [`FrameSchedule`].
     pub fn from_schedule(schedule: &FrameSchedule) -> Self {

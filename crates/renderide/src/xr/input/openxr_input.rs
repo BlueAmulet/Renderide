@@ -150,29 +150,6 @@ impl OpenxrInput {
         }
     }
 
-    /// Triggers a haptic pulse on the requested hand via
-    /// [`openxr::Action::apply_feedback`]. `amplitude` is `0..=1`; `duration_nanos` of
-    /// `xr::Duration::MIN_HAPTIC` lets the runtime choose a minimum; `frequency_hz` uses
-    /// `xr::FREQUENCY_UNSPECIFIED` when left-to-runtime.
-    pub fn apply_haptic(
-        &self,
-        session: &xr::Session<xr::Vulkan>,
-        side: Chirality,
-        amplitude: f32,
-        duration_nanos: i64,
-        frequency_hz: f32,
-    ) -> Result<(), xr::sys::Result> {
-        let action = match side {
-            Chirality::Left => &self.actions.left_haptic,
-            Chirality::Right => &self.actions.right_haptic,
-        };
-        let event = xr::HapticVibration::new()
-            .amplitude(amplitude)
-            .duration(xr::Duration::from_nanos(duration_nanos))
-            .frequency(frequency_hz);
-        action.apply_feedback(session, xr::Path::NULL, &event)
-    }
-
     fn detect_profile(
         &self,
         session: &xr::Session<xr::Vulkan>,

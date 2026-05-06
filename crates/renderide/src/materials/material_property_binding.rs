@@ -8,12 +8,14 @@
 //! (group **0** is always frame globals).
 
 /// Per-logical-shader layout describing which property ids feed which `@group(1)` bindings (reserved).
+#[cfg(test)]
 #[derive(Debug, Default)]
 pub struct MaterialPropertyGpuLayout {
     /// Reserved until the shipped shader metadata lists `property_name` -> `binding` pairs alongside reflection.
     pub _pending: (),
 }
 
+#[cfg(test)]
 impl MaterialPropertyGpuLayout {
     /// Builds an empty layout (no GPU bindings yet).
     pub fn empty() -> Self {

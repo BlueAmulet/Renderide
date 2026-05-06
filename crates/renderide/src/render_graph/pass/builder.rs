@@ -10,24 +10,29 @@
 use std::num::NonZeroU32;
 
 use super::attachments::{declare_color_attachment, declare_depth_attachment};
-use super::node::{PassKind, PassMergeHint};
+use super::node::PassKind;
+#[cfg(test)]
+use super::node::PassMergeHint;
 use super::setup::{PassSetup, RasterColorAttachmentSetup, RasterDepthAttachmentSetup};
 use crate::render_graph::error::SetupError;
+#[cfg(test)]
+use crate::render_graph::resources::StorageAccess;
 use crate::render_graph::resources::{
     BufferAccess, BufferHandle, BufferResourceHandle, ImportedBufferHandle, ImportedTextureHandle,
-    ResourceAccess, StorageAccess, SubresourceHandle, TextureAccess, TextureAttachmentTarget,
-    TextureHandle, TextureResourceHandle,
+    ResourceAccess, SubresourceHandle, TextureAccess, TextureAttachmentTarget, TextureHandle,
+    TextureResourceHandle,
 };
 
 /// Setup-time builder used by a pass to declare resource access and command kind.
 pub struct PassBuilder<'a> {
-    pub(crate) name: &'a str,
+    pub(crate) _name: &'a str,
     pub(crate) kind: PassKind,
     pub(crate) accesses: Vec<ResourceAccess>,
     pub(crate) color_attachments: Vec<RasterColorAttachmentSetup>,
     pub(crate) depth_stencil_attachment: Option<RasterDepthAttachmentSetup>,
     pub(crate) multiview_mask: Option<NonZeroU32>,
     pub(crate) cull_exempt: bool,
+    #[cfg(test)]
     pub(crate) merge_hint: PassMergeHint,
 }
 
@@ -35,13 +40,14 @@ impl<'a> PassBuilder<'a> {
     /// Creates a builder starting in [`PassKind::Callback`] kind (no-GPU default).
     pub(crate) fn new(name: &'a str) -> Self {
         Self {
-            name,
+            _name: name,
             kind: PassKind::Callback,
             accesses: Vec::new(),
             color_attachments: Vec::new(),
             depth_stencil_attachment: None,
             multiview_mask: None,
             cull_exempt: false,
+            #[cfg(test)]
             merge_hint: PassMergeHint::default(),
         }
     }
@@ -54,14 +60,10 @@ impl<'a> PassBuilder<'a> {
             depth_stencil_attachment: self.depth_stencil_attachment,
             multiview_mask: self.multiview_mask,
             cull_exempt: self.cull_exempt,
+            #[cfg(test)]
             merge_hint: self.merge_hint,
         }
         .validate()
-    }
-
-    /// Name of the pass currently declaring setup.
-    pub fn pass_name(&self) -> &str {
-        self.name
     }
 
     /// Declares this pass as raster and returns the attachment builder.
@@ -73,11 +75,6 @@ impl<'a> PassBuilder<'a> {
     /// Declares this pass as compute.
     pub fn compute(&mut self) {
         self.kind = PassKind::Compute;
-    }
-
-    /// Declares this pass as copy-only.
-    pub fn copy(&mut self) {
-        self.kind = PassKind::Copy;
     }
 
     /// Declares this pass as a callback (CPU-only, no encoder or GPU resources).
@@ -94,6 +91,7 @@ impl<'a> PassBuilder<'a> {
     ///
     /// The current wgpu executor ignores the hint; it exists so passes can annotate their
     /// attachment-reuse intent today, ready to be consumed by a future subpass-aware backend.
+    #[cfg(test)]
     pub fn merge_hint(&mut self, hint: PassMergeHint) {
         self.merge_hint = hint;
     }
@@ -136,6 +134,7 @@ impl<'a> PassBuilder<'a> {
     }
 
     /// Declares a transient buffer read.
+    #[cfg(test)]
     pub fn read_buffer(&mut self, handle: BufferHandle, access: BufferAccess) {
         self.read_buffer_resource(handle, access);
     }
@@ -179,6 +178,7 @@ impl<'a> PassBuilder<'a> {
     }
 
     /// Declares a buffer read for either transient or imported handles.
+    #[cfg(test)]
     pub fn read_buffer_resource(
         &mut self,
         handle: impl Into<BufferResourceHandle>,
@@ -194,6 +194,7 @@ impl<'a> PassBuilder<'a> {
         handle: impl Into<BufferResourceHandle>,
         access: BufferAccess,
     ) {
+        #[cfg(test)]
         let reads = matches!(
             access,
             BufferAccess::Storage {
@@ -201,6 +202,8 @@ impl<'a> PassBuilder<'a> {
                 ..
             }
         );
+        #[cfg(not(test))]
+        let reads = false;
         self.accesses
             .push(ResourceAccess::buffer(handle.into(), access, reads, true));
     }
@@ -247,6 +250,7 @@ impl RasterPassBuilder<'_, '_> {
     }
 
     /// Declares a depth/stencil attachment.
+    #[cfg(test)]
     pub fn depth(
         &mut self,
         handle: impl Into<TextureResourceHandle>,
@@ -281,6 +285,7 @@ impl RasterPassBuilder<'_, '_> {
     }
 
     /// Declares a multiview render-pass mask.
+    #[cfg(test)]
     pub fn multiview(&mut self, mask: NonZeroU32) {
         self.parent.multiview_mask = Some(mask);
     }

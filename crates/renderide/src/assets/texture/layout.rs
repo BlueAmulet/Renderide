@@ -2,7 +2,10 @@
 //!
 //! Layout rules mirror block-compressed strides used by Unity/Renderite texture uploads.
 
-use crate::shared::{SetTexture2DData, TextureFormat};
+use crate::shared::TextureFormat;
+
+#[cfg(test)]
+use crate::shared::SetTexture2DData;
 
 /// Whether the host enum uses block-compressed packing for a mip chain.
 pub fn host_format_is_compressed(format: TextureFormat) -> bool {
@@ -140,25 +143,6 @@ pub fn mip_dimensions_at_level(base_w: u32, base_h: u32, level: u32) -> (u32, u3
     (w, h)
 }
 
-/// Sum of byte lengths for mips 0..`mipmap_count` for `base_w`x`base_h`.
-pub fn total_mip_chain_byte_len(
-    format: TextureFormat,
-    base_w: u32,
-    base_h: u32,
-    mipmap_count: u32,
-) -> Option<u64> {
-    let mut total = 0u64;
-    let mut w = base_w;
-    let mut h = base_h;
-    for _ in 0..mipmap_count {
-        let mip = mip_byte_len(format, w, h)?;
-        total = total.checked_add(mip)?;
-        w = (w / 2).max(1);
-        h = (h / 2).max(1);
-    }
-    Some(total)
-}
-
 /// Width, height, and depth at `level` in a standard 3D mip chain.
 pub fn mip_dimensions_at_level_3d(
     base_w: u32,
@@ -175,23 +159,6 @@ pub fn mip_dimensions_at_level_3d(
         d = (d / 2).max(1);
     }
     (w, h, d)
-}
-
-/// Sum of byte lengths for mips 0..`mipmap_count` for a 3D volume (`base_w`x`base_h`x`base_d`).
-pub fn total_mip_chain_volume_byte_len(
-    format: TextureFormat,
-    base_w: u32,
-    base_h: u32,
-    base_d: u32,
-    mipmap_count: u32,
-) -> Option<u64> {
-    let mut total = 0u64;
-    for level in 0..mipmap_count {
-        let (w, h, d) = mip_dimensions_at_level_3d(base_w, base_h, base_d, level);
-        let slice = mip_byte_len(format, w, h)?;
-        total = total.checked_add(slice.checked_mul(u64::from(d))?)?;
-    }
-    Some(total)
 }
 
 /// Approximate GPU bytes for a 3D texture (full mip chain) in `wgpu_format`.
@@ -251,6 +218,7 @@ pub fn estimate_gpu_texture_bytes(
 }
 
 /// Validates `mip_map_sizes` / `mip_starts` against `data.data.length` (payload window).
+#[cfg(test)]
 #[expect(
     clippy::map_err_ignore,
     reason = "TryFromIntError payload adds no detail beyond the overflow label already emitted"

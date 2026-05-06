@@ -31,6 +31,7 @@ pub fn mesh_bounds_degenerate_for_cull(bounds: &RenderBoundingBox) -> bool {
 
 /// A plane `n * x + d = 0` with unit `n`.
 #[derive(Clone, Copy, Debug)]
+#[cfg(test)]
 pub struct Plane {
     /// Outward-facing unit normal of the clip half-space.
     pub normal: Vec3,
@@ -38,6 +39,7 @@ pub struct Plane {
     pub distance: f32,
 }
 
+#[cfg(test)]
 impl Plane {
     /// Builds a plane from a row of the transposed clip matrix `(a, b, c, w)` and normalizes.
     pub fn from_clip_row(v: Vec4) -> Self {
@@ -64,11 +66,13 @@ impl Plane {
 
 /// Six clip planes extracted from a column-major `view_proj` matching `clip = view_proj * vec4(world, 1)`.
 #[derive(Clone, Copy, Debug)]
+#[cfg(test)]
 pub struct Frustum {
     /// Left, right, bottom, top, near, far clip planes in world space.
     pub planes: [Plane; 6],
 }
 
+#[cfg(test)]
 impl Frustum {
     /// Extracts frustum planes from `view_proj` using the transpose + row combination method
     /// (Gribb-Hartmann style), matching common HLSL references for column-major matrices.

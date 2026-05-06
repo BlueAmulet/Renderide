@@ -12,7 +12,7 @@
 
 use std::sync::Arc;
 
-use crate::embedded_shaders::{MSAA_RESOLVE_HDR_DEFAULT_WGSL, MSAA_RESOLVE_HDR_MULTIVIEW_WGSL};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{texture_layout_entry, uniform_buffer_layout_entry};
 use crate::render_graph::gpu_cache::{
     FullscreenPipelineVariantDesc, FullscreenShaderVariants, OnceGpu, RenderPipelineMap,
@@ -142,9 +142,9 @@ impl MsaaResolveHdrPipelineCache {
                 multiview: &self.multiview,
                 shader: FullscreenShaderVariants {
                     mono_label: PIPELINE_LABEL_MONO,
-                    mono_source: MSAA_RESOLVE_HDR_DEFAULT_WGSL,
+                    mono_source: embedded_wgsl!("msaa_resolve_hdr_default"),
                     multiview_label: PIPELINE_LABEL_MULTIVIEW,
-                    multiview_source: MSAA_RESOLVE_HDR_MULTIVIEW_WGSL,
+                    multiview_source: embedded_wgsl!("msaa_resolve_hdr_multiview"),
                 },
                 bind_group_layouts: &[Some(layout_bgl)],
                 log_name: "msaa_resolve_hdr",

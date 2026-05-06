@@ -604,17 +604,6 @@ impl FrameGpuResources {
         queue.write_buffer(&self.frame_uniform, 0, bytemuck::bytes_of(uniforms));
     }
 
-    /// Uploads [`FrameGpuUniforms`] and packed lights for this frame.
-    pub fn write_frame_uniform_and_lights(
-        &self,
-        queue: &wgpu::Queue,
-        uniforms: &FrameGpuUniforms,
-        lights: &[GpuLight],
-    ) {
-        self.write_frame_uniform(queue, uniforms);
-        Self::write_lights_buffer_inner(queue, &self.lights_buffer, lights);
-    }
-
     /// Uploads only the lights storage buffer (used by [`crate::passes::ClusteredLightPass`]).
     pub fn write_lights_buffer(&self, queue: &wgpu::Queue, lights: &[GpuLight]) {
         Self::write_lights_buffer_inner(queue, &self.lights_buffer, lights);

@@ -12,18 +12,29 @@ pub enum StorageAccess {
     /// Write-only storage access.
     WriteOnly,
     /// Read/write storage access.
+    #[cfg(test)]
     ReadWrite,
 }
 
 impl StorageAccess {
     /// Returns whether this storage access writes.
     pub(crate) fn writes(self) -> bool {
-        matches!(self, Self::WriteOnly | Self::ReadWrite)
+        match self {
+            Self::WriteOnly => true,
+            Self::ReadOnly => false,
+            #[cfg(test)]
+            Self::ReadWrite => true,
+        }
     }
 
     /// Returns whether this storage access reads.
     pub(crate) fn reads(self) -> bool {
-        matches!(self, Self::ReadOnly | Self::ReadWrite)
+        match self {
+            Self::ReadOnly => true,
+            Self::WriteOnly => false,
+            #[cfg(test)]
+            Self::ReadWrite => true,
+        }
     }
 }
 
@@ -61,6 +72,7 @@ pub enum TextureAccess {
     /// Copy source.
     CopySrc,
     /// Copy destination.
+    #[cfg(test)]
     CopyDst,
     /// Imported texture is finalized for presentation.
     Present,
@@ -76,6 +88,7 @@ impl TextureAccess {
             Self::Sampled { .. } => wgpu::TextureUsages::TEXTURE_BINDING,
             Self::Storage { .. } => wgpu::TextureUsages::STORAGE_BINDING,
             Self::CopySrc => wgpu::TextureUsages::COPY_SRC,
+            #[cfg(test)]
             Self::CopyDst => wgpu::TextureUsages::COPY_DST,
         }
     }
@@ -92,7 +105,9 @@ impl TextureAccess {
                         .is_some_and(|ops| matches!(ops.load, wgpu::LoadOp::Load))
             }
             Self::ColorAttachment { load, .. } => matches!(load, wgpu::LoadOp::Load),
-            Self::CopyDst | Self::Present => false,
+            Self::Present => false,
+            #[cfg(test)]
+            Self::CopyDst => false,
         }
     }
 
@@ -101,10 +116,9 @@ impl TextureAccess {
         match self {
             Self::Sampled { .. } | Self::CopySrc => false,
             Self::Storage { access, .. } => access.writes(),
-            Self::ColorAttachment { .. }
-            | Self::DepthAttachment { .. }
-            | Self::CopyDst
-            | Self::Present => true,
+            Self::ColorAttachment { .. } | Self::DepthAttachment { .. } | Self::Present => true,
+            #[cfg(test)]
+            Self::CopyDst => true,
         }
     }
 
@@ -135,14 +149,19 @@ pub enum BufferAccess {
         access: StorageAccess,
     },
     /// Index buffer binding.
+    #[cfg(test)]
     Index,
     /// Vertex buffer binding.
+    #[cfg(test)]
     Vertex,
     /// Indirect draw/dispatch buffer.
+    #[cfg(test)]
     Indirect,
     /// Copy source.
+    #[cfg(test)]
     CopySrc,
     /// Copy destination.
+    #[cfg(test)]
     CopyDst,
 }
 
@@ -152,10 +171,15 @@ impl BufferAccess {
         match self {
             Self::Uniform { .. } => wgpu::BufferUsages::UNIFORM,
             Self::Storage { .. } => wgpu::BufferUsages::STORAGE,
+            #[cfg(test)]
             Self::Index => wgpu::BufferUsages::INDEX,
+            #[cfg(test)]
             Self::Vertex => wgpu::BufferUsages::VERTEX,
+            #[cfg(test)]
             Self::Indirect => wgpu::BufferUsages::INDIRECT,
+            #[cfg(test)]
             Self::CopySrc => wgpu::BufferUsages::COPY_SRC,
+            #[cfg(test)]
             Self::CopyDst => wgpu::BufferUsages::COPY_DST,
         }
     }
@@ -163,10 +187,11 @@ impl BufferAccess {
     /// Returns whether this access reads prior buffer contents.
     pub(crate) fn reads(self) -> bool {
         match self {
-            Self::Uniform { .. } | Self::Index | Self::Vertex | Self::Indirect | Self::CopySrc => {
-                true
-            }
+            Self::Uniform { .. } => true,
+            #[cfg(test)]
+            Self::Index | Self::Vertex | Self::Indirect | Self::CopySrc => true,
             Self::Storage { access, .. } => access.reads(),
+            #[cfg(test)]
             Self::CopyDst => false,
         }
     }
@@ -175,10 +200,11 @@ impl BufferAccess {
     pub(crate) fn writes(self) -> bool {
         match self {
             Self::Storage { access, .. } => access.writes(),
+            #[cfg(test)]
             Self::CopyDst => true,
-            Self::Uniform { .. } | Self::Index | Self::Vertex | Self::Indirect | Self::CopySrc => {
-                false
-            }
+            Self::Uniform { .. } => false,
+            #[cfg(test)]
+            Self::Index | Self::Vertex | Self::Indirect | Self::CopySrc => false,
         }
     }
 }

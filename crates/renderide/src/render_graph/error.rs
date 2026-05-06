@@ -43,10 +43,6 @@ pub enum SetupError {
     /// A pass referenced a transient texture subresource handle unknown to the graph.
     #[error("unknown transient texture subresource handle {0:?}")]
     UnknownSubresource(SubresourceHandle),
-
-    /// Pass-specific setup failure.
-    #[error("{0}")]
-    Message(String),
 }
 
 /// Errors that can occur when building a render graph.
@@ -105,34 +101,16 @@ pub enum GraphBuildError {
 /// Failure inside a single [`super::RenderPass::execute`] call.
 #[derive(Debug, thiserror::Error)]
 pub enum RenderPassError {
-    /// A pass that writes or samples the swapchain target ran without an acquired backbuffer view.
-    #[error("pass `{pass}` requires swapchain view but none was provided")]
-    MissingBackbuffer {
-        /// Pass name from [`super::RenderPass::name`].
-        pass: String,
-    },
-
-    /// A pass that writes depth ran without a depth attachment view.
-    #[error("pass `{pass}` requires depth view but none was provided")]
-    MissingDepth {
-        /// Pass name from [`super::RenderPass::name`].
-        pass: String,
-    },
-
     /// Frame params (scene/backend) were not supplied for a mesh pass.
     #[error("pass `{pass}` requires GraphPassFrame but none was provided")]
-    MissingFrameParams {
+    FrameParamsRequired {
         /// Pass name from [`super::RenderPass::name`].
         pass: String,
     },
-
-    /// Clustered-light compute bind group was not created after cache update.
-    #[error("clustered light compute bind group missing after prepare")]
-    ClusteredLightBindGroupMissing,
 
     /// A compute/copy pass expected a resolved imported texture but none was available.
     #[error("pass `{pass}` requires imported texture `{resource}` but it was not resolved")]
-    MissingImportedTexture {
+    UnresolvedImportedTexture {
         /// Pass name from [`super::RenderPass::name`].
         pass: String,
         /// Human-readable imported resource label.
@@ -143,7 +121,7 @@ pub enum RenderPassError {
     #[error(
         "pass `{pass}` requires history texture `{resource}` but the import has no history backing"
     )]
-    MissingImportedHistoryTexture {
+    HistoryImportWithoutBacking {
         /// Pass name from [`super::RenderPass::name`].
         pass: String,
         /// Human-readable imported resource label.

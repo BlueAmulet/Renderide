@@ -19,12 +19,14 @@ pub(crate) fn ref_from_view_matrix(pose: &xr::Posef) -> Mat4 {
 }
 
 /// Per-eye view-projection from OpenXR [`xr::View`] (reverse-Z, renderer world basis).
+#[cfg(test)]
 pub fn view_projection_from_xr_view(view: &xr::View, near: f32, far: f32) -> Mat4 {
     view_projection_from_xr_view_aligned(view, near, far, Mat4::IDENTITY)
 }
 
 /// Per-eye view-projection from OpenXR [`xr::View`] after applying the host render-space rig
 /// transform that maps tracking space into renderer world space.
+#[cfg(test)]
 pub fn view_projection_from_xr_view_aligned(
     view: &xr::View,
     near: f32,
@@ -51,49 +53,10 @@ pub fn eye_view_from_xr_view_aligned(
     EyeView::new(view_mat, proj, proj * view_mat, world_position)
 }
 
-/// Per-eye **view-only** matrix (world-to-view, handedness-fixed) for clustered lighting decomposition.
-pub fn view_from_xr_view_aligned(view: &xr::View, world_from_tracking: Mat4) -> Mat4 {
-    let ref_from_view = world_from_tracking * ref_from_view_matrix(&view.pose);
-    apply_view_handedness_fix(ref_from_view.inverse())
-}
-
 /// Per-eye world-space camera position from an OpenXR [`xr::View`] after host tracking-space alignment.
 pub fn eye_world_position_from_xr_view_aligned(view: &xr::View, world_from_tracking: Mat4) -> Vec3 {
     let (tracking_position, _) = openxr_pose_to_engine(&view.pose);
     world_from_tracking.transform_point3(tracking_position)
-}
-
-fn averaged_stereo_fov(views: &[xr::View]) -> Option<xr::Fovf> {
-    match views {
-        [] => None,
-        [view] => Some(view.fov),
-        [left, right, ..] => {
-            let avg_angle = |a: f32, b: f32| ((a.tan() + b.tan()) * 0.5).atan();
-            Some(xr::Fovf {
-                angle_left: avg_angle(left.fov.angle_left, right.fov.angle_left),
-                angle_right: avg_angle(left.fov.angle_right, right.fov.angle_right),
-                angle_up: avg_angle(left.fov.angle_up, right.fov.angle_up),
-                angle_down: avg_angle(left.fov.angle_down, right.fov.angle_down),
-            })
-        }
-    }
-}
-
-/// Center-eye desktop mirror projection from stereo OpenXR views after applying host tracking-space
-/// alignment. This is used for the desktop window only; headset submission still uses true left/right
-/// per-eye matrices.
-pub fn center_view_projection_from_stereo_views_aligned(
-    views: &[xr::View],
-    near: f32,
-    far: f32,
-    world_from_tracking: Mat4,
-) -> Option<Mat4> {
-    let (position, rotation) = headset_center_pose_from_stereo_views(views)?;
-    let fov = averaged_stereo_fov(views)?;
-    let world_from_view = world_from_tracking * Mat4::from_rotation_translation(rotation, position);
-    let view_mat = apply_view_handedness_fix(world_from_view.inverse());
-    let proj = reverse_z_perspective_openxr_fov(&fov, near, far);
-    Some(proj * view_mat)
 }
 
 /// Maps an OpenXR [`xr::Posef`] to the renderer's world translation + rotation.

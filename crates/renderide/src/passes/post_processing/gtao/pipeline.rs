@@ -28,11 +28,7 @@ use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 
 use crate::config::GtaoSettings;
-use crate::embedded_shaders::{
-    GTAO_APPLY_DEFAULT_WGSL, GTAO_APPLY_MULTIVIEW_WGSL, GTAO_DENOISE_DEFAULT_WGSL,
-    GTAO_DENOISE_MULTIVIEW_WGSL, GTAO_MAIN_DEFAULT_WGSL, GTAO_MAIN_MULTIVIEW_WGSL,
-    GTAO_PREFILTER_DOWNSAMPLE_WGSL, GTAO_PREFILTER_MIP0_WGSL,
-};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{
     fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry,
     storage_texture_layout_entry, texture_layout_entry, uniform_buffer_layout_entry,
@@ -277,9 +273,9 @@ impl GtaoMainPipelineCache {
         };
         slot.get_or_create(|| {
             let (label, source) = if multiview_stereo {
-                ("gtao_main_multiview", GTAO_MAIN_MULTIVIEW_WGSL)
+                ("gtao_main_multiview", embedded_wgsl!("gtao_main_multiview"))
             } else {
-                ("gtao_main_default", GTAO_MAIN_DEFAULT_WGSL)
+                ("gtao_main_default", embedded_wgsl!("gtao_main_default"))
             };
             logger::debug!("gtao_main: building pipeline (multiview = {multiview_stereo})");
             let shader = create_wgsl_shader_module(device, label, source);
@@ -471,7 +467,7 @@ impl GtaoDepthPrefilterPipelineCache {
                 let shader = create_wgsl_shader_module(
                     device,
                     "gtao_prefilter_mip0",
-                    GTAO_PREFILTER_MIP0_WGSL,
+                    embedded_wgsl!("gtao_prefilter_mip0"),
                 );
                 let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("gtao_prefilter_mip0"),
@@ -499,7 +495,7 @@ impl GtaoDepthPrefilterPipelineCache {
                 let shader = create_wgsl_shader_module(
                     device,
                     "gtao_prefilter_downsample",
-                    GTAO_PREFILTER_DOWNSAMPLE_WGSL,
+                    embedded_wgsl!("gtao_prefilter_downsample"),
                 );
                 let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("gtao_prefilter_downsample"),
@@ -579,9 +575,9 @@ impl GtaoDenoisePipelineCache {
                 multiview: &self.pipeline_multiview,
                 shader: FullscreenShaderVariants {
                     mono_label: "gtao_denoise_default",
-                    mono_source: GTAO_DENOISE_DEFAULT_WGSL,
+                    mono_source: embedded_wgsl!("gtao_denoise_default"),
                     multiview_label: "gtao_denoise_multiview",
-                    multiview_source: GTAO_DENOISE_MULTIVIEW_WGSL,
+                    multiview_source: embedded_wgsl!("gtao_denoise_multiview"),
                 },
                 bind_group_layouts: &[Some(bind_group_layout)],
                 log_name: "gtao_denoise",
@@ -698,9 +694,9 @@ impl GtaoApplyPipelineCache {
                 multiview: &self.pipeline_multiview,
                 shader: FullscreenShaderVariants {
                     mono_label: "gtao_apply_default",
-                    mono_source: GTAO_APPLY_DEFAULT_WGSL,
+                    mono_source: embedded_wgsl!("gtao_apply_default"),
                     multiview_label: "gtao_apply_multiview",
-                    multiview_source: GTAO_APPLY_MULTIVIEW_WGSL,
+                    multiview_source: embedded_wgsl!("gtao_apply_multiview"),
                 },
                 bind_group_layouts: &[Some(bind_group_layout)],
                 log_name: "gtao_apply",

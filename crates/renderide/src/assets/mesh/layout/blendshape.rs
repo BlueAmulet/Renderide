@@ -10,6 +10,7 @@ use super::buffer_layout::MeshBufferLayout;
 pub const BLENDSHAPE_POSITION_SPARSE_ENTRY_SIZE: usize = 16;
 
 /// Bytes per sparse packed normal or tangent entry: `vertex_index: u32` + three snorm16 channels.
+#[cfg(test)]
 pub const BLENDSHAPE_PACKED_VECTOR_SPARSE_ENTRY_SIZE: usize = 12;
 
 /// Number of `u32` words per sparse position entry in the GPU buffer.

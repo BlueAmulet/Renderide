@@ -19,34 +19,6 @@ impl GpuContext {
         self.submit_frame_batch_inner(vec![cmd], None, None, Vec::new());
     }
 
-    /// Same as [`Self::submit_tracked_frame_commands`] but accepts an externally-held
-    /// [`wgpu::Queue`] reference. Retained for API compatibility with the pre-driver-thread
-    /// call sites -- the reference is ignored because submit now always runs on the driver
-    /// thread with its own cloned [`Arc<wgpu::Queue>`].
-    pub fn submit_tracked_frame_commands_with_queue(
-        &self,
-        _queue: &wgpu::Queue,
-        cmd: wgpu::CommandBuffer,
-    ) {
-        self.submit_frame_batch_inner(vec![cmd], None, None, Vec::new());
-    }
-
-    /// Submits multiple command buffers through the driver thread in a single
-    /// [`wgpu::Queue::submit`] call, tracked for frame timing. No surface is presented on
-    /// this path -- for swapchain frames use [`Self::submit_frame_batch`] with a
-    /// [`wgpu::SurfaceTexture`].
-    ///
-    /// All `Queue::write_buffer` calls on the main thread must have occurred before this
-    /// call so they are visible to GPU commands in the same submit (wgpu guarantees this
-    /// ordering regardless of which thread performs the submit).
-    pub fn submit_tracked_frame_commands_batch(
-        &self,
-        _queue: &wgpu::Queue,
-        cmds: impl IntoIterator<Item = wgpu::CommandBuffer>,
-    ) {
-        self.submit_frame_batch_inner(cmds.into_iter().collect(), None, None, Vec::new());
-    }
-
     /// Hands a finished frame off to the driver thread for submit + present.
     ///
     /// The surface texture is optional: pass `Some` for the main swapchain frame (the

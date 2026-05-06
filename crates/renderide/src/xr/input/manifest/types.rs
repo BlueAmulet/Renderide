@@ -171,6 +171,7 @@ impl ActionManifest {
     }
 
     /// True when the manifest declares at least one haptic action.
+    #[cfg(test)]
     pub fn has_haptic(&self) -> bool {
         self.actions.iter().any(|a| a.ty == ActionType::Haptic)
     }

@@ -51,6 +51,7 @@ impl PipelinePropertyResolver {
 
     /// Drops the cached ids so the next [`Self::resolve`] re-interns. Useful when the underlying
     /// registry has been replaced (e.g. tests, hot-reload).
+    #[cfg(test)]
     pub fn invalidate(&self) {
         *self.cache.lock() = None;
     }

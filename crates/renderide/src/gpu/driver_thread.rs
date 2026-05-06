@@ -33,7 +33,7 @@ mod tests;
 use std::sync::Arc;
 use std::thread;
 
-pub use error::{DriverError, DriverErrorKind};
+pub use error::DriverError;
 pub use submit_batch::{SubmitBatch, SubmitWait};
 pub use submit_counters::SubmitToken;
 pub use xr_finalize::{

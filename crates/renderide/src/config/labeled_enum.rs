@@ -11,10 +11,10 @@
 //!
 //! - `const ALL: [Self; N]` for ImGui pickers and round-trip tests,
 //! - `fn label(self) -> &'static str` for the renderer config window,
-//! - `fn as_persist_str(self) -> &'static str` and `fn from_persist_str(&str) -> Option<Self>`
+//! - `fn persist_str(self) -> &'static str` and `fn parse_persist(&str) -> Option<Self>`
 //!   for stable TOML round-trip with case-insensitive parsing and legacy aliases.
 //!
-//! The macro generates all four plus the serde glue from one declaration so each enum's
+//! The macro generates the inherent metadata plus the serde glue from one declaration so each enum's
 //! definition stays focused on what's domain-specific (variant set, persist tokens, labels) and
 //! aliases stay co-located with their canonical variant.
 //!
@@ -24,22 +24,8 @@
 //! `vsync = true / false` syntax). The bool-aware [`labeled_enum!`] arm routes each boolean to a
 //! variant during deserialization, preserving those configs without manual migration.
 
-/// Common metadata for finite enum config types.
-///
-/// Every `labeled_enum!`-generated type implements this trait. The trait is also useful for
-/// generic UI/round-trip code that wants to iterate variants without knowing the concrete enum.
+/// Persistence metadata used by the serde glue generated for finite enum config types.
 pub trait LabeledEnum: Sized + Copy + 'static {
-    /// Every variant in declaration order. ImGui pickers and round-trip tests iterate through this.
-    const ALL: &'static [Self];
-
-    /// The variant returned by [`Default::default`]. Provided as an associated function so generic
-    /// callers can compute it without invoking [`Default`] (which requires `Sized` plus a concrete
-    /// type).
-    fn default_variant() -> Self;
-
-    /// Human-readable label for the renderer config window (ImGui combo / radio rows).
-    fn label(self) -> &'static str;
-
     /// Stable string used in `config.toml` and structured logs.
     fn persist_str(self) -> &'static str;
 
@@ -205,14 +191,11 @@ macro_rules! __labeled_enum_emit {
 
         impl $Name {
             /// Every variant in declaration order. ImGui pickers and round-trip tests iterate
-            /// through this. Mirrors [`crate::config::labeled_enum::LabeledEnum::ALL`] as an
-            /// inherent constant so call sites don't need to import the trait.
+            /// through this.
             pub const ALL: &'static [Self] = &[$(Self::$Variant),*];
 
             /// Human-readable label for the renderer config window (ImGui combo / radio rows).
             ///
-            /// Mirrors [`crate::config::labeled_enum::LabeledEnum::label`] without requiring
-            /// the trait to be in scope at call sites.
             pub fn label(self) -> &'static str {
                 match self {
                     $(Self::$Variant => $label,)*
@@ -252,16 +235,6 @@ macro_rules! __labeled_enum_emit {
         }
 
         impl $crate::config::labeled_enum::LabeledEnum for $Name {
-            const ALL: &'static [Self] = <$Name>::ALL;
-
-            fn default_variant() -> Self {
-                Self::$Default
-            }
-
-            fn label(self) -> &'static str {
-                Self::label(self)
-            }
-
             fn persist_str(self) -> &'static str {
                 Self::persist_str(self)
             }
@@ -335,8 +308,6 @@ macro_rules! __labeled_enum_emit {
 
 #[cfg(test)]
 mod tests {
-    use super::LabeledEnum;
-
     labeled_enum! {
         /// Two-variant fixture used by the trait/macro tests below.
         pub enum Fruit: "fruit (`apple`, `banana`)" {
@@ -370,12 +341,14 @@ mod tests {
     #[test]
     fn default_variant_matches_default_clause() {
         assert_eq!(Fruit::default(), Fruit::Apple);
-        assert_eq!(<Fruit as LabeledEnum>::default_variant(), Fruit::Apple);
     }
 
     #[test]
     fn all_iterates_in_declaration_order() {
         assert_eq!(Fruit::ALL, &[Fruit::Apple, Fruit::Banana]);
+        assert_eq!(Fruit::Apple.label(), "Apple");
+        assert_eq!(Switch::ALL, &[Switch::Off, Switch::On]);
+        assert_eq!(Switch::On.label(), "On");
     }
 
     #[test]

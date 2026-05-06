@@ -128,19 +128,7 @@ pub enum WorldMeshDrawCollectParallelism {
     SerialInnerForNestedBatch,
 }
 
-/// Collects draws from active spaces, then sorts for batching (material / pipeline boundaries).
-///
-/// When `culling` is [`Some`], instances outside the frustum (and optional Hi-Z) are dropped (see
-/// [`mesh_draw_passes_cpu_cull`](crate::world_mesh::culling::mesh_draw_passes_cpu_cull)).
-///
-/// Collection runs over 128-renderer chunks in parallel via [`rayon`] by default; results are
-/// merged in the same order as [`SceneCoordinator::render_space_ids`], then
-/// [`WorldMeshDrawItem::collect_order`] is assigned for transparent sort stability.
-pub fn collect_and_sort_draws(ctx: &DrawCollectionContext<'_>) -> WorldMeshDrawCollection {
-    collect_and_sort_draws_with_parallelism(ctx, WorldMeshDrawCollectParallelism::Full)
-}
-
-/// Like [`collect_and_sort_draws`], with control over inner rayon use (see [`WorldMeshDrawCollectParallelism`]).
+/// Collects draws from active spaces, then sorts for batching with control over inner rayon use.
 pub fn collect_and_sort_draws_with_parallelism(
     ctx: &DrawCollectionContext<'_>,
     parallelism: WorldMeshDrawCollectParallelism,

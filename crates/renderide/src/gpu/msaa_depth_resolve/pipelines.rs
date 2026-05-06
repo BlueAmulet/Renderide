@@ -4,7 +4,7 @@
 //! per-format pipeline tables live here; the per-frame `encode_resolve*` paths in
 //! [`super::encode`] consume them and remain free of pipeline-creation code.
 
-use crate::embedded_shaders::DEPTH_BLIT_R32_TO_DEPTH_MULTIVIEW_WGSL;
+use crate::embedded_shaders::embedded_wgsl;
 
 /// Desktop (non-multiview) depth blit pipelines for each depth/stencil format variant.
 pub(super) struct DesktopBlitPipelines {
@@ -72,7 +72,9 @@ pub(super) fn create_stereo_multiview_blit_pipelines(
     }
     let blit_stereo_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("msaa_depth_resolve_blit_stereo"),
-        source: wgpu::ShaderSource::Wgsl(DEPTH_BLIT_R32_TO_DEPTH_MULTIVIEW_WGSL.into()),
+        source: wgpu::ShaderSource::Wgsl(
+            embedded_wgsl!("depth_blit_r32_to_depth_multiview").into(),
+        ),
     });
     let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("msaa_depth_blit_stereo_bgl"),

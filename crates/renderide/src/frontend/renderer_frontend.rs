@@ -51,6 +51,7 @@ impl RendererFrontend {
     }
 
     /// Whether the last [`crate::shared::FrameSubmitData`] was applied and another begin-frame may follow.
+    #[cfg(test)]
     pub fn last_frame_data_processed(&self) -> bool {
         self.lockstep.last_frame_data_processed()
     }
@@ -118,11 +119,6 @@ impl RendererFrontend {
     /// Mutable reference to the dual-queue IPC when connected.
     pub fn ipc_mut(&mut self) -> Option<&mut DualQueueIpc> {
         self.transport.ipc_mut()
-    }
-
-    /// Primary/background command queues when IPC is connected.
-    pub fn ipc(&self) -> Option<&DualQueueIpc> {
-        self.transport.ipc()
     }
 
     /// Disjoint mutable handles for backends that need both shared memory and IPC in one call.
@@ -262,6 +258,7 @@ impl RendererFrontend {
     }
 
     /// Whether the renderer is currently running decoupled from host lock-step.
+    #[cfg(test)]
     pub fn is_decoupled(&self) -> bool {
         self.decoupling.is_active()
     }

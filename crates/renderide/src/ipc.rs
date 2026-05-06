@@ -5,14 +5,10 @@
 //! [`headless_config`] (renderer-process CLI parsing).
 
 pub use renderide_shared::ipc::connection;
-pub use renderide_shared::ipc::dual_queue;
-pub use renderide_shared::ipc::shared_memory;
 
 pub mod headless_config;
 
 pub use renderide_shared::ipc::dual_queue::DualQueueIpc;
-pub use renderide_shared::ipc::shared_memory::{
-    RENDERIDE_INTERPROCESS_DIR_ENV, SharedMemoryAccessor, compose_memory_view_name,
-};
+pub use renderide_shared::ipc::shared_memory::SharedMemoryAccessor;
 
 pub use headless_config::{HeadlessParams, get_headless_params, get_ignore_config};

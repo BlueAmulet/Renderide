@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::assets::texture::{estimate_gpu_texture3d_bytes, resolve_texture3d_wgpu_format};
 use crate::gpu::GpuLimits;
-use crate::shared::{ColorProfile, SetTexture3DFormat, SetTexture3DProperties, TextureFormat};
+use crate::shared::{SetTexture3DFormat, SetTexture3DProperties};
 
 use crate::gpu_pools::GpuResource;
 use crate::gpu_pools::budget::TextureResidencyMeta;
@@ -27,16 +27,6 @@ pub struct GpuTexture3d {
     pub view: Arc<wgpu::TextureView>,
     /// Resolved wgpu format for `texture`.
     pub wgpu_format: wgpu::TextureFormat,
-    /// Host [`TextureFormat`] enum (compression / layout family).
-    pub host_format: TextureFormat,
-    /// Linear vs sRGB sampling policy from host.
-    pub color_profile: ColorProfile,
-    /// Texture width in texels (mip0).
-    pub width: u32,
-    /// Texture height in texels (mip0).
-    pub height: u32,
-    /// Texture depth in texels (mip0).
-    pub depth: u32,
     /// Mip chain length allocated on GPU.
     pub mip_levels_total: u32,
     /// Mips with authored texels uploaded so far.
@@ -110,11 +100,6 @@ impl GpuTexture3d {
             texture,
             view,
             wgpu_format,
-            host_format: fmt.format,
-            color_profile: fmt.profile,
-            width: w,
-            height: h,
-            depth: d,
             mip_levels_total: mips,
             mip_levels_resident: 0,
             resident_bytes,

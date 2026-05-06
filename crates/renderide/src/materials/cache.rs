@@ -99,20 +99,7 @@ pub struct MaterialPipelineCache {
     stats: MaterialPipelineCacheStatsAtomic,
 }
 
-/// Snapshot of material pipeline cache counters.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MaterialPipelineCacheStats {
-    /// Cache hits that returned an already-built pipeline set.
-    pub hits: u64,
-    /// Cache misses that had to compose WGSL and build pipelines.
-    pub misses: u64,
-    /// Newly inserted pipeline sets.
-    pub insertions: u64,
-    /// LRU evictions caused by cache capacity pressure.
-    pub evictions: u64,
-}
-
-/// Atomic backing counters for [`MaterialPipelineCacheStats`].
+/// Atomic backing counters for material pipeline cache diagnostics.
 #[derive(Debug, Default)]
 struct MaterialPipelineCacheStatsAtomic {
     /// Cache hits that returned an already-built pipeline set.
@@ -125,18 +112,6 @@ struct MaterialPipelineCacheStatsAtomic {
     evictions: AtomicU64,
 }
 
-impl MaterialPipelineCacheStatsAtomic {
-    /// Captures a relaxed diagnostic snapshot.
-    fn snapshot(&self) -> MaterialPipelineCacheStats {
-        MaterialPipelineCacheStats {
-            hits: self.hits.load(Ordering::Relaxed),
-            misses: self.misses.load(Ordering::Relaxed),
-            insertions: self.insertions.load(Ordering::Relaxed),
-            evictions: self.evictions.load(Ordering::Relaxed),
-        }
-    }
-}
-
 impl MaterialPipelineCache {
     /// Creates an empty cache for `device` with the device's effective [`crate::gpu::GpuLimits`].
     pub fn new(device: Arc<wgpu::Device>, limits: Arc<crate::gpu::GpuLimits>) -> Self {
@@ -146,21 +121,6 @@ impl MaterialPipelineCache {
             pipelines: Mutex::new(LruCache::new(max_cached_pipelines())),
             stats: MaterialPipelineCacheStatsAtomic::default(),
         }
-    }
-
-    /// Device used for `create_shader_module` / `create_render_pipeline`.
-    pub fn device(&self) -> &Arc<wgpu::Device> {
-        &self.device
-    }
-
-    /// Effective device limits used to validate reflected material layouts.
-    pub fn limits(&self) -> &Arc<crate::gpu::GpuLimits> {
-        &self.limits
-    }
-
-    /// Returns a diagnostic snapshot of cache hit/miss/eviction counters.
-    pub fn stats(&self) -> MaterialPipelineCacheStats {
-        self.stats.snapshot()
     }
 
     /// Returns or builds the pipeline set for `kind`, `desc`, and `permutation`.

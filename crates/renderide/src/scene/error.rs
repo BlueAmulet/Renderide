@@ -10,6 +10,7 @@ pub enum SceneError {
     SharedMemoryAccess(String),
     /// Per-transform hierarchy cycle while computing world matrices.
     #[error("cycle in scene {scene_id} at transform {transform_id}")]
+    #[cfg(test)]
     CycleDetected {
         /// Host render space id.
         scene_id: i32,
@@ -18,6 +19,7 @@ pub enum SceneError {
     },
     /// A scene was missing from the registry when required.
     #[error("scene {scene_id} not found")]
+    #[cfg(test)]
     SceneNotFound {
         /// Host render space id.
         scene_id: i32,

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::assets::texture::{estimate_gpu_cubemap_bytes, resolve_cubemap_wgpu_format};
 use crate::gpu::GpuLimits;
-use crate::shared::{ColorProfile, SetCubemapFormat, SetCubemapProperties, TextureFormat};
+use crate::shared::{SetCubemapFormat, SetCubemapProperties};
 
 use crate::gpu_pools::GpuResource;
 use crate::gpu_pools::budget::TextureResidencyMeta;
@@ -27,10 +27,6 @@ pub struct GpuCubemap {
     pub view: Arc<wgpu::TextureView>,
     /// Resolved wgpu format for `texture`.
     pub wgpu_format: wgpu::TextureFormat,
-    /// Host [`TextureFormat`] enum (compression / layout family).
-    pub host_format: TextureFormat,
-    /// Linear vs sRGB sampling policy from host.
-    pub color_profile: ColorProfile,
     /// Face size in texels (mip0).
     pub size: u32,
     /// Mip chain length allocated on GPU.
@@ -115,8 +111,6 @@ impl GpuCubemap {
             texture,
             view,
             wgpu_format,
-            host_format: fmt.format,
-            color_profile: fmt.profile,
             size: s,
             mip_levels_total: mips,
             mip_levels_resident: 0,

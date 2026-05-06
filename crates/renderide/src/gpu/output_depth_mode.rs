@@ -1,7 +1,5 @@
 //! Classification of main depth attachment layout for Hi-Z and occlusion policy wiring.
 
-use thiserror::Error;
-
 /// Number of stereo view layers in the multiview depth array (left + right eye).
 ///
 /// Inlined here to keep `render_graph/` independent of `xr/`. Stays in sync with
@@ -9,7 +7,8 @@ use thiserror::Error;
 const STEREO_LAYER_COUNT: u32 = 2;
 
 /// Errors when code expects a stereo depth array but the mode is desktop.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum OutputDepthModeError {
     /// [`OutputDepthMode::DesktopSingle`] was found where stereo array layout was required.
     #[error("expected stereo depth array, got desktop single")]
@@ -46,12 +45,8 @@ impl OutputDepthMode {
         }
     }
 
-    /// `true` when occlusion should maintain per-eye Hi-Z data ([`Self::StereoArray`]).
-    pub fn is_stereo_array(self) -> bool {
-        matches!(self, Self::StereoArray { .. })
-    }
-
     /// Layer count when this mode is [`Self::StereoArray`]; otherwise [`OutputDepthModeError::ExpectedStereoArray`].
+    #[cfg(test)]
     pub fn try_stereo_layer_count(self) -> Result<u32, OutputDepthModeError> {
         match self {
             Self::StereoArray { layer_count } => Ok(layer_count),

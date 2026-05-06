@@ -145,11 +145,6 @@ impl Heartbeat {
         self.slot.last_pet_ns.store(now, Ordering::Release);
     }
 
-    /// Slot name (debug / log).
-    pub fn name(&self) -> &'static str {
-        self.slot.name
-    }
-
     /// Begin a region in which the watchdog should ignore this slot. Returns a guard whose
     /// [`Drop`] re-enables reporting. Nest freely -- the suspend count is reference-counted.
     pub fn pause(&self) -> WatchdogPause {

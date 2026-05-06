@@ -64,16 +64,9 @@ impl RasterFrontFace {
 pub enum RasterPrimitiveTopology {
     /// Each vertex is a point sprite; no shared topology.
     PointList,
-    /// Each pair of vertices forms an independent line segment.
-    LineList,
-    /// Connected line strip; first two vertices form a segment, each subsequent vertex extends it.
-    LineStrip,
     /// Each triple of vertices forms an independent triangle.
     #[default]
     TriangleList,
-    /// Connected triangle strip; first three vertices form a triangle, each subsequent vertex
-    /// extends it.
-    TriangleStrip,
 }
 
 impl RasterPrimitiveTopology {
@@ -82,10 +75,7 @@ impl RasterPrimitiveTopology {
     pub fn to_wgpu(self) -> wgpu::PrimitiveTopology {
         match self {
             Self::PointList => wgpu::PrimitiveTopology::PointList,
-            Self::LineList => wgpu::PrimitiveTopology::LineList,
-            Self::LineStrip => wgpu::PrimitiveTopology::LineStrip,
             Self::TriangleList => wgpu::PrimitiveTopology::TriangleList,
-            Self::TriangleStrip => wgpu::PrimitiveTopology::TriangleStrip,
         }
     }
 }

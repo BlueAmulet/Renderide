@@ -1,9 +1,8 @@
 //! Context types passed to each pass's recording method for one encoder slice.
 //!
-//! Four context types correspond to the four pass kinds in [`super::pass::PassNode`]:
+//! Context types correspond to the pass kinds in [`super::pass::PassNode`]:
 //! - [`RasterPassCtx`] -- graph has already opened `wgpu::RenderPass`; pass records draws.
 //! - [`ComputePassCtx`] -- pass receives the raw `wgpu::CommandEncoder` for compute work.
-//! - [`CopyPassCtx`] -- same as compute, semantically restricted to copy operations.
 //! - [`CallbackCtx`] -- no encoder; pass runs CPU prep, Queue writes, and blackboard mutations.
 //!
 //! [`PostSubmitContext`] is shared across all pass kinds for post-submit hooks.
@@ -21,9 +20,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::backend::HistoryTextureMipViews;
-use crate::gpu::GpuLimits;
-
 use super::blackboard::Blackboard;
 use super::frame_params::GraphPassFrame;
 use super::frame_upload_batch::FrameUploadBatch;
@@ -32,6 +28,8 @@ use super::resources::{
     BufferHandle, ImportedBufferHandle, ImportedTextureHandle, SubresourceHandle, TextureHandle,
     TextureResourceHandle,
 };
+use crate::backend::HistoryTextureMipViews;
+use crate::gpu::GpuLimits;
 
 // -----------------------------------------------------------------------------
 // Resolved resource types
@@ -42,8 +40,6 @@ use super::resources::{
 pub struct ResolvedGraphTexture {
     /// Transient pool entry id.
     pub pool_id: usize,
-    /// Compiler-assigned alias slot.
-    pub physical_slot: usize,
     /// Texture handle.
     pub texture: wgpu::Texture,
     /// Default texture view.
@@ -63,12 +59,6 @@ pub struct ResolvedGraphTexture {
 pub struct ResolvedGraphBuffer {
     /// Transient pool entry id.
     pub pool_id: usize,
-    /// Compiler-assigned alias slot.
-    pub physical_slot: usize,
-    /// Buffer handle.
-    pub buffer: wgpu::Buffer,
-    /// Buffer size in bytes.
-    pub size: u64,
 }
 
 /// Imported texture resolved from the current frame target or backend history.
@@ -182,6 +172,7 @@ impl GraphResolvedResources {
     }
 
     /// Looks up a transient buffer.
+    #[cfg(test)]
     pub fn transient_buffer(&self, handle: BufferHandle) -> Option<&ResolvedGraphBuffer> {
         self.transient_buffers.get(handle.index())?.as_ref()
     }
@@ -250,14 +241,8 @@ impl GraphResolvedResources {
 pub struct RasterPassCtx<'a, 'frame> {
     /// WGPU device.
     pub device: &'a wgpu::Device,
-    /// Effective limits for this frame.
-    pub gpu_limits: &'a GpuLimits,
     /// Submission queue for resource creation paths that still require wgpu queue access.
     pub queue: &'a Arc<wgpu::Queue>,
-    /// Swapchain view when the frame acquired the surface; [`None`] for offscreen-only graphs.
-    pub backbuffer: Option<&'a wgpu::TextureView>,
-    /// Depth attachment for the main forward pass.
-    pub depth_view: Option<&'a wgpu::TextureView>,
     /// Scene, backend system handles, and per-view frame state for this pass.
     pub pass_frame: &'frame mut GraphPassFrame<'a>,
     /// Deferred [`wgpu::Queue::write_buffer`] sink; drained on the main thread after all per-view
@@ -328,12 +313,6 @@ impl ComputePassCtx<'_, '_, '_> {
     }
 }
 
-/// Context for [`super::pass::CopyPass::record`].
-///
-/// Structurally identical to [`ComputePassCtx`]; separated by type to distinguish copy-only
-/// intent from arbitrary compute dispatch.
-pub type CopyPassCtx<'a, 'encoder, 'frame> = ComputePassCtx<'a, 'encoder, 'frame>;
-
 /// Context for [`super::pass::CallbackPass::run`].
 ///
 /// No encoder is provided. The pass runs as a CPU callback, records uploads through
@@ -350,17 +329,8 @@ pub struct CallbackCtx<'a, 'frame> {
     /// Deferred [`wgpu::Queue::write_buffer`] sink; drained on the main thread after all per-view
     /// encoding completes and before submit.
     pub upload_batch: &'frame FrameUploadBatch,
-    /// Typed graph resources resolved for this execution scope.
-    pub graph_resources: &'a GraphResolvedResources,
     /// Per-scope typed blackboard (read/write; the primary output of callback passes).
     pub blackboard: &'frame mut Blackboard,
-}
-
-impl CallbackCtx<'_, '_> {
-    /// Records a deferred buffer upload through the graph-owned upload recorder.
-    pub fn write_buffer(&self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]) {
-        self.upload_batch.write_buffer(buffer, offset, data);
-    }
 }
 
 // -----------------------------------------------------------------------------
@@ -373,60 +343,13 @@ impl CallbackCtx<'_, '_> {
 /// buffers they wrote this frame (e.g. Hi-Z readback staging rotation).
 pub struct PostSubmitContext<'a> {
     /// WGPU device for `map_async` and device polling.
-    pub device: &'a wgpu::Device,
+    pub _device: &'a wgpu::Device,
     /// Hi-Z readback and temporal bookkeeping for this view after submit.
-    pub occlusion: &'a mut crate::occlusion::OcclusionSystem,
+    pub _occlusion: &'a mut crate::occlusion::OcclusionSystem,
     /// Which occlusion view this submit covered.
-    pub view_id: crate::camera::ViewId,
+    pub _view_id: crate::camera::ViewId,
     /// Host camera snapshot for the view.
-    pub host_camera: crate::camera::HostCameraFrame,
-}
-
-// -----------------------------------------------------------------------------
-// Compatibility context types (kept for test compatibility; callers should migrate)
-// -----------------------------------------------------------------------------
-
-/// Compatibility encoder-driven pass context. Prefer [`ComputePassCtx`] for new code.
-///
-/// Kept as an alias for incremental migration of tests and helper functions that reference the
-/// compatibility type. Will be removed when all callers are updated.
-pub struct RenderPassContext<'a, 'encoder, 'frame> {
-    /// WGPU device.
-    pub device: &'a wgpu::Device,
-    /// Effective limits for this frame.
-    pub gpu_limits: &'a GpuLimits,
-    /// Submission queue.
-    pub queue: &'a Arc<wgpu::Queue>,
-    /// Active command encoder.
-    pub encoder: &'encoder mut wgpu::CommandEncoder,
-    /// Swapchain view when this frame acquired the surface.
-    pub backbuffer: Option<&'a wgpu::TextureView>,
-    /// Depth attachment for the main forward pass.
-    pub depth_view: Option<&'a wgpu::TextureView>,
-    /// Scene + backend frame params.
-    pub frame: Option<&'frame mut GraphPassFrame<'a>>,
-    /// Typed graph resources resolved for this execution scope.
-    pub graph_resources: &'a GraphResolvedResources,
-}
-
-/// Compatibility graph-raster pass context. Prefer [`RasterPassCtx`] for new code.
-///
-/// Kept for incremental migration of tests and setup/compose pass helpers.
-pub struct GraphRasterPassContext<'a, 'frame> {
-    /// WGPU device.
-    pub device: &'a wgpu::Device,
-    /// Effective limits for this frame.
-    pub gpu_limits: &'a GpuLimits,
-    /// Submission queue.
-    pub queue: &'a Arc<wgpu::Queue>,
-    /// Swapchain view when this frame acquired the surface.
-    pub backbuffer: Option<&'a wgpu::TextureView>,
-    /// Depth attachment for the main forward pass.
-    pub depth_view: Option<&'a wgpu::TextureView>,
-    /// Scene + backend frame params.
-    pub frame: Option<&'frame mut GraphPassFrame<'a>>,
-    /// Typed graph resources resolved for this execution scope.
-    pub graph_resources: &'a GraphResolvedResources,
+    pub _host_camera: crate::camera::HostCameraFrame,
 }
 
 #[cfg(test)]

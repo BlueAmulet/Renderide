@@ -56,12 +56,6 @@ impl GpuSkinCache {
         self.stats
     }
 
-    /// Total VRAM for the arenas (bytes).
-    #[inline]
-    pub fn resident_bytes(&self) -> u64 {
-        self.arenas.resident_bytes()
-    }
-
     /// Full positions arena (`STORAGE | VERTEX`); bind [`SkinCacheEntry::positions`] byte range for draws.
     #[inline]
     pub fn positions_arena(&self) -> &wgpu::Buffer {
@@ -78,17 +72,6 @@ impl GpuSkinCache {
     #[inline]
     pub fn tangents_arena(&self) -> &wgpu::Buffer {
         self.arenas.tangents()
-    }
-
-    /// Blendshape -> skin intermediate positions when both passes run.
-    #[inline]
-    pub fn temp_arena(&self) -> &wgpu::Buffer {
-        self.arenas.temp()
-    }
-
-    /// Looks up a cache line without allocating.
-    pub fn lookup(&self, key: &SkinCacheKey) -> Option<&SkinCacheEntry> {
-        self.entries.get(key)
     }
 
     /// Looks up a cache line only when mesh deform touched it in the current cache frame.
@@ -109,20 +92,7 @@ impl GpuSkinCache {
         }
     }
 
-    /// Allocates or reuses ranges for `key`. On failure, logs and returns `None`.
-    pub fn get_or_alloc(
-        &mut self,
-        device: &wgpu::Device,
-        encoder: &mut wgpu::CommandEncoder,
-        key: SkinCacheKey,
-        need: EntryNeed,
-        vertex_count: u32,
-    ) -> Option<&SkinCacheEntry> {
-        self.get_or_alloc_with_arenas(device, encoder, key, need, vertex_count)
-            .map(|(e, _, _, _, _)| e)
-    }
-
-    /// Like [`Self::get_or_alloc`], also returns arena buffers for encode passes (single borrow).
+    /// Allocates or reuses ranges and returns arena buffers for encode passes (single borrow).
     pub fn get_or_alloc_with_arenas(
         &mut self,
         device: &wgpu::Device,

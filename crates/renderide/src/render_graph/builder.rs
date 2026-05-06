@@ -16,13 +16,13 @@ use topo::{retained_ordinals, retained_passes, topo_sort};
 use validate::validate_handles;
 
 use super::compiled::{
-    ColorAttachmentTemplate, CompileStats, CompiledBufferResource, CompiledGroup, CompiledPassInfo,
+    ColorAttachmentTemplate, CompileStats, CompiledBufferResource, CompiledPassInfo,
     CompiledRenderGraph, CompiledTextureResource, DepthAttachmentTemplate, RenderPassTemplate,
 };
 use super::error::GraphBuildError;
 use super::ids::{GroupId, PassId};
 use super::pass::{
-    CallbackPass, ComputePass, CopyPass, GroupScope, PassBuilder, PassNode, PassPhase, RasterPass,
+    CallbackPass, ComputePass, GroupScope, PassBuilder, PassNode, PassPhase, RasterPass,
 };
 use super::resources::{
     BufferHandle, FrameTargetRole, ImportSource, ImportedBufferDecl, ImportedBufferHandle,
@@ -61,12 +61,10 @@ impl GraphBuilder {
             edges: Vec::new(),
             groups: vec![
                 GroupEntry {
-                    name: "frame-global",
                     scope: GroupScope::FrameGlobal,
                     after: Vec::new(),
                 },
                 GroupEntry {
-                    name: "per-view",
                     scope: GroupScope::PerView,
                     after: vec![default_frame_group],
                 },
@@ -121,10 +119,10 @@ impl GraphBuilder {
     }
 
     /// Creates an explicit scheduling group.
-    pub fn group(&mut self, name: &'static str, scope: GroupScope) -> GroupId {
+    #[cfg(test)]
+    pub fn group(&mut self, _name: &'static str, scope: GroupScope) -> GroupId {
         let id = GroupId(self.groups.len());
         self.groups.push(GroupEntry {
-            name,
             scope,
             after: Vec::new(),
         });
@@ -132,6 +130,7 @@ impl GraphBuilder {
     }
 
     /// Orders `group` after `dependency`.
+    #[cfg(test)]
     pub fn group_after(&mut self, group: GroupId, dependency: GroupId) {
         if let Some(entry) = self.groups.get_mut(group.0) {
             entry.after.push(dependency);
@@ -164,17 +163,13 @@ impl GraphBuilder {
         self.add_pass(PassNode::Compute(pass))
     }
 
-    /// Appends a copy pass to the default group for its phase.
-    pub fn add_copy_pass(&mut self, pass: Box<dyn CopyPass>) -> PassId {
-        self.add_pass(PassNode::Copy(pass))
-    }
-
     /// Appends a callback pass to the default group for its phase.
     pub fn add_callback_pass(&mut self, pass: Box<dyn CallbackPass>) -> PassId {
         self.add_pass(PassNode::Callback(pass))
     }
 
     /// Appends a raster pass to a specific group.
+    #[cfg(test)]
     pub fn add_raster_pass_to_group(
         &mut self,
         group: GroupId,
@@ -184,26 +179,13 @@ impl GraphBuilder {
     }
 
     /// Appends a compute pass to a specific group.
+    #[cfg(test)]
     pub fn add_compute_pass_to_group(
         &mut self,
         group: GroupId,
         pass: Box<dyn ComputePass>,
     ) -> PassId {
         self.add_pass_to_group(group, PassNode::Compute(pass))
-    }
-
-    /// Appends a callback pass to a specific group.
-    pub fn add_callback_pass_to_group(
-        &mut self,
-        group: GroupId,
-        pass: Box<dyn CallbackPass>,
-    ) -> PassId {
-        self.add_pass_to_group(group, PassNode::Callback(pass))
-    }
-
-    /// Appends a pass only when `condition` is true.
-    pub fn add_pass_if(&mut self, condition: bool, pass: PassNode) -> Option<PassId> {
-        condition.then(|| self.add_pass(pass))
     }
 
     /// Ensures `from` is scheduled before `to`.
@@ -251,7 +233,6 @@ impl GraphBuilder {
         let (compiled_buffers, buffer_slots) =
             compile_buffers(&self.buffers, &setups, &retained_ord);
         let pass_info = compile_pass_info(&setups, &ordered);
-        let groups = compile_groups(&self.groups, &pass_info);
         let needs_surface_acquire = needs_surface_acquire(&pass_info, &self.imports_tex);
 
         // Build passes in retained order, taking ownership from the declaration list.
@@ -287,7 +268,6 @@ impl GraphBuilder {
                 imported_texture_count: self.imports_tex.len(),
                 imported_buffer_count: self.imports_buf.len(),
             },
-            groups,
             pass_info,
             transient_textures: compiled_textures,
             transient_buffers: compiled_buffers,
@@ -310,7 +290,6 @@ impl GraphBuilder {
                 imported_buffer_count: self.imports_buf.len(),
                 ..CompileStats::default()
             },
-            groups: Vec::new(),
             pass_info: Vec::new(),
             transient_textures: self
                 .textures
@@ -379,7 +358,6 @@ impl GraphBuilder {
                 source,
             })?;
             setups.push(SetupEntry {
-                id,
                 group: entry.group,
                 name,
                 setup,
@@ -506,13 +484,14 @@ fn compile_pass_info(setups: &[SetupEntry], ordered: &[usize]) -> Vec<CompiledPa
             let setup = &setups[idx];
             let raster_template = compile_raster_template(&setup.setup);
             CompiledPassInfo {
-                id: setup.id,
                 name: setup.name.clone(),
-                group: setup.group,
+                #[cfg(test)]
                 kind: setup.setup.kind,
                 accesses: setup.setup.accesses.clone(),
+                #[cfg(test)]
                 multiview_mask: setup.setup.multiview_mask,
                 raster_template,
+                #[cfg(test)]
                 merge_hint: setup.setup.merge_hint,
             }
         })
@@ -546,27 +525,6 @@ fn compile_raster_template(setup: &super::pass::PassSetup) -> Option<RenderPassT
             multiview_mask: setup.multiview_mask,
         },
     )
-}
-
-fn compile_groups(groups: &[GroupEntry], pass_info: &[CompiledPassInfo]) -> Vec<CompiledGroup> {
-    groups
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, group)| {
-            let id = GroupId(idx);
-            let pass_indices: Vec<usize> = pass_info
-                .iter()
-                .enumerate()
-                .filter_map(|(pass_idx, info)| (info.group == id).then_some(pass_idx))
-                .collect();
-            (!pass_indices.is_empty()).then_some(CompiledGroup {
-                id,
-                name: group.name,
-                scope: group.scope,
-                pass_indices,
-            })
-        })
-        .collect()
 }
 
 fn needs_surface_acquire(pass_info: &[CompiledPassInfo], imports: &[ImportedTextureDecl]) -> bool {

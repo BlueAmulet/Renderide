@@ -39,8 +39,6 @@ pub fn sanitize_input_state_for_imgui_host(
 pub struct DebugHudInput {
     /// Cursor position in physical pixels (or `[-inf, -inf]` when unavailable).
     pub cursor_px: [f32; 2],
-    /// Drawable size in physical pixels.
-    pub window_px: (u32, u32),
     /// Whether the window currently has keyboard focus.
     pub window_focused: bool,
     /// Whether the cursor is over the client area (from winit accumulator).
@@ -74,11 +72,8 @@ impl DebugHudInput {
         } else {
             [-f32::MAX, -f32::MAX]
         };
-        let s = window.inner_size();
-        let window_px = (s.width, s.height);
         Self {
             cursor_px,
-            window_px,
             window_focused: acc.window_focused,
             mouse_active: acc.mouse_active,
             mouse_wheel_delta: acc.take_hud_scroll_delta(),

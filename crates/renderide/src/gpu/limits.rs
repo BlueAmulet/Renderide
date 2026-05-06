@@ -63,12 +63,14 @@ impl GpuLimits {
     }
 
     /// `min_uniform_buffer_offset_alignment` for dynamic uniform offsets.
+    #[cfg(test)]
     #[inline]
     pub fn min_uniform_buffer_offset_alignment(&self) -> u32 {
         self.wgpu.min_uniform_buffer_offset_alignment
     }
 
     /// Rounds `n` up to a multiple of [`Self::min_storage_buffer_offset_alignment`].
+    #[cfg(test)]
     #[inline]
     pub fn align_storage_offset(&self, n: u64) -> u64 {
         let align = u64::from(self.wgpu.min_storage_buffer_offset_alignment).max(1);
@@ -76,6 +78,7 @@ impl GpuLimits {
     }
 
     /// Rounds `n` up to a multiple of [`Self::min_uniform_buffer_offset_alignment`].
+    #[cfg(test)]
     #[inline]
     pub fn align_uniform_offset(&self, n: u64) -> u64 {
         let align = u64::from(self.wgpu.min_uniform_buffer_offset_alignment).max(1);
@@ -176,24 +179,28 @@ impl GpuLimits {
     }
 
     /// `max_compute_invocations_per_workgroup` for shader workgroup-size validation.
+    #[cfg(test)]
     #[inline]
     pub fn max_compute_invocations_per_workgroup(&self) -> u32 {
         self.wgpu.max_compute_invocations_per_workgroup
     }
 
     /// `max_compute_workgroup_size_x` for shader workgroup-size validation.
+    #[cfg(test)]
     #[inline]
     pub fn max_compute_workgroup_size_x(&self) -> u32 {
         self.wgpu.max_compute_workgroup_size_x
     }
 
     /// `max_compute_workgroup_size_y` for shader workgroup-size validation.
+    #[cfg(test)]
     #[inline]
     pub fn max_compute_workgroup_size_y(&self) -> u32 {
         self.wgpu.max_compute_workgroup_size_y
     }
 
     /// `max_compute_workgroup_size_z` for shader workgroup-size validation.
+    #[cfg(test)]
     #[inline]
     pub fn max_compute_workgroup_size_z(&self) -> u32 {
         self.wgpu.max_compute_workgroup_size_z
@@ -210,6 +217,7 @@ impl GpuLimits {
     /// Returns `true` if a `@workgroup_size(x, y, z)` declaration fits the device's per-axis caps
     /// and total invocation cap.
     #[must_use]
+    #[cfg(test)]
     #[inline]
     pub fn workgroup_size_fits(&self, x: u32, y: u32, z: u32) -> bool {
         x <= self.wgpu.max_compute_workgroup_size_x
@@ -220,6 +228,7 @@ impl GpuLimits {
     }
 
     /// `max_bind_groups` for the device.
+    #[cfg(test)]
     #[inline]
     pub fn max_bind_groups(&self) -> u32 {
         self.wgpu.max_bind_groups
@@ -244,24 +253,28 @@ impl GpuLimits {
     }
 
     /// `max_storage_textures_per_shader_stage` for the device.
+    #[cfg(test)]
     #[inline]
     pub fn max_storage_textures_per_shader_stage(&self) -> u32 {
         self.wgpu.max_storage_textures_per_shader_stage
     }
 
     /// `max_storage_buffers_per_shader_stage` for the device.
+    #[cfg(test)]
     #[inline]
     pub fn max_storage_buffers_per_shader_stage(&self) -> u32 {
         self.wgpu.max_storage_buffers_per_shader_stage
     }
 
     /// `max_uniform_buffers_per_shader_stage` for the device.
+    #[cfg(test)]
     #[inline]
     pub fn max_uniform_buffers_per_shader_stage(&self) -> u32 {
         self.wgpu.max_uniform_buffers_per_shader_stage
     }
 
     /// `max_color_attachments` for the device.
+    #[cfg(test)]
     #[inline]
     pub fn max_color_attachments(&self) -> u32 {
         self.wgpu.max_color_attachments
@@ -291,6 +304,7 @@ impl GpuLimits {
 
     /// Clamps `edge` to `[1, max_texture_dimension_2d]`. Returns `None` when `edge == 0`.
     #[must_use]
+    #[cfg(test)]
     #[inline]
     pub fn clamp_texture_2d_edge(&self, edge: u32) -> Option<u32> {
         if edge == 0 {
@@ -493,6 +507,7 @@ mod tests {
             min_uniform_buffer_offset_alignment: 128,
             ..Default::default()
         });
+        assert_eq!(gl.min_uniform_buffer_offset_alignment(), 128);
         assert_eq!(gl.align_uniform_offset(0), 0);
         assert_eq!(gl.align_uniform_offset(1), 128);
         assert_eq!(gl.align_uniform_offset(128), 128);

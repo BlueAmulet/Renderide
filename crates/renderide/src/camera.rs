@@ -21,17 +21,15 @@ pub(crate) use frame::{
     head_output_from_active_main_space,
 };
 pub use geometry::{CameraClipPlanes, CameraPose, EyeView, OrthographicProjectionSpec, Viewport};
-pub use projection::{DESKTOP_FOV_DEGREES_MAX, DESKTOP_FOV_DEGREES_MIN};
 pub use projection::{
-    clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_orthographic,
-    reverse_z_perspective, reverse_z_perspective_openxr_fov,
+    clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_perspective,
+    reverse_z_perspective_openxr_fov,
 };
 pub use projection_plan::WorldProjectionSet;
-pub use secondary::{
-    camera_state_enabled, camera_state_render_private_ui, camera_state_use_transform_scale,
-    host_camera_frame_for_render_texture,
-};
-pub use state::{CameraProjectionKind, HostCameraFrame, SecondaryCameraId, ViewId};
+pub use secondary::{camera_state_enabled, host_camera_frame_for_render_texture};
+#[cfg(test)]
+pub(crate) use state::SecondaryCameraId;
+pub use state::{CameraProjectionKind, HostCameraFrame, ViewId};
 pub use stereo::StereoViewMatrices;
 pub use view::{
     apply_view_handedness_fix, view_matrix_for_host_world_mesh_space,

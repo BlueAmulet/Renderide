@@ -19,11 +19,6 @@ use crate::shared::{MaterialsUpdateBatch, MaterialsUpdateBatchResult, RendererCo
 /// Deferred [`MaterialsUpdateBatch`] count that emits queue-pressure diagnostics.
 pub const PENDING_MATERIAL_BATCH_WARN_THRESHOLD: usize = 256;
 
-/// Compatibility alias for the deferred material-batch backlog warning threshold.
-///
-/// This is no longer a hard capacity; deferred material batches are retained beyond this count.
-pub const MAX_PENDING_MATERIAL_BATCHES: usize = PENDING_MATERIAL_BATCH_WARN_THRESHOLD;
-
 /// Host material tables, GPU registry/cache, embedded bind builder, and deferred shader routes.
 pub struct MaterialSystem {
     /// Host material property batches (`MaterialsUpdateBatch`); separate maps for materials vs blocks.
@@ -104,11 +99,6 @@ impl MaterialSystem {
         &self.material_property_store
     }
 
-    /// Mutable store for tests and tooling.
-    pub fn material_property_store_mut(&mut self) -> &mut MaterialPropertyStore {
-        &mut self.material_property_store
-    }
-
     /// Property name interning for material batches.
     pub fn property_id_registry(&self) -> &PropertyIdRegistry {
         self.property_id_registry.as_ref()
@@ -124,11 +114,6 @@ impl MaterialSystem {
     /// Registered material families and pipeline cache (after GPU attach).
     pub fn material_registry(&self) -> Option<&crate::materials::MaterialRegistry> {
         self.material_registry.as_ref()
-    }
-
-    /// Mutable registry (pipeline cache and shader routes).
-    pub fn material_registry_mut(&mut self) -> Option<&mut crate::materials::MaterialRegistry> {
-        self.material_registry.as_mut()
     }
 
     /// Embedded material bind groups (world Unlit, etc.) after GPU attach.

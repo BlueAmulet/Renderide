@@ -121,13 +121,7 @@ impl DebugTab {
 
     /// ImGui tab label.
     pub fn label(self) -> &'static str {
-        match self {
-            Self::Stats => "Stats",
-            Self::ShaderRoutes => "Shader routes",
-            Self::DrawState => "Draw state",
-            Self::GpuMemory => "GPU memory",
-            Self::GpuPasses => "GPU passes",
-        }
+        self.persisted_tab().label()
     }
 
     /// Stable config enum for this tab.

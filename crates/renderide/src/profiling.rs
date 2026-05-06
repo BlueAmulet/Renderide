@@ -38,8 +38,6 @@
 //! [`rayon_thread_start_handler`] to `rayon::ThreadPoolBuilder::start_handler` so Rayon workers
 //! are also named.
 
-pub use profiling::finish_frame;
-pub use profiling::function_scope;
 pub use profiling::scope;
 
 /// Starts the Tracy client (if the `tracy` feature is on) and registers the calling thread as
@@ -289,96 +287,153 @@ pub struct CommandEncodingProfileSample {
 #[inline]
 pub fn plot_command_encoding(sample: CommandEncodingProfileSample) {
     #[cfg(feature = "tracy")]
-    {
-        tracy_client::plot!("command_encoding::views", sample.view_count as f64);
-        tracy_client::plot!(
-            "command_encoding::command_buffers",
-            sample.command_buffers as f64
-        );
-        tracy_client::plot!(
-            "command_encoding::frame_global_passes",
-            sample.frame_global_passes as f64
-        );
-        tracy_client::plot!(
-            "command_encoding::per_view_passes",
-            sample.per_view_passes as f64
-        );
-        tracy_client::plot!(
-            "command_encoding::transient_textures",
-            sample.transient_textures as f64
-        );
-        tracy_client::plot!(
-            "command_encoding::transient_texture_slots",
-            sample.transient_texture_slots as f64
-        );
-        tracy_client::plot!(
-            "command_encoding::transient_texture_misses",
-            sample.transient_texture_misses as f64
-        );
-        tracy_client::plot!(
-            "command_encoding::transient_buffer_misses",
-            sample.transient_buffer_misses as f64
-        );
-        tracy_client::plot!(
-            "command_encoding::upload_writes",
-            sample.upload_writes as f64
-        );
-        tracy_client::plot!("command_encoding::upload_bytes", sample.upload_bytes as f64);
-        tracy_client::plot!("command_encoding::pre_resolve_ms", sample.pre_resolve_ms);
-        tracy_client::plot!(
-            "command_encoding::prepare_resources_ms",
-            sample.prepare_resources_ms
-        );
-        tracy_client::plot!(
-            "command_encoding::frame_global_encode_ms",
-            sample.frame_global_encode_ms
-        );
-        tracy_client::plot!(
-            "command_encoding::frame_global_finish_ms",
-            sample.frame_global_finish_ms
-        );
-        tracy_client::plot!(
-            "command_encoding::per_view_encode_ms",
-            sample.per_view_encode_ms
-        );
-        tracy_client::plot!(
-            "command_encoding::per_view_finish_ms",
-            sample.per_view_finish_ms
-        );
-        tracy_client::plot!("command_encoding::upload_drain_ms", sample.upload_drain_ms);
-        tracy_client::plot!(
-            "command_encoding::upload_finish_ms",
-            sample.upload_finish_ms
-        );
-        tracy_client::plot!(
-            "command_encoding::command_batch_assembly_ms",
-            sample.command_batch_assembly_ms
-        );
-        tracy_client::plot!(
-            "command_encoding::submit_enqueue_ms",
-            sample.submit_enqueue_ms
-        );
-        tracy_client::plot!(
-            "command_encoding::max_encoder_finish_ms",
-            sample.max_encoder_finish_ms
-        );
-        tracy_client::plot!(
-            "command_encoding::world_mesh_draws",
-            sample.world_mesh_draws as f64
-        );
-        tracy_client::plot!(
-            "command_encoding::world_mesh_instance_batches",
-            sample.world_mesh_instance_batches as f64
-        );
-        tracy_client::plot!(
-            "command_encoding::world_mesh_pipeline_pass_submits",
-            sample.world_mesh_pipeline_pass_submits as f64
-        );
-    }
+    plot_command_encoding_tracy(sample);
     #[cfg(not(feature = "tracy"))]
-    {
-        let _ = sample;
-    }
+    consume_command_encoding_sample(sample);
+}
+
+#[cfg(feature = "tracy")]
+fn plot_command_encoding_tracy(sample: CommandEncodingProfileSample) {
+    tracy_client::plot!("command_encoding::views", sample.view_count as f64);
+    tracy_client::plot!(
+        "command_encoding::command_buffers",
+        sample.command_buffers as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::frame_global_passes",
+        sample.frame_global_passes as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::per_view_passes",
+        sample.per_view_passes as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::transient_textures",
+        sample.transient_textures as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::transient_texture_slots",
+        sample.transient_texture_slots as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::transient_texture_misses",
+        sample.transient_texture_misses as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::transient_buffer_misses",
+        sample.transient_buffer_misses as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_writes",
+        sample.upload_writes as f64
+    );
+    tracy_client::plot!("command_encoding::upload_bytes", sample.upload_bytes as f64);
+    tracy_client::plot!("command_encoding::pre_resolve_ms", sample.pre_resolve_ms);
+    tracy_client::plot!(
+        "command_encoding::prepare_resources_ms",
+        sample.prepare_resources_ms
+    );
+    tracy_client::plot!(
+        "command_encoding::frame_global_encode_ms",
+        sample.frame_global_encode_ms
+    );
+    tracy_client::plot!(
+        "command_encoding::frame_global_finish_ms",
+        sample.frame_global_finish_ms
+    );
+    tracy_client::plot!(
+        "command_encoding::per_view_encode_ms",
+        sample.per_view_encode_ms
+    );
+    tracy_client::plot!(
+        "command_encoding::per_view_finish_ms",
+        sample.per_view_finish_ms
+    );
+    tracy_client::plot!("command_encoding::upload_drain_ms", sample.upload_drain_ms);
+    tracy_client::plot!(
+        "command_encoding::upload_finish_ms",
+        sample.upload_finish_ms
+    );
+    tracy_client::plot!(
+        "command_encoding::command_batch_assembly_ms",
+        sample.command_batch_assembly_ms
+    );
+    tracy_client::plot!(
+        "command_encoding::submit_enqueue_ms",
+        sample.submit_enqueue_ms
+    );
+    tracy_client::plot!(
+        "command_encoding::max_encoder_finish_ms",
+        sample.max_encoder_finish_ms
+    );
+    tracy_client::plot!(
+        "command_encoding::world_mesh_draws",
+        sample.world_mesh_draws as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::world_mesh_instance_batches",
+        sample.world_mesh_instance_batches as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::world_mesh_pipeline_pass_submits",
+        sample.world_mesh_pipeline_pass_submits as f64
+    );
+}
+
+#[cfg(not(feature = "tracy"))]
+fn consume_command_encoding_sample(sample: CommandEncodingProfileSample) {
+    let CommandEncodingProfileSample {
+        view_count,
+        command_buffers,
+        frame_global_passes,
+        per_view_passes,
+        transient_textures,
+        transient_texture_slots,
+        transient_texture_misses,
+        transient_buffer_misses,
+        upload_writes,
+        upload_bytes,
+        pre_resolve_ms,
+        prepare_resources_ms,
+        frame_global_encode_ms,
+        frame_global_finish_ms,
+        per_view_encode_ms,
+        per_view_finish_ms,
+        upload_drain_ms,
+        upload_finish_ms,
+        command_batch_assembly_ms,
+        submit_enqueue_ms,
+        max_encoder_finish_ms,
+        world_mesh_draws,
+        world_mesh_instance_batches,
+        world_mesh_pipeline_pass_submits,
+    } = sample;
+    let _ = (
+        view_count,
+        command_buffers,
+        frame_global_passes,
+        per_view_passes,
+        transient_textures,
+        transient_texture_slots,
+        transient_texture_misses,
+        transient_buffer_misses,
+        upload_writes,
+        upload_bytes,
+        pre_resolve_ms,
+        prepare_resources_ms,
+        frame_global_encode_ms,
+        frame_global_finish_ms,
+        per_view_encode_ms,
+        per_view_finish_ms,
+        upload_drain_ms,
+        upload_finish_ms,
+        command_batch_assembly_ms,
+        submit_enqueue_ms,
+        max_encoder_finish_ms,
+        world_mesh_draws,
+        world_mesh_instance_batches,
+        world_mesh_pipeline_pass_submits,
+    );
 }
 
 /// Asset-integration backlog and budget-exhaustion counters for one drain.
@@ -426,7 +481,18 @@ pub fn plot_asset_integration(sample: AssetIntegrationProfileSample) {
     }
     #[cfg(not(feature = "tracy"))]
     {
-        let _ = sample;
+        let AssetIntegrationProfileSample {
+            high_priority_queued,
+            normal_priority_queued,
+            high_priority_budget_exhausted,
+            normal_priority_budget_exhausted,
+        } = sample;
+        let _ = (
+            high_priority_queued,
+            normal_priority_queued,
+            high_priority_budget_exhausted,
+            normal_priority_budget_exhausted,
+        );
     }
 }
 
@@ -506,7 +572,36 @@ pub fn plot_mesh_deform(sample: MeshDeformProfileSample) {
     }
     #[cfg(not(feature = "tracy"))]
     {
-        let _ = sample;
+        let MeshDeformProfileSample {
+            work_items,
+            compute_passes,
+            bind_groups_created,
+            copy_ops,
+            blend_dispatches,
+            skin_dispatches,
+            scratch_buffer_grows,
+            skipped_allocations,
+            cache_reuses,
+            cache_allocations,
+            cache_grows,
+            cache_evictions,
+            cache_current_frame_eviction_refusals,
+        } = sample;
+        let _ = (
+            work_items,
+            compute_passes,
+            bind_groups_created,
+            copy_ops,
+            blend_dispatches,
+            skin_dispatches,
+            scratch_buffer_grows,
+            skipped_allocations,
+            cache_reuses,
+            cache_allocations,
+            cache_grows,
+            cache_evictions,
+            cache_current_frame_eviction_refusals,
+        );
     }
 }
 
@@ -865,7 +960,7 @@ mod gpu_profiler_stub {
 
         /// No-op stub; see the `tracy` feature variant for the real implementation.
         #[inline]
-        pub fn resolve_queries(&mut self, _encoder: &mut wgpu::CommandEncoder) {}
+        pub fn resolve_queries(&self, _encoder: &mut wgpu::CommandEncoder) {}
 
         /// No-op stub; see the `tracy` feature variant for the real implementation.
         #[inline]
@@ -875,7 +970,7 @@ mod gpu_profiler_stub {
 
         /// No-op stub; see the `tracy` feature variant for the real implementation.
         #[inline]
-        pub fn end_frame_if_queries_opened(&mut self) -> bool {
+        pub fn end_frame_if_queries_opened(&self) -> bool {
             false
         }
 
@@ -884,7 +979,7 @@ mod gpu_profiler_stub {
         /// Always returns [`None`] because the stub never opens queries.
         #[inline]
         pub fn process_finished_frame(
-            &mut self,
+            &self,
             _timestamp_period: f32,
         ) -> Option<Vec<super::GpuPassEntry>> {
             None
@@ -929,7 +1024,7 @@ mod tests {
         plot_surface_acquire_outcome(true, false, false);
         plot_event_loop_wait_ms(11.0);
         plot_event_loop_idle_ms(11.0);
-        let mut profiler = GpuProfilerHandle;
+        let profiler = GpuProfilerHandle;
         assert!(!profiler.has_queries_opened_since_frame_end());
         assert!(!profiler.end_frame_if_queries_opened());
         let _ = rayon_thread_start_handler();

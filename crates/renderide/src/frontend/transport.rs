@@ -43,11 +43,6 @@ impl FrontendTransport {
         self.ipc.as_mut()
     }
 
-    /// Shared reference to the connected dual-queue IPC, if present.
-    pub(crate) fn ipc(&self) -> Option<&DualQueueIpc> {
-        self.ipc.as_ref()
-    }
-
     /// Shared-memory accessor when host mapped views are available.
     pub(crate) fn shared_memory(&self) -> Option<&SharedMemoryAccessor> {
         self.shared_memory.as_ref()

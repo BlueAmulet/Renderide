@@ -24,6 +24,7 @@ pub fn camera_state_use_transform_scale(flags: u16) -> bool {
 
 /// Returns `true` when [`CameraState::flags`] bit 3 is set.
 #[inline]
+#[cfg(test)]
 pub fn camera_state_render_private_ui(flags: u16) -> bool {
     flags & (1 << 3) != 0
 }

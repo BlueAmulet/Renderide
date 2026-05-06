@@ -49,11 +49,13 @@ impl EmaScalar {
     }
 
     /// Current EMA value, if any sample has been folded in yet.
+    #[cfg(test)]
     pub fn current(&self) -> Option<f64> {
         self.value
     }
 
     /// Forgets prior samples so the next [`Self::update`] re-seeds the EMA.
+    #[cfg(test)]
     pub fn reset(&mut self) {
         self.value = None;
     }

@@ -208,6 +208,20 @@ impl_streaming_pool_facade!(
     StreamingAccess::texture_noop,
 );
 
+impl TexturePool {
+    /// Iterates resident textures for diagnostics.
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = &GpuTexture2d> {
+        self.inner.resources().values()
+    }
+
+    /// Number of resident Texture2D entries.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::mark_resident_mip_mask;

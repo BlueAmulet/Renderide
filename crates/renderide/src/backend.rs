@@ -23,36 +23,18 @@ mod per_draw_resources;
 mod per_view_resource_map;
 mod view_resource_registry;
 
-pub use cluster_gpu::{
-    CLUSTER_COUNT_Z, CLUSTER_PARAMS_UNIFORM_SIZE, ClusterBufferCache, ClusterBufferRefs,
-    MAX_LIGHTS_PER_TILE, TILE_SIZE,
-};
-pub use debug_hud_bundle::DebugHudBundle;
-pub use facade::{
-    ASSET_INTEGRATION_QUEUE_WARN_THRESHOLD, MAX_ASSET_INTEGRATION_QUEUED, MAX_PENDING_MESH_UPLOADS,
-    MAX_PENDING_TEXTURE_UPLOADS, RenderBackend, RenderBackendAttachDesc, RenderBackendAttachError,
-};
+pub use cluster_gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, MAX_LIGHTS_PER_TILE};
 pub(crate) use facade::{BackendGraphAccess, ExtractedFrameShared, WorldMeshForwardEncodeRefs};
-pub use frame_gpu::{
-    EmptyMaterialBindGroup, FrameGpuResources, FrameSceneSnapshotTextureViews,
-    empty_material_bind_group_layout,
-};
-pub use frame_gpu_bindings::{FrameGpuBindings, FrameGpuBindingsError};
-pub use frame_gpu_error::FrameGpuInitError;
-pub use frame_resource_manager::{
-    FrameGpuBindContext, FrameResourceManager, PerViewFrameState, PreRecordViewResourceLayout,
-};
+pub use facade::{RenderBackend, RenderBackendAttachDesc};
+pub use frame_gpu::{FrameGpuResources, empty_material_bind_group_layout};
+pub use frame_gpu_bindings::FrameGpuBindingsError;
+pub use frame_resource_manager::{FrameResourceManager, PreRecordViewResourceLayout};
 pub(crate) use gpu_jobs::{
     GpuJobResources, GpuReadbackJobs, GpuReadbackOutcomes, SubmittedReadbackJob,
 };
 pub use history_registry::{
-    BufferHistorySlot, BufferHistorySpec, HistoryRegistry, HistoryRegistryError,
-    HistoryResourceScope, HistoryTexture, HistoryTextureMipViews, TextureHistorySlot,
+    HistoryRegistry, HistoryRegistryError, HistoryResourceScope, HistoryTextureMipViews,
     TextureHistorySpec,
 };
-pub use light_gpu::{
-    GpuLight, MAX_LIGHTS, order_lights_for_clustered_shading,
-    order_lights_for_clustered_shading_in_place,
-};
-pub use per_draw_resources::PerDrawResources;
+pub use light_gpu::GpuLight;
 pub(crate) use view_resource_registry::ViewResourceRegistry;

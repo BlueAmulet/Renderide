@@ -63,6 +63,7 @@ pub struct ReflectedVertexInput {
 #[derive(Clone, Debug)]
 pub struct ReflectedRasterLayout {
     /// Stable hash of material + per-draw bind group layout shapes (tests, diagnostics, future cache versioning).
+    #[cfg(test)]
     pub layout_fingerprint: u64,
     /// `@group(1)` entries sorted by binding index.
     pub material_entries: Vec<wgpu::BindGroupLayoutEntry>,
@@ -75,6 +76,7 @@ pub struct ReflectedRasterLayout {
     /// Exact `vs_main` vertex input locations and formats, sorted by location.
     pub vs_vertex_inputs: Vec<ReflectedVertexInput>,
     /// Highest `@location` index on `vs_main` vertex inputs (excluding builtins); `>= 2` implies a UV stream at `location(2)`.
+    #[cfg(test)]
     pub vs_max_vertex_location: Option<u32>,
     /// `true` when the shader declares a scene-depth snapshot binding at `@group(0)`.
     pub uses_scene_depth_snapshot: bool,
@@ -148,6 +150,7 @@ pub enum ReflectError {
     InvalidBindGroup(u32),
     /// Composed embedded shader stem has no WGSL payload (build/embed mismatch).
     #[error("embedded composed WGSL missing for material stem `{0}`")]
+    #[cfg(test)]
     EmbeddedTargetMissing(&'static str),
     /// A bind group layout has more entries than the device allows.
     #[error("group {group} has {count} bindings (device max_bindings_per_bind_group={max})")]

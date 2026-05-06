@@ -35,14 +35,10 @@
 mod handle;
 pub mod labeled_enum;
 mod load;
-mod reload;
 mod resolve;
 mod save;
 mod types;
 pub mod value;
-
-pub use labeled_enum::LabeledEnum;
-pub use value::{Clamped, power_of_two_floor};
 
 /// Serializes tests that mutate or depend on `RENDERIDE_*` process environment variables.
 #[cfg(test)]
@@ -50,22 +46,18 @@ pub(crate) static CONFIG_ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex:
 
 pub use handle::{RendererSettingsHandle, settings_handle_from};
 pub use load::{
-    ConfigFilePolicy, ConfigLayer, ConfigLoadResult, LoadPipeline,
-    apply_renderide_gpu_validation_env, canonical_layers, load_renderer_settings,
-    log_config_resolve_trace,
+    ConfigFilePolicy, ConfigLoadResult, load_renderer_settings, log_config_resolve_trace,
 };
-pub use reload::{ConfigFileWatcher, renderer_settings_changed};
-pub use resolve::{
-    ConfigResolveOutcome, ConfigSource, FILE_NAME_TOML, apply_generated_config,
-    find_renderide_workspace_root, renderide_config_env_nonempty, resolve_config_path,
-    resolve_save_path,
-};
-pub use save::{save_renderer_settings, save_renderer_settings_from_load};
+pub use resolve::find_renderide_workspace_root;
+#[cfg(test)]
+pub(crate) use resolve::{ConfigResolveOutcome, ConfigSource};
+pub use save::save_renderer_settings;
 pub use types::{
     AutoExposureSettings, BloomCompositeMode, BloomSettings, DebugHudMainTab,
     DebugHudMainTabVisibility, DebugHudRendererConfigTab, DebugHudRendererConfigTabVisibility,
-    DebugHudSettings, DebugSettings, DisplaySettings, GraphicsApiSetting, GtaoSettings,
-    MsaaSampleCount, PostProcessingSettings, PowerPreferenceSetting, RendererSettings,
-    RenderingSettings, SceneColorFormat, TonemapMode, TonemapSettings, VsyncMode, WatchdogAction,
-    WatchdogSettings,
+    DebugHudSettings, GraphicsApiSetting, GtaoSettings, MsaaSampleCount, PostProcessingSettings,
+    PowerPreferenceSetting, RendererSettings, SceneColorFormat, TonemapMode, VsyncMode,
+    WatchdogAction, WatchdogSettings,
 };
+#[cfg(test)]
+pub(crate) use types::{DebugSettings, TonemapSettings};

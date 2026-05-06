@@ -28,12 +28,14 @@ labeled_enum! {
 impl PowerPreferenceSetting {
     /// Stable string for TOML / UI (`low_power` / `high_performance`). Historical alias for
     /// [`Self::persist_str`].
+    #[cfg(test)]
     pub fn as_persist_str(self) -> &'static str {
         self.persist_str()
     }
 
     /// Parses case-insensitive persisted or UI tokens. Historical alias for
     /// [`Self::parse_persist`].
+    #[cfg(test)]
     pub fn from_persist_str(s: &str) -> Option<Self> {
         Self::parse_persist(s)
     }
@@ -167,7 +169,10 @@ impl DebugHudMainTabVisibility {
 
     /// Returns `true` when every tab is open.
     pub fn all_open(self) -> bool {
-        self.stats && self.shader_routes && self.draw_state && self.gpu_memory && self.gpu_passes
+        DebugHudMainTab::ALL
+            .iter()
+            .copied()
+            .all(|tab| self.is_open(tab))
     }
 }
 
@@ -370,6 +375,10 @@ mod tests {
 
     #[test]
     fn power_preference_from_persist_str() {
+        assert_eq!(
+            PowerPreferenceSetting::HighPerformance.as_persist_str(),
+            "high_performance"
+        );
         assert_eq!(
             PowerPreferenceSetting::from_persist_str("low_power"),
             Some(PowerPreferenceSetting::LowPower)

@@ -7,9 +7,7 @@
 
 use std::sync::Arc;
 
-use crate::embedded_shaders::{
-    SCENE_COLOR_COMPOSE_DEFAULT_WGSL, SCENE_COLOR_COMPOSE_MULTIVIEW_WGSL,
-};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{
     fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry,
 };
@@ -87,9 +85,9 @@ impl SceneColorComposePipelineCache {
                 multiview: &self.multiview,
                 shader: FullscreenShaderVariants {
                     mono_label: PIPELINE_LABEL_MONO,
-                    mono_source: SCENE_COLOR_COMPOSE_DEFAULT_WGSL,
+                    mono_source: embedded_wgsl!("scene_color_compose_default"),
                     multiview_label: PIPELINE_LABEL_MULTIVIEW,
-                    multiview_source: SCENE_COLOR_COMPOSE_MULTIVIEW_WGSL,
+                    multiview_source: embedded_wgsl!("scene_color_compose_multiview"),
                 },
                 bind_group_layouts: &[Some(bind_group_layout)],
                 log_name: "scene_color_compose",

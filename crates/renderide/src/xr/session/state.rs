@@ -116,12 +116,6 @@ impl XrSessionState {
         self.session_running
     }
 
-    /// Latest [`TrackedSessionState`] observed from the runtime; [`TrackedSessionState::Unknown`]
-    /// until the first `SessionStateChanged` event.
-    pub fn last_session_state(&self) -> TrackedSessionState {
-        self.last_session_state
-    }
-
     /// Whether the compositor is currently displaying this app's frames
     /// ([`TrackedSessionState::Visible`] or [`TrackedSessionState::Focused`]). Used to gate real
     /// projection-layer submission; the empty-frame path still runs to satisfy the OpenXR

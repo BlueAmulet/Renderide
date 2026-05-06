@@ -157,6 +157,7 @@ impl TransientSubresourceDesc {
     }
 
     /// Creates a descriptor targeting a single mip of the parent's default array layer(s).
+    #[cfg(test)]
     pub fn single_mip(parent: TextureHandle, label: &'static str, mip_level: u32) -> Self {
         Self {
             parent,
@@ -169,6 +170,7 @@ impl TransientSubresourceDesc {
     }
 
     /// Creates a descriptor targeting a single array layer at mip 0.
+    #[cfg(test)]
     pub fn single_layer(parent: TextureHandle, label: &'static str, array_layer: u32) -> Self {
         Self {
             parent,

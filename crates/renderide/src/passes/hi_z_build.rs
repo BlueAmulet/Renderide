@@ -63,13 +63,13 @@ impl ComputePass for HiZBuildPass {
         let hi_z_history = ctx
             .graph_resources
             .imported_texture(self.resources.hi_z_current)
-            .ok_or_else(|| RenderPassError::MissingImportedTexture {
+            .ok_or_else(|| RenderPassError::UnresolvedImportedTexture {
                 pass: self.name().to_owned(),
                 resource: "hi_z_current",
             })?
             .history
             .clone()
-            .ok_or_else(|| RenderPassError::MissingImportedHistoryTexture {
+            .ok_or_else(|| RenderPassError::HistoryImportWithoutBacking {
                 pass: self.name().to_owned(),
                 resource: "hi_z_current",
             })?;

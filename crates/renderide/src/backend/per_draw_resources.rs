@@ -7,8 +7,6 @@
 use std::sync::Arc;
 
 use crate::gpu::GpuLimits;
-use crate::materials::NullFamily;
-use crate::materials::PipelineBuildError;
 use crate::mesh_deform::{INITIAL_PER_DRAW_UNIFORM_SLOTS, PER_DRAW_UNIFORM_STRIDE};
 
 /// GPU storage slab: one [`crate::mesh_deform::PaddedPerDrawUniforms`] slot (256 bytes) per
@@ -29,13 +27,6 @@ pub struct PerDrawResources {
 }
 
 impl PerDrawResources {
-    /// Allocates [`INITIAL_PER_DRAW_UNIFORM_SLOTS`] slots (256 bytes each), deriving the bind
-    /// group layout from naga reflection of the embedded `null_default` shader.
-    pub fn new(device: &wgpu::Device, limits: Arc<GpuLimits>) -> Result<Self, PipelineBuildError> {
-        let layout = Arc::new(NullFamily::per_draw_bind_group_layout(device)?);
-        Ok(Self::new_with_layout(device, layout, limits))
-    }
-
     /// Allocates [`INITIAL_PER_DRAW_UNIFORM_SLOTS`] slots using a pre-built bind group layout.
     ///
     /// Use this when constructing multiple per-view instances to share the same layout `Arc`

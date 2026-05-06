@@ -36,6 +36,7 @@ pub enum TransientExtent {
 
 impl TransientExtent {
     /// Returns a concrete extent when the policy is not backbuffer-relative.
+    #[cfg(test)]
     pub fn fixed_extent(self) -> Option<(u32, u32, u32)> {
         match self {
             Self::Backbuffer | Self::BackbufferScaledMip { .. } => None,
@@ -78,6 +79,7 @@ pub enum TransientTextureFormat {
     /// Fixed format known at graph build time.
     Fixed(wgpu::TextureFormat),
     /// Resolve to the current frame color attachment format.
+    #[cfg(test)]
     FrameColor,
     /// Resolve to the current frame depth/stencil attachment format.
     FrameDepthStencil,
@@ -89,13 +91,14 @@ impl TransientTextureFormat {
     /// Resolves this policy for a frame.
     pub fn resolve(
         self,
-        frame_color_format: wgpu::TextureFormat,
+        _frame_color_format: wgpu::TextureFormat,
         frame_depth_stencil_format: wgpu::TextureFormat,
         scene_color_hdr_format: wgpu::TextureFormat,
     ) -> wgpu::TextureFormat {
         match self {
             Self::Fixed(format) => format,
-            Self::FrameColor => frame_color_format,
+            #[cfg(test)]
+            Self::FrameColor => _frame_color_format,
             Self::FrameDepthStencil => frame_depth_stencil_format,
             Self::SceneColorHdr => scene_color_hdr_format,
         }
@@ -186,6 +189,7 @@ impl TransientTextureDesc {
     }
 
     /// Creates a standard single-layer 2D transient texture descriptor that uses the frame sample count.
+    #[cfg(test)]
     pub fn frame_sampled_texture_2d(
         label: &'static str,
         format: wgpu::TextureFormat,
@@ -202,6 +206,7 @@ impl TransientTextureDesc {
     }
 
     /// Creates a standard single-layer 2D transient texture that uses the frame color format and sample count.
+    #[cfg(test)]
     pub fn frame_color_sampled_texture_2d(
         label: &'static str,
         extent: TransientExtent,
@@ -232,6 +237,7 @@ impl TransientTextureDesc {
     }
 
     /// Sets a fixed array-layer count.
+    #[cfg(test)]
     pub fn with_array_layers(mut self, layers: u32) -> Self {
         self.array_layers = TransientArrayLayers::Fixed(layers.max(1));
         self
@@ -249,11 +255,6 @@ impl TransientTextureDesc {
 pub enum BufferSizePolicy {
     /// Exact byte count.
     Fixed(u64),
-    /// Resolve to width * height * bytes_per_px.
-    PerViewport {
-        /// Number of bytes per viewport pixel.
-        bytes_per_px: u64,
-    },
 }
 
 impl Eq for BufferSizePolicy {}
@@ -264,10 +265,6 @@ impl Hash for BufferSizePolicy {
             Self::Fixed(v) => {
                 0u8.hash(state);
                 v.hash(state);
-            }
-            Self::PerViewport { bytes_per_px } => {
-                1u8.hash(state);
-                bytes_per_px.hash(state);
             }
         }
     }
@@ -284,16 +281,4 @@ pub struct TransientBufferDesc {
     pub base_usage: wgpu::BufferUsages,
     /// Whether this handle may share a physical slot with disjoint equal-key handles.
     pub alias: bool,
-}
-
-impl TransientBufferDesc {
-    /// Creates a fixed-size transient buffer descriptor.
-    pub fn fixed(label: &'static str, size: u64, base_usage: wgpu::BufferUsages) -> Self {
-        Self {
-            label,
-            size_policy: BufferSizePolicy::Fixed(size),
-            base_usage,
-            alias: true,
-        }
-    }
 }

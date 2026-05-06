@@ -71,11 +71,6 @@ impl WorldMeshForwardColorResolveStage {
 
 impl WorldMeshForwardColorResolvePass {
     /// Creates the pre-grab color-resolve pass instance.
-    pub fn new(resources: WorldMeshForwardColorResolveGraphResources) -> Self {
-        Self::new_pre_grab(resources)
-    }
-
-    /// Creates the pre-grab color-resolve pass instance.
     pub fn new_pre_grab(resources: WorldMeshForwardColorResolveGraphResources) -> Self {
         Self {
             resources,
@@ -189,7 +184,7 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
         let graph_resources = ctx.graph_resources;
         let Some(src) = graph_resources.transient_texture(self.resources.scene_color_hdr_msaa)
         else {
-            return Err(RenderPassError::MissingFrameParams {
+            return Err(RenderPassError::FrameParamsRequired {
                 pass: format!(
                     "{} (missing transient scene_color_hdr_msaa {:?})",
                     self.name(),

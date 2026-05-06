@@ -5,7 +5,7 @@ use hashbrown::HashMap;
 use crate::assets::mesh::{GpuMesh, MeshBufferLayout};
 
 use crate::gpu_pools::resource_pool::{GpuResourcePool, StreamingAccess};
-use crate::gpu_pools::{GpuResource, StreamingPolicy, VramAccounting};
+use crate::gpu_pools::{GpuResource, VramAccounting};
 
 impl GpuResource for GpuMesh {
     fn resident_bytes(&self) -> u64 {
@@ -29,15 +29,6 @@ pub struct MeshPool {
 }
 
 impl MeshPool {
-    /// Creates an empty pool with the given streaming policy.
-    pub fn new(streaming: Box<dyn StreamingPolicy>) -> Self {
-        Self {
-            inner: GpuResourcePool::new(StreamingAccess::mesh(streaming)),
-            layout_cache: HashMap::new(),
-            mutation_generation: 0,
-        }
-    }
-
     /// Default pool with [`crate::gpu_pools::NoopStreamingPolicy`].
     pub fn default_pool() -> Self {
         Self {
@@ -51,18 +42,6 @@ impl MeshPool {
     #[inline]
     pub fn accounting(&self) -> &VramAccounting {
         self.inner.accounting()
-    }
-
-    /// Mutable VRAM accounting (uploads adjust totals through this).
-    #[inline]
-    pub fn accounting_mut(&mut self) -> &mut VramAccounting {
-        self.inner.accounting_mut()
-    }
-
-    /// Streaming policy hook for eviction suggestions.
-    #[inline]
-    pub fn streaming_mut(&mut self) -> &mut dyn StreamingPolicy {
-        self.inner.access_mut().streaming_mut()
     }
 
     /// Inserts or replaces a mesh; returns `true` if a previous entry was replaced.
@@ -95,24 +74,6 @@ impl MeshPool {
         self.inner.get(asset_id)
     }
 
-    /// Mutably borrows a resident mesh by host asset id.
-    #[inline]
-    pub fn get_mut(&mut self, asset_id: i32) -> Option<&mut GpuMesh> {
-        self.inner.get_mut(asset_id)
-    }
-
-    /// Iterates resident meshes (read-only draw prep).
-    #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &GpuMesh> {
-        self.inner.resources().values()
-    }
-
-    /// Borrows the resident map for callers that need keyed access.
-    #[inline]
-    pub fn as_map(&self) -> &HashMap<i32, GpuMesh> {
-        self.inner.resources()
-    }
-
     /// Number of resident meshes.
     #[inline]
     pub fn len(&self) -> usize {
@@ -120,6 +81,7 @@ impl MeshPool {
     }
 
     /// Whether the pool has no resident meshes.
+    #[cfg(test)]
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()

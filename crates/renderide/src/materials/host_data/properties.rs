@@ -53,15 +53,6 @@ impl<'a> MaterialDictionary<'a> {
         self.store.shader_asset_for_material(material_id)
     }
 
-    /// Property block overrides material when both define the same `property_id`.
-    pub fn get_merged(
-        &self,
-        ids: MaterialPropertyLookupIds,
-        property_id: i32,
-    ) -> Option<&'a MaterialPropertyValue> {
-        self.store.get_merged(ids, property_id)
-    }
-
     /// Per-material mutation generation (see [`MaterialPropertyStore::material_generation`]).
     pub fn material_generation(&self, material_id: i32) -> u64 {
         self.store.material_generation(material_id)
@@ -260,13 +251,6 @@ impl MaterialPropertyStore {
     /// Shader asset id from the last material-side `set_shader`.
     pub fn shader_asset_for_material(&self, material_id: i32) -> Option<i32> {
         self.shader_asset_by_material.get(&material_id).copied()
-    }
-
-    /// Iterates `(material_asset_id, shader_asset_id)` for diagnostics.
-    pub fn iter_material_shader_bindings(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
-        self.shader_asset_by_material
-            .iter()
-            .map(|(&mid, &sid)| (mid, sid))
     }
 
     /// Count of host materials with at least one stored property map entry.

@@ -24,8 +24,6 @@ fn empty_material_bind_group(
 
 /// Cached empty material bind group layout plus instance for one device attach.
 pub struct EmptyMaterialBindGroup {
-    /// Shared layout for the empty `@group(1)` placeholder.
-    pub layout: wgpu::BindGroupLayout,
     /// Bind group with no entries.
     pub bind_group: Arc<wgpu::BindGroup>,
 }
@@ -35,6 +33,6 @@ impl EmptyMaterialBindGroup {
     pub fn new(device: &wgpu::Device) -> Self {
         let layout = empty_material_bind_group_layout(device);
         let bind_group = Arc::new(empty_material_bind_group(device, &layout));
-        Self { layout, bind_group }
+        Self { bind_group }
     }
 }

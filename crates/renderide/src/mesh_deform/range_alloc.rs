@@ -21,6 +21,7 @@ impl Range {
     }
 
     /// Number of elements of `element_stride_bytes` that fit in this range (may truncate if `len_bytes` is not a multiple).
+    #[cfg(test)]
     #[inline]
     pub fn element_count(self, element_stride_bytes: u64) -> u32 {
         if element_stride_bytes == 0 {
@@ -175,6 +176,7 @@ mod tests {
         let r0 = a.allocate(256).unwrap();
         assert_eq!(r0.offset_bytes, 0);
         assert_eq!(r0.len_bytes, 256);
+        assert_eq!(r0.element_count(64), 4);
         let r1 = a.allocate(256).unwrap();
         assert_eq!(r1.offset_bytes, 256);
         assert_eq!(a.free.len(), 1);

@@ -23,6 +23,3 @@ pub mod video;
 
 pub use asset_transfer_queue::AssetTransferQueue;
 pub use shader::{ResolvedShaderUpload, resolve_shader_upload};
-
-/// Alias for [`AssetTransferQueue`] (same type: upload queues, pools, and per-poll budgets).
-pub type AssetSubsystem = AssetTransferQueue;

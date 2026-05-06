@@ -16,9 +16,7 @@ mod encode;
 mod pipelines;
 mod targets;
 
-use crate::embedded_shaders::{
-    DEPTH_BLIT_R32_TO_DEPTH_DEFAULT_WGSL, MSAA_DEPTH_RESOLVE_TO_R32_WGSL,
-};
+use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{storage_texture_layout_entry, texture_layout_entry};
 use crate::gpu::limits::GpuLimits;
 use crate::profiling::GpuProfilerHandle;
@@ -58,11 +56,13 @@ impl MsaaDepthResolveResources {
     pub fn try_new(device: &wgpu::Device) -> Option<Self> {
         let compute_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("msaa_depth_resolve_cs"),
-            source: wgpu::ShaderSource::Wgsl(MSAA_DEPTH_RESOLVE_TO_R32_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("msaa_depth_resolve_to_r32").into()),
         });
         let blit_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("msaa_depth_resolve_blit"),
-            source: wgpu::ShaderSource::Wgsl(DEPTH_BLIT_R32_TO_DEPTH_DEFAULT_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(
+                embedded_wgsl!("depth_blit_r32_to_depth_default").into(),
+            ),
         });
 
         let compute_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

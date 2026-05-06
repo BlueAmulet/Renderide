@@ -79,13 +79,9 @@ impl RendererRuntime {
     }
 
     /// Whether [`Self::run_asset_integration`] already ran this tick.
+    #[cfg(test)]
     pub fn did_integrate_assets_this_tick(&self) -> bool {
         self.tick_state.did_integrate_assets_this_tick()
-    }
-
-    /// Whether upload or material work is queued or deferred on missing prerequisites.
-    pub fn has_pending_asset_work(&self) -> bool {
-        self.backend.has_pending_asset_work()
     }
 }
 

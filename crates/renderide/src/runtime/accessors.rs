@@ -1,7 +1,5 @@
 //! Thin [`super::RendererRuntime`] accessors and forwards to the frontend, backend, and settings.
 
-use std::path::PathBuf;
-
 use crate::config::RendererSettingsHandle;
 use crate::connection::InitError;
 use crate::diagnostics::DebugHudInput;
@@ -27,24 +25,9 @@ impl RendererRuntime {
         self.config.set_suppress_renderer_config_disk_writes(value);
     }
 
-    /// Whether disk persistence of renderer settings is blocked (bad on-disk config at startup).
-    pub fn suppress_renderer_config_disk_writes(&self) -> bool {
-        self.config.suppress_renderer_config_disk_writes()
-    }
-
     /// Shared settings store ([`crate::config::RendererSettings`]).
     pub fn settings(&self) -> &RendererSettingsHandle {
         &self.config.settings
-    }
-
-    /// Path written by the **Renderer config** ImGui window and [`crate::config::save_renderer_settings`].
-    pub fn config_save_path(&self) -> &PathBuf {
-        self.config.config_save_path()
-    }
-
-    /// Mesh deformation compute pipelines when GPU init succeeded.
-    pub fn mesh_preprocess(&self) -> Option<&crate::mesh_deform::MeshPreprocessPipelines> {
-        self.backend.mesh_preprocess()
     }
 
     /// Opens Primary/Background queues when [`Self::new`] was given connection parameters.
@@ -63,6 +46,7 @@ impl RendererRuntime {
     }
 
     /// After a successful [`FrameSubmitData`] application, host may expect another begin-frame.
+    #[cfg(test)]
     pub fn last_frame_data_processed(&self) -> bool {
         self.frontend.last_frame_data_processed()
     }

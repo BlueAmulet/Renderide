@@ -63,11 +63,6 @@ impl RenderWorld {
         }
     }
 
-    /// Forces every scene space to be refreshed on the next frame extraction.
-    pub fn request_full_rebuild(&mut self) {
-        self.full_rebuild_requested = true;
-    }
-
     /// Returns the prepared draw snapshot for this frame, refreshing dirty cached spaces first.
     pub fn prepare_for_frame(
         &mut self,

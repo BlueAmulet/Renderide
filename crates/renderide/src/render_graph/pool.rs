@@ -80,9 +80,9 @@ pub struct PooledBufferLease {
     /// Pool entry id to release after the frame.
     pub pool_id: usize,
     /// Buffer handle.
-    pub buffer: wgpu::Buffer,
+    pub _buffer: wgpu::Buffer,
     /// Buffer size in bytes.
-    pub size: u64,
+    pub _size: u64,
 }
 
 /// One pool slot: the alias key, the cached value, and the generation when it was last used.
@@ -148,6 +148,7 @@ impl<P: PoolKind> Pool<P> {
     }
 
     /// Acquires an id without touching the cached value (key-only acquisition for tests / dry runs).
+    #[cfg(test)]
     fn acquire_key_only(&mut self, key: P::Key, generation: u64) -> usize {
         self.acquire(key, generation, |_| {}, P::Value::default)
     }
@@ -226,17 +227,13 @@ impl TransientPool {
         Self::default()
     }
 
-    /// Current generation.
-    pub fn generation(&self) -> u64 {
-        self.lru_gen
-    }
-
     /// Marks a new frame/generation.
     pub fn begin_generation(&mut self) {
         self.lru_gen = self.lru_gen.saturating_add(1);
     }
 
     /// Acquires a texture entry id for `key`, reusing a matching free entry when available.
+    #[cfg(test)]
     pub fn acquire_texture(&mut self, key: TextureKey) -> usize {
         self.textures.acquire_key_only(key, self.lru_gen)
     }
@@ -278,6 +275,7 @@ impl TransientPool {
     }
 
     /// Acquires a buffer entry id for `key`, reusing a matching free entry when available.
+    #[cfg(test)]
     pub fn acquire_buffer(&mut self, key: BufferKey) -> usize {
         self.buffers.acquire_key_only(key, self.lru_gen)
     }
@@ -384,8 +382,8 @@ fn buffer_lease_from_entry(
         .ok_or(TransientPoolError::MissingBuffer { pool_id: id })?;
     Ok(PooledBufferLease {
         pool_id: id,
-        buffer,
-        size: slot.size,
+        _buffer: buffer,
+        _size: slot.size,
     })
 }
 

@@ -130,28 +130,62 @@ impl GpuContext {
         {
             return;
         }
+        #[cfg(feature = "tracy")]
         let Some(mut pending) = self.submission.pending_gpu_profiler_end.take() else {
+            return;
+        };
+        #[cfg(not(feature = "tracy"))]
+        let Some(pending) = self.submission.pending_gpu_profiler_end.take() else {
             return;
         };
         pending.profiler.end_frame_if_queries_opened();
         self.submission.gpu_profiler = Some(pending.profiler);
     }
 
+    #[cfg(feature = "tracy")]
     fn end_active_gpu_profiler_frame(&mut self) {
         if let Some(profiler) = self.submission.gpu_profiler.as_mut() {
             profiler.end_frame_if_queries_opened();
         }
     }
 
+    #[cfg(not(feature = "tracy"))]
+    fn end_active_gpu_profiler_frame(&self) {
+        if let Some(profiler) = self.submission.gpu_profiler.as_ref() {
+            profiler.end_frame_if_queries_opened();
+        }
+    }
+
+    #[cfg(feature = "tracy")]
     fn drain_gpu_profiler_results(&mut self) {
+        let ts_period = self.queue.get_timestamp_period();
         let Some(profiler) = self.submission.gpu_profiler.as_mut() else {
             return;
         };
-        let ts_period = self.queue.get_timestamp_period();
         let mut latest_timings = None;
         while let Some(timings) = profiler.process_finished_frame(ts_period) {
             latest_timings = Some(timings);
         }
+        self.publish_latest_gpu_pass_timings(latest_timings);
+    }
+
+    #[cfg(not(feature = "tracy"))]
+    fn drain_gpu_profiler_results(&self) {
+        let ts_period = self.queue.get_timestamp_period();
+        let Some(profiler) = self.submission.gpu_profiler.as_ref() else {
+            return;
+        };
+        let mut latest_timings = None;
+        while let Some(timings) = profiler.process_finished_frame(ts_period) {
+            latest_timings = Some(timings);
+        }
+        self.publish_latest_gpu_pass_timings(latest_timings);
+    }
+
+    fn publish_latest_gpu_pass_timings(
+        &self,
+        latest_timings: Option<Vec<crate::profiling::GpuPassEntry>>,
+    ) {
         if let Some(timings) = latest_timings
             && let Ok(mut slot) = self.submission.latest_gpu_pass_timings.lock()
         {
@@ -235,19 +269,5 @@ impl GpuContext {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         ft.last_completed_gpu_frame_ms
             .map(|ms| (ms / 1000.0) as f32)
-    }
-
-    /// Process-local GPU memory from wgpu's allocator when the active backend supports
-    /// [`wgpu::Device::generate_allocator_report`].
-    ///
-    /// Returns `(allocated_bytes, reserved_bytes)`, or `(None, None)` when the backend does not report.
-    /// The **Stats** debug HUD tab uses these totals every capture; the **GPU memory** tab uses a
-    /// throttled full [`wgpu::AllocatorReport`] via [`crate::runtime::RendererRuntime`].
-    pub fn gpu_allocator_bytes(&self) -> (Option<u64>, Option<u64>) {
-        self.device
-            .generate_allocator_report()
-            .map_or((None, None), |r| {
-                (Some(r.total_allocated_bytes), Some(r.total_reserved_bytes))
-            })
     }
 }

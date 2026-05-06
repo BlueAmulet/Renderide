@@ -11,8 +11,10 @@ pub struct RenderSpaceId(pub i32);
 /// references use `i32` with `-1` meaning root; a parent must be either `-1` or another valid index.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(transparent)]
+#[cfg(test)]
 pub struct TransformIndex(pub i32);
 
+#[cfg(test)]
 impl TransformIndex {
     /// Host terminator for removal / update streams (`id < 0` stops iteration).
     pub fn is_stream_end(self) -> bool {

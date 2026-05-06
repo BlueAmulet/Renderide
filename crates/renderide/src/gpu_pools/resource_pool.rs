@@ -14,9 +14,7 @@
 //!   (render-target + video). The notify hook is a no-op.
 //!
 //! Two facade macros -- `impl_streaming_pool_facade!` and `impl_resident_pool_facade!` -- emit
-//! the same canonical method vocabulary (`insert` / `remove` / `get` / `get_mut` / `iter` /
-//! `len` / `is_empty` / `accounting` / `accounting_mut`) on each concrete pool newtype. The
-//! streaming variant additionally emits `streaming_mut()`.
+//! the resident-pool vocabulary currently used by concrete pool newtypes.
 
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
@@ -69,11 +67,6 @@ impl StreamingAccess {
     /// Texture-pool access using [`NoopStreamingPolicy`].
     pub(crate) fn texture_noop() -> Self {
         Self::texture(Box::new(NoopStreamingPolicy))
-    }
-
-    /// Mutable streaming policy for callers that record evictions or query suggestions.
-    pub(crate) fn streaming_mut(&mut self) -> &mut dyn StreamingPolicy {
-        self.streaming.as_mut()
     }
 }
 
@@ -147,12 +140,8 @@ where
         &self.accounting
     }
 
-    /// Mutable VRAM accounting for explicit accounting adjustments.
-    pub(crate) fn accounting_mut(&mut self) -> &mut VramAccounting {
-        &mut self.accounting
-    }
-
-    /// Mutable access policy (used by streaming-enabled facades to expose `streaming_mut()`).
+    /// Mutable access policy for tests that assert notification behavior.
+    #[cfg(test)]
     pub(crate) fn access_mut(&mut self) -> &mut A {
         &mut self.access
     }
@@ -215,6 +204,7 @@ where
     }
 
     /// Whether the pool has no resident resources.
+    #[cfg(test)]
     #[inline]
     pub(crate) fn is_empty(&self) -> bool {
         self.resources.is_empty()
@@ -237,26 +227,13 @@ where
 }
 
 /// Implements the unified resident-pool facade for a concrete pool whose `inner` is
-/// `GpuResourcePool<R, StreamingAccess>`. Emits the canonical method vocabulary plus
-/// `streaming_mut()` and the `new(streaming) / default_pool()` pair.
+/// `GpuResourcePool<R, StreamingAccess>`.
 ///
 /// The `$access_with` and `$access_noop` arms select the per-kind constructors on
 /// [`StreamingAccess`] (mesh vs texture).
 macro_rules! impl_streaming_pool_facade {
     ($pool:ty, $resource:ty, $access_with:expr, $access_noop:expr $(,)?) => {
         impl $pool {
-            /// Creates an empty pool with the given streaming policy.
-            pub fn new(streaming: Box<dyn $crate::gpu_pools::StreamingPolicy>) -> Self {
-                let access_with: fn(
-                    Box<dyn $crate::gpu_pools::StreamingPolicy>,
-                ) -> $crate::gpu_pools::resource_pool::StreamingAccess = $access_with;
-                Self {
-                    inner: $crate::gpu_pools::resource_pool::GpuResourcePool::new(access_with(
-                        streaming,
-                    )),
-                }
-            }
-
             /// Default pool with [`crate::gpu_pools::NoopStreamingPolicy`].
             pub fn default_pool() -> Self {
                 let access_noop: fn() -> $crate::gpu_pools::resource_pool::StreamingAccess =
@@ -270,18 +247,6 @@ macro_rules! impl_streaming_pool_facade {
             #[inline]
             pub fn accounting(&self) -> &$crate::gpu_pools::VramAccounting {
                 self.inner.accounting()
-            }
-
-            /// Mutable VRAM totals (insert/remove update accounting).
-            #[inline]
-            pub fn accounting_mut(&mut self) -> &mut $crate::gpu_pools::VramAccounting {
-                self.inner.accounting_mut()
-            }
-
-            /// Streaming policy hook for eviction suggestions.
-            #[inline]
-            pub fn streaming_mut(&mut self) -> &mut dyn $crate::gpu_pools::StreamingPolicy {
-                self.inner.access_mut().streaming_mut()
             }
 
             /// Inserts or replaces a resource. Returns `true` if an entry was replaced.
@@ -302,34 +267,10 @@ macro_rules! impl_streaming_pool_facade {
                 self.inner.get(asset_id)
             }
 
-            /// Mutably borrows a resident resource (uploads, property updates).
+            /// Mutably borrows a resident resource by host asset id.
             #[inline]
             pub fn get_mut(&mut self, asset_id: i32) -> Option<&mut $resource> {
                 self.inner.get_mut(asset_id)
-            }
-
-            /// Iterates resident resources for iteration and HUD stats.
-            #[inline]
-            pub fn iter(&self) -> impl Iterator<Item = &$resource> {
-                self.inner.resources().values()
-            }
-
-            /// Borrows the resident map for callers that need keyed access (HUD lookups).
-            #[inline]
-            pub fn as_map(&self) -> &hashbrown::HashMap<i32, $resource> {
-                self.inner.resources()
-            }
-
-            /// Number of resident entries.
-            #[inline]
-            pub fn len(&self) -> usize {
-                self.inner.len()
-            }
-
-            /// Whether the pool has no resident entries.
-            #[inline]
-            pub fn is_empty(&self) -> bool {
-                self.inner.is_empty()
             }
         }
     };
@@ -356,12 +297,6 @@ macro_rules! impl_resident_pool_facade {
                 self.inner.accounting()
             }
 
-            /// Mutable VRAM totals (insert/remove update accounting).
-            #[inline]
-            pub fn accounting_mut(&mut self) -> &mut $crate::gpu_pools::VramAccounting {
-                self.inner.accounting_mut()
-            }
-
             /// Inserts or replaces a resource. Returns `true` if an entry was replaced.
             #[inline]
             pub fn insert(&mut self, resource: $resource) -> bool {
@@ -378,36 +313,6 @@ macro_rules! impl_resident_pool_facade {
             #[inline]
             pub fn get(&self, asset_id: i32) -> Option<&$resource> {
                 self.inner.get(asset_id)
-            }
-
-            /// Mutably borrows a resident resource (uploads, property updates).
-            #[inline]
-            pub fn get_mut(&mut self, asset_id: i32) -> Option<&mut $resource> {
-                self.inner.get_mut(asset_id)
-            }
-
-            /// Iterates resident resources for iteration and HUD stats.
-            #[inline]
-            pub fn iter(&self) -> impl Iterator<Item = &$resource> {
-                self.inner.resources().values()
-            }
-
-            /// Borrows the resident map for callers that need keyed access (HUD lookups).
-            #[inline]
-            pub fn as_map(&self) -> &hashbrown::HashMap<i32, $resource> {
-                self.inner.resources()
-            }
-
-            /// Number of resident entries.
-            #[inline]
-            pub fn len(&self) -> usize {
-                self.inner.len()
-            }
-
-            /// Whether the pool has no resident entries.
-            #[inline]
-            pub fn is_empty(&self) -> bool {
-                self.inner.is_empty()
             }
         }
 

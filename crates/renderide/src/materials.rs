@@ -99,65 +99,60 @@ pub mod shader_permutation;
 mod shader_writer;
 mod snapshot_requirements;
 mod system;
+#[cfg(test)]
 mod wgsl;
 mod wgsl_reflect;
 
+#[cfg(test)]
+pub(crate) use cache::MaterialPipelineCache;
 /// Pipeline cache keyed by shader route / layout fingerprint.
-pub use cache::{
-    MaterialPipelineCache, MaterialPipelineCacheKey, MaterialPipelineCacheStats,
-    MaterialPipelineSet, MaterialPipelineVariantSpec,
-};
+pub use cache::{MaterialPipelineSet, MaterialPipelineVariantSpec};
 
 /// Embedded raster materials: bind groups, texture pools, uniform packing for embedded WGSL stems.
-pub use embedded::{
-    EmbeddedMaterialBindError, EmbeddedMaterialBindResources, EmbeddedTexturePools,
-};
+pub use embedded::{EmbeddedMaterialBindResources, EmbeddedTexturePools};
 
 /// Unity shader asset names -> embedded WGSL stems and permutation flags.
 pub use embedded_raster_pipeline::{
-    EmbeddedStemQuery, embedded_composed_stem_for_permutation, embedded_stem_needs_color_stream,
-    embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_uv0_stream,
-    embedded_stem_needs_uv1_stream, embedded_stem_pipeline_pass_count,
-    embedded_stem_requires_intersection_pass, embedded_stem_uses_alpha_blending,
-    embedded_stem_uses_scene_color_snapshot, embedded_stem_uses_scene_depth_snapshot,
-    embedded_wgsl_needs_color_stream, embedded_wgsl_needs_extended_vertex_streams,
-    embedded_wgsl_needs_uv0_stream, embedded_wgsl_needs_uv1_stream,
-    embedded_wgsl_requires_intersection_pass, embedded_wgsl_uses_scene_color_snapshot,
-    embedded_wgsl_uses_scene_depth_snapshot,
+    embedded_stem_needs_color_stream, embedded_stem_needs_extended_vertex_streams,
+    embedded_stem_needs_uv0_stream, embedded_stem_needs_uv1_stream,
+    embedded_stem_pipeline_pass_count, embedded_stem_requires_intersection_pass,
+    embedded_stem_uses_alpha_blending, embedded_stem_uses_scene_color_snapshot,
+    embedded_stem_uses_scene_depth_snapshot,
 };
 pub use embedded_shader_stem::embedded_default_stem_for_shader_asset_name;
 
 /// Pipeline family descriptors, per-property GPU layout, and raster kind flags.
 pub use family::MaterialPipelineDesc;
+#[cfg(test)]
+pub(crate) use material_passes::MaterialPassState;
 pub use material_passes::{
-    COLOR_WRITES_NONE, DefaultPassParams, MaterialBlendMode, MaterialPassDesc, MaterialPassState,
-    MaterialPipelinePropertyIds, PassKind, default_pass, material_blend_mode_for_lookup,
+    MaterialBlendMode, MaterialPassDesc, MaterialPipelinePropertyIds, PassKind,
     material_blend_mode_from_maps, materialized_pass_for_blend_mode, pass_from_kind,
 };
-pub use material_property_binding::MaterialPropertyGpuLayout;
 pub use pipeline_build_error::PipelineBuildError;
 pub use pipeline_kind::RasterPipelineKind;
-pub use render_queue::{
-    UNITY_OPAQUE_RENDER_QUEUE_MAX, UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_RENDER_QUEUE_BACKGROUND,
-    UNITY_RENDER_QUEUE_GEOMETRY, UNITY_RENDER_QUEUE_OVERLAY, UNITY_RENDER_QUEUE_TRANSPARENT,
-    UNITY_TRANSPARENT_RENDER_QUEUE_MIN, render_queue_is_transparent,
+pub use render_queue::render_queue_is_transparent;
+#[cfg(test)]
+pub(crate) use render_queue::{
+    UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_RENDER_QUEUE_GEOMETRY, UNITY_RENDER_QUEUE_OVERLAY,
+    UNITY_RENDER_QUEUE_TRANSPARENT,
 };
 pub(crate) use render_queue::{
     fallback_render_queue_for_material, material_render_queue_from_maps,
 };
+#[cfg(test)]
+pub(crate) use render_state::MaterialDepthOffsetState;
 pub use render_state::{
-    MaterialCullOverride, MaterialDepthOffsetState, MaterialRenderState, MaterialStencilState,
-    RasterFrontFace, RasterPrimitiveTopology, material_render_state_for_lookup,
-    material_render_state_from_maps,
+    MaterialRenderState, RasterFrontFace, RasterPrimitiveTopology,
+    material_render_state_for_lookup, material_render_state_from_maps,
 };
 
+#[cfg(test)]
+pub(crate) use wgsl_reflect::{ReflectedMaterialUniformBlock, ReflectedVertexInput};
 /// Naga reflection: composed WGSL -> `wgpu` bind layouts, uniform block layout, stem fingerprints.
 pub use wgsl_reflect::{
-    ReflectError, ReflectedMaterialUniformBlock, ReflectedRasterLayout, ReflectedUniformField,
-    ReflectedUniformScalarKind, ReflectedVertexInput, ReflectedVertexInputFormat,
-    reflect_raster_material_requires_intersection_pass,
-    reflect_raster_material_uses_scene_color_snapshot,
-    reflect_raster_material_uses_scene_depth_snapshot, reflect_raster_material_wgsl,
+    ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind,
+    ReflectedVertexInputFormat, reflect_raster_material_wgsl,
     reflect_vertex_shader_needs_color_stream, reflect_vertex_shader_needs_extended_vertex_streams,
     reflect_vertex_shader_needs_uv0_stream, reflect_vertex_shader_needs_uv1_stream,
     validate_layout_against_limits, validate_per_draw_group2,
@@ -174,14 +169,11 @@ pub use pipeline_property_resolver::PipelinePropertyResolver;
 /// Shader route table, optional material asset registry, and WGSL composition patches.
 pub use registry::MaterialRegistry;
 pub use resolve_raster::resolve_raster_pipeline;
-pub use router::{MaterialRouter, ShaderRouteEntry};
+pub use router::MaterialRouter;
 
 /// Static shader feature flags (multiview, etc.) keyed into the pipeline cache.
 pub use shader_permutation::{SHADER_PERM_MULTIVIEW_STEREO, ShaderPermutation};
 
 /// Unified scene-snapshot requirement flags surfaced by reflected raster materials.
 pub use snapshot_requirements::SnapshotRequirements;
-pub use system::{
-    MAX_PENDING_MATERIAL_BATCHES, MaterialSystem, PENDING_MATERIAL_BATCH_WARN_THRESHOLD,
-};
-pub use wgsl::{WgslPatch, compose_wgsl};
+pub use system::MaterialSystem;

@@ -24,11 +24,6 @@ impl RuntimeConfigState {
         }
     }
 
-    /// Path written by the renderer config HUD.
-    pub(super) fn config_save_path(&self) -> &PathBuf {
-        &self.config_save_path
-    }
-
     /// Cloned config save path for backend HUD attach.
     pub(super) fn cloned_config_save_path(&self) -> PathBuf {
         self.config_save_path.clone()

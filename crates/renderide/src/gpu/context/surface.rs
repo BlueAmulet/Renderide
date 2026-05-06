@@ -1,8 +1,6 @@
 //! Surface lifecycle methods on [`GpuContext`]: present mode hot-reload, resize,
 //! swapchain acquire-with-recovery, and small surface accessors.
 
-use winit::dpi::PhysicalSize;
-
 use crate::config::VsyncMode;
 
 use super::GpuContext;
@@ -32,11 +30,6 @@ impl GpuContext {
         );
     }
 
-    /// Current swapchain configuration extent.
-    pub fn size(&self) -> PhysicalSize<u32> {
-        PhysicalSize::new(self.config.width, self.config.height)
-    }
-
     /// Swapchain pixel size `(width, height)`.
     pub fn surface_extent_px(&self) -> (u32, u32) {
         (self.config.width, self.config.height)
@@ -54,11 +47,6 @@ impl GpuContext {
         }
         self.depth_attachment = None;
         self.depth_extent_px = (0, 0);
-    }
-
-    /// Borrows the configured surface for acquire/submit; [`None`] in headless mode.
-    pub fn surface(&self) -> Option<&wgpu::Surface<'static>> {
-        self.surface.as_ref()
     }
 
     /// Whether this context drives a real swapchain surface (vs. headless offscreen primary target).
