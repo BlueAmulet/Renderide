@@ -11,9 +11,9 @@ use crate::materials::raster_pipeline::{
     ShaderModuleBuildRefs, VertexStreamToggles, create_reflective_raster_mesh_forward_pipelines,
 };
 use crate::materials::{
-    MaterialBlendMode, MaterialRenderState, RasterFrontFace, RasterPrimitiveTopology,
-    ReflectedRasterLayout, ReflectedVertexInputFormat, SnapshotRequirements,
-    materialized_pass_for_blend_mode,
+    MaterialBlendMode, MaterialPassDesc, MaterialRenderState, RasterFrontFace,
+    RasterPrimitiveTopology, ReflectedRasterLayout, ReflectedVertexInputFormat,
+    SnapshotRequirements, materialized_pass_for_blend_mode,
 };
 
 /// Host material identity and blend/render state for embedded raster pipeline creation (separate from WGSL build inputs).
@@ -50,6 +50,8 @@ struct EmbeddedStemMetadata {
     pass_count: usize,
     /// Whether any declared pass has a blend state.
     uses_alpha_blending: bool,
+    /// Single forward pass that is safe to mirror with the generic depth prepass, if any.
+    depth_prepass_pass: Option<MaterialPassDesc>,
 }
 
 impl EmbeddedStemMetadata {
@@ -136,6 +138,11 @@ impl EmbeddedStemQuery {
                 r.snapshot_requirements()
             })
     }
+
+    /// Returns the single forward pass that can be mirrored by the generic depth prepass.
+    pub fn depth_prepass_pass(&self) -> Option<MaterialPassDesc> {
+        self.metadata.depth_prepass_pass
+    }
 }
 
 fn embedded_stem_metadata_cache()
@@ -159,16 +166,40 @@ fn embedded_stem_metadata(base_stem: &str, permutation: ShaderPermutation) -> Em
     }
 
     let composed = embedded_composed_stem_for_permutation(base_stem, permutation);
-    let reflected = embedded_shaders::embedded_target_wgsl(&composed)
+    let wgsl = embedded_shaders::embedded_target_wgsl(&composed);
+    let reflected = wgsl
         .and_then(|wgsl| crate::materials::wgsl_reflect::reflect_raster_material_wgsl(wgsl).ok());
     let passes = embedded_shaders::embedded_target_passes(&composed);
+    let depth_prepass_pass = depth_prepass_pass_for_target(wgsl, reflected.as_ref(), passes);
     let metadata = EmbeddedStemMetadata {
         reflected,
         pass_count: passes.len().max(1),
         uses_alpha_blending: passes.iter().any(|p| p.blend.is_some()),
+        depth_prepass_pass,
     };
     guard.insert(key, metadata.clone());
     metadata
+}
+
+fn depth_prepass_pass_for_target(
+    wgsl: Option<&str>,
+    reflected: Option<&ReflectedRasterLayout>,
+    passes: &[MaterialPassDesc],
+) -> Option<MaterialPassDesc> {
+    let wgsl = wgsl?;
+    let reflected = reflected?;
+    let [pass] = passes else {
+        return None;
+    };
+    let snapshots = reflected.snapshot_requirements();
+    let pass_is_opaque_forward = matches!(pass.name, "forward" | "forward_two_sided");
+    (pass_is_opaque_forward
+        && pass.blend.is_none()
+        && pass.depth_write
+        && !pass.alpha_to_coverage
+        && !wgsl.contains("discard")
+        && snapshots == SnapshotRequirements::default())
+    .then_some(*pass)
 }
 
 /// `true` when composed embedded WGSL's `vs_main` uses `@location(2)` as a UV0 vertex stream.
@@ -227,6 +258,14 @@ pub fn embedded_stem_uses_scene_color_snapshot(
     EmbeddedStemQuery::for_stem(base_stem, permutation)
         .snapshot_requirements()
         .uses_scene_color
+}
+
+/// Returns the material pass that the generic world-mesh depth prepass may safely mirror.
+pub fn embedded_stem_depth_prepass_pass(
+    base_stem: &str,
+    permutation: ShaderPermutation,
+) -> Option<MaterialPassDesc> {
+    EmbeddedStemQuery::for_stem(base_stem, permutation).depth_prepass_pass()
 }
 
 /// Composed target stem for an embedded base stem (e.g. `unlit_default` -> `unlit_multiview`).
@@ -329,6 +368,7 @@ mod tests {
                 }),
                 pass_count: 1,
                 uses_alpha_blending: false,
+                depth_prepass_pass: None,
             },
         }
     }

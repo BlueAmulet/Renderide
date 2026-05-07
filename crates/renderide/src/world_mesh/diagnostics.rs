@@ -1,7 +1,7 @@
 //! Batch and draw counters for the debug HUD (aligned with sorted [`WorldMeshDrawItem`] order).
 
 use super::draw_prep::WorldMeshDrawItem;
-use super::instances::{DrawGroup, build_plan};
+use super::instances::{DrawGroup, build_plan, depth_prepass_group_eligible};
 use super::materials::MaterialDrawBatchKey;
 use crate::materials::ShaderPermutation;
 use crate::materials::{MaterialBlendMode, RasterPipelineKind, embedded_stem_pipeline_pass_count};
@@ -46,6 +46,10 @@ pub struct WorldMeshDrawStats {
     /// Subset of [`Self::instance_batch_total`] in the grab-pass transparent subpass
     /// (materials whose embedded shader samples the scene-color snapshot).
     pub transparent_pass_batches: usize,
+    /// Opaque indexed batches mirrored by the generic depth prepass.
+    pub depth_prepass_batches: usize,
+    /// Opaque GPU instances mirrored by the generic depth prepass.
+    pub depth_prepass_instances: usize,
     /// Sum of `instance_count` across all emitted batches.
     ///
     /// Equals [`Self::draws_total`] today (every sorted draw is emitted exactly once);
@@ -160,6 +164,8 @@ pub fn stats_from_sorted(
     let post_skybox_pass_batches = plan.post_skybox_groups.len();
     let intersect_pass_batches = plan.intersect_groups.len();
     let transparent_pass_batches = plan.transparent_groups.len();
+    let (depth_prepass_batches, depth_prepass_instances) =
+        depth_prepass_counts(&plan.regular_groups, &plan.slab_layout, draws, shader_perm);
     let instance_batch_total = plan.regular_groups.len()
         + post_skybox_pass_batches
         + intersect_pass_batches
@@ -205,9 +211,29 @@ pub fn stats_from_sorted(
         instance_batch_total,
         intersect_pass_batches,
         transparent_pass_batches,
+        depth_prepass_batches,
+        depth_prepass_instances,
         gpu_instances_emitted,
         submitted_pipeline_pass_total,
     }
+}
+
+fn depth_prepass_counts(
+    regular_groups: &[DrawGroup],
+    slab_layout: &[usize],
+    draws: &[WorldMeshDrawItem],
+    shader_perm: ShaderPermutation,
+) -> (usize, usize) {
+    let mut batches = 0usize;
+    let mut instances = 0usize;
+    for group in regular_groups {
+        if !depth_prepass_group_eligible(draws, slab_layout, group, shader_perm) {
+            continue;
+        }
+        batches += 1;
+        instances += (group.instance_range.end - group.instance_range.start) as usize;
+    }
+    (batches, instances)
 }
 
 /// Captures draw-state diagnostics from the sorted draw list submitted by the forward pass.
@@ -265,6 +291,8 @@ mod tests {
         assert_eq!(s.instance_batch_total, 0);
         assert_eq!(s.intersect_pass_batches, 0);
         assert_eq!(s.transparent_pass_batches, 0);
+        assert_eq!(s.depth_prepass_batches, 0);
+        assert_eq!(s.depth_prepass_instances, 0);
         assert_eq!(s.gpu_instances_emitted, 0);
         assert_eq!(s.submitted_pipeline_pass_total, 0);
     }
@@ -301,6 +329,8 @@ mod tests {
         assert_eq!(s.instance_batch_total, 1);
         assert_eq!(s.intersect_pass_batches, 0);
         assert_eq!(s.transparent_pass_batches, 0);
+        assert_eq!(s.depth_prepass_batches, 1);
+        assert_eq!(s.depth_prepass_instances, 2);
         assert_eq!(s.gpu_instances_emitted, 2);
         assert_eq!(s.submitted_pipeline_pass_total, 1);
     }
@@ -323,6 +353,8 @@ mod tests {
         assert_eq!(s.instance_batch_total, 1);
         assert_eq!(s.intersect_pass_batches, 0);
         assert_eq!(s.transparent_pass_batches, 1);
+        assert_eq!(s.depth_prepass_batches, 0);
+        assert_eq!(s.depth_prepass_instances, 0);
         assert_eq!(s.gpu_instances_emitted, 1);
     }
 

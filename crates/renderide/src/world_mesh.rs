@@ -27,6 +27,7 @@ pub use draw_prep::{
     WorldMeshDrawCollectParallelism, WorldMeshDrawItem, collect_and_sort_draws_with_parallelism,
     draw_filter_from_camera_entry,
 };
+pub(crate) use instances::depth_prepass_group_eligible;
 pub use instances::{DrawGroup, InstancePlan, build_plan};
 #[cfg(test)]
 pub(crate) use materials::compute_batch_key_hash;

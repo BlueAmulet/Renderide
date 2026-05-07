@@ -1,4 +1,4 @@
-//! Main forward pass: clear color + depth, draw scene meshes, MSAA resolve.
+//! Main forward pass: prefill depth, clear color, draw scene meshes, MSAA resolve.
 //!
 //! ## Pass graph structure
 //!
@@ -8,23 +8,25 @@
 //!    (rayon-parallel above the existing threshold), uploads the per-draw slab and frame
 //!    uniforms via the graph upload sink, and stores the prepared state in
 //!    [`WorldMeshForwardPlanSlot`] before any graph pass records.
-//! 2. [`WorldMeshForwardOpaquePass`] -- **[`RasterPass`]** that opens the HDR color + depth
-//!    attachments with `LoadOp::Clear`, records pre-skybox regular draws, records the
-//!    skybox/background, then records regular draws that need the skybox as background.
-//! 3. [`WorldMeshForwardNormalPass`] -- optional **[`RasterPass`]** that writes smooth
+//! 2. [`WorldMeshForwardDepthPrepass`] -- **[`RasterPass`]** that clears and fills depth for
+//!    conservative opaque draws.
+//! 3. [`WorldMeshForwardOpaquePass`] -- **[`RasterPass`]** that clears HDR color, loads the
+//!    prepass depth attachment, records pre-skybox regular draws, records the skybox/background,
+//!    then records regular draws that need the skybox as background.
+//! 4. [`WorldMeshForwardNormalPass`] -- optional **[`RasterPass`]** that writes smooth
 //!    view-space vertex normals for GTAO, using the opaque depth buffer as an equality mask.
-//! 4. [`WorldMeshDepthSnapshotPass`] -- **[`ComputePass`]** that resolves MSAA depth (when active)
+//! 5. [`WorldMeshDepthSnapshotPass`] -- **[`ComputePass`]** that resolves MSAA depth (when active)
 //!    and copies single-sample depth into the scene-depth snapshot for intersection materials.
-//! 5. [`WorldMeshForwardIntersectPass`] -- **[`RasterPass`]** that draws intersection materials.
-//! 6. [`WorldMeshForwardColorResolvePass`] -- optional **[`RasterPass`]** that resolves MSAA
+//! 6. [`WorldMeshForwardIntersectPass`] -- **[`RasterPass`]** that draws intersection materials.
+//! 7. [`WorldMeshForwardColorResolvePass`] -- optional **[`RasterPass`]** that resolves MSAA
 //!    scene color before the grab-pass snapshot.
-//! 7. [`WorldMeshColorSnapshotPass`] -- **[`ComputePass`]** that copies resolved HDR color into
+//! 8. [`WorldMeshColorSnapshotPass`] -- **[`ComputePass`]** that copies resolved HDR color into
 //!    the grab-pass scene-color snapshot.
-//! 8. [`WorldMeshForwardTransparentPass`] -- **[`RasterPass`]** that draws grab-pass transparent
+//! 9. [`WorldMeshForwardTransparentPass`] -- **[`RasterPass`]** that draws grab-pass transparent
 //!    materials into the active frame-sampled HDR target.
-//! 9. [`WorldMeshForwardColorResolvePass`] -- optional final **[`RasterPass`]** that resolves
-//!    MSAA scene color after grab-pass transparent draws.
-//! 10. [`WorldMeshForwardDepthResolvePass`] -- **[`ComputePass`]** that resolves the final MSAA
+//! 10. [`WorldMeshForwardColorResolvePass`] -- optional final **[`RasterPass`]** that resolves
+//!     MSAA scene color after grab-pass transparent draws.
+//! 11. [`WorldMeshForwardDepthResolvePass`] -- **[`ComputePass`]** that resolves the final MSAA
 //!     depth into the single-sample frame depth used by Hi-Z.
 //!
 //! ## VR stereo world draws
@@ -36,6 +38,7 @@
 
 mod color_resolve;
 mod current_view_textures;
+mod depth_prepass;
 mod encode;
 mod execute_helpers;
 mod material_batch;
@@ -47,6 +50,7 @@ mod vp;
 pub use color_resolve::{
     WorldMeshForwardColorResolveGraphResources, WorldMeshForwardColorResolvePass,
 };
+pub use depth_prepass::{WorldMeshForwardDepthPrepass, WorldMeshForwardDepthPrepassGraphResources};
 pub(crate) use execute_helpers::{
     WorldMeshForwardPrepareContext, prepare_world_mesh_forward_frame,
 };
@@ -298,7 +302,7 @@ impl RasterPass for WorldMeshForwardOpaquePass {
                 self.resources.depth,
                 self.resources.msaa_depth,
                 wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(crate::gpu::MAIN_FORWARD_DEPTH_CLEAR),
+                    load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Store,
                 },
                 None,

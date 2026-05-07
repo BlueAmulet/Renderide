@@ -25,6 +25,7 @@ pub(crate) use world_mesh_forward::{
 pub use world_mesh_forward::{
     WorldMeshColorSnapshotPass, WorldMeshDepthSnapshotPass,
     WorldMeshForwardColorResolveGraphResources, WorldMeshForwardColorResolvePass,
+    WorldMeshForwardDepthPrepass, WorldMeshForwardDepthPrepassGraphResources,
     WorldMeshForwardDepthResolvePass, WorldMeshForwardGraphResources,
     WorldMeshForwardIntersectPass, WorldMeshForwardNormalGraphResources,
     WorldMeshForwardNormalPass, WorldMeshForwardOpaquePass, WorldMeshForwardTransparentPass,

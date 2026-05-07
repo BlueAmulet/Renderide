@@ -208,6 +208,10 @@ impl StatsSection for DrawStatsSection {
             "GPU instance batches (indexed submits): {:>5}  ({:>5} intersect)",
             m.instance_batch_total, m.intersect_pass_batches
         ));
+        ui.text(format!(
+            "Depth prepass batches: {:>5}  |  instances: {:>5}",
+            m.depth_prepass_batches, m.depth_prepass_instances
+        ));
         let compression = if m.instance_batch_total > 0 {
             m.gpu_instances_emitted as f32 / m.instance_batch_total as f32
         } else {

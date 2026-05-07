@@ -16,7 +16,10 @@
 use hashbrown::HashMap;
 use std::ops::Range;
 
-use crate::materials::render_queue_is_transparent;
+use crate::materials::{
+    RasterPipelineKind, ShaderPermutation, UNITY_RENDER_QUEUE_ALPHA_TEST,
+    embedded_stem_depth_prepass_pass, render_queue_is_transparent,
+};
 
 use super::draw_prep::WorldMeshDrawItem;
 
@@ -105,6 +108,51 @@ pub fn build_plan(draws: &[WorldMeshDrawItem], supports_base_instance: bool) -> 
     }
 
     builder.finish()
+}
+
+/// Returns whether a regular draw group may be mirrored by the generic opaque depth prepass.
+pub(crate) fn depth_prepass_group_eligible(
+    draws: &[WorldMeshDrawItem],
+    slab_layout: &[usize],
+    group: &DrawGroup,
+    shader_perm: ShaderPermutation,
+) -> bool {
+    let start = group.instance_range.start as usize;
+    let end = group.instance_range.end as usize;
+    slab_layout.get(start..end).is_some_and(|members| {
+        !members.is_empty()
+            && members.iter().all(|&draw_idx| {
+                draws
+                    .get(draw_idx)
+                    .is_some_and(|item| depth_prepass_item_eligible(item, shader_perm))
+            })
+    })
+}
+
+/// Returns whether a draw may be submitted through the conservative generic depth prepass.
+pub(crate) fn depth_prepass_item_eligible(
+    item: &WorldMeshDrawItem,
+    shader_perm: ShaderPermutation,
+) -> bool {
+    let key = &item.batch_key;
+    !item.is_overlay
+        && key.render_queue < UNITY_RENDER_QUEUE_ALPHA_TEST
+        && !render_queue_is_transparent(key.render_queue)
+        && !key.alpha_blended
+        && !key.blend_mode.is_transparent()
+        && !key.embedded_requires_intersection_pass
+        && !key.embedded_uses_scene_depth_snapshot
+        && !key.embedded_uses_scene_color_snapshot
+        && key.render_state.depth_write != Some(false)
+        && key.render_state.depth_compare.is_none()
+        && key.render_state.depth_offset.is_none()
+        && !key.render_state.stencil.enabled
+        && match &key.pipeline {
+            RasterPipelineKind::Null => true,
+            RasterPipelineKind::EmbeddedStem(stem) => {
+                embedded_stem_depth_prepass_pass(stem.as_ref(), shader_perm).is_some()
+            }
+        }
 }
 
 /// Mutable output and scratch buffers used while building one [`InstancePlan`].
@@ -407,7 +455,8 @@ fn emit_group(
 mod tests {
     use super::*;
     use crate::materials::{
-        RasterFrontFace, UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_RENDER_QUEUE_TRANSPARENT,
+        MaterialBlendMode, MaterialDepthOffsetState, RasterFrontFace, RasterPipelineKind,
+        UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_RENDER_QUEUE_TRANSPARENT,
     };
     use crate::world_mesh::draw_prep::{pack_sort_prefix, sort_draws};
     use crate::world_mesh::materials::compute_batch_key_hash;
@@ -735,5 +784,101 @@ mod tests {
         for w in plan.regular_groups.windows(2) {
             assert!(w[0].representative_draw_idx < w[1].representative_draw_idx);
         }
+    }
+
+    #[test]
+    fn depth_prepass_accepts_plain_opaque_groups() {
+        let mut draws = vec![opaque(7, 1, 0, 0)];
+        sort_draws(&mut draws);
+        let plan = build_plan(&draws, true);
+
+        assert!(depth_prepass_item_eligible(&draws[0], ShaderPermutation(0)));
+        assert!(depth_prepass_group_eligible(
+            &draws,
+            &plan.slab_layout,
+            &plan.regular_groups[0],
+            ShaderPermutation(0),
+        ));
+    }
+
+    #[test]
+    fn depth_prepass_rejects_groups_with_any_unsafe_member() {
+        let safe = opaque(7, 1, 0, 0);
+        let mut unsafe_member = opaque(7, 1, 0, 1);
+        unsafe_member.batch_key.render_state.depth_write = Some(false);
+        let draws = vec![safe, unsafe_member];
+        let group = DrawGroup {
+            representative_draw_idx: 0,
+            instance_range: 0..2,
+            material_packet_idx: 0,
+        };
+
+        assert!(!depth_prepass_group_eligible(
+            &draws,
+            &[0, 1],
+            &group,
+            ShaderPermutation(0),
+        ));
+    }
+
+    #[test]
+    fn depth_prepass_rejects_non_opaque_or_custom_depth_state() {
+        let mut cases = Vec::new();
+
+        let mut overlay = opaque(7, 1, 0, 0);
+        overlay.is_overlay = true;
+        cases.push(overlay);
+
+        let mut alpha_test = opaque(7, 1, 0, 1);
+        set_render_queue(&mut alpha_test, UNITY_RENDER_QUEUE_ALPHA_TEST);
+        cases.push(alpha_test);
+
+        let mut transparent = opaque(7, 1, 0, 2);
+        set_render_queue(&mut transparent, UNITY_RENDER_QUEUE_TRANSPARENT);
+        cases.push(transparent);
+
+        let mut blended = opaque(7, 1, 0, 3);
+        blended.batch_key.blend_mode = MaterialBlendMode::UnityBlend { src: 5, dst: 10 };
+        cases.push(blended);
+
+        let mut zwrite_off = opaque(7, 1, 0, 4);
+        zwrite_off.batch_key.render_state.depth_write = Some(false);
+        cases.push(zwrite_off);
+
+        let mut ztest = opaque(7, 1, 0, 5);
+        ztest.batch_key.render_state.depth_compare = Some(2);
+        cases.push(ztest);
+
+        let mut offset = opaque(7, 1, 0, 6);
+        offset.batch_key.render_state.depth_offset = MaterialDepthOffsetState::new(1.0, 0);
+        cases.push(offset);
+
+        let mut stencil = opaque(7, 1, 0, 7);
+        stencil.batch_key.render_state.stencil.enabled = true;
+        cases.push(stencil);
+
+        let mut scene_depth = opaque(7, 1, 0, 8);
+        scene_depth.batch_key.embedded_uses_scene_depth_snapshot = true;
+        cases.push(scene_depth);
+
+        let mut grab = opaque(7, 1, 0, 9);
+        grab.batch_key.embedded_uses_scene_color_snapshot = true;
+        cases.push(grab);
+
+        let mut intersect = opaque(7, 1, 0, 10);
+        intersect.batch_key.embedded_requires_intersection_pass = true;
+        cases.push(intersect);
+
+        for item in cases {
+            assert!(!depth_prepass_item_eligible(&item, ShaderPermutation(0)));
+        }
+    }
+
+    #[test]
+    fn depth_prepass_rejects_unsafe_embedded_stems() {
+        let mut item = opaque(7, 1, 0, 0);
+        item.batch_key.pipeline = RasterPipelineKind::EmbeddedStem("invisible_default".into());
+
+        assert!(!depth_prepass_item_eligible(&item, ShaderPermutation(0)));
     }
 }

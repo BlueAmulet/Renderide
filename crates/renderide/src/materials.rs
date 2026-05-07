@@ -113,11 +113,11 @@ pub use embedded::{EmbeddedMaterialBindResources, EmbeddedTexturePools};
 
 /// Unity shader asset names -> embedded WGSL stems and permutation flags.
 pub use embedded_raster_pipeline::{
-    embedded_stem_needs_color_stream, embedded_stem_needs_extended_vertex_streams,
-    embedded_stem_needs_uv0_stream, embedded_stem_needs_uv1_stream,
-    embedded_stem_pipeline_pass_count, embedded_stem_requires_intersection_pass,
-    embedded_stem_uses_alpha_blending, embedded_stem_uses_scene_color_snapshot,
-    embedded_stem_uses_scene_depth_snapshot,
+    embedded_stem_depth_prepass_pass, embedded_stem_needs_color_stream,
+    embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_uv0_stream,
+    embedded_stem_needs_uv1_stream, embedded_stem_pipeline_pass_count,
+    embedded_stem_requires_intersection_pass, embedded_stem_uses_alpha_blending,
+    embedded_stem_uses_scene_color_snapshot, embedded_stem_uses_scene_depth_snapshot,
 };
 pub use embedded_shader_stem::embedded_default_stem_for_shader_asset_name;
 
@@ -131,11 +131,10 @@ pub use material_passes::{
 };
 pub use pipeline_build_error::PipelineBuildError;
 pub use pipeline_kind::RasterPipelineKind;
-pub use render_queue::render_queue_is_transparent;
+pub use render_queue::{UNITY_RENDER_QUEUE_ALPHA_TEST, render_queue_is_transparent};
 #[cfg(test)]
 pub(crate) use render_queue::{
-    UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_RENDER_QUEUE_GEOMETRY, UNITY_RENDER_QUEUE_OVERLAY,
-    UNITY_RENDER_QUEUE_TRANSPARENT,
+    UNITY_RENDER_QUEUE_GEOMETRY, UNITY_RENDER_QUEUE_OVERLAY, UNITY_RENDER_QUEUE_TRANSPARENT,
 };
 pub(crate) use render_queue::{
     fallback_render_queue_for_material, material_render_queue_from_maps,

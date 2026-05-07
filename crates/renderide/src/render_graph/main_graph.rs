@@ -318,6 +318,16 @@ fn main_forward_resources(h: &MainGraphHandles) -> crate::passes::WorldMeshForwa
     }
 }
 
+fn main_depth_prepass_resources(
+    h: &MainGraphHandles,
+) -> crate::passes::WorldMeshForwardDepthPrepassGraphResources {
+    crate::passes::WorldMeshForwardDepthPrepassGraphResources {
+        depth: h.depth,
+        msaa_depth: h.forward_msaa_depth,
+        per_draw_slab: h.per_draw_slab,
+    }
+}
+
 fn add_gtao_normal_prepass_if_active(
     builder: &mut GraphBuilder,
     h: &MainGraphHandles,
@@ -337,6 +347,12 @@ fn add_gtao_normal_prepass_if_active(
         },
     )));
     Some(GtaoNormalPrepassNode { view_normals, pass })
+}
+
+fn add_world_mesh_depth_prepass(builder: &mut GraphBuilder, h: &MainGraphHandles) -> PassId {
+    builder.add_raster_pass(Box::new(crate::passes::WorldMeshForwardDepthPrepass::new(
+        main_depth_prepass_resources(h),
+    )))
 }
 
 /// Wires imported frame targets and main-graph transients into `builder` for [`build_main_graph`].
@@ -399,6 +415,7 @@ fn add_main_graph_passes_and_edges(
         },
     )));
     let forward_resources = main_forward_resources(&h);
+    let depth_prepass = add_world_mesh_depth_prepass(&mut builder, &h);
     let forward_opaque = builder.add_raster_pass(Box::new(
         crate::passes::WorldMeshForwardOpaquePass::new(forward_resources),
     ));
@@ -462,7 +479,8 @@ fn add_main_graph_passes_and_edges(
         },
     )));
     builder.add_edge(deform, clustered);
-    builder.add_edge(clustered, forward_opaque);
+    builder.add_edge(clustered, depth_prepass);
+    builder.add_edge(depth_prepass, forward_opaque);
     if let Some(gtao_normals) = gtao_normals {
         builder.add_edge(forward_opaque, gtao_normals.pass);
         builder.add_edge(gtao_normals.pass, depth_snapshot);
@@ -651,17 +669,27 @@ mod tests {
     }
 
     #[test]
-    fn default_main_needs_surface_and_ten_passes() {
+    fn default_main_needs_surface_and_eleven_passes() {
         let g = build_main_graph(smoke_key(), &no_post()).expect("default graph");
         assert!(g.needs_surface_acquire());
-        assert_eq!(g.pass_count(), 10);
-        assert_eq!(g.compile_stats.topo_levels, 10);
+        assert_eq!(g.pass_count(), 11);
+        assert_eq!(g.compile_stats.topo_levels, 11);
         assert_eq!(g.compile_stats.transient_texture_count, 4);
         assert!(
             !g.pass_info
                 .iter()
                 .any(|p| p.name.as_str() == "WorldMeshForwardPrepare")
         );
+        let pass_names: Vec<&str> = g.pass_info.iter().map(|p| p.name.as_str()).collect();
+        let depth_prepass_pos = pass_names
+            .iter()
+            .position(|name| *name == "WorldMeshForwardDepthPrepass")
+            .expect("depth prepass");
+        let opaque_pos = pass_names
+            .iter()
+            .position(|name| *name == "WorldMeshForwardOpaque")
+            .expect("opaque pass");
+        assert!(depth_prepass_pos < opaque_pos);
     }
 
     #[test]
@@ -690,8 +718,8 @@ mod tests {
         assert!(pre_grab_resolve_pos < snapshot_pos);
         assert!(snapshot_pos < transparent_pos);
         assert!(transparent_pos < final_resolve_pos);
-        assert_eq!(g.pass_count(), 12);
-        assert_eq!(g.compile_stats.topo_levels, 12);
+        assert_eq!(g.pass_count(), 13);
+        assert_eq!(g.compile_stats.topo_levels, 13);
     }
 
     #[test]
@@ -804,6 +832,14 @@ mod tests {
             .iter()
             .position(|name| *name == "WorldMeshForwardNormals")
             .expect("GTAO normal prepass");
+        let depth_prepass_pos = pass_names
+            .iter()
+            .position(|name| *name == "WorldMeshForwardDepthPrepass")
+            .expect("depth prepass");
+        let opaque_pos = pass_names
+            .iter()
+            .position(|name| *name == "WorldMeshForwardOpaque")
+            .expect("opaque pass");
         let depth_snapshot_pos = pass_names
             .iter()
             .position(|name| *name == "WorldMeshDepthSnapshot")
@@ -813,6 +849,8 @@ mod tests {
             .position(|name| *name == "GtaoMain")
             .expect("GTAO main pass");
 
+        assert!(depth_prepass_pos < opaque_pos);
+        assert!(opaque_pos < normal_pos);
         assert!(normal_pos < depth_snapshot_pos);
         assert!(depth_snapshot_pos < gtao_main_pos);
         assert!(

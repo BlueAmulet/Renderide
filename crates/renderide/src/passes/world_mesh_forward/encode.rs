@@ -11,14 +11,17 @@ use crate::gpu::GpuLimits;
 use crate::materials::MaterialPipelineSet;
 use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
 use crate::passes::WorldMeshForwardEncodeRefs;
-use crate::world_mesh::{DrawGroup, WorldMeshDrawItem};
+use crate::world_mesh::{DrawGroup, WorldMeshDrawItem, depth_prepass_group_eligible};
 
 use super::MaterialBatchPacket;
+use super::depth_prepass::{
+    WorldMeshForwardDepthPrepassPipelineCache, WorldMeshForwardDepthPrepassPipelineKey,
+};
 use super::normal_pass::{WorldMeshForwardNormalPipelineCache, WorldMeshForwardNormalPipelineKey};
 
 use vertex_binding::{
-    LastMeshBindState, draw_mesh_submesh_instanced, draw_mesh_submesh_normals_instanced,
-    gpu_refs_for_encode, streams_for_item,
+    LastMeshBindState, draw_mesh_submesh_depth_instanced, draw_mesh_submesh_instanced,
+    draw_mesh_submesh_normals_instanced, gpu_refs_for_encode, streams_for_item,
 };
 
 /// Pre-grouped draws, bind groups, and precomputed-batch table for one mesh-forward raster subpass.
@@ -74,6 +77,32 @@ pub(crate) struct NormalDrawBatch<'a, 'b, 'c, 'd> {
     pub device: &'a wgpu::Device,
     /// Shared normal-prepass pipeline cache.
     pub normal_pipelines: &'a WorldMeshForwardNormalPipelineCache,
+}
+
+/// Pre-grouped draws and pipeline state for the generic opaque depth prepass.
+pub(crate) struct DepthPrepassDrawBatch<'a, 'b, 'c, 'd> {
+    /// Active render pass.
+    pub rpass: &'a mut wgpu::RenderPass<'b>,
+    /// Pre-built regular draw groups in ascending representative order.
+    pub groups: &'c [DrawGroup],
+    /// Slab layout used to resolve every draw member in each group.
+    pub slab_layout: &'c [usize],
+    /// Full sorted world mesh draw list for the view.
+    pub draws: &'c [WorldMeshDrawItem],
+    /// Mesh pool and skin cache for vertex/index binding.
+    pub encode: &'a mut WorldMeshForwardEncodeRefs<'d>,
+    /// Device limits snapshot for dynamic storage-buffer offsets.
+    pub gpu_limits: &'a GpuLimits,
+    /// Per-draw storage slab bound at `@group(0)` for the depth prepass.
+    pub per_draw_bind_group: &'a wgpu::BindGroup,
+    /// Whether `draw_indexed` may use non-zero `first_instance`.
+    pub supports_base_instance: bool,
+    /// Pipeline state resolved for the active world-mesh view.
+    pub pipeline: &'a super::WorldMeshForwardPipelineState,
+    /// GPU device used for lazy depth-prepass pipeline creation.
+    pub device: &'a wgpu::Device,
+    /// Shared depth-prepass pipeline cache.
+    pub depth_pipelines: &'a WorldMeshForwardDepthPrepassPipelineCache,
 }
 
 /// Per-draw slab bind request for one draw group.
@@ -275,6 +304,67 @@ pub(crate) fn draw_normals_subset(batch: NormalDrawBatch<'_, '_, '_, '_>) {
         let inst_range = instance_range_for_draw_group(group, supports_base_instance);
         let gpu_refs = gpu_refs_for_encode(encode);
         draw_mesh_submesh_normals_instanced(rpass, item, gpu_refs, inst_range, &mut last_mesh);
+    }
+}
+
+/// Records the safe opaque depth prepass draw subset.
+pub(crate) fn draw_depth_prepass_subset(batch: DepthPrepassDrawBatch<'_, '_, '_, '_>) {
+    profiling::scope!("world_mesh::draw_depth_prepass_subset");
+    let DepthPrepassDrawBatch {
+        rpass,
+        groups,
+        slab_layout,
+        draws,
+        encode,
+        gpu_limits,
+        per_draw_bind_group,
+        supports_base_instance,
+        pipeline,
+        device,
+        depth_pipelines,
+    } = batch;
+
+    let mut last_mesh = LastMeshBindState::new();
+    let mut last_per_draw_dyn_offset: Option<u32> = None;
+    let mut last_pipeline: Option<*const wgpu::RenderPipeline> = None;
+
+    for group in groups {
+        let representative = group.representative_draw_idx;
+        let Some(item) = draws.get(representative) else {
+            continue;
+        };
+        if !depth_prepass_group_eligible(draws, slab_layout, group, pipeline.shader_perm) {
+            continue;
+        }
+        let Some(key) = WorldMeshForwardDepthPrepassPipelineKey::for_draw(item, pipeline) else {
+            continue;
+        };
+
+        let slab_first_instance = group.instance_range.start as usize;
+        let instance_count = group.instance_range.end - group.instance_range.start;
+        bind_per_draw_slab_if_changed(
+            rpass,
+            PerDrawSlabBind {
+                bind_group_index: 0,
+                bind_group: per_draw_bind_group,
+                gpu_limits,
+                slab_first_instance,
+                instance_count,
+                supports_base_instance,
+            },
+            &mut last_per_draw_dyn_offset,
+        );
+
+        let pipeline = depth_pipelines.pipeline(device, key);
+        let pipeline_id: *const wgpu::RenderPipeline = pipeline.as_ref();
+        if last_pipeline != Some(pipeline_id) {
+            rpass.set_pipeline(pipeline.as_ref());
+            last_pipeline = Some(pipeline_id);
+        }
+
+        let inst_range = instance_range_for_draw_group(group, supports_base_instance);
+        let gpu_refs = gpu_refs_for_encode(encode);
+        draw_mesh_submesh_depth_instanced(rpass, item, gpu_refs, inst_range, &mut last_mesh);
     }
 }
 

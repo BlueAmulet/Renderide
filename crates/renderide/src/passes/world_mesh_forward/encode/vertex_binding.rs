@@ -24,16 +24,6 @@ pub(super) struct EmbeddedVertexStreamFlags {
 }
 
 impl EmbeddedVertexStreamFlags {
-    /// Primary position + normal streams only.
-    fn primary_only() -> Self {
-        Self {
-            embedded_uv: false,
-            embedded_color: false,
-            embedded_uv1: false,
-            embedded_extended_vertex_streams: false,
-        }
-    }
-
     /// Slot used by the compact UV1 layout when the pipeline does not use full extended streams.
     fn compact_uv1_slot(self) -> Option<usize> {
         if !self.embedded_uv1 || self.embedded_extended_vertex_streams {
@@ -160,8 +150,7 @@ pub(super) fn draw_mesh_submesh_normals_instanced(
     instances: std::ops::Range<u32>,
     last_mesh: &mut LastMeshBindState,
 ) {
-    let streams = EmbeddedVertexStreamFlags::primary_only();
-    let Some(mesh) = resident_draw_mesh(item, gpu, streams) else {
+    let Some(mesh) = resident_depth_draw_mesh(item, gpu) else {
         return;
     };
     let Some(normals_bind) = mesh.normals_buffer.as_deref() else {
@@ -169,6 +158,29 @@ pub(super) fn draw_mesh_submesh_normals_instanced(
     };
 
     if !bind_primary_vertex_streams(rpass, item, gpu, mesh, normals_bind, last_mesh) {
+        return;
+    }
+
+    bind_index_buffer_if_changed(rpass, mesh, last_mesh);
+
+    let first = item.first_index;
+    let end = first.saturating_add(item.index_count);
+    rpass.draw_indexed(first..end, 0, instances);
+}
+
+/// Binds the position stream and issues one indexed draw for the depth prepass.
+pub(super) fn draw_mesh_submesh_depth_instanced(
+    rpass: &mut wgpu::RenderPass<'_>,
+    item: &WorldMeshDrawItem,
+    gpu: WorldMeshDrawGpuRefs<'_>,
+    instances: std::ops::Range<u32>,
+    last_mesh: &mut LastMeshBindState,
+) {
+    let Some(mesh) = resident_depth_draw_mesh(item, gpu) else {
+        return;
+    };
+
+    if !bind_position_vertex_stream(rpass, item, gpu, mesh, last_mesh) {
         return;
     }
 
@@ -207,6 +219,17 @@ fn resident_draw_mesh<'a>(
         return None;
     }
     mesh.debug_streams_ready().then_some(mesh)
+}
+
+/// Returns the resident mesh for a depth-only draw after basic draw validation.
+fn resident_depth_draw_mesh<'a>(
+    item: &WorldMeshDrawItem,
+    gpu: WorldMeshDrawGpuRefs<'a>,
+) -> Option<&'a GpuMesh> {
+    if item.mesh_asset_id < 0 || item.node_id < 0 || item.index_count == 0 {
+        return None;
+    }
+    gpu.mesh_pool.get(item.mesh_asset_id)
 }
 
 /// Binds position and normal streams, choosing static mesh buffers or the deformation cache.
@@ -248,6 +271,55 @@ fn bind_static_primary_streams(
         1,
         normals_bind.slice(..),
         BufferBindId::full(normals_bind),
+        last_mesh.vertex
+    );
+    true
+}
+
+/// Binds only the position stream selected for this draw.
+fn bind_position_vertex_stream(
+    rpass: &mut wgpu::RenderPass<'_>,
+    item: &WorldMeshDrawItem,
+    gpu: WorldMeshDrawGpuRefs<'_>,
+    mesh: &GpuMesh,
+    last_mesh: &mut LastMeshBindState,
+) -> bool {
+    if item.world_space_deformed || (item.blendshape_deformed && mesh.blendshape_has_tangent_deltas)
+    {
+        let Some(cache) = gpu.skin_cache else {
+            return false;
+        };
+        let key = SkinCacheKey::from_draw_parts(item.space_id, item.skinned, item.instance_id);
+        let Some(entry) = cache.lookup_current(&key) else {
+            logger::trace!(
+                "world mesh depth prepass: current skin cache miss for space {:?} renderable {} instance {:?} node {}",
+                item.space_id,
+                item.renderable_index,
+                item.instance_id,
+                item.node_id
+            );
+            return false;
+        };
+        let pos_buf = cache.positions_arena();
+        let pos_range = entry.positions.byte_range();
+        bind_vertex_if_changed!(
+            rpass,
+            0,
+            pos_buf.slice(pos_range.start..pos_range.end),
+            BufferBindId::ranged(pos_buf, pos_range.start, pos_range.end),
+            last_mesh.vertex
+        );
+        return true;
+    }
+
+    let Some(pos) = mesh.positions_buffer.as_deref() else {
+        return false;
+    };
+    bind_vertex_if_changed!(
+        rpass,
+        0,
+        pos.slice(..),
+        BufferBindId::full(pos),
         last_mesh.vertex
     );
     true

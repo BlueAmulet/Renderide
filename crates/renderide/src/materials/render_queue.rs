@@ -6,7 +6,6 @@ use super::material_passes::{MaterialPipelinePropertyIds, PropertyMapRef};
 /// Unity `Geometry` render queue and the default queue for opaque materials.
 pub const UNITY_RENDER_QUEUE_GEOMETRY: i32 = 2000;
 /// Unity `AlphaTest` render queue.
-#[cfg(test)]
 pub const UNITY_RENDER_QUEUE_ALPHA_TEST: i32 = 2450;
 /// Highest Unity queue value still sorted as opaque by the Built-in Render Pipeline.
 #[cfg(test)]
