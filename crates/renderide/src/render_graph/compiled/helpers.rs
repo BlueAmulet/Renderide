@@ -232,6 +232,46 @@ pub(super) fn resolve_transient_extent(
     }
 }
 
+/// Clamps a requested mip count to the number of mips representable by the resolved extent.
+pub(super) fn clamp_mip_levels_for_transient_extent(
+    requested_mips: u32,
+    extent: TransientExtent,
+    dimension: wgpu::TextureDimension,
+    array_layers: u32,
+) -> u32 {
+    requested_mips
+        .max(1)
+        .min(max_mip_levels_for_transient_extent(
+            extent,
+            dimension,
+            array_layers,
+        ))
+}
+
+fn max_mip_levels_for_transient_extent(
+    extent: TransientExtent,
+    dimension: wgpu::TextureDimension,
+    array_layers: u32,
+) -> u32 {
+    let (width, height, depth) = match extent {
+        TransientExtent::Custom { width, height } => {
+            (width.max(1), height.max(1), array_layers.max(1))
+        }
+        TransientExtent::MultiLayer {
+            width,
+            height,
+            layers,
+        } => (width.max(1), height.max(1), layers.max(1)),
+        TransientExtent::Backbuffer | TransientExtent::BackbufferScaledMip { .. } => (1, 1, 1),
+    };
+    let max_axis = match dimension {
+        wgpu::TextureDimension::D1 => width,
+        wgpu::TextureDimension::D2 => width.max(height),
+        wgpu::TextureDimension::D3 => width.max(height).max(depth),
+    };
+    u32::BITS - max_axis.max(1).leading_zeros()
+}
+
 /// Resolves a bloom-style backbuffer-relative mip extent without exceeding the current viewport.
 fn resolve_backbuffer_scaled_mip_extent(
     max_dim: u32,
@@ -590,6 +630,63 @@ mod tests {
                 height: 1024,
                 layers: 2,
             }
+        );
+    }
+
+    #[test]
+    fn transient_mip_count_clamps_to_resolved_2d_extent() {
+        assert_eq!(
+            clamp_mip_levels_for_transient_extent(
+                5,
+                TransientExtent::Custom {
+                    width: 16,
+                    height: 9,
+                },
+                wgpu::TextureDimension::D2,
+                1,
+            ),
+            5
+        );
+        assert_eq!(
+            clamp_mip_levels_for_transient_extent(
+                5,
+                TransientExtent::Custom {
+                    width: 8,
+                    height: 8,
+                },
+                wgpu::TextureDimension::D2,
+                1,
+            ),
+            4
+        );
+        assert_eq!(
+            clamp_mip_levels_for_transient_extent(
+                5,
+                TransientExtent::Custom {
+                    width: 1,
+                    height: 1,
+                },
+                wgpu::TextureDimension::D2,
+                1,
+            ),
+            1
+        );
+    }
+
+    #[test]
+    fn transient_mip_count_uses_array_layers_only_for_3d_textures() {
+        let extent = TransientExtent::MultiLayer {
+            width: 4,
+            height: 4,
+            layers: 16,
+        };
+        assert_eq!(
+            clamp_mip_levels_for_transient_extent(8, extent, wgpu::TextureDimension::D2, 16),
+            3
+        );
+        assert_eq!(
+            clamp_mip_levels_for_transient_extent(8, extent, wgpu::TextureDimension::D3, 16),
+            5
         );
     }
 }

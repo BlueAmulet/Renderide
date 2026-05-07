@@ -387,6 +387,28 @@ mod tests {
     }
 
     #[test]
+    fn gtao_params_clamp_runtime_view_depth_mips() {
+        assert_eq!(
+            pipeline::GtaoParamsGpu::from_settings(GtaoSettings::default(), 0.0, false)
+                .with_view_depth_mip_count(0)
+                .view_depth_mip_count,
+            1
+        );
+        assert_eq!(
+            pipeline::GtaoParamsGpu::from_settings(GtaoSettings::default(), 0.0, false)
+                .with_view_depth_mip_count(3)
+                .view_depth_mip_count,
+            3
+        );
+        assert_eq!(
+            pipeline::GtaoParamsGpu::from_settings(GtaoSettings::default(), 0.0, false)
+                .with_view_depth_mip_count(99)
+                .view_depth_mip_count,
+            VIEW_DEPTH_MIP_COUNT
+        );
+    }
+
+    #[test]
     fn gtao_quality_levels_match_xegtao_presets() {
         assert_eq!(
             pipeline::GtaoQualityPreset::from_level(0, 1),

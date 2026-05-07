@@ -398,7 +398,8 @@ fn validate_texture_key(
         wgpu::TextureDimension::D3 => limits.texture_3d_fits(width, height, layers),
         _ => limits.texture_2d_fits(width, height) && limits.array_layers_fit(layers),
     };
-    let mips_fit = key.mip_levels <= 16;
+    let requested_mips = key.mip_levels.max(1);
+    let mips_fit = requested_mips <= 16 && requested_mips <= max_mip_levels_for_texture_key(key);
     if !dims_fit || !mips_fit {
         return Err(TransientPoolError::TextureExceedsLimits {
             label,
@@ -409,6 +410,16 @@ fn validate_texture_key(
         });
     }
     Ok(())
+}
+
+fn max_mip_levels_for_texture_key(key: TextureKey) -> u32 {
+    let (width, height, depth) = texture_key_dims(key);
+    let max_axis = match key.dimension {
+        wgpu::TextureDimension::D1 => width,
+        wgpu::TextureDimension::D2 => width.max(height),
+        wgpu::TextureDimension::D3 => width.max(height).max(depth),
+    };
+    u32::BITS - max_axis.max(1).leading_zeros()
 }
 
 #[cfg(test)]

@@ -82,18 +82,35 @@ impl CompiledRenderGraph {
             },
             |compiled| {
                 let array_layers = compiled.desc.array_layers.resolve(surface.multiview_stereo);
+                let format = compiled.desc.format.resolve(
+                    surface.surface_format,
+                    surface.depth_stencil_format,
+                    surface.scene_color_format,
+                );
+                let extent = helpers::resolve_transient_extent(
+                    compiled.desc.extent,
+                    surface.viewport_px,
+                    array_layers,
+                );
+                let mip_levels = helpers::clamp_mip_levels_for_transient_extent(
+                    compiled.desc.mip_levels,
+                    extent,
+                    compiled.desc.dimension,
+                    array_layers,
+                );
+                if mip_levels != compiled.desc.mip_levels.max(1) {
+                    logger::trace!(
+                        "transient texture '{}' mip count clamped from {} to {} for resolved extent {:?}",
+                        compiled.desc.label,
+                        compiled.desc.mip_levels.max(1),
+                        mip_levels,
+                        extent
+                    );
+                }
                 let key = TextureKey {
-                    format: compiled.desc.format.resolve(
-                        surface.surface_format,
-                        surface.depth_stencil_format,
-                        surface.scene_color_format,
-                    ),
-                    extent: helpers::resolve_transient_extent(
-                        compiled.desc.extent,
-                        surface.viewport_px,
-                        array_layers,
-                    ),
-                    mip_levels: compiled.desc.mip_levels,
+                    format,
+                    extent,
+                    mip_levels,
                     sample_count: compiled.desc.sample_count.resolve(surface.sample_count),
                     dimension: compiled.desc.dimension,
                     array_layers,

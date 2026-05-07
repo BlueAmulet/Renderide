@@ -22,6 +22,23 @@ fn buf_key(usage: wgpu::BufferUsages) -> BufferKey {
     }
 }
 
+fn synthetic_limits(max_tex_2d: u32) -> crate::gpu::GpuLimits {
+    crate::gpu::GpuLimits {
+        wgpu: wgpu::Limits {
+            max_texture_dimension_2d: max_tex_2d,
+            max_texture_dimension_3d: max_tex_2d,
+            max_texture_array_layers: 16,
+            max_buffer_size: 1024,
+            ..Default::default()
+        },
+        supports_base_instance: true,
+        supports_multiview: false,
+        supports_float32_filterable: false,
+        texture_compression_features: wgpu::Features::empty(),
+        max_per_draw_slab_slots: 1024,
+    }
+}
+
 #[test]
 fn matching_descriptor_reuses_physical_texture() {
     let mut pool = TransientPool::new();
@@ -118,4 +135,18 @@ fn gc_drops_gpu_texture_slots_for_stale_msaa_keys() {
         fresh, id1,
         "after GC, acquire should allocate a new slot when the free list was pruned"
     );
+}
+
+#[test]
+fn texture_validation_rejects_mip_count_that_exceeds_extent() {
+    let limits = synthetic_limits(4096);
+    let mut key = tex_key(wgpu::TextureUsages::TEXTURE_BINDING, 8, 8);
+    key.mip_levels = 5;
+    assert!(matches!(
+        validate_texture_key(&limits, key, "too-many-mips"),
+        Err(TransientPoolError::TextureExceedsLimits { .. })
+    ));
+
+    key.mip_levels = 4;
+    assert!(validate_texture_key(&limits, key, "valid-mips").is_ok());
 }

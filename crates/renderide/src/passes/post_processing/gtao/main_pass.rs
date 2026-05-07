@@ -11,7 +11,9 @@
 
 use std::num::NonZeroU32;
 
-use super::pipeline::{GtaoParamsGpu, GtaoPipelines};
+use super::pipeline::{
+    GtaoMainBindGroupResources, GtaoParamsGpu, GtaoPipelines, VIEW_DEPTH_MIP_COUNT,
+};
 use crate::passes::helpers::{color_attachment, missing_pass_resource};
 use crate::passes::post_processing::settings_slot::GtaoSettingsSlot;
 use crate::render_graph::compiled::RenderPassTemplate;
@@ -151,10 +153,6 @@ impl RasterPass for GtaoMainPass {
         // Production stage doesn't run the bilateral kernel; `denoise_blur_beta = 0` and
         // `final_apply = 0` keep the shared UBO unambiguous (the production shader doesn't
         // read either field but the apply / denoise shaders share the layout).
-        let params = GtaoParamsGpu::from_settings(live, 0.0, false);
-        let params_buffer = self.pipelines.params.get(ctx.device);
-        ctx.write_buffer(params_buffer, 0, bytemuck::bytes_of(&params));
-
         let Some(view_depth_tex) = graph_resources.transient_texture(self.resources.view_depth)
         else {
             return Err(missing_pass_resource(
@@ -162,6 +160,12 @@ impl RasterPass for GtaoMainPass {
                 format_args!("missing view_depth {:?}", self.resources.view_depth),
             ));
         };
+        let view_depth_mip_count = view_depth_tex.mip_levels.clamp(1, VIEW_DEPTH_MIP_COUNT);
+        let params = GtaoParamsGpu::from_settings(live, 0.0, false)
+            .with_view_depth_mip_count(view_depth_mip_count);
+        let params_buffer = self.pipelines.params.get(ctx.device);
+        ctx.write_buffer(params_buffer, 0, bytemuck::bytes_of(&params));
+
         let Some(view_normals_tex) = graph_resources.transient_texture(self.resources.view_normals)
         else {
             return Err(missing_pass_resource(
@@ -173,10 +177,13 @@ impl RasterPass for GtaoMainPass {
         let pipeline = self.pipelines.main.pipeline(ctx.device, multiview_stereo);
         let bind_group = self.pipelines.main.bind_group(
             ctx.device,
-            multiview_stereo,
-            &view_depth_tex.texture,
-            &view_normals_tex.texture,
-            &frame_uniform_buffer,
+            GtaoMainBindGroupResources {
+                multiview_stereo,
+                view_depth_texture: &view_depth_tex.texture,
+                view_depth_mip_count,
+                view_normals_texture: &view_normals_tex.texture,
+                frame_uniforms: &frame_uniform_buffer,
+            },
             params_buffer,
         );
         rpass.set_pipeline(pipeline.as_ref());
