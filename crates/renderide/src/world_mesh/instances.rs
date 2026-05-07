@@ -36,9 +36,9 @@ pub struct DrawGroup {
     pub instance_range: Range<u32>,
     /// Index into the view's pre-resolved material packet table.
     ///
-    /// Filled after material packets are resolved during world-mesh-forward prepare. Defaults to
-    /// zero while the grouping plan is being built, then recording consumes it directly instead
-    /// of cursoring through packet boundaries per group.
+    /// Filled after material packets are resolved during backend world-mesh frame planning.
+    /// Defaults to zero while the grouping plan is being built, then recording consumes it
+    /// directly instead of cursoring through packet boundaries per group.
     pub material_packet_idx: usize,
 }
 
@@ -47,9 +47,9 @@ pub struct DrawGroup {
 ///
 /// The forward pass packs the per-draw slab in `slab_layout` order -- slot `i` holds the
 /// per-draw uniforms for `draws[slab_layout[i]]` -- and emits each group's `instance_range`
-/// directly. `representative_draw_idx` for each group list is monotonically increasing; prepare
-/// attaches material packet indices after packet resolution so recording does not search packet
-/// boundaries.
+/// directly. `representative_draw_idx` for each group list is monotonically increasing; backend
+/// frame planning attaches material packet indices after packet resolution so recording does not
+/// search packet boundaries.
 #[derive(Clone, Debug, Default)]
 pub struct InstancePlan {
     /// New slab order. `slab_layout[i]` is the sorted-draw index whose per-draw uniforms

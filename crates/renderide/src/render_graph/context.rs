@@ -3,7 +3,6 @@
 //! Context types correspond to the pass kinds in [`super::pass::PassNode`]:
 //! - [`RasterPassCtx`] -- graph has already opened `wgpu::RenderPass`; pass records draws.
 //! - [`ComputePassCtx`] -- pass receives the raw `wgpu::CommandEncoder` for compute work.
-//! - [`CallbackCtx`] -- no encoder; pass runs CPU prep, Queue writes, and blackboard mutations.
 //!
 //! [`PostSubmitContext`] is shared across all pass kinds for post-submit hooks.
 //!
@@ -11,7 +10,7 @@
 //!
 //! Contexts use up to three lifetime parameters:
 //! - `'a` -- immutable GPU handles (device, limits, queue, graph resources, views).
-//! - `'encoder` -- mutable encoder borrow (only compute/copy contexts).
+//! - `'encoder` -- mutable encoder borrow (compute contexts).
 //! - `'frame` -- mutable scene/backend frame params borrow.
 //!
 //! Multi-view graph execution creates a **separate** encoder (and thus a separate context) for
@@ -250,7 +249,7 @@ pub struct RasterPassCtx<'a, 'frame> {
     pub upload_batch: &'frame FrameUploadBatch,
     /// Typed graph resources resolved for this execution scope.
     pub graph_resources: &'a GraphResolvedResources,
-    /// Per-scope typed blackboard (read/write; populated by prior callback passes this scope).
+    /// Per-scope typed blackboard (read/write; populated before or during this scope).
     pub blackboard: &'frame mut Blackboard,
     /// GPU profiler handle for pass-level timestamp queries.
     ///
@@ -293,7 +292,7 @@ pub struct ComputePassCtx<'a, 'encoder, 'frame> {
     pub upload_batch: &'frame FrameUploadBatch,
     /// Typed graph resources resolved for this execution scope.
     pub graph_resources: &'a GraphResolvedResources,
-    /// Per-scope typed blackboard (read/write; populated by prior callback passes this scope).
+    /// Per-scope typed blackboard (read/write; populated before or during this scope).
     pub blackboard: &'frame mut Blackboard,
     /// GPU profiler handle for pass-level timestamp queries.
     ///
@@ -311,26 +310,6 @@ impl ComputePassCtx<'_, '_, '_> {
     pub fn write_buffer(&self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]) {
         self.upload_batch.write_buffer(buffer, offset, data);
     }
-}
-
-/// Context for [`super::pass::CallbackPass::run`].
-///
-/// No encoder is provided. The pass runs as a CPU callback, records uploads through
-/// [`Self::write_buffer`], and mutates `blackboard`.
-pub struct CallbackCtx<'a, 'frame> {
-    /// WGPU device.
-    pub device: &'a wgpu::Device,
-    /// Effective limits for this frame.
-    pub gpu_limits: &'a GpuLimits,
-    /// Submission queue for resource creation paths that still require wgpu queue access.
-    pub queue: &'a Arc<wgpu::Queue>,
-    /// Scene, backend system handles, and per-view frame state for this pass.
-    pub pass_frame: &'frame mut GraphPassFrame<'a>,
-    /// Deferred [`wgpu::Queue::write_buffer`] sink; drained on the main thread after all per-view
-    /// encoding completes and before submit.
-    pub upload_batch: &'frame FrameUploadBatch,
-    /// Per-scope typed blackboard (read/write; the primary output of callback passes).
-    pub blackboard: &'frame mut Blackboard,
 }
 
 // -----------------------------------------------------------------------------

@@ -4,10 +4,10 @@
 //!
 //! World-mesh forward rendering is split across these graph passes:
 //!
-//! 1. [`WorldMeshForwardPreparePass`] -- **[`CallbackPass`]** that collects + sorts draws, packs
-//!    per-draw VP/model uniforms (rayon-parallel above the existing threshold), and uploads the
-//!    per-draw slab and frame uniforms via `Queue::write_buffer`. Stores the prepared state in
-//!    [`WorldMeshForwardPlanSlot`] for downstream passes.
+//! 1. Backend frame planning prepares sorted draws, packs per-draw VP/model uniforms
+//!    (rayon-parallel above the existing threshold), uploads the per-draw slab and frame
+//!    uniforms via the frame upload batch, and stores the prepared state in
+//!    [`WorldMeshForwardPlanSlot`] before any graph pass records.
 //! 2. [`WorldMeshForwardOpaquePass`] -- **[`RasterPass`]** that opens the HDR color + depth
 //!    attachments with `LoadOp::Clear`, records pre-skybox regular draws, records the
 //!    skybox/background, then records regular draws that need the skybox as background.
@@ -47,22 +47,25 @@ mod vp;
 pub use color_resolve::{
     WorldMeshForwardColorResolveGraphResources, WorldMeshForwardColorResolvePass,
 };
-pub(crate) use material_batch::{MaterialBatchPacket, MaterialDrawResolver, PipelineVariantKey};
+pub(crate) use execute_helpers::{
+    WorldMeshForwardPrepareContext, prepare_world_mesh_forward_frame,
+};
+pub(crate) use material_batch::{MaterialBatchPacket, MaterialDrawResolver};
 pub(crate) use normal_pass::GTAO_VIEW_NORMAL_FORMAT;
 pub use normal_pass::{WorldMeshForwardNormalGraphResources, WorldMeshForwardNormalPass};
+pub(crate) use skybox::SkyboxRenderer as WorldMeshForwardSkyboxRenderer;
 pub(crate) use state::{
-    PrefetchedWorldMeshDrawsSlot, PreparedWorldMeshForwardFrame, WorldMeshForwardPipelineState,
-    WorldMeshForwardPlanSlot,
+    PreparedWorldMeshForwardFrame, WorldMeshForwardPipelineState, WorldMeshForwardPlanSlot,
 };
 
 use std::num::NonZeroU32;
 
 use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
-use crate::render_graph::context::{CallbackCtx, ComputePassCtx, RasterPassCtx};
+use crate::render_graph::context::{ComputePassCtx, RasterPassCtx};
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::frame_params::MsaaViewsSlot;
 use crate::render_graph::gpu_cache::stereo_mask_or_template;
-use crate::render_graph::pass::{CallbackPass, ComputePass, PassBuilder, RasterPass};
+use crate::render_graph::pass::{ComputePass, PassBuilder, RasterPass};
 use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, StorageAccess, TextureAccess,
     TextureHandle,
@@ -71,23 +74,12 @@ use crate::world_mesh::InstancePlan;
 
 use execute_helpers::{
     encode_msaa_depth_resolve_after_clear_only, encode_world_mesh_forward_color_snapshot,
-    encode_world_mesh_forward_depth_snapshot, prepare_world_mesh_forward_frame,
-    record_world_mesh_forward_intersection_graph_raster,
+    encode_world_mesh_forward_depth_snapshot, record_world_mesh_forward_intersection_graph_raster,
     record_world_mesh_forward_opaque_graph_raster,
     record_world_mesh_forward_post_skybox_graph_raster,
     record_world_mesh_forward_transparent_graph_raster, stencil_load_ops,
 };
-use skybox::{SkyboxRenderer, record_prepared_skybox};
-
-/// Prepares sorted world-mesh forward draw state for subsequent graph nodes.
-///
-/// The pass is a [`CallbackPass`] (no encoder); it records deferred uploads and stores one
-/// [`PreparedWorldMeshForwardFrame`] in the per-view blackboard via
-/// [`WorldMeshForwardPlanSlot`].
-#[derive(Debug, Default)]
-pub struct WorldMeshForwardPreparePass {
-    skybox: SkyboxRenderer,
-}
+use skybox::record_prepared_skybox;
 
 /// Graph-managed opaque/clear subpass for world-mesh forward rendering.
 #[derive(Debug)]
@@ -158,19 +150,6 @@ fn forward_intersection_raster_needed(opaque_recorded: bool, plan: &InstancePlan
 /// Returns whether the grab-pass transparent raster tail has view-local work to record.
 fn forward_transparent_raster_needed(opaque_recorded: bool, plan: &InstancePlan) -> bool {
     opaque_recorded && !plan.transparent_groups.is_empty()
-}
-
-impl WorldMeshForwardPreparePass {
-    /// Creates a world mesh forward prepare pass instance.
-    ///
-    /// The `_resources` parameter is accepted for API symmetry with the other forward passes
-    /// but is not stored: the prepare pass operates on per-view blackboard slots rather than
-    /// graph resource handles.
-    pub fn new(_resources: WorldMeshForwardGraphResources) -> Self {
-        Self {
-            skybox: SkyboxRenderer::default(),
-        }
-    }
 }
 
 impl WorldMeshForwardOpaquePass {
@@ -251,41 +230,6 @@ fn declare_forward_draw_reads(b: &mut PassBuilder<'_>, resources: WorldMeshForwa
             dynamic_offset: false,
         },
     );
-}
-
-impl CallbackPass for WorldMeshForwardPreparePass {
-    fn name(&self) -> &str {
-        "WorldMeshForwardPrepare"
-    }
-
-    fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
-        b.callback();
-        b.cull_exempt();
-        Ok(())
-    }
-
-    fn run(&self, ctx: &mut CallbackCtx<'_, '_>) -> Result<(), RenderPassError> {
-        profiling::scope!("world_mesh_forward::prepare");
-        let frame = &mut *ctx.pass_frame;
-
-        let prepared = prepare_world_mesh_forward_frame(
-            ctx.device,
-            ctx.queue.as_ref(),
-            ctx.upload_batch,
-            ctx.gpu_limits,
-            frame,
-            ctx.blackboard,
-            &self.skybox,
-        );
-        if let Some(prepared) = prepared {
-            ctx.blackboard.insert::<WorldMeshForwardPlanSlot>(prepared);
-        }
-        Ok(())
-    }
-
-    fn release_view_resources(&mut self, retired_views: &[crate::camera::ViewId]) {
-        self.skybox.release_view_resources(retired_views);
-    }
 }
 
 impl RasterPass for WorldMeshForwardOpaquePass {

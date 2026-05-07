@@ -12,10 +12,8 @@ use super::super::{CompiledRenderGraph, FrameView, MultiViewExecutionContext};
 use super::{GraphResolveKey, TransientTextureResolveSurfaceParams};
 use crate::backend::{HistoryResourceScope, TextureHistorySpec};
 use crate::gpu::OutputDepthMode;
-use crate::materials::{MaterialPipelineDesc, MaterialPipelineVariantSpec, ShaderPermutation};
 use crate::occlusion::gpu::HIZ_MAX_MIPS;
 use crate::occlusion::{hi_z_pyramid_dimensions, mip_levels_for_extent};
-use crate::passes::PipelineVariantKey;
 use crate::render_graph::HistorySlotId;
 
 impl CompiledRenderGraph {
@@ -38,81 +36,7 @@ impl CompiledRenderGraph {
         Self::pre_sync_shared_frame_resources_for_views(mv_ctx, &view_layouts);
         Self::pre_warm_per_view_resources_for_views(mv_ctx, views, &view_layouts)?;
         Self::register_history_resources_for_views(mv_ctx, views)?;
-        Self::pre_warm_pipeline_cache_for_views(mv_ctx, views);
         Ok(())
-    }
-
-    /// Warms the [`crate::materials::MaterialRegistry`] pipeline cache for every prefetched draw
-    /// before the per-view record loop begins.
-    ///
-    /// Pre-warming uses [`crate::materials::MaterialPipelineDesc`] derived from each view's
-    /// surface format, depth format, sample count, and multiview mask so cache keys match the
-    /// keys the record path will request.
-    ///
-    pub(super) fn pre_warm_pipeline_cache_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
-        views: &[FrameView<'_>],
-    ) {
-        profiling::scope!("graph::pre_warm_pipelines");
-        let Some(reg) = mv_ctx.backend.materials.material_registry() else {
-            return;
-        };
-
-        let mut compile_requests: Vec<PipelineVariantKey> = Vec::new();
-        for view in views {
-            let Some((pass_desc, shader_perm)) = view_pipeline_pass_desc(mv_ctx, view) else {
-                continue;
-            };
-            let Some(collection) = view.world_mesh_draw_plan.as_prefetched() else {
-                continue;
-            };
-            if !collection.items.is_empty() {
-                collect_unique_pipeline_requests(
-                    &collection.items,
-                    pass_desc,
-                    shader_perm,
-                    reg,
-                    &mut compile_requests,
-                );
-            }
-        }
-
-        if compile_requests.is_empty() {
-            return;
-        }
-        logger::trace!(
-            "graph pipeline prewarm: compiling {} warmed-miss variant(s)",
-            compile_requests.len()
-        );
-
-        let compile_one = |req: &PipelineVariantKey| {
-            profiling::scope!("graph::pre_warm_pipelines::compile");
-            let pass_desc = req.pass_desc();
-            let _ = reg.pipeline_for_shader_asset(
-                req.shader_asset_id,
-                &pass_desc,
-                MaterialPipelineVariantSpec {
-                    permutation: req.shader_perm,
-                    blend_mode: req.blend_mode,
-                    render_state: req.render_state,
-                    front_face: req.front_face,
-                    primitive_topology: req.primitive_topology,
-                },
-            );
-        };
-        if compile_requests.len() == 1 {
-            compile_one(&compile_requests[0]);
-        } else {
-            // Fan pipeline misses out to the rayon pool so multiple new permutations compile in
-            // parallel instead of serially blocking the main thread. `MaterialPipelineCache`
-            // releases its mutex before `create_shader_module` / `create_render_pipeline` and
-            // elides duplicate inserts on re-lock, so concurrent callers are safe.
-            use rayon::prelude::*;
-            compile_requests.par_iter().for_each(compile_one);
-        }
-        // Stamp the warmed set so the next frame's walk can skip these variants entirely. We
-        // mark every requested key, even if its compile failed: a later retry would re-add it.
-        reg.mark_pipeline_variants_warmed(compile_requests.iter().copied());
     }
 
     /// Eagerly allocates per-view frame state ([`crate::backend::FrameResourceManager::per_view_frame_or_create`])
@@ -399,78 +323,4 @@ fn hi_z_history_spec(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
     })
-}
-
-/// Resolves the view's surface / depth / sample-count / multiview attributes into the
-/// [`MaterialPipelineDesc`] + [`ShaderPermutation`] pair used as the pipeline cache key, or
-/// returns `None` when the swapchain depth target is unavailable this tick.
-fn view_pipeline_pass_desc(
-    mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
-    view: &FrameView<'_>,
-) -> Option<(MaterialPipelineDesc, ShaderPermutation)> {
-    use std::num::NonZeroU32;
-    let host_camera = view.host_camera;
-    let multiview_stereo = view.is_multiview_stereo_active();
-    let surface_format = view.target.color_format(mv_ctx.gpu);
-    let depth_stencil_format = view.target.depth_format(mv_ctx.gpu).ok()?;
-    let sample_count = view.target.sample_count(mv_ctx.gpu);
-    let use_multiview = multiview_stereo
-        && host_camera.active_stereo().is_some()
-        && mv_ctx.gpu_limits.supports_multiview;
-    let pass_desc = MaterialPipelineDesc {
-        surface_format,
-        depth_stencil_format: Some(depth_stencil_format),
-        sample_count,
-        multiview_mask: if use_multiview {
-            NonZeroU32::new(3)
-        } else {
-            None
-        },
-    };
-    let shader_perm = if use_multiview {
-        crate::materials::SHADER_PERM_MULTIVIEW_STEREO
-    } else {
-        ShaderPermutation(0)
-    };
-    Some((pass_desc, shader_perm))
-}
-
-/// Appends unique `(shader_asset_id, blend_mode, render_state, front_face)` permutations from `items` to
-/// `out`, stamped with the view's `pass_desc` and `shader_perm`. Duplicates within this view are
-/// elided; cross-frame dedup against `registry`'s warmed-variants set skips keys the pre-warm
-/// path has already requested in a prior frame, eliminating the rayon dispatch on steady state.
-fn collect_unique_pipeline_requests(
-    items: &[crate::world_mesh::draw_prep::WorldMeshDrawItem],
-    pass_desc: MaterialPipelineDesc,
-    shader_perm: ShaderPermutation,
-    registry: &crate::materials::MaterialRegistry,
-    out: &mut Vec<PipelineVariantKey>,
-) {
-    let mut seen: HashSet<(
-        i32,
-        crate::materials::MaterialBlendMode,
-        crate::materials::MaterialRenderState,
-        crate::materials::RasterFrontFace,
-        crate::materials::RasterPrimitiveTopology,
-        bool,
-    )> = HashSet::new();
-    for item in items {
-        let grab_pass = item.batch_key.embedded_uses_scene_color_snapshot;
-        let key = (
-            item.batch_key.shader_asset_id,
-            item.batch_key.blend_mode,
-            item.batch_key.render_state,
-            item.batch_key.front_face,
-            item.batch_key.primitive_topology,
-            grab_pass,
-        );
-        if !seen.insert(key) {
-            continue;
-        }
-        let variant_key = PipelineVariantKey::for_draw_item(item, pass_desc, shader_perm);
-        if registry.is_pipeline_variant_warmed(&variant_key) {
-            continue;
-        }
-        out.push(variant_key);
-    }
 }

@@ -139,15 +139,6 @@ impl FrameViewTarget<'_> {
         }
     }
 
-    /// Color attachment format for this target.
-    pub fn color_format(&self, gpu: &GpuContext) -> wgpu::TextureFormat {
-        match self {
-            FrameViewTarget::ExternalMultiview(ext) => ext.surface_format,
-            FrameViewTarget::OffscreenRt(ext) => ext.color_format,
-            FrameViewTarget::Swapchain => gpu.config_format(),
-        }
-    }
-
     /// Depth attachment format for this target. Lazily allocates the swapchain depth target if
     /// needed (the `Swapchain` case requires `&mut`).
     pub fn depth_format(
@@ -163,15 +154,6 @@ impl FrameViewTarget<'_> {
                     .map_err(GraphExecuteError::DepthTarget)?;
                 Ok(depth_tex.format())
             }
-        }
-    }
-
-    /// Effective MSAA sample count for this target. Offscreen RTs are single-sampled.
-    pub fn sample_count(&self, gpu: &GpuContext) -> u32 {
-        match self {
-            FrameViewTarget::ExternalMultiview(_) => gpu.swapchain_msaa_effective_stereo().max(1),
-            FrameViewTarget::OffscreenRt(_) => 1,
-            FrameViewTarget::Swapchain => gpu.swapchain_msaa_effective().max(1),
         }
     }
 }
@@ -336,8 +318,7 @@ pub struct DepthAttachmentTemplate {
 /// ## Pass storage
 ///
 /// Passes are stored as [`PassNode`] enum values, enabling the executor to dispatch to the
-/// correct context type (raster/compute/copy/callback) without a runtime `graph_managed_raster()`
-/// toggle.
+/// correct context type (raster/compute) without a runtime `graph_managed_raster()` toggle.
 ///
 /// ## Frame-global contract
 ///

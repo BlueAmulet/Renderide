@@ -87,6 +87,8 @@ pub struct RenderBackend {
     frame_services: BackendFrameServices,
     /// CPU draw-preparation caches and material-batch caches.
     draw_preparation: BackendDrawPreparation,
+    /// Backend-owned world-mesh forward frame planning caches.
+    world_mesh_frame_planner: super::BackendWorldMeshFramePlanner,
     /// Dear ImGui overlay and diagnostics snapshot state.
     diagnostics: BackendDiagnostics,
     /// Nonblocking reflection-probe projection, bake, cache, and selection services.
@@ -159,6 +161,7 @@ impl RenderBackend {
             asset_transfers: AssetTransferQueue::new(),
             frame_services: BackendFrameServices::new(),
             draw_preparation: BackendDrawPreparation::new(),
+            world_mesh_frame_planner: super::BackendWorldMeshFramePlanner::new(),
             diagnostics: BackendDiagnostics::new(),
             reflection_probes: ReflectionProbeServices::new(),
             graph_state: RenderGraphState::new(),
@@ -599,6 +602,8 @@ impl RenderBackend {
             "retiring {} inactive view-scoped resource sets",
             retired.len()
         );
+        self.world_mesh_frame_planner
+            .release_view_resources(&retired);
         for view_id in retired {
             self.frame_services.frame_resources.retire_view(view_id);
             self.graph_state.history_registry_mut().retire_view(view_id);
@@ -626,6 +631,7 @@ impl RenderBackend {
             mesh_preprocess,
             mesh_deform_scratch,
             skin_cache,
+            world_mesh_frame_planner: &self.world_mesh_frame_planner,
             transient_pool,
             history_registry,
             debug_hud: self.diagnostics.bundle_mut(),
@@ -689,7 +695,7 @@ mod post_processing_rebuild_tests {
                 bloom: true,
                 bloom_max_mip_dimension: 512,
                 gtao: true,
-                gtao_denoise_passes: 2,
+                gtao_denoise_passes: crate::config::GtaoSettings::default().denoise_passes.min(3),
             }
         );
     }

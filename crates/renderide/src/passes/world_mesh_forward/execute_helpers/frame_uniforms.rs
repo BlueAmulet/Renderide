@@ -2,11 +2,9 @@
 
 use bytemuck::Zeroable;
 
-use crate::backend::FrameResourceManager;
 use crate::camera::HostCameraFrame;
 use crate::gpu::frame_globals::FrameGpuUniforms;
-use crate::render_graph::blackboard::Blackboard;
-use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlanSlot};
+use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::scene::SceneCoordinator;
 use crate::world_mesh::cluster::{
@@ -15,68 +13,30 @@ use crate::world_mesh::cluster::{
 
 use super::camera::resolve_camera_world_pair;
 
-/// Builds [`FrameGpuUniforms`], syncs cluster viewport, and writes frame + lights.
-pub(super) fn write_frame_uniforms_and_cluster(
-    queue: &wgpu::Queue,
-    frame_resources: &FrameResourceManager,
-    hc: HostCameraFrame,
-    scene: &SceneCoordinator,
-    viewport_px: (u32, u32),
-    use_multiview: bool,
-) {
-    let light_count_u = frame_resources.frame_light_count_u32();
-    let uniforms = build_frame_gpu_uniforms(
-        hc,
-        scene,
-        viewport_px,
-        light_count_u,
-        use_multiview,
-        frame_resources.skybox_specular_uniform_params(),
-    );
-
-    frame_resources.write_frame_uniform_and_lights_from_scratch(queue, &uniforms);
-}
-
-/// Writes per-view `FrameGpuUniforms` via [`FrameUploadBatch`] or falls back to the shared frame buffer.
-///
-/// Multi-view paths plant a [`PerViewFramePlanSlot`] on the blackboard naming the per-view bind
-/// group and uniform buffer; single-view fallbacks keep writing the shared `frame_uniform`
-/// buffer directly on the GPU queue.
+/// Writes per-view `FrameGpuUniforms` via [`FrameUploadBatch`].
 pub(super) fn write_per_view_frame_uniforms(
-    queue: &wgpu::Queue,
     upload_batch: &FrameUploadBatch,
     frame: &GraphPassFrame<'_>,
-    blackboard: &Blackboard,
+    frame_plan: &PerViewFramePlan,
     use_multiview: bool,
     hc: HostCameraFrame,
 ) {
-    if let Some(frame_plan) = blackboard.get::<PerViewFramePlanSlot>() {
-        let uniforms = build_frame_gpu_uniforms(
-            hc,
-            frame.shared.scene,
-            frame.view.viewport_px,
-            frame.shared.frame_resources.frame_light_count_u32(),
-            use_multiview,
-            frame
-                .shared
-                .frame_resources
-                .skybox_specular_uniform_params(),
-        );
-        upload_batch.write_buffer(
-            &frame_plan.frame_uniform_buffer,
-            0,
-            bytemuck::bytes_of(&uniforms),
-        );
-    } else {
-        write_frame_uniforms_and_cluster(
-            queue,
-            frame.shared.frame_resources,
-            hc,
-            frame.shared.scene,
-            frame.view.viewport_px,
-            use_multiview,
-        );
-    }
+    let uniforms = build_frame_gpu_uniforms(
+        hc,
+        frame.shared.scene,
+        frame.view.viewport_px,
+        frame.shared.frame_resources.frame_light_count_u32(),
+        use_multiview,
+        frame
+            .shared
+            .frame_resources
+            .skybox_specular_uniform_params(),
+    );
+    upload_batch.write_buffer(
+        &frame_plan.frame_uniform_buffer,
+        0,
+        bytemuck::bytes_of(&uniforms),
+    );
 }
 
 /// Resolves cluster + camera-world scratch into [`FrameGpuUniforms`] for one view.

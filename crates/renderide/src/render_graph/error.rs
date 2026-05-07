@@ -16,13 +16,9 @@ pub enum SetupError {
     #[error("raster pass declared no color or depth attachments")]
     RasterWithoutAttachments,
 
-    /// Compute/copy passes cannot declare color or depth attachments.
+    /// Compute passes cannot declare color or depth attachments.
     #[error("non-raster pass declared a color or depth attachment")]
     NonRasterPassHasAttachment,
-
-    /// Callback passes are reserved for side-effect-only work and cannot declare graph accesses.
-    #[error("callback pass declared graph resource accesses")]
-    CallbackPassHasAccesses,
 
     /// A pass referenced a transient texture handle unknown to the graph.
     #[error("unknown transient texture handle {0:?}")]

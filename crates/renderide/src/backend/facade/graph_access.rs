@@ -47,6 +47,8 @@ pub(crate) struct BackendGraphAccess<'a> {
     pub(crate) mesh_deform_scratch: Option<&'a mut MeshDeformScratch>,
     /// Skin cache mutably borrowed by frame-global deform and shared by per-view draws afterwards.
     pub(crate) skin_cache: Option<&'a mut GpuSkinCache>,
+    /// Backend-owned world-mesh forward frame planner.
+    pub(crate) world_mesh_frame_planner: &'a crate::backend::BackendWorldMeshFramePlanner,
     /// Render-graph transient pool retained across frames.
     pub(crate) transient_pool: &'a mut TransientPool,
     /// Persistent ping-pong history registry.
@@ -153,6 +155,11 @@ impl<'a> BackendGraphAccess<'a> {
     /// Optional read-only skin cache for per-view forward draws.
     pub(crate) fn skin_cache(&self) -> Option<&GpuSkinCache> {
         self.skin_cache.as_deref()
+    }
+
+    /// Shared world-mesh forward frame planner.
+    pub(crate) fn world_mesh_frame_planner(&self) -> &crate::backend::BackendWorldMeshFramePlanner {
+        self.world_mesh_frame_planner
     }
 
     /// Debug HUD flags consumed by per-view recording.

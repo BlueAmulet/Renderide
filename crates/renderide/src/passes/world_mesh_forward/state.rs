@@ -3,9 +3,7 @@
 use crate::materials::{MaterialPipelineDesc, ShaderPermutation};
 use crate::render_graph::blackboard::BlackboardSlot;
 use crate::skybox::PreparedSkybox;
-use crate::world_mesh::{
-    InstancePlan, PrefetchedWorldMeshViewDraws, WorldMeshDrawItem, WorldMeshHelperNeeds,
-};
+use crate::world_mesh::{InstancePlan, WorldMeshDrawItem, WorldMeshHelperNeeds};
 
 use super::MaterialBatchPacket;
 
@@ -37,7 +35,7 @@ pub(crate) struct PreparedWorldMeshForwardFrame {
     pub depth_snapshot_recorded: bool,
     /// Whether the intersection/color-resolve tail raster was already recorded by a split graph node.
     pub tail_raster_recorded: bool,
-    /// Per-batch resolved pipelines and bind groups, pre-computed by the prepare pass in parallel.
+    /// Per-batch resolved pipelines and bind groups, pre-computed by backend frame planning.
     pub precomputed_batches: Vec<MaterialBatchPacket>,
     /// Optional background draw prepared for the opaque subpass.
     pub skybox: Option<PreparedSkybox>,
@@ -47,10 +45,4 @@ pub(crate) struct PreparedWorldMeshForwardFrame {
 pub(crate) struct WorldMeshForwardPlanSlot;
 impl BlackboardSlot for WorldMeshForwardPlanSlot {
     type Value = PreparedWorldMeshForwardFrame;
-}
-
-/// Blackboard slot key for pre-collected world-mesh draws (secondary cameras / prefetch path).
-pub(crate) struct PrefetchedWorldMeshDrawsSlot;
-impl BlackboardSlot for PrefetchedWorldMeshDrawsSlot {
-    type Value = PrefetchedWorldMeshViewDraws;
 }

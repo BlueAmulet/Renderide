@@ -23,9 +23,8 @@ use vertex_binding::{
 
 /// Pre-grouped draws, bind groups, and precomputed-batch table for one mesh-forward raster subpass.
 ///
-/// Pipelines and `@group(1)` bind groups are pre-resolved in
-/// [`crate::passes::world_mesh_forward::execute_helpers::precompute_material_resolve_batches`]
-/// during the prepare pass, so this struct carries no material-system references and makes no
+/// Pipelines and `@group(1)` bind groups are pre-resolved by backend world-mesh frame planning,
+/// so this struct carries no material-system references and makes no
 /// LRU cache lookups during recording.
 pub(crate) struct ForwardDrawBatch<'a, 'b, 'c, 'd> {
     /// Active render pass.

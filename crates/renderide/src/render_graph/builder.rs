@@ -21,9 +21,7 @@ use super::compiled::{
 };
 use super::error::GraphBuildError;
 use super::ids::{GroupId, PassId};
-use super::pass::{
-    CallbackPass, ComputePass, GroupScope, PassBuilder, PassNode, PassPhase, RasterPass,
-};
+use super::pass::{ComputePass, GroupScope, PassBuilder, PassNode, PassPhase, RasterPass};
 use super::resources::{
     BufferHandle, FrameTargetRole, ImportSource, ImportedBufferDecl, ImportedBufferHandle,
     ImportedTextureDecl, ImportedTextureHandle, ResourceHandle, SubresourceHandle, TextureHandle,
@@ -161,11 +159,6 @@ impl GraphBuilder {
     /// Appends a compute pass to the default group for its phase.
     pub fn add_compute_pass(&mut self, pass: Box<dyn ComputePass>) -> PassId {
         self.add_pass(PassNode::Compute(pass))
-    }
-
-    /// Appends a callback pass to the default group for its phase.
-    pub fn add_callback_pass(&mut self, pass: Box<dyn CallbackPass>) -> PassId {
-        self.add_pass(PassNode::Callback(pass))
     }
 
     /// Appends a raster pass to a specific group.

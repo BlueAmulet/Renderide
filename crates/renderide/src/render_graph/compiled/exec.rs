@@ -6,7 +6,8 @@
 //! submits the whole batch through a single [`wgpu::Queue::submit`] call. Per-view
 //! `Queue::write_buffer` uploads (per-draw slab, frame uniforms, cluster params) are drained
 //! before submit, so each view's GPU commands see coherent buffer contents. Each view owns its
-//! own per-draw slab buffer, so views never compete for per-draw storage capacity.
+//! own per-draw slab buffer, so views never compete for per-draw storage capacity. World-mesh
+//! slab/frame-uniform uploads are prepared before pass-node recording begins.
 //!
 //! ## Pass dispatch
 //!
@@ -14,13 +15,13 @@
 //! variant to call the correct record method:
 //! - `Raster` -> graph opens `wgpu::RenderPass` from template; calls `record_raster`.
 //! - `Compute` -> passes receive raw encoder; calls `record_compute`.
-//! - `Copy` -> same as compute; calls `record_copy`.
-//! - `Callback` -> no encoder; calls `run_callback`.
 
 use hashbrown::HashMap;
 use std::time::Instant;
 
-use crate::backend::BackendGraphAccess;
+use crate::backend::{
+    BackendGraphAccess, PerViewFramePlanInputs, WorldMeshFramePlan, WorldMeshPrepareViewInputs,
+};
 use crate::diagnostics::PerViewHudOutputs;
 use crate::gpu::GpuContext;
 use crate::render_graph::WorldMeshDrawPlan;
@@ -28,8 +29,9 @@ use crate::scene::SceneCoordinator;
 
 use super::super::context::{GraphResolvedResources, PostSubmitContext};
 use super::super::error::GraphExecuteError;
+use super::super::frame_params::FrameSystemsShared;
 use super::super::frame_upload_batch::FrameUploadBatch;
-use super::{CompiledRenderGraph, FrameView, FrameViewTarget, MultiViewExecutionContext};
+use super::{CompiledRenderGraph, FrameView, FrameViewTarget, MultiViewExecutionContext, helpers};
 use crate::camera::{HostCameraFrame, ViewId};
 
 fn elapsed_ms(start: Instant) -> f64 {
@@ -101,10 +103,9 @@ impl CompiledRenderGraph {
     /// ## Per-view write ordering
     ///
     /// Per-view `Queue::write_buffer` calls (per-draw slab, frame uniforms, cluster params) happen
-    /// during per-view callback passes. Since all writes are issued BEFORE the single submit, wgpu
-    /// guarantees they are visible to every GPU command in that submit. Each view owns its own
-    /// per-draw slab buffer (keyed by [`ViewId`]), so views never compete for buffer
-    /// space.
+    /// during pre-record world-mesh frame planning. Since all writes are issued BEFORE the single
+    /// submit, wgpu guarantees they are visible to every GPU command in that submit. Each view owns
+    /// its own per-draw slab buffer (keyed by [`ViewId`]), so views never compete for buffer space.
     ///
     /// ## Per-view frame plan
     ///
@@ -165,11 +166,17 @@ impl CompiledRenderGraph {
         // Drained onto the main thread after all recording completes and before submit.
         let upload_batch = FrameUploadBatch::new();
 
-        // Shared frame resources, per-view slots, mesh extended streams, and material pipelines
-        // are warmed up front so later per-view recording can run with read-only shared state
+        // Shared frame resources, per-view slots, mesh extended streams, and world-mesh packets
+        // are prepared up front so later per-view recording can run with read-only shared state
         // plus per-view interior mutability.
         let prepare_resources_start = Instant::now();
         Self::prepare_view_resources_for_views(&mut mv_ctx, views)?;
+        let mut per_view_work_items = self.prepare_per_view_work_items(&mut mv_ctx, views)?;
+        self.prepare_world_mesh_frame_plan_for_work_items(
+            &mv_ctx,
+            &mut per_view_work_items,
+            &upload_batch,
+        );
         command_diagnostics.prepare_resources_ms = elapsed_ms(prepare_resources_start);
 
         // -- Frame-global pass (optional) -----------------------------------------------------
@@ -183,7 +190,6 @@ impl CompiledRenderGraph {
             command_diagnostics.apply_frame_global(&command);
             command.command_buffer
         });
-        let per_view_work_items = self.prepare_per_view_work_items(&mut mv_ctx, views)?;
 
         // -- Per-view recording (no submit per view) ------------------------------------------
         let RecordedPerViewBatch {
@@ -406,6 +412,70 @@ impl CompiledRenderGraph {
         Ok(())
     }
 
+    /// Builds backend-owned world-mesh packets for every view before graph pass recording.
+    fn prepare_world_mesh_frame_plan_for_work_items(
+        &self,
+        mv_ctx: &MultiViewExecutionContext<'_, '_>,
+        work_items: &mut [PerViewWorkItem],
+        upload_batch: &FrameUploadBatch,
+    ) {
+        profiling::scope!("graph::prepare_world_mesh_frame_plan");
+        let mut frame_plan = WorldMeshFramePlan::with_capacity(work_items.len());
+        for work_item in work_items.iter_mut() {
+            let resolved = work_item.resolved.as_resolved();
+            let hi_z_slot = mv_ctx
+                .backend
+                .occlusion()
+                .ensure_hi_z_state(resolved.view_id);
+            let frame_params = helpers::frame_render_params_from_shared(
+                FrameSystemsShared {
+                    scene: mv_ctx.scene,
+                    occlusion: mv_ctx.backend.occlusion(),
+                    frame_resources: mv_ctx.backend.frame_resources(),
+                    materials: mv_ctx.backend.materials(),
+                    asset_transfers: mv_ctx.backend.asset_transfers(),
+                    mesh_preprocess: mv_ctx.backend.mesh_preprocess(),
+                    mesh_deform_scratch: None,
+                    mesh_deform_skin_cache: None,
+                    skin_cache: mv_ctx.backend.skin_cache(),
+                    debug_hud: mv_ctx.backend.per_view_hud_config(),
+                },
+                helpers::GraphPassFrameViewInputs {
+                    resolved: &resolved,
+                    scene_color_format: mv_ctx.backend.scene_color_format_wgpu(),
+                    host_camera: work_item.host_camera,
+                    clear: work_item.clear,
+                    gpu_limits: mv_ctx.backend.gpu_limits().cloned(),
+                    msaa_depth_resolve: mv_ctx.backend.msaa_depth_resolve(),
+                    hi_z_slot,
+                },
+            );
+            let draw_plan = work_item
+                .world_mesh_draw_plan
+                .take()
+                .unwrap_or(WorldMeshDrawPlan::Empty);
+            let (frame_bg, frame_buf) = &work_item.per_view_frame_bg_and_buf;
+            frame_plan.push(mv_ctx.backend.world_mesh_frame_planner().prepare_view(
+                mv_ctx.device,
+                mv_ctx.queue_arc.as_ref(),
+                upload_batch,
+                mv_ctx.gpu_limits,
+                &frame_params,
+                WorldMeshPrepareViewInputs {
+                    frame_plan: PerViewFramePlanInputs {
+                        frame_bind_group: frame_bg,
+                        frame_uniform_buffer: frame_buf,
+                        view_idx: work_item.view_idx,
+                    },
+                    draw_plan,
+                },
+            ));
+        }
+        for (work_item, prepared) in work_items.iter_mut().zip(frame_plan.into_views()) {
+            work_item.world_mesh_prepared = Some(prepared);
+        }
+    }
+
     /// Prepares owned per-view work items on the main thread before serial or parallel recording.
     fn prepare_per_view_work_items(
         &self,
@@ -447,10 +517,11 @@ impl CompiledRenderGraph {
                 host_camera,
                 view_id,
                 clear: view.clear,
-                world_mesh_draw_plan: std::mem::replace(
+                world_mesh_draw_plan: Some(std::mem::replace(
                     &mut view.world_mesh_draw_plan,
                     WorldMeshDrawPlan::Empty,
-                ),
+                )),
+                world_mesh_prepared: None,
                 resolved,
                 per_view_frame_bg_and_buf,
             });

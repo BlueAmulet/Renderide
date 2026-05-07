@@ -101,7 +101,8 @@ pub struct MsaaViews {
 /// Blackboard slot for per-view frame bind group and uniform buffer.
 ///
 /// Seeded into the per-view blackboard by the executor before running per-view passes.
-/// The prepare pass writes frame uniforms to the buffer backing [`PerViewFramePlan::frame_bind_group`].
+/// Backend world-mesh frame planning writes frame uniforms to the buffer backing
+/// [`PerViewFramePlan::frame_bind_group`].
 pub struct PerViewFramePlanSlot;
 impl BlackboardSlot for PerViewFramePlanSlot {
     type Value = PerViewFramePlan;

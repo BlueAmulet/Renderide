@@ -40,7 +40,7 @@ pub struct RasterDepthAttachmentSetup {
 /// Compiled setup data for one pass.
 #[derive(Clone, Debug)]
 pub struct PassSetup {
-    /// Command domain (raster, compute, copy, or callback).
+    /// Command domain (raster or compute).
     pub(crate) kind: PassKind,
     /// Declared resource accesses for dependency synthesis and lifetime analysis.
     pub(crate) accesses: Vec<ResourceAccess>,
@@ -66,9 +66,6 @@ impl PassSetup {
         match self.kind {
             PassKind::Raster if !has_attachment => Err(SetupError::RasterWithoutAttachments),
             PassKind::Compute if has_attachment => Err(SetupError::NonRasterPassHasAttachment),
-            PassKind::Callback if !self.accesses.is_empty() => {
-                Err(SetupError::CallbackPassHasAccesses)
-            }
             _ => Ok(self),
         }
     }

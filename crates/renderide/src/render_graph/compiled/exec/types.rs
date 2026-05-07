@@ -2,6 +2,7 @@
 
 use hashbrown::HashMap;
 
+use crate::backend::WorldMeshPreparedView;
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::diagnostics::PerViewHudOutputs;
 use crate::scene::SceneCoordinator;
@@ -134,8 +135,10 @@ pub(super) struct PerViewWorkItem {
     pub(super) view_id: ViewId,
     /// Background clear/skybox behavior for this view.
     pub(super) clear: FrameViewClear,
-    /// Explicit draw plan moved out of [`FrameView`] before fan-out.
-    pub(super) world_mesh_draw_plan: WorldMeshDrawPlan,
+    /// Explicit draw plan moved out of [`FrameView`] before frame planning.
+    pub(super) world_mesh_draw_plan: Option<WorldMeshDrawPlan>,
+    /// Prepared world-mesh packet built before graph pass recording.
+    pub(super) world_mesh_prepared: Option<WorldMeshPreparedView>,
     /// Owned resolved view snapshot safe to move to a worker thread.
     pub(super) resolved: OwnedResolvedView,
     /// Per-view `@group(0)` bind group and uniform buffer captured before recording.
@@ -150,7 +153,7 @@ pub(super) struct PerViewRecordShared<'a> {
     pub(super) device: &'a wgpu::Device,
     /// Effective device limits for this frame.
     pub(super) gpu_limits: &'a crate::gpu::GpuLimits,
-    /// Submission queue used by deferred uploads and pass callbacks.
+    /// Submission queue used by deferred uploads and pass recording.
     pub(super) queue_arc: &'a std::sync::Arc<wgpu::Queue>,
     /// Shared occlusion system for Hi-Z snapshots and temporal state.
     pub(super) occlusion: &'a crate::occlusion::OcclusionSystem,

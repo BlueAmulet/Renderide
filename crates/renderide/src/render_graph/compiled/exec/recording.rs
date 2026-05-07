@@ -5,9 +5,7 @@ use hashbrown::hash_map::Entry;
 use std::time::Instant;
 
 use super::super::super::blackboard::Blackboard;
-use super::super::super::context::{
-    CallbackCtx, ComputePassCtx, GraphResolvedResources, RasterPassCtx,
-};
+use super::super::super::context::{ComputePassCtx, GraphResolvedResources, RasterPassCtx};
 use super::super::super::error::GraphExecuteError;
 use super::super::super::frame_params::{
     FrameSystemsShared, MsaaViewsSlot, PerViewFramePlan, PerViewFramePlanSlot,
@@ -15,16 +13,13 @@ use super::super::super::frame_params::{
 use super::super::super::frame_upload_batch::{FrameUploadBatch, FrameUploadScope};
 use super::super::super::pass::PassKind;
 use super::super::helpers;
-use super::super::{
-    CompiledRenderGraph, FrameView, MultiViewExecutionContext, ResolvedView, WorldMeshDrawPlan,
-};
+use super::super::{CompiledRenderGraph, FrameView, MultiViewExecutionContext, ResolvedView};
 use super::{
     GraphResolveKey, PerViewEncodeOutput, PerViewRecordShared, PerViewWorkItem, TimedCommandBuffer,
     TransientTextureResolveSurfaceParams, WorldMeshCommandStats, elapsed_ms,
 };
 use crate::backend::BackendGraphAccess;
 use crate::diagnostics::PerViewHudOutputsSlot;
-use crate::passes::PrefetchedWorldMeshDrawsSlot;
 use crate::passes::post_processing::settings_slot::{
     AutoExposureSettingsSlot, AutoExposureSettingsValue, BloomSettingsSlot, BloomSettingsValue,
     GtaoSettingsSlot, GtaoSettingsValue,
@@ -98,7 +93,7 @@ impl CompiledRenderGraph {
             view_idx,
             host_camera,
             clear,
-            world_mesh_draw_plan,
+            world_mesh_prepared,
             resolved,
             per_view_frame_bg_and_buf,
             ..
@@ -138,7 +133,7 @@ impl CompiledRenderGraph {
         let mut view_blackboard = self.build_per_view_blackboard(
             &frame_params,
             graph_resources,
-            world_mesh_draw_plan,
+            world_mesh_prepared,
             per_view_frame_bg_and_buf,
             view_idx,
         );
@@ -235,12 +230,12 @@ impl CompiledRenderGraph {
         )
     }
 
-    /// Builds the per-view [`Blackboard`] seeded with MSAA views, draw plan, and the frame plan.
+    /// Builds the per-view [`Blackboard`] seeded with MSAA views and preplanned frame data.
     fn build_per_view_blackboard(
         &self,
         frame_params: &crate::render_graph::frame_params::GraphPassFrame<'_>,
         graph_resources: &GraphResolvedResources,
-        world_mesh_draw_plan: WorldMeshDrawPlan,
+        world_mesh_prepared: Option<crate::backend::WorldMeshPreparedView>,
         per_view_frame_bg_and_buf: (std::sync::Arc<wgpu::BindGroup>, wgpu::Buffer),
         view_idx: usize,
     ) -> Blackboard {
@@ -253,18 +248,16 @@ impl CompiledRenderGraph {
         ) {
             view_blackboard.insert::<MsaaViewsSlot>(msaa_views);
         }
-        match world_mesh_draw_plan {
-            WorldMeshDrawPlan::Prefetched(view_draws) => {
-                view_blackboard.insert::<PrefetchedWorldMeshDrawsSlot>(*view_draws);
+        if let Some(world_mesh) = world_mesh_prepared {
+            if let Some(prepared) = world_mesh.prepared {
+                view_blackboard.insert::<crate::passes::WorldMeshForwardPlanSlot>(prepared);
             }
-            WorldMeshDrawPlan::Empty => {
-                view_blackboard.insert::<PrefetchedWorldMeshDrawsSlot>(
-                    crate::world_mesh::PrefetchedWorldMeshViewDraws::empty(),
-                );
+            if let Some(hud_outputs) = world_mesh.hud_outputs {
+                view_blackboard.insert::<PerViewHudOutputsSlot>(hud_outputs);
             }
         }
         let (frame_bg, frame_buf) = per_view_frame_bg_and_buf;
-        // Seed per-view frame plan so the prepare pass can write frame uniforms to the
+        // Seed per-view frame plan so backend world-mesh planning can write frame uniforms to the
         // correct per-view buffer and bind the right @group(0) bind group.
         view_blackboard.insert::<PerViewFramePlanSlot>(PerViewFramePlan {
             frame_bind_group: frame_bg,
@@ -494,7 +487,6 @@ impl CompiledRenderGraph {
     ///
     /// - `Raster` -> opens `wgpu::RenderPass` from template, calls `record_raster`.
     /// - `Compute` -> calls `record_compute` with raw encoder.
-    /// - `Callback` -> calls `run_callback` (no encoder).
     ///
     /// Takes `&self` so per-view recording can be hoisted onto rayon workers without serialising
     /// on the [`CompiledRenderGraph`] handle. All pass `record_*` methods already require only
@@ -577,19 +569,6 @@ impl CompiledRenderGraph {
                     pass.record_compute(&mut ctx)
                         .map_err(GraphExecuteError::Pass)?;
                 }
-            }
-            PassKind::Callback => {
-                profiling::scope!("graph::record_callback");
-                let mut ctx = CallbackCtx {
-                    device,
-                    gpu_limits,
-                    queue: queue_arc,
-                    pass_frame: frame_params,
-                    upload_batch,
-                    blackboard,
-                };
-                pass.run_callback(&mut ctx)
-                    .map_err(GraphExecuteError::Pass)?;
             }
         }
         Ok(())

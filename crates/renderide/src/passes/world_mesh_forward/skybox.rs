@@ -34,7 +34,7 @@ const SKYBOX_VIEW_UNIFORM_SIZE: u64 = size_of::<SkyboxViewUniforms>() as u64;
 
 /// Per-view cached uniform buffer and bind group.
 struct SkyboxViewBinding {
-    /// Uniform buffer updated during the prepare callback.
+    /// Uniform buffer updated during backend world-mesh frame planning.
     buffer: wgpu::Buffer,
     /// Bind group for the uniform buffer.
     bind_group: Arc<wgpu::BindGroup>,
@@ -93,8 +93,8 @@ impl SkyboxViewUniforms {
     }
 }
 
-/// Persistent skybox caches owned by the forward prepare pass.
-pub(super) struct SkyboxRenderer {
+/// Persistent skybox caches owned by backend world-mesh frame planning.
+pub(crate) struct SkyboxRenderer {
     view_layout: OnceLock<wgpu::BindGroupLayout>,
     material_pipelines: Mutex<HashMap<SkyboxPipelineKey, Arc<wgpu::RenderPipeline>>>,
     clear_pipelines: Mutex<HashMap<ClearPipelineKey, Arc<wgpu::RenderPipeline>>>,
@@ -120,7 +120,7 @@ impl Default for SkyboxRenderer {
 
 impl SkyboxRenderer {
     /// Removes draw-local uniform bindings for views that are no longer active.
-    pub(super) fn release_view_resources(&self, retired_views: &[ViewId]) {
+    pub(crate) fn release_view_resources(&self, retired_views: &[ViewId]) {
         if retired_views.is_empty() {
             return;
         }

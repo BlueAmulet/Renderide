@@ -1,8 +1,8 @@
 //! Setup-time pass builder: resource access declarations and attachment intent.
 //!
 //! [`PassBuilder`] is the single entry-point a pass's `setup` method uses to declare:
-//! - What kind of GPU work it performs ([`PassKind`] via [`PassBuilder::raster`],
-//!   [`PassBuilder::compute`], [`PassBuilder::copy`], or [`PassBuilder::callback`]).
+//! - What kind of GPU work it performs ([`PassKind`] via [`PassBuilder::raster`] or
+//!   [`PassBuilder::compute`]).
 //! - Which resources it reads or writes (textures/buffers, transient or imported).
 //! - For raster passes: color and depth-stencil attachments with their load/store ops.
 //! - Whether the pass is exempt from dead-pass culling ([`PassBuilder::cull_exempt`]).
@@ -37,11 +37,11 @@ pub struct PassBuilder<'a> {
 }
 
 impl<'a> PassBuilder<'a> {
-    /// Creates a builder starting in [`PassKind::Callback`] kind (no-GPU default).
+    /// Creates a builder starting in [`PassKind::Compute`] kind.
     pub(crate) fn new(name: &'a str) -> Self {
         Self {
             _name: name,
-            kind: PassKind::Callback,
+            kind: PassKind::Compute,
             accesses: Vec::new(),
             color_attachments: Vec::new(),
             depth_stencil_attachment: None,
@@ -75,11 +75,6 @@ impl<'a> PassBuilder<'a> {
     /// Declares this pass as compute.
     pub fn compute(&mut self) {
         self.kind = PassKind::Compute;
-    }
-
-    /// Declares this pass as a callback (CPU-only, no encoder or GPU resources).
-    pub fn callback(&mut self) {
-        self.kind = PassKind::Callback;
     }
 
     /// Keeps the pass even when it has no graph-visible export.

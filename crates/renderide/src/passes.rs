@@ -1,10 +1,8 @@
 //! Concrete render passes registered on a [`crate::render_graph::CompiledRenderGraph`].
 //!
-//! Each pass implements one of the four typed pass traits:
+//! Each pass implements one of the typed pass traits:
 //! - [`crate::render_graph::pass::RasterPass`] -- raster render passes
 //! - [`crate::render_graph::pass::ComputePass`] -- encoder-driven compute
-//! - [`crate::render_graph::pass::CopyPass`] -- copy-only work
-//! - [`crate::render_graph::pass::CallbackPass`] -- CPU callbacks with no encoder
 
 mod clustered_light;
 mod helpers;
@@ -20,14 +18,14 @@ pub use mesh_deform::MeshDeformPass;
 pub use post_processing::{AcesTonemapEffect, AutoExposureEffect, BloomEffect, GtaoEffect};
 pub use scene_color_compose::{SceneColorComposeGraphResources, SceneColorComposePass};
 pub(crate) use world_mesh_forward::{
-    GTAO_VIEW_NORMAL_FORMAT, PipelineVariantKey, PrefetchedWorldMeshDrawsSlot,
-    WorldMeshForwardPlanSlot,
+    GTAO_VIEW_NORMAL_FORMAT, PreparedWorldMeshForwardFrame, WorldMeshForwardPlanSlot,
+    WorldMeshForwardPrepareContext, WorldMeshForwardSkyboxRenderer,
+    prepare_world_mesh_forward_frame,
 };
 pub use world_mesh_forward::{
     WorldMeshColorSnapshotPass, WorldMeshDepthSnapshotPass,
     WorldMeshForwardColorResolveGraphResources, WorldMeshForwardColorResolvePass,
     WorldMeshForwardDepthResolvePass, WorldMeshForwardGraphResources,
     WorldMeshForwardIntersectPass, WorldMeshForwardNormalGraphResources,
-    WorldMeshForwardNormalPass, WorldMeshForwardOpaquePass, WorldMeshForwardPreparePass,
-    WorldMeshForwardTransparentPass,
+    WorldMeshForwardNormalPass, WorldMeshForwardOpaquePass, WorldMeshForwardTransparentPass,
 };

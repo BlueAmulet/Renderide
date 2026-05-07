@@ -1,13 +1,12 @@
-//! Prepare callback helpers for world-mesh forward passes.
+//! Backend frame-plan helpers for world-mesh forward passes.
 
 use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::camera::HostCameraFrame;
-use crate::diagnostics::{PerViewHudConfig, PerViewHudOutputs, PerViewHudOutputsSlot};
+use crate::diagnostics::{PerViewHudConfig, PerViewHudOutputs};
 use crate::gpu::GpuLimits;
 use crate::materials::MaterialSystem;
 use crate::materials::ShaderPermutation;
-use crate::render_graph::blackboard::Blackboard;
-use crate::render_graph::frame_params::GraphPassFrame;
+use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
 use crate::render_graph::frame_upload_batch::FrameUploadBatch;
 use crate::world_mesh::draw_prep::{WorldMeshDrawCollection, WorldMeshDrawItem};
 use crate::world_mesh::{
@@ -16,22 +15,42 @@ use crate::world_mesh::{
 };
 
 use super::super::skybox::SkyboxRenderer;
-use super::super::{
-    MaterialBatchPacket, PrefetchedWorldMeshDrawsSlot, PreparedWorldMeshForwardFrame,
-};
+use super::super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
 use super::camera::{compute_view_projections, resolve_pass_config};
 use super::frame_uniforms::write_per_view_frame_uniforms;
 use super::material_resolve::precompute_material_resolve_batches;
 use super::slab::{SlabPackInputs, pack_and_upload_per_draw_slab};
 
-/// Takes the explicit draw plan seeded into the per-view blackboard.
-pub(super) fn take_world_mesh_draws(blackboard: &mut Blackboard) -> PrefetchedWorldMeshViewDraws {
-    profiling::scope!("world_mesh::take_draw_plan");
-    if let Some(prefetched) = blackboard.take::<PrefetchedWorldMeshDrawsSlot>() {
-        return prefetched;
-    }
-    logger::warn!("WorldMeshForward: missing per-view draw plan; rendering no world-mesh draws");
-    PrefetchedWorldMeshViewDraws::empty()
+/// Prepared world-mesh forward state plus deferred per-view HUD output.
+pub(crate) struct PreparedWorldMeshForwardView {
+    /// Forward pass draw state consumed by graph raster/compute passes.
+    pub prepared: Option<PreparedWorldMeshForwardFrame>,
+    /// Optional per-view HUD payload produced while preparing the draw list.
+    pub hud_outputs: Option<PerViewHudOutputs>,
+}
+
+/// Shared context needed to prepare one world-mesh forward view.
+pub(crate) struct WorldMeshForwardPrepareContext<'a, 'frame> {
+    /// Device used for GPU resource creation.
+    pub(crate) device: &'a wgpu::Device,
+    /// Queue used by skybox and embedded material uniform updates.
+    pub(crate) queue: &'a wgpu::Queue,
+    /// Deferred frame upload sink drained before submit.
+    pub(crate) upload_batch: &'a FrameUploadBatch,
+    /// Effective device limits for this frame.
+    pub(crate) gpu_limits: &'a GpuLimits,
+    /// Per-view graph frame state.
+    pub(crate) frame: &'a GraphPassFrame<'frame>,
+    /// Per-view frame bind resources.
+    pub(crate) frame_plan: &'a PerViewFramePlan,
+    /// Backend-owned skybox preparation cache.
+    pub(crate) skybox_renderer: &'a SkyboxRenderer,
+}
+
+struct PackedForwardDraws {
+    draws: Vec<WorldMeshDrawItem>,
+    plan: InstancePlan,
+    offscreen_write_rt: Option<i32>,
 }
 
 /// Copies Hi-Z temporal state for the next frame when culling is active.
@@ -90,18 +109,21 @@ pub(super) fn maybe_set_world_mesh_draw_stats(
     outputs
 }
 
-/// Collects forward draws and uploads per-view data. Returns `None` when required per-draw
-/// resources are unavailable so the pass can early-out without recording work.
-pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    upload_batch: &FrameUploadBatch,
-    gpu_limits: &GpuLimits,
-    frame: &GraphPassFrame<'_>,
-    blackboard: &mut Blackboard,
-    skybox_renderer: &SkyboxRenderer,
-) -> Option<PreparedWorldMeshForwardFrame> {
+/// Prepares forward draws and uploads per-view data.
+pub(crate) fn prepare_world_mesh_forward_frame(
+    ctx: WorldMeshForwardPrepareContext<'_, '_>,
+    prefetched: PrefetchedWorldMeshViewDraws,
+) -> PreparedWorldMeshForwardView {
     profiling::scope!("world_mesh::prepare_frame");
+    let WorldMeshForwardPrepareContext {
+        device,
+        queue,
+        upload_batch,
+        gpu_limits,
+        frame,
+        frame_plan,
+        skybox_renderer,
+    } = ctx;
     let supports_base_instance = gpu_limits.supports_base_instance;
     let hc = frame.view.host_camera;
     let pipeline = {
@@ -118,68 +140,44 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
     let use_multiview = pipeline.use_multiview;
     let shader_perm = pipeline.shader_perm;
 
-    let prefetched = {
-        profiling::scope!("world_mesh::prepare_frame::take_draw_plan");
-        take_world_mesh_draws(blackboard)
-    };
     let helper_needs = prefetched.helper_needs;
     {
         profiling::scope!("world_mesh::prepare_frame::capture_hi_z_temporal");
         capture_hi_z_temporal_after_collect(frame, prefetched.cull_proj, hc);
     }
 
-    {
+    let hud_outputs = {
         profiling::scope!("world_mesh::prepare_frame::publish_hud_outputs");
-        publish_world_mesh_hud_outputs(
+        world_mesh_hud_outputs(
             frame,
-            blackboard,
             &prefetched.collection,
             supports_base_instance,
             shader_perm,
-        );
-    }
-
-    let draws = prefetched.collection.items;
-    let (render_context, world_proj, overlay_proj) = {
-        profiling::scope!("world_mesh::prepare_frame::compute_view_projections");
-        compute_view_projections(frame.shared.scene, hc, frame.view.viewport_px, &draws)
-    };
-
-    // Read the offscreen RT id before borrowing `frame` for encode_refs.
-    let offscreen_write_rt = frame.view.offscreen_write_render_texture_asset_id;
-
-    let (world_proj, overlay_proj) =
-        apply_offscreen_projection_flip(world_proj, overlay_proj, offscreen_write_rt);
-
-    // Build the Bevy-style instance plan up front so the slab is packed in the same order
-    // the forward pass will read it via `instance_index` / `first_instance`.
-    let mut plan = {
-        profiling::scope!("world_mesh::prepare_frame::build_instance_plan");
-        crate::world_mesh::build_plan(&draws, supports_base_instance)
-    };
-
-    let slab_uploaded = {
-        profiling::scope!("world_mesh::prepare_frame::pack_and_upload_slab");
-        pack_and_upload_per_draw_slab(
-            device,
-            upload_batch,
-            frame,
-            SlabPackInputs {
-                render_context,
-                world_proj,
-                overlay_proj,
-                draws: &draws,
-                slab_layout: &plan.slab_layout,
-            },
         )
     };
-    if !slab_uploaded {
-        return None;
-    }
+
+    let Some(PackedForwardDraws {
+        draws,
+        mut plan,
+        offscreen_write_rt,
+    }) = pack_forward_draws_for_view(
+        device,
+        upload_batch,
+        frame,
+        supports_base_instance,
+        hc,
+        prefetched.collection.items,
+    )
+    else {
+        return PreparedWorldMeshForwardView {
+            prepared: None,
+            hud_outputs,
+        };
+    };
 
     {
         profiling::scope!("world_mesh::prepare_frame::write_frame_uniforms");
-        write_per_view_frame_uniforms(queue, upload_batch, frame, blackboard, use_multiview, hc);
+        write_per_view_frame_uniforms(upload_batch, frame, frame_plan, use_multiview, hc);
     }
     let skybox = {
         profiling::scope!("world_mesh::prepare_frame::prepare_skybox");
@@ -202,17 +200,61 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
         &mut plan,
     );
 
-    Some(PreparedWorldMeshForwardFrame {
+    PreparedWorldMeshForwardView {
+        prepared: Some(PreparedWorldMeshForwardFrame {
+            draws,
+            plan,
+            pipeline,
+            helper_needs,
+            supports_base_instance,
+            opaque_recorded: false,
+            depth_snapshot_recorded: false,
+            tail_raster_recorded: false,
+            precomputed_batches,
+            skybox,
+        }),
+        hud_outputs,
+    }
+}
+
+fn pack_forward_draws_for_view(
+    device: &wgpu::Device,
+    upload_batch: &FrameUploadBatch,
+    frame: &GraphPassFrame<'_>,
+    supports_base_instance: bool,
+    hc: HostCameraFrame,
+    draws: Vec<WorldMeshDrawItem>,
+) -> Option<PackedForwardDraws> {
+    let (render_context, world_proj, overlay_proj) = {
+        profiling::scope!("world_mesh::prepare_frame::compute_view_projections");
+        compute_view_projections(frame.shared.scene, hc, frame.view.viewport_px, &draws)
+    };
+    let offscreen_write_rt = frame.view.offscreen_write_render_texture_asset_id;
+    let (world_proj, overlay_proj) =
+        apply_offscreen_projection_flip(world_proj, overlay_proj, offscreen_write_rt);
+    let plan = {
+        profiling::scope!("world_mesh::prepare_frame::build_instance_plan");
+        crate::world_mesh::build_plan(&draws, supports_base_instance)
+    };
+    let slab_uploaded = {
+        profiling::scope!("world_mesh::prepare_frame::pack_and_upload_slab");
+        pack_and_upload_per_draw_slab(
+            device,
+            upload_batch,
+            frame,
+            SlabPackInputs {
+                render_context,
+                world_proj,
+                overlay_proj,
+                draws: &draws,
+                slab_layout: &plan.slab_layout,
+            },
+        )
+    };
+    slab_uploaded.then_some(PackedForwardDraws {
         draws,
         plan,
-        pipeline,
-        helper_needs,
-        supports_base_instance,
-        opaque_recorded: false,
-        depth_snapshot_recorded: false,
-        tail_raster_recorded: false,
-        precomputed_batches,
-        skybox,
+        offscreen_write_rt,
     })
 }
 
@@ -287,15 +329,13 @@ fn apply_offscreen_projection_flip(
     }
 }
 
-/// Computes [`PerViewHudOutputs`] from the collected draws and inserts them on `blackboard` if any
-/// HUD field is non-empty (avoids planting an empty slot for the common no-HUD frame).
-fn publish_world_mesh_hud_outputs(
+/// Computes [`PerViewHudOutputs`] from the collected draws when any HUD field is non-empty.
+fn world_mesh_hud_outputs(
     frame: &GraphPassFrame<'_>,
-    blackboard: &mut Blackboard,
     collection: &WorldMeshDrawCollection,
     supports_base_instance: bool,
     shader_perm: ShaderPermutation,
-) {
+) -> Option<PerViewHudOutputs> {
     let hud_outputs = maybe_set_world_mesh_draw_stats(
         frame.shared.debug_hud,
         frame.shared.materials,
@@ -305,10 +345,75 @@ fn publish_world_mesh_hud_outputs(
         shader_perm,
         frame.view.offscreen_write_render_texture_asset_id,
     );
-    if hud_outputs.world_mesh_draw_stats.is_some()
+    let has_outputs = hud_outputs.world_mesh_draw_stats.is_some()
         || hud_outputs.world_mesh_draw_state_rows.is_some()
-        || !hud_outputs.current_view_texture_2d_asset_ids.is_empty()
-    {
-        blackboard.insert::<PerViewHudOutputsSlot>(hud_outputs);
+        || !hud_outputs.current_view_texture_2d_asset_ids.is_empty();
+    has_outputs.then_some(hud_outputs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::material_batch::PipelineVariantKey;
+    use super::*;
+    use crate::materials::{MaterialPipelineDesc, RasterPrimitiveTopology, ShaderPermutation};
+    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
+    use crate::world_mesh::DrawGroup;
+
+    fn test_packet(first: usize, last: usize) -> MaterialBatchPacket {
+        let mut item = dummy_world_mesh_draw_item(DummyDrawItemSpec {
+            material_asset_id: 1,
+            property_block: None,
+            skinned: false,
+            sorting_order: 0,
+            mesh_asset_id: 1,
+            node_id: 0,
+            slot_index: 0,
+            collect_order: 0,
+            alpha_blended: false,
+        });
+        item.batch_key.primitive_topology = RasterPrimitiveTopology::TriangleList;
+        MaterialBatchPacket {
+            first_draw_idx: first,
+            last_draw_idx: last,
+            pipeline_key: PipelineVariantKey::for_draw_item(
+                &item,
+                MaterialPipelineDesc {
+                    surface_format: wgpu::TextureFormat::Rgba16Float,
+                    depth_stencil_format: Some(wgpu::TextureFormat::Depth24PlusStencil8),
+                    sample_count: 1,
+                    multiview_mask: None,
+                },
+                ShaderPermutation(0),
+            ),
+            bind_group: None,
+            pipelines: None,
+        }
+    }
+
+    fn group(representative_draw_idx: usize) -> DrawGroup {
+        DrawGroup {
+            representative_draw_idx,
+            instance_range: representative_draw_idx as u32..representative_draw_idx as u32 + 1,
+            material_packet_idx: usize::MAX,
+        }
+    }
+
+    #[test]
+    fn assign_material_packet_indices_covers_all_forward_group_lists() {
+        let mut plan = InstancePlan {
+            slab_layout: vec![0, 1, 2, 3],
+            regular_groups: vec![group(0)],
+            post_skybox_groups: vec![group(1)],
+            intersect_groups: vec![group(2)],
+            transparent_groups: vec![group(3)],
+        };
+        let packets = [test_packet(0, 1), test_packet(2, 3)];
+
+        assign_material_packet_indices(&mut plan, &packets);
+
+        assert_eq!(plan.regular_groups[0].material_packet_idx, 0);
+        assert_eq!(plan.post_skybox_groups[0].material_packet_idx, 0);
+        assert_eq!(plan.intersect_groups[0].material_packet_idx, 1);
+        assert_eq!(plan.transparent_groups[0].material_packet_idx, 1);
     }
 }

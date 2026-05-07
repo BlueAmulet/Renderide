@@ -52,7 +52,7 @@ use crate::scene::{ResolvedLight, SceneCoordinator, light_contributes};
 /// causing strobe flicker. Keeping params per-view eliminates the race at the cost of ~512 B
 /// per view (completely negligible).
 pub struct PerViewFrameState {
-    /// Per-view `@group(0)` frame uniform buffer written by the prepare pass each frame.
+    /// Per-view `@group(0)` frame uniform buffer written by world-mesh frame planning each frame.
     pub frame_uniform_buffer: wgpu::Buffer,
     /// Per-view `@group(0)` bind group referencing [`Self::frame_uniform_buffer`], shared
     /// lights/cluster buffers, and view-local scene snapshots.
@@ -297,31 +297,6 @@ impl FrameResourceManager {
     /// Light count for frame uniforms and shaders (`min(len, [`MAX_LIGHTS`])`).
     pub fn frame_light_count_u32(&self) -> u32 {
         self.light_scratch.len().min(MAX_LIGHTS) as u32
-    }
-
-    /// Writes camera frame uniform and, if lights were not yet uploaded this tick, the lights storage buffer.
-    ///
-    /// Skips [`FrameGpuResources::write_lights_buffer`] when [`Self::lights_gpu_uploaded_this_tick`] is already
-    /// true (e.g. [`crate::passes::ClusteredLightPass`] ran first), avoiding duplicate uploads
-    /// on multi-view paths while still refreshing frame uniforms every view.
-    pub fn write_frame_uniform_and_lights_from_scratch(
-        &self,
-        queue: &wgpu::Queue,
-        uniforms: &FrameGpuUniforms,
-    ) {
-        profiling::scope!("render::write_frame_uniforms");
-        let Some(fgpu) = self.frame_gpu.as_ref() else {
-            return;
-        };
-        fgpu.write_frame_uniform(queue, uniforms);
-        // Acquire-load pairs with the Release-store below so a worker that observes `true`
-        // sees the queue writes that produced the upload; the Release-store on success
-        // publishes those queue writes to subsequent observers.
-        if !self.lights_gpu_uploaded_this_tick.load(Ordering::Acquire) {
-            fgpu.write_lights_buffer(queue, &self.light_scratch);
-            self.lights_gpu_uploaded_this_tick
-                .store(true, Ordering::Release);
-        }
     }
 
     /// Shared `@group(0)` frame globals (camera + lights), after attach.

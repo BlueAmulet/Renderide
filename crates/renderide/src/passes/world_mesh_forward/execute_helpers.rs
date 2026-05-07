@@ -13,7 +13,7 @@ pub(super) use color_snapshot::encode_world_mesh_forward_color_snapshot;
 pub(super) use msaa_depth::{
     encode_msaa_depth_resolve_after_clear_only, encode_world_mesh_forward_depth_snapshot,
 };
-pub(super) use prepare::prepare_world_mesh_forward_frame;
+pub(crate) use prepare::{WorldMeshForwardPrepareContext, prepare_world_mesh_forward_frame};
 pub(super) use raster_recording::{
     frame_bind_group_for_view, record_world_mesh_forward_intersection_graph_raster,
     record_world_mesh_forward_normal_graph_raster, record_world_mesh_forward_opaque_graph_raster,

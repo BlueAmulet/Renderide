@@ -1,8 +1,8 @@
 //! Material batch packet resolution for world-mesh forward draws.
 //!
 //! The resolver is the single boundary between sorted CPU draw runs and concrete raster state.
-//! Both pre-warm and record-time preparation build [`PipelineVariantKey`] with the same helper so
-//! they cannot drift on MSAA, front-face, blend, render-state, or shader permutations.
+//! Backend frame planning builds [`PipelineVariantKey`] once per batch so raster recording cannot
+//! drift on MSAA, front-face, blend, render-state, or shader permutations.
 
 use std::sync::Arc;
 
@@ -21,7 +21,7 @@ use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 /// One resolved per-batch draw packet covering a contiguous range of sorted draws with the same
 /// [`crate::world_mesh::MaterialDrawBatchKey`].
 ///
-/// Populated by the prepare pass so the recording loop can drive pipeline and bind-group state
+/// Populated by backend frame planning so the recording loop can drive pipeline and bind-group state
 /// entirely from this table, without material-cache lookups inside `RenderPass`.
 #[derive(Clone)]
 pub(crate) struct MaterialBatchPacket {
@@ -56,7 +56,7 @@ pub(crate) struct PipelineVariantKeyInput {
     pub primitive_topology: RasterPrimitiveTopology,
 }
 
-/// Exact material pipeline variant used by both pipeline pre-warm and record-time resolution.
+/// Exact material pipeline variant used by backend frame planning.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct PipelineVariantKey {
     /// Host shader asset id for diagnostics and material registry lookup.
@@ -82,7 +82,7 @@ pub(crate) struct PipelineVariantKey {
 }
 
 impl PipelineVariantKey {
-    /// Builds the key used for both pre-warm and record-time material resolution.
+    /// Builds the key used for material packet resolution.
     pub(crate) fn new(input: PipelineVariantKeyInput) -> Self {
         let PipelineVariantKeyInput {
             pass_desc,
@@ -136,7 +136,7 @@ impl PipelineVariantKey {
     }
 }
 
-/// Material pipeline and embedded-bind resolver for one world-mesh forward prepare pass.
+/// Material pipeline and embedded-bind resolver for one world-mesh forward view plan.
 pub(crate) struct MaterialDrawResolver<'a> {
     /// Material registry used for pipeline lookup.
     registry: Option<&'a MaterialRegistry>,

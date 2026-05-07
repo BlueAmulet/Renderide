@@ -22,6 +22,7 @@ pub(crate) mod material_property_reader;
 mod per_draw_resources;
 mod per_view_resource_map;
 mod view_resource_registry;
+mod world_mesh_frame_plan;
 
 pub use cluster_gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, MAX_LIGHTS_PER_TILE};
 pub(crate) use facade::{BackendGraphAccess, ExtractedFrameShared, WorldMeshForwardEncodeRefs};
@@ -38,3 +39,7 @@ pub use history_registry::{
 };
 pub use light_gpu::GpuLight;
 pub(crate) use view_resource_registry::ViewResourceRegistry;
+pub(crate) use world_mesh_frame_plan::{
+    BackendWorldMeshFramePlanner, PerViewFramePlanInputs, WorldMeshFramePlan,
+    WorldMeshPrepareViewInputs, WorldMeshPreparedView,
+};

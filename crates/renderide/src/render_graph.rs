@@ -26,10 +26,10 @@
 //!   **one encoder per [`FrameView`]** for [`PassPhase::PerView`] passes. Deferred
 //!   [`wgpu::Queue::write_buffer`] updates are drained before the single submit; see
 //!   [`CompiledRenderGraph::execute_multi_view`]. Before the per-view loop, transient resources,
-//!   per-view per-draw / frame state ([`crate::backend::FrameResourceManager`]), and the material
-//!   pipeline cache are pre-warmed once across all views so the per-view record path no longer
-//!   pays lazy `&mut` allocation costs (also a structural prerequisite for the parallel record
-//!   path; see [`record_parallel`]).
+//!   per-view per-draw / frame state ([`crate::backend::FrameResourceManager`]), and world-mesh
+//!   draw packets are prepared once across all views so the per-view record path no longer pays
+//!   lazy `&mut` allocation costs (also a structural prerequisite for the parallel record path;
+//!   see [`record_parallel`]).
 //! - **[`GraphCache`]** memoizes a compiled graph by [`GraphCacheKey`] (surface extent, MSAA,
 //!   multiview, surface format, scene HDR format) so the backend rebuilds only when one of those inputs changes.
 //!
@@ -50,7 +50,8 @@
 //! 3. **Cull** -- frustum and Hi-Z occlusion via [`crate::world_mesh::build_world_mesh_cull_proj_params`] and
 //!    [`crate::world_mesh::capture_hi_z_temporal`] (inputs to forward pass).
 //! 4. **Sort** -- [`crate::world_mesh::collect_and_sort_draws`] builds draw order and batch keys.
-//! 5. **DrawPrep** -- per-draw uniforms and material resolution inside [`passes::WorldMeshForwardPreparePass`].
+//! 5. **DrawPrep** -- backend world-mesh frame planning packs per-draw uniforms and resolves
+//!    material packets before graph pass-node recording.
 //! 6. **RenderPasses** -- [`CompiledRenderGraph`] runs mesh deform (logical deform outputs producer),
 //!    clustered lights, then forward (see [`default_graph_tests`] / [`build_main_graph`]); frame-global
 //!    deform runs before per-view passes at execute time ([`CompiledRenderGraph::execute_multi_view`]).

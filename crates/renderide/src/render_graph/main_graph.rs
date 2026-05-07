@@ -399,9 +399,6 @@ fn add_main_graph_passes_and_edges(
         },
     )));
     let forward_resources = main_forward_resources(&h);
-    let forward_prepare = builder.add_callback_pass(Box::new(
-        crate::passes::WorldMeshForwardPreparePass::new(forward_resources),
-    ));
     let forward_opaque = builder.add_raster_pass(Box::new(
         crate::passes::WorldMeshForwardOpaquePass::new(forward_resources),
     ));
@@ -465,8 +462,7 @@ fn add_main_graph_passes_and_edges(
         },
     )));
     builder.add_edge(deform, clustered);
-    builder.add_edge(clustered, forward_prepare);
-    builder.add_edge(forward_prepare, forward_opaque);
+    builder.add_edge(clustered, forward_opaque);
     if let Some(gtao_normals) = gtao_normals {
         builder.add_edge(forward_opaque, gtao_normals.pass);
         builder.add_edge(gtao_normals.pass, depth_snapshot);
@@ -655,12 +651,17 @@ mod tests {
     }
 
     #[test]
-    fn default_main_needs_surface_and_eleven_passes() {
+    fn default_main_needs_surface_and_ten_passes() {
         let g = build_main_graph(smoke_key(), &no_post()).expect("default graph");
         assert!(g.needs_surface_acquire());
-        assert_eq!(g.pass_count(), 11);
-        assert_eq!(g.compile_stats.topo_levels, 11);
+        assert_eq!(g.pass_count(), 10);
+        assert_eq!(g.compile_stats.topo_levels, 10);
         assert_eq!(g.compile_stats.transient_texture_count, 4);
+        assert!(
+            !g.pass_info
+                .iter()
+                .any(|p| p.name.as_str() == "WorldMeshForwardPrepare")
+        );
     }
 
     #[test]
@@ -689,8 +690,8 @@ mod tests {
         assert!(pre_grab_resolve_pos < snapshot_pos);
         assert!(snapshot_pos < transparent_pos);
         assert!(transparent_pos < final_resolve_pos);
-        assert_eq!(g.pass_count(), 13);
-        assert_eq!(g.compile_stats.topo_levels, 13);
+        assert_eq!(g.pass_count(), 12);
+        assert_eq!(g.compile_stats.topo_levels, 12);
     }
 
     #[test]
