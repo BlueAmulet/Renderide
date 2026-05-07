@@ -81,7 +81,7 @@ use execute_helpers::{
 };
 use skybox::record_prepared_skybox;
 
-use crate::assets::asset_transfer_queue::AssetTransferQueue;
+use crate::backend::AssetTransferQueue;
 use crate::gpu_pools::MeshPool;
 use crate::materials::MaterialSystem;
 use crate::materials::embedded::EmbeddedTexturePools;
