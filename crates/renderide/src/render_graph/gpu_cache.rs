@@ -3,8 +3,8 @@
 //! Internal organisation:
 //!
 //! - [`once`] -- one-shot lazy slot ([`OnceGpu`]).
-//! - [`cache`] -- generic locked map with double-check insertion (private).
-//! - [`pipeline`] -- typed wrapper around the generic cache for [`wgpu::RenderPipeline`].
+//! - [`cache`] -- generic locked map with double-check insertion for bind groups (private).
+//! - [`pipeline`] -- keyed single-flight cache for [`wgpu::RenderPipeline`].
 //! - [`bindgroup`] -- typed wrapper for [`wgpu::BindGroup`].
 //! - [`shader`] -- WGSL shader-module construction helper.
 //! - [`samplers`] -- sampler / view / uniform-buffer helpers.

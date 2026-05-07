@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use lru::LruCache;
 use parking_lot::Mutex;
 
+use crate::concurrency::{KeyedSingleFlight, SingleFlightPermit};
 use crate::materials::ShaderPermutation;
 use crate::materials::embedded_raster_pipeline::{
     EmbeddedRasterPipelineSource, build_embedded_wgsl, create_embedded_render_pipelines,
@@ -96,6 +97,7 @@ pub struct MaterialPipelineCache {
     device: Arc<wgpu::Device>,
     limits: Arc<crate::gpu::GpuLimits>,
     pipelines: Mutex<LruCache<MaterialPipelineCacheKey, MaterialPipelineSet>>,
+    compiles: KeyedSingleFlight<MaterialPipelineCacheKey>,
     stats: MaterialPipelineCacheStatsAtomic,
 }
 
@@ -119,6 +121,7 @@ impl MaterialPipelineCache {
             device,
             limits,
             pipelines: Mutex::new(LruCache::new(max_cached_pipelines())),
+            compiles: KeyedSingleFlight::default(),
             stats: MaterialPipelineCacheStatsAtomic::default(),
         }
     }
@@ -133,6 +136,40 @@ impl MaterialPipelineCache {
         variant: MaterialPipelineVariantSpec,
     ) -> Result<MaterialPipelineSet, PipelineBuildError> {
         profiling::scope!("materials::get_or_create_pipeline");
+        let key = Self::cache_key(kind, desc, variant);
+        loop {
+            if let Some(hit) = self.cached_pipeline_set(&key) {
+                self.stats.hits.fetch_add(1, Ordering::Relaxed);
+                return Ok(hit);
+            }
+
+            let leader = match self.compiles.acquire(key.clone()) {
+                SingleFlightPermit::Leader(leader) => leader,
+                SingleFlightPermit::Waiter(waiter) => {
+                    profiling::scope!("materials::pipeline_single_flight_wait");
+                    waiter.wait();
+                    continue;
+                }
+            };
+
+            if let Some(hit) = self.cached_pipeline_set(&key) {
+                self.stats.hits.fetch_add(1, Ordering::Relaxed);
+                return Ok(hit);
+            }
+
+            self.stats.misses.fetch_add(1, Ordering::Relaxed);
+            let set = self.build_pipeline_set(kind, desc, variant)?;
+            self.insert_pipeline_set(key, set.clone());
+            drop(leader);
+            return Ok(set);
+        }
+    }
+
+    fn cache_key(
+        kind: &RasterPipelineKind,
+        desc: &MaterialPipelineDesc,
+        variant: MaterialPipelineVariantSpec,
+    ) -> MaterialPipelineCacheKey {
         let MaterialPipelineVariantSpec {
             permutation,
             blend_mode,
@@ -140,7 +177,7 @@ impl MaterialPipelineCache {
             front_face,
             primitive_topology,
         } = variant;
-        let key = MaterialPipelineCacheKey {
+        MaterialPipelineCacheKey {
             kind: kind.clone(),
             permutation,
             surface_format: desc.surface_format,
@@ -151,13 +188,27 @@ impl MaterialPipelineCache {
             render_state,
             front_face,
             primitive_topology,
-        };
-        // a hit is real use; promote it so hot pipelines do not get evicted.
-        if let Some(hit) = self.pipelines.lock().get(&key) {
-            self.stats.hits.fetch_add(1, Ordering::Relaxed);
-            return Ok(hit.clone());
         }
-        self.stats.misses.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn cached_pipeline_set(&self, key: &MaterialPipelineCacheKey) -> Option<MaterialPipelineSet> {
+        // A hit is real use; promote it so hot pipelines do not get evicted.
+        self.pipelines.lock().get(key).cloned()
+    }
+
+    fn build_pipeline_set(
+        &self,
+        kind: &RasterPipelineKind,
+        desc: &MaterialPipelineDesc,
+        variant: MaterialPipelineVariantSpec,
+    ) -> Result<MaterialPipelineSet, PipelineBuildError> {
+        let MaterialPipelineVariantSpec {
+            permutation,
+            blend_mode,
+            render_state,
+            front_face,
+            primitive_topology,
+        } = variant;
         let wgsl = match kind {
             RasterPipelineKind::EmbeddedStem(stem) => build_embedded_wgsl(stem, permutation)?,
             RasterPipelineKind::Null => build_null_wgsl(permutation)?,
@@ -197,19 +248,17 @@ impl MaterialPipelineCache {
                 )?]
             }
         };
-        let set: MaterialPipelineSet = Arc::from(pipelines.into_boxed_slice());
+        Ok(Arc::from(pipelines.into_boxed_slice()))
+    }
+
+    fn insert_pipeline_set(&self, key: MaterialPipelineCacheKey, set: MaterialPipelineSet) {
         let mut cache = self.pipelines.lock();
-        if let Some(existing) = cache.get(&key) {
-            self.stats.hits.fetch_add(1, Ordering::Relaxed);
-            return Ok(existing.clone());
-        }
         self.stats.insertions.fetch_add(1, Ordering::Relaxed);
-        if let Some(evicted) = cache.put(key, set.clone()) {
+        if let Some(evicted) = cache.put(key, set) {
             drop(evicted);
             self.stats.evictions.fetch_add(1, Ordering::Relaxed);
             logger::trace!("MaterialPipelineCache: evicted LRU pipeline entry");
         }
         drop(cache);
-        Ok(set)
     }
 }

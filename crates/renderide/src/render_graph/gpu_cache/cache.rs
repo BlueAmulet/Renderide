@@ -1,5 +1,4 @@
-//! Generic locked GPU object cache used by [`super::pipeline::RenderPipelineMap`] and
-//! [`super::bindgroup::BindGroupMap`].
+//! Generic locked GPU object cache used by [`super::bindgroup::BindGroupMap`].
 
 use std::hash::Hash;
 

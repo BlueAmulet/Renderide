@@ -19,6 +19,7 @@ mod app;
 mod assets;
 mod backend;
 mod color_space;
+mod concurrency;
 mod config;
 mod diagnostics;
 mod frontend;
