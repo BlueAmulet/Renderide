@@ -19,17 +19,15 @@
 use hashbrown::HashMap;
 use std::time::Instant;
 
-use crate::backend::{
-    BackendGraphAccess, PerViewFramePlanInputs, WorldMeshFramePlan, WorldMeshPrepareViewInputs,
-};
+use crate::backend::BackendGraphAccess;
 use crate::diagnostics::PerViewHudOutputs;
 use crate::gpu::GpuContext;
-use crate::render_graph::WorldMeshDrawPlan;
+use crate::render_graph::blackboard::GraphCommandStats;
 use crate::scene::SceneCoordinator;
 
 use super::super::context::{GraphResolvedResources, PostSubmitContext};
 use super::super::error::GraphExecuteError;
-use super::super::frame_params::FrameSystemsShared;
+use super::super::frame_params::{FrameSystemsShared, PerViewFramePlan};
 use super::super::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
 use super::{CompiledRenderGraph, FrameView, FrameViewTarget, MultiViewExecutionContext, helpers};
 use crate::camera::{HostCameraFrame, ViewId};
@@ -49,7 +47,7 @@ use types::{
     DrainedUploadCommand, GraphResolveKey, OwnedResolvedView, PerViewEncodeOutput,
     PerViewRecordInputs, PerViewRecordOutput, PerViewRecordShared, PerViewWorkItem,
     RecordedPerViewBatch, SubmitFrameBatchStats, SubmitFrameInputs, TimedCommandBuffer,
-    TransientTextureResolveSurfaceParams, WorldMeshCommandStats,
+    TransientTextureResolveSurfaceParams,
 };
 
 impl CompiledRenderGraph {
@@ -92,7 +90,7 @@ impl CompiledRenderGraph {
                 hud_outputs: encoded.hud_outputs,
                 encode_ms: encoded.encode_ms,
                 finish_ms: encoded.finish_ms,
-                world_mesh: encoded.world_mesh,
+                command_stats: encoded.command_stats,
             },
         ))
     }
@@ -172,7 +170,7 @@ impl CompiledRenderGraph {
         let prepare_resources_start = Instant::now();
         Self::prepare_view_resources_for_views(&mut mv_ctx, views, &upload_batch)?;
         let mut per_view_work_items = self.prepare_per_view_work_items(&mut mv_ctx, views)?;
-        self.prepare_world_mesh_frame_plan_for_work_items(
+        self.prepare_view_blackboards_for_work_items(
             &mv_ctx,
             &mut per_view_work_items,
             &upload_batch,
@@ -327,12 +325,12 @@ impl CompiledRenderGraph {
             let mut encode_ms = 0.0;
             let mut finish_ms = 0.0;
             let mut max_finish_ms = 0.0;
-            let mut world_mesh = WorldMeshCommandStats::default();
+            let mut command_stats = GraphCommandStats::default();
             for output in per_view_outputs {
                 encode_ms += output.encode_ms;
                 finish_ms += output.finish_ms;
                 max_finish_ms = f64::max(max_finish_ms, output.finish_ms);
-                world_mesh.add(output.world_mesh);
+                command_stats.add(output.command_stats);
                 per_view_cmds.push(output.command_buffer);
                 per_view_occlusion_info.push((output.view_id, output.host_camera));
                 per_view_hud_outputs.push(output.hud_outputs);
@@ -358,7 +356,7 @@ impl CompiledRenderGraph {
                 encode_ms,
                 finish_ms,
                 max_finish_ms,
-                world_mesh,
+                command_stats,
             })
         })();
         mv_ctx.gpu.restore_gpu_profiler(per_view_profiler);
@@ -411,15 +409,14 @@ impl CompiledRenderGraph {
         Ok(())
     }
 
-    /// Builds backend-owned world-mesh packets for every view before graph pass recording.
-    fn prepare_world_mesh_frame_plan_for_work_items(
+    /// Lets backend-specific systems enrich per-view blackboards before graph pass recording.
+    fn prepare_view_blackboards_for_work_items(
         &self,
         mv_ctx: &MultiViewExecutionContext<'_, '_>,
         work_items: &mut [PerViewWorkItem],
         upload_batch: &FrameUploadBatch,
     ) {
-        profiling::scope!("graph::prepare_world_mesh_frame_plan");
-        let mut frame_plan = WorldMeshFramePlan::with_capacity(work_items.len());
+        profiling::scope!("graph::prepare_view_blackboards");
         for work_item in work_items.iter_mut() {
             let resolved = work_item.resolved.as_resolved();
             let hi_z_slot = mv_ctx
@@ -449,28 +446,20 @@ impl CompiledRenderGraph {
                     hi_z_slot,
                 },
             );
-            let draw_plan = work_item
-                .world_mesh_draw_plan
-                .take()
-                .unwrap_or(WorldMeshDrawPlan::Empty);
             let (frame_bg, frame_buf) = &work_item.per_view_frame_bg_and_buf;
-            frame_plan.push(mv_ctx.backend.world_mesh_frame_planner().prepare_view(
+            let frame_plan = PerViewFramePlan {
+                frame_bind_group: std::sync::Arc::clone(frame_bg),
+                frame_uniform_buffer: frame_buf.clone(),
+                view_idx: work_item.view_idx,
+            };
+            mv_ctx.backend.prepare_view_blackboard(
                 mv_ctx.device,
                 GraphUploadSink::pre_record(upload_batch),
                 mv_ctx.gpu_limits,
                 &frame_params,
-                WorldMeshPrepareViewInputs {
-                    frame_plan: PerViewFramePlanInputs {
-                        frame_bind_group: frame_bg,
-                        frame_uniform_buffer: frame_buf,
-                        view_idx: work_item.view_idx,
-                    },
-                    draw_plan,
-                },
-            ));
-        }
-        for (work_item, prepared) in work_items.iter_mut().zip(frame_plan.into_views()) {
-            work_item.world_mesh_prepared = Some(prepared);
+                &frame_plan,
+                &mut work_item.initial_blackboard,
+            );
         }
     }
 
@@ -515,11 +504,7 @@ impl CompiledRenderGraph {
                 host_camera,
                 view_id,
                 clear: view.clear,
-                world_mesh_draw_plan: Some(std::mem::replace(
-                    &mut view.world_mesh_draw_plan,
-                    WorldMeshDrawPlan::Empty,
-                )),
-                world_mesh_prepared: None,
+                initial_blackboard: std::mem::take(&mut view.initial_blackboard),
                 resolved,
                 per_view_frame_bg_and_buf,
             });

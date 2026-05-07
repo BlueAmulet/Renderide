@@ -61,6 +61,13 @@ impl Blackboard {
         self.slots.insert(TypeId::of::<S>(), Box::new(value));
     }
 
+    /// Moves all slots from `other` into this blackboard.
+    ///
+    /// Slots from `other` replace existing values with the same slot key.
+    pub fn extend(&mut self, other: Self) {
+        self.slots.extend(other.slots);
+    }
+
     /// Returns a shared reference to the value stored under slot `S`, or [`None`] if absent.
     pub fn get<S: BlackboardSlot>(&self) -> Option<&S::Value> {
         self.slots
@@ -100,6 +107,34 @@ impl Blackboard {
     pub fn is_empty(&self) -> bool {
         self.slots.is_empty()
     }
+}
+
+/// Generic command-count diagnostics captured by pass families during one graph scope.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct GraphCommandStats {
+    /// Logical draw items represented by the recorded work.
+    pub draw_items: usize,
+    /// Batched instance groups emitted by the recorded work.
+    pub instance_batches: usize,
+    /// Pipeline-specific draw submissions after material or pass expansion.
+    pub pipeline_pass_submits: usize,
+}
+
+impl GraphCommandStats {
+    /// Adds another command-count sample into this one, saturating each field.
+    pub fn add(&mut self, other: Self) {
+        self.draw_items = self.draw_items.saturating_add(other.draw_items);
+        self.instance_batches = self.instance_batches.saturating_add(other.instance_batches);
+        self.pipeline_pass_submits = self
+            .pipeline_pass_submits
+            .saturating_add(other.pipeline_pass_submits);
+    }
+}
+
+/// Blackboard slot for generic command-count diagnostics produced by pass families.
+pub struct GraphCommandStatsSlot;
+impl BlackboardSlot for GraphCommandStatsSlot {
+    type Value = GraphCommandStats;
 }
 
 /// Blackboard slot reserving the per-view screen-space motion-vector texture for temporal
@@ -153,6 +188,21 @@ mod tests {
         bb.insert::<BarSlot>("hello".to_string());
         assert_eq!(bb.get::<FooSlot>(), Some(&7u32));
         assert_eq!(bb.get::<BarSlot>(), Some(&"hello".to_string()));
+    }
+
+    #[test]
+    fn extend_moves_slots_and_replaces_collisions() {
+        let mut bb = Blackboard::new();
+        bb.insert::<FooSlot>(7u32);
+        bb.insert::<BarSlot>("old".to_string());
+
+        let mut other = Blackboard::new();
+        other.insert::<BarSlot>("new".to_string());
+
+        bb.extend(other);
+
+        assert_eq!(bb.get::<FooSlot>(), Some(&7u32));
+        assert_eq!(bb.get::<BarSlot>(), Some(&"new".to_string()));
     }
 
     #[test]

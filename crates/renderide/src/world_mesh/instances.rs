@@ -409,9 +409,9 @@ mod tests {
     use crate::materials::{
         RasterFrontFace, UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_RENDER_QUEUE_TRANSPARENT,
     };
-    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::world_mesh::draw_prep::{pack_sort_prefix, sort_draws};
     use crate::world_mesh::materials::compute_batch_key_hash;
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
 
     fn opaque(mesh: i32, mat: i32, sort: i32, node: i32) -> WorldMeshDrawItem {
         dummy_world_mesh_draw_item(DummyDrawItemSpec {

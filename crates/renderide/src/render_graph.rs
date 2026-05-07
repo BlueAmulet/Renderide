@@ -44,22 +44,19 @@
 //! some GPU passes in [`passes`]):
 //!
 //! 1. **LightPrep** -- [`crate::backend::FrameResourceManager::prepare_lights_from_scene`] packs
-//!    clustered lights (see [`crate::world_mesh::cluster_frame_params`]); at most one full pack per winit tick (coalesced across graph entry points).
-//! 2. **Camera / cluster params** -- [`frame_params::GraphPassFrame`] + [`crate::world_mesh::cluster_frame_params`] from
-//!    host camera and [`HostCameraFrame`].
-//! 3. **Cull** -- frustum and Hi-Z occlusion via [`crate::world_mesh::build_world_mesh_cull_proj_params`] and
-//!    [`crate::world_mesh::capture_hi_z_temporal`] (inputs to forward pass).
-//! 4. **Sort** -- [`crate::world_mesh::collect_and_sort_draws`] builds draw order and batch keys.
-//! 5. **DrawPrep** -- backend world-mesh frame planning packs per-draw uniforms and resolves
+//!    clustered lights; at most one full pack per winit tick (coalesced across graph entry points).
+//! 2. **Camera / cluster params** -- [`frame_params::GraphPassFrame`] carries host camera and
+//!    per-view frame state to passes.
+//! 3. **Cull / sort** -- runtime extraction prepares caller-owned draw packets before graph entry.
+//! 4. **View prep** -- backend-specific blackboard preparation packs per-draw uniforms and resolves
 //!    material packets before graph pass-node recording.
-//! 6. **RenderPasses** -- [`CompiledRenderGraph`] runs mesh deform (logical deform outputs producer),
+//! 5. **RenderPasses** -- [`CompiledRenderGraph`] runs mesh deform (logical deform outputs producer),
 //!    clustered lights, then forward (see [`default_graph_tests`] / [`build_main_graph`]); frame-global
 //!    deform runs before per-view passes at execute time ([`CompiledRenderGraph::execute_multi_view`]).
-//! 7. **HiZ** -- [`passes::HiZBuildPass`] after depth is written; CPU readback feeds next frame's cull
-//!    ([`crate::render_graph::occlusion`]).
-//! 8. **SceneColorCompose** -- [`passes::SceneColorComposePass`] copies HDR scene color into the swapchain
+//! 6. **HiZ** -- [`passes::HiZBuildPass`] after depth is written; CPU readback feeds next frame's cull.
+//! 7. **SceneColorCompose** -- [`passes::SceneColorComposePass`] copies HDR scene color into the swapchain
 //!    / XR / offscreen output (hook for future post-processing).
-//! 9. **FrameEnd** -- submit, optional debug HUD composite, present, Hi-Z frame bookkeeping.
+//! 8. **FrameEnd** -- submit, optional debug HUD composite, present, Hi-Z frame bookkeeping.
 
 pub(crate) mod blackboard;
 pub(crate) mod builder;
@@ -81,13 +78,10 @@ pub(crate) mod schedule;
 pub(crate) mod secondary_camera;
 pub(crate) mod swapchain_scope;
 
-#[doc(hidden)]
-#[cfg(test)]
-pub(crate) mod test_fixtures;
-
 pub(crate) use cache::{GraphCache, GraphCacheKey};
 pub(crate) use compiled::{
-    ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewTarget, WorldMeshDrawPlan,
+    ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewResourceHints,
+    FrameViewTarget,
 };
 pub(crate) use error::GraphExecuteError;
 pub(crate) use frame_params::FrameViewClear;

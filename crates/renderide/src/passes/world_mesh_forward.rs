@@ -81,6 +81,12 @@ use execute_helpers::{
 };
 use skybox::record_prepared_skybox;
 
+use crate::assets::asset_transfer_queue::AssetTransferQueue;
+use crate::gpu_pools::MeshPool;
+use crate::materials::MaterialSystem;
+use crate::materials::embedded::EmbeddedTexturePools;
+use crate::mesh_deform::GpuSkinCache;
+
 /// Graph-managed opaque/clear subpass for world-mesh forward rendering.
 #[derive(Debug)]
 pub struct WorldMeshForwardOpaquePass {
@@ -140,6 +146,45 @@ pub struct WorldMeshForwardGraphResources {
     pub per_draw_slab: ImportedBufferHandle,
     /// Imported frame uniform buffer.
     pub frame_uniforms: ImportedBufferHandle,
+}
+
+/// Disjoint borrows required by world-mesh forward encoding.
+pub(crate) struct WorldMeshForwardEncodeRefs<'a> {
+    /// Material registry, embedded binds, and property store.
+    pub(crate) materials: &'a MaterialSystem,
+    /// Mesh and texture pools.
+    pub(crate) asset_transfers: &'a AssetTransferQueue,
+    /// Arena-backed deformed positions and normals keyed by renderable.
+    pub(crate) skin_cache: Option<&'a GpuSkinCache>,
+}
+
+impl<'a> WorldMeshForwardEncodeRefs<'a> {
+    /// Builds encode refs from a graph pass frame's disjoint system slices.
+    pub(crate) fn from_frame(
+        frame: &crate::render_graph::frame_params::GraphPassFrame<'a>,
+    ) -> Self {
+        Self {
+            materials: frame.shared.materials,
+            asset_transfers: frame.shared.asset_transfers,
+            skin_cache: frame.shared.skin_cache,
+        }
+    }
+
+    /// Mesh pool for draw recording after any required stream uploads were pre-warmed.
+    pub(crate) fn mesh_pool(&self) -> &MeshPool {
+        self.asset_transfers.mesh_pool()
+    }
+
+    /// Pool views for embedded `@group(1)` texture resolution.
+    pub(crate) fn embedded_texture_pools(&self) -> EmbeddedTexturePools<'_> {
+        EmbeddedTexturePools {
+            texture: self.asset_transfers.texture_pool(),
+            texture3d: self.asset_transfers.texture3d_pool(),
+            cubemap: self.asset_transfers.cubemap_pool(),
+            render_texture: self.asset_transfers.render_texture_pool(),
+            video_texture: self.asset_transfers.video_texture_pool(),
+        }
+    }
 }
 
 /// Returns whether the intersection raster tail has view-local work to record.

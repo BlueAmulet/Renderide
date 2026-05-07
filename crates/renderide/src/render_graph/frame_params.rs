@@ -14,7 +14,6 @@ use parking_lot::Mutex;
 
 use crate::assets::AssetTransferQueue;
 use crate::backend::FrameResourceManager;
-use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::materials::MaterialSystem;
@@ -206,23 +205,12 @@ impl GraphPassFrame<'_> {
     pub fn output_depth_mode(&self) -> OutputDepthMode {
         OutputDepthMode::from_multiview_stereo(self.view.multiview_stereo)
     }
-
-    /// Disjoint material/pool/skin borrows for world-mesh forward raster encoding.
-    pub(crate) fn world_mesh_forward_encode_refs(&self) -> WorldMeshForwardEncodeRefs<'_> {
-        WorldMeshForwardEncodeRefs::from_frame_params(
-            self.shared.materials,
-            self.shared.asset_transfers,
-            self.shared.skin_cache,
-        )
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::FrameViewClear;
-    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::shared::{CameraClearMode, CameraState};
-    use crate::world_mesh::{WorldMeshDrawCollection, WorldMeshHelperNeeds};
 
     #[test]
     fn main_view_clear_defaults_to_skybox() {
@@ -241,66 +229,5 @@ mod tests {
         let clear = FrameViewClear::from_camera_state(&state);
         assert_eq!(clear.mode, CameraClearMode::Color);
         assert_eq!(clear.color, glam::Vec4::new(0.1, 0.2, 0.3, 0.4));
-    }
-
-    #[test]
-    fn helper_needs_are_derived_from_scene_snapshot_usage_flags() {
-        let regular = dummy_world_mesh_draw_item(DummyDrawItemSpec {
-            material_asset_id: 1,
-            property_block: None,
-            skinned: false,
-            sorting_order: 0,
-            mesh_asset_id: 1,
-            node_id: 0,
-            slot_index: 0,
-            collect_order: 0,
-            alpha_blended: false,
-        });
-        let mut depth = regular.clone();
-        depth.batch_key.embedded_uses_scene_depth_snapshot = true;
-        let mut color = regular.clone();
-        color.batch_key.embedded_uses_scene_color_snapshot = true;
-
-        let collection = WorldMeshDrawCollection {
-            items: vec![regular.clone()],
-            draws_pre_cull: 1,
-            draws_culled: 0,
-            draws_hi_z_culled: 0,
-        };
-        assert_eq!(
-            WorldMeshHelperNeeds::from_collection(&collection),
-            WorldMeshHelperNeeds::default()
-        );
-
-        let collection = WorldMeshDrawCollection {
-            items: vec![regular.clone(), depth, color],
-            draws_pre_cull: 3,
-            draws_culled: 0,
-            draws_hi_z_culled: 0,
-        };
-        assert_eq!(
-            WorldMeshHelperNeeds::from_collection(&collection),
-            WorldMeshHelperNeeds {
-                depth_snapshot: true,
-                color_snapshot: true,
-            }
-        );
-
-        let mut refract_like = regular;
-        refract_like.batch_key.embedded_uses_scene_depth_snapshot = true;
-        refract_like.batch_key.embedded_uses_scene_color_snapshot = true;
-        let collection = WorldMeshDrawCollection {
-            items: vec![refract_like],
-            draws_pre_cull: 1,
-            draws_culled: 0,
-            draws_hi_z_culled: 0,
-        };
-        assert_eq!(
-            WorldMeshHelperNeeds::from_collection(&collection),
-            WorldMeshHelperNeeds {
-                depth_snapshot: true,
-                color_snapshot: true,
-            }
-        );
     }
 }

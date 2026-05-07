@@ -8,6 +8,11 @@ use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::materials::MaterialSystem;
 use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
 use crate::render_graph::TransientPool;
+use crate::render_graph::blackboard::Blackboard;
+use crate::render_graph::compiled::FrameView;
+use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
+use crate::world_mesh::WorldMeshDrawPlanSlot;
 
 use super::super::debug_hud_bundle::DebugHudBundle;
 use super::super::{FrameResourceManager, HistoryRegistry};
@@ -157,9 +162,75 @@ impl<'a> BackendGraphAccess<'a> {
         self.skin_cache.as_deref()
     }
 
-    /// Shared world-mesh forward frame planner.
-    pub(crate) fn world_mesh_frame_planner(&self) -> &crate::backend::BackendWorldMeshFramePlanner {
-        self.world_mesh_frame_planner
+    /// Warms backend-owned assets required by caller-seeded per-view blackboards.
+    pub(crate) fn pre_warm_view_assets_from_blackboards(
+        &mut self,
+        device: &wgpu::Device,
+        views: &[FrameView<'_>],
+    ) {
+        profiling::scope!("graph::pre_warm_view_assets");
+        let mut mesh_ids_needing_uv1_stream = hashbrown::HashSet::new();
+        let mut mesh_ids_needing_extended_streams = hashbrown::HashSet::new();
+        for view in views {
+            let Some(draw_plan) = view.initial_blackboard.get::<WorldMeshDrawPlanSlot>() else {
+                continue;
+            };
+            let Some(collection) = draw_plan.as_prefetched() else {
+                continue;
+            };
+            for item in &collection.items {
+                if item.mesh_asset_id < 0 {
+                    continue;
+                }
+                if item.batch_key.embedded_needs_uv1
+                    && !item.batch_key.embedded_needs_extended_vertex_streams
+                {
+                    mesh_ids_needing_uv1_stream.insert(item.mesh_asset_id);
+                }
+                if item.batch_key.embedded_needs_extended_vertex_streams {
+                    mesh_ids_needing_extended_streams.insert(item.mesh_asset_id);
+                }
+            }
+        }
+        logger::trace!(
+            "graph pre-warm view assets: views={} uv1_stream_meshes={} extended_stream_meshes={}",
+            views.len(),
+            mesh_ids_needing_uv1_stream.len(),
+            mesh_ids_needing_extended_streams.len(),
+        );
+        for mesh_asset_id in mesh_ids_needing_uv1_stream {
+            let _ = self
+                .asset_transfers
+                .mesh_pool_mut()
+                .ensure_uv1_vertex_stream(device, mesh_asset_id);
+        }
+        for mesh_asset_id in mesh_ids_needing_extended_streams {
+            let _ = self
+                .asset_transfers
+                .mesh_pool_mut()
+                .ensure_extended_vertex_streams(device, mesh_asset_id);
+        }
+    }
+
+    /// Lets backend-specific systems consume and enrich one per-view blackboard before recording.
+    pub(crate) fn prepare_view_blackboard(
+        &self,
+        device: &wgpu::Device,
+        uploads: GraphUploadSink<'_>,
+        gpu_limits: &GpuLimits,
+        frame: &GraphPassFrame<'_>,
+        frame_plan: &PerViewFramePlan,
+        blackboard: &mut Blackboard,
+    ) {
+        crate::backend::prepare_world_mesh_view_blackboard(
+            self.world_mesh_frame_planner,
+            device,
+            uploads,
+            gpu_limits,
+            frame,
+            frame_plan,
+            blackboard,
+        );
     }
 
     /// Debug HUD flags consumed by per-view recording.

@@ -4,10 +4,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::super::super::frame_upload_batch::FrameUploadBatchStats;
 use super::super::super::pool::TransientPoolMetrics;
-use super::{
-    CompiledRenderGraph, RecordedPerViewBatch, SubmitFrameBatchStats, TimedCommandBuffer,
-    WorldMeshCommandStats,
-};
+use super::{CompiledRenderGraph, RecordedPerViewBatch, SubmitFrameBatchStats, TimedCommandBuffer};
+use crate::render_graph::blackboard::GraphCommandStats;
 
 const SLOW_ENCODER_FINISH_WARN_MS: f64 = 2.0;
 static COMMAND_ENCODING_SLOW_LOG_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -34,7 +32,7 @@ pub(super) struct CommandEncodingDiagnostics {
     pub(super) submit_enqueue_ms: f64,
     pub(super) transient_delta: TransientPoolMetricsDelta,
     pub(super) upload_stats: FrameUploadBatchStats,
-    pub(super) world_mesh: WorldMeshCommandStats,
+    pub(super) command_stats: GraphCommandStats,
 }
 
 impl CommandEncodingDiagnostics {
@@ -59,7 +57,7 @@ impl CommandEncodingDiagnostics {
             submit_enqueue_ms: 0.0,
             transient_delta: TransientPoolMetricsDelta::default(),
             upload_stats: FrameUploadBatchStats::default(),
-            world_mesh: WorldMeshCommandStats::default(),
+            command_stats: GraphCommandStats::default(),
         }
     }
 
@@ -72,7 +70,7 @@ impl CommandEncodingDiagnostics {
         self.per_view_encode_ms = batch.encode_ms;
         self.per_view_finish_ms = batch.finish_ms;
         self.per_view_max_finish_ms = batch.max_finish_ms;
-        self.world_mesh = batch.world_mesh;
+        self.command_stats = batch.command_stats;
     }
 
     pub(super) fn apply_submit(&mut self, submit: SubmitFrameBatchStats) {
@@ -113,9 +111,9 @@ impl CommandEncodingDiagnostics {
             command_batch_assembly_ms: self.command_batch_assembly_ms,
             submit_enqueue_ms: self.submit_enqueue_ms,
             max_encoder_finish_ms: self.max_encoder_finish_ms(),
-            world_mesh_draws: self.world_mesh.draws,
-            world_mesh_instance_batches: self.world_mesh.instance_batches,
-            world_mesh_pipeline_pass_submits: self.world_mesh.pipeline_pass_submits,
+            world_mesh_draws: self.command_stats.draw_items,
+            world_mesh_instance_batches: self.command_stats.instance_batches,
+            world_mesh_pipeline_pass_submits: self.command_stats.pipeline_pass_submits,
         });
     }
 
@@ -129,7 +127,7 @@ impl CommandEncodingDiagnostics {
             return;
         }
         logger::warn!(
-            "slow command encoder finish: max_finish_ms={:.3} frame_global_finish_ms={:.3} per_view_max_finish_ms={:.3} upload_finish_ms={:.3} views={} command_buffers={} passes(frame_global/per_view)={}/{} transients(textures/slots)={}/{} transient_misses(tex/buf)={}/{} uploads(writes/bytes/staged/fallback)={}/{}/{}/{} timings_ms(pre_resolve/prepare/frame_global_encode/per_view_encode/upload_drain/assemble/submit)={:.3}/{:.3}/{:.3}/{:.3}/{:.3}/{:.3}/{:.3} world_mesh(draws/instance_batches/pipeline_pass_submits)={}/{}/{}",
+            "slow command encoder finish: max_finish_ms={:.3} frame_global_finish_ms={:.3} per_view_max_finish_ms={:.3} upload_finish_ms={:.3} views={} command_buffers={} passes(frame_global/per_view)={}/{} transients(textures/slots)={}/{} transient_misses(tex/buf)={}/{} uploads(writes/bytes/staged/fallback)={}/{}/{}/{} timings_ms(pre_resolve/prepare/frame_global_encode/per_view_encode/upload_drain/assemble/submit)={:.3}/{:.3}/{:.3}/{:.3}/{:.3}/{:.3}/{:.3} commands(draws/instance_batches/pipeline_pass_submits)={}/{}/{}",
             max_finish_ms,
             self.frame_global_finish_ms,
             self.per_view_max_finish_ms,
@@ -153,9 +151,9 @@ impl CommandEncodingDiagnostics {
             self.upload_drain_ms,
             self.command_batch_assembly_ms,
             self.submit_enqueue_ms,
-            self.world_mesh.draws,
-            self.world_mesh.instance_batches,
-            self.world_mesh.pipeline_pass_submits,
+            self.command_stats.draw_items,
+            self.command_stats.instance_batches,
+            self.command_stats.pipeline_pass_submits,
         );
     }
 }

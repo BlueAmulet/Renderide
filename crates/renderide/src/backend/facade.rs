@@ -28,13 +28,12 @@ use crate::diagnostics::{DebugHudEncodeError, DebugHudInput, SceneTransformsSnap
 use crate::gpu::GpuLimits;
 use crate::gpu_pools::{MeshPool, RenderTexturePool, TexturePool};
 use crate::materials::host_data::MaterialPropertyStore;
-use crate::mesh_deform::GpuSkinCache;
 use crate::render_graph::TransientPool;
 use crate::world_mesh::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
 use super::{FrameGpuBindingsError, FrameResourceManager};
 use crate::materials::MaterialSystem;
-use crate::materials::embedded::{EmbeddedMaterialBindError, EmbeddedTexturePools};
+use crate::materials::embedded::EmbeddedMaterialBindError;
 use crate::occlusion::OcclusionSystem;
 use diagnostics::BackendDiagnostics;
 use draw_preparation::BackendDrawPreparation;
@@ -101,50 +100,6 @@ pub struct RenderBackend {
     surface_format: Option<wgpu::TextureFormat>,
     /// Live settings for per-frame graph parameters (scene HDR format, etc.); set in [`Self::attach`].
     renderer_settings: Option<RendererSettingsHandle>,
-}
-
-/// Disjoint borrows of [`MaterialSystem`], [`AssetTransferQueue`], and the GPU skin cache for world mesh forward encoding.
-///
-/// Obtained from [`crate::render_graph::GraphPassFrame::world_mesh_forward_encode_refs`] so the raster
-/// encoder never holds `&mut RenderBackend` while also borrowing the deform cache.
-pub(crate) struct WorldMeshForwardEncodeRefs<'a> {
-    /// Material registry, embedded binds, and property store.
-    pub(crate) materials: &'a MaterialSystem,
-    /// Mesh and texture pools.
-    pub(crate) asset_transfers: &'a AssetTransferQueue,
-    /// Arena-backed deformed positions and normals keyed by renderable (after [`RenderBackend::attach`]).
-    pub(crate) skin_cache: Option<&'a GpuSkinCache>,
-}
-
-impl<'a> WorldMeshForwardEncodeRefs<'a> {
-    /// Builds encode refs from disjoint [`crate::render_graph::GraphPassFrame`] slices.
-    pub fn from_frame_params(
-        materials: &'a MaterialSystem,
-        asset_transfers: &'a AssetTransferQueue,
-        skin_cache: Option<&'a GpuSkinCache>,
-    ) -> Self {
-        Self {
-            materials,
-            asset_transfers,
-            skin_cache,
-        }
-    }
-
-    /// Mesh pool for draw recording after any required lazy stream uploads were pre-warmed.
-    pub(crate) fn mesh_pool(&self) -> &MeshPool {
-        self.asset_transfers.mesh_pool()
-    }
-
-    /// Pool views for embedded `@group(1)` texture resolution.
-    pub(crate) fn embedded_texture_pools(&self) -> EmbeddedTexturePools<'_> {
-        EmbeddedTexturePools {
-            texture: self.asset_transfers.texture_pool(),
-            texture3d: self.asset_transfers.texture3d_pool(),
-            cubemap: self.asset_transfers.cubemap_pool(),
-            render_texture: self.asset_transfers.render_texture_pool(),
-            video_texture: self.asset_transfers.video_texture_pool(),
-        }
-    }
 }
 
 impl Default for RenderBackend {

@@ -2,15 +2,15 @@
 
 use hashbrown::HashMap;
 
-use crate::backend::WorldMeshPreparedView;
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::diagnostics::PerViewHudOutputs;
 use crate::scene::SceneCoordinator;
 
+use super::super::super::blackboard::{Blackboard, GraphCommandStats};
 use super::super::super::context::GraphResolvedResources;
 use super::super::super::frame_params::FrameViewClear;
 use super::super::super::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
-use super::super::{FrameView, ResolvedView, WorldMeshDrawPlan};
+use super::super::{FrameView, ResolvedView};
 
 /// Key for reusing transient pool allocations across [`FrameView`]s with identical surface layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -32,8 +32,8 @@ pub(super) struct PerViewEncodeOutput {
     pub(super) encode_ms: f64,
     /// CPU time spent inside this view's encoder finish.
     pub(super) finish_ms: f64,
-    /// World-mesh command counts captured from the final per-view blackboard.
-    pub(super) world_mesh: WorldMeshCommandStats,
+    /// Command counts captured from the final per-view blackboard.
+    pub(super) command_stats: GraphCommandStats,
 }
 
 /// Completed per-view recording result, including ordering metadata for single-submit assembly.
@@ -50,8 +50,8 @@ pub(super) struct PerViewRecordOutput {
     pub(super) encode_ms: f64,
     /// CPU time spent inside this view's encoder finish.
     pub(super) finish_ms: f64,
-    /// World-mesh command counts captured from this view.
-    pub(super) world_mesh: WorldMeshCommandStats,
+    /// Command counts captured from this view.
+    pub(super) command_stats: GraphCommandStats,
 }
 
 /// Command buffer plus CPU timings for one encoder.
@@ -62,27 +62,6 @@ pub(super) struct TimedCommandBuffer {
     pub(super) encode_ms: f64,
     /// CPU time spent inside `finish`.
     pub(super) finish_ms: f64,
-}
-
-/// Lightweight world-mesh counts attached to command-encoding diagnostics.
-#[derive(Clone, Copy, Debug, Default)]
-pub(super) struct WorldMeshCommandStats {
-    /// Sorted draw items recorded for the view.
-    pub(super) draws: usize,
-    /// Indexed draw groups emitted across the forward subpasses.
-    pub(super) instance_batches: usize,
-    /// Pipeline-pass draw submissions after material multi-pass expansion.
-    pub(super) pipeline_pass_submits: usize,
-}
-
-impl WorldMeshCommandStats {
-    pub(super) fn add(&mut self, other: Self) {
-        self.draws = self.draws.saturating_add(other.draws);
-        self.instance_batches = self.instance_batches.saturating_add(other.instance_batches);
-        self.pipeline_pass_submits = self
-            .pipeline_pass_submits
-            .saturating_add(other.pipeline_pass_submits);
-    }
 }
 
 /// Owned clone of a resolved view so per-view workers can borrow it without touching [`GpuContext`].
@@ -135,10 +114,8 @@ pub(super) struct PerViewWorkItem {
     pub(super) view_id: ViewId,
     /// Background clear/skybox behavior for this view.
     pub(super) clear: FrameViewClear,
-    /// Explicit draw plan moved out of [`FrameView`] before frame planning.
-    pub(super) world_mesh_draw_plan: Option<WorldMeshDrawPlan>,
-    /// Prepared world-mesh packet built before graph pass recording.
-    pub(super) world_mesh_prepared: Option<WorldMeshPreparedView>,
+    /// Caller-seeded blackboard moved out of the frame view before pass recording.
+    pub(super) initial_blackboard: Blackboard,
     /// Owned resolved view snapshot safe to move to a worker thread.
     pub(super) resolved: OwnedResolvedView,
     /// Per-view `@group(0)` bind group and uniform buffer captured before recording.
@@ -229,8 +206,8 @@ pub(super) struct RecordedPerViewBatch {
     pub(super) finish_ms: f64,
     /// Largest single per-view encoder finish.
     pub(super) max_finish_ms: f64,
-    /// Aggregate world-mesh command counts across views.
-    pub(super) world_mesh: WorldMeshCommandStats,
+    /// Aggregate command counts across views.
+    pub(super) command_stats: GraphCommandStats,
 }
 
 /// Submit-batch timings and upload counters captured after recording.

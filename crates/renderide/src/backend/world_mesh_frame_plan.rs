@@ -8,10 +8,10 @@ use crate::passes::{
     PreparedWorldMeshForwardFrame, WorldMeshForwardPrepareContext, WorldMeshForwardSkyboxRenderer,
     prepare_world_mesh_forward_frame,
 };
-use crate::render_graph::WorldMeshDrawPlan;
+use crate::render_graph::blackboard::{Blackboard, GraphCommandStats, GraphCommandStatsSlot};
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
-use crate::world_mesh::PrefetchedWorldMeshViewDraws;
+use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawPlan, WorldMeshDrawPlanSlot};
 
 /// Backend-owned world-mesh forward preparation caches.
 pub(crate) struct BackendWorldMeshFramePlanner {
@@ -25,12 +25,6 @@ pub(crate) struct WorldMeshPreparedView {
     pub(crate) prepared: Option<PreparedWorldMeshForwardFrame>,
     /// Optional HUD output produced while building this view's draw packet.
     pub(crate) hud_outputs: Option<PerViewHudOutputs>,
-}
-
-/// Ordered backend-owned world-mesh plan for one graph frame.
-pub(crate) struct WorldMeshFramePlan {
-    /// Prepared world-mesh packets in submitted view order.
-    views: Vec<WorldMeshPreparedView>,
 }
 
 impl BackendWorldMeshFramePlanner {
@@ -53,14 +47,15 @@ impl BackendWorldMeshFramePlanner {
         uploads: GraphUploadSink<'_>,
         gpu_limits: &GpuLimits,
         frame: &GraphPassFrame<'_>,
-        inputs: WorldMeshPrepareViewInputs<'_>,
+        frame_plan: &PerViewFramePlan,
+        draw_plan: WorldMeshDrawPlan,
     ) -> WorldMeshPreparedView {
         let frame_plan = PerViewFramePlan {
-            frame_bind_group: Arc::clone(inputs.frame_plan.frame_bind_group),
-            frame_uniform_buffer: inputs.frame_plan.frame_uniform_buffer.clone(),
-            view_idx: inputs.frame_plan.view_idx,
+            frame_bind_group: Arc::clone(&frame_plan.frame_bind_group),
+            frame_uniform_buffer: frame_plan.frame_uniform_buffer.clone(),
+            view_idx: frame_plan.view_idx,
         };
-        let prefetched = match inputs.draw_plan {
+        let prefetched = match draw_plan {
             WorldMeshDrawPlan::Prefetched(draws) => *draws,
             WorldMeshDrawPlan::Empty => PrefetchedWorldMeshViewDraws::empty(),
         };
@@ -88,39 +83,125 @@ impl Default for BackendWorldMeshFramePlanner {
     }
 }
 
-impl WorldMeshFramePlan {
-    /// Creates an empty frame plan with capacity for `capacity` views.
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
-        Self {
-            views: Vec::with_capacity(capacity),
-        }
+/// Consumes a world-mesh draw-plan slot and inserts the forward plan slots used by graph passes.
+pub(crate) fn prepare_world_mesh_view_blackboard(
+    planner: &BackendWorldMeshFramePlanner,
+    device: &wgpu::Device,
+    uploads: GraphUploadSink<'_>,
+    gpu_limits: &GpuLimits,
+    frame: &GraphPassFrame<'_>,
+    frame_plan: &PerViewFramePlan,
+    blackboard: &mut Blackboard,
+) {
+    let draw_plan = take_world_mesh_draw_plan(blackboard);
+    let prepared = planner.prepare_view(device, uploads, gpu_limits, frame, frame_plan, draw_plan);
+    if let Some(forward) = prepared.prepared {
+        blackboard.insert::<GraphCommandStatsSlot>(command_stats_from_prepared(&forward));
+        blackboard.insert::<crate::passes::WorldMeshForwardPlanSlot>(forward);
     }
-
-    /// Appends a prepared per-view packet.
-    pub(crate) fn push(&mut self, view: WorldMeshPreparedView) {
-        self.views.push(view);
-    }
-
-    /// Consumes the frame plan and returns its ordered per-view packets.
-    pub(crate) fn into_views(self) -> Vec<WorldMeshPreparedView> {
-        self.views
+    if let Some(hud_outputs) = prepared.hud_outputs {
+        blackboard.insert::<crate::diagnostics::PerViewHudOutputsSlot>(hud_outputs);
     }
 }
 
-/// Per-view world-mesh planning inputs beyond shared GPU/frame context.
-pub(crate) struct WorldMeshPrepareViewInputs<'a> {
-    /// Per-view frame bind resources.
-    pub(crate) frame_plan: PerViewFramePlanInputs<'a>,
-    /// Explicit draw plan for this view.
-    pub(crate) draw_plan: WorldMeshDrawPlan,
+fn take_world_mesh_draw_plan(blackboard: &mut Blackboard) -> WorldMeshDrawPlan {
+    blackboard
+        .take::<WorldMeshDrawPlanSlot>()
+        .unwrap_or(WorldMeshDrawPlan::Empty)
 }
 
-/// Per-view frame bind inputs used while preparing world-mesh frame data.
-pub(crate) struct PerViewFramePlanInputs<'a> {
-    /// Frame bind group that will be bound at `@group(0)` for this view.
-    pub(crate) frame_bind_group: &'a Arc<wgpu::BindGroup>,
-    /// Frame uniform buffer backing `frame_bind_group`.
-    pub(crate) frame_uniform_buffer: &'a wgpu::Buffer,
-    /// Index of this view in the submitted multi-view batch.
-    pub(crate) view_idx: usize,
+fn command_stats_from_prepared(prepared: &PreparedWorldMeshForwardFrame) -> GraphCommandStats {
+    let group_pipeline_passes = |group: &crate::world_mesh::DrawGroup| {
+        prepared
+            .precomputed_batches
+            .get(group.material_packet_idx)
+            .and_then(|packet| packet.pipelines.as_ref())
+            .map_or(0, |pipelines| pipelines.len())
+    };
+    let regular_pipeline_passes: usize = prepared
+        .plan
+        .regular_groups
+        .iter()
+        .map(&group_pipeline_passes)
+        .sum();
+    let post_skybox_pipeline_passes: usize = prepared
+        .plan
+        .post_skybox_groups
+        .iter()
+        .map(&group_pipeline_passes)
+        .sum();
+    let intersect_pipeline_passes: usize = prepared
+        .plan
+        .intersect_groups
+        .iter()
+        .map(&group_pipeline_passes)
+        .sum();
+    let transparent_pipeline_passes: usize = prepared
+        .plan
+        .transparent_groups
+        .iter()
+        .map(group_pipeline_passes)
+        .sum();
+    GraphCommandStats {
+        draw_items: prepared.draws.len(),
+        instance_batches: prepared
+            .plan
+            .regular_groups
+            .len()
+            .saturating_add(prepared.plan.post_skybox_groups.len())
+            .saturating_add(prepared.plan.intersect_groups.len())
+            .saturating_add(prepared.plan.transparent_groups.len()),
+        pipeline_pass_submits: regular_pipeline_passes
+            .saturating_add(post_skybox_pipeline_passes)
+            .saturating_add(intersect_pipeline_passes)
+            .saturating_add(transparent_pipeline_passes),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::take_world_mesh_draw_plan;
+    use crate::render_graph::blackboard::Blackboard;
+    use crate::world_mesh::{
+        PrefetchedWorldMeshViewDraws, WorldMeshDrawCollection, WorldMeshDrawPlan,
+        WorldMeshDrawPlanSlot,
+    };
+
+    #[test]
+    fn take_world_mesh_draw_plan_defaults_absent_slot_to_empty() {
+        let mut blackboard = Blackboard::new();
+
+        assert!(matches!(
+            take_world_mesh_draw_plan(&mut blackboard),
+            WorldMeshDrawPlan::Empty
+        ));
+    }
+
+    #[test]
+    fn take_world_mesh_draw_plan_consumes_empty_slot() {
+        let mut blackboard = Blackboard::new();
+        blackboard.insert::<WorldMeshDrawPlanSlot>(WorldMeshDrawPlan::Empty);
+
+        assert!(matches!(
+            take_world_mesh_draw_plan(&mut blackboard),
+            WorldMeshDrawPlan::Empty
+        ));
+        assert!(!blackboard.contains::<WorldMeshDrawPlanSlot>());
+    }
+
+    #[test]
+    fn take_world_mesh_draw_plan_consumes_prefetched_slot() {
+        let mut blackboard = Blackboard::new();
+        blackboard.insert::<WorldMeshDrawPlanSlot>(WorldMeshDrawPlan::Prefetched(Box::new(
+            PrefetchedWorldMeshViewDraws::new(WorldMeshDrawCollection::empty(), None),
+        )));
+
+        let WorldMeshDrawPlan::Prefetched(draws) = take_world_mesh_draw_plan(&mut blackboard)
+        else {
+            panic!("expected prefetched draw plan");
+        };
+
+        assert!(draws.collection.items.is_empty());
+        assert!(!blackboard.contains::<WorldMeshDrawPlanSlot>());
+    }
 }

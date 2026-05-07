@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use super::super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
-use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::gpu::GpuLimits;
+use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlanSlot};
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
@@ -163,7 +163,7 @@ fn record_world_mesh_forward_graph_raster(
     let Some(gpu_limits) = frame.view.gpu_limits.clone() else {
         return false;
     };
-    let mut encode_refs = frame.world_mesh_forward_encode_refs();
+    let mut encode_refs = WorldMeshForwardEncodeRefs::from_frame(frame);
     record_world_mesh_forward_subpass(
         rpass,
         ForwardSubpassDrawRecord {
@@ -237,7 +237,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_normal_gr
     let Some(gpu_limits) = frame.view.gpu_limits.clone() else {
         return false;
     };
-    let mut encode_refs = frame.world_mesh_forward_encode_refs();
+    let mut encode_refs = WorldMeshForwardEncodeRefs::from_frame(frame);
     draw_normals_subset(NormalDrawBatch {
         rpass,
         groups,

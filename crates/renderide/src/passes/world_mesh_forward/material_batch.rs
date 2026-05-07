@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 
-use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::materials::ShaderPermutation;
 use crate::materials::{EmbeddedMaterialBindResources, EmbeddedTexturePools};
 use crate::materials::{
@@ -16,6 +15,7 @@ use crate::materials::{
     MaterialRegistry, MaterialRenderState, RasterFrontFace, RasterPipelineKind,
     RasterPrimitiveTopology,
 };
+use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
@@ -323,7 +323,7 @@ mod tests {
     use std::num::NonZeroU32;
 
     use super::*;
-    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
 
     fn base_desc() -> MaterialPipelineDesc {
         MaterialPipelineDesc {

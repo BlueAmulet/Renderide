@@ -38,9 +38,9 @@ pub(crate) use sort::sort_draws;
 mod tests {
     use super::{resolved_material_slots, sort_draws};
     use crate::materials::{RasterFrontFace, RasterPipelineKind, UNITY_RENDER_QUEUE_GEOMETRY};
-    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::scene::{MeshMaterialSlot, StaticMeshRenderer};
     use crate::world_mesh::materials::MaterialDrawBatchKey;
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
 
     #[test]
     fn resolved_material_slots_prefers_explicit_vec() {

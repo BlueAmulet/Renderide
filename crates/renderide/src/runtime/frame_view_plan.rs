@@ -10,9 +10,10 @@ use crate::camera::{HostCameraFrame, ViewId};
 use crate::gpu::GpuContext;
 use crate::gpu::OutputDepthMode;
 use crate::materials::{SHADER_PERM_MULTIVIEW_STEREO, ShaderPermutation};
+use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::{
-    ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewClear, FrameViewTarget,
-    WorldMeshDrawPlan,
+    ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewClear,
+    FrameViewResourceHints, FrameViewTarget,
 };
 use crate::world_mesh::CameraTransformDrawFilter;
 
@@ -137,14 +138,19 @@ impl FrameViewPlan<'_> {
         }
     }
 
-    /// Converts this view plan plus an explicit draw plan into the render-graph execution input.
-    pub(super) fn to_frame_view(&self, world_mesh_draw_plan: WorldMeshDrawPlan) -> FrameView<'_> {
+    /// Converts this view plan plus graph prep state into the render-graph execution input.
+    pub(super) fn to_frame_view(
+        &self,
+        resource_hints: FrameViewResourceHints,
+        initial_blackboard: Blackboard,
+    ) -> FrameView<'_> {
         FrameView {
             view_id: self.view_id,
             host_camera: self.host_camera,
             target: self.target(),
             clear: self.clear,
-            world_mesh_draw_plan,
+            resource_hints,
+            initial_blackboard,
         }
     }
 
@@ -182,7 +188,7 @@ mod tests {
     use crate::camera::{HostCameraFrame, ViewId};
     use crate::gpu::OutputDepthMode;
     use crate::materials::ShaderPermutation;
-    use crate::render_graph::{FrameViewClear, FrameViewTarget, WorldMeshDrawPlan};
+    use crate::render_graph::{FrameViewClear, FrameViewResourceHints, FrameViewTarget};
 
     use super::*;
 
@@ -209,15 +215,17 @@ mod tests {
     #[test]
     fn to_frame_view_preserves_cpu_view_fields() {
         let plan = main_swapchain_plan();
-        let frame_view = plan.to_frame_view(WorldMeshDrawPlan::Empty);
+        let hints = FrameViewResourceHints {
+            needs_depth_snapshot: true,
+            needs_color_snapshot: false,
+        };
+        let frame_view = plan.to_frame_view(hints, Blackboard::new());
 
         assert_eq!(frame_view.view_id, ViewId::Main);
         assert_eq!(frame_view.host_camera.frame_index, -1);
         assert_eq!(frame_view.clear, plan.clear);
         assert!(matches!(frame_view.target, FrameViewTarget::Swapchain));
-        assert!(matches!(
-            frame_view.world_mesh_draw_plan,
-            WorldMeshDrawPlan::Empty
-        ));
+        assert_eq!(frame_view.resource_hints, hints);
+        assert!(frame_view.initial_blackboard.is_empty());
     }
 }

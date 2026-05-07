@@ -6,8 +6,8 @@
 //! [`super::draw_subset`] via [`draw_mesh_submesh_instanced`].
 
 use crate::assets::mesh::GpuMesh;
-use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::mesh_deform::{GpuSkinCache, SkinCacheKey};
+use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::world_mesh::WorldMeshDrawItem;
 
 /// Embedded material vertex stream requirements for one draw (matches pipeline reflection flags).

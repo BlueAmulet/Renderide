@@ -2,7 +2,6 @@
 //! loop so the loop can later fan out across rayon workers without mutating shared backend state.
 
 use hashbrown::HashMap;
-use hashbrown::HashSet;
 use hashbrown::hash_map::Entry;
 
 use super::super::super::context::GraphResolvedResources;
@@ -56,8 +55,6 @@ impl CompiledRenderGraph {
         view_layouts: &[Option<crate::backend::PreRecordViewResourceLayout>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::pre_warm_per_view");
-        let mut mesh_ids_needing_uv1_stream: HashSet<i32> = HashSet::new();
-        let mut mesh_ids_needing_extended_streams: HashSet<i32> = HashSet::new();
         let mut prepared_frame_layouts = Vec::with_capacity(views.len());
         for (view, layout_opt) in views.iter().zip(view_layouts.iter()) {
             let view_id = view.view_id();
@@ -98,21 +95,6 @@ impl CompiledRenderGraph {
                 .backend
                 .frame_resources
                 .per_view_per_draw_scratch_or_create(view_id);
-            if let Some(collection) = view.world_mesh_draw_plan.as_prefetched() {
-                for item in &collection.items {
-                    if item.mesh_asset_id < 0 {
-                        continue;
-                    }
-                    if item.batch_key.embedded_needs_uv1
-                        && !item.batch_key.embedded_needs_extended_vertex_streams
-                    {
-                        mesh_ids_needing_uv1_stream.insert(item.mesh_asset_id);
-                    }
-                    if item.batch_key.embedded_needs_extended_vertex_streams {
-                        mesh_ids_needing_extended_streams.insert(item.mesh_asset_id);
-                    }
-                }
-            }
         }
         for (view_id, layout) in prepared_frame_layouts {
             if mv_ctx
@@ -130,26 +112,10 @@ impl CompiledRenderGraph {
                 });
             }
         }
-        logger::trace!(
-            "graph pre-warm per-view resources: views={} uv1_stream_meshes={} extended_stream_meshes={}",
-            views.len(),
-            mesh_ids_needing_uv1_stream.len(),
-            mesh_ids_needing_extended_streams.len(),
-        );
-        for mesh_asset_id in mesh_ids_needing_uv1_stream {
-            let _ = mv_ctx
-                .backend
-                .asset_transfers
-                .mesh_pool_mut()
-                .ensure_uv1_vertex_stream(mv_ctx.device, mesh_asset_id);
-        }
-        for mesh_asset_id in mesh_ids_needing_extended_streams {
-            let _ = mv_ctx
-                .backend
-                .asset_transfers
-                .mesh_pool_mut()
-                .ensure_extended_vertex_streams(mv_ctx.device, mesh_asset_id);
-        }
+        logger::trace!("graph pre-warm per-view resources: views={}", views.len(),);
+        mv_ctx
+            .backend
+            .pre_warm_view_assets_from_blackboards(mv_ctx.device, views);
         Ok(())
     }
 
@@ -285,15 +251,14 @@ fn build_view_layouts(
             let viewport = view.target.extent_px(mv_ctx.gpu);
             let stereo = view.is_multiview_stereo_active();
             let depth_format = view.target.depth_format(mv_ctx.gpu).ok()?;
-            let helper_needs = view.world_mesh_draw_plan.helper_needs();
             Some(crate::backend::PreRecordViewResourceLayout {
                 width: viewport.0,
                 height: viewport.1,
                 stereo,
                 depth_format,
                 color_format,
-                needs_depth_snapshot: helper_needs.depth_snapshot,
-                needs_color_snapshot: helper_needs.color_snapshot,
+                needs_depth_snapshot: view.resource_hints.needs_depth_snapshot,
+                needs_color_snapshot: view.resource_hints.needs_color_snapshot,
             })
         })
         .collect()
