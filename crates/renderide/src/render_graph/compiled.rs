@@ -4,6 +4,7 @@ use crate::backend::BackendGraphAccess;
 use crate::gpu::{GpuContext, GpuLimits};
 use crate::scene::SceneCoordinator;
 
+use super::blackboard::Blackboard;
 use super::error::GraphExecuteError;
 use super::frame_params::FrameViewClear;
 #[cfg(test)]
@@ -15,8 +16,6 @@ use super::resources::{
 };
 use super::schedule::FrameSchedule;
 use crate::camera::{HostCameraFrame, ViewId};
-use crate::world_mesh::draw_prep::WorldMeshDrawCollection;
-use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshHelperNeeds};
 
 /// Single-view color + depth for secondary cameras rendering to a host [`crate::gpu_pools::GpuRenderTexture`].
 pub struct ExternalOffscreenTargets<'a> {
@@ -68,40 +67,19 @@ pub struct FrameView<'a> {
     pub target: FrameViewTarget<'a>,
     /// Background clear/skybox behavior for this view.
     pub clear: FrameViewClear,
-    /// Explicit world-mesh draw plan for this view.
-    pub world_mesh_draw_plan: WorldMeshDrawPlan,
+    /// Resource layout hints required by backend-specific pre-record preparation.
+    pub resource_hints: FrameViewResourceHints,
+    /// Caller-seeded per-view graph state.
+    pub initial_blackboard: Blackboard,
 }
 
-/// Explicit world-mesh draw policy for a [`FrameView`].
-pub enum WorldMeshDrawPlan {
-    /// Use the supplied collection and skip in-graph CPU scene collection.
-    Prefetched(Box<PrefetchedWorldMeshViewDraws>),
-    /// Render no world-mesh draws for this view.
-    Empty,
-}
-
-impl WorldMeshDrawPlan {
-    /// Returns the prefetched collection when this plan carries one.
-    pub fn as_prefetched(&self) -> Option<&WorldMeshDrawCollection> {
-        match self {
-            Self::Prefetched(draws) => Some(&draws.collection),
-            Self::Empty => None,
-        }
-    }
-
-    /// Returns the full prefetched per-view packet when this plan carries one.
-    pub fn as_prefetched_view_draws(&self) -> Option<&PrefetchedWorldMeshViewDraws> {
-        match self {
-            Self::Prefetched(draws) => Some(draws),
-            Self::Empty => None,
-        }
-    }
-
-    /// Returns helper-pass requirements derived during draw collection.
-    pub fn helper_needs(&self) -> WorldMeshHelperNeeds {
-        self.as_prefetched_view_draws()
-            .map_or_else(WorldMeshHelperNeeds::default, |draws| draws.helper_needs)
-    }
+/// Resource layout hints supplied by view preparation before graph execution.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FrameViewResourceHints {
+    /// Whether passes in this view require a scene-depth snapshot resource.
+    pub needs_depth_snapshot: bool,
+    /// Whether passes in this view require a scene-color snapshot resource.
+    pub needs_color_snapshot: bool,
 }
 
 /// Borrows shared across frame-global and per-view [`CompiledRenderGraph::execute_multi_view`] passes.

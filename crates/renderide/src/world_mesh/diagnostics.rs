@@ -255,7 +255,7 @@ pub fn state_rows_from_sorted(draws: &[WorldMeshDrawItem]) -> Vec<WorldMeshDrawS
 mod tests {
     use super::*;
     use crate::materials::{MaterialBlendMode, MaterialDepthOffsetState};
-    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
 
     #[test]
     fn world_mesh_draw_stats_empty() {

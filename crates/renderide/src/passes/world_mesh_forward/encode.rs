@@ -7,10 +7,10 @@
 
 mod vertex_binding;
 
-use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::gpu::GpuLimits;
 use crate::materials::MaterialPipelineSet;
 use crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE;
+use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::world_mesh::{DrawGroup, WorldMeshDrawItem};
 
 use super::MaterialBatchPacket;

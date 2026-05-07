@@ -10,6 +10,8 @@ pub(crate) mod draw_prep;
 pub(crate) mod instances;
 pub(crate) mod materials;
 pub mod prefetch;
+#[cfg(test)]
+pub(crate) mod test_fixtures;
 
 pub use culling::{
     HiZTemporalState, WorldMeshCullInput, WorldMeshCullProjParams,
@@ -29,4 +31,6 @@ pub use instances::{DrawGroup, InstancePlan, build_plan};
 #[cfg(test)]
 pub(crate) use materials::compute_batch_key_hash;
 pub use materials::{FrameMaterialBatchCache, MaterialDrawBatchKey};
-pub use prefetch::{PrefetchedWorldMeshViewDraws, WorldMeshHelperNeeds};
+pub use prefetch::{
+    PrefetchedWorldMeshViewDraws, WorldMeshDrawPlan, WorldMeshDrawPlanSlot, WorldMeshHelperNeeds,
+};

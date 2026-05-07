@@ -183,7 +183,7 @@ mod tests {
     use glam::{Mat4, Vec3};
 
     use crate::materials::RasterPipelineKind;
-    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
 
     use super::{projection_for_world_mesh_draw, select_model_for_vertex_stream};
 

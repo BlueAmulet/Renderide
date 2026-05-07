@@ -11,10 +11,12 @@ use crate::backend::{ExtractedFrameShared, RenderBackend};
 use crate::gpu::GpuContext;
 use crate::mesh_deform::SkinCacheKey;
 use crate::occlusion::HiZCullData;
-use crate::render_graph::{FrameView, GraphExecuteError, WorldMeshDrawPlan};
+use crate::render_graph::blackboard::Blackboard;
+use crate::render_graph::{FrameView, FrameViewResourceHints, GraphExecuteError};
 use crate::world_mesh::{
     DrawCollectionContext, HiZTemporalState, PrefetchedWorldMeshViewDraws, WorldMeshCullInput,
-    WorldMeshCullProjParams, WorldMeshDrawCollectParallelism, build_world_mesh_cull_proj_params,
+    WorldMeshCullProjParams, WorldMeshDrawCollectParallelism, WorldMeshDrawPlan,
+    WorldMeshDrawPlanSlot, build_world_mesh_cull_proj_params,
     collect_and_sort_draws_with_parallelism,
 };
 
@@ -114,7 +116,16 @@ impl<'a> PreparedViews<'a> {
             .prepared
             .iter()
             .zip(draw_plans)
-            .map(|(prep, draws)| prep.to_frame_view(draws))
+            .map(|(prep, draws)| {
+                let helper_needs = draws.helper_needs();
+                let resource_hints = FrameViewResourceHints {
+                    needs_depth_snapshot: helper_needs.depth_snapshot,
+                    needs_color_snapshot: helper_needs.color_snapshot,
+                };
+                let mut initial_blackboard = Blackboard::new();
+                initial_blackboard.insert::<WorldMeshDrawPlanSlot>(draws);
+                prep.to_frame_view(resource_hints, initial_blackboard)
+            })
             .collect();
         if let Some(snapshot) = self.headless_snapshot.as_ref() {
             snapshot.substitute_swapchain_views(&mut views);
@@ -384,8 +395,8 @@ mod tests {
     use crate::camera::{HostCameraFrame, ViewId};
     use crate::mesh_deform::{SkinCacheKey, SkinCacheRendererKind};
     use crate::render_graph::FrameViewClear;
-    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::world_mesh::WorldMeshDrawCollectParallelism;
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawCollection};
 
     use super::super::frame_view_plan::{FrameViewPlan, FrameViewPlanTarget};

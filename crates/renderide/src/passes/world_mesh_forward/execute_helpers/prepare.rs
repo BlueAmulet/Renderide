@@ -1,11 +1,11 @@
 //! Backend frame-plan helpers for world-mesh forward passes.
 
-use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::camera::HostCameraFrame;
 use crate::diagnostics::{PerViewHudConfig, PerViewHudOutputs};
 use crate::gpu::GpuLimits;
 use crate::materials::MaterialSystem;
 use crate::materials::ShaderPermutation;
+use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::{WorldMeshDrawCollection, WorldMeshDrawItem};
@@ -185,7 +185,7 @@ pub(crate) fn prepare_world_mesh_forward_frame(
     // can access both the material system and the asset transfer pools (texture pools).
     let encode_refs = {
         profiling::scope!("world_mesh::prepare_frame::build_encode_refs");
-        frame.world_mesh_forward_encode_refs()
+        WorldMeshForwardEncodeRefs::from_frame(frame)
     };
 
     let precomputed_batches = precompute_and_assign_material_batches(
@@ -353,8 +353,8 @@ mod tests {
     use super::super::super::material_batch::PipelineVariantKey;
     use super::*;
     use crate::materials::{MaterialPipelineDesc, RasterPrimitiveTopology, ShaderPermutation};
-    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::world_mesh::DrawGroup;
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
 
     fn test_packet(first: usize, last: usize) -> MaterialBatchPacket {
         let mut item = dummy_world_mesh_draw_item(DummyDrawItemSpec {

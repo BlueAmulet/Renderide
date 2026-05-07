@@ -27,7 +27,7 @@ mod world_mesh_frame_plan;
 
 pub(crate) use asset_transfers::{AssetIntegrationDrainSummary, AssetTransferQueue};
 pub use cluster_gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, MAX_LIGHTS_PER_TILE};
-pub(crate) use facade::{BackendGraphAccess, ExtractedFrameShared, WorldMeshForwardEncodeRefs};
+pub(crate) use facade::{BackendGraphAccess, ExtractedFrameShared};
 pub use facade::{RenderBackend, RenderBackendAttachDesc};
 pub use frame_gpu::{FrameGpuResources, empty_material_bind_group_layout};
 pub use frame_gpu_bindings::FrameGpuBindingsError;
@@ -42,6 +42,5 @@ pub use history_registry::{
 pub use light_gpu::GpuLight;
 pub(crate) use view_resource_registry::ViewResourceRegistry;
 pub(crate) use world_mesh_frame_plan::{
-    BackendWorldMeshFramePlanner, PerViewFramePlanInputs, WorldMeshFramePlan,
-    WorldMeshPrepareViewInputs, WorldMeshPreparedView,
+    BackendWorldMeshFramePlanner, prepare_world_mesh_view_blackboard,
 };

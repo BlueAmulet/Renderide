@@ -4,7 +4,7 @@ use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
 use std::time::Instant;
 
-use super::super::super::blackboard::Blackboard;
+use super::super::super::blackboard::{Blackboard, GraphCommandStatsSlot};
 use super::super::super::context::{ComputePassCtx, GraphResolvedResources, RasterPassCtx};
 use super::super::super::error::GraphExecuteError;
 use super::super::super::frame_params::{
@@ -18,7 +18,7 @@ use super::super::helpers;
 use super::super::{CompiledRenderGraph, FrameView, MultiViewExecutionContext, ResolvedView};
 use super::{
     GraphResolveKey, PerViewEncodeOutput, PerViewRecordShared, PerViewWorkItem, TimedCommandBuffer,
-    TransientTextureResolveSurfaceParams, WorldMeshCommandStats, elapsed_ms,
+    TransientTextureResolveSurfaceParams, elapsed_ms,
 };
 use crate::backend::BackendGraphAccess;
 use crate::diagnostics::PerViewHudOutputsSlot;
@@ -26,57 +26,6 @@ use crate::passes::post_processing::settings_slot::{
     AutoExposureSettingsSlot, AutoExposureSettingsValue, BloomSettingsSlot, BloomSettingsValue,
     GtaoSettingsSlot, GtaoSettingsValue,
 };
-
-fn world_mesh_command_stats_from_blackboard(blackboard: &Blackboard) -> WorldMeshCommandStats {
-    let Some(prepared) = blackboard.get::<crate::passes::WorldMeshForwardPlanSlot>() else {
-        return WorldMeshCommandStats::default();
-    };
-    let group_pipeline_passes = |group: &crate::world_mesh::DrawGroup| {
-        prepared
-            .precomputed_batches
-            .get(group.material_packet_idx)
-            .and_then(|packet| packet.pipelines.as_ref())
-            .map_or(0, |pipelines| pipelines.len())
-    };
-    let regular_pipeline_passes: usize = prepared
-        .plan
-        .regular_groups
-        .iter()
-        .map(&group_pipeline_passes)
-        .sum();
-    let post_skybox_pipeline_passes: usize = prepared
-        .plan
-        .post_skybox_groups
-        .iter()
-        .map(&group_pipeline_passes)
-        .sum();
-    let intersect_pipeline_passes: usize = prepared
-        .plan
-        .intersect_groups
-        .iter()
-        .map(&group_pipeline_passes)
-        .sum();
-    let transparent_pipeline_passes: usize = prepared
-        .plan
-        .transparent_groups
-        .iter()
-        .map(group_pipeline_passes)
-        .sum();
-    WorldMeshCommandStats {
-        draws: prepared.draws.len(),
-        instance_batches: prepared
-            .plan
-            .regular_groups
-            .len()
-            .saturating_add(prepared.plan.post_skybox_groups.len())
-            .saturating_add(prepared.plan.intersect_groups.len())
-            .saturating_add(prepared.plan.transparent_groups.len()),
-        pipeline_pass_submits: regular_pipeline_passes
-            .saturating_add(post_skybox_pipeline_passes)
-            .saturating_add(intersect_pipeline_passes)
-            .saturating_add(transparent_pipeline_passes),
-    }
-}
 
 impl CompiledRenderGraph {
     /// Records the per-view pass phase into one command buffer for `work_item`.
@@ -95,7 +44,7 @@ impl CompiledRenderGraph {
             view_idx,
             host_camera,
             clear,
-            world_mesh_prepared,
+            initial_blackboard,
             resolved,
             per_view_frame_bg_and_buf,
             ..
@@ -135,7 +84,7 @@ impl CompiledRenderGraph {
         let mut view_blackboard = self.build_per_view_blackboard(
             &frame_params,
             graph_resources,
-            world_mesh_prepared,
+            initial_blackboard,
             per_view_frame_bg_and_buf,
             view_idx,
         );
@@ -178,7 +127,10 @@ impl CompiledRenderGraph {
         {
             prof.end_query(&mut encoder, query);
         }
-        let world_mesh = world_mesh_command_stats_from_blackboard(&view_blackboard);
+        let command_stats = view_blackboard
+            .get::<GraphCommandStatsSlot>()
+            .copied()
+            .unwrap_or_default();
         let hud_outputs = view_blackboard.take::<PerViewHudOutputsSlot>();
         let encode_ms = elapsed_ms(encode_start);
         let (command_buffer, finish_ms) = {
@@ -193,7 +145,7 @@ impl CompiledRenderGraph {
             hud_outputs,
             encode_ms,
             finish_ms,
-            world_mesh,
+            command_stats,
         })
     }
 
@@ -236,35 +188,29 @@ impl CompiledRenderGraph {
         &self,
         frame_params: &crate::render_graph::frame_params::GraphPassFrame<'_>,
         graph_resources: &GraphResolvedResources,
-        world_mesh_prepared: Option<crate::backend::WorldMeshPreparedView>,
+        initial_blackboard: Blackboard,
         per_view_frame_bg_and_buf: (std::sync::Arc<wgpu::BindGroup>, wgpu::Buffer),
         view_idx: usize,
     ) -> Blackboard {
         profiling::scope!("graph::per_view::build_blackboard");
-        let mut view_blackboard = Blackboard::new();
+        let mut view_blackboard = initial_blackboard;
+        let mut graph_blackboard = Blackboard::new();
         if let Some(msaa_views) = helpers::resolve_forward_msaa_views_from_graph_resources(
             frame_params,
             graph_resources,
             self.main_graph_msaa_transient_handles,
         ) {
-            view_blackboard.insert::<MsaaViewsSlot>(msaa_views);
-        }
-        if let Some(world_mesh) = world_mesh_prepared {
-            if let Some(prepared) = world_mesh.prepared {
-                view_blackboard.insert::<crate::passes::WorldMeshForwardPlanSlot>(prepared);
-            }
-            if let Some(hud_outputs) = world_mesh.hud_outputs {
-                view_blackboard.insert::<PerViewHudOutputsSlot>(hud_outputs);
-            }
+            graph_blackboard.insert::<MsaaViewsSlot>(msaa_views);
         }
         let (frame_bg, frame_buf) = per_view_frame_bg_and_buf;
         // Seed per-view frame plan so backend world-mesh planning can write frame uniforms to the
         // correct per-view buffer and bind the right @group(0) bind group.
-        view_blackboard.insert::<PerViewFramePlanSlot>(PerViewFramePlan {
+        graph_blackboard.insert::<PerViewFramePlanSlot>(PerViewFramePlan {
             frame_bind_group: frame_bg,
             frame_uniform_buffer: frame_buf,
             view_idx,
         });
+        view_blackboard.extend(graph_blackboard);
         view_blackboard
     }
 

@@ -222,8 +222,8 @@ mod tests {
     use crate::materials::{
         UNITY_RENDER_QUEUE_ALPHA_TEST, UNITY_RENDER_QUEUE_OVERLAY, UNITY_RENDER_QUEUE_TRANSPARENT,
     };
-    use crate::render_graph::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::world_mesh::materials::compute_batch_key_hash;
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
 
     /// Sets `camera_distance_sq` and refreshes the precomputed `opaque_depth_bucket` and
     /// `sort_prefix` so test fixtures match what `evaluate_draw_candidate` would produce in

@@ -1,8 +1,8 @@
 //! Material draw-packet resolution entry point for backend world-mesh frame planning.
 
-use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::materials::MaterialPipelineDesc;
 use crate::materials::ShaderPermutation;
+use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
