@@ -24,6 +24,7 @@ mod config;
 mod diagnostics;
 mod frontend;
 mod gpu;
+mod gpu_resource;
 
 pub(crate) use gpu::present;
 

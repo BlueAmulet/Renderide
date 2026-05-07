@@ -28,6 +28,7 @@ use super::embedded_material_bind_error::EmbeddedMaterialBindError;
 use super::layout::{EmbeddedSharedKeywordIds, StemMaterialLayout};
 use super::texture_pools::EmbeddedTexturePools;
 use super::texture_resolve::default_embedded_sampler;
+use crate::gpu_resource::ShardedLru;
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
@@ -35,7 +36,7 @@ use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use assemble::build_embedded_bind_group_entries;
 use cache::{
-    EMBEDDED_CACHE_SHARDS, EmbeddedSamplerCacheKey, ShardedLru, TextureDebugCacheKey,
+    EMBEDDED_CACHE_SHARDS, EmbeddedSamplerCacheKey, TextureDebugCacheKey,
     max_cached_embedded_bind_groups, max_cached_embedded_samplers, max_cached_texture_debug_ids,
 };
 use texture_signature::compute_uniform_texture_state_signature;

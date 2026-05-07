@@ -17,10 +17,10 @@ use crate::gpu::bind_layout::{
     fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry,
     uniform_buffer_layout_entry,
 };
+use crate::gpu_resource::{BindGroupMap, OnceGpu, RenderPipelineMap};
 use crate::render_graph::gpu_cache::{
-    BindGroupMap, FullscreenRenderPipelineDesc, OnceGpu, RenderPipelineMap, create_d2_array_view,
-    create_fullscreen_render_pipeline, create_linear_clamp_sampler, create_uniform_buffer,
-    create_wgsl_shader_module,
+    FullscreenRenderPipelineDesc, create_d2_array_view, create_fullscreen_render_pipeline,
+    create_linear_clamp_sampler, create_uniform_buffer, create_wgsl_shader_module,
 };
 
 /// Debug label for the mono shader module (no `MULTIVIEW` define).

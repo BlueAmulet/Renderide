@@ -1,31 +1,20 @@
-//! Small GPU cache primitives for render-graph effect passes.
+//! Small GPU helpers for render-graph effect passes.
 //!
 //! Internal organisation:
 //!
-//! - [`once`] -- one-shot lazy slot ([`OnceGpu`]).
-//! - [`cache`] -- generic locked map with double-check insertion for bind groups (private).
-//! - [`pipeline`] -- keyed single-flight cache for [`wgpu::RenderPipeline`].
-//! - [`bindgroup`] -- typed wrapper for [`wgpu::BindGroup`].
 //! - [`shader`] -- WGSL shader-module construction helper.
 //! - [`samplers`] -- sampler / view / uniform-buffer helpers.
 //! - [`fullscreen`] -- fullscreen-triangle pipeline builders + stereo multiview mask helpers.
 
-mod bindgroup;
-mod cache;
 mod fullscreen;
-mod once;
-mod pipeline;
 mod samplers;
 mod shader;
 
-pub(crate) use bindgroup::BindGroupMap;
 pub(crate) use fullscreen::{
     FullscreenPipelineVariantDesc, FullscreenRenderPipelineDesc, FullscreenShaderVariants,
     create_fullscreen_render_pipeline, fullscreen_pipeline_variant, raster_stereo_mask_override,
     stereo_mask_or_template,
 };
-pub(crate) use once::OnceGpu;
-pub(crate) use pipeline::RenderPipelineMap;
 pub(crate) use samplers::{
     create_d2_array_view, create_linear_clamp_sampler, create_uniform_buffer,
 };
