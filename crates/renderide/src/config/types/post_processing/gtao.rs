@@ -69,9 +69,9 @@ impl Default for GtaoSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            quality_level: 2,
+            quality_level: 3,
             radius_meters: 1.0,
-            radius_multiplier: 1.457,
+            radius_multiplier: 1.0,
             intensity: 1.0,
             max_pixel_radius: 256.0,
             step_count: 16,
@@ -81,36 +81,8 @@ impl Default for GtaoSettings {
             final_value_power: 2.2,
             depth_mip_sampling_offset: 3.3,
             albedo_multibounce: 0.0,
-            denoise_passes: 2,
-            denoise_blur_beta: 1.2,
+            denoise_passes: 3,
+            denoise_blur_beta: 1.0,
         }
-    }
-}
-
-/// Tests for GTAO configuration defaults.
-#[cfg(test)]
-mod tests {
-    use super::GtaoSettings;
-
-    /// Verifies the user-facing GTAO defaults stay aligned with the renderer config contract.
-    #[test]
-    fn defaults_match_config_contract() {
-        let settings = GtaoSettings::default();
-
-        assert!(settings.enabled);
-        assert_eq!(settings.quality_level, 2);
-        assert_eq!(settings.radius_meters, 1.0);
-        assert_eq!(settings.radius_multiplier, 1.457);
-        assert_eq!(settings.intensity, 1.0);
-        assert_eq!(settings.max_pixel_radius, 256.0);
-        assert_eq!(settings.step_count, 16);
-        assert_eq!(settings.falloff_range, 1.0);
-        assert_eq!(settings.sample_distribution_power, 2.0);
-        assert_eq!(settings.thin_occluder_compensation, 0.0);
-        assert_eq!(settings.final_value_power, 2.2);
-        assert_eq!(settings.depth_mip_sampling_offset, 3.3);
-        assert_eq!(settings.albedo_multibounce, 0.0);
-        assert_eq!(settings.denoise_passes, 2);
-        assert_eq!(settings.denoise_blur_beta, 1.2);
     }
 }

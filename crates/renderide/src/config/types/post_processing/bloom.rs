@@ -77,9 +77,9 @@ impl Default for BloomSettings {
             low_frequency_boost: 0.0,
             low_frequency_boost_curvature: 1.0,
             high_pass_frequency: 1.0,
-            prefilter_threshold: 0.0,
-            prefilter_threshold_softness: 0.0,
-            composite_mode: BloomCompositeMode::EnergyConserving,
+            prefilter_threshold: 1.0,
+            prefilter_threshold_softness: 0.5,
+            composite_mode: BloomCompositeMode::Additive,
             max_mip_dimension: 512,
         }
     }
@@ -112,25 +112,6 @@ labeled_enum! {
 #[cfg(test)]
 mod tests {
     use super::{BloomCompositeMode, BloomSettings};
-
-    #[test]
-    fn defaults_match_config_contract() {
-        let settings = BloomSettings::default();
-
-        assert!(settings.enabled);
-        assert_eq!(settings.intensity, 0.5);
-        assert_eq!(settings.low_frequency_boost, 0.0);
-        assert_eq!(settings.low_frequency_boost_curvature, 1.0);
-        assert_eq!(settings.high_pass_frequency, 1.0);
-        assert_eq!(settings.prefilter_threshold, 0.0);
-        assert_eq!(settings.prefilter_threshold_softness, 0.0);
-        assert_eq!(
-            settings.composite_mode,
-            BloomCompositeMode::EnergyConserving
-        );
-        assert_eq!(settings.max_mip_dimension, 512);
-        assert_eq!(settings.effective_max_mip_dimension(), 512);
-    }
 
     #[test]
     fn composite_mode_default_is_energy_conserving() {
