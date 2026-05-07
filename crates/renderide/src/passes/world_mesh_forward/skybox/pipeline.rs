@@ -131,7 +131,7 @@ pub(super) fn create_skybox_pipeline(
     target: SkyboxPipelineTarget,
     depth: SkyboxDepthState,
 ) -> wgpu::RenderPipeline {
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
         layout: Some(layout),
         vertex: wgpu::VertexState {
@@ -174,7 +174,9 @@ pub(super) fn create_skybox_pipeline(
             .then(|| std::num::NonZeroU32::new(3))
             .flatten(),
         cache: None,
-    })
+    });
+    crate::profiling::note_resource_churn!(RenderPipeline, "passes::skybox_pipeline");
+    pipeline
 }
 
 #[cfg(test)]

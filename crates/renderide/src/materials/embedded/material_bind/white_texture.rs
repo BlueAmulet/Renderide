@@ -72,6 +72,7 @@ pub(super) fn create_white(device: &wgpu::Device, kind: TextureBindKind) -> Whit
         ..Default::default()
     };
     let view = Arc::new(texture.create_view(&view_descriptor));
+    crate::profiling::note_resource_churn!(TextureView, "materials::embedded_white_texture_view");
     WhiteTexture { texture, view }
 }
 

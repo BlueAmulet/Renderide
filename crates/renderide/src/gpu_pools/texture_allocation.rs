@@ -46,5 +46,6 @@ pub(crate) fn create_sampled_copy_dst_texture(
         dimension: desc.view.dimension,
         ..Default::default()
     });
+    crate::profiling::note_resource_churn!(TextureView, "gpu_pools::sampled_copy_dst_texture_view");
     (Arc::new(texture), Arc::new(view))
 }

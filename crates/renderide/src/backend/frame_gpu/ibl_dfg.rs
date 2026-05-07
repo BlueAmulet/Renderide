@@ -64,6 +64,7 @@ pub(super) fn create_ibl_dfg_lut(
         base_array_layer: 0,
         array_layer_count: Some(1),
     }));
+    crate::profiling::note_resource_churn!(TextureView, "backend::frame_ibl_dfg_lut_view");
     (texture, view)
 }
 

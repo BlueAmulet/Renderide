@@ -108,7 +108,7 @@ pub(crate) fn create_fullscreen_render_pipeline(
         bind_group_layouts: desc.bind_group_layouts,
         immediate_size: 0,
     });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(desc.label),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
@@ -135,7 +135,9 @@ pub(crate) fn create_fullscreen_render_pipeline(
         multisample: Default::default(),
         multiview_mask: multiview_mask(desc.multiview_stereo),
         cache: None,
-    })
+    });
+    crate::profiling::note_resource_churn!(RenderPipeline, "render_graph::fullscreen_pipeline");
+    pipeline
 }
 
 /// Returns or builds a fullscreen pipeline from paired mono/multiview caches.

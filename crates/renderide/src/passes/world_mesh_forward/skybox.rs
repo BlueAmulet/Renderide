@@ -272,6 +272,7 @@ impl SkyboxRenderer {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
+                crate::profiling::note_resource_churn!(Buffer, "passes::skybox_view_uniform");
                 let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("skybox_view"),
                     layout: self.view_layout(device),
@@ -280,6 +281,7 @@ impl SkyboxRenderer {
                         resource: buffer.as_entire_binding(),
                     }],
                 }));
+                crate::profiling::note_resource_churn!(BindGroup, "passes::skybox_view_bind_group");
                 SkyboxViewBinding { buffer, bind_group }
             });
             let resolved = (entry.buffer.clone(), Arc::clone(&entry.bind_group));

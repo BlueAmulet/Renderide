@@ -68,6 +68,10 @@ pub(super) fn ensure_projection_pipeline<'a>(
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
+        crate::profiling::note_resource_churn!(
+            ComputePipeline,
+            "reflection_probes::projection_pipeline"
+        );
         *slot = Some(ProjectionPipeline { pipeline, layout });
     }
     slot.as_ref()
@@ -219,18 +223,21 @@ fn create_projection_buffers(gpu: &GpuContext, params: &Sh2ProjectParams) -> Pro
             contents: bytemuck::bytes_of(params),
             usage: wgpu::BufferUsages::UNIFORM,
         });
+    crate::profiling::note_resource_churn!(Buffer, "reflection_probes::projection_params_buffer");
     let output = gpu.device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("SH2 projection output"),
         size: SH2_OUTPUT_BYTES,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
+    crate::profiling::note_resource_churn!(Buffer, "reflection_probes::projection_output_buffer");
     let staging = gpu.device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("SH2 projection readback"),
         size: SH2_OUTPUT_BYTES,
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
+    crate::profiling::note_resource_churn!(Buffer, "reflection_probes::projection_readback_buffer");
     ProjectionJobBuffers {
         params,
         output,
@@ -248,11 +255,13 @@ fn create_projection_bind_group(
     profiling::scope!("reflection_probe_sh2::projection_bind_group");
     let mut entries = projection_bind_entries(buffers, extra_bindings);
     entries.sort_by_key(|entry| entry.binding);
-    gpu.device().create_bind_group(&wgpu::BindGroupDescriptor {
+    let bind_group = gpu.device().create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("SH2 projection bind group"),
         layout: &pipeline.layout,
         entries: &entries,
-    })
+    });
+    crate::profiling::note_resource_churn!(BindGroup, "reflection_probes::projection_bind_group");
+    bind_group
 }
 
 /// Builds bind entries for the projection bind group.

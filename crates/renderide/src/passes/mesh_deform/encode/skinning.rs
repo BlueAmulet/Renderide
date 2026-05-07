@@ -315,6 +315,7 @@ fn skinning_dispatch_with_uploaded_palette(dispatch: SkinningPaletteDispatch<'_>
                 ],
             })
     };
+    crate::profiling::note_resource_churn!(BindGroup, "mesh_deform::skinning_bind_group");
 
     let pass_query = dispatch
         .profiler

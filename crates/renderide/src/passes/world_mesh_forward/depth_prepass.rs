@@ -130,7 +130,7 @@ impl WorldMeshForwardDepthPrepassPipelineCache {
             bind_group_layouts: &[Some(per_draw_layout)],
             immediate_size: 0,
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(label),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -160,7 +160,12 @@ impl WorldMeshForwardDepthPrepassPipelineCache {
             },
             multiview_mask: key.multiview_mask,
             cache: None,
-        })
+        });
+        crate::profiling::note_resource_churn!(
+            RenderPipeline,
+            "passes::world_mesh_depth_prepass_pipeline"
+        );
+        pipeline
     }
 
     fn per_draw_layout(&self, device: &wgpu::Device) -> &wgpu::BindGroupLayout {

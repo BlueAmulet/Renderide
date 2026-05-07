@@ -145,13 +145,15 @@ struct Arena {
 
 impl Arena {
     fn new(device: &wgpu::Device, capacity: u64, label: &'static str) -> Self {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: capacity,
+            usage: arena_usage(),
+            mapped_at_creation: false,
+        });
+        crate::profiling::note_resource_churn!(Buffer, "mesh_deform::skin_cache_arena");
         Self {
-            buffer: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: capacity,
-                usage: arena_usage(),
-                mapped_at_creation: false,
-            }),
+            buffer,
             alloc: RangeAllocator::new(capacity, ARENA_ALIGN),
             label,
         }
@@ -168,6 +170,7 @@ impl Arena {
             usage: arena_usage(),
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "mesh_deform::skin_cache_arena_grow");
         encoder.copy_buffer_to_buffer(&self.buffer, 0, &new_buf, 0, old_size);
         self.buffer = new_buf;
         self.alloc.grow_to(new_cap);

@@ -60,6 +60,7 @@ pub(super) fn encode_resolve(
             },
         ],
     });
+    crate::profiling::note_resource_churn!(BindGroup, "gpu::msaa_depth_resolve_compute_bg");
 
     let blit_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("msaa_depth_blit_bg"),
@@ -69,6 +70,7 @@ pub(super) fn encode_resolve(
             resource: wgpu::BindingResource::TextureView(r32_view),
         }],
     });
+    crate::profiling::note_resource_churn!(BindGroup, "gpu::msaa_depth_blit_bg");
 
     let compute_query = profiler.map(|p| p.begin_pass_query("msaa_depth_resolve.compute", encoder));
     {
@@ -174,6 +176,10 @@ pub(super) fn encode_resolve_stereo(
                 },
             ],
         });
+        crate::profiling::note_resource_churn!(
+            BindGroup,
+            "gpu::msaa_depth_resolve_compute_bg_stereo"
+        );
         let label = if eye == 0 {
             "msaa_depth_resolve.compute_stereo_eye0"
         } else {
@@ -202,6 +208,7 @@ pub(super) fn encode_resolve_stereo(
             resource: wgpu::BindingResource::TextureView(r32_array_view),
         }],
     });
+    crate::profiling::note_resource_churn!(BindGroup, "gpu::msaa_depth_blit_bg_stereo");
 
     let blit_query =
         profiler.map(|p| p.begin_pass_query("msaa_depth_resolve.blit_stereo", encoder));

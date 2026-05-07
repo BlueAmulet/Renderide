@@ -68,12 +68,14 @@ fn compute_readback_layout(
 }
 
 fn create_readback_buffer(gpu: &GpuContext, layout: &ReadbackLayout) -> wgpu::Buffer {
-    gpu.device().create_buffer(&wgpu::BufferDescriptor {
+    let buffer = gpu.device().create_buffer(&wgpu::BufferDescriptor {
         label: Some("renderide-headless-readback"),
         size: layout.buffer_size,
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
-    })
+    });
+    crate::profiling::note_resource_churn!(Buffer, "app::headless_readback_buffer");
+    buffer
 }
 
 fn submit_texture_to_buffer_copy(

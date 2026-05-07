@@ -352,7 +352,7 @@ impl FrameGpuResources {
         ibl_dfg_lut_view: &wgpu::TextureView,
     ) -> Arc<wgpu::BindGroup> {
         let layout = Self::bind_group_layout(device);
-        Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("frame_globals_bind_group"),
             layout: &layout,
             entries: &[
@@ -409,7 +409,9 @@ impl FrameGpuResources {
                     resource: reflection_probes.metadata_buffer.as_entire_binding(),
                 },
             ],
-        }))
+        }));
+        crate::profiling::note_resource_churn!(BindGroup, "backend::frame_globals_bind_group");
+        bind_group
     }
 
     /// Returns the currently selected reflection-probe bind-group resources.
@@ -460,12 +462,14 @@ impl FrameGpuResources {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "backend::frame_globals_uniform");
         let lights_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frame_lights_storage"),
             size: lights_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "backend::frame_lights_storage");
         let mut cluster_cache = ClusterBufferCache::new();
         cluster_cache
             .ensure_buffers(device, limits.as_ref(), (1, 1), CLUSTER_COUNT_Z, false)

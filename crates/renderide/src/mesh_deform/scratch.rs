@@ -34,12 +34,14 @@ struct GrowableBuffer {
 
 impl GrowableBuffer {
     fn create(&self, device: &wgpu::Device, requested: u64) -> wgpu::Buffer {
-        device.create_buffer(&wgpu::BufferDescriptor {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(self.label),
             size: requested.max(self.min_size),
             usage: self.usage,
             mapped_at_creation: false,
-        })
+        });
+        crate::profiling::note_resource_churn!(Buffer, "mesh_deform::scratch_buffer");
+        buffer
     }
 
     /// Ensures `buf` is at least `need_bytes` long, growing to the next power of two.

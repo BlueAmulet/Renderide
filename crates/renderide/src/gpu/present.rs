@@ -232,6 +232,7 @@ where
     let view = frame
         .texture
         .create_view(&wgpu::TextureViewDescriptor::default());
+    crate::profiling::note_resource_churn!(TextureView, "gpu::present_clear_surface_view");
     let mut encoder = gpu
         .device()
         .create_command_encoder(&wgpu::CommandEncoderDescriptor {

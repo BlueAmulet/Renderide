@@ -377,7 +377,7 @@ fn dispatch_hi_z_mip0_desktop(args: &mut HiZMip0EncodeContext<'_>) {
     let pyramid_views = args.pyramid_views;
     let layout = &args.pipes.bgl_mip0_desktop;
     let bg = args.scratch.bind_groups.mip0_desktop_or_build(|| {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("hi_z_mip0_d_bg"),
             layout,
             entries: &[
@@ -390,7 +390,9 @@ fn dispatch_hi_z_mip0_desktop(args: &mut HiZMip0EncodeContext<'_>) {
                     resource: wgpu::BindingResource::TextureView(&pyramid_views[0]),
                 },
             ],
-        })
+        });
+        crate::profiling::note_resource_churn!(BindGroup, "occlusion::hi_z_mip0_desktop_bg");
+        bind_group
     });
     let pass_query = args
         .profiler
@@ -432,7 +434,7 @@ fn dispatch_hi_z_mip0_stereo(args: &mut HiZMip0EncodeContext<'_>, layer: u32) {
     let layout = &args.pipes.bgl_mip0_stereo;
     let layer_uniform = args.scratch.layer_uniform.clone();
     let bg = args.scratch.bind_groups.mip0_stereo_or_build(layer, || {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("hi_z_mip0_s_bg"),
             layout,
             entries: &[
@@ -449,7 +451,9 @@ fn dispatch_hi_z_mip0_stereo(args: &mut HiZMip0EncodeContext<'_>, layer: u32) {
                     resource: wgpu::BindingResource::TextureView(&pyramid_views[0]),
                 },
             ],
-        })
+        });
+        crate::profiling::note_resource_churn!(BindGroup, "occlusion::hi_z_mip0_stereo_bg");
+        bind_group
     });
     let pass_query = args
         .profiler
@@ -514,7 +518,7 @@ fn dispatch_hi_z_downsample_mips(args: &mut HiZDownsampleContext<'_>) {
         let downsample_uniform = args.scratch.downsample_uniform.clone();
         let pyramid_views = args.pyramid_views;
         let build = || {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("hi_z_ds_bg"),
                 layout,
                 entries: &[
@@ -533,7 +537,9 @@ fn dispatch_hi_z_downsample_mips(args: &mut HiZDownsampleContext<'_>) {
                         resource: downsample_uniform.as_entire_binding(),
                     },
                 ],
-            })
+            });
+            crate::profiling::note_resource_churn!(BindGroup, "occlusion::hi_z_downsample_bg");
+            bind_group
         };
         let bg = match args.side {
             PyramidSide::DesktopOrLeft => args

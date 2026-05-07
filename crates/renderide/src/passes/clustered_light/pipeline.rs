@@ -125,14 +125,19 @@ impl ClusteredLightPipelineCache {
                 label: Some("clustered_light"),
                 source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("clustered_light").into()),
             });
-            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("clustered_light"),
                 layout: Some(&layout),
                 module: &shader,
                 entry_point: Some("main"),
                 compilation_options: Default::default(),
                 cache: None,
-            })
+            });
+            crate::profiling::note_resource_churn!(
+                ComputePipeline,
+                "passes::clustered_light_pipeline"
+            );
+            pipeline
         })
     }
 }

@@ -110,6 +110,7 @@ impl AppDriver {
 
     fn finish_frame_tick(&mut self) {
         self.frame_tick_epilogue();
+        crate::profiling::flush_resource_churn_plots();
         crate::profiling::emit_frame_mark();
     }
 

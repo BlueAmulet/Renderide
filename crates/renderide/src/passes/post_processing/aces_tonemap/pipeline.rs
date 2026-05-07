@@ -120,7 +120,7 @@ impl AcesTonemapPipelineCache {
                 "aces_tonemap_sampled",
                 *multiview_stereo,
             );
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("aces_tonemap"),
                 layout: self.bind_group_layout(device),
                 entries: &[
@@ -133,7 +133,9 @@ impl AcesTonemapPipelineCache {
                         resource: wgpu::BindingResource::Sampler(self.sampler(device)),
                     },
                 ],
-            })
+            });
+            crate::profiling::note_resource_churn!(BindGroup, "passes::aces_tonemap_bind_group");
+            bind_group
         })
     }
 }

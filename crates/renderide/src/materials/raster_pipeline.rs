@@ -186,7 +186,7 @@ pub(crate) fn build_pipeline_from_pass(
     let pass_label = format!("{}__{}", shared.label, pass.name);
     {
         profiling::scope!("materials::create_render_pipeline_wgpu");
-        shared
+        let pipeline = shared
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(&pass_label),
@@ -234,7 +234,9 @@ pub(crate) fn build_pipeline_from_pass(
                 },
                 multiview_mask: shared.desc.multiview_mask,
                 cache: None,
-            })
+            });
+        crate::profiling::note_resource_churn!(RenderPipeline, "materials::raster_pipeline");
+        pipeline
     }
 }
 

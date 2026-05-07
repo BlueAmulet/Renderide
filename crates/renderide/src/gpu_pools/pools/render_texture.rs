@@ -117,6 +117,7 @@ impl GpuRenderTexture {
         }));
         let color_view =
             Arc::new(color_texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        crate::profiling::note_resource_churn!(TextureView, "gpu_pools::render_texture_color_view");
 
         // Host `depth` is Unity depth-stencil bits; when zero the asset may still be used as a full
         // scene target -- we always allocate a depth attachment so the forward pass can run.
@@ -135,6 +136,7 @@ impl GpuRenderTexture {
             view_formats: &[],
         }));
         let dv = Arc::new(dt.create_view(&wgpu::TextureViewDescriptor::default()));
+        crate::profiling::note_resource_churn!(TextureView, "gpu_pools::render_texture_depth_view");
         let depth_texture = Some(dt);
         let depth_view = Some(dv);
 

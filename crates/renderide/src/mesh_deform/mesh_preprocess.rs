@@ -107,6 +107,7 @@ impl MeshPreprocessPipelines {
             compilation_options: Default::default(),
             cache: None,
         });
+        crate::profiling::note_resource_churn!(ComputePipeline, "mesh_deform::skinning_pipeline");
 
         let blend_bgl = blendshape_bind_group_layout(device);
         let blend_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -123,6 +124,10 @@ impl MeshPreprocessPipelines {
                 compilation_options: Default::default(),
                 cache: None,
             });
+        crate::profiling::note_resource_churn!(
+            ComputePipeline,
+            "mesh_deform::blendshape_scatter_pipeline"
+        );
 
         Ok(Self {
             skinning_bind_group_layout: skin_bgl,

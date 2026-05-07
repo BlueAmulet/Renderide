@@ -281,6 +281,7 @@ impl CompiledRenderGraph {
                 array_layer_count: Some(desc.array_layer_count.max(1)),
                 ..Default::default()
             });
+            crate::profiling::note_resource_churn!(TextureView, "render_graph::subresource_view");
             resources.set_subresource_view(SubresourceHandle(idx as u32), view);
         }
     }

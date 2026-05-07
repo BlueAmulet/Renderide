@@ -110,7 +110,7 @@ impl SceneColorComposePipelineCache {
                 "scene_color_compose_sampled",
                 *multiview_stereo,
             );
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("scene_color_compose"),
                 layout: self.bind_group_layout(device),
                 entries: &[
@@ -123,7 +123,12 @@ impl SceneColorComposePipelineCache {
                         resource: wgpu::BindingResource::Sampler(self.sampler(device)),
                     },
                 ],
-            })
+            });
+            crate::profiling::note_resource_churn!(
+                BindGroup,
+                "passes::scene_color_compose_bind_group"
+            );
+            bind_group
         })
     }
 }

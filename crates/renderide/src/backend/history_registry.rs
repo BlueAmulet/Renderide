@@ -145,6 +145,10 @@ impl TextureHistorySlot {
                     view_formats: &[],
                 });
                 let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                crate::profiling::note_resource_churn!(
+                    TextureView,
+                    "backend::history_texture_default_view"
+                );
                 let mip_views = create_texture_history_mip_views(&texture, &self.spec);
                 *slot = Some(HistoryTexture {
                     texture,
@@ -184,6 +188,7 @@ impl BufferHistorySlot {
                     usage: self.spec.usage,
                     mapped_at_creation: false,
                 });
+                crate::profiling::note_resource_churn!(Buffer, "backend::history_buffer");
                 *slot = Some(buffer);
             }
         }
@@ -471,6 +476,10 @@ fn create_texture_history_mip_views(
                 array_layer_count: Some(1),
                 ..Default::default()
             }));
+            crate::profiling::note_resource_churn!(
+                TextureView,
+                "backend::history_texture_mip_layer_view"
+            );
         }
         layers.push(Arc::<[wgpu::TextureView]>::from(mips));
     }

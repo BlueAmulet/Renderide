@@ -559,12 +559,14 @@ impl GpuMesh {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "assets::mesh_empty_vertices");
         let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(&format!("mesh {} empty indices", data.asset_id)),
             size: EMPTY_MESH_PLACEHOLDER_BYTES,
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "assets::mesh_empty_indices");
         let resident_bytes = vertex_buffer.size() + index_buffer.size();
 
         Self {

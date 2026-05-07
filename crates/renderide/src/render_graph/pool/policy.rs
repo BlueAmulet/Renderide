@@ -160,6 +160,7 @@ pub(super) fn create_texture_and_view(
     } else {
         texture.create_view(&wgpu::TextureViewDescriptor::default())
     };
+    crate::profiling::note_resource_churn!(TextureView, "render_graph::transient_texture_view");
     (texture, view)
 }
 
@@ -170,12 +171,14 @@ pub(super) fn create_buffer(
     usage: wgpu::BufferUsages,
     size: u64,
 ) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size: size.max(1),
         usage,
         mapped_at_creation: false,
-    })
+    });
+    crate::profiling::note_resource_churn!(Buffer, "render_graph::transient_buffer");
+    buffer
 }
 
 #[cfg(test)]

@@ -270,7 +270,7 @@ impl BloomPipelineCache {
         self.group0_bind_groups.get_or_create(key, |key| {
             let (texture, multiview_stereo) = key;
             let view = create_d2_array_view(texture, "bloom-group0-src", *multiview_stereo);
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("bloom-group0"),
                 layout: self.bind_group_layout_0(device),
                 entries: &[
@@ -287,7 +287,9 @@ impl BloomPipelineCache {
                         resource: self.params_buffer(device).as_entire_binding(),
                     },
                 ],
-            })
+            });
+            crate::profiling::note_resource_churn!(BindGroup, "passes::bloom_group0_bind_group");
+            bind_group
         })
     }
 
@@ -302,14 +304,16 @@ impl BloomPipelineCache {
         self.group1_bind_groups.get_or_create(key, |key| {
             let (bloom_mip0, multiview_stereo) = key;
             let view = create_d2_array_view(bloom_mip0, "bloom-group1-mip0", *multiview_stereo);
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("bloom-group1"),
                 layout: self.bind_group_layout_1(device),
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&view),
                 }],
-            })
+            });
+            crate::profiling::note_resource_churn!(BindGroup, "passes::bloom_group1_bind_group");
+            bind_group
         })
     }
 }

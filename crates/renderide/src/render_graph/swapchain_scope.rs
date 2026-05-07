@@ -53,6 +53,7 @@ impl SwapchainScope {
         let view = tex
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        crate::profiling::note_resource_churn!(TextureView, "render_graph::swapchain_view");
         Self {
             inner: Some(tex),
             backbuffer_view: Some(view),

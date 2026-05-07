@@ -15,11 +15,13 @@ fn empty_material_bind_group(
     device: &wgpu::Device,
     layout: &wgpu::BindGroupLayout,
 ) -> wgpu::BindGroup {
-    device.create_bind_group(&wgpu::BindGroupDescriptor {
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("empty_material_bind_group"),
         layout,
         entries: &[],
-    })
+    });
+    crate::profiling::note_resource_churn!(BindGroup, "backend::empty_material_bind_group");
+    bind_group
 }
 
 /// Cached empty material bind group layout plus instance for one device attach.

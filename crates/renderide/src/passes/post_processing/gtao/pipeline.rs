@@ -316,8 +316,8 @@ impl GtaoMainPipelineCache {
                 blend: None,
                 write_mask: wgpu::ColorWrites::ALL,
             };
-            Arc::new(
-                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            let pipeline = Arc::new(device.create_render_pipeline(
+                &wgpu::RenderPipelineDescriptor {
                     label: Some(label),
                     layout: Some(&pipeline_layout),
                     vertex: wgpu::VertexState {
@@ -340,8 +340,10 @@ impl GtaoMainPipelineCache {
                     multisample: Default::default(),
                     multiview_mask: stereo_mask_or_template(multiview_stereo, None),
                     cache: None,
-                }),
-            )
+                },
+            ));
+            crate::profiling::note_resource_churn!(RenderPipeline, "passes::gtao_main_pipeline");
+            pipeline
         })
         .clone()
     }
@@ -377,6 +379,7 @@ impl GtaoMainPipelineCache {
                     array_layer_count: depth_layer_count,
                     ..Default::default()
                 });
+            crate::profiling::note_resource_churn!(TextureView, "passes::gtao_main_depth_view");
             let normals_view = key
                 .view_normals_texture
                 .create_view(&wgpu::TextureViewDescriptor {
@@ -387,7 +390,8 @@ impl GtaoMainPipelineCache {
                     array_layer_count: depth_layer_count,
                     ..Default::default()
                 });
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+            crate::profiling::note_resource_churn!(TextureView, "passes::gtao_main_normals_view");
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("gtao_main"),
                 layout: self.bind_group_layout(device, key.multiview_stereo),
                 entries: &[
@@ -408,7 +412,9 @@ impl GtaoMainPipelineCache {
                         resource: params_buffer.as_entire_binding(),
                     },
                 ],
-            })
+            });
+            crate::profiling::note_resource_churn!(BindGroup, "passes::gtao_main_bind_group");
+            bind_group
         })
     }
 }
@@ -495,16 +501,21 @@ impl GtaoDepthPrefilterPipelineCache {
                     bind_group_layouts: &[Some(self.mip0_bind_group_layout(device))],
                     immediate_size: 0,
                 });
-                Arc::new(
-                    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                let pipeline = Arc::new(device.create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
                         label: Some("gtao_prefilter_mip0"),
                         layout: Some(&layout),
                         module: &shader,
                         entry_point: Some("cs_main"),
                         compilation_options: Default::default(),
                         cache: None,
-                    }),
-                )
+                    },
+                ));
+                crate::profiling::note_resource_churn!(
+                    ComputePipeline,
+                    "passes::gtao_prefilter_mip0_pipeline"
+                );
+                pipeline
             })
             .clone()
     }
@@ -523,16 +534,21 @@ impl GtaoDepthPrefilterPipelineCache {
                     bind_group_layouts: &[Some(self.downsample_bind_group_layout(device))],
                     immediate_size: 0,
                 });
-                Arc::new(
-                    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                let pipeline = Arc::new(device.create_compute_pipeline(
+                    &wgpu::ComputePipelineDescriptor {
                         label: Some("gtao_prefilter_downsample"),
                         layout: Some(&layout),
                         module: &shader,
                         entry_point: Some("cs_main"),
                         compilation_options: Default::default(),
                         cache: None,
-                    }),
-                )
+                    },
+                ));
+                crate::profiling::note_resource_churn!(
+                    ComputePipeline,
+                    "passes::gtao_prefilter_downsample_pipeline"
+                );
+                pipeline
             })
             .clone()
     }
@@ -624,7 +640,7 @@ impl GtaoDenoisePipelineCache {
                 create_d2_array_view(&key.ao_term, "gtao_denoise_ao", key.multiview_stereo);
             let edges_view =
                 create_d2_array_view(&key.ao_edges, "gtao_denoise_edges", key.multiview_stereo);
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("gtao_denoise"),
                 layout: self.bind_group_layout(device),
                 entries: &[
@@ -641,7 +657,9 @@ impl GtaoDenoisePipelineCache {
                         resource: params_buffer.as_entire_binding(),
                     },
                 ],
-            })
+            });
+            crate::profiling::note_resource_churn!(BindGroup, "passes::gtao_denoise_bind_group");
+            bind_group
         })
     }
 }
@@ -750,7 +768,7 @@ impl GtaoApplyPipelineCache {
             let ao_view = create_d2_array_view(&key.ao_term, "gtao_apply_ao", key.multiview_stereo);
             let edges_view =
                 create_d2_array_view(&key.ao_edges, "gtao_apply_edges", key.multiview_stereo);
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("gtao_apply"),
                 layout: self.bind_group_layout(device),
                 entries: &[
@@ -775,7 +793,9 @@ impl GtaoApplyPipelineCache {
                         resource: params_buffer.as_entire_binding(),
                     },
                 ],
-            })
+            });
+            crate::profiling::note_resource_churn!(BindGroup, "passes::gtao_apply_bind_group");
+            bind_group
         })
     }
 }

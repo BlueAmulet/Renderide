@@ -45,6 +45,7 @@ mod gpu_profiler_impl;
 #[cfg(not(feature = "tracy"))]
 mod gpu_profiler_stub;
 mod plots;
+mod resource_churn;
 #[cfg(test)]
 mod tests;
 
@@ -67,4 +68,7 @@ pub use plots::{
     plot_asset_integration, plot_command_encoding, plot_driver_submit_backlog,
     plot_event_loop_idle_ms, plot_event_loop_wait_ms, plot_fps_cap_active, plot_frame_upload_batch,
     plot_mesh_deform, plot_surface_acquire_outcome, plot_window_focused, plot_world_mesh_subpass,
+};
+pub(crate) use resource_churn::{
+    ResourceChurnKind, ResourceChurnSite, flush_resource_churn_plots, note_resource_churn,
 };

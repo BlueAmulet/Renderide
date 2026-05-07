@@ -79,6 +79,7 @@ impl SinkState {
         }));
 
         let view = Arc::new(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+        crate::profiling::note_resource_churn!(TextureView, "assets::video_cpu_copy_view");
 
         self.write_texture = Some(texture);
         self.width = width;

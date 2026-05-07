@@ -23,6 +23,10 @@ fn stubs_are_accessible_without_tracy_feature() {
     plot_surface_acquire_outcome(true, false, false);
     plot_event_loop_wait_ms(11.0);
     plot_event_loop_idle_ms(11.0);
+    static CHURN_SITE: ResourceChurnSite =
+        ResourceChurnSite::new(ResourceChurnKind::Buffer, "profiling_no_tracy_stub_test");
+    CHURN_SITE.note();
+    flush_resource_churn_plots();
     let profiler = GpuProfilerHandle;
     assert!(!profiler.has_queries_opened_since_frame_end());
     assert!(!profiler.end_frame_if_queries_opened());

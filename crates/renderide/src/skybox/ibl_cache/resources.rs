@@ -73,7 +73,7 @@ pub(super) fn create_ibl_cube(
 /// overlapping subresources as a usage conflict between `RESOURCE` and `STORAGE_WRITE_ONLY`.
 /// A mip-0-only view is non-overlapping with every per-mip storage view (mip >= 1).
 pub(super) fn create_mip0_cube_sample_view(texture: &wgpu::Texture) -> wgpu::TextureView {
-    texture.create_view(&wgpu::TextureViewDescriptor {
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
         label: Some("skybox_ibl_cube_mip0_sample_view"),
         format: Some(IBL_CUBE_FORMAT),
         dimension: Some(wgpu::TextureViewDimension::Cube),
@@ -83,12 +83,14 @@ pub(super) fn create_mip0_cube_sample_view(texture: &wgpu::Texture) -> wgpu::Tex
         mip_level_count: Some(1),
         base_array_layer: 0,
         array_layer_count: Some(6),
-    })
+    });
+    crate::profiling::note_resource_churn!(TextureView, "skybox::ibl_mip0_sample_view");
+    view
 }
 
 /// Creates a per-mip storage view for one face-array of the destination cube.
 pub(super) fn create_mip_storage_view(texture: &wgpu::Texture, mip: u32) -> wgpu::TextureView {
-    texture.create_view(&wgpu::TextureViewDescriptor {
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
         label: Some("skybox_ibl_mip_storage_view"),
         format: Some(IBL_CUBE_FORMAT),
         dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -98,5 +100,7 @@ pub(super) fn create_mip_storage_view(texture: &wgpu::Texture, mip: u32) -> wgpu
         mip_level_count: Some(1),
         base_array_layer: 0,
         array_layer_count: Some(6),
-    })
+    });
+    crate::profiling::note_resource_churn!(TextureView, "skybox::ibl_mip_storage_view");
+    view
 }

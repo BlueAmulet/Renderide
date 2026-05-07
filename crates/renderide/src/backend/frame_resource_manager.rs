@@ -351,6 +351,7 @@ impl FrameResourceManager {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            crate::profiling::note_resource_churn!(Buffer, "backend::per_view_frame_uniform");
             let cluster_params_buffer = make_cluster_params_buffer(device, stereo);
             let mut scene_snapshots =
                 PerViewSceneSnapshots::new(device, layout.depth_format, layout.color_format);
@@ -696,12 +697,14 @@ impl FrameResourceManager {
 /// racing against other views' writes in the shared graph upload sink.
 fn make_cluster_params_buffer(device: &wgpu::Device, stereo: bool) -> wgpu::Buffer {
     let eye_multiplier = if stereo { 2 } else { 1 };
-    device.create_buffer(&wgpu::BufferDescriptor {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("per_view_cluster_params_uniform"),
         size: CLUSTER_PARAMS_UNIFORM_SIZE * eye_multiplier,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
-    })
+    });
+    crate::profiling::note_resource_churn!(Buffer, "backend::per_view_cluster_params_uniform");
+    buffer
 }
 
 #[cfg(test)]

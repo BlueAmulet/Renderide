@@ -83,25 +83,31 @@ pub(super) struct ViewAutoExposureGpuState {
 
 impl ViewAutoExposureGpuState {
     pub(super) fn new(device: &wgpu::Device) -> Self {
+        let settings = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("auto_exposure_settings"),
+            size: size_of::<AutoExposureParamsGpu>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        crate::profiling::note_resource_churn!(Buffer, "passes::auto_exposure_settings");
+        let histogram = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("auto_exposure_histogram"),
+            size: HISTOGRAM_BUFFER_SIZE,
+            usage: wgpu::BufferUsages::STORAGE,
+            mapped_at_creation: false,
+        });
+        crate::profiling::note_resource_churn!(Buffer, "passes::auto_exposure_histogram");
+        let exposure = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("auto_exposure_ev"),
+            size: EXPOSURE_BUFFER_SIZE,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        crate::profiling::note_resource_churn!(Buffer, "passes::auto_exposure_ev");
         Self {
-            settings: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("auto_exposure_settings"),
-                size: size_of::<AutoExposureParamsGpu>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
-            histogram: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("auto_exposure_histogram"),
-                size: HISTOGRAM_BUFFER_SIZE,
-                usage: wgpu::BufferUsages::STORAGE,
-                mapped_at_creation: false,
-            }),
-            exposure: device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("auto_exposure_ev"),
-                size: EXPOSURE_BUFFER_SIZE,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }),
+            settings,
+            histogram,
+            exposure,
         }
     }
 }
@@ -229,7 +235,7 @@ impl AutoExposurePipelineCache {
             "auto_exposure_histogram_src",
             multiview_stereo,
         );
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("auto_exposure_compute"),
             layout: self.compute_bind_group_layout(device),
             entries: &[
@@ -250,7 +256,9 @@ impl AutoExposurePipelineCache {
                     resource: state.exposure.as_entire_binding(),
                 },
             ],
-        })
+        });
+        crate::profiling::note_resource_churn!(BindGroup, "passes::auto_exposure_compute_bg");
+        bind_group
     }
 
     pub(super) fn apply_bind_group(
@@ -265,7 +273,7 @@ impl AutoExposurePipelineCache {
             "auto_exposure_apply_src",
             multiview_stereo,
         );
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("auto_exposure_apply"),
             layout: self.apply_bind_group_layout(device),
             entries: &[
@@ -282,7 +290,9 @@ impl AutoExposurePipelineCache {
                     resource: state.exposure.as_entire_binding(),
                 },
             ],
-        })
+        });
+        crate::profiling::note_resource_churn!(BindGroup, "passes::auto_exposure_apply_bg");
+        bind_group
     }
 
     fn sampler(&self, device: &wgpu::Device) -> &wgpu::Sampler {
@@ -325,14 +335,16 @@ fn create_auto_exposure_compute_pipeline(
         bind_group_layouts: &[Some(bind_group_layout)],
         immediate_size: 0,
     });
-    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some(entry_point),
         layout: Some(&layout),
         module: &shader,
         entry_point: Some(entry_point),
         compilation_options: Default::default(),
         cache: None,
-    })
+    });
+    crate::profiling::note_resource_churn!(ComputePipeline, "passes::auto_exposure_pipeline");
+    pipeline
 }
 
 #[cfg(test)]

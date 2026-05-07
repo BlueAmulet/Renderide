@@ -129,6 +129,7 @@ impl<'a> HeadlessDriver<'a> {
         }
         if outcome.fatal_error {
             logger::error!("Headless: fatal IPC error, exiting");
+            crate::profiling::flush_resource_churn_plots();
             crate::profiling::emit_frame_mark();
             return Some(RunExit::Code(4));
         }
@@ -162,6 +163,7 @@ impl<'a> HeadlessDriver<'a> {
         }
         self.runtime
             .tick_frame_render_time_end(self.gpu.last_completed_gpu_render_time_seconds());
+        crate::profiling::flush_resource_churn_plots();
         crate::profiling::emit_frame_mark();
         std::thread::sleep(HEADLESS_TICK_SLEEP);
     }

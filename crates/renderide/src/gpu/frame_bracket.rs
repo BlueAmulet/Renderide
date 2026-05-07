@@ -80,12 +80,14 @@ impl FrameBracket {
             usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "gpu::frame_bracket_resolve_buffer");
         let readback_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("frame_bracket_readback"),
             size: TIMESTAMP_PAIR_BYTES,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "gpu::frame_bracket_readback_buffer");
         Some(FrameBracketSession {
             device: Arc::clone(&self.device),
             queue: Arc::clone(&self.queue),

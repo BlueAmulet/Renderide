@@ -111,13 +111,15 @@ impl XrStereoSwapchain {
         if layer >= XR_VIEW_COUNT {
             return None;
         }
-        Some(tex.create_view(&wgpu::TextureViewDescriptor {
+        let view = tex.create_view(&wgpu::TextureViewDescriptor {
             label: Some("xr_swapchain_layer"),
             dimension: Some(wgpu::TextureViewDimension::D2),
             base_array_layer: layer,
             array_layer_count: Some(1),
             ..Default::default()
-        }))
+        });
+        crate::profiling::note_resource_churn!(TextureView, "xr::swapchain_layer_view");
+        Some(view)
     }
 }
 
@@ -172,6 +174,7 @@ fn import_openxr_swapchain_image(
         array_layer_count: Some(XR_VIEW_COUNT),
         ..Default::default()
     });
+    crate::profiling::note_resource_churn!(TextureView, "xr::swapchain_array_view");
     (texture, view)
 }
 
@@ -261,5 +264,6 @@ pub fn create_stereo_depth_texture(
         array_layer_count: Some(XR_VIEW_COUNT),
         ..Default::default()
     });
+    crate::profiling::note_resource_churn!(TextureView, "xr::stereo_depth_array_view");
     Some((tex, view))
 }

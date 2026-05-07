@@ -108,6 +108,95 @@ fn color_resolve_raster_needed(
         }
 }
 
+fn create_resolve_bind_group(
+    device: &wgpu::Device,
+    pipelines: &MsaaResolveHdrPipelineCache,
+    params_ubo: &wgpu::Buffer,
+    source_texture: &wgpu::Texture,
+    multiview_stereo: bool,
+) -> wgpu::BindGroup {
+    // WGSL has no `texture_multisampled_2d_array` in naga 29, so the stereo path binds two
+    // single-layer views; the shader picks between them with `@builtin(view_index)`.
+    if multiview_stereo {
+        let layer0 = source_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("msaa_resolve_hdr_src_msaa_left"),
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: 0,
+            array_layer_count: Some(1),
+            ..Default::default()
+        });
+        crate::profiling::note_resource_churn!(
+            TextureView,
+            "passes::world_mesh_color_resolve_left_view"
+        );
+        let layer1 = source_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("msaa_resolve_hdr_src_msaa_right"),
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: 1,
+            array_layer_count: Some(1),
+            ..Default::default()
+        });
+        crate::profiling::note_resource_churn!(
+            TextureView,
+            "passes::world_mesh_color_resolve_right_view"
+        );
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("msaa_resolve_hdr_bg_multiview"),
+            layout: pipelines.bind_group_layout_multiview(device),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params_ubo.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&layer0),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&layer1),
+                },
+            ],
+        });
+        crate::profiling::note_resource_churn!(
+            BindGroup,
+            "passes::world_mesh_color_resolve_multiview_bg"
+        );
+        bind_group
+    } else {
+        let view = source_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("msaa_resolve_hdr_src_msaa"),
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: 0,
+            array_layer_count: Some(1),
+            ..Default::default()
+        });
+        crate::profiling::note_resource_churn!(
+            TextureView,
+            "passes::world_mesh_color_resolve_mono_view"
+        );
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("msaa_resolve_hdr_bg_mono"),
+            layout: pipelines.bind_group_layout_mono(device),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params_ubo.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+            ],
+        });
+        crate::profiling::note_resource_churn!(
+            BindGroup,
+            "passes::world_mesh_color_resolve_mono_bg"
+        );
+        bind_group
+    }
+}
+
 impl RasterPass for WorldMeshForwardColorResolvePass {
     fn name(&self) -> &str {
         self.stage.pass_name()
@@ -206,65 +295,13 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
         let params_ubo = self.pipelines.params_ubo(ctx.device);
         ctx.write_buffer(params_ubo, 0, bytemuck::bytes_of(&params));
 
-        // Build per-frame bind group(s) over the multisampled source. WGSL has no
-        // `texture_multisampled_2d_array` in naga 29, so the stereo path binds two single-layer
-        // views; the shader picks between them with `@builtin(view_index)`.
-        let bind_group = if multiview_stereo {
-            let layer0 = src.texture.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("msaa_resolve_hdr_src_msaa_left"),
-                dimension: Some(wgpu::TextureViewDimension::D2),
-                base_array_layer: 0,
-                array_layer_count: Some(1),
-                ..Default::default()
-            });
-            let layer1 = src.texture.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("msaa_resolve_hdr_src_msaa_right"),
-                dimension: Some(wgpu::TextureViewDimension::D2),
-                base_array_layer: 1,
-                array_layer_count: Some(1),
-                ..Default::default()
-            });
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("msaa_resolve_hdr_bg_multiview"),
-                layout: self.pipelines.bind_group_layout_multiview(ctx.device),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: params_ubo.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&layer0),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&layer1),
-                    },
-                ],
-            })
-        } else {
-            let view = src.texture.create_view(&wgpu::TextureViewDescriptor {
-                label: Some("msaa_resolve_hdr_src_msaa"),
-                dimension: Some(wgpu::TextureViewDimension::D2),
-                base_array_layer: 0,
-                array_layer_count: Some(1),
-                ..Default::default()
-            });
-            ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("msaa_resolve_hdr_bg_mono"),
-                layout: self.pipelines.bind_group_layout_mono(ctx.device),
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: params_ubo.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                ],
-            })
-        };
+        let bind_group = create_resolve_bind_group(
+            ctx.device,
+            self.pipelines,
+            params_ubo,
+            &src.texture,
+            multiview_stereo,
+        );
 
         rpass.set_pipeline(pipeline.as_ref());
         rpass.set_bind_group(0, &bind_group, &[]);

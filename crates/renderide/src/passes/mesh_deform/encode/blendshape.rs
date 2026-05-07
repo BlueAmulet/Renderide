@@ -322,6 +322,7 @@ fn blendshape_record_scatter_compute_passes(
                 },
             ],
         });
+        crate::profiling::note_resource_churn!(BindGroup, "mesh_deform::blendshape_bind_group");
 
         let pass_query = gpu
             .profiler

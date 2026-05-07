@@ -140,7 +140,7 @@ pub(super) fn create_depth_blit_pipeline(
     format: wgpu::TextureFormat,
     multiview_mask: Option<std::num::NonZeroU32>,
 ) -> wgpu::RenderPipeline {
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
         layout: Some(layout),
         vertex: wgpu::VertexState {
@@ -169,5 +169,7 @@ pub(super) fn create_depth_blit_pipeline(
         multisample: wgpu::MultisampleState::default(),
         multiview_mask,
         cache: None,
-    })
+    });
+    crate::profiling::note_resource_churn!(RenderPipeline, "gpu::msaa_depth_blit_pipeline");
+    pipeline
 }

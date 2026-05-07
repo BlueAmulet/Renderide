@@ -98,14 +98,16 @@ fn hi_z_create_compute_pipeline(
     layout: &wgpu::PipelineLayout,
     module: &wgpu::ShaderModule,
 ) -> wgpu::ComputePipeline {
-    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some(label),
         layout: Some(layout),
         module,
         entry_point: Some("cs_main"),
         compilation_options: Default::default(),
         cache: None,
-    })
+    });
+    crate::profiling::note_resource_churn!(ComputePipeline, "occlusion::hi_z_compute_pipeline");
+    pipeline
 }
 
 impl HiZPipelines {

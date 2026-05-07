@@ -169,6 +169,7 @@ pub(super) fn create_core_vertex_index_buffers(
         contents: &raw[..layout.vertex_size],
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
     });
+    crate::profiling::note_resource_churn!(Buffer, "assets::mesh_core_vertices");
 
     let ib_slice =
         &raw[layout.index_buffer_start..layout.index_buffer_start + layout.index_buffer_length];
@@ -177,6 +178,7 @@ pub(super) fn create_core_vertex_index_buffers(
         contents: ib_slice,
         usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
     });
+    crate::profiling::note_resource_churn!(Buffer, "assets::mesh_core_indices");
 
     let index_format = wgpu_index_format(data.index_buffer_format);
 
@@ -212,11 +214,13 @@ fn upload_positions_normals(
             contents: &pb,
             usage,
         });
+        crate::profiling::note_resource_churn!(Buffer, "assets::mesh_positions_stream");
         let nbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("mesh {} normals_stream", data.asset_id)),
             contents: &nb,
             usage,
         });
+        crate::profiling::note_resource_churn!(Buffer, "assets::mesh_normals_stream");
         (Some(Arc::new(pbuf)), Some(Arc::new(nbuf)))
     } else {
         logger::warn!(
@@ -241,13 +245,15 @@ fn upload_uv0_color(
         &data.vertex_attributes,
     )
     .map(|uv_bytes| {
-        Arc::new(
+        let buffer = Arc::new(
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(&format!("mesh {} uv0_stream", data.asset_id)),
                 contents: &uv_bytes,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             }),
-        )
+        );
+        crate::profiling::note_resource_churn!(Buffer, "assets::mesh_uv0_stream");
+        buffer
     });
     let color_buffer = color_float4_stream_bytes(
         vertex_slice,
@@ -256,13 +262,15 @@ fn upload_uv0_color(
         &data.vertex_attributes,
     )
     .map(|color_bytes| {
-        Arc::new(
+        let buffer = Arc::new(
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(&format!("mesh {} color_stream", data.asset_id)),
                 contents: &color_bytes,
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             }),
-        )
+        );
+        crate::profiling::note_resource_churn!(Buffer, "assets::mesh_color_stream");
+        buffer
     });
     (uv0_buffer, color_buffer)
 }
@@ -298,13 +306,15 @@ fn create_vertex_stream_buffer(
     label: &str,
     bytes: &[u8],
 ) -> Arc<wgpu::Buffer> {
-    Arc::new(
+    let buffer = Arc::new(
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("mesh {asset_id} {label}_stream")),
             contents: bytes,
             usage: vertex_stream_usage(),
         }),
-    )
+    );
+    crate::profiling::note_resource_churn!(Buffer, "assets::mesh_vertex_stream");
+    buffer
 }
 
 fn create_tangent_stream_buffer(
@@ -312,13 +322,15 @@ fn create_tangent_stream_buffer(
     asset_id: i32,
     bytes: &[u8],
 ) -> Arc<wgpu::Buffer> {
-    Arc::new(
+    let buffer = Arc::new(
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("mesh {asset_id} tangent_stream")),
             contents: bytes,
             usage: tangent_stream_usage(),
         }),
-    )
+    );
+    crate::profiling::note_resource_churn!(Buffer, "assets::mesh_tangent_stream");
+    buffer
 }
 
 pub(super) fn upload_extended_vertex_streams(
@@ -488,11 +500,13 @@ fn upload_skeleton_bone_buffers(
             contents: &ib,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
+        crate::profiling::note_resource_churn!(Buffer, "assets::mesh_bone_indices");
         let bwt = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("mesh {} bone_weights_vec4", data.asset_id)),
             contents: &wb,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
+        crate::profiling::note_resource_churn!(Buffer, "assets::mesh_bone_weights_vec4");
         (Some(Arc::new(bi)), Some(Arc::new(bwt)))
     } else {
         logger::warn!(
@@ -507,11 +521,13 @@ fn upload_skeleton_bone_buffers(
         contents: bc,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
     });
+    crate::profiling::note_resource_churn!(Buffer, "assets::mesh_bone_counts");
     let bp_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some(&format!("mesh {} bind_poses", data.asset_id)),
         contents: &bp_bytes,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
     });
+    crate::profiling::note_resource_churn!(Buffer, "assets::mesh_bind_poses");
     Some(BoneSkinUpload {
         bone_counts_buffer: Some(Arc::new(bc_buf)),
         bone_indices_buffer: bi_buf,
@@ -644,6 +660,7 @@ pub(super) fn upload_blendshape_buffer(
         contents: &sparse_bytes,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
     });
+    crate::profiling::note_resource_churn!(Buffer, "assets::mesh_blendshape_sparse");
 
     BlendshapeBuffersUpload {
         sparse_buffer: Some(Arc::new(sparse_buf)),

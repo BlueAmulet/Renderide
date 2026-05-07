@@ -104,6 +104,7 @@ impl VrMirrorBlitResources {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "gpu::vr_mirror_surface_uniform");
         self.surface_uniform = Some(buf);
     }
 

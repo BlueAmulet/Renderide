@@ -67,6 +67,7 @@ impl GpuContext {
                 view_formats: &[],
             });
             let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            crate::profiling::note_resource_churn!(TextureView, "gpu::headless_color_view");
             let depth_format =
                 crate::gpu::main_forward_depth_stencil_format(self.device.features());
             let depth_texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -86,6 +87,7 @@ impl GpuContext {
                 view_formats: &[],
             });
             let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            crate::profiling::note_resource_churn!(TextureView, "gpu::headless_depth_view");
             self.primary_offscreen = Some(PrimaryOffscreenTargets {
                 color_texture,
                 color_view,

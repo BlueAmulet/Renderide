@@ -48,6 +48,7 @@ impl GpuContext {
                 view_formats: &[],
             });
             let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            crate::profiling::note_resource_churn!(TextureView, "gpu::main_depth_attachment_view");
             self.depth_extent_px = (w, h);
             self.depth_attachment = Some((tex, view));
         }

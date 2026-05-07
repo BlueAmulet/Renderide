@@ -86,6 +86,10 @@ pub(super) fn create_reflection_probe_specular_fallback(
         base_array_layer: 0,
         array_layer_count: Some(6),
     }));
+    crate::profiling::note_resource_churn!(
+        TextureView,
+        "backend::frame_reflection_probe_black_cube_array_view"
+    );
     let sampler = Arc::new(device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("frame_reflection_probe_sampler"),
         address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -105,6 +109,7 @@ pub(super) fn create_reflection_probe_specular_fallback(
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: true,
     }));
+    crate::profiling::note_resource_churn!(Buffer, "backend::frame_reflection_probe_metadata");
     metadata_buffer
         .slice(..)
         .get_mapped_range_mut()

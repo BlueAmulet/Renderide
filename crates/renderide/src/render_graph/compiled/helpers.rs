@@ -64,6 +64,7 @@ pub(super) fn frame_render_params_from_shared<'a>(
             aspect: wgpu::TextureAspect::DepthOnly,
             ..Default::default()
         });
+    crate::profiling::note_resource_churn!(TextureView, "render_graph::frame_depth_sample_view");
     GraphPassFrame {
         shared,
         view: GraphPassFrameView {
@@ -146,14 +147,19 @@ fn first_two_layer_views(texture: &ResolvedGraphTexture) -> Option<[wgpu::Textur
 /// Creates a single-layer `D2` view of `texture` with `DepthOnly` aspect, suitable for sampling
 /// the multisampled depth attachment in the depth-resolve compute shader.
 fn depth_sample_view(texture: &ResolvedGraphTexture, layer: Option<u32>) -> wgpu::TextureView {
-    texture.texture.create_view(&wgpu::TextureViewDescriptor {
+    let view = texture.texture.create_view(&wgpu::TextureViewDescriptor {
         label: Some("forward-msaa-depth-sample-view"),
         dimension: Some(wgpu::TextureViewDimension::D2),
         base_array_layer: layer.unwrap_or(0),
         array_layer_count: Some(1),
         aspect: wgpu::TextureAspect::DepthOnly,
         ..Default::default()
-    })
+    });
+    crate::profiling::note_resource_churn!(
+        TextureView,
+        "render_graph::forward_msaa_depth_sample_view"
+    );
+    view
 }
 
 fn first_two_depth_sample_layer_views(
@@ -353,13 +359,18 @@ pub(super) fn create_transient_layer_views(
     }
     (0..key.array_layers)
         .map(|layer| {
-            texture.create_view(&wgpu::TextureViewDescriptor {
+            let view = texture.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("render-graph-transient-layer"),
                 dimension: Some(wgpu::TextureViewDimension::D2),
                 base_array_layer: layer,
                 array_layer_count: Some(1),
                 ..Default::default()
-            })
+            });
+            crate::profiling::note_resource_churn!(
+                TextureView,
+                "render_graph::transient_layer_view"
+            );
+            view
         })
         .collect()
 }

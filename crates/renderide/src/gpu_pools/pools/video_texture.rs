@@ -59,6 +59,7 @@ impl GpuVideoTexture {
         }));
 
         let view = Arc::new(dummy.create_view(&wgpu::TextureViewDescriptor::default()));
+        crate::profiling::note_resource_churn!(TextureView, "gpu_pools::video_dummy_view");
 
         Self {
             asset_id,

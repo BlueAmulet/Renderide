@@ -178,12 +178,14 @@ impl ClusterBufferCache {
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }));
+            crate::profiling::note_resource_churn!(Buffer, "backend::cluster_light_counts");
             self.cluster_light_indices = Some(device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("cluster_light_indices"),
                 size: indices_bytes,
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }));
+            crate::profiling::note_resource_churn!(Buffer, "backend::cluster_light_indices");
         }
         self.current_refs()
     }

@@ -140,6 +140,10 @@ impl GtaoDepthPrefilterPass {
                     array_layer_count: Some(1),
                     ..Default::default()
                 });
+        crate::profiling::note_resource_churn!(
+            TextureView,
+            "passes::gtao_prefilter_raw_depth_layer_view"
+        );
         let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("gtao_prefilter_mip0"),
             layout: self
@@ -165,6 +169,7 @@ impl GtaoDepthPrefilterPass {
                 },
             ],
         });
+        crate::profiling::note_resource_churn!(BindGroup, "passes::gtao_prefilter_mip0_bg");
         let pipeline = self.pipelines.depth_prefilter.mip0_pipeline(ctx.device);
         dispatch_prefilter(
             ctx,
@@ -212,6 +217,7 @@ impl GtaoDepthPrefilterPass {
                 },
             ],
         });
+        crate::profiling::note_resource_churn!(BindGroup, "passes::gtao_prefilter_downsample_bg");
         let pipeline = self
             .pipelines
             .depth_prefilter

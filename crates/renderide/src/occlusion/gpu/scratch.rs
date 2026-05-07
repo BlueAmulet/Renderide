@@ -66,12 +66,14 @@ impl HiZGpuScratch {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "occlusion::hi_z_layer_uniform");
         let downsample_uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("hi_z_downsample_uniform"),
             size: 16,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "occlusion::hi_z_downsample_uniform");
 
         let bind_groups = HiZBindGroupCache::with_shape(mip_levels, stereo);
         Some(Self {
@@ -226,11 +228,13 @@ fn make_staging_ring(
     label_prefix: &str,
 ) -> [wgpu::Buffer; HIZ_STAGING_RING] {
     std::array::from_fn(|i| {
-        device.create_buffer(&wgpu::BufferDescriptor {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some(&format!("{label_prefix}_{i}")),
             size: staging_size,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
-        })
+        });
+        crate::profiling::note_resource_churn!(Buffer, "occlusion::hi_z_staging_ring");
+        buffer
     })
 }

@@ -435,22 +435,26 @@ fn next_slot_capacity(required: u64, current: u64, max_buffer_size: u64) -> Opti
 
 fn create_persistent_slot_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     profiling::scope!("frame_upload_arena::create_persistent_slot");
-    device.create_buffer(&wgpu::BufferDescriptor {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("frame_upload_arena_slot"),
         size,
         usage: wgpu::BufferUsages::MAP_WRITE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: true,
-    })
+    });
+    crate::profiling::note_resource_churn!(Buffer, "render_graph::frame_upload_arena_slot");
+    buffer
 }
 
 fn create_temporary_staging_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
     profiling::scope!("frame_upload_arena::create_temporary_staging");
-    device.create_buffer(&wgpu::BufferDescriptor {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("frame_upload_temporary_staging"),
         size,
         usage: wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: true,
-    })
+    });
+    crate::profiling::note_resource_churn!(Buffer, "render_graph::frame_upload_temporary_staging");
+    buffer
 }
 
 fn log_oversized_upload(required: u64, max_buffer_size: u64) {

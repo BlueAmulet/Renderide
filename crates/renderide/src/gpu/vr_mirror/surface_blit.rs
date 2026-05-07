@@ -67,10 +67,12 @@ impl VrMirrorBlitResources {
             return Ok(());
         };
         let staging_view = staging_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        crate::profiling::note_resource_churn!(TextureView, "gpu::vr_mirror_surface_staging_view");
 
         let surface_view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        crate::profiling::note_resource_churn!(TextureView, "gpu::vr_mirror_surface_view");
         let sampler = linear_sampler(device);
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -91,6 +93,7 @@ impl VrMirrorBlitResources {
                 },
             ],
         });
+        crate::profiling::note_resource_churn!(BindGroup, "gpu::vr_mirror_surface_bind_group");
 
         let pipeline = self.surface_pipeline_for_format(device, surface_format);
 

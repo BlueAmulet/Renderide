@@ -248,11 +248,13 @@ impl EmbeddedMaterialBindResources {
 
         let bind_group = {
             profiling::scope!("materials::embedded_create_bind_group");
-            Arc::new(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            let bind_group = Arc::new(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("embedded_material_bind"),
                 layout: &layout.bind_group_layout,
                 entries: &entries,
-            }))
+            }));
+            crate::profiling::note_resource_churn!(BindGroup, "materials::embedded_material_bind");
+            bind_group
         };
         let evicted = self.bind_cache.put(bind_key, bind_group.clone());
         if let Some(evicted) = evicted {

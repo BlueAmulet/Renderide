@@ -116,6 +116,7 @@ impl MsaaDepthResolveResources {
             compilation_options: Default::default(),
             cache: None,
         });
+        crate::profiling::note_resource_churn!(ComputePipeline, "gpu::msaa_depth_resolve_compute");
 
         let desktop = create_desktop_blit_pipelines(device, &blit_shader, &blit_layout);
         let stereo = create_stereo_multiview_blit_pipelines(device);

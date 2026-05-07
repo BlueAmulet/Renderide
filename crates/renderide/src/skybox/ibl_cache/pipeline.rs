@@ -113,6 +113,7 @@ pub(super) fn ensure_pipeline<'a>(
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             cache: None,
         });
+        crate::profiling::note_resource_churn!(ComputePipeline, "skybox::ibl_compute_pipeline");
         *slot = Some(ComputePipeline { pipeline, layout });
     }
     slot.as_ref().ok_or(SkyboxIblBakeError::MissingShader(stem))

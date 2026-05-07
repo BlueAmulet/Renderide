@@ -273,6 +273,10 @@ impl ReflectionProbeSpecularSystem {
             base_array_layer: 0,
             array_layer_count: Some(u32::from(capacity) * 6),
         }));
+        crate::profiling::note_resource_churn!(
+            TextureView,
+            "reflection_probes::specular_atlas_view"
+        );
         let sampler = Arc::new(device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("reflection_probe_specular_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -291,6 +295,10 @@ impl ReflectionProbeSpecularSystem {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }));
+        crate::profiling::note_resource_churn!(
+            Buffer,
+            "reflection_probes::specular_metadata_buffer"
+        );
         self.version = self.version.wrapping_add(1).max(1);
         self.resources = Some(ReflectionProbeSpecularResources {
             cube_array_view: view,

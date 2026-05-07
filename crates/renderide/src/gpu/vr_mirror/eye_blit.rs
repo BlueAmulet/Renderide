@@ -43,6 +43,7 @@ impl VrMirrorBlitResources {
             return;
         };
         let staging_view = staging_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        crate::profiling::note_resource_churn!(TextureView, "gpu::vr_mirror_eye_staging_view");
 
         let sampler = linear_sampler(device);
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -59,6 +60,7 @@ impl VrMirrorBlitResources {
                 },
             ],
         });
+        crate::profiling::note_resource_churn!(BindGroup, "gpu::vr_mirror_eye_bind_group");
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("vr_mirror_eye_to_staging"),

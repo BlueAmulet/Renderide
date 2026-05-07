@@ -117,6 +117,7 @@ impl SceneSnapshotTexture {
             aspect: kind.view_aspect(),
             ..Default::default()
         });
+        crate::profiling::note_resource_churn!(TextureView, "backend::scene_snapshot_view");
         Self {
             texture,
             view,

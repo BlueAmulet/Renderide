@@ -108,7 +108,7 @@ impl ClusteredLightPass {
     ) -> Arc<wgpu::BindGroup> {
         self.bind_group_cache
             .get_or_rebuild(view_id, cluster_ver, || {
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some("clustered_light_compute"),
                     layout: bgl,
                     entries: &[
@@ -133,7 +133,12 @@ impl ClusteredLightPass {
                             resource: bufs.indices.as_entire_binding(),
                         },
                     ],
-                })
+                });
+                crate::profiling::note_resource_churn!(
+                    BindGroup,
+                    "passes::clustered_light_compute_bg"
+                );
+                bind_group
             })
     }
 

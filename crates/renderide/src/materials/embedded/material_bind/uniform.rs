@@ -250,12 +250,14 @@ impl MaterialUniformArena {
 }
 
 fn create_material_uniform_arena_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
-    device.create_buffer(&wgpu::BufferDescriptor {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("embedded_material_uniform_arena"),
         size,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
-    })
+    });
+    crate::profiling::note_resource_churn!(Buffer, "materials::embedded_material_uniform_arena");
+    buffer
 }
 
 fn align_up(value: u64, alignment: u64) -> u64 {

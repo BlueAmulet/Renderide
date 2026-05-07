@@ -44,6 +44,7 @@ impl PerDrawResources {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "backend::per_draw_storage_initial");
         let bind_group = Arc::new(Self::make_bind_group(
             device,
             layout.as_ref(),
@@ -63,7 +64,7 @@ impl PerDrawResources {
         layout: &wgpu::BindGroupLayout,
         slab: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("mesh_forward_per_draw_bind_group"),
             layout,
             entries: &[wgpu::BindGroupEntry {
@@ -74,7 +75,9 @@ impl PerDrawResources {
                     size: None,
                 }),
             }],
-        })
+        });
+        crate::profiling::note_resource_churn!(BindGroup, "backend::per_draw_bind_group");
+        bind_group
     }
 
     /// Ensures at least `need_slots` rows are available, growing the slab and recreating the bind
@@ -103,6 +106,7 @@ impl PerDrawResources {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        crate::profiling::note_resource_churn!(Buffer, "backend::per_draw_storage_grow");
         let bind_group = Arc::new(Self::make_bind_group(
             device,
             self.bind_group_layout.as_ref(),

@@ -21,7 +21,7 @@ pub(super) fn eye_pipeline(device: &wgpu::Device) -> &'static wgpu::RenderPipeli
             bind_group_layouts: &[Some(eye_bind_group_layout(device))],
             immediate_size: 0,
         });
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("vr_mirror_eye_to_staging"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -48,7 +48,9 @@ pub(super) fn eye_pipeline(device: &wgpu::Device) -> &'static wgpu::RenderPipeli
             multisample: Default::default(),
             multiview_mask: None,
             cache: None,
-        })
+        });
+        crate::profiling::note_resource_churn!(RenderPipeline, "gpu::vr_mirror_eye_pipeline");
+        pipeline
     })
 }
 
@@ -129,7 +131,7 @@ pub(super) fn surface_pipeline(
         bind_group_layouts: &[Some(surface_bind_group_layout(device))],
         immediate_size: 0,
     });
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("vr_mirror_surface"),
         layout: Some(&layout),
         vertex: wgpu::VertexState {
@@ -156,7 +158,9 @@ pub(super) fn surface_pipeline(
         multisample: Default::default(),
         multiview_mask: None,
         cache: None,
-    })
+    });
+    crate::profiling::note_resource_churn!(RenderPipeline, "gpu::vr_mirror_surface_pipeline");
+    pipeline
 }
 
 pub(super) fn linear_sampler(device: &wgpu::Device) -> &'static wgpu::Sampler {
