@@ -268,7 +268,7 @@ fn blendshape_record_scatter_compute_passes(
             .offset
             .saturating_add(param_reservation.byte_len),
     );
-    gpu.upload_batch.write_buffer(
+    gpu.uploads.write_buffer(
         &gpu.scratch.blendshape_params_staging,
         param_reservation.offset,
         &gpu.scratch.packed_scatter_params,

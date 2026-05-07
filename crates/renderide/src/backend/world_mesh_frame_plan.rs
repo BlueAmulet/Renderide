@@ -10,7 +10,7 @@ use crate::passes::{
 };
 use crate::render_graph::WorldMeshDrawPlan;
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::PrefetchedWorldMeshViewDraws;
 
 /// Backend-owned world-mesh forward preparation caches.
@@ -50,8 +50,7 @@ impl BackendWorldMeshFramePlanner {
     pub(crate) fn prepare_view(
         &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        upload_batch: &FrameUploadBatch,
+        uploads: GraphUploadSink<'_>,
         gpu_limits: &GpuLimits,
         frame: &GraphPassFrame<'_>,
         inputs: WorldMeshPrepareViewInputs<'_>,
@@ -68,8 +67,7 @@ impl BackendWorldMeshFramePlanner {
         let prepared = prepare_world_mesh_forward_frame(
             WorldMeshForwardPrepareContext {
                 device,
-                queue,
-                upload_batch,
+                uploads,
                 gpu_limits,
                 frame,
                 frame_plan: &frame_plan,

@@ -5,7 +5,7 @@ use bytemuck::Zeroable;
 use crate::camera::HostCameraFrame;
 use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::scene::SceneCoordinator;
 use crate::world_mesh::cluster::{
     FrameGpuUniformBuildParams, cluster_frame_params, cluster_frame_params_stereo,
@@ -13,9 +13,9 @@ use crate::world_mesh::cluster::{
 
 use super::camera::resolve_camera_world_pair;
 
-/// Writes per-view `FrameGpuUniforms` via [`FrameUploadBatch`].
+/// Writes per-view `FrameGpuUniforms` via [`GraphUploadSink`].
 pub(super) fn write_per_view_frame_uniforms(
-    upload_batch: &FrameUploadBatch,
+    uploads: GraphUploadSink<'_>,
     frame: &GraphPassFrame<'_>,
     frame_plan: &PerViewFramePlan,
     use_multiview: bool,
@@ -32,7 +32,7 @@ pub(super) fn write_per_view_frame_uniforms(
             .frame_resources
             .skybox_specular_uniform_params(),
     );
-    upload_batch.write_buffer(
+    uploads.write_buffer(
         &frame_plan.frame_uniform_buffer,
         0,
         bytemuck::bytes_of(&uniforms),

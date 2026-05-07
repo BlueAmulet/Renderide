@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use crate::backend::CLUSTER_PARAMS_UNIFORM_SIZE;
 use crate::camera::HostCameraFrame;
 use crate::gpu::GpuLimits;
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::scene::SceneCoordinator;
 use crate::world_mesh::cluster::{
     CLUSTER_COUNT_Z, ClusterFrameParams, cluster_frame_params, cluster_frame_params_stereo,
@@ -21,8 +21,8 @@ use super::pipeline::{ClusterParamsDesc, build_params, write_cluster_params_padd
 pub(super) struct ClusteredLightEyePassEnv<'a> {
     /// Active command encoder for this recording slice.
     pub encoder: &'a mut wgpu::CommandEncoder,
-    /// Deferred [`wgpu::Queue::write_buffer`] sink shared with the rest of the frame.
-    pub upload_batch: &'a FrameUploadBatch,
+    /// Deferred graph upload sink shared with the rest of the frame.
+    pub uploads: GraphUploadSink<'a>,
     /// Clustered-light compute pipeline.
     pub pipeline: &'a wgpu::ComputePipeline,
     /// Bind group with light/cluster/params resources.
@@ -85,7 +85,7 @@ pub(super) fn run_clustered_light_eye_passes(env: ClusteredLightEyePassEnv<'_>) 
             cluster_offset,
             world_to_view_scale: cfp.world_to_view_scale_max(),
         });
-        write_cluster_params_padded(env.upload_batch, env.params_buffer, &params, buf_offset);
+        write_cluster_params_padded(env.uploads, env.params_buffer, &params, buf_offset);
 
         let dx = cfp.cluster_count_x.div_ceil(8);
         let dy = cfp.cluster_count_y.div_ceil(8);

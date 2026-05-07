@@ -20,7 +20,7 @@ use crate::materials::{
 };
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::frame_params::GraphPassFrame;
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::shared::CameraClearMode;
 use crate::skybox::{PreparedClearColorSkybox, PreparedMaterialSkybox, PreparedSkybox};
 
@@ -134,17 +134,16 @@ impl SkyboxRenderer {
     pub(super) fn prepare(
         &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        upload_batch: &FrameUploadBatch,
+        uploads: GraphUploadSink<'_>,
         frame: &GraphPassFrame<'_>,
         pipeline_state: &WorldMeshForwardPipelineState,
     ) -> Option<PreparedSkybox> {
         match frame.view.clear.mode {
             CameraClearMode::Skybox => {
-                self.prepare_material_skybox(device, queue, upload_batch, frame, pipeline_state)
+                self.prepare_material_skybox(device, uploads, frame, pipeline_state)
             }
             CameraClearMode::Color => {
-                self.prepare_clear_color(device, upload_batch, frame, pipeline_state)
+                self.prepare_clear_color(device, uploads, frame, pipeline_state)
             }
             CameraClearMode::Depth | CameraClearMode::Nothing => None,
         }
@@ -154,8 +153,7 @@ impl SkyboxRenderer {
     fn prepare_material_skybox(
         &self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        upload_batch: &FrameUploadBatch,
+        uploads: GraphUploadSink<'_>,
         frame: &GraphPassFrame<'_>,
         pipeline_state: &WorldMeshForwardPipelineState,
     ) -> Option<PreparedSkybox> {
@@ -199,7 +197,7 @@ impl SkyboxRenderer {
         let material_bind_group = embedded_bind
             .embedded_material_bind_group(
                 stem.as_str(),
-                queue,
+                uploads,
                 store,
                 &pools,
                 lookup,
@@ -209,7 +207,7 @@ impl SkyboxRenderer {
         let material_layout = embedded_bind
             .embedded_material_bind_group_layout(stem.as_str())
             .ok()?;
-        let view_bind_group = self.view_bind_group(device, upload_batch, frame);
+        let view_bind_group = self.view_bind_group(device, uploads, frame);
         let target = SkyboxPipelineTarget::from_forward_state(pipeline_state);
         let pipeline = self.material_pipeline(device, &material_layout, family, target, depth)?;
         Some(PreparedSkybox::Material(PreparedMaterialSkybox {
@@ -223,11 +221,11 @@ impl SkyboxRenderer {
     fn prepare_clear_color(
         &self,
         device: &wgpu::Device,
-        upload_batch: &FrameUploadBatch,
+        uploads: GraphUploadSink<'_>,
         frame: &GraphPassFrame<'_>,
         pipeline_state: &WorldMeshForwardPipelineState,
     ) -> Option<PreparedSkybox> {
-        let view_bind_group = self.view_bind_group(device, upload_batch, frame);
+        let view_bind_group = self.view_bind_group(device, uploads, frame);
         let target = SkyboxPipelineTarget::from_forward_state(pipeline_state);
         let pipeline = self.clear_pipeline(device, target)?;
         Some(PreparedSkybox::ClearColor(PreparedClearColorSkybox {
@@ -259,7 +257,7 @@ impl SkyboxRenderer {
     fn view_bind_group(
         &self,
         device: &wgpu::Device,
-        upload_batch: &FrameUploadBatch,
+        uploads: GraphUploadSink<'_>,
         frame: &GraphPassFrame<'_>,
     ) -> Arc<wgpu::BindGroup> {
         let view_id = frame.view.view_id;
@@ -287,7 +285,7 @@ impl SkyboxRenderer {
             drop(bindings);
             resolved
         };
-        upload_batch.write_buffer(&buffer, 0, bytemuck::bytes_of(&uniforms));
+        uploads.write_buffer(&buffer, 0, bytemuck::bytes_of(&uniforms));
         bind_group
     }
 

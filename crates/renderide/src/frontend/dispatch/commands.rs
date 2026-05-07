@@ -1,11 +1,10 @@
-//! Dispatches [`RendererCommand`] values after the host init handshake is finalized.
+//! Decodes [`RendererCommand`] values after the host init handshake is finalized.
 
 use crate::shared::RendererCommand;
 
-use super::command_dispatch;
-use crate::runtime::RendererRuntime;
+use super::command_dispatch::{self, RunningCommandEffect};
 
-/// Handles IPC commands in the normal running state ([`crate::frontend::InitState::Finalized`]).
-pub(crate) fn handle_running_command(runtime: &mut RendererRuntime, cmd: RendererCommand) {
-    command_dispatch::dispatch_running_command(runtime, cmd);
+/// Decodes IPC commands in the normal running state ([`crate::frontend::InitState::Finalized`]).
+pub(crate) fn handle_running_command(cmd: RendererCommand) -> RunningCommandEffect {
+    command_dispatch::dispatch_running_command(cmd)
 }

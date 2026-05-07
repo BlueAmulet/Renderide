@@ -153,8 +153,7 @@ impl RasterPass for GtaoMainPass {
         // read either field but the apply / denoise shaders share the layout).
         let params = GtaoParamsGpu::from_settings(live, 0.0, false);
         let params_buffer = self.pipelines.params.get(ctx.device);
-        ctx.upload_batch
-            .write_buffer(params_buffer, 0, bytemuck::bytes_of(&params));
+        ctx.write_buffer(params_buffer, 0, bytemuck::bytes_of(&params));
 
         let Some(view_depth_tex) = graph_resources.transient_texture(self.resources.view_depth)
         else {

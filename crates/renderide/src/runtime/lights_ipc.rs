@@ -9,7 +9,7 @@ use crate::shared::{
 };
 
 /// Copies packed light rows from SHM, stores them in the scene cache, and ACKs the host.
-pub(crate) fn apply_lights_buffer_submission(
+pub(super) fn apply_lights_buffer_submission(
     scene: &mut SceneCoordinator,
     shm: &mut SharedMemoryAccessor,
     ipc: Option<&mut DualQueueIpc>,

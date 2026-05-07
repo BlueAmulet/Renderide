@@ -7,6 +7,7 @@ use crate::gpu::OutputDepthMode;
 use crate::occlusion::cpu::pyramid::{
     hi_z_pyramid_dimensions, mip_dimensions, mip_levels_for_extent,
 };
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use super::pipelines::HiZPipelines;
 use super::scratch::{HIZ_MAX_MIPS, HiZGpuScratch};
@@ -51,8 +52,8 @@ enum PyramidSide {
 struct HiZMip0EncodeContext<'a> {
     /// Device for bind group creation.
     device: &'a wgpu::Device,
-    /// Queue for uniform writes (`layer_uniform`, `downsample_uniform`).
-    queue: &'a wgpu::Queue,
+    /// Graph upload sink for uniform writes (`layer_uniform`, `downsample_uniform`).
+    uploads: GraphUploadSink<'a>,
     /// Active command encoder receiving the mip0 + downsample compute passes.
     encoder: &'a mut wgpu::CommandEncoder,
     /// Source depth view (sampled in the mip0 pass).
@@ -71,14 +72,14 @@ struct HiZMip0EncodeContext<'a> {
     profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
-/// GPU handles recorded into for one [`encode_hi_z_build`] call (device + limits + queue + encoder).
+/// GPU handles recorded into for one [`encode_hi_z_build`] call.
 pub struct HiZBuildRecord<'a> {
     /// Device for pipeline cache and bind group creation.
     pub device: &'a wgpu::Device,
     /// Effective device caps used to validate scratch allocations and dispatches.
     pub limits: &'a crate::gpu::GpuLimits,
-    /// Queue for uniform writes (`layer_uniform`, `downsample_uniform`).
-    pub queue: &'a wgpu::Queue,
+    /// Graph upload sink for uniform writes (`layer_uniform`, `downsample_uniform`).
+    pub uploads: GraphUploadSink<'a>,
     /// Command encoder receiving the mip0, downsample, and staging copy commands.
     pub encoder: &'a mut wgpu::CommandEncoder,
 }
@@ -122,7 +123,7 @@ pub fn encode_hi_z_build(
     let HiZBuildRecord {
         device,
         limits,
-        queue,
+        uploads,
         encoder,
     } = record;
     if !prepare_scratch(device, limits, extent, mode, state) {
@@ -143,7 +144,7 @@ pub fn encode_hi_z_build(
 
     let mut ctx = RecordCtx {
         device,
-        queue,
+        uploads,
         encoder,
         depth_view,
         scratch,
@@ -169,7 +170,7 @@ pub fn encode_hi_z_build(
 /// desktop / stereo branches readable.
 struct RecordCtx<'a> {
     device: &'a wgpu::Device,
-    queue: &'a wgpu::Queue,
+    uploads: GraphUploadSink<'a>,
     encoder: &'a mut wgpu::CommandEncoder,
     depth_view: &'a wgpu::TextureView,
     scratch: &'a mut HiZGpuScratch,
@@ -323,7 +324,7 @@ fn record_pyramid_side(
 ) {
     dispatch_mip0_and_downsample(HiZMip0EncodeContext {
         device: ctx.device,
-        queue: ctx.queue,
+        uploads: ctx.uploads,
         encoder: ctx.encoder,
         depth_view: ctx.depth_view,
         scratch: ctx.scratch,
@@ -423,7 +424,7 @@ fn dispatch_hi_z_mip0_stereo(args: &mut HiZMip0EncodeContext<'_>, layer: u32) {
         _pad1: 0,
         _pad2: 0,
     };
-    args.queue
+    args.uploads
         .write_buffer(&args.scratch.layer_uniform, 0, bytemuck::bytes_of(&layer_u));
     let device = args.device;
     let depth_view = args.depth_view;
@@ -478,8 +479,8 @@ fn dispatch_hi_z_mip0_stereo(args: &mut HiZMip0EncodeContext<'_>, layer: u32) {
 struct HiZDownsampleContext<'a> {
     /// Device for on-demand bind-group creation.
     device: &'a wgpu::Device,
-    /// Queue for `downsample_uniform` writes that carry per-mip extents.
-    queue: &'a wgpu::Queue,
+    /// Graph upload sink for `downsample_uniform` writes that carry per-mip extents.
+    uploads: GraphUploadSink<'a>,
     /// Encoder receiving each mip's compute pass.
     encoder: &'a mut wgpu::CommandEncoder,
     /// Scratch providing both the `downsample_uniform` buffer and the cached bind groups.
@@ -506,7 +507,7 @@ fn dispatch_hi_z_downsample_mips(args: &mut HiZDownsampleContext<'_>) {
             dst_w: dw,
             dst_h: dh,
         };
-        args.queue
+        args.uploads
             .write_buffer(&args.scratch.downsample_uniform, 0, bytemuck::bytes_of(&du));
         let device = args.device;
         let layout = &args.pipes.bgl_downsample;
@@ -570,7 +571,7 @@ fn dispatch_mip0_and_downsample(mut args: HiZMip0EncodeContext<'_>) {
     dispatch_hi_z_mip0_from_depth(&mut args);
     dispatch_hi_z_downsample_mips(&mut HiZDownsampleContext {
         device: args.device,
-        queue: args.queue,
+        uploads: args.uploads,
         encoder: args.encoder,
         scratch: args.scratch,
         pipes: args.pipes,

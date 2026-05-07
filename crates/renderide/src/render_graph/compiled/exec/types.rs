@@ -153,8 +153,6 @@ pub(super) struct PerViewRecordShared<'a> {
     pub(super) device: &'a wgpu::Device,
     /// Effective device limits for this frame.
     pub(super) gpu_limits: &'a crate::gpu::GpuLimits,
-    /// Submission queue used by deferred uploads and pass recording.
-    pub(super) queue_arc: &'a std::sync::Arc<wgpu::Queue>,
     /// Shared occlusion system for Hi-Z snapshots and temporal state.
     pub(super) occlusion: &'a crate::occlusion::OcclusionSystem,
     /// Shared frame resources for bind groups, lights, and per-view slabs.

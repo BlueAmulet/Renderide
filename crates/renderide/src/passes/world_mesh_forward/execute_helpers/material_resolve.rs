@@ -3,6 +3,7 @@
 use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::materials::MaterialPipelineDesc;
 use crate::materials::ShaderPermutation;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
 use super::super::{MaterialBatchPacket, MaterialDrawResolver};
@@ -14,7 +15,7 @@ use super::super::{MaterialBatchPacket, MaterialDrawResolver};
 /// packets cannot drift on grab-pass MSAA, front-face, blend, render-state, or shader permutation.
 pub(super) fn precompute_material_resolve_batches(
     encode: &WorldMeshForwardEncodeRefs<'_>,
-    queue: &wgpu::Queue,
+    uploads: GraphUploadSink<'_>,
     draws: &[WorldMeshDrawItem],
     shader_perm: ShaderPermutation,
     pass_desc: &MaterialPipelineDesc,
@@ -22,7 +23,7 @@ pub(super) fn precompute_material_resolve_batches(
 ) -> Vec<MaterialBatchPacket> {
     MaterialDrawResolver::new(
         encode,
-        queue,
+        uploads,
         *pass_desc,
         shader_perm,
         offscreen_write_render_texture_asset_id,

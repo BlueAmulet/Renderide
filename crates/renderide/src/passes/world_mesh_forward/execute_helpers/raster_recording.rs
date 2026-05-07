@@ -183,7 +183,6 @@ fn record_world_mesh_forward_graph_raster(
 pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_opaque_graph_raster(
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
-    _queue: &wgpu::Queue,
     frame: &GraphPassFrame<'_>,
     blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
@@ -201,7 +200,6 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_opaque_gr
 pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_post_skybox_graph_raster(
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
-    _queue: &wgpu::Queue,
     frame: &GraphPassFrame<'_>,
     blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
@@ -259,7 +257,6 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_normal_gr
 pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_intersection_graph_raster(
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
-    _queue: &wgpu::Queue,
     frame: &GraphPassFrame<'_>,
     blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
@@ -277,7 +274,6 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_intersect
 pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_transparent_graph_raster(
     rpass: &mut wgpu::RenderPass<'_>,
     _device: &wgpu::Device,
-    _queue: &wgpu::Queue,
     frame: &GraphPassFrame<'_>,
     blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,

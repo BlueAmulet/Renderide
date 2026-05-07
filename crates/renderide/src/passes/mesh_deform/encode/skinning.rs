@@ -87,7 +87,7 @@ pub(super) fn record_skinning_deform(
     let sd_cursor = *ctx.skin_dispatch_cursor;
     gpu.scratch
         .ensure_skin_dispatch_byte_capacity(gpu.device, sd_cursor.saturating_add(32));
-    gpu.upload_batch
+    gpu.uploads
         .write_buffer(&gpu.scratch.skin_dispatch, sd_cursor, &skin_params);
 
     skinning_dispatch_with_uploaded_palette(SkinningPaletteDispatch {
@@ -162,7 +162,7 @@ fn upload_skinning_palette(
     let palette_len = gpu.scratch.bone_palette_bytes.len() as u64;
     gpu.scratch
         .ensure_bone_byte_capacity(gpu.device, ctx.bone_cursor.saturating_add(palette_len));
-    gpu.upload_batch.write_buffer(
+    gpu.uploads.write_buffer(
         &gpu.scratch.bone_matrices,
         *ctx.bone_cursor,
         gpu.scratch.bone_palette_bytes.as_slice(),

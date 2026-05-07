@@ -17,7 +17,7 @@ use crate::shared::{
 /// which must not block the IPC poll on the main thread. The resolver runs on a rayon worker,
 /// and [`drain_pending_shader_resolutions`] applies the result on a subsequent tick by
 /// calling [`RenderBackend::register_shader_route`] and sending `ShaderUploadResult`.
-pub(crate) struct PendingShaderResolution {
+pub(super) struct PendingShaderResolution {
     /// Host `asset_id` echoed back in the eventual `ShaderUploadResult`.
     asset_id: i32,
     /// Receives the resolved pipeline from the rayon worker (bounded(1)).
@@ -29,7 +29,7 @@ pub(crate) struct PendingShaderResolution {
 /// The IPC acknowledgement (`ShaderUploadResult`) and pipeline route registration run only after
 /// the resolver completes, via [`drain_pending_shader_resolutions`] on a later tick, preserving
 /// the lock-step invariant that the host sees routing ready before it sends dependent materials.
-pub(crate) fn on_shader_upload(pending: &mut Vec<PendingShaderResolution>, upload: ShaderUpload) {
+pub(super) fn on_shader_upload(pending: &mut Vec<PendingShaderResolution>, upload: ShaderUpload) {
     let asset_id = upload.asset_id;
     logger::trace!(
         "shader_upload: queued async resolver asset_id={} file_present={}",
@@ -50,7 +50,7 @@ pub(crate) fn on_shader_upload(pending: &mut Vec<PendingShaderResolution>, uploa
 /// Called at the top of [`crate::runtime::RendererRuntime::poll_ipc`] so resolutions landing
 /// between ticks are applied before this tick's IPC batch (which may reference the routes) is
 /// dispatched.
-pub(crate) fn drain_pending_shader_resolutions(
+pub(super) fn drain_pending_shader_resolutions(
     pending: &mut Vec<PendingShaderResolution>,
     backend: &mut RenderBackend,
     frontend: &mut RendererFrontend,
@@ -99,13 +99,15 @@ pub(crate) fn drain_pending_shader_resolutions(
     }
 }
 
-pub(crate) fn on_shader_unload(backend: &mut RenderBackend, unload: ShaderUnload) {
+/// Applies a host shader-unload command to the backend shader route table.
+pub(super) fn on_shader_unload(backend: &mut RenderBackend, unload: ShaderUnload) {
     let id = unload.asset_id;
     logger::debug!("shader_unload: asset_id={id}");
     backend.unregister_shader_route(id);
 }
 
-pub(crate) fn on_materials_update_batch(
+/// Applies or queues a host material batch depending on shared-memory availability.
+pub(super) fn on_materials_update_batch(
     frontend: &mut RendererFrontend,
     backend: &mut RenderBackend,
     batch: MaterialsUpdateBatch,

@@ -9,7 +9,7 @@
 //! ## Lifetime parameters
 //!
 //! Contexts use up to three lifetime parameters:
-//! - `'a` -- immutable GPU handles (device, limits, queue, graph resources, views).
+//! - `'a` -- immutable GPU handles (device, limits, graph resources, views).
 //! - `'encoder` -- mutable encoder borrow (compute contexts).
 //! - `'frame` -- mutable scene/backend frame params borrow.
 //!
@@ -17,11 +17,10 @@
 //! frame-global work vs each view; passes never share one encoder across those slices.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use super::blackboard::Blackboard;
 use super::frame_params::GraphPassFrame;
-use super::frame_upload_batch::FrameUploadBatch;
+use super::frame_upload_batch::GraphUploadSink;
 use super::pool::TransientPool;
 use super::resources::{
     BufferHandle, ImportedBufferHandle, ImportedTextureHandle, SubresourceHandle, TextureHandle,
@@ -240,13 +239,10 @@ impl GraphResolvedResources {
 pub struct RasterPassCtx<'a, 'frame> {
     /// WGPU device.
     pub device: &'a wgpu::Device,
-    /// Submission queue for resource creation paths that still require wgpu queue access.
-    pub queue: &'a Arc<wgpu::Queue>,
     /// Scene, backend system handles, and per-view frame state for this pass.
     pub pass_frame: &'frame mut GraphPassFrame<'a>,
-    /// Deferred [`wgpu::Queue::write_buffer`] sink; drained on the main thread after all per-view
-    /// encoding completes and before submit.
-    pub upload_batch: &'frame FrameUploadBatch,
+    /// Deferred graph upload sink drained before submit.
+    pub uploads: GraphUploadSink<'frame>,
     /// Typed graph resources resolved for this execution scope.
     pub graph_resources: &'a GraphResolvedResources,
     /// Per-scope typed blackboard (read/write; populated before or during this scope).
@@ -265,7 +261,7 @@ pub struct RasterPassCtx<'a, 'frame> {
 impl RasterPassCtx<'_, '_> {
     /// Records a deferred buffer upload through the graph-owned upload recorder.
     pub fn write_buffer(&self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]) {
-        self.upload_batch.write_buffer(buffer, offset, data);
+        self.uploads.write_buffer(buffer, offset, data);
     }
 }
 
@@ -278,8 +274,6 @@ pub struct ComputePassCtx<'a, 'encoder, 'frame> {
     pub device: &'a wgpu::Device,
     /// Effective limits for this frame.
     pub gpu_limits: &'a GpuLimits,
-    /// Submission queue for resource creation paths that still require wgpu queue access.
-    pub queue: &'a Arc<wgpu::Queue>,
     /// Active command encoder for this recording slice.
     pub encoder: &'encoder mut wgpu::CommandEncoder,
     /// Depth attachment for the main forward pass (often needed by compute passes that
@@ -287,9 +281,8 @@ pub struct ComputePassCtx<'a, 'encoder, 'frame> {
     pub depth_view: Option<&'a wgpu::TextureView>,
     /// Scene, backend system handles, and per-view frame state for this pass.
     pub pass_frame: &'frame mut GraphPassFrame<'a>,
-    /// Deferred [`wgpu::Queue::write_buffer`] sink; drained on the main thread after all per-view
-    /// encoding completes and before submit.
-    pub upload_batch: &'frame FrameUploadBatch,
+    /// Deferred graph upload sink drained before submit.
+    pub uploads: GraphUploadSink<'frame>,
     /// Typed graph resources resolved for this execution scope.
     pub graph_resources: &'a GraphResolvedResources,
     /// Per-scope typed blackboard (read/write; populated before or during this scope).
@@ -308,7 +301,7 @@ pub struct ComputePassCtx<'a, 'encoder, 'frame> {
 impl ComputePassCtx<'_, '_, '_> {
     /// Records a deferred buffer upload through the graph-owned upload recorder.
     pub fn write_buffer(&self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]) {
-        self.upload_batch.write_buffer(buffer, offset, data);
+        self.uploads.write_buffer(buffer, offset, data);
     }
 }
 

@@ -12,7 +12,7 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::backend::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight};
 use crate::embedded_shaders::embedded_wgsl;
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::render_graph::gpu_cache::OnceGpu;
 use crate::world_mesh::cluster::{CLUSTER_COUNT_Z, TILE_SIZE, sanitize_cluster_clip_planes};
 
@@ -82,7 +82,7 @@ pub(super) fn build_params(desc: ClusterParamsDesc) -> ClusterParams {
 
 /// Writes one `ClusterParams` slot into the per-eye uniform buffer with std140 padding.
 pub(super) fn write_cluster_params_padded(
-    upload_batch: &FrameUploadBatch,
+    uploads: GraphUploadSink<'_>,
     buf: &wgpu::Buffer,
     params: &ClusterParams,
     buf_offset: u64,
@@ -90,7 +90,7 @@ pub(super) fn write_cluster_params_padded(
     let mut padded = [0u8; CLUSTER_PARAMS_UNIFORM_SIZE as usize];
     let src = bytemuck::bytes_of(params);
     padded[..src.len()].copy_from_slice(src);
-    upload_batch.write_buffer(buf, buf_offset, &padded);
+    uploads.write_buffer(buf, buf_offset, &padded);
 }
 
 /// Process-wide cached compute pipeline + bind-group layout for the clustered-light dispatch.

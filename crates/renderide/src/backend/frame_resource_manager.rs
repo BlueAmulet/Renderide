@@ -26,6 +26,7 @@ use crate::backend::cluster_gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, ClusterBufferRefs
 use crate::camera::ViewId;
 use crate::gpu::GpuLimits;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use super::frame_gpu::{
     EmptyMaterialBindGroup, FrameGpuResources, PerViewSceneSnapshotSyncParams,
@@ -46,8 +47,8 @@ use crate::scene::{ResolvedLight, SceneCoordinator, light_contributes};
 /// pair retires before the next view's compute overwrites.
 ///
 /// [`Self::cluster_params_buffer`] is intentionally **per-view**: it is written by
-/// `ClusteredLightPass::record` via `FrameUploadBatch`, which accumulates writes from rayon
-/// workers. Since insertion order into the batch is non-deterministic, a shared params buffer
+/// `ClusteredLightPass::record` via the graph upload sink, which accumulates writes from rayon
+/// workers. Since insertion order into the sink is non-deterministic, a shared params buffer
 /// would mean the last view to push wins -- corrupting every other view's cluster culling and
 /// causing strobe flicker. Keeping params per-view eliminates the race at the cost of ~512 B
 /// per view (completely negligible).
@@ -617,7 +618,7 @@ impl FrameResourceManager {
     pub fn pre_record_sync_for_views(
         &mut self,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        uploads: GraphUploadSink<'_>,
         view_layouts: &[PreRecordViewResourceLayout],
     ) {
         profiling::scope!("render::pre_record_sync_for_views");
@@ -647,7 +648,7 @@ impl FrameResourceManager {
                 return;
             };
             profiling::scope!("render::pre_record_sync_for_views::write_lights");
-            fgpu.write_lights_buffer(queue, &self.light_scratch);
+            fgpu.write_lights_buffer(uploads, &self.light_scratch);
         }
     }
 
@@ -692,7 +693,7 @@ impl FrameResourceManager {
 
 /// Allocates the per-view `ClusterParams` uniform buffer. Sized for one slot (mono) or two
 /// slots (stereo). Used by `ClusteredLightPass` to write camera matrices per-view without
-/// racing against other views' writes in the shared `FrameUploadBatch`.
+/// racing against other views' writes in the shared graph upload sink.
 fn make_cluster_params_buffer(device: &wgpu::Device, stereo: bool) -> wgpu::Buffer {
     let eye_multiplier = if stereo { 2 } else { 1 };
     device.create_buffer(&wgpu::BufferDescriptor {

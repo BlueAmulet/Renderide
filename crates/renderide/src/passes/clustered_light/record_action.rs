@@ -6,7 +6,7 @@
 
 use crate::backend::GpuLight;
 use crate::camera::ViewId;
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::cluster::ClusterFrameParams;
 
 use super::froxel_cpu::FroxelLightPlanner;
@@ -36,7 +36,7 @@ pub(super) struct ClusteredLightClearData {
 /// Inputs for CPU froxel assignment and upload.
 pub(super) struct CpuFroxelRecordData<'a> {
     /// Deferred upload sink for compatible cluster buffers.
-    pub upload_batch: &'a FrameUploadBatch,
+    pub uploads: GraphUploadSink<'a>,
     /// CPU-side light rows packed during frame preparation.
     pub lights: &'a [GpuLight],
     /// Shared cluster-count buffer.
@@ -93,13 +93,13 @@ pub(super) fn try_record_cpu_froxel(data: CpuFroxelRecordData<'_>) -> bool {
     };
 
     profiling::scope!("clustered_light::cpu_froxel_upload");
-    data.upload_batch.write_buffer(
+    data.uploads.write_buffer(
         data.cluster_light_counts,
         0,
         bytemuck::cast_slice(&assignments.counts),
     );
     if !assignments.indices.is_empty() {
-        data.upload_batch.write_buffer(
+        data.uploads.write_buffer(
             data.cluster_light_indices,
             0,
             bytemuck::cast_slice(&assignments.indices),

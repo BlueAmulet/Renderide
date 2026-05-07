@@ -5,8 +5,7 @@ use hashbrown::HashMap;
 /// IPC scratch state that is not part of transport ownership.
 pub(super) struct RuntimeIpcState {
     /// In-flight shader uploads whose resolution is running on the rayon pool.
-    pub(super) pending_shader_resolutions:
-        Vec<crate::frontend::dispatch::shader_material_ipc::PendingShaderResolution>,
+    pub(super) pending_shader_resolutions: Vec<super::shader_material_ipc::PendingShaderResolution>,
     /// Running counts of post-init renderer command variants seen without a running handler.
     unhandled_ipc_command_counts: HashMap<&'static str, u64>,
 }
