@@ -1,16 +1,12 @@
-//! IPC command dispatch: routes incoming `RendererCommand`s to runtime / backend / scene handlers.
+//! IPC command dispatch: decodes incoming `RendererCommand`s into runtime-applied effects.
 //!
 //! Pulls IPC fan-out out of `crate::runtime/` so transport-shaped routing lives next to the queue
-//! drain in `crate::frontend`. The dispatcher receives a `&mut RendererRuntime` from
-//! `runtime::RendererRuntime::poll_ipc` and walks each `RendererCommand` variant; payload application
-//! is delegated to the right runtime / backend / scene method.
+//! drain in `crate::frontend`. Dispatch code classifies command lifecycle and payload domains, then
+//! `runtime::RendererRuntime::poll_ipc` applies the decoded effects to frontend, scene, backend,
+//! settings, and IPC state.
 
 pub(crate) mod command_dispatch;
 pub(crate) mod command_kind;
 pub(crate) mod commands;
-pub(crate) mod frame_submit;
-pub(crate) mod host_camera_apply;
 pub(crate) mod ipc_init;
-pub(crate) mod lights_ipc;
 pub(crate) mod renderer_command_kind;
-pub(crate) mod shader_material_ipc;

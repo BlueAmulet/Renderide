@@ -1,7 +1,7 @@
 //! Lock-step between host [`crate::shared::FrameSubmitData`] and outgoing [`crate::shared::FrameStartData`].
 //!
 //! The canonical `last_frame_index` echoed to the host lives on [`crate::frontend::RendererFrontend`]
-//! and is updated from [`crate::runtime::frame_submit::process_frame_submit`] via
+//! and is updated from [`RendererRuntime::apply_frame_submit_data`](crate::runtime::RendererRuntime::apply_frame_submit_data) via
 //! [`RendererFrontend::note_frame_submit_processed`](crate::frontend::RendererFrontend::note_frame_submit_processed).
 //!
 //! Whether to send [`crate::shared::FrameStartData`] each tick is decided by the pure predicate in

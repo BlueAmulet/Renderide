@@ -74,7 +74,7 @@ pub fn openxr_begin_frame_tick(
             });
         }
         // Desktop (`!vr_active`): keep [`HostCameraFrame::head_output_transform`] from
-        // [`RendererRuntime::on_frame_submit`](crate::runtime::RendererRuntime) (host `root_transform`), matching Unity
+        // [`RendererRuntime::apply_frame_submit_data`](crate::runtime::RendererRuntime::apply_frame_submit_data) (host `root_transform`), matching Unity
         // `HeadOutput.UpdatePositioning`. OpenXR still supplies views for IPC pose.
         return Some(OpenxrFrameTick {
             predicted_display_time: fs.predicted_display_time,

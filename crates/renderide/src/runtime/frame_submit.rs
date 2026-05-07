@@ -1,13 +1,12 @@
-//! Host [`crate::shared::FrameSubmitData`] application: scene caches, HUD counters, and camera fields.
+//! Host [`crate::shared::FrameSubmitData`] application on [`super::RendererRuntime`].
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use rayon::prelude::*;
 
-use super::host_camera_apply;
+use super::{RendererRuntime, lockstep};
 use crate::ipc::SharedMemoryAccessor;
-use crate::runtime::RendererRuntime;
 use crate::shared::{CameraProjection, FrameSubmitData};
 
 /// Buffers at or above this size are filled via rayon `par_chunks_mut`; smaller
@@ -27,89 +26,92 @@ const PAR_FILL_CHUNK: usize = 64 * 1024;
 const CAMERA_TASK_FILL_BYTE: u8 = 0xFF;
 static ORTHOGRAPHIC_CAMERA_RENDER_TASK_WARNING_LOGGED: AtomicBool = AtomicBool::new(false);
 
-/// Applies a host frame submit: lock-step note, output state, camera fields, scene caches, head-output transform.
-pub(crate) fn process_frame_submit(runtime: &mut RendererRuntime, data: FrameSubmitData) {
-    profiling::scope!("scene::frame_submit");
-    {
-        profiling::scope!("scene::frame_submit_frontend_bookkeeping");
-        runtime
-            .frontend
-            .note_frame_submit_processed(data.frame_index);
-        runtime
-            .frontend
-            .apply_frame_submit_output(data.output_state.clone());
-        runtime.set_last_submit_render_task_count(data.render_tasks.len());
-    };
+impl RendererRuntime {
+    /// Applies a host frame submit to lock-step, output state, camera fields, scene caches, and
+    /// head-output transform.
+    pub(crate) fn apply_frame_submit_data(&mut self, data: FrameSubmitData) {
+        let prev_frame_index = self.host_camera.frame_index;
+        lockstep::trace_duplicate_frame_index_if_interesting(data.frame_index, prev_frame_index);
+        self.process_frame_submit(data);
+    }
 
-    {
-        profiling::scope!("scene::frame_submit_camera_fields");
-        host_camera_apply::apply_frame_submit_fields(&mut runtime.host_camera, &data);
-    };
-
-    let start = Instant::now();
-    let mut apply_failed = false;
-    let mut rendered_reflection_probes = Vec::new();
-    if let Some(ref mut shm) = runtime.frontend.shared_memory_mut() {
+    fn process_frame_submit(&mut self, data: FrameSubmitData) {
+        profiling::scope!("scene::frame_submit");
         {
-            profiling::scope!("scene::frame_submit_apply_scene");
-            match runtime.scene.apply_frame_submit(shm, &data) {
-                Ok(report) => runtime.backend.note_scene_apply_report(&report),
-                Err(e) => {
-                    logger::error!("scene apply_frame_submit failed: {e}");
-                    apply_failed = true;
+            profiling::scope!("scene::frame_submit_frontend_bookkeeping");
+            self.frontend.note_frame_submit_processed(data.frame_index);
+            self.frontend
+                .apply_frame_submit_output(data.output_state.clone());
+            self.set_last_submit_render_task_count(data.render_tasks.len());
+        };
+
+        {
+            profiling::scope!("scene::frame_submit_camera_fields");
+            crate::camera::apply_frame_submit_fields(&mut self.host_camera, &data);
+        };
+
+        let start = Instant::now();
+        let mut apply_failed = false;
+        let mut rendered_reflection_probes = Vec::new();
+        if let Some(ref mut shm) = self.frontend.shared_memory_mut() {
+            {
+                profiling::scope!("scene::frame_submit_apply_scene");
+                match self.scene.apply_frame_submit(shm, &data) {
+                    Ok(report) => self.backend.note_scene_apply_report(&report),
+                    Err(e) => {
+                        logger::error!("scene apply_frame_submit failed: {e}");
+                        apply_failed = true;
+                    }
                 }
             }
-        }
-        {
-            profiling::scope!("scene::frame_submit_flush_world_caches");
-            match runtime.scene.flush_world_caches() {
-                Ok(report) => runtime.backend.note_scene_cache_flush_report(&report),
-                Err(e) => {
-                    logger::error!("scene flush_world_caches failed: {e}");
-                    apply_failed = true;
+            {
+                profiling::scope!("scene::frame_submit_flush_world_caches");
+                match self.scene.flush_world_caches() {
+                    Ok(report) => self.backend.note_scene_cache_flush_report(&report),
+                    Err(e) => {
+                        logger::error!("scene flush_world_caches failed: {e}");
+                        apply_failed = true;
+                    }
                 }
             }
+            if !apply_failed {
+                profiling::scope!("scene::frame_submit_reflection_probes");
+                self.backend
+                    .answer_reflection_probe_sh2_tasks(shm, &self.scene, &data);
+                rendered_reflection_probes =
+                    self.scene.take_supported_reflection_probe_render_results();
+                log_unimplemented_camera_render_task_parameters(&data);
+                clear_unimplemented_camera_render_tasks(shm, &data);
+            }
         }
-        if !apply_failed {
-            profiling::scope!("scene::frame_submit_reflection_probes");
-            runtime
-                .backend
-                .answer_reflection_probe_sh2_tasks(shm, &runtime.scene, &data);
-            rendered_reflection_probes = runtime
-                .scene
-                .take_supported_reflection_probe_render_results();
-            log_unimplemented_camera_render_task_parameters(&data);
-            clear_unimplemented_camera_render_tasks(shm, &data);
+        self.frontend
+            .enqueue_rendered_reflection_probes(rendered_reflection_probes);
+        if apply_failed {
+            self.note_frame_submit_apply_failure();
+            self.frontend.set_fatal_error(true);
         }
-    }
-    runtime
-        .frontend
-        .enqueue_rendered_reflection_probes(rendered_reflection_probes);
-    if apply_failed {
-        runtime.note_frame_submit_apply_failure();
-        runtime.frontend.set_fatal_error(true);
-    }
-    {
-        profiling::scope!("scene::frame_submit_host_camera_derive");
-        runtime.host_camera.head_output_transform =
-            host_camera_apply::head_output_from_active_main_space(&runtime.scene);
-        runtime.host_camera.eye_world_position =
-            host_camera_apply::eye_world_position_from_active_main_space(&runtime.scene);
-    };
+        {
+            profiling::scope!("scene::frame_submit_host_camera_derive");
+            self.host_camera.head_output_transform =
+                crate::camera::head_output_from_active_main_space(&self.scene);
+            self.host_camera.eye_world_position =
+                crate::camera::eye_world_position_from_active_main_space(&self.scene);
+        };
 
-    logger::trace!(
-        "frame_submit frame_index={} render_spaces={} render_tasks={} output_state={} debug_log={} near_clip={} far_clip={} desktop_fov_deg={} vr_active={} scene_apply_ms={:.3}",
-        data.frame_index,
-        data.render_spaces.len(),
-        data.render_tasks.len(),
-        data.output_state.is_some(),
-        data.debug_log,
-        runtime.host_camera.clip.near,
-        runtime.host_camera.clip.far,
-        runtime.host_camera.desktop_fov_degrees,
-        runtime.host_camera.vr_active,
-        start.elapsed().as_secs_f64() * 1000.0
-    );
+        logger::trace!(
+            "frame_submit frame_index={} render_spaces={} render_tasks={} output_state={} debug_log={} near_clip={} far_clip={} desktop_fov_deg={} vr_active={} scene_apply_ms={:.3}",
+            data.frame_index,
+            data.render_spaces.len(),
+            data.render_tasks.len(),
+            data.output_state.is_some(),
+            data.debug_log,
+            self.host_camera.clip.near,
+            self.host_camera.clip.far,
+            self.host_camera.desktop_fov_degrees,
+            self.host_camera.vr_active,
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+    }
 }
 
 /// Fills `bytes` with `value` using the platform-vectorized memset (AVX2/AVX-512

@@ -15,9 +15,6 @@ use crate::shared::{
 };
 
 use super::RendererRuntime;
-use crate::frontend::dispatch::commands::handle_running_command;
-use crate::frontend::dispatch::frame_submit::process_frame_submit;
-use crate::frontend::dispatch::ipc_init::dispatch_ipc_command;
 
 fn test_settings_handle() -> RendererSettingsHandle {
     Arc::new(std::sync::RwLock::new(RendererSettings::default()))
@@ -55,10 +52,15 @@ fn test_renderer_init_data() -> RendererInitData {
     }
 }
 
+fn apply_running_command(rt: &mut RendererRuntime, cmd: RendererCommand) {
+    let effect = crate::frontend::dispatch::commands::handle_running_command(cmd);
+    rt.apply_running_command_effect(effect);
+}
+
 #[test]
 fn dispatch_shutdown_sets_shutdown_requested() {
     let mut rt = test_runtime_standalone();
-    handle_running_command(
+    apply_running_command(
         &mut rt,
         RendererCommand::RendererShutdown(RendererShutdown::default()),
     );
@@ -73,7 +75,7 @@ fn dispatch_frame_submit_updates_lockstep_fields() {
         frame_index: 101,
         ..Default::default()
     };
-    handle_running_command(&mut rt, RendererCommand::FrameSubmitData(data));
+    apply_running_command(&mut rt, RendererCommand::FrameSubmitData(data));
     assert_eq!(rt.last_frame_index(), 101);
     assert!(rt.last_frame_data_processed());
     assert!(!rt.fatal_error());
@@ -83,7 +85,7 @@ fn dispatch_frame_submit_updates_lockstep_fields() {
 fn dispatch_quality_config_increments_unhandled_when_no_handler() {
     let mut rt = test_runtime_standalone();
     let before = rt.unhandled_ipc_command_event_total();
-    handle_running_command(
+    apply_running_command(
         &mut rt,
         RendererCommand::QualityConfig(QualityConfig::default()),
     );
@@ -99,7 +101,7 @@ fn dispatch_desktop_config_updates_fps_caps_without_overriding_renderer_vsync() 
         settings.rendering.vsync = VsyncMode::Auto;
     };
 
-    handle_running_command(
+    apply_running_command(
         &mut rt,
         RendererCommand::DesktopConfig(DesktopConfig {
             maximum_background_framerate: Some(30),
@@ -126,7 +128,7 @@ fn dispatch_desktop_config_clamps_enabled_caps_to_host_minimum() {
         settings.rendering.vsync = VsyncMode::On;
     };
 
-    handle_running_command(
+    apply_running_command(
         &mut rt,
         RendererCommand::DesktopConfig(DesktopConfig {
             maximum_background_framerate: Some(0),
@@ -147,7 +149,7 @@ fn dispatch_desktop_config_clamps_enabled_caps_to_host_minimum() {
 #[test]
 fn dispatch_keep_alive_is_noop_for_shutdown() {
     let mut rt = test_runtime_standalone();
-    handle_running_command(&mut rt, RendererCommand::KeepAlive(KeepAlive::default()));
+    apply_running_command(&mut rt, RendererCommand::KeepAlive(KeepAlive::default()));
     assert!(!rt.shutdown_requested());
 }
 
@@ -155,7 +157,7 @@ fn dispatch_keep_alive_is_noop_for_shutdown() {
 fn dispatch_free_shared_memory_view_routes_without_fatal() {
     let mut rt = test_runtime_standalone();
     rt.test_set_shared_memory("pfx");
-    handle_running_command(
+    apply_running_command(
         &mut rt,
         RendererCommand::FreeSharedMemoryView(FreeSharedMemoryView { buffer_id: 42 }),
     );
@@ -196,34 +198,28 @@ fn frame_submit_fatal_on_scene_shared_memory_error() {
         }],
         ..Default::default()
     };
-    process_frame_submit(&mut rt, data);
+    rt.apply_frame_submit_data(data);
     assert!(rt.fatal_error());
 }
 
 #[test]
 fn ipc_init_uninitialized_non_init_command_is_fatal() {
     let mut rt = test_runtime_ipc_shape();
-    dispatch_ipc_command(
-        &mut rt,
-        RendererCommand::QualityConfig(QualityConfig::default()),
-    );
+    rt.handle_ipc_command(RendererCommand::QualityConfig(QualityConfig::default()));
     assert!(rt.fatal_error());
 }
 
 #[test]
 fn ipc_init_uninitialized_keep_alive_not_fatal() {
     let mut rt = test_runtime_ipc_shape();
-    dispatch_ipc_command(&mut rt, RendererCommand::KeepAlive(KeepAlive::default()));
+    rt.handle_ipc_command(RendererCommand::KeepAlive(KeepAlive::default()));
     assert!(!rt.fatal_error());
 }
 
 #[test]
 fn ipc_init_renderer_init_data_moves_to_init_received() {
     let mut rt = test_runtime_ipc_shape();
-    dispatch_ipc_command(
-        &mut rt,
-        RendererCommand::RendererInitData(test_renderer_init_data()),
-    );
+    rt.handle_ipc_command(RendererCommand::RendererInitData(test_renderer_init_data()));
     assert_eq!(rt.init_state(), crate::frontend::InitState::InitReceived);
     assert!(!rt.fatal_error());
 }
@@ -231,35 +227,22 @@ fn ipc_init_renderer_init_data_moves_to_init_received() {
 #[test]
 fn ipc_init_finalize_then_running_dispatch_unhandled() {
     let mut rt = test_runtime_ipc_shape();
-    dispatch_ipc_command(
-        &mut rt,
-        RendererCommand::RendererInitData(test_renderer_init_data()),
-    );
-    dispatch_ipc_command(
-        &mut rt,
-        RendererCommand::RendererInitFinalizeData(RendererInitFinalizeData::default()),
-    );
+    rt.handle_ipc_command(RendererCommand::RendererInitData(test_renderer_init_data()));
+    rt.handle_ipc_command(RendererCommand::RendererInitFinalizeData(
+        RendererInitFinalizeData::default(),
+    ));
     assert_eq!(rt.init_state(), crate::frontend::InitState::Finalized);
     let before = rt.unhandled_ipc_command_event_total();
-    dispatch_ipc_command(
-        &mut rt,
-        RendererCommand::QualityConfig(QualityConfig::default()),
-    );
+    rt.handle_ipc_command(RendererCommand::QualityConfig(QualityConfig::default()));
     assert_eq!(rt.unhandled_ipc_command_event_total(), before + 1);
 }
 
 #[test]
 fn ipc_init_init_received_defers_unrelated_command() {
     let mut rt = test_runtime_ipc_shape();
-    dispatch_ipc_command(
-        &mut rt,
-        RendererCommand::RendererInitData(test_renderer_init_data()),
-    );
+    rt.handle_ipc_command(RendererCommand::RendererInitData(test_renderer_init_data()));
     assert_eq!(rt.init_state(), crate::frontend::InitState::InitReceived);
-    dispatch_ipc_command(
-        &mut rt,
-        RendererCommand::QualityConfig(QualityConfig::default()),
-    );
+    rt.handle_ipc_command(RendererCommand::QualityConfig(QualityConfig::default()));
     assert_eq!(rt.init_state(), crate::frontend::InitState::InitReceived);
     assert!(!rt.fatal_error());
 }

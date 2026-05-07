@@ -43,17 +43,22 @@
 //! - [`debug_hud_frame`] -- per-tick wiring for the diagnostics ImGui overlay.
 //! - [`frame_extract`] -- immutable per-tick view extraction, draw collection, submit packet.
 //! - [`frame_render`] -- render-mode dispatch, MSAA prep, frame-extract entry.
+//! - [`frame_submit`] -- runtime-side application of host frame-submit payloads.
 //! - [`frame_view_plan`] -- per-view CPU intent (target, clear, viewport, host camera).
 //! - [`gpu_services`] -- GPU-facing helpers run once per tick (Hi-Z drain, async jobs, transient eviction).
-//! - [`ipc_entry`] -- IPC poll + the `pub(crate)` shims invoked by `crate::frontend::dispatch`.
+//! - [`ipc_effects`] -- applies decoded frontend dispatch effects to runtime-owned domains.
+//! - [`ipc_entry`] -- IPC poll and command-effect decode/apply entrypoints.
+//! - [`lights_ipc`] -- applies host light-buffer IPC payloads to scene light caches.
 //! - [`lockstep`] -- diagnostic helper for duplicate frame indices.
+//! - [`shader_material_ipc`] -- applies shader route and material-batch IPC payloads.
 //! - [`tick`] -- tick prologue, lock-step / output forwards, the two `tick_one_frame*` orchestrators.
 //! - [`view_planning`] -- collection of HMD / secondary RT / main swapchain plans.
 //! - [`xr_glue`] -- `XrHostCameraSync` and `XrFrameRenderer` impls for [`RendererRuntime`].
 //!
-//! IPC dispatch (RendererCommand routing, frame submit, lights/shader/material IPC, init handshake)
-//! lives in `crate::frontend::dispatch`. Dispatch reaches into `RendererRuntime`'s `pub(crate)`
-//! surface directly via the shims in [`ipc_entry`].
+//! IPC dispatch in `crate::frontend::dispatch` is decode-only. [`ipc_entry`] polls queue commands,
+//! `frontend::dispatch` classifies them into domain effects, and [`ipc_effects`] is the single
+//! runtime-owned application point for frontend, scene, backend, host camera, settings, and IPC
+//! scratch mutations.
 
 mod accessors;
 mod asset_integration;
@@ -62,11 +67,15 @@ mod debug_hud_frame;
 mod diagnostics_state;
 mod frame_extract;
 pub(crate) mod frame_render;
+mod frame_submit;
 mod frame_view_plan;
 mod gpu_services;
+mod ipc_effects;
 mod ipc_entry;
 mod ipc_state;
+mod lights_ipc;
 mod lockstep;
+mod shader_material_ipc;
 mod shutdown;
 mod tick;
 mod tick_state;
@@ -107,12 +116,12 @@ pub struct TickOutcome {
 
 /// Facade: [`RendererFrontend`] + [`SceneCoordinator`] + [`RenderBackend`] + ingestion helpers.
 pub struct RendererRuntime {
-    pub(crate) frontend: RendererFrontend,
-    pub(crate) backend: RenderBackend,
+    frontend: RendererFrontend,
+    backend: RenderBackend,
     /// Render spaces and dense transform / mesh state from [`crate::shared::FrameSubmitData`].
-    pub(crate) scene: SceneCoordinator,
+    scene: SceneCoordinator,
     /// Last host clip / FOV / VR / ortho task state for [`crate::render_graph::GraphPassFrame`].
-    pub(crate) host_camera: HostCameraFrame,
+    host_camera: HostCameraFrame,
     /// Settings handle, config path, and disk-write suppression.
     config: RuntimeConfigState,
     /// Runtime-side diagnostics accumulation.

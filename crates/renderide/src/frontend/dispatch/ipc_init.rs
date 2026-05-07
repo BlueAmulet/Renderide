@@ -1,13 +1,12 @@
-//! IPC command routing by [`crate::frontend::InitState`]: init handshake vs running dispatch.
+//! Pure IPC command routing by [`crate::frontend::InitState`].
 
-use crate::assets::texture::supported_host_formats_for_init;
 use crate::frontend::InitState;
-use crate::ipc::DualQueueIpc;
-use crate::runtime::RendererRuntime;
-use crate::shared::{HeadOutputDevice, RendererCommand, RendererInitResult};
+use crate::shared::{HeadOutputDevice, RendererCommand, RendererInitData, RendererInitResult};
 use crate::xr::output_device::head_output_device_wants_openxr;
 
+use super::command_dispatch::RunningCommandEffect;
 use super::command_kind::{RendererCommandLifecycle, classify_renderer_command};
+use super::commands::handle_running_command;
 
 /// `Renderide` plus the `renderide` crate version (`env!("CARGO_PKG_VERSION")` at compile time).
 const RENDERER_IDENTIFIER: &str = concat!("Renderide ", env!("CARGO_PKG_VERSION"));
@@ -26,6 +25,23 @@ pub(crate) enum InitDispatchDecision {
     /// Defer until init is finalized.
     DeferUntilFinalized,
     /// Treat the command as a fatal ordering error.
+    FatalExpectedInitData,
+}
+
+/// Runtime-application effect for an init-routed IPC command.
+#[derive(Debug)]
+pub(crate) enum IpcDispatchEffect {
+    /// Ignore the command.
+    Ignore,
+    /// Apply host init data and enter `InitReceived`.
+    ApplyInitData(RendererInitData),
+    /// Mark init as finalized.
+    Finalize,
+    /// Apply a decoded post-init running command.
+    DispatchRunning(RunningCommandEffect),
+    /// Defer the command until init is finalized.
+    DeferUntilFinalized,
+    /// Mark init as fatally invalid because init data was expected first.
     FatalExpectedInitData,
 }
 
@@ -51,72 +67,68 @@ pub(crate) fn init_dispatch_decision(
     }
 }
 
-/// Sends [`RendererInitResult`] to the host after [`crate::shared::RendererInitData`] is applied.
-///
-/// Returns `false` if the primary queue rejected the message (caller should treat as fatal / retry init).
+/// Builds [`RendererInitResult`] after [`crate::shared::RendererInitData`] is applied.
 ///
 /// `gpu_max_texture_dim_2d` should be [`None`] until a [`wgpu::Device`] exists; the host only
 /// accepts one init result, so startup normally reports the renderer policy max before GPU init.
-pub(crate) fn send_renderer_init_result(
-    ipc: &mut DualQueueIpc,
+pub(crate) fn build_renderer_init_result(
     output_device: HeadOutputDevice,
     gpu_max_texture_dim_2d: Option<u32>,
-) -> bool {
+) -> RendererInitResult {
     let stereo = if head_output_device_wants_openxr(output_device) {
         "OpenXR(multiview)"
     } else {
         "None"
     };
-    let max_texture_size = max_texture_size_for_init(gpu_max_texture_dim_2d);
-    let result = RendererInitResult {
+    RendererInitResult {
         actual_output_device: output_device,
         renderer_identifier: Some(RENDERER_IDENTIFIER.to_string()),
         main_window_handle_ptr: 0,
         stereo_rendering_mode: Some(stereo.to_string()),
-        max_texture_size,
+        max_texture_size: max_texture_size_for_init(gpu_max_texture_dim_2d),
         is_gpu_texture_pot_byte_aligned: true,
-        supported_texture_formats: supported_host_formats_for_init(),
-    };
-    ipc.send_primary(RendererCommand::RendererInitResult(result))
+        supported_texture_formats: crate::assets::texture::supported_host_formats_for_init(),
+    }
 }
 
 fn max_texture_size_for_init(gpu_max_texture_dim_2d: Option<u32>) -> i32 {
     gpu_max_texture_dim_2d.unwrap_or(crate::gpu::RENDERER_MAX_TEXTURE_DIMENSION_2D) as i32
 }
 
-/// Dispatches a single command according to the current init phase.
-pub(crate) fn dispatch_ipc_command(runtime: &mut RendererRuntime, cmd: RendererCommand) {
-    let decision = init_dispatch_decision(
-        runtime.frontend.init_state(),
-        classify_renderer_command(&cmd).lifecycle(),
-    );
+/// Decodes a single command according to the current init phase.
+pub(crate) fn dispatch_ipc_command(
+    init_state: InitState,
+    cmd: RendererCommand,
+) -> IpcDispatchEffect {
+    let decision = init_dispatch_decision(init_state, classify_renderer_command(&cmd).lifecycle());
     match decision {
-        InitDispatchDecision::Ignore => {}
-        InitDispatchDecision::ApplyInitData => {
-            if let RendererCommand::RendererInitData(d) = cmd {
-                runtime.on_init_data(d);
-            }
+        InitDispatchDecision::Ignore => IpcDispatchEffect::Ignore,
+        InitDispatchDecision::ApplyInitData => match cmd {
+            RendererCommand::RendererInitData(d) => IpcDispatchEffect::ApplyInitData(d),
+            _ => IpcDispatchEffect::FatalExpectedInitData,
+        },
+        InitDispatchDecision::Finalize => IpcDispatchEffect::Finalize,
+        InitDispatchDecision::DispatchRunning => {
+            IpcDispatchEffect::DispatchRunning(handle_running_command(cmd))
         }
-        InitDispatchDecision::Finalize => {
-            logger::info!("IPC init finalized; renderer entering running command dispatch");
-            runtime.frontend.set_init_state(InitState::Finalized);
-        }
-        InitDispatchDecision::DispatchRunning => runtime.handle_running_command(cmd),
-        InitDispatchDecision::DeferUntilFinalized => {
-            logger::trace!("IPC: deferring command until init finalized (skeleton)");
-        }
-        InitDispatchDecision::FatalExpectedInitData => {
-            logger::error!("IPC: expected RendererInitData first");
-            runtime.frontend.set_fatal_error(true);
-        }
+        InitDispatchDecision::DeferUntilFinalized => IpcDispatchEffect::DeferUntilFinalized,
+        InitDispatchDecision::FatalExpectedInitData => IpcDispatchEffect::FatalExpectedInitData,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{InitDispatchDecision, init_dispatch_decision, max_texture_size_for_init};
+    use super::{
+        InitDispatchDecision, IpcDispatchEffect, build_renderer_init_result, dispatch_ipc_command,
+        init_dispatch_decision, max_texture_size_for_init,
+    };
     use crate::frontend::InitState;
+    use crate::frontend::dispatch::command_dispatch::RunningCommandEffect;
     use crate::frontend::dispatch::command_kind::RendererCommandLifecycle;
+    use crate::shared::{
+        FrameSubmitData, KeepAlive, QualityConfig, RendererCommand, RendererEngineReady,
+        RendererInitData, RendererInitFinalizeData, RendererInitProgressUpdate,
+    };
 
     #[test]
     fn max_texture_size_uses_gpu_limit_when_available() {
@@ -129,6 +141,14 @@ mod tests {
             max_texture_size_for_init(None),
             crate::gpu::RENDERER_MAX_TEXTURE_DIMENSION_2D as i32
         );
+    }
+
+    #[test]
+    fn init_result_reports_supported_formats_and_renderer_identity() {
+        let result = build_renderer_init_result(Default::default(), None);
+
+        assert!(result.renderer_identifier.is_some());
+        assert!(!result.supported_texture_formats.is_empty());
     }
 
     #[test]
@@ -181,5 +201,68 @@ mod tests {
             init_dispatch_decision(InitState::Finalized, RendererCommandLifecycle::KeepAlive),
             InitDispatchDecision::DispatchRunning
         );
+    }
+
+    #[test]
+    fn dispatch_decodes_init_data_effect() {
+        assert!(matches!(
+            dispatch_ipc_command(
+                InitState::Uninitialized,
+                RendererCommand::RendererInitData(RendererInitData::default())
+            ),
+            IpcDispatchEffect::ApplyInitData(_)
+        ));
+    }
+
+    #[test]
+    fn dispatch_decodes_finalize_effect() {
+        assert!(matches!(
+            dispatch_ipc_command(
+                InitState::InitReceived,
+                RendererCommand::RendererInitFinalizeData(RendererInitFinalizeData::default())
+            ),
+            IpcDispatchEffect::Finalize
+        ));
+    }
+
+    #[test]
+    fn dispatch_defers_running_command_during_init_received() {
+        assert!(matches!(
+            dispatch_ipc_command(
+                InitState::InitReceived,
+                RendererCommand::QualityConfig(QualityConfig::default())
+            ),
+            IpcDispatchEffect::DeferUntilFinalized
+        ));
+    }
+
+    #[test]
+    fn dispatch_ignores_init_received_noise() {
+        for cmd in [
+            RendererCommand::KeepAlive(KeepAlive::default()),
+            RendererCommand::RendererInitProgressUpdate(RendererInitProgressUpdate::default()),
+            RendererCommand::RendererEngineReady(RendererEngineReady::default()),
+        ] {
+            assert!(matches!(
+                dispatch_ipc_command(InitState::InitReceived, cmd),
+                IpcDispatchEffect::Ignore
+            ));
+        }
+    }
+
+    #[test]
+    fn dispatch_decodes_finalized_frame_submit_to_running_effect() {
+        match dispatch_ipc_command(
+            InitState::Finalized,
+            RendererCommand::FrameSubmitData(FrameSubmitData {
+                frame_index: 9,
+                ..Default::default()
+            }),
+        ) {
+            IpcDispatchEffect::DispatchRunning(RunningCommandEffect::FrameSubmit(data)) => {
+                assert_eq!(data.frame_index, 9);
+            }
+            other => panic!("unexpected effect: {other:?}"),
+        }
     }
 }
