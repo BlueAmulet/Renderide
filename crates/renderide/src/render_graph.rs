@@ -76,6 +76,7 @@ mod record_parallel;
 pub(crate) mod resources;
 mod schedule;
 mod swapchain_scope;
+pub(crate) mod upload_arena;
 
 pub(crate) use cache::{GraphCache, GraphCacheKey};
 pub(crate) use compiled::{

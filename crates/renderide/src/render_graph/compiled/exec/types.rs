@@ -227,9 +227,9 @@ pub(super) struct SubmitFrameBatchStats {
     pub(super) upload_stats: FrameUploadBatchStats,
 }
 
-#[derive(Debug)]
 pub(super) struct DrainedUploadCommand {
     pub(super) command_buffer: Option<wgpu::CommandBuffer>,
+    pub(super) on_submitted_work_done: Option<Box<dyn FnOnce() + Send + 'static>>,
     pub(super) stats: FrameUploadBatchStats,
     pub(super) drain_ms: f64,
 }

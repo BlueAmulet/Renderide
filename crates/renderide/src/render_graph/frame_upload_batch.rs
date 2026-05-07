@@ -20,6 +20,8 @@ use std::time::Instant;
 
 use parking_lot::Mutex;
 
+use super::upload_arena::{PersistentUploadArena, UploadArenaAcquireStats, UploadArenaPressure};
+
 thread_local! {
     static CURRENT_UPLOAD_SCOPE: Cell<Option<FrameUploadScope>> = const { Cell::new(None) };
     static CURRENT_UPLOAD_LOCAL_SEQ: Cell<u64> = const { Cell::new(0) };
@@ -224,14 +226,54 @@ pub struct FrameUploadBatchStats {
     pub staging_bytes: u64,
     /// Number of [`wgpu::CommandEncoder::copy_buffer_to_buffer`] operations recorded.
     pub copy_ops: usize,
+    /// Bytes staged through a persistent upload arena slot.
+    pub persistent_staging_bytes: u64,
+    /// Persistent upload arena slot reuse count.
+    pub persistent_slot_reuses: usize,
+    /// Persistent upload arena allocation or growth count.
+    pub persistent_slot_grows: usize,
+    /// Bytes staged through a one-frame temporary fallback buffer.
+    pub temporary_staging_bytes: u64,
+    /// Count of temporary staging fallback buffers because all persistent slots were unavailable.
+    pub temporary_staging_fallbacks: usize,
+    /// Staged writes replayed through [`wgpu::Queue::write_buffer`] because no staging buffer fit.
+    pub oversized_queue_fallback_writes: usize,
+    /// Total bytes currently allocated across persistent upload arena slots.
+    pub arena_capacity_bytes: u64,
+    /// Persistent upload arena slots that are mapped and free after this drain.
+    pub arena_free_slots: usize,
+    /// Persistent upload arena slots referenced by submitted GPU work after this drain.
+    pub arena_in_flight_slots: usize,
+    /// Persistent upload arena slots waiting for `map_async` completion after this drain.
+    pub arena_remapping_slots: usize,
     /// CPU time spent inside the upload encoder [`wgpu::CommandEncoder::finish`] call.
     pub finish_ms: f64,
+}
+
+impl FrameUploadBatchStats {
+    fn apply_arena_acquire(&mut self, stats: UploadArenaAcquireStats) {
+        self.persistent_staging_bytes = stats.persistent_staging_bytes;
+        self.persistent_slot_reuses = stats.persistent_slot_reuses;
+        self.persistent_slot_grows = stats.persistent_slot_grows;
+        self.temporary_staging_bytes = stats.temporary_staging_bytes;
+        self.temporary_staging_fallbacks = stats.temporary_staging_fallbacks;
+        self.oversized_queue_fallback_writes = stats.oversized_queue_fallback_writes;
+    }
+
+    fn apply_arena_pressure(&mut self, pressure: UploadArenaPressure) {
+        self.arena_capacity_bytes = pressure.capacity_bytes;
+        self.arena_free_slots = pressure.free_slots;
+        self.arena_in_flight_slots = pressure.in_flight_slots;
+        self.arena_remapping_slots = pressure.remapping_slots;
+    }
 }
 
 /// Upload command buffer plus the traffic statistics that produced it.
 pub struct FrameUploadFlush {
     /// Recorded copy command buffer for staged writes.
     pub command_buffer: wgpu::CommandBuffer,
+    /// Callback installed after submit so a persistent upload slot is recycled only after GPU use.
+    pub on_submitted_work_done: Option<Box<dyn FnOnce() + Send + 'static>>,
     /// Upload traffic and finish timing for diagnostics.
     pub stats: FrameUploadBatchStats,
 }
@@ -303,15 +345,16 @@ impl FrameUploadBatch {
         }
     }
 
-    /// Drains every pending write into a single staging buffer + per-write
-    /// [`wgpu::CommandEncoder::copy_buffer_to_buffer`], returning the recorded command buffer for
-    /// inclusion at the head of the frame's submit batch.
+    /// Drains every pending write into a persistent staging slot plus per-write
+    /// [`wgpu::CommandEncoder::copy_buffer_to_buffer`] operations, returning the recorded command
+    /// buffer for inclusion at the head of the frame's submit batch.
     ///
     /// Replaces the previous "N x [`wgpu::Queue::write_buffer`]" replay: each `write_buffer` call
     /// internally allocates its own staging chunk and locks the queue, so a frame with dozens of
-    /// per-view uniform writes paid that overhead per write. The staging-belt path memcpy's the
-    /// whole arena into one mapped buffer, unmaps once, and emits one encoder op per write -- the
-    /// op is essentially free relative to a `write_buffer` call.
+    /// per-view uniform writes paid that overhead per write. The arena path copies the whole frame
+    /// payload into one mapped buffer, unmaps once, and emits one encoder op per write. Persistent
+    /// slots are recycled only after the submitted GPU work completes; if every persistent slot is
+    /// still busy, the frame falls back to a one-frame temporary staging buffer.
     ///
     /// Writes whose `offset` or `len` are not 4-byte aligned (the
     /// [`wgpu::COPY_BUFFER_ALIGNMENT`] requirement for `copy_buffer_to_buffer`) fall back to
@@ -323,23 +366,42 @@ impl FrameUploadBatch {
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        max_buffer_size: u64,
+        upload_arena: &mut PersistentUploadArena,
     ) -> Option<FrameUploadFlush> {
         crate::profiling::scope!("frame_upload::drain_and_flush");
         let (writes, payload_bytes, mut stats) = self.take_recorded_uploads()?;
         let (plans, staging_size) = plan_staging_writes(&writes, &mut stats);
-        let staging = build_staging_buffer(device, &writes, &plans, &payload_bytes, staging_size);
+        #[cfg(feature = "tracy")]
+        tracy_client::plot!("frame_upload::staging_bytes", staging_size as f64);
+        let staging = upload_arena.prepare_staging_buffer(
+            device,
+            max_buffer_size,
+            staging_size,
+            stats.staged_writes,
+        );
+        stats.apply_arena_acquire(staging.acquire_stats());
+        if let Some(staging_buffer) = staging.buffer() {
+            fill_staging_buffer(staging_buffer, &writes, &plans, &payload_bytes);
+        }
+        if staging.requires_queue_fallback() {
+            stats.copy_ops = 0;
+        }
+        let staging = staging.finish(upload_arena);
         let (command_buffer, finish_ms) = record_upload_command_buffer(
             device,
             queue,
             &writes,
             &plans,
             &payload_bytes,
-            staging.as_ref(),
+            staging.buffer.as_ref(),
         );
         stats.finish_ms = finish_ms;
+        stats.apply_arena_pressure(upload_arena.pressure());
         self.restore_recorded_upload_capacity(writes, payload_bytes);
         Some(FrameUploadFlush {
             command_buffer,
+            on_submitted_work_done: staging.on_submitted_work_done,
             stats,
         })
     }
@@ -433,33 +495,6 @@ fn plan_staging_writes(
     (plans, staging_size)
 }
 
-/// Builds and fills the single staging buffer used by all aligned writes in this batch.
-fn build_staging_buffer(
-    device: &wgpu::Device,
-    writes: &[QueueWrite],
-    plans: &[WritePlan],
-    payload_bytes: &[u8],
-    staging_size: u64,
-) -> Option<wgpu::Buffer> {
-    (staging_size > 0).then(|| {
-        crate::profiling::scope!("frame_upload::build_staging_buffer");
-        // Plot the per-frame staging size so a triple-buffered ring (the architectural follow-up
-        // for this hotspot) can be sized off the historical max instead of guessed at. Gated on
-        // the `tracy` feature so non-tracy builds compile without the `tracy_client` dependency.
-        #[cfg(feature = "tracy")]
-        tracy_client::plot!("frame_upload::staging_bytes", staging_size as f64);
-        let buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("frame_upload_staging"),
-            size: staging_size,
-            usage: wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: true,
-        });
-        fill_staging_buffer(&buf, writes, plans, payload_bytes);
-        buf.unmap();
-        buf
-    })
-}
-
 /// Copies each staged payload slice into its mapped staging-buffer offset.
 fn fill_staging_buffer(
     buf: &wgpu::Buffer,
@@ -533,10 +568,12 @@ fn record_upload_write(
             staging_offset,
             len,
         } => {
-            let Some(staging_buf) = staging else {
-                return;
-            };
-            encoder.copy_buffer_to_buffer(staging_buf, *staging_offset, buffer, *offset, *len);
+            if let Some(staging_buf) = staging {
+                encoder.copy_buffer_to_buffer(staging_buf, *staging_offset, buffer, *offset, *len);
+            } else {
+                profiling::scope!("frame_upload::staged_queue_fallback_write_buffer");
+                queue.write_buffer(buffer, *offset, &payload_bytes[data.clone()]);
+            }
         }
         WritePlan::Fallback => {
             profiling::scope!("frame_upload::fallback_write_buffer");

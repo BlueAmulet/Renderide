@@ -12,6 +12,7 @@ use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::compiled::FrameView;
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
+use crate::render_graph::upload_arena::PersistentUploadArena;
 use crate::world_mesh::WorldMeshDrawPlanSlot;
 
 use super::super::debug_hud_bundle::DebugHudBundle;
@@ -58,6 +59,8 @@ pub(crate) struct BackendGraphAccess<'a> {
     pub(crate) transient_pool: &'a mut TransientPool,
     /// Persistent ping-pong history registry.
     pub(crate) history_registry: &'a mut HistoryRegistry,
+    /// Persistent upload staging arena used by graph buffer upload drains.
+    pub(crate) upload_arena: &'a mut PersistentUploadArena,
     /// Debug HUD state and encoder.
     pub(crate) debug_hud: &'a mut DebugHudBundle,
     /// Scene-color format snapshot selected before graph execution borrows backend fields.
@@ -90,6 +93,11 @@ impl<'a> BackendGraphAccess<'a> {
     /// Mutable history registry for frame advance and view-scoped registrations.
     pub(crate) fn history_registry_mut(&mut self) -> &mut HistoryRegistry {
         self.history_registry
+    }
+
+    /// Persistent upload staging arena.
+    pub(crate) fn upload_arena_mut(&mut self) -> &mut PersistentUploadArena {
+        self.upload_arena
     }
 
     /// Scene-color format snapshot selected for this graph frame.

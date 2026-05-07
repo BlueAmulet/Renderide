@@ -8,6 +8,7 @@ use crate::camera::{HostCameraFrame, ViewId};
 
 use super::super::super::context::GraphResolvedResources;
 use super::super::super::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
+use super::super::super::upload_arena::PersistentUploadArena;
 use super::{
     CompiledRenderGraph, DrainedUploadCommand, FrameView, FrameViewTarget, GraphExecuteError,
     GraphResolveKey, MultiViewExecutionContext, SubmitFrameBatchStats, SubmitFrameInputs,
@@ -29,22 +30,26 @@ pub(super) fn release_transients_and_gc(
 
 fn drain_upload_command_buffer(
     upload_batch: &FrameUploadBatch,
+    upload_arena: &mut PersistentUploadArena,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
+    max_buffer_size: u64,
 ) -> DrainedUploadCommand {
     profiling::scope!("gpu::drain_upload_batch");
     let upload_drain_start = Instant::now();
-    let upload_flush = upload_batch.drain_and_flush(device, queue);
+    let upload_flush = upload_batch.drain_and_flush(device, queue, max_buffer_size, upload_arena);
     let drain_ms = elapsed_ms(upload_drain_start);
     if let Some(flush) = upload_flush {
         DrainedUploadCommand {
             command_buffer: Some(flush.command_buffer),
+            on_submitted_work_done: flush.on_submitted_work_done,
             stats: flush.stats,
             drain_ms,
         }
     } else {
         DrainedUploadCommand {
             command_buffer: None,
+            on_submitted_work_done: None,
             stats: FrameUploadBatchStats::default(),
             drain_ms,
         }
@@ -88,6 +93,35 @@ fn views_include_swapchain_target(views: &[FrameView<'_>]) -> bool {
         .any(|v| matches!(v.target, FrameViewTarget::Swapchain))
 }
 
+fn drain_upload_for_submit(
+    mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+    upload_batch: &FrameUploadBatch,
+    queue_ref: &wgpu::Queue,
+) -> DrainedUploadCommand {
+    let upload_arena = mv_ctx.backend.upload_arena_mut();
+    upload_arena.maintain(mv_ctx.device);
+    drain_upload_command_buffer(
+        upload_batch,
+        upload_arena,
+        mv_ctx.device,
+        queue_ref,
+        mv_ctx.gpu_limits.max_buffer_size(),
+    )
+}
+
+fn collect_submit_callbacks(
+    mv_ctx: &MultiViewExecutionContext<'_, '_>,
+    per_view_occlusion_info: &[(ViewId, HostCameraFrame)],
+    upload_callback: Option<Box<dyn FnOnce() + Send + 'static>>,
+) -> Vec<Box<dyn FnOnce() + Send + 'static>> {
+    let mut callbacks = {
+        profiling::scope!("graph::single_submit::collect_hi_z_callbacks");
+        collect_hi_z_submit_callbacks(mv_ctx, per_view_occlusion_info)
+    };
+    callbacks.extend(upload_callback);
+    callbacks
+}
+
 impl CompiledRenderGraph {
     /// Encodes the debug HUD overlay (swapchain path only), drains the deferred upload batch, and
     /// submits the assembled command buffers as a single batch through the GPU driver thread.
@@ -122,7 +156,7 @@ impl CompiledRenderGraph {
             )
         }?;
 
-        let upload = drain_upload_command_buffer(upload_batch, mv_ctx.device, queue_ref);
+        let upload = drain_upload_for_submit(mv_ctx, upload_batch, queue_ref);
         let upload_finish_ms = upload.stats.finish_ms;
         let has_upload_cmd = upload.command_buffer.is_some();
         let has_frame_global_cmd = frame_global_cmd.is_some();
@@ -151,12 +185,13 @@ impl CompiledRenderGraph {
             }
         };
 
-        let hi_z_callbacks = {
-            profiling::scope!("graph::single_submit::collect_hi_z_callbacks");
-            collect_hi_z_submit_callbacks(mv_ctx, per_view_occlusion_info)
-        };
+        let submit_callbacks = collect_submit_callbacks(
+            mv_ctx,
+            per_view_occlusion_info,
+            upload.on_submitted_work_done,
+        );
         logger::trace!(
-            "graph submit batch: views={} swapchain={} command_buffers={} upload={} frame_global={} per_view={} profiler={} hud={} hi_z_callbacks={}",
+            "graph submit batch: views={} swapchain={} command_buffers={} upload={} frame_global={} per_view={} profiler={} hud={} submit_callbacks={}",
             views.len(),
             target_is_swapchain,
             command_buffer_count,
@@ -165,7 +200,7 @@ impl CompiledRenderGraph {
             per_view_command_count,
             has_per_view_profiler_cmd,
             has_hud_cmd,
-            hi_z_callbacks.len(),
+            submit_callbacks.len(),
         );
 
         let submit_enqueue_ms = {
@@ -176,7 +211,7 @@ impl CompiledRenderGraph {
                 all_cmds,
                 surface_tex,
                 None,
-                hi_z_callbacks,
+                submit_callbacks,
             );
             elapsed_ms(submit_enqueue_start)
         };

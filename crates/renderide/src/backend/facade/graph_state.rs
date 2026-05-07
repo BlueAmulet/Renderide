@@ -6,6 +6,7 @@
 use crate::camera::ViewId;
 use crate::render_graph::{
     GraphCache, TransientPool, main_graph::MainGraphPostProcessingResources,
+    upload_arena::PersistentUploadArena,
 };
 
 use super::super::{HistoryRegistry, ViewResourceRegistry};
@@ -19,6 +20,8 @@ pub(super) struct RenderGraphState {
     /// Persistent ping-pong resources used by graph history slots
     /// (`ImportSource::PingPong` / `BufferImportSource::PingPong`).
     history_registry: HistoryRegistry,
+    /// Persistent staging-buffer arena for frame upload copies.
+    upload_arena: PersistentUploadArena,
     /// Retained logical-view ownership for every backend cache that lives beyond one frame.
     view_resources: ViewResourceRegistry,
     /// Post-processing resources that must survive compiled graph rebuilds.
@@ -32,6 +35,7 @@ impl RenderGraphState {
             frame_graph_cache: GraphCache::default(),
             transient_pool: TransientPool::new(),
             history_registry: HistoryRegistry::new(),
+            upload_arena: PersistentUploadArena::new(),
             view_resources: ViewResourceRegistry::new(),
             post_processing_resources: MainGraphPostProcessingResources::default(),
         }
@@ -47,10 +51,20 @@ impl RenderGraphState {
         &mut self.history_registry
     }
 
-    /// Mutable transient pool and history registry for graph execution after the cached graph
-    /// has been temporarily removed from [`Self::frame_graph_cache`].
-    pub(super) fn execution_resources_mut(&mut self) -> (&mut TransientPool, &mut HistoryRegistry) {
-        (&mut self.transient_pool, &mut self.history_registry)
+    /// Mutable transient pool, history registry, and upload arena for graph execution after the
+    /// cached graph has been temporarily removed from [`Self::frame_graph_cache`].
+    pub(super) fn execution_resources_mut(
+        &mut self,
+    ) -> (
+        &mut TransientPool,
+        &mut HistoryRegistry,
+        &mut PersistentUploadArena,
+    ) {
+        (
+            &mut self.transient_pool,
+            &mut self.history_registry,
+            &mut self.upload_arena,
+        )
     }
 
     /// Long-lived post-processing resources for main-graph rebuilds.

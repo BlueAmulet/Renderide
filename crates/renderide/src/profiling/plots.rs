@@ -168,6 +168,26 @@ pub struct CommandEncodingProfileSample {
     pub upload_writes: usize,
     /// Deferred upload payload bytes drained before submit.
     pub upload_bytes: usize,
+    /// Upload bytes staged through persistent arena slots.
+    pub upload_persistent_staging_bytes: u64,
+    /// Persistent arena slot reuse count.
+    pub upload_persistent_slot_reuses: usize,
+    /// Persistent arena slot allocation or growth count.
+    pub upload_persistent_slot_grows: usize,
+    /// Upload bytes staged through temporary fallback buffers.
+    pub upload_temporary_staging_bytes: u64,
+    /// Temporary staging fallback count caused by all persistent slots being unavailable.
+    pub upload_temporary_staging_fallbacks: usize,
+    /// Staged writes replayed through queue writes because no staging buffer fit.
+    pub upload_oversized_queue_fallback_writes: usize,
+    /// Bytes allocated across persistent upload arena slots.
+    pub upload_arena_capacity_bytes: u64,
+    /// Persistent upload arena slots mapped and available for writes.
+    pub upload_arena_free_slots: usize,
+    /// Persistent upload arena slots currently in flight.
+    pub upload_arena_in_flight_slots: usize,
+    /// Persistent upload arena slots waiting for remap completion.
+    pub upload_arena_remapping_slots: usize,
     /// CPU time spent resolving transient resources for all views.
     pub pre_resolve_ms: f64,
     /// CPU time spent preparing shared/per-view resources before recording.
@@ -243,6 +263,7 @@ fn plot_command_encoding_tracy(sample: CommandEncodingProfileSample) {
         sample.upload_writes as f64
     );
     tracy_client::plot!("command_encoding::upload_bytes", sample.upload_bytes as f64);
+    plot_command_encoding_upload_arena_tracy(&sample);
     tracy_client::plot!("command_encoding::pre_resolve_ms", sample.pre_resolve_ms);
     tracy_client::plot!(
         "command_encoding::prepare_resources_ms",
@@ -295,6 +316,50 @@ fn plot_command_encoding_tracy(sample: CommandEncodingProfileSample) {
     );
 }
 
+#[cfg(feature = "tracy")]
+fn plot_command_encoding_upload_arena_tracy(sample: &CommandEncodingProfileSample) {
+    tracy_client::plot!(
+        "command_encoding::upload_persistent_staging_bytes",
+        sample.upload_persistent_staging_bytes as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_persistent_slot_reuses",
+        sample.upload_persistent_slot_reuses as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_persistent_slot_grows",
+        sample.upload_persistent_slot_grows as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_temporary_staging_bytes",
+        sample.upload_temporary_staging_bytes as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_temporary_staging_fallbacks",
+        sample.upload_temporary_staging_fallbacks as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_oversized_queue_fallback_writes",
+        sample.upload_oversized_queue_fallback_writes as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_arena_capacity_bytes",
+        sample.upload_arena_capacity_bytes as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_arena_free_slots",
+        sample.upload_arena_free_slots as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_arena_in_flight_slots",
+        sample.upload_arena_in_flight_slots as f64
+    );
+    tracy_client::plot!(
+        "command_encoding::upload_arena_remapping_slots",
+        sample.upload_arena_remapping_slots as f64
+    );
+}
+
 #[cfg(not(feature = "tracy"))]
 fn consume_command_encoding_sample(sample: CommandEncodingProfileSample) {
     let CommandEncodingProfileSample {
@@ -308,6 +373,16 @@ fn consume_command_encoding_sample(sample: CommandEncodingProfileSample) {
         transient_buffer_misses,
         upload_writes,
         upload_bytes,
+        upload_persistent_staging_bytes,
+        upload_persistent_slot_reuses,
+        upload_persistent_slot_grows,
+        upload_temporary_staging_bytes,
+        upload_temporary_staging_fallbacks,
+        upload_oversized_queue_fallback_writes,
+        upload_arena_capacity_bytes,
+        upload_arena_free_slots,
+        upload_arena_in_flight_slots,
+        upload_arena_remapping_slots,
         pre_resolve_ms,
         prepare_resources_ms,
         frame_global_encode_ms,
@@ -334,6 +409,16 @@ fn consume_command_encoding_sample(sample: CommandEncodingProfileSample) {
         transient_buffer_misses,
         upload_writes,
         upload_bytes,
+        upload_persistent_staging_bytes,
+        upload_persistent_slot_reuses,
+        upload_persistent_slot_grows,
+        upload_temporary_staging_bytes,
+        upload_temporary_staging_fallbacks,
+        upload_oversized_queue_fallback_writes,
+        upload_arena_capacity_bytes,
+        upload_arena_free_slots,
+        upload_arena_in_flight_slots,
+        upload_arena_remapping_slots,
         pre_resolve_ms,
         prepare_resources_ms,
         frame_global_encode_ms,

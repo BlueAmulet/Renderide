@@ -607,7 +607,8 @@ impl RenderBackend {
         let live_bloom_settings = self.live_bloom_settings();
         let live_auto_exposure_settings = self.live_auto_exposure_settings();
         let wall_frame_time_ms = self.debug_frame_time_ms();
-        let (transient_pool, history_registry) = self.graph_state.execution_resources_mut();
+        let (transient_pool, history_registry, upload_arena) =
+            self.graph_state.execution_resources_mut();
         let (frame_resources, mesh_preprocess, mesh_deform_scratch, skin_cache) =
             self.frame_services.graph_access_slices();
         BackendGraphAccess {
@@ -621,6 +622,7 @@ impl RenderBackend {
             world_mesh_frame_planner: &self.world_mesh_frame_planner,
             transient_pool,
             history_registry,
+            upload_arena,
             debug_hud: self.diagnostics.bundle_mut(),
             scene_color_format,
             gpu_limits,
