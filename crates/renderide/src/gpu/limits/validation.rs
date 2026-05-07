@@ -8,6 +8,8 @@
 
 use std::sync::Arc;
 
+use hashbrown::HashMap;
+
 use super::{GpuLimits, GpuLimitsError};
 
 /// Per-draw row size in bytes; must match [`crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE`].
@@ -58,6 +60,8 @@ pub(super) fn try_new(
         supports_float32_filterable,
         texture_compression_features,
         max_per_draw_slab_slots,
+        features,
+        texture_format_features: collect_texture_format_features(adapter, features, down.flags),
     };
 
     logger::info!(
@@ -73,6 +77,67 @@ pub(super) fn try_new(
     );
 
     Ok(Arc::new(limits))
+}
+
+fn collect_texture_format_features(
+    adapter: &wgpu::Adapter,
+    features: wgpu::Features,
+    downlevel_flags: wgpu::DownlevelFlags,
+) -> HashMap<wgpu::TextureFormat, wgpu::TextureFormatFeatures> {
+    tracked_texture_formats()
+        .into_iter()
+        .map(|format| {
+            (
+                format,
+                effective_texture_format_features(adapter, format, features, downlevel_flags),
+            )
+        })
+        .collect()
+}
+
+fn effective_texture_format_features(
+    adapter: &wgpu::Adapter,
+    format: wgpu::TextureFormat,
+    features: wgpu::Features,
+    downlevel_flags: wgpu::DownlevelFlags,
+) -> wgpu::TextureFormatFeatures {
+    let use_adapter_features = features
+        .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
+        || !downlevel_flags.contains(wgpu::DownlevelFlags::WEBGPU_TEXTURE_FORMAT_SUPPORT);
+    if !use_adapter_features {
+        return format.guaranteed_format_features(features);
+    }
+
+    let mut format_features = adapter.get_texture_format_features(format);
+    if matches!(
+        format,
+        wgpu::TextureFormat::R32Float
+            | wgpu::TextureFormat::Rg32Float
+            | wgpu::TextureFormat::Rgba32Float
+    ) && !features.contains(wgpu::Features::FLOAT32_FILTERABLE)
+    {
+        format_features
+            .flags
+            .set(wgpu::TextureFormatFeatureFlags::FILTERABLE, false);
+    }
+    format_features
+}
+
+fn tracked_texture_formats() -> [wgpu::TextureFormat; 12] {
+    [
+        wgpu::TextureFormat::R8Unorm,
+        wgpu::TextureFormat::R32Float,
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        wgpu::TextureFormat::Bgra8Unorm,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+        wgpu::TextureFormat::Rgba16Float,
+        wgpu::TextureFormat::Rg11b10Ufloat,
+        wgpu::TextureFormat::Depth24Plus,
+        wgpu::TextureFormat::Depth24PlusStencil8,
+        wgpu::TextureFormat::Depth32Float,
+        wgpu::TextureFormat::Depth32FloatStencil8,
+    ]
 }
 
 fn validate_wgpu_minimums(l: &wgpu::Limits) -> Result<(), GpuLimitsError> {

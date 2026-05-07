@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use hashbrown::HashMap;
 use thiserror::Error;
 
 mod validation;
@@ -34,6 +35,8 @@ pub struct GpuLimits {
     pub texture_compression_features: wgpu::Features,
     /// Maximum rows in the mesh-forward `@group(2)` storage slab (`max_storage_buffer_binding_size / 256`).
     pub max_per_draw_slab_slots: usize,
+    features: wgpu::Features,
+    texture_format_features: HashMap<wgpu::TextureFormat, wgpu::TextureFormatFeatures>,
 }
 
 /// Minimum requirements not met for running the default render graph.
@@ -170,6 +173,54 @@ impl GpuLimits {
     #[inline]
     pub fn cubemap_fits_texture_array_layers(&self) -> bool {
         self.wgpu.max_texture_array_layers >= CUBEMAP_ARRAY_LAYERS
+    }
+
+    /// Returns `true` when multisampled 2D-array textures are valid on this device.
+    #[must_use]
+    #[inline]
+    pub fn supports_multisample_array(&self) -> bool {
+        self.features.contains(wgpu::Features::MULTISAMPLE_ARRAY)
+    }
+
+    /// Effective texture-format features used by this device for validation.
+    #[must_use]
+    #[inline]
+    pub fn texture_format_features(
+        &self,
+        format: wgpu::TextureFormat,
+    ) -> wgpu::TextureFormatFeatures {
+        self.texture_format_features
+            .get(&format)
+            .copied()
+            .unwrap_or_else(|| format.guaranteed_format_features(self.features))
+    }
+
+    /// Returns `true` when `usage` is allowed for `format` on this device.
+    #[must_use]
+    #[inline]
+    pub fn texture_usage_supported(
+        &self,
+        format: wgpu::TextureFormat,
+        usage: wgpu::TextureUsages,
+    ) -> bool {
+        self.texture_format_features(format)
+            .allowed_usages
+            .contains(usage)
+    }
+
+    /// Returns `true` when `sample_count` is valid for `format` on this device.
+    #[must_use]
+    #[inline]
+    pub fn texture_sample_count_supported(
+        &self,
+        format: wgpu::TextureFormat,
+        sample_count: u32,
+    ) -> bool {
+        sample_count <= 1
+            || self
+                .texture_format_features(format)
+                .flags
+                .sample_count_supported(sample_count)
     }
 
     /// `max_compute_workgroups_per_dimension` for dispatch validation.
@@ -312,6 +363,28 @@ impl GpuLimits {
         }
         Some(edge.min(self.wgpu.max_texture_dimension_2d))
     }
+
+    #[cfg(test)]
+    pub(crate) fn synthetic_for_tests(
+        wgpu_limits: wgpu::Limits,
+        features: wgpu::Features,
+        texture_format_features: HashMap<wgpu::TextureFormat, wgpu::TextureFormatFeatures>,
+    ) -> Self {
+        let max_per_draw_slab_slots = (wgpu_limits.max_storage_buffer_binding_size / 256) as usize;
+        Self {
+            wgpu: wgpu_limits,
+            supports_base_instance: true,
+            supports_multiview: features.contains(wgpu::Features::MULTIVIEW),
+            supports_float32_filterable: features.contains(wgpu::Features::FLOAT32_FILTERABLE),
+            texture_compression_features: features
+                & (wgpu::Features::TEXTURE_COMPRESSION_BC
+                    | wgpu::Features::TEXTURE_COMPRESSION_ETC2
+                    | wgpu::Features::TEXTURE_COMPRESSION_ASTC),
+            max_per_draw_slab_slots,
+            features,
+            texture_format_features,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -324,45 +397,32 @@ mod tests {
             max_compute_workgroups_per_dimension: 256,
             ..Default::default()
         };
-        let gl = GpuLimits {
-            wgpu: l,
-            supports_base_instance: true,
-            supports_multiview: false,
-            supports_float32_filterable: false,
-            texture_compression_features: wgpu::Features::empty(),
-            max_per_draw_slab_slots: 1024,
-        };
+        let gl = GpuLimits::synthetic_for_tests(l, wgpu::Features::empty(), HashMap::new());
         assert!(gl.compute_dispatch_fits(256, 256, 24));
         assert!(!gl.compute_dispatch_fits(257, 1, 1));
     }
 
     fn synthetic_limits(max_tex_2d: u32) -> GpuLimits {
-        GpuLimits {
-            wgpu: wgpu::Limits {
+        GpuLimits::synthetic_for_tests(
+            wgpu::Limits {
                 max_texture_dimension_2d: max_tex_2d,
                 ..Default::default()
             },
-            supports_base_instance: true,
-            supports_multiview: false,
-            supports_float32_filterable: false,
-            texture_compression_features: wgpu::Features::empty(),
-            max_per_draw_slab_slots: 1024,
-        }
+            wgpu::Features::empty(),
+            HashMap::new(),
+        )
     }
 
     fn synthetic_limits_layers(max_tex_2d: u32, max_array_layers: u32) -> GpuLimits {
-        GpuLimits {
-            wgpu: wgpu::Limits {
+        GpuLimits::synthetic_for_tests(
+            wgpu::Limits {
                 max_texture_dimension_2d: max_tex_2d,
                 max_texture_array_layers: max_array_layers,
                 ..Default::default()
             },
-            supports_base_instance: true,
-            supports_multiview: false,
-            supports_float32_filterable: false,
-            texture_compression_features: wgpu::Features::empty(),
-            max_per_draw_slab_slots: 1024,
-        }
+            wgpu::Features::empty(),
+            HashMap::new(),
+        )
     }
 
     #[test]
@@ -394,15 +454,7 @@ mod tests {
     }
 
     fn limits_with(wgpu_limits: wgpu::Limits) -> GpuLimits {
-        let max_per_draw_slab_slots = (wgpu_limits.max_storage_buffer_binding_size / 256) as usize;
-        GpuLimits {
-            wgpu: wgpu_limits,
-            supports_base_instance: true,
-            supports_multiview: false,
-            supports_float32_filterable: false,
-            texture_compression_features: wgpu::Features::empty(),
-            max_per_draw_slab_slots,
-        }
+        GpuLimits::synthetic_for_tests(wgpu_limits, wgpu::Features::empty(), HashMap::new())
     }
 
     #[test]

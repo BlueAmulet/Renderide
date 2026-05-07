@@ -51,6 +51,30 @@ pub enum TransientPoolError {
         /// Mip level count.
         mip_levels: u32,
     },
+    /// Requested texture format/usage combination is unsupported by this device.
+    #[error(
+        "transient texture {label} format {format:?} usage {usage:?} is unsupported by this device"
+    )]
+    TextureUnsupportedUsage {
+        /// Texture label.
+        label: &'static str,
+        /// Texture format.
+        format: wgpu::TextureFormat,
+        /// Requested usage bits.
+        usage: wgpu::TextureUsages,
+    },
+    /// Requested texture sample count is unsupported by this device for the texture format.
+    #[error(
+        "transient texture {label} format {format:?} sample_count={sample_count} is unsupported by this device"
+    )]
+    TextureUnsupportedSampleCount {
+        /// Texture label.
+        label: &'static str,
+        /// Texture format.
+        format: wgpu::TextureFormat,
+        /// Requested sample count.
+        sample_count: u32,
+    },
     /// Requested buffer size exceeds device limits.
     #[error("transient buffer {label} size={size} exceeds device limits (max_buffer_size={max})")]
     BufferExceedsLimits {
@@ -247,7 +271,7 @@ impl TransientPool {
         label: &'static str,
         usage: wgpu::TextureUsages,
     ) -> Result<PooledTextureLease, TransientPoolError> {
-        validate_texture_key(limits, key, label)?;
+        validate_texture_key(limits, key, label, usage)?;
         let id = self.textures.acquire(
             key,
             self.lru_gen,
@@ -392,6 +416,7 @@ fn validate_texture_key(
     limits: &crate::gpu::GpuLimits,
     key: TextureKey,
     label: &'static str,
+    usage: wgpu::TextureUsages,
 ) -> Result<(), TransientPoolError> {
     let (width, height, layers) = texture_key_dims(key);
     let dims_fit = match key.dimension {
@@ -407,6 +432,27 @@ fn validate_texture_key(
             height,
             layers,
             mip_levels: key.mip_levels,
+        });
+    }
+    if !limits.texture_usage_supported(key.format, usage) {
+        return Err(TransientPoolError::TextureUnsupportedUsage {
+            label,
+            format: key.format,
+            usage,
+        });
+    }
+    let sample_count = key.sample_count.max(1);
+    let multisample_shape_fit = sample_count <= 1
+        || (key.mip_levels.max(1) == 1
+            && key.dimension == wgpu::TextureDimension::D2
+            && usage.contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
+            && !usage.contains(wgpu::TextureUsages::STORAGE_BINDING)
+            && (layers <= 1 || limits.supports_multisample_array()));
+    if !multisample_shape_fit || !limits.texture_sample_count_supported(key.format, sample_count) {
+        return Err(TransientPoolError::TextureUnsupportedSampleCount {
+            label,
+            format: key.format,
+            sample_count,
         });
     }
     Ok(())

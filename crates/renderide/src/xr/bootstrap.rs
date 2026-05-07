@@ -428,6 +428,7 @@ fn create_vulkan_logical_device_openxr(
         | wgt::Features::TEXTURE_COMPRESSION_ETC2
         | wgt::Features::TEXTURE_COMPRESSION_ASTC;
     let optional_float32_filterable = wgt::Features::FLOAT32_FILTERABLE;
+    let optional_rg11b10_renderable = wgt::Features::RG11B10UFLOAT_RENDERABLE;
     let optional_depth32_stencil8 = wgt::Features::DEPTH32FLOAT_STENCIL8;
     let timestamp = wgt::Features::TIMESTAMP_QUERY | wgt::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
     // TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES: unlock hardware-reported MSAA sample counts (device
@@ -441,6 +442,7 @@ fn create_vulkan_logical_device_openxr(
         | (desc.wgpu_exposed.features
             & (compression
                 | optional_float32_filterable
+                | optional_rg11b10_renderable
                 | optional_depth32_stencil8
                 | adapter_format_features
                 | multisample_array

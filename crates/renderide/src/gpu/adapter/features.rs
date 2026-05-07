@@ -17,6 +17,7 @@ pub(crate) fn adapter_render_features_intersection(adapter: &wgpu::Adapter) -> w
         | wgpu::Features::TEXTURE_COMPRESSION_ETC2
         | wgpu::Features::TEXTURE_COMPRESSION_ASTC;
     let optional_float32_filterable = wgpu::Features::FLOAT32_FILTERABLE;
+    let optional_rg11b10_renderable = wgpu::Features::RG11B10UFLOAT_RENDERABLE;
     let adapter_format_features = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
     let optional_depth32_stencil8 = wgpu::Features::DEPTH32FLOAT_STENCIL8;
     let multisample_array = wgpu::Features::MULTISAMPLE_ARRAY;
@@ -24,6 +25,7 @@ pub(crate) fn adapter_render_features_intersection(adapter: &wgpu::Adapter) -> w
     adapter.features()
         & (compression
             | optional_float32_filterable
+            | optional_rg11b10_renderable
             | adapter_format_features
             | optional_depth32_stencil8
             | multisample_array)
