@@ -9,7 +9,7 @@ use crate::mesh_deform::{
     PER_DRAW_UNIFORM_STRIDE, PaddedPerDrawUniforms, write_per_draw_uniform_slab,
 };
 use crate::render_graph::frame_params::GraphPassFrame;
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::scene::SceneCoordinator;
 use crate::shared::RenderingContext;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
@@ -52,11 +52,11 @@ pub(super) struct SlabPackInputs<'a> {
 /// view's own buffer. Returns `false` if per-draw resources cannot be created (not yet attached).
 #[expect(
     clippy::significant_drop_tightening,
-    reason = "scratch lock owns `slab_bytes` written through to upload_batch; releasing earlier would clone per frame"
+    reason = "scratch lock owns `slab_bytes` written through to uploads; releasing earlier would clone per frame"
 )]
 pub(super) fn pack_and_upload_per_draw_slab(
     device: &wgpu::Device,
-    upload_batch: &FrameUploadBatch,
+    uploads: GraphUploadSink<'_>,
     frame: &GraphPassFrame<'_>,
     inputs: SlabPackInputs<'_>,
 ) -> bool {
@@ -112,7 +112,7 @@ pub(super) fn pack_and_upload_per_draw_slab(
         {
             profiling::scope!("world_mesh::enqueue_slab_upload");
             let per_draw = per_draw_slot.lock();
-            upload_batch.write_buffer(&per_draw.per_draw_storage, 0, slab.as_slice());
+            uploads.write_buffer(&per_draw.per_draw_storage, 0, slab.as_slice());
         }
     }
     true

@@ -319,7 +319,7 @@ fn dispatch_mesh_deform_work(
                 encoder: &mut *gpu.encoder,
                 pre: gpu.pre,
                 scratch: &mut *gpu.scratch,
-                upload_batch: gpu.upload_batch,
+                uploads: gpu.uploads,
                 profiler: gpu.profiler,
             },
             MeshDeformRecordInputs {
@@ -415,7 +415,7 @@ impl ComputePass for MeshDeformPass {
                 encoder: ctx.encoder,
                 pre,
                 scratch: deform_scratch,
-                upload_batch: ctx.upload_batch,
+                uploads: ctx.uploads,
                 profiler: ctx.profiler,
             },
             frame.shared.scene,

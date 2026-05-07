@@ -6,7 +6,7 @@
 //!
 //! 1. [`WorldMeshForwardPreparePass`] -- **[`CallbackPass`]** that collects + sorts draws, packs
 //!    per-draw VP/model uniforms (rayon-parallel above the existing threshold), and uploads the
-//!    per-draw slab and frame uniforms via `Queue::write_buffer`. Stores the prepared state in
+//!    per-draw slab and frame uniforms via the graph upload sink. Stores the prepared state in
 //!    [`WorldMeshForwardPlanSlot`] for downstream passes.
 //! 2. [`WorldMeshForwardOpaquePass`] -- **[`RasterPass`]** that opens the HDR color + depth
 //!    attachments with `LoadOp::Clear`, records pre-skybox regular draws, records the
@@ -270,8 +270,7 @@ impl CallbackPass for WorldMeshForwardPreparePass {
 
         let prepared = prepare_world_mesh_forward_frame(
             ctx.device,
-            ctx.queue.as_ref(),
-            ctx.upload_batch,
+            ctx.uploads,
             ctx.gpu_limits,
             frame,
             ctx.blackboard,
@@ -363,7 +362,6 @@ impl RasterPass for WorldMeshForwardOpaquePass {
         let pre_skybox_recorded = record_world_mesh_forward_opaque_graph_raster(
             rpass,
             ctx.device,
-            ctx.queue.as_ref(),
             frame,
             ctx.blackboard,
             &prepared,
@@ -375,7 +373,6 @@ impl RasterPass for WorldMeshForwardOpaquePass {
         let post_skybox_recorded = record_world_mesh_forward_post_skybox_graph_raster(
             rpass,
             ctx.device,
-            ctx.queue.as_ref(),
             frame,
             ctx.blackboard,
             &prepared,
@@ -527,7 +524,6 @@ impl RasterPass for WorldMeshForwardIntersectPass {
             record_world_mesh_forward_intersection_graph_raster(
                 rpass,
                 ctx.device,
-                ctx.queue.as_ref(),
                 frame,
                 ctx.blackboard,
                 &prepared,
@@ -657,7 +653,6 @@ impl RasterPass for WorldMeshForwardTransparentPass {
             record_world_mesh_forward_transparent_graph_raster(
                 rpass,
                 ctx.device,
-                ctx.queue.as_ref(),
                 frame,
                 ctx.blackboard,
                 &prepared,

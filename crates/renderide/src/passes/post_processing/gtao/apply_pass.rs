@@ -135,8 +135,7 @@ impl RasterPass for GtaoApplyPass {
         };
         let params = GtaoParamsGpu::from_settings(live, beta, true);
         let params_buffer = self.pipelines.params.get(ctx.device);
-        ctx.upload_batch
-            .write_buffer(params_buffer, 0, bytemuck::bytes_of(&params));
+        ctx.write_buffer(params_buffer, 0, bytemuck::bytes_of(&params));
 
         let pipeline = self
             .pipelines

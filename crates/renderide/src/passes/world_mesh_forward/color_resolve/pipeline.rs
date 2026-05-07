@@ -51,8 +51,8 @@ pub(super) struct MsaaResolveHdrPipelineCache {
     mono: RenderPipelineMap<wgpu::TextureFormat>,
     /// Same, but with `multiview_mask = 3` so the shader runs once per eye layer.
     multiview: RenderPipelineMap<wgpu::TextureFormat>,
-    /// Lazily-allocated UBO holding the live sample count. Re-uploaded each frame via
-    /// [`wgpu::Queue::write_buffer`] before the pass records its draw.
+    /// Lazily-allocated UBO holding the live sample count. Re-uploaded each frame through the
+    /// graph upload sink before the pass records its draw.
     params_ubo: OnceGpu<wgpu::Buffer>,
 }
 

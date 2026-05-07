@@ -7,7 +7,7 @@ use crate::camera::HostCameraFrame;
 use crate::gpu::frame_globals::FrameGpuUniforms;
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlanSlot};
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::scene::SceneCoordinator;
 use crate::world_mesh::cluster::{
     FrameGpuUniformBuildParams, cluster_frame_params, cluster_frame_params_stereo,
@@ -17,7 +17,7 @@ use super::camera::resolve_camera_world_pair;
 
 /// Builds [`FrameGpuUniforms`], syncs cluster viewport, and writes frame + lights.
 pub(super) fn write_frame_uniforms_and_cluster(
-    queue: &wgpu::Queue,
+    uploads: GraphUploadSink<'_>,
     frame_resources: &FrameResourceManager,
     hc: HostCameraFrame,
     scene: &SceneCoordinator,
@@ -34,17 +34,16 @@ pub(super) fn write_frame_uniforms_and_cluster(
         frame_resources.skybox_specular_uniform_params(),
     );
 
-    frame_resources.write_frame_uniform_and_lights_from_scratch(queue, &uniforms);
+    frame_resources.write_frame_uniform_and_lights_from_scratch(uploads, &uniforms);
 }
 
-/// Writes per-view `FrameGpuUniforms` via [`FrameUploadBatch`] or falls back to the shared frame buffer.
+/// Writes per-view `FrameGpuUniforms` via [`GraphUploadSink`] or falls back to the shared frame buffer.
 ///
 /// Multi-view paths plant a [`PerViewFramePlanSlot`] on the blackboard naming the per-view bind
 /// group and uniform buffer; single-view fallbacks keep writing the shared `frame_uniform`
-/// buffer directly on the GPU queue.
+/// buffer through the same graph upload sink.
 pub(super) fn write_per_view_frame_uniforms(
-    queue: &wgpu::Queue,
-    upload_batch: &FrameUploadBatch,
+    uploads: GraphUploadSink<'_>,
     frame: &GraphPassFrame<'_>,
     blackboard: &Blackboard,
     use_multiview: bool,
@@ -62,14 +61,14 @@ pub(super) fn write_per_view_frame_uniforms(
                 .frame_resources
                 .skybox_specular_uniform_params(),
         );
-        upload_batch.write_buffer(
+        uploads.write_buffer(
             &frame_plan.frame_uniform_buffer,
             0,
             bytemuck::bytes_of(&uniforms),
         );
     } else {
         write_frame_uniforms_and_cluster(
-            queue,
+            uploads,
             frame.shared.frame_resources,
             hc,
             frame.shared.scene,

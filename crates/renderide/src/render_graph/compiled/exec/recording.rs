@@ -12,7 +12,9 @@ use super::super::super::error::GraphExecuteError;
 use super::super::super::frame_params::{
     FrameSystemsShared, MsaaViewsSlot, PerViewFramePlan, PerViewFramePlanSlot,
 };
-use super::super::super::frame_upload_batch::{FrameUploadBatch, FrameUploadScope};
+use super::super::super::frame_upload_batch::{
+    FrameUploadBatch, FrameUploadScope, GraphUploadSink,
+};
 use super::super::super::pass::PassKind;
 use super::super::helpers;
 use super::super::{
@@ -171,7 +173,6 @@ impl CompiledRenderGraph {
                     &mut encoder,
                     shared.device,
                     shared.gpu_limits,
-                    shared.queue_arc,
                     upload_batch,
                     profiler,
                 )?;
@@ -296,7 +297,6 @@ impl CompiledRenderGraph {
             backend,
             device,
             gpu_limits,
-            queue_arc,
             backbuffer_view_holder,
         } = mv_ctx;
 
@@ -373,7 +373,6 @@ impl CompiledRenderGraph {
                         &mut encoder,
                         device,
                         gpu_limits,
-                        queue_arc,
                         upload_batch,
                         pass_profiler.as_ref(),
                     )?;
@@ -522,11 +521,11 @@ impl CompiledRenderGraph {
         encoder: &mut wgpu::CommandEncoder,
         device: &'a wgpu::Device,
         gpu_limits: &'a crate::gpu::GpuLimits,
-        queue_arc: &'a std::sync::Arc<wgpu::Queue>,
         upload_batch: &FrameUploadBatch,
         profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
     ) -> Result<(), GraphExecuteError> {
         let _upload_scope = upload_batch.enter_scope(upload_scope);
+        let uploads = GraphUploadSink::new(upload_batch, upload_scope);
         // Hoist the pass borrow once so the inner match arms do not re-index `self.passes` for
         // every dispatch. The Raster path still needs the explicit `&self.passes[pass_idx]`
         // because `helpers::execute_graph_raster_pass_node` takes a `&PassNode` and the borrow
@@ -539,9 +538,8 @@ impl CompiledRenderGraph {
                 let template = helpers::pass_info_raster_template(&self.pass_info, pass_idx)?;
                 let mut ctx = RasterPassCtx {
                     device,
-                    queue: queue_arc,
                     pass_frame: frame_params,
-                    upload_batch,
+                    uploads,
                     graph_resources,
                     blackboard,
                     profiler,
@@ -562,11 +560,10 @@ impl CompiledRenderGraph {
                     ComputePassCtx {
                         device,
                         gpu_limits,
-                        queue: queue_arc,
                         encoder,
                         depth_view: Some(resolved.depth_view),
                         pass_frame: frame_params,
-                        upload_batch,
+                        uploads,
                         graph_resources,
                         blackboard,
                         profiler,
@@ -583,9 +580,8 @@ impl CompiledRenderGraph {
                 let mut ctx = CallbackCtx {
                     device,
                     gpu_limits,
-                    queue: queue_arc,
                     pass_frame: frame_params,
-                    upload_batch,
+                    uploads,
                     blackboard,
                 };
                 pass.run_callback(&mut ctx)

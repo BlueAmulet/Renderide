@@ -3,8 +3,8 @@
 //! ## Submit model
 //!
 //! Multi-view execution records optional frame-global work plus one command buffer per view, then
-//! submits the whole batch through a single [`wgpu::Queue::submit`] call. Per-view
-//! `Queue::write_buffer` uploads (per-draw slab, frame uniforms, cluster params) are drained
+//! submits the whole batch through a single [`wgpu::Queue::submit`] call. Per-view graph upload
+//! writes (per-draw slab, frame uniforms, cluster params) are drained
 //! before submit, so each view's GPU commands see coherent buffer contents. Each view owns its
 //! own per-draw slab buffer, so views never compete for per-draw storage capacity.
 //!
@@ -100,8 +100,8 @@ impl CompiledRenderGraph {
     ///
     /// ## Per-view write ordering
     ///
-    /// Per-view `Queue::write_buffer` calls (per-draw slab, frame uniforms, cluster params) happen
-    /// during per-view callback passes. Since all writes are issued BEFORE the single submit, wgpu
+    /// Per-view graph upload writes (per-draw slab, frame uniforms, cluster params) happen
+    /// during per-view callback passes. Since all writes are issued before the single submit, wgpu
     /// guarantees they are visible to every GPU command in that submit. Each view owns its own
     /// per-draw slab buffer (keyed by [`ViewId`]), so views never compete for buffer
     /// space.
@@ -144,7 +144,6 @@ impl CompiledRenderGraph {
             backend,
             device,
             gpu_limits,
-            queue_arc: &queue_arc,
             backbuffer_view_holder: &backbuffer_view_holder,
         };
 
@@ -161,7 +160,7 @@ impl CompiledRenderGraph {
             mv_ctx.backend.transient_pool_mut().metrics(),
         );
 
-        // Deferred `queue.write_buffer` sink shared by frame-global and per-view record paths.
+        // Deferred graph upload sink shared by pre-record, frame-global, and per-view paths.
         // Drained onto the main thread after all recording completes and before submit.
         let upload_batch = FrameUploadBatch::new();
 
@@ -169,7 +168,7 @@ impl CompiledRenderGraph {
         // are warmed up front so later per-view recording can run with read-only shared state
         // plus per-view interior mutability.
         let prepare_resources_start = Instant::now();
-        Self::prepare_view_resources_for_views(&mut mv_ctx, views)?;
+        Self::prepare_view_resources_for_views(&mut mv_ctx, views, &upload_batch)?;
         command_diagnostics.prepare_resources_ms = elapsed_ms(prepare_resources_start);
 
         // -- Frame-global pass (optional) -----------------------------------------------------
@@ -285,7 +284,6 @@ impl CompiledRenderGraph {
             scene: mv_ctx.scene,
             device,
             gpu_limits: mv_ctx.gpu_limits,
-            queue_arc: mv_ctx.queue_arc,
             occlusion: mv_ctx.backend.occlusion(),
             frame_resources: mv_ctx.backend.frame_resources(),
             history: mv_ctx.backend.history_registry(),

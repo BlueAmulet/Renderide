@@ -645,7 +645,7 @@ mod post_processing_rebuild_tests {
     use std::sync::{Arc, RwLock};
 
     use super::*;
-    use crate::config::{RendererSettings, TonemapMode, TonemapSettings};
+    use crate::config::{GtaoSettings, RendererSettings, TonemapMode, TonemapSettings};
     use crate::render_graph::{GraphCacheKey, post_processing::PostProcessChainSignature};
 
     fn settings_handle(post: PostProcessingSettings) -> RendererSettingsHandle {
@@ -689,7 +689,7 @@ mod post_processing_rebuild_tests {
                 bloom: true,
                 bloom_max_mip_dimension: 512,
                 gtao: true,
-                gtao_denoise_passes: 2,
+                gtao_denoise_passes: GtaoSettings::default().denoise_passes,
             }
         );
     }

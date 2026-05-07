@@ -109,8 +109,7 @@ impl RasterPass for GtaoDenoisePass {
         let params =
             GtaoParamsGpu::from_settings(live, live.denoise_blur_beta.max(0.0) / 5.0, false);
         let params_buffer = self.pipelines.params.get(ctx.device);
-        ctx.upload_batch
-            .write_buffer(params_buffer, 0, bytemuck::bytes_of(&params));
+        ctx.write_buffer(params_buffer, 0, bytemuck::bytes_of(&params));
 
         let pipeline = self
             .pipelines

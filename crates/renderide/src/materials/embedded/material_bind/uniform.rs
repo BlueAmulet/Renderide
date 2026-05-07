@@ -11,6 +11,7 @@ use super::super::uniform_pack::{
     UniformPackTextureContext, build_embedded_uniform_bytes_with_value_spaces,
 };
 use crate::materials::host_data::{MaterialPropertyLookupIds, MaterialPropertyStore};
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 /// Cached GPU uniform buffer, last store-mutation generation, and last bound-texture state signature.
 ///
@@ -34,7 +35,7 @@ pub(super) struct MaterialUniformCacheKey {
 
 /// LRU uniform buffer create/refresh for [`super::EmbeddedMaterialBindResources::get_or_create_embedded_uniform_buffer`].
 pub(super) struct EmbeddedUniformBufferRequest<'a> {
-    pub(super) queue: &'a wgpu::Queue,
+    pub(super) uploads: GraphUploadSink<'a>,
     pub(super) stem: &'a str,
     pub(super) layout: &'a Arc<StemMaterialLayout>,
     pub(super) uniform_key: &'a MaterialUniformCacheKey,
@@ -57,7 +58,7 @@ impl EmbeddedMaterialBindResources {
     ) -> Result<Arc<wgpu::Buffer>, EmbeddedMaterialBindError> {
         profiling::scope!("materials::embedded_uniform_buffer");
         let EmbeddedUniformBufferRequest {
-            queue,
+            uploads,
             stem,
             layout,
             uniform_key,
@@ -97,7 +98,7 @@ impl EmbeddedMaterialBindResources {
             .ok_or_else(|| {
                 format!("stem {stem}: uniform block missing (shader has no material uniform)")
             })?;
-            queue.write_buffer(entry.buffer.as_ref(), 0, &uniform_bytes);
+            uploads.write_buffer(entry.buffer.as_ref(), 0, &uniform_bytes);
             let refreshed = CachedUniformEntry {
                 buffer: entry.buffer.clone(),
                 last_written_generation: mutation_gen,

@@ -28,12 +28,12 @@ thread_local! {
 /// Coarse executor phase used to replay frame uploads in a deterministic order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum FrameUploadPhase {
+    /// Pre-record resource preparation that runs before graph passes.
+    PreRecord,
     /// Frame-global graph passes.
     FrameGlobal,
     /// Per-view graph passes.
     PerView,
-    /// Uploads recorded outside an executor pass scope.
-    Unscoped,
 }
 
 /// Deterministic executor location for deferred queue writes.
@@ -45,6 +45,15 @@ pub(crate) struct FrameUploadScope {
 }
 
 impl FrameUploadScope {
+    /// Scope for pre-record resource preparation before any graph pass records.
+    pub(crate) fn pre_record() -> Self {
+        Self {
+            phase: FrameUploadPhase::PreRecord,
+            view_idx: 0,
+            pass_idx: 0,
+        }
+    }
+
     /// Scope for a frame-global pass.
     pub(crate) fn frame_global(pass_idx: usize) -> Self {
         Self {
@@ -60,15 +69,6 @@ impl FrameUploadScope {
             phase: FrameUploadPhase::PerView,
             view_idx: saturating_u32(view_idx),
             pass_idx: saturating_u32(pass_idx),
-        }
-    }
-
-    /// Scope used for diagnostic or legacy writes recorded outside the executor.
-    fn unscoped() -> Self {
-        Self {
-            phase: FrameUploadPhase::Unscoped,
-            view_idx: u32::MAX,
-            pass_idx: u32::MAX,
         }
     }
 }
@@ -180,6 +180,35 @@ pub struct FrameUploadBatch {
     fallback_sequence: AtomicU64,
 }
 
+/// Graph-time buffer upload recorder scoped to the current executor location.
+///
+/// The sink carries an explicit [`FrameUploadScope`] so uploads emitted by nested rayon workers
+/// remain ordered inside the owning graph phase even though thread-local pass scope does not
+/// propagate to those workers.
+#[derive(Clone, Copy)]
+pub struct GraphUploadSink<'a> {
+    batch: &'a FrameUploadBatch,
+    scope: FrameUploadScope,
+}
+
+impl<'a> GraphUploadSink<'a> {
+    /// Creates a sink for `scope` backed by `batch`.
+    pub(crate) fn new(batch: &'a FrameUploadBatch, scope: FrameUploadScope) -> Self {
+        Self { batch, scope }
+    }
+
+    /// Creates a sink for pre-record resource preparation.
+    pub(crate) fn pre_record(batch: &'a FrameUploadBatch) -> Self {
+        Self::new(batch, FrameUploadScope::pre_record())
+    }
+
+    /// Queues `queue.write_buffer(buffer, offset, data)` for ordered replay before submit.
+    pub fn write_buffer(&self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]) {
+        self.batch
+            .write_buffer_with_scope_fallback(self.scope, buffer, offset, data);
+    }
+}
+
 /// Deferred-upload traffic drained into the frame submit batch.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FrameUploadBatchStats {
@@ -234,39 +263,43 @@ impl FrameUploadBatch {
         }
     }
 
-    /// Queues `queue.write_buffer(buffer, offset, data)` for later replay.
-    ///
-    /// `data` is copied into the frame upload arena so the caller's slice can be released or
-    /// reused.
-    pub fn write_buffer(&self, buffer: &wgpu::Buffer, offset: u64, data: &[u8]) {
-        let order = self.next_write_order();
+    /// Queues a buffer write with `fallback_scope` when no matching thread-local pass scope exists.
+    pub(crate) fn write_buffer_with_scope_fallback(
+        &self,
+        fallback_scope: FrameUploadScope,
+        buffer: &wgpu::Buffer,
+        offset: u64,
+        data: &[u8],
+    ) {
+        let order = self.next_write_order_with_scope_fallback(fallback_scope);
         self.recorded
             .lock()
             .push_buffer_write(order, buffer, offset, data);
     }
 
-    /// Returns the deterministic order key for the next write on the current thread.
-    fn next_write_order(&self) -> QueueWriteOrder {
+    /// Returns the next write order, using `fallback_scope` when this thread did not enter it.
+    fn next_write_order_with_scope_fallback(
+        &self,
+        fallback_scope: FrameUploadScope,
+    ) -> QueueWriteOrder {
         let fallback_seq = self.fallback_sequence.fetch_add(1, Ordering::Relaxed);
-        let scope = CURRENT_UPLOAD_SCOPE.with(Cell::get);
-        match scope {
-            Some(scope) => {
-                let local_seq = CURRENT_UPLOAD_LOCAL_SEQ.with(|seq| {
-                    let current = seq.get();
-                    seq.set(current.saturating_add(1));
-                    current
-                });
-                QueueWriteOrder {
-                    scope,
-                    local_seq,
-                    fallback_seq,
-                }
-            }
-            None => QueueWriteOrder {
-                scope: FrameUploadScope::unscoped(),
-                local_seq: 0,
+        let current_scope = CURRENT_UPLOAD_SCOPE.with(Cell::get);
+        if current_scope == Some(fallback_scope) {
+            let local_seq = CURRENT_UPLOAD_LOCAL_SEQ.with(|seq| {
+                let current = seq.get();
+                seq.set(current.saturating_add(1));
+                current
+            });
+            return QueueWriteOrder {
+                scope: fallback_scope,
+                local_seq,
                 fallback_seq,
-            },
+            };
+        }
+        QueueWriteOrder {
+            scope: fallback_scope,
+            local_seq: fallback_seq,
+            fallback_seq,
         }
     }
 
@@ -540,6 +573,11 @@ mod tests {
     fn upload_orders_sort_by_phase_view_pass_then_local_sequence() {
         let mut orders = [
             QueueWriteOrder {
+                scope: FrameUploadScope::pre_record(),
+                local_seq: 0,
+                fallback_seq: 6,
+            },
+            QueueWriteOrder {
                 scope: FrameUploadScope::per_view(1, 4),
                 local_seq: 0,
                 fallback_seq: 0,
@@ -564,23 +602,18 @@ mod tests {
                 local_seq: 0,
                 fallback_seq: 4,
             },
-            QueueWriteOrder {
-                scope: FrameUploadScope::unscoped(),
-                local_seq: 0,
-                fallback_seq: 5,
-            },
         ];
 
         orders.sort();
 
-        assert_eq!(orders[0].scope.phase, FrameUploadPhase::FrameGlobal);
-        assert_eq!(orders[1].scope, FrameUploadScope::per_view(0, 3));
-        assert_eq!(orders[2].scope, FrameUploadScope::per_view(0, 8));
-        assert_eq!(orders[2].local_seq, 0);
+        assert_eq!(orders[0].scope.phase, FrameUploadPhase::PreRecord);
+        assert_eq!(orders[1].scope.phase, FrameUploadPhase::FrameGlobal);
+        assert_eq!(orders[2].scope, FrameUploadScope::per_view(0, 3));
         assert_eq!(orders[3].scope, FrameUploadScope::per_view(0, 8));
-        assert_eq!(orders[3].local_seq, 1);
-        assert_eq!(orders[4].scope, FrameUploadScope::per_view(1, 4));
-        assert_eq!(orders[5].scope.phase, FrameUploadPhase::Unscoped);
+        assert_eq!(orders[3].local_seq, 0);
+        assert_eq!(orders[4].scope, FrameUploadScope::per_view(0, 8));
+        assert_eq!(orders[4].local_seq, 1);
+        assert_eq!(orders[5].scope, FrameUploadScope::per_view(1, 4));
     }
 
     #[test]
@@ -588,19 +621,30 @@ mod tests {
         let batch = FrameUploadBatch::new();
         let scoped = {
             let _guard = batch.enter_scope(FrameUploadScope::per_view(2, 7));
-            let first = batch.next_write_order();
-            let second = batch.next_write_order();
+            let first =
+                batch.next_write_order_with_scope_fallback(FrameUploadScope::per_view(2, 7));
+            let second =
+                batch.next_write_order_with_scope_fallback(FrameUploadScope::per_view(2, 7));
             assert_eq!(first.scope, FrameUploadScope::per_view(2, 7));
             assert_eq!(first.local_seq, 0);
             assert_eq!(second.scope, FrameUploadScope::per_view(2, 7));
             assert_eq!(second.local_seq, 1);
             second
         };
-        let unscoped = batch.next_write_order();
+        let fallback = batch.next_write_order_with_scope_fallback(FrameUploadScope::pre_record());
 
         assert_eq!(scoped.fallback_seq, 1);
-        assert_eq!(unscoped.scope.phase, FrameUploadPhase::Unscoped);
-        assert_eq!(unscoped.fallback_seq, 2);
+        assert_eq!(fallback.scope.phase, FrameUploadPhase::PreRecord);
+        assert_eq!(fallback.fallback_seq, 2);
+    }
+
+    #[test]
+    fn upload_sink_fallback_scope_does_not_require_thread_local_scope() {
+        let batch = FrameUploadBatch::new();
+        let order = batch.next_write_order_with_scope_fallback(FrameUploadScope::per_view(1, 5));
+
+        assert_eq!(order.scope, FrameUploadScope::per_view(1, 5));
+        assert_eq!(order.local_seq, order.fallback_seq);
     }
 
     // NOTE: Exercising `write_buffer` and `drain_and_flush` end-to-end requires a real

@@ -29,7 +29,7 @@ pub const CLUSTER_PARAMS_UNIFORM_SIZE: u64 = 256;
 ///
 /// `params_buffer` is intentionally **not** included: it is per-view and lives in
 /// `PerViewFrameState::cluster_params_buffer` to prevent a CPU write-order race during
-/// parallel rayon recording (multiple views share one `FrameUploadBatch`, last write wins).
+/// parallel rayon recording (multiple views share one graph upload sink, last write wins).
 #[derive(Clone, Copy)]
 pub struct ClusterBufferRefs<'a> {
     /// One `u32` count per cluster (compute writes; fragment reads plain `u32`; one thread per cluster).
