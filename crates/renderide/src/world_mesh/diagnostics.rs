@@ -172,7 +172,7 @@ pub fn stats_from_sorted(
         .chain(plan.transparent_groups.iter())
         .map(|g| (g.instance_range.end - g.instance_range.start) as usize)
         .sum();
-    //perf xlinka: this is the real submit count when a material has multiple passes.
+    // this is the real submit count when a material has multiple passes.
     let submitted_pipeline_pass_total = plan
         .regular_groups
         .iter()

@@ -107,7 +107,7 @@ impl GpuMesh {
             return false;
         }
 
-        //perf xlinka: pay the 40 bytes/vertex only for meshes that hit extended shaders.
+        // pay the 40 bytes/vertex only for meshes that hit extended shaders.
         self.tangent_buffer = tangent_buffer;
         self.uv1_buffer = uv1_buffer;
         self.uv2_buffer = uv2_buffer;

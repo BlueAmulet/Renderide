@@ -257,7 +257,7 @@ impl EmbeddedMaterialBindResources {
                 out.push(asset_id);
             }
         }
-        //perf xlinka: texture HUD can scan thousands of draws; cache by material mutation.
+        // texture HUD can scan thousands of draws; cache by material mutation.
         self.texture_debug_cache
             .lock()
             .put(cache_key, Arc::from(out.clone()));
@@ -272,7 +272,7 @@ impl EmbeddedMaterialBindResources {
         if let Some(hit) = self.sampler_cache.get_cloned(&key) {
             return hit;
         }
-        //perf xlinka: sampler objects are cheap-ish, but bind misses can make lots of them.
+        // sampler objects are cheap-ish, but bind misses can make lots of them.
         let sampler = Arc::new(create());
         let evicted = self.sampler_cache.put(key, sampler.clone());
         drop(evicted);

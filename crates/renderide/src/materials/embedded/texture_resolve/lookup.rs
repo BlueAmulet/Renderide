@@ -88,7 +88,7 @@ pub(crate) fn texture_property_ids_for_binding(
     ids: &StemEmbeddedPropertyIds,
     binding: u32,
 ) -> &[i32] {
-    //perf xlinka: aliases are built once per stem, no tiny Vec per texture bind.
+    // aliases are built once per stem, no tiny Vec per texture bind.
     ids.texture_binding_property_ids
         .get(&binding)
         .map_or(&[], |pids| pids.as_ref())

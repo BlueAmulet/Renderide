@@ -152,7 +152,7 @@ impl MaterialPipelineCache {
             front_face,
             primitive_topology,
         };
-        //perf xlinka: a hit is real use; promote it so hot pipelines do not get evicted.
+        // a hit is real use; promote it so hot pipelines do not get evicted.
         if let Some(hit) = self.pipelines.lock().get(&key) {
             self.stats.hits.fetch_add(1, Ordering::Relaxed);
             return Ok(hit.clone());
