@@ -78,7 +78,7 @@ impl ComputePass for HiZBuildPass {
             crate::occlusion::gpu::HiZBuildRecord {
                 device: ctx.device,
                 limits: ctx.gpu_limits,
-                queue: ctx.queue.as_ref(),
+                uploads: ctx.uploads,
                 encoder: ctx.encoder,
             },
             frame.view.hi_z_slot.as_ref(),

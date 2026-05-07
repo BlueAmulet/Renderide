@@ -1,7 +1,5 @@
 //! Compiled DAG: immutable pass order and per-frame execution.
 
-use std::sync::Arc;
-
 use crate::backend::BackendGraphAccess;
 use crate::gpu::{GpuContext, GpuLimits};
 use crate::scene::SceneCoordinator;
@@ -118,8 +116,6 @@ pub(super) struct MultiViewExecutionContext<'a, 'backend> {
     pub(super) device: &'a wgpu::Device,
     /// Limits for pass contexts.
     pub(super) gpu_limits: &'a GpuLimits,
-    /// Shared queue handle (wgpu::Queue is internally synchronized).
-    pub(super) queue_arc: &'a Arc<wgpu::Queue>,
     /// Swapchain color view when a view targets the main window.
     pub(super) backbuffer_view_holder: &'a Option<wgpu::TextureView>,
 }

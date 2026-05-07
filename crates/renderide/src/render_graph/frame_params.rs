@@ -116,7 +116,7 @@ impl BlackboardSlot for PerViewFramePlanSlot {
 pub struct PerViewFramePlan {
     /// `@group(0)` bind group that uses this view's dedicated frame-uniform buffer.
     pub frame_bind_group: Arc<wgpu::BindGroup>,
-    /// Per-view frame uniform buffer (written by the plan pass via `Queue::write_buffer`).
+    /// Per-view frame uniform buffer (written by the plan pass via the graph upload sink).
     ///
     /// [`wgpu::Buffer`] is internally ref-counted, so cloning is cheap.
     pub frame_uniform_buffer: wgpu::Buffer,

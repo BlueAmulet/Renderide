@@ -16,6 +16,7 @@ use crate::materials::{
     MaterialRegistry, MaterialRenderState, RasterFrontFace, RasterPipelineKind,
     RasterPrimitiveTopology,
 };
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
 /// One resolved per-batch draw packet covering a contiguous range of sorted draws with the same
@@ -146,8 +147,8 @@ pub(crate) struct MaterialDrawResolver<'a> {
     store: &'a crate::materials::host_data::MaterialPropertyStore,
     /// Texture pools used by embedded bind resolution.
     pools: EmbeddedTexturePools<'a>,
-    /// Queue used by embedded uniform updates.
-    queue: &'a wgpu::Queue,
+    /// Upload sink used by embedded uniform updates.
+    uploads: GraphUploadSink<'a>,
     /// View-level material pipeline descriptor before per-material overrides.
     pass_desc: MaterialPipelineDesc,
     /// Shader permutation for this view.
@@ -160,7 +161,7 @@ impl<'a> MaterialDrawResolver<'a> {
     /// Builds a resolver from the forward encode references for this view.
     pub(crate) fn new(
         encode: &'a WorldMeshForwardEncodeRefs<'_>,
-        queue: &'a wgpu::Queue,
+        uploads: GraphUploadSink<'a>,
         pass_desc: MaterialPipelineDesc,
         shader_perm: ShaderPermutation,
         offscreen_write_render_texture_asset_id: Option<i32>,
@@ -170,7 +171,7 @@ impl<'a> MaterialDrawResolver<'a> {
             embedded_bind: encode.materials.embedded_material_bind(),
             store: encode.materials.material_property_store(),
             pools: encode.embedded_texture_pools(),
-            queue,
+            uploads,
             pass_desc,
             shader_perm,
             offscreen_write_render_texture_asset_id,
@@ -289,7 +290,7 @@ impl<'a> MaterialDrawResolver<'a> {
             .and_then(|stem| {
                 bind.embedded_material_bind_group_with_cache_key(
                     stem,
-                    self.queue,
+                    self.uploads,
                     self.store,
                     &self.pools,
                     item.lookup_ids,

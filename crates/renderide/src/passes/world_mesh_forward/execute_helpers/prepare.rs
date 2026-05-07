@@ -8,7 +8,7 @@ use crate::materials::MaterialSystem;
 use crate::materials::ShaderPermutation;
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::frame_params::GraphPassFrame;
-use crate::render_graph::frame_upload_batch::FrameUploadBatch;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::{WorldMeshDrawCollection, WorldMeshDrawItem};
 use crate::world_mesh::{
     DrawGroup, InstancePlan, PrefetchedWorldMeshViewDraws, WorldMeshCullProjParams,
@@ -94,8 +94,7 @@ pub(super) fn maybe_set_world_mesh_draw_stats(
 /// resources are unavailable so the pass can early-out without recording work.
 pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
     device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    upload_batch: &FrameUploadBatch,
+    uploads: GraphUploadSink<'_>,
     gpu_limits: &GpuLimits,
     frame: &GraphPassFrame<'_>,
     blackboard: &mut Blackboard,
@@ -162,7 +161,7 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
         profiling::scope!("world_mesh::prepare_frame::pack_and_upload_slab");
         pack_and_upload_per_draw_slab(
             device,
-            upload_batch,
+            uploads,
             frame,
             SlabPackInputs {
                 render_context,
@@ -179,11 +178,11 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
 
     {
         profiling::scope!("world_mesh::prepare_frame::write_frame_uniforms");
-        write_per_view_frame_uniforms(queue, upload_batch, frame, blackboard, use_multiview, hc);
+        write_per_view_frame_uniforms(uploads, frame, blackboard, use_multiview, hc);
     }
     let skybox = {
         profiling::scope!("world_mesh::prepare_frame::prepare_skybox");
-        skybox_renderer.prepare(device, queue, upload_batch, frame, &pipeline)
+        skybox_renderer.prepare(device, uploads, frame, &pipeline)
     };
 
     // Build a WorldMeshForwardEncodeRefs from the frame so precompute_material_resolve_batches
@@ -195,7 +194,7 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
 
     let precomputed_batches = precompute_and_assign_material_batches(
         &encode_refs,
-        queue,
+        uploads,
         &draws,
         &pipeline,
         offscreen_write_rt,
@@ -218,7 +217,7 @@ pub(in crate::passes::world_mesh_forward) fn prepare_world_mesh_forward_frame(
 
 fn precompute_and_assign_material_batches(
     encode_refs: &WorldMeshForwardEncodeRefs<'_>,
-    queue: &wgpu::Queue,
+    uploads: GraphUploadSink<'_>,
     draws: &[WorldMeshDrawItem],
     pipeline: &crate::passes::world_mesh_forward::WorldMeshForwardPipelineState,
     offscreen_write_rt: Option<i32>,
@@ -230,7 +229,7 @@ fn precompute_and_assign_material_batches(
         profiling::scope!("world_mesh::prepare_frame::precompute_material_batches");
         precompute_material_resolve_batches(
             encode_refs,
-            queue,
+            uploads,
             draws,
             pipeline.shader_perm,
             &pipeline.pass_desc,

@@ -7,6 +7,7 @@ use hashbrown::hash_map::Entry;
 
 use super::super::super::context::GraphResolvedResources;
 use super::super::super::error::GraphExecuteError;
+use super::super::super::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
 use super::super::helpers;
 use super::super::{CompiledRenderGraph, FrameView, MultiViewExecutionContext};
 use super::{GraphResolveKey, TransientTextureResolveSurfaceParams};
@@ -24,6 +25,7 @@ impl CompiledRenderGraph {
     pub(super) fn prepare_view_resources_for_views(
         mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         views: &[FrameView<'_>],
+        upload_batch: &FrameUploadBatch,
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::prepare_view_resources");
         // Derive each view's `PreRecordViewResourceLayout` once and reuse it across the four
@@ -35,7 +37,7 @@ impl CompiledRenderGraph {
         // tick maps to `None` and every phase short-circuits for that index in lock-step.
         let view_layouts: Vec<Option<crate::backend::PreRecordViewResourceLayout>> =
             build_view_layouts(mv_ctx, views);
-        Self::pre_sync_shared_frame_resources_for_views(mv_ctx, &view_layouts);
+        Self::pre_sync_shared_frame_resources_for_views(mv_ctx, &view_layouts, upload_batch);
         Self::pre_warm_per_view_resources_for_views(mv_ctx, views, &view_layouts)?;
         Self::register_history_resources_for_views(mv_ctx, views)?;
         Self::pre_warm_pipeline_cache_for_views(mv_ctx, views);
@@ -266,6 +268,7 @@ impl CompiledRenderGraph {
     pub(super) fn pre_sync_shared_frame_resources_for_views(
         mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
         view_layouts: &[Option<crate::backend::PreRecordViewResourceLayout>],
+        upload_batch: &FrameUploadBatch,
     ) {
         profiling::scope!("graph::pre_sync_frame_gpu");
         // Reuse the precomputed layouts from `prepare_view_resources_for_views` instead of
@@ -275,7 +278,7 @@ impl CompiledRenderGraph {
             view_layouts.iter().filter_map(|layout| *layout).collect();
         mv_ctx.backend.frame_resources.pre_record_sync_for_views(
             mv_ctx.device,
-            mv_ctx.queue_arc.as_ref(),
+            GraphUploadSink::pre_record(upload_batch),
             &layouts,
         );
     }

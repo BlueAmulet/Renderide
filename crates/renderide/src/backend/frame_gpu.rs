@@ -19,6 +19,7 @@ use crate::backend::cluster_gpu::{CLUSTER_COUNT_Z, ClusterBufferCache, ClusterBu
 use crate::backend::light_gpu::{GpuLight, MAX_LIGHTS};
 use crate::gpu::GpuLimits;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use super::frame_gpu_error::FrameGpuInitError;
 pub use empty_material::{EmptyMaterialBindGroup, empty_material_bind_group_layout};
@@ -599,28 +600,28 @@ impl FrameGpuResources {
         true
     }
 
-    /// Uploads [`FrameGpuUniforms`] only (packed lights unchanged).
-    pub fn write_frame_uniform(&self, queue: &wgpu::Queue, uniforms: &FrameGpuUniforms) {
-        queue.write_buffer(&self.frame_uniform, 0, bytemuck::bytes_of(uniforms));
+    /// Records [`FrameGpuUniforms`] only (packed lights unchanged).
+    pub fn write_frame_uniform(&self, uploads: GraphUploadSink<'_>, uniforms: &FrameGpuUniforms) {
+        uploads.write_buffer(&self.frame_uniform, 0, bytemuck::bytes_of(uniforms));
     }
 
-    /// Uploads only the lights storage buffer (used by [`crate::passes::ClusteredLightPass`]).
-    pub fn write_lights_buffer(&self, queue: &wgpu::Queue, lights: &[GpuLight]) {
-        Self::write_lights_buffer_inner(queue, &self.lights_buffer, lights);
+    /// Records only the lights storage buffer (used by [`crate::passes::ClusteredLightPass`]).
+    pub fn write_lights_buffer(&self, uploads: GraphUploadSink<'_>, lights: &[GpuLight]) {
+        Self::write_lights_buffer_inner(uploads, &self.lights_buffer, lights);
     }
 
     fn write_lights_buffer_inner(
-        queue: &wgpu::Queue,
+        uploads: GraphUploadSink<'_>,
         lights_buffer: &wgpu::Buffer,
         lights: &[GpuLight],
     ) {
         let n = lights.len().min(MAX_LIGHTS);
         if n > 0 {
             let bytes = bytemuck::cast_slice(&lights[..n]);
-            queue.write_buffer(lights_buffer, 0, bytes);
+            uploads.write_buffer(lights_buffer, 0, bytes);
         } else {
             let zero = [0u8; size_of::<GpuLight>()];
-            queue.write_buffer(lights_buffer, 0, &zero);
+            uploads.write_buffer(lights_buffer, 0, &zero);
         }
     }
 }

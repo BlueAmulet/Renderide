@@ -23,8 +23,8 @@
 //!   swapchain once when any pass writes the logical `backbuffer` resource, then present after the
 //!   last GPU work for that frame. Encoding is **not** "one encoder for the whole graph":
 //!   multi-view records [`PassPhase::FrameGlobal`] passes in a dedicated encoder, then
-//!   **one encoder per [`FrameView`]** for [`PassPhase::PerView`] passes. Deferred
-//!   [`wgpu::Queue::write_buffer`] updates are drained before the single submit; see
+//!   **one encoder per [`FrameView`]** for [`PassPhase::PerView`] passes. Deferred graph upload
+//!   writes are drained before the single submit; see
 //!   [`CompiledRenderGraph::execute_multi_view`]. Before the per-view loop, transient resources,
 //!   per-view per-draw / frame state ([`crate::backend::FrameResourceManager`]), and the material
 //!   pipeline cache are pre-warmed once across all views so the per-view record path no longer

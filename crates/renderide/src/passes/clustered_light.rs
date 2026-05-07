@@ -97,7 +97,7 @@ impl ClusteredLightPass {
     /// Returns the compute bind group for `view_id`, rebuilding it when `cluster_ver` changes.
     ///
     /// `params_buffer` is **per-view** and intentionally separated from `ClusterBufferRefs` to
-    /// prevent a CPU write-order race in the shared `FrameUploadBatch` during parallel recording.
+    /// prevent a CPU write-order race in the shared graph upload sink during parallel recording.
     fn ensure_cluster_compute_bind_group(
         &self,
         device: &wgpu::Device,
@@ -200,7 +200,7 @@ impl ClusteredLightPass {
 
         if self.should_use_cpu_froxel(view_idx, stereo, light_count)
             && try_record_cpu_froxel(CpuFroxelRecordData {
-                upload_batch: ctx.upload_batch,
+                uploads: ctx.uploads,
                 lights: frame.shared.frame_resources.frame_lights(),
                 cluster_light_counts: &cluster_light_counts,
                 cluster_light_indices: &cluster_light_indices,
@@ -268,7 +268,7 @@ impl ClusteredLightPass {
 
         run_clustered_light_eye_passes(ClusteredLightEyePassEnv {
             encoder: ctx.encoder,
-            upload_batch: ctx.upload_batch,
+            uploads: ctx.uploads,
             pipeline,
             bind_group: &bind_group,
             cluster_light_counts: &data.cluster_light_counts,

@@ -12,6 +12,7 @@ use glam::Mat4;
 
 use crate::gpu::GpuLimits;
 use crate::mesh_deform::SkinCacheEntry;
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::scene::RenderSpaceId;
 
 use super::snapshot::{
@@ -33,8 +34,8 @@ pub(super) struct MeshDeformEncodeGpu<'a> {
     pub pre: &'a crate::mesh_deform::MeshPreprocessPipelines,
     /// Scratch buffers and slab cursors backing.
     pub scratch: &'a mut crate::mesh_deform::MeshDeformScratch,
-    /// Deferred [`wgpu::Queue::write_buffer`] sink shared with the rest of the frame.
-    pub upload_batch: &'a crate::render_graph::frame_upload_batch::FrameUploadBatch,
+    /// Deferred graph upload sink shared with the rest of the frame.
+    pub uploads: GraphUploadSink<'a>,
     /// GPU profiler for per-dispatch pass-level timestamp queries; [`None`] when disabled.
     pub profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }

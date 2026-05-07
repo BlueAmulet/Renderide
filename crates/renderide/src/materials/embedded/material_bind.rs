@@ -31,6 +31,7 @@ use super::texture_resolve::default_embedded_sampler;
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
+use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use assemble::build_embedded_bind_group_entries;
 use cache::{
@@ -110,7 +111,7 @@ impl EmbeddedMaterialBindResources {
     pub fn embedded_material_bind_group(
         &self,
         stem: &str,
-        queue: &wgpu::Queue,
+        uploads: GraphUploadSink<'_>,
         store: &MaterialPropertyStore,
         pools: &EmbeddedTexturePools<'_>,
         lookup: MaterialPropertyLookupIds,
@@ -118,7 +119,7 @@ impl EmbeddedMaterialBindResources {
     ) -> Result<Arc<wgpu::BindGroup>, EmbeddedMaterialBindError> {
         self.embedded_material_bind_group_with_cache_key(
             stem,
-            queue,
+            uploads,
             store,
             pools,
             lookup,
@@ -132,7 +133,7 @@ impl EmbeddedMaterialBindResources {
     pub(crate) fn embedded_material_bind_group_with_cache_key(
         &self,
         stem: &str,
-        queue: &wgpu::Queue,
+        uploads: GraphUploadSink<'_>,
         store: &MaterialPropertyStore,
         pools: &EmbeddedTexturePools<'_>,
         lookup: MaterialPropertyLookupIds,
@@ -173,7 +174,7 @@ impl EmbeddedMaterialBindResources {
             // Bind group is unchanged; still refresh the uniform slab if the material store mutated.
             let _uniform_buf =
                 self.get_or_create_embedded_uniform_buffer(EmbeddedUniformBufferRequest {
-                    queue,
+                    uploads,
                     stem,
                     layout: &layout,
                     uniform_key: &uniform_key,
@@ -190,7 +191,7 @@ impl EmbeddedMaterialBindResources {
         profiling::scope!("materials::embedded_bind_cache_miss");
         let uniform_buf =
             self.get_or_create_embedded_uniform_buffer(EmbeddedUniformBufferRequest {
-                queue,
+                uploads,
                 stem,
                 layout: &layout,
                 uniform_key: &uniform_key,
