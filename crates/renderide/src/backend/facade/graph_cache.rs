@@ -2,7 +2,7 @@
 
 use crate::config::PostProcessingSettings;
 use crate::render_graph::GraphCacheKey;
-use crate::render_graph::post_processing::PostProcessChainSignature;
+use crate::render_graph::post_process_chain::PostProcessChainSignature;
 
 use super::RenderBackend;
 

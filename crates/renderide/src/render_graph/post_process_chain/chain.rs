@@ -202,7 +202,7 @@ mod tests {
     use crate::render_graph::context::RasterPassCtx;
     use crate::render_graph::error::{RenderPassError, SetupError};
     use crate::render_graph::pass::{PassBuilder, RasterPass};
-    use crate::render_graph::post_processing::effect::EffectPasses;
+    use crate::render_graph::post_process_chain::effect::EffectPasses;
     use crate::render_graph::resources::{
         TransientArrayLayers, TransientExtent, TransientSampleCount, TransientTextureDesc,
         TransientTextureFormat,

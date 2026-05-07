@@ -63,7 +63,7 @@
 
 pub(crate) mod blackboard;
 pub(crate) mod builder;
-pub(crate) mod cache;
+mod cache;
 pub(crate) mod compiled;
 pub(crate) mod context;
 pub(crate) mod error;
@@ -73,13 +73,12 @@ pub(crate) mod gpu_cache;
 pub(crate) mod ids;
 pub(crate) mod main_graph;
 pub(crate) mod pass;
-pub(crate) mod pool;
-pub(crate) mod post_processing;
+mod pool;
+pub(crate) mod post_process_chain;
 mod record_parallel;
 pub(crate) mod resources;
-pub(crate) mod schedule;
-pub(crate) mod secondary_camera;
-pub(crate) mod swapchain_scope;
+mod schedule;
+mod swapchain_scope;
 
 #[doc(hidden)]
 #[cfg(test)]
@@ -93,4 +92,3 @@ pub(crate) use error::GraphExecuteError;
 pub(crate) use frame_params::FrameViewClear;
 pub(crate) use pool::TransientPool;
 pub(crate) use resources::HistorySlotId;
-pub(crate) use secondary_camera::{camera_state_enabled, host_camera_frame_for_render_texture};

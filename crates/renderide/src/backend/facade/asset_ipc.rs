@@ -10,7 +10,8 @@ use crate::shared::{
     VideoTextureLoad, VideoTextureProperties, VideoTextureStartAudioTrack, VideoTextureUpdate,
 };
 
-use crate::assets::asset_transfer_queue::{self as asset_uploads, AssetIntegrationDrainSummary};
+use crate::backend::AssetIntegrationDrainSummary;
+use crate::backend::asset_transfers as asset_uploads;
 
 use super::RenderBackend;
 

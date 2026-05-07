@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use hashbrown::HashSet;
 
-use crate::assets::AssetTransferQueue;
+use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT, ReflectionProbeSpecularResources,
 };

@@ -9,7 +9,7 @@ use super::clock::{
 use super::cpu_copy::CpuCopyVideoSink;
 use super::ready::{video_audio_track_eq, video_texture_ready_eq};
 use super::source::source_uri;
-use crate::assets::AssetTransferQueue;
+use crate::backend::AssetTransferQueue;
 use glam::IVec2;
 use gstreamer::prelude::{ElementExt, ElementExtManual};
 

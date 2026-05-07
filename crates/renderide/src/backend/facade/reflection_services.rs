@@ -1,6 +1,6 @@
 //! Reflection-probe services owned behind the backend facade.
 
-use crate::assets::asset_transfer_queue::AssetTransferQueue;
+use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::ReflectionProbeSpecularResources;
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;

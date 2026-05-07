@@ -187,7 +187,7 @@ impl ReflectionProbeSh2System {
         shm: &mut SharedMemoryAccessor,
         scene: &SceneCoordinator,
         materials: &crate::materials::MaterialSystem,
-        assets: &crate::assets::AssetTransferQueue,
+        assets: &crate::backend::AssetTransferQueue,
         data: &FrameSubmitData,
     ) {
         profiling::scope!("reflection_probe_sh2::answer_frame_submit_tasks");
@@ -205,7 +205,7 @@ impl ReflectionProbeSh2System {
     pub fn maintain_gpu_jobs(
         &mut self,
         gpu: &mut GpuContext,
-        assets: &crate::assets::AssetTransferQueue,
+        assets: &crate::backend::AssetTransferQueue,
     ) {
         profiling::scope!("reflection_probe_sh2::maintain_gpu_jobs");
         let _ = gpu.device().poll(wgpu::PollType::Poll);
@@ -266,7 +266,7 @@ impl ReflectionProbeSh2System {
         shm: &mut SharedMemoryAccessor,
         scene: &SceneCoordinator,
         materials: &crate::materials::MaterialSystem,
-        assets: &crate::assets::AssetTransferQueue,
+        assets: &crate::backend::AssetTransferQueue,
         render_space_id: i32,
         tasks: &ReflectionProbeSH2Tasks,
     ) {
@@ -304,7 +304,7 @@ impl ReflectionProbeSh2System {
         &mut self,
         scene: &SceneCoordinator,
         materials: &crate::materials::MaterialSystem,
-        assets: &crate::assets::AssetTransferQueue,
+        assets: &crate::backend::AssetTransferQueue,
         render_space_id: i32,
         task: TaskHeader,
     ) -> TaskAnswer {
@@ -341,7 +341,7 @@ impl ReflectionProbeSh2System {
     fn schedule_queued_sources(
         &mut self,
         gpu: &mut GpuContext,
-        assets: &crate::assets::AssetTransferQueue,
+        assets: &crate::backend::AssetTransferQueue,
     ) {
         profiling::scope!("reflection_probe_sh2::schedule_queued_sources");
         while self.readback_jobs.len() < MAX_IN_FLIGHT_JOBS {
@@ -373,7 +373,7 @@ impl ReflectionProbeSh2System {
     fn schedule_source(
         &mut self,
         gpu: &mut GpuContext,
-        assets: &crate::assets::AssetTransferQueue,
+        assets: &crate::backend::AssetTransferQueue,
         key: Sh2SourceKey,
         source: GpuSh2Source,
     ) -> Result<SubmittedGpuSh2Job, String> {

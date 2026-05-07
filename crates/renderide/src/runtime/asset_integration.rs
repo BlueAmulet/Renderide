@@ -68,7 +68,7 @@ impl RendererRuntime {
 
     fn run_asset_integration_pass(
         &mut self,
-    ) -> Option<crate::assets::asset_transfer_queue::AssetIntegrationDrainSummary> {
+    ) -> Option<crate::backend::AssetIntegrationDrainSummary> {
         let budget_ms = self.asset_integration_budget_ms();
         let deadline = Instant::now() + Duration::from_millis(u64::from(budget_ms));
         let (shm, ipc) = self.frontend.transport_pair_mut();
@@ -87,7 +87,7 @@ impl RendererRuntime {
 
 fn trace_asset_integration_summary(
     budget_ms: u32,
-    summary: crate::assets::asset_transfer_queue::AssetIntegrationDrainSummary,
+    summary: crate::backend::AssetIntegrationDrainSummary,
 ) {
     if summary.total_before() == 0
         && summary.total_after() == 0

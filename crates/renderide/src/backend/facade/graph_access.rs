@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::assets::asset_transfer_queue::AssetTransferQueue;
+use crate::backend::AssetTransferQueue;
 use crate::diagnostics::{DebugHudEncodeError, PerViewHudConfig, PerViewHudOutputs};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::materials::MaterialSystem;

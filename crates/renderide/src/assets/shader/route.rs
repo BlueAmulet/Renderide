@@ -10,13 +10,13 @@
 //! (there is no separate solid-color pipeline).
 //!
 //! The integration harness can bypass AssetBundle parsing by setting [`ShaderUpload::file`] to
-//! `RENDERIDE_TEST_STEM:<stem>` (see [`renderide_shared::RENDERIDE_TEST_STEM_PREFIX`]). The prefix
+//! `RENDERIDE_TEST_STEM:<stem>` (see [`renderide_shared::test_hooks::RENDERIDE_TEST_STEM_PREFIX`]). The prefix
 //! is never produced by the production host, so this path is inert outside the test harness.
 
 use std::path::Path;
 use std::sync::Arc;
 
-use renderide_shared::RENDERIDE_TEST_STEM_PREFIX;
+use renderide_shared::test_hooks::RENDERIDE_TEST_STEM_PREFIX;
 
 use crate::materials::{RasterPipelineKind, embedded_default_stem_for_shader_asset_name};
 

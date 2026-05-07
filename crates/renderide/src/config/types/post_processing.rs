@@ -16,7 +16,7 @@ pub use tonemap::{TonemapMode, TonemapSettings};
 ///
 /// Effects are organised as nested sub-structs (`tonemap`, future `bloom`, `color_grading`, etc.)
 /// so each gets its own TOML sub-table (`[post_processing.tonemap]`, ...) and so the
-/// [`crate::render_graph::post_processing::PostProcessChainSignature`] can be derived purely from
+/// [`crate::render_graph::post_process_chain::PostProcessChainSignature`] can be derived purely from
 /// this value.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

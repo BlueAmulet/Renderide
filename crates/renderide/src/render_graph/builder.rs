@@ -16,12 +16,15 @@ use topo::{retained_ordinals, retained_passes, topo_sort};
 use validate::validate_handles;
 
 use super::compiled::{
-    ColorAttachmentTemplate, CompileStats, CompiledBufferResource, CompiledPassInfo,
-    CompiledRenderGraph, CompiledTextureResource, DepthAttachmentTemplate, RenderPassTemplate,
+    CompileStats, CompiledBufferResource, CompiledPassInfo, CompiledRenderGraph,
+    CompiledTextureResource,
 };
 use super::error::GraphBuildError;
 use super::ids::{GroupId, PassId};
-use super::pass::{ComputePass, GroupScope, PassBuilder, PassNode, PassPhase, RasterPass};
+use super::pass::{
+    ColorAttachmentTemplate, ComputePass, DepthAttachmentTemplate, GroupScope, PassBuilder,
+    PassNode, PassPhase, RasterPass, RenderPassTemplate,
+};
 use super::resources::{
     BufferHandle, FrameTargetRole, ImportSource, ImportedBufferDecl, ImportedBufferHandle,
     ImportedTextureDecl, ImportedTextureHandle, ResourceHandle, SubresourceHandle, TextureHandle,

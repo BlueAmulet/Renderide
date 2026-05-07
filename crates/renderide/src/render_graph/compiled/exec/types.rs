@@ -162,7 +162,7 @@ pub(super) struct PerViewRecordShared<'a> {
     /// Shared material system for pipeline and bind lookups.
     pub(super) materials: &'a crate::materials::MaterialSystem,
     /// Shared asset pools for meshes and textures.
-    pub(super) asset_transfers: &'a crate::assets::asset_transfer_queue::AssetTransferQueue,
+    pub(super) asset_transfers: &'a crate::backend::AssetTransferQueue,
     /// Optional mesh preprocess pipelines (unused in per-view recording, kept for completeness).
     pub(super) mesh_preprocess: Option<&'a crate::mesh_deform::MeshPreprocessPipelines>,
     /// Optional read-only skin cache for deformed forward draws.

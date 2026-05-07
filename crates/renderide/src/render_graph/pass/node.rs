@@ -7,10 +7,10 @@
 use std::borrow::Cow;
 
 use super::{ComputePass, RasterPass};
-use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
 use crate::render_graph::context::{ComputePassCtx, PostSubmitContext, RasterPassCtx};
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::pass::builder::PassBuilder;
+use crate::render_graph::pass::{DepthAttachmentTemplate, RenderPassTemplate};
 
 /// Command domain for a compiled pass.
 ///

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::backend::BackendGraphAccess;
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
+use crate::render_graph::pass::RenderPassTemplate;
 use crate::scene::SceneCoordinator;
 
 use super::super::context::{GraphResolvedResources, RasterPassCtx, ResolvedGraphTexture};
@@ -18,7 +19,7 @@ use super::super::resources::{
 };
 use crate::camera::HostCameraFrame;
 
-use super::{CompiledPassInfo, RenderPassTemplate, ResolvedView};
+use super::{CompiledPassInfo, ResolvedView};
 
 /// Per-view inputs for [`frame_render_params_from_shared`].
 ///

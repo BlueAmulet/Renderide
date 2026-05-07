@@ -22,7 +22,9 @@ use upsample::BloomUpsamplePass;
 
 use crate::config::{BloomCompositeMode, BloomSettings, PostProcessingSettings};
 use crate::render_graph::builder::GraphBuilder;
-use crate::render_graph::post_processing::{EffectPasses, PostProcessEffect, PostProcessEffectId};
+use crate::render_graph::post_process_chain::{
+    EffectPasses, PostProcessEffect, PostProcessEffectId,
+};
 use crate::render_graph::resources::{
     TextureHandle, TransientArrayLayers, TransientExtent, TransientSampleCount,
     TransientTextureDesc, TransientTextureFormat,
@@ -53,7 +55,7 @@ const BLOOM_MIP_LABELS: [&str; 16] = [
     "bloom_mip_15",
 ];
 
-/// Effect descriptor plugged into [`crate::render_graph::post_processing::PostProcessChain`].
+/// Effect descriptor plugged into [`crate::render_graph::post_process_chain::PostProcessChain`].
 ///
 /// Captures a snapshot of [`BloomSettings`] at chain-build time; when the signature-producing
 /// fields change (enabled, intensity = 0, effective max mip dimension), the chain is rebuilt.

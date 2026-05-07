@@ -6,12 +6,12 @@ use crate::scene::SceneCoordinator;
 
 use super::error::GraphExecuteError;
 use super::frame_params::FrameViewClear;
-use super::pass::PassNode;
 #[cfg(test)]
 use super::pass::{PassKind, PassMergeHint};
+use super::pass::{PassNode, RenderPassTemplate};
 use super::resources::{
-    ImportedBufferDecl, ImportedTextureDecl, ResourceAccess, TextureAttachmentResolve,
-    TextureAttachmentTarget, TransientBufferDesc, TransientSubresourceDesc, TransientTextureDesc,
+    ImportedBufferDecl, ImportedTextureDecl, ResourceAccess, TransientBufferDesc,
+    TransientSubresourceDesc, TransientTextureDesc,
 };
 use super::schedule::FrameSchedule;
 use crate::camera::{HostCameraFrame, ViewId};
@@ -272,41 +272,6 @@ pub struct CompiledPassInfo {
     /// subpass-aware backend without a second migration pass across all call sites.
     #[cfg(test)]
     pub merge_hint: PassMergeHint,
-}
-
-/// Compiled render-pass attachment template.
-#[derive(Clone, Debug)]
-pub struct RenderPassTemplate {
-    /// Color attachments in declaration order.
-    pub color_attachments: Vec<ColorAttachmentTemplate>,
-    /// Optional depth/stencil attachment.
-    pub depth_stencil_attachment: Option<DepthAttachmentTemplate>,
-    /// Optional multiview mask.
-    pub multiview_mask: Option<std::num::NonZeroU32>,
-}
-
-/// Color attachment template.
-#[derive(Clone, Debug)]
-pub struct ColorAttachmentTemplate {
-    /// Color target handle.
-    pub target: TextureAttachmentTarget,
-    /// Load operation.
-    pub load: wgpu::LoadOp<wgpu::Color>,
-    /// Store operation.
-    pub store: wgpu::StoreOp,
-    /// Optional resolve target.
-    pub resolve_to: Option<TextureAttachmentResolve>,
-}
-
-/// Depth/stencil attachment template.
-#[derive(Clone, Debug)]
-pub struct DepthAttachmentTemplate {
-    /// Depth/stencil target handle.
-    pub target: TextureAttachmentTarget,
-    /// Depth operations.
-    pub depth: wgpu::Operations<f32>,
-    /// Optional stencil operations.
-    pub stencil: Option<wgpu::Operations<u32>>,
 }
 
 /// Immutable execution schedule produced by [`super::GraphBuilder::build`].

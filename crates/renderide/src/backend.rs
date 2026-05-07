@@ -8,6 +8,7 @@
 //! own IPC queues, [`SharedMemoryAccessor`](crate::ipc::SharedMemoryAccessor), or scene graph state;
 //! callers pass those in where a command requires both transport and GPU work.
 
+pub(crate) mod asset_transfers;
 mod cluster_gpu;
 mod debug_hud_bundle;
 mod facade;
@@ -24,6 +25,7 @@ mod per_view_resource_map;
 mod view_resource_registry;
 mod world_mesh_frame_plan;
 
+pub(crate) use asset_transfers::{AssetIntegrationDrainSummary, AssetTransferQueue};
 pub use cluster_gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, MAX_LIGHTS_PER_TILE};
 pub(crate) use facade::{BackendGraphAccess, ExtractedFrameShared, WorldMeshForwardEncodeRefs};
 pub use facade::{RenderBackend, RenderBackendAttachDesc};

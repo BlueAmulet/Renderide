@@ -1,6 +1,6 @@
 //! [`RasterPass`] trait for graph-managed raster render passes.
 //!
-//! The graph opens the [`wgpu::RenderPass`] from the compiled [`crate::render_graph::RenderPassTemplate`]
+//! The graph opens the [`wgpu::RenderPass`] from the compiled [`RenderPassTemplate`]
 //! and attachment views resolved from the transient pool. The pass records draw commands into the
 //! already-open render pass via [`RasterPass::record`].
 
@@ -8,9 +8,9 @@ use std::borrow::Cow;
 use std::num::NonZeroU32;
 
 use crate::camera::ViewId;
-use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
 use crate::render_graph::context::{PostSubmitContext, RasterPassCtx};
 use crate::render_graph::error::{RenderPassError, SetupError};
+use crate::render_graph::pass::{DepthAttachmentTemplate, RenderPassTemplate};
 
 use super::builder::PassBuilder;
 use super::node::PassPhase;

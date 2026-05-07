@@ -1,6 +1,6 @@
 use glam::{Vec3, Vec3A, Vec4};
 
-use crate::assets::AssetTransferQueue;
+use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_METADATA_BOX_PROJECTION,
     REFLECTION_PROBE_METADATA_SH2_VALID,

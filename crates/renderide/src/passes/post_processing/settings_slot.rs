@@ -7,7 +7,7 @@ use crate::render_graph::blackboard::BlackboardSlot;
 /// Seeded each frame from [`crate::config::RendererSettings`] before per-view recording so
 /// the GTAO chain ([`crate::passes::post_processing::GtaoEffect`]) reads the current slider
 /// values without rebuilding the compiled render graph. Non-topology slider changes don't
-/// flip [`crate::render_graph::post_processing::chain::PostProcessChainSignature`] -- this
+/// flip [`crate::render_graph::post_process_chain::chain::PostProcessChainSignature`] -- this
 /// slot is the path that propagates those edits into the per-stage UBO writes.
 pub struct GtaoSettingsSlot;
 impl BlackboardSlot for GtaoSettingsSlot {

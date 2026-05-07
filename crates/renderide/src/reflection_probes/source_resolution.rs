@@ -35,7 +35,7 @@ pub(super) enum Sh2ResolvedSource {
 pub(super) fn resolve_task_source(
     scene: &SceneCoordinator,
     materials: &crate::materials::MaterialSystem,
-    assets: &crate::assets::AssetTransferQueue,
+    assets: &crate::backend::AssetTransferQueue,
     render_space_id: i32,
     task: TaskHeader,
 ) -> Option<(Sh2SourceKey, Sh2ResolvedSource)> {
@@ -124,7 +124,7 @@ fn resolve_skybox_source(
     render_space_id: i32,
     material_asset_id: i32,
     materials: &crate::materials::MaterialSystem,
-    assets: &crate::assets::AssetTransferQueue,
+    assets: &crate::backend::AssetTransferQueue,
 ) -> Option<(Sh2SourceKey, Sh2ResolvedSource)> {
     if material_asset_id < 0 {
         return None;
@@ -210,7 +210,7 @@ fn resolve_projection360_source(
     render_space_id: i32,
     store: &MaterialPropertyStore,
     registry: &PropertyIdRegistry,
-    assets: &crate::assets::AssetTransferQueue,
+    assets: &crate::backend::AssetTransferQueue,
     lookup: MaterialPropertyLookupIds,
     generation: u64,
 ) -> Option<(Sh2SourceKey, Sh2ResolvedSource)> {
@@ -249,7 +249,7 @@ fn resolve_projection360_source(
 /// Resolves a `Projection360` cubemap binding into an SH2 source.
 fn resolve_projection360_cubemap_source(
     render_space_id: i32,
-    assets: &crate::assets::AssetTransferQueue,
+    assets: &crate::backend::AssetTransferQueue,
     asset_id: i32,
     generation: u64,
 ) -> (Sh2SourceKey, Sh2ResolvedSource) {
@@ -290,7 +290,7 @@ fn resolve_projection360_texture2d_source(
     render_space_id: i32,
     store: &MaterialPropertyStore,
     registry: &PropertyIdRegistry,
-    assets: &crate::assets::AssetTransferQueue,
+    assets: &crate::backend::AssetTransferQueue,
     lookup: MaterialPropertyLookupIds,
     asset_id: i32,
     generation: u64,

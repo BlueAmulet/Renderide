@@ -1,6 +1,6 @@
 //! [`RenderBackend`] -- thin facade for frame execution and IPC-facing GPU work.
 //!
-//! Core subsystems live in [`super::MaterialSystem`], [`crate::assets::AssetTransferQueue`],
+//! Core subsystems live in [`super::MaterialSystem`], [`crate::backend::AssetTransferQueue`],
 //! [`super::FrameResourceManager`], and [`crate::occlusion::OcclusionSystem`]; this type wires attach,
 //! the compiled render graph, mesh deform preprocess, and debug HUD.
 //!
@@ -22,7 +22,8 @@ use std::sync::Arc;
 
 use thiserror::Error;
 
-use crate::assets::asset_transfer_queue::{self as asset_uploads, AssetTransferQueue};
+use crate::backend::AssetTransferQueue;
+use crate::backend::asset_transfers as asset_uploads;
 use crate::config::{PostProcessingSettings, RendererSettingsHandle, SceneColorFormat};
 use crate::diagnostics::{DebugHudEncodeError, DebugHudInput, SceneTransformsSnapshot};
 use crate::gpu::GpuLimits;
@@ -652,7 +653,7 @@ mod post_processing_rebuild_tests {
 
     use super::*;
     use crate::config::{GtaoSettings, RendererSettings, TonemapMode, TonemapSettings};
-    use crate::render_graph::{GraphCacheKey, post_processing::PostProcessChainSignature};
+    use crate::render_graph::{GraphCacheKey, post_process_chain::PostProcessChainSignature};
 
     fn settings_handle(post: PostProcessingSettings) -> RendererSettingsHandle {
         Arc::new(RwLock::new(RendererSettings {

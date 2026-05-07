@@ -12,7 +12,7 @@ use super::cache::GraphCacheKey;
 use super::compiled::CompiledRenderGraph;
 use super::error::GraphBuildError;
 use super::ids::PassId;
-use super::post_processing;
+use super::post_process_chain;
 use super::resources::{
     BackendFrameBufferKind, BufferAccess, BufferHandle, BufferImportSource, BufferSizePolicy,
     FrameTargetRole, HistorySlotId, ImportSource, ImportedBufferDecl, ImportedBufferHandle,
@@ -370,7 +370,7 @@ fn import_main_graph_resources(builder: &mut GraphBuilder) -> MainGraphHandles {
 fn connect_post_processing_edges(
     builder: &mut GraphBuilder,
     forward_tail: PassId,
-    chain_output: post_processing::ChainOutput,
+    chain_output: post_process_chain::ChainOutput,
     compose: PassId,
 ) {
     if let Some((first_post, last_post)) = chain_output.pass_range() {
@@ -494,7 +494,7 @@ fn add_main_graph_passes_and_edges(
 /// occlusion modulates linear HDR light before metering; auto-exposure meters and scales the HDR
 /// scene before bloom; bloom scatters exposed HDR light; then ACES compresses the final exposed HDR
 /// signal to display-referred `[0, 1]`. Each effect gates itself via
-/// [`super::post_processing::PostProcessEffect::is_enabled`] against the live
+/// [`super::post_process_chain::PostProcessEffect::is_enabled`] against the live
 /// [`crate::config::PostProcessingSettings`].
 ///
 /// `GtaoEffect` is parameterised with the current [`crate::config::GtaoSettings`] snapshot and
@@ -508,8 +508,8 @@ fn build_default_post_processing_chain(
     multiview_stereo: bool,
     post_processing_resources: &MainGraphPostProcessingResources,
     gtao_view_normals: Option<TextureHandle>,
-) -> post_processing::PostProcessChain {
-    let mut chain = post_processing::PostProcessChain::new();
+) -> post_process_chain::PostProcessChain {
+    let mut chain = post_process_chain::PostProcessChain::new();
     if let Some(view_normals) = gtao_view_normals {
         chain.push(Box::new(crate::passes::GtaoEffect {
             settings: post_processing_settings.gtao,
@@ -588,7 +588,7 @@ mod tests {
         BloomSettings, GtaoSettings, PostProcessingSettings, TonemapMode, TonemapSettings,
     };
     use crate::render_graph::cache::GraphCache;
-    use crate::render_graph::post_processing::PostProcessChainSignature;
+    use crate::render_graph::post_process_chain::PostProcessChainSignature;
 
     fn smoke_key() -> GraphCacheKey {
         GraphCacheKey {

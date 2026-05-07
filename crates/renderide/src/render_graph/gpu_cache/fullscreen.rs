@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use super::pipeline::RenderPipelineMap;
 use super::shader::create_wgsl_shader_module;
-use crate::render_graph::compiled::RenderPassTemplate;
 use crate::render_graph::context::RasterPassCtx;
+use crate::render_graph::pass::RenderPassTemplate;
 
 /// Descriptor for a fullscreen triangle render pipeline.
 pub(crate) struct FullscreenRenderPipelineDesc<'a> {

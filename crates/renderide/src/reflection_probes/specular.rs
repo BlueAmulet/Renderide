@@ -21,7 +21,7 @@ use source::{
 mod tests {
     use super::*;
 
-    use crate::assets::AssetTransferQueue;
+    use crate::backend::AssetTransferQueue;
     use crate::materials::MaterialSystem;
     use crate::scene::RenderSpaceId;
     use crate::shared::{ReflectionProbeState, ReflectionProbeType, RenderSH2};

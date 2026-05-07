@@ -15,7 +15,7 @@
 //! 1. **Wall-clock prologue** -- [`RendererRuntime::tick_frame_wall_clock_begin`]; resets per-tick flags.
 //! 2. **IPC poll** -- [`RendererRuntime::poll_ipc`]; drains incoming `RendererCommand`s before any work runs.
 //! 3. **Asset integration** -- [`RendererRuntime::run_asset_integration`]; time-sliced cooperative
-//!    mesh/texture/material uploads via [`crate::assets::asset_transfer_queue::drain_asset_tasks`].
+//!    mesh/texture/material uploads via [`crate::backend::RenderBackend::drain_asset_tasks`].
 //! 4. **Optional XR begin** -- `xr_begin_tick` in `app/`; OpenXR `wait_frame` / `locate_views` so the
 //!    same view snapshot is visible to lock-step input.
 //! 5. **Lock-step exchange** -- [`RendererRuntime::pre_frame`] emits

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::assets::AssetTransferQueue;
+use crate::backend::AssetTransferQueue;
 use crate::backend::FrameResourceManager;
 use crate::backend::WorldMeshForwardEncodeRefs;
 use crate::camera::{HostCameraFrame, ViewId};

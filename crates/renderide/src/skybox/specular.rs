@@ -10,8 +10,8 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use crate::assets::asset_transfer_queue::AssetTransferQueue;
 use crate::assets::texture::HostTextureAssetKind;
+use crate::backend::AssetTransferQueue;
 use crate::backend::material_property_reader::{float4_property, texture_property};
 use crate::materials::MaterialSystem;
 use crate::materials::host_data::{

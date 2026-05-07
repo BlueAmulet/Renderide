@@ -6,10 +6,8 @@
 //! sits between the render entry point in [`super::frame_render`] and the per-view extraction
 //! pipeline in [`super::frame_extract`].
 
-use crate::camera::ViewId;
-use crate::render_graph::{
-    FrameViewClear, camera_state_enabled, host_camera_frame_for_render_texture,
-};
+use crate::camera::{ViewId, camera_state_enabled, host_camera_frame_for_render_texture};
+use crate::render_graph::FrameViewClear;
 use crate::scene::RenderSpaceId;
 use crate::world_mesh::draw_filter_from_camera_entry;
 

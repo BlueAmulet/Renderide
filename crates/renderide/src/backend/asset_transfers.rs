@@ -1,7 +1,7 @@
-//! Mesh and Texture2D upload queues, cooperative integration, CPU-side format/property tables, and resident pools.
+//! Mesh and texture upload queues, cooperative integration, CPU-side format/property tables, and resident pools.
 //!
-//! [`AssetTransferQueue`] lives in the [`crate::assets`] module and is owned by
-//! [`crate::backend::RenderBackend`]. It handles shared-memory ingestion paths that populate
+//! [`AssetTransferQueue`] is owned by [`crate::backend::RenderBackend`]. It handles shared-memory
+//! ingestion paths that populate
 //! [`crate::gpu_pools::MeshPool`], [`crate::gpu_pools::TexturePool`], [`crate::gpu_pools::Texture3dPool`],
 //! and [`crate::gpu_pools::CubemapPool`].
 

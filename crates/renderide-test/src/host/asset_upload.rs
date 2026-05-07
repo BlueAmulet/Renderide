@@ -17,7 +17,8 @@ use renderide_shared::shared::{
     SetTexture2DFormat, SetTexture2DProperties, ShaderUpload, TextureFilterMode, TextureFormat,
     TextureUpdateResultType, TextureUploadHint, TextureWrapMode,
 };
-use renderide_shared::{RENDERIDE_TEST_STEM_PREFIX, SharedMemoryWriter, SharedMemoryWriterConfig};
+use renderide_shared::test_hooks::RENDERIDE_TEST_STEM_PREFIX;
+use renderide_shared::{SharedMemoryWriter, SharedMemoryWriterConfig};
 
 use crate::error::HarnessError;
 use crate::scene::mesh_payload::{SphereMeshUpload, make_mesh_upload_data};

@@ -22,6 +22,7 @@ pub mod compute;
 pub mod node;
 pub mod raster;
 pub(crate) mod setup;
+pub mod template;
 
 pub use builder::PassBuilder;
 pub use compute::ComputePass;
@@ -30,3 +31,4 @@ pub use node::PassMergeHint;
 pub use node::{GroupScope, PassKind, PassNode, PassPhase};
 pub use raster::RasterPass;
 pub use setup::PassSetup;
+pub use template::{ColorAttachmentTemplate, DepthAttachmentTemplate, RenderPassTemplate};

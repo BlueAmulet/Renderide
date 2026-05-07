@@ -2,6 +2,6 @@
 //! AABB-vs-pyramid occlusion test driving CPU world-mesh culling.
 
 pub mod pyramid;
+pub mod query;
 pub mod readback;
 pub mod snapshot;
-pub mod test;

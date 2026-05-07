@@ -1,5 +1,5 @@
 //! Concrete post-processing render passes registered on the
-//! [`crate::render_graph::post_processing::PostProcessChain`].
+//! [`crate::render_graph::post_process_chain::PostProcessChain`].
 //!
 //! The chain currently ships with four effects, executed in this order:
 //! 1. [`GtaoEffect`] -- Ground-Truth Ambient Occlusion (pre-tonemap HDR modulation, with an
@@ -9,7 +9,7 @@
 //! 4. [`AcesTonemapPass`] -- Stephen Hill ACES Fitted tonemap.
 //!
 //! Future effects (color grading, etc.) live alongside them as sibling sub-modules and implement
-//! [`crate::render_graph::post_processing::PostProcessEffect`].
+//! [`crate::render_graph::post_process_chain::PostProcessEffect`].
 
 mod aces_tonemap;
 mod auto_exposure;

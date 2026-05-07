@@ -60,12 +60,12 @@ pub(crate) use state::{
 
 use std::num::NonZeroU32;
 
-use crate::render_graph::compiled::{DepthAttachmentTemplate, RenderPassTemplate};
 use crate::render_graph::context::{ComputePassCtx, RasterPassCtx};
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::frame_params::MsaaViewsSlot;
 use crate::render_graph::gpu_cache::stereo_mask_or_template;
 use crate::render_graph::pass::{ComputePass, PassBuilder, RasterPass};
+use crate::render_graph::pass::{DepthAttachmentTemplate, RenderPassTemplate};
 use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, StorageAccess, TextureAccess,
     TextureHandle,

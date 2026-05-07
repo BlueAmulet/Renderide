@@ -42,7 +42,9 @@ use pipeline::{
 
 use crate::config::{GtaoSettings, PostProcessingSettings};
 use crate::render_graph::builder::GraphBuilder;
-use crate::render_graph::post_processing::{EffectPasses, PostProcessEffect, PostProcessEffectId};
+use crate::render_graph::post_process_chain::{
+    EffectPasses, PostProcessEffect, PostProcessEffectId,
+};
 use crate::render_graph::resources::{
     ImportedBufferHandle, ImportedTextureHandle, SubresourceHandle, TextureHandle,
     TransientArrayLayers, TransientExtent, TransientSampleCount, TransientSubresourceDesc,
@@ -70,7 +72,7 @@ pub struct GtaoEffect {
     /// after chain build flow in via
     /// [`crate::passes::post_processing::settings_slot::GtaoSettingsSlot`] for non-topology
     /// fields; topology fields (`enabled`, `denoise_passes`) trigger a graph rebuild via
-    /// [`crate::render_graph::post_processing::PostProcessChainSignature`].
+    /// [`crate::render_graph::post_process_chain::PostProcessChainSignature`].
     pub settings: GtaoSettings,
     /// Imported depth texture handle (declared as a sampled read for scheduling).
     pub depth: ImportedTextureHandle,

@@ -11,7 +11,7 @@ use crate::world_mesh::{
     FrameMaterialBatchCache, FramePreparedRenderables, RenderWorld, WorldMeshDrawCollectParallelism,
 };
 
-use crate::assets::asset_transfer_queue::AssetTransferQueue;
+use crate::backend::AssetTransferQueue;
 use crate::materials::{MaterialSystem, ShaderPermutation};
 use crate::occlusion::OcclusionSystem;
 

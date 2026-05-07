@@ -4,7 +4,7 @@ use wgpu::TextureFormat;
 
 use super::compiled::CompiledRenderGraph;
 use super::error::GraphBuildError;
-use super::post_processing::PostProcessChainSignature;
+use super::post_process_chain::PostProcessChainSignature;
 use crate::camera::ViewId;
 
 /// Inputs that invalidate a compiled main graph (extent, MSAA, multiview, surface format,
