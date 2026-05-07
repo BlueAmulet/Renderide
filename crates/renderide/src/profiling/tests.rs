@@ -1,0 +1,86 @@
+use super::*;
+
+/// Verifies that `rayon_thread_start_handler` produces a valid closure that does not panic
+/// when called with arbitrary thread indices.
+#[test]
+fn rayon_start_handler_does_not_panic_for_any_index() {
+    let handler = rayon_thread_start_handler();
+    handler(0);
+    handler(1);
+    handler(usize::MAX);
+}
+
+/// Confirms that the public surface of this module compiles and is callable without the
+/// `tracy` feature active. All calls must be no-ops; the test itself is the compile check.
+#[cfg(not(feature = "tracy"))]
+#[test]
+fn stubs_are_accessible_without_tracy_feature() {
+    register_main_thread();
+    emit_frame_mark();
+    emit_render_submit_frame_mark();
+    plot_fps_cap_active(240);
+    plot_window_focused(true);
+    plot_surface_acquire_outcome(true, false, false);
+    plot_event_loop_wait_ms(11.0);
+    plot_event_loop_idle_ms(11.0);
+    let profiler = GpuProfilerHandle;
+    assert!(!profiler.has_queries_opened_since_frame_end());
+    assert!(!profiler.end_frame_if_queries_opened());
+    let _ = rayon_thread_start_handler();
+}
+
+/// Verifies that `timestamp_query_features_if_supported` has the correct function signature
+/// and can be referenced as a function pointer when the `tracy` feature is off.
+///
+/// The `cfg(not(feature = "tracy"))` branch returns `wgpu::Features::empty()` without ever
+/// calling `adapter.features()`, so no real wgpu instance is required.
+#[cfg(not(feature = "tracy"))]
+#[test]
+fn timestamp_features_fn_signature_compiles_without_tracy() {
+    let _: fn(&wgpu::Adapter) -> wgpu::Features = timestamp_query_features_if_supported;
+}
+
+/// `register_main_thread` and `emit_frame_mark` must be safely callable more than once per
+/// process; calling them repeatedly should never panic under any feature configuration.
+#[test]
+fn thread_registration_and_frame_mark_are_idempotent() {
+    register_main_thread();
+    register_main_thread();
+    emit_frame_mark();
+    emit_frame_mark();
+}
+
+/// The no-tracy [`PhaseQuery`] placeholder is zero-sized so its presence in per-phase structs
+/// cannot regress memory layout when profiling is disabled.
+#[cfg(not(feature = "tracy"))]
+#[test]
+fn phase_query_stub_is_zero_sized() {
+    assert_eq!(size_of::<PhaseQuery>(), 0);
+}
+
+/// The no-tracy [`GpuProfilerHandle`] stub is also zero-sized; construction is unreachable via
+/// [`GpuProfilerHandle::try_new`] (always returns [`None`]), so the placeholder must stay free.
+#[cfg(not(feature = "tracy"))]
+#[test]
+fn gpu_profiler_handle_stub_is_zero_sized() {
+    assert_eq!(size_of::<GpuProfilerHandle>(), 0);
+}
+
+/// The no-tracy `render_pass_timestamp_writes` helper must always return `None` regardless
+/// of what `query` is -- the `PhaseQuery` placeholder carries no data to reserve writes from.
+#[cfg(not(feature = "tracy"))]
+#[test]
+fn render_pass_timestamp_writes_is_none_without_tracy() {
+    let q = PhaseQuery;
+    assert!(render_pass_timestamp_writes(Some(&q)).is_none());
+    assert!(render_pass_timestamp_writes(None).is_none());
+}
+
+/// The no-tracy `compute_pass_timestamp_writes` helper must always return `None`.
+#[cfg(not(feature = "tracy"))]
+#[test]
+fn compute_pass_timestamp_writes_is_none_without_tracy() {
+    let q = PhaseQuery;
+    assert!(compute_pass_timestamp_writes(Some(&q)).is_none());
+    assert!(compute_pass_timestamp_writes(None).is_none());
+}
