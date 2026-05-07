@@ -10,7 +10,7 @@ use super::super::texture_resolve::{
     ResolvedTextureBinding, create_sampler, primary_texture_2d_asset_id,
     resolved_texture_binding_for_host, texture_bind_signature, texture_property_ids_for_binding,
 };
-use super::cache::{EmbeddedSamplerCacheKey, MaterialBindCacheKey};
+use super::cache::EmbeddedSamplerCacheKey;
 use super::uniform::MaterialUniformCacheKey;
 use crate::materials::host_data::{MaterialPropertyLookupIds, MaterialPropertyStore};
 
@@ -21,7 +21,8 @@ pub(super) type EmbeddedGroup1TexturesAndSamplers =
 pub(super) struct EmbeddedBindInputResolution {
     pub(super) layout: Arc<StemMaterialLayout>,
     pub(super) uniform_key: MaterialUniformCacheKey,
-    pub(super) bind_key: MaterialBindCacheKey,
+    pub(super) stem_hash: u64,
+    pub(super) texture_bind_signature: u64,
     pub(super) texture_2d_asset_id: i32,
 }
 
@@ -77,18 +78,11 @@ impl EmbeddedMaterialBindResources {
             property_block_slot0: lookup.mesh_property_block_slot0,
             texture_2d_asset_id,
         };
-        let bind_key = MaterialBindCacheKey {
-            stem_hash: sh,
-            material_asset_id: lookup.material_asset_id,
-            property_block_slot0: lookup.mesh_property_block_slot0,
-            texture_bind_signature,
-            offscreen_write_render_texture_asset_id,
-        };
-
         Ok(EmbeddedBindInputResolution {
             layout,
             uniform_key,
-            bind_key,
+            stem_hash: sh,
+            texture_bind_signature,
             texture_2d_asset_id,
         })
     }

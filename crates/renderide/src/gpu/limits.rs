@@ -66,7 +66,6 @@ impl GpuLimits {
     }
 
     /// `min_uniform_buffer_offset_alignment` for dynamic uniform offsets.
-    #[cfg(test)]
     #[inline]
     pub fn min_uniform_buffer_offset_alignment(&self) -> u32 {
         self.wgpu.min_uniform_buffer_offset_alignment

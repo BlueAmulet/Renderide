@@ -165,7 +165,11 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
             // Bind @group(1) once per unique batch; skip when the cursor hasn't advanced.
             if bound_batch_cursor != Some(batch_cursor) {
                 let material_bg = pc.bind_group.as_deref().unwrap_or(empty_bg);
-                rpass.set_bind_group(1, material_bg, &[]);
+                if let Some(offset) = pc.material_uniform_dynamic_offset {
+                    rpass.set_bind_group(1, material_bg, &[offset]);
+                } else {
+                    rpass.set_bind_group(1, material_bg, &[]);
+                }
                 bound_batch_cursor = Some(batch_cursor);
             }
 

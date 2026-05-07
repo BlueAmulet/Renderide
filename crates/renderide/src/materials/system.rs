@@ -80,6 +80,7 @@ impl MaterialSystem {
         let embedded = EmbeddedMaterialBindResources::new(
             device.clone(),
             Arc::clone(&self.property_id_registry),
+            limits.clone(),
         )?;
         self.material_registry = Some(crate::materials::MaterialRegistry::with_default_families(
             device, limits,

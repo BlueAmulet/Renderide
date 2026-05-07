@@ -11,7 +11,7 @@ use naga::{
 use super::resource::resource_data_ty;
 use super::types::ReflectError;
 
-/// Uniform buffer slot at `@group(1)` / dynamic `@group(2)`.
+/// Uniform buffer slot at dynamic material `@group(1) @binding(0)` / dynamic `@group(2)`.
 fn layout_entry_for_uniform(
     layouter: &Layouter,
     data_ty: naga::Handle<naga::Type>,
@@ -31,7 +31,7 @@ fn layout_entry_for_uniform(
         visibility,
         ty: wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: group == 2,
+            has_dynamic_offset: (group == 1 && binding == 0) || group == 2,
             min_binding_size: Some(min_binding_size),
         },
         count: None,

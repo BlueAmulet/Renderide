@@ -383,6 +383,7 @@ mod tests {
                 ShaderPermutation(0),
             ),
             bind_group: None,
+            material_uniform_dynamic_offset: None,
             pipelines: None,
         }
     }

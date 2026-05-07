@@ -341,4 +341,33 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn reflect_group1_material_uniforms_use_dynamic_offsets() -> Result<(), ReflectError> {
+        for stem in crate::embedded_shaders::COMPILED_MATERIAL_STEMS {
+            let wgsl = crate::embedded_shaders::embedded_target_wgsl(stem)
+                .ok_or(ReflectError::EmbeddedTargetMissing(stem))?;
+            let reflected = reflect_raster_material_wgsl(wgsl)?;
+            let Some(uniform) = reflected.material_uniform.as_ref() else {
+                continue;
+            };
+            let entry = reflected
+                .material_entries
+                .iter()
+                .find(|entry| entry.binding == uniform.binding)
+                .expect("reflected material uniform entry");
+            match entry.ty {
+                wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    ..
+                } => {}
+                _ => panic!(
+                    "{stem}: group(1) binding({}) material uniform must use a dynamic offset",
+                    uniform.binding
+                ),
+            }
+        }
+        Ok(())
+    }
 }

@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use super::super::embedded_material_bind_error::EmbeddedMaterialBindError;
 use super::super::layout::StemMaterialLayout;
+use super::uniform::MaterialUniformArenaSlotBinding;
 
 /// Assembles a [`wgpu::BindGroupEntry`] list matching the reflected material entry order.
 ///
@@ -13,7 +14,7 @@ use super::super::layout::StemMaterialLayout;
 /// returned slice borrows them).
 pub(super) fn build_embedded_bind_group_entries<'a>(
     layout: &'a Arc<StemMaterialLayout>,
-    uniform_buf: &'a Arc<wgpu::Buffer>,
+    uniform_binding: Option<&'a MaterialUniformArenaSlotBinding>,
     keepalive_views: &'a [Arc<wgpu::TextureView>],
     keepalive_samplers: &'a [Arc<wgpu::Sampler>],
 ) -> Result<Vec<wgpu::BindGroupEntry<'a>>, EmbeddedMaterialBindError> {
@@ -29,9 +30,18 @@ pub(super) fn build_embedded_bind_group_entries<'a>(
                 ty: wgpu::BufferBindingType::Uniform,
                 ..
             } => {
+                let uniform = uniform_binding.ok_or_else(|| {
+                    EmbeddedMaterialBindError::from(format!(
+                        "reflection: missing uniform arena binding for @binding({b})"
+                    ))
+                })?;
                 entries.push(wgpu::BindGroupEntry {
                     binding: b,
-                    resource: uniform_buf.as_entire_binding(),
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: uniform.buffer.as_ref(),
+                        offset: 0,
+                        size: Some(uniform.size),
+                    }),
                 });
             }
             wgpu::BindingType::Texture { .. } => {

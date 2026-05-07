@@ -1,8 +1,9 @@
-//! Embedded `@group(1)` uniform buffer LRU and upload.
+//! Embedded `@group(1)` material uniform arena and upload.
 
+use std::num::NonZeroU64;
 use std::sync::Arc;
 
-use wgpu::util::DeviceExt;
+use hashbrown::HashMap;
 
 use super::super::embedded_material_bind_error::EmbeddedMaterialBindError;
 use super::super::layout::StemMaterialLayout;
@@ -13,17 +14,7 @@ use super::super::uniform_pack::{
 use crate::materials::host_data::{MaterialPropertyLookupIds, MaterialPropertyStore};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
-/// Cached GPU uniform buffer, last store-mutation generation, and last bound-texture state signature.
-///
-/// Texture-state signature tracks host `mipmap_bias` and storage orientation for currently-bound
-/// textures; the store's mutation generation does not bump on texture-property updates, so
-/// buffered texture-derived fields would otherwise become stale. Both must match to skip reupload.
-#[derive(Clone)]
-pub(super) struct CachedUniformEntry {
-    pub(super) buffer: Arc<wgpu::Buffer>,
-    pub(super) last_written_generation: u64,
-    pub(super) last_written_texture_state_sig: u64,
-}
+const INITIAL_MATERIAL_UNIFORM_ARENA_BYTES: u64 = 64 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(super) struct MaterialUniformCacheKey {
@@ -33,8 +24,253 @@ pub(super) struct MaterialUniformCacheKey {
     pub(super) texture_2d_asset_id: i32,
 }
 
-/// LRU uniform buffer create/refresh for [`super::EmbeddedMaterialBindResources::get_or_create_embedded_uniform_buffer`].
-pub(super) struct EmbeddedUniformBufferRequest<'a> {
+/// GPU arena slot selected for a material uniform block.
+#[derive(Clone)]
+pub(super) struct MaterialUniformArenaSlotBinding {
+    pub(super) buffer: Arc<wgpu::Buffer>,
+    pub(super) dynamic_offset: u32,
+    pub(super) size: NonZeroU64,
+    pub(super) buffer_generation: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MaterialUniformSlot {
+    offset: u64,
+    size: u64,
+    last_written_generation: u64,
+    last_written_texture_state_sig: u64,
+    buffer_generation: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MaterialUniformSlotResolution {
+    offset: u64,
+    size: NonZeroU64,
+    buffer_generation: u64,
+    needs_write: bool,
+}
+
+/// Pure allocator state for material uniform arena slots.
+#[derive(Debug)]
+struct MaterialUniformArenaAllocator {
+    slots: HashMap<MaterialUniformCacheKey, MaterialUniformSlot>,
+    cursor: u64,
+    capacity: u64,
+    max_bytes: u64,
+    alignment: u64,
+    generation: u64,
+}
+
+impl MaterialUniformArenaAllocator {
+    fn new(capacity: u64, max_bytes: u64, alignment: u64) -> Self {
+        Self {
+            slots: HashMap::new(),
+            cursor: 0,
+            capacity,
+            max_bytes,
+            alignment: alignment.max(1),
+            generation: 0,
+        }
+    }
+
+    fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    fn capacity(&self) -> u64 {
+        self.capacity
+    }
+
+    fn resolve_slot(
+        &mut self,
+        key: MaterialUniformCacheKey,
+        size: NonZeroU64,
+        mutation_gen: u64,
+        texture_state_sig: u64,
+    ) -> Result<MaterialUniformSlotResolution, EmbeddedMaterialBindError> {
+        let size = size.get();
+        if let Some(slot) = self.slots.get(&key).copied() {
+            if slot.size != size {
+                return Err(EmbeddedMaterialBindError::from(format!(
+                    "material uniform arena slot size changed for key {:?}: old={} new={}",
+                    key, slot.size, size
+                )));
+            }
+            let needs_write = slot.last_written_generation != mutation_gen
+                || slot.last_written_texture_state_sig != texture_state_sig
+                || slot.buffer_generation != self.generation;
+            return Ok(MaterialUniformSlotResolution {
+                offset: slot.offset,
+                size: non_zero_u64(size)?,
+                buffer_generation: self.generation,
+                needs_write,
+            });
+        }
+
+        let offset = align_up(self.cursor, self.alignment);
+        let end = offset.checked_add(size).ok_or_else(|| {
+            EmbeddedMaterialBindError::from("material uniform arena offset overflow".to_string())
+        })?;
+        self.ensure_capacity(end)?;
+        self.cursor = end;
+        self.slots.insert(
+            key,
+            MaterialUniformSlot {
+                offset,
+                size,
+                last_written_generation: u64::MAX,
+                last_written_texture_state_sig: u64::MAX,
+                buffer_generation: self.generation,
+            },
+        );
+        Ok(MaterialUniformSlotResolution {
+            offset,
+            size: non_zero_u64(size)?,
+            buffer_generation: self.generation,
+            needs_write: true,
+        })
+    }
+
+    fn mark_written(
+        &mut self,
+        key: &MaterialUniformCacheKey,
+        buffer_generation: u64,
+        mutation_gen: u64,
+        texture_state_sig: u64,
+    ) {
+        let Some(slot) = self.slots.get_mut(key) else {
+            return;
+        };
+        if slot.buffer_generation > buffer_generation {
+            return;
+        }
+        slot.buffer_generation = buffer_generation;
+        slot.last_written_generation = mutation_gen;
+        slot.last_written_texture_state_sig = texture_state_sig;
+    }
+
+    fn ensure_capacity(&mut self, needed: u64) -> Result<(), EmbeddedMaterialBindError> {
+        if needed <= self.capacity {
+            return Ok(());
+        }
+        if needed > self.max_bytes {
+            return Err(EmbeddedMaterialBindError::from(format!(
+                "material uniform arena needs {needed} bytes, exceeding cap {}",
+                self.max_bytes
+            )));
+        }
+        let grown = align_up(self.capacity.saturating_mul(2).max(needed), self.alignment);
+        self.capacity = grown.min(self.max_bytes).max(needed);
+        self.generation = self.generation.wrapping_add(1);
+        Ok(())
+    }
+}
+
+/// Shared GPU buffer plus slot allocator for embedded material uniform constants.
+pub(super) struct MaterialUniformArena {
+    device: Arc<wgpu::Device>,
+    allocator: MaterialUniformArenaAllocator,
+    buffer: Arc<wgpu::Buffer>,
+}
+
+impl MaterialUniformArena {
+    pub(super) fn new(device: Arc<wgpu::Device>, limits: Arc<crate::gpu::GpuLimits>) -> Self {
+        let alignment = u64::from(limits.min_uniform_buffer_offset_alignment()).max(1);
+        let max_bytes = limits.max_buffer_size().min(u64::from(u32::MAX));
+        let initial = align_up(
+            INITIAL_MATERIAL_UNIFORM_ARENA_BYTES
+                .min(max_bytes)
+                .max(alignment),
+            alignment,
+        );
+        let buffer = Arc::new(create_material_uniform_arena_buffer(
+            device.as_ref(),
+            initial,
+        ));
+        Self {
+            device,
+            allocator: MaterialUniformArenaAllocator::new(initial, max_bytes, alignment),
+            buffer,
+        }
+    }
+
+    fn resolve_binding(
+        &mut self,
+        key: MaterialUniformCacheKey,
+        size: NonZeroU64,
+        mutation_gen: u64,
+        texture_state_sig: u64,
+    ) -> Result<(MaterialUniformArenaSlotBinding, bool), EmbeddedMaterialBindError> {
+        let previous_generation = self.allocator.generation();
+        let resolved = self
+            .allocator
+            .resolve_slot(key, size, mutation_gen, texture_state_sig)?;
+        if self.allocator.generation() != previous_generation {
+            self.buffer = Arc::new(create_material_uniform_arena_buffer(
+                self.device.as_ref(),
+                self.allocator.capacity(),
+            ));
+            logger::debug!(
+                "material uniform arena: grew to {} bytes (generation {})",
+                self.allocator.capacity(),
+                self.allocator.generation()
+            );
+        }
+        let dynamic_offset = u32::try_from(resolved.offset).map_err(|_err| {
+            EmbeddedMaterialBindError::from(format!(
+                "material uniform arena offset {} exceeds dynamic offset range",
+                resolved.offset
+            ))
+        })?;
+        Ok((
+            MaterialUniformArenaSlotBinding {
+                buffer: self.buffer.clone(),
+                dynamic_offset,
+                size: resolved.size,
+                buffer_generation: resolved.buffer_generation,
+            },
+            resolved.needs_write,
+        ))
+    }
+
+    fn mark_written(
+        &mut self,
+        key: &MaterialUniformCacheKey,
+        binding: &MaterialUniformArenaSlotBinding,
+        mutation_gen: u64,
+        texture_state_sig: u64,
+    ) {
+        self.allocator.mark_written(
+            key,
+            binding.buffer_generation,
+            mutation_gen,
+            texture_state_sig,
+        );
+    }
+}
+
+fn create_material_uniform_arena_buffer(device: &wgpu::Device, size: u64) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("embedded_material_uniform_arena"),
+        size,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
+fn align_up(value: u64, alignment: u64) -> u64 {
+    let alignment = alignment.max(1);
+    value.div_ceil(alignment).saturating_mul(alignment)
+}
+
+fn non_zero_u64(value: u64) -> Result<NonZeroU64, EmbeddedMaterialBindError> {
+    NonZeroU64::new(value).ok_or_else(|| {
+        EmbeddedMaterialBindError::from("material uniform block has zero size".to_string())
+    })
+}
+
+/// Uniform arena lookup and upload request for [`super::EmbeddedMaterialBindResources`].
+pub(super) struct EmbeddedUniformArenaRequest<'a> {
     pub(super) uploads: GraphUploadSink<'a>,
     pub(super) stem: &'a str,
     pub(super) layout: &'a Arc<StemMaterialLayout>,
@@ -50,14 +286,16 @@ pub(super) struct EmbeddedUniformBufferRequest<'a> {
 use super::EmbeddedMaterialBindResources;
 
 impl EmbeddedMaterialBindResources {
-    /// LRU uniform buffer for embedded `@group(1)`; refreshes bytes when [`MaterialPropertyStore`] mutates
-    /// or when the bound-texture `mipmap_bias` signature changes (relevant for `_<Tex>_LodBias` fields).
-    pub(super) fn get_or_create_embedded_uniform_buffer(
+    /// Shared dynamic uniform arena slot for embedded `@group(1)` material constants.
+    ///
+    /// Refreshes bytes when [`MaterialPropertyStore`] mutates, when texture-derived uniform state
+    /// changes, or when the arena grows to a new backing buffer generation.
+    pub(super) fn get_or_update_embedded_uniform_arena_slot(
         &self,
-        req: EmbeddedUniformBufferRequest<'_>,
-    ) -> Result<Arc<wgpu::Buffer>, EmbeddedMaterialBindError> {
-        profiling::scope!("materials::embedded_uniform_buffer");
-        let EmbeddedUniformBufferRequest {
+        req: EmbeddedUniformArenaRequest<'_>,
+    ) -> Result<MaterialUniformArenaSlotBinding, EmbeddedMaterialBindError> {
+        profiling::scope!("materials::embedded_uniform_arena");
+        let EmbeddedUniformArenaRequest {
             uploads,
             stem,
             layout,
@@ -69,24 +307,34 @@ impl EmbeddedMaterialBindResources {
             primary_texture_2d,
             texture_state_sig,
         } = req;
+        let uniform_size = non_zero_u64(
+            layout
+                .reflected
+                .material_uniform
+                .as_ref()
+                .ok_or_else(|| {
+                    EmbeddedMaterialBindError::from(format!(
+                        "stem {stem}: uniform block missing (shader has no material uniform)"
+                    ))
+                })?
+                .total_size
+                .into(),
+        )?;
         let tex_ctx = UniformPackTextureContext {
             pools,
             primary_texture_2d,
         };
-        // Sharded cache lookup: clone the entry out under the shard lock and release it before
-        // any write_buffer / build_buffer_init work. Steady-state cache hits (matching generation
-        // and texture signature) take the fast path with one short shard lock; refresh and create
-        // paths re-`put` the updated entry, accepting last-writer-wins under the (rare) race
-        // where two workers miss the same key concurrently.
-        let cached = self.uniform_cache.get_cloned(uniform_key);
-        if let Some(entry) = cached {
-            if entry.last_written_generation == mutation_gen
-                && entry.last_written_texture_state_sig == texture_state_sig
-            {
-                profiling::scope!("materials::embedded_uniform_cache_hit");
-                return Ok(entry.buffer);
-            }
-            profiling::scope!("materials::embedded_uniform_refresh");
+        let (binding, needs_write) = {
+            profiling::scope!("materials::embedded_uniform_arena_resolve");
+            self.uniform_arena.lock().resolve_binding(
+                *uniform_key,
+                uniform_size,
+                mutation_gen,
+                texture_state_sig,
+            )?
+        };
+        if needs_write {
+            profiling::scope!("materials::embedded_uniform_arena_write");
             let uniform_bytes = build_embedded_uniform_bytes_with_value_spaces(
                 &layout.reflected,
                 layout.ids.as_ref(),
@@ -98,44 +346,77 @@ impl EmbeddedMaterialBindResources {
             .ok_or_else(|| {
                 format!("stem {stem}: uniform block missing (shader has no material uniform)")
             })?;
-            uploads.write_buffer(entry.buffer.as_ref(), 0, &uniform_bytes);
-            let refreshed = CachedUniformEntry {
-                buffer: entry.buffer.clone(),
-                last_written_generation: mutation_gen,
-                last_written_texture_state_sig: texture_state_sig,
-            };
-            let _ = self.uniform_cache.put(*uniform_key, refreshed);
-            return Ok(entry.buffer);
+            uploads.write_buffer(
+                binding.buffer.as_ref(),
+                u64::from(binding.dynamic_offset),
+                &uniform_bytes,
+            );
+            self.uniform_arena.lock().mark_written(
+                uniform_key,
+                &binding,
+                mutation_gen,
+                texture_state_sig,
+            );
+        } else {
+            profiling::scope!("materials::embedded_uniform_arena_hit");
         }
-        profiling::scope!("materials::embedded_uniform_create");
-        let uniform_bytes = build_embedded_uniform_bytes_with_value_spaces(
-            &layout.reflected,
-            layout.ids.as_ref(),
-            &layout.uniform_value_spaces,
-            store,
-            lookup,
-            &tex_ctx,
-        )
-        .ok_or_else(|| {
-            format!("stem {stem}: uniform block missing (shader has no material uniform)")
-        })?;
-        let buf = Arc::new(
-            self.device
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("embedded_material_uniform"),
-                    contents: &uniform_bytes,
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                }),
-        );
-        let entry = CachedUniformEntry {
-            buffer: buf.clone(),
-            last_written_generation: mutation_gen,
-            last_written_texture_state_sig: texture_state_sig,
-        };
-        if let Some(evicted) = self.uniform_cache.put(*uniform_key, entry) {
-            drop(evicted);
-            logger::trace!("EmbeddedMaterialBindResources: evicted LRU uniform cache entry");
+        Ok(binding)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(material_asset_id: i32) -> MaterialUniformCacheKey {
+        MaterialUniformCacheKey {
+            stem_hash: 7,
+            material_asset_id,
+            property_block_slot0: None,
+            texture_2d_asset_id: -1,
         }
-        Ok(buf)
+    }
+
+    #[test]
+    fn arena_allocator_aligns_offsets() {
+        let mut allocator = MaterialUniformArenaAllocator::new(1024, 4096, 256);
+        let size = NonZeroU64::new(80).unwrap();
+
+        let a = allocator.resolve_slot(key(1), size, 0, 0).unwrap();
+        let b = allocator.resolve_slot(key(2), size, 0, 0).unwrap();
+
+        assert_eq!(a.offset, 0);
+        assert_eq!(b.offset, 256);
+    }
+
+    #[test]
+    fn arena_allocator_reuses_stable_slot() {
+        let mut allocator = MaterialUniformArenaAllocator::new(1024, 4096, 256);
+        let size = NonZeroU64::new(80).unwrap();
+
+        let first = allocator.resolve_slot(key(1), size, 3, 5).unwrap();
+        allocator.mark_written(&key(1), first.buffer_generation, 3, 5);
+        let second = allocator.resolve_slot(key(1), size, 3, 5).unwrap();
+
+        assert_eq!(first.offset, second.offset);
+        assert!(!second.needs_write);
+    }
+
+    #[test]
+    fn arena_allocator_growth_invalidates_existing_slots_for_new_generation() {
+        let mut allocator = MaterialUniformArenaAllocator::new(256, 2048, 256);
+        let size = NonZeroU64::new(128).unwrap();
+
+        let first = allocator.resolve_slot(key(1), size, 1, 1).unwrap();
+        allocator.mark_written(&key(1), first.buffer_generation, 1, 1);
+        assert_eq!(allocator.generation(), 0);
+
+        let _second = allocator.resolve_slot(key(2), size, 1, 1).unwrap();
+        assert_eq!(allocator.generation(), 1);
+        let first_after_growth = allocator.resolve_slot(key(1), size, 1, 1).unwrap();
+
+        assert_eq!(first_after_growth.offset, first.offset);
+        assert_eq!(first_after_growth.buffer_generation, 1);
+        assert!(first_after_growth.needs_write);
     }
 }

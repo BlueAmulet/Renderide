@@ -36,14 +36,36 @@ use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use assemble::build_embedded_bind_group_entries;
 use cache::{
     EMBEDDED_CACHE_SHARDS, EmbeddedSamplerCacheKey, ShardedLru, TextureDebugCacheKey,
-    max_cached_embedded_bind_groups, max_cached_embedded_samplers, max_cached_embedded_uniforms,
-    max_cached_texture_debug_ids,
+    max_cached_embedded_bind_groups, max_cached_embedded_samplers, max_cached_texture_debug_ids,
 };
 use texture_signature::compute_uniform_texture_state_signature;
-use uniform::{CachedUniformEntry, EmbeddedUniformBufferRequest, MaterialUniformCacheKey};
+use uniform::{EmbeddedUniformArenaRequest, MaterialUniformArena, MaterialUniformArenaSlotBinding};
 use white_texture::{WhiteTexture, create_white, upload_white};
 
 use resolve::EmbeddedBindInputResolution;
+
+/// Resolved embedded material `@group(1)` bind group plus its optional dynamic uniform offset.
+#[derive(Clone)]
+pub(crate) struct EmbeddedMaterialBindGroup {
+    /// Bind group containing the material uniform arena buffer and resolved texture/sampler bindings.
+    pub(crate) bind_group: Arc<wgpu::BindGroup>,
+    /// Dynamic offset for `@group(1) @binding(0)` when the shader has a material uniform block.
+    pub(crate) uniform_dynamic_offset: Option<u32>,
+}
+
+fn material_bind_group_result(
+    bind_key: MaterialBindCacheKey,
+    bind_group: Arc<wgpu::BindGroup>,
+    uniform_binding: Option<&MaterialUniformArenaSlotBinding>,
+) -> (MaterialBindCacheKey, EmbeddedMaterialBindGroup) {
+    (
+        bind_key,
+        EmbeddedMaterialBindGroup {
+            bind_group,
+            uniform_dynamic_offset: uniform_binding.map(|binding| binding.dynamic_offset),
+        },
+    )
+}
 
 /// GPU resources shared by embedded material bind groups (layouts, default texture, sampler).
 pub struct EmbeddedMaterialBindResources {
@@ -55,13 +77,14 @@ pub struct EmbeddedMaterialBindResources {
     property_registry: Arc<PropertyIdRegistry>,
     shared_keyword_ids: Arc<EmbeddedSharedKeywordIds>,
     stem_cache: Mutex<HashMap<String, Arc<StemMaterialLayout>>>,
-    /// Sharded LRU caches for `@group(1)` bind groups, packed uniform buffers, and samplers.
+    /// Shared dynamic uniform arena for `@group(1) @binding(0)` material constants.
+    uniform_arena: Mutex<MaterialUniformArena>,
+    /// Sharded LRU caches for `@group(1)` bind groups and samplers.
     /// Each shard is a `parking_lot::Mutex<LruCache<...>>` so per-view rayon workers contend
     /// only with workers whose cache key hashes into the same shard. Replaces the previous
     /// single-`Mutex<LruCache<...>>` whose lock was the dominant contention point during
     /// `graph::per_view_fan_out`.
     bind_cache: ShardedLru<MaterialBindCacheKey, Arc<wgpu::BindGroup>>,
-    uniform_cache: ShardedLru<MaterialUniformCacheKey, CachedUniformEntry>,
     sampler_cache: ShardedLru<EmbeddedSamplerCacheKey, Arc<wgpu::Sampler>>,
     /// Texture-debug HUD cache stays a single mutex: per-stem call frequency is low and the
     /// HUD does not run inside the per-view rayon fan-out, so sharding has no benefit here.
@@ -73,6 +96,7 @@ impl EmbeddedMaterialBindResources {
     pub fn new(
         device: Arc<wgpu::Device>,
         property_registry: Arc<PropertyIdRegistry>,
+        limits: Arc<crate::gpu::GpuLimits>,
     ) -> Result<Self, EmbeddedMaterialBindError> {
         let white_2d = create_white(device.as_ref(), TextureBindKind::Tex2D);
         let white_3d = create_white(device.as_ref(), TextureBindKind::Tex3D);
@@ -84,7 +108,7 @@ impl EmbeddedMaterialBindResources {
             Arc::new(EmbeddedSharedKeywordIds::new(property_registry.as_ref()));
 
         Ok(Self {
-            device,
+            device: device.clone(),
             white_2d,
             white_3d,
             white_cube,
@@ -92,8 +116,8 @@ impl EmbeddedMaterialBindResources {
             property_registry,
             shared_keyword_ids,
             stem_cache: Mutex::new(HashMap::new()),
+            uniform_arena: Mutex::new(MaterialUniformArena::new(device, limits)),
             bind_cache: ShardedLru::new(max_cached_embedded_bind_groups(), EMBEDDED_CACHE_SHARDS),
-            uniform_cache: ShardedLru::new(max_cached_embedded_uniforms(), EMBEDDED_CACHE_SHARDS),
             sampler_cache: ShardedLru::new(max_cached_embedded_samplers(), EMBEDDED_CACHE_SHARDS),
             texture_debug_cache: Mutex::new(LruCache::new(max_cached_texture_debug_ids())),
         })
@@ -108,7 +132,7 @@ impl EmbeddedMaterialBindResources {
 
     /// Returns or builds a `@group(1)` bind group for the composed embedded `stem` (e.g. `unlit_default`).
     #[inline]
-    pub fn embedded_material_bind_group(
+    pub(crate) fn embedded_material_bind_group(
         &self,
         stem: &str,
         uploads: GraphUploadSink<'_>,
@@ -116,7 +140,7 @@ impl EmbeddedMaterialBindResources {
         pools: &EmbeddedTexturePools<'_>,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
-    ) -> Result<Arc<wgpu::BindGroup>, EmbeddedMaterialBindError> {
+    ) -> Result<EmbeddedMaterialBindGroup, EmbeddedMaterialBindError> {
         self.embedded_material_bind_group_with_cache_key(
             stem,
             uploads,
@@ -128,8 +152,8 @@ impl EmbeddedMaterialBindResources {
         .map(|(_, g)| g)
     }
 
-    /// Same as [`Self::embedded_material_bind_group`], plus the cache key so callers can skip redundant
-    /// [`wgpu::RenderPass::set_bind_group`] calls when the key matches the previous draw.
+    /// Same as [`Self::embedded_material_bind_group`], plus the cache key for diagnostics and
+    /// possible caller-side bind deduplication.
     pub(crate) fn embedded_material_bind_group_with_cache_key(
         &self,
         stem: &str,
@@ -138,12 +162,13 @@ impl EmbeddedMaterialBindResources {
         pools: &EmbeddedTexturePools<'_>,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
-    ) -> Result<(MaterialBindCacheKey, Arc<wgpu::BindGroup>), EmbeddedMaterialBindError> {
+    ) -> Result<(MaterialBindCacheKey, EmbeddedMaterialBindGroup), EmbeddedMaterialBindError> {
         profiling::scope!("materials::embedded_bind_group");
         let EmbeddedBindInputResolution {
             layout,
             uniform_key,
-            bind_key,
+            stem_hash,
+            texture_bind_signature,
             texture_2d_asset_id,
         } = self.resolve_embedded_bind_inputs(
             stem,
@@ -164,16 +189,9 @@ impl EmbeddedMaterialBindResources {
                 texture_2d_asset_id,
             )
         };
-
-        let hit_bg = {
-            profiling::scope!("materials::embedded_bind_cache_lookup");
-            self.bind_cache.get_cloned(&bind_key)
-        };
-        if let Some(bg) = hit_bg {
-            profiling::scope!("materials::embedded_bind_cache_hit");
-            // Bind group is unchanged; still refresh the uniform slab if the material store mutated.
-            let _uniform_buf =
-                self.get_or_create_embedded_uniform_buffer(EmbeddedUniformBufferRequest {
+        let uniform_binding = if layout.reflected.material_uniform.is_some() {
+            Some(
+                self.get_or_update_embedded_uniform_arena_slot(EmbeddedUniformArenaRequest {
                     uploads,
                     stem,
                     layout: &layout,
@@ -184,25 +202,34 @@ impl EmbeddedMaterialBindResources {
                     pools,
                     primary_texture_2d: texture_2d_asset_id,
                     texture_state_sig,
-                })?;
-            return Ok((bind_key, bg));
+                })?,
+            )
+        } else {
+            None
+        };
+        let bind_key = MaterialBindCacheKey {
+            stem_hash,
+            texture_bind_signature,
+            offscreen_write_render_texture_asset_id,
+            uniform_arena_generation: uniform_binding
+                .as_ref()
+                .map_or(0, |binding| binding.buffer_generation),
+        };
+
+        let hit_bg = {
+            profiling::scope!("materials::embedded_bind_cache_lookup");
+            self.bind_cache.get_cloned(&bind_key)
+        };
+        if let Some(bg) = hit_bg {
+            profiling::scope!("materials::embedded_bind_cache_hit");
+            return Ok(material_bind_group_result(
+                bind_key,
+                bg,
+                uniform_binding.as_ref(),
+            ));
         }
 
         profiling::scope!("materials::embedded_bind_cache_miss");
-        let uniform_buf =
-            self.get_or_create_embedded_uniform_buffer(EmbeddedUniformBufferRequest {
-                uploads,
-                stem,
-                layout: &layout,
-                uniform_key: &uniform_key,
-                mutation_gen,
-                store,
-                lookup,
-                pools,
-                primary_texture_2d: texture_2d_asset_id,
-                texture_state_sig,
-            })?;
-
         let (keepalive_views, keepalive_samplers) = self.resolve_group1_textures_and_samplers(
             &layout,
             texture_2d_asset_id,
@@ -214,7 +241,7 @@ impl EmbeddedMaterialBindResources {
 
         let entries = build_embedded_bind_group_entries(
             &layout,
-            &uniform_buf,
+            uniform_binding.as_ref(),
             &keepalive_views,
             &keepalive_samplers,
         )?;
@@ -232,7 +259,11 @@ impl EmbeddedMaterialBindResources {
             drop(evicted);
             logger::trace!("EmbeddedMaterialBindResources: evicted LRU bind group cache entry");
         }
-        Ok((bind_key, bind_group))
+        Ok(material_bind_group_result(
+            bind_key,
+            bind_group,
+            uniform_binding.as_ref(),
+        ))
     }
 
     /// Returns the reflected `@group(1)` bind-group layout for an embedded material stem.

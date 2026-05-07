@@ -194,7 +194,7 @@ impl SkyboxRenderer {
         } else {
             SkyboxDepthState::for_family(family, MaterialRenderState::default())
         };
-        let material_bind_group = embedded_bind
+        let material_bind = embedded_bind
             .embedded_material_bind_group(
                 stem.as_str(),
                 uploads,
@@ -212,7 +212,8 @@ impl SkyboxRenderer {
         let pipeline = self.material_pipeline(device, &material_layout, family, target, depth)?;
         Some(PreparedSkybox::Material(PreparedMaterialSkybox {
             pipeline,
-            material_bind_group,
+            material_bind_group: material_bind.bind_group,
+            material_uniform_dynamic_offset: material_bind.uniform_dynamic_offset,
             view_bind_group,
         }))
     }
@@ -401,7 +402,11 @@ pub(super) fn record_prepared_skybox(
             };
             rpass.set_pipeline(skybox.pipeline.as_ref());
             rpass.set_bind_group(0, frame_bg.as_ref(), &[]);
-            rpass.set_bind_group(1, skybox.material_bind_group.as_ref(), &[]);
+            if let Some(offset) = skybox.material_uniform_dynamic_offset {
+                rpass.set_bind_group(1, skybox.material_bind_group.as_ref(), &[offset]);
+            } else {
+                rpass.set_bind_group(1, skybox.material_bind_group.as_ref(), &[]);
+            }
             rpass.set_bind_group(2, skybox.view_bind_group.as_ref(), &[]);
             rpass.draw(0..3, 0..1);
             true

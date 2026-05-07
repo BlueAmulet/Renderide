@@ -79,10 +79,8 @@ impl<K: Eq + Hash, V> ShardedLru<K, V> {
     }
 }
 
-/// LRU cap for `@group(1)` bind groups (per unique material/texture signature).
+/// LRU cap for `@group(1)` bind groups (per stem/texture signature/arena generation).
 pub(super) const MAX_CACHED_EMBEDDED_BIND_GROUPS: usize = 512;
-/// LRU cap for embedded material uniform buffers.
-pub(super) const MAX_CACHED_EMBEDDED_UNIFORMS: usize = 512;
 /// LRU cap for embedded samplers.
 pub(super) const MAX_CACHED_EMBEDDED_SAMPLERS: usize = 512;
 /// LRU cap for texture HUD asset-id scans.
@@ -91,11 +89,6 @@ pub(super) const MAX_CACHED_TEXTURE_DEBUG_IDS: usize = 512;
 /// Non-zero bind-group cache capacity.
 pub(super) fn max_cached_embedded_bind_groups() -> NonZeroUsize {
     NonZeroUsize::new(MAX_CACHED_EMBEDDED_BIND_GROUPS).unwrap_or(NonZeroUsize::MIN)
-}
-
-/// Non-zero uniform-buffer cache capacity.
-pub(super) fn max_cached_embedded_uniforms() -> NonZeroUsize {
-    NonZeroUsize::new(MAX_CACHED_EMBEDDED_UNIFORMS).unwrap_or(NonZeroUsize::MIN)
 }
 
 /// Non-zero sampler cache capacity.
@@ -178,11 +171,11 @@ pub(super) struct TextureDebugCacheKey {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct MaterialBindCacheKey {
     pub(super) stem_hash: u64,
-    pub(super) material_asset_id: i32,
-    pub(super) property_block_slot0: Option<i32>,
     pub(super) texture_bind_signature: u64,
     /// Distinguishes main vs secondary-RT passes when self-sampling is masked.
     pub(super) offscreen_write_render_texture_asset_id: Option<i32>,
+    /// Bumps whenever the shared material uniform arena reallocates to a new GPU buffer.
+    pub(super) uniform_arena_generation: u64,
 }
 
 use super::EmbeddedMaterialBindResources;

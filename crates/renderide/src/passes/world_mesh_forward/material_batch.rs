@@ -34,6 +34,8 @@ pub(crate) struct MaterialBatchPacket {
     pub(crate) pipeline_key: PipelineVariantKey,
     /// Resolved `@group(1)` bind group for this batch's material, or `None` for the empty fallback.
     pub bind_group: Option<Arc<wgpu::BindGroup>>,
+    /// Dynamic offset for the material uniform arena, when this batch's bind group has one.
+    pub material_uniform_dynamic_offset: Option<u32>,
     /// Resolved pipeline set for this batch, or `None` when the pipeline is unavailable (skip draws).
     pub pipelines: Option<MaterialPipelineSet>,
 }
@@ -218,13 +220,14 @@ impl<'a> MaterialDrawResolver<'a> {
         }
 
         let pipelines = self.resolve_pipelines(pipeline_key);
-        let bind_group = self.resolve_embedded_bind_group(item);
+        let (bind_group, material_uniform_dynamic_offset) = self.resolve_embedded_bind_group(item);
 
         MaterialBatchPacket {
             first_draw_idx: first,
             last_draw_idx: last,
             pipeline_key,
             bind_group,
+            material_uniform_dynamic_offset,
             pipelines,
         }
     }
@@ -269,10 +272,10 @@ impl<'a> MaterialDrawResolver<'a> {
     fn resolve_embedded_bind_group(
         &self,
         item: &WorldMeshDrawItem,
-    ) -> Option<Arc<wgpu::BindGroup>> {
+    ) -> (Option<Arc<wgpu::BindGroup>>, Option<u32>) {
         let batch_key = &item.batch_key;
         if !matches!(&batch_key.pipeline, RasterPipelineKind::EmbeddedStem(_)) {
-            return None;
+            return (None, None);
         }
 
         let (Some(bind), Some(registry)) = (self.embedded_bind, self.registry) else {
@@ -282,7 +285,7 @@ impl<'a> MaterialDrawResolver<'a> {
                      @group(1) uses empty bind group for embedded raster draws"
                 );
             }
-            return None;
+            return (None, None);
         };
 
         registry
@@ -297,8 +300,9 @@ impl<'a> MaterialDrawResolver<'a> {
                     self.offscreen_write_render_texture_asset_id,
                 )
                 .ok()
-                .map(|(_, bg)| bg)
+                .map(|(_, bg)| (Some(bg.bind_group), bg.uniform_dynamic_offset))
             })
+            .unwrap_or((None, None))
     }
 }
 

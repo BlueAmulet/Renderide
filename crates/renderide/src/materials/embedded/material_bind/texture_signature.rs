@@ -3,7 +3,7 @@
 //! The store's mutation generation only fires on host property writes, but the embedded uniform
 //! block consumes texture-pool state too (`_<Tex>_LodBias`, `_<Tex>_StorageVInverted`). When that
 //! state changes without a property write, the signature here detects the change and forces the
-//! cached uniform buffer to refresh.
+//! material uniform arena slot to refresh.
 
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
