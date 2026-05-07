@@ -78,6 +78,27 @@ pub struct RenderBackendAttachDesc {
     pub suppress_renderer_config_disk_writes: bool,
 }
 
+fn scene_color_usage_supported(format: wgpu::TextureFormat, limits: &GpuLimits) -> bool {
+    limits.texture_usage_supported(
+        format,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+    )
+}
+
+fn effective_scene_color_format(
+    requested: wgpu::TextureFormat,
+    limits: &GpuLimits,
+) -> wgpu::TextureFormat {
+    if scene_color_usage_supported(requested, limits) {
+        return requested;
+    }
+    let default = SceneColorFormat::default().wgpu_format();
+    if scene_color_usage_supported(default, limits) {
+        return default;
+    }
+    wgpu::TextureFormat::Rgba8Unorm
+}
+
 /// Coordinates materials, asset uploads, per-frame GPU binds, occlusion, optional deform + ImGui HUD, and the render graph.
 pub struct RenderBackend {
     /// Material property store, shader routes, pipeline registry, embedded `@group(1)` binds.
@@ -172,10 +193,10 @@ impl RenderBackend {
         }
     }
 
-    /// Effective HDR scene-color [`wgpu::TextureFormat`] from [`crate::config::RenderingSettings`].
+    /// Requested HDR scene-color [`wgpu::TextureFormat`] from [`crate::config::RenderingSettings`].
     ///
     /// Falls back to [`SceneColorFormat::default`] when settings are unavailable (pre-attach).
-    pub(crate) fn scene_color_format_wgpu(&self) -> wgpu::TextureFormat {
+    fn requested_scene_color_format_wgpu(&self) -> wgpu::TextureFormat {
         self.renderer_settings
             .as_ref()
             .and_then(|h| h.read().ok())
@@ -183,6 +204,14 @@ impl RenderBackend {
                 || SceneColorFormat::default().wgpu_format(),
                 |s| s.rendering.scene_color_format.wgpu_format(),
             )
+    }
+
+    /// Effective HDR scene-color [`wgpu::TextureFormat`] supported by the active device.
+    pub(crate) fn scene_color_format_wgpu(&self) -> wgpu::TextureFormat {
+        let requested = self.requested_scene_color_format_wgpu();
+        self.gpu_limits().map_or(requested, |limits| {
+            effective_scene_color_format(requested, limits)
+        })
     }
 
     /// Snapshot of the live GTAO settings for the current frame.
@@ -401,8 +430,10 @@ impl RenderBackend {
                     .map(|g| (g.post_processing.clone(), g.rendering.msaa.as_count() as u8))
             })
             .unwrap_or_else(|| (PostProcessingSettings::default(), 1));
-        let shape = self.frame_graph_shape_for(&post_processing_settings, msaa_sample_count, false);
-        self.sync_frame_graph_cache(&post_processing_settings, shape);
+        let graph_post_processing =
+            self.effective_post_processing_settings_for_graph(&post_processing_settings);
+        let shape = self.frame_graph_shape_for(&graph_post_processing, msaa_sample_count, false);
+        self.sync_frame_graph_cache(&graph_post_processing, shape);
         logger::info!(
             "backend attached: surface_format={:?} scene_color_format={:?} msaa_sample_count={} mesh_preprocess={} msaa_depth_resolve={} frame_graph_passes={} frame_graph_topo_levels={}",
             surface_format,
@@ -654,6 +685,7 @@ mod post_processing_rebuild_tests {
     use super::*;
     use crate::config::{GtaoSettings, RendererSettings, TonemapMode, TonemapSettings};
     use crate::render_graph::{GraphCacheKey, post_process_chain::PostProcessChainSignature};
+    use hashbrown::HashMap;
 
     fn settings_handle(post: PostProcessingSettings) -> RendererSettingsHandle {
         Arc::new(RwLock::new(RendererSettings {
@@ -669,6 +701,29 @@ mod post_processing_rebuild_tests {
             .frame_graph_cache
             .last_key()
             .expect("graph key should exist after sync")
+    }
+
+    fn limits_with_format_usage(
+        format: wgpu::TextureFormat,
+        allowed_usages: wgpu::TextureUsages,
+    ) -> GpuLimits {
+        let mut format_features = HashMap::new();
+        format_features.insert(
+            format,
+            wgpu::TextureFormatFeatures {
+                allowed_usages,
+                flags: wgpu::TextureFormatFeatureFlags::empty(),
+            },
+        );
+        GpuLimits::synthetic_for_tests(
+            wgpu::Limits {
+                max_texture_dimension_2d: 4096,
+                max_storage_buffer_binding_size: 256 * 1024,
+                ..Default::default()
+            },
+            wgpu::Features::empty(),
+            format_features,
+        )
     }
 
     /// First sync builds the graph and stores the live signature.
@@ -767,5 +822,18 @@ mod post_processing_rebuild_tests {
         assert!(!mono_key.multiview_stereo);
         assert!(stereo_key.multiview_stereo);
         assert_ne!(mono_key, stereo_key);
+    }
+
+    #[test]
+    fn scene_color_format_falls_back_when_requested_format_is_not_renderable() {
+        let limits = limits_with_format_usage(
+            wgpu::TextureFormat::Rg11b10Ufloat,
+            wgpu::TextureUsages::TEXTURE_BINDING,
+        );
+
+        assert_eq!(
+            effective_scene_color_format(wgpu::TextureFormat::Rg11b10Ufloat, &limits),
+            wgpu::TextureFormat::Rgba16Float
+        );
     }
 }

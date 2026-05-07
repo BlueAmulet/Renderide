@@ -1,6 +1,7 @@
 //! Render-graph cache synchronization and frame-shape invalidation policy.
 
 use crate::config::PostProcessingSettings;
+use crate::passes::post_processing::gpu_supports_gtao;
 use crate::render_graph::GraphCacheKey;
 use crate::render_graph::post_process_chain::PostProcessChainSignature;
 
@@ -40,6 +41,21 @@ impl FrameGraphShape {
 }
 
 impl RenderBackend {
+    /// Applies device-capability fallbacks to post-processing topology before graph build.
+    pub(super) fn effective_post_processing_settings_for_graph(
+        &self,
+        settings: &PostProcessingSettings,
+    ) -> PostProcessingSettings {
+        let mut effective = settings.clone();
+        if effective.gtao.enabled
+            && let Some(limits) = self.gpu_limits()
+            && !gpu_supports_gtao(limits.as_ref())
+        {
+            effective.gtao.enabled = false;
+        }
+        effective
+    }
+
     /// Builds the current main-graph shape from live settings and the execution mode for this
     /// frame.
     pub(super) fn frame_graph_shape_for(
@@ -109,7 +125,8 @@ impl RenderBackend {
             ),
             Err(_) => return,
         };
-        let shape = self.frame_graph_shape_for(&live_settings, live_msaa, multiview_stereo);
-        self.sync_frame_graph_cache(&live_settings, shape);
+        let graph_settings = self.effective_post_processing_settings_for_graph(&live_settings);
+        let shape = self.frame_graph_shape_for(&graph_settings, live_msaa, multiview_stereo);
+        self.sync_frame_graph_cache(&graph_settings, shape);
     }
 }

@@ -98,8 +98,8 @@ pub(super) struct GtaoParamsGpu {
     /// Set to `1` on the apply stage, `0` on production and intermediate denoise. Forwarded as
     /// a `u32` to align with WGSL's lack of `bool` in uniform structs.
     pub final_apply: u32,
-    /// Padding to keep the uniform block size 16-byte aligned.
-    pub _pad0: u32,
+    /// Number of valid view-depth mips bound for the production shader.
+    pub view_depth_mip_count: u32,
     /// Padding to keep the uniform block size 16-byte aligned.
     pub _pad1: u32,
 }
@@ -127,9 +127,15 @@ impl GtaoParamsGpu {
             slice_count: preset.slice_count,
             steps_per_slice: preset.steps_per_slice,
             final_apply: u32::from(final_apply),
-            _pad0: 0,
+            view_depth_mip_count: VIEW_DEPTH_MIP_COUNT,
             _pad1: 0,
         }
+    }
+
+    /// Returns a copy with the view-depth mip count clamped to the shader's supported range.
+    pub(super) fn with_view_depth_mip_count(mut self, mip_count: u32) -> Self {
+        self.view_depth_mip_count = mip_count.clamp(1, VIEW_DEPTH_MIP_COUNT);
+        self
     }
 }
 
@@ -192,7 +198,22 @@ struct GtaoMainBindGroupKey {
     view_depth_texture: wgpu::Texture,
     view_normals_texture: wgpu::Texture,
     frame_uniforms: wgpu::Buffer,
+    view_depth_mip_count: u32,
     multiview_stereo: bool,
+}
+
+/// Runtime resources used to build or fetch a `gtao_main` bind group.
+pub(super) struct GtaoMainBindGroupResources<'a> {
+    /// Whether the current view uses a two-layer multiview texture binding.
+    pub(super) multiview_stereo: bool,
+    /// View-space depth texture containing the valid runtime mip chain.
+    pub(super) view_depth_texture: &'a wgpu::Texture,
+    /// Number of valid mips in `view_depth_texture`.
+    pub(super) view_depth_mip_count: u32,
+    /// Smooth view-space normal texture produced by the normal prepass.
+    pub(super) view_normals_texture: &'a wgpu::Texture,
+    /// Per-view frame uniform buffer.
+    pub(super) frame_uniforms: &'a wgpu::Buffer,
 }
 
 /// Cache and bind-group layout for `gtao_main` (AO production pass).
@@ -328,17 +349,17 @@ impl GtaoMainPipelineCache {
     pub(super) fn bind_group(
         &self,
         device: &wgpu::Device,
-        multiview_stereo: bool,
-        view_depth_texture: &wgpu::Texture,
-        view_normals_texture: &wgpu::Texture,
-        frame_uniforms: &wgpu::Buffer,
+        resources: GtaoMainBindGroupResources<'_>,
         params_buffer: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         let key = GtaoMainBindGroupKey {
-            view_depth_texture: view_depth_texture.clone(),
-            view_normals_texture: view_normals_texture.clone(),
-            frame_uniforms: frame_uniforms.clone(),
-            multiview_stereo,
+            view_depth_texture: resources.view_depth_texture.clone(),
+            view_normals_texture: resources.view_normals_texture.clone(),
+            frame_uniforms: resources.frame_uniforms.clone(),
+            view_depth_mip_count: resources
+                .view_depth_mip_count
+                .clamp(1, VIEW_DEPTH_MIP_COUNT),
+            multiview_stereo: resources.multiview_stereo,
         };
         self.bind_groups.get_or_create(key, |key| {
             let (depth_dim, depth_layer_count) = if key.multiview_stereo {
@@ -352,7 +373,7 @@ impl GtaoMainPipelineCache {
                     label: Some("gtao_main_view_depth"),
                     aspect: wgpu::TextureAspect::All,
                     dimension: Some(depth_dim),
-                    mip_level_count: Some(VIEW_DEPTH_MIP_COUNT),
+                    mip_level_count: Some(key.view_depth_mip_count),
                     array_layer_count: depth_layer_count,
                     ..Default::default()
                 });

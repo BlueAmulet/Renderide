@@ -15,7 +15,7 @@ struct GtaoParams {
     slice_count: u32,
     steps_per_slice: u32,
     final_apply: u32,
-    _pad0: u32,
+    view_depth_mip_count: u32,
     _pad1: u32,
 }
 

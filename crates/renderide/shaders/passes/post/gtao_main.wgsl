@@ -57,7 +57,7 @@ struct GtaoParams {
     slice_count: u32,
     steps_per_slice: u32,
     final_apply: u32,
-    _pad0: u32,
+    view_depth_mip_count: u32,
     _pad1: u32,
 }
 
@@ -286,10 +286,11 @@ fn multi_bounce_fit(ao: f32, albedo: f32) -> f32 {
 }
 
 fn sample_mip_for_offset(sample_offset_length: f32) -> u32 {
+    let max_mip = f32(max(gtao.view_depth_mip_count, 1u) - 1u);
     let mip = clamp(
         floor(log2(max(sample_offset_length, 1.0)) - gtao.depth_mip_sampling_offset),
         0.0,
-        4.0,
+        max_mip,
     );
     return u32(mip);
 }

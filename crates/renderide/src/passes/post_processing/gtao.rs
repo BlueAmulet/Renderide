@@ -299,6 +299,21 @@ fn should_record_depth_prefilter_layer(layer: u32, multiview_stereo: bool) -> bo
     layer == 0 || (layer == 1 && multiview_stereo)
 }
 
+/// Returns `true` when the active device supports GTAO's transient texture formats and usages.
+pub(crate) fn gpu_supports_gtao(limits: &crate::gpu::GpuLimits) -> bool {
+    let sampled_render_target =
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
+    limits.texture_usage_supported(
+        VIEW_DEPTH_FORMAT,
+        wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+    ) && limits.texture_usage_supported(AO_TERM_FORMAT, sampled_render_target)
+        && limits.texture_usage_supported(EDGES_FORMAT, sampled_render_target)
+        && limits.texture_usage_supported(
+            crate::passes::GTAO_VIEW_NORMAL_FORMAT,
+            sampled_render_target,
+        )
+}
+
 /// Transient texture descriptor for the AO term ping-pong buffers (`R8Unorm`, frame array
 /// layers).
 fn ao_buffer_desc(label: &'static str) -> TransientTextureDesc {
@@ -386,6 +401,28 @@ mod tests {
     #[test]
     fn gtao_params_gpu_size_is_64_bytes() {
         assert_eq!(size_of::<pipeline::GtaoParamsGpu>(), 64);
+    }
+
+    #[test]
+    fn gtao_params_clamp_runtime_view_depth_mips() {
+        assert_eq!(
+            pipeline::GtaoParamsGpu::from_settings(GtaoSettings::default(), 0.0, false)
+                .with_view_depth_mip_count(0)
+                .view_depth_mip_count,
+            1
+        );
+        assert_eq!(
+            pipeline::GtaoParamsGpu::from_settings(GtaoSettings::default(), 0.0, false)
+                .with_view_depth_mip_count(3)
+                .view_depth_mip_count,
+            3
+        );
+        assert_eq!(
+            pipeline::GtaoParamsGpu::from_settings(GtaoSettings::default(), 0.0, false)
+                .with_view_depth_mip_count(99)
+                .view_depth_mip_count,
+            VIEW_DEPTH_MIP_COUNT
+        );
     }
 
     #[test]

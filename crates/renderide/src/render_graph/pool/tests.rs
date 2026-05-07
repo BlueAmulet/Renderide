@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::render_graph::resources::{BufferSizePolicy, TransientExtent};
+use hashbrown::HashMap;
 
 fn tex_key(usage: wgpu::TextureUsages, width: u32, height: u32) -> TextureKey {
     TextureKey {
@@ -20,6 +21,46 @@ fn buf_key(usage: wgpu::BufferUsages) -> BufferKey {
         size_policy: BufferSizePolicy::Fixed(256),
         usage_bits: u64::from(usage.bits()),
     }
+}
+
+fn synthetic_limits(max_tex_2d: u32) -> crate::gpu::GpuLimits {
+    crate::gpu::GpuLimits::synthetic_for_tests(
+        wgpu::Limits {
+            max_texture_dimension_2d: max_tex_2d,
+            max_texture_dimension_3d: max_tex_2d,
+            max_texture_array_layers: 16,
+            max_buffer_size: 1024,
+            ..Default::default()
+        },
+        wgpu::Features::empty(),
+        HashMap::new(),
+    )
+}
+
+fn synthetic_limits_with_format(
+    format: wgpu::TextureFormat,
+    allowed_usages: wgpu::TextureUsages,
+    flags: wgpu::TextureFormatFeatureFlags,
+) -> crate::gpu::GpuLimits {
+    let mut format_features = HashMap::new();
+    format_features.insert(
+        format,
+        wgpu::TextureFormatFeatures {
+            allowed_usages,
+            flags,
+        },
+    );
+    crate::gpu::GpuLimits::synthetic_for_tests(
+        wgpu::Limits {
+            max_texture_dimension_2d: 4096,
+            max_texture_dimension_3d: 4096,
+            max_texture_array_layers: 16,
+            max_buffer_size: 1024,
+            ..Default::default()
+        },
+        wgpu::Features::empty(),
+        format_features,
+    )
 }
 
 #[test]
@@ -118,4 +159,79 @@ fn gc_drops_gpu_texture_slots_for_stale_msaa_keys() {
         fresh, id1,
         "after GC, acquire should allocate a new slot when the free list was pruned"
     );
+}
+
+#[test]
+fn texture_validation_rejects_mip_count_that_exceeds_extent() {
+    let limits = synthetic_limits(4096);
+    let mut key = tex_key(wgpu::TextureUsages::TEXTURE_BINDING, 8, 8);
+    key.mip_levels = 5;
+    assert!(matches!(
+        validate_texture_key(
+            &limits,
+            key,
+            "too-many-mips",
+            wgpu::TextureUsages::TEXTURE_BINDING,
+        ),
+        Err(TransientPoolError::TextureExceedsLimits { .. })
+    ));
+
+    key.mip_levels = 4;
+    assert!(
+        validate_texture_key(
+            &limits,
+            key,
+            "valid-mips",
+            wgpu::TextureUsages::TEXTURE_BINDING
+        )
+        .is_ok()
+    );
+}
+
+#[test]
+fn texture_validation_rejects_unsupported_format_usage() {
+    let limits = synthetic_limits_with_format(
+        wgpu::TextureFormat::R32Float,
+        wgpu::TextureUsages::TEXTURE_BINDING,
+        wgpu::TextureFormatFeatureFlags::empty(),
+    );
+    let key = TextureKey {
+        format: wgpu::TextureFormat::R32Float,
+        ..tex_key(
+            wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            64,
+            64,
+        )
+    };
+
+    assert!(matches!(
+        validate_texture_key(
+            &limits,
+            key,
+            "unsupported-storage",
+            wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+        ),
+        Err(TransientPoolError::TextureUnsupportedUsage { .. })
+    ));
+}
+
+#[test]
+fn texture_validation_rejects_unsupported_sample_count() {
+    let limits = synthetic_limits_with_format(
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        wgpu::TextureFormatFeatureFlags::empty(),
+    );
+    let mut key = tex_key(wgpu::TextureUsages::RENDER_ATTACHMENT, 64, 64);
+    key.sample_count = 4;
+
+    assert!(matches!(
+        validate_texture_key(
+            &limits,
+            key,
+            "unsupported-msaa",
+            wgpu::TextureUsages::RENDER_ATTACHMENT,
+        ),
+        Err(TransientPoolError::TextureUnsupportedSampleCount { .. })
+    ));
 }

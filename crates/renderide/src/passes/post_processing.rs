@@ -22,3 +22,4 @@ pub use auto_exposure::AutoExposureEffect;
 pub(crate) use auto_exposure::AutoExposureStateCache;
 pub use bloom::BloomEffect;
 pub use gtao::GtaoEffect;
+pub(crate) use gtao::gpu_supports_gtao;
