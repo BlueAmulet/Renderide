@@ -5,6 +5,13 @@ use hashbrown::HashMap;
 use super::key::{EntryNeed, SkinCacheKey};
 use crate::mesh_deform::range_alloc::Range;
 
+/// Stable CPU-side fingerprint of the inputs that produced one deform cache line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeformSignature {
+    /// Hash of mesh identity, blend weights, and resolved skinning palette bytes.
+    pub hash: u64,
+}
+
 /// One resident cache line: sub-ranges inside the global arenas.
 #[derive(Debug)]
 pub struct SkinCacheEntry {
@@ -24,6 +31,8 @@ pub struct SkinCacheEntry {
     pub vertex_count: u32,
     /// Last [`super::GpuSkinCache::frame_counter`] that touched this entry.
     pub last_touched_frame: u64,
+    /// Last deform input signature recorded into this cache line.
+    pub last_deform_signature: Option<DeformSignature>,
 }
 
 /// Per-frame cache pressure counters for diagnostics.
@@ -101,6 +110,7 @@ mod tests {
             temp_tangents: None,
             vertex_count: 1,
             last_touched_frame,
+            last_deform_signature: None,
         }
     }
 
@@ -158,6 +168,7 @@ mod tests {
             temp_tangents: None,
             vertex_count: 1,
             last_touched_frame: 1,
+            last_deform_signature: None,
         };
 
         assert!(entry_layout_matches(

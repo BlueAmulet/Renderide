@@ -22,7 +22,10 @@ pub use per_draw_uniforms::{
     write_per_draw_uniform_slab,
 };
 pub use range_alloc::Range;
-pub use scratch::{MeshDeformScratch, advance_slab_cursor};
+pub use scratch::{
+    BlendshapeBindGroupKey, MeshDeformScratch, SkinningBindGroupKey, advance_slab_cursor,
+    buffer_identity,
+};
 pub use skin_cache::{
-    EntryNeed, GpuSkinCache, SkinCacheEntry, SkinCacheKey, SkinCacheRendererKind,
+    DeformSignature, EntryNeed, GpuSkinCache, SkinCacheEntry, SkinCacheKey, SkinCacheRendererKind,
 };

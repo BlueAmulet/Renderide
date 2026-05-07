@@ -1,14 +1,18 @@
 //! Sparse blendshape scatter compute encoding.
 //!
 //! Records one bind-pose copy followed by one or more scatter dispatches per weighted shape
-//! frame, using packed `Params` arrays staged in [`crate::mesh_deform::MeshDeformScratch`].
+//! frame, using dynamic offsets into [`crate::mesh_deform::MeshDeformScratch`]'s param slab.
+
+use std::num::NonZeroU64;
+use std::sync::Arc;
 
 use crate::assets::mesh::{
     BLENDSHAPE_PACKED_VECTOR_SPARSE_ENTRY_WORDS, BLENDSHAPE_POSITION_SPARSE_ENTRY_WORDS,
     BlendshapeFrameRange, select_blendshape_frame_coefficients,
 };
-use crate::mesh_deform::SkinCacheEntry;
-use crate::mesh_deform::plan_blendshape_scatter_chunks;
+use crate::mesh_deform::{
+    BlendshapeBindGroupKey, SkinCacheEntry, buffer_identity, plan_blendshape_scatter_chunks,
+};
 
 use super::super::snapshot::MeshDeformSnapshot;
 use super::{MeshDeformEncodeGpu, MeshDeformRecordStats, workgroup_count};
@@ -29,6 +33,13 @@ const BLENDSHAPE_CHANNEL_POSITION: u32 = 0;
 const BLENDSHAPE_CHANNEL_NORMAL: u32 = 1;
 const BLENDSHAPE_CHANNEL_TANGENT: u32 = 2;
 
+/// One blendshape scatter dispatch inside the frame batch.
+pub(super) struct BlendshapeDispatchJob {
+    bind_group: Arc<wgpu::BindGroup>,
+    params_offset: u32,
+    wg: u32,
+}
+
 /// Resolved destination buffers and base element offsets for one blendshape dispatch batch.
 struct BlendshapeDestinations<'a> {
     positions_buffer: &'a wgpu::Buffer,
@@ -43,18 +54,18 @@ struct BlendshapeDestinations<'a> {
     apply_tangents: bool,
 }
 
-/// Reserved staging range for packed blendshape scatter params.
+/// Reserved uniform-slab range for packed blendshape scatter params.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct BlendshapeParamReservation {
-    /// Byte offset inside [`crate::mesh_deform::MeshDeformScratch::blendshape_params_staging`].
+    /// Byte offset inside [`crate::mesh_deform::MeshDeformScratch::blendshape_params`].
     offset: u64,
-    /// Number of bytes occupied by this mesh's packed scatter params.
+    /// Number of bytes occupied by this dispatch's packed scatter params.
     byte_len: u64,
-    /// Cursor value to use for the next mesh's reservation.
+    /// Cursor value to use for the next dispatch's reservation.
     next_cursor: u64,
 }
 
-/// Reserves a non-overlapping packed-param range in the frame-global staging slab.
+/// Reserves a non-overlapping dynamic-uniform slot in the frame-global params slab.
 fn reserve_blendshape_param_range(
     cursor: u64,
     byte_len: u64,
@@ -78,6 +89,7 @@ pub(super) fn record_blendshape_deform(
     mesh: &MeshDeformSnapshot,
     blend_weights: &[f32],
     blend_param_cursor: &mut u64,
+    jobs: &mut Vec<BlendshapeDispatchJob>,
     ctx: BlendshapeCacheCtx<'_>,
 ) -> MeshDeformRecordStats {
     profiling::scope!("mesh_deform::record_blendshape");
@@ -142,6 +154,7 @@ pub(super) fn record_blendshape_deform(
         &destinations,
         sparse.as_ref(),
         blend_param_cursor,
+        jobs,
     ));
     stats
 }
@@ -254,45 +267,44 @@ fn blendshape_record_scatter_compute_passes(
     destinations: &BlendshapeDestinations<'_>,
     sparse: &wgpu::Buffer,
     blend_param_cursor: &mut u64,
+    jobs: &mut Vec<BlendshapeDispatchJob>,
 ) -> MeshDeformRecordStats {
     let mut stats = MeshDeformRecordStats::default();
-    let Some(param_reservation) = reserve_blendshape_param_range(
-        *blend_param_cursor,
-        gpu.scratch.packed_scatter_params.len() as u64,
-    ) else {
-        return stats;
-    };
-    gpu.scratch.ensure_blendshape_params_staging(
-        gpu.device,
-        param_reservation
-            .offset
-            .saturating_add(param_reservation.byte_len),
-    );
-    gpu.uploads.write_buffer(
-        &gpu.scratch.blendshape_params_staging,
-        param_reservation.offset,
-        &gpu.scratch.packed_scatter_params,
-    );
-    *blend_param_cursor = param_reservation.next_cursor;
-
-    for (i, (&scatter_wg, &target)) in gpu
+    let dispatch_count = gpu
         .scratch
         .scatter_dispatch_wgs
-        .iter()
-        .zip(gpu.scratch.scatter_dispatch_targets.iter())
-        .enumerate()
-    {
-        let src_off = param_reservation
-            .offset
-            .saturating_add((i as u64).saturating_mul(32));
-        gpu.encoder.copy_buffer_to_buffer(
-            &gpu.scratch.blendshape_params_staging,
-            src_off,
-            &gpu.scratch.blendshape_params,
-            0,
-            32,
+        .len()
+        .min(gpu.scratch.scatter_dispatch_targets.len());
+    for i in 0..dispatch_count {
+        let scatter_wg = gpu.scratch.scatter_dispatch_wgs[i];
+        let target = gpu.scratch.scatter_dispatch_targets[i];
+        let Some(param_reservation) = reserve_blendshape_param_range(*blend_param_cursor, 32)
+        else {
+            return stats;
+        };
+        let Some(params_offset) = dynamic_uniform_offset(param_reservation.offset) else {
+            return stats;
+        };
+        let src_off = i.saturating_mul(32);
+        let src_end = src_off.saturating_add(32);
+        let Some(params) = gpu.scratch.packed_scatter_params.get(src_off..src_end) else {
+            return stats;
+        };
+        let mut params_bytes = [0u8; 32];
+        params_bytes.copy_from_slice(params);
+        gpu.scratch.ensure_blendshape_param_byte_capacity(
+            gpu.device,
+            param_reservation
+                .offset
+                .saturating_add(param_reservation.byte_len),
         );
-        stats.copy_ops = stats.copy_ops.saturating_add(1);
+        gpu.uploads.write_buffer(
+            &gpu.scratch.blendshape_params,
+            param_reservation.offset,
+            &params_bytes,
+        );
+        *blend_param_cursor = param_reservation.next_cursor;
+
         let output = match target {
             BLENDSHAPE_CHANNEL_POSITION => destinations.positions_buffer,
             BLENDSHAPE_CHANNEL_NORMAL => destinations
@@ -304,49 +316,103 @@ fn blendshape_record_scatter_compute_passes(
             _ => destinations.positions_buffer,
         };
 
-        let blend_bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("blendshape_scatter_bg"),
-            layout: &gpu.pre.blendshape_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: gpu.scratch.blendshape_params.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: sparse.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: output.as_entire_binding(),
-                },
-            ],
-        });
-        crate::profiling::note_resource_churn!(BindGroup, "mesh_deform::blendshape_bind_group");
-
-        let pass_query = gpu
-            .profiler
-            .map(|p| p.begin_pass_query("blendshape_scatter", gpu.encoder));
-        let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
-        {
-            let mut cpass = gpu
-                .encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("blendshape_scatter"),
-                    timestamp_writes,
-                });
-            cpass.set_pipeline(&gpu.pre.blendshape_pipeline);
-            cpass.set_bind_group(0, &blend_bg, &[]);
-            cpass.dispatch_workgroups(scatter_wg, 1, 1);
-        };
-        stats.compute_passes = stats.compute_passes.saturating_add(1);
-        stats.bind_groups_created = stats.bind_groups_created.saturating_add(1);
-        stats.blend_dispatches = stats.blend_dispatches.saturating_add(1);
-        if let (Some(p), Some(q)) = (gpu.profiler, pass_query) {
-            p.end_query(gpu.encoder, q);
+        let (bind_group, reused) = blendshape_bind_group(gpu, sparse, output);
+        if reused {
+            stats.bind_group_cache_reuses = stats.bind_group_cache_reuses.saturating_add(1);
+        } else {
+            stats.bind_groups_created = stats.bind_groups_created.saturating_add(1);
         }
+        jobs.push(BlendshapeDispatchJob {
+            bind_group,
+            params_offset,
+            wg: scatter_wg,
+        });
+        stats.blend_dispatches = stats.blend_dispatches.saturating_add(1);
     }
 
+    stats
+}
+
+fn dynamic_uniform_offset(offset: u64) -> Option<u32> {
+    let offset = u32::try_from(offset).ok();
+    if offset.is_none() {
+        logger::warn!("mesh deform: blendshape param offset exceeded WebGPU dynamic-offset range");
+    }
+    offset
+}
+
+fn blendshape_bind_group(
+    gpu: &mut MeshDeformEncodeGpu<'_>,
+    sparse: &wgpu::Buffer,
+    output: &wgpu::Buffer,
+) -> (Arc<wgpu::BindGroup>, bool) {
+    let key = BlendshapeBindGroupKey {
+        scratch_generation: gpu.scratch.resource_generation(),
+        sparse_buffer: buffer_identity(sparse),
+        output_buffer: buffer_identity(output),
+    };
+    if let Some(bind_group) = gpu.scratch.blendshape_bind_group(key) {
+        return (bind_group, true);
+    }
+    let size = NonZeroU64::new(32);
+    let bind_group = Arc::new(gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("blendshape_scatter_bg"),
+        layout: &gpu.pre.blendshape_bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &gpu.scratch.blendshape_params,
+                    offset: 0,
+                    size,
+                }),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: sparse.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: output.as_entire_binding(),
+            },
+        ],
+    }));
+    crate::profiling::note_resource_churn!(BindGroup, "mesh_deform::blendshape_bind_group");
+    gpu.scratch
+        .insert_blendshape_bind_group(key, Arc::clone(&bind_group));
+    (bind_group, false)
+}
+
+/// Dispatches all queued blendshape jobs in a single compute pass.
+pub(super) fn flush_blendshape_jobs(
+    gpu: &mut MeshDeformEncodeGpu<'_>,
+    jobs: &[BlendshapeDispatchJob],
+) -> MeshDeformRecordStats {
+    let mut stats = MeshDeformRecordStats::default();
+    if jobs.is_empty() {
+        return stats;
+    }
+    let pass_query = gpu
+        .profiler
+        .map(|p| p.begin_pass_query("blendshape_scatter_batch", gpu.encoder));
+    let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
+    {
+        let mut cpass = gpu
+            .encoder
+            .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("blendshape_scatter_batch"),
+                timestamp_writes,
+            });
+        cpass.set_pipeline(&gpu.pre.blendshape_pipeline);
+        for job in jobs {
+            cpass.set_bind_group(0, job.bind_group.as_ref(), &[job.params_offset]);
+            cpass.dispatch_workgroups(job.wg, 1, 1);
+        }
+    }
+    stats.compute_passes = 1;
+    if let (Some(p), Some(q)) = (gpu.profiler, pass_query) {
+        p.end_query(gpu.encoder, q);
+    }
     stats
 }
 
@@ -510,9 +576,9 @@ mod tests {
 
     #[test]
     fn blendshape_param_reservations_do_not_overlap_across_meshes() {
-        let first = reserve_blendshape_param_range(0, 64).expect("first reservation");
+        let first = reserve_blendshape_param_range(0, 32).expect("first reservation");
         let second =
-            reserve_blendshape_param_range(first.next_cursor, 96).expect("second reservation");
+            reserve_blendshape_param_range(first.next_cursor, 32).expect("second reservation");
 
         assert_eq!(first.offset, 0);
         assert_eq!(first.next_cursor, 256);

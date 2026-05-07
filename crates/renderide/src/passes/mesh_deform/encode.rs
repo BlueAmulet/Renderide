@@ -1,6 +1,6 @@
 //! Command encoding for blendshape and skinning compute dispatches.
 //!
-//! [`record_mesh_deform`] is the single entry point per work item. Per-subsystem encoding
+//! [`record_mesh_deform`] plans one work item into a frame batch. Per-subsystem encoding
 //! lives in [`blendshape`] (sparse scatter) and [`skinning`] (linear blend skinning); both
 //! share [`MeshDeformEncodeGpu`] and the running cursor offsets carried in
 //! [`MeshDeformRecordInputs`].
@@ -8,10 +8,13 @@
 mod blendshape;
 mod skinning;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use glam::Mat4;
 
 use crate::gpu::GpuLimits;
-use crate::mesh_deform::SkinCacheEntry;
+use crate::mesh_deform::{DeformSignature, EntryNeed, SkinCacheEntry};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::scene::RenderSpaceId;
 
@@ -19,8 +22,13 @@ use super::snapshot::{
     MeshDeformSnapshot, deform_needs_blend_snapshot, deform_needs_skin_snapshot,
 };
 
-use blendshape::{BlendshapeCacheCtx, record_blendshape_deform};
-use skinning::{SkinningDeformContext, record_skinning_deform};
+use blendshape::{
+    BlendshapeCacheCtx, BlendshapeDispatchJob, flush_blendshape_jobs, record_blendshape_deform,
+};
+use skinning::{
+    SkinningDeformContext, SkinningDispatchJob, SkinningPaletteBuildContext, flush_skinning_jobs,
+    prepare_skinning_palette_bytes, record_skinning_deform,
+};
 
 /// GPU handles and scratch used while recording mesh deform compute on one encoder.
 pub(super) struct MeshDeformEncodeGpu<'a> {
@@ -48,6 +56,8 @@ pub(super) struct MeshDeformRecordInputs<'a, 'b> {
     pub space_id: RenderSpaceId,
     /// GPU snapshot of mesh buffers and skinning metadata.
     pub mesh: &'a MeshDeformSnapshot,
+    /// Mesh-pool mutation generation observed when the snapshot was collected.
+    pub mesh_pool_generation: u64,
     /// Per-bone scene transform indices (skinned meshes).
     pub bone_transform_indices: Option<&'a [i32]>,
     /// SMR node id for skinning fallbacks.
@@ -58,9 +68,11 @@ pub(super) struct MeshDeformRecordInputs<'a, 'b> {
     pub head_output_transform: Mat4,
     /// Blendshape weights (parallel to mesh blendshape count).
     pub blend_weights: &'a [f32],
+    /// Last cache-line signature, if any.
+    pub previous_signature: Option<DeformSignature>,
     /// Running offset into the bone matrix slab.
     pub bone_cursor: &'b mut u64,
-    /// Running offset into the blendshape scatter-param staging slab.
+    /// Running offset into the blendshape scatter-param uniform slab.
     pub blend_param_cursor: &'b mut u64,
     /// Running offset into the skin-dispatch uniform slab (256 B steps per dispatch).
     pub skin_dispatch_cursor: &'b mut u64,
@@ -72,19 +84,43 @@ pub(super) struct MeshDeformRecordInputs<'a, 'b> {
     pub temp_arena: &'a wgpu::Buffer,
 }
 
-/// Compute dispatch counts emitted while recording one deform work item.
+/// Batched compute dispatch jobs for one mesh-deform frame.
+#[derive(Default)]
+pub(super) struct MeshDeformDispatchBatch {
+    blendshape_jobs: Vec<BlendshapeDispatchJob>,
+    skinning_jobs: Vec<SkinningDispatchJob>,
+}
+
+impl MeshDeformDispatchBatch {
+    /// Creates an empty reusable batch.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Clears queued dispatch jobs while retaining capacity.
+    pub fn clear(&mut self) {
+        self.blendshape_jobs.clear();
+        self.skinning_jobs.clear();
+    }
+}
+
+/// Compute dispatch counts emitted while recording deform work.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct MeshDeformRecordStats {
     /// Compute passes opened.
     pub compute_passes: u64,
     /// Bind groups created.
     pub bind_groups_created: u64,
+    /// Bind groups served from the mesh-deform cache.
+    pub bind_group_cache_reuses: u64,
     /// Encoder copy operations recorded.
     pub copy_ops: u64,
     /// Sparse blendshape scatter dispatches.
     pub blend_dispatches: u64,
     /// Linear skinning dispatches.
     pub skin_dispatches: u64,
+    /// Work items skipped because their deform inputs matched the cache line signature.
+    pub stable_skips: u64,
 }
 
 impl MeshDeformRecordStats {
@@ -94,17 +130,30 @@ impl MeshDeformRecordStats {
         self.bind_groups_created = self
             .bind_groups_created
             .saturating_add(other.bind_groups_created);
+        self.bind_group_cache_reuses = self
+            .bind_group_cache_reuses
+            .saturating_add(other.bind_group_cache_reuses);
         self.copy_ops = self.copy_ops.saturating_add(other.copy_ops);
         self.blend_dispatches = self.blend_dispatches.saturating_add(other.blend_dispatches);
         self.skin_dispatches = self.skin_dispatches.saturating_add(other.skin_dispatches);
+        self.stable_skips = self.stable_skips.saturating_add(other.stable_skips);
     }
+}
+
+/// Result of planning one deform work item.
+pub(super) struct MeshDeformRecordResult {
+    /// Stats emitted while planning this item.
+    pub stats: MeshDeformRecordStats,
+    /// Signature to store on the cache entry after successful planning.
+    pub signature_to_store: Option<DeformSignature>,
 }
 
 /// Records blendshape and / or skinning compute for one deform work item.
 pub(super) fn record_mesh_deform(
-    mut gpu: MeshDeformEncodeGpu<'_>,
+    gpu: &mut MeshDeformEncodeGpu<'_>,
     inputs: MeshDeformRecordInputs<'_, '_>,
-) -> MeshDeformRecordStats {
+    batch: &mut MeshDeformDispatchBatch,
+) -> MeshDeformRecordResult {
     profiling::scope!("mesh_deform::record");
     let Some(deform_guard) = validate_deform_preconditions(
         inputs.mesh,
@@ -112,18 +161,61 @@ pub(super) fn record_mesh_deform(
         inputs.blend_weights,
         gpu.gpu_limits,
     ) else {
-        return MeshDeformRecordStats::default();
+        return MeshDeformRecordResult {
+            stats: MeshDeformRecordStats::default(),
+            signature_to_store: None,
+        };
     };
 
     let blend_then_skin = deform_guard.needs_blend && deform_guard.needs_skin;
     let mut stats = MeshDeformRecordStats::default();
+    let prepared_palette_len = if deform_guard.needs_skin {
+        let palette_len = prepare_skinning_palette_bytes(
+            gpu,
+            SkinningPaletteBuildContext {
+                scene: inputs.scene,
+                space_id: inputs.space_id,
+                mesh: inputs.mesh,
+                bone_transform_indices: inputs.bone_transform_indices,
+                smr_node_id: inputs.smr_node_id,
+                render_context: inputs.render_context,
+                head_output_transform: inputs.head_output_transform,
+            },
+        );
+        if palette_len.is_none() {
+            return MeshDeformRecordResult {
+                stats,
+                signature_to_store: None,
+            };
+        }
+        palette_len
+    } else {
+        None
+    };
+    let signature = build_deform_signature(
+        inputs.mesh,
+        inputs.mesh_pool_generation,
+        inputs.blend_weights,
+        inputs.bone_transform_indices,
+        inputs.render_context,
+        deform_guard.entry_need,
+        prepared_palette_len.map(|_| gpu.scratch.bone_palette_bytes.as_slice()),
+    );
+    if inputs.previous_signature == Some(signature) {
+        stats.stable_skips = stats.stable_skips.saturating_add(1);
+        return MeshDeformRecordResult {
+            stats,
+            signature_to_store: None,
+        };
+    }
 
     if deform_guard.needs_blend {
         stats.add(record_blendshape_deform(
-            &mut gpu,
+            gpu,
             inputs.mesh,
             inputs.blend_weights,
             inputs.blend_param_cursor,
+            &mut batch.blendshape_jobs,
             BlendshapeCacheCtx {
                 cache_entry: inputs.skin_cache_entry,
                 positions_arena: inputs.positions_arena,
@@ -135,17 +227,17 @@ pub(super) fn record_mesh_deform(
         ));
     }
 
-    if deform_guard.needs_skin
-        && record_skinning_deform(
-            &mut gpu,
+    if deform_guard.needs_skin {
+        let Some(prepared_palette_len) = prepared_palette_len else {
+            return MeshDeformRecordResult {
+                stats,
+                signature_to_store: None,
+            };
+        };
+        stats.add(record_skinning_deform(
+            gpu,
             SkinningDeformContext {
-                scene: inputs.scene,
-                space_id: inputs.space_id,
                 mesh: inputs.mesh,
-                bone_transform_indices: inputs.bone_transform_indices,
-                smr_node_id: inputs.smr_node_id,
-                render_context: inputs.render_context,
-                head_output_transform: inputs.head_output_transform,
                 bone_cursor: inputs.bone_cursor,
                 needs_blend: deform_guard.needs_blend,
                 wg: deform_guard.skin_wg,
@@ -155,13 +247,28 @@ pub(super) fn record_mesh_deform(
                 tangents_arena: inputs.tangents_arena,
                 temp_arena: inputs.temp_arena,
                 skin_dispatch_cursor: inputs.skin_dispatch_cursor,
+                prepared_palette_len,
             },
-        )
-    {
-        stats.compute_passes = stats.compute_passes.saturating_add(1);
-        stats.bind_groups_created = stats.bind_groups_created.saturating_add(1);
-        stats.skin_dispatches = stats.skin_dispatches.saturating_add(1);
+            &mut batch.skinning_jobs,
+        ));
     }
+    let planned_any = stats.copy_ops > 0 || stats.blend_dispatches > 0 || stats.skin_dispatches > 0;
+    MeshDeformRecordResult {
+        stats,
+        signature_to_store: planned_any.then_some(signature),
+    }
+}
+
+/// Flushes all planned mesh-deform jobs in coarse compute passes.
+pub(super) fn flush_mesh_deform_batch(
+    gpu: &mut MeshDeformEncodeGpu<'_>,
+    batch: &mut MeshDeformDispatchBatch,
+) -> MeshDeformRecordStats {
+    profiling::scope!("mesh_deform::flush_batch");
+    let mut stats = MeshDeformRecordStats::default();
+    stats.add(flush_blendshape_jobs(gpu, &batch.blendshape_jobs));
+    stats.add(flush_skinning_jobs(gpu, &batch.skinning_jobs));
+    batch.clear();
     stats
 }
 
@@ -169,6 +276,7 @@ pub(super) fn record_mesh_deform(
 struct DeformValidate {
     needs_blend: bool,
     needs_skin: bool,
+    entry_need: EntryNeed,
     /// Workgroups for skinning (`mesh_skinning.wgsl`), one thread per vertex.
     skin_wg: u32,
 }
@@ -187,6 +295,19 @@ fn validate_deform_preconditions(
     }
     let needs_blend = deform_needs_blend_snapshot(mesh, blend_weights);
     let needs_skin = deform_needs_skin_snapshot(mesh, bone_transform_indices);
+    let tangent_stream_ready = mesh.tangent_buffer.is_some();
+    let entry_need = EntryNeed {
+        needs_blend,
+        needs_skin,
+        needs_blend_normals: needs_blend
+            && mesh.blendshape_has_normal_deltas
+            && mesh.normals_buffer.is_some(),
+        needs_tangents: tangent_stream_ready
+            && (needs_skin || (needs_blend && mesh.blendshape_has_tangent_deltas)),
+        needs_blend_tangents: needs_blend
+            && tangent_stream_ready
+            && mesh.blendshape_has_tangent_deltas,
+    };
 
     if !needs_blend && !needs_skin {
         return None;
@@ -205,11 +326,137 @@ fn validate_deform_preconditions(
     Some(DeformValidate {
         needs_blend,
         needs_skin,
+        entry_need,
         skin_wg,
     })
+}
+
+fn build_deform_signature(
+    mesh: &MeshDeformSnapshot,
+    mesh_pool_generation: u64,
+    blend_weights: &[f32],
+    bone_transform_indices: Option<&[i32]>,
+    render_context: crate::shared::RenderingContext,
+    entry_need: EntryNeed,
+    prepared_palette_bytes: Option<&[u8]>,
+) -> DeformSignature {
+    let mut hasher = DefaultHasher::new();
+    mesh.asset_id.hash(&mut hasher);
+    mesh_pool_generation.hash(&mut hasher);
+    mesh.vertex_count.hash(&mut hasher);
+    mesh.num_blendshapes.hash(&mut hasher);
+    entry_need.needs_blend.hash(&mut hasher);
+    entry_need.needs_skin.hash(&mut hasher);
+    entry_need.needs_blend_normals.hash(&mut hasher);
+    entry_need.needs_tangents.hash(&mut hasher);
+    entry_need.needs_blend_tangents.hash(&mut hasher);
+    (render_context as u8).hash(&mut hasher);
+    let weight_count = mesh.num_blendshapes as usize;
+    weight_count.hash(&mut hasher);
+    for weight in blend_weights.iter().take(weight_count) {
+        weight.to_bits().hash(&mut hasher);
+    }
+    if blend_weights.len() < weight_count {
+        0usize.hash(&mut hasher);
+    }
+    if let Some(indices) = bone_transform_indices {
+        indices.hash(&mut hasher);
+    }
+    if let Some(bytes) = prepared_palette_bytes {
+        bytes.hash(&mut hasher);
+    }
+    DeformSignature {
+        hash: hasher.finish(),
+    }
 }
 
 /// Workgroup count for a 64-thread compute (vertex / scatter chunk).
 pub(super) fn workgroup_count(count: u32) -> u32 {
     (count.saturating_add(63)) / 64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_entry_need() -> EntryNeed {
+        EntryNeed {
+            needs_blend: true,
+            needs_skin: true,
+            needs_blend_normals: true,
+            needs_tangents: false,
+            needs_blend_tangents: false,
+        }
+    }
+
+    fn test_snapshot() -> MeshDeformSnapshot {
+        MeshDeformSnapshot {
+            asset_id: 7,
+            vertex_count: 3,
+            num_blendshapes: 2,
+            has_skeleton: true,
+            positions_buffer: None,
+            normals_buffer: None,
+            tangent_buffer: None,
+            blendshape_sparse_buffer: None,
+            blendshape_frame_ranges: Vec::new(),
+            blendshape_shape_frame_spans: Vec::new(),
+            bone_indices_buffer: None,
+            bone_weights_vec4_buffer: None,
+            skinning_bind_matrices: Vec::new(),
+            blendshape_has_position_deltas: true,
+            blendshape_has_normal_deltas: true,
+            blendshape_has_tangent_deltas: false,
+        }
+    }
+
+    #[test]
+    fn deform_signature_changes_with_blend_weight_bits() {
+        let mesh = test_snapshot();
+        let a = build_deform_signature(
+            &mesh,
+            11,
+            &[0.25, 0.0],
+            Some(&[1, 2]),
+            crate::shared::RenderingContext::UserView,
+            test_entry_need(),
+            Some(&[1, 2, 3, 4]),
+        );
+        let b = build_deform_signature(
+            &mesh,
+            11,
+            &[0.5, 0.0],
+            Some(&[1, 2]),
+            crate::shared::RenderingContext::UserView,
+            test_entry_need(),
+            Some(&[1, 2, 3, 4]),
+        );
+
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn deform_signature_changes_with_resolved_palette_bytes() {
+        let mesh = test_snapshot();
+        let a = build_deform_signature(
+            &mesh,
+            11,
+            &[0.25, 0.0],
+            Some(&[1, 2]),
+            crate::shared::RenderingContext::UserView,
+            test_entry_need(),
+            Some(&[1, 2, 3, 4]),
+        );
+        let b = build_deform_signature(
+            &mesh,
+            11,
+            &[0.25, 0.0],
+            Some(&[1, 2]),
+            crate::shared::RenderingContext::UserView,
+            test_entry_need(),
+            Some(&[1, 2, 3, 5]),
+        );
+
+        assert_ne!(a, b);
+    }
 }

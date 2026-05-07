@@ -14,7 +14,7 @@ use self::entry::{
     bytes_for_vertices, entry_layout_matches, lookup_current_entry, lru_evictable_key,
 };
 
-pub use self::entry::{SkinCacheEntry, SkinCacheFrameStats};
+pub use self::entry::{DeformSignature, SkinCacheEntry, SkinCacheFrameStats};
 pub use self::key::{EntryNeed, SkinCacheKey, SkinCacheRendererKind};
 
 /// Arenas for deform outputs; ranges are tracked by [`crate::mesh_deform::range_alloc::RangeAllocator`].
@@ -145,6 +145,54 @@ impl GpuSkinCache {
         }
     }
 
+    /// Allocates or reuses a cache line and marks it current for this frame.
+    #[inline]
+    pub fn prepare_entry(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        key: SkinCacheKey,
+        need: EntryNeed,
+        vertex_count: u32,
+    ) -> bool {
+        self.get_or_alloc_with_arenas(device, encoder, key, need, vertex_count)
+            .is_some()
+    }
+
+    /// Returns a current entry with arena buffers after allocation/growth has completed.
+    pub fn lookup_current_with_arenas(
+        &self,
+        key: &SkinCacheKey,
+    ) -> Option<(
+        &SkinCacheEntry,
+        &wgpu::Buffer,
+        &wgpu::Buffer,
+        &wgpu::Buffer,
+        &wgpu::Buffer,
+    )> {
+        let entry = lookup_current_entry(&self.entries, key, self.frame_counter)?;
+        Some((
+            entry,
+            self.arenas.positions(),
+            self.arenas.normals(),
+            self.arenas.tangents(),
+            self.arenas.temp(),
+        ))
+    }
+
+    /// Last deform signature recorded for `key`.
+    #[inline]
+    pub fn entry_deform_signature(&self, key: &SkinCacheKey) -> Option<DeformSignature> {
+        self.entries.get(key).and_then(|e| e.last_deform_signature)
+    }
+
+    /// Stores the deform signature for a current cache entry.
+    pub fn set_entry_deform_signature(&mut self, key: SkinCacheKey, signature: DeformSignature) {
+        if let Some(entry) = self.entries.get_mut(&key) {
+            entry.last_deform_signature = Some(signature);
+        }
+    }
+
     fn try_reuse_existing(
         &mut self,
         key: SkinCacheKey,
@@ -177,6 +225,7 @@ impl GpuSkinCache {
                 temp_tangents: ranges.temp_tangents,
                 vertex_count,
                 last_touched_frame: self.frame_counter,
+                last_deform_signature: None,
             },
         );
     }

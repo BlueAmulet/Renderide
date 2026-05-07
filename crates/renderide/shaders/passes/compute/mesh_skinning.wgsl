@@ -6,6 +6,7 @@
 
 struct SkinDispatchParams {
     vertex_count: u32,
+    base_bone_e: u32,
     base_src_pos_e: u32,
     base_src_nrm_e: u32,
     base_src_tan_e: u32,
@@ -13,6 +14,9 @@ struct SkinDispatchParams {
     base_dst_nrm_e: u32,
     base_dst_tan_e: u32,
     flags: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
 }
 
 const SKIN_TANGENTS: u32 = 1u;
@@ -93,21 +97,25 @@ fn skin_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let p = src_pos[src_pi];
     let idx = bone_idx[i];
     let w = bone_weights[i];
+    let bx = skin_dispatch.base_bone_e + idx.x;
+    let by = skin_dispatch.base_bone_e + idx.y;
+    let bz = skin_dispatch.base_bone_e + idx.z;
+    let bw = skin_dispatch.base_bone_e + idx.w;
     let p4 = vec4<f32>(p.xyz, 1.0);
     var acc = vec4<f32>(0.0);
-    acc += w.x * (bone_matrices[idx.x] * p4);
-    acc += w.y * (bone_matrices[idx.y] * p4);
-    acc += w.z * (bone_matrices[idx.z] * p4);
-    acc += w.w * (bone_matrices[idx.w] * p4);
+    acc += w.x * (bone_matrices[bx] * p4);
+    acc += w.y * (bone_matrices[by] * p4);
+    acc += w.z * (bone_matrices[bz] * p4);
+    acc += w.w * (bone_matrices[bw] * p4);
     let ws = w.x + w.y + w.z + w.w;
 
     let nb = src_n[src_ni];
     let n_bind = vec3<f32>(nb.xyz);
     var acc_n = vec3<f32>(0.0);
-    acc_n += w.x * (normal_matrix(bone_matrices[idx.x]) * n_bind);
-    acc_n += w.y * (normal_matrix(bone_matrices[idx.y]) * n_bind);
-    acc_n += w.z * (normal_matrix(bone_matrices[idx.z]) * n_bind);
-    acc_n += w.w * (normal_matrix(bone_matrices[idx.w]) * n_bind);
+    acc_n += w.x * (normal_matrix(bone_matrices[bx]) * n_bind);
+    acc_n += w.y * (normal_matrix(bone_matrices[by]) * n_bind);
+    acc_n += w.z * (normal_matrix(bone_matrices[bz]) * n_bind);
+    acc_n += w.w * (normal_matrix(bone_matrices[bw]) * n_bind);
 
     let tangent_enabled = (skin_dispatch.flags & SKIN_TANGENTS) != 0u;
     var tb = vec4<f32>(0.0);
@@ -116,10 +124,10 @@ fn skin_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     if (tangent_enabled) {
         tb = src_t[src_ti];
         t_bind = tb.xyz;
-        acc_t += w.x * (mat3_linear(bone_matrices[idx.x]) * t_bind);
-        acc_t += w.y * (mat3_linear(bone_matrices[idx.y]) * t_bind);
-        acc_t += w.z * (mat3_linear(bone_matrices[idx.z]) * t_bind);
-        acc_t += w.w * (mat3_linear(bone_matrices[idx.w]) * t_bind);
+        acc_t += w.x * (mat3_linear(bone_matrices[bx]) * t_bind);
+        acc_t += w.y * (mat3_linear(bone_matrices[by]) * t_bind);
+        acc_t += w.z * (mat3_linear(bone_matrices[bz]) * t_bind);
+        acc_t += w.w * (mat3_linear(bone_matrices[bw]) * t_bind);
     }
 
     if (ws > 1e-6) {

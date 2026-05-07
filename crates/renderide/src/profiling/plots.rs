@@ -505,12 +505,16 @@ pub struct MeshDeformProfileSample {
     pub compute_passes: u64,
     /// Bind groups created while recording mesh deformation.
     pub bind_groups_created: u64,
+    /// Bind groups reused from mesh-deform caches.
+    pub bind_group_cache_reuses: u64,
     /// Encoder copy operations recorded by mesh deformation.
     pub copy_ops: u64,
     /// Sparse blendshape compute dispatches recorded.
     pub blend_dispatches: u64,
     /// Skinning compute dispatches recorded.
     pub skin_dispatches: u64,
+    /// Work items skipped because their deform inputs were stable.
+    pub stable_skips: u64,
     /// Scratch-buffer grow operations triggered by this frame.
     pub scratch_buffer_grows: u64,
     /// Work items skipped because the skin cache could not allocate safely.
@@ -538,6 +542,10 @@ pub fn plot_mesh_deform(sample: MeshDeformProfileSample) {
             "mesh_deform::bind_groups_created",
             sample.bind_groups_created as f64
         );
+        tracy_client::plot!(
+            "mesh_deform::bind_group_cache_reuses",
+            sample.bind_group_cache_reuses as f64
+        );
         tracy_client::plot!("mesh_deform::copy_ops", sample.copy_ops as f64);
         tracy_client::plot!(
             "mesh_deform::blend_dispatches",
@@ -547,6 +555,7 @@ pub fn plot_mesh_deform(sample: MeshDeformProfileSample) {
             "mesh_deform::skin_dispatches",
             sample.skin_dispatches as f64
         );
+        tracy_client::plot!("mesh_deform::stable_skips", sample.stable_skips as f64);
         tracy_client::plot!(
             "mesh_deform::scratch_buffer_grows",
             sample.scratch_buffer_grows as f64
@@ -576,9 +585,11 @@ pub fn plot_mesh_deform(sample: MeshDeformProfileSample) {
             work_items,
             compute_passes,
             bind_groups_created,
+            bind_group_cache_reuses,
             copy_ops,
             blend_dispatches,
             skin_dispatches,
+            stable_skips,
             scratch_buffer_grows,
             skipped_allocations,
             cache_reuses,
@@ -591,9 +602,11 @@ pub fn plot_mesh_deform(sample: MeshDeformProfileSample) {
             work_items,
             compute_passes,
             bind_groups_created,
+            bind_group_cache_reuses,
             copy_ops,
             blend_dispatches,
             skin_dispatches,
+            stable_skips,
             scratch_buffer_grows,
             skipped_allocations,
             cache_reuses,

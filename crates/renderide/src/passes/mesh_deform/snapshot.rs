@@ -15,6 +15,7 @@ use crate::mesh_deform::EntryNeed;
 /// Deformed positions/normals and blend temp live in [`crate::mesh_deform::GpuSkinCache`]
 /// per instance, not on the mesh.
 pub(super) struct MeshDeformSnapshot {
+    pub(super) asset_id: i32,
     pub(super) vertex_count: u32,
     pub(super) num_blendshapes: u32,
     pub(super) has_skeleton: bool,
@@ -39,6 +40,7 @@ impl MeshDeformSnapshot {
     /// are omitted (blendshape-only path never reads them).
     pub(super) fn from_mesh(m: &GpuMesh, clone_skinning_bind_matrices: bool) -> Self {
         Self {
+            asset_id: m.asset_id,
             vertex_count: m.vertex_count,
             num_blendshapes: m.num_blendshapes,
             has_skeleton: m.has_skeleton,

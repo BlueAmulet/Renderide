@@ -4,19 +4,22 @@
 //! issues a single skinning dispatch that consumes the deformed positions / normals.
 
 use std::num::NonZeroU64;
+use std::sync::Arc;
 
 use glam::Mat4;
 
-use crate::mesh_deform::advance_slab_cursor;
-use crate::mesh_deform::{Range, SkinCacheEntry};
+use crate::mesh_deform::{Range, SkinCacheEntry, SkinningBindGroupKey};
 use crate::mesh_deform::{SkinningPaletteParams, write_skinning_palette_bytes};
+use crate::mesh_deform::{advance_slab_cursor, buffer_identity};
 use crate::scene::RenderSpaceId;
 
 use super::super::snapshot::MeshDeformSnapshot;
-use super::MeshDeformEncodeGpu;
+use super::{MeshDeformEncodeGpu, MeshDeformRecordStats};
 
-/// Skinning path inputs after blendshape (optional) has run.
-pub(super) struct SkinningDeformContext<'a, 'b> {
+const SKIN_DISPATCH_PARAM_BYTES: u64 = 48;
+
+/// Scene inputs needed to build one skinning palette.
+pub(super) struct SkinningPaletteBuildContext<'a> {
     pub scene: &'a crate::scene::SceneCoordinator,
     pub space_id: RenderSpaceId,
     pub mesh: &'a MeshDeformSnapshot,
@@ -24,6 +27,11 @@ pub(super) struct SkinningDeformContext<'a, 'b> {
     pub smr_node_id: i32,
     pub render_context: crate::shared::RenderingContext,
     pub head_output_transform: Mat4,
+}
+
+/// Skinning path inputs after blendshape (optional) has run.
+pub(super) struct SkinningDeformContext<'a, 'b> {
+    pub mesh: &'a MeshDeformSnapshot,
     pub bone_cursor: &'b mut u64,
     pub needs_blend: bool,
     pub wg: u32,
@@ -33,29 +41,64 @@ pub(super) struct SkinningDeformContext<'a, 'b> {
     pub tangents_arena: &'a wgpu::Buffer,
     pub temp_arena: &'a wgpu::Buffer,
     pub skin_dispatch_cursor: &'b mut u64,
+    pub prepared_palette_len: u64,
 }
 
 /// Skinning `SkinDispatchParams.flags` bit for writing tangents.
 const SKIN_DISPATCH_APPLY_TANGENTS: u32 = 1;
 
+/// One skinning dispatch inside the frame batch.
+pub(super) struct SkinningDispatchJob {
+    bind_group: Arc<wgpu::BindGroup>,
+    params_offset: u32,
+    wg: u32,
+}
+
+/// Builds one palette into scratch CPU bytes so the caller can hash it before deciding to skip.
+pub(super) fn prepare_skinning_palette_bytes(
+    gpu: &mut MeshDeformEncodeGpu<'_>,
+    ctx: SkinningPaletteBuildContext<'_>,
+) -> Option<u64> {
+    profiling::scope!("mesh_deform::skinning_palette");
+    let bone_transform_indices = ctx.bone_transform_indices?;
+    let bone_count_u = ctx.mesh.skinning_bind_matrices.len() as u32;
+    gpu.scratch.ensure_bone_capacity(gpu.device, bone_count_u);
+    write_skinning_palette_bytes(
+        SkinningPaletteParams {
+            scene: ctx.scene,
+            space_id: ctx.space_id,
+            skinning_bind_matrices: &ctx.mesh.skinning_bind_matrices,
+            has_skeleton: ctx.mesh.has_skeleton,
+            bone_transform_indices,
+            smr_node_id: ctx.smr_node_id,
+            render_context: ctx.render_context,
+            head_output_transform: ctx.head_output_transform,
+        },
+        &mut gpu.scratch.bone_palette_bytes,
+    )?;
+    Some(gpu.scratch.bone_palette_bytes.len() as u64)
+}
+
 /// Linear blend skinning compute after optional blendshape pass.
 pub(super) fn record_skinning_deform(
     gpu: &mut MeshDeformEncodeGpu<'_>,
     ctx: SkinningDeformContext<'_, '_>,
-) -> bool {
+    jobs: &mut Vec<SkinningDispatchJob>,
+) -> MeshDeformRecordStats {
     profiling::scope!("mesh_deform::record_skinning");
-    let Some(required) = required_skinning_inputs(&ctx) else {
-        return false;
-    };
-    let Some((bone_binding_size, palette_len)) =
-        upload_skinning_palette(gpu, &ctx, required.bone_transform_indices)
+    let mut stats = MeshDeformRecordStats::default();
+    let Some(base_bone_e) =
+        upload_prepared_skinning_palette(gpu, *ctx.bone_cursor, ctx.prepared_palette_len)
     else {
-        return false;
+        return stats;
+    };
+    let Some(required) = required_skinning_inputs(&ctx) else {
+        return stats;
     };
 
     let (src_for_skin, base_src_pos_e) = if ctx.needs_blend {
         let Some(t) = ctx.cache_entry.temp.as_ref() else {
-            return false;
+            return stats;
         };
         (ctx.temp_arena, t.first_element_index(16))
     } else {
@@ -76,6 +119,7 @@ pub(super) fn record_skinning_deform(
 
     let skin_params = pack_skin_dispatch_params(SkinDispatchParamFields {
         vertex_count: ctx.mesh.vertex_count,
+        base_bone_e,
         base_src_pos_e,
         base_src_nrm_e,
         base_src_tan_e: tangent_dispatch.base_src_tan_e,
@@ -85,34 +129,44 @@ pub(super) fn record_skinning_deform(
         flags: tangent_dispatch.flags,
     });
     let sd_cursor = *ctx.skin_dispatch_cursor;
-    gpu.scratch
-        .ensure_skin_dispatch_byte_capacity(gpu.device, sd_cursor.saturating_add(32));
+    let Some(params_offset) = dynamic_uniform_offset(sd_cursor) else {
+        return stats;
+    };
+    gpu.scratch.ensure_skin_dispatch_byte_capacity(
+        gpu.device,
+        sd_cursor.saturating_add(SKIN_DISPATCH_PARAM_BYTES),
+    );
     gpu.uploads
         .write_buffer(&gpu.scratch.skin_dispatch, sd_cursor, &skin_params);
 
-    skinning_dispatch_with_uploaded_palette(SkinningPaletteDispatch {
-        device: gpu.device,
-        encoder: gpu.encoder,
-        pre: gpu.pre,
-        scratch: gpu.scratch,
-        src_positions: src_for_skin,
-        bone_idx: required.bone_idx,
-        bone_wt: required.bone_wt,
-        dst_pos: ctx.positions_arena,
-        src_n: src_n_for_skin,
-        dst_n: ctx.normals_arena,
-        src_tangent: tangent_dispatch.src_buffer,
-        dst_tangent: tangent_dispatch.dst_buffer,
-        bone_cursor: *ctx.bone_cursor,
-        bone_binding_size,
+    let (bind_group, reused) = skinning_bind_group(
+        gpu,
+        SkinningPaletteDispatch {
+            src_positions: src_for_skin,
+            bone_idx: required.bone_idx,
+            bone_wt: required.bone_wt,
+            dst_pos: ctx.positions_arena,
+            src_n: src_n_for_skin,
+            dst_n: ctx.normals_arena,
+            src_tangent: tangent_dispatch.src_buffer,
+            dst_tangent: tangent_dispatch.dst_buffer,
+        },
+    );
+    if reused {
+        stats.bind_group_cache_reuses = stats.bind_group_cache_reuses.saturating_add(1);
+    } else {
+        stats.bind_groups_created = stats.bind_groups_created.saturating_add(1);
+    }
+    jobs.push(SkinningDispatchJob {
+        bind_group,
+        params_offset,
         wg: ctx.wg,
-        skin_dispatch_offset: sd_cursor,
-        profiler: gpu.profiler,
     });
 
-    *ctx.bone_cursor = advance_slab_cursor(*ctx.bone_cursor, palette_len);
-    *ctx.skin_dispatch_cursor = advance_slab_cursor(sd_cursor, 32);
-    true
+    *ctx.bone_cursor = advance_slab_cursor(*ctx.bone_cursor, ctx.prepared_palette_len);
+    *ctx.skin_dispatch_cursor = advance_slab_cursor(sd_cursor, SKIN_DISPATCH_PARAM_BYTES);
+    stats.skin_dispatches = stats.skin_dispatches.saturating_add(1);
+    stats
 }
 
 struct RequiredSkinningInputs<'a> {
@@ -120,7 +174,6 @@ struct RequiredSkinningInputs<'a> {
     src_n: &'a wgpu::Buffer,
     bone_idx: &'a wgpu::Buffer,
     bone_wt: &'a wgpu::Buffer,
-    bone_transform_indices: &'a [i32],
     nrm_range: &'a Range,
 }
 
@@ -132,42 +185,28 @@ fn required_skinning_inputs<'a>(
         src_n: ctx.mesh.normals_buffer.as_ref()?.as_ref(),
         bone_idx: ctx.mesh.bone_indices_buffer.as_ref()?.as_ref(),
         bone_wt: ctx.mesh.bone_weights_vec4_buffer.as_ref()?.as_ref(),
-        bone_transform_indices: ctx.bone_transform_indices?,
         nrm_range: ctx.cache_entry.normals.as_ref()?,
     })
 }
 
-fn upload_skinning_palette(
+fn upload_prepared_skinning_palette(
     gpu: &mut MeshDeformEncodeGpu<'_>,
-    ctx: &SkinningDeformContext<'_, '_>,
-    bone_transform_indices: &[i32],
-) -> Option<(NonZeroU64, u64)> {
-    profiling::scope!("mesh_deform::skinning_palette");
-    let bone_count_u = ctx.mesh.skinning_bind_matrices.len() as u32;
-    gpu.scratch.ensure_bone_capacity(gpu.device, bone_count_u);
-    write_skinning_palette_bytes(
-        SkinningPaletteParams {
-            scene: ctx.scene,
-            space_id: ctx.space_id,
-            skinning_bind_matrices: &ctx.mesh.skinning_bind_matrices,
-            has_skeleton: ctx.mesh.has_skeleton,
-            bone_transform_indices,
-            smr_node_id: ctx.smr_node_id,
-            render_context: ctx.render_context,
-            head_output_transform: ctx.head_output_transform,
-        },
-        &mut gpu.scratch.bone_palette_bytes,
-    )?;
-
-    let palette_len = gpu.scratch.bone_palette_bytes.len() as u64;
+    bone_cursor: u64,
+    palette_len: u64,
+) -> Option<u32> {
     gpu.scratch
-        .ensure_bone_byte_capacity(gpu.device, ctx.bone_cursor.saturating_add(palette_len));
+        .ensure_bone_byte_capacity(gpu.device, bone_cursor.saturating_add(palette_len));
     gpu.uploads.write_buffer(
         &gpu.scratch.bone_matrices,
-        *ctx.bone_cursor,
+        bone_cursor,
         gpu.scratch.bone_palette_bytes.as_slice(),
     );
-    NonZeroU64::new(palette_len).map(|binding_size| (binding_size, palette_len))
+    let base_bone_e = bone_cursor.checked_div(64)?;
+    let base_bone_e = u32::try_from(base_bone_e).ok();
+    if base_bone_e.is_none() {
+        logger::warn!("mesh deform: bone palette offset exceeded skinning shader range");
+    }
+    base_bone_e
 }
 
 struct TangentSkinDispatch<'a> {
@@ -219,10 +258,6 @@ fn resolve_tangent_dispatch<'a>(
 
 /// Buffers and offsets for one skinning dispatch after the bone palette is uploaded to `scratch`.
 struct SkinningPaletteDispatch<'a> {
-    device: &'a wgpu::Device,
-    encoder: &'a mut wgpu::CommandEncoder,
-    pre: &'a crate::mesh_deform::MeshPreprocessPipelines,
-    scratch: &'a crate::mesh_deform::MeshDeformScratch,
     src_positions: &'a wgpu::Buffer,
     bone_idx: &'a wgpu::Buffer,
     bone_wt: &'a wgpu::Buffer,
@@ -231,116 +266,139 @@ struct SkinningPaletteDispatch<'a> {
     dst_n: &'a wgpu::Buffer,
     src_tangent: Option<&'a wgpu::Buffer>,
     dst_tangent: Option<&'a wgpu::Buffer>,
-    bone_cursor: u64,
-    bone_binding_size: NonZeroU64,
-    wg: u32,
-    /// Byte offset into [`crate::mesh_deform::MeshDeformScratch::skin_dispatch`] for this dispatch's `SkinDispatchParams`.
-    skin_dispatch_offset: u64,
-    /// GPU profiler for the pass-level timestamp query on the skinning compute pass.
-    profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
-/// Builds skinning bind group (bone slab + attributes) and dispatches the skinning shader.
-fn skinning_dispatch_with_uploaded_palette(dispatch: SkinningPaletteDispatch<'_>) {
-    let Some(skin_u_size) = NonZeroU64::new(32) else {
-        return;
+/// Builds or reuses a skinning bind group.
+fn skinning_bind_group(
+    gpu: &mut MeshDeformEncodeGpu<'_>,
+    dispatch: SkinningPaletteDispatch<'_>,
+) -> (Arc<wgpu::BindGroup>, bool) {
+    let src_tangent = dispatch.src_tangent.unwrap_or(&gpu.scratch.dummy_vec4_read);
+    let dst_tangent = dispatch
+        .dst_tangent
+        .unwrap_or(&gpu.scratch.dummy_vec4_write);
+    let key = SkinningBindGroupKey {
+        scratch_generation: gpu.scratch.resource_generation(),
+        src_positions: buffer_identity(dispatch.src_positions),
+        bone_indices: buffer_identity(dispatch.bone_idx),
+        bone_weights: buffer_identity(dispatch.bone_wt),
+        dst_positions: buffer_identity(dispatch.dst_pos),
+        src_normals: buffer_identity(dispatch.src_n),
+        dst_normals: buffer_identity(dispatch.dst_n),
+        src_tangents: buffer_identity(src_tangent),
+        dst_tangents: buffer_identity(dst_tangent),
     };
-    let skin_bg = {
-        // Per-mesh bind-group create dominates the per-mesh CPU cost in `mesh_deform::dispatch`
-        // because bindings 1, 2, 3, 5, and 8 are mesh-specific buffers (positions / bone idx /
-        // bone wt / normals / tangents) that cannot share an entry across meshes. Splitting it
-        // into its own zone lets future architectural batching (single indirect dispatch with a
-        // per-mesh dispatch-arg buffer) confirm the win in profiles.
+    if let Some(bind_group) = gpu.scratch.skinning_bind_group(key) {
+        return (bind_group, true);
+    }
+    let Some(skin_u_size) = NonZeroU64::new(SKIN_DISPATCH_PARAM_BYTES) else {
+        unreachable!("skin dispatch params size is nonzero");
+    };
+    let bind_group = {
         profiling::scope!("mesh_deform::skinning_create_bg");
-        dispatch
-            .device
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("skinning_bg"),
-                layout: &dispatch.pre.skinning_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &dispatch.scratch.bone_matrices,
-                            offset: dispatch.bone_cursor,
-                            size: Some(dispatch.bone_binding_size),
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: dispatch.src_positions.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: dispatch.bone_idx.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: dispatch.bone_wt.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: dispatch.dst_pos.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: dispatch.src_n.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 6,
-                        resource: dispatch.dst_n.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 7,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &dispatch.scratch.skin_dispatch,
-                            offset: dispatch.skin_dispatch_offset,
-                            size: Some(skin_u_size),
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 8,
-                        resource: dispatch
-                            .src_tangent
-                            .unwrap_or(&dispatch.scratch.dummy_vec4_read)
-                            .as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 9,
-                        resource: dispatch
-                            .dst_tangent
-                            .unwrap_or(&dispatch.scratch.dummy_vec4_write)
-                            .as_entire_binding(),
-                    },
-                ],
-            })
+        Arc::new(gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("skinning_bg"),
+            layout: &gpu.pre.skinning_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: gpu.scratch.bone_matrices.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: dispatch.src_positions.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: dispatch.bone_idx.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: dispatch.bone_wt.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: dispatch.dst_pos.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: dispatch.src_n.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: dispatch.dst_n.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &gpu.scratch.skin_dispatch,
+                        offset: 0,
+                        size: Some(skin_u_size),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: src_tangent.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: dst_tangent.as_entire_binding(),
+                },
+            ],
+        }))
     };
     crate::profiling::note_resource_churn!(BindGroup, "mesh_deform::skinning_bind_group");
+    gpu.scratch
+        .insert_skinning_bind_group(key, Arc::clone(&bind_group));
+    (bind_group, false)
+}
 
-    let pass_query = dispatch
+fn dynamic_uniform_offset(offset: u64) -> Option<u32> {
+    let offset = u32::try_from(offset).ok();
+    if offset.is_none() {
+        logger::warn!("mesh deform: skinning param offset exceeded WebGPU dynamic-offset range");
+    }
+    offset
+}
+
+/// Dispatches all queued skinning jobs in a single compute pass.
+pub(super) fn flush_skinning_jobs(
+    gpu: &mut MeshDeformEncodeGpu<'_>,
+    jobs: &[SkinningDispatchJob],
+) -> MeshDeformRecordStats {
+    let mut stats = MeshDeformRecordStats::default();
+    if jobs.is_empty() {
+        return stats;
+    }
+    let pass_query = gpu
         .profiler
-        .map(|p| p.begin_pass_query("skinning", dispatch.encoder));
+        .map(|p| p.begin_pass_query("skinning_batch", gpu.encoder));
     let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
     {
-        profiling::scope!("mesh_deform::skinning_dispatch_pass");
-        let mut cpass = dispatch
+        profiling::scope!("mesh_deform::skinning_dispatch_batch");
+        let mut cpass = gpu
             .encoder
             .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("skinning"),
+                label: Some("skinning_batch"),
                 timestamp_writes,
             });
-        cpass.set_pipeline(&dispatch.pre.skinning_pipeline);
-        cpass.set_bind_group(0, &skin_bg, &[]);
-        cpass.dispatch_workgroups(dispatch.wg, 1, 1);
-    };
-    if let (Some(p), Some(q)) = (dispatch.profiler, pass_query) {
-        p.end_query(dispatch.encoder, q);
+        cpass.set_pipeline(&gpu.pre.skinning_pipeline);
+        for job in jobs {
+            cpass.set_bind_group(0, job.bind_group.as_ref(), &[job.params_offset]);
+            cpass.dispatch_workgroups(job.wg, 1, 1);
+        }
     }
+    stats.compute_passes = 1;
+    if let (Some(p), Some(q)) = (gpu.profiler, pass_query) {
+        p.end_query(gpu.encoder, q);
+    }
+    stats
 }
 
 /// CPU-side field layout for `mesh_skinning.wgsl` `SkinDispatchParams`.
 struct SkinDispatchParamFields {
     vertex_count: u32,
+    base_bone_e: u32,
     base_src_pos_e: u32,
     base_src_nrm_e: u32,
     base_src_tan_e: u32,
@@ -350,16 +408,17 @@ struct SkinDispatchParamFields {
     flags: u32,
 }
 
-/// `shaders/passes/compute/mesh_skinning.wgsl` `SkinDispatchParams` (32 bytes).
-fn pack_skin_dispatch_params(fields: SkinDispatchParamFields) -> [u8; 32] {
-    let mut o = [0u8; 32];
+/// `shaders/passes/compute/mesh_skinning.wgsl` `SkinDispatchParams` (48 bytes).
+fn pack_skin_dispatch_params(fields: SkinDispatchParamFields) -> [u8; 48] {
+    let mut o = [0u8; 48];
     o[0..4].copy_from_slice(&fields.vertex_count.to_le_bytes());
-    o[4..8].copy_from_slice(&fields.base_src_pos_e.to_le_bytes());
-    o[8..12].copy_from_slice(&fields.base_src_nrm_e.to_le_bytes());
-    o[12..16].copy_from_slice(&fields.base_src_tan_e.to_le_bytes());
-    o[16..20].copy_from_slice(&fields.base_dst_pos_e.to_le_bytes());
-    o[20..24].copy_from_slice(&fields.base_dst_nrm_e.to_le_bytes());
-    o[24..28].copy_from_slice(&fields.base_dst_tan_e.to_le_bytes());
-    o[28..32].copy_from_slice(&fields.flags.to_le_bytes());
+    o[4..8].copy_from_slice(&fields.base_bone_e.to_le_bytes());
+    o[8..12].copy_from_slice(&fields.base_src_pos_e.to_le_bytes());
+    o[12..16].copy_from_slice(&fields.base_src_nrm_e.to_le_bytes());
+    o[16..20].copy_from_slice(&fields.base_src_tan_e.to_le_bytes());
+    o[20..24].copy_from_slice(&fields.base_dst_pos_e.to_le_bytes());
+    o[24..28].copy_from_slice(&fields.base_dst_nrm_e.to_le_bytes());
+    o[28..32].copy_from_slice(&fields.base_dst_tan_e.to_le_bytes());
+    o[32..36].copy_from_slice(&fields.flags.to_le_bytes());
     o
 }
