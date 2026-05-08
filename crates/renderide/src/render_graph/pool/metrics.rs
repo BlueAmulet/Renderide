@@ -1,12 +1,18 @@
 //! Counters reported by [`super::TransientPool`] for diagnostics and HUD readout.
 
+use crate::gpu_resource::CacheStats;
+
 /// Pool statistics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TransientPoolMetrics {
+    /// Texture-pool cache counters.
+    pub texture_cache: CacheStats,
     /// Texture reuse hits.
     pub texture_hits: usize,
     /// Texture allocation misses.
     pub texture_misses: usize,
+    /// Buffer-pool cache counters.
+    pub buffer_cache: CacheStats,
     /// Buffer reuse hits.
     pub buffer_hits: usize,
     /// Buffer allocation misses.

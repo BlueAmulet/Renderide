@@ -1,11 +1,10 @@
-//! Lazily initialised single-slot GPU resource cache.
+//! One-shot GPU-resource slots.
 
 use std::sync::OnceLock;
 
 /// One-time GPU object slot.
 #[derive(Debug)]
 pub(crate) struct OnceGpu<T> {
-    /// Lazily initialized GPU object.
     slot: OnceLock<T>,
 }
 

@@ -15,10 +15,10 @@ use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{
     fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry,
 };
+use crate::gpu_resource::{BindGroupMap, OnceGpu, RenderPipelineMap};
 use crate::render_graph::gpu_cache::{
-    BindGroupMap, FullscreenPipelineVariantDesc, FullscreenShaderVariants, OnceGpu,
-    RenderPipelineMap, create_d2_array_view, create_linear_clamp_sampler,
-    fullscreen_pipeline_variant,
+    FullscreenPipelineVariantDesc, FullscreenShaderVariants, create_d2_array_view,
+    create_linear_clamp_sampler, fullscreen_pipeline_variant,
 };
 
 /// Debug label for the mono variant pipeline.

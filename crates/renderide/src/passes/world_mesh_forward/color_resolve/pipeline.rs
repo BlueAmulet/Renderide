@@ -14,9 +14,10 @@ use std::sync::Arc;
 
 use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{texture_layout_entry, uniform_buffer_layout_entry};
+use crate::gpu_resource::{OnceGpu, RenderPipelineMap};
 use crate::render_graph::gpu_cache::{
-    FullscreenPipelineVariantDesc, FullscreenShaderVariants, OnceGpu, RenderPipelineMap,
-    create_uniform_buffer, fullscreen_pipeline_variant,
+    FullscreenPipelineVariantDesc, FullscreenShaderVariants, create_uniform_buffer,
+    fullscreen_pipeline_variant,
 };
 
 /// Debug label for the mono pipeline.

@@ -12,8 +12,8 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::backend::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight};
 use crate::embedded_shaders::embedded_wgsl;
+use crate::gpu_resource::OnceGpu;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
-use crate::render_graph::gpu_cache::OnceGpu;
 use crate::world_mesh::cluster::{CLUSTER_COUNT_Z, TILE_SIZE, sanitize_cluster_clip_planes};
 
 /// CPU layout for the compute shader `ClusterParams` uniform (WGSL `struct` + tail pad).
