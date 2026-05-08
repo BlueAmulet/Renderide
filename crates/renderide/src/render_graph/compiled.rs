@@ -19,7 +19,7 @@ use crate::camera::{
     HostCameraFrame, ViewId, camera_state_motion_blur, camera_state_post_processing,
     camera_state_screen_space_reflections,
 };
-use crate::shared::{CameraRenderParameters, CameraState};
+use crate::shared::CameraState;
 
 /// Single-view color + depth for secondary cameras rendering to a host [`crate::gpu_pools::GpuRenderTexture`].
 pub struct ExternalOffscreenTargets<'a> {
@@ -90,17 +90,6 @@ impl ViewPostProcessing {
     /// Reflection-probe and other raw-capture policy: bypass all post-processing effects.
     pub const fn disabled() -> Self {
         Self::new(false, false, false)
-    }
-
-    /// Converts host camera readback parameters into a view post-processing policy.
-    ///
-    /// Camera render tasks explicitly disable motion blur to match the host camera-capture path.
-    pub fn from_camera_render_parameters(parameters: &CameraRenderParameters) -> Self {
-        Self::new(
-            parameters.post_processing,
-            parameters.screen_space_reflections,
-            false,
-        )
     }
 
     /// Converts secondary render-texture camera state flags into a view post-processing policy.
@@ -407,20 +396,6 @@ mod tests {
         assert!(policy.is_enabled());
         assert!(!policy.screen_space_reflections);
         assert!(policy.motion_blur);
-    }
-
-    #[test]
-    fn view_post_processing_decodes_camera_render_parameters() {
-        let parameters = CameraRenderParameters {
-            post_processing: true,
-            screen_space_reflections: true,
-            ..Default::default()
-        };
-        let policy = ViewPostProcessing::from_camera_render_parameters(&parameters);
-
-        assert!(policy.is_enabled());
-        assert!(policy.screen_space_reflections);
-        assert!(!policy.motion_blur);
     }
 
     #[test]
