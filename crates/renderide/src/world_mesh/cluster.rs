@@ -160,17 +160,11 @@ pub fn cluster_frame_params(
         if viewport.is_empty() {
             return None;
         }
-        let (near_clip, far_clip) = effective_head_output_clip_planes(
-            host_camera.clip.near,
-            host_camera.clip.far,
-            host_camera.output_device,
-            None,
-        );
         let cluster_count_x = viewport.tile_columns(TILE_SIZE);
         let cluster_count_y = viewport.tile_rows(TILE_SIZE);
         return Some(ClusterFrameParams {
-            near_clip,
-            far_clip,
+            near_clip: host_camera.clip.near,
+            far_clip: host_camera.clip.far,
             world_to_view: view,
             proj,
             cluster_count_x,
@@ -480,7 +474,8 @@ mod tests {
         };
         scene.test_seed_space_identity_worlds(RenderSpaceId(1), vec![root], vec![-1]);
         let host_camera = HostCameraFrame {
-            clip: crate::camera::CameraClipPlanes::new(0.2, 100.0),
+            clip: crate::camera::CameraClipPlanes::new(0.0002, 0.25),
+            output_device: crate::shared::HeadOutputDevice::Screen360,
             explicit_view: Some(EyeView::new(
                 Mat4::IDENTITY,
                 Mat4::IDENTITY,
@@ -493,8 +488,8 @@ mod tests {
         let params = cluster_frame_params(&host_camera, &scene, (64, 64))
             .expect("non-empty explicit camera viewport");
 
-        assert!((params.near_clip - 0.2).abs() < 1e-6);
-        assert!((params.far_clip - 100.0).abs() < 1e-6);
+        assert!((params.near_clip - 0.0002).abs() < 1e-8);
+        assert!((params.far_clip - 0.25).abs() < 1e-6);
     }
 
     /// The WGSL constants stay manually synchronized with the Rust constants.
