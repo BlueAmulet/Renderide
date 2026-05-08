@@ -72,6 +72,10 @@ impl ComputePass for AutoExposureComputePass {
         Ok(())
     }
 
+    fn should_record(&self, ctx: &ComputePassCtx<'_, '_, '_>) -> Result<bool, RenderPassError> {
+        Ok(super::view_post_processing_enabled(&ctx.pass_frame.view))
+    }
+
     fn release_view_resources(&mut self, retired_views: &[ViewId]) {
         self.state_cache.retire_views(retired_views);
     }
@@ -180,6 +184,10 @@ impl RasterPass for AutoExposureApplyPass {
         template: &RenderPassTemplate,
     ) -> Option<NonZeroU32> {
         raster_stereo_mask_override(ctx, template)
+    }
+
+    fn should_record(&self, ctx: &RasterPassCtx<'_, '_>) -> Result<bool, RenderPassError> {
+        Ok(super::view_post_processing_enabled(&ctx.pass_frame.view))
     }
 
     fn record(

@@ -7,7 +7,7 @@
 
 use rayon::prelude::*;
 
-use crate::backend::{ExtractedFrameShared, PostProcessingGraphMode, RenderBackend};
+use crate::backend::{ExtractedFrameShared, RenderBackend};
 use crate::gpu::GpuContext;
 use crate::mesh_deform::SkinCacheKey;
 use crate::occlusion::HiZCullData;
@@ -174,28 +174,6 @@ impl SubmitFrame<'_> {
             .set_visible_mesh_deform_keys(visible_deform_keys);
         let mut views = self.prepared_views.build_execution_views(self.view_draws);
         backend.execute_multi_view_frame(gpu, scene, &mut views, true)
-    }
-
-    /// Executes the final submit packet with the selected post-processing graph mode.
-    pub(super) fn execute_with_post_processing(
-        self,
-        gpu: &mut GpuContext,
-        scene: &crate::scene::SceneCoordinator,
-        backend: &mut RenderBackend,
-        post_processing_mode: PostProcessingGraphMode,
-    ) -> Result<(), GraphExecuteError> {
-        let visible_deform_keys = visible_mesh_deform_keys_from_draw_plans(&self.view_draws);
-        backend
-            .frame_resources_mut()
-            .set_visible_mesh_deform_keys(visible_deform_keys);
-        let mut views = self.prepared_views.build_execution_views(self.view_draws);
-        backend.execute_multi_view_frame_with_post_processing(
-            gpu,
-            scene,
-            &mut views,
-            true,
-            post_processing_mode,
-        )
     }
 }
 
@@ -416,7 +394,7 @@ fn cull_snapshot_for_view(
 mod tests {
     use crate::camera::{HostCameraFrame, ViewId};
     use crate::mesh_deform::{SkinCacheKey, SkinCacheRendererKind};
-    use crate::render_graph::FrameViewClear;
+    use crate::render_graph::{FrameViewClear, ViewPostProcessing};
     use crate::world_mesh::WorldMeshDrawCollectParallelism;
     use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawCollection};
@@ -431,6 +409,7 @@ mod tests {
             view_id: ViewId::Main,
             viewport_px: (640, 480),
             clear: FrameViewClear::default(),
+            post_processing: ViewPostProcessing::primary_view(),
             target: FrameViewPlanTarget::MainSwapchain,
         }
     }

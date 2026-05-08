@@ -5,13 +5,13 @@ use std::sync::Arc;
 use glam::{Mat4, Vec3};
 use hashbrown::HashSet;
 
-use crate::backend::{PostProcessingGraphMode, RenderBackend};
+use crate::backend::RenderBackend;
 use crate::camera::{
     CameraClipPlanes, CameraPose, CameraProjectionKind, EyeView, HostCameraFrame, ViewId, Viewport,
 };
 use crate::gpu::{CUBEMAP_ARRAY_LAYERS, GpuContext};
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
-use crate::render_graph::{FrameViewClear, GraphExecuteError};
+use crate::render_graph::{FrameViewClear, GraphExecuteError, ViewPostProcessing};
 use crate::scene::{RenderSpaceId, SceneCoordinator, reflection_probe_skybox_only};
 use crate::shared::{
     CameraClearMode, FrameSubmitData, ReflectionProbeClear, ReflectionProbeRenderResult,
@@ -644,6 +644,7 @@ fn plan_reflection_probe_task(
             ),
             viewport_px: extent.tuple(),
             clear: clear_from_reflection_probe_state(probe.state),
+            post_processing: reflection_probe_bake_post_processing(),
             target: FrameViewPlanTarget::SecondaryRt(targets.to_offscreen_handles(face)),
         })
         .collect();
@@ -680,6 +681,10 @@ fn clear_from_reflection_probe_state(state: ReflectionProbeState) -> FrameViewCl
     } else {
         FrameViewClear::skybox()
     }
+}
+
+fn reflection_probe_bake_post_processing() -> ViewPostProcessing {
+    ViewPostProcessing::disabled()
 }
 
 fn host_camera_frame_for_probe_face(
@@ -764,12 +769,7 @@ fn render_reflection_probe_faces_offscreen(
     let submit_frame = ExtractedFrame::new(prepared_views, shared)
         .prepare_draws()
         .into_submit_frame();
-    submit_frame.execute_with_post_processing(
-        gpu,
-        scene,
-        backend,
-        PostProcessingGraphMode::Disabled,
-    )?;
+    submit_frame.execute(gpu, scene, backend)?;
     Ok(())
 }
 
@@ -880,6 +880,15 @@ mod tests {
 
         assert!((view.proj.x_axis.x - 1.0).abs() < 1e-6);
         assert!((view.proj.y_axis.y - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn reflection_probe_bake_views_disable_post_processing() {
+        let policy = reflection_probe_bake_post_processing();
+
+        assert!(!policy.is_enabled());
+        assert!(!policy.screen_space_reflections);
+        assert!(!policy.motion_blur);
     }
 
     #[test]

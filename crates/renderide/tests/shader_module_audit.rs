@@ -57,6 +57,38 @@ fn material_source(file_name: &str) -> io::Result<String> {
     fs::read_to_string(manifest_dir().join("shaders/materials").join(file_name))
 }
 
+#[test]
+fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
+    let globals_src = fs::read_to_string(manifest_dir().join("shaders/modules/globals.wgsl"))?;
+    assert!(
+        globals_src.contains("fn stereo_center_view_dir_for_world_pos("),
+        "globals.wgsl must expose a stereo-center view direction helper for eye-stable effects"
+    );
+    assert!(
+        globals_src
+            .contains("(frame.camera_world_pos.xyz + frame.camera_world_pos_right.xyz) * 0.5"),
+        "stereo-center view direction must average the left and right camera positions in multiview"
+    );
+
+    let lighting_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
+    assert!(
+        lighting_src.contains(
+            "let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);"
+        ),
+        "Xiexe matcap sampling must derive its view direction from the stereo-center camera"
+    );
+    assert!(
+        lighting_src.contains("let uv = matcap_uv(stereo_view_dir, normal);"),
+        "Xiexe matcap sampling must use the stereo-center view direction for matcap UVs"
+    );
+    assert!(
+        !lighting_src.contains("let uv = matcap_uv(view_dir, normal);"),
+        "Xiexe matcap UVs must not use the per-eye lighting view direction"
+    );
+    Ok(())
+}
+
 fn declares_f32_field(src: &str, field_name: &str) -> bool {
     src.lines().any(|line| {
         let trimmed = line.trim();

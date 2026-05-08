@@ -81,7 +81,7 @@ pub(crate) mod upload_arena;
 pub(crate) use cache::{GraphCache, GraphCacheKey};
 pub(crate) use compiled::{
     ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewResourceHints,
-    FrameViewTarget,
+    FrameViewTarget, ViewPostProcessing,
 };
 pub(crate) use error::GraphExecuteError;
 pub(crate) use frame_params::FrameViewClear;

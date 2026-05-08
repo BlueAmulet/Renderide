@@ -277,6 +277,16 @@ impl ComputePass for GtaoDepthPrefilterPass {
         Ok(())
     }
 
+    fn should_record(&self, ctx: &ComputePassCtx<'_, '_, '_>) -> Result<bool, RenderPassError> {
+        Ok(
+            super::super::view_post_processing_enabled(&ctx.pass_frame.view)
+                && super::should_record_depth_prefilter_layer(
+                    self.layer,
+                    ctx.pass_frame.view.multiview_stereo,
+                ),
+        )
+    }
+
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
         profiling::scope!("post_processing::gtao_depth_prefilter");
         if !super::should_record_depth_prefilter_layer(

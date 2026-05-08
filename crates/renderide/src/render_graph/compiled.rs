@@ -15,7 +15,11 @@ use super::resources::{
     TransientSubresourceDesc, TransientTextureDesc,
 };
 use super::schedule::FrameSchedule;
-use crate::camera::{HostCameraFrame, ViewId};
+use crate::camera::{
+    HostCameraFrame, ViewId, camera_state_motion_blur, camera_state_post_processing,
+    camera_state_screen_space_reflections,
+};
+use crate::shared::{CameraRenderParameters, CameraState};
 
 /// Single-view color + depth for secondary cameras rendering to a host [`crate::gpu_pools::GpuRenderTexture`].
 pub struct ExternalOffscreenTargets<'a> {
@@ -57,6 +61,69 @@ pub enum FrameViewTarget<'a> {
     OffscreenRt(ExternalOffscreenTargets<'a>),
 }
 
+/// Post-processing permissions requested by a single view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ViewPostProcessing {
+    /// `true` when this view should run the post-processing stack.
+    pub enabled: bool,
+    /// `true` when this view allows screen-space reflections to record.
+    pub screen_space_reflections: bool,
+    /// `true` when this view allows motion blur to record.
+    pub motion_blur: bool,
+}
+
+impl ViewPostProcessing {
+    /// Builds a view post-processing policy from decoded host camera settings.
+    pub const fn new(enabled: bool, screen_space_reflections: bool, motion_blur: bool) -> Self {
+        Self {
+            enabled,
+            screen_space_reflections: enabled && screen_space_reflections,
+            motion_blur: enabled && motion_blur,
+        }
+    }
+
+    /// Primary/HMD view policy: allow the renderer-global post-processing stack to run.
+    pub const fn primary_view() -> Self {
+        Self::new(true, true, true)
+    }
+
+    /// Reflection-probe and other raw-capture policy: bypass all post-processing effects.
+    pub const fn disabled() -> Self {
+        Self::new(false, false, false)
+    }
+
+    /// Converts host camera readback parameters into a view post-processing policy.
+    ///
+    /// Camera render tasks explicitly disable motion blur to match the host camera-capture path.
+    pub fn from_camera_render_parameters(parameters: &CameraRenderParameters) -> Self {
+        Self::new(
+            parameters.post_processing,
+            parameters.screen_space_reflections,
+            false,
+        )
+    }
+
+    /// Converts secondary render-texture camera state flags into a view post-processing policy.
+    pub fn from_camera_state(state: &CameraState) -> Self {
+        Self::new(
+            camera_state_post_processing(state.flags),
+            camera_state_screen_space_reflections(state.flags),
+            camera_state_motion_blur(state.flags),
+        )
+    }
+
+    /// Returns `true` when this view should run the post-processing stack.
+    pub const fn is_enabled(self) -> bool {
+        self.enabled
+    }
+}
+
+impl Default for ViewPostProcessing {
+    fn default() -> Self {
+        Self::primary_view()
+    }
+}
+
 /// One view to render in a multi-view frame.
 pub struct FrameView<'a> {
     /// Stable logical identity for view-scoped resources and temporal state.
@@ -67,6 +134,8 @@ pub struct FrameView<'a> {
     pub target: FrameViewTarget<'a>,
     /// Background clear/skybox behavior for this view.
     pub clear: FrameViewClear,
+    /// Post-processing permissions for this view.
+    pub post_processing: ViewPostProcessing,
     /// Resource layout hints required by backend-specific pre-record preparation.
     pub resource_hints: FrameViewResourceHints,
     /// Caller-seeded per-view graph state.
@@ -309,8 +378,59 @@ pub(super) struct ResolvedView<'a> {
     pub(super) offscreen_write_render_texture_asset_id: Option<i32>,
     pub(super) view_id: ViewId,
     pub(super) sample_count: u32,
+    pub(super) post_processing: ViewPostProcessing,
     // MSAA views are now in the per-view blackboard (MsaaViewsSlot), resolved from graph
     // transient textures by the executor. ResolvedView no longer carries them.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn view_post_processing_default_allows_primary_view_effects() {
+        let policy = ViewPostProcessing::default();
+
+        assert!(policy.is_enabled());
+        assert!(policy.screen_space_reflections);
+        assert!(policy.motion_blur);
+    }
+
+    #[test]
+    fn view_post_processing_decodes_secondary_camera_flags() {
+        let state = CameraState {
+            flags: (1 << 6) | (1 << 8),
+            ..Default::default()
+        };
+        let policy = ViewPostProcessing::from_camera_state(&state);
+
+        assert!(policy.is_enabled());
+        assert!(!policy.screen_space_reflections);
+        assert!(policy.motion_blur);
+    }
+
+    #[test]
+    fn view_post_processing_decodes_camera_render_parameters() {
+        let parameters = CameraRenderParameters {
+            post_processing: true,
+            screen_space_reflections: true,
+            ..Default::default()
+        };
+        let policy = ViewPostProcessing::from_camera_render_parameters(&parameters);
+
+        assert!(policy.is_enabled());
+        assert!(policy.screen_space_reflections);
+        assert!(!policy.motion_blur);
+    }
+
+    #[test]
+    fn view_post_processing_master_gate_masks_sub_effects() {
+        let policy = ViewPostProcessing::new(false, true, true);
+
+        assert!(!policy.is_enabled());
+        assert!(!policy.screen_space_reflections);
+        assert!(!policy.motion_blur);
+    }
 }
 
 mod exec;

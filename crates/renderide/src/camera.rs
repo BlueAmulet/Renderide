@@ -28,7 +28,10 @@ pub use projection::{
 };
 pub use projection_plan::WorldProjectionSet;
 pub use render_task::{camera_render_task_world_matrix, host_camera_frame_for_render_task};
-pub use secondary::{camera_state_enabled, host_camera_frame_for_render_texture};
+pub use secondary::{
+    camera_state_enabled, camera_state_motion_blur, camera_state_post_processing,
+    camera_state_screen_space_reflections, host_camera_frame_for_render_texture,
+};
 #[cfg(test)]
 pub(crate) use state::SecondaryCameraId;
 pub use state::{CameraProjectionKind, HostCameraFrame, ViewId};

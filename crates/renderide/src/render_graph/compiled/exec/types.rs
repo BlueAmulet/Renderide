@@ -10,7 +10,7 @@ use super::super::super::blackboard::{Blackboard, GraphCommandStats};
 use super::super::super::context::GraphResolvedResources;
 use super::super::super::frame_params::FrameViewClear;
 use super::super::super::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
-use super::super::{FrameView, ResolvedView};
+use super::super::{FrameView, ResolvedView, ViewPostProcessing};
 
 /// Key for reusing transient pool allocations across [`FrameView`]s with identical surface layout.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -85,6 +85,8 @@ pub(super) struct OwnedResolvedView {
     pub(super) view_id: ViewId,
     /// Effective sample count for the view.
     pub(super) sample_count: u32,
+    /// Post-processing permissions requested by this view.
+    pub(super) post_processing: ViewPostProcessing,
 }
 
 impl OwnedResolvedView {
@@ -100,6 +102,7 @@ impl OwnedResolvedView {
             offscreen_write_render_texture_asset_id: self.offscreen_write_render_texture_asset_id,
             view_id: self.view_id,
             sample_count: self.sample_count,
+            post_processing: self.post_processing,
         }
     }
 }
@@ -114,6 +117,8 @@ pub(super) struct PerViewWorkItem {
     pub(super) view_id: ViewId,
     /// Background clear/skybox behavior for this view.
     pub(super) clear: FrameViewClear,
+    /// Post-processing permissions requested by this view.
+    pub(super) post_processing: ViewPostProcessing,
     /// Caller-seeded blackboard moved out of the frame view before pass recording.
     pub(super) initial_blackboard: Blackboard,
     /// Owned resolved view snapshot safe to move to a worker thread.

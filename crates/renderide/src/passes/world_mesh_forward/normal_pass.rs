@@ -323,6 +323,10 @@ impl RasterPass for WorldMeshForwardNormalPass {
         stencil_load_ops(Some(format))
     }
 
+    fn should_record(&self, ctx: &RasterPassCtx<'_, '_>) -> Result<bool, RenderPassError> {
+        Ok(crate::passes::post_processing::view_post_processing_enabled(&ctx.pass_frame.view))
+    }
+
     fn record(
         &self,
         ctx: &mut RasterPassCtx<'_, '_>,

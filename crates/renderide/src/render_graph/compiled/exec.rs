@@ -441,6 +441,7 @@ impl CompiledRenderGraph {
                     scene_color_format: mv_ctx.backend.scene_color_format_wgpu(),
                     host_camera: work_item.host_camera,
                     clear: work_item.clear,
+                    post_processing: work_item.post_processing,
                     gpu_limits: mv_ctx.backend.gpu_limits().cloned(),
                     msaa_depth_resolve: mv_ctx.backend.msaa_depth_resolve(),
                     hi_z_slot,
@@ -476,6 +477,7 @@ impl CompiledRenderGraph {
             let host_camera = view.host_camera;
             let resolved = Self::resolve_owned_view_from_target(
                 view_id,
+                view.post_processing,
                 &view.target,
                 mv_ctx.gpu,
                 mv_ctx.backbuffer_view_holder.as_ref(),
@@ -504,6 +506,7 @@ impl CompiledRenderGraph {
                 host_camera,
                 view_id,
                 clear: view.clear,
+                post_processing: view.post_processing,
                 initial_blackboard: std::mem::take(&mut view.initial_blackboard),
                 resolved,
                 per_view_frame_bg_and_buf,

@@ -19,7 +19,7 @@ use super::super::resources::{
 };
 use crate::camera::HostCameraFrame;
 
-use super::{CompiledPassInfo, ResolvedView};
+use super::{CompiledPassInfo, ResolvedView, ViewPostProcessing};
 
 /// Per-view inputs for [`frame_render_params_from_shared`].
 ///
@@ -35,6 +35,8 @@ pub(super) struct GraphPassFrameViewInputs<'a, 'r> {
     pub host_camera: HostCameraFrame,
     /// Background clear/skybox behavior for this view.
     pub clear: FrameViewClear,
+    /// Post-processing permissions requested by this view.
+    pub post_processing: ViewPostProcessing,
     /// GPU capability limits, shared with passes that need to clamp against them.
     pub gpu_limits: Option<Arc<GpuLimits>>,
     /// MSAA depth resolve helpers when MSAA is active.
@@ -53,6 +55,7 @@ pub(super) fn frame_render_params_from_shared<'a>(
         scene_color_format,
         host_camera,
         clear,
+        post_processing,
         gpu_limits,
         msaa_depth_resolve,
         hi_z_slot,
@@ -84,6 +87,7 @@ pub(super) fn frame_render_params_from_shared<'a>(
             gpu_limits,
             msaa_depth_resolve,
             clear,
+            post_processing,
             // MSAA views now live in the per-view blackboard (MsaaViewsSlot), resolved from
             // graph transient textures by the executor via resolve_forward_msaa_views_from_graph_resources.
         },
@@ -97,6 +101,7 @@ pub(super) fn frame_render_params_from_resolved<'a>(
     resolved: &ResolvedView<'a>,
     host_camera: HostCameraFrame,
     clear: FrameViewClear,
+    post_processing: ViewPostProcessing,
 ) -> GraphPassFrame<'a> {
     let scene_color_format = backend.scene_color_format_wgpu();
     let (
@@ -130,6 +135,7 @@ pub(super) fn frame_render_params_from_resolved<'a>(
             scene_color_format,
             host_camera,
             clear,
+            post_processing,
             gpu_limits,
             msaa_depth_resolve,
             hi_z_slot,

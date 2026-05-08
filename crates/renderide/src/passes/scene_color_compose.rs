@@ -24,8 +24,10 @@ use crate::render_graph::resources::{ImportedTextureHandle, TextureHandle};
 /// Graph handles for [`SceneColorComposePass`].
 #[derive(Clone, Copy, Debug)]
 pub struct SceneColorComposeGraphResources {
-    /// Resolved single-sample HDR scene color ([`crate::render_graph::resources::TransientTextureFormat::SceneColorHdr`]).
+    /// Raw resolved single-sample HDR scene color before post-processing.
     pub scene_color_hdr: TextureHandle,
+    /// Final HDR scene color after the post-processing chain, or `scene_color_hdr` when no effects are active.
+    pub post_processed_scene_color_hdr: TextureHandle,
     /// Imported frame color (output).
     pub frame_color: ImportedTextureHandle,
 }
@@ -59,6 +61,9 @@ impl RasterPass for SceneColorComposePass {
 
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
         read_fragment_sampled_texture(b, self.resources.scene_color_hdr);
+        if self.resources.post_processed_scene_color_hdr != self.resources.scene_color_hdr {
+            read_fragment_sampled_texture(b, self.resources.post_processed_scene_color_hdr);
+        }
         imported_color_attachment(
             b,
             self.resources.frame_color,
@@ -83,13 +88,15 @@ impl RasterPass for SceneColorComposePass {
         profiling::scope!("scene_color_compose::record");
         let frame = &*ctx.pass_frame;
         let graph_resources = ctx.graph_resources;
-        let Some(tex) = graph_resources.transient_texture(self.resources.scene_color_hdr) else {
+        let input = if frame.view.post_processing.is_enabled() {
+            self.resources.post_processed_scene_color_hdr
+        } else {
+            self.resources.scene_color_hdr
+        };
+        let Some(tex) = graph_resources.transient_texture(input) else {
             return Err(missing_pass_resource(
                 self.name(),
-                format_args!(
-                    "missing transient scene_color_hdr {:?}",
-                    self.resources.scene_color_hdr
-                ),
+                format_args!("missing transient scene_color_hdr {input:?}"),
             ));
         };
         let pipeline = self.pipelines.pipeline(
@@ -150,6 +157,7 @@ mod setup_tests {
         });
         let mut pass = SceneColorComposePass::new(SceneColorComposeGraphResources {
             scene_color_hdr: hdr,
+            post_processed_scene_color_hdr: hdr,
             frame_color,
         });
         let mut b = PassBuilder::new("SceneColorCompose");
