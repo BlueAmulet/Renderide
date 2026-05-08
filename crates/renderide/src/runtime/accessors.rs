@@ -15,9 +15,26 @@ impl RendererRuntime {
         self.diagnostics.set_last_submit_render_task_count(n);
     }
 
+    /// Updates the current pending camera readback count surfaced on the diagnostics HUD.
+    pub(crate) fn set_pending_camera_readbacks(&mut self, n: usize) {
+        self.diagnostics.set_pending_camera_readbacks(n);
+    }
+
+    /// Adds camera readback completions/failures to cumulative diagnostics counters.
+    pub(crate) fn note_camera_readback_results(&mut self, completed: u64, failed: u64) {
+        self.diagnostics
+            .note_camera_readback_results(completed, failed);
+    }
+
     /// Increments the cumulative scene-apply failure counter surfaced on the diagnostics HUD.
     pub(crate) fn note_frame_submit_apply_failure(&mut self) {
         self.diagnostics.note_frame_submit_apply_failure();
+    }
+
+    /// Number of host camera readback tasks waiting for GPU processing.
+    #[cfg(test)]
+    pub(crate) fn pending_camera_render_task_count(&self) -> usize {
+        self.tick_state.pending_camera_render_tasks.len()
     }
 
     /// Disables writing `config.toml` from the HUD when load-time Figment extraction failed.

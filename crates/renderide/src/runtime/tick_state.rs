@@ -1,6 +1,7 @@
 //! Runtime-owned per-tick scratch and phase gates.
 
 use crate::scene::RenderSpaceId;
+use crate::shared::CameraRenderTask;
 
 /// Per-tick gates and reusable view-planning scratch.
 pub(super) struct RuntimeTickState {
@@ -8,6 +9,8 @@ pub(super) struct RuntimeTickState {
     did_integrate_this_tick: bool,
     /// Reusable per-frame scratch for secondary render-texture view collection.
     pub(super) secondary_view_tasks_scratch: Vec<(RenderSpaceId, f32, usize)>,
+    /// Host camera readback tasks waiting for a GPU context before the next begin-frame send.
+    pub(super) pending_camera_render_tasks: Vec<CameraRenderTask>,
 }
 
 impl RuntimeTickState {
@@ -16,6 +19,7 @@ impl RuntimeTickState {
         Self {
             did_integrate_this_tick: false,
             secondary_view_tasks_scratch: Vec::new(),
+            pending_camera_render_tasks: Vec::new(),
         }
     }
 

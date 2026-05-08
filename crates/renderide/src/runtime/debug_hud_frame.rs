@@ -19,6 +19,9 @@ impl RendererRuntime {
             crate::diagnostics::FrameDiagnosticsSnapshotCapture {
                 host,
                 last_submit_render_task_count: self.diagnostics.last_submit_render_task_count,
+                pending_camera_readbacks: self.diagnostics.pending_camera_readbacks,
+                completed_camera_readbacks: self.diagnostics.completed_camera_readbacks,
+                failed_camera_readbacks: self.diagnostics.failed_camera_readbacks,
                 backend: &backend_diag,
                 ipc: crate::diagnostics::FrameDiagnosticsIpcQueues {
                     ipc_primary_outbound_drop_this_tick: self

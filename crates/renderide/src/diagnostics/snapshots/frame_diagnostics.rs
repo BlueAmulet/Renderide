@@ -29,6 +29,12 @@ pub struct FrameDiagnosticsSnapshotCapture<'a> {
     pub host: HostCpuMemoryHud,
     /// Host [`crate::shared::FrameSubmitData::render_tasks`] count from the last applied submit.
     pub last_submit_render_task_count: usize,
+    /// Camera readback tasks waiting for GPU processing before the next begin-frame send.
+    pub pending_camera_readbacks: usize,
+    /// Cumulative camera readback tasks successfully written to host shared memory.
+    pub completed_camera_readbacks: u64,
+    /// Cumulative camera readback tasks failed and zero-filled when possible.
+    pub failed_camera_readbacks: u64,
     /// Plain-data backend snapshot capturing pools, draw stats, shader routes, and graph counts.
     pub backend: &'a BackendDiagSnapshot,
     /// Outbound IPC queue drops and streaks.
@@ -71,6 +77,9 @@ impl FrameDiagnosticsSnapshot {
         let FrameDiagnosticsSnapshotCapture {
             host,
             last_submit_render_task_count,
+            pending_camera_readbacks,
+            completed_camera_readbacks,
+            failed_camera_readbacks,
             backend,
             ipc,
             xr,
@@ -81,7 +90,13 @@ impl FrameDiagnosticsSnapshot {
         Self {
             host,
             gpu_allocator: GpuAllocatorFragment::capture(allocator),
-            mesh_draw: MeshDrawFragment::capture(backend, last_submit_render_task_count),
+            mesh_draw: MeshDrawFragment::capture(
+                backend,
+                last_submit_render_task_count,
+                pending_camera_readbacks,
+                completed_camera_readbacks,
+                failed_camera_readbacks,
+            ),
             shader_routes: ShaderRoutesFragment::capture(backend),
             ipc_health: IpcHealthFragment::capture(
                 ipc,

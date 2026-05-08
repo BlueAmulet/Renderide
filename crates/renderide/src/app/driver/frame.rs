@@ -77,7 +77,9 @@ impl AppDriver {
             self.runtime.run_asset_integration();
         };
         if let Some(target) = self.target.as_mut() {
-            self.runtime.maintain_nonblocking_gpu_jobs(target.gpu_mut());
+            let gpu = target.gpu_mut();
+            self.runtime.maintain_nonblocking_gpu_jobs(gpu);
+            self.runtime.drain_camera_render_tasks(gpu);
         }
 
         let xr_pause = self

@@ -60,6 +60,16 @@ impl FrameViewClear {
             color: state.background_color,
         }
     }
+
+    /// Converts host camera readback parameters into a frame-view clear descriptor.
+    pub fn from_camera_render_parameters(
+        parameters: &crate::shared::CameraRenderParameters,
+    ) -> Self {
+        Self {
+            mode: parameters.clear_mode,
+            color: parameters.clear_color,
+        }
+    }
 }
 
 impl Default for FrameViewClear {

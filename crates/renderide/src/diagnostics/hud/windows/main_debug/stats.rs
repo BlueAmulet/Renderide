@@ -234,8 +234,11 @@ impl StatsSection for DrawStatsSection {
             m.rigid_draws, m.skinned_draws
         ));
         ui.text(format!(
-            "Last submit render_tasks: {}  |  pending camera readbacks: not implemented",
-            f.mesh_draw.last_submit_render_task_count
+            "Last submit render_tasks: {}  |  camera readbacks pending={} completed={} failed={}",
+            f.mesh_draw.last_submit_render_task_count,
+            f.mesh_draw.pending_camera_readbacks,
+            f.mesh_draw.completed_camera_readbacks,
+            f.mesh_draw.failed_camera_readbacks
         ));
         let q = &f.ipc_health.queues;
         ui.text(format!(

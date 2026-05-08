@@ -78,9 +78,14 @@ impl RenderGraphState {
         I: IntoIterator<Item = ViewId>,
     {
         let retired = self.view_resources.sync_active_views(active_views);
-        self.frame_graph_cache.release_view_resources(&retired);
-        self.post_processing_resources.retire_views(&retired);
+        self.release_view_resources(&retired);
         retired
+    }
+
+    /// Releases graph-owned resources for views retired outside the regular active-view registry.
+    pub(super) fn release_view_resources(&mut self, retired_views: &[ViewId]) {
+        self.frame_graph_cache.release_view_resources(retired_views);
+        self.post_processing_resources.retire_views(retired_views);
     }
 }
 

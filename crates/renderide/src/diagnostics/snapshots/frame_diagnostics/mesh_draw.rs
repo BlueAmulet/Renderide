@@ -13,6 +13,12 @@ pub struct MeshDrawFragment {
     pub draw_state_rows: Vec<WorldMeshDrawStateRow>,
     /// Host [`crate::shared::FrameSubmitData::render_tasks`] count from the last applied submit.
     pub last_submit_render_task_count: usize,
+    /// Camera readback tasks waiting for GPU processing before the next begin-frame send.
+    pub pending_camera_readbacks: usize,
+    /// Cumulative camera readback tasks successfully written to host shared memory.
+    pub completed_camera_readbacks: u64,
+    /// Cumulative camera readback tasks failed and zero-filled when possible.
+    pub failed_camera_readbacks: u64,
     /// Textures with a registered [`crate::shared::SetTexture2DFormat`] on the backend.
     pub textures_cpu_registered: usize,
     /// GPU-resident textures with at least mip 0 resident (`mip_levels_resident > 0`).
@@ -26,12 +32,21 @@ pub struct MeshDrawFragment {
 }
 
 impl MeshDrawFragment {
-    /// Builds the fragment from the backend snapshot plus the host's last-applied submit count.
-    pub fn capture(backend: &BackendDiagSnapshot, last_submit_render_task_count: usize) -> Self {
+    /// Builds the fragment from the backend snapshot plus camera task diagnostics.
+    pub fn capture(
+        backend: &BackendDiagSnapshot,
+        last_submit_render_task_count: usize,
+        pending_camera_readbacks: usize,
+        completed_camera_readbacks: u64,
+        failed_camera_readbacks: u64,
+    ) -> Self {
         Self {
             stats: backend.last_world_mesh_draw_stats,
             draw_state_rows: backend.last_world_mesh_draw_state_rows.clone(),
             last_submit_render_task_count,
+            pending_camera_readbacks,
+            completed_camera_readbacks,
+            failed_camera_readbacks,
             textures_cpu_registered: backend.texture_format_registration_count,
             textures_cpu_mip0_ready: backend.texture_mip0_ready_count,
             textures_gpu_resident: backend.texture_pool_resident_count,
@@ -74,10 +89,13 @@ mod tests {
             gpu_light_count: 12,
         };
 
-        let fragment = MeshDrawFragment::capture(&backend, 13);
+        let fragment = MeshDrawFragment::capture(&backend, 13, 14, 15, 16);
 
         assert_eq!(fragment.stats.draws_total, 12);
         assert_eq!(fragment.last_submit_render_task_count, 13);
+        assert_eq!(fragment.pending_camera_readbacks, 14);
+        assert_eq!(fragment.completed_camera_readbacks, 15);
+        assert_eq!(fragment.failed_camera_readbacks, 16);
         assert_eq!(fragment.textures_cpu_registered, 2);
         assert_eq!(fragment.textures_cpu_mip0_ready, 3);
         assert_eq!(fragment.textures_gpu_resident, 4);

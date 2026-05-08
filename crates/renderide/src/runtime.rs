@@ -16,14 +16,16 @@
 //! 2. **IPC poll** -- [`RendererRuntime::poll_ipc`]; drains incoming `RendererCommand`s before any work runs.
 //! 3. **Asset integration** -- [`RendererRuntime::run_asset_integration`]; time-sliced cooperative
 //!    mesh/texture/material uploads via [`crate::backend::RenderBackend::drain_asset_tasks`].
-//! 4. **Optional XR begin** -- `xr_begin_tick` in `app/`; OpenXR `wait_frame` / `locate_views` so the
+//! 4. **Camera readback tasks** -- [`RendererRuntime::drain_camera_render_tasks`] renders any
+//!    host-requested offscreen captures and writes the resulting bytes to shared memory.
+//! 5. **Optional XR begin** -- `xr_begin_tick` in `app/`; OpenXR `wait_frame` / `locate_views` so the
 //!    same view snapshot is visible to lock-step input.
-//! 5. **Lock-step exchange** -- [`RendererRuntime::pre_frame`] emits
+//! 6. **Lock-step exchange** -- [`RendererRuntime::pre_frame`] emits
 //!    [`FrameStartData`](crate::shared::FrameStartData) when allowed; the gating predicate
 //!    [`RendererFrontend::should_send_begin_frame`] keeps the lock-step *state* in
 //!    [`RendererFrontend`] (this module owns no lock-step counters).
-//! 6. **Render** -- desktop multi-view or HMD path through [`crate::render_graph`].
-//! 7. **Present + HUD** -- present surface, blit VR mirror, capture ImGui debug snapshots.
+//! 7. **Render** -- desktop multi-view or HMD path through [`crate::render_graph`].
+//! 8. **Present + HUD** -- present surface, blit VR mirror, capture ImGui debug snapshots.
 //!
 //! Lock-step is driven by the `last_frame_index` field of [`FrameStartData`](crate::shared::FrameStartData)
 //! on the **outgoing** `frame_start_data` the renderer sends from [`RendererRuntime::pre_frame`].
@@ -40,6 +42,7 @@
 //!
 //! - [`accessors`] -- thin facade pass-throughs to the frontend, backend, scene, and settings.
 //! - [`asset_integration`] -- cooperative asset-integration phase + once-per-tick gating.
+//! - [`camera_render_tasks`] -- host camera capture queue, offscreen render, GPU readback, and IPC writeback.
 //! - [`debug_hud_frame`] -- per-tick wiring for the diagnostics ImGui overlay.
 //! - [`frame_extract`] -- immutable per-tick view extraction, draw collection, submit packet.
 //! - [`frame_render`] -- render-mode dispatch, MSAA prep, frame-extract entry.
@@ -62,6 +65,7 @@
 
 mod accessors;
 mod asset_integration;
+mod camera_render_tasks;
 mod config_state;
 mod debug_hud_frame;
 mod diagnostics_state;

@@ -598,6 +598,25 @@ impl RenderBackend {
         }
     }
 
+    /// Releases resources for one-shot views that were never part of the active-view registry.
+    pub(crate) fn retire_one_shot_views(&mut self, retired: &[crate::camera::ViewId]) {
+        if retired.is_empty() {
+            return;
+        }
+        logger::debug!(
+            "retiring {} one-shot view-scoped resource sets",
+            retired.len()
+        );
+        self.graph_state.release_view_resources(retired);
+        self.world_mesh_frame_planner
+            .release_view_resources(retired);
+        for &view_id in retired {
+            self.frame_services.frame_resources.retire_view(view_id);
+            self.graph_state.history_registry_mut().retire_view(view_id);
+            let _ = self.occlusion.retire_view(view_id);
+        }
+    }
+
     /// Builds the narrow graph-execution access packet from disjoint backend owners.
     pub(crate) fn graph_access(&mut self) -> BackendGraphAccess<'_> {
         let scene_color_format = self.scene_color_format_wgpu();
