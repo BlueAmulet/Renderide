@@ -335,42 +335,38 @@ fn pack_probe_readback_to_host(
         let destination = &mut dst[subresource.host_origin..dst_end];
         match layout.output_format {
             ProbeOutputFormat::Rgba16Float => {
-                copy_rgba16f_rows_flip_y(source, subresource, destination);
+                copy_rgba16f_rows(source, subresource, destination);
             }
             ProbeOutputFormat::Rgba8 => {
-                convert_rgba16f_rows_to_rgba8_flip_y(source, subresource, destination);
+                convert_rgba16f_rows_to_rgba8(source, subresource, destination);
             }
         }
     }
     Ok(())
 }
 
-fn copy_rgba16f_rows_flip_y(src: &[u8], subresource: &ProbeMipReadback, dst: &mut [u8]) {
+fn copy_rgba16f_rows(src: &[u8], subresource: &ProbeMipReadback, dst: &mut [u8]) {
     let extent = subresource.extent as usize;
     let src_row_bytes = subresource.bytes_per_row_padded as usize;
     let tight_row_bytes = subresource.bytes_per_row_tight as usize;
-    for dst_row in 0..extent {
-        let src_row = extent - 1 - dst_row;
+    for row in 0..extent {
+        let src_row = row;
         let src_start = src_row * src_row_bytes;
         let src_end = src_start + tight_row_bytes;
-        let dst_start = dst_row * tight_row_bytes;
+        let dst_start = row * tight_row_bytes;
         let dst_end = dst_start + tight_row_bytes;
         dst[dst_start..dst_end].copy_from_slice(&src[src_start..src_end]);
     }
 }
 
-fn convert_rgba16f_rows_to_rgba8_flip_y(
-    src: &[u8],
-    subresource: &ProbeMipReadback,
-    dst: &mut [u8],
-) {
+fn convert_rgba16f_rows_to_rgba8(src: &[u8], subresource: &ProbeMipReadback, dst: &mut [u8]) {
     let extent = subresource.extent as usize;
     let src_row_bytes = subresource.bytes_per_row_padded as usize;
     let dst_row_bytes = extent * super::RGBA8_BYTES_PER_PIXEL;
-    for dst_row in 0..extent {
-        let src_row = extent - 1 - dst_row;
+    for row in 0..extent {
+        let src_row = row;
         let src_row_start = src_row * src_row_bytes;
-        let dst_row_start = dst_row * dst_row_bytes;
+        let dst_row_start = row * dst_row_bytes;
         for x in 0..extent {
             let src_i = src_row_start + x * RGBA16F_BYTES_PER_PIXEL;
             let dst_i = dst_row_start + x * super::RGBA8_BYTES_PER_PIXEL;
@@ -535,7 +531,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_rgba16f_to_rgba8_flips_rows_and_clamps() {
+    fn pack_rgba16f_to_rgba8_preserves_rows_and_clamps() {
         let subresource = ProbeMipReadback {
             face: ProbeCubeFace::PosX,
             mip: 0,
@@ -563,7 +559,42 @@ mod tests {
         assert_eq!(
             dst,
             [
-                0, 255, 255, 255, 0, 0, 128, 255, 255, 128, 64, 255, 255, 0, 0, 255
+                255, 128, 64, 255, 255, 0, 0, 255, 0, 255, 255, 255, 0, 0, 128, 255
+            ]
+        );
+    }
+
+    #[test]
+    fn pack_rgba16f_preserves_rows_and_omits_padding() {
+        let subresource = ProbeMipReadback {
+            face: ProbeCubeFace::PosX,
+            mip: 0,
+            extent: 2,
+            bytes_per_row_tight: 16,
+            bytes_per_row_padded: 24,
+            buffer_offset: 0,
+            host_origin: 0,
+            host_byte_count: 32,
+        };
+        let layout = ProbeReadbackLayout {
+            subresources: vec![subresource],
+            buffer_size: 48,
+            output_format: ProbeOutputFormat::Rgba16Float,
+        };
+        let mapped = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 200, 201, 202, 203, 204, 205,
+            206, 207, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 208, 209,
+            210, 211, 212, 213, 214, 215,
+        ];
+        let mut dst = [0u8; 32];
+
+        pack_probe_readback_to_host(&mapped, &layout, &mut dst).expect("pack");
+
+        assert_eq!(
+            dst,
+            [
+                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                23, 24, 25, 26, 27, 28, 29, 30, 31
             ]
         );
     }

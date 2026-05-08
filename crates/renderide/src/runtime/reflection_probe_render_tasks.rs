@@ -5,10 +5,9 @@ use std::sync::Arc;
 use glam::{Mat4, Vec3};
 use hashbrown::HashSet;
 
-use crate::backend::RenderBackend;
+use crate::backend::{PostProcessingGraphMode, RenderBackend};
 use crate::camera::{
     CameraClipPlanes, CameraPose, CameraProjectionKind, EyeView, HostCameraFrame, ViewId, Viewport,
-    reverse_z_perspective,
 };
 use crate::gpu::{CUBEMAP_ARRAY_LAYERS, GpuContext};
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
@@ -693,7 +692,7 @@ fn host_camera_frame_for_probe_face(
     let clip = reflection_probe_clip(state);
     let world_matrix = probe_face_world_matrix(position, face);
     let pose = CameraPose::from_world_matrix(world_matrix);
-    let proj = reverse_z_perspective(1.0, std::f32::consts::FRAC_PI_2, clip.near, clip.far);
+    let viewport = Viewport::from_tuple(viewport_px);
     HostCameraFrame {
         frame_index: base.frame_index,
         clip,
@@ -706,10 +705,10 @@ fn host_camera_frame_for_probe_face(
         head_output_transform: base.head_output_transform,
         explicit_view: Some(EyeView::from_pose_projection(
             pose,
-            if Viewport::from_tuple(viewport_px).is_empty() {
+            if viewport.is_empty() {
                 Mat4::IDENTITY
             } else {
-                proj
+                EyeView::perspective_from_pose(pose, viewport, 90.0, clip).proj
             },
         )),
         eye_world_position: Some(position),
@@ -737,7 +736,7 @@ fn probe_face_world_matrix(position: Vec3, face: ProbeCubeFace) -> Mat4 {
     Mat4::from_cols(
         basis.right.extend(0.0),
         basis.up.extend(0.0),
-        (-basis.forward).extend(0.0),
+        basis.forward.extend(0.0),
         position.extend(1.0),
     )
 }
@@ -765,7 +764,12 @@ fn render_reflection_probe_faces_offscreen(
     let submit_frame = ExtractedFrame::new(prepared_views, shared)
         .prepare_draws()
         .into_submit_frame();
-    submit_frame.execute(gpu, scene, backend)?;
+    submit_frame.execute_with_post_processing(
+        gpu,
+        scene,
+        backend,
+        PostProcessingGraphMode::Disabled,
+    )?;
     Ok(())
 }
 
@@ -816,6 +820,14 @@ pub(super) fn reflection_probe_render_task_count(data: &FrameSubmitData) -> usiz
 mod tests {
     use super::*;
 
+    fn matrix_direction_for_uv(face: ProbeCubeFace, u: f32, v: f32) -> Vec3 {
+        let x = 2.0 * u - 1.0;
+        let y = 1.0 - 2.0 * v;
+        probe_face_world_matrix(Vec3::ZERO, face)
+            .transform_vector3(Vec3::new(x, y, 1.0))
+            .normalize()
+    }
+
     #[test]
     fn cubemap_face_directions_match_bitmap_cube_order() {
         let samples = [
@@ -830,6 +842,44 @@ mod tests {
             let actual = face.direction_for_uv(0.0, 0.0);
             assert!((actual - expected.normalize()).length() < 1e-6);
         }
+    }
+
+    #[test]
+    fn probe_face_world_matrices_match_bitmap_cube_directions() {
+        for face in ProbeCubeFace::ALL {
+            assert!(
+                (matrix_direction_for_uv(face, 0.5, 0.5) - face.basis().forward).length() < 1e-6
+            );
+            for (u, v) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+                let actual = matrix_direction_for_uv(face, u, v);
+                let expected = face.direction_for_uv(u, v);
+                assert!(
+                    (actual - expected).length() < 1e-6,
+                    "{face:?} uv=({u}, {v}) actual={actual:?} expected={expected:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn probe_face_projection_is_square_ninety_degrees() {
+        let frame = host_camera_frame_for_probe_face(
+            HostCameraFrame::default(),
+            ReflectionProbeState {
+                near_clip: 0.1,
+                far_clip: 100.0,
+                ..Default::default()
+            },
+            (256, 256),
+            Vec3::ZERO,
+            ProbeCubeFace::PosZ,
+        );
+        let view = frame
+            .explicit_view
+            .expect("probe face should use explicit camera view");
+
+        assert!((view.proj.x_axis.x - 1.0).abs() < 1e-6);
+        assert!((view.proj.y_axis.y - 1.0).abs() < 1e-6);
     }
 
     #[test]
