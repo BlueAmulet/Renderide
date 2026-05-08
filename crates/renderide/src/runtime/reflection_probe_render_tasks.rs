@@ -257,7 +257,7 @@ enum ReflectionProbeBakeError {
 struct ProbeTaskTargets {
     cube_texture: Arc<wgpu::Texture>,
     face_color_views: [Arc<wgpu::TextureView>; CUBE_FACE_COUNT],
-    depth_texture: Arc<wgpu::Texture>,
+    face_depth_textures: [Arc<wgpu::Texture>; CUBE_FACE_COUNT],
     face_depth_views: [Arc<wgpu::TextureView>; CUBE_FACE_COUNT],
     color_format: wgpu::TextureFormat,
     extent: ProbeTaskExtent,
@@ -308,24 +308,36 @@ impl ProbeTaskTargets {
             "runtime::reflection_probe_task_face_color_views"
         );
 
-        let depth_texture = Arc::new(gpu.device().create_texture(&wgpu::TextureDescriptor {
-            label: Some("renderide-reflection-probe-task-depth"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: crate::gpu::main_forward_depth_stencil_format(gpu.device().features()),
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        }));
         let depth_format = crate::gpu::main_forward_depth_stencil_format(gpu.device().features());
+        let depth_size = wgpu::Extent3d {
+            width: extent.size,
+            height: extent.size,
+            depth_or_array_layers: 1,
+        };
+        let face_depth_textures = std::array::from_fn(|_i| {
+            Arc::new(gpu.device().create_texture(&wgpu::TextureDescriptor {
+                label: Some("renderide-reflection-probe-task-face-depth"),
+                size: depth_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: depth_format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            }))
+        });
         let face_depth_views = std::array::from_fn(|i| {
-            Arc::new(depth_texture.create_view(&face_view_desc(
-                "renderide-reflection-probe-task-face-depth",
-                i as u32,
-                depth_format,
-                wgpu::TextureUsages::RENDER_ATTACHMENT,
-            )))
+            Arc::new(
+                face_depth_textures[i].create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("renderide-reflection-probe-task-face-depth"),
+                    format: Some(depth_format),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    usage: Some(wgpu::TextureUsages::RENDER_ATTACHMENT),
+                    aspect: wgpu::TextureAspect::All,
+                    ..Default::default()
+                }),
+            )
         });
         crate::profiling::note_resource_churn!(
             TextureView,
@@ -335,7 +347,7 @@ impl ProbeTaskTargets {
         Ok(Self {
             cube_texture,
             face_color_views,
-            depth_texture,
+            face_depth_textures,
             face_depth_views,
             color_format: PROBE_TASK_COLOR_FORMAT,
             extent,
@@ -346,7 +358,7 @@ impl ProbeTaskTargets {
         OffscreenRtHandles {
             rt_id: -1,
             color_view: Arc::clone(&self.face_color_views[face.index()]),
-            depth_texture: Arc::clone(&self.depth_texture),
+            depth_texture: Arc::clone(&self.face_depth_textures[face.index()]),
             depth_view: Arc::clone(&self.face_depth_views[face.index()]),
             color_format: self.color_format,
         }
