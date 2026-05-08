@@ -40,7 +40,6 @@ use diagnostics::BackendDiagnostics;
 use draw_preparation::BackendDrawPreparation;
 use frame_services::BackendFrameServices;
 pub(crate) use graph_access::BackendGraphAccess;
-pub(crate) use graph_cache::PostProcessingGraphMode;
 use graph_state::RenderGraphState;
 use reflection_services::ReflectionProbeServices;
 
@@ -782,30 +781,6 @@ mod post_processing_rebuild_tests {
         backend.ensure_frame_graph_in_sync(false);
         assert_eq!(cached_graph_key(&backend).post_processing, signature);
         assert_eq!(backend.frame_graph_pass_count(), pass_count);
-    }
-
-    /// Disabled execution mode forces a raw scene-color graph even when live settings enable the
-    /// full post-processing stack.
-    #[test]
-    fn disabled_post_processing_mode_builds_empty_signature() {
-        let mut backend = RenderBackend::new();
-        backend.renderer_settings = Some(settings_handle(PostProcessingSettings {
-            enabled: true,
-            tonemap: TonemapSettings {
-                mode: TonemapMode::AcesFitted,
-            },
-            ..Default::default()
-        }));
-
-        backend.ensure_frame_graph_in_sync_with_post_processing(
-            false,
-            PostProcessingGraphMode::Disabled,
-        );
-
-        assert_eq!(
-            cached_graph_key(&backend).post_processing,
-            PostProcessChainSignature::default()
-        );
     }
 
     /// Switching between mono and stereo multiview should flip the graph key in one place so the

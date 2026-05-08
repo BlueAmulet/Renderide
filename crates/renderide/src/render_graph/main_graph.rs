@@ -474,7 +474,8 @@ fn add_main_graph_passes_and_edges(
 
     let compose = builder.add_raster_pass(Box::new(crate::passes::SceneColorComposePass::new(
         crate::passes::SceneColorComposeGraphResources {
-            scene_color_hdr: compose_input,
+            scene_color_hdr: h.scene_color_hdr,
+            post_processed_scene_color_hdr: compose_input,
             frame_color: h.color,
         },
     )));

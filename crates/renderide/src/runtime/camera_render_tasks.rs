@@ -10,7 +10,7 @@ use crate::backend::RenderBackend;
 use crate::camera::{ViewId, camera_render_task_world_matrix, host_camera_frame_for_render_task};
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
-use crate::render_graph::{FrameViewClear, GraphExecuteError};
+use crate::render_graph::{FrameViewClear, GraphExecuteError, ViewPostProcessing};
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::{CameraRenderParameters, CameraRenderTask, RenderingContext, TextureFormat};
 use crate::world_mesh::{CameraTransformDrawFilter, WorldMeshDrawCollectParallelism};
@@ -410,6 +410,7 @@ fn plan_camera_task(
             view_id: ViewId::camera_render_task(render_space_id, task_index),
             viewport_px: extent.tuple(),
             clear: FrameViewClear::from_camera_render_parameters(parameters),
+            post_processing: ViewPostProcessing::from_camera_render_parameters(parameters),
             target: FrameViewPlanTarget::SecondaryRt(targets.to_offscreen_handles()),
         },
         targets,
@@ -935,5 +936,30 @@ mod tests {
             CameraTaskOutputFormat::from_texture_format(TextureFormat::RGBAHalf),
             None
         );
+    }
+
+    #[test]
+    fn camera_render_task_post_processing_policy_matches_host_parameters() {
+        let disabled = CameraRenderParameters {
+            post_processing: false,
+            screen_space_reflections: true,
+            ..Default::default()
+        };
+        let disabled_policy = ViewPostProcessing::from_camera_render_parameters(&disabled);
+
+        assert!(!disabled_policy.is_enabled());
+        assert!(!disabled_policy.screen_space_reflections);
+        assert!(!disabled_policy.motion_blur);
+
+        let enabled = CameraRenderParameters {
+            post_processing: true,
+            screen_space_reflections: false,
+            ..Default::default()
+        };
+        let enabled_policy = ViewPostProcessing::from_camera_render_parameters(&enabled);
+
+        assert!(enabled_policy.is_enabled());
+        assert!(!enabled_policy.screen_space_reflections);
+        assert!(!enabled_policy.motion_blur);
     }
 }

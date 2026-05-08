@@ -84,6 +84,10 @@ impl RasterPass for AcesTonemapPass {
         raster_stereo_mask_override(ctx, template)
     }
 
+    fn should_record(&self, ctx: &RasterPassCtx<'_, '_>) -> Result<bool, RenderPassError> {
+        Ok(super::view_post_processing_enabled(&ctx.pass_frame.view))
+    }
+
     fn record(
         &self,
         ctx: &mut RasterPassCtx<'_, '_>,

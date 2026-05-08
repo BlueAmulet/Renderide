@@ -4,7 +4,7 @@ use crate::gpu::GpuContext;
 use crate::render_graph::{FrameView, GraphExecuteError};
 use crate::scene::SceneCoordinator;
 
-use super::{PostProcessingGraphMode, RenderBackend};
+use super::RenderBackend;
 
 impl RenderBackend {
     /// Unified multi-view entry: one Hi-Z readback (unless skipped), one encoder, one submit.
@@ -26,35 +26,6 @@ impl RenderBackend {
         views: &mut Vec<FrameView<'_>>,
         skip_hi_z_begin_readback: bool,
     ) -> Result<(), GraphExecuteError> {
-        self.execute_multi_view_frame_inner(gpu, scene, views, skip_hi_z_begin_readback, None)
-    }
-
-    /// Executes a multi-view frame with an explicit post-processing graph mode.
-    pub(crate) fn execute_multi_view_frame_with_post_processing(
-        &mut self,
-        gpu: &mut GpuContext,
-        scene: &SceneCoordinator,
-        views: &mut Vec<FrameView<'_>>,
-        skip_hi_z_begin_readback: bool,
-        post_processing_mode: PostProcessingGraphMode,
-    ) -> Result<(), GraphExecuteError> {
-        self.execute_multi_view_frame_inner(
-            gpu,
-            scene,
-            views,
-            skip_hi_z_begin_readback,
-            Some(post_processing_mode),
-        )
-    }
-
-    fn execute_multi_view_frame_inner(
-        &mut self,
-        gpu: &mut GpuContext,
-        scene: &SceneCoordinator,
-        views: &mut Vec<FrameView<'_>>,
-        skip_hi_z_begin_readback: bool,
-        post_processing_mode: Option<PostProcessingGraphMode>,
-    ) -> Result<(), GraphExecuteError> {
         profiling::scope!("backend::execute_multi_view_frame");
         if !skip_hi_z_begin_readback {
             self.hi_z_begin_frame_readback(gpu.device());
@@ -64,12 +35,7 @@ impl RenderBackend {
         // each tick so signature flips (effect added or removed) take effect on the next frame.
         // Parameter-only edits do not flip the signature and avoid the rebuild cost.
         let multiview_stereo = views.iter().any(FrameView::is_multiview_stereo_active);
-        match post_processing_mode {
-            Some(mode) => {
-                self.ensure_frame_graph_in_sync_with_post_processing(multiview_stereo, mode);
-            }
-            None => self.ensure_frame_graph_in_sync(multiview_stereo),
-        }
+        self.ensure_frame_graph_in_sync(multiview_stereo);
         let Some(mut graph) = self.graph_state.frame_graph_cache.take_graph() else {
             return Err(GraphExecuteError::NoFrameGraph);
         };

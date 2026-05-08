@@ -18,7 +18,7 @@ use super::super::super::resources::{
     SubresourceHandle, TextureHandle,
 };
 use super::super::helpers;
-use super::super::{CompiledRenderGraph, FrameViewTarget, ResolvedView};
+use super::super::{CompiledRenderGraph, FrameViewTarget, ResolvedView, ViewPostProcessing};
 use super::{OwnedResolvedView, TransientTextureResolveSurfaceParams};
 use crate::camera::ViewId;
 
@@ -354,6 +354,7 @@ impl CompiledRenderGraph {
     /// Resolves a [`FrameViewTarget`] into a [`ResolvedView`] with color/depth attachments.
     pub(super) fn resolve_view_from_target<'a>(
         view_id: ViewId,
+        post_processing: ViewPostProcessing,
         target: &'a FrameViewTarget<'a>,
         gpu: &'a mut GpuContext,
         backbuffer_view_holder: Option<&'a wgpu::TextureView>,
@@ -380,6 +381,7 @@ impl CompiledRenderGraph {
                     offscreen_write_render_texture_asset_id: None,
                     view_id: ViewId::Main,
                     sample_count,
+                    post_processing,
                 })
             }
             FrameViewTarget::ExternalMultiview(ext) => {
@@ -394,6 +396,7 @@ impl CompiledRenderGraph {
                     offscreen_write_render_texture_asset_id: None,
                     view_id: ViewId::Main,
                     sample_count,
+                    post_processing,
                 })
             }
             FrameViewTarget::OffscreenRt(ext) => Ok(ResolvedView {
@@ -406,6 +409,7 @@ impl CompiledRenderGraph {
                 offscreen_write_render_texture_asset_id: Some(ext.render_texture_asset_id),
                 view_id,
                 sample_count: 1,
+                post_processing,
             }),
         }
     }
@@ -413,12 +417,18 @@ impl CompiledRenderGraph {
     /// Same as [`Self::resolve_view_from_target`] but owns its color/depth handles.
     pub(super) fn resolve_owned_view_from_target(
         view_id: ViewId,
+        post_processing: ViewPostProcessing,
         target: &FrameViewTarget<'_>,
         gpu: &mut GpuContext,
         backbuffer_view_holder: Option<&wgpu::TextureView>,
     ) -> Result<OwnedResolvedView, GraphExecuteError> {
-        let resolved =
-            Self::resolve_view_from_target(view_id, target, gpu, backbuffer_view_holder)?;
+        let resolved = Self::resolve_view_from_target(
+            view_id,
+            post_processing,
+            target,
+            gpu,
+            backbuffer_view_holder,
+        )?;
         Ok(OwnedResolvedView {
             depth_texture: resolved.depth_texture.clone(),
             depth_view: resolved.depth_view.clone(),
@@ -430,6 +440,7 @@ impl CompiledRenderGraph {
                 .offscreen_write_render_texture_asset_id,
             view_id: resolved.view_id,
             sample_count: resolved.sample_count,
+            post_processing: resolved.post_processing,
         })
     }
 }

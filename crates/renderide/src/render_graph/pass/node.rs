@@ -139,6 +139,17 @@ impl PassNode {
         }
     }
 
+    /// Returns whether a compute pass should be recorded for this view. Returns `true` for non-compute variants.
+    pub(crate) fn should_record_compute(
+        &self,
+        ctx: &ComputePassCtx<'_, '_, '_>,
+    ) -> Result<bool, RenderPassError> {
+        match self {
+            Self::Compute(p) => p.should_record(ctx),
+            Self::Raster(_) => Ok(true),
+        }
+    }
+
     /// Records raster draw commands into an already-open render pass.
     /// Returns `Ok(())` for non-raster variants (no-op).
     pub(crate) fn record_raster(

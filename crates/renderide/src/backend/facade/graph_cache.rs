@@ -7,28 +7,6 @@ use crate::render_graph::post_process_chain::PostProcessChainSignature;
 
 use super::RenderBackend;
 
-/// Post-processing topology used while synchronizing the compiled frame graph.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PostProcessingGraphMode {
-    /// Use the live renderer post-processing settings.
-    Live,
-    /// Render the HDR scene color directly into the target.
-    Disabled,
-}
-
-impl PostProcessingGraphMode {
-    fn graph_settings(self, live_settings: &PostProcessingSettings) -> PostProcessingSettings {
-        match self {
-            Self::Live => live_settings.clone(),
-            Self::Disabled => {
-                let mut disabled = live_settings.clone();
-                disabled.enabled = false;
-                disabled
-            }
-        }
-    }
-}
-
 /// The graph-shaping inputs that matter at the current renderer stage.
 ///
 /// `surface_extent` intentionally stays outside this shape today because the main graph resolves
@@ -137,18 +115,6 @@ impl RenderBackend {
 
     /// Rebuilds the main graph when live settings or the execution multiview shape changed.
     pub(crate) fn ensure_frame_graph_in_sync(&mut self, multiview_stereo: bool) {
-        self.ensure_frame_graph_in_sync_with_post_processing(
-            multiview_stereo,
-            PostProcessingGraphMode::Live,
-        );
-    }
-
-    /// Rebuilds the main graph for the requested post-processing topology and multiview shape.
-    pub(crate) fn ensure_frame_graph_in_sync_with_post_processing(
-        &mut self,
-        multiview_stereo: bool,
-        post_processing_mode: PostProcessingGraphMode,
-    ) {
         let Some(handle) = self.renderer_settings.as_ref() else {
             return;
         };
@@ -159,8 +125,7 @@ impl RenderBackend {
             ),
             Err(_) => return,
         };
-        let requested_settings = post_processing_mode.graph_settings(&live_settings);
-        let graph_settings = self.effective_post_processing_settings_for_graph(&requested_settings);
+        let graph_settings = self.effective_post_processing_settings_for_graph(&live_settings);
         let shape = self.frame_graph_shape_for(&graph_settings, live_msaa, multiview_stereo);
         self.sync_frame_graph_cache(&graph_settings, shape);
     }

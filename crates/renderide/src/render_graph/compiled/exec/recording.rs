@@ -176,6 +176,7 @@ impl CompiledRenderGraph {
                 scene_color_format: shared.scene_color_format,
                 host_camera: *host_camera,
                 clear,
+                post_processing: resolved.post_processing,
                 gpu_limits: shared.gpu_limits_arc.clone(),
                 msaa_depth_resolve: shared.msaa_depth_resolve.clone(),
                 hi_z_slot,
@@ -256,6 +257,7 @@ impl CompiledRenderGraph {
                 profiling::scope!("graph::frame_global::resolve_target");
                 Self::resolve_view_from_target(
                     first.view_id(),
+                    first.post_processing,
                     &first.target,
                     gpu,
                     backbuffer_view_holder.as_ref(),
@@ -295,6 +297,7 @@ impl CompiledRenderGraph {
                     &resolved,
                     first.host_camera,
                     first.clear,
+                    first.post_processing,
                 )
             };
             let mut frame_blackboard = Self::build_frame_global_blackboard();
@@ -509,8 +512,13 @@ impl CompiledRenderGraph {
                 };
                 {
                     profiling::scope!("graph::record_compute::pass_record");
-                    pass.record_compute(&mut ctx)
-                        .map_err(GraphExecuteError::Pass)?;
+                    if pass
+                        .should_record_compute(&ctx)
+                        .map_err(GraphExecuteError::Pass)?
+                    {
+                        pass.record_compute(&mut ctx)
+                            .map_err(GraphExecuteError::Pass)?;
+                    }
                 }
             }
         }
