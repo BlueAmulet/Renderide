@@ -72,6 +72,18 @@ impl CameraTransformDrawFilter {
             Some(excl.into_iter().map(|e| !e).collect())
         }
     }
+
+    /// Stable, human-readable root summary for diagnostics.
+    pub fn debug_summary(&self) -> String {
+        let mut exclude: Vec<_> = self.exclude.iter().copied().collect();
+        exclude.sort_unstable();
+        let only = self.only.as_ref().map(|set| {
+            let mut ids: Vec<_> = set.iter().copied().collect();
+            ids.sort_unstable();
+            ids
+        });
+        format!("only={only:?} exclude={exclude:?}")
+    }
 }
 
 fn node_or_ancestor_in_set(

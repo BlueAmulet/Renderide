@@ -134,6 +134,49 @@ impl RendererRuntime {
     pub fn debug_hud_last_want_capture_keyboard(&self) -> bool {
         self.backend.debug_hud_last_want_capture_keyboard()
     }
+
+    /// Read-only scene state used by present-time queries (e.g. active `BlitToDisplay` lookup).
+    pub fn scene(&self) -> &crate::scene::SceneCoordinator {
+        &self.scene
+    }
+
+    /// Resolves a `BlitToDisplay.texture_id` into a sampleable 2D color view + texel size.
+    ///
+    /// Mirrors `Renderite.Unity.TextureHelper.GetTexture` but only for the texture kinds that make
+    /// sense as a fullscreen blit source. `Texture2D` and `RenderTexture` cover the common cases
+    /// (camera-preview mirror via `InteractiveCamera`, host avatar previews). `Texture3D` /
+    /// `Cubemap` have no canonical 2D slice; `VideoTexture` and `Desktop` are not wired yet (their
+    /// pool entries do not surface width/height through the resident-pool facade) and are
+    /// returned as [`None`] until the renderer needs them.
+    pub fn resolve_blit_to_display_texture(
+        &self,
+        packed_texture_id: i32,
+    ) -> Option<(std::sync::Arc<wgpu::TextureView>, u32, u32)> {
+        use crate::assets::texture::{HostTextureAssetKind, unpack_host_texture_packed};
+        let (asset_id, kind) = unpack_host_texture_packed(packed_texture_id)?;
+        match kind {
+            HostTextureAssetKind::Texture2D => {
+                let asset = self.backend.texture_pool().get(asset_id)?;
+                Some((
+                    std::sync::Arc::clone(&asset.view),
+                    asset.width,
+                    asset.height,
+                ))
+            }
+            HostTextureAssetKind::RenderTexture => {
+                let asset = self.backend.render_texture_pool().get(asset_id)?;
+                Some((
+                    std::sync::Arc::clone(&asset.color_view),
+                    asset.width,
+                    asset.height,
+                ))
+            }
+            HostTextureAssetKind::Texture3D
+            | HostTextureAssetKind::Cubemap
+            | HostTextureAssetKind::VideoTexture
+            | HostTextureAssetKind::Desktop => None,
+        }
+    }
 }
 
 #[cfg(test)]

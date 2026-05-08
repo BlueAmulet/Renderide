@@ -15,15 +15,15 @@ use glam::{Mat4, Vec3};
 use rayon::prelude::*;
 
 use crate::gpu_pools::MeshPool;
-use crate::materials::ShaderPermutation;
 use crate::materials::host_data::MaterialDictionary;
+use crate::materials::ShaderPermutation;
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter, RasterFrontFace};
 use crate::reflection_probes::specular::ReflectionProbeFrameSelection;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::RenderingContext;
 use crate::world_mesh::culling::WorldMeshCullInput;
 use crate::world_mesh::materials::{
-    FrameMaterialBatchCache, MaterialResolveCtx, batch_key_for_slot_cached,
+    batch_key_for_slot_cached, FrameMaterialBatchCache, MaterialResolveCtx,
 };
 
 use super::filter::CameraTransformDrawFilter;
@@ -37,7 +37,7 @@ pub(super) mod prepared;
 mod scene_walk;
 
 use filter_masks::build_per_space_filter_masks;
-use prepared::{PREPARED_CHUNK_SIZE, collect_prepared_chunk};
+use prepared::{collect_prepared_chunk, PREPARED_CHUNK_SIZE};
 use scene_walk::{build_chunk_specs, collect_chunk, estimate_active_renderable_count};
 
 #[cfg(test)]
@@ -53,9 +53,19 @@ fn world_matrix_for_local_vertex_stream(
     ctx: &DrawCollectionContext<'_>,
     space_id: RenderSpaceId,
     node_id: i32,
+    is_overlay: bool,
 ) -> Option<Mat4> {
     if node_id < 0 {
         return None;
+    }
+    if is_overlay {
+        return ctx
+            .scene
+            .overlay_layer_model_matrix_for_context(space_id, node_id as usize, ctx.render_context)
+            .or_else(|| {
+                ctx.scene
+                    .world_matrix_for_context(space_id, node_id as usize, ctx.render_context)
+            });
     }
     ctx.scene.world_matrix_for_render_context(
         space_id,

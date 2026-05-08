@@ -265,6 +265,38 @@ impl SceneCoordinator {
         out
     }
 
+    /// Latest [`crate::shared::BlitToDisplayState`] targeting `display_index` from any active
+    /// render space, or [`None`] if no active blit covers that display.
+    ///
+    /// Mirrors Unity `BlitToDisplayManager` semantics: when multiple blits target the same display,
+    /// the last one applied wins. `is_overlay` spaces are included so per-user/avatar mirror blits
+    /// keep working in overlay worlds. Entries whose state has not yet been initialized by a
+    /// `states` row are skipped.
+    pub fn active_blit_for_display(
+        &self,
+        display_index: i16,
+    ) -> Option<crate::shared::BlitToDisplayState> {
+        let mut latest: Option<crate::shared::BlitToDisplayState> = None;
+        for space in self.spaces.values() {
+            if !space.is_active {
+                continue;
+            }
+            for entry in &space.blit_to_displays {
+                if !entry.state_initialized {
+                    continue;
+                }
+                if entry.state.display_index != display_index {
+                    continue;
+                }
+                if entry.state.texture_id < 0 {
+                    continue;
+                }
+                latest = Some(entry.state);
+            }
+        }
+        latest
+    }
+
     /// Current head-output render context for the main view.
     pub fn active_main_render_context(&self) -> RenderingContext {
         self.active_main_space()

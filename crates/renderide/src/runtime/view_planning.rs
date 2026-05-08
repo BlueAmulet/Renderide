@@ -9,6 +9,7 @@
 use crate::camera::{ViewId, camera_state_enabled, host_camera_frame_for_render_texture};
 use crate::render_graph::FrameViewClear;
 use crate::scene::RenderSpaceId;
+use crate::shared::CameraProjection;
 use crate::world_mesh::draw_filter_from_camera_entry;
 
 use super::RendererRuntime;
@@ -173,6 +174,35 @@ impl RendererRuntime {
             if !entry.selective_transform_ids.is_empty() {
                 hc.suppress_occlusion_temporal = true;
             }
+            let projection_name = match entry.state.projection {
+                CameraProjection::Orthographic => "Orthographic",
+                CameraProjection::Perspective => "Perspective",
+                CameraProjection::Panoramic => "Panoramic",
+            };
+            let camera_pos = hc.view_origin_world();
+            logger::debug!(
+                "secondary camera plan: space={:?} camera_index={} renderable_index={} transform_id={} rt_id={} viewport={}x{} projection={} fov={:.3} ortho_size={:.3} flags=0x{:04x} selective_count={} exclude_count={} selective_ids={:?} exclude_ids={:?} filter={} suppress_occlusion_temporal={} camera_world=({:.3},{:.3},{:.3})",
+                sid,
+                cam_idx,
+                entry.renderable_index,
+                entry.transform_id,
+                rt_id,
+                viewport.0,
+                viewport.1,
+                projection_name,
+                entry.state.field_of_view,
+                entry.state.orthographic_size,
+                entry.state.flags,
+                entry.selective_transform_ids.len(),
+                entry.exclude_transform_ids.len(),
+                entry.selective_transform_ids,
+                entry.exclude_transform_ids,
+                filter.debug_summary(),
+                hc.suppress_occlusion_temporal,
+                camera_pos.x,
+                camera_pos.y,
+                camera_pos.z,
+            );
             views.push(FrameViewPlan {
                 host_camera: hc,
                 draw_filter: Some(filter),

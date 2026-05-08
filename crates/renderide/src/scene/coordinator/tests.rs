@@ -94,6 +94,7 @@ fn empty_extracted_render_space_update() -> ExtractedRenderSpaceUpdate {
         layers: None,
         transform_overrides: None,
         material_overrides: None,
+        blit_to_displays: None,
     }
 }
 
@@ -325,6 +326,64 @@ fn overlay_render_matrix_tracks_head_output_transform() {
     );
 }
 
+#[test]
+fn overlay_layer_model_matrix_strips_ancestors_above_overlay_root() {
+    let mut scene = SceneCoordinator::new();
+    let id = RenderSpaceId(17);
+    scene.spaces.insert(
+        id,
+        RenderSpaceState {
+            id,
+            is_active: true,
+            nodes: vec![
+                RenderTransform {
+                    position: Vec3::new(10.0, 0.0, 0.0),
+                    scale: Vec3::ONE,
+                    rotation: Quat::IDENTITY,
+                },
+                RenderTransform {
+                    position: Vec3::new(2.0, 3.0, 0.0),
+                    scale: Vec3::ONE,
+                    rotation: Quat::IDENTITY,
+                },
+                RenderTransform {
+                    position: Vec3::new(4.0, 5.0, 0.0),
+                    scale: Vec3::ONE,
+                    rotation: Quat::IDENTITY,
+                },
+            ],
+            node_parents: vec![-1, 0, 1],
+            layer_assignments: vec![crate::scene::render_space::LayerAssignmentEntry {
+                node_id: 1,
+                layer: crate::shared::LayerType::Overlay,
+            }],
+            layer_index_dirty: true,
+            ..Default::default()
+        },
+    );
+    let space = scene.spaces.get(&id).expect("space");
+    let mut cache = WorldTransformCache::default();
+    compute_world_matrices_for_space(id.0, &space.nodes, &space.node_parents, &mut cache)
+        .expect("solve");
+    scene.world_caches.insert(id, cache);
+
+    let world = scene
+        .world_matrix_for_context(id, 2, RenderingContext::UserView)
+        .expect("world");
+    let overlay = scene
+        .overlay_layer_model_matrix_for_context(id, 2, RenderingContext::UserView)
+        .expect("overlay");
+    assert!(scene.transform_is_in_overlay_layer(id, 2));
+    assert!(scene.transform_is_in_overlay_layer(id, 1));
+    assert!(!scene.transform_is_in_overlay_layer(id, 0));
+
+    let world_t = world.col(3).truncate();
+    let overlay_t = overlay.col(3).truncate();
+    assert!((world_t.x - 16.0).abs() < 1e-4);
+    assert!((overlay_t.x - 6.0).abs() < 1e-4);
+    assert!((overlay_t.y - 8.0).abs() < 1e-4);
+}
+
 /// Cached zero-scale state reports the selected node as non-renderable for draw collection.
 #[test]
 fn transform_has_degenerate_scale_reads_cached_world_state() {
@@ -444,6 +503,7 @@ fn parallel_apply_extracted_commits_pose_writes_and_marks_dirty() {
         layers: None,
         transform_overrides: None,
         material_overrides: None,
+        blit_to_displays: None,
     };
     let mut removal_events = Vec::new();
     let dirty = apply_extracted_render_space_update(

@@ -5,19 +5,19 @@ use hashbrown::HashMap;
 use crate::scene::{MeshMaterialSlot, RenderSpaceId, SkinnedMeshRenderer, StaticMeshRenderer};
 
 use crate::world_mesh::culling::{
-    CpuCullFailure, MeshCullTarget, mesh_draw_passes_cpu_cull,
-    mesh_world_geometry_for_cull_with_head,
+    mesh_draw_passes_cpu_cull, mesh_world_geometry_for_cull_with_head, CpuCullFailure,
+    MeshCullTarget,
 };
 use crate::world_mesh::materials::FrameMaterialBatchCache;
 
-use super::candidate::{DrawCandidate, evaluate_draw_candidate};
+use super::candidate::{evaluate_draw_candidate, DrawCandidate};
 use super::{
-    DrawCollectionContext, front_face_for_world_matrix, world_matrix_for_local_vertex_stream,
+    front_face_for_world_matrix, world_matrix_for_local_vertex_stream, DrawCollectionContext,
 };
 
 use super::super::item::{
-    WorldMeshDrawItem, resolved_material_slot_count, stacked_material_submesh_range,
-    stacked_material_submesh_topology,
+    resolved_material_slot_count, stacked_material_submesh_range,
+    stacked_material_submesh_topology, WorldMeshDrawItem,
 };
 
 /// Renders per chunk (static or skinned slice of one render space).
@@ -147,6 +147,15 @@ fn push_draws_for_renderer(
             }
             None => f.passes_scene_node(ctx.scene, draw.space_id, draw.renderer.node_id),
         };
+        logger::debug!(
+            "camera filter scene-walk renderer: space={:?} node_id={} renderable_index={} mesh_asset_id={} pass={} filter={}",
+            draw.space_id,
+            draw.renderer.node_id,
+            draw.renderable_index,
+            draw.renderer.mesh_asset_id,
+            passes,
+            f.debug_summary(),
+        );
         if !passes {
             return;
         }
@@ -192,7 +201,28 @@ fn push_draws_for_renderer(
         return;
     }
 
-    let is_overlay = draw.renderer.layer == crate::shared::LayerType::Overlay;
+    let cached_overlay = draw.renderer.layer == crate::shared::LayerType::Overlay;
+    let is_overlay = draw.renderer.node_id >= 0
+        && ctx
+            .scene
+            .transform_is_in_overlay_layer(draw.space_id, draw.renderer.node_id as usize);
+    if draw.renderer.node_id >= 0 && (cached_overlay != is_overlay || is_overlay) {
+        logger::debug!(
+            "overlay scene-walk renderer: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} cached_layer={:?} live_overlay={} slots={} submeshes={} sorting_order={} ancestry={}",
+            draw.space_id,
+            draw.renderer.node_id,
+            draw.renderable_index,
+            draw.instance_id,
+            draw.renderer.mesh_asset_id,
+            draw.renderer.layer,
+            is_overlay,
+            slots.len(),
+            draw.submeshes.len(),
+            draw.renderer.sorting_order,
+            ctx.scene
+                .overlay_layer_debug_summary(draw.space_id, draw.renderer.node_id as usize),
+        );
+    }
     let world_space_deformed = draw.skinned
         && draw.mesh.supports_world_space_skin_deform(
             draw.skinned_renderer
@@ -364,9 +394,12 @@ fn push_one_slot_draw(
             Ok(m) => rigid_world_matrix = m,
         }
     }
-    if !world_space_deformed && rigid_world_matrix.is_none() {
+    if is_overlay && !world_space_deformed {
         rigid_world_matrix =
-            world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id);
+            world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id, true);
+    } else if !world_space_deformed && rigid_world_matrix.is_none() {
+        rigid_world_matrix =
+            world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id, false);
     }
     let front_face = front_face_for_world_matrix(rigid_world_matrix);
     let primitive_topology =
@@ -374,6 +407,25 @@ fn push_one_slot_draw(
     let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
         (m.col(3).truncate() - ctx.view_origin_world).length_squared()
     });
+    if is_overlay {
+        let model_t = rigid_world_matrix
+            .map(|m| m.col(3).truncate())
+            .unwrap_or(glam::Vec3::ZERO);
+        logger::debug!(
+            "overlay scene-walk slot: space={:?} node_id={} renderable_index={} slot_index={} mesh_asset_id={} material_asset_id={} rigid_cached={} model_t=({:.3},{:.3},{:.3}) alpha_distance_sq={:.3}",
+            draw.space_id,
+            draw.renderer.node_id,
+            draw.renderable_index,
+            slot_index,
+            draw.renderer.mesh_asset_id,
+            material_asset_id,
+            rigid_world_matrix.is_some(),
+            model_t.x,
+            model_t.y,
+            model_t.z,
+            alpha_distance_sq,
+        );
+    }
     let world_aabb = world_aabb_for_reflection_probe_selection(ctx, draw);
     let candidate = DrawCandidate {
         space_id: draw.space_id,

@@ -23,6 +23,8 @@ use super::world::fixup_transform_id;
 /// host-renderer drift, so log once per node id to make it diagnosable without spamming.
 static LAYER_FALLBACK_WARNED_NODES: LazyLock<Mutex<HashSet<i32>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
+static OVERLAY_SPACE_DIAG_COUNTS: LazyLock<Mutex<std::collections::HashMap<i32, (usize, usize, usize)>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
 
 fn record_layer_fallback(node_id: i32) {
     if node_id < 0 {
@@ -96,6 +98,7 @@ pub(crate) fn apply_layer_update_extracted(
             mutated = true;
         }
     }
+    let additions_start = space.layer_assignments.len();
     for &node_id in extracted.additions.iter().take_while(|&&id| id >= 0) {
         space.layer_assignments.push(LayerAssignmentEntry {
             node_id,
@@ -104,7 +107,7 @@ pub(crate) fn apply_layer_update_extracted(
         mutated = true;
     }
     for (idx, layer) in extracted.layer_assignments.iter().copied().enumerate() {
-        let Some(entry) = space.layer_assignments.get_mut(idx) else {
+        let Some(entry) = space.layer_assignments.get_mut(additions_start + idx) else {
             continue;
         };
         entry.layer = layer;
@@ -216,6 +219,8 @@ pub(crate) fn resolve_mesh_layers_from_assignments(space: &mut RenderSpaceState)
             );
         }
     }
+
+    log_overlay_space_diagnostics_once(space);
 }
 
 /// Populates [`RenderSpaceState::resolved_layer_cache`] for `node_id` if it is not already
@@ -284,6 +289,103 @@ fn resolve_layer_for_node(
     None
 }
 
+fn log_overlay_space_diagnostics_once(space: &RenderSpaceState) {
+    if !space
+        .layer_assignments
+        .iter()
+        .any(|entry| entry.layer == LayerType::Overlay)
+    {
+        return;
+    }
+    if space.static_mesh_renderers.is_empty() && space.skinned_mesh_renderers.is_empty() {
+        return;
+    }
+    let current_counts = (
+        space.nodes.len(),
+        space.static_mesh_renderers.len(),
+        space.layer_assignments.len(),
+    );
+    let mut logged = OVERLAY_SPACE_DIAG_COUNTS.lock();
+    if logged.get(&space.id.0).copied() == Some(current_counts) {
+        return;
+    }
+    logged.insert(space.id.0, current_counts);
+    drop(logged);
+
+    let overlay_assignments = space
+        .layer_assignments
+        .iter()
+        .filter(|entry| entry.layer == LayerType::Overlay)
+        .map(|entry| entry.node_id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let hidden_assignments = space
+        .layer_assignments
+        .iter()
+        .filter(|entry| entry.layer == LayerType::Hidden)
+        .map(|entry| entry.node_id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    logger::debug!(
+        "overlay layer space: space={:?} active={} overlay_space={} private={} nodes={} static_meshes={} skinned_meshes={} layer_assignments={} overlay_nodes=[{}] hidden_nodes=[{}]",
+        space.id,
+        space.is_active,
+        space.is_overlay,
+        space.is_private,
+        space.nodes.len(),
+        space.static_mesh_renderers.len(),
+        space.skinned_mesh_renderers.len(),
+        space.layer_assignments.len(),
+        overlay_assignments,
+        hidden_assignments,
+    );
+
+    for renderer in &space.static_mesh_renderers {
+        logger::debug!(
+            "overlay layer renderer: space={:?} node_id={} mesh_asset_id={} sorting_order={} resolved_layer={:?} chain={}",
+            space.id,
+            renderer.node_id,
+            renderer.mesh_asset_id,
+            renderer.sorting_order,
+            renderer.layer,
+            debug_chain_for_node(space, renderer.node_id),
+        );
+    }
+}
+
+fn debug_chain_for_node(space: &RenderSpaceState, node_id: i32) -> String {
+    if node_id < 0 {
+        return "node_id<0".to_string();
+    }
+    let mut parts = Vec::new();
+    let mut cursor = node_id;
+    for _ in 0..space.node_parents.len().min(16) {
+        if cursor < 0 {
+            parts.push("root".to_string());
+            break;
+        }
+        let Some(&parent) = space.node_parents.get(cursor as usize) else {
+            parts.push(format!("cursor={cursor}:oob"));
+            break;
+        };
+        let layer = if !space.layer_index_dirty {
+            space.layer_index.get(&cursor).copied()
+        } else {
+            space.layer_assignments
+                .iter()
+                .rev()
+                .find(|entry| entry.node_id == cursor)
+                .map(|entry| entry.layer)
+        };
+        parts.push(format!("{cursor}[layer={layer:?} parent={parent}]"));
+        if parent < 0 || parent == cursor || parent as usize >= space.node_parents.len() {
+            break;
+        }
+        cursor = parent;
+    }
+    parts.join(" -> ")
+}
+
 /// Layer-assignment count above which the per-removal fixup sweep fans out to the rayon pool.
 ///
 /// Each entry's `fixup_transform_id` is a trivial branch, but removals x assignments can grow
@@ -327,7 +429,9 @@ mod tests {
     use crate::scene::render_space::{LayerAssignmentEntry, RenderSpaceState};
     use crate::shared::LayerType;
 
-    use super::resolve_mesh_layers_from_assignments;
+    use super::{
+        ExtractedLayerUpdate, apply_layer_update_extracted, resolve_mesh_layers_from_assignments,
+    };
 
     #[test]
     fn resolves_layer_from_nearest_ancestor_assignment() {
@@ -385,5 +489,29 @@ mod tests {
             space.skinned_mesh_renderers[0].base.layer,
             LayerType::Overlay
         );
+    }
+
+    #[test]
+    fn layer_rows_only_apply_to_new_assignments() {
+        let mut space = RenderSpaceState {
+            layer_assignments: vec![LayerAssignmentEntry {
+                node_id: 2,
+                layer: LayerType::Overlay,
+            }],
+            ..Default::default()
+        };
+        let extracted = ExtractedLayerUpdate {
+            additions: vec![11],
+            layer_assignments: vec![LayerType::Hidden],
+            ..Default::default()
+        };
+
+        apply_layer_update_extracted(&mut space, &extracted);
+
+        assert_eq!(space.layer_assignments.len(), 2);
+        assert_eq!(space.layer_assignments[0].node_id, 2);
+        assert_eq!(space.layer_assignments[0].layer, LayerType::Overlay);
+        assert_eq!(space.layer_assignments[1].node_id, 11);
+        assert_eq!(space.layer_assignments[1].layer, LayerType::Hidden);
     }
 }

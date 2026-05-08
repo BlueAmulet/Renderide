@@ -1,5 +1,6 @@
 //! Per-render-space state mirrored from [`crate::shared::RenderSpaceUpdate`].
 
+use super::blit_to_display::BlitToDisplayEntry;
 use super::render_overrides::{RenderMaterialOverrideEntry, RenderTransformOverrideEntry};
 use crate::shared::{
     LayerType, ReflectionProbeChangeRenderTask, RenderSH2, RenderSpaceUpdate, RenderTransform,
@@ -210,6 +211,8 @@ pub(in crate::scene) struct RenderSpaceState {
     pub(in crate::scene) render_transform_overrides: Vec<RenderTransformOverrideEntry>,
     /// Render-context-local material substitutions from the host.
     pub(in crate::scene) render_material_overrides: Vec<RenderMaterialOverrideEntry>,
+    /// Host `BlitToDisplay` renderables; dense by host `renderable_index`.
+    pub(in crate::scene) blit_to_displays: Vec<BlitToDisplayEntry>,
 }
 
 impl RenderSpaceState {
@@ -271,6 +274,7 @@ impl Default for RenderSpaceState {
             blendshape_apply_groups: HashMap::new(),
             render_transform_overrides: Vec::new(),
             render_material_overrides: Vec::new(),
+            blit_to_displays: Vec::new(),
         }
     }
 }

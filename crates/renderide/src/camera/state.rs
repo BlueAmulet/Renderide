@@ -141,7 +141,13 @@ impl HostCameraFrame {
         if self.vr_active { self.stereo } else { None }
     }
 
-    /// Returns the primary orthographic projection, or a unit fallback for overlay rendering.
+    /// Returns the primary orthographic projection, or a unit fallback.
+    ///
+    /// Historically used for screen-overlay (`LayerType.Overlay`) draws but the screen overlay now
+    /// builds its own unit-half-height ortho in [`super::WorldProjectionSet::from_scene_host`] so
+    /// it does not get hijacked by the host's dash camera ortho task. Kept for parity with secondary
+    /// orthographic camera paths that still want the host's `primary_ortho_task` value.
+    #[allow(dead_code)]
     pub fn overlay_projection(self, viewport: Viewport, fallback_clip: CameraClipPlanes) -> Mat4 {
         self.primary_ortho_task
             .unwrap_or_else(|| OrthographicProjectionSpec::new(1.0, fallback_clip))

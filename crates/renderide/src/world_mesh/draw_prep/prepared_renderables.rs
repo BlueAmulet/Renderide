@@ -603,7 +603,43 @@ fn expand_renderer_slots(
         return;
     }
 
-    let is_overlay = renderer.layer == LayerType::Overlay;
+    let cached_overlay = renderer.layer == LayerType::Overlay;
+    let is_overlay = renderer.node_id >= 0
+        && scene.transform_is_in_overlay_layer(space_id, renderer.node_id as usize);
+    let suspect_dash_plane = matches!(renderer.node_id, 39..=41)
+        || matches!(renderer.mesh_asset_id, 13..=15);
+    if suspect_dash_plane && renderer.node_id >= 0 {
+        logger::debug!(
+            "dash suspect prepared renderer: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} cached_layer={:?} live_overlay={} slots={} submeshes={} sorting_order={} ancestry={}",
+            space_id,
+            renderer.node_id,
+            renderable_index,
+            instance_id,
+            renderer.mesh_asset_id,
+            renderer.layer,
+            is_overlay,
+            slots.len(),
+            submeshes.len(),
+            renderer.sorting_order,
+            scene.overlay_layer_debug_summary(space_id, renderer.node_id as usize),
+        );
+    }
+    if renderer.node_id >= 0 && (cached_overlay != is_overlay || is_overlay) {
+        logger::debug!(
+            "overlay prepared renderer: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} cached_layer={:?} live_overlay={} slots={} submeshes={} sorting_order={} ancestry={}",
+            space_id,
+            renderer.node_id,
+            renderable_index,
+            instance_id,
+            renderer.mesh_asset_id,
+            renderer.layer,
+            is_overlay,
+            slots.len(),
+            submeshes.len(),
+            renderer.sorting_order,
+            scene.overlay_layer_debug_summary(space_id, renderer.node_id as usize),
+        );
+    }
 
     for (slot_index, slot) in slots.iter().enumerate() {
         let Some((first_index, index_count)) =

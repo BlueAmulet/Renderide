@@ -110,12 +110,35 @@ fn select_model_for_vertex_stream(
 }
 
 /// Resolves the scene model matrix for a draw, using the cached collection-time matrix when present.
+///
+/// Overlay-layer items (`is_overlay == true`) bypass the overlay-space head-output re-rooting and
+/// use the transform chain relative to the nearest overlay-layer ancestor. Combined with an
+/// identity view matrix in [`compute_per_draw_vp_matrices`], this puts overlay objects at their
+/// authored local position in normalized screen space (CSS-overlay style) regardless of where the
+/// camera is in the world, matching the host `RadiantDash` desktop layout (`UpdateProjection`
+/// scales `VisualsRoot` against `WindowResolution` so the dash fits a unit-height ortho frustum
+/// centered on the view).
 fn resolved_model_matrix(
     scene: &SceneCoordinator,
     item: &WorldMeshDrawItem,
     hc: HostCameraFrame,
     render_context: RenderingContext,
 ) -> Mat4 {
+    if item.is_overlay {
+        if let Some(model) = item.rigid_world_matrix {
+            return model;
+        }
+        return scene
+            .overlay_layer_model_matrix_for_context(
+                item.space_id,
+                item.node_id as usize,
+                render_context,
+            )
+            .or_else(|| {
+                scene.world_matrix_for_context(item.space_id, item.node_id as usize, render_context)
+            })
+            .unwrap_or(Mat4::IDENTITY);
+    }
     item.rigid_world_matrix.unwrap_or_else(|| {
         scene
             .world_matrix_for_render_context(
@@ -146,6 +169,13 @@ fn resolve_model_selection(
 }
 
 /// Computes per-draw view-projection, model, and position-stream metadata for one sorted draw.
+///
+/// **Overlay-layer rendering**: items with `is_overlay == true` (host `LayerType.Overlay`) render
+/// in normalized screen space using an identity view matrix. The model matrix is the local
+/// hierarchy matrix (no overlay-space head-output re-rooting; see [`resolved_model_matrix`]) so
+/// overlay objects sit at their authored local position regardless of camera placement. The
+/// projection comes from the dedicated overlay ortho built in
+/// [`crate::camera::WorldProjectionSet::from_scene_host`], not the world-camera projection.
 pub(crate) fn compute_per_draw_vp_matrices(
     scene: &SceneCoordinator,
     item: &WorldMeshDrawItem,
@@ -157,20 +187,51 @@ pub(crate) fn compute_per_draw_vp_matrices(
     let Some(space) = scene.space(item.space_id) else {
         return PerDrawVpMatrices::identity();
     };
-    let view = view_matrix_for_host_world_mesh_space(scene, space, &hc);
+    if item.is_overlay {
+        // Identity view: overlay model is in normalized screen space directly.
+        let op = projection_for_world_mesh_draw(true, overlay_proj, world_proj);
+        let model = resolve_model_selection(scene, item, hc, render_context);
+        let model_t = model.model.col(3).truncate();
+        let proj_x = op.x_axis;
+        let proj_y = op.y_axis;
+        logger::debug!(
+            "overlay vp draw: space={:?} space_is_overlay={} node_id={} renderable_index={} mesh_asset_id={} rigid_cached={} position_stream_world_space={} model_t=({:.3},{:.3},{:.3}) proj_x=({:.3},{:.3},{:.3},{:.3}) proj_y=({:.3},{:.3},{:.3},{:.3}) ancestry={}",
+            item.space_id,
+            space.is_overlay(),
+            item.node_id,
+            item.renderable_index,
+            item.mesh_asset_id,
+            item.rigid_world_matrix.is_some(),
+            model.position_stream_world_space,
+            model_t.x,
+            model_t.y,
+            model_t.z,
+            proj_x.x,
+            proj_x.y,
+            proj_x.z,
+            proj_x.w,
+            proj_y.x,
+            proj_y.y,
+            proj_y.z,
+            proj_y.w,
+            scene.overlay_layer_debug_summary(item.space_id, item.node_id as usize),
+        );
+        logger::trace!(
+            "overlay mesh draw: space={:?} node_id={} mesh_asset_id={}",
+            item.space_id,
+            item.node_id,
+            item.mesh_asset_id,
+        );
+        return PerDrawVpMatrices::new(op, op, model);
+    }
     let model = || resolve_model_selection(scene, item, hc, render_context);
+    let view = view_matrix_for_host_world_mesh_space(scene, space, &hc);
     let vr_stereo_view = Mat4::IDENTITY;
     if let Some(stereo) = hc.active_stereo() {
         let (sl, sr) = stereo.view_proj_pair();
-        if item.is_overlay {
-            let op = projection_for_world_mesh_draw(true, overlay_proj, world_proj);
-            let base_vp = op * view;
-            PerDrawVpMatrices::new(base_vp, base_vp, model())
-        } else {
-            PerDrawVpMatrices::new(sl * vr_stereo_view, sr * vr_stereo_view, model())
-        }
+        PerDrawVpMatrices::new(sl * vr_stereo_view, sr * vr_stereo_view, model())
     } else {
-        let proj = projection_for_world_mesh_draw(item.is_overlay, overlay_proj, world_proj);
+        let proj = projection_for_world_mesh_draw(false, overlay_proj, world_proj);
         let base_vp = proj * view;
         PerDrawVpMatrices::new(base_vp, base_vp, model())
     }

@@ -86,6 +86,8 @@ pub enum SurfaceSubmitTrace {
     VrClear,
     /// Generic clear submit used outside the VR-specific fallback path.
     ClearFallback,
+    /// Desktop submit for the host `BlitToDisplay` pass on the local user's display.
+    Desktop,
 }
 
 /// Acquires the next surface texture with the same policy as [`present_clear_frame`].
@@ -161,6 +163,10 @@ pub fn submit_surface_frame_traced(
         }
         SurfaceSubmitTrace::ClearFallback => {
             profiling::scope!("gpu::surface_submit.clear_fallback");
+            gpu.submit_frame_batch(command_buffers, Some(frame), None);
+        }
+        SurfaceSubmitTrace::Desktop => {
+            profiling::scope!("gpu::surface_submit.desktop");
             gpu.submit_frame_batch(command_buffers, Some(frame), None);
         }
     }

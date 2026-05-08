@@ -125,6 +125,23 @@ pub(crate) fn mesh_cpu_cull_with_geometry(
     is_overlay: bool,
     culling: &WorldMeshCullInput<'_>,
 ) -> Result<Option<Mat4>, CpuCullFailure> {
+    if is_overlay {
+        let model_t = geom
+            .rigid_world_matrix
+            .map(|m| m.col(3).truncate())
+            .unwrap_or(Vec3::ZERO);
+        logger::debug!(
+            "overlay cull bypass: space={:?} has_world_aabb={} rigid_cached={} model_t=({:.3},{:.3},{:.3})",
+            space_id,
+            geom.world_aabb.is_some(),
+            geom.rigid_world_matrix.is_some(),
+            model_t.x,
+            model_t.y,
+            model_t.z,
+        );
+        return Ok(geom.rigid_world_matrix);
+    }
+
     let Some((wmin, wmax)) = geom.world_aabb else {
         return Ok(geom.rigid_world_matrix);
     };
@@ -140,10 +157,6 @@ pub(crate) fn mesh_cpu_cull_with_geometry(
 
     if !cpu_cull_frustum_visible(proj, is_overlay, view, wmin, wmax) {
         return Err(CpuCullFailure::Frustum);
-    }
-
-    if is_overlay {
-        return Ok(geom.rigid_world_matrix);
     }
 
     if cpu_cull_hi_z_should_cull(space_id, wmin, wmax, culling) {
@@ -228,5 +241,46 @@ mod hi_z_temporal_match_tests {
         let right = snapshot(256, 144);
         let hi = HiZCullData::Stereo { left, right };
         assert!(!hi_z_snapshot_matches_temporal(&hi, &t));
+    }
+}
+
+#[cfg(test)]
+mod overlay_cull_tests {
+    use glam::{Mat4, Vec3};
+
+    use super::mesh_cpu_cull_with_geometry;
+    use crate::camera::HostCameraFrame;
+    use crate::scene::{RenderSpaceId, SceneCoordinator};
+    use crate::world_mesh::culling::{
+        MeshCullGeometry, WorldMeshCullInput, WorldMeshCullProjParams,
+    };
+
+    #[test]
+    fn overlay_draws_bypass_world_space_frustum_checks() {
+        let scene = SceneCoordinator::new();
+        let host_camera = HostCameraFrame::default();
+        let culling = WorldMeshCullInput {
+            proj: WorldMeshCullProjParams {
+                world_proj: Mat4::IDENTITY,
+                overlay_proj: Mat4::IDENTITY,
+                vr_stereo: None,
+            },
+            host_camera: &host_camera,
+            hi_z: None,
+            hi_z_temporal: None,
+        };
+        let model = Mat4::from_translation(Vec3::new(1234.0, 5678.0, 0.0));
+        let geom = MeshCullGeometry {
+            world_aabb: Some((Vec3::splat(10_000.0), Vec3::splat(10_001.0))),
+            rigid_world_matrix: Some(model),
+        };
+
+        let accepted =
+            match mesh_cpu_cull_with_geometry(geom, &scene, RenderSpaceId(999), true, &culling) {
+                Ok(accepted) => accepted,
+                Err(_) => panic!("overlay items should skip frustum/Hi-Z rejection"),
+            };
+
+        assert_eq!(accepted, Some(model));
     }
 }

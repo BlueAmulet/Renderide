@@ -1,9 +1,9 @@
 //! Shared draw-candidate evaluation for world-mesh collection.
 
 use super::*;
-use crate::materials::RasterPrimitiveTopology;
 use crate::materials::host_data::MaterialPropertyLookupIds;
 use crate::materials::render_queue_is_transparent;
+use crate::materials::RasterPrimitiveTopology;
 use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
 use crate::scene::MeshRendererInstanceId;
 use crate::world_mesh::materials::compute_batch_key_hash;
@@ -76,6 +76,7 @@ pub(super) fn evaluate_draw_candidate(
             shader_perm: ctx.shader_perm,
         },
     );
+    let batch_key = apply_overlay_layer_depth_policy(batch_key, candidate.is_overlay);
     let camera_distance_sq = if render_queue_is_transparent(batch_key.render_queue) {
         alpha_distance_sq
     } else {
@@ -124,6 +125,23 @@ pub(super) fn evaluate_draw_candidate(
         rigid_world_matrix,
         reflection_probes,
     })
+}
+
+/// Unity renders `LayerType::Overlay` through a separate overlay camera stack after the world.
+///
+/// Renderide currently folds those meshes into the main forward pass, so they must bypass the
+/// world depth buffer explicitly or ordinary scene geometry still occludes them even after their
+/// transforms are projected into screen space.
+fn apply_overlay_layer_depth_policy(
+    mut batch_key: crate::world_mesh::MaterialDrawBatchKey,
+    is_overlay: bool,
+) -> crate::world_mesh::MaterialDrawBatchKey {
+    if is_overlay {
+        // FrooxEngine `ZTest.Always = 6` under the renderer's reverse-Z mapping.
+        batch_key.render_state.depth_write = Some(false);
+        batch_key.render_state.depth_compare = Some(6);
+    }
+    batch_key
 }
 
 #[cfg(test)]
@@ -200,5 +218,65 @@ mod tests {
         assert_eq!(item.node_id, 9);
         assert_eq!(item.renderable_index, 42);
         assert_eq!(item.instance_id, MeshRendererInstanceId(99));
+    }
+
+    #[test]
+    fn evaluate_draw_candidate_forces_overlay_depth_policy() {
+        let scene = SceneCoordinator::new();
+        let mesh_pool = MeshPool::default_pool();
+        let store = MaterialPropertyStore::new();
+        let material_dict = MaterialDictionary::new(&store);
+        let router = MaterialRouter::new(RasterPipelineKind::Null);
+        let registry = PropertyIdRegistry::new();
+        let property_ids = MaterialPipelinePropertyIds::new(&registry);
+        let cache = FrameMaterialBatchCache::new();
+        let ctx = DrawCollectionContext {
+            scene: &scene,
+            mesh_pool: &mesh_pool,
+            material_dict: &material_dict,
+            material_router: &router,
+            pipeline_property_ids: &property_ids,
+            shader_perm: ShaderPermutation::default(),
+            render_context: RenderingContext::UserView,
+            head_output_transform: Mat4::IDENTITY,
+            view_origin_world: Vec3::ZERO,
+            culling: None,
+            transform_filter: None,
+            material_cache: None,
+            reflection_probes: None,
+            prepared: None,
+        };
+        let candidate = DrawCandidate {
+            space_id: RenderSpaceId(3),
+            node_id: 9,
+            renderable_index: 42,
+            instance_id: MeshRendererInstanceId(99),
+            mesh_asset_id: 7,
+            slot_index: 0,
+            first_index: 0,
+            index_count: 3,
+            is_overlay: true,
+            sorting_order: 0,
+            skinned: false,
+            world_space_deformed: false,
+            blendshape_deformed: false,
+            material_asset_id: 11,
+            property_block_id: None,
+            world_aabb: None,
+        };
+
+        let item = evaluate_draw_candidate(
+            &ctx,
+            &cache,
+            candidate,
+            RasterFrontFace::Clockwise,
+            RasterPrimitiveTopology::TriangleList,
+            None,
+            0.0,
+        )
+        .expect("overlay draw item");
+
+        assert_eq!(item.batch_key.render_state.depth_write, Some(false));
+        assert_eq!(item.batch_key.render_state.depth_compare, Some(6));
     }
 }

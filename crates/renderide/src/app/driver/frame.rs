@@ -275,9 +275,21 @@ impl AppDriver {
     fn render_non_hmd_views(&mut self, mode: FrameRenderMode) -> Option<()> {
         let target = self.target.as_mut()?;
         use crate::xr::XrFrameRenderer;
+        let desktop_owned_by_blit = matches!(mode, FrameRenderMode::Desktop)
+            && self
+                .runtime
+                .scene()
+                .active_blit_for_display(super::present::DESKTOP_DISPLAY_INDEX)
+                .is_some();
         let result = match mode {
             FrameRenderMode::HmdMultiview => Ok(()),
             FrameRenderMode::VrSecondaryOnly => {
+                self.runtime.submit_secondary_only(target.gpu_mut())
+            }
+            FrameRenderMode::Desktop if desktop_owned_by_blit => {
+                // The desktop window will be filled by the present-time `BlitToDisplay` pass;
+                // skip the world-camera swapchain output and only run secondary RTs (which the
+                // dash camera, mirror previews, and avatar previews still depend on).
                 self.runtime.submit_secondary_only(target.gpu_mut())
             }
             FrameRenderMode::Desktop => self.runtime.render_desktop_frame(target.gpu_mut()),

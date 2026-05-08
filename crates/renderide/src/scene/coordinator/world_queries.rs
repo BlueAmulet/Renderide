@@ -2,7 +2,7 @@
 
 use glam::{Mat4, Vec3};
 
-use crate::shared::RenderingContext;
+use crate::shared::{LayerType, RenderingContext};
 
 use super::super::ids::RenderSpaceId;
 use super::super::math::render_transform_has_degenerate_scale;
@@ -73,6 +73,55 @@ impl SceneCoordinator {
             return Some(local);
         }
         Some(overlay_space_root_matrix(space, head_output_transform) * local)
+    }
+
+    /// Hierarchy matrix for an overlay-layer draw relative to its nearest overlay-layer ancestor.
+    ///
+    /// Screen-space overlay meshes inherit [`LayerType::Overlay`] from a parent slot such as the
+    /// host `OverlayManager.OverlayRoot`. Rendering should keep the local chain starting at that
+    /// overlay ancestor but ignore world-space ancestors above it, otherwise desktop overlay
+    /// visuals continue to follow the userspace/world transform instead of the screen.
+    pub fn overlay_layer_model_matrix_for_context(
+        &self,
+        id: RenderSpaceId,
+        transform_index: usize,
+        context: RenderingContext,
+    ) -> Option<Mat4> {
+        let space = self.spaces.get(&id)?;
+        if transform_index >= space.nodes.len() {
+            return None;
+        }
+
+        let anchor = nearest_overlay_layer_ancestor(space, transform_index)?;
+        matrix_from_ancestor_for_context(space, transform_index, context, anchor)
+    }
+
+    /// Returns the nearest inherited special layer (`Overlay` / `Hidden`) for this transform.
+    pub fn transform_special_layer(
+        &self,
+        id: RenderSpaceId,
+        transform_index: usize,
+    ) -> Option<LayerType> {
+        self.spaces
+            .get(&id)
+            .and_then(|space| nearest_special_layer_ancestor(space, transform_index))
+            .map(|(_, layer)| layer)
+    }
+
+    /// Returns whether `transform_index` is a descendant of an active overlay-layer ancestor.
+    pub fn transform_is_in_overlay_layer(&self, id: RenderSpaceId, transform_index: usize) -> bool {
+        matches!(
+            self.transform_special_layer(id, transform_index),
+            Some(LayerType::Overlay)
+        )
+    }
+
+    /// Human-readable overlay ancestry summary for diagnostics.
+    pub fn overlay_layer_debug_summary(&self, id: RenderSpaceId, transform_index: usize) -> String {
+        let Some(space) = self.spaces.get(&id) else {
+            return format!("space={id:?} missing");
+        };
+        overlay_chain_summary(space, transform_index)
     }
 
     /// Returns whether the cached hierarchy for `transform_index` contains degenerate object scale.
@@ -158,4 +207,131 @@ fn filter_overlay_scale(scale: Vec3) -> Vec3 {
     } else {
         scale
     }
+}
+
+fn layer_assignment_for_node(space: &RenderSpaceState, node_id: i32) -> Option<LayerType> {
+    if node_id < 0 {
+        return None;
+    }
+    if !space.layer_index_dirty {
+        return space.layer_index.get(&node_id).copied();
+    }
+    space
+        .layer_assignments
+        .iter()
+        .rev()
+        .find(|entry| entry.node_id == node_id)
+        .map(|entry| entry.layer)
+}
+
+fn nearest_overlay_layer_ancestor(
+    space: &RenderSpaceState,
+    transform_index: usize,
+) -> Option<usize> {
+    match nearest_special_layer_ancestor(space, transform_index) {
+        Some((anchor, LayerType::Overlay)) => Some(anchor),
+        _ => None,
+    }
+}
+
+fn nearest_special_layer_ancestor(
+    space: &RenderSpaceState,
+    transform_index: usize,
+) -> Option<(usize, LayerType)> {
+    let mut cursor = transform_index as i32;
+    for _ in 0..space.nodes.len() {
+        if let Some(layer) = layer_assignment_for_node(space, cursor) {
+            return Some((cursor as usize, layer));
+        }
+        let parent = *space.node_parents.get(cursor as usize)?;
+        if parent < 0 || parent == cursor || parent as usize >= space.nodes.len() {
+            return None;
+        }
+        cursor = parent;
+    }
+    None
+}
+
+fn matrix_from_ancestor_for_context(
+    space: &RenderSpaceState,
+    transform_index: usize,
+    context: RenderingContext,
+    ancestor_index: usize,
+) -> Option<Mat4> {
+    if transform_index >= space.nodes.len() || ancestor_index >= space.nodes.len() {
+        return None;
+    }
+
+    let mut path = Vec::with_capacity(64);
+    let mut cursor = transform_index;
+    let mut reached_ancestor = false;
+    for _ in 0..space.nodes.len() {
+        path.push(cursor);
+        if cursor == ancestor_index {
+            reached_ancestor = true;
+            break;
+        }
+        let parent = *space.node_parents.get(cursor).unwrap_or(&-1);
+        if parent < 0 || parent as usize >= space.nodes.len() || parent == cursor as i32 {
+            break;
+        }
+        cursor = parent as usize;
+    }
+    if !reached_ancestor {
+        return None;
+    }
+
+    let mut world = Mat4::IDENTITY;
+    while let Some(node_id) = path.pop() {
+        let local = space
+            .overridden_local_transform(node_id as i32, context)
+            .unwrap_or(space.nodes[node_id]);
+        world *= render_transform_to_matrix(&local);
+    }
+    Some(world)
+}
+
+fn overlay_chain_summary(space: &RenderSpaceState, transform_index: usize) -> String {
+    if transform_index >= space.nodes.len() {
+        return format!(
+            "transform_index={transform_index} out_of_bounds nodes={}",
+            space.nodes.len()
+        );
+    }
+
+    let anchor = nearest_overlay_layer_ancestor(space, transform_index);
+    let mut parts: Vec<String> = Vec::new();
+    let mut cursor = transform_index as i32;
+    for _ in 0..space.nodes.len().min(24) {
+        if cursor < 0 || cursor as usize >= space.nodes.len() {
+            parts.push(format!("cursor={cursor} invalid"));
+            break;
+        }
+        let idx = cursor as usize;
+        let local = space.nodes[idx];
+        let parent = space.node_parents[idx];
+        let layer = layer_assignment_for_node(space, cursor);
+        let anchor_tag = if anchor == Some(idx) { "*" } else { "" };
+        parts.push(format!(
+            "{idx}{anchor_tag}[layer={layer:?} parent={parent} pos=({:.3},{:.3},{:.3}) scale=({:.3},{:.3},{:.3})]",
+            local.position.x,
+            local.position.y,
+            local.position.z,
+            local.scale.x,
+            local.scale.y,
+            local.scale.z,
+        ));
+        if parent < 0 || parent == cursor || parent as usize >= space.nodes.len() {
+            break;
+        }
+        cursor = parent;
+    }
+
+    format!(
+        "space_flags(active={} overlay={} private={}) anchor={anchor:?} chain={}",
+        space.is_active,
+        space.is_overlay,
+        space.is_private,
+        parts.join(" -> "),
+    )
 }

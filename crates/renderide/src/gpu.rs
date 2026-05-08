@@ -8,6 +8,7 @@ mod adapter;
 pub mod bind_layout;
 mod context;
 pub mod depth;
+pub mod display_blit;
 pub mod driver_thread;
 pub(crate) mod frame_bracket;
 pub(crate) mod frame_cpu_gpu_timing;
@@ -26,6 +27,7 @@ pub use context::{GpuContext, GpuError};
 pub use depth::{
     MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE, main_forward_depth_stencil_format,
 };
+pub use display_blit::DisplayBlitResources;
 pub use instance_limits::{RENDERER_MAX_TEXTURE_DIMENSION_2D, instance_flags_for_gpu_init};
 pub use limits::{CUBEMAP_ARRAY_LAYERS, GpuLimits};
 pub use msaa_depth_resolve::{
