@@ -83,6 +83,10 @@ Prerequisites: a Vulkan-, Metal-, or DirectX 12-capable GPU and a Steam installa
 
 The bootstrapper will launch the Resonite host and connect Renderide automatically.
 
+- Enable validation layers in the config hud to get more detailed error messages for GPU crashes. Requires a restart.
+
+- Inspect logs in the `logs/` folder for panics, crashes, backtraces, and validation errors.
+
 ## Feature flags
 
 The `renderide` crate exposes opt-in Cargo features for capabilities that depend on platform-specific system libraries or that are only useful in some workflows. Stock builds (`cargo build`) enable none of them.
@@ -124,24 +128,6 @@ cargo build --features video-textures
 Renderide reads its settings from a TOML file discovered (or created) at startup. The runtime watches the file and applies most changes without a restart, and the in-renderer ImGui overlay edits the same settings.
 
 The full schema lives next to the loader in [`crates/renderide/src/config`](crates/renderide/src/config).
-
-## Debugging
-
-1. Build the workspace in release mode:
-
-   ```bash
-   cargo build --release
-   ```
-
-1. Run the bootstrapper with Rust backtrace enabled:
-
-   ```bash
-   RUST_BACKTRACE=1 ./target/dev-fast/bootstrapper
-   ```
-
-1. Enable validation layers in the config hud to get more detailed error messages for GPU crashes. Requires a restart.
-
-1. Inspect logs in the `logs/` folder for panics, crashes, backtraces, and validation errors.
 
 ## Profiling
 
