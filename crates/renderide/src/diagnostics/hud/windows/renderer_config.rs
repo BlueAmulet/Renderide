@@ -276,7 +276,7 @@ fn rendering_graph_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut
         }
     }
     ui.text_disabled(
-        "Scene color format (forward HDR target; compose writes swapchain / XR / RT).",
+        "Scene color format (unsigned formats promote to RGBA16Float while negative lights are active).",
     );
     for (i, &fmt) in SceneColorFormat::ALL.iter().enumerate() {
         let _id = ui.push_id_int(100 + i as i32);

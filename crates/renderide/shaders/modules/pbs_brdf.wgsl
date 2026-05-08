@@ -268,6 +268,11 @@ fn eval_light(light: rg::GpuLight, world_pos: vec3<f32>) -> LightSample {
     return out;
 }
 
+/// Signed direct radiance carried by one light sample before BRDF multiplication.
+fn signed_light_radiance(light: rg::GpuLight, attenuation: f32, n_dot_l: f32) -> vec3<f32> {
+    return light.color.xyz * attenuation * n_dot_l;
+}
+
 /// Filament-style direct radiance for the metallic workflow.
 ///
 /// `roughness` is perceptual (caller passes `1 - smoothness`, clamped to `[0.045, 1.0]`). `f0` is
@@ -304,7 +309,7 @@ fn direct_radiance_metallic(
     let diffuse_color = base_color * (1.0 - metallic);
     let fd = diffuse_color * fd_lambert();
 
-    let radiance = light.color.xyz * ls.attenuation * n_dot_l;
+    let radiance = signed_light_radiance(light, ls.attenuation, n_dot_l);
     return (fd + fr) * radiance;
 }
 
@@ -345,7 +350,7 @@ fn direct_radiance_specular(
     let diffuse_color = base_color * one_minus_reflectivity;
     let fd = diffuse_color * fd_lambert();
 
-    let radiance = light.color.xyz * ls.attenuation * n_dot_l;
+    let radiance = signed_light_radiance(light, ls.attenuation, n_dot_l);
     return (fd + fr) * radiance;
 }
 
@@ -362,7 +367,7 @@ fn diffuse_only_metallic(
     let ls = eval_light(light, world_pos);
     let n_dot_l = max(dot(n, ls.l), 0.0);
     let diffuse_color = base_color * (1.0 - metallic);
-    return diffuse_color * fd_lambert() * light.color.xyz * ls.attenuation * n_dot_l;
+    return diffuse_color * fd_lambert() * signed_light_radiance(light, ls.attenuation, n_dot_l);
 }
 
 /// Lambertian direct radiance only, specular workflow (diffuse pre-discounted by `one_minus_reflectivity`).
@@ -375,5 +380,5 @@ fn diffuse_only_specular(
 ) -> vec3<f32> {
     let ls = eval_light(light, world_pos);
     let n_dot_l = max(dot(n, ls.l), 0.0);
-    return base_color * one_minus_reflectivity * fd_lambert() * light.color.xyz * ls.attenuation * n_dot_l;
+    return base_color * one_minus_reflectivity * fd_lambert() * signed_light_radiance(light, ls.attenuation, n_dot_l);
 }

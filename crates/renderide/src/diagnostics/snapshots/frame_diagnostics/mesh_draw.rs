@@ -87,6 +87,8 @@ mod tests {
             frame_graph_pass_count: 10,
             frame_graph_topo_levels: 11,
             gpu_light_count: 12,
+            negative_light_count: 2,
+            signed_scene_color_active: true,
         };
 
         let fragment = MeshDrawFragment::capture(&backend, 13, 14, 15, 16);

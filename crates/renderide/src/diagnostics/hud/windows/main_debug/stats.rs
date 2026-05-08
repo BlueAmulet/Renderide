@@ -307,8 +307,19 @@ impl StatsSection for ResourcesAndGraphSection {
             ui.separator();
             ui.text("Frame graph");
             ui.text(format!(
-                "Render graph passes: {}  (compile DAG waves: {})  |  GPU lights (packed): {}",
-                r.frame_graph_pass_count, r.frame_graph_topo_levels, r.gpu_light_count
+                "Render graph passes: {}  (compile DAG waves: {})  |  GPU lights (packed): {}  |  negative: {}",
+                r.frame_graph_pass_count,
+                r.frame_graph_topo_levels,
+                r.gpu_light_count,
+                r.negative_light_count
+            ));
+            ui.text(format!(
+                "Signed scene color: {}",
+                if r.signed_scene_color_active {
+                    "active"
+                } else {
+                    "inactive"
+                }
             ));
         }
     }

@@ -29,7 +29,7 @@ struct AutoExposureParams {
 var<workgroup> histogram_shared: array<atomic<u32>, 64>;
 
 fn color_to_bin(hdr: vec3<f32>) -> u32 {
-    let lum = dot(max(hdr, vec3<f32>(0.0)), RGB_TO_LUM);
+    let lum = max(dot(hdr, RGB_TO_LUM), 0.0);
     let min_lum = exp2(params.min_log_lum);
     if (!(lum >= min_lum)) {
         return 0u;

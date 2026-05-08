@@ -42,7 +42,7 @@ fn rrt_and_odt_fit(v: vec3<f32>) -> vec3<f32> {
 }
 
 fn aces_fitted(color_linear: vec3<f32>) -> vec3<f32> {
-    let c_ap1 = aces_input_matrix() * color_linear;
+    let c_ap1 = aces_input_matrix() * max(color_linear, vec3<f32>(0.0));
     let c_curve = rrt_and_odt_fit(c_ap1);
     let c_srgb = aces_output_matrix() * c_curve;
     return clamp(c_srgb, vec3<f32>(0.0), vec3<f32>(1.0));
