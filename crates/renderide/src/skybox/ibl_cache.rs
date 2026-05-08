@@ -105,13 +105,14 @@ pub(crate) enum SkyboxIblConvolveError {
 /// Resources produced while encoding convolve passes and retained until submit completion.
 pub(crate) struct SkyboxIblConvolveResources {
     _resources: PendingBakeResources,
-    _dst_sample_view: Arc<wgpu::TextureView>,
+    _source_sample_view: Arc<wgpu::TextureView>,
     _sampler: Arc<wgpu::Sampler>,
 }
 
 /// Minimal GGX convolver for caller-owned cubemap textures.
 #[derive(Default)]
 pub(crate) struct SkyboxIblConvolver {
+    downsample_pipeline: Option<ComputePipeline>,
     convolve_pipeline: Option<ComputePipeline>,
     input_sampler: Option<Arc<wgpu::Sampler>>,
 }
@@ -144,28 +145,57 @@ impl SkyboxIblConvolver {
             &mip0_input_layout_entries(wgpu::TextureViewDimension::Cube),
         )
         .map_err(|_err| SkyboxIblConvolveError::MissingShader("skybox_ibl_convolve_params"))?;
-        let dst_sample_view = Arc::new(create_mip0_cube_sample_view(texture));
-        let mut resources = PendingBakeResources {
-            dst_sample_view: Some(dst_sample_view.clone()),
-            ..Default::default()
-        };
-        encode_convolve_mips(
-            ConvolveEncodeContext {
+        let downsample_pipeline = ensure_pipeline(
+            &mut self.downsample_pipeline,
+            gpu.device(),
+            "skybox_ibl_downsample",
+            &downsample_layout_entries(),
+        )
+        .map_err(|_err| SkyboxIblConvolveError::MissingShader("skybox_ibl_downsample"))?;
+        let source_cube = create_ibl_cube(
+            gpu.device(),
+            "skybox_ibl_existing_source_cube",
+            face_size,
+            mip_levels,
+        );
+        let source_sample_view = Arc::new(create_full_cube_sample_view(
+            source_cube.texture.as_ref(),
+            mip_levels,
+        ));
+        let mut resources = PendingBakeResources::default();
+        resources.textures.push(source_cube.texture.clone());
+        resources.source_sample_view = Some(source_sample_view.clone());
+        copy_cube_mip0(encoder, texture, source_cube.texture.as_ref(), face_size);
+        encode_downsample_mips(
+            DownsampleEncodeContext {
                 device: gpu.device(),
                 encoder,
-                pipeline,
-                texture,
-                src_view: dst_sample_view.as_ref(),
-                sampler: sampler.as_ref(),
+                pipeline: downsample_pipeline,
+                texture: source_cube.texture.as_ref(),
                 face_size,
                 mip_levels,
                 profiler,
             },
             &mut resources,
         );
+        encode_convolve_mips(
+            ConvolveEncodeContext {
+                device: gpu.device(),
+                encoder,
+                pipeline,
+                texture,
+                src_view: source_sample_view.as_ref(),
+                sampler: sampler.as_ref(),
+                face_size,
+                mip_levels,
+                src_max_lod: source_max_lod(mip_levels),
+                profiler,
+            },
+            &mut resources,
+        );
         Ok(SkyboxIblConvolveResources {
             _resources: resources,
-            _dst_sample_view: dst_sample_view,
+            _source_sample_view: source_sample_view,
             _sampler: sampler,
         })
     }
