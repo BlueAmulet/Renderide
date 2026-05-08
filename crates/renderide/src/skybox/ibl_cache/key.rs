@@ -144,6 +144,11 @@ pub(crate) fn mip_extent(base: u32, mip: u32) -> u32 {
     (base >> mip).max(1)
 }
 
+/// Returns the highest source mip LOD available to filtered importance sampling.
+pub(super) fn source_max_lod(mip_levels: u32) -> f32 {
+    mip_levels.saturating_sub(1) as f32
+}
+
 /// Returns the GGX importance sample count for the given convolve mip.
 pub(super) fn convolve_sample_count(mip_index: u32) -> u32 {
     if mip_index == 0 {

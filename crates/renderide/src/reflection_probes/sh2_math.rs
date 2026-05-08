@@ -17,7 +17,7 @@ pub(super) fn f32x4_bits(v: [f32; 4]) -> [u32; 4] {
     ]
 }
 
-/// Analytic SH2 coefficients for a constant radiance color.
+/// Analytic SH2 coefficients for a constant Lambertian diffuse color.
 pub(super) fn constant_color_sh2(color: Vec3) -> RenderSH2 {
     let c = color * (4.0 * std::f32::consts::PI * SH_C0);
     RenderSH2 {
@@ -45,7 +45,19 @@ pub const SH_C3: f32 = 0.315_391_57;
 #[cfg(test)]
 pub const SH_C4: f32 = 0.546_274_24;
 
-/// Evaluates raw RenderSH2 coefficients for a world-space normal.
+/// Lambertian convolution factor for the zeroth SH band after diffuse BRDF division by pi.
+#[cfg(test)]
+pub const LAMBERT_BAND0: f32 = 1.0;
+
+/// Lambertian convolution factor for the first SH band after diffuse BRDF division by pi.
+#[cfg(test)]
+pub const LAMBERT_BAND1: f32 = 2.0 / 3.0;
+
+/// Lambertian convolution factor for the second SH band after diffuse BRDF division by pi.
+#[cfg(test)]
+pub const LAMBERT_BAND2: f32 = 0.25;
+
+/// Evaluates stored RenderSH2 coefficients for a world-space normal.
 #[cfg(test)]
 pub(super) fn evaluate_sh2(sh: &RenderSH2, n: Vec3) -> Vec3 {
     sh.sh0 * SH_C0
@@ -227,18 +239,18 @@ fn sh2_cube_dir(face: u32, x: u32, y: u32, n: u32) -> Vec3 {
     }
 }
 
-/// Accumulates one weighted radiance sample into RenderSH2 coefficients.
+/// Accumulates one weighted radiance sample into Lambertian-convolved RenderSH2 coefficients.
 #[cfg(test)]
 fn add_weighted_sh2_sample(sh: &mut RenderSH2, c: Vec3, dir: Vec3, weight: f32) {
-    sh.sh0 += c * (SH_C0 * weight);
-    sh.sh1 += c * (SH_C1 * dir.y * weight);
-    sh.sh2 += c * (SH_C1 * dir.z * weight);
-    sh.sh3 += c * (SH_C1 * dir.x * weight);
-    sh.sh4 += c * (SH_C2 * dir.x * dir.y * weight);
-    sh.sh5 += c * (SH_C2 * dir.y * dir.z * weight);
-    sh.sh6 += c * (SH_C3 * (3.0 * dir.z * dir.z - 1.0) * weight);
-    sh.sh7 += c * (SH_C2 * dir.x * dir.z * weight);
-    sh.sh8 += c * (SH_C4 * (dir.x * dir.x - dir.y * dir.y) * weight);
+    sh.sh0 += c * (SH_C0 * LAMBERT_BAND0 * weight);
+    sh.sh1 += c * (SH_C1 * LAMBERT_BAND1 * dir.y * weight);
+    sh.sh2 += c * (SH_C1 * LAMBERT_BAND1 * dir.z * weight);
+    sh.sh3 += c * (SH_C1 * LAMBERT_BAND1 * dir.x * weight);
+    sh.sh4 += c * (SH_C2 * LAMBERT_BAND2 * dir.x * dir.y * weight);
+    sh.sh5 += c * (SH_C2 * LAMBERT_BAND2 * dir.y * dir.z * weight);
+    sh.sh6 += c * (SH_C3 * LAMBERT_BAND2 * (3.0 * dir.z * dir.z - 1.0) * weight);
+    sh.sh7 += c * (SH_C2 * LAMBERT_BAND2 * dir.x * dir.z * weight);
+    sh.sh8 += c * (SH_C4 * LAMBERT_BAND2 * (dir.x * dir.x - dir.y * dir.y) * weight);
 }
 
 /// Projects a directional equirectangular lobe through the Projection360 `_VIEW` convention.
@@ -268,4 +280,30 @@ pub(super) fn project_projection360_equirect_lobe(
         }
     }
     sh
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constant_lambertian_sh2_evaluates_to_source_color() {
+        let color = Vec3::new(0.25, 0.5, 1.0);
+        let sh = constant_color_sh2(color);
+
+        for n in [Vec3::X, Vec3::Y, Vec3::Z, -Vec3::X, -Vec3::Y, -Vec3::Z] {
+            let evaluated = evaluate_sh2(&sh, n);
+            assert!((evaluated - color).length() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn lambertian_projection_applies_band_factors() {
+        let mut sh = RenderSH2::default();
+        add_weighted_sh2_sample(&mut sh, Vec3::ONE, Vec3::X, 1.0);
+
+        assert!((sh.sh0.x - SH_C0 * LAMBERT_BAND0).abs() < 1e-6);
+        assert!((sh.sh3.x - SH_C1 * LAMBERT_BAND1).abs() < 1e-6);
+        assert!((sh.sh8.x - SH_C4 * LAMBERT_BAND2).abs() < 1e-6);
+    }
 }

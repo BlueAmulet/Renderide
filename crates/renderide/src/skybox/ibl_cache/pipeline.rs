@@ -81,6 +81,33 @@ pub(super) fn mip0_input_layout_entries(
     ]
 }
 
+/// Bind-group layout entries for per-face source-pyramid mip downsampling.
+pub(super) fn downsample_layout_entries() -> [wgpu::BindGroupLayoutEntry; 3] {
+    [
+        wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 1,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2Array,
+                multisampled: false,
+            },
+            count: None,
+        },
+        storage_texture_layout_entry(2),
+    ]
+}
+
 /// Lazily creates and caches a compute pipeline from an embedded shader stem.
 pub(super) fn ensure_pipeline<'a>(
     slot: &'a mut Option<ComputePipeline>,
