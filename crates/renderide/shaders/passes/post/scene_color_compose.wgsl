@@ -24,5 +24,6 @@ fn fs_main(
 #else
     let layer = 0;
 #endif
-    return textureSample(scene_color_hdr, scene_color_sampler, in.uv, layer);
+    let hdr = textureSample(scene_color_hdr, scene_color_sampler, in.uv, layer);
+    return vec4<f32>(max(hdr.rgb, vec3<f32>(0.0)), hdr.a);
 }

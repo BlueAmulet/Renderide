@@ -66,6 +66,10 @@ fn soft_threshold(color: vec3<f32>) -> vec3<f32> {
     return color * contribution;
 }
 
+fn positive_bloom_source(color: vec3<f32>) -> vec3<f32> {
+    return max(color, vec3<f32>(0.0));
+}
+
 /// Holds the 5 weighted sample groups the 13-tap kernel produces. `fs_downsample_first` applies
 /// Karis per-group before summing; `fs_downsample` sums directly.
 struct Tap13Groups {
@@ -77,19 +81,19 @@ struct Tap13Groups {
 }
 
 fn sample_13_groups(uv: vec2<f32>, view: u32) -> Tap13Groups {
-    let a = textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-2,  2)).rgb;
-    let b = textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 0,  2)).rgb;
-    let c = textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 2,  2)).rgb;
-    let d = textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-2,  0)).rgb;
-    let e = textureSample(src_texture, src_sampler, uv, view).rgb;
-    let f = textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 2,  0)).rgb;
-    let g = textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-2, -2)).rgb;
-    let h = textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 0, -2)).rgb;
-    let i = textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 2, -2)).rgb;
-    let j = textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-1,  1)).rgb;
-    let k = textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 1,  1)).rgb;
-    let l = textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-1, -1)).rgb;
-    let m = textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 1, -1)).rgb;
+    let a = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-2,  2)).rgb);
+    let b = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 0,  2)).rgb);
+    let c = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 2,  2)).rgb);
+    let d = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-2,  0)).rgb);
+    let e = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view).rgb);
+    let f = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 2,  0)).rgb);
+    let g = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-2, -2)).rgb);
+    let h = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 0, -2)).rgb);
+    let i = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 2, -2)).rgb);
+    let j = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-1,  1)).rgb);
+    let k = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 1,  1)).rgb);
+    let l = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>(-1, -1)).rgb);
+    let m = positive_bloom_source(textureSample(src_texture, src_sampler, uv, view, vec2<i32>( 1, -1)).rgb);
     var out: Tap13Groups;
     out.g0 = (a + b + d + e) * (0.125 / 4.0);
     out.g1 = (b + c + e + f) * (0.125 / 4.0);
@@ -151,7 +155,7 @@ fn fs_downsample_first(in: fs::FullscreenVertexOutput) -> @location(0) vec4<f32>
     groups.g4 *= karis_average(groups.g4);
     var sample = groups.g0 + groups.g1 + groups.g2 + groups.g3 + groups.g4;
     // Clamp below f32::MAX to prevent NaN propagation through the downscale/upscale chain.
-    sample = clamp(sample, vec3<f32>(1e-4), vec3<f32>(3.40282347e+37));
+    sample = clamp(sample, vec3<f32>(0.0), vec3<f32>(3.40282347e+37));
     if (uniforms.threshold_precomputations.x > 0.0) {
         sample = soft_threshold(sample);
     }
