@@ -24,6 +24,8 @@ pub(super) struct PendingBake {
 /// Transient command resources that must survive until submit completion.
 #[derive(Default)]
 pub(super) struct PendingBakeResources {
+    /// Transient textures retained until the queued commands complete.
+    pub(super) textures: Vec<Arc<wgpu::Texture>>,
     /// Uniform and transient buffers retained until the queued commands complete.
     pub(super) buffers: Vec<wgpu::Buffer>,
     /// Bind groups retained until the queued commands complete.
@@ -32,8 +34,8 @@ pub(super) struct PendingBakeResources {
     pub(super) texture_views: Vec<wgpu::TextureView>,
     /// Source asset views/textures retained for the duration of the bake.
     pub(super) source_views: Vec<Arc<wgpu::TextureView>>,
-    /// Cube sampling view of the destination retained for the convolve passes.
-    pub(super) dst_sample_view: Option<Arc<wgpu::TextureView>>,
+    /// Cube sampling view of the source pyramid retained for the convolve passes.
+    pub(super) source_sample_view: Option<Arc<wgpu::TextureView>>,
 }
 
 /// IBL cube texture handles produced by [`create_ibl_cube`].
@@ -42,14 +44,15 @@ pub(super) struct IblCubeTexture {
     pub(super) texture: Arc<wgpu::Texture>,
 }
 
-/// Allocates the destination Rgba16Float cube and its full sampling view.
+/// Allocates one Rgba16Float IBL cube and its full sampling view.
 pub(super) fn create_ibl_cube(
     device: &wgpu::Device,
+    label: &'static str,
     face_size: u32,
     mip_levels: u32,
 ) -> IblCubeTexture {
     let texture = Arc::new(device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("skybox_ibl_cube"),
+        label: Some(label),
         size: wgpu::Extent3d {
             width: face_size,
             height: face_size,
@@ -61,30 +64,47 @@ pub(super) fn create_ibl_cube(
         format: IBL_CUBE_FORMAT,
         usage: wgpu::TextureUsages::TEXTURE_BINDING
             | wgpu::TextureUsages::STORAGE_BINDING
+            | wgpu::TextureUsages::COPY_DST
             | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     }));
     IblCubeTexture { texture }
 }
 
-/// Creates a cube-dimension sampling view of mip 0 only, used as the convolve input source.
-///
-/// The view must not overlap any storage-bound mip in the same compute dispatch -- wgpu treats
-/// overlapping subresources as a usage conflict between `RESOURCE` and `STORAGE_WRITE_ONLY`.
-/// A mip-0-only view is non-overlapping with every per-mip storage view (mip >= 1).
-pub(super) fn create_mip0_cube_sample_view(texture: &wgpu::Texture) -> wgpu::TextureView {
+/// Creates a cube-dimension sampling view of every mip in the source pyramid.
+pub(super) fn create_full_cube_sample_view(
+    texture: &wgpu::Texture,
+    mip_levels: u32,
+) -> wgpu::TextureView {
     let view = texture.create_view(&wgpu::TextureViewDescriptor {
-        label: Some("skybox_ibl_cube_mip0_sample_view"),
+        label: Some("skybox_ibl_cube_full_sample_view"),
         format: Some(IBL_CUBE_FORMAT),
         dimension: Some(wgpu::TextureViewDimension::Cube),
         usage: Some(wgpu::TextureUsages::TEXTURE_BINDING),
         aspect: wgpu::TextureAspect::All,
         base_mip_level: 0,
+        mip_level_count: Some(mip_levels),
+        base_array_layer: 0,
+        array_layer_count: Some(6),
+    });
+    crate::profiling::note_resource_churn!(TextureView, "skybox::ibl_full_sample_view");
+    view
+}
+
+/// Creates a 2D-array sampling view of one mip, used by source-pyramid downsampling.
+pub(super) fn create_mip_array_sample_view(texture: &wgpu::Texture, mip: u32) -> wgpu::TextureView {
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        label: Some("skybox_ibl_mip_array_sample_view"),
+        format: Some(IBL_CUBE_FORMAT),
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        usage: Some(wgpu::TextureUsages::TEXTURE_BINDING),
+        aspect: wgpu::TextureAspect::All,
+        base_mip_level: mip,
         mip_level_count: Some(1),
         base_array_layer: 0,
         array_layer_count: Some(6),
     });
-    crate::profiling::note_resource_churn!(TextureView, "skybox::ibl_mip0_sample_view");
+    crate::profiling::note_resource_churn!(TextureView, "skybox::ibl_mip_array_sample_view");
     view
 }
 
