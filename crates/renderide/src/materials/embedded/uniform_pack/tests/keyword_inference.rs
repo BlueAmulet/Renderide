@@ -708,6 +708,35 @@ fn normalmap_keyword_infers_from_normal_map_zero() {
 }
 
 #[test]
+fn matcap_keyword_infers_from_matcap_texture() {
+    let mut store = MaterialPropertyStore::new();
+    let reg = PropertyIdRegistry::new();
+    let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+    store.set_material(
+        63,
+        reg.intern("_Matcap"),
+        MaterialPropertyValue::Texture(packed_texture2d(16)),
+    );
+
+    assert_eq!(
+        inferred_keyword_float_f32("MATCAP", &store, lookup(63), &ids),
+        Some(1.0)
+    );
+}
+
+#[test]
+fn matcap_keyword_stays_off_without_matcap_texture() {
+    let store = MaterialPropertyStore::new();
+    let reg = PropertyIdRegistry::new();
+    let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+
+    assert_eq!(
+        inferred_keyword_float_f32("MATCAP", &store, lookup(64), &ids),
+        Some(0.0)
+    );
+}
+
+#[test]
 fn clip_keyword_stays_off_from_clip_range_properties_only() {
     let mut store = MaterialPropertyStore::new();
     let reg = PropertyIdRegistry::new();

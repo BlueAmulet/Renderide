@@ -218,6 +218,9 @@ fn matcap_uv(view_dir: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
 
 /// Reflection blend-weight shared by additive / multiplicative / subtractive indirect-specular modes.
 fn reflection_blend_weight(s: xb::SurfaceData) -> f32 {
+    if (xb::matcap_enabled()) {
+        return 1.0;
+    }
     return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);
 }
 
@@ -241,14 +244,8 @@ fn indirect_reflection_branch(
     fresnel: vec3<f32>,
     ambient: vec3<f32>,
     dominant_light_col_atten: vec3<f32>,
-    reflectivity_scale: f32,
 ) -> vec3<f32> {
     if (xb::reflection_disabled()) {
-        return vec3<f32>(0.0);
-    }
-
-    let reflectivity_mask = clamp(s.reflectivity_mask, 0.0, 1.0);
-    if (reflectivity_mask <= 1e-4) {
         return vec3<f32>(0.0);
     }
 
@@ -260,7 +257,12 @@ fn indirect_reflection_branch(
         if (!reflection_is_multiplicative()) {
             spec = spec * (ambient + dominant_light_col_atten * 0.5);
         }
-        return spec * max(reflectivity_scale, 0.0) * reflectivity_mask;
+        return spec;
+    }
+
+    let reflectivity_mask = clamp(s.reflectivity_mask, 0.0, 1.0);
+    if (reflectivity_mask <= 1e-4) {
+        return vec3<f32>(0.0);
     }
 
     if (xb::baked_cubemap_enabled()) {
@@ -313,10 +315,9 @@ fn indirect_specular(
         fresnel,
         ambient,
         dominant_light_col_atten,
-        reflectivity,
     );
 
-    if (xb::clearcoat_enabled()) {
+    if (!xb::matcap_enabled() && xb::clearcoat_enabled()) {
         let clearcoat_f0 = vec3<f32>(0.16 * s.clearcoat_strength * s.clearcoat_strength * s.clearcoat_smoothness);
         spec = spec + indirect_reflection_branch(
             s,
@@ -328,7 +329,6 @@ fn indirect_specular(
             clearcoat_f0,
             ambient,
             dominant_light_col_atten,
-            s.clearcoat_strength,
         );
     }
 
