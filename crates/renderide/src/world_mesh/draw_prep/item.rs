@@ -147,6 +147,9 @@ pub(crate) fn stacked_material_submesh_topology(
 
 /// Counts material slots that can produce draws for `renderer` without allocating a fallback slot.
 pub(crate) fn resolved_material_slot_count(renderer: &StaticMeshRenderer) -> usize {
+    if !renderer.emits_visible_color_draws() {
+        return 0;
+    }
     if !renderer.material_slots.is_empty() {
         renderer.material_slots.len()
     } else if renderer.primary_material_asset_id.is_some() {
@@ -180,8 +183,11 @@ pub fn resolved_material_slots<'a>(
 #[cfg(test)]
 mod tests {
     use super::{
-        RasterPrimitiveTopology, stacked_material_submesh_range, stacked_material_submesh_topology,
+        RasterPrimitiveTopology, resolved_material_slot_count, stacked_material_submesh_range,
+        stacked_material_submesh_topology,
     };
+    use crate::scene::{MeshMaterialSlot, StaticMeshRenderer};
+    use crate::shared::ShadowCastMode;
 
     #[test]
     fn stacked_material_submesh_range_reuses_last_submesh_for_extra_slots() {
@@ -237,5 +243,40 @@ mod tests {
             stacked_material_submesh_topology(0, &[]),
             RasterPrimitiveTopology::TriangleList,
         );
+    }
+
+    #[test]
+    fn resolved_material_slot_count_suppresses_shadow_only_renderers() {
+        let renderer = StaticMeshRenderer {
+            shadow_cast_mode: ShadowCastMode::ShadowOnly,
+            material_slots: vec![MeshMaterialSlot {
+                material_asset_id: 5,
+                property_block_id: None,
+            }],
+            primary_material_asset_id: Some(9),
+            ..Default::default()
+        };
+
+        assert_eq!(resolved_material_slot_count(&renderer), 0);
+    }
+
+    #[test]
+    fn resolved_material_slot_count_keeps_non_shadow_only_renderers() {
+        for shadow_cast_mode in [
+            ShadowCastMode::Off,
+            ShadowCastMode::On,
+            ShadowCastMode::DoubleSided,
+        ] {
+            let renderer = StaticMeshRenderer {
+                shadow_cast_mode,
+                material_slots: vec![MeshMaterialSlot {
+                    material_asset_id: 5,
+                    property_block_id: None,
+                }],
+                ..Default::default()
+            };
+
+            assert_eq!(resolved_material_slot_count(&renderer), 1);
+        }
     }
 }

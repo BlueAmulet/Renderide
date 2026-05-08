@@ -68,6 +68,14 @@ impl Default for StaticMeshRenderer {
     }
 }
 
+impl StaticMeshRenderer {
+    /// Returns whether this renderer should contribute to visible color rendering.
+    #[inline]
+    pub(crate) fn emits_visible_color_draws(&self) -> bool {
+        self.shadow_cast_mode != ShadowCastMode::ShadowOnly
+    }
+}
+
 /// Skinned mesh instance: [`StaticMeshRenderer`]-style header plus bone palette and root bone.
 #[derive(Debug, Clone, Default)]
 pub struct SkinnedMeshRenderer {
@@ -83,4 +91,35 @@ pub struct SkinnedMeshRenderer {
     /// the first bounds row for this renderable -- culling falls back to the mesh bind-pose AABB
     /// transformed by the renderable's root matrix.
     pub posed_object_bounds: Option<RenderBoundingBox>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shadow_only_renderers_do_not_emit_visible_color_draws() {
+        let renderer = StaticMeshRenderer {
+            shadow_cast_mode: ShadowCastMode::ShadowOnly,
+            ..Default::default()
+        };
+
+        assert!(!renderer.emits_visible_color_draws());
+    }
+
+    #[test]
+    fn non_shadow_only_modes_emit_visible_color_draws() {
+        for shadow_cast_mode in [
+            ShadowCastMode::Off,
+            ShadowCastMode::On,
+            ShadowCastMode::DoubleSided,
+        ] {
+            let renderer = StaticMeshRenderer {
+                shadow_cast_mode,
+                ..Default::default()
+            };
+
+            assert!(renderer.emits_visible_color_draws());
+        }
+    }
 }
