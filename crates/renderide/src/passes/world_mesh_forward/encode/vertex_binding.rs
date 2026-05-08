@@ -112,6 +112,26 @@ macro_rules! bind_vertex_if_changed {
     }};
 }
 
+#[inline]
+fn draw_uses_deformed_primary_streams(item: &WorldMeshDrawItem) -> bool {
+    item.world_space_deformed || item.blendshape_deformed
+}
+
+#[inline]
+fn draw_uses_deformed_tangent_stream(item: &WorldMeshDrawItem, mesh: &GpuMesh) -> bool {
+    item.world_space_deformed || (item.blendshape_deformed && mesh.blendshape_has_tangent_deltas)
+}
+
+#[cfg(test)]
+#[inline]
+fn draw_uses_deformed_tangent_stream_for_flags(
+    world_space_deformed: bool,
+    blendshape_deformed: bool,
+    blendshape_has_tangent_deltas: bool,
+) -> bool {
+    world_space_deformed || (blendshape_deformed && blendshape_has_tangent_deltas)
+}
+
 /// Binds mesh streams and issues one indexed draw for `item` over `instances`.
 pub(super) fn draw_mesh_submesh_instanced(
     rpass: &mut wgpu::RenderPass<'_>,
@@ -241,8 +261,7 @@ fn bind_primary_vertex_streams(
     normals_bind: &wgpu::Buffer,
     last_mesh: &mut LastMeshBindState,
 ) -> bool {
-    if item.world_space_deformed || (item.blendshape_deformed && mesh.blendshape_has_tangent_deltas)
-    {
+    if draw_uses_deformed_primary_streams(item) {
         bind_deformed_primary_streams(rpass, item, gpu, normals_bind, last_mesh)
     } else {
         bind_static_primary_streams(rpass, mesh, normals_bind, last_mesh)
@@ -284,8 +303,7 @@ fn bind_position_vertex_stream(
     mesh: &GpuMesh,
     last_mesh: &mut LastMeshBindState,
 ) -> bool {
-    if item.world_space_deformed || (item.blendshape_deformed && mesh.blendshape_has_tangent_deltas)
-    {
+    if draw_uses_deformed_primary_streams(item) {
         let Some(cache) = gpu.skin_cache else {
             return false;
         };
@@ -473,7 +491,7 @@ fn bind_tangent_stream(
     mesh: &GpuMesh,
     last_mesh: &mut LastMeshBindState,
 ) -> bool {
-    if item.world_space_deformed || item.blendshape_deformed {
+    if draw_uses_deformed_tangent_stream(item, mesh) {
         let Some(cache) = gpu.skin_cache else {
             return false;
         };
@@ -550,5 +568,58 @@ pub(super) fn streams_for_item(item: &WorldMeshDrawItem) -> EmbeddedVertexStream
         embedded_color: item.batch_key.embedded_needs_color,
         embedded_uv1: item.batch_key.embedded_needs_uv1,
         embedded_extended_vertex_streams: item.batch_key.embedded_needs_extended_vertex_streams,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
+
+    use super::{draw_uses_deformed_primary_streams, draw_uses_deformed_tangent_stream_for_flags};
+
+    fn item(
+        world_space_deformed: bool,
+        blendshape_deformed: bool,
+    ) -> crate::world_mesh::WorldMeshDrawItem {
+        let mut item = dummy_world_mesh_draw_item(DummyDrawItemSpec {
+            material_asset_id: 1,
+            property_block: None,
+            skinned: false,
+            sorting_order: 0,
+            mesh_asset_id: 1,
+            node_id: 0,
+            slot_index: 0,
+            collect_order: 0,
+            alpha_blended: false,
+        });
+        item.world_space_deformed = world_space_deformed;
+        item.blendshape_deformed = blendshape_deformed;
+        item
+    }
+
+    #[test]
+    fn blendshape_only_draw_uses_deformed_primary_streams() {
+        assert!(draw_uses_deformed_primary_streams(&item(false, true)));
+    }
+
+    #[test]
+    fn blendshape_only_without_tangent_deltas_uses_base_tangent_stream() {
+        assert!(!draw_uses_deformed_tangent_stream_for_flags(
+            false, true, false
+        ));
+    }
+
+    #[test]
+    fn blendshape_only_with_tangent_deltas_uses_deformed_tangent_stream() {
+        assert!(draw_uses_deformed_tangent_stream_for_flags(
+            false, true, true
+        ));
+    }
+
+    #[test]
+    fn world_space_skinning_uses_deformed_tangent_stream() {
+        assert!(draw_uses_deformed_tangent_stream_for_flags(
+            true, false, false
+        ));
     }
 }
