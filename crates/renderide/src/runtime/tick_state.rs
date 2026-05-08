@@ -1,7 +1,16 @@
 //! Runtime-owned per-tick scratch and phase gates.
 
 use crate::scene::RenderSpaceId;
-use crate::shared::CameraRenderTask;
+use crate::shared::{CameraRenderTask, ReflectionProbeRenderResult, ReflectionProbeRenderTask};
+
+/// Reflection-probe bake task plus the render space that carried it.
+#[derive(Clone, Debug)]
+pub(super) struct QueuedReflectionProbeRenderTask {
+    /// Host render space containing the reflection probe.
+    pub(super) render_space_id: RenderSpaceId,
+    /// Host bake task payload.
+    pub(super) task: ReflectionProbeRenderTask,
+}
 
 /// Per-tick gates and reusable view-planning scratch.
 pub(super) struct RuntimeTickState {
@@ -11,6 +20,10 @@ pub(super) struct RuntimeTickState {
     pub(super) secondary_view_tasks_scratch: Vec<(RenderSpaceId, f32, usize)>,
     /// Host camera readback tasks waiting for a GPU context before the next begin-frame send.
     pub(super) pending_camera_render_tasks: Vec<CameraRenderTask>,
+    /// Host reflection-probe bake tasks waiting for a GPU context before the next begin-frame send.
+    pub(super) pending_reflection_probe_render_tasks: Vec<QueuedReflectionProbeRenderTask>,
+    /// Reflection-probe bake results waiting for the background IPC queue to accept them.
+    pub(super) pending_reflection_probe_render_results: Vec<ReflectionProbeRenderResult>,
 }
 
 impl RuntimeTickState {
@@ -20,6 +33,8 @@ impl RuntimeTickState {
             did_integrate_this_tick: false,
             secondary_view_tasks_scratch: Vec::new(),
             pending_camera_render_tasks: Vec::new(),
+            pending_reflection_probe_render_tasks: Vec::new(),
+            pending_reflection_probe_render_results: Vec::new(),
         }
     }
 

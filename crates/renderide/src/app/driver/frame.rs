@@ -79,6 +79,7 @@ impl AppDriver {
         if let Some(target) = self.target.as_mut() {
             let gpu = target.gpu_mut();
             self.runtime.maintain_nonblocking_gpu_jobs(gpu);
+            self.runtime.drain_reflection_probe_render_tasks(gpu);
             self.runtime.drain_camera_render_tasks(gpu);
         }
 

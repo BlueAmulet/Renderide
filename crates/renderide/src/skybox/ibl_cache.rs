@@ -62,6 +62,96 @@ enum SkyboxIblBakeError {
     MissingShader(&'static str),
 }
 
+/// Errors returned while encoding GGX convolve mips for an existing cubemap.
+#[derive(Debug, Error)]
+pub(crate) enum SkyboxIblConvolveError {
+    /// Embedded WGSL source was not available at compose time.
+    #[error("embedded shader {0} not found")]
+    MissingShader(&'static str),
+}
+
+/// Resources produced while encoding convolve passes and retained until submit completion.
+pub(crate) struct SkyboxIblConvolveResources {
+    _resources: PendingBakeResources,
+    _dst_sample_view: Arc<wgpu::TextureView>,
+    _sampler: Arc<wgpu::Sampler>,
+}
+
+/// Minimal GGX convolver for caller-owned cubemap textures.
+#[derive(Default)]
+pub(crate) struct SkyboxIblConvolver {
+    convolve_pipeline: Option<ComputePipeline>,
+    input_sampler: Option<Arc<wgpu::Sampler>>,
+}
+
+impl SkyboxIblConvolver {
+    /// Creates an empty convolver with lazily-built GPU resources.
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Encodes GGX convolve passes for mips `1..mip_levels` of `texture`.
+    pub(crate) fn encode_existing_cube_mips(
+        &mut self,
+        gpu: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
+        face_size: u32,
+        mip_levels: u32,
+        profiler: Option<&GpuProfilerHandle>,
+    ) -> Result<SkyboxIblConvolveResources, SkyboxIblConvolveError> {
+        profiling::scope!("skybox_ibl::encode_existing_cube_mips");
+        let sampler = self
+            .input_sampler
+            .get_or_insert_with(|| Arc::new(create_ibl_input_sampler(gpu.device())))
+            .clone();
+        let pipeline = ensure_pipeline(
+            &mut self.convolve_pipeline,
+            gpu.device(),
+            "skybox_ibl_convolve_params",
+            &mip0_input_layout_entries(wgpu::TextureViewDimension::Cube),
+        )
+        .map_err(|_err| SkyboxIblConvolveError::MissingShader("skybox_ibl_convolve_params"))?;
+        let dst_sample_view = Arc::new(create_mip0_cube_sample_view(texture));
+        let mut resources = PendingBakeResources {
+            dst_sample_view: Some(dst_sample_view.clone()),
+            ..Default::default()
+        };
+        encode_convolve_mips(
+            ConvolveEncodeContext {
+                device: gpu.device(),
+                encoder,
+                pipeline,
+                texture,
+                src_view: dst_sample_view.as_ref(),
+                sampler: sampler.as_ref(),
+                face_size,
+                mip_levels,
+                profiler,
+            },
+            &mut resources,
+        );
+        Ok(SkyboxIblConvolveResources {
+            _resources: resources,
+            _dst_sample_view: dst_sample_view,
+            _sampler: sampler,
+        })
+    }
+}
+
+fn create_ibl_input_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("skybox_ibl_existing_cube_sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
+        ..Default::default()
+    })
+}
+
 struct SourceMip0EncodeContext<'a> {
     gpu: &'a GpuContext,
     encoder: &'a mut wgpu::CommandEncoder,

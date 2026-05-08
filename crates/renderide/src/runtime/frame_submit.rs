@@ -3,6 +3,7 @@
 use std::time::Instant;
 
 use super::camera_render_tasks::zero_camera_render_task_results;
+use super::reflection_probe_render_tasks::reflection_probe_render_task_count;
 use super::{RendererRuntime, lockstep};
 use crate::shared::FrameSubmitData;
 
@@ -34,6 +35,9 @@ impl RendererRuntime {
         let mut apply_failed = false;
         let mut rendered_reflection_probes = Vec::new();
         let mut queue_camera_tasks = false;
+        let reflection_probe_task_count = reflection_probe_render_task_count(&data);
+        let mut queue_reflection_probe_tasks = false;
+        let mut failed_reflection_probe_tasks = false;
         let mut failed_camera_tasks = 0u64;
         if let Some(ref mut shm) = self.frontend.shared_memory_mut() {
             {
@@ -63,6 +67,7 @@ impl RendererRuntime {
                 rendered_reflection_probes =
                     self.scene.take_supported_reflection_probe_render_results();
                 queue_camera_tasks = !data.render_tasks.is_empty();
+                queue_reflection_probe_tasks = reflection_probe_task_count > 0;
             } else if !data.render_tasks.is_empty() {
                 let zero_failed = zero_camera_render_task_results(shm, &data.render_tasks);
                 logger::warn!(
@@ -71,6 +76,9 @@ impl RendererRuntime {
                 );
                 failed_camera_tasks =
                     failed_camera_tasks.saturating_add(data.render_tasks.len() as u64);
+                failed_reflection_probe_tasks = reflection_probe_task_count > 0;
+            } else if reflection_probe_task_count > 0 {
+                failed_reflection_probe_tasks = true;
             }
         } else if !data.render_tasks.is_empty() {
             logger::warn!(
@@ -79,13 +87,18 @@ impl RendererRuntime {
             );
             failed_camera_tasks =
                 failed_camera_tasks.saturating_add(data.render_tasks.len() as u64);
+            failed_reflection_probe_tasks = reflection_probe_task_count > 0;
+        } else if reflection_probe_task_count > 0 {
+            failed_reflection_probe_tasks = true;
         }
-        if queue_camera_tasks {
-            self.queue_camera_render_tasks(&data.render_tasks);
-        }
-        if failed_camera_tasks > 0 {
-            self.note_camera_readback_results(0, failed_camera_tasks);
-        }
+        self.finish_frame_submit_readback_queues(FrameSubmitReadbackQueueDecision {
+            data: &data,
+            reflection_probe_task_count,
+            queue_camera_tasks,
+            queue_reflection_probe_tasks,
+            failed_reflection_probe_tasks,
+            failed_camera_tasks,
+        });
         self.frontend
             .enqueue_rendered_reflection_probes(rendered_reflection_probes);
         if apply_failed {
@@ -100,11 +113,44 @@ impl RendererRuntime {
                 crate::camera::eye_world_position_from_active_main_space(&self.scene);
         };
 
+        self.trace_frame_submit_processed(&data, reflection_probe_task_count, start);
+    }
+
+    fn finish_frame_submit_readback_queues(
+        &mut self,
+        decision: FrameSubmitReadbackQueueDecision<'_>,
+    ) {
+        if decision.queue_camera_tasks {
+            self.queue_camera_render_tasks(&decision.data.render_tasks);
+        }
+        if decision.queue_reflection_probe_tasks {
+            self.queue_reflection_probe_render_tasks(decision.data);
+        }
+        if decision.failed_reflection_probe_tasks {
+            logger::warn!(
+                "queueing {} failed ReflectionProbeRenderTask result(s) after frame submit rejection",
+                decision.reflection_probe_task_count
+            );
+            self.queue_failed_reflection_probe_render_task_results(decision.data);
+            self.flush_reflection_probe_render_results();
+        }
+        if decision.failed_camera_tasks > 0 {
+            self.note_camera_readback_results(0, decision.failed_camera_tasks);
+        }
+    }
+
+    fn trace_frame_submit_processed(
+        &self,
+        data: &FrameSubmitData,
+        reflection_probe_task_count: usize,
+        start: Instant,
+    ) {
         logger::trace!(
-            "frame_submit frame_index={} render_spaces={} render_tasks={} output_state={} debug_log={} near_clip={} far_clip={} desktop_fov_deg={} vr_active={} scene_apply_ms={:.3}",
+            "frame_submit frame_index={} render_spaces={} render_tasks={} reflection_probe_render_tasks={} output_state={} debug_log={} near_clip={} far_clip={} desktop_fov_deg={} vr_active={} scene_apply_ms={:.3}",
             data.frame_index,
             data.render_spaces.len(),
             data.render_tasks.len(),
+            reflection_probe_task_count,
             data.output_state.is_some(),
             data.debug_log,
             self.host_camera.clip.near,
@@ -116,11 +162,23 @@ impl RendererRuntime {
     }
 }
 
+struct FrameSubmitReadbackQueueDecision<'a> {
+    data: &'a FrameSubmitData,
+    reflection_probe_task_count: usize,
+    queue_camera_tasks: bool,
+    queue_reflection_probe_tasks: bool,
+    failed_reflection_probe_tasks: bool,
+    failed_camera_tasks: u64,
+}
+
 #[cfg(test)]
 mod tests {
     use glam::IVec2;
 
-    use crate::shared::{CameraRenderParameters, CameraRenderTask, FrameSubmitData, TextureFormat};
+    use crate::shared::{
+        CameraRenderParameters, CameraRenderTask, FrameSubmitData, ReflectionProbeRenderTask,
+        RenderSpaceUpdate, TextureFormat,
+    };
 
     use super::RendererRuntime;
 
@@ -149,5 +207,34 @@ mod tests {
         runtime.apply_frame_submit_data(data);
 
         assert_eq!(runtime.pending_camera_render_task_count(), 1);
+    }
+
+    #[test]
+    fn successful_frame_submit_queues_reflection_probe_render_tasks() {
+        let mut runtime = RendererRuntime::new(
+            Option::<crate::connection::ConnectionParams>::None,
+            std::sync::Arc::new(std::sync::RwLock::new(
+                crate::config::RendererSettings::default(),
+            )),
+            std::path::PathBuf::from("test_config.toml"),
+        );
+        runtime.test_set_shared_memory("renderide-test-reflection-probe-queue");
+        let data = FrameSubmitData {
+            render_spaces: vec![RenderSpaceUpdate {
+                id: 7,
+                is_active: true,
+                reflection_probe_render_tasks: vec![ReflectionProbeRenderTask {
+                    render_task_id: 99,
+                    size: 4,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        runtime.apply_frame_submit_data(data);
+
+        assert_eq!(runtime.pending_reflection_probe_render_task_count(), 1);
     }
 }

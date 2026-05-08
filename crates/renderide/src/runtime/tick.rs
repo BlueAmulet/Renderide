@@ -3,8 +3,8 @@
 //! Owns the prologue, the lock-step / output forwards the app driver invokes inside one
 //! redraw iteration, and the two top-level tick entry points that compose [`Self::poll_ipc`],
 //! [`Self::run_asset_integration`], [`Self::maintain_nonblocking_gpu_jobs`],
-//! [`Self::drain_camera_render_tasks`], [`Self::pre_frame`], and
-//! [`Self::render_desktop_frame`] in their fixed order.
+//! [`Self::drain_reflection_probe_render_tasks`], [`Self::drain_camera_render_tasks`],
+//! [`Self::pre_frame`], and [`Self::render_desktop_frame`] in their fixed order.
 
 use std::time::Instant;
 
@@ -87,10 +87,11 @@ impl RendererRuntime {
     /// Runs the canonical per-frame phase order shared between the winit-driven
     /// app-driver redraw tick (non-VR) and the headless interval driver.
     ///
-    /// Phases: drain IPC, dispatch asset integration, drain camera readbacks, emit lock-step
-    /// `FrameStartData` via [`Self::pre_frame`] (when allowed), and call [`Self::render_frame`]
-    /// with the main camera included. Mode-specific epilogue (HUD overlay encode + present in
-    /// winit, PNG readback in headless) happens on the caller side after this returns.
+    /// Phases: drain IPC, dispatch asset integration, drain reflection-probe and camera readbacks,
+    /// emit lock-step `FrameStartData` via [`Self::pre_frame`] (when allowed), and call
+    /// [`Self::render_frame`] with the main camera included. Mode-specific epilogue (HUD overlay
+    /// encode + present in winit, PNG readback in headless) happens on the caller side after this
+    /// returns.
     pub fn tick_one_frame(&mut self, gpu: &mut GpuContext, inputs: InputState) -> TickOutcome {
         profiling::scope!("tick::one_frame");
         self.poll_ipc();
@@ -108,6 +109,7 @@ impl RendererRuntime {
         }
         self.run_asset_integration();
         self.maintain_nonblocking_gpu_jobs(gpu);
+        self.drain_reflection_probe_render_tasks(gpu);
         self.drain_camera_render_tasks(gpu);
         if self.should_send_begin_frame() {
             self.pre_frame(inputs);
@@ -146,6 +148,7 @@ impl RendererRuntime {
         self.run_asset_integration();
         if let Some(gpu) = gpu {
             self.maintain_nonblocking_gpu_jobs(gpu);
+            self.drain_reflection_probe_render_tasks(gpu);
             self.drain_camera_render_tasks(gpu);
         }
         if self.should_send_begin_frame() {

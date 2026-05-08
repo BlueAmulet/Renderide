@@ -37,6 +37,12 @@ impl RendererRuntime {
         self.tick_state.pending_camera_render_tasks.len()
     }
 
+    /// Number of host reflection-probe bake tasks waiting for GPU processing.
+    #[cfg(test)]
+    pub(crate) fn pending_reflection_probe_render_task_count(&self) -> usize {
+        self.tick_state.pending_reflection_probe_render_tasks.len()
+    }
+
     /// Disables writing `config.toml` from the HUD when load-time Figment extraction failed.
     pub fn set_suppress_renderer_config_disk_writes(&mut self, value: bool) {
         self.config.set_suppress_renderer_config_disk_writes(value);

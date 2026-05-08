@@ -16,8 +16,9 @@
 //! 2. **IPC poll** -- [`RendererRuntime::poll_ipc`]; drains incoming `RendererCommand`s before any work runs.
 //! 3. **Asset integration** -- [`RendererRuntime::run_asset_integration`]; time-sliced cooperative
 //!    mesh/texture/material uploads via [`crate::backend::RenderBackend::drain_asset_tasks`].
-//! 4. **Camera readback tasks** -- [`RendererRuntime::drain_camera_render_tasks`] renders any
-//!    host-requested offscreen captures and writes the resulting bytes to shared memory.
+//! 4. **Offscreen readback tasks** -- [`RendererRuntime::drain_reflection_probe_render_tasks`]
+//!    and [`RendererRuntime::drain_camera_render_tasks`] render host-requested captures and write
+//!    the resulting bytes to shared memory.
 //! 5. **Optional XR begin** -- `xr_begin_tick` in `app/`; OpenXR `wait_frame` / `locate_views` so the
 //!    same view snapshot is visible to lock-step input.
 //! 6. **Lock-step exchange** -- [`RendererRuntime::pre_frame`] emits
@@ -53,6 +54,7 @@
 //! - [`ipc_entry`] -- IPC poll and command-effect decode/apply entrypoints.
 //! - [`lights_ipc`] -- applies host light-buffer IPC payloads to scene light caches.
 //! - [`lockstep`] -- diagnostic helper for duplicate frame indices.
+//! - [`reflection_probe_render_tasks`] -- host reflection-probe cubemap bake tasks and IPC results.
 //! - [`shader_material_ipc`] -- applies shader route and material-batch IPC payloads.
 //! - [`tick`] -- tick prologue, lock-step / output forwards, the two `tick_one_frame*` orchestrators.
 //! - [`view_planning`] -- collection of HMD / secondary RT / main swapchain plans.
@@ -79,6 +81,7 @@ mod ipc_entry;
 mod ipc_state;
 mod lights_ipc;
 mod lockstep;
+mod reflection_probe_render_tasks;
 mod shader_material_ipc;
 mod shutdown;
 mod tick;
