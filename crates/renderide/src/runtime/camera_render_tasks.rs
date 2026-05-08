@@ -687,9 +687,10 @@ fn pack_rgba8_to_host_buffer(
     let src_row_bytes = width * RGBA8_BYTES_PER_PIXEL;
     let dst_pixel_bytes = output_format.bytes_per_pixel();
     let dst_row_bytes = width * dst_pixel_bytes;
+    // The host bitmap for render tasks carries FlipY metadata, so keep the
+    // raw readback row order and only repack channels here.
     for dst_row in 0..height {
-        let src_row = height - 1 - dst_row;
-        let src_row_start = src_row * src_row_bytes;
+        let src_row_start = dst_row * src_row_bytes;
         let dst_row_start = dst_row * dst_row_bytes;
         for x in 0..width {
             let src = src_row_start + x * RGBA8_BYTES_PER_PIXEL;
@@ -814,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_rgba8_flips_rows_and_converts_formats() {
+    fn pack_rgba8_preserves_rows_and_converts_formats() {
         let extent = CameraTaskExtent {
             width: 2,
             height: 2,
@@ -829,7 +830,7 @@ mod tests {
         assert_eq!(
             argb,
             vec![
-                33, 30, 31, 32, 43, 40, 41, 42, 13, 10, 11, 12, 23, 20, 21, 22
+                13, 10, 11, 12, 23, 20, 21, 22, 33, 30, 31, 32, 43, 40, 41, 42
             ]
         );
 
@@ -839,7 +840,7 @@ mod tests {
         assert_eq!(
             rgba_out,
             vec![
-                30, 31, 32, 33, 40, 41, 42, 43, 10, 11, 12, 13, 20, 21, 22, 23
+                10, 11, 12, 13, 20, 21, 22, 23, 30, 31, 32, 33, 40, 41, 42, 43
             ]
         );
 
@@ -849,14 +850,14 @@ mod tests {
         assert_eq!(
             bgra,
             vec![
-                32, 31, 30, 33, 42, 41, 40, 43, 12, 11, 10, 13, 22, 21, 20, 23
+                12, 11, 10, 13, 22, 21, 20, 23, 32, 31, 30, 33, 42, 41, 40, 43
             ]
         );
 
         let mut rgb = vec![0; 12];
         pack_rgba8_to_host_buffer(&rgba, extent, CameraTaskOutputFormat::Rgb24, &mut rgb)
             .expect("rgb pack");
-        assert_eq!(rgb, vec![30, 31, 32, 40, 41, 42, 10, 11, 12, 20, 21, 22]);
+        assert_eq!(rgb, vec![10, 11, 12, 20, 21, 22, 30, 31, 32, 40, 41, 42]);
     }
 
     #[test]
