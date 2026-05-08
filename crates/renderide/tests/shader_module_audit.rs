@@ -86,6 +86,28 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
         !lighting_src.contains("let uv = matcap_uv(view_dir, normal);"),
         "Xiexe matcap UVs must not use the per-eye lighting view direction"
     );
+    let matcap_sample_pos = lighting_src
+        .find("let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);")
+        .expect("Xiexe lighting must contain a matcap sampling branch");
+    let reflectivity_mask_pos = lighting_src
+        .find("let reflectivity_mask = clamp(s.reflectivity_mask, 0.0, 1.0);")
+        .expect(
+            "Xiexe lighting must contain reflectivity-mask handling for non-matcap reflections",
+        );
+    assert!(
+        matcap_sample_pos < reflectivity_mask_pos,
+        "Xiexe matcaps must be sampled before reflectivity-mask rejection"
+    );
+    assert!(
+        lighting_src.contains(
+            "if (xb::matcap_enabled()) {\n        return 1.0;\n    }\n    return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);"
+        ),
+        "Xiexe matcaps must not be blended by reflectivity or reflectivity-mask weight"
+    );
+    assert!(
+        !lighting_src.contains("return spec * max("),
+        "Xiexe matcaps must not be scaled by reflectivity or clearcoat branch strength"
+    );
     Ok(())
 }
 

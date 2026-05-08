@@ -184,6 +184,7 @@ fn texture_keyword_pids(field_name: &str, kw: &EmbeddedSharedKeywordIds) -> Opti
             kw.metallic_gloss01,
             kw.metallic_gloss23,
         ],
+        "MATCAP" => vec![kw.matcap],
         "_DETAIL_MULX2" => vec![kw.detail_albedo_map, kw.detail_normal_map, kw.detail_mask],
         "_PARALLAXMAP" => vec![kw.parallax_map],
         "_OCCLUSION" => vec![kw.occlusion, kw.occlusion1, kw.occlusion_map],
