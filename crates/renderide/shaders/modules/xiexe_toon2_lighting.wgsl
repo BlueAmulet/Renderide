@@ -2,7 +2,7 @@
 //!
 //! Keeps the XSToon2 ramp-diffuse surface model and clustered forward light walk, but
 //! ports the broken lighting math to the newer XSToon3-style accumulator flow:
-//! corrected Schlick/GGX specular, blend-mode-aware reflections, clear-coat layering,
+//! corrected Schlick/GGX specular, non-matcap blend-mode-aware reflections, clear-coat layering,
 //! emission scaling, and dominant-light-driven rim / shadow-rim / outline modulation.
 
 #define_import_path renderide::xiexe::toon2::lighting
@@ -216,7 +216,7 @@ fn matcap_uv(view_dir: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(dot(view_right, n), dot(view_up, n)) * 0.5 + vec2<f32>(0.5);
 }
 
-/// Reflection blend-weight shared by additive / multiplicative / subtractive indirect-specular modes.
+/// Reflection blend-weight shared by the non-matcap indirect-specular blend modes.
 fn reflection_blend_weight(s: xb::SurfaceData) -> f32 {
     if (xb::matcap_enabled()) {
         return 1.0;
@@ -224,7 +224,7 @@ fn reflection_blend_weight(s: xb::SurfaceData) -> f32 {
     return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);
 }
 
-/// True when `_ReflectionBlendMode` selects the multiplicative branch.
+/// True when `_ReflectionBlendMode` selects the multiplicative branch for non-matcap reflections.
 fn reflection_is_multiplicative() -> bool {
     return abs(xb::mat._ReflectionBlendMode - 1.0) < 0.5;
 }
@@ -254,9 +254,7 @@ fn indirect_reflection_branch(
         let uv = matcap_uv(stereo_view_dir, normal);
         let lod = clamp((1.0 - clamp(perceptual_roughness, 0.0, 1.0)) * SPECCUBE_LOD_STEPS, 0.0, SPECCUBE_LOD_STEPS);
         var spec = textureSampleLevel(xb::_Matcap, xb::_Matcap_sampler, uv, lod).rgb * xb::mat._MatcapTint.rgb;
-        if (!reflection_is_multiplicative()) {
-            spec = spec * (ambient + dominant_light_col_atten * 0.5);
-        }
+        spec = spec * (ambient + dominant_light_col_atten * 0.5);
         return spec;
     }
 
@@ -335,12 +333,18 @@ fn indirect_specular(
     return spec;
 }
 
-/// Applies XSToon3's additive / multiplicative / subtractive reflection blend modes to the
-/// accumulated diffuse surface color.
+/// Applies reflection to the accumulated diffuse surface color.
+///
+/// XSToon2 exposes `_ReflectionBlendMode`, but its matcap composition always adds the sampled
+/// reflection to the surface color.
 fn apply_reflection_blend(surface: vec3<f32>, reflection: vec3<f32>, weight: f32) -> vec3<f32> {
     let clamped_weight = clamp(weight, 0.0, 1.0);
     if (clamped_weight <= 1e-4) {
         return surface;
+    }
+
+    if (xb::matcap_enabled()) {
+        return surface + reflection;
     }
 
     if (reflection_is_multiplicative()) {
