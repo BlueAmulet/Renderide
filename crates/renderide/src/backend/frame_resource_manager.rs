@@ -169,8 +169,8 @@ pub struct FrameResourceManager {
     limits: Option<Arc<GpuLimits>>,
     /// Last packed lights for the frame (after [`Self::prepare_lights_from_scene`]).
     light_scratch: Vec<GpuLight>,
-    /// Number of packed lights that subtract in at least one signed-radiance channel.
-    negative_light_count: usize,
+    /// Whether the packed light set subtracts in at least one signed-radiance channel.
+    signed_scene_color_required: bool,
     /// Reused each frame to flatten all spaces' [`crate::scene::ResolvedLight`] before ordering and GPU pack.
     resolved_flatten_scratch: Vec<ResolvedLight>,
     /// When true, [`Self::prepare_lights_from_scene`] is a no-op until [`Self::reset_light_prep_for_tick`] runs.
@@ -197,8 +197,8 @@ pub struct FrameResourceManager {
     /// One-shot guard for the [`MAX_LIGHTS`] overflow warning so a content scene with too many
     /// lights does not spam logs every frame.
     lights_overflow_warned: bool,
-    /// One-shot guard for the signed direct-light activation log.
-    negative_lights_logged: bool,
+    /// One-shot guard for the signed scene-color activation log.
+    signed_scene_color_required_logged: bool,
 }
 
 impl Default for FrameResourceManager {
@@ -218,7 +218,7 @@ impl FrameResourceManager {
             per_draw_bind_group_layout: None,
             limits: None,
             light_scratch: Vec::new(),
-            negative_light_count: 0,
+            signed_scene_color_required: false,
             resolved_flatten_scratch: Vec::new(),
             light_prep_done_this_tick: false,
             lights_gpu_uploaded_this_tick: AtomicBool::new(false),
@@ -226,7 +226,7 @@ impl FrameResourceManager {
             visible_mesh_deform_keys: Mutex::new(None),
             per_view_per_draw_scratch: PerViewResourceMap::new(),
             lights_overflow_warned: false,
-            negative_lights_logged: false,
+            signed_scene_color_required_logged: false,
         }
     }
 
@@ -303,14 +303,9 @@ impl FrameResourceManager {
         &self.light_scratch
     }
 
-    /// Number of packed lights that subtract light in at least one channel.
-    pub fn negative_light_count(&self) -> usize {
-        self.negative_light_count
-    }
-
     /// Returns true when the current packed light set needs signed scene-color storage.
     pub fn signed_scene_color_required(&self) -> bool {
-        self.negative_light_count != 0
+        self.signed_scene_color_required
     }
 
     /// Light count for frame uniforms and shaders (`min(len, [`MAX_LIGHTS`])`).
@@ -565,7 +560,7 @@ impl FrameResourceManager {
         }
         profiling::scope!("render::prepare_lights");
         self.light_scratch.clear();
-        self.negative_light_count = 0;
+        self.signed_scene_color_required = false;
         self.resolved_flatten_scratch.clear();
 
         let space_ids: Vec<_> = {
@@ -618,17 +613,16 @@ impl FrameResourceManager {
             self.lights_overflow_warned = true;
         }
         let kept = resolved_len.min(MAX_LIGHTS);
-        self.negative_light_count = self
+        self.signed_scene_color_required = self
             .resolved_flatten_scratch
             .iter()
             .take(kept)
-            .filter(|light| light_has_negative_contribution(light))
-            .count();
-        if self.negative_light_count != 0 && !self.negative_lights_logged {
+            .any(light_has_negative_contribution);
+        if self.signed_scene_color_required && !self.signed_scene_color_required_logged {
             logger::info!(
                 "negative direct lights active: signed scene-color HDR will be used while negative lights are packed"
             );
-            self.negative_lights_logged = true;
+            self.signed_scene_color_required_logged = true;
         }
         {
             profiling::scope!("render::prepare_lights::pack_gpu_lights");
@@ -898,7 +892,7 @@ mod tests {
     }
 
     #[test]
-    fn prepare_lights_from_scene_keeps_and_counts_negative_lights() {
+    fn prepare_lights_from_scene_keeps_and_detects_negative_lights() {
         let mut scene = SceneCoordinator::new();
         seed_space_with_signed_light(&mut scene, RenderSpaceId(1), 100, 1.0, -2.0);
         seed_space_with_signed_light(&mut scene, RenderSpaceId(2), 200, -0.5, -2.0);
@@ -907,7 +901,6 @@ mod tests {
         mgr.prepare_lights_from_scene(&scene);
 
         assert_eq!(mgr.frame_lights().len(), 2);
-        assert_eq!(mgr.negative_light_count(), 1);
         assert!(mgr.signed_scene_color_required());
     }
 

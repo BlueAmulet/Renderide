@@ -566,7 +566,6 @@ impl RenderBackend {
             frame_graph_pass_count: self.frame_graph_pass_count(),
             frame_graph_topo_levels: self.frame_graph_topo_levels(),
             gpu_light_count: self.frame_services.frame_resources.frame_lights().len(),
-            negative_light_count: self.frame_services.frame_resources.negative_light_count(),
             signed_scene_color_active: self.signed_scene_color_active(),
         }
     }

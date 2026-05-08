@@ -52,8 +52,6 @@ pub struct RendererInfoSnapshot {
     pub frame_graph_topo_levels: usize,
     /// Packed lights after [`crate::backend::RenderBackend::prepare_lights_from_scene`].
     pub gpu_light_count: usize,
-    /// Packed lights that subtract in at least one signed-radiance channel.
-    pub negative_light_count: usize,
     /// Whether signed scene-color HDR is active for the current packed light set.
     pub signed_scene_color_active: bool,
     /// `max_texture_dimension_2d` from [`GpuLimits`].
@@ -139,7 +137,6 @@ impl RendererInfoSnapshot {
             frame_graph_pass_count: args.backend.frame_graph_pass_count,
             frame_graph_topo_levels: args.backend.frame_graph_topo_levels,
             gpu_light_count: args.backend.gpu_light_count,
-            negative_light_count: args.backend.negative_light_count,
             signed_scene_color_active: args.backend.signed_scene_color_active,
             gpu_max_texture_dim_2d: args.gpu_limits.max_texture_dimension_2d(),
             gpu_max_buffer_size: args.gpu_limits.max_buffer_size(),
