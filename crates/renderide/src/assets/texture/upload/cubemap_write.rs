@@ -3,7 +3,7 @@
 use crate::shared::{SetCubemapData, SetCubemapFormat};
 
 use super::super::decode::needs_rgba8_decode_before_upload;
-use super::super::layout::{mip_byte_len, mip_dimensions_at_level};
+use super::super::layout::{host_mip_payload_byte_offset, mip_byte_len, mip_dimensions_at_level};
 use super::error::TextureUploadError;
 use super::mip_write_common::{
     CubemapFaceMipWrite, MipUploadFormatCtx, MipUploadLabel, MipUploadPixels,
@@ -47,7 +47,13 @@ fn resolve_cubemap_face_mip_slice<'a>(
             "mip start {start_abs} is before descriptor offset {start_bias}"
         )));
     }
-    let start = start_abs - start_bias;
+    let start_rel = start_abs - start_bias;
+    let start = host_mip_payload_byte_offset(fmt.format, start_rel).ok_or_else(|| {
+        TextureUploadError::from(format!(
+            "cubemap {} face {face} mip {mip_i}: mip start offset unsupported for {:?}",
+            upload.asset_id, fmt.format
+        ))
+    })?;
 
     let host_len = mip_byte_len(fmt.format, w, h).ok_or_else(|| {
         TextureUploadError::from(format!(
@@ -55,13 +61,18 @@ fn resolve_cubemap_face_mip_slice<'a>(
             fmt.format
         ))
     })? as usize;
+    let end = start
+        .checked_add(host_len)
+        .ok_or_else(|| TextureUploadError::from("cubemap mip end overflow"))?;
 
     payload
-        .get(start..start + host_len)
+        .get(start..end)
         .ok_or_else(|| {
             TextureUploadError::from(format!(
-                "cubemap {} face {} mip {mip_i}: slice out of range (start {start} len {host_len}, payload {})",
-                upload.asset_id, face, payload.len()
+                "cubemap {} face {} mip {mip_i}: slice out of range (raw_start {start_abs} byte_start {start} len {host_len}, payload {})",
+                upload.asset_id,
+                face,
+                payload.len()
             ))
         })
 }
@@ -416,7 +427,12 @@ fn valid_cubemap_mip_prefix_len(
             if start_abs < bias {
                 break 'outer;
             }
-            let start = start_abs - bias;
+            let start_rel = start_abs - bias;
+            let Some(start) = host_mip_payload_byte_offset(format, start_rel) else {
+                return Err(TextureUploadError::from(format!(
+                    "cubemap face {face} mip {i}: could not convert mip_starts offset to bytes for {format:?}"
+                )));
+            };
             let end = start
                 .checked_add(host_len)
                 .ok_or_else(|| TextureUploadError::from("mip end overflow"))?;
@@ -432,7 +448,10 @@ fn valid_cubemap_mip_prefix_len(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::IVec2;
+
     use crate::shared::TextureFormat;
+    use crate::shared::buffer::SharedMemoryBufferDescriptor;
 
     fn upload_ctx(
         fmt_format: TextureFormat,
@@ -444,6 +463,72 @@ mod tests {
             wgpu_format,
             needs_rgba8_decode: false,
         }
+    }
+
+    fn bc1_single_mip_format() -> SetCubemapFormat {
+        SetCubemapFormat {
+            asset_id: 5,
+            size: 512,
+            mipmap_count: 1,
+            format: TextureFormat::BC1,
+            ..Default::default()
+        }
+    }
+
+    fn bc1_single_mip_upload() -> SetCubemapData {
+        SetCubemapData {
+            asset_id: 5,
+            data: SharedMemoryBufferDescriptor {
+                length: 6 * 131_072,
+                ..Default::default()
+            },
+            mip_map_sizes: vec![IVec2::new(512, 512)],
+            mip_starts: (0_i32..6).map(|face| vec![face * 512 * 512]).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cubemap_bc1_face_starts_are_linear_texel_offsets() {
+        let fmt = bc1_single_mip_format();
+        let upload = bc1_single_mip_upload();
+        let payload = vec![0_u8; upload.data.length as usize];
+        let chain = CubemapMipChainState {
+            fmt: &fmt,
+            upload: &upload,
+            payload: &payload,
+            start_bias: 0,
+        };
+
+        let mip_src = resolve_cubemap_face_mip_slice(
+            &chain,
+            CubemapFaceMipSliceStep {
+                face: 3,
+                mip_i: 0,
+                w: 512,
+                h: 512,
+            },
+        )
+        .expect("face 3 mip 0 slice");
+        let offset = mip_src.as_ptr() as usize - payload.as_ptr() as usize;
+
+        assert_eq!(offset, 3 * 131_072);
+        assert_eq!(mip_src.len(), 131_072);
+    }
+
+    #[test]
+    fn cubemap_bc1_prefix_validation_uses_converted_byte_offsets() {
+        let upload = bc1_single_mip_upload();
+
+        let prefix = valid_cubemap_mip_prefix_len(
+            TextureFormat::BC1,
+            &upload,
+            upload.data.length as usize,
+            0,
+        )
+        .expect("cubemap prefix");
+
+        assert_eq!(prefix, 6);
     }
 
     #[test]
