@@ -33,10 +33,13 @@ pub(crate) struct StemMaterialLayout {
 ///    keyword bitmask, signaling AlphaClip via queue 2450 and Opaque via queue 2000).
 /// 3. The `_SrcBlend` / `_DstBlend` factors for distinguishing alpha-blend, additive, and
 ///    premultiplied alpha within the Transparent range.
+/// 4. The UI stencil and color-mask properties for reconstructing unshipped `RECTCLIP`
+///    keyword state on masked content draws.
 ///
 /// FrooxEngine's `ShaderKeywords.Variant` bitmask is never sent over IPC, so every
 /// multi-compile-keyword toggle has to be inferred from what the host does send: texture
-/// bindings, numeric material properties, render-type tag, render queue, and blend factors.
+/// bindings, numeric material properties, render-type tag, render queue, blend factors,
+/// and UI stencil state.
 pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) blend_mode: i32,
     pub(crate) mode: i32,
@@ -44,6 +47,18 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) render_queue: i32,
     pub(crate) src_blend: i32,
     pub(crate) dst_blend: i32,
+    /// Unity UI stencil reference property.
+    pub(crate) stencil_ref: i32,
+    /// Unity UI stencil comparison property.
+    pub(crate) stencil_comp: i32,
+    /// Unity UI stencil pass operation property.
+    pub(crate) stencil_op: i32,
+    /// Unity UI stencil read mask property.
+    pub(crate) stencil_read_mask: i32,
+    /// Unity UI stencil write mask property.
+    pub(crate) stencil_write_mask: i32,
+    /// Unity UI color write mask property.
+    pub(crate) color_mask: i32,
     pub(crate) lerp_tex: i32,
     pub(crate) tex: i32,
     pub(crate) far_tex: i32,
@@ -117,6 +132,12 @@ impl EmbeddedSharedKeywordIds {
             render_queue: registry.intern("_RenderQueue"),
             src_blend: registry.intern("_SrcBlend"),
             dst_blend: registry.intern("_DstBlend"),
+            stencil_ref: registry.intern("_Stencil"),
+            stencil_comp: registry.intern("_StencilComp"),
+            stencil_op: registry.intern("_StencilOp"),
+            stencil_read_mask: registry.intern("_StencilReadMask"),
+            stencil_write_mask: registry.intern("_StencilWriteMask"),
+            color_mask: registry.intern("_ColorMask"),
             lerp_tex: registry.intern("_LerpTex"),
             tex: registry.intern("_Tex"),
             far_tex: registry.intern("_FarTex"),

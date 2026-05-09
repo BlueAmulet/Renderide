@@ -6,7 +6,8 @@
 //!
 //! **Text/UI controls (`_TextMode`, `_RectClip`, `_OVERLAY`):** packing uses canonical
 //! `set_float` values when present. Missing `_TextMode` is inferred from `_FontAtlas` texture
-//! profile, while UI-only controls default to zero instead of keyword-style alias inference.
+//! profile, missing `_RectClip` is inferred from UI stencil content state, and remaining
+//! UI-only controls default to zero instead of keyword-style alias inference.
 
 mod assemble;
 mod cache;
