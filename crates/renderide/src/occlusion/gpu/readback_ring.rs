@@ -11,6 +11,35 @@ pub(crate) const HIZ_STAGING_RING: usize = 3;
 /// rayon workers after command submission. `std::sync::mpsc::Receiver` is only `Send`.
 pub(crate) type MapRecv = mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>;
 
+/// Pending `map_async` work plus the staging buffer that owns the mapped range.
+///
+/// The buffer handle is retained until the map callback is consumed or canceled. This keeps the
+/// mapped range resource alive even if the active scratch set is invalidated before the callback
+/// is drained.
+pub(crate) struct PendingMap {
+    buffer: wgpu::Buffer,
+    recv: MapRecv,
+}
+
+impl PendingMap {
+    /// Polls the pending map callback without blocking.
+    pub(crate) fn try_recv(
+        &self,
+    ) -> Result<Result<(), wgpu::BufferAsyncError>, mpsc::TryRecvError> {
+        self.recv.try_recv()
+    }
+
+    /// Returns the staging buffer associated with this map request.
+    pub(crate) fn buffer(&self) -> &wgpu::Buffer {
+        &self.buffer
+    }
+
+    /// Cancels the map request or releases the mapped range.
+    pub(crate) fn unmap(self) {
+        self.buffer.unmap();
+    }
+}
+
 /// Generation-tagged staging slot claimed by a recorded Hi-Z readback copy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ReadbackTicket {
@@ -40,10 +69,10 @@ pub(crate) struct GpuReadbackRing {
     pending_submit: [bool; HIZ_STAGING_RING],
     /// Slots whose submit callback has fired but whose map request has not been issued yet.
     submit_done: [bool; HIZ_STAGING_RING],
-    /// Pending map callbacks for the primary staging buffers.
-    primary_pending: [Option<MapRecv>; HIZ_STAGING_RING],
-    /// Pending map callbacks for optional secondary staging buffers.
-    secondary_pending: Option<[Option<MapRecv>; HIZ_STAGING_RING]>,
+    /// Pending maps for the primary staging buffers.
+    primary_pending: [Option<PendingMap>; HIZ_STAGING_RING],
+    /// Pending maps for optional secondary staging buffers.
+    secondary_pending: Option<[Option<PendingMap>; HIZ_STAGING_RING]>,
 }
 
 impl Default for GpuReadbackRing {
@@ -63,6 +92,7 @@ impl Default for GpuReadbackRing {
 impl GpuReadbackRing {
     /// Resets all slot ownership and pending callback state.
     pub(crate) fn reset(&mut self) {
+        self.cancel_pending_maps();
         *self = Self {
             generation: self.generation.wrapping_add(1),
             ..Self::default()
@@ -88,7 +118,7 @@ impl GpuReadbackRing {
     pub(crate) fn set_secondary_enabled(&mut self, enabled: bool) {
         match (enabled, self.secondary_pending.is_some()) {
             (true, false) => self.secondary_pending = Some(pending_none_array()),
-            (false, true) => self.secondary_pending = None,
+            (false, true) => self.clear_secondary_pending(),
             _ => {}
         }
     }
@@ -128,44 +158,55 @@ impl GpuReadbackRing {
         self.submit_done[ticket.slot] = true;
     }
 
-    /// Returns mutable access to the primary pending map receiver for `slot`.
-    pub(crate) fn primary_pending_mut(&mut self, slot: usize) -> &mut Option<MapRecv> {
+    /// Returns the primary pending map for `slot`.
+    pub(crate) fn primary_pending(&self, slot: usize) -> Option<&PendingMap> {
         debug_assert!(slot < HIZ_STAGING_RING);
-        &mut self.primary_pending[slot]
+        self.primary_pending[slot].as_ref()
     }
 
-    /// Returns mutable access to the secondary pending map receiver for `slot`, if enabled.
-    pub(crate) fn secondary_pending_mut(&mut self, slot: usize) -> Option<&mut Option<MapRecv>> {
+    /// Takes ownership of the primary pending map for `slot`.
+    pub(crate) fn take_primary_pending(&mut self, slot: usize) -> Option<PendingMap> {
+        debug_assert!(slot < HIZ_STAGING_RING);
+        self.primary_pending[slot].take()
+    }
+
+    /// Returns the secondary pending map for `slot`, if enabled.
+    pub(crate) fn secondary_pending(&self, slot: usize) -> Option<&PendingMap> {
+        debug_assert!(slot < HIZ_STAGING_RING);
+        self.secondary_pending
+            .as_ref()
+            .and_then(|pending| pending[slot].as_ref())
+    }
+
+    /// Takes ownership of the secondary pending map for `slot`, if enabled.
+    pub(crate) fn take_secondary_pending(&mut self, slot: usize) -> Option<PendingMap> {
         debug_assert!(slot < HIZ_STAGING_RING);
         self.secondary_pending
             .as_mut()
-            .map(|pending| &mut pending[slot])
+            .and_then(|pending| pending[slot].take())
     }
 
-    /// Cancels active `map_async` work before the ring drops its receivers.
-    pub(crate) fn cancel_pending_maps(
-        &mut self,
-        primary_staging: Option<&[wgpu::Buffer; HIZ_STAGING_RING]>,
-        secondary_staging: Option<&[wgpu::Buffer; HIZ_STAGING_RING]>,
-    ) {
+    /// Cancels active `map_async` work before the ring drops its receivers and buffer handles.
+    pub(crate) fn cancel_pending_maps(&mut self) {
         for slot in 0..HIZ_STAGING_RING {
-            if self.primary_pending[slot].take().is_some()
-                && let Some(primary_staging) = primary_staging
-            {
-                primary_staging[slot].unmap();
+            if let Some(pending) = self.primary_pending[slot].take() {
+                pending.unmap();
             }
         }
 
+        self.clear_secondary_pending();
+    }
+
+    fn clear_secondary_pending(&mut self) {
         let Some(secondary_pending) = self.secondary_pending.as_mut() else {
             return;
         };
-        for slot in 0..HIZ_STAGING_RING {
-            if secondary_pending[slot].take().is_some()
-                && let Some(secondary_staging) = secondary_staging
-            {
-                secondary_staging[slot].unmap();
+        for pending_slot in secondary_pending {
+            if let Some(pending) = pending_slot.take() {
+                pending.unmap();
             }
         }
+        self.secondary_pending = None;
     }
 
     /// Issues `map_async` for every slot whose submit callback has completed.
@@ -208,14 +249,17 @@ impl GpuReadbackRing {
     }
 }
 
-/// Starts a `map_async` read on `buffer` and returns the callback receiver.
-fn start_map_read(buffer: &wgpu::Buffer) -> MapRecv {
+/// Starts a `map_async` read on `buffer` and returns the pending map owner.
+fn start_map_read(buffer: &wgpu::Buffer) -> PendingMap {
     let slice = buffer.slice(..);
     let (tx, rx) = mpsc::bounded::<Result<(), wgpu::BufferAsyncError>>(1);
     slice.map_async(wgpu::MapMode::Read, move |result| {
         let _ = tx.send(result);
     });
-    rx
+    PendingMap {
+        buffer: buffer.clone(),
+        recv: rx,
+    }
 }
 
 #[cfg(test)]
@@ -290,5 +334,16 @@ mod tests {
         ring.mark_submit_done(ticket);
 
         assert!(ring.submit_done[slot]);
+    }
+
+    #[test]
+    fn disabling_secondary_clears_secondary_storage() {
+        let mut ring = GpuReadbackRing::default();
+
+        ring.set_secondary_enabled(true);
+        assert!(ring.secondary_pending.is_some());
+
+        ring.set_secondary_enabled(false);
+        assert!(ring.secondary_pending.is_none());
     }
 }
