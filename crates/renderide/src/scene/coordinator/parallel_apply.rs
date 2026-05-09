@@ -20,6 +20,10 @@ use crate::shared::{LightRenderablesUpdate, LightsBufferRendererUpdate, RenderSp
 
 use super::{ApplyWorkSlot, SceneCoordinator};
 
+use super::super::blit_to_display::{
+    ExtractedBlitToDisplayUpdate, apply_blit_to_display_update_extracted,
+    extract_blit_to_display_update,
+};
 use super::super::camera_apply::{
     ExtractedCameraRenderablesUpdate, extract_camera_renderables_update,
     fixup_cameras_for_transform_removals,
@@ -67,6 +71,7 @@ pub fn is_extracted_empty(e: &ExtractedRenderSpaceUpdate) -> bool {
         && e.layers.is_none()
         && e.transform_overrides.is_none()
         && e.material_overrides.is_none()
+        && e.blit_to_displays.is_none()
 }
 
 /// Owned per-space payload bundle: every shared-memory buffer referenced by one
@@ -93,6 +98,8 @@ pub struct ExtractedRenderSpaceUpdate {
     pub transform_overrides: Option<ExtractedRenderTransformOverridesUpdate>,
     /// Render-context material-override update payload.
     pub material_overrides: Option<ExtractedRenderMaterialOverridesUpdate>,
+    /// `BlitToDisplay` renderables update payload.
+    pub blit_to_displays: Option<ExtractedBlitToDisplayUpdate>,
 }
 
 /// Reads every shared-memory buffer referenced by `update` into owned vectors.
@@ -145,6 +152,10 @@ pub fn extract_render_space_update(
         )?),
         None => None,
     };
+    let blit_to_displays = match update.blit_to_displays_update.as_ref() {
+        Some(btd) => Some(extract_blit_to_display_update(shm, btd, update.id)?),
+        None => None,
+    };
     Ok(ExtractedRenderSpaceUpdate {
         space_id,
         cameras,
@@ -155,6 +166,7 @@ pub fn extract_render_space_update(
         layers,
         transform_overrides,
         material_overrides,
+        blit_to_displays,
     })
 }
 
@@ -237,6 +249,9 @@ pub fn apply_extracted_render_space_update(
     }
     if let Some(ref rmu) = extracted.material_overrides {
         apply_render_material_overrides_update_extracted(space, rmu, transform_removals);
+    }
+    if let Some(ref btd) = extracted.blit_to_displays {
+        apply_blit_to_display_update_extracted(space, btd);
     }
     world_dirty
 }

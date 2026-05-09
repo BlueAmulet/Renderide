@@ -4,7 +4,7 @@ use hashbrown::HashSet;
 
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 
-/// Selective / exclude transform lists for secondary cameras (Unity `CameraRenderer.Render` semantics).
+/// Selective / exclude transform lists for secondary cameras.
 #[derive(Clone, Debug, Default)]
 pub struct CameraTransformDrawFilter {
     /// When `Some`, only these transform node ids are drawn.

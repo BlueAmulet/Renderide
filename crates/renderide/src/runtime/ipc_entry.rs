@@ -17,8 +17,8 @@ impl RendererRuntime {
     }
 
     /// Records one unhandled post-handshake renderer command for diagnostics.
-    pub(crate) fn record_unhandled_renderer_command(&mut self, tag: &'static str) {
-        self.ipc_state.record_unhandled_renderer_command(tag);
+    pub(crate) fn record_unhandled_renderer_command(&mut self, tag: &'static str) -> u64 {
+        self.ipc_state.record_unhandled_renderer_command(tag)
     }
 
     /// Drains IPC and dispatches commands. Each poll batch is ordered so `renderer_init_data` runs

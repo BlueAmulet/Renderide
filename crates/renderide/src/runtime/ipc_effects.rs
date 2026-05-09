@@ -134,12 +134,20 @@ impl RendererRuntime {
             RunningCommandEffect::RenderDecouplingConfig(cfg) => {
                 self.apply_render_decoupling_config(cfg);
             }
-            RunningCommandEffect::Unhandled { tag } => {
-                self.record_unhandled_renderer_command(tag);
-                logger::warn!(
-                    "runtime: no handler for RendererCommand::{tag} (host sent unexpected command)"
-                );
-            }
+            RunningCommandEffect::Unhandled { tag } => self.note_unhandled_renderer_command(tag),
+        }
+    }
+
+    fn note_unhandled_renderer_command(&mut self, tag: &'static str) {
+        let count = self.record_unhandled_renderer_command(tag);
+        if count == 1 {
+            logger::warn!(
+                "runtime: no handler for RendererCommand::{tag} (host sent unexpected command; further occurrences counted in diagnostics)"
+            );
+        } else {
+            logger::trace!(
+                "runtime: no handler for RendererCommand::{tag} occurrence_count={count}"
+            );
         }
     }
 

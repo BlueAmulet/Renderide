@@ -14,6 +14,7 @@ use logger::LogLevel;
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 
 use crate::frontend::input::{CursorOutputTracking, WindowInputAccumulator};
+use crate::gpu::DisplayBlitResources;
 use crate::runtime::RendererRuntime;
 
 use self::shutdown::GracefulShutdown;
@@ -43,6 +44,8 @@ pub(crate) struct AppDriver {
     external_shutdown: Option<ExternalShutdownCoordinator>,
     main_heartbeat: Option<crate::diagnostics::Heartbeat>,
     xr_input_cache: XrInputCache,
+    /// Lazy GPU resources for the host `BlitToDisplay` desktop pass; created on first use.
+    display_blit: DisplayBlitResources,
 }
 
 impl AppDriver {
@@ -68,6 +71,7 @@ impl AppDriver {
             external_shutdown,
             main_heartbeat,
             xr_input_cache: XrInputCache::default(),
+            display_blit: DisplayBlitResources::new(),
         }
     }
 

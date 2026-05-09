@@ -214,7 +214,13 @@ mod tests {
     }
 
     #[test]
-    fn build_world_mesh_cull_proj_params_overlay_uses_primary_ortho_task_when_present() {
+    fn build_world_mesh_cull_proj_params_overlay_independent_of_primary_ortho_task() {
+        // Regression: previously the screen-overlay path borrowed `primary_ortho_task`, which the
+        // host populates from the first orthographic camera task -- typically the dash camera's
+        // `OrthographicSize = 0.5f` task meant for dash-RT rendering, not for the screen overlay.
+        // Sharing it produced a tiny half-meter overlay frustum and pushed the dash off-screen.
+        // The screen overlay now uses a dedicated unit-height ortho independent of the host's
+        // task list, so injecting an unrelated host orthographic task must not change it.
         use crate::camera::{CameraClipPlanes, OrthographicProjectionSpec};
 
         let scene = SceneCoordinator::new();
@@ -231,6 +237,6 @@ mod tests {
         let p_ortho = build_world_mesh_cull_proj_params(&scene, (800, 600), &hc_ortho);
 
         assert_eq!(p_no.world_proj, p_ortho.world_proj);
-        assert_ne!(p_no.overlay_proj, p_ortho.overlay_proj);
+        assert_eq!(p_no.overlay_proj, p_ortho.overlay_proj);
     }
 }

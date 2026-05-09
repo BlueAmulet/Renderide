@@ -86,6 +86,8 @@ pub enum SurfaceSubmitTrace {
     VrClear,
     /// Generic clear submit used outside the VR-specific fallback path.
     ClearFallback,
+    /// Desktop submit for the host `BlitToDisplay` pass on the local user's display.
+    Desktop,
 }
 
 /// Acquires the next surface texture with the same policy as [`present_clear_frame`].
@@ -163,6 +165,10 @@ pub fn submit_surface_frame_traced(
             profiling::scope!("gpu::surface_submit.clear_fallback");
             gpu.submit_frame_batch(command_buffers, Some(frame), None);
         }
+        SurfaceSubmitTrace::Desktop => {
+            profiling::scope!("gpu::surface_submit.desktop");
+            gpu.submit_frame_batch(command_buffers, Some(frame), None);
+        }
     }
 }
 
@@ -224,6 +230,28 @@ where
     F: FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView, &mut GpuContext) -> Result<(), E>,
     E: std::fmt::Display,
 {
+    present_clear_frame_overlay_traced_with_color(
+        gpu,
+        acquire_trace,
+        submit_trace,
+        SWAPCHAIN_CLEAR_COLOR,
+        overlay,
+    )
+}
+
+/// Clears the swapchain to `clear`, composites an overlay, and presents under source-specific
+/// Tracy scopes.
+pub fn present_clear_frame_overlay_traced_with_color<F, E>(
+    gpu: &mut GpuContext,
+    acquire_trace: SurfaceAcquireTrace,
+    submit_trace: SurfaceSubmitTrace,
+    clear: wgpu::Color,
+    overlay: F,
+) -> Result<(), PresentClearError>
+where
+    F: FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView, &mut GpuContext) -> Result<(), E>,
+    E: std::fmt::Display,
+{
     let frame = match acquire_surface_outcome_traced(gpu, acquire_trace)? {
         SurfaceFrameOutcome::Skip | SurfaceFrameOutcome::Reconfigured => return Ok(()),
         SurfaceFrameOutcome::Acquired(f) => f,
@@ -241,7 +269,7 @@ where
     let outer_query = gpu
         .gpu_profiler_mut()
         .map(|p| p.begin_query("graph::surface_clear", &mut encoder));
-    record_swapchain_clear_pass(&mut encoder, &view, SWAPCHAIN_CLEAR_COLOR, Some("clear"));
+    record_swapchain_clear_pass(&mut encoder, &view, clear, Some("clear"));
     if let Err(e) = overlay(&mut encoder, &view, gpu) {
         logger::warn!("debug HUD overlay (clear frame): {e}");
     }

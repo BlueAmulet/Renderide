@@ -1,10 +1,6 @@
 //! Host layer assignment ingestion and inherited mesh layer resolution.
 
-use std::collections::HashSet;
-use std::sync::LazyLock;
-
 use hashbrown::HashMap;
-use parking_lot::Mutex;
 
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{LayerType, LayerUpdate};
@@ -13,28 +9,6 @@ use super::error::SceneError;
 use super::render_space::{LayerAssignmentEntry, RenderSpaceState};
 use super::transforms_apply::TransformRemovalEvent;
 use super::world::fixup_transform_id;
-
-/// One-shot dedup for [`resolve_mesh_layers_from_assignments`] fallback warnings, keyed by node id.
-///
-/// When a renderable's node has no [`LayerAssignmentEntry`] up its parent chain,
-/// [`resolve_layer_for_node`] returns `None` and the renderable falls through to
-/// [`LayerType::default`] (= [`LayerType::Hidden`]). The host re-emits soon enough that this
-/// self-corrects, but the fallback is a possible co-symptom of the broader instance-changed
-/// host-renderer drift, so log once per node id to make it diagnosable without spamming.
-static LAYER_FALLBACK_WARNED_NODES: LazyLock<Mutex<HashSet<i32>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
-
-fn record_layer_fallback(node_id: i32) {
-    if node_id < 0 {
-        return;
-    }
-    let mut w = LAYER_FALLBACK_WARNED_NODES.lock();
-    if w.insert(node_id) {
-        logger::trace!(
-            "layer resolve: no LayerAssignmentEntry for node_id={node_id} or any ancestor; falling back to Hidden. Subsequent occurrences for this node are suppressed."
-        );
-    }
-}
 
 /// Owned per-space layer-update payload extracted from shared memory.
 ///
@@ -46,7 +20,7 @@ pub struct ExtractedLayerUpdate {
     pub removals: Vec<i32>,
     /// New layer-assignment node ids (terminated by `< 0`).
     pub additions: Vec<i32>,
-    /// Per-entry [`LayerType`] rows, indexed positionally into [`RenderSpaceState::layer_assignments`].
+    /// Per-entry [`LayerType`] rows for assignments added by the same update.
     pub layer_assignments: Vec<LayerType>,
 }
 
@@ -96,6 +70,7 @@ pub(crate) fn apply_layer_update_extracted(
             mutated = true;
         }
     }
+    let additions_start = space.layer_assignments.len();
     for &node_id in extracted.additions.iter().take_while(|&&id| id >= 0) {
         space.layer_assignments.push(LayerAssignmentEntry {
             node_id,
@@ -104,7 +79,7 @@ pub(crate) fn apply_layer_update_extracted(
         mutated = true;
     }
     for (idx, layer) in extracted.layer_assignments.iter().copied().enumerate() {
-        let Some(entry) = space.layer_assignments.get_mut(idx) else {
+        let Some(entry) = space.layer_assignments.get_mut(additions_start + idx) else {
             continue;
         };
         entry.layer = layer;
@@ -238,9 +213,6 @@ fn ensure_resolved_cache_entry(
         return;
     }
     let resolved = resolve_layer_for_node(node_parents, layer_for_node, node_id);
-    if resolved.is_none() {
-        record_layer_fallback(node_id);
-    }
     cache.insert(node_id, resolved);
 }
 
@@ -327,7 +299,9 @@ mod tests {
     use crate::scene::render_space::{LayerAssignmentEntry, RenderSpaceState};
     use crate::shared::LayerType;
 
-    use super::resolve_mesh_layers_from_assignments;
+    use super::{
+        ExtractedLayerUpdate, apply_layer_update_extracted, resolve_mesh_layers_from_assignments,
+    };
 
     #[test]
     fn resolves_layer_from_nearest_ancestor_assignment() {
@@ -385,5 +359,29 @@ mod tests {
             space.skinned_mesh_renderers[0].base.layer,
             LayerType::Overlay
         );
+    }
+
+    #[test]
+    fn layer_rows_only_apply_to_new_assignments() {
+        let mut space = RenderSpaceState {
+            layer_assignments: vec![LayerAssignmentEntry {
+                node_id: 2,
+                layer: LayerType::Overlay,
+            }],
+            ..Default::default()
+        };
+        let extracted = ExtractedLayerUpdate {
+            additions: vec![11],
+            layer_assignments: vec![LayerType::Hidden],
+            ..Default::default()
+        };
+
+        apply_layer_update_extracted(&mut space, &extracted);
+
+        assert_eq!(space.layer_assignments.len(), 2);
+        assert_eq!(space.layer_assignments[0].node_id, 2);
+        assert_eq!(space.layer_assignments[0].layer, LayerType::Overlay);
+        assert_eq!(space.layer_assignments[1].node_id, 11);
+        assert_eq!(space.layer_assignments[1].layer, LayerType::Hidden);
     }
 }

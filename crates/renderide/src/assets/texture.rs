@@ -18,7 +18,8 @@ pub use layout::{
     host_texture_mip_count, legal_texture2d_mip_level_count, legal_texture3d_mip_level_count,
 };
 pub use unpack::{
-    HostTextureAssetKind, texture2d_asset_id_from_packed, unpack_host_texture_packed,
+    HostTextureAssetKind, pack_host_texture_id, texture2d_asset_id_from_packed,
+    unpack_host_texture_packed,
 };
 pub(crate) use upload::upload_uses_storage_v_inversion;
 pub use upload::{

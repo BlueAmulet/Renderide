@@ -53,9 +53,19 @@ fn world_matrix_for_local_vertex_stream(
     ctx: &DrawCollectionContext<'_>,
     space_id: RenderSpaceId,
     node_id: i32,
+    is_overlay: bool,
 ) -> Option<Mat4> {
     if node_id < 0 {
         return None;
+    }
+    if is_overlay {
+        return ctx
+            .scene
+            .overlay_layer_model_matrix_for_context(space_id, node_id as usize, ctx.render_context)
+            .or_else(|| {
+                ctx.scene
+                    .world_matrix_for_context(space_id, node_id as usize, ctx.render_context)
+            });
     }
     ctx.scene.world_matrix_for_render_context(
         space_id,

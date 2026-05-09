@@ -406,6 +406,13 @@ impl ComputePass for WorldMeshDepthSnapshotPass {
         Ok(())
     }
 
+    fn should_record(&self, ctx: &ComputePassCtx<'_, '_, '_>) -> Result<bool, RenderPassError> {
+        Ok(ctx
+            .blackboard
+            .get::<WorldMeshForwardPlanSlot>()
+            .is_some_and(|prepared| prepared.helper_needs.depth_snapshot))
+    }
+
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
         profiling::scope!("world_mesh_forward::depth_snapshot_record");
         let frame = &mut *ctx.pass_frame;
@@ -542,6 +549,13 @@ impl ComputePass for WorldMeshColorSnapshotPass {
         b.compute();
         b.read_texture(self.resources.scene_color_hdr, TextureAccess::CopySrc);
         Ok(())
+    }
+
+    fn should_record(&self, ctx: &ComputePassCtx<'_, '_, '_>) -> Result<bool, RenderPassError> {
+        Ok(ctx
+            .blackboard
+            .get::<WorldMeshForwardPlanSlot>()
+            .is_some_and(|prepared| prepared.helper_needs.color_snapshot))
     }
 
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
@@ -689,6 +703,10 @@ impl ComputePass for WorldMeshForwardDepthResolvePass {
             },
         );
         Ok(())
+    }
+
+    fn should_record(&self, ctx: &ComputePassCtx<'_, '_, '_>) -> Result<bool, RenderPassError> {
+        Ok(ctx.pass_frame.view.sample_count > 1)
     }
 
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {

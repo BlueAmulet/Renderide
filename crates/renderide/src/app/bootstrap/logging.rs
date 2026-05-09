@@ -16,7 +16,7 @@ pub(crate) struct LoggingBootstrap {
 pub(crate) fn init_logging() -> Result<LoggingBootstrap, RunError> {
     let timestamp = logger::log_filename_timestamp();
     let log_level_cli = logger::parse_log_level_from_args();
-    let initial_log_level = log_level_cli.unwrap_or(LogLevel::Debug);
+    let initial_log_level = log_level_cli.unwrap_or(LogLevel::Info);
     let log_path = logger::init_for(LogComponent::Renderer, &timestamp, initial_log_level, false)
         .map_err(RunError::logging_init)?;
 
