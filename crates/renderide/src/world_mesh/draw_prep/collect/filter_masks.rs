@@ -65,6 +65,7 @@ mod tests {
             view_origin_world: Vec3::ZERO,
             culling: None,
             transform_filter,
+            render_space_filter: None,
             material_cache: None,
             reflection_probes: None,
             prepared: None,

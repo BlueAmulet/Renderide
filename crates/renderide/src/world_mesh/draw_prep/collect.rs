@@ -109,6 +109,8 @@ pub struct DrawCollectionContext<'a> {
     pub culling: Option<&'a WorldMeshCullInput<'a>>,
     /// Optional per-camera node filter.
     pub transform_filter: Option<&'a CameraTransformDrawFilter>,
+    /// Optional render-space scope for offscreen cameras/tasks.
+    pub render_space_filter: Option<RenderSpaceId>,
     /// Optional pre-built material batch cache shared across multiple views in the same frame.
     ///
     /// When `Some`, collection reuses the shared cache instead of rebuilding one per call. Callers
@@ -148,9 +150,26 @@ pub fn collect_and_sort_draws_with_parallelism(
     let space_ids: &[RenderSpaceId] = {
         profiling::scope!("mesh::collect_and_sort::resolve_space_ids");
         if let Some(prepared) = ctx.prepared {
-            prepared.active_space_ids()
+            if let Some(space_id) = ctx.render_space_filter {
+                owned_space_ids = prepared
+                    .active_space_ids()
+                    .iter()
+                    .copied()
+                    .filter(|id| *id == space_id)
+                    .collect::<Vec<_>>();
+                &owned_space_ids
+            } else {
+                prepared.active_space_ids()
+            }
         } else {
-            owned_space_ids = ctx.scene.render_space_ids().collect::<Vec<_>>();
+            owned_space_ids = match ctx.render_space_filter {
+                Some(space_id) => ctx
+                    .scene
+                    .space(space_id)
+                    .filter(|space| space.is_active())
+                    .map_or_else(Vec::new, |_| vec![space_id]),
+                None => ctx.scene.render_space_ids().collect::<Vec<_>>(),
+            };
             &owned_space_ids
         }
     };

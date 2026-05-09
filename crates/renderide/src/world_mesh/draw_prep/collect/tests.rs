@@ -82,6 +82,7 @@ fn draw_transform_scale_filter_allows_unit_scale() {
         view_origin_world: Vec3::ZERO,
         culling: None,
         transform_filter: None,
+        render_space_filter: None,
         material_cache: None,
         reflection_probes: None,
         prepared: None,

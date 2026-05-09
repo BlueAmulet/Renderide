@@ -15,6 +15,7 @@ use crate::render_graph::{
     ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewClear,
     FrameViewResourceHints, FrameViewTarget, ViewPostProcessing,
 };
+use crate::scene::RenderSpaceId;
 use crate::world_mesh::CameraTransformDrawFilter;
 
 /// Cheap-clone snapshot of [`crate::gpu::PrimaryOffscreenTargets`] used by the headless render path.
@@ -101,6 +102,8 @@ pub(super) struct FrameViewPlan<'a> {
     pub(super) host_camera: HostCameraFrame,
     /// Optional selective/exclude filter; present for secondary cameras only.
     pub(super) draw_filter: Option<CameraTransformDrawFilter>,
+    /// Optional render-space scope for offscreen cameras/tasks.
+    pub(super) render_space_filter: Option<RenderSpaceId>,
     /// Stable logical identity for view-scoped resources and temporal state.
     pub(super) view_id: ViewId,
     /// Attachment extent in pixels for this view.
@@ -199,6 +202,7 @@ mod tests {
         FrameViewPlan {
             host_camera: HostCameraFrame::default(),
             draw_filter: None,
+            render_space_filter: None,
             view_id: ViewId::Main,
             viewport_px: (1280, 720),
             clear: FrameViewClear::color(glam::Vec4::new(0.1, 0.2, 0.3, 1.0)),

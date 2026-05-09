@@ -156,8 +156,10 @@ impl OcclusionSystem {
     /// Drains completed Hi-Z `map_async` readbacks into CPU snapshots for [`Self::hi_z_cull_data`]
     /// and promotes any submit-done readback slots into fresh `map_async` requests on the main thread.
     ///
-    /// Non-blocking: uses at most one [`wgpu::Device::poll`]; if a read is not ready, prior
-    /// snapshots are kept.
+    /// Non-blocking: uses bounded [`wgpu::Device::poll`] calls; if a read is not ready, prior
+    /// snapshots are kept. The second poll gives newly-started maps a chance to complete in the
+    /// same frame-start drain, avoiding an extra tick of CPU Hi-Z latency after the GPU-completion
+    /// callback has already fired.
     ///
     /// The poll runs **before** any [`HiZGpuState`] lock so the
     /// [`wgpu::Queue::on_submitted_work_done`] callback installed by
@@ -172,15 +174,32 @@ impl OcclusionSystem {
     pub fn hi_z_begin_frame_readback(&self, device: &wgpu::Device) {
         profiling::scope!("hi_z::readback_drain");
         let _ = device.poll(wgpu::PollType::Poll);
+        self.drain_completed_hi_z_maps();
+        self.start_ready_hi_z_maps();
+        let _ = device.poll(wgpu::PollType::Poll);
+        self.drain_completed_hi_z_maps();
+    }
+
+    fn drain_completed_hi_z_maps(&self) {
         {
             let mut main = self.main.lock();
             main.drain_completed_map_async();
-            main.start_ready_maps();
         };
         let offscreen = self.offscreen.lock();
         for slot in offscreen.values() {
             let mut state = slot.lock();
             state.drain_completed_map_async();
+        }
+    }
+
+    fn start_ready_hi_z_maps(&self) {
+        {
+            let mut main = self.main.lock();
+            main.start_ready_maps();
+        };
+        let offscreen = self.offscreen.lock();
+        for slot in offscreen.values() {
+            let mut state = slot.lock();
             state.start_ready_maps();
         }
     }

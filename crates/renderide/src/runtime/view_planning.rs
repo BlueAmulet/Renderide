@@ -68,6 +68,7 @@ impl RendererRuntime {
             views.push(FrameViewPlan {
                 host_camera: self.host_camera,
                 draw_filter: None,
+                render_space_filter: None,
                 view_id: ViewId::Main,
                 viewport_px: extent_px,
                 clear: FrameViewClear::skybox(),
@@ -186,13 +187,18 @@ impl RendererRuntime {
             if !entry.selective_transform_ids.is_empty() {
                 hc.suppress_occlusion_temporal = true;
             }
+            let mut post_processing = ViewPostProcessing::from_camera_state(&entry.state);
+            if space.is_overlay() && !entry.selective_transform_ids.is_empty() {
+                post_processing = ViewPostProcessing::disabled();
+            }
             views.push(FrameViewPlan {
                 host_camera: hc,
                 draw_filter: Some(filter),
+                render_space_filter: Some(sid),
                 view_id: secondary_camera_view_id(sid, entry.renderable_index, cam_idx),
                 viewport_px: viewport,
                 clear: FrameViewClear::from_camera_state(&entry.state),
-                post_processing: ViewPostProcessing::from_camera_state(&entry.state),
+                post_processing,
                 target: FrameViewPlanTarget::SecondaryRt(OffscreenRtHandles {
                     rt_id,
                     color_view,
@@ -221,6 +227,7 @@ impl RendererRuntime {
         FrameViewPlan {
             host_camera: self.host_camera,
             draw_filter: None,
+            render_space_filter: None,
             view_id: ViewId::Main,
             viewport_px: swapchain_extent_px,
             clear: FrameViewClear::skybox(),
