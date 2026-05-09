@@ -14,8 +14,7 @@ use selection::{
 };
 #[cfg(test)]
 use source::{
-    metadata_for_spatial, resolve_baked_probe_source, resolve_space_skybox_fallback_source,
-    skybox_fallback_metadata,
+    resolve_baked_probe_source, resolve_space_skybox_fallback_source, skybox_fallback_metadata,
 };
 
 #[cfg(test)]
@@ -23,14 +22,9 @@ mod tests {
     use super::*;
 
     use crate::backend::AssetTransferQueue;
-    use crate::backend::frame_gpu::{
-        REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL, REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
-    };
     use crate::materials::MaterialSystem;
     use crate::scene::RenderSpaceId;
-    use crate::shared::{
-        ReflectionProbeClear, ReflectionProbeState, ReflectionProbeType, RenderSH2,
-    };
+    use crate::shared::{ReflectionProbeState, ReflectionProbeType, RenderSH2};
     use glam::{Vec3, Vec3A};
 
     fn probe(index: i32, atlas: u16, importance: i32, min: Vec3, max: Vec3) -> SpatialProbe {
@@ -123,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn skybox_fallback_metadata_marks_completed_sh2_as_skybox_source() {
+    fn skybox_fallback_metadata_marks_completed_sh2_valid() {
         let sh = RenderSH2 {
             sh0: Vec3::new(1.0, 2.0, 3.0),
             sh8: Vec3::new(4.0, 5.0, 6.0),
@@ -132,56 +126,9 @@ mod tests {
 
         let metadata = skybox_fallback_metadata(5, Some(&sh));
 
-        assert_eq!(
-            metadata.params,
-            [1.0, 4.0, 0.0, REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX]
-        );
+        assert_eq!(metadata.params, [1.0, 4.0, 0.0, 1.0]);
         assert_eq!(metadata.sh2[0], [1.0, 2.0, 3.0, 0.0]);
         assert_eq!(metadata.sh2[8], [4.0, 5.0, 6.0, 0.0]);
-    }
-
-    #[test]
-    fn skybox_only_spatial_probe_metadata_marks_skybox_sh2_source() {
-        let spatial = probe(0, 3, 0, Vec3::splat(-1.0), Vec3::splat(1.0));
-        let sh = RenderSH2 {
-            sh0: Vec3::ONE,
-            ..RenderSH2::default()
-        };
-        let state = ReflectionProbeState {
-            flags: 0b001,
-            r#type: ReflectionProbeType::OnChanges,
-            intensity: 1.0,
-            ..ReflectionProbeState::default()
-        };
-
-        let metadata = metadata_for_spatial(&spatial, state, &sh);
-
-        assert_eq!(
-            metadata.params[3],
-            REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX
-        );
-    }
-
-    #[test]
-    fn non_skybox_spatial_probe_metadata_marks_local_sh2_source() {
-        let spatial = probe(0, 3, 0, Vec3::splat(-1.0), Vec3::splat(1.0));
-        let sh = RenderSH2 {
-            sh0: Vec3::ONE,
-            ..RenderSH2::default()
-        };
-        let state = ReflectionProbeState {
-            flags: 0b001,
-            clear_flags: ReflectionProbeClear::Color,
-            intensity: 1.0,
-            ..ReflectionProbeState::default()
-        };
-
-        let metadata = metadata_for_spatial(&spatial, state, &sh);
-
-        assert_eq!(
-            metadata.params[3],
-            REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL
-        );
     }
 
     #[test]

@@ -8,9 +8,12 @@
 #import renderide::sh2_ambient as shamb
 
 const PROBE_FLAG_BOX_PROJECTION: f32 = 1.0;
-const PROBE_SH2_SOURCE_NONE: f32 = 0.0;
-const PROBE_SH2_SOURCE_LOCAL: f32 = 1.0;
-const PROBE_SH2_SOURCE_SKYBOX: f32 = 2.0;
+const PROBE_SH2_VALID: f32 = 1.0;
+const SH_C0: f32 = 0.2820948;
+const SH_C1: f32 = 0.48860252;
+const SH_C2: f32 = 1.0925485;
+const SH_C3: f32 = 0.31539157;
+const SH_C4: f32 = 0.54627424;
 
 fn selected_draw(view_layer: u32) -> pd::PerDrawUniforms {
     return pd::get_draw(rg::draw_index_from_layer(view_layer));
@@ -98,39 +101,27 @@ fn indirect_radiance(
     return mix(first, second, pd::reflection_probe_second_weight(draw));
 }
 
-fn probe_sh2_source(atlas_index: u32) -> f32 {
-    if (atlas_index == 0u) {
-        return PROBE_SH2_SOURCE_NONE;
-    }
-    return rg::reflection_probes[atlas_index].params.w;
-}
-
-fn probe_has_any_sh2(atlas_index: u32) -> bool {
-    return probe_sh2_source(atlas_index) != PROBE_SH2_SOURCE_NONE;
-}
-
-fn probe_has_local_sh2(atlas_index: u32) -> bool {
-    return probe_sh2_source(atlas_index) == PROBE_SH2_SOURCE_LOCAL;
+fn probe_has_sh2(atlas_index: u32) -> bool {
+    return atlas_index != 0u && rg::reflection_probes[atlas_index].params.w >= PROBE_SH2_VALID;
 }
 
 fn sample_probe_sh2(atlas_index: u32, normal_ws: vec3<f32>) -> vec3<f32> {
-    if (!probe_has_any_sh2(atlas_index)) {
+    if (!probe_has_sh2(atlas_index)) {
         return vec3<f32>(0.0);
     }
     let probe = rg::reflection_probes[atlas_index];
-    let sh = shamb::diffuse_from_raw_sh2(
-        probe.sh2_a.xyz,
-        probe.sh2_b.xyz,
-        probe.sh2_c.xyz,
-        probe.sh2_d.xyz,
-        probe.sh2_e.xyz,
-        probe.sh2_f.xyz,
-        probe.sh2_g.xyz,
-        probe.sh2_h.xyz,
-        probe.sh2_i.xyz,
-        normal_ws,
-    );
-    return sh * max(probe.params.x, 0.0);
+    let n = normalize(normal_ws);
+    let sh =
+        probe.sh2_a.xyz * SH_C0 +
+        probe.sh2_b.xyz * (SH_C1 * n.y) +
+        probe.sh2_c.xyz * (SH_C1 * n.z) +
+        probe.sh2_d.xyz * (SH_C1 * n.x) +
+        probe.sh2_e.xyz * (SH_C2 * n.x * n.y) +
+        probe.sh2_f.xyz * (SH_C2 * n.y * n.z) +
+        probe.sh2_g.xyz * (SH_C3 * (3.0 * n.z * n.z - 1.0)) +
+        probe.sh2_h.xyz * (SH_C2 * n.x * n.z) +
+        probe.sh2_i.xyz * (SH_C4 * (n.x * n.x - n.y * n.y));
+    return max(sh * max(probe.params.x, 0.0), vec3<f32>(0.0));
 }
 
 fn indirect_diffuse(normal_ws: vec3<f32>, view_layer: u32, enabled: bool) -> vec3<f32> {
@@ -140,29 +131,18 @@ fn indirect_diffuse(normal_ws: vec3<f32>, view_layer: u32, enabled: bool) -> vec
     let draw = selected_draw(view_layer);
     let count = pd::reflection_probe_hit_count(draw);
     let indices = pd::reflection_probe_indices(draw);
-    let first_local = count > 0u && probe_has_local_sh2(indices.x);
-    let second_local = count > 1u && probe_has_local_sh2(indices.y);
-    if (first_local && second_local) {
-        let first = sample_probe_sh2(indices.x, normal_ws);
-        let second = sample_probe_sh2(indices.y, normal_ws);
-        return mix(first, second, pd::reflection_probe_second_weight(draw));
-    }
-    if (first_local) {
+    if (count == 0u) {
+        if (shamb::ambient_probe_is_valid()) {
+            return shamb::ambient_probe(normal_ws);
+        }
         return sample_probe_sh2(indices.x, normal_ws);
     }
-    if (second_local) {
-        return sample_probe_sh2(indices.y, normal_ws);
+    let first = sample_probe_sh2(indices.x, normal_ws);
+    if (count < 2u || indices.y == 0u) {
+        return first;
     }
-    if (shamb::ambient_probe_is_valid()) {
-        return shamb::ambient_probe(normal_ws);
-    }
-    if (probe_has_any_sh2(indices.x)) {
-        return sample_probe_sh2(indices.x, normal_ws);
-    }
-    if (count > 1u && probe_has_any_sh2(indices.y)) {
-        return sample_probe_sh2(indices.y, normal_ws);
-    }
-    return vec3<f32>(0.0);
+    let second = sample_probe_sh2(indices.y, normal_ws);
+    return mix(first, second, pd::reflection_probe_second_weight(draw));
 }
 
 fn raw_indirect_specular(

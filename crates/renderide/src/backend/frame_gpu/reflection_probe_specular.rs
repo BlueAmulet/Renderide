@@ -14,7 +14,7 @@ pub struct GpuReflectionProbeMetadata {
     pub box_max: [f32; 4],
     /// World-space probe position, padded to a vec4.
     pub position: [f32; 4],
-    /// `.x` intensity, `.y` max LOD, `.z` flags, `.w` SH2 source kind.
+    /// `.x` intensity, `.y` max LOD, `.z` flags, `.w` SH2 valid flag.
     pub params: [f32; 4],
     /// Probe SH2 coefficients in [`crate::shared::RenderSH2`] order, padded to vec4 rows.
     pub sh2: [[f32; 4]; 9],
@@ -22,10 +22,8 @@ pub struct GpuReflectionProbeMetadata {
 
 /// Probe metadata flag for box-projected reflection sampling.
 pub const REFLECTION_PROBE_METADATA_BOX_PROJECTION: u32 = 1;
-/// Probe metadata parameter value for local reflection-probe SH2 coefficients.
-pub const REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL: f32 = 1.0;
-/// Probe metadata parameter value for skybox-derived SH2 coefficients.
-pub const REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX: f32 = 2.0;
+/// Probe metadata parameter value marking resident SH2 coefficients.
+pub const REFLECTION_PROBE_METADATA_SH2_VALID: f32 = 1.0;
 
 /// Texture format used by prefiltered reflection-probe IBL cubemaps.
 pub const REFLECTION_PROBE_ATLAS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;

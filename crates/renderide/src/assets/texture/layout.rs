@@ -143,6 +143,12 @@ pub fn mip_dimensions_at_level(base_w: u32, base_h: u32, level: u32) -> (u32, u3
     (w, h)
 }
 
+/// Returns the legal WebGPU mip-level count for a 2D texture extent.
+pub fn legal_texture2d_mip_level_count(width: u32, height: u32) -> u32 {
+    let max_axis = width.max(height).max(1);
+    u32::BITS - max_axis.leading_zeros()
+}
+
 /// Width, height, and depth at `level` in a standard 3D mip chain.
 pub fn mip_dimensions_at_level_3d(
     base_w: u32,
@@ -159,6 +165,22 @@ pub fn mip_dimensions_at_level_3d(
         d = (d / 2).max(1);
     }
     (w, h, d)
+}
+
+/// Returns the legal WebGPU mip-level count for a 3D texture extent.
+pub fn legal_texture3d_mip_level_count(width: u32, height: u32, depth: u32) -> u32 {
+    let max_axis = width.max(height).max(depth).max(1);
+    u32::BITS - max_axis.leading_zeros()
+}
+
+/// Converts a host mip-count field to at least one mip level.
+pub fn host_texture_mip_count(host_mipmap_count: i32) -> u32 {
+    host_mipmap_count.max(1) as u32
+}
+
+/// Clamps a host-declared mip count to the number actually allocated on a texture.
+pub fn clamp_host_texture_mip_count(host_mipmap_count: i32, texture_mip_levels: u32) -> u32 {
+    host_texture_mip_count(host_mipmap_count).min(texture_mip_levels.max(1))
 }
 
 /// Approximate GPU bytes for a 3D texture (full mip chain) in `wgpu_format`.

@@ -234,6 +234,45 @@ fn xiexe_primary_direct_specular_uses_xstoon2_formula() -> io::Result<()> {
     Ok(())
 }
 
+#[test]
+fn xiexe_generic_stems_resolve_alpha_mode_from_keywords() -> io::Result<()> {
+    let base_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_base.wgsl"))?;
+    for field_name in ["Cutout", "AlphaBlend", "Transparent"] {
+        assert!(
+            declares_f32_field(&base_src, field_name),
+            "xiexe_toon2_base.wgsl must expose `{field_name}` as an f32 keyword field"
+        );
+    }
+    for required in [
+        "fn resolved_alpha_mode(static_alpha_mode: u32) -> u32",
+        "kw(mat.Cutout)",
+        "return ALPHA_CUTOUT;",
+        "kw(mat.Transparent)",
+        "return ALPHA_TRANSPARENT;",
+        "kw(mat.AlphaBlend)",
+        "return ALPHA_FADE;",
+    ] {
+        assert!(
+            base_src.contains(required),
+            "xiexe_toon2_base.wgsl must contain `{required}`"
+        );
+    }
+
+    for file_name in [
+        "xstoon2.0.wgsl",
+        "xstoon2.0-outlined.wgsl",
+        "xstoon2.0_outlined.wgsl",
+    ] {
+        let src = material_source(file_name)?;
+        assert!(
+            src.contains("xb::resolved_alpha_mode(XIEE_ALPHA_MODE)"),
+            "{file_name} must route the generic Xiexe alpha mode through material keywords"
+        );
+    }
+    Ok(())
+}
+
 fn declares_f32_field(src: &str, field_name: &str) -> bool {
     src.lines().any(|line| {
         let trimmed = line.trim();

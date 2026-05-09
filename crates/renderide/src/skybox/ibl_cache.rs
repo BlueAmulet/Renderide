@@ -692,80 +692,90 @@ mod tests {
     /// Cubemap key invariants: residency growth and face size resize both invalidate.
     #[test]
     fn cubemap_key_invalidates_on_residency_or_face_change() {
-        let a = SkyboxIblKey::Cubemap {
-            asset_id: 7,
-            mip_levels_resident: 1,
-            content_generation: 1,
-            storage_v_inverted: false,
-            face_size: 256,
-        };
-        let b = SkyboxIblKey::Cubemap {
-            asset_id: 7,
-            mip_levels_resident: 4,
-            content_generation: 1,
-            storage_v_inverted: false,
-            face_size: 256,
-        };
-        let c = SkyboxIblKey::Cubemap {
-            asset_id: 7,
-            mip_levels_resident: 1,
-            content_generation: 1,
-            storage_v_inverted: false,
-            face_size: 128,
-        };
+        let a = cubemap_key(1, 1, 0, 1, 256);
+        let b = cubemap_key(1, 1, 0, 4, 256);
+        let c = cubemap_key(1, 1, 0, 1, 128);
         assert_ne!(a, b);
         assert_ne!(a, c);
-        let d = SkyboxIblKey::Cubemap {
-            asset_id: 7,
-            mip_levels_resident: 1,
-            content_generation: 2,
-            storage_v_inverted: false,
-            face_size: 256,
-        };
+        let d = cubemap_key(1, 2, 0, 1, 256);
         assert_ne!(a, d);
+    }
+
+    /// Cubemap allocation and material identity invalidate same-id sources.
+    #[test]
+    fn cubemap_key_invalidates_on_allocation_or_material_change() {
+        let base = cubemap_key(1, 1, 5, 1, 256);
+        let reallocated_same_upload_generation = cubemap_key(2, 1, 5, 1, 256);
+        let material_changed = cubemap_key(1, 1, 6, 1, 256);
+
+        assert_ne!(base, reallocated_same_upload_generation);
+        assert_ne!(base, material_changed);
     }
 
     /// Equirect key invariants: FOV / ST hash inputs invalidate the bake.
     #[test]
     fn equirect_key_invalidates_on_param_changes() {
-        let base = SkyboxIblKey::Equirect {
-            asset_id: 9,
-            mip_levels_resident: 3,
-            content_generation: 1,
-            storage_v_inverted: false,
-            fov_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            st_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            face_size: 256,
-        };
-        let altered_fov = SkyboxIblKey::Equirect {
-            asset_id: 9,
-            mip_levels_resident: 3,
-            content_generation: 1,
-            storage_v_inverted: false,
-            fov_hash: hash_float4(&[2.0, 1.0, 0.0, 0.0]),
-            st_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            face_size: 256,
-        };
-        let altered_st = SkyboxIblKey::Equirect {
-            asset_id: 9,
-            mip_levels_resident: 3,
-            content_generation: 1,
-            storage_v_inverted: false,
-            fov_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            st_hash: hash_float4(&[2.0, 1.0, 0.0, 0.0]),
-            face_size: 256,
-        };
+        let base = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let altered_fov = equirect_key(1, 3, 1, 5, [2.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let altered_st = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [2.0, 1.0, 0.0, 0.0]);
         assert_ne!(base, altered_fov);
         assert_ne!(base, altered_st);
-        let altered_content = SkyboxIblKey::Equirect {
-            asset_id: 9,
-            mip_levels_resident: 3,
-            content_generation: 2,
-            storage_v_inverted: false,
-            fov_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            st_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            face_size: 256,
-        };
+        let altered_content = equirect_key(1, 3, 2, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
         assert_ne!(base, altered_content);
+    }
+
+    /// Equirect allocation and material identity invalidate same-id sources.
+    #[test]
+    fn equirect_key_invalidates_on_allocation_or_material_change() {
+        let base = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let reallocated_same_upload_generation =
+            equirect_key(2, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let material_changed = equirect_key(1, 3, 1, 6, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+
+        assert_ne!(base, reallocated_same_upload_generation);
+        assert_ne!(base, material_changed);
+    }
+
+    fn cubemap_key(
+        allocation_generation: u64,
+        content_generation: u64,
+        material_generation: u64,
+        mip_levels_resident: u32,
+        face_size: u32,
+    ) -> SkyboxIblKey {
+        SkyboxIblKey::Cubemap {
+            material_asset_id: 21,
+            material_generation,
+            route_hash: 99,
+            asset_id: 7,
+            allocation_generation,
+            mip_levels_resident,
+            content_generation,
+            storage_v_inverted: false,
+            face_size,
+        }
+    }
+
+    fn equirect_key(
+        allocation_generation: u64,
+        mip_levels_resident: u32,
+        content_generation: u64,
+        material_generation: u64,
+        fov: [f32; 4],
+        st: [f32; 4],
+    ) -> SkyboxIblKey {
+        SkyboxIblKey::Equirect {
+            material_asset_id: 21,
+            material_generation,
+            route_hash: 99,
+            asset_id: 9,
+            allocation_generation,
+            mip_levels_resident,
+            content_generation,
+            storage_v_inverted: false,
+            fov_hash: hash_float4(&fov),
+            st_hash: hash_float4(&st),
+            face_size: 256,
+        }
     }
 }

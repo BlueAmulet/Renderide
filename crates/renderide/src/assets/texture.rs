@@ -15,6 +15,7 @@ mod upload;
 pub use format::supported_host_formats_for_init;
 pub use layout::{
     estimate_gpu_cubemap_bytes, estimate_gpu_texture_bytes, estimate_gpu_texture3d_bytes,
+    host_texture_mip_count, legal_texture2d_mip_level_count, legal_texture3d_mip_level_count,
 };
 pub use unpack::{
     HostTextureAssetKind, texture2d_asset_id_from_packed, unpack_host_texture_packed,

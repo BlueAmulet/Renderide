@@ -17,7 +17,7 @@ pub(super) fn f32x4_bits(v: [f32; 4]) -> [u32; 4] {
     ]
 }
 
-/// Analytic raw SH2 coefficients for a constant radiance color.
+/// Analytic SH2 coefficients for a constant Lambertian diffuse color.
 pub(super) fn constant_color_sh2(color: Vec3) -> RenderSH2 {
     let c = color * (4.0 * std::f32::consts::PI * SH_C0);
     RenderSH2 {
@@ -69,20 +69,6 @@ pub(super) fn evaluate_sh2(sh: &RenderSH2, n: Vec3) -> Vec3 {
         + sh.sh6 * (SH_C3 * (3.0 * n.z * n.z - 1.0))
         + sh.sh7 * (SH_C2 * n.x * n.z)
         + sh.sh8 * (SH_C4 * (n.x * n.x - n.y * n.y))
-}
-
-/// Evaluates stored raw RenderSH2 coefficients as Lambertian diffuse radiance.
-#[cfg(test)]
-pub(super) fn evaluate_lambert_diffuse_sh2(sh: &RenderSH2, n: Vec3) -> Vec3 {
-    sh.sh0 * (SH_C0 * LAMBERT_BAND0)
-        + sh.sh1 * (SH_C1 * LAMBERT_BAND1 * n.y)
-        + sh.sh2 * (SH_C1 * LAMBERT_BAND1 * n.z)
-        + sh.sh3 * (SH_C1 * LAMBERT_BAND1 * n.x)
-        + sh.sh4 * (SH_C2 * LAMBERT_BAND2 * n.x * n.y)
-        + sh.sh5 * (SH_C2 * LAMBERT_BAND2 * n.y * n.z)
-        + sh.sh6 * (SH_C3 * LAMBERT_BAND2 * (3.0 * n.z * n.z - 1.0))
-        + sh.sh7 * (SH_C2 * LAMBERT_BAND2 * n.x * n.z)
-        + sh.sh8 * (SH_C4 * LAMBERT_BAND2 * (n.x * n.x - n.y * n.y))
 }
 
 /// Applies WGSL-style positive modulo for Projection360 angle wrapping.
@@ -253,18 +239,18 @@ fn sh2_cube_dir(face: u32, x: u32, y: u32, n: u32) -> Vec3 {
     }
 }
 
-/// Accumulates one weighted radiance sample into raw RenderSH2 coefficients.
+/// Accumulates one weighted radiance sample into Lambertian-convolved RenderSH2 coefficients.
 #[cfg(test)]
 fn add_weighted_sh2_sample(sh: &mut RenderSH2, c: Vec3, dir: Vec3, weight: f32) {
-    sh.sh0 += c * (SH_C0 * weight);
-    sh.sh1 += c * (SH_C1 * dir.y * weight);
-    sh.sh2 += c * (SH_C1 * dir.z * weight);
-    sh.sh3 += c * (SH_C1 * dir.x * weight);
-    sh.sh4 += c * (SH_C2 * dir.x * dir.y * weight);
-    sh.sh5 += c * (SH_C2 * dir.y * dir.z * weight);
-    sh.sh6 += c * (SH_C3 * (3.0 * dir.z * dir.z - 1.0) * weight);
-    sh.sh7 += c * (SH_C2 * dir.x * dir.z * weight);
-    sh.sh8 += c * (SH_C4 * (dir.x * dir.x - dir.y * dir.y) * weight);
+    sh.sh0 += c * (SH_C0 * LAMBERT_BAND0 * weight);
+    sh.sh1 += c * (SH_C1 * LAMBERT_BAND1 * dir.y * weight);
+    sh.sh2 += c * (SH_C1 * LAMBERT_BAND1 * dir.z * weight);
+    sh.sh3 += c * (SH_C1 * LAMBERT_BAND1 * dir.x * weight);
+    sh.sh4 += c * (SH_C2 * LAMBERT_BAND2 * dir.x * dir.y * weight);
+    sh.sh5 += c * (SH_C2 * LAMBERT_BAND2 * dir.y * dir.z * weight);
+    sh.sh6 += c * (SH_C3 * LAMBERT_BAND2 * (3.0 * dir.z * dir.z - 1.0) * weight);
+    sh.sh7 += c * (SH_C2 * LAMBERT_BAND2 * dir.x * dir.z * weight);
+    sh.sh8 += c * (SH_C4 * LAMBERT_BAND2 * (dir.x * dir.x - dir.y * dir.y) * weight);
 }
 
 /// Projects a directional equirectangular lobe through the Projection360 `_VIEW` convention.
@@ -301,7 +287,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn constant_raw_sh2_evaluates_to_source_color() {
+    fn constant_lambertian_sh2_evaluates_to_source_color() {
         let color = Vec3::new(0.25, 0.5, 1.0);
         let sh = constant_color_sh2(color);
 
@@ -312,26 +298,12 @@ mod tests {
     }
 
     #[test]
-    fn raw_projection_does_not_apply_lambert_band_factors() {
+    fn lambertian_projection_applies_band_factors() {
         let mut sh = RenderSH2::default();
         add_weighted_sh2_sample(&mut sh, Vec3::ONE, Vec3::X, 1.0);
 
-        assert!((sh.sh0.x - SH_C0).abs() < 1e-6);
-        assert!((sh.sh3.x - SH_C1).abs() < 1e-6);
-        assert!((sh.sh8.x - SH_C4).abs() < 1e-6);
-    }
-
-    #[test]
-    fn diffuse_evaluation_applies_lambert_band_factors() {
-        let sh = RenderSH2 {
-            sh0: Vec3::ONE,
-            sh3: Vec3::ONE,
-            sh8: Vec3::ONE,
-            ..RenderSH2::default()
-        };
-        let diffuse = evaluate_lambert_diffuse_sh2(&sh, Vec3::X);
-        let expected = SH_C0 * LAMBERT_BAND0 + SH_C1 * LAMBERT_BAND1 + SH_C4 * LAMBERT_BAND2;
-
-        assert!((diffuse.x - expected).abs() < 1e-6);
+        assert!((sh.sh0.x - SH_C0 * LAMBERT_BAND0).abs() < 1e-6);
+        assert!((sh.sh3.x - SH_C1 * LAMBERT_BAND1).abs() < 1e-6);
+        assert!((sh.sh8.x - SH_C4 * LAMBERT_BAND2).abs() < 1e-6);
     }
 }
