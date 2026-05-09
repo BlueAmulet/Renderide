@@ -10,9 +10,6 @@ const SH_C1: f32 = 0.4886025119;
 const SH_C2: f32 = 1.0925484306;
 const SH_C3: f32 = 0.3153915652;
 const SH_C4: f32 = 0.5462742153;
-const LAMBERT_BAND0: f32 = 1.0;
-const LAMBERT_BAND1: f32 = 0.6666666667;
-const LAMBERT_BAND2: f32 = 0.25;
 
 var<workgroup> partial: array<vec4<f32>, 576>;
 
@@ -30,15 +27,15 @@ fn texel_solid_angle(x: u32, y: u32, n: u32) -> f32 {
 }
 
 fn add_coeffs(base: u32, c: vec3<f32>, dir: vec3<f32>, weight: f32) {
-    partial[base + 0u] = partial[base + 0u] + vec4<f32>(c * (SH_C0 * LAMBERT_BAND0 * weight), 0.0);
-    partial[base + 1u] = partial[base + 1u] + vec4<f32>(c * (SH_C1 * LAMBERT_BAND1 * dir.y * weight), 0.0);
-    partial[base + 2u] = partial[base + 2u] + vec4<f32>(c * (SH_C1 * LAMBERT_BAND1 * dir.z * weight), 0.0);
-    partial[base + 3u] = partial[base + 3u] + vec4<f32>(c * (SH_C1 * LAMBERT_BAND1 * dir.x * weight), 0.0);
-    partial[base + 4u] = partial[base + 4u] + vec4<f32>(c * (SH_C2 * LAMBERT_BAND2 * dir.x * dir.y * weight), 0.0);
-    partial[base + 5u] = partial[base + 5u] + vec4<f32>(c * (SH_C2 * LAMBERT_BAND2 * dir.y * dir.z * weight), 0.0);
-    partial[base + 6u] = partial[base + 6u] + vec4<f32>(c * (SH_C3 * LAMBERT_BAND2 * (3.0 * dir.z * dir.z - 1.0) * weight), 0.0);
-    partial[base + 7u] = partial[base + 7u] + vec4<f32>(c * (SH_C2 * LAMBERT_BAND2 * dir.x * dir.z * weight), 0.0);
-    partial[base + 8u] = partial[base + 8u] + vec4<f32>(c * (SH_C4 * LAMBERT_BAND2 * (dir.x * dir.x - dir.y * dir.y) * weight), 0.0);
+    partial[base + 0u] = partial[base + 0u] + vec4<f32>(c * (SH_C0 * weight), 0.0);
+    partial[base + 1u] = partial[base + 1u] + vec4<f32>(c * (SH_C1 * dir.y * weight), 0.0);
+    partial[base + 2u] = partial[base + 2u] + vec4<f32>(c * (SH_C1 * dir.z * weight), 0.0);
+    partial[base + 3u] = partial[base + 3u] + vec4<f32>(c * (SH_C1 * dir.x * weight), 0.0);
+    partial[base + 4u] = partial[base + 4u] + vec4<f32>(c * (SH_C2 * dir.x * dir.y * weight), 0.0);
+    partial[base + 5u] = partial[base + 5u] + vec4<f32>(c * (SH_C2 * dir.y * dir.z * weight), 0.0);
+    partial[base + 6u] = partial[base + 6u] + vec4<f32>(c * (SH_C3 * (3.0 * dir.z * dir.z - 1.0) * weight), 0.0);
+    partial[base + 7u] = partial[base + 7u] + vec4<f32>(c * (SH_C2 * dir.x * dir.z * weight), 0.0);
+    partial[base + 8u] = partial[base + 8u] + vec4<f32>(c * (SH_C4 * (dir.x * dir.x - dir.y * dir.y) * weight), 0.0);
 }
 
 @compute @workgroup_size(64)
