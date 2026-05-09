@@ -4,10 +4,6 @@ use std::sync::OnceLock;
 
 use crate::embedded_shaders::embedded_wgsl;
 
-fn surface_blend_state() -> wgpu::BlendState {
-    wgpu::BlendState::ALPHA_BLENDING
-}
-
 /// Returns the cached bind group layout used by [`super::resources::DisplayBlitResources`].
 ///
 /// `(0)` 2D texture, `(1)` filtering sampler, `(2)` `vec4<f32>` UV scale/offset uniform.
@@ -77,7 +73,7 @@ pub(super) fn surface_pipeline(
             compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format,
-                blend: Some(surface_blend_state()),
+                blend: None,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -109,21 +105,4 @@ pub(super) fn linear_sampler(device: &wgpu::Device) -> &'static wgpu::Sampler {
             ..Default::default()
         })
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::surface_blend_state;
-
-    #[test]
-    fn surface_blend_state_composites_source_alpha_over_background() {
-        let blend = surface_blend_state();
-
-        assert_eq!(blend.color.src_factor, wgpu::BlendFactor::SrcAlpha);
-        assert_eq!(blend.color.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
-        assert_eq!(blend.color.operation, wgpu::BlendOperation::Add);
-        assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
-        assert_eq!(blend.alpha.dst_factor, wgpu::BlendFactor::OneMinusSrcAlpha);
-        assert_eq!(blend.alpha.operation, wgpu::BlendOperation::Add);
-    }
 }
