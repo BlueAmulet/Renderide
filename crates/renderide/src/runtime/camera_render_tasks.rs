@@ -19,6 +19,8 @@ use super::RendererRuntime;
 use super::frame_extract::{ExtractedFrame, PreparedViews};
 use super::frame_view_plan::{FrameViewPlan, FrameViewPlanTarget, OffscreenRtHandles};
 
+mod alpha_coverage;
+
 /// Buffers at or above this size are filled through rayon.
 const PAR_FILL_THRESHOLD: usize = 128 * 1024;
 /// Per-thread fill chunk for large shared-memory result buffers.
@@ -54,6 +56,10 @@ impl CameraTaskOutputFormat {
             Self::Argb32 | Self::Rgba32 | Self::Bgra32 => 4,
             Self::Rgb24 => 3,
         }
+    }
+
+    const fn needs_alpha_coverage_repair(self) -> bool {
+        matches!(self, Self::Argb32 | Self::Rgba32 | Self::Bgra32)
     }
 }
 
@@ -335,6 +341,9 @@ fn render_camera_task(ctx: CameraTaskRenderCtx<'_>) -> Result<(), CameraReadback
         ctx.render_context,
         planned.plan,
     )?;
+    if planned.output_format.needs_alpha_coverage_repair() {
+        alpha_coverage::apply_camera_task_alpha_coverage(ctx.gpu, &planned.targets);
+    }
     let rgba = match readback_camera_task_texture(ctx.gpu, planned.targets.color_texture.as_ref()) {
         Ok(rgba) => rgba,
         Err(error) => {
@@ -936,6 +945,26 @@ mod tests {
             CameraTaskOutputFormat::from_texture_format(TextureFormat::RGBAHalf),
             None
         );
+    }
+
+    #[test]
+    fn alpha_coverage_repair_only_runs_for_alpha_outputs() {
+        assert!(CameraTaskOutputFormat::Argb32.needs_alpha_coverage_repair());
+        assert!(CameraTaskOutputFormat::Rgba32.needs_alpha_coverage_repair());
+        assert!(CameraTaskOutputFormat::Bgra32.needs_alpha_coverage_repair());
+        assert!(!CameraTaskOutputFormat::Rgb24.needs_alpha_coverage_repair());
+    }
+
+    #[test]
+    fn alpha_coverage_uses_reverse_z_clear_contract() {
+        assert!(!alpha_coverage::depth_marks_coverage(
+            crate::gpu::MAIN_FORWARD_DEPTH_CLEAR
+        ));
+        assert!(!alpha_coverage::depth_marks_coverage(f32::NAN));
+        assert!(alpha_coverage::depth_marks_coverage(
+            crate::gpu::MAIN_FORWARD_DEPTH_CLEAR + f32::EPSILON
+        ));
+        assert!(alpha_coverage::depth_marks_coverage(1.0));
     }
 
     #[test]
