@@ -141,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn skybox_only_spatial_probe_metadata_marks_skybox_sh2_source() {
+    fn skybox_only_spatial_probe_metadata_marks_local_sh2_source() {
         let spatial = probe(0, 3, 0, Vec3::splat(-1.0), Vec3::splat(1.0));
         let sh = RenderSH2 {
             sh0: Vec3::ONE,
@@ -158,7 +158,7 @@ mod tests {
 
         assert_eq!(
             metadata.params[3],
-            REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX
+            REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL
         );
     }
 

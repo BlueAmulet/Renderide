@@ -9,8 +9,6 @@
 
 const PROBE_FLAG_BOX_PROJECTION: f32 = 1.0;
 const PROBE_SH2_SOURCE_NONE: f32 = 0.0;
-const PROBE_SH2_SOURCE_LOCAL: f32 = 1.0;
-const PROBE_SH2_SOURCE_SKYBOX: f32 = 2.0;
 
 fn selected_draw(view_layer: u32) -> pd::PerDrawUniforms {
     return pd::get_draw(rg::draw_index_from_layer(view_layer));
@@ -109,10 +107,6 @@ fn probe_has_any_sh2(atlas_index: u32) -> bool {
     return probe_sh2_source(atlas_index) != PROBE_SH2_SOURCE_NONE;
 }
 
-fn probe_has_local_sh2(atlas_index: u32) -> bool {
-    return probe_sh2_source(atlas_index) == PROBE_SH2_SOURCE_LOCAL;
-}
-
 fn sample_probe_sh2(atlas_index: u32, normal_ws: vec3<f32>) -> vec3<f32> {
     if (!probe_has_any_sh2(atlas_index)) {
         return vec3<f32>(0.0);
@@ -140,18 +134,13 @@ fn indirect_diffuse(normal_ws: vec3<f32>, view_layer: u32, enabled: bool) -> vec
     let draw = selected_draw(view_layer);
     let count = pd::reflection_probe_hit_count(draw);
     let indices = pd::reflection_probe_indices(draw);
-    let first_local = count > 0u && probe_has_local_sh2(indices.x);
-    let second_local = count > 1u && probe_has_local_sh2(indices.y);
-    if (first_local && second_local) {
+    if (count > 0u) {
         let first = sample_probe_sh2(indices.x, normal_ws);
+        if (count < 2u || indices.y == 0u) {
+            return first;
+        }
         let second = sample_probe_sh2(indices.y, normal_ws);
         return mix(first, second, pd::reflection_probe_second_weight(draw));
-    }
-    if (first_local) {
-        return sample_probe_sh2(indices.x, normal_ws);
-    }
-    if (second_local) {
-        return sample_probe_sh2(indices.y, normal_ws);
     }
     if (shamb::ambient_probe_is_valid()) {
         return shamb::ambient_probe(normal_ws);
