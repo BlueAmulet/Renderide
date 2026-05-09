@@ -243,28 +243,10 @@ impl RendererRuntime {
         self.frontend.set_decoupling_config(cfg);
     }
 
-    fn apply_desktop_config(&self, cfg: DesktopConfig) {
-        let focused_fps_cap = desktop_config_fps_cap(cfg.maximum_foreground_framerate);
-        let unfocused_fps_cap = desktop_config_fps_cap(cfg.maximum_background_framerate);
-
-        match self.settings().write() {
-            Ok(mut settings) => {
-                settings.display.focused_fps_cap = focused_fps_cap;
-                settings.display.unfocused_fps_cap = unfocused_fps_cap;
-                logger::info!(
-                    "runtime: desktop_config applied focused_fps_cap={} unfocused_fps_cap={} host_vsync_ignored={} renderer_vsync={:?}",
-                    focused_fps_cap,
-                    unfocused_fps_cap,
-                    cfg.v_sync,
-                    settings.rendering.vsync
-                );
-            }
-            Err(e) => {
-                logger::warn!(
-                    "runtime: desktop_config ignored because settings lock is poisoned: {e}"
-                );
-            }
-        }
+    fn apply_desktop_config(&self, _cfg: DesktopConfig) {
+        logger::trace!(
+            "runtime: desktop_config ignored; renderer config owns desktop frame pacing"
+        );
     }
 
     fn material_property_id_request(&mut self, req: MaterialPropertyIdRequest) {
@@ -310,16 +292,4 @@ fn log_frame_start_data_trace(fs: &FrameStartData) {
         fs.rendered_reflection_probes.len(),
         fs.video_clock_errors.len(),
     );
-}
-
-/// Converts host desktop framerate caps into renderer display settings.
-///
-/// [`None`] means uncapped. [`Some`] mirrors the host renderer's behavior by enforcing a minimum
-/// capped rate of 5 fps; normal host UI ranges should already be above that, but the wire command
-/// is still sanitized here.
-fn desktop_config_fps_cap(host_cap: Option<i32>) -> u32 {
-    match host_cap {
-        Some(cap) => cap.max(5) as u32,
-        None => 0,
-    }
 }

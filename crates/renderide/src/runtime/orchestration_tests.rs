@@ -93,12 +93,14 @@ fn dispatch_quality_config_increments_unhandled_when_no_handler() {
 }
 
 #[test]
-fn dispatch_desktop_config_updates_fps_caps_without_overriding_renderer_vsync() {
+fn dispatch_desktop_config_is_ignored_without_overriding_renderer_settings() {
     let mut rt = test_runtime_standalone();
     let before = rt.unhandled_ipc_command_event_total();
     {
         let mut settings = rt.settings().write().expect("settings writable");
         settings.rendering.vsync = VsyncMode::Auto;
+        settings.display.focused_fps_cap = 144;
+        settings.display.unfocused_fps_cap = 30;
     };
 
     apply_running_command(
@@ -113,7 +115,7 @@ fn dispatch_desktop_config_updates_fps_caps_without_overriding_renderer_vsync() 
     {
         let settings = rt.settings().read().expect("settings readable");
         assert_eq!(settings.rendering.vsync, VsyncMode::Auto);
-        assert_eq!(settings.display.focused_fps_cap, 0);
+        assert_eq!(settings.display.focused_fps_cap, 144);
         assert_eq!(settings.display.unfocused_fps_cap, 30);
         drop(settings);
     };
@@ -121,11 +123,13 @@ fn dispatch_desktop_config_updates_fps_caps_without_overriding_renderer_vsync() 
 }
 
 #[test]
-fn dispatch_desktop_config_clamps_enabled_caps_to_host_minimum() {
+fn dispatch_desktop_config_ignores_negative_and_zero_host_caps() {
     let mut rt = test_runtime_standalone();
     {
         let mut settings = rt.settings().write().expect("settings writable");
         settings.rendering.vsync = VsyncMode::On;
+        settings.display.focused_fps_cap = 240;
+        settings.display.unfocused_fps_cap = 60;
     };
 
     apply_running_command(
@@ -140,8 +144,8 @@ fn dispatch_desktop_config_clamps_enabled_caps_to_host_minimum() {
     {
         let settings = rt.settings().read().expect("settings readable");
         assert_eq!(settings.rendering.vsync, VsyncMode::On);
-        assert_eq!(settings.display.focused_fps_cap, 5);
-        assert_eq!(settings.display.unfocused_fps_cap, 5);
+        assert_eq!(settings.display.focused_fps_cap, 240);
+        assert_eq!(settings.display.unfocused_fps_cap, 60);
         drop(settings);
     }
 }
