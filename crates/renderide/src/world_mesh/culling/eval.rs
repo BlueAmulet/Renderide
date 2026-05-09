@@ -130,7 +130,7 @@ pub(crate) fn mesh_cpu_cull_with_geometry(
             .rigid_world_matrix
             .map(|m| m.col(3).truncate())
             .unwrap_or(Vec3::ZERO);
-        logger::debug!(
+        logger::trace!(
             "overlay cull bypass: space={:?} has_world_aabb={} rigid_cached={} model_t=({:.3},{:.3},{:.3})",
             space_id,
             geom.world_aabb.is_some(),

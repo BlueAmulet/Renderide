@@ -613,10 +613,10 @@ fn expand_renderer_slots(
     let cached_overlay = renderer.layer == LayerType::Overlay;
     let is_overlay = renderer.node_id >= 0
         && scene.transform_is_in_overlay_layer(space_id, renderer.node_id as usize);
-    let suspect_dash_plane = matches!(renderer.node_id, 39..=41)
-        || matches!(renderer.mesh_asset_id, 13..=15);
+    let suspect_dash_plane =
+        matches!(renderer.node_id, 39..=41) || matches!(renderer.mesh_asset_id, 13..=15);
     if suspect_dash_plane && renderer.node_id >= 0 {
-        logger::debug!(
+        logger::trace!(
             "dash suspect prepared renderer: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} cached_layer={:?} live_overlay={} slots={} submeshes={} sorting_order={} ancestry={}",
             space_id,
             renderer.node_id,
@@ -632,7 +632,7 @@ fn expand_renderer_slots(
         );
     }
     if renderer.node_id >= 0 && (cached_overlay != is_overlay || is_overlay) {
-        logger::debug!(
+        logger::trace!(
             "overlay prepared renderer: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} cached_layer={:?} live_overlay={} slots={} submeshes={} sorting_order={} ancestry={}",
             space_id,
             renderer.node_id,

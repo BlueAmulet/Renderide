@@ -5,19 +5,19 @@ use hashbrown::HashMap;
 use crate::scene::{MeshMaterialSlot, RenderSpaceId, SkinnedMeshRenderer, StaticMeshRenderer};
 
 use crate::world_mesh::culling::{
-    mesh_draw_passes_cpu_cull, mesh_world_geometry_for_cull_with_head, CpuCullFailure,
-    MeshCullTarget,
+    CpuCullFailure, MeshCullTarget, mesh_draw_passes_cpu_cull,
+    mesh_world_geometry_for_cull_with_head,
 };
 use crate::world_mesh::materials::FrameMaterialBatchCache;
 
-use super::candidate::{evaluate_draw_candidate, DrawCandidate};
+use super::candidate::{DrawCandidate, evaluate_draw_candidate};
 use super::{
-    front_face_for_world_matrix, world_matrix_for_local_vertex_stream, DrawCollectionContext,
+    DrawCollectionContext, front_face_for_world_matrix, world_matrix_for_local_vertex_stream,
 };
 
 use super::super::item::{
-    resolved_material_slot_count, stacked_material_submesh_range,
-    stacked_material_submesh_topology, WorldMeshDrawItem,
+    WorldMeshDrawItem, resolved_material_slot_count, stacked_material_submesh_range,
+    stacked_material_submesh_topology,
 };
 
 /// Renders per chunk (static or skinned slice of one render space).
@@ -147,7 +147,7 @@ fn push_draws_for_renderer(
             }
             None => f.passes_scene_node(ctx.scene, draw.space_id, draw.renderer.node_id),
         };
-        logger::debug!(
+        logger::trace!(
             "camera filter scene-walk renderer: space={:?} node_id={} renderable_index={} mesh_asset_id={} pass={} filter={}",
             draw.space_id,
             draw.renderer.node_id,
@@ -207,7 +207,7 @@ fn push_draws_for_renderer(
             .scene
             .transform_is_in_overlay_layer(draw.space_id, draw.renderer.node_id as usize);
     if draw.renderer.node_id >= 0 && (cached_overlay != is_overlay || is_overlay) {
-        logger::debug!(
+        logger::trace!(
             "overlay scene-walk renderer: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} cached_layer={:?} live_overlay={} slots={} submeshes={} sorting_order={} ancestry={}",
             draw.space_id,
             draw.renderer.node_id,
@@ -411,7 +411,7 @@ fn push_one_slot_draw(
         let model_t = rigid_world_matrix
             .map(|m| m.col(3).truncate())
             .unwrap_or(glam::Vec3::ZERO);
-        logger::debug!(
+        logger::trace!(
             "overlay scene-walk slot: space={:?} node_id={} renderable_index={} slot_index={} mesh_asset_id={} material_asset_id={} rigid_cached={} model_t=({:.3},{:.3},{:.3}) alpha_distance_sq={:.3}",
             draw.space_id,
             draw.renderer.node_id,

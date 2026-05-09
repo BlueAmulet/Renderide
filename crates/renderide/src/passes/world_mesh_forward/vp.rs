@@ -194,7 +194,7 @@ pub(crate) fn compute_per_draw_vp_matrices(
         let model_t = model.model.col(3).truncate();
         let proj_x = op.x_axis;
         let proj_y = op.y_axis;
-        logger::debug!(
+        logger::trace!(
             "overlay vp draw: space={:?} space_is_overlay={} node_id={} renderable_index={} mesh_asset_id={} rigid_cached={} position_stream_world_space={} model_t=({:.3},{:.3},{:.3}) proj_x=({:.3},{:.3},{:.3},{:.3}) proj_y=({:.3},{:.3},{:.3},{:.3}) ancestry={}",
             item.space_id,
             space.is_overlay(),

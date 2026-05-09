@@ -8,16 +8,16 @@ use crate::materials::RasterFrontFace;
 use crate::scene::{RenderSpaceId, SkinnedMeshRenderer};
 
 use crate::world_mesh::culling::{
-    mesh_cpu_cull_with_geometry, mesh_world_geometry_for_cull_with_head, CpuCullFailure,
-    MeshCullTarget,
+    CpuCullFailure, MeshCullTarget, mesh_cpu_cull_with_geometry,
+    mesh_world_geometry_for_cull_with_head,
 };
 use crate::world_mesh::materials::FrameMaterialBatchCache;
 
-use super::super::item::{stacked_material_submesh_topology, WorldMeshDrawItem};
+use super::super::item::{WorldMeshDrawItem, stacked_material_submesh_topology};
 use super::super::prepared_renderables::{FramePreparedDraw, FramePreparedRun};
-use super::candidate::{evaluate_draw_candidate, DrawCandidate};
+use super::candidate::{DrawCandidate, evaluate_draw_candidate};
 use super::{
-    front_face_for_world_matrix, world_matrix_for_local_vertex_stream, DrawCollectionContext,
+    DrawCollectionContext, front_face_for_world_matrix, world_matrix_for_local_vertex_stream,
 };
 
 /// Rayon chunk width when iterating a pre-expanded [`super::FramePreparedRenderables`] list.
@@ -94,7 +94,7 @@ fn prepared_run_passes_filter(
         }
         None => filter.passes_scene_node(ctx.scene, first.space_id, first.node_id),
     };
-    logger::debug!(
+    logger::trace!(
         "camera filter prepared run: space={:?} node_id={} renderable_index={} mesh_asset_id={} pass={} filter={}",
         first.space_id,
         first.node_id,
@@ -192,7 +192,7 @@ fn prepared_run_view_state(
         let model_t = rigid_world_matrix
             .map(|m| m.col(3).truncate())
             .unwrap_or(Vec3::ZERO);
-        logger::debug!(
+        logger::trace!(
             "overlay prepared run: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} run_slots={} rigid_cached={} model_t=({:.3},{:.3},{:.3}) alpha_distance_sq={:.3} ancestry={}",
             first.space_id,
             first.node_id,

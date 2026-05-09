@@ -7,6 +7,25 @@ use crate::gpu::GpuContext;
 
 use super::RendererRuntime;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct DebugHudCaptureFlags {
+    main: bool,
+    scene_transforms: bool,
+    textures: bool,
+}
+
+fn debug_hud_capture_flags(settings: &crate::config::RendererSettings) -> DebugHudCaptureFlags {
+    let hud = &settings.debug.hud;
+    let imgui_visible = hud.imgui_visible;
+    DebugHudCaptureFlags {
+        main: imgui_visible && settings.debug.debug_hud_enabled,
+        scene_transforms: imgui_visible
+            && settings.debug.debug_hud_transforms
+            && hud.scene_transforms_open,
+        textures: imgui_visible && settings.debug.debug_hud_textures && hud.texture_debug_open,
+    }
+}
+
 impl RendererRuntime {
     /// Fills renderer info, frame diagnostics, and related main-tab HUD snapshots when the main HUD is on.
     fn capture_main_debug_hud_panels(&mut self, gpu: &GpuContext, now: Instant) {
@@ -74,14 +93,14 @@ impl RendererRuntime {
 
     /// Copies debug HUD capture flags into the backend before the render graph runs.
     pub(super) fn sync_debug_hud_diagnostics_from_settings(&mut self) {
-        let (main, textures) = self
+        let flags = self
             .config
             .settings
             .read()
-            .map(|s| (s.debug.debug_hud_enabled, s.debug.debug_hud_textures))
-            .unwrap_or((false, false));
-        self.backend.set_debug_hud_main_enabled(main);
-        self.backend.set_debug_hud_textures_enabled(textures);
+            .map(|s| debug_hud_capture_flags(&s))
+            .unwrap_or_default();
+        self.backend.set_debug_hud_main_enabled(flags.main);
+        self.backend.set_debug_hud_textures_enabled(flags.textures);
         self.backend
             .clear_debug_hud_current_view_texture_2d_asset_ids();
     }
@@ -110,20 +129,14 @@ impl RendererRuntime {
         self.backend
             .set_debug_hud_gpu_pass_timings(gpu_pass_timings);
 
-        let (main_hud, transforms_hud, textures_hud) = self
+        let flags = self
             .config
             .settings
             .read()
-            .map(|s| {
-                (
-                    s.debug.debug_hud_enabled,
-                    s.debug.debug_hud_transforms,
-                    s.debug.debug_hud_textures,
-                )
-            })
-            .unwrap_or((false, false, false));
+            .map(|s| debug_hud_capture_flags(&s))
+            .unwrap_or_default();
 
-        if main_hud {
+        if flags.main {
             let now = Instant::now();
             self.capture_main_debug_hud_panels(gpu, now);
         } else {
@@ -131,7 +144,7 @@ impl RendererRuntime {
             self.diagnostics.clear_allocator_report();
         }
 
-        if transforms_hud {
+        if flags.scene_transforms {
             let scene_transforms =
                 crate::diagnostics::SceneTransformsSnapshot::capture(&self.scene);
             self.backend
@@ -140,7 +153,7 @@ impl RendererRuntime {
             self.backend.clear_debug_hud_scene_transforms_snapshot();
         }
 
-        if textures_hud {
+        if flags.textures {
             let textures = crate::diagnostics::TextureDebugSnapshot::capture(
                 self.backend.texture_pool(),
                 self.backend.debug_hud_current_view_texture_2d_asset_ids(),
@@ -170,5 +183,49 @@ impl RendererRuntime {
         let q = gpu.queue().as_ref();
         self.backend
             .encode_debug_hud_overlay(device, q, encoder, backbuffer, extent)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DebugHudCaptureFlags, debug_hud_capture_flags};
+    use crate::config::RendererSettings;
+
+    #[test]
+    fn capture_flags_require_visible_imgui() {
+        let mut settings = RendererSettings::default();
+        settings.debug.debug_hud_enabled = true;
+        settings.debug.debug_hud_transforms = true;
+        settings.debug.debug_hud_textures = true;
+        settings.debug.hud.imgui_visible = false;
+
+        assert_eq!(
+            debug_hud_capture_flags(&settings),
+            DebugHudCaptureFlags::default()
+        );
+    }
+
+    #[test]
+    fn scene_transform_capture_requires_window_open() {
+        let mut settings = RendererSettings::default();
+        settings.debug.debug_hud_transforms = true;
+        settings.debug.hud.scene_transforms_open = false;
+
+        assert!(!debug_hud_capture_flags(&settings).scene_transforms);
+
+        settings.debug.hud.scene_transforms_open = true;
+        assert!(debug_hud_capture_flags(&settings).scene_transforms);
+    }
+
+    #[test]
+    fn texture_capture_requires_window_open() {
+        let mut settings = RendererSettings::default();
+        settings.debug.debug_hud_textures = true;
+        settings.debug.hud.texture_debug_open = false;
+
+        assert!(!debug_hud_capture_flags(&settings).textures);
+
+        settings.debug.hud.texture_debug_open = true;
+        assert!(debug_hud_capture_flags(&settings).textures);
     }
 }
