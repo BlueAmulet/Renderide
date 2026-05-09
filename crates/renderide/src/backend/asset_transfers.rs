@@ -39,13 +39,17 @@ pub use integrator::{
 use pending::PendingAssetUploads;
 use pools::ResidentAssetPools;
 pub use uploads::{
-    attach_flush_pending_asset_uploads, on_mesh_unload, on_set_cubemap_data, on_set_cubemap_format,
-    on_set_cubemap_properties, on_set_render_texture_format, on_set_texture_2d_data,
+    attach_flush_pending_asset_uploads, on_desktop_texture_properties_update,
+    on_gaussian_splat_config, on_gaussian_splat_upload_encoded, on_gaussian_splat_upload_raw,
+    on_mesh_unload, on_point_render_buffer_unload, on_point_render_buffer_upload,
+    on_set_cubemap_data, on_set_cubemap_format, on_set_cubemap_properties,
+    on_set_desktop_texture_properties, on_set_render_texture_format, on_set_texture_2d_data,
     on_set_texture_2d_format, on_set_texture_2d_properties, on_set_texture_3d_data,
-    on_set_texture_3d_format, on_set_texture_3d_properties, on_unload_cubemap,
-    on_unload_render_texture, on_unload_texture_2d, on_unload_texture_3d, on_unload_video_texture,
-    on_video_texture_load, on_video_texture_properties, on_video_texture_start_audio_track,
-    on_video_texture_update, try_process_mesh_upload,
+    on_set_texture_3d_format, on_set_texture_3d_properties, on_trail_render_buffer_unload,
+    on_trail_render_buffer_upload, on_unload_cubemap, on_unload_desktop_texture,
+    on_unload_gaussian_splat, on_unload_render_texture, on_unload_texture_2d, on_unload_texture_3d,
+    on_unload_video_texture, on_video_texture_load, on_video_texture_properties,
+    on_video_texture_start_audio_track, on_video_texture_update, try_process_mesh_upload,
 };
 use video_runtime::VideoAssetRuntime;
 

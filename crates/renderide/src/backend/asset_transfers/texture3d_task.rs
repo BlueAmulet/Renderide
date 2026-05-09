@@ -68,6 +68,7 @@ impl Texture3dUploadTask {
                 .get(id)
                 .map(|texture| texture.texture.clone()),
         ) else {
+            self.finalize_failure(ipc);
             return StepResult::Done;
         };
         let texture = tex_arc.as_ref();
@@ -85,7 +86,11 @@ impl Texture3dUploadTask {
             },
         );
         match completion {
-            Ok(Texture3dUploadCompletion::MissingPayload) => missing_payload("texture3d", id),
+            Ok(Texture3dUploadCompletion::MissingPayload) => {
+                missing_payload("texture3d", id);
+                self.finalize_failure(ipc);
+                StepResult::Done
+            }
             Ok(Texture3dUploadCompletion::Continue | Texture3dUploadCompletion::UploadedOne) => {
                 StepResult::Continue
             }
@@ -94,7 +99,11 @@ impl Texture3dUploadTask {
                 self.finalize_success(queue, ipc, uploaded_mips);
                 StepResult::Done
             }
-            Err(e) => failed_upload("texture3d", id, &e),
+            Err(e) => {
+                failed_upload("texture3d", id, &e);
+                self.finalize_failure(ipc);
+                StepResult::Done
+            }
         }
     }
 
@@ -121,6 +130,17 @@ impl Texture3dUploadTask {
             }),
         );
         logger::trace!("texture3d {id}: data upload ok ({uploaded_mips} mips, integrator)");
+    }
+
+    fn finalize_failure(&self, ipc: &mut Option<&mut DualQueueIpc>) {
+        send_background_result(
+            ipc,
+            RendererCommand::SetTexture3DResult(SetTexture3DResult {
+                asset_id: self.data.asset_id,
+                r#type: TextureUpdateResultType(TextureUpdateResultType::DATA_UPLOAD),
+                instance_changed: false,
+            }),
+        );
     }
 }
 

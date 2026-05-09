@@ -40,7 +40,7 @@ pub(crate) enum IpcDispatchEffect {
     /// Apply a decoded post-init running command.
     DispatchRunning(RunningCommandEffect),
     /// Defer the command until init is finalized.
-    DeferUntilFinalized,
+    DeferUntilFinalized(Box<RendererCommand>),
     /// Mark init as fatally invalid because init data was expected first.
     FatalExpectedInitData,
 }
@@ -111,7 +111,9 @@ pub(crate) fn dispatch_ipc_command(
         InitDispatchDecision::DispatchRunning => {
             IpcDispatchEffect::DispatchRunning(handle_running_command(cmd))
         }
-        InitDispatchDecision::DeferUntilFinalized => IpcDispatchEffect::DeferUntilFinalized,
+        InitDispatchDecision::DeferUntilFinalized => {
+            IpcDispatchEffect::DeferUntilFinalized(Box::new(cmd))
+        }
         InitDispatchDecision::FatalExpectedInitData => IpcDispatchEffect::FatalExpectedInitData,
     }
 }
@@ -232,7 +234,8 @@ mod tests {
                 InitState::InitReceived,
                 RendererCommand::QualityConfig(QualityConfig::default())
             ),
-            IpcDispatchEffect::DeferUntilFinalized
+            IpcDispatchEffect::DeferUntilFinalized(cmd)
+                if matches!(*cmd, RendererCommand::QualityConfig(_))
         ));
     }
 

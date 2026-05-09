@@ -801,7 +801,9 @@ fn flush_reflection_probe_render_results_to_ipc(
     let pending = std::mem::take(&mut tick_state.pending_reflection_probe_render_results);
     let mut sent = 0usize;
     for result in &pending {
-        if !ipc.send_background(RendererCommand::ReflectionProbeRenderResult(result.clone())) {
+        if !ipc
+            .send_background_reliable(RendererCommand::ReflectionProbeRenderResult(result.clone()))
+        {
             break;
         }
         sent = sent.saturating_add(1);

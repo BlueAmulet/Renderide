@@ -3,9 +3,20 @@
 use hashbrown::HashMap;
 
 use crate::shared::{
-    SetCubemapFormat, SetCubemapProperties, SetRenderTextureFormat, SetTexture2DFormat,
-    SetTexture2DProperties, SetTexture3DFormat, SetTexture3DProperties, VideoTextureProperties,
+    DesktopTexturePropertiesUpdate, GaussianSplatConfig, PointRenderBufferUpload, SetCubemapFormat,
+    SetCubemapProperties, SetDesktopTextureProperties, SetRenderTextureFormat, SetTexture2DFormat,
+    SetTexture2DProperties, SetTexture3DFormat, SetTexture3DProperties, TrailRenderBufferUpload,
+    VideoTextureProperties,
 };
+
+/// Latest Gaussian splat payload family known for an asset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum GaussianSplatUploadKind {
+    /// Raw Gaussian attribute buffers.
+    Raw,
+    /// Encoded Gaussian attribute buffers.
+    Encoded,
+}
 
 /// Latest host format/property rows keyed by asset id.
 #[derive(Default)]
@@ -26,6 +37,18 @@ pub(crate) struct AssetCatalogs {
     pub(crate) cubemap_properties: HashMap<i32, SetCubemapProperties>,
     /// Latest video texture sampler/property rows.
     pub(crate) video_texture_properties: HashMap<i32, VideoTextureProperties>,
+    /// Latest desktop texture display properties.
+    pub(crate) desktop_texture_properties: HashMap<i32, SetDesktopTextureProperties>,
+    /// Latest desktop texture size updates.
+    pub(crate) desktop_texture_updates: HashMap<i32, DesktopTexturePropertiesUpdate>,
+    /// Latest point render buffer uploads.
+    pub(crate) point_render_buffer_uploads: HashMap<i32, PointRenderBufferUpload>,
+    /// Latest trail render buffer uploads.
+    pub(crate) trail_render_buffer_uploads: HashMap<i32, TrailRenderBufferUpload>,
+    /// Latest Gaussian splat upload family per asset.
+    pub(crate) gaussian_splat_uploads: HashMap<i32, GaussianSplatUploadKind>,
+    /// Latest Gaussian splat renderer config.
+    pub(crate) gaussian_splat_config: GaussianSplatConfig,
 }
 
 impl AssetCatalogs {

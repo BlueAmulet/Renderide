@@ -125,7 +125,7 @@ impl RendererRuntime {
         let config_save_path = self.config.cloned_config_save_path();
         let suppress_renderer_config_disk_writes =
             self.config.suppress_renderer_config_disk_writes();
-        let shm = self.frontend.shared_memory_mut();
+        let (shm, ipc) = self.frontend.transport_pair_mut();
         if let Err(e) = self.backend.attach(
             crate::backend::RenderBackendAttachDesc {
                 device,
@@ -138,6 +138,7 @@ impl RendererRuntime {
                 suppress_renderer_config_disk_writes,
             },
             shm,
+            ipc,
         ) {
             logger::error!("GPU attach failed: {e}; CPU work continues, GPU draws disabled");
         }

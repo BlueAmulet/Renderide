@@ -23,7 +23,7 @@ fn send_texture_3d_result(
     let Some(ipc) = ipc else {
         return;
     };
-    let _ = ipc.send_background(RendererCommand::SetTexture3DResult(SetTexture3DResult {
+    let _ = ipc.send_background_reliable(RendererCommand::SetTexture3DResult(SetTexture3DResult {
         asset_id,
         r#type: TextureUpdateResultType(update),
         instance_changed,
@@ -61,6 +61,7 @@ pub fn on_set_texture_3d_format(
     let Some(tex) = GpuTexture3d::new_from_format(device.as_ref(), limits.as_ref(), &f, props)
     else {
         logger::warn!("texture3d {id}: SetTexture3DFormat rejected (bad size or device)");
+        send_texture_3d_result(ipc, id, TextureUpdateResultType::FORMAT_SET, false);
         return;
     };
     let existed_before = queue.pools.texture3d_pool.insert(tex);

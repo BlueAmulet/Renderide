@@ -4,6 +4,7 @@
 
 mod allocations;
 mod attach;
+mod auxiliary;
 mod cubemap;
 mod mesh;
 mod render_texture;
@@ -13,6 +14,13 @@ mod texture_common;
 mod video_texture;
 
 pub use attach::attach_flush_pending_asset_uploads;
+pub use auxiliary::{
+    on_desktop_texture_properties_update, on_gaussian_splat_config,
+    on_gaussian_splat_upload_encoded, on_gaussian_splat_upload_raw, on_point_render_buffer_unload,
+    on_point_render_buffer_upload, on_set_desktop_texture_properties,
+    on_trail_render_buffer_unload, on_trail_render_buffer_upload, on_unload_desktop_texture,
+    on_unload_gaussian_splat,
+};
 pub use cubemap::{
     on_set_cubemap_data, on_set_cubemap_format, on_set_cubemap_properties, on_unload_cubemap,
 };

@@ -41,7 +41,7 @@ pub(super) fn apply_lights_buffer_submission(
     let payload: Vec<LightData> = vec.into_iter().take(take).collect();
     scene.light_cache_mut().store_full(buffer_id, payload);
     if let Some(ipc) = ipc {
-        let _ = ipc.send_background(RendererCommand::LightsBufferRendererConsumed(
+        let _ = ipc.send_background_reliable(RendererCommand::LightsBufferRendererConsumed(
             LightsBufferRendererConsumed {
                 global_unique_id: buffer_id,
             },

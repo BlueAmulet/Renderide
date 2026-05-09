@@ -3,11 +3,15 @@
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::RasterPipelineKind;
 use crate::shared::{
-    MaterialsUpdateBatch, MeshUnload, MeshUploadData, SetCubemapData, SetCubemapFormat,
-    SetCubemapProperties, SetRenderTextureFormat, SetTexture2DData, SetTexture2DFormat,
-    SetTexture2DProperties, SetTexture3DData, SetTexture3DFormat, SetTexture3DProperties,
-    UnloadCubemap, UnloadRenderTexture, UnloadTexture2D, UnloadTexture3D, UnloadVideoTexture,
-    VideoTextureLoad, VideoTextureProperties, VideoTextureStartAudioTrack, VideoTextureUpdate,
+    DesktopTexturePropertiesUpdate, GaussianSplatConfig, GaussianSplatUploadEncoded,
+    GaussianSplatUploadRaw, MaterialsUpdateBatch, MeshUnload, MeshUploadData,
+    PointRenderBufferUnload, PointRenderBufferUpload, SetCubemapData, SetCubemapFormat,
+    SetCubemapProperties, SetDesktopTextureProperties, SetRenderTextureFormat, SetTexture2DData,
+    SetTexture2DFormat, SetTexture2DProperties, SetTexture3DData, SetTexture3DFormat,
+    SetTexture3DProperties, TrailRenderBufferUnload, TrailRenderBufferUpload, UnloadCubemap,
+    UnloadDesktopTexture, UnloadGaussianSplat, UnloadRenderTexture, UnloadTexture2D,
+    UnloadTexture3D, UnloadVideoTexture, VideoTextureLoad, VideoTextureProperties,
+    VideoTextureStartAudioTrack, VideoTextureUpdate,
 };
 
 use crate::backend::AssetIntegrationDrainSummary;
@@ -156,6 +160,81 @@ impl RenderBackend {
     /// Handle [`UnloadRenderTexture`](crate::shared::UnloadRenderTexture).
     pub fn on_unload_render_texture(&mut self, u: UnloadRenderTexture) {
         asset_uploads::on_unload_render_texture(&mut self.asset_transfers, u);
+    }
+
+    /// Handle [`SetDesktopTextureProperties`](crate::shared::SetDesktopTextureProperties).
+    pub fn on_set_desktop_texture_properties(
+        &mut self,
+        p: SetDesktopTextureProperties,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_set_desktop_texture_properties(&mut self.asset_transfers, p, ipc);
+    }
+
+    /// Handle [`DesktopTexturePropertiesUpdate`](crate::shared::DesktopTexturePropertiesUpdate).
+    pub fn on_desktop_texture_properties_update(&mut self, u: DesktopTexturePropertiesUpdate) {
+        asset_uploads::on_desktop_texture_properties_update(&mut self.asset_transfers, u);
+    }
+
+    /// Handle [`UnloadDesktopTexture`](crate::shared::UnloadDesktopTexture).
+    pub fn on_unload_desktop_texture(&mut self, u: UnloadDesktopTexture) {
+        asset_uploads::on_unload_desktop_texture(&mut self.asset_transfers, u);
+    }
+
+    /// Handle [`PointRenderBufferUpload`](crate::shared::PointRenderBufferUpload).
+    pub fn on_point_render_buffer_upload(
+        &mut self,
+        u: PointRenderBufferUpload,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_point_render_buffer_upload(&mut self.asset_transfers, u, ipc);
+    }
+
+    /// Handle [`PointRenderBufferUnload`](crate::shared::PointRenderBufferUnload).
+    pub fn on_point_render_buffer_unload(&mut self, u: PointRenderBufferUnload) {
+        asset_uploads::on_point_render_buffer_unload(&mut self.asset_transfers, u);
+    }
+
+    /// Handle [`TrailRenderBufferUpload`](crate::shared::TrailRenderBufferUpload).
+    pub fn on_trail_render_buffer_upload(
+        &mut self,
+        u: TrailRenderBufferUpload,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_trail_render_buffer_upload(&mut self.asset_transfers, u, ipc);
+    }
+
+    /// Handle [`TrailRenderBufferUnload`](crate::shared::TrailRenderBufferUnload).
+    pub fn on_trail_render_buffer_unload(&mut self, u: TrailRenderBufferUnload) {
+        asset_uploads::on_trail_render_buffer_unload(&mut self.asset_transfers, u);
+    }
+
+    /// Handle [`GaussianSplatConfig`](crate::shared::GaussianSplatConfig).
+    pub fn on_gaussian_splat_config(&mut self, c: GaussianSplatConfig) {
+        asset_uploads::on_gaussian_splat_config(&mut self.asset_transfers, c);
+    }
+
+    /// Handle [`GaussianSplatUploadRaw`](crate::shared::GaussianSplatUploadRaw).
+    pub fn on_gaussian_splat_upload_raw(
+        &mut self,
+        u: GaussianSplatUploadRaw,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_gaussian_splat_upload_raw(&mut self.asset_transfers, u, ipc);
+    }
+
+    /// Handle [`GaussianSplatUploadEncoded`](crate::shared::GaussianSplatUploadEncoded).
+    pub fn on_gaussian_splat_upload_encoded(
+        &mut self,
+        u: GaussianSplatUploadEncoded,
+        ipc: Option<&mut DualQueueIpc>,
+    ) {
+        asset_uploads::on_gaussian_splat_upload_encoded(&mut self.asset_transfers, u, ipc);
+    }
+
+    /// Handle [`UnloadGaussianSplat`](crate::shared::UnloadGaussianSplat).
+    pub fn on_unload_gaussian_splat(&mut self, u: UnloadGaussianSplat) {
+        asset_uploads::on_unload_gaussian_splat(&mut self.asset_transfers, u);
     }
 
     /// Handle [`VideoTextureLoad`](crate::shared::VideoTextureLoad).

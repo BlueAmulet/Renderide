@@ -30,12 +30,14 @@ impl RendererRuntime {
             IpcDispatchEffect::Finalize => {
                 logger::info!("IPC init finalized; renderer entering running command dispatch");
                 self.frontend.set_init_state(InitState::Finalized);
+                self.replay_deferred_pre_finalize_commands();
             }
             IpcDispatchEffect::DispatchRunning(effect) => {
                 self.apply_running_command_effect(effect);
             }
-            IpcDispatchEffect::DeferUntilFinalized => {
-                logger::trace!("IPC: deferring command until init finalized (skeleton)");
+            IpcDispatchEffect::DeferUntilFinalized(cmd) => {
+                logger::trace!("IPC: deferring command until init finalized");
+                self.ipc_state.defer_pre_finalize_command(*cmd);
             }
             IpcDispatchEffect::FatalExpectedInitData => {
                 logger::error!("IPC: expected RendererInitData first");
@@ -44,75 +46,80 @@ impl RendererRuntime {
         }
     }
 
+    /// Replays commands that arrived after init data and before init finalization.
+    pub(crate) fn replay_deferred_pre_finalize_commands(&mut self) {
+        let mut deferred = self.ipc_state.take_deferred_pre_finalize_commands();
+        if deferred.is_empty() {
+            return;
+        }
+        logger::info!(
+            "IPC init finalized; replaying {} deferred command(s)",
+            deferred.len()
+        );
+        while let Some(cmd) = deferred.pop_front() {
+            self.handle_ipc_command(cmd);
+            if self.frontend.fatal_error() {
+                break;
+            }
+        }
+    }
+
     /// Applies a decoded post-init command effect to runtime-owned domains.
     pub(crate) fn apply_running_command_effect(&mut self, effect: RunningCommandEffect) {
         match effect {
             RunningCommandEffect::KeepAlive => {}
-            RunningCommandEffect::RequestShutdown => {
-                self.frontend.set_shutdown_requested(true);
-            }
+            RunningCommandEffect::RequestShutdown => self.frontend.set_shutdown_requested(true),
             RunningCommandEffect::FrameSubmit(data) => self.apply_frame_submit_data(data),
             RunningCommandEffect::MeshUpload(d) => self.process_mesh_upload(d),
             RunningCommandEffect::MeshUnload(u) => self.backend.on_mesh_unload(u),
-            RunningCommandEffect::SetTexture2DFormat(f) => self.dispatch_texture_2d_format(f),
-            RunningCommandEffect::SetTexture2DProperties(p) => {
-                self.dispatch_texture_2d_properties(p);
+            effect @ (RunningCommandEffect::SetTexture2DFormat(_)
+            | RunningCommandEffect::SetTexture2DProperties(_)
+            | RunningCommandEffect::SetTexture2DData(_)
+            | RunningCommandEffect::UnloadTexture2D(_)
+            | RunningCommandEffect::SetTexture3DFormat(_)
+            | RunningCommandEffect::SetTexture3DProperties(_)
+            | RunningCommandEffect::SetTexture3DData(_)
+            | RunningCommandEffect::UnloadTexture3D(_)
+            | RunningCommandEffect::SetCubemapFormat(_)
+            | RunningCommandEffect::SetCubemapProperties(_)
+            | RunningCommandEffect::SetCubemapData(_)
+            | RunningCommandEffect::UnloadCubemap(_)
+            | RunningCommandEffect::SetRenderTextureFormat(_)
+            | RunningCommandEffect::UnloadRenderTexture(_)) => {
+                self.apply_texture_asset_effect(effect);
             }
-            RunningCommandEffect::SetTexture2DData(d) => self.dispatch_texture_2d_data(d),
-            RunningCommandEffect::UnloadTexture2D(u) => self.backend.on_unload_texture_2d(u),
-            RunningCommandEffect::SetTexture3DFormat(f) => self.dispatch_texture_3d_format(f),
-            RunningCommandEffect::SetTexture3DProperties(p) => {
-                self.dispatch_texture_3d_properties(p);
+            effect @ (RunningCommandEffect::SetDesktopTextureProperties(_)
+            | RunningCommandEffect::DesktopTexturePropertiesUpdate(_)
+            | RunningCommandEffect::UnloadDesktopTexture(_)
+            | RunningCommandEffect::PointRenderBufferUpload(_)
+            | RunningCommandEffect::PointRenderBufferUnload(_)
+            | RunningCommandEffect::TrailRenderBufferUpload(_)
+            | RunningCommandEffect::TrailRenderBufferUnload(_)
+            | RunningCommandEffect::GaussianSplatConfig(_)
+            | RunningCommandEffect::GaussianSplatUploadRaw(_)
+            | RunningCommandEffect::GaussianSplatUploadEncoded(_)
+            | RunningCommandEffect::UnloadGaussianSplat(_)
+            | RunningCommandEffect::PointRenderBufferConsumed
+            | RunningCommandEffect::TrailRenderBufferConsumed
+            | RunningCommandEffect::GaussianSplatResult) => {
+                self.apply_auxiliary_asset_effect(effect);
             }
-            RunningCommandEffect::SetTexture3DData(d) => self.dispatch_texture_3d_data(d),
-            RunningCommandEffect::UnloadTexture3D(u) => self.backend.on_unload_texture_3d(u),
-            RunningCommandEffect::SetCubemapFormat(f) => self.dispatch_cubemap_format(f),
-            RunningCommandEffect::SetCubemapProperties(p) => self.dispatch_cubemap_properties(p),
-            RunningCommandEffect::SetCubemapData(d) => self.dispatch_cubemap_data(d),
-            RunningCommandEffect::UnloadCubemap(u) => self.backend.on_unload_cubemap(u),
-            RunningCommandEffect::SetRenderTextureFormat(f) => self
-                .backend
-                .on_set_render_texture_format(f, self.frontend.ipc_mut()),
-            RunningCommandEffect::UnloadRenderTexture(u) => {
-                self.backend.on_unload_render_texture(u);
+            effect @ (RunningCommandEffect::VideoTextureLoad(_)
+            | RunningCommandEffect::VideoTextureUpdate(_)
+            | RunningCommandEffect::VideoTextureProperties(_)
+            | RunningCommandEffect::VideoTextureStartAudioTrack(_)
+            | RunningCommandEffect::UnloadVideoTexture(_)) => {
+                self.apply_video_texture_effect(effect);
             }
-            RunningCommandEffect::VideoTextureLoad(l) => self.backend.on_video_texture_load(l),
-            RunningCommandEffect::VideoTextureUpdate(u) => self.backend.on_video_texture_update(u),
-            RunningCommandEffect::VideoTextureProperties(p) => {
-                self.backend.on_video_texture_properties(p);
-            }
-            RunningCommandEffect::VideoTextureStartAudioTrack(s) => {
-                self.backend.on_video_texture_start_audio_track(s);
-            }
-            RunningCommandEffect::UnloadVideoTexture(u) => self.backend.on_unload_video_texture(u),
             RunningCommandEffect::FreeSharedMemoryView { buffer_id } => {
                 self.release_shared_memory_view(buffer_id);
             }
-            RunningCommandEffect::MaterialPropertyIdRequest(req) => {
-                self.material_property_id_request(req);
-            }
-            RunningCommandEffect::MaterialsUpdateBatch(batch) => {
-                super::shader_material_ipc::on_materials_update_batch(
-                    &mut self.frontend,
-                    &mut self.backend,
-                    batch,
-                );
-            }
-            RunningCommandEffect::UnloadMaterial { asset_id } => {
-                self.backend.on_unload_material(asset_id);
-            }
-            RunningCommandEffect::UnloadMaterialPropertyBlock { asset_id } => {
-                self.backend.on_unload_material_property_block(asset_id);
-            }
-            RunningCommandEffect::ShaderUpload(u) => {
-                super::shader_material_ipc::on_shader_upload(
-                    &mut self.ipc_state.pending_shader_resolutions,
-                    u,
-                );
-            }
-            RunningCommandEffect::ShaderUnload(u) => {
-                super::shader_material_ipc::on_shader_unload(&mut self.backend, u);
-            }
+            effect @ (RunningCommandEffect::MaterialPropertyIdRequest(_)
+            | RunningCommandEffect::MaterialsUpdateBatch(_)
+            | RunningCommandEffect::UnloadMaterial { .. }
+            | RunningCommandEffect::UnloadMaterialPropertyBlock { .. }
+            | RunningCommandEffect::ShaderUpload(_)
+            | RunningCommandEffect::ShaderUnload(_)) => self.apply_material_shader_effect(effect),
             RunningCommandEffect::FrameStartData(fs) => log_frame_start_data_trace(fs.as_ref()),
             RunningCommandEffect::LightsBufferRendererSubmission(sub) => {
                 self.apply_lights_buffer_renderer_submission(sub);
@@ -140,6 +147,134 @@ impl RendererRuntime {
                     "runtime: no handler for RendererCommand::{tag} (host sent unexpected command)"
                 );
             }
+        }
+    }
+
+    fn apply_texture_asset_effect(&mut self, effect: RunningCommandEffect) {
+        match effect {
+            RunningCommandEffect::SetTexture2DFormat(f) => self.dispatch_texture_2d_format(f),
+            RunningCommandEffect::SetTexture2DProperties(p) => {
+                self.dispatch_texture_2d_properties(p);
+            }
+            RunningCommandEffect::SetTexture2DData(d) => self.dispatch_texture_2d_data(d),
+            RunningCommandEffect::UnloadTexture2D(u) => self.backend.on_unload_texture_2d(u),
+            RunningCommandEffect::SetTexture3DFormat(f) => self.dispatch_texture_3d_format(f),
+            RunningCommandEffect::SetTexture3DProperties(p) => {
+                self.dispatch_texture_3d_properties(p);
+            }
+            RunningCommandEffect::SetTexture3DData(d) => self.dispatch_texture_3d_data(d),
+            RunningCommandEffect::UnloadTexture3D(u) => self.backend.on_unload_texture_3d(u),
+            RunningCommandEffect::SetCubemapFormat(f) => self.dispatch_cubemap_format(f),
+            RunningCommandEffect::SetCubemapProperties(p) => self.dispatch_cubemap_properties(p),
+            RunningCommandEffect::SetCubemapData(d) => self.dispatch_cubemap_data(d),
+            RunningCommandEffect::UnloadCubemap(u) => self.backend.on_unload_cubemap(u),
+            RunningCommandEffect::SetRenderTextureFormat(f) => self
+                .backend
+                .on_set_render_texture_format(f, self.frontend.ipc_mut()),
+            RunningCommandEffect::UnloadRenderTexture(u) => {
+                self.backend.on_unload_render_texture(u);
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_auxiliary_asset_effect(&mut self, effect: RunningCommandEffect) {
+        match effect {
+            RunningCommandEffect::SetDesktopTextureProperties(p) => self
+                .backend
+                .on_set_desktop_texture_properties(p, self.frontend.ipc_mut()),
+            RunningCommandEffect::DesktopTexturePropertiesUpdate(u) => {
+                self.backend.on_desktop_texture_properties_update(u);
+            }
+            RunningCommandEffect::UnloadDesktopTexture(u) => {
+                self.backend.on_unload_desktop_texture(u);
+            }
+            RunningCommandEffect::PointRenderBufferUpload(u) => self
+                .backend
+                .on_point_render_buffer_upload(u, self.frontend.ipc_mut()),
+            RunningCommandEffect::PointRenderBufferUnload(u) => {
+                self.backend.on_point_render_buffer_unload(u);
+            }
+            RunningCommandEffect::TrailRenderBufferUpload(u) => self
+                .backend
+                .on_trail_render_buffer_upload(u, self.frontend.ipc_mut()),
+            RunningCommandEffect::TrailRenderBufferUnload(u) => {
+                self.backend.on_trail_render_buffer_unload(u);
+            }
+            RunningCommandEffect::GaussianSplatConfig(c) => {
+                self.backend.on_gaussian_splat_config(c);
+            }
+            RunningCommandEffect::GaussianSplatUploadRaw(u) => self
+                .backend
+                .on_gaussian_splat_upload_raw(u, self.frontend.ipc_mut()),
+            RunningCommandEffect::GaussianSplatUploadEncoded(u) => self
+                .backend
+                .on_gaussian_splat_upload_encoded(u, self.frontend.ipc_mut()),
+            RunningCommandEffect::UnloadGaussianSplat(u) => {
+                self.backend.on_unload_gaussian_splat(u);
+            }
+            RunningCommandEffect::PointRenderBufferConsumed => {
+                logger::trace!(
+                    "runtime: point_render_buffer_consumed from host (ignored; renderer is source)"
+                );
+            }
+            RunningCommandEffect::TrailRenderBufferConsumed => {
+                logger::trace!(
+                    "runtime: trail_render_buffer_consumed from host (ignored; renderer is source)"
+                );
+            }
+            RunningCommandEffect::GaussianSplatResult => {
+                logger::trace!(
+                    "runtime: gaussian_splat_result from host (ignored; renderer is source)"
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn apply_video_texture_effect(&mut self, effect: RunningCommandEffect) {
+        match effect {
+            RunningCommandEffect::VideoTextureLoad(l) => self.backend.on_video_texture_load(l),
+            RunningCommandEffect::VideoTextureUpdate(u) => self.backend.on_video_texture_update(u),
+            RunningCommandEffect::VideoTextureProperties(p) => {
+                self.backend.on_video_texture_properties(p);
+            }
+            RunningCommandEffect::VideoTextureStartAudioTrack(s) => {
+                self.backend.on_video_texture_start_audio_track(s);
+            }
+            RunningCommandEffect::UnloadVideoTexture(u) => self.backend.on_unload_video_texture(u),
+            _ => {}
+        }
+    }
+
+    fn apply_material_shader_effect(&mut self, effect: RunningCommandEffect) {
+        match effect {
+            RunningCommandEffect::MaterialPropertyIdRequest(req) => {
+                self.material_property_id_request(req);
+            }
+            RunningCommandEffect::MaterialsUpdateBatch(batch) => {
+                super::shader_material_ipc::on_materials_update_batch(
+                    &mut self.frontend,
+                    &mut self.backend,
+                    batch,
+                );
+            }
+            RunningCommandEffect::UnloadMaterial { asset_id } => {
+                self.backend.on_unload_material(asset_id);
+            }
+            RunningCommandEffect::UnloadMaterialPropertyBlock { asset_id } => {
+                self.backend.on_unload_material_property_block(asset_id);
+            }
+            RunningCommandEffect::ShaderUpload(u) => {
+                super::shader_material_ipc::on_shader_upload(
+                    &mut self.ipc_state.pending_shader_resolutions,
+                    u,
+                );
+            }
+            RunningCommandEffect::ShaderUnload(u) => {
+                super::shader_material_ipc::on_shader_unload(&mut self.backend, u);
+            }
+            _ => {}
         }
     }
 
@@ -277,7 +412,7 @@ impl RendererRuntime {
                 .collect()
         };
         if let Some(ipc) = self.frontend.ipc_mut() {
-            let _ = ipc.send_background(RendererCommand::MaterialPropertyIdResult(
+            let _ = ipc.send_background_reliable(RendererCommand::MaterialPropertyIdResult(
                 MaterialPropertyIdResult {
                     request_id: req.request_id,
                     property_ids,

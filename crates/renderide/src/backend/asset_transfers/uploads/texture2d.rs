@@ -22,7 +22,7 @@ fn send_texture_2d_result(
     let Some(ipc) = ipc else {
         return;
     };
-    let _ = ipc.send_background(RendererCommand::SetTexture2DResult(SetTexture2DResult {
+    let _ = ipc.send_background_reliable(RendererCommand::SetTexture2DResult(SetTexture2DResult {
         asset_id,
         r#type: TextureUpdateResultType(update),
         instance_changed,
@@ -64,6 +64,7 @@ pub fn on_set_texture_2d_format(
         props,
     ) else {
         logger::warn!("texture {id}: SetTexture2DFormat rejected (bad size or device)");
+        send_texture_2d_result(ipc, id, TextureUpdateResultType::FORMAT_SET, false);
         return;
     };
     let existed_before = queue.pools.texture_pool.insert(tex);

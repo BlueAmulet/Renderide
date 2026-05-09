@@ -18,11 +18,13 @@ use super::video_texture::attach_flush_pending_video_textures;
 
 /// After GPU [`crate::backend::RenderBackend::attach`], allocate textures for pending
 /// formats and replay queued mesh/texture payloads when shared memory is available, then
-/// drain the asset integrator synchronously (no per-frame budget).
+/// drain the asset integrator synchronously (no per-frame budget). When `ipc` is available,
+/// completions emitted during replay use the same host acknowledgement path as live uploads.
 pub fn attach_flush_pending_asset_uploads(
     queue: &mut AssetTransferQueue,
     device: &Arc<wgpu::Device>,
     shm: Option<&mut SharedMemoryAccessor>,
+    ipc: Option<&mut DualQueueIpc>,
 ) {
     flush_pending_texture_allocations(queue, device);
     flush_pending_texture3d_allocations(queue, device);
@@ -36,21 +38,25 @@ pub fn attach_flush_pending_asset_uploads(
     let pending_cube: Vec<SetCubemapData> =
         queue.pending.pending_cubemap_uploads.drain(..).collect();
     let pending_mesh: Vec<MeshUploadData> = queue.pending.pending_mesh_uploads.drain(..).collect();
+    let mut ipc = ipc;
     if let Some(shm) = shm {
         for data in pending_tex {
-            try_texture_upload_with_device(queue, data, shm, None, false);
+            let ipc_ref = ipc.as_deref_mut();
+            try_texture_upload_with_device(queue, data, shm, ipc_ref, false);
         }
         for data in pending_tex3d {
-            try_texture3d_upload_with_device(queue, data, shm, None, false);
+            let ipc_ref = ipc.as_deref_mut();
+            try_texture3d_upload_with_device(queue, data, shm, ipc_ref, false);
         }
         for data in pending_cube {
-            try_cubemap_upload_with_device(queue, data, shm, None, false);
+            let ipc_ref = ipc.as_deref_mut();
+            try_cubemap_upload_with_device(queue, data, shm, ipc_ref, false);
         }
         for data in pending_mesh {
-            try_process_mesh_upload(queue, data, shm, None);
+            let ipc_ref = ipc.as_deref_mut();
+            try_process_mesh_upload(queue, data, shm, ipc_ref);
         }
-        let mut ipc_opt = None::<&mut DualQueueIpc>;
-        drain_asset_tasks_unbounded(queue, shm, &mut ipc_opt);
+        drain_asset_tasks_unbounded(queue, shm, &mut ipc);
     } else {
         for data in pending_tex {
             queue.pending.pending_texture_uploads.push_back(data);

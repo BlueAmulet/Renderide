@@ -61,6 +61,7 @@ impl CubemapUploadTask {
         let id = self.data.asset_id;
         let storage_v_inverted = self.upload_uses_storage_v_inversion();
         if !self.storage_orientation_allows_upload(queue, storage_v_inverted) {
+            self.finalize_failure(ipc);
             return StepResult::Done;
         }
         let Some(tex_arc) = resident_texture_arc(
@@ -72,6 +73,7 @@ impl CubemapUploadTask {
                 .get(id)
                 .map(|texture| texture.texture.clone()),
         ) else {
+            self.finalize_failure(ipc);
             return StepResult::Done;
         };
         let texture = tex_arc.as_ref();
@@ -89,7 +91,11 @@ impl CubemapUploadTask {
             },
         );
         match completion {
-            Ok(CubemapUploadCompletion::MissingPayload) => missing_payload("cubemap", id),
+            Ok(CubemapUploadCompletion::MissingPayload) => {
+                missing_payload("cubemap", id);
+                self.finalize_failure(ipc);
+                StepResult::Done
+            }
             Ok(CubemapUploadCompletion::Continue) => StepResult::Continue,
             Ok(CubemapUploadCompletion::UploadedOne { storage_v_inverted }) => {
                 self.mark_storage_orientation(queue, storage_v_inverted);
@@ -103,7 +109,11 @@ impl CubemapUploadTask {
                 self.finalize_success(queue, ipc, uploaded_face_mips, storage_v_inverted);
                 StepResult::Done
             }
-            Err(e) => failed_upload("cubemap", id, &e),
+            Err(e) => {
+                failed_upload("cubemap", id, &e);
+                self.finalize_failure(ipc);
+                StepResult::Done
+            }
         }
     }
 
@@ -167,6 +177,7 @@ impl CubemapUploadTask {
                 storage_v_inverted,
                 "at finalize",
             ) {
+                self.finalize_failure(ipc);
                 return;
             }
             t.storage_v_inverted = storage_v_inverted;
@@ -182,6 +193,17 @@ impl CubemapUploadTask {
             }),
         );
         logger::trace!("cubemap {id}: data upload ok ({uploaded_face_mips} face-mips, integrator)");
+    }
+
+    fn finalize_failure(&self, ipc: &mut Option<&mut DualQueueIpc>) {
+        send_background_result(
+            ipc,
+            RendererCommand::SetCubemapResult(SetCubemapResult {
+                asset_id: self.data.asset_id,
+                r#type: TextureUpdateResultType(TextureUpdateResultType::DATA_UPLOAD),
+                instance_changed: false,
+            }),
+        );
     }
 }
 

@@ -557,7 +557,7 @@ impl VideoPlayer {
             return;
         };
 
-        if ipc.send_background(RendererCommand::VideoTextureReady(message.clone())) {
+        if ipc.send_background_reliable(RendererCommand::VideoTextureReady(message.clone())) {
             self.last_ready_message = Some(message);
         } else {
             logger::warn!(
