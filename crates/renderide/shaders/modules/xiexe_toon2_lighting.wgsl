@@ -1,9 +1,9 @@
 //! Direct + indirect lighting for the Xiexe Toon 2.0 BRDF.
 //!
-//! Keeps the XSToon2 ramp-diffuse surface model and clustered forward light walk, but
-//! ports the broken lighting math to the newer XSToon3-style accumulator flow:
-//! corrected Schlick/GGX specular, non-matcap blend-mode-aware reflections, clear-coat layering,
-//! emission scaling, and dominant-light-driven rim / shadow-rim / outline modulation.
+//! Keeps the XSToon2 ramp-diffuse surface model and clustered forward light walk, while
+//! routing the specular lobes and PBR reflections through the same Filament-style energy
+//! terms used by PBS materials. Matcaps, baked cubemaps, rim lighting, outlines, emission,
+//! and reflection blend modes remain stylized Xiexe controls.
 
 #define_import_path renderide::xiexe::toon2::lighting
 
@@ -72,58 +72,59 @@ fn ramp_for_ndl(ndl: f32, attenuation: f32, ramp_mask: f32) -> vec3<f32> {
     return textureSample(xb::_Ramp, xb::_Ramp_sampler, vec2<f32>(x, clamp(ramp_mask, 0.0, 1.0))).rgb;
 }
 
-/// XSToon3-style remap used by `_SpecularArea` and clear-coat roughness inputs before they are
-/// squared into the GGX linear roughness parameter.
+/// XSToon-style remap used by `_SpecularArea` and clear-coat roughness inputs before they are
+/// passed to the Filament/PBS GGX path as perceptual roughness.
 fn remap_specular_area(area: f32) -> f32 {
     let remapped = max(0.01, area);
     return remapped * (1.7 - 0.7 * remapped);
 }
 
-/// XSToon2 primary direct-specular lobe driven by `_SpecularIntensity` and `_SpecularArea`.
-fn direct_specular_xstoon2(
-    s: xb::SurfaceData,
-    light: xb::LightSample,
-    view_dir: vec3<f32>,
-) -> vec3<f32> {
-    let intensity = max(0.0, xb::mat._SpecularIntensity);
-    if (intensity <= 1e-4) {
-        return vec3<f32>(0.0);
-    }
-
-    let ndl = xb::saturate(dot(s.normal, light.direction));
-    if (ndl <= 1e-4 || light.attenuation <= 1e-4) {
-        return vec3<f32>(0.0);
-    }
-
-    let h = xb::safe_normalize(light.direction + view_dir, s.normal);
-    let ndh = xb::saturate(dot(s.normal, h));
-    let ndv = max(abs(dot(view_dir, s.normal)), 1e-4);
-    let ldh = xb::saturate(dot(light.direction, h));
-    let smoothness = remap_specular_area(xb::mat._SpecularArea);
-    let roughness = 1.0 - smoothness;
-
-    let d_term = brdf::d_ggx(ndh, roughness * roughness);
-    let v_term = brdf::v_smith_ggx_correlated(ndv, ndl, roughness);
-    let f_term = exp2((-5.55473 * ldh) - (6.98316 * ldh));
-
-    let reflection = v_term * d_term * 3.14159265;
-    let smooth_specular = max(0.0, reflection * ndl) * f_term * light.attenuation * intensity;
-    var specular = vec3<f32>(smooth_specular);
-    specular = specular * light.attenuation * light.color;
-    specular = specular * mix(vec3<f32>(1.0), s.diffuse_color, clamp(xb::mat._SpecularAlbedoTint, 0.0, 1.0));
-    return specular;
+/// Metallic workflow F0 used by Xiexe's PBS-grade specular paths.
+fn xiexe_specular_reflectance(s: xb::SurfaceData) -> vec3<f32> {
+    let reflectivity = clamp(s.reflectivity, 0.0, 1.0);
+    let dielectric_reflectance = 0.16 * reflectivity * reflectivity;
+    return vec3<f32>(dielectric_reflectance * (1.0 - s.metallic)) + s.diffuse_color * s.metallic;
 }
 
-/// Corrected Schlick/GGX direct-specular lobe from XSToon3, evaluated against an arbitrary normal.
-///
-/// `area` is the XSToon roughness-style control before the `1.7 - 0.7x` remap; `intensity` is
-/// the already-multiplied specular weight.
-fn direct_specular_from_normal(
+/// Perceptual roughness for the primary Xiexe specular lobe.
+fn primary_specular_roughness() -> f32 {
+    return clamp(remap_specular_area(xb::mat._SpecularArea), 0.045, 1.0);
+}
+
+/// Perceptual roughness for the secondary clear-coat lobe.
+fn clearcoat_roughness(s: xb::SurfaceData) -> f32 {
+    return clamp(remap_specular_area(1.0 - s.clearcoat_smoothness), 0.045, 1.0);
+}
+
+/// Direct-specular inputs derived once per fragment for the primary lobe.
+struct DirectSpecularTerms {
+    /// Primary lobe F0.
+    specular_reflectance: vec3<f32>,
+    /// Primary lobe perceptual roughness.
+    roughness: f32,
+    /// Multiple-scattering energy compensation sampled from the frame DFG LUT.
+    energy_compensation: vec3<f32>,
+}
+
+/// Resolves the primary direct-specular terms shared by every clustered light.
+fn primary_direct_specular_terms(s: xb::SurfaceData, view_dir: vec3<f32>) -> DirectSpecularTerms {
+    let specular_reflectance = xiexe_specular_reflectance(s);
+    let roughness = primary_specular_roughness();
+    let n_dot_v = clamp(dot(s.normal, view_dir), 0.0, 1.0);
+    let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);
+    let energy_compensation = brdf::energy_compensation_from_dfg(dfg, specular_reflectance);
+    return DirectSpecularTerms(specular_reflectance, roughness, energy_compensation);
+}
+
+/// Filament-style GGX direct-specular lobe evaluated against an arbitrary normal.
+fn direct_specular_filament(
     normal: vec3<f32>,
     s: xb::SurfaceData,
     light: xb::LightSample,
     view_dir: vec3<f32>,
-    area: f32,
+    perceptual_roughness: f32,
+    specular_reflectance: vec3<f32>,
+    energy_compensation: vec3<f32>,
     intensity: f32,
     albedo_tint: f32,
 ) -> vec3<f32> {
@@ -138,17 +139,17 @@ fn direct_specular_from_normal(
 
     let h = xb::safe_normalize(light.direction + view_dir, normal);
     let ndh = xb::saturate(dot(normal, h));
-    let ndv = max(abs(dot(view_dir, normal)), 1e-4);
+    let ndv = max(dot(normal, view_dir), 1e-4);
     let ldh = xb::saturate(dot(light.direction, h));
-    let roughness = remap_specular_area(area);
-    let alpha = max(roughness * roughness, 0.0045);
 
+    let alpha = max(perceptual_roughness * perceptual_roughness, brdf::MIN_ALPHA);
     let d_term = brdf::d_ggx(ndh, alpha);
     let v_term = brdf::v_smith_ggx_correlated(ndv, ndl, alpha);
-    let f_term = 1.0 - xb::pow5(1.0 - ldh);
+    let f_term = brdf::f_schlick(specular_reflectance, brdf::f90_from_f0(specular_reflectance), ldh);
+    let radiance = light.color * light.attenuation * ndl;
 
-    var specular = max(vec3<f32>(0.0), vec3<f32>(d_term * v_term * f_term));
-    specular = specular * light.color * intensity * ndl * light.attenuation;
+    var specular = max(vec3<f32>(0.0), d_term * v_term * f_term * energy_compensation);
+    specular = specular * radiance * intensity;
     specular = specular * mix(vec3<f32>(1.0), s.diffuse_color, clamp(albedo_tint, 0.0, 1.0));
     return specular;
 }
@@ -158,8 +159,19 @@ fn direct_specular(
     s: xb::SurfaceData,
     light: xb::LightSample,
     view_dir: vec3<f32>,
+    terms: DirectSpecularTerms,
 ) -> vec3<f32> {
-    return direct_specular_xstoon2(s, light, view_dir);
+    return direct_specular_filament(
+        s.normal,
+        s,
+        light,
+        view_dir,
+        terms.roughness,
+        terms.specular_reflectance,
+        terms.energy_compensation,
+        max(0.0, xb::mat._SpecularIntensity),
+        xb::mat._SpecularAlbedoTint,
+    );
 }
 
 /// Secondary clear-coat direct-specular lobe driven by the metallic-gloss map's `g/b` channels.
@@ -172,8 +184,22 @@ fn clearcoat_direct_specular(
         return vec3<f32>(0.0);
     }
 
-    let area = 1.0 - s.clearcoat_smoothness;
-    return direct_specular_from_normal(s.raw_normal, s, light, view_dir, area, s.clearcoat_strength, 0.0);
+    let roughness = clearcoat_roughness(s);
+    let specular_reflectance = vec3<f32>(brdf::DEFAULT_DIELECTRIC_F0);
+    let n_dot_v = clamp(dot(s.raw_normal, view_dir), 0.0, 1.0);
+    let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);
+    let energy_compensation = brdf::energy_compensation_from_dfg(dfg, specular_reflectance);
+    return direct_specular_filament(
+        s.raw_normal,
+        s,
+        light,
+        view_dir,
+        roughness,
+        specular_reflectance,
+        energy_compensation,
+        s.clearcoat_strength,
+        0.0,
+    );
 }
 
 /// Rim contribution from the dominant light plus ambient probe lighting.
@@ -273,7 +299,8 @@ fn indirect_reflection_branch(
     world_pos: vec3<f32>,
     view_layer: u32,
     perceptual_roughness: f32,
-    fresnel: vec3<f32>,
+    specular_reflectance: vec3<f32>,
+    intensity: f32,
     ambient: vec3<f32>,
     dominant_light_col_atten: vec3<f32>,
 ) -> vec3<f32> {
@@ -290,11 +317,6 @@ fn indirect_reflection_branch(
         return spec;
     }
 
-    let reflectivity_mask = clamp(s.reflectivity_mask, 0.0, 1.0);
-    if (reflectivity_mask <= 1e-4) {
-        return vec3<f32>(0.0);
-    }
-
     if (xb::baked_cubemap_enabled()) {
         let r = reflect(-view_dir, normal);
         let lod = clamp(
@@ -303,23 +325,31 @@ fn indirect_reflection_branch(
             SPECCUBE_LOD_STEPS,
         );
         var spec = textureSampleLevel(xb::_BakedCubemap, xb::_BakedCubemap_sampler, r, lod).rgb
-            * fresnel
+            * specular_reflectance
             * occlusion_scalar(s)
-            * reflectivity_mask;
+            * intensity;
         if (!reflection_is_multiplicative()) {
             spec = spec * (ambient + dominant_light_col_atten * 0.5);
         }
         return spec;
     }
 
-    let spec = rprobe::raw_indirect_specular(
+    let roughness = clamp(perceptual_roughness, 0.045, 1.0);
+    let n_dot_v = clamp(dot(normal, view_dir), 0.0, 1.0);
+    let indirect_enabled = rprobe::has_indirect_specular(view_layer, xb::reflection_uses_pbr());
+    let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);
+    let specular_energy = brdf::indirect_specular_energy_from_dfg(dfg, specular_reflectance, indirect_enabled);
+    let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion_scalar(s), roughness);
+    let spec = rprobe::indirect_specular_with_energy(
         world_pos,
         normal,
         view_dir,
-        clamp(perceptual_roughness, 0.0, 1.0),
-        xb::reflection_uses_pbr(),
+        roughness,
+        specular_energy,
+        specular_occlusion,
+        indirect_enabled,
         view_layer,
-    ) * fresnel * occlusion_scalar(s) * reflectivity_mask;
+    ) * intensity;
     return spec;
 }
 
@@ -332,8 +362,7 @@ fn indirect_specular(
     ambient: vec3<f32>,
     dominant_light_col_atten: vec3<f32>,
 ) -> vec3<f32> {
-    let reflectivity = clamp(s.reflectivity, 0.0, 1.0);
-    let fresnel = vec3<f32>(0.16 * reflectivity * reflectivity * (1.0 - s.metallic)) + s.diffuse_color * s.metallic;
+    let specular_reflectance = xiexe_specular_reflectance(s);
 
     var spec = indirect_reflection_branch(
         s,
@@ -342,21 +371,22 @@ fn indirect_specular(
         world_pos,
         view_layer,
         s.roughness,
-        fresnel,
+        specular_reflectance,
+        1.0,
         ambient,
         dominant_light_col_atten,
     );
 
     if (!xb::matcap_enabled() && xb::clearcoat_enabled()) {
-        let clearcoat_f0 = vec3<f32>(0.16 * s.clearcoat_strength * s.clearcoat_strength * s.clearcoat_smoothness);
         spec = spec + indirect_reflection_branch(
             s,
             s.raw_normal,
             view_dir,
             world_pos,
             view_layer,
-            1.0 - s.clearcoat_smoothness,
-            clearcoat_f0,
+            clearcoat_roughness(s),
+            vec3<f32>(brdf::DEFAULT_DIELECTRIC_F0),
+            s.clearcoat_strength,
             ambient,
             dominant_light_col_atten,
         );
@@ -437,10 +467,11 @@ fn clustered_toon_lighting(
     include_local: bool,
     base_pass: bool,
 ) -> vec3<f32> {
-    let view_dir = xb::safe_normalize(rg::camera_world_pos_for_view(view_layer) - world_pos, vec3<f32>(0.0, 0.0, 1.0));
+    let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
     let ambient = indirect_diffuse(s, view_layer);
     let env = environment_tint(s, view_dir, world_pos, view_layer);
     let direct_specular_occlusion = occlusion_scalar(s);
+    let primary_specular_terms = primary_direct_specular_terms(s, view_dir);
 
     let cluster_id = pcls::cluster_id_from_frag(
         frag_xy,
@@ -482,7 +513,7 @@ fn clustered_toon_lighting(
         let ramp = ramp_for_ndl(ndl, light.attenuation, s.ramp_mask);
         let light_col_atten = light.color * light.attenuation;
         direct_diffuse = direct_diffuse + s.albedo.rgb * ramp * light_col_atten;
-        direct_spec = direct_spec + direct_specular(s, light, view_dir);
+        direct_spec = direct_spec + direct_specular(s, light, view_dir, primary_specular_terms);
         direct_spec = direct_spec + clearcoat_direct_specular(s, light, view_dir);
         sss = sss + subsurface(s, light, view_dir, ambient);
 

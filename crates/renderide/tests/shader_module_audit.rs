@@ -160,16 +160,14 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
     let matcap_sample_pos = lighting_src
         .find("let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);")
         .expect("Xiexe lighting must contain a matcap sampling branch");
-    let reflectivity_mask_pos = lighting_src
-        .find("let reflectivity_mask = clamp(s.reflectivity_mask, 0.0, 1.0);")
-        .expect(
-            "Xiexe lighting must contain reflectivity-mask handling for non-matcap reflections",
-        );
+    let non_matcap_branch_pos = lighting_src
+        .find("if (xb::baked_cubemap_enabled()) {")
+        .expect("Xiexe lighting must contain non-matcap reflection handling");
     assert!(
-        matcap_sample_pos < reflectivity_mask_pos,
-        "Xiexe matcaps must be sampled before reflectivity-mask rejection"
+        matcap_sample_pos < non_matcap_branch_pos,
+        "Xiexe matcaps must be sampled before non-matcap reflection branches"
     );
-    let matcap_branch = &lighting_src[matcap_sample_pos..reflectivity_mask_pos];
+    let matcap_branch = &lighting_src[matcap_sample_pos..non_matcap_branch_pos];
     assert!(
         matcap_branch.contains("spec = spec * (ambient + dominant_light_col_atten * 0.5);"),
         "Xiexe matcaps must always receive the Unity light-scaling term"
@@ -198,28 +196,36 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
 }
 
 #[test]
-fn xiexe_primary_direct_specular_uses_xstoon2_formula() -> io::Result<()> {
+fn xiexe_primary_direct_specular_uses_filament_pbr_core() -> io::Result<()> {
     let lighting_src =
         fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
 
     for required in [
-        "fn direct_specular_xstoon2(",
-        "let intensity = max(0.0, xb::mat._SpecularIntensity);",
-        "let smoothness = remap_specular_area(xb::mat._SpecularArea);",
-        "let roughness = 1.0 - smoothness;",
-        "let f_term = exp2((-5.55473 * ldh) - (6.98316 * ldh));",
-        "let reflection = v_term * d_term * 3.14159265;",
-        "let smooth_specular = max(0.0, reflection * ndl) * f_term * light.attenuation * intensity;",
-        "specular = specular * light.attenuation * light.color;",
-        "clamp(xb::mat._SpecularAlbedoTint, 0.0, 1.0)",
+        "fn xiexe_specular_reflectance(s: xb::SurfaceData) -> vec3<f32> {",
+        "fn primary_direct_specular_terms(s: xb::SurfaceData, view_dir: vec3<f32>) -> DirectSpecularTerms {",
+        "let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);",
+        "let energy_compensation = brdf::energy_compensation_from_dfg(dfg, specular_reflectance);",
+        "fn direct_specular_filament(",
+        "let alpha = max(perceptual_roughness * perceptual_roughness, brdf::MIN_ALPHA);",
+        "let f_term = brdf::f_schlick(specular_reflectance, brdf::f90_from_f0(specular_reflectance), ldh);",
+        "var specular = max(vec3<f32>(0.0), d_term * v_term * f_term * energy_compensation);",
+        "let radiance = light.color * light.attenuation * ndl;",
+        "max(0.0, xb::mat._SpecularIntensity)",
+        "xb::mat._SpecularAlbedoTint",
+        "clamp(albedo_tint, 0.0, 1.0)",
     ] {
         assert!(
             lighting_src.contains(required),
-            "Xiexe primary direct specular must contain `{required}`"
+            "Xiexe primary direct specular must use Filament/PBS term `{required}`"
         );
     }
 
     for forbidden in [
+        "fn direct_specular_xstoon2(",
+        "let roughness = 1.0 - smoothness;",
+        "exp2((-5.55473 * ldh) - (6.98316 * ldh))",
+        "let reflection = v_term * d_term * 3.14159265;",
+        "smooth_specular",
         "xb::mat._SpecularIntensity * 0.001",
         "xb::mat._SpecularIntensity * s.specular_mask.r",
         "xb::mat._SpecularArea * s.specular_mask.b",
@@ -230,6 +236,42 @@ fn xiexe_primary_direct_specular_uses_xstoon2_formula() -> io::Result<()> {
             "Xiexe primary direct specular must not contain `{forbidden}`"
         );
     }
+
+    Ok(())
+}
+
+#[test]
+fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
+    let lighting_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
+
+    for required in [
+        "return rprobe::indirect_diffuse(s.normal, view_layer, true);",
+        "let indirect_enabled = rprobe::has_indirect_specular(view_layer, xb::reflection_uses_pbr());",
+        "let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);",
+        "let specular_energy = brdf::indirect_specular_energy_from_dfg(dfg, specular_reflectance, indirect_enabled);",
+        "let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion_scalar(s), roughness);",
+        "let spec = rprobe::indirect_specular_with_energy(",
+        "return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);",
+    ] {
+        assert!(
+            lighting_src.contains(required),
+            "Xiexe PBR reflections must contain `{required}`"
+        );
+    }
+
+    let pbr_branch_pos = lighting_src
+        .find("let indirect_enabled = rprobe::has_indirect_specular(view_layer, xb::reflection_uses_pbr());")
+        .expect("Xiexe PBR reflection branch must query probe availability");
+    let pbr_return_pos = lighting_src[pbr_branch_pos..]
+        .find("return spec;")
+        .map(|offset| pbr_branch_pos + offset)
+        .expect("Xiexe PBR reflection branch must return its specular result");
+    let pbr_branch = &lighting_src[pbr_branch_pos..pbr_return_pos];
+    assert!(
+        !pbr_branch.contains("raw_indirect_specular"),
+        "Xiexe PBR reflection branch must not multiply raw probe radiance by hand-rolled Fresnel"
+    );
 
     Ok(())
 }
