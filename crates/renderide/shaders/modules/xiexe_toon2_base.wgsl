@@ -245,6 +245,12 @@ struct XiexeToon2Material {
     MATCAP: f32,
     /// Unity `VERTEX_COLOR_ALBEDO` keyword flag.
     VERTEX_COLOR_ALBEDO: f32,
+    /// Xiexe `Cutout` keyword flag.
+    Cutout: f32,
+    /// Xiexe `AlphaBlend` keyword flag.
+    AlphaBlend: f32,
+    /// Xiexe `Transparent` keyword flag.
+    Transparent: f32,
 }
 
 /// Per-material uniform binding consumed by every xiexe-toon submodule.
@@ -400,6 +406,23 @@ struct LightSample {
 /// Returns true when a Unity-style keyword flag is set (`> 0.5` is the canonical test).
 fn kw(v: f32) -> bool {
     return v > 0.5;
+}
+
+/// Resolves material-authored alpha keywords for generic Xiexe stems.
+fn resolved_alpha_mode(static_alpha_mode: u32) -> u32 {
+    if (static_alpha_mode != ALPHA_OPAQUE) {
+        return static_alpha_mode;
+    }
+    if (kw(mat.Cutout)) {
+        return ALPHA_CUTOUT;
+    }
+    if (kw(mat.Transparent)) {
+        return ALPHA_TRANSPARENT;
+    }
+    if (kw(mat.AlphaBlend)) {
+        return ALPHA_FADE;
+    }
+    return ALPHA_OPAQUE;
 }
 
 /// `clamp(v, 0, 1)` shortcut. Hand-rolled so call sites don't drag in a `saturate` HLSL

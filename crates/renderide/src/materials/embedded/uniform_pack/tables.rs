@@ -37,6 +37,9 @@ pub(super) fn inferred_keyword_float_f32(
     if let Some(value) = blend_keyword_inferred(field_name, store, lookup, kw) {
         return Some(value);
     }
+    if let Some(value) = xiexe_keyword_inferred(field_name, store, lookup, kw) {
+        return Some(value);
+    }
     if let Some(value) = scalar_keyword_inferred(field_name, store, lookup, ids) {
         return Some(value);
     }
@@ -250,6 +253,8 @@ const BLEND_MODE_ALPHA: i32 = 2;
 const BLEND_MODE_TRANSPARENT_PREMULTIPLY: i32 = 3;
 /// `UnityEngine.Rendering.BlendMode.One`.
 const UNITY_BLEND_FACTOR_ONE: i32 = 1;
+/// `UnityEngine.Rendering.BlendMode.SrcAlpha`.
+const UNITY_BLEND_FACTOR_SRC_ALPHA: i32 = 5;
 /// `UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha`.
 const UNITY_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA: i32 = 10;
 /// Inclusive lower bound of Unity's AlphaTest queue range (FrooxEngine writes 2450 for
@@ -285,6 +290,20 @@ fn render_type_or_legacy_mode_is(
     legacy_mode == Some(legacy_mode_value) || legacy_blend == Some(legacy_mode_value)
 }
 
+/// Returns whether one complete blend-factor property pair matches `src_factor` and `dst_factor`.
+fn blend_factor_pair_is(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    src_pid: i32,
+    dst_pid: i32,
+    src_factor: i32,
+    dst_factor: i32,
+) -> bool {
+    let src = read_int_property(store, lookup, src_pid);
+    let dst = read_int_property(store, lookup, dst_pid);
+    src == Some(src_factor) && dst == Some(dst_factor)
+}
+
 /// Returns whether the host blend factors match `src_factor` and `dst_factor`.
 fn blend_factors_are(
     store: &MaterialPropertyStore,
@@ -293,9 +312,36 @@ fn blend_factors_are(
     src_factor: i32,
     dst_factor: i32,
 ) -> bool {
-    let src = read_int_property(store, lookup, kw.src_blend);
-    let dst = read_int_property(store, lookup, kw.dst_blend);
-    src == Some(src_factor) && dst == Some(dst_factor)
+    blend_factor_pair_is(
+        store,
+        lookup,
+        kw.src_blend,
+        kw.dst_blend,
+        src_factor,
+        dst_factor,
+    ) || blend_factor_pair_is(
+        store,
+        lookup,
+        kw.src_blend_base,
+        kw.dst_blend_base,
+        src_factor,
+        dst_factor,
+    )
+}
+
+/// Returns whether blend factors describe Unity/FrooxEngine straight alpha blending.
+fn straight_alpha_blend_factors(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    kw: &EmbeddedSharedKeywordIds,
+) -> bool {
+    blend_factors_are(
+        store,
+        lookup,
+        kw,
+        UNITY_BLEND_FACTOR_SRC_ALPHA,
+        UNITY_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+    )
 }
 
 /// Returns whether blend factors describe Unity/FrooxEngine premultiplied alpha blending.
@@ -416,6 +462,48 @@ fn alpha_premultiply_on_inferred(
     let legacy_blend = read_int_property(store, lookup, kw.blend_mode);
     legacy_mode == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
         || legacy_blend == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
+}
+
+/// Infers Xiexe Toon keyword fields from the properties its material provider writes.
+fn xiexe_keyword_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    kw: &EmbeddedSharedKeywordIds,
+) -> Option<f32> {
+    let enabled = match field_name {
+        "Cutout" => alpha_test_on_inferred(store, lookup, kw),
+        "AlphaBlend" => xiexe_alpha_blend_on_inferred(store, lookup, kw),
+        "Transparent" => xiexe_transparent_on_inferred(store, lookup, kw),
+        _ => return None,
+    };
+    Some(if enabled { 1.0 } else { 0.0 })
+}
+
+/// Returns whether host-visible state enables Xiexe's `AlphaBlend` shader variant.
+fn xiexe_alpha_blend_on_inferred(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    kw: &EmbeddedSharedKeywordIds,
+) -> bool {
+    let legacy_mode = read_int_property(store, lookup, kw.mode);
+    let legacy_blend = read_int_property(store, lookup, kw.blend_mode);
+    legacy_mode == Some(BLEND_MODE_ALPHA)
+        || legacy_blend == Some(BLEND_MODE_ALPHA)
+        || straight_alpha_blend_factors(store, lookup, kw)
+}
+
+/// Returns whether host-visible state enables Xiexe's `Transparent` shader variant.
+fn xiexe_transparent_on_inferred(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    kw: &EmbeddedSharedKeywordIds,
+) -> bool {
+    let legacy_mode = read_int_property(store, lookup, kw.mode);
+    let legacy_blend = read_int_property(store, lookup, kw.blend_mode);
+    legacy_mode == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
+        || legacy_blend == Some(BLEND_MODE_TRANSPARENT_PREMULTIPLY)
+        || premultiplied_blend_factors(store, lookup, kw)
 }
 
 /// Inferred values for the `Projection360` material family's multi_compile keyword fields,
