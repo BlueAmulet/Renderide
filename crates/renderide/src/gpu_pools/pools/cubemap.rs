@@ -1,6 +1,7 @@
 //! GPU-resident [`SetCubemapFormat`](crate::shared::SetCubemapFormat) pool ([`GpuCubemap`]) with VRAM accounting.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::assets::texture::{estimate_gpu_cubemap_bytes, resolve_cubemap_wgpu_format};
 use crate::gpu::GpuLimits;
@@ -15,6 +16,8 @@ use crate::gpu_pools::sampler_state::SamplerState;
 use crate::gpu_pools::texture_allocation::{
     SampledTextureAllocation, TextureViewInit, create_sampled_copy_dst_texture,
 };
+
+static NEXT_CUBEMAP_ALLOCATION_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// GPU cubemap: six faces in one array texture (`TextureViewDimension::Cube`).
 #[derive(Debug)]
@@ -35,6 +38,8 @@ pub struct GpuCubemap {
     pub mip_levels_resident: u32,
     /// Monotonic generation bumped whenever this cubemap's GPU texel contents are uploaded.
     pub content_generation: u64,
+    /// Monotonic identifier for the current GPU allocation.
+    pub allocation_generation: u64,
     /// Whether native compressed face bytes were left in host V orientation and need sampling compensation.
     pub storage_v_inverted: bool,
     /// Estimated VRAM for allocated mips.
@@ -115,6 +120,7 @@ impl GpuCubemap {
             mip_levels_total: mips,
             mip_levels_resident: 0,
             content_generation: 0,
+            allocation_generation: next_cubemap_allocation_generation(),
             storage_v_inverted: false,
             resident_bytes,
             sampler,
@@ -132,6 +138,10 @@ impl GpuCubemap {
         self.sampler = SamplerState::from_cubemap_props(Some(p));
         self.residency = TextureResidencyMeta::from_host_props(p);
     }
+}
+
+fn next_cubemap_allocation_generation() -> u64 {
+    NEXT_CUBEMAP_ALLOCATION_GENERATION.fetch_add(1, Ordering::Relaxed)
 }
 
 impl GpuResource for GpuCubemap {
