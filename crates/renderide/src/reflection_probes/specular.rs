@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn same_priority_selects_two_by_intersection_volume() {
+    fn same_importance_selects_two_by_intersection_volume() {
         let index = ReflectionProbeSpatialIndex::build(vec![
             probe(
                 0,
@@ -220,11 +220,11 @@ mod tests {
         assert_eq!(selection.hit_count, 2);
         assert_eq!(selection.first_atlas_index, 1);
         assert_eq!(selection.second_atlas_index, 2);
-        assert!(selection.second_weight > 0.0 && selection.second_weight < 1.0);
+        assert!((selection.second_weight - 0.5).abs() < 1e-6);
     }
 
     #[test]
-    fn contained_same_priority_probes_still_blend() {
+    fn contained_same_importance_probe_selects_inner_when_object_fully_inside() {
         let index = ReflectionProbeSpatialIndex::build(vec![
             probe(0, 1, 1, Vec3::splat(-10.0), Vec3::splat(10.0)),
             probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
@@ -232,10 +232,37 @@ mod tests {
 
         let selection = index.select((Vec3::splat(-0.5), Vec3::splat(0.5)));
 
+        assert_eq!(selection, ReflectionProbeDrawSelection::one(2));
+    }
+
+    #[test]
+    fn contained_same_importance_probe_blends_when_object_partially_leaves_inner() {
+        let index = ReflectionProbeSpatialIndex::build(vec![
+            probe(0, 1, 1, Vec3::splat(-10.0), Vec3::splat(10.0)),
+            probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+        ]);
+
+        let selection = index.select((Vec3::new(-0.5, -0.5, -0.5), Vec3::new(1.5, 0.5, 0.5)));
+
         assert_eq!(selection.hit_count, 2);
         assert_eq!(selection.first_atlas_index, 2);
         assert_eq!(selection.second_atlas_index, 1);
-        assert!(selection.second_weight > 0.0 && selection.second_weight < 1.0);
+        assert!((selection.second_weight - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn identical_same_importance_probe_boxes_use_intersection_blend() {
+        let index = ReflectionProbeSpatialIndex::build(vec![
+            probe(0, 1, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+            probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+        ]);
+
+        let selection = index.select((Vec3::splat(-0.5), Vec3::splat(0.5)));
+
+        assert_eq!(selection.hit_count, 2);
+        assert_eq!(selection.first_atlas_index, 1);
+        assert_eq!(selection.second_atlas_index, 2);
+        assert!((selection.second_weight - 0.5).abs() < 1e-6);
     }
 
     #[test]
