@@ -26,8 +26,8 @@ pub use empty_material::{EmptyMaterialBindGroup, empty_material_bind_group_layou
 use ibl_dfg::create_ibl_dfg_lut;
 pub use reflection_probe_specular::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT,
-    REFLECTION_PROBE_METADATA_BOX_PROJECTION, REFLECTION_PROBE_METADATA_SH2_VALID,
-    ReflectionProbeSpecularResources,
+    REFLECTION_PROBE_METADATA_BOX_PROJECTION, REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL,
+    REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX, ReflectionProbeSpecularResources,
 };
 use reflection_probe_specular::{
     ReflectionProbeSpecularBindGroupResources, create_reflection_probe_specular_fallback,
