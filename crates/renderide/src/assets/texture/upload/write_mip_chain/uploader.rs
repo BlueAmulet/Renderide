@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::shared::{SetTexture2DData, SetTexture2DFormat};
 
 use super::super::super::decode::needs_rgba8_decode_before_upload;
-use super::super::super::layout::mip_dimensions_at_level;
+use super::super::super::layout::{clamp_host_texture_mip_count, mip_dimensions_at_level};
 use super::super::TextureUploadError;
 use super::super::mip_write_common::{
     MipUploadFormatCtx, MipUploadPixels, Texture2dMipWrite, choose_mip_start_bias, is_rgba8_family,
@@ -116,7 +116,8 @@ impl TextureMipChainUploader {
         }
 
         let start_base = upload.start_mip_level.max(0) as u32;
-        let mipmap_count = fmt.mipmap_count.max(1) as u32;
+        let mipmap_count =
+            clamp_host_texture_mip_count(fmt.mipmap_count, texture.mip_level_count());
         if start_base >= mipmap_count {
             return Err(TextureUploadError::from(format!(
                 "start_mip_level {start_base} >= mipmap_count {mipmap_count}"

@@ -3,7 +3,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::assets::texture::{estimate_gpu_texture_bytes, resolve_texture2d_wgpu_format};
+use crate::assets::texture::{
+    estimate_gpu_texture_bytes, host_texture_mip_count, legal_texture2d_mip_level_count,
+    resolve_texture2d_wgpu_format,
+};
 use crate::gpu::GpuLimits;
 use crate::shared::{ColorProfile, SetTexture2DFormat, SetTexture2DProperties, TextureFormat};
 
@@ -89,7 +92,19 @@ impl GpuTexture2d {
             );
             return None;
         }
-        let mips = fmt.mipmap_count.max(1) as u32;
+        let requested_mips = host_texture_mip_count(fmt.mipmap_count);
+        let legal_mips = legal_texture2d_mip_level_count(w, h);
+        let mips = requested_mips.min(legal_mips);
+        if requested_mips > mips {
+            logger::warn!(
+                "texture {}: host requested {} mips for {}x{}; clamping to legal mip count {}",
+                fmt.asset_id,
+                requested_mips,
+                w,
+                h,
+                mips
+            );
+        }
         let wgpu_format = resolve_texture2d_wgpu_format(device, fmt);
         let size = wgpu::Extent3d {
             width: w,

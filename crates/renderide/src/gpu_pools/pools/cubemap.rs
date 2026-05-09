@@ -3,7 +3,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::assets::texture::{estimate_gpu_cubemap_bytes, resolve_cubemap_wgpu_format};
+use crate::assets::texture::{
+    estimate_gpu_cubemap_bytes, host_texture_mip_count, legal_texture2d_mip_level_count,
+    resolve_cubemap_wgpu_format,
+};
 use crate::gpu::GpuLimits;
 use crate::shared::{SetCubemapFormat, SetCubemapProperties};
 
@@ -83,7 +86,18 @@ impl GpuCubemap {
             );
             return None;
         }
-        let mips = fmt.mipmap_count.max(1) as u32;
+        let requested_mips = host_texture_mip_count(fmt.mipmap_count);
+        let legal_mips = legal_texture2d_mip_level_count(s, s);
+        let mips = requested_mips.min(legal_mips);
+        if requested_mips > mips {
+            logger::warn!(
+                "cubemap {}: host requested {} mips for face size {}; clamping to legal mip count {}",
+                fmt.asset_id,
+                requested_mips,
+                s,
+                mips
+            );
+        }
         let wgpu_format = resolve_cubemap_wgpu_format(device, fmt);
         let size = wgpu::Extent3d {
             width: s,

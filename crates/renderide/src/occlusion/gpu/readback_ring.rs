@@ -89,14 +89,23 @@ impl Default for GpuReadbackRing {
     }
 }
 
+impl Drop for GpuReadbackRing {
+    fn drop(&mut self) {
+        self.cancel_pending_maps();
+    }
+}
+
 impl GpuReadbackRing {
     /// Resets all slot ownership and pending callback state.
     pub(crate) fn reset(&mut self) {
         self.cancel_pending_maps();
-        *self = Self {
-            generation: self.generation.wrapping_add(1),
-            ..Self::default()
-        };
+        self.generation = self.generation.wrapping_add(1);
+        self.write_idx = 0;
+        self.encoded_slot = None;
+        self.pending_submit = pending_bool_array();
+        self.submit_done = pending_bool_array();
+        self.primary_pending = pending_none_array();
+        self.secondary_pending = None;
     }
 
     /// Returns the slot that the next successful encode should target.

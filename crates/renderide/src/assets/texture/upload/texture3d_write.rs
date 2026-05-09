@@ -5,7 +5,10 @@ use std::sync::Arc;
 use crate::shared::{SetTexture3DData, SetTexture3DFormat};
 
 use super::super::decode::{decode_mip_to_rgba8, needs_rgba8_decode_before_upload};
-use super::super::layout::{host_format_is_compressed, mip_byte_len, mip_dimensions_at_level_3d};
+use super::super::layout::{
+    clamp_host_texture_mip_count, host_format_is_compressed, mip_byte_len,
+    mip_dimensions_at_level_3d,
+};
 use super::error::TextureUploadError;
 use super::mip_write_common::{
     MipUploadFormatCtx, Texture3dVolumeMipWrite, is_rgba8_family, write_texture3d_volume_mip,
@@ -221,7 +224,8 @@ impl Texture3dMipChainUploader {
         let base_w = fmt.width.max(0) as u32;
         let base_h = fmt.height.max(0) as u32;
         let base_d = fmt.depth.max(0) as u32;
-        let mipmap_count = fmt.mipmap_count.max(1) as u32;
+        let mipmap_count =
+            clamp_host_texture_mip_count(fmt.mipmap_count, texture.mip_level_count());
 
         let tex_extent = texture.size();
         if tex_extent.width != base_w

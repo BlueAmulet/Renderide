@@ -3,6 +3,7 @@
 use glam::IVec2;
 
 use super::layout::{
+    clamp_host_texture_mip_count, legal_texture2d_mip_level_count, legal_texture3d_mip_level_count,
     mip_byte_len, mip_dimensions_at_level, mip_tight_bytes_per_texel, validate_mip_upload_layout,
 };
 use crate::shared::{SetTexture2DData, TextureFormat};
@@ -51,4 +52,26 @@ fn mip_dimensions_at_level_halves_each_step() {
     assert_eq!(mip_dimensions_at_level(114, 200, 1), (57, 100));
     assert_eq!(mip_dimensions_at_level(114, 200, 2), (28, 50));
     assert_eq!(mip_dimensions_at_level(1, 1, 5), (1, 1));
+}
+
+#[test]
+fn legal_texture2d_mips_follow_largest_axis() {
+    assert_eq!(legal_texture2d_mip_level_count(1, 1), 1);
+    assert_eq!(legal_texture2d_mip_level_count(256, 128), 9);
+    assert_eq!(legal_texture2d_mip_level_count(257, 16), 9);
+}
+
+#[test]
+fn legal_texture3d_mips_follow_largest_axis() {
+    assert_eq!(legal_texture3d_mip_level_count(1, 1, 1), 1);
+    assert_eq!(legal_texture3d_mip_level_count(64, 32, 16), 7);
+    assert_eq!(legal_texture3d_mip_level_count(7, 9, 33), 6);
+}
+
+#[test]
+fn host_mip_count_clamps_to_allocated_texture_count() {
+    assert_eq!(clamp_host_texture_mip_count(-4, 8), 1);
+    assert_eq!(clamp_host_texture_mip_count(0, 8), 1);
+    assert_eq!(clamp_host_texture_mip_count(12, 9), 9);
+    assert_eq!(clamp_host_texture_mip_count(5, 9), 5);
 }

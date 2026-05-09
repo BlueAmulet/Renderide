@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
-use crate::assets::texture::{estimate_gpu_texture3d_bytes, resolve_texture3d_wgpu_format};
+use crate::assets::texture::{
+    estimate_gpu_texture3d_bytes, host_texture_mip_count, legal_texture3d_mip_level_count,
+    resolve_texture3d_wgpu_format,
+};
 use crate::gpu::GpuLimits;
 use crate::shared::{SetTexture3DFormat, SetTexture3DProperties};
 
@@ -67,7 +70,20 @@ impl GpuTexture3d {
             );
             return None;
         }
-        let mips = fmt.mipmap_count.max(1) as u32;
+        let requested_mips = host_texture_mip_count(fmt.mipmap_count);
+        let legal_mips = legal_texture3d_mip_level_count(w, h, d);
+        let mips = requested_mips.min(legal_mips);
+        if requested_mips > mips {
+            logger::warn!(
+                "texture3d {}: host requested {} mips for {}x{}x{}; clamping to legal mip count {}",
+                fmt.asset_id,
+                requested_mips,
+                w,
+                h,
+                d,
+                mips
+            );
+        }
         let wgpu_format = resolve_texture3d_wgpu_format(device, fmt);
         let size = wgpu::Extent3d {
             width: w,
