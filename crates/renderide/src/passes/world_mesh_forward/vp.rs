@@ -191,37 +191,6 @@ pub(crate) fn compute_per_draw_vp_matrices(
         // Identity view: overlay model is in normalized screen space directly.
         let op = projection_for_world_mesh_draw(true, overlay_proj, world_proj);
         let model = resolve_model_selection(scene, item, hc, render_context);
-        let model_t = model.model.col(3).truncate();
-        let proj_x = op.x_axis;
-        let proj_y = op.y_axis;
-        logger::trace!(
-            "overlay vp draw: space={:?} space_is_overlay={} node_id={} renderable_index={} mesh_asset_id={} rigid_cached={} position_stream_world_space={} model_t=({:.3},{:.3},{:.3}) proj_x=({:.3},{:.3},{:.3},{:.3}) proj_y=({:.3},{:.3},{:.3},{:.3}) ancestry={}",
-            item.space_id,
-            space.is_overlay(),
-            item.node_id,
-            item.renderable_index,
-            item.mesh_asset_id,
-            item.rigid_world_matrix.is_some(),
-            model.position_stream_world_space,
-            model_t.x,
-            model_t.y,
-            model_t.z,
-            proj_x.x,
-            proj_x.y,
-            proj_x.z,
-            proj_x.w,
-            proj_y.x,
-            proj_y.y,
-            proj_y.z,
-            proj_y.w,
-            scene.overlay_layer_debug_summary(item.space_id, item.node_id as usize),
-        );
-        logger::trace!(
-            "overlay mesh draw: space={:?} node_id={} mesh_asset_id={}",
-            item.space_id,
-            item.node_id,
-            item.mesh_asset_id,
-        );
         return PerDrawVpMatrices::new(op, op, model);
     }
     let model = || resolve_model_selection(scene, item, hc, render_context);

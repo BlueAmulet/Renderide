@@ -19,7 +19,7 @@ use rayon::prelude::*;
 
 use crate::gpu_pools::MeshPool;
 use crate::scene::{MeshMaterialSlot, MeshRendererInstanceId, RenderSpaceId, SceneCoordinator};
-use crate::shared::{LayerType, RenderingContext};
+use crate::shared::RenderingContext;
 use crate::world_mesh::culling::{
     MeshCullGeometry, MeshCullTarget, mesh_world_geometry_for_cull_with_head,
 };
@@ -47,7 +47,7 @@ pub(super) struct FramePreparedDraw {
     pub node_id: i32,
     /// Resident mesh asset id (always matches `mesh_pool.get(...)` being `Some`).
     pub mesh_asset_id: i32,
-    /// Precomputed overlay flag from the renderer's [`LayerType`].
+    /// Precomputed overlay flag from the renderer's inherited layer state.
     pub is_overlay: bool,
     /// Host-side sorting order propagated to [`super::item::WorldMeshDrawItem::sorting_order`].
     pub sorting_order: i32,
@@ -610,43 +610,8 @@ fn expand_renderer_slots(
         return;
     }
 
-    let cached_overlay = renderer.layer == LayerType::Overlay;
     let is_overlay = renderer.node_id >= 0
         && scene.transform_is_in_overlay_layer(space_id, renderer.node_id as usize);
-    let suspect_dash_plane =
-        matches!(renderer.node_id, 39..=41) || matches!(renderer.mesh_asset_id, 13..=15);
-    if suspect_dash_plane && renderer.node_id >= 0 {
-        logger::trace!(
-            "dash suspect prepared renderer: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} cached_layer={:?} live_overlay={} slots={} submeshes={} sorting_order={} ancestry={}",
-            space_id,
-            renderer.node_id,
-            renderable_index,
-            instance_id,
-            renderer.mesh_asset_id,
-            renderer.layer,
-            is_overlay,
-            slots.len(),
-            submeshes.len(),
-            renderer.sorting_order,
-            scene.overlay_layer_debug_summary(space_id, renderer.node_id as usize),
-        );
-    }
-    if renderer.node_id >= 0 && (cached_overlay != is_overlay || is_overlay) {
-        logger::trace!(
-            "overlay prepared renderer: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} cached_layer={:?} live_overlay={} slots={} submeshes={} sorting_order={} ancestry={}",
-            space_id,
-            renderer.node_id,
-            renderable_index,
-            instance_id,
-            renderer.mesh_asset_id,
-            renderer.layer,
-            is_overlay,
-            slots.len(),
-            submeshes.len(),
-            renderer.sorting_order,
-            scene.overlay_layer_debug_summary(space_id, renderer.node_id as usize),
-        );
-    }
 
     for (slot_index, slot) in slots.iter().enumerate() {
         let Some((first_index, index_count)) =

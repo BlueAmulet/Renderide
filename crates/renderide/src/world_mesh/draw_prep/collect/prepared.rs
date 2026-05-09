@@ -94,15 +94,6 @@ fn prepared_run_passes_filter(
         }
         None => filter.passes_scene_node(ctx.scene, first.space_id, first.node_id),
     };
-    logger::trace!(
-        "camera filter prepared run: space={:?} node_id={} renderable_index={} mesh_asset_id={} pass={} filter={}",
-        first.space_id,
-        first.node_id,
-        first.renderable_index,
-        first.mesh_asset_id,
-        passes,
-        filter.debug_summary(),
-    );
     passes
 }
 
@@ -188,27 +179,6 @@ fn prepared_run_view_state(
     let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
         (m.col(3).truncate() - ctx.view_origin_world).length_squared()
     });
-    if is_overlay {
-        let model_t = rigid_world_matrix
-            .map(|m| m.col(3).truncate())
-            .unwrap_or(Vec3::ZERO);
-        logger::trace!(
-            "overlay prepared run: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} run_slots={} rigid_cached={} model_t=({:.3},{:.3},{:.3}) alpha_distance_sq={:.3} ancestry={}",
-            first.space_id,
-            first.node_id,
-            first.renderable_index,
-            first.instance_id,
-            first.mesh_asset_id,
-            run.len(),
-            rigid_world_matrix.is_some(),
-            model_t.x,
-            model_t.y,
-            model_t.z,
-            alpha_distance_sq,
-            ctx.scene
-                .overlay_layer_debug_summary(first.space_id, first.node_id as usize),
-        );
-    }
     (
         Some(PreparedRunViewState {
             rigid_world_matrix,

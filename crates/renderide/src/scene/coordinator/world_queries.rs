@@ -116,14 +116,6 @@ impl SceneCoordinator {
         )
     }
 
-    /// Human-readable overlay ancestry summary for diagnostics.
-    pub fn overlay_layer_debug_summary(&self, id: RenderSpaceId, transform_index: usize) -> String {
-        let Some(space) = self.spaces.get(&id) else {
-            return format!("space={id:?} missing");
-        };
-        overlay_chain_summary(space, transform_index)
-    }
-
     /// Returns whether the cached hierarchy for `transform_index` contains degenerate object scale.
     ///
     /// Missing spaces or transforms return `false` so callers preserve existing draw fallbacks when
@@ -289,49 +281,4 @@ fn matrix_from_ancestor_for_context(
         world *= render_transform_to_matrix(&local);
     }
     Some(world)
-}
-
-fn overlay_chain_summary(space: &RenderSpaceState, transform_index: usize) -> String {
-    if transform_index >= space.nodes.len() {
-        return format!(
-            "transform_index={transform_index} out_of_bounds nodes={}",
-            space.nodes.len()
-        );
-    }
-
-    let anchor = nearest_overlay_layer_ancestor(space, transform_index);
-    let mut parts: Vec<String> = Vec::new();
-    let mut cursor = transform_index as i32;
-    for _ in 0..space.nodes.len().min(24) {
-        if cursor < 0 || cursor as usize >= space.nodes.len() {
-            parts.push(format!("cursor={cursor} invalid"));
-            break;
-        }
-        let idx = cursor as usize;
-        let local = space.nodes[idx];
-        let parent = space.node_parents[idx];
-        let layer = layer_assignment_for_node(space, cursor);
-        let anchor_tag = if anchor == Some(idx) { "*" } else { "" };
-        parts.push(format!(
-            "{idx}{anchor_tag}[layer={layer:?} parent={parent} pos=({:.3},{:.3},{:.3}) scale=({:.3},{:.3},{:.3})]",
-            local.position.x,
-            local.position.y,
-            local.position.z,
-            local.scale.x,
-            local.scale.y,
-            local.scale.z,
-        ));
-        if parent < 0 || parent == cursor || parent as usize >= space.nodes.len() {
-            break;
-        }
-        cursor = parent;
-    }
-
-    format!(
-        "space_flags(active={} overlay={} private={}) anchor={anchor:?} chain={}",
-        space.is_active,
-        space.is_overlay,
-        space.is_private,
-        parts.join(" -> "),
-    )
 }

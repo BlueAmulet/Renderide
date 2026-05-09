@@ -126,19 +126,6 @@ pub(crate) fn mesh_cpu_cull_with_geometry(
     culling: &WorldMeshCullInput<'_>,
 ) -> Result<Option<Mat4>, CpuCullFailure> {
     if is_overlay {
-        let model_t = geom
-            .rigid_world_matrix
-            .map(|m| m.col(3).truncate())
-            .unwrap_or(Vec3::ZERO);
-        logger::trace!(
-            "overlay cull bypass: space={:?} has_world_aabb={} rigid_cached={} model_t=({:.3},{:.3},{:.3})",
-            space_id,
-            geom.world_aabb.is_some(),
-            geom.rigid_world_matrix.is_some(),
-            model_t.x,
-            model_t.y,
-            model_t.z,
-        );
         return Ok(geom.rigid_world_matrix);
     }
 

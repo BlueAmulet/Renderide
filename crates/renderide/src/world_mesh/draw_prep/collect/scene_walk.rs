@@ -147,15 +147,6 @@ fn push_draws_for_renderer(
             }
             None => f.passes_scene_node(ctx.scene, draw.space_id, draw.renderer.node_id),
         };
-        logger::trace!(
-            "camera filter scene-walk renderer: space={:?} node_id={} renderable_index={} mesh_asset_id={} pass={} filter={}",
-            draw.space_id,
-            draw.renderer.node_id,
-            draw.renderable_index,
-            draw.renderer.mesh_asset_id,
-            passes,
-            f.debug_summary(),
-        );
         if !passes {
             return;
         }
@@ -182,47 +173,14 @@ fn push_draws_for_renderer(
     }
     let n_sub = draw.submeshes.len();
     let n_slot = slots.len();
-    if n_slot > n_sub {
-        logger::trace!(
-            "mesh_asset_id={}: material slot count {} exceeds submesh count {}; stacking extra slots onto the last submesh",
-            draw.renderer.mesh_asset_id,
-            n_slot,
-            n_sub,
-        );
-    } else if n_slot < n_sub {
-        logger::trace!(
-            "mesh_asset_id={}: material slot count {} is below submesh count {}; only material-backed submeshes draw",
-            draw.renderer.mesh_asset_id,
-            n_slot,
-            n_sub,
-        );
-    }
     if n_sub == 0 {
         return;
     }
 
-    let cached_overlay = draw.renderer.layer == crate::shared::LayerType::Overlay;
     let is_overlay = draw.renderer.node_id >= 0
         && ctx
             .scene
             .transform_is_in_overlay_layer(draw.space_id, draw.renderer.node_id as usize);
-    if draw.renderer.node_id >= 0 && (cached_overlay != is_overlay || is_overlay) {
-        logger::trace!(
-            "overlay scene-walk renderer: space={:?} node_id={} renderable_index={} instance_id={:?} mesh_asset_id={} cached_layer={:?} live_overlay={} slots={} submeshes={} sorting_order={} ancestry={}",
-            draw.space_id,
-            draw.renderer.node_id,
-            draw.renderable_index,
-            draw.instance_id,
-            draw.renderer.mesh_asset_id,
-            draw.renderer.layer,
-            is_overlay,
-            slots.len(),
-            draw.submeshes.len(),
-            draw.renderer.sorting_order,
-            ctx.scene
-                .overlay_layer_debug_summary(draw.space_id, draw.renderer.node_id as usize),
-        );
-    }
     let world_space_deformed = draw.skinned
         && draw.mesh.supports_world_space_skin_deform(
             draw.skinned_renderer
@@ -407,25 +365,6 @@ fn push_one_slot_draw(
     let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
         (m.col(3).truncate() - ctx.view_origin_world).length_squared()
     });
-    if is_overlay {
-        let model_t = rigid_world_matrix
-            .map(|m| m.col(3).truncate())
-            .unwrap_or(glam::Vec3::ZERO);
-        logger::trace!(
-            "overlay scene-walk slot: space={:?} node_id={} renderable_index={} slot_index={} mesh_asset_id={} material_asset_id={} rigid_cached={} model_t=({:.3},{:.3},{:.3}) alpha_distance_sq={:.3}",
-            draw.space_id,
-            draw.renderer.node_id,
-            draw.renderable_index,
-            slot_index,
-            draw.renderer.mesh_asset_id,
-            material_asset_id,
-            rigid_world_matrix.is_some(),
-            model_t.x,
-            model_t.y,
-            model_t.z,
-            alpha_distance_sq,
-        );
-    }
     let world_aabb = world_aabb_for_reflection_probe_selection(ctx, draw);
     let candidate = DrawCandidate {
         space_id: draw.space_id,

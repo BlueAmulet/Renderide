@@ -1,10 +1,6 @@
 //! Host layer assignment ingestion and inherited mesh layer resolution.
 
-use std::collections::HashSet;
-use std::sync::LazyLock;
-
 use hashbrown::HashMap;
-use parking_lot::Mutex;
 
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{LayerType, LayerUpdate};
@@ -13,30 +9,6 @@ use super::error::SceneError;
 use super::render_space::{LayerAssignmentEntry, RenderSpaceState};
 use super::transforms_apply::TransformRemovalEvent;
 use super::world::fixup_transform_id;
-
-/// One-shot dedup for [`resolve_mesh_layers_from_assignments`] fallback warnings, keyed by node id.
-///
-/// When a renderable's node has no [`LayerAssignmentEntry`] up its parent chain,
-/// [`resolve_layer_for_node`] returns `None` and the renderable falls through to
-/// [`LayerType::default`] (= [`LayerType::Hidden`]). The host re-emits soon enough that this
-/// self-corrects, but the fallback is a possible co-symptom of the broader instance-changed
-/// host-renderer drift, so log once per node id to make it diagnosable without spamming.
-static LAYER_FALLBACK_WARNED_NODES: LazyLock<Mutex<HashSet<i32>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
-static OVERLAY_SPACE_DIAG_COUNTS: LazyLock<Mutex<std::collections::HashMap<i32, (usize, usize, usize)>>> =
-    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
-
-fn record_layer_fallback(node_id: i32) {
-    if node_id < 0 {
-        return;
-    }
-    let mut w = LAYER_FALLBACK_WARNED_NODES.lock();
-    if w.insert(node_id) {
-        logger::trace!(
-            "layer resolve: no LayerAssignmentEntry for node_id={node_id} or any ancestor; falling back to Hidden. Subsequent occurrences for this node are suppressed."
-        );
-    }
-}
 
 /// Owned per-space layer-update payload extracted from shared memory.
 ///
@@ -219,8 +191,6 @@ pub(crate) fn resolve_mesh_layers_from_assignments(space: &mut RenderSpaceState)
             );
         }
     }
-
-    log_overlay_space_diagnostics_once(space);
 }
 
 /// Populates [`RenderSpaceState::resolved_layer_cache`] for `node_id` if it is not already
@@ -243,9 +213,6 @@ fn ensure_resolved_cache_entry(
         return;
     }
     let resolved = resolve_layer_for_node(node_parents, layer_for_node, node_id);
-    if resolved.is_none() {
-        record_layer_fallback(node_id);
-    }
     cache.insert(node_id, resolved);
 }
 
@@ -287,103 +254,6 @@ fn resolve_layer_for_node(
         cursor = parent;
     }
     None
-}
-
-fn log_overlay_space_diagnostics_once(space: &RenderSpaceState) {
-    if !space
-        .layer_assignments
-        .iter()
-        .any(|entry| entry.layer == LayerType::Overlay)
-    {
-        return;
-    }
-    if space.static_mesh_renderers.is_empty() && space.skinned_mesh_renderers.is_empty() {
-        return;
-    }
-    let current_counts = (
-        space.nodes.len(),
-        space.static_mesh_renderers.len(),
-        space.layer_assignments.len(),
-    );
-    let mut logged = OVERLAY_SPACE_DIAG_COUNTS.lock();
-    if logged.get(&space.id.0).copied() == Some(current_counts) {
-        return;
-    }
-    logged.insert(space.id.0, current_counts);
-    drop(logged);
-
-    let overlay_assignments = space
-        .layer_assignments
-        .iter()
-        .filter(|entry| entry.layer == LayerType::Overlay)
-        .map(|entry| entry.node_id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-    let hidden_assignments = space
-        .layer_assignments
-        .iter()
-        .filter(|entry| entry.layer == LayerType::Hidden)
-        .map(|entry| entry.node_id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
-    logger::debug!(
-        "overlay layer space: space={:?} active={} overlay_space={} private={} nodes={} static_meshes={} skinned_meshes={} layer_assignments={} overlay_nodes=[{}] hidden_nodes=[{}]",
-        space.id,
-        space.is_active,
-        space.is_overlay,
-        space.is_private,
-        space.nodes.len(),
-        space.static_mesh_renderers.len(),
-        space.skinned_mesh_renderers.len(),
-        space.layer_assignments.len(),
-        overlay_assignments,
-        hidden_assignments,
-    );
-
-    for renderer in &space.static_mesh_renderers {
-        logger::debug!(
-            "overlay layer renderer: space={:?} node_id={} mesh_asset_id={} sorting_order={} resolved_layer={:?} chain={}",
-            space.id,
-            renderer.node_id,
-            renderer.mesh_asset_id,
-            renderer.sorting_order,
-            renderer.layer,
-            debug_chain_for_node(space, renderer.node_id),
-        );
-    }
-}
-
-fn debug_chain_for_node(space: &RenderSpaceState, node_id: i32) -> String {
-    if node_id < 0 {
-        return "node_id<0".to_string();
-    }
-    let mut parts = Vec::new();
-    let mut cursor = node_id;
-    for _ in 0..space.node_parents.len().min(16) {
-        if cursor < 0 {
-            parts.push("root".to_string());
-            break;
-        }
-        let Some(&parent) = space.node_parents.get(cursor as usize) else {
-            parts.push(format!("cursor={cursor}:oob"));
-            break;
-        };
-        let layer = if !space.layer_index_dirty {
-            space.layer_index.get(&cursor).copied()
-        } else {
-            space.layer_assignments
-                .iter()
-                .rev()
-                .find(|entry| entry.node_id == cursor)
-                .map(|entry| entry.layer)
-        };
-        parts.push(format!("{cursor}[layer={layer:?} parent={parent}]"));
-        if parent < 0 || parent == cursor || parent as usize >= space.node_parents.len() {
-            break;
-        }
-        cursor = parent;
-    }
-    parts.join(" -> ")
 }
 
 /// Layer-assignment count above which the per-removal fixup sweep fans out to the rayon pool.
