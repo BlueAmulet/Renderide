@@ -765,6 +765,7 @@ mod post_processing_rebuild_tests {
             cached_graph_key(&backend).post_processing,
             PostProcessChainSignature {
                 aces_tonemap: true,
+                agx_tonemap: false,
                 auto_exposure: true,
                 bloom: true,
                 bloom_max_mip_dimension: 512,

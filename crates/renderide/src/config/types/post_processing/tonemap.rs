@@ -39,5 +39,11 @@ labeled_enum! {
             persist: "aces_fitted",
             label: "ACES Fitted (Hill)",
         },
+        /// Analytic AgX display transform adapted from Filament's Blender AgX implementation.
+        /// More neutral than ACES Fitted, with less hue shifting in bright saturated colors.
+        AgX => {
+            persist: "agx",
+            label: "AgX",
+        },
     }
 }

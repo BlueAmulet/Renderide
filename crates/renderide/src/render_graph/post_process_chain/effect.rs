@@ -22,6 +22,8 @@ pub enum PostProcessEffectId {
     AutoExposure,
     /// Stephen Hill ACES Fitted tonemap (HDR linear -> display-referred 0..1 linear).
     AcesTonemap,
+    /// Analytic AgX tonemap (HDR linear -> display-referred 0..1 linear).
+    AgxTonemap,
 }
 
 impl PostProcessEffectId {
@@ -32,6 +34,7 @@ impl PostProcessEffectId {
             Self::Bloom => "Bloom",
             Self::AutoExposure => "Auto Exposure",
             Self::AcesTonemap => "ACES Tonemap",
+            Self::AgxTonemap => "AgX Tonemap",
         }
     }
 }
