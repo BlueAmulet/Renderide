@@ -58,6 +58,77 @@ fn material_source(file_name: &str) -> io::Result<String> {
 }
 
 #[test]
+fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
+    let metallic = material_source("pbsmetallic.wgsl")?;
+    for required in [
+        "_GlossMapScale: f32",
+        "_OcclusionStrength: f32",
+        "smoothness = mg.a * mat._GlossMapScale;",
+        "smoothness = albedo_sample.a * mat._GlossMapScale;",
+        "ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).g",
+        "mix(1.0, occlusion_sample, clamp(mat._OcclusionStrength, 0.0, 1.0))",
+    ] {
+        assert!(
+            metallic.contains(required),
+            "pbsmetallic.wgsl must contain `{required}`"
+        );
+    }
+
+    let specular = material_source("pbsspecular.wgsl")?;
+    assert!(
+        specular.contains(
+            "ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).g"
+        ),
+        "pbsspecular.wgsl must sample Unity Standard occlusion from the green channel"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn pbs_lerp_preserves_variant_channels_and_raw_lerp() -> io::Result<()> {
+    let metallic = material_source("pbslerp.wgsl")?;
+    for required in [
+        "return l;",
+        "occlusion0 = textureSample(_Occlusion, _Occlusion_sampler, uv_main0).r;",
+        "occlusion1 = textureSample(_Occlusion1, _Occlusion1_sampler, uv_main1).r;",
+        "metallic0 = m0.r;",
+        "metallic1 = m1.r;",
+        "smoothness0 = m0.a;",
+        "smoothness1 = m1.a;",
+    ] {
+        assert!(
+            metallic.contains(required),
+            "pbslerp.wgsl must contain `{required}`"
+        );
+    }
+    assert!(
+        !metallic.contains("return clamp(l, 0.0, 1.0);"),
+        "pbslerp.wgsl must use Unity's raw lerp factor"
+    );
+
+    let specular = material_source("pbslerpspecular.wgsl")?;
+    for required in [
+        "return l;",
+        "occlusion0 = textureSample(_Occlusion, _Occlusion_sampler, uv_main0).r;",
+        "occlusion1 = textureSample(_Occlusion1, _Occlusion1_sampler, uv_main1).r;",
+        "spec0 = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main0);",
+        "spec1 = textureSample(_SpecularMap1, _SpecularMap1_sampler, uv_main1);",
+    ] {
+        assert!(
+            specular.contains(required),
+            "pbslerpspecular.wgsl must contain `{required}`"
+        );
+    }
+    assert!(
+        !specular.contains("return clamp(l, 0.0, 1.0);"),
+        "pbslerpspecular.wgsl must use Unity's raw lerp factor"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
     let globals_src = fs::read_to_string(manifest_dir().join("shaders/modules/globals.wgsl"))?;
     assert!(
