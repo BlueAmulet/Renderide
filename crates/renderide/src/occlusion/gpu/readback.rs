@@ -126,9 +126,8 @@ impl ScratchShape {
 fn drain_primary_slot(state: &mut HiZGpuState, slot: usize, shape: ScratchShape) {
     let recv_result = state
         .readback
-        .primary_pending_mut(slot)
-        .as_mut()
-        .map(|recv| recv.try_recv());
+        .primary_pending(slot)
+        .map(|pending| pending.try_recv());
     let Some(recv_result) = recv_result else {
         return;
     };
@@ -136,23 +135,22 @@ fn drain_primary_slot(state: &mut HiZGpuState, slot: usize, shape: ScratchShape)
     match recv_result {
         Ok(Ok(())) => {
             profiling::scope!("hi_z::readback_primary_slot");
-            let buf = primary_staging_buffer(state, slot);
-            let Some(raw) = buf.and_then(read_mapped_buffer) else {
-                *state.readback.primary_pending_mut(slot) = None;
+            let Some(pending) = state.readback.take_primary_pending(slot) else {
                 return;
             };
-            *state.readback.primary_pending_mut(slot) = None;
+            let raw = read_mapped_buffer(pending.buffer());
             apply_primary_bytes(state, slot, shape, raw);
         }
         Ok(Err(_)) => {
-            if let Some(buf) = primary_staging_buffer(state, slot) {
-                buf.unmap();
+            if let Some(pending) = state.readback.take_primary_pending(slot) {
+                pending.unmap();
             }
-            *state.readback.primary_pending_mut(slot) = None;
         }
         Err(mpsc::TryRecvError::Empty) => {}
         Err(mpsc::TryRecvError::Disconnected) => {
-            *state.readback.primary_pending_mut(slot) = None;
+            if let Some(pending) = state.readback.take_primary_pending(slot) {
+                pending.unmap();
+            }
         }
     }
 }
@@ -169,8 +167,8 @@ fn apply_primary_bytes(state: &mut HiZGpuState, slot: usize, shape: ScratchShape
 fn drain_secondary_slot(state: &mut HiZGpuState, slot: usize) {
     let recv_result = state
         .readback
-        .secondary_pending_mut(slot)
-        .and_then(|pending| pending.as_mut().map(|recv| recv.try_recv()));
+        .secondary_pending(slot)
+        .map(|pending| pending.try_recv());
     let Some(recv_result) = recv_result else {
         return;
     };
@@ -178,30 +176,21 @@ fn drain_secondary_slot(state: &mut HiZGpuState, slot: usize) {
     match recv_result {
         Ok(Ok(())) => {
             profiling::scope!("hi_z::readback_secondary_slot");
-            let buf = secondary_staging_buffer(state, slot);
-            let Some(raw) = buf.and_then(read_mapped_buffer) else {
-                if let Some(pending) = state.readback.secondary_pending_mut(slot) {
-                    *pending = None;
-                }
+            let Some(pending) = state.readback.take_secondary_pending(slot) else {
                 return;
             };
-            if let Some(pending) = state.readback.secondary_pending_mut(slot) {
-                *pending = None;
-            }
+            let raw = read_mapped_buffer(pending.buffer());
             state.stereo_stash.set_right(slot, raw);
         }
         Ok(Err(_)) => {
-            if let Some(buf) = secondary_staging_buffer(state, slot) {
-                buf.unmap();
-            }
-            if let Some(pending) = state.readback.secondary_pending_mut(slot) {
-                *pending = None;
+            if let Some(pending) = state.readback.take_secondary_pending(slot) {
+                pending.unmap();
             }
         }
         Err(mpsc::TryRecvError::Empty) => {}
         Err(mpsc::TryRecvError::Disconnected) => {
-            if let Some(pending) = state.readback.secondary_pending_mut(slot) {
-                *pending = None;
+            if let Some(pending) = state.readback.take_secondary_pending(slot) {
+                pending.unmap();
             }
         }
     }
@@ -222,26 +211,12 @@ fn combine_paired_stereo(state: &mut HiZGpuState, shape: ScratchShape) {
     }
 }
 
-fn primary_staging_buffer(state: &HiZGpuState, slot: usize) -> Option<&wgpu::Buffer> {
-    state
-        .scratch
-        .as_ref()
-        .map(|scratch| &scratch.staging_desktop[slot])
-}
-
-fn secondary_staging_buffer(state: &HiZGpuState, slot: usize) -> Option<&wgpu::Buffer> {
-    state
-        .scratch
-        .as_ref()
-        .and_then(|scratch| scratch.staging_right().map(|ring| &ring[slot]))
-}
-
 /// Reads and unmaps a completed staging buffer into CPU-owned bytes.
-fn read_mapped_buffer(buf: &wgpu::Buffer) -> Option<Vec<u8>> {
+fn read_mapped_buffer(buf: &wgpu::Buffer) -> Vec<u8> {
     profiling::scope!("hi_z::read_mapped_buffer");
     let range = buf.slice(..).get_mapped_range().to_vec();
     buf.unmap();
-    Some(range)
+    range
 }
 
 fn unpack_desktop_snapshot(
