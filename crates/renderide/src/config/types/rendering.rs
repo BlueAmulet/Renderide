@@ -19,9 +19,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RenderingSettings {
-    /// Swapchain vsync mode ([`VsyncMode::Off`] / [`VsyncMode::On`] / [`VsyncMode::Auto`]);
-    /// applied live without restart through [`crate::gpu::GpuContext::set_present_mode`]. Old
-    /// `vsync = true / false` and `vsync = "adaptive"` configs still load via the bool-aware
+    /// Swapchain vsync mode ([`VsyncMode::Off`] / [`VsyncMode::On`]); applied live without restart
+    /// through [`crate::gpu::GpuContext::set_present_mode`]. Old `vsync = true / false`,
+    /// `vsync = "auto"`, and `vsync = "adaptive"` configs still load via aliases in the
     /// `labeled_enum!` deserializer.
     pub vsync: VsyncMode,
     /// Startup graphics API preference. `Auto` preserves wgpu's default backend discovery; an
