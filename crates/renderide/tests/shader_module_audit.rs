@@ -169,11 +169,26 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
         matcap_sample_pos < reflectivity_mask_pos,
         "Xiexe matcaps must be sampled before reflectivity-mask rejection"
     );
+    let matcap_branch = &lighting_src[matcap_sample_pos..reflectivity_mask_pos];
+    assert!(
+        matcap_branch.contains("spec = spec * (ambient + dominant_light_col_atten * 0.5);"),
+        "Xiexe matcaps must always receive the Unity light-scaling term"
+    );
+    assert!(
+        !matcap_branch.contains("reflection_is_multiplicative()"),
+        "Xiexe matcap sampling must not branch on `_ReflectionBlendMode`"
+    );
     assert!(
         lighting_src.contains(
             "if (xb::matcap_enabled()) {\n        return 1.0;\n    }\n    return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);"
         ),
         "Xiexe matcaps must not be blended by reflectivity or reflectivity-mask weight"
+    );
+    assert!(
+        lighting_src.contains(
+            "if (xb::matcap_enabled()) {\n        return surface + reflection;\n    }\n\n    if (reflection_is_multiplicative()) {"
+        ),
+        "Xiexe matcap reflections must use additive composition before `_ReflectionBlendMode` branches"
     );
     assert!(
         !lighting_src.contains("return spec * max("),
