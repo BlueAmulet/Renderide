@@ -410,16 +410,12 @@ fn plan_camera_task(
             view_id: ViewId::camera_render_task(render_space_id, task_index),
             viewport_px: extent.tuple(),
             clear: FrameViewClear::from_camera_render_parameters(parameters),
-            post_processing: camera_render_task_post_processing(parameters),
+            post_processing: ViewPostProcessing::from_camera_render_parameters(parameters),
             target: FrameViewPlanTarget::SecondaryRt(targets.to_offscreen_handles()),
         },
         targets,
         output_format,
     })
-}
-
-fn camera_render_task_post_processing(_parameters: &CameraRenderParameters) -> ViewPostProcessing {
-    ViewPostProcessing::primary_view()
 }
 
 fn draw_filter_from_camera_render_task(task: &CameraRenderTask) -> CameraTransformDrawFilter {
@@ -943,23 +939,27 @@ mod tests {
     }
 
     #[test]
-    fn camera_render_task_post_processing_policy_matches_main_view() {
+    fn camera_render_task_post_processing_policy_matches_host_parameters() {
         let disabled = CameraRenderParameters {
             post_processing: false,
             screen_space_reflections: true,
             ..Default::default()
         };
-        let disabled_policy = camera_render_task_post_processing(&disabled);
+        let disabled_policy = ViewPostProcessing::from_camera_render_parameters(&disabled);
 
-        assert_eq!(disabled_policy, ViewPostProcessing::primary_view());
+        assert!(!disabled_policy.is_enabled());
+        assert!(!disabled_policy.screen_space_reflections);
+        assert!(!disabled_policy.motion_blur);
 
         let enabled = CameraRenderParameters {
             post_processing: true,
             screen_space_reflections: false,
             ..Default::default()
         };
-        let enabled_policy = camera_render_task_post_processing(&enabled);
+        let enabled_policy = ViewPostProcessing::from_camera_render_parameters(&enabled);
 
-        assert_eq!(enabled_policy, ViewPostProcessing::primary_view());
+        assert!(enabled_policy.is_enabled());
+        assert!(!enabled_policy.screen_space_reflections);
+        assert!(!enabled_policy.motion_blur);
     }
 }
