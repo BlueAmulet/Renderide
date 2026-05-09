@@ -410,4 +410,31 @@ mod tests {
         assert!((out.near_clip() - 0.2).abs() < 1e-6);
         assert!((out.far_clip() - 1000.0).abs() < 1e-4);
     }
+
+    #[test]
+    fn host_camera_frame_secondary_use_transform_scale_does_not_scale_view_matrix() {
+        let base = HostCameraFrame::default();
+        let cam_world = Mat4::from_scale(Vec3::splat(1.5));
+        let state = CameraState {
+            projection: CameraProjection::Orthographic,
+            flags: 1 << 1,
+            orthographic_size: 0.5,
+            near_clip: 0.01,
+            far_clip: 4.0,
+            ..Default::default()
+        };
+
+        let out = host_camera_frame_for_render_texture(&base, &state, (1920, 1080), cam_world);
+
+        let explicit = out.explicit_view.expect("scaled orthographic view");
+        assert!(
+            explicit
+                .view
+                .abs_diff_eq(apply_view_handedness_fix(Mat4::IDENTITY), 1e-6)
+        );
+        let ortho = out.primary_ortho_task.expect("orthographic task");
+        assert!((ortho.half_height - 0.75).abs() < 1e-6);
+        assert!((out.near_clip() - 0.015).abs() < 1e-6);
+        assert!((out.far_clip() - 6.0).abs() < 1e-6);
+    }
 }

@@ -12,10 +12,9 @@
 //! ### Y orientation
 //!
 //! Uses [`fs::vertex_flipped_y_main`] (matches the VR-mirror surface blit at
-//! `shaders/passes/present/vr_mirror_surface.wgsl`). renderide-rendered render textures (output of
-//! the dash camera, interactive-camera mirrors, etc.) write the camera's "top of view" to the
-//! upper rows of the texture, but the surface swapchain expects screen-Y-down on output, so we
-//! invert UV.y before sampling. Without this the dash appears upside-down on the desktop window.
+//! `shaders/passes/present/vr_mirror_surface.wgsl`). Renderer-authored render textures write the
+//! camera's "top of view" to the upper rows of the texture, but the surface swapchain expects
+//! screen-Y-down on output, so we invert UV.y before sampling.
 
 #import renderide::fullscreen as fs
 
