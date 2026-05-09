@@ -1,7 +1,7 @@
-// Copies reverse-Z depth from the main attachment into mip0 of an R32Float pyramid
-// (possibly downscaled). `#ifdef MULTIVIEW` selects a `texture_depth_2d_array` source indexed
-// by a per-dispatch layer uniform (WGSL forbids `@builtin(view_index)` in compute); the
-// non-multiview path samples a plain `texture_depth_2d`.
+// Conservatively reduces reverse-Z depth from the main attachment into mip0 of an R32Float
+// farthest-depth pyramid. `#ifdef MULTIVIEW` selects a `texture_depth_2d_array` source indexed by
+// a per-dispatch layer uniform (WGSL forbids `@builtin(view_index)` in compute); the non-multiview
+// path samples a plain `texture_depth_2d`.
 
 #ifdef MULTIVIEW
 struct LayerParams {
@@ -28,12 +28,20 @@ fn cs_main(@builtin(global_invocation_id) gid: vec3u) {
     if (x >= dst_dims.x || y >= dst_dims.y) {
         return;
     }
-    let sx = min((x * src_dims.x + dst_dims.x / 2u) / dst_dims.x, src_dims.x - 1u);
-    let sy = min((y * src_dims.y + dst_dims.y / 2u) / dst_dims.y, src_dims.y - 1u);
+    let sx0 = (x * src_dims.x) / dst_dims.x;
+    let sy0 = (y * src_dims.y) / dst_dims.y;
+    let sx1 = min(((x + 1u) * src_dims.x + dst_dims.x - 1u) / dst_dims.x, src_dims.x);
+    let sy1 = min(((y + 1u) * src_dims.y + dst_dims.y - 1u) / dst_dims.y, src_dims.y);
+    var d = 1.0;
+    for (var sy = sy0; sy < max(sy1, sy0 + 1u); sy++) {
+        for (var sx = sx0; sx < max(sx1, sx0 + 1u); sx++) {
 #ifdef MULTIVIEW
-    let d = textureLoad(src_depth, vec2i(i32(sx), i32(sy)), i32(layer_params.layer), 0);
+            let sample = textureLoad(src_depth, vec2i(i32(min(sx, src_dims.x - 1u)), i32(min(sy, src_dims.y - 1u))), i32(layer_params.layer), 0);
 #else
-    let d = textureLoad(src_depth, vec2i(i32(sx), i32(sy)), 0);
+            let sample = textureLoad(src_depth, vec2i(i32(min(sx, src_dims.x - 1u)), i32(min(sy, src_dims.y - 1u))), 0);
 #endif
+            d = min(d, sample);
+        }
+    }
     textureStore(dst_mip0, vec2i(i32(x), i32(y)), vec4f(d, 0.0, 0.0, 1.0));
 }

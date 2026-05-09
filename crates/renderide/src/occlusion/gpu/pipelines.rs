@@ -147,7 +147,7 @@ impl HiZPipelines {
         });
         let shader_ds = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("hi_z_downsample"),
-            source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("hi_z_downsample_max").into()),
+            source: wgpu::ShaderSource::Wgsl(embedded_wgsl!("hi_z_downsample_min").into()),
         });
 
         let mip0_desktop =

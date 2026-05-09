@@ -499,7 +499,7 @@ struct HiZDownsampleContext<'a> {
     profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
-/// Max-reduction chain from mip0 through the rest of the R32F pyramid.
+/// Farthest-depth min-reduction chain from mip0 through the rest of the R32F pyramid.
 fn dispatch_hi_z_downsample_mips(args: &mut HiZDownsampleContext<'_>) {
     let (bw, bh) = args.scratch.extent;
     for mip in 0..args.scratch.mip_levels.saturating_sub(1) {

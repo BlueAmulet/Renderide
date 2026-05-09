@@ -16,9 +16,9 @@ use super::pyramid::total_float_count;
 /// [`super::readback::hi_z_snapshot_from_linear_linear`], which converts into the shared representation.
 #[derive(Clone, Debug)]
 pub struct HiZCpuSnapshot {
-    /// Width of mip0 (matches main depth attachment width).
+    /// Width of mip0 after Hi-Z pyramid downscaling.
     pub base_width: u32,
-    /// Height of mip0 (matches main depth attachment height).
+    /// Height of mip0 after Hi-Z pyramid downscaling.
     pub base_height: u32,
     /// Number of mips present in `mips` (including mip0).
     pub mip_levels: u32,
