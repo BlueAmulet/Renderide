@@ -67,7 +67,11 @@ pub(super) fn resolve_baked_probe_source(
         return None;
     }
     Some(SkyboxIblSource::Cubemap(CubemapIblSource {
+        material_asset_id: -1,
+        material_generation: 0,
+        route_hash: 0,
         asset_id: state.cubemap_asset_id,
+        allocation_generation: cubemap.allocation_generation,
         face_size: cubemap.size,
         mip_levels_resident: cubemap.mip_levels_resident,
         content_generation: cubemap.content_generation,
