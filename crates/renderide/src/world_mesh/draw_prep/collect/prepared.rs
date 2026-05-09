@@ -150,8 +150,9 @@ fn prepared_run_view_state(
         world_aabb = geom.world_aabb;
         if let Some(c) = ctx.culling {
             cull_stats.0 += run.len();
-            match mesh_cpu_cull_with_geometry(geom, ctx.scene, first.space_id, is_overlay, c) {
-                Err(CpuCullFailure::Frustum) => {
+            match mesh_cpu_cull_with_geometry(geom, ctx.scene, first.space_id, is_overlay, c, None)
+            {
+                Err(CpuCullFailure::Frustum) | Err(CpuCullFailure::UiRectMask) => {
                     cull_stats.1 += run.len();
                     return (None, cull_stats);
                 }

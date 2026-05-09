@@ -248,10 +248,11 @@ fn compute_cached_cull(
         skinned_renderer: draw.skinned_renderer,
         node_id: draw.renderer.node_id,
     };
-    match mesh_draw_passes_cpu_cull(&target, is_overlay, culling, ctx.render_context) {
+    match mesh_draw_passes_cpu_cull(&target, is_overlay, culling, ctx.render_context, None) {
         Ok(rigid_world_matrix) => Some(CachedCull::Accepted(rigid_world_matrix)),
         Err(CpuCullFailure::Frustum) => Some(CachedCull::RejectedFrustum),
         Err(CpuCullFailure::HiZ) => Some(CachedCull::RejectedHiZ),
+        Err(CpuCullFailure::UiRectMask) => Some(CachedCull::RejectedFrustum),
     }
 }
 
@@ -280,6 +281,7 @@ fn cull_result_for_slot(
                 is_overlay,
                 culling,
                 ctx.render_context,
+                None,
             )
         }),
         None => None,
@@ -341,7 +343,7 @@ fn push_one_slot_draw(
     if let Some(outcome) = cull_result {
         acc.cull_stats.0 += 1;
         match outcome {
-            Err(CpuCullFailure::Frustum) => {
+            Err(CpuCullFailure::Frustum) | Err(CpuCullFailure::UiRectMask) => {
                 acc.cull_stats.1 += 1;
                 return;
             }

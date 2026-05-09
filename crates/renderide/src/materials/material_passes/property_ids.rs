@@ -31,6 +31,8 @@ pub struct MaterialPipelinePropertyIds {
     pub(crate) offset_units: [i32; 1],
     pub(crate) cull: [i32; 1],
     pub(crate) render_queue: [i32; 1],
+    pub(crate) rect: [i32; 1],
+    pub(crate) rect_clip: [i32; 1],
 }
 
 impl MaterialPipelinePropertyIds {
@@ -59,6 +61,8 @@ impl MaterialPipelinePropertyIds {
             offset_units: [registry.intern("_OffsetUnits")],
             cull: [registry.intern("_Cull")],
             render_queue: [registry.intern("_RenderQueue")],
+            rect: [registry.intern("_Rect")],
+            rect_clip: [registry.intern("_RectClip")],
         }
     }
 }

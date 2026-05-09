@@ -114,6 +114,13 @@ gstreamer-app = { version = "0.25", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 wgpu = { version = "29.0", features = ["vulkan-portability"] }
 
+# Bundle DXC into the binary so wgpu's `Dx12Compiler::Auto` picks the static DXC instead of
+# falling back to FXC. FXC compiles average ~46 ms (max ~474 ms) and serialise the render thread
+# via `materials::pipeline_single_flight_wait`; DXC is multi-threaded and ~5-10x faster, so
+# first-touch panel pipelines stop stalling the frame.
+[target.'cfg(target_os = "windows")'.dependencies]
+wgpu = { version = "29.0", features = ["static-dxc"] }
+
 [dev-dependencies]
 jobserver = "0.1"
 logger = { path = "../logger" }

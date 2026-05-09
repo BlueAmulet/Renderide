@@ -7,6 +7,7 @@ use crate::materials::host_data::MaterialPropertyLookupIds;
 use crate::materials::render_queue_is_transparent;
 use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
 use crate::scene::MeshRendererInstanceId;
+use crate::world_mesh::culling::overlay_rect_clip_visible;
 use crate::world_mesh::materials::compute_batch_key_hash;
 use glam::Vec3;
 
@@ -63,7 +64,7 @@ pub(super) fn evaluate_draw_candidate(
         material_asset_id: candidate.material_asset_id,
         mesh_property_block_slot0: candidate.property_block_id,
     };
-    let batch_key = batch_key_for_slot_cached(
+    let (batch_key, ui_rect_clip_local) = batch_key_for_slot_cached(
         candidate.material_asset_id,
         candidate.property_block_id,
         candidate.skinned,
@@ -77,6 +78,20 @@ pub(super) fn evaluate_draw_candidate(
             shader_perm: ctx.shader_perm,
         },
     );
+    // Per-slot UI rect-mask CPU cull: the per-renderer cull above runs once per renderer (and
+    // bypasses overlay anyway), so the actual rect-vs-viewport check has to live here, where
+    // `_Rect` / `_RectClip` are finally known per material slot. Without this, every off-screen
+    // masked UI element still hits the GPU and only `discard`s in the fragment shader -- which
+    // is what tanks the friend list FPS.
+    if candidate.is_overlay {
+        if let (Some(rect), Some(model), Some(culling)) =
+            (ui_rect_clip_local, rigid_world_matrix, ctx.culling)
+        {
+            if !overlay_rect_clip_visible(ctx.scene, candidate.space_id, culling, rect, model) {
+                return None;
+            }
+        }
+    }
     let batch_key = apply_overlay_layer_depth_policy(batch_key, candidate.is_overlay);
     let camera_distance_sq = if render_queue_is_transparent(batch_key.render_queue) {
         alpha_distance_sq
@@ -125,6 +140,7 @@ pub(super) fn evaluate_draw_candidate(
         sort_prefix,
         rigid_world_matrix,
         reflection_probes,
+        ui_rect_clip_local,
     })
 }
 

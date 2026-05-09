@@ -5,7 +5,7 @@
 //! [`crate::camera::HostCameraFrame::explicit_world_to_view`] when an explicit camera view is
 //! present (e.g. for secondary render-texture cameras).
 
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3, Vec4};
 
 use crate::scene::RenderSpaceId;
 use crate::shared::RenderingContext;
@@ -96,20 +96,35 @@ fn cpu_cull_hi_z_should_cull(
 pub(crate) enum CpuCullFailure {
     Frustum,
     HiZ,
+    /// Overlay UI draw rejected by the object-local rect-clip mask projected to screen space.
+    UiRectMask,
 }
 
 /// Frustum + optional Hi-Z culling using a single [`mesh_world_geometry_for_cull`] evaluation.
 ///
 /// On success, returns the rigid world matrix when the draw is non-skinned and the matrix was
 /// computed while building bounds (reuse in the forward pass).
+///
+/// `ui_rect_clip_local` is the object-local UI rect (`xMin, yMin, xMax, yMax`) for overlay draws
+/// that opt in to `_RectClip`. When `Some`, the overlay path projects the rect's four corners
+/// through `model * overlay_proj * view` and rejects the draw when the projected screen-space
+/// AABB doesn't intersect the viewport.
 pub(crate) fn mesh_draw_passes_cpu_cull(
     target: &MeshCullTarget<'_>,
     is_overlay: bool,
     culling: &WorldMeshCullInput<'_>,
     render_context: RenderingContext,
+    ui_rect_clip_local: Option<Vec4>,
 ) -> Result<Option<Mat4>, CpuCullFailure> {
     let geom = mesh_world_geometry_for_cull(target, culling, render_context);
-    mesh_cpu_cull_with_geometry(geom, target.scene, target.space_id, is_overlay, culling)
+    mesh_cpu_cull_with_geometry(
+        geom,
+        target.scene,
+        target.space_id,
+        is_overlay,
+        culling,
+        ui_rect_clip_local,
+    )
 }
 
 /// Like [`mesh_draw_passes_cpu_cull`] but skips the [`mesh_world_geometry_for_cull`] call when
@@ -117,15 +132,22 @@ pub(crate) fn mesh_draw_passes_cpu_cull(
 /// draws cached on [`crate::world_mesh::draw_prep::FramePreparedRenderables`]).
 ///
 /// Frustum + Hi-Z tests stay per-view; only the matrix and AABB derivation is amortized. Returns
-/// the same `Result<Option<Mat4>, CpuCullFailure>` as [`mesh_draw_passes_cpu_cull`].
+/// the same `Result<Option<Mat4>, CpuCullFailure>` as [`mesh_draw_passes_cpu_cull`]. The new
+/// `ui_rect_clip_local` arg behaves the same as in [`mesh_draw_passes_cpu_cull`].
 pub(crate) fn mesh_cpu_cull_with_geometry(
     geom: MeshCullGeometry,
     scene: &SceneCoordinator,
     space_id: RenderSpaceId,
     is_overlay: bool,
     culling: &WorldMeshCullInput<'_>,
+    ui_rect_clip_local: Option<Vec4>,
 ) -> Result<Option<Mat4>, CpuCullFailure> {
     if is_overlay {
+        if let (Some(rect), Some(model)) = (ui_rect_clip_local, geom.rigid_world_matrix) {
+            if !overlay_rect_clip_visible(scene, space_id, culling, rect, model) {
+                return Err(CpuCullFailure::UiRectMask);
+            }
+        }
         return Ok(geom.rigid_world_matrix);
     }
 
@@ -150,6 +172,49 @@ pub(crate) fn mesh_cpu_cull_with_geometry(
         return Err(CpuCullFailure::HiZ);
     }
     Ok(geom.rigid_world_matrix)
+}
+
+/// Projects the object-local UI rect through `model` then through the overlay projection and
+/// returns `true` when its screen-space AABB intersects the viewport.
+///
+/// `_Rect` is in **object-local** space (matches `obj_xy` in `ui_unlit.wgsl`); the four corners
+/// are `(rect.x|z, rect.y|w, 0)`. The overlay forward path uses an **identity view** (see
+/// [`super::super::super::passes::world_mesh_forward::vp::compute_per_draw_vp_matrices`]: the
+/// overlay model already encodes screen-space-relative position via
+/// [`crate::scene::SceneCoordinator::overlay_layer_model_matrix_for_context`]); we mirror that
+/// here so the cull's clip-space test agrees with what the GPU rasterises.
+///
+/// Skipped conservatively under stereo (`proj.vr_stereo.is_some()`) because the overlay
+/// projection path under stereo isn't covered yet.
+pub(crate) fn overlay_rect_clip_visible(
+    _scene: &SceneCoordinator,
+    _space_id: RenderSpaceId,
+    culling: &WorldMeshCullInput<'_>,
+    rect: Vec4,
+    model: Mat4,
+) -> bool {
+    if culling.proj.vr_stereo.is_some() {
+        return true;
+    }
+    let corners = [
+        model.transform_point3(Vec3::new(rect.x, rect.y, 0.0)),
+        model.transform_point3(Vec3::new(rect.z, rect.y, 0.0)),
+        model.transform_point3(Vec3::new(rect.z, rect.w, 0.0)),
+        model.transform_point3(Vec3::new(rect.x, rect.w, 0.0)),
+    ];
+    let (wmin, wmax) = aabb_from_points(&corners);
+    world_aabb_visible_in_homogeneous_clip(culling.proj.overlay_proj, wmin, wmax)
+}
+
+#[inline]
+fn aabb_from_points(points: &[Vec3]) -> (Vec3, Vec3) {
+    let mut min = points[0];
+    let mut max = points[0];
+    for &p in &points[1..] {
+        min = min.min(p);
+        max = max.max(p);
+    }
+    (min, max)
 }
 
 /// Ensures CPU Hi-Z dimensions match the temporal viewport used when the pyramid was built.
@@ -233,14 +298,30 @@ mod hi_z_temporal_match_tests {
 
 #[cfg(test)]
 mod overlay_cull_tests {
-    use glam::{Mat4, Vec3};
+    use glam::{Mat4, Vec3, Vec4};
 
-    use super::mesh_cpu_cull_with_geometry;
+    use super::{CpuCullFailure, mesh_cpu_cull_with_geometry};
     use crate::camera::HostCameraFrame;
     use crate::scene::{RenderSpaceId, SceneCoordinator};
     use crate::world_mesh::culling::{
         MeshCullGeometry, WorldMeshCullInput, WorldMeshCullProjParams,
     };
+
+    fn culling_with_overlay_proj(host_camera: &HostCameraFrame) -> WorldMeshCullInput<'_> {
+        // Symmetric ortho mapping NDC [-1, 1] to overlay-space [-1, 1] in xy. The CPU rect-cull
+        // uses identity view for overlay, so a rect at the overlay-space origin is on-screen
+        // and a rect translated by 10 in x is fully off-screen.
+        WorldMeshCullInput {
+            proj: WorldMeshCullProjParams {
+                world_proj: Mat4::IDENTITY,
+                overlay_proj: Mat4::orthographic_rh(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0),
+                vr_stereo: None,
+            },
+            host_camera,
+            hi_z: None,
+            hi_z_temporal: None,
+        }
+    }
 
     #[test]
     fn overlay_draws_bypass_world_space_frustum_checks() {
@@ -263,11 +344,76 @@ mod overlay_cull_tests {
         };
 
         let Ok(accepted) =
-            mesh_cpu_cull_with_geometry(geom, &scene, RenderSpaceId(999), true, &culling)
+            mesh_cpu_cull_with_geometry(geom, &scene, RenderSpaceId(999), true, &culling, None)
         else {
             panic!("overlay items should skip frustum/Hi-Z rejection");
         };
 
         assert_eq!(accepted, Some(model));
+    }
+
+    #[test]
+    fn overlay_rect_outside_viewport_is_culled() {
+        let scene = SceneCoordinator::new();
+        let host_camera = HostCameraFrame::default();
+        let culling = culling_with_overlay_proj(&host_camera);
+        // Translate the rect 10 units to the right -- well outside the [-1, 1] overlay frustum.
+        let model = Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0));
+        let rect = Vec4::new(0.0, 0.0, 0.5, 0.5);
+        let geom = MeshCullGeometry {
+            world_aabb: None,
+            rigid_world_matrix: Some(model),
+        };
+
+        let res = mesh_cpu_cull_with_geometry(
+            geom,
+            &scene,
+            RenderSpaceId(999),
+            true,
+            &culling,
+            Some(rect),
+        );
+        assert!(matches!(res, Err(CpuCullFailure::UiRectMask)));
+    }
+
+    #[test]
+    fn overlay_rect_inside_viewport_passes() {
+        let scene = SceneCoordinator::new();
+        let host_camera = HostCameraFrame::default();
+        let culling = culling_with_overlay_proj(&host_camera);
+        let model = Mat4::IDENTITY;
+        let rect = Vec4::new(-0.5, -0.5, 0.5, 0.5);
+        let geom = MeshCullGeometry {
+            world_aabb: None,
+            rigid_world_matrix: Some(model),
+        };
+
+        let res = mesh_cpu_cull_with_geometry(
+            geom,
+            &scene,
+            RenderSpaceId(999),
+            true,
+            &culling,
+            Some(rect),
+        );
+        assert!(matches!(res, Ok(Some(m)) if m == model));
+    }
+
+    #[test]
+    fn overlay_without_rect_clip_still_passes() {
+        let scene = SceneCoordinator::new();
+        let host_camera = HostCameraFrame::default();
+        let culling = culling_with_overlay_proj(&host_camera);
+        // Same off-screen model as the culled case -- without a rect the legacy fast-path must
+        // still accept the draw, otherwise non-`_RectClip` overlay UI would regress.
+        let model = Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0));
+        let geom = MeshCullGeometry {
+            world_aabb: None,
+            rigid_world_matrix: Some(model),
+        };
+
+        let res =
+            mesh_cpu_cull_with_geometry(geom, &scene, RenderSpaceId(999), true, &culling, None);
+        assert!(matches!(res, Ok(Some(m)) if m == model));
     }
 }

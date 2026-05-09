@@ -49,6 +49,7 @@ struct PackedForwardDraws {
     draws: Vec<WorldMeshDrawItem>,
     plan: InstancePlan,
     offscreen_write_rt: Option<i32>,
+    overlay_view_proj: glam::Mat4,
 }
 
 /// Copies Hi-Z temporal state for the next frame when culling is active.
@@ -157,6 +158,7 @@ pub(crate) fn prepare_world_mesh_forward_frame(
         draws,
         mut plan,
         offscreen_write_rt,
+        overlay_view_proj,
     }) = pack_forward_draws_for_view(
         device,
         uploads,
@@ -197,6 +199,7 @@ pub(crate) fn prepare_world_mesh_forward_frame(
         &mut plan,
     );
 
+    let viewport_px = frame.view.viewport_px;
     PreparedWorldMeshForwardView {
         prepared: Some(PreparedWorldMeshForwardFrame {
             draws,
@@ -209,6 +212,8 @@ pub(crate) fn prepare_world_mesh_forward_frame(
             tail_raster_recorded: false,
             precomputed_batches,
             skybox,
+            overlay_view_proj,
+            viewport_px,
         }),
         hud_outputs,
     }
@@ -248,10 +253,12 @@ fn pack_forward_draws_for_view(
             },
         )
     };
+    let overlay_view_proj = overlay_proj.unwrap_or(glam::Mat4::IDENTITY);
     slab_uploaded.then_some(PackedForwardDraws {
         draws,
         plan,
         offscreen_write_rt,
+        overlay_view_proj,
     })
 }
 

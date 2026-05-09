@@ -87,6 +87,24 @@ pub(crate) fn first_float_from_maps(
     })
 }
 
+/// Like [`first_float_from_maps`] but reads `Float4` (vec4) values for `pids`. Used by the UI
+/// rect-mask CPU cull to read `_Rect` from the merged material/property-block view.
+pub(crate) fn first_vec4_from_maps(
+    material_map: PropertyMapRef<'_>,
+    property_block_map: PropertyMapRef<'_>,
+    pids: &[i32],
+) -> Option<[f32; 4]> {
+    pids.iter().find_map(|&pid| {
+        let v = property_block_map
+            .and_then(|m| m.get(&pid))
+            .or_else(|| material_map.and_then(|m| m.get(&pid)))?;
+        match v {
+            MaterialPropertyValue::Float4(v4) => Some(*v4),
+            _ => None,
+        }
+    })
+}
+
 /// Resolves a material/property-block `BlendMode` override using pre-fetched inner maps. Prefer
 /// this in hot paths that also call [`crate::materials::material_render_state_from_maps`] for
 /// the same lookup -- the two outer-map probes are amortised across both calls.

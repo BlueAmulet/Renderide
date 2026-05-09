@@ -28,6 +28,8 @@ pub(super) enum ProjectionPipelineKind {
 }
 
 impl ProjectionPipelineKind {
+    pub(super) const ALL: [Self; 3] = [Self::Cubemap, Self::Equirect, Self::SkyParams];
+
     pub(super) const fn stem(self) -> &'static str {
         match self {
             Self::Cubemap => "sh2_project_cubemap",

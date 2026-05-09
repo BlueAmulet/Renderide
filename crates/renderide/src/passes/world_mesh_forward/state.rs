@@ -39,6 +39,16 @@ pub(crate) struct PreparedWorldMeshForwardFrame {
     pub precomputed_batches: Vec<MaterialBatchPacket>,
     /// Optional background draw prepared for the opaque subpass.
     pub skybox: Option<PreparedSkybox>,
+    /// Overlay view-projection used to project per-draw `_Rect` corners into screen space for
+    /// the GPU scissor optimisation in [`super::encode::draw_subset`].
+    ///
+    /// Identity view is folded in: overlay draws use identity view in
+    /// [`super::vp::compute_per_draw_vp_matrices`] (the model already encodes screen-space-relative
+    /// position via [`crate::scene::SceneCoordinator::overlay_layer_model_matrix_for_context`]),
+    /// so this is just the active overlay projection.
+    pub overlay_view_proj: glam::Mat4,
+    /// Main surface extent in pixels for the GPU scissor optimisation.
+    pub viewport_px: (u32, u32),
 }
 
 /// Blackboard slot key for the per-view world-mesh forward plan.

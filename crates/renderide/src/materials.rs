@@ -130,6 +130,7 @@ pub use material_passes::{
     MaterialBlendMode, MaterialPassDesc, MaterialPipelinePropertyIds, PassKind,
     material_blend_mode_from_maps, materialized_pass_for_blend_mode, pass_from_kind,
 };
+pub(crate) use material_passes::{PropertyMapRef, first_float_from_maps, first_vec4_from_maps};
 pub use pipeline_build_error::PipelineBuildError;
 pub use pipeline_kind::RasterPipelineKind;
 pub use render_queue::{UNITY_RENDER_QUEUE_ALPHA_TEST, render_queue_is_transparent};

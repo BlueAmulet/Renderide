@@ -8,12 +8,12 @@
 //! The cache is LRU-bounded to avoid unbounded growth when many format/permutation combinations appear.
 
 use std::num::{NonZeroU32, NonZeroUsize};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
+use hashbrown::{HashMap, HashSet};
 use lru::LruCache;
 use parking_lot::Mutex;
 
-use crate::concurrency::{KeyedSingleFlight, SingleFlightPermit};
 use crate::gpu_resource::AtomicCacheCounters;
 use crate::materials::ShaderPermutation;
 use crate::materials::embedded_raster_pipeline::{
@@ -91,65 +91,87 @@ pub struct MaterialPipelineCacheKey {
 /// have `len >= 2`. The forward encode loop dispatches every pipeline in order for each draw.
 pub type MaterialPipelineSet = Arc<[wgpu::RenderPipeline]>;
 
+/// Nonblocking cache lookup result.
+pub(super) enum MaterialPipelineLookup {
+    /// The requested pipeline set is available for this frame.
+    Ready(MaterialPipelineSet),
+    /// A background worker is building the requested pipeline set.
+    Pending,
+    /// The requested pipeline failed to build; callers may use a fallback.
+    Failed(String),
+}
+
+struct PipelineBuildRequest {
+    key: MaterialPipelineCacheKey,
+    kind: RasterPipelineKind,
+    desc: MaterialPipelineDesc,
+    variant: MaterialPipelineVariantSpec,
+    device: Arc<wgpu::Device>,
+    limits: Arc<crate::gpu::GpuLimits>,
+    tx: crossbeam_channel::Sender<PipelineBuildOutcome>,
+}
+
+struct PipelineBuildOutcome {
+    key: MaterialPipelineCacheKey,
+    kind: RasterPipelineKind,
+    result: Result<MaterialPipelineSet, String>,
+}
+
 /// Lazily built pipeline sets; LRU-evicted when over [`MAX_CACHED_PIPELINES`].
-#[derive(Debug)]
 pub struct MaterialPipelineCache {
     device: Arc<wgpu::Device>,
     limits: Arc<crate::gpu::GpuLimits>,
     pipelines: Mutex<LruCache<MaterialPipelineCacheKey, MaterialPipelineSet>>,
-    compiles: KeyedSingleFlight<MaterialPipelineCacheKey>,
+    pipeline_build_tx: crossbeam_channel::Sender<PipelineBuildOutcome>,
+    pipeline_build_rx: crossbeam_channel::Receiver<PipelineBuildOutcome>,
+    pending_pipeline_builds: Mutex<HashSet<MaterialPipelineCacheKey>>,
+    failed_pipeline_builds: Mutex<HashMap<MaterialPipelineCacheKey, String>>,
     stats: AtomicCacheCounters,
 }
 
 impl MaterialPipelineCache {
     /// Creates an empty cache for `device` with the device's effective [`crate::gpu::GpuLimits`].
     pub fn new(device: Arc<wgpu::Device>, limits: Arc<crate::gpu::GpuLimits>) -> Self {
+        let (pipeline_build_tx, pipeline_build_rx) = crossbeam_channel::unbounded();
         Self {
             device,
             limits,
             pipelines: Mutex::new(LruCache::new(max_cached_pipelines())),
-            compiles: KeyedSingleFlight::default(),
+            pipeline_build_tx,
+            pipeline_build_rx,
+            pending_pipeline_builds: Mutex::new(HashSet::new()),
+            failed_pipeline_builds: Mutex::new(HashMap::new()),
             stats: AtomicCacheCounters::default(),
         }
     }
 
-    /// Returns or builds the pipeline set for `kind`, `desc`, and `permutation`.
+    /// Returns the cached pipeline set or queues a background build for a miss.
     ///
-    /// On a cache hit, does not compose WGSL or run reflection; those run only when inserting a new entry.
-    pub fn get_or_create(
+    /// On a cache hit, does not compose WGSL or run reflection; those run only on the worker.
+    pub fn get_or_queue(
         &self,
         kind: &RasterPipelineKind,
         desc: &MaterialPipelineDesc,
         variant: MaterialPipelineVariantSpec,
-    ) -> Result<MaterialPipelineSet, PipelineBuildError> {
+    ) -> MaterialPipelineLookup {
         profiling::scope!("materials::get_or_create_pipeline");
+        self.drain_completed_pipeline_builds();
         let key = Self::cache_key(kind, desc, variant);
-        loop {
-            if let Some(hit) = self.cached_pipeline_set(&key) {
-                self.stats.note_hit();
-                return Ok(hit);
-            }
 
-            let leader = match self.compiles.acquire(key.clone()) {
-                SingleFlightPermit::Leader(leader) => leader,
-                SingleFlightPermit::Waiter(waiter) => {
-                    profiling::scope!("materials::pipeline_single_flight_wait");
-                    waiter.wait();
-                    continue;
-                }
-            };
-
-            if let Some(hit) = self.cached_pipeline_set(&key) {
-                self.stats.note_hit();
-                return Ok(hit);
-            }
-
-            self.stats.note_miss();
-            let set = self.build_pipeline_set(kind, desc, variant)?;
-            self.insert_pipeline_set(key, set.clone());
-            drop(leader);
-            return Ok(set);
+        if let Some(hit) = self.cached_pipeline_set(&key) {
+            self.stats.note_hit();
+            return MaterialPipelineLookup::Ready(hit);
         }
+        if let Some(error) = self.failed_pipeline_builds.lock().get(&key).cloned() {
+            return MaterialPipelineLookup::Failed(error);
+        }
+
+        if self.pending_pipeline_builds.lock().contains(&key) {
+            return MaterialPipelineLookup::Pending;
+        }
+
+        self.queue_pipeline_build(key, kind.clone(), *desc, variant);
+        MaterialPipelineLookup::Pending
     }
 
     fn cache_key(
@@ -183,8 +205,59 @@ impl MaterialPipelineCache {
         self.pipelines.lock().get(key).cloned()
     }
 
-    fn build_pipeline_set(
+    fn queue_pipeline_build(
         &self,
+        key: MaterialPipelineCacheKey,
+        kind: RasterPipelineKind,
+        desc: MaterialPipelineDesc,
+        variant: MaterialPipelineVariantSpec,
+    ) {
+        {
+            let mut pending = self.pending_pipeline_builds.lock();
+            if !pending.insert(key.clone()) {
+                return;
+            }
+        }
+        self.stats.note_miss();
+
+        let request = PipelineBuildRequest {
+            key: key.clone(),
+            kind: kind.clone(),
+            desc,
+            variant,
+            device: self.device.clone(),
+            limits: self.limits.clone(),
+            tx: self.pipeline_build_tx.clone(),
+        };
+        if let Err(e) = spawn_pipeline_build(request) {
+            self.pending_pipeline_builds.lock().remove(&key);
+            self.failed_pipeline_builds.lock().insert(key, e.clone());
+            logger::warn!("MaterialPipelineCache: could not queue {kind:?} pipeline build: {e}");
+        }
+    }
+
+    fn drain_completed_pipeline_builds(&self) {
+        while let Ok(outcome) = self.pipeline_build_rx.try_recv() {
+            self.pending_pipeline_builds.lock().remove(&outcome.key);
+            match outcome.result {
+                Ok(set) => {
+                    self.failed_pipeline_builds.lock().remove(&outcome.key);
+                    self.insert_pipeline_set(outcome.key, set);
+                }
+                Err(e) => {
+                    logger::warn!(
+                        "MaterialPipelineCache: async pipeline build failed for {:?}: {e}",
+                        outcome.kind
+                    );
+                    self.failed_pipeline_builds.lock().insert(outcome.key, e);
+                }
+            }
+        }
+    }
+
+    fn build_pipeline_set_for(
+        device: Arc<wgpu::Device>,
+        limits: Arc<crate::gpu::GpuLimits>,
         kind: &RasterPipelineKind,
         desc: &MaterialPipelineDesc,
         variant: MaterialPipelineVariantSpec,
@@ -200,7 +273,6 @@ impl MaterialPipelineCache {
             RasterPipelineKind::EmbeddedStem(stem) => build_embedded_wgsl(stem, permutation)?,
             RasterPipelineKind::Null => build_null_wgsl(permutation)?,
         };
-        let device = self.device.clone();
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("raster_material_shader"),
             source: wgpu::ShaderSource::Wgsl(wgsl.clone().into()),
@@ -217,7 +289,7 @@ impl MaterialPipelineCache {
                 },
                 ShaderModuleBuildRefs {
                     device: &device,
-                    limits: &self.limits,
+                    limits: &limits,
                     module: &module,
                     desc,
                     wgsl_source: &wgsl,
@@ -226,7 +298,7 @@ impl MaterialPipelineCache {
             RasterPipelineKind::Null => {
                 vec![create_null_render_pipeline(
                     &device,
-                    &self.limits,
+                    &limits,
                     &module,
                     desc,
                     &wgsl,
@@ -257,4 +329,38 @@ impl MaterialPipelineCache {
             );
         }
     }
+}
+
+fn spawn_pipeline_build(request: PipelineBuildRequest) -> Result<(), String> {
+    let pool = material_pipeline_compile_pool()?;
+    pool.spawn(move || {
+        profiling::scope!("materials::async_pipeline_compile");
+        let PipelineBuildRequest {
+            key,
+            kind,
+            desc,
+            variant,
+            device,
+            limits,
+            tx,
+        } = request;
+        let result =
+            MaterialPipelineCache::build_pipeline_set_for(device, limits, &kind, &desc, variant)
+                .map_err(|e| e.to_string());
+        let _ = tx.send(PipelineBuildOutcome { key, kind, result });
+    });
+    Ok(())
+}
+
+fn material_pipeline_compile_pool() -> Result<&'static rayon::ThreadPool, String> {
+    static POOL: OnceLock<Result<rayon::ThreadPool, String>> = OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .thread_name(|_| "material-pipeline-worker".to_string())
+            .build()
+            .map_err(|e| format!("material pipeline worker pool creation failed: {e}"))
+    })
+    .as_ref()
+    .map_err(Clone::clone)
 }

@@ -111,5 +111,6 @@ pub fn dummy_world_mesh_draw_item(spec: DummyDrawItemSpec) -> WorldMeshDrawItem 
         sort_prefix,
         rigid_world_matrix: None,
         reflection_probes: ReflectionProbeDrawSelection::default(),
+        ui_rect_clip_local: None,
     }
 }

@@ -295,6 +295,19 @@ impl ReflectionProbeSh2System {
         self.prune_completed_cache_if_needed();
     }
 
+    /// Starts background builds for all SH2 projection pipelines before the first probe asks for them.
+    pub fn pre_warm_projection_pipelines(&mut self, device: &Arc<wgpu::Device>) {
+        profiling::scope!("reflection_probe_sh2::pre_warm_projection_pipelines");
+        for kind in ProjectionPipelineKind::ALL {
+            if let Err(e) = self.ensure_projection_pipeline_ready(device, kind) {
+                logger::warn!(
+                    "reflection_probe_sh2: projection pipeline pre-warm failed for {}: {e}",
+                    kind.stem()
+                );
+            }
+        }
+    }
+
     /// Ensures an SH2 projection exists for a renderer-owned reflection-probe IBL source.
     ///
     /// Returns [`Some`] only after the source has a completed CPU or GPU projection. GPU-backed

@@ -415,6 +415,8 @@ impl RenderBackend {
         );
         self.materials
             .try_attach_gpu(device.clone(), &queue, Arc::clone(&gpu_limits))?;
+        self.reflection_probes
+            .pre_warm_sh2_projection_pipelines(&device);
         asset_uploads::attach_flush_pending_asset_uploads(
             &mut self.asset_transfers,
             &device,

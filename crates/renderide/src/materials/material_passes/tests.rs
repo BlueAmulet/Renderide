@@ -14,6 +14,15 @@ use crate::materials::host_data::{
 };
 
 #[test]
+fn interns_ui_rect_clip_property_ids_into_pipeline_set() {
+    let reg = PropertyIdRegistry::new();
+    let ids = MaterialPipelinePropertyIds::new(&reg);
+    assert_eq!(ids.rect[0], reg.intern("_Rect"));
+    assert_eq!(ids.rect_clip[0], reg.intern("_RectClip"));
+    assert_ne!(ids.rect[0], ids.rect_clip[0]);
+}
+
+#[test]
 fn resolves_unity_src_dst_blend_properties() {
     let reg = PropertyIdRegistry::new();
     let ids = MaterialPipelinePropertyIds::new(&reg);

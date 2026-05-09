@@ -36,4 +36,4 @@ pub use pass_kind::{
 };
 pub use property_ids::MaterialPipelinePropertyIds;
 
-pub(crate) use blend_mode::{PropertyMapRef, first_float_from_maps};
+pub(crate) use blend_mode::{PropertyMapRef, first_float_from_maps, first_vec4_from_maps};

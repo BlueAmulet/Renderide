@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use super::cache::{MaterialPipelineCache, MaterialPipelineSet, MaterialPipelineVariantSpec};
+use super::cache::{
+    MaterialPipelineCache, MaterialPipelineLookup, MaterialPipelineSet, MaterialPipelineVariantSpec,
+};
 use super::family::MaterialPipelineDesc;
 use super::pipeline_kind::RasterPipelineKind;
 use super::resolve_raster::resolve_raster_pipeline;
@@ -39,38 +41,56 @@ impl MaterialRegistry {
             desc,
             variant,
         } = request;
-        let err = match self.cache.get_or_create(kind, desc, variant) {
-            Ok(p) => return Some(p),
-            Err(e) => e,
-        };
-        if matches!(kind, RasterPipelineKind::Null) {
-            match shader_asset_id {
-                Some(id) => {
-                    logger::error!("Null pipeline build failed (shader_asset_id={id}): {err}");
+        match self.cache.get_or_queue(kind, desc, variant) {
+            MaterialPipelineLookup::Ready(p) => return Some(p),
+            MaterialPipelineLookup::Pending if matches!(kind, RasterPipelineKind::Null) => {
+                return None;
+            }
+            MaterialPipelineLookup::Pending => {
+                return self.null_pipeline_fallback(desc, variant);
+            }
+            MaterialPipelineLookup::Failed(err) if matches!(kind, RasterPipelineKind::Null) => {
+                match shader_asset_id {
+                    Some(id) => {
+                        logger::error!(
+                            "Null pipeline build failed (shader_asset_id={id}): {err}"
+                        );
+                    }
+                    None => {
+                        logger::error!("Null pipeline build failed: {err}");
+                    }
                 }
-                None => {
-                    logger::error!("Null pipeline build failed: {err}");
+                return None;
+            }
+            MaterialPipelineLookup::Failed(err) => {
+                match shader_asset_id {
+                    Some(id) => {
+                        logger::warn!(
+                            "material pipeline build failed (shader_asset_id={id}, kind={kind:?}): {err}; falling back to Null"
+                        );
+                    }
+                    None => {
+                        logger::warn!(
+                            "material pipeline build failed (kind={kind:?}): {err}; falling back to Null"
+                        );
+                    }
                 }
-            }
-            return None;
-        }
-        match shader_asset_id {
-            Some(id) => {
-                logger::warn!(
-                    "material pipeline build failed (shader_asset_id={id}, kind={kind:?}): {err}; falling back to Null"
-                );
-            }
-            None => {
-                logger::warn!(
-                    "material pipeline build failed (kind={kind:?}): {err}; falling back to Null"
-                );
+                return self.null_pipeline_fallback(desc, variant);
             }
         }
+    }
+
+    fn null_pipeline_fallback(
+        &self,
+        desc: &MaterialPipelineDesc,
+        variant: MaterialPipelineVariantSpec,
+    ) -> Option<MaterialPipelineSet> {
         let fallback = RasterPipelineKind::Null;
-        match self.cache.get_or_create(&fallback, desc, variant) {
-            Ok(p) => Some(p),
-            Err(e2) => {
-                logger::error!("fallback Null pipeline build failed: {e2}");
+        match self.cache.get_or_queue(&fallback, desc, variant) {
+            MaterialPipelineLookup::Ready(p) => Some(p),
+            MaterialPipelineLookup::Pending => None,
+            MaterialPipelineLookup::Failed(e) => {
+                logger::error!("fallback Null pipeline build failed: {e}");
                 None
             }
         }

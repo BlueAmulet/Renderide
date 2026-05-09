@@ -8,9 +8,9 @@ use crate::materials::{
     embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_uv0_stream,
     embedded_stem_needs_uv1_stream, embedded_stem_requires_intersection_pass,
     embedded_stem_uses_alpha_blending, embedded_stem_uses_scene_color_snapshot,
-    embedded_stem_uses_scene_depth_snapshot, fallback_render_queue_for_material,
-    material_blend_mode_from_maps, material_render_queue_from_maps,
-    material_render_state_from_maps, resolve_raster_pipeline,
+    PropertyMapRef, embedded_stem_uses_scene_depth_snapshot, fallback_render_queue_for_material,
+    first_float_from_maps, first_vec4_from_maps, material_blend_mode_from_maps,
+    material_render_queue_from_maps, material_render_state_from_maps, resolve_raster_pipeline,
 };
 
 use super::FrameMaterialBatchCache;
@@ -59,12 +59,49 @@ pub(crate) struct ResolvedMaterialBatch {
     pub render_state: MaterialRenderState,
     /// Whether draws using this material should be sorted back-to-front.
     pub alpha_blended: bool,
+    /// Object-local UI rect clip. `Some` only when `_RectClip > 0.5` and the rect has area.
+    pub ui_rect_clip_local: Option<glam::Vec4>,
+}
+
+/// Resolves the object-local UI rect clip from pre-fetched property maps.
+///
+/// Returns `Some(rect)` only when `_RectClip >= 0.5` and `_Rect` has area
+/// (matches the `rect_has_area` predicate the `rect_clip.wgsl` UI module uses to decide
+/// whether to discard fragments).
+fn ui_rect_clip_local_from_maps(
+    material_map: PropertyMapRef<'_>,
+    property_block_map: PropertyMapRef<'_>,
+    pipeline_property_ids: &MaterialPipelinePropertyIds,
+) -> Option<glam::Vec4> {
+    let rect_clip = first_float_from_maps(
+        material_map,
+        property_block_map,
+        &pipeline_property_ids.rect_clip,
+    )?;
+    if rect_clip < 0.5 {
+        return None;
+    }
+    let rect =
+        first_vec4_from_maps(material_map, property_block_map, &pipeline_property_ids.rect)?;
+    let v = glam::Vec4::from_array(rect);
+    // `_Rect` is `(xMin, yMin, xMax, yMax)` -- same predicate `rect_clip.wgsl` uses to gate the
+    // fragment-shader discard. A zero-area or inverted rect would clip everything; treat that
+    // as "no rect cull active" so we don't accidentally cull legitimate non-clipped UI draws
+    // on degenerate input.
+    if v.z > v.x && v.w > v.y {
+        Some(v)
+    } else {
+        None
+    }
 }
 
 /// Builds a [`MaterialDrawBatchKey`] for one material slot from dictionary + router state.
 ///
 /// This is the full per-draw computation path. Used for cache warm-up and as a fallback for
 /// materials not present in [`FrameMaterialBatchCache`] (e.g. render-context override materials).
+///
+/// Also returns the optional object-local UI rect clip (`Some` only when `_RectClip > 0.5`
+/// and `_Rect` has area), used for overlay UI CPU rect-cull and per-draw scissor.
 pub(crate) fn batch_key_for_slot(
     material_asset_id: i32,
     property_block_id: Option<i32>,
@@ -72,7 +109,7 @@ pub(crate) fn batch_key_for_slot(
     front_face: RasterFrontFace,
     primitive_topology: RasterPrimitiveTopology,
     ctx: MaterialResolveCtx<'_>,
-) -> MaterialDrawBatchKey {
+) -> (MaterialDrawBatchKey, Option<glam::Vec4>) {
     let shader_asset_id = ctx
         .dict
         .shader_asset_for_material(material_asset_id)
@@ -139,7 +176,9 @@ pub(crate) fn batch_key_for_slot(
         ctx.pipeline_property_ids,
         fallback_render_queue_for_material(alpha_blended),
     );
-    MaterialDrawBatchKey {
+    let ui_rect_clip_local =
+        ui_rect_clip_local_from_maps(mat_map, pb_map, ctx.pipeline_property_ids);
+    let key = MaterialDrawBatchKey {
         pipeline,
         shader_asset_id,
         material_asset_id,
@@ -158,12 +197,15 @@ pub(crate) fn batch_key_for_slot(
         render_state,
         blend_mode: material_blend_mode,
         alpha_blended,
-    }
+    };
+    (key, ui_rect_clip_local)
 }
 
 /// Builds a [`MaterialDrawBatchKey`] using a pre-built [`FrameMaterialBatchCache`].
 ///
 /// Falls back to the full dictionary / router lookup path when the material is not cached.
+/// The second tuple element is the optional object-local UI rect clip (`Some` only when
+/// `_RectClip > 0.5` and `_Rect` has area).
 pub(crate) fn batch_key_for_slot_cached(
     material_asset_id: i32,
     property_block_id: Option<i32>,
@@ -172,16 +214,17 @@ pub(crate) fn batch_key_for_slot_cached(
     primitive_topology: RasterPrimitiveTopology,
     cache: &FrameMaterialBatchCache,
     ctx: MaterialResolveCtx<'_>,
-) -> MaterialDrawBatchKey {
+) -> (MaterialDrawBatchKey, Option<glam::Vec4>) {
     if let Some(resolved) = cache.get(material_asset_id, property_block_id) {
-        batch_key_from_resolved(
+        let key = batch_key_from_resolved(
             material_asset_id,
             property_block_id,
             skinned,
             front_face,
             primitive_topology,
             resolved,
-        )
+        );
+        (key, resolved.ui_rect_clip_local)
     } else {
         batch_key_for_slot(
             material_asset_id,
@@ -248,6 +291,7 @@ pub(crate) fn resolve_material_batch(
         pipeline_property_ids,
         fallback_render_queue_for_material(alpha_blended),
     );
+    let ui_rect_clip_local = ui_rect_clip_local_from_maps(mat_map, pb_map, pipeline_property_ids);
     ResolvedMaterialBatch {
         shader_asset_id,
         pipeline,
@@ -262,6 +306,7 @@ pub(crate) fn resolve_material_batch(
         render_queue,
         render_state,
         alpha_blended,
+        ui_rect_clip_local,
     }
 }
 
@@ -294,5 +339,93 @@ fn batch_key_from_resolved(
         render_state: r.render_state,
         blend_mode: r.blend_mode,
         alpha_blended: r.alpha_blended,
+    }
+}
+
+#[cfg(test)]
+mod ui_rect_clip_tests {
+    //! Resolution of `ResolvedMaterialBatch::ui_rect_clip_local` from `_RectClip` + `_Rect`.
+
+    use super::*;
+    use crate::materials::ShaderPermutation;
+    use crate::materials::host_data::{
+        MaterialPropertyStore, MaterialPropertyValue, PropertyIdRegistry,
+    };
+    use crate::materials::{MaterialRouter, RasterPipelineKind};
+
+    struct Fixture {
+        registry: PropertyIdRegistry,
+        store: MaterialPropertyStore,
+    }
+
+    impl Fixture {
+        fn new() -> Self {
+            Self {
+                registry: PropertyIdRegistry::new(),
+                store: MaterialPropertyStore::new(),
+            }
+        }
+
+        fn set(&mut self, mat: i32, name: &str, value: MaterialPropertyValue) {
+            let pid = self.registry.intern(name);
+            self.store.set_material(mat, pid, value);
+        }
+
+        fn resolve(&self, mat: i32) -> ResolvedMaterialBatch {
+            let dict = MaterialDictionary::new(&self.store);
+            let router = MaterialRouter::new(RasterPipelineKind::Null);
+            let ids = MaterialPipelinePropertyIds::new(&self.registry);
+            resolve_material_batch(mat, None, &dict, &router, &ids, ShaderPermutation::default())
+        }
+    }
+
+    #[test]
+    fn ui_rect_clip_local_is_none_when_rect_clip_missing() {
+        let mut fx = Fixture::new();
+        fx.set(
+            7,
+            "_Rect",
+            MaterialPropertyValue::Float4([0.0, 0.0, 1.0, 1.0]),
+        );
+        assert!(fx.resolve(7).ui_rect_clip_local.is_none());
+    }
+
+    #[test]
+    fn ui_rect_clip_local_is_none_when_rect_clip_zero() {
+        let mut fx = Fixture::new();
+        fx.set(7, "_RectClip", MaterialPropertyValue::Float(0.0));
+        fx.set(
+            7,
+            "_Rect",
+            MaterialPropertyValue::Float4([0.0, 0.0, 1.0, 1.0]),
+        );
+        assert!(fx.resolve(7).ui_rect_clip_local.is_none());
+    }
+
+    #[test]
+    fn ui_rect_clip_local_is_none_when_rect_has_zero_area() {
+        let mut fx = Fixture::new();
+        fx.set(7, "_RectClip", MaterialPropertyValue::Float(1.0));
+        fx.set(
+            7,
+            "_Rect",
+            MaterialPropertyValue::Float4([0.5, 0.5, 0.5, 0.5]),
+        );
+        assert!(fx.resolve(7).ui_rect_clip_local.is_none());
+    }
+
+    #[test]
+    fn ui_rect_clip_local_is_some_when_clip_enabled_and_rect_has_area() {
+        let mut fx = Fixture::new();
+        fx.set(7, "_RectClip", MaterialPropertyValue::Float(1.0));
+        fx.set(
+            7,
+            "_Rect",
+            MaterialPropertyValue::Float4([0.1, 0.2, 0.7, 0.9]),
+        );
+        assert_eq!(
+            fx.resolve(7).ui_rect_clip_local,
+            Some(glam::Vec4::new(0.1, 0.2, 0.7, 0.9))
+        );
     }
 }

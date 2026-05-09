@@ -22,7 +22,10 @@ use crate::camera::{HostCameraFrame, WorldProjectionSet, view_matrix_from_render
 use crate::occlusion::HiZCullData;
 use crate::occlusion::hi_z_pyramid_dimensions;
 
-pub(crate) use eval::{CpuCullFailure, mesh_cpu_cull_with_geometry, mesh_draw_passes_cpu_cull};
+pub(crate) use eval::{
+    CpuCullFailure, mesh_cpu_cull_with_geometry, mesh_draw_passes_cpu_cull,
+    overlay_rect_clip_visible,
+};
 pub use frustum::world_aabb_from_local_bounds;
 pub(crate) use geometry::{
     MeshCullGeometry, MeshCullTarget, mesh_world_geometry_for_cull_with_head,

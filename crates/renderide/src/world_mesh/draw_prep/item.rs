@@ -109,6 +109,8 @@ pub struct WorldMeshDrawItem {
     pub rigid_world_matrix: Option<Mat4>,
     /// CPU-selected specular reflection probes for this draw.
     pub reflection_probes: ReflectionProbeDrawSelection,
+    /// Object-local UI rect clip. `Some` enables overlay rect-clip cull and per-draw scissor.
+    pub ui_rect_clip_local: Option<glam::Vec4>,
 }
 
 /// Returns the submesh index range that should be drawn for one renderer material slot.

@@ -29,6 +29,14 @@ impl ReflectionProbeServices {
         }
     }
 
+    /// Starts SH2 projection pipeline builds early so first probe use does not discover them lazily.
+    pub(super) fn pre_warm_sh2_projection_pipelines(
+        &mut self,
+        device: &std::sync::Arc<wgpu::Device>,
+    ) {
+        self.sh2.pre_warm_projection_pipelines(device);
+    }
+
     /// Answers host SH2 task rows for the latest frame submit without blocking GPU readback.
     pub(super) fn answer_sh2_frame_submit_tasks(
         &mut self,

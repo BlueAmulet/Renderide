@@ -38,6 +38,10 @@ struct ForwardPassBindGroups<'a> {
 struct ForwardPassRasterConfig {
     /// Whether draw calls may use non-zero `first_instance`.
     supports_base_instance: bool,
+    /// Overlay view-projection used by the per-draw UI scissor.
+    overlay_view_proj: glam::Mat4,
+    /// Active viewport extent in pixels.
+    viewport_px: (u32, u32),
 }
 
 /// Draw state for a render pass that has already been opened.
@@ -97,6 +101,8 @@ fn record_world_mesh_forward_subpass(
         empty_bg: bind_groups.empty_material.as_ref(),
         per_draw_bind_group: bind_groups.per_draw,
         supports_base_instance: cfg.supports_base_instance,
+        overlay_view_proj: cfg.overlay_view_proj,
+        viewport_px: cfg.viewport_px,
     });
 }
 
@@ -158,6 +164,8 @@ fn record_world_mesh_forward_graph_raster(
 
     let raster_cfg = ForwardPassRasterConfig {
         supports_base_instance: prepared.supports_base_instance,
+        overlay_view_proj: prepared.overlay_view_proj,
+        viewport_px: prepared.viewport_px,
     };
 
     let Some(gpu_limits) = frame.view.gpu_limits.clone() else {
