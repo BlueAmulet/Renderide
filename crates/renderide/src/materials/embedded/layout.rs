@@ -31,8 +31,8 @@ pub(crate) struct StemMaterialLayout {
 /// 2. The Unity render queue at `_RenderQueue` (PBS `AlphaHandling` family --
 ///    `PBS_DualSidedMaterial.cs` and friends bypass `SetBlendMode` and the `_ALPHACLIP`
 ///    keyword bitmask, signaling AlphaClip via queue 2450 and Opaque via queue 2000).
-/// 3. The `_SrcBlend` / `_DstBlend` factors for distinguishing alpha-blend, additive, and
-///    premultiplied alpha within the Transparent range.
+/// 3. The `_SrcBlend` / `_DstBlend` and Xiexe `_SrcBlendBase` / `_DstBlendBase` factors for
+///    distinguishing alpha-blend, additive, and premultiplied alpha within the Transparent range.
 /// 4. The UI stencil and color-mask properties for reconstructing unshipped `RECTCLIP`
 ///    keyword state on masked content draws.
 ///
@@ -47,6 +47,8 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) render_queue: i32,
     pub(crate) src_blend: i32,
     pub(crate) dst_blend: i32,
+    pub(crate) src_blend_base: i32,
+    pub(crate) dst_blend_base: i32,
     /// Unity UI stencil reference property.
     pub(crate) stencil_ref: i32,
     /// Unity UI stencil comparison property.
@@ -132,6 +134,8 @@ impl EmbeddedSharedKeywordIds {
             render_queue: registry.intern("_RenderQueue"),
             src_blend: registry.intern("_SrcBlend"),
             dst_blend: registry.intern("_DstBlend"),
+            src_blend_base: registry.intern("_SrcBlendBase"),
+            dst_blend_base: registry.intern("_DstBlendBase"),
             stencil_ref: registry.intern("_Stencil"),
             stencil_comp: registry.intern("_StencilComp"),
             stencil_op: registry.intern("_StencilOp"),
