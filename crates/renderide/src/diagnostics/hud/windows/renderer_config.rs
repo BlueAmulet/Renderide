@@ -791,7 +791,7 @@ fn post_processing_tonemap(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut
         }
     }
     ui.text_disabled(
-        "ACES Fitted is the high-quality reference curve used by AAA pipelines. \
-         `None` skips tonemapping (HDR pass-through; values >1 will clip in the swapchain).",
+        "ACES Fitted is filmic with stronger hue shifts. AgX is more neutral. `None` skips \
+         tonemapping (HDR pass-through; values >1 will clip in the swapchain).",
     );
 }

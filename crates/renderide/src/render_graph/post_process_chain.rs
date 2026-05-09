@@ -12,7 +12,7 @@
 //! [`GtaoEffect`](crate::passes::post_processing::GtaoEffect),
 //! [`AutoExposureEffect`](crate::passes::post_processing::AutoExposureEffect),
 //! [`BloomEffect`](crate::passes::post_processing::BloomEffect), and
-//! [`AcesTonemapPass`](crate::passes::post_processing::AcesTonemapPass).
+//! tonemap effects from [`crate::passes::post_processing`].
 
 mod chain;
 pub(crate) mod effect;

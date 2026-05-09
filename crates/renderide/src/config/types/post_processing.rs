@@ -119,6 +119,16 @@ mod tests {
     }
 
     #[test]
+    fn post_processing_toml_roundtrip_with_agx_mode() {
+        let mut s = RendererSettings::default();
+        s.post_processing.tonemap.mode = TonemapMode::AgX;
+        let toml = toml::to_string(&s).expect("serialize");
+        assert!(toml.contains("mode = \"agx\""), "got:\n{toml}");
+        let back: RendererSettings = toml::from_str(&toml).expect("deserialize");
+        assert_eq!(back.post_processing.tonemap.mode, TonemapMode::AgX);
+    }
+
+    #[test]
     fn missing_post_processing_section_yields_defaults() {
         let toml = "\n[display]\nfocused_fps = 60\nunfocused_fps = 30\n";
         let s: RendererSettings = toml::from_str(toml).expect("deserialize");

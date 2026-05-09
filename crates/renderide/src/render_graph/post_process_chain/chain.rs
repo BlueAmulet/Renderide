@@ -33,6 +33,8 @@ pub struct PostProcessChainSignature {
     pub auto_exposure: bool,
     /// Stephen Hill ACES Fitted tonemap pass active.
     pub aces_tonemap: bool,
+    /// Analytic AgX tonemap pass active.
+    pub agx_tonemap: bool,
     /// Effective bloom mip 0 target height (px). Baked into the mip-chain transient texture
     /// extents at graph-build time via
     /// [`crate::render_graph::resources::TransientExtent::BackbufferScaledMip`], so a change here
@@ -57,6 +59,7 @@ impl PostProcessChainSignature {
             bloom,
             auto_exposure,
             aces_tonemap: master && matches!(settings.tonemap.mode, TonemapMode::AcesFitted),
+            agx_tonemap: master && matches!(settings.tonemap.mode, TonemapMode::AgX),
             bloom_max_mip_dimension: if bloom {
                 settings.bloom.effective_max_mip_dimension()
             } else {
@@ -68,7 +71,7 @@ impl PostProcessChainSignature {
     /// Returns `true` when no effects are active and the chain should be skipped entirely.
     #[cfg(test)]
     pub fn is_empty(self) -> bool {
-        !self.gtao && !self.bloom && !self.auto_exposure && !self.aces_tonemap
+        !self.gtao && !self.bloom && !self.auto_exposure && !self.aces_tonemap && !self.agx_tonemap
     }
 
     /// Number of active effects.
@@ -77,6 +80,7 @@ impl PostProcessChainSignature {
             + usize::from(self.bloom)
             + usize::from(self.auto_exposure)
             + usize::from(self.aces_tonemap)
+            + usize::from(self.agx_tonemap)
     }
 }
 
@@ -411,9 +415,16 @@ mod tests {
         s.enabled = true;
         let sig = PostProcessChainSignature::from_settings(&s);
         assert!(sig.aces_tonemap);
+        assert!(!sig.agx_tonemap);
         assert!(sig.gtao);
         assert!(sig.bloom);
         assert!(sig.auto_exposure);
+        assert_eq!(sig.active_count(), 4);
+
+        s.tonemap.mode = TonemapMode::AgX;
+        let sig = PostProcessChainSignature::from_settings(&s);
+        assert!(!sig.aces_tonemap);
+        assert!(sig.agx_tonemap);
         assert_eq!(sig.active_count(), 4);
 
         s.tonemap.mode = TonemapMode::None;
@@ -440,6 +451,7 @@ mod tests {
         let sig = PostProcessChainSignature::from_settings(&s);
         assert!(sig.gtao);
         assert!(!sig.aces_tonemap);
+        assert!(!sig.agx_tonemap);
         assert!(!sig.bloom);
         assert_eq!(sig.active_count(), 1);
 
@@ -448,6 +460,34 @@ mod tests {
 
         s.enabled = false;
         assert!(PostProcessChainSignature::from_settings(&s).is_empty());
+    }
+
+    #[test]
+    fn signature_tracks_agx_tonemap_independently_of_aces() {
+        let s = PostProcessingSettings {
+            enabled: true,
+            gtao: crate::config::GtaoSettings {
+                enabled: false,
+                ..Default::default()
+            },
+            bloom: crate::config::BloomSettings {
+                enabled: false,
+                ..Default::default()
+            },
+            auto_exposure: crate::config::AutoExposureSettings {
+                enabled: false,
+                ..Default::default()
+            },
+            tonemap: TonemapSettings {
+                mode: TonemapMode::AgX,
+            },
+        };
+
+        let sig = PostProcessChainSignature::from_settings(&s);
+
+        assert!(sig.agx_tonemap);
+        assert!(!sig.aces_tonemap);
+        assert_eq!(sig.active_count(), 1);
     }
 
     #[test]

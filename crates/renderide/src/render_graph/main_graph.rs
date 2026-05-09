@@ -545,6 +545,7 @@ fn build_default_post_processing_chain(
         settings: post_processing_settings.bloom,
     }));
     chain.push(Box::new(crate::passes::AcesTonemapEffect));
+    chain.push(Box::new(crate::passes::AgxTonemapEffect));
     chain
 }
 
@@ -648,6 +649,27 @@ mod tests {
         }
     }
 
+    fn agx_enabled_post() -> PostProcessingSettings {
+        PostProcessingSettings {
+            enabled: true,
+            gtao: GtaoSettings {
+                enabled: false,
+                ..Default::default()
+            },
+            bloom: BloomSettings {
+                enabled: false,
+                ..Default::default()
+            },
+            auto_exposure: crate::config::AutoExposureSettings {
+                enabled: false,
+                ..Default::default()
+            },
+            tonemap: TonemapSettings {
+                mode: TonemapMode::AgX,
+            },
+        }
+    }
+
     fn gtao_enabled_post() -> PostProcessingSettings {
         PostProcessingSettings {
             enabled: true,
@@ -738,6 +760,24 @@ mod tests {
     }
 
     #[test]
+    fn enabling_agx_adds_a_pass_and_a_transient() {
+        let g_off = build_main_graph(smoke_key(), &no_post()).expect("default graph");
+        let post = agx_enabled_post();
+        let mut key_on = smoke_key();
+        key_on.post_processing = PostProcessChainSignature::from_settings(&post);
+        let g_on = build_main_graph(key_on, &post).expect("agx graph");
+        let pass_names: Vec<&str> = g_on.pass_info.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(g_on.pass_count(), g_off.pass_count() + 1);
+        assert!(pass_names.contains(&"AgxTonemap"));
+        assert!(!pass_names.contains(&"AcesTonemap"));
+        assert!(g_on.needs_surface_acquire());
+        assert!(
+            g_on.compile_stats.transient_texture_count
+                >= g_off.compile_stats.transient_texture_count
+        );
+    }
+
+    #[test]
     fn mono_gtao_graph_declares_no_layer_one_view_depth() {
         let post = gtao_enabled_post();
         let mut key = smoke_key();
@@ -820,6 +860,37 @@ mod tests {
         assert!(auto_apply_pos < bloom_downsample_pos);
         assert!(bloom_downsample_pos < bloom_composite_pos);
         assert!(bloom_composite_pos < aces_tonemap_pos);
+    }
+
+    #[test]
+    fn agx_post_processing_orders_exposure_before_bloom_and_tonemap_last() {
+        let mut post = PostProcessingSettings {
+            tonemap: TonemapSettings {
+                mode: TonemapMode::AgX,
+            },
+            ..Default::default()
+        };
+        post.gtao.enabled = false;
+        let mut key = smoke_key();
+        key.post_processing = PostProcessChainSignature::from_settings(&post);
+        let graph = build_main_graph(key, &post).expect("agx post-processing graph");
+        let pass_names: Vec<&str> = graph.pass_info.iter().map(|p| p.name.as_str()).collect();
+        let auto_apply_pos = pass_names
+            .iter()
+            .position(|name| *name == "AutoExposureApply")
+            .expect("auto-exposure apply pass");
+        let bloom_composite_pos = pass_names
+            .iter()
+            .position(|name| *name == "BloomComposite")
+            .expect("bloom composite pass");
+        let agx_tonemap_pos = pass_names
+            .iter()
+            .position(|name| *name == "AgxTonemap")
+            .expect("AgX tonemap pass");
+
+        assert!(auto_apply_pos < bloom_composite_pos);
+        assert!(bloom_composite_pos < agx_tonemap_pos);
+        assert!(!pass_names.contains(&"AcesTonemap"));
     }
 
     #[test]

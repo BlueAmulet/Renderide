@@ -15,7 +15,9 @@ mod world_mesh_forward;
 pub use clustered_light::{ClusteredLightGraphResources, ClusteredLightPass};
 pub use hi_z_build::{HiZBuildGraphResources, HiZBuildPass};
 pub use mesh_deform::MeshDeformPass;
-pub use post_processing::{AcesTonemapEffect, AutoExposureEffect, BloomEffect, GtaoEffect};
+pub use post_processing::{
+    AcesTonemapEffect, AgxTonemapEffect, AutoExposureEffect, BloomEffect, GtaoEffect,
+};
 pub use scene_color_compose::{SceneColorComposeGraphResources, SceneColorComposePass};
 pub(crate) use world_mesh_forward::{
     GTAO_VIEW_NORMAL_FORMAT, PreparedWorldMeshForwardFrame, WorldMeshForwardEncodeRefs,
