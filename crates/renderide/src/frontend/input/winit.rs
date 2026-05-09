@@ -48,6 +48,10 @@ pub fn apply_window_event(acc: &mut WindowInputAccumulator, window: &Window, eve
                 acc.clear_stuck_keyboard_on_focus_lost();
             }
         }
+        WindowEvent::ModifiersChanged(modifiers) => {
+            profiling::scope!("frontend::window_event", "modifiers");
+            acc.set_keyboard_modifiers(modifiers.state());
+        }
         WindowEvent::MouseInput { state, button, .. } => {
             profiling::scope!("frontend::window_event", "mouse_button");
             apply_mouse_button(acc, *state, *button);

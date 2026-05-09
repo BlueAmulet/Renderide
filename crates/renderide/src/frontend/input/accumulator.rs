@@ -2,6 +2,7 @@
 
 use glam::{IVec2, Vec2};
 use winit::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
+use winit::keyboard::ModifiersState;
 use winit::window::Window;
 
 use crate::shared::{DragAndDropEvent, InputState, Key, KeyboardState, MouseState, WindowState};
@@ -49,6 +50,8 @@ pub struct WindowInputAccumulator {
     pending_drop_paths: Vec<String>,
     /// Last cursor position in physical pixels (for drop-point reporting).
     last_cursor_pixel: IVec2,
+    keyboard_modifiers: ModifiersState,
+    fullscreen: bool,
 }
 
 impl Default for WindowInputAccumulator {
@@ -71,6 +74,8 @@ impl Default for WindowInputAccumulator {
             text_typing_buffer: String::new(),
             pending_drop_paths: Vec::new(),
             last_cursor_pixel: IVec2::ZERO,
+            keyboard_modifiers: ModifiersState::empty(),
+            fullscreen: false,
         }
     }
 }
@@ -89,6 +94,21 @@ impl WindowInputAccumulator {
     /// Records a file dropped onto the window; paths are batched into the next [`InputState`].
     pub fn push_dropped_file_path(&mut self, path_str: String) {
         self.pending_drop_paths.push(path_str);
+    }
+
+    /// Records the current winit keyboard modifier state.
+    pub fn set_keyboard_modifiers(&mut self, modifiers: ModifiersState) {
+        self.keyboard_modifiers = modifiers;
+    }
+
+    /// Returns the current winit keyboard modifier state.
+    pub fn keyboard_modifiers(&self) -> ModifiersState {
+        self.keyboard_modifiers
+    }
+
+    /// Records whether the renderer window is currently fullscreen.
+    pub fn set_fullscreen(&mut self, fullscreen: bool) {
+        self.fullscreen = fullscreen;
     }
 
     /// Updates cursor position from winit [`WindowEvent::CursorMoved`](winit::event::WindowEvent::CursorMoved).
@@ -121,7 +141,7 @@ impl WindowInputAccumulator {
         self.last_cursor_pixel.y = physical.y.round() as i32;
     }
 
-    /// Clears [`Self::held_keys`] when the window loses focus.
+    /// Clears [`Self::held_keys`] and modifier state when the window loses focus.
     ///
     /// After Alt+Tab or similar, the platform may not deliver key release events to this window,
     /// which would otherwise leave keys stuck in [`Self::held_keys`]. Mouse buttons are **not**
@@ -130,6 +150,7 @@ impl WindowInputAccumulator {
     /// this helper in any case.
     pub fn clear_stuck_keyboard_on_focus_lost(&mut self) {
         self.held_keys.clear();
+        self.keyboard_modifiers = ModifiersState::empty();
     }
 
     /// Consumes accumulated deltas and returns an [`InputState`] for the host.
@@ -161,7 +182,7 @@ impl WindowInputAccumulator {
         self.hud_scroll_sample = Vec2::ZERO;
         let window = WindowState {
             is_window_focused: self.window_focused,
-            is_fullscreen: false,
+            is_fullscreen: self.fullscreen,
             window_resolution: IVec2::new(
                 self.window_resolution.0 as i32,
                 self.window_resolution.1 as i32,
@@ -217,6 +238,7 @@ mod tests {
     use super::WindowInputAccumulator;
     use crate::shared::Key;
     use glam::Vec2;
+    use winit::keyboard::ModifiersState;
 
     #[test]
     fn mouse_delta_accumulates_until_take_input_state() {
@@ -258,12 +280,24 @@ mod tests {
         let mut w = WindowInputAccumulator::default();
         w.held_keys.push(Key::W);
         w.held_keys.push(Key::A);
+        w.set_keyboard_modifiers(ModifiersState::ALT);
         w.left_held = true;
         w.right_held = true;
         w.clear_stuck_keyboard_on_focus_lost();
         assert!(w.held_keys.is_empty());
+        assert_eq!(w.keyboard_modifiers(), ModifiersState::empty());
         assert!(w.left_held);
         assert!(w.right_held);
+    }
+
+    #[test]
+    fn fullscreen_state_flows_to_window_state() {
+        let mut w = WindowInputAccumulator::default();
+
+        w.set_fullscreen(true);
+        let s = w.take_input_state(false);
+
+        assert!(s.window.expect("window").is_fullscreen);
     }
 
     #[test]
