@@ -218,14 +218,19 @@ fn apply_skinned_bone_index_buffers_extracted(
     if extracted.bone_assignments.is_empty() {
         return;
     }
-    if extracted.bone_transform_indexes.is_empty() {
+    if extracted.bone_transform_indexes.is_empty()
+        && extracted
+            .bone_assignments
+            .iter()
+            .take_while(|assignment| assignment.renderable_index >= 0)
+            .any(|assignment| assignment.bone_count.max(0) > 0)
+    {
         let should_warn = BONE_INDEX_EMPTY_WARNED_SCENES.lock().insert(scene_id);
         if should_warn {
             logger::warn!(
-                "Skinned update: bone_assignments present but bone_transform_indexes empty (scene_id={scene_id}); skipping bone index application"
+                "Skinned update: positive bone assignments present but bone_transform_indexes empty (scene_id={scene_id}); skipping positive bone index application"
             );
         }
-        return;
     }
     let indexes = &extracted.bone_transform_indexes;
     let mut index_offset = 0usize;
@@ -238,12 +243,21 @@ fn apply_skinned_bone_index_buffers_extracted(
         let Some(end) = index_offset.checked_add(bone_count) else {
             break;
         };
-        if idx < space.skinned_mesh_renderers.len() && end <= indexes.len() {
-            let ids: Vec<i32> = indexes[index_offset..end].to_vec();
-            space.skinned_mesh_renderers[idx].bone_transform_indices = ids;
-            space.skinned_mesh_renderers[idx].root_bone_transform_id =
-                (assignment.root_bone_transform_id >= 0)
-                    .then_some(assignment.root_bone_transform_id);
+        if idx < space.skinned_mesh_renderers.len() {
+            if bone_count == 0 {
+                space.skinned_mesh_renderers[idx]
+                    .bone_transform_indices
+                    .clear();
+                space.skinned_mesh_renderers[idx].root_bone_transform_id =
+                    (assignment.root_bone_transform_id >= 0)
+                        .then_some(assignment.root_bone_transform_id);
+            } else if end <= indexes.len() {
+                let ids: Vec<i32> = indexes[index_offset..end].to_vec();
+                space.skinned_mesh_renderers[idx].bone_transform_indices = ids;
+                space.skinned_mesh_renderers[idx].root_bone_transform_id =
+                    (assignment.root_bone_transform_id >= 0)
+                        .then_some(assignment.root_bone_transform_id);
+            }
         }
         index_offset = end;
     }
@@ -492,6 +506,95 @@ mod posed_bounds_tests {
             space.skinned_mesh_renderers[0]
                 .posed_object_bounds
                 .is_none()
+        );
+    }
+}
+
+#[cfg(test)]
+mod bone_index_apply_tests {
+    //! Coverage for bone-assignment rows that describe skinned renderers without bones.
+
+    use crate::scene::mesh_renderable::SkinnedMeshRenderer;
+    use crate::scene::render_space::RenderSpaceState;
+    use crate::shared::BoneAssignment;
+
+    use super::{
+        ExtractedSkinnedMeshRenderablesUpdate, apply_skinned_bone_index_buffers_extracted,
+    };
+
+    fn space_with_existing_bones() -> RenderSpaceState {
+        let mut space = RenderSpaceState::default();
+        let renderer = SkinnedMeshRenderer {
+            bone_transform_indices: vec![3, 4, 5],
+            root_bone_transform_id: Some(9),
+            ..Default::default()
+        };
+        space.skinned_mesh_renderers.push(renderer);
+        space
+    }
+
+    #[test]
+    fn zero_bone_assignment_applies_without_index_slab() {
+        let mut space = space_with_existing_bones();
+        let extracted = ExtractedSkinnedMeshRenderablesUpdate {
+            bone_assignments: vec![
+                BoneAssignment {
+                    renderable_index: 0,
+                    root_bone_transform_id: 12,
+                    bone_count: 0,
+                },
+                BoneAssignment {
+                    renderable_index: -1,
+                    root_bone_transform_id: -1,
+                    bone_count: 0,
+                },
+            ],
+            bone_transform_indexes: Vec::new(),
+            ..Default::default()
+        };
+
+        apply_skinned_bone_index_buffers_extracted(&mut space, &extracted, 0);
+
+        assert!(
+            space.skinned_mesh_renderers[0]
+                .bone_transform_indices
+                .is_empty()
+        );
+        assert_eq!(
+            space.skinned_mesh_renderers[0].root_bone_transform_id,
+            Some(12)
+        );
+    }
+
+    #[test]
+    fn positive_bone_assignment_still_requires_index_slab() {
+        let mut space = space_with_existing_bones();
+        let extracted = ExtractedSkinnedMeshRenderablesUpdate {
+            bone_assignments: vec![
+                BoneAssignment {
+                    renderable_index: 0,
+                    root_bone_transform_id: 12,
+                    bone_count: 2,
+                },
+                BoneAssignment {
+                    renderable_index: -1,
+                    root_bone_transform_id: -1,
+                    bone_count: 0,
+                },
+            ],
+            bone_transform_indexes: Vec::new(),
+            ..Default::default()
+        };
+
+        apply_skinned_bone_index_buffers_extracted(&mut space, &extracted, 1);
+
+        assert_eq!(
+            space.skinned_mesh_renderers[0].bone_transform_indices,
+            vec![3, 4, 5]
+        );
+        assert_eq!(
+            space.skinned_mesh_renderers[0].root_bone_transform_id,
+            Some(9)
         );
     }
 }
