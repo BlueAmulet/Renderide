@@ -245,6 +245,8 @@ fn encode_projection_job_with_profiler(
         output: buffers.output,
         bind_group,
         buffers: vec![buffers.params],
+        textures: Vec::new(),
+        source_views: Vec::new(),
     })
 }
 

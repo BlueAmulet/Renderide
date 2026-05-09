@@ -77,7 +77,10 @@ pub use math::render_transform_to_matrix;
 pub use mesh_renderable::{
     MeshMaterialSlot, MeshRendererInstanceId, SkinnedMeshRenderer, StaticMeshRenderer,
 };
+pub(crate) use reflection_probe::changed_probe_completion;
 pub use reflection_probe::{
-    ReflectionProbeEntry, reflection_probe_skybox_only, reflection_probe_use_box_projection,
+    DrainedReflectionProbeRenderChanges, ReflectionProbeEntry,
+    ReflectionProbeOnChangesRenderRequest, reflection_probe_skybox_only,
+    reflection_probe_use_box_projection,
 };
 pub use render_space::RenderSpaceView;

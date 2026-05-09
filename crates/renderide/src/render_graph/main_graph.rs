@@ -851,15 +851,15 @@ mod tests {
             .iter()
             .position(|name| *name == "BloomComposite")
             .expect("bloom composite pass");
-        let aces_tonemap_pos = pass_names
+        let agx_tonemap_pos = pass_names
             .iter()
-            .position(|name| *name == "AcesTonemap")
-            .expect("ACES tonemap pass");
+            .position(|name| *name == "AgxTonemap")
+            .expect("AgX tonemap pass");
 
         assert!(auto_compute_pos < auto_apply_pos);
         assert!(auto_apply_pos < bloom_downsample_pos);
         assert!(bloom_downsample_pos < bloom_composite_pos);
-        assert!(bloom_composite_pos < aces_tonemap_pos);
+        assert!(bloom_composite_pos < agx_tonemap_pos);
     }
 
     #[test]

@@ -1,7 +1,9 @@
 //! Runtime-owned per-tick scratch and phase gates.
 
-use crate::scene::RenderSpaceId;
+use crate::scene::{ReflectionProbeOnChangesRenderRequest, RenderSpaceId};
 use crate::shared::{CameraRenderTask, ReflectionProbeRenderResult, ReflectionProbeRenderTask};
+
+use super::reflection_probe_render_tasks::ActiveOnChangesReflectionProbeCapture;
 
 /// Reflection-probe bake task plus the render space that carried it.
 #[derive(Clone, Debug)]
@@ -24,6 +26,14 @@ pub(super) struct RuntimeTickState {
     pub(super) pending_reflection_probe_render_tasks: Vec<QueuedReflectionProbeRenderTask>,
     /// Reflection-probe bake results waiting for the background IPC queue to accept them.
     pub(super) pending_reflection_probe_render_results: Vec<ReflectionProbeRenderResult>,
+    /// OnChanges reflection-probe capture requests waiting for GPU processing.
+    pub(super) pending_onchanges_reflection_probe_requests:
+        Vec<ReflectionProbeOnChangesRenderRequest>,
+    /// OnChanges reflection-probe captures that may span multiple ticks.
+    pub(super) active_onchanges_reflection_probe_captures:
+        Vec<ActiveOnChangesReflectionProbeCapture>,
+    /// Next renderer-side OnChanges cubemap capture generation.
+    pub(super) next_onchanges_reflection_probe_generation: u64,
 }
 
 impl RuntimeTickState {
@@ -35,6 +45,9 @@ impl RuntimeTickState {
             pending_camera_render_tasks: Vec::new(),
             pending_reflection_probe_render_tasks: Vec::new(),
             pending_reflection_probe_render_results: Vec::new(),
+            pending_onchanges_reflection_probe_requests: Vec::new(),
+            active_onchanges_reflection_probe_captures: Vec::new(),
+            next_onchanges_reflection_probe_generation: 1,
         }
     }
 

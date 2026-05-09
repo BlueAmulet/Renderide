@@ -12,17 +12,21 @@ use crate::scene::{
 };
 use crate::shared::{ReflectionProbeClear, ReflectionProbeState, ReflectionProbeType, RenderSH2};
 use crate::skybox::specular::{
-    CubemapIblSource, SkyboxIblSource, resolve_skybox_material_ibl_source, solid_color_ibl_source,
+    CubemapIblSource, RuntimeCubemapIblSource, SkyboxIblSource, resolve_skybox_material_ibl_source,
+    solid_color_ibl_source,
 };
 use crate::world_mesh::culling::world_aabb_from_local_bounds;
 
+use super::captures::{RuntimeReflectionProbeCaptureKey, RuntimeReflectionProbeCaptureStore};
 use super::selection::{SpatialProbe, aabb_valid, aabb_volume};
 
 pub(super) fn resolve_probe_source(
+    space_id: RenderSpaceId,
     skybox_material_asset_id: i32,
     probe: &ReflectionProbeEntry,
     materials: &MaterialSystem,
     assets: &AssetTransferQueue,
+    captures: &RuntimeReflectionProbeCaptureStore,
 ) -> Option<SkyboxIblSource> {
     let state = probe.state;
     if state.intensity <= 0.0 {
@@ -41,7 +45,30 @@ pub(super) fn resolve_probe_source(
     if reflection_probe_skybox_only(state.flags) && skybox_material_asset_id >= 0 {
         return resolve_skybox_material_ibl_source(skybox_material_asset_id, materials, assets);
     }
+    if state.r#type == ReflectionProbeType::OnChanges {
+        return resolve_runtime_capture_source(space_id, probe, captures);
+    }
     None
+}
+
+fn resolve_runtime_capture_source(
+    space_id: RenderSpaceId,
+    probe: &ReflectionProbeEntry,
+    captures: &RuntimeReflectionProbeCaptureStore,
+) -> Option<SkyboxIblSource> {
+    let capture = captures.get(RuntimeReflectionProbeCaptureKey {
+        space_id,
+        renderable_index: probe.renderable_index,
+    })?;
+    Some(SkyboxIblSource::RuntimeCubemap(RuntimeCubemapIblSource {
+        render_space_id: capture.key.space_id.0,
+        renderable_index: capture.key.renderable_index,
+        generation: capture.generation,
+        face_size: capture.face_size,
+        mip_levels: capture.mip_levels,
+        texture: capture.texture.clone(),
+        view: capture.view.clone(),
+    }))
 }
 
 pub(super) fn resolve_space_skybox_fallback_source(

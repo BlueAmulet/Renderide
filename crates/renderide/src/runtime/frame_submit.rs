@@ -34,6 +34,7 @@ impl RendererRuntime {
         let start = Instant::now();
         let mut apply_failed = false;
         let mut rendered_reflection_probes = Vec::new();
+        let mut onchanges_reflection_probe_requests = Vec::new();
         let mut queue_camera_tasks = false;
         let reflection_probe_task_count = reflection_probe_render_task_count(&data);
         let mut queue_reflection_probe_tasks = false;
@@ -64,8 +65,9 @@ impl RendererRuntime {
                 profiling::scope!("scene::frame_submit_reflection_probes");
                 self.backend
                     .answer_reflection_probe_sh2_tasks(shm, &self.scene, &data);
-                rendered_reflection_probes =
-                    self.scene.take_supported_reflection_probe_render_results();
+                let mut changes = self.scene.take_reflection_probe_render_changes();
+                rendered_reflection_probes.append(&mut changes.completed);
+                onchanges_reflection_probe_requests.append(&mut changes.scene_captures);
                 queue_camera_tasks = !data.render_tasks.is_empty();
                 queue_reflection_probe_tasks = reflection_probe_task_count > 0;
             } else if !data.render_tasks.is_empty() {
@@ -99,6 +101,7 @@ impl RendererRuntime {
             failed_reflection_probe_tasks,
             failed_camera_tasks,
         });
+        self.queue_onchanges_reflection_probe_requests(onchanges_reflection_probe_requests);
         self.frontend
             .enqueue_rendered_reflection_probes(rendered_reflection_probes);
         if apply_failed {

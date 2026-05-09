@@ -7,7 +7,7 @@ use crate::ipc::SharedMemoryAccessor;
 use crate::materials::MaterialSystem;
 use crate::reflection_probes::ReflectionProbeSh2System;
 use crate::reflection_probes::specular::{
-    ReflectionProbeFrameSelection, ReflectionProbeSpecularSystem,
+    ReflectionProbeFrameSelection, ReflectionProbeSpecularSystem, RuntimeReflectionProbeCapture,
 };
 use crate::scene::SceneCoordinator;
 use crate::shared::{FrameSubmitData, RenderingContext};
@@ -38,8 +38,9 @@ impl ReflectionProbeServices {
         asset_transfers: &AssetTransferQueue,
         data: &FrameSubmitData,
     ) {
+        let captures = self.specular.capture_store();
         self.sh2
-            .answer_frame_submit_tasks(shm, scene, materials, asset_transfers, data);
+            .answer_frame_submit_tasks(shm, scene, materials, asset_transfers, captures, data);
     }
 
     /// Advances nonblocking SH2 GPU jobs and schedules queued projection work.
@@ -74,5 +75,10 @@ impl ReflectionProbeServices {
     /// CPU selection snapshot used by draw collection.
     pub(super) fn selection(&self) -> &ReflectionProbeFrameSelection {
         self.specular.selection()
+    }
+
+    /// Registers a completed OnChanges runtime cubemap capture.
+    pub(super) fn register_runtime_capture(&mut self, capture: RuntimeReflectionProbeCapture) {
+        self.specular.register_runtime_capture(capture);
     }
 }

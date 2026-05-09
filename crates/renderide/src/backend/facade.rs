@@ -311,6 +311,14 @@ impl RenderBackend {
         );
     }
 
+    /// Registers a completed OnChanges runtime reflection-probe cubemap capture.
+    pub(crate) fn register_runtime_reflection_probe_capture(
+        &mut self,
+        capture: crate::reflection_probes::specular::RuntimeReflectionProbeCapture,
+    ) {
+        self.reflection_probes.register_runtime_capture(capture);
+    }
+
     /// Advances nonblocking SH2 GPU jobs and schedules queued projection work.
     pub(crate) fn maintain_reflection_probe_sh2_jobs(&mut self, gpu: &mut crate::gpu::GpuContext) {
         self.reflection_probes

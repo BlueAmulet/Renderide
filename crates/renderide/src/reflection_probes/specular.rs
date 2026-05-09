@@ -1,10 +1,15 @@
 //! Specular IBL reflection-probe baking, binding, and CPU-side selection.
 
 mod atlas;
+mod captures;
 mod selection;
 mod source;
 mod system;
 
+pub(crate) use captures::{
+    RuntimeReflectionProbeCapture, RuntimeReflectionProbeCaptureKey,
+    RuntimeReflectionProbeCaptureStore,
+};
 pub use selection::{ReflectionProbeDrawSelection, ReflectionProbeFrameSelection};
 pub use system::ReflectionProbeSpecularSystem;
 

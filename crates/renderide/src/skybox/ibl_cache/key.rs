@@ -81,6 +81,19 @@ pub(crate) enum SkyboxIblKey {
         /// Destination cube face edge.
         face_size: u32,
     },
+    /// Renderer-captured OnChanges reflection-probe cubemap identity.
+    RuntimeCubemap {
+        /// Render space that owns the captured probe.
+        render_space_id: i32,
+        /// Dense reflection-probe renderable index.
+        renderable_index: i32,
+        /// Monotonic renderer-side capture generation.
+        generation: u64,
+        /// Source mip count resident on the captured cubemap.
+        mip_levels: u32,
+        /// Destination cube face edge.
+        face_size: u32,
+    },
 }
 
 impl SkyboxIblKey {
@@ -90,7 +103,8 @@ impl SkyboxIblKey {
             Self::Analytic { face_size, .. }
             | Self::Cubemap { face_size, .. }
             | Self::Equirect { face_size, .. }
-            | Self::SolidColor { face_size, .. } => face_size,
+            | Self::SolidColor { face_size, .. }
+            | Self::RuntimeCubemap { face_size, .. } => face_size,
         }
     }
 
@@ -139,6 +153,13 @@ pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKe
         SkyboxIblSource::SolidColor(src) => SkyboxIblKey::SolidColor {
             identity: src.identity,
             color_hash: hash_float4(&src.color),
+            face_size,
+        },
+        SkyboxIblSource::RuntimeCubemap(src) => SkyboxIblKey::RuntimeCubemap {
+            render_space_id: src.render_space_id,
+            renderable_index: src.renderable_index,
+            generation: src.generation,
+            mip_levels: src.mip_levels,
             face_size,
         },
     }

@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 
 use crate::profiling::{GpuProfilerHandle, compute_pass_timestamp_writes};
 use crate::skybox::params::SkyboxEvaluatorParams;
-use crate::skybox::specular::{CubemapIblSource, EquirectIblSource};
+use crate::skybox::specular::{CubemapIblSource, EquirectIblSource, RuntimeCubemapIblSource};
 
 use super::key::{convolve_sample_count, dispatch_groups, mip_extent};
 use super::pipeline::ComputePipeline;
@@ -205,6 +205,90 @@ pub(super) fn encode_cube_mip0(ctx: CubeEncodeContext<'_>, resources: &mut Pendi
     resources.buffers.push(params_buffer);
     resources.bind_groups.push(bind_group);
     resources.texture_views.push(mip0_storage);
+    resources.source_views.push(ctx.src.view);
+}
+
+/// Inputs for [`encode_runtime_cube_mip0`].
+pub(super) struct RuntimeCubeEncodeContext<'a> {
+    pub(super) device: &'a wgpu::Device,
+    pub(super) encoder: &'a mut wgpu::CommandEncoder,
+    pub(super) pipeline: &'a ComputePipeline,
+    pub(super) texture: &'a wgpu::Texture,
+    pub(super) face_size: u32,
+    pub(super) src: RuntimeCubemapIblSource,
+    pub(super) sampler: &'a wgpu::Sampler,
+    pub(super) profiler: Option<&'a GpuProfilerHandle>,
+}
+
+/// Encodes mip 0 by resampling a renderer-captured cubemap source.
+pub(super) fn encode_runtime_cube_mip0(
+    ctx: RuntimeCubeEncodeContext<'_>,
+    resources: &mut PendingBakeResources,
+) {
+    profiling::scope!("skybox_ibl::encode_mip0_runtime_cube");
+    let params = Mip0CubeParams {
+        dst_size: ctx.face_size,
+        src_face_size: ctx.src.face_size,
+        storage_v_inverted: 0,
+        _pad0: 0,
+    };
+    let params_buffer = ctx
+        .device
+        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("skybox_ibl runtime cube mip0 params"),
+            contents: bytemuck::bytes_of(&params),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+    crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_runtime_cube_mip0_params_buffer");
+    let mip0_storage = create_mip_storage_view(ctx.texture, 0);
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("skybox_ibl runtime cube mip0 bind group"),
+        layout: &ctx.pipeline.layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: params_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(ctx.src.view.as_ref()),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(ctx.sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::TextureView(&mip0_storage),
+            },
+        ],
+    });
+    crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_runtime_cube_mip0_bind_group");
+    let pass_query = ctx
+        .profiler
+        .map(|profiler| profiler.begin_pass_query("skybox_ibl::mip0_runtime_cube", ctx.encoder));
+    {
+        let mut pass = ctx
+            .encoder
+            .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("skybox_ibl runtime cube mip0"),
+                timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
+            });
+        pass.set_pipeline(&ctx.pipeline.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(
+            dispatch_groups(ctx.face_size),
+            dispatch_groups(ctx.face_size),
+            6,
+        );
+    };
+    if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
+        profiler.end_query(ctx.encoder, query);
+    }
+    resources.buffers.push(params_buffer);
+    resources.bind_groups.push(bind_group);
+    resources.texture_views.push(mip0_storage);
+    resources.textures.push(ctx.src.texture);
     resources.source_views.push(ctx.src.view);
 }
 

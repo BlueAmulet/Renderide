@@ -34,8 +34,8 @@ mod resources;
 
 use encode::{
     AnalyticEncodeContext, ConvolveEncodeContext, CubeEncodeContext, DownsampleEncodeContext,
-    EquirectEncodeContext, encode_analytic_mip0, encode_convolve_mips, encode_cube_mip0,
-    encode_downsample_mips, encode_equirect_mip0,
+    EquirectEncodeContext, RuntimeCubeEncodeContext, encode_analytic_mip0, encode_convolve_mips,
+    encode_cube_mip0, encode_downsample_mips, encode_equirect_mip0, encode_runtime_cube_mip0,
 };
 use key::source_max_lod;
 pub(crate) use key::{SkyboxIblKey, build_key, mip_extent, mip_levels_for_edge};
@@ -492,6 +492,22 @@ impl SkyboxIblCache {
                         texture: ctx.texture,
                         face_size: ctx.face_size,
                         params: &params,
+                        profiler: ctx.profiler,
+                    },
+                    resources,
+                );
+            }
+            SkyboxIblSource::RuntimeCubemap(src) => {
+                let pipeline = self.cube_pipeline()?;
+                encode_runtime_cube_mip0(
+                    RuntimeCubeEncodeContext {
+                        device: ctx.gpu.device(),
+                        encoder: ctx.encoder,
+                        pipeline,
+                        texture: ctx.texture,
+                        face_size: ctx.face_size,
+                        src,
+                        sampler: ctx.sampler,
                         profiler: ctx.profiler,
                     },
                     resources,

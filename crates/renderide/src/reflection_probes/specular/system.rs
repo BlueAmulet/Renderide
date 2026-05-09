@@ -16,6 +16,10 @@ use crate::skybox::ibl_cache::{
 use crate::{profiling, reflection_probes::ReflectionProbeSh2System};
 
 use super::atlas::{AtlasCopyJob, ReflectionProbeAtlas, max_atlas_slots};
+use super::captures::{
+    RuntimeReflectionProbeCapture, RuntimeReflectionProbeCaptureKey,
+    RuntimeReflectionProbeCaptureStore,
+};
 use super::selection::{ReflectionProbeFrameSelection, SpatialProbe};
 use super::source::{
     metadata_for_spatial, resolve_probe_source, resolve_space_skybox_fallback_source,
@@ -33,6 +37,7 @@ pub struct ReflectionProbeSpecularSystem {
     atlas: Option<ReflectionProbeAtlas>,
     resources: Option<ReflectionProbeSpecularResources>,
     selection: ReflectionProbeFrameSelection,
+    captures: RuntimeReflectionProbeCaptureStore,
     version: u64,
 }
 
@@ -51,8 +56,20 @@ impl ReflectionProbeSpecularSystem {
             atlas: None,
             resources: None,
             selection: ReflectionProbeFrameSelection::default(),
+            captures: RuntimeReflectionProbeCaptureStore::default(),
             version: 1,
         }
+    }
+
+    /// Registers a completed runtime cubemap capture for an OnChanges reflection probe.
+    pub(crate) fn register_runtime_capture(&mut self, capture: RuntimeReflectionProbeCapture) {
+        self.captures.insert(capture);
+    }
+
+    /// Runtime OnChanges capture store used by SH2 task resolution.
+    #[must_use]
+    pub(crate) fn capture_store(&self) -> &RuntimeReflectionProbeCaptureStore {
+        &self.captures
     }
 
     /// Advances GPU bakes, updates the atlas, and rebuilds the CPU selection index.
@@ -69,6 +86,7 @@ impl ReflectionProbeSpecularSystem {
         self.ibl_cache.maintain_completed_jobs(gpu.device());
         let face_size = clamp_face_size(DEFAULT_REFLECTION_PROBE_FACE_SIZE, gpu.limits());
         let mut active_keys = HashSet::new();
+        let mut active_capture_keys = HashSet::new();
         let mut ready = Vec::new();
         let mut skybox_fallbacks = Vec::new();
 
@@ -103,11 +121,19 @@ impl ReflectionProbeSpecularSystem {
                     space_id,
                     renderable_index: probe.renderable_index,
                 };
+                if probe.state.r#type == crate::shared::ReflectionProbeType::OnChanges {
+                    active_capture_keys.insert(RuntimeReflectionProbeCaptureKey {
+                        space_id,
+                        renderable_index: probe.renderable_index,
+                    });
+                }
                 let Some(source) = resolve_probe_source(
+                    space_id,
                     space.skybox_material_asset_id(),
                     probe,
                     materials,
                     assets,
+                    &self.captures,
                 ) else {
                     continue;
                 };
@@ -138,6 +164,7 @@ impl ReflectionProbeSpecularSystem {
                 });
             }
         }
+        self.captures.retain_active(&active_capture_keys);
         self.ibl_cache.prune_completed_except(&active_keys);
         ready.sort_unstable_by_key(|probe| {
             (probe.identity.space_id.0, probe.identity.renderable_index)

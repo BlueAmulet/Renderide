@@ -15,6 +15,9 @@ use crate::backend::material_property_reader::texture_property;
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
+use crate::reflection_probes::specular::{
+    RuntimeReflectionProbeCaptureKey, RuntimeReflectionProbeCaptureStore,
+};
 use crate::scene::{RenderSpaceId, SceneCoordinator, reflection_probe_skybox_only};
 use crate::shared::{ReflectionProbeClear, ReflectionProbeType, RenderSH2};
 use crate::skybox::params::{
@@ -36,6 +39,7 @@ pub(super) fn resolve_task_source(
     scene: &SceneCoordinator,
     materials: &crate::materials::MaterialSystem,
     assets: &crate::backend::AssetTransferQueue,
+    captures: &RuntimeReflectionProbeCaptureStore,
     render_space_id: i32,
     task: TaskHeader,
 ) -> Option<(Sh2SourceKey, Sh2ResolvedSource)> {
@@ -118,6 +122,13 @@ pub(super) fn resolve_task_source(
     }
 
     if !reflection_probe_skybox_only(state.flags) {
+        if state.r#type == ReflectionProbeType::OnChanges {
+            return resolve_runtime_capture_source(
+                render_space_id,
+                probe.renderable_index,
+                captures,
+            );
+        }
         return None;
     }
     resolve_skybox_source(
@@ -126,6 +137,43 @@ pub(super) fn resolve_task_source(
         materials,
         assets,
     )
+}
+
+fn resolve_runtime_capture_source(
+    render_space_id: i32,
+    renderable_index: i32,
+    captures: &RuntimeReflectionProbeCaptureStore,
+) -> Option<(Sh2SourceKey, Sh2ResolvedSource)> {
+    let key = RuntimeReflectionProbeCaptureKey {
+        space_id: RenderSpaceId(render_space_id),
+        renderable_index,
+    };
+    let Some(capture) = captures.get(key) else {
+        return Some((
+            Sh2SourceKey::RuntimeCubemap {
+                render_space_id,
+                renderable_index,
+                generation: 0,
+                size: 0,
+                sample_size: DEFAULT_SAMPLE_SIZE,
+            },
+            Sh2ResolvedSource::Postpone,
+        ));
+    };
+    let key = Sh2SourceKey::RuntimeCubemap {
+        render_space_id,
+        renderable_index,
+        generation: capture.generation,
+        size: capture.face_size,
+        sample_size: DEFAULT_SAMPLE_SIZE,
+    };
+    Some((
+        key,
+        Sh2ResolvedSource::Gpu(GpuSh2Source::RuntimeCubemap {
+            texture: capture.texture.clone(),
+            view: capture.view.clone(),
+        }),
+    ))
 }
 
 /// Resolves an active skybox material into a source payload.

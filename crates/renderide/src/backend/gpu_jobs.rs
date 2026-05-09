@@ -4,6 +4,8 @@
 //! notification or a CPU readback outside the render graph. Frame-shape render work stays in
 //! the graph so transient resources, barriers, and pass ordering remain explicit there.
 
+use std::sync::Arc;
+
 mod readback;
 mod submit;
 
@@ -20,8 +22,12 @@ pub(crate) struct GpuJobResources {
     _buffers: Vec<wgpu::Buffer>,
     /// Textures retained until the job completes.
     _textures: Vec<wgpu::Texture>,
+    /// Shared textures retained until the job completes.
+    _shared_textures: Vec<Arc<wgpu::Texture>>,
     /// Texture views retained until the job completes.
     _texture_views: Vec<wgpu::TextureView>,
+    /// Shared texture views retained until the job completes.
+    _shared_texture_views: Vec<Arc<wgpu::TextureView>>,
     /// Samplers retained until the job completes.
     _samplers: Vec<wgpu::Sampler>,
     /// Bind groups retained until the job completes.
@@ -49,6 +55,18 @@ impl GpuJobResources {
     /// Retains one bind group.
     pub(crate) fn with_bind_group(mut self, bind_group: wgpu::BindGroup) -> Self {
         self._bind_groups.push(bind_group);
+        self
+    }
+
+    /// Retains one shared texture.
+    pub(crate) fn with_shared_texture(mut self, texture: Arc<wgpu::Texture>) -> Self {
+        self._shared_textures.push(texture);
+        self
+    }
+
+    /// Retains one shared texture view.
+    pub(crate) fn with_shared_texture_view(mut self, view: Arc<wgpu::TextureView>) -> Self {
+        self._shared_texture_views.push(view);
         self
     }
 }
