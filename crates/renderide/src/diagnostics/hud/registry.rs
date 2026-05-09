@@ -36,10 +36,14 @@ impl DebugWindow {
 
     /// Returns `true` when this window should render this frame.
     ///
+    /// The master ImGui visibility toggle hides every window when off.
     /// The four debug windows are gated by their dedicated [`crate::config::DebugSettings`] flag.
-    /// **Renderer config** has no settings gate -- its visibility is driven by the close-button
-    /// open flag persisted in [`crate::diagnostics::HudUiState::renderer_config_open`].
+    /// **Renderer config** has no per-window settings gate -- its visibility is driven by the
+    /// close-button open flag persisted in [`crate::diagnostics::HudUiState::renderer_config_open`].
     pub fn enabled(self, flags: OverlayFeatureFlags) -> bool {
+        if !flags.imgui_visible {
+            return false;
+        }
         match self {
             Self::FrameTiming => flags.frame_timing,
             Self::Main => flags.main,
@@ -52,16 +56,30 @@ impl DebugWindow {
 
 /// Per-frame snapshot of which optional HUD windows are enabled by
 /// [`crate::config::DebugSettings`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OverlayFeatureFlags {
-    /// **Frame timing** window enabled.
+    /// Master ImGui overlay visibility toggle.
+    pub imgui_visible: bool,
+    /// **Frame timing** window enabled, before master visibility gating.
     pub frame_timing: bool,
-    /// **Renderide debug** main panel enabled.
+    /// **Renderide debug** main panel enabled, before master visibility gating.
     pub main: bool,
-    /// **Scene transforms** window enabled.
+    /// **Scene transforms** window enabled, before master visibility gating.
     pub scene_transforms: bool,
-    /// **Textures** window enabled.
+    /// **Textures** window enabled, before master visibility gating.
     pub textures: bool,
+}
+
+impl Default for OverlayFeatureFlags {
+    fn default() -> Self {
+        Self {
+            imgui_visible: true,
+            frame_timing: false,
+            main: false,
+            scene_transforms: false,
+            textures: false,
+        }
+    }
 }
 
 impl OverlayFeatureFlags {
@@ -73,12 +91,14 @@ impl OverlayFeatureFlags {
         settings
             .read()
             .map(|g| OverlayFeatureFlags {
+                imgui_visible: g.debug.hud.imgui_visible,
                 frame_timing: g.debug.debug_hud_frame_timing,
                 main: g.debug.debug_hud_enabled,
                 scene_transforms: g.debug.debug_hud_transforms,
                 textures: g.debug.debug_hud_textures,
             })
             .unwrap_or(OverlayFeatureFlags {
+                imgui_visible: true,
                 frame_timing: true,
                 main: false,
                 scene_transforms: false,
@@ -91,7 +111,8 @@ impl OverlayFeatureFlags {
     /// Used by [`crate::diagnostics::DebugHud::has_visible_content`] to skip the entire HUD
     /// command encoder + GPU profiler query wrap when no debug windows are open.
     pub fn any_debug_content(self) -> bool {
-        self.frame_timing || self.main || self.scene_transforms || self.textures
+        self.imgui_visible
+            && (self.frame_timing || self.main || self.scene_transforms || self.textures)
     }
 }
 
@@ -100,12 +121,14 @@ mod tests {
     use super::{DebugWindow, OverlayFeatureFlags};
 
     const ALL_OFF: OverlayFeatureFlags = OverlayFeatureFlags {
+        imgui_visible: true,
         frame_timing: false,
         main: false,
         scene_transforms: false,
         textures: false,
     };
     const ALL_ON: OverlayFeatureFlags = OverlayFeatureFlags {
+        imgui_visible: true,
         frame_timing: true,
         main: true,
         scene_transforms: true,
@@ -125,7 +148,22 @@ mod tests {
     }
 
     #[test]
-    fn renderer_config_window_is_always_enabled_regardless_of_flags() {
+    fn master_visibility_disables_every_window() {
+        let flags = OverlayFeatureFlags {
+            imgui_visible: false,
+            ..ALL_ON
+        };
+        for &w in DebugWindow::ALL {
+            assert!(
+                !w.enabled(flags),
+                "{w:?} must be disabled when ImGui is hidden"
+            );
+        }
+        assert!(!flags.any_debug_content());
+    }
+
+    #[test]
+    fn renderer_config_window_is_enabled_when_master_visible_regardless_of_debug_flags() {
         assert!(DebugWindow::RendererConfig.enabled(ALL_OFF));
     }
 

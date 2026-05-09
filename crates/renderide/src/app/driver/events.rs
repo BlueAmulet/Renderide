@@ -1,8 +1,9 @@
 //! Winit event handling for the app driver.
 
 use winit::application::ApplicationHandler;
-use winit::event::{DeviceEvent, WindowEvent};
+use winit::event::{DeviceEvent, ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, DeviceEvents};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::WindowId;
 
 use crate::frontend::input::{apply_device_event, apply_window_event};
@@ -71,9 +72,17 @@ impl ApplicationHandler for AppDriver {
         if target.window().id() != window_id {
             return;
         }
+        let window = std::sync::Arc::clone(target.window());
 
         profiling::scope!("app::window_event");
-        apply_window_event(&mut self.input, target.window(), &event);
+        if imgui_visibility_shortcut(&event) {
+            self.runtime.toggle_imgui_visibility();
+            window.request_redraw();
+            self.flush_logs_if_due();
+            return;
+        }
+
+        apply_window_event(&mut self.input, window.as_ref(), &event);
 
         match event {
             WindowEvent::CloseRequested => {
@@ -180,5 +189,80 @@ impl ApplicationHandler for AppDriver {
             event_loop.set_control_flow(ControlFlow::Poll);
         }
         self.flush_logs_if_due();
+    }
+}
+
+fn imgui_visibility_shortcut(event: &WindowEvent) -> bool {
+    let WindowEvent::KeyboardInput {
+        event,
+        is_synthetic,
+        ..
+    } = event
+    else {
+        return false;
+    };
+    imgui_visibility_shortcut_from_parts(
+        event.physical_key,
+        event.state,
+        event.repeat,
+        *is_synthetic,
+    )
+}
+
+fn imgui_visibility_shortcut_from_parts(
+    physical_key: PhysicalKey,
+    state: ElementState,
+    repeat: bool,
+    is_synthetic: bool,
+) -> bool {
+    !is_synthetic
+        && !repeat
+        && state == ElementState::Pressed
+        && physical_key == PhysicalKey::Code(KeyCode::F7)
+}
+
+#[cfg(test)]
+mod tests {
+    use winit::event::ElementState;
+    use winit::keyboard::{KeyCode, PhysicalKey};
+
+    use super::imgui_visibility_shortcut_from_parts;
+
+    #[test]
+    fn imgui_visibility_shortcut_accepts_f7_press() {
+        assert!(imgui_visibility_shortcut_from_parts(
+            PhysicalKey::Code(KeyCode::F7),
+            ElementState::Pressed,
+            false,
+            false,
+        ));
+    }
+
+    #[test]
+    fn imgui_visibility_shortcut_rejects_repeat_release_synthetic_and_other_keys() {
+        assert!(!imgui_visibility_shortcut_from_parts(
+            PhysicalKey::Code(KeyCode::F7),
+            ElementState::Pressed,
+            true,
+            false,
+        ));
+        assert!(!imgui_visibility_shortcut_from_parts(
+            PhysicalKey::Code(KeyCode::F7),
+            ElementState::Released,
+            false,
+            false,
+        ));
+        assert!(!imgui_visibility_shortcut_from_parts(
+            PhysicalKey::Code(KeyCode::F7),
+            ElementState::Pressed,
+            false,
+            true,
+        ));
+        assert!(!imgui_visibility_shortcut_from_parts(
+            PhysicalKey::Code(KeyCode::F6),
+            ElementState::Pressed,
+            false,
+            false,
+        ));
     }
 }

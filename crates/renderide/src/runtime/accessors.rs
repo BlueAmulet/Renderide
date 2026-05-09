@@ -53,6 +53,13 @@ impl RendererRuntime {
         &self.config.settings
     }
 
+    /// Toggles the master ImGui overlay visibility setting and clears stale HUD input capture.
+    pub fn toggle_imgui_visibility(&mut self) {
+        if self.config.toggle_imgui_visibility().is_some() {
+            self.backend.clear_debug_hud_input_capture();
+        }
+    }
+
     /// Opens Primary/Background queues when [`Self::new`] was given connection parameters.
     pub fn connect_ipc(&mut self) -> Result<(), InitError> {
         self.frontend.connect_ipc()

@@ -480,6 +480,16 @@ impl RenderBackend {
         self.diagnostics.last_want_capture_keyboard()
     }
 
+    /// Whether the HUD will draw visible content this frame.
+    pub(crate) fn debug_hud_has_visible_content(&self) -> bool {
+        self.diagnostics.has_visible_content()
+    }
+
+    /// Clears cached input-capture state when HUD encoding is skipped.
+    pub(crate) fn clear_debug_hud_input_capture(&mut self) {
+        self.diagnostics.clear_input_capture();
+    }
+
     /// Stores [`crate::diagnostics::RendererInfoSnapshot`] for the next HUD frame.
     pub(crate) fn set_debug_hud_snapshot(
         &mut self,
