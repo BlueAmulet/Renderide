@@ -270,6 +270,7 @@ fn collect_view_draws(
                 view_origin_world: prep.view_origin_world(),
                 culling: culling.as_ref(),
                 transform_filter: prep.draw_filter.as_ref(),
+                render_space_filter: prep.render_space_filter,
                 material_cache,
                 reflection_probes: Some(setup.reflection_probes),
                 prepared: Some(setup.prepared_renderables),
@@ -406,6 +407,7 @@ mod tests {
         FrameViewPlan {
             host_camera: HostCameraFrame::default(),
             draw_filter: None,
+            render_space_filter: None,
             view_id: ViewId::Main,
             viewport_px: (640, 480),
             clear: FrameViewClear::default(),

@@ -245,6 +245,12 @@ fn collect_prepared_renderer_run(
     let Some(first) = run.first() else {
         return (0, 0, 0);
     };
+    if ctx
+        .render_space_filter
+        .is_some_and(|space_id| first.space_id != space_id)
+    {
+        return (0, 0, 0);
+    }
     if !prepared_run_passes_filter(first, ctx, filter_masks) {
         return (0, 0, 0);
     }

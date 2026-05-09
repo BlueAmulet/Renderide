@@ -637,6 +637,7 @@ fn plan_reflection_probe_task(
                 face,
             ),
             draw_filter: Some(filter.clone()),
+            render_space_filter: Some(queued.render_space_id),
             view_id: ViewId::reflection_probe_render_task(
                 queued.render_space_id,
                 task.render_task_id,

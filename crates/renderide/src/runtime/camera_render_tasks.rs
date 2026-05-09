@@ -416,6 +416,7 @@ fn plan_camera_task(
         plan: FrameViewPlan {
             host_camera,
             draw_filter: Some(filter),
+            render_space_filter: Some(render_space_id),
             view_id: ViewId::camera_render_task(render_space_id, task_index),
             viewport_px: extent.tuple(),
             clear: FrameViewClear::from_camera_render_parameters(parameters),
