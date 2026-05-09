@@ -294,7 +294,82 @@ impl SceneCoordinator {
                 latest = Some(entry.state);
             }
         }
-        latest
+        if latest.is_some() {
+            return latest;
+        }
+        // Fallback: synthesize a BlitToDisplay for the dash camera when targeting the desktop
+        // window. The host never attaches `BlitToDisplay` to `RadiantDash` (it relies on Unity's
+        // `OverlayCamera` + `OverlayLayer` culling-mask scheme to flatten the dash on desktop;
+        // see `Renderite.Unity.CameraInitializer.SetupCamera`). Until renderide grows a parity
+        // overlay-only camera path, detect the dash camera by its host signature -- a userspace
+        // (overlay render-space) orthographic camera that selectively renders into a render
+        // texture -- and blit that RT fullscreen to the desktop window in desktop mode.
+        if display_index == 0 {
+            return self.synthesize_dash_blit_for_desktop_window();
+        }
+        None
+    }
+
+    /// Builds a synthetic `BlitToDisplayState` pointing at the dash camera's render texture so
+    /// the desktop window shows a flat fullscreen dash even though the host never attached an
+    /// explicit [`crate::shared::BlitToDisplayState`] to `RadiantDash`.
+    ///
+    /// Selection criteria mirror the host `RadiantDash.OnInit` setup
+    /// (`Camera.Projection = Orthographic`, `RenderTexture.Target = ...`, `SelectiveRender.Add`):
+    /// the camera must be enabled, live in an active overlay (userspace) render space, target a
+    /// non-negative render texture, and use selective rendering. When multiple candidates exist
+    /// (e.g. an `InteractiveCamera` with mirror mode) the lowest-depth camera wins so the dash
+    /// (which sits at depth 0 by default) takes priority over user cameras.
+    fn synthesize_dash_blit_for_desktop_window(
+        &self,
+    ) -> Option<crate::shared::BlitToDisplayState> {
+        use crate::camera::camera_state_enabled;
+        use crate::shared::CameraProjection;
+
+        let mut best: Option<&crate::shared::CameraState> = None;
+        for space in self.spaces.values() {
+            if !space.is_active || !space.is_overlay {
+                continue;
+            }
+            for entry in &space.cameras {
+                let s = &entry.state;
+                if !camera_state_enabled(s.flags) {
+                    continue;
+                }
+                if s.projection != CameraProjection::Orthographic {
+                    continue;
+                }
+                if s.render_texture_asset_id < 0 {
+                    continue;
+                }
+                if s.selective_render_count <= 0 {
+                    continue;
+                }
+                if best.map_or(true, |b| s.depth < b.depth) {
+                    best = Some(s);
+                }
+            }
+        }
+        let cam = best?;
+
+        // Pack `RenderTexture` host asset id with the same `IdPacker<TextureAssetType>` layout the
+        // host uses (high bits = type tag, low bits = asset id). `texture2d_asset_id_from_packed`
+        // and friends in `crate::assets::texture::unpack` decode this; here we re-pack so the
+        // present path can route through the existing `TextureAssetType::RenderTexture` branch.
+        const TEXTURE_TYPE_BITS: u32 = 3; // ceil(log2(6 = TextureAssetType variants))
+        const RENDER_TEXTURE_TAG: u32 = 3;
+        let packed_texture_id =
+            ((cam.render_texture_asset_id as u32) | (RENDER_TEXTURE_TAG << (32 - TEXTURE_TYPE_BITS)))
+                as i32;
+
+        Some(crate::shared::BlitToDisplayState {
+            renderable_index: -1,
+            texture_id: packed_texture_id,
+            background_color: glam::Vec4::new(0.0, 0.0, 0.0, 1.0),
+            display_index: 0,
+            flags: 0,
+            _padding: [0; 1],
+        })
     }
 
     /// Current head-output render context for the main view.
