@@ -117,48 +117,6 @@ pub fn reflect_raster_material_wgsl(source: &str) -> Result<ReflectedRasterLayou
     })
 }
 
-fn reflected_vertex_shader_has_input(
-    wgsl_source: &str,
-    location: u32,
-    format: ReflectedVertexInputFormat,
-) -> bool {
-    reflect_raster_material_wgsl(wgsl_source)
-        .ok()
-        .is_some_and(|r| {
-            r.vs_vertex_inputs
-                .iter()
-                .any(|input| input.location == location && input.format == format)
-        })
-}
-
-/// Returns true when `vs_main` uses vertex `@location(2)` as a `vec2<f32>` UV0 stream.
-pub fn reflect_vertex_shader_needs_uv0_stream(wgsl_source: &str) -> bool {
-    reflected_vertex_shader_has_input(wgsl_source, 2, ReflectedVertexInputFormat::Float32x2)
-}
-
-/// Returns true when `vs_main` uses vertex `@location(3)` as a `vec4<f32>` color stream.
-pub fn reflect_vertex_shader_needs_color_stream(wgsl_source: &str) -> bool {
-    reflected_vertex_shader_has_input(wgsl_source, 3, ReflectedVertexInputFormat::Float32x4)
-}
-
-/// Returns true when `vs_main` uses vertex `@location(5)` as a `vec2<f32>` UV1 stream.
-pub fn reflect_vertex_shader_needs_uv1_stream(wgsl_source: &str) -> bool {
-    reflected_vertex_shader_has_input(wgsl_source, 5, ReflectedVertexInputFormat::Float32x2)
-}
-
-/// Returns true when `vs_main` needs the full extended tangent/UV1-UV3 stream set.
-pub fn reflect_vertex_shader_needs_extended_vertex_streams(wgsl_source: &str) -> bool {
-    reflect_raster_material_wgsl(wgsl_source)
-        .ok()
-        .is_some_and(|r| {
-            r.vs_vertex_inputs.iter().any(|input| {
-                matches!(input.location, 4 | 6 | 7)
-                    || (input.location == 5
-                        && input.format != ReflectedVertexInputFormat::Float32x2)
-            })
-        })
-}
-
 /// Validates a reflected raster layout against device caps from [`crate::gpu::GpuLimits`].
 ///
 /// Checks per-group entry count vs `max_bindings_per_bind_group`, per-stage sampler / sampled

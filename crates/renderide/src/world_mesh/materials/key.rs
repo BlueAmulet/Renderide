@@ -31,9 +31,15 @@ pub struct MaterialDrawBatchKey {
     pub embedded_needs_uv0: bool,
     /// Whether the embedded stem needs a color vertex stream at `@location(3)`.
     pub embedded_needs_color: bool,
-    /// Whether the embedded stem needs a UV1 vertex stream at `@location(5)` without the full extended stream set.
+    /// Whether the embedded stem needs a UV1 vertex stream at `@location(5)`.
     pub embedded_needs_uv1: bool,
-    /// Whether the embedded stem needs extra UI streams at `@location(4..=7)`.
+    /// Whether the embedded stem needs a tangent vertex stream at `@location(4)`.
+    pub embedded_needs_tangent: bool,
+    /// Whether the embedded stem needs a UV2 vertex stream at `@location(6)`.
+    pub embedded_needs_uv2: bool,
+    /// Whether the embedded stem needs a UV3 vertex stream at `@location(7)`.
+    pub embedded_needs_uv3: bool,
+    /// Whether the embedded stem needs any stream outside UV0/color/UV1.
     pub embedded_needs_extended_vertex_streams: bool,
     /// Whether the material requires the intersection subpass with a depth snapshot.
     pub embedded_requires_intersection_pass: bool,

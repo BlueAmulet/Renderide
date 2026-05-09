@@ -54,25 +54,54 @@ struct EmbeddedStemMetadata {
     depth_prepass_pass: Option<MaterialPassDesc>,
 }
 
+/// Exact vertex streams declared by one composed embedded material vertex shader.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct EmbeddedVertexStreamMask {
+    /// UV0 stream at `@location(2)`.
+    pub uv0: bool,
+    /// Vertex color stream at `@location(3)`.
+    pub color: bool,
+    /// Tangent stream at `@location(4)`.
+    pub tangent: bool,
+    /// UV1 stream at `@location(5)`.
+    pub uv1: bool,
+    /// UV2 stream at `@location(6)`.
+    pub uv2: bool,
+    /// UV3 stream at `@location(7)`.
+    pub uv3: bool,
+}
+
+impl EmbeddedVertexStreamMask {
+    /// `true` when any stream outside UV0/color/UV1 is needed.
+    pub fn needs_extended_vertex_streams(self) -> bool {
+        self.tangent || self.uv2 || self.uv3
+    }
+}
+
 impl EmbeddedStemMetadata {
-    /// Whether `vs_main` declares a vertex input with this exact location and format.
-    fn needs_vertex_input(&self, location: u32, format: ReflectedVertexInputFormat) -> bool {
-        self.reflected.as_ref().is_some_and(|r| {
-            r.vs_vertex_inputs
-                .iter()
-                .any(|input| input.location == location && input.format == format)
-        })
+    /// Exact mesh-forward vertex streams declared by `vs_main`.
+    fn vertex_stream_mask(&self) -> EmbeddedVertexStreamMask {
+        let mut mask = EmbeddedVertexStreamMask::default();
+        let Some(reflected) = self.reflected.as_ref() else {
+            return mask;
+        };
+        for input in &reflected.vs_vertex_inputs {
+            match (input.location, input.format) {
+                (2, ReflectedVertexInputFormat::Float32x2) => mask.uv0 = true,
+                (3, ReflectedVertexInputFormat::Float32x4) => mask.color = true,
+                (4, ReflectedVertexInputFormat::Float32x4) => mask.tangent = true,
+                (5, ReflectedVertexInputFormat::Float32x2) => mask.uv1 = true,
+                (6, ReflectedVertexInputFormat::Float32x2) => mask.uv2 = true,
+                (7, ReflectedVertexInputFormat::Float32x2) => mask.uv3 = true,
+                _ => {}
+            }
+        }
+        mask
     }
 
-    /// Whether `vs_main` needs tangent/UV2/UV3 or an unsupported UV1 shape.
+    /// Whether `vs_main` needs any stream beyond UV0/color/UV1.
     fn needs_extended_vertex_streams(&self) -> bool {
-        self.reflected.as_ref().is_some_and(|r| {
-            r.vs_vertex_inputs.iter().any(|input| {
-                matches!(input.location, 4 | 6 | 7)
-                    || (input.location == 5
-                        && input.format != ReflectedVertexInputFormat::Float32x2)
-            })
-        })
+        self.vertex_stream_mask().needs_extended_vertex_streams()
     }
 }
 
@@ -97,23 +126,40 @@ impl EmbeddedStemQuery {
 
     /// `true` when `vs_main` uses `@location(2)` or higher (UV0 stream).
     pub fn needs_uv0_stream(&self) -> bool {
-        self.metadata
-            .needs_vertex_input(2, ReflectedVertexInputFormat::Float32x2)
+        self.vertex_stream_mask().uv0
     }
 
     /// `true` when `vs_main` uses `@location(3)` as a `vec4<f32>` color stream.
     pub fn needs_color_stream(&self) -> bool {
-        self.metadata
-            .needs_vertex_input(3, ReflectedVertexInputFormat::Float32x4)
+        self.vertex_stream_mask().color
+    }
+
+    /// `true` when `vs_main` uses `@location(4)` as a `vec4<f32>` tangent stream.
+    pub fn needs_tangent_stream(&self) -> bool {
+        self.vertex_stream_mask().tangent
     }
 
     /// `true` when `vs_main` uses `@location(5)` as a `vec2<f32>` UV1 stream.
     pub fn needs_uv1_stream(&self) -> bool {
-        self.metadata
-            .needs_vertex_input(5, ReflectedVertexInputFormat::Float32x2)
+        self.vertex_stream_mask().uv1
     }
 
-    /// `true` when `vs_main` needs the full tangent/UV1-UV3 extended stream set.
+    /// `true` when `vs_main` uses `@location(6)` as a `vec2<f32>` UV2 stream.
+    pub fn needs_uv2_stream(&self) -> bool {
+        self.vertex_stream_mask().uv2
+    }
+
+    /// `true` when `vs_main` uses `@location(7)` as a `vec2<f32>` UV3 stream.
+    pub fn needs_uv3_stream(&self) -> bool {
+        self.vertex_stream_mask().uv3
+    }
+
+    /// Exact mesh-forward vertex streams declared by `vs_main`.
+    pub fn vertex_stream_mask(&self) -> EmbeddedVertexStreamMask {
+        self.metadata.vertex_stream_mask()
+    }
+
+    /// `true` when `vs_main` needs any stream beyond UV0/color/UV1.
     pub fn needs_extended_vertex_streams(&self) -> bool {
         self.metadata.needs_extended_vertex_streams()
     }
@@ -212,12 +258,27 @@ pub fn embedded_stem_needs_color_stream(base_stem: &str, permutation: ShaderPerm
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_color_stream()
 }
 
+/// `true` when composed embedded WGSL's `vs_main` uses `@location(4)` as tangent.
+pub fn embedded_stem_needs_tangent_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
+    EmbeddedStemQuery::for_stem(base_stem, permutation).needs_tangent_stream()
+}
+
 /// `true` when composed embedded WGSL's `vs_main` uses `@location(5)` as UV1.
 pub fn embedded_stem_needs_uv1_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_uv1_stream()
 }
 
-/// `true` when composed embedded WGSL's `vs_main` uses `@location(4)` or higher.
+/// `true` when composed embedded WGSL's `vs_main` uses `@location(6)` as UV2.
+pub fn embedded_stem_needs_uv2_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
+    EmbeddedStemQuery::for_stem(base_stem, permutation).needs_uv2_stream()
+}
+
+/// `true` when composed embedded WGSL's `vs_main` uses `@location(7)` as UV3.
+pub fn embedded_stem_needs_uv3_stream(base_stem: &str, permutation: ShaderPermutation) -> bool {
+    EmbeddedStemQuery::for_stem(base_stem, permutation).needs_uv3_stream()
+}
+
+/// `true` when composed embedded WGSL's `vs_main` uses tangent/UV2/UV3.
 pub fn embedded_stem_needs_extended_vertex_streams(
     base_stem: &str,
     permutation: ShaderPermutation,

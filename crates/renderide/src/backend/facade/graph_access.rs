@@ -178,7 +178,9 @@ impl<'a> BackendGraphAccess<'a> {
     ) {
         profiling::scope!("graph::pre_warm_view_assets");
         let mut mesh_ids_needing_uv1_stream = hashbrown::HashSet::new();
-        let mut mesh_ids_needing_extended_streams = hashbrown::HashSet::new();
+        let mut mesh_ids_needing_tangent_stream = hashbrown::HashSet::new();
+        let mut mesh_ids_needing_uv2_stream = hashbrown::HashSet::new();
+        let mut mesh_ids_needing_uv3_stream = hashbrown::HashSet::new();
         for view in views {
             let Some(draw_plan) = view.initial_blackboard.get::<WorldMeshDrawPlanSlot>() else {
                 continue;
@@ -190,33 +192,79 @@ impl<'a> BackendGraphAccess<'a> {
                 if item.mesh_asset_id < 0 {
                     continue;
                 }
-                if item.batch_key.embedded_needs_uv1
-                    && !item.batch_key.embedded_needs_extended_vertex_streams
-                {
+                if item.batch_key.embedded_needs_uv1 {
                     mesh_ids_needing_uv1_stream.insert(item.mesh_asset_id);
                 }
-                if item.batch_key.embedded_needs_extended_vertex_streams {
-                    mesh_ids_needing_extended_streams.insert(item.mesh_asset_id);
+                if item.batch_key.embedded_needs_tangent {
+                    mesh_ids_needing_tangent_stream.insert(item.mesh_asset_id);
+                }
+                if item.batch_key.embedded_needs_uv2 {
+                    mesh_ids_needing_uv2_stream.insert(item.mesh_asset_id);
+                }
+                if item.batch_key.embedded_needs_uv3 {
+                    mesh_ids_needing_uv3_stream.insert(item.mesh_asset_id);
                 }
             }
         }
         logger::trace!(
-            "graph pre-warm view assets: views={} uv1_stream_meshes={} extended_stream_meshes={}",
+            "graph pre-warm view assets: views={} uv1_stream_meshes={} tangent_stream_meshes={} uv2_stream_meshes={} uv3_stream_meshes={}",
             views.len(),
             mesh_ids_needing_uv1_stream.len(),
-            mesh_ids_needing_extended_streams.len(),
+            mesh_ids_needing_tangent_stream.len(),
+            mesh_ids_needing_uv2_stream.len(),
+            mesh_ids_needing_uv3_stream.len(),
         );
+        let mesh_ids_needing_all_extended_streams: hashbrown::HashSet<i32> =
+            mesh_ids_needing_tangent_stream
+                .iter()
+                .filter(|mesh_asset_id| {
+                    mesh_ids_needing_uv1_stream.contains(*mesh_asset_id)
+                        && mesh_ids_needing_uv2_stream.contains(*mesh_asset_id)
+                        && mesh_ids_needing_uv3_stream.contains(*mesh_asset_id)
+                })
+                .copied()
+                .collect();
+        for &mesh_asset_id in &mesh_ids_needing_all_extended_streams {
+            let _ = self
+                .asset_transfers
+                .mesh_pool_mut()
+                .ensure_extended_vertex_streams(device, mesh_asset_id);
+        }
         for mesh_asset_id in mesh_ids_needing_uv1_stream {
+            if mesh_ids_needing_all_extended_streams.contains(&mesh_asset_id) {
+                continue;
+            }
             let _ = self
                 .asset_transfers
                 .mesh_pool_mut()
                 .ensure_uv1_vertex_stream(device, mesh_asset_id);
         }
-        for mesh_asset_id in mesh_ids_needing_extended_streams {
+        for mesh_asset_id in mesh_ids_needing_tangent_stream {
+            if mesh_ids_needing_all_extended_streams.contains(&mesh_asset_id) {
+                continue;
+            }
             let _ = self
                 .asset_transfers
                 .mesh_pool_mut()
-                .ensure_extended_vertex_streams(device, mesh_asset_id);
+                .ensure_tangent_vertex_stream(device, mesh_asset_id);
+        }
+        for mesh_asset_id in mesh_ids_needing_uv2_stream {
+            if mesh_ids_needing_all_extended_streams.contains(&mesh_asset_id) {
+                continue;
+            }
+            let _ = self
+                .asset_transfers
+                .mesh_pool_mut()
+                .ensure_uv2_vertex_stream(device, mesh_asset_id);
+        }
+        for mesh_asset_id in mesh_ids_needing_uv3_stream {
+            if mesh_ids_needing_all_extended_streams.contains(&mesh_asset_id) {
+                continue;
+            }
+            let _ = self
+                .asset_transfers
+                .mesh_pool_mut()
+                .ensure_uv3_vertex_stream(device, mesh_asset_id);
         }
     }
 

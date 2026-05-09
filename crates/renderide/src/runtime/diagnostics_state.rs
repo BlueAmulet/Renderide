@@ -8,6 +8,8 @@ use crate::gpu::GpuContext;
 
 /// How often [`wgpu::Device::generate_allocator_report`] replaces the GPU memory tab payload.
 const GPU_ALLOCATOR_FULL_REPORT_INTERVAL: Duration = Duration::from_secs(2);
+/// Heavy debug HUD tables are informational; updating them every frame can dominate epilogue time.
+const HUD_HEAVY_SNAPSHOT_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Diagnostics state that belongs to runtime orchestration rather than the backend HUD widget.
 pub(super) struct RuntimeDiagnosticsState {
@@ -31,6 +33,12 @@ pub(super) struct RuntimeDiagnosticsState {
     pub(super) allocator_report_totals: GpuAllocatorHud,
     /// Wall clock when a GPU memory tab refresh was last attempted.
     pub(super) allocator_report_last_refresh: Option<Instant>,
+    /// Wall clock when the main debug HUD table snapshots were last refreshed.
+    main_hud_snapshot_last_refresh: Option<Instant>,
+    /// Wall clock when the scene-transform HUD snapshot was last refreshed.
+    scene_transforms_snapshot_last_refresh: Option<Instant>,
+    /// Wall clock when the texture-debug HUD snapshot was last refreshed.
+    texture_debug_snapshot_last_refresh: Option<Instant>,
     /// Count of failed frame-submit apply or cache-flush operations after host submits.
     pub(super) frame_submit_apply_failures: u64,
 }
@@ -49,8 +57,35 @@ impl RuntimeDiagnosticsState {
             allocator_report_hud: None,
             allocator_report_totals: GpuAllocatorHud::default(),
             allocator_report_last_refresh: None,
+            main_hud_snapshot_last_refresh: None,
+            scene_transforms_snapshot_last_refresh: None,
+            texture_debug_snapshot_last_refresh: None,
             frame_submit_apply_failures: 0,
         }
+    }
+
+    pub(super) fn should_refresh_main_hud_snapshot(&mut self, now: Instant) -> bool {
+        should_refresh_snapshot(&mut self.main_hud_snapshot_last_refresh, now)
+    }
+
+    pub(super) fn should_refresh_scene_transforms_snapshot(&mut self, now: Instant) -> bool {
+        should_refresh_snapshot(&mut self.scene_transforms_snapshot_last_refresh, now)
+    }
+
+    pub(super) fn should_refresh_texture_debug_snapshot(&mut self, now: Instant) -> bool {
+        should_refresh_snapshot(&mut self.texture_debug_snapshot_last_refresh, now)
+    }
+
+    pub(super) fn clear_main_hud_snapshot_timer(&mut self) {
+        self.main_hud_snapshot_last_refresh = None;
+    }
+
+    pub(super) fn clear_scene_transforms_snapshot_timer(&mut self) {
+        self.scene_transforms_snapshot_last_refresh = None;
+    }
+
+    pub(super) fn clear_texture_debug_snapshot_timer(&mut self) {
+        self.texture_debug_snapshot_last_refresh = None;
     }
 
     /// Updates the latest render-task count for the HUD.
@@ -116,4 +151,13 @@ impl RuntimeDiagnosticsState {
         self.allocator_report_totals = GpuAllocatorHud::default();
         self.allocator_report_last_refresh = None;
     }
+}
+
+fn should_refresh_snapshot(last_refresh: &mut Option<Instant>, now: Instant) -> bool {
+    let should_refresh =
+        last_refresh.is_none_or(|t| now.duration_since(t) >= HUD_HEAVY_SNAPSHOT_INTERVAL);
+    if should_refresh {
+        *last_refresh = Some(now);
+    }
+    should_refresh
 }

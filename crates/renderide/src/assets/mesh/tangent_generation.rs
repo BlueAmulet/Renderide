@@ -33,6 +33,7 @@ pub(super) fn tangent_stream_bytes(
     attrs: &[VertexAttributeDescriptor],
     index_format: IndexBufferFormat,
     submeshes: &[SubmeshBufferDescriptor],
+    generate_missing: bool,
 ) -> Option<Vec<u8>> {
     if vertex_count == 0 || stride == 0 {
         return None;
@@ -45,6 +46,10 @@ pub(super) fn tangent_stream_bytes(
     if let Some(host_tangents) = host_tangent_stream_bytes(vertex_data, vertex_count, stride, attrs)
     {
         return Some(host_tangents);
+    }
+
+    if !generate_missing {
+        return Some(default_tangent_stream_bytes(vertex_count));
     }
 
     Some(
@@ -492,6 +497,7 @@ mod tests {
             &attrs,
             IndexBufferFormat::UInt16,
             &[],
+            true,
         )
         .expect("tangent stream");
 
@@ -513,6 +519,7 @@ mod tests {
             &attrs,
             IndexBufferFormat::UInt16,
             &[triangle_submesh(6)],
+            true,
         )
         .expect("tangent stream");
 
@@ -535,6 +542,7 @@ mod tests {
             &attrs,
             IndexBufferFormat::UInt16,
             &[triangle_submesh(6)],
+            true,
         )
         .expect("tangent stream");
 
@@ -576,6 +584,7 @@ mod tests {
             &attrs,
             IndexBufferFormat::UInt16,
             &[],
+            true,
         )
         .expect("tangent stream");
         let mut serial_out = vec![0u8; vertex_count * 16];
@@ -602,6 +611,7 @@ mod tests {
             &attrs,
             IndexBufferFormat::UInt16,
             &[point_submesh(6)],
+            true,
         )
         .expect("tangent stream");
 

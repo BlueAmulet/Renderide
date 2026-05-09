@@ -351,6 +351,7 @@ pub(super) fn upload_extended_vertex_streams(
         source.vertex_attributes,
         source.index_format,
         source.submeshes,
+        false,
     )
     .unwrap_or_else(|| float4_default_stream_bytes(vc_usize, [1.0, 0.0, 0.0, 1.0]));
 
@@ -378,41 +379,86 @@ pub(super) fn upload_extended_vertex_streams(
     )
 }
 
-pub(super) fn upload_uv1_vertex_stream(
+pub(super) fn upload_tangent_vertex_stream(
+    device: &wgpu::Device,
+    asset_id: i32,
+    source: ExtendedVertexUploadSource<'_>,
+) -> Option<Arc<wgpu::Buffer>> {
+    if source.vertex_count == 0 {
+        return None;
+    }
+    let tangent_bytes = tangent_stream_bytes(
+        source.vertex_slice,
+        source.index_slice,
+        source.vertex_count,
+        source.vertex_stride,
+        source.vertex_attributes,
+        source.index_format,
+        source.submeshes,
+        false,
+    )
+    .unwrap_or_else(|| float4_default_stream_bytes(source.vertex_count, [1.0, 0.0, 0.0, 1.0]));
+    Some(create_tangent_stream_buffer(
+        device,
+        asset_id,
+        &tangent_bytes,
+    ))
+}
+
+pub(super) fn upload_default_tangent_vertex_stream(
+    device: &wgpu::Device,
+    asset_id: i32,
+    vc_usize: usize,
+) -> Option<Arc<wgpu::Buffer>> {
+    if vc_usize == 0 {
+        return None;
+    }
+    let tangent_bytes = float4_default_stream_bytes(vc_usize, [1.0, 0.0, 0.0, 1.0]);
+    Some(create_tangent_stream_buffer(
+        device,
+        asset_id,
+        &tangent_bytes,
+    ))
+}
+
+pub(super) fn upload_uv_vertex_stream(
     device: &wgpu::Device,
     asset_id: i32,
     vertex_slice: &[u8],
     vc_usize: usize,
     vertex_stride_us: usize,
     vertex_attributes: &[VertexAttributeDescriptor],
+    target: VertexAttributeType,
+    label: &str,
 ) -> Option<Arc<wgpu::Buffer>> {
     if vc_usize == 0 {
         return None;
     }
-    let uv1_bytes = vertex_float2_stream_bytes(
+    let uv_bytes = vertex_float2_stream_bytes(
         vertex_slice,
         vc_usize,
         vertex_stride_us,
         vertex_attributes,
-        VertexAttributeType::UV1,
+        target,
     )
     .unwrap_or_else(|| float2_zero_stream_bytes(vc_usize));
     Some(create_vertex_stream_buffer(
-        device, asset_id, "uv1", &uv1_bytes,
+        device, asset_id, label, &uv_bytes,
     ))
 }
 
-pub(super) fn upload_default_uv1_vertex_stream(
+pub(super) fn upload_default_uv_vertex_stream(
     device: &wgpu::Device,
     asset_id: i32,
     vc_usize: usize,
+    label: &str,
 ) -> Option<Arc<wgpu::Buffer>> {
     if vc_usize == 0 {
         return None;
     }
-    let uv1_bytes = float2_zero_stream_bytes(vc_usize);
+    let uv_bytes = float2_zero_stream_bytes(vc_usize);
     Some(create_vertex_stream_buffer(
-        device, asset_id, "uv1", &uv1_bytes,
+        device, asset_id, label, &uv_bytes,
     ))
 }
 

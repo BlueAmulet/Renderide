@@ -135,32 +135,41 @@ impl RendererRuntime {
             .read()
             .map(|s| debug_hud_capture_flags(&s))
             .unwrap_or_default();
+        let now = Instant::now();
 
-        if flags.main {
-            let now = Instant::now();
+        if flags.main && self.diagnostics.should_refresh_main_hud_snapshot(now) {
             self.capture_main_debug_hud_panels(gpu, now);
-        } else {
+        } else if !flags.main {
             self.backend.clear_debug_hud_stats_snapshots();
+            self.diagnostics.clear_main_hud_snapshot_timer();
             self.diagnostics.clear_allocator_report();
         }
 
-        if flags.scene_transforms {
+        if flags.scene_transforms
+            && self
+                .diagnostics
+                .should_refresh_scene_transforms_snapshot(now)
+        {
+            profiling::scope!("hud::capture_scene_transforms_snapshot");
             let scene_transforms =
                 crate::diagnostics::SceneTransformsSnapshot::capture(&self.scene);
             self.backend
                 .set_debug_hud_scene_transforms_snapshot(scene_transforms);
-        } else {
+        } else if !flags.scene_transforms {
             self.backend.clear_debug_hud_scene_transforms_snapshot();
+            self.diagnostics.clear_scene_transforms_snapshot_timer();
         }
 
-        if flags.textures {
+        if flags.textures && self.diagnostics.should_refresh_texture_debug_snapshot(now) {
+            profiling::scope!("hud::capture_texture_debug_snapshot");
             let textures = crate::diagnostics::TextureDebugSnapshot::capture(
                 self.backend.texture_pool(),
                 self.backend.debug_hud_current_view_texture_2d_asset_ids(),
             );
             self.backend.set_debug_hud_texture_debug_snapshot(textures);
-        } else {
+        } else if !flags.textures {
             self.backend.clear_debug_hud_texture_debug_snapshot();
+            self.diagnostics.clear_texture_debug_snapshot_timer();
         }
     }
 

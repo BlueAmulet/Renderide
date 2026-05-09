@@ -52,9 +52,7 @@ impl MaterialRegistry {
             MaterialPipelineLookup::Failed(err) if matches!(kind, RasterPipelineKind::Null) => {
                 match shader_asset_id {
                     Some(id) => {
-                        logger::error!(
-                            "Null pipeline build failed (shader_asset_id={id}): {err}"
-                        );
+                        logger::error!("Null pipeline build failed (shader_asset_id={id}): {err}");
                     }
                     None => {
                         logger::error!("Null pipeline build failed: {err}");

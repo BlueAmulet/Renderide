@@ -17,19 +17,69 @@ pub(super) struct EmbeddedVertexStreamFlags {
     embedded_uv: bool,
     /// Vertex color at `@location(3)`.
     embedded_color: bool,
-    /// UV1 at `@location(5)` without requiring the full extended stream set.
+    /// Tangent at `@location(4)`.
+    embedded_tangent: bool,
+    /// UV1 at `@location(5)`.
     embedded_uv1: bool,
-    /// Extended streams (tangents, extra UVs) at `@location(4)` and above.
-    embedded_extended_vertex_streams: bool,
+    /// UV2 at `@location(6)`.
+    embedded_uv2: bool,
+    /// UV3 at `@location(7)`.
+    embedded_uv3: bool,
 }
 
 impl EmbeddedVertexStreamFlags {
-    /// Slot used by the compact UV1 layout when the pipeline does not use full extended streams.
-    fn compact_uv1_slot(self) -> Option<usize> {
-        if !self.embedded_uv1 || self.embedded_extended_vertex_streams {
+    fn uv_slot(self) -> Option<usize> {
+        self.embedded_uv.then_some(2)
+    }
+
+    fn color_slot(self) -> Option<usize> {
+        self.slot_after([self.embedded_uv], self.embedded_color)
+    }
+
+    fn tangent_slot(self) -> Option<usize> {
+        self.slot_after(
+            [self.embedded_uv, self.embedded_color],
+            self.embedded_tangent,
+        )
+    }
+
+    fn uv1_slot(self) -> Option<usize> {
+        self.slot_after(
+            [self.embedded_uv, self.embedded_color, self.embedded_tangent],
+            self.embedded_uv1,
+        )
+    }
+
+    fn uv2_slot(self) -> Option<usize> {
+        self.slot_after(
+            [
+                self.embedded_uv,
+                self.embedded_color,
+                self.embedded_tangent,
+                self.embedded_uv1,
+            ],
+            self.embedded_uv2,
+        )
+    }
+
+    fn uv3_slot(self) -> Option<usize> {
+        self.slot_after(
+            [
+                self.embedded_uv,
+                self.embedded_color,
+                self.embedded_tangent,
+                self.embedded_uv1,
+                self.embedded_uv2,
+            ],
+            self.embedded_uv3,
+        )
+    }
+
+    fn slot_after<const N: usize>(self, preceding: [bool; N], enabled: bool) -> Option<usize> {
+        if !enabled {
             return None;
         }
-        Some(if self.embedded_color { 4 } else { 3 })
+        Some(2 + preceding.into_iter().filter(|active| *active).count())
     }
 }
 
@@ -221,19 +271,30 @@ fn resident_draw_mesh<'a>(
         return None;
     }
     let mesh = gpu.mesh_pool.get(item.mesh_asset_id)?;
-    if streams.embedded_extended_vertex_streams && !mesh.extended_vertex_streams_ready() {
+    if streams.embedded_tangent && !mesh.tangent_vertex_stream_ready() {
         logger::trace!(
-            "WorldMeshForward: extended vertex streams missing for mesh_asset_id {}; draw skipped until pre-warm catches up",
+            "WorldMeshForward: tangent vertex stream missing for mesh_asset_id {}; draw skipped until pre-warm catches up",
             item.mesh_asset_id
         );
         return None;
     }
-    if streams.embedded_uv1
-        && !streams.embedded_extended_vertex_streams
-        && !mesh.uv1_vertex_stream_ready()
-    {
+    if streams.embedded_uv1 && !mesh.uv1_vertex_stream_ready() {
         logger::trace!(
             "WorldMeshForward: UV1 vertex stream missing for mesh_asset_id {}; draw skipped until pre-warm catches up",
+            item.mesh_asset_id
+        );
+        return None;
+    }
+    if streams.embedded_uv2 && !mesh.uv2_vertex_stream_ready() {
+        logger::trace!(
+            "WorldMeshForward: UV2 vertex stream missing for mesh_asset_id {}; draw skipped until pre-warm catches up",
+            item.mesh_asset_id
+        );
+        return None;
+    }
+    if streams.embedded_uv3 && !mesh.uv3_vertex_stream_ready() {
+        logger::trace!(
+            "WorldMeshForward: UV3 vertex stream missing for mesh_asset_id {}; draw skipped until pre-warm catches up",
             item.mesh_asset_id
         );
         return None;
@@ -408,35 +469,36 @@ fn bind_optional_vertex_streams(
     streams: EmbeddedVertexStreamFlags,
     last_mesh: &mut LastMeshBindState,
 ) -> bool {
-    if streams.embedded_uv
-        || streams.embedded_color
-        || streams.embedded_uv1
-        || streams.embedded_extended_vertex_streams
-    {
+    if let Some(slot) = streams.uv_slot() {
         let Some(uv) = mesh.uv0_buffer.as_deref() else {
             return false;
         };
         bind_vertex_if_changed!(
             rpass,
-            2,
+            slot,
             uv.slice(..),
             BufferBindId::full(uv),
             last_mesh.vertex
         );
     }
-    if streams.embedded_color || streams.embedded_extended_vertex_streams {
+    if let Some(slot) = streams.color_slot() {
         let Some(color) = mesh.color_buffer.as_deref() else {
             return false;
         };
         bind_vertex_if_changed!(
             rpass,
-            3,
+            slot,
             color.slice(..),
             BufferBindId::full(color),
             last_mesh.vertex
         );
     }
-    if let Some(slot) = streams.compact_uv1_slot() {
+    if let Some(slot) = streams.tangent_slot() {
+        if !bind_tangent_stream(rpass, item, gpu, mesh, slot, last_mesh) {
+            return false;
+        }
+    }
+    if let Some(slot) = streams.uv1_slot() {
         let Some(uv1) = mesh.uv1_buffer.as_deref() else {
             return false;
         };
@@ -448,34 +510,25 @@ fn bind_optional_vertex_streams(
             last_mesh.vertex
         );
     }
-    if streams.embedded_extended_vertex_streams {
-        let (Some(uv1), Some(uv2), Some(uv3)) = (
-            mesh.uv1_buffer.as_deref(),
-            mesh.uv2_buffer.as_deref(),
-            mesh.uv3_buffer.as_deref(),
-        ) else {
+    if let Some(slot) = streams.uv2_slot() {
+        let Some(uv2) = mesh.uv2_buffer.as_deref() else {
             return false;
         };
-        if !bind_tangent_stream(rpass, item, gpu, mesh, last_mesh) {
-            return false;
-        }
         bind_vertex_if_changed!(
             rpass,
-            5,
-            uv1.slice(..),
-            BufferBindId::full(uv1),
-            last_mesh.vertex
-        );
-        bind_vertex_if_changed!(
-            rpass,
-            6,
+            slot,
             uv2.slice(..),
             BufferBindId::full(uv2),
             last_mesh.vertex
         );
+    }
+    if let Some(slot) = streams.uv3_slot() {
+        let Some(uv3) = mesh.uv3_buffer.as_deref() else {
+            return false;
+        };
         bind_vertex_if_changed!(
             rpass,
-            7,
+            slot,
             uv3.slice(..),
             BufferBindId::full(uv3),
             last_mesh.vertex
@@ -489,6 +542,7 @@ fn bind_tangent_stream(
     item: &WorldMeshDrawItem,
     gpu: WorldMeshDrawGpuRefs<'_>,
     mesh: &GpuMesh,
+    slot: usize,
     last_mesh: &mut LastMeshBindState,
 ) -> bool {
     if draw_uses_deformed_tangent_stream(item, mesh) {
@@ -514,7 +568,7 @@ fn bind_tangent_stream(
         let range = tangent_range.byte_range();
         bind_vertex_if_changed!(
             rpass,
-            4,
+            slot,
             tangent_buf.slice(range.start..range.end),
             BufferBindId::ranged(tangent_buf, range.start, range.end),
             last_mesh.vertex
@@ -527,7 +581,7 @@ fn bind_tangent_stream(
     };
     bind_vertex_if_changed!(
         rpass,
-        4,
+        slot,
         tangent.slice(..),
         BufferBindId::full(tangent),
         last_mesh.vertex
@@ -566,8 +620,10 @@ pub(super) fn streams_for_item(item: &WorldMeshDrawItem) -> EmbeddedVertexStream
     EmbeddedVertexStreamFlags {
         embedded_uv: item.batch_key.embedded_needs_uv0,
         embedded_color: item.batch_key.embedded_needs_color,
+        embedded_tangent: item.batch_key.embedded_needs_tangent,
         embedded_uv1: item.batch_key.embedded_needs_uv1,
-        embedded_extended_vertex_streams: item.batch_key.embedded_needs_extended_vertex_streams,
+        embedded_uv2: item.batch_key.embedded_needs_uv2,
+        embedded_uv3: item.batch_key.embedded_needs_uv3,
     }
 }
 

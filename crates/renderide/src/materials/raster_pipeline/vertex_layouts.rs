@@ -1,9 +1,9 @@
 //! Static `VertexBufferLayout` table for the mesh-forward raster pipeline.
 //!
-//! Mesh-forward shaders consume eight independent vertex streams (position, normal, uv0, color,
-//! tangent, uv1, uv2, uv3). The table is data-driven: each location is declared once with its
-//! stride and component format; [`mesh_forward_vertex_buffer_layouts`] renders that table into
-//! the eight `wgpu::VertexBufferLayout<'static>` values the pipeline builder needs.
+//! Mesh-forward shaders consume up to eight independent vertex streams (position, normal, uv0,
+//! color, tangent, uv1, uv2, uv3). The table is data-driven: each location is declared once with
+//! its stride and component format; [`mesh_forward_vertex_buffer_layout`] renders one layout for
+//! the compact buffer-slot order selected by pipeline reflection.
 
 /// Per-stream descriptor used to materialise the mesh-forward vertex layout table.
 struct VertexStreamDescriptor {
@@ -76,33 +76,11 @@ const MESH_FORWARD_ATTRIBUTES: [[wgpu::VertexAttribute; 1]; 8] = {
     out
 };
 
-const UV1_AT_LOCATION5_ATTRIBUTES: [wgpu::VertexAttribute; 1] = [wgpu::VertexAttribute {
-    offset: 0,
-    shader_location: 5,
-    format: wgpu::VertexFormat::Float32x2,
-}];
-
-/// Returns the mesh-forward vertex buffer layout table.
-pub(super) fn mesh_forward_vertex_buffer_layouts() -> [wgpu::VertexBufferLayout<'static>; 8] {
-    [
-        layout_at(0),
-        layout_at(1),
-        layout_at(2),
-        layout_at(3),
-        layout_at(4),
-        layout_at(5),
-        layout_at(6),
-        layout_at(7),
-    ]
-}
-
-/// Returns a compact vertex-buffer slot for UV1 when no other extended streams are needed.
-pub(super) fn mesh_forward_uv1_vertex_buffer_layout() -> wgpu::VertexBufferLayout<'static> {
-    wgpu::VertexBufferLayout {
-        array_stride: 8,
-        step_mode: wgpu::VertexStepMode::Vertex,
-        attributes: &UV1_AT_LOCATION5_ATTRIBUTES,
-    }
+/// Returns the mesh-forward vertex buffer layout for one shader input location.
+pub(super) fn mesh_forward_vertex_buffer_layout(
+    location: usize,
+) -> wgpu::VertexBufferLayout<'static> {
+    layout_at(location)
 }
 
 const fn layout_at(index: usize) -> wgpu::VertexBufferLayout<'static> {

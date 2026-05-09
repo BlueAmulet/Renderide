@@ -5,7 +5,7 @@ use std::sync::Arc;
 use glam::Mat4;
 
 use crate::materials::RasterPrimitiveTopology;
-use crate::shared::{MeshUploadData, MeshUploadHintFlag};
+use crate::shared::{MeshUploadData, MeshUploadHintFlag, VertexAttributeType};
 
 use super::super::gpu_mesh_hints::{
     derived_streams_compatible_for_in_place, mesh_upload_hint_any_selective,
@@ -18,7 +18,8 @@ use super::super::layout::{
 };
 use super::super::upload_impl::{
     ExtendedVertexUploadSource, upload_default_extended_vertex_streams,
-    upload_default_uv1_vertex_stream, upload_extended_vertex_streams, upload_uv1_vertex_stream,
+    upload_default_tangent_vertex_stream, upload_default_uv_vertex_stream,
+    upload_extended_vertex_streams, upload_tangent_vertex_stream, upload_uv_vertex_stream,
 };
 use super::{
     BoneBufferWriteHints, ExtendedVertexStreamSource, GpuMesh, MeshInPlaceWriteContext,
@@ -47,6 +48,21 @@ impl GpuMesh {
         self.uv1_buffer.is_some()
     }
 
+    /// `true` when this mesh has the standalone tangent stream required by compact shaders.
+    pub fn tangent_vertex_stream_ready(&self) -> bool {
+        self.tangent_buffer.is_some()
+    }
+
+    /// `true` when this mesh has the standalone UV2 stream required by compact shaders.
+    pub fn uv2_vertex_stream_ready(&self) -> bool {
+        self.uv2_buffer.is_some()
+    }
+
+    /// `true` when this mesh has the standalone UV3 stream required by compact shaders.
+    pub fn uv3_vertex_stream_ready(&self) -> bool {
+        self.uv3_buffer.is_some()
+    }
+
     /// Returns whether this mesh has every GPU stream needed to produce world-space skinned output.
     pub fn supports_world_space_skin_deform(&self, bone_transform_indices: Option<&[i32]>) -> bool {
         bone_transform_indices.is_some()
@@ -71,7 +87,7 @@ impl GpuMesh {
             && has_supported_channel
     }
 
-    /// Creates tangent / UV1-3 streams the first time an embedded shader needs them.
+    /// Creates tangent / UV1-3 streams the first time an embedded shader needs all of them.
     pub(crate) fn ensure_extended_vertex_streams(&mut self, device: &wgpu::Device) -> bool {
         profiling::scope!("asset::mesh_ensure_extended_vertex_streams");
         if self.extended_vertex_streams_ready() {
@@ -121,6 +137,52 @@ impl GpuMesh {
         true
     }
 
+    /// Creates a tangent stream the first time an embedded shader declares `@location(4)`.
+    pub(crate) fn ensure_tangent_vertex_stream(&mut self, device: &wgpu::Device) -> bool {
+        profiling::scope!("asset::mesh_ensure_tangent_vertex_stream");
+        if self.tangent_vertex_stream_ready() {
+            return true;
+        }
+
+        let vc_usize = self.vertex_count as usize;
+        let tangent_buffer = if let Some(source) = self.extended_vertex_stream_source.as_ref() {
+            upload_tangent_vertex_stream(
+                device,
+                self.asset_id,
+                ExtendedVertexUploadSource {
+                    vertex_slice: source.vertex_bytes.as_ref(),
+                    index_slice: source.index_bytes.as_ref(),
+                    vertex_count: vc_usize,
+                    vertex_stride: self.vertex_stride as usize,
+                    vertex_attributes: source.vertex_attributes.as_ref(),
+                    index_format: source.index_format,
+                    submeshes: source.submeshes.as_ref(),
+                },
+            )
+        } else {
+            upload_default_tangent_vertex_stream(device, self.asset_id, vc_usize)
+        };
+
+        let Some(tangent_buffer) = tangent_buffer else {
+            return false;
+        };
+        let old_bytes = self
+            .tangent_buffer
+            .as_ref()
+            .map_or(0, |buffer| buffer.size());
+        self.tangent_buffer = Some(tangent_buffer);
+        let new_bytes = self
+            .tangent_buffer
+            .as_ref()
+            .map_or(0, |buffer| buffer.size());
+        self.resident_bytes = self
+            .resident_bytes
+            .saturating_sub(old_bytes)
+            .saturating_add(new_bytes);
+        self.drop_extended_vertex_stream_source_if_complete();
+        true
+    }
+
     /// Creates a UV1 stream the first time an embedded shader needs it without other extended streams.
     pub(crate) fn ensure_uv1_vertex_stream(&mut self, device: &wgpu::Device) -> bool {
         profiling::scope!("asset::mesh_ensure_uv1_vertex_stream");
@@ -131,16 +193,18 @@ impl GpuMesh {
         let old_bytes = self.uv1_buffer.as_ref().map_or(0, |buffer| buffer.size());
         let vc_usize = self.vertex_count as usize;
         let uv1_buffer = if let Some(source) = self.extended_vertex_stream_source.as_ref() {
-            upload_uv1_vertex_stream(
+            upload_uv_vertex_stream(
                 device,
                 self.asset_id,
                 source.vertex_bytes.as_ref(),
                 vc_usize,
                 self.vertex_stride as usize,
                 source.vertex_attributes.as_ref(),
+                VertexAttributeType::UV1,
+                "uv1",
             )
         } else {
-            upload_default_uv1_vertex_stream(device, self.asset_id, vc_usize)
+            upload_default_uv_vertex_stream(device, self.asset_id, vc_usize, "uv1")
         };
 
         let Some(uv1_buffer) = uv1_buffer else {
@@ -152,7 +216,81 @@ impl GpuMesh {
             .resident_bytes
             .saturating_sub(old_bytes)
             .saturating_add(new_bytes);
+        self.drop_extended_vertex_stream_source_if_complete();
         true
+    }
+
+    /// Creates a UV2 stream the first time an embedded shader declares `@location(6)`.
+    pub(crate) fn ensure_uv2_vertex_stream(&mut self, device: &wgpu::Device) -> bool {
+        self.ensure_extra_uv_vertex_stream(
+            device,
+            VertexAttributeType::UV2,
+            "uv2",
+            Self::uv2_vertex_stream_ready,
+        )
+    }
+
+    /// Creates a UV3 stream the first time an embedded shader declares `@location(7)`.
+    pub(crate) fn ensure_uv3_vertex_stream(&mut self, device: &wgpu::Device) -> bool {
+        self.ensure_extra_uv_vertex_stream(
+            device,
+            VertexAttributeType::UV3,
+            "uv3",
+            Self::uv3_vertex_stream_ready,
+        )
+    }
+
+    fn ensure_extra_uv_vertex_stream(
+        &mut self,
+        device: &wgpu::Device,
+        target: VertexAttributeType,
+        label: &str,
+        ready: fn(&Self) -> bool,
+    ) -> bool {
+        profiling::scope!("asset::mesh_ensure_extra_uv_vertex_stream");
+        if ready(self) {
+            return true;
+        }
+
+        let vc_usize = self.vertex_count as usize;
+        let buffer = if let Some(source) = self.extended_vertex_stream_source.as_ref() {
+            upload_uv_vertex_stream(
+                device,
+                self.asset_id,
+                source.vertex_bytes.as_ref(),
+                vc_usize,
+                self.vertex_stride as usize,
+                source.vertex_attributes.as_ref(),
+                target,
+                label,
+            )
+        } else {
+            upload_default_uv_vertex_stream(device, self.asset_id, vc_usize, label)
+        };
+
+        let Some(buffer) = buffer else {
+            return false;
+        };
+        let slot = match target {
+            VertexAttributeType::UV2 => &mut self.uv2_buffer,
+            VertexAttributeType::UV3 => &mut self.uv3_buffer,
+            _ => return false,
+        };
+        let old_bytes = slot.as_ref().map_or(0, |buffer| buffer.size());
+        *slot = Some(buffer);
+        let new_bytes = slot.as_ref().map_or(0, |buffer| buffer.size());
+        self.resident_bytes = self
+            .resident_bytes
+            .saturating_sub(old_bytes)
+            .saturating_add(new_bytes);
+        self.drop_extended_vertex_stream_source_if_complete();
+        true
+    }
+
+    fn drop_extended_vertex_stream_source_if_complete(&mut self) {
+        if self.extended_vertex_streams_ready() {
+            self.extended_vertex_stream_source = None;
+        }
     }
 
     /// Whether `data`/`layout` match this mesh's buffer sizes and optional derived streams so we can

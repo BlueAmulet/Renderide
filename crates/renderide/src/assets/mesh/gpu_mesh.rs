@@ -400,6 +400,7 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
                 &ctx.data.vertex_attributes,
                 ctx.data.index_buffer_format,
                 &ctx.data.submeshes,
+                false,
             ),
         ) {
             ctx.queue.write_buffer(tb.as_ref(), 0, &t);
