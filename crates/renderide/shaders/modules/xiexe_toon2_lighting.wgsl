@@ -79,10 +79,45 @@ fn remap_specular_area(area: f32) -> f32 {
     return remapped * (1.7 - 0.7 * remapped);
 }
 
+/// XSToon2 primary direct-specular lobe driven by `_SpecularIntensity` and `_SpecularArea`.
+fn direct_specular_xstoon2(
+    s: xb::SurfaceData,
+    light: xb::LightSample,
+    view_dir: vec3<f32>,
+) -> vec3<f32> {
+    let intensity = max(0.0, xb::mat._SpecularIntensity);
+    if (intensity <= 1e-4) {
+        return vec3<f32>(0.0);
+    }
+
+    let ndl = xb::saturate(dot(s.normal, light.direction));
+    if (ndl <= 1e-4 || light.attenuation <= 1e-4) {
+        return vec3<f32>(0.0);
+    }
+
+    let h = xb::safe_normalize(light.direction + view_dir, s.normal);
+    let ndh = xb::saturate(dot(s.normal, h));
+    let ndv = max(abs(dot(view_dir, s.normal)), 1e-4);
+    let ldh = xb::saturate(dot(light.direction, h));
+    let smoothness = remap_specular_area(xb::mat._SpecularArea);
+    let roughness = 1.0 - smoothness;
+
+    let d_term = brdf::d_ggx(ndh, roughness * roughness);
+    let v_term = brdf::v_smith_ggx_correlated(ndv, ndl, roughness);
+    let f_term = exp2((-5.55473 * ldh) - (6.98316 * ldh));
+
+    let reflection = v_term * d_term * 3.14159265;
+    let smooth_specular = max(0.0, reflection * ndl) * f_term * light.attenuation * intensity;
+    var specular = vec3<f32>(smooth_specular);
+    specular = specular * light.attenuation * light.color;
+    specular = specular * mix(vec3<f32>(1.0), s.diffuse_color, clamp(xb::mat._SpecularAlbedoTint, 0.0, 1.0));
+    return specular;
+}
+
 /// Corrected Schlick/GGX direct-specular lobe from XSToon3, evaluated against an arbitrary normal.
 ///
 /// `area` is the XSToon roughness-style control before the `1.7 - 0.7x` remap; `intensity` is
-/// the already-multiplied specular weight (for example `_SpecularIntensity * specularMap.r`).
+/// the already-multiplied specular weight.
 fn direct_specular_from_normal(
     normal: vec3<f32>,
     s: xb::SurfaceData,
@@ -118,16 +153,13 @@ fn direct_specular_from_normal(
     return specular;
 }
 
-/// Primary specular lobe driven by `_SpecularArea`, `_SpecularIntensity`, and `_SpecularMap.rgb`.
+/// Primary specular lobe driven by `_SpecularArea` and `_SpecularIntensity`.
 fn direct_specular(
     s: xb::SurfaceData,
     light: xb::LightSample,
     view_dir: vec3<f32>,
 ) -> vec3<f32> {
-    let intensity = max(0.0, xb::mat._SpecularIntensity * s.specular_mask.r);
-    let area = max(0.0, xb::mat._SpecularArea * s.specular_mask.b);
-    let albedo_tint = clamp(xb::mat._SpecularAlbedoTint * s.specular_mask.g, 0.0, 1.0);
-    return direct_specular_from_normal(s.normal, s, light, view_dir, area, intensity, albedo_tint);
+    return direct_specular_xstoon2(s, light, view_dir);
 }
 
 /// Secondary clear-coat direct-specular lobe driven by the metallic-gloss map's `g/b` channels.

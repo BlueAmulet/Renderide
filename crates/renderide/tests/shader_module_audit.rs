@@ -197,6 +197,43 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
     Ok(())
 }
 
+#[test]
+fn xiexe_primary_direct_specular_uses_xstoon2_formula() -> io::Result<()> {
+    let lighting_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
+
+    for required in [
+        "fn direct_specular_xstoon2(",
+        "let intensity = max(0.0, xb::mat._SpecularIntensity);",
+        "let smoothness = remap_specular_area(xb::mat._SpecularArea);",
+        "let roughness = 1.0 - smoothness;",
+        "let f_term = exp2((-5.55473 * ldh) - (6.98316 * ldh));",
+        "let reflection = v_term * d_term * 3.14159265;",
+        "let smooth_specular = max(0.0, reflection * ndl) * f_term * light.attenuation * intensity;",
+        "specular = specular * light.attenuation * light.color;",
+        "clamp(xb::mat._SpecularAlbedoTint, 0.0, 1.0)",
+    ] {
+        assert!(
+            lighting_src.contains(required),
+            "Xiexe primary direct specular must contain `{required}`"
+        );
+    }
+
+    for forbidden in [
+        "xb::mat._SpecularIntensity * 0.001",
+        "xb::mat._SpecularIntensity * s.specular_mask.r",
+        "xb::mat._SpecularArea * s.specular_mask.b",
+        "xb::mat._SpecularAlbedoTint * s.specular_mask.g",
+    ] {
+        assert!(
+            !lighting_src.contains(forbidden),
+            "Xiexe primary direct specular must not contain `{forbidden}`"
+        );
+    }
+
+    Ok(())
+}
+
 fn declares_f32_field(src: &str, field_name: &str) -> bool {
     src.lines().any(|line| {
         let trimmed = line.trim();
