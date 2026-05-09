@@ -17,7 +17,7 @@ use glam::{Mat4, Vec3};
 use super::snapshot::HiZCpuSnapshot;
 use crate::world_mesh::culling::WorldMeshCullProjParams;
 use footprint::project_aabb_to_screen;
-use sampling::{hiz_min_in_2x2, mip_extent, select_hi_z_mip};
+use sampling::{HiZUvRect, sample_hiz_rect};
 
 /// Small bias to reduce mip / quantization flicker at occlusion boundaries (reverse-Z).
 const HI_Z_BIAS: f32 = 5e-5;
@@ -57,9 +57,9 @@ pub fn hi_z_view_proj_matrices(
 ///
 /// Conservative: if **any** corner has `clip.w <= 0` (straddles the near plane / behind the camera),
 /// returns `false` (keep the draw). Compares the AABB **closest** depth (maximum NDC Z in reverse-Z)
-/// to the **minimum** depth in a 2x2 texel neighborhood at the footprint center (weakest occluder in
-/// that block in reverse-Z, reducing single-texel and mip-boundary popping). Mip level is capped;
-/// an extra margin is required before culling.
+/// to the farthest depth stored in a padded projected-rectangle query. The query starts at the mip
+/// matching the projected footprint size, walks back to mip0, and fails open when the rectangle
+/// would require too many samples.
 #[inline]
 pub fn mesh_fully_occluded_in_hiz(
     snapshot: &HiZCpuSnapshot,
@@ -70,39 +70,30 @@ pub fn mesh_fully_occluded_in_hiz(
     let Some(footprint) = project_aabb_to_screen(view_proj, world_min, world_max) else {
         return false;
     };
-
-    let base_w = snapshot.base_width.max(1) as f32;
-    let base_h = snapshot.base_height.max(1) as f32;
-    let du_base = (footprint.uv_max.0 - footprint.uv_min.0) * base_w;
-    let dv_base = (footprint.uv_max.1 - footprint.uv_min.1) * base_h;
-    let extent_base = du_base.max(dv_base).max(1.0);
-    let mip = select_hi_z_mip(extent_base, snapshot.mip_levels);
-
-    let Some((mw, mh)) = mip_extent(snapshot, mip) else {
+    let Some(rect) = HiZUvRect::from_raw(footprint.uv_min, footprint.uv_max) else {
         return false;
     };
 
-    let uc = ((footprint.uv_min.0 + footprint.uv_max.0) * 0.5).clamp(0.0, 1.0);
-    let vc = ((footprint.uv_min.1 + footprint.uv_max.1) * 0.5).clamp(0.0, 1.0);
-    let sx = ((uc * mw as f32).floor() as u32).min(mw.saturating_sub(1));
-    let sy = ((vc * mh as f32).floor() as u32).min(mh.saturating_sub(1));
-
-    let Some(hiz_min) = hiz_min_in_2x2(snapshot, mip, sx, sy, mw, mh) else {
+    let threshold = footprint.max_ndc_z + HI_Z_BIAS + HI_Z_OCCLUSION_MARGIN;
+    if !threshold.is_finite() {
         return false;
-    };
+    }
 
     // Reverse-Z: farther = smaller NDC Z. Fully occluded if the closest AABB point is still farther than the occluder.
-    let occluded = footprint.max_ndc_z + HI_Z_BIAS + HI_Z_OCCLUSION_MARGIN < hiz_min;
-    if occluded && hiz_trace_enabled() {
+    let query = sample_hiz_rect(snapshot, rect, threshold);
+    if query.occluded && hiz_trace_enabled() {
         logger::trace!(
-            "Hi-Z full occluder: mip={} extent_base={} max_ndc_z={} hiz_min_2x2={}",
-            mip,
-            extent_base,
+            "Hi-Z full occluder: mip={} samples={} rect={:?} max_ndc_z={} threshold={} farthest_depth={:?} reason={:?}",
+            query.mip,
+            query.total_samples,
+            query.rect,
             footprint.max_ndc_z,
-            hiz_min
+            threshold,
+            query.farthest_depth,
+            query.reason,
         );
     }
-    occluded
+    query.occluded
 }
 
 /// Stereo Hi-Z policy: keep the draw unless **both** eyes report full occlusion (matches frustum OR across eyes).
@@ -131,8 +122,8 @@ mod tests {
         };
         assert!(snap.validate().is_some());
         // Closest point ~0.9195; uniform Hi-Z 0.92 -- gap smaller than HI_Z_OCCLUSION_MARGIN + bias.
-        let wmin = Vec3::new(-0.01, -0.01, 0.9195);
-        let wmax = Vec3::new(0.01, 0.01, 0.91);
+        let wmin = Vec3::new(-0.01, -0.01, 0.91);
+        let wmax = Vec3::new(0.01, 0.01, 0.9195);
         assert!(
             !mesh_fully_occluded_in_hiz(&snap, vp, wmin, wmax),
             "margin should avoid cull when barely behind the Hi-Z plane"
@@ -150,30 +141,81 @@ mod tests {
             mips: Arc::from(mips),
         };
         assert!(snap.validate().is_some());
-        let wmin = Vec3::new(-0.01, -0.01, 0.85);
-        let wmax = Vec3::new(0.01, 0.01, 0.80);
+        let wmin = Vec3::new(-0.01, -0.01, 0.80);
+        let wmax = Vec3::new(0.01, 0.01, 0.85);
         assert!(mesh_fully_occluded_in_hiz(&snap, vp, wmin, wmax));
     }
 
-    /// A hole (far / low reverse-Z) in the 2x2 block lowers `hiz_min`, so we do not cull.
+    fn snapshot_from_base(
+        base_width: u32,
+        base_height: u32,
+        levels: u32,
+        base: Vec<f32>,
+    ) -> HiZCpuSnapshot {
+        assert_eq!(base.len(), (base_width * base_height) as usize);
+        let mut all = base.clone();
+        let mut prev = base;
+        let mut prev_w = base_width;
+        let mut prev_h = base_height;
+        for _mip in 1..levels {
+            let next_w = (prev_w >> 1).max(1);
+            let next_h = (prev_h >> 1).max(1);
+            let mut next = vec![1.0f32; (next_w * next_h) as usize];
+            for y in 0..next_h {
+                let y0 = y * prev_h / next_h;
+                let y1 = ((y + 1) * prev_h).div_ceil(next_h).min(prev_h);
+                for x in 0..next_w {
+                    let x0 = x * prev_w / next_w;
+                    let x1 = ((x + 1) * prev_w).div_ceil(next_w).min(prev_w);
+                    let mut farthest = f32::MAX;
+                    for sy in y0..y1.max(y0 + 1) {
+                        for sx in x0..x1.max(x0 + 1) {
+                            let idx = (sy.min(prev_h - 1) * prev_w + sx.min(prev_w - 1)) as usize;
+                            farthest = farthest.min(prev[idx]);
+                        }
+                    }
+                    next[(y * next_w + x) as usize] = farthest;
+                }
+            }
+            all.extend_from_slice(&next);
+            prev = next;
+            prev_w = next_w;
+            prev_h = next_h;
+        }
+        HiZCpuSnapshot {
+            base_width,
+            base_height,
+            mip_levels: levels,
+            mips: Arc::from(all),
+        }
+    }
+
+    /// A far reverse-Z hole anywhere in the projected rectangle keeps the draw visible.
     #[test]
-    fn hiz_min_2x2_sees_farther_occluder_in_block() {
+    fn hiz_projected_rect_sees_farther_hole_at_edge() {
         let vp = Mat4::IDENTITY;
-        // mip0 4x4 row-major: center anchor (sx,sy)=(2,2) uses indices 10..=15; put a hole at 10.
-        let mut mips = vec![0.95f32; 21];
-        mips[10] = 0.35;
-        let snap = HiZCpuSnapshot {
-            base_width: 4,
-            base_height: 4,
-            mip_levels: 3,
-            mips: Arc::from(mips),
-        };
+        let mut base = vec![0.95f32; 16 * 16];
+        base[2 * 16 + 2] = 0.35;
+        let snap = snapshot_from_base(16, 16, 5, base);
         assert!(snap.validate().is_some());
-        let wmin = Vec3::new(-0.01, -0.01, 0.90);
-        let wmax = Vec3::new(0.01, 0.01, 0.88);
+        let wmin = Vec3::new(-0.6, -0.6, 0.88);
+        let wmax = Vec3::new(0.6, 0.6, 0.90);
         assert!(
             !mesh_fully_occluded_in_hiz(&snap, vp, wmin, wmax),
-            "2x2 min must include the farther sample so we keep the draw"
+            "the projected rectangle query must include the far edge sample so we keep the draw"
+        );
+    }
+
+    #[test]
+    fn broad_visible_rect_exceeding_sample_budget_is_kept() {
+        let vp = Mat4::IDENTITY;
+        let snap = snapshot_from_base(128, 128, 8, vec![0.0f32; 128 * 128]);
+        assert!(snap.validate().is_some());
+        let wmin = Vec3::new(-1.0, -1.0, 0.48);
+        let wmax = Vec3::new(1.0, 1.0, 0.50);
+        assert!(
+            !mesh_fully_occluded_in_hiz(&snap, vp, wmin, wmax),
+            "sample budget overflow must fail open"
         );
     }
 
@@ -226,10 +268,10 @@ mod tests {
         };
         assert!(snap.validate().is_some());
         // Front of AABB at z=0.99 (closer than Hi-Z 0.92), back at z=0.05. Must not cull on back alone.
-        let near = Vec3::new(-0.01, -0.01, 0.99);
-        let far = Vec3::new(0.01, 0.01, 0.05);
+        let far = Vec3::new(-0.01, -0.01, 0.05);
+        let near = Vec3::new(0.01, 0.01, 0.99);
         assert!(
-            !mesh_fully_occluded_in_hiz(&snap, vp, near, far),
+            !mesh_fully_occluded_in_hiz(&snap, vp, far, near),
             "closest point still in front of occluder"
         );
     }
