@@ -61,6 +61,7 @@ impl TextureUploadTask {
         let id = self.data.asset_id;
         let storage_v_inverted = self.upload_uses_storage_v_inversion();
         if !self.storage_orientation_allows_upload(queue, storage_v_inverted) {
+            self.finalize_failure(ipc);
             return StepResult::Done;
         }
         let Some(tex_arc) = resident_texture_arc(
@@ -72,6 +73,7 @@ impl TextureUploadTask {
                 .get(id)
                 .map(|texture| texture.texture.clone()),
         ) else {
+            self.finalize_failure(ipc);
             return StepResult::Done;
         };
         let texture = tex_arc.as_ref();
@@ -89,7 +91,11 @@ impl TextureUploadTask {
                 storage_v_inverted,
             },
         ) {
-            Ok(UploadCompletion::MissingPayload) => missing_payload("texture", id),
+            Ok(UploadCompletion::MissingPayload) => {
+                missing_payload("texture", id);
+                self.finalize_failure(ipc);
+                StepResult::Done
+            }
             Ok(UploadCompletion::Continue) => StepResult::Continue,
             Ok(UploadCompletion::UploadedOne {
                 uploaded_mips,
@@ -106,7 +112,11 @@ impl TextureUploadTask {
                 self.finalize_success(queue, ipc, uploaded_mips, storage_v_inverted);
                 StepResult::Done
             }
-            Err(e) => failed_upload("texture", id, &e),
+            Err(e) => {
+                failed_upload("texture", id, &e);
+                self.finalize_failure(ipc);
+                StepResult::Done
+            }
         }
     }
 
@@ -194,6 +204,17 @@ impl TextureUploadTask {
             }),
         );
         logger::trace!("texture {id}: data upload ok ({uploaded_mips} mips, integrator)");
+    }
+
+    fn finalize_failure(&self, ipc: &mut Option<&mut DualQueueIpc>) {
+        send_background_result(
+            ipc,
+            RendererCommand::SetTexture2DResult(SetTexture2DResult {
+                asset_id: self.data.asset_id,
+                r#type: TextureUpdateResultType(TextureUpdateResultType::DATA_UPLOAD),
+                instance_changed: false,
+            }),
+        );
     }
 }
 

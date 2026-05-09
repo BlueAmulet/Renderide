@@ -16,10 +16,11 @@ fn send_render_texture_result(
     let Some(ipc) = ipc else {
         return;
     };
-    let _ = ipc.send_background(RendererCommand::RenderTextureResult(RenderTextureResult {
-        asset_id,
-        instance_changed,
-    }));
+    let _ =
+        ipc.send_background_reliable(RendererCommand::RenderTextureResult(RenderTextureResult {
+            asset_id,
+            instance_changed,
+        }));
 }
 
 /// Handle [`SetRenderTextureFormat`](crate::shared::SetRenderTextureFormat).
@@ -41,6 +42,7 @@ pub fn on_set_render_texture_format(
     };
     let Some(tex) = GpuRenderTexture::new_from_format(device.as_ref(), limits.as_ref(), &f) else {
         logger::warn!("render texture {id}: SetRenderTextureFormat rejected (bad size or device)");
+        send_render_texture_result(ipc, id, false);
         return;
     };
     let existed_before = queue.pools.render_texture_pool.insert(tex);

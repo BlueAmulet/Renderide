@@ -266,7 +266,7 @@ impl MaterialSystem {
             }
         }
 
-        let _ = ipc.send_background(RendererCommand::MaterialsUpdateBatchResult(
+        let _ = ipc.send_background_reliable(RendererCommand::MaterialsUpdateBatchResult(
             MaterialsUpdateBatchResult { update_batch_id },
         ));
     }

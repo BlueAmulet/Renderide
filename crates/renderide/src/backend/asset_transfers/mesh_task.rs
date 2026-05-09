@@ -45,7 +45,7 @@ pub(super) fn complete_empty_mesh_upload(
 
 fn send_mesh_upload_result(ipc: &mut Option<&mut DualQueueIpc>, result: MeshUploadResult) {
     if let Some(ipc) = ipc.as_mut() {
-        let _ = ipc.send_background(RendererCommand::MeshUploadResult(result));
+        let _ = ipc.send_background_reliable(RendererCommand::MeshUploadResult(result));
     }
 }
 
@@ -119,6 +119,13 @@ impl MeshUploadTask {
             return StepResult::Done;
         }
         let Some(layout) = self.resolve_layout(queue) else {
+            send_mesh_upload_result(
+                ipc,
+                MeshUploadResult {
+                    asset_id,
+                    instance_changed: false,
+                },
+            );
             return StepResult::Done;
         };
 
@@ -127,6 +134,13 @@ impl MeshUploadTask {
         let raw_len = data.buffer.length.max(0) as usize;
         let raw_arc = Self::copy_mesh_payload(shm, &data, raw_len);
         let Some(raw) = raw_arc else {
+            send_mesh_upload_result(
+                ipc,
+                MeshUploadResult {
+                    asset_id,
+                    instance_changed: false,
+                },
+            );
             return StepResult::Done;
         };
 
@@ -214,6 +228,13 @@ impl MeshUploadTask {
             Err(crossbeam_channel::TryRecvError::Empty) => StepResult::YieldBackground,
             Err(crossbeam_channel::TryRecvError::Disconnected) => {
                 logger::error!("mesh {asset_id}: background decode thread panicked");
+                send_mesh_upload_result(
+                    ipc,
+                    MeshUploadResult {
+                        asset_id,
+                        instance_changed: false,
+                    },
+                );
                 StepResult::Done
             }
         }
@@ -227,8 +248,13 @@ impl MeshUploadTask {
         ipc: &mut Option<&mut DualQueueIpc>,
     ) -> StepResult {
         let Some(mesh) = upload_result else {
-            logger::error!(
-                "mesh {asset_id}: upload failed or rejected -- host callback not completed (no MeshUploadResult sent)"
+            logger::error!("mesh {asset_id}: upload failed or rejected");
+            send_mesh_upload_result(
+                ipc,
+                MeshUploadResult {
+                    asset_id,
+                    instance_changed: false,
+                },
             );
             return StepResult::Done;
         };

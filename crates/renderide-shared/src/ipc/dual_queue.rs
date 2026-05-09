@@ -3,6 +3,8 @@
 //! Naming matches the managed client when the renderer is **non-authority**: subscribe on `...A`,
 //! publish on `...S` (see `Renderite.Shared.MessagingManager.Connect`).
 
+use std::collections::VecDeque;
+
 use interprocess::{Publisher, QueueFactory, QueueOptions, Subscriber};
 
 use super::dual_queue_shared::{drain_subscriber, encode_command};
@@ -23,6 +25,41 @@ const INVALID_MESSAGE_LOG_PREFIX: &str = "IPC";
 /// After this many consecutive `try_enqueue` failures on one channel, log at [`logger::error!`].
 const IPC_CONSECUTIVE_DROP_ERROR_AFTER: u32 = 16;
 
+#[derive(Default)]
+struct ReliableBackgroundOutbox {
+    payloads: VecDeque<Vec<u8>>,
+    pending_bytes: usize,
+}
+
+impl ReliableBackgroundOutbox {
+    fn enqueue(&mut self, payload: Vec<u8>) {
+        self.pending_bytes = self.pending_bytes.saturating_add(payload.len());
+        self.payloads.push_back(payload);
+    }
+
+    fn front(&self) -> Option<&[u8]> {
+        self.payloads.front().map(Vec::as_slice)
+    }
+
+    fn mark_front_sent(&mut self) {
+        if let Some(payload) = self.payloads.pop_front() {
+            self.pending_bytes = self.pending_bytes.saturating_sub(payload.len());
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.payloads.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.payloads.len()
+    }
+
+    fn pending_bytes(&self) -> usize {
+        self.pending_bytes
+    }
+}
+
 /// Host <-> renderer IPC over two Cloudtoid queue pairs (Primary and Background).
 pub struct DualQueueIpc {
     primary_subscriber: Subscriber,
@@ -35,6 +72,7 @@ pub struct DualQueueIpc {
     /// Count of dropped primary sends since last successful send (consecutive backpressure).
     primary_drops_since_log: u32,
     background_drops_since_log: u32,
+    reliable_background_outbox: ReliableBackgroundOutbox,
     /// Set when a primary outbound send failed this winit tick (cleared in [`Self::reset_outbound_drop_tick_flags`]).
     had_primary_outbound_drop_this_tick: bool,
     had_background_outbound_drop_this_tick: bool,
@@ -61,6 +99,7 @@ impl DualQueueIpc {
             send_buffer: vec![0u8; SEND_BUFFER_CAP],
             primary_drops_since_log: 0,
             background_drops_since_log: 0,
+            reliable_background_outbox: ReliableBackgroundOutbox::default(),
             had_primary_outbound_drop_this_tick: false,
             had_background_outbound_drop_this_tick: false,
         })
@@ -92,11 +131,22 @@ impl DualQueueIpc {
         self.background_drops_since_log
     }
 
+    /// Number of reliable background messages waiting for queue capacity.
+    pub fn reliable_background_pending_count(&self) -> usize {
+        self.reliable_background_outbox.len()
+    }
+
+    /// Encoded byte count of reliable background messages waiting for queue capacity.
+    pub fn reliable_background_pending_bytes(&self) -> usize {
+        self.reliable_background_outbox.pending_bytes()
+    }
+
     /// Drains both subscribers into `out` (Primary first, then Background; each channel fully drained in order).
     ///
     /// Clears `out` then drains both subscribers so each tick starts from an empty batch.
     pub fn poll_into(&mut self, out: &mut Vec<RendererCommand>) {
         out.clear();
+        self.flush_reliable_outbound();
         {
             profiling::scope!("ipc::primary_drain");
             drain_subscriber(
@@ -141,6 +191,13 @@ impl DualQueueIpc {
     ///
     /// Returns `true` if the message was queued, `false` if encoding produced no bytes or the queue was full.
     pub fn send_background(&mut self, mut cmd: RendererCommand) -> bool {
+        if !self.reliable_background_outbox.is_empty() {
+            self.flush_reliable_outbound();
+            if !self.reliable_background_outbox.is_empty() {
+                self.had_background_outbound_drop_this_tick = true;
+                return false;
+            }
+        }
         let written = encode_command(&mut cmd, &mut self.send_buffer, ENCODE_OVERFLOW_LOG_PREFIX);
         if written == 0 {
             return false;
@@ -155,6 +212,42 @@ impl DualQueueIpc {
             self.had_background_outbound_drop_this_tick = true;
         }
         ok
+    }
+
+    /// Encodes a command for the **Background** publisher and retains it until it is sent.
+    ///
+    /// Returns `true` when the command was encoded and accepted into the reliable outbox. A `true`
+    /// return does not guarantee the host has already received the command; call
+    /// [`Self::flush_reliable_outbound`] to retry pending reliable messages.
+    pub fn send_background_reliable(&mut self, mut cmd: RendererCommand) -> bool {
+        let written = encode_command(&mut cmd, &mut self.send_buffer, ENCODE_OVERFLOW_LOG_PREFIX);
+        if written == 0 {
+            return false;
+        }
+        self.reliable_background_outbox
+            .enqueue(self.send_buffer[..written].to_vec());
+        self.flush_reliable_outbound();
+        true
+    }
+
+    /// Retries retained reliable background messages in FIFO order until the queue is full.
+    pub fn flush_reliable_outbound(&mut self) {
+        loop {
+            let Some(payload) = self.reliable_background_outbox.front() else {
+                break;
+            };
+            let ok = send_on_publisher(
+                &mut self.background_publisher,
+                payload,
+                &mut self.background_drops_since_log,
+                "background reliable",
+            );
+            if !ok {
+                self.had_background_outbound_drop_this_tick = true;
+                break;
+            }
+            self.reliable_background_outbox.mark_front_sent();
+        }
     }
 }
 
@@ -220,7 +313,7 @@ fn open_publisher(
 
 #[cfg(test)]
 mod renderer_command_roundtrip_tests {
-    use super::ENCODE_OVERFLOW_LOG_PREFIX;
+    use super::{ENCODE_OVERFLOW_LOG_PREFIX, ReliableBackgroundOutbox};
     use crate::ipc::dual_queue_shared::encode_command;
     use crate::packing::default_entity_pool::DefaultEntityPool;
     use crate::packing::memory_unpacker::MemoryUnpacker;
@@ -242,6 +335,29 @@ mod renderer_command_roundtrip_tests {
             "RendererCommand wire roundtrip"
         );
         assert_eq!(unpacker.remaining_data(), 0, "no trailing bytes");
+    }
+
+    #[test]
+    fn reliable_background_outbox_preserves_fifo_and_byte_count() {
+        let mut outbox = ReliableBackgroundOutbox::default();
+
+        outbox.enqueue(vec![1, 2, 3]);
+        outbox.enqueue(vec![4, 5]);
+
+        assert_eq!(outbox.len(), 2);
+        assert_eq!(outbox.pending_bytes(), 5);
+        assert_eq!(outbox.front(), Some(&[1, 2, 3][..]));
+
+        outbox.mark_front_sent();
+
+        assert_eq!(outbox.len(), 1);
+        assert_eq!(outbox.pending_bytes(), 2);
+        assert_eq!(outbox.front(), Some(&[4, 5][..]));
+
+        outbox.mark_front_sent();
+
+        assert!(outbox.is_empty());
+        assert_eq!(outbox.pending_bytes(), 0);
     }
 
     #[test]

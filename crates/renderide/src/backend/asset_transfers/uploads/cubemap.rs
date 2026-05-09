@@ -23,7 +23,7 @@ fn send_cubemap_result(
     let Some(ipc) = ipc else {
         return;
     };
-    let _ = ipc.send_background(RendererCommand::SetCubemapResult(SetCubemapResult {
+    let _ = ipc.send_background_reliable(RendererCommand::SetCubemapResult(SetCubemapResult {
         asset_id,
         r#type: TextureUpdateResultType(update),
         instance_changed,
@@ -60,6 +60,7 @@ pub fn on_set_cubemap_format(
     };
     let Some(tex) = GpuCubemap::new_from_format(device.as_ref(), limits.as_ref(), &f, props) else {
         logger::warn!("cubemap {id}: SetCubemapFormat rejected (bad size or device)");
+        send_cubemap_result(ipc, id, TextureUpdateResultType::FORMAT_SET, false);
         return;
     };
     let existed_before = queue.pools.cubemap_pool.insert(tex);

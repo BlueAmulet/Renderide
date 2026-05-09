@@ -4,12 +4,15 @@
 //! to frontend, scene, backend, settings, and IPC state.
 
 use crate::shared::{
-    DesktopConfig, FrameStartData, FrameSubmitData, LightsBufferRendererSubmission,
-    MaterialPropertyIdRequest, MaterialsUpdateBatch, MeshUnload, MeshUploadData,
-    RenderDecouplingConfig, RendererCommand, SetCubemapData, SetCubemapFormat,
-    SetCubemapProperties, SetRenderTextureFormat, SetTexture2DData, SetTexture2DFormat,
+    DesktopConfig, DesktopTexturePropertiesUpdate, FrameStartData, FrameSubmitData,
+    GaussianSplatConfig, GaussianSplatUploadEncoded, GaussianSplatUploadRaw,
+    LightsBufferRendererSubmission, MaterialPropertyIdRequest, MaterialsUpdateBatch, MeshUnload,
+    MeshUploadData, PointRenderBufferUnload, PointRenderBufferUpload, RenderDecouplingConfig,
+    RendererCommand, SetCubemapData, SetCubemapFormat, SetCubemapProperties,
+    SetDesktopTextureProperties, SetRenderTextureFormat, SetTexture2DData, SetTexture2DFormat,
     SetTexture2DProperties, SetTexture3DData, SetTexture3DFormat, SetTexture3DProperties,
-    ShaderUnload, ShaderUpload, UnloadCubemap, UnloadRenderTexture, UnloadTexture2D,
+    ShaderUnload, ShaderUpload, TrailRenderBufferUnload, TrailRenderBufferUpload, UnloadCubemap,
+    UnloadDesktopTexture, UnloadGaussianSplat, UnloadRenderTexture, UnloadTexture2D,
     UnloadTexture3D, UnloadVideoTexture, VideoTextureLoad, VideoTextureProperties,
     VideoTextureStartAudioTrack, VideoTextureUpdate,
 };
@@ -57,6 +60,34 @@ pub(crate) enum RunningCommandEffect {
     SetRenderTextureFormat(SetRenderTextureFormat),
     /// Render texture unload command.
     UnloadRenderTexture(UnloadRenderTexture),
+    /// Desktop texture display properties.
+    SetDesktopTextureProperties(SetDesktopTextureProperties),
+    /// Desktop texture size/properties update.
+    DesktopTexturePropertiesUpdate(DesktopTexturePropertiesUpdate),
+    /// Desktop texture unload command.
+    UnloadDesktopTexture(UnloadDesktopTexture),
+    /// Point render buffer upload command.
+    PointRenderBufferUpload(PointRenderBufferUpload),
+    /// Point render buffer unload command.
+    PointRenderBufferUnload(PointRenderBufferUnload),
+    /// Trail render buffer upload command.
+    TrailRenderBufferUpload(TrailRenderBufferUpload),
+    /// Trail render buffer unload command.
+    TrailRenderBufferUnload(TrailRenderBufferUnload),
+    /// Gaussian splat renderer config.
+    GaussianSplatConfig(GaussianSplatConfig),
+    /// Raw Gaussian splat upload command.
+    GaussianSplatUploadRaw(GaussianSplatUploadRaw),
+    /// Encoded Gaussian splat upload command.
+    GaussianSplatUploadEncoded(GaussianSplatUploadEncoded),
+    /// Gaussian splat unload command.
+    UnloadGaussianSplat(UnloadGaussianSplat),
+    /// Renderer-sent point render buffer consumed ACK received from host, ignored.
+    PointRenderBufferConsumed,
+    /// Renderer-sent trail render buffer consumed ACK received from host, ignored.
+    TrailRenderBufferConsumed,
+    /// Renderer-sent Gaussian splat result received from host, ignored.
+    GaussianSplatResult,
     /// Video texture load command.
     VideoTextureLoad(VideoTextureLoad),
     /// Video texture frame/update command.
@@ -170,6 +201,46 @@ pub(crate) fn dispatch_running_command(cmd: RendererCommand) -> RunningCommandEf
         RendererCommand::RenderDecouplingConfig(cfg) => {
             RunningCommandEffect::RenderDecouplingConfig(cfg)
         }
+        cmd => dispatch_auxiliary_asset_command(cmd),
+    }
+}
+
+fn dispatch_auxiliary_asset_command(cmd: RendererCommand) -> RunningCommandEffect {
+    match cmd {
+        RendererCommand::SetDesktopTextureProperties(p) => {
+            RunningCommandEffect::SetDesktopTextureProperties(p)
+        }
+        RendererCommand::DesktopTexturePropertiesUpdate(u) => {
+            RunningCommandEffect::DesktopTexturePropertiesUpdate(u)
+        }
+        RendererCommand::UnloadDesktopTexture(u) => RunningCommandEffect::UnloadDesktopTexture(u),
+        RendererCommand::PointRenderBufferUpload(u) => {
+            RunningCommandEffect::PointRenderBufferUpload(u)
+        }
+        RendererCommand::PointRenderBufferUnload(u) => {
+            RunningCommandEffect::PointRenderBufferUnload(u)
+        }
+        RendererCommand::TrailRenderBufferUpload(u) => {
+            RunningCommandEffect::TrailRenderBufferUpload(u)
+        }
+        RendererCommand::TrailRenderBufferUnload(u) => {
+            RunningCommandEffect::TrailRenderBufferUnload(u)
+        }
+        RendererCommand::GaussianSplatConfig(c) => RunningCommandEffect::GaussianSplatConfig(c),
+        RendererCommand::GaussianSplatUploadRaw(u) => {
+            RunningCommandEffect::GaussianSplatUploadRaw(u)
+        }
+        RendererCommand::GaussianSplatUploadEncoded(u) => {
+            RunningCommandEffect::GaussianSplatUploadEncoded(u)
+        }
+        RendererCommand::UnloadGaussianSplat(u) => RunningCommandEffect::UnloadGaussianSplat(u),
+        RendererCommand::PointRenderBufferConsumed(_) => {
+            RunningCommandEffect::PointRenderBufferConsumed
+        }
+        RendererCommand::TrailRenderBufferConsumed(_) => {
+            RunningCommandEffect::TrailRenderBufferConsumed
+        }
+        RendererCommand::GaussianSplatResult(_) => RunningCommandEffect::GaussianSplatResult,
         ref cmd => {
             let tag = renderer_command_variant_tag(cmd);
             RunningCommandEffect::Unhandled { tag }
@@ -183,8 +254,9 @@ mod tests {
         RunningCommandEffect, dispatch_running_command,
     };
     use crate::shared::{
-        DesktopConfig, FrameSubmitData, MaterialPropertyIdRequest, QualityConfig, RendererCommand,
-        RendererShutdown, SetTexture2DFormat,
+        DesktopConfig, FrameSubmitData, GaussianSplatUploadRaw, MaterialPropertyIdRequest,
+        PointRenderBufferUpload, QualityConfig, RendererCommand, RendererShutdown,
+        SetDesktopTextureProperties, SetTexture2DFormat, TrailRenderBufferUpload,
     };
 
     #[test]
@@ -235,6 +307,34 @@ mod tests {
         assert!(matches!(
             dispatch_running_command(RendererCommand::DesktopConfig(DesktopConfig::default())),
             RunningCommandEffect::DesktopConfig(_)
+        ));
+    }
+
+    #[test]
+    fn decodes_unity_asset_family_commands_to_handlers() {
+        assert!(matches!(
+            dispatch_running_command(RendererCommand::SetDesktopTextureProperties(
+                SetDesktopTextureProperties::default()
+            )),
+            RunningCommandEffect::SetDesktopTextureProperties(_)
+        ));
+        assert!(matches!(
+            dispatch_running_command(RendererCommand::PointRenderBufferUpload(
+                PointRenderBufferUpload::default()
+            )),
+            RunningCommandEffect::PointRenderBufferUpload(_)
+        ));
+        assert!(matches!(
+            dispatch_running_command(RendererCommand::TrailRenderBufferUpload(
+                TrailRenderBufferUpload::default()
+            )),
+            RunningCommandEffect::TrailRenderBufferUpload(_)
+        ));
+        assert!(matches!(
+            dispatch_running_command(RendererCommand::GaussianSplatUploadRaw(
+                GaussianSplatUploadRaw::default()
+            )),
+            RunningCommandEffect::GaussianSplatUploadRaw(_)
         ));
     }
 

@@ -41,7 +41,7 @@ pub(super) fn send_background_result(
     command: RendererCommand,
 ) {
     if let Some(ipc) = ipc.as_mut() {
-        let _ = ipc.send_background(command);
+        let _ = ipc.send_background_reliable(command);
     }
 }
 

@@ -367,6 +367,7 @@ impl RenderBackend {
     /// Wires device/queue into uploads, allocates frame binds and materials, and builds the default graph.
     /// `shm` flushes pending mesh/texture payloads that require shared-memory reads; omit when none is
     /// available yet (uploads stay queued).
+    /// `ipc` emits host completions for any pending uploads drained during attach.
     ///
     /// On error, CPU-side asset queues may already be partially configured; GPU draws must not run until
     /// a successful attach.
@@ -374,6 +375,7 @@ impl RenderBackend {
         &mut self,
         desc: RenderBackendAttachDesc,
         shm: Option<&mut crate::ipc::SharedMemoryAccessor>,
+        ipc: Option<&mut crate::ipc::DualQueueIpc>,
     ) -> Result<(), RenderBackendAttachError> {
         let RenderBackendAttachDesc {
             device,
@@ -405,7 +407,12 @@ impl RenderBackend {
         );
         self.materials
             .try_attach_gpu(device.clone(), &queue, Arc::clone(&gpu_limits))?;
-        asset_uploads::attach_flush_pending_asset_uploads(&mut self.asset_transfers, &device, shm);
+        asset_uploads::attach_flush_pending_asset_uploads(
+            &mut self.asset_transfers,
+            &device,
+            shm,
+            ipc,
+        );
 
         let (post_processing_settings, msaa_sample_count) = self
             .renderer_settings

@@ -91,10 +91,12 @@ pub(super) fn drain_pending_shader_resolutions(
         let shader_asset_name = resolved.shader_asset_name.clone();
         backend.register_shader_route(asset_id, resolved.pipeline, shader_asset_name);
         if let Some(ipc) = frontend.ipc_mut() {
-            let _ = ipc.send_background(RendererCommand::ShaderUploadResult(ShaderUploadResult {
-                asset_id,
-                instance_changed: true,
-            }));
+            let _ = ipc.send_background_reliable(RendererCommand::ShaderUploadResult(
+                ShaderUploadResult {
+                    asset_id,
+                    instance_changed: true,
+                },
+            ));
         }
     }
 }
