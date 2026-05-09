@@ -14,9 +14,9 @@ path = "src/main.rs"
 [dependencies]
 interprocess = { path = "../interprocess" }
 logger = { path = "../logger" }
-thiserror = "2"
-arboard = "3"
-serde_json = "1"
+thiserror = "2.0"
+arboard = "3.6"
+serde_json = "1.0"
 getrandom = "0.4"
 libc = "0.2"
 rfd = { version = "0.17", features = ["common-controls-v6"] }
@@ -36,7 +36,7 @@ windows-sys = { version = "0.61", features = [
 ] }
 
 [build-dependencies]
-embed-manifest = "1"
+embed-manifest = "1.5"
 
 [dev-dependencies]
 logger = { path = "../logger" }
