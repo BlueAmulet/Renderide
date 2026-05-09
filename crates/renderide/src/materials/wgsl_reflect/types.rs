@@ -163,8 +163,10 @@ pub enum ReflectError {
         max: u32,
     },
     /// A shader stage has more samplers than the device allows.
-    #[error("stage has {count} samplers (device max_samplers_per_shader_stage={max})")]
+    #[error("{stage} stage has {count} samplers (device max_samplers_per_shader_stage={max})")]
     ExceedsSamplersPerStage {
+        /// Shader stage name.
+        stage: &'static str,
         /// Reflected sampler count for the stage.
         count: u32,
         /// Device cap.
@@ -172,9 +174,11 @@ pub enum ReflectError {
     },
     /// A shader stage has more sampled textures than the device allows.
     #[error(
-        "stage has {count} sampled textures (device max_sampled_textures_per_shader_stage={max})"
+        "{stage} stage has {count} sampled textures (device max_sampled_textures_per_shader_stage={max})"
     )]
     ExceedsSampledTexturesPerStage {
+        /// Shader stage name.
+        stage: &'static str,
         /// Reflected sampled texture count for the stage.
         count: u32,
         /// Device cap.

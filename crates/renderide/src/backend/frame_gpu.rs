@@ -329,13 +329,19 @@ fn append_ibl_layout_entries(entries: &mut Vec<wgpu::BindGroupLayoutEntry>) {
 }
 
 impl FrameGpuResources {
-    /// Layout for `@group(0)`: uniform frame + lights + cluster counts + cluster indices +
-    /// scene snapshots + reflection-probe specular resources.
-    pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    /// Returns the `@group(0)` layout entries shared by every material pipeline.
+    pub(crate) fn bind_group_layout_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
         let mut entries = Vec::with_capacity(13);
         append_frame_buffer_layout_entries(&mut entries);
         append_scene_snapshot_layout_entries(&mut entries);
         append_ibl_layout_entries(&mut entries);
+        entries
+    }
+
+    /// Layout for `@group(0)`: uniform frame + lights + cluster counts + cluster indices +
+    /// scene snapshots + reflection-probe specular resources.
+    pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+        let entries = Self::bind_group_layout_entries();
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("frame_globals"),
             entries: &entries,
@@ -622,5 +628,43 @@ impl FrameGpuResources {
             let zero = [0u8; size_of::<GpuLight>()];
             uploads.write_buffer(lights_buffer, 0, &zero);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fragment_resource_count(
+        entries: &[wgpu::BindGroupLayoutEntry],
+        matches_ty: impl Fn(&wgpu::BindingType) -> bool,
+    ) -> u32 {
+        entries
+            .iter()
+            .filter(|entry| entry.visibility.contains(wgpu::ShaderStages::FRAGMENT))
+            .filter(|entry| matches_ty(&entry.ty))
+            .map(|entry| entry.count.map_or(1, |count| count.get()))
+            .sum()
+    }
+
+    #[test]
+    fn frame_layout_contributes_two_fragment_samplers() {
+        let entries = FrameGpuResources::bind_group_layout_entries();
+        assert_eq!(
+            fragment_resource_count(&entries, |ty| matches!(ty, wgpu::BindingType::Sampler(_))),
+            2
+        );
+    }
+
+    #[test]
+    fn frame_layout_contributes_six_fragment_sampled_textures() {
+        let entries = FrameGpuResources::bind_group_layout_entries();
+        assert_eq!(
+            fragment_resource_count(&entries, |ty| matches!(
+                ty,
+                wgpu::BindingType::Texture { .. }
+            )),
+            6
+        );
     }
 }

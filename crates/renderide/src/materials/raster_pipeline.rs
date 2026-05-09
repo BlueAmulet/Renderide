@@ -125,7 +125,8 @@ fn pipeline_layout_and_vertex_buffers(
 ) -> Result<(wgpu::PipelineLayout, Vec<wgpu::VertexBufferLayout<'static>>), PipelineBuildError> {
     let reflected = reflect_raster_material_wgsl(wgsl_source)?;
     validate_per_draw_group2(&reflected.per_draw_entries)?;
-    validate_layout_against_limits(&reflected, limits)?;
+    let frame_entries = FrameGpuResources::bind_group_layout_entries();
+    validate_layout_against_limits(&reflected, &frame_entries, limits)?;
 
     let frame_bgl = FrameGpuResources::bind_group_layout(device);
     let material_bgl = if reflected.material_entries.is_empty() {

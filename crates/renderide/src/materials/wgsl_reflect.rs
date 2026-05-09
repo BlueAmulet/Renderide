@@ -162,43 +162,75 @@ pub fn reflect_vertex_shader_needs_extended_vertex_streams(wgsl_source: &str) ->
 /// Validates a reflected raster layout against device caps from [`crate::gpu::GpuLimits`].
 ///
 /// Checks per-group entry count vs `max_bindings_per_bind_group`, per-stage sampler / sampled
-/// texture counts, and uniform / storage `min_binding_size` against the matching device cap. Used
-/// at pipeline build time so a material that exceeds an effective device cap fails with a clear
-/// [`ReflectError`] instead of triggering a downstream wgpu validation panic.
+/// texture counts across the full frame/material/per-draw pipeline layout, and uniform / storage
+/// `min_binding_size` against the matching device cap. Used at pipeline build time so a material
+/// that exceeds an effective device cap fails with a clear [`ReflectError`] instead of triggering a
+/// downstream wgpu validation panic.
 pub fn validate_layout_against_limits(
+    layout: &ReflectedRasterLayout,
+    frame_entries: &[wgpu::BindGroupLayoutEntry],
+    limits: &crate::gpu::GpuLimits,
+) -> Result<(), ReflectError> {
+    validate_group_against_limits(0, frame_entries, limits)?;
+    validate_group_against_limits(1, &layout.material_entries, limits)?;
+    validate_group_against_limits(2, &layout.per_draw_entries, limits)?;
+    validate_pipeline_stage_resources(frame_entries, layout, limits)
+}
+
+fn validate_pipeline_stage_resources(
+    frame_entries: &[wgpu::BindGroupLayoutEntry],
     layout: &ReflectedRasterLayout,
     limits: &crate::gpu::GpuLimits,
 ) -> Result<(), ReflectError> {
-    validate_group_against_limits(1, &layout.material_entries, limits)?;
-    validate_group_against_limits(2, &layout.per_draw_entries, limits)?;
     let max_samplers = limits.max_samplers_per_shader_stage();
     let max_textures = limits.max_sampled_textures_per_shader_stage();
+    for (stage, stage_name) in [
+        (wgpu::ShaderStages::VERTEX, "vertex"),
+        (wgpu::ShaderStages::FRAGMENT, "fragment"),
+    ] {
+        let (samplers, textures) = count_stage_sampled_resources(
+            stage,
+            frame_entries
+                .iter()
+                .chain(layout.material_entries.iter())
+                .chain(layout.per_draw_entries.iter()),
+        );
+        if samplers > max_samplers {
+            return Err(ReflectError::ExceedsSamplersPerStage {
+                stage: stage_name,
+                count: samplers,
+                max: max_samplers,
+            });
+        }
+        if textures > max_textures {
+            return Err(ReflectError::ExceedsSampledTexturesPerStage {
+                stage: stage_name,
+                count: textures,
+                max: max_textures,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn count_stage_sampled_resources<'a>(
+    stage: wgpu::ShaderStages,
+    entries: impl Iterator<Item = &'a wgpu::BindGroupLayoutEntry>,
+) -> (u32, u32) {
     let mut samplers = 0u32;
     let mut textures = 0u32;
-    for e in layout
-        .material_entries
-        .iter()
-        .chain(layout.per_draw_entries.iter())
-    {
-        match e.ty {
-            wgpu::BindingType::Sampler(_) => samplers = samplers.saturating_add(1),
-            wgpu::BindingType::Texture { .. } => textures = textures.saturating_add(1),
+    for entry in entries {
+        if !entry.visibility.contains(stage) {
+            continue;
+        }
+        let count = entry.count.map_or(1, |count| count.get());
+        match entry.ty {
+            wgpu::BindingType::Sampler(_) => samplers = samplers.saturating_add(count),
+            wgpu::BindingType::Texture { .. } => textures = textures.saturating_add(count),
             _ => {}
         }
     }
-    if samplers > max_samplers {
-        return Err(ReflectError::ExceedsSamplersPerStage {
-            count: samplers,
-            max: max_samplers,
-        });
-    }
-    if textures > max_textures {
-        return Err(ReflectError::ExceedsSampledTexturesPerStage {
-            count: textures,
-            max: max_textures,
-        });
-    }
-    Ok(())
+    (samplers, textures)
 }
 
 fn validate_group_against_limits(
@@ -314,6 +346,67 @@ pub fn validate_per_draw_group2(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hashbrown::HashMap;
+
+    fn synthetic_limits(max_samplers: u32, max_textures: u32) -> crate::gpu::GpuLimits {
+        crate::gpu::GpuLimits::synthetic_for_tests(
+            wgpu::Limits {
+                max_bindings_per_bind_group: 100,
+                max_samplers_per_shader_stage: max_samplers,
+                max_sampled_textures_per_shader_stage: max_textures,
+                ..Default::default()
+            },
+            wgpu::Features::empty(),
+            HashMap::new(),
+        )
+    }
+
+    fn reflected_layout_with_material_entries(
+        material_entries: Vec<wgpu::BindGroupLayoutEntry>,
+    ) -> ReflectedRasterLayout {
+        ReflectedRasterLayout {
+            layout_fingerprint: 0,
+            material_entries,
+            per_draw_entries: Vec::new(),
+            material_uniform: None,
+            material_group1_names: HashMap::new(),
+            vs_vertex_inputs: Vec::new(),
+            vs_max_vertex_location: None,
+            uses_scene_depth_snapshot: false,
+            uses_scene_color_snapshot: false,
+            requires_intersection_pass: false,
+        }
+    }
+
+    fn fragment_sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+        wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        }
+    }
+
+    fn fragment_texture_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+        wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        }
+    }
+
+    fn fragment_sampler_entries(count: u32) -> Vec<wgpu::BindGroupLayoutEntry> {
+        (0..count).map(fragment_sampler_entry).collect()
+    }
+
+    fn fragment_texture_entries(count: u32) -> Vec<wgpu::BindGroupLayoutEntry> {
+        (0..count).map(fragment_texture_entry).collect()
+    }
 
     #[test]
     fn reflect_null_default_embedded() {
@@ -327,6 +420,61 @@ mod tests {
             Some(1),
             "null fallback: position + normal only"
         );
+    }
+
+    #[test]
+    fn full_pipeline_sampler_count_includes_frame_group0() {
+        let frame_entries = crate::backend::FrameGpuResources::bind_group_layout_entries();
+        let limits = synthetic_limits(16, 64);
+        let layout = reflected_layout_with_material_entries(fragment_sampler_entries(14));
+
+        validate_layout_against_limits(&layout, &frame_entries, &limits).expect("14 + 2 samplers");
+    }
+
+    #[test]
+    fn full_pipeline_sampler_count_rejects_frame_group0_overflow() {
+        let frame_entries = crate::backend::FrameGpuResources::bind_group_layout_entries();
+        let limits = synthetic_limits(16, 64);
+        let layout = reflected_layout_with_material_entries(fragment_sampler_entries(15));
+
+        let err = validate_layout_against_limits(&layout, &frame_entries, &limits)
+            .expect_err("15 + 2 samplers should exceed a 16-sampler stage limit");
+        assert!(matches!(
+            err,
+            ReflectError::ExceedsSamplersPerStage {
+                stage: "fragment",
+                count: 17,
+                max: 16
+            }
+        ));
+    }
+
+    #[test]
+    fn full_pipeline_sampled_texture_count_includes_frame_group0() {
+        let frame_entries = crate::backend::FrameGpuResources::bind_group_layout_entries();
+        let limits = synthetic_limits(64, 8);
+        let layout = reflected_layout_with_material_entries(fragment_texture_entries(2));
+
+        validate_layout_against_limits(&layout, &frame_entries, &limits)
+            .expect("2 + 6 sampled textures");
+    }
+
+    #[test]
+    fn full_pipeline_sampled_texture_count_rejects_frame_group0_overflow() {
+        let frame_entries = crate::backend::FrameGpuResources::bind_group_layout_entries();
+        let limits = synthetic_limits(64, 8);
+        let layout = reflected_layout_with_material_entries(fragment_texture_entries(3));
+
+        let err = validate_layout_against_limits(&layout, &frame_entries, &limits)
+            .expect_err("3 + 6 sampled textures should exceed an 8-texture stage limit");
+        assert!(matches!(
+            err,
+            ReflectError::ExceedsSampledTexturesPerStage {
+                stage: "fragment",
+                count: 9,
+                max: 8
+            }
+        ));
     }
 
     /// Every composed `shaders/target/*.wgsl` must declare the full [`crate::backend::FrameGpuResources`] `@group(0)`
