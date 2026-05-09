@@ -98,7 +98,7 @@ fn dispatch_desktop_config_is_ignored_without_overriding_renderer_settings() {
     let before = rt.unhandled_ipc_command_event_total();
     {
         let mut settings = rt.settings().write().expect("settings writable");
-        settings.rendering.vsync = VsyncMode::Auto;
+        settings.rendering.vsync = VsyncMode::On;
         settings.display.focused_fps_cap = 144;
         settings.display.unfocused_fps_cap = 30;
     };
@@ -114,7 +114,7 @@ fn dispatch_desktop_config_is_ignored_without_overriding_renderer_settings() {
 
     {
         let settings = rt.settings().read().expect("settings readable");
-        assert_eq!(settings.rendering.vsync, VsyncMode::Auto);
+        assert_eq!(settings.rendering.vsync, VsyncMode::On);
         assert_eq!(settings.display.focused_fps_cap, 144);
         assert_eq!(settings.display.unfocused_fps_cap, 30);
         drop(settings);

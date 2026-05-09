@@ -63,13 +63,16 @@ pub trait LabeledEnum: Sized + Copy + 'static {
 /// ```ignore
 /// labeled_enum! {
 ///     /// Master vsync mode persisted as `[rendering] vsync`.
-///     pub enum VsyncMode: "vsync mode (`off` / `on` / `auto`)" {
+///     pub enum VsyncMode: "vsync mode (`off` / `on`)" {
 ///         default    => Off;
 ///         bool_true  => On;
 ///         bool_false => Off;
 ///         Off  => { persist: "off",  label: "Off",  aliases: ["false", "0", "no", "none"] },
-///         On   => { persist: "on",   label: "On",   aliases: ["true", "1", "yes", "vsync", "fifo"] },
-///         Auto => { persist: "auto", label: "Auto", aliases: ["adaptive", "fifo_relaxed", "fiforelaxed", "relaxed"] },
+///         On   => {
+///             persist: "on",
+///             label: "On",
+///             aliases: ["true", "1", "yes", "vsync", "fifo", "auto", "adaptive", "fifo_relaxed"],
+///         },
 ///     }
 /// }
 /// ```
