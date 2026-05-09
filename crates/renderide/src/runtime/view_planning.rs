@@ -187,10 +187,12 @@ impl RendererRuntime {
             if !entry.selective_transform_ids.is_empty() {
                 hc.suppress_occlusion_temporal = true;
             }
-            let mut post_processing = ViewPostProcessing::from_camera_state(&entry.state);
-            if space.is_overlay() && !entry.selective_transform_ids.is_empty() {
-                post_processing = ViewPostProcessing::disabled();
-            }
+            let post_processing = if space.is_overlay() && !entry.selective_transform_ids.is_empty()
+            {
+                ViewPostProcessing::disabled()
+            } else {
+                ViewPostProcessing::from_camera_state(&entry.state)
+            };
             views.push(FrameViewPlan {
                 host_camera: hc,
                 draw_filter: Some(filter),

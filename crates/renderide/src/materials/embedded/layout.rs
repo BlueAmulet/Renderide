@@ -123,6 +123,8 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) main_cube: i32,
     /// `Projection360` secondary cubemap texture binding.
     pub(crate) second_cube: i32,
+    /// `ProceduralSkybox` numeric sun-disk mode property.
+    pub(crate) sun_disk: i32,
 }
 
 impl EmbeddedSharedKeywordIds {
@@ -192,6 +194,7 @@ impl EmbeddedSharedKeywordIds {
             offset_tex: registry.intern("_OffsetTex"),
             main_cube: registry.intern("_MainCube"),
             second_cube: registry.intern("_SecondCube"),
+            sun_disk: registry.intern("_SunDisk"),
         }
     }
 }
@@ -204,6 +207,8 @@ pub(crate) struct StemEmbeddedPropertyIds {
     pub(crate) keyword_field_probe_ids: HashMap<String, [i32; 3]>,
     /// Whether this stem is the `UI/Unlit` shader family whose `ALPHACLIP` keyword defaults on.
     pub(crate) ui_unlit_alpha_clip_default_on: bool,
+    /// Whether this stem should use Unity ProceduralSkybox property defaults.
+    pub(crate) procedural_skybox_defaults: bool,
 }
 
 /// Returns alternate host property names for a canonical texture binding name.
@@ -264,12 +269,14 @@ impl StemEmbeddedPropertyIds {
             }
         }
 
+        let source_stem = source_stem_from_target_stem(stem);
         Self {
             shared,
             uniform_field_ids,
             texture_binding_property_ids,
             keyword_field_probe_ids,
-            ui_unlit_alpha_clip_default_on: source_stem_from_target_stem(stem) == "ui_unlit",
+            ui_unlit_alpha_clip_default_on: source_stem == "ui_unlit",
+            procedural_skybox_defaults: source_stem == "proceduralskybox",
         }
     }
 }
@@ -290,6 +297,7 @@ impl StemEmbeddedPropertyIds {
             texture_binding_property_ids: HashMap::new(),
             keyword_field_probe_ids: HashMap::new(),
             ui_unlit_alpha_clip_default_on: false,
+            procedural_skybox_defaults: false,
         }
     }
 }

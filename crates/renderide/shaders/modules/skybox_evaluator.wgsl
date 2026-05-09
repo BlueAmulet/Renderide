@@ -3,6 +3,7 @@
 #define_import_path renderide::skybox_evaluator
 
 #import renderide::ggx_prefilter as ggx
+#import renderide::procedural_sky as ps
 
 const MAX_GRADIENTS: u32 = 16u;
 
@@ -26,29 +27,17 @@ fn cube_dir(face: u32, x: u32, y: u32, n: u32) -> vec3<f32> {
 }
 
 fn sample_procedural(params: SkyboxEvaluatorParams, ray: vec3<f32>) -> vec3<f32> {
-    let y = ray.y;
-    let horizon = pow(1.0 - clamp(abs(y), 0.0, 1.0), 2.0);
-    let sky_amount = smoothstep(-0.02, 0.08, y);
-    let atmosphere = max(params.scalars.z, 0.0);
-    let scatter = vec3<f32>(0.20, 0.36, 0.75) * (0.25 + atmosphere * 0.25) * max(y, 0.0);
-    let sky = params.color_a.rgb * (0.35 + 0.65 * max(y, 0.0)) + scatter;
-    let ground = params.color_b.rgb * (0.55 + 0.45 * horizon);
-    var col = mix(ground, sky, sky_amount);
-    col = col + params.color_a.rgb * horizon * 0.18;
-
-    if (params.scalars.w > 0.5) {
-        let sun_dir = normalize(params.direction.xyz + vec3<f32>(0.0, 0.00001, 0.0));
-        let sun_dot = max(dot(ray, sun_dir), 0.0);
-        let size = clamp(params.scalars.y, 0.0001, 1.0);
-        let exponent = mix(4096.0, 48.0, size);
-        var sun = pow(sun_dot, exponent);
-        if (params.scalars.w > 1.5) {
-            sun = sun + pow(sun_dot, max(exponent * 0.18, 4.0)) * 0.18;
-        }
-        col = col + params.gradient_color_a[0].rgb * sun;
-    }
-
-    return max(col * max(params.scalars.x, 0.0), vec3<f32>(0.0));
+    let sky_params = ps::ProceduralSkyParams(
+        params.color_a.rgb,
+        params.color_b.rgb,
+        params.gradient_color_a[0].rgb,
+        params.direction.xyz,
+        params.scalars.x,
+        params.scalars.y,
+        params.scalars.z,
+        params.scalars.w,
+    );
+    return ps::sample(sky_params, ray);
 }
 
 fn sample_gradient(params: SkyboxEvaluatorParams, ray: vec3<f32>) -> vec3<f32> {

@@ -40,6 +40,9 @@ pub(super) fn inferred_keyword_float_f32(
     if let Some(value) = xiexe_keyword_inferred(field_name, store, lookup, kw) {
         return Some(value);
     }
+    if let Some(value) = procedural_skybox_keyword_inferred(field_name, store, lookup, ids) {
+        return Some(value);
+    }
     if let Some(value) = scalar_keyword_inferred(field_name, store, lookup, ids) {
         return Some(value);
     }
@@ -61,6 +64,62 @@ pub(super) fn inferred_keyword_float_f32(
         None => return None,
     };
     Some(if inferred { 1.0 } else { 0.0 })
+}
+
+/// Infers ProceduralSkybox sun-disk keyword fields from `_SunDisk` when keyword floats are absent.
+fn procedural_skybox_keyword_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    if !ids.procedural_skybox_defaults || !is_procedural_sundisk_keyword(field_name) {
+        return None;
+    }
+    if let Some(value) = explicit_procedural_sundisk_keyword(field_name, store, lookup, ids) {
+        return Some(value);
+    }
+
+    let mode = first_float_by_pids(store, lookup, &[ids.shared.sun_disk])
+        .unwrap_or(2.0)
+        .round();
+    let enabled = match field_name {
+        "_SUNDISK_NONE" => mode <= 0.0,
+        "_SUNDISK_SIMPLE" => mode == 1.0,
+        "_SUNDISK_HIGH_QUALITY" => mode >= 2.0,
+        _ => return None,
+    };
+    Some(if enabled { 1.0 } else { 0.0 })
+}
+
+/// Returns an explicit ProceduralSkybox sun-disk keyword value if any mode keyword was present.
+fn explicit_procedural_sundisk_keyword(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    let none = keyword_probe_float("_SUNDISK_NONE", store, lookup, ids);
+    let simple = keyword_probe_float("_SUNDISK_SIMPLE", store, lookup, ids);
+    let high_quality = keyword_probe_float("_SUNDISK_HIGH_QUALITY", store, lookup, ids);
+    if none.is_none() && simple.is_none() && high_quality.is_none() {
+        return None;
+    }
+    let value = match field_name {
+        "_SUNDISK_NONE" => none,
+        "_SUNDISK_SIMPLE" => simple,
+        "_SUNDISK_HIGH_QUALITY" => high_quality,
+        _ => return None,
+    };
+    Some(keyword_float_value(value.unwrap_or(0.0)))
+}
+
+/// Returns true for ProceduralSkybox sun-disk keyword fields.
+fn is_procedural_sundisk_keyword(field_name: &str) -> bool {
+    matches!(
+        field_name,
+        "_SUNDISK_NONE" | "_SUNDISK_SIMPLE" | "_SUNDISK_HIGH_QUALITY"
+    )
 }
 
 /// Infers scalar keyword fields that are driven by non-keyword host properties.

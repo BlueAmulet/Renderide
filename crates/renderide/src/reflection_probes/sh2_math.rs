@@ -178,45 +178,263 @@ pub(super) fn gradient_sky_visible_color_for_dir(dir: Vec3, params: &Sh2ProjectP
 /// Evaluates the ProceduralSkybox color using the visible shader formula.
 #[cfg(test)]
 pub(super) fn procedural_sky_visible_color_for_dir(dir: Vec3, params: &Sh2ProjectParams) -> Vec3 {
-    let horizon = (1.0 - dir.y.abs().clamp(0.0, 1.0)).powi(2);
-    let sky_amount = smoothstep_for_test(-0.02, 0.08, dir.y);
-    let atmosphere = params.scalars[2].max(0.0);
-    let scatter = Vec3::new(0.20, 0.36, 0.75) * (0.25 + atmosphere * 0.25) * dir.y.max(0.0);
     let sky_tint = Vec3::from_array([params.color0[0], params.color0[1], params.color0[2]]);
     let ground_color = Vec3::from_array([params.color1[0], params.color1[1], params.color1[2]]);
-    let sky = sky_tint * (0.35 + 0.65 * dir.y.max(0.0)) + scatter;
-    let ground = ground_color * (0.55 + 0.45 * horizon);
-    let mut color = ground.lerp(sky, sky_amount) + sky_tint * horizon * 0.18;
-
-    if params.scalars[3] > 0.5 {
-        let sun_dir = Vec3::new(
+    let sun_color = Vec3::from_array([
+        params.gradient_color0[0][0],
+        params.gradient_color0[0][1],
+        params.gradient_color0[0][2],
+    ]);
+    let eye_ray = normalize_or(dir, Vec3::Y);
+    let sun_dir = normalize_or(
+        Vec3::new(
             params.direction[0],
-            params.direction[1] + 0.000_01,
+            params.direction[1],
             params.direction[2],
-        )
-        .normalize();
-        let sun_dot = dir.dot(sun_dir).max(0.0);
-        let size = params.scalars[1].clamp(0.0001, 1.0);
-        let exponent = 4096.0 + (48.0 - 4096.0) * size;
-        let mut sun = sun_dot.powf(exponent);
-        if params.scalars[3] > 1.5 {
-            sun += sun_dot.powf((exponent * 0.18).max(4.0)) * 0.18;
-        }
-        color += Vec3::from_array([
-            params.gradient_color0[0][0],
-            params.gradient_color0[0][1],
-            params.gradient_color0[0][2],
-        ]) * sun;
+        ),
+        Vec3::Y,
+    );
+    let wavelength = procedural_scattering_wavelength_from_tint(sky_tint);
+    let inv_wavelength = Vec3::new(
+        1.0 / wavelength.x.powi(4),
+        1.0 / wavelength.y.powi(4),
+        1.0 / wavelength.z.powi(4),
+    );
+    let krayleigh = 0.0025 * params.scalars[2].max(0.0).powf(2.5);
+    let (c_in, c_out) = procedural_scattering(eye_ray, sun_dir, inv_wavelength, krayleigh);
+
+    let exposure = params.scalars[0];
+    let ground = exposure * (c_in + ground_color * c_out);
+    let sky = exposure * (c_in * procedural_rayleigh_phase(sun_dir, -eye_ray));
+    let sun = exposure * (c_out * sun_color);
+    let fragment_ray = -eye_ray;
+    let sky_ground_factor = fragment_ray.y / PROCEDURAL_SKY_GROUND_THRESHOLD;
+    let mut color = sky.lerp(ground, sky_ground_factor.clamp(0.0, 1.0));
+
+    if params.scalars[3] >= 0.5 && sky_ground_factor < 0.0 {
+        let sun_size = params.scalars[1].clamp(0.0001, 1.0);
+        let mie = if params.scalars[3] > 1.5 {
+            let eye_cos = sun_dir.dot(fragment_ray);
+            procedural_mie_phase(eye_cos, eye_cos * eye_cos, sun_size)
+        } else {
+            procedural_sun_spot(sun_dir, eye_ray, sun_size)
+        };
+        color += mie * sun;
     }
 
-    (color * params.scalars[0].max(0.0)).max(Vec3::ZERO)
+    color.max(Vec3::ZERO)
 }
 
-/// Applies the WGSL `smoothstep` helper for CPU parity tests.
 #[cfg(test)]
-fn smoothstep_for_test(edge0: f32, edge1: f32, x: f32) -> f32 {
-    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
+const PROCEDURAL_OUTER_RADIUS: f32 = 1.025;
+#[cfg(test)]
+const PROCEDURAL_INNER_RADIUS: f32 = 1.0;
+#[cfg(test)]
+const PROCEDURAL_CAMERA_HEIGHT: f32 = 0.0001;
+#[cfg(test)]
+const PROCEDURAL_KMIE: f32 = 0.0010;
+#[cfg(test)]
+const PROCEDURAL_KSUN_BRIGHTNESS: f32 = 20.0;
+#[cfg(test)]
+const PROCEDURAL_KMAX_SCATTER: f32 = 50.0;
+#[cfg(test)]
+const PROCEDURAL_KSUN_SCALE: f32 = 400.0 * PROCEDURAL_KSUN_BRIGHTNESS;
+#[cfg(test)]
+const PROCEDURAL_KKM_ESUN: f32 = PROCEDURAL_KMIE * PROCEDURAL_KSUN_BRIGHTNESS;
+#[cfg(test)]
+const PROCEDURAL_KKM_4PI: f32 = PROCEDURAL_KMIE * 4.0 * std::f32::consts::PI;
+#[cfg(test)]
+const PROCEDURAL_KSCALE: f32 = 1.0 / (PROCEDURAL_OUTER_RADIUS - 1.0);
+#[cfg(test)]
+const PROCEDURAL_KSCALE_DEPTH: f32 = 0.25;
+#[cfg(test)]
+const PROCEDURAL_KSCALE_OVER_SCALE_DEPTH: f32 =
+    (1.0 / (PROCEDURAL_OUTER_RADIUS - 1.0)) / PROCEDURAL_KSCALE_DEPTH;
+#[cfg(test)]
+const PROCEDURAL_KSAMPLES: f32 = 2.0;
+#[cfg(test)]
+const PROCEDURAL_MIE_G: f32 = -0.990;
+#[cfg(test)]
+const PROCEDURAL_MIE_G2: f32 = 0.9801;
+#[cfg(test)]
+const PROCEDURAL_SKY_GROUND_THRESHOLD: f32 = 0.02;
+#[cfg(test)]
+const PROCEDURAL_GAMMA: f32 = 2.2;
+
+#[cfg(test)]
+fn normalize_or(v: Vec3, fallback: Vec3) -> Vec3 {
+    if v.length_squared() > 1.0e-12 {
+        v.normalize()
+    } else {
+        fallback
+    }
+}
+
+#[cfg(test)]
+fn vec3_exp(v: Vec3) -> Vec3 {
+    Vec3::new(v.x.exp(), v.y.exp(), v.z.exp())
+}
+
+#[cfg(test)]
+fn procedural_scale_factor(in_cos: f32) -> f32 {
+    let x = 1.0 - in_cos;
+    0.25 * (-0.00287 + x * (0.459 + x * (3.83 + x * (-6.80 + x * 5.25)))).exp()
+}
+
+#[cfg(test)]
+fn procedural_rayleigh_phase(light: Vec3, ray: Vec3) -> f32 {
+    let eye_cos = light.dot(ray);
+    0.75 + 0.75 * eye_cos * eye_cos
+}
+
+#[cfg(test)]
+fn procedural_mie_phase(eye_cos: f32, eye_cos2: f32, sun_size: f32) -> f32 {
+    let mut temp = 1.0 + PROCEDURAL_MIE_G2 - 2.0 * PROCEDURAL_MIE_G * eye_cos;
+    temp = temp.powf(sun_size.powf(0.65) * 10.0);
+    temp = temp.max(1.0e-4);
+    1.5 * ((1.0 - PROCEDURAL_MIE_G2) / (2.0 + PROCEDURAL_MIE_G2)) * (1.0 + eye_cos2) / temp
+}
+
+#[cfg(test)]
+fn procedural_sun_spot(v1: Vec3, v2: Vec3, sun_size: f32) -> f32 {
+    let dist = (v1 - v2).length();
+    let t = (dist / sun_size).clamp(0.0, 1.0);
+    let smooth = t * t * (3.0 - 2.0 * t);
+    let spot = 1.0 - smooth;
+    PROCEDURAL_KSUN_SCALE * spot * spot
+}
+
+#[cfg(test)]
+fn procedural_scattering_wavelength_from_tint(sky_tint: Vec3) -> Vec3 {
+    let sky_tint_gamma = Vec3::new(
+        sky_tint.x.max(0.0).powf(1.0 / PROCEDURAL_GAMMA),
+        sky_tint.y.max(0.0).powf(1.0 / PROCEDURAL_GAMMA),
+        sky_tint.z.max(0.0).powf(1.0 / PROCEDURAL_GAMMA),
+    );
+    let low = Vec3::new(0.5, 0.42, 0.325);
+    let high = Vec3::new(0.8, 0.72, 0.625);
+    low + (high - low) * (Vec3::ONE - sky_tint_gamma)
+}
+
+#[cfg(test)]
+fn procedural_scattering_step(
+    sample_point: Vec3,
+    eye_ray: Vec3,
+    sun_dir: Vec3,
+    inv_wavelength: Vec3,
+    kkr_4pi: f32,
+    start_offset: f32,
+    scaled_length: f32,
+) -> (Vec3, Vec3) {
+    let h = sample_point.length();
+    let depth = (PROCEDURAL_KSCALE_OVER_SCALE_DEPTH * (PROCEDURAL_INNER_RADIUS - h)).exp();
+    let light_angle = sun_dir.dot(sample_point) / h;
+    let camera_angle = eye_ray.dot(sample_point) / h;
+    let scatter = start_offset
+        + depth * (procedural_scale_factor(light_angle) - procedural_scale_factor(camera_angle));
+    let attenuate = vec3_exp(
+        -scatter.clamp(0.0, PROCEDURAL_KMAX_SCATTER)
+            * (inv_wavelength * kkr_4pi + Vec3::splat(PROCEDURAL_KKM_4PI)),
+    );
+    (attenuate * (depth * scaled_length), attenuate)
+}
+
+#[cfg(test)]
+fn procedural_ground_step(
+    sample_point: Vec3,
+    inv_wavelength: Vec3,
+    kkr_4pi: f32,
+    temp: f32,
+    camera_offset: f32,
+    scaled_length: f32,
+) -> (Vec3, Vec3) {
+    let h = sample_point.length();
+    let depth = (PROCEDURAL_KSCALE_OVER_SCALE_DEPTH * (PROCEDURAL_INNER_RADIUS - h)).exp();
+    let scatter = depth * temp - camera_offset;
+    let attenuate = vec3_exp(
+        -scatter.clamp(0.0, PROCEDURAL_KMAX_SCATTER)
+            * (inv_wavelength * kkr_4pi + Vec3::splat(PROCEDURAL_KKM_4PI)),
+    );
+    (attenuate * (depth * scaled_length), attenuate)
+}
+
+#[cfg(test)]
+fn procedural_scattering(
+    eye_ray: Vec3,
+    sun_dir: Vec3,
+    inv_wavelength: Vec3,
+    krayleigh: f32,
+) -> (Vec3, Vec3) {
+    let kkr_esun = krayleigh * PROCEDURAL_KSUN_BRIGHTNESS;
+    let kkr_4pi = krayleigh * 4.0 * std::f32::consts::PI;
+    let camera_pos = Vec3::new(0.0, PROCEDURAL_INNER_RADIUS + PROCEDURAL_CAMERA_HEIGHT, 0.0);
+
+    if eye_ray.y >= 0.0 {
+        let far = (PROCEDURAL_OUTER_RADIUS * PROCEDURAL_OUTER_RADIUS
+            + PROCEDURAL_INNER_RADIUS * PROCEDURAL_INNER_RADIUS * eye_ray.y * eye_ray.y
+            - PROCEDURAL_INNER_RADIUS * PROCEDURAL_INNER_RADIUS)
+            .sqrt()
+            - PROCEDURAL_INNER_RADIUS * eye_ray.y;
+        let height = PROCEDURAL_INNER_RADIUS + PROCEDURAL_CAMERA_HEIGHT;
+        let depth_init = (PROCEDURAL_KSCALE_OVER_SCALE_DEPTH * -PROCEDURAL_CAMERA_HEIGHT).exp();
+        let start_angle = eye_ray.dot(camera_pos) / height;
+        let start_offset = depth_init * procedural_scale_factor(start_angle);
+        let sample_length = far / PROCEDURAL_KSAMPLES;
+        let scaled_length = sample_length * PROCEDURAL_KSCALE;
+        let sample_ray = eye_ray * sample_length;
+        let mut sample_point = camera_pos + sample_ray * 0.5;
+
+        let (s0, _) = procedural_scattering_step(
+            sample_point,
+            eye_ray,
+            sun_dir,
+            inv_wavelength,
+            kkr_4pi,
+            start_offset,
+            scaled_length,
+        );
+        sample_point += sample_ray;
+        let (s1, _) = procedural_scattering_step(
+            sample_point,
+            eye_ray,
+            sun_dir,
+            inv_wavelength,
+            kkr_4pi,
+            start_offset,
+            scaled_length,
+        );
+        let front_color = s0 + s1;
+        (
+            front_color * (inv_wavelength * kkr_esun),
+            front_color * PROCEDURAL_KKM_ESUN,
+        )
+    } else {
+        let far = (-PROCEDURAL_CAMERA_HEIGHT) / (-0.001_f32).min(eye_ray.y);
+        let pos = camera_pos + far * eye_ray;
+        let depth = (-PROCEDURAL_CAMERA_HEIGHT * (1.0 / PROCEDURAL_KSCALE_DEPTH)).exp();
+        let camera_angle = (-eye_ray).dot(pos);
+        let light_angle = sun_dir.dot(pos);
+        let camera_scale = procedural_scale_factor(camera_angle);
+        let light_scale = procedural_scale_factor(light_angle);
+        let camera_offset = depth * camera_scale;
+        let temp = light_scale + camera_scale;
+        let sample_length = far / PROCEDURAL_KSAMPLES;
+        let scaled_length = sample_length * PROCEDURAL_KSCALE;
+        let sample_ray = eye_ray * sample_length;
+        let sample_point = camera_pos + sample_ray * 0.5;
+        let (front_color, attenuate) = procedural_ground_step(
+            sample_point,
+            inv_wavelength,
+            kkr_4pi,
+            temp,
+            camera_offset,
+            scaled_length,
+        );
+        (
+            front_color * (inv_wavelength * kkr_esun + Vec3::splat(PROCEDURAL_KKM_ESUN)),
+            attenuate.clamp(Vec3::ZERO, Vec3::ONE),
+        )
+    }
 }
 
 /// Computes the cubemap texel solid-angle helper used by the GPU SH kernels.

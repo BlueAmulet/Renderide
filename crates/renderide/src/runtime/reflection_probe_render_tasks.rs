@@ -947,6 +947,7 @@ fn plan_onchanges_reflection_probe_faces(
                 probe_position,
                 face,
             ),
+            render_space_filter: Some(space_id),
             draw_filter: Some(filter.clone()),
             view_id: ViewId::reflection_probe_render_task(
                 space_id,
