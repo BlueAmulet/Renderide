@@ -29,6 +29,10 @@ pub(super) fn inferred_keyword_float_f32(
         return Some(1.0);
     }
 
+    if let Some(value) = ui_unlit_alpha_clip_inferred(field_name, store, lookup, ids) {
+        return Some(value);
+    }
+
     let kw = ids.shared.as_ref();
     if let Some(value) = blend_keyword_inferred(field_name, store, lookup, kw) {
         return Some(value);
@@ -95,6 +99,22 @@ fn keyword_probe_float(
 ) -> Option<f32> {
     let probes = ids.keyword_field_probe_ids.get(field_name)?;
     first_float_by_pids(store, lookup, probes)
+}
+
+/// Infers the default UI alpha-clip keyword for the `UI/Unlit` material stem.
+fn ui_unlit_alpha_clip_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    if field_name != "_ALPHACLIP" || !ids.ui_unlit_alpha_clip_default_on {
+        return None;
+    }
+    if let Some(value) = keyword_probe_float(field_name, store, lookup, ids) {
+        return Some(keyword_float_value(value));
+    }
+    Some(1.0)
 }
 
 /// Reads a reflected uniform field's canonical host value as a scalar float.

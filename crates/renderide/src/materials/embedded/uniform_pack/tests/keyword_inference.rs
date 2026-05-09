@@ -185,6 +185,65 @@ fn opaque_render_type_disables_all_alpha_keywords() {
     }
 }
 
+#[test]
+fn ui_unlit_stems_default_alpha_clip_on() {
+    for stem in ["ui_unlit_default", "ui_unlit_multiview"] {
+        let (_reflected, ids, _registry) = reflected_with_f32_fields_for_stem(
+            stem,
+            &[
+                ("_Tint", 0),
+                ("_MainTex_ST", 4),
+                ("_MaskTex_ST", 8),
+                ("_ALPHACLIP", 12),
+                ("_TEXTURE_LERPCOLOR", 16),
+            ],
+        );
+        let store = MaterialPropertyStore::new();
+
+        assert_eq!(
+            inferred_keyword_float_f32("_ALPHACLIP", &store, lookup(30), &ids),
+            Some(1.0),
+            "{stem} should inherit UI_UnlitMaterial's default AlphaClip=true"
+        );
+    }
+}
+
+#[test]
+fn ui_unlit_alpha_clip_explicit_probe_overrides_default() {
+    let (_reflected, ids, registry) = reflected_with_f32_fields_for_stem(
+        "ui_unlit_default",
+        &[
+            ("_Tint", 0),
+            ("_MainTex_ST", 4),
+            ("_MaskTex_ST", 8),
+            ("_ALPHACLIP", 12),
+            ("_TEXTURE_LERPCOLOR", 16),
+        ],
+    );
+    let mut store = MaterialPropertyStore::new();
+    store.set_material(
+        31,
+        registry.intern("ALPHACLIP"),
+        MaterialPropertyValue::Float(0.0),
+    );
+
+    assert_eq!(
+        inferred_keyword_float_f32("_ALPHACLIP", &store, lookup(31), &ids),
+        Some(0.0)
+    );
+}
+
+#[test]
+fn non_ui_alpha_clip_uniform_stays_off_without_cutout_signal() {
+    let (_reflected, ids, _registry) = reflected_with_f32_fields(&[("_ALPHACLIP", 0)]);
+    let store = MaterialPropertyStore::new();
+
+    assert_eq!(
+        inferred_keyword_float_f32("_ALPHACLIP", &store, lookup(32), &ids),
+        Some(0.0)
+    );
+}
+
 /// `MaterialRenderType::Transparent` (2) with FrooxEngine `BlendMode.Alpha` factors
 /// (`_SrcBlend = SrcAlpha (5)`, `_DstBlend = OneMinusSrcAlpha (10)`) maps to
 /// `_ALPHABLEND_ON`, not `_ALPHAPREMULTIPLY_ON`.

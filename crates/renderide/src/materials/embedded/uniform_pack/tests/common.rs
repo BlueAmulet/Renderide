@@ -67,6 +67,17 @@ pub(super) fn reflected_with_f32_fields(
     StemEmbeddedPropertyIds,
     PropertyIdRegistry,
 ) {
+    reflected_with_f32_fields_for_stem("test_default", field_specs)
+}
+
+pub(super) fn reflected_with_f32_fields_for_stem(
+    stem: &str,
+    field_specs: &[(&str, u32)],
+) -> (
+    ReflectedRasterLayout,
+    StemEmbeddedPropertyIds,
+    PropertyIdRegistry,
+) {
     let registry = PropertyIdRegistry::new();
     let mut fields = HashMap::new();
     let mut total_size = 0u32;
@@ -98,6 +109,7 @@ pub(super) fn reflected_with_f32_fields(
         requires_intersection_pass: false,
     };
     let ids = StemEmbeddedPropertyIds::build(
+        stem,
         Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
         &registry,
         &reflected,
@@ -143,6 +155,7 @@ pub(super) fn reflected_with_uniform_fields(
         requires_intersection_pass: false,
     };
     let ids = StemEmbeddedPropertyIds::build(
+        "test_default",
         Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
         &registry,
         &reflected,
