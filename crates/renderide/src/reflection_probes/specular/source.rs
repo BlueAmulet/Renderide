@@ -3,7 +3,7 @@ use glam::{Vec3, Vec3A, Vec4};
 use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_METADATA_BOX_PROJECTION,
-    REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL, REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
+    REFLECTION_PROBE_METADATA_SH2_VALID,
 };
 use crate::materials::MaterialSystem;
 use crate::scene::{
@@ -158,7 +158,7 @@ pub(super) fn metadata_for_spatial(
             state.intensity.max(0.0),
             0.0,
             flags as f32,
-            sh2_source_kind_for_state(state),
+            REFLECTION_PROBE_METADATA_SH2_VALID,
         ],
         sh2: pack_render_sh2_raw(sh2),
     }
@@ -173,21 +173,10 @@ pub(super) fn skybox_fallback_metadata(
         ..GpuReflectionProbeMetadata::default()
     };
     if let Some(sh2) = sh2 {
-        metadata.params[3] = REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX;
+        metadata.params[3] = REFLECTION_PROBE_METADATA_SH2_VALID;
         metadata.sh2 = pack_render_sh2_raw(sh2);
     }
     metadata
-}
-
-fn sh2_source_kind_for_state(state: ReflectionProbeState) -> f32 {
-    if state.clear_flags != ReflectionProbeClear::Color
-        && state.r#type != ReflectionProbeType::Baked
-        && reflection_probe_skybox_only(state.flags)
-    {
-        REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX
-    } else {
-        REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL
-    }
 }
 
 fn pack_render_sh2_raw(sh: &RenderSH2) -> [[f32; 4]; 9] {
