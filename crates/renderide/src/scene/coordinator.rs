@@ -8,6 +8,7 @@ use std::collections::HashSet;
 
 use glam::Mat4;
 
+use crate::assets::texture::{HostTextureAssetKind, pack_host_texture_id};
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{
     BlitToDisplayState, FrameSubmitData, ReflectionProbeChangeRenderResult, RenderSH2,
@@ -27,6 +28,8 @@ use super::transforms_apply::TransformRemovalEvent;
 use super::world::{WorldTransformCache, compute_world_matrices_for_space, ensure_cache_shapes};
 
 use parallel_apply::{ExtractedRenderSpaceUpdate, extract_render_space_update, light_updates_view};
+
+const PRIMARY_DESKTOP_DISPLAY_INDEX: i16 = 0;
 
 /// Warns when more than one non-overlay render space is marked active (breaks main-camera assumptions).
 fn warn_if_multiple_active_non_overlay_spaces(data: &FrameSubmitData) {
@@ -300,10 +303,67 @@ impl SceneCoordinator {
 
     /// Desktop-window blit source for `display_index`.
     ///
-    /// Only explicit host `BlitToDisplay` renderables own the desktop display. Dashboard and
-    /// overlay UI continue through the normal overlay mesh path.
+    /// Explicit host `BlitToDisplay` renderables win. Display zero can fall back to the active
+    /// dashboard render-texture camera so desktop mode has a presentable dashboard while the
+    /// overlay-camera path is still represented through regular render-texture views.
     pub fn desktop_blit_for_display(&self, display_index: i16) -> Option<BlitToDisplayState> {
-        self.active_blit_for_display(display_index)
+        if let Some(state) = self.active_blit_for_display(display_index) {
+            return Some(state);
+        }
+        if display_index == PRIMARY_DESKTOP_DISPLAY_INDEX {
+            return self.synthesize_dash_blit_for_desktop_window();
+        }
+        None
+    }
+
+    /// Builds a synthetic [`BlitToDisplayState`] pointing at the dashboard camera's render
+    /// texture for desktop presentation.
+    ///
+    /// The camera must be enabled, live in an active overlay render space, target a non-negative
+    /// render texture, and use selective rendering. When multiple candidates exist, the
+    /// lowest-depth camera wins.
+    fn synthesize_dash_blit_for_desktop_window(&self) -> Option<BlitToDisplayState> {
+        use crate::camera::camera_state_enabled;
+        use crate::shared::CameraProjection;
+
+        let mut best: Option<&crate::shared::CameraState> = None;
+        for space in self.spaces.values() {
+            if !space.is_active || !space.is_overlay {
+                continue;
+            }
+            for entry in &space.cameras {
+                let s = &entry.state;
+                if !camera_state_enabled(s.flags) {
+                    continue;
+                }
+                if s.projection != CameraProjection::Orthographic {
+                    continue;
+                }
+                if s.render_texture_asset_id < 0 {
+                    continue;
+                }
+                if s.selective_render_count <= 0 {
+                    continue;
+                }
+                if best.is_none_or(|b| s.depth < b.depth) {
+                    best = Some(s);
+                }
+            }
+        }
+        let cam = best?;
+        let packed_texture_id = pack_host_texture_id(
+            cam.render_texture_asset_id,
+            HostTextureAssetKind::RenderTexture,
+        )?;
+
+        Some(BlitToDisplayState {
+            renderable_index: -1,
+            texture_id: packed_texture_id,
+            background_color: glam::Vec4::new(0.0, 0.0, 0.0, 1.0),
+            display_index: PRIMARY_DESKTOP_DISPLAY_INDEX,
+            flags: 0,
+            _padding: [0; 1],
+        })
     }
 
     /// Current head-output render context for the main view.

@@ -2,6 +2,7 @@
 
 use glam::{Mat4, Quat, Vec3};
 
+use crate::assets::texture::{HostTextureAssetKind, pack_host_texture_id};
 use crate::camera::{view_matrix_for_world_mesh_render_space, view_matrix_from_render_transform};
 use crate::scene::CameraRenderableEntry;
 use crate::scene::blit_to_display::BlitToDisplayEntry;
@@ -325,7 +326,7 @@ fn active_blit_for_display_skips_inactive_uninitialized_and_invalid_sources() {
 }
 
 #[test]
-fn desktop_blit_for_display_returns_explicit_blit() {
+fn desktop_blit_for_display_prefers_explicit_blit_over_dash_fallback() {
     let mut scene = SceneCoordinator::new();
     let overlay = RenderSpaceId(1);
     let explicit = RenderSpaceId(2);
@@ -367,7 +368,7 @@ fn desktop_blit_for_display_returns_explicit_blit() {
 }
 
 #[test]
-fn desktop_blit_for_display_does_not_synthesize_dash_fallback() {
+fn desktop_blit_for_display_synthesizes_dash_fallback_for_display_zero_only() {
     let mut scene = SceneCoordinator::new();
     let overlay = RenderSpaceId(3);
     scene.spaces.insert(
@@ -393,7 +394,12 @@ fn desktop_blit_for_display_does_not_synthesize_dash_fallback() {
         },
     );
 
-    assert!(scene.desktop_blit_for_display(0).is_none());
+    let state = scene.desktop_blit_for_display(0).expect("dash fallback");
+    let expected_texture =
+        pack_host_texture_id(77, HostTextureAssetKind::RenderTexture).expect("packable id");
+
+    assert_eq!(state.texture_id, expected_texture);
+    assert_eq!(state.display_index, 0);
     assert!(scene.desktop_blit_for_display(1).is_none());
     assert!(scene.active_blit_for_display(0).is_none());
 }
