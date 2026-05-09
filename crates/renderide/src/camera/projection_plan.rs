@@ -12,7 +12,7 @@ use super::{
 /// Projection matrices shared by world-mesh culling and forward rendering.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WorldProjectionSet {
-    /// Effective clip planes after host output-device and root-scale adjustment.
+    /// Effective clip planes after host output-device and head-output adjustment.
     pub clip: CameraClipPlanes,
     /// Viewport this projection was built for.
     pub viewport: Viewport,
@@ -25,7 +25,7 @@ pub struct WorldProjectionSet {
 }
 
 impl WorldProjectionSet {
-    /// Builds world/overlay projection data from scene root scale, viewport, and host camera.
+    /// Builds world/overlay projection data from scene head-output scale, viewport, and host camera.
     pub fn from_scene_host(
         scene: &SceneCoordinator,
         viewport_px: (u32, u32),
@@ -119,5 +119,32 @@ mod tests {
         let set = WorldProjectionSet::from_scene_host(&scene, (1280, 720), &host_camera);
 
         assert_eq!(set.clip, host_camera.clip);
+    }
+
+    #[test]
+    fn main_projection_scales_near_but_not_far_by_root_scale() {
+        let mut scene = SceneCoordinator::new();
+        scene.test_seed_space_identity_worlds(
+            RenderSpaceId(1),
+            vec![RenderTransform::default()],
+            vec![-1],
+        );
+        scene.test_set_space_root_transform(
+            RenderSpaceId(1),
+            RenderTransform {
+                scale: Vec3::splat(0.25),
+                ..Default::default()
+            },
+        );
+        let host_camera = HostCameraFrame {
+            clip: CameraClipPlanes::new(0.01, 4096.0),
+            output_device: HeadOutputDevice::Screen,
+            ..Default::default()
+        };
+
+        let set = WorldProjectionSet::from_scene_host(&scene, (1280, 720), &host_camera);
+
+        assert!((set.clip.near - 0.0025).abs() < 1e-6);
+        assert!((set.clip.far - 4096.0).abs() < 1e-3);
     }
 }

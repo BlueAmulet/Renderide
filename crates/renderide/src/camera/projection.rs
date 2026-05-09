@@ -30,7 +30,10 @@ pub fn clamp_desktop_fov_degrees(degrees: f32) -> f32 {
     }
 }
 
-/// Clip-plane adjustment derived from head output device and root scale (Unity-style parity).
+/// Clip-plane adjustment derived from head output device and root scale.
+///
+/// The head output scales only the near plane by the active user/root scale. The far plane remains
+/// in host view units after its minimum clamp.
 pub fn effective_head_output_clip_planes(
     near_clip: f32,
     far_clip: f32,
@@ -45,7 +48,7 @@ pub fn effective_head_output_clip_planes(
     let filtered_root_scale = filter_scale_legacy(root_scale.unwrap_or(Vec3::ONE));
     (
         near_clip.max(near_min) * filtered_root_scale.x,
-        far_clip.max(0.5) * filtered_root_scale.x,
+        far_clip.max(0.5),
     )
 }
 
@@ -153,12 +156,21 @@ mod effective_clip_plane_tests {
     }
 
     #[test]
-    fn root_scale_multiplies_adjusted_planes_when_non_degenerate() {
+    fn root_scale_multiplies_near_only_when_non_degenerate() {
         let scale = Vec3::new(2.0, 1.0, 1.0);
         let (n, f) =
             effective_head_output_clip_planes(0.1, 50.0, HeadOutputDevice::Screen, Some(scale));
         assert!((n - 0.2).abs() < 1e-5);
-        assert!((f - 100.0).abs() < 1e-4);
+        assert!((f - 50.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn sub_unit_root_scale_does_not_shrink_far_plane() {
+        let scale = Vec3::splat(0.25);
+        let (n, f) =
+            effective_head_output_clip_planes(0.01, 4096.0, HeadOutputDevice::Screen, Some(scale));
+        assert!((n - 0.0025).abs() < 1e-6);
+        assert!((f - 4096.0).abs() < 1e-3);
     }
 
     #[test]

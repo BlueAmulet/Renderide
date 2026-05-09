@@ -492,6 +492,35 @@ mod tests {
         assert!((params.far_clip - 0.25).abs() < 1e-6);
     }
 
+    #[test]
+    fn main_cluster_params_scale_near_but_not_far_by_root_scale() {
+        let mut scene = SceneCoordinator::new();
+        let space_id = RenderSpaceId(1);
+        scene.test_seed_space_identity_worlds(
+            space_id,
+            vec![crate::shared::RenderTransform::default()],
+            vec![-1],
+        );
+        scene.test_set_space_root_transform(
+            space_id,
+            crate::shared::RenderTransform {
+                scale: Vec3::splat(0.25),
+                ..Default::default()
+            },
+        );
+        let host_camera = HostCameraFrame {
+            clip: crate::camera::CameraClipPlanes::new(0.01, 4096.0),
+            output_device: crate::shared::HeadOutputDevice::Screen,
+            ..Default::default()
+        };
+
+        let params =
+            cluster_frame_params(&host_camera, &scene, (128, 128)).expect("non-empty viewport");
+
+        assert!((params.near_clip - 0.0025).abs() < 1e-6);
+        assert!((params.far_clip - 4096.0).abs() < 1e-3);
+    }
+
     /// The WGSL constants stay manually synchronized with the Rust constants.
     #[test]
     fn wgsl_cluster_clip_constants_match_rust() {

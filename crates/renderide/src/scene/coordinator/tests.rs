@@ -27,6 +27,17 @@ impl SceneCoordinator {
         }
     }
 
+    /// Overrides [`RenderSpaceState::root_transform`] for a seeded space (unit tests only).
+    pub(crate) fn test_set_space_root_transform(
+        &mut self,
+        id: RenderSpaceId,
+        root_transform: RenderTransform,
+    ) {
+        if let Some(space) = self.spaces.get_mut(&id) {
+            space.root_transform = root_transform;
+        }
+    }
+
     /// Inserts a render space and solves world matrices from the given locals (for unit tests).
     pub(crate) fn test_seed_space_identity_worlds(
         &mut self,

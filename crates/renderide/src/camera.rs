@@ -174,7 +174,7 @@ mod tests {
             Some(Vec3::splat(2.0)),
         );
         assert!((near - 0.5).abs() < 1e-6);
-        assert!((far - 1.0).abs() < 1e-6);
+        assert!((far - 0.5).abs() < 1e-6);
     }
 
     #[test]
