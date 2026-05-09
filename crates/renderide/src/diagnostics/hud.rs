@@ -293,7 +293,7 @@ impl DebugHud {
     /// drawing.
     pub fn has_visible_content(&self) -> bool {
         let flags = OverlayFeatureFlags::from_settings(&self.renderer_settings);
-        flags.any_debug_content() || self.ui_state.renderer_config_open
+        flags.imgui_visible && (flags.any_debug_content() || self.ui_state.renderer_config_open)
     }
 
     /// Encodes ImGui draw lists into a load-on-top pass over `backbuffer` and returns want-capture flags.

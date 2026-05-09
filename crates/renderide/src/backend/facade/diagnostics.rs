@@ -95,6 +95,16 @@ impl BackendDiagnostics {
         self.debug_hud.last_want_capture_keyboard()
     }
 
+    /// Whether the HUD will draw visible content this frame.
+    pub(super) fn has_visible_content(&self) -> bool {
+        self.debug_hud.has_visible_content()
+    }
+
+    /// Clears cached input-capture state when HUD encoding is skipped.
+    pub(super) fn clear_input_capture(&mut self) {
+        self.debug_hud.clear_input_capture();
+    }
+
     /// Stores renderer info for the next HUD frame.
     pub(super) fn set_snapshot(&mut self, snapshot: RendererInfoSnapshot) {
         self.debug_hud.set_snapshot(snapshot);

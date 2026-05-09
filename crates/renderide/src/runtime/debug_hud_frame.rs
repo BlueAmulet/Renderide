@@ -161,6 +161,10 @@ impl RendererRuntime {
         encoder: &mut wgpu::CommandEncoder,
         backbuffer: &wgpu::TextureView,
     ) -> Result<(), DebugHudEncodeError> {
+        if !self.backend.debug_hud_has_visible_content() {
+            self.backend.clear_debug_hud_input_capture();
+            return Ok(());
+        }
         let device = gpu.device().as_ref();
         let extent = gpu.surface_extent_px();
         let q = gpu.queue().as_ref();

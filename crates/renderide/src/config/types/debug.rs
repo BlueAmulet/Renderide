@@ -238,6 +238,8 @@ impl DebugHudRendererConfigTabVisibility {
 pub struct DebugHudSettings {
     /// Whether the renderer should load/save ImGui's raw `.ini` layout sidecar.
     pub persist_layout: bool,
+    /// Whether the renderer ImGui overlay is visible.
+    pub imgui_visible: bool,
     /// Global HUD text scale. Clamped at use sites by [`Self::resolved_ui_scale`].
     pub ui_scale: f32,
     /// Whether the **Renderer config** window is open.
@@ -270,6 +272,7 @@ impl Default for DebugHudSettings {
     fn default() -> Self {
         Self {
             persist_layout: true,
+            imgui_visible: true,
             ui_scale: Self::DEFAULT_UI_SCALE,
             renderer_config_open: true,
             scene_transforms_open: true,
@@ -428,6 +431,21 @@ mod tests {
             decoded.debug.hud.renderer_config_tab,
             DebugHudRendererConfigTab::PostProcessing
         );
+    }
+
+    #[test]
+    fn hud_imgui_visibility_defaults_on_and_roundtrips() {
+        let defaults = DebugHudSettings::default();
+        assert!(defaults.imgui_visible);
+
+        let mut s = RendererSettings::default();
+        s.debug.hud.imgui_visible = false;
+
+        let text = toml::to_string(&s).expect("serialize");
+        assert!(text.contains("imgui_visible = false"));
+
+        let decoded: RendererSettings = toml::from_str(&text).expect("deserialize");
+        assert!(!decoded.debug.hud.imgui_visible);
     }
 
     #[test]
