@@ -79,6 +79,7 @@ fn reflected_with_texture_and_fields(
         requires_intersection_pass: false,
     };
     let ids = StemEmbeddedPropertyIds::build(
+        "test_default",
         Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
         &registry,
         &reflected,

@@ -199,9 +199,14 @@ pub(super) fn validate_and_resolve_next_mip_slice<'a>(
     let h = sz.y.max(0) as u32;
     let mip_level = start_base + next_i as u32;
     if mip_level >= mipmap_count {
-        return Err(TextureUploadError::from(format!(
-            "upload mip {mip_level} exceeds texture mips {mipmap_count}"
-        )));
+        if uploaded_mips == 0 {
+            return Err(TextureUploadError::from(format!(
+                "upload mip {mip_level} exceeds texture mips {mipmap_count}"
+            )));
+        }
+        return Ok(NextMipUploadSlice::ChainDone {
+            total_uploaded: uploaded_mips,
+        });
     }
 
     let (gw, gh) = mip_dimensions_at_level(tex_extent.width, tex_extent.height, mip_level);

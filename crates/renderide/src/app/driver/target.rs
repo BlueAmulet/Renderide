@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use thiserror::Error;
 use winit::event_loop::ActiveEventLoop;
-use winit::window::Window;
+use winit::window::{Fullscreen, Window};
 
 use crate::gpu::{GpuContext, GpuError};
 use crate::runtime::RendererRuntime;
@@ -98,6 +98,24 @@ impl RenderTarget {
     /// Main winit window.
     pub(super) fn window(&self) -> &Arc<Window> {
         &self.window
+    }
+
+    /// Returns whether the main winit window is currently fullscreen.
+    pub(super) fn is_fullscreen(&self) -> bool {
+        self.window.fullscreen().is_some()
+    }
+
+    /// Toggles borderless fullscreen and returns the requested fullscreen state.
+    pub(super) fn toggle_borderless_fullscreen(&self) -> bool {
+        let fullscreen = !self.is_fullscreen();
+        self.set_borderless_fullscreen(fullscreen);
+        fullscreen
+    }
+
+    /// Applies borderless fullscreen when `fullscreen` is true, otherwise restores windowed mode.
+    pub(super) fn set_borderless_fullscreen(&self, fullscreen: bool) {
+        let fullscreen = fullscreen.then(|| Fullscreen::Borderless(None));
+        self.window.set_fullscreen(fullscreen);
     }
 
     /// Active GPU context.

@@ -56,6 +56,29 @@ fn set_float_property(
     );
 }
 
+fn assert_xiexe_alpha_keywords(
+    store: &MaterialPropertyStore,
+    material_id: i32,
+    ids: &StemEmbeddedPropertyIds,
+    cutout: bool,
+    alpha_blend: bool,
+    transparent: bool,
+) {
+    let expected = |enabled| Some(if enabled { 1.0 } else { 0.0 });
+    assert_eq!(
+        inferred_keyword_float_f32("Cutout", store, lookup(material_id), ids),
+        expected(cutout)
+    );
+    assert_eq!(
+        inferred_keyword_float_f32("AlphaBlend", store, lookup(material_id), ids),
+        expected(alpha_blend)
+    );
+    assert_eq!(
+        inferred_keyword_float_f32("Transparent", store, lookup(material_id), ids),
+        expected(transparent)
+    );
+}
+
 #[test]
 fn unlit_texture_presence_infers_observable_keywords() {
     let mut store = MaterialPropertyStore::new();
@@ -185,6 +208,65 @@ fn opaque_render_type_disables_all_alpha_keywords() {
     }
 }
 
+#[test]
+fn ui_unlit_stems_default_alpha_clip_on() {
+    for stem in ["ui_unlit_default", "ui_unlit_multiview"] {
+        let (_reflected, ids, _registry) = reflected_with_f32_fields_for_stem(
+            stem,
+            &[
+                ("_Tint", 0),
+                ("_MainTex_ST", 4),
+                ("_MaskTex_ST", 8),
+                ("_ALPHACLIP", 12),
+                ("_TEXTURE_LERPCOLOR", 16),
+            ],
+        );
+        let store = MaterialPropertyStore::new();
+
+        assert_eq!(
+            inferred_keyword_float_f32("_ALPHACLIP", &store, lookup(30), &ids),
+            Some(1.0),
+            "{stem} should inherit UI_UnlitMaterial's default AlphaClip=true"
+        );
+    }
+}
+
+#[test]
+fn ui_unlit_alpha_clip_explicit_probe_overrides_default() {
+    let (_reflected, ids, registry) = reflected_with_f32_fields_for_stem(
+        "ui_unlit_default",
+        &[
+            ("_Tint", 0),
+            ("_MainTex_ST", 4),
+            ("_MaskTex_ST", 8),
+            ("_ALPHACLIP", 12),
+            ("_TEXTURE_LERPCOLOR", 16),
+        ],
+    );
+    let mut store = MaterialPropertyStore::new();
+    store.set_material(
+        31,
+        registry.intern("ALPHACLIP"),
+        MaterialPropertyValue::Float(0.0),
+    );
+
+    assert_eq!(
+        inferred_keyword_float_f32("_ALPHACLIP", &store, lookup(31), &ids),
+        Some(0.0)
+    );
+}
+
+#[test]
+fn non_ui_alpha_clip_uniform_stays_off_without_cutout_signal() {
+    let (_reflected, ids, _registry) = reflected_with_f32_fields(&[("_ALPHACLIP", 0)]);
+    let store = MaterialPropertyStore::new();
+
+    assert_eq!(
+        inferred_keyword_float_f32("_ALPHACLIP", &store, lookup(32), &ids),
+        Some(0.0)
+    );
+}
+
 /// `MaterialRenderType::Transparent` (2) with FrooxEngine `BlendMode.Alpha` factors
 /// (`_SrcBlend = SrcAlpha (5)`, `_DstBlend = OneMinusSrcAlpha (10)`) maps to
 /// `_ALPHABLEND_ON`, not `_ALPHAPREMULTIPLY_ON`.
@@ -237,6 +319,70 @@ fn transparent_render_type_with_premultiplied_factors_infers_premultiply() {
         inferred_keyword_float_f32("_ALPHABLEND_ON", &store, lookup(11), &ids),
         Some(0.0)
     );
+}
+
+#[test]
+fn xiexe_cutout_keyword_infers_from_transparent_cutout_render_type() {
+    let mut store = MaterialPropertyStore::new();
+    let reg = PropertyIdRegistry::new();
+    let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+    set_float_property(&mut store, &reg, 70, "_RenderType", 1.0);
+
+    assert_xiexe_alpha_keywords(&store, 70, &ids, true, false, false);
+}
+
+#[test]
+fn xiexe_cutout_keyword_infers_from_alpha_test_render_queue() {
+    let mut store = MaterialPropertyStore::new();
+    let reg = PropertyIdRegistry::new();
+    let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+    set_float_property(&mut store, &reg, 71, "_RenderQueue", 2450.0);
+
+    assert_xiexe_alpha_keywords(&store, 71, &ids, true, false, false);
+}
+
+#[test]
+fn xiexe_alpha_blend_keyword_infers_from_base_blend_factors() {
+    let mut store = MaterialPropertyStore::new();
+    let reg = PropertyIdRegistry::new();
+    let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+    set_float_property(&mut store, &reg, 72, "_SrcBlendBase", 5.0);
+    set_float_property(&mut store, &reg, 72, "_DstBlendBase", 10.0);
+
+    assert_xiexe_alpha_keywords(&store, 72, &ids, false, true, false);
+}
+
+#[test]
+fn xiexe_transparent_keyword_infers_from_base_blend_factors() {
+    let mut store = MaterialPropertyStore::new();
+    let reg = PropertyIdRegistry::new();
+    let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+    set_float_property(&mut store, &reg, 73, "_SrcBlendBase", 1.0);
+    set_float_property(&mut store, &reg, 73, "_DstBlendBase", 10.0);
+
+    assert_xiexe_alpha_keywords(&store, 73, &ids, false, false, true);
+}
+
+#[test]
+fn xiexe_opaque_base_blend_factors_leave_alpha_keywords_off() {
+    let mut store = MaterialPropertyStore::new();
+    let reg = PropertyIdRegistry::new();
+    let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+    set_float_property(&mut store, &reg, 74, "_SrcBlendBase", 1.0);
+    set_float_property(&mut store, &reg, 74, "_DstBlendBase", 0.0);
+
+    assert_xiexe_alpha_keywords(&store, 74, &ids, false, false, false);
+}
+
+#[test]
+fn xiexe_base_and_default_blend_factor_pairs_do_not_mix() {
+    let mut store = MaterialPropertyStore::new();
+    let reg = PropertyIdRegistry::new();
+    let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
+    set_float_property(&mut store, &reg, 75, "_SrcBlendBase", 5.0);
+    set_float_property(&mut store, &reg, 75, "_DstBlend", 10.0);
+
+    assert_xiexe_alpha_keywords(&store, 75, &ids, false, false, false);
 }
 
 /// `BlendMode.Additive` writes Transparent render type with `_SrcBlend = One` and

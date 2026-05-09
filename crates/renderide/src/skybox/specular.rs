@@ -52,8 +52,16 @@ pub(crate) struct AnalyticIblSource {
 
 /// Resident cubemap source identity and GPU handle.
 pub(crate) struct CubemapIblSource {
+    /// Skybox material asset id when this source came from a material, or `-1` for direct probe sources.
+    pub material_asset_id: i32,
+    /// Material property generation when this source came from a material.
+    pub material_generation: u64,
+    /// Stable hash of the shader route stem when this source came from a material.
+    pub route_hash: u64,
     /// Source cubemap asset id.
     pub asset_id: i32,
+    /// Source GPU allocation generation; invalidates when an asset id is reallocated.
+    pub allocation_generation: u64,
     /// Resident cubemap face edge in texels (mip 0).
     pub face_size: u32,
     /// Resident mip count of the source cubemap.
@@ -68,8 +76,16 @@ pub(crate) struct CubemapIblSource {
 
 /// Resident equirect Texture2D source identity and GPU handle.
 pub(crate) struct EquirectIblSource {
+    /// Skybox material asset id when this source came from a material.
+    pub material_asset_id: i32,
+    /// Material property generation when this source came from a material.
+    pub material_generation: u64,
+    /// Stable hash of the shader route stem when this source came from a material.
+    pub route_hash: u64,
     /// Source Texture2D asset id.
     pub asset_id: i32,
+    /// Source GPU allocation generation; invalidates when an asset id is reallocated.
+    pub allocation_generation: u64,
     /// Mip0 width in texels.
     pub width: u32,
     /// Mip0 height in texels.
@@ -105,6 +121,8 @@ pub(crate) fn resolve_skybox_material_ibl_source(
     let store = materials.material_property_store();
     let shader_asset_id = store.shader_asset_for_material(material_asset_id)?;
     let route_name = shader_route_name(materials, shader_asset_id)?;
+    let material_generation = store.material_generation(material_asset_id);
+    let route_hash = hash_route_name(&route_name);
     let route_lower = route_name.to_ascii_lowercase();
     let lookup = MaterialPropertyLookupIds {
         material_asset_id,
@@ -117,14 +135,19 @@ pub(crate) fn resolve_skybox_material_ibl_source(
             materials.property_id_registry(),
             assets,
             lookup,
+            Projection360MaterialIdentity {
+                material_asset_id,
+                material_generation,
+                route_hash,
+            },
         );
     }
     if route_lower.contains("gradient") {
         let params = gradient_sky_params(store, materials.property_id_registry(), lookup);
         return Some(SkyboxIblSource::Analytic(Box::new(AnalyticIblSource {
             material_asset_id,
-            material_generation: store.material_generation(material_asset_id),
-            route_hash: hash_route_name(&route_name),
+            material_generation,
+            route_hash,
             params,
         })));
     }
@@ -132,8 +155,8 @@ pub(crate) fn resolve_skybox_material_ibl_source(
         let params = procedural_sky_params(store, materials.property_id_registry(), lookup);
         return Some(SkyboxIblSource::Analytic(Box::new(AnalyticIblSource {
             material_asset_id,
-            material_generation: store.material_generation(material_asset_id),
-            route_hash: hash_route_name(&route_name),
+            material_generation,
+            route_hash,
             params,
         })));
     }
@@ -177,11 +200,12 @@ fn resolve_projection360_source(
     registry: &PropertyIdRegistry,
     assets: &AssetTransferQueue,
     lookup: MaterialPropertyLookupIds,
+    identity: Projection360MaterialIdentity,
 ) -> Option<SkyboxIblSource> {
     let main_cube = texture_property(store, registry, lookup, "_MainCube")
         .or_else(|| texture_property(store, registry, lookup, "_Cube"));
     if let Some((asset_id, HostTextureAssetKind::Cubemap)) = main_cube {
-        return resolve_projection360_cubemap_source(assets, asset_id);
+        return resolve_projection360_cubemap_source(assets, asset_id, identity);
     }
     if let Some((asset_id, kind)) = main_cube {
         logger::trace!(
@@ -192,11 +216,11 @@ fn resolve_projection360_source(
     match texture_property(store, registry, lookup, "_MainTex")
         .or_else(|| texture_property(store, registry, lookup, "_Tex"))
     {
-        Some((asset_id, HostTextureAssetKind::Texture2D)) => {
-            resolve_projection360_equirect_source(store, registry, assets, lookup, asset_id)
-        }
+        Some((asset_id, HostTextureAssetKind::Texture2D)) => resolve_projection360_equirect_source(
+            store, registry, assets, lookup, asset_id, identity,
+        ),
         Some((asset_id, HostTextureAssetKind::Cubemap)) => {
-            resolve_projection360_cubemap_source(assets, asset_id)
+            resolve_projection360_cubemap_source(assets, asset_id, identity)
         }
         Some((asset_id, kind)) => {
             logger::trace!(
@@ -211,10 +235,18 @@ fn resolve_projection360_source(
     }
 }
 
+#[derive(Clone, Copy)]
+struct Projection360MaterialIdentity {
+    material_asset_id: i32,
+    material_generation: u64,
+    route_hash: u64,
+}
+
 /// Resolves a resident Projection360 cubemap source.
 fn resolve_projection360_cubemap_source(
     assets: &AssetTransferQueue,
     asset_id: i32,
+    identity: Projection360MaterialIdentity,
 ) -> Option<SkyboxIblSource> {
     let Some(cubemap) = assets.cubemap_pool().get(asset_id) else {
         logger::trace!("skybox specular: cubemap asset {asset_id} is not allocated yet");
@@ -225,7 +257,11 @@ fn resolve_projection360_cubemap_source(
         return None;
     }
     Some(SkyboxIblSource::Cubemap(CubemapIblSource {
+        material_asset_id: identity.material_asset_id,
+        material_generation: identity.material_generation,
+        route_hash: identity.route_hash,
         asset_id,
+        allocation_generation: cubemap.allocation_generation,
         face_size: cubemap.size,
         mip_levels_resident: cubemap.mip_levels_resident,
         content_generation: cubemap.content_generation,
@@ -241,6 +277,7 @@ fn resolve_projection360_equirect_source(
     assets: &AssetTransferQueue,
     lookup: MaterialPropertyLookupIds,
     asset_id: i32,
+    identity: Projection360MaterialIdentity,
 ) -> Option<SkyboxIblSource> {
     let Some(texture) = assets.texture_pool().get(asset_id) else {
         logger::trace!("skybox specular: equirect Texture2D asset {asset_id} is not allocated yet");
@@ -251,7 +288,11 @@ fn resolve_projection360_equirect_source(
         return None;
     }
     Some(SkyboxIblSource::Equirect(EquirectIblSource {
+        material_asset_id: identity.material_asset_id,
+        material_generation: identity.material_generation,
+        route_hash: identity.route_hash,
         asset_id,
+        allocation_generation: texture.view_generation,
         width: texture.width,
         height: texture.height,
         mip_levels_resident: texture.mip_levels_resident,

@@ -67,12 +67,15 @@ pub(super) fn resolve_task_source(
             return Some((
                 Sh2SourceKey::Cubemap {
                     render_space_id,
+                    material_asset_id: -1,
+                    material_generation: 0,
+                    route_hash: 0,
                     asset_id: state.cubemap_asset_id,
+                    allocation_generation: 0,
                     size: 0,
                     resident_mips: 0,
                     content_generation: 0,
                     sample_size: DEFAULT_SAMPLE_SIZE,
-                    material_generation: 0,
                 },
                 Sh2ResolvedSource::Postpone,
             ));
@@ -81,24 +84,30 @@ pub(super) fn resolve_task_source(
             return Some((
                 Sh2SourceKey::Cubemap {
                     render_space_id,
+                    material_asset_id: -1,
+                    material_generation: 0,
+                    route_hash: 0,
                     asset_id: state.cubemap_asset_id,
+                    allocation_generation: cubemap.allocation_generation,
                     size: cubemap.size,
                     resident_mips: 0,
                     content_generation: cubemap.content_generation,
                     sample_size: DEFAULT_SAMPLE_SIZE,
-                    material_generation: 0,
                 },
                 Sh2ResolvedSource::Postpone,
             ));
         }
         let key = Sh2SourceKey::Cubemap {
             render_space_id,
+            material_asset_id: -1,
+            material_generation: 0,
+            route_hash: 0,
             asset_id: state.cubemap_asset_id,
+            allocation_generation: cubemap.allocation_generation,
             size: cubemap.size,
             resident_mips: cubemap.mip_levels_resident,
             content_generation: cubemap.content_generation,
             sample_size: DEFAULT_SAMPLE_SIZE,
-            material_generation: 0,
         };
         return Some((
             key,
@@ -134,6 +143,11 @@ fn resolve_skybox_source(
     let shader_asset_id = store.shader_asset_for_material(material_asset_id)?;
     let route_name = shader_route_name(materials, shader_asset_id);
     let route_hash = hash_route_name(route_name.as_deref().unwrap_or(""));
+    let material_identity = Sh2SkyboxMaterialIdentity {
+        material_asset_id,
+        generation,
+        route_hash,
+    };
     let lookup = MaterialPropertyLookupIds {
         material_asset_id,
         mesh_property_block_slot0: None,
@@ -150,7 +164,7 @@ fn resolve_skybox_source(
             registry,
             assets,
             lookup,
-            generation,
+            material_identity,
         );
     }
     if route_name
@@ -212,7 +226,7 @@ fn resolve_projection360_source(
     registry: &PropertyIdRegistry,
     assets: &crate::backend::AssetTransferQueue,
     lookup: MaterialPropertyLookupIds,
-    generation: u64,
+    material_identity: Sh2SkyboxMaterialIdentity,
 ) -> Option<(Sh2SourceKey, Sh2ResolvedSource)> {
     let main_cube = texture_property(store, registry, lookup, "_MainCube")
         .or_else(|| texture_property(store, registry, lookup, "_Cube"));
@@ -221,7 +235,7 @@ fn resolve_projection360_source(
             render_space_id,
             assets,
             asset_id,
-            generation,
+            material_identity,
         ));
     }
 
@@ -236,12 +250,17 @@ fn resolve_projection360_source(
                 assets,
                 lookup,
                 asset_id,
-                generation,
+                material_identity,
             ))
         }
-        Some((asset_id, HostTextureAssetKind::Cubemap)) => Some(
-            resolve_projection360_cubemap_source(render_space_id, assets, asset_id, generation),
-        ),
+        Some((asset_id, HostTextureAssetKind::Cubemap)) => {
+            Some(resolve_projection360_cubemap_source(
+                render_space_id,
+                assets,
+                asset_id,
+                material_identity,
+            ))
+        }
         _ => None,
     }
 }
@@ -251,30 +270,36 @@ fn resolve_projection360_cubemap_source(
     render_space_id: i32,
     assets: &crate::backend::AssetTransferQueue,
     asset_id: i32,
-    generation: u64,
+    material_identity: Sh2SkyboxMaterialIdentity,
 ) -> (Sh2SourceKey, Sh2ResolvedSource) {
     let Some(cubemap) = assets.cubemap_pool().get(asset_id) else {
         return (
             Sh2SourceKey::Cubemap {
                 render_space_id,
+                material_asset_id: material_identity.material_asset_id,
+                material_generation: material_identity.generation,
+                route_hash: material_identity.route_hash,
                 asset_id,
+                allocation_generation: 0,
                 size: 0,
                 resident_mips: 0,
                 content_generation: 0,
                 sample_size: DEFAULT_SAMPLE_SIZE,
-                material_generation: generation,
             },
             Sh2ResolvedSource::Postpone,
         );
     };
     let key = Sh2SourceKey::Cubemap {
         render_space_id,
+        material_asset_id: material_identity.material_asset_id,
+        material_generation: material_identity.generation,
+        route_hash: material_identity.route_hash,
         asset_id,
+        allocation_generation: cubemap.allocation_generation,
         size: cubemap.size,
         resident_mips: cubemap.mip_levels_resident,
         content_generation: cubemap.content_generation,
         sample_size: DEFAULT_SAMPLE_SIZE,
-        material_generation: generation,
     };
     if cubemap.mip_levels_resident == 0 {
         return (key, Sh2ResolvedSource::Postpone);
@@ -293,7 +318,7 @@ fn resolve_projection360_texture2d_source(
     assets: &crate::backend::AssetTransferQueue,
     lookup: MaterialPropertyLookupIds,
     asset_id: i32,
-    generation: u64,
+    material_identity: Sh2SkyboxMaterialIdentity,
 ) -> (Sh2SourceKey, Sh2ResolvedSource) {
     let mut params = projection360_equirect_params(store, registry, lookup, false);
     let Some(tex) = assets.texture_pool().get(asset_id) else {
@@ -302,7 +327,7 @@ fn resolve_projection360_texture2d_source(
                 render_space_id,
                 asset_id,
                 Projection360TextureSourceState::default(),
-                generation,
+                material_identity,
                 &params,
             ),
             Sh2ResolvedSource::Postpone,
@@ -315,10 +340,11 @@ fn resolve_projection360_texture2d_source(
         Projection360TextureSourceState {
             width: tex.width,
             height: tex.height,
+            allocation_generation: tex.view_generation,
             resident_mips: tex.mip_levels_resident,
             content_generation: tex.content_generation,
         },
-        generation,
+        material_identity,
         &params,
     );
     if tex.mip_levels_resident == 0 {
@@ -337,8 +363,16 @@ fn resolve_projection360_texture2d_source(
 struct Projection360TextureSourceState {
     width: u32,
     height: u32,
+    allocation_generation: u64,
     resident_mips: u32,
     content_generation: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Sh2SkyboxMaterialIdentity {
+    material_asset_id: i32,
+    generation: u64,
+    route_hash: u64,
 }
 
 /// Builds an equirectangular source key from texture residency and Projection360 parameters.
@@ -346,18 +380,21 @@ fn projection360_equirect_source_key(
     render_space_id: i32,
     asset_id: i32,
     texture: Projection360TextureSourceState,
-    generation: u64,
+    material_identity: Sh2SkyboxMaterialIdentity,
     params: &Sh2ProjectParams,
 ) -> Sh2SourceKey {
     Sh2SourceKey::EquirectTexture2D {
         render_space_id,
+        material_asset_id: material_identity.material_asset_id,
+        material_generation: material_identity.generation,
+        route_hash: material_identity.route_hash,
         asset_id,
+        allocation_generation: texture.allocation_generation,
         width: texture.width,
         height: texture.height,
         resident_mips: texture.resident_mips,
         content_generation: texture.content_generation,
         sample_size: DEFAULT_SAMPLE_SIZE,
-        material_generation: generation,
         projection: Projection360EquirectKey::from_params(params),
     }
 }
@@ -415,10 +452,15 @@ mod tests {
             Projection360TextureSourceState {
                 width: 512,
                 height: 256,
+                allocation_generation: 77,
                 resident_mips: 3,
                 content_generation: 42,
             },
-            99,
+            Sh2SkyboxMaterialIdentity {
+                material_asset_id: 55,
+                generation: 99,
+                route_hash: 1234,
+            },
             &params,
         );
 
@@ -426,13 +468,16 @@ mod tests {
             key,
             Sh2SourceKey::EquirectTexture2D {
                 render_space_id: 7,
+                material_asset_id: 55,
+                material_generation: 99,
+                route_hash: 1234,
                 asset_id: 11,
+                allocation_generation: 77,
                 width: 512,
                 height: 256,
                 resident_mips: 3,
                 content_generation: 42,
                 sample_size: DEFAULT_SAMPLE_SIZE,
-                material_generation: 99,
                 projection: Projection360EquirectKey::from_params(&params),
             }
         );

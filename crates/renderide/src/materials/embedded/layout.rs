@@ -31,8 +31,8 @@ pub(crate) struct StemMaterialLayout {
 /// 2. The Unity render queue at `_RenderQueue` (PBS `AlphaHandling` family --
 ///    `PBS_DualSidedMaterial.cs` and friends bypass `SetBlendMode` and the `_ALPHACLIP`
 ///    keyword bitmask, signaling AlphaClip via queue 2450 and Opaque via queue 2000).
-/// 3. The `_SrcBlend` / `_DstBlend` factors for distinguishing alpha-blend, additive, and
-///    premultiplied alpha within the Transparent range.
+/// 3. The `_SrcBlend` / `_DstBlend` and Xiexe `_SrcBlendBase` / `_DstBlendBase` factors for
+///    distinguishing alpha-blend, additive, and premultiplied alpha within the Transparent range.
 /// 4. The UI stencil and color-mask properties for reconstructing unshipped `RECTCLIP`
 ///    keyword state on masked content draws.
 ///
@@ -47,6 +47,8 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) render_queue: i32,
     pub(crate) src_blend: i32,
     pub(crate) dst_blend: i32,
+    pub(crate) src_blend_base: i32,
+    pub(crate) dst_blend_base: i32,
     /// Unity UI stencil reference property.
     pub(crate) stencil_ref: i32,
     /// Unity UI stencil comparison property.
@@ -132,6 +134,8 @@ impl EmbeddedSharedKeywordIds {
             render_queue: registry.intern("_RenderQueue"),
             src_blend: registry.intern("_SrcBlend"),
             dst_blend: registry.intern("_DstBlend"),
+            src_blend_base: registry.intern("_SrcBlendBase"),
+            dst_blend_base: registry.intern("_DstBlendBase"),
             stencil_ref: registry.intern("_Stencil"),
             stencil_comp: registry.intern("_StencilComp"),
             stencil_op: registry.intern("_StencilOp"),
@@ -198,6 +202,8 @@ pub(crate) struct StemEmbeddedPropertyIds {
     pub(crate) uniform_field_ids: HashMap<String, i32>,
     pub(crate) texture_binding_property_ids: HashMap<u32, Arc<[i32]>>,
     pub(crate) keyword_field_probe_ids: HashMap<String, [i32; 3]>,
+    /// Whether this stem is the `UI/Unlit` shader family whose `ALPHACLIP` keyword defaults on.
+    pub(crate) ui_unlit_alpha_clip_default_on: bool,
 }
 
 /// Returns alternate host property names for a canonical texture binding name.
@@ -218,6 +224,7 @@ pub(crate) use crate::materials::shader_writer::unescape_property_name as shader
 
 impl StemEmbeddedPropertyIds {
     pub(crate) fn build(
+        stem: &str,
         shared: Arc<EmbeddedSharedKeywordIds>,
         registry: &PropertyIdRegistry,
         reflected: &ReflectedRasterLayout,
@@ -262,8 +269,15 @@ impl StemEmbeddedPropertyIds {
             uniform_field_ids,
             texture_binding_property_ids,
             keyword_field_probe_ids,
+            ui_unlit_alpha_clip_default_on: source_stem_from_target_stem(stem) == "ui_unlit",
         }
     }
+}
+
+fn source_stem_from_target_stem(stem: &str) -> &str {
+    stem.strip_suffix("_default")
+        .or_else(|| stem.strip_suffix("_multiview"))
+        .unwrap_or(stem)
 }
 
 #[cfg(test)]
@@ -275,6 +289,7 @@ impl StemEmbeddedPropertyIds {
             uniform_field_ids: HashMap::new(),
             texture_binding_property_ids: HashMap::new(),
             keyword_field_probe_ids: HashMap::new(),
+            ui_unlit_alpha_clip_default_on: false,
         }
     }
 }
@@ -306,6 +321,7 @@ pub(crate) fn build_stem_material_layout(
     });
 
     let ids = Arc::new(StemEmbeddedPropertyIds::build(
+        stem,
         Arc::clone(shared_keyword_ids),
         property_registry,
         &reflected,
@@ -338,7 +354,8 @@ mod tests {
         let registry = PropertyIdRegistry::new();
         let shared = Arc::new(EmbeddedSharedKeywordIds::new(&registry));
 
-        let ids = StemEmbeddedPropertyIds::build(shared, &registry, &reflected);
+        let ids =
+            StemEmbeddedPropertyIds::build("xstoon2.0_default", shared, &registry, &reflected);
 
         assert_eq!(
             ids.texture_binding_property_ids.get(&1).map(|p| &**p),

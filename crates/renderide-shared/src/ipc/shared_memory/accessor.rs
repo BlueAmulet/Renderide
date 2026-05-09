@@ -257,6 +257,65 @@ impl SharedMemoryAccessor {
         Ok(out)
     }
 
+    /// Copies host-sized [`MemoryPackable`] rows until `stop_after` returns `true` for a decoded row.
+    ///
+    /// The matching row is included in the returned vector. Use this for shared-memory buffers
+    /// whose descriptor length may cover a larger reserved slab while an in-band sentinel marks
+    /// the active prefix.
+    pub fn access_copy_memory_packable_rows_until_with_max<T, F>(
+        &mut self,
+        descriptor: &SharedMemoryBufferDescriptor,
+        element_stride: usize,
+        max_bytes: i32,
+        context: Option<&str>,
+        mut stop_after: F,
+    ) -> Result<Vec<T>, String>
+    where
+        T: MemoryPackable + Default,
+        F: FnMut(&T) -> bool,
+    {
+        profiling::scope!("shared_memory::access_packable_rows_until");
+        let prefix_err = make_context_prefixer(context);
+        validate_memory_packable_row_descriptor(
+            descriptor,
+            element_stride,
+            max_bytes,
+            &prefix_err,
+        )?;
+        let buffer_id = descriptor.buffer_id;
+        let path_for_diag = self.shm_path_for_buffer(buffer_id);
+        let Some(view) = self.get_view(descriptor) else {
+            return Err(prefix_err(&describe_get_view_failure(
+                buffer_id,
+                &path_for_diag,
+            )));
+        };
+        let bytes = view
+            .slice(descriptor.offset, descriptor.length)
+            .ok_or_else(|| {
+                prefix_err(&describe_slice_failure(
+                    buffer_id,
+                    descriptor.offset,
+                    descriptor.length,
+                    view.len(),
+                ))
+            })?;
+        let count = descriptor.length as usize / element_stride;
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::with_capacity(count.min(1024));
+        for chunk in bytes.chunks_exact(element_stride) {
+            let row = unpack_memory_packable_row::<T>(chunk, element_stride, &prefix_err)?;
+            let stop = stop_after(&row);
+            out.push(row);
+            if stop {
+                break;
+            }
+        }
+        Ok(out)
+    }
+
     /// Mutably accesses shared memory as `T` slices: read-modify-write with flush so the host sees updates.
     ///
     /// Uses a temporary aligned buffer because mmap offsets may be unaligned for `T`.
@@ -357,6 +416,47 @@ fn validate_access_copy_descriptor(
     Ok(())
 }
 
+/// Validates a host-row descriptor before opening a mapping for sentinel-aware row decoding.
+fn validate_memory_packable_row_descriptor(
+    descriptor: &SharedMemoryBufferDescriptor,
+    element_stride: usize,
+    max_bytes: i32,
+    prefix_err: &impl Fn(&str) -> String,
+) -> Result<(), String> {
+    if element_stride == 0 {
+        return Err(prefix_err("element_stride must be nonzero"));
+    }
+    validate_access_copy_descriptor(descriptor, max_bytes, prefix_err)?;
+    let length = descriptor.length as usize;
+    let remainder = length % element_stride;
+    if remainder != 0 {
+        return Err(prefix_err(&format!(
+            "length {length} is not a multiple of element_stride {element_stride} (remainder {remainder})"
+        )));
+    }
+    Ok(())
+}
+
+/// Decodes one fixed-stride host row using the same `MemoryPackable` contract as full row copies.
+fn unpack_memory_packable_row<T: MemoryPackable + Default>(
+    chunk: &[u8],
+    element_stride: usize,
+    prefix_err: &impl Fn(&str) -> String,
+) -> Result<T, String> {
+    let mut pool = DefaultEntityPool;
+    let mut unpacker = MemoryUnpacker::new(chunk, &mut pool);
+    let mut row = T::default();
+    row.unpack(&mut unpacker)
+        .map_err(|e: WireDecodeError| prefix_err(&format!("MemoryPackable::unpack: {e}")))?;
+    if unpacker.remaining_data() != 0 {
+        return Err(prefix_err(&format!(
+            "unpack left {} bytes unconsumed (stride {element_stride})",
+            unpacker.remaining_data()
+        )));
+    }
+    Ok(row)
+}
+
 /// Renders the diagnostic string used when [`SharedMemoryAccessor::get_view`] fails to map a
 /// shared buffer (the most common cause is a missing or truncated backing file).
 fn describe_get_view_failure(buffer_id: i32, path_or_name: &str) -> String {
@@ -374,8 +474,17 @@ fn describe_slice_failure(buffer_id: i32, offset: i32, length: i32, view_len: us
 #[cfg(test)]
 mod access_copy_diagnostic_tests {
     use crate::buffer::SharedMemoryBufferDescriptor;
+    use crate::ipc::shared_memory::writer::{SharedMemoryWriter, SharedMemoryWriterConfig};
+    use crate::shared::{
+        RenderTransform, TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES, TransformPoseUpdate,
+    };
+    use crate::wire_writer::{TransformPoseRow, encode_transform_pose_updates};
 
     use super::SharedMemoryAccessor;
+
+    fn unique_prefix(label: &str) -> String {
+        format!("renderide_test_accessor_{label}_{}", std::process::id())
+    }
 
     #[test]
     fn access_copy_rejects_non_positive_length() {
@@ -431,13 +540,105 @@ mod access_copy_diagnostic_tests {
             length: 128,
         };
         let err = acc
-            .access_copy_memory_packable_rows_with_max::<crate::shared::TransformPoseUpdate>(
+            .access_copy_memory_packable_rows_with_max::<TransformPoseUpdate>(
                 &d,
-                crate::shared::TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES,
+                TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES,
                 64,
                 Some("pose_rows"),
             )
             .expect_err("custom max should reject before mapping");
+        assert!(err.starts_with("pose_rows:"), "unexpected message: {err}");
+        assert!(err.contains("exceeds max 64"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn access_copy_packable_rows_until_stops_after_matching_row() {
+        let prefix = unique_prefix("until_stops");
+        let bytes = encode_transform_pose_updates(&[
+            TransformPoseRow {
+                transform_id: 7,
+                pose: RenderTransform::default(),
+            },
+            TransformPoseRow {
+                transform_id: -1,
+                pose: RenderTransform::default(),
+            },
+            TransformPoseRow {
+                transform_id: 99,
+                pose: RenderTransform::default(),
+            },
+        ]);
+        let cfg = SharedMemoryWriterConfig {
+            prefix: prefix.clone(),
+            destroy_on_drop: true,
+            ..SharedMemoryWriterConfig::default()
+        };
+        let mut writer = SharedMemoryWriter::open(cfg, 11, bytes.len()).expect("open writer");
+        writer.write_at(0, &bytes).expect("write rows");
+        writer.flush();
+        let descriptor = writer.descriptor_for(0, bytes.len() as i32);
+
+        let mut acc = SharedMemoryAccessor::new(prefix);
+        let rows = acc
+            .access_copy_memory_packable_rows_until_with_max::<TransformPoseUpdate, _>(
+                &descriptor,
+                TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES,
+                descriptor.length,
+                Some("pose_rows"),
+                |row| row.transform_id < 0,
+            )
+            .expect("decode rows");
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].transform_id, 7);
+        assert_eq!(rows[1].transform_id, -1);
+    }
+
+    #[test]
+    fn access_copy_packable_rows_until_rejects_misaligned_length() {
+        let mut acc = SharedMemoryAccessor::new("pfx".into());
+        let d = SharedMemoryBufferDescriptor {
+            buffer_id: 5,
+            buffer_capacity: 100,
+            offset: 0,
+            length: TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES as i32 + 1,
+        };
+        let err = acc
+            .access_copy_memory_packable_rows_until_with_max::<TransformPoseUpdate, _>(
+                &d,
+                TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES,
+                100,
+                Some("pose_rows"),
+                |row| row.transform_id < 0,
+            )
+            .expect_err("misaligned length");
+
+        assert!(err.starts_with("pose_rows:"), "unexpected message: {err}");
+        assert!(
+            err.contains("is not a multiple of element_stride"),
+            "unexpected message: {err}"
+        );
+    }
+
+    #[test]
+    fn access_copy_packable_rows_until_rejects_over_max_before_mapping() {
+        let mut acc = SharedMemoryAccessor::new("pfx".into());
+        let d = SharedMemoryBufferDescriptor {
+            buffer_id: 6,
+            buffer_capacity: 4096,
+            offset: 0,
+            length: 128,
+        };
+        let err = acc
+            .access_copy_memory_packable_rows_until_with_max::<TransformPoseUpdate, _>(
+                &d,
+                TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES,
+                64,
+                Some("pose_rows"),
+                |row| row.transform_id < 0,
+            )
+            .expect_err("custom max should reject before mapping");
+
         assert!(err.starts_with("pose_rows:"), "unexpected message: {err}");
         assert!(err.contains("exceeds max 64"), "unexpected message: {err}");
     }
