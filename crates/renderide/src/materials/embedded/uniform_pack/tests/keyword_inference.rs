@@ -8,12 +8,53 @@ use std::sync::Arc;
 
 use hashbrown::HashMap;
 
+use crate::materials::embedded::layout::StemEmbeddedPropertyIds;
 use crate::materials::embedded::texture_pools::EmbeddedTexturePools;
 use crate::materials::host_data::{
     MaterialPropertyStore, MaterialPropertyValue, PropertyIdRegistry,
 };
-use crate::materials::{ReflectedMaterialUniformBlock, ReflectedUniformScalarKind};
+use crate::materials::{
+    ReflectedMaterialUniformBlock, ReflectedRasterLayout, ReflectedUniformScalarKind,
+};
 use crate::shared::ColorProfile;
+
+fn pack_rect_clip_value(
+    reflected: &ReflectedRasterLayout,
+    ids: &StemEmbeddedPropertyIds,
+    store: &MaterialPropertyStore,
+    material_id: i32,
+) -> f32 {
+    let (texture, texture3d, cubemap, render_texture, video_texture) = empty_texture_pools();
+    let pools = EmbeddedTexturePools {
+        texture: &texture,
+        texture3d: &texture3d,
+        cubemap: &cubemap,
+        render_texture: &render_texture,
+        video_texture: &video_texture,
+    };
+    let tex_ctx = UniformPackTextureContext {
+        pools: &pools,
+        primary_texture_2d: -1,
+    };
+
+    let bytes = build_embedded_uniform_bytes(reflected, ids, store, lookup(material_id), &tex_ctx)
+        .expect("uniform bytes");
+    read_f32_at(&bytes, 0)
+}
+
+fn set_float_property(
+    store: &mut MaterialPropertyStore,
+    registry: &PropertyIdRegistry,
+    material_id: i32,
+    property_name: &str,
+    value: f32,
+) {
+    store.set_material(
+        material_id,
+        registry.intern(property_name),
+        MaterialPropertyValue::Float(value),
+    );
+}
 
 #[test]
 fn unlit_texture_presence_infers_observable_keywords() {
@@ -518,6 +559,69 @@ fn explicit_ui_text_control_fields_pack_canonical_values() {
     assert_eq!(read_f32_at(&bytes, 0), 2.0);
     assert_eq!(read_f32_at(&bytes, 4), 1.0);
     assert_eq!(read_f32_at(&bytes, 8), 1.0);
+}
+
+#[test]
+fn ui_content_stencil_state_infers_rect_clip() {
+    let (reflected, ids, registry) = reflected_with_f32_fields(&[("_RectClip", 0)]);
+    let mut store = MaterialPropertyStore::new();
+    set_float_property(&mut store, &registry, 27, "_Stencil", 1.0);
+    set_float_property(&mut store, &registry, 27, "_StencilComp", 3.0);
+    set_float_property(&mut store, &registry, 27, "_StencilReadMask", 1.0);
+    set_float_property(&mut store, &registry, 27, "_StencilWriteMask", 0.0);
+
+    assert_eq!(pack_rect_clip_value(&reflected, &ids, &store, 27), 1.0);
+}
+
+#[test]
+fn explicit_rect_clip_false_overrides_content_stencil_inference() {
+    let (reflected, ids, registry) = reflected_with_f32_fields(&[("_RectClip", 0)]);
+    let mut store = MaterialPropertyStore::new();
+    set_float_property(&mut store, &registry, 28, "_RectClip", 0.0);
+    set_float_property(&mut store, &registry, 28, "_Stencil", 1.0);
+    set_float_property(&mut store, &registry, 28, "_StencilComp", 3.0);
+    set_float_property(&mut store, &registry, 28, "_StencilReadMask", 1.0);
+    set_float_property(&mut store, &registry, 28, "_StencilWriteMask", 0.0);
+
+    assert_eq!(pack_rect_clip_value(&reflected, &ids, &store, 28), 0.0);
+}
+
+#[test]
+fn mask_write_and_clear_states_do_not_infer_rect_clip() {
+    let (reflected, ids, registry) = reflected_with_f32_fields(&[("_RectClip", 0)]);
+    let cases = [
+        (29, 3.0, 2.0, 3.0, 1.0, 3.0, Some(15.0)),
+        (30, 3.0, 1.0, 3.0, 3.0, 2.0, Some(0.0)),
+    ];
+
+    for (material_id, comp, op, stencil, read_mask, write_mask, color_mask) in cases {
+        let mut store = MaterialPropertyStore::new();
+        set_float_property(&mut store, &registry, material_id, "_Stencil", stencil);
+        set_float_property(&mut store, &registry, material_id, "_StencilComp", comp);
+        set_float_property(&mut store, &registry, material_id, "_StencilOp", op);
+        set_float_property(
+            &mut store,
+            &registry,
+            material_id,
+            "_StencilReadMask",
+            read_mask,
+        );
+        set_float_property(
+            &mut store,
+            &registry,
+            material_id,
+            "_StencilWriteMask",
+            write_mask,
+        );
+        if let Some(color_mask) = color_mask {
+            set_float_property(&mut store, &registry, material_id, "_ColorMask", color_mask);
+        }
+
+        assert_eq!(
+            pack_rect_clip_value(&reflected, &ids, &store, material_id),
+            0.0
+        );
+    }
 }
 
 #[test]

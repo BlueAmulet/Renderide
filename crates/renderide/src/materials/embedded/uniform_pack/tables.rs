@@ -419,9 +419,9 @@ fn alpha_premultiply_on_inferred(
 /// | `TINT_TEX_LERP`   | `TintTexture` + `TintTextureMode == Lerp`              | `_TintTex` texture + `_Tint0` written (Lerp-only send)|
 /// | `TINT_TEX_DIRECT` | `TintTexture` + `TintTextureMode == Direct`            | `_TintTex` texture, no `_Tint0`                       |
 ///
-/// `_VIEW`/`_NORMAL`/`_WORLD_VIEW`, `OUTSIDE_COLOR`, and `RECTCLIP` have no
-/// property-stream signal (they map to `bool`/`enum` fields the host never writes as
-/// properties). These default to `0`; the shader's existing fallthrough renders such
+/// `_VIEW`/`_NORMAL`/`_WORLD_VIEW`, `OUTSIDE_COLOR`, and Projection360's `RECTCLIP`
+/// keyword field have no property-stream signal (they map to `bool`/`enum` fields the host
+/// never writes as properties). These default to `0`; the shader's existing fallthrough renders such
 /// materials in the most common configuration (`_VIEW` + `OUTSIDE_CLIP` + non-stereo +
 /// non-rect-clip), and they would only become observable if a host change starts sending
 /// the discriminator.
