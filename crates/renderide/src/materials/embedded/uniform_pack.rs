@@ -154,7 +154,7 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                     if let Some(MaterialPropertyValue::Float4(c)) = store.get_merged(lookup, pid) {
                         *c
                     } else {
-                        default_vec4_for_field(shader_writer_unescaped_field_name(field_name))
+                        default_vec4_for_reflected_field(field_name, ids)
                     };
                 if value_spaces.is_srgb_vec4(field_name) {
                     v = srgb_vec4_rgb_to_linear(v);
@@ -180,7 +180,8 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                 } else if let Some(rect_clip) = rect_clip_for_field(field_name, ids, store, lookup)
                 {
                     rect_clip
-                } else if let Some(default_value) = default_f32_for_field(field_name) {
+                } else if let Some(default_value) = default_f32_for_reflected_field(field_name, ids)
+                {
                     default_value
                 } else if explicit_zero_default_f32_field(field_name) {
                     0.0
@@ -211,6 +212,35 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
     }
 
     Some(buf)
+}
+
+/// Returns a stem-aware default for a reflected scalar uniform field.
+fn default_f32_for_reflected_field(field_name: &str, ids: &StemEmbeddedPropertyIds) -> Option<f32> {
+    let field_name = shader_writer_unescaped_field_name(field_name);
+    if ids.procedural_skybox_defaults {
+        match field_name {
+            "_Exposure" => return Some(1.3),
+            "_SunSize" => return Some(0.04),
+            "_AtmosphereThickness" => return Some(1.0),
+            _ => {}
+        }
+    }
+    default_f32_for_field(field_name)
+}
+
+/// Returns a stem-aware default for a reflected vector uniform field.
+fn default_vec4_for_reflected_field(field_name: &str, ids: &StemEmbeddedPropertyIds) -> [f32; 4] {
+    let field_name = shader_writer_unescaped_field_name(field_name);
+    if ids.procedural_skybox_defaults {
+        match field_name {
+            "_SkyTint" => return [0.5, 0.5, 0.5, 1.0],
+            "_GroundColor" => return [0.369, 0.349, 0.341, 1.0],
+            "_SunColor" => return [1.0, 1.0, 1.0, 1.0],
+            "_SunDirection" => return [0.577, 0.577, 0.577, 0.0],
+            _ => {}
+        }
+    }
+    default_vec4_for_field(field_name)
 }
 
 /// Returns whether a scalar field must use only special-case handling and otherwise default to zero.

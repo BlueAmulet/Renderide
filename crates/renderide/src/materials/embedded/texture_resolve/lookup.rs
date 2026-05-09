@@ -265,6 +265,7 @@ mod tests {
                 texture_binding_property_ids,
                 keyword_field_probe_ids: HashMap::new(),
                 ui_unlit_alpha_clip_default_on: false,
+                procedural_skybox_defaults: false,
             },
             registry,
         )

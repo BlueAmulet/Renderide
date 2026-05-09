@@ -1,6 +1,7 @@
 //! Fullscreen ProceduralSkybox sky draw.
 
 #import renderide::globals as rg
+#import renderide::procedural_sky as ps
 #import renderide::skybox_common as skybox
 #import renderide::uv_utils as uvu
 
@@ -27,29 +28,27 @@ struct VertexOutput {
 }
 
 fn procedural_color(ray: vec3<f32>) -> vec4<f32> {
-    let y = ray.y;
-    let horizon = pow(1.0 - clamp(abs(y), 0.0, 1.0), 2.0);
-    let sky_amount = smoothstep(-0.02, 0.08, y);
-    let atmosphere = max(mat._AtmosphereThickness, 0.0);
-    let scatter = vec3<f32>(0.20, 0.36, 0.75) * (0.25 + atmosphere * 0.25) * max(y, 0.0);
-    let sky = mat._SkyTint.rgb * (0.35 + 0.65 * max(y, 0.0)) + scatter;
-    let ground = mat._GroundColor.rgb * (0.55 + 0.45 * horizon);
-    var col = mix(ground, sky, sky_amount);
-    col = col + mat._SkyTint.rgb * horizon * 0.18;
+    let params = ps::ProceduralSkyParams(
+        mat._SkyTint.rgb,
+        mat._GroundColor.rgb,
+        mat._SunColor.rgb,
+        mat._SunDirection.xyz,
+        mat._Exposure,
+        mat._SunSize,
+        mat._AtmosphereThickness,
+        procedural_sun_disk_mode(),
+    );
+    return rg::retain_globals_additive(vec4<f32>(ps::sample(params, ray), 1.0));
+}
 
-    if (!uvu::kw_enabled(mat._SUNDISK_NONE)) {
-        let sun_dir = normalize(mat._SunDirection.xyz);
-        let sun_dot = max(dot(ray, sun_dir), 0.0);
-        let size = clamp(mat._SunSize, 0.0001, 1.0);
-        let exponent = mix(4096.0, 48.0, size);
-        var sun = pow(sun_dot, exponent);
-        if (uvu::kw_enabled(mat._SUNDISK_HIGH_QUALITY)) {
-            sun = sun + pow(sun_dot, max(exponent * 0.18, 4.0)) * 0.18;
-        }
-        col = col + mat._SunColor.rgb * sun;
+fn procedural_sun_disk_mode() -> f32 {
+    if (uvu::kw_enabled(mat._SUNDISK_NONE)) {
+        return 0.0;
     }
-
-    return rg::retain_globals_additive(vec4<f32>(max(col * mat._Exposure, vec3<f32>(0.0)), 1.0));
+    if (uvu::kw_enabled(mat._SUNDISK_HIGH_QUALITY)) {
+        return 2.0;
+    }
+    return 1.0;
 }
 
 @vertex
