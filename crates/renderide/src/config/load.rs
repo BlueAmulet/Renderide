@@ -13,13 +13,16 @@ use std::path::PathBuf;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
+use toml_edit::{DocumentMut, Item};
 
 use super::resolve::{
     ConfigResolveOutcome, ConfigSource, apply_generated_config, is_dir_writable, read_config_file,
     renderide_config_env_nonempty, resolve_config_path, resolve_save_path,
 };
-use super::save::save_renderer_settings;
+use super::save::save_renderer_settings_pruned;
 use super::types::RendererSettings;
+
+const MAX_COMPATIBILITY_DROPS: usize = 64;
 
 /// Controls whether the TOML config file is consulted during startup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -41,8 +44,8 @@ pub struct ConfigLoadResult {
     pub resolve: ConfigResolveOutcome,
     /// Target file for [`super::save::save_renderer_settings`] and the ImGui config window.
     pub save_path: PathBuf,
-    /// When `true`, disk persistence is disabled until restart (Figment extract failed on an
-    /// existing file).
+    /// When `true`, disk persistence is disabled until restart because startup config extraction
+    /// failed in a way that could not be repaired by ignoring an incompatible TOML key.
     pub suppress_config_disk_writes: bool,
 }
 
@@ -233,6 +236,85 @@ fn run_pipeline(toml_content: Option<String>) -> Result<RendererSettings, Box<fi
     pipeline.extract()
 }
 
+#[derive(Debug)]
+struct ConfigCompatibilityDrop {
+    path: String,
+    value: String,
+    error: String,
+}
+
+fn run_pipeline_tolerating_toml(
+    toml_content: &str,
+) -> Result<(RendererSettings, Vec<ConfigCompatibilityDrop>), Box<figment::Error>> {
+    let Ok(mut document) = toml_content.parse::<DocumentMut>() else {
+        return run_pipeline(Some(toml_content.to_string())).map(|settings| (settings, vec![]));
+    };
+
+    let mut drops = Vec::new();
+    for _ in 0..MAX_COMPATIBILITY_DROPS {
+        match run_pipeline(Some(document.to_string())) {
+            Ok(settings) => return Ok((settings, drops)),
+            Err(e) => {
+                let Some(path) = compatibility_error_path(&e) else {
+                    return Err(e);
+                };
+                let Some(removed) = remove_document_path(&mut document, &path) else {
+                    return Err(e);
+                };
+                drops.push(ConfigCompatibilityDrop {
+                    path: path.join("."),
+                    value: summarize_removed_item(&removed),
+                    error: e.to_string(),
+                });
+            }
+        }
+    }
+
+    run_pipeline(Some(document.to_string())).map(|settings| (settings, drops))
+}
+
+fn compatibility_error_path(error: &figment::Error) -> Option<Vec<String>> {
+    let path = error
+        .path
+        .iter()
+        .filter(|segment| segment.as_str() != "default")
+        .cloned()
+        .collect::<Vec<_>>();
+    if path.is_empty() { None } else { Some(path) }
+}
+
+fn remove_document_path(document: &mut DocumentMut, path: &[String]) -> Option<Item> {
+    let (last, parents) = path.split_last()?;
+    let mut table = document.as_table_mut();
+    for segment in parents {
+        table = table.get_mut(segment)?.as_table_mut()?;
+    }
+    table.remove(last)
+}
+
+fn summarize_removed_item(item: &Item) -> String {
+    const MAX_LEN: usize = 160;
+    let mut text = item.to_string().replace(['\n', '\r'], " ");
+    text = text.trim().to_string();
+    if text.len() > MAX_LEN {
+        text.truncate(MAX_LEN);
+        text.push_str("...");
+    }
+    text
+}
+
+fn log_compatibility_drops(path: &std::path::Path, drops: &[ConfigCompatibilityDrop]) {
+    for drop in drops {
+        logger::warn!(
+            "Ignoring incompatible renderer config key {} in {}: {} ({})",
+            drop.path,
+            path.display(),
+            drop.value,
+            drop.error
+        );
+    }
+}
+
 /// Loads settings from a resolved config path, or defaults plus env when the file is missing or
 /// unreadable.
 fn initial_settings_from_resolve(
@@ -242,8 +324,11 @@ fn initial_settings_from_resolve(
     if let Some(path) = resolve.loaded_path.as_ref() {
         logger::info!("Loading renderer config from {}", path.display());
         match read_config_file(path) {
-            Ok(content) => match run_pipeline(Some(content)) {
-                Ok(s) => s,
+            Ok(content) => match run_pipeline_tolerating_toml(&content) {
+                Ok((s, drops)) => {
+                    log_compatibility_drops(path, &drops);
+                    s
+                }
                 Err(e) => {
                     logger::error!(
                         "Renderer config Figment extract failed for {}: {e:#}",
@@ -302,13 +387,14 @@ fn maybe_create_default_config_and_reload(
         );
         return;
     }
-    match save_renderer_settings(&path, &RendererSettings::from_defaults()) {
+    match save_renderer_settings_pruned(&path, &RendererSettings::from_defaults()) {
         Ok(()) => {
             logger::info!("Created default renderer config at {}", path.display());
             apply_generated_config(resolve, path.clone());
             match read_config_file(&path) {
-                Ok(content) => match run_pipeline(Some(content)) {
-                    Ok(s) => {
+                Ok(content) => match run_pipeline_tolerating_toml(&content) {
+                    Ok((s, drops)) => {
+                        log_compatibility_drops(&path, &drops);
                         *settings = s;
                     }
                     Err(e) => {
@@ -553,6 +639,99 @@ action = "log_and_continue"
         );
         assert_eq!(s.post_processing.tonemap.mode, TonemapMode::AcesFitted);
         assert_eq!(s.watchdog.action, WatchdogAction::LogAndContinue);
+    }
+
+    #[test]
+    fn file_pipeline_ignores_unknown_keys_without_drops() {
+        let content = r#"
+[display]
+focused_fps = 75
+future_display_key = "kept"
+
+[future_renderer]
+mode = "future"
+"#;
+
+        let (settings, drops) =
+            run_pipeline_tolerating_toml(content).expect("unknown keys should not block load");
+
+        assert_eq!(settings.display.focused_fps_cap, 75);
+        assert!(drops.is_empty(), "unknown keys should be serde-ignored");
+    }
+
+    #[test]
+    fn file_pipeline_drops_incompatible_known_value() {
+        let content = r#"
+[post_processing.tonemap]
+mode = "future_curve"
+"#;
+
+        let (settings, drops) =
+            run_pipeline_tolerating_toml(content).expect("future enum token should fall back");
+
+        assert_eq!(
+            settings.post_processing.tonemap.mode,
+            crate::config::TonemapMode::default()
+        );
+        assert_eq!(drops.len(), 1);
+        assert_eq!(drops[0].path, "post_processing.tonemap.mode");
+        assert!(
+            drops[0].value.contains("future_curve"),
+            "drop should report removed value: {:?}",
+            drops[0]
+        );
+    }
+
+    #[test]
+    fn invalid_toml_suppresses_disk_writes() {
+        const CONFIG_VAR: &str = "RENDERIDE_CONFIG";
+
+        let _lock = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let _guard = EnvGuard::capture(&[CONFIG_VAR]);
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let toml = write_toml(tmp.path(), "[display\nfocused_fps = 60\n");
+
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::set_var(CONFIG_VAR, &toml);
+        }
+
+        let result = load_renderer_settings(ConfigFilePolicy::Load);
+
+        assert_eq!(result.resolve.source, ConfigSource::Env);
+        assert_eq!(result.resolve.loaded_path.as_deref(), Some(toml.as_path()));
+        assert!(result.suppress_config_disk_writes);
+    }
+
+    #[test]
+    fn incompatible_file_value_does_not_suppress_disk_writes() {
+        const CONFIG_VAR: &str = "RENDERIDE_CONFIG";
+
+        let _lock = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let _guard = EnvGuard::capture(&[CONFIG_VAR]);
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let toml = write_toml(
+            tmp.path(),
+            r#"
+[post_processing.tonemap]
+mode = "future_curve"
+"#,
+        );
+
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::set_var(CONFIG_VAR, &toml);
+        }
+
+        let result = load_renderer_settings(ConfigFilePolicy::Load);
+
+        assert_eq!(result.resolve.source, ConfigSource::Env);
+        assert_eq!(result.resolve.loaded_path.as_deref(), Some(toml.as_path()));
+        assert!(!result.suppress_config_disk_writes);
+        assert_eq!(
+            result.settings.post_processing.tonemap.mode,
+            crate::config::TonemapMode::default()
+        );
     }
 
     #[test]

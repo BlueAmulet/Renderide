@@ -28,9 +28,10 @@
 //! ## Persistence
 //!
 //! The renderer owns the on-disk file when using the **Renderer config** (ImGui) window: values are
-//! saved immediately on change. Avoid hand-editing the config file while the process is running; the
-//! next save from the UI will overwrite it. Manual edits are best done with the renderer stopped, or
-//! use [`save_renderer_settings`] to apply programmatically.
+//! saved immediately on change while preserving keys this renderer version does not understand.
+//! Avoid hand-editing the config file while the process is running; the next save from the UI will
+//! rewrite known settings. Manual edits are best done with the renderer stopped, or use
+//! [`save_renderer_settings`] to apply programmatically.
 
 mod handle;
 pub mod labeled_enum;
@@ -51,7 +52,7 @@ pub use load::{
 pub use resolve::find_renderide_workspace_root;
 #[cfg(test)]
 pub(crate) use resolve::{ConfigResolveOutcome, ConfigSource};
-pub use save::save_renderer_settings;
+pub use save::{save_renderer_settings, save_renderer_settings_pruned};
 pub use types::{
     AutoExposureSettings, BloomCompositeMode, BloomSettings, DebugHudMainTab,
     DebugHudMainTabVisibility, DebugHudRendererConfigTab, DebugHudRendererConfigTabVisibility,

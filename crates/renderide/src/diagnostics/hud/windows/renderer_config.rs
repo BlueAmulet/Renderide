@@ -12,7 +12,7 @@ use crate::config::{
     AutoExposureSettings, BloomCompositeMode, DebugHudRendererConfigTab, DebugHudSettings,
     GraphicsApiSetting, GtaoSettings, MsaaSampleCount, PowerPreferenceSetting, RendererSettings,
     RendererSettingsHandle, SceneColorFormat, TonemapMode, VsyncMode, WatchdogAction,
-    save_renderer_settings,
+    save_renderer_settings, save_renderer_settings_pruned,
 };
 
 use super::super::layout::{self, Viewport, WindowSlot};
@@ -169,6 +169,19 @@ fn renderer_config_panel_body(
     }
 
     ui.separator();
+    if ui.small_button("Clean up config file") {
+        if suppress_renderer_config_disk_writes {
+            logger::error!(
+                "Refusing to clean up renderer config at {}: disk writes suppressed after startup extract failure",
+                save_path.display()
+            );
+        } else if let Err(e) = save_renderer_settings_pruned(save_path, g) {
+            logger::warn!(
+                "Failed to clean up renderer config at {}: {e}",
+                save_path.display()
+            );
+        }
+    }
     ui.text_disabled(format!("Persist: {}", save_path.display()));
 }
 
