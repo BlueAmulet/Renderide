@@ -262,11 +262,11 @@ mod overlay_cull_tests {
             rigid_world_matrix: Some(model),
         };
 
-        let accepted =
-            match mesh_cpu_cull_with_geometry(geom, &scene, RenderSpaceId(999), true, &culling) {
-                Ok(accepted) => accepted,
-                Err(_) => panic!("overlay items should skip frustum/Hi-Z rejection"),
-            };
+        let Ok(accepted) =
+            mesh_cpu_cull_with_geometry(geom, &scene, RenderSpaceId(999), true, &culling)
+        else {
+            panic!("overlay items should skip frustum/Hi-Z rejection");
+        };
 
         assert_eq!(accepted, Some(model));
     }

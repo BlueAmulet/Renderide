@@ -20,7 +20,7 @@ pub struct ExtractedLayerUpdate {
     pub removals: Vec<i32>,
     /// New layer-assignment node ids (terminated by `< 0`).
     pub additions: Vec<i32>,
-    /// Per-entry [`LayerType`] rows, indexed positionally into [`RenderSpaceState::layer_assignments`].
+    /// Per-entry [`LayerType`] rows for assignments added by the same update.
     pub layer_assignments: Vec<LayerType>,
 }
 

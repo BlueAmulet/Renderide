@@ -172,12 +172,10 @@ impl RendererRuntime {
 
     /// Resolves a `BlitToDisplay.texture_id` into a sampleable 2D color view + texel size.
     ///
-    /// Mirrors `Renderite.Unity.TextureHelper.GetTexture` but only for the texture kinds that make
-    /// sense as a fullscreen blit source. `Texture2D` and `RenderTexture` cover the common cases
-    /// (camera-preview mirror via `InteractiveCamera`, host avatar previews). `Texture3D` /
-    /// `Cubemap` have no canonical 2D slice; `VideoTexture` and `Desktop` are not wired yet (their
-    /// pool entries do not surface width/height through the resident-pool facade) and are
-    /// returned as [`None`] until the renderer needs them.
+    /// Resolves only the texture kinds that can currently be sampled as fullscreen 2D blit
+    /// sources. `Texture2D` and `RenderTexture` cover the common camera-preview and avatar-preview
+    /// cases. `Texture3D` and `Cubemap` have no canonical 2D slice; `VideoTexture` and `Desktop`
+    /// are returned as [`None`] until their pools expose stable 2D view dimensions.
     pub fn resolve_blit_to_display_texture(
         &self,
         packed_texture_id: i32,

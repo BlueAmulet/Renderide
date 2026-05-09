@@ -4,7 +4,7 @@ use crate::gpu::GpuContext;
 use crate::gpu::display_blit::DisplayBlitSource;
 use crate::present::{
     SurfaceAcquireTrace, SurfaceSubmitTrace, present_clear_frame,
-    present_clear_frame_overlay_traced,
+    present_clear_frame_overlay_traced, present_clear_frame_overlay_traced_with_color,
 };
 use crate::render_graph::GraphExecuteError;
 use crate::runtime::RendererRuntime;
@@ -15,8 +15,7 @@ use super::AppDriver;
 
 /// Display index of the desktop window for the local user.
 ///
-/// Mirrors Unity's `Display.displays[0]` and the `BlitToDisplay.DisplayIndex` default the host
-/// uses for `InteractiveCamera` mirror mode and `DefaultAvatarHelper` previews.
+/// Display zero is the default display index sent for desktop mirror and preview blits.
 pub(super) const DESKTOP_DISPLAY_INDEX: i16 = 0;
 
 /// Presentation action implied by the frame render outcome.
@@ -31,7 +30,7 @@ pub(super) enum PresentationPlan {
     VrMirrorBlit,
     /// Clear the VR mirror surface because no HMD frame was submitted.
     VrClear,
-    /// Run the host `BlitToDisplay` pass for the desktop window's display index.
+    /// Run the desktop display blit pass for the desktop window's display index.
     ///
     /// Implies that the world-camera path skipped the main swapchain this tick (`render_views`
     /// routed only secondary RTs to the GPU); this stage acquires the swapchain, clears it to
@@ -68,8 +67,8 @@ impl AppDriver {
         }
     }
 
-    /// Builds this tick's [`PresentationPlan`] from VR state, HMD submission, and the active host
-    /// `BlitToDisplay` (if any) targeting the desktop window.
+    /// Builds this tick's [`PresentationPlan`] from VR state, HMD submission, and the active
+    /// desktop display blit source.
     fn compute_presentation_plan(&self, hmd_projection_ended: bool) -> PresentationPlan {
         let vr_active = self.runtime.vr_active();
         let plan = PresentationPlan::from_frame(vr_active, hmd_projection_ended);
@@ -77,7 +76,7 @@ impl AppDriver {
             && let Some(state) = self
                 .runtime
                 .scene()
-                .active_blit_for_display(DESKTOP_DISPLAY_INDEX)
+                .desktop_blit_for_display(DESKTOP_DISPLAY_INDEX)
         {
             return PresentationPlan::DesktopBlitToDisplay { state };
         }
@@ -90,7 +89,7 @@ impl AppDriver {
             PresentationPlan::VrMirrorBlit => self.present_vr_mirror_blit(),
             PresentationPlan::VrClear => self.present_vr_clear(),
             PresentationPlan::DesktopBlitToDisplay { state } => {
-                self.present_desktop_blit_to_display(state)
+                self.present_desktop_blit_to_display(state);
             }
         }
     }
@@ -108,8 +107,8 @@ impl AppDriver {
             .runtime
             .resolve_blit_to_display_texture(state.texture_id);
         let Some((view_arc, tex_w, tex_h)) = resolved else {
-            // Texture not yet resident: still drive a present so the swapchain doesn't stall on
-            // the previously-presented frame. Mirrors Unity `TextureDisplayBlitter.ClearDisplay`.
+            // Texture not yet resident: still drive a present so the swapchain does not stall on
+            // the previously-presented frame.
             let bg = state.background_color;
             let runtime = &mut self.runtime;
             let clear = wgpu::Color {
@@ -239,67 +238,11 @@ fn encode_debug_hud_overlay(
     runtime.encode_debug_hud_overlay_on_surface(gpu, encoder, view)
 }
 
-/// Tests bit `bit_index` (zero-based) on a `BlitToDisplayState.flags` byte.
+/// Tests bit `bit_index` (zero-based) on a [`BlitToDisplayState::flags`] byte.
 ///
-/// `bit 0` = `flipHorizontally`, `bit 1` = `flipVertically` (matches the host C# layout from
-/// `Renderite.Shared.BlitToDisplayState`).
+/// `bit 0` is horizontal flip and `bit 1` is vertical flip.
 fn blit_flag_set(flags: u8, bit_index: u8) -> bool {
     (flags >> bit_index) & 1 != 0
-}
-
-/// `present_clear_frame_overlay_traced` variant that takes the swapchain clear color from the
-/// caller. Used by the [`PresentationPlan::DesktopBlitToDisplay`] fallback path so a blit whose
-/// texture has not yet uploaded still presents a frame in the host-requested background color.
-fn present_clear_frame_overlay_traced_with_color<F, E>(
-    gpu: &mut GpuContext,
-    acquire_trace: SurfaceAcquireTrace,
-    submit_trace: SurfaceSubmitTrace,
-    clear: wgpu::Color,
-    overlay: F,
-) -> Result<(), crate::present::PresentClearError>
-where
-    F: FnOnce(&mut wgpu::CommandEncoder, &wgpu::TextureView, &mut GpuContext) -> Result<(), E>,
-    E: std::fmt::Display,
-{
-    use crate::present::{
-        SurfaceFrameOutcome, acquire_surface_outcome_traced, submit_surface_frame_traced,
-    };
-    let frame = match acquire_surface_outcome_traced(gpu, acquire_trace)? {
-        SurfaceFrameOutcome::Skip | SurfaceFrameOutcome::Reconfigured => return Ok(()),
-        SurfaceFrameOutcome::Acquired(f) => f,
-    };
-    let view = frame
-        .texture
-        .create_view(&wgpu::TextureViewDescriptor::default());
-    crate::profiling::note_resource_churn!(TextureView, "gpu::display_blit_clear_fallback_view");
-    let device_arc = gpu.device().clone();
-    let mut encoder = device_arc.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("display_blit_clear_fallback"),
-    });
-    {
-        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("display_blit_clear_fallback"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(clear),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
-    }
-    if let Err(e) = overlay(&mut encoder, &view, gpu) {
-        logger::warn!("debug HUD overlay (display blit clear): {e}");
-    }
-    let cmd = encoder.finish();
-    submit_surface_frame_traced(gpu, vec![cmd], frame, submit_trace);
-    Ok(())
 }
 
 #[cfg(test)]

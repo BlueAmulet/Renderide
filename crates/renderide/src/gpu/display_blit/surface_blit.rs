@@ -1,9 +1,9 @@
 //! Per-frame "host texture -> swapchain" blit for the local-user `BlitToDisplay` renderable.
 //!
-//! Mirrors `Renderite.Unity.TextureDisplayBlitter.Blit()`: clears the surface to
-//! `BlitToDisplayState.background_color`, restricts rasterization to the centered fitted rect via
-//! [`wgpu::RenderPass::set_viewport`], and draws a single fullscreen triangle that samples the
-//! source texture (with optional axis flips). Letterbox bars stay in the cleared color.
+//! Clears the surface to `BlitToDisplayState.background_color`, restricts rasterization to the
+//! centered fitted rect via [`wgpu::RenderPass::set_viewport`], and draws a single fullscreen
+//! triangle that samples the source texture with optional axis flips. Letterbox bars stay in the
+//! cleared color.
 //!
 //! Used by the app driver when the scene reports an active blit for the desktop window's display
 //! index. Composes any debug HUD overlay on the same encoder, the same way [`super::super::vr_mirror`]

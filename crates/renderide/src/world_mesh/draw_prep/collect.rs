@@ -15,15 +15,15 @@ use glam::{Mat4, Vec3};
 use rayon::prelude::*;
 
 use crate::gpu_pools::MeshPool;
-use crate::materials::host_data::MaterialDictionary;
 use crate::materials::ShaderPermutation;
+use crate::materials::host_data::MaterialDictionary;
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter, RasterFrontFace};
 use crate::reflection_probes::specular::ReflectionProbeFrameSelection;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::RenderingContext;
 use crate::world_mesh::culling::WorldMeshCullInput;
 use crate::world_mesh::materials::{
-    batch_key_for_slot_cached, FrameMaterialBatchCache, MaterialResolveCtx,
+    FrameMaterialBatchCache, MaterialResolveCtx, batch_key_for_slot_cached,
 };
 
 use super::filter::CameraTransformDrawFilter;
@@ -37,7 +37,7 @@ pub(super) mod prepared;
 mod scene_walk;
 
 use filter_masks::build_per_space_filter_masks;
-use prepared::{collect_prepared_chunk, PREPARED_CHUNK_SIZE};
+use prepared::{PREPARED_CHUNK_SIZE, collect_prepared_chunk};
 use scene_walk::{build_chunk_specs, collect_chunk, estimate_active_renderable_count};
 
 #[cfg(test)]

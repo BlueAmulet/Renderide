@@ -1,9 +1,10 @@
 //! Shared draw-candidate evaluation for world-mesh collection.
 
 use super::*;
+use crate::materials::RasterPrimitiveTopology;
+use crate::materials::ZTEST_ALWAYS;
 use crate::materials::host_data::MaterialPropertyLookupIds;
 use crate::materials::render_queue_is_transparent;
-use crate::materials::RasterPrimitiveTopology;
 use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
 use crate::scene::MeshRendererInstanceId;
 use crate::world_mesh::materials::compute_batch_key_hash;
@@ -127,7 +128,7 @@ pub(super) fn evaluate_draw_candidate(
     })
 }
 
-/// Unity renders `LayerType::Overlay` through a separate overlay camera stack after the world.
+/// Overlay-layer meshes are drawn through a separate camera stack after the world.
 ///
 /// Renderide currently folds those meshes into the main forward pass, so they must bypass the
 /// world depth buffer explicitly or ordinary scene geometry still occludes them even after their
@@ -137,9 +138,8 @@ fn apply_overlay_layer_depth_policy(
     is_overlay: bool,
 ) -> crate::world_mesh::MaterialDrawBatchKey {
     if is_overlay {
-        // FrooxEngine `ZTest.Always = 6` under the renderer's reverse-Z mapping.
         batch_key.render_state.depth_write = Some(false);
-        batch_key.render_state.depth_compare = Some(6);
+        batch_key.render_state.depth_compare = Some(ZTEST_ALWAYS);
     }
     batch_key
 }
@@ -277,6 +277,9 @@ mod tests {
         .expect("overlay draw item");
 
         assert_eq!(item.batch_key.render_state.depth_write, Some(false));
-        assert_eq!(item.batch_key.render_state.depth_compare, Some(6));
+        assert_eq!(
+            item.batch_key.render_state.depth_compare,
+            Some(ZTEST_ALWAYS)
+        );
     }
 }

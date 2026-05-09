@@ -1,11 +1,10 @@
 //! Per-render-space `BlitToDisplay` renderable state mirrored from
 //! [`crate::shared::BlitToDisplayRenderablesUpdate`].
 //!
-//! Mirrors the host `ChangesHandlingRenderableComponentManager<BlitToDisplay,
-//! BlitToDisplayRenderablesUpdate, BlitToDisplayState, dummy>` (FrooxEngine) and the Unity
-//! reference renderer in `Renderite.Unity.BlitToDisplayManager` / `TextureDisplayBlitter`. Stores
-//! one [`BlitToDisplayEntry`] per renderable, indexed densely by host `renderable_index`.
+//! Stores one [`BlitToDisplayEntry`] per renderable, indexed densely by host
+//! `renderable_index`.
 
+use crate::color_space::srgb_vec4_rgb_to_linear;
 use crate::ipc::SharedMemoryAccessor;
 use crate::scene::dense_update::{push_dense_additions, swap_remove_dense_indices};
 use crate::scene::error::SceneError;
@@ -21,7 +20,8 @@ use crate::shared::{
 #[derive(Clone, Copy, Debug, Default)]
 pub struct BlitToDisplayEntry {
     /// Latest [`BlitToDisplayState`] for this renderable, populated from the
-    /// `BlitToDisplayRenderablesUpdate.states` slab.
+    /// `BlitToDisplayRenderablesUpdate.states` slab. `background_color` is normalized to linear
+    /// RGB on apply.
     pub state: BlitToDisplayState,
     /// `true` once a host state row has been applied to [`Self::state`]. Skipped when `false`.
     pub state_initialized: bool,
@@ -91,7 +91,9 @@ pub(crate) fn apply_blit_to_display_update_extracted(
         let Some(entry) = space.blit_to_displays.get_mut(idx) else {
             continue;
         };
-        entry.state = *state;
+        let mut state = *state;
+        state.background_color = srgb_vec4_rgb_to_linear(state.background_color);
+        entry.state = state;
         entry.state_initialized = true;
     }
 }
@@ -171,5 +173,26 @@ mod tests {
         assert_eq!(space.blit_to_displays.len(), 2);
         assert_eq!(space.blit_to_displays[0].state.texture_id, 3);
         assert_eq!(space.blit_to_displays[1].state.texture_id, 2);
+    }
+
+    #[test]
+    fn states_linearize_background_color() {
+        let mut space = RenderSpaceState::default();
+        space.blit_to_displays.push(BlitToDisplayEntry::default());
+        let mut state = state_for(0, 0, 7);
+        state.background_color = Vec4::new(0.5, 0.04045, 1.25, 0.33);
+        let extracted = ExtractedBlitToDisplayUpdate {
+            removals: vec![-1],
+            additions: vec![-1],
+            states: vec![state],
+        };
+
+        apply_blit_to_display_update_extracted(&mut space, &extracted);
+
+        let color = space.blit_to_displays[0].state.background_color;
+        assert!((color.x - 0.214_041_14).abs() < 0.000_001);
+        assert!((color.y - (0.04045 / 12.92)).abs() < 0.000_001);
+        assert_eq!(color.z, 1.25);
+        assert_eq!(color.w, 0.33);
     }
 }

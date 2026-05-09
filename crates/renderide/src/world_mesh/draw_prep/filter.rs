@@ -4,7 +4,7 @@ use hashbrown::HashSet;
 
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 
-/// Selective / exclude transform lists for secondary cameras (Unity `CameraRenderer.Render` semantics).
+/// Selective / exclude transform lists for secondary cameras.
 #[derive(Clone, Debug, Default)]
 pub struct CameraTransformDrawFilter {
     /// When `Some`, only these transform node ids are drawn.
@@ -71,18 +71,6 @@ impl CameraTransformDrawFilter {
             let excl = ancestor_membership_mask(scene, space_id, &self.exclude);
             Some(excl.into_iter().map(|e| !e).collect())
         }
-    }
-
-    /// Stable, human-readable root summary for diagnostics.
-    pub fn debug_summary(&self) -> String {
-        let mut exclude: Vec<_> = self.exclude.iter().copied().collect();
-        exclude.sort_unstable();
-        let only = self.only.as_ref().map(|set| {
-            let mut ids: Vec<_> = set.iter().copied().collect();
-            ids.sort_unstable();
-            ids
-        });
-        format!("only={only:?} exclude={exclude:?}")
     }
 }
 

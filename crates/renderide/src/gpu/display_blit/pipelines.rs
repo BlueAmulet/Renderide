@@ -92,7 +92,7 @@ pub(super) fn surface_pipeline(
 
 /// Returns the cached linear+clamp sampler shared by every display-blit invocation.
 ///
-/// Mirrors Unity's `Graphics.DrawTexture` default behavior (linear filtering, clamped UV).
+/// Uses linear filtering and clamped UVs for fitted display blits.
 pub(super) fn linear_sampler(device: &wgpu::Device) -> &'static wgpu::Sampler {
     static SAMPLER: OnceLock<wgpu::Sampler> = OnceLock::new();
     SAMPLER.get_or_init(|| {

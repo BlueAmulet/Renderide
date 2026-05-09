@@ -142,7 +142,7 @@ pub struct HostCameraFrame {
     /// desktop or secondary-RT views. Set together via [`StereoViewMatrices`] so the view-projection,
     /// view-only matrices, and per-eye camera positions cannot drift out of sync.
     pub stereo: Option<StereoViewMatrices>,
-    /// Legacy Unity `HeadOutput.transform` in renderer world space.
+    /// Host `HeadOutput.transform` in renderer world space.
     pub head_output_transform: Mat4,
     /// Explicit per-view camera data (e.g. secondary render-texture cameras).
     pub explicit_view: Option<EyeView>,
@@ -204,17 +204,9 @@ impl HostCameraFrame {
         if self.vr_active { self.stereo } else { None }
     }
 
-    /// Returns the primary orthographic projection, or a unit fallback.
-    ///
-    /// Historically used for screen-overlay (`LayerType.Overlay`) draws but the screen overlay now
-    /// builds its own unit-half-height ortho in [`super::WorldProjectionSet::from_scene_host`] so
-    /// it does not get hijacked by the host's dash camera ortho task. Kept for parity with secondary
-    /// orthographic camera paths that still want the host's `primary_ortho_task` value.
-    #[allow(dead_code)]
-    pub fn overlay_projection(self, viewport: Viewport, fallback_clip: CameraClipPlanes) -> Mat4 {
-        self.primary_ortho_task
-            .unwrap_or_else(|| OrthographicProjectionSpec::new(1.0, fallback_clip))
-            .projection(viewport)
+    /// Returns the dedicated screen-overlay orthographic projection.
+    pub fn overlay_projection(viewport: Viewport, fallback_clip: CameraClipPlanes) -> Mat4 {
+        OrthographicProjectionSpec::new(1.0, fallback_clip).projection(viewport)
     }
 
     /// Resolves the world-space origin used for view-distance sorting.

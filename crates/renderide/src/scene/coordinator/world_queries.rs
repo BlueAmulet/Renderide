@@ -26,32 +26,23 @@ impl SceneCoordinator {
             return self.world_matrix(id, transform_index);
         }
 
-        let mut path = Vec::with_capacity(64);
         let mut cursor = transform_index;
-        let mut broke = false;
+        let mut reached_terminal = false;
         let mut any_override = false;
+        let mut world = Mat4::IDENTITY;
         for _ in 0..space.nodes.len() {
-            path.push(cursor);
-            any_override |= space
-                .overridden_local_transform(cursor as i32, context)
-                .is_some();
+            let (local, overridden) = local_transform_for_context(space, cursor, context);
+            any_override |= overridden;
+            world = render_transform_to_matrix(&local) * world;
             let parent = *space.node_parents.get(cursor).unwrap_or(&-1);
             if parent < 0 || parent as usize >= space.nodes.len() || parent == cursor as i32 {
-                broke = true;
+                reached_terminal = true;
                 break;
             }
             cursor = parent as usize;
         }
-        if !broke || !any_override {
+        if !reached_terminal || !any_override {
             return self.world_matrix(id, transform_index);
-        }
-
-        let mut world = Mat4::IDENTITY;
-        while let Some(node_id) = path.pop() {
-            let local = space
-                .overridden_local_transform(node_id as i32, context)
-                .unwrap_or(space.nodes[node_id]);
-            world *= render_transform_to_matrix(&local);
         }
         Some(world)
     }
@@ -153,35 +144,25 @@ impl SceneCoordinator {
             return self.transform_has_degenerate_scale(id, transform_index);
         }
 
-        let mut path = Vec::with_capacity(64);
         let mut cursor = transform_index;
-        let mut broke = false;
+        let mut reached_terminal = false;
         let mut any_override = false;
+        let mut any_degenerate = false;
         for _ in 0..space.nodes.len() {
-            path.push(cursor);
-            any_override |= space
-                .overridden_local_transform(cursor as i32, context)
-                .is_some();
+            let (local, overridden) = local_transform_for_context(space, cursor, context);
+            any_override |= overridden;
+            any_degenerate |= render_transform_has_degenerate_scale(&local);
             let parent = *space.node_parents.get(cursor).unwrap_or(&-1);
             if parent < 0 || parent as usize >= space.nodes.len() || parent == cursor as i32 {
-                broke = true;
+                reached_terminal = true;
                 break;
             }
             cursor = parent as usize;
         }
-        if !broke || !any_override {
+        if !reached_terminal || !any_override {
             return self.transform_has_degenerate_scale(id, transform_index);
         }
-
-        while let Some(node_id) = path.pop() {
-            let local = space
-                .overridden_local_transform(node_id as i32, context)
-                .unwrap_or(space.nodes[node_id]);
-            if render_transform_has_degenerate_scale(&local) {
-                return true;
-            }
-        }
-        false
+        any_degenerate
     }
 }
 
@@ -254,14 +235,13 @@ fn matrix_from_ancestor_for_context(
         return None;
     }
 
-    let mut path = Vec::with_capacity(64);
     let mut cursor = transform_index;
-    let mut reached_ancestor = false;
+    let mut matrix = Mat4::IDENTITY;
     for _ in 0..space.nodes.len() {
-        path.push(cursor);
+        let (local, _) = local_transform_for_context(space, cursor, context);
+        matrix = render_transform_to_matrix(&local) * matrix;
         if cursor == ancestor_index {
-            reached_ancestor = true;
-            break;
+            return Some(matrix);
         }
         let parent = *space.node_parents.get(cursor).unwrap_or(&-1);
         if parent < 0 || parent as usize >= space.nodes.len() || parent == cursor as i32 {
@@ -269,16 +249,16 @@ fn matrix_from_ancestor_for_context(
         }
         cursor = parent as usize;
     }
-    if !reached_ancestor {
-        return None;
-    }
+    None
+}
 
-    let mut world = Mat4::IDENTITY;
-    while let Some(node_id) = path.pop() {
-        let local = space
-            .overridden_local_transform(node_id as i32, context)
-            .unwrap_or(space.nodes[node_id]);
-        world *= render_transform_to_matrix(&local);
+fn local_transform_for_context(
+    space: &RenderSpaceState,
+    node_id: usize,
+    context: RenderingContext,
+) -> (crate::shared::RenderTransform, bool) {
+    match space.overridden_local_transform(node_id as i32, context) {
+        Some(local) => (local, true),
+        None => (space.nodes[node_id], false),
     }
-    Some(world)
 }

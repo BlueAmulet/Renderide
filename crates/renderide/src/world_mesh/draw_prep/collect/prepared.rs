@@ -86,15 +86,14 @@ fn prepared_run_passes_filter(
     let Some(filter) = ctx.transform_filter else {
         return true;
     };
-    let passes = match filter_masks.get(&first.space_id) {
+    match filter_masks.get(&first.space_id) {
         Some(mask) => {
             first.node_id >= 0
                 && (first.node_id as usize) < mask.len()
                 && mask[first.node_id as usize]
         }
         None => filter.passes_scene_node(ctx.scene, first.space_id, first.node_id),
-    };
-    passes
+    }
 }
 
 /// Returns the skinned renderer backing a prepared run, or `None` when stale scene indices should skip it.

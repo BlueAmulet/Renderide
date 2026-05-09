@@ -1,7 +1,7 @@
 //! Fit/letterbox math for [`super::DisplayBlitResources`].
 //!
-//! Matches `Renderite.Unity.TextureDisplayBlitter.Blit()` (CSS `object-fit: contain`): the texture
-//! is uniformly scaled to fit inside the surface with letterbox bars on the longer axis.
+//! The source texture is uniformly scaled to fit inside the surface with letterbox bars on the
+//! longer axis.
 
 /// Fitted rect (in pixels) the texture should be drawn into for a given (texture, surface).
 ///
