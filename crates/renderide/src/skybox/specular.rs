@@ -36,6 +36,8 @@ pub(crate) enum SkyboxIblSource {
     Equirect(EquirectIblSource),
     /// Analytic constant-color source.
     SolidColor(SolidColorIblSource),
+    /// Renderer-captured cubemap source for an OnChanges reflection probe.
+    RuntimeCubemap(RuntimeCubemapIblSource),
 }
 
 /// Analytic skybox material identity and evaluator parameters.
@@ -110,6 +112,24 @@ pub(crate) struct SolidColorIblSource {
     pub identity: u64,
     /// Linear RGB color with alpha padding.
     pub color: [f32; 4],
+}
+
+/// Renderer-owned cubemap source identity and GPU handle.
+pub(crate) struct RuntimeCubemapIblSource {
+    /// Render space that owns the captured probe.
+    pub render_space_id: i32,
+    /// Dense reflection-probe renderable index.
+    pub renderable_index: i32,
+    /// Monotonic renderer-side capture generation.
+    pub generation: u64,
+    /// Source cubemap face edge in texels.
+    pub face_size: u32,
+    /// Mip count allocated on the captured cubemap.
+    pub mip_levels: u32,
+    /// Captured texture retained with the source view.
+    pub texture: Arc<wgpu::Texture>,
+    /// Cube-dimension texture view used as the bake input.
+    pub view: Arc<wgpu::TextureView>,
 }
 
 /// Resolves one skybox material into an IBL bake source.

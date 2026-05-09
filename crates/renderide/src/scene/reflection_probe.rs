@@ -5,7 +5,7 @@ use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{
     REFLECTION_PROBE_CHANGE_RENDER_TASK_HOST_ROW_BYTES, REFLECTION_PROBE_STATE_HOST_ROW_BYTES,
     ReflectionProbeChangeRenderResult, ReflectionProbeChangeRenderTask,
-    ReflectionProbeRenderablesUpdate, ReflectionProbeState,
+    ReflectionProbeRenderablesUpdate, ReflectionProbeState, ReflectionProbeType,
 };
 
 use super::dense_update::{push_dense_additions, swap_remove_dense_indices};
@@ -36,6 +36,26 @@ pub struct ExtractedReflectionProbeRenderablesUpdate {
     pub states: Vec<ReflectionProbeState>,
     /// OnChanges render requests terminated by `renderable_index < 0`.
     pub changed_probes_to_render: Vec<ReflectionProbeChangeRenderTask>,
+}
+
+/// Host-visible changed-probe completions plus renderer-side scene capture requests.
+#[derive(Default, Debug)]
+pub struct DrainedReflectionProbeRenderChanges {
+    /// Render completions that can be returned to the host immediately.
+    pub completed: Vec<ReflectionProbeChangeRenderResult>,
+    /// OnChanges probes that need scene cubemap capture before completion.
+    pub scene_captures: Vec<ReflectionProbeOnChangesRenderRequest>,
+}
+
+/// One host OnChanges reflection probe render request that needs scene capture.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReflectionProbeOnChangesRenderRequest {
+    /// Host render-space id that owns the probe.
+    pub render_space_id: i32,
+    /// Dense reflection-probe renderable index.
+    pub renderable_index: i32,
+    /// Host unique id echoed in the eventual completion row.
+    pub unique_id: i32,
 }
 
 /// Returns whether a probe state requests skybox-only rendering.
@@ -161,11 +181,11 @@ pub(crate) fn fixup_reflection_probes_for_transform_removals(
         .retain(|probe| probe.transform_id >= 0);
 }
 
-/// Converts supported changed-probe render requests into host-visible completion rows.
-pub(crate) fn drain_supported_reflection_probe_render_results(
+/// Drains changed-probe render requests into immediate completions or OnChanges capture requests.
+pub(crate) fn drain_reflection_probe_render_changes(
     space: &mut RenderSpaceState,
-) -> Vec<ReflectionProbeChangeRenderResult> {
-    let mut out = Vec::new();
+) -> DrainedReflectionProbeRenderChanges {
+    let mut out = DrainedReflectionProbeRenderChanges::default();
     for task in space.pending_reflection_probe_render_changes.drain(..) {
         let idx = task.renderable_index as usize;
         let Some(entry) = space.reflection_probes.get(idx) else {
@@ -174,26 +194,45 @@ pub(crate) fn drain_supported_reflection_probe_render_results(
                 space.id.0,
                 task.renderable_index
             );
+            out.completed
+                .push(changed_probe_completion(space.id.0, task.unique_id, true));
             continue;
         };
         if entry.state.clear_flags == crate::shared::ReflectionProbeClear::Color
             || reflection_probe_skybox_only(entry.state.flags)
         {
-            out.push(ReflectionProbeChangeRenderResult {
-                render_space_id: space.id.0,
-                render_probe_unique_id: task.unique_id,
-                require_reset: 0,
-                _padding: [0; 3],
-            });
-        } else {
+            out.completed
+                .push(changed_probe_completion(space.id.0, task.unique_id, false));
+        } else if entry.state.r#type == ReflectionProbeType::OnChanges {
+            out.scene_captures
+                .push(ReflectionProbeOnChangesRenderRequest {
+                    render_space_id: space.id.0,
+                    renderable_index: task.renderable_index,
+                    unique_id: task.unique_id,
+                });
+        } else if entry.state.r#type == ReflectionProbeType::Realtime {
             logger::debug!(
-                "reflection probe changed render not completed: render_space={} renderable_index={} requires scene capture",
+                "reflection probe changed render not completed: render_space={} renderable_index={} is realtime",
                 space.id.0,
                 task.renderable_index
             );
         }
     }
     out
+}
+
+/// Builds one changed-probe completion row.
+pub(crate) const fn changed_probe_completion(
+    render_space_id: i32,
+    unique_id: i32,
+    require_reset: bool,
+) -> ReflectionProbeChangeRenderResult {
+    ReflectionProbeChangeRenderResult {
+        render_space_id,
+        render_probe_unique_id: unique_id,
+        require_reset: require_reset as u8,
+        _padding: [0; 3],
+    }
 }
 
 #[cfg(test)]
@@ -255,10 +294,68 @@ mod tests {
                 unique_id: 77,
             });
 
-        let results = drain_supported_reflection_probe_render_results(&mut space);
+        let results = drain_reflection_probe_render_changes(&mut space);
 
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].render_probe_unique_id, 77);
+        assert_eq!(results.completed.len(), 1);
+        assert_eq!(results.completed[0].render_probe_unique_id, 77);
+        assert!(results.scene_captures.is_empty());
         assert!(space.pending_reflection_probe_render_changes.is_empty());
+    }
+
+    #[test]
+    fn changed_onchanges_scene_probe_queues_capture_request() {
+        let mut space = RenderSpaceState {
+            id: crate::scene::RenderSpaceId(12),
+            ..RenderSpaceState::default()
+        };
+        space.reflection_probes.push(ReflectionProbeEntry {
+            renderable_index: 0,
+            transform_id: 1,
+            state: ReflectionProbeState {
+                renderable_index: 0,
+                r#type: ReflectionProbeType::OnChanges,
+                ..ReflectionProbeState::default()
+            },
+        });
+        space
+            .pending_reflection_probe_render_changes
+            .push(ReflectionProbeChangeRenderTask {
+                renderable_index: 0,
+                unique_id: 88,
+            });
+
+        let results = drain_reflection_probe_render_changes(&mut space);
+
+        assert!(results.completed.is_empty());
+        assert_eq!(
+            results.scene_captures,
+            vec![ReflectionProbeOnChangesRenderRequest {
+                render_space_id: 12,
+                renderable_index: 0,
+                unique_id: 88,
+            }]
+        );
+    }
+
+    #[test]
+    fn changed_missing_probe_returns_reset_completion() {
+        let mut space = RenderSpaceState {
+            id: crate::scene::RenderSpaceId(13),
+            ..RenderSpaceState::default()
+        };
+        space
+            .pending_reflection_probe_render_changes
+            .push(ReflectionProbeChangeRenderTask {
+                renderable_index: 9,
+                unique_id: 55,
+            });
+
+        let results = drain_reflection_probe_render_changes(&mut space);
+
+        assert_eq!(results.completed.len(), 1);
+        assert_eq!(results.completed[0].render_space_id, 13);
+        assert_eq!(results.completed[0].render_probe_unique_id, 55);
+        assert_eq!(results.completed[0].require_reset, 1);
+        assert!(results.scene_captures.is_empty());
     }
 }

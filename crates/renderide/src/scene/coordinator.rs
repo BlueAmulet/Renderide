@@ -9,11 +9,9 @@ use std::collections::HashSet;
 use glam::Mat4;
 
 use crate::ipc::SharedMemoryAccessor;
-use crate::shared::{
-    FrameSubmitData, ReflectionProbeChangeRenderResult, RenderSH2, RenderSpaceUpdate,
-    RenderingContext,
-};
+use crate::shared::{FrameSubmitData, RenderSH2, RenderSpaceUpdate, RenderingContext};
 
+use super::DrainedReflectionProbeRenderChanges;
 use super::error::SceneError;
 use super::ids::RenderSpaceId;
 use super::lights::{
@@ -252,15 +250,13 @@ impl SceneCoordinator {
             .unwrap_or_default()
     }
 
-    /// Drains host-visible reflection-probe render completions for supported probe kinds.
-    pub fn take_supported_reflection_probe_render_results(
-        &mut self,
-    ) -> Vec<ReflectionProbeChangeRenderResult> {
-        let mut out = Vec::new();
+    /// Drains host changed-probe render requests after the latest scene apply.
+    pub fn take_reflection_probe_render_changes(&mut self) -> DrainedReflectionProbeRenderChanges {
+        let mut out = DrainedReflectionProbeRenderChanges::default();
         for space in self.spaces.values_mut() {
-            out.extend(
-                super::reflection_probe::drain_supported_reflection_probe_render_results(space),
-            );
+            let mut drained = super::reflection_probe::drain_reflection_probe_render_changes(space);
+            out.completed.append(&mut drained.completed);
+            out.scene_captures.append(&mut drained.scene_captures);
         }
         out
     }

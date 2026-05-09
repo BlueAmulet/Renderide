@@ -1,5 +1,7 @@
 //! SH2 projection readback adapter over the backend GPU job service.
 
+use std::sync::Arc;
+
 use glam::Vec3;
 
 use super::{MAX_PENDING_JOB_AGE_FRAMES, Sh2SourceKey};
@@ -16,16 +18,27 @@ pub(super) struct SubmittedGpuSh2Job {
     pub(super) bind_group: wgpu::BindGroup,
     /// Uniform/parameter buffers kept alive until the queued command has completed.
     pub(super) buffers: Vec<wgpu::Buffer>,
+    /// Shared source textures kept alive until the queued command has completed.
+    pub(super) textures: Vec<Arc<wgpu::Texture>>,
+    /// Shared source texture views kept alive until the queued command has completed.
+    pub(super) source_views: Vec<Arc<wgpu::TextureView>>,
 }
 
 impl From<SubmittedGpuSh2Job> for SubmittedReadbackJob {
     fn from(job: SubmittedGpuSh2Job) -> Self {
+        let mut resources = GpuJobResources::new()
+            .with_buffer(job.output)
+            .with_buffers(job.buffers)
+            .with_bind_group(job.bind_group);
+        for texture in job.textures {
+            resources = resources.with_shared_texture(texture);
+        }
+        for view in job.source_views {
+            resources = resources.with_shared_texture_view(view);
+        }
         Self {
             staging: job.staging,
-            resources: GpuJobResources::new()
-                .with_buffer(job.output)
-                .with_buffers(job.buffers)
-                .with_bind_group(job.bind_group),
+            resources,
         }
     }
 }
