@@ -173,26 +173,14 @@ fn push_draws_for_renderer(
     }
     let n_sub = draw.submeshes.len();
     let n_slot = slots.len();
-    if n_slot > n_sub {
-        logger::trace!(
-            "mesh_asset_id={}: material slot count {} exceeds submesh count {}; stacking extra slots onto the last submesh",
-            draw.renderer.mesh_asset_id,
-            n_slot,
-            n_sub,
-        );
-    } else if n_slot < n_sub {
-        logger::trace!(
-            "mesh_asset_id={}: material slot count {} is below submesh count {}; only material-backed submeshes draw",
-            draw.renderer.mesh_asset_id,
-            n_slot,
-            n_sub,
-        );
-    }
     if n_sub == 0 {
         return;
     }
 
-    let is_overlay = draw.renderer.layer == crate::shared::LayerType::Overlay;
+    let is_overlay = draw.renderer.node_id >= 0
+        && ctx
+            .scene
+            .transform_is_in_overlay_layer(draw.space_id, draw.renderer.node_id as usize);
     let world_space_deformed = draw.skinned
         && draw.mesh.supports_world_space_skin_deform(
             draw.skinned_renderer
@@ -364,9 +352,12 @@ fn push_one_slot_draw(
             Ok(m) => rigid_world_matrix = m,
         }
     }
-    if !world_space_deformed && rigid_world_matrix.is_none() {
+    if is_overlay && !world_space_deformed {
         rigid_world_matrix =
-            world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id);
+            world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id, true);
+    } else if !world_space_deformed && rigid_world_matrix.is_none() {
+        rigid_world_matrix =
+            world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id, false);
     }
     let front_face = front_face_for_world_matrix(rigid_world_matrix);
     let primitive_topology =

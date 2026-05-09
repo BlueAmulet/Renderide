@@ -50,6 +50,7 @@
 //! by the backend SH2 service after scene state has been applied, so host rows are never left in
 //! [`ComputeResult::Scheduled`](crate::shared::ComputeResult).
 
+mod blit_to_display;
 mod camera_apply;
 mod coordinator;
 mod dense_update;

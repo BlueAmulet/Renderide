@@ -20,8 +20,10 @@ impl RuntimeIpcState {
     }
 
     /// Records one unhandled renderer command variant.
-    pub(super) fn record_unhandled_renderer_command(&mut self, tag: &'static str) {
-        *self.unhandled_ipc_command_counts.entry(tag).or_insert(0) += 1;
+    pub(super) fn record_unhandled_renderer_command(&mut self, tag: &'static str) -> u64 {
+        let count = self.unhandled_ipc_command_counts.entry(tag).or_insert(0);
+        *count += 1;
+        *count
     }
 
     /// Total number of unhandled post-handshake renderer commands.

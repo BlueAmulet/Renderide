@@ -51,6 +51,13 @@ impl ComputePass for HiZBuildPass {
         Ok(())
     }
 
+    fn should_record(&self, ctx: &ComputePassCtx<'_, '_, '_>) -> Result<bool, RenderPassError> {
+        let frame = &*ctx.pass_frame;
+        Ok(!frame.view.host_camera.suppress_occlusion_temporal
+            && ctx.depth_view.is_some()
+            && frame.view.depth_sample_view.is_some())
+    }
+
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
         profiling::scope!("hi_z::encode_pyramid");
         if ctx.depth_view.is_none() {

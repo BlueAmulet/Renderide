@@ -16,7 +16,8 @@ use crate::skybox::params::{SkyboxEvaluatorParams, SkyboxParamMode};
 use crate::skybox::specular::SkyboxIblSource;
 
 use super::projection_pipeline::{
-    ProjectionBinding, ProjectionPipeline, encode_projection_job, ensure_projection_pipeline,
+    ProjectionBinding, ProjectionPipeline, ProjectionPipelineBuildOutcome, ProjectionPipelineKind,
+    encode_projection_job, spawn_projection_pipeline_build,
 };
 use super::readback_jobs::{Sh2ReadbackJobs, SubmittedGpuSh2Job};
 use super::sh2_math::{constant_color_sh2, f32x4_bits};
@@ -195,6 +196,19 @@ pub struct ReflectionProbeSh2System {
     sky_params_pipeline: Option<ProjectionPipeline>,
     /// Source keys touched by the current task pass.
     touched_this_pass: HashSet<Sh2SourceKey>,
+    /// Completed asynchronous projection-pipeline builds.
+    pipeline_build_rx: crossbeam_channel::Receiver<ProjectionPipelineBuildOutcome>,
+    /// Submission side of [`Self::pipeline_build_rx`].
+    pipeline_build_tx: crossbeam_channel::Sender<ProjectionPipelineBuildOutcome>,
+    /// Projection pipelines currently compiling on worker threads.
+    pending_pipeline_builds: HashSet<ProjectionPipelineKind>,
+    /// Projection pipeline kinds that failed to build.
+    failed_pipeline_builds: HashSet<ProjectionPipelineKind>,
+}
+
+enum ScheduleSourceOutcome {
+    Submitted(SubmittedGpuSh2Job),
+    RetryLater(GpuSh2Source),
 }
 
 impl Default for ReflectionProbeSh2System {
@@ -214,6 +228,7 @@ struct Sh2TaskSourceContext<'a> {
 impl ReflectionProbeSh2System {
     /// Creates an empty SH2 system.
     pub fn new() -> Self {
+        let (pipeline_build_tx, pipeline_build_rx) = crossbeam_channel::unbounded();
         Self {
             completed: HashMap::new(),
             readback_jobs: Sh2ReadbackJobs::new(),
@@ -224,6 +239,10 @@ impl ReflectionProbeSh2System {
             equirect_pipeline: None,
             sky_params_pipeline: None,
             touched_this_pass: HashSet::new(),
+            pipeline_build_rx,
+            pipeline_build_tx,
+            pending_pipeline_builds: HashSet::new(),
+            failed_pipeline_builds: HashSet::new(),
         }
     }
 
@@ -271,6 +290,7 @@ impl ReflectionProbeSh2System {
             logger::warn!("reflection_probe_sh2: GPU SH2 readback failed for {key:?}: {reason:?}");
             self.failed.insert(key);
         }
+        self.drain_completed_pipeline_builds();
         self.schedule_queued_sources(gpu, assets);
         self.prune_completed_cache_if_needed();
     }
@@ -407,7 +427,11 @@ impl ReflectionProbeSh2System {
     /// Schedules queued sources until the in-flight cap is reached.
     fn schedule_queued_sources(&mut self, gpu: &mut GpuContext, assets: &AssetTransferQueue) {
         profiling::scope!("reflection_probe_sh2::schedule_queued_sources");
-        while self.readback_jobs.len() < MAX_IN_FLIGHT_JOBS {
+        let attempts = self.queue_order.len();
+        for _ in 0..attempts {
+            if self.readback_jobs.len() >= MAX_IN_FLIGHT_JOBS {
+                break;
+            }
             let Some(key) = self.queue_order.pop_front() else {
                 break;
             };
@@ -421,8 +445,12 @@ impl ReflectionProbeSh2System {
                 continue;
             }
             match self.schedule_source(gpu, assets, key.clone(), source) {
-                Ok(job) => {
+                Ok(ScheduleSourceOutcome::Submitted(job)) => {
                     self.readback_jobs.insert(key, job);
+                }
+                Ok(ScheduleSourceOutcome::RetryLater(source)) => {
+                    self.queue_order.push_back(key.clone());
+                    self.queued_sources.insert(key, source);
                 }
                 Err(e) => {
                     logger::warn!("reflection_probe_sh2: GPU SH2 schedule failed: {e}");
@@ -439,30 +467,41 @@ impl ReflectionProbeSh2System {
         assets: &AssetTransferQueue,
         key: Sh2SourceKey,
         source: GpuSh2Source,
-    ) -> Result<SubmittedGpuSh2Job, String> {
+    ) -> Result<ScheduleSourceOutcome, String> {
         profiling::scope!("reflection_probe_sh2::schedule_source");
+        let pipeline_kind = projection_pipeline_kind(&source);
+        if !self.ensure_projection_pipeline_ready(gpu.device(), pipeline_kind)? {
+            return Ok(ScheduleSourceOutcome::RetryLater(source));
+        }
+        let pipeline = self.projection_pipeline(pipeline_kind).ok_or_else(|| {
+            format!(
+                "projection pipeline {} missing after build",
+                pipeline_kind.stem()
+            )
+        })?;
         match source {
-            GpuSh2Source::Cubemap { asset_id } => {
-                self.schedule_cubemap_source(gpu, assets, key, asset_id)
-            }
-            GpuSh2Source::EquirectTexture2D { asset_id, params } => {
-                self.schedule_equirect_source(gpu, assets, key, asset_id, params.as_ref())
-            }
-            GpuSh2Source::SkyParams { params } => {
-                self.schedule_sky_params_source(gpu, key, params.as_ref())
-            }
-            GpuSh2Source::RuntimeCubemap { texture, view } => {
-                self.schedule_runtime_cubemap_source(gpu, key, texture, view)
-            }
+            GpuSh2Source::Cubemap { asset_id } => self
+                .schedule_cubemap_source(gpu, assets, key, asset_id, pipeline)
+                .map(ScheduleSourceOutcome::Submitted),
+            GpuSh2Source::EquirectTexture2D { asset_id, params } => self
+                .schedule_equirect_source(gpu, assets, key, asset_id, params.as_ref(), pipeline)
+                .map(ScheduleSourceOutcome::Submitted),
+            GpuSh2Source::SkyParams { params } => self
+                .schedule_sky_params_source(gpu, key, params.as_ref(), pipeline)
+                .map(ScheduleSourceOutcome::Submitted),
+            GpuSh2Source::RuntimeCubemap { texture, view } => self
+                .schedule_runtime_cubemap_source(gpu, key, texture, view, pipeline)
+                .map(ScheduleSourceOutcome::Submitted),
         }
     }
 
     fn schedule_cubemap_source(
-        &mut self,
+        &self,
         gpu: &mut GpuContext,
         assets: &AssetTransferQueue,
         key: Sh2SourceKey,
         asset_id: i32,
+        pipeline: &ProjectionPipeline,
     ) -> Result<SubmittedGpuSh2Job, String> {
         profiling::scope!("reflection_probe_sh2::schedule_cubemap");
         let tex = assets
@@ -473,11 +512,6 @@ impl ReflectionProbeSh2System {
         let sampler = sh2_cubemap_sampler(gpu.device(), "SH2 cubemap sampler");
         let view = tex.view.clone();
         let submit_done_tx = self.readback_jobs.submit_done_sender();
-        let pipeline = ensure_projection_pipeline(
-            &mut self.cubemap_pipeline,
-            gpu.device(),
-            "sh2_project_cubemap",
-        )?;
         encode_projection_job(
             gpu,
             key,
@@ -493,12 +527,13 @@ impl ReflectionProbeSh2System {
     }
 
     fn schedule_equirect_source(
-        &mut self,
+        &self,
         gpu: &mut GpuContext,
         assets: &AssetTransferQueue,
         key: Sh2SourceKey,
         asset_id: i32,
         params: &Sh2ProjectParams,
+        pipeline: &ProjectionPipeline,
     ) -> Result<SubmittedGpuSh2Job, String> {
         profiling::scope!("reflection_probe_sh2::schedule_equirect");
         let tex = assets
@@ -517,11 +552,6 @@ impl ReflectionProbeSh2System {
         });
         let view = tex.view.clone();
         let submit_done_tx = self.readback_jobs.submit_done_sender();
-        let pipeline = ensure_projection_pipeline(
-            &mut self.equirect_pipeline,
-            gpu.device(),
-            "sh2_project_equirect",
-        )?;
         encode_projection_job(
             gpu,
             key,
@@ -537,18 +567,14 @@ impl ReflectionProbeSh2System {
     }
 
     fn schedule_sky_params_source(
-        &mut self,
+        &self,
         gpu: &mut GpuContext,
         key: Sh2SourceKey,
         params: &Sh2ProjectParams,
+        pipeline: &ProjectionPipeline,
     ) -> Result<SubmittedGpuSh2Job, String> {
         profiling::scope!("reflection_probe_sh2::schedule_sky_params");
         let submit_done_tx = self.readback_jobs.submit_done_sender();
-        let pipeline = ensure_projection_pipeline(
-            &mut self.sky_params_pipeline,
-            gpu.device(),
-            "sh2_project_sky_params",
-        )?;
         encode_projection_job(
             gpu,
             key,
@@ -561,20 +587,16 @@ impl ReflectionProbeSh2System {
     }
 
     fn schedule_runtime_cubemap_source(
-        &mut self,
+        &self,
         gpu: &mut GpuContext,
         key: Sh2SourceKey,
         texture: Arc<wgpu::Texture>,
         view: Arc<wgpu::TextureView>,
+        pipeline: &ProjectionPipeline,
     ) -> Result<SubmittedGpuSh2Job, String> {
         profiling::scope!("reflection_probe_sh2::schedule_runtime_cubemap");
         let sampler = sh2_cubemap_sampler(gpu.device(), "SH2 runtime cubemap sampler");
         let submit_done_tx = self.readback_jobs.submit_done_sender();
-        let pipeline = ensure_projection_pipeline(
-            &mut self.cubemap_pipeline,
-            gpu.device(),
-            "sh2_project_cubemap",
-        )?;
         let mut job = encode_projection_job(
             gpu,
             key,
@@ -590,6 +612,74 @@ impl ReflectionProbeSh2System {
         job.textures.push(texture);
         job.source_views.push(view);
         Ok(job)
+    }
+
+    fn drain_completed_pipeline_builds(&mut self) {
+        while let Ok(outcome) = self.pipeline_build_rx.try_recv() {
+            self.pending_pipeline_builds.remove(&outcome.kind);
+            match outcome.result {
+                Ok(pipeline) => {
+                    *self.projection_pipeline_slot_mut(outcome.kind) = Some(pipeline);
+                }
+                Err(e) => {
+                    logger::warn!(
+                        "reflection_probe_sh2: projection pipeline build failed for {}: {e}",
+                        outcome.kind.stem()
+                    );
+                    self.failed_pipeline_builds.insert(outcome.kind);
+                }
+            }
+        }
+    }
+
+    fn ensure_projection_pipeline_ready(
+        &mut self,
+        device: &Arc<wgpu::Device>,
+        kind: ProjectionPipelineKind,
+    ) -> Result<bool, String> {
+        if self.projection_pipeline(kind).is_some() {
+            return Ok(true);
+        }
+        if self.failed_pipeline_builds.contains(&kind) {
+            return Err(format!(
+                "projection pipeline {} previously failed to build",
+                kind.stem()
+            ));
+        }
+        if self.pending_pipeline_builds.contains(&kind) {
+            return Ok(false);
+        }
+        spawn_projection_pipeline_build(kind, device.clone(), self.pipeline_build_tx.clone())?;
+        self.pending_pipeline_builds.insert(kind);
+        Ok(false)
+    }
+
+    fn projection_pipeline(&self, kind: ProjectionPipelineKind) -> Option<&ProjectionPipeline> {
+        match kind {
+            ProjectionPipelineKind::Cubemap => self.cubemap_pipeline.as_ref(),
+            ProjectionPipelineKind::Equirect => self.equirect_pipeline.as_ref(),
+            ProjectionPipelineKind::SkyParams => self.sky_params_pipeline.as_ref(),
+        }
+    }
+
+    fn projection_pipeline_slot_mut(
+        &mut self,
+        kind: ProjectionPipelineKind,
+    ) -> &mut Option<ProjectionPipeline> {
+        match kind {
+            ProjectionPipelineKind::Cubemap => &mut self.cubemap_pipeline,
+            ProjectionPipelineKind::Equirect => &mut self.equirect_pipeline,
+            ProjectionPipelineKind::SkyParams => &mut self.sky_params_pipeline,
+        }
+    }
+}
+
+fn projection_pipeline_kind(source: &GpuSh2Source) -> ProjectionPipelineKind {
+    match source {
+        GpuSh2Source::Cubemap { .. } => ProjectionPipelineKind::Cubemap,
+        GpuSh2Source::EquirectTexture2D { .. } => ProjectionPipelineKind::Equirect,
+        GpuSh2Source::SkyParams { .. } => ProjectionPipelineKind::SkyParams,
+        GpuSh2Source::RuntimeCubemap { .. } => ProjectionPipelineKind::Cubemap,
     }
 }
 

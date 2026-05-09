@@ -53,7 +53,7 @@ impl WorldProjectionSet {
             reverse_z_perspective(viewport.aspect(), fov_rad, clip.near, clip.far)
         });
         let overlay_proj =
-            explicit_proj.unwrap_or_else(|| host_camera.overlay_projection(viewport, clip));
+            explicit_proj.unwrap_or_else(|| HostCameraFrame::overlay_projection(viewport, clip));
         let stereo_view_proj = host_camera
             .active_stereo()
             .map(|stereo| stereo.view_proj_pair());

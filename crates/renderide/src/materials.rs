@@ -107,6 +107,7 @@ mod wgsl_reflect;
 pub(crate) use cache::MaterialPipelineCache;
 /// Pipeline cache keyed by shader route / layout fingerprint.
 pub use cache::{MaterialPipelineSet, MaterialPipelineVariantSpec};
+pub(crate) use material_pass_tables::ZTEST_ALWAYS;
 
 /// Embedded raster materials: bind groups, texture pools, uniform packing for embedded WGSL stems.
 pub use embedded::{EmbeddedMaterialBindResources, EmbeddedTexturePools};

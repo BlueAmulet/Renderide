@@ -2,11 +2,17 @@
 
 use glam::{Mat4, Quat, Vec3};
 
+use crate::assets::texture::{HostTextureAssetKind, pack_host_texture_id};
 use crate::camera::{view_matrix_for_world_mesh_render_space, view_matrix_from_render_transform};
+use crate::scene::CameraRenderableEntry;
+use crate::scene::blit_to_display::BlitToDisplayEntry;
 use crate::scene::render_overrides::RenderTransformOverrideEntry;
 use crate::scene::render_space::RenderSpaceState;
 use crate::scene::{SkinnedMeshRenderer, StaticMeshRenderer};
-use crate::shared::{RenderSpaceUpdate, RenderTransform, RenderingContext};
+use crate::shared::{
+    BlitToDisplayState, CameraProjection, CameraState, RenderSpaceUpdate, RenderTransform,
+    RenderingContext,
+};
 
 use super::super::ids::RenderSpaceId;
 use super::super::world::{WorldTransformCache, compute_world_matrices_for_space};
@@ -94,6 +100,25 @@ fn empty_extracted_render_space_update() -> ExtractedRenderSpaceUpdate {
         layers: None,
         transform_overrides: None,
         material_overrides: None,
+        blit_to_displays: None,
+    }
+}
+
+fn blit_state(renderable_index: i32, display_index: i16, texture_id: i32) -> BlitToDisplayState {
+    BlitToDisplayState {
+        renderable_index,
+        texture_id,
+        display_index,
+        background_color: glam::Vec4::new(0.0, 0.0, 0.0, 1.0),
+        flags: 0,
+        _padding: [0; 1],
+    }
+}
+
+fn initialized_blit(state: BlitToDisplayState) -> BlitToDisplayEntry {
+    BlitToDisplayEntry {
+        state,
+        state_initialized: true,
     }
 }
 
@@ -228,6 +253,158 @@ fn render_space_ids_are_sorted_by_host_id() {
 }
 
 #[test]
+fn active_blit_for_display_uses_stable_space_and_dense_order() {
+    let mut scene = SceneCoordinator::new();
+    let low = RenderSpaceId(1);
+    let high = RenderSpaceId(20);
+    scene.spaces.insert(
+        high,
+        RenderSpaceState {
+            id: high,
+            is_active: true,
+            blit_to_displays: vec![
+                initialized_blit(blit_state(0, 0, 200)),
+                initialized_blit(blit_state(1, 0, 201)),
+            ],
+            ..Default::default()
+        },
+    );
+    scene.spaces.insert(
+        low,
+        RenderSpaceState {
+            id: low,
+            is_active: true,
+            blit_to_displays: vec![initialized_blit(blit_state(0, 0, 100))],
+            ..Default::default()
+        },
+    );
+
+    let state = scene.active_blit_for_display(0).expect("active blit");
+
+    assert_eq!(state.texture_id, 201);
+}
+
+#[test]
+fn active_blit_for_display_skips_inactive_uninitialized_and_invalid_sources() {
+    let mut scene = SceneCoordinator::new();
+    let inactive = RenderSpaceId(1);
+    let active = RenderSpaceId(2);
+    scene.spaces.insert(
+        inactive,
+        RenderSpaceState {
+            id: inactive,
+            is_active: false,
+            blit_to_displays: vec![initialized_blit(blit_state(0, 0, 10))],
+            ..Default::default()
+        },
+    );
+    scene.spaces.insert(
+        active,
+        RenderSpaceState {
+            id: active,
+            is_active: true,
+            blit_to_displays: vec![
+                BlitToDisplayEntry {
+                    state: blit_state(0, 0, 11),
+                    state_initialized: false,
+                },
+                initialized_blit(blit_state(1, 0, -1)),
+                initialized_blit(blit_state(2, 1, 12)),
+            ],
+            ..Default::default()
+        },
+    );
+
+    assert!(scene.active_blit_for_display(0).is_none());
+    assert_eq!(
+        scene
+            .active_blit_for_display(1)
+            .expect("display one")
+            .texture_id,
+        12
+    );
+}
+
+#[test]
+fn desktop_blit_for_display_prefers_explicit_blit_over_dash_fallback() {
+    let mut scene = SceneCoordinator::new();
+    let overlay = RenderSpaceId(1);
+    let explicit = RenderSpaceId(2);
+    scene.spaces.insert(
+        overlay,
+        RenderSpaceState {
+            id: overlay,
+            is_active: true,
+            is_overlay: true,
+            cameras: vec![CameraRenderableEntry {
+                renderable_index: 0,
+                transform_id: 0,
+                state: CameraState {
+                    projection: CameraProjection::Orthographic,
+                    render_texture_asset_id: 77,
+                    selective_render_count: 1,
+                    flags: 1,
+                    ..Default::default()
+                },
+                selective_transform_ids: vec![5],
+                exclude_transform_ids: Vec::new(),
+            }],
+            ..Default::default()
+        },
+    );
+    scene.spaces.insert(
+        explicit,
+        RenderSpaceState {
+            id: explicit,
+            is_active: true,
+            blit_to_displays: vec![initialized_blit(blit_state(0, 0, 42))],
+            ..Default::default()
+        },
+    );
+
+    let state = scene.desktop_blit_for_display(0).expect("desktop source");
+
+    assert_eq!(state.texture_id, 42);
+}
+
+#[test]
+fn desktop_blit_for_display_synthesizes_dash_fallback_for_display_zero_only() {
+    let mut scene = SceneCoordinator::new();
+    let overlay = RenderSpaceId(3);
+    scene.spaces.insert(
+        overlay,
+        RenderSpaceState {
+            id: overlay,
+            is_active: true,
+            is_overlay: true,
+            cameras: vec![CameraRenderableEntry {
+                renderable_index: 0,
+                transform_id: 0,
+                state: CameraState {
+                    projection: CameraProjection::Orthographic,
+                    render_texture_asset_id: 77,
+                    selective_render_count: 1,
+                    flags: 1,
+                    ..Default::default()
+                },
+                selective_transform_ids: vec![5],
+                exclude_transform_ids: Vec::new(),
+            }],
+            ..Default::default()
+        },
+    );
+
+    let state = scene.desktop_blit_for_display(0).expect("dash fallback");
+    let expected_texture =
+        pack_host_texture_id(77, HostTextureAssetKind::RenderTexture).expect("packable id");
+
+    assert_eq!(state.texture_id, expected_texture);
+    assert_eq!(state.display_index, 0);
+    assert!(scene.desktop_blit_for_display(1).is_none());
+    assert!(scene.active_blit_for_display(0).is_none());
+}
+
+#[test]
 fn world_matrix_excludes_render_space_root() {
     let mut scene = SceneCoordinator::new();
     let id = RenderSpaceId(1);
@@ -323,6 +500,64 @@ fn overlay_render_matrix_tracks_head_output_transform() {
         (t.z + 4.0).abs() < 1e-4,
         "overlay z should subtract space root"
     );
+}
+
+#[test]
+fn overlay_layer_model_matrix_strips_ancestors_above_overlay_root() {
+    let mut scene = SceneCoordinator::new();
+    let id = RenderSpaceId(17);
+    scene.spaces.insert(
+        id,
+        RenderSpaceState {
+            id,
+            is_active: true,
+            nodes: vec![
+                RenderTransform {
+                    position: Vec3::new(10.0, 0.0, 0.0),
+                    scale: Vec3::ONE,
+                    rotation: Quat::IDENTITY,
+                },
+                RenderTransform {
+                    position: Vec3::new(2.0, 3.0, 0.0),
+                    scale: Vec3::ONE,
+                    rotation: Quat::IDENTITY,
+                },
+                RenderTransform {
+                    position: Vec3::new(4.0, 5.0, 0.0),
+                    scale: Vec3::ONE,
+                    rotation: Quat::IDENTITY,
+                },
+            ],
+            node_parents: vec![-1, 0, 1],
+            layer_assignments: vec![crate::scene::render_space::LayerAssignmentEntry {
+                node_id: 1,
+                layer: crate::shared::LayerType::Overlay,
+            }],
+            layer_index_dirty: true,
+            ..Default::default()
+        },
+    );
+    let space = scene.spaces.get(&id).expect("space");
+    let mut cache = WorldTransformCache::default();
+    compute_world_matrices_for_space(id.0, &space.nodes, &space.node_parents, &mut cache)
+        .expect("solve");
+    scene.world_caches.insert(id, cache);
+
+    let world = scene
+        .world_matrix_for_context(id, 2, RenderingContext::UserView)
+        .expect("world");
+    let overlay = scene
+        .overlay_layer_model_matrix_for_context(id, 2, RenderingContext::UserView)
+        .expect("overlay");
+    assert!(scene.transform_is_in_overlay_layer(id, 2));
+    assert!(scene.transform_is_in_overlay_layer(id, 1));
+    assert!(!scene.transform_is_in_overlay_layer(id, 0));
+
+    let world_t = world.col(3).truncate();
+    let overlay_t = overlay.col(3).truncate();
+    assert!((world_t.x - 16.0).abs() < 1e-4);
+    assert!((overlay_t.x - 6.0).abs() < 1e-4);
+    assert!((overlay_t.y - 8.0).abs() < 1e-4);
 }
 
 /// Cached zero-scale state reports the selected node as non-renderable for draw collection.
@@ -444,6 +679,7 @@ fn parallel_apply_extracted_commits_pose_writes_and_marks_dirty() {
         layers: None,
         transform_overrides: None,
         material_overrides: None,
+        blit_to_displays: None,
     };
     let mut removal_events = Vec::new();
     let dirty = apply_extracted_render_space_update(

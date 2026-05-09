@@ -106,11 +106,17 @@ pub struct CameraPose {
 }
 
 impl CameraPose {
-    /// Builds a pose from a camera world matrix.
+    /// Builds a pose from a camera world matrix, ignoring transform scale for the view matrix.
+    ///
+    /// Camera scale is consumed by the camera controller paths that scale orthographic size and
+    /// clip planes. The view matrix itself follows camera position and rotation only.
     pub fn from_world_matrix(camera_world_matrix: Mat4) -> Self {
+        let (_, rotation, position) = camera_world_matrix.to_scale_rotation_translation();
+        let camera_pose_matrix =
+            Mat4::from_scale_rotation_translation(Vec3::ONE, rotation, position);
         Self {
-            world_to_view: apply_view_handedness_fix(camera_world_matrix.inverse()),
-            world_position: camera_world_matrix.col(3).truncate(),
+            world_to_view: apply_view_handedness_fix(camera_pose_matrix.inverse()),
+            world_position: position,
         }
     }
 }
@@ -168,7 +174,10 @@ impl EyeView {
 
 #[cfg(test)]
 mod tests {
-    use super::Viewport;
+    use glam::{Mat4, Quat, Vec3};
+
+    use super::{CameraPose, Viewport};
+    use crate::camera::apply_view_handedness_fix;
 
     #[test]
     fn viewport_aspect_and_tiles_are_stable_for_empty_height() {
@@ -177,5 +186,21 @@ mod tests {
         assert!(viewport.is_empty());
         assert_eq!(Viewport::new(65, 33).tile_columns(32), 3);
         assert_eq!(Viewport::new(65, 33).tile_rows(32), 2);
+    }
+
+    #[test]
+    fn camera_pose_from_world_matrix_ignores_transform_scale() {
+        let position = Vec3::new(4.0, 5.0, 6.0);
+        let rotation = Quat::from_rotation_y(0.35);
+        let camera_world =
+            Mat4::from_scale_rotation_translation(Vec3::splat(2.5), rotation, position);
+
+        let pose = CameraPose::from_world_matrix(camera_world);
+        let expected_pose_matrix =
+            Mat4::from_scale_rotation_translation(Vec3::ONE, rotation, position);
+        let expected_view = apply_view_handedness_fix(expected_pose_matrix.inverse());
+
+        assert!(pose.world_to_view.abs_diff_eq(expected_view, 1e-5));
+        assert_eq!(pose.world_position, position);
     }
 }

@@ -313,7 +313,7 @@ impl DebugHudSettings {
 #[serde(default)]
 pub struct DebugSettings {
     /// When the `-LogLevel` CLI argument is **not** present, selects [`logger::LogLevel::Trace`]
-    /// if true or [`logger::LogLevel::Debug`] if false. If `-LogLevel` is present, it always
+    /// if true or [`logger::LogLevel::Info`] if false. If `-LogLevel` is present, it always
     /// overrides this flag.
     pub log_verbose: bool,
     /// GPU power preference hint for adapter selection (see [`PowerPreferenceSetting`]).
@@ -335,14 +335,14 @@ pub struct DebugSettings {
     /// frame diagnostics, and renderer info capture. Default false (performance-first; **Renderer
     /// config** or `debug_hud_enabled` in config).
     pub debug_hud_enabled: bool,
-    /// When true, capture [`crate::diagnostics::SceneTransformsSnapshot`] each frame and show
-    /// the **Scene transforms** ImGui window (can be expensive on large scenes). Independent of
-    /// [`Self::debug_hud_enabled`] so you can enable transforms inspection without the main
-    /// debug panels. Default false.
+    /// When true, show the **Scene transforms** ImGui window and capture
+    /// [`crate::diagnostics::SceneTransformsSnapshot`] while that window is open (can be expensive
+    /// on large scenes). Independent of [`Self::debug_hud_enabled`] so you can enable transforms
+    /// inspection without the main debug panels. Default false.
     pub debug_hud_transforms: bool,
-    /// When true, show the **Textures** ImGui window listing GPU texture pool entries with
-    /// format, resident/total mips, filter mode, wrap, aniso, and color profile. Useful for
-    /// diagnosing mip / sampler issues. Default false.
+    /// When true, show the **Textures** ImGui window and capture GPU texture pool entries while
+    /// that window is open (format, resident/total mips, filter mode, wrap, aniso, and color
+    /// profile). Useful for diagnosing mip / sampler issues. Default false.
     #[serde(default)]
     pub debug_hud_textures: bool,
     /// Semantic ImGui HUD state persisted through the renderer config.

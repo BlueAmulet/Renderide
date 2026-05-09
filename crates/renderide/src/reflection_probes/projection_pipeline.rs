@@ -1,6 +1,7 @@
 //! Projection compute pipelines and dispatch encoding for reflection-probe SH2 jobs.
 
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use wgpu::util::DeviceExt;
 
@@ -16,6 +17,30 @@ pub(super) struct ProjectionPipeline {
     pipeline: wgpu::ComputePipeline,
     /// Bind-group layout for one projection source.
     layout: wgpu::BindGroupLayout,
+}
+
+/// Distinguishes the three SH2 projection compute pipelines.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(super) enum ProjectionPipelineKind {
+    Cubemap,
+    Equirect,
+    SkyParams,
+}
+
+impl ProjectionPipelineKind {
+    pub(super) const fn stem(self) -> &'static str {
+        match self {
+            Self::Cubemap => "sh2_project_cubemap",
+            Self::Equirect => "sh2_project_equirect",
+            Self::SkyParams => "sh2_project_sky_params",
+        }
+    }
+}
+
+/// One asynchronous SH2 pipeline-build completion.
+pub(super) struct ProjectionPipelineBuildOutcome {
+    pub(super) kind: ProjectionPipelineKind,
+    pub(super) result: Result<ProjectionPipeline, String>,
 }
 
 /// Extra binding resource for texture-backed projection kernels.
@@ -36,46 +61,56 @@ struct ProjectionJobBuffers {
     staging: wgpu::Buffer,
 }
 
-/// Ensures a projection pipeline exists for an embedded compute shader.
-pub(super) fn ensure_projection_pipeline<'a>(
-    slot: &'a mut Option<ProjectionPipeline>,
+/// Spawns one background SH2 projection-pipeline build.
+pub(super) fn spawn_projection_pipeline_build(
+    kind: ProjectionPipelineKind,
+    device: Arc<wgpu::Device>,
+    tx: crossbeam_channel::Sender<ProjectionPipelineBuildOutcome>,
+) -> Result<(), String> {
+    std::thread::Builder::new()
+        .name(format!("sh2-pipeline-{}", kind.stem()))
+        .spawn(move || {
+            let result = build_projection_pipeline(device.as_ref(), kind.stem());
+            let _ = tx.send(ProjectionPipelineBuildOutcome { kind, result });
+        })
+        .map(|_| ())
+        .map_err(|e| format!("spawn {} pipeline build thread failed: {e}", kind.stem()))
+}
+
+fn build_projection_pipeline(
     device: &wgpu::Device,
     stem: &str,
-) -> Result<&'a ProjectionPipeline, String> {
-    if slot.is_none() {
-        profiling::scope!("reflection_probe_sh2::create_projection_pipeline", stem);
-        let source = embedded_shaders::embedded_target_wgsl(stem)
-            .ok_or_else(|| format!("embedded shader {stem} not found"))?;
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(stem),
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
-        });
-        let layout_entries = projection_layout_entries(stem);
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some(&format!("{stem} bind group layout")),
-            entries: &layout_entries,
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some(&format!("{stem} pipeline layout")),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
-        });
-        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some(stem),
-            layout: Some(&pipeline_layout),
-            module: &shader,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        crate::profiling::note_resource_churn!(
-            ComputePipeline,
-            "reflection_probes::projection_pipeline"
-        );
-        *slot = Some(ProjectionPipeline { pipeline, layout });
-    }
-    slot.as_ref()
-        .ok_or_else(|| format!("projection pipeline {stem} missing after creation"))
+) -> Result<ProjectionPipeline, String> {
+    profiling::scope!("reflection_probe_sh2::create_projection_pipeline", stem);
+    let source = embedded_shaders::embedded_target_wgsl(stem)
+        .ok_or_else(|| format!("embedded shader {stem} not found"))?;
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(stem),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(source)),
+    });
+    let layout_entries = projection_layout_entries(stem);
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(&format!("{stem} bind group layout")),
+        entries: &layout_entries,
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some(&format!("{stem} pipeline layout")),
+        bind_group_layouts: &[Some(&layout)],
+        immediate_size: 0,
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some(stem),
+        layout: Some(&pipeline_layout),
+        module: &shader,
+        entry_point: Some("main"),
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    });
+    crate::profiling::note_resource_churn!(
+        ComputePipeline,
+        "reflection_probes::projection_pipeline"
+    );
+    Ok(ProjectionPipeline { pipeline, layout })
 }
 
 /// Returns bind-group layout entries for a projection shader.

@@ -158,7 +158,19 @@ impl RendererRuntime {
                     rt.wgpu_color_format,
                 )
             };
-            let Some(world_m) = self.scene.world_matrix(sid, entry.transform_id as usize) else {
+            // Use the render-context world matrix (not the bare hierarchy matrix). For overlay
+            // render spaces (userspace world: dash camera, interactive-camera mirrors, avatar
+            // previews), this multiplies in `head_output_transform` so the camera follows the
+            // user's head -- matching how `world_mesh` draws in the same space are positioned.
+            // Without this the secondary camera sits at userspace-local coords while its
+            // selective-render meshes track the user, so any movement away from origin shifts
+            // the dash UI out of the camera's view (dash content drifts off the rendered RT).
+            let Some(world_m) = self.scene.world_matrix_for_render_context(
+                sid,
+                entry.transform_id as usize,
+                space.main_render_context(),
+                self.host_camera.head_output_transform,
+            ) else {
                 continue;
             };
             let mut hc = host_camera_frame_for_render_texture(

@@ -377,7 +377,7 @@ fn decode_in_place_write_flags(hint: MeshUploadHintFlag) -> InPlaceWriteFlags {
     let full = !mesh_upload_hint_any_selective(hint);
     InPlaceWriteFlags {
         full,
-        write_vertex: full || mesh_upload_hint_touches_vertex_streams(hint),
+        write_vertex: full || hint.geometry() || mesh_upload_hint_touches_vertex_streams(hint),
         write_index: full || hint.geometry(),
         write_bone_weights: full || hint.bone_weights(),
         write_bind_poses: full || hint.bind_poses(),
@@ -465,4 +465,17 @@ fn updated_extended_vertex_stream_source(
         return None;
     }
     extended_vertex_stream_source_from_raw(raw, data, layout)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn geometry_hint_rewrites_vertex_and_index_buffers_in_place() {
+        let flags = decode_in_place_write_flags(MeshUploadHintFlag(MeshUploadHintFlag::GEOMETRY));
+        assert!(flags.write_vertex);
+        assert!(flags.write_index);
+        assert!(!flags.full);
+    }
 }

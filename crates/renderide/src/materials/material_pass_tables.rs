@@ -3,6 +3,9 @@
 //! These tables mirror Unity/Resonite material inspector values used by [`super::render_state`]
 //! and multi-pass blend materialization in [`super::material_passes`].
 
+/// Host `_ZTest` value for an always-passing depth test.
+pub(crate) const ZTEST_ALWAYS: u8 = 6;
+
 /// Maps a Unity `CompareFunction` stencil enum value to `wgpu::CompareFunction`.
 pub(crate) fn unity_compare_function(value: u8) -> wgpu::CompareFunction {
     match value {
@@ -39,7 +42,7 @@ pub(crate) fn froox_ztest_depth_compare_function(value: u8) -> Option<wgpu::Comp
         3 => Some(wgpu::CompareFunction::LessEqual),
         4 => Some(wgpu::CompareFunction::Equal),
         5 => Some(wgpu::CompareFunction::NotEqual),
-        6 => Some(wgpu::CompareFunction::Always),
+        ZTEST_ALWAYS => Some(wgpu::CompareFunction::Always),
         _ => None,
     }
 }

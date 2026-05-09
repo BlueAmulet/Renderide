@@ -117,6 +117,7 @@ fn prepared_run_skinned_renderer<'a>(
 fn prepared_run_view_state(
     run: &[FramePreparedDraw],
     first: &FramePreparedDraw,
+    is_overlay: bool,
     mesh: &crate::assets::mesh::GpuMesh,
     skinning: &PreparedRunSkinning<'_>,
     ctx: &DrawCollectionContext<'_>,
@@ -149,8 +150,7 @@ fn prepared_run_view_state(
         world_aabb = geom.world_aabb;
         if let Some(c) = ctx.culling {
             cull_stats.0 += run.len();
-            match mesh_cpu_cull_with_geometry(geom, ctx.scene, first.space_id, first.is_overlay, c)
-            {
+            match mesh_cpu_cull_with_geometry(geom, ctx.scene, first.space_id, is_overlay, c) {
                 Err(CpuCullFailure::Frustum) => {
                     cull_stats.1 += run.len();
                     return (None, cull_stats);
@@ -167,9 +167,12 @@ fn prepared_run_view_state(
             rigid_world_matrix = geom.rigid_world_matrix;
         }
     }
-    if !first.world_space_deformed && rigid_world_matrix.is_none() {
+    if is_overlay && !first.world_space_deformed {
         rigid_world_matrix =
-            world_matrix_for_local_vertex_stream(ctx, first.space_id, first.node_id);
+            world_matrix_for_local_vertex_stream(ctx, first.space_id, first.node_id, true);
+    } else if !first.world_space_deformed && rigid_world_matrix.is_none() {
+        rigid_world_matrix =
+            world_matrix_for_local_vertex_stream(ctx, first.space_id, first.node_id, false);
     }
     let front_face = front_face_for_world_matrix(rigid_world_matrix);
     let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
@@ -192,6 +195,7 @@ fn append_prepared_run_draws(
     ctx: &DrawCollectionContext<'_>,
     cache: &FrameMaterialBatchCache,
     mesh: &crate::assets::mesh::GpuMesh,
+    is_overlay: bool,
     state: PreparedRunViewState,
     out: &mut Vec<WorldMeshDrawItem>,
 ) {
@@ -207,7 +211,7 @@ fn append_prepared_run_draws(
             slot_index: d.slot_index,
             first_index: d.first_index,
             index_count: d.index_count,
-            is_overlay: d.is_overlay,
+            is_overlay,
             sorting_order: d.sorting_order,
             skinned: d.skinned,
             world_space_deformed: d.world_space_deformed,
@@ -244,6 +248,7 @@ fn collect_prepared_renderer_run(
     if !prepared_run_passes_filter(first, ctx, filter_masks) {
         return (0, 0, 0);
     }
+    let is_overlay = first.is_overlay;
     let Some(mesh) = ctx.mesh_pool.get(first.mesh_asset_id) else {
         return (0, 0, 0);
     };
@@ -251,9 +256,9 @@ fn collect_prepared_renderer_run(
     if matches!(skinning, PreparedRunSkinning::Stale) {
         return (0, 0, 0);
     }
-    let (state, cull_stats) = prepared_run_view_state(run, first, mesh, &skinning, ctx);
+    let (state, cull_stats) = prepared_run_view_state(run, first, is_overlay, mesh, &skinning, ctx);
     if let Some(state) = state {
-        append_prepared_run_draws(run, ctx, cache, mesh, state, out);
+        append_prepared_run_draws(run, ctx, cache, mesh, is_overlay, state, out);
     }
     cull_stats
 }
