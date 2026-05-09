@@ -53,4 +53,6 @@ pub struct BackendDiagSnapshot {
     pub frame_graph_topo_levels: usize,
     /// Packed lights after the latest [`crate::backend::RenderBackend::prepare_lights_from_scene`].
     pub gpu_light_count: usize,
+    /// Whether signed scene-color HDR is active for the current packed light set.
+    pub signed_scene_color_active: bool,
 }

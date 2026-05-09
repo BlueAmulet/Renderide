@@ -6,11 +6,11 @@
 //! bright (or too dark on the inverse case), producing harshly aliased silhouettes between bright
 //! emissives / specular sparks and dark surfaces even with high MSAA.
 //!
-//! This pass implements the Karis bracket used by Filament's `customResolveAsSubpass`: each sample
-//! is compressed by `x / (1 + max3(x))` (a reversible squish into roughly `[0, 1]`), the
-//! compressed values are linearly averaged, and the result is decompressed by `y / (1 - max3(y))`.
-//! The compress/uncompress sandwich approximates "tonemap each sample, average, untonemap" while
-//! preserving an HDR result for downstream bloom and tonemap to consume.
+//! This pass implements the Karis bracket used by Filament's `customResolveAsSubpass`: each
+//! non-negative sample lobe is compressed by `x / (1 + max3(x))` (a reversible squish into roughly
+//! `[0, 1]`), the compressed values are linearly averaged, and the result is decompressed by
+//! `y / (1 - max3(y))`. Signed HDR is handled by resolving positive and negative lobes separately
+//! and reconstructing `positive - negative`.
 
 /// Per-pass parameters for [`fs_main`]: only the runtime sample count of `src_msaa`.
 struct ResolveParams {
@@ -44,6 +44,17 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     return out;
 }
 
+fn hdr_compress_nonnegative(rgb: vec3<f32>) -> vec3<f32> {
+    let m = max(max(rgb.r, rgb.g), rgb.b);
+    return rgb / (1.0 + m);
+}
+
+fn hdr_uncompress_nonnegative(rgb: vec3<f32>) -> vec3<f32> {
+    let m = max(max(rgb.r, rgb.g), rgb.b);
+    let denom = max(1.0 - m, 1e-4);
+    return rgb / denom;
+}
+
 //#pass forward
 @fragment
 fn fs_main(
@@ -54,7 +65,8 @@ fn fs_main(
 ) -> @location(0) vec4<f32> {
     let coord = vec2<i32>(frag_pos.xy);
     let n = i32(params.sample_count);
-    var rgb_acc = vec3<f32>(0.0);
+    var positive_acc = vec3<f32>(0.0);
+    var negative_acc = vec3<f32>(0.0);
     var alpha_acc = 0.0;
     for (var i = 0; i < n; i = i + 1) {
 #ifdef MULTIVIEW
@@ -67,16 +79,13 @@ fn fs_main(
 #else
         let s = textureLoad(src_msaa, coord, i);
 #endif
-        let m = max(max(s.r, s.g), s.b);
-        let w = 1.0 / (1.0 + m);
-        rgb_acc = rgb_acc + s.rgb * w;
+        positive_acc = positive_acc + hdr_compress_nonnegative(max(s.rgb, vec3<f32>(0.0)));
+        negative_acc = negative_acc + hdr_compress_nonnegative(max(-s.rgb, vec3<f32>(0.0)));
         alpha_acc = alpha_acc + s.a;
     }
     let inv_n = 1.0 / f32(n);
-    let avg_rgb = rgb_acc * inv_n;
-    let m_avg = max(max(avg_rgb.r, avg_rgb.g), avg_rgb.b);
-    // Clamp the inverse so a fully-saturated compressed average doesn't blow up the divide.
-    let denom = max(1.0 - m_avg, 1e-4);
+    let positive = hdr_uncompress_nonnegative(positive_acc * inv_n);
+    let negative = hdr_uncompress_nonnegative(negative_acc * inv_n);
     let alpha = alpha_acc * inv_n;
-    return vec4<f32>(avg_rgb / denom, alpha);
+    return vec4<f32>(positive - negative, alpha);
 }

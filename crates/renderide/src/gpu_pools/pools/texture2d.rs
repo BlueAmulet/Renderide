@@ -1,8 +1,12 @@
 //! GPU-resident Texture2D pool ([`GpuTexture2d`]) with VRAM accounting.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::assets::texture::{estimate_gpu_texture_bytes, resolve_texture2d_wgpu_format};
+use crate::assets::texture::{
+    estimate_gpu_texture_bytes, host_texture_mip_count, legal_texture2d_mip_level_count,
+    resolve_texture2d_wgpu_format,
+};
 use crate::gpu::GpuLimits;
 use crate::shared::{ColorProfile, SetTexture2DFormat, SetTexture2DProperties, TextureFormat};
 
@@ -15,6 +19,8 @@ use crate::gpu_pools::sampler_state::SamplerState;
 use crate::gpu_pools::texture_allocation::{
     SampledTextureAllocation, TextureViewInit, create_sampled_copy_dst_texture,
 };
+
+static NEXT_TEXTURE2D_VIEW_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// GPU Texture2D: no CPU mip storage; mips live only in [`wgpu::Texture`].
 ///
@@ -30,6 +36,8 @@ pub struct GpuTexture2d {
     pub texture: Arc<wgpu::Texture>,
     /// Default full-mip view for binding.
     pub view: Arc<wgpu::TextureView>,
+    /// Monotonic identifier for the current texture view allocation.
+    pub view_generation: u64,
     /// Resolved wgpu format for `texture`.
     pub wgpu_format: wgpu::TextureFormat,
     /// Host [`TextureFormat`] enum (compression / layout family).
@@ -84,7 +92,19 @@ impl GpuTexture2d {
             );
             return None;
         }
-        let mips = fmt.mipmap_count.max(1) as u32;
+        let requested_mips = host_texture_mip_count(fmt.mipmap_count);
+        let legal_mips = legal_texture2d_mip_level_count(w, h);
+        let mips = requested_mips.min(legal_mips);
+        if requested_mips > mips {
+            logger::warn!(
+                "texture {}: host requested {} mips for {}x{}; clamping to legal mip count {}",
+                fmt.asset_id,
+                requested_mips,
+                w,
+                h,
+                mips
+            );
+        }
         let wgpu_format = resolve_texture2d_wgpu_format(device, fmt);
         let size = wgpu::Extent3d {
             width: w,
@@ -115,6 +135,7 @@ impl GpuTexture2d {
             asset_id: fmt.asset_id,
             texture,
             view,
+            view_generation: next_texture2d_view_generation(),
             wgpu_format,
             host_format: fmt.format,
             color_profile: fmt.profile,
@@ -164,6 +185,10 @@ impl GpuResource for GpuTexture2d {
     fn asset_id(&self) -> i32 {
         self.asset_id
     }
+}
+
+fn next_texture2d_view_generation() -> u64 {
+    NEXT_TEXTURE2D_VIEW_GENERATION.fetch_add(1, Ordering::Relaxed)
 }
 
 fn mark_resident_mip_mask(
@@ -224,7 +249,14 @@ impl TexturePool {
 
 #[cfg(test)]
 mod tests {
-    use super::mark_resident_mip_mask;
+    use super::{mark_resident_mip_mask, next_texture2d_view_generation};
+
+    #[test]
+    fn texture_view_generation_is_unique() {
+        let first = next_texture2d_view_generation();
+        let second = next_texture2d_view_generation();
+        assert_ne!(first, second);
+    }
 
     #[test]
     fn resident_prefix_waits_for_lower_mip_gap() {

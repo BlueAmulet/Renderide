@@ -23,3 +23,9 @@ pub(crate) use auto_exposure::AutoExposureStateCache;
 pub use bloom::BloomEffect;
 pub use gtao::GtaoEffect;
 pub(crate) use gtao::gpu_supports_gtao;
+
+pub(crate) fn view_post_processing_enabled(
+    view: &crate::render_graph::frame_params::GraphPassFrameView<'_>,
+) -> bool {
+    view.post_processing.is_enabled()
+}

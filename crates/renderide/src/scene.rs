@@ -72,7 +72,7 @@ mod world;
 pub use camera_apply::CameraRenderableEntry;
 pub use coordinator::{SceneApplyReport, SceneCacheFlushReport, SceneCoordinator};
 pub use ids::RenderSpaceId;
-pub use lights::{ResolvedLight, light_contributes};
+pub use lights::{ResolvedLight, light_contributes, light_has_negative_contribution};
 pub use math::render_transform_to_matrix;
 pub use mesh_renderable::{
     MeshMaterialSlot, MeshRendererInstanceId, SkinnedMeshRenderer, StaticMeshRenderer,

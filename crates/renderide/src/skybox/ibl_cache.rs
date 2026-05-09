@@ -1,15 +1,17 @@
 //! Unified IBL bake cache for specular reflection sources.
 //!
 //! Owns one in-flight bake job tracker, three lazily-built mip-0 producer pipelines (analytic
-//! procedural / gradient skies, host cubemaps, and Projection360 equirect Texture2Ds), and one
-//! GGX convolve pipeline. For each new active reflection source the cache:
+//! procedural / gradient skies, host cubemaps, and Projection360 equirect Texture2Ds), one
+//! source-pyramid downsample pipeline, and one GGX convolve pipeline. For each new active
+//! reflection source the cache:
 //!
-//! 1. Allocates a fresh Rgba16Float cubemap with a full mip chain (`STORAGE_BINDING |
-//!    TEXTURE_BINDING | COPY_SRC`).
-//! 2. Records a mip-0 producer compute pass that converts the source into the cube's mip 0.
-//! 3. Records one GGX convolve compute pass per mip in `1..N`, sampling the cube's mip 0 and
-//!    writing each higher-roughness mip via solid-angle source-mip selection.
-//! 4. Submits the encoder through [`GpuSubmitJobTracker`] and parks the cube in `pending` until
+//! 1. Allocates a source Rgba16Float cubemap and a filtered output cubemap with full mip chains.
+//! 2. Records a mip-0 producer compute pass that converts the source into the source cube's mip 0.
+//! 3. Copies source mip 0 into filtered output mip 0 for mirror-smooth reflections.
+//! 4. Records downsample passes that build the source radiance mip pyramid.
+//! 5. Records one GGX convolve compute pass per filtered mip in `1..N`, sampling the full source
+//!    pyramid with solid-angle source-mip selection.
+//! 6. Submits the encoder through [`GpuSubmitJobTracker`] and parks the cube in `pending` until
 //!    the submit-completion callback promotes it to `completed`.
 //!
 //! The completed prefiltered cube is reused by reflection probes so every source type reaches
@@ -31,18 +33,21 @@ mod pipeline;
 mod resources;
 
 use encode::{
-    AnalyticEncodeContext, ConvolveEncodeContext, CubeEncodeContext, EquirectEncodeContext,
-    encode_analytic_mip0, encode_convolve_mips, encode_cube_mip0, encode_equirect_mip0,
+    AnalyticEncodeContext, ConvolveEncodeContext, CubeEncodeContext, DownsampleEncodeContext,
+    EquirectEncodeContext, encode_analytic_mip0, encode_convolve_mips, encode_cube_mip0,
+    encode_downsample_mips, encode_equirect_mip0,
 };
+use key::source_max_lod;
 pub(crate) use key::{SkyboxIblKey, build_key, mip_extent, mip_levels_for_edge};
 #[cfg(test)]
 use key::{convolve_sample_count, hash_float4};
 use pipeline::{
-    ComputePipeline, analytic_layout_entries, ensure_pipeline, mip0_input_layout_entries,
+    ComputePipeline, analytic_layout_entries, downsample_layout_entries, ensure_pipeline,
+    mip0_input_layout_entries,
 };
 use resources::{
-    PendingBake, PendingBakeResources, PrefilteredCube, create_ibl_cube,
-    create_mip0_cube_sample_view,
+    PendingBake, PendingBakeResources, PrefilteredCube, create_full_cube_sample_view,
+    create_ibl_cube,
 };
 
 /// Maximum concurrent in-flight bakes; matches the analytic-only ceiling we used previously.
@@ -54,12 +59,159 @@ pub(crate) fn clamp_face_size(face_size: u32, limits: &GpuLimits) -> u32 {
     face_size.min(limits.max_texture_dimension_2d()).max(1)
 }
 
+fn copy_cube_mip0(
+    encoder: &mut wgpu::CommandEncoder,
+    source: &wgpu::Texture,
+    destination: &wgpu::Texture,
+    face_size: u32,
+) {
+    encoder.copy_texture_to_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: source,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyTextureInfo {
+            texture: destination,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::Extent3d {
+            width: face_size,
+            height: face_size,
+            depth_or_array_layers: 6,
+        },
+    );
+}
+
 /// Errors returned while preparing an IBL bake.
 #[derive(Debug, Error)]
 enum SkyboxIblBakeError {
     /// Embedded WGSL source was not available at compose time.
     #[error("embedded shader {0} not found")]
     MissingShader(&'static str),
+}
+
+/// Errors returned while encoding GGX convolve mips for an existing cubemap.
+#[derive(Debug, Error)]
+pub(crate) enum SkyboxIblConvolveError {
+    /// Embedded WGSL source was not available at compose time.
+    #[error("embedded shader {0} not found")]
+    MissingShader(&'static str),
+}
+
+/// Resources produced while encoding convolve passes and retained until submit completion.
+pub(crate) struct SkyboxIblConvolveResources {
+    _resources: PendingBakeResources,
+    _source_sample_view: Arc<wgpu::TextureView>,
+    _sampler: Arc<wgpu::Sampler>,
+}
+
+/// Minimal GGX convolver for caller-owned cubemap textures.
+#[derive(Default)]
+pub(crate) struct SkyboxIblConvolver {
+    downsample_pipeline: Option<ComputePipeline>,
+    convolve_pipeline: Option<ComputePipeline>,
+    input_sampler: Option<Arc<wgpu::Sampler>>,
+}
+
+impl SkyboxIblConvolver {
+    /// Creates an empty convolver with lazily-built GPU resources.
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    /// Encodes GGX convolve passes for mips `1..mip_levels` of `texture`.
+    pub(crate) fn encode_existing_cube_mips(
+        &mut self,
+        gpu: &GpuContext,
+        encoder: &mut wgpu::CommandEncoder,
+        texture: &wgpu::Texture,
+        face_size: u32,
+        mip_levels: u32,
+        profiler: Option<&GpuProfilerHandle>,
+    ) -> Result<SkyboxIblConvolveResources, SkyboxIblConvolveError> {
+        profiling::scope!("skybox_ibl::encode_existing_cube_mips");
+        let sampler = self
+            .input_sampler
+            .get_or_insert_with(|| Arc::new(create_ibl_input_sampler(gpu.device())))
+            .clone();
+        let pipeline = ensure_pipeline(
+            &mut self.convolve_pipeline,
+            gpu.device(),
+            "skybox_ibl_convolve_params",
+            &mip0_input_layout_entries(wgpu::TextureViewDimension::Cube),
+        )
+        .map_err(|_err| SkyboxIblConvolveError::MissingShader("skybox_ibl_convolve_params"))?;
+        let downsample_pipeline = ensure_pipeline(
+            &mut self.downsample_pipeline,
+            gpu.device(),
+            "skybox_ibl_downsample",
+            &downsample_layout_entries(),
+        )
+        .map_err(|_err| SkyboxIblConvolveError::MissingShader("skybox_ibl_downsample"))?;
+        let source_cube = create_ibl_cube(
+            gpu.device(),
+            "skybox_ibl_existing_source_cube",
+            face_size,
+            mip_levels,
+        );
+        let source_sample_view = Arc::new(create_full_cube_sample_view(
+            source_cube.texture.as_ref(),
+            mip_levels,
+        ));
+        let mut resources = PendingBakeResources::default();
+        resources.textures.push(source_cube.texture.clone());
+        resources.source_sample_view = Some(source_sample_view.clone());
+        copy_cube_mip0(encoder, texture, source_cube.texture.as_ref(), face_size);
+        encode_downsample_mips(
+            DownsampleEncodeContext {
+                device: gpu.device(),
+                encoder,
+                pipeline: downsample_pipeline,
+                texture: source_cube.texture.as_ref(),
+                face_size,
+                mip_levels,
+                profiler,
+            },
+            &mut resources,
+        );
+        encode_convolve_mips(
+            ConvolveEncodeContext {
+                device: gpu.device(),
+                encoder,
+                pipeline,
+                texture,
+                src_view: source_sample_view.as_ref(),
+                sampler: sampler.as_ref(),
+                face_size,
+                mip_levels,
+                src_max_lod: source_max_lod(mip_levels),
+                profiler,
+            },
+            &mut resources,
+        );
+        Ok(SkyboxIblConvolveResources {
+            _resources: resources,
+            _source_sample_view: source_sample_view,
+            _sampler: sampler,
+        })
+    }
+}
+
+fn create_ibl_input_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("skybox_ibl_existing_cube_sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
+        ..Default::default()
+    })
 }
 
 struct SourceMip0EncodeContext<'a> {
@@ -85,6 +237,8 @@ pub(crate) struct SkyboxIblCache {
     cube_pipeline: Option<ComputePipeline>,
     /// Lazily-built equirect mip-0 pipeline.
     equirect_pipeline: Option<ComputePipeline>,
+    /// Lazily-built source-pyramid downsample pipeline.
+    downsample_pipeline: Option<ComputePipeline>,
     /// Lazily-built GGX convolve pipeline (cube -> cube via solid-angle source mip selection).
     convolve_pipeline: Option<ComputePipeline>,
     /// Cached input sampler used by all producers and the convolve pass.
@@ -107,6 +261,7 @@ impl SkyboxIblCache {
             analytic_pipeline: None,
             cube_pipeline: None,
             equirect_pipeline: None,
+            downsample_pipeline: None,
             convolve_pipeline: None,
             input_sampler: None,
         }
@@ -186,10 +341,25 @@ impl SkyboxIblCache {
         let input_sampler = self.ensure_input_sampler(gpu.device()).clone();
         let face_size = key.face_size();
         let mip_levels = mip_levels_for_edge(face_size);
-        let cube = create_ibl_cube(gpu.device(), face_size, mip_levels);
+        let source_cube = create_ibl_cube(
+            gpu.device(),
+            "skybox_ibl_source_cube",
+            face_size,
+            mip_levels,
+        );
+        let filtered_cube = create_ibl_cube(
+            gpu.device(),
+            "skybox_ibl_filtered_cube",
+            face_size,
+            mip_levels,
+        );
         let mut resources = PendingBakeResources::default();
-        let dst_sample_view = Arc::new(create_mip0_cube_sample_view(&cube.texture));
-        resources.dst_sample_view = Some(dst_sample_view.clone());
+        let source_sample_view = Arc::new(create_full_cube_sample_view(
+            &source_cube.texture,
+            mip_levels,
+        ));
+        resources.textures.push(source_cube.texture.clone());
+        resources.source_sample_view = Some(source_sample_view.clone());
         let mut encoder = gpu
             .device()
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -199,7 +369,7 @@ impl SkyboxIblCache {
             SourceMip0EncodeContext {
                 gpu,
                 encoder: &mut encoder,
-                texture: cube.texture.as_ref(),
+                texture: source_cube.texture.as_ref(),
                 face_size,
                 sampler: input_sampler.as_ref(),
                 profiler: profiler.as_deref(),
@@ -207,17 +377,37 @@ impl SkyboxIblCache {
             source,
             &mut resources,
         )?;
+        copy_cube_mip0(
+            &mut encoder,
+            source_cube.texture.as_ref(),
+            filtered_cube.texture.as_ref(),
+            face_size,
+        );
+        let downsample_pipeline = self.downsample_pipeline()?;
+        encode_downsample_mips(
+            DownsampleEncodeContext {
+                device: gpu.device(),
+                encoder: &mut encoder,
+                pipeline: downsample_pipeline,
+                texture: source_cube.texture.as_ref(),
+                face_size,
+                mip_levels,
+                profiler: profiler.as_deref(),
+            },
+            &mut resources,
+        );
         let convolve_pipeline = self.convolve_pipeline()?;
         encode_convolve_mips(
             ConvolveEncodeContext {
                 device: gpu.device(),
                 encoder: &mut encoder,
                 pipeline: convolve_pipeline,
-                texture: cube.texture.as_ref(),
-                src_view: dst_sample_view.as_ref(),
+                texture: filtered_cube.texture.as_ref(),
+                src_view: source_sample_view.as_ref(),
                 sampler: input_sampler.as_ref(),
                 face_size,
                 mip_levels,
+                src_max_lod: source_max_lod(mip_levels),
                 profiler: profiler.as_deref(),
             },
             &mut resources,
@@ -228,7 +418,7 @@ impl SkyboxIblCache {
         }
         let pending = PendingBake {
             cube: PrefilteredCube {
-                texture: cube.texture,
+                texture: filtered_cube.texture,
                 mip_levels,
             },
             _resources: resources,
@@ -333,6 +523,12 @@ impl SkyboxIblCache {
             &mip0_input_layout_entries(wgpu::TextureViewDimension::D2),
         )?;
         let _ = ensure_pipeline(
+            &mut self.downsample_pipeline,
+            device,
+            "skybox_ibl_downsample",
+            &downsample_layout_entries(),
+        )?;
+        let _ = ensure_pipeline(
             &mut self.convolve_pipeline,
             device,
             "skybox_ibl_convolve_params",
@@ -367,6 +563,12 @@ impl SkyboxIblCache {
             .ok_or(SkyboxIblBakeError::MissingShader(
                 "skybox_ibl_convolve_params",
             ))
+    }
+
+    fn downsample_pipeline(&self) -> Result<&ComputePipeline, SkyboxIblBakeError> {
+        self.downsample_pipeline
+            .as_ref()
+            .ok_or(SkyboxIblBakeError::MissingShader("skybox_ibl_downsample"))
     }
 
     /// Returns a cached linear/clamp sampler used for all source/destination cube reads.
@@ -442,6 +644,14 @@ mod tests {
         assert_eq!(mip_levels_for_edge(256), 9);
     }
 
+    /// Source-LOD clamping exposes every generated source mip to filtered importance sampling.
+    #[test]
+    fn source_max_lod_tracks_last_generated_mip() {
+        assert_eq!(source_max_lod(0), 0.0);
+        assert_eq!(source_max_lod(1), 0.0);
+        assert_eq!(source_max_lod(8), 7.0);
+    }
+
     /// Per-mip sample count clamps to the documented base/cap envelope.
     #[test]
     fn convolve_sample_count_envelope() {
@@ -482,80 +692,90 @@ mod tests {
     /// Cubemap key invariants: residency growth and face size resize both invalidate.
     #[test]
     fn cubemap_key_invalidates_on_residency_or_face_change() {
-        let a = SkyboxIblKey::Cubemap {
-            asset_id: 7,
-            mip_levels_resident: 1,
-            content_generation: 1,
-            storage_v_inverted: false,
-            face_size: 256,
-        };
-        let b = SkyboxIblKey::Cubemap {
-            asset_id: 7,
-            mip_levels_resident: 4,
-            content_generation: 1,
-            storage_v_inverted: false,
-            face_size: 256,
-        };
-        let c = SkyboxIblKey::Cubemap {
-            asset_id: 7,
-            mip_levels_resident: 1,
-            content_generation: 1,
-            storage_v_inverted: false,
-            face_size: 128,
-        };
+        let a = cubemap_key(1, 1, 0, 1, 256);
+        let b = cubemap_key(1, 1, 0, 4, 256);
+        let c = cubemap_key(1, 1, 0, 1, 128);
         assert_ne!(a, b);
         assert_ne!(a, c);
-        let d = SkyboxIblKey::Cubemap {
-            asset_id: 7,
-            mip_levels_resident: 1,
-            content_generation: 2,
-            storage_v_inverted: false,
-            face_size: 256,
-        };
+        let d = cubemap_key(1, 2, 0, 1, 256);
         assert_ne!(a, d);
+    }
+
+    /// Cubemap allocation and material identity invalidate same-id sources.
+    #[test]
+    fn cubemap_key_invalidates_on_allocation_or_material_change() {
+        let base = cubemap_key(1, 1, 5, 1, 256);
+        let reallocated_same_upload_generation = cubemap_key(2, 1, 5, 1, 256);
+        let material_changed = cubemap_key(1, 1, 6, 1, 256);
+
+        assert_ne!(base, reallocated_same_upload_generation);
+        assert_ne!(base, material_changed);
     }
 
     /// Equirect key invariants: FOV / ST hash inputs invalidate the bake.
     #[test]
     fn equirect_key_invalidates_on_param_changes() {
-        let base = SkyboxIblKey::Equirect {
-            asset_id: 9,
-            mip_levels_resident: 3,
-            content_generation: 1,
-            storage_v_inverted: false,
-            fov_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            st_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            face_size: 256,
-        };
-        let altered_fov = SkyboxIblKey::Equirect {
-            asset_id: 9,
-            mip_levels_resident: 3,
-            content_generation: 1,
-            storage_v_inverted: false,
-            fov_hash: hash_float4(&[2.0, 1.0, 0.0, 0.0]),
-            st_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            face_size: 256,
-        };
-        let altered_st = SkyboxIblKey::Equirect {
-            asset_id: 9,
-            mip_levels_resident: 3,
-            content_generation: 1,
-            storage_v_inverted: false,
-            fov_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            st_hash: hash_float4(&[2.0, 1.0, 0.0, 0.0]),
-            face_size: 256,
-        };
+        let base = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let altered_fov = equirect_key(1, 3, 1, 5, [2.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let altered_st = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [2.0, 1.0, 0.0, 0.0]);
         assert_ne!(base, altered_fov);
         assert_ne!(base, altered_st);
-        let altered_content = SkyboxIblKey::Equirect {
-            asset_id: 9,
-            mip_levels_resident: 3,
-            content_generation: 2,
-            storage_v_inverted: false,
-            fov_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            st_hash: hash_float4(&[1.0, 1.0, 0.0, 0.0]),
-            face_size: 256,
-        };
+        let altered_content = equirect_key(1, 3, 2, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
         assert_ne!(base, altered_content);
+    }
+
+    /// Equirect allocation and material identity invalidate same-id sources.
+    #[test]
+    fn equirect_key_invalidates_on_allocation_or_material_change() {
+        let base = equirect_key(1, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let reallocated_same_upload_generation =
+            equirect_key(2, 3, 1, 5, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+        let material_changed = equirect_key(1, 3, 1, 6, [1.0, 1.0, 0.0, 0.0], [1.0, 1.0, 0.0, 0.0]);
+
+        assert_ne!(base, reallocated_same_upload_generation);
+        assert_ne!(base, material_changed);
+    }
+
+    fn cubemap_key(
+        allocation_generation: u64,
+        content_generation: u64,
+        material_generation: u64,
+        mip_levels_resident: u32,
+        face_size: u32,
+    ) -> SkyboxIblKey {
+        SkyboxIblKey::Cubemap {
+            material_asset_id: 21,
+            material_generation,
+            route_hash: 99,
+            asset_id: 7,
+            allocation_generation,
+            mip_levels_resident,
+            content_generation,
+            storage_v_inverted: false,
+            face_size,
+        }
+    }
+
+    fn equirect_key(
+        allocation_generation: u64,
+        mip_levels_resident: u32,
+        content_generation: u64,
+        material_generation: u64,
+        fov: [f32; 4],
+        st: [f32; 4],
+    ) -> SkyboxIblKey {
+        SkyboxIblKey::Equirect {
+            material_asset_id: 21,
+            material_generation,
+            route_hash: 99,
+            asset_id: 9,
+            allocation_generation,
+            mip_levels_resident,
+            content_generation,
+            storage_v_inverted: false,
+            fov_hash: hash_float4(&fov),
+            st_hash: hash_float4(&st),
+            face_size: 256,
+        }
     }
 }

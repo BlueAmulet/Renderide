@@ -394,7 +394,7 @@ fn cull_snapshot_for_view(
 mod tests {
     use crate::camera::{HostCameraFrame, ViewId};
     use crate::mesh_deform::{SkinCacheKey, SkinCacheRendererKind};
-    use crate::render_graph::FrameViewClear;
+    use crate::render_graph::{FrameViewClear, ViewPostProcessing};
     use crate::world_mesh::WorldMeshDrawCollectParallelism;
     use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawCollection};
@@ -409,6 +409,7 @@ mod tests {
             view_id: ViewId::Main,
             viewport_px: (640, 480),
             clear: FrameViewClear::default(),
+            post_processing: ViewPostProcessing::primary_view(),
             target: FrameViewPlanTarget::MainSwapchain,
         }
     }

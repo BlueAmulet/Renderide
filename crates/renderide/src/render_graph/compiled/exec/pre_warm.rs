@@ -190,6 +190,7 @@ impl CompiledRenderGraph {
         for view in views {
             let resolved = Self::resolve_view_from_target(
                 view.view_id(),
+                view.post_processing,
                 &view.target,
                 mv_ctx.gpu,
                 mv_ctx.backbuffer_view_holder.as_ref(),

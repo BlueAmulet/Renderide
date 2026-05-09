@@ -29,6 +29,10 @@ pub(super) fn inferred_keyword_float_f32(
         return Some(1.0);
     }
 
+    if let Some(value) = ui_unlit_alpha_clip_inferred(field_name, store, lookup, ids) {
+        return Some(value);
+    }
+
     let kw = ids.shared.as_ref();
     if let Some(value) = blend_keyword_inferred(field_name, store, lookup, kw) {
         return Some(value);
@@ -95,6 +99,22 @@ fn keyword_probe_float(
 ) -> Option<f32> {
     let probes = ids.keyword_field_probe_ids.get(field_name)?;
     first_float_by_pids(store, lookup, probes)
+}
+
+/// Infers the default UI alpha-clip keyword for the `UI/Unlit` material stem.
+fn ui_unlit_alpha_clip_inferred(
+    field_name: &str,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<f32> {
+    if field_name != "_ALPHACLIP" || !ids.ui_unlit_alpha_clip_default_on {
+        return None;
+    }
+    if let Some(value) = keyword_probe_float(field_name, store, lookup, ids) {
+        return Some(keyword_float_value(value));
+    }
+    Some(1.0)
 }
 
 /// Reads a reflected uniform field's canonical host value as a scalar float.
@@ -184,6 +204,7 @@ fn texture_keyword_pids(field_name: &str, kw: &EmbeddedSharedKeywordIds) -> Opti
             kw.metallic_gloss01,
             kw.metallic_gloss23,
         ],
+        "MATCAP" => vec![kw.matcap],
         "_DETAIL_MULX2" => vec![kw.detail_albedo_map, kw.detail_normal_map, kw.detail_mask],
         "_PARALLAXMAP" => vec![kw.parallax_map],
         "_OCCLUSION" => vec![kw.occlusion, kw.occlusion1, kw.occlusion_map],
@@ -418,9 +439,9 @@ fn alpha_premultiply_on_inferred(
 /// | `TINT_TEX_LERP`   | `TintTexture` + `TintTextureMode == Lerp`              | `_TintTex` texture + `_Tint0` written (Lerp-only send)|
 /// | `TINT_TEX_DIRECT` | `TintTexture` + `TintTextureMode == Direct`            | `_TintTex` texture, no `_Tint0`                       |
 ///
-/// `_VIEW`/`_NORMAL`/`_WORLD_VIEW`, `OUTSIDE_COLOR`, and `RECTCLIP` have no
-/// property-stream signal (they map to `bool`/`enum` fields the host never writes as
-/// properties). These default to `0`; the shader's existing fallthrough renders such
+/// `_VIEW`/`_NORMAL`/`_WORLD_VIEW`, `OUTSIDE_COLOR`, and Projection360's `RECTCLIP`
+/// keyword field have no property-stream signal (they map to `bool`/`enum` fields the host
+/// never writes as properties). These default to `0`; the shader's existing fallthrough renders such
 /// materials in the most common configuration (`_VIEW` + `OUTSIDE_CLIP` + non-stereo +
 /// non-rect-clip), and they would only become observable if a host change starts sending
 /// the discriminator.

@@ -90,7 +90,7 @@ impl MaterialSystem {
                 reg.map_shader_route(asset_id, pipeline, shader_asset_name);
             }
         }
-        embedded.write_default_white(queue.as_ref());
+        embedded.write_default_textures(queue.as_ref());
         self.embedded_material_bind = Some(embedded);
         Ok(())
     }

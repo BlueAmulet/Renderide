@@ -32,19 +32,22 @@ impl WorldProjectionSet {
         host_camera: &HostCameraFrame,
     ) -> Self {
         let viewport = Viewport::from_tuple(viewport_px);
-        let explicit_proj = host_camera.explicit_view_projection().map(|(_, proj)| proj);
-        let root_scale = explicit_proj.is_none().then(|| {
-            scene
+        let explicit_view_projection = host_camera.explicit_view_projection();
+        let explicit_proj = explicit_view_projection.map(|(_, proj)| proj);
+        let clip = if explicit_proj.is_some() {
+            host_camera.clip
+        } else {
+            let root_scale = scene
                 .active_main_space()
-                .map(|space| space.root_transform().scale)
-        });
-        let (near, far) = effective_head_output_clip_planes(
-            host_camera.clip.near,
-            host_camera.clip.far,
-            host_camera.output_device,
-            root_scale.flatten(),
-        );
-        let clip = CameraClipPlanes::new(near, far);
+                .map(|space| space.root_transform().scale);
+            let (near, far) = effective_head_output_clip_planes(
+                host_camera.clip.near,
+                host_camera.clip.far,
+                host_camera.output_device,
+                root_scale,
+            );
+            CameraClipPlanes::new(near, far)
+        };
         let fov_rad = clamp_desktop_fov_degrees(host_camera.desktop_fov_degrees).to_radians();
         let world_proj = explicit_proj.unwrap_or_else(|| {
             reverse_z_perspective(viewport.aspect(), fov_rad, clip.near, clip.far)
@@ -69,8 +72,9 @@ mod tests {
     use glam::{Mat4, Vec3};
 
     use super::WorldProjectionSet;
-    use crate::camera::{EyeView, HostCameraFrame};
-    use crate::scene::SceneCoordinator;
+    use crate::camera::{CameraClipPlanes, EyeView, HostCameraFrame};
+    use crate::scene::{RenderSpaceId, SceneCoordinator};
+    use crate::shared::{HeadOutputDevice, RenderTransform};
 
     #[test]
     fn explicit_secondary_projection_replaces_world_and_overlay_projection() {
@@ -90,5 +94,30 @@ mod tests {
 
         assert_eq!(set.world_proj, explicit_proj);
         assert_eq!(set.overlay_proj, explicit_proj);
+    }
+
+    #[test]
+    fn explicit_secondary_projection_keeps_resolved_clip_planes() {
+        let mut scene = SceneCoordinator::new();
+        let root = RenderTransform {
+            scale: Vec3::splat(9.0),
+            ..Default::default()
+        };
+        scene.test_seed_space_identity_worlds(RenderSpaceId(1), vec![root], vec![-1]);
+        let host_camera = HostCameraFrame {
+            clip: CameraClipPlanes::new(0.0002, 0.25),
+            output_device: HeadOutputDevice::Screen360,
+            explicit_view: Some(EyeView::new(
+                Mat4::IDENTITY,
+                Mat4::IDENTITY,
+                Mat4::IDENTITY,
+                Vec3::ZERO,
+            )),
+            ..Default::default()
+        };
+
+        let set = WorldProjectionSet::from_scene_host(&scene, (1280, 720), &host_camera);
+
+        assert_eq!(set.clip, host_camera.clip);
     }
 }

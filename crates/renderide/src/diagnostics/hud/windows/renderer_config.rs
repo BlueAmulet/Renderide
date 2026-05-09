@@ -74,6 +74,7 @@ impl HudWindow for RendererConfigWindow {
             suppress_renderer_config_disk_writes,
         } = data;
 
+        ui.text_disabled("Press F7 to hide/show the ImGui UI.");
         ui.text_wrapped(
             "This file is owned by the renderer. Do not edit config.toml manually while \
              the process is running -- your changes may be overwritten or lost. Use these \
@@ -276,7 +277,7 @@ fn rendering_graph_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut
         }
     }
     ui.text_disabled(
-        "Scene color format (forward HDR target; compose writes swapchain / XR / RT).",
+        "Scene color format (unsigned formats promote to RGBA16Float while negative lights are active).",
     );
     for (i, &fmt) in SceneColorFormat::ALL.iter().enumerate() {
         let _id = ui.push_id_int(100 + i as i32);
@@ -324,6 +325,10 @@ fn debug_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
 fn debug_hud_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
     ui.text("HUD");
     ui.indent();
+    if ui.checkbox("Show ImGui UI", &mut g.debug.hud.imgui_visible) {
+        *dirty = true;
+    }
+    ui.text_disabled("F7 toggles this setting even when the ImGui UI is hidden.");
     if ui.checkbox("Frame timing HUD", &mut g.debug.debug_hud_frame_timing) {
         *dirty = true;
     }

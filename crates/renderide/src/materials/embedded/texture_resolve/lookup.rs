@@ -49,6 +49,15 @@ pub(crate) enum ResolvedTextureBinding {
     },
 }
 
+/// Placeholder texel color to bind for an unset or nonresident 2D texture slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DefaultTextureColor {
+    /// Use the default opaque white texture.
+    White,
+    /// Use the default transparent black texture.
+    Black,
+}
+
 impl ResolvedTextureBinding {
     /// Hashes this binding into `hasher` using a discriminant-tagged scheme that distinguishes
     /// between texture pool kinds even when asset ids collide between pools.
@@ -128,6 +137,16 @@ pub(crate) fn primary_texture_2d_asset_id(
 pub(crate) fn should_fallback_to_primary_texture(host_name: &str) -> bool {
     let host_name = shader_writer_unescaped_property_name(host_name);
     matches!(host_name, "_MainTex" | "_Tex")
+}
+
+/// Returns the default 2D placeholder color for a reflected host texture name.
+pub(crate) fn default_2d_texture_color_for_host(host_name: &str) -> DefaultTextureColor {
+    let host_name = shader_writer_unescaped_property_name(host_name);
+    match host_name {
+        "_MetallicMap" | "_MetallicMap1" | "_MetallicMap2" | "_MetallicMap3"
+        | "_MetallicGloss01" | "_MetallicGloss23" => DefaultTextureColor::Black,
+        _ => DefaultTextureColor::White,
+    }
 }
 
 fn texture_property_binding(
@@ -245,6 +264,7 @@ mod tests {
                 uniform_field_ids: HashMap::new(),
                 texture_binding_property_ids,
                 keyword_field_probe_ids: HashMap::new(),
+                ui_unlit_alpha_clip_default_on: false,
             },
             registry,
         )
@@ -322,6 +342,37 @@ mod tests {
         assert!(should_fallback_to_primary_texture(
             "_MainTexX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ4GSZLYMU5DU5DPN5XDEX"
         ));
+    }
+
+    #[test]
+    fn metallic_variant_maps_use_black_default_texture() {
+        for host_name in [
+            "_MetallicMap",
+            "_MetallicMap1",
+            "_MetallicMap2",
+            "_MetallicMap3",
+            "_MetallicGloss01",
+            "_MetallicGloss23",
+            "_MetallicMap1_",
+            "_MetallicMapX_naga_oil_mod_XOJSW4ZDFOJUWIZJ2HJ4GSZLYMU5DU5DPN5XDEX",
+        ] {
+            assert_eq!(
+                default_2d_texture_color_for_host(host_name),
+                DefaultTextureColor::Black,
+                "{host_name} should bind the black placeholder"
+            );
+        }
+    }
+
+    #[test]
+    fn standard_metallic_gloss_map_keeps_white_default_texture() {
+        for host_name in ["_MetallicGlossMap", "_OcclusionMap", "_SpecGlossMap"] {
+            assert_eq!(
+                default_2d_texture_color_for_host(host_name),
+                DefaultTextureColor::White,
+                "{host_name} should bind the white placeholder"
+            );
+        }
     }
 
     #[test]

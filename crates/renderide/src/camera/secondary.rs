@@ -2,13 +2,20 @@
 
 use glam::{Mat4, Vec3};
 
-use crate::shared::{CameraProjection, CameraState, HeadOutputDevice};
+use crate::shared::{CameraProjection, CameraState};
 
 use super::{
     CameraClipPlanes, CameraPose, CameraProjectionKind, EyeView, HostCameraFrame,
     OrthographicProjectionSpec, Viewport, clamp_desktop_fov_degrees,
-    effective_head_output_clip_planes,
 };
+
+const CAMERA_CONTROLLER_SCALE_MIN: f32 = 1e-5;
+const CAMERA_CONTROLLER_SCALE_MAX: f32 = 1e6;
+const CAMERA_CONTROLLER_ORTHOGRAPHIC_SIZE_MIN: f32 = 1e-6;
+const CAMERA_CONTROLLER_ORTHOGRAPHIC_SIZE_MAX: f32 = 1e6;
+const CAMERA_CONTROLLER_NEAR_CLIP_MIN: f32 = 1e-4;
+const CAMERA_CONTROLLER_CLIP_MAX: f32 = 1e6;
+const CAMERA_CONTROLLER_FAR_ABOVE_NEAR_MIN: f32 = 1e-4;
 
 /// Returns `true` when [`CameraState::flags`] bit 0 is set.
 #[inline]
@@ -20,6 +27,24 @@ pub fn camera_state_enabled(flags: u16) -> bool {
 #[inline]
 pub fn camera_state_use_transform_scale(flags: u16) -> bool {
     flags & (1 << 1) != 0
+}
+
+/// Returns `true` when [`CameraState::flags`] bit 6 is set.
+#[inline]
+pub fn camera_state_post_processing(flags: u16) -> bool {
+    flags & (1 << 6) != 0
+}
+
+/// Returns `true` when [`CameraState::flags`] bit 7 is set.
+#[inline]
+pub fn camera_state_screen_space_reflections(flags: u16) -> bool {
+    flags & (1 << 7) != 0
+}
+
+/// Returns `true` when [`CameraState::flags`] bit 8 is set.
+#[inline]
+pub fn camera_state_motion_blur(flags: u16) -> bool {
+    flags & (1 << 8) != 0
 }
 
 /// Returns `true` when [`CameraState::flags`] bit 3 is set.
@@ -37,24 +62,14 @@ pub fn host_camera_frame_for_render_texture(
     camera_world_matrix: Mat4,
 ) -> HostCameraFrame {
     let viewport = Viewport::from_tuple(viewport_px);
-    let transform_scale = if camera_state_use_transform_scale(state.flags) {
-        uniform_scale_from_matrix(camera_world_matrix)
-    } else {
-        1.0
-    };
-    let (near_clip, far_clip) = effective_head_output_clip_planes(
-        state.near_clip,
-        state.far_clip,
-        HeadOutputDevice::Screen,
-        Some(Vec3::splat(transform_scale)),
-    );
-    let clip = CameraClipPlanes::new(near_clip, far_clip);
+    let transform_scale = camera_controller_transform_scale(state.flags, camera_world_matrix);
+    let clip = camera_controller_clip_planes(state, transform_scale);
     let pose = CameraPose::from_world_matrix(camera_world_matrix);
     let fov_degrees = clamp_desktop_fov_degrees(state.field_of_view);
+    let orthographic_size = camera_controller_orthographic_size(state, transform_scale);
     let explicit_view = match state.projection {
         CameraProjection::Orthographic => {
-            let spec =
-                OrthographicProjectionSpec::new(state.orthographic_size * transform_scale, clip);
+            let spec = OrthographicProjectionSpec::new(orthographic_size, clip);
             EyeView::from_pose_projection(pose, spec.projection(viewport))
         }
         CameraProjection::Perspective | CameraProjection::Panoramic => {
@@ -62,10 +77,9 @@ pub fn host_camera_frame_for_render_texture(
         }
     };
     let primary_ortho_task = match state.projection {
-        CameraProjection::Orthographic => Some(OrthographicProjectionSpec::new(
-            state.orthographic_size * transform_scale,
-            clip,
-        )),
+        CameraProjection::Orthographic => {
+            Some(OrthographicProjectionSpec::new(orthographic_size, clip))
+        }
         CameraProjection::Perspective | CameraProjection::Panoramic => None,
     };
     let projection_kind = match state.projection {
@@ -91,13 +105,57 @@ pub fn host_camera_frame_for_render_texture(
     }
 }
 
-fn uniform_scale_from_matrix(matrix: Mat4) -> f32 {
+fn camera_controller_transform_scale(flags: u16, matrix: Mat4) -> f32 {
+    if !camera_state_use_transform_scale(flags) {
+        return 1.0;
+    }
     let (scale, _, _) = matrix.to_scale_rotation_translation();
-    let avg = (scale.x.abs() + scale.y.abs() + scale.z.abs()) / 3.0;
-    if avg.is_finite() && avg > 1e-8 {
-        avg
+    camera_controller_transform_scale_from_lossy(scale)
+}
+
+fn camera_controller_transform_scale_from_lossy(lossy_scale: Vec3) -> f32 {
+    let mut scale = (lossy_scale.x + lossy_scale.y + lossy_scale.z) * 0.333_333_34;
+    if scale.is_nan() {
+        scale = 0.0;
+    }
+    camera_controller_clamp(
+        scale,
+        CAMERA_CONTROLLER_SCALE_MIN,
+        CAMERA_CONTROLLER_SCALE_MAX,
+    )
+}
+
+fn camera_controller_clip_planes(state: &CameraState, transform_scale: f32) -> CameraClipPlanes {
+    let near_clip = camera_controller_clamp(
+        state.near_clip * transform_scale,
+        CAMERA_CONTROLLER_NEAR_CLIP_MIN,
+        CAMERA_CONTROLLER_CLIP_MAX,
+    );
+    let far_min =
+        CAMERA_CONTROLLER_NEAR_CLIP_MIN.max(near_clip + CAMERA_CONTROLLER_FAR_ABOVE_NEAR_MIN);
+    let far_clip = camera_controller_clamp(
+        state.far_clip * transform_scale,
+        far_min,
+        CAMERA_CONTROLLER_CLIP_MAX,
+    );
+    CameraClipPlanes::new(near_clip, far_clip)
+}
+
+fn camera_controller_orthographic_size(state: &CameraState, transform_scale: f32) -> f32 {
+    camera_controller_clamp(
+        state.orthographic_size * transform_scale,
+        CAMERA_CONTROLLER_ORTHOGRAPHIC_SIZE_MIN,
+        CAMERA_CONTROLLER_ORTHOGRAPHIC_SIZE_MAX,
+    )
+}
+
+fn camera_controller_clamp(value: f32, min: f32, max: f32) -> f32 {
+    if value < min {
+        min
+    } else if value > max {
+        max
     } else {
-        1.0
+        value
     }
 }
 
@@ -108,7 +166,9 @@ mod tests {
     use crate::shared::{CameraProjection, CameraState, HeadOutputDevice};
 
     use super::{
-        camera_state_enabled, camera_state_render_private_ui, camera_state_use_transform_scale,
+        camera_controller_transform_scale_from_lossy, camera_state_enabled,
+        camera_state_motion_blur, camera_state_post_processing, camera_state_render_private_ui,
+        camera_state_screen_space_reflections, camera_state_use_transform_scale,
         host_camera_frame_for_render_texture,
     };
     use crate::camera::{
@@ -131,6 +191,39 @@ mod tests {
         assert!(camera_state_use_transform_scale(1 << 1));
         assert!(!camera_state_render_private_ui(0));
         assert!(camera_state_render_private_ui(1 << 3));
+    }
+
+    #[test]
+    fn camera_state_flags_decode_post_processing_bits() {
+        assert!(!camera_state_post_processing(0));
+        assert!(camera_state_post_processing(1 << 6));
+        assert!(!camera_state_screen_space_reflections(0));
+        assert!(camera_state_screen_space_reflections(1 << 7));
+        assert!(!camera_state_motion_blur(0));
+        assert!(camera_state_motion_blur(1 << 8));
+    }
+
+    #[test]
+    fn host_camera_frame_secondary_without_transform_scale_uses_camera_controller_clamps() {
+        let state = CameraState {
+            projection: CameraProjection::Orthographic,
+            orthographic_size: 0.0,
+            near_clip: 0.0,
+            far_clip: 0.0,
+            ..Default::default()
+        };
+
+        let out = host_camera_frame_for_render_texture(
+            &HostCameraFrame::default(),
+            &state,
+            (640, 480),
+            Mat4::from_scale(Vec3::splat(9.0)),
+        );
+
+        let ortho = out.primary_ortho_task.expect("orthographic task");
+        assert_eq!(ortho.half_height, 1e-6);
+        assert!((out.near_clip() - 1e-4).abs() < 1e-8);
+        assert!((out.far_clip() - 2e-4).abs() < 1e-8);
     }
 
     #[test]
@@ -237,6 +330,64 @@ mod tests {
 
         assert_eq!(projections.world_proj, expected_ortho);
         assert_eq!(projections.overlay_proj, expected_ortho);
+    }
+
+    #[test]
+    fn host_camera_frame_secondary_use_transform_scale_averages_non_uniform_scale() {
+        let base = HostCameraFrame::default();
+        let cam_world = Mat4::from_scale(Vec3::new(1.0, 2.0, 6.0));
+        let state = CameraState {
+            projection: CameraProjection::Orthographic,
+            flags: 1 << 1,
+            orthographic_size: 2.0,
+            near_clip: 0.1,
+            far_clip: 50.0,
+            ..Default::default()
+        };
+
+        let out = host_camera_frame_for_render_texture(&base, &state, (640, 480), cam_world);
+
+        let ortho = out.primary_ortho_task.expect("orthographic task");
+        assert!((ortho.half_height - 6.0).abs() < 1e-6);
+        assert!((out.near_clip() - 0.3).abs() < 1e-6);
+        assert!((out.far_clip() - 150.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn host_camera_frame_secondary_perspective_use_transform_scale_scales_clip_not_fov() {
+        let base = HostCameraFrame::default();
+        let cam_world = Mat4::from_scale(Vec3::splat(4.0));
+        let state = CameraState {
+            projection: CameraProjection::Perspective,
+            flags: 1 << 1,
+            field_of_view: 45.0,
+            near_clip: 0.2,
+            far_clip: 30.0,
+            ..Default::default()
+        };
+
+        let out = host_camera_frame_for_render_texture(&base, &state, (640, 480), cam_world);
+
+        assert_eq!(out.primary_ortho_task, None);
+        assert_eq!(out.desktop_fov_degrees, 45.0);
+        assert!((out.near_clip() - 0.8).abs() < 1e-6);
+        assert!((out.far_clip() - 120.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn camera_controller_transform_scale_matches_clamp_edges() {
+        assert_eq!(
+            camera_controller_transform_scale_from_lossy(Vec3::splat(f32::NAN)),
+            1e-5
+        );
+        assert_eq!(
+            camera_controller_transform_scale_from_lossy(Vec3::splat(-2.0)),
+            1e-5
+        );
+        assert_eq!(
+            camera_controller_transform_scale_from_lossy(Vec3::splat(2.0e6)),
+            1e6
+        );
     }
 
     #[test]

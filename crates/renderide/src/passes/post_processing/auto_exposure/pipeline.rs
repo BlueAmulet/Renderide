@@ -11,10 +11,10 @@ use crate::gpu::bind_layout::{
     fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry, texture_layout_entry,
     uniform_buffer_layout_entry,
 };
+use crate::gpu_resource::{OnceGpu, RenderPipelineMap};
 use crate::render_graph::gpu_cache::{
-    FullscreenPipelineVariantDesc, FullscreenShaderVariants, OnceGpu, RenderPipelineMap,
-    create_d2_array_view, create_linear_clamp_sampler, create_wgsl_shader_module,
-    fullscreen_pipeline_variant,
+    FullscreenPipelineVariantDesc, FullscreenShaderVariants, create_d2_array_view,
+    create_linear_clamp_sampler, create_wgsl_shader_module, fullscreen_pipeline_variant,
 };
 
 /// Number of histogram bins used by the auto-exposure compute pass.

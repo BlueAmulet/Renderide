@@ -2,7 +2,7 @@
 //!
 //! Keeps the XSToon2 ramp-diffuse surface model and clustered forward light walk, but
 //! ports the broken lighting math to the newer XSToon3-style accumulator flow:
-//! corrected Schlick/GGX specular, blend-mode-aware reflections, clear-coat layering,
+//! corrected Schlick/GGX specular, non-matcap blend-mode-aware reflections, clear-coat layering,
 //! emission scaling, and dominant-light-driven rim / shadow-rim / outline modulation.
 
 #define_import_path renderide::xiexe::toon2::lighting
@@ -216,12 +216,15 @@ fn matcap_uv(view_dir: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
     return vec2<f32>(dot(view_right, n), dot(view_up, n)) * 0.5 + vec2<f32>(0.5);
 }
 
-/// Reflection blend-weight shared by additive / multiplicative / subtractive indirect-specular modes.
+/// Reflection blend-weight shared by the non-matcap indirect-specular blend modes.
 fn reflection_blend_weight(s: xb::SurfaceData) -> f32 {
+    if (xb::matcap_enabled()) {
+        return 1.0;
+    }
     return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);
 }
 
-/// True when `_ReflectionBlendMode` selects the multiplicative branch.
+/// True when `_ReflectionBlendMode` selects the multiplicative branch for non-matcap reflections.
 fn reflection_is_multiplicative() -> bool {
     return abs(xb::mat._ReflectionBlendMode - 1.0) < 0.5;
 }
@@ -241,25 +244,23 @@ fn indirect_reflection_branch(
     fresnel: vec3<f32>,
     ambient: vec3<f32>,
     dominant_light_col_atten: vec3<f32>,
-    reflectivity_scale: f32,
 ) -> vec3<f32> {
     if (xb::reflection_disabled()) {
         return vec3<f32>(0.0);
     }
 
+    if (xb::matcap_enabled()) {
+        let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);
+        let uv = matcap_uv(stereo_view_dir, normal);
+        let lod = clamp((1.0 - clamp(perceptual_roughness, 0.0, 1.0)) * SPECCUBE_LOD_STEPS, 0.0, SPECCUBE_LOD_STEPS);
+        var spec = textureSampleLevel(xb::_Matcap, xb::_Matcap_sampler, uv, lod).rgb * xb::mat._MatcapTint.rgb;
+        spec = spec * (ambient + dominant_light_col_atten * 0.5);
+        return spec;
+    }
+
     let reflectivity_mask = clamp(s.reflectivity_mask, 0.0, 1.0);
     if (reflectivity_mask <= 1e-4) {
         return vec3<f32>(0.0);
-    }
-
-    if (xb::matcap_enabled()) {
-        let uv = matcap_uv(view_dir, normal);
-        let lod = clamp((1.0 - clamp(perceptual_roughness, 0.0, 1.0)) * SPECCUBE_LOD_STEPS, 0.0, SPECCUBE_LOD_STEPS);
-        var spec = textureSampleLevel(xb::_Matcap, xb::_Matcap_sampler, uv, lod).rgb * xb::mat._MatcapTint.rgb;
-        if (!reflection_is_multiplicative()) {
-            spec = spec * (ambient + dominant_light_col_atten * 0.5);
-        }
-        return spec * max(reflectivity_scale, 0.0) * reflectivity_mask;
     }
 
     if (xb::baked_cubemap_enabled()) {
@@ -312,10 +313,9 @@ fn indirect_specular(
         fresnel,
         ambient,
         dominant_light_col_atten,
-        reflectivity,
     );
 
-    if (xb::clearcoat_enabled()) {
+    if (!xb::matcap_enabled() && xb::clearcoat_enabled()) {
         let clearcoat_f0 = vec3<f32>(0.16 * s.clearcoat_strength * s.clearcoat_strength * s.clearcoat_smoothness);
         spec = spec + indirect_reflection_branch(
             s,
@@ -327,19 +327,24 @@ fn indirect_specular(
             clearcoat_f0,
             ambient,
             dominant_light_col_atten,
-            s.clearcoat_strength,
         );
     }
 
     return spec;
 }
 
-/// Applies XSToon3's additive / multiplicative / subtractive reflection blend modes to the
-/// accumulated diffuse surface color.
+/// Applies reflection to the accumulated diffuse surface color.
+///
+/// XSToon2 exposes `_ReflectionBlendMode`, but its matcap composition always adds the sampled
+/// reflection to the surface color.
 fn apply_reflection_blend(surface: vec3<f32>, reflection: vec3<f32>, weight: f32) -> vec3<f32> {
     let clamped_weight = clamp(weight, 0.0, 1.0);
     if (clamped_weight <= 1e-4) {
         return surface;
+    }
+
+    if (xb::matcap_enabled()) {
+        return surface + reflection;
     }
 
     if (reflection_is_multiplicative()) {

@@ -9,7 +9,9 @@ use crate::skybox::specular::{CubemapIblSource, EquirectIblSource};
 
 use super::key::{convolve_sample_count, dispatch_groups, mip_extent};
 use super::pipeline::ComputePipeline;
-use super::resources::{PendingBakeResources, create_mip_storage_view};
+use super::resources::{
+    PendingBakeResources, create_mip_array_sample_view, create_mip_storage_view,
+};
 
 /// Uniform payload shared by the cubemap and convolve mip-0 producers.
 #[repr(C)]
@@ -43,6 +45,16 @@ struct ConvolveParams {
     sample_count: u32,
     src_face_size: u32,
     src_max_lod: f32,
+    _pad0: u32,
+    _pad1: u32,
+}
+
+/// Uniform payload for one source-pyramid downsample dispatch.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct DownsampleParams {
+    dst_size: u32,
+    src_size: u32,
     _pad0: u32,
     _pad1: u32,
 }
@@ -281,6 +293,89 @@ pub(super) fn encode_equirect_mip0(
     resources.source_views.push(ctx.src.view);
 }
 
+/// Inputs for [`encode_downsample_mips`].
+pub(super) struct DownsampleEncodeContext<'a> {
+    pub(super) device: &'a wgpu::Device,
+    pub(super) encoder: &'a mut wgpu::CommandEncoder,
+    pub(super) pipeline: &'a ComputePipeline,
+    pub(super) texture: &'a wgpu::Texture,
+    pub(super) face_size: u32,
+    pub(super) mip_levels: u32,
+    pub(super) profiler: Option<&'a GpuProfilerHandle>,
+}
+
+/// Encodes sequential per-face downsample passes for mips `1..mip_levels` of the source cube.
+pub(super) fn encode_downsample_mips(
+    ctx: DownsampleEncodeContext<'_>,
+    resources: &mut PendingBakeResources,
+) {
+    profiling::scope!("skybox_ibl::encode_downsample_mips");
+    if ctx.mip_levels <= 1 {
+        return;
+    }
+    for mip in 1..ctx.mip_levels {
+        profiling::scope!("skybox_ibl::encode_downsample_mip");
+        let dst_size = mip_extent(ctx.face_size, mip);
+        let src_size = mip_extent(ctx.face_size, mip - 1);
+        let params = DownsampleParams {
+            dst_size,
+            src_size,
+            _pad0: 0,
+            _pad1: 0,
+        };
+        let params_buffer = ctx
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("skybox_ibl downsample params"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_downsample_params_buffer");
+        let src_view = create_mip_array_sample_view(ctx.texture, mip - 1);
+        let dst_view = create_mip_storage_view(ctx.texture, mip);
+        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("skybox_ibl downsample bind group"),
+            layout: &ctx.pipeline.layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&src_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&dst_view),
+                },
+            ],
+        });
+        crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_downsample_bind_group");
+        let pass_query = ctx.profiler.map(|profiler| {
+            profiler.begin_pass_query(format!("skybox_ibl::downsample_mip{mip}"), ctx.encoder)
+        });
+        {
+            let mut pass = ctx
+                .encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("skybox_ibl downsample mip"),
+                    timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
+                });
+            pass.set_pipeline(&ctx.pipeline.pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups(dispatch_groups(dst_size), dispatch_groups(dst_size), 6);
+        };
+        if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
+            profiler.end_query(ctx.encoder, query);
+        }
+        resources.buffers.push(params_buffer);
+        resources.bind_groups.push(bind_group);
+        resources.texture_views.push(src_view);
+        resources.texture_views.push(dst_view);
+    }
+}
+
 /// Inputs for [`encode_convolve_mips`].
 pub(super) struct ConvolveEncodeContext<'a> {
     pub(super) device: &'a wgpu::Device,
@@ -291,6 +386,7 @@ pub(super) struct ConvolveEncodeContext<'a> {
     pub(super) sampler: &'a wgpu::Sampler,
     pub(super) face_size: u32,
     pub(super) mip_levels: u32,
+    pub(super) src_max_lod: f32,
     pub(super) profiler: Option<&'a GpuProfilerHandle>,
 }
 
@@ -303,9 +399,6 @@ pub(super) fn encode_convolve_mips(
     if ctx.mip_levels <= 1 {
         return;
     }
-    // Source view is mip 0 only (see create_mip0_cube_sample_view) -- clamp source LOD to zero so
-    // the shader's solid-angle source-mip selection collapses to a plain mip-0 sample.
-    let src_max_lod = 0.0_f32;
     for mip in 1..ctx.mip_levels {
         profiling::scope!("skybox_ibl::encode_convolve_mip");
         let dst_size = mip_extent(ctx.face_size, mip);
@@ -315,7 +408,7 @@ pub(super) fn encode_convolve_mips(
             mip_count: ctx.mip_levels,
             sample_count: convolve_sample_count(mip),
             src_face_size: ctx.face_size,
-            src_max_lod,
+            src_max_lod: ctx.src_max_lod,
             _pad0: 0,
             _pad1: 0,
         };

@@ -1,8 +1,9 @@
 //! Hashes the per-frame signature used to invalidate the embedded `@group(1)` bind cache.
 //!
 //! [`texture_bind_signature`] visits every reflected texture entry and folds in the resolved
-//! binding plus the live texture-pool state (mip residency, sampler state, V-flip flag). When the
-//! resulting hash changes, the cached `wgpu::BindGroup` for the host material has to be rebuilt.
+//! binding plus the live texture-pool state (view generation, mip residency, sampler state,
+//! V-flip flag). When the resulting hash changes, the cached `wgpu::BindGroup` for the host
+//! material has to be rebuilt.
 
 use std::hash::{Hash, Hasher};
 
@@ -70,6 +71,7 @@ pub(crate) fn texture_bind_signature(
                 if let Some(t) = pools.texture.get(asset_id) {
                     let resident = t.mip_levels_resident > 0;
                     resident.hash(&mut h);
+                    t.view_generation.hash(&mut h);
                     t.mip_levels_resident.hash(&mut h);
                     t.storage_v_inverted.hash(&mut h);
                     hash_sampler_state(&t.sampler, &mut h);

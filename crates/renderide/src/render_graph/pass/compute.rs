@@ -41,6 +41,14 @@ pub trait ComputePass: Send + Sync {
     /// Passes that hold mutable recording state must use interior mutability (e.g. `Mutex`).
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError>;
 
+    /// Optional: returns whether the executor should record this compute pass for the current view.
+    ///
+    /// Runs before [`Self::record`], so per-view passes with no work can skip opening compute
+    /// passes, bind-group churn, and timestamp queries. Defaults to recording.
+    fn should_record(&self, _ctx: &ComputePassCtx<'_, '_, '_>) -> Result<bool, RenderPassError> {
+        Ok(true)
+    }
+
     /// Scheduling phase. Defaults to [`PassPhase::PerView`].
     fn phase(&self) -> PassPhase {
         PassPhase::PerView

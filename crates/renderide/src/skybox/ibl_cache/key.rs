@@ -28,8 +28,16 @@ pub(crate) enum SkyboxIblKey {
     },
     /// Host-uploaded cubemap material identity.
     Cubemap {
+        /// Skybox material asset id when this source came from a material, or `-1` for direct probe sources.
+        material_asset_id: i32,
+        /// Material property generation when this source came from a material.
+        material_generation: u64,
+        /// Stable hash of the shader route stem when this source came from a material.
+        route_hash: u64,
         /// Source cubemap asset id.
         asset_id: i32,
+        /// Source GPU allocation generation.
+        allocation_generation: u64,
         /// Source resident mip count; growth re-bakes once more mips arrive.
         mip_levels_resident: u32,
         /// Source content generation; re-uploading the same mips re-bakes.
@@ -41,8 +49,16 @@ pub(crate) enum SkyboxIblKey {
     },
     /// Host-uploaded equirect Texture2D material identity.
     Equirect {
+        /// Skybox material asset id when this source came from a material.
+        material_asset_id: i32,
+        /// Material property generation when this source came from a material.
+        material_generation: u64,
+        /// Stable hash of the shader route stem when this source came from a material.
+        route_hash: u64,
         /// Source Texture2D asset id.
         asset_id: i32,
+        /// Source GPU allocation generation.
+        allocation_generation: u64,
         /// Source resident mip count.
         mip_levels_resident: u32,
         /// Source content generation; re-uploading the same mips re-bakes.
@@ -97,14 +113,22 @@ pub(crate) fn build_key(source: &SkyboxIblSource, face_size: u32) -> SkyboxIblKe
             face_size,
         },
         SkyboxIblSource::Cubemap(src) => SkyboxIblKey::Cubemap {
+            material_asset_id: src.material_asset_id,
+            material_generation: src.material_generation,
+            route_hash: src.route_hash,
             asset_id: src.asset_id,
+            allocation_generation: src.allocation_generation,
             mip_levels_resident: src.mip_levels_resident,
             content_generation: src.content_generation,
             storage_v_inverted: src.storage_v_inverted,
             face_size,
         },
         SkyboxIblSource::Equirect(src) => SkyboxIblKey::Equirect {
+            material_asset_id: src.material_asset_id,
+            material_generation: src.material_generation,
+            route_hash: src.route_hash,
             asset_id: src.asset_id,
+            allocation_generation: src.allocation_generation,
             mip_levels_resident: src.mip_levels_resident,
             content_generation: src.content_generation,
             storage_v_inverted: src.storage_v_inverted,
@@ -142,6 +166,11 @@ pub(super) fn dispatch_groups(size: u32) -> u32 {
 /// Returns a mip edge clamped to one texel.
 pub(crate) fn mip_extent(base: u32, mip: u32) -> u32 {
     (base >> mip).max(1)
+}
+
+/// Returns the highest source mip LOD available to filtered importance sampling.
+pub(super) fn source_max_lod(mip_levels: u32) -> f32 {
+    mip_levels.saturating_sub(1) as f32
 }
 
 /// Returns the GGX importance sample count for the given convolve mip.

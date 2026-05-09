@@ -3,8 +3,8 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use super::pipeline::RenderPipelineMap;
 use super::shader::create_wgsl_shader_module;
+use crate::gpu_resource::RenderPipelineMap;
 use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::pass::RenderPassTemplate;
 

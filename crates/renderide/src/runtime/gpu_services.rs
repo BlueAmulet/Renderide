@@ -36,6 +36,7 @@ impl RendererRuntime {
     /// Advances nonblocking GPU services that feed host-visible async results.
     pub fn maintain_nonblocking_gpu_jobs(&mut self, gpu: &mut GpuContext) {
         profiling::scope!("tick::maintain_nonblocking_gpu_jobs");
+        self.flush_reflection_probe_render_results();
         self.backend.maintain_reflection_probe_specular_jobs(
             gpu,
             &self.scene,

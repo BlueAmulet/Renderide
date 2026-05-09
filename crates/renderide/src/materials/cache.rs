@@ -9,12 +9,12 @@
 
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use lru::LruCache;
 use parking_lot::Mutex;
 
 use crate::concurrency::{KeyedSingleFlight, SingleFlightPermit};
+use crate::gpu_resource::AtomicCacheCounters;
 use crate::materials::ShaderPermutation;
 use crate::materials::embedded_raster_pipeline::{
     EmbeddedRasterPipelineSource, build_embedded_wgsl, create_embedded_render_pipelines,
@@ -98,20 +98,7 @@ pub struct MaterialPipelineCache {
     limits: Arc<crate::gpu::GpuLimits>,
     pipelines: Mutex<LruCache<MaterialPipelineCacheKey, MaterialPipelineSet>>,
     compiles: KeyedSingleFlight<MaterialPipelineCacheKey>,
-    stats: MaterialPipelineCacheStatsAtomic,
-}
-
-/// Atomic backing counters for material pipeline cache diagnostics.
-#[derive(Debug, Default)]
-struct MaterialPipelineCacheStatsAtomic {
-    /// Cache hits that returned an already-built pipeline set.
-    hits: AtomicU64,
-    /// Cache misses that had to compose WGSL and build pipelines.
-    misses: AtomicU64,
-    /// Newly inserted pipeline sets.
-    insertions: AtomicU64,
-    /// LRU evictions caused by cache capacity pressure.
-    evictions: AtomicU64,
+    stats: AtomicCacheCounters,
 }
 
 impl MaterialPipelineCache {
@@ -122,7 +109,7 @@ impl MaterialPipelineCache {
             limits,
             pipelines: Mutex::new(LruCache::new(max_cached_pipelines())),
             compiles: KeyedSingleFlight::default(),
-            stats: MaterialPipelineCacheStatsAtomic::default(),
+            stats: AtomicCacheCounters::default(),
         }
     }
 
@@ -139,7 +126,7 @@ impl MaterialPipelineCache {
         let key = Self::cache_key(kind, desc, variant);
         loop {
             if let Some(hit) = self.cached_pipeline_set(&key) {
-                self.stats.hits.fetch_add(1, Ordering::Relaxed);
+                self.stats.note_hit();
                 return Ok(hit);
             }
 
@@ -153,11 +140,11 @@ impl MaterialPipelineCache {
             };
 
             if let Some(hit) = self.cached_pipeline_set(&key) {
-                self.stats.hits.fetch_add(1, Ordering::Relaxed);
+                self.stats.note_hit();
                 return Ok(hit);
             }
 
-            self.stats.misses.fetch_add(1, Ordering::Relaxed);
+            self.stats.note_miss();
             let set = self.build_pipeline_set(kind, desc, variant)?;
             self.insert_pipeline_set(key, set.clone());
             drop(leader);
@@ -253,12 +240,21 @@ impl MaterialPipelineCache {
 
     fn insert_pipeline_set(&self, key: MaterialPipelineCacheKey, set: MaterialPipelineSet) {
         let mut cache = self.pipelines.lock();
-        self.stats.insertions.fetch_add(1, Ordering::Relaxed);
-        if let Some(evicted) = cache.put(key, set) {
-            drop(evicted);
-            self.stats.evictions.fetch_add(1, Ordering::Relaxed);
-            logger::trace!("MaterialPipelineCache: evicted LRU pipeline entry");
-        }
+        self.stats.note_insertion();
+        let evicted = cache.push(key, set);
         drop(cache);
+
+        if let Some((_evicted_key, evicted)) = evicted {
+            drop(evicted);
+            self.stats.note_eviction();
+            let stats = self.stats.snapshot();
+            logger::trace!(
+                "MaterialPipelineCache: evicted LRU pipeline entry hits={} misses={} insertions={} evictions={}",
+                stats.hits,
+                stats.misses,
+                stats.insertions,
+                stats.evictions
+            );
+        }
     }
 }

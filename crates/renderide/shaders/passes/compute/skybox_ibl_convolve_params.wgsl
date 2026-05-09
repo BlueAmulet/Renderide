@@ -1,8 +1,7 @@
 //! GGX convolve pass for the unified IBL mip pyramid.
 //!
-//! Reads the destination cube's mip 0 (already populated by one of the mip-0 producer passes) and
-//! writes mip *i* with GGX importance-sampled radiance for the perceptual roughness corresponding
-//! to mip *i* under the runtime parabolic LOD lookup.
+//! Reads the source radiance mip pyramid and writes mip *i* with GGX importance-sampled radiance
+//! for the perceptual roughness corresponding to mip *i* under the runtime parabolic LOD lookup.
 
 #import renderide::ggx_prefilter as ggx
 

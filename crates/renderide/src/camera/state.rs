@@ -32,6 +32,47 @@ impl SecondaryCameraId {
     }
 }
 
+/// Stable logical identity for one host camera readback task view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct CameraRenderTaskViewId {
+    /// Render space requested by the host task.
+    pub render_space_id: RenderSpaceId,
+    /// Dense index within the drained host task batch.
+    pub task_index: i32,
+}
+
+impl CameraRenderTaskViewId {
+    /// Builds a camera readback view id from the host render-space and task batch index.
+    pub const fn new(render_space_id: RenderSpaceId, task_index: i32) -> Self {
+        Self {
+            render_space_id,
+            task_index,
+        }
+    }
+}
+
+/// Stable logical identity for one reflection-probe cubemap bake face.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ReflectionProbeRenderTaskViewId {
+    /// Render space requested by the host task.
+    pub render_space_id: RenderSpaceId,
+    /// Host reflection-probe bake task id.
+    pub render_task_id: i32,
+    /// Cubemap face index in host `BitmapCube` order.
+    pub face_index: u8,
+}
+
+impl ReflectionProbeRenderTaskViewId {
+    /// Builds a reflection-probe bake face view id.
+    pub const fn new(render_space_id: RenderSpaceId, render_task_id: i32, face_index: u8) -> Self {
+        Self {
+            render_space_id,
+            render_task_id,
+            face_index,
+        }
+    }
+}
+
 /// Identifies one logical render view for view-scoped resources and temporal state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ViewId {
@@ -39,12 +80,34 @@ pub enum ViewId {
     Main,
     /// Secondary camera, tracked independently from the render target asset it writes.
     SecondaryCamera(SecondaryCameraId),
+    /// One-shot host camera readback task view.
+    CameraRenderTask(CameraRenderTaskViewId),
+    /// One-shot reflection-probe cubemap bake face view.
+    ReflectionProbeRenderTask(ReflectionProbeRenderTaskViewId),
 }
 
 impl ViewId {
     /// Builds the stable logical identity for one secondary camera view.
     pub const fn secondary_camera(render_space_id: RenderSpaceId, renderable_index: i32) -> Self {
         Self::SecondaryCamera(SecondaryCameraId::new(render_space_id, renderable_index))
+    }
+
+    /// Builds the stable logical identity for one camera readback task view.
+    pub const fn camera_render_task(render_space_id: RenderSpaceId, task_index: i32) -> Self {
+        Self::CameraRenderTask(CameraRenderTaskViewId::new(render_space_id, task_index))
+    }
+
+    /// Builds the stable logical identity for one reflection-probe bake face view.
+    pub const fn reflection_probe_render_task(
+        render_space_id: RenderSpaceId,
+        render_task_id: i32,
+        face_index: u8,
+    ) -> Self {
+        Self::ReflectionProbeRenderTask(ReflectionProbeRenderTaskViewId::new(
+            render_space_id,
+            render_task_id,
+            face_index,
+        ))
     }
 }
 

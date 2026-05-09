@@ -58,7 +58,9 @@ impl OcclusionSystem {
     pub(crate) fn ensure_hi_z_state(&self, view: ViewId) -> Arc<Mutex<HiZGpuState>> {
         match view {
             ViewId::Main => self.main.clone(),
-            ViewId::SecondaryCamera(_) => {
+            ViewId::SecondaryCamera(_)
+            | ViewId::CameraRenderTask(_)
+            | ViewId::ReflectionProbeRenderTask(_) => {
                 let mut offscreen = self.offscreen.lock();
                 offscreen
                     .entry(view)
@@ -72,7 +74,9 @@ impl OcclusionSystem {
     fn hi_z_state_slot(&self, view: ViewId) -> Option<Arc<Mutex<HiZGpuState>>> {
         match view {
             ViewId::Main => Some(self.main.clone()),
-            ViewId::SecondaryCamera(_) => self.offscreen.lock().get(&view).cloned(),
+            ViewId::SecondaryCamera(_)
+            | ViewId::CameraRenderTask(_)
+            | ViewId::ReflectionProbeRenderTask(_) => self.offscreen.lock().get(&view).cloned(),
         }
     }
 
@@ -97,7 +101,9 @@ impl OcclusionSystem {
                     })
                 }
             },
-            ViewId::SecondaryCamera(_) => state
+            ViewId::SecondaryCamera(_)
+            | ViewId::CameraRenderTask(_)
+            | ViewId::ReflectionProbeRenderTask(_) => state
                 .desktop
                 .as_ref()
                 .map(|s| HiZCullData::Desktop(s.clone())),
@@ -111,7 +117,9 @@ impl OcclusionSystem {
     pub(crate) fn retire_view(&self, view: ViewId) -> bool {
         match view {
             ViewId::Main => false,
-            ViewId::SecondaryCamera(_) => self.offscreen.lock().remove(&view).is_some(),
+            ViewId::SecondaryCamera(_)
+            | ViewId::CameraRenderTask(_)
+            | ViewId::ReflectionProbeRenderTask(_) => self.offscreen.lock().remove(&view).is_some(),
         }
     }
 

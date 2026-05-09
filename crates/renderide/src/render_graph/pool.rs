@@ -15,6 +15,8 @@ pub use policy::{BufferKey, TextureKey};
 
 use hashbrown::HashMap;
 
+use crate::gpu_resource::CacheCounters;
+
 use policy::{
     BufferKind, BufferSlotValue, PoolKind, TextureKind, TextureSlotValue, create_buffer,
     create_texture_and_view, texture_key_dims,
@@ -126,8 +128,7 @@ struct Entry<P: PoolKind> {
 struct Pool<P: PoolKind> {
     entries: Vec<Entry<P>>,
     free: HashMap<P::Key, Vec<usize>>,
-    hits: usize,
-    misses: usize,
+    counters: CacheCounters,
 }
 
 impl<P: PoolKind> Default for Pool<P> {
@@ -135,8 +136,7 @@ impl<P: PoolKind> Default for Pool<P> {
         Self {
             entries: Vec::new(),
             free: HashMap::new(),
-            hits: 0,
-            misses: 0,
+            counters: CacheCounters::default(),
         }
     }
 }
@@ -156,7 +156,7 @@ impl<P: PoolKind> Pool<P> {
         if let Some(list) = self.free.get_mut(&key)
             && let Some(id) = list.pop()
         {
-            self.hits += 1;
+            self.counters.note_hit();
             self.entries[id].last_used_generation = generation;
             refresh_if_stale(&mut self.entries[id].value);
             return id;
@@ -167,7 +167,8 @@ impl<P: PoolKind> Pool<P> {
             value: create_value(),
             last_used_generation: generation,
         });
-        self.misses += 1;
+        self.counters.note_miss();
+        self.counters.note_insertion();
         id
     }
 
@@ -219,6 +220,7 @@ impl<P: PoolKind> Pool<P> {
             };
             for id in ids {
                 if let Some(entry) = self.entries.get_mut(id) {
+                    self.counters.note_eviction();
                     clear_value(&mut entry.value);
                 }
             }
@@ -366,14 +368,26 @@ impl TransientPool {
 
     /// Returns current metrics.
     pub fn metrics(&self) -> TransientPoolMetrics {
+        let texture_stats = self.textures.counters.snapshot();
+        let buffer_stats = self.buffers.counters.snapshot();
         TransientPoolMetrics {
-            texture_hits: self.textures.hits,
-            texture_misses: self.textures.misses,
-            buffer_hits: self.buffers.hits,
-            buffer_misses: self.buffers.misses,
+            texture_cache: texture_stats,
+            texture_hits: saturating_usize(texture_stats.hits),
+            texture_misses: saturating_usize(texture_stats.misses),
+            buffer_cache: buffer_stats,
+            buffer_hits: saturating_usize(buffer_stats.hits),
+            buffer_misses: saturating_usize(buffer_stats.misses),
             retained_textures: self.textures.retained_count(TextureSlotValue::is_present),
             retained_buffers: self.buffers.retained_count(BufferSlotValue::is_present),
         }
+    }
+}
+
+fn saturating_usize(value: u64) -> usize {
+    if value > usize::MAX as u64 {
+        usize::MAX
+    } else {
+        value as usize
     }
 }
 

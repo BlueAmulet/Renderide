@@ -24,6 +24,7 @@ use crate::scene::SceneCoordinator;
 use crate::shared::CameraClearMode;
 
 use super::blackboard::BlackboardSlot;
+use super::compiled::ViewPostProcessing;
 use crate::gpu::OutputDepthMode;
 
 /// Per-view background clear contract propagated from host camera state.
@@ -58,6 +59,16 @@ impl FrameViewClear {
         Self {
             mode: state.clear_mode,
             color: state.background_color,
+        }
+    }
+
+    /// Converts host camera readback parameters into a frame-view clear descriptor.
+    pub fn from_camera_render_parameters(
+        parameters: &crate::shared::CameraRenderParameters,
+    ) -> Self {
+        Self {
+            mode: parameters.clear_mode,
+            color: parameters.clear_color,
         }
     }
 }
@@ -187,6 +198,8 @@ pub struct GraphPassFrameView<'a> {
     pub msaa_depth_resolve: Option<Arc<MsaaDepthResolveResources>>,
     /// Background clear/skybox behavior for this view.
     pub clear: FrameViewClear,
+    /// Post-processing permissions requested by this view.
+    pub post_processing: ViewPostProcessing,
 }
 
 /// Compositor over [`FrameSystemsShared`] and [`GraphPassFrameView`].

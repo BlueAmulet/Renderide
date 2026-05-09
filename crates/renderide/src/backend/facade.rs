@@ -84,10 +84,24 @@ fn scene_color_usage_supported(format: wgpu::TextureFormat, limits: &GpuLimits) 
     )
 }
 
+fn scene_color_format_supports_signed_rgb(format: wgpu::TextureFormat) -> bool {
+    matches!(
+        format,
+        wgpu::TextureFormat::Rgba16Float | wgpu::TextureFormat::Rgba32Float
+    )
+}
+
 fn effective_scene_color_format(
     requested: wgpu::TextureFormat,
     limits: &GpuLimits,
+    signed_rgb_required: bool,
 ) -> wgpu::TextureFormat {
+    if signed_rgb_required && !scene_color_format_supports_signed_rgb(requested) {
+        let signed_default = SceneColorFormat::Rgba16Float.wgpu_format();
+        if scene_color_usage_supported(signed_default, limits) {
+            return signed_default;
+        }
+    }
     if scene_color_usage_supported(requested, limits) {
         return requested;
     }
@@ -163,10 +177,27 @@ impl RenderBackend {
 
     /// Effective HDR scene-color [`wgpu::TextureFormat`] supported by the active device.
     pub(crate) fn scene_color_format_wgpu(&self) -> wgpu::TextureFormat {
-        let requested = self.requested_scene_color_format_wgpu();
+        let signed_rgb_required = self
+            .frame_services
+            .frame_resources
+            .signed_scene_color_required();
+        let requested = match self.requested_scene_color_format_wgpu() {
+            format if signed_rgb_required && !scene_color_format_supports_signed_rgb(format) => {
+                SceneColorFormat::Rgba16Float.wgpu_format()
+            }
+            format => format,
+        };
         self.gpu_limits().map_or(requested, |limits| {
-            effective_scene_color_format(requested, limits)
+            effective_scene_color_format(requested, limits, signed_rgb_required)
         })
+    }
+
+    /// Returns true when negative lights force signed scene-color HDR for the current frame.
+    pub(crate) fn signed_scene_color_active(&self) -> bool {
+        self.frame_services
+            .frame_resources
+            .signed_scene_color_required()
+            && scene_color_format_supports_signed_rgb(self.scene_color_format_wgpu())
     }
 
     /// Snapshot of the live GTAO settings for the current frame.
@@ -449,6 +480,16 @@ impl RenderBackend {
         self.diagnostics.last_want_capture_keyboard()
     }
 
+    /// Whether the HUD will draw visible content this frame.
+    pub(crate) fn debug_hud_has_visible_content(&self) -> bool {
+        self.diagnostics.has_visible_content()
+    }
+
+    /// Clears cached input-capture state when HUD encoding is skipped.
+    pub(crate) fn clear_debug_hud_input_capture(&mut self) {
+        self.diagnostics.clear_input_capture();
+    }
+
     /// Stores [`crate::diagnostics::RendererInfoSnapshot`] for the next HUD frame.
     pub(crate) fn set_debug_hud_snapshot(
         &mut self,
@@ -534,6 +575,7 @@ impl RenderBackend {
             frame_graph_pass_count: self.frame_graph_pass_count(),
             frame_graph_topo_levels: self.frame_graph_topo_levels(),
             gpu_light_count: self.frame_services.frame_resources.frame_lights().len(),
+            signed_scene_color_active: self.signed_scene_color_active(),
         }
     }
 
@@ -592,6 +634,25 @@ impl RenderBackend {
         self.world_mesh_frame_planner
             .release_view_resources(&retired);
         for view_id in retired {
+            self.frame_services.frame_resources.retire_view(view_id);
+            self.graph_state.history_registry_mut().retire_view(view_id);
+            let _ = self.occlusion.retire_view(view_id);
+        }
+    }
+
+    /// Releases resources for one-shot views that were never part of the active-view registry.
+    pub(crate) fn retire_one_shot_views(&mut self, retired: &[crate::camera::ViewId]) {
+        if retired.is_empty() {
+            return;
+        }
+        logger::debug!(
+            "retiring {} one-shot view-scoped resource sets",
+            retired.len()
+        );
+        self.graph_state.release_view_resources(retired);
+        self.world_mesh_frame_planner
+            .release_view_resources(retired);
+        for &view_id in retired {
             self.frame_services.frame_resources.retire_view(view_id);
             self.graph_state.history_registry_mut().retire_view(view_id);
             let _ = self.occlusion.retire_view(view_id);
@@ -789,8 +850,25 @@ mod post_processing_rebuild_tests {
         );
 
         assert_eq!(
-            effective_scene_color_format(wgpu::TextureFormat::Rg11b10Ufloat, &limits),
+            effective_scene_color_format(wgpu::TextureFormat::Rg11b10Ufloat, &limits, false),
             wgpu::TextureFormat::Rgba16Float
+        );
+    }
+
+    #[test]
+    fn scene_color_format_promotes_unsigned_when_signed_rgb_is_required() {
+        let limits = limits_with_format_usage(
+            wgpu::TextureFormat::Rg11b10Ufloat,
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        );
+
+        assert_eq!(
+            effective_scene_color_format(wgpu::TextureFormat::Rg11b10Ufloat, &limits, true),
+            wgpu::TextureFormat::Rgba16Float
+        );
+        assert_eq!(
+            effective_scene_color_format(wgpu::TextureFormat::Rg11b10Ufloat, &limits, false),
+            wgpu::TextureFormat::Rg11b10Ufloat
         );
     }
 }

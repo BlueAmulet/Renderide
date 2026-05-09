@@ -64,16 +64,6 @@ impl HiZGpuState {
 
     /// Cancels active staging maps and clears ring readback state (e.g. device loss).
     pub fn clear_pending(&mut self) {
-        let primary_staging = self
-            .scratch
-            .as_ref()
-            .map(|scratch| &scratch.staging_desktop);
-        let secondary_staging = self
-            .scratch
-            .as_ref()
-            .and_then(|scratch| scratch.staging_right());
-        self.readback
-            .cancel_pending_maps(primary_staging, secondary_staging);
         self.readback.reset();
         self.stereo_stash.clear();
     }

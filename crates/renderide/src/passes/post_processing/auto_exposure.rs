@@ -72,6 +72,10 @@ impl ComputePass for AutoExposureComputePass {
         Ok(())
     }
 
+    fn should_record(&self, ctx: &ComputePassCtx<'_, '_, '_>) -> Result<bool, RenderPassError> {
+        Ok(super::view_post_processing_enabled(&ctx.pass_frame.view))
+    }
+
     fn release_view_resources(&mut self, retired_views: &[ViewId]) {
         self.state_cache.retire_views(retired_views);
     }
@@ -180,6 +184,10 @@ impl RasterPass for AutoExposureApplyPass {
         template: &RenderPassTemplate,
     ) -> Option<NonZeroU32> {
         raster_stereo_mask_override(ctx, template)
+    }
+
+    fn should_record(&self, ctx: &RasterPassCtx<'_, '_>) -> Result<bool, RenderPassError> {
+        Ok(super::view_post_processing_enabled(&ctx.pass_frame.view))
     }
 
     fn record(
@@ -317,6 +325,11 @@ fn output_attachment_format(
 }
 
 #[cfg(test)]
+fn signed_hdr_luminance_for_auto_exposure(rgb: glam::Vec3) -> f32 {
+    rgb.dot(glam::Vec3::new(0.2126, 0.7152, 0.0722)).max(0.0)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -412,5 +425,15 @@ mod tests {
         assert_eq!(auto_exposure_layer_count(2, true), 2);
         assert_eq!(auto_exposure_layer_count(6, true), 2);
         assert_eq!(auto_exposure_layer_count(2, false), 1);
+    }
+
+    #[test]
+    fn signed_luminance_allows_negative_channels_to_cancel_metering() {
+        let mixed = glam::Vec3::new(2.0, -0.5, 0.0);
+        let expected = (2.0_f32 * 0.2126) - (0.5 * 0.7152);
+        assert!((signed_hdr_luminance_for_auto_exposure(mixed) - expected).abs() < 1e-6);
+
+        let net_negative = glam::Vec3::new(0.0, -4.0, 1.0);
+        assert_eq!(signed_hdr_luminance_for_auto_exposure(net_negative), 0.0);
     }
 }

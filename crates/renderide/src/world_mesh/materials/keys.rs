@@ -14,12 +14,12 @@ pub(super) fn collect_material_keys_into(
         return;
     };
     for r in space.static_mesh_renderers() {
-        if r.mesh_asset_id >= 0 {
+        if r.mesh_asset_id >= 0 && r.emits_visible_color_draws() {
             append_renderer_material_keys(r, out);
         }
     }
     for sk in space.skinned_mesh_renderers() {
-        if sk.base.mesh_asset_id >= 0 {
+        if sk.base.mesh_asset_id >= 0 && sk.base.emits_visible_color_draws() {
             append_renderer_material_keys(&sk.base, out);
         }
     }
@@ -83,6 +83,23 @@ mod tests {
         let mut scene = SceneCoordinator::new();
         let id = RenderSpaceId(1);
         let mut renderer = renderer_with_mesh_asset(-1);
+        renderer.material_slots.push(MeshMaterialSlot {
+            material_asset_id: 17,
+            property_block_id: Some(3),
+        });
+        scene.test_insert_static_mesh_renderers(id, vec![renderer]);
+
+        let mut out = Vec::new();
+        collect_material_keys_into(&scene, id, &mut out);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn shadow_only_renderer_is_skipped() {
+        let mut scene = SceneCoordinator::new();
+        let id = RenderSpaceId(1);
+        let mut renderer = renderer_with_mesh_asset(0);
+        renderer.shadow_cast_mode = crate::shared::ShadowCastMode::ShadowOnly;
         renderer.material_slots.push(MeshMaterialSlot {
             material_asset_id: 17,
             property_block_id: Some(3),

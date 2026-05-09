@@ -107,7 +107,7 @@ fn compute_lerp_factor(uv_lerp: vec2<f32>) -> f32 {
             l = l * mat._Lerp;
         }
     }
-    return clamp(l, 0.0, 1.0);
+    return l;
 }
 
 @vertex

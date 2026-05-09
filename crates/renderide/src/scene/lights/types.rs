@@ -56,17 +56,29 @@ fn vec3_is_finite(v: Vec3) -> bool {
     v.x.is_finite() && v.y.is_finite() && v.z.is_finite()
 }
 
+/// Signed linear radiance multiplier for `resolved` before attenuation and BRDF terms.
+#[must_use]
+pub fn light_signed_radiance(resolved: &ResolvedLight) -> Vec3 {
+    resolved.color * resolved.intensity
+}
+
+/// Whether `resolved` subtracts light in at least one color channel.
+#[must_use]
+pub fn light_has_negative_contribution(resolved: &ResolvedLight) -> bool {
+    light_signed_radiance(resolved).min_element() < 0.0
+}
+
 /// Whether `resolved` can produce visible direct lighting.
 ///
-/// Black, zero-intensity, non-finite, and zero-range punctual lights are skipped before GPU packing so
-/// stale or disabled host rows cannot consume clustered-light slots.
+/// Zero-radiance, non-finite, and zero-range punctual lights are skipped before GPU packing so
+/// stale or disabled host rows cannot consume clustered-light slots. Signed radiance is supported:
+/// negative intensity or negative RGB channels are retained for creative subtraction effects.
 pub fn light_contributes(resolved: &ResolvedLight) -> bool {
     if !vec3_is_finite(resolved.world_position)
         || !vec3_is_finite(resolved.world_direction)
         || !vec3_is_finite(resolved.color)
         || !resolved.intensity.is_finite()
-        || resolved.intensity <= 0.0
-        || resolved.color.max_element() <= 0.0
+        || light_signed_radiance(resolved).abs().max_element() <= 0.0
     {
         return false;
     }
@@ -109,6 +121,26 @@ mod tests {
         light.color = Vec3::ONE;
         light.intensity = 0.0;
         assert!(!light_contributes(&light));
+    }
+
+    #[test]
+    fn light_contributes_keeps_signed_radiance_lights() {
+        let mut light = resolved_light();
+        light.intensity = -1.0;
+        assert!(light_contributes(&light));
+        assert!(light_has_negative_contribution(&light));
+        assert_eq!(light_signed_radiance(&light), Vec3::splat(-1.0));
+
+        light.intensity = 1.0;
+        light.color = Vec3::new(-0.25, 0.5, 0.0);
+        assert!(light_contributes(&light));
+        assert!(light_has_negative_contribution(&light));
+
+        light.intensity = -2.0;
+        light.color = Vec3::splat(-0.5);
+        assert!(light_contributes(&light));
+        assert!(!light_has_negative_contribution(&light));
+        assert_eq!(light_signed_radiance(&light), Vec3::ONE);
     }
 
     #[test]

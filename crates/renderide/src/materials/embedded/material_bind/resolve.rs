@@ -7,8 +7,9 @@ use super::super::embedded_material_bind_error::EmbeddedMaterialBindError;
 use super::super::layout::{StemMaterialLayout, stem_hash};
 use super::super::texture_pools::EmbeddedTexturePools;
 use super::super::texture_resolve::{
-    ResolvedTextureBinding, create_sampler, primary_texture_2d_asset_id,
-    resolved_texture_binding_for_host, texture_bind_signature, texture_property_ids_for_binding,
+    DefaultTextureColor, ResolvedTextureBinding, create_sampler, default_2d_texture_color_for_host,
+    primary_texture_2d_asset_id, resolved_texture_binding_for_host, texture_bind_signature,
+    texture_property_ids_for_binding,
 };
 use super::cache::EmbeddedSamplerCacheKey;
 use super::uniform::MaterialUniformCacheKey;
@@ -134,7 +135,9 @@ impl EmbeddedMaterialBindResources {
                         },
                         view_dimension,
                     )
-                    .unwrap_or_else(|| self.default_texture_view_for_dimension(view_dimension));
+                    .unwrap_or_else(|| {
+                        self.default_texture_view_for_host(host_name, view_dimension)
+                    });
                     keepalive_views.push(tex_view);
                 }
                 wgpu::BindingType::Sampler(_) => {
@@ -175,15 +178,19 @@ impl EmbeddedMaterialBindResources {
         Ok((keepalive_views, keepalive_samplers))
     }
 
-    fn default_texture_view_for_dimension(
+    fn default_texture_view_for_host(
         &self,
+        host_name: &str,
         view_dimension: wgpu::TextureViewDimension,
     ) -> Arc<wgpu::TextureView> {
         match view_dimension {
             wgpu::TextureViewDimension::D3 => self.white_3d.view.clone(),
-            //review: keep a cube fallback here; wgpu rejects a 2D white texture for texture_cube bindings.
+            // wgpu rejects a 2D placeholder texture for texture_cube bindings.
             wgpu::TextureViewDimension::Cube => self.white_cube.view.clone(),
-            _ => self.white_2d.view.clone(),
+            _ => match default_2d_texture_color_for_host(host_name) {
+                DefaultTextureColor::White => self.white_2d.view.clone(),
+                DefaultTextureColor::Black => self.black_2d.view.clone(),
+            },
         }
     }
 

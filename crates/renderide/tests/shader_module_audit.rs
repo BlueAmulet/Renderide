@@ -57,6 +57,146 @@ fn material_source(file_name: &str) -> io::Result<String> {
     fs::read_to_string(manifest_dir().join("shaders/materials").join(file_name))
 }
 
+#[test]
+fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
+    let metallic = material_source("pbsmetallic.wgsl")?;
+    for required in [
+        "_GlossMapScale: f32",
+        "_OcclusionStrength: f32",
+        "smoothness = mg.a * mat._GlossMapScale;",
+        "smoothness = albedo_sample.a * mat._GlossMapScale;",
+        "ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).g",
+        "mix(1.0, occlusion_sample, clamp(mat._OcclusionStrength, 0.0, 1.0))",
+    ] {
+        assert!(
+            metallic.contains(required),
+            "pbsmetallic.wgsl must contain `{required}`"
+        );
+    }
+
+    let specular = material_source("pbsspecular.wgsl")?;
+    assert!(
+        specular.contains(
+            "ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).g"
+        ),
+        "pbsspecular.wgsl must sample Unity Standard occlusion from the green channel"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn pbs_lerp_preserves_variant_channels_and_raw_lerp() -> io::Result<()> {
+    let metallic = material_source("pbslerp.wgsl")?;
+    for required in [
+        "return l;",
+        "occlusion0 = textureSample(_Occlusion, _Occlusion_sampler, uv_main0).r;",
+        "occlusion1 = textureSample(_Occlusion1, _Occlusion1_sampler, uv_main1).r;",
+        "metallic0 = m0.r;",
+        "metallic1 = m1.r;",
+        "smoothness0 = m0.a;",
+        "smoothness1 = m1.a;",
+    ] {
+        assert!(
+            metallic.contains(required),
+            "pbslerp.wgsl must contain `{required}`"
+        );
+    }
+    assert!(
+        !metallic.contains("return clamp(l, 0.0, 1.0);"),
+        "pbslerp.wgsl must use Unity's raw lerp factor"
+    );
+
+    let specular = material_source("pbslerpspecular.wgsl")?;
+    for required in [
+        "return l;",
+        "occlusion0 = textureSample(_Occlusion, _Occlusion_sampler, uv_main0).r;",
+        "occlusion1 = textureSample(_Occlusion1, _Occlusion1_sampler, uv_main1).r;",
+        "spec0 = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main0);",
+        "spec1 = textureSample(_SpecularMap1, _SpecularMap1_sampler, uv_main1);",
+    ] {
+        assert!(
+            specular.contains(required),
+            "pbslerpspecular.wgsl must contain `{required}`"
+        );
+    }
+    assert!(
+        !specular.contains("return clamp(l, 0.0, 1.0);"),
+        "pbslerpspecular.wgsl must use Unity's raw lerp factor"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
+    let globals_src = fs::read_to_string(manifest_dir().join("shaders/modules/globals.wgsl"))?;
+    assert!(
+        globals_src.contains("fn stereo_center_view_dir_for_world_pos("),
+        "globals.wgsl must expose a stereo-center view direction helper for eye-stable effects"
+    );
+    assert!(
+        globals_src
+            .contains("(frame.camera_world_pos.xyz + frame.camera_world_pos_right.xyz) * 0.5"),
+        "stereo-center view direction must average the left and right camera positions in multiview"
+    );
+
+    let lighting_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
+    assert!(
+        lighting_src.contains(
+            "let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);"
+        ),
+        "Xiexe matcap sampling must derive its view direction from the stereo-center camera"
+    );
+    assert!(
+        lighting_src.contains("let uv = matcap_uv(stereo_view_dir, normal);"),
+        "Xiexe matcap sampling must use the stereo-center view direction for matcap UVs"
+    );
+    assert!(
+        !lighting_src.contains("let uv = matcap_uv(view_dir, normal);"),
+        "Xiexe matcap UVs must not use the per-eye lighting view direction"
+    );
+    let matcap_sample_pos = lighting_src
+        .find("let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);")
+        .expect("Xiexe lighting must contain a matcap sampling branch");
+    let reflectivity_mask_pos = lighting_src
+        .find("let reflectivity_mask = clamp(s.reflectivity_mask, 0.0, 1.0);")
+        .expect(
+            "Xiexe lighting must contain reflectivity-mask handling for non-matcap reflections",
+        );
+    assert!(
+        matcap_sample_pos < reflectivity_mask_pos,
+        "Xiexe matcaps must be sampled before reflectivity-mask rejection"
+    );
+    let matcap_branch = &lighting_src[matcap_sample_pos..reflectivity_mask_pos];
+    assert!(
+        matcap_branch.contains("spec = spec * (ambient + dominant_light_col_atten * 0.5);"),
+        "Xiexe matcaps must always receive the Unity light-scaling term"
+    );
+    assert!(
+        !matcap_branch.contains("reflection_is_multiplicative()"),
+        "Xiexe matcap sampling must not branch on `_ReflectionBlendMode`"
+    );
+    assert!(
+        lighting_src.contains(
+            "if (xb::matcap_enabled()) {\n        return 1.0;\n    }\n    return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);"
+        ),
+        "Xiexe matcaps must not be blended by reflectivity or reflectivity-mask weight"
+    );
+    assert!(
+        lighting_src.contains(
+            "if (xb::matcap_enabled()) {\n        return surface + reflection;\n    }\n\n    if (reflection_is_multiplicative()) {"
+        ),
+        "Xiexe matcap reflections must use additive composition before `_ReflectionBlendMode` branches"
+    );
+    assert!(
+        !lighting_src.contains("return spec * max("),
+        "Xiexe matcaps must not be scaled by reflectivity or clearcoat branch strength"
+    );
+    Ok(())
+}
+
 fn declares_f32_field(src: &str, field_name: &str) -> bool {
     src.lines().any(|line| {
         let trimmed = line.trim();

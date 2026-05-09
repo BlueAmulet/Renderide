@@ -13,7 +13,7 @@ use crate::materials::{SHADER_PERM_MULTIVIEW_STEREO, ShaderPermutation};
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::{
     ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewClear,
-    FrameViewResourceHints, FrameViewTarget,
+    FrameViewResourceHints, FrameViewTarget, ViewPostProcessing,
 };
 use crate::world_mesh::CameraTransformDrawFilter;
 
@@ -107,6 +107,8 @@ pub(super) struct FrameViewPlan<'a> {
     pub(super) viewport_px: (u32, u32),
     /// Background clear/skybox behavior for this view.
     pub(super) clear: FrameViewClear,
+    /// Post-processing permissions for this view.
+    pub(super) post_processing: ViewPostProcessing,
     /// Target-specific payload (HMD, secondary RT, main swapchain).
     pub(super) target: FrameViewPlanTarget<'a>,
 }
@@ -149,6 +151,7 @@ impl FrameViewPlan<'_> {
             host_camera: self.host_camera,
             target: self.target(),
             clear: self.clear,
+            post_processing: self.post_processing,
             resource_hints,
             initial_blackboard,
         }
@@ -199,6 +202,7 @@ mod tests {
             view_id: ViewId::Main,
             viewport_px: (1280, 720),
             clear: FrameViewClear::color(glam::Vec4::new(0.1, 0.2, 0.3, 1.0)),
+            post_processing: ViewPostProcessing::primary_view(),
             target: FrameViewPlanTarget::MainSwapchain,
         }
     }
@@ -224,6 +228,7 @@ mod tests {
         assert_eq!(frame_view.view_id, ViewId::Main);
         assert_eq!(frame_view.host_camera.frame_index, -1);
         assert_eq!(frame_view.clear, plan.clear);
+        assert_eq!(frame_view.post_processing, plan.post_processing);
         assert!(matches!(frame_view.target, FrameViewTarget::Swapchain));
         assert_eq!(frame_view.resource_hints, hints);
         assert!(frame_view.initial_blackboard.is_empty());

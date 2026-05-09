@@ -27,6 +27,8 @@ use super::task_rows::{
 pub(super) const DEFAULT_SAMPLE_SIZE: u32 = crate::skybox::params::DEFAULT_SKYBOX_SAMPLE_SIZE;
 /// Maximum pending GPU jobs kept alive at once.
 const MAX_IN_FLIGHT_JOBS: usize = 6;
+/// Maximum completed SH2 projections retained before pruning to recently touched sources.
+const MAX_COMPLETED_SH2_CACHE_ENTRIES: usize = 512;
 /// Number of renderer ticks before a pending GPU readback is treated as failed.
 pub(super) const MAX_PENDING_JOB_AGE_FRAMES: u32 = 120;
 /// Bytes copied back from the compute output buffer.
@@ -73,8 +75,16 @@ pub(crate) enum Sh2SourceKey {
     Cubemap {
         /// Render-space id that owns the probe.
         render_space_id: i32,
+        /// Skybox material asset id when this source came from a material, or `-1` for direct probe sources.
+        material_asset_id: i32,
+        /// Host material generation mixed into skybox sources.
+        material_generation: u64,
+        /// Stable hash of the shader route stem when this source came from a material.
+        route_hash: u64,
         /// Cubemap asset id.
         asset_id: i32,
+        /// Source GPU allocation generation.
+        allocation_generation: u64,
         /// Face size.
         size: u32,
         /// Contiguous resident mip count.
@@ -83,15 +93,21 @@ pub(crate) enum Sh2SourceKey {
         content_generation: u64,
         /// Projection sample grid edge per cube face.
         sample_size: u32,
-        /// Host material generation mixed into skybox sources.
-        material_generation: u64,
     },
     /// Resident equirectangular texture source.
     EquirectTexture2D {
         /// Render-space id that owns the probe.
         render_space_id: i32,
+        /// Skybox material asset id when this source came from a material.
+        material_asset_id: i32,
+        /// Host material generation.
+        material_generation: u64,
+        /// Stable hash of the shader route stem when this source came from a material.
+        route_hash: u64,
         /// Texture asset id.
         asset_id: i32,
+        /// Source GPU allocation generation.
+        allocation_generation: u64,
         /// Mip0 width.
         width: u32,
         /// Mip0 height.
@@ -102,8 +118,6 @@ pub(crate) enum Sh2SourceKey {
         content_generation: u64,
         /// Projection sample grid edge per cube face.
         sample_size: u32,
-        /// Host material generation.
-        material_generation: u64,
         /// Projection360 equirectangular sampling state.
         projection: Projection360EquirectKey,
     },
@@ -239,6 +253,7 @@ impl ReflectionProbeSh2System {
         }
         self.drain_completed_pipeline_builds();
         self.schedule_queued_sources(gpu, assets);
+        self.prune_completed_cache_if_needed();
     }
 
     /// Ensures an SH2 projection exists for a renderer-owned reflection-probe IBL source.
@@ -355,6 +370,20 @@ impl ReflectionProbeSh2System {
     fn prune_untouched_failures(&mut self) {
         self.failed
             .retain(|key| self.touched_this_pass.contains(key));
+    }
+
+    /// Bounds completed SH2 cache growth without dropping currently active sources.
+    fn prune_completed_cache_if_needed(&mut self) {
+        if self.completed.len() <= MAX_COMPLETED_SH2_CACHE_ENTRIES {
+            return;
+        }
+        let before = self.completed.len();
+        self.completed
+            .retain(|key, _| self.touched_this_pass.contains(key));
+        let removed = before.saturating_sub(self.completed.len());
+        if removed > 0 {
+            logger::debug!("reflection_probe_sh2: pruned {removed} completed SH2 cache entries");
+        }
     }
 
     /// Schedules queued sources until the in-flight cap is reached.
@@ -588,12 +617,15 @@ fn sh2_source_from_ibl_source(
         SkyboxIblSource::Cubemap(src) => (
             Sh2SourceKey::Cubemap {
                 render_space_id,
+                material_asset_id: src.material_asset_id,
+                material_generation: src.material_generation,
+                route_hash: src.route_hash,
                 asset_id: src.asset_id,
+                allocation_generation: src.allocation_generation,
                 size: src.face_size,
                 resident_mips: src.mip_levels_resident,
                 content_generation: src.content_generation,
                 sample_size: DEFAULT_SAMPLE_SIZE,
-                material_generation: 0,
             },
             Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
                 asset_id: src.asset_id,
@@ -607,13 +639,16 @@ fn sh2_source_from_ibl_source(
             (
                 Sh2SourceKey::EquirectTexture2D {
                     render_space_id,
+                    material_asset_id: src.material_asset_id,
+                    material_generation: src.material_generation,
+                    route_hash: src.route_hash,
                     asset_id: src.asset_id,
+                    allocation_generation: src.allocation_generation,
                     width: src.width,
                     height: src.height,
                     resident_mips: src.mip_levels_resident,
                     content_generation: src.content_generation,
                     sample_size: DEFAULT_SAMPLE_SIZE,
-                    material_generation: 0,
                     projection: Projection360EquirectKey::from_params(&params),
                 },
                 Sh2ResolvedSource::Gpu(GpuSh2Source::EquirectTexture2D {
@@ -633,5 +668,89 @@ fn sh2_source_from_ibl_source(
                 src.color[2],
             )))),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cubemap_source_key_invalidates_on_allocation_or_material_change() {
+        let base = cubemap_key(1, 1, 5);
+        let reallocated_same_upload_generation = cubemap_key(1, 2, 5);
+        let material_changed = cubemap_key(1, 1, 6);
+
+        assert_ne!(base, reallocated_same_upload_generation);
+        assert_ne!(base, material_changed);
+    }
+
+    #[test]
+    fn equirect_source_key_invalidates_on_allocation_or_material_change() {
+        let base = equirect_key(1, 5);
+        let reallocated_same_upload_generation = equirect_key(2, 5);
+        let material_changed = equirect_key(1, 6);
+
+        assert_ne!(base, reallocated_same_upload_generation);
+        assert_ne!(base, material_changed);
+    }
+
+    #[test]
+    fn completed_cache_prune_retains_touched_sources_when_over_budget() {
+        let mut system = ReflectionProbeSh2System::new();
+        let retained = cubemap_key(99, 1, 1);
+        system
+            .completed
+            .insert(retained.clone(), RenderSH2::default());
+        system.touched_this_pass.insert(retained.clone());
+        for asset_id in 0..=MAX_COMPLETED_SH2_CACHE_ENTRIES as i32 {
+            system
+                .completed
+                .insert(cubemap_key(asset_id, 1, 0), RenderSH2::default());
+        }
+
+        system.prune_completed_cache_if_needed();
+
+        assert_eq!(system.completed.len(), 1);
+        assert!(system.completed.contains_key(&retained));
+    }
+
+    fn cubemap_key(
+        asset_id: i32,
+        allocation_generation: u64,
+        material_generation: u64,
+    ) -> Sh2SourceKey {
+        Sh2SourceKey::Cubemap {
+            render_space_id: 7,
+            material_asset_id: 21,
+            material_generation,
+            route_hash: 99,
+            asset_id,
+            allocation_generation,
+            size: 128,
+            resident_mips: 1,
+            content_generation: 1,
+            sample_size: DEFAULT_SAMPLE_SIZE,
+        }
+    }
+
+    fn equirect_key(allocation_generation: u64, material_generation: u64) -> Sh2SourceKey {
+        let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
+        params.color0 = [1.0, 1.0, 0.0, 0.0];
+        params.color1 = [1.0, 1.0, 0.0, 0.0];
+        Sh2SourceKey::EquirectTexture2D {
+            render_space_id: 7,
+            material_asset_id: 21,
+            material_generation,
+            route_hash: 99,
+            asset_id: 11,
+            allocation_generation,
+            width: 512,
+            height: 256,
+            resident_mips: 1,
+            content_generation: 1,
+            sample_size: DEFAULT_SAMPLE_SIZE,
+            projection: Projection360EquirectKey::from_params(&params),
+        }
     }
 }

@@ -526,7 +526,7 @@ pub(super) fn collect_chunk(
         ChunkKind::Static => {
             for renderable_index in spec.range.clone() {
                 let r = &space.static_mesh_renderers()[renderable_index];
-                if r.mesh_asset_id < 0 || r.node_id < 0 {
+                if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
                     continue;
                 }
                 let Some(mesh) = ctx.mesh_pool.get(r.mesh_asset_id) else {
@@ -556,7 +556,7 @@ pub(super) fn collect_chunk(
             for renderable_index in spec.range.clone() {
                 let skinned = &space.skinned_mesh_renderers()[renderable_index];
                 let r = &skinned.base;
-                if r.mesh_asset_id < 0 || r.node_id < 0 {
+                if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
                     continue;
                 }
                 let Some(mesh) = ctx.mesh_pool.get(r.mesh_asset_id) else {
@@ -600,7 +600,10 @@ pub(super) fn estimate_active_renderable_count(
             continue;
         }
         for renderer in space.static_mesh_renderers() {
-            if renderer.mesh_asset_id < 0 || renderer.node_id < 0 {
+            if !renderer.emits_visible_color_draws()
+                || renderer.mesh_asset_id < 0
+                || renderer.node_id < 0
+            {
                 continue;
             }
             if ctx
@@ -613,7 +616,10 @@ pub(super) fn estimate_active_renderable_count(
         }
         for skinned in space.skinned_mesh_renderers() {
             let renderer = &skinned.base;
-            if renderer.mesh_asset_id < 0 || renderer.node_id < 0 {
+            if !renderer.emits_visible_color_draws()
+                || renderer.mesh_asset_id < 0
+                || renderer.node_id < 0
+            {
                 continue;
             }
             if ctx

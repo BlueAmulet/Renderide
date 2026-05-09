@@ -1,31 +1,27 @@
 //! Pose row validation, commit, and post-commit dirty-flag propagation.
 //!
-//! Validation runs in two phases so per-row [`PoseValidation::is_valid`] checks can fan out
-//! across rayon workers above [`POSE_UPDATE_PARALLEL_MIN_ROWS`]: the parallel pass produces a
-//! [`ValidatedPoseRow`] vector in input order, and the serial commit pass writes each row
-//! into [`RenderSpaceState::nodes`] under the lock that already protects the per-space apply.
+//! Row collection runs in two phases so the in-bounds filtering can fan out across rayon workers
+//! above [`POSE_UPDATE_PARALLEL_MIN_ROWS`]: the parallel pass produces a [`PoseRow`] vector in
+//! input order, and the serial commit pass repairs and writes each row into
+//! [`RenderSpaceState::nodes`] under the lock that already protects the per-space apply.
 
-use crate::scene::pose::{PoseValidation, render_transform_identity};
+use crate::scene::pose::repair_render_transform;
 use crate::scene::render_space::RenderSpaceState;
 use crate::scene::world::WorldTransformCache;
 use crate::shared::{RenderTransform, TransformPoseUpdate};
 
 use super::NodeDirtyMask;
 
-/// Minimum pose-update count before [`validate_pose_rows`] fans out validation across rayon
+/// Minimum pose-update count before [`collect_pose_rows`] fans out collection across rayon
 /// workers. Below this threshold the scalar loop is faster than rayon dispatch overhead.
 const POSE_UPDATE_PARALLEL_MIN_ROWS: usize = 256;
 
-/// Validated pose row ready for serial commit into [`RenderSpaceState::nodes`].
-struct ValidatedPoseRow {
+/// In-bounds pose row ready for serial repair and commit into [`RenderSpaceState::nodes`].
+struct PoseRow {
     /// Dense transform index into [`RenderSpaceState::nodes`].
     transform_index: usize,
-    /// Pose to commit (already substituted with [`render_transform_identity`] when the host row was rejected).
+    /// Host pose from the row.
     pose: RenderTransform,
-    /// `true` when the host row failed [`PoseValidation::is_valid`] (caller logs the rejection).
-    rejected: bool,
-    /// Original [`TransformPoseUpdate::transform_id`] for the rejection log line.
-    raw_transform_id: i32,
 }
 
 /// Index of the first sentinel `transform_id < 0` row, or `poses.len()` if no terminator is present.
@@ -37,26 +33,19 @@ fn pose_terminator_index(poses: &[TransformPoseUpdate]) -> usize {
         .unwrap_or(poses.len())
 }
 
-/// Walks the active prefix of `poses` once and produces one [`ValidatedPoseRow`] per in-bounds entry.
-fn validate_pose_rows(poses: &[TransformPoseUpdate], node_count: usize) -> Vec<ValidatedPoseRow> {
-    profiling::scope!("scene::validate_pose_rows");
+/// Walks the active prefix of `poses` once and produces one [`PoseRow`] per in-bounds entry.
+fn collect_pose_rows(poses: &[TransformPoseUpdate], node_count: usize) -> Vec<PoseRow> {
+    profiling::scope!("scene::collect_pose_rows");
     let active_len = pose_terminator_index(poses);
     let active = &poses[..active_len];
-    let row_for = |pu: &TransformPoseUpdate| -> Option<ValidatedPoseRow> {
+    let row_for = |pu: &TransformPoseUpdate| -> Option<PoseRow> {
         let idx = pu.transform_id as usize;
         if idx >= node_count {
             return None;
         }
-        let valid = PoseValidation { pose: &pu.pose }.is_valid();
-        Some(ValidatedPoseRow {
+        Some(PoseRow {
             transform_index: idx,
-            pose: if valid {
-                pu.pose
-            } else {
-                render_transform_identity()
-            },
-            rejected: !valid,
-            raw_transform_id: pu.transform_id,
+            pose: pu.pose,
         })
     };
 
@@ -68,27 +57,22 @@ fn validate_pose_rows(poses: &[TransformPoseUpdate], node_count: usize) -> Vec<V
     }
 }
 
-/// Applies pose rows from a pre-extracted slice, validating each against [`PoseValidation`].
+/// Applies pose rows from a pre-extracted slice, repairing invalid components before commit.
 pub(super) fn apply_transform_pose_updates_extracted(
     space: &mut RenderSpaceState,
     poses: &[TransformPoseUpdate],
-    frame_index: i32,
-    sid: i32,
+    _frame_index: i32,
+    _sid: i32,
     changed: &mut NodeDirtyMask,
 ) {
     profiling::scope!("scene::apply_pose_updates");
     if poses.is_empty() {
         return;
     }
-    let validated = validate_pose_rows(poses, space.nodes.len());
-    for row in validated {
-        if row.rejected {
-            logger::error!(
-                "invalid pose scene={sid} transform={} frame={frame_index}: identity",
-                row.raw_transform_id
-            );
-        }
-        space.nodes[row.transform_index] = row.pose;
+    let rows = collect_pose_rows(poses, space.nodes.len());
+    for row in rows {
+        let fallback = space.nodes[row.transform_index];
+        space.nodes[row.transform_index] = repair_render_transform(&row.pose, &fallback);
         changed.mark(row.transform_index);
     }
 }
@@ -161,10 +145,10 @@ mod tests {
         assert_eq!(pose_terminator_index(&rows), rows.len());
     }
 
-    /// [`validate_pose_rows`] preserves input order, drops out-of-range transform indices, and
-    /// substitutes [`render_transform_identity`] for invalid poses.
+    /// [`collect_pose_rows`] preserves input order, drops out-of-range transform indices, and
+    /// keeps raw pose payloads for the serial repair pass.
     #[test]
-    fn validate_pose_rows_preserves_order_and_substitutes_invalid() {
+    fn collect_pose_rows_preserves_order_and_raw_payload() {
         let valid = pose_at(2.0);
         let mut bad = pose_at(0.0);
         bad.position.x = f32::NAN;
@@ -186,25 +170,25 @@ mod tests {
                 pose: valid,
             },
         ];
-        let out = validate_pose_rows(&rows, 3);
+        let out = collect_pose_rows(&rows, 3);
         assert_eq!(
             out.len(),
             2,
             "out-of-range and sentinel rows must be dropped"
         );
         assert_eq!(out[0].transform_index, 0);
-        assert!(!out[0].rejected);
+        assert_eq!(out[0].pose.position, valid.position);
         assert_eq!(out[1].transform_index, 1);
-        assert!(out[1].rejected);
-        let identity = render_transform_identity();
-        assert_eq!(out[1].pose.position, identity.position);
-        assert_eq!(out[1].pose.scale, identity.scale);
-        assert_eq!(out[1].pose.rotation, identity.rotation);
+        assert!(out[1].pose.position.x.is_nan());
+        assert_eq!(out[1].pose.position.y, bad.position.y);
+        assert_eq!(out[1].pose.position.z, bad.position.z);
+        assert_eq!(out[1].pose.scale, bad.scale);
+        assert_eq!(out[1].pose.rotation, bad.rotation);
     }
 
-    /// [`validate_pose_rows`] above [`POSE_UPDATE_PARALLEL_MIN_ROWS`] still preserves input order.
+    /// [`collect_pose_rows`] above [`POSE_UPDATE_PARALLEL_MIN_ROWS`] still preserves input order.
     #[test]
-    fn validate_pose_rows_parallel_path_preserves_order() {
+    fn collect_pose_rows_parallel_path_preserves_order() {
         let pose = pose_at(1.0);
         let n = POSE_UPDATE_PARALLEL_MIN_ROWS + 16;
         let mut rows = Vec::with_capacity(n + 1);
@@ -218,11 +202,57 @@ mod tests {
             transform_id: -1,
             pose,
         });
-        let out = validate_pose_rows(&rows, n);
+        let out = collect_pose_rows(&rows, n);
         assert_eq!(out.len(), n);
         for (i, row) in out.iter().enumerate() {
             assert_eq!(row.transform_index, i);
-            assert!(!row.rejected);
+            assert_eq!(row.pose.position, pose.position);
         }
+    }
+
+    /// Invalid host pose components are repaired component-wise and valid components still commit.
+    #[test]
+    fn invalid_pose_update_repairs_components_and_commits() {
+        let mut existing = pose_at(42.0);
+        existing.rotation = Quat::from_xyzw(0.0, 0.25, 0.0, 0.75);
+        let mut bad = pose_at(1.0);
+        bad.position.x = f32::NAN;
+        bad.position.y = crate::scene::pose::POSE_VALIDATION_THRESHOLD;
+        bad.scale.y = 2.0;
+        bad.scale.z = f32::INFINITY;
+        bad.rotation.w = f32::NAN;
+
+        let mut space = RenderSpaceState::default();
+        space.nodes.push(existing);
+        let mut changed = NodeDirtyMask::new(space.nodes.len());
+
+        apply_transform_pose_updates_extracted(
+            &mut space,
+            &[TransformPoseUpdate {
+                transform_id: 0,
+                pose: bad,
+            }],
+            9,
+            2,
+            &mut changed,
+        );
+
+        assert_eq!(space.nodes[0].position.x, existing.position.x);
+        assert_eq!(
+            space.nodes[0].position.y,
+            crate::scene::pose::POSE_REPAIR_CLAMP_LIMIT
+        );
+        assert_eq!(space.nodes[0].position.z, bad.position.z);
+        assert_eq!(space.nodes[0].scale.x, bad.scale.x);
+        assert_eq!(space.nodes[0].scale.y, bad.scale.y);
+        assert_eq!(
+            space.nodes[0].scale.z,
+            crate::scene::pose::POSE_REPAIR_CLAMP_LIMIT
+        );
+        assert_eq!(space.nodes[0].rotation.x, bad.rotation.x);
+        assert_eq!(space.nodes[0].rotation.y, bad.rotation.y);
+        assert_eq!(space.nodes[0].rotation.z, bad.rotation.z);
+        assert_eq!(space.nodes[0].rotation.w, existing.rotation.w);
+        assert!(changed.any());
     }
 }

@@ -19,6 +19,12 @@ pub(super) struct RuntimeDiagnosticsState {
     pub(super) frame_timing_ema: crate::diagnostics::FrameTimingEma,
     /// `FrameSubmitData::render_tasks` length from the last applied frame submit.
     pub(super) last_submit_render_task_count: usize,
+    /// Camera readback tasks currently waiting to be drained before the next begin-frame send.
+    pub(super) pending_camera_readbacks: usize,
+    /// Cumulative camera readback tasks successfully written to host shared memory.
+    pub(super) completed_camera_readbacks: u64,
+    /// Cumulative camera readback tasks failed and zero-filled when possible.
+    pub(super) failed_camera_readbacks: u64,
     /// Cached full allocator report for the GPU memory HUD tab.
     pub(super) allocator_report_hud: Option<GpuAllocatorReportHud>,
     /// Cached allocator totals from the same throttled report.
@@ -37,6 +43,9 @@ impl RuntimeDiagnosticsState {
             frame_time_history: crate::diagnostics::FrameTimeHistory::new(),
             frame_timing_ema: crate::diagnostics::FrameTimingEma::default(),
             last_submit_render_task_count: 0,
+            pending_camera_readbacks: 0,
+            completed_camera_readbacks: 0,
+            failed_camera_readbacks: 0,
             allocator_report_hud: None,
             allocator_report_totals: GpuAllocatorHud::default(),
             allocator_report_last_refresh: None,
@@ -47,6 +56,17 @@ impl RuntimeDiagnosticsState {
     /// Updates the latest render-task count for the HUD.
     pub(super) fn set_last_submit_render_task_count(&mut self, n: usize) {
         self.last_submit_render_task_count = n;
+    }
+
+    /// Replaces the current pending camera readback count.
+    pub(super) fn set_pending_camera_readbacks(&mut self, n: usize) {
+        self.pending_camera_readbacks = n;
+    }
+
+    /// Adds completed and failed camera readback counts to the cumulative HUD counters.
+    pub(super) fn note_camera_readback_results(&mut self, completed: u64, failed: u64) {
+        self.completed_camera_readbacks = self.completed_camera_readbacks.saturating_add(completed);
+        self.failed_camera_readbacks = self.failed_camera_readbacks.saturating_add(failed);
     }
 
     /// Increments the cumulative scene-apply failure counter.

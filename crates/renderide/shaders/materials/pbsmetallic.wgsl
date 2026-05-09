@@ -23,10 +23,12 @@ struct PbsMetallicMaterial {
     _DetailAlbedoMap_ST: vec4<f32>,
     _Cutoff: f32,
     _Glossiness: f32,
+    _GlossMapScale: f32,
     _SmoothnessTextureChannel: f32,
     _Metallic: f32,
     _BumpScale: f32,
     _Parallax: f32,
+    _OcclusionStrength: f32,
     _DetailNormalMapScale: f32,
     _NORMALMAP: f32,
     _ALPHATEST_ON: f32,
@@ -163,15 +165,16 @@ fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n:
     var smoothness = mat._Glossiness;
     if (metallic_gloss_map_enabled()) {
         metallic = mg.r;
-        smoothness = mg.a;
+        smoothness = mg.a * mat._GlossMapScale;
     }
     if (smoothness_from_albedo_alpha()) {
-        smoothness = albedo_sample.a;
+        smoothness = albedo_sample.a * mat._GlossMapScale;
     }
     metallic = clamp(metallic, 0.0, 1.0);
-    let roughness = clamp(1.0 - smoothness, 0.045, 1.0);
+    let roughness = clamp(1.0 - clamp(smoothness, 0.0, 1.0), 0.045, 1.0);
 
-    let occlusion = ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).r;
+    let occlusion_sample = ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).g;
+    let occlusion = mix(1.0, occlusion_sample, clamp(mat._OcclusionStrength, 0.0, 1.0));
 
     var detail_mask = 0.0;
     if (kw(mat._DETAIL_MULX2)) {

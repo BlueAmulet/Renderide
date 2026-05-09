@@ -7,7 +7,7 @@
 //! pipeline in [`super::frame_extract`].
 
 use crate::camera::{ViewId, camera_state_enabled, host_camera_frame_for_render_texture};
-use crate::render_graph::FrameViewClear;
+use crate::render_graph::{FrameViewClear, ViewPostProcessing};
 use crate::scene::RenderSpaceId;
 use crate::shared::CameraProjection;
 use crate::world_mesh::draw_filter_from_camera_entry;
@@ -72,6 +72,7 @@ impl RendererRuntime {
                 view_id: ViewId::Main,
                 viewport_px: extent_px,
                 clear: FrameViewClear::skybox(),
+                post_processing: ViewPostProcessing::primary_view(),
                 target: FrameViewPlanTarget::Hmd(ext),
             });
         }
@@ -221,6 +222,7 @@ impl RendererRuntime {
                 view_id: secondary_camera_view_id(sid, entry.renderable_index, cam_idx),
                 viewport_px: viewport,
                 clear: FrameViewClear::from_camera_state(&entry.state),
+                post_processing: ViewPostProcessing::from_camera_state(&entry.state),
                 target: FrameViewPlanTarget::SecondaryRt(OffscreenRtHandles {
                     rt_id,
                     color_view,
@@ -252,6 +254,7 @@ impl RendererRuntime {
             view_id: ViewId::Main,
             viewport_px: swapchain_extent_px,
             clear: FrameViewClear::skybox(),
+            post_processing: ViewPostProcessing::primary_view(),
             target: FrameViewPlanTarget::MainSwapchain,
         }
     }
@@ -341,6 +344,7 @@ mod tests {
         assert_eq!(view.shader_permutation(), ShaderPermutation(0));
         assert_eq!(view.output_depth_mode(), OutputDepthMode::DesktopSingle);
         assert_eq!(view.clear.mode, crate::shared::CameraClearMode::Skybox);
+        assert_eq!(view.post_processing, ViewPostProcessing::primary_view());
     }
 
     /// Secondary view identity follows camera identity even when cameras share a render target.

@@ -6,7 +6,8 @@
 //!
 //! **Text/UI controls (`_TextMode`, `_RectClip`, `_OVERLAY`):** packing uses canonical
 //! `set_float` values when present. Missing `_TextMode` is inferred from `_FontAtlas` texture
-//! profile, while UI-only controls default to zero instead of keyword-style alias inference.
+//! profile, missing `_RectClip` is inferred from UI stencil content state, and remaining
+//! UI-only controls default to zero instead of keyword-style alias inference.
 
 mod assemble;
 mod cache;
@@ -28,6 +29,7 @@ use super::embedded_material_bind_error::EmbeddedMaterialBindError;
 use super::layout::{EmbeddedSharedKeywordIds, StemMaterialLayout};
 use super::texture_pools::EmbeddedTexturePools;
 use super::texture_resolve::default_embedded_sampler;
+use crate::gpu_resource::ShardedLru;
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, PropertyIdRegistry,
 };
@@ -35,12 +37,12 @@ use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use assemble::build_embedded_bind_group_entries;
 use cache::{
-    EMBEDDED_CACHE_SHARDS, EmbeddedSamplerCacheKey, ShardedLru, TextureDebugCacheKey,
+    EMBEDDED_CACHE_SHARDS, EmbeddedSamplerCacheKey, TextureDebugCacheKey,
     max_cached_embedded_bind_groups, max_cached_embedded_samplers, max_cached_texture_debug_ids,
 };
 use texture_signature::compute_uniform_texture_state_signature;
 use uniform::{EmbeddedUniformArenaRequest, MaterialUniformArena, MaterialUniformArenaSlotBinding};
-use white_texture::{WhiteTexture, create_white, upload_white};
+use white_texture::{PlaceholderTexture, create_black, create_white, upload_black, upload_white};
 
 use resolve::EmbeddedBindInputResolution;
 
@@ -67,12 +69,13 @@ fn material_bind_group_result(
     )
 }
 
-/// GPU resources shared by embedded material bind groups (layouts, default texture, sampler).
+/// GPU resources shared by embedded material bind groups (layouts, default textures, sampler).
 pub struct EmbeddedMaterialBindResources {
     device: Arc<wgpu::Device>,
-    white_2d: WhiteTexture,
-    white_3d: WhiteTexture,
-    white_cube: WhiteTexture,
+    white_2d: PlaceholderTexture,
+    black_2d: PlaceholderTexture,
+    white_3d: PlaceholderTexture,
+    white_cube: PlaceholderTexture,
     default_sampler: Arc<wgpu::Sampler>,
     property_registry: Arc<PropertyIdRegistry>,
     shared_keyword_ids: Arc<EmbeddedSharedKeywordIds>,
@@ -92,13 +95,14 @@ pub struct EmbeddedMaterialBindResources {
 }
 
 impl EmbeddedMaterialBindResources {
-    /// Builds layouts and placeholder texture.
+    /// Builds layouts and placeholder textures.
     pub fn new(
         device: Arc<wgpu::Device>,
         property_registry: Arc<PropertyIdRegistry>,
         limits: Arc<crate::gpu::GpuLimits>,
     ) -> Result<Self, EmbeddedMaterialBindError> {
         let white_2d = create_white(device.as_ref(), TextureBindKind::Tex2D);
+        let black_2d = create_black(device.as_ref(), TextureBindKind::Tex2D);
         let white_3d = create_white(device.as_ref(), TextureBindKind::Tex3D);
         let white_cube = create_white(device.as_ref(), TextureBindKind::Cube);
 
@@ -110,6 +114,7 @@ impl EmbeddedMaterialBindResources {
         Ok(Self {
             device: device.clone(),
             white_2d,
+            black_2d,
             white_3d,
             white_cube,
             default_sampler,
@@ -123,9 +128,10 @@ impl EmbeddedMaterialBindResources {
         })
     }
 
-    /// Uploads white texel into every placeholder texture (call once after creation with queue).
-    pub fn write_default_white(&self, queue: &wgpu::Queue) {
+    /// Uploads texels into every placeholder texture (call once after creation with queue).
+    pub fn write_default_textures(&self, queue: &wgpu::Queue) {
         upload_white(queue, &self.white_2d, TextureBindKind::Tex2D);
+        upload_black(queue, &self.black_2d, TextureBindKind::Tex2D);
         upload_white(queue, &self.white_3d, TextureBindKind::Tex3D);
         upload_white(queue, &self.white_cube, TextureBindKind::Cube);
     }

@@ -177,7 +177,7 @@ fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n:
     }
     let roughness = clamp(1.0 - clamp(smoothness, 0.0, 1.0), 0.045, 1.0);
 
-    let occlusion_sample = ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).r;
+    let occlusion_sample = ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).g;
     let occlusion = mix(1.0, occlusion_sample, clamp(mat._OcclusionStrength, 0.0, 1.0));
 
     var detail_mask = 0.0;
