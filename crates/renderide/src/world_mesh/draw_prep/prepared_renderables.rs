@@ -393,8 +393,15 @@ pub(super) fn populate_runs_and_material_keys(
 pub(super) fn estimated_draw_count(scene: &SceneCoordinator, space_id: RenderSpaceId) -> usize {
     scene.space(space_id).map_or(0, |s| {
         s.static_mesh_renderers()
-            .len()
-            .saturating_add(s.skinned_mesh_renderers().len())
+            .iter()
+            .filter(|renderer| renderer.emits_visible_color_draws())
+            .count()
+            .saturating_add(
+                s.skinned_mesh_renderers()
+                    .iter()
+                    .filter(|skinned| skinned.base.emits_visible_color_draws())
+                    .count(),
+            )
             .saturating_mul(2)
     })
 }
@@ -417,7 +424,7 @@ pub(super) fn expand_space_into(
     let space_is_overlay = space.is_overlay();
 
     for (renderable_index, r) in space.static_mesh_renderers().iter().enumerate() {
-        if r.mesh_asset_id < 0 || r.node_id < 0 {
+        if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
             continue;
         }
         if scene.transform_has_degenerate_scale_for_context(
@@ -463,7 +470,7 @@ pub(super) fn expand_space_into(
 
     for (renderable_index, sk) in space.skinned_mesh_renderers().iter().enumerate() {
         let r = &sk.base;
-        if r.mesh_asset_id < 0 || r.node_id < 0 {
+        if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
             continue;
         }
         if scene.transform_has_degenerate_scale_for_context(
@@ -651,8 +658,8 @@ fn expand_renderer_slots(
 mod tests {
     use super::*;
     use crate::gpu_pools::MeshPool;
-    use crate::scene::{RenderSpaceId, SceneCoordinator};
-    use crate::shared::RenderTransform;
+    use crate::scene::{RenderSpaceId, SceneCoordinator, SkinnedMeshRenderer, StaticMeshRenderer};
+    use crate::shared::{RenderTransform, ShadowCastMode};
 
     fn empty_scene() -> SceneCoordinator {
         SceneCoordinator::new()
@@ -751,5 +758,39 @@ mod tests {
             ]
         );
         assert_eq!(keys, vec![(7, None), (9, Some(3))]);
+    }
+
+    #[test]
+    fn estimated_draw_count_excludes_static_shadow_only_renderers() {
+        let mut scene = empty_scene();
+        let id = RenderSpaceId(1);
+        scene.test_insert_static_mesh_renderers(
+            id,
+            vec![
+                StaticMeshRenderer {
+                    shadow_cast_mode: ShadowCastMode::On,
+                    ..Default::default()
+                },
+                StaticMeshRenderer {
+                    shadow_cast_mode: ShadowCastMode::ShadowOnly,
+                    ..Default::default()
+                },
+            ],
+        );
+
+        assert_eq!(estimated_draw_count(&scene, id), 2);
+    }
+
+    #[test]
+    fn estimated_draw_count_excludes_skinned_shadow_only_renderers() {
+        let mut scene = empty_scene();
+        let id = RenderSpaceId(1);
+        let mut visible = SkinnedMeshRenderer::default();
+        visible.base.shadow_cast_mode = ShadowCastMode::DoubleSided;
+        let mut shadow_only = SkinnedMeshRenderer::default();
+        shadow_only.base.shadow_cast_mode = ShadowCastMode::ShadowOnly;
+        scene.test_insert_skinned_mesh_renderers(id, vec![visible, shadow_only]);
+
+        assert_eq!(estimated_draw_count(&scene, id), 2);
     }
 }
