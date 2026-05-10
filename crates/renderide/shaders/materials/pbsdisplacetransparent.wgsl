@@ -10,13 +10,13 @@
 //! `textureSampleLevel(..., 0.0)`.
 
 #import renderide::mesh::vertex as mv
-#import renderide::per_draw as pd
+#import renderide::draw::per_draw as pd
 #import renderide::pbs::displace as pdisp
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::alpha_clip_sample as acs
-#import renderide::uv_utils as uvu
+#import renderide::material::alpha_clip_sample as acs
+#import renderide::core::uv as uvu
 
 struct PbsDisplaceTransparentMaterial {
     _Color: vec4<f32>,

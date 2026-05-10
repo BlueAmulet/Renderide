@@ -7,7 +7,7 @@ fn text_shaders_use_one_font_atlas_sample_for_coverage() -> io::Result<()> {
     for file_name in ["ui_textunlit.wgsl", "textunlit.wgsl", "textunit.wgsl"] {
         let src = material_source(file_name)?;
         assert!(
-            src.contains("#import renderide::texture_sampling as ts"),
+            src.contains("#import renderide::core::texture_sampling as ts"),
             "{file_name} must import biased texture sampling for _FontAtlas"
         );
         assert!(
@@ -34,7 +34,8 @@ fn text_shaders_use_one_font_atlas_sample_for_coverage() -> io::Result<()> {
         );
     }
 
-    let module_src = fs::read_to_string(manifest_dir().join("shaders/modules/text_sdf.wgsl"))?;
+    let module_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/material/text_sdf.wgsl"))?;
     assert!(
         !module_src.contains("atlas_clip"),
         "text_sdf.wgsl must not expose a second atlas sample for coverage"

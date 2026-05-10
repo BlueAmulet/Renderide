@@ -1,10 +1,10 @@
 //! Grab-pass threshold filter (`Shader "Filters/Threshold"`).
 
 
-#import renderide::globals as rg
-#import renderide::grab_pass as gp
+#import renderide::frame::globals as rg
+#import renderide::frame::grab_pass as gp
 #import renderide::mesh::vertex as mv
-#import renderide::per_draw as pd
+#import renderide::draw::per_draw as pd
 #import renderide::ui::rect_clip as uirc
 
 struct FiltersThresholdMaterial {

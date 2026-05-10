@@ -16,17 +16,17 @@
 //!
 //! **OVERLAY** depth compositing uses `_OVERLAY` to gate the scene-depth comparison before applying `_OverlayTint`.
 //!
-//! Per-draw uniforms (`@group(2)`) use [`renderide::per_draw`].
+//! Per-draw uniforms (`@group(2)`) use [`renderide::draw::per_draw`].
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
-#import renderide::text_sdf as tsdf
-#import renderide::texture_sampling as ts
-#import renderide::scene_depth_sample as sds
+#import renderide::material::text_sdf as tsdf
+#import renderide::core::texture_sampling as ts
+#import renderide::frame::scene_depth_sample as sds
 #import renderide::ui::rect_clip as uirc
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct UiTextUnlitMaterial {
     _TintColor: vec4<f32>,

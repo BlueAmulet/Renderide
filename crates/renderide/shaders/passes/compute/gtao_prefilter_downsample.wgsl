@@ -1,26 +1,8 @@
+#import renderide::post::gtao_params as gparams
 //! Compute pass: XeGTAO weighted view-space depth downsample.
 
-struct GtaoParams {
-    radius_world: f32,
-    radius_multiplier: f32,
-    max_pixel_radius: f32,
-    intensity: f32,
-    falloff_range: f32,
-    sample_distribution_power: f32,
-    thin_occluder_compensation: f32,
-    final_value_power: f32,
-    depth_mip_sampling_offset: f32,
-    albedo_multibounce: f32,
-    denoise_blur_beta: f32,
-    slice_count: u32,
-    steps_per_slice: u32,
-    final_apply: u32,
-    view_depth_mip_count: u32,
-    _pad1: u32,
-}
-
 @group(0) @binding(0) var src_mip: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> gtao: GtaoParams;
+@group(0) @binding(1) var<uniform> gtao: gparams::GtaoParams;
 @group(0) @binding(2) var dst_mip: texture_storage_2d<r32float, write>;
 
 fn load_src(pix: vec2<i32>, src_max: vec2<i32>) -> f32 {

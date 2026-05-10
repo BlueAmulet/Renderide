@@ -1,6 +1,6 @@
 //! Fullscreen solid background for host `CameraClearMode::Color`.
 
-#import renderide::skybox_common as skybox
+#import renderide::skybox::common as skybox
 
 @group(0) @binding(0) var<uniform> view: skybox::SkyboxView;
 

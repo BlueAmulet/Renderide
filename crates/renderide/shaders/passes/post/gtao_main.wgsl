@@ -4,16 +4,16 @@
 //! view-space normal prepass, evaluates XeGTAO's slice/step horizon search, and writes the packed
 //! AO working term plus denoise edges.
 
-#import renderide::fullscreen as fs
-#import renderide::gtao_filter as gf
+#import renderide::core::fullscreen as fs
+#import renderide::post::gtao_filter as gf
+#import renderide::frame::types as ft
+#import renderide::post::gtao_params as gparams
 
 const PI: f32 = 3.14159265359;
 const PI_HALF: f32 = 1.57079632679;
 const HILBERT_WIDTH: u32 = 64u;
 const HILBERT_INDEX_FRAME_OFFSET: u32 = 288u;
 const MIN_VISIBILITY: f32 = 0.03;
-const FRAME_PROJECTION_FLAG_ORTHOGRAPHIC: u32 = 1u;
-
 #ifdef MULTIVIEW
 @group(0) @binding(0) var view_depth: texture_2d_array<f32>;
 @group(0) @binding(1) var view_normals: texture_2d_array<f32>;
@@ -22,46 +22,9 @@ const FRAME_PROJECTION_FLAG_ORTHOGRAPHIC: u32 = 1u;
 @group(0) @binding(1) var view_normals: texture_2d<f32>;
 #endif
 
-struct FrameGlobals {
-    camera_world_pos: vec4<f32>,
-    camera_world_pos_right: vec4<f32>,
-    view_space_z_coeffs: vec4<f32>,
-    view_space_z_coeffs_right: vec4<f32>,
-    cluster_count_x: u32,
-    cluster_count_y: u32,
-    cluster_count_z: u32,
-    near_clip: f32,
-    far_clip: f32,
-    light_count: u32,
-    viewport_width: u32,
-    viewport_height: u32,
-    proj_params_left: vec4<f32>,
-    proj_params_right: vec4<f32>,
-    frame_tail: vec4<u32>,
-}
+@group(0) @binding(2) var<uniform> frame: ft::FrameGlobals;
 
-@group(0) @binding(2) var<uniform> frame: FrameGlobals;
-
-struct GtaoParams {
-    radius_world: f32,
-    radius_multiplier: f32,
-    max_pixel_radius: f32,
-    intensity: f32,
-    falloff_range: f32,
-    sample_distribution_power: f32,
-    thin_occluder_compensation: f32,
-    final_value_power: f32,
-    depth_mip_sampling_offset: f32,
-    albedo_multibounce: f32,
-    denoise_blur_beta: f32,
-    slice_count: u32,
-    steps_per_slice: u32,
-    final_apply: u32,
-    view_depth_mip_count: u32,
-    _pad1: u32,
-}
-
-@group(0) @binding(3) var<uniform> gtao: GtaoParams;
+@group(0) @binding(3) var<uniform> gtao: gparams::GtaoParams;
 
 struct GtaoMainOutput {
     @location(0) ao_term: vec4<f32>,
@@ -93,7 +56,7 @@ fn projection_flags_for_view(view_layer: u32) -> u32 {
 }
 
 fn view_is_orthographic(view_layer: u32) -> bool {
-    return (projection_flags_for_view(view_layer) & FRAME_PROJECTION_FLAG_ORTHOGRAPHIC) != 0u;
+    return (projection_flags_for_view(view_layer) & ft::FRAME_PROJECTION_FLAG_ORTHOGRAPHIC) != 0u;
 }
 
 fn view_pos_from_uv(

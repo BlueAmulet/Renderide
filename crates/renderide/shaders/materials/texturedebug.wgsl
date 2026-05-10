@@ -2,9 +2,9 @@
 //! `_TextureChannel` selects R (0) / G (1) / B (2) / A (3); other values pass the texture through.
 
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct TextureDebugMaterial {
     _MainTex_ST: vec4<f32>,

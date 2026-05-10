@@ -2,11 +2,11 @@
 
 #define_import_path renderide::pbs::lighting
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::pbs::brdf as brdf
 #import renderide::pbs::cluster as pcls
 #import renderide::pbs::surface as surface
-#import renderide::reflection_probes as rprobe
+#import renderide::lighting::reflection_probes as rprobe
 
 struct ClusterLightingOptions {
     include_directional: bool,

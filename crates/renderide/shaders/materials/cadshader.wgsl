@@ -5,8 +5,9 @@
 //! the `xstoon2.0-outlined.wgsl` pass structure (`PassKind::Outline` + `PassKind::ForwardBase`).
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
+#import renderide::draw::types as dt
 #import renderide::mesh::vertex as mv
 
 struct CadShaderMaterial {
@@ -17,7 +18,7 @@ struct CadShaderMaterial {
 
 @group(1) @binding(0) var<uniform> mat: CadShaderMaterial;
 
-fn project(world_p: vec4<f32>, view_idx: u32, d: pd::PerDrawUniforms) -> vec4<f32> {
+fn project(world_p: vec4<f32>, view_idx: u32, d: dt::PerDrawUniforms) -> vec4<f32> {
     return mv::select_view_proj(d, view_idx) * world_p;
 }
 

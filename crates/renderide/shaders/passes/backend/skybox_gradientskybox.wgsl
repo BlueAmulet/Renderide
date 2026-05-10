@@ -1,7 +1,7 @@
 //! Fullscreen GradientSkybox sky draw.
 
-#import renderide::globals as rg
-#import renderide::skybox_common as skybox
+#import renderide::frame::globals as rg
+#import renderide::skybox::common as skybox
 
 struct GradientSkyboxMaterial {
     _BaseColor: vec4<f32>,

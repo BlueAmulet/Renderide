@@ -4,13 +4,13 @@
 //! the material's alpha in its output; proper transparent blending depends on future pipeline-state work.
 
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::material::fresnel as mf
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct PbsRimTransparentMaterial {
     _Color: vec4<f32>,

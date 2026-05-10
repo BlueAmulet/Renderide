@@ -5,25 +5,25 @@
 //! self-contained clustered-toon pattern (see `toonstandard.wgsl`). Notable changes:
 //! - `_Time.x` / `_SinTime.w` use `_AnimationOffset` when provided, otherwise a frame-index
 //!   fallback phase keeps water animated without a host-side keyword/wire change.
-//! - Scene depth sampled via [`renderide::scene_depth_sample`]; reconstructed view-space depth
+//! - Scene depth sampled via [`renderide::frame::scene_depth_sample`]; reconstructed view-space depth
 //!   replaces the Unity `_CameraDepthTexture` + `_InverseView` unprojection.
-//! - Refracted scene color sampled via [`renderide::grab_pass`].
+//! - Refracted scene color sampled via [`renderide::frame::grab_pass`].
 //! - Planar-reflection compositing (`_ReflectionTex`) is gated by `_PlanarReflection` and is a
 //!   straight overlay until a planar-reflection pass is wired into the render graph.
 
 
-#import renderide::birp::light as bl
-#import renderide::globals as rg
-#import renderide::per_draw as pd
+#import renderide::lighting::birp as bl
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::brdf as brdf
 #import renderide::pbs::cluster as pcls
 #import renderide::pbs::sampling as psamp
-#import renderide::grab_pass as gp
-#import renderide::scene_depth_sample as sds
-#import renderide::toon::brdf as tbrdf
-#import renderide::uv_utils as uvu
-#import renderide::voronoi as vor
+#import renderide::frame::grab_pass as gp
+#import renderide::frame::scene_depth_sample as sds
+#import renderide::material::toon_brdf as tbrdf
+#import renderide::core::uv as uvu
+#import renderide::material::voronoi as vor
 
 struct ToonWaterMaterial {
     _Color: vec4<f32>,

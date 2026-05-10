@@ -5,8 +5,8 @@ use super::*;
 #[test]
 fn file_labels_use_forward_slashes_for_cross_platform_audits() {
     assert_eq!(
-        normalize_file_label(r"shaders\modules\per_draw.wgsl"),
-        "shaders/modules/per_draw.wgsl"
+        normalize_file_label(r"shaders\modules\draw\per_draw.wgsl"),
+        "shaders/modules/draw/per_draw.wgsl"
     );
 }
 
@@ -76,7 +76,9 @@ fn shader_modules_centralize_view_projection_selection() -> io::Result<()> {
         let label = file_label(&path);
         if matches!(
             label.as_str(),
-            "shaders/modules/per_draw.wgsl" | "shaders/modules/mesh/vertex.wgsl"
+            "shaders/modules/draw/types.wgsl"
+                | "shaders/modules/draw/per_draw.wgsl"
+                | "shaders/modules/mesh/vertex.wgsl"
         ) {
             continue;
         }
@@ -91,7 +93,7 @@ fn shader_modules_centralize_view_projection_selection() -> io::Result<()> {
 
     assert!(
         offenders.is_empty(),
-        "only per_draw and mesh::vertex should touch raw view-projection fields:\n  {}",
+        "only draw types, per_draw, and mesh::vertex should touch raw view-projection fields:\n  {}",
         offenders.join("\n  ")
     );
     Ok(())
@@ -130,7 +132,7 @@ fn material_roots_do_not_redeclare_shared_helpers() -> io::Result<()> {
 
 #[test]
 fn normal_decode_scales_xy_before_reconstructing_z() -> io::Result<()> {
-    let src = fs::read_to_string(manifest_dir().join("shaders/modules/normal_decode.wgsl"))?;
+    let src = fs::read_to_string(manifest_dir().join("shaders/modules/core/normal_decode.wgsl"))?;
     let xy_scale = src
         .find("let xy = (raw.xy * 2.0 - 1.0) * scale;")
         .expect("normal decode must scale tangent XY before Z reconstruction");
@@ -156,7 +158,7 @@ fn shared_fullscreen_roots_do_not_duplicate_fullscreen_triangle_setup() -> io::R
     let mut offenders = Vec::new();
     for path in wgsl_files_recursive("shaders/passes")? {
         let src = fs::read_to_string(&path)?;
-        if !src.contains("renderide::fullscreen") {
+        if !src.contains("renderide::core::fullscreen") {
             continue;
         }
 
@@ -172,7 +174,7 @@ fn shared_fullscreen_roots_do_not_duplicate_fullscreen_triangle_setup() -> io::R
 
     assert!(
         offenders.is_empty(),
-        "passes importing renderide::fullscreen must delegate fullscreen-triangle setup:\n  {}",
+        "passes importing renderide::core::fullscreen must delegate fullscreen-triangle setup:\n  {}",
         offenders.join("\n  ")
     );
     Ok(())

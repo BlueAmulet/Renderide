@@ -1,11 +1,11 @@
 //! Grab-pass grayscale filter (`Shader "Filters/Grayscale"`).
 
 
-#import renderide::filter_vertex as fv
-#import renderide::globals as rg
-#import renderide::grab_pass as gp
+#import renderide::post::filter_vertex as fv
+#import renderide::frame::globals as rg
+#import renderide::frame::grab_pass as gp
 #import renderide::ui::rect_clip as uirc
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct FiltersGrayscaleMaterial {
     _Rect: vec4<f32>,

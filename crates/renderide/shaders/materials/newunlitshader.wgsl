@@ -2,9 +2,9 @@
 //! `_node_2829` and scene lighting.
 
 
-#import renderide::diffuse_lighting as dl
-#import renderide::math as rmath
-#import renderide::per_draw as pd
+#import renderide::lighting::diffuse as dl
+#import renderide::core::math as rmath
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 
 struct NewUnlitMaterial {

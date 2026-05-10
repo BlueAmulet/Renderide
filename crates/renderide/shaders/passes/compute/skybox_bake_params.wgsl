@@ -1,4 +1,4 @@
-#import renderide::skybox_evaluator as sky
+#import renderide::skybox::evaluator as sky
 
 @group(0) @binding(0) var<uniform> params: sky::SkyboxEvaluatorParams;
 @group(0) @binding(1) var output_cube: texture_storage_2d_array<rgba16float, write>;

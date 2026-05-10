@@ -4,15 +4,15 @@
 //! `_TEXTURE`, `_POLARUV`, `_NORMALMAP`, `_MASK_TEXTURE_MUL`, `_MASK_TEXTURE_CLIP`,
 //! `_VERTEXCOLORS`, `_MUL_ALPHA_INTENSITY`.
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::pbs::normal as pnorm
-#import renderide::alpha_clip_sample as acs
+#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::alpha as ma
 #import renderide::material::fresnel as mf
 #import renderide::material::sample as ms
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
 
 struct FresnelMaterial {
     _FarColor: vec4<f32>,

@@ -2,8 +2,8 @@
 
 #define_import_path renderide::mesh::billboard
 
-#import renderide::globals as rg
-#import renderide::math as rmath
+#import renderide::frame::globals as rg
+#import renderide::core::math as rmath
 
 struct BillboardBasis {
     right: vec3<f32>,

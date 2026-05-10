@@ -6,13 +6,13 @@
 //! `pow(abs(world_normal), _TriBlendPower)` with Reoriented Normal Mapping per plane.
 
 
-#import renderide::per_draw as pd
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
+#import renderide::pbs::families::triplanar as ptri
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::core::uv as uvu
 
 /// Material uniforms for `PBSTriplanarSpecular`.
 struct PbsTriplanarSpecularMaterial {
@@ -76,125 +76,19 @@ struct SurfaceData {
     emission: vec3<f32>,
 }
 
-/// Reoriented Normal Mapping blend (see [`pbstriplanar::blend_rnm`] for context).
-fn blend_rnm(n1_in: vec3<f32>, n2_in: vec3<f32>) -> vec3<f32> {
-    let n1 = vec3<f32>(n1_in.x, n1_in.y, n1_in.z + 1.0);
-    let n2 = vec3<f32>(-n2_in.x, -n2_in.y, n2_in.z);
-    return n1 * dot(n1, n2) / max(n1.z, 1e-4) - n2;
-}
-
-/// Apply `_MainTex_ST` to a planar projection coordinate.
-fn apply_main_st(uv: vec2<f32>) -> vec2<f32> {
-    return uvu::apply_st(uv, mat._MainTex_ST);
-}
-
-/// Triplanar weights from a world-space normal.
-fn triplanar_weights(world_n: vec3<f32>) -> vec3<f32> {
-    let blend_power = max(mat._TriBlendPower, 0.0001);
-    let raw = pow(abs(world_n), vec3<f32>(blend_power));
-    let sum = max(raw.x + raw.y + raw.z, 1e-4);
-    return raw / sum;
-}
-
-/// Per-plane projected UVs along with the per-axis sign used to correct mirrored projections.
-struct PlanarUvs {
-    uv_x: vec2<f32>,
-    uv_y: vec2<f32>,
-    uv_z: vec2<f32>,
-    axis_sign: vec3<f32>,
-}
-
-/// Construct the three planar UVs from a projection-space position and the world normal.
-fn build_planar_uvs(proj_pos: vec3<f32>, world_n: vec3<f32>) -> PlanarUvs {
-    var uvs: PlanarUvs;
-    uvs.uv_x = apply_main_st(proj_pos.zy);
-    uvs.uv_y = apply_main_st(proj_pos.xz);
-    uvs.uv_z = apply_main_st(proj_pos.xy);
-    let axis_sign = vec3<f32>(
-        select(-1.0, 1.0, world_n.x >= 0.0),
-        select(-1.0, 1.0, world_n.y >= 0.0),
-        select(-1.0, 1.0, world_n.z >= 0.0),
-    );
-    uvs.uv_x.x = uvs.uv_x.x * axis_sign.x;
-    uvs.uv_y.x = uvs.uv_y.x * axis_sign.y;
-    uvs.uv_z.x = uvs.uv_z.x * -axis_sign.z;
-    uvs.axis_sign = axis_sign;
-    return uvs;
-}
-
-/// Sample a 2D texture three times along the planar UVs and blend by triplanar weights.
-fn triplanar_rgba(
-    tex: texture_2d<f32>,
-    samp: sampler,
-    uvs: PlanarUvs,
-    weights: vec3<f32>,
-) -> vec4<f32> {
-    let cx = textureSample(tex, samp, uvs.uv_x);
-    let cy = textureSample(tex, samp, uvs.uv_y);
-    let cz = textureSample(tex, samp, uvs.uv_z);
-    return cx * weights.x + cy * weights.y + cz * weights.z;
-}
-
-/// Build a triplanar world-space normal via Reoriented Normal Mapping when `_NORMALMAP` is on,
-/// otherwise return the renormalized geometric normal. Triplanar shading does not consume the
-/// mesh tangent -- RNM rotates each per-plane tangent-space normal directly onto the interpolated
-/// world normal -- so no tangent input is required.
-fn sample_normal_world(uvs: PlanarUvs, world_n: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
-    let n_geo = normalize(world_n);
-    if (!uvu::kw_enabled(mat._NORMALMAP)) {
-        return n_geo;
-    }
-
-    var t_x = nd::decode_ts_normal_with_placeholder_sample(
-        textureSample(_NormalMap, _NormalMap_sampler, uvs.uv_x),
-        mat._NormalScale,
-    );
-    var t_y = nd::decode_ts_normal_with_placeholder_sample(
-        textureSample(_NormalMap, _NormalMap_sampler, uvs.uv_y),
-        mat._NormalScale,
-    );
-    var t_z = nd::decode_ts_normal_with_placeholder_sample(
-        textureSample(_NormalMap, _NormalMap_sampler, uvs.uv_z),
-        mat._NormalScale,
-    );
-
-    t_x.x = t_x.x * uvs.axis_sign.x;
-    t_y.x = t_y.x * uvs.axis_sign.y;
-    t_z.x = t_z.x * -uvs.axis_sign.z;
-
-    let abs_n = abs(n_geo);
-    let n_x_base = vec3<f32>(n_geo.z, n_geo.y, abs_n.x);
-    let n_y_base = vec3<f32>(n_geo.x, n_geo.z, abs_n.y);
-    let n_z_base = vec3<f32>(n_geo.x, n_geo.y, abs_n.z);
-
-    var blended_x = blend_rnm(n_x_base, t_x);
-    var blended_y = blend_rnm(n_y_base, t_y);
-    var blended_z = blend_rnm(n_z_base, t_z);
-
-    blended_x.z = blended_x.z * uvs.axis_sign.x;
-    blended_y.z = blended_y.z * uvs.axis_sign.y;
-    blended_z.z = blended_z.z * uvs.axis_sign.z;
-
-    let world_x = vec3<f32>(blended_x.z, blended_x.y, blended_x.x);
-    let world_y = vec3<f32>(blended_y.x, blended_y.z, blended_y.y);
-    let world_z = vec3<f32>(blended_z.x, blended_z.y, blended_z.z);
-
-    return normalize(world_x * weights.x + world_y * weights.y + world_z * weights.z);
-}
-
 /// Resolve the [`SurfaceData`] for a fragment, mirroring Unity's triplanar `surf` for `PBSTriplanarSpecular`.
 fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>) -> SurfaceData {
-    let uvs = build_planar_uvs(proj_pos, world_n);
-    let weights = triplanar_weights(world_n);
+    let uvs = ptri::build_planar_uvs(proj_pos, world_n, mat._MainTex_ST);
+    let weights = ptri::triplanar_weights(world_n, mat._TriBlendPower);
 
     var c = mat._Color;
     if (uvu::kw_enabled(mat._ALBEDOTEX)) {
-        c = c * triplanar_rgba(_MainTex, _MainTex_sampler, uvs, weights);
+        c = c * ptri::sample_rgba(_MainTex, _MainTex_sampler, uvs, weights);
     }
 
     var spec = mat._SpecularColor;
     if (uvu::kw_enabled(mat._SPECULARMAP)) {
-        spec = triplanar_rgba(_SpecularMap, _SpecularMap_sampler, uvs, weights);
+        spec = ptri::sample_rgba(_SpecularMap, _SpecularMap_sampler, uvs, weights);
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let smoothness = clamp(spec.a, 0.0, 1.0);
@@ -202,13 +96,13 @@ fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>)
 
     var occlusion = 1.0;
     if (uvu::kw_enabled(mat._OCCLUSION)) {
-        let occ = triplanar_rgba(_OcclusionMap, _OcclusionMap_sampler, uvs, weights);
+        let occ = ptri::sample_rgba(_OcclusionMap, _OcclusionMap_sampler, uvs, weights);
         occlusion = occ.g;
     }
 
     var emission = mat._EmissionColor;
     if (uvu::kw_enabled(mat._EMISSIONTEX)) {
-        emission = emission * triplanar_rgba(_EmissionMap, _EmissionMap_sampler, uvs, weights);
+        emission = emission * ptri::sample_rgba(_EmissionMap, _EmissionMap_sampler, uvs, weights);
     }
 
     return SurfaceData(
@@ -217,7 +111,15 @@ fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>)
         f0,
         roughness,
         occlusion,
-        sample_normal_world(uvs, world_n, weights),
+        ptri::sample_normal_world(
+            uvu::kw_enabled(mat._NORMALMAP),
+            _NormalMap,
+            _NormalMap_sampler,
+            uvs,
+            mat._NormalScale,
+            world_n,
+            weights,
+        ),
         emission.rgb,
     );
 }

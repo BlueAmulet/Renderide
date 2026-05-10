@@ -1,10 +1,10 @@
 //! Grab-pass 3D LUT filter (`Shader "Filters/LUT"`).
 
 
-#import renderide::filter_vertex as fv
-#import renderide::globals as rg
-#import renderide::grab_pass as gp
-#import renderide::texture_sampling as ts
+#import renderide::post::filter_vertex as fv
+#import renderide::frame::globals as rg
+#import renderide::frame::grab_pass as gp
+#import renderide::core::texture_sampling as ts
 #import renderide::ui::rect_clip as uirc
 
 struct FiltersLutMaterial {

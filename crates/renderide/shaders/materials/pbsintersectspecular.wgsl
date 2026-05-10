@@ -5,15 +5,15 @@
 //! Keyword-style float fields mirror Unity `#pragma multi_compile` values:
 //! `_ALBEDOTEX`, `_EMISSIONTEX`, `_NORMALMAP`, `_SPECULARMAP`, `_OCCLUSION`.
 
-#import renderide::math as rmath
+#import renderide::core::math as rmath
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::scene_depth_sample as sds
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::frame::scene_depth_sample as sds
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
 
 struct PbsIntersectSpecularMaterial {
     _Color: vec4<f32>,

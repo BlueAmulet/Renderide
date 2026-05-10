@@ -1,10 +1,10 @@
 //! Grab-pass HSV offset/multiply filter (`Shader "Filters/HSV"`).
 
 
-#import renderide::filter_math as fm
-#import renderide::filter_vertex as fv
-#import renderide::globals as rg
-#import renderide::grab_pass as gp
+#import renderide::post::filter_math as fm
+#import renderide::post::filter_vertex as fv
+#import renderide::frame::globals as rg
+#import renderide::frame::grab_pass as gp
 #import renderide::ui::rect_clip as uirc
 
 struct FiltersHsvMaterial {

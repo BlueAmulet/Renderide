@@ -3,7 +3,7 @@
 //! Reads the source radiance mip pyramid and writes mip *i* with GGX importance-sampled radiance
 //! for the perceptual roughness corresponding to mip *i* under the runtime parabolic LOD lookup.
 
-#import renderide::ggx_prefilter as ggx
+#import renderide::ibl::ggx_prefilter as ggx
 
 struct ConvolveParams {
     /// Destination mip face edge in texels.

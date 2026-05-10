@@ -17,7 +17,7 @@
 //! upper rows of the texture, but the surface swapchain expects screen-Y-down on output, so we
 //! invert UV.y before sampling. Without this the dash appears upside-down on the desktop window.
 
-#import renderide::fullscreen as fs
+#import renderide::core::fullscreen as fs
 
 @group(0) @binding(0) var t: texture_2d<f32>;
 @group(0) @binding(1) var samp: sampler;

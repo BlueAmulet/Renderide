@@ -5,11 +5,12 @@
 //! present, the shader defaults to world space.
 
 #import renderide::mesh::vertex as mv
-#import renderide::per_draw as pd
+#import renderide::draw::per_draw as pd
+#import renderide::pbs::families::distance_lerp as pdist
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct PbsDistanceLerpSpecularTransparentMaterial {
     _Color: vec4<f32>,
@@ -60,26 +61,6 @@ struct VertexOutput {
     @location(5) @interpolate(flat) view_layer: u32,
 }
 
-fn safe_inverse_range(band_start: f32, band_end: f32) -> f32 {
-    let denom = band_end - band_start;
-    return select(1.0 / denom, 0.0, abs(denom) < 1e-6);
-}
-
-fn band_lerp(d: f32, band_start: f32, inv_range: f32) -> f32 {
-    return clamp((d - band_start) * inv_range, 0.0, 1.0);
-}
-
-fn snap_reference(p: vec3<f32>) -> vec3<f32> {
-    let size = mat._DistanceGridSize.xyz;
-    let offset = mat._DistanceGridOffset.xyz;
-    let safe_size = vec3<f32>(
-        select(size.x, 1.0, size.x == 0.0),
-        select(size.y, 1.0, size.y == 0.0),
-        select(size.z, 1.0, size.z == 0.0),
-    );
-    let snapped = round((p + offset) / safe_size) * safe_size;
-    return select(snapped, p, size == vec3<f32>(0.0));
-}
 
 struct DisplaceResult {
     displace: f32,
@@ -87,20 +68,29 @@ struct DisplaceResult {
 }
 
 fn accumulate_points(reference: vec3<f32>) -> DisplaceResult {
-    let dist_inv = safe_inverse_range(mat._DisplaceDistanceFrom, mat._DisplaceDistanceTo);
-    let em_inv = safe_inverse_range(mat._EmissionDistanceFrom, mat._EmissionDistanceTo);
+    let dist_inv = pdist::safe_inverse_range(mat._DisplaceDistanceFrom, mat._DisplaceDistanceTo);
+    let em_inv = pdist::safe_inverse_range(mat._EmissionDistanceFrom, mat._EmissionDistanceTo);
     let count = u32(clamp(mat._PointCount, 0.0, 16.0));
     var displace = 0.0;
     var emission = vec3<f32>(0.0);
     for (var i: u32 = 0u; i < count; i = i + 1u) {
         let pt = mat._Points[i].xyz;
         let d = distance(reference, pt);
-        let displace_lerp = band_lerp(d, mat._DisplaceDistanceFrom, dist_inv);
-        let emission_lerp = band_lerp(d, mat._EmissionDistanceFrom, em_inv);
-        displace = displace + mix(mat._DisplaceMagnitudeFrom, mat._DisplaceMagnitudeTo, displace_lerp);
-        let tint = mat._TintColors[i];
-        let em_color = mix(mat._EmissionColorFrom, mat._EmissionColorTo, emission_lerp);
-        emission = emission + (tint * em_color).rgb;
+        displace = displace + pdist::point_displacement(
+            d,
+            mat._DisplaceDistanceFrom,
+            dist_inv,
+            mat._DisplaceMagnitudeFrom,
+            mat._DisplaceMagnitudeTo,
+        );
+        emission = emission + pdist::point_emission(
+            d,
+            mat._EmissionDistanceFrom,
+            em_inv,
+            mat._TintColors[i],
+            mat._EmissionColorFrom,
+            mat._EmissionColorTo,
+        );
     }
     return DisplaceResult(displace, emission);
 }
@@ -137,7 +127,7 @@ fn vs_main(
     let world_p_pre = d.model * vec4<f32>(pos.xyz, 1.0);
     let use_world = uvu::kw_enabled(mat.WORLD_SPACE) || (!uvu::kw_enabled(mat.OBJECT_SPACE));
     let reference_raw = select(pos.xyz, world_p_pre.xyz, use_world);
-    let reference = snap_reference(reference_raw);
+    let reference = pdist::snap_reference(reference_raw, mat._DistanceGridSize.xyz, mat._DistanceGridOffset.xyz);
     let acc = accumulate_points(reference);
 
     let direction = select(

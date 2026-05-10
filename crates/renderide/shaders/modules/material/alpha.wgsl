@@ -2,7 +2,7 @@
 
 #define_import_path renderide::material::alpha
 
-#import renderide::math as rmath
+#import renderide::core::math as rmath
 
 fn apply_premultiply(color: vec3<f32>, alpha: f32, enabled: bool) -> vec3<f32> {
     return select(color, color * alpha, enabled);

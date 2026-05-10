@@ -1,9 +1,9 @@
 //! Fullscreen ProceduralSkybox sky draw.
 
-#import renderide::globals as rg
-#import renderide::procedural_sky as ps
-#import renderide::skybox_common as skybox
-#import renderide::uv_utils as uvu
+#import renderide::frame::globals as rg
+#import renderide::skybox::procedural as ps
+#import renderide::skybox::common as skybox
+#import renderide::core::uv as uvu
 
 struct ProceduralSkyboxMaterial {
     _SkyTint: vec4<f32>,

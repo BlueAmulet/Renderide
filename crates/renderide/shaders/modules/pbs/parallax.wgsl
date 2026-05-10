@@ -4,7 +4,7 @@
 
 #define_import_path renderide::pbs::parallax
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::pbs::normal as pnorm
 
 const UNITY_PARALLAX_VIEW_Z_BIAS: f32 = 0.42;

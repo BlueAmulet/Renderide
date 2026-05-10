@@ -7,11 +7,11 @@
 
 
 
-#import renderide::globals as rg
-#import renderide::math as rmath
+#import renderide::frame::globals as rg
+#import renderide::core::math as rmath
 #import renderide::mesh::vertex as mv
-#import renderide::per_draw as pd
-#import renderide::scene_depth_sample as sds
+#import renderide::draw::per_draw as pd
+#import renderide::frame::scene_depth_sample as sds
 #import renderide::ui::rect_clip as uirc
 
 const PI: f32 = 3.14159265358979323846264338327;

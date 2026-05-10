@@ -5,7 +5,7 @@
 //! `aces_tonemap_multiview` (stereo, `view_index` selects array layer) targets -- see the build
 //! script's post-shader composition loop and [`crate::embedded_shaders`].
 
-#import renderide::fullscreen as fs
+#import renderide::core::fullscreen as fs
 
 @group(0) @binding(0) var scene_color_hdr: texture_2d_array<f32>;
 @group(0) @binding(1) var scene_color_sampler: sampler;

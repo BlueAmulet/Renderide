@@ -4,9 +4,9 @@
 //! the same derivative reconstruction.
 
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct UnlitPolarMappingMaterial {
     _MainTex_ST: vec4<f32>,

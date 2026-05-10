@@ -4,12 +4,12 @@
 //! `_LERPTEX_POLARUV`, and `_MULTI_VALUES`.
 
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::pbs::normal as pnorm
 #import renderide::material::fresnel as mf
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
 
 struct FresnelLerpMaterial {
     _FarColor0: vec4<f32>,

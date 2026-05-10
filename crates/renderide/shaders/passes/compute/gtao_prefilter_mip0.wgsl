@@ -1,51 +1,15 @@
 //! Compute pass: raw reverse-Z depth -> XeGTAO view-space depth mip 0.
 
-const FRAME_PROJECTION_FLAG_ORTHOGRAPHIC: u32 = 1u;
-
-struct FrameGlobals {
-    camera_world_pos: vec4<f32>,
-    camera_world_pos_right: vec4<f32>,
-    view_space_z_coeffs: vec4<f32>,
-    view_space_z_coeffs_right: vec4<f32>,
-    cluster_count_x: u32,
-    cluster_count_y: u32,
-    cluster_count_z: u32,
-    near_clip: f32,
-    far_clip: f32,
-    light_count: u32,
-    viewport_width: u32,
-    viewport_height: u32,
-    proj_params_left: vec4<f32>,
-    proj_params_right: vec4<f32>,
-    frame_tail: vec4<u32>,
-}
-
-struct GtaoParams {
-    radius_world: f32,
-    radius_multiplier: f32,
-    max_pixel_radius: f32,
-    intensity: f32,
-    falloff_range: f32,
-    sample_distribution_power: f32,
-    thin_occluder_compensation: f32,
-    final_value_power: f32,
-    depth_mip_sampling_offset: f32,
-    albedo_multibounce: f32,
-    denoise_blur_beta: f32,
-    slice_count: u32,
-    steps_per_slice: u32,
-    final_apply: u32,
-    view_depth_mip_count: u32,
-    _pad1: u32,
-}
+#import renderide::frame::types as ft
+#import renderide::post::gtao_params as gparams
 
 @group(0) @binding(0) var raw_depth: texture_depth_2d;
-@group(0) @binding(1) var<uniform> frame: FrameGlobals;
-@group(0) @binding(2) var<uniform> gtao: GtaoParams;
+@group(0) @binding(1) var<uniform> frame: ft::FrameGlobals;
+@group(0) @binding(2) var<uniform> gtao: gparams::GtaoParams;
 @group(0) @binding(3) var dst_mip0: texture_storage_2d<r32float, write>;
 
 fn view_is_orthographic() -> bool {
-    return (frame.frame_tail.y & FRAME_PROJECTION_FLAG_ORTHOGRAPHIC) != 0u;
+    return (frame.frame_tail.y & ft::FRAME_PROJECTION_FLAG_ORTHOGRAPHIC) != 0u;
 }
 
 fn linearize_depth(d: f32) -> f32 {

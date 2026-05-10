@@ -303,7 +303,7 @@ mod projection_math_tests {
     /// Shader source should keep the same asymmetric-skew sign as the CPU roundtrip above.
     #[test]
     fn skybox_shader_uses_positive_asymmetric_skew_sign() {
-        let source = include_str!("../../shaders/modules/skybox_common.wgsl");
+        let source = include_str!("../../shaders/modules/skybox/common.wgsl");
         assert!(source.contains("ndc.x + proj_params.z"));
         assert!(source.contains("ndc.y + proj_params.w"));
     }

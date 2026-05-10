@@ -5,7 +5,7 @@
 //! AO term to a ping-pong target. The kernel uses the symmetricity correction and edge-leak
 //! step from the reference, and the diagonal weights derive from the two cardinal edges
 //! that straddle each diagonal (XeGTAO lines 785-788, factored into the shared
-//! `renderide::gtao_filter` module so this shader and `gtao_apply` cannot drift).
+//! `renderide::post::gtao_filter` module so this shader and `gtao_apply` cannot drift).
 //!
 //! Intermediate iterations use `blur_amount = denoise_blur_beta / 5.0` (XeGTAO's
 //! `consts.DenoiseBlurBeta / 5.0`); the apply stage uses the full beta. The output stays in
@@ -21,73 +21,45 @@
 //! - `@binding(1)` packed edges (`texture_2d_array<f32>`).
 //! - `@binding(2)` `GtaoParams` uniform (only `denoise_blur_beta` is consumed here).
 
-#import renderide::fullscreen as fs
-#import renderide::gtao_filter as gf
+#import renderide::core::fullscreen as fs
+#import renderide::post::gtao_filter as gf
+#import renderide::post::gtao_params as gparams
+#import renderide::post::gtao_textures as gt
 
 @group(0) @binding(0) var ao_term: texture_2d_array<f32>;
 @group(0) @binding(1) var ao_edges: texture_2d_array<f32>;
 
-struct GtaoParams {
-    radius_world: f32,
-    radius_multiplier: f32,
-    max_pixel_radius: f32,
-    intensity: f32,
-    falloff_range: f32,
-    sample_distribution_power: f32,
-    thin_occluder_compensation: f32,
-    final_value_power: f32,
-    depth_mip_sampling_offset: f32,
-    albedo_multibounce: f32,
-    denoise_blur_beta: f32,
-    slice_count: u32,
-    steps_per_slice: u32,
-    final_apply: u32,
-    view_depth_mip_count: u32,
-    _pad1: u32,
-}
-
-@group(0) @binding(2) var<uniform> gtao: GtaoParams;
+@group(0) @binding(2) var<uniform> gtao: gparams::GtaoParams;
 
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32) -> fs::FullscreenVertexOutput {
     return fs::vertex_main(vid);
 }
 
-fn load_ao(pix: vec2<i32>, view_layer: u32, viewport_max: vec2<i32>) -> f32 {
-    let p = clamp(pix, vec2<i32>(0), viewport_max);
-    return textureLoad(ao_term, p, i32(view_layer), 0).r;
-}
-
-fn load_edges_lrtb(pix: vec2<i32>, view_layer: u32, viewport_max: vec2<i32>) -> vec4<f32> {
-    let p = clamp(pix, vec2<i32>(0), viewport_max);
-    let packed = textureLoad(ao_edges, p, i32(view_layer), 0).r;
-    return gf::gtao_unpack_edges(packed);
-}
-
 /// Runs the XeGTAO bilateral kernel at `pix`. Returns the denoised AO term in the same
 /// production-scaled `[0, 1]` representation as the input -- XeGTAO leaves the
 /// `OCCLUSION_TERM_SCALE` factor in place for intermediate iterations.
 fn denoise_at(pix: vec2<i32>, view_layer: u32, viewport_max: vec2<i32>) -> f32 {
-    let edges_c = load_edges_lrtb(pix, view_layer, viewport_max);
-    let edges_l = load_edges_lrtb(pix + vec2<i32>(-1, 0), view_layer, viewport_max);
-    let edges_r = load_edges_lrtb(pix + vec2<i32>( 1, 0), view_layer, viewport_max);
-    let edges_t = load_edges_lrtb(pix + vec2<i32>(0, -1), view_layer, viewport_max);
-    let edges_b = load_edges_lrtb(pix + vec2<i32>(0,  1), view_layer, viewport_max);
+    let edges_c = gt::load_edges_lrtb(ao_edges, pix, view_layer, viewport_max);
+    let edges_l = gt::load_edges_lrtb(ao_edges, pix + vec2<i32>(-1, 0), view_layer, viewport_max);
+    let edges_r = gt::load_edges_lrtb(ao_edges, pix + vec2<i32>( 1, 0), view_layer, viewport_max);
+    let edges_t = gt::load_edges_lrtb(ao_edges, pix + vec2<i32>(0, -1), view_layer, viewport_max);
+    let edges_b = gt::load_edges_lrtb(ao_edges, pix + vec2<i32>(0,  1), view_layer, viewport_max);
 
     var edges_c_sym = gf::gtao_symmetricise_edges(edges_c, edges_l, edges_r, edges_t, edges_b);
     edges_c_sym = gf::gtao_apply_edge_leak(edges_c_sym);
     let diag = gf::gtao_diagonal_weights(edges_c_sym, edges_l, edges_r, edges_t, edges_b);
 
     let ao = gf::GtaoKernelAo(
-        load_ao(pix, view_layer, viewport_max),
-        load_ao(pix + vec2<i32>(-1, 0), view_layer, viewport_max),
-        load_ao(pix + vec2<i32>( 1, 0), view_layer, viewport_max),
-        load_ao(pix + vec2<i32>(0, -1), view_layer, viewport_max),
-        load_ao(pix + vec2<i32>(0,  1), view_layer, viewport_max),
-        load_ao(pix + vec2<i32>(-1, -1), view_layer, viewport_max),
-        load_ao(pix + vec2<i32>( 1, -1), view_layer, viewport_max),
-        load_ao(pix + vec2<i32>(-1,  1), view_layer, viewport_max),
-        load_ao(pix + vec2<i32>( 1,  1), view_layer, viewport_max),
+        gt::load_ao(ao_term, pix, view_layer, viewport_max),
+        gt::load_ao(ao_term, pix + vec2<i32>(-1, 0), view_layer, viewport_max),
+        gt::load_ao(ao_term, pix + vec2<i32>( 1, 0), view_layer, viewport_max),
+        gt::load_ao(ao_term, pix + vec2<i32>(0, -1), view_layer, viewport_max),
+        gt::load_ao(ao_term, pix + vec2<i32>(0,  1), view_layer, viewport_max),
+        gt::load_ao(ao_term, pix + vec2<i32>(-1, -1), view_layer, viewport_max),
+        gt::load_ao(ao_term, pix + vec2<i32>( 1, -1), view_layer, viewport_max),
+        gt::load_ao(ao_term, pix + vec2<i32>(-1,  1), view_layer, viewport_max),
+        gt::load_ao(ao_term, pix + vec2<i32>( 1,  1), view_layer, viewport_max),
     );
 
     let blur_amount = max(gtao.denoise_blur_beta, 1e-4);

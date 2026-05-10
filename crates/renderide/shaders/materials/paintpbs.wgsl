@@ -4,12 +4,12 @@
 //! Default render state is transparent (host-driven via `_SrcBlend` / `_DstBlend` / `_ZWrite`).
 
 
-#import renderide::per_draw as pd
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct PaintPBSMaterial {
     _Color: vec4<f32>,

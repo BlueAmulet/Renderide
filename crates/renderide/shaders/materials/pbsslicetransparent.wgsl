@@ -3,14 +3,15 @@
 //! not compile the alpha-clip keyword path; only slice-plane rejection discards fragments here.
 
 
-#import renderide::math as rmath
+#import renderide::core::math as rmath
 #import renderide::mesh::vertex as mv
+#import renderide::pbs::families::slice as pslice
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
 
 struct PBSSliceTransparentMaterial {
     _Color: vec4<f32>,
@@ -55,19 +56,6 @@ struct PBSSliceTransparentMaterial {
 @group(1) @binding(13) var _DetailNormalMap: texture_2d<f32>;
 @group(1) @binding(14) var _DetailNormalMap_sampler: sampler;
 
-fn plane_distance(p: vec3<f32>, normal: vec3<f32>, offset: f32) -> f32 {
-    return dot(p, normal) + offset;
-}
-
-fn slice_position(world_pos: vec3<f32>, object_pos: vec3<f32>) -> vec3<f32> {
-    let use_world = uvu::kw_enabled(mat._WORLD_SPACE) || (!uvu::kw_enabled(mat._OBJECT_SPACE));
-    return select(object_pos, world_pos, use_world);
-}
-
-fn blend_detail_normal(base_ts: vec3<f32>, detail_ts: vec3<f32>) -> vec3<f32> {
-    return normalize(vec3<f32>(base_ts.xy + detail_ts.xy, base_ts.z * detail_ts.z));
-}
-
 fn sample_albedo_color(uv_main: vec2<f32>, edge_lerp: f32) -> vec4<f32> {
     let tint = mix(mat._Color, mat._EdgeColor, edge_lerp);
     if (uvu::kw_enabled(mat._ALBEDOTEX) || uvu::kw_enabled(mat._DETAIL_ALBEDOTEX)) {
@@ -96,7 +84,7 @@ fn sample_normal_world(
                 textureSample(_DetailNormalMap, _DetailNormalMap_sampler, uv_detail).xyz,
                 mat._DetailNormalMapScale,
             );
-            ts = blend_detail_normal(ts, detail);
+            ts = pslice::blend_detail_normal(ts, detail);
         }
         if (!front_facing) {
             ts = vec3<f32>(ts.x, ts.y, -ts.z);
@@ -143,14 +131,19 @@ fn fs_main(
     let uv_detail_albedo = uvu::apply_st(uv0, mat._DetailAlbedoMap_ST);
     let uv_detail_normal = uvu::apply_st(uv0, mat._DetailNormalMap_ST);
 
-    let slice_p = slice_position(world_pos, object_pos);
+    let slice_p = pslice::slice_position(
+        world_pos,
+        object_pos,
+        uvu::kw_enabled(mat._WORLD_SPACE),
+        uvu::kw_enabled(mat._OBJECT_SPACE),
+    );
     var min_distance: f32 = 60000.0;
     for (var si: i32 = 0; si < 8; si = si + 1) {
         let slicer = mat._Slicers[si];
         if (all(slicer.xyz == vec3<f32>(0.0))) {
             break;
         }
-        min_distance = min(min_distance, plane_distance(slice_p, slicer.xyz, slicer.w));
+        min_distance = min(min_distance, pslice::plane_distance(slice_p, slicer.xyz, slicer.w));
     }
     if (min_distance < 0.0) {
         discard;

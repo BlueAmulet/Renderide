@@ -11,8 +11,8 @@
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
 
 /// Material uniforms for `PBSColorMask`. Field names match the Unity property block.
 struct PbsColorMaskMaterial {

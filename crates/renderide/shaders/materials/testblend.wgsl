@@ -2,14 +2,14 @@
 //! between two albedo textures and clips against `_CutOff`.
 
 
-#import renderide::per_draw as pd
-#import renderide::alpha_clip_sample as acs
+#import renderide::draw::per_draw as pd
+#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::alpha as ma
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct TestBlendMaterial {
     _Color: vec4<f32>,

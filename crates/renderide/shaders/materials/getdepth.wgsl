@@ -12,11 +12,11 @@
 //! the host's default even when `_ClipMax` is present.
 
 
-#import renderide::filter_vertex as fv
-#import renderide::globals as rg
-#import renderide::scene_depth_sample as sds
+#import renderide::post::filter_vertex as fv
+#import renderide::frame::globals as rg
+#import renderide::frame::scene_depth_sample as sds
 #import renderide::ui::rect_clip as uirc
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct FiltersGetDepthMaterial {
     _Rect: vec4<f32>,
