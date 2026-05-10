@@ -278,6 +278,20 @@ impl SkyboxIblCache {
         self.completed.retain(|key, _| retain.contains(key));
     }
 
+    /// Removes pending and completed IBL bakes whose keys match `predicate`.
+    pub(crate) fn purge_where(
+        &mut self,
+        mut predicate: impl FnMut(&SkyboxIblKey) -> bool,
+    ) -> usize {
+        let pending_before = self.pending.len();
+        let completed_before = self.completed.len();
+        self.pending.retain(|key, _| !predicate(key));
+        self.completed.retain(|key, _| !predicate(key));
+        self.jobs.retain(|key| !predicate(key));
+        pending_before.saturating_sub(self.pending.len())
+            + completed_before.saturating_sub(self.completed.len())
+    }
+
     /// Ensures one arbitrary IBL source is scheduled for baking.
     pub(crate) fn ensure_source(
         &mut self,

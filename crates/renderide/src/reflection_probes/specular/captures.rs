@@ -82,4 +82,12 @@ impl RuntimeReflectionProbeCaptureStore {
     pub(crate) fn retain_active(&mut self, active: &HashSet<RuntimeReflectionProbeCaptureKey>) {
         self.captures.retain(|key, _capture| active.contains(key));
     }
+
+    /// Removes captures owned by closed render spaces.
+    pub(crate) fn purge_spaces(&mut self, spaces: &HashSet<RenderSpaceId>) -> usize {
+        let before = self.captures.len();
+        self.captures
+            .retain(|key, _capture| !spaces.contains(&key.space_id));
+        before.saturating_sub(self.captures.len())
+    }
 }

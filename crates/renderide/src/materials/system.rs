@@ -1,9 +1,10 @@
 //! Material property store, shader routing, pipeline registry, and embedded `@group(1)` bind resources.
 
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use crate::assets::texture::HostTextureAssetKind;
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::materials::RasterPipelineKind;
 use crate::materials::host_data::{
@@ -120,6 +121,20 @@ impl MaterialSystem {
     /// Embedded material bind groups (world Unlit, etc.) after GPU attach.
     pub fn embedded_material_bind(&self) -> Option<&EmbeddedMaterialBindResources> {
         self.embedded_material_bind.as_ref()
+    }
+
+    /// Visits texture references stored on selected material and property-block ids.
+    pub(crate) fn for_each_texture_reference(
+        &self,
+        material_ids: &HashSet<i32>,
+        property_block_ids: &HashSet<i32>,
+        visit: impl FnMut(i32, HostTextureAssetKind),
+    ) {
+        self.material_property_store.for_each_texture_reference(
+            material_ids,
+            property_block_ids,
+            visit,
+        );
     }
 
     /// Maps shader asset to raster pipeline kind and optional AssetBundle shader asset name, or defers until GPU attach.
@@ -279,11 +294,45 @@ impl MaterialSystem {
 
     /// Remove material / property-block entries from the host store.
     pub fn on_unload_material(&mut self, asset_id: i32) {
+        if let Some(embedded) = self.embedded_material_bind.as_ref() {
+            embedded.purge_material_asset(asset_id);
+        }
         self.material_property_store.remove_material(asset_id);
     }
 
     /// Remove a property block from the host store.
     pub fn on_unload_material_property_block(&mut self, asset_id: i32) {
+        if let Some(embedded) = self.embedded_material_bind.as_ref() {
+            embedded.purge_property_block_asset(asset_id);
+        }
         self.material_property_store.remove_property_block(asset_id);
+    }
+
+    /// Drops material state and embedded GPU cache entries for zero-owner world-close assets.
+    pub(crate) fn purge_released_material_assets(
+        &mut self,
+        material_ids: &HashSet<i32>,
+        property_block_ids: &HashSet<i32>,
+    ) {
+        if material_ids.is_empty() && property_block_ids.is_empty() {
+            return;
+        }
+        profiling::scope!("materials::purge_released_material_assets");
+        if let Some(embedded) = self.embedded_material_bind.as_ref() {
+            embedded.purge_material_and_property_block_assets(material_ids, property_block_ids);
+        }
+        for &id in material_ids {
+            self.material_property_store.remove_material(id);
+        }
+        for &id in property_block_ids {
+            self.material_property_store.remove_property_block(id);
+        }
+    }
+
+    /// Drops embedded bind groups that may retain texture views for unloaded texture assets.
+    pub(crate) fn purge_texture_reference_caches(&self) {
+        if let Some(embedded) = self.embedded_material_bind.as_ref() {
+            embedded.purge_texture_reference_caches();
+        }
     }
 }

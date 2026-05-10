@@ -109,6 +109,16 @@ impl ViewId {
             face_index,
         ))
     }
+
+    /// Render space that owns this view, when the view is scoped to one host render space.
+    pub const fn render_space_id(self) -> Option<RenderSpaceId> {
+        match self {
+            Self::Main => None,
+            Self::SecondaryCamera(id) => Some(id.render_space_id),
+            Self::CameraRenderTask(id) => Some(id.render_space_id),
+            Self::ReflectionProbeRenderTask(id) => Some(id.render_space_id),
+        }
+    }
 }
 
 /// Projection family used by shader helpers that need to distinguish perspective from orthographic math.

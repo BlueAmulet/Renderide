@@ -254,6 +254,15 @@ impl SceneCoordinator {
         self.spaces.get(&id).map(RenderSpaceView::new)
     }
 
+    /// Texture2D cookie asset ids referenced by lights in `space`.
+    pub(crate) fn light_cookie_texture_asset_ids(
+        &self,
+        space: RenderSpaceView<'_>,
+    ) -> impl Iterator<Item = i32> + '_ {
+        self.light_cache
+            .cookie_texture_asset_ids_for_space(space.id().0)
+    }
+
     /// Main non-overlay render space, matching the host's single active main-space expectation.
     pub fn active_main_space(&self) -> Option<RenderSpaceView<'_>> {
         self.spaces

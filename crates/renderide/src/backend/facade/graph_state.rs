@@ -85,6 +85,16 @@ impl RenderGraphState {
         retired
     }
 
+    /// Retires active views matching `predicate` and releases graph-owned resources immediately.
+    pub(super) fn retire_views_where(
+        &mut self,
+        predicate: impl FnMut(ViewId) -> bool,
+    ) -> Vec<ViewId> {
+        let retired = self.view_resources.retire_where(predicate);
+        self.release_view_resources(&retired);
+        retired
+    }
+
     /// Releases graph-owned resources for views retired outside the regular active-view registry.
     pub(super) fn release_view_resources(&mut self, retired_views: &[ViewId]) {
         self.frame_graph_cache.release_view_resources(retired_views);

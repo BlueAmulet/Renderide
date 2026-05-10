@@ -28,14 +28,18 @@ impl RenderBackend {
         normal_deadline: std::time::Instant,
         particle_deadline: std::time::Instant,
     ) -> AssetIntegrationDrainSummary {
-        asset_uploads::drain_asset_tasks(
+        let summary = asset_uploads::drain_asset_tasks(
             &mut self.asset_transfers,
             &mut self.materials,
             shm,
             ipc,
             normal_deadline,
             particle_deadline,
-        )
+        );
+        if summary.processed_main_tasks > 0 {
+            self.resource_scopes.note_material_dependencies_dirty();
+        }
+        summary
     }
 
     /// Whether upload or material work is queued or deferred on missing prerequisites.
@@ -85,6 +89,7 @@ impl RenderBackend {
 
     /// Remove a texture asset from CPU tables and the pool.
     pub fn on_unload_texture_2d(&mut self, u: UnloadTexture2D) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_texture_2d(&mut self.asset_transfers, u);
     }
 
@@ -118,6 +123,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadTexture3D`](crate::shared::UnloadTexture3D).
     pub fn on_unload_texture_3d(&mut self, u: UnloadTexture3D) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_texture_3d(&mut self.asset_transfers, u);
     }
 
@@ -147,6 +153,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadCubemap`](crate::shared::UnloadCubemap).
     pub fn on_unload_cubemap(&mut self, u: UnloadCubemap) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_cubemap(&mut self.asset_transfers, u);
     }
 
@@ -161,6 +168,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadRenderTexture`](crate::shared::UnloadRenderTexture).
     pub fn on_unload_render_texture(&mut self, u: UnloadRenderTexture) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_render_texture(&mut self.asset_transfers, u);
     }
 
@@ -180,6 +188,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadDesktopTexture`](crate::shared::UnloadDesktopTexture).
     pub fn on_unload_desktop_texture(&mut self, u: UnloadDesktopTexture) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_desktop_texture(&mut self.asset_transfers, u);
     }
 
@@ -261,6 +270,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadVideoTexture`](crate::shared::UnloadVideoTexture).
     pub fn on_unload_video_texture(&mut self, u: UnloadVideoTexture) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_video_texture(&mut self.asset_transfers, u);
     }
 
@@ -303,7 +313,7 @@ impl RenderBackend {
         self.materials.enqueue_materials_batch_no_shm(batch);
     }
 
-    /// Apply one host materials batch (shared memory must be valid for the batch descriptors).
+    /// Queue one host materials batch for cooperative integration.
     pub fn apply_materials_update_batch(
         &mut self,
         batch: MaterialsUpdateBatch,
@@ -323,11 +333,13 @@ impl RenderBackend {
 
     /// Remove material / property-block entries from the host store.
     pub fn on_unload_material(&mut self, asset_id: i32) {
+        self.resource_scopes.note_material_dependencies_dirty();
         self.materials.on_unload_material(asset_id);
     }
 
     /// Remove a property block from the host store.
     pub fn on_unload_material_property_block(&mut self, asset_id: i32) {
+        self.resource_scopes.note_material_dependencies_dirty();
         self.materials.on_unload_material_property_block(asset_id);
     }
 

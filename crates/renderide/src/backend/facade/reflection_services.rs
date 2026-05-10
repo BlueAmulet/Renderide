@@ -2,6 +2,7 @@
 
 use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::ReflectionProbeSpecularResources;
+use crate::backend::resource_scope::RenderSpaceAssetSet;
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
 use crate::materials::MaterialSystem;
@@ -9,8 +10,9 @@ use crate::reflection_probes::ReflectionProbeSh2System;
 use crate::reflection_probes::specular::{
     ReflectionProbeFrameSelection, ReflectionProbeSpecularSystem, RuntimeReflectionProbeCapture,
 };
-use crate::scene::SceneCoordinator;
+use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::{FrameSubmitData, RenderingContext};
+use hashbrown::HashSet;
 
 /// Nonblocking reflection-probe projection, bake, cache, and selection services.
 pub(super) struct ReflectionProbeServices {
@@ -88,5 +90,28 @@ impl ReflectionProbeServices {
     /// Registers a completed OnChanges runtime cubemap capture.
     pub(super) fn register_runtime_capture(&mut self, capture: RuntimeReflectionProbeCapture) {
         self.specular.register_runtime_capture(capture);
+    }
+
+    /// Purges reflection-probe resources tied to closed render spaces.
+    pub(super) fn purge_render_space_resources(
+        &mut self,
+        spaces: &[RenderSpaceId],
+        assets: &RenderSpaceAssetSet,
+    ) {
+        if spaces.is_empty() && assets.is_empty() {
+            return;
+        }
+        let space_set: HashSet<RenderSpaceId> = spaces.iter().copied().collect();
+        let sh2 = self.sh2.purge_render_space_resources(&space_set, assets);
+        let specular = self
+            .specular
+            .purge_render_space_resources(&space_set, assets);
+        if sh2 > 0 || specular > 0 {
+            logger::debug!(
+                "reflection probe purge: sh2_entries={} specular_entries={}",
+                sh2,
+                specular
+            );
+        }
     }
 }

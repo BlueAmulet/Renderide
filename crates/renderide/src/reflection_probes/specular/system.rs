@@ -6,6 +6,7 @@ use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT, ReflectionProbeSpecularResources,
 };
+use crate::backend::resource_scope::RenderSpaceAssetSet;
 use crate::gpu::GpuContext;
 use crate::materials::MaterialSystem;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
@@ -70,6 +71,27 @@ impl ReflectionProbeSpecularSystem {
     #[must_use]
     pub(crate) fn capture_store(&self) -> &RuntimeReflectionProbeCaptureStore {
         &self.captures
+    }
+
+    /// Purges reflection-probe GPU resources tied to closed spaces or zero-owner source assets.
+    pub(crate) fn purge_render_space_resources(
+        &mut self,
+        spaces: &HashSet<RenderSpaceId>,
+        assets: &RenderSpaceAssetSet,
+    ) -> usize {
+        if spaces.is_empty() && assets.is_empty() {
+            return 0;
+        }
+        profiling::scope!("reflection_probes::specular::purge_render_space_resources");
+        let captures = self.captures.purge_spaces(spaces);
+        let ibl = self
+            .ibl_cache
+            .purge_where(|key| specular_ibl_key_matches_closed_resources(key, spaces, assets));
+        let removed = captures.saturating_add(ibl);
+        if removed > 0 {
+            self.version = self.version.wrapping_add(1);
+        }
+        removed
     }
 
     /// Advances GPU bakes, updates the atlas, and rebuilds the CPU selection index.
@@ -401,6 +423,32 @@ impl ReflectionProbeSpecularSystem {
             }
         }
         gpu.submit_frame_batch(vec![encoder.finish()], None, None);
+    }
+}
+
+fn specular_ibl_key_matches_closed_resources(
+    key: &SkyboxIblKey,
+    spaces: &HashSet<RenderSpaceId>,
+    assets: &RenderSpaceAssetSet,
+) -> bool {
+    match key {
+        SkyboxIblKey::Analytic {
+            material_asset_id, ..
+        } => assets.materials.contains(material_asset_id),
+        SkyboxIblKey::Cubemap {
+            material_asset_id,
+            asset_id,
+            ..
+        } => assets.materials.contains(material_asset_id) || assets.cubemaps.contains(asset_id),
+        SkyboxIblKey::Equirect {
+            material_asset_id,
+            asset_id,
+            ..
+        } => assets.materials.contains(material_asset_id) || assets.texture_2d.contains(asset_id),
+        SkyboxIblKey::SolidColor { .. } => false,
+        SkyboxIblKey::RuntimeCubemap {
+            render_space_id, ..
+        } => spaces.contains(&RenderSpaceId(*render_space_id)),
     }
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]

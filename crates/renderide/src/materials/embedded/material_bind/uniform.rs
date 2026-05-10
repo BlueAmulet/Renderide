@@ -3,7 +3,7 @@
 use std::num::NonZeroU64;
 use std::sync::Arc;
 
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
 use super::super::embedded_material_bind_error::EmbeddedMaterialBindError;
 use super::super::layout::StemMaterialLayout;
@@ -149,6 +149,26 @@ impl MaterialUniformArenaAllocator {
         slot.last_written_texture_state_sig = texture_state_sig;
     }
 
+    fn purge_material_assets(
+        &mut self,
+        material_ids: &HashSet<i32>,
+        property_block_ids: &HashSet<i32>,
+    ) -> usize {
+        let before = self.slots.len();
+        self.slots.retain(|key, _slot| {
+            !material_ids.contains(&key.material_asset_id)
+                && key
+                    .property_block_slot0
+                    .is_none_or(|id| !property_block_ids.contains(&id))
+        });
+        let removed = before.saturating_sub(self.slots.len());
+        if self.slots.is_empty() && removed > 0 {
+            self.cursor = 0;
+            self.generation = self.generation.wrapping_add(1);
+        }
+        removed
+    }
+
     fn ensure_capacity(&mut self, needed: u64) -> Result<(), EmbeddedMaterialBindError> {
         if needed <= self.capacity {
             return Ok(());
@@ -246,6 +266,15 @@ impl MaterialUniformArena {
             mutation_gen,
             texture_state_sig,
         );
+    }
+
+    pub(super) fn purge_material_assets(
+        &mut self,
+        material_ids: &HashSet<i32>,
+        property_block_ids: &HashSet<i32>,
+    ) -> usize {
+        self.allocator
+            .purge_material_assets(material_ids, property_block_ids)
     }
 }
 
@@ -379,6 +408,15 @@ mod tests {
         }
     }
 
+    fn key_with_block(material_asset_id: i32, property_block_id: i32) -> MaterialUniformCacheKey {
+        MaterialUniformCacheKey {
+            stem_hash: 7,
+            material_asset_id,
+            property_block_slot0: Some(property_block_id),
+            texture_2d_asset_id: -1,
+        }
+    }
+
     #[test]
     fn arena_allocator_aligns_offsets() {
         let mut allocator = MaterialUniformArenaAllocator::new(1024, 4096, 256);
@@ -420,5 +458,26 @@ mod tests {
         assert_eq!(first_after_growth.offset, first.offset);
         assert_eq!(first_after_growth.buffer_generation, 1);
         assert!(first_after_growth.needs_write);
+    }
+
+    #[test]
+    fn arena_allocator_purges_material_and_property_block_slots() {
+        let mut allocator = MaterialUniformArenaAllocator::new(1024, 4096, 256);
+        let size = NonZeroU64::new(80).unwrap();
+        allocator.resolve_slot(key(1), size, 0, 0).unwrap();
+        allocator
+            .resolve_slot(key_with_block(2, 20), size, 0, 0)
+            .unwrap();
+        allocator.resolve_slot(key(3), size, 0, 0).unwrap();
+
+        let mut materials = HashSet::new();
+        materials.insert(1);
+        let mut blocks = HashSet::new();
+        blocks.insert(20);
+        assert_eq!(allocator.purge_material_assets(&materials, &blocks), 2);
+
+        assert!(!allocator.slots.contains_key(&key(1)));
+        assert!(!allocator.slots.contains_key(&key_with_block(2, 20)));
+        assert!(allocator.slots.contains_key(&key(3)));
     }
 }

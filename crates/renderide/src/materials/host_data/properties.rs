@@ -4,7 +4,9 @@
 //! Parity with FrooxEngine / Renderite `MaterialUpdateWriter` / `MaterialUpdateReader` is documented
 //! in [`super::update_batch::parse_materials_update_batch_into_store`].
 
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
+
+use crate::assets::texture::{HostTextureAssetKind, unpack_host_texture_packed};
 
 /// Maximum `set_float_array` elements stored when extended persistence is enabled.
 pub const MATERIAL_BATCH_MAX_FLOAT_ARRAY_LEN: usize = 256;
@@ -288,10 +290,47 @@ impl MaterialPropertyStore {
         self.property_block_properties.remove(&block_id);
         self.bump_property_block_generation(block_id);
     }
+
+    /// Visits packed texture references stored on selected material and property-block ids.
+    pub fn for_each_texture_reference(
+        &self,
+        material_ids: &HashSet<i32>,
+        property_block_ids: &HashSet<i32>,
+        mut visit: impl FnMut(i32, HostTextureAssetKind),
+    ) {
+        for material_id in material_ids {
+            if let Some(properties) = self.material_properties.get(material_id) {
+                visit_texture_values(properties.values(), &mut visit);
+            }
+        }
+        for block_id in property_block_ids {
+            if let Some(properties) = self.property_block_properties.get(block_id) {
+                visit_texture_values(properties.values(), &mut visit);
+            }
+        }
+    }
+}
+
+fn visit_texture_values<'a>(
+    values: impl Iterator<Item = &'a MaterialPropertyValue>,
+    visit: &mut impl FnMut(i32, HostTextureAssetKind),
+) {
+    for value in values {
+        let MaterialPropertyValue::Texture(packed) = value else {
+            continue;
+        };
+        if let Some((id, kind)) = unpack_host_texture_packed(*packed) {
+            visit(id, kind);
+        }
+    }
 }
 
 #[cfg(test)]
 mod material_dictionary_tests {
+    use hashbrown::HashSet;
+
+    use crate::assets::texture::{HostTextureAssetKind, pack_host_texture_id};
+
     use super::{
         MaterialDictionary, MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
     };
@@ -332,6 +371,35 @@ mod material_dictionary_tests {
             Some(&MaterialPropertyValue::Float(0.25))
         );
         assert_eq!(store.get_merged(ids, 999), None);
+    }
+
+    #[test]
+    fn texture_reference_visit_decodes_selected_material_and_block_textures() {
+        let mut store = MaterialPropertyStore::new();
+        let main = pack_host_texture_id(10, HostTextureAssetKind::Texture2D).unwrap();
+        let block = pack_host_texture_id(20, HostTextureAssetKind::RenderTexture).unwrap();
+        let ignored = pack_host_texture_id(30, HostTextureAssetKind::Cubemap).unwrap();
+        store.set_material(1, 100, MaterialPropertyValue::Texture(main));
+        store.set_property_block(2, 101, MaterialPropertyValue::Texture(block));
+        store.set_material(99, 102, MaterialPropertyValue::Texture(ignored));
+
+        let mut materials = HashSet::new();
+        materials.insert(1);
+        let mut blocks = HashSet::new();
+        blocks.insert(2);
+        let mut refs = Vec::new();
+        store.for_each_texture_reference(&materials, &blocks, |id, kind| {
+            refs.push((id, kind));
+        });
+        refs.sort_unstable_by_key(|(id, _kind)| *id);
+
+        assert_eq!(
+            refs,
+            vec![
+                (10, HostTextureAssetKind::Texture2D),
+                (20, HostTextureAssetKind::RenderTexture),
+            ]
+        );
     }
 
     #[test]

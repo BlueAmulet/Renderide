@@ -1,6 +1,6 @@
 //! Backend-owned frame extraction helpers and read-only draw-preparation views.
 
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 
 use crate::backend::FrameLightViewDesc;
 use crate::gpu_pools::MeshPool;
@@ -8,7 +8,7 @@ use crate::materials::ShaderPermutation;
 use crate::materials::host_data::MaterialPropertyStore;
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter};
 use crate::reflection_probes::specular::ReflectionProbeFrameSelection;
-use crate::scene::{SceneApplyReport, SceneCacheFlushReport, SceneCoordinator};
+use crate::scene::{RenderSpaceId, SceneApplyReport, SceneCacheFlushReport, SceneCoordinator};
 use crate::shared::RenderingContext;
 use crate::world_mesh::{
     FrameMaterialBatchCache, FramePreparedRenderables, WorldMeshDrawCollectParallelism,
@@ -16,6 +16,7 @@ use crate::world_mesh::{
 
 use super::draw_preparation::DrawPreparationExtractDesc;
 use super::{OcclusionSystem, RenderBackend};
+use crate::backend::resource_scope::ReleasedRenderSpaceResources;
 
 /// Immutable backend-owned extraction snapshot produced by [`RenderBackend::extract_frame_shared`].
 ///
@@ -52,13 +53,79 @@ pub(crate) struct ExtractedFrameShared<'a> {
 
 impl RenderBackend {
     /// Applies scene mutation reports to backend-owned CPU render-world caches.
-    pub(crate) fn note_scene_apply_report(&mut self, report: &SceneApplyReport) {
+    pub(crate) fn note_scene_apply_report(
+        &mut self,
+        report: &SceneApplyReport,
+        scene: &SceneCoordinator,
+    ) {
         self.draw_preparation.note_scene_apply_report(report);
+        let released = self
+            .resource_scopes
+            .apply_scene_report(report, scene, &self.materials);
+        self.purge_released_render_space_resources(released);
     }
 
     /// Applies world-cache flush reports to backend-owned CPU render-world caches.
     pub(crate) fn note_scene_cache_flush_report(&mut self, report: &SceneCacheFlushReport) {
         self.draw_preparation.note_scene_cache_flush_report(report);
+    }
+
+    fn purge_released_render_space_resources(&mut self, released: ReleasedRenderSpaceResources) {
+        if released.is_empty() {
+            return;
+        }
+        profiling::scope!("backend::purge_released_render_space_resources");
+
+        self.materials.purge_texture_reference_caches();
+        self.reflection_probes
+            .purge_render_space_resources(&released.removed_spaces, &released.assets);
+        let retired_views = self.retire_views_for_render_spaces(&released.removed_spaces);
+        let skin_entries = self
+            .frame_services
+            .purge_skin_cache_spaces(&released.removed_spaces);
+        self.materials.purge_released_material_assets(
+            &released.assets.materials,
+            &released.assets.property_blocks,
+        );
+        let asset_summary = self
+            .asset_transfers
+            .purge_render_space_assets(&released.assets);
+
+        logger::info!(
+            "world-close resource purge: spaces={} zero_owner_assets={} asset_purges={} views={} skin_entries={}",
+            released.removed_spaces.len(),
+            released.assets.total_len(),
+            asset_summary.total(),
+            retired_views,
+            skin_entries
+        );
+    }
+
+    fn retire_views_for_render_spaces(&mut self, spaces: &[RenderSpaceId]) -> usize {
+        if spaces.is_empty() {
+            return 0;
+        }
+        let removed_spaces: HashSet<RenderSpaceId> = spaces.iter().copied().collect();
+        let retired = self.graph_state.retire_views_where(|view_id| {
+            view_id
+                .render_space_id()
+                .is_some_and(|space_id| removed_spaces.contains(&space_id))
+        });
+        if retired.is_empty() {
+            return 0;
+        }
+        logger::debug!(
+            "retiring {} view-scoped resource sets for closed render spaces",
+            retired.len()
+        );
+        self.world_mesh_frame_planner
+            .release_view_resources(&retired);
+        for &view_id in &retired {
+            self.frame_services.frame_resources.retire_view(view_id);
+            self.graph_state.history_registry_mut().retire_view(view_id);
+            let _ = self.occlusion.retire_view(view_id);
+        }
+        retired.len()
     }
 
     /// Prepares clustered-light frame resources for the planned views in one graph submission.
