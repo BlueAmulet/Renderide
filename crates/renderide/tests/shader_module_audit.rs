@@ -57,6 +57,66 @@ fn material_source(file_name: &str) -> io::Result<String> {
     fs::read_to_string(manifest_dir().join("shaders/materials").join(file_name))
 }
 
+fn module_source(file_name: &str) -> io::Result<String> {
+    fs::read_to_string(manifest_dir().join("shaders/modules").join(file_name))
+}
+
+#[test]
+fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()> {
+    let birp = module_source("birp_light.wgsl")?;
+    assert!(
+        birp.contains(
+            "fn direct_light_intensity(intensity: f32) -> f32 {\n    return intensity * INTENSITY_BOOST;\n}"
+        ),
+        "BiRP light module must expose the shared direct-light boost helper"
+    );
+    assert!(
+        birp.contains("return lut * range_fade(t) * INTENSITY_BOOST;"),
+        "punctual distance attenuation must keep the existing intensity boost"
+    );
+
+    let pbs_brdf = module_source("pbs_brdf.wgsl")?;
+    assert!(
+        pbs_brdf.contains("out.attenuation = bl::direct_light_intensity(light.intensity);"),
+        "PBS directional lights must use the shared intensity boost"
+    );
+    assert!(
+        pbs_brdf.contains("out.attenuation = light.intensity * distance_attenuation(dist, light.range);")
+            && pbs_brdf.contains(
+                "out.attenuation = light.intensity * spot_atten * distance_attenuation(dist, light.range);"
+            ),
+        "PBS point and spot lights must continue using boosted distance attenuation"
+    );
+
+    let xiexe = module_source("xiexe_toon2_lighting.wgsl")?;
+    assert!(
+        xiexe.contains("bl::direct_light_intensity(light.intensity),"),
+        "Xiexe directional lights must use the shared intensity boost"
+    );
+    assert!(
+        xiexe.contains(
+            "var attenuation = bl::punctual_attenuation(light.intensity, dist, light.range);"
+        ),
+        "Xiexe point and spot lights must continue using boosted punctual attenuation"
+    );
+
+    for material in ["toonstandard.wgsl", "toonwater.wgsl"] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("attenuation = bl::direct_light_intensity(light.intensity);"),
+            "{material} directional lights must use the shared intensity boost"
+        );
+        assert!(
+            src.contains(
+                "attenuation = light.intensity * brdf::distance_attenuation(dist, light.range);"
+            ),
+            "{material} point and spot lights must continue using boosted distance attenuation"
+        );
+    }
+
+    Ok(())
+}
+
 #[test]
 fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
     let metallic = material_source("pbsmetallic.wgsl")?;

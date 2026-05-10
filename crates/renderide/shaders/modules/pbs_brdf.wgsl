@@ -255,7 +255,7 @@ fn eval_light(light: rg::GpuLight, world_pos: vec3<f32>) -> LightSample {
     } else if light.light_type == 1u {
         let dir_len_sq = dot(light_dir, light_dir);
         out.l = select(vec3<f32>(0.0, 0.0, 1.0), normalize(-light_dir), dir_len_sq > 1e-16);
-        out.attenuation = light.intensity;
+        out.attenuation = bl::direct_light_intensity(light.intensity);
     } else {
         let to_light = light_pos - world_pos;
         let dist = length(to_light);

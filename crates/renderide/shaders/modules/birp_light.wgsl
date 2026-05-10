@@ -1,4 +1,4 @@
-//! Shared Unity Built-in Render Pipeline punctual-light attenuation helpers.
+//! Shared Unity Built-in Render Pipeline direct-light intensity and attenuation helpers.
 
 #define_import_path renderide::birp::light
 
@@ -7,6 +7,11 @@ const BIRP_ATTENUATION_QUADRATIC: f32 = 25.0;
 
 /// Temporary direct-light multiplier used to match BiRP-authored scene brightness.
 const INTENSITY_BOOST: f32 = 3.1415927;
+
+/// Unity BiRP-style direct light intensity with scene-brightness boost applied.
+fn direct_light_intensity(intensity: f32) -> f32 {
+    return intensity * INTENSITY_BOOST;
+}
 
 /// Quartic window that masks punctual attenuation to zero at the light range.
 fn range_fade(t: f32) -> f32 {
