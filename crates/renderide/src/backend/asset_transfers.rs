@@ -35,7 +35,8 @@ use crate::shared::VideoTextureClockErrorState;
 use catalogs::AssetCatalogs;
 use gpu_runtime::AssetGpuRuntime;
 pub use integrator::{
-    AssetIntegrationDrainSummary, AssetIntegrator, drain_asset_tasks, drain_asset_tasks_unbounded,
+    AssetIntegrationDrainSummary, AssetIntegrator, AssetTask, AssetTaskLane, ShaderRouteTask,
+    drain_asset_tasks, drain_asset_tasks_unbounded,
 };
 use pending::PendingAssetUploads;
 use pools::ResidentAssetPools;
@@ -83,11 +84,6 @@ impl AssetTransferQueue {
             || !self.pending.pending_texture_uploads.is_empty()
             || !self.pending.pending_texture3d_uploads.is_empty()
             || !self.pending.pending_cubemap_uploads.is_empty()
-    }
-
-    /// Whether GPU handles required by the asset integrator are attached.
-    pub(crate) fn asset_gpu_ready(&self) -> bool {
-        self.gpu.is_attached()
     }
 
     /// Stores GPU handles and limits after backend attach.

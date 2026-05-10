@@ -1,4 +1,5 @@
 use super::super::AssetTransferQueue;
+use super::super::integrator::RetiredAssetResource;
 #[cfg(feature = "video-textures")]
 use crate::assets::video::VideoTextureFrameSink;
 use crate::assets::video::player::VideoPlayer;
@@ -108,9 +109,12 @@ pub fn on_unload_video_texture(queue: &mut AssetTransferQueue, u: UnloadVideoTex
     queue.pending.pending_video_texture_loads.remove(&id);
     queue.catalogs.video_texture_properties.remove(&id);
     queue.video.video_players.remove(&id);
-    if queue.pools.video_texture_pool.remove(id) {
+    if let Some(texture) = queue.pools.video_texture_pool.take(id) {
+        queue
+            .integrator_mut()
+            .enqueue_delayed_removal(RetiredAssetResource::VideoTexture(texture));
         logger::info!(
-            "video texture {id} unloaded (total~{})",
+            "video texture {id} unloaded; GPU handle queued for delayed removal (total~{})",
             queue
                 .pools
                 .video_texture_pool

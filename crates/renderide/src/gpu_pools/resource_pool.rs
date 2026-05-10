@@ -169,14 +169,17 @@ where
         existed_before
     }
 
-    /// Removes a resident resource by host asset id and returns whether it existed.
-    pub(crate) fn remove(&mut self, asset_id: i32) -> bool {
-        let Some(old) = self.resources.remove(&asset_id) else {
-            return false;
-        };
+    /// Removes a resident resource by host asset id and returns it when it existed.
+    pub(crate) fn take(&mut self, asset_id: i32) -> Option<T> {
+        let old = self.resources.remove(&asset_id)?;
         self.accounting
             .on_resident_removed(self.access.kind(), old.resident_bytes());
-        true
+        Some(old)
+    }
+
+    /// Removes a resident resource by host asset id and returns whether it existed.
+    pub(crate) fn remove(&mut self, asset_id: i32) -> bool {
+        self.take(asset_id).is_some()
     }
 
     /// Borrows a resident resource by host asset id.
@@ -255,10 +258,10 @@ macro_rules! impl_streaming_pool_facade {
                 self.inner.insert(resource)
             }
 
-            /// Removes a resource by host asset id; returns `true` if it was present.
+            /// Removes and returns a resource by host asset id when it was present.
             #[inline]
-            pub fn remove(&mut self, asset_id: i32) -> bool {
-                self.inner.remove(asset_id)
+            pub(crate) fn take(&mut self, asset_id: i32) -> Option<$resource> {
+                self.inner.take(asset_id)
             }
 
             /// Borrows a resident resource by host asset id.
@@ -303,10 +306,10 @@ macro_rules! impl_resident_pool_facade {
                 self.inner.insert(resource)
             }
 
-            /// Removes a resource by host asset id; returns `true` if it was present.
+            /// Removes and returns a resource by host asset id when it was present.
             #[inline]
-            pub fn remove(&mut self, asset_id: i32) -> bool {
-                self.inner.remove(asset_id)
+            pub(crate) fn take(&mut self, asset_id: i32) -> Option<$resource> {
+                self.inner.take(asset_id)
             }
 
             /// Borrows a resident resource by host asset id.

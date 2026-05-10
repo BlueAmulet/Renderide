@@ -4,7 +4,7 @@ use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
 use crate::shared::{MeshUnload, MeshUploadData};
 
 use super::super::AssetTransferQueue;
-use super::super::integrator::AssetTask;
+use super::super::integrator::{AssetTask, RetiredAssetResource};
 use super::super::mesh_task::{MeshUploadTask, complete_empty_mesh_upload};
 use super::MAX_PENDING_MESH_UPLOADS;
 
@@ -23,9 +23,12 @@ pub fn on_mesh_unload(queue: &mut AssetTransferQueue, u: MeshUnload) {
             pending_removed
         );
     }
-    if queue.pools.mesh_pool.remove(u.asset_id) {
+    if let Some(mesh) = queue.pools.mesh_pool.take(u.asset_id) {
+        queue
+            .integrator_mut()
+            .enqueue_delayed_removal(RetiredAssetResource::Mesh(Box::new(mesh)));
         logger::info!(
-            "mesh {} unloaded (resident_bytes~={})",
+            "mesh {} unloaded; GPU handle queued for delayed removal (resident_bytes~={})",
             u.asset_id,
             queue.pools.mesh_pool.accounting().total_resident_bytes()
         );

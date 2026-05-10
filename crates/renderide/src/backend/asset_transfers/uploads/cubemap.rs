@@ -9,7 +9,7 @@ use crate::shared::{
 
 use super::super::AssetTransferQueue;
 use super::super::cubemap_task::CubemapUploadTask;
-use super::super::integrator::AssetTask;
+use super::super::integrator::{AssetTask, RetiredAssetResource};
 use super::MAX_PENDING_CUBEMAP_UPLOADS;
 use super::allocations::flush_pending_cubemap_allocations;
 use super::texture_common::{TextureUploadAdmission, admit_texture_upload_data};
@@ -152,9 +152,12 @@ pub fn on_unload_cubemap(queue: &mut AssetTransferQueue, u: UnloadCubemap) {
     queue.catalogs.cubemap_formats.remove(&id);
     queue.catalogs.cubemap_properties.remove(&id);
     remove_pending_cubemap_uploads_for_asset(queue, id);
-    if queue.pools.cubemap_pool.remove(id) {
+    if let Some(cubemap) = queue.pools.cubemap_pool.take(id) {
+        queue
+            .integrator_mut()
+            .enqueue_delayed_removal(RetiredAssetResource::Cubemap(cubemap));
         logger::info!(
-            "cubemap {id} unloaded (tex~={} total~={})",
+            "cubemap {id} unloaded; GPU handle queued for delayed removal (tex~={} total~={})",
             queue
                 .pools
                 .cubemap_pool

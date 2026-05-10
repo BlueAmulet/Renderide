@@ -3,14 +3,14 @@
 use crate::ipc::DualQueueIpc;
 use crate::shared::{
     DesktopTexturePropertiesUpdate, GaussianSplatConfig, GaussianSplatResult,
-    GaussianSplatUploadEncoded, GaussianSplatUploadRaw, PointRenderBufferConsumed,
-    PointRenderBufferUnload, PointRenderBufferUpload, RendererCommand, SetDesktopTextureProperties,
-    TrailRenderBufferConsumed, TrailRenderBufferUnload, TrailRenderBufferUpload,
-    UnloadDesktopTexture, UnloadGaussianSplat,
+    GaussianSplatUploadEncoded, GaussianSplatUploadRaw, PointRenderBufferUnload,
+    PointRenderBufferUpload, RendererCommand, SetDesktopTextureProperties, TrailRenderBufferUnload,
+    TrailRenderBufferUpload, UnloadDesktopTexture, UnloadGaussianSplat,
 };
 
 use super::super::AssetTransferQueue;
 use super::super::catalogs::GaussianSplatUploadKind;
+use super::super::integrator::{AssetTask, AssetTaskLane};
 
 fn send_desktop_texture_update(
     ipc: Option<&mut DualQueueIpc>,
@@ -20,24 +20,6 @@ fn send_desktop_texture_update(
         return;
     };
     let _ = ipc.send_background_reliable(RendererCommand::DesktopTexturePropertiesUpdate(update));
-}
-
-fn send_point_render_buffer_consumed(ipc: Option<&mut DualQueueIpc>, asset_id: i32) {
-    let Some(ipc) = ipc else {
-        return;
-    };
-    let _ = ipc.send_background_reliable(RendererCommand::PointRenderBufferConsumed(
-        PointRenderBufferConsumed { asset_id },
-    ));
-}
-
-fn send_trail_render_buffer_consumed(ipc: Option<&mut DualQueueIpc>, asset_id: i32) {
-    let Some(ipc) = ipc else {
-        return;
-    };
-    let _ = ipc.send_background_reliable(RendererCommand::TrailRenderBufferConsumed(
-        TrailRenderBufferConsumed { asset_id },
-    ));
 }
 
 fn send_gaussian_splat_result(
@@ -110,16 +92,15 @@ pub fn on_unload_desktop_texture(queue: &mut AssetTransferQueue, unload: UnloadD
 pub fn on_point_render_buffer_upload(
     queue: &mut AssetTransferQueue,
     upload: PointRenderBufferUpload,
-    ipc: Option<&mut DualQueueIpc>,
+    _ipc: Option<&mut DualQueueIpc>,
 ) {
     let asset_id = upload.asset_id;
     let count = upload.count;
-    queue
-        .catalogs
-        .point_render_buffer_uploads
-        .insert(asset_id, upload);
-    send_point_render_buffer_consumed(ipc, asset_id);
-    logger::debug!("point render buffer {asset_id}: consumed placeholder upload count={count}");
+    queue.integrator_mut().enqueue_lane(
+        AssetTask::PointRenderBuffer(upload),
+        AssetTaskLane::Particle,
+    );
+    logger::trace!("point render buffer {asset_id}: queued placeholder upload count={count}");
 }
 
 /// Removes a tracked point render buffer upload.
@@ -136,18 +117,17 @@ pub fn on_point_render_buffer_unload(
 pub fn on_trail_render_buffer_upload(
     queue: &mut AssetTransferQueue,
     upload: TrailRenderBufferUpload,
-    ipc: Option<&mut DualQueueIpc>,
+    _ipc: Option<&mut DualQueueIpc>,
 ) {
     let asset_id = upload.asset_id;
     let trails_count = upload.trails_count;
     let trail_point_count = upload.trail_point_count;
-    queue
-        .catalogs
-        .trail_render_buffer_uploads
-        .insert(asset_id, upload);
-    send_trail_render_buffer_consumed(ipc, asset_id);
-    logger::debug!(
-        "trail render buffer {asset_id}: consumed placeholder upload trails={trails_count} points_per_trail={trail_point_count}"
+    queue.integrator_mut().enqueue_lane(
+        AssetTask::TrailRenderBuffer(upload),
+        AssetTaskLane::Particle,
+    );
+    logger::trace!(
+        "trail render buffer {asset_id}: queued placeholder upload trails={trails_count} points_per_trail={trail_point_count}"
     );
 }
 
