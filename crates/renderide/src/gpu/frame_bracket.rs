@@ -163,6 +163,7 @@ impl FrameBracketSession {
     pub fn into_readback(self) -> FrameBracketReadback {
         let timestamp_period = self.queue.get_timestamp_period();
         FrameBracketReadback {
+            device: self.device,
             readback_buffer: self.readback_buffer,
             query_set: self.query_set,
             resolve_buffer: self.resolve_buffer,
@@ -176,6 +177,8 @@ impl FrameBracketSession {
 /// Held by the closure passed to [`Self::schedule_readback`]; dropped when the closure runs to
 /// completion (or is dropped without running, e.g. on shutdown).
 pub struct FrameBracketReadback {
+    /// Logical device used to locally scope validation errors from best-effort readback mapping.
+    device: Arc<wgpu::Device>,
     /// CPU-mappable buffer the resolve copies finish into.
     readback_buffer: wgpu::Buffer,
     /// Held until readback completes so the underlying query set is not dropped early.
@@ -190,8 +193,8 @@ impl FrameBracketReadback {
     /// Registers a `map_async` callback on the readback buffer.
     ///
     /// `on_gpu_ms` is invoked exactly once with `Some(gpu_frame_ms)` on success, or [`None`] if
-    /// the map fails (e.g. device loss). After invocation, the buffer is unmapped and all GPU
-    /// resources owned by this readback are released.
+    /// the map fails (e.g. device loss). Successful maps are unmapped after bytes are read; failed
+    /// maps are dropped without unmapping because the buffer never entered the mapped state.
     ///
     /// The callback fires on whatever thread next polls the device after the GPU has finished
     /// the submit; in practice that is the main thread, since the renderer drives
@@ -201,37 +204,87 @@ impl FrameBracketReadback {
         F: FnOnce(Option<f64>) + Send + 'static,
     {
         let Self {
+            device,
             readback_buffer,
             query_set,
             resolve_buffer,
             timestamp_period,
         } = self;
         let buffer_for_callback = readback_buffer.clone();
+        let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         readback_buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |result| {
                 let _keep_query_set_alive = query_set;
                 let _keep_resolve_buffer_alive = resolve_buffer;
                 let gpu_ms = match result {
-                    Ok(()) => read_gpu_ms(&buffer_for_callback, timestamp_period),
+                    Ok(()) => {
+                        let gpu_ms = read_gpu_ms(&buffer_for_callback, timestamp_period);
+                        buffer_for_callback.unmap();
+                        gpu_ms
+                    }
                     Err(_) => None,
                 };
-                buffer_for_callback.unmap();
                 on_gpu_ms(gpu_ms);
             });
+        if let Some(error) = pollster::block_on(error_scope.pop()) {
+            logger::debug!("frame bracket readback map validation suppressed: {error}");
+        }
     }
 }
 
 /// Reads the two `u64` timestamps from `readback`, returning the elapsed milliseconds.
 fn read_gpu_ms(readback: &wgpu::Buffer, timestamp_period: f32) -> Option<f64> {
     let view = readback.slice(..).get_mapped_range();
-    if view.len() < TIMESTAMP_PAIR_BYTES as usize {
+    let gpu_ms = timestamp_pair_bytes_to_ms(&view, timestamp_period);
+    drop(view);
+    gpu_ms
+}
+
+fn timestamp_pair_bytes_to_ms(bytes: &[u8], timestamp_period: f32) -> Option<f64> {
+    if bytes.len() < TIMESTAMP_PAIR_BYTES as usize {
         return None;
     }
-    let begin = u64::from_ne_bytes(view[0..8].try_into().ok()?);
-    let end = u64::from_ne_bytes(view[8..16].try_into().ok()?);
-    drop(view);
+    let begin = u64::from_ne_bytes(bytes[0..8].try_into().ok()?);
+    let end = u64::from_ne_bytes(bytes[8..16].try_into().ok()?);
     let ticks = end.saturating_sub(begin);
     let ns = (ticks as f64) * f64::from(timestamp_period);
     Some(ns / 1_000_000.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::timestamp_pair_bytes_to_ms;
+
+    #[test]
+    fn timestamp_pair_bytes_convert_to_ms() {
+        let bytes = timestamp_bytes(1_000, 3_500);
+
+        let ms = timestamp_pair_bytes_to_ms(&bytes, 2.0).unwrap();
+
+        assert_eq!(ms, 0.005);
+    }
+
+    #[test]
+    fn timestamp_pair_bytes_reject_short_input() {
+        let bytes = [0_u8; 15];
+
+        assert_eq!(timestamp_pair_bytes_to_ms(&bytes, 1.0), None);
+    }
+
+    #[test]
+    fn timestamp_pair_bytes_saturate_reversed_ticks() {
+        let bytes = timestamp_bytes(3_500, 1_000);
+
+        let ms = timestamp_pair_bytes_to_ms(&bytes, 2.0).unwrap();
+
+        assert_eq!(ms, 0.0);
+    }
+
+    fn timestamp_bytes(begin: u64, end: u64) -> [u8; 16] {
+        let mut bytes = [0_u8; 16];
+        bytes[0..8].copy_from_slice(&begin.to_ne_bytes());
+        bytes[8..16].copy_from_slice(&end.to_ne_bytes());
+        bytes
+    }
 }
