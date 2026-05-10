@@ -390,7 +390,10 @@ mod tests {
     use crate::materials::host_data::{
         MaterialDictionary, MaterialPropertyStore, MaterialPropertyValue, PropertyIdRegistry,
     };
-    use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter, RasterPipelineKind};
+    use crate::materials::{
+        EmbeddedTangentFallbackMode, MaterialPipelinePropertyIds, MaterialRouter,
+        RasterPipelineKind,
+    };
 
     use super::FrameMaterialBatchCache;
     use crate::world_mesh::materials::MaterialResolveCtx;
@@ -448,6 +451,34 @@ mod tests {
         assert!(cache.get(42, None).is_some());
         // Unknown material id -> shader id -1.
         assert_eq!(cache.get(42, None).unwrap().shader_asset_id, -1);
+    }
+
+    #[test]
+    fn cached_pbsvoronoicrystal_batch_keeps_generated_tangent_policy() {
+        let (mut store, mut router, reg) = make_test_deps();
+        store.set_shader_asset_for_material(7, 99);
+        router.set_shader_pipeline(
+            99,
+            RasterPipelineKind::EmbeddedStem(std::sync::Arc::from("pbsvoronoicrystal_default")),
+        );
+        let dict = MaterialDictionary::new(&store);
+        let ids = MaterialPipelinePropertyIds::new(&reg);
+        let mut cache = FrameMaterialBatchCache::new();
+
+        touch(
+            &mut cache,
+            7,
+            None,
+            make_ctx(&dict, &router, &ids, ShaderPermutation::default()),
+            1,
+        );
+
+        let resolved = cache.get(7, None).expect("cached material batch");
+        assert!(resolved.embedded_needs_tangent);
+        assert_eq!(
+            resolved.embedded_tangent_fallback_mode,
+            EmbeddedTangentFallbackMode::GenerateMissing
+        );
     }
 
     #[test]

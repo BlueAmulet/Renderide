@@ -46,6 +46,8 @@ struct EmbeddedStemMetadataKey {
 struct EmbeddedStemMetadata {
     /// Reflected WGSL layout when the composed target exists and validates.
     reflected: Option<ReflectedRasterLayout>,
+    /// Tangent fallback policy for lazy mesh tangent upload.
+    tangent_fallback_mode: EmbeddedTangentFallbackMode,
     /// Number of declared material passes submitted for this target.
     pass_count: usize,
     /// Whether any declared pass has a blend state.
@@ -69,6 +71,23 @@ pub struct EmbeddedVertexStreamMask {
     pub uv2: bool,
     /// UV3 stream at `@location(7)`.
     pub uv3: bool,
+}
+
+/// Lazy tangent upload behavior required by an embedded material.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum EmbeddedTangentFallbackMode {
+    /// Preserve host-authored tangent data and use a stable default when the mesh has no tangent attribute.
+    #[default]
+    PreserveHostOrDefault,
+    /// Generate MikkTSpace tangents when the mesh has no tangent attribute but has enough geometry data.
+    GenerateMissing,
+}
+
+impl EmbeddedTangentFallbackMode {
+    /// `true` when lazy mesh upload should generate tangents for tangentless triangle meshes.
+    pub fn generate_missing(self) -> bool {
+        matches!(self, Self::GenerateMissing)
+    }
 }
 
 impl EmbeddedVertexStreamMask {
@@ -102,6 +121,11 @@ impl EmbeddedStemMetadata {
     /// Whether `vs_main` needs any stream beyond UV0/color/UV1.
     fn needs_extended_vertex_streams(&self) -> bool {
         self.vertex_stream_mask().needs_extended_vertex_streams()
+    }
+
+    /// Tangent fallback policy for lazy mesh tangent upload.
+    fn tangent_fallback_mode(&self) -> EmbeddedTangentFallbackMode {
+        self.tangent_fallback_mode
     }
 }
 
@@ -164,6 +188,11 @@ impl EmbeddedStemQuery {
         self.metadata.needs_extended_vertex_streams()
     }
 
+    /// Tangent fallback policy for lazy mesh tangent upload.
+    pub fn tangent_fallback_mode(&self) -> EmbeddedTangentFallbackMode {
+        self.metadata.tangent_fallback_mode()
+    }
+
     /// Number of raster passes that will be submitted for one embedded draw batch.
     pub fn pipeline_pass_count(&self) -> usize {
         self.metadata.pass_count
@@ -219,12 +248,24 @@ fn embedded_stem_metadata(base_stem: &str, permutation: ShaderPermutation) -> Em
     let depth_prepass_pass = depth_prepass_pass_for_target(wgsl, reflected.as_ref(), passes);
     let metadata = EmbeddedStemMetadata {
         reflected,
+        tangent_fallback_mode: tangent_fallback_mode_for_stem(base_stem),
         pass_count: passes.len().max(1),
         uses_alpha_blending: passes.iter().any(|p| p.blend.is_some()),
         depth_prepass_pass,
     };
     guard.insert(key, metadata.clone());
     metadata
+}
+
+fn tangent_fallback_mode_for_stem(base_stem: &str) -> EmbeddedTangentFallbackMode {
+    let stem = base_stem
+        .strip_suffix("_default")
+        .or_else(|| base_stem.strip_suffix("_multiview"))
+        .unwrap_or(base_stem);
+    match stem {
+        "pbsvoronoicrystal" => EmbeddedTangentFallbackMode::GenerateMissing,
+        _ => EmbeddedTangentFallbackMode::PreserveHostOrDefault,
+    }
 }
 
 fn depth_prepass_pass_for_target(
@@ -284,6 +325,14 @@ pub fn embedded_stem_needs_extended_vertex_streams(
     permutation: ShaderPermutation,
 ) -> bool {
     EmbeddedStemQuery::for_stem(base_stem, permutation).needs_extended_vertex_streams()
+}
+
+/// Tangent fallback policy for lazy mesh tangent upload.
+pub fn embedded_stem_tangent_fallback_mode(
+    base_stem: &str,
+    permutation: ShaderPermutation,
+) -> EmbeddedTangentFallbackMode {
+    EmbeddedStemQuery::for_stem(base_stem, permutation).tangent_fallback_mode()
 }
 
 /// Number of raster passes that will be submitted for one embedded draw batch.
@@ -427,6 +476,7 @@ mod tests {
                     uses_scene_color_snapshot: false,
                     requires_intersection_pass: false,
                 }),
+                tangent_fallback_mode: EmbeddedTangentFallbackMode::default(),
                 pass_count: 1,
                 uses_alpha_blending: false,
                 depth_prepass_pass: None,
@@ -567,6 +617,50 @@ mod tests {
         ));
 
         assert!(embedded_stem_uses_alpha_blending("circle_default"));
+    }
+
+    #[test]
+    fn pbsvoronoicrystal_requests_generated_missing_tangents() {
+        let mono = ShaderPermutation(0);
+
+        assert!(embedded_stem_needs_uv0_stream(
+            "pbsvoronoicrystal_default",
+            mono
+        ));
+        assert!(embedded_stem_needs_tangent_stream(
+            "pbsvoronoicrystal_default",
+            mono
+        ));
+        assert_eq!(
+            embedded_stem_tangent_fallback_mode("pbsvoronoicrystal_default", mono),
+            EmbeddedTangentFallbackMode::GenerateMissing
+        );
+        assert_eq!(
+            embedded_stem_tangent_fallback_mode(
+                "pbsvoronoicrystal_default",
+                SHADER_PERM_MULTIVIEW_STEREO
+            ),
+            EmbeddedTangentFallbackMode::GenerateMissing
+        );
+    }
+
+    #[test]
+    fn ui_tangent_payload_materials_do_not_generate_missing_tangents() {
+        let mono = ShaderPermutation(0);
+
+        assert!(embedded_stem_needs_tangent_stream(
+            "ui_circlesegment_default",
+            mono
+        ));
+        assert!(embedded_stem_needs_tangent_stream("ui_unlit_default", mono));
+        assert_eq!(
+            embedded_stem_tangent_fallback_mode("ui_circlesegment_default", mono),
+            EmbeddedTangentFallbackMode::PreserveHostOrDefault
+        );
+        assert_eq!(
+            embedded_stem_tangent_fallback_mode("ui_unlit_default", mono),
+            EmbeddedTangentFallbackMode::PreserveHostOrDefault
+        );
     }
 
     #[test]

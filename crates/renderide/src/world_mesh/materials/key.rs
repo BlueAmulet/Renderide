@@ -1,8 +1,8 @@
 //! Material batch-key identity for world-mesh draw ordering and binding.
 
 use crate::materials::{
-    MaterialBlendMode, MaterialRenderState, RasterFrontFace, RasterPipelineKind,
-    RasterPrimitiveTopology,
+    EmbeddedTangentFallbackMode, MaterialBlendMode, MaterialRenderState, RasterFrontFace,
+    RasterPipelineKind, RasterPrimitiveTopology,
 };
 
 /// Groups draws that can share the same raster pipeline, material bind data, and Unity render-queue
@@ -35,6 +35,8 @@ pub struct MaterialDrawBatchKey {
     pub embedded_needs_uv1: bool,
     /// Whether the embedded stem needs a tangent vertex stream at `@location(4)`.
     pub embedded_needs_tangent: bool,
+    /// Tangent fallback policy for lazy tangent upload.
+    pub embedded_tangent_fallback_mode: EmbeddedTangentFallbackMode,
     /// Whether the embedded stem needs a UV2 vertex stream at `@location(6)`.
     pub embedded_needs_uv2: bool,
     /// Whether the embedded stem needs a UV3 vertex stream at `@location(7)`.

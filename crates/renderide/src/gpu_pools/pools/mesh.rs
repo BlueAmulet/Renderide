@@ -3,6 +3,7 @@
 use hashbrown::HashMap;
 
 use crate::assets::mesh::{GpuMesh, MeshBufferLayout};
+use crate::materials::EmbeddedTangentFallbackMode;
 
 use crate::gpu_pools::resource_pool::{GpuResourcePool, StreamingAccess};
 use crate::gpu_pools::{GpuResource, VramAccounting};
@@ -106,13 +107,18 @@ impl MeshPool {
     }
 
     /// Lazily creates tangent / UV1-3 buffers for meshes drawn by extended embedded shaders.
-    pub fn ensure_extended_vertex_streams(&mut self, device: &wgpu::Device, asset_id: i32) -> bool {
+    pub fn ensure_extended_vertex_streams(
+        &mut self,
+        device: &wgpu::Device,
+        asset_id: i32,
+        tangent_fallback_mode: EmbeddedTangentFallbackMode,
+    ) -> bool {
         let (ok, before, after) = {
             let Some(mesh) = self.inner.get_mut(asset_id) else {
                 return false;
             };
             let before = mesh.resident_bytes();
-            let ok = mesh.ensure_extended_vertex_streams(device);
+            let ok = mesh.ensure_extended_vertex_streams(device, tangent_fallback_mode);
             let after = mesh.resident_bytes();
             (ok, before, after)
         };
@@ -142,13 +148,18 @@ impl MeshPool {
     }
 
     /// Lazily creates the tangent buffer for meshes drawn by shaders declaring `@location(4)`.
-    pub fn ensure_tangent_vertex_stream(&mut self, device: &wgpu::Device, asset_id: i32) -> bool {
+    pub fn ensure_tangent_vertex_stream(
+        &mut self,
+        device: &wgpu::Device,
+        asset_id: i32,
+        tangent_fallback_mode: EmbeddedTangentFallbackMode,
+    ) -> bool {
         let (ok, before, after) = {
             let Some(mesh) = self.inner.get_mut(asset_id) else {
                 return false;
             };
             let before = mesh.resident_bytes();
-            let ok = mesh.ensure_tangent_vertex_stream(device);
+            let ok = mesh.ensure_tangent_vertex_stream(device, tangent_fallback_mode);
             let after = mesh.resident_bytes();
             (ok, before, after)
         };
