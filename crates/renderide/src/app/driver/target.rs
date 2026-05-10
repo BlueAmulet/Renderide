@@ -170,7 +170,7 @@ impl RenderTarget {
         profiling::scope!("startup::reconfigure_gpu");
         let (width, height) = self
             .gpu
-            .window_inner_size()
+            .window_surface_size()
             .unwrap_or_else(|| self.gpu.surface_extent_px());
         self.gpu.reconfigure(width, height);
     }

@@ -85,13 +85,11 @@ pub fn apply_output_state_to_window(
     track: &mut CursorOutputTracking,
 ) -> Result<(), winit::error::RequestError> {
     if state.keyboard_input_active {
-        if let None = window.ime_capabilities() {
+        if window.ime_capabilities().is_none() {
             enable_ime_on_window(window);
         }
-    } else {
-        if let Some(_) = window.ime_capabilities() {
-            let _ = window.request_ime_update(ImeRequest::Disable);
-        }
+    } else if window.ime_capabilities().is_some() {
+        let _ = window.request_ime_update(ImeRequest::Disable);
     }
 
     if let Some(p) = state.lock_cursor_position {
@@ -131,8 +129,16 @@ pub fn apply_output_state_to_window(
     Ok(())
 }
 
+/// Enables IME text input with the renderer's default hint and cursor-area capabilities.
 pub fn enable_ime_on_window(window: &dyn Window) {
-    // Pretty much a copy of the deprecatied Window::set_ime_allowed(true)
+    let Some(request) = default_ime_enable_request() else {
+        logger::warn!("IME enable request could not be built from default request data");
+        return;
+    };
+    let _ = window.request_ime_update(ImeRequest::Enable(request));
+}
+
+fn default_ime_enable_request() -> Option<ImeEnableRequest> {
     let position = LogicalPosition::new(0, 0);
     let size = LogicalSize::new(0, 0);
     let ime_caps = ImeCapabilities::new()
@@ -141,6 +147,21 @@ pub fn enable_ime_on_window(window: &dyn Window) {
     let request_data = ImeRequestData::default()
         .with_hint_and_purpose(ImeHint::NONE, ImePurpose::Normal)
         .with_cursor_area(position.into(), size.into());
-    let action = ImeRequest::Enable(ImeEnableRequest::new(ime_caps, request_data).unwrap());
-    let _ = window.request_ime_update(action);
+    ImeEnableRequest::new(ime_caps, request_data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::default_ime_enable_request;
+
+    #[test]
+    fn default_ime_enable_request_matches_capabilities() {
+        let request = default_ime_enable_request().expect("request data matches capabilities");
+        assert!(request.capabilities().hint_and_purpose());
+        assert!(request.capabilities().cursor_area());
+        assert!(!request.capabilities().surrounding_text());
+        assert!(request.request_data().hint_and_purpose.is_some());
+        assert!(request.request_data().cursor_area.is_some());
+        assert!(request.request_data().surrounding_text.is_none());
+    }
 }

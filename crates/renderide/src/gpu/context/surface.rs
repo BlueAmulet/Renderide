@@ -59,7 +59,7 @@ impl GpuContext {
     /// Re-queries the window each call so callers handling `WindowEvent::ScaleFactorChanged` can
     /// pick up the new logical size without holding a separate `Arc<dyn Window>`. Returns [`None`] in
     /// headless mode.
-    pub fn window_inner_size(&self) -> Option<(u32, u32)> {
+    pub fn window_surface_size(&self) -> Option<(u32, u32)> {
         self.window.as_ref().map(|w| {
             let s = w.surface_size();
             (s.width, s.height)

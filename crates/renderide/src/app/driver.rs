@@ -65,7 +65,7 @@ impl AppDriver {
             startup_gpu,
             log_level_cli,
             target: None,
-            exit: exit,
+            exit,
             log_flush: LogFlushCadence::default(),
             shutdown: GracefulShutdown::default(),
             input: WindowInputAccumulator::default(),
