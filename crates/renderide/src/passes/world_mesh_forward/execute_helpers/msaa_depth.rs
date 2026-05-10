@@ -35,7 +35,7 @@ pub(crate) fn encode_world_mesh_forward_depth_snapshot(
         encode_msaa_depth_resolve_for_frame(device, encoder, frame, msaa_views, res, profiler);
     }
 
-    if frame.shared.frame_resources.frame_gpu().is_none() {
+    if !frame.shared.frame_resources.has_frame_gpu() {
         return false;
     }
     frame

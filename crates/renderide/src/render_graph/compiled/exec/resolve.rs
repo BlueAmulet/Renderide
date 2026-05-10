@@ -3,7 +3,6 @@
 
 use hashbrown::HashMap;
 
-use crate::backend::{HistoryRegistry, HistoryResourceScope};
 use crate::gpu::GpuContext;
 
 use super::super::super::context::{
@@ -11,6 +10,7 @@ use super::super::super::context::{
     ResolvedImportedHistoryTexture, ResolvedImportedTexture,
 };
 use super::super::super::error::GraphExecuteError;
+use super::super::super::history::{HistoryRegistry, HistoryResourceScope};
 use super::super::super::pool::{BufferKey, TextureKey, TransientPool};
 use super::super::super::resources::{
     BackendFrameBufferKind, BufferImportSource, FrameTargetRole, HistorySlotId, ImportSource,
@@ -289,23 +289,22 @@ impl CompiledRenderGraph {
     /// Binds imported backend buffers (lights, cluster tables, per-draw slab) into `resources`.
     pub(super) fn resolve_imported_buffers(
         &self,
-        frame_resources: &crate::backend::FrameResourceManager,
+        frame_resources: &dyn super::super::super::GraphFrameResources,
         history: &HistoryRegistry,
         resolved: &ResolvedView<'_>,
         resources: &mut GraphResolvedResources,
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("render::resolve_imported_buffers");
-        let frame_gpu = frame_resources.frame_gpu();
         // All views share one cluster buffer; safe under single-submit because each view's
         // compute-then-raster sequence completes before the next view's compute overwrites.
         let cluster_refs = frame_resources.shared_cluster_buffer_refs();
         for (idx, import) in self.imported_buffers.iter().enumerate() {
             let buffer = match &import.source {
                 BufferImportSource::Frame(BackendFrameBufferKind::Lights) => {
-                    frame_gpu.map(|fgpu| fgpu.lights_buffer.clone())
+                    frame_resources.lights_buffer()
                 }
                 BufferImportSource::Frame(BackendFrameBufferKind::FrameUniforms) => {
-                    frame_gpu.map(|fgpu| fgpu.frame_uniform.clone())
+                    frame_resources.frame_uniform_buffer()
                 }
                 BufferImportSource::Frame(BackendFrameBufferKind::ClusterLightCounts) => {
                     cluster_refs
@@ -317,9 +316,9 @@ impl CompiledRenderGraph {
                         .as_ref()
                         .map(|refs| refs.cluster_light_indices.clone())
                 }
-                BufferImportSource::Frame(BackendFrameBufferKind::PerDrawSlab) => frame_resources
-                    .per_view_per_draw(resolved.view_id)
-                    .map(|per_draw| per_draw.lock().per_draw_storage.clone()),
+                BufferImportSource::Frame(BackendFrameBufferKind::PerDrawSlab) => {
+                    frame_resources.per_view_per_draw_storage(resolved.view_id)
+                }
                 #[cfg(test)]
                 BufferImportSource::External => None,
                 BufferImportSource::PingPong(slot) => {

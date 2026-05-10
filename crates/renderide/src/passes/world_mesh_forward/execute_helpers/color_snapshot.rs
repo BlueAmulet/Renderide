@@ -20,7 +20,7 @@ pub(crate) fn encode_world_mesh_forward_color_snapshot(
     if !color_snapshot_recording_needed(prepared.helper_needs) {
         return false;
     }
-    if frame.shared.frame_resources.frame_gpu().is_none() {
+    if !frame.shared.frame_resources.has_frame_gpu() {
         return false;
     }
     let Some(source_color) = graph_resources.transient_texture(resources.scene_color_hdr) else {

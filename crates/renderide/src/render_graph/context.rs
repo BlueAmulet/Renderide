@@ -18,6 +18,7 @@
 
 use std::collections::HashSet;
 
+use super::HistoryTextureMipViews;
 use super::blackboard::Blackboard;
 use super::frame_params::GraphPassFrame;
 use super::frame_upload_batch::GraphUploadSink;
@@ -26,7 +27,6 @@ use super::resources::{
     BufferHandle, ImportedBufferHandle, ImportedTextureHandle, SubresourceHandle, TextureHandle,
     TextureResourceHandle,
 };
-use crate::backend::HistoryTextureMipViews;
 use crate::gpu::GpuLimits;
 
 // -----------------------------------------------------------------------------

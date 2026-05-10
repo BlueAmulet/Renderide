@@ -19,9 +19,9 @@
 use hashbrown::HashMap;
 use std::time::Instant;
 
-use crate::backend::BackendGraphAccess;
 use crate::diagnostics::PerViewHudOutputs;
 use crate::gpu::GpuContext;
+use crate::render_graph::GraphExecutionBackend;
 use crate::render_graph::blackboard::GraphCommandStats;
 use crate::scene::SceneCoordinator;
 
@@ -114,7 +114,7 @@ impl CompiledRenderGraph {
         &mut self,
         gpu: &mut GpuContext,
         scene: &SceneCoordinator,
-        backend: &mut BackendGraphAccess<'_>,
+        backend: &mut dyn GraphExecutionBackend,
         views: &mut [FrameView<'_>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::execute_multi_view");
@@ -278,7 +278,7 @@ impl CompiledRenderGraph {
     /// splits the owned outputs into the parallel vectors consumed by [`SubmitFrameInputs`].
     fn record_per_view_batch(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
         per_view_work_items: Vec<PerViewWorkItem>,
         transient_by_key: &HashMap<GraphResolveKey, GraphResolvedResources>,
         upload_batch: &FrameUploadBatch,
@@ -293,7 +293,7 @@ impl CompiledRenderGraph {
             frame_resources: mv_ctx.backend.frame_resources(),
             history: mv_ctx.backend.history_registry(),
             materials: mv_ctx.backend.materials(),
-            asset_transfers: mv_ctx.backend.asset_transfers(),
+            asset_resources: mv_ctx.backend.asset_resources(),
             mesh_preprocess: mv_ctx.backend.mesh_preprocess(),
             skin_cache: mv_ctx.backend.skin_cache(),
             debug_hud: mv_ctx.backend.per_view_hud_config(),
@@ -367,7 +367,7 @@ impl CompiledRenderGraph {
     /// Runs frame-global and per-view `post_submit` hooks on every pass in schedule order.
     fn run_post_submit_passes(
         &mut self,
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &[FrameView<'_>],
         device: &wgpu::Device,
         per_view_occlusion_info: &[(ViewId, HostCameraFrame)],
@@ -412,7 +412,7 @@ impl CompiledRenderGraph {
     /// Lets backend-specific systems enrich per-view blackboards before graph pass recording.
     fn prepare_view_blackboards_for_work_items(
         &self,
-        mv_ctx: &MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &MultiViewExecutionContext<'_>,
         work_items: &mut [PerViewWorkItem],
         upload_batch: &FrameUploadBatch,
     ) {
@@ -429,7 +429,7 @@ impl CompiledRenderGraph {
                     occlusion: mv_ctx.backend.occlusion(),
                     frame_resources: mv_ctx.backend.frame_resources(),
                     materials: mv_ctx.backend.materials(),
-                    asset_transfers: mv_ctx.backend.asset_transfers(),
+                    asset_resources: mv_ctx.backend.asset_resources(),
                     mesh_preprocess: mv_ctx.backend.mesh_preprocess(),
                     mesh_deform_scratch: None,
                     mesh_deform_skin_cache: None,
@@ -467,7 +467,7 @@ impl CompiledRenderGraph {
     /// Prepares owned per-view work items on the main thread before serial or parallel recording.
     fn prepare_per_view_work_items(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &mut [FrameView<'_>],
     ) -> Result<Vec<PerViewWorkItem>, GraphExecuteError> {
         profiling::scope!("graph::prepare_per_view_work_items");
@@ -484,14 +484,8 @@ impl CompiledRenderGraph {
             )?;
             let Some(per_view_frame_bg_and_buf) = mv_ctx
                 .backend
-                .frame_resources
-                .per_view_frame(view_id)
-                .map(|state| {
-                    (
-                        state.frame_bind_group.clone(),
-                        state.frame_uniform_buffer.clone(),
-                    )
-                })
+                .frame_resources()
+                .per_view_frame_bind_group_and_buffer(view_id)
             else {
                 logger::warn!(
                     "graph prepare: missing per-view frame resources for view {view_id:?}"

@@ -305,8 +305,7 @@ impl RasterPass for WorldMeshForwardDepthPrepass {
         let Some(per_draw_bg) = frame
             .shared
             .frame_resources
-            .per_view_per_draw(frame.view.view_id)
-            .map(|d| d.lock().bind_group.clone())
+            .per_view_per_draw_bind_group(frame.view.view_id)
         else {
             return Ok(());
         };

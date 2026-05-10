@@ -50,10 +50,6 @@ pub(super) struct SlabPackInputs<'a> {
 /// Uses the per-view per-draw resources identified by [`GraphPassFrame::view_id`], growing them as
 /// needed. Writes at byte offset 0 of the view's own buffer. Returns `false` if per-draw resources
 /// cannot be created (not yet attached).
-#[expect(
-    clippy::significant_drop_tightening,
-    reason = "scratch lock owns `slab_bytes` written through to uploads; releasing earlier would clone per frame"
-)]
 pub(super) fn pack_and_upload_per_draw_slab(
     device: &wgpu::Device,
     uploads: GraphUploadSink<'_>,
@@ -74,30 +70,17 @@ pub(super) fn pack_and_upload_per_draw_slab(
     let scene = frame.shared.scene;
     let hc = frame.view.host_camera;
 
-    let Some(per_draw_slot) = frame.shared.frame_resources.per_view_per_draw(view_id) else {
-        return false;
-    };
-    let Some(scratch_slot) = frame
+    let Some(per_draw_storage) = frame
         .shared
         .frame_resources
-        .per_view_per_draw_scratch(view_id)
+        .ensure_per_view_per_draw_capacity(device, view_id, inputs.draws.len())
     else {
         return false;
     };
 
-    {
-        profiling::scope!("world_mesh::ensure_slot_capacity");
-        let mut per_draw = per_draw_slot.lock();
-        per_draw.ensure_draw_slot_capacity(device, inputs.draws.len());
-    };
-
     // Step 2: pack VP uniforms in `slab_layout` order and serialise to byte slab.
-    {
-        let mut scratch = scratch_slot.lock();
-        let (uniforms, slab) = {
-            let scratch = &mut *scratch;
-            (&mut scratch.uniforms, &mut scratch.slab_bytes)
-        };
+    let mut uploaded = false;
+    let mut pack_and_upload = |uniforms: &mut Vec<PaddedPerDrawUniforms>, slab: &mut Vec<u8>| {
         uniforms.clear();
         uniforms.resize_with(inputs.draws.len(), PaddedPerDrawUniforms::zeroed);
 
@@ -111,11 +94,15 @@ pub(super) fn pack_and_upload_per_draw_slab(
         };
         {
             profiling::scope!("world_mesh::enqueue_slab_upload");
-            let per_draw = per_draw_slot.lock();
-            uploads.write_buffer(&per_draw.per_draw_storage, 0, slab.as_slice());
+            uploads.write_buffer(&per_draw_storage, 0, slab.as_slice());
+            uploaded = true;
         }
-    }
-    true
+    };
+    frame
+        .shared
+        .frame_resources
+        .with_per_view_per_draw_scratch(view_id, &mut pack_and_upload)
+        && uploaded
 }
 
 /// Fills `uniforms` (already sized to `inputs.draws.len()`) with packed VP + model matrices,

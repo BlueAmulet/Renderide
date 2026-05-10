@@ -6,11 +6,12 @@ use hashbrown::hash_map::Entry;
 
 use super::super::super::context::GraphResolvedResources;
 use super::super::super::error::GraphExecuteError;
+use super::super::super::frame_params::PreRecordViewResourceLayout;
 use super::super::super::frame_upload_batch::{FrameUploadBatch, GraphUploadSink};
+use super::super::super::history::{HistoryResourceScope, TextureHistorySpec};
 use super::super::helpers;
 use super::super::{CompiledRenderGraph, FrameView, MultiViewExecutionContext};
 use super::{GraphResolveKey, TransientTextureResolveSurfaceParams};
-use crate::backend::{HistoryResourceScope, TextureHistorySpec};
 use crate::gpu::OutputDepthMode;
 use crate::occlusion::gpu::HIZ_MAX_MIPS;
 use crate::occlusion::{hi_z_pyramid_dimensions, mip_levels_for_extent};
@@ -20,7 +21,7 @@ impl CompiledRenderGraph {
     /// Prepares shared frame resources, per-view resource slots, mesh streams, and material
     /// pipelines for every view before command recording begins.
     pub(super) fn prepare_view_resources_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &[FrameView<'_>],
         upload_batch: &FrameUploadBatch,
     ) -> Result<(), GraphExecuteError> {
@@ -32,7 +33,7 @@ impl CompiledRenderGraph {
         //
         // `Option<...>` is per-view so a swapchain whose depth target failed to resolve this
         // tick maps to `None` and every phase short-circuits for that index in lock-step.
-        let view_layouts: Vec<Option<crate::backend::PreRecordViewResourceLayout>> =
+        let view_layouts: Vec<Option<PreRecordViewResourceLayout>> =
             build_view_layouts(mv_ctx, views);
         Self::pre_sync_shared_frame_resources_for_views(mv_ctx, &view_layouts, upload_batch);
         Self::pre_warm_per_view_resources_for_views(mv_ctx, views, &view_layouts)?;
@@ -40,8 +41,7 @@ impl CompiledRenderGraph {
         Ok(())
     }
 
-    /// Eagerly allocates per-view frame state ([`crate::backend::FrameResourceManager::per_view_frame_or_create`])
-    /// and per-view per-draw resources ([`crate::backend::FrameResourceManager::per_view_per_draw_or_create`])
+    /// Eagerly allocates per-view frame and per-draw resources
     /// for every view in `views` before per-view recording begins.
     ///
     /// Hoists the lazy `&mut backend.frame_resources.*_or_create` calls out of the per-view
@@ -50,9 +50,9 @@ impl CompiledRenderGraph {
     /// Also primes a freshly added secondary RT camera so its first frame does not pay the
     /// cluster-buffer / frame-uniform-buffer allocation cost mid-recording.
     pub(super) fn pre_warm_per_view_resources_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &[FrameView<'_>],
-        view_layouts: &[Option<crate::backend::PreRecordViewResourceLayout>],
+        view_layouts: &[Option<PreRecordViewResourceLayout>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::pre_warm_per_view");
         let mut prepared_frame_layouts = Vec::with_capacity(views.len());
@@ -61,11 +61,10 @@ impl CompiledRenderGraph {
             let Some(layout) = *layout_opt else {
                 continue;
             };
-            if mv_ctx
+            if !mv_ctx
                 .backend
-                .frame_resources
-                .per_view_frame_or_create(view_id, mv_ctx.device, layout)
-                .is_none()
+                .frame_resources_mut()
+                .ensure_per_view_frame_resources(view_id, mv_ctx.device, layout)
             {
                 logger::warn!(
                     "graph pre-warm: per-view frame resources unavailable for view {view_id:?} layout={layout:?}"
@@ -76,12 +75,11 @@ impl CompiledRenderGraph {
                 });
             }
             prepared_frame_layouts.push((view_id, layout));
-            let _ = mv_ctx.backend.occlusion.ensure_hi_z_state(view_id);
-            if mv_ctx
+            let _ = mv_ctx.backend.occlusion().ensure_hi_z_state(view_id);
+            if !mv_ctx
                 .backend
-                .frame_resources
-                .per_view_per_draw_or_create(view_id, mv_ctx.device)
-                .is_none()
+                .frame_resources_mut()
+                .ensure_per_view_per_draw_resources(view_id, mv_ctx.device)
             {
                 logger::warn!(
                     "graph pre-warm: per-draw resources unavailable for view {view_id:?}"
@@ -91,17 +89,16 @@ impl CompiledRenderGraph {
                     resource: "per-draw",
                 });
             }
-            let _ = mv_ctx
+            mv_ctx
                 .backend
-                .frame_resources
-                .per_view_per_draw_scratch_or_create(view_id);
+                .frame_resources_mut()
+                .ensure_per_view_per_draw_scratch(view_id);
         }
         for (view_id, layout) in prepared_frame_layouts {
-            if mv_ctx
+            if !mv_ctx
                 .backend
-                .frame_resources
-                .per_view_frame_or_create(view_id, mv_ctx.device, layout)
-                .is_none()
+                .frame_resources_mut()
+                .ensure_per_view_frame_resources(view_id, mv_ctx.device, layout)
             {
                 logger::warn!(
                     "graph pre-warm: per-view frame resources became stale for view {view_id:?} layout={layout:?}"
@@ -125,7 +122,7 @@ impl CompiledRenderGraph {
     /// but its graph-declared persistent pyramid now has a registry-backed lifetime keyed by
     /// [`HistorySlotId::HI_Z`] plus the view's [`crate::camera::ViewId`].
     pub(super) fn register_history_resources_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &[FrameView<'_>],
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("graph::register_history_resources");
@@ -156,21 +153,24 @@ impl CompiledRenderGraph {
     /// This hoists the shared `FrameGpuResources::sync_cluster_viewport` and one-time lights upload
     /// out of the per-view record path so rayon workers only touch per-view state during recording.
     pub(super) fn pre_sync_shared_frame_resources_for_views(
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
-        view_layouts: &[Option<crate::backend::PreRecordViewResourceLayout>],
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
+        view_layouts: &[Option<PreRecordViewResourceLayout>],
         upload_batch: &FrameUploadBatch,
     ) {
         profiling::scope!("graph::pre_sync_frame_gpu");
         // Reuse the precomputed layouts from `prepare_view_resources_for_views` instead of
         // walking views again. Skips views whose depth target failed to resolve this tick
         // (matching the prior behaviour of dropping them silently).
-        let layouts: Vec<crate::backend::PreRecordViewResourceLayout> =
+        let layouts: Vec<PreRecordViewResourceLayout> =
             view_layouts.iter().filter_map(|layout| *layout).collect();
-        mv_ctx.backend.frame_resources.pre_record_sync_for_views(
-            mv_ctx.device,
-            GraphUploadSink::pre_record(upload_batch),
-            &layouts,
-        );
+        mv_ctx
+            .backend
+            .frame_resources_mut()
+            .pre_record_sync_for_views(
+                mv_ctx.device,
+                GraphUploadSink::pre_record(upload_batch),
+                &layouts,
+            );
     }
 
     /// Pre-resolves transient textures and buffers for every view's [`GraphResolveKey`].
@@ -182,7 +182,7 @@ impl CompiledRenderGraph {
     /// bindings (backbuffer, per-view cluster refs) differ across views that share a key.
     pub(super) fn pre_resolve_transients_for_views(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &mut [FrameView<'_>],
         transient_by_key: &mut HashMap<GraphResolveKey, GraphResolvedResources>,
     ) -> Result<(), GraphExecuteError> {
@@ -238,13 +238,13 @@ impl CompiledRenderGraph {
     }
 }
 
-/// Computes one [`crate::backend::PreRecordViewResourceLayout`] per view. Returns `None` for any
+/// Computes one [`PreRecordViewResourceLayout`] per view. Returns `None` for any
 /// view whose `depth_format` cannot be resolved this tick (matches the prior per-phase `continue`
 /// behaviour); both pre-warm sub-phases short-circuit on `None` so no view is half-prepared.
 fn build_view_layouts(
-    mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+    mv_ctx: &mut MultiViewExecutionContext<'_>,
     views: &[FrameView<'_>],
-) -> Vec<Option<crate::backend::PreRecordViewResourceLayout>> {
+) -> Vec<Option<PreRecordViewResourceLayout>> {
     let color_format = mv_ctx.backend.scene_color_format_wgpu();
     views
         .iter()
@@ -252,7 +252,7 @@ fn build_view_layouts(
             let viewport = view.target.extent_px(mv_ctx.gpu);
             let stereo = view.is_multiview_stereo_active();
             let depth_format = view.target.depth_format(mv_ctx.gpu).ok()?;
-            Some(crate::backend::PreRecordViewResourceLayout {
+            Some(PreRecordViewResourceLayout {
                 width: viewport.0,
                 height: viewport.1,
                 stereo,

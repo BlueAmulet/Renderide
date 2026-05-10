@@ -154,7 +154,7 @@ impl ClusteredLightPass {
         let frame = &mut *ctx.pass_frame;
 
         let (vw, vh) = frame.view.viewport_px;
-        if vw == 0 || vh == 0 || frame.shared.frame_resources.frame_gpu().is_none() {
+        if vw == 0 || vh == 0 || !frame.shared.frame_resources.has_frame_gpu() {
             return ClusteredLightRecordAction::Skip;
         }
 
@@ -172,15 +172,14 @@ impl ClusteredLightPass {
             logger::trace!("ClusteredLight: shared cluster buffers missing for {view_id:?}");
             return ClusteredLightRecordAction::Skip;
         };
-        let cluster_light_counts = (*refs.cluster_light_counts).clone();
-        let cluster_light_indices = (*refs.cluster_light_indices).clone();
+        let cluster_light_counts = refs.cluster_light_counts;
+        let cluster_light_indices = refs.cluster_light_indices;
         let cluster_ver = frame.shared.frame_resources.shared_cluster_version();
 
         let Some(params_buffer) = frame
             .shared
             .frame_resources
-            .per_view_frame(view_id)
-            .map(|s| s.cluster_params_buffer.clone())
+            .per_view_cluster_params_buffer(view_id)
         else {
             logger::trace!("ClusteredLight: per-view params buffer missing for {view_id:?}");
             return ClusteredLightRecordAction::Skip;
@@ -225,12 +224,7 @@ impl ClusteredLightPass {
             });
         }
 
-        let Some(lights_buffer) = frame
-            .shared
-            .frame_resources
-            .frame_gpu()
-            .map(|fgpu| fgpu.lights_buffer.clone())
-        else {
+        let Some(lights_buffer) = frame.shared.frame_resources.lights_buffer() else {
             return ClusteredLightRecordAction::Skip;
         };
 

@@ -2,11 +2,11 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::backend::HistoryTextureMipViews;
 use crate::gpu::OutputDepthMode;
 use crate::occlusion::cpu::pyramid::{
     hi_z_pyramid_dimensions, mip_dimensions, mip_levels_for_extent,
 };
+use crate::render_graph::HistoryTextureMipViews;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use super::pipelines::HiZPipelines;

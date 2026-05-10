@@ -23,7 +23,6 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::FrameResourceManager;
     use crate::materials::EmbeddedMaterialBindResources;
     use crate::materials::MaterialPipelineCache;
     use crate::occlusion::OcclusionSystem;
@@ -33,7 +32,6 @@ mod tests {
     #[test]
     fn per_view_parallel_primitives_are_send_sync() {
         assert_send_sync::<EmbeddedMaterialBindResources>();
-        assert_send_sync::<FrameResourceManager>();
         assert_send_sync::<MaterialPipelineCache>();
         assert_send_sync::<OcclusionSystem>();
     }

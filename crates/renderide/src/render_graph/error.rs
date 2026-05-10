@@ -179,7 +179,7 @@ pub enum GraphExecuteError {
 
     /// History registry rejected a slot registration.
     #[error(transparent)]
-    HistoryRegistry(#[from] crate::backend::HistoryRegistryError),
+    HistoryRegistry(#[from] super::HistoryRegistryError),
 
     /// Per-view recording looked up a transient-resource key that the pre-resolve step did not populate.
     ///
