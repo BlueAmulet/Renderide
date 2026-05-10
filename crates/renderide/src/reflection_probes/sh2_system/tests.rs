@@ -54,30 +54,25 @@ fn completed_cache_prune_retains_touched_sources_when_over_budget() {
 fn closed_space_filter_matches_source_render_space() {
     let mut spaces = HashSet::new();
     spaces.insert(crate::scene::RenderSpaceId(7));
-    let assets = RenderSpaceAssetSet::default();
 
-    assert!(sh2_key_matches_closed_resources(
+    assert!(sh2_key_matches_closed_spaces(
         &cubemap_key(1, 1, 1),
         &spaces,
-        &assets
     ));
 }
 
 #[test]
-fn asset_filter_matches_source_asset_ids() {
-    let spaces = HashSet::new();
-    let mut assets = RenderSpaceAssetSet::default();
-    assets.insert_cubemap(1);
+fn asset_ids_do_not_match_closed_space_filter() {
+    let mut spaces = HashSet::new();
+    spaces.insert(crate::scene::RenderSpaceId(8));
 
-    assert!(sh2_key_matches_closed_resources(
+    assert!(!sh2_key_matches_closed_spaces(
         &cubemap_key(1, 1, 1),
         &spaces,
-        &assets
     ));
-    assert!(!sh2_key_matches_closed_resources(
+    assert!(!sh2_key_matches_closed_spaces(
         &cubemap_key(2, 1, 1),
         &spaces,
-        &assets
     ));
 }
 
