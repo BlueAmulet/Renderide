@@ -34,8 +34,7 @@ fn text_shaders_use_one_font_atlas_sample_for_coverage() -> io::Result<()> {
         );
     }
 
-    let module_src =
-        fs::read_to_string(manifest_dir().join("shaders/modules/material/text_sdf.wgsl"))?;
+    let module_src = source_file(manifest_dir().join("shaders/modules/material/text_sdf.wgsl"))?;
     assert!(
         !module_src.contains("atlas_clip"),
         "text_sdf.wgsl must not expose a second atlas sample for coverage"

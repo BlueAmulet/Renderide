@@ -181,6 +181,19 @@ impl OcclusionSystem {
         self.drain_completed_hi_z_maps();
     }
 
+    /// Cancels all pending Hi-Z staging maps after GPU recovery.
+    pub(crate) fn clear_pending_hi_z_readbacks(&self) {
+        {
+            let mut main = self.main.lock();
+            main.clear_pending();
+        };
+        let offscreen = self.offscreen.lock();
+        for slot in offscreen.values() {
+            let mut state = slot.lock();
+            state.clear_pending();
+        }
+    }
+
     fn drain_completed_hi_z_maps(&self) {
         {
             let mut main = self.main.lock();

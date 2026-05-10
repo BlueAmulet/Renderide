@@ -13,6 +13,7 @@ use super::super::adapter::selection::{build_wgpu_instance, select_adapter};
 use super::super::frame_bracket::FrameBracket;
 use super::super::frame_cpu_gpu_timing::{FrameCpuGpuTiming, FrameCpuGpuTimingHandle};
 use super::super::limits::GpuLimits;
+use super::super::mapped_buffer_health::GpuMappedBufferHealth;
 use super::{GpuContext, GpuError, PrimaryOffscreenTargets};
 use crate::config::{GraphicsApiSetting, VsyncMode};
 use crate::gpu::submission_state::GpuSubmissionState;
@@ -36,14 +37,18 @@ struct GpuRuntimeHandles {
 
 impl GpuRuntimeHandles {
     /// Builds the driver-thread and timing handles for a `(device, queue)` pair.
-    fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Result<Self, GpuError> {
+    fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        mapped_buffer_health: Arc<GpuMappedBufferHealth>,
+    ) -> Result<Self, GpuError> {
         let gpu_queue_access_gate = super::super::GpuQueueAccessGate::new();
         let driver_thread = super::super::driver_thread::DriverThread::new(
             Arc::clone(&queue),
             gpu_queue_access_gate.clone(),
         )
         .map_err(GpuError::DriverThreadSpawn)?;
-        let frame_bracket = FrameBracket::new(device, Arc::clone(&queue));
+        let frame_bracket = FrameBracket::new(device, Arc::clone(&queue), mapped_buffer_health);
         Ok(Self {
             queue,
             gpu_queue_access_gate,
@@ -71,6 +76,8 @@ struct GpuContextParts {
     queue: Arc<wgpu::Queue>,
     /// Shared write-texture/submit gate.
     gpu_queue_access_gate: super::super::GpuQueueAccessGate,
+    /// Shared mapped-buffer invalidation generation.
+    mapped_buffer_health: Arc<GpuMappedBufferHealth>,
     /// Optional window-backed surface.
     surface: Option<wgpu::Surface<'static>>,
     /// Active surface/offscreen configuration.
@@ -121,12 +128,16 @@ fn assemble_context(parts: GpuContextParts) -> GpuContext {
         device: parts.device,
         queue: parts.queue,
         gpu_queue_access_gate: parts.gpu_queue_access_gate,
+        mapped_buffer_health: parts.mapped_buffer_health,
         surface: parts.surface,
         config: parts.config,
         supported_present_modes: parts.supported_present_modes,
         window: parts.window,
         depth_attachment: None,
         depth_extent_px: (0, 0),
+        mapped_buffer_invalidation_seen_generation: 0,
+        mapped_buffer_recovery_frames_remaining: 0,
+        avoid_mapped_buffers_this_frame: false,
         primary_offscreen: Option::<PrimaryOffscreenTargets>::None,
     }
 }
@@ -268,8 +279,14 @@ impl GpuContext {
         let surface_safe = selection.surface;
         let adapter = selection.adapter;
 
+        let mapped_buffer_health = Arc::new(GpuMappedBufferHealth::new());
         let required_features = adapter_render_features_intersection(&adapter);
-        let (device, queue) = request_device_for_adapter(&adapter, required_features).await?;
+        let (device, queue) = request_device_for_adapter(
+            &adapter,
+            required_features,
+            Arc::clone(&mapped_buffer_health),
+        )
+        .await?;
 
         let limits = GpuLimits::try_new(device.as_ref(), &adapter)?;
         let size = window.surface_size();
@@ -317,7 +334,11 @@ impl GpuContext {
             "GPU profiler unavailable: adapter lacks TIMESTAMP_QUERY; \
              Tracy GPU timeline will be empty (CPU spans still work)",
         );
-        let runtime = GpuRuntimeHandles::new(Arc::clone(&device), Arc::new(queue))?;
+        let runtime = GpuRuntimeHandles::new(
+            Arc::clone(&device),
+            Arc::new(queue),
+            Arc::clone(&mapped_buffer_health),
+        )?;
         let submission = GpuSubmissionState::new(
             runtime.driver_thread,
             runtime.frame_timing,
@@ -333,6 +354,7 @@ impl GpuContext {
             device,
             queue: runtime.queue,
             gpu_queue_access_gate: runtime.gpu_queue_access_gate,
+            mapped_buffer_health,
             surface: Some(surface_safe),
             config,
             supported_present_modes,
@@ -373,8 +395,14 @@ impl GpuContext {
         .await?;
         let adapter = selection.adapter;
 
+        let mapped_buffer_health = Arc::new(GpuMappedBufferHealth::new());
         let required_features = adapter_render_features_intersection(&adapter);
-        let (device, queue) = request_device_for_adapter(&adapter, required_features).await?;
+        let (device, queue) = request_device_for_adapter(
+            &adapter,
+            required_features,
+            Arc::clone(&mapped_buffer_health),
+        )
+        .await?;
 
         let limits = GpuLimits::try_new(device.as_ref(), &adapter)?;
 
@@ -422,7 +450,11 @@ impl GpuContext {
             "GPU profiler unavailable (headless): adapter lacks TIMESTAMP_QUERY; \
              Tracy GPU timeline will be empty (CPU spans still work)",
         );
-        let runtime = GpuRuntimeHandles::new(Arc::clone(&device), Arc::new(queue))?;
+        let runtime = GpuRuntimeHandles::new(
+            Arc::clone(&device),
+            Arc::new(queue),
+            Arc::clone(&mapped_buffer_health),
+        )?;
         let submission = GpuSubmissionState::new(
             runtime.driver_thread,
             runtime.frame_timing,
@@ -438,6 +470,7 @@ impl GpuContext {
             device,
             queue: runtime.queue,
             gpu_queue_access_gate: runtime.gpu_queue_access_gate,
+            mapped_buffer_health,
             surface: None,
             config,
             supported_present_modes: Vec::new(),
@@ -459,7 +492,8 @@ impl GpuContext {
         vsync: VsyncMode,
         max_frame_latency: u32,
     ) -> Result<Self, GpuError> {
-        install_uncaptured_error_handler(device.as_ref());
+        let mapped_buffer_health = Arc::new(GpuMappedBufferHealth::new());
+        install_uncaptured_error_handler(device.as_ref(), Arc::clone(&mapped_buffer_health));
         // `Arc<dyn Window>` is `Into<SurfaceTarget<'static>>`, so the returned `Surface` is
         // already `'static` -- no `transmute` is required to extend the borrow.
         let surface_safe: wgpu::Surface<'static> = instance
@@ -506,7 +540,11 @@ impl GpuContext {
             "GPU profiler unavailable (OpenXR path): adapter lacks \
              TIMESTAMP_QUERY; Tracy GPU timeline will be empty",
         );
-        let runtime = GpuRuntimeHandles::new(Arc::clone(&device), queue)?;
+        let runtime = GpuRuntimeHandles::new(
+            Arc::clone(&device),
+            queue,
+            Arc::clone(&mapped_buffer_health),
+        )?;
         let submission = GpuSubmissionState::new(
             runtime.driver_thread,
             runtime.frame_timing,
@@ -522,6 +560,7 @@ impl GpuContext {
             device,
             queue: runtime.queue,
             gpu_queue_access_gate: runtime.gpu_queue_access_gate,
+            mapped_buffer_health,
             surface: Some(surface_safe),
             config,
             supported_present_modes,

@@ -229,7 +229,7 @@ impl AppDriver {
         profiling::scope!("tick::render_views");
         tick_phase_trace("render_views");
         if let Some(target) = self.target.as_mut() {
-            self.runtime.drain_hi_z_readback(target.gpu().device());
+            self.runtime.drain_hi_z_readback(target.gpu_mut());
         }
 
         let hmd_projection_ended = self.try_hmd_multiview_submit(xr_tick);

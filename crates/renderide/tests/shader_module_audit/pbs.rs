@@ -111,8 +111,7 @@ fn pbs_indirect_specular_energy_respects_zero_f0() -> io::Result<()> {
 
 #[test]
 fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
-    let sampling_src =
-        fs::read_to_string(manifest_dir().join("shaders/modules/pbs/sampling.wgsl"))?;
+    let sampling_src = source_file(manifest_dir().join("shaders/modules/pbs/sampling.wgsl"))?;
     assert!(
         sampling_src.contains("return clamp(1.0 - smoothness, 0.0, 1.0);"),
         "PBS smoothness conversion must keep perceptual roughness at 0 for mirror-smooth indirect reflections"
@@ -122,7 +121,7 @@ fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
         "PBS smoothness conversion must not apply the direct-light roughness floor globally"
     );
 
-    let brdf_src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs/brdf.wgsl"))?;
+    let brdf_src = source_file(manifest_dir().join("shaders/modules/pbs/brdf.wgsl"))?;
     for required in [
         "const MIN_ALPHA: f32 = 0.002;",
         "fn direct_alpha_from_perceptual_roughness(",
@@ -135,8 +134,7 @@ fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
         );
     }
 
-    let lighting_src =
-        fs::read_to_string(manifest_dir().join("shaders/modules/pbs/lighting.wgsl"))?;
+    let lighting_src = source_file(manifest_dir().join("shaders/modules/pbs/lighting.wgsl"))?;
     for required in [
         "let direct_roughness = brdf::direct_perceptual_roughness(s.roughness);",
         "let direct_dfg = brdf::sample_ibl_dfg_lut(direct_roughness, n_dot_v);",
@@ -149,7 +147,7 @@ fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
     }
 
     for path in wgsl_files_recursive("shaders/materials")? {
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         for forbidden in [
             "clamp(1.0 - smoothness, 0.045, 1.0)",
             "clamp(1.0 - clamp(smoothness, 0.0, 1.0), 0.045, 1.0)",
@@ -213,7 +211,7 @@ fn pbs_lerp_preserves_variant_channels_and_raw_lerp() -> io::Result<()> {
 fn shared_pbs_lighting_roots_do_not_duplicate_clustered_lighting() -> io::Result<()> {
     let mut offenders = Vec::new();
     for path in wgsl_files_recursive("shaders/materials")? {
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         if !src.contains("renderide::pbs::lighting") {
             continue;
         }
@@ -248,7 +246,7 @@ fn shared_pbs_lighting_roots_do_not_duplicate_clustered_lighting() -> io::Result
 
 #[test]
 fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> {
-    let normal_src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs/normal.wgsl"))?;
+    let normal_src = source_file(manifest_dir().join("shaders/modules/pbs/normal.wgsl"))?;
     for required in [
         "fn visible_side_tbn(",
         "select(-1.0, 1.0, front_facing)",
@@ -299,7 +297,7 @@ fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> 
 
 #[test]
 fn pbs_standard_parallax_uses_tangent_space_view_dir() -> io::Result<()> {
-    let module_src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs/parallax.wgsl"))?;
+    let module_src = source_file(manifest_dir().join("shaders/modules/pbs/parallax.wgsl"))?;
     for required in [
         "#define_import_path renderide::pbs::parallax",
         "rg::view_dir_for_world_pos(world_pos, view_layer)",
@@ -433,7 +431,7 @@ fn standard_material_roots_do_not_duplicate_clustered_pbs_lighting() -> io::Resu
     let mut offenders = Vec::new();
     for path in wgsl_files_recursive("shaders/materials")? {
         let label = file_label(&path);
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         if label == "shaders/materials/toonstandard.wgsl"
             || label == "shaders/materials/toonwater.wgsl"
         {
