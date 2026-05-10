@@ -144,7 +144,9 @@ fn sample_ibl_dfg_lut(perceptual_roughness: f32, n_dot_v: f32) -> vec2<f32> {
 
 /// Split-sum specular energy for the frame-global DFG LUT.
 fn specular_energy_from_dfg(dfg: vec2<f32>, f0: vec3<f32>) -> vec3<f32> {
-    return mix(vec3<f32>(dfg.x), vec3<f32>(dfg.y), clamp(f0, vec3<f32>(0.0), vec3<f32>(1.0)));
+    let clamped_f0 = clamp(f0, vec3<f32>(0.0), vec3<f32>(1.0));
+    let f90 = vec3<f32>(f90_from_f0(clamped_f0));
+    return clamped_f0 * (dfg.y - dfg.x) + f90 * dfg.x;
 }
 
 /// Multiple-scattering compensation for the direct microfacet lobe.

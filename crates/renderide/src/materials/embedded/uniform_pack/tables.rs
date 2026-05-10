@@ -716,7 +716,7 @@ fn uniform_property_present(
     store.get_merged(lookup, property_id).is_some()
 }
 
-/// Returns whether host-visible state implies Unlit's additive RGB-by-alpha multiplication.
+/// Returns whether host-visible state implies additive RGB-by-alpha multiplication.
 fn mul_rgb_by_alpha_inferred(
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,

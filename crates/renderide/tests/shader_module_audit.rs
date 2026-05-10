@@ -122,6 +122,8 @@ fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
     let metallic = material_source("pbsmetallic.wgsl")?;
     for required in [
         "_GlossMapScale: f32",
+        "_MUL_RGB_BY_ALPHA: f32",
+        "return alpha_premultiply_enabled() || kw(mat._MUL_RGB_BY_ALPHA);",
         "_OcclusionStrength: f32",
         "smoothness = mg.a * mat._GlossMapScale;",
         "smoothness = albedo_sample.a * mat._GlossMapScale;",
@@ -135,13 +137,40 @@ fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
     }
 
     let specular = material_source("pbsspecular.wgsl")?;
-    assert!(
-        specular.contains(
-            "ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).g"
-        ),
-        "pbsspecular.wgsl must sample Unity Standard occlusion from the green channel"
-    );
+    for required in [
+        "_MUL_RGB_BY_ALPHA: f32",
+        "return alpha_premultiply_enabled() || kw(mat._MUL_RGB_BY_ALPHA);",
+        "ts::sample_tex_2d(_OcclusionMap, _OcclusionMap_sampler, uv_main, mat._OcclusionMap_LodBias).g",
+    ] {
+        assert!(
+            specular.contains(required),
+            "pbsspecular.wgsl must contain `{required}`"
+        );
+    }
 
+    Ok(())
+}
+
+#[test]
+fn pbs_indirect_specular_energy_respects_zero_f0() -> io::Result<()> {
+    let brdf = module_source("pbs_brdf.wgsl")?;
+
+    for required in [
+        "let f90 = vec3<f32>(f90_from_f0(clamped_f0));",
+        "return clamped_f0 * (dfg.y - dfg.x) + f90 * dfg.x;",
+    ] {
+        assert!(
+            brdf.contains(required),
+            "pbs_brdf.wgsl must contain `{required}`"
+        );
+    }
+
+    assert!(
+        !brdf.contains(
+            "return mix(vec3<f32>(dfg.x), vec3<f32>(dfg.y), clamp(f0, vec3<f32>(0.0), vec3<f32>(1.0)));"
+        ),
+        "pbs_brdf.wgsl must not use the old implicit f90=1 DFG formula"
+    );
     Ok(())
 }
 
