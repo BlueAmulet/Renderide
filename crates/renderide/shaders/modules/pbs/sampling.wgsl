@@ -7,7 +7,7 @@
 #import renderide::texture_sampling as ts
 
 fn roughness_from_smoothness(smoothness: f32) -> f32 {
-    return clamp(1.0 - smoothness, 0.045, 1.0);
+    return clamp(1.0 - smoothness, 0.0, 1.0);
 }
 
 fn one_minus_reflectivity_from_specular_color(specular_color: vec3<f32>) -> f32 {

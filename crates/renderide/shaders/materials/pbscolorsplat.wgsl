@@ -174,7 +174,7 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> Sur
     let mg = sample_metallic_gloss(uv_albedo, weights);
     let metallic = clamp(mg.x, 0.0, 1.0);
     let smoothness = clamp(mg.y, 0.0, 1.0);
-    let roughness = clamp(1.0 - smoothness, 0.045, 1.0);
+    let roughness = clamp(1.0 - smoothness, 0.0, 1.0);
 
     return SurfaceData(
         c.rgb,

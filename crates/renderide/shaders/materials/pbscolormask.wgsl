@@ -126,7 +126,7 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> Sur
         smoothness = m.a;
     }
     metallic = clamp(metallic, 0.0, 1.0);
-    let roughness = clamp(1.0 - smoothness, 0.045, 1.0);
+    let roughness = clamp(1.0 - smoothness, 0.0, 1.0);
 
     var occlusion = 1.0;
     if (uvu::kw_enabled(mat._OCCLUSION)) {

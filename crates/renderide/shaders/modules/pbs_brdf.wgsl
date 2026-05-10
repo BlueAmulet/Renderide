@@ -11,8 +11,8 @@
 //!   the *direct* term, which is the IBL split-sum convention rather than the analytic one.
 //!
 //! Public entry contract: callers pass **perceptual roughness** (`= 1 - smoothness`, clamped to
-//! `[0.045, 1.0]`). Squaring to linear `alpha` happens once inside this module, matching Unity BiRP's
-//! `BRDF1_Unity_PBS` convention so material shaders stay unchanged.
+//! `[0.0, 1.0]`). Direct GGX paths apply Unity BiRP's linear-roughness floor only when evaluating
+//! analytic specular, leaving reflection-probe LOD free to reach mip 0 for mirror-smooth surfaces.
 //!
 //! Import with `#import renderide::pbs::brdf`. Depends on [`renderide::globals`] for [`GpuLight`].
 
@@ -21,9 +21,11 @@
 
 #define_import_path renderide::pbs::brdf
 
-/// Lower bound on linear roughness `alpha`. Below this the GGX lobe becomes a near-delta that produces
-/// fp16 sparkles and division-by-near-zero artefacts; matches Filament `MIN_ROUGHNESS` for desktop.
-const MIN_ALPHA: f32 = 0.002025;
+/// Lower bound on direct linear roughness `alpha` used by Unity BiRP's `BRDF1_Unity_PBS`.
+///
+/// Below this the GGX lobe becomes a near-delta that produces fp16 sparkles and
+/// division-by-near-zero artefacts. Keep this floor out of indirect reflection-probe LOD selection.
+const MIN_ALPHA: f32 = 0.002;
 /// Default dielectric reflectance slider value for the Standard PBS path.
 const DEFAULT_DIELECTRIC_REFLECTANCE: f32 = 0.5;
 /// Default dielectric F0 for an air-to-1.5-IOR interface.
@@ -59,10 +61,22 @@ fn filter_perceptual_roughness(perceptual_roughness: f32, world_n: vec3<f32>) ->
     let du = dpdx(world_n);
     let dv = dpdy(world_n);
     let variance = SPECULAR_AA_VARIANCE * (dot(du, du) + dot(dv, dv));
-    let alpha = perceptual_roughness * perceptual_roughness;
+    let clamped = clamp(perceptual_roughness, 0.0, 1.0);
+    let alpha = clamped * clamped;
     let kernel = min(2.0 * variance, SPECULAR_AA_THRESHOLD);
     let alpha2 = clamp(alpha * alpha + kernel, 0.0, 1.0);
     return sqrt(sqrt(alpha2));
+}
+
+/// Linear GGX roughness for direct-light BRDF evaluation.
+fn direct_alpha_from_perceptual_roughness(perceptual_roughness: f32) -> f32 {
+    let clamped = clamp(perceptual_roughness, 0.0, 1.0);
+    return max(clamped * clamped, MIN_ALPHA);
+}
+
+/// Perceptual roughness after applying the direct-light GGX floor.
+fn direct_perceptual_roughness(perceptual_roughness: f32) -> f32 {
+    return sqrt(direct_alpha_from_perceptual_roughness(perceptual_roughness));
 }
 
 /// `(1 - x)^5` -- used by Schlick Fresnel.
@@ -218,7 +232,7 @@ fn specular_one_minus_reflectivity(f0: vec3<f32>) -> f32 {
 
 /// Converts Unity smoothness to perceptual roughness used by this PBS module.
 fn perceptual_roughness_from_smoothness(smoothness: f32) -> f32 {
-    return clamp(1.0 - smoothness, 0.045, 1.0);
+    return clamp(1.0 - smoothness, 0.0, 1.0);
 }
 
 /// Lambertian diffuse normalization (`1/PI`).
@@ -275,7 +289,7 @@ fn signed_light_radiance(light: rg::GpuLight, attenuation: f32, n_dot_l: f32) ->
 
 /// Filament-style direct radiance for the metallic workflow.
 ///
-/// `roughness` is perceptual (caller passes `1 - smoothness`, clamped to `[0.045, 1.0]`). `f0` is
+/// `roughness` is perceptual (caller passes `1 - smoothness`, clamped to `[0.0, 1.0]`). `f0` is
 /// the dielectric-<->-metal blend (`mix(0.04, base_color, metallic)`). Diffuse is pre-discounted by
 /// `(1 - metallic)` only -- the `(1 - F)` term is intentionally absent for the analytic direct lobe.
 fn direct_radiance_metallic(
@@ -299,7 +313,7 @@ fn direct_radiance_metallic(
     let n_dot_h = clamp(dot(n, h), 0.0, 1.0);
     let v_dot_h = clamp(dot(v, h), 0.0, 1.0);
 
-    let alpha = max(roughness * roughness, MIN_ALPHA);
+    let alpha = direct_alpha_from_perceptual_roughness(roughness);
     let f90 = f90_from_f0(f0);
     let f = f_schlick(f0, f90, v_dot_h);
     let d = d_ggx(n_dot_h, alpha);
@@ -340,7 +354,7 @@ fn direct_radiance_specular(
     let n_dot_h = clamp(dot(n, h), 0.0, 1.0);
     let v_dot_h = clamp(dot(v, h), 0.0, 1.0);
 
-    let alpha = max(roughness * roughness, MIN_ALPHA);
+    let alpha = direct_alpha_from_perceptual_roughness(roughness);
     let f90 = f90_from_f0(f0);
     let f = f_schlick(f0, f90, v_dot_h);
     let d = d_ggx(n_dot_h, alpha);

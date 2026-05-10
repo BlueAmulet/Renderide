@@ -86,6 +86,62 @@ fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
 }
 
 #[test]
+fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
+    let sampling_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/pbs/sampling.wgsl"))?;
+    assert!(
+        sampling_src.contains("return clamp(1.0 - smoothness, 0.0, 1.0);"),
+        "PBS smoothness conversion must keep perceptual roughness at 0 for mirror-smooth indirect reflections"
+    );
+    assert!(
+        !sampling_src.contains("return clamp(1.0 - smoothness, 0.045, 1.0);"),
+        "PBS smoothness conversion must not apply the direct-light roughness floor globally"
+    );
+
+    let brdf_src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs_brdf.wgsl"))?;
+    for required in [
+        "const MIN_ALPHA: f32 = 0.002;",
+        "fn direct_alpha_from_perceptual_roughness(",
+        "return max(clamped * clamped, MIN_ALPHA);",
+        "fn direct_perceptual_roughness(",
+    ] {
+        assert!(
+            brdf_src.contains(required),
+            "pbs_brdf.wgsl must contain `{required}`"
+        );
+    }
+
+    let lighting_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/pbs/lighting.wgsl"))?;
+    for required in [
+        "let direct_roughness = brdf::direct_perceptual_roughness(s.roughness);",
+        "let direct_dfg = brdf::sample_ibl_dfg_lut(direct_roughness, n_dot_v);",
+        "let indirect_dfg = brdf::sample_ibl_dfg_lut(s.roughness, n_dot_v);",
+    ] {
+        assert!(
+            lighting_src.contains(required),
+            "pbs/lighting.wgsl must contain `{required}`"
+        );
+    }
+
+    for path in wgsl_files_recursive("shaders/materials")? {
+        let src = fs::read_to_string(&path)?;
+        for forbidden in [
+            "clamp(1.0 - smoothness, 0.045, 1.0)",
+            "clamp(1.0 - clamp(smoothness, 0.0, 1.0), 0.045, 1.0)",
+        ] {
+            assert!(
+                !src.contains(forbidden),
+                "{} must not contain the global PBS roughness floor `{forbidden}`",
+                file_label(&path)
+            );
+        }
+    }
+
+    Ok(())
+}
+
+#[test]
 fn pbs_lerp_preserves_variant_channels_and_raw_lerp() -> io::Result<()> {
     let metallic = material_source("pbslerp.wgsl")?;
     for required in [
