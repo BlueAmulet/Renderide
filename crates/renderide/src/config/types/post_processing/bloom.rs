@@ -15,9 +15,9 @@ pub type BloomMaxMipDimension =
 /// Persisted as `[post_processing.bloom]`. Implements the Call of Duty: Advanced Warfare
 /// dual-filter technique (13-tap downsample + 3x3 tent upsample) with Karis-average firefly
 /// reduction on the first downsample. Runs after auto-exposure and before tonemapping so it scatters
-/// exposed HDR-linear light; the tonemap pass then compresses the combined value. Defaults favor
-/// energy-conserving scatter without thresholding, so dim HDR-linear contributions can still
-/// participate in the bloom pyramid.
+/// exposed HDR-linear light; the tonemap pass then compresses the combined value. Energy-conserving
+/// composition redistributes the same source term that enters the bloom pyramid, including the
+/// soft-thresholded source when a prefilter threshold is enabled.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BloomSettings {
@@ -89,14 +89,14 @@ labeled_enum! {
     /// Blend rule used when upsampling the bloom pyramid and compositing back onto the scene
     /// color.
     ///
-    /// [`Self::EnergyConserving`] uses `out = src * c + dst * (1 - c)`, so total radiance is
-    /// preserved -- the scattered light is removed from the base image. [`Self::Additive`] uses
-    /// `out = src * c + dst`, which brightens the scene by adding the scattered contribution on
+    /// [`Self::EnergyConserving`] redistributes the source light that enters the bloom pyramid, so
+    /// total radiance is preserved even when a prefilter threshold limits the source. [`Self::Additive`]
+    /// uses `out = src * c + dst`, which brightens the scene by adding the scattered contribution on
     /// top.
     pub enum BloomCompositeMode: "bloom composite mode" {
         default => EnergyConserving;
 
-        /// Energy-conserving blend (physically-based). Default.
+        /// Energy-conserving source redistribution. Default.
         EnergyConserving => {
             persist: "energy_conserving",
             label: "Energy-Conserving (physical)",
