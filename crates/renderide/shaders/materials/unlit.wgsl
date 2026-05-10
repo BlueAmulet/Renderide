@@ -9,9 +9,7 @@
 //! Per-frame bindings (`@group(0)`) are imported from `globals.wgsl` so composed targets match the frame bind group layout used by the renderer.
 //! Per-draw uniforms (`@group(2)`) use [`renderide::per_draw`].
 //!
-//! Some Unity keywords are reconstructed from host-visible material state in the uniform
-//! packer. Unobservable keyword fields still remain explicit so property blocks can drive them
-//! if the host starts sending matching values.
+//! Froox variant bits populate the Unity keyword fields in the material uniform block.
 
 #import renderide::texture_sampling as ts
 #import renderide::globals as rg
@@ -31,6 +29,12 @@ struct UnlitMaterial {
     _OffsetMagnitude: vec4<f32>,
     _Cutoff: f32,
     _PolarPow: f32,
+    _TEXTURE: f32,
+    _COLOR: f32,
+    _VERTEXCOLORS: f32,
+    _VERTEX_LINEAR_COLOR: f32,
+    _VERTEX_SRGB_COLOR: f32,
+    _OFFSET_TEXTURE: f32,
     _MUL_RGB_BY_ALPHA: f32,
     _MUL_ALPHA_INTENSITY: f32,
     _TEXTURE_NORMALMAP: f32,
@@ -96,14 +100,35 @@ fn main_texture_st(view_layer: u32) -> vec4<f32> {
     return mat._Tex_ST;
 }
 
+fn srgb_channel_to_linear(value: f32) -> f32 {
+    if (value < 1.0 && value > -1.0) {
+        if (value <= 0.04045) {
+            return value / 12.92;
+        }
+        return pow((value + 0.055) / 1.055, 2.4);
+    }
+    return value;
+}
+
+fn vertex_color_to_linear(color: vec4<f32>) -> vec4<f32> {
+    if (uvu::kw_enabled(mat._VERTEX_SRGB_COLOR)) {
+        return vec4<f32>(
+            srgb_channel_to_linear(color.r),
+            srgb_channel_to_linear(color.g),
+            srgb_channel_to_linear(color.b),
+            color.a,
+        );
+    }
+    return color;
+}
+
 //#pass forward
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    let use_polar_uv = uvu::kw_enabled(mat._POLARUV);
+    let use_texture = uvu::kw_enabled(mat._TEXTURE) || uvu::kw_enabled(mat._TEXTURE_NORMALMAP);
+    let use_color = uvu::kw_enabled(mat._COLOR);
+    let use_polar_uv = use_texture && uvu::kw_enabled(mat._POLARUV);
     let main_st = main_texture_st(in.view_layer);
-
-    let uv_off = uvu::apply_st(in.uv, mat._OffsetTex_ST);
-    let offset_s = ts::sample_tex_2d(_OffsetTex, _OffsetTex_sampler, uv_off, mat._OffsetTex_LodBias);
 
     var uv_main: vec2<f32>;
     if (use_polar_uv) {
@@ -114,23 +139,37 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     let ddx_uv = dpdx(uv_main);
     let ddy_uv = dpdy(uv_main);
-    uv_main = uv_main + offset_s.xy * mat._OffsetMagnitude.xy;
 
-    var t: vec4<f32>;
-    if (use_polar_uv) {
-        t = textureSampleGrad(_Tex, _Tex_sampler, uv_main, ddx_uv, ddy_uv);
+    if (use_texture && uvu::kw_enabled(mat._OFFSET_TEXTURE)) {
+        let uv_off = uvu::apply_st(in.uv, mat._OffsetTex_ST);
+        let offset_s = ts::sample_tex_2d(_OffsetTex, _OffsetTex_sampler, uv_off, mat._OffsetTex_LodBias);
+        uv_main = uv_main + offset_s.xy * mat._OffsetMagnitude.xy;
+    }
+
+    var color: vec4<f32>;
+    if (use_texture) {
+        var tex_color: vec4<f32>;
+        if (use_polar_uv) {
+            tex_color = textureSampleGrad(_Tex, _Tex_sampler, uv_main, ddx_uv, ddy_uv);
+        } else {
+            tex_color = ts::sample_tex_2d(_Tex, _Tex_sampler, uv_main, mat._Tex_LodBias);
+        }
+        if (uvu::kw_enabled(mat._TEXTURE_NORMALMAP)) {
+            tex_color = vec4<f32>(nd::decode_ts_normal_with_placeholder_sample(tex_color, 1.0) * 0.5 + vec3<f32>(0.5), 1.0);
+        }
+        if (use_color) {
+            tex_color = tex_color * mat._Color;
+        }
+        color = tex_color;
+    } else if (use_color) {
+        color = mat._Color;
     } else {
-        t = ts::sample_tex_2d(_Tex, _Tex_sampler, uv_main, mat._Tex_LodBias);
+        color = vec4<f32>(1.0);
     }
-    if (uvu::kw_enabled(mat._TEXTURE_NORMALMAP)) {
-        t = vec4<f32>(nd::decode_ts_normal_with_placeholder_sample(t, 1.0) * 0.5 + vec3<f32>(0.5), 1.0);
-    }
-    var color = mat._Color * t;
 
-    let alpha_test = uvu::kw_enabled(mat._ALPHATEST_ON) || uvu::kw_enabled(mat._ALPHATEST);
-    let alpha_blend = uvu::kw_enabled(mat._ALPHABLEND_ON);
+    let alpha_test = uvu::kw_enabled(mat._ALPHATEST);
     let mask_clip = uvu::kw_enabled(mat._MASK_TEXTURE_CLIP);
-    let mask_mul = uvu::kw_enabled(mat._MASK_TEXTURE_MUL) || (!mask_clip && (alpha_test || alpha_blend));
+    let mask_mul = uvu::kw_enabled(mat._MASK_TEXTURE_MUL);
     let mul_rgb_by_alpha = uvu::kw_enabled(mat._MUL_RGB_BY_ALPHA);
 
     let uv_mask = uvu::apply_st(in.uv, mat._MaskTex_ST);
@@ -149,16 +188,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     if (alpha_test && !mask_clip) {
-        var tex_clip_alpha = mat._Color.a * acs::texture_alpha_base_mip(_Tex, _Tex_sampler, uv_main);
-        if (mask_mul) {
-            tex_clip_alpha = tex_clip_alpha * acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_mask);
+        var clip_alpha = color.a;
+        if (use_texture) {
+            clip_alpha = acs::texture_alpha_base_mip(_Tex, _Tex_sampler, uv_main);
+            if (use_color) {
+                clip_alpha = clip_alpha * mat._Color.a;
+            }
         }
-        if (tex_clip_alpha <= mat._Cutoff) {
+        if (mask_mul) {
+            clip_alpha = clip_alpha * acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_mask);
+        }
+        if (clip_alpha <= mat._Cutoff) {
             discard;
         }
     }
 
-    color = color * in.color;
+    if (uvu::kw_enabled(mat._VERTEXCOLORS)) {
+        color = color * vertex_color_to_linear(in.color);
+    }
 
     if (mul_rgb_by_alpha) {
         color = vec4<f32>(ma::apply_premultiply(color.rgb, color.a, true), color.a);

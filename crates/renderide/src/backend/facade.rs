@@ -572,13 +572,14 @@ impl RenderBackend {
             .map(|reg| {
                 reg.shader_routes_for_hud()
                     .into_iter()
-                    .map(
-                        |(id, pipeline, name)| crate::diagnostics::ShaderRouteSnapshot {
+                    .map(|(id, pipeline, name, shader_variant_bits)| {
+                        crate::diagnostics::ShaderRouteSnapshot {
                             shader_asset_id: id,
                             pipeline,
                             shader_asset_name: name,
-                        },
-                    )
+                            shader_variant_bits,
+                        }
+                    })
                     .collect()
             })
             .unwrap_or_default();

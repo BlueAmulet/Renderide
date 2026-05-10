@@ -52,6 +52,7 @@ impl EmbeddedMaterialBindResources {
     pub(super) fn resolve_embedded_bind_inputs(
         &self,
         stem: &str,
+        shader_variant_bits: Option<u32>,
         store: &MaterialPropertyStore,
         pools: &EmbeddedTexturePools<'_>,
         lookup: MaterialPropertyLookupIds,
@@ -78,6 +79,7 @@ impl EmbeddedMaterialBindResources {
             material_asset_id: lookup.material_asset_id,
             property_block_slot0: lookup.mesh_property_block_slot0,
             texture_2d_asset_id,
+            shader_variant_bits,
         };
         Ok(EmbeddedBindInputResolution {
             layout,

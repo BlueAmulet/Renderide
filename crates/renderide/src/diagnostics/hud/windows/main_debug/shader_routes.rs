@@ -30,9 +30,13 @@ impl TabView for ShaderRoutesTab {
                 continue;
             }
             ui.text_wrapped(format!(
-                "{}  {}  {}  {}",
+                "{}  {}  {}  {}  {}",
                 route.shader_asset_id,
                 route.shader_asset_name.as_deref().unwrap_or("<none>"),
+                route
+                    .shader_variant_bits
+                    .map(|bits| format!("0x{bits:08X}"))
+                    .unwrap_or_else(|| "<no variant>".to_string()),
                 route.pipeline_label,
                 if route.implemented {
                     "implemented"

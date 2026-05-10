@@ -22,6 +22,7 @@ pub(super) struct MaterialUniformCacheKey {
     pub(super) material_asset_id: i32,
     pub(super) property_block_slot0: Option<i32>,
     pub(super) texture_2d_asset_id: i32,
+    pub(super) shader_variant_bits: Option<u32>,
 }
 
 /// GPU arena slot selected for a material uniform block.
@@ -304,6 +305,7 @@ fn non_zero_u64(value: u64) -> Result<NonZeroU64, EmbeddedMaterialBindError> {
 pub(super) struct EmbeddedUniformArenaRequest<'a> {
     pub(super) uploads: GraphUploadSink<'a>,
     pub(super) stem: &'a str,
+    pub(super) shader_variant_bits: Option<u32>,
     pub(super) layout: &'a Arc<StemMaterialLayout>,
     pub(super) uniform_key: &'a MaterialUniformCacheKey,
     pub(super) mutation_gen: u64,
@@ -329,6 +331,7 @@ impl EmbeddedMaterialBindResources {
         let EmbeddedUniformArenaRequest {
             uploads,
             stem,
+            shader_variant_bits,
             layout,
             uniform_key,
             mutation_gen,
@@ -373,6 +376,7 @@ impl EmbeddedMaterialBindResources {
                 store,
                 lookup,
                 &tex_ctx,
+                shader_variant_bits,
             )
             .ok_or_else(|| {
                 format!("stem {stem}: uniform block missing (shader has no material uniform)")
@@ -405,6 +409,7 @@ mod tests {
             material_asset_id,
             property_block_slot0: None,
             texture_2d_asset_id: -1,
+            shader_variant_bits: None,
         }
     }
 
@@ -414,6 +419,7 @@ mod tests {
             material_asset_id,
             property_block_slot0: Some(property_block_id),
             texture_2d_asset_id: -1,
+            shader_variant_bits: None,
         }
     }
 

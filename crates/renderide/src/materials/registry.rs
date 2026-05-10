@@ -107,11 +107,24 @@ impl MaterialRegistry {
         shader_asset_id: i32,
         pipeline: RasterPipelineKind,
         shader_asset_name: Option<String>,
+        shader_variant_bits: Option<u32>,
     ) {
-        self.router
-            .set_shader_route(shader_asset_id, pipeline.clone(), shader_asset_name);
+        self.router.set_shader_route(
+            shader_asset_id,
+            pipeline.clone(),
+            shader_asset_name,
+            shader_variant_bits,
+        );
         match &pipeline {
             RasterPipelineKind::EmbeddedStem(s) => {
+                if super::shader_variant::shader_variant_has_pipeline_state_keywords(
+                    s,
+                    shader_variant_bits,
+                ) {
+                    logger::debug!(
+                        "shader variant contains pipeline-state keywords for shader_asset_id={shader_asset_id} stem={s}"
+                    );
+                }
                 self.router.set_shader_stem(shader_asset_id, s.to_string());
             }
             RasterPipelineKind::Null => {
@@ -141,13 +154,20 @@ impl MaterialRegistry {
         })
     }
 
-    /// Shader routes for the debug HUD (`shader_asset_id`, [`RasterPipelineKind`], optional AssetBundle shader asset name), sorted.
-    pub fn shader_routes_for_hud(&self) -> Vec<(i32, RasterPipelineKind, Option<String>)> {
+    /// Shader routes for the debug HUD (`shader_asset_id`, [`RasterPipelineKind`], optional AssetBundle shader metadata), sorted.
+    pub fn shader_routes_for_hud(
+        &self,
+    ) -> Vec<(i32, RasterPipelineKind, Option<String>, Option<u32>)> {
         self.router.routes_sorted_for_hud()
     }
 
     /// Resolved composed WGSL stem for a host shader id, when [`Self::map_shader_route`] recorded one.
     pub fn stem_for_shader_asset(&self, shader_asset_id: i32) -> Option<&str> {
         self.router.stem_for_shader_asset(shader_asset_id)
+    }
+
+    /// Froox shader variant bitmask for a host shader id, when one was parsed.
+    pub fn variant_bits_for_shader_asset(&self, shader_asset_id: i32) -> Option<u32> {
+        self.router.variant_bits_for_shader_asset(shader_asset_id)
     }
 }

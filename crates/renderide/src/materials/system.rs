@@ -33,7 +33,7 @@ pub struct MaterialSystem {
     /// GPU material families, router, and pipeline cache (after GPU attach).
     pub(crate) material_registry: Option<crate::materials::MaterialRegistry>,
     /// Shader asset id -> pipeline kind and optional AssetBundle shader asset name before GPU attach.
-    pending_shader_routes: HashMap<i32, (RasterPipelineKind, Option<String>)>,
+    pending_shader_routes: HashMap<i32, (RasterPipelineKind, Option<String>, Option<u32>)>,
     /// Embedded raster materials (`@group(1)` textures/uniforms), after GPU attach.
     pub(crate) embedded_material_bind: Option<EmbeddedMaterialBindResources>,
     /// Reusable scratch for `MaterialUpdateData.RunCompleted`'s `instance_changed` bit slab.
@@ -87,8 +87,10 @@ impl MaterialSystem {
             device, limits,
         ));
         if let Some(reg) = self.material_registry.as_mut() {
-            for (asset_id, (pipeline, shader_asset_name)) in self.pending_shader_routes.drain() {
-                reg.map_shader_route(asset_id, pipeline, shader_asset_name);
+            for (asset_id, (pipeline, shader_asset_name, shader_variant_bits)) in
+                self.pending_shader_routes.drain()
+            {
+                reg.map_shader_route(asset_id, pipeline, shader_asset_name, shader_variant_bits);
             }
         }
         embedded.write_default_textures(queue.as_ref());
@@ -143,12 +145,13 @@ impl MaterialSystem {
         asset_id: i32,
         pipeline: RasterPipelineKind,
         shader_asset_name: Option<String>,
+        shader_variant_bits: Option<u32>,
     ) {
         if let Some(reg) = self.material_registry.as_mut() {
-            reg.map_shader_route(asset_id, pipeline, shader_asset_name);
+            reg.map_shader_route(asset_id, pipeline, shader_asset_name, shader_variant_bits);
         } else {
             self.pending_shader_routes
-                .insert(asset_id, (pipeline, shader_asset_name));
+                .insert(asset_id, (pipeline, shader_asset_name, shader_variant_bits));
         }
     }
 

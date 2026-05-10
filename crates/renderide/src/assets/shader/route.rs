@@ -2,7 +2,8 @@
 //!
 //! The stock host sends an on-disk shader AssetBundle path in [`ShaderUpload::file`]. Routing reads
 //! that bundle, extracts the Shader object's `m_Container` asset filename, and maps that filename to
-//! an embedded WGSL stem.
+//! an embedded WGSL stem. The serialized Shader object's internal name is also parsed for a Froox
+//! variant suffix, but that suffix is not used to choose the shader route.
 //!
 //! Names with an embedded `{asset_name}_default` WGSL target (see [`crate::materials::embedded_shader_stem`]) resolve to
 //! [`RasterPipelineKind::EmbeddedStem`]; unresolved or non-embedded shaders use
@@ -29,6 +30,8 @@ use super::unity_asset;
 pub struct ResolvedShaderUpload {
     /// Shader asset filename or stem from the AssetBundle `m_Container` entry.
     pub shader_asset_name: Option<String>,
+    /// Froox shader variant bitmask parsed from the internal Shader name suffix, when available.
+    pub shader_variant_bits: Option<u32>,
     /// Pipeline kind passed to [`crate::materials::MaterialRegistry::map_shader_route`].
     pub pipeline: RasterPipelineKind,
 }
@@ -38,6 +41,8 @@ pub struct ResolvedShaderUpload {
 pub struct ShaderRoutePlan {
     /// Shader asset filename or stem from the AssetBundle `m_Container` entry.
     pub shader_asset_name: Option<String>,
+    /// Froox shader variant bitmask parsed from the internal Shader name suffix, when available.
+    pub shader_variant_bits: Option<u32>,
     /// Pipeline kind passed to [`crate::materials::MaterialRegistry::map_shader_route`].
     pub pipeline: RasterPipelineKind,
 }
@@ -46,13 +51,17 @@ impl From<ShaderRoutePlan> for ResolvedShaderUpload {
     fn from(plan: ShaderRoutePlan) -> Self {
         Self {
             shader_asset_name: plan.shader_asset_name,
+            shader_variant_bits: plan.shader_variant_bits,
             pipeline: plan.pipeline,
         }
     }
 }
 
 /// Selects the raster route for an optional shader asset name without filesystem access.
-pub fn plan_shader_route(shader_asset_name: Option<String>) -> ShaderRoutePlan {
+pub fn plan_shader_route(
+    shader_asset_name: Option<String>,
+    shader_variant_bits: Option<u32>,
+) -> ShaderRoutePlan {
     let pipeline = match shader_asset_name.as_deref() {
         Some(name) => {
             if let Some(stem) = embedded_default_stem_for_shader_asset_name(name) {
@@ -65,6 +74,7 @@ pub fn plan_shader_route(shader_asset_name: Option<String>) -> ShaderRoutePlan {
     };
     ShaderRoutePlan {
         shader_asset_name,
+        shader_variant_bits,
         pipeline,
     }
 }
@@ -76,28 +86,45 @@ pub fn resolve_shader_upload(data: &ShaderUpload) -> ResolvedShaderUpload {
         .as_deref()
         .and_then(|f| f.strip_prefix(RENDERIDE_TEST_STEM_PREFIX))
     {
-        let stem = normalize_test_stem_suffix(suffix);
-        return plan_shader_route(Some(stem)).into();
+        let (stem, shader_variant_bits) = normalize_test_stem_suffix(suffix);
+        return plan_shader_route(Some(stem), shader_variant_bits).into();
     }
-    let shader_asset_name = data
+    let resolved = data
         .file
         .as_deref()
         .and_then(|file| unity_asset::try_resolve_shader_asset_name_from_path(Path::new(file)));
-    plan_shader_route(shader_asset_name).into()
+    let shader_asset_name = resolved
+        .as_ref()
+        .map(|resolved| resolved.shader_asset_name.clone());
+    let shader_variant_bits = resolved.and_then(|resolved| resolved.shader_variant_bits);
+    plan_shader_route(shader_asset_name, shader_variant_bits).into()
 }
 
 /// Normalizes a sentinel-prefix suffix the way the AssetBundle path resolves a `m_Container`
 /// entry: drop a trailing `.shader` (case-insensitive) and lowercase. Lets the harness pass a
 /// production-style name like `Unlit.shader` and have it match the embedded `unlit_default`
 /// stem the same way the production host's AssetBundle entry would.
-fn normalize_test_stem_suffix(suffix: &str) -> String {
+fn normalize_test_stem_suffix(suffix: &str) -> (String, Option<u32>) {
     let trimmed = suffix.trim();
     let without_ext = trimmed
         .strip_suffix(".shader")
         .or_else(|| trimmed.strip_suffix(".SHADER"))
         .or_else(|| trimmed.strip_suffix(".Shader"))
         .unwrap_or(trimmed);
-    without_ext.to_ascii_lowercase()
+    let (stem, shader_variant_bits) = split_variant_suffix(without_ext)
+        .map_or((without_ext, None), |(stem, bits)| (stem, Some(bits)));
+    (stem.to_ascii_lowercase(), shader_variant_bits)
+}
+
+fn split_variant_suffix(name: &str) -> Option<(&str, u32)> {
+    let (stem, suffix) = name.rsplit_once('_')?;
+    if stem.trim().is_empty() || suffix.len() != 8 || !suffix.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    u32::from_str_radix(suffix, 16)
+        .ok()
+        .map(|bits| (stem, bits))
 }
 
 #[cfg(test)]
@@ -113,6 +140,7 @@ mod tests {
         };
         let r = resolve_shader_upload(&u);
         assert_eq!(r.shader_asset_name, None);
+        assert_eq!(r.shader_variant_bits, None);
         assert_eq!(r.pipeline, RasterPipelineKind::Null);
     }
 
@@ -124,6 +152,7 @@ mod tests {
         };
         let r = resolve_shader_upload(&u);
         assert_eq!(r.shader_asset_name, None);
+        assert_eq!(r.shader_variant_bits, None);
         assert_eq!(r.pipeline, RasterPipelineKind::Null);
     }
 
@@ -138,25 +167,28 @@ mod tests {
         };
         let r = resolve_shader_upload(&u);
         assert_eq!(r.shader_asset_name, None);
+        assert_eq!(r.shader_variant_bits, None);
         assert_eq!(r.pipeline, RasterPipelineKind::Null);
     }
 
     #[test]
     fn route_plan_resolves_known_embedded_shader_name() {
-        let r = plan_shader_route(Some("ui_textunlit".to_string()));
+        let r = plan_shader_route(Some("ui_textunlit".to_string()), None);
 
         assert_eq!(r.shader_asset_name.as_deref(), Some("ui_textunlit"));
+        assert_eq!(r.shader_variant_bits, None);
         assert!(matches!(r.pipeline, RasterPipelineKind::EmbeddedStem(_)));
     }
 
     #[test]
     fn route_plan_uses_null_for_unknown_name() {
-        let r = plan_shader_route(Some("definitely_missing_shader".to_string()));
+        let r = plan_shader_route(Some("definitely_missing_shader".to_string()), None);
 
         assert_eq!(
             r.shader_asset_name.as_deref(),
             Some("definitely_missing_shader")
         );
+        assert_eq!(r.shader_variant_bits, None);
         assert_eq!(r.pipeline, RasterPipelineKind::Null);
     }
 
@@ -168,6 +200,7 @@ mod tests {
         };
         let r = resolve_shader_upload(&u);
         assert_eq!(r.shader_asset_name.as_deref(), Some("ui_textunlit"));
+        assert_eq!(r.shader_variant_bits, None);
         assert!(matches!(r.pipeline, RasterPipelineKind::EmbeddedStem(_)));
     }
 
@@ -181,6 +214,7 @@ mod tests {
         };
         let r = resolve_shader_upload(&u);
         assert_eq!(r.shader_asset_name.as_deref(), Some(nonexistent));
+        assert_eq!(r.shader_variant_bits, None);
         assert_eq!(r.pipeline, RasterPipelineKind::Null);
     }
 
@@ -197,6 +231,7 @@ mod tests {
             r.shader_asset_name.as_deref(),
             Some("definitely_missing_shader")
         );
+        assert_eq!(r.shader_variant_bits, None);
         assert_eq!(r.pipeline, RasterPipelineKind::Null);
     }
 
@@ -208,6 +243,7 @@ mod tests {
         };
         let r = resolve_shader_upload(&u);
         assert_eq!(r.shader_asset_name.as_deref(), Some("unlit"));
+        assert_eq!(r.shader_variant_bits, None);
         assert!(matches!(r.pipeline, RasterPipelineKind::EmbeddedStem(_)));
     }
 
@@ -219,6 +255,19 @@ mod tests {
         };
         let r = resolve_shader_upload(&u);
         assert_eq!(r.shader_asset_name.as_deref(), Some("texturedebug"));
+        assert_eq!(r.shader_variant_bits, None);
+        assert!(matches!(r.pipeline, RasterPipelineKind::EmbeddedStem(_)));
+    }
+
+    #[test]
+    fn stem_prefix_strips_variant_suffix_for_route_and_preserves_bits() {
+        let u = ShaderUpload {
+            asset_id: 12,
+            file: Some(format!("{RENDERIDE_TEST_STEM_PREFIX}Unlit_00002202.shader")),
+        };
+        let r = resolve_shader_upload(&u);
+        assert_eq!(r.shader_asset_name.as_deref(), Some("unlit"));
+        assert_eq!(r.shader_variant_bits, Some(0x2202));
         assert!(matches!(r.pipeline, RasterPipelineKind::EmbeddedStem(_)));
     }
 }

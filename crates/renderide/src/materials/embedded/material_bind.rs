@@ -55,6 +55,15 @@ pub(crate) struct EmbeddedMaterialBindGroup {
     pub(crate) uniform_dynamic_offset: Option<u32>,
 }
 
+/// Embedded shader identity needed when resolving a material bind group.
+#[derive(Clone, Copy)]
+pub(crate) struct EmbeddedMaterialBindShader<'a> {
+    /// Embedded WGSL stem selected for the shader asset.
+    pub(crate) stem: &'a str,
+    /// Froox shader-specific variant bitmask decoded from the uploaded Unity shader asset.
+    pub(crate) shader_variant_bits: Option<u32>,
+}
+
 fn material_bind_group_result(
     bind_key: MaterialBindCacheKey,
     bind_group: Arc<wgpu::BindGroup>,
@@ -204,7 +213,10 @@ impl EmbeddedMaterialBindResources {
         offscreen_write_render_texture_asset_id: Option<i32>,
     ) -> Result<EmbeddedMaterialBindGroup, EmbeddedMaterialBindError> {
         self.embedded_material_bind_group_with_cache_key(
-            stem,
+            EmbeddedMaterialBindShader {
+                stem,
+                shader_variant_bits: None,
+            },
             uploads,
             store,
             pools,
@@ -218,7 +230,7 @@ impl EmbeddedMaterialBindResources {
     /// possible caller-side bind deduplication.
     pub(crate) fn embedded_material_bind_group_with_cache_key(
         &self,
-        stem: &str,
+        shader: EmbeddedMaterialBindShader<'_>,
         uploads: GraphUploadSink<'_>,
         store: &MaterialPropertyStore,
         pools: &EmbeddedTexturePools<'_>,
@@ -233,7 +245,8 @@ impl EmbeddedMaterialBindResources {
             texture_bind_signature,
             texture_2d_asset_id,
         } = self.resolve_embedded_bind_inputs(
-            stem,
+            shader.stem,
+            shader.shader_variant_bits,
             store,
             pools,
             lookup,
@@ -255,7 +268,8 @@ impl EmbeddedMaterialBindResources {
             Some(
                 self.get_or_update_embedded_uniform_arena_slot(EmbeddedUniformArenaRequest {
                     uploads,
-                    stem,
+                    stem: shader.stem,
+                    shader_variant_bits: shader.shader_variant_bits,
                     layout: &layout,
                     uniform_key: &uniform_key,
                     mutation_gen,

@@ -201,6 +201,7 @@ impl EmbeddedSharedKeywordIds {
 
 /// Per-stem stable property ids from WGSL reflection (uniform members and `@group(1)` texture globals), built once when the stem layout loads.
 pub(crate) struct StemEmbeddedPropertyIds {
+    pub(crate) stem: String,
     pub(crate) shared: Arc<EmbeddedSharedKeywordIds>,
     pub(crate) uniform_field_ids: HashMap<String, i32>,
     pub(crate) texture_binding_property_ids: HashMap<u32, Arc<[i32]>>,
@@ -271,6 +272,7 @@ impl StemEmbeddedPropertyIds {
 
         let source_stem = source_stem_from_target_stem(stem);
         Self {
+            stem: stem.to_string(),
             shared,
             uniform_field_ids,
             texture_binding_property_ids,
@@ -292,6 +294,7 @@ impl StemEmbeddedPropertyIds {
     /// Shared keyword ids only (no per-stem uniform/texture reflection); for unit tests.
     pub fn minimal_for_tests(registry: &PropertyIdRegistry) -> Self {
         Self {
+            stem: "test_default".to_string(),
             shared: Arc::new(EmbeddedSharedKeywordIds::new(registry)),
             uniform_field_ids: HashMap::new(),
             texture_binding_property_ids: HashMap::new(),

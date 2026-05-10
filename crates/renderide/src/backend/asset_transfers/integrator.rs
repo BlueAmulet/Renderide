@@ -178,6 +178,8 @@ pub struct ShaderRouteTask {
     pub pipeline: RasterPipelineKind,
     /// Resolved AssetBundle shader asset name, when available.
     pub shader_asset_name: Option<String>,
+    /// Froox shader variant bitmask parsed from the serialized Shader name suffix.
+    pub shader_variant_bits: Option<u32>,
 }
 
 /// One cooperative integration task.
@@ -472,7 +474,12 @@ fn step_shader_route_task(
     route: &mut ShaderRouteTask,
 ) -> StepResult {
     let shader_asset_name = route.shader_asset_name.take();
-    materials.register_shader_route(route.asset_id, route.pipeline.clone(), shader_asset_name);
+    materials.register_shader_route(
+        route.asset_id,
+        route.pipeline.clone(),
+        shader_asset_name,
+        route.shader_variant_bits,
+    );
     if let Some(ipc) = ipc.as_deref_mut() {
         let _ =
             ipc.send_background_reliable(RendererCommand::ShaderUploadResult(ShaderUploadResult {
