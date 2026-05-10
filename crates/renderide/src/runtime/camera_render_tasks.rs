@@ -274,7 +274,6 @@ impl RendererRuntime {
             return;
         };
 
-        backend.prepare_lights_from_scene(scene);
         let render_context = RenderingContext::RenderToAsset;
         let base_camera = *host_camera;
         let total = tasks.len();
@@ -461,6 +460,13 @@ fn render_camera_task_offscreen(
     profiling::scope!("camera_task::offscreen_render");
     let view_id = plan.view_id;
     let prepared_views = PreparedViews::new(vec![plan], None);
+    backend.prepare_lights_for_views(
+        scene,
+        prepared_views
+            .plans()
+            .iter()
+            .map(|plan| plan.light_view_desc(render_context)),
+    );
     let view_perms = prepared_views
         .plans()
         .iter()

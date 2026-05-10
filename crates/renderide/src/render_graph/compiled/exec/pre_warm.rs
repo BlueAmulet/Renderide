@@ -35,8 +35,8 @@ impl CompiledRenderGraph {
         // tick maps to `None` and every phase short-circuits for that index in lock-step.
         let view_layouts: Vec<Option<PreRecordViewResourceLayout>> =
             build_view_layouts(mv_ctx, views);
-        Self::pre_sync_shared_frame_resources_for_views(mv_ctx, &view_layouts, upload_batch);
         Self::pre_warm_per_view_resources_for_views(mv_ctx, views, &view_layouts)?;
+        Self::pre_sync_shared_frame_resources_for_views(mv_ctx, &view_layouts, upload_batch);
         Self::register_history_resources_for_views(mv_ctx, views)?;
         Ok(())
     }
@@ -150,8 +150,8 @@ impl CompiledRenderGraph {
 
     /// Pre-synchronizes shared frame resources for every unique per-view layout before recording.
     ///
-    /// This hoists the shared `FrameGpuResources::sync_cluster_viewport` and one-time lights upload
-    /// out of the per-view record path so rayon workers only touch per-view state during recording.
+    /// This hoists shared cluster synchronization and per-view light uploads out of the per-view
+    /// record path so rayon workers only read view-local state during recording.
     pub(super) fn pre_sync_shared_frame_resources_for_views(
         mv_ctx: &mut MultiViewExecutionContext<'_>,
         view_layouts: &[Option<PreRecordViewResourceLayout>],
@@ -253,6 +253,7 @@ fn build_view_layouts(
             let stereo = view.is_multiview_stereo_active();
             let depth_format = view.target.depth_format(mv_ctx.gpu).ok()?;
             Some(PreRecordViewResourceLayout {
+                view_id: view.view_id(),
                 width: viewport.0,
                 height: viewport.1,
                 stereo,

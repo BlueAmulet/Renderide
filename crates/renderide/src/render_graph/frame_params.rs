@@ -137,6 +137,8 @@ pub struct PerViewFramePlan {
 /// Frame-resource layout needed before graph recording starts for one view.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PreRecordViewResourceLayout {
+    /// Stable identity for the view that owns this layout.
+    pub view_id: ViewId,
     /// Viewport width in physical pixels.
     pub width: u32,
     /// Viewport height in physical pixels.

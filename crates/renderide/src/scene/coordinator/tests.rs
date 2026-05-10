@@ -10,8 +10,8 @@ use crate::scene::render_overrides::RenderTransformOverrideEntry;
 use crate::scene::render_space::RenderSpaceState;
 use crate::scene::{SkinnedMeshRenderer, StaticMeshRenderer};
 use crate::shared::{
-    BlitToDisplayState, CameraProjection, CameraState, RenderSpaceUpdate, RenderTransform,
-    RenderingContext,
+    BlitToDisplayState, CameraProjection, CameraState, LightData, LightType,
+    LightsBufferRendererState, RenderSpaceUpdate, RenderTransform, RenderingContext, ShadowType,
 };
 
 use super::super::ids::RenderSpaceId;
@@ -24,6 +24,13 @@ impl SceneCoordinator {
     pub(crate) fn test_set_space_active(&mut self, id: RenderSpaceId, is_active: bool) {
         if let Some(space) = self.spaces.get_mut(&id) {
             space.is_active = is_active;
+        }
+    }
+
+    /// Overrides [`RenderSpaceState::is_overlay`] for a seeded space (unit tests only).
+    pub(crate) fn test_set_space_overlay(&mut self, id: RenderSpaceId, is_overlay: bool) {
+        if let Some(space) = self.spaces.get_mut(&id) {
+            space.is_overlay = is_overlay;
         }
     }
 
@@ -222,6 +229,42 @@ fn identity_transform() -> RenderTransform {
         scale: Vec3::ONE,
         rotation: Quat::IDENTITY,
     }
+}
+
+fn test_light_state(global_unique_id: i32) -> LightsBufferRendererState {
+    LightsBufferRendererState {
+        renderable_index: 0,
+        global_unique_id,
+        shadow_strength: 0.0,
+        shadow_near_plane: 0.0,
+        shadow_map_resolution: 0,
+        shadow_bias: 0.0,
+        shadow_normal_bias: 0.0,
+        cookie_texture_asset_id: -1,
+        light_type: LightType::Point,
+        shadow_type: ShadowType::None,
+        _padding: [0; 2],
+    }
+}
+
+fn seed_test_light(scene: &mut SceneCoordinator, space_id: RenderSpaceId, global_unique_id: i32) {
+    scene.light_cache_mut().store_full(
+        global_unique_id,
+        vec![LightData {
+            point: Vec3::ZERO,
+            orientation: Quat::IDENTITY,
+            color: Vec3::ONE,
+            intensity: 1.0,
+            range: 10.0,
+            angle: 45.0,
+        }],
+    );
+    scene.light_cache_mut().apply_update(
+        space_id.0,
+        &[],
+        &[0],
+        &[test_light_state(global_unique_id)],
+    );
 }
 
 /// Render-space iteration is stable so draw collection and transparent fallback ordering do not
@@ -511,6 +554,41 @@ fn overlay_render_matrix_tracks_head_output_transform() {
         (t.z + 4.0).abs() < 1e-4,
         "overlay z should subtract space root"
     );
+}
+
+#[test]
+fn render_context_light_resolution_tracks_overlay_head_output_transform() {
+    let mut scene = SceneCoordinator::new();
+    let id = RenderSpaceId(8);
+    let mut local = identity_transform();
+    local.position = Vec3::new(1.0, 0.0, 0.0);
+    scene.test_seed_space_identity_worlds(id, vec![local], vec![-1]);
+    scene.test_set_space_overlay(id, true);
+    scene.test_set_space_root_transform(
+        id,
+        RenderTransform {
+            position: Vec3::new(2.0, 3.0, 4.0),
+            scale: Vec3::ONE,
+            rotation: Quat::IDENTITY,
+        },
+    );
+    seed_test_light(&mut scene, id, 100);
+
+    let head_output =
+        Mat4::from_scale_rotation_translation(Vec3::ONE, Quat::IDENTITY, Vec3::new(10.0, 0.0, 0.0));
+    let mut resolved = Vec::new();
+    scene.resolve_lights_for_render_context_into(
+        id,
+        RenderingContext::UserView,
+        head_output,
+        &mut resolved,
+    );
+
+    assert_eq!(resolved.len(), 1);
+    let pos = resolved[0].world_position;
+    assert!((pos.x - 9.0).abs() < 1e-4);
+    assert!((pos.y + 3.0).abs() < 1e-4);
+    assert!((pos.z + 4.0).abs() < 1e-4);
 }
 
 #[test]

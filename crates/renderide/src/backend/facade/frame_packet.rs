@@ -2,6 +2,7 @@
 
 use hashbrown::HashMap;
 
+use crate::backend::FrameLightViewDesc;
 use crate::gpu_pools::MeshPool;
 use crate::materials::ShaderPermutation;
 use crate::materials::host_data::MaterialPropertyStore;
@@ -60,11 +61,14 @@ impl RenderBackend {
         self.draw_preparation.note_scene_cache_flush_report(report);
     }
 
-    /// Prepares clustered-light frame resources from the current scene once for the tick.
-    pub(crate) fn prepare_lights_from_scene(&mut self, scene: &SceneCoordinator) {
+    /// Prepares clustered-light frame resources for the planned views in one graph submission.
+    pub(crate) fn prepare_lights_for_views<I>(&mut self, scene: &SceneCoordinator, views: I)
+    where
+        I: IntoIterator<Item = FrameLightViewDesc>,
+    {
         self.frame_services
             .frame_resources
-            .prepare_lights_from_scene(scene);
+            .prepare_lights_for_views(scene, views);
     }
 
     /// Drains completed Hi-Z readbacks into CPU snapshots at the top of the tick.

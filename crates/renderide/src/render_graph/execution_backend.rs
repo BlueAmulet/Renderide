@@ -38,14 +38,14 @@ pub trait GraphFrameResources: Send + Sync {
     /// Whether frame-global GPU resources were attached.
     fn has_frame_gpu(&self) -> bool;
 
-    /// Packed GPU lights for the current frame.
-    fn frame_lights(&self) -> &[GpuLight];
+    /// Packed GPU lights for one render view.
+    fn frame_lights(&self, view_id: ViewId) -> &[GpuLight];
 
-    /// Light count used in frame uniforms and shaders.
-    fn frame_light_count_u32(&self) -> u32;
+    /// Light count used in one view's frame uniforms and shaders.
+    fn frame_light_count_u32(&self, view_id: ViewId) -> u32;
 
-    /// Shared lights storage buffer.
-    fn lights_buffer(&self) -> Option<wgpu::Buffer>;
+    /// View-local lights storage buffer.
+    fn lights_buffer(&self, view_id: ViewId) -> Option<wgpu::Buffer>;
 
     /// Shared frame-uniform buffer.
     fn frame_uniform_buffer(&self) -> Option<wgpu::Buffer>;
