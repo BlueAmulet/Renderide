@@ -73,7 +73,7 @@ impl Default for BloomSettings {
     fn default() -> Self {
         Self {
             enabled: true,
-            intensity: 0.5,
+            intensity: 0.667,
             low_frequency_boost: 0.0,
             low_frequency_boost_curvature: 1.0,
             high_pass_frequency: 1.0,
