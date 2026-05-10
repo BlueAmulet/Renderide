@@ -708,7 +708,7 @@ fn post_processing_bloom(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut b
 fn post_processing_auto_exposure(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
     let _id = ui.push_id("auto_exposure");
     ui.text_disabled(
-        "Auto-exposure: builds a log-luminance histogram from HDR scene color, ignores dark/bright percentile tails, and adapts exposure before tonemapping.",
+        "Auto-exposure: builds a scene-linear log-luminance histogram, targets middle gray, ignores dark/bright percentile tails, and adapts exposure before tonemapping.",
     );
     if ui.checkbox(
         "Enable auto-exposure",
@@ -781,7 +781,7 @@ fn post_processing_auto_exposure(ui: &imgui::Ui, g: &mut RendererSettings, dirty
         *dirty = true;
     }
     if ui
-        .slider_config("Compensation (EV)", -8.0_f32, 8.0_f32)
+        .slider_config("Middle-gray compensation (EV)", -8.0_f32, 8.0_f32)
         .display_format("%.2f")
         .build(&mut auto.compensation_ev)
     {

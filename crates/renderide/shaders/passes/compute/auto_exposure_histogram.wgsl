@@ -15,7 +15,7 @@ struct AutoExposureParams {
     speed_brighten: f32,
     speed_darken: f32,
     exponential_transition_distance: f32,
-    compensation_ev: f32,
+    target_ev: f32,
     delta_time_seconds: f32,
     layer_count: u32,
     _pad: u32,
@@ -110,7 +110,7 @@ fn compute_average() {
         avg_lum = sum / (f32(count) * 63.0) * params.log_lum_range + params.min_log_lum;
     }
 
-    let target_exposure = params.compensation_ev - avg_lum;
+    let target_exposure = params.target_ev - avg_lum;
     let current = clamp(exposure_ev, -32.0, 32.0);
     exposure_ev = clamp(adapt_exposure(current, target_exposure), -32.0, 32.0);
 }
