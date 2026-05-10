@@ -15,6 +15,13 @@ const FORBIDDEN_2D_HELPERS: &[&str] = &[
     "uvu::flip_v(",
 ];
 
+const FORBIDDEN_MESH_UV_V_FLIPS: &[&str] = &[
+    "1.0 - in.primary_uv.y",
+    "1.0 - primary_uv.y",
+    "1.0 - in.uv.y",
+    "1.0 - uv0.y",
+];
+
 fn materials_dir() -> PathBuf {
     let manifest = env!("CARGO_MANIFEST_DIR");
     Path::new(manifest).join("shaders/materials")
@@ -104,6 +111,32 @@ fn no_storage_aware_uv_helpers_remain() -> Result<(), Box<dyn std::error::Error>
         offenders.sort();
         panic!(
             "storage-aware UV helpers must be replaced with plain `apply_st`:\n  - {}",
+            offenders.join("\n  - ")
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn no_direct_mesh_uv_v_flips_remain() -> Result<(), Box<dyn std::error::Error>> {
+    let mut offenders: Vec<String> = Vec::new();
+    for dir in [materials_dir(), modules_dir()] {
+        for path in wgsl_files_in(&dir)? {
+            let src = std::fs::read_to_string(&path)?;
+            for snippet in FORBIDDEN_MESH_UV_V_FLIPS {
+                if src.contains(snippet) {
+                    offenders.push(format!(
+                        "{} contains direct mesh UV V flip {snippet}",
+                        path.file_name().unwrap().to_string_lossy()
+                    ));
+                }
+            }
+        }
+    }
+    if !offenders.is_empty() {
+        offenders.sort();
+        panic!(
+            "material mesh UVs are already in Unity (V=0 bottom) convention; remove direct V flips:\n  - {}",
             offenders.join("\n  - ")
         );
     }

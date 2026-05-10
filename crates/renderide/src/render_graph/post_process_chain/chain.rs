@@ -410,6 +410,7 @@ mod tests {
             },
             ..Default::default()
         };
+        s.auto_exposure.enabled = true;
         assert!(PostProcessChainSignature::from_settings(&s).is_empty());
 
         s.enabled = true;
@@ -565,6 +566,7 @@ mod tests {
         };
         s.gtao.enabled = false;
         s.bloom.enabled = false;
+        s.auto_exposure.enabled = true;
 
         let sig = PostProcessChainSignature::from_settings(&s);
 
