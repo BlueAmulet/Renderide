@@ -335,7 +335,7 @@ struct VertexOutput {
     @location(1) world_n: vec3<f32>,
     /// World-space tangent from the MikkTSpace basis.
     @location(2) world_t: vec3<f32>,
-    /// World-space bitangent (signed by `tangent.w`).
+    /// World-space bitangent signed by the resolved tangent-frame handedness.
     @location(3) world_b: vec3<f32>,
     /// Primary UV (UV0).
     @location(4) uv_primary: vec2<f32>,

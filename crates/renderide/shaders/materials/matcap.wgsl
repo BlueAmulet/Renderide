@@ -6,6 +6,7 @@
 #import renderide::math as rmath
 #import renderide::mesh::vertex as mv
 #import renderide::normal_decode as nd
+#import renderide::pbs::normal as pnorm
 #import renderide::uv_utils as uvu
 #import renderide::view_basis as vb
 
@@ -50,11 +51,7 @@ fn vs_main(
 #endif
     let world_p = mv::world_position(d, pos);
     let world_n = rmath::safe_normalize(d.normal_matrix * n.xyz, vec3<f32>(0.0, 1.0, 0.0));
-    let tangent_world_raw = mv::model_vector(d, tangent.xyz);
-    let tangent_ortho = tangent_world_raw - world_n * dot(tangent_world_raw, world_n);
-    let world_t = rmath::safe_normalize(tangent_ortho, vec3<f32>(1.0, 0.0, 0.0));
-    let tangent_sign = select(1.0, -1.0, tangent.w < 0.0);
-    let world_b = rmath::safe_normalize(cross(world_n, world_t) * tangent_sign, vec3<f32>(0.0, 0.0, 1.0));
+    let tbn = pnorm::orthonormal_tbn(world_n, mv::world_tangent(d, tangent));
     let vp = mv::select_view_proj(d, view_layer);
     let basis = vb::from_view_projection(vp);
 
@@ -62,8 +59,8 @@ fn vs_main(
     out.clip_pos = vp * world_p;
     out.uv_normal = uvu::apply_st(uv0, mat._NormalMap_ST);
     out.world_n = world_n;
-    out.world_t = world_t;
-    out.world_b = world_b;
+    out.world_t = tbn[0];
+    out.world_b = tbn[1];
     out.view_x = basis.x;
     out.view_y = basis.y;
     return out;

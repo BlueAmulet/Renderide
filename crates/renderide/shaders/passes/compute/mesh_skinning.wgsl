@@ -120,14 +120,22 @@ fn skin_main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let tangent_enabled = (skin_dispatch.flags & SKIN_TANGENTS) != 0u;
     var tb = vec4<f32>(0.0);
     var t_bind = vec3<f32>(0.0);
+    var b_bind = vec3<f32>(0.0);
     var acc_t = vec3<f32>(0.0);
+    var acc_b = vec3<f32>(0.0);
     if (tangent_enabled) {
         tb = src_t[src_ti];
         t_bind = tb.xyz;
+        let bind_sign = select(1.0, -1.0, tb.w < 0.0);
+        b_bind = cross(n_bind, t_bind) * bind_sign;
         acc_t += w.x * (mat3_linear(bone_matrices[bx]) * t_bind);
         acc_t += w.y * (mat3_linear(bone_matrices[by]) * t_bind);
         acc_t += w.z * (mat3_linear(bone_matrices[bz]) * t_bind);
         acc_t += w.w * (mat3_linear(bone_matrices[bw]) * t_bind);
+        acc_b += w.x * (mat3_linear(bone_matrices[bx]) * b_bind);
+        acc_b += w.y * (mat3_linear(bone_matrices[by]) * b_bind);
+        acc_b += w.z * (mat3_linear(bone_matrices[bz]) * b_bind);
+        acc_b += w.w * (mat3_linear(bone_matrices[bw]) * b_bind);
     }
 
     if (ws > 1e-6) {
@@ -136,7 +144,8 @@ fn skin_main(@builtin(global_invocation_id) gid: vec3<u32>) {
         dst_n[dst_ni] = vec4<f32>(nn, nb.w);
         if (tangent_enabled) {
             let tt = safe_normalize(acc_t / ws, t_bind);
-            let sign = select(1.0, -1.0, tb.w < 0.0);
+            let bb = safe_normalize(acc_b / ws, b_bind);
+            let sign = select(1.0, -1.0, dot(cross(nn, tt), bb) < 0.0);
             dst_t[dst_ti] = vec4<f32>(tt, sign);
         }
     } else {

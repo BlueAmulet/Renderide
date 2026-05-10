@@ -15,21 +15,23 @@
 #import renderide::math as rmath
 
 /// Builds a MikkTSpace-style TBN from a world-space normal and a Unity-style `vec4` tangent
-/// (xyz = world tangent, w = bitangent handedness sign). Valid normals/tangents are not
+/// (xyz = world tangent, w = bitangent handedness sign). Interpolated normals and tangents are
 /// re-orthogonalized in the fragment path; degenerate data falls back to a stable generated basis.
 fn orthonormal_tbn(world_n: vec3<f32>, world_t: vec4<f32>) -> mat3x3<f32> {
     let n_len_sq = dot(world_n, world_n);
     if (!(n_len_sq > 1e-10) || n_len_sq > 3.402823e38) {
         return orthonormal_tbn_fallback(vec3<f32>(0.0, 0.0, 1.0));
     }
-    let t_len_sq = dot(world_t.xyz, world_t.xyz);
+    let n = world_n * inverseSqrt(n_len_sq);
+
+    let t_ortho = world_t.xyz - n * dot(world_t.xyz, n);
+    let t_len_sq = dot(t_ortho, t_ortho);
     if (!(t_len_sq > 1e-10) || t_len_sq > 3.402823e38) {
-        return orthonormal_tbn_fallback(rmath::safe_normalize(world_n, vec3<f32>(0.0, 0.0, 1.0)));
+        return orthonormal_tbn_fallback(n);
     }
-    let n = world_n;
-    let t = world_t.xyz;
+    let t = t_ortho * inverseSqrt(t_len_sq);
     let sign = select(1.0, -1.0, world_t.w < 0.0);
-    let b = cross(n, t) * sign;
+    let b = rmath::safe_normalize(cross(n, t), vec3<f32>(0.0, 1.0, 0.0)) * sign;
     return mat3x3<f32>(t, b, n);
 }
 

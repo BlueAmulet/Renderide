@@ -93,12 +93,21 @@ fn model_world_normal(draw: pd::PerDrawUniforms, n: vec4<f32>) -> vec3<f32> {
     return normalize(model_vector(draw, n.xyz));
 }
 
+fn model_handedness(draw: pd::PerDrawUniforms) -> f32 {
+    if (pd::position_stream_is_world_space(draw)) {
+        return 1.0;
+    }
+    let det = dot(draw.model[0].xyz, cross(draw.model[1].xyz, draw.model[2].xyz));
+    return select(1.0, -1.0, det < 0.0);
+}
+
 /// Tangents lie in the surface plane and transform like ordinary direction
 /// vectors, so they go through the model matrix -- never the inverse-transpose
 /// `normal_matrix`, which is only correct for surface normals. The handedness
-/// `w` carries Unity's bitangent sign and is preserved verbatim.
+/// `w` carries Unity's bitangent sign, adjusted by model transform parity.
 fn world_tangent(draw: pd::PerDrawUniforms, t: vec4<f32>) -> vec4<f32> {
-    return vec4<f32>(normalize(model_vector(draw, t.xyz)), t.w);
+    let tangent_sign = select(1.0, -1.0, t.w < 0.0);
+    return vec4<f32>(normalize(model_vector(draw, t.xyz)), tangent_sign * model_handedness(draw));
 }
 
 fn packed_view_layer(instance_index: u32, view_idx: u32) -> u32 {
