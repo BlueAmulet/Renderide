@@ -219,9 +219,31 @@ fn transparent_render_type_with_additive_factors_infers_mul_rgb_by_alpha() {
     );
 }
 
-/// FrooxEngine drives the LUT `LERP` keyword from `_Lerp > 0` rather than sending a
-/// standalone keyword material property.
+#[test]
+fn additive_rgb_by_alpha_keyword_packs_into_reflected_uniform() {
+    let (reflected, ids, reg) = reflected_with_f32_fields(&[("_MUL_RGB_BY_ALPHA", 0)]);
+    let mut store = MaterialPropertyStore::new();
+    store.set_material(
+        76,
+        reg.intern("_RenderType"),
+        MaterialPropertyValue::Float(2.0),
+    );
+    store.set_material(
+        76,
+        reg.intern("_SrcBlend"),
+        MaterialPropertyValue::Float(1.0),
+    );
+    store.set_material(
+        76,
+        reg.intern("_DstBlend"),
+        MaterialPropertyValue::Float(1.0),
+    );
 
+    assert_eq!(pack_first_f32_value(&reflected, &ids, &store, 76), 1.0);
+}
+
+/// Additive blend factors alone are not enough; the material must also be in a transparent
+/// render type or queue range.
 #[test]
 fn opaque_render_type_with_additive_factors_does_not_infer_mul_rgb_by_alpha() {
     let mut store = MaterialPropertyStore::new();

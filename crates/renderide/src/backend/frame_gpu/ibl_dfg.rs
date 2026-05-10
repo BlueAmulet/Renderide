@@ -85,7 +85,7 @@ fn generate_ibl_dfg_lut_rg32f() -> Vec<f32> {
     out
 }
 
-/// Multiscatter DFG integral factored for runtime `mix(dfg.x, dfg.y, f0)`.
+/// Multiscatter DFG integral factored for runtime Schlick energy reconstruction.
 fn dfv_multiscatter(no_v: f32, linear_roughness: f32, sample_count: u32) -> [f32; 2] {
     let no_v = saturate(no_v);
     let v = Vec3::new((1.0 - no_v * no_v).max(0.0).sqrt(), 0.0, no_v);

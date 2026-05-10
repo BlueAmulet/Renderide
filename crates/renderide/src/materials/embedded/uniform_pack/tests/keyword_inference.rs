@@ -24,6 +24,15 @@ fn pack_rect_clip_value(
     store: &MaterialPropertyStore,
     material_id: i32,
 ) -> f32 {
+    pack_first_f32_value(reflected, ids, store, material_id)
+}
+
+fn pack_first_f32_value(
+    reflected: &ReflectedRasterLayout,
+    ids: &StemEmbeddedPropertyIds,
+    store: &MaterialPropertyStore,
+    material_id: i32,
+) -> f32 {
     let (texture, texture3d, cubemap, render_texture, video_texture) = empty_texture_pools();
     let pools = EmbeddedTexturePools {
         texture: &texture,

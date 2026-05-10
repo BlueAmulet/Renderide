@@ -87,6 +87,29 @@ fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
 }
 
 #[test]
+fn pbs_indirect_specular_energy_respects_zero_f0() -> io::Result<()> {
+    let brdf = module_source("pbs_brdf.wgsl")?;
+
+    for required in [
+        "let f90 = vec3<f32>(f90_from_f0(clamped_f0));",
+        "return clamped_f0 * (dfg.y - dfg.x) + f90 * dfg.x;",
+    ] {
+        assert!(
+            brdf.contains(required),
+            "pbs_brdf.wgsl must contain `{required}`"
+        );
+    }
+
+    assert!(
+        !brdf.contains(
+            "return mix(vec3<f32>(dfg.x), vec3<f32>(dfg.y), clamp(f0, vec3<f32>(0.0), vec3<f32>(1.0)));"
+        ),
+        "pbs_brdf.wgsl must not use the old implicit f90=1 DFG formula"
+    );
+    Ok(())
+}
+
+#[test]
 fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
     let sampling_src =
         fs::read_to_string(manifest_dir().join("shaders/modules/pbs/sampling.wgsl"))?;

@@ -34,6 +34,7 @@ struct PbsSpecularMaterial {
     _ALPHATEST_ON: f32,
     _ALPHABLEND_ON: f32,
     _ALPHAPREMULTIPLY_ON: f32,
+    _MUL_RGB_BY_ALPHA: f32,
     _EMISSION: f32,
     _SPECGLOSSMAP: f32,
     _DETAIL_MULX2: f32,
@@ -92,6 +93,10 @@ fn alpha_test_enabled() -> bool {
 
 fn alpha_premultiply_enabled() -> bool {
     return kw(mat._ALPHAPREMULTIPLY_ON);
+}
+
+fn alpha_rgb_multiply_enabled() -> bool {
+    return alpha_premultiply_enabled() || kw(mat._MUL_RGB_BY_ALPHA);
 }
 
 fn spec_gloss_map_enabled() -> bool {
@@ -199,7 +204,7 @@ fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n:
 }
 
 fn apply_premultiply(color: vec3<f32>, alpha: f32) -> vec3<f32> {
-    return select(color, color * alpha, alpha_premultiply_enabled());
+    return select(color, color * alpha, alpha_rgb_multiply_enabled());
 }
 
 @vertex
