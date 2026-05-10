@@ -413,14 +413,22 @@ mod tests {
     fn effect_id_and_enable_gate_match_settings() {
         let effect = AutoExposureEffect::default();
         assert_eq!(effect.id(), PostProcessEffectId::AutoExposure);
-        assert!(!effect.is_enabled(&PostProcessingSettings::default()));
+        assert!(effect.is_enabled(&PostProcessingSettings::default()));
 
-        let mut settings = PostProcessingSettings::default();
-        settings.auto_exposure.enabled = true;
-        assert!(effect.is_enabled(&settings));
+        let master_disabled = PostProcessingSettings {
+            enabled: false,
+            ..Default::default()
+        };
+        assert!(!effect.is_enabled(&master_disabled));
 
-        settings.auto_exposure.enabled = false;
-        assert!(!effect.is_enabled(&settings));
+        let auto_exposure_disabled = PostProcessingSettings {
+            auto_exposure: crate::config::AutoExposureSettings {
+                enabled: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(!effect.is_enabled(&auto_exposure_disabled));
     }
 
     #[test]

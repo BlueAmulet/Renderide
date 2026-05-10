@@ -225,16 +225,18 @@ fn stereo_gtao_graph_declares_layer_one_view_depth() {
 }
 
 #[test]
-fn default_post_processing_keeps_auto_exposure_and_tonemap_disabled() {
+fn default_post_processing_runs_default_adaptive_stack() {
     let post = PostProcessingSettings::default();
     let mut key = smoke_key();
     key.post_processing = PostProcessChainSignature::from_settings(&post);
     let graph = build_main_graph(key, &post).expect("default post-processing graph");
     let pass_names: Vec<&str> = graph.pass_info.iter().map(|p| p.name.as_str()).collect();
 
-    assert!(!pass_names.contains(&"AutoExposureCompute"));
-    assert!(!pass_names.contains(&"AutoExposureApply"));
-    assert!(!pass_names.contains(&"AgxTonemap"));
+    assert!(pass_names.contains(&"AutoExposureCompute"));
+    assert!(pass_names.contains(&"AutoExposureApply"));
+    assert!(pass_names.contains(&"BloomDownsampleFirst"));
+    assert!(pass_names.contains(&"BloomComposite"));
+    assert!(pass_names.contains(&"AgxTonemap"));
     assert!(!pass_names.contains(&"AcesTonemap"));
 }
 
