@@ -50,7 +50,7 @@ tracy = [
 video-textures = ["dep:gstreamer", "dep:gstreamer-app"]
 
 [package.metadata.cargo-machete]
-ignored = ["tracy-client"]
+ignored = ["tracing", "tracy-client"]
 
 [dependencies]
 ## Thin profiler abstraction. When no backend feature (`profile-with-tracy`, etc.) is active,
@@ -60,7 +60,7 @@ ahash = "0.8"
 bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.32", features = ["bytemuck"] }
 logger = { path = "../logger" }
-tracing = { version = "0.1.44", features = ["log-always"] }
+tracing = { version = "0.1", features = ["log-always"] }
 renderide-shared = { path = "../renderide-shared" }
 interprocess = { path = "../interprocess" }
 pollster = "0.4"

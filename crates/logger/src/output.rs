@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::level::{LogLevel, tag_to_level};
@@ -15,6 +15,7 @@ use crate::timestamp::write_line_timestamp;
 /// Default capacity reserved on a thread's reusable line buffer so that steady-state log calls
 /// avoid reallocation.
 const LINE_BUF_INITIAL_CAPACITY: usize = 256;
+const DEFAULT_TARGET: &str = "renderide";
 
 thread_local! {
     /// Per-thread reusable buffer for log line formatting. Cleared on every successful borrow so a
@@ -44,7 +45,7 @@ impl log::Log for Logger {
         let level: LogLevel = metadata.level().into();
         let mut max_level = current_max_level(self);
         if max_level == LogLevel::Debug && metadata.target().starts_with("naga") {
-            // naga's Debug messages ought to be Trace, really
+            // Keep Naga's high-volume diagnostics out of regular debug logs.
             max_level = LogLevel::Info;
         }
         level <= max_level
@@ -54,7 +55,7 @@ impl log::Log for Logger {
         if self.enabled(record.metadata()) {
             let level: LogLevel = record.level().into();
             with_line_buf(|buf| {
-                format_log_line_into(buf, record.target(), level, record.args().to_owned());
+                format_log_line_into(buf, record.target(), level, *record.args());
                 write_line_locked(self, level, buf.as_bytes());
             });
         }
@@ -75,6 +76,7 @@ struct MirrorWriter {
 
 /// Global logger instance. Set by [`init`] or [`init_with_mirror`].
 static LOGGER: OnceLock<Logger> = OnceLock::new();
+static LOG_FACADE_INSTALLED: AtomicBool = AtomicBool::new(false);
 
 /// Returns whether [`init`] or [`init_with_mirror`] has successfully installed the global logger.
 ///
@@ -131,11 +133,12 @@ pub fn init_with_mirror(
         mirror_writer: Mutex::new(None),
         max_level: AtomicU8::new(max_level as u8),
     };
-    let _ = LOGGER.set(logger);
-    if let Some(logger) = LOGGER.get() {
-        if let Ok(()) = log::set_logger(logger) {
-            log::set_max_level(max_level.into());
-        }
+    if LOGGER.set(logger).is_ok()
+        && let Some(logger) = LOGGER.get()
+        && let Ok(()) = log::set_logger(logger)
+    {
+        LOG_FACADE_INSTALLED.store(true, Ordering::Relaxed);
+        log::set_max_level(max_level.into());
     }
     Ok(())
 }
@@ -173,6 +176,9 @@ pub fn set_max_level(level: LogLevel) {
         return;
     };
     logger.max_level.store(level as u8, Ordering::Relaxed);
+    if LOG_FACADE_INSTALLED.load(Ordering::Relaxed) {
+        log::set_max_level(level.into());
+    }
 }
 
 /// Returns the effective max level from `logger`'s atomic tag.
@@ -270,6 +276,14 @@ fn with_line_buf<R: Default>(f: impl FnOnce(&mut String) -> R) -> R {
 /// Does nothing when the logger is not initialized or when `level` is above the current max level.
 #[doc(hidden)]
 pub fn log(level: LogLevel, args: std::fmt::Arguments<'_>) {
+    log_with_target(DEFAULT_TARGET, level, args);
+}
+
+/// Internal target-aware log writer. Called by the log macros.
+///
+/// Does nothing when the logger is not initialized or when `level` is above the current max level.
+#[doc(hidden)]
+pub fn log_with_target(target: &'static str, level: LogLevel, args: std::fmt::Arguments<'_>) {
     let Some(logger) = LOGGER.get() else {
         return;
     };
@@ -278,7 +292,7 @@ pub fn log(level: LogLevel, args: std::fmt::Arguments<'_>) {
         return;
     }
     with_line_buf(|buf| {
-        format_log_line_into(buf, "renderide", level, args);
+        format_log_line_into(buf, target, level, args);
         write_line_locked(logger, level, buf.as_bytes());
     });
 }
@@ -304,7 +318,7 @@ pub fn try_log(level: LogLevel, args: std::fmt::Arguments<'_>) -> bool {
         return false;
     }
     with_line_buf(|buf| {
-        format_log_line_into(buf, "renderide", level, args);
+        format_log_line_into(buf, DEFAULT_TARGET, level, args);
         let bytes = buf.as_bytes();
         if let Ok(mut file) = logger.file.try_lock() {
             let _ = file.write_all(bytes);
