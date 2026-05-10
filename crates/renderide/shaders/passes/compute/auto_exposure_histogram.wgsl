@@ -69,11 +69,11 @@ fn compute_histogram(
 fn adapt_exposure(current: f32, target_ev: f32) -> f32 {
     let delta = target_ev - current;
     if (delta > 0.0) {
-        let speed = params.speed_darken * params.delta_time_seconds;
+        let speed = params.speed_brighten * params.delta_time_seconds;
         let exponential = speed / params.exponential_transition_distance;
         return current + min(speed, delta * exponential);
     }
-    let speed = params.speed_brighten * params.delta_time_seconds;
+    let speed = params.speed_darken * params.delta_time_seconds;
     let exponential = speed / params.exponential_transition_distance;
     return current + max(-speed, delta * exponential);
 }

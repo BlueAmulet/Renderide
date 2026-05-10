@@ -21,9 +21,9 @@ pub struct AutoExposureSettings {
     pub low_percent: f32,
     /// High percentile cut in `[0, 1]`; brighter samples above this cumulative fraction are ignored.
     pub high_percent: f32,
-    /// Adaptation speed for transitions from dark scenes to bright scenes, in EV stops per second.
+    /// Adaptation speed for positive exposure-EV changes that brighten the image.
     pub speed_brighten: f32,
-    /// Adaptation speed for transitions from bright scenes to dark scenes, in EV stops per second.
+    /// Adaptation speed for negative exposure-EV changes that darken the image.
     pub speed_darken: f32,
     /// EV distance where adaptation transitions from linear to exponential.
     pub exponential_transition_distance: f32,
@@ -64,12 +64,12 @@ impl AutoExposureSettings {
         (low, high)
     }
 
-    /// Returns a finite non-negative dark-to-bright scene adaptation speed.
+    /// Returns a finite non-negative image-brightening adaptation speed.
     pub fn resolved_speed_brighten(self) -> f32 {
         finite_or(self.speed_brighten, Self::default().speed_brighten).max(0.0)
     }
 
-    /// Returns a finite non-negative bright-to-dark scene adaptation speed.
+    /// Returns a finite non-negative image-darkening adaptation speed.
     pub fn resolved_speed_darken(self) -> f32 {
         finite_or(self.speed_darken, Self::default().speed_darken).max(0.0)
     }
@@ -98,10 +98,10 @@ impl Default for AutoExposureSettings {
     fn default() -> Self {
         Self {
             enabled: false,
-            min_ev: -16.0,
-            max_ev: 16.0,
-            low_percent: 0.0,
-            high_percent: 1.0,
+            min_ev: -8.0,
+            max_ev: 8.0,
+            low_percent: 0.1,
+            high_percent: 0.9,
             speed_brighten: 3.0,
             speed_darken: 3.0,
             exponential_transition_distance: 1.5,
@@ -112,4 +112,82 @@ impl Default for AutoExposureSettings {
 
 fn finite_or(value: f32, fallback: f32) -> f32 {
     if value.is_finite() { value } else { fallback }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AutoExposureSettings;
+
+    #[test]
+    fn middle_gray_ev_matches_scene_linear_luminance_key() {
+        const MIDDLE_GRAY_LINEAR_LUMINANCE: f32 = 0.18;
+
+        assert!(
+            (AutoExposureSettings::MIDDLE_GRAY_EV - MIDDLE_GRAY_LINEAR_LUMINANCE.log2()).abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn default_compensation_is_neutral_middle_gray() {
+        let settings = AutoExposureSettings::default();
+
+        assert_eq!(settings.compensation_ev, 0.0);
+        assert!(
+            (settings.resolved_target_ev() - AutoExposureSettings::MIDDLE_GRAY_EV).abs() < 1e-6
+        );
+    }
+
+    #[test]
+    fn default_metering_uses_trimmed_histogram_window() {
+        let settings = AutoExposureSettings::default();
+
+        assert_eq!(settings.resolved_ev_range(), (-8.0, 8.0));
+        assert_eq!(settings.resolved_filter(), (0.1, 0.9));
+    }
+
+    #[test]
+    fn compensation_offsets_middle_gray_target_ev() {
+        let settings = AutoExposureSettings {
+            compensation_ev: 1.0,
+            ..Default::default()
+        };
+
+        assert!(
+            (settings.resolved_target_ev() - (AutoExposureSettings::MIDDLE_GRAY_EV + 1.0)).abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn resolved_ev_range_orders_and_expands_degenerate_ranges() {
+        let settings = AutoExposureSettings {
+            min_ev: 4.0,
+            max_ev: 4.0,
+            ..Default::default()
+        };
+
+        let (min_ev, max_ev) = settings.resolved_ev_range();
+
+        assert_eq!(min_ev, 4.0);
+        assert!(max_ev > min_ev);
+
+        let settings = AutoExposureSettings {
+            min_ev: 8.0,
+            max_ev: -8.0,
+            ..Default::default()
+        };
+        assert_eq!(settings.resolved_ev_range(), (-8.0, 8.0));
+    }
+
+    #[test]
+    fn resolved_filter_clamps_and_orders_percentiles() {
+        let settings = AutoExposureSettings {
+            low_percent: 1.2,
+            high_percent: -0.3,
+            ..Default::default()
+        };
+
+        assert_eq!(settings.resolved_filter(), (0.0, 1.0));
+    }
 }
