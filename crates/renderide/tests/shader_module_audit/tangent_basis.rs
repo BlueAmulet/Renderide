@@ -28,6 +28,30 @@ fn mesh_world_tangent_applies_model_transform_parity() -> io::Result<()> {
 }
 
 #[test]
+fn mesh_normals_do_not_use_model_vector_helper_path() -> io::Result<()> {
+    let src = fs::read_to_string(manifest_dir().join("shaders/modules/mesh/vertex.wgsl"))?;
+
+    for forbidden in [
+        "fn model_world_normal(",
+        "fn world_model_normal_vertex_main(",
+        "normalize(model_vector(draw, n.xyz))",
+        "out.world_n = model_world_normal(draw, n);",
+    ] {
+        assert!(
+            !src.contains(forbidden),
+            "mesh/vertex.wgsl must not contain model-matrix normal path `{forbidden}`"
+        );
+    }
+
+    assert!(
+        src.contains("out.world_n = world_normal(draw, n);"),
+        "mesh/vertex.wgsl must route world vertex normals through the inverse-transpose helper"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn pbs_tbn_reorthonormalizes_interpolated_frame() -> io::Result<()> {
     let src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs_normal.wgsl"))?;
 
@@ -53,6 +77,46 @@ fn pbs_tbn_reorthonormalizes_interpolated_frame() -> io::Result<()> {
             "pbs_normal.wgsl must not contain `{forbidden}`"
         );
     }
+
+    Ok(())
+}
+
+#[test]
+fn fresnel_normal_mapped_shaders_use_normal_matrix_vertex_path() -> io::Result<()> {
+    for file_name in ["fresnellerp.wgsl", "overlayfresnel.wgsl"] {
+        let src = material_source(file_name)?;
+        assert!(
+            src.contains("mv::world_vertex_main(instance_index, view_idx, pos, n, t, uv)")
+                && src.contains("mv::world_vertex_main(instance_index, 0u, pos, n, t, uv)"),
+            "{file_name} must use the standard world vertex helper so normals use the normal matrix"
+        );
+        assert!(
+            !src.contains("world_model_normal_vertex_main"),
+            "{file_name} must not use the removed model-matrix normal helper"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn no_shader_references_model_matrix_normal_vertex_helper() -> io::Result<()> {
+    let mut offenders = Vec::new();
+
+    for relative_dir in ["shaders/materials", "shaders/modules", "shaders/passes"] {
+        for path in wgsl_files_recursive(relative_dir)? {
+            let src = fs::read_to_string(&path)?;
+            if src.contains("world_model_normal_vertex_main") {
+                offenders.push(file_label(&path));
+            }
+        }
+    }
+
+    assert!(
+        offenders.is_empty(),
+        "WGSL must not reference the removed model-matrix normal helper:\n  {}",
+        offenders.join("\n  ")
+    );
 
     Ok(())
 }

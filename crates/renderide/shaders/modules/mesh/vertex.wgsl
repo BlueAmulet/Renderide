@@ -89,10 +89,6 @@ fn model_vector(draw: pd::PerDrawUniforms, v: vec3<f32>) -> vec3<f32> {
     return (draw.model * vec4<f32>(v, 0.0)).xyz;
 }
 
-fn model_world_normal(draw: pd::PerDrawUniforms, n: vec4<f32>) -> vec3<f32> {
-    return normalize(model_vector(draw, n.xyz));
-}
-
 fn model_handedness(draw: pd::PerDrawUniforms) -> f32 {
     if (pd::position_stream_is_world_space(draw)) {
         return 1.0;
@@ -169,28 +165,6 @@ fn world_vertex_main(
     out.clip_pos = vp * world_p;
     out.world_pos = world_p.xyz;
     out.world_n = world_normal(draw, n);
-    out.world_t = world_tangent(draw, t);
-    out.primary_uv = primary_uv;
-    out.view_layer = packed_view_layer(instance_index, view_idx);
-    return out;
-}
-
-fn world_model_normal_vertex_main(
-    instance_index: u32,
-    view_idx: u32,
-    pos: vec4<f32>,
-    n: vec4<f32>,
-    t: vec4<f32>,
-    primary_uv: vec2<f32>,
-) -> WorldVertexOutput {
-    let draw = pd::get_draw(instance_index);
-    let world_p = world_position(draw, pos);
-    let vp = select_view_proj(draw, view_idx);
-
-    var out: WorldVertexOutput;
-    out.clip_pos = vp * world_p;
-    out.world_pos = world_p.xyz;
-    out.world_n = model_world_normal(draw, n);
     out.world_t = world_tangent(draw, t);
     out.primary_uv = primary_uv;
     out.view_layer = packed_view_layer(instance_index, view_idx);

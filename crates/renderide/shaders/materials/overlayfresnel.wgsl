@@ -54,9 +54,9 @@ fn vs_main(
     @location(4) t: vec4<f32>,
 ) -> mv::WorldVertexOutput {
 #ifdef MULTIVIEW
-    return mv::world_model_normal_vertex_main(instance_index, view_idx, pos, n, t, uv);
+    return mv::world_vertex_main(instance_index, view_idx, pos, n, t, uv);
 #else
-    return mv::world_model_normal_vertex_main(instance_index, 0u, pos, n, t, uv);
+    return mv::world_vertex_main(instance_index, 0u, pos, n, t, uv);
 #endif
 }
 
