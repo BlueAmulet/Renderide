@@ -105,6 +105,7 @@ pub fn acquire_surface_outcome(
         }
         Err(wgpu::CurrentSurfaceTexture::Validation) => {
             logger::error!("surface validation error during acquire; reconfiguring");
+            gpu.mark_mapped_buffers_invalid("surface acquire validation");
             let (w, h) = gpu
                 .window_surface_size()
                 .unwrap_or_else(|| gpu.surface_extent_px());

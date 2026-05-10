@@ -7,6 +7,15 @@ use crate::scene::SceneCoordinator;
 use super::RenderBackend;
 
 impl RenderBackend {
+    /// Clears mapped-buffer owners after wgpu reports that mapped staging/readback buffers are invalid.
+    pub(crate) fn reset_mapped_buffer_recovery_state(&mut self, generation: u64, source: &str) {
+        logger::warn!(
+            "backend mapped-buffer recovery: generation={generation} source={source} resetting upload arena and Hi-Z readbacks"
+        );
+        self.graph_state.reset_upload_arena();
+        self.occlusion.clear_pending_hi_z_readbacks();
+    }
+
     /// Unified multi-view entry: one Hi-Z readback (unless skipped), one encoder, one submit.
     ///
     /// When `skip_hi_z_begin_readback` is `false`, drains Hi-Z `map_async` readbacks first
@@ -28,7 +37,22 @@ impl RenderBackend {
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("backend::execute_multi_view_frame");
         if !skip_hi_z_begin_readback {
-            self.hi_z_begin_frame_readback(gpu.device());
+            let mapped_buffer_recovery = gpu.begin_mapped_buffer_recovery_frame();
+            if mapped_buffer_recovery.invalidated {
+                self.reset_mapped_buffer_recovery_state(
+                    mapped_buffer_recovery.generation,
+                    "frame begin",
+                );
+            }
+            if !mapped_buffer_recovery.avoid_mapped_buffers {
+                self.hi_z_begin_frame_readback(gpu.device());
+                if gpu.observe_mapped_buffer_invalidation_during_frame() {
+                    self.reset_mapped_buffer_recovery_state(
+                        gpu.mapped_buffer_invalidation_generation(),
+                        "Hi-Z readback",
+                    );
+                }
+            }
         }
         self.graph_state.history_registry_mut().advance_frame();
         // Live HUD edits to `[post_processing]` only take effect when the graph is rebuilt; check

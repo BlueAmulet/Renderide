@@ -25,6 +25,8 @@
 
 use std::sync::Arc;
 
+use super::mapped_buffer_health::GpuMappedBufferHealth;
+
 /// Number of bytes a 2-entry `Timestamp` query set resolves into (`u64 x 2`).
 const TIMESTAMP_PAIR_BYTES: u64 = 16;
 
@@ -37,6 +39,8 @@ pub struct FrameBracket {
     device: Arc<wgpu::Device>,
     /// Queue used to read [`wgpu::Queue::get_timestamp_period`] when finishing a session.
     queue: Arc<wgpu::Queue>,
+    /// Shared mapped-buffer invalidation generation for stale readback suppression.
+    mapped_buffer_health: Arc<GpuMappedBufferHealth>,
     /// Whether the adapter's feature set permits encoder-level `write_timestamp` calls.
     enabled: bool,
 }
@@ -49,13 +53,18 @@ impl FrameBracket {
     /// [`wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS`]. When either is missing,
     /// [`Self::open_session`] returns [`None`] and the HUD falls back to relabeling the GPU row
     /// as "GPU latency" (callback-fire wall-clock, not real compute time).
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+    pub fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        mapped_buffer_health: Arc<GpuMappedBufferHealth>,
+    ) -> Self {
         let features = device.features();
         let enabled = features.contains(wgpu::Features::TIMESTAMP_QUERY)
             && features.contains(wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS);
         Self {
             device,
             queue,
+            mapped_buffer_health,
             enabled,
         }
     }
@@ -91,6 +100,8 @@ impl FrameBracket {
         Some(FrameBracketSession {
             device: Arc::clone(&self.device),
             queue: Arc::clone(&self.queue),
+            mapped_buffer_health: Arc::clone(&self.mapped_buffer_health),
+            mapped_buffer_generation: self.mapped_buffer_health.generation(),
             query_set,
             resolve_buffer,
             readback_buffer,
@@ -107,6 +118,10 @@ pub struct FrameBracketSession {
     device: Arc<wgpu::Device>,
     /// Queue, retained so [`Self::into_readback`] can capture `get_timestamp_period`.
     queue: Arc<wgpu::Queue>,
+    /// Shared mapped-buffer invalidation generation for stale readback suppression.
+    mapped_buffer_health: Arc<GpuMappedBufferHealth>,
+    /// Invalidation generation captured when this readback's buffers were created.
+    mapped_buffer_generation: u64,
     /// Query set written into by the begin / end command buffers.
     query_set: wgpu::QuerySet,
     /// GPU-side resolve target for the query pair.
@@ -164,6 +179,8 @@ impl FrameBracketSession {
         let timestamp_period = self.queue.get_timestamp_period();
         FrameBracketReadback {
             device: self.device,
+            mapped_buffer_health: self.mapped_buffer_health,
+            mapped_buffer_generation: self.mapped_buffer_generation,
             readback_buffer: self.readback_buffer,
             query_set: self.query_set,
             resolve_buffer: self.resolve_buffer,
@@ -179,6 +196,10 @@ impl FrameBracketSession {
 pub struct FrameBracketReadback {
     /// Logical device used to locally scope validation errors from best-effort readback mapping.
     device: Arc<wgpu::Device>,
+    /// Shared mapped-buffer invalidation generation for stale readback suppression.
+    mapped_buffer_health: Arc<GpuMappedBufferHealth>,
+    /// Invalidation generation captured when this readback's buffers were created.
+    mapped_buffer_generation: u64,
     /// CPU-mappable buffer the resolve copies finish into.
     readback_buffer: wgpu::Buffer,
     /// Held until readback completes so the underlying query set is not dropped early.
@@ -205,6 +226,8 @@ impl FrameBracketReadback {
     {
         let Self {
             device,
+            mapped_buffer_health,
+            mapped_buffer_generation,
             readback_buffer,
             query_set,
             resolve_buffer,
@@ -219,7 +242,12 @@ impl FrameBracketReadback {
                 let _keep_resolve_buffer_alive = resolve_buffer;
                 let gpu_ms = match result {
                     Ok(()) => {
-                        let gpu_ms = read_gpu_ms(&buffer_for_callback, timestamp_period);
+                        let gpu_ms =
+                            if mapped_buffer_health.generation() == mapped_buffer_generation {
+                                read_gpu_ms(&buffer_for_callback, timestamp_period)
+                            } else {
+                                None
+                            };
                         buffer_for_callback.unmap();
                         gpu_ms
                     }
