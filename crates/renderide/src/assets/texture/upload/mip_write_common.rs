@@ -26,9 +26,8 @@ pub(super) struct MipUploadFormatCtx {
 ///
 /// The renderer uploads host bytes as-is (Unity V=0 bottom). For host-uploaded textures and cubemaps
 /// `storage_v_inverted` is `true` (bytes are in Unity orientation). For renderer-baked sources
-/// it is `false` (wgpu native orientation). Texture2D shaders no longer consume the flag -- only
-/// cubemap sampling helpers in `projection360` / `skybox_projection360` do, to compensate for the
-/// Unity-vs-wgpu cube face orientation difference.
+/// it is `false` (wgpu native orientation). Texture2D shaders no longer consume the flag; cubemap
+/// sampling helpers use it to compensate for the Unity-vs-wgpu cube face orientation difference.
 #[derive(Debug)]
 pub(super) struct MipUploadPixels {
     /// Bytes ready for [`wgpu::Queue::write_texture`].

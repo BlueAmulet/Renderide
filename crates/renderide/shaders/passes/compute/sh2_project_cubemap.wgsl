@@ -1,3 +1,5 @@
+#import renderide::cubemap_storage as cubemap_storage
+
 struct Params {
     sample_size: u32,
     mode: u32,
@@ -91,7 +93,8 @@ fn main(@builtin(local_invocation_id) local_id: vec3<u32>) {
         let y = rem / n;
         let x = rem - y * n;
         let dir = cube_dir(face, x, y, n);
-        let color = textureSampleLevel(source_tex, source_sampler, dir, 0.0).rgb;
+        let sample_dir = cubemap_storage::sample_dir(dir, params.scalars.x);
+        let color = textureSampleLevel(source_tex, source_sampler, sample_dir, 0.0).rgb;
         let weight = texel_solid_angle(x, y, n);
         add_coeffs(base, color, dir, weight);
         i = i + WORKGROUP_SIZE;

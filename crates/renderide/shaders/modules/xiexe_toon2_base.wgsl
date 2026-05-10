@@ -107,6 +107,8 @@ struct XiexeToon2Material {
     _ReflectionMode: f32,
     /// Reflection blend mode: 0 = additive, 1 = multiplicative, 2 = subtractive.
     _ReflectionBlendMode: f32,
+    /// Host storage-orientation flag for `_BakedCubemap`.
+    _BakedCubemap_StorageVInverted: f32,
     /// Clear-coat enable flag.
     _ClearCoat: f32,
     /// Emission light-scaling flag (`0 = scale with light`, `1 = keep emission unscaled`).

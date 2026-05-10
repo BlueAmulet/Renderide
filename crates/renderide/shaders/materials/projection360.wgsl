@@ -2,6 +2,7 @@
 //! optional second texture, tint texture, offset map, rectangular clipping, and Unity UI stencil state.
 
 
+#import renderide::cubemap_storage as cubemap_storage
 #import renderide::globals as rg
 #import renderide::per_draw as pd
 #import renderide::math as rmath
@@ -203,27 +204,16 @@ fn sample_equirect(view_dir: vec3<f32>, view_layer: u32) -> vec4<f32> {
     return c;
 }
 
-fn cubemap_storage_dir(dir: vec3<f32>, storage_v_inverted: f32) -> vec3<f32> {
-    if (!uvu::kw_enabled(storage_v_inverted)) {
-        return dir;
-    }
-    let a = abs(dir);
-    if (a.y >= a.x && a.y >= a.z) {
-        return vec3<f32>(dir.x, dir.y, -dir.z);
-    }
-    return vec3<f32>(dir.x, -dir.y, dir.z);
-}
-
 fn sample_cubemap(view_dir: vec3<f32>) -> vec4<f32> {
     let dir = normalize(-view_dir);
     var lod = 0.0;
     if (uvu::kw_enabled(mat.CUBEMAP_LOD)) {
         lod = mat._CubeLOD;
     }
-    let main_dir = cubemap_storage_dir(dir, mat._MainCube_StorageVInverted);
+    let main_dir = cubemap_storage::sample_dir(dir, mat._MainCube_StorageVInverted);
     var c = textureSampleLevel(_MainCube, _MainCube_sampler, main_dir, lod);
     if (uvu::kw_enabled(mat.SECOND_TEXTURE)) {
-        let second_dir = cubemap_storage_dir(dir, mat._SecondCube_StorageVInverted);
+        let second_dir = cubemap_storage::sample_dir(dir, mat._SecondCube_StorageVInverted);
         let sc = textureSampleLevel(_SecondCube, _SecondCube_sampler, second_dir, lod);
         c = mix(c, sc, clamp(mat._TextureLerp, 0.0, 1.0));
     }
