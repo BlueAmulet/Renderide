@@ -1,0 +1,437 @@
+//! Tests for the parent module.
+
+use wgpu::TextureFormat;
+
+use super::*;
+use crate::config::{
+    BloomSettings, GtaoSettings, PostProcessingSettings, TonemapMode, TonemapSettings,
+};
+use crate::render_graph::GraphCache;
+use crate::render_graph::post_process_chain::PostProcessChainSignature;
+
+fn smoke_key() -> GraphCacheKey {
+    GraphCacheKey {
+        surface_extent: (1280, 720),
+        msaa_sample_count: 1,
+        multiview_stereo: false,
+        surface_format: TextureFormat::Bgra8UnormSrgb,
+        scene_color_format: TextureFormat::Rgba16Float,
+        post_processing: PostProcessChainSignature::default(),
+    }
+}
+
+fn no_post() -> PostProcessingSettings {
+    PostProcessingSettings {
+        enabled: false,
+        ..Default::default()
+    }
+}
+
+fn aces_enabled_post() -> PostProcessingSettings {
+    PostProcessingSettings {
+        enabled: true,
+        gtao: GtaoSettings {
+            enabled: false,
+            ..Default::default()
+        },
+        bloom: BloomSettings {
+            enabled: false,
+            ..Default::default()
+        },
+        auto_exposure: crate::config::AutoExposureSettings {
+            enabled: false,
+            ..Default::default()
+        },
+        tonemap: TonemapSettings {
+            mode: TonemapMode::AcesFitted,
+        },
+    }
+}
+
+fn agx_enabled_post() -> PostProcessingSettings {
+    PostProcessingSettings {
+        enabled: true,
+        gtao: GtaoSettings {
+            enabled: false,
+            ..Default::default()
+        },
+        bloom: BloomSettings {
+            enabled: false,
+            ..Default::default()
+        },
+        auto_exposure: crate::config::AutoExposureSettings {
+            enabled: false,
+            ..Default::default()
+        },
+        tonemap: TonemapSettings {
+            mode: TonemapMode::AgX,
+        },
+    }
+}
+
+fn gtao_enabled_post() -> PostProcessingSettings {
+    PostProcessingSettings {
+        enabled: true,
+        gtao: GtaoSettings {
+            enabled: true,
+            ..Default::default()
+        },
+        bloom: BloomSettings {
+            enabled: false,
+            ..Default::default()
+        },
+        auto_exposure: crate::config::AutoExposureSettings {
+            enabled: false,
+            ..Default::default()
+        },
+        tonemap: TonemapSettings {
+            mode: TonemapMode::None,
+        },
+    }
+}
+
+#[test]
+fn default_main_needs_surface_and_eleven_passes() {
+    let g = build_main_graph(smoke_key(), &no_post()).expect("default graph");
+    assert!(g.needs_surface_acquire());
+    assert_eq!(g.pass_count(), 11);
+    assert_eq!(g.compile_stats.topo_levels, 11);
+    assert_eq!(g.compile_stats.transient_texture_count, 4);
+    assert!(
+        !g.pass_info
+            .iter()
+            .any(|p| p.name.as_str() == "WorldMeshForwardPrepare")
+    );
+    let pass_names: Vec<&str> = g.pass_info.iter().map(|p| p.name.as_str()).collect();
+    let depth_prepass_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardDepthPrepass")
+        .expect("depth prepass");
+    let opaque_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardOpaque")
+        .expect("opaque pass");
+    assert!(depth_prepass_pos < opaque_pos);
+}
+
+#[test]
+fn msaa_main_graph_brackets_grab_pass_with_color_resolves() {
+    let mut key = smoke_key();
+    key.msaa_sample_count = 4;
+    let g = build_main_graph(key, &no_post()).expect("MSAA graph");
+    let pass_names: Vec<&str> = g.pass_info.iter().map(|p| p.name.as_str()).collect();
+    let pre_grab_resolve_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardColorResolvePreGrab")
+        .expect("pre-grab color resolve pass");
+    let snapshot_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshColorSnapshot")
+        .expect("color snapshot pass");
+    let transparent_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardTransparent")
+        .expect("transparent pass");
+    let final_resolve_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardColorResolveFinal")
+        .expect("final color resolve pass");
+
+    assert!(pre_grab_resolve_pos < snapshot_pos);
+    assert!(snapshot_pos < transparent_pos);
+    assert!(transparent_pos < final_resolve_pos);
+    assert_eq!(g.pass_count(), 13);
+    assert_eq!(g.compile_stats.topo_levels, 13);
+}
+
+#[test]
+fn enabling_aces_adds_a_pass_and_a_transient() {
+    let g_off = build_main_graph(smoke_key(), &no_post()).expect("default graph");
+    let mut key_on = smoke_key();
+    key_on.post_processing = PostProcessChainSignature::from_settings(&aces_enabled_post());
+    let g_on = build_main_graph(key_on, &aces_enabled_post()).expect("aces graph");
+    assert_eq!(g_on.pass_count(), g_off.pass_count() + 1);
+    assert!(g_on.needs_surface_acquire());
+    assert!(
+        g_on.compile_stats.transient_texture_count >= g_off.compile_stats.transient_texture_count
+    );
+}
+
+#[test]
+fn enabling_agx_adds_a_pass_and_a_transient() {
+    let g_off = build_main_graph(smoke_key(), &no_post()).expect("default graph");
+    let post = agx_enabled_post();
+    let mut key_on = smoke_key();
+    key_on.post_processing = PostProcessChainSignature::from_settings(&post);
+    let g_on = build_main_graph(key_on, &post).expect("agx graph");
+    let pass_names: Vec<&str> = g_on.pass_info.iter().map(|p| p.name.as_str()).collect();
+    assert_eq!(g_on.pass_count(), g_off.pass_count() + 1);
+    assert!(pass_names.contains(&"AgxTonemap"));
+    assert!(!pass_names.contains(&"AcesTonemap"));
+    assert!(g_on.needs_surface_acquire());
+    assert!(
+        g_on.compile_stats.transient_texture_count >= g_off.compile_stats.transient_texture_count
+    );
+}
+
+#[test]
+fn mono_gtao_graph_declares_no_layer_one_view_depth() {
+    let post = gtao_enabled_post();
+    let mut key = smoke_key();
+    key.multiview_stereo = false;
+    key.post_processing = PostProcessChainSignature::from_settings(&post);
+    let graph = build_main_graph(key, &post).expect("mono gtao graph");
+
+    assert!(
+        graph
+            .subresources
+            .iter()
+            .any(|desc| desc.label == "gtao_view_depth_mip4_l0")
+    );
+    assert!(
+        !graph
+            .subresources
+            .iter()
+            .any(|desc| desc.label.starts_with("gtao_view_depth_") && desc.label.ends_with("_l1"))
+    );
+    let view_depth = graph
+        .transient_textures
+        .iter()
+        .find(|texture| texture.desc.label == "gtao_view_depth")
+        .expect("gtao view depth transient");
+    assert_eq!(view_depth.desc.array_layers, TransientArrayLayers::Frame);
+}
+
+#[test]
+fn stereo_gtao_graph_declares_layer_one_view_depth() {
+    let post = gtao_enabled_post();
+    let mut key = smoke_key();
+    key.multiview_stereo = true;
+    key.post_processing = PostProcessChainSignature::from_settings(&post);
+    let graph = build_main_graph(key, &post).expect("stereo gtao graph");
+
+    assert!(
+        graph
+            .subresources
+            .iter()
+            .any(|desc| desc.label == "gtao_view_depth_mip4_l1")
+    );
+    let view_depth = graph
+        .transient_textures
+        .iter()
+        .find(|texture| texture.desc.label == "gtao_view_depth")
+        .expect("gtao view depth transient");
+    assert_eq!(view_depth.desc.array_layers, TransientArrayLayers::Fixed(2));
+}
+
+#[test]
+fn default_post_processing_keeps_auto_exposure_and_tonemap_disabled() {
+    let post = PostProcessingSettings::default();
+    let mut key = smoke_key();
+    key.post_processing = PostProcessChainSignature::from_settings(&post);
+    let graph = build_main_graph(key, &post).expect("default post-processing graph");
+    let pass_names: Vec<&str> = graph.pass_info.iter().map(|p| p.name.as_str()).collect();
+
+    assert!(!pass_names.contains(&"AutoExposureCompute"));
+    assert!(!pass_names.contains(&"AutoExposureApply"));
+    assert!(!pass_names.contains(&"AgxTonemap"));
+    assert!(!pass_names.contains(&"AcesTonemap"));
+}
+
+#[test]
+fn full_post_processing_orders_exposure_before_bloom_and_tonemap_last() {
+    let mut post = PostProcessingSettings {
+        tonemap: TonemapSettings {
+            mode: TonemapMode::AgX,
+        },
+        ..Default::default()
+    };
+    post.auto_exposure.enabled = true;
+    let mut key = smoke_key();
+    key.post_processing = PostProcessChainSignature::from_settings(&post);
+    let graph = build_main_graph(key, &post).expect("full post-processing graph");
+    let pass_names: Vec<&str> = graph.pass_info.iter().map(|p| p.name.as_str()).collect();
+    let auto_compute_pos = pass_names
+        .iter()
+        .position(|name| *name == "AutoExposureCompute")
+        .expect("auto-exposure compute pass");
+    let auto_apply_pos = pass_names
+        .iter()
+        .position(|name| *name == "AutoExposureApply")
+        .expect("auto-exposure apply pass");
+    let bloom_downsample_pos = pass_names
+        .iter()
+        .position(|name| *name == "BloomDownsampleFirst")
+        .expect("first bloom downsample pass");
+    let bloom_composite_pos = pass_names
+        .iter()
+        .position(|name| *name == "BloomComposite")
+        .expect("bloom composite pass");
+    let agx_tonemap_pos = pass_names
+        .iter()
+        .position(|name| *name == "AgxTonemap")
+        .expect("AgX tonemap pass");
+
+    assert!(auto_compute_pos < auto_apply_pos);
+    assert!(auto_apply_pos < bloom_downsample_pos);
+    assert!(bloom_downsample_pos < bloom_composite_pos);
+    assert!(bloom_composite_pos < agx_tonemap_pos);
+}
+
+#[test]
+fn agx_post_processing_orders_exposure_before_bloom_and_tonemap_last() {
+    let mut post = PostProcessingSettings {
+        tonemap: TonemapSettings {
+            mode: TonemapMode::AgX,
+        },
+        ..Default::default()
+    };
+    post.gtao.enabled = false;
+    post.auto_exposure.enabled = true;
+    let mut key = smoke_key();
+    key.post_processing = PostProcessChainSignature::from_settings(&post);
+    let graph = build_main_graph(key, &post).expect("agx post-processing graph");
+    let pass_names: Vec<&str> = graph.pass_info.iter().map(|p| p.name.as_str()).collect();
+    let auto_apply_pos = pass_names
+        .iter()
+        .position(|name| *name == "AutoExposureApply")
+        .expect("auto-exposure apply pass");
+    let bloom_composite_pos = pass_names
+        .iter()
+        .position(|name| *name == "BloomComposite")
+        .expect("bloom composite pass");
+    let agx_tonemap_pos = pass_names
+        .iter()
+        .position(|name| *name == "AgxTonemap")
+        .expect("AgX tonemap pass");
+
+    assert!(auto_apply_pos < bloom_composite_pos);
+    assert!(bloom_composite_pos < agx_tonemap_pos);
+    assert!(!pass_names.contains(&"AcesTonemap"));
+}
+
+#[test]
+fn enabling_gtao_adds_normal_prepass_before_gtao_main() {
+    let post = gtao_enabled_post();
+    let mut key = smoke_key();
+    key.post_processing = PostProcessChainSignature::from_settings(&post);
+    let g = build_main_graph(key, &post).expect("gtao graph");
+    let pass_names: Vec<&str> = g.pass_info.iter().map(|p| p.name.as_str()).collect();
+    let normal_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardNormals")
+        .expect("GTAO normal prepass");
+    let depth_prepass_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardDepthPrepass")
+        .expect("depth prepass");
+    let opaque_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshForwardOpaque")
+        .expect("opaque pass");
+    let depth_snapshot_pos = pass_names
+        .iter()
+        .position(|name| *name == "WorldMeshDepthSnapshot")
+        .expect("depth snapshot pass");
+    let gtao_main_pos = pass_names
+        .iter()
+        .position(|name| *name == "GtaoMain")
+        .expect("GTAO main pass");
+
+    assert!(depth_prepass_pos < opaque_pos);
+    assert!(opaque_pos < normal_pos);
+    assert!(normal_pos < depth_snapshot_pos);
+    assert!(depth_snapshot_pos < gtao_main_pos);
+    assert!(
+        g.transient_textures
+            .iter()
+            .any(|t| t.desc.label == "gtao_view_normals")
+    );
+    assert!(
+        g.transient_textures
+            .iter()
+            .any(|t| t.desc.label == "gtao_view_normals_msaa")
+    );
+}
+
+#[test]
+fn graph_cache_reuses_when_key_unchanged() {
+    let key = smoke_key();
+    let post = no_post();
+    let mut cache = GraphCache::default();
+    cache
+        .ensure(key, || build_main_graph(key, &post))
+        .expect("first build");
+    let n = cache.pass_count();
+    let mut build_called = false;
+    cache
+        .ensure(key, || {
+            build_called = true;
+            build_main_graph(key, &post)
+        })
+        .expect("second ensure");
+    assert!(!build_called);
+    assert_eq!(cache.pass_count(), n);
+}
+
+#[test]
+fn graph_cache_rebuilds_when_scene_color_format_changes() {
+    let mut a = smoke_key();
+    a.scene_color_format = TextureFormat::Rgba16Float;
+    let mut b = smoke_key();
+    b.scene_color_format = TextureFormat::Rg11b10Ufloat;
+    let post = no_post();
+    let mut cache = GraphCache::default();
+    cache
+        .ensure(a, || build_main_graph(a, &post))
+        .expect("first build");
+    let mut build_called = false;
+    cache
+        .ensure(b, || {
+            build_called = true;
+            build_main_graph(b, &post)
+        })
+        .expect("second ensure");
+    assert!(build_called);
+}
+
+/// MSAA depth transients must follow [`TransientArrayLayers::Frame`] so stereo execution matches
+/// HDR color even when [`GraphCacheKey::multiview_stereo`] was `false` at compile time.
+#[test]
+fn forward_msaa_depth_uses_frame_array_layers_with_mono_cache_key() {
+    let mut key = smoke_key();
+    key.multiview_stereo = false;
+    let g = build_main_graph(key, &no_post()).expect("default graph");
+    let forward_depth = g
+        .transient_textures
+        .iter()
+        .find(|t| t.desc.label == "forward_msaa_depth")
+        .expect("forward_msaa_depth transient");
+    assert_eq!(forward_depth.desc.array_layers, TransientArrayLayers::Frame);
+    let r32 = g
+        .transient_textures
+        .iter()
+        .find(|t| t.desc.label == "forward_msaa_depth_r32")
+        .expect("forward_msaa_depth_r32 transient");
+    assert_eq!(r32.desc.array_layers, TransientArrayLayers::Frame);
+}
+
+#[test]
+fn graph_cache_rebuilds_when_post_processing_signature_changes() {
+    let mut a = smoke_key();
+    a.post_processing = PostProcessChainSignature::default();
+    let mut b = smoke_key();
+    b.post_processing = PostProcessChainSignature::from_settings(&aces_enabled_post());
+    let mut cache = GraphCache::default();
+    cache
+        .ensure(a, || build_main_graph(a, &no_post()))
+        .expect("first build");
+    let mut build_called = false;
+    cache
+        .ensure(b, || {
+            build_called = true;
+            build_main_graph(b, &aces_enabled_post())
+        })
+        .expect("second ensure");
+    assert!(build_called);
+}

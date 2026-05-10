@@ -52,14 +52,14 @@ mod tests {
     use crate::config::types::RendererSettings;
 
     #[test]
-    fn defaults_enable_stack_with_agx_selected() {
+    fn defaults_enable_post_processing_with_adaptive_stack_disabled() {
         let s = PostProcessingSettings::default();
         assert!(s.enabled, "post-processing should default to enabled");
         assert!(
-            s.auto_exposure.enabled,
-            "auto-exposure should default to enabled"
+            !s.auto_exposure.enabled,
+            "auto-exposure should default to disabled"
         );
-        assert_eq!(s.tonemap.mode, TonemapMode::AgX);
+        assert_eq!(s.tonemap.mode, TonemapMode::None);
     }
 
     #[test]
