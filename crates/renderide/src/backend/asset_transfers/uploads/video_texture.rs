@@ -1,9 +1,13 @@
 use super::super::AssetTransferQueue;
+#[cfg(feature = "video-textures")]
+use crate::assets::video::VideoTextureFrameSink;
 use crate::assets::video::player::VideoPlayer;
 use renderide_shared::{
     UnloadVideoTexture, VideoTextureLoad, VideoTextureProperties, VideoTextureStartAudioTrack,
     VideoTextureUpdate,
 };
+#[cfg(feature = "video-textures")]
+use std::sync::Arc;
 
 /// Replays video texture state that arrived before GPU attach.
 pub fn attach_flush_pending_video_textures(queue: &mut AssetTransferQueue) {
@@ -113,5 +117,24 @@ pub fn on_unload_video_texture(queue: &mut AssetTransferQueue, u: UnloadVideoTex
                 .accounting()
                 .texture_resident_bytes(),
         );
+    }
+}
+
+#[cfg(feature = "video-textures")]
+impl VideoTextureFrameSink for AssetTransferQueue {
+    fn set_video_texture_frame(
+        &mut self,
+        asset_id: i32,
+        view: Arc<wgpu::TextureView>,
+        width: u32,
+        height: u32,
+        resident_bytes: u64,
+    ) -> bool {
+        let props = self.catalogs.video_texture_properties_or_default(asset_id);
+        let Some(gpu_tex) = self.ensure_video_texture_with_props(&props) else {
+            return false;
+        };
+        gpu_tex.set_view(view, width, height, resident_bytes);
+        true
     }
 }

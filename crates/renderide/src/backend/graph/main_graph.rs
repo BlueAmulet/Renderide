@@ -202,7 +202,7 @@ fn create_main_graph_transient_resources(
 ) {
     let cluster_params = builder.create_buffer(TransientBufferDesc {
         label: "cluster_params",
-        size_policy: BufferSizePolicy::Fixed(crate::backend::CLUSTER_PARAMS_UNIFORM_SIZE * 2),
+        size_policy: BufferSizePolicy::Fixed(crate::gpu::CLUSTER_PARAMS_UNIFORM_SIZE * 2),
         base_usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         alias: true,
     });

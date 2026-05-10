@@ -2,8 +2,7 @@
 
 /// Number of stereo view layers in the multiview depth array (left + right eye).
 ///
-/// Inlined here to keep `render_graph/` independent of `xr/`. Stays in sync with
-/// `crate::xr::STEREO_LAYER_COUNT`.
+/// Inlined here so lower GPU/render-graph code can classify multiview depth without importing XR.
 const STEREO_LAYER_COUNT: u32 = 2;
 
 /// Errors when code expects a stereo depth array but the mode is desktop.

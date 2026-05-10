@@ -10,6 +10,7 @@ mod context;
 pub mod depth;
 pub mod display_blit;
 pub mod driver_thread;
+pub mod frame_bindings;
 pub(crate) mod frame_bracket;
 pub(crate) mod frame_cpu_gpu_timing;
 mod instance_limits;
@@ -28,6 +29,12 @@ pub use depth::{
     MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE, main_forward_depth_stencil_format,
 };
 pub use display_blit::DisplayBlitResources;
+pub use frame_bindings::{
+    CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight, GpuReflectionProbeMetadata, MAX_LIGHTS,
+    MAX_LIGHTS_PER_TILE, REFLECTION_PROBE_ATLAS_FORMAT, REFLECTION_PROBE_METADATA_BOX_PROJECTION,
+    REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL, REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
+    empty_material_bind_group_layout, frame_bind_group_layout, frame_bind_group_layout_entries,
+};
 pub use instance_limits::{RENDERER_MAX_TEXTURE_DIMENSION_2D, instance_flags_for_gpu_init};
 pub use limits::{CUBEMAP_ARRAY_LAYERS, GpuLimits};
 pub use msaa_depth_resolve::{

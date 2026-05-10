@@ -1,8 +1,7 @@
 //! Clustered forward lighting: compute pass assigns light indices per view-space cluster.
 //!
-//! Dispatches over a 3D grid (`16x16` pixel tiles x exponential Z slices). Uses the same
-//! [`crate::backend::GpuLight`] buffer and cluster storage as raster `@group(0)`
-//! ([`crate::backend::FrameGpuResources`]).
+//! Dispatches over a 3D grid (`16x16` pixel tiles x exponential Z slices). Uses the frame
+//! `@group(0)` GPU ABI defined by [`crate::gpu`].
 //!
 //! WGSL source: `shaders/passes/compute/clustered_light.wgsl` (composed by the build script and
 //! loaded from the embedded shader registry at pipeline creation time).
@@ -39,8 +38,8 @@ use record_action::{
     CpuFroxelRecordData, try_record_cpu_froxel,
 };
 
-use crate::backend::CLUSTER_PARAMS_UNIFORM_SIZE;
 use crate::camera::ViewId;
+use crate::gpu::CLUSTER_PARAMS_UNIFORM_SIZE;
 use crate::render_graph::context::ComputePassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::frame_params::PerViewFramePlanSlot;

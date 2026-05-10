@@ -4,8 +4,8 @@
 //! The clustered-light pass picks one of four record actions per view tick: skip, complete
 //! (CPU froxel finished the work), clear-counts (zero-light shortcut), or run the GPU scan.
 
-use crate::backend::GpuLight;
 use crate::camera::ViewId;
+use crate::gpu::GpuLight;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::cluster::ClusterFrameParams;
 

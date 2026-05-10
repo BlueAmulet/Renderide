@@ -2,33 +2,7 @@
 
 use std::sync::Arc;
 
-use bytemuck::{Pod, Zeroable};
-
-/// One reflection-probe metadata row consumed by PBS fragment shaders.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
-pub struct GpuReflectionProbeMetadata {
-    /// World-space AABB minimum, padded to a vec4.
-    pub box_min: [f32; 4],
-    /// World-space AABB maximum, padded to a vec4.
-    pub box_max: [f32; 4],
-    /// World-space probe position, padded to a vec4.
-    pub position: [f32; 4],
-    /// `.x` intensity, `.y` max LOD, `.z` flags, `.w` SH2 source kind.
-    pub params: [f32; 4],
-    /// Probe SH2 coefficients in [`crate::shared::RenderSH2`] order, padded to vec4 rows.
-    pub sh2: [[f32; 4]; 9],
-}
-
-/// Probe metadata flag for box-projected reflection sampling.
-pub const REFLECTION_PROBE_METADATA_BOX_PROJECTION: u32 = 1;
-/// Probe metadata parameter value for local reflection-probe SH2 coefficients.
-pub const REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL: f32 = 1.0;
-/// Probe metadata parameter value for skybox-derived SH2 coefficients.
-pub const REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX: f32 = 2.0;
-
-/// Texture format used by prefiltered reflection-probe IBL cubemaps.
-pub const REFLECTION_PROBE_ATLAS_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+use crate::gpu::{GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT};
 
 /// Resources bound to frame-global reflection-probe slots.
 #[derive(Clone)]
@@ -122,7 +96,9 @@ pub(super) fn create_reflection_probe_specular_fallback(
 
 #[cfg(test)]
 mod tests {
-    use super::GpuReflectionProbeMetadata;
+    use std::mem::size_of;
+
+    use crate::gpu::GpuReflectionProbeMetadata;
 
     #[test]
     fn reflection_probe_metadata_stride_includes_sh2_rows() {

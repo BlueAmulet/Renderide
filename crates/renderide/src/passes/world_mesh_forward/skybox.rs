@@ -11,9 +11,9 @@ use parking_lot::Mutex;
 
 use super::WorldMeshForwardPipelineState;
 use super::execute_helpers::frame_bind_group_for_view;
-use crate::backend::FrameGpuResources;
 use crate::camera::{CameraProjectionKind, ViewId, world_to_view_pair_for_skybox};
 use crate::embedded_shaders;
+use crate::gpu::frame_bind_group_layout;
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyLookupIds};
 use crate::materials::{
     EmbeddedTexturePools, MaterialRenderState, material_render_state_for_lookup,
@@ -319,7 +319,7 @@ impl SkyboxRenderer {
             label: Some(shader_target),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
-        let frame_layout = FrameGpuResources::bind_group_layout(device);
+        let frame_layout = frame_bind_group_layout(device);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(shader_target),
             bind_group_layouts: &[

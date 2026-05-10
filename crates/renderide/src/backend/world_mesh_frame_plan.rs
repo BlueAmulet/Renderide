@@ -8,10 +8,18 @@ use crate::passes::{
     PreparedWorldMeshForwardFrame, WorldMeshForwardPrepareContext, WorldMeshForwardSkyboxRenderer,
     prepare_world_mesh_forward_frame,
 };
-use crate::render_graph::blackboard::{Blackboard, GraphCommandStats, GraphCommandStatsSlot};
+use crate::render_graph::blackboard::{
+    Blackboard, BlackboardSlot, GraphCommandStats, GraphCommandStatsSlot,
+};
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
-use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawPlan, WorldMeshDrawPlanSlot};
+use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawPlan};
+
+/// Blackboard slot carrying the world-mesh draw plan into backend graph preparation.
+pub struct WorldMeshDrawPlanSlot;
+impl BlackboardSlot for WorldMeshDrawPlanSlot {
+    type Value = WorldMeshDrawPlan;
+}
 
 /// Backend-owned world-mesh forward preparation caches.
 pub(crate) struct BackendWorldMeshFramePlanner {
@@ -160,11 +168,10 @@ fn command_stats_from_prepared(prepared: &PreparedWorldMeshForwardFrame) -> Grap
 
 #[cfg(test)]
 mod tests {
-    use super::take_world_mesh_draw_plan;
+    use super::{WorldMeshDrawPlanSlot, take_world_mesh_draw_plan};
     use crate::render_graph::blackboard::Blackboard;
     use crate::world_mesh::{
         PrefetchedWorldMeshViewDraws, WorldMeshDrawCollection, WorldMeshDrawPlan,
-        WorldMeshDrawPlanSlot,
     };
 
     #[test]
