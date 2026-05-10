@@ -58,9 +58,25 @@ impl RendererRuntime {
     /// Drains completed Hi-Z `map_async` readbacks into CPU snapshots (once per tick).
     ///
     /// Call at the top of the render-views phase so both the HMD and desktop paths share one drain.
-    pub fn drain_hi_z_readback(&self, device: &wgpu::Device) {
+    pub fn drain_hi_z_readback(&mut self, gpu: &mut GpuContext) {
         profiling::scope!("tick::drain_hi_z_readback");
-        self.backend.hi_z_begin_frame_readback(device);
+        let mapped_buffer_recovery = gpu.begin_mapped_buffer_recovery_frame();
+        if mapped_buffer_recovery.invalidated {
+            self.backend.reset_mapped_buffer_recovery_state(
+                mapped_buffer_recovery.generation,
+                "tick begin",
+            );
+        }
+        if mapped_buffer_recovery.avoid_mapped_buffers {
+            return;
+        }
+        self.backend.hi_z_begin_frame_readback(gpu.device());
+        if gpu.observe_mapped_buffer_invalidation_during_frame() {
+            self.backend.reset_mapped_buffer_recovery_state(
+                gpu.mapped_buffer_invalidation_generation(),
+                "tick Hi-Z readback",
+            );
+        }
     }
 
     /// Advances nonblocking GPU services that feed host-visible async results.

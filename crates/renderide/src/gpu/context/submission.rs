@@ -137,7 +137,10 @@ impl GpuContext {
         });
         // Only bracket tracked submits with non-empty work -- empty submits (driver flush
         // sentinels) have no GPU time to measure, and untracked submits have no HUD slot.
-        let frame_bracket_readback = if track.is_some() && !command_buffers.is_empty() {
+        let frame_bracket_readback = if track.is_some()
+            && !command_buffers.is_empty()
+            && !self.avoid_mapped_buffers_this_frame()
+        {
             self.submission.frame_bracket.open_session().map(|session| {
                 let begin = session.begin_command_buffer();
                 let end = session.end_command_buffer();

@@ -15,6 +15,7 @@ pub(crate) mod frame_bracket;
 pub(crate) mod frame_cpu_gpu_timing;
 mod instance_limits;
 pub mod limits;
+pub(crate) mod mapped_buffer_health;
 pub mod msaa_depth_resolve;
 pub mod output_depth_mode;
 pub mod present;
