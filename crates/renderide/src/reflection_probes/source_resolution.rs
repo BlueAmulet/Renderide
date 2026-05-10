@@ -79,6 +79,7 @@ pub(super) fn resolve_task_source(
                     size: 0,
                     resident_mips: 0,
                     content_generation: 0,
+                    storage_v_inverted: false,
                     sample_size: DEFAULT_SAMPLE_SIZE,
                 },
                 Sh2ResolvedSource::Postpone,
@@ -96,6 +97,7 @@ pub(super) fn resolve_task_source(
                     size: cubemap.size,
                     resident_mips: 0,
                     content_generation: cubemap.content_generation,
+                    storage_v_inverted: cubemap.storage_v_inverted,
                     sample_size: DEFAULT_SAMPLE_SIZE,
                 },
                 Sh2ResolvedSource::Postpone,
@@ -111,12 +113,14 @@ pub(super) fn resolve_task_source(
             size: cubemap.size,
             resident_mips: cubemap.mip_levels_resident,
             content_generation: cubemap.content_generation,
+            storage_v_inverted: cubemap.storage_v_inverted,
             sample_size: DEFAULT_SAMPLE_SIZE,
         };
         return Some((
             key,
             Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
                 asset_id: state.cubemap_asset_id,
+                storage_v_inverted: cubemap.storage_v_inverted,
             }),
         ));
     }
@@ -332,6 +336,7 @@ fn resolve_projection360_cubemap_source(
                 size: 0,
                 resident_mips: 0,
                 content_generation: 0,
+                storage_v_inverted: false,
                 sample_size: DEFAULT_SAMPLE_SIZE,
             },
             Sh2ResolvedSource::Postpone,
@@ -347,6 +352,7 @@ fn resolve_projection360_cubemap_source(
         size: cubemap.size,
         resident_mips: cubemap.mip_levels_resident,
         content_generation: cubemap.content_generation,
+        storage_v_inverted: cubemap.storage_v_inverted,
         sample_size: DEFAULT_SAMPLE_SIZE,
     };
     if cubemap.mip_levels_resident == 0 {
@@ -354,7 +360,10 @@ fn resolve_projection360_cubemap_source(
     }
     (
         key,
-        Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap { asset_id }),
+        Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
+            asset_id,
+            storage_v_inverted: cubemap.storage_v_inverted,
+        }),
     )
 }
 

@@ -350,7 +350,7 @@ fn copy_rgba16f_rows(src: &[u8], subresource: &ProbeMipReadback, dst: &mut [u8])
     let src_row_bytes = subresource.bytes_per_row_padded as usize;
     let tight_row_bytes = subresource.bytes_per_row_tight as usize;
     for row in 0..extent {
-        let src_row = row;
+        let src_row = unity_bitmap_cube_source_row(extent, row);
         let src_start = src_row * src_row_bytes;
         let src_end = src_start + tight_row_bytes;
         let dst_start = row * tight_row_bytes;
@@ -365,7 +365,7 @@ fn encode_rgba16f_rows_to_linear_rgba8(src: &[u8], subresource: &ProbeMipReadbac
     let src_row_bytes = subresource.bytes_per_row_padded as usize;
     let dst_row_bytes = extent * super::RGBA8_BYTES_PER_PIXEL;
     for row in 0..extent {
-        let src_row = row;
+        let src_row = unity_bitmap_cube_source_row(extent, row);
         let src_row_start = src_row * src_row_bytes;
         let dst_row_start = row * dst_row_bytes;
         for x in 0..extent {
@@ -377,6 +377,10 @@ fn encode_rgba16f_rows_to_linear_rgba8(src: &[u8], subresource: &ProbeMipReadbac
             dst[dst_i + 3] = linear_f32_to_unorm8(f16_bits_to_f32(read_u16_le(src, src_i + 6)));
         }
     }
+}
+
+fn unity_bitmap_cube_source_row(extent: usize, row: usize) -> usize {
+    extent - 1 - row
 }
 
 fn read_u16_le(bytes: &[u8], offset: usize) -> u16 {
@@ -532,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_rgba16f_to_linear_rgba8_preserves_rows_and_clamps() {
+    fn pack_rgba16f_to_linear_rgba8_writes_unity_bitmap_cube_rows_and_clamps() {
         let subresource = ProbeMipReadback {
             face: ProbeCubeFace::PosX,
             mip: 0,
@@ -560,13 +564,13 @@ mod tests {
         assert_eq!(
             dst,
             [
-                255, 128, 64, 255, 255, 0, 0, 255, 0, 255, 255, 255, 0, 0, 128, 255
+                0, 255, 255, 255, 0, 0, 128, 255, 255, 128, 64, 255, 255, 0, 0, 255
             ]
         );
     }
 
     #[test]
-    fn pack_rgba16f_preserves_rows_and_omits_padding() {
+    fn pack_rgba16f_writes_unity_bitmap_cube_rows_and_omits_padding() {
         let subresource = ProbeMipReadback {
             face: ProbeCubeFace::PosX,
             mip: 0,
@@ -594,9 +598,18 @@ mod tests {
         assert_eq!(
             dst,
             [
-                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
-                23, 24, 25, 26, 27, 28, 29, 30, 31
+                16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 0, 1, 2, 3, 4, 5,
+                6, 7, 8, 9, 10, 11, 12, 13, 14, 15
             ]
         );
+    }
+
+    #[test]
+    fn unity_bitmap_cube_row_mapping_flips_each_mip_extent() {
+        assert_eq!(unity_bitmap_cube_source_row(1, 0), 0);
+        assert_eq!(unity_bitmap_cube_source_row(4, 0), 3);
+        assert_eq!(unity_bitmap_cube_source_row(4, 1), 2);
+        assert_eq!(unity_bitmap_cube_source_row(4, 2), 1);
+        assert_eq!(unity_bitmap_cube_source_row(4, 3), 0);
     }
 }
