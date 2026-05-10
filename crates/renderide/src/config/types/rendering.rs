@@ -37,9 +37,9 @@ pub struct RenderingSettings {
     /// Extra post-main budget for dynamic buffer / particle integration, in milliseconds.
     #[serde(rename = "asset_particle_integration_budget_ms")]
     pub asset_particle_integration_budget_ms: u32,
-    /// Multisample anti-aliasing for the main window forward path (clustered forward). Effective
-    /// sample count is clamped to the GPU's supported maximum for the swapchain format. VR and
-    /// offscreen host render textures stay at 1x until extended separately.
+    /// Multisample anti-aliasing for forward rendering. Effective sample count is clamped to the
+    /// GPU's supported maximum for the target format. Main-window, VR, CameraRenderTask, and host
+    /// RenderTexture camera outputs use this tier; reflection-probe utility captures stay 1x.
     pub msaa: MsaaSampleCount,
     /// Format for the **scene-color** HDR target the forward pass renders into before
     /// [`crate::passes::SceneColorComposePass`] writes the displayable target.

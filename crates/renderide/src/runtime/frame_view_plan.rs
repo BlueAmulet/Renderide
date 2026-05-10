@@ -14,7 +14,7 @@ use crate::materials::{SHADER_PERM_MULTIVIEW_STEREO, ShaderPermutation};
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::{
     ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewClear,
-    FrameViewResourceHints, FrameViewTarget, ViewPostProcessing,
+    FrameViewResourceHints, FrameViewTarget, OffscreenSampleCountPolicy, ViewPostProcessing,
 };
 use crate::scene::RenderSpaceId;
 use crate::shared::RenderingContext;
@@ -63,6 +63,7 @@ impl HeadlessOffscreenSnapshot {
                     depth_view: &self.depth_view,
                     extent_px: self.extent_px,
                     color_format: self.color_format,
+                    sample_count_policy: OffscreenSampleCountPolicy::SingleSample,
                 });
             }
         }
@@ -72,7 +73,7 @@ impl HeadlessOffscreenSnapshot {
 /// Render-texture attachment handles owned by one planned secondary view so the underlying
 /// `Arc<TextureView>` / `Arc<Texture>` stay alive for the duration of the tick.
 pub(super) struct OffscreenRtHandles {
-    /// Host render texture asset id writing this pass; used to suppress self-sampling.
+    /// Host render texture asset id writing this pass, or -1 when no host asset is written.
     pub(super) rt_id: i32,
     /// Color attachment view for this render texture.
     pub(super) color_view: Arc<wgpu::TextureView>,
@@ -82,13 +83,15 @@ pub(super) struct OffscreenRtHandles {
     pub(super) depth_view: Arc<wgpu::TextureView>,
     /// Color attachment format.
     pub(super) color_format: wgpu::TextureFormat,
+    /// MSAA policy for transient forward attachments that resolve into this target.
+    pub(super) sample_count_policy: OffscreenSampleCountPolicy,
 }
 
 /// Target-specific payload for a [`FrameViewPlan`].
 pub(super) enum FrameViewPlanTarget<'a> {
     /// HMD stereo multiview view; targets are external and pre-acquired by the XR driver.
     Hmd(ExternalFrameTargets<'a>),
-    /// Secondary render-texture camera; owns the RT color/depth handles for the tick.
+    /// Single-view offscreen target; owns the color/depth handles for the tick.
     SecondaryRt(OffscreenRtHandles),
     /// Main desktop swapchain view.
     MainSwapchain,
@@ -139,6 +142,7 @@ impl FrameViewPlan<'_> {
                     depth_view: handles.depth_view.as_ref(),
                     extent_px: self.viewport_px,
                     color_format: handles.color_format,
+                    sample_count_policy: handles.sample_count_policy,
                 })
             }
             FrameViewPlanTarget::MainSwapchain => FrameViewTarget::Swapchain,

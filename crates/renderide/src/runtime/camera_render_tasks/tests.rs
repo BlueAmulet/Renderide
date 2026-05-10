@@ -5,6 +5,14 @@ use glam::IVec2;
 use super::*;
 
 #[test]
+fn camera_render_tasks_use_master_msaa_policy() {
+    assert_eq!(
+        CAMERA_TASK_SAMPLE_COUNT_POLICY,
+        OffscreenSampleCountPolicy::MasterMsaa
+    );
+}
+
+#[test]
 fn readback_layout_removes_row_padding_contract() {
     let layout = compute_readback_layout(
         wgpu::Extent3d {

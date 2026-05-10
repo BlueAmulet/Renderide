@@ -10,7 +10,9 @@ use crate::backend::RenderBackend;
 use crate::camera::{ViewId, camera_render_task_world_matrix, host_camera_frame_for_render_task};
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
-use crate::render_graph::{FrameViewClear, GraphExecuteError, ViewPostProcessing};
+use crate::render_graph::{
+    FrameViewClear, GraphExecuteError, OffscreenSampleCountPolicy, ViewPostProcessing,
+};
 use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::{CameraRenderParameters, CameraRenderTask, RenderingContext, TextureFormat};
 use crate::world_mesh::{CameraTransformDrawFilter, WorldMeshDrawCollectParallelism};
@@ -31,6 +33,9 @@ const PAR_FILL_CHUNK: usize = 64 * 1024;
 const CAMERA_READBACK_TIMEOUT: Duration = Duration::from_secs(5);
 /// Color attachment format used for CPU camera readback tasks.
 const CAMERA_TASK_COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+/// MSAA policy used while rendering CPU camera readback tasks.
+const CAMERA_TASK_SAMPLE_COUNT_POLICY: OffscreenSampleCountPolicy =
+    OffscreenSampleCountPolicy::MasterMsaa;
 /// Bytes per texel copied from the readback color target.
 const RGBA8_BYTES_PER_PIXEL: usize = 4;
 
@@ -225,6 +230,7 @@ impl CameraTaskTargets {
             depth_texture: Arc::clone(&self.depth_texture),
             depth_view: Arc::clone(&self.depth_view),
             color_format: self.color_format,
+            sample_count_policy: CAMERA_TASK_SAMPLE_COUNT_POLICY,
         }
     }
 }
@@ -255,6 +261,7 @@ impl RendererRuntime {
             self.set_pending_camera_readbacks(0);
             return;
         }
+        self.sync_master_msaa(gpu);
         self.set_pending_camera_readbacks(tasks.len());
         let mut stats = CameraReadbackDrainStats::default();
         let RendererRuntime {

@@ -10,6 +10,14 @@ use crate::shared::{
 
 use super::*;
 
+#[test]
+fn reflection_probe_captures_use_single_sample_policy() {
+    assert_eq!(
+        REFLECTION_PROBE_SAMPLE_COUNT_POLICY,
+        OffscreenSampleCountPolicy::SingleSample
+    );
+}
+
 fn matrix_direction_for_uv(face: ProbeCubeFace, u: f32, v: f32) -> Vec3 {
     let x = 2.0 * u - 1.0;
     let y = 1.0 - 2.0 * v;

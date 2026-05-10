@@ -212,13 +212,12 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
         {
             let mut r = b.raster();
             // `Load` (not `Clear`) is essential because the same compiled graph runs across
-            // views with different runtime sample counts: the swapchain may be at MSAA 4x
-            // while an offscreen render-texture camera is hardcoded to 1x (`compiled.rs`
-            // `OffscreenRt` arm). In the 1x per-view case our fragment shader doesn't run
-            // (sample_count == 1 early-return below), so `Load` preserves the single-sample
-            // data the intersect pass already wrote via `frame_sampled_color`'s single-sample
-            // target. In the MSAA per-view case the fullscreen draw overwrites every pixel, so
-            // the loaded contents are discarded.
+            // views with different runtime sample counts: the main/photo paths may use the master
+            // MSAA tier while utility offscreen captures can remain 1x. In the 1x per-view case
+            // our fragment shader doesn't run (sample_count == 1 early-return below), so `Load`
+            // preserves the single-sample data the intersect pass already wrote via
+            // `frame_sampled_color`'s single-sample target. In the MSAA per-view case the
+            // fullscreen draw overwrites every pixel, so the loaded contents are discarded.
             r.color(
                 self.resources.scene_color_hdr,
                 wgpu::Operations {
@@ -260,11 +259,10 @@ impl RasterPass for WorldMeshForwardColorResolvePass {
         profiling::scope!("world_mesh_forward::color_resolve_record");
         let frame = &*ctx.pass_frame;
 
-        // Per-view runtime sample count: 1 for offscreen render-texture cameras (forced by
-        // `compiled.rs` `OffscreenRt` arm), >1 for swapchain / HMD targets when MSAA is
-        // active. Skip the draw in the 1x case -- the framework's render-pass open/close with
-        // `LoadOp::Load` is a no-op against `scene_color_hdr`, preserving the data intersect
-        // already wrote there.
+        // Per-view runtime sample count: 1 for single-sample targets, >1 for swapchain / HMD /
+        // photo offscreen targets when MSAA is active. Skip the draw in the 1x case -- the
+        // framework's render-pass open/close with `LoadOp::Load` is a no-op against
+        // `scene_color_hdr`, preserving the data intersect already wrote there.
         let sample_count = frame.view.sample_count;
         if sample_count <= 1 {
             return Ok(());

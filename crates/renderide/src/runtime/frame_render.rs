@@ -93,24 +93,11 @@ impl RendererRuntime {
     /// sample counts on a tier change.
     fn setup_msaa_for_mode(&mut self, gpu: &mut GpuContext, mode: &FrameRenderMode<'_>) {
         profiling::scope!("render::setup_msaa");
-        let requested_msaa = self
-            .config
-            .settings
-            .read()
-            .map(|s| s.rendering.msaa.as_count())
-            .unwrap_or(1);
-        let prev_msaa = gpu.swapchain_msaa_effective();
-        gpu.set_swapchain_msaa_requested(requested_msaa);
-        self.transient_evict_stale_msaa_tiers_if_changed(prev_msaa, gpu.swapchain_msaa_effective());
+        self.sync_master_msaa(gpu);
         // Stereo MSAA tier applies to `ExternalMultiview` HMD targets; keep both tiers in sync
         // so transient textures keyed by sample count invalidate on a mode change.
         if mode.has_hmd() {
-            let prev_stereo = gpu.swapchain_msaa_effective_stereo();
-            gpu.set_swapchain_msaa_requested_stereo(requested_msaa);
-            self.transient_evict_stale_msaa_tiers_if_changed(
-                prev_stereo,
-                gpu.swapchain_msaa_effective_stereo(),
-            );
+            self.sync_stereo_msaa_from_master(gpu);
         }
     }
 
