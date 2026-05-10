@@ -321,12 +321,13 @@ impl GpuMesh {
     }
 
     fn should_keep_extended_vertex_stream_source_for_tangent_upgrade(&self) -> bool {
-        self.tangent_buffer.is_some()
-            && self.tangent_fallback_mode < EmbeddedTangentFallbackMode::GenerateMissing
-            && self
-                .extended_vertex_stream_source
+        should_keep_tangent_upgrade_source(
+            self.tangent_buffer.is_some(),
+            self.tangent_fallback_mode,
+            self.extended_vertex_stream_source
                 .as_ref()
-                .is_some_and(|source| source.can_generate_missing_tangents)
+                .is_some_and(|source| source.can_generate_missing_tangents),
+        )
     }
 
     /// Whether `data`/`layout` match this mesh's buffer sizes and optional derived streams so we can
@@ -644,6 +645,16 @@ fn updated_extended_vertex_stream_source(
     extended_vertex_stream_source_from_raw(raw, data, layout)
 }
 
+fn should_keep_tangent_upgrade_source(
+    tangent_ready: bool,
+    tangent_fallback_mode: EmbeddedTangentFallbackMode,
+    can_generate_missing_tangents: bool,
+) -> bool {
+    tangent_ready
+        && tangent_fallback_mode < EmbeddedTangentFallbackMode::GenerateMissing
+        && can_generate_missing_tangents
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -654,5 +665,33 @@ mod tests {
         assert!(flags.write_vertex);
         assert!(flags.write_index);
         assert!(!flags.full);
+    }
+
+    #[test]
+    fn default_tangent_stream_keeps_source_when_generated_upgrade_is_possible() {
+        assert!(should_keep_tangent_upgrade_source(
+            true,
+            EmbeddedTangentFallbackMode::PreserveHostOrDefault,
+            true
+        ));
+    }
+
+    #[test]
+    fn generated_or_unusable_tangent_streams_drop_lazy_source() {
+        assert!(!should_keep_tangent_upgrade_source(
+            false,
+            EmbeddedTangentFallbackMode::PreserveHostOrDefault,
+            true
+        ));
+        assert!(!should_keep_tangent_upgrade_source(
+            true,
+            EmbeddedTangentFallbackMode::GenerateMissing,
+            true
+        ));
+        assert!(!should_keep_tangent_upgrade_source(
+            true,
+            EmbeddedTangentFallbackMode::PreserveHostOrDefault,
+            false
+        ));
     }
 }
