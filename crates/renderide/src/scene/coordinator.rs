@@ -223,13 +223,28 @@ impl SceneCoordinator {
             .sum()
     }
 
-    /// Appends world-space lights for `id` into `out` (caller typically [`Vec::clear`]s once per frame).
-    /// Same semantics as [`Self::resolve_lights_world`] without allocating a new [`Vec`].
-    pub fn resolve_lights_world_into(&self, id: RenderSpaceId, out: &mut Vec<ResolvedLight>) {
+    /// Appends render-context-aware world-space lights for `id` into `out`.
+    ///
+    /// This uses the same transform basis as view draw collection so clustered-light culling and
+    /// forward shading see lights in the same world space as the meshes for that view.
+    pub fn resolve_lights_for_render_context_into(
+        &self,
+        id: RenderSpaceId,
+        context: RenderingContext,
+        head_output_transform: Mat4,
+        out: &mut Vec<ResolvedLight>,
+    ) {
         let sid = id.0;
         self.light_cache.resolve_lights_into(
             sid,
-            |transform_idx| self.world_matrix(id, transform_idx),
+            |transform_idx| {
+                self.world_matrix_for_render_context(
+                    id,
+                    transform_idx,
+                    context,
+                    head_output_transform,
+                )
+            },
             out,
         );
     }

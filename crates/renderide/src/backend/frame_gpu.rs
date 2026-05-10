@@ -1,5 +1,5 @@
-//! Per-frame `@group(0)` resources: scene uniform, lights storage, shared cluster buffers, and
-//! fallback scene snapshot textures.
+//! Per-frame `@group(0)` resources: fallback scene uniform/lights storage, shared cluster
+//! buffers, and fallback scene snapshot textures.
 //!
 //! Cluster buffers ([`ClusterBufferCache`]) and the `@group(0)` layout live here and are
 //! **shared across every view**; per-view uniform buffers and bind groups live in
@@ -49,8 +49,10 @@ pub struct FrameGpuResources {
     /// Uniform buffer for [`FrameGpuUniforms`] (global fallback; per-view uniforms are in
     /// [`crate::backend::frame_resource_manager::PerViewFrameState`]).
     pub frame_uniform: wgpu::Buffer,
-    /// Storage buffer holding up to [`MAX_LIGHTS`] [`GpuLight`] records (scene-global; shared
-    /// across all views).
+    /// Fallback storage buffer holding up to [`MAX_LIGHTS`] [`GpuLight`] records.
+    ///
+    /// Normal per-view rendering binds the light buffer owned by
+    /// [`crate::backend::frame_resource_manager::PerViewFrameState`].
     pub lights_buffer: wgpu::Buffer,
     /// Shared cluster buffers for the whole frame; every view's `@group(0)` bind group
     /// references this one cache (see [`ClusterBufferCache`] for the ordering argument that
@@ -75,7 +77,7 @@ pub struct FrameGpuResources {
     _ibl_dfg_lut_texture: Arc<wgpu::Texture>,
     /// Frame-global DFG LUT view bound at `@group(0) @binding(11)`.
     ibl_dfg_lut_view: Arc<wgpu::TextureView>,
-    /// Global `@group(0)` bind group (global frame uniform + shared lights/snapshots).
+    /// Global `@group(0)` bind group (fallback frame uniform + fallback lights/snapshots).
     ///
     /// Per-view passes bind the per-view bind group from
     /// [`crate::backend::frame_resource_manager::PerViewFrameState`] instead.
@@ -267,6 +269,19 @@ impl FrameGpuResources {
         bind_group
     }
 
+    /// Allocates a lights storage buffer large enough for [`MAX_LIGHTS`] rows.
+    pub(in crate::backend) fn create_lights_storage_buffer(
+        device: &wgpu::Device,
+        label: &'static str,
+    ) -> wgpu::Buffer {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: (MAX_LIGHTS * size_of::<GpuLight>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    }
+
     /// Returns the currently selected reflection-probe bind-group resources.
     fn reflection_probe_bind_group_resources(
         &self,
@@ -316,12 +331,7 @@ impl FrameGpuResources {
             mapped_at_creation: false,
         });
         crate::profiling::note_resource_churn!(Buffer, "backend::frame_globals_uniform");
-        let lights_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("frame_lights_storage"),
-            size: lights_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+        let lights_buffer = Self::create_lights_storage_buffer(device, "frame_lights_storage");
         crate::profiling::note_resource_churn!(Buffer, "backend::frame_lights_storage");
         let mut cluster_cache = ClusterBufferCache::new();
         cluster_cache
@@ -404,8 +414,8 @@ impl FrameGpuResources {
         Some(true)
     }
 
-    /// Builds a per-view `@group(0)` bind group using this view's own `frame_uniform` and
-    /// `cluster_refs`, sharing only the scene-global lights storage from [`Self`].
+    /// Builds a per-view `@group(0)` bind group using this view's own frame uniform and light
+    /// storage plus the shared cluster buffers from [`Self`].
     ///
     /// Called by [`crate::backend::frame_resource_manager::PerViewFrameState`] whenever the view's
     /// cluster buffers or snapshot textures change.
@@ -413,13 +423,14 @@ impl FrameGpuResources {
         &self,
         device: &wgpu::Device,
         frame_uniform: &wgpu::Buffer,
+        lights_buffer: &wgpu::Buffer,
         cluster_refs: ClusterBufferRefs<'_>,
         snapshots: FrameSceneSnapshotTextureViews<'_>,
     ) -> Arc<wgpu::BindGroup> {
         Self::create_bind_group(
             device,
             frame_uniform,
-            &self.lights_buffer,
+            lights_buffer,
             cluster_refs,
             snapshots,
             self.reflection_probe_bind_group_resources(),
@@ -457,9 +468,13 @@ impl FrameGpuResources {
         true
     }
 
-    /// Records only the lights storage buffer (used by [`crate::passes::ClusteredLightPass`]).
-    pub fn write_lights_buffer(&self, uploads: GraphUploadSink<'_>, lights: &[GpuLight]) {
-        Self::write_lights_buffer_inner(uploads, &self.lights_buffer, lights);
+    /// Records a lights storage upload into `lights_buffer`.
+    pub(in crate::backend) fn write_lights_buffer_to(
+        uploads: GraphUploadSink<'_>,
+        lights_buffer: &wgpu::Buffer,
+        lights: &[GpuLight],
+    ) {
+        Self::write_lights_buffer_inner(uploads, lights_buffer, lights);
     }
 
     fn write_lights_buffer_inner(

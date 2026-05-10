@@ -301,7 +301,7 @@ impl CompiledRenderGraph {
         for (idx, import) in self.imported_buffers.iter().enumerate() {
             let buffer = match &import.source {
                 BufferImportSource::Frame(BackendFrameBufferKind::Lights) => {
-                    frame_resources.lights_buffer()
+                    frame_resources.lights_buffer(resolved.view_id)
                 }
                 BufferImportSource::Frame(BackendFrameBufferKind::FrameUniforms) => {
                     frame_resources.frame_uniform_buffer()

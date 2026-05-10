@@ -25,7 +25,10 @@ pub(super) fn write_per_view_frame_uniforms(
         hc,
         frame.shared.scene,
         frame.view.viewport_px,
-        frame.shared.frame_resources.frame_light_count_u32(),
+        frame
+            .shared
+            .frame_resources
+            .frame_light_count_u32(frame.view.view_id),
         use_multiview,
         frame
             .shared

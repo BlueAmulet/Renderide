@@ -35,8 +35,8 @@
 //!
 //! [`LightCache`](lights::LightCache) merges [`FrameSubmitData`](crate::shared::FrameSubmitData) light
 //! batches and [`LightsBufferRendererSubmission`](crate::shared::LightsBufferRendererSubmission) payloads;
-//! [`SceneCoordinator::resolve_lights_world`](SceneCoordinator::resolve_lights_world) produces
-//! [`ResolvedLight`](ResolvedLight) for [`GpuLight`](crate::backend::GpuLight) packing in the backend.
+//! [`SceneCoordinator::resolve_lights_for_render_context_into`] produces [`ResolvedLight`] rows
+//! for GPU packing in the backend.
 //!
 //! ## Layout
 //!

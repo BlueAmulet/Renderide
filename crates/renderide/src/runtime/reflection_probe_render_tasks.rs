@@ -544,7 +544,6 @@ impl RendererRuntime {
             let (shm, mut ipc) = frontend.transport_pair_mut();
             flush_reflection_probe_render_results_to_ipc(tick_state, &mut ipc);
             if let Some(shm) = shm {
-                backend.prepare_lights_from_scene(scene);
                 let render_context = RenderingContext::RenderToAsset;
                 let mut convolver = SkyboxIblConvolver::new();
                 let mut completed = 0u64;
@@ -669,7 +668,6 @@ impl RendererRuntime {
             return;
         }
 
-        self.backend.prepare_lights_from_scene(&self.scene);
         let base_camera = self.host_camera;
         let render_context = RenderingContext::RenderToAsset;
         let mut active =
@@ -1189,6 +1187,13 @@ fn render_reflection_probe_faces_offscreen(
 ) -> Result<(), ReflectionProbeBakeError> {
     profiling::scope!("reflection_probe_task::offscreen_render");
     let prepared_views = PreparedViews::new(plans, None);
+    backend.prepare_lights_for_views(
+        scene,
+        prepared_views
+            .plans()
+            .iter()
+            .map(|plan| plan.light_view_desc(render_context)),
+    );
     let view_perms = prepared_views
         .plans()
         .iter()

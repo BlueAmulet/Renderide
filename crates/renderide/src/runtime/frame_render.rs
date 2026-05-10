@@ -67,10 +67,6 @@ impl RendererRuntime {
         mode: FrameRenderMode<'_>,
     ) -> Result<(), GraphExecuteError> {
         profiling::scope!("render::render_frame");
-        {
-            profiling::scope!("render::prepare_lights_from_scene");
-            self.backend.prepare_lights_from_scene(&self.scene);
-        };
         self.sync_debug_hud_diagnostics_from_settings();
         self.setup_msaa_for_mode(gpu, &mode);
 
@@ -132,6 +128,17 @@ impl RendererRuntime {
         };
         self.backend
             .sync_active_views(prepared_views.plans().iter().map(|view| view.view_id));
+        let render_context = self.scene.active_main_render_context();
+        {
+            profiling::scope!("render::prepare_lights_for_views");
+            self.backend.prepare_lights_for_views(
+                &self.scene,
+                prepared_views
+                    .plans()
+                    .iter()
+                    .map(|plan| plan.light_view_desc(render_context)),
+            );
+        }
         let shared = {
             profiling::scope!("render::extract_frame_shared");
             // Hand the per-view shader permutations through so the backend refreshes one material
@@ -144,7 +151,7 @@ impl RendererRuntime {
                 .collect();
             self.backend.extract_frame_shared(
                 &self.scene,
-                self.scene.active_main_render_context(),
+                render_context,
                 select_inner_parallelism(prepared_views.plans()),
                 view_perms,
             )

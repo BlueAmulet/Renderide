@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use crate::backend::FrameLightViewDesc;
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::gpu::GpuContext;
 use crate::gpu::OutputDepthMode;
@@ -16,6 +17,7 @@ use crate::render_graph::{
     FrameViewResourceHints, FrameViewTarget, ViewPostProcessing,
 };
 use crate::scene::RenderSpaceId;
+use crate::shared::RenderingContext;
 use crate::world_mesh::CameraTransformDrawFilter;
 
 /// Cheap-clone snapshot of [`crate::gpu::PrimaryOffscreenTargets`] used by the headless render path.
@@ -166,6 +168,16 @@ impl FrameViewPlan<'_> {
     /// (secondary RT cameras) -> main-space eye position -> head-output translation as fallback.
     pub(super) fn view_origin_world(&self) -> glam::Vec3 {
         self.host_camera.view_origin_world()
+    }
+
+    /// Builds the light-resolution descriptor for this view.
+    pub(super) fn light_view_desc(&self, render_context: RenderingContext) -> FrameLightViewDesc {
+        FrameLightViewDesc {
+            view_id: self.view_id,
+            render_context,
+            render_space_filter: self.render_space_filter,
+            head_output_transform: self.host_camera.head_output_transform,
+        }
     }
 
     /// `true` when this view records the OpenXR stereo multiview draw path.
