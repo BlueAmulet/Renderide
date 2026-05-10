@@ -8,7 +8,7 @@ use crate::shared::{
 };
 
 use super::super::AssetTransferQueue;
-use super::super::integrator::AssetTask;
+use super::super::integrator::{AssetTask, RetiredAssetResource};
 use super::super::texture3d_task::Texture3dUploadTask;
 use super::MAX_PENDING_TEXTURE3D_UPLOADS;
 use super::allocations::flush_pending_texture3d_allocations;
@@ -155,9 +155,12 @@ pub fn on_unload_texture_3d(queue: &mut AssetTransferQueue, u: UnloadTexture3D) 
     queue.catalogs.texture3d_formats.remove(&id);
     queue.catalogs.texture3d_properties.remove(&id);
     remove_pending_texture3d_uploads_for_asset(queue, id);
-    if queue.pools.texture3d_pool.remove(id) {
+    if let Some(texture) = queue.pools.texture3d_pool.take(id) {
+        queue
+            .integrator_mut()
+            .enqueue_delayed_removal(RetiredAssetResource::Texture3d(texture));
         logger::info!(
-            "texture3d {id} unloaded (tex~={} total~={})",
+            "texture3d {id} unloaded; GPU handle queued for delayed removal (tex~={} total~={})",
             queue
                 .pools
                 .texture3d_pool

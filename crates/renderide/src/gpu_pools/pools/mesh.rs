@@ -62,6 +62,15 @@ impl MeshPool {
         removed
     }
 
+    /// Removes and returns a mesh by host id when it was present. Also clears any cached layout for
+    /// the asset.
+    pub(crate) fn take(&mut self, asset_id: i32) -> Option<GpuMesh> {
+        self.layout_cache.remove(&asset_id);
+        let mesh = self.inner.take(asset_id)?;
+        self.mutation_generation = self.mutation_generation.wrapping_add(1);
+        Some(mesh)
+    }
+
     /// Monotonic generation for resident mesh insert/remove/replace events.
     #[inline]
     pub fn mutation_generation(&self) -> u64 {

@@ -20,26 +20,28 @@ use crate::backend::asset_transfers as asset_uploads;
 use super::RenderBackend;
 
 impl RenderBackend {
-    /// Cooperative mesh/texture uploads ([`crate::runtime::RendererRuntime::run_asset_integration`]):
-    /// all high-priority tasks run to completion, then normal-priority work until `normal_deadline`.
+    /// Cooperative asset integration for queued main, render, upload, and particle work.
     pub fn drain_asset_tasks(
         &mut self,
         shm: &mut SharedMemoryAccessor,
         ipc: &mut Option<&mut DualQueueIpc>,
         normal_deadline: std::time::Instant,
+        particle_deadline: std::time::Instant,
     ) -> AssetIntegrationDrainSummary {
-        asset_uploads::drain_asset_tasks(&mut self.asset_transfers, shm, ipc, normal_deadline)
+        asset_uploads::drain_asset_tasks(
+            &mut self.asset_transfers,
+            &mut self.materials,
+            shm,
+            ipc,
+            normal_deadline,
+            particle_deadline,
+        )
     }
 
     /// Whether upload or material work is queued or deferred on missing prerequisites.
     pub fn has_pending_asset_work(&self) -> bool {
         self.asset_transfers.has_pending_asset_work()
             || self.materials.has_pending_material_batches()
-    }
-
-    /// Whether GPU handles required by the upload integrator are attached.
-    pub fn asset_gpu_ready(&self) -> bool {
-        self.asset_transfers.asset_gpu_ready()
     }
 
     /// Starts cooperative shutdown for backend-owned video texture players.
@@ -280,11 +282,20 @@ impl RenderBackend {
     /// Drain pending material batches using the given shared memory and IPC.
     pub fn flush_pending_material_batches(
         &mut self,
-        shm: &mut SharedMemoryAccessor,
-        ipc: &mut DualQueueIpc,
+        _shm: &mut SharedMemoryAccessor,
+        _ipc: &mut DualQueueIpc,
     ) {
-        profiling::scope!("material::flush_batches");
-        self.materials.flush_pending_material_batches(shm, ipc);
+        profiling::scope!("material::enqueue_flushed_batches");
+        let batches = self.materials.take_pending_material_batches();
+        if !batches.is_empty() {
+            logger::debug!(
+                "materials: enqueueing {} deferred update batch(es) after shared memory became available",
+                batches.len()
+            );
+        }
+        for batch in batches {
+            self.enqueue_materials_update_batch(batch);
+        }
     }
 
     /// Queue a materials batch when shared memory is not yet available.
@@ -296,10 +307,18 @@ impl RenderBackend {
     pub fn apply_materials_update_batch(
         &mut self,
         batch: MaterialsUpdateBatch,
-        shm: &mut SharedMemoryAccessor,
-        ipc: &mut DualQueueIpc,
+        _shm: &mut SharedMemoryAccessor,
+        _ipc: &mut DualQueueIpc,
     ) {
-        self.materials.apply_materials_update_batch(batch, shm, ipc);
+        self.enqueue_materials_update_batch(batch);
+    }
+
+    /// Queue one host materials batch for cooperative high-priority integration.
+    pub fn enqueue_materials_update_batch(&mut self, batch: MaterialsUpdateBatch) {
+        self.asset_transfers.integrator_mut().enqueue_lane(
+            asset_uploads::AssetTask::MaterialUpdate(batch),
+            asset_uploads::AssetTaskLane::Main,
+        );
     }
 
     /// Remove material / property-block entries from the host store.
@@ -319,8 +338,14 @@ impl RenderBackend {
         pipeline: RasterPipelineKind,
         shader_asset_name: Option<String>,
     ) {
-        self.materials
-            .register_shader_route(asset_id, pipeline, shader_asset_name);
+        self.asset_transfers.integrator_mut().enqueue_lane(
+            asset_uploads::AssetTask::ShaderRoute(asset_uploads::ShaderRouteTask {
+                asset_id,
+                pipeline,
+                shader_asset_name,
+            }),
+            asset_uploads::AssetTaskLane::Main,
+        );
     }
 
     /// Removes shader routing for `asset_id`.

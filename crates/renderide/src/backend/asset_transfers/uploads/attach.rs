@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
+use crate::materials::MaterialSystem;
 use crate::shared::{MeshUploadData, SetCubemapData, SetTexture2DData, SetTexture3DData};
 
 use super::super::{AssetTransferQueue, drain_asset_tasks_unbounded};
@@ -22,6 +23,7 @@ use super::video_texture::attach_flush_pending_video_textures;
 /// completions emitted during replay use the same host acknowledgement path as live uploads.
 pub fn attach_flush_pending_asset_uploads(
     queue: &mut AssetTransferQueue,
+    materials: &mut MaterialSystem,
     device: &Arc<wgpu::Device>,
     shm: Option<&mut SharedMemoryAccessor>,
     ipc: Option<&mut DualQueueIpc>,
@@ -56,7 +58,7 @@ pub fn attach_flush_pending_asset_uploads(
             let ipc_ref = ipc.as_deref_mut();
             try_process_mesh_upload(queue, data, shm, ipc_ref);
         }
-        drain_asset_tasks_unbounded(queue, shm, &mut ipc);
+        drain_asset_tasks_unbounded(queue, materials, shm, &mut ipc);
     } else {
         for data in pending_tex {
             queue.pending.pending_texture_uploads.push_back(data);

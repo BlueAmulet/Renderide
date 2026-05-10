@@ -49,7 +49,7 @@ fn send_mesh_upload_result(ipc: &mut Option<&mut DualQueueIpc>, result: MeshUplo
     }
 }
 
-/// Stage for a single mesh upload task ([`Renderite.Unity.MeshAsset.Upload`]-style splitting).
+/// Stage for a single mesh upload task.
 #[derive(Debug)]
 enum MeshStage {
     /// Compute and cache [`MeshBufferLayout`] (CPU only).

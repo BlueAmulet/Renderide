@@ -321,7 +321,17 @@ fn rendering_asset_section(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut
     ) {
         *dirty = true;
     }
-    ui.text_disabled("Cooperative per-frame mesh/texture integration budget.");
+    if drag_u32_setting(
+        ui,
+        "Extra particle integration budget (ms)",
+        &mut g.rendering.asset_particle_integration_budget_ms,
+        0,
+        MAX_ASSET_INTEGRATION_BUDGET_MS,
+        1.0,
+    ) {
+        *dirty = true;
+    }
+    ui.text_disabled("Cooperative per-frame asset and extra dynamic-buffer integration budgets.");
     ui.unindent();
 }
 

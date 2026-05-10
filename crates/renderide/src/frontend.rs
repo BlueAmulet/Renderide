@@ -23,6 +23,7 @@ mod transport;
 /// Winit adapter and [`WindowInputAccumulator`](input::WindowInputAccumulator) for [`crate::shared::InputState`].
 pub mod input;
 
+pub(crate) use frame_start_performance::AssetIntegrationPerformanceSample;
 pub use init_state::InitState;
 pub use renderer_frontend::RendererFrontend;
 

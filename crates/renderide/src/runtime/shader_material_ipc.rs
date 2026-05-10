@@ -6,9 +6,7 @@ use crate::assets::{ResolvedShaderUpload, resolve_shader_upload};
 use crate::backend::RenderBackend;
 use crate::frontend::RendererFrontend;
 use crate::materials::RasterPipelineKind;
-use crate::shared::{
-    MaterialsUpdateBatch, RendererCommand, ShaderUnload, ShaderUpload, ShaderUploadResult,
-};
+use crate::shared::{MaterialsUpdateBatch, ShaderUnload, ShaderUpload};
 
 /// In-flight `resolve_shader_upload` work dispatched to the rayon pool by
 /// [`on_shader_upload`].
@@ -53,7 +51,7 @@ pub(super) fn on_shader_upload(pending: &mut Vec<PendingShaderResolution>, uploa
 pub(super) fn drain_pending_shader_resolutions(
     pending: &mut Vec<PendingShaderResolution>,
     backend: &mut RenderBackend,
-    frontend: &mut RendererFrontend,
+    _frontend: &mut RendererFrontend,
 ) {
     profiling::scope!("ipc::drain_pending_shader_resolutions");
     let mut completed: Vec<(i32, ResolvedShaderUpload)> = Vec::new();
@@ -90,14 +88,6 @@ pub(super) fn drain_pending_shader_resolutions(
         );
         let shader_asset_name = resolved.shader_asset_name.clone();
         backend.register_shader_route(asset_id, resolved.pipeline, shader_asset_name);
-        if let Some(ipc) = frontend.ipc_mut() {
-            let _ = ipc.send_background_reliable(RendererCommand::ShaderUploadResult(
-                ShaderUploadResult {
-                    asset_id,
-                    instance_changed: true,
-                },
-            ));
-        }
     }
 }
 
