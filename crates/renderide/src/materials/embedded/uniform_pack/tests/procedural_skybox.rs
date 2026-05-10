@@ -83,6 +83,7 @@ fn proceduralskybox_uniform_defaults_match_unity_asset() {
         &MaterialPropertyStore::new(),
         lookup(1),
         &empty_tex_ctx(&pools),
+        None,
     )
     .expect("uniform bytes");
 
@@ -141,6 +142,7 @@ fn proceduralskybox_sundisk_property_selects_keyword_mode() {
             &store,
             lookup(mat),
             &empty_tex_ctx(&pools),
+            None,
         )
         .expect("uniform bytes");
 
@@ -181,6 +183,7 @@ fn proceduralskybox_explicit_sundisk_keyword_overrides_property() {
         &store,
         lookup(5),
         &empty_tex_ctx(&pools),
+        None,
     )
     .expect("uniform bytes");
 

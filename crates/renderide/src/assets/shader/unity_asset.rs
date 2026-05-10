@@ -1,16 +1,19 @@
 //! Resolve shader asset names from on-disk **Unity AssetBundle** files using `unity-asset`.
 //!
 //! [`crate::shared::ShaderUpload::file`] is typically an **extensionless path** (or any path) whose bytes
-//! parse as UnityFS / AssetBundle data--not a Unity `.asset` YAML file. The resolved name is taken **only**
-//! from [`unity_asset::environment::Environment::bundle_container_entries`]: `AssetBundle.m_Container`
+//! parse as UnityFS / AssetBundle data--not a Unity `.asset` YAML file. Route selection still prefers
+//! [`unity_asset::environment::Environment::bundle_container_entries`]: `AssetBundle.m_Container`
 //! asset paths matched to embedded Shader objects, then stemmed (e.g. `.../ui_unlit.shader` -> `ui_unlit`).
 //!
-//! Serialized shader objects are **not** read for internal labels, typetree names, or other object names.
+//! Serialized shader objects are also read for the internal Shader name so Froox variant suffixes
+//! (`{shader_name}_{variant_bits:08X}`) can be stripped and carried as metadata.
 
 use std::fmt::Display;
 use std::path::Path;
 
 use unity_asset::AssetBundle;
+use unity_asset::SerializedFile;
+use unity_asset::UnityValue;
 use unity_asset::class_ids::SHADER;
 use unity_asset::environment::BinarySource;
 use unity_asset::environment::Environment;
@@ -28,27 +31,52 @@ const MAX_ERR_LOG_CHARS: usize = 240;
 /// Hex prefix length for short probe lines.
 const PROBE_HEX_SHORT: usize = 8;
 
-/// Shader asset filename or stem from a filesystem path: **AssetBundle `m_Container` stem** only.
-pub(crate) fn try_resolve_shader_asset_name_from_path(path: &Path) -> Option<String> {
+/// Shader asset route metadata resolved from an uploaded Unity shader AssetBundle.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedUnityShaderAsset {
+    /// Shader asset filename or stem used for route selection.
+    pub shader_asset_name: String,
+    /// Froox shader variant bitmask parsed from the internal Shader name suffix, when present.
+    pub shader_variant_bits: Option<u32>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct InternalShaderName {
+    shader_asset_name: String,
+    shader_variant_bits: Option<u32>,
+}
+
+#[derive(Clone, Copy)]
+enum InternalNameSource {
+    MNamePeek,
+    UnityObjectTypetree,
+    ShaderLabBytes,
+}
+
+/// Shader asset filename or stem plus optional Froox variant bitmask from a filesystem path.
+pub(crate) fn try_resolve_shader_asset_name_from_path(
+    path: &Path,
+) -> Option<ResolvedUnityShaderAsset> {
     let meta = std::fs::metadata(path).ok()?;
-    let name = if meta.is_file() {
+    let resolved = if meta.is_file() {
         try_from_file(path)
     } else if meta.is_dir() {
         try_from_directory(path)
     } else {
         None
     };
-    if let Some(parsed) = &name {
+    if let Some(parsed) = &resolved {
         logger::info!(
-            "shader_unity_asset: resolved {:?} from path {}",
-            parsed,
+            "shader_unity_asset: resolved shader_asset_name={:?} shader_variant_bits={:?} from path {}",
+            parsed.shader_asset_name,
+            parsed.shader_variant_bits,
             path.display()
         );
     }
-    name
+    resolved
 }
 
-fn try_from_file(path: &Path) -> Option<String> {
+fn try_from_file(path: &Path) -> Option<ResolvedUnityShaderAsset> {
     try_from_file_inner(path, true).0
 }
 
@@ -56,7 +84,7 @@ fn try_from_file(path: &Path) -> Option<String> {
 fn try_from_file_inner(
     path: &Path,
     log_failure: bool,
-) -> (Option<String>, Option<FileBinaryProbe>) {
+) -> (Option<ResolvedUnityShaderAsset>, Option<FileBinaryProbe>) {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
@@ -107,11 +135,11 @@ fn try_from_file_inner(
         probe.bundle_parse_ok = true;
         probe.bundle_assets = bundle.assets.len();
         log_bundle_parse_debug(path, bundle);
-        if let Some(name) = shader_name_from_bundle_container(path, bundle) {
-            return (Some(name), None);
+        if let Some(resolved) = shader_resolution_from_bundle(path, bundle) {
+            return (Some(resolved), None);
         }
         if log_failure {
-            probe.warn_short(path, "AssetBundle: no shader name from m_Container");
+            probe.warn_short(path, "AssetBundle: no shader name");
             probe.log_debug_detail();
         }
         return (None, Some(probe));
@@ -138,6 +166,27 @@ fn log_container_resolution(path_id: i64, name: &str, container_asset_path: &str
         path_id,
         container_asset_path,
         name
+    );
+}
+
+fn log_internal_name_resolution(
+    path_id: i64,
+    class_id: i32,
+    source: InternalNameSource,
+    name: &InternalShaderName,
+) {
+    let source = match source {
+        InternalNameSource::MNamePeek => "m_Name_peek",
+        InternalNameSource::UnityObjectTypetree => "typetree",
+        InternalNameSource::ShaderLabBytes => "ShaderLab_bytes",
+    };
+    logger::debug!(
+        "shader_unity_asset: Shader path_id={} class_id={} source={} stem={:?} variant_bits={:?}",
+        path_id,
+        class_id,
+        source,
+        name.shader_asset_name,
+        name.shader_variant_bits
     );
 }
 
@@ -229,7 +278,7 @@ fn truncate_display(err: impl Display, max: usize) -> String {
     format!("{}...", &s[..max.saturating_sub(1)])
 }
 
-fn try_from_directory(dir: &Path) -> Option<String> {
+fn try_from_directory(dir: &Path) -> Option<ResolvedUnityShaderAsset> {
     let read_dir = match std::fs::read_dir(dir) {
         Ok(d) => d,
         Err(e) => {
@@ -314,6 +363,261 @@ fn try_from_directory(dir: &Path) -> Option<String> {
     }
 
     None
+}
+
+fn shader_resolution_from_bundle(
+    bundle_path: &Path,
+    bundle: &AssetBundle,
+) -> Option<ResolvedUnityShaderAsset> {
+    let container_name = shader_name_from_bundle_container(bundle_path, bundle);
+    let internal_name = shader_internal_name_from_bundle(bundle);
+    let shader_asset_name = container_name.or_else(|| {
+        internal_name
+            .as_ref()
+            .map(|name| name.shader_asset_name.clone())
+    })?;
+    Some(ResolvedUnityShaderAsset {
+        shader_asset_name,
+        shader_variant_bits: internal_name.and_then(|name| name.shader_variant_bits),
+    })
+}
+
+fn shader_internal_name_from_bundle(bundle: &AssetBundle) -> Option<InternalShaderName> {
+    for asset in &bundle.assets {
+        if let Some(name) = shader_internal_name_from_serialized_file(asset) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+fn shader_internal_name_from_serialized_file(sf: &SerializedFile) -> Option<InternalShaderName> {
+    for handle in sf.object_handles() {
+        if handle.class_id() != SHADER {
+            continue;
+        }
+        let path_id = handle.path_id();
+        let class_id = handle.class_id();
+        match handle.peek_name() {
+            Ok(Some(name)) if !name.trim().is_empty() => {
+                if let Some(parsed) = parse_internal_shader_name(&name) {
+                    log_internal_name_resolution(
+                        path_id,
+                        class_id,
+                        InternalNameSource::MNamePeek,
+                        &parsed,
+                    );
+                    return Some(parsed);
+                }
+            }
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                logger::debug!(
+                    "shader_unity_asset: Shader path_id={} peek_name None; typetree read",
+                    path_id
+                );
+            }
+            Err(e) => {
+                logger::debug!(
+                    "shader_unity_asset: Shader path_id={} peek_name err {}; typetree read",
+                    path_id,
+                    e
+                );
+            }
+        }
+
+        match handle.read() {
+            Ok(obj) => {
+                if let Some(parsed) = shader_internal_name_from_loaded_unity_object(&obj) {
+                    log_internal_name_resolution(
+                        path_id,
+                        class_id,
+                        InternalNameSource::UnityObjectTypetree,
+                        &parsed,
+                    );
+                    return Some(parsed);
+                }
+                logger::debug!(
+                    "shader_unity_asset: Shader path_id={} typetree ok; keys_sample={:?}",
+                    path_id,
+                    obj.property_names().iter().take(24).collect::<Vec<_>>()
+                );
+            }
+            Err(e) => {
+                logger::debug!(
+                    "shader_unity_asset: Shader path_id={} ObjectHandle::read failed: {}",
+                    path_id,
+                    e
+                );
+            }
+        }
+
+        let bytes = match handle.raw_data() {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                logger::debug!(
+                    "shader_unity_asset: Shader path_id={} raw_data failed: {}",
+                    path_id,
+                    e
+                );
+                continue;
+            }
+        };
+        if let Some(parsed) = find_internal_shader_name_in_bytes(bytes) {
+            log_internal_name_resolution(
+                path_id,
+                class_id,
+                InternalNameSource::ShaderLabBytes,
+                &parsed,
+            );
+            return Some(parsed);
+        }
+    }
+    None
+}
+
+fn shader_internal_name_from_loaded_unity_object(
+    obj: &unity_asset_binary::object::UnityObject,
+) -> Option<InternalShaderName> {
+    if let Some(parsed) = obj
+        .name()
+        .filter(|name| !name.trim().is_empty())
+        .and_then(|name| parse_internal_shader_name(&name))
+    {
+        return Some(parsed);
+    }
+    if let Some(parsed) = obj
+        .get("name")
+        .and_then(UnityValue::as_str)
+        .filter(|name| !name.trim().is_empty())
+        .and_then(parse_internal_shader_name)
+    {
+        return Some(parsed);
+    }
+    for key in ["m_ParsedForm", "m_Script"] {
+        if let Some(value) = obj.get(key) {
+            let text = unity_value_searchable_text(value);
+            if let Some(parsed) = find_internal_shader_name_in_text(&text) {
+                return Some(parsed);
+            }
+        }
+    }
+    None
+}
+
+fn unity_value_searchable_text(value: &UnityValue) -> String {
+    match value {
+        UnityValue::Null => String::new(),
+        UnityValue::Bool(value) => value.to_string(),
+        UnityValue::Integer(value) => value.to_string(),
+        UnityValue::Float(value) => value.to_string(),
+        UnityValue::String(value) => value.clone(),
+        UnityValue::Array(values) => values
+            .iter()
+            .map(unity_value_searchable_text)
+            .collect::<Vec<_>>()
+            .join(" "),
+        UnityValue::Bytes(bytes) => String::from_utf8_lossy(bytes).into_owned(),
+        UnityValue::Object(values) => values
+            .values()
+            .map(unity_value_searchable_text)
+            .collect::<Vec<_>>()
+            .join(" "),
+    }
+}
+
+fn find_internal_shader_name_in_bytes(data: &[u8]) -> Option<InternalShaderName> {
+    let text = String::from_utf8_lossy(data);
+    find_internal_shader_name_in_text(&text)
+}
+
+fn find_internal_shader_name_in_text(text: &str) -> Option<InternalShaderName> {
+    let index = text.find("Shader")?;
+    let tail = text.get(index..)?;
+    let window: String = tail.chars().take(4096).collect();
+    parse_shader_lab_quoted_name(&window).and_then(|name| parse_internal_shader_name(&name))
+}
+
+fn parse_shader_lab_quoted_name(text: &str) -> Option<String> {
+    let shader_index = text.find("Shader")?;
+    let mut chars = text
+        .get(shader_index + "Shader".len()..)?
+        .chars()
+        .peekable();
+    while chars.peek().is_some_and(|c| c.is_whitespace()) {
+        chars.next();
+    }
+    let escaped_outer_quotes = if chars.peek() == Some(&'\\') {
+        chars.next();
+        if chars.next()? != '"' {
+            return None;
+        }
+        true
+    } else if chars.next()? == '"' {
+        false
+    } else {
+        return None;
+    };
+    let mut name = String::new();
+    let mut escaped = false;
+    for ch in chars {
+        if escaped {
+            if escaped_outer_quotes && ch == '"' {
+                return (!name.trim().is_empty()).then_some(name);
+            }
+            name.push(ch);
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return (!name.trim().is_empty()).then_some(name);
+        } else {
+            name.push(ch);
+        }
+    }
+    None
+}
+
+fn parse_internal_shader_name(name: &str) -> Option<InternalShaderName> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let (stem, shader_variant_bits) =
+        split_variant_suffix(trimmed).map_or((trimmed, None), |(stem, bits)| (stem, Some(bits)));
+    let shader_asset_name = shader_asset_stem_from_internal_name(stem)?;
+    Some(InternalShaderName {
+        shader_asset_name,
+        shader_variant_bits,
+    })
+}
+
+fn split_variant_suffix(name: &str) -> Option<(&str, u32)> {
+    let (stem, suffix) = name.rsplit_once('_')?;
+    if stem.trim().is_empty() || suffix.len() != 8 || !suffix.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    u32::from_str_radix(suffix, 16)
+        .ok()
+        .map(|bits| (stem, bits))
+}
+
+fn shader_asset_stem_from_internal_name(name: &str) -> Option<String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let base = trimmed
+        .rsplit('/')
+        .next()
+        .and_then(|segment| segment.rsplit('\\').next())
+        .unwrap_or(trimmed)
+        .trim();
+    if base.is_empty() {
+        return None;
+    }
+    Some(base.to_string())
 }
 
 /// Shader stem from [`Environment::bundle_container_entries`] by matching Shader `path_id` to
@@ -449,6 +753,49 @@ mod tests {
     }
 
     #[test]
+    fn internal_shader_name_strips_variant_suffix() {
+        assert_eq!(
+            parse_internal_shader_name("Unlit_00002202"),
+            Some(InternalShaderName {
+                shader_asset_name: "Unlit".to_string(),
+                shader_variant_bits: Some(0x2202),
+            })
+        );
+        assert_eq!(
+            parse_internal_shader_name("Custom/With_Underscore_00000080"),
+            Some(InternalShaderName {
+                shader_asset_name: "With_Underscore".to_string(),
+                shader_variant_bits: Some(0x80),
+            })
+        );
+        assert_eq!(
+            parse_internal_shader_name("Unlit_nothex123"),
+            Some(InternalShaderName {
+                shader_asset_name: "Unlit_nothex123".to_string(),
+                shader_variant_bits: None,
+            })
+        );
+    }
+
+    #[test]
+    fn shaderlab_name_parser_finds_variant_stem() {
+        assert_eq!(
+            find_internal_shader_name_in_text(r#"Shader "Unlit_00000200" { }"#),
+            Some(InternalShaderName {
+                shader_asset_name: "Unlit".to_string(),
+                shader_variant_bits: Some(0x200),
+            })
+        );
+        assert_eq!(
+            find_internal_shader_name_in_text(r#"Shader \"Unlit_00000200\" { }"#),
+            Some(InternalShaderName {
+                shader_asset_name: "Unlit".to_string(),
+                shader_variant_bits: Some(0x200),
+            })
+        );
+    }
+
+    #[test]
     fn file_binary_probe_records_prefixes_without_parsing() {
         let probe = FileBinaryProbe::new(b"UnityFS\0binary");
         assert_eq!(probe.bytes_len, 14);
@@ -463,12 +810,9 @@ mod tests {
     fn path_hint_rejects_missing_paths_and_empty_directories() {
         let temp = tempfile::tempdir().expect("tempdir");
         assert_eq!(
-            try_resolve_shader_asset_name_from_path(&temp.path().join("missing")).as_deref(),
+            try_resolve_shader_asset_name_from_path(&temp.path().join("missing")),
             None
         );
-        assert_eq!(
-            try_resolve_shader_asset_name_from_path(temp.path()).as_deref(),
-            None
-        );
+        assert_eq!(try_resolve_shader_asset_name_from_path(temp.path()), None);
     }
 }

@@ -9,7 +9,9 @@ use std::sync::Arc;
 use rayon::prelude::*;
 
 use crate::materials::ShaderPermutation;
-use crate::materials::{EmbeddedMaterialBindResources, EmbeddedTexturePools};
+use crate::materials::{
+    EmbeddedMaterialBindResources, EmbeddedMaterialBindShader, EmbeddedTexturePools,
+};
 use crate::materials::{
     MaterialBlendMode, MaterialPipelineDesc, MaterialPipelineSet, MaterialPipelineVariantSpec,
     MaterialRegistry, MaterialRenderState, RasterFrontFace, RasterPipelineKind,
@@ -291,8 +293,13 @@ impl<'a> MaterialDrawResolver<'a> {
         registry
             .stem_for_shader_asset(batch_key.shader_asset_id)
             .and_then(|stem| {
+                let shader_variant_bits =
+                    registry.variant_bits_for_shader_asset(batch_key.shader_asset_id);
                 bind.embedded_material_bind_group_with_cache_key(
-                    stem,
+                    EmbeddedMaterialBindShader {
+                        stem,
+                        shader_variant_bits,
+                    },
                     self.uploads,
                     self.store,
                     &self.pools,

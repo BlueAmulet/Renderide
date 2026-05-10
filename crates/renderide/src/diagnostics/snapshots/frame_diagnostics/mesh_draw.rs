@@ -75,6 +75,7 @@ mod tests {
                 shader_asset_id: 10,
                 pipeline: RasterPipelineKind::Null,
                 shader_asset_name: Some(String::from("fallback.shader")),
+                shader_variant_bits: None,
             }],
             last_world_mesh_draw_stats: WorldMeshDrawStats {
                 draws_total: 12,

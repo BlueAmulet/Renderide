@@ -2844,6 +2844,7 @@ dependencies = [
  "tracing",
  "tracy-client",
  "unity-asset",
+ "unity-asset-binary",
  "wgpu",
  "wgpu-profiler",
  "wide 1.4.0",

@@ -54,6 +54,7 @@ fn srgb_material_color_vec4_uniforms_linearize_rgb_only() {
         &store,
         lookup(27),
         &tex_ctx,
+        None,
     )
     .expect("uniform bytes");
 
@@ -105,6 +106,7 @@ fn color_named_texture_transform_vec4_uniforms_remain_raw() {
         &store,
         lookup(28),
         &tex_ctx,
+        None,
     )
     .expect("uniform bytes");
 
@@ -150,6 +152,7 @@ fn srgb_material_color_arrays_linearize_only_when_metadata_marks_them() {
         &store,
         lookup(29),
         &tex_ctx,
+        None,
     )
     .expect("uniform bytes");
 
@@ -198,6 +201,7 @@ fn gradient_skybox_color_arrays_stay_raw_for_material_uniform_path() {
             &store,
             lookup(30),
             &tex_ctx,
+            None,
         )
         .expect("uniform bytes");
 

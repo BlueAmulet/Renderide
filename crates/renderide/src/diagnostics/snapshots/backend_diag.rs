@@ -16,6 +16,8 @@ pub struct ShaderRouteSnapshot {
     pub pipeline: RasterPipelineKind,
     /// Shader asset filename if known.
     pub shader_asset_name: Option<String>,
+    /// Froox shader variant bitmask parsed from the serialized Shader name suffix.
+    pub shader_variant_bits: Option<u32>,
 }
 
 /// Plain-data view of `RenderBackend` fields the diagnostics HUD reads.

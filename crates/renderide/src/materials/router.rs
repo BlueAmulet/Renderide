@@ -6,13 +6,15 @@
 use super::RasterPipelineKind;
 use hashbrown::HashMap;
 
-/// Host shader route: raster pipeline kind plus optional AssetBundle shader asset name for the debug HUD.
+/// Host shader route: raster pipeline kind plus optional AssetBundle shader metadata for diagnostics and uniforms.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ShaderRouteEntry {
     /// Pipeline kind for this host shader asset id.
     pub pipeline: RasterPipelineKind,
     /// Shader asset filename or stem from the AssetBundle `m_Container` entry.
     pub shader_asset_name: Option<String>,
+    /// Froox shader variant bitmask parsed from the serialized Shader name suffix.
+    pub shader_variant_bits: Option<u32>,
 }
 
 /// Shader asset id -> route; unknown ids use the fallback pipeline set via [`Self::new`] /
@@ -66,12 +68,14 @@ impl MaterialRouter {
         shader_asset_id: i32,
         pipeline: RasterPipelineKind,
         shader_asset_name: Option<String>,
+        shader_variant_bits: Option<u32>,
     ) {
         self.routes.insert(
             shader_asset_id,
             ShaderRouteEntry {
                 pipeline,
                 shader_asset_name,
+                shader_variant_bits,
             },
         );
         self.bump();
@@ -80,7 +84,7 @@ impl MaterialRouter {
     /// Inserts a host shader -> pipeline mapping with no AssetBundle shader asset name.
     #[cfg(test)]
     pub fn set_shader_pipeline(&mut self, shader_asset_id: i32, pipeline: RasterPipelineKind) {
-        self.set_shader_route(shader_asset_id, pipeline, None);
+        self.set_shader_route(shader_asset_id, pipeline, None, None);
     }
 
     /// Resolves the pipeline kind for a host shader asset id.
@@ -108,6 +112,13 @@ impl MaterialRouter {
         self.shader_stem.get(&shader_asset_id).map(String::as_str)
     }
 
+    /// Froox shader variant bitmask for a host shader id, when one was parsed.
+    pub fn variant_bits_for_shader_asset(&self, shader_asset_id: i32) -> Option<u32> {
+        self.routes
+            .get(&shader_asset_id)
+            .and_then(|entry| entry.shader_variant_bits)
+    }
+
     /// Drops a host shader id mapping after [`crate::shared::ShaderUnload`].
     pub fn remove_shader_route(&mut self, shader_asset_id: i32) {
         let had_route = self.routes.remove(&shader_asset_id).is_some();
@@ -125,14 +136,23 @@ impl MaterialRouter {
             .map(|e| e.pipeline.clone())
     }
 
-    /// Host shader asset ids, pipeline kinds, and optional AssetBundle shader asset names, sorted by id.
-    pub fn routes_sorted_for_hud(&self) -> Vec<(i32, RasterPipelineKind, Option<String>)> {
+    /// Host shader asset ids, pipeline kinds, and optional AssetBundle shader metadata, sorted by id.
+    pub fn routes_sorted_for_hud(
+        &self,
+    ) -> Vec<(i32, RasterPipelineKind, Option<String>, Option<u32>)> {
         let mut v: Vec<_> = self
             .routes
             .iter()
-            .map(|(&k, e)| (k, e.pipeline.clone(), e.shader_asset_name.clone()))
+            .map(|(&k, e)| {
+                (
+                    k,
+                    e.pipeline.clone(),
+                    e.shader_asset_name.clone(),
+                    e.shader_variant_bits,
+                )
+            })
             .collect();
-        v.sort_by_key(|(k, _, _)| *k);
+        v.sort_by_key(|(k, _, _, _)| *k);
         v
     }
 }
@@ -162,7 +182,7 @@ mod tests {
     #[test]
     fn remove_shader_route_clears_stem() {
         let mut r = MaterialRouter::new(RasterPipelineKind::Null);
-        r.set_shader_route(1, test_route_pipeline(), Some("x".to_string()));
+        r.set_shader_route(1, test_route_pipeline(), Some("x".to_string()), None);
         r.set_shader_stem(1, "null_default".to_string());
         assert_eq!(r.stem_for_shader_asset(1), Some("null_default"));
         r.remove_shader_route(1);
@@ -172,23 +192,34 @@ mod tests {
     #[test]
     fn set_shader_route_stores_shader_asset_name_for_hud() {
         let mut r = MaterialRouter::new(RasterPipelineKind::Null);
-        r.set_shader_route(3, test_route_pipeline(), Some("ExampleShader".to_string()));
+        r.set_shader_route(
+            3,
+            test_route_pipeline(),
+            Some("ExampleShader".to_string()),
+            Some(0x22),
+        );
         assert_eq!(
             r.routes_sorted_for_hud(),
-            vec![(3, test_route_pipeline(), Some("ExampleShader".to_string()))]
+            vec![(
+                3,
+                test_route_pipeline(),
+                Some("ExampleShader".to_string()),
+                Some(0x22)
+            )]
         );
         assert_eq!(r.get_shader_pipeline(3), Some(test_route_pipeline()));
+        assert_eq!(r.variant_bits_for_shader_asset(3), Some(0x22));
     }
 
     #[test]
     fn routes_sorted_for_hud_sorted_by_id() {
         let mut r = MaterialRouter::new(RasterPipelineKind::Null);
-        r.set_shader_route(10, test_route_pipeline(), None);
-        r.set_shader_route(2, test_route_pipeline(), Some("a".to_string()));
+        r.set_shader_route(10, test_route_pipeline(), None, None);
+        r.set_shader_route(2, test_route_pipeline(), Some("a".to_string()), Some(7));
         assert_eq!(
             r.routes_sorted_for_hud()
                 .into_iter()
-                .map(|(id, _, _)| id)
+                .map(|(id, _, _, _)| id)
                 .collect::<Vec<_>>(),
             vec![2, 10]
         );

@@ -343,12 +343,14 @@ impl RenderBackend {
         asset_id: i32,
         pipeline: RasterPipelineKind,
         shader_asset_name: Option<String>,
+        shader_variant_bits: Option<u32>,
     ) {
         self.asset_transfers.integrator_mut().enqueue_lane(
             asset_uploads::AssetTask::ShaderRoute(asset_uploads::ShaderRouteTask {
                 asset_id,
                 pipeline,
                 shader_asset_name,
+                shader_variant_bits,
             }),
             asset_uploads::AssetTaskLane::Main,
         );

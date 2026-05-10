@@ -14,6 +14,8 @@ pub struct ShaderRouteRow {
     pub shader_asset_id: i32,
     /// Shader asset filename extracted from the uploaded AssetBundle `m_Container` entry.
     pub shader_asset_name: Option<String>,
+    /// Froox shader variant bitmask parsed from the serialized Shader name suffix.
+    pub shader_variant_bits: Option<u32>,
     /// Human-readable pipeline label (composed stem, or `null`).
     pub pipeline_label: String,
     /// True when the route resolved to a real embedded shader; false when it fell back to the null fallback.
@@ -42,6 +44,7 @@ impl ShaderRoutesFragment {
                 ShaderRouteRow {
                     shader_asset_id: row.shader_asset_id,
                     shader_asset_name: row.shader_asset_name.clone(),
+                    shader_variant_bits: row.shader_variant_bits,
                     pipeline_label,
                     implemented,
                 }
@@ -64,6 +67,7 @@ mod tests {
         ShaderRouteRow {
             shader_asset_id: id,
             shader_asset_name: None,
+            shader_variant_bits: None,
             pipeline_label: if implemented {
                 "stem".to_string()
             } else {

@@ -3,6 +3,7 @@
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
 };
+use crate::materials::shader_variant::shader_variant_uniform_keyword_float;
 use crate::materials::{ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind};
 use crate::shared::ColorProfile;
 
@@ -108,12 +109,12 @@ pub(crate) struct UniformPackTextureContext<'a> {
 ///
 /// Every value comes from one of several sources, in priority order: texture storage-orientation
 /// flags for fields following the [`STORAGE_V_INVERTED_SUFFIX`] convention, host-sourced sampler
-/// state for fields following the [`LOD_BIAS_SUFFIX`] convention (`_<Tex>_LodBias`), the host's
-/// property store (for host-declared properties), inferred text mode from `_FontAtlas` profile,
+/// state for fields following the [`LOD_BIAS_SUFFIX`] convention (`_<Tex>_LodBias`), decoded
+/// shader-variant keywords, the host's property store (for host-declared properties), inferred text mode from `_FontAtlas` profile,
 /// inferred UI rect clipping from stencil state, explicit-only zero-default UI controls,
 /// [`inferred_keyword_float_f32`] for multi-compile keyword
-/// fields (`_NORMALMAP`, `_ALPHATEST_ON`, ...) the host cannot write because FrooxEngine routes
-/// them through the `ShaderKeywords.Variant` bitmask the renderer never receives, or the
+/// fields (`_NORMALMAP`, `_ALPHATEST_ON`, ...) that do not yet have shader-specific variant
+/// metadata, or the
 /// scalar/vector default tables / a zero for the unobservable pre-first-batch window.
 #[cfg(test)]
 pub(crate) fn build_embedded_uniform_bytes(
@@ -130,6 +131,7 @@ pub(crate) fn build_embedded_uniform_bytes(
         store,
         lookup,
         tex_ctx,
+        None,
     )
 }
 
@@ -141,6 +143,7 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
     store: &MaterialPropertyStore,
     lookup: MaterialPropertyLookupIds,
     tex_ctx: &UniformPackTextureContext<'_>,
+    shader_variant_bits: Option<u32>,
 ) -> Option<Vec<u8>> {
     profiling::scope!("materials::embedded_uniform_pack");
     let u = reflected.material_uniform.as_ref()?;
@@ -170,6 +173,12 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                     lod_bias_for_field(field_name, reflected, ids, store, lookup, tex_ctx)
                 {
                     bias
+                } else if let Some(variant_keyword) = shader_variant_uniform_keyword_float(
+                    &ids.stem,
+                    shader_variant_bits,
+                    shader_writer_unescaped_field_name(field_name),
+                ) {
+                    variant_keyword
                 } else if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, pid)
                 {
                     *f

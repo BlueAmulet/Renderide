@@ -81,13 +81,19 @@ pub(super) fn drain_pending_shader_resolutions(
             }
         }
         logger::info!(
-            "shader_upload: asset_id={} shader_asset_name={:?} raster_pipeline={:?}",
+            "shader_upload: asset_id={} shader_asset_name={:?} shader_variant_bits={:?} raster_pipeline={:?}",
             asset_id,
             resolved.shader_asset_name.as_deref(),
+            resolved.shader_variant_bits,
             resolved.pipeline,
         );
         let shader_asset_name = resolved.shader_asset_name.clone();
-        backend.register_shader_route(asset_id, resolved.pipeline, shader_asset_name);
+        backend.register_shader_route(
+            asset_id,
+            resolved.pipeline,
+            shader_asset_name,
+            resolved.shader_variant_bits,
+        );
     }
 }
 
