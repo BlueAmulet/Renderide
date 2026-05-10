@@ -20,6 +20,7 @@ struct FresnelMaterial {
     _FarTex_ST: vec4<f32>,
     _NearTex_ST: vec4<f32>,
     _MaskTex_ST: vec4<f32>,
+    _NormalMap_ST: vec4<f32>,
     _Exp: f32,
     _GammaCurve: f32,
     _NormalScale: f32,
@@ -69,7 +70,7 @@ fn vs_main(
 fn fs_main(in: mv::WorldColorVertexOutput) -> @location(0) vec4<f32> {
     var n = normalize(in.world_n);
     if (mat._NORMALMAP > 0.99) {
-        let uv_n = vec2<f32>(in.primary_uv.x, 1.0 - in.primary_uv.y);
+        let uv_n = uvu::apply_st(in.primary_uv, mat._NormalMap_ST);
         let tbn = pnorm::orthonormal_tbn(n, in.world_t);
         let ts_n = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_n),
