@@ -36,6 +36,23 @@ impl ViewResourceRegistry {
         retired
     }
 
+    /// Retires active views matching `predicate` outside the regular active-view sync.
+    pub(crate) fn retire_where(
+        &mut self,
+        mut predicate: impl FnMut(ViewId) -> bool,
+    ) -> Vec<ViewId> {
+        let retired: Vec<ViewId> = self
+            .active_views
+            .iter()
+            .copied()
+            .filter(|view_id| predicate(*view_id))
+            .collect();
+        for view_id in &retired {
+            self.active_views.remove(view_id);
+        }
+        retired
+    }
+
     /// Number of views retained after the last sync.
     #[cfg(test)]
     pub(crate) fn active_view_count(&self) -> usize {
@@ -87,5 +104,26 @@ mod tests {
         let retired = registry.sync_active_views([ViewId::Main]);
         assert_eq!(retired.len(), 1);
         assert_eq!(registry.active_view_count(), 1);
+    }
+
+    #[test]
+    fn retire_where_removes_matching_space_views() {
+        let mut registry = ViewResourceRegistry::new();
+        let retired_space = secondary_view(10, 0);
+        let retained_space = secondary_view(20, 0);
+        assert!(
+            registry
+                .sync_active_views([ViewId::Main, retired_space, retained_space])
+                .is_empty()
+        );
+
+        let retired = registry.retire_where(|view_id| {
+            view_id
+                .render_space_id()
+                .is_some_and(|space_id| space_id.0 == 10)
+        });
+
+        assert_eq!(retired, vec![retired_space]);
+        assert_eq!(registry.active_view_count(), 2);
     }
 }

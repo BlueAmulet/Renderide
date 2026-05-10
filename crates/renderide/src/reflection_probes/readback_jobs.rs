@@ -86,6 +86,11 @@ impl Sh2ReadbackJobs {
         self.inner.insert(key, job.into());
     }
 
+    /// Retains only pending readbacks whose keys satisfy `predicate`.
+    pub(super) fn retain(&mut self, predicate: impl FnMut(&Sh2SourceKey) -> bool) {
+        self.inner.retain(predicate);
+    }
+
     /// Advances submit notifications, mapping, completion, and age/failure handling.
     pub(super) fn maintain(&mut self) -> Sh2ReadbackOutcomes {
         self.inner.maintain()

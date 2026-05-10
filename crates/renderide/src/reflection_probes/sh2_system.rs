@@ -5,6 +5,7 @@ use glam::Vec3;
 use hashbrown::{HashMap, HashSet};
 
 use crate::backend::AssetTransferQueue;
+use crate::backend::resource_scope::RenderSpaceAssetSet;
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
 use crate::materials::MaterialSystem;
@@ -153,6 +154,29 @@ pub(crate) enum Sh2SourceKey {
     },
 }
 
+impl Sh2SourceKey {
+    /// Render space that owns this SH2 source.
+    pub(crate) fn render_space_id(&self) -> i32 {
+        match *self {
+            Self::ConstantColor {
+                render_space_id, ..
+            }
+            | Self::Cubemap {
+                render_space_id, ..
+            }
+            | Self::RuntimeCubemap {
+                render_space_id, ..
+            }
+            | Self::EquirectTexture2D {
+                render_space_id, ..
+            }
+            | Self::SkyParams {
+                render_space_id, ..
+            } => render_space_id,
+        }
+    }
+}
+
 /// GPU-projected source payload queued for scheduling.
 #[derive(Clone, Debug)]
 pub(super) enum GpuSh2Source {
@@ -244,6 +268,40 @@ impl ReflectionProbeSh2System {
             pending_pipeline_builds: HashSet::new(),
             failed_pipeline_builds: HashSet::new(),
         }
+    }
+
+    /// Purges queued, pending, failed, and completed SH2 work tied to closed render spaces.
+    pub(crate) fn purge_render_space_resources(
+        &mut self,
+        spaces: &HashSet<crate::scene::RenderSpaceId>,
+        assets: &RenderSpaceAssetSet,
+    ) -> usize {
+        if spaces.is_empty() && assets.is_empty() {
+            return 0;
+        }
+        profiling::scope!("reflection_probe_sh2::purge_render_space_resources");
+        let before = self.completed.len()
+            + self.failed.len()
+            + self.queued_sources.len()
+            + self.readback_jobs.len();
+        self.completed
+            .retain(|key, _| !sh2_key_matches_closed_resources(key, spaces, assets));
+        self.failed
+            .retain(|key| !sh2_key_matches_closed_resources(key, spaces, assets));
+        self.queued_sources
+            .retain(|key, _| !sh2_key_matches_closed_resources(key, spaces, assets));
+        let queued_sources = &self.queued_sources;
+        self.queue_order
+            .retain(|key| queued_sources.contains_key(key));
+        self.touched_this_pass
+            .retain(|key| !sh2_key_matches_closed_resources(key, spaces, assets));
+        self.readback_jobs
+            .retain(|key| !sh2_key_matches_closed_resources(key, spaces, assets));
+        let after = self.completed.len()
+            + self.failed.len()
+            + self.queued_sources.len()
+            + self.readback_jobs.len();
+        before.saturating_sub(after)
     }
 
     /// Answers every SH2 task row in a frame submit without blocking for GPU readback.
@@ -800,6 +858,32 @@ fn sh2_source_from_ibl_source(
     }
 }
 
+fn sh2_key_matches_closed_resources(
+    key: &Sh2SourceKey,
+    spaces: &HashSet<crate::scene::RenderSpaceId>,
+    assets: &RenderSpaceAssetSet,
+) -> bool {
+    if spaces.contains(&crate::scene::RenderSpaceId(key.render_space_id())) {
+        return true;
+    }
+    match key {
+        Sh2SourceKey::ConstantColor { .. } | Sh2SourceKey::RuntimeCubemap { .. } => false,
+        Sh2SourceKey::Cubemap {
+            material_asset_id,
+            asset_id,
+            ..
+        } => assets.materials.contains(material_asset_id) || assets.cubemaps.contains(asset_id),
+        Sh2SourceKey::EquirectTexture2D {
+            material_asset_id,
+            asset_id,
+            ..
+        } => assets.materials.contains(material_asset_id) || assets.texture_2d.contains(asset_id),
+        Sh2SourceKey::SkyParams {
+            material_asset_id, ..
+        } => assets.materials.contains(material_asset_id),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -842,6 +926,37 @@ mod tests {
 
         assert_eq!(system.completed.len(), 1);
         assert!(system.completed.contains_key(&retained));
+    }
+
+    #[test]
+    fn closed_space_filter_matches_source_render_space() {
+        let mut spaces = HashSet::new();
+        spaces.insert(crate::scene::RenderSpaceId(7));
+        let assets = RenderSpaceAssetSet::default();
+
+        assert!(sh2_key_matches_closed_resources(
+            &cubemap_key(1, 1, 1),
+            &spaces,
+            &assets
+        ));
+    }
+
+    #[test]
+    fn asset_filter_matches_source_asset_ids() {
+        let spaces = HashSet::new();
+        let mut assets = RenderSpaceAssetSet::default();
+        assets.insert_cubemap(1);
+
+        assert!(sh2_key_matches_closed_resources(
+            &cubemap_key(1, 1, 1),
+            &spaces,
+            &assets
+        ));
+        assert!(!sh2_key_matches_closed_resources(
+            &cubemap_key(2, 1, 1),
+            &spaces,
+            &assets
+        ));
     }
 
     fn cubemap_key(

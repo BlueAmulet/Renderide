@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
+use crate::scene::RenderSpaceId;
 
 use super::super::{FrameGpuBindingsError, FrameResourceManager};
 
@@ -64,6 +65,18 @@ impl BackendFrameServices {
         if let Some(cache) = self.skin_cache.as_mut() {
             cache.advance_frame();
         }
+    }
+
+    /// Removes mesh-deform skin-cache entries for closed render spaces.
+    pub(super) fn purge_skin_cache_spaces(&mut self, spaces: &[RenderSpaceId]) -> usize {
+        let Some(cache) = self.skin_cache.as_mut() else {
+            return 0;
+        };
+        let mut removed = 0usize;
+        for &space_id in spaces {
+            removed = removed.saturating_add(cache.remove_space(space_id));
+        }
+        removed
     }
 
     /// Optional MSAA depth resolve resources.

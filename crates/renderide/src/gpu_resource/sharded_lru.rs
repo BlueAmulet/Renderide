@@ -59,6 +59,17 @@ impl<K: Eq + Hash, V> ShardedLru<K, V> {
         let mut shard = self.shards[self.shard_index(&key)].lock();
         shard.push(key, value).map(|(_, evicted)| evicted)
     }
+
+    /// Removes every entry from every shard and returns the number of dropped entries.
+    pub(crate) fn clear(&self) -> usize {
+        let mut dropped = 0usize;
+        for shard in self.shards.iter() {
+            let mut shard = shard.lock();
+            dropped = dropped.saturating_add(shard.len());
+            shard.clear();
+        }
+        dropped
+    }
 }
 
 #[cfg(test)]
@@ -88,5 +99,17 @@ mod tests {
         assert_eq!(cache.get_cloned(&1), Some(10));
         assert_eq!(cache.get_cloned(&2), None);
         assert_eq!(cache.get_cloned(&3), Some(30));
+    }
+
+    #[test]
+    fn clear_drops_all_shards() {
+        let cache = ShardedLru::<u32, u32>::new(NonZeroUsize::new(4).unwrap(), 2);
+
+        assert_eq!(cache.put(1, 10), None);
+        assert_eq!(cache.put(2, 20), None);
+        assert_eq!(cache.clear(), 2);
+        assert_eq!(cache.get_cloned(&1), None);
+        assert_eq!(cache.get_cloned(&2), None);
+        assert_eq!(cache.clear(), 0);
     }
 }

@@ -151,6 +151,22 @@ where
         self.pending.insert(key, job.into());
     }
 
+    /// Retains only pending jobs whose keys satisfy `predicate`.
+    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(&K) -> bool) {
+        let removed: Vec<K> = self
+            .pending
+            .iter()
+            .filter_map(|(key, _job)| (!predicate(key)).then_some(key.clone()))
+            .collect();
+        for key in removed {
+            if let Some(job) = self.pending.remove(&key)
+                && job.lifecycle.has_started_map()
+            {
+                job.staging.unmap();
+            }
+        }
+    }
+
     /// Advances submit notifications, mapping, completion, and age/failure handling.
     pub(crate) fn maintain(&mut self) -> GpuReadbackOutcomes<K, T> {
         profiling::scope!("gpu_jobs::readback_maintain");

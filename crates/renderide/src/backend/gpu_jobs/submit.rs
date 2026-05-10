@@ -115,6 +115,11 @@ where
         self.pending.insert(key, job.into());
     }
 
+    /// Retains only pending jobs whose keys satisfy `predicate`.
+    pub(crate) fn retain(&mut self, mut predicate: impl FnMut(&K) -> bool) {
+        self.pending.retain(|key, _job| predicate(key));
+    }
+
     /// Advances submit notifications and timeout handling.
     pub(crate) fn maintain(&mut self) -> GpuSubmitOutcomes<K> {
         profiling::scope!("gpu_jobs::submit_maintain");

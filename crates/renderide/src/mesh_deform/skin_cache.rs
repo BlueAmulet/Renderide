@@ -92,6 +92,21 @@ impl GpuSkinCache {
         }
     }
 
+    /// Removes all entries owned by `space_id` and returns the number removed.
+    pub fn remove_space(&mut self, space_id: crate::scene::RenderSpaceId) -> usize {
+        let keys: Vec<SkinCacheKey> = self
+            .entries
+            .keys()
+            .copied()
+            .filter(|key| key.space_id == space_id)
+            .collect();
+        let removed = keys.len();
+        for key in keys {
+            self.remove_entry(key);
+        }
+        removed
+    }
+
     /// Allocates or reuses ranges and returns arena buffers for encode passes (single borrow).
     pub fn get_or_alloc_with_arenas(
         &mut self,

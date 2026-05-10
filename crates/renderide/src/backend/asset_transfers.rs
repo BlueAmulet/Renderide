@@ -30,8 +30,13 @@ use crate::gpu_pools::{
     VideoTexturePool,
 };
 use crate::render_graph::GraphAssetResources;
-use crate::shared::VideoTextureClockErrorState;
+use crate::shared::{
+    MeshUnload, PointRenderBufferUnload, TrailRenderBufferUnload, UnloadCubemap,
+    UnloadDesktopTexture, UnloadGaussianSplat, UnloadRenderTexture, UnloadTexture2D,
+    UnloadTexture3D, UnloadVideoTexture, VideoTextureClockErrorState,
+};
 
+use super::resource_scope::RenderSpaceAssetSet;
 use catalogs::AssetCatalogs;
 use gpu_runtime::AssetGpuRuntime;
 pub use integrator::{
@@ -70,6 +75,47 @@ pub struct AssetTransferQueue {
     pub(crate) integrator: AssetIntegrator,
 }
 
+/// Requested purge counts for zero-owner render-space assets.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct AssetPurgeSummary {
+    /// Mesh purge requests.
+    pub(crate) meshes: usize,
+    /// Texture2D purge requests.
+    pub(crate) texture_2d: usize,
+    /// Texture3D purge requests.
+    pub(crate) texture_3d: usize,
+    /// Cubemap purge requests.
+    pub(crate) cubemaps: usize,
+    /// Render texture purge requests.
+    pub(crate) render_textures: usize,
+    /// Video texture purge requests.
+    pub(crate) video_textures: usize,
+    /// Desktop texture purge requests.
+    pub(crate) desktop_textures: usize,
+    /// Point render buffer purge requests.
+    pub(crate) point_render_buffers: usize,
+    /// Trail render buffer purge requests.
+    pub(crate) trail_render_buffers: usize,
+    /// Gaussian splat purge requests.
+    pub(crate) gaussian_splats: usize,
+}
+
+impl AssetPurgeSummary {
+    /// Total purge requests across all asset families.
+    pub(crate) fn total(self) -> usize {
+        self.meshes
+            + self.texture_2d
+            + self.texture_3d
+            + self.cubemaps
+            + self.render_textures
+            + self.video_textures
+            + self.desktop_textures
+            + self.point_render_buffers
+            + self.trail_render_buffers
+            + self.gaussian_splats
+    }
+}
+
 impl AssetTransferQueue {
     /// Mutably borrows the cooperative asset integrator.
     pub(crate) fn integrator_mut(&mut self) -> &mut AssetIntegrator {
@@ -88,6 +134,58 @@ impl AssetTransferQueue {
     /// Whether GPU handles required by the asset integrator are attached.
     pub(crate) fn asset_gpu_ready(&self) -> bool {
         self.gpu.is_attached()
+    }
+
+    /// Locally unloads all zero-owner assets released by closed render spaces.
+    pub(crate) fn purge_render_space_assets(
+        &mut self,
+        assets: &RenderSpaceAssetSet,
+    ) -> AssetPurgeSummary {
+        profiling::scope!("assets::purge_render_space_assets");
+        let mut summary = AssetPurgeSummary::default();
+
+        for &asset_id in &assets.meshes {
+            on_mesh_unload(self, MeshUnload { asset_id });
+            summary.meshes += 1;
+        }
+        for &asset_id in &assets.texture_2d {
+            on_unload_texture_2d(self, UnloadTexture2D { asset_id });
+            summary.texture_2d += 1;
+        }
+        for &asset_id in &assets.texture_3d {
+            on_unload_texture_3d(self, UnloadTexture3D { asset_id });
+            summary.texture_3d += 1;
+        }
+        for &asset_id in &assets.cubemaps {
+            on_unload_cubemap(self, UnloadCubemap { asset_id });
+            summary.cubemaps += 1;
+        }
+        for &asset_id in &assets.render_textures {
+            on_unload_render_texture(self, UnloadRenderTexture { asset_id });
+            summary.render_textures += 1;
+        }
+        for &asset_id in &assets.video_textures {
+            on_unload_video_texture(self, UnloadVideoTexture { asset_id });
+            summary.video_textures += 1;
+        }
+        for &asset_id in &assets.desktop_textures {
+            on_unload_desktop_texture(self, UnloadDesktopTexture { asset_id });
+            summary.desktop_textures += 1;
+        }
+        for &asset_id in &assets.point_render_buffers {
+            on_point_render_buffer_unload(self, PointRenderBufferUnload { asset_id });
+            summary.point_render_buffers += 1;
+        }
+        for &asset_id in &assets.trail_render_buffers {
+            on_trail_render_buffer_unload(self, TrailRenderBufferUnload { asset_id });
+            summary.trail_render_buffers += 1;
+        }
+        for &asset_id in &assets.gaussian_splats {
+            on_unload_gaussian_splat(self, UnloadGaussianSplat { asset_id });
+            summary.gaussian_splats += 1;
+        }
+
+        summary
     }
 
     /// Stores GPU handles and limits after backend attach.

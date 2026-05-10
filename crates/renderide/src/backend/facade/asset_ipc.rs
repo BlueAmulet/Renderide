@@ -83,6 +83,7 @@ impl RenderBackend {
 
     /// Remove a texture asset from CPU tables and the pool.
     pub fn on_unload_texture_2d(&mut self, u: UnloadTexture2D) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_texture_2d(&mut self.asset_transfers, u);
     }
 
@@ -116,6 +117,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadTexture3D`](crate::shared::UnloadTexture3D).
     pub fn on_unload_texture_3d(&mut self, u: UnloadTexture3D) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_texture_3d(&mut self.asset_transfers, u);
     }
 
@@ -145,6 +147,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadCubemap`](crate::shared::UnloadCubemap).
     pub fn on_unload_cubemap(&mut self, u: UnloadCubemap) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_cubemap(&mut self.asset_transfers, u);
     }
 
@@ -159,6 +162,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadRenderTexture`](crate::shared::UnloadRenderTexture).
     pub fn on_unload_render_texture(&mut self, u: UnloadRenderTexture) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_render_texture(&mut self.asset_transfers, u);
     }
 
@@ -178,6 +182,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadDesktopTexture`](crate::shared::UnloadDesktopTexture).
     pub fn on_unload_desktop_texture(&mut self, u: UnloadDesktopTexture) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_desktop_texture(&mut self.asset_transfers, u);
     }
 
@@ -259,6 +264,7 @@ impl RenderBackend {
 
     /// Handle [`UnloadVideoTexture`](crate::shared::UnloadVideoTexture).
     pub fn on_unload_video_texture(&mut self, u: UnloadVideoTexture) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_unload_video_texture(&mut self.asset_transfers, u);
     }
 
@@ -285,6 +291,7 @@ impl RenderBackend {
     ) {
         profiling::scope!("material::flush_batches");
         self.materials.flush_pending_material_batches(shm, ipc);
+        self.resource_scopes.note_material_dependencies_dirty();
     }
 
     /// Queue a materials batch when shared memory is not yet available.
@@ -300,15 +307,18 @@ impl RenderBackend {
         ipc: &mut DualQueueIpc,
     ) {
         self.materials.apply_materials_update_batch(batch, shm, ipc);
+        self.resource_scopes.note_material_dependencies_dirty();
     }
 
     /// Remove material / property-block entries from the host store.
     pub fn on_unload_material(&mut self, asset_id: i32) {
+        self.resource_scopes.note_material_dependencies_dirty();
         self.materials.on_unload_material(asset_id);
     }
 
     /// Remove a property block from the host store.
     pub fn on_unload_material_property_block(&mut self, asset_id: i32) {
+        self.resource_scopes.note_material_dependencies_dirty();
         self.materials.on_unload_material_property_block(asset_id);
     }
 
