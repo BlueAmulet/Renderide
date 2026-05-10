@@ -30,6 +30,7 @@ impl RendererRuntime {
             return;
         };
         trace_asset_integration_summary(self.asset_integration_budget_ms(), summary);
+        self.record_asset_integration_summary(summary, 0);
         self.tick_state.mark_integrated_assets_this_tick();
     }
 
@@ -41,9 +42,13 @@ impl RendererRuntime {
         profiling::scope!("tick::asset_integration_host_wait");
         self.frontend.update_decoupling_activation(now);
         if !self.frontend.awaiting_frame_submit() || !self.backend.has_pending_asset_work() {
+            if self.frontend.awaiting_frame_submit() {
+                self.frontend.record_asset_integration_handle_wait();
+            }
             return false;
         }
-        if !self.backend.asset_gpu_ready() || self.frontend.shared_memory().is_none() {
+        if self.frontend.shared_memory().is_none() {
+            self.frontend.record_asset_integration_handle_wait();
             return false;
         }
         let Some(summary) = self.run_asset_integration_pass() else {
@@ -51,7 +56,10 @@ impl RendererRuntime {
         };
         let budget_ms = self.asset_integration_budget_ms();
         trace_asset_integration_summary(budget_ms, summary);
-        self.backend.has_pending_asset_work()
+        self.record_asset_integration_summary(summary, 0);
+        let made_non_gpu_progress =
+            summary.processed_main_tasks > 0 || summary.processed_particle_tasks > 0;
+        self.backend.has_pending_asset_work() && (summary.gpu_ready || made_non_gpu_progress)
     }
 
     fn asset_integration_budget_ms(&self) -> u32 {
@@ -60,22 +68,54 @@ impl RendererRuntime {
             .settings
             .read()
             .map(|s| s.rendering.asset_integration_budget_ms)
-            .unwrap_or(3);
+            .unwrap_or(2);
         self.frontend
             .decoupling_state()
             .effective_asset_integration_budget_ms(coupled_default_ms)
+    }
+
+    fn asset_particle_integration_budget_ms(&self) -> u32 {
+        self.config
+            .settings
+            .read()
+            .map(|s| s.rendering.asset_particle_integration_budget_ms.max(1))
+            .unwrap_or(4)
     }
 
     fn run_asset_integration_pass(
         &mut self,
     ) -> Option<crate::backend::AssetIntegrationDrainSummary> {
         let budget_ms = self.asset_integration_budget_ms();
-        let deadline = Instant::now() + Duration::from_millis(u64::from(budget_ms));
+        let now = Instant::now();
+        let deadline = now + Duration::from_millis(u64::from(budget_ms));
+        let particle_deadline = deadline
+            + Duration::from_millis(u64::from(self.asset_particle_integration_budget_ms()));
         let (shm, ipc) = self.frontend.transport_pair_mut();
         let shm = shm?;
         let mut ipc_opt = ipc;
-        let summary = self.backend.drain_asset_tasks(shm, &mut ipc_opt, deadline);
+        let summary =
+            self.backend
+                .drain_asset_tasks(shm, &mut ipc_opt, deadline, particle_deadline);
         Some(summary)
+    }
+
+    fn record_asset_integration_summary(
+        &mut self,
+        summary: crate::backend::AssetIntegrationDrainSummary,
+        handle_waits: i32,
+    ) {
+        self.frontend.record_asset_integration_stats(
+            crate::frontend::AssetIntegrationPerformanceSample {
+                integration_elapsed: summary.elapsed,
+                particle_elapsed: summary.particle_elapsed,
+                processed_tasks: summary.processed_tasks,
+                high_priority_tasks: summary.high_priority_after,
+                normal_priority_tasks: summary.normal_priority_after,
+                render_tasks: summary.render_after,
+                particle_tasks: summary.particle_after,
+                handle_waits,
+            },
+        );
     }
 
     /// Whether [`Self::run_asset_integration`] already ran this tick.
@@ -97,16 +137,26 @@ fn trace_asset_integration_summary(
         return;
     }
     logger::trace!(
-        "asset integration: budget_ms={} gpu_ready={} elapsed_ms={:.3} high {}->{} normal {}->{} exhausted_high={} exhausted_normal={} peak_queued={}",
+        "asset integration: budget_ms={} gpu_ready={} elapsed_ms={:.3} particle_elapsed_ms={:.3} main {}->{} high {}->{} render {}->{} normal {}->{} particle {}->{} processed={} exhausted_high={} exhausted_render={} exhausted_normal={} exhausted_particle={} peak_queued={}",
         budget_ms,
         summary.gpu_ready,
         summary.elapsed.as_secs_f64() * 1000.0,
+        summary.particle_elapsed.as_secs_f64() * 1000.0,
+        summary.main_before,
+        summary.main_after,
         summary.high_priority_before,
         summary.high_priority_after,
+        summary.render_before,
+        summary.render_after,
         summary.normal_priority_before,
         summary.normal_priority_after,
+        summary.particle_before,
+        summary.particle_after,
+        summary.processed_tasks,
         summary.high_priority_budget_exhausted,
+        summary.render_budget_exhausted,
         summary.normal_priority_budget_exhausted,
+        summary.particle_budget_exhausted,
         summary.peak_queued,
     );
 }

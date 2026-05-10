@@ -2,10 +2,12 @@
 
 use std::sync::Arc;
 
+use hashbrown::{HashMap, HashSet};
+
 use crate::backend::AssetTransferQueue;
 use crate::diagnostics::{DebugHudEncodeError, PerViewHudConfig, PerViewHudOutputs};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
-use crate::materials::MaterialSystem;
+use crate::materials::{EmbeddedTangentFallbackMode, MaterialSystem};
 use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
 use crate::render_graph::TransientPool;
 use crate::render_graph::blackboard::Blackboard;
@@ -14,10 +16,87 @@ use crate::render_graph::execution_backend::{GraphExecutionBackend, GraphFramePa
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::render_graph::upload_arena::PersistentUploadArena;
+use crate::world_mesh::WorldMeshDrawItem;
 
 use super::super::debug_hud_bundle::DebugHudBundle;
 use super::super::{FrameResourceManager, HistoryRegistry, WorldMeshDrawPlanSlot};
 use crate::occlusion::OcclusionSystem;
+
+#[derive(Default)]
+struct ViewAssetPrewarmRequests {
+    uv1_stream_meshes: HashSet<i32>,
+    tangent_stream_meshes: HashSet<i32>,
+    tangent_fallback_modes: HashMap<i32, EmbeddedTangentFallbackMode>,
+    uv2_stream_meshes: HashSet<i32>,
+    uv3_stream_meshes: HashSet<i32>,
+}
+
+impl ViewAssetPrewarmRequests {
+    fn record_item(&mut self, item: &WorldMeshDrawItem) {
+        if item.mesh_asset_id < 0 {
+            return;
+        }
+        if item.batch_key.embedded_needs_uv1 {
+            self.uv1_stream_meshes.insert(item.mesh_asset_id);
+        }
+        if item.batch_key.embedded_needs_tangent {
+            self.tangent_stream_meshes.insert(item.mesh_asset_id);
+            let mode = self
+                .tangent_fallback_modes
+                .entry(item.mesh_asset_id)
+                .or_default();
+            *mode = (*mode).max(item.batch_key.embedded_tangent_fallback_mode);
+        }
+        if item.batch_key.embedded_needs_uv2 {
+            self.uv2_stream_meshes.insert(item.mesh_asset_id);
+        }
+        if item.batch_key.embedded_needs_uv3 {
+            self.uv3_stream_meshes.insert(item.mesh_asset_id);
+        }
+    }
+
+    fn generated_tangent_mesh_count(&self) -> usize {
+        self.tangent_fallback_modes
+            .values()
+            .filter(|mode| **mode == EmbeddedTangentFallbackMode::GenerateMissing)
+            .count()
+    }
+
+    fn all_extended_stream_meshes(&self) -> HashSet<i32> {
+        self.tangent_stream_meshes
+            .iter()
+            .filter(|mesh_asset_id| {
+                self.uv1_stream_meshes.contains(*mesh_asset_id)
+                    && self.uv2_stream_meshes.contains(*mesh_asset_id)
+                    && self.uv3_stream_meshes.contains(*mesh_asset_id)
+            })
+            .copied()
+            .collect()
+    }
+
+    fn tangent_fallback_mode(&self, mesh_asset_id: i32) -> EmbeddedTangentFallbackMode {
+        self.tangent_fallback_modes
+            .get(&mesh_asset_id)
+            .copied()
+            .unwrap_or_default()
+    }
+}
+
+fn collect_view_asset_prewarm_requests(views: &[FrameView<'_>]) -> ViewAssetPrewarmRequests {
+    let mut requests = ViewAssetPrewarmRequests::default();
+    for view in views {
+        let Some(draw_plan) = view.initial_blackboard.get::<WorldMeshDrawPlanSlot>() else {
+            continue;
+        };
+        let Some(collection) = draw_plan.as_prefetched() else {
+            continue;
+        };
+        for item in &collection.items {
+            requests.record_item(item);
+        }
+    }
+    requests
+}
 
 /// Narrow backend packet used by the render graph executor.
 ///
@@ -153,60 +232,41 @@ impl<'a> BackendGraphAccess<'a> {
         views: &[FrameView<'_>],
     ) {
         profiling::scope!("graph::pre_warm_view_assets");
-        let mut mesh_ids_needing_uv1_stream = hashbrown::HashSet::new();
-        let mut mesh_ids_needing_tangent_stream = hashbrown::HashSet::new();
-        let mut mesh_ids_needing_uv2_stream = hashbrown::HashSet::new();
-        let mut mesh_ids_needing_uv3_stream = hashbrown::HashSet::new();
-        for view in views {
-            let Some(draw_plan) = view.initial_blackboard.get::<WorldMeshDrawPlanSlot>() else {
-                continue;
-            };
-            let Some(collection) = draw_plan.as_prefetched() else {
-                continue;
-            };
-            for item in &collection.items {
-                if item.mesh_asset_id < 0 {
-                    continue;
-                }
-                if item.batch_key.embedded_needs_uv1 {
-                    mesh_ids_needing_uv1_stream.insert(item.mesh_asset_id);
-                }
-                if item.batch_key.embedded_needs_tangent {
-                    mesh_ids_needing_tangent_stream.insert(item.mesh_asset_id);
-                }
-                if item.batch_key.embedded_needs_uv2 {
-                    mesh_ids_needing_uv2_stream.insert(item.mesh_asset_id);
-                }
-                if item.batch_key.embedded_needs_uv3 {
-                    mesh_ids_needing_uv3_stream.insert(item.mesh_asset_id);
-                }
-            }
-        }
+        let requests = collect_view_asset_prewarm_requests(views);
         logger::trace!(
-            "graph pre-warm view assets: views={} uv1_stream_meshes={} tangent_stream_meshes={} uv2_stream_meshes={} uv3_stream_meshes={}",
+            "graph pre-warm view assets: views={} uv1_stream_meshes={} tangent_stream_meshes={} generated_tangent_meshes={} uv2_stream_meshes={} uv3_stream_meshes={}",
             views.len(),
-            mesh_ids_needing_uv1_stream.len(),
-            mesh_ids_needing_tangent_stream.len(),
-            mesh_ids_needing_uv2_stream.len(),
-            mesh_ids_needing_uv3_stream.len(),
+            requests.uv1_stream_meshes.len(),
+            requests.tangent_stream_meshes.len(),
+            requests.generated_tangent_mesh_count(),
+            requests.uv2_stream_meshes.len(),
+            requests.uv3_stream_meshes.len(),
         );
-        let mesh_ids_needing_all_extended_streams: hashbrown::HashSet<i32> =
-            mesh_ids_needing_tangent_stream
-                .iter()
-                .filter(|mesh_asset_id| {
-                    mesh_ids_needing_uv1_stream.contains(*mesh_asset_id)
-                        && mesh_ids_needing_uv2_stream.contains(*mesh_asset_id)
-                        && mesh_ids_needing_uv3_stream.contains(*mesh_asset_id)
-                })
-                .copied()
-                .collect();
-        for &mesh_asset_id in &mesh_ids_needing_all_extended_streams {
+        let mesh_ids_needing_all_extended_streams = requests.all_extended_stream_meshes();
+        self.ensure_view_asset_prewarm_requests(
+            device,
+            &requests,
+            &mesh_ids_needing_all_extended_streams,
+        );
+    }
+
+    fn ensure_view_asset_prewarm_requests(
+        &mut self,
+        device: &wgpu::Device,
+        requests: &ViewAssetPrewarmRequests,
+        mesh_ids_needing_all_extended_streams: &HashSet<i32>,
+    ) {
+        for &mesh_asset_id in mesh_ids_needing_all_extended_streams {
             let _ = self
                 .asset_transfers
                 .mesh_pool_mut()
-                .ensure_extended_vertex_streams(device, mesh_asset_id);
+                .ensure_extended_vertex_streams(
+                    device,
+                    mesh_asset_id,
+                    requests.tangent_fallback_mode(mesh_asset_id),
+                );
         }
-        for mesh_asset_id in mesh_ids_needing_uv1_stream {
+        for &mesh_asset_id in &requests.uv1_stream_meshes {
             if mesh_ids_needing_all_extended_streams.contains(&mesh_asset_id) {
                 continue;
             }
@@ -215,16 +275,20 @@ impl<'a> BackendGraphAccess<'a> {
                 .mesh_pool_mut()
                 .ensure_uv1_vertex_stream(device, mesh_asset_id);
         }
-        for mesh_asset_id in mesh_ids_needing_tangent_stream {
+        for &mesh_asset_id in &requests.tangent_stream_meshes {
             if mesh_ids_needing_all_extended_streams.contains(&mesh_asset_id) {
                 continue;
             }
             let _ = self
                 .asset_transfers
                 .mesh_pool_mut()
-                .ensure_tangent_vertex_stream(device, mesh_asset_id);
+                .ensure_tangent_vertex_stream(
+                    device,
+                    mesh_asset_id,
+                    requests.tangent_fallback_mode(mesh_asset_id),
+                );
         }
-        for mesh_asset_id in mesh_ids_needing_uv2_stream {
+        for &mesh_asset_id in &requests.uv2_stream_meshes {
             if mesh_ids_needing_all_extended_streams.contains(&mesh_asset_id) {
                 continue;
             }
@@ -233,7 +297,7 @@ impl<'a> BackendGraphAccess<'a> {
                 .mesh_pool_mut()
                 .ensure_uv2_vertex_stream(device, mesh_asset_id);
         }
-        for mesh_asset_id in mesh_ids_needing_uv3_stream {
+        for &mesh_asset_id in &requests.uv3_stream_meshes {
             if mesh_ids_needing_all_extended_streams.contains(&mesh_asset_id) {
                 continue;
             }

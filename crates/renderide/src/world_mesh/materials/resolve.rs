@@ -3,12 +3,13 @@
 use crate::materials::ShaderPermutation;
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyLookupIds};
 use crate::materials::{
-    MaterialBlendMode, MaterialPipelinePropertyIds, MaterialRenderState, MaterialRouter,
-    PropertyMapRef, RasterFrontFace, RasterPipelineKind, RasterPrimitiveTopology,
-    embedded_stem_needs_color_stream, embedded_stem_needs_extended_vertex_streams,
-    embedded_stem_needs_tangent_stream, embedded_stem_needs_uv0_stream,
-    embedded_stem_needs_uv1_stream, embedded_stem_needs_uv2_stream, embedded_stem_needs_uv3_stream,
-    embedded_stem_requires_intersection_pass, embedded_stem_uses_alpha_blending,
+    EmbeddedTangentFallbackMode, MaterialBlendMode, MaterialPipelinePropertyIds,
+    MaterialRenderState, MaterialRouter, PropertyMapRef, RasterFrontFace, RasterPipelineKind,
+    RasterPrimitiveTopology, embedded_stem_needs_color_stream,
+    embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_tangent_stream,
+    embedded_stem_needs_uv0_stream, embedded_stem_needs_uv1_stream, embedded_stem_needs_uv2_stream,
+    embedded_stem_needs_uv3_stream, embedded_stem_requires_intersection_pass,
+    embedded_stem_tangent_fallback_mode, embedded_stem_uses_alpha_blending,
     embedded_stem_uses_scene_color_snapshot, embedded_stem_uses_scene_depth_snapshot,
     fallback_render_queue_for_material, first_float_from_maps, first_vec4_from_maps,
     material_blend_mode_from_maps, material_render_queue_from_maps,
@@ -47,6 +48,8 @@ pub(crate) struct ResolvedMaterialBatch {
     pub embedded_needs_uv1: bool,
     /// Whether the active shader permutation requires a tangent vertex stream.
     pub embedded_needs_tangent: bool,
+    /// Tangent fallback policy for lazy tangent upload.
+    pub embedded_tangent_fallback_mode: EmbeddedTangentFallbackMode,
     /// Whether the active shader permutation requires a UV2 vertex stream.
     pub embedded_needs_uv2: bool,
     /// Whether the active shader permutation requires a UV3 vertex stream.
@@ -108,6 +111,7 @@ struct EmbeddedMaterialFeatures {
     needs_color: bool,
     needs_uv1: bool,
     needs_tangent: bool,
+    tangent_fallback_mode: EmbeddedTangentFallbackMode,
     needs_uv2: bool,
     needs_uv3: bool,
     needs_extended_vertex_streams: bool,
@@ -130,6 +134,7 @@ fn embedded_material_features(
         needs_color: embedded_stem_needs_color_stream(stem, shader_perm),
         needs_uv1: embedded_stem_needs_uv1_stream(stem, shader_perm),
         needs_tangent: embedded_stem_needs_tangent_stream(stem, shader_perm),
+        tangent_fallback_mode: embedded_stem_tangent_fallback_mode(stem, shader_perm),
         needs_uv2: embedded_stem_needs_uv2_stream(stem, shader_perm),
         needs_uv3: embedded_stem_needs_uv3_stream(stem, shader_perm),
         needs_extended_vertex_streams: embedded_stem_needs_extended_vertex_streams(
@@ -251,6 +256,7 @@ pub(crate) fn resolve_material_batch(
         embedded_needs_color: embedded.needs_color,
         embedded_needs_uv1: embedded.needs_uv1,
         embedded_needs_tangent: embedded.needs_tangent,
+        embedded_tangent_fallback_mode: embedded.tangent_fallback_mode,
         embedded_needs_uv2: embedded.needs_uv2,
         embedded_needs_uv3: embedded.needs_uv3,
         embedded_needs_extended_vertex_streams: embedded.needs_extended_vertex_streams,
@@ -287,6 +293,7 @@ fn batch_key_from_resolved(
         embedded_needs_color: r.embedded_needs_color,
         embedded_needs_uv1: r.embedded_needs_uv1,
         embedded_needs_tangent: r.embedded_needs_tangent,
+        embedded_tangent_fallback_mode: r.embedded_tangent_fallback_mode,
         embedded_needs_uv2: r.embedded_needs_uv2,
         embedded_needs_uv3: r.embedded_needs_uv3,
         embedded_needs_extended_vertex_streams: r.embedded_needs_extended_vertex_streams,
@@ -391,6 +398,40 @@ mod ui_rect_clip_tests {
         assert_eq!(
             fx.resolve(7).ui_rect_clip_local,
             Some(glam::Vec4::new(0.1, 0.2, 0.7, 0.9))
+        );
+    }
+
+    #[test]
+    fn pbsvoronoicrystal_tangent_policy_reaches_uncached_batch_key() {
+        let mut store = MaterialPropertyStore::new();
+        store.set_shader_asset_for_material(7, 99);
+        let dict = MaterialDictionary::new(&store);
+        let mut router = MaterialRouter::new(RasterPipelineKind::Null);
+        router.set_shader_pipeline(
+            99,
+            RasterPipelineKind::EmbeddedStem(std::sync::Arc::from("pbsvoronoicrystal_default")),
+        );
+        let ids = MaterialPipelinePropertyIds::new(&PropertyIdRegistry::new());
+        let ctx = MaterialResolveCtx {
+            dict: &dict,
+            router: &router,
+            pipeline_property_ids: &ids,
+            shader_perm: ShaderPermutation::default(),
+        };
+
+        let (key, _) = batch_key_for_slot(
+            7,
+            None,
+            false,
+            RasterFrontFace::Clockwise,
+            RasterPrimitiveTopology::TriangleList,
+            ctx,
+        );
+
+        assert!(key.embedded_needs_tangent);
+        assert_eq!(
+            key.embedded_tangent_fallback_mode,
+            EmbeddedTangentFallbackMode::GenerateMissing
         );
     }
 }

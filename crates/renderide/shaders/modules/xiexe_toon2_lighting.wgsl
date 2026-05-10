@@ -8,6 +8,7 @@
 #define_import_path renderide::xiexe::toon2::lighting
 
 #import renderide::xiexe::toon2::base as xb
+#import renderide::cubemap_storage as cubemap_storage
 #import renderide::globals as rg
 #import renderide::pbs::cluster as pcls
 #import renderide::pbs::brdf as brdf
@@ -324,7 +325,13 @@ fn indirect_reflection_branch(
             0.0,
             SPECCUBE_LOD_STEPS,
         );
-        var spec = textureSampleLevel(xb::_BakedCubemap, xb::_BakedCubemap_sampler, r, lod).rgb
+        let sample_r = cubemap_storage::sample_dir(r, xb::mat._BakedCubemap_StorageVInverted);
+        var spec = textureSampleLevel(
+            xb::_BakedCubemap,
+            xb::_BakedCubemap_sampler,
+            sample_r,
+            lod,
+        ).rgb
             * specular_reflectance
             * occlusion_scalar(s)
             * intensity;

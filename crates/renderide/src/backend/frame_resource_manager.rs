@@ -1,12 +1,11 @@
-//! Per-frame GPU bind groups, light staging, per-view cluster buffers, and per-view per-draw
-//! instance resources.
+//! Per-frame GPU bind groups, per-view light staging, per-view cluster buffers, and per-view
+//! per-draw instance resources.
 //!
-//! [`FrameResourceManager`] owns the shared `@group(0)` frame uniform/light bind group
+//! [`FrameResourceManager`] owns the fallback `@group(0)` frame resources
 //! ([`FrameGpuResources`]), the empty `@group(1)` fallback ([`EmptyMaterialBindGroup`]),
-//! per-view cluster buffer caches and `@group(0)` bind groups ([`PerViewFrameState`]), a
-//! `@group(2)` per-draw instance storage slab per render view ([`PerDrawResources`]), and the
-//! CPU-side packed light buffer used by [`crate::passes::ClusteredLightPass`] and
-//! the forward pass.
+//! per-view frame/light bind resources ([`PerViewFrameState`]), a `@group(2)` per-draw instance
+//! storage slab per render view ([`PerDrawResources`]), and the CPU-side packed light buffers
+//! used by [`crate::passes::ClusteredLightPass`] and the forward pass.
 //!
 //! Per-view cluster buffers are each view's own independent storage so that views cannot stomp
 //! one another's clustered light lists under single-submit semantics. Per-view state is keyed by
@@ -19,6 +18,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use glam::Mat4;
 use hashbrown::HashSet;
 use parking_lot::Mutex;
 
@@ -44,8 +44,31 @@ use crate::mesh_deform::{PaddedPerDrawUniforms, SkinCacheKey};
 use crate::scene::{
     ResolvedLight, SceneCoordinator, light_contributes, light_has_negative_contribution,
 };
+use crate::shared::RenderingContext;
 
-/// Per-view `@group(0)` frame uniform buffer + bind group.
+/// View-specific inputs for resolving the light pack used by one render view.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FrameLightViewDesc {
+    /// Stable identity of the render view receiving this light pack.
+    pub view_id: ViewId,
+    /// Render context used by draw collection for this view.
+    pub render_context: RenderingContext,
+    /// Optional render-space scope for offscreen cameras/tasks.
+    pub render_space_filter: Option<crate::scene::RenderSpaceId>,
+    /// Head-output transform used when resolving overlay-space world matrices.
+    pub head_output_transform: Mat4,
+}
+
+/// CPU-side packed lights for one render view.
+#[derive(Default)]
+struct PreparedViewLights {
+    /// Packed GPU light rows for this view.
+    lights: Vec<GpuLight>,
+    /// Whether this view has at least one negative light contribution.
+    signed_scene_color_required: bool,
+}
+
+/// Per-view `@group(0)` frame uniform buffer, light buffer, and bind group.
 ///
 /// The large cluster storage buffers (`cluster_light_counts`, `cluster_light_indices`) are
 /// shared across all views via [`FrameGpuResources::cluster_cache`] and are safe to share
@@ -61,8 +84,10 @@ use crate::scene::{
 pub struct PerViewFrameState {
     /// Per-view `@group(0)` frame uniform buffer written by world-mesh frame planning each frame.
     pub frame_uniform_buffer: wgpu::Buffer,
-    /// Per-view `@group(0)` bind group referencing [`Self::frame_uniform_buffer`], shared
-    /// lights/cluster buffers, and view-local scene snapshots.
+    /// Per-view light storage buffer written during pre-record synchronization.
+    pub lights_buffer: wgpu::Buffer,
+    /// Per-view `@group(0)` bind group referencing [`Self::frame_uniform_buffer`],
+    /// [`Self::lights_buffer`], shared cluster buffers, and view-local scene snapshots.
     pub frame_bind_group: Arc<wgpu::BindGroup>,
     /// Per-view uniform buffer for `ClusterParams` (camera matrix, projection, viewport, etc.).
     ///
@@ -152,22 +177,16 @@ pub struct FrameResourceManager {
     per_draw_bind_group_layout: Option<Arc<wgpu::BindGroupLayout>>,
     /// GPU limits stored at attach time for lazy per-view slab/cluster creation.
     limits: Option<Arc<GpuLimits>>,
-    /// Last packed lights for the frame (after [`Self::prepare_lights_from_scene`]).
+    /// Last packed lights for the first prepared view, retained for diagnostics and fallback callers.
     light_scratch: Vec<GpuLight>,
-    /// Whether the packed light set subtracts in at least one signed-radiance channel.
+    /// Per-view packed light sets keyed by render view identity.
+    per_view_lights: PerViewResourceMap<PreparedViewLights>,
+    /// Whether any packed light set subtracts in at least one signed-radiance channel.
     signed_scene_color_required: bool,
     /// Reused each frame to flatten all spaces' [`crate::scene::ResolvedLight`] before ordering and GPU pack.
     resolved_flatten_scratch: Vec<ResolvedLight>,
-    /// When true, [`Self::prepare_lights_from_scene`] is a no-op until [`Self::reset_light_prep_for_tick`] runs.
-    ///
-    /// Cleared at the start of each winit tick so multiple graph entry points in one tick (e.g. secondary
-    /// RT passes then main swapchain) share one CPU light pack.
-    light_prep_done_this_tick: bool,
-    /// When true, the packed light buffer was already uploaded to the GPU this tick (multi-view path).
-    ///
-    /// Reset with [`Self::reset_light_prep_for_tick`]. [`crate::passes::ClusteredLightPass`]
-    /// skips redundant `write_lights_buffer` while still dispatching per view.
-    lights_gpu_uploaded_this_tick: AtomicBool,
+    /// Reused each view to collect active render spaces that should contribute lights.
+    light_space_ids_scratch: Vec<crate::scene::RenderSpaceId>,
     /// When true, [`crate::passes::MeshDeformPass`] already dispatched this tick.
     ///
     /// In VR, the HMD graph runs mesh deform first; secondary cameras skip it via this flag.
@@ -203,10 +222,10 @@ impl FrameResourceManager {
             per_draw_bind_group_layout: None,
             limits: None,
             light_scratch: Vec::new(),
+            per_view_lights: PerViewResourceMap::new(),
             signed_scene_color_required: false,
             resolved_flatten_scratch: Vec::new(),
-            light_prep_done_this_tick: false,
-            lights_gpu_uploaded_this_tick: AtomicBool::new(false),
+            light_space_ids_scratch: Vec::new(),
             mesh_deform_dispatched_this_tick: AtomicBool::new(false),
             visible_mesh_deform_keys: Mutex::new(None),
             per_view_per_draw_scratch: PerViewResourceMap::new(),
@@ -235,15 +254,12 @@ impl FrameResourceManager {
         Ok(())
     }
 
-    /// Clears the per-tick light prep coalescing flag. Call once per winit frame from
+    /// Clears per-tick frame-resource flags. Call once per winit frame from
     /// [`crate::runtime::RendererRuntime::tick_frame_wall_clock_begin`].
     ///
-    /// Both flag stores use [`Ordering::Release`] so a worker that observes the cleared state on
-    /// the next tick is guaranteed to see the prior tick's GPU writes that produced the upload.
-    pub fn reset_light_prep_for_tick(&mut self) {
-        self.light_prep_done_this_tick = false;
-        self.lights_gpu_uploaded_this_tick
-            .store(false, Ordering::Release);
+    /// The flag store uses [`Ordering::Release`] so a worker that observes the cleared state on
+    /// the next tick is guaranteed to see the prior tick's GPU writes that produced the work.
+    pub fn reset_light_prep_for_tick(&self) {
         self.mesh_deform_dispatched_this_tick
             .store(false, Ordering::Release);
         *self.visible_mesh_deform_keys.lock() = None;
@@ -288,14 +304,23 @@ impl FrameResourceManager {
         &self.light_scratch
     }
 
+    /// Packed GPU lights for `view_id`, falling back to the last default frame pack.
+    pub fn frame_lights_for_view(&self, view_id: ViewId) -> &[GpuLight] {
+        self.per_view_lights
+            .get(view_id)
+            .map_or(self.light_scratch.as_slice(), |lights| {
+                lights.lights.as_slice()
+            })
+    }
+
     /// Returns true when the current packed light set needs signed scene-color storage.
     pub fn signed_scene_color_required(&self) -> bool {
         self.signed_scene_color_required
     }
 
-    /// Light count for frame uniforms and shaders (`min(len, [`MAX_LIGHTS`])`).
-    pub fn frame_light_count_u32(&self) -> u32 {
-        self.light_scratch.len().min(MAX_LIGHTS) as u32
+    /// Light count for the specified view's frame uniforms and shaders.
+    pub fn frame_light_count_for_view_u32(&self, view_id: ViewId) -> u32 {
+        self.frame_lights_for_view(view_id).len().min(MAX_LIGHTS) as u32
     }
 
     /// Shared `@group(0)` frame globals (camera + lights), after attach.
@@ -350,6 +375,9 @@ impl FrameResourceManager {
                 mapped_at_creation: false,
             });
             crate::profiling::note_resource_churn!(Buffer, "backend::per_view_frame_uniform");
+            let lights_buffer =
+                FrameGpuResources::create_lights_storage_buffer(device, "per_view_lights_storage");
+            crate::profiling::note_resource_churn!(Buffer, "backend::per_view_lights_storage");
             let cluster_params_buffer = make_cluster_params_buffer(device, stereo);
             let mut scene_snapshots =
                 PerViewSceneSnapshots::new(device, layout.depth_format, layout.color_format);
@@ -358,12 +386,14 @@ impl FrameResourceManager {
             let frame_bind_group = fgpu.build_per_view_bind_group(
                 device,
                 &frame_uniform_buffer,
+                &lights_buffer,
                 refs,
                 scene_snapshots.views(),
             );
             logger::debug!("per-view frame state: allocating for view {view_id:?}");
             let state = PerViewFrameState {
                 frame_uniform_buffer,
+                lights_buffer,
                 frame_bind_group,
                 cluster_params_buffer,
                 scene_snapshots,
@@ -394,6 +424,7 @@ impl FrameResourceManager {
             let new_bg = fgpu.build_per_view_bind_group(
                 device,
                 &entry.frame_uniform_buffer,
+                &entry.lights_buffer,
                 refs,
                 entry.scene_snapshots.views(),
             );
@@ -523,66 +554,68 @@ impl FrameResourceManager {
         self.retire_per_view_frame(view_id);
         self.retire_per_view_per_draw(view_id);
         self.retire_per_view_per_draw_scratch(view_id);
+        let _ = self.per_view_lights.retire(view_id);
     }
 
-    /// Fills the light scratch buffer from [`SceneCoordinator`] (active render spaces only,
-    /// clustered ordering, capped at [`super::MAX_LIGHTS`]).
+    /// Fills the default main-view light scratch buffer from active render spaces.
+    ///
+    /// This compatibility entry point is used by unit tests and callers that do not have explicit
+    /// view planning information. Normal graph rendering should call [`Self::prepare_lights_for_views`]
+    /// so secondary cameras get render-context-aware light packs.
+    #[cfg(test)]
+    pub fn prepare_lights_from_scene(&mut self, scene: &SceneCoordinator) {
+        self.prepare_lights_for_views(
+            scene,
+            [FrameLightViewDesc {
+                view_id: ViewId::Main,
+                render_context: scene.active_main_render_context(),
+                render_space_filter: None,
+                head_output_transform: Mat4::IDENTITY,
+            }],
+        );
+    }
+
+    /// Fills per-view light scratch buffers from [`SceneCoordinator`].
     ///
     /// Inactive spaces are skipped so lights from a previously focused world do not persist into
-    /// the next frame's shading. This matches how renderables, mesh deform, secondary cameras,
-    /// and the material-batch cache already filter by the render-space active flag.
-    ///
-    /// After the first successful run in a winit tick, subsequent calls are skipped until
-    /// [`Self::reset_light_prep_for_tick`] runs, so secondary RT and main passes share one pack.
-    /// Non-contributing lights are filtered via [`light_contributes`] before clustered ordering.
-    ///
-    /// Per-space [`SceneCoordinator::resolve_lights_world_into`] is read-only on the scene and is
-    /// fanned out across rayon workers when more than one active render space exists.
-    /// Single-space scenes (the common case) take the serial fast path to avoid rayon overhead.
-    pub fn prepare_lights_from_scene(&mut self, scene: &SceneCoordinator) {
-        if self.light_prep_done_this_tick {
-            return;
-        }
-        profiling::scope!("render::prepare_lights");
+    /// the next frame's shading. Views with a render-space filter only receive lights from that
+    /// space. Non-contributing lights are filtered via [`light_contributes`] before clustered
+    /// ordering, and each view's transforms are resolved with the same render context and
+    /// head-output transform used by draw collection.
+    pub(crate) fn prepare_lights_for_views<I>(&mut self, scene: &SceneCoordinator, views: I)
+    where
+        I: IntoIterator<Item = FrameLightViewDesc>,
+    {
+        profiling::scope!("render::prepare_lights_for_views");
         self.light_scratch.clear();
         self.signed_scene_color_required = false;
-        self.resolved_flatten_scratch.clear();
-
-        let space_ids: Vec<_> = {
-            profiling::scope!("render::prepare_lights::collect_active_spaces");
-            scene
-                .render_space_ids()
-                .filter(|id| scene.space(*id).is_some_and(|s| s.is_active()))
-                .collect()
-        };
-        match space_ids.len() {
-            0 => {}
-            1 => {
-                profiling::scope!("render::prepare_lights::resolve_single_space");
-                scene.resolve_lights_world_into(space_ids[0], &mut self.resolved_flatten_scratch);
-            }
-            _ => {
-                profiling::scope!("render::prepare_lights::resolve_parallel");
-                use rayon::prelude::*;
-                let per_space: Vec<Vec<ResolvedLight>> = space_ids
-                    .par_iter()
-                    .map(|&id| {
-                        let mut local = Vec::new();
-                        scene.resolve_lights_world_into(id, &mut local);
-                        local
-                    })
-                    .collect();
-                let total: usize = per_space.iter().map(Vec::len).sum();
-                {
-                    profiling::scope!("render::prepare_lights::flatten_parallel");
-                    self.resolved_flatten_scratch.reserve(total);
-                    for chunk in per_space {
-                        self.resolved_flatten_scratch.extend(chunk);
-                    }
-                }
+        let mut wrote_fallback = false;
+        for desc in views {
+            self.prepare_lights_for_view(scene, desc);
+            self.signed_scene_color_required |= self
+                .per_view_lights
+                .get(desc.view_id)
+                .is_some_and(|lights| lights.signed_scene_color_required);
+            if !wrote_fallback {
+                let fallback_lights = self.frame_lights_for_view(desc.view_id).to_vec();
+                self.light_scratch.clear();
+                self.light_scratch.extend(fallback_lights);
+                wrote_fallback = true;
             }
         }
+        if self.signed_scene_color_required && !self.signed_scene_color_required_logged {
+            logger::info!(
+                "negative direct lights active: signed scene-color HDR will be used while negative lights are packed"
+            );
+            self.signed_scene_color_required_logged = true;
+        }
+    }
 
+    fn prepare_lights_for_view(&mut self, scene: &SceneCoordinator, desc: FrameLightViewDesc) {
+        profiling::scope!("render::prepare_lights_for_view");
+        self.resolved_flatten_scratch.clear();
+        self.collect_light_space_ids(scene, desc.render_space_filter);
+        self.resolve_lights_for_space_ids(scene, desc);
         {
             profiling::scope!("render::prepare_lights::filter_contributors");
             self.resolved_flatten_scratch.retain(light_contributes);
@@ -598,34 +631,95 @@ impl FrameResourceManager {
             self.lights_overflow_warned = true;
         }
         let kept = resolved_len.min(MAX_LIGHTS);
-        self.signed_scene_color_required = self
+        let signed_scene_color_required = self
             .resolved_flatten_scratch
             .iter()
             .take(kept)
             .any(light_has_negative_contribution);
-        if self.signed_scene_color_required && !self.signed_scene_color_required_logged {
-            logger::info!(
-                "negative direct lights active: signed scene-color HDR will be used while negative lights are packed"
-            );
-            self.signed_scene_color_required_logged = true;
+        let entry = self
+            .per_view_lights
+            .get_or_insert_with(desc.view_id, PreparedViewLights::default);
+        entry.lights.clear();
+        entry.lights.reserve(kept);
+        entry.lights.extend(
+            self.resolved_flatten_scratch
+                .iter()
+                .take(kept)
+                .map(gpu_light_from_resolved),
+        );
+        entry.signed_scene_color_required = signed_scene_color_required;
+        logger::trace!(
+            "prepared lights for view {:?}: lights={} render_context={:?} render_space_filter={:?}",
+            desc.view_id,
+            entry.lights.len(),
+            desc.render_context,
+            desc.render_space_filter
+        );
+    }
+
+    fn collect_light_space_ids(
+        &mut self,
+        scene: &SceneCoordinator,
+        render_space_filter: Option<crate::scene::RenderSpaceId>,
+    ) {
+        profiling::scope!("render::prepare_lights::collect_active_spaces");
+        self.light_space_ids_scratch.clear();
+        if let Some(id) = render_space_filter {
+            if scene.space(id).is_some_and(|space| space.is_active()) {
+                self.light_space_ids_scratch.push(id);
+            }
+            return;
         }
-        {
-            profiling::scope!("render::prepare_lights::pack_gpu_lights");
-            self.light_scratch.reserve(kept);
-            self.light_scratch.extend(
-                self.resolved_flatten_scratch
-                    .iter()
-                    .take(kept)
-                    .map(gpu_light_from_resolved),
-            );
+        self.light_space_ids_scratch.extend(
+            scene
+                .render_space_ids()
+                .filter(|id| scene.space(*id).is_some_and(|space| space.is_active())),
+        );
+    }
+
+    fn resolve_lights_for_space_ids(&mut self, scene: &SceneCoordinator, desc: FrameLightViewDesc) {
+        match self.light_space_ids_scratch.len() {
+            0 => {}
+            1 => {
+                profiling::scope!("render::prepare_lights::resolve_single_space");
+                scene.resolve_lights_for_render_context_into(
+                    self.light_space_ids_scratch[0],
+                    desc.render_context,
+                    desc.head_output_transform,
+                    &mut self.resolved_flatten_scratch,
+                );
+            }
+            _ => {
+                profiling::scope!("render::prepare_lights::resolve_parallel");
+                use rayon::prelude::*;
+                let per_space: Vec<Vec<ResolvedLight>> = self
+                    .light_space_ids_scratch
+                    .par_iter()
+                    .map(|&id| {
+                        let mut local = Vec::new();
+                        scene.resolve_lights_for_render_context_into(
+                            id,
+                            desc.render_context,
+                            desc.head_output_transform,
+                            &mut local,
+                        );
+                        local
+                    })
+                    .collect();
+                let total: usize = per_space.iter().map(Vec::len).sum();
+                {
+                    profiling::scope!("render::prepare_lights::flatten_parallel");
+                    self.resolved_flatten_scratch.reserve(total);
+                    for chunk in per_space {
+                        self.resolved_flatten_scratch.extend(chunk);
+                    }
+                }
+            }
         }
-        self.light_prep_done_this_tick = true;
-        self.lights_gpu_uploaded_this_tick
-            .store(false, Ordering::Release);
     }
 
     /// Pre-synchronizes shared cluster buffers for every unique view layout before per-view
-    /// recording starts and uploads the packed lights buffer at most once for the tick.
+    /// recording starts and uploads each view's packed lights buffer.
     pub fn pre_record_sync_for_views(
         &mut self,
         device: &wgpu::Device,
@@ -650,16 +744,18 @@ impl FrameResourceManager {
                 );
             }
         }
-        if self
-            .lights_gpu_uploaded_this_tick
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
         {
-            let Some(fgpu) = self.frame_gpu.as_ref() else {
-                return;
-            };
             profiling::scope!("render::pre_record_sync_for_views::write_lights");
-            fgpu.write_lights_buffer(uploads, &self.light_scratch);
+            for layout in view_layouts {
+                let Some(state) = self.per_view_frame(layout.view_id) else {
+                    continue;
+                };
+                FrameGpuResources::write_lights_buffer_to(
+                    uploads,
+                    &state.lights_buffer,
+                    self.frame_lights_for_view(layout.view_id),
+                );
+            }
         }
     }
 
@@ -707,16 +803,17 @@ impl GraphFrameResources for FrameResourceManager {
         self.frame_gpu().is_some()
     }
 
-    fn frame_lights(&self) -> &[GpuLight] {
-        self.frame_lights()
+    fn frame_lights(&self, view_id: ViewId) -> &[GpuLight] {
+        self.frame_lights_for_view(view_id)
     }
 
-    fn frame_light_count_u32(&self) -> u32 {
-        self.frame_light_count_u32()
+    fn frame_light_count_u32(&self, view_id: ViewId) -> u32 {
+        self.frame_light_count_for_view_u32(view_id)
     }
 
-    fn lights_buffer(&self) -> Option<wgpu::Buffer> {
-        self.frame_gpu().map(|fgpu| fgpu.lights_buffer.clone())
+    fn lights_buffer(&self, view_id: ViewId) -> Option<wgpu::Buffer> {
+        self.per_view_frame(view_id)
+            .map(|state| state.lights_buffer.clone())
     }
 
     fn frame_uniform_buffer(&self) -> Option<wgpu::Buffer> {
@@ -901,11 +998,12 @@ fn make_cluster_params_buffer(device: &wgpu::Device, stereo: bool) -> wgpu::Buff
 mod tests {
     use super::*;
 
-    use glam::{Quat, Vec3};
+    use glam::{Mat4, Quat, Vec3};
 
     use crate::scene::RenderSpaceId;
     use crate::shared::{
-        LightData, LightType, LightsBufferRendererState, RenderTransform, ShadowType,
+        LightData, LightType, LightsBufferRendererState, RenderTransform, RenderingContext,
+        ShadowType,
     };
 
     /// Builds a pre-record layout for pure frame-resource planning tests.
@@ -917,6 +1015,7 @@ mod tests {
         needs_color_snapshot: bool,
     ) -> PreRecordViewResourceLayout {
         PreRecordViewResourceLayout {
+            view_id: ViewId::Main,
             width,
             height,
             stereo,
@@ -1105,5 +1204,57 @@ mod tests {
         let packed = mgr.frame_lights();
         assert_eq!(packed.len(), 1);
         assert!((packed[0].color[0] - 0.214_041_14).abs() < 1e-5);
+    }
+
+    #[test]
+    fn prepare_lights_for_views_keeps_secondary_light_positions_view_local() {
+        let mut scene = SceneCoordinator::new();
+        let space = RenderSpaceId(7);
+        let local = RenderTransform {
+            position: Vec3::new(1.0, 0.0, 0.0),
+            scale: Vec3::ONE,
+            rotation: Quat::IDENTITY,
+        };
+        scene.test_seed_space_identity_worlds(space, vec![local], vec![-1]);
+        scene.test_set_space_overlay(space, true);
+        scene.test_set_space_root_transform(
+            space,
+            RenderTransform {
+                position: Vec3::new(2.0, 0.0, 0.0),
+                scale: Vec3::ONE,
+                rotation: Quat::IDENTITY,
+            },
+        );
+        let cache = scene.light_cache_mut();
+        cache.store_full(100, vec![make_light_data(1.0)]);
+        cache.apply_update(space.0, &[], &[0], &[make_state(100)]);
+
+        let first = ViewId::secondary_camera(space, 0);
+        let second = ViewId::secondary_camera(space, 1);
+        let mut mgr = FrameResourceManager::new();
+        mgr.prepare_lights_for_views(
+            &scene,
+            [
+                FrameLightViewDesc {
+                    view_id: first,
+                    render_context: RenderingContext::UserView,
+                    render_space_filter: Some(space),
+                    head_output_transform: Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+                },
+                FrameLightViewDesc {
+                    view_id: second,
+                    render_context: RenderingContext::UserView,
+                    render_space_filter: Some(space),
+                    head_output_transform: Mat4::from_translation(Vec3::new(30.0, 0.0, 0.0)),
+                },
+            ],
+        );
+
+        let first_lights = mgr.frame_lights_for_view(first);
+        let second_lights = mgr.frame_lights_for_view(second);
+        assert_eq!(first_lights.len(), 1);
+        assert_eq!(second_lights.len(), 1);
+        assert!((first_lights[0].position[0] - 9.0).abs() < 1e-4);
+        assert!((second_lights[0].position[0] - 29.0).abs() < 1e-4);
     }
 }

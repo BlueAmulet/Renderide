@@ -423,6 +423,7 @@ impl RenderBackend {
             .pre_warm_sh2_projection_pipelines(&device);
         asset_uploads::attach_flush_pending_asset_uploads(
             &mut self.asset_transfers,
+            &mut self.materials,
             &device,
             shm,
             ipc,

@@ -368,13 +368,14 @@ pub(super) fn upload_extended_vertex_streams(
     device: &wgpu::Device,
     asset_id: i32,
     source: ExtendedVertexUploadSource<'_>,
+    generate_missing_tangents: bool,
 ) -> ExtendedVertexStreams {
     let vc_usize = source.vertex_count;
     if vc_usize == 0 {
         return (None, None, None, None);
     }
 
-    let tangent_bytes = tangent_stream_bytes(source.tangent_source(), false)
+    let tangent_bytes = tangent_stream_bytes(source.tangent_source(), generate_missing_tangents)
         .unwrap_or_else(|| float4_default_stream_bytes(vc_usize, [1.0, 0.0, 0.0, 1.0]));
 
     let make_uv = |target: VertexAttributeType, label: &str| {
@@ -405,11 +406,12 @@ pub(super) fn upload_tangent_vertex_stream(
     device: &wgpu::Device,
     asset_id: i32,
     source: ExtendedVertexUploadSource<'_>,
+    generate_missing_tangents: bool,
 ) -> Option<Arc<wgpu::Buffer>> {
     if source.vertex_count == 0 {
         return None;
     }
-    let tangent_bytes = tangent_stream_bytes(source.tangent_source(), false)
+    let tangent_bytes = tangent_stream_bytes(source.tangent_source(), generate_missing_tangents)
         .unwrap_or_else(|| float4_default_stream_bytes(source.vertex_count, [1.0, 0.0, 0.0, 1.0]));
     Some(create_tangent_stream_buffer(
         device,

@@ -7,7 +7,7 @@ use crate::shared::{
 };
 
 use super::super::AssetTransferQueue;
-use super::super::integrator::AssetTask;
+use super::super::integrator::{AssetTask, RetiredAssetResource};
 use super::super::texture_task::TextureUploadTask;
 use super::MAX_PENDING_TEXTURE_UPLOADS;
 use super::allocations::flush_pending_texture_allocations;
@@ -161,9 +161,12 @@ pub fn on_unload_texture_2d(queue: &mut AssetTransferQueue, u: UnloadTexture2D) 
     queue.catalogs.texture_formats.remove(&id);
     queue.catalogs.texture_properties.remove(&id);
     remove_pending_texture_uploads_for_asset(queue, id);
-    if queue.pools.texture_pool.remove(id) {
+    if let Some(texture) = queue.pools.texture_pool.take(id) {
+        queue
+            .integrator_mut()
+            .enqueue_delayed_removal(RetiredAssetResource::Texture2d(texture));
         logger::info!(
-            "texture {id} unloaded (mesh~={} tex~={} total~={})",
+            "texture {id} unloaded; GPU handle queued for delayed removal (mesh~={} tex~={} total~={})",
             queue.pools.mesh_pool.accounting().mesh_resident_bytes(),
             queue
                 .pools

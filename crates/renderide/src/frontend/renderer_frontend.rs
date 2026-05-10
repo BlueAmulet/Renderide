@@ -10,7 +10,9 @@ use crate::shared::{
 };
 
 use super::decoupling::{DecouplingActivationDecision, DecouplingState, DecouplingSubmitDecision};
-use super::frame_start_performance::FrameStartPerformanceState;
+use super::frame_start_performance::{
+    AssetIntegrationPerformanceSample, FrameStartPerformanceState,
+};
 use super::init_state::InitState;
 use super::lockstep_state::LockstepState;
 use super::output_policy::HostOutputPolicy;
@@ -167,6 +169,16 @@ impl RendererFrontend {
     pub fn set_perf_last_render_time_seconds(&mut self, render_time_seconds: Option<f32>) {
         self.performance
             .set_last_render_time_seconds(render_time_seconds);
+    }
+
+    /// Accumulates asset-integration stats for the next outgoing performance payload.
+    pub fn record_asset_integration_stats(&mut self, sample: AssetIntegrationPerformanceSample) {
+        self.performance.record_asset_integration_stats(sample);
+    }
+
+    /// Records one wait on the host/asset integration wake path.
+    pub fn record_asset_integration_handle_wait(&mut self) {
+        self.performance.record_asset_integration_handle_wait();
     }
 
     /// Poll and sort commands by lifecycle priority.

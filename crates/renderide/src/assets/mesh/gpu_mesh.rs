@@ -32,7 +32,7 @@ use super::gpu_mesh_hints::{
     validated_submesh_topologies,
 };
 
-use crate::materials::RasterPrimitiveTopology;
+use crate::materials::{EmbeddedTangentFallbackMode, RasterPrimitiveTopology};
 
 const EMPTY_MESH_PLACEHOLDER_BYTES: u64 = 4;
 
@@ -43,6 +43,7 @@ pub(super) struct ExtendedVertexStreamSource {
     vertex_attributes: Arc<[VertexAttributeDescriptor]>,
     index_format: IndexBufferFormat,
     submeshes: Arc<[SubmeshBufferDescriptor]>,
+    can_generate_missing_tangents: bool,
 }
 
 impl fmt::Debug for ExtendedVertexStreamSource {
@@ -52,6 +53,10 @@ impl fmt::Debug for ExtendedVertexStreamSource {
             .field("index_bytes_len", &self.index_bytes.len())
             .field("vertex_attributes_len", &self.vertex_attributes.len())
             .field("submeshes_len", &self.submeshes.len())
+            .field(
+                "can_generate_missing_tangents",
+                &self.can_generate_missing_tangents,
+            )
             .finish()
     }
 }
@@ -121,6 +126,8 @@ pub struct GpuMesh {
     pub color_buffer: Option<Arc<wgpu::Buffer>>,
     /// `vec4<f32>` tangent stream for shaders using extended vertex inputs.
     pub tangent_buffer: Option<Arc<wgpu::Buffer>>,
+    /// Tangent fallback policy used for the current tangent stream.
+    pub tangent_fallback_mode: EmbeddedTangentFallbackMode,
     /// `vec2<f32>` UV1 stream for shaders using extended vertex inputs.
     pub uv1_buffer: Option<Arc<wgpu::Buffer>>,
     /// `vec2<f32>` UV2 stream for shaders using extended vertex inputs.
@@ -284,9 +291,8 @@ pub(super) fn extended_vertex_stream_source_from_raw(
     data: &MeshUploadData,
     layout: &MeshBufferLayout,
 ) -> Option<ExtendedVertexStreamSource> {
-    if !has_extended_vertex_attribute(&data.vertex_attributes)
-        && !can_generate_missing_tangents(data, layout)
-    {
+    let can_generate_missing_tangents = can_generate_missing_tangents(data, layout);
+    if !has_extended_vertex_attribute(&data.vertex_attributes) && !can_generate_missing_tangents {
         return None;
     }
     let vertex_bytes = raw.get(..layout.vertex_size)?.to_vec();
@@ -300,6 +306,7 @@ pub(super) fn extended_vertex_stream_source_from_raw(
         vertex_attributes: Arc::from(data.vertex_attributes.clone()),
         index_format: data.index_buffer_format,
         submeshes: Arc::from(data.submeshes.clone()),
+        can_generate_missing_tangents,
     })
 }
 
@@ -402,7 +409,7 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
                     index_format: ctx.data.index_buffer_format,
                     submeshes: &ctx.data.submeshes,
                 },
-                false,
+                ctx.mesh.tangent_fallback_mode.generate_missing(),
             ),
         ) {
             ctx.queue.write_buffer(tb.as_ref(), 0, &t);
@@ -602,6 +609,7 @@ impl GpuMesh {
             uv0_buffer: None,
             color_buffer: None,
             tangent_buffer: None,
+            tangent_fallback_mode: EmbeddedTangentFallbackMode::default(),
             uv1_buffer: None,
             uv2_buffer: None,
             uv3_buffer: None,
@@ -702,6 +710,7 @@ impl GpuMesh {
             uv0_buffer: derived.uv0_buffer,
             color_buffer: derived.color_buffer,
             tangent_buffer: derived.tangent_buffer,
+            tangent_fallback_mode: EmbeddedTangentFallbackMode::default(),
             uv1_buffer: derived.uv1_buffer,
             uv2_buffer: derived.uv2_buffer,
             uv3_buffer: derived.uv3_buffer,

@@ -166,7 +166,7 @@ impl ClusteredLightPass {
             .blackboard
             .get::<PerViewFramePlanSlot>()
             .map_or(0, |plan| plan.view_idx);
-        let light_count = frame.shared.frame_resources.frame_light_count_u32();
+        let light_count = frame.shared.frame_resources.frame_light_count_u32(view_id);
 
         let Some(refs) = frame.shared.frame_resources.shared_cluster_buffer_refs() else {
             logger::trace!("ClusteredLight: shared cluster buffers missing for {view_id:?}");
@@ -204,7 +204,7 @@ impl ClusteredLightPass {
         if self.should_use_cpu_froxel(view_idx, stereo, light_count)
             && try_record_cpu_froxel(CpuFroxelRecordData {
                 uploads: ctx.uploads,
-                lights: frame.shared.frame_resources.frame_lights(),
+                lights: frame.shared.frame_resources.frame_lights(view_id),
                 cluster_light_counts: &cluster_light_counts,
                 cluster_light_indices: &cluster_light_indices,
                 eye_params: &eye_params,
@@ -224,7 +224,7 @@ impl ClusteredLightPass {
             });
         }
 
-        let Some(lights_buffer) = frame.shared.frame_resources.lights_buffer() else {
+        let Some(lights_buffer) = frame.shared.frame_resources.lights_buffer(view_id) else {
             return ClusteredLightRecordAction::Skip;
         };
 

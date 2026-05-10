@@ -7,6 +7,7 @@ use crate::shared::{
 };
 
 use super::super::AssetTransferQueue;
+use super::super::integrator::RetiredAssetResource;
 
 fn send_render_texture_result(
     ipc: Option<&mut DualQueueIpc>,
@@ -65,9 +66,12 @@ pub fn on_set_render_texture_format(
 pub fn on_unload_render_texture(queue: &mut AssetTransferQueue, u: UnloadRenderTexture) {
     let id = u.asset_id;
     queue.catalogs.render_texture_formats.remove(&id);
-    if queue.pools.render_texture_pool.remove(id) {
+    if let Some(texture) = queue.pools.render_texture_pool.take(id) {
+        queue
+            .integrator_mut()
+            .enqueue_delayed_removal(RetiredAssetResource::RenderTexture(texture));
         logger::info!(
-            "render texture {id} unloaded (tex~={} total~={})",
+            "render texture {id} unloaded; GPU handle queued for delayed removal (tex~={} total~={})",
             queue
                 .pools
                 .texture_pool

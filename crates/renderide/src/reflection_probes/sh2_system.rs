@@ -13,7 +13,7 @@ use crate::profiling;
 use crate::reflection_probes::specular::RuntimeReflectionProbeCaptureStore;
 use crate::scene::SceneCoordinator;
 use crate::shared::{ComputeResult, FrameSubmitData, ReflectionProbeSH2Tasks, RenderSH2};
-use crate::skybox::params::{SkyboxEvaluatorParams, SkyboxParamMode};
+use crate::skybox::params::{SkyboxEvaluatorParams, SkyboxParamMode, storage_v_inverted_flag};
 use crate::skybox::specular::SkyboxIblSource;
 
 use super::projection_pipeline::{
@@ -96,6 +96,8 @@ pub(crate) enum Sh2SourceKey {
         resident_mips: u32,
         /// Source cubemap content generation.
         content_generation: u64,
+        /// Source cubemap storage orientation.
+        storage_v_inverted: bool,
         /// Projection sample grid edge per cube face.
         sample_size: u32,
     },
@@ -181,7 +183,12 @@ impl Sh2SourceKey {
 #[derive(Clone, Debug)]
 pub(super) enum GpuSh2Source {
     /// Cubemap sampled from the cubemap pool.
-    Cubemap { asset_id: i32 },
+    Cubemap {
+        /// Cubemap asset id.
+        asset_id: i32,
+        /// Source cubemap storage orientation.
+        storage_v_inverted: bool,
+    },
     /// Equirectangular 2D texture sampled from the texture pool.
     EquirectTexture2D {
         /// Texture asset id.
@@ -551,8 +558,11 @@ impl ReflectionProbeSh2System {
             )
         })?;
         match source {
-            GpuSh2Source::Cubemap { asset_id } => self
-                .schedule_cubemap_source(gpu, assets, key, asset_id, pipeline)
+            GpuSh2Source::Cubemap {
+                asset_id,
+                storage_v_inverted,
+            } => self
+                .schedule_cubemap_source(gpu, assets, key, asset_id, storage_v_inverted, pipeline)
                 .map(ScheduleSourceOutcome::Submitted),
             GpuSh2Source::EquirectTexture2D { asset_id, params } => self
                 .schedule_equirect_source(gpu, assets, key, asset_id, params.as_ref(), pipeline)
@@ -572,6 +582,7 @@ impl ReflectionProbeSh2System {
         assets: &AssetTransferQueue,
         key: Sh2SourceKey,
         asset_id: i32,
+        storage_v_inverted: bool,
         pipeline: &ProjectionPipeline,
     ) -> Result<SubmittedGpuSh2Job, String> {
         profiling::scope!("reflection_probe_sh2::schedule_cubemap");
@@ -583,6 +594,8 @@ impl ReflectionProbeSh2System {
         let sampler = sh2_cubemap_sampler(gpu.device(), "SH2 cubemap sampler");
         let view = tex.view.clone();
         let submit_done_tx = self.readback_jobs.submit_done_sender();
+        let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
+        params.scalars[0] = storage_v_inverted_flag(storage_v_inverted);
         encode_projection_job(
             gpu,
             key,
@@ -591,7 +604,7 @@ impl ReflectionProbeSh2System {
                 ProjectionBinding::TextureView(view.as_ref()),
                 ProjectionBinding::Sampler(&sampler),
             ],
-            &Sh2ProjectParams::empty(SkyParamMode::Procedural),
+            &params,
             &submit_done_tx,
             "reflection_probe_sh2::project_cubemap",
         )
@@ -799,10 +812,12 @@ fn sh2_source_from_ibl_source(
                 size: src.face_size,
                 resident_mips: src.mip_levels_resident,
                 content_generation: src.content_generation,
+                storage_v_inverted: src.storage_v_inverted,
                 sample_size: DEFAULT_SAMPLE_SIZE,
             },
             Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
                 asset_id: src.asset_id,
+                storage_v_inverted: src.storage_v_inverted,
             }),
         ),
         SkyboxIblSource::Equirect(src) => {
@@ -899,6 +914,14 @@ mod tests {
     }
 
     #[test]
+    fn cubemap_source_key_invalidates_on_storage_orientation() {
+        let base = cubemap_key_with_storage(1, 1, 5, false);
+        let storage_changed = cubemap_key_with_storage(1, 1, 5, true);
+
+        assert_ne!(base, storage_changed);
+    }
+
+    #[test]
     fn equirect_source_key_invalidates_on_allocation_or_material_change() {
         let base = equirect_key(1, 5);
         let reallocated_same_upload_generation = equirect_key(2, 5);
@@ -964,6 +987,15 @@ mod tests {
         allocation_generation: u64,
         material_generation: u64,
     ) -> Sh2SourceKey {
+        cubemap_key_with_storage(asset_id, allocation_generation, material_generation, false)
+    }
+
+    fn cubemap_key_with_storage(
+        asset_id: i32,
+        allocation_generation: u64,
+        material_generation: u64,
+        storage_v_inverted: bool,
+    ) -> Sh2SourceKey {
         Sh2SourceKey::Cubemap {
             render_space_id: 7,
             material_asset_id: 21,
@@ -974,6 +1006,7 @@ mod tests {
             size: 128,
             resident_mips: 1,
             content_generation: 1,
+            storage_v_inverted,
             sample_size: DEFAULT_SAMPLE_SIZE,
         }
     }

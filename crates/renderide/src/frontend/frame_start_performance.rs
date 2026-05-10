@@ -1,18 +1,18 @@
 //! Builds the [`crate::shared::PerformanceState`] payload carried on every
 //! [`crate::shared::FrameStartData`] sent to the host.
 //!
-//! Contract (matches Renderite.Unity, consumed by `FrooxEngine.PerformanceMetrics`):
+//! Contract consumed by `FrooxEngine.PerformanceMetrics`:
 //! - `immediate_fps` -- instantaneous, derived from the current tick's wall-clock interval
 //!   ([`crate::frontend::RendererFrontend::on_tick_frame_wall_clock`]). No smoothing.
 //! - `fps` -- count-based rolling average over a [`FPS_WINDOW`] window: `frame_count /
 //!   elapsed_seconds` recomputed once each time the window closes, otherwise the previously
 //!   computed value is carried forward unchanged. Mirrors `PerformanceStats.Update` in the
-//!   Renderite.Unity reference. Stable for ~[`FPS_WINDOW`] at a time so the host-side
+//!   renderer behavior. Stable for ~[`FPS_WINDOW`] at a time so the host-side
 //!   `Sync<float> FPS.Value` change events fire at the window cadence rather than every frame.
 //! - `render_time` -- most recently completed GPU submit->idle wall-clock duration in seconds
 //!   ([`crate::gpu::GpuContext::last_completed_gpu_render_time_seconds`]); excludes the post-submit
 //!   present/vsync block. Reports `-1.0` when no GPU completion callback has fired yet, mirroring the
-//!   Renderite.Unity `XRStats.TryGetGPUTimeLastFrame` sentinel.
+//!   `XRStats.TryGetGPUTimeLastFrame` sentinel.
 //! - `rendered_frames_since_last` -- number of completed renderer ticks since the previous
 //!   `FrameStartData` send. `1` in lockstep, `> 1` when the renderer ticked multiple times per
 //!   host submit (i.e. host is slow and the renderer kept rendering). Drives
@@ -28,13 +28,13 @@ use std::time::{Duration, Instant};
 
 use crate::shared::PerformanceState;
 
-/// Window length for the count-based `fps` rolling average. Matches the Renderite.Unity
-/// `>= 500` ms threshold inside `PerformanceStats.Update`.
+/// Window length for the count-based `fps` rolling average. Matches the `>= 500` ms threshold
+/// inside `PerformanceStats.Update`.
 pub(crate) const FPS_WINDOW: Duration = Duration::from_millis(500);
 
 /// Sentinel reported in `render_time` until the first GPU completion callback has fired, matching
-/// the Renderite.Unity behavior of `state.renderTime = -1` when `XRStats.TryGetGPUTimeLastFrame`
-/// has no sample yet.
+/// the renderer behavior of `state.renderTime = -1` when `XRStats.TryGetGPUTimeLastFrame` has no
+/// sample yet.
 pub(crate) const RENDER_TIME_UNAVAILABLE: f32 = -1.0;
 
 /// Mutable performance accumulator that feeds outgoing frame-start payloads.
@@ -46,6 +46,41 @@ pub(crate) struct FrameStartPerformanceState {
     framerate_counter: u32,
     last_window_fps: f32,
     rendered_frames_since_last: i32,
+    asset_integration: AssetIntegrationPerformanceState,
+}
+
+/// Asset-integration counters accumulated until the next outgoing performance payload.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct AssetIntegrationPerformanceState {
+    integration_processing_time: f32,
+    extra_particle_processing_time: f32,
+    processed_asset_integrator_tasks: i32,
+    integration_high_priority_tasks: i32,
+    integration_tasks: i32,
+    integration_render_tasks: i32,
+    integration_particle_tasks: i32,
+    processing_handle_waits: i32,
+}
+
+/// One cooperative asset-integration sample to fold into the next performance payload.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct AssetIntegrationPerformanceSample {
+    /// Non-particle integration time.
+    pub(crate) integration_elapsed: Duration,
+    /// Extra particle-lane integration time.
+    pub(crate) particle_elapsed: Duration,
+    /// Processed asset-integrator queue steps.
+    pub(crate) processed_tasks: u32,
+    /// Remaining high-priority upload tasks.
+    pub(crate) high_priority_tasks: usize,
+    /// Remaining normal-priority upload tasks.
+    pub(crate) normal_priority_tasks: usize,
+    /// Remaining render-lane tasks.
+    pub(crate) render_tasks: usize,
+    /// Remaining particle-lane tasks.
+    pub(crate) particle_tasks: usize,
+    /// Integration wait count while awaiting host frame submit.
+    pub(crate) handle_waits: i32,
 }
 
 impl Default for FrameStartPerformanceState {
@@ -58,6 +93,7 @@ impl Default for FrameStartPerformanceState {
             framerate_counter: 0,
             last_window_fps: 0.0,
             rendered_frames_since_last: 0,
+            asset_integration: AssetIntegrationPerformanceState::default(),
         }
     }
 }
@@ -105,14 +141,52 @@ impl FrameStartPerformanceState {
         self.rendered_frames_since_last = self.rendered_frames_since_last.saturating_add(1);
     }
 
+    /// Accumulates one cooperative asset-integration drain for the next frame-start payload.
+    pub(crate) fn record_asset_integration_stats(
+        &mut self,
+        sample: AssetIntegrationPerformanceSample,
+    ) {
+        let stats = &mut self.asset_integration;
+        stats.integration_processing_time += sample.integration_elapsed.as_secs_f32();
+        stats.extra_particle_processing_time += sample.particle_elapsed.as_secs_f32();
+        stats.processed_asset_integrator_tasks = stats
+            .processed_asset_integrator_tasks
+            .saturating_add(i32::try_from(sample.processed_tasks).unwrap_or(i32::MAX));
+        stats.integration_high_priority_tasks = stats
+            .integration_high_priority_tasks
+            .saturating_add(i32::try_from(sample.high_priority_tasks).unwrap_or(i32::MAX));
+        stats.integration_tasks = stats
+            .integration_tasks
+            .saturating_add(i32::try_from(sample.normal_priority_tasks).unwrap_or(i32::MAX));
+        stats.integration_render_tasks = stats
+            .integration_render_tasks
+            .saturating_add(i32::try_from(sample.render_tasks).unwrap_or(i32::MAX));
+        stats.integration_particle_tasks = stats
+            .integration_particle_tasks
+            .saturating_add(i32::try_from(sample.particle_tasks).unwrap_or(i32::MAX));
+        stats.processing_handle_waits = stats
+            .processing_handle_waits
+            .saturating_add(sample.handle_waits);
+    }
+
+    /// Records one asset-integration wake wait while the renderer is waiting for host submit.
+    pub(crate) fn record_asset_integration_handle_wait(&mut self) {
+        self.asset_integration.processing_handle_waits = self
+            .asset_integration
+            .processing_handle_waits
+            .saturating_add(1);
+    }
+
     /// Captures and resets the rendered-frame counter while producing the next performance sample.
     pub(crate) fn step_for_frame_start(&mut self) -> Option<PerformanceState> {
         let rendered_frames_since_last = std::mem::replace(&mut self.rendered_frames_since_last, 0);
+        let asset_integration = std::mem::take(&mut self.asset_integration);
         step_frame_performance(
             self.wall_interval_us_for_perf,
             self.last_render_time_seconds,
             self.last_window_fps,
             rendered_frames_since_last,
+            asset_integration,
         )
     }
 }
@@ -137,6 +211,7 @@ pub(crate) fn step_frame_performance(
     last_frame_render_time_seconds: f32,
     windowed_fps: f32,
     rendered_frames_since_last: i32,
+    asset_integration: AssetIntegrationPerformanceState,
 ) -> Option<PerformanceState> {
     if wall_interval_us == 0 {
         return None;
@@ -147,6 +222,14 @@ pub(crate) fn step_frame_performance(
         immediate_fps: instant_fps,
         render_time: last_frame_render_time_seconds,
         rendered_frames_since_last,
+        integration_processing_time: asset_integration.integration_processing_time,
+        extra_particle_processing_time: asset_integration.extra_particle_processing_time,
+        processed_asset_integrator_tasks: asset_integration.processed_asset_integrator_tasks,
+        integration_high_priority_tasks: asset_integration.integration_high_priority_tasks,
+        integration_tasks: asset_integration.integration_tasks,
+        integration_render_tasks: asset_integration.integration_render_tasks,
+        integration_particle_tasks: asset_integration.integration_particle_tasks,
+        processing_handle_waits: asset_integration.processing_handle_waits,
         ..PerformanceState::default()
     })
 }
@@ -157,14 +240,26 @@ mod tests {
 
     #[test]
     fn step_frame_performance_first_tick_with_zero_interval_returns_none() {
-        let p = step_frame_performance(0, 0.005, 0.0, 0);
+        let p = step_frame_performance(
+            0,
+            0.005,
+            0.0,
+            0,
+            AssetIntegrationPerformanceState::default(),
+        );
         assert!(p.is_none());
     }
 
     #[test]
     fn step_frame_performance_emits_immediate_windowed_and_render_time() {
-        let p = step_frame_performance(16_666, 0.005, 60.0, 1)
-            .expect("payload built when wall_interval_us > 0");
+        let p = step_frame_performance(
+            16_666,
+            0.005,
+            60.0,
+            1,
+            AssetIntegrationPerformanceState::default(),
+        )
+        .expect("payload built when wall_interval_us > 0");
         assert!((p.immediate_fps - 60.0).abs() < 1.0);
         assert!((p.fps - 60.0).abs() < f32::EPSILON);
         assert!((p.render_time - 0.005).abs() < f32::EPSILON);
@@ -172,27 +267,107 @@ mod tests {
 
     #[test]
     fn step_frame_performance_emits_every_consecutive_call() {
-        let a = step_frame_performance(16_666, 0.005, 60.0, 1);
-        let b = step_frame_performance(16_666, 0.005, 60.0, 1);
+        let a = step_frame_performance(
+            16_666,
+            0.005,
+            60.0,
+            1,
+            AssetIntegrationPerformanceState::default(),
+        );
+        let b = step_frame_performance(
+            16_666,
+            0.005,
+            60.0,
+            1,
+            AssetIntegrationPerformanceState::default(),
+        );
         assert!(a.is_some(), "first non-zero interval must emit");
         assert!(b.is_some(), "subsequent ticks must emit (no throttle)");
     }
 
     #[test]
     fn step_frame_performance_propagates_render_time_unavailable_sentinel() {
-        let p =
-            step_frame_performance(16_666, RENDER_TIME_UNAVAILABLE, 0.0, 0).expect("payload built");
+        let p = step_frame_performance(
+            16_666,
+            RENDER_TIME_UNAVAILABLE,
+            0.0,
+            0,
+            AssetIntegrationPerformanceState::default(),
+        )
+        .expect("payload built");
         assert_eq!(p.render_time, RENDER_TIME_UNAVAILABLE);
     }
 
     #[test]
     fn step_frame_performance_propagates_rendered_frames_since_last() {
-        let lockstep =
-            step_frame_performance(16_666, 0.005, 60.0, 1).expect("lockstep payload built");
+        let lockstep = step_frame_performance(
+            16_666,
+            0.005,
+            60.0,
+            1,
+            AssetIntegrationPerformanceState::default(),
+        )
+        .expect("lockstep payload built");
         assert_eq!(lockstep.rendered_frames_since_last, 1);
-        let decoupled =
-            step_frame_performance(16_666, 0.005, 60.0, 7).expect("decoupled payload built");
+        let decoupled = step_frame_performance(
+            16_666,
+            0.005,
+            60.0,
+            7,
+            AssetIntegrationPerformanceState::default(),
+        )
+        .expect("decoupled payload built");
         assert_eq!(decoupled.rendered_frames_since_last, 7);
+    }
+
+    #[test]
+    fn frame_start_performance_accumulates_and_resets_asset_integration_stats() {
+        let mut state = FrameStartPerformanceState::default();
+        let t0 = Instant::now();
+        state.on_tick_frame_wall_clock(t0);
+        state.on_tick_frame_wall_clock(t0 + Duration::from_millis(16));
+        state.record_asset_integration_stats(AssetIntegrationPerformanceSample {
+            integration_elapsed: Duration::from_millis(2),
+            particle_elapsed: Duration::from_millis(1),
+            processed_tasks: 3,
+            high_priority_tasks: 4,
+            normal_priority_tasks: 5,
+            render_tasks: 6,
+            particle_tasks: 7,
+            handle_waits: 1,
+        });
+        state.record_asset_integration_stats(AssetIntegrationPerformanceSample {
+            integration_elapsed: Duration::from_millis(3),
+            particle_elapsed: Duration::from_millis(2),
+            processed_tasks: 8,
+            high_priority_tasks: 9,
+            normal_priority_tasks: 10,
+            render_tasks: 11,
+            particle_tasks: 12,
+            handle_waits: 2,
+        });
+
+        let sample = state
+            .step_for_frame_start()
+            .expect("payload built after non-zero wall interval");
+        assert!((sample.integration_processing_time - 0.005).abs() < f32::EPSILON);
+        assert!((sample.extra_particle_processing_time - 0.003).abs() < f32::EPSILON);
+        assert_eq!(sample.processed_asset_integrator_tasks, 11);
+        assert_eq!(sample.integration_high_priority_tasks, 13);
+        assert_eq!(sample.integration_tasks, 15);
+        assert_eq!(sample.integration_render_tasks, 17);
+        assert_eq!(sample.integration_particle_tasks, 19);
+        assert_eq!(sample.processing_handle_waits, 3);
+
+        let reset_sample = state
+            .step_for_frame_start()
+            .expect("payload built while wall interval remains available");
+        assert_eq!(reset_sample.processed_asset_integrator_tasks, 0);
+        assert_eq!(reset_sample.integration_high_priority_tasks, 0);
+        assert_eq!(reset_sample.integration_tasks, 0);
+        assert_eq!(reset_sample.integration_render_tasks, 0);
+        assert_eq!(reset_sample.integration_particle_tasks, 0);
+        assert_eq!(reset_sample.processing_handle_waits, 0);
     }
 
     #[test]

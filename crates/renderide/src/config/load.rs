@@ -728,7 +728,8 @@ unfocused_fps = 0
 
 [rendering]
 vsync = "off"
-asset_integration_budget_ms = 3
+asset_integration_budget_ms = 2
+asset_particle_integration_budget_ms = 4
 reported_max_texture_size = 0
 render_texture_hdr_color = false
 texture_vram_budget_mib = 0
@@ -782,6 +783,11 @@ action = "log_and_continue"
     #[test]
     fn file_pipeline_ignores_unknown_keys_without_drops() {
         let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let _env = EnvGuard::capture(&["RENDERIDE_DISPLAY__FOCUSED_FPS"]);
+        // SAFETY: env mutation in test; serialized via CONFIG_ENV_TEST_LOCK and restored by EnvGuard.
+        unsafe {
+            std::env::remove_var("RENDERIDE_DISPLAY__FOCUSED_FPS");
+        }
         let content = r#"
 [display]
 focused_fps = 75

@@ -160,25 +160,6 @@ impl MaterialSystem {
         }
     }
 
-    /// Drain pending material batches using the given shared memory and IPC.
-    pub fn flush_pending_material_batches(
-        &mut self,
-        shm: &mut SharedMemoryAccessor,
-        ipc: &mut DualQueueIpc,
-    ) {
-        profiling::scope!("material::flush_pending_batches");
-        let pending_count = self.pending_material_batches.len();
-        if pending_count > 0 {
-            logger::debug!(
-                "materials: flushing {pending_count} deferred update batch(es) after shared memory became available"
-            );
-        }
-        let batches: Vec<MaterialsUpdateBatch> = self.pending_material_batches.drain(..).collect();
-        for batch in batches {
-            self.apply_materials_update_batch(batch, shm, ipc);
-        }
-    }
-
     /// Queue a materials batch when shared memory is not yet available.
     pub fn enqueue_materials_batch_no_shm(&mut self, batch: MaterialsUpdateBatch) {
         logger::trace!(
@@ -209,6 +190,11 @@ impl MaterialSystem {
         !self.pending_material_batches.is_empty()
     }
 
+    /// Moves material batches that were waiting for shared memory out for cooperative integration.
+    pub fn take_pending_material_batches(&mut self) -> Vec<MaterialsUpdateBatch> {
+        self.pending_material_batches.drain(..).collect()
+    }
+
     /// Apply one host materials batch (shared memory must be valid for the batch descriptors).
     ///
     /// Writes per-target instance-changed bits into [`MaterialsUpdateBatch::instance_changed_buffer`]
@@ -222,6 +208,24 @@ impl MaterialSystem {
         batch: MaterialsUpdateBatch,
         shm: &mut SharedMemoryAccessor,
         ipc: &mut DualQueueIpc,
+    ) {
+        self.apply_materials_update_batch_inner(batch, shm, Some(ipc));
+    }
+
+    /// Apply one host materials batch without sending an IPC acknowledgement.
+    pub fn apply_materials_update_batch_no_ack(
+        &mut self,
+        batch: MaterialsUpdateBatch,
+        shm: &mut SharedMemoryAccessor,
+    ) {
+        self.apply_materials_update_batch_inner(batch, shm, None);
+    }
+
+    fn apply_materials_update_batch_inner(
+        &mut self,
+        batch: MaterialsUpdateBatch,
+        shm: &mut SharedMemoryAccessor,
+        ipc: Option<&mut DualQueueIpc>,
     ) {
         profiling::scope!("material::apply_update_batch");
         let update_batch_id = batch.update_batch_id;
@@ -281,9 +285,11 @@ impl MaterialSystem {
             }
         }
 
-        let _ = ipc.send_background_reliable(RendererCommand::MaterialsUpdateBatchResult(
-            MaterialsUpdateBatchResult { update_batch_id },
-        ));
+        if let Some(ipc) = ipc {
+            let _ = ipc.send_background_reliable(RendererCommand::MaterialsUpdateBatchResult(
+                MaterialsUpdateBatchResult { update_batch_id },
+            ));
+        }
     }
 
     /// Remove material / property-block entries from the host store.

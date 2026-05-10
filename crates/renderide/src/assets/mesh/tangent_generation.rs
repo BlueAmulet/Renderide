@@ -477,6 +477,16 @@ mod tests {
         bytes
     }
 
+    fn quad_vertices_with_y_tangent_uvs() -> Vec<u8> {
+        let mut bytes = Vec::new();
+        let normal = [0.0, 0.0, 1.0];
+        push_vertex(&mut bytes, [-1.0, -1.0, 0.0], normal, [0.0, 0.0]);
+        push_vertex(&mut bytes, [1.0, -1.0, 0.0], normal, [0.0, 1.0]);
+        push_vertex(&mut bytes, [1.0, 1.0, 0.0], normal, [1.0, 1.0]);
+        push_vertex(&mut bytes, [-1.0, 1.0, 0.0], normal, [1.0, 0.0]);
+        bytes
+    }
+
     fn quad_indices() -> Vec<u8> {
         [0u16, 1, 2, 0, 2, 3]
             .into_iter()
@@ -556,6 +566,33 @@ mod tests {
         for vertex in 0..4 {
             assert_eq!(read_tangent(&tangents, vertex), [1.0, 0.0, 0.0, 1.0]);
         }
+    }
+
+    #[test]
+    fn missing_tangent_generation_flag_controls_fallback() {
+        let attrs = [
+            attr(VertexAttributeType::Position, 3),
+            attr(VertexAttributeType::Normal, 3),
+            attr(VertexAttributeType::UV0, 2),
+        ];
+        let vertices = quad_vertices_with_y_tangent_uvs();
+        let indices = quad_indices();
+        let submeshes = [triangle_submesh(6)];
+        let source = TangentStreamSource {
+            vertex_data: &vertices,
+            index_data: &indices,
+            vertex_count: 4,
+            stride: 32,
+            attrs: &attrs,
+            index_format: IndexBufferFormat::UInt16,
+            submeshes: &submeshes,
+        };
+
+        let generated = tangent_stream_bytes(source, true).expect("generated tangent stream");
+        let defaulted = tangent_stream_bytes(source, false).expect("default tangent stream");
+
+        assert_ne!(read_tangent(&generated, 0), DEFAULT_TANGENT);
+        assert_eq!(read_tangent(&defaulted, 0), DEFAULT_TANGENT);
     }
 
     #[test]

@@ -34,6 +34,9 @@ pub struct RenderingSettings {
     /// ([`crate::runtime::RendererRuntime::run_asset_integration`]), in milliseconds.
     #[serde(rename = "asset_integration_budget_ms")]
     pub asset_integration_budget_ms: u32,
+    /// Extra post-main budget for dynamic buffer / particle integration, in milliseconds.
+    #[serde(rename = "asset_particle_integration_budget_ms")]
+    pub asset_particle_integration_budget_ms: u32,
     /// Multisample anti-aliasing for the main window forward path (clustered forward). Effective
     /// sample count is clamped to the GPU's supported maximum for the swapchain format. VR and
     /// offscreen host render textures stay at 1x until extended separately.
@@ -52,7 +55,8 @@ impl Default for RenderingSettings {
         Self {
             vsync: VsyncMode::default(),
             graphics_api: GraphicsApiSetting::default(),
-            asset_integration_budget_ms: 3,
+            asset_integration_budget_ms: 2,
+            asset_particle_integration_budget_ms: 4,
             msaa: MsaaSampleCount::default(),
             scene_color_format: SceneColorFormat::default(),
         }
