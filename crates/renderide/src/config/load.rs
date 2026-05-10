@@ -13,16 +13,17 @@ use std::path::PathBuf;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
-use toml_edit::{DocumentMut, Item};
+use toml_edit::{DocumentMut, Item, Table, value};
 
 use super::resolve::{
     ConfigResolveOutcome, ConfigSource, apply_generated_config, is_dir_writable, read_config_file,
     renderide_config_env_nonempty, resolve_config_path, resolve_save_path,
 };
-use super::save::save_renderer_settings_pruned;
-use super::types::RendererSettings;
+use super::save::{save_migrated_renderer_config, save_renderer_settings_pruned};
+use super::types::{AutoExposureSettings, RendererSettings};
 
 const MAX_COMPATIBILITY_DROPS: usize = 64;
+const LEGACY_AUTO_EXPOSURE_DEFAULT_TARGET_EV: f64 = -3.0;
 
 /// Controls whether the TOML config file is consulted during startup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -126,11 +127,10 @@ impl LoadPipeline {
     }
 }
 
-/// Builds the canonical `RENDERIDE_*` env layering with the post-extract
-/// [`apply_renderide_gpu_validation_env`] mutator, optionally including a TOML layer when
-/// `toml_content` is provided.
+/// Builds the canonical `RENDERIDE_*` env layering with post-extract mutators, optionally
+/// including a TOML layer when `toml_content` is provided.
 pub fn canonical_layers(toml_content: Option<String>) -> Vec<ConfigLayer> {
-    let mut v = Vec::with_capacity(4);
+    let mut v = Vec::with_capacity(5);
     v.push(ConfigLayer::Defaults);
     if let Some(content) = toml_content {
         v.push(ConfigLayer::Toml(content));
@@ -140,6 +140,7 @@ pub fn canonical_layers(toml_content: Option<String>) -> Vec<ConfigLayer> {
         separator: "__",
     });
     v.push(ConfigLayer::PostExtract(apply_renderide_gpu_validation_env));
+    v.push(ConfigLayer::PostExtract(apply_current_config_version));
     v
 }
 
@@ -156,6 +157,11 @@ pub fn apply_renderide_gpu_validation_env(settings: &mut RendererSettings) {
         Ok("0" | "false" | "no") => settings.debug.gpu_validation_layers = false,
         _ => {}
     }
+}
+
+/// Pins runtime settings to the config schema version emitted by this renderer build.
+pub fn apply_current_config_version(settings: &mut RendererSettings) {
+    RendererSettings::CURRENT_CONFIG_VERSION.clone_into(&mut settings.config_version);
 }
 
 /// Resolves `config.toml`, runs the canonical [`LoadPipeline`], and produces a
@@ -243,17 +249,36 @@ struct ConfigCompatibilityDrop {
     error: String,
 }
 
+#[derive(Debug)]
+struct ToleratedTomlLoad {
+    settings: RendererSettings,
+    drops: Vec<ConfigCompatibilityDrop>,
+    migrated_toml: Option<String>,
+}
+
 fn run_pipeline_tolerating_toml(
     toml_content: &str,
-) -> Result<(RendererSettings, Vec<ConfigCompatibilityDrop>), Box<figment::Error>> {
+) -> Result<ToleratedTomlLoad, Box<figment::Error>> {
     let Ok(mut document) = toml_content.parse::<DocumentMut>() else {
-        return run_pipeline(Some(toml_content.to_string())).map(|settings| (settings, vec![]));
+        return run_pipeline(Some(toml_content.to_string())).map(|settings| ToleratedTomlLoad {
+            settings,
+            drops: vec![],
+            migrated_toml: None,
+        });
     };
+
+    let migrated_toml = migrate_unversioned_config(&mut document).then(|| document.to_string());
 
     let mut drops = Vec::new();
     for _ in 0..MAX_COMPATIBILITY_DROPS {
         match run_pipeline(Some(document.to_string())) {
-            Ok(settings) => return Ok((settings, drops)),
+            Ok(settings) => {
+                return Ok(ToleratedTomlLoad {
+                    settings,
+                    drops,
+                    migrated_toml,
+                });
+            }
             Err(e) => {
                 let Some(path) = compatibility_error_path(&e) else {
                     return Err(e);
@@ -270,7 +295,61 @@ fn run_pipeline_tolerating_toml(
         }
     }
 
-    run_pipeline(Some(document.to_string())).map(|settings| (settings, drops))
+    run_pipeline(Some(document.to_string())).map(|settings| ToleratedTomlLoad {
+        settings,
+        drops,
+        migrated_toml,
+    })
+}
+
+fn migrate_unversioned_config(document: &mut DocumentMut) -> bool {
+    if document.get("config_version").is_some() {
+        return false;
+    }
+
+    migrate_unversioned_auto_exposure_compensation(document);
+    document.as_table_mut().insert(
+        "config_version",
+        value(RendererSettings::CURRENT_CONFIG_VERSION),
+    );
+    true
+}
+
+fn migrate_unversioned_auto_exposure_compensation(document: &mut DocumentMut) {
+    // TODO(2026-05-24): Remove this one-time migration after the 2026-05-10 introduction has aged out.
+    let target_ev = document
+        .get("post_processing")
+        .and_then(Item::as_table)
+        .and_then(|table| table.get("auto_exposure"))
+        .and_then(Item::as_table)
+        .and_then(|table| table.get("compensation_ev"))
+        .and_then(item_to_f64)
+        .unwrap_or(LEGACY_AUTO_EXPOSURE_DEFAULT_TARGET_EV);
+    let compensation_ev = target_ev - f64::from(AutoExposureSettings::MIDDLE_GRAY_EV);
+
+    let Some(post_processing) = get_or_create_table(document.as_table_mut(), "post_processing")
+    else {
+        return;
+    };
+    let Some(auto_exposure) = get_or_create_table(post_processing, "auto_exposure") else {
+        return;
+    };
+    auto_exposure.insert("compensation_ev", value(compensation_ev));
+}
+
+fn get_or_create_table<'a>(table: &'a mut Table, key: &str) -> Option<&'a mut Table> {
+    table
+        .entry(key)
+        .or_insert_with(|| Item::Table(Table::new()))
+        .as_table_mut()
+}
+
+fn item_to_f64(item: &Item) -> Option<f64> {
+    item.as_value().and_then(|value| {
+        value
+            .as_float()
+            .or_else(|| value.as_integer().map(|v| v as f64))
+    })
 }
 
 fn compatibility_error_path(error: &figment::Error) -> Option<Vec<String>> {
@@ -325,9 +404,10 @@ fn initial_settings_from_resolve(
         logger::info!("Loading renderer config from {}", path.display());
         match read_config_file(path) {
             Ok(content) => match run_pipeline_tolerating_toml(&content) {
-                Ok((s, drops)) => {
-                    log_compatibility_drops(path, &drops);
-                    s
+                Ok(load) => {
+                    log_compatibility_drops(path, &load.drops);
+                    persist_migrated_toml(path, load.migrated_toml.as_deref());
+                    load.settings
                 }
                 Err(e) => {
                     logger::error!(
@@ -393,9 +473,10 @@ fn maybe_create_default_config_and_reload(
             apply_generated_config(resolve, path.clone());
             match read_config_file(&path) {
                 Ok(content) => match run_pipeline_tolerating_toml(&content) {
-                    Ok((s, drops)) => {
-                        log_compatibility_drops(&path, &drops);
-                        *settings = s;
+                    Ok(load) => {
+                        log_compatibility_drops(&path, &load.drops);
+                        persist_migrated_toml(&path, load.migrated_toml.as_deref());
+                        *settings = load.settings;
                     }
                     Err(e) => {
                         logger::error!(
@@ -416,6 +497,24 @@ fn maybe_create_default_config_and_reload(
         Err(e) => {
             logger::warn!("Failed to create default config at {}: {e}", path.display());
         }
+    }
+}
+
+fn persist_migrated_toml(path: &std::path::Path, migrated_toml: Option<&str>) {
+    let Some(contents) = migrated_toml else {
+        return;
+    };
+
+    match save_migrated_renderer_config(path, contents) {
+        Ok(()) => logger::info!(
+            "Migrated renderer config {} to config_version {}",
+            path.display(),
+            RendererSettings::CURRENT_CONFIG_VERSION
+        ),
+        Err(e) => logger::warn!(
+            "Failed to persist migrated renderer config {}: {e}",
+            path.display()
+        ),
     }
 }
 
@@ -475,6 +574,44 @@ mod tests {
     /// Test helper: run the canonical pipeline with an inline TOML string.
     fn load_settings_from_toml_str(content: &str) -> Result<RendererSettings, Box<figment::Error>> {
         run_pipeline(Some(content.to_string()))
+    }
+
+    fn migrated_compensation_ev(old_absolute_target_ev: f64) -> f32 {
+        (old_absolute_target_ev - f64::from(AutoExposureSettings::MIDDLE_GRAY_EV)) as f32
+    }
+
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 1e-5,
+            "expected {expected}, got {actual}"
+        );
+    }
+
+    fn migrated_document(load: &ToleratedTomlLoad) -> DocumentMut {
+        load.migrated_toml
+            .as_deref()
+            .expect("migrated toml")
+            .parse()
+            .expect("migrated toml should parse")
+    }
+
+    fn document_config_version(document: &DocumentMut) -> &str {
+        document
+            .get("config_version")
+            .and_then(Item::as_value)
+            .and_then(|value| value.as_str())
+            .expect("config_version")
+    }
+
+    fn document_auto_exposure_compensation(document: &DocumentMut) -> f32 {
+        document
+            .get("post_processing")
+            .and_then(Item::as_table)
+            .and_then(|table| table.get("auto_exposure"))
+            .and_then(Item::as_table)
+            .and_then(|table| table.get("compensation_ev"))
+            .and_then(item_to_f64)
+            .expect("auto exposure compensation") as f32
     }
 
     #[test]
@@ -654,11 +791,160 @@ future_display_key = "kept"
 mode = "future"
 "#;
 
-        let (settings, drops) =
+        let load =
             run_pipeline_tolerating_toml(content).expect("unknown keys should not block load");
 
-        assert_eq!(settings.display.focused_fps_cap, 75);
-        assert!(drops.is_empty(), "unknown keys should be serde-ignored");
+        assert_eq!(load.settings.display.focused_fps_cap, 75);
+        assert!(
+            load.drops.is_empty(),
+            "unknown keys should be serde-ignored"
+        );
+    }
+
+    #[test]
+    fn unversioned_auto_exposure_default_target_migrates_to_relative_compensation() {
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let content = r#"
+[post_processing.auto_exposure]
+compensation_ev = -3.0
+"#;
+
+        let load = run_pipeline_tolerating_toml(content).expect("unversioned config migrates");
+        let expected = migrated_compensation_ev(LEGACY_AUTO_EXPOSURE_DEFAULT_TARGET_EV);
+
+        assert_close(
+            load.settings.post_processing.auto_exposure.compensation_ev,
+            expected,
+        );
+        assert_close(
+            load.settings
+                .post_processing
+                .auto_exposure
+                .resolved_target_ev(),
+            LEGACY_AUTO_EXPOSURE_DEFAULT_TARGET_EV as f32,
+        );
+        let document = migrated_document(&load);
+        assert_eq!(
+            document_config_version(&document),
+            RendererSettings::CURRENT_CONFIG_VERSION
+        );
+        assert_close(document_auto_exposure_compensation(&document), expected);
+    }
+
+    #[test]
+    fn unversioned_custom_auto_exposure_target_migrates_to_relative_compensation() {
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let content = r#"
+[post_processing.auto_exposure]
+compensation_ev = -1.25
+"#;
+
+        let load = run_pipeline_tolerating_toml(content).expect("unversioned config migrates");
+        let expected = migrated_compensation_ev(-1.25);
+
+        assert_close(
+            load.settings.post_processing.auto_exposure.compensation_ev,
+            expected,
+        );
+        assert_close(
+            load.settings
+                .post_processing
+                .auto_exposure
+                .resolved_target_ev(),
+            -1.25,
+        );
+    }
+
+    #[test]
+    fn unversioned_missing_auto_exposure_compensation_uses_old_default_target() {
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let content = r#"
+[display]
+focused_fps = 90
+"#;
+
+        let load = run_pipeline_tolerating_toml(content).expect("unversioned config migrates");
+        let expected = migrated_compensation_ev(LEGACY_AUTO_EXPOSURE_DEFAULT_TARGET_EV);
+
+        assert_eq!(load.settings.display.focused_fps_cap, 90);
+        assert_close(
+            load.settings.post_processing.auto_exposure.compensation_ev,
+            expected,
+        );
+        assert_close(
+            document_auto_exposure_compensation(&migrated_document(&load)),
+            expected,
+        );
+    }
+
+    #[test]
+    fn versioned_config_does_not_rerun_auto_exposure_migration() {
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let content = format!(
+            r#"
+config_version = "{}"
+
+[post_processing.auto_exposure]
+compensation_ev = -3.0
+"#,
+            RendererSettings::CURRENT_CONFIG_VERSION
+        );
+
+        let load = run_pipeline_tolerating_toml(&content).expect("versioned config loads");
+
+        assert!(load.migrated_toml.is_none());
+        assert_close(
+            load.settings.post_processing.auto_exposure.compensation_ev,
+            -3.0,
+        );
+    }
+
+    #[test]
+    fn env_compensation_override_wins_without_persisting_to_migrated_file() {
+        const CONFIG_VAR: &str = "RENDERIDE_CONFIG";
+        const COMPENSATION_VAR: &str = "RENDERIDE_POST_PROCESSING__AUTO_EXPOSURE__COMPENSATION_EV";
+
+        let _lock = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
+        let _guard = EnvGuard::capture(&[CONFIG_VAR, COMPENSATION_VAR]);
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let toml = write_toml(
+            tmp.path(),
+            r#"
+[post_processing.auto_exposure]
+compensation_ev = -3.0
+"#,
+        );
+
+        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
+        unsafe {
+            std::env::set_var(CONFIG_VAR, &toml);
+            std::env::set_var(COMPENSATION_VAR, "-1.25");
+        }
+
+        let result = load_renderer_settings(ConfigFilePolicy::Load);
+
+        assert_close(
+            result
+                .settings
+                .post_processing
+                .auto_exposure
+                .compensation_ev,
+            -1.25,
+        );
+        let text = std::fs::read_to_string(&toml).expect("read migrated file");
+        assert!(
+            !text.contains("-1.25"),
+            "env override should not be persisted:\n{text}"
+        );
+        let document: DocumentMut = text.parse().expect("persisted config should parse");
+        assert_eq!(
+            document_config_version(&document),
+            RendererSettings::CURRENT_CONFIG_VERSION
+        );
+        assert_close(
+            document_auto_exposure_compensation(&document),
+            migrated_compensation_ev(LEGACY_AUTO_EXPOSURE_DEFAULT_TARGET_EV),
+        );
     }
 
     #[test]
@@ -669,19 +955,19 @@ mode = "future"
 mode = "future_curve"
 "#;
 
-        let (settings, drops) =
+        let load =
             run_pipeline_tolerating_toml(content).expect("future enum token should fall back");
 
         assert_eq!(
-            settings.post_processing.tonemap.mode,
+            load.settings.post_processing.tonemap.mode,
             crate::config::TonemapMode::default()
         );
-        assert_eq!(drops.len(), 1);
-        assert_eq!(drops[0].path, "post_processing.tonemap.mode");
+        assert_eq!(load.drops.len(), 1);
+        assert_eq!(load.drops[0].path, "post_processing.tonemap.mode");
         assert!(
-            drops[0].value.contains("future_curve"),
+            load.drops[0].value.contains("future_curve"),
             "drop should report removed value: {:?}",
-            drops[0]
+            load.drops[0]
         );
     }
 
