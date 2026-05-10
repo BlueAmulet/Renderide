@@ -21,9 +21,9 @@ pub struct AutoExposureSettings {
     pub low_percent: f32,
     /// High percentile cut in `[0, 1]`; brighter samples above this cumulative fraction are ignored.
     pub high_percent: f32,
-    /// Adaptation speed for transitions from dark scenes to bright scenes, in EV stops per second.
+    /// Adaptation speed for positive exposure-EV changes that brighten the image.
     pub speed_brighten: f32,
-    /// Adaptation speed for transitions from bright scenes to dark scenes, in EV stops per second.
+    /// Adaptation speed for negative exposure-EV changes that darken the image.
     pub speed_darken: f32,
     /// EV distance where adaptation transitions from linear to exponential.
     pub exponential_transition_distance: f32,
@@ -64,12 +64,12 @@ impl AutoExposureSettings {
         (low, high)
     }
 
-    /// Returns a finite non-negative dark-to-bright scene adaptation speed.
+    /// Returns a finite non-negative image-brightening adaptation speed.
     pub fn resolved_speed_brighten(self) -> f32 {
         finite_or(self.speed_brighten, Self::default().speed_brighten).max(0.0)
     }
 
-    /// Returns a finite non-negative bright-to-dark scene adaptation speed.
+    /// Returns a finite non-negative image-darkening adaptation speed.
     pub fn resolved_speed_darken(self) -> f32 {
         finite_or(self.speed_darken, Self::default().speed_darken).max(0.0)
     }
@@ -97,11 +97,11 @@ impl AutoExposureSettings {
 impl Default for AutoExposureSettings {
     fn default() -> Self {
         Self {
-            enabled: false,
-            min_ev: -16.0,
-            max_ev: 16.0,
-            low_percent: 0.0,
-            high_percent: 1.0,
+            enabled: true,
+            min_ev: -8.0,
+            max_ev: 8.0,
+            low_percent: 0.1,
+            high_percent: 0.9,
             speed_brighten: 3.0,
             speed_darken: 3.0,
             exponential_transition_distance: 1.5,
@@ -136,6 +136,14 @@ mod tests {
         assert!(
             (settings.resolved_target_ev() - AutoExposureSettings::MIDDLE_GRAY_EV).abs() < 1e-6
         );
+    }
+
+    #[test]
+    fn default_metering_uses_trimmed_histogram_window() {
+        let settings = AutoExposureSettings::default();
+
+        assert_eq!(settings.resolved_ev_range(), (-8.0, 8.0));
+        assert_eq!(settings.resolved_filter(), (0.1, 0.9));
     }
 
     #[test]
