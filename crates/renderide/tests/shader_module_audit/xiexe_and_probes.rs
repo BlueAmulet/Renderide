@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
-    let globals_src = fs::read_to_string(manifest_dir().join("shaders/modules/globals.wgsl"))?;
+    let globals_src = source_file(manifest_dir().join("shaders/modules/globals.wgsl"))?;
     assert!(
         globals_src.contains("fn stereo_center_view_dir_for_world_pos("),
         "globals.wgsl must expose a stereo-center view direction helper for eye-stable effects"
@@ -16,7 +16,7 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
     );
 
     let lighting_src =
-        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
+        source_file(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
     assert!(
         lighting_src.contains(
             "let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);"
@@ -72,7 +72,7 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
 #[test]
 fn xiexe_primary_direct_specular_uses_filament_pbr_core() -> io::Result<()> {
     let lighting_src =
-        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
+        source_file(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
 
     for required in [
         "fn xiexe_specular_reflectance(s: xb::SurfaceData) -> vec3<f32> {",
@@ -117,7 +117,7 @@ fn xiexe_primary_direct_specular_uses_filament_pbr_core() -> io::Result<()> {
 #[test]
 fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
     let lighting_src =
-        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
+        source_file(manifest_dir().join("shaders/modules/xiexe_toon2_lighting.wgsl"))?;
 
     for required in [
         "return rprobe::indirect_diffuse(s.normal, view_layer, true);",
@@ -183,8 +183,7 @@ fn reflection_probe_specular_samples_unity_oriented_atlas() -> io::Result<()> {
 
 #[test]
 fn xiexe_generic_stems_resolve_alpha_mode_from_keywords() -> io::Result<()> {
-    let base_src =
-        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_base.wgsl"))?;
+    let base_src = source_file(manifest_dir().join("shaders/modules/xiexe_toon2_base.wgsl"))?;
     for field_name in ["Cutout", "AlphaBlend", "Transparent"] {
         assert!(
             declares_f32_field(&base_src, field_name),

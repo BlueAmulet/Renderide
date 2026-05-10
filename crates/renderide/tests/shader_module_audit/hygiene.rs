@@ -18,7 +18,7 @@ fn shader_modules_have_unique_import_paths() -> io::Result<()> {
     let mut offenders = Vec::new();
 
     for path in wgsl_files_recursive("shaders/modules")? {
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         let Some(import_path) = define_import_path(&src) else {
             offenders.push(format!("{} has no #define_import_path", file_label(&path)));
             continue;
@@ -48,7 +48,7 @@ fn shader_modules_have_unique_import_paths() -> io::Result<()> {
 fn material_roots_do_not_duplicate_view_projection_selection() -> io::Result<()> {
     let mut offenders = Vec::new();
     for path in wgsl_files_recursive("shaders/materials")? {
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         for forbidden in ["view_proj_left", "view_proj_right"] {
             if src.contains(forbidden) {
                 offenders.push(format!(
@@ -81,7 +81,7 @@ fn shader_modules_centralize_view_projection_selection() -> io::Result<()> {
             continue;
         }
 
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         for forbidden in ["view_proj_left", "view_proj_right"] {
             if src.contains(forbidden) {
                 offenders.push(format!("{label} still contains `{forbidden}`"));
@@ -103,7 +103,7 @@ fn material_roots_do_not_redeclare_shared_helpers() -> io::Result<()> {
     let mut offenders = Vec::new();
     for path in wgsl_files_recursive("shaders/materials")? {
         let label = file_label(&path);
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
 
         for forbidden in [
             "fn alpha_over",
@@ -130,7 +130,7 @@ fn material_roots_do_not_redeclare_shared_helpers() -> io::Result<()> {
 
 #[test]
 fn normal_decode_scales_xy_before_reconstructing_z() -> io::Result<()> {
-    let src = fs::read_to_string(manifest_dir().join("shaders/modules/normal_decode.wgsl"))?;
+    let src = source_file(manifest_dir().join("shaders/modules/normal_decode.wgsl"))?;
     let xy_scale = src
         .find("let xy = (raw.xy * 2.0 - 1.0) * scale;")
         .expect("normal decode must scale tangent XY before Z reconstruction");
@@ -155,7 +155,7 @@ fn normal_decode_scales_xy_before_reconstructing_z() -> io::Result<()> {
 fn shared_fullscreen_roots_do_not_duplicate_fullscreen_triangle_setup() -> io::Result<()> {
     let mut offenders = Vec::new();
     for path in wgsl_files_recursive("shaders/passes")? {
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         if !src.contains("renderide::fullscreen") {
             continue;
         }
