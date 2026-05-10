@@ -26,7 +26,7 @@ struct BloomUniforms {
     /// Composite intensity (linear scatter factor). `0.0` disables bloom (chain gates before
     /// the pass).
     intensity: f32,
-    /// `1.0` -> energy-conserving composite; `0.0` -> additive composite.
+    /// `1.0` -> source-redistributing composite; `0.0` -> additive composite.
     energy_conserving: f32,
     /// Padding to 16-byte alignment (std140-compatible).
     _pad: vec2<f32>,
@@ -68,6 +68,14 @@ fn soft_threshold(color: vec3<f32>) -> vec3<f32> {
 
 fn positive_bloom_source(color: vec3<f32>) -> vec3<f32> {
     return max(color, vec3<f32>(0.0));
+}
+
+fn bloom_source(color: vec3<f32>) -> vec3<f32> {
+    var source = positive_bloom_source(color);
+    if (uniforms.threshold_precomputations.x > 0.0) {
+        source = soft_threshold(source);
+    }
+    return source;
 }
 
 /// Holds the 5 weighted sample groups the 13-tap kernel produces. `fs_downsample_first` applies
@@ -198,8 +206,8 @@ fn fs_composite(in: fs::FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let bloom = textureSample(bloom_texture, src_sampler, in.uv, 0u).rgb;
 #endif
     let t = clamp(uniforms.intensity, 0.0, 1.0);
-    // Energy-conserving: out = t * bloom + (1 - t) * scene.
-    let energy = t * bloom + (1.0 - t) * scene.rgb;
+    // Energy-conserving: redistribute only the source term that entered the bloom chain.
+    let energy = scene.rgb + t * (bloom - bloom_source(scene.rgb));
     // Additive: out = scene + t * bloom.
     let additive = scene.rgb + uniforms.intensity * bloom;
     let rgb = mix(additive, energy, uniforms.energy_conserving);

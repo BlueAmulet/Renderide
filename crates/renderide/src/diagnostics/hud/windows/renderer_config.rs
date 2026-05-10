@@ -630,8 +630,9 @@ fn post_processing_bloom(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut b
     ui.text_disabled(
         "Bloom (dual-filter, COD: Advanced Warfare / Bevy port): HDR-linear scatter via a \
          mip-chain downsample/upsample pyramid with Karis firefly reduction on mip 0. Runs \
-         pre-tonemap. Changing `max mip dimension` rebuilds the render graph; other knobs take \
-         effect next frame via the shared params UBO / per-mip blend constant.",
+         pre-tonemap. Energy-conserving mode redistributes the bloom source term. Changing \
+         `max mip dimension` rebuilds the render graph; other knobs take effect next frame via the \
+         shared params UBO / per-mip blend constant.",
     );
     if ui.checkbox("Enable bloom", &mut g.post_processing.bloom.enabled) {
         *dirty = true;
