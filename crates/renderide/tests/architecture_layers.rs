@@ -43,6 +43,10 @@ const ROOT_MODULES: &[&str] = &[
 
 const FORBIDDEN_EDGES: &[Edge] = &[
     Edge {
+        from: "assets",
+        to: "backend",
+    },
+    Edge {
         from: "frontend",
         to: "assets",
     },
@@ -55,8 +59,28 @@ const FORBIDDEN_EDGES: &[Edge] = &[
         to: "xr",
     },
     Edge {
+        from: "gpu",
+        to: "xr",
+    },
+    Edge {
+        from: "materials",
+        to: "backend",
+    },
+    Edge {
+        from: "passes",
+        to: "backend",
+    },
+    Edge {
         from: "render_graph",
         to: "passes",
+    },
+    Edge {
+        from: "scene",
+        to: "backend",
+    },
+    Edge {
+        from: "world_mesh",
+        to: "render_graph",
     },
 ];
 

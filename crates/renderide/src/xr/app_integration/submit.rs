@@ -59,7 +59,7 @@ pub fn try_openxr_hmd_multiview_submit(
     };
     {
         profiling::scope!("xr::swapchain_wait_image");
-        let wd = EndFrameWatchdog::arm(WAIT_IMAGE_WATCHDOG_TIMEOUT, "wait_image");
+        let wd = EndFrameWatchdog::arm(WAIT_IMAGE_WATCHDOG_TIMEOUT, "xr::wait_image");
         let res = sc.handle.lock().wait_image(xr::Duration::INFINITE);
         wd.disarm();
         if res.is_err() {

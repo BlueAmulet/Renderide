@@ -22,7 +22,7 @@ use openxr::{CompositionLayerProjection, CompositionLayerProjectionView, Swapcha
 use parking_lot::Mutex;
 
 use crate::gpu::GpuQueueAccessGate;
-use crate::xr::session::end_frame_watchdog::EndFrameWatchdog;
+use crate::gpu::driver_thread::BlockingCallWatchdog;
 
 /// Deadline for a single deferred `xrEndFrame` call before the watchdog logs a stall.
 ///
@@ -44,7 +44,7 @@ pub type XrFinalizeReceiver = Receiver<()>;
 
 impl XrFinalizeSignal {
     /// Creates a fresh sender/receiver pair. Sender goes into [`XrFinalizeWork`]; the
-    /// receiver is stored on [`crate::xr::session::XrSessionState::pending_finalize`].
+    /// receiver is held by the XR session until the next frame wait drains it.
     pub fn new() -> (Self, XrFinalizeReceiver) {
         let (tx, rx) = sync_channel::<()>(1);
         (Self { sender: tx }, rx)
@@ -222,9 +222,9 @@ fn end_frame_projection(
     let v1 = &payload.views[1];
     let pose0 = sanitize_pose_for_end_frame(v0.pose);
     let pose1 = sanitize_pose_for_end_frame(v1.pose);
-    let wd = EndFrameWatchdog::arm_shutdown_aware(
+    let wd = BlockingCallWatchdog::arm_shutdown_aware(
         END_FRAME_WATCHDOG_TIMEOUT,
-        "end_frame_projection",
+        "xr::end_frame_projection",
         Arc::clone(&payload.shutdown_requested),
     );
     let res = {
@@ -273,9 +273,9 @@ fn end_frame_empty(
     shutdown_requested: &Arc<AtomicBool>,
 ) -> Result<(), xr::sys::Result> {
     profiling::scope!("driver::xr_end_frame_empty");
-    let wd = EndFrameWatchdog::arm_shutdown_aware(
+    let wd = BlockingCallWatchdog::arm_shutdown_aware(
         END_FRAME_WATCHDOG_TIMEOUT,
-        "end_frame_empty",
+        "xr::end_frame_empty",
         Arc::clone(shutdown_requested),
     );
     let res = {

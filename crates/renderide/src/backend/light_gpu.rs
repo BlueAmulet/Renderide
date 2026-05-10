@@ -4,123 +4,50 @@
 //! [`LightType`](crate::shared::LightType) and [`ShadowType`](crate::shared::ShadowType) are stored as `u32`
 //! with the same numeric values as `repr(u8)` on the wire.
 
-use bytemuck::{Pod, Zeroable};
-
+pub use crate::gpu::{GpuLight, MAX_LIGHTS};
 use crate::scene::ResolvedLight;
 use crate::shared::{LightType, ShadowType};
 
-/// Max lights copied into the scratch buffer (`prepare_lights_from_scene`). Sized so per-cluster
-/// indices stored in `cluster_light_indices` fit in a `u16` (which enables the 2-per-`u32`
-/// packing in `crate::backend::cluster_gpu`).
-pub const MAX_LIGHTS: usize = 65536;
-
-/// GPU-facing light record for a storage buffer upload.
-///
-/// Layout must match `GpuLight` in `shaders/modules/globals.wgsl`: WGSL aligns `vec3<u32>`
-/// (`_pad_trailing`) to **16 bytes**, so 4 bytes of implicit padding follow `shadow_type`, and the
-/// struct size rounds up to **112** bytes (see naga / WebGPU validation).
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-#[repr(C)]
-pub struct GpuLight {
-    /// Light position in world space (w unused; padding follows for WGSL alignment).
-    pub position: [f32; 3],
-    /// Aligns `position` to 16 bytes for WGSL `vec3` storage rules.
-    pub _pad0: f32,
-    /// Forward axis for spot/directional lights (normalized; w padding).
-    pub direction: [f32; 3],
-    /// Aligns `direction` to 16 bytes.
-    pub _pad1: f32,
-    /// Linear RGB color (intensity applied separately).
-    pub color: [f32; 3],
-    /// Scalar brightness multiplier.
-    pub intensity: f32,
-    /// Attenuation range in world units.
-    pub range: f32,
-    /// Cosine of the spot half-angle (spot lights).
-    pub spot_cos_half_angle: f32,
-    /// [`LightType`] as `u32` (matches wire `repr`).
-    pub light_type: u32,
-    /// Padding before shadow parameter block (layout match with WGSL).
-    pub _pad_before_shadow_params: u32,
-    /// Shadow strength / visibility factor.
-    pub shadow_strength: f32,
-    /// Shadow projection near plane.
-    pub shadow_near_plane: f32,
-    /// Depth bias for shadow sampling.
-    pub shadow_bias: f32,
-    /// Normal offset bias for shadowing.
-    pub shadow_normal_bias: f32,
-    /// [`ShadowType`] as `u32` (matches wire `repr`).
-    pub shadow_type: u32,
-    /// Padding so `_pad_trailing` starts at byte offset 88 (16-byte aligned for `vec3<u32>`).
-    pub _pad_align_vec3_trailing: [u8; 4],
-    /// Trailing `vec3<u32>`-shaped padding in WGSL (reserved for future shadow parameters).
-    pub _pad_trailing: [u32; 3],
-    /// Pads struct size to 112 bytes (WGSL struct alignment).
-    pub _pad_struct_end: [u8; 12],
-}
-
-impl Default for GpuLight {
-    fn default() -> Self {
-        Self {
-            position: [0.0; 3],
-            _pad0: 0.0,
-            direction: [0.0, 0.0, 1.0],
-            _pad1: 0.0,
-            color: [1.0; 3],
-            intensity: 1.0,
-            range: 10.0,
-            spot_cos_half_angle: 1.0,
-            light_type: 0,
-            _pad_before_shadow_params: 0,
-            shadow_strength: 0.0,
-            shadow_near_plane: 0.0,
-            shadow_bias: 0.0,
-            shadow_normal_bias: 0.0,
-            shadow_type: 0,
-            _pad_align_vec3_trailing: [0; 4],
-            _pad_trailing: [0; 3],
-            _pad_struct_end: [0; 12],
-        }
+/// Packs a [`ResolvedLight`] for GPU consumption.
+pub fn gpu_light_from_resolved(light: &ResolvedLight) -> GpuLight {
+    let spot_cos_half_angle = if light.spot_angle > 0.0 && light.spot_angle < 180.0 {
+        (light.spot_angle.to_radians() / 2.0).cos()
+    } else {
+        1.0
+    };
+    GpuLight {
+        position: [
+            light.world_position.x,
+            light.world_position.y,
+            light.world_position.z,
+        ],
+        _pad0: 0.0,
+        direction: [
+            light.world_direction.x,
+            light.world_direction.y,
+            light.world_direction.z,
+        ],
+        _pad1: 0.0,
+        color: [light.color.x, light.color.y, light.color.z],
+        intensity: light.intensity,
+        range: light.range.max(0.001),
+        spot_cos_half_angle,
+        light_type: light_type_u32(light.light_type),
+        _pad_before_shadow_params: 0,
+        shadow_strength: light.shadow_strength,
+        shadow_near_plane: light.shadow_near_plane,
+        shadow_bias: light.shadow_bias,
+        shadow_normal_bias: light.shadow_normal_bias,
+        shadow_type: shadow_type_u32(light.shadow_type),
+        _pad_align_vec3_trailing: [0; 4],
+        _pad_trailing: [0; 3],
+        _pad_struct_end: [0; 12],
     }
 }
 
-impl GpuLight {
-    /// Packs a [`ResolvedLight`] for GPU consumption.
-    pub fn from_resolved(light: &ResolvedLight) -> Self {
-        let spot_cos_half_angle = if light.spot_angle > 0.0 && light.spot_angle < 180.0 {
-            (light.spot_angle.to_radians() / 2.0).cos()
-        } else {
-            1.0
-        };
-        Self {
-            position: [
-                light.world_position.x,
-                light.world_position.y,
-                light.world_position.z,
-            ],
-            _pad0: 0.0,
-            direction: [
-                light.world_direction.x,
-                light.world_direction.y,
-                light.world_direction.z,
-            ],
-            _pad1: 0.0,
-            color: [light.color.x, light.color.y, light.color.z],
-            intensity: light.intensity,
-            range: light.range.max(0.001),
-            spot_cos_half_angle,
-            light_type: light_type_u32(light.light_type),
-            _pad_before_shadow_params: 0,
-            shadow_strength: light.shadow_strength,
-            shadow_near_plane: light.shadow_near_plane,
-            shadow_bias: light.shadow_bias,
-            shadow_normal_bias: light.shadow_normal_bias,
-            shadow_type: shadow_type_u32(light.shadow_type),
-            _pad_align_vec3_trailing: [0; 4],
-            _pad_trailing: [0; 3],
-            _pad_struct_end: [0; 12],
-        }
+impl From<&ResolvedLight> for GpuLight {
+    fn from(light: &ResolvedLight) -> Self {
+        gpu_light_from_resolved(light)
     }
 }
 
@@ -157,6 +84,8 @@ pub fn order_lights_for_clustered_shading_in_place(lights: &mut Vec<ResolvedLigh
 
 #[cfg(test)]
 mod layout_tests {
+    use std::mem::size_of;
+
     use glam::Vec3;
 
     use crate::scene::ResolvedLight;

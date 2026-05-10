@@ -12,23 +12,23 @@ mod ibl_dfg;
 mod reflection_probe_specular;
 mod scene_snapshot;
 
-use std::num::NonZeroU64;
 use std::sync::Arc;
 
 use crate::backend::cluster_gpu::{CLUSTER_COUNT_Z, ClusterBufferCache, ClusterBufferRefs};
-use crate::backend::light_gpu::{GpuLight, MAX_LIGHTS};
-use crate::gpu::GpuLimits;
+use crate::backend::light_gpu::GpuLight;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
+use crate::gpu::{GpuLimits, MAX_LIGHTS, frame_bind_group_layout};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use super::frame_gpu_error::FrameGpuInitError;
-pub use empty_material::{EmptyMaterialBindGroup, empty_material_bind_group_layout};
-use ibl_dfg::create_ibl_dfg_lut;
-pub use reflection_probe_specular::{
+pub use crate::gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT,
     REFLECTION_PROBE_METADATA_BOX_PROJECTION, REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL,
-    REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX, ReflectionProbeSpecularResources,
+    REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
 };
+pub use empty_material::EmptyMaterialBindGroup;
+use ibl_dfg::create_ibl_dfg_lut;
+pub use reflection_probe_specular::ReflectionProbeSpecularResources;
 use reflection_probe_specular::{
     ReflectionProbeSpecularBindGroupResources, create_reflection_probe_specular_fallback,
 };
@@ -188,164 +188,11 @@ impl PerViewSceneSnapshots {
     }
 }
 
-/// Appends uniform/storage entries that every clustered frame bind group owns.
-fn append_frame_buffer_layout_entries(entries: &mut Vec<wgpu::BindGroupLayoutEntry>) {
-    entries.extend([
-        wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(size_of::<FrameGpuUniforms>() as u64),
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 1,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(size_of::<GpuLight>() as u64),
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 2,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(4),
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 3,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(4),
-            },
-            count: None,
-        },
-    ]);
-}
-
-/// Appends per-view depth/color snapshot entries used by grab-pass material sampling.
-fn append_scene_snapshot_layout_entries(entries: &mut Vec<wgpu::BindGroupLayoutEntry>) {
-    entries.extend([
-        wgpu::BindGroupLayoutEntry {
-            binding: 4,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Depth,
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 5,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Depth,
-                view_dimension: wgpu::TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 6,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 7,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2Array,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 8,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        },
-    ]);
-}
-
-/// Appends the frame-global IBL texture/sampler entries.
-fn append_ibl_layout_entries(entries: &mut Vec<wgpu::BindGroupLayoutEntry>) {
-    entries.extend([
-        wgpu::BindGroupLayoutEntry {
-            binding: 9,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::CubeArray,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 10,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 11,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        },
-        wgpu::BindGroupLayoutEntry {
-            binding: 12,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Storage { read_only: true },
-                has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(size_of::<GpuReflectionProbeMetadata>() as u64),
-            },
-            count: None,
-        },
-    ]);
-}
-
 impl FrameGpuResources {
-    /// Returns the `@group(0)` layout entries shared by every material pipeline.
-    pub(crate) fn bind_group_layout_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
-        let mut entries = Vec::with_capacity(13);
-        append_frame_buffer_layout_entries(&mut entries);
-        append_scene_snapshot_layout_entries(&mut entries);
-        append_ibl_layout_entries(&mut entries);
-        entries
-    }
-
     /// Layout for `@group(0)`: uniform frame + lights + cluster counts + cluster indices +
     /// scene snapshots + reflection-probe specular resources.
     pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
-        let entries = Self::bind_group_layout_entries();
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("frame_globals"),
-            entries: &entries,
-        })
+        frame_bind_group_layout(device)
     }
 
     fn create_bind_group(
@@ -633,8 +480,6 @@ impl FrameGpuResources {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     fn fragment_resource_count(
         entries: &[wgpu::BindGroupLayoutEntry],
         matches_ty: impl Fn(&wgpu::BindingType) -> bool,
@@ -649,7 +494,7 @@ mod tests {
 
     #[test]
     fn frame_layout_contributes_two_fragment_samplers() {
-        let entries = FrameGpuResources::bind_group_layout_entries();
+        let entries = crate::gpu::frame_bind_group_layout_entries();
         assert_eq!(
             fragment_resource_count(&entries, |ty| matches!(ty, wgpu::BindingType::Sampler(_))),
             2
@@ -658,7 +503,7 @@ mod tests {
 
     #[test]
     fn frame_layout_contributes_six_fragment_sampled_textures() {
-        let entries = FrameGpuResources::bind_group_layout_entries();
+        let entries = crate::gpu::frame_bind_group_layout_entries();
         assert_eq!(
             fragment_resource_count(&entries, |ty| matches!(
                 ty,

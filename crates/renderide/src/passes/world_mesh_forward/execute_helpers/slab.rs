@@ -47,9 +47,9 @@ pub(super) struct SlabPackInputs<'a> {
 /// [`super::crate::world_mesh::DrawGroup::instance_range`]. The slab itself
 /// stays one contiguous storage buffer per view.
 ///
-/// Uses the per-view [`crate::backend::PerDrawResources`] identified by
-/// [`GraphPassFrame::view_id`], growing it as needed. Writes at byte offset 0 of the
-/// view's own buffer. Returns `false` if per-draw resources cannot be created (not yet attached).
+/// Uses the per-view per-draw resources identified by [`GraphPassFrame::view_id`], growing them as
+/// needed. Writes at byte offset 0 of the view's own buffer. Returns `false` if per-draw resources
+/// cannot be created (not yet attached).
 #[expect(
     clippy::significant_drop_tightening,
     reason = "scratch lock owns `slab_bytes` written through to uploads; releasing earlier would clone per frame"

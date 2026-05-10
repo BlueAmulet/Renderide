@@ -1,6 +1,5 @@
 //! CPU-side world-mesh forward prefetch state: collected draws and helper requirements.
 
-use crate::render_graph::blackboard::BlackboardSlot;
 use crate::world_mesh::culling::WorldMeshCullProjParams;
 use crate::world_mesh::draw_prep::WorldMeshDrawCollection;
 
@@ -89,12 +88,6 @@ impl WorldMeshDrawPlan {
         self.as_prefetched_view_draws()
             .map_or_else(WorldMeshHelperNeeds::default, |draws| draws.helper_needs)
     }
-}
-
-/// Blackboard slot carrying the world-mesh draw plan into backend-specific graph preparation.
-pub struct WorldMeshDrawPlanSlot;
-impl BlackboardSlot for WorldMeshDrawPlanSlot {
-    type Value = WorldMeshDrawPlan;
 }
 
 #[cfg(test)]

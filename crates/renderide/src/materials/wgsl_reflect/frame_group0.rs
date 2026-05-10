@@ -3,9 +3,8 @@
 use naga::proc::Layouter;
 use naga::{AddressSpace, ImageClass, ImageDimension, Module, ScalarKind, TypeInner};
 
-use crate::backend::GpuLight;
-use crate::backend::frame_gpu::GpuReflectionProbeMetadata;
 use crate::gpu::frame_globals::FrameGpuUniforms;
+use crate::gpu::{GpuLight, GpuReflectionProbeMetadata};
 
 use super::resource::{resource_data_ty, storage_array_element_stride};
 use super::types::ReflectError;

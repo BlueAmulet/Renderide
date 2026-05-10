@@ -2,7 +2,7 @@
 //! not re-intern the same Unity property names every time.
 //!
 //! The renderer evaluates blend mode and render-state overrides multiple times per frame: once
-//! per material in [`crate::backend::facade::frame_packet`] and again per draw inside
+//! while building the backend frame packet and again per draw inside
 //! [`crate::materials::material_blend_mode_for_lookup`] /
 //! [`crate::materials::render_state::material_render_state_for_lookup`]. Both paths need the same
 //! `MaterialPipelinePropertyIds`. Without a resolver, every call constructs a new
