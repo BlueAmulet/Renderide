@@ -71,7 +71,7 @@ impl Default for GtaoSettings {
             enabled: true,
             quality_level: 3,
             radius_meters: 1.0,
-            radius_multiplier: 1.0,
+            radius_multiplier: 1.457,
             intensity: 1.0,
             max_pixel_radius: 256.0,
             step_count: 16,
@@ -82,7 +82,7 @@ impl Default for GtaoSettings {
             depth_mip_sampling_offset: 3.3,
             albedo_multibounce: 0.0,
             denoise_passes: 3,
-            denoise_blur_beta: 1.0,
+            denoise_blur_beta: 1.2,
         }
     }
 }

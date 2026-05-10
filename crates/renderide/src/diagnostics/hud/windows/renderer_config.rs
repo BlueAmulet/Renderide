@@ -555,7 +555,7 @@ fn gtao_sampling_controls(ui: &imgui::Ui, gtao: &mut GtaoSettings, dirty: &mut b
         *dirty = true;
     }
     if ui
-        .slider_config("Max pixel radius", 16.0_f32, 256.0_f32)
+        .slider_config("Max pixel radius", 16.0_f32, 2048.0_f32)
         .display_format("%.0f")
         .build(&mut gtao.max_pixel_radius)
     {
