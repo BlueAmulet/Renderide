@@ -174,11 +174,11 @@ impl SkyboxRenderer {
         let family = SkyboxFamily::from_stem(stem.as_str())?;
         let embedded_bind = materials.embedded_material_bind()?;
         let pools = EmbeddedTexturePools {
-            texture: frame.shared.asset_transfers.texture_pool(),
-            texture3d: frame.shared.asset_transfers.texture3d_pool(),
-            cubemap: frame.shared.asset_transfers.cubemap_pool(),
-            render_texture: frame.shared.asset_transfers.render_texture_pool(),
-            video_texture: frame.shared.asset_transfers.video_texture_pool(),
+            texture: frame.shared.asset_resources.texture_pool(),
+            texture3d: frame.shared.asset_resources.texture3d_pool(),
+            cubemap: frame.shared.asset_resources.cubemap_pool(),
+            render_texture: frame.shared.asset_resources.render_texture_pool(),
+            video_texture: frame.shared.asset_resources.video_texture_pool(),
         };
         let lookup = MaterialPropertyLookupIds {
             material_asset_id,

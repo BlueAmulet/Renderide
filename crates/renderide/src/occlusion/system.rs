@@ -14,6 +14,7 @@ use crate::camera::ViewId;
 use crate::gpu::OutputDepthMode;
 use crate::occlusion::HiZCullData;
 use crate::occlusion::gpu::{HiZBuildRecord, HiZGpuState, HiZHistoryTarget, encode_hi_z_build};
+use crate::render_graph::HistoryTextureMipViews;
 use crate::scene::SceneCoordinator;
 use crate::world_mesh::{HiZTemporalState, WorldMeshCullProjParams, capture_hi_z_temporal};
 
@@ -24,7 +25,7 @@ pub(crate) struct HiZBuildInput<'a> {
     /// Registry-owned ping-pong history texture that receives the pyramid.
     pub history_texture: &'a wgpu::Texture,
     /// Registry-owned per-layer/per-mip views for [`Self::history_texture`].
-    pub history_mip_views: &'a crate::backend::HistoryTextureMipViews,
+    pub history_mip_views: &'a HistoryTextureMipViews,
     /// Full framebuffer extent in pixels (matches the depth attachment).
     pub extent: (u32, u32),
     /// Desktop single-view vs stereo depth array layout.

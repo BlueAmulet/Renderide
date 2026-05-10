@@ -1,7 +1,7 @@
 //! Compiled DAG: immutable pass order and per-frame execution.
 
-use crate::backend::BackendGraphAccess;
 use crate::gpu::{GpuContext, GpuLimits};
+use crate::render_graph::GraphExecutionBackend;
 use crate::scene::SceneCoordinator;
 
 use super::blackboard::Blackboard;
@@ -152,13 +152,13 @@ pub struct FrameViewResourceHints {
 }
 
 /// Borrows shared across frame-global and per-view [`CompiledRenderGraph::execute_multi_view`] passes.
-pub(super) struct MultiViewExecutionContext<'a, 'backend> {
+pub(super) struct MultiViewExecutionContext<'a> {
     /// GPU context (surface, swapchain, submits).
     pub(super) gpu: &'a mut GpuContext,
     /// Scene after cache flush.
     pub(super) scene: &'a SceneCoordinator,
     /// Narrow graph-facing backend access packet.
-    pub(super) backend: &'a mut BackendGraphAccess<'backend>,
+    pub(super) backend: &'a mut dyn GraphExecutionBackend,
     /// Device for encoders and pipeline state.
     pub(super) device: &'a wgpu::Device,
     /// Limits for pass contexts.

@@ -180,12 +180,12 @@ impl<'a> WorldMeshForwardEncodeRefs<'a> {
     ) -> Self {
         Self {
             materials: frame.shared.materials,
-            mesh_pool: frame.shared.asset_transfers.mesh_pool(),
-            texture_pool: frame.shared.asset_transfers.texture_pool(),
-            texture3d_pool: frame.shared.asset_transfers.texture3d_pool(),
-            cubemap_pool: frame.shared.asset_transfers.cubemap_pool(),
-            render_texture_pool: frame.shared.asset_transfers.render_texture_pool(),
-            video_texture_pool: frame.shared.asset_transfers.video_texture_pool(),
+            mesh_pool: frame.shared.asset_resources.mesh_pool(),
+            texture_pool: frame.shared.asset_resources.texture_pool(),
+            texture3d_pool: frame.shared.asset_resources.texture3d_pool(),
+            cubemap_pool: frame.shared.asset_resources.cubemap_pool(),
+            render_texture_pool: frame.shared.asset_resources.render_texture_pool(),
+            video_texture_pool: frame.shared.asset_resources.video_texture_pool(),
             skin_cache: frame.shared.skin_cache,
         }
     }

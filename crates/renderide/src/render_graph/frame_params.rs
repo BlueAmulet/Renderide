@@ -12,8 +12,6 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::backend::AssetTransferQueue;
-use crate::backend::FrameResourceManager;
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::materials::MaterialSystem;
@@ -25,6 +23,7 @@ use crate::shared::CameraClearMode;
 
 use super::blackboard::BlackboardSlot;
 use super::compiled::ViewPostProcessing;
+use super::execution_backend::{GraphAssetResources, GraphFrameResources};
 use crate::gpu::OutputDepthMode;
 
 /// Per-view background clear contract propagated from host camera state.
@@ -135,6 +134,25 @@ pub struct PerViewFramePlan {
     pub view_idx: usize,
 }
 
+/// Frame-resource layout needed before graph recording starts for one view.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct PreRecordViewResourceLayout {
+    /// Viewport width in physical pixels.
+    pub width: u32,
+    /// Viewport height in physical pixels.
+    pub height: u32,
+    /// Whether this view records as a two-layer multiview target.
+    pub stereo: bool,
+    /// Depth snapshot format for material scene-depth sampling.
+    pub depth_format: wgpu::TextureFormat,
+    /// HDR scene-color snapshot format for grab-pass material sampling.
+    pub color_format: wgpu::TextureFormat,
+    /// Whether this view has materials that need a full-size scene-depth snapshot.
+    pub needs_depth_snapshot: bool,
+    /// Whether this view has materials that need a full-size scene-color snapshot.
+    pub needs_color_snapshot: bool,
+}
+
 /// System handles shared across all views within a frame.
 ///
 /// Shared systems borrowed by render graph passes while recording one frame.
@@ -144,11 +162,11 @@ pub struct FrameSystemsShared<'a> {
     /// Hi-Z pyramid GPU/CPU state and temporal culling for this frame.
     pub occlusion: &'a OcclusionSystem,
     /// Per-frame `@group(0/1/2)` binds, lights, per-draw slab, and CPU light scratch.
-    pub frame_resources: &'a FrameResourceManager,
+    pub frame_resources: &'a dyn GraphFrameResources,
     /// Materials registry, embedded binds, and property store.
     pub materials: &'a MaterialSystem,
     /// Mesh/texture pools and upload queues.
-    pub asset_transfers: &'a AssetTransferQueue,
+    pub asset_resources: &'a dyn GraphAssetResources,
     /// Skinning/blendshape compute pipelines (set after GPU attach, `None` before).
     pub mesh_preprocess: Option<&'a MeshPreprocessPipelines>,
     /// Deform scratch buffers for the `MeshDeformPass` (valid during frame-global recording only).
@@ -204,8 +222,7 @@ pub struct GraphPassFrameView<'a> {
 
 /// Compositor over [`FrameSystemsShared`] and [`GraphPassFrameView`].
 ///
-/// Built with disjoint borrows from [`crate::backend::BackendGraphAccess`] so passes do not take a
-/// full backend handle.
+/// Built with disjoint graph-facing borrows so passes do not take a full backend handle.
 pub struct GraphPassFrame<'a> {
     /// System handles shared across all views for this frame.
     pub shared: FrameSystemsShared<'a>,

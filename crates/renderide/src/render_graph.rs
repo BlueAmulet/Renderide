@@ -26,10 +26,9 @@
 //!   **one encoder per [`FrameView`]** for [`PassPhase::PerView`] passes. Deferred graph upload
 //!   writes are drained before the single submit; see
 //!   [`CompiledRenderGraph::execute_multi_view`]. Before the per-view loop, transient resources,
-//!   per-view per-draw / frame state ([`crate::backend::FrameResourceManager`]), and world-mesh
-//!   draw packets are prepared once across all views so the per-view record path no longer pays
-//!   lazy `&mut` allocation costs (also a structural prerequisite for the parallel record path;
-//!   see [`record_parallel`]).
+//!   graph-facing frame resources, and world-mesh draw packets are prepared once across all views
+//!   so the per-view record path no longer pays lazy `&mut` allocation costs (also a structural
+//!   prerequisite for the parallel record path; see [`record_parallel`]).
 //! - **[`GraphCache`]** memoizes a compiled graph by [`GraphCacheKey`] (surface extent, MSAA,
 //!   multiview, surface format, scene HDR format) so the backend rebuilds only when one of those inputs changes.
 //!
@@ -43,8 +42,8 @@
 //! Runtime and passes combine to the following **logical** phases each frame (some CPU-side,
 //! some GPU passes in [`passes`]):
 //!
-//! 1. **LightPrep** -- [`crate::backend::FrameResourceManager::prepare_lights_from_scene`] packs
-//!    clustered lights; at most one full pack per winit tick (coalesced across graph entry points).
+//! 1. **LightPrep** -- the backend packs clustered lights into graph-facing frame resources; at
+//!    most one full pack per winit tick (coalesced across graph entry points).
 //! 2. **Camera / cluster params** -- [`frame_params::GraphPassFrame`] carries host camera and
 //!    per-view frame state to passes.
 //! 3. **Cull / sort** -- runtime extraction prepares caller-owned draw packets before graph entry.
@@ -64,9 +63,11 @@ mod cache;
 pub(crate) mod compiled;
 pub(crate) mod context;
 pub(crate) mod error;
+pub(crate) mod execution_backend;
 pub(crate) mod frame_params;
 pub(crate) mod frame_upload_batch;
 pub(crate) mod gpu_cache;
+pub(crate) mod history;
 pub(crate) mod ids;
 pub(crate) mod pass;
 mod pool;
@@ -84,6 +85,10 @@ pub(crate) use compiled::{
     FrameViewTarget, ViewPostProcessing,
 };
 pub(crate) use error::GraphExecuteError;
+pub(crate) use execution_backend::{
+    GraphAssetResources, GraphExecutionBackend, GraphFrameResources,
+};
 pub(crate) use frame_params::FrameViewClear;
+pub use history::{HistoryRegistry, HistoryRegistryError, HistoryTextureMipViews};
 pub(crate) use pool::TransientPool;
 pub(crate) use resources::HistorySlotId;

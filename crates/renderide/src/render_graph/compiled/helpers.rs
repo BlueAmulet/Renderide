@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use crate::backend::BackendGraphAccess;
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
+use crate::render_graph::GraphExecutionBackend;
 use crate::render_graph::pass::RenderPassTemplate;
 use crate::scene::SceneCoordinator;
 
@@ -97,38 +97,27 @@ pub(super) fn frame_render_params_from_shared<'a>(
 /// Builds [`GraphPassFrame`] from a resolved target and per-view host/IPC fields.
 pub(super) fn frame_render_params_from_resolved<'a>(
     scene: &'a SceneCoordinator,
-    backend: &'a mut BackendGraphAccess<'_>,
+    backend: &'a mut dyn GraphExecutionBackend,
     resolved: &ResolvedView<'a>,
     host_camera: HostCameraFrame,
     clear: FrameViewClear,
     post_processing: ViewPostProcessing,
 ) -> GraphPassFrame<'a> {
     let scene_color_format = backend.scene_color_format_wgpu();
-    let (
-        occlusion,
-        frame_resources,
-        materials,
-        asset_transfers,
-        mesh_preprocess,
-        mesh_deform_scratch,
-        skin_cache,
-        gpu_limits,
-        msaa_depth_resolve,
-        debug_hud,
-    ) = backend.split_for_graph_frame_params();
-    let hi_z_slot = occlusion.ensure_hi_z_state(resolved.view_id);
+    let split = backend.split_for_graph_frame_params();
+    let hi_z_slot = split.occlusion.ensure_hi_z_state(resolved.view_id);
     frame_render_params_from_shared(
         FrameSystemsShared {
             scene,
-            occlusion,
-            frame_resources,
-            materials,
-            asset_transfers,
-            mesh_preprocess,
-            mesh_deform_scratch,
-            mesh_deform_skin_cache: skin_cache,
-            skin_cache: None,
-            debug_hud,
+            occlusion: split.occlusion,
+            frame_resources: split.frame_resources,
+            materials: split.materials,
+            asset_resources: split.asset_resources,
+            mesh_preprocess: split.mesh_preprocess,
+            mesh_deform_scratch: split.mesh_deform_scratch,
+            mesh_deform_skin_cache: split.mesh_deform_skin_cache,
+            skin_cache: split.skin_cache,
+            debug_hud: split.debug_hud,
         },
         GraphPassFrameViewInputs {
             resolved,
@@ -136,8 +125,8 @@ pub(super) fn frame_render_params_from_resolved<'a>(
             host_camera,
             clear,
             post_processing,
-            gpu_limits,
-            msaa_depth_resolve,
+            gpu_limits: split.gpu_limits,
+            msaa_depth_resolve: split.msaa_depth_resolve,
             hi_z_slot,
         },
     )

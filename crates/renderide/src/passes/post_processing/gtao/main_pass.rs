@@ -129,8 +129,8 @@ impl RasterPass for GtaoMainPass {
         let graph_resources = ctx.graph_resources;
 
         // Bind the per-view frame-uniforms buffer when the per-view plan is populated. The
-        // imported `frame_uniforms` handle resolves to the shared FrameResourceManager buffer,
-        // which is only written by the shared-frame path -- binding it under per-view rendering
+        // imported `frame_uniforms` handle resolves to the shared frame-resource buffer, which is
+        // only written by the shared-frame path -- binding it under per-view rendering
         // would leave the shader reading zeros and producing NaN through `linearize_depth` /
         // `view_pos_from_uv`.
         let per_view_buffer = ctx

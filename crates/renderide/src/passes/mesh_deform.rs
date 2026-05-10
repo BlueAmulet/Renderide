@@ -416,7 +416,7 @@ impl ComputePass for MeshDeformPass {
             return Ok(());
         }
 
-        let mesh_pool = frame.shared.asset_transfers.mesh_pool();
+        let mesh_pool = frame.shared.asset_resources.mesh_pool();
         let visible_filter = frame
             .shared
             .frame_resources

@@ -10,6 +10,8 @@ use super::super::super::blackboard::{Blackboard, GraphCommandStats};
 use super::super::super::context::GraphResolvedResources;
 use super::super::super::frame_params::FrameViewClear;
 use super::super::super::frame_upload_batch::{FrameUploadBatch, FrameUploadBatchStats};
+use super::super::super::history::HistoryRegistry;
+use super::super::super::{GraphAssetResources, GraphFrameResources};
 use super::super::{FrameView, ResolvedView, ViewPostProcessing};
 
 /// Key for reusing transient pool allocations across [`FrameView`]s with identical surface layout.
@@ -138,13 +140,13 @@ pub(super) struct PerViewRecordShared<'a> {
     /// Shared occlusion system for Hi-Z snapshots and temporal state.
     pub(super) occlusion: &'a crate::occlusion::OcclusionSystem,
     /// Shared frame resources for bind groups, lights, and per-view slabs.
-    pub(super) frame_resources: &'a crate::backend::FrameResourceManager,
+    pub(super) frame_resources: &'a dyn GraphFrameResources,
     /// Persistent history resources resolved for ping-pong graph imports.
-    pub(super) history: &'a crate::backend::HistoryRegistry,
+    pub(super) history: &'a HistoryRegistry,
     /// Shared material system for pipeline and bind lookups.
     pub(super) materials: &'a crate::materials::MaterialSystem,
     /// Shared asset pools for meshes and textures.
-    pub(super) asset_transfers: &'a crate::backend::AssetTransferQueue,
+    pub(super) asset_resources: &'a dyn GraphAssetResources,
     /// Optional mesh preprocess pipelines (unused in per-view recording, kept for completeness).
     pub(super) mesh_preprocess: Option<&'a crate::mesh_deform::MeshPreprocessPipelines>,
     /// Optional read-only skin cache for deformed forward draws.

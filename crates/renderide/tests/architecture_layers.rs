@@ -72,6 +72,10 @@ const FORBIDDEN_EDGES: &[Edge] = &[
     },
     Edge {
         from: "render_graph",
+        to: "backend",
+    },
+    Edge {
+        from: "render_graph",
         to: "passes",
     },
     Edge {

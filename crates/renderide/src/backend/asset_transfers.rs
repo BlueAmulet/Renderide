@@ -29,6 +29,7 @@ use crate::gpu_pools::{
     CubemapPool, GpuVideoTexture, MeshPool, RenderTexturePool, Texture3dPool, TexturePool,
     VideoTexturePool,
 };
+use crate::render_graph::GraphAssetResources;
 use crate::shared::VideoTextureClockErrorState;
 
 use catalogs::AssetCatalogs;
@@ -180,6 +181,32 @@ impl AssetTransferQueue {
             }
         }
         self.pools.video_texture_pool.get_mut(asset_id)
+    }
+}
+
+impl GraphAssetResources for AssetTransferQueue {
+    fn mesh_pool(&self) -> &MeshPool {
+        self.mesh_pool()
+    }
+
+    fn texture_pool(&self) -> &TexturePool {
+        self.texture_pool()
+    }
+
+    fn texture3d_pool(&self) -> &Texture3dPool {
+        self.texture3d_pool()
+    }
+
+    fn cubemap_pool(&self) -> &CubemapPool {
+        self.cubemap_pool()
+    }
+
+    fn render_texture_pool(&self) -> &RenderTexturePool {
+        self.render_texture_pool()
+    }
+
+    fn video_texture_pool(&self) -> &VideoTexturePool {
+        self.video_texture_pool()
     }
 }
 

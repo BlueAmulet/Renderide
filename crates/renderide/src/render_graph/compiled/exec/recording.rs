@@ -20,8 +20,8 @@ use super::{
     GraphResolveKey, PerViewEncodeOutput, PerViewRecordShared, PerViewWorkItem, TimedCommandBuffer,
     TransientTextureResolveSurfaceParams, elapsed_ms,
 };
-use crate::backend::BackendGraphAccess;
 use crate::diagnostics::PerViewHudOutputsSlot;
+use crate::render_graph::GraphExecutionBackend;
 use crate::render_graph::post_process_settings::{
     AutoExposureSettingsSlot, AutoExposureSettingsValue, BloomSettingsSlot, BloomSettingsValue,
     GtaoSettingsSlot, GtaoSettingsValue,
@@ -164,7 +164,7 @@ impl CompiledRenderGraph {
                 occlusion: shared.occlusion,
                 frame_resources: shared.frame_resources,
                 materials: shared.materials,
-                asset_transfers: shared.asset_transfers,
+                asset_resources: shared.asset_resources,
                 mesh_preprocess: shared.mesh_preprocess,
                 mesh_deform_scratch: None,
                 mesh_deform_skin_cache: None,
@@ -221,13 +221,13 @@ impl CompiledRenderGraph {
     /// The caller is responsible for including the returned buffer in the single-submit batch.
     pub(super) fn encode_frame_global_passes(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
         views: &[FrameView<'_>],
         transient_by_key: &mut HashMap<GraphResolveKey, GraphResolvedResources>,
         upload_batch: &FrameUploadBatch,
     ) -> Result<Option<TimedCommandBuffer>, GraphExecuteError> {
         profiling::scope!("graph::frame_global");
-        if self.frame_global_passes_are_inactive(mv_ctx.backend) {
+        if self.frame_global_passes_are_inactive(&*mv_ctx.backend) {
             return Ok(None);
         }
         let encode_start = Instant::now();
@@ -269,7 +269,7 @@ impl CompiledRenderGraph {
                     &resolved,
                     transient_by_key,
                     device,
-                    backend,
+                    &mut **backend,
                     gpu_limits,
                 )
             }?;
@@ -293,7 +293,7 @@ impl CompiledRenderGraph {
                 profiling::scope!("graph::frame_global::build_frame_params");
                 helpers::frame_render_params_from_resolved(
                     scene,
-                    backend,
+                    &mut **backend,
                     &resolved,
                     first.host_camera,
                     first.clear,
@@ -330,7 +330,7 @@ impl CompiledRenderGraph {
         Ok(Some(command_buffer))
     }
 
-    fn frame_global_passes_are_inactive(&self, backend: &BackendGraphAccess<'_>) -> bool {
+    fn frame_global_passes_are_inactive(&self, backend: &dyn GraphExecutionBackend) -> bool {
         let mut indices = self.schedule.frame_global_pass_indices().iter().copied();
         let Some(pass_idx) = indices.next() else {
             return true;
@@ -384,7 +384,7 @@ impl CompiledRenderGraph {
         resolved: &ResolvedView<'_>,
         transient_by_key: &'t mut HashMap<GraphResolveKey, GraphResolvedResources>,
         device: &wgpu::Device,
-        backend: &mut BackendGraphAccess<'_>,
+        backend: &mut dyn GraphExecutionBackend,
         gpu_limits: &crate::gpu::GpuLimits,
     ) -> Result<&'t mut GraphResolvedResources, GraphExecuteError> {
         let key = GraphResolveKey::from_resolved(resolved);
