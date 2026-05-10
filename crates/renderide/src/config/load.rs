@@ -13,17 +13,16 @@ use std::path::PathBuf;
 
 use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
-use toml_edit::{DocumentMut, Item, value};
+use toml_edit::{DocumentMut, Item};
 
 use super::resolve::{
     ConfigResolveOutcome, ConfigSource, apply_generated_config, is_dir_writable, read_config_file,
     renderide_config_env_nonempty, resolve_config_path, resolve_save_path,
 };
 use super::save::save_renderer_settings_pruned;
-use super::types::{AutoExposureSettings, RendererSettings};
+use super::types::RendererSettings;
 
 const MAX_COMPATIBILITY_DROPS: usize = 64;
-const LEGACY_AUTO_EXPOSURE_DEFAULT_COMPENSATION_EV: f64 = -3.0;
 
 /// Controls whether the TOML config file is consulted during startup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -251,8 +250,6 @@ fn run_pipeline_tolerating_toml(
         return run_pipeline(Some(toml_content.to_string())).map(|settings| (settings, vec![]));
     };
 
-    migrate_legacy_auto_exposure_compensation(&mut document);
-
     let mut drops = Vec::new();
     for _ in 0..MAX_COMPATIBILITY_DROPS {
         match run_pipeline(Some(document.to_string())) {
@@ -274,30 +271,6 @@ fn run_pipeline_tolerating_toml(
     }
 
     run_pipeline(Some(document.to_string())).map(|settings| (settings, drops))
-}
-
-fn migrate_legacy_auto_exposure_compensation(document: &mut DocumentMut) {
-    let Some(item) = document
-        .get_mut("post_processing")
-        .and_then(Item::as_table_mut)
-        .and_then(|table| table.get_mut("auto_exposure"))
-        .and_then(Item::as_table_mut)
-        .and_then(|table| table.get_mut("compensation_ev"))
-    else {
-        return;
-    };
-
-    let Some(compensation_ev) = item.as_value().and_then(|value| {
-        value
-            .as_float()
-            .or_else(|| value.as_integer().map(|value| value as f64))
-    }) else {
-        return;
-    };
-
-    if (compensation_ev - LEGACY_AUTO_EXPOSURE_DEFAULT_COMPENSATION_EV).abs() <= f64::EPSILON {
-        *item = value(f64::from(AutoExposureSettings::default().compensation_ev));
-    }
 }
 
 fn compatibility_error_path(error: &figment::Error) -> Option<Vec<String>> {
@@ -686,63 +659,6 @@ mode = "future"
 
         assert_eq!(settings.display.focused_fps_cap, 75);
         assert!(drops.is_empty(), "unknown keys should be serde-ignored");
-    }
-
-    #[test]
-    fn file_pipeline_migrates_legacy_auto_exposure_default_compensation() {
-        const COMPENSATION_VAR: &str = "RENDERIDE_POST_PROCESSING__AUTO_EXPOSURE__COMPENSATION_EV";
-
-        let _lock = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
-        let _guard = EnvGuard::capture(&[COMPENSATION_VAR]);
-        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
-        unsafe {
-            std::env::remove_var(COMPENSATION_VAR);
-        }
-
-        let content = r#"
-[post_processing.auto_exposure]
-compensation_ev = -3.0
-"#;
-
-        let (settings, drops) =
-            run_pipeline_tolerating_toml(content).expect("legacy default should migrate");
-
-        assert_eq!(settings.post_processing.auto_exposure.compensation_ev, 0.0);
-        assert!(drops.is_empty());
-    }
-
-    #[test]
-    fn env_compensation_override_wins_after_legacy_default_migration() {
-        const CONFIG_VAR: &str = "RENDERIDE_CONFIG";
-        const COMPENSATION_VAR: &str = "RENDERIDE_POST_PROCESSING__AUTO_EXPOSURE__COMPENSATION_EV";
-
-        let _lock = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
-        let _guard = EnvGuard::capture(&[CONFIG_VAR, COMPENSATION_VAR]);
-        let tmp = tempfile::tempdir().expect("tempdir");
-        let toml = write_toml(
-            tmp.path(),
-            r#"
-[post_processing.auto_exposure]
-compensation_ev = -3.0
-"#,
-        );
-
-        // SAFETY: env mutation in test; serialized by CONFIG_ENV_TEST_LOCK.
-        unsafe {
-            std::env::set_var(CONFIG_VAR, &toml);
-            std::env::set_var(COMPENSATION_VAR, "-1.25");
-        }
-
-        let result = load_renderer_settings(ConfigFilePolicy::Load);
-
-        assert_eq!(
-            result
-                .settings
-                .post_processing
-                .auto_exposure
-                .compensation_ev,
-            -1.25
-        );
     }
 
     #[test]
