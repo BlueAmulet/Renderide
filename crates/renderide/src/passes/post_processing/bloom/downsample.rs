@@ -9,11 +9,11 @@ use crate::config::BloomSettings;
 use crate::passes::helpers::{
     color_attachment, missing_pass_resource, read_fragment_sampled_texture,
 };
-use crate::passes::post_processing::settings_slot::BloomSettingsSlot;
 use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::pass::RenderPassTemplate;
 use crate::render_graph::pass::{PassBuilder, RasterPass};
+use crate::render_graph::post_process_settings::BloomSettingsSlot;
 use crate::render_graph::resources::TextureHandle;
 
 /// First downsample: reads the chain's HDR input, applies Karis firefly reduction (and the

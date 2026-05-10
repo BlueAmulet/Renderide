@@ -17,7 +17,6 @@ mod agx_tonemap;
 mod auto_exposure;
 mod bloom;
 mod gtao;
-pub mod settings_slot;
 
 pub use aces_tonemap::AcesTonemapEffect;
 pub use agx_tonemap::AgxTonemapEffect;

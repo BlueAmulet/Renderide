@@ -1,8 +1,8 @@
 //! Parse composed WGSL with naga and derive [`wgpu::BindGroupLayoutEntry`] lists for `@group(1)` and
 //! `@group(2)`, and a [`ReflectedRasterLayout::layout_fingerprint`] for tests and diagnostics.
 //!
-//! Validates `@group(0)` against [`crate::backend::FrameGpuResources`] buffer sizes and optional
-//! scene-depth snapshot bindings.
+//! Validates `@group(0)` against the frame GPU ABI in [`crate::gpu`] and optional scene-depth
+//! snapshot bindings.
 
 mod bind_layout;
 #[cfg(test)]
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn full_pipeline_sampler_count_includes_frame_group0() {
-        let frame_entries = crate::backend::FrameGpuResources::bind_group_layout_entries();
+        let frame_entries = crate::gpu::frame_bind_group_layout_entries();
         let limits = synthetic_limits(16, 64);
         let layout = reflected_layout_with_material_entries(fragment_sampler_entries(14));
 
@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn full_pipeline_sampler_count_rejects_frame_group0_overflow() {
-        let frame_entries = crate::backend::FrameGpuResources::bind_group_layout_entries();
+        let frame_entries = crate::gpu::frame_bind_group_layout_entries();
         let limits = synthetic_limits(16, 64);
         let layout = reflected_layout_with_material_entries(fragment_sampler_entries(15));
 
@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn full_pipeline_sampled_texture_count_includes_frame_group0() {
-        let frame_entries = crate::backend::FrameGpuResources::bind_group_layout_entries();
+        let frame_entries = crate::gpu::frame_bind_group_layout_entries();
         let limits = synthetic_limits(64, 8);
         let layout = reflected_layout_with_material_entries(fragment_texture_entries(2));
 
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn full_pipeline_sampled_texture_count_rejects_frame_group0_overflow() {
-        let frame_entries = crate::backend::FrameGpuResources::bind_group_layout_entries();
+        let frame_entries = crate::gpu::frame_bind_group_layout_entries();
         let limits = synthetic_limits(64, 8);
         let layout = reflected_layout_with_material_entries(fragment_texture_entries(3));
 
@@ -435,7 +435,7 @@ mod tests {
         ));
     }
 
-    /// Every composed `shaders/target/*.wgsl` must declare the full [`crate::backend::FrameGpuResources`] `@group(0)`
+    /// Every composed `shaders/target/*.wgsl` must declare the full frame globals `@group(0)`
     /// contract; naga-oil strips unused imports, so a material that omits cluster buffer references
     /// can fail at runtime during pipeline creation unless this test catches it.
     #[test]

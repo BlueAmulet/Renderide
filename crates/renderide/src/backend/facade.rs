@@ -202,7 +202,7 @@ impl RenderBackend {
 
     /// Snapshot of the live GTAO settings for the current frame.
     ///
-    /// Seeded into each view's blackboard as [`crate::passes::post_processing::settings_slot::GtaoSettingsSlot`]
+    /// Seeded into each view's blackboard as [`crate::render_graph::post_process_settings::GtaoSettingsSlot`]
     /// so the shader UBO reflects slider changes without rebuilding the compiled render graph
     /// (the chain signature only tracks enable booleans, so parameter edits wouldn't otherwise
     /// reach the pass).
@@ -216,7 +216,7 @@ impl RenderBackend {
 
     /// Snapshot of the live bloom settings for the current frame.
     ///
-    /// Seeded into each view's blackboard as [`crate::passes::post_processing::settings_slot::BloomSettingsSlot`]
+    /// Seeded into each view's blackboard as [`crate::render_graph::post_process_settings::BloomSettingsSlot`]
     /// so the first downsample's params UBO and the upsample blend constants reflect slider
     /// changes without rebuilding the compiled render graph. The effective `max_mip_dimension`
     /// is the one exception -- it drives mip-chain texture sizes, so it lives on the chain
@@ -232,7 +232,7 @@ impl RenderBackend {
     /// Snapshot of the live auto-exposure settings for the current frame.
     ///
     /// Seeded into each view's blackboard as
-    /// [`crate::passes::post_processing::settings_slot::AutoExposureSettingsSlot`] so histogram
+    /// [`crate::render_graph::post_process_settings::AutoExposureSettingsSlot`] so histogram
     /// settings and adaptation speed edits take effect without rebuilding the compiled graph.
     pub(crate) fn live_auto_exposure_settings(&self) -> crate::config::AutoExposureSettings {
         self.renderer_settings

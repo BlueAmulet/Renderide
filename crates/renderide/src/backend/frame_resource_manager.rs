@@ -22,10 +22,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use hashbrown::HashSet;
 use parking_lot::Mutex;
 
-use crate::backend::cluster_gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, ClusterBufferRefs};
+use crate::backend::cluster_gpu::ClusterBufferRefs;
 use crate::camera::ViewId;
-use crate::gpu::GpuLimits;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
+use crate::gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLimits};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use super::frame_gpu::{
@@ -33,7 +33,9 @@ use super::frame_gpu::{
     PerViewSceneSnapshots, ReflectionProbeSpecularResources,
 };
 use super::frame_gpu_bindings::{FrameGpuBindings, FrameGpuBindingsError};
-use super::light_gpu::{GpuLight, MAX_LIGHTS, order_lights_for_clustered_shading_in_place};
+use super::light_gpu::{
+    GpuLight, MAX_LIGHTS, gpu_light_from_resolved, order_lights_for_clustered_shading_in_place,
+};
 use super::per_draw_resources::PerDrawResources;
 use super::per_view_resource_map::PerViewResourceMap;
 use crate::mesh_deform::{PaddedPerDrawUniforms, SkinCacheKey};
@@ -631,7 +633,7 @@ impl FrameResourceManager {
                 self.resolved_flatten_scratch
                     .iter()
                     .take(kept)
-                    .map(GpuLight::from_resolved),
+                    .map(gpu_light_from_resolved),
             );
         }
         self.light_prep_done_this_tick = true;

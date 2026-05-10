@@ -6,8 +6,8 @@ use crate::gpu_pools::{
 
 /// References to the GPU pool tables used when hashing bind signatures and resolving texture views/samplers.
 ///
-/// Passed into [`super::EmbeddedMaterialBindResources`] methods so callers (e.g. [`crate::backend::RenderBackend`])
-/// do not thread separate pool parameters through every embedded draw path.
+/// Passed into [`super::EmbeddedMaterialBindResources`] methods so callers do not thread separate
+/// pool parameters through every embedded draw path.
 pub struct EmbeddedTexturePools<'a> {
     /// Resident [`TexturePool`] (2D textures).
     pub texture: &'a TexturePool,

@@ -14,9 +14,9 @@ use super::ping_pong::{PingPongCursor, PingPongHdrSlots};
 ///
 /// Changes to any field force a render-graph rebuild. Non-topology parameters (intensity,
 /// threshold, composite mode, etc.) flow to the passes via per-view blackboard slots
-/// ([`crate::passes::post_processing::settings_slot::BloomSettingsSlot`],
-/// [`crate::passes::post_processing::settings_slot::GtaoSettingsSlot`],
-/// [`crate::passes::post_processing::settings_slot::AutoExposureSettingsSlot`]) and therefore do
+/// ([`crate::render_graph::post_process_settings::BloomSettingsSlot`],
+/// [`crate::render_graph::post_process_settings::GtaoSettingsSlot`],
+/// [`crate::render_graph::post_process_settings::AutoExposureSettingsSlot`]) and therefore do
 /// **not** need to be tracked here.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct PostProcessChainSignature {

@@ -32,6 +32,4 @@ pub use instances::{DrawGroup, InstancePlan, build_plan};
 #[cfg(test)]
 pub(crate) use materials::compute_batch_key_hash;
 pub use materials::{FrameMaterialBatchCache, MaterialDrawBatchKey};
-pub use prefetch::{
-    PrefetchedWorldMeshViewDraws, WorldMeshDrawPlan, WorldMeshDrawPlanSlot, WorldMeshHelperNeeds,
-};
+pub use prefetch::{PrefetchedWorldMeshViewDraws, WorldMeshDrawPlan, WorldMeshHelperNeeds};

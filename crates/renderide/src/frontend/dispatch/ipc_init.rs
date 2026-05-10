@@ -1,8 +1,9 @@
 //! Pure IPC command routing by [`crate::frontend::InitState`].
 
 use crate::frontend::InitState;
-use crate::shared::{HeadOutputDevice, RendererCommand, RendererInitData, RendererInitResult};
-use crate::xr::output_device::head_output_device_wants_openxr;
+use crate::shared::{
+    HeadOutputDevice, RendererCommand, RendererInitData, RendererInitResult, TextureFormat,
+};
 
 use super::command_dispatch::RunningCommandEffect;
 use super::command_kind::{RendererCommandLifecycle, classify_renderer_command};
@@ -10,6 +11,20 @@ use super::commands::handle_running_command;
 
 /// `Renderide` plus the `renderide` crate version (`env!("CARGO_PKG_VERSION")` at compile time).
 const RENDERER_IDENTIFIER: &str = concat!("Renderide ", env!("CARGO_PKG_VERSION"));
+
+/// Renderer capabilities reported during the init handshake.
+///
+/// Runtime builds this from GPU, asset, and output-device policy so pure frontend routing does not
+/// depend on backend or XR modules.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RendererInitCapabilities {
+    /// Human-readable stereo mode reported to the host.
+    pub stereo_rendering_mode: String,
+    /// Maximum host texture dimension accepted by the renderer.
+    pub max_texture_size: i32,
+    /// Host texture formats accepted by the renderer.
+    pub supported_texture_formats: Vec<TextureFormat>,
+}
 
 /// Pure init-routing decision for one command in the current init phase.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,26 +88,17 @@ pub(crate) fn init_dispatch_decision(
 /// accepts one init result, so startup normally reports the renderer policy max before GPU init.
 pub(crate) fn build_renderer_init_result(
     output_device: HeadOutputDevice,
-    gpu_max_texture_dim_2d: Option<u32>,
+    capabilities: RendererInitCapabilities,
 ) -> RendererInitResult {
-    let stereo = if head_output_device_wants_openxr(output_device) {
-        "OpenXR(multiview)"
-    } else {
-        "None"
-    };
     RendererInitResult {
         actual_output_device: output_device,
         renderer_identifier: Some(RENDERER_IDENTIFIER.to_string()),
         main_window_handle_ptr: 0,
-        stereo_rendering_mode: Some(stereo.to_string()),
-        max_texture_size: max_texture_size_for_init(gpu_max_texture_dim_2d),
+        stereo_rendering_mode: Some(capabilities.stereo_rendering_mode),
+        max_texture_size: capabilities.max_texture_size,
         is_gpu_texture_pot_byte_aligned: true,
-        supported_texture_formats: crate::assets::texture::supported_host_formats_for_init(),
+        supported_texture_formats: capabilities.supported_texture_formats,
     }
-}
-
-fn max_texture_size_for_init(gpu_max_texture_dim_2d: Option<u32>) -> i32 {
-    gpu_max_texture_dim_2d.unwrap_or(crate::gpu::RENDERER_MAX_TEXTURE_DIMENSION_2D) as i32
 }
 
 /// Decodes a single command according to the current init phase.
@@ -121,36 +127,31 @@ pub(crate) fn dispatch_ipc_command(
 #[cfg(test)]
 mod tests {
     use super::{
-        InitDispatchDecision, IpcDispatchEffect, build_renderer_init_result, dispatch_ipc_command,
-        init_dispatch_decision, max_texture_size_for_init,
+        InitDispatchDecision, IpcDispatchEffect, RendererInitCapabilities,
+        build_renderer_init_result, dispatch_ipc_command, init_dispatch_decision,
     };
     use crate::frontend::InitState;
     use crate::frontend::dispatch::command_dispatch::RunningCommandEffect;
     use crate::frontend::dispatch::command_kind::RendererCommandLifecycle;
     use crate::shared::{
         FrameSubmitData, KeepAlive, QualityConfig, RendererCommand, RendererEngineReady,
-        RendererInitData, RendererInitFinalizeData, RendererInitProgressUpdate,
+        RendererInitData, RendererInitFinalizeData, RendererInitProgressUpdate, TextureFormat,
     };
 
     #[test]
-    fn max_texture_size_uses_gpu_limit_when_available() {
-        assert_eq!(max_texture_size_for_init(Some(4096)), 4096);
-    }
-
-    #[test]
-    fn max_texture_size_uses_renderer_policy_before_gpu_init() {
-        assert_eq!(
-            max_texture_size_for_init(None),
-            crate::gpu::RENDERER_MAX_TEXTURE_DIMENSION_2D as i32
-        );
-    }
-
-    #[test]
     fn init_result_reports_supported_formats_and_renderer_identity() {
-        let result = build_renderer_init_result(Default::default(), None);
+        let result = build_renderer_init_result(
+            Default::default(),
+            RendererInitCapabilities {
+                stereo_rendering_mode: "None".to_string(),
+                max_texture_size: 4096,
+                supported_texture_formats: vec![TextureFormat::RGBA32],
+            },
+        );
 
         assert!(result.renderer_identifier.is_some());
         assert!(!result.supported_texture_formats.is_empty());
+        assert_eq!(result.max_texture_size, 4096);
     }
 
     #[test]

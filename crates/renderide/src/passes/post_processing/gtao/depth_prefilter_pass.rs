@@ -8,12 +8,12 @@ use std::borrow::Cow;
 
 use super::pipeline::{GtaoParamsGpu, GtaoPipelines};
 use crate::passes::helpers::missing_pass_resource;
-use crate::passes::post_processing::settings_slot::GtaoSettingsSlot;
 use crate::profiling::compute_pass_timestamp_writes;
 use crate::render_graph::context::ComputePassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::frame_params::PerViewFramePlanSlot;
 use crate::render_graph::pass::{ComputePass, PassBuilder};
+use crate::render_graph::post_process_settings::GtaoSettingsSlot;
 use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, StorageAccess, SubresourceHandle,
     TextureAccess,

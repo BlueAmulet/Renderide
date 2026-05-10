@@ -14,6 +14,7 @@ pub(crate) mod dispatch;
 mod frame_start_performance;
 mod init_state;
 mod lockstep_state;
+pub(crate) mod output_device;
 mod output_policy;
 mod renderer_frontend;
 mod session;

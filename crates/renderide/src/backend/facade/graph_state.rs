@@ -3,11 +3,9 @@
 //! This keeps graph cache/history/transient ownership together instead of scattering long-lived
 //! graph resources across the backend facade.
 
+use crate::backend::graph::MainGraphPostProcessingResources;
 use crate::camera::ViewId;
-use crate::render_graph::{
-    GraphCache, TransientPool, main_graph::MainGraphPostProcessingResources,
-    upload_arena::PersistentUploadArena,
-};
+use crate::render_graph::{GraphCache, TransientPool, upload_arena::PersistentUploadArena};
 
 use super::super::{HistoryRegistry, ViewResourceRegistry};
 

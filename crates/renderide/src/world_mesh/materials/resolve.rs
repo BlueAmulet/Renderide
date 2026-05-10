@@ -102,6 +102,47 @@ fn ui_rect_clip_local_from_maps(
     (v.z > v.x && v.w > v.y).then_some(v)
 }
 
+#[derive(Copy, Clone, Default)]
+struct EmbeddedMaterialFeatures {
+    needs_uv0: bool,
+    needs_color: bool,
+    needs_uv1: bool,
+    needs_tangent: bool,
+    needs_uv2: bool,
+    needs_uv3: bool,
+    needs_extended_vertex_streams: bool,
+    requires_intersection_pass: bool,
+    uses_scene_depth_snapshot: bool,
+    uses_scene_color_snapshot: bool,
+    uses_alpha_blending: bool,
+}
+
+fn embedded_material_features(
+    pipeline: &RasterPipelineKind,
+    shader_perm: ShaderPermutation,
+) -> EmbeddedMaterialFeatures {
+    let RasterPipelineKind::EmbeddedStem(stem) = pipeline else {
+        return EmbeddedMaterialFeatures::default();
+    };
+    let stem = stem.as_ref();
+    EmbeddedMaterialFeatures {
+        needs_uv0: embedded_stem_needs_uv0_stream(stem, shader_perm),
+        needs_color: embedded_stem_needs_color_stream(stem, shader_perm),
+        needs_uv1: embedded_stem_needs_uv1_stream(stem, shader_perm),
+        needs_tangent: embedded_stem_needs_tangent_stream(stem, shader_perm),
+        needs_uv2: embedded_stem_needs_uv2_stream(stem, shader_perm),
+        needs_uv3: embedded_stem_needs_uv3_stream(stem, shader_perm),
+        needs_extended_vertex_streams: embedded_stem_needs_extended_vertex_streams(
+            stem,
+            shader_perm,
+        ),
+        requires_intersection_pass: embedded_stem_requires_intersection_pass(stem, shader_perm),
+        uses_scene_depth_snapshot: embedded_stem_uses_scene_depth_snapshot(stem, shader_perm),
+        uses_scene_color_snapshot: embedded_stem_uses_scene_color_snapshot(stem, shader_perm),
+        uses_alpha_blending: embedded_stem_uses_alpha_blending(stem),
+    }
+}
+
 /// Builds a [`MaterialDrawBatchKey`] for one material slot from dictionary + router state.
 ///
 /// This is the full per-draw computation path. Used for cache warm-up and as a fallback for
@@ -185,39 +226,7 @@ pub(crate) fn resolve_material_batch(
         .shader_asset_for_material(material_asset_id)
         .unwrap_or(-1);
     let pipeline = resolve_raster_pipeline(shader_asset_id, router);
-    let (
-        embedded_needs_uv0,
-        embedded_needs_color,
-        embedded_needs_uv1,
-        embedded_needs_tangent,
-        embedded_needs_uv2,
-        embedded_needs_uv3,
-        embedded_needs_extended_vertex_streams,
-        embedded_requires_intersection_pass,
-        embedded_uses_scene_depth_snapshot,
-        embedded_uses_scene_color_snapshot,
-        embedded_uses_alpha_blending,
-    ) = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            let s = stem.as_ref();
-            (
-                embedded_stem_needs_uv0_stream(s, shader_perm),
-                embedded_stem_needs_color_stream(s, shader_perm),
-                embedded_stem_needs_uv1_stream(s, shader_perm),
-                embedded_stem_needs_tangent_stream(s, shader_perm),
-                embedded_stem_needs_uv2_stream(s, shader_perm),
-                embedded_stem_needs_uv3_stream(s, shader_perm),
-                embedded_stem_needs_extended_vertex_streams(s, shader_perm),
-                embedded_stem_requires_intersection_pass(s, shader_perm),
-                embedded_stem_uses_scene_depth_snapshot(s, shader_perm),
-                embedded_stem_uses_scene_color_snapshot(s, shader_perm),
-                embedded_stem_uses_alpha_blending(s),
-            )
-        }
-        RasterPipelineKind::Null => (
-            false, false, false, false, false, false, false, false, false, false, false,
-        ),
-    };
+    let embedded = embedded_material_features(&pipeline, shader_perm);
     let lookup_ids = MaterialPropertyLookupIds {
         material_asset_id,
         mesh_property_block_slot0: property_block_id,
@@ -225,9 +234,9 @@ pub(crate) fn resolve_material_batch(
     let (mat_map, pb_map) = dict.fetch_property_maps(lookup_ids);
     let blend_mode = material_blend_mode_from_maps(mat_map, pb_map, pipeline_property_ids);
     let render_state = material_render_state_from_maps(mat_map, pb_map, pipeline_property_ids);
-    let alpha_blended = embedded_uses_alpha_blending
+    let alpha_blended = embedded.uses_alpha_blending
         || blend_mode.is_transparent()
-        || embedded_uses_scene_color_snapshot;
+        || embedded.uses_scene_color_snapshot;
     let render_queue = material_render_queue_from_maps(
         mat_map,
         pb_map,
@@ -238,16 +247,16 @@ pub(crate) fn resolve_material_batch(
     ResolvedMaterialBatch {
         shader_asset_id,
         pipeline,
-        embedded_needs_uv0,
-        embedded_needs_color,
-        embedded_needs_uv1,
-        embedded_needs_tangent,
-        embedded_needs_uv2,
-        embedded_needs_uv3,
-        embedded_needs_extended_vertex_streams,
-        embedded_requires_intersection_pass,
-        embedded_uses_scene_depth_snapshot,
-        embedded_uses_scene_color_snapshot,
+        embedded_needs_uv0: embedded.needs_uv0,
+        embedded_needs_color: embedded.needs_color,
+        embedded_needs_uv1: embedded.needs_uv1,
+        embedded_needs_tangent: embedded.needs_tangent,
+        embedded_needs_uv2: embedded.needs_uv2,
+        embedded_needs_uv3: embedded.needs_uv3,
+        embedded_needs_extended_vertex_streams: embedded.needs_extended_vertex_streams,
+        embedded_requires_intersection_pass: embedded.requires_intersection_pass,
+        embedded_uses_scene_depth_snapshot: embedded.uses_scene_depth_snapshot,
+        embedded_uses_scene_color_snapshot: embedded.uses_scene_color_snapshot,
         blend_mode,
         render_queue,
         render_state,

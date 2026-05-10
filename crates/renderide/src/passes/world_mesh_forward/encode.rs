@@ -127,21 +127,7 @@ struct PerDrawSlabBind<'a> {
     supports_base_instance: bool,
 }
 
-struct ForwardDrawLoop<'a, 'b, 'c, 'd> {
-    rpass: &'a mut wgpu::RenderPass<'b>,
-    draws: &'c [WorldMeshDrawItem],
-    precomputed: &'c [MaterialBatchPacket],
-    encode: &'a WorldMeshForwardEncodeRefs<'d>,
-    gpu_limits: &'a GpuLimits,
-    empty_bg: &'a wgpu::BindGroup,
-    per_draw_bind_group: &'a wgpu::BindGroup,
-    supports_base_instance: bool,
-    overlay_view_proj: glam::Mat4,
-    viewport_px: (u32, u32),
-    full_viewport: (u32, u32, u32, u32),
-}
-
-struct ForwardDrawLoopState {
+struct ForwardDrawState {
     last_mesh: LastMeshBindState,
     last_per_draw_dyn_offset: Option<u32>,
     last_stencil_ref: Option<u32>,
@@ -150,7 +136,7 @@ struct ForwardDrawLoopState {
     last_scissor: Option<(u32, u32, u32, u32)>,
 }
 
-impl ForwardDrawLoopState {
+impl ForwardDrawState {
     fn new() -> Self {
         Self {
             last_mesh: LastMeshBindState::new(),
@@ -161,6 +147,18 @@ impl ForwardDrawLoopState {
             last_scissor: None,
         }
     }
+}
+
+struct ForwardDrawResources<'draw, 'bind> {
+    draws: &'draw [WorldMeshDrawItem],
+    precomputed: &'draw [MaterialBatchPacket],
+    gpu_limits: &'bind GpuLimits,
+    empty_bg: &'bind wgpu::BindGroup,
+    per_draw_bind_group: &'bind wgpu::BindGroup,
+    supports_base_instance: bool,
+    overlay_view_proj: glam::Mat4,
+    viewport_px: (u32, u32),
+    full_viewport: (u32, u32, u32, u32),
 }
 
 /// Records one raster subpass by walking pre-built [`DrawGroup`]s.
@@ -187,29 +185,26 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
     } = batch;
     let full_viewport: (u32, u32, u32, u32) = (0, 0, viewport_px.0, viewport_px.1);
     let (subpass_batch_count, subpass_input_draws) = summarize_forward_groups(groups);
+    let mut state = ForwardDrawState::new();
+    let resources = ForwardDrawResources {
+        draws,
+        precomputed,
+        gpu_limits,
+        empty_bg,
+        per_draw_bind_group,
+        supports_base_instance,
+        overlay_view_proj,
+        viewport_px,
+        full_viewport,
+    };
 
     {
         profiling::scope!("world_mesh::draw_subset::bind_frame_group");
         rpass.set_bind_group(0, frame_bg, &[]);
     }
 
-    {
-        profiling::scope!("world_mesh::draw_subset::group_loop");
-        let mut loop_ctx = ForwardDrawLoop {
-            rpass,
-            draws,
-            precomputed,
-            encode: &*encode,
-            gpu_limits,
-            empty_bg,
-            per_draw_bind_group,
-            supports_base_instance,
-            overlay_view_proj,
-            viewport_px,
-            full_viewport,
-        };
-        draw_forward_groups(&mut loop_ctx, groups);
-    }
+    draw_forward_groups(rpass, groups, encode, &resources, &mut state);
+    reset_forward_scissor(rpass, full_viewport, state.last_scissor);
 
     {
         profiling::scope!("world_mesh::draw_subset::plot_subpass");
@@ -227,30 +222,29 @@ fn summarize_forward_groups(groups: &[DrawGroup]) -> (usize, usize) {
     (subpass_batch_count, subpass_input_draws)
 }
 
-fn draw_forward_groups(ctx: &mut ForwardDrawLoop<'_, '_, '_, '_>, groups: &[DrawGroup]) {
-    let mut state = ForwardDrawLoopState::new();
+fn draw_forward_groups(
+    rpass: &mut wgpu::RenderPass<'_>,
+    groups: &[DrawGroup],
+    encode: &WorldMeshForwardEncodeRefs<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+) {
+    profiling::scope!("world_mesh::draw_subset::group_loop");
     for group in groups {
-        draw_forward_group(ctx, group, &mut state);
-    }
-
-    if state.last_scissor.is_some() && state.last_scissor != Some(ctx.full_viewport) {
-        ctx.rpass.set_scissor_rect(
-            ctx.full_viewport.0,
-            ctx.full_viewport.1,
-            ctx.full_viewport.2,
-            ctx.full_viewport.3,
-        );
+        issue_forward_group(rpass, encode, resources, state, group);
     }
 }
 
-fn draw_forward_group(
-    ctx: &mut ForwardDrawLoop<'_, '_, '_, '_>,
+fn issue_forward_group(
+    rpass: &mut wgpu::RenderPass<'_>,
+    encode: &WorldMeshForwardEncodeRefs<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
     group: &DrawGroup,
-    state: &mut ForwardDrawLoopState,
 ) {
     let representative = group.representative_draw_idx;
     let batch_cursor = group.material_packet_idx;
-    let Some(pc) = ctx.precomputed.get(batch_cursor) else {
+    let Some(pc) = resources.precomputed.get(batch_cursor) else {
         return;
     };
     debug_assert!(
@@ -261,7 +255,7 @@ fn draw_forward_group(
         representative,
     );
     debug_assert_eq!(
-        pc.pipeline_key.shader_asset_id, ctx.draws[representative].batch_key.shader_asset_id,
+        pc.pipeline_key.shader_asset_id, resources.draws[representative].batch_key.shader_asset_id,
         "material packet pipeline key must match the representative draw"
     );
 
@@ -269,50 +263,16 @@ fn draw_forward_group(
         return;
     };
 
-    if state.bound_batch_cursor != Some(batch_cursor) {
-        let material_bg = pc.bind_group.as_deref().unwrap_or(ctx.empty_bg);
-        if let Some(offset) = pc.material_uniform_dynamic_offset {
-            ctx.rpass.set_bind_group(1, material_bg, &[offset]);
-        } else {
-            ctx.rpass.set_bind_group(1, material_bg, &[]);
-        }
-        state.bound_batch_cursor = Some(batch_cursor);
-    }
+    bind_material_packet_if_changed(rpass, resources, state, batch_cursor, pc);
+    bind_forward_per_draw_slab(rpass, resources, state, group);
+    set_stencil_reference_if_changed(rpass, resources, state, representative);
+    set_forward_scissor_if_changed(rpass, resources, state, representative);
 
-    let slab_first_instance = group.instance_range.start as usize;
-    let instance_count = group.instance_range.end - group.instance_range.start;
-    bind_per_draw_slab_if_changed(
-        ctx.rpass,
-        PerDrawSlabBind {
-            bind_group_index: 2,
-            bind_group: ctx.per_draw_bind_group,
-            gpu_limits: ctx.gpu_limits,
-            slab_first_instance,
-            instance_count,
-            supports_base_instance: ctx.supports_base_instance,
-        },
-        &mut state.last_per_draw_dyn_offset,
-    );
-
-    let item = &ctx.draws[representative];
-    let stencil_ref = item.batch_key.render_state.stencil_reference();
-    if state.last_stencil_ref != Some(stencil_ref) {
-        ctx.rpass.set_stencil_reference(stencil_ref);
-        state.last_stencil_ref = Some(stencil_ref);
-    }
-
-    let scissor = forward_group_scissor(ctx, item);
-    if state.last_scissor != Some(scissor) {
-        ctx.rpass
-            .set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
-        state.last_scissor = Some(scissor);
-    }
-
-    let inst_range = instance_range_for_draw_group(group, ctx.supports_base_instance);
+    let inst_range = instance_range_for_draw_group(group, resources.supports_base_instance);
     issue_material_pipeline_passes(
-        ctx.rpass,
-        ctx.encode,
-        item,
+        rpass,
+        encode,
+        &resources.draws[representative],
         ActivePipelineSelection { pipelines },
         &inst_range,
         &mut state.last_mesh,
@@ -320,16 +280,97 @@ fn draw_forward_group(
     );
 }
 
-fn forward_group_scissor(
-    ctx: &ForwardDrawLoop<'_, '_, '_, '_>,
-    item: &WorldMeshDrawItem,
-) -> (u32, u32, u32, u32) {
-    match (item.ui_rect_clip_local, item.rigid_world_matrix) {
-        (Some(rect), Some(model)) => {
-            project_rect_to_scissor(ctx.overlay_view_proj * model, rect, ctx.viewport_px)
-                .unwrap_or(ctx.full_viewport)
-        }
-        _ => ctx.full_viewport,
+fn bind_material_packet_if_changed(
+    rpass: &mut wgpu::RenderPass<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+    batch_cursor: usize,
+    packet: &MaterialBatchPacket,
+) {
+    if state.bound_batch_cursor == Some(batch_cursor) {
+        return;
+    }
+    let material_bg = packet.bind_group.as_deref().unwrap_or(resources.empty_bg);
+    if let Some(offset) = packet.material_uniform_dynamic_offset {
+        rpass.set_bind_group(1, material_bg, &[offset]);
+    } else {
+        rpass.set_bind_group(1, material_bg, &[]);
+    }
+    state.bound_batch_cursor = Some(batch_cursor);
+}
+
+fn bind_forward_per_draw_slab(
+    rpass: &mut wgpu::RenderPass<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+    group: &DrawGroup,
+) {
+    let slab_first_instance = group.instance_range.start as usize;
+    let instance_count = group.instance_range.end - group.instance_range.start;
+    bind_per_draw_slab_if_changed(
+        rpass,
+        PerDrawSlabBind {
+            bind_group_index: 2,
+            bind_group: resources.per_draw_bind_group,
+            gpu_limits: resources.gpu_limits,
+            slab_first_instance,
+            instance_count,
+            supports_base_instance: resources.supports_base_instance,
+        },
+        &mut state.last_per_draw_dyn_offset,
+    );
+}
+
+fn set_stencil_reference_if_changed(
+    rpass: &mut wgpu::RenderPass<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+    representative: usize,
+) {
+    let stencil_ref = resources.draws[representative]
+        .batch_key
+        .render_state
+        .stencil_reference();
+    if state.last_stencil_ref != Some(stencil_ref) {
+        rpass.set_stencil_reference(stencil_ref);
+        state.last_stencil_ref = Some(stencil_ref);
+    }
+}
+
+fn set_forward_scissor_if_changed(
+    rpass: &mut wgpu::RenderPass<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+    representative: usize,
+) {
+    let item = &resources.draws[representative];
+    let scissor = match (item.ui_rect_clip_local, item.rigid_world_matrix) {
+        (Some(rect), Some(model)) => project_rect_to_scissor(
+            resources.overlay_view_proj * model,
+            rect,
+            resources.viewport_px,
+        )
+        .unwrap_or(resources.full_viewport),
+        _ => resources.full_viewport,
+    };
+    if state.last_scissor != Some(scissor) {
+        rpass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
+        state.last_scissor = Some(scissor);
+    }
+}
+
+fn reset_forward_scissor(
+    rpass: &mut wgpu::RenderPass<'_>,
+    full_viewport: (u32, u32, u32, u32),
+    last_scissor: Option<(u32, u32, u32, u32)>,
+) {
+    if last_scissor.is_some() && last_scissor != Some(full_viewport) {
+        rpass.set_scissor_rect(
+            full_viewport.0,
+            full_viewport.1,
+            full_viewport.2,
+            full_viewport.3,
+        );
     }
 }
 

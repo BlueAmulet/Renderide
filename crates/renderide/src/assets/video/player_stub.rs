@@ -1,12 +1,10 @@
 //! Stub [`VideoPlayer`] used when the `video-textures` feature is disabled.
 //!
 //! Mirrors the public surface of the real GStreamer-backed player so that
-//! [`crate::backend::AssetTransferQueue`] and the upload
-//! handlers compile unchanged. Every method is a no-op; `new` always returns
+//! upload handlers compile unchanged. Every method is a no-op; `new` always returns
 //! `None`, so `video_players` stays empty and the integrator's polling loop
 //! has nothing to drive.
 
-use crate::backend::AssetTransferQueue;
 use renderide_shared::ipc::DualQueueIpc;
 use renderide_shared::{
     VideoTextureClockErrorState, VideoTextureLoad, VideoTextureStartAudioTrack, VideoTextureUpdate,
@@ -46,7 +44,7 @@ impl VideoPlayer {
     /// No-op stand-in for the GStreamer-backed implementation.
     pub fn process_events(
         &self,
-        _queue: &mut AssetTransferQueue,
+        _frame_sink: &mut impl Sized,
         _ipc: &mut Option<&mut DualQueueIpc>,
     ) {
         match *self {}

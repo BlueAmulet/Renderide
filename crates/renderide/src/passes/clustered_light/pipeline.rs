@@ -10,8 +10,8 @@ use std::num::NonZeroU64;
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::backend::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight};
 use crate::embedded_shaders::embedded_wgsl;
+use crate::gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight};
 use crate::gpu_resource::OnceGpu;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::cluster::{CLUSTER_COUNT_Z, TILE_SIZE, sanitize_cluster_clip_planes};

@@ -289,7 +289,7 @@ fn gpu_light_from_resolved_point() {
     cache.apply_update(space_id, &[], &[0], &[make_state(0, 100, LightType::Point)]);
     let resolved = cache.resolve_lights(space_id, |_| Some(Mat4::IDENTITY));
     assert_eq!(resolved.len(), 1);
-    let gpu = crate::backend::GpuLight::from_resolved(&resolved[0]);
+    let gpu = crate::gpu::GpuLight::from(&resolved[0]);
     assert_eq!(gpu.light_type, 0);
     assert!((gpu.position[0] - 1.0).abs() < 1e-5);
 }

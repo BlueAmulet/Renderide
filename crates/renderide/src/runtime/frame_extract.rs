@@ -7,7 +7,7 @@
 
 use rayon::prelude::*;
 
-use crate::backend::{ExtractedFrameShared, RenderBackend};
+use crate::backend::{ExtractedFrameShared, RenderBackend, WorldMeshDrawPlanSlot};
 use crate::gpu::GpuContext;
 use crate::mesh_deform::SkinCacheKey;
 use crate::occlusion::HiZCullData;
@@ -16,8 +16,7 @@ use crate::render_graph::{FrameView, FrameViewResourceHints, GraphExecuteError};
 use crate::world_mesh::{
     DrawCollectionContext, HiZTemporalState, PrefetchedWorldMeshViewDraws, WorldMeshCullInput,
     WorldMeshCullProjParams, WorldMeshDrawCollectParallelism, WorldMeshDrawPlan,
-    WorldMeshDrawPlanSlot, build_world_mesh_cull_proj_params,
-    collect_and_sort_draws_with_parallelism,
+    build_world_mesh_cull_proj_params, collect_and_sort_draws_with_parallelism,
 };
 
 use super::frame_view_plan::FrameViewPlan;

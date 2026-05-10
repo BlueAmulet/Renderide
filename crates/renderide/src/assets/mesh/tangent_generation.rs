@@ -544,15 +544,11 @@ mod tests {
             attr(VertexAttributeType::Normal, 3),
             attr(VertexAttributeType::UV0, 2),
         ];
+        let vertices = quad_vertices();
+        let indices = quad_indices();
+        let submeshes = [triangle_submesh(6)];
         let tangents = tangent_stream_bytes(
-            tangent_source(
-                &quad_vertices(),
-                &quad_indices(),
-                4,
-                32,
-                &attrs,
-                &[triangle_submesh(6)],
-            ),
+            tangent_source(&vertices, &indices, 4, 32, &attrs, &submeshes),
             true,
         )
         .expect("tangent stream");
@@ -568,15 +564,11 @@ mod tests {
             attr(VertexAttributeType::Position, 3),
             attr(VertexAttributeType::Normal, 3),
         ];
+        let vertices = quad_vertices();
+        let indices = quad_indices();
+        let submeshes = [triangle_submesh(6)];
         let tangents = tangent_stream_bytes(
-            tangent_source(
-                &quad_vertices(),
-                &quad_indices(),
-                4,
-                32,
-                &attrs,
-                &[triangle_submesh(6)],
-            ),
+            tangent_source(&vertices, &indices, 4, 32, &attrs, &submeshes),
             true,
         )
         .expect("tangent stream");
@@ -632,15 +624,11 @@ mod tests {
             attr(VertexAttributeType::Normal, 3),
             attr(VertexAttributeType::UV0, 2),
         ];
+        let vertices = quad_vertices();
+        let indices = quad_indices();
+        let submeshes = [point_submesh(6)];
         let tangents = tangent_stream_bytes(
-            tangent_source(
-                &quad_vertices(),
-                &quad_indices(),
-                4,
-                32,
-                &attrs,
-                &[point_submesh(6)],
-            ),
+            tangent_source(&vertices, &indices, 4, 32, &attrs, &submeshes),
             true,
         )
         .expect("tangent stream");

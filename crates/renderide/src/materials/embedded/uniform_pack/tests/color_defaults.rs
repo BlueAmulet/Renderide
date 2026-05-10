@@ -158,7 +158,7 @@ fn srgb_material_color_arrays_linearize_only_when_metadata_marks_them() {
 }
 
 #[test]
-fn gradient_skybox_color_arrays_linearize_for_material_and_backend_paths() {
+fn gradient_skybox_color_arrays_stay_raw_for_material_uniform_path() {
     let (reflected, ids, registry) = reflected_with_uniform_fields(&[
         ("_Color0", ReflectedUniformScalarKind::Unsupported, 16, 0),
         ("_Color1", ReflectedUniformScalarKind::Unsupported, 16, 16),
@@ -201,8 +201,8 @@ fn gradient_skybox_color_arrays_linearize_for_material_and_backend_paths() {
         )
         .expect("uniform bytes");
 
-        assert_eq!(read_f32x4(&bytes, 0), srgb_vec4_rgb_to_linear(color0));
-        assert_eq!(read_f32x4(&bytes, 16), srgb_vec4_rgb_to_linear(color1));
+        assert_eq!(read_f32x4(&bytes, 0), color0);
+        assert_eq!(read_f32x4(&bytes, 16), color1);
     }
 }
 

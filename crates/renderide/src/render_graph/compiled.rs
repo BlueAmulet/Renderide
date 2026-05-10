@@ -218,6 +218,14 @@ impl<'a> FrameView<'a> {
 }
 
 impl CompiledRenderGraph {
+    /// Stores main-frame MSAA depth scratch handles used by per-view recording helpers.
+    pub(crate) fn set_main_graph_msaa_transient_handles(
+        &mut self,
+        handles: [crate::render_graph::resources::TextureHandle; 2],
+    ) {
+        self.main_graph_msaa_transient_handles = Some(handles);
+    }
+
     /// Releases any pass-local view-scoped caches for views that are no longer active.
     pub(crate) fn release_view_resources(&mut self, retired_views: &[ViewId]) {
         if retired_views.is_empty() {

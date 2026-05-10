@@ -64,6 +64,7 @@ impl<'a> ExtendedVertexUploadSource<'a> {
 }
 
 /// CPU-side mesh source required to build one lazy UV vertex stream.
+#[derive(Copy, Clone)]
 pub(super) struct UvVertexUploadSource<'a> {
     /// Interleaved vertex bytes from the host mesh payload.
     pub vertex_slice: &'a [u8],

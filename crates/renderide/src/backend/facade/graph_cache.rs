@@ -1,5 +1,6 @@
 //! Render-graph cache synchronization and frame-shape invalidation policy.
 
+use crate::backend::graph::build_main_graph_with_resources;
 use crate::config::PostProcessingSettings;
 use crate::passes::post_processing::gpu_supports_gtao;
 use crate::render_graph::GraphCacheKey;
@@ -103,11 +104,7 @@ impl RenderBackend {
         }
         let post_processing_resources = self.graph_state.post_processing_resources().clone();
         if let Err(error) = self.graph_state.frame_graph_cache.ensure(key, || {
-            crate::render_graph::main_graph::build_main_graph_with_resources(
-                key,
-                post_processing,
-                &post_processing_resources,
-            )
+            build_main_graph_with_resources(key, post_processing, &post_processing_resources)
         }) {
             logger::warn!("render graph build failed: {error}");
         }

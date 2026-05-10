@@ -13,10 +13,9 @@ use crate::render_graph::compiled::FrameView;
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlan};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::render_graph::upload_arena::PersistentUploadArena;
-use crate::world_mesh::WorldMeshDrawPlanSlot;
 
 use super::super::debug_hud_bundle::DebugHudBundle;
-use super::super::{FrameResourceManager, HistoryRegistry};
+use super::super::{FrameResourceManager, HistoryRegistry, WorldMeshDrawPlanSlot};
 use crate::occlusion::OcclusionSystem;
 
 /// Disjoint backend slices assembled into [`crate::render_graph::GraphPassFrame`].
