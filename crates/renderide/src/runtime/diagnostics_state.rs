@@ -109,11 +109,21 @@ impl RuntimeDiagnosticsState {
         self.frame_submit_apply_failures = self.frame_submit_apply_failures.saturating_add(1);
     }
 
-    /// Refreshes the sorted GPU allocator report when the interval elapses.
-    pub(super) fn refresh_gpu_allocator_report_hud(&mut self, gpu: &GpuContext, now: Instant) {
-        let should_refresh = self
-            .allocator_report_last_refresh
-            .is_none_or(|t| now.duration_since(t) >= GPU_ALLOCATOR_FULL_REPORT_INTERVAL);
+    /// Refreshes GPU allocator totals when the interval elapses.
+    ///
+    /// The full sorted report is only retained when the main debug HUD needs the GPU memory tab;
+    /// the frame-timing overlay uses the cheaper totals.
+    pub(super) fn refresh_gpu_allocator_report_hud(
+        &mut self,
+        gpu: &GpuContext,
+        now: Instant,
+        retain_full_report: bool,
+    ) {
+        let needs_full_report = retain_full_report && self.allocator_report_hud.is_none();
+        let should_refresh = needs_full_report
+            || self
+                .allocator_report_last_refresh
+                .is_none_or(|t| now.duration_since(t) >= GPU_ALLOCATOR_FULL_REPORT_INTERVAL);
         if !should_refresh {
             return;
         }
@@ -123,12 +133,16 @@ impl RuntimeDiagnosticsState {
                 allocated_bytes: Some(rep.total_allocated_bytes),
                 reserved_bytes: Some(rep.total_reserved_bytes),
             };
-            let mut order: Vec<usize> = (0..rep.allocations.len()).collect();
-            order.sort_by_key(|&i| std::cmp::Reverse(rep.allocations[i].size));
-            self.allocator_report_hud = Some(GpuAllocatorReportHud {
-                report: Arc::new(rep),
-                allocation_indices_by_size: order.into(),
-            });
+            if retain_full_report {
+                let mut order: Vec<usize> = (0..rep.allocations.len()).collect();
+                order.sort_by_key(|&i| std::cmp::Reverse(rep.allocations[i].size));
+                self.allocator_report_hud = Some(GpuAllocatorReportHud {
+                    report: Arc::new(rep),
+                    allocation_indices_by_size: order.into(),
+                });
+            } else {
+                self.allocator_report_hud = None;
+            }
         }
     }
 
@@ -150,6 +164,11 @@ impl RuntimeDiagnosticsState {
         self.allocator_report_hud = None;
         self.allocator_report_totals = GpuAllocatorHud::default();
         self.allocator_report_last_refresh = None;
+    }
+
+    /// Clears the full GPU allocation table while keeping totals for the frame-timing overlay.
+    pub(super) fn clear_allocator_report_detail(&mut self) {
+        self.allocator_report_hud = None;
     }
 }
 

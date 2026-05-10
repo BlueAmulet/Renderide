@@ -7,7 +7,7 @@
 use crate::gpu::GpuContext;
 use crate::gpu::frame_cpu_gpu_timing::GpuMsSource;
 
-use super::frame_diagnostics::HostCpuMemoryHud;
+use super::frame_diagnostics::{GpuAllocatorHud, HostCpuMemoryHud};
 use crate::diagnostics::ema::FrameTimingEma;
 use crate::diagnostics::frame_history::FrameTimeHistory;
 
@@ -41,6 +41,10 @@ pub struct FrameTimingHudSnapshot {
     pub host_ram_used_bytes: u64,
     /// Resident memory of the renderer process in bytes (sysinfo; `None` when unavailable).
     pub process_ram_bytes: Option<u64>,
+    /// Live GPU allocator bytes in use (`wgpu::Device::generate_allocator_report` total).
+    pub gpu_allocator_allocated_bytes: Option<u64>,
+    /// GPU allocator reserved capacity including allocator fragmentation.
+    pub gpu_allocator_reserved_bytes: Option<u64>,
 }
 
 impl FrameTimingHudSnapshot {
@@ -51,6 +55,7 @@ impl FrameTimingHudSnapshot {
         gpu: &GpuContext,
         wall_frame_time_ms: f64,
         host: &HostCpuMemoryHud,
+        gpu_allocator: GpuAllocatorHud,
         history: &FrameTimeHistory,
         ema: &mut FrameTimingEma,
     ) -> Self {
@@ -70,6 +75,8 @@ impl FrameTimingHudSnapshot {
             host_ram_total_bytes: host.ram_total_bytes,
             host_ram_used_bytes: host.ram_used_bytes,
             process_ram_bytes: host.process_ram_bytes,
+            gpu_allocator_allocated_bytes: gpu_allocator.allocated_bytes,
+            gpu_allocator_reserved_bytes: gpu_allocator.reserved_bytes,
         }
     }
 
@@ -103,5 +110,12 @@ mod tests {
     fn fps_from_wall_zero_interval() {
         let s = FrameTimingHudSnapshot::default();
         assert_eq!(s.fps_from_wall(), 0.0);
+    }
+
+    #[test]
+    fn default_has_no_vram_totals() {
+        let s = FrameTimingHudSnapshot::default();
+        assert_eq!(s.gpu_allocator_allocated_bytes, None);
+        assert_eq!(s.gpu_allocator_reserved_bytes, None);
     }
 }

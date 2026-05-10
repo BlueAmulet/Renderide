@@ -327,8 +327,9 @@ pub struct DebugSettings {
     /// [`crate::config::apply_renderide_gpu_validation_env`] and `WGPU_*` environment variables
     /// can still adjust flags at process start.
     pub gpu_validation_layers: bool,
-    /// When true, show the **Frame timing** ImGui window (FPS and CPU/GPU submit-interval
-    /// metrics). Cheap snapshot; independent of [`Self::debug_hud_enabled`]. Default true.
+    /// When true, show the **Frame timing** ImGui window (FPS, CPU/GPU submit-interval metrics,
+    /// RAM/VRAM, and frametime graph). Cheap snapshot; independent of
+    /// [`Self::debug_hud_enabled`]. Default true.
     #[serde(default = "default_debug_hud_frame_timing")]
     pub debug_hud_frame_timing: bool,
     /// When true, show **Renderide debug** (Stats / Shader routes) and run mesh-draw stats,

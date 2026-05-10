@@ -9,6 +9,7 @@ use super::RendererRuntime;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct DebugHudCaptureFlags {
+    frame_timing: bool,
     main: bool,
     scene_transforms: bool,
     textures: bool,
@@ -18,6 +19,7 @@ fn debug_hud_capture_flags(settings: &crate::config::RendererSettings) -> DebugH
     let hud = &settings.debug.hud;
     let imgui_visible = hud.imgui_visible;
     DebugHudCaptureFlags {
+        frame_timing: imgui_visible && settings.debug.debug_hud_frame_timing,
         main: imgui_visible && settings.debug.debug_hud_enabled,
         scene_transforms: imgui_visible
             && settings.debug.debug_hud_transforms
@@ -30,7 +32,8 @@ impl RendererRuntime {
     /// Fills renderer info, frame diagnostics, and related main-tab HUD snapshots when the main HUD is on.
     fn capture_main_debug_hud_panels(&mut self, gpu: &GpuContext, now: Instant) {
         let host = self.diagnostics.host_hud.snapshot();
-        self.diagnostics.refresh_gpu_allocator_report_hud(gpu, now);
+        self.diagnostics
+            .refresh_gpu_allocator_report_hud(gpu, now, true);
         let next_refresh_in_secs = self.diagnostics.allocator_report_next_refresh_in_secs(now);
         let (ipc_pri_str, ipc_bg_str) = self.frontend.ipc_consecutive_outbound_drop_streaks();
         let backend_diag = self.backend.snapshot_for_diagnostics();
@@ -110,6 +113,19 @@ impl RendererRuntime {
         profiling::scope!("hud::capture_snapshot");
         let wall_ms = self.backend.debug_frame_time_ms();
         self.diagnostics.frame_time_history.push(wall_ms as f32);
+        let flags = self
+            .config
+            .settings
+            .read()
+            .map(|s| debug_hud_capture_flags(&s))
+            .unwrap_or_default();
+        let now = Instant::now();
+        if flags.frame_timing || flags.main {
+            self.diagnostics
+                .refresh_gpu_allocator_report_hud(gpu, now, flags.main);
+        } else {
+            self.diagnostics.clear_allocator_report();
+        }
         // Host CPU / RAM / process RAM are sampled every tick so the Frame timing overlay can show
         // them without requiring the full debug HUD (heavier panels are still gated below).
         let host = self.diagnostics.host_hud.snapshot();
@@ -117,6 +133,7 @@ impl RendererRuntime {
             gpu,
             wall_ms,
             &host,
+            self.diagnostics.allocator_report_totals,
             &self.diagnostics.frame_time_history,
             &mut self.diagnostics.frame_timing_ema,
         );
@@ -129,20 +146,16 @@ impl RendererRuntime {
         self.backend
             .set_debug_hud_gpu_pass_timings(gpu_pass_timings);
 
-        let flags = self
-            .config
-            .settings
-            .read()
-            .map(|s| debug_hud_capture_flags(&s))
-            .unwrap_or_default();
-        let now = Instant::now();
-
         if flags.main && self.diagnostics.should_refresh_main_hud_snapshot(now) {
             self.capture_main_debug_hud_panels(gpu, now);
         } else if !flags.main {
             self.backend.clear_debug_hud_stats_snapshots();
             self.diagnostics.clear_main_hud_snapshot_timer();
-            self.diagnostics.clear_allocator_report();
+            if flags.frame_timing {
+                self.diagnostics.clear_allocator_report_detail();
+            } else {
+                self.diagnostics.clear_allocator_report();
+            }
         }
 
         if flags.scene_transforms
