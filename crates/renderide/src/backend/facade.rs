@@ -32,7 +32,6 @@ use crate::materials::host_data::MaterialPropertyStore;
 use crate::render_graph::TransientPool;
 use crate::world_mesh::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
-use super::resource_scope::RenderSpaceResourceScopes;
 use super::{FrameGpuBindingsError, FrameResourceManager};
 use crate::materials::MaterialSystem;
 use crate::materials::embedded::EmbeddedMaterialBindError;
@@ -129,8 +128,6 @@ pub struct RenderBackend {
     diagnostics: BackendDiagnostics,
     /// Nonblocking reflection-probe projection, bake, cache, and selection services.
     reflection_probes: ReflectionProbeServices,
-    /// Render-space asset ownership used to unload zero-owner GPU resources on world close.
-    resource_scopes: RenderSpaceResourceScopes,
     /// Render-graph cache, transient pool, history registry, and view-scoped graph resource ownership.
     graph_state: RenderGraphState,
     /// Hierarchical depth pyramid, CPU readback, and temporal cull state for occlusion culling.
@@ -158,7 +155,6 @@ impl RenderBackend {
             world_mesh_frame_planner: super::BackendWorldMeshFramePlanner::new(),
             diagnostics: BackendDiagnostics::new(),
             reflection_probes: ReflectionProbeServices::new(),
-            resource_scopes: RenderSpaceResourceScopes::new(),
             graph_state: RenderGraphState::new(),
             occlusion: OcclusionSystem::new(),
             surface_format: None,

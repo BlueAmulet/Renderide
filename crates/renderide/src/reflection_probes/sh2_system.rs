@@ -5,7 +5,6 @@ use glam::Vec3;
 use hashbrown::{HashMap, HashSet};
 
 use crate::backend::AssetTransferQueue;
-use crate::backend::resource_scope::RenderSpaceAssetSet;
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
 use crate::materials::MaterialSystem;
@@ -281,9 +280,8 @@ impl ReflectionProbeSh2System {
     pub(crate) fn purge_render_space_resources(
         &mut self,
         spaces: &HashSet<crate::scene::RenderSpaceId>,
-        assets: &RenderSpaceAssetSet,
     ) -> usize {
-        if spaces.is_empty() && assets.is_empty() {
+        if spaces.is_empty() {
             return 0;
         }
         profiling::scope!("reflection_probe_sh2::purge_render_space_resources");
@@ -292,18 +290,18 @@ impl ReflectionProbeSh2System {
             + self.queued_sources.len()
             + self.readback_jobs.len();
         self.completed
-            .retain(|key, _| !sh2_key_matches_closed_resources(key, spaces, assets));
+            .retain(|key, _| !sh2_key_matches_closed_spaces(key, spaces));
         self.failed
-            .retain(|key| !sh2_key_matches_closed_resources(key, spaces, assets));
+            .retain(|key| !sh2_key_matches_closed_spaces(key, spaces));
         self.queued_sources
-            .retain(|key, _| !sh2_key_matches_closed_resources(key, spaces, assets));
+            .retain(|key, _| !sh2_key_matches_closed_spaces(key, spaces));
         let queued_sources = &self.queued_sources;
         self.queue_order
             .retain(|key| queued_sources.contains_key(key));
         self.touched_this_pass
-            .retain(|key| !sh2_key_matches_closed_resources(key, spaces, assets));
+            .retain(|key| !sh2_key_matches_closed_spaces(key, spaces));
         self.readback_jobs
-            .retain(|key| !sh2_key_matches_closed_resources(key, spaces, assets));
+            .retain(|key| !sh2_key_matches_closed_spaces(key, spaces));
         let after = self.completed.len()
             + self.failed.len()
             + self.queued_sources.len()
@@ -873,30 +871,11 @@ fn sh2_source_from_ibl_source(
     }
 }
 
-fn sh2_key_matches_closed_resources(
+fn sh2_key_matches_closed_spaces(
     key: &Sh2SourceKey,
     spaces: &HashSet<crate::scene::RenderSpaceId>,
-    assets: &RenderSpaceAssetSet,
 ) -> bool {
-    if spaces.contains(&crate::scene::RenderSpaceId(key.render_space_id())) {
-        return true;
-    }
-    match key {
-        Sh2SourceKey::ConstantColor { .. } | Sh2SourceKey::RuntimeCubemap { .. } => false,
-        Sh2SourceKey::Cubemap {
-            material_asset_id,
-            asset_id,
-            ..
-        } => assets.materials.contains(material_asset_id) || assets.cubemaps.contains(asset_id),
-        Sh2SourceKey::EquirectTexture2D {
-            material_asset_id,
-            asset_id,
-            ..
-        } => assets.materials.contains(material_asset_id) || assets.texture_2d.contains(asset_id),
-        Sh2SourceKey::SkyParams {
-            material_asset_id, ..
-        } => assets.materials.contains(material_asset_id),
-    }
+    spaces.contains(&crate::scene::RenderSpaceId(key.render_space_id()))
 }
 
 #[cfg(test)]

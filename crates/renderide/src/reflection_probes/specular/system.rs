@@ -6,7 +6,6 @@ use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::{
     GpuReflectionProbeMetadata, REFLECTION_PROBE_ATLAS_FORMAT, ReflectionProbeSpecularResources,
 };
-use crate::backend::resource_scope::RenderSpaceAssetSet;
 use crate::gpu::GpuContext;
 use crate::materials::MaterialSystem;
 use crate::scene::{RenderSpaceId, SceneCoordinator};
@@ -73,20 +72,19 @@ impl ReflectionProbeSpecularSystem {
         &self.captures
     }
 
-    /// Purges reflection-probe GPU resources tied to closed spaces or zero-owner source assets.
+    /// Purges reflection-probe GPU resources tied to closed render spaces.
     pub(crate) fn purge_render_space_resources(
         &mut self,
         spaces: &HashSet<RenderSpaceId>,
-        assets: &RenderSpaceAssetSet,
     ) -> usize {
-        if spaces.is_empty() && assets.is_empty() {
+        if spaces.is_empty() {
             return 0;
         }
         profiling::scope!("reflection_probes::specular::purge_render_space_resources");
         let captures = self.captures.purge_spaces(spaces);
         let ibl = self
             .ibl_cache
-            .purge_where(|key| specular_ibl_key_matches_closed_resources(key, spaces, assets));
+            .purge_where(|key| specular_ibl_key_matches_closed_spaces(key, spaces));
         let removed = captures.saturating_add(ibl);
         if removed > 0 {
             self.version = self.version.wrapping_add(1);
@@ -426,31 +424,64 @@ impl ReflectionProbeSpecularSystem {
     }
 }
 
-fn specular_ibl_key_matches_closed_resources(
+fn specular_ibl_key_matches_closed_spaces(
     key: &SkyboxIblKey,
     spaces: &HashSet<RenderSpaceId>,
-    assets: &RenderSpaceAssetSet,
 ) -> bool {
     match key {
-        SkyboxIblKey::Analytic {
-            material_asset_id, ..
-        } => assets.materials.contains(material_asset_id),
-        SkyboxIblKey::Cubemap {
-            material_asset_id,
-            asset_id,
-            ..
-        } => assets.materials.contains(material_asset_id) || assets.cubemaps.contains(asset_id),
-        SkyboxIblKey::Equirect {
-            material_asset_id,
-            asset_id,
-            ..
-        } => assets.materials.contains(material_asset_id) || assets.texture_2d.contains(asset_id),
-        SkyboxIblKey::SolidColor { .. } => false,
+        SkyboxIblKey::Analytic { .. }
+        | SkyboxIblKey::Cubemap { .. }
+        | SkyboxIblKey::Equirect { .. }
+        | SkyboxIblKey::SolidColor { .. } => false,
         SkyboxIblKey::RuntimeCubemap {
             render_space_id, ..
         } => spaces.contains(&RenderSpaceId(*render_space_id)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closed_space_filter_matches_runtime_cubemap_space() {
+        let mut spaces = HashSet::new();
+        spaces.insert(RenderSpaceId(7));
+
+        assert!(specular_ibl_key_matches_closed_spaces(
+            &SkyboxIblKey::RuntimeCubemap {
+                render_space_id: 7,
+                renderable_index: 0,
+                generation: 1,
+                mip_levels: 1,
+                face_size: 128,
+            },
+            &spaces,
+        ));
+    }
+
+    #[test]
+    fn closed_space_filter_does_not_match_uploaded_asset_keys() {
+        let mut spaces = HashSet::new();
+        spaces.insert(RenderSpaceId(7));
+
+        assert!(!specular_ibl_key_matches_closed_spaces(
+            &SkyboxIblKey::Cubemap {
+                material_asset_id: 21,
+                material_generation: 1,
+                route_hash: 99,
+                asset_id: 7,
+                allocation_generation: 1,
+                mip_levels_resident: 1,
+                content_generation: 1,
+                storage_v_inverted: false,
+                face_size: 128,
+            },
+            &spaces,
+        ));
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 struct ProbeIdentity {
     space_id: RenderSpaceId,

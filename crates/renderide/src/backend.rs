@@ -22,7 +22,6 @@ mod light_gpu;
 pub(crate) mod material_property_reader;
 mod per_draw_resources;
 mod per_view_resource_map;
-pub(crate) mod resource_scope;
 mod view_resource_registry;
 mod world_mesh_frame_plan;
 

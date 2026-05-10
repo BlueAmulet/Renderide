@@ -44,7 +44,7 @@ impl RendererRuntime {
             {
                 profiling::scope!("scene::frame_submit_apply_scene");
                 match self.scene.apply_frame_submit(shm, &data) {
-                    Ok(report) => self.backend.note_scene_apply_report(&report, &self.scene),
+                    Ok(report) => self.backend.note_scene_apply_report(&report),
                     Err(e) => {
                         logger::error!("scene apply_frame_submit failed: {e}");
                         apply_failed = true;
