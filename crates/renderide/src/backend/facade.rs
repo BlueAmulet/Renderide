@@ -772,6 +772,10 @@ mod post_processing_rebuild_tests {
         let mut backend = RenderBackend::new();
         let handle = settings_handle(PostProcessingSettings {
             enabled: true,
+            auto_exposure: crate::config::AutoExposureSettings {
+                enabled: true,
+                ..Default::default()
+            },
             tonemap: TonemapSettings {
                 mode: TonemapMode::AcesFitted,
             },
