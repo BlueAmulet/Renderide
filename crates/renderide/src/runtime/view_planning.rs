@@ -7,13 +7,17 @@
 //! pipeline in [`super::frame_extract`].
 
 use crate::camera::{ViewId, camera_state_enabled, host_camera_frame_for_render_texture};
-use crate::render_graph::{FrameViewClear, ViewPostProcessing};
+use crate::render_graph::{FrameViewClear, OffscreenSampleCountPolicy, ViewPostProcessing};
 use crate::scene::RenderSpaceId;
 use crate::world_mesh::draw_filter_from_camera_entry;
 
 use super::RendererRuntime;
 use super::frame_render::FrameRenderMode;
 use super::frame_view_plan::{FrameViewPlan, FrameViewPlanTarget, OffscreenRtHandles};
+
+/// MSAA policy used for host RenderTexture camera outputs.
+const SECONDARY_CAMERA_SAMPLE_COUNT_POLICY: OffscreenSampleCountPolicy =
+    OffscreenSampleCountPolicy::MasterMsaa;
 
 /// Returns the stable logical identity for one secondary camera view.
 pub(super) fn secondary_camera_view_id(
@@ -207,6 +211,7 @@ impl RendererRuntime {
                     depth_texture,
                     depth_view,
                     color_format,
+                    sample_count_policy: SECONDARY_CAMERA_SAMPLE_COUNT_POLICY,
                 }),
             });
         }
@@ -263,6 +268,14 @@ mod tests {
     }
 
     const TEST_EXTENT: (u32, u32) = (1920, 1080);
+
+    #[test]
+    fn secondary_cameras_use_master_msaa_policy() {
+        assert_eq!(
+            SECONDARY_CAMERA_SAMPLE_COUNT_POLICY,
+            OffscreenSampleCountPolicy::MasterMsaa
+        );
+    }
 
     #[test]
     fn empty_scene_desktop_mode_yields_only_main_view() {

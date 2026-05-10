@@ -9,6 +9,36 @@ use crate::gpu::GpuContext;
 use super::RendererRuntime;
 
 impl RendererRuntime {
+    /// Applies the renderer-wide MSAA setting to the mono forward path and returns the effective tier.
+    pub(super) fn sync_master_msaa(&mut self, gpu: &mut GpuContext) -> u32 {
+        profiling::scope!("render::sync_master_msaa");
+        let requested_msaa = self.requested_master_msaa_count();
+        let prev_msaa = gpu.swapchain_msaa_effective();
+        gpu.set_swapchain_msaa_requested(requested_msaa);
+        let effective = gpu.swapchain_msaa_effective();
+        self.transient_evict_stale_msaa_tiers_if_changed(prev_msaa, effective);
+        effective.max(1)
+    }
+
+    /// Applies the renderer-wide MSAA setting to the stereo forward path and returns the effective tier.
+    pub(super) fn sync_stereo_msaa_from_master(&mut self, gpu: &mut GpuContext) -> u32 {
+        profiling::scope!("render::sync_stereo_msaa");
+        let requested_msaa = self.requested_master_msaa_count();
+        let prev_stereo = gpu.swapchain_msaa_effective_stereo();
+        gpu.set_swapchain_msaa_requested_stereo(requested_msaa);
+        let effective = gpu.swapchain_msaa_effective_stereo();
+        self.transient_evict_stale_msaa_tiers_if_changed(prev_stereo, effective);
+        effective.max(1)
+    }
+
+    fn requested_master_msaa_count(&self) -> u32 {
+        self.config
+            .settings
+            .read()
+            .map(|s| s.rendering.msaa.as_count())
+            .unwrap_or(1)
+    }
+
     /// Drops transient-pool GPU textures for free-list entries whose MSAA sample count no longer
     /// matches the effective swapchain tier (avoids VRAM retention when toggling MSAA).
     pub(super) fn transient_evict_stale_msaa_tiers_if_changed(

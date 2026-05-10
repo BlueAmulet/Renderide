@@ -21,7 +21,27 @@ use crate::camera::{
 };
 use crate::shared::{CameraRenderParameters, CameraState};
 
-/// Single-view color + depth for secondary cameras rendering to a host [`crate::gpu_pools::GpuRenderTexture`].
+/// MSAA policy for single-view offscreen targets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum OffscreenSampleCountPolicy {
+    /// Render the offscreen view without multisampling.
+    SingleSample,
+    /// Render the offscreen view with the effective master MSAA tier.
+    MasterMsaa,
+}
+
+impl OffscreenSampleCountPolicy {
+    /// Resolves the effective raster sample count for this policy.
+    #[inline]
+    pub fn resolve(self, master_msaa_sample_count: u32) -> u32 {
+        match self {
+            Self::SingleSample => 1,
+            Self::MasterMsaa => master_msaa_sample_count.max(1),
+        }
+    }
+}
+
+/// Single-view color + depth for rendering into an externally owned offscreen target.
 pub struct ExternalOffscreenTargets<'a> {
     /// Host render-texture asset id for `color_view` (used to suppress self-sampling during this pass).
     pub render_texture_asset_id: i32,
@@ -35,6 +55,8 @@ pub struct ExternalOffscreenTargets<'a> {
     pub extent_px: (u32, u32),
     /// Color attachment format (must match pipeline targets).
     pub color_format: wgpu::TextureFormat,
+    /// MSAA policy for the transient forward attachments that resolve into this target.
+    pub sample_count_policy: OffscreenSampleCountPolicy,
 }
 
 /// Pre-acquired 2-layer color + depth targets for OpenXR multiview (no window swapchain acquire).
@@ -57,7 +79,7 @@ pub enum FrameViewTarget<'a> {
     Swapchain,
     /// OpenXR stereo multiview (pre-acquired array targets).
     ExternalMultiview(ExternalFrameTargets<'a>),
-    /// Secondary camera to a host render texture.
+    /// Single-view offscreen target such as a host render texture, photo readback, or utility capture.
     OffscreenRt(ExternalOffscreenTargets<'a>),
 }
 
@@ -438,6 +460,19 @@ mod tests {
         assert!(!policy.is_enabled());
         assert!(!policy.screen_space_reflections);
         assert!(!policy.motion_blur);
+    }
+
+    #[test]
+    fn offscreen_sample_count_policy_resolves_single_sample() {
+        assert_eq!(OffscreenSampleCountPolicy::SingleSample.resolve(1), 1);
+        assert_eq!(OffscreenSampleCountPolicy::SingleSample.resolve(8), 1);
+    }
+
+    #[test]
+    fn offscreen_sample_count_policy_resolves_master_msaa() {
+        assert_eq!(OffscreenSampleCountPolicy::MasterMsaa.resolve(0), 1);
+        assert_eq!(OffscreenSampleCountPolicy::MasterMsaa.resolve(1), 1);
+        assert_eq!(OffscreenSampleCountPolicy::MasterMsaa.resolve(4), 4);
     }
 }
 

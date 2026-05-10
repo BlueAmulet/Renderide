@@ -11,7 +11,9 @@ use crate::camera::{
 };
 use crate::gpu::{CUBEMAP_ARRAY_LAYERS, GpuContext};
 use crate::ipc::{DualQueueIpc, SharedMemoryAccessor};
-use crate::render_graph::{FrameViewClear, GraphExecuteError, ViewPostProcessing};
+use crate::render_graph::{
+    FrameViewClear, GraphExecuteError, OffscreenSampleCountPolicy, ViewPostProcessing,
+};
 use crate::scene::{
     ReflectionProbeOnChangesRenderRequest, RenderSpaceId, SceneCoordinator,
     reflection_probe_skybox_only,
@@ -44,6 +46,9 @@ const CUBE_FACE_COUNT: usize = CUBEMAP_ARRAY_LAYERS as usize;
 const RGBA16F_BYTES_PER_PIXEL: usize = 8;
 const RGBA8_BYTES_PER_PIXEL: usize = 4;
 const PROBE_TASK_COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+/// MSAA policy used by reflection-probe utility captures.
+const REFLECTION_PROBE_SAMPLE_COUNT_POLICY: OffscreenSampleCountPolicy =
+    OffscreenSampleCountPolicy::SingleSample;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ProbeOutputFormat {
@@ -378,6 +383,7 @@ impl ProbeTaskTargets {
             depth_texture: Arc::clone(&self.face_depth_textures[face.index()]),
             depth_view: Arc::clone(&self.face_depth_views[face.index()]),
             color_format: self.color_format,
+            sample_count_policy: REFLECTION_PROBE_SAMPLE_COUNT_POLICY,
         }
     }
 

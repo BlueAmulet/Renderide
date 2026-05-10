@@ -82,7 +82,7 @@ pub(crate) mod upload_arena;
 pub(crate) use cache::{GraphCache, GraphCacheKey};
 pub(crate) use compiled::{
     ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewResourceHints,
-    FrameViewTarget, ViewPostProcessing,
+    FrameViewTarget, OffscreenSampleCountPolicy, ViewPostProcessing,
 };
 pub(crate) use error::GraphExecuteError;
 pub(crate) use execution_backend::{

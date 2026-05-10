@@ -407,7 +407,9 @@ impl CompiledRenderGraph {
                 multiview_stereo: false,
                 offscreen_write_render_texture_asset_id: Some(ext.render_texture_asset_id),
                 view_id,
-                sample_count: 1,
+                sample_count: ext
+                    .sample_count_policy
+                    .resolve(gpu.swapchain_msaa_effective()),
                 post_processing,
             }),
         }
