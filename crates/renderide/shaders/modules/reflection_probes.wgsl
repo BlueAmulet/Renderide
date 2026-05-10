@@ -2,12 +2,14 @@
 
 #define_import_path renderide::reflection_probes
 
+#import renderide::cubemap_storage as cubemap_storage
 #import renderide::globals as rg
 #import renderide::pbs::brdf as brdf
 #import renderide::per_draw as pd
 #import renderide::sh2_ambient as shamb
 
 const PROBE_FLAG_BOX_PROJECTION: f32 = 1.0;
+const REFLECTION_PROBE_ATLAS_STORAGE_V_INVERTED: f32 = 1.0;
 const PROBE_SH2_SOURCE_NONE: f32 = 0.0;
 
 fn selected_draw(view_layer: u32) -> pd::PerDrawUniforms {
@@ -60,11 +62,15 @@ fn sample_probe_radiance(
         return vec3<f32>(0.0);
     }
     let sample_dir = box_project_dir(probe, world_pos, dir);
+    let atlas_sample_dir = cubemap_storage::sample_dir(
+        sample_dir,
+        REFLECTION_PROBE_ATLAS_STORAGE_V_INVERTED,
+    );
     let lod = roughness_lod(perceptual_roughness, max(probe.params.y, 0.0));
     return textureSampleLevel(
         rg::reflection_probe_specular,
         rg::reflection_probe_specular_sampler,
-        sample_dir,
+        atlas_sample_dir,
         i32(atlas_index),
         lod,
     ).rgb * intensity;
