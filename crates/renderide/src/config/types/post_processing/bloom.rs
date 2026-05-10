@@ -79,7 +79,7 @@ impl Default for BloomSettings {
             high_pass_frequency: 1.0,
             prefilter_threshold: 1.0,
             prefilter_threshold_softness: 0.5,
-            composite_mode: BloomCompositeMode::Additive,
+            composite_mode: BloomCompositeMode::EnergyConserving,
             max_mip_dimension: 512,
         }
     }
