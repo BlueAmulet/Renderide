@@ -17,7 +17,7 @@ use super::super::layout::{
     extract_bind_poses,
 };
 use super::super::upload_impl::{
-    ExtendedVertexUploadSource, upload_default_extended_vertex_streams,
+    ExtendedVertexUploadSource, UvVertexUploadSource, upload_default_extended_vertex_streams,
     upload_default_tangent_vertex_stream, upload_default_uv_vertex_stream,
     upload_extended_vertex_streams, upload_tangent_vertex_stream, upload_uv_vertex_stream,
 };
@@ -196,12 +196,14 @@ impl GpuMesh {
             upload_uv_vertex_stream(
                 device,
                 self.asset_id,
-                source.vertex_bytes.as_ref(),
-                vc_usize,
-                self.vertex_stride as usize,
-                source.vertex_attributes.as_ref(),
-                VertexAttributeType::UV1,
-                "uv1",
+                UvVertexUploadSource {
+                    vertex_slice: source.vertex_bytes.as_ref(),
+                    vertex_count: vc_usize,
+                    vertex_stride: self.vertex_stride as usize,
+                    vertex_attributes: source.vertex_attributes.as_ref(),
+                    target: VertexAttributeType::UV1,
+                    label: "uv1",
+                },
             )
         } else {
             upload_default_uv_vertex_stream(device, self.asset_id, vc_usize, "uv1")
@@ -257,12 +259,14 @@ impl GpuMesh {
             upload_uv_vertex_stream(
                 device,
                 self.asset_id,
-                source.vertex_bytes.as_ref(),
-                vc_usize,
-                self.vertex_stride as usize,
-                source.vertex_attributes.as_ref(),
-                target,
-                label,
+                UvVertexUploadSource {
+                    vertex_slice: source.vertex_bytes.as_ref(),
+                    vertex_count: vc_usize,
+                    vertex_stride: self.vertex_stride as usize,
+                    vertex_attributes: source.vertex_attributes.as_ref(),
+                    target,
+                    label,
+                },
             )
         } else {
             upload_default_uv_vertex_stream(device, self.asset_id, vc_usize, label)

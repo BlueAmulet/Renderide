@@ -42,13 +42,9 @@ impl MaterialRegistry {
             variant,
         } = request;
         match self.cache.get_or_queue(kind, desc, variant) {
-            MaterialPipelineLookup::Ready(p) => return Some(p),
-            MaterialPipelineLookup::Pending if matches!(kind, RasterPipelineKind::Null) => {
-                return None;
-            }
-            MaterialPipelineLookup::Pending => {
-                return self.null_pipeline_fallback(desc, variant);
-            }
+            MaterialPipelineLookup::Ready(p) => Some(p),
+            MaterialPipelineLookup::Pending if matches!(kind, RasterPipelineKind::Null) => None,
+            MaterialPipelineLookup::Pending => self.null_pipeline_fallback(desc, variant),
             MaterialPipelineLookup::Failed(err) if matches!(kind, RasterPipelineKind::Null) => {
                 match shader_asset_id {
                     Some(id) => {
@@ -58,7 +54,7 @@ impl MaterialRegistry {
                         logger::error!("Null pipeline build failed: {err}");
                     }
                 }
-                return None;
+                None
             }
             MaterialPipelineLookup::Failed(err) => {
                 match shader_asset_id {
@@ -73,7 +69,7 @@ impl MaterialRegistry {
                         );
                     }
                 }
-                return self.null_pipeline_fallback(desc, variant);
+                self.null_pipeline_fallback(desc, variant)
             }
         }
     }

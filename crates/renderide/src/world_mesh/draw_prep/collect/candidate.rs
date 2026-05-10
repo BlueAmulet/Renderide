@@ -83,14 +83,12 @@ pub(super) fn evaluate_draw_candidate(
     // `_Rect` / `_RectClip` are finally known per material slot. Without this, every off-screen
     // masked UI element still hits the GPU and only `discard`s in the fragment shader -- which
     // is what tanks the friend list FPS.
-    if candidate.is_overlay {
-        if let (Some(rect), Some(model), Some(culling)) =
+    if candidate.is_overlay
+        && let (Some(rect), Some(model), Some(culling)) =
             (ui_rect_clip_local, rigid_world_matrix, ctx.culling)
-        {
-            if !overlay_rect_clip_visible(ctx.scene, candidate.space_id, culling, rect, model) {
-                return None;
-            }
-        }
+        && !overlay_rect_clip_visible(ctx.scene, candidate.space_id, culling, rect, model)
+    {
+        return None;
     }
     let batch_key = apply_overlay_layer_depth_policy(batch_key, candidate.is_overlay);
     let camera_distance_sq = if render_queue_is_transparent(batch_key.render_queue) {

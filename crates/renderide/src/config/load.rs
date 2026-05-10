@@ -583,6 +583,7 @@ focused_fps = 10
     /// pipeline proves stale user configs remain harmless.
     #[test]
     fn pre_refactor_format_loads_through_figment() {
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
         let content = r#"
 [display]
 focused_fps = 0
@@ -643,6 +644,7 @@ action = "log_and_continue"
 
     #[test]
     fn file_pipeline_ignores_unknown_keys_without_drops() {
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
         let content = r#"
 [display]
 focused_fps = 75
@@ -661,6 +663,7 @@ mode = "future"
 
     #[test]
     fn file_pipeline_drops_incompatible_known_value() {
+        let _guard = crate::config::CONFIG_ENV_TEST_LOCK.lock().expect("lock");
         let content = r#"
 [post_processing.tonemap]
 mode = "future_curve"

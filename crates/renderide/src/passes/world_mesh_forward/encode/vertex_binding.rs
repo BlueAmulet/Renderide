@@ -493,10 +493,10 @@ fn bind_optional_vertex_streams(
             last_mesh.vertex
         );
     }
-    if let Some(slot) = streams.tangent_slot() {
-        if !bind_tangent_stream(rpass, item, gpu, mesh, slot, last_mesh) {
-            return false;
-        }
+    if let Some(slot) = streams.tangent_slot()
+        && !bind_tangent_stream(rpass, item, gpu, mesh, slot, last_mesh)
+    {
+        return false;
     }
     if let Some(slot) = streams.uv1_slot() {
         let Some(uv1) = mesh.uv1_buffer.as_deref() else {

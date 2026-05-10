@@ -128,14 +128,19 @@ fn srgb_vec4_uniform_field(field_name: &str) -> bool {
 }
 
 fn srgb_vec4_array_uniform_field(stem: &str, field_name: &str) -> bool {
-    field_name == "_TintColors"
-        && matches!(
-            source_stem_from_target_stem(stem),
+    matches!(
+        (source_stem_from_target_stem(stem), field_name),
+        (
             "pbsdistancelerp"
                 | "pbsdistancelerpspecular"
                 | "pbsdistancelerptransparent"
-                | "pbsdistancelerpspeculartransparent"
+                | "pbsdistancelerpspeculartransparent",
+            "_TintColors"
+        ) | (
+            "gradientskybox" | "skybox_gradientskybox",
+            "_Color0" | "_Color1"
         )
+    )
 }
 
 fn source_stem_from_target_stem(stem: &str) -> &str {
@@ -154,6 +159,22 @@ mod tests {
         let wgsl = embedded_shaders::embedded_target_wgsl(stem).expect("embedded WGSL target");
         let reflected = reflect_raster_material_wgsl(wgsl).expect("reflect embedded WGSL target");
         MaterialUniformValueSpaces::for_stem(stem, &reflected)
+    }
+
+    fn reflected_material_host_array_field_is_srgb(stem: &str, host_field_name: &str) -> bool {
+        let wgsl = embedded_shaders::embedded_target_wgsl(stem).expect("embedded WGSL target");
+        let reflected = reflect_raster_material_wgsl(wgsl).expect("reflect embedded WGSL target");
+        let spaces = MaterialUniformValueSpaces::for_stem(stem, &reflected);
+        let uniform = reflected
+            .material_uniform
+            .as_ref()
+            .expect("material uniform");
+        let reflected_field_name = uniform
+            .fields
+            .keys()
+            .find(|field_name| shader_writer_unescaped_field_name(field_name) == host_field_name)
+            .expect("reflected host field");
+        spaces.is_srgb_vec4_array(reflected_field_name)
     }
 
     #[test]
@@ -197,9 +218,22 @@ mod tests {
         assert!(distance.is_srgb_vec4_array("_TintColors"));
         assert!(!distance.is_srgb_vec4_array("_Points"));
 
-        let gradient = reflected_material_value_spaces("gradientskybox_default");
-        assert!(!gradient.is_srgb_vec4_array("_Color0"));
-        assert!(!gradient.is_srgb_vec4_array("_Color1"));
+        assert!(reflected_material_host_array_field_is_srgb(
+            "gradientskybox_default",
+            "_Color0"
+        ));
+        assert!(reflected_material_host_array_field_is_srgb(
+            "gradientskybox_default",
+            "_Color1"
+        ));
+        assert!(reflected_material_host_array_field_is_srgb(
+            "skybox_gradientskybox_default",
+            "_Color0"
+        ));
+        assert!(reflected_material_host_array_field_is_srgb(
+            "skybox_gradientskybox_default",
+            "_Color1"
+        ));
     }
 
     #[test]

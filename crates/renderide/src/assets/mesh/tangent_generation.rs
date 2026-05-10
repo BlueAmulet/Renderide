@@ -23,18 +23,40 @@ const TANGENT_EPSILON_SQUARED: f32 = 1.0e-20;
 /// prop meshes use the worker pool while tiny meshes stay serial.
 const VERTEX_STREAM_PARALLEL_MIN: usize = 2_048;
 
+/// CPU-side mesh source used to extract or generate tangent streams.
+#[derive(Copy, Clone)]
+pub(super) struct TangentStreamSource<'a> {
+    /// Interleaved vertex bytes from the host mesh payload.
+    pub vertex_data: &'a [u8],
+    /// Index bytes from the host mesh payload.
+    pub index_data: &'a [u8],
+    /// Number of vertices in `vertex_data`.
+    pub vertex_count: usize,
+    /// Byte stride of one interleaved vertex.
+    pub stride: usize,
+    /// Host vertex attribute descriptors, in interleaved order.
+    pub attrs: &'a [VertexAttributeDescriptor],
+    /// Host index-buffer format.
+    pub index_format: IndexBufferFormat,
+    /// Host submesh descriptors.
+    pub submeshes: &'a [SubmeshBufferDescriptor],
+}
+
 /// Returns a dense `vec4<f32>` tangent stream, preferring host tangents and generating MikkTSpace
 /// tangents when the host did not provide a usable tangent attribute.
 pub(super) fn tangent_stream_bytes(
-    vertex_data: &[u8],
-    index_data: &[u8],
-    vertex_count: usize,
-    stride: usize,
-    attrs: &[VertexAttributeDescriptor],
-    index_format: IndexBufferFormat,
-    submeshes: &[SubmeshBufferDescriptor],
+    source: TangentStreamSource<'_>,
     generate_missing: bool,
 ) -> Option<Vec<u8>> {
+    let TangentStreamSource {
+        vertex_data,
+        index_data,
+        vertex_count,
+        stride,
+        attrs,
+        index_format,
+        submeshes,
+    } = source;
     if vertex_count == 0 || stride == 0 {
         return None;
     }
@@ -472,6 +494,25 @@ mod tests {
         ]
     }
 
+    fn tangent_source<'a>(
+        vertex_data: &'a [u8],
+        index_data: &'a [u8],
+        vertex_count: usize,
+        stride: usize,
+        attrs: &'a [VertexAttributeDescriptor],
+        submeshes: &'a [SubmeshBufferDescriptor],
+    ) -> TangentStreamSource<'a> {
+        TangentStreamSource {
+            vertex_data,
+            index_data,
+            vertex_count,
+            stride,
+            attrs,
+            index_format: IndexBufferFormat::UInt16,
+            submeshes,
+        }
+    }
+
     #[test]
     fn host_tangent_stream_is_preserved_when_valid() {
         let attrs = [
@@ -489,17 +530,9 @@ mod tests {
             [0.0, 1.0, 0.0, -1.0],
         );
 
-        let tangents = tangent_stream_bytes(
-            &vertices,
-            &[],
-            1,
-            48,
-            &attrs,
-            IndexBufferFormat::UInt16,
-            &[],
-            true,
-        )
-        .expect("tangent stream");
+        let tangents =
+            tangent_stream_bytes(tangent_source(&vertices, &[], 1, 48, &attrs, &[]), true)
+                .expect("tangent stream");
 
         assert_eq!(read_tangent(&tangents, 0), [0.0, 1.0, 0.0, -1.0]);
     }
@@ -512,13 +545,14 @@ mod tests {
             attr(VertexAttributeType::UV0, 2),
         ];
         let tangents = tangent_stream_bytes(
-            &quad_vertices(),
-            &quad_indices(),
-            4,
-            32,
-            &attrs,
-            IndexBufferFormat::UInt16,
-            &[triangle_submesh(6)],
+            tangent_source(
+                &quad_vertices(),
+                &quad_indices(),
+                4,
+                32,
+                &attrs,
+                &[triangle_submesh(6)],
+            ),
             true,
         )
         .expect("tangent stream");
@@ -535,13 +569,14 @@ mod tests {
             attr(VertexAttributeType::Normal, 3),
         ];
         let tangents = tangent_stream_bytes(
-            &quad_vertices(),
-            &quad_indices(),
-            4,
-            32,
-            &attrs,
-            IndexBufferFormat::UInt16,
-            &[triangle_submesh(6)],
+            tangent_source(
+                &quad_vertices(),
+                &quad_indices(),
+                4,
+                32,
+                &attrs,
+                &[triangle_submesh(6)],
+            ),
             true,
         )
         .expect("tangent stream");
@@ -577,13 +612,7 @@ mod tests {
             );
         }
         let parallel_out = tangent_stream_bytes(
-            &vertices,
-            &[],
-            vertex_count,
-            stride,
-            &attrs,
-            IndexBufferFormat::UInt16,
-            &[],
+            tangent_source(&vertices, &[], vertex_count, stride, &attrs, &[]),
             true,
         )
         .expect("tangent stream");
@@ -604,13 +633,14 @@ mod tests {
             attr(VertexAttributeType::UV0, 2),
         ];
         let tangents = tangent_stream_bytes(
-            &quad_vertices(),
-            &quad_indices(),
-            4,
-            32,
-            &attrs,
-            IndexBufferFormat::UInt16,
-            &[point_submesh(6)],
+            tangent_source(
+                &quad_vertices(),
+                &quad_indices(),
+                4,
+                32,
+                &attrs,
+                &[point_submesh(6)],
+            ),
             true,
         )
         .expect("tangent stream");
