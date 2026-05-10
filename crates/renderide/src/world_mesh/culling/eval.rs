@@ -143,10 +143,10 @@ pub(crate) fn mesh_cpu_cull_with_geometry(
     ui_rect_clip_local: Option<Vec4>,
 ) -> Result<Option<Mat4>, CpuCullFailure> {
     if is_overlay {
-        if let (Some(rect), Some(model)) = (ui_rect_clip_local, geom.rigid_world_matrix) {
-            if !overlay_rect_clip_visible(scene, space_id, culling, rect, model) {
-                return Err(CpuCullFailure::UiRectMask);
-            }
+        if let (Some(rect), Some(model)) = (ui_rect_clip_local, geom.rigid_world_matrix)
+            && !overlay_rect_clip_visible(scene, space_id, culling, rect, model)
+        {
+            return Err(CpuCullFailure::UiRectMask);
         }
         return Ok(geom.rigid_world_matrix);
     }

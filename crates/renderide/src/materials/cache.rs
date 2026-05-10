@@ -148,7 +148,7 @@ impl MaterialPipelineCache {
     /// Returns the cached pipeline set or queues a background build for a miss.
     ///
     /// On a cache hit, does not compose WGSL or run reflection; those run only on the worker.
-    pub fn get_or_queue(
+    pub(super) fn get_or_queue(
         &self,
         kind: &RasterPipelineKind,
         desc: &MaterialPipelineDesc,
@@ -162,7 +162,8 @@ impl MaterialPipelineCache {
             self.stats.note_hit();
             return MaterialPipelineLookup::Ready(hit);
         }
-        if let Some(error) = self.failed_pipeline_builds.lock().get(&key).cloned() {
+        let failed_build = self.failed_pipeline_builds.lock().get(&key).cloned();
+        if let Some(error) = failed_build {
             return MaterialPipelineLookup::Failed(error);
         }
 

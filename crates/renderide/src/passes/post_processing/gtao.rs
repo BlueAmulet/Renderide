@@ -70,7 +70,7 @@ const GTAO_VIEW_DEPTH_LAYER1_LABELS: [&str; VIEW_DEPTH_MIP_COUNT as usize] = [
 pub struct GtaoEffect {
     /// Snapshot of the GTAO settings used when building the chain for this frame. Live edits
     /// after chain build flow in via
-    /// [`crate::passes::post_processing::settings_slot::GtaoSettingsSlot`] for non-topology
+    /// [`crate::render_graph::post_process_settings::GtaoSettingsSlot`] for non-topology
     /// fields; topology fields (`enabled`, `denoise_passes`) trigger a graph rebuild via
     /// [`crate::render_graph::post_process_chain::PostProcessChainSignature`].
     pub settings: GtaoSettings,

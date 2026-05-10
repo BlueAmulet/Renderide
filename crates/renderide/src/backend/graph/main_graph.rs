@@ -7,13 +7,13 @@
 //! consumes (builder, compiled graph, resources, post-processing chain) live in their respective
 //! sibling modules.
 
-use super::builder::GraphBuilder;
-use super::cache::GraphCacheKey;
-use super::compiled::CompiledRenderGraph;
-use super::error::GraphBuildError;
-use super::ids::PassId;
-use super::post_process_chain;
-use super::resources::{
+use crate::render_graph::GraphCacheKey;
+use crate::render_graph::builder::GraphBuilder;
+use crate::render_graph::compiled::CompiledRenderGraph;
+use crate::render_graph::error::GraphBuildError;
+use crate::render_graph::ids::PassId;
+use crate::render_graph::post_process_chain;
+use crate::render_graph::resources::{
     BackendFrameBufferKind, BufferAccess, BufferHandle, BufferImportSource, BufferSizePolicy,
     FrameTargetRole, HistorySlotId, ImportSource, ImportedBufferDecl, ImportedBufferHandle,
     ImportedTextureDecl, ImportedTextureHandle, StorageAccess, TextureAccess, TextureHandle,
@@ -212,7 +212,7 @@ fn create_main_graph_transient_resources(
     // Execute-time resolution uses each view's viewport (see [`crate::render_graph::compiled::helpers::resolve_transient_extent`]).
     //
     // Multisampled forward attachments use [`TransientSampleCount::Frame`] so pool allocations match
-    // the live MSAA tier; [`GraphCacheKey::msaa_sample_count`] still invalidates [`super::cache::GraphCache`].
+    // the live MSAA tier; [`GraphCacheKey::msaa_sample_count`] still invalidates [`crate::render_graph::GraphCache`].
     let extent_backbuffer = TransientExtent::Backbuffer;
     let scene_color_hdr = builder.create_texture(TransientTextureDesc {
         label: "scene_color_hdr",
@@ -513,7 +513,7 @@ fn add_main_graph_passes_and_edges(
 /// occlusion modulates linear HDR light before metering; auto-exposure meters and scales the HDR
 /// scene before bloom; bloom scatters exposed HDR light; then ACES compresses the final exposed HDR
 /// signal to display-referred `[0, 1]`. Each effect gates itself via
-/// [`super::post_process_chain::PostProcessEffect::is_enabled`] against the live
+/// [`crate::render_graph::post_process_chain::PostProcessEffect::is_enabled`] against the live
 /// [`crate::config::PostProcessingSettings`].
 ///
 /// `GtaoEffect` is parameterised with the current [`crate::config::GtaoSettings`] snapshot and
@@ -595,7 +595,7 @@ pub(crate) fn build_main_graph_with_resources(
         key.msaa_sample_count,
         key.multiview_stereo,
     )?;
-    graph.main_graph_msaa_transient_handles = Some(msaa_handles);
+    graph.set_main_graph_msaa_transient_handles(msaa_handles);
     Ok(graph)
 }
 
@@ -607,7 +607,7 @@ mod tests {
     use crate::config::{
         BloomSettings, GtaoSettings, PostProcessingSettings, TonemapMode, TonemapSettings,
     };
-    use crate::render_graph::cache::GraphCache;
+    use crate::render_graph::GraphCache;
     use crate::render_graph::post_process_chain::PostProcessChainSignature;
 
     fn smoke_key() -> GraphCacheKey {

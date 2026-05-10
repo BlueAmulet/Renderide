@@ -17,6 +17,7 @@ mod frame_gpu_bindings;
 mod frame_gpu_error;
 mod frame_resource_manager;
 pub(crate) mod gpu_jobs;
+pub(crate) mod graph;
 mod history_registry;
 mod light_gpu;
 pub(crate) mod material_property_reader;

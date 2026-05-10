@@ -22,7 +22,7 @@ use super::{
 };
 use crate::backend::BackendGraphAccess;
 use crate::diagnostics::PerViewHudOutputsSlot;
-use crate::passes::post_processing::settings_slot::{
+use crate::render_graph::post_process_settings::{
     AutoExposureSettingsSlot, AutoExposureSettingsValue, BloomSettingsSlot, BloomSettingsValue,
     GtaoSettingsSlot, GtaoSettingsValue,
 };

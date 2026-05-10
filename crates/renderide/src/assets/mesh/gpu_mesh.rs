@@ -17,7 +17,7 @@ use super::layout::{
     extract_float3_position_normal_as_vec4_streams, split_bone_weights_tail_for_gpu,
     uv0_float2_stream_bytes, vertex_float2_stream_bytes,
 };
-use super::tangent_generation::tangent_stream_bytes;
+use super::tangent_generation::{TangentStreamSource, tangent_stream_bytes};
 
 use crate::gpu::GpuLimits;
 
@@ -392,14 +392,16 @@ pub(super) fn write_in_place_vertex_and_derived_streams(
         if let (Some(tb), Some(t)) = (
             ctx.mesh.tangent_buffer.as_ref(),
             tangent_stream_bytes(
-                vertex_slice,
-                &ctx.raw[ctx.layout.index_buffer_start
-                    ..ctx.layout.index_buffer_start + ctx.layout.index_buffer_length],
-                ctx.vertex_count,
-                ctx.vertex_stride,
-                &ctx.data.vertex_attributes,
-                ctx.data.index_buffer_format,
-                &ctx.data.submeshes,
+                TangentStreamSource {
+                    vertex_data: vertex_slice,
+                    index_data: &ctx.raw[ctx.layout.index_buffer_start
+                        ..ctx.layout.index_buffer_start + ctx.layout.index_buffer_length],
+                    vertex_count: ctx.vertex_count,
+                    stride: ctx.vertex_stride,
+                    attrs: &ctx.data.vertex_attributes,
+                    index_format: ctx.data.index_buffer_format,
+                    submeshes: &ctx.data.submeshes,
+                },
                 false,
             ),
         ) {

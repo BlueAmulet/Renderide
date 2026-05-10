@@ -127,6 +127,40 @@ struct PerDrawSlabBind<'a> {
     supports_base_instance: bool,
 }
 
+struct ForwardDrawState {
+    last_mesh: LastMeshBindState,
+    last_per_draw_dyn_offset: Option<u32>,
+    last_stencil_ref: Option<u32>,
+    bound_batch_cursor: Option<usize>,
+    last_pipeline: Option<*const wgpu::RenderPipeline>,
+    last_scissor: Option<(u32, u32, u32, u32)>,
+}
+
+impl ForwardDrawState {
+    fn new() -> Self {
+        Self {
+            last_mesh: LastMeshBindState::new(),
+            last_per_draw_dyn_offset: None,
+            last_stencil_ref: None,
+            bound_batch_cursor: None,
+            last_pipeline: None,
+            last_scissor: None,
+        }
+    }
+}
+
+struct ForwardDrawResources<'draw, 'bind> {
+    draws: &'draw [WorldMeshDrawItem],
+    precomputed: &'draw [MaterialBatchPacket],
+    gpu_limits: &'bind GpuLimits,
+    empty_bg: &'bind wgpu::BindGroup,
+    per_draw_bind_group: &'bind wgpu::BindGroup,
+    supports_base_instance: bool,
+    overlay_view_proj: glam::Mat4,
+    viewport_px: (u32, u32),
+    full_viewport: (u32, u32, u32, u32),
+}
+
 /// Records one raster subpass by walking pre-built [`DrawGroup`]s.
 ///
 /// Each group is one `draw_indexed` covering a contiguous slab range of identical instances.
@@ -150,126 +184,186 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
         viewport_px,
     } = batch;
     let full_viewport: (u32, u32, u32, u32) = (0, 0, viewport_px.0, viewport_px.1);
-    let mut last_scissor: Option<(u32, u32, u32, u32)> = None;
-
-    let (subpass_batch_count, subpass_input_draws) = {
-        profiling::scope!("world_mesh::draw_subset::summarize_groups");
-        let subpass_batch_count = groups.len();
-        let subpass_input_draws: usize = groups
-            .iter()
-            .map(|g| (g.instance_range.end - g.instance_range.start) as usize)
-            .sum();
-        (subpass_batch_count, subpass_input_draws)
+    let (subpass_batch_count, subpass_input_draws) = summarize_forward_groups(groups);
+    let mut state = ForwardDrawState::new();
+    let resources = ForwardDrawResources {
+        draws,
+        precomputed,
+        gpu_limits,
+        empty_bg,
+        per_draw_bind_group,
+        supports_base_instance,
+        overlay_view_proj,
+        viewport_px,
+        full_viewport,
     };
-
-    let mut last_mesh = LastMeshBindState::new();
-    let mut last_per_draw_dyn_offset: Option<u32> = None;
-    let mut last_stencil_ref: Option<u32> = None;
-    // Track which precomputed batch is currently bound to avoid redundant set_bind_group(1).
-    let mut bound_batch_cursor: Option<usize> = None;
-    // Track the last pipeline pointer to skip redundant set_pipeline across groups that share
-    // the same pipeline (common when one precomputed batch covers many groups, or when
-    // adjacent batches resolve to the same multi-pass pipeline set).
-    let mut last_pipeline: Option<*const wgpu::RenderPipeline> = None;
 
     {
         profiling::scope!("world_mesh::draw_subset::bind_frame_group");
         rpass.set_bind_group(0, frame_bg, &[]);
     }
 
+    draw_forward_groups(rpass, groups, encode, &resources, &mut state);
+    reset_forward_scissor(rpass, full_viewport, state.last_scissor);
+
     {
-        profiling::scope!("world_mesh::draw_subset::group_loop");
-        for group in groups {
-            let representative = group.representative_draw_idx;
-            let batch_cursor = group.material_packet_idx;
-            let Some(pc) = precomputed.get(batch_cursor) else {
-                continue;
-            };
-            debug_assert!(
-                representative >= pc.first_draw_idx && representative <= pc.last_draw_idx,
-                "precomputed batch [{}, {}] should cover representative draw index {}",
-                pc.first_draw_idx,
-                pc.last_draw_idx,
-                representative,
-            );
-            debug_assert_eq!(
-                pc.pipeline_key.shader_asset_id, draws[representative].batch_key.shader_asset_id,
-                "material packet pipeline key must match the representative draw"
-            );
-
-            let Some(pipelines) = pc.pipelines.as_ref() else {
-                continue; // pipeline unavailable for this batch -- skip draws
-            };
-
-            // Bind @group(1) once per unique batch; skip when the cursor hasn't advanced.
-            if bound_batch_cursor != Some(batch_cursor) {
-                let material_bg = pc.bind_group.as_deref().unwrap_or(empty_bg);
-                if let Some(offset) = pc.material_uniform_dynamic_offset {
-                    rpass.set_bind_group(1, material_bg, &[offset]);
-                } else {
-                    rpass.set_bind_group(1, material_bg, &[]);
-                }
-                bound_batch_cursor = Some(batch_cursor);
-            }
-
-            let slab_first_instance = group.instance_range.start as usize;
-            let instance_count = group.instance_range.end - group.instance_range.start;
-            bind_per_draw_slab_if_changed(
-                rpass,
-                PerDrawSlabBind {
-                    bind_group_index: 2,
-                    bind_group: per_draw_bind_group,
-                    gpu_limits,
-                    slab_first_instance,
-                    instance_count,
-                    supports_base_instance,
-                },
-                &mut last_per_draw_dyn_offset,
-            );
-
-            let stencil_ref = draws[representative]
-                .batch_key
-                .render_state
-                .stencil_reference();
-            if last_stencil_ref != Some(stencil_ref) {
-                rpass.set_stencil_reference(stencil_ref);
-                last_stencil_ref = Some(stencil_ref);
-            }
-
-            // Per-draw scissor for UI rect-mask overlay items: shrinks the rasterised area to
-            // the projected `_Rect`, so fragment shaders never run on pixels the
-            // `rect_clip.wgsl` predicate would `discard` anyway. Falls back to the full viewport
-            // for everything else (the CPU rect-cull above already rejected fully off-screen
-            // overlay draws; this handles the partially-on-screen case and all non-UI draws).
-            let item = &draws[representative];
-            let scissor = match (item.ui_rect_clip_local, item.rigid_world_matrix) {
-                (Some(rect), Some(model)) => {
-                    project_rect_to_scissor(overlay_view_proj * model, rect, viewport_px)
-                        .unwrap_or(full_viewport)
-                }
-                _ => full_viewport,
-            };
-            if last_scissor != Some(scissor) {
-                rpass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
-                last_scissor = Some(scissor);
-            }
-
-            let inst_range = instance_range_for_draw_group(group, supports_base_instance);
-
-            issue_material_pipeline_passes(
-                rpass,
-                encode,
-                &draws[representative],
-                ActivePipelineSelection { pipelines },
-                &inst_range,
-                &mut last_mesh,
-                &mut last_pipeline,
-            );
-        }
+        profiling::scope!("world_mesh::draw_subset::plot_subpass");
+        crate::profiling::plot_world_mesh_subpass(subpass_batch_count, subpass_input_draws);
     }
+}
 
-    // Reset the scissor to the full viewport so the next subpass (skybox, transparent world, ...)
-    // starts with a clean state and doesn't inherit a clipped region from the last UI draw.
+fn summarize_forward_groups(groups: &[DrawGroup]) -> (usize, usize) {
+    profiling::scope!("world_mesh::draw_subset::summarize_groups");
+    let subpass_batch_count = groups.len();
+    let subpass_input_draws = groups
+        .iter()
+        .map(|g| (g.instance_range.end - g.instance_range.start) as usize)
+        .sum();
+    (subpass_batch_count, subpass_input_draws)
+}
+
+fn draw_forward_groups(
+    rpass: &mut wgpu::RenderPass<'_>,
+    groups: &[DrawGroup],
+    encode: &WorldMeshForwardEncodeRefs<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+) {
+    profiling::scope!("world_mesh::draw_subset::group_loop");
+    for group in groups {
+        issue_forward_group(rpass, encode, resources, state, group);
+    }
+}
+
+fn issue_forward_group(
+    rpass: &mut wgpu::RenderPass<'_>,
+    encode: &WorldMeshForwardEncodeRefs<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+    group: &DrawGroup,
+) {
+    let representative = group.representative_draw_idx;
+    let batch_cursor = group.material_packet_idx;
+    let Some(pc) = resources.precomputed.get(batch_cursor) else {
+        return;
+    };
+    debug_assert!(
+        representative >= pc.first_draw_idx && representative <= pc.last_draw_idx,
+        "precomputed batch [{}, {}] should cover representative draw index {}",
+        pc.first_draw_idx,
+        pc.last_draw_idx,
+        representative,
+    );
+    debug_assert_eq!(
+        pc.pipeline_key.shader_asset_id, resources.draws[representative].batch_key.shader_asset_id,
+        "material packet pipeline key must match the representative draw"
+    );
+
+    let Some(pipelines) = pc.pipelines.as_ref() else {
+        return;
+    };
+
+    bind_material_packet_if_changed(rpass, resources, state, batch_cursor, pc);
+    bind_forward_per_draw_slab(rpass, resources, state, group);
+    set_stencil_reference_if_changed(rpass, resources, state, representative);
+    set_forward_scissor_if_changed(rpass, resources, state, representative);
+
+    let inst_range = instance_range_for_draw_group(group, resources.supports_base_instance);
+    issue_material_pipeline_passes(
+        rpass,
+        encode,
+        &resources.draws[representative],
+        ActivePipelineSelection { pipelines },
+        &inst_range,
+        &mut state.last_mesh,
+        &mut state.last_pipeline,
+    );
+}
+
+fn bind_material_packet_if_changed(
+    rpass: &mut wgpu::RenderPass<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+    batch_cursor: usize,
+    packet: &MaterialBatchPacket,
+) {
+    if state.bound_batch_cursor == Some(batch_cursor) {
+        return;
+    }
+    let material_bg = packet.bind_group.as_deref().unwrap_or(resources.empty_bg);
+    if let Some(offset) = packet.material_uniform_dynamic_offset {
+        rpass.set_bind_group(1, material_bg, &[offset]);
+    } else {
+        rpass.set_bind_group(1, material_bg, &[]);
+    }
+    state.bound_batch_cursor = Some(batch_cursor);
+}
+
+fn bind_forward_per_draw_slab(
+    rpass: &mut wgpu::RenderPass<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+    group: &DrawGroup,
+) {
+    let slab_first_instance = group.instance_range.start as usize;
+    let instance_count = group.instance_range.end - group.instance_range.start;
+    bind_per_draw_slab_if_changed(
+        rpass,
+        PerDrawSlabBind {
+            bind_group_index: 2,
+            bind_group: resources.per_draw_bind_group,
+            gpu_limits: resources.gpu_limits,
+            slab_first_instance,
+            instance_count,
+            supports_base_instance: resources.supports_base_instance,
+        },
+        &mut state.last_per_draw_dyn_offset,
+    );
+}
+
+fn set_stencil_reference_if_changed(
+    rpass: &mut wgpu::RenderPass<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+    representative: usize,
+) {
+    let stencil_ref = resources.draws[representative]
+        .batch_key
+        .render_state
+        .stencil_reference();
+    if state.last_stencil_ref != Some(stencil_ref) {
+        rpass.set_stencil_reference(stencil_ref);
+        state.last_stencil_ref = Some(stencil_ref);
+    }
+}
+
+fn set_forward_scissor_if_changed(
+    rpass: &mut wgpu::RenderPass<'_>,
+    resources: &ForwardDrawResources<'_, '_>,
+    state: &mut ForwardDrawState,
+    representative: usize,
+) {
+    let item = &resources.draws[representative];
+    let scissor = match (item.ui_rect_clip_local, item.rigid_world_matrix) {
+        (Some(rect), Some(model)) => project_rect_to_scissor(
+            resources.overlay_view_proj * model,
+            rect,
+            resources.viewport_px,
+        )
+        .unwrap_or(resources.full_viewport),
+        _ => resources.full_viewport,
+    };
+    if state.last_scissor != Some(scissor) {
+        rpass.set_scissor_rect(scissor.0, scissor.1, scissor.2, scissor.3);
+        state.last_scissor = Some(scissor);
+    }
+}
+
+fn reset_forward_scissor(
+    rpass: &mut wgpu::RenderPass<'_>,
+    full_viewport: (u32, u32, u32, u32),
+    last_scissor: Option<(u32, u32, u32, u32)>,
+) {
     if last_scissor.is_some() && last_scissor != Some(full_viewport) {
         rpass.set_scissor_rect(
             full_viewport.0,
@@ -277,11 +371,6 @@ pub(crate) fn draw_subset(batch: ForwardDrawBatch<'_, '_, '_, '_>) {
             full_viewport.2,
             full_viewport.3,
         );
-    }
-
-    {
-        profiling::scope!("world_mesh::draw_subset::plot_subpass");
-        crate::profiling::plot_world_mesh_subpass(subpass_batch_count, subpass_input_draws);
     }
 }
 

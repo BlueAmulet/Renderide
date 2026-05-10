@@ -99,10 +99,47 @@ fn ui_rect_clip_local_from_maps(
     // fragment-shader discard. A zero-area or inverted rect would clip everything; treat that
     // as "no rect cull active" so we don't accidentally cull legitimate non-clipped UI draws
     // on degenerate input.
-    if v.z > v.x && v.w > v.y {
-        Some(v)
-    } else {
-        None
+    (v.z > v.x && v.w > v.y).then_some(v)
+}
+
+#[derive(Copy, Clone, Default)]
+struct EmbeddedMaterialFeatures {
+    needs_uv0: bool,
+    needs_color: bool,
+    needs_uv1: bool,
+    needs_tangent: bool,
+    needs_uv2: bool,
+    needs_uv3: bool,
+    needs_extended_vertex_streams: bool,
+    requires_intersection_pass: bool,
+    uses_scene_depth_snapshot: bool,
+    uses_scene_color_snapshot: bool,
+    uses_alpha_blending: bool,
+}
+
+fn embedded_material_features(
+    pipeline: &RasterPipelineKind,
+    shader_perm: ShaderPermutation,
+) -> EmbeddedMaterialFeatures {
+    let RasterPipelineKind::EmbeddedStem(stem) = pipeline else {
+        return EmbeddedMaterialFeatures::default();
+    };
+    let stem = stem.as_ref();
+    EmbeddedMaterialFeatures {
+        needs_uv0: embedded_stem_needs_uv0_stream(stem, shader_perm),
+        needs_color: embedded_stem_needs_color_stream(stem, shader_perm),
+        needs_uv1: embedded_stem_needs_uv1_stream(stem, shader_perm),
+        needs_tangent: embedded_stem_needs_tangent_stream(stem, shader_perm),
+        needs_uv2: embedded_stem_needs_uv2_stream(stem, shader_perm),
+        needs_uv3: embedded_stem_needs_uv3_stream(stem, shader_perm),
+        needs_extended_vertex_streams: embedded_stem_needs_extended_vertex_streams(
+            stem,
+            shader_perm,
+        ),
+        requires_intersection_pass: embedded_stem_requires_intersection_pass(stem, shader_perm),
+        uses_scene_depth_snapshot: embedded_stem_uses_scene_depth_snapshot(stem, shader_perm),
+        uses_scene_color_snapshot: embedded_stem_uses_scene_color_snapshot(stem, shader_perm),
+        uses_alpha_blending: embedded_stem_uses_alpha_blending(stem),
     }
 }
 
@@ -126,66 +163,7 @@ pub(crate) fn batch_key_for_slot(
         .shader_asset_for_material(material_asset_id)
         .unwrap_or(-1);
     let pipeline = resolve_raster_pipeline(shader_asset_id, ctx.router);
-    let embedded_needs_uv0 = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_needs_uv0_stream(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
-    let embedded_needs_color = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_needs_color_stream(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
-    let embedded_needs_uv1 = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_needs_uv1_stream(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
-    let embedded_needs_tangent = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_needs_tangent_stream(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
-    let embedded_needs_uv2 = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_needs_uv2_stream(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
-    let embedded_needs_uv3 = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_needs_uv3_stream(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
-    let embedded_needs_extended_vertex_streams = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_needs_extended_vertex_streams(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
-    let embedded_requires_intersection_pass = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_requires_intersection_pass(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
-    let embedded_uses_scene_depth_snapshot = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_uses_scene_depth_snapshot(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
-    let embedded_uses_scene_color_snapshot = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => {
-            embedded_stem_uses_scene_color_snapshot(stem.as_ref(), ctx.shader_perm)
-        }
-        RasterPipelineKind::Null => false,
-    };
+    let embedded = embedded_material_features(&pipeline, ctx.shader_perm);
     let lookup_ids = MaterialPropertyLookupIds {
         material_asset_id,
         mesh_property_block_slot0: property_block_id,
@@ -194,11 +172,9 @@ pub(crate) fn batch_key_for_slot(
     let material_blend_mode =
         material_blend_mode_from_maps(mat_map, pb_map, ctx.pipeline_property_ids);
     let render_state = material_render_state_from_maps(mat_map, pb_map, ctx.pipeline_property_ids);
-    let alpha_blended = match &pipeline {
-        RasterPipelineKind::EmbeddedStem(stem) => embedded_stem_uses_alpha_blending(stem.as_ref()),
-        RasterPipelineKind::Null => false,
-    } || material_blend_mode.is_transparent()
-        || embedded_uses_scene_color_snapshot;
+    let alpha_blended = embedded.uses_alpha_blending
+        || material_blend_mode.is_transparent()
+        || embedded.uses_scene_color_snapshot;
     let render_queue = material_render_queue_from_maps(
         mat_map,
         pb_map,
@@ -215,16 +191,16 @@ pub(crate) fn batch_key_for_slot(
         skinned,
         front_face,
         primitive_topology,
-        embedded_needs_uv0,
-        embedded_needs_color,
-        embedded_needs_uv1,
-        embedded_needs_tangent,
-        embedded_needs_uv2,
-        embedded_needs_uv3,
-        embedded_needs_extended_vertex_streams,
-        embedded_requires_intersection_pass,
-        embedded_uses_scene_depth_snapshot,
-        embedded_uses_scene_color_snapshot,
+        embedded_needs_uv0: embedded.needs_uv0,
+        embedded_needs_color: embedded.needs_color,
+        embedded_needs_uv1: embedded.needs_uv1,
+        embedded_needs_tangent: embedded.needs_tangent,
+        embedded_needs_uv2: embedded.needs_uv2,
+        embedded_needs_uv3: embedded.needs_uv3,
+        embedded_needs_extended_vertex_streams: embedded.needs_extended_vertex_streams,
+        embedded_requires_intersection_pass: embedded.requires_intersection_pass,
+        embedded_uses_scene_depth_snapshot: embedded.uses_scene_depth_snapshot,
+        embedded_uses_scene_color_snapshot: embedded.uses_scene_color_snapshot,
         render_queue,
         render_state,
         blend_mode: material_blend_mode,

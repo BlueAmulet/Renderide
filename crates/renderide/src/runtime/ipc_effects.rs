@@ -2,7 +2,8 @@
 
 use crate::frontend::InitState;
 use crate::frontend::dispatch::command_dispatch::RunningCommandEffect;
-use crate::frontend::dispatch::ipc_init::{self, IpcDispatchEffect};
+use crate::frontend::dispatch::ipc_init::{self, IpcDispatchEffect, RendererInitCapabilities};
+use crate::frontend::output_device::head_output_device_wants_openxr;
 use crate::ipc::SharedMemoryAccessor;
 use crate::shared::{
     DesktopConfig, FrameStartData, MaterialPropertyIdRequest, MaterialPropertyIdResult,
@@ -303,7 +304,10 @@ impl RendererRuntime {
             }
         }
         self.frontend.set_pending_init(d.clone());
-        let init_result = ipc_init::build_renderer_init_result(d.output_device, None);
+        let init_result = ipc_init::build_renderer_init_result(
+            d.output_device,
+            renderer_init_capabilities(d.output_device),
+        );
         if let Some(ipc) = self.frontend.ipc_mut()
             && !ipc.send_primary(RendererCommand::RendererInitResult(init_result))
         {
@@ -422,6 +426,21 @@ impl RendererRuntime {
             return;
         };
         super::lights_ipc::apply_lights_buffer_submission(&mut self.scene, shm, ipc, sub);
+    }
+}
+
+fn renderer_init_capabilities(
+    output_device: crate::shared::HeadOutputDevice,
+) -> RendererInitCapabilities {
+    let stereo_rendering_mode = if head_output_device_wants_openxr(output_device) {
+        "OpenXR(multiview)"
+    } else {
+        "None"
+    };
+    RendererInitCapabilities {
+        stereo_rendering_mode: stereo_rendering_mode.to_string(),
+        max_texture_size: crate::gpu::RENDERER_MAX_TEXTURE_DIMENSION_2D as i32,
+        supported_texture_formats: crate::assets::texture::supported_host_formats_for_init(),
     }
 }
 

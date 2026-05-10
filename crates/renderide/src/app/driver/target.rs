@@ -6,11 +6,11 @@ use thiserror::Error;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Fullscreen, Window};
 
+use crate::frontend::output_device::head_output_device_wants_openxr;
 use crate::gpu::{GpuContext, GpuError};
 use crate::runtime::RendererRuntime;
 use crate::shared::{HeadOutputDevice, RendererInitData};
 use crate::xr::XrSessionBundle;
-use crate::xr::output_device::head_output_device_wants_openxr;
 
 use super::super::bootstrap::GpuStartupConfig;
 use super::super::exit::ExitReason;

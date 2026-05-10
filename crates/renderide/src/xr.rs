@@ -28,7 +28,6 @@ mod debug_utils;
 mod host_camera_sync;
 mod input;
 mod openxr_loader_paths;
-pub mod output_device;
 pub(crate) mod session;
 mod swapchain;
 

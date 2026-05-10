@@ -21,7 +21,7 @@ use super::layout::{
     extract_float3_position_normal_as_vec4_streams, split_bone_weights_tail_for_gpu,
     uv0_float2_stream_bytes, vertex_float2_stream_bytes,
 };
-use super::tangent_generation::tangent_stream_bytes;
+use super::tangent_generation::{TangentStreamSource, tangent_stream_bytes};
 
 /// Tangent plus UV1-UV3 optional vertex buffers from extended stream upload.
 type ExtendedVertexStreams = (
@@ -47,6 +47,19 @@ pub(super) struct ExtendedVertexUploadSource<'a> {
     pub index_format: IndexBufferFormat,
     /// Host submesh descriptors.
     pub submeshes: &'a [SubmeshBufferDescriptor],
+}
+
+/// CPU source used to build one lazy UV vertex stream.
+#[derive(Copy, Clone)]
+pub(super) struct UvVertexUploadSource<'a> {
+    /// Interleaved vertex bytes from the host mesh payload.
+    pub vertex_slice: &'a [u8],
+    /// Number of vertices in `vertex_slice`.
+    pub vertex_count: usize,
+    /// Byte stride of one interleaved vertex.
+    pub vertex_stride: usize,
+    /// Host vertex attribute descriptors, in interleaved order.
+    pub vertex_attributes: &'a [VertexAttributeDescriptor],
 }
 
 /// Interleaved VB, IB, and layout-derived scalars after validation.
@@ -344,13 +357,15 @@ pub(super) fn upload_extended_vertex_streams(
     }
 
     let tangent_bytes = tangent_stream_bytes(
-        source.vertex_slice,
-        source.index_slice,
-        vc_usize,
-        source.vertex_stride,
-        source.vertex_attributes,
-        source.index_format,
-        source.submeshes,
+        TangentStreamSource {
+            vertex_data: source.vertex_slice,
+            index_data: source.index_slice,
+            vertex_count: vc_usize,
+            stride: source.vertex_stride,
+            attrs: source.vertex_attributes,
+            index_format: source.index_format,
+            submeshes: source.submeshes,
+        },
         false,
     )
     .unwrap_or_else(|| float4_default_stream_bytes(vc_usize, [1.0, 0.0, 0.0, 1.0]));
@@ -388,13 +403,15 @@ pub(super) fn upload_tangent_vertex_stream(
         return None;
     }
     let tangent_bytes = tangent_stream_bytes(
-        source.vertex_slice,
-        source.index_slice,
-        source.vertex_count,
-        source.vertex_stride,
-        source.vertex_attributes,
-        source.index_format,
-        source.submeshes,
+        TangentStreamSource {
+            vertex_data: source.vertex_slice,
+            index_data: source.index_slice,
+            vertex_count: source.vertex_count,
+            stride: source.vertex_stride,
+            attrs: source.vertex_attributes,
+            index_format: source.index_format,
+            submeshes: source.submeshes,
+        },
         false,
     )
     .unwrap_or_else(|| float4_default_stream_bytes(source.vertex_count, [1.0, 0.0, 0.0, 1.0]));
@@ -424,24 +441,21 @@ pub(super) fn upload_default_tangent_vertex_stream(
 pub(super) fn upload_uv_vertex_stream(
     device: &wgpu::Device,
     asset_id: i32,
-    vertex_slice: &[u8],
-    vc_usize: usize,
-    vertex_stride_us: usize,
-    vertex_attributes: &[VertexAttributeDescriptor],
+    source: UvVertexUploadSource<'_>,
     target: VertexAttributeType,
     label: &str,
 ) -> Option<Arc<wgpu::Buffer>> {
-    if vc_usize == 0 {
+    if source.vertex_count == 0 {
         return None;
     }
     let uv_bytes = vertex_float2_stream_bytes(
-        vertex_slice,
-        vc_usize,
-        vertex_stride_us,
-        vertex_attributes,
+        source.vertex_slice,
+        source.vertex_count,
+        source.vertex_stride,
+        source.vertex_attributes,
         target,
     )
-    .unwrap_or_else(|| float2_zero_stream_bytes(vc_usize));
+    .unwrap_or_else(|| float2_zero_stream_bytes(source.vertex_count));
     Some(create_vertex_stream_buffer(
         device, asset_id, label, &uv_bytes,
     ))

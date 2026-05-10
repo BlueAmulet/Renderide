@@ -232,10 +232,7 @@ impl DualQueueIpc {
 
     /// Retries retained reliable background messages in FIFO order until the queue is full.
     pub fn flush_reliable_outbound(&mut self) {
-        loop {
-            let Some(payload) = self.reliable_background_outbox.front() else {
-                break;
-            };
+        while let Some(payload) = self.reliable_background_outbox.front() {
             let ok = send_on_publisher(
                 &mut self.background_publisher,
                 payload,
