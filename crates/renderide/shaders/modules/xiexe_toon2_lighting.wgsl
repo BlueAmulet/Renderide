@@ -45,7 +45,7 @@ fn sample_light(light: rg::GpuLight, world_pos: vec3<f32>) -> xb::LightSample {
         return xb::LightSample(
             select(vec3<f32>(0.0, 0.0, 1.0), normalize(-light.direction.xyz), dir_len_sq > 1e-16),
             light.color.xyz,
-            light.intensity,
+            bl::direct_light_intensity(light.intensity),
             true,
         );
     }
