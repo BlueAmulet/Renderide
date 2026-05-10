@@ -8,22 +8,8 @@
 
 use std::mem::size_of;
 
-use crate::gpu::GpuLimits;
+use crate::gpu::{GpuLimits, MAX_LIGHTS_PER_TILE};
 pub use crate::world_mesh::cluster::{CLUSTER_COUNT_Z, TILE_SIZE};
-
-/// Maximum lights assigned to a single cluster (buffer index order). Keep in sync with
-/// `MAX_LIGHTS_PER_TILE` in `shaders/modules/pbs_cluster.wgsl` and
-/// `shaders/passes/compute/clustered_light.wgsl`. Bumped from 32 to reduce far-cluster overflow
-/// that produced dark "splotches" in scenes with many lights.
-///
-/// Indices are packed 2-per-`u32` in `cluster_light_indices` (low 16 bits = even slot, high 16
-/// bits = odd slot); the cluster's own compute thread is the sole writer, so no atomics are
-/// required. `MAX_LIGHTS_PER_TILE` must therefore be even -- enforced by the assert below.
-pub const MAX_LIGHTS_PER_TILE: u32 = 64;
-
-const _: () = assert!(MAX_LIGHTS_PER_TILE.is_multiple_of(2));
-/// Uniform buffer size for clustered light compute `ClusterParams` (WGSL layout + tail padding).
-pub const CLUSTER_PARAMS_UNIFORM_SIZE: u64 = 256;
 
 /// References to the two storage buffers shared across all views.
 ///

@@ -187,10 +187,11 @@ pub(crate) fn gradient_sky_params(
     lookup: MaterialPropertyLookupIds,
 ) -> SkyboxEvaluatorParams {
     let mut params = SkyboxEvaluatorParams::empty(SkyboxParamMode::Gradient);
-    params.color0 = float4_property(store, registry, lookup, "_BaseColor", [0.0, 0.0, 0.0, 1.0]);
+    params.color0 =
+        srgb_float4_property(store, registry, lookup, "_BaseColor", [0.0, 0.0, 0.0, 1.0]);
     params.dirs_spread = float4_array16_property(store, registry, lookup, "_DirsSpread");
-    params.gradient_color0 = float4_array16_property(store, registry, lookup, "_Color0");
-    params.gradient_color1 = float4_array16_property(store, registry, lookup, "_Color1");
+    params.gradient_color0 = srgb_float4_array16_property(store, registry, lookup, "_Color0");
+    params.gradient_color1 = srgb_float4_array16_property(store, registry, lookup, "_Color1");
     params.gradient_params = float4_array16_property(store, registry, lookup, "_Params");
     params.gradient_count = float_property(store, registry, lookup, "_Gradients", 0.0)
         .round()
@@ -267,6 +268,15 @@ fn srgb_float4_property(
     fallback: [f32; 4],
 ) -> [f32; 4] {
     srgb_f32x4_rgb_to_linear(float4_property(store, registry, lookup, name, fallback))
+}
+
+fn srgb_float4_array16_property(
+    store: &MaterialPropertyStore,
+    registry: &PropertyIdRegistry,
+    lookup: MaterialPropertyLookupIds,
+    name: &str,
+) -> [[f32; 4]; 16] {
+    float4_array16_property(store, registry, lookup, name).map(srgb_f32x4_rgb_to_linear)
 }
 
 #[cfg(test)]
@@ -373,6 +383,50 @@ mod tests {
         assert_f32x4_near(params.color0, srgb_f32x4_rgb_to_linear(sky_tint));
         assert_f32x4_near(params.color1, srgb_f32x4_rgb_to_linear(ground));
         assert_f32x4_near(params.gradient_color0[0], srgb_f32x4_rgb_to_linear(sun));
+    }
+
+    #[test]
+    fn gradient_sky_params_linearize_color_overrides() {
+        let mut store = MaterialPropertyStore::new();
+        let registry = PropertyIdRegistry::new();
+        let base = [0.5, 0.25, 0.75, 0.6];
+        let color0 = [[0.04045, 0.5, 1.25, 0.25], [0.8, 0.6, 0.4, 0.5]];
+        let color1 = [[0.2, -0.5, 1.0, 0.75], [0.0, 0.1, 0.9, 0.8]];
+        store.set_material(
+            7,
+            registry.intern("_BaseColor"),
+            MaterialPropertyValue::Float4(base),
+        );
+        store.set_material(
+            7,
+            registry.intern("_Color0"),
+            MaterialPropertyValue::Float4Array(color0.to_vec()),
+        );
+        store.set_material(
+            7,
+            registry.intern("_Color1"),
+            MaterialPropertyValue::Float4Array(color1.to_vec()),
+        );
+
+        let params = gradient_sky_params(&store, &registry, lookup(7));
+
+        assert_f32x4_near(params.color0, srgb_f32x4_rgb_to_linear(base));
+        assert_f32x4_near(
+            params.gradient_color0[0],
+            srgb_f32x4_rgb_to_linear(color0[0]),
+        );
+        assert_f32x4_near(
+            params.gradient_color0[1],
+            srgb_f32x4_rgb_to_linear(color0[1]),
+        );
+        assert_f32x4_near(
+            params.gradient_color1[0],
+            srgb_f32x4_rgb_to_linear(color1[0]),
+        );
+        assert_f32x4_near(
+            params.gradient_color1[1],
+            srgb_f32x4_rgb_to_linear(color1[1]),
+        );
     }
 
     #[test]

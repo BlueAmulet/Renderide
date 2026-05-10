@@ -25,6 +25,20 @@ mod source;
 #[cfg(feature = "video-textures")]
 pub(crate) use sink::WgpuGstVideoSink;
 
+/// Sink used by video playback to publish decoded frame texture views.
+#[cfg(feature = "video-textures")]
+pub trait VideoTextureFrameSink {
+    /// Stores the latest decoded texture view for `asset_id`.
+    fn set_video_texture_frame(
+        &mut self,
+        asset_id: i32,
+        view: std::sync::Arc<wgpu::TextureView>,
+        width: u32,
+        height: u32,
+        resident_bytes: u64,
+    ) -> bool;
+}
+
 #[cfg(feature = "video-textures")]
 mod sink {
     use glam::IVec2;

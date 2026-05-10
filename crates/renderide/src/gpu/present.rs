@@ -106,7 +106,7 @@ pub fn acquire_surface_outcome(
         Err(wgpu::CurrentSurfaceTexture::Validation) => {
             logger::error!("surface validation error during acquire; reconfiguring");
             let (w, h) = gpu
-                .window_inner_size()
+                .window_surface_size()
                 .unwrap_or_else(|| gpu.surface_extent_px());
             gpu.reconfigure(w, h);
             Ok(SurfaceFrameOutcome::Reconfigured)

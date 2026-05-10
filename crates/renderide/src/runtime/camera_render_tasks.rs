@@ -420,12 +420,16 @@ fn plan_camera_task(
             view_id: ViewId::camera_render_task(render_space_id, task_index),
             viewport_px: extent.tuple(),
             clear: FrameViewClear::from_camera_render_parameters(parameters),
-            post_processing: ViewPostProcessing::from_camera_render_parameters(parameters),
+            post_processing: camera_render_task_post_processing(parameters),
             target: FrameViewPlanTarget::SecondaryRt(targets.to_offscreen_handles()),
         },
         targets,
         output_format,
     })
+}
+
+fn camera_render_task_post_processing(parameters: &CameraRenderParameters) -> ViewPostProcessing {
+    ViewPostProcessing::from_camera_render_parameters(parameters)
 }
 
 fn draw_filter_from_camera_render_task(task: &CameraRenderTask) -> CameraTransformDrawFilter {
@@ -975,21 +979,32 @@ mod tests {
             screen_space_reflections: true,
             ..Default::default()
         };
-        let disabled_policy = ViewPostProcessing::from_camera_render_parameters(&disabled);
+        let disabled_policy = camera_render_task_post_processing(&disabled);
 
-        assert!(!disabled_policy.is_enabled());
-        assert!(!disabled_policy.screen_space_reflections);
-        assert!(!disabled_policy.motion_blur);
+        assert_eq!(disabled_policy, ViewPostProcessing::disabled());
 
-        let enabled = CameraRenderParameters {
+        let enabled_without_ssr = CameraRenderParameters {
             post_processing: true,
             screen_space_reflections: false,
             ..Default::default()
         };
-        let enabled_policy = ViewPostProcessing::from_camera_render_parameters(&enabled);
+        let enabled_without_ssr_policy = camera_render_task_post_processing(&enabled_without_ssr);
 
-        assert!(enabled_policy.is_enabled());
-        assert!(!enabled_policy.screen_space_reflections);
-        assert!(!enabled_policy.motion_blur);
+        assert_eq!(
+            enabled_without_ssr_policy,
+            ViewPostProcessing::new(true, false, false)
+        );
+
+        let enabled_with_ssr = CameraRenderParameters {
+            post_processing: true,
+            screen_space_reflections: true,
+            ..Default::default()
+        };
+        let enabled_with_ssr_policy = camera_render_task_post_processing(&enabled_with_ssr);
+
+        assert_eq!(
+            enabled_with_ssr_policy,
+            ViewPostProcessing::new(true, true, false)
+        );
     }
 }

@@ -163,56 +163,23 @@ pub(crate) fn batch_key_for_slot(
     primitive_topology: RasterPrimitiveTopology,
     ctx: MaterialResolveCtx<'_>,
 ) -> (MaterialDrawBatchKey, Option<glam::Vec4>) {
-    let shader_asset_id = ctx
-        .dict
-        .shader_asset_for_material(material_asset_id)
-        .unwrap_or(-1);
-    let pipeline = resolve_raster_pipeline(shader_asset_id, ctx.router);
-    let embedded = embedded_material_features(&pipeline, ctx.shader_perm);
-    let lookup_ids = MaterialPropertyLookupIds {
+    let resolved = resolve_material_batch(
         material_asset_id,
-        mesh_property_block_slot0: property_block_id,
-    };
-    let (mat_map, pb_map) = ctx.dict.fetch_property_maps(lookup_ids);
-    let material_blend_mode =
-        material_blend_mode_from_maps(mat_map, pb_map, ctx.pipeline_property_ids);
-    let render_state = material_render_state_from_maps(mat_map, pb_map, ctx.pipeline_property_ids);
-    let alpha_blended = embedded.uses_alpha_blending
-        || material_blend_mode.is_transparent()
-        || embedded.uses_scene_color_snapshot;
-    let render_queue = material_render_queue_from_maps(
-        mat_map,
-        pb_map,
+        property_block_id,
+        ctx.dict,
+        ctx.router,
         ctx.pipeline_property_ids,
-        fallback_render_queue_for_material(alpha_blended),
+        ctx.shader_perm,
     );
-    let ui_rect_clip_local =
-        ui_rect_clip_local_from_maps(mat_map, pb_map, ctx.pipeline_property_ids);
-    let key = MaterialDrawBatchKey {
-        pipeline,
-        shader_asset_id,
+    let key = batch_key_from_resolved(
         material_asset_id,
-        property_block_slot0: property_block_id,
+        property_block_id,
         skinned,
         front_face,
         primitive_topology,
-        embedded_needs_uv0: embedded.needs_uv0,
-        embedded_needs_color: embedded.needs_color,
-        embedded_needs_uv1: embedded.needs_uv1,
-        embedded_needs_tangent: embedded.needs_tangent,
-        embedded_tangent_fallback_mode: embedded.tangent_fallback_mode,
-        embedded_needs_uv2: embedded.needs_uv2,
-        embedded_needs_uv3: embedded.needs_uv3,
-        embedded_needs_extended_vertex_streams: embedded.needs_extended_vertex_streams,
-        embedded_requires_intersection_pass: embedded.requires_intersection_pass,
-        embedded_uses_scene_depth_snapshot: embedded.uses_scene_depth_snapshot,
-        embedded_uses_scene_color_snapshot: embedded.uses_scene_color_snapshot,
-        render_queue,
-        render_state,
-        blend_mode: material_blend_mode,
-        alpha_blended,
-    };
-    (key, ui_rect_clip_local)
+        &resolved,
+    );
+    (key, resolved.ui_rect_clip_local)
 }
 
 /// Builds a [`MaterialDrawBatchKey`] using a pre-built [`FrameMaterialBatchCache`].

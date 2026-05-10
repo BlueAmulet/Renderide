@@ -122,7 +122,7 @@ fn sample_surface(
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     let smoothness = clamp(spec.a, 0.0, 1.0);
-    let roughness = clamp(1.0 - smoothness, 0.045, 1.0);
+    let roughness = clamp(1.0 - smoothness, 0.0, 1.0);
     let one_minus_reflectivity = 1.0 - max(max(f0.r, f0.g), f0.b);
 
     var occlusion = 1.0;

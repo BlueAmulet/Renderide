@@ -17,7 +17,7 @@ use super::{
 
 /// Releases all transient resource leases back to the pool and ticks the global GC counter.
 pub(super) fn release_transients_and_gc(
-    mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+    mv_ctx: &mut MultiViewExecutionContext<'_>,
     transient_by_key: HashMap<GraphResolveKey, GraphResolvedResources>,
 ) {
     let pool = mv_ctx.backend.transient_pool_mut();
@@ -94,7 +94,7 @@ fn views_include_swapchain_target(views: &[FrameView<'_>]) -> bool {
 }
 
 fn drain_upload_for_submit(
-    mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+    mv_ctx: &mut MultiViewExecutionContext<'_>,
     upload_batch: &FrameUploadBatch,
     queue_ref: &wgpu::Queue,
 ) -> DrainedUploadCommand {
@@ -110,7 +110,7 @@ fn drain_upload_for_submit(
 }
 
 fn collect_submit_callbacks(
-    mv_ctx: &MultiViewExecutionContext<'_, '_>,
+    mv_ctx: &MultiViewExecutionContext<'_>,
     per_view_occlusion_info: &[(ViewId, HostCameraFrame)],
     upload_callback: Option<Box<dyn FnOnce() + Send + 'static>>,
 ) -> Vec<Box<dyn FnOnce() + Send + 'static>> {
@@ -127,7 +127,7 @@ impl CompiledRenderGraph {
     /// submits the assembled command buffers as a single batch through the GPU driver thread.
     pub(super) fn submit_frame_batch(
         &self,
-        mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+        mv_ctx: &mut MultiViewExecutionContext<'_>,
         inputs: SubmitFrameInputs<'_>,
     ) -> Result<SubmitFrameBatchStats, GraphExecuteError> {
         profiling::scope!("graph::single_submit");
@@ -246,7 +246,7 @@ impl CompiledRenderGraph {
 /// frame. In the no-content case, cached input-capture flags are cleared so a hidden HUD does not
 /// block input dispatch to the world.
 fn encode_swapchain_hud_overlay(
-    mv_ctx: &mut MultiViewExecutionContext<'_, '_>,
+    mv_ctx: &mut MultiViewExecutionContext<'_>,
     queue_ref: &wgpu::Queue,
     target_is_swapchain: bool,
     backbuffer_view: Option<&wgpu::TextureView>,
@@ -312,13 +312,13 @@ fn encode_swapchain_hud_overlay(
 /// state lock) and baked into the closure by value. The ticket includes the staging generation, so
 /// a late-firing callback from before a resize cannot mark a newer scratch slot as ready.
 fn collect_hi_z_submit_callbacks(
-    mv_ctx: &MultiViewExecutionContext<'_, '_>,
+    mv_ctx: &MultiViewExecutionContext<'_>,
     per_view_occlusion_info: &[(ViewId, HostCameraFrame)],
 ) -> Vec<Box<dyn FnOnce() + Send + 'static>> {
     per_view_occlusion_info
         .iter()
         .filter_map(|(view_id, _hc)| {
-            let state = mv_ctx.backend.occlusion.ensure_hi_z_state(*view_id);
+            let state = mv_ctx.backend.occlusion().ensure_hi_z_state(*view_id);
             let ticket = state.lock().take_encoded_slot()?;
             let cb: Box<dyn FnOnce() + Send + 'static> = Box::new(move || {
                 profiling::scope!("hi_z::on_submitted_callback");

@@ -4,7 +4,9 @@
 //! for float render textures. Pass descriptors from `//#pass` directives can override blend, depth,
 //! cull, stencil/color-write, and depth state per material.
 
-use crate::backend::{FrameGpuResources, empty_material_bind_group_layout};
+use crate::gpu::{
+    empty_material_bind_group_layout, frame_bind_group_layout, frame_bind_group_layout_entries,
+};
 use crate::materials::material_passes::{DefaultPassParams, MaterialPassDesc, default_pass};
 use crate::materials::pipeline_build_error::PipelineBuildError;
 use crate::materials::{
@@ -183,10 +185,10 @@ fn pipeline_layout_and_vertex_buffers(
 ) -> Result<(wgpu::PipelineLayout, Vec<wgpu::VertexBufferLayout<'static>>), PipelineBuildError> {
     let reflected = reflect_raster_material_wgsl(wgsl_source)?;
     validate_per_draw_group2(&reflected.per_draw_entries)?;
-    let frame_entries = FrameGpuResources::bind_group_layout_entries();
+    let frame_entries = frame_bind_group_layout_entries();
     validate_layout_against_limits(&reflected, &frame_entries, limits)?;
 
-    let frame_bgl = FrameGpuResources::bind_group_layout(device);
+    let frame_bgl = frame_bind_group_layout(device);
     let material_bgl = if reflected.material_entries.is_empty() {
         empty_material_bind_group_layout(device)
     } else {

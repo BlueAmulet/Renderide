@@ -6,9 +6,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use crate::backend::CLUSTER_PARAMS_UNIFORM_SIZE;
 use crate::camera::HostCameraFrame;
-use crate::gpu::GpuLimits;
+use crate::gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLimits};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::scene::SceneCoordinator;
 use crate::world_mesh::cluster::{

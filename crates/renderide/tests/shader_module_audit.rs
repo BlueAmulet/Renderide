@@ -57,6 +57,66 @@ fn material_source(file_name: &str) -> io::Result<String> {
     fs::read_to_string(manifest_dir().join("shaders/materials").join(file_name))
 }
 
+fn module_source(file_name: &str) -> io::Result<String> {
+    fs::read_to_string(manifest_dir().join("shaders/modules").join(file_name))
+}
+
+#[test]
+fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()> {
+    let birp = module_source("birp_light.wgsl")?;
+    assert!(
+        birp.contains(
+            "fn direct_light_intensity(intensity: f32) -> f32 {\n    return intensity * INTENSITY_BOOST;\n}"
+        ),
+        "BiRP light module must expose the shared direct-light boost helper"
+    );
+    assert!(
+        birp.contains("return lut * range_fade(t) * INTENSITY_BOOST;"),
+        "punctual distance attenuation must keep the existing intensity boost"
+    );
+
+    let pbs_brdf = module_source("pbs_brdf.wgsl")?;
+    assert!(
+        pbs_brdf.contains("out.attenuation = bl::direct_light_intensity(light.intensity);"),
+        "PBS directional lights must use the shared intensity boost"
+    );
+    assert!(
+        pbs_brdf.contains("out.attenuation = light.intensity * distance_attenuation(dist, light.range);")
+            && pbs_brdf.contains(
+                "out.attenuation = light.intensity * spot_atten * distance_attenuation(dist, light.range);"
+            ),
+        "PBS point and spot lights must continue using boosted distance attenuation"
+    );
+
+    let xiexe = module_source("xiexe_toon2_lighting.wgsl")?;
+    assert!(
+        xiexe.contains("bl::direct_light_intensity(light.intensity),"),
+        "Xiexe directional lights must use the shared intensity boost"
+    );
+    assert!(
+        xiexe.contains(
+            "var attenuation = bl::punctual_attenuation(light.intensity, dist, light.range);"
+        ),
+        "Xiexe point and spot lights must continue using boosted punctual attenuation"
+    );
+
+    for material in ["toonstandard.wgsl", "toonwater.wgsl"] {
+        let src = material_source(material)?;
+        assert!(
+            src.contains("attenuation = bl::direct_light_intensity(light.intensity);"),
+            "{material} directional lights must use the shared intensity boost"
+        );
+        assert!(
+            src.contains(
+                "attenuation = light.intensity * brdf::distance_attenuation(dist, light.range);"
+            ),
+            "{material} point and spot lights must continue using boosted distance attenuation"
+        );
+    }
+
+    Ok(())
+}
+
 #[test]
 fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
     let metallic = material_source("pbsmetallic.wgsl")?;
@@ -81,6 +141,62 @@ fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
         ),
         "pbsspecular.wgsl must sample Unity Standard occlusion from the green channel"
     );
+
+    Ok(())
+}
+
+#[test]
+fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
+    let sampling_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/pbs/sampling.wgsl"))?;
+    assert!(
+        sampling_src.contains("return clamp(1.0 - smoothness, 0.0, 1.0);"),
+        "PBS smoothness conversion must keep perceptual roughness at 0 for mirror-smooth indirect reflections"
+    );
+    assert!(
+        !sampling_src.contains("return clamp(1.0 - smoothness, 0.045, 1.0);"),
+        "PBS smoothness conversion must not apply the direct-light roughness floor globally"
+    );
+
+    let brdf_src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs_brdf.wgsl"))?;
+    for required in [
+        "const MIN_ALPHA: f32 = 0.002;",
+        "fn direct_alpha_from_perceptual_roughness(",
+        "return max(clamped * clamped, MIN_ALPHA);",
+        "fn direct_perceptual_roughness(",
+    ] {
+        assert!(
+            brdf_src.contains(required),
+            "pbs_brdf.wgsl must contain `{required}`"
+        );
+    }
+
+    let lighting_src =
+        fs::read_to_string(manifest_dir().join("shaders/modules/pbs/lighting.wgsl"))?;
+    for required in [
+        "let direct_roughness = brdf::direct_perceptual_roughness(s.roughness);",
+        "let direct_dfg = brdf::sample_ibl_dfg_lut(direct_roughness, n_dot_v);",
+        "let indirect_dfg = brdf::sample_ibl_dfg_lut(s.roughness, n_dot_v);",
+    ] {
+        assert!(
+            lighting_src.contains(required),
+            "pbs/lighting.wgsl must contain `{required}`"
+        );
+    }
+
+    for path in wgsl_files_recursive("shaders/materials")? {
+        let src = fs::read_to_string(&path)?;
+        for forbidden in [
+            "clamp(1.0 - smoothness, 0.045, 1.0)",
+            "clamp(1.0 - clamp(smoothness, 0.0, 1.0), 0.045, 1.0)",
+        ] {
+            assert!(
+                !src.contains(forbidden),
+                "{} must not contain the global PBS roughness floor `{forbidden}`",
+                file_label(&path)
+            );
+        }
+    }
 
     Ok(())
 }

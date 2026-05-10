@@ -34,11 +34,11 @@ pub trait LabeledEnum: Sized + Copy + 'static {
     fn parse_persist(s: &str) -> Option<Self>;
 }
 
-/// Declarative shortcut for [`LabeledEnum`] enums.
+/// Declarative shortcut for LabeledEnum enums.
 ///
 /// Generates the enum (with `Clone, Copy, Debug, PartialEq, Eq, Hash`), [`Default`],
 /// [`serde::Serialize`], [`serde::Deserialize`] (string visitor -- plus a bool visitor in the
-/// bool-aware arm), and the [`LabeledEnum`] impl from one declaration. Variants list their
+/// bool-aware arm), and the LabeledEnum impl from one declaration. Variants list their
 /// canonical persist string, label, and any alias tokens accepted on input.
 ///
 /// Aliases are matched after lowercasing and trimming, so they should be written lowercase.

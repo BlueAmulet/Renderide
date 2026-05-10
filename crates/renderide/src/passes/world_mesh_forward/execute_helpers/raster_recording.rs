@@ -118,8 +118,8 @@ pub(in crate::passes::world_mesh_forward) fn frame_bind_group_for_view(
             frame
                 .shared
                 .frame_resources
-                .per_view_frame(frame.view.view_id)
-                .map(|s| s.frame_bind_group.clone())
+                .per_view_frame_bind_group_and_buffer(frame.view.view_id)
+                .map(|(bind_group, _)| bind_group)
         })
 }
 
@@ -139,20 +139,14 @@ fn record_world_mesh_forward_graph_raster(
     let Some(per_draw_bg) = frame
         .shared
         .frame_resources
-        .per_view_per_draw(frame.view.view_id)
-        .map(|d| d.lock().bind_group.clone())
+        .per_view_per_draw_bind_group(frame.view.view_id)
     else {
         return false;
     };
     let Some(frame_bg_arc) = frame_bind_group_for_view(frame, blackboard) else {
         return false;
     };
-    let Some(empty_bg_arc) = frame
-        .shared
-        .frame_resources
-        .empty_material()
-        .map(|e| e.bind_group.clone())
-    else {
+    let Some(empty_bg_arc) = frame.shared.frame_resources.empty_material_bind_group() else {
         return false;
     };
 
@@ -237,8 +231,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_normal_gr
     let Some(per_draw_bg) = frame
         .shared
         .frame_resources
-        .per_view_per_draw(frame.view.view_id)
-        .map(|d| d.lock().bind_group.clone())
+        .per_view_per_draw_bind_group(frame.view.view_id)
     else {
         return false;
     };

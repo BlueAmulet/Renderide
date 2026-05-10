@@ -39,7 +39,7 @@ pub(super) struct AutoExposureParamsGpu {
     speed_brighten: f32,
     speed_darken: f32,
     exponential_transition_distance: f32,
-    compensation_ev: f32,
+    target_ev: f32,
     delta_time_seconds: f32,
     layer_count: u32,
     _pad: u32,
@@ -63,7 +63,7 @@ impl AutoExposureParamsGpu {
             speed_brighten: settings.resolved_speed_brighten(),
             speed_darken: settings.resolved_speed_darken(),
             exponential_transition_distance: settings.resolved_exponential_transition_distance(),
-            compensation_ev: settings.resolved_compensation_ev(),
+            target_ev: settings.resolved_target_ev(),
             delta_time_seconds: delta_seconds.max(0.0),
             layer_count: layer_count.max(1),
             _pad: 0,
@@ -350,11 +350,31 @@ fn create_auto_exposure_compute_pipeline(
 #[cfg(test)]
 mod tests {
     use super::{AutoExposureParamsGpu, HISTOGRAM_BIN_COUNT};
+    use crate::config::AutoExposureSettings;
 
     #[test]
     fn auto_exposure_params_are_uniform_aligned() {
         assert_eq!(size_of::<AutoExposureParamsGpu>(), 48);
         assert_eq!(size_of::<AutoExposureParamsGpu>() % 16, 0);
+    }
+
+    #[test]
+    fn default_auto_exposure_params_target_middle_gray() {
+        let params =
+            AutoExposureParamsGpu::from_settings(AutoExposureSettings::default(), 0.016, 1);
+
+        assert!((params.target_ev - AutoExposureSettings::MIDDLE_GRAY_EV).abs() < 1e-6);
+    }
+
+    #[test]
+    fn auto_exposure_params_apply_compensation_relative_to_middle_gray() {
+        let settings = AutoExposureSettings {
+            compensation_ev: 1.0,
+            ..Default::default()
+        };
+        let params = AutoExposureParamsGpu::from_settings(settings, 0.016, 1);
+
+        assert!((params.target_ev - (AutoExposureSettings::MIDDLE_GRAY_EV + 1.0)).abs() < 1e-6);
     }
 
     #[test]

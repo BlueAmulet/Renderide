@@ -19,7 +19,7 @@ use crate::materials::{
 pub struct NullFamily;
 
 impl NullFamily {
-    /// `@group(2)` per-draw storage layout for [`crate::backend::PerDrawResources`].
+    /// `@group(2)` per-draw storage layout for the mesh-deform per-draw ABI.
     ///
     /// Matches naga reflection of the embedded `null_default` target (same `@group(2)` as the
     /// multiview variant).

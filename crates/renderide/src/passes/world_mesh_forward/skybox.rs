@@ -11,9 +11,9 @@ use parking_lot::Mutex;
 
 use super::WorldMeshForwardPipelineState;
 use super::execute_helpers::frame_bind_group_for_view;
-use crate::backend::FrameGpuResources;
 use crate::camera::{CameraProjectionKind, ViewId, world_to_view_pair_for_skybox};
 use crate::embedded_shaders;
+use crate::gpu::frame_bind_group_layout;
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyLookupIds};
 use crate::materials::{
     EmbeddedTexturePools, MaterialRenderState, material_render_state_for_lookup,
@@ -174,11 +174,11 @@ impl SkyboxRenderer {
         let family = SkyboxFamily::from_stem(stem.as_str())?;
         let embedded_bind = materials.embedded_material_bind()?;
         let pools = EmbeddedTexturePools {
-            texture: frame.shared.asset_transfers.texture_pool(),
-            texture3d: frame.shared.asset_transfers.texture3d_pool(),
-            cubemap: frame.shared.asset_transfers.cubemap_pool(),
-            render_texture: frame.shared.asset_transfers.render_texture_pool(),
-            video_texture: frame.shared.asset_transfers.video_texture_pool(),
+            texture: frame.shared.asset_resources.texture_pool(),
+            texture3d: frame.shared.asset_resources.texture3d_pool(),
+            cubemap: frame.shared.asset_resources.cubemap_pool(),
+            render_texture: frame.shared.asset_resources.render_texture_pool(),
+            video_texture: frame.shared.asset_resources.video_texture_pool(),
         };
         let lookup = MaterialPropertyLookupIds {
             material_asset_id,
@@ -319,7 +319,7 @@ impl SkyboxRenderer {
             label: Some(shader_target),
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
-        let frame_layout = FrameGpuResources::bind_group_layout(device);
+        let frame_layout = frame_bind_group_layout(device);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some(shader_target),
             bind_group_layouts: &[

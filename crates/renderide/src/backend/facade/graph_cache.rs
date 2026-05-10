@@ -87,6 +87,7 @@ impl RenderBackend {
     ) {
         let key = shape.into_cache_key();
         let previous_key = self.graph_state.frame_graph_cache.last_key();
+        let key_changed = previous_key.is_some_and(|previous| previous != key);
         if let Some(previous_key) = previous_key.filter(|previous| *previous != key) {
             logger::info!(
                 "graph inputs changed (post-processing {:?} -> {:?}, msaa {}x -> {}x, multiview {} -> {}, surface {:?} -> {:?}, scene color {:?} -> {:?}); rebuilding render graph",
@@ -102,10 +103,14 @@ impl RenderBackend {
                 key.scene_color_format,
             );
         }
+        if key_changed {
+            self.graph_state.reset_upload_arena();
+        }
         let post_processing_resources = self.graph_state.post_processing_resources().clone();
         if let Err(error) = self.graph_state.frame_graph_cache.ensure(key, || {
             build_main_graph_with_resources(key, post_processing, &post_processing_resources)
         }) {
+            self.graph_state.reset_upload_arena();
             logger::warn!("render graph build failed: {error}");
         }
     }

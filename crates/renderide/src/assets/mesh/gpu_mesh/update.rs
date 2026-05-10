@@ -218,9 +218,9 @@ impl GpuMesh {
                     vertex_count: vc_usize,
                     vertex_stride: self.vertex_stride as usize,
                     vertex_attributes: source.vertex_attributes.as_ref(),
+                    target: VertexAttributeType::UV1,
+                    label: "uv1",
                 },
-                VertexAttributeType::UV1,
-                "uv1",
             )
         } else {
             upload_default_uv_vertex_stream(device, self.asset_id, vc_usize, "uv1")
@@ -281,9 +281,9 @@ impl GpuMesh {
                     vertex_count: vc_usize,
                     vertex_stride: self.vertex_stride as usize,
                     vertex_attributes: source.vertex_attributes.as_ref(),
+                    target,
+                    label,
                 },
-                target,
-                label,
             )
         } else {
             upload_default_uv_vertex_stream(device, self.asset_id, vc_usize, label)

@@ -338,7 +338,7 @@ fn pack_probe_readback_to_host(
                 copy_rgba16f_rows(source, subresource, destination);
             }
             ProbeOutputFormat::Rgba8 => {
-                convert_rgba16f_rows_to_rgba8(source, subresource, destination);
+                encode_rgba16f_rows_to_linear_rgba8(source, subresource, destination);
             }
         }
     }
@@ -359,7 +359,8 @@ fn copy_rgba16f_rows(src: &[u8], subresource: &ProbeMipReadback, dst: &mut [u8])
     }
 }
 
-fn convert_rgba16f_rows_to_rgba8(src: &[u8], subresource: &ProbeMipReadback, dst: &mut [u8]) {
+/// Encodes linear HDR probe pixels into the host's linear `RGBA32` bitmap payload.
+fn encode_rgba16f_rows_to_linear_rgba8(src: &[u8], subresource: &ProbeMipReadback, dst: &mut [u8]) {
     let extent = subresource.extent as usize;
     let src_row_bytes = subresource.bytes_per_row_padded as usize;
     let dst_row_bytes = extent * super::RGBA8_BYTES_PER_PIXEL;
@@ -370,10 +371,10 @@ fn convert_rgba16f_rows_to_rgba8(src: &[u8], subresource: &ProbeMipReadback, dst
         for x in 0..extent {
             let src_i = src_row_start + x * RGBA16F_BYTES_PER_PIXEL;
             let dst_i = dst_row_start + x * super::RGBA8_BYTES_PER_PIXEL;
-            dst[dst_i] = f32_to_unorm8(f16_bits_to_f32(read_u16_le(src, src_i)));
-            dst[dst_i + 1] = f32_to_unorm8(f16_bits_to_f32(read_u16_le(src, src_i + 2)));
-            dst[dst_i + 2] = f32_to_unorm8(f16_bits_to_f32(read_u16_le(src, src_i + 4)));
-            dst[dst_i + 3] = f32_to_unorm8(f16_bits_to_f32(read_u16_le(src, src_i + 6)));
+            dst[dst_i] = linear_f32_to_unorm8(f16_bits_to_f32(read_u16_le(src, src_i)));
+            dst[dst_i + 1] = linear_f32_to_unorm8(f16_bits_to_f32(read_u16_le(src, src_i + 2)));
+            dst[dst_i + 2] = linear_f32_to_unorm8(f16_bits_to_f32(read_u16_le(src, src_i + 4)));
+            dst[dst_i + 3] = linear_f32_to_unorm8(f16_bits_to_f32(read_u16_le(src, src_i + 6)));
         }
     }
 }
@@ -407,7 +408,7 @@ fn f16_bits_to_f32(bits: u16) -> f32 {
     f32::from_bits(float_bits)
 }
 
-fn f32_to_unorm8(value: f32) -> u8 {
+fn linear_f32_to_unorm8(value: f32) -> u8 {
     if value.is_nan() || value <= 0.0 {
         0
     } else if value >= 1.0 {
@@ -531,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn pack_rgba16f_to_rgba8_preserves_rows_and_clamps() {
+    fn pack_rgba16f_to_linear_rgba8_preserves_rows_and_clamps() {
         let subresource = ProbeMipReadback {
             face: ProbeCubeFace::PosX,
             mip: 0,

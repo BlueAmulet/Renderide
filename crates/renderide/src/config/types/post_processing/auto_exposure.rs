@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 ///
 /// Persisted as `[post_processing.auto_exposure]`. The renderer builds a log-luminance histogram
 /// from HDR scene color, filters dark and bright percentile tails, and adapts exposure in EV stops
-/// toward middle gray before bloom and tonemapping. Defaults match the Bevy-style histogram path
-/// and keep adaptation fast when brightening while darkening more conservatively.
+/// toward scene-linear middle gray before bloom and tonemapping. Manual compensation is an offset
+/// from the internal middle-gray target, so `0.0` is neutral.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AutoExposureSettings {
@@ -27,11 +27,13 @@ pub struct AutoExposureSettings {
     pub speed_darken: f32,
     /// EV distance where adaptation transitions from linear to exponential.
     pub exponential_transition_distance: f32,
-    /// Manual EV compensation added after metering.
+    /// Manual EV compensation added after middle-gray metering.
     pub compensation_ev: f32,
 }
 
 impl AutoExposureSettings {
+    /// EV offset for scene-linear `0.18` middle-gray luminance.
+    pub const MIDDLE_GRAY_EV: f32 = -2.473_931_3;
     /// Minimum EV span accepted by the GPU pass.
     pub const MIN_EV_SPAN: f32 = 0.001;
     /// Smallest positive transition distance accepted by the GPU pass.
@@ -85,6 +87,11 @@ impl AutoExposureSettings {
     pub fn resolved_compensation_ev(self) -> f32 {
         finite_or(self.compensation_ev, Self::default().compensation_ev)
     }
+
+    /// Returns the absolute target EV used by auto-exposure metering.
+    pub fn resolved_target_ev(self) -> f32 {
+        Self::MIDDLE_GRAY_EV + self.resolved_compensation_ev()
+    }
 }
 
 impl Default for AutoExposureSettings {
@@ -98,7 +105,7 @@ impl Default for AutoExposureSettings {
             speed_brighten: 3.0,
             speed_darken: 3.0,
             exponential_transition_distance: 1.5,
-            compensation_ev: -3.0,
+            compensation_ev: 0.0,
         }
     }
 }
@@ -110,6 +117,39 @@ fn finite_or(value: f32, fallback: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::AutoExposureSettings;
+
+    #[test]
+    fn middle_gray_ev_matches_scene_linear_luminance_key() {
+        const MIDDLE_GRAY_LINEAR_LUMINANCE: f32 = 0.18;
+
+        assert!(
+            (AutoExposureSettings::MIDDLE_GRAY_EV - MIDDLE_GRAY_LINEAR_LUMINANCE.log2()).abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
+    fn default_compensation_is_neutral_middle_gray() {
+        let settings = AutoExposureSettings::default();
+
+        assert_eq!(settings.compensation_ev, 0.0);
+        assert!(
+            (settings.resolved_target_ev() - AutoExposureSettings::MIDDLE_GRAY_EV).abs() < 1e-6
+        );
+    }
+
+    #[test]
+    fn compensation_offsets_middle_gray_target_ev() {
+        let settings = AutoExposureSettings {
+            compensation_ev: 1.0,
+            ..Default::default()
+        };
+
+        assert!(
+            (settings.resolved_target_ev() - (AutoExposureSettings::MIDDLE_GRAY_EV + 1.0)).abs()
+                < 1e-6
+        );
+    }
 
     #[test]
     fn resolved_ev_range_orders_and_expands_degenerate_ranges() {

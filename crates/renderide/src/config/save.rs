@@ -41,6 +41,11 @@ pub fn save_renderer_settings_pruned(path: &Path, settings: &RendererSettings) -
     atomic_write_toml(path, &document.to_string())
 }
 
+/// Writes a pre-edited renderer config TOML document atomically.
+pub(super) fn save_migrated_renderer_config(path: &Path, contents: &str) -> io::Result<()> {
+    atomic_write_toml(path, contents)
+}
+
 fn serialized_settings_document(settings: &RendererSettings) -> io::Result<DocumentMut> {
     let contents = toml::to_string_pretty(settings).map_err(toml_serialize_error)?;
     contents.parse::<DocumentMut>().map_err(|e| {
@@ -101,6 +106,23 @@ mod tests {
         let text = std::fs::read_to_string(&path).expect("read");
         let s2: RendererSettings = toml::from_str(&text).expect("toml");
         assert_eq!(s, s2);
+    }
+
+    #[test]
+    fn default_save_writes_current_config_version() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("config.toml");
+
+        save_renderer_settings(&path, &RendererSettings::from_defaults()).expect("save");
+
+        let text = std::fs::read_to_string(&path).expect("read");
+        assert!(
+            text.contains(&format!(
+                "config_version = \"{}\"",
+                RendererSettings::CURRENT_CONFIG_VERSION
+            )),
+            "got:\n{text}"
+        );
     }
 
     #[test]

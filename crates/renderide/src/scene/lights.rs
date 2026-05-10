@@ -1,7 +1,7 @@
 //! Host-driven lights: CPU cache from [`FrameSubmitData`](crate::shared::FrameSubmitData) and light buffer submissions.
 //!
-//! Scene lights are **logical** state (poses, types, shadow params). GPU storage buffer allocation
-//! and [`crate::backend::light_gpu::GpuLight`] packing live in the backend.
+//! Scene lights are logical state (poses, types, shadow params). GPU ABI types live in
+//! [`crate::gpu`], and render-frame storage allocation lives in the backend.
 
 mod apply;
 mod cache;

@@ -136,6 +136,21 @@ fn render_rows(ui: &imgui::Ui, t: &FrameTimingHudSnapshot) {
         Some((format!("{host_ram} ({host_ram_pct:.0}%)"), DIM_COLOR)),
         None,
     );
+
+    let gpu_alloc = t
+        .gpu_allocator_allocated_bytes
+        .map_or_else(|| "-".to_string(), format_bytes_gib);
+    let gpu_reserved = t
+        .gpu_allocator_reserved_bytes
+        .map_or_else(|| "-".to_string(), format_bytes_gib);
+    row(
+        ui,
+        ("VRAM", GPU_HEAD_COLOR),
+        (gpu_alloc, VALUE_COLOR),
+        Some(("resv", DIM_COLOR)),
+        Some((gpu_reserved, DIM_COLOR)),
+        Some(VRAM_TOOLTIP),
+    );
 }
 
 const FRAME_TOOLTIP: &str = "\
@@ -146,6 +161,10 @@ const CPU_TOOLTIP: &str = "\
 Main-thread tick duration: from frame start to the moment the renderer finishes dispatching \
 this tick's submit. Excludes FPS-gating sleeps, lockstep waits, and event-loop idles. \
 EMA-smoothed.";
+
+const VRAM_TOOLTIP: &str = "\
+Wgpu device allocator memory tracked by the active backend. Shows live allocation bytes and \
+reserved allocator capacity, not total physical adapter VRAM.";
 
 const GPU_TOOLTIP: &str = "\
 Real GPU compute time, measured by hardware timestamp queries that bracket the tick's command \

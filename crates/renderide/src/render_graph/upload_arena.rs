@@ -191,6 +191,27 @@ impl PersistentUploadArena {
         self.drain_completions();
     }
 
+    /// Drops all retained staging slots and ignores stale completion callbacks from older slots.
+    pub(crate) fn reset(&mut self) {
+        profiling::scope!("frame_upload_arena::reset");
+        self.drain_pending_completion_events();
+        self.next_generation = self.next_generation.saturating_add(1).max(1);
+
+        let released_capacity = self
+            .slots
+            .iter()
+            .fold(0u64, |total, slot| total.saturating_add(slot.capacity));
+        for slot in &mut self.slots {
+            slot.buffer = None;
+            slot.capacity = 0;
+            slot.state = UploadArenaSlotState::Empty;
+        }
+
+        logger::debug!(
+            "frame upload arena: reset persistent slots released_capacity_bytes={released_capacity}"
+        );
+    }
+
     /// Prepares staging storage for `required` aligned bytes.
     pub(crate) fn prepare_staging_buffer(
         &mut self,
@@ -351,6 +372,10 @@ impl PersistentUploadArena {
                 } => self.finish_remap(slot, generation, success),
             }
         }
+    }
+
+    fn drain_pending_completion_events(&self) {
+        while self.completion_rx.try_recv().is_ok() {}
     }
 
     fn start_remap(&mut self, slot: usize, generation: u64) {
@@ -557,6 +582,36 @@ mod tests {
 
         assert_eq!(arena.slots[0].state, UploadArenaSlotState::Empty);
         assert_eq!(arena.slots[0].capacity, 0);
+    }
+
+    #[test]
+    fn reset_drops_slots_and_ignores_stale_completions() {
+        let mut arena = PersistentUploadArena::new();
+        arena.slots[0].state = UploadArenaSlotState::Free;
+        arena.slots[0].capacity = 64;
+        arena.slots[1].state = UploadArenaSlotState::InFlight { generation: 7 };
+        arena.slots[1].capacity = 128;
+        arena.slots[2].state = UploadArenaSlotState::Remapping { generation: 8 };
+        arena.slots[2].capacity = 256;
+
+        arena.reset();
+        let next_generation_after_reset = arena.next_generation;
+        let _ = arena.completion_tx.send(UploadArenaCompletion::Remapped {
+            slot: 2,
+            generation: 8,
+            success: true,
+        });
+        arena.drain_completions();
+
+        for slot in &arena.slots {
+            assert_eq!(slot.state, UploadArenaSlotState::Empty);
+            assert_eq!(slot.capacity, 0);
+        }
+        assert!(
+            arena.next_generation > 1,
+            "reset must advance generations away from stale callbacks"
+        );
+        assert_eq!(arena.next_generation, next_generation_after_reset);
     }
 
     #[test]

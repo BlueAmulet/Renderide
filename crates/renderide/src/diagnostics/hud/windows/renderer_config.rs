@@ -117,6 +117,8 @@ fn renderer_config_panel_body(
     state: &mut HudUiState,
 ) {
     let mut dirty = false;
+    ui.text_disabled(format!("Config version: {}", g.config_version));
+
     if !state.renderer_config_tabs.all_open() && ui.small_button("Show all config tabs") {
         state.renderer_config_tabs = Default::default();
         state.renderer_config_tab_restore_pending = true;
@@ -555,7 +557,7 @@ fn gtao_sampling_controls(ui: &imgui::Ui, gtao: &mut GtaoSettings, dirty: &mut b
         *dirty = true;
     }
     if ui
-        .slider_config("Max pixel radius", 16.0_f32, 256.0_f32)
+        .slider_config("Max pixel radius", 16.0_f32, 2048.0_f32)
         .display_format("%.0f")
         .build(&mut gtao.max_pixel_radius)
     {
@@ -630,8 +632,9 @@ fn post_processing_bloom(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut b
     ui.text_disabled(
         "Bloom (dual-filter, COD: Advanced Warfare / Bevy port): HDR-linear scatter via a \
          mip-chain downsample/upsample pyramid with Karis firefly reduction on mip 0. Runs \
-         pre-tonemap. Changing `max mip dimension` rebuilds the render graph; other knobs take \
-         effect next frame via the shared params UBO / per-mip blend constant.",
+         pre-tonemap. Energy-conserving mode redistributes the bloom source term. Changing \
+         `max mip dimension` rebuilds the render graph; other knobs take effect next frame via the \
+         shared params UBO / per-mip blend constant.",
     );
     if ui.checkbox("Enable bloom", &mut g.post_processing.bloom.enabled) {
         *dirty = true;
@@ -708,7 +711,7 @@ fn post_processing_bloom(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut b
 fn post_processing_auto_exposure(ui: &imgui::Ui, g: &mut RendererSettings, dirty: &mut bool) {
     let _id = ui.push_id("auto_exposure");
     ui.text_disabled(
-        "Auto-exposure: builds a log-luminance histogram from HDR scene color, ignores dark/bright percentile tails, and adapts exposure before tonemapping.",
+        "Auto-exposure: builds a scene-linear log-luminance histogram, targets middle gray, ignores dark/bright percentile tails, and adapts exposure before tonemapping.",
     );
     if ui.checkbox(
         "Enable auto-exposure",
@@ -781,7 +784,7 @@ fn post_processing_auto_exposure(ui: &imgui::Ui, g: &mut RendererSettings, dirty
         *dirty = true;
     }
     if ui
-        .slider_config("Compensation (EV)", -8.0_f32, 8.0_f32)
+        .slider_config("Middle-gray compensation (EV)", -8.0_f32, 8.0_f32)
         .display_format("%.2f")
         .build(&mut auto.compensation_ev)
     {

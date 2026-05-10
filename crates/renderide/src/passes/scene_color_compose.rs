@@ -14,6 +14,7 @@ use crate::passes::helpers::{
     imported_color_attachment, missing_pass_resource, read_fragment_sampled_texture,
 };
 use crate::present::SWAPCHAIN_CLEAR_COLOR;
+use crate::render_graph::ViewPostProcessing;
 use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
 use crate::render_graph::gpu_cache::raster_stereo_mask_override;
@@ -54,6 +55,17 @@ fn compose_pipelines() -> &'static SceneColorComposePipelineCache {
     &CACHE
 }
 
+fn scene_color_compose_input(
+    resources: SceneColorComposeGraphResources,
+    post_processing: ViewPostProcessing,
+) -> TextureHandle {
+    if post_processing.is_enabled() {
+        resources.post_processed_scene_color_hdr
+    } else {
+        resources.scene_color_hdr
+    }
+}
+
 impl RasterPass for SceneColorComposePass {
     fn name(&self) -> &str {
         "SceneColorCompose"
@@ -88,11 +100,7 @@ impl RasterPass for SceneColorComposePass {
         profiling::scope!("scene_color_compose::record");
         let frame = &*ctx.pass_frame;
         let graph_resources = ctx.graph_resources;
-        let input = if frame.view.post_processing.is_enabled() {
-            self.resources.post_processed_scene_color_hdr
-        } else {
-            self.resources.scene_color_hdr
-        };
+        let input = scene_color_compose_input(self.resources, frame.view.post_processing);
         let Some(tex) = graph_resources.transient_texture(input) else {
             return Err(missing_pass_resource(
                 self.name(),
@@ -177,5 +185,23 @@ mod setup_tests {
             "expected sampled HDR read"
         );
         assert_eq!(setup.color_attachments.len(), 1);
+    }
+
+    #[test]
+    fn compose_input_respects_view_post_processing_policy() {
+        let resources = SceneColorComposeGraphResources {
+            scene_color_hdr: TextureHandle(1),
+            post_processed_scene_color_hdr: TextureHandle(2),
+            frame_color: ImportedTextureHandle(0),
+        };
+
+        assert_eq!(
+            scene_color_compose_input(resources, ViewPostProcessing::disabled()),
+            resources.scene_color_hdr
+        );
+        assert_eq!(
+            scene_color_compose_input(resources, ViewPostProcessing::primary_view()),
+            resources.post_processed_scene_color_hdr
+        );
     }
 }

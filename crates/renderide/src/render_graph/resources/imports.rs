@@ -15,7 +15,7 @@ pub enum FrameTargetRole {
 ///
 /// A **history slot** is a ping-pong pair of GPU resources (textures or buffers) that survive
 /// across frames. [`ImportSourceKind::PingPong`] references a slot by this id; a
-/// [`crate::backend::HistoryRegistry`] owns the concrete resources.
+/// [`crate::render_graph::HistoryRegistry`] owns the concrete resources.
 ///
 /// Slots are identified by a stable `&'static str` id so subsystems can register their own slot
 /// names without editing a centralized enum. Use [`HistorySlotId::new`] to declare new ids; the
@@ -55,7 +55,7 @@ pub enum ImportSourceKind<F> {
     /// Externally owned resource view.
     #[cfg(test)]
     External,
-    /// Ping-pong history slot owned by backend history.
+    /// Ping-pong history slot owned by graph history.
     PingPong(HistorySlotId),
 }
 
@@ -82,7 +82,7 @@ pub struct ImportedTextureDecl {
     pub final_access: TextureAccess,
 }
 
-/// Known backend [`FrameResourceManager`](crate::backend::FrameResourceManager) buffers wired into the render graph.
+/// Known frame-resource buffers wired into the render graph.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BackendFrameBufferKind {
     /// Packed lights storage for clustered forward.

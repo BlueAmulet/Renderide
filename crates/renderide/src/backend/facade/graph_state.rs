@@ -70,6 +70,11 @@ impl RenderGraphState {
         &self.post_processing_resources
     }
 
+    /// Clears persistent upload staging slots when a graph-shape transition invalidates them.
+    pub(super) fn reset_upload_arena(&mut self) {
+        self.upload_arena.reset();
+    }
+
     /// Synchronizes active view ownership and releases graph-owned view resources immediately.
     pub(super) fn sync_active_views<I>(&mut self, active_views: I) -> Vec<ViewId>
     where

@@ -8,6 +8,7 @@ mod snapshot;
 
 use std::fmt;
 
+use hashbrown::HashSet;
 use parking_lot::Mutex;
 use rayon::prelude::*;
 
@@ -119,7 +120,7 @@ struct MeshDeformDispatchCtx<'a> {
 fn collect_deform_work_for_space(
     scene: &SceneCoordinator,
     mesh_pool: &MeshPool,
-    visible_filter: Option<&hashbrown::HashSet<SkinCacheKey>>,
+    visible_filter: Option<&HashSet<SkinCacheKey>>,
     space_id: RenderSpaceId,
     work: &mut Vec<DeformWorkItem>,
 ) {
@@ -206,11 +207,9 @@ fn collect_deform_work_into_scratch(
     scratch: &mut MeshDeformScratch,
     scene: &SceneCoordinator,
     mesh_pool: &MeshPool,
-    frame_resources: &crate::backend::FrameResourceManager,
+    visible_filter: Option<&HashSet<SkinCacheKey>>,
 ) {
     profiling::scope!("mesh_deform::collect_work");
-    let visible_filter = frame_resources.visible_mesh_deform_keys_snapshot();
-    let visible_filter = visible_filter.as_ref();
     if visible_filter.is_some_and(|keys| keys.is_empty()) {
         scratch.space_ids.clear();
         scratch.work.clear();
@@ -417,14 +416,18 @@ impl ComputePass for MeshDeformPass {
             return Ok(());
         }
 
-        let mesh_pool = frame.shared.asset_transfers.mesh_pool();
+        let mesh_pool = frame.shared.asset_resources.mesh_pool();
+        let visible_filter = frame
+            .shared
+            .frame_resources
+            .visible_mesh_deform_keys_snapshot();
 
         let mut scratch = self.scratch.lock();
         collect_deform_work_into_scratch(
             &mut scratch,
             frame.shared.scene,
             mesh_pool,
-            frame.shared.frame_resources,
+            visible_filter.as_ref(),
         );
 
         let Some(pre) = frame.shared.mesh_preprocess else {

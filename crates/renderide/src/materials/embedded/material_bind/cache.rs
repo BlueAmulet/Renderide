@@ -20,7 +20,10 @@ use crate::materials::host_data::{MaterialPropertyLookupIds, MaterialPropertySto
 pub(super) const EMBEDDED_CACHE_SHARDS: usize = 16;
 
 /// LRU cap for `@group(1)` bind groups (per stem/texture signature/arena generation).
-pub(super) const MAX_CACHED_EMBEDDED_BIND_GROUPS: usize = 512;
+///
+/// Inspector-heavy worlds can expose thousands of distinct material/texture signatures in a
+/// single frame. A small cache churns and recreates bind groups during draw preparation.
+pub(super) const MAX_CACHED_EMBEDDED_BIND_GROUPS: usize = 16_384;
 /// LRU cap for embedded samplers.
 pub(super) const MAX_CACHED_EMBEDDED_SAMPLERS: usize = 512;
 /// LRU cap for texture HUD asset-id scans.

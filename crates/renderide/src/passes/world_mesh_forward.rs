@@ -85,8 +85,9 @@ use execute_helpers::{
 };
 use skybox::record_prepared_skybox;
 
-use crate::backend::AssetTransferQueue;
-use crate::gpu_pools::MeshPool;
+use crate::gpu_pools::{
+    CubemapPool, MeshPool, RenderTexturePool, Texture3dPool, TexturePool, VideoTexturePool,
+};
 use crate::materials::MaterialSystem;
 use crate::materials::embedded::EmbeddedTexturePools;
 use crate::mesh_deform::GpuSkinCache;
@@ -156,8 +157,18 @@ pub struct WorldMeshForwardGraphResources {
 pub(crate) struct WorldMeshForwardEncodeRefs<'a> {
     /// Material registry, embedded binds, and property store.
     pub(crate) materials: &'a MaterialSystem,
-    /// Mesh and texture pools.
-    pub(crate) asset_transfers: &'a AssetTransferQueue,
+    /// Resident mesh pool.
+    pub(crate) mesh_pool: &'a MeshPool,
+    /// Resident 2D texture pool.
+    pub(crate) texture_pool: &'a TexturePool,
+    /// Resident 3D texture pool.
+    pub(crate) texture3d_pool: &'a Texture3dPool,
+    /// Resident cubemap pool.
+    pub(crate) cubemap_pool: &'a CubemapPool,
+    /// Host render texture pool.
+    pub(crate) render_texture_pool: &'a RenderTexturePool,
+    /// Resident video texture pool.
+    pub(crate) video_texture_pool: &'a VideoTexturePool,
     /// Arena-backed deformed positions and normals keyed by renderable.
     pub(crate) skin_cache: Option<&'a GpuSkinCache>,
 }
@@ -169,24 +180,29 @@ impl<'a> WorldMeshForwardEncodeRefs<'a> {
     ) -> Self {
         Self {
             materials: frame.shared.materials,
-            asset_transfers: frame.shared.asset_transfers,
+            mesh_pool: frame.shared.asset_resources.mesh_pool(),
+            texture_pool: frame.shared.asset_resources.texture_pool(),
+            texture3d_pool: frame.shared.asset_resources.texture3d_pool(),
+            cubemap_pool: frame.shared.asset_resources.cubemap_pool(),
+            render_texture_pool: frame.shared.asset_resources.render_texture_pool(),
+            video_texture_pool: frame.shared.asset_resources.video_texture_pool(),
             skin_cache: frame.shared.skin_cache,
         }
     }
 
     /// Mesh pool for draw recording after any required stream uploads were pre-warmed.
     pub(crate) fn mesh_pool(&self) -> &MeshPool {
-        self.asset_transfers.mesh_pool()
+        self.mesh_pool
     }
 
     /// Pool views for embedded `@group(1)` texture resolution.
     pub(crate) fn embedded_texture_pools(&self) -> EmbeddedTexturePools<'_> {
         EmbeddedTexturePools {
-            texture: self.asset_transfers.texture_pool(),
-            texture3d: self.asset_transfers.texture3d_pool(),
-            cubemap: self.asset_transfers.cubemap_pool(),
-            render_texture: self.asset_transfers.render_texture_pool(),
-            video_texture: self.asset_transfers.video_texture_pool(),
+            texture: self.texture_pool,
+            texture3d: self.texture3d_pool,
+            cubemap: self.cubemap_pool,
+            render_texture: self.render_texture_pool,
+            video_texture: self.video_texture_pool,
         }
     }
 }

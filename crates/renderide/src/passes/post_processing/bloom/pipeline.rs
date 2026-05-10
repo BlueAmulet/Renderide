@@ -36,7 +36,7 @@ pub(super) struct BloomParamsGpu {
     pub threshold_precomputations: [f32; 4],
     /// Composite intensity (scatter factor in linear HDR).
     pub intensity: f32,
-    /// `1.0` -> energy-conserving composite; `0.0` -> additive composite.
+    /// `1.0` -> source-redistributing composite; `0.0` -> additive composite.
     pub energy_conserving: f32,
     /// Alignment pad to 32 bytes (std140 vec2 tail).
     pub _pad: [f32; 2],
@@ -336,7 +336,8 @@ pub(super) fn threshold_precomputations(threshold: f32, softness: f32) -> [f32; 
 
 #[cfg(test)]
 mod tests {
-    use super::threshold_precomputations;
+    use super::{BloomParamsGpu, threshold_precomputations};
+    use crate::config::{BloomCompositeMode, BloomSettings};
 
     #[test]
     fn threshold_zero_yields_zero_curve() {
@@ -366,5 +367,20 @@ mod tests {
         let over = threshold_precomputations(1.0, 2.0);
         let at_one = threshold_precomputations(1.0, 1.0);
         assert_eq!(over, at_one, "softness > 1 must clamp to 1");
+    }
+
+    #[test]
+    fn composite_mode_flag_maps_to_shader_uniform() {
+        let energy = BloomParamsGpu::from_settings(&BloomSettings {
+            composite_mode: BloomCompositeMode::EnergyConserving,
+            ..BloomSettings::default()
+        });
+        let additive = BloomParamsGpu::from_settings(&BloomSettings {
+            composite_mode: BloomCompositeMode::Additive,
+            ..BloomSettings::default()
+        });
+
+        assert_eq!(energy.energy_conserving, 1.0);
+        assert_eq!(additive.energy_conserving, 0.0);
     }
 }

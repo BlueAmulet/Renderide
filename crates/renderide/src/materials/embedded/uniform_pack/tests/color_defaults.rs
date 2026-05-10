@@ -158,7 +158,7 @@ fn srgb_material_color_arrays_linearize_only_when_metadata_marks_them() {
 }
 
 #[test]
-fn linear_material_color_arrays_remain_raw() {
+fn gradient_skybox_color_arrays_stay_raw_for_material_uniform_path() {
     let (reflected, ids, registry) = reflected_with_uniform_fields(&[
         ("_Color0", ReflectedUniformScalarKind::Unsupported, 16, 0),
         ("_Color1", ReflectedUniformScalarKind::Unsupported, 16, 16),
@@ -188,20 +188,22 @@ fn linear_material_color_arrays_remain_raw() {
         pools: &pools,
         primary_texture_2d: -1,
     };
-    let value_spaces = MaterialUniformValueSpaces::for_stem("gradientskybox_default", &reflected);
 
-    let bytes = build_embedded_uniform_bytes_with_value_spaces(
-        &reflected,
-        &ids,
-        &value_spaces,
-        &store,
-        lookup(30),
-        &tex_ctx,
-    )
-    .expect("uniform bytes");
+    for stem in ["gradientskybox_default", "skybox_gradientskybox_default"] {
+        let value_spaces = MaterialUniformValueSpaces::for_stem(stem, &reflected);
+        let bytes = build_embedded_uniform_bytes_with_value_spaces(
+            &reflected,
+            &ids,
+            &value_spaces,
+            &store,
+            lookup(30),
+            &tex_ctx,
+        )
+        .expect("uniform bytes");
 
-    assert_eq!(read_f32x4(&bytes, 0), color0);
-    assert_eq!(read_f32x4(&bytes, 16), color1);
+        assert_eq!(read_f32x4(&bytes, 0), color0);
+        assert_eq!(read_f32x4(&bytes, 16), color1);
+    }
 }
 
 #[test]

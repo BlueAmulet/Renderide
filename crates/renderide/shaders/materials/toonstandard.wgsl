@@ -7,6 +7,7 @@
 //! (`max((1-smoothness)*4, 0.01)` for specular, two diffuse bands plus transmission).
 
 
+#import renderide::birp::light as bl
 #import renderide::globals as rg
 #import renderide::per_draw as pd
 #import renderide::mesh::vertex as mv
@@ -134,7 +135,7 @@ fn shade(
         if (light.light_type == 1u) {
             let dir_len_sq = dot(light.direction, light.direction);
             l = select(vec3<f32>(0.0, 0.0, 1.0), normalize(-light.direction), dir_len_sq > 1e-16);
-            attenuation = light.intensity;
+            attenuation = bl::direct_light_intensity(light.intensity);
         } else {
             let to_light = light.position - world_pos;
             let dist = length(to_light);

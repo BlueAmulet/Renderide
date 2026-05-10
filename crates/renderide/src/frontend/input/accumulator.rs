@@ -16,7 +16,7 @@ use crate::shared::{DragAndDropEvent, InputState, Key, KeyboardState, MouseState
 /// **logical** pixels (DPI-aware). The host computes normalized window position as position divided
 /// by resolution; both must use the same space.
 pub struct WindowInputAccumulator {
-    /// Accumulated relative motion (including [`DeviceEvent::MouseMotion`](winit::event::DeviceEvent)).
+    /// Accumulated relative motion (including [`DeviceEvent::PointerMotion`](winit::event::DeviceEvent::PointerMotion)).
     pub mouse_delta: Vec2,
     /// Accumulated scroll wheel / trackpad scroll since the last [`Self::take_input_state`].
     pub scroll_delta: Vec2,
@@ -46,7 +46,7 @@ pub struct WindowInputAccumulator {
     ime_commit_buffer: String,
     /// Single-character text from key events (supplements IME for simple typing).
     text_typing_buffer: String,
-    /// Paths from [`WindowEvent::DroppedFile`](winit::event::WindowEvent) coalesced until take.
+    /// Paths from [`WindowEvent::DragDropped`](winit::event::WindowEvent::DragDropped) coalesced until take.
     pending_drop_paths: Vec<String>,
     /// Last cursor position in physical pixels (for drop-point reporting).
     last_cursor_pixel: IVec2,
@@ -111,7 +111,7 @@ impl WindowInputAccumulator {
         self.fullscreen = fullscreen;
     }
 
-    /// Updates cursor position from winit [`WindowEvent::CursorMoved`](winit::event::WindowEvent::CursorMoved).
+    /// Updates cursor position from winit [`WindowEvent::PointerMoved`](winit::event::WindowEvent::PointerMoved).
     ///
     /// `position` is in **physical** pixels; `window_position` stores **logical** pixels for host
     /// [`MouseState`]. `last_cursor_pixel` keeps the last **physical** position for drag/drop.
@@ -123,9 +123,9 @@ impl WindowInputAccumulator {
         self.last_cursor_pixel.y = position.y.round() as i32;
     }
 
-    /// Refreshes [`Self::window_resolution`] from [`Window::inner_size`] in **logical** pixels.
-    pub fn sync_window_resolution_logical(&mut self, window: &Window) {
-        let physical = window.inner_size();
+    /// Refreshes [`Self::window_resolution`] from [`Window::surface_size`] in **logical** pixels.
+    pub fn sync_window_resolution_logical(&mut self, window: &dyn Window) {
+        let physical = window.surface_size();
         let logical: LogicalSize<f64> = physical.to_logical(window.scale_factor());
         self.window_resolution = (logical.width.round() as u32, logical.height.round() as u32);
     }

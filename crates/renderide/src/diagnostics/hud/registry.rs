@@ -12,7 +12,7 @@ use crate::config::RendererSettingsHandle;
 /// Enumerates every top-level HUD window. Iterate [`Self::ALL`] for declarative dispatch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DebugWindow {
-    /// **Frame timing** overlay: FPS, CPU/GPU per-frame ms, frametime sparkline.
+    /// **Frame timing** overlay: FPS, CPU/GPU per-frame ms, RAM/VRAM, frametime sparkline.
     FrameTiming,
     /// **Renderide debug** main panel (Stats / Shader routes / Draw state / GPU memory / GPU passes).
     Main,
