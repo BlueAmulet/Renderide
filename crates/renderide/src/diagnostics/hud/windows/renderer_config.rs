@@ -117,6 +117,8 @@ fn renderer_config_panel_body(
     state: &mut HudUiState,
 ) {
     let mut dirty = false;
+    ui.text_disabled(format!("Config version: {}", g.config_version));
+
     if !state.renderer_config_tabs.all_open() && ui.small_button("Show all config tabs") {
         state.renderer_config_tabs = Default::default();
         state.renderer_config_tab_restore_pending = true;

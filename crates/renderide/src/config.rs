@@ -32,6 +32,10 @@
 //! Avoid hand-editing the config file while the process is running; the next save from the UI will
 //! rewrite known settings. Manual edits are best done with the renderer stopped, or use
 //! [`save_renderer_settings`] to apply programmatically.
+//!
+//! Config files include a top-level `config_version` matching the renderer crate version that wrote
+//! the file. Load-time migrations use that field to distinguish old on-disk semantics from current
+//! settings.
 
 mod handle;
 pub mod labeled_enum;
