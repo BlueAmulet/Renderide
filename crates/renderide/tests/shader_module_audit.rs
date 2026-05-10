@@ -393,6 +393,37 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
 }
 
 #[test]
+fn reflection_probe_specular_samples_unity_oriented_atlas() -> io::Result<()> {
+    let probe_src = module_source("reflection_probes.wgsl")?;
+
+    for required in [
+        "#import renderide::cubemap_storage as cubemap_storage",
+        "const REFLECTION_PROBE_ATLAS_STORAGE_V_INVERTED: f32 = 1.0;",
+        "let atlas_sample_dir = cubemap_storage::sample_dir(",
+        "REFLECTION_PROBE_ATLAS_STORAGE_V_INVERTED,",
+    ] {
+        assert!(
+            probe_src.contains(required),
+            "reflection_probes.wgsl must contain `{required}`"
+        );
+    }
+    assert!(
+        probe_src.contains(
+            "rg::reflection_probe_specular_sampler,\n        atlas_sample_dir,\n        i32(atlas_index),"
+        ),
+        "reflection probe specular sampling must use the Unity-oriented atlas sample direction"
+    );
+    assert!(
+        !probe_src.contains(
+            "rg::reflection_probe_specular_sampler,\n        sample_dir,\n        i32(atlas_index),"
+        ),
+        "reflection probe specular sampling must not use the uncorrected box-projected direction"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn xiexe_generic_stems_resolve_alpha_mode_from_keywords() -> io::Result<()> {
     let base_src =
         fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_base.wgsl"))?;

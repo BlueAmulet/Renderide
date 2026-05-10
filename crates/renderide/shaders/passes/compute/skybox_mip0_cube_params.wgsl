@@ -4,6 +4,7 @@
 //! always written in canonical orientation; the optional `storage_v_inverted` flip is applied to
 //! the *input* sampling direction so native-compressed faces with flipped Y still resolve correctly.
 
+#import renderide::cubemap_storage as cubemap_storage
 #import renderide::ggx_prefilter as ggx
 
 struct Mip0CubeParams {
@@ -23,25 +24,16 @@ struct Mip0CubeParams {
 @group(0) @binding(2) var src_sampler: sampler;
 @group(0) @binding(3) var dst_mip: texture_storage_2d_array<rgba16float, write>;
 
-/// Cubemap direction fixup matching the skybox specular storage-orientation compensation.
-fn storage_dir(dir: vec3<f32>) -> vec3<f32> {
-    if (params.storage_v_inverted == 0u) {
-        return dir;
-    }
-    let a = abs(dir);
-    if (a.y >= a.x && a.y >= a.z) {
-        return vec3<f32>(dir.x, dir.y, -dir.z);
-    }
-    return vec3<f32>(dir.x, -dir.y, dir.z);
-}
-
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dst_size = max(params.dst_size, 1u);
     if (gid.x >= dst_size || gid.y >= dst_size || gid.z >= 6u) {
         return;
     }
-    let dir = storage_dir(ggx::cube_dir(gid.z, gid.x, gid.y, dst_size));
+    let dir = cubemap_storage::sample_dir(
+        ggx::cube_dir(gid.z, gid.x, gid.y, dst_size),
+        f32(params.storage_v_inverted),
+    );
     let rgb = textureSampleLevel(src_cube, src_sampler, dir, 0.0).rgb;
     textureStore(
         dst_mip,
