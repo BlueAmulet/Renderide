@@ -526,14 +526,20 @@ impl CompiledRenderGraph {
                         profiler,
                     }
                 };
+                if pass
+                    .should_record_compute(&ctx)
+                    .map_err(GraphExecuteError::Pass)?
                 {
-                    profiling::scope!("graph::record_compute::pass_record");
-                    if pass
-                        .should_record_compute(&ctx)
-                        .map_err(GraphExecuteError::Pass)?
+                    let pass_query = ctx
+                        .profiler
+                        .map(|p| p.begin_query(pass.profiling_label(), ctx.encoder));
                     {
+                        profiling::scope!("graph::record_compute::pass_record");
                         pass.record_compute(&mut ctx)
                             .map_err(GraphExecuteError::Pass)?;
+                    }
+                    if let (Some(p), Some(q)) = (ctx.profiler, pass_query) {
+                        p.end_query(ctx.encoder, q);
                     }
                 }
             }
