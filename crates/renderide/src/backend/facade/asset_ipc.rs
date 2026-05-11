@@ -90,11 +90,16 @@ impl RenderBackend {
     }
 
     /// Handle [`SetTexture3DFormat`](crate::shared::SetTexture3DFormat).
+    ///
+    /// Purges the embedded `@group(1)` bind cache before installing the new pool entry: the
+    /// 3D texture signature does not include a per-instance generation, so an in-place
+    /// resize/reformat would otherwise let cached bind groups keep the old `Arc<TextureView>`.
     pub fn on_set_texture_3d_format(
         &mut self,
         f: SetTexture3DFormat,
         ipc: Option<&mut DualQueueIpc>,
     ) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_set_texture_3d_format(&mut self.asset_transfers, f, ipc);
     }
 
@@ -124,7 +129,12 @@ impl RenderBackend {
     }
 
     /// Handle [`SetCubemapFormat`](crate::shared::SetCubemapFormat).
+    ///
+    /// Purges the embedded `@group(1)` bind cache before installing the new pool entry: the
+    /// cubemap signature does not include a per-instance generation, so an in-place
+    /// resize/reformat would otherwise let cached bind groups keep the old `Arc<TextureView>`.
     pub fn on_set_cubemap_format(&mut self, f: SetCubemapFormat, ipc: Option<&mut DualQueueIpc>) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_set_cubemap_format(&mut self.asset_transfers, f, ipc);
     }
 
@@ -154,11 +164,16 @@ impl RenderBackend {
     }
 
     /// Handle [`SetRenderTextureFormat`](crate::shared::SetRenderTextureFormat).
+    ///
+    /// Purges the embedded `@group(1)` bind cache before installing the new pool entry: the
+    /// render-texture signature does not include a per-instance generation, so an in-place
+    /// resize/reformat would otherwise let cached bind groups keep the old `color_view`.
     pub fn on_set_render_texture_format(
         &mut self,
         f: SetRenderTextureFormat,
         ipc: Option<&mut DualQueueIpc>,
     ) {
+        self.materials.purge_texture_reference_caches();
         asset_uploads::on_set_render_texture_format(&mut self.asset_transfers, f, ipc);
     }
 
