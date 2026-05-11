@@ -10,6 +10,7 @@
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::{Arc, OnceLock};
 
+use ahash::RandomState;
 use hashbrown::{HashMap, HashSet};
 use lru::LruCache;
 use parking_lot::Mutex;
@@ -32,9 +33,16 @@ use super::raster_pipeline::MaterialPipelineDesc;
 /// Maximum raster pipelines retained (LRU eviction).
 const MAX_CACHED_PIPELINES: usize = 512;
 
-/// Non-zero raster pipeline cache capacity.
-fn max_cached_pipelines() -> NonZeroUsize {
-    NonZeroUsize::new(MAX_CACHED_PIPELINES).unwrap_or(NonZeroUsize::MIN)
+/// Number of shards across which the pipeline cache, pending-build set, and failed-build map are
+/// split. Must be a power of two so shard routing collapses to a bitmask. Sized to keep each
+/// recording worker on a distinct shard for the common case where N rayon workers issue
+/// concurrent cache probes.
+const PIPELINE_CACHE_SHARDS: usize = 16;
+
+/// Per-shard LRU capacity so the sharded total still hits [`MAX_CACHED_PIPELINES`].
+fn per_shard_cap() -> NonZeroUsize {
+    NonZeroUsize::new(MAX_CACHED_PIPELINES.div_ceil(PIPELINE_CACHE_SHARDS).max(1))
+        .unwrap_or(NonZeroUsize::MIN)
 }
 
 /// Material-driven pipeline variant: selectors that affect [`wgpu::RenderPipeline`] state but are
@@ -117,15 +125,39 @@ struct PipelineBuildOutcome {
     result: Result<MaterialPipelineSet, String>,
 }
 
+/// One LRU slab plus the pending/failed sets for entries whose hash routes here.
+///
+/// Co-locating the three under one [`Mutex`] keeps the hot probe path on a single lock acquire:
+/// the cache hit returns the [`MaterialPipelineSet`] without touching any other shard, and the
+/// miss path stays on the same lock to record / observe pending and failed builds.
+struct PipelineCacheShard {
+    pipelines: LruCache<MaterialPipelineCacheKey, MaterialPipelineSet>,
+    pending: HashSet<MaterialPipelineCacheKey>,
+    failed: HashMap<MaterialPipelineCacheKey, String>,
+}
+
+impl PipelineCacheShard {
+    fn new(cap: NonZeroUsize) -> Self {
+        Self {
+            pipelines: LruCache::new(cap),
+            pending: HashSet::new(),
+            failed: HashMap::new(),
+        }
+    }
+}
+
 /// Lazily built pipeline sets; LRU-evicted when over [`MAX_CACHED_PIPELINES`].
+///
+/// Cache state is split across [`PIPELINE_CACHE_SHARDS`] shards. Each shard bundles the
+/// per-key LRU slab, the in-flight build set, and the failed-build map under one
+/// [`Mutex`], so a concurrent probe from any rayon recording worker acquires exactly one lock.
 pub struct MaterialPipelineCache {
     device: Arc<wgpu::Device>,
     limits: Arc<crate::gpu::GpuLimits>,
-    pipelines: Mutex<LruCache<MaterialPipelineCacheKey, MaterialPipelineSet>>,
+    shards: Box<[Mutex<PipelineCacheShard>]>,
+    hasher: RandomState,
     pipeline_build_tx: crossbeam_channel::Sender<PipelineBuildOutcome>,
     pipeline_build_rx: crossbeam_channel::Receiver<PipelineBuildOutcome>,
-    pending_pipeline_builds: Mutex<HashSet<MaterialPipelineCacheKey>>,
-    failed_pipeline_builds: Mutex<HashMap<MaterialPipelineCacheKey, String>>,
     stats: AtomicCacheCounters,
 }
 
@@ -133,26 +165,35 @@ impl MaterialPipelineCache {
     /// Creates an empty cache for `device` with the device's effective [`crate::gpu::GpuLimits`].
     pub fn new(device: Arc<wgpu::Device>, limits: Arc<crate::gpu::GpuLimits>) -> Self {
         let (pipeline_build_tx, pipeline_build_rx) = crossbeam_channel::unbounded();
+        let cap = per_shard_cap();
+        let shards: Box<[Mutex<PipelineCacheShard>]> = (0..PIPELINE_CACHE_SHARDS)
+            .map(|_| Mutex::new(PipelineCacheShard::new(cap)))
+            .collect();
         Self {
             device,
             limits,
-            pipelines: Mutex::new(LruCache::new(max_cached_pipelines())),
+            shards,
+            hasher: RandomState::new(),
             pipeline_build_tx,
             pipeline_build_rx,
-            pending_pipeline_builds: Mutex::new(HashSet::new()),
-            failed_pipeline_builds: Mutex::new(HashMap::new()),
             stats: AtomicCacheCounters::default(),
         }
+    }
+
+    #[inline]
+    fn shard_for(&self, key: &MaterialPipelineCacheKey) -> &Mutex<PipelineCacheShard> {
+        let idx = (self.hasher.hash_one(key) as usize) & (PIPELINE_CACHE_SHARDS - 1);
+        &self.shards[idx]
     }
 
     /// Returns the cached pipeline set or queues a background build for a miss.
     ///
     /// On a cache hit, does not compose WGSL or run reflection; those run only on the worker.
     ///
-    /// Recording paths invoke this concurrently from rayon workers; the per-call hot path now
-    /// avoids touching the completion channel and the pending-build mutexes when the entry is
-    /// already cached. Callers must invoke [`Self::drain_pipeline_build_completions`] once per
-    /// frame before recording so freshly-built pipelines land in the cache.
+    /// Recording paths invoke this concurrently from rayon workers; the per-call hot path takes
+    /// one shard lock and walks pipelines/pending/failed under it. Callers must invoke
+    /// [`Self::drain_pipeline_build_completions`] once per frame before recording so freshly-built
+    /// pipelines land in the cache.
     pub(super) fn get_or_queue(
         &self,
         kind: &RasterPipelineKind,
@@ -162,17 +203,20 @@ impl MaterialPipelineCache {
         profiling::scope!("materials::get_or_create_pipeline");
         let key = Self::cache_key(kind, desc, variant);
 
-        if let Some(hit) = self.cached_pipeline_set(&key) {
-            self.stats.note_hit();
-            return MaterialPipelineLookup::Ready(hit);
-        }
-        let failed_build = self.failed_pipeline_builds.lock().get(&key).cloned();
-        if let Some(error) = failed_build {
-            return MaterialPipelineLookup::Failed(error);
-        }
-
-        if self.pending_pipeline_builds.lock().contains(&key) {
-            return MaterialPipelineLookup::Pending;
+        {
+            let mut shard = self.shard_for(&key).lock();
+            if let Some(hit) = shard.pipelines.get(&key).cloned() {
+                drop(shard);
+                self.stats.note_hit();
+                return MaterialPipelineLookup::Ready(hit);
+            }
+            if let Some(err) = shard.failed.get(&key).cloned() {
+                drop(shard);
+                return MaterialPipelineLookup::Failed(err);
+            }
+            if !shard.pending.insert(key.clone()) {
+                return MaterialPipelineLookup::Pending;
+            }
         }
 
         self.queue_pipeline_build(key, kind.clone(), *desc, variant);
@@ -205,11 +249,6 @@ impl MaterialPipelineCache {
         }
     }
 
-    fn cached_pipeline_set(&self, key: &MaterialPipelineCacheKey) -> Option<MaterialPipelineSet> {
-        // A hit is real use; promote it so hot pipelines do not get evicted.
-        self.pipelines.lock().get(key).cloned()
-    }
-
     fn queue_pipeline_build(
         &self,
         key: MaterialPipelineCacheKey,
@@ -217,12 +256,6 @@ impl MaterialPipelineCache {
         desc: MaterialPipelineDesc,
         variant: MaterialPipelineVariantSpec,
     ) {
-        {
-            let mut pending = self.pending_pipeline_builds.lock();
-            if !pending.insert(key.clone()) {
-                return;
-            }
-        }
         self.stats.note_miss();
 
         let request = PipelineBuildRequest {
@@ -235,8 +268,10 @@ impl MaterialPipelineCache {
             tx: self.pipeline_build_tx.clone(),
         };
         if let Err(e) = spawn_pipeline_build(request) {
-            self.pending_pipeline_builds.lock().remove(&key);
-            self.failed_pipeline_builds.lock().insert(key, e.clone());
+            let mut shard = self.shard_for(&key).lock();
+            shard.pending.remove(&key);
+            shard.failed.insert(key, e.clone());
+            drop(shard);
             logger::warn!("MaterialPipelineCache: could not queue {kind:?} pipeline build: {e}");
         }
     }
@@ -244,7 +279,7 @@ impl MaterialPipelineCache {
     /// Drains the background-build completion channel into the pipeline cache.
     ///
     /// Must be called once per frame before per-view recording starts. Pulling the channel off
-    /// the hot path keeps [`Self::get_or_queue`] from contending the pending/failed mutexes on
+    /// the hot path keeps [`Self::get_or_queue`] from contending the pending/failed sets on
     /// every cache probe.
     pub(super) fn drain_pipeline_build_completions(&self) {
         profiling::scope!("materials::drain_pipeline_build_completions");
@@ -253,18 +288,16 @@ impl MaterialPipelineCache {
 
     fn drain_completed_pipeline_builds(&self) {
         while let Ok(outcome) = self.pipeline_build_rx.try_recv() {
-            self.pending_pipeline_builds.lock().remove(&outcome.key);
             match outcome.result {
-                Ok(set) => {
-                    self.failed_pipeline_builds.lock().remove(&outcome.key);
-                    self.insert_pipeline_set(outcome.key, set);
-                }
+                Ok(set) => self.insert_completed_pipeline_set(outcome.key, set),
                 Err(e) => {
                     logger::warn!(
                         "MaterialPipelineCache: async pipeline build failed for {:?}: {e}",
                         outcome.kind
                     );
-                    self.failed_pipeline_builds.lock().insert(outcome.key, e);
+                    let mut shard = self.shard_for(&outcome.key).lock();
+                    shard.pending.remove(&outcome.key);
+                    shard.failed.insert(outcome.key, e);
                 }
             }
         }
@@ -325,11 +358,18 @@ impl MaterialPipelineCache {
         Ok(Arc::from(pipelines.into_boxed_slice()))
     }
 
-    fn insert_pipeline_set(&self, key: MaterialPipelineCacheKey, set: MaterialPipelineSet) {
-        let mut cache = self.pipelines.lock();
+    fn insert_completed_pipeline_set(
+        &self,
+        key: MaterialPipelineCacheKey,
+        set: MaterialPipelineSet,
+    ) {
         self.stats.note_insertion();
-        let evicted = cache.push(key, set);
-        drop(cache);
+        let evicted = {
+            let mut shard = self.shard_for(&key).lock();
+            shard.pending.remove(&key);
+            shard.failed.remove(&key);
+            shard.pipelines.push(key, set)
+        };
 
         if let Some((_evicted_key, evicted)) = evicted {
             drop(evicted);
