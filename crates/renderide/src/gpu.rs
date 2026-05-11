@@ -15,12 +15,11 @@ pub(crate) mod frame_bracket;
 pub(crate) mod frame_cpu_gpu_timing;
 mod instance_limits;
 pub mod limits;
-pub(crate) mod mapped_buffer_health;
 pub mod msaa_depth_resolve;
 pub mod output_depth_mode;
 pub mod present;
-mod queue_access_gate;
 mod submission_state;
+mod sync;
 mod vr_mirror;
 
 pub mod frame_globals;
@@ -42,5 +41,5 @@ pub use msaa_depth_resolve::{
     MsaaDepthResolveMonoTargets, MsaaDepthResolveResources, MsaaDepthResolveStereoTargets,
 };
 pub use output_depth_mode::OutputDepthMode;
-pub use queue_access_gate::GpuQueueAccessGate;
+pub use sync::queue_access_gate::GpuQueueAccessGate;
 pub use vr_mirror::{VR_MIRROR_EYE_LAYER, VrMirrorBlitResources};

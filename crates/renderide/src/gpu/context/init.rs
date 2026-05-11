@@ -13,7 +13,7 @@ use super::super::adapter::selection::{build_wgpu_instance, select_adapter};
 use super::super::frame_bracket::FrameBracket;
 use super::super::frame_cpu_gpu_timing::{FrameCpuGpuTiming, FrameCpuGpuTimingHandle};
 use super::super::limits::GpuLimits;
-use super::super::mapped_buffer_health::GpuMappedBufferHealth;
+use super::super::sync::mapped_buffer_health::GpuMappedBufferHealth;
 use super::{GpuContext, GpuError, PrimaryOffscreenTargets};
 use crate::config::{GraphicsApiSetting, VsyncMode};
 use crate::gpu::submission_state::GpuSubmissionState;

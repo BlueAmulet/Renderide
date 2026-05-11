@@ -22,7 +22,7 @@ const _: fn() = || {
 };
 
 use super::limits::{GpuLimits, GpuLimitsError};
-use super::mapped_buffer_health::GpuMappedBufferHealth;
+use super::sync::mapped_buffer_health::GpuMappedBufferHealth;
 use super::submission_state::GpuSubmissionState;
 use thiserror::Error;
 use winit::window::Window;
