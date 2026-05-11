@@ -186,13 +186,8 @@ impl GpuSkinCache {
         &wgpu::Buffer,
     )> {
         let entry = lookup_current_entry(&self.entries, key, self.frame_counter)?;
-        Some((
-            entry,
-            self.arenas.positions(),
-            self.arenas.normals(),
-            self.arenas.tangents(),
-            self.arenas.temp(),
-        ))
+        let (p, n, t, tmp) = self.arena_buffers();
+        Some((entry, p, n, t, tmp))
     }
 
     /// Last deform signature recorded for `key`.
@@ -231,17 +226,7 @@ impl GpuSkinCache {
     fn commit_entry(&mut self, key: SkinCacheKey, ranges: EntryRanges, vertex_count: u32) {
         self.entries.insert(
             key,
-            SkinCacheEntry {
-                positions: ranges.positions,
-                normals: ranges.normals,
-                tangents: ranges.tangents,
-                temp: ranges.temp,
-                temp_normals: ranges.temp_normals,
-                temp_tangents: ranges.temp_tangents,
-                vertex_count,
-                last_touched_frame: self.frame_counter,
-                last_deform_signature: None,
-            },
+            SkinCacheEntry::from_ranges(ranges, vertex_count, self.frame_counter),
         );
     }
 
@@ -256,13 +241,19 @@ impl GpuSkinCache {
         &wgpu::Buffer,
     )> {
         let entry = self.entries.get(key)?;
-        Some((
-            entry,
+        let (p, n, t, tmp) = self.arena_buffers();
+        Some((entry, p, n, t, tmp))
+    }
+
+    /// Borrowed references to the four arena buffers (positions, normals, tangents, temp).
+    #[inline]
+    fn arena_buffers(&self) -> (&wgpu::Buffer, &wgpu::Buffer, &wgpu::Buffer, &wgpu::Buffer) {
+        (
             self.arenas.positions(),
             self.arenas.normals(),
             self.arenas.tangents(),
             self.arenas.temp(),
-        ))
+        )
     }
 
     fn evict_lru_before_current_frame(&mut self) -> bool {

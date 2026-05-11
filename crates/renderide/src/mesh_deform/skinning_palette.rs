@@ -35,65 +35,84 @@ pub struct SkinningPaletteParams<'a> {
     pub head_output_transform: Mat4,
 }
 
+/// Captures the inputs needed to resolve each bone's world matrix once and reuse the resolver
+/// across rayon workers.
+struct PaletteResolver<'a> {
+    scene: &'a SceneCoordinator,
+    space_id: RenderSpaceId,
+    render_context: RenderingContext,
+    head_output_transform: Mat4,
+    smr_world: Mat4,
+    bone_transform_indices: &'a [i32],
+}
+
+impl<'a> PaletteResolver<'a> {
+    fn new(params: &'a SkinningPaletteParams<'a>) -> Self {
+        let smr_world = (params.smr_node_id >= 0)
+            .then(|| {
+                params.scene.world_matrix_for_render_context(
+                    params.space_id,
+                    params.smr_node_id as usize,
+                    params.render_context,
+                    params.head_output_transform,
+                )
+            })
+            .flatten()
+            .unwrap_or(Mat4::IDENTITY);
+        Self {
+            scene: params.scene,
+            space_id: params.space_id,
+            render_context: params.render_context,
+            head_output_transform: params.head_output_transform,
+            smr_world,
+            bone_transform_indices: params.bone_transform_indices,
+        }
+    }
+
+    /// Resolves the `world_bone * bind_mat` palette entry for one bone, falling back to the SMR's
+    /// world matrix when the bone's transform is missing or marked `-1` for bind-only.
+    fn matrix(&self, bone_index: usize, bind_mat: &Mat4) -> Mat4 {
+        let tid = self
+            .bone_transform_indices
+            .get(bone_index)
+            .copied()
+            .unwrap_or(-1);
+        if tid < 0 {
+            return self.smr_world;
+        }
+        match self.scene.world_matrix_for_render_context(
+            self.space_id,
+            tid as usize,
+            self.render_context,
+            self.head_output_transform,
+        ) {
+            Some(world) => world * bind_mat,
+            None => self.smr_world,
+        }
+    }
+}
+
 /// Builds the same `world_bone * skinning_bind_matrices[i]` palette as the skinning compute pass.
 #[cfg(test)]
 pub fn build_skinning_palette(params: SkinningPaletteParams<'_>) -> Option<Vec<Mat4>> {
-    let SkinningPaletteParams {
-        scene,
-        space_id,
-        skinning_bind_matrices,
-        has_skeleton,
-        bone_transform_indices,
-        smr_node_id,
-        render_context,
-        head_output_transform,
-    } = params;
-
-    let bone_count = skinning_bind_matrices.len();
-    if bone_count == 0 || !has_skeleton {
+    let bone_count = params.skinning_bind_matrices.len();
+    if bone_count == 0 || !params.has_skeleton {
         return None;
     }
-
-    let smr_world = (smr_node_id >= 0)
-        .then(|| {
-            scene.world_matrix_for_render_context(
-                space_id,
-                smr_node_id as usize,
-                render_context,
-                head_output_transform,
-            )
-        })
-        .flatten()
-        .unwrap_or(Mat4::IDENTITY);
-
-    let bone_palette = |bi: usize, bind_mat: &Mat4| -> Mat4 {
-        let tid = bone_transform_indices.get(bi).copied().unwrap_or(-1);
-        if tid < 0 {
-            smr_world
-        } else {
-            match scene.world_matrix_for_render_context(
-                space_id,
-                tid as usize,
-                render_context,
-                head_output_transform,
-            ) {
-                Some(world) => world * bind_mat,
-                None => smr_world,
-            }
-        }
-    };
-
+    let resolver = PaletteResolver::new(&params);
     let out: Vec<Mat4> = if bone_count >= SKINNING_PALETTE_PARALLEL_MIN {
-        skinning_bind_matrices
+        params
+            .skinning_bind_matrices
             .par_iter()
             .enumerate()
-            .map(|(bi, bind_mat)| bone_palette(bi, bind_mat))
+            .map(|(bi, bind_mat)| resolver.matrix(bi, bind_mat))
             .collect()
     } else {
-        skinning_bind_matrices
+        params
+            .skinning_bind_matrices
             .iter()
             .enumerate()
-            .map(|(bi, bind_mat)| bone_palette(bi, bind_mat))
+            .map(|(bi, bind_mat)| resolver.matrix(bi, bind_mat))
             .collect()
     };
     Some(out)
@@ -108,53 +127,14 @@ pub fn write_skinning_palette_bytes(
     params: SkinningPaletteParams<'_>,
     out: &mut Vec<u8>,
 ) -> Option<usize> {
-    let SkinningPaletteParams {
-        scene,
-        space_id,
-        skinning_bind_matrices,
-        has_skeleton,
-        bone_transform_indices,
-        smr_node_id,
-        render_context,
-        head_output_transform,
-    } = params;
-
-    let bone_count = skinning_bind_matrices.len();
-    if bone_count == 0 || !has_skeleton {
+    let bone_count = params.skinning_bind_matrices.len();
+    if bone_count == 0 || !params.has_skeleton {
         return None;
     }
     let total_bytes = bone_count.saturating_mul(PALETTE_BONE_BYTES);
     out.clear();
     out.reserve(total_bytes);
-
-    let smr_world = (smr_node_id >= 0)
-        .then(|| {
-            scene.world_matrix_for_render_context(
-                space_id,
-                smr_node_id as usize,
-                render_context,
-                head_output_transform,
-            )
-        })
-        .flatten()
-        .unwrap_or(Mat4::IDENTITY);
-
-    let palette_matrix = |bi: usize, bind_mat: &Mat4| -> Mat4 {
-        let tid = bone_transform_indices.get(bi).copied().unwrap_or(-1);
-        if tid < 0 {
-            smr_world
-        } else {
-            match scene.world_matrix_for_render_context(
-                space_id,
-                tid as usize,
-                render_context,
-                head_output_transform,
-            ) {
-                Some(world) => world * bind_mat,
-                None => smr_world,
-            }
-        }
-    };
+    let resolver = PaletteResolver::new(&params);
 
     if bone_count >= SKINNING_PALETTE_PARALLEL_MIN {
         // SAFETY: `reserve(total_bytes)` above guarantees capacity for `total_bytes` bytes. The
@@ -166,16 +146,14 @@ pub fn write_skinning_palette_bytes(
             out.set_len(total_bytes);
         }
         out.par_chunks_exact_mut(PALETTE_BONE_BYTES)
-            .zip(skinning_bind_matrices.par_iter().enumerate())
+            .zip(params.skinning_bind_matrices.par_iter().enumerate())
             .for_each(|(slot, (bi, bind_mat))| {
-                let pal = palette_matrix(bi, bind_mat);
+                let pal = resolver.matrix(bi, bind_mat);
                 slot.copy_from_slice(bytemuck::cast_slice(&pal.to_cols_array()));
             });
     } else {
-        // Serial path grows `out` from zero via extend_from_slice per bone -- no zero-fill, no
-        // unsafe.
-        for (bi, bind_mat) in skinning_bind_matrices.iter().enumerate() {
-            let pal = palette_matrix(bi, bind_mat);
+        for (bi, bind_mat) in params.skinning_bind_matrices.iter().enumerate() {
+            let pal = resolver.matrix(bi, bind_mat);
             out.extend_from_slice(bytemuck::cast_slice(&pal.to_cols_array()));
         }
     }

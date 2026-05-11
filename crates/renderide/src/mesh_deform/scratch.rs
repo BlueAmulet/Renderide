@@ -1,16 +1,23 @@
 //! Reusable GPU buffers for per-frame mesh deformation (bone palette, blendshape uniforms).
 
+mod bind_group_cache;
+mod growable_buffer;
+
 use std::sync::Arc;
 
-use hashbrown::HashMap;
+use self::bind_group_cache::BindGroupCaches;
+use self::growable_buffer::{
+    BLENDSHAPE_PARAMS, BONE_MATRICES, BONE_MATRIX_BYTES, DUMMY_VEC4_READ, DUMMY_VEC4_WRITE,
+    GrowableBuffer, SKIN_DISPATCH,
+};
 
-/// CPU-reserved caps; buffers grow when exceeded.
+pub use self::bind_group_cache::{BlendshapeBindGroupKey, SkinningBindGroupKey, buffer_identity};
+
+/// CPU-reserved cap on the bone palette; the GPU buffer grows when this is exceeded.
 const INITIAL_MAX_BONES: u32 = 256;
 /// Initial number of 256-byte slots for per-dispatch `SkinDispatchParams`.
 const INITIAL_SKIN_DISPATCH_SLOTS: u64 = 16;
 
-/// Bytes per skinning palette matrix (column-major `mat4`).
-const BONE_MATRIX_BYTES: u64 = 64;
 /// Pads to the per-draw slab stride (matches [`crate::mesh_deform::PER_DRAW_UNIFORM_STRIDE`]).
 ///
 /// The device's `min_storage_buffer_offset_alignment` is verified to be `<= 256` in
@@ -20,131 +27,6 @@ const BONE_MATRIX_BYTES: u64 = 64;
 #[inline]
 fn align256(n: u64) -> u64 {
     (n + 255) & !255
-}
-
-/// Static description of a growable scratch buffer: label, usage, and minimum size floor.
-///
-/// Centralises the per-buffer recipe so [`MeshDeformScratch::new`] and the [`Self::ensure`]
-/// growth path share one buffer descriptor and one log message format.
-struct GrowableBuffer {
-    label: &'static str,
-    usage: wgpu::BufferUsages,
-    /// Floor below which the buffer is never sized. Matches the `.max(N)` literals from the
-    /// per-call buffer descriptors.
-    min_size: u64,
-}
-
-impl GrowableBuffer {
-    fn create(&self, device: &wgpu::Device, requested: u64) -> wgpu::Buffer {
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some(self.label),
-            size: requested.max(self.min_size),
-            usage: self.usage,
-            mapped_at_creation: false,
-        });
-        crate::profiling::note_resource_churn!(Buffer, "mesh_deform::scratch_buffer");
-        buffer
-    }
-
-    /// Ensures `buf` is at least `need_bytes` long, growing to the next power of two.
-    ///
-    /// Returns `false` (and logs a warning) when growth would exceed `max_buffer_size`. The buffer
-    /// is left unchanged in that case so the caller can fall back to a smaller dispatch.
-    fn ensure(
-        &self,
-        device: &wgpu::Device,
-        buf: &mut wgpu::Buffer,
-        need_bytes: u64,
-        max_buffer_size: u64,
-    ) -> bool {
-        if need_bytes <= buf.size() {
-            return true;
-        }
-        let next = need_bytes.next_power_of_two().max(self.min_size);
-        if next > max_buffer_size {
-            logger::warn!(
-                "mesh deform scratch: {} would need {} bytes (max_buffer_size={})",
-                self.label,
-                next,
-                max_buffer_size
-            );
-            return false;
-        }
-        *buf = self.create(device, next);
-        true
-    }
-}
-
-const BONE_MATRICES: GrowableBuffer = GrowableBuffer {
-    label: "mesh_deform_bone_palette",
-    usage: wgpu::BufferUsages::STORAGE.union(wgpu::BufferUsages::COPY_DST),
-    min_size: BONE_MATRIX_BYTES,
-};
-
-const BLENDSHAPE_PARAMS: GrowableBuffer = GrowableBuffer {
-    label: "mesh_deform_blendshape_params",
-    usage: wgpu::BufferUsages::UNIFORM.union(wgpu::BufferUsages::COPY_DST),
-    min_size: 32,
-};
-
-const SKIN_DISPATCH: GrowableBuffer = GrowableBuffer {
-    label: "mesh_deform_skin_dispatch",
-    usage: wgpu::BufferUsages::UNIFORM.union(wgpu::BufferUsages::COPY_DST),
-    min_size: 256,
-};
-
-const DUMMY_VEC4_READ: GrowableBuffer = GrowableBuffer {
-    label: "mesh_deform_dummy_vec4_read",
-    usage: wgpu::BufferUsages::STORAGE,
-    min_size: 16,
-};
-
-const DUMMY_VEC4_WRITE: GrowableBuffer = GrowableBuffer {
-    label: "mesh_deform_dummy_vec4_write",
-    usage: wgpu::BufferUsages::STORAGE,
-    min_size: 16,
-};
-
-/// Cache key for a blendshape scatter bind group.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct BlendshapeBindGroupKey {
-    /// Scratch buffer generation used by the params binding.
-    pub scratch_generation: u64,
-    /// Stable identity of the mesh sparse-delta buffer.
-    pub sparse_buffer: u64,
-    /// Stable identity of the output stream buffer.
-    pub output_buffer: u64,
-}
-
-/// Cache key for a skinning bind group.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SkinningBindGroupKey {
-    /// Scratch buffer generation used by palette, params, and dummy bindings.
-    pub scratch_generation: u64,
-    /// Stable identity of the source position buffer.
-    pub src_positions: u64,
-    /// Stable identity of the bone-index buffer.
-    pub bone_indices: u64,
-    /// Stable identity of the bone-weight buffer.
-    pub bone_weights: u64,
-    /// Stable identity of the destination position buffer.
-    pub dst_positions: u64,
-    /// Stable identity of the source normal buffer.
-    pub src_normals: u64,
-    /// Stable identity of the destination normal buffer.
-    pub dst_normals: u64,
-    /// Stable identity of the source tangent buffer or the dummy tangent buffer.
-    pub src_tangents: u64,
-    /// Stable identity of the destination tangent buffer or the dummy tangent buffer.
-    pub dst_tangents: u64,
-}
-
-/// Returns a process-local identity for a `wgpu::Buffer` handle.
-#[inline]
-pub fn buffer_identity(buffer: &wgpu::Buffer) -> u64 {
-    let ptr: *const wgpu::Buffer = buffer;
-    let ptr = ptr as usize as u64;
-    ptr ^ buffer.size().rotate_left(17)
 }
 
 /// Scratch storage written each frame before compute dispatches.
@@ -182,8 +64,7 @@ pub struct MeshDeformScratch {
     frame_grow_count: u64,
     /// Incremented whenever a scratch GPU buffer is replaced.
     resource_generation: u64,
-    blendshape_bind_groups: HashMap<BlendshapeBindGroupKey, Arc<wgpu::BindGroup>>,
-    skinning_bind_groups: HashMap<SkinningBindGroupKey, Arc<wgpu::BindGroup>>,
+    bind_group_caches: BindGroupCaches,
 }
 
 impl MeshDeformScratch {
@@ -207,16 +88,14 @@ impl MeshDeformScratch {
             max_buffer_size,
             frame_grow_count: 0,
             resource_generation: 0,
-            blendshape_bind_groups: HashMap::new(),
-            skinning_bind_groups: HashMap::new(),
+            bind_group_caches: BindGroupCaches::default(),
         }
     }
 
     fn note_gpu_buffer_grow(&mut self) {
         self.frame_grow_count = self.frame_grow_count.saturating_add(1);
         self.resource_generation = self.resource_generation.wrapping_add(1);
-        self.blendshape_bind_groups.clear();
-        self.skinning_bind_groups.clear();
+        self.bind_group_caches.clear_on_grow();
     }
 
     /// Current scratch-resource generation for bind-group cache keys.
@@ -231,7 +110,7 @@ impl MeshDeformScratch {
         &self,
         key: BlendshapeBindGroupKey,
     ) -> Option<Arc<wgpu::BindGroup>> {
-        self.blendshape_bind_groups.get(&key).cloned()
+        self.bind_group_caches.blendshape(key)
     }
 
     /// Inserts a blendshape scatter bind group into the scratch cache.
@@ -241,13 +120,13 @@ impl MeshDeformScratch {
         key: BlendshapeBindGroupKey,
         bind_group: Arc<wgpu::BindGroup>,
     ) {
-        self.blendshape_bind_groups.insert(key, bind_group);
+        self.bind_group_caches.insert_blendshape(key, bind_group);
     }
 
     /// Looks up a cached skinning bind group.
     #[inline]
     pub fn skinning_bind_group(&self, key: SkinningBindGroupKey) -> Option<Arc<wgpu::BindGroup>> {
-        self.skinning_bind_groups.get(&key).cloned()
+        self.bind_group_caches.skinning(key)
     }
 
     /// Inserts a skinning bind group into the scratch cache.
@@ -257,7 +136,29 @@ impl MeshDeformScratch {
         key: SkinningBindGroupKey,
         bind_group: Arc<wgpu::BindGroup>,
     ) {
-        self.skinning_bind_groups.insert(key, bind_group);
+        self.bind_group_caches.insert_skinning(key, bind_group);
+    }
+
+    /// Grows `which` to fit byte range `[0, end_exclusive)` on demand and tracks the growth.
+    ///
+    /// Returns `true` when `buf` is now (or already was) large enough. When growth actually happens
+    /// the bind-group caches are cleared so stale bind groups referencing the freed buffer are not
+    /// reused. Returns `false` (leaving `buf` unchanged) when growth would exceed the device's
+    /// `max_buffer_size`.
+    fn ensure_growable_capacity(
+        &mut self,
+        device: &wgpu::Device,
+        which: &GrowableBuffer,
+        buf_selector: fn(&mut Self) -> &mut wgpu::Buffer,
+        end_exclusive: u64,
+    ) -> bool {
+        let max_buffer_size = self.max_buffer_size;
+        let old_size = buf_selector(self).size();
+        let ok = which.ensure(device, buf_selector(self), end_exclusive, max_buffer_size);
+        if ok && buf_selector(self).size() > old_size {
+            self.note_gpu_buffer_grow();
+        }
+        ok
     }
 
     /// Ensures the bone palette buffer fits at least `need_bones` matrices for a single-mesh dispatch.
@@ -267,32 +168,24 @@ impl MeshDeformScratch {
         }
         let next = need_bones.next_power_of_two().max(INITIAL_MAX_BONES);
         let bone_bytes = u64::from(next) * BONE_MATRIX_BYTES;
-        let old_size = self.bone_matrices.size();
-        if BONE_MATRICES.ensure(
+        if self.ensure_growable_capacity(
             device,
-            &mut self.bone_matrices,
+            &BONE_MATRICES,
+            |s| &mut s.bone_matrices,
             bone_bytes,
-            self.max_buffer_size,
         ) {
-            if self.bone_matrices.size() > old_size {
-                self.note_gpu_buffer_grow();
-            }
             self.max_bones = next;
         }
     }
 
     /// Ensures the bone buffer is large enough for byte range `[0, end_exclusive)`.
     pub fn ensure_bone_byte_capacity(&mut self, device: &wgpu::Device, end_exclusive: u64) {
-        let old_size = self.bone_matrices.size();
-        if BONE_MATRICES.ensure(
+        self.ensure_growable_capacity(
             device,
-            &mut self.bone_matrices,
+            &BONE_MATRICES,
+            |s| &mut s.bone_matrices,
             end_exclusive,
-            self.max_buffer_size,
-        ) && self.bone_matrices.size() > old_size
-        {
-            self.note_gpu_buffer_grow();
-        }
+        );
     }
 
     /// Ensures the blendshape params uniform slab can address byte range `[0, end_exclusive)`.
@@ -301,16 +194,12 @@ impl MeshDeformScratch {
         device: &wgpu::Device,
         end_exclusive: u64,
     ) {
-        let old_size = self.blendshape_params.size();
-        if BLENDSHAPE_PARAMS.ensure(
+        self.ensure_growable_capacity(
             device,
-            &mut self.blendshape_params,
+            &BLENDSHAPE_PARAMS,
+            |s| &mut s.blendshape_params,
             end_exclusive,
-            self.max_buffer_size,
-        ) && self.blendshape_params.size() > old_size
-        {
-            self.note_gpu_buffer_grow();
-        }
+        );
     }
 
     /// Ensures the skin-dispatch uniform slab can address byte range `[0, end_exclusive)`.
@@ -322,16 +211,12 @@ impl MeshDeformScratch {
         device: &wgpu::Device,
         end_exclusive: u64,
     ) {
-        let old_size = self.skin_dispatch.size();
-        if SKIN_DISPATCH.ensure(
+        self.ensure_growable_capacity(
             device,
-            &mut self.skin_dispatch,
+            &SKIN_DISPATCH,
+            |s| &mut s.skin_dispatch,
             end_exclusive,
-            self.max_buffer_size,
-        ) && self.skin_dispatch.size() > old_size
-        {
-            self.note_gpu_buffer_grow();
-        }
+        );
     }
 
     /// Returns and clears the grow count accumulated since the previous diagnostics drain.
