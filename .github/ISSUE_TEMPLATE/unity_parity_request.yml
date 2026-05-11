@@ -27,18 +27,6 @@ body:
     validations:
       required: true
   - type: textarea
-    id: comparison_steps
-    attributes:
-      label: Steps or content needed to compare
-      description: Explain how to reach the same scene, object, material, shader, camera, or workflow in both renderers.
-      placeholder: |
-        1. In Unity renderer, load or inspect ...
-        2. Capture or observe ...
-        3. In Renderide, load or inspect the same content ...
-        4. Compare ...
-    validations:
-      required: true
-  - type: textarea
     id: media
     attributes:
       label: Screenshots or video
