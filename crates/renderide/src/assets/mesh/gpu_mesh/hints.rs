@@ -6,7 +6,7 @@ use crate::shared::{
     SubmeshBufferDescriptor, VertexAttributeDescriptor, VertexAttributeFormat, VertexAttributeType,
 };
 
-use super::gpu_mesh::GpuMesh;
+use super::GpuMesh;
 
 pub(super) fn wgpu_index_format(f: IndexBufferFormat) -> wgpu::IndexFormat {
     match f {

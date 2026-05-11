@@ -1,6 +1,15 @@
 //! GPU-resident mesh buffers; an optional CPU vertex copy is kept only until lazy extended streams build.
 
+pub(in crate::assets::mesh) mod attribute_reader;
+mod fingerprint;
+mod hints;
+mod tangent_generation;
 mod update;
+mod upload;
+mod validation;
+
+pub use fingerprint::mesh_upload_input_fingerprint;
+pub use validation::{compute_and_validate_mesh_layout, try_upload_mesh_from_raw};
 
 use std::fmt;
 use std::sync::Arc;
@@ -17,17 +26,17 @@ use super::layout::{
     extract_float3_position_normal_as_vec4_streams, split_bone_weights_tail_for_gpu,
     uv0_float2_stream_bytes, vertex_float2_stream_bytes,
 };
-use super::tangent_generation::{TangentStreamSource, tangent_stream_bytes};
+use tangent_generation::{TangentStreamSource, tangent_stream_bytes};
 
 use crate::gpu::GpuLimits;
 
-use super::upload_impl::{
+use upload::{
     create_core_vertex_index_buffers, extract_derived_vertex_streams, padded_sparse_bytes,
     resident_bytes_for_mesh_upload, upload_blendshape_buffer, upload_bone_and_skin_buffers,
     validate_mesh_upload_layout,
 };
 
-use super::gpu_mesh_hints::{
+use hints::{
     blendshape_descriptor_count, derived_streams_compatible_for_in_place, validated_submesh_ranges,
     validated_submesh_topologies,
 };

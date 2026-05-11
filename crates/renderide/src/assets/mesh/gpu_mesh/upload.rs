@@ -14,13 +14,13 @@ use crate::shared::{
     VertexAttributeType,
 };
 
-use super::gpu_mesh_hints::wgpu_index_format;
-use super::layout::{
+use super::super::layout::{
     BlendshapeFrameRange, BlendshapeFrameSpan, MeshBufferLayout, color_float4_stream_bytes,
     compute_index_count, compute_vertex_stride, extract_bind_poses, extract_blendshape_offsets,
     extract_float3_position_normal_as_vec4_streams, split_bone_weights_tail_for_gpu,
     uv0_float2_stream_bytes, vertex_float2_stream_bytes,
 };
+use super::hints::wgpu_index_format;
 use super::tangent_generation::{TangentStreamSource, tangent_stream_bytes};
 
 /// Tangent plus UV1-UV3 optional vertex buffers from extended stream upload.

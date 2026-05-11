@@ -10,6 +10,7 @@
 mod cubemap_write;
 mod error;
 mod format_resolve;
+mod mip_chain_walk;
 mod mip_write_common;
 mod subregion;
 mod texture3d_write;

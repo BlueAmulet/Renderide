@@ -8,10 +8,8 @@ use crate::shared::{
     VertexAttributeType,
 };
 
-use super::layout::{
-    VertexDecodeKind, attribute_offset_and_size, decode_vertex_vec2, decode_vertex_vec3,
-    decode_vertex_vec4,
-};
+use super::super::layout::VertexDecodeKind;
+use super::attribute_reader::AttributeReader;
 
 const _: () = assert!(
     cfg!(target_endian = "little"),
@@ -101,31 +99,19 @@ fn host_tangent_stream_bytes(
     stride: usize,
     attrs: &[VertexAttributeDescriptor],
 ) -> Option<Vec<u8>> {
-    let attr = find_attribute(attrs, VertexAttributeType::Tangent)?;
-    if attr.dimensions < 3 {
-        return None;
-    }
-    let (offset, size) = attribute_offset_and_size(attrs, VertexAttributeType::Tangent)?;
-    if vertex_count == 0 {
-        return Some(Vec::new());
-    }
-    let last_base = (vertex_count - 1)
-        .checked_mul(stride)?
-        .checked_add(offset)?;
-    if last_base.checked_add(size)? > vertex_data.len() {
-        return None;
-    }
+    let reader = AttributeReader::from_attrs(
+        vertex_data,
+        vertex_count,
+        stride,
+        attrs,
+        VertexAttributeType::Tangent,
+        VertexDecodeKind::Direction,
+        3,
+    )?;
 
     let mut out = default_tangent_stream_bytes(vertex_count);
     let copy_one = |dst: &mut [u8], vertex: usize| {
-        let base = vertex * stride + offset;
-        if let Some(tangent) = decode_vertex_vec4(
-            vertex_data,
-            base,
-            attr,
-            VertexDecodeKind::Direction,
-            DEFAULT_TANGENT,
-        ) {
+        if let Some(tangent) = reader.read_vec4(vertex, DEFAULT_TANGENT) {
             let sanitized = sanitize_tangent(tangent);
             dst.copy_from_slice(bytemuck::cast_slice(&sanitized));
         }
@@ -212,16 +198,6 @@ fn generate_mikktspace_tangent_stream_bytes(
     Some(encode_tangents(&geometry.tangents))
 }
 
-fn find_attribute(
-    attrs: &[VertexAttributeDescriptor],
-    target: VertexAttributeType,
-) -> Option<VertexAttributeDescriptor> {
-    attrs
-        .iter()
-        .copied()
-        .find(|attr| (attr.attribute as i16) == (target as i16))
-}
-
 fn read_vertex_stream3(
     vertex_data: &[u8],
     vertex_count: usize,
@@ -230,28 +206,9 @@ fn read_vertex_stream3(
     target: VertexAttributeType,
     kind: VertexDecodeKind,
 ) -> Option<Vec<[f32; 3]>> {
-    let attr = find_attribute(attrs, target)?;
-    if attr.dimensions < 3 {
-        return None;
-    }
-    let (offset, size) = attribute_offset_and_size(attrs, target)?;
-    if size == 0 {
-        return None;
-    }
-    if vertex_count == 0 {
-        return Some(Vec::new());
-    }
-    let last_base = (vertex_count - 1)
-        .checked_mul(stride)?
-        .checked_add(offset)?;
-    if last_base.checked_add(size)? > vertex_data.len() {
-        return None;
-    }
-
-    let read_one = |vertex: usize| -> [f32; 3] {
-        let base = vertex * stride + offset;
-        decode_vertex_vec3(vertex_data, base, attr, kind).unwrap_or([0.0, 0.0, 0.0])
-    };
+    let reader =
+        AttributeReader::from_attrs(vertex_data, vertex_count, stride, attrs, target, kind, 3)?;
+    let read_one = |vertex: usize| -> [f32; 3] { reader.read_vec3(vertex).unwrap_or([0.0; 3]) };
     let out: Vec<[f32; 3]> = if vertex_count >= VERTEX_STREAM_PARALLEL_MIN {
         (0..vertex_count).into_par_iter().map(read_one).collect()
     } else {
@@ -268,28 +225,9 @@ fn read_vertex_stream2(
     target: VertexAttributeType,
     kind: VertexDecodeKind,
 ) -> Option<Vec<[f32; 2]>> {
-    let attr = find_attribute(attrs, target)?;
-    if attr.dimensions < 2 {
-        return None;
-    }
-    let (offset, size) = attribute_offset_and_size(attrs, target)?;
-    if size == 0 {
-        return None;
-    }
-    if vertex_count == 0 {
-        return Some(Vec::new());
-    }
-    let last_base = (vertex_count - 1)
-        .checked_mul(stride)?
-        .checked_add(offset)?;
-    if last_base.checked_add(size)? > vertex_data.len() {
-        return None;
-    }
-
-    let read_one = |vertex: usize| -> [f32; 2] {
-        let base = vertex * stride + offset;
-        decode_vertex_vec2(vertex_data, base, attr, kind).unwrap_or([0.0, 0.0])
-    };
+    let reader =
+        AttributeReader::from_attrs(vertex_data, vertex_count, stride, attrs, target, kind, 2)?;
+    let read_one = |vertex: usize| -> [f32; 2] { reader.read_vec2(vertex).unwrap_or([0.0; 2]) };
     let out: Vec<[f32; 2]> = if vertex_count >= VERTEX_STREAM_PARALLEL_MIN {
         (0..vertex_count).into_par_iter().map(read_one).collect()
     } else {

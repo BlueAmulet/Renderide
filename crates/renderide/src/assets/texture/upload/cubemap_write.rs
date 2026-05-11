@@ -8,6 +8,7 @@ use super::super::layout::{
     mip_dimensions_at_level,
 };
 use super::error::TextureUploadError;
+use super::mip_chain_walk::{MipChainStop, resolve_mip_payload_slot};
 use super::mip_write_common::{
     CubemapFaceMipWrite, MipUploadFormatCtx, MipUploadLabel, MipUploadPixels,
     mip_src_to_upload_pixels as shared_mip_src_to_upload_pixels, write_cubemap_face_mip,
@@ -450,26 +451,14 @@ fn valid_cubemap_mip_prefix_len(
             let start_raw = *starts
                 .get(i)
                 .ok_or_else(|| TextureUploadError::from("cubemap mip_starts index"))?;
-            if start_raw < 0 {
-                break 'outer;
+            match resolve_mip_payload_slot(format, host_len, start_raw, bias, payload_len, || {
+                format!("cubemap face {face} mip {i}")
+            })? {
+                Ok(()) => count += 1,
+                Err(MipChainStop::NegativeStart)
+                | Err(MipChainStop::BeforeBias)
+                | Err(MipChainStop::OutOfPayload) => break 'outer,
             }
-            let start_abs = start_raw as usize;
-            if start_abs < bias {
-                break 'outer;
-            }
-            let start_rel = start_abs - bias;
-            let Some(start) = host_mip_payload_byte_offset(format, start_rel) else {
-                return Err(TextureUploadError::from(format!(
-                    "cubemap face {face} mip {i}: could not convert mip_starts offset to bytes for {format:?}"
-                )));
-            };
-            let end = start
-                .checked_add(host_len)
-                .ok_or_else(|| TextureUploadError::from("mip end overflow"))?;
-            if end > payload_len {
-                break 'outer;
-            }
-            count += 1;
         }
     }
     Ok(count)

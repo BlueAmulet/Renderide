@@ -3,8 +3,9 @@
 use crate::shared::SetTexture2DData;
 
 use super::super::decode::decode_mip_to_rgba8;
-use super::super::layout::{host_format_is_compressed, host_mip_payload_byte_offset, mip_byte_len};
+use super::super::layout::{host_format_is_compressed, mip_byte_len};
 use super::error::TextureUploadError;
+use super::mip_chain_walk::{MipChainStop, resolve_mip_payload_slot};
 
 /// Format-side context shared by every mip in one texture upload (2D, cubemap, 3D).
 ///
@@ -159,26 +160,14 @@ pub(super) fn valid_mip_prefix_len(
             TextureUploadError::from(format!("mip byte size unsupported for {format:?}"))
         })? as usize;
         let start_raw = upload.mip_starts[i];
-        if start_raw < 0 {
-            break;
+        match resolve_mip_payload_slot(format, host_len, start_raw, bias, payload_len, || {
+            format!("mip {i}")
+        })? {
+            Ok(()) => count += 1,
+            Err(MipChainStop::NegativeStart)
+            | Err(MipChainStop::BeforeBias)
+            | Err(MipChainStop::OutOfPayload) => break,
         }
-        let start_abs = start_raw as usize;
-        if start_abs < bias {
-            break;
-        }
-        let start_rel = start_abs - bias;
-        let Some(start) = host_mip_payload_byte_offset(format, start_rel) else {
-            return Err(TextureUploadError::from(format!(
-                "mip {i}: could not convert mip_starts offset to bytes for {format:?}"
-            )));
-        };
-        if start
-            .checked_add(host_len)
-            .is_none_or(|end| end > payload_len)
-        {
-            break;
-        }
-        count += 1;
     }
     Ok(count)
 }
