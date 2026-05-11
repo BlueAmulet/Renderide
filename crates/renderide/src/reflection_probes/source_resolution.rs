@@ -7,8 +7,8 @@ use glam::Vec4;
 
 use super::task_rows::TaskHeader;
 use super::{
-    DEFAULT_SAMPLE_SIZE, GpuSh2Source, Projection360EquirectKey, Sh2ProjectParams, Sh2SourceKey,
-    constant_color_sh2,
+    CubemapResidency, CubemapSourceMaterialIdentity, DEFAULT_SAMPLE_SIZE, GpuSh2Source,
+    Projection360EquirectKey, Sh2ProjectParams, Sh2SourceKey, constant_color_sh2,
 };
 use crate::assets::texture::HostTextureAssetKind;
 use crate::backend::material_property_reader::texture_property;
@@ -67,59 +67,32 @@ pub(super) fn resolve_task_source(
         if state.cubemap_asset_id < 0 {
             return None;
         }
-        let Some(cubemap) = assets.cubemap_pool().get(state.cubemap_asset_id) else {
+        let asset_id = state.cubemap_asset_id;
+        let identity = CubemapSourceMaterialIdentity::DIRECT_PROBE;
+        let Some(cubemap) = assets.cubemap_pool().get(asset_id) else {
             return Some((
-                Sh2SourceKey::Cubemap {
+                Sh2SourceKey::cubemap(
                     render_space_id,
-                    material_asset_id: -1,
-                    material_generation: 0,
-                    route_hash: 0,
-                    asset_id: state.cubemap_asset_id,
-                    allocation_generation: 0,
-                    size: 0,
-                    resident_mips: 0,
-                    content_generation: 0,
-                    storage_v_inverted: false,
-                    sample_size: DEFAULT_SAMPLE_SIZE,
-                },
+                    identity,
+                    asset_id,
+                    CubemapResidency::default(),
+                ),
                 Sh2ResolvedSource::Postpone,
             ));
         };
-        if cubemap.mip_levels_resident == 0 {
-            return Some((
-                Sh2SourceKey::Cubemap {
-                    render_space_id,
-                    material_asset_id: -1,
-                    material_generation: 0,
-                    route_hash: 0,
-                    asset_id: state.cubemap_asset_id,
-                    allocation_generation: cubemap.allocation_generation,
-                    size: cubemap.size,
-                    resident_mips: 0,
-                    content_generation: cubemap.content_generation,
-                    storage_v_inverted: cubemap.storage_v_inverted,
-                    sample_size: DEFAULT_SAMPLE_SIZE,
-                },
-                Sh2ResolvedSource::Postpone,
-            ));
-        }
-        let key = Sh2SourceKey::Cubemap {
+        let key = Sh2SourceKey::cubemap(
             render_space_id,
-            material_asset_id: -1,
-            material_generation: 0,
-            route_hash: 0,
-            asset_id: state.cubemap_asset_id,
-            allocation_generation: cubemap.allocation_generation,
-            size: cubemap.size,
-            resident_mips: cubemap.mip_levels_resident,
-            content_generation: cubemap.content_generation,
-            storage_v_inverted: cubemap.storage_v_inverted,
-            sample_size: DEFAULT_SAMPLE_SIZE,
-        };
+            identity,
+            asset_id,
+            cubemap_residency_from_pool(cubemap),
+        );
+        if cubemap.mip_levels_resident == 0 {
+            return Some((key, Sh2ResolvedSource::Postpone));
+        }
         return Some((
             key,
             Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
-                asset_id: state.cubemap_asset_id,
+                asset_id,
                 storage_v_inverted: cubemap.storage_v_inverted,
             }),
         ));
@@ -324,37 +297,24 @@ fn resolve_projection360_cubemap_source(
     asset_id: i32,
     material_identity: Sh2SkyboxMaterialIdentity,
 ) -> (Sh2SourceKey, Sh2ResolvedSource) {
+    let identity = material_identity.into_cubemap_source();
     let Some(cubemap) = assets.cubemap_pool().get(asset_id) else {
         return (
-            Sh2SourceKey::Cubemap {
+            Sh2SourceKey::cubemap(
                 render_space_id,
-                material_asset_id: material_identity.material_asset_id,
-                material_generation: material_identity.generation,
-                route_hash: material_identity.route_hash,
+                identity,
                 asset_id,
-                allocation_generation: 0,
-                size: 0,
-                resident_mips: 0,
-                content_generation: 0,
-                storage_v_inverted: false,
-                sample_size: DEFAULT_SAMPLE_SIZE,
-            },
+                CubemapResidency::default(),
+            ),
             Sh2ResolvedSource::Postpone,
         );
     };
-    let key = Sh2SourceKey::Cubemap {
+    let key = Sh2SourceKey::cubemap(
         render_space_id,
-        material_asset_id: material_identity.material_asset_id,
-        material_generation: material_identity.generation,
-        route_hash: material_identity.route_hash,
+        identity,
         asset_id,
-        allocation_generation: cubemap.allocation_generation,
-        size: cubemap.size,
-        resident_mips: cubemap.mip_levels_resident,
-        content_generation: cubemap.content_generation,
-        storage_v_inverted: cubemap.storage_v_inverted,
-        sample_size: DEFAULT_SAMPLE_SIZE,
-    };
+        cubemap_residency_from_pool(cubemap),
+    );
     if cubemap.mip_levels_resident == 0 {
         return (key, Sh2ResolvedSource::Postpone);
     }
@@ -430,6 +390,28 @@ struct Sh2SkyboxMaterialIdentity {
     material_asset_id: i32,
     generation: u64,
     route_hash: u64,
+}
+
+impl Sh2SkyboxMaterialIdentity {
+    fn into_cubemap_source(self) -> CubemapSourceMaterialIdentity {
+        CubemapSourceMaterialIdentity {
+            material_asset_id: self.material_asset_id,
+            material_generation: self.generation,
+            route_hash: self.route_hash,
+        }
+    }
+}
+
+fn cubemap_residency_from_pool(
+    cubemap: &crate::gpu_pools::pools::cubemap::GpuCubemap,
+) -> CubemapResidency {
+    CubemapResidency {
+        allocation_generation: cubemap.allocation_generation,
+        size: cubemap.size,
+        resident_mips: cubemap.mip_levels_resident,
+        content_generation: cubemap.content_generation,
+        storage_v_inverted: cubemap.storage_v_inverted,
+    }
 }
 
 /// Builds an equirectangular source key from texture residency and Projection360 parameters.
