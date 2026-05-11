@@ -154,3 +154,17 @@ fn blur_perobject_is_source_alias_wrapper() -> io::Result<()> {
 fn channelmatrix_perobject_is_source_alias_wrapper() -> io::Result<()> {
     assert_source_alias_wrapper("channelmatrix_perobject.wgsl", "channelmatrix")
 }
+
+#[test]
+fn threshold_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "threshold.wgsl",
+        &["RECTCLIP"],
+        &[("THRESHOLD_KW_RECTCLIP", 0)],
+    )
+}
+
+#[test]
+fn threshold_perobject_is_source_alias_wrapper() -> io::Result<()> {
+    assert_source_alias_wrapper("threshold_perobject.wgsl", "threshold")
+}
