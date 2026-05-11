@@ -3,12 +3,20 @@
 //!
 //! Construct once after [`wgpu::Device`] creation via [`GpuLimits::try_new`] and pass [`std::sync::Arc`]
 //! through upload paths and frame resources instead of calling [`wgpu::Device::limits`] ad hoc.
+//!
+//! Inherent-method bodies live in thematic siblings: [`alignment`], [`buffer_bounds`],
+//! [`texture_caps`], [`compute_caps`], [`binding_caps`].
 
 use std::sync::Arc;
 
 use hashbrown::HashMap;
 use thiserror::Error;
 
+mod alignment;
+mod binding_caps;
+mod buffer_bounds;
+mod compute_caps;
+mod texture_caps;
 mod validation;
 
 /// Number of array layers used for a GPU cubemap (six faces).
@@ -35,8 +43,8 @@ pub struct GpuLimits {
     pub texture_compression_features: wgpu::Features,
     /// Maximum rows in the mesh-forward `@group(2)` storage slab (`max_storage_buffer_binding_size / 256`).
     pub max_per_draw_slab_slots: usize,
-    features: wgpu::Features,
-    texture_format_features: HashMap<wgpu::TextureFormat, wgpu::TextureFormatFeatures>,
+    pub(super) features: wgpu::Features,
+    pub(super) texture_format_features: HashMap<wgpu::TextureFormat, wgpu::TextureFormatFeatures>,
 }
 
 /// Minimum requirements not met for running the default render graph.
@@ -57,310 +65,6 @@ impl GpuLimits {
         adapter: &wgpu::Adapter,
     ) -> Result<Arc<Self>, GpuLimitsError> {
         validation::try_new(device, adapter)
-    }
-
-    /// `min_storage_buffer_offset_alignment` for dynamic storage offsets (e.g. per-draw slab).
-    #[inline]
-    pub fn min_storage_buffer_offset_alignment(&self) -> u32 {
-        self.wgpu.min_storage_buffer_offset_alignment
-    }
-
-    /// `min_uniform_buffer_offset_alignment` for dynamic uniform offsets.
-    #[inline]
-    pub fn min_uniform_buffer_offset_alignment(&self) -> u32 {
-        self.wgpu.min_uniform_buffer_offset_alignment
-    }
-
-    /// Rounds `n` up to a multiple of [`Self::min_storage_buffer_offset_alignment`].
-    #[cfg(test)]
-    #[inline]
-    pub fn align_storage_offset(&self, n: u64) -> u64 {
-        let align = u64::from(self.wgpu.min_storage_buffer_offset_alignment).max(1);
-        n.div_ceil(align) * align
-    }
-
-    /// Rounds `n` up to a multiple of [`Self::min_uniform_buffer_offset_alignment`].
-    #[cfg(test)]
-    #[inline]
-    pub fn align_uniform_offset(&self, n: u64) -> u64 {
-        let align = u64::from(self.wgpu.min_uniform_buffer_offset_alignment).max(1);
-        n.div_ceil(align) * align
-    }
-
-    /// `max_buffer_size` for the device.
-    #[inline]
-    pub fn max_buffer_size(&self) -> u64 {
-        self.wgpu.max_buffer_size
-    }
-
-    /// `max_storage_buffer_binding_size` for the device.
-    #[inline]
-    pub fn max_storage_buffer_binding_size(&self) -> u64 {
-        self.wgpu.max_storage_buffer_binding_size
-    }
-
-    /// `max_uniform_buffer_binding_size` for the device.
-    #[inline]
-    pub fn max_uniform_buffer_binding_size(&self) -> u64 {
-        self.wgpu.max_uniform_buffer_binding_size
-    }
-
-    /// Returns `true` if `bytes` fits in [`Self::max_buffer_size`].
-    #[must_use]
-    #[inline]
-    pub fn buffer_size_fits(&self, bytes: u64) -> bool {
-        bytes <= self.wgpu.max_buffer_size
-    }
-
-    /// Returns `true` if `bytes` fits in [`Self::max_storage_buffer_binding_size`].
-    #[must_use]
-    #[inline]
-    pub fn storage_binding_fits(&self, bytes: u64) -> bool {
-        bytes <= self.wgpu.max_storage_buffer_binding_size
-    }
-
-    /// Returns `true` if `bytes` fits in [`Self::max_uniform_buffer_binding_size`].
-    #[must_use]
-    #[inline]
-    pub fn uniform_binding_fits(&self, bytes: u64) -> bool {
-        bytes <= self.wgpu.max_uniform_buffer_binding_size
-    }
-
-    /// `max_texture_dimension_2d` for the device.
-    #[inline]
-    pub fn max_texture_dimension_2d(&self) -> u32 {
-        self.wgpu.max_texture_dimension_2d
-    }
-
-    /// `max_texture_dimension_3d` for the device.
-    #[inline]
-    pub fn max_texture_dimension_3d(&self) -> u32 {
-        self.wgpu.max_texture_dimension_3d
-    }
-
-    /// `max_texture_array_layers` for the device (cubemaps use [`CUBEMAP_ARRAY_LAYERS`]).
-    #[inline]
-    pub fn max_texture_array_layers(&self) -> u32 {
-        self.wgpu.max_texture_array_layers
-    }
-
-    /// Returns `true` if `(w, h)` fits in [`Self::max_texture_dimension_2d`].
-    #[must_use]
-    #[inline]
-    pub fn texture_2d_fits(&self, w: u32, h: u32) -> bool {
-        let m = self.wgpu.max_texture_dimension_2d;
-        w <= m && h <= m
-    }
-
-    /// Returns `true` if `(w, h, d)` fits in [`Self::max_texture_dimension_3d`].
-    #[must_use]
-    #[inline]
-    pub fn texture_3d_fits(&self, w: u32, h: u32, d: u32) -> bool {
-        let m = self.wgpu.max_texture_dimension_3d;
-        w <= m && h <= m && d <= m
-    }
-
-    /// Returns `true` if `layers` fits in [`Self::max_texture_array_layers`].
-    #[must_use]
-    #[inline]
-    pub fn array_layers_fit(&self, layers: u32) -> bool {
-        layers <= self.wgpu.max_texture_array_layers
-    }
-
-    /// Returns `true` when [`Self::max_texture_array_layers`] is at least [`CUBEMAP_ARRAY_LAYERS`].
-    #[must_use]
-    #[inline]
-    pub fn cubemap_fits_texture_array_layers(&self) -> bool {
-        self.wgpu.max_texture_array_layers >= CUBEMAP_ARRAY_LAYERS
-    }
-
-    /// Returns `true` when multisampled 2D-array textures are valid on this device.
-    #[must_use]
-    #[inline]
-    pub fn supports_multisample_array(&self) -> bool {
-        self.features.contains(wgpu::Features::MULTISAMPLE_ARRAY)
-    }
-
-    /// Effective texture-format features used by this device for validation.
-    #[must_use]
-    #[inline]
-    pub fn texture_format_features(
-        &self,
-        format: wgpu::TextureFormat,
-    ) -> wgpu::TextureFormatFeatures {
-        self.texture_format_features
-            .get(&format)
-            .copied()
-            .unwrap_or_else(|| format.guaranteed_format_features(self.features))
-    }
-
-    /// Returns `true` when `usage` is allowed for `format` on this device.
-    #[must_use]
-    #[inline]
-    pub fn texture_usage_supported(
-        &self,
-        format: wgpu::TextureFormat,
-        usage: wgpu::TextureUsages,
-    ) -> bool {
-        self.texture_format_features(format)
-            .allowed_usages
-            .contains(usage)
-    }
-
-    /// Returns `true` when `sample_count` is valid for `format` on this device.
-    #[must_use]
-    #[inline]
-    pub fn texture_sample_count_supported(
-        &self,
-        format: wgpu::TextureFormat,
-        sample_count: u32,
-    ) -> bool {
-        sample_count <= 1
-            || self
-                .texture_format_features(format)
-                .flags
-                .sample_count_supported(sample_count)
-    }
-
-    /// `max_compute_workgroups_per_dimension` for dispatch validation.
-    #[inline]
-    pub fn max_compute_workgroups_per_dimension(&self) -> u32 {
-        self.wgpu.max_compute_workgroups_per_dimension
-    }
-
-    /// `max_compute_invocations_per_workgroup` for shader workgroup-size validation.
-    #[cfg(test)]
-    #[inline]
-    pub fn max_compute_invocations_per_workgroup(&self) -> u32 {
-        self.wgpu.max_compute_invocations_per_workgroup
-    }
-
-    /// `max_compute_workgroup_size_x` for shader workgroup-size validation.
-    #[cfg(test)]
-    #[inline]
-    pub fn max_compute_workgroup_size_x(&self) -> u32 {
-        self.wgpu.max_compute_workgroup_size_x
-    }
-
-    /// `max_compute_workgroup_size_y` for shader workgroup-size validation.
-    #[cfg(test)]
-    #[inline]
-    pub fn max_compute_workgroup_size_y(&self) -> u32 {
-        self.wgpu.max_compute_workgroup_size_y
-    }
-
-    /// `max_compute_workgroup_size_z` for shader workgroup-size validation.
-    #[cfg(test)]
-    #[inline]
-    pub fn max_compute_workgroup_size_z(&self) -> u32 {
-        self.wgpu.max_compute_workgroup_size_z
-    }
-
-    /// Returns `true` if `(x,y,z)` dispatch dimensions are within per-axis limits.
-    #[must_use]
-    #[inline]
-    pub fn compute_dispatch_fits(&self, x: u32, y: u32, z: u32) -> bool {
-        let m = self.wgpu.max_compute_workgroups_per_dimension;
-        x <= m && y <= m && z <= m
-    }
-
-    /// Returns `true` if a `@workgroup_size(x, y, z)` declaration fits the device's per-axis caps
-    /// and total invocation cap.
-    #[must_use]
-    #[cfg(test)]
-    #[inline]
-    pub fn workgroup_size_fits(&self, x: u32, y: u32, z: u32) -> bool {
-        x <= self.wgpu.max_compute_workgroup_size_x
-            && y <= self.wgpu.max_compute_workgroup_size_y
-            && z <= self.wgpu.max_compute_workgroup_size_z
-            && u64::from(x) * u64::from(y) * u64::from(z)
-                <= u64::from(self.wgpu.max_compute_invocations_per_workgroup)
-    }
-
-    /// `max_bind_groups` for the device.
-    #[cfg(test)]
-    #[inline]
-    pub fn max_bind_groups(&self) -> u32 {
-        self.wgpu.max_bind_groups
-    }
-
-    /// `max_bindings_per_bind_group` for the device.
-    #[inline]
-    pub fn max_bindings_per_bind_group(&self) -> u32 {
-        self.wgpu.max_bindings_per_bind_group
-    }
-
-    /// `max_samplers_per_shader_stage` for the device.
-    #[inline]
-    pub fn max_samplers_per_shader_stage(&self) -> u32 {
-        self.wgpu.max_samplers_per_shader_stage
-    }
-
-    /// `max_sampled_textures_per_shader_stage` for the device.
-    #[inline]
-    pub fn max_sampled_textures_per_shader_stage(&self) -> u32 {
-        self.wgpu.max_sampled_textures_per_shader_stage
-    }
-
-    /// `max_storage_textures_per_shader_stage` for the device.
-    #[cfg(test)]
-    #[inline]
-    pub fn max_storage_textures_per_shader_stage(&self) -> u32 {
-        self.wgpu.max_storage_textures_per_shader_stage
-    }
-
-    /// `max_storage_buffers_per_shader_stage` for the device.
-    #[cfg(test)]
-    #[inline]
-    pub fn max_storage_buffers_per_shader_stage(&self) -> u32 {
-        self.wgpu.max_storage_buffers_per_shader_stage
-    }
-
-    /// `max_uniform_buffers_per_shader_stage` for the device.
-    #[cfg(test)]
-    #[inline]
-    pub fn max_uniform_buffers_per_shader_stage(&self) -> u32 {
-        self.wgpu.max_uniform_buffers_per_shader_stage
-    }
-
-    /// `max_color_attachments` for the device.
-    #[cfg(test)]
-    #[inline]
-    pub fn max_color_attachments(&self) -> u32 {
-        self.wgpu.max_color_attachments
-    }
-
-    /// `max_vertex_buffers` for the device.
-    #[inline]
-    pub fn max_vertex_buffers(&self) -> u32 {
-        self.wgpu.max_vertex_buffers
-    }
-
-    /// `max_vertex_attributes` for the device.
-    #[inline]
-    pub fn max_vertex_attributes(&self) -> u32 {
-        self.wgpu.max_vertex_attributes
-    }
-
-    /// Clamps host edge length for render textures: `[4, min(MAX_RENDER_TEXTURE_EDGE, max_texture_dimension_2d)]`.
-    #[inline]
-    pub fn clamp_render_texture_edge(&self, edge: i32) -> u32 {
-        let cap = self
-            .wgpu
-            .max_texture_dimension_2d
-            .min(MAX_RENDER_TEXTURE_EDGE);
-        edge.clamp(4, cap as i32) as u32
-    }
-
-    /// Clamps `edge` to `[1, max_texture_dimension_2d]`. Returns `None` when `edge == 0`.
-    #[must_use]
-    #[cfg(test)]
-    #[inline]
-    pub fn clamp_texture_2d_edge(&self, edge: u32) -> Option<u32> {
-        if edge == 0 {
-            return None;
-        }
-        Some(edge.min(self.wgpu.max_texture_dimension_2d))
     }
 
     #[cfg(test)]
