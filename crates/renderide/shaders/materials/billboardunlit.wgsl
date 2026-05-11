@@ -13,7 +13,7 @@
 #import renderide::draw::per_draw as pd
 #import renderide::material::alpha_clip_sample as acs
 #import renderide::material::variant_bits as vb
-#import renderide::material::vertex_color_space as vcs
+#import renderide::material::vertex_color as vc
 #import renderide::mesh::billboard as mb
 #import renderide::mesh::vertex as mv
 #import renderide::core::uv as uvu
@@ -98,6 +98,18 @@ fn kw_TEXTURE() -> bool {
     return bb_kw(BILLBOARDUNLIT_KW_TEXTURE);
 }
 
+fn kw_VERTEX_SRGB_COLOR() -> bool {
+    return bb_kw(BILLBOARDUNLIT_KW_VERTEX_SRGB_COLOR);
+}
+
+fn kw_VERTEX_HDRSRGB_COLOR() -> bool {
+    return bb_kw(BILLBOARDUNLIT_KW_VERTEX_HDRSRGB_COLOR);
+}
+
+fn kw_VERTEX_HDRSRGBALPHA_COLOR() -> bool {
+    return bb_kw(BILLBOARDUNLIT_KW_VERTEX_HDRSRGBALPHA_COLOR);
+}
+
 fn kw_VERTEXCOLORS() -> bool {
     return bb_kw(BILLBOARDUNLIT_KW_VERTEXCOLORS);
 }
@@ -176,14 +188,17 @@ fn texture_uv(base_uv: vec2<f32>, view_layer: u32) -> vec2<f32> {
 }
 
 fn vertex_color(color: vec4<f32>) -> vec4<f32> {
-    return vcs::apply(
-        color,
-        mat._RenderideVariantBits,
-        BILLBOARDUNLIT_KW_VERTEX_LINEAR_COLOR,
-        BILLBOARDUNLIT_KW_VERTEX_SRGB_COLOR,
-        BILLBOARDUNLIT_KW_VERTEX_HDRSRGB_COLOR,
-        BILLBOARDUNLIT_KW_VERTEX_HDRSRGBALPHA_COLOR,
-    );
+    if (kw_VERTEX_HDRSRGBALPHA_COLOR()) {
+        let rgb_linear = vc::srgb_to_linear_hdr(color);
+        return vec4<f32>(rgb_linear.rgb, pow(color.a, 1.0 / 2.2));
+    }
+    if (kw_VERTEX_HDRSRGB_COLOR()) {
+        return vc::srgb_to_linear_hdr(color);
+    }
+    if (kw_VERTEX_SRGB_COLOR()) {
+        return vc::srgb_to_linear_ldr(color);
+    }
+    return color;
 }
 
 //#pass forward
