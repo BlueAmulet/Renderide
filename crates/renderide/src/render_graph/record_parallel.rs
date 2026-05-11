@@ -25,14 +25,14 @@
 mod tests {
     use crate::materials::EmbeddedMaterialBindResources;
     use crate::materials::MaterialPipelineCache;
-    use crate::occlusion::OcclusionSystem;
+    use crate::occlusion::OcclusionGraphHook;
 
-    fn assert_send_sync<T: Send + Sync>() {}
+    fn assert_send_sync<T: Send + Sync + ?Sized>() {}
 
     #[test]
     fn per_view_parallel_primitives_are_send_sync() {
         assert_send_sync::<EmbeddedMaterialBindResources>();
         assert_send_sync::<MaterialPipelineCache>();
-        assert_send_sync::<OcclusionSystem>();
+        assert_send_sync::<dyn OcclusionGraphHook>();
     }
 }

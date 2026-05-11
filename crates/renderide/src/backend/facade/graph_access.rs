@@ -448,11 +448,11 @@ impl GraphExecutionBackend for BackendGraphAccess<'_> {
         self.asset_transfers
     }
 
-    fn occlusion(&self) -> &OcclusionSystem {
+    fn occlusion(&self) -> &dyn crate::occlusion::OcclusionGraphHook {
         BackendGraphAccess::occlusion(self)
     }
 
-    fn occlusion_mut(&mut self) -> &mut OcclusionSystem {
+    fn occlusion_mut(&mut self) -> &mut dyn crate::occlusion::OcclusionGraphHook {
         BackendGraphAccess::occlusion_mut(self)
     }
 

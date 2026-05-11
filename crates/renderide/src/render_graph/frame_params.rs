@@ -16,7 +16,7 @@ use crate::camera::{HostCameraFrame, ViewId};
 use crate::gpu::{GpuLimits, MsaaDepthResolveResources};
 use crate::materials::MaterialSystem;
 use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipelines};
-use crate::occlusion::OcclusionSystem;
+use crate::occlusion::OcclusionGraphHook;
 use crate::occlusion::gpu::HiZGpuState;
 use crate::scene::SceneCoordinator;
 use crate::shared::{CameraClearMode, RenderingContext};
@@ -162,7 +162,7 @@ pub struct FrameSystemsShared<'a> {
     /// World caches and mesh renderables after [`SceneCoordinator::flush_world_caches`].
     pub scene: &'a SceneCoordinator,
     /// Hi-Z pyramid GPU/CPU state and temporal culling for this frame.
-    pub occlusion: &'a OcclusionSystem,
+    pub occlusion: &'a dyn OcclusionGraphHook,
     /// Per-frame `@group(0/1/2)` binds, lights, per-draw slab, and CPU light scratch.
     pub frame_resources: &'a dyn GraphFrameResources,
     /// Materials registry, embedded binds, and property store.

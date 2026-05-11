@@ -141,7 +141,7 @@ pub(super) struct PerViewRecordShared<'a> {
     /// Effective device limits for this frame.
     pub(super) gpu_limits: &'a crate::gpu::GpuLimits,
     /// Shared occlusion system for Hi-Z snapshots and temporal state.
-    pub(super) occlusion: &'a crate::occlusion::OcclusionSystem,
+    pub(super) occlusion: &'a dyn crate::occlusion::OcclusionGraphHook,
     /// Shared frame resources for bind groups, lights, and per-view slabs.
     pub(super) frame_resources: &'a dyn GraphFrameResources,
     /// Persistent history resources resolved for ping-pong graph imports.
