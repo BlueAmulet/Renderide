@@ -218,3 +218,28 @@ fn pbsmetallic_emission_gated_by_variant_bit_not_runtime_check() -> io::Result<(
     );
     Ok(())
 }
+
+#[test]
+fn pbsmultiuvspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsmultiuvspecular.wgsl",
+        &[
+            "_ALPHACLIP",
+            "_DUAL_ALBEDO",
+            "_DUAL_EMISSIONTEX",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+        ],
+        &[
+            ("PBSMULTIUVSPECULAR_KW_ALPHACLIP", 0),
+            ("PBSMULTIUVSPECULAR_KW_DUAL_ALBEDO", 1),
+            ("PBSMULTIUVSPECULAR_KW_DUAL_EMISSIONTEX", 2),
+            ("PBSMULTIUVSPECULAR_KW_EMISSIONTEX", 3),
+            ("PBSMULTIUVSPECULAR_KW_NORMALMAP", 4),
+            ("PBSMULTIUVSPECULAR_KW_OCCLUSION", 5),
+            ("PBSMULTIUVSPECULAR_KW_SPECULARMAP", 6),
+        ],
+    )
+}
