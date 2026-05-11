@@ -168,3 +168,38 @@ fn threshold_uses_reserved_variant_bits() -> io::Result<()> {
 fn threshold_perobject_is_source_alias_wrapper() -> io::Result<()> {
     assert_source_alias_wrapper("threshold_perobject.wgsl", "threshold")
 }
+
+#[test]
+fn textunlit_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "textunlit.wgsl",
+        &["_TextMode"],
+        &[
+            ("TEXTUNLIT_KW_MSDF", 0),
+            ("TEXTUNLIT_KW_OUTLINE", 1),
+            ("TEXTUNLIT_KW_RASTER", 2),
+            ("TEXTUNLIT_KW_SDF", 3),
+        ],
+    )
+}
+
+#[test]
+fn textunit_is_source_alias_wrapper() -> io::Result<()> {
+    assert_source_alias_wrapper("textunit.wgsl", "textunlit")
+}
+
+#[test]
+fn ui_textunlit_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "ui_textunlit.wgsl",
+        &["_TextMode", "_RectClip", "_OVERLAY"],
+        &[
+            ("UITEXTUNLIT_KW_MSDF", 0),
+            ("UITEXTUNLIT_KW_OUTLINE", 1),
+            ("UITEXTUNLIT_KW_OVERLAY", 2),
+            ("UITEXTUNLIT_KW_RASTER", 3),
+            ("UITEXTUNLIT_KW_RECTCLIP", 4),
+            ("UITEXTUNLIT_KW_SDF", 5),
+        ],
+    )
+}
