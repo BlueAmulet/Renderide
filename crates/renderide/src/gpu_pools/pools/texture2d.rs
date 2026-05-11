@@ -10,14 +10,15 @@ use crate::assets::texture::{
 use crate::gpu::GpuLimits;
 use crate::shared::{ColorProfile, SetTexture2DFormat, SetTexture2DProperties, TextureFormat};
 
-use crate::gpu_pools::GpuResource;
 use crate::gpu_pools::budget::TextureResidencyMeta;
+use crate::gpu_pools::impl_gpu_resource;
 use crate::gpu_pools::resource_pool::{
     GpuResourcePool, StreamingAccess, impl_streaming_pool_facade,
 };
 use crate::gpu_pools::sampler_state::SamplerState;
 use crate::gpu_pools::texture_allocation::{
-    SampledTextureAllocation, TextureViewInit, create_sampled_copy_dst_texture,
+    SampledTextureAllocation, TextureViewInit, clamp_texture_mip_count,
+    create_sampled_copy_dst_texture, validate_texture_extent,
 };
 
 static NEXT_TEXTURE2D_VIEW_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -83,28 +84,26 @@ impl GpuTexture2d {
             return None;
         }
         let max_dim = limits.max_texture_dimension_2d();
-        if w > max_dim || h > max_dim {
-            logger::warn!(
-                "texture {}: format size {}x{} exceeds max_texture_dimension_2d ({max_dim}); GPU texture not created",
-                fmt.asset_id,
-                w,
-                h
-            );
+        if !validate_texture_extent(
+            fmt.asset_id,
+            "texture",
+            "format size",
+            &format_args!("{w}x{h}"),
+            &[w, h],
+            max_dim,
+            "max_texture_dimension_2d",
+        ) {
             return None;
         }
         let requested_mips = host_texture_mip_count(fmt.mipmap_count);
         let legal_mips = legal_texture2d_mip_level_count(w, h);
-        let mips = requested_mips.min(legal_mips);
-        if requested_mips > mips {
-            logger::warn!(
-                "texture {}: host requested {} mips for {}x{}; clamping to legal mip count {}",
-                fmt.asset_id,
-                requested_mips,
-                w,
-                h,
-                mips
-            );
-        }
+        let mips = clamp_texture_mip_count(
+            fmt.asset_id,
+            "texture",
+            &format_args!("{w}x{h}"),
+            requested_mips,
+            legal_mips,
+        );
         let wgpu_format = resolve_texture2d_wgpu_format(device, fmt);
         let size = wgpu::Extent3d {
             width: w,
@@ -135,7 +134,7 @@ impl GpuTexture2d {
             asset_id: fmt.asset_id,
             texture,
             view,
-            view_generation: next_texture2d_view_generation(),
+            view_generation: NEXT_TEXTURE2D_VIEW_GENERATION.fetch_add(1, Ordering::Relaxed),
             wgpu_format,
             host_format: fmt.format,
             color_profile: fmt.profile,
@@ -177,19 +176,7 @@ impl GpuTexture2d {
     }
 }
 
-impl GpuResource for GpuTexture2d {
-    fn resident_bytes(&self) -> u64 {
-        self.resident_bytes
-    }
-
-    fn asset_id(&self) -> i32 {
-        self.asset_id
-    }
-}
-
-fn next_texture2d_view_generation() -> u64 {
-    NEXT_TEXTURE2D_VIEW_GENERATION.fetch_add(1, Ordering::Relaxed)
-}
+impl_gpu_resource!(GpuTexture2d);
 
 fn mark_resident_mip_mask(
     resident_mip_mask: &mut u64,
@@ -249,12 +236,13 @@ impl TexturePool {
 
 #[cfg(test)]
 mod tests {
-    use super::{mark_resident_mip_mask, next_texture2d_view_generation};
+    use super::{NEXT_TEXTURE2D_VIEW_GENERATION, mark_resident_mip_mask};
+    use std::sync::atomic::Ordering;
 
     #[test]
     fn texture_view_generation_is_unique() {
-        let first = next_texture2d_view_generation();
-        let second = next_texture2d_view_generation();
+        let first = NEXT_TEXTURE2D_VIEW_GENERATION.fetch_add(1, Ordering::Relaxed);
+        let second = NEXT_TEXTURE2D_VIEW_GENERATION.fetch_add(1, Ordering::Relaxed);
         assert_ne!(first, second);
     }
 

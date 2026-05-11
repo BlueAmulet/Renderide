@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use renderide_shared::VideoTextureProperties;
 
-use crate::gpu_pools::GpuResource;
 use crate::gpu_pools::VramResourceKind;
+use crate::gpu_pools::impl_gpu_resource;
 use crate::gpu_pools::resource_pool::{
     GpuResourcePool, UntrackedAccess, impl_resident_pool_facade,
 };
@@ -30,15 +30,7 @@ pub struct GpuVideoTexture {
     pub sampler: SamplerState,
 }
 
-impl GpuResource for GpuVideoTexture {
-    fn resident_bytes(&self) -> u64 {
-        self.resident_bytes
-    }
-
-    fn asset_id(&self) -> i32 {
-        self.asset_id
-    }
-}
+impl_gpu_resource!(GpuVideoTexture);
 
 impl GpuVideoTexture {
     /// Creates a 1x1 dummy texture. The real view is installed later via [`Self::set_view`].

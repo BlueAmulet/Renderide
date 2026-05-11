@@ -229,23 +229,14 @@ where
     }
 }
 
-/// Implements the unified resident-pool facade for a concrete pool whose `inner` is
-/// `GpuResourcePool<R, StreamingAccess>`.
-///
-/// The `$access_with` and `$access_noop` arms select the per-kind constructors on
-/// [`StreamingAccess`] (mesh vs texture).
-macro_rules! impl_streaming_pool_facade {
-    ($pool:ty, $resource:ty, $access_with:expr, $access_noop:expr $(,)?) => {
+/// Emits the resident-pool method vocabulary (`accounting`, `insert`, `take`,
+/// `get`) shared between the streaming and untracked facade macros. `get_mut`
+/// is opt-in: streaming pools always get it through
+/// [`impl_streaming_pool_facade!`], while untracked pools add their own block
+/// when needed.
+macro_rules! impl_pool_common {
+    ($pool:ty, $resource:ty) => {
         impl $pool {
-            /// Default pool with [`crate::gpu_pools::NoopStreamingPolicy`].
-            pub fn default_pool() -> Self {
-                let access_noop: fn() -> $crate::gpu_pools::resource_pool::StreamingAccess =
-                    $access_noop;
-                Self {
-                    inner: $crate::gpu_pools::resource_pool::GpuResourcePool::new(access_noop()),
-                }
-            }
-
             /// VRAM accounting for resident resources.
             #[inline]
             pub fn accounting(&self) -> &$crate::gpu_pools::VramAccounting {
@@ -268,6 +259,28 @@ macro_rules! impl_streaming_pool_facade {
             #[inline]
             pub fn get(&self, asset_id: i32) -> Option<&$resource> {
                 self.inner.get(asset_id)
+            }
+        }
+    };
+}
+
+/// Implements the unified resident-pool facade for a concrete pool whose `inner` is
+/// `GpuResourcePool<R, StreamingAccess>`.
+///
+/// The `$access_with` and `$access_noop` arms select the per-kind constructors on
+/// [`StreamingAccess`] (mesh vs texture).
+macro_rules! impl_streaming_pool_facade {
+    ($pool:ty, $resource:ty, $access_with:expr, $access_noop:expr $(,)?) => {
+        $crate::gpu_pools::resource_pool::impl_pool_common!($pool, $resource);
+
+        impl $pool {
+            /// Default pool with [`crate::gpu_pools::NoopStreamingPolicy`].
+            pub fn default_pool() -> Self {
+                let access_noop: fn() -> $crate::gpu_pools::resource_pool::StreamingAccess =
+                    $access_noop;
+                Self {
+                    inner: $crate::gpu_pools::resource_pool::GpuResourcePool::new(access_noop()),
+                }
             }
 
             /// Mutably borrows a resident resource by host asset id.
@@ -280,10 +293,11 @@ macro_rules! impl_streaming_pool_facade {
 }
 
 /// Implements the unified resident-pool facade for a concrete pool whose `inner` is
-/// `GpuResourcePool<R, UntrackedAccess>`. Same vocabulary as the streaming variant minus
-/// `streaming_mut()`, and `new()` takes no arguments.
+/// `GpuResourcePool<R, UntrackedAccess>`.
 macro_rules! impl_resident_pool_facade {
     ($pool:ty, $resource:ty, $kind:expr $(,)?) => {
+        $crate::gpu_pools::resource_pool::impl_pool_common!($pool, $resource);
+
         impl $pool {
             /// Creates an empty pool.
             pub fn new() -> Self {
@@ -292,30 +306,6 @@ macro_rules! impl_resident_pool_facade {
                         $crate::gpu_pools::resource_pool::UntrackedAccess::new($kind),
                     ),
                 }
-            }
-
-            /// VRAM accounting for resident resources.
-            #[inline]
-            pub fn accounting(&self) -> &$crate::gpu_pools::VramAccounting {
-                self.inner.accounting()
-            }
-
-            /// Inserts or replaces a resource. Returns `true` if an entry was replaced.
-            #[inline]
-            pub fn insert(&mut self, resource: $resource) -> bool {
-                self.inner.insert(resource)
-            }
-
-            /// Removes and returns a resource by host asset id when it was present.
-            #[inline]
-            pub(crate) fn take(&mut self, asset_id: i32) -> Option<$resource> {
-                self.inner.take(asset_id)
-            }
-
-            /// Borrows a resident resource by host asset id.
-            #[inline]
-            pub fn get(&self, asset_id: i32) -> Option<&$resource> {
-                self.inner.get(asset_id)
             }
         }
 
@@ -327,6 +317,7 @@ macro_rules! impl_resident_pool_facade {
     };
 }
 
+pub(crate) use impl_pool_common;
 pub(crate) use impl_resident_pool_facade;
 pub(crate) use impl_streaming_pool_facade;
 

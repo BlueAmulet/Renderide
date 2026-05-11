@@ -9,14 +9,15 @@ use crate::assets::texture::{
 use crate::gpu::GpuLimits;
 use crate::shared::{SetTexture3DFormat, SetTexture3DProperties};
 
-use crate::gpu_pools::GpuResource;
 use crate::gpu_pools::budget::TextureResidencyMeta;
+use crate::gpu_pools::impl_gpu_resource;
 use crate::gpu_pools::resource_pool::{
     GpuResourcePool, StreamingAccess, impl_streaming_pool_facade,
 };
 use crate::gpu_pools::sampler_state::SamplerState;
 use crate::gpu_pools::texture_allocation::{
-    SampledTextureAllocation, TextureViewInit, create_sampled_copy_dst_texture,
+    SampledTextureAllocation, TextureViewInit, clamp_texture_mip_count,
+    create_sampled_copy_dst_texture, validate_texture_extent,
 };
 
 /// GPU Texture3D: mips live only in [`wgpu::Texture`].
@@ -60,30 +61,26 @@ impl GpuTexture3d {
             return None;
         }
         let max_dim = limits.max_texture_dimension_3d();
-        if w > max_dim || h > max_dim || d > max_dim {
-            logger::warn!(
-                "texture3d {}: format size {}x{}x{} exceeds max_texture_dimension_3d ({max_dim}); GPU texture not created",
-                fmt.asset_id,
-                w,
-                h,
-                d
-            );
+        if !validate_texture_extent(
+            fmt.asset_id,
+            "texture3d",
+            "format size",
+            &format_args!("{w}x{h}x{d}"),
+            &[w, h, d],
+            max_dim,
+            "max_texture_dimension_3d",
+        ) {
             return None;
         }
         let requested_mips = host_texture_mip_count(fmt.mipmap_count);
         let legal_mips = legal_texture3d_mip_level_count(w, h, d);
-        let mips = requested_mips.min(legal_mips);
-        if requested_mips > mips {
-            logger::warn!(
-                "texture3d {}: host requested {} mips for {}x{}x{}; clamping to legal mip count {}",
-                fmt.asset_id,
-                requested_mips,
-                w,
-                h,
-                d,
-                mips
-            );
-        }
+        let mips = clamp_texture_mip_count(
+            fmt.asset_id,
+            "texture3d",
+            &format_args!("{w}x{h}x{d}"),
+            requested_mips,
+            legal_mips,
+        );
         let wgpu_format = resolve_texture3d_wgpu_format(device, fmt);
         let size = wgpu::Extent3d {
             width: w,
@@ -131,15 +128,7 @@ impl GpuTexture3d {
     }
 }
 
-impl GpuResource for GpuTexture3d {
-    fn resident_bytes(&self) -> u64 {
-        self.resident_bytes
-    }
-
-    fn asset_id(&self) -> i32 {
-        self.asset_id
-    }
-}
+impl_gpu_resource!(GpuTexture3d);
 
 /// Resident Texture3D table; pairs with [`super::TexturePool`] under one renderer.
 pub struct Texture3dPool {

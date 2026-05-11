@@ -10,12 +10,16 @@
 //! * [`texture_allocation`] -- `wgpu::Texture` + `wgpu::TextureView` factory shared by the three
 //!   sampled-texture pools.
 //! * [`pools`] -- concrete pool newtypes, one submodule per asset kind.
+//! * `test_support` (test-only) -- builders shared by submodule unit tests.
 
 pub(crate) mod budget;
 pub(crate) mod pools;
 pub(crate) mod resource_pool;
 pub(crate) mod sampler_state;
 pub(crate) mod texture_allocation;
+
+#[cfg(test)]
+pub(crate) mod test_support;
 
 pub use budget::{NoopStreamingPolicy, StreamingPolicy, VramAccounting, VramResourceKind};
 pub use pools::cubemap::{CubemapPool, GpuCubemap};
@@ -33,3 +37,21 @@ pub trait GpuResource {
     /// Host asset id.
     fn asset_id(&self) -> i32;
 }
+
+/// Implements [`GpuResource`] for a type with `resident_bytes: u64` and
+/// `asset_id: i32` inherent fields.
+macro_rules! impl_gpu_resource {
+    ($ty:ty) => {
+        impl $crate::gpu_pools::GpuResource for $ty {
+            fn resident_bytes(&self) -> u64 {
+                self.resident_bytes
+            }
+
+            fn asset_id(&self) -> i32 {
+                self.asset_id
+            }
+        }
+    };
+}
+
+pub(crate) use impl_gpu_resource;
