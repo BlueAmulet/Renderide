@@ -10,14 +10,15 @@ use crate::assets::texture::{
 use crate::gpu::GpuLimits;
 use crate::shared::{SetCubemapFormat, SetCubemapProperties};
 
-use crate::gpu_pools::GpuResource;
 use crate::gpu_pools::budget::TextureResidencyMeta;
+use crate::gpu_pools::impl_gpu_resource;
 use crate::gpu_pools::resource_pool::{
     GpuResourcePool, StreamingAccess, impl_streaming_pool_facade,
 };
 use crate::gpu_pools::sampler_state::SamplerState;
 use crate::gpu_pools::texture_allocation::{
-    SampledTextureAllocation, TextureViewInit, create_sampled_copy_dst_texture,
+    SampledTextureAllocation, TextureViewInit, clamp_texture_mip_count,
+    create_sampled_copy_dst_texture, validate_texture_extent,
 };
 
 static NEXT_CUBEMAP_ALLOCATION_GENERATION: AtomicU64 = AtomicU64::new(1);
@@ -69,12 +70,15 @@ impl GpuCubemap {
             return None;
         }
         let max_dim = limits.max_texture_dimension_2d();
-        if s > max_dim {
-            logger::warn!(
-                "cubemap {}: face size {} exceeds max_texture_dimension_2d ({max_dim}); GPU texture not created",
-                fmt.asset_id,
-                s
-            );
+        if !validate_texture_extent(
+            fmt.asset_id,
+            "cubemap",
+            "face size",
+            &s,
+            &[s],
+            max_dim,
+            "max_texture_dimension_2d",
+        ) {
             return None;
         }
         if !limits.cubemap_fits_texture_array_layers() {
@@ -88,16 +92,13 @@ impl GpuCubemap {
         }
         let requested_mips = host_texture_mip_count(fmt.mipmap_count);
         let legal_mips = legal_texture2d_mip_level_count(s, s);
-        let mips = requested_mips.min(legal_mips);
-        if requested_mips > mips {
-            logger::warn!(
-                "cubemap {}: host requested {} mips for face size {}; clamping to legal mip count {}",
-                fmt.asset_id,
-                requested_mips,
-                s,
-                mips
-            );
-        }
+        let mips = clamp_texture_mip_count(
+            fmt.asset_id,
+            "cubemap",
+            &format_args!("face size {s}"),
+            requested_mips,
+            legal_mips,
+        );
         let wgpu_format = resolve_cubemap_wgpu_format(device, fmt);
         let size = wgpu::Extent3d {
             width: s,
@@ -134,7 +135,8 @@ impl GpuCubemap {
             mip_levels_total: mips,
             mip_levels_resident: 0,
             content_generation: 0,
-            allocation_generation: next_cubemap_allocation_generation(),
+            allocation_generation: NEXT_CUBEMAP_ALLOCATION_GENERATION
+                .fetch_add(1, Ordering::Relaxed),
             storage_v_inverted: false,
             resident_bytes,
             sampler,
@@ -154,19 +156,7 @@ impl GpuCubemap {
     }
 }
 
-fn next_cubemap_allocation_generation() -> u64 {
-    NEXT_CUBEMAP_ALLOCATION_GENERATION.fetch_add(1, Ordering::Relaxed)
-}
-
-impl GpuResource for GpuCubemap {
-    fn resident_bytes(&self) -> u64 {
-        self.resident_bytes
-    }
-
-    fn asset_id(&self) -> i32 {
-        self.asset_id
-    }
-}
+impl_gpu_resource!(GpuCubemap);
 
 /// Resident cubemap table.
 pub struct CubemapPool {

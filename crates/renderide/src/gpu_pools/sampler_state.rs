@@ -128,24 +128,9 @@ impl SamplerState {
 #[cfg(test)]
 mod tests {
     use super::SamplerState;
-    use crate::shared::{SetRenderTextureFormat, TextureFilterMode, TextureWrapMode};
-    use glam::IVec2;
+    use crate::gpu_pools::test_support::render_texture_format;
+    use crate::shared::{TextureFilterMode, TextureWrapMode};
     use renderide_shared::VideoTextureProperties;
-
-    fn render_texture_format(
-        wrap_u: TextureWrapMode,
-        wrap_v: TextureWrapMode,
-    ) -> SetRenderTextureFormat {
-        SetRenderTextureFormat {
-            asset_id: 42,
-            size: IVec2::new(128, 64),
-            depth: 24,
-            filter_mode: TextureFilterMode::Bilinear,
-            aniso_level: 8,
-            wrap_u,
-            wrap_v,
-        }
-    }
 
     #[test]
     fn render_texture_preserves_host_wrap_modes() {

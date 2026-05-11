@@ -24,8 +24,8 @@ use std::sync::Arc;
 
 use crate::assets::texture::estimate_gpu_texture_bytes;
 use crate::gpu::GpuLimits;
-use crate::gpu_pools::GpuResource;
 use crate::gpu_pools::VramResourceKind;
+use crate::gpu_pools::impl_gpu_resource;
 use crate::gpu_pools::resource_pool::{
     GpuResourcePool, UntrackedAccess, impl_resident_pool_facade,
 };
@@ -57,15 +57,7 @@ pub struct GpuRenderTexture {
     pub sampler: SamplerState,
 }
 
-impl GpuResource for GpuRenderTexture {
-    fn resident_bytes(&self) -> u64 {
-        self.resident_bytes
-    }
-
-    fn asset_id(&self) -> i32 {
-        self.asset_id
-    }
-}
+impl_gpu_resource!(GpuRenderTexture);
 
 impl GpuRenderTexture {
     /// Creates GPU storage for a host [`SetRenderTextureFormat`].
@@ -193,24 +185,8 @@ mod tests {
     //! Unit tests for host-driven render-texture sampler metadata.
 
     use crate::gpu_pools::sampler_state::SamplerState;
-    use crate::shared::{SetRenderTextureFormat, TextureFilterMode, TextureWrapMode};
-    use glam::IVec2;
-
-    /// Builds a format row with the supplied wrap modes.
-    fn render_texture_format(
-        wrap_u: TextureWrapMode,
-        wrap_v: TextureWrapMode,
-    ) -> SetRenderTextureFormat {
-        SetRenderTextureFormat {
-            asset_id: 42,
-            size: IVec2::new(128, 64),
-            depth: 24,
-            filter_mode: TextureFilterMode::Bilinear,
-            aniso_level: 8,
-            wrap_u,
-            wrap_v,
-        }
-    }
+    use crate::gpu_pools::test_support::render_texture_format;
+    use crate::shared::TextureWrapMode;
 
     /// Render textures must preserve the host's U/V wrap modes instead of renderer-forcing clamp.
     #[test]

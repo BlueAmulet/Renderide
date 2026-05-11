@@ -6,17 +6,9 @@ use crate::assets::mesh::{GpuMesh, MeshBufferLayout};
 use crate::materials::EmbeddedTangentFallbackMode;
 
 use crate::gpu_pools::resource_pool::{GpuResourcePool, StreamingAccess};
-use crate::gpu_pools::{GpuResource, VramAccounting};
+use crate::gpu_pools::{GpuResource, VramAccounting, impl_gpu_resource};
 
-impl GpuResource for GpuMesh {
-    fn resident_bytes(&self) -> u64 {
-        self.resident_bytes
-    }
-
-    fn asset_id(&self) -> i32 {
-        self.asset_id
-    }
-}
+impl_gpu_resource!(GpuMesh);
 
 /// Insert / remove pool for meshes; insert / remove update [`VramAccounting`] and notify the
 /// wired [`StreamingPolicy`].
@@ -122,38 +114,14 @@ impl MeshPool {
         asset_id: i32,
         tangent_fallback_mode: EmbeddedTangentFallbackMode,
     ) -> bool {
-        let (ok, before, after) = {
-            let Some(mesh) = self.inner.get_mut(asset_id) else {
-                return false;
-            };
-            let before = mesh.resident_bytes();
-            let ok = mesh.ensure_extended_vertex_streams(device, tangent_fallback_mode);
-            let after = mesh.resident_bytes();
-            (ok, before, after)
-        };
-        if ok {
-            self.inner.account_resident_delta(before, after);
-            self.inner.note_access(asset_id);
-        }
-        ok
+        self.ensure_stream(asset_id, |mesh| {
+            mesh.ensure_extended_vertex_streams(device, tangent_fallback_mode)
+        })
     }
 
     /// Lazily creates the UV1 buffer for meshes drawn by UV1-only embedded shaders.
     pub fn ensure_uv1_vertex_stream(&mut self, device: &wgpu::Device, asset_id: i32) -> bool {
-        let (ok, before, after) = {
-            let Some(mesh) = self.inner.get_mut(asset_id) else {
-                return false;
-            };
-            let before = mesh.resident_bytes();
-            let ok = mesh.ensure_uv1_vertex_stream(device);
-            let after = mesh.resident_bytes();
-            (ok, before, after)
-        };
-        if ok {
-            self.inner.account_resident_delta(before, after);
-            self.inner.note_access(asset_id);
-        }
-        ok
+        self.ensure_stream(asset_id, |mesh| mesh.ensure_uv1_vertex_stream(device))
     }
 
     /// Lazily creates the tangent buffer for meshes drawn by shaders declaring `@location(4)`.
@@ -163,48 +131,35 @@ impl MeshPool {
         asset_id: i32,
         tangent_fallback_mode: EmbeddedTangentFallbackMode,
     ) -> bool {
-        let (ok, before, after) = {
-            let Some(mesh) = self.inner.get_mut(asset_id) else {
-                return false;
-            };
-            let before = mesh.resident_bytes();
-            let ok = mesh.ensure_tangent_vertex_stream(device, tangent_fallback_mode);
-            let after = mesh.resident_bytes();
-            (ok, before, after)
-        };
-        if ok {
-            self.inner.account_resident_delta(before, after);
-            self.inner.note_access(asset_id);
-        }
-        ok
+        self.ensure_stream(asset_id, |mesh| {
+            mesh.ensure_tangent_vertex_stream(device, tangent_fallback_mode)
+        })
     }
 
     /// Lazily creates the UV2 buffer for meshes drawn by shaders declaring `@location(6)`.
     pub fn ensure_uv2_vertex_stream(&mut self, device: &wgpu::Device, asset_id: i32) -> bool {
-        let (ok, before, after) = {
-            let Some(mesh) = self.inner.get_mut(asset_id) else {
-                return false;
-            };
-            let before = mesh.resident_bytes();
-            let ok = mesh.ensure_uv2_vertex_stream(device);
-            let after = mesh.resident_bytes();
-            (ok, before, after)
-        };
-        if ok {
-            self.inner.account_resident_delta(before, after);
-            self.inner.note_access(asset_id);
-        }
-        ok
+        self.ensure_stream(asset_id, |mesh| mesh.ensure_uv2_vertex_stream(device))
     }
 
     /// Lazily creates the UV3 buffer for meshes drawn by shaders declaring `@location(7)`.
     pub fn ensure_uv3_vertex_stream(&mut self, device: &wgpu::Device, asset_id: i32) -> bool {
+        self.ensure_stream(asset_id, |mesh| mesh.ensure_uv3_vertex_stream(device))
+    }
+
+    /// Runs `op` against the resident mesh for `asset_id` (if any), then
+    /// reconciles VRAM accounting and notifies the streaming policy when the
+    /// operation succeeds. Does not touch `mutation_generation`: vertex-stream
+    /// additions are content-internal, not membership changes.
+    fn ensure_stream<F>(&mut self, asset_id: i32, op: F) -> bool
+    where
+        F: FnOnce(&mut GpuMesh) -> bool,
+    {
         let (ok, before, after) = {
             let Some(mesh) = self.inner.get_mut(asset_id) else {
                 return false;
             };
             let before = mesh.resident_bytes();
-            let ok = mesh.ensure_uv3_vertex_stream(device);
+            let ok = op(mesh);
             let after = mesh.resident_bytes();
             (ok, before, after)
         };
