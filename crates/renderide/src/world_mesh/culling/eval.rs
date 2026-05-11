@@ -341,6 +341,7 @@ mod overlay_cull_tests {
         let geom = MeshCullGeometry {
             world_aabb: Some((Vec3::splat(10_000.0), Vec3::splat(10_001.0))),
             rigid_world_matrix: Some(model),
+            front_face_world_matrix: Some(model),
         };
 
         let Ok(accepted) =
@@ -363,6 +364,7 @@ mod overlay_cull_tests {
         let geom = MeshCullGeometry {
             world_aabb: None,
             rigid_world_matrix: Some(model),
+            front_face_world_matrix: Some(model),
         };
 
         let res = mesh_cpu_cull_with_geometry(
@@ -386,6 +388,7 @@ mod overlay_cull_tests {
         let geom = MeshCullGeometry {
             world_aabb: None,
             rigid_world_matrix: Some(model),
+            front_face_world_matrix: Some(model),
         };
 
         let res = mesh_cpu_cull_with_geometry(
@@ -410,6 +413,7 @@ mod overlay_cull_tests {
         let geom = MeshCullGeometry {
             world_aabb: None,
             rigid_world_matrix: Some(model),
+            front_face_world_matrix: Some(model),
         };
 
         let res =

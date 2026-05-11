@@ -39,6 +39,8 @@ pub(super) struct DrawCandidate {
     pub(super) world_space_deformed: bool,
     /// Whether blendshape scatter writes cache-backed positions for this draw.
     pub(super) blendshape_deformed: bool,
+    /// Whether active blendshape tangent deltas should deform this draw if the material reads tangents.
+    pub(super) tangent_blendshape_deform_active: bool,
     /// Material asset after render-context override resolution.
     pub(super) material_asset_id: i32,
     /// Property block associated with material slot zero.
@@ -91,6 +93,8 @@ pub(super) fn evaluate_draw_candidate(
         return None;
     }
     let batch_key = apply_overlay_layer_depth_policy(batch_key, candidate.is_overlay);
+    let blendshape_deformed = candidate.blendshape_deformed
+        || (candidate.tangent_blendshape_deform_active && batch_key.embedded_needs_tangent);
     let camera_distance_sq = if render_queue_is_transparent(batch_key.render_queue) {
         alpha_distance_sq
     } else {
@@ -128,7 +132,7 @@ pub(super) fn evaluate_draw_candidate(
         sorting_order: candidate.sorting_order,
         skinned: candidate.skinned,
         world_space_deformed: candidate.world_space_deformed,
-        blendshape_deformed: candidate.blendshape_deformed,
+        blendshape_deformed,
         collect_order: 0,
         camera_distance_sq,
         lookup_ids,
@@ -214,6 +218,7 @@ mod tests {
             skinned: true,
             world_space_deformed: true,
             blendshape_deformed: true,
+            tangent_blendshape_deform_active: false,
             material_asset_id: 11,
             property_block_id: None,
             world_aabb: None,
@@ -276,6 +281,7 @@ mod tests {
             skinned: false,
             world_space_deformed: false,
             blendshape_deformed: false,
+            tangent_blendshape_deform_active: false,
             material_asset_id: 11,
             property_block_id: None,
             world_aabb: None,

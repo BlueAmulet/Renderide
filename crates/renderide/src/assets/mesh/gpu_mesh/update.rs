@@ -87,6 +87,22 @@ impl GpuMesh {
             && has_supported_channel
     }
 
+    /// Returns whether active blendshape tangent deltas can affect tangent-space shading.
+    ///
+    /// Unlike [`Self::supports_active_blendshape_deform`], this does not require the tangent stream
+    /// to already exist. Draw collection uses it to request lazy tangent-stream pre-warm before the
+    /// frame-global deform pass records.
+    pub fn supports_active_tangent_blendshape_deform(&self, blend_weights: &[f32]) -> bool {
+        self.blendshape_has_tangent_deltas
+            && blendshape_deform_is_active(
+                self.num_blendshapes,
+                &self.blendshape_shape_frame_spans,
+                &self.blendshape_frame_ranges,
+                blend_weights,
+            )
+            && self.blendshape_sparse_buffer.is_some()
+    }
+
     /// Creates tangent / UV1-3 streams the first time an embedded shader needs all of them.
     pub(crate) fn ensure_extended_vertex_streams(
         &mut self,

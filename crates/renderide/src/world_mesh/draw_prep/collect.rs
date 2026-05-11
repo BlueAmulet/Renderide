@@ -19,7 +19,7 @@ use crate::materials::ShaderPermutation;
 use crate::materials::host_data::MaterialDictionary;
 use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter, RasterFrontFace};
 use crate::reflection_probes::specular::ReflectionProbeFrameSelection;
-use crate::scene::{RenderSpaceId, SceneCoordinator};
+use crate::scene::{RenderSpaceId, SceneCoordinator, SkinnedMeshRenderer};
 use crate::shared::RenderingContext;
 use crate::world_mesh::culling::WorldMeshCullInput;
 use crate::world_mesh::materials::{
@@ -81,6 +81,44 @@ fn front_face_for_world_matrix(world_matrix: Option<Mat4>) -> RasterFrontFace {
     world_matrix
         .map(RasterFrontFace::from_model_matrix)
         .unwrap_or_default()
+}
+
+/// Resolves root-transform parity for skinned world-space vertex streams.
+#[inline]
+fn skinned_front_face_world_matrix(
+    ctx: &DrawCollectionContext<'_>,
+    space_id: RenderSpaceId,
+    node_id: i32,
+    skinned: Option<&SkinnedMeshRenderer>,
+) -> Option<Mat4> {
+    let root_node = skinned
+        .and_then(|renderer| renderer.root_bone_transform_id)
+        .filter(|&id| id >= 0)
+        .unwrap_or(node_id);
+    if root_node < 0 {
+        return None;
+    }
+    ctx.scene.world_matrix_for_render_context(
+        space_id,
+        root_node as usize,
+        ctx.render_context,
+        ctx.head_output_transform,
+    )
+}
+
+/// Selects the determinant source used for front-face winding.
+#[inline]
+fn front_face_for_draw_matrices(
+    world_space_deformed: bool,
+    rigid_world_matrix: Option<Mat4>,
+    deformed_front_face_world_matrix: Option<Mat4>,
+) -> RasterFrontFace {
+    if world_space_deformed {
+        return front_face_for_world_matrix(
+            deformed_front_face_world_matrix.or(rigid_world_matrix),
+        );
+    }
+    front_face_for_world_matrix(rigid_world_matrix)
 }
 
 /// Read-only scene, material, and cull state shared across all spaces during draw collection.

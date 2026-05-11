@@ -18,7 +18,10 @@ use hashbrown::HashSet;
 use rayon::prelude::*;
 
 use crate::gpu_pools::MeshPool;
-use crate::scene::{MeshMaterialSlot, MeshRendererInstanceId, RenderSpaceId, SceneCoordinator};
+use crate::scene::{
+    MeshMaterialSlot, MeshRendererInstanceId, RenderSpaceId, SceneCoordinator, SkinnedMeshRenderer,
+    StaticMeshRenderer,
+};
 use crate::shared::RenderingContext;
 use crate::world_mesh::culling::{
     MeshCullGeometry, MeshCullTarget, mesh_world_geometry_for_cull_with_head,
@@ -58,6 +61,8 @@ pub(super) struct FramePreparedDraw {
     pub world_space_deformed: bool,
     /// Cached result of [`crate::assets::mesh::GpuMesh::supports_active_blendshape_deform`].
     pub blendshape_deformed: bool,
+    /// Cached active tangent-blendshape state used when a material needs tangent-space shading.
+    pub tangent_blendshape_deform_active: bool,
     /// Material-slot index within the renderer's slot / primary fallback list.
     pub slot_index: usize,
     /// First index in the mesh index buffer for the selected submesh range.
@@ -334,7 +339,7 @@ struct RenderableExpansion<'a> {
     /// Renderer-local identity that survives dense table reindexing.
     instance_id: MeshRendererInstanceId,
     /// Renderer record (shared base for static and skinned variants).
-    renderer: &'a crate::scene::StaticMeshRenderer,
+    renderer: &'a StaticMeshRenderer,
     /// GPU mesh resolved from the mesh pool.
     mesh: &'a crate::assets::mesh::GpuMesh,
     /// Whether this renderable is on the skinned path.
@@ -343,6 +348,8 @@ struct RenderableExpansion<'a> {
     world_space_deformed: bool,
     /// Whether the mesh has active blendshape weights this frame.
     blendshape_deformed: bool,
+    /// Whether active blendshape tangent deltas should run for tangent-reading materials.
+    tangent_blendshape_deform_active: bool,
     /// Frame-time precomputed cull geometry for the renderer (`None` for overlay spaces).
     cull_geometry: Option<MeshCullGeometry>,
 }
@@ -422,8 +429,36 @@ pub(super) fn expand_space_into(
     }
 
     let space_is_overlay = space.is_overlay();
+    expand_static_renderers(
+        out,
+        scene,
+        mesh_pool,
+        render_context,
+        space_id,
+        space_is_overlay,
+        space.static_mesh_renderers(),
+    );
+    expand_skinned_renderers(
+        out,
+        scene,
+        mesh_pool,
+        render_context,
+        space_id,
+        space_is_overlay,
+        space.skinned_mesh_renderers(),
+    );
+}
 
-    for (renderable_index, r) in space.static_mesh_renderers().iter().enumerate() {
+fn expand_static_renderers(
+    out: &mut Vec<FramePreparedDraw>,
+    scene: &SceneCoordinator,
+    mesh_pool: &MeshPool,
+    render_context: RenderingContext,
+    space_id: RenderSpaceId,
+    space_is_overlay: bool,
+    renderers: &[StaticMeshRenderer],
+) {
+    for (renderable_index, r) in renderers.iter().enumerate() {
         if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
             continue;
         }
@@ -463,12 +498,24 @@ pub(super) fn expand_space_into(
                 skinned: false,
                 world_space_deformed: false,
                 blendshape_deformed: mesh.supports_active_blendshape_deform(&r.blend_shape_weights),
+                tangent_blendshape_deform_active: mesh
+                    .supports_active_tangent_blendshape_deform(&r.blend_shape_weights),
                 cull_geometry,
             },
         );
     }
+}
 
-    for (renderable_index, sk) in space.skinned_mesh_renderers().iter().enumerate() {
+fn expand_skinned_renderers(
+    out: &mut Vec<FramePreparedDraw>,
+    scene: &SceneCoordinator,
+    mesh_pool: &MeshPool,
+    render_context: RenderingContext,
+    space_id: RenderSpaceId,
+    space_is_overlay: bool,
+    renderers: &[SkinnedMeshRenderer],
+) {
+    for (renderable_index, sk) in renderers.iter().enumerate() {
         let r = &sk.base;
         if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
             continue;
@@ -489,6 +536,8 @@ pub(super) fn expand_space_into(
         let world_space_deformed =
             mesh.supports_world_space_skin_deform(Some(sk.bone_transform_indices.as_slice()));
         let blendshape_deformed = mesh.supports_active_blendshape_deform(&r.blend_shape_weights);
+        let tangent_blendshape_deform_active =
+            mesh.supports_active_tangent_blendshape_deform(&r.blend_shape_weights);
         let cull_geometry = precompute_cull_geometry(PrecomputeCullInputs {
             scene,
             space_id,
@@ -512,6 +561,7 @@ pub(super) fn expand_space_into(
                 skinned: true,
                 world_space_deformed,
                 blendshape_deformed,
+                tangent_blendshape_deform_active,
                 cull_geometry,
             },
         );
@@ -525,7 +575,7 @@ struct PrecomputeCullInputs<'a> {
     space_is_overlay: bool,
     mesh: &'a crate::assets::mesh::GpuMesh,
     skinned: bool,
-    skinned_renderer: Option<&'a crate::scene::SkinnedMeshRenderer>,
+    skinned_renderer: Option<&'a SkinnedMeshRenderer>,
     node_id: i32,
     render_context: RenderingContext,
 }
@@ -587,6 +637,7 @@ fn expand_renderer_slots(
         skinned,
         world_space_deformed,
         blendshape_deformed,
+        tangent_blendshape_deform_active,
         cull_geometry,
     } = renderable;
     let fallback_slot;
@@ -645,6 +696,7 @@ fn expand_renderer_slots(
             skinned,
             world_space_deformed,
             blendshape_deformed,
+            tangent_blendshape_deform_active,
             slot_index,
             first_index,
             index_count,
@@ -682,6 +734,7 @@ mod tests {
             skinned: false,
             world_space_deformed: false,
             blendshape_deformed: false,
+            tangent_blendshape_deform_active: false,
             slot_index: 0,
             first_index: 0,
             index_count: 3,

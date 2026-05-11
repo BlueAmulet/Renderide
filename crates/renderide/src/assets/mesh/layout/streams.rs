@@ -4,6 +4,19 @@ use crate::shared::{VertexAttributeDescriptor, VertexAttributeFormat, VertexAttr
 
 use super::buffer_layout::vertex_format_size;
 
+/// Attribute semantic used when expanding host vertex scalars into float streams.
+#[derive(Clone, Copy)]
+pub(in crate::assets::mesh) enum VertexDecodeKind {
+    /// Object-space position data.
+    Position,
+    /// Direction vectors such as normals and tangents.
+    Direction,
+    /// Texture coordinate data.
+    TexCoord,
+    /// Vertex color channels.
+    Color,
+}
+
 /// Returns byte offset and size of the first attribute of `target` type in the interleaved vertex.
 pub fn attribute_offset_and_size(
     attrs: &[VertexAttributeDescriptor],
@@ -23,7 +36,7 @@ pub fn attribute_offset_and_size(
 /// Extracts a float3 position stream and a normal stream from interleaved vertices into dense
 /// `vec4<f32>` storage (16 bytes each per vertex).
 ///
-/// Position must be at least three-component `float32`. Normal is allowed to be absent or
+/// Position must be at least three-component numeric data. Normal is allowed to be absent or
 /// unsupported; in that case a stable +Z normal is synthesized so UI meshes that do not upload
 /// normals still satisfy the shared raster vertex layout.
 pub fn extract_float3_position_normal_as_vec4_streams(
@@ -43,10 +56,10 @@ pub fn extract_float3_position_normal_as_vec4_streams(
     let pos_attr = attrs
         .iter()
         .find(|a| (a.attribute as i16) == (VertexAttributeType::Position as i16))?;
-    if pos_attr.format != VertexAttributeFormat::Float32 || pos_attr.dimensions < 3 {
+    if pos_attr.dimensions < 3 {
         return None;
     }
-    if pos.1 < 12 {
+    if pos.1 < vertex_format_size(pos_attr.format) as usize * 3 {
         return None;
     }
 
@@ -59,12 +72,13 @@ pub fn extract_float3_position_normal_as_vec4_streams(
     let nrm_attr = attrs
         .iter()
         .find(|a| (a.attribute as i16) == (VertexAttributeType::Normal as i16));
-    let nrm_offset = if matches!(
+    let nrm_attr_and_offset = if matches!(
         (nrm, nrm_attr),
         (Some((_, sz)), Some(attr))
-            if attr.format == VertexAttributeFormat::Float32 && attr.dimensions >= 3 && sz >= 12
+            if attr.dimensions >= 3 && sz >= vertex_format_size(attr.format) as usize * 3
     ) {
-        nrm.map(|(off, _)| off)
+        nrm.zip(nrm_attr.copied())
+            .map(|((off, _), attr)| (off, attr))
     } else {
         None
     };
@@ -72,20 +86,16 @@ pub fn extract_float3_position_normal_as_vec4_streams(
     for i in 0..vertex_count {
         let base = i * stride;
         let p0 = base + pos.0;
-        if p0 + 12 > vertex_data.len() {
-            return None;
-        }
+        let position = decode_vertex_vec3(vertex_data, p0, *pos_attr, VertexDecodeKind::Position)?;
         let po = i * 16;
-        pos_out[po..po + 12].copy_from_slice(&vertex_data[p0..p0 + 12]);
+        write_f32s(&mut pos_out[po..po + 12], &position);
         pos_out[po + 12..po + 16].copy_from_slice(&one);
 
-        if let Some(nrm_offset) = nrm_offset {
+        if let Some((nrm_offset, attr)) = nrm_attr_and_offset {
             let n0 = base + nrm_offset;
-            if n0 + 12 > vertex_data.len() {
-                return None;
-            }
+            let normal = decode_vertex_vec3(vertex_data, n0, attr, VertexDecodeKind::Direction)?;
             let no = i * 16;
-            nrm_out[no..no + 12].copy_from_slice(&vertex_data[n0..n0 + 12]);
+            write_f32s(&mut nrm_out[no..no + 12], &normal);
         }
     }
     Some((pos_out, nrm_out))
@@ -104,8 +114,8 @@ fn fill_normal_stream_with_forward_z(out: &mut [u8]) {
 
 /// Dense `vec2<f32>` UV stream (`8` bytes per vertex) for embedded materials (e.g. world Unlit).
 ///
-/// When [`VertexAttributeType::UV0`] is missing or not `float32`x2, returns **zeros** so a vertex buffer
-/// slot can always be bound.
+/// When [`VertexAttributeType::UV0`] is missing or has fewer than two components, returns **zeros**
+/// so a vertex buffer slot can always be bound.
 pub fn uv0_float2_stream_bytes(
     vertex_data: &[u8],
     vertex_count: usize,
@@ -121,7 +131,7 @@ pub fn uv0_float2_stream_bytes(
     )
 }
 
-/// Dense `vec2<f32>` vertex stream for an arbitrary float2 attribute.
+/// Dense `vec2<f32>` vertex stream for an arbitrary two-component attribute.
 ///
 /// Missing or unsupported attributes return zeros so optional embedded shader streams can still
 /// bind a stable vertex buffer slot.
@@ -146,19 +156,17 @@ pub fn vertex_float2_stream_bytes(
     let attr = attrs
         .iter()
         .find(|a| (a.attribute as i16) == (target as i16))?;
-    if attr.format != VertexAttributeFormat::Float32 || attr.dimensions < 2 {
+    if attr.dimensions < 2 {
         return Some(out);
     }
-    if sz < 8 {
+    if sz < vertex_format_size(attr.format) as usize * 2 {
         return Some(out);
     }
     for i in 0..vertex_count {
         let base = i * stride + off;
-        if base + 8 > vertex_data.len() {
-            return None;
-        }
+        let uv = decode_vertex_vec2(vertex_data, base, *attr, VertexDecodeKind::TexCoord)?;
         let o = i * 8;
-        out[o..o + 8].copy_from_slice(&vertex_data[base..base + 8]);
+        write_f32s(&mut out[o..o + 8], &uv);
     }
     Some(out)
 }
@@ -196,23 +204,24 @@ pub fn vertex_float4_stream_bytes(
     let attr = attrs
         .iter()
         .find(|a| (a.attribute as i16) == (target as i16))?;
-    if attr.format != VertexAttributeFormat::Float32 || attr.dimensions < 1 {
+    if attr.dimensions < 1 {
         return Some(out);
     }
     let dims = attr.dimensions.clamp(1, 4) as usize;
-    if sz < dims * 4 {
+    if sz < dims * vertex_format_size(attr.format) as usize {
         return Some(out);
     }
     for i in 0..vertex_count {
         let base = i * stride + off;
-        if base + dims * 4 > vertex_data.len() {
-            return None;
-        }
+        let values = decode_vertex_vec4(
+            vertex_data,
+            base,
+            *attr,
+            VertexDecodeKind::Position,
+            default,
+        )?;
         let o = i * 16;
-        for c in 0..dims {
-            let src = base + c * 4;
-            out[o + c * 4..o + c * 4 + 4].copy_from_slice(&vertex_data[src..src + 4]);
-        }
+        write_f32s(&mut out[o..o + 16], &values);
     }
 
     Some(out)
@@ -244,19 +253,21 @@ pub fn color_float4_stream_bytes(
     let color_attr = attrs
         .iter()
         .find(|a| (a.attribute as i16) == (VertexAttributeType::Color as i16))?;
+    if color_attr.dimensions < 1 {
+        return Some(out);
+    }
 
     for i in 0..vertex_count {
         let base = i * stride + off;
-        if base >= vertex_data.len() {
-            return None;
-        }
-        let Some(rgba) = decode_vertex_color(vertex_data, base, *color_attr) else {
-            return Some(out);
-        };
+        let rgba = decode_vertex_vec4(
+            vertex_data,
+            base,
+            *color_attr,
+            VertexDecodeKind::Color,
+            [1.0; 4],
+        )?;
         let o = i * 16;
-        for (component, value) in rgba.into_iter().enumerate() {
-            out[o + component * 4..o + component * 4 + 4].copy_from_slice(&value.to_le_bytes());
-        }
+        write_f32s(&mut out[o..o + 16], &rgba);
     }
 
     Some(out)
@@ -272,36 +283,167 @@ fn fill_color_stream_with_white(out: &mut [u8]) {
     }
 }
 
-fn decode_vertex_color(
+fn decode_vertex_scalar(
+    vertex_data: &[u8],
+    base: usize,
+    component: usize,
+    format: VertexAttributeFormat,
+    kind: VertexDecodeKind,
+) -> Option<f32> {
+    let scalar_size = vertex_format_size(format) as usize;
+    let offset = base.checked_add(component.checked_mul(scalar_size)?)?;
+    match format {
+        VertexAttributeFormat::Float32 => {
+            let src = vertex_data.get(offset..offset + 4)?;
+            Some(f32::from_le_bytes(src.try_into().ok()?))
+        }
+        VertexAttributeFormat::Half16 => {
+            let src = vertex_data.get(offset..offset + 2)?;
+            Some(f16_to_f32(u16::from_le_bytes(src.try_into().ok()?)))
+        }
+        VertexAttributeFormat::UNorm8 => {
+            let value = f32::from(*vertex_data.get(offset)?) / 255.0;
+            Some(apply_unsigned_normalized(value, kind))
+        }
+        VertexAttributeFormat::UNorm16 => {
+            let src = vertex_data.get(offset..offset + 2)?;
+            let value = f32::from(u16::from_le_bytes(src.try_into().ok()?)) / 65535.0;
+            Some(apply_unsigned_normalized(value, kind))
+        }
+        VertexAttributeFormat::UInt8 => {
+            let value = f32::from(*vertex_data.get(offset)?);
+            Some(apply_unsigned_integer(value, 255.0, kind))
+        }
+        VertexAttributeFormat::UInt16 => {
+            let src = vertex_data.get(offset..offset + 2)?;
+            let value = f32::from(u16::from_le_bytes(src.try_into().ok()?));
+            Some(apply_unsigned_integer(value, 65535.0, kind))
+        }
+        VertexAttributeFormat::UInt32 => {
+            let src = vertex_data.get(offset..offset + 4)?;
+            Some(u32::from_le_bytes(src.try_into().ok()?) as f32)
+        }
+        VertexAttributeFormat::SInt8 => {
+            let value = i8::from_le_bytes([*vertex_data.get(offset)?]);
+            Some(apply_signed_integer(f32::from(value), 127.0, kind))
+        }
+        VertexAttributeFormat::SInt16 => {
+            let src = vertex_data.get(offset..offset + 2)?;
+            let value = i16::from_le_bytes(src.try_into().ok()?);
+            Some(apply_signed_integer(f32::from(value), 32767.0, kind))
+        }
+        VertexAttributeFormat::SInt32 => {
+            let src = vertex_data.get(offset..offset + 4)?;
+            let value = i32::from_le_bytes(src.try_into().ok()?);
+            Some(apply_signed_integer(value as f32, i32::MAX as f32, kind))
+        }
+    }
+}
+
+/// Decodes a two-component vertex attribute into `f32` values.
+pub(in crate::assets::mesh) fn decode_vertex_vec2(
     vertex_data: &[u8],
     base: usize,
     attr: VertexAttributeDescriptor,
-) -> Option<[f32; 4]> {
-    let dims = attr.dimensions.clamp(1, 4) as usize;
-    let mut rgba = [1.0f32; 4];
-    match attr.format {
-        VertexAttributeFormat::UNorm8 | VertexAttributeFormat::UInt8 => {
-            let end = base.checked_add(dims)?;
-            let src = vertex_data.get(base..end)?;
-            for (i, byte) in src.iter().take(dims).enumerate() {
-                rgba[i] = f32::from(*byte) / 255.0;
-            }
-        }
-        VertexAttributeFormat::UNorm16 | VertexAttributeFormat::UInt16 => {
-            let end = base.checked_add(dims.checked_mul(2)?)?;
-            let src = vertex_data.get(base..end)?;
-            for (i, chunk) in src.chunks(2).take(dims).enumerate() {
-                rgba[i] = f32::from(u16::from_le_bytes(chunk.try_into().ok()?)) / 65535.0;
-            }
-        }
-        VertexAttributeFormat::Float32 => {
-            let end = base.checked_add(dims.checked_mul(4)?)?;
-            let src = vertex_data.get(base..end)?;
-            for (i, chunk) in src.chunks(4).take(dims).enumerate() {
-                rgba[i] = f32::from_le_bytes(chunk.try_into().ok()?);
-            }
-        }
-        _ => return None,
+    kind: VertexDecodeKind,
+) -> Option<[f32; 2]> {
+    if attr.dimensions < 2 {
+        return None;
     }
-    Some(rgba)
+    Some([
+        decode_vertex_scalar(vertex_data, base, 0, attr.format, kind)?,
+        decode_vertex_scalar(vertex_data, base, 1, attr.format, kind)?,
+    ])
+}
+
+/// Decodes a three-component vertex attribute into `f32` values.
+pub(in crate::assets::mesh) fn decode_vertex_vec3(
+    vertex_data: &[u8],
+    base: usize,
+    attr: VertexAttributeDescriptor,
+    kind: VertexDecodeKind,
+) -> Option<[f32; 3]> {
+    if attr.dimensions < 3 {
+        return None;
+    }
+    Some([
+        decode_vertex_scalar(vertex_data, base, 0, attr.format, kind)?,
+        decode_vertex_scalar(vertex_data, base, 1, attr.format, kind)?,
+        decode_vertex_scalar(vertex_data, base, 2, attr.format, kind)?,
+    ])
+}
+
+/// Decodes up to four vertex attribute components into `f32` values.
+pub(in crate::assets::mesh) fn decode_vertex_vec4(
+    vertex_data: &[u8],
+    base: usize,
+    attr: VertexAttributeDescriptor,
+    kind: VertexDecodeKind,
+    default: [f32; 4],
+) -> Option<[f32; 4]> {
+    if attr.dimensions < 1 {
+        return None;
+    }
+    let dims = attr.dimensions.clamp(1, 4) as usize;
+    let mut out = default;
+    for (component, value) in out.iter_mut().enumerate().take(dims) {
+        *value = decode_vertex_scalar(vertex_data, base, component, attr.format, kind)?;
+    }
+    Some(out)
+}
+
+fn write_f32s<const N: usize>(dst: &mut [u8], values: &[f32; N]) {
+    for (component, value) in values.iter().enumerate() {
+        let offset = component * 4;
+        dst[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    }
+}
+
+fn apply_unsigned_normalized(value: f32, kind: VertexDecodeKind) -> f32 {
+    if matches!(kind, VertexDecodeKind::Direction) {
+        value.mul_add(2.0, -1.0)
+    } else {
+        value
+    }
+}
+
+fn apply_unsigned_integer(value: f32, max_value: f32, kind: VertexDecodeKind) -> f32 {
+    match kind {
+        VertexDecodeKind::Color => value / max_value,
+        VertexDecodeKind::Direction => (value / max_value).mul_add(2.0, -1.0),
+        VertexDecodeKind::Position | VertexDecodeKind::TexCoord => value,
+    }
+}
+
+fn apply_signed_integer(value: f32, max_abs_value: f32, kind: VertexDecodeKind) -> f32 {
+    if matches!(kind, VertexDecodeKind::Direction) {
+        (value / max_abs_value).max(-1.0)
+    } else {
+        value
+    }
+}
+
+fn f16_to_f32(bits: u16) -> f32 {
+    let sign = (u32::from(bits & 0x8000)) << 16;
+    let exponent = (bits >> 10) & 0x1f;
+    let mantissa = u32::from(bits & 0x03ff);
+    let out = match exponent {
+        0 => {
+            if mantissa == 0 {
+                sign
+            } else {
+                let mut mant = mantissa;
+                let mut exp = -14i32;
+                while (mant & 0x0400) == 0 {
+                    mant <<= 1;
+                    exp -= 1;
+                }
+                mant &= 0x03ff;
+                sign | (((exp + 127) as u32) << 23) | (mant << 13)
+            }
+        }
+        0x1f => sign | 0x7f80_0000 | (mantissa << 13),
+        _ => sign | ((u32::from(exponent) + 112) << 23) | (mantissa << 13),
+    };
+    f32::from_bits(out)
 }

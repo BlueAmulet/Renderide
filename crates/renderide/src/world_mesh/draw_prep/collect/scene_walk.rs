@@ -12,7 +12,8 @@ use crate::world_mesh::materials::FrameMaterialBatchCache;
 
 use super::candidate::{DrawCandidate, evaluate_draw_candidate};
 use super::{
-    DrawCollectionContext, front_face_for_world_matrix, world_matrix_for_local_vertex_stream,
+    DrawCollectionContext, front_face_for_draw_matrices, skinned_front_face_world_matrix,
+    world_matrix_for_local_vertex_stream,
 };
 
 use super::super::item::{
@@ -44,6 +45,8 @@ struct OverlayDeformCullFlags<'a> {
     world_space_deformed: bool,
     /// Mesh has active blendshape weights and uses cache-backed positions.
     blendshape_deformed: bool,
+    /// Active blendshape tangent deltas should run when a material reads tangents.
+    tangent_blendshape_deform_active: bool,
     /// Cached cull outcome for this renderer; `None` when the cull was skipped (skinned or no
     /// culling pass active).
     cached_cull: Option<&'a CachedCull>,
@@ -189,6 +192,9 @@ fn push_draws_for_renderer(
     let blendshape_deformed = draw
         .mesh
         .supports_active_blendshape_deform(&draw.renderer.blend_shape_weights);
+    let tangent_blendshape_deform_active = draw
+        .mesh
+        .supports_active_tangent_blendshape_deform(&draw.renderer.blend_shape_weights);
 
     // Cull hoist: when a renderer expands to multiple material slots, every slot's cull would
     // otherwise re-test the same world AABB / Hi-Z. Compute it once and feed every slot the
@@ -220,6 +226,7 @@ fn push_draws_for_renderer(
                 is_overlay,
                 world_space_deformed,
                 blendshape_deformed,
+                tangent_blendshape_deform_active,
                 cached_cull: cached_cull.as_ref(),
             },
             cache,
@@ -323,6 +330,7 @@ fn push_one_slot_draw(
         is_overlay,
         world_space_deformed,
         blendshape_deformed,
+        tangent_blendshape_deform_active,
         cached_cull,
     } = flags;
     let material_asset_id = ctx
@@ -361,7 +369,21 @@ fn push_one_slot_draw(
         rigid_world_matrix =
             world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id, false);
     }
-    let front_face = front_face_for_world_matrix(rigid_world_matrix);
+    let deformed_front_face_world_matrix = if world_space_deformed {
+        skinned_front_face_world_matrix(
+            ctx,
+            draw.space_id,
+            draw.renderer.node_id,
+            draw.skinned_renderer,
+        )
+    } else {
+        None
+    };
+    let front_face = front_face_for_draw_matrices(
+        world_space_deformed,
+        rigid_world_matrix,
+        deformed_front_face_world_matrix,
+    );
     let primitive_topology =
         stacked_material_submesh_topology(slot_index, &draw.mesh.submesh_topologies);
     let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
@@ -382,6 +404,7 @@ fn push_one_slot_draw(
         skinned: draw.skinned,
         world_space_deformed,
         blendshape_deformed,
+        tangent_blendshape_deform_active,
         material_asset_id,
         property_block_id: slot.property_block_id,
         world_aabb,

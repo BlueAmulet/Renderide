@@ -53,7 +53,8 @@ fn inverse_transpose_3x3(m: mat3x3<f32>) -> mat3x3<f32> {
     let c1 = m[1];
     let c2 = m[2];
     let det = dot(c0, cross(c1, c2));
-    if (abs(det) < 1e-12) {
+    let abs_det = abs(det);
+    if (!(abs_det >= 1e-12) || abs_det > 3.402823e38) {
         return mat3x3<f32>(
             vec3<f32>(1.0, 0.0, 0.0),
             vec3<f32>(0.0, 1.0, 0.0),
@@ -79,6 +80,25 @@ fn safe_normalize(v: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
         return fallback;
     }
     return v * inverseSqrt(len_sq);
+}
+
+fn tangent_fallback_from_normal(n: vec3<f32>) -> vec3<f32> {
+    let sign = select(-1.0, 1.0, n.z >= 0.0);
+    let a = -1.0 / (sign + n.z);
+    let b = n.x * n.y * a;
+    return safe_normalize(
+        vec3<f32>(1.0 + sign * n.x * n.x * a, sign * b, -sign * n.x),
+        vec3<f32>(1.0, 0.0, 0.0),
+    );
+}
+
+fn orthogonal_tangent(t: vec3<f32>, n: vec3<f32>, fallback: vec3<f32>) -> vec3<f32> {
+    let t_ortho = t - n * dot(t, n);
+    let fallback_ortho = fallback - n * dot(fallback, n);
+    return safe_normalize(
+        t_ortho,
+        safe_normalize(fallback_ortho, tangent_fallback_from_normal(n)),
+    );
 }
 
 @compute @workgroup_size(64)
@@ -140,10 +160,11 @@ fn skin_main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     if (ws > 1e-6) {
         dst_pos[dst_pi] = vec4<f32>((acc / ws).xyz, p.w);
-        let nn = safe_normalize(acc_n / ws, n_bind);
+        let n_fallback = safe_normalize(n_bind, vec3<f32>(0.0, 0.0, 1.0));
+        let nn = safe_normalize(acc_n / ws, n_fallback);
         dst_n[dst_ni] = vec4<f32>(nn, nb.w);
         if (tangent_enabled) {
-            let tt = safe_normalize(acc_t / ws, t_bind);
+            let tt = orthogonal_tangent(acc_t / ws, nn, t_bind);
             let bb = safe_normalize(acc_b / ws, b_bind);
             let sign = select(1.0, -1.0, dot(cross(nn, tt), bb) < 0.0);
             dst_t[dst_ti] = vec4<f32>(tt, sign);
