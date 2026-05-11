@@ -1,6 +1,7 @@
 //! Window, GPU, and OpenXR target creation for the winit driver.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use thiserror::Error;
 use winit::event_loop::ActiveEventLoop;
@@ -19,6 +20,12 @@ use super::super::bootstrap::GpuStartupConfig;
 use super::super::exit::ExitReason;
 use super::super::window_icon::try_embedded_window_icon;
 use super::shutdown::GracefulShutdown;
+
+/// Upper bound on the device-wide GPU drain performed before tearing down the OpenXR
+/// swapchain. Bounded so a stuck driver does not block the rest of the shutdown
+/// sequence; on timeout we proceed and rely on the wgpu drop-callback (which now skips
+/// `vkDestroyImage` for runtime-owned images) to keep teardown safe.
+const GPU_SHUTDOWN_POLL_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Fully initialized windowed render target.
 pub(super) struct RenderTarget {
@@ -185,7 +192,26 @@ impl RenderTarget {
         match &mut self.mode {
             RenderTargetMode::Desktop => true,
             RenderTargetMode::Openxr { session } => {
-                poll_openxr_shutdown(&mut session.handles.xr_session, shutdown)
+                let quiesced = poll_openxr_shutdown(&mut session.handles.xr_session, shutdown);
+                if quiesced {
+                    // Drain in-flight GPU work that may still reference OpenXR swapchain
+                    // images before either wgpu or the runtime tears them down.
+                    // `wait_for_previous_present` only covers the desktop mirror; the
+                    // headset swapchain needs an explicit device-wide wait so any
+                    // submission that touched a `VkImage` from `XrStereoSwapchain` has
+                    // retired before `xrDestroySwapchain` runs. Bounded so a stuck driver
+                    // cannot hold up the rest of the teardown sequence.
+                    let poll_type = wgpu::PollType::Wait {
+                        submission_index: None,
+                        timeout: Some(GPU_SHUTDOWN_POLL_TIMEOUT),
+                    };
+                    if let Err(error) = self.gpu.device().poll(poll_type) {
+                        logger::warn!(
+                            "OpenXR shutdown: device poll(Wait) failed before swapchain teardown: {error:?}"
+                        );
+                    }
+                }
+                quiesced
             }
         }
     }

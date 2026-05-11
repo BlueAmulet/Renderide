@@ -42,16 +42,26 @@ pub enum XrSwapchainError {
 }
 
 /// OpenXR swapchain plus one wgpu texture + D2Array view per swapchain image.
+///
+/// Field order is load-bearing: `wgpu_buffers` must drop before `handle` so the wgpu
+/// `Texture` Drops (which run as no-ops with respect to `VkImage` thanks to the
+/// drop_callback passed in [`import_openxr_swapchain_image`]) release wgpu's internal
+/// bookkeeping before `xrDestroySwapchain` frees the underlying images.
 pub struct XrStereoSwapchain {
+    /// One entry per swapchain buffer index. wgpu does **not** call `vkDestroyImage` on
+    /// these textures (see the drop_callback in [`import_openxr_swapchain_image`]); the
+    /// underlying `VkImage`s are owned by the OpenXR runtime and freed via
+    /// `xrDestroySwapchain` when [`Self::handle`] drops.
+    pub wgpu_buffers: Vec<(wgpu::Texture, wgpu::TextureView)>,
+    /// Per-eye rectangle size in pixels.
+    pub resolution: (u32, u32),
     /// Runtime swapchain handle (acquire / release / composition). Behind a [`Mutex`]
     /// so the driver thread can release the image and reference the swapchain in the
     /// projection layer for `xrEndFrame` while the main thread retains shared
-    /// ownership across ticks.
+    /// ownership across ticks. Declared last so it drops after `wgpu_buffers`: the
+    /// runtime is the sole owner of the underlying `VkImage`s and frees them on
+    /// `xrDestroySwapchain`.
     pub handle: Arc<Mutex<xr::Swapchain<xr::Vulkan>>>,
-    /// Per-eye rectangle size in pixels.
-    pub resolution: (u32, u32),
-    /// One entry per swapchain buffer index.
-    pub wgpu_buffers: Vec<(wgpu::Texture, wgpu::TextureView)>,
 }
 
 impl XrStereoSwapchain {
@@ -104,9 +114,9 @@ impl XrStereoSwapchain {
         let wgpu_buffers = import_openxr_swapchain_images(device, resolution, images)?;
 
         Ok(Self {
-            handle: Arc::new(Mutex::new(handle)),
-            resolution,
             wgpu_buffers,
+            resolution,
+            handle: Arc::new(Mutex::new(handle)),
         })
     }
 
@@ -169,14 +179,26 @@ fn import_openxr_swapchain_image(
     resolution: (u32, u32),
 ) -> (wgpu::Texture, wgpu::TextureView) {
     let hal_desc = xr_swapchain_hal_descriptor(resolution);
+    // Hand wgpu a no-op drop callback so its `destroy_texture` sees
+    // `texture.drop_guard.is_some()` and skips `vkDestroyImage`. The OpenXR runtime is the sole
+    // owner of `vk_image` and frees it on `xrDestroySwapchain`; calling `vkDestroyImage` from
+    // wgpu would double-free during shutdown. A no-op closure is correct because field ordering
+    // on `XrStereoSwapchain` keeps the `xr::Swapchain` alive until after the wgpu textures drop;
+    // capturing the swapchain `Arc` in this closure would create a per-image owning back-edge
+    // and prevent the swapchain from ever being destroyed.
+    let drop_callback: hal::DropCallback = Box::new(|| {});
     // SAFETY: `vk_image` was returned by `xrEnumerateSwapchainImages` on a swapchain created from
     // the OpenXR session inside `XrWgpuHandles`; that session and `hal_device` come from the same
-    // bootstrap-created Vulkan device. The descriptor mirrors the swapchain create info.
+    // bootstrap-created Vulkan device. The descriptor mirrors the swapchain create info. The
+    // non-null `drop_callback` signals to wgpu-hal that the `VkImage` is externally owned (the
+    // OpenXR runtime); wgpu must not call `vkDestroyImage` on it. The runtime keeps the image
+    // valid until `xrDestroySwapchain`, which the field-drop order on `XrStereoSwapchain`
+    // guarantees runs after every wgpu `Texture` borrowing this handle has been dropped.
     let hal_tex = unsafe {
         hal_device.texture_from_raw(
             vk_image,
             &hal_desc,
-            None,
+            Some(drop_callback),
             hal::vulkan::TextureMemory::External,
         )
     };

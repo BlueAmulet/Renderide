@@ -53,6 +53,14 @@ pub(crate) struct AppDriver {
     pub(in crate::app::driver) frame_clock: FrameClock,
     pub(in crate::app::driver) external_shutdown: Option<ExternalShutdownCoordinator>,
     pub(in crate::app::driver) main_heartbeat: Option<crate::diagnostics::Heartbeat>,
+    /// RAII guard suppressing main-thread watchdog hang reports for the duration of the
+    /// graceful shutdown drain. Acquired once when [`shutdown::GracefulShutdown::begin`]
+    /// first succeeds; dropped when `AppDriver` itself drops after
+    /// [`winit::event_loop::EventLoop::run_app`] returns. Keeps the watchdog quiet across
+    /// the cooperative OpenXR exit handshake, target Drop, and GPU Drop sequence -- all of
+    /// which are bounded by their own timeouts but legitimately stall the main thread past
+    /// the watchdog's hang threshold.
+    pub(in crate::app::driver) shutdown_watchdog_pause: Option<crate::diagnostics::WatchdogPause>,
     pub(in crate::app::driver) xr_input_cache: XrInputCache,
     pub(in crate::app::driver) xr_haptics: OpenxrHaptics,
     /// Lazy GPU resources for the host `BlitToDisplay` desktop pass; created on first use.
@@ -82,6 +90,7 @@ impl AppDriver {
             frame_clock: FrameClock::default(),
             external_shutdown,
             main_heartbeat,
+            shutdown_watchdog_pause: None,
             xr_input_cache: XrInputCache::default(),
             xr_haptics: OpenxrHaptics::default(),
             display_blit: DisplayBlitResources::new(),
