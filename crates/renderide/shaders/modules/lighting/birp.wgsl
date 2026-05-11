@@ -15,7 +15,7 @@ fn direct_light_intensity(intensity: f32) -> f32 {
     return intensity * INTENSITY_BOOST;
 }
 
-/// Quartic window that masks punctual attenuation to zero at the light range.
+/// Quartic window that smoothly fades normalized attenuation to zero at the boundary.
 fn range_fade(t: f32) -> f32 {
     let t2 = t * t;
     let t4 = t2 * t2;
@@ -51,16 +51,16 @@ fn normalized_spot_direction(direction: vec3<f32>) -> vec3<f32> {
     return direction * inverseSqrt(len_sq);
 }
 
-/// Filament-style spotlight cone attenuation.
+/// Quartic spotlight cone attenuation.
 ///
 /// `l` is the normalized direction from the shaded surface toward the light. The packed light
-/// stores the outer half-angle cosine plus a scale derived from a fixed inner-angle ratio.
+/// stores the outer half-angle cosine plus the reciprocal cosine-space distance from the cone axis
+/// to the outer edge.
 fn spot_angle_attenuation(light: ft::GpuLight, l: vec3<f32>) -> f32 {
     if (light.spot_angle_scale <= 0.0) {
         return 0.0;
     }
     let rho = max(dot(-l, normalized_spot_direction(light.direction)), 0.0);
-    let offset = -light.spot_cos_half_angle * light.spot_angle_scale;
-    let attenuation = clamp(rho * light.spot_angle_scale + offset, 0.0, 1.0);
-    return attenuation * attenuation;
+    let t = clamp((1.0 - rho) * light.spot_angle_scale, 0.0, 1.0);
+    return range_fade(t);
 }
