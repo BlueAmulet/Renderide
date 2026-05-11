@@ -89,3 +89,24 @@ fn pbsintersectspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
         ],
     )
 }
+
+#[test]
+fn pbsintersect_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsintersect.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+        ],
+        &[
+            ("PBSINTERSECT_KW_ALBEDOTEX", 0),
+            ("PBSINTERSECT_KW_EMISSIONTEX", 1),
+            ("PBSINTERSECT_KW_METALLICMAP", 2),
+            ("PBSINTERSECT_KW_NORMALMAP", 3),
+            ("PBSINTERSECT_KW_OCCLUSION", 4),
+        ],
+    )
+}

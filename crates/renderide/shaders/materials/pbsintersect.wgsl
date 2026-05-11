@@ -4,8 +4,12 @@
 //! Metallic-workflow counterpart of [`pbsintersectspecular`]. Depth is sampled from the opaque
 //! scene-depth snapshot bound at `@group(0)` by the intersection subpass -- see
 //! [`crate::backend::frame_gpu::FrameGpuResources::copy_scene_depth_snapshot`].
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSIntersect's
+//! shader-specific keyword bits locally.
 
 #import renderide::core::math as rmath
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::normal as pnorm
@@ -28,14 +32,14 @@ struct PbsIntersectMaterial {
     _NormalScale: f32,
     _Glossiness: f32,
     _Metallic: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _METALLICMAP: f32,
-    _OCCLUSION: f32,
-    _pad0: f32,
-    _pad1: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSINTERSECT_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSINTERSECT_KW_EMISSIONTEX: u32 = 1u << 1u;
+const PBSINTERSECT_KW_METALLICMAP: u32 = 1u << 2u;
+const PBSINTERSECT_KW_NORMALMAP: u32 = 1u << 3u;
+const PBSINTERSECT_KW_OCCLUSION: u32 = 1u << 4u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsIntersectMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -49,9 +53,13 @@ struct PbsIntersectMaterial {
 @group(1) @binding(9)  var _MetallicMap: texture_2d<f32>;
 @group(1) @binding(10) var _MetallicMap_sampler: sampler;
 
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
     var n = world_n;
-    if (uvu::kw_enabled(mat._NORMALMAP)) {
+    if (pbs_kw(PBSINTERSECT_KW_NORMALMAP)) {
         let tbn = pnorm::orthonormal_tbn(n, world_t);
         var ts_n = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_main),
@@ -109,7 +117,7 @@ fn fs_main(
     let intersect_lerp = intersection_lerp(frag_pos, world_pos, view_layer);
 
     var c0 = mix(mat._Color, mat._IntersectColor, intersect_lerp);
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (pbs_kw(PBSINTERSECT_KW_ALBEDOTEX)) {
         c0 = c0 * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
     let base_color = c0.rgb;
@@ -118,13 +126,13 @@ fn fs_main(
     let n = sample_normal_world(uv_main, world_n, world_t, front_facing);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSINTERSECT_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
     var metallic = mat._Metallic;
     var smoothness = mat._Glossiness;
-    if (uvu::kw_enabled(mat._METALLICMAP)) {
+    if (pbs_kw(PBSINTERSECT_KW_METALLICMAP)) {
         let m = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
         metallic = m.r;
         smoothness = m.a;
@@ -134,7 +142,7 @@ fn fs_main(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var emission = mat._EmissionColor.rgb;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSINTERSECT_KW_EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
     emission = emission + mat._IntersectEmissionColor.rgb * intersect_lerp;
