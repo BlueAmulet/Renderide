@@ -21,17 +21,17 @@ pub(crate) mod texture_allocation;
 #[cfg(test)]
 pub(crate) mod test_support;
 
-pub use budget::{NoopStreamingPolicy, StreamingPolicy, VramAccounting, VramResourceKind};
-pub use pools::cubemap::{CubemapPool, GpuCubemap};
-pub use pools::mesh::MeshPool;
-pub use pools::render_texture::{GpuRenderTexture, RenderTexturePool};
-pub use pools::texture2d::{GpuTexture2d, TexturePool};
-pub use pools::texture3d::{GpuTexture3d, Texture3dPool};
-pub use pools::video_texture::{GpuVideoTexture, VideoTexturePool};
-pub use sampler_state::SamplerState;
+pub(crate) use budget::{NoopStreamingPolicy, StreamingPolicy, VramAccounting, VramResourceKind};
+pub(crate) use pools::cubemap::{CubemapPool, GpuCubemap};
+pub(crate) use pools::mesh::MeshPool;
+pub(crate) use pools::render_texture::{GpuRenderTexture, RenderTexturePool};
+pub(crate) use pools::texture2d::{GpuTexture2d, TexturePool};
+pub(crate) use pools::texture3d::{GpuTexture3d, Texture3dPool};
+pub(crate) use pools::video_texture::{GpuVideoTexture, VideoTexturePool};
+pub(crate) use sampler_state::SamplerState;
 
 /// Common surface for resident GPU resources (extend for textures, buffers, etc.).
-pub trait GpuResource {
+pub(crate) trait GpuResource {
     /// Approximate GPU memory for accounting.
     fn resident_bytes(&self) -> u64;
     /// Host asset id.

@@ -4,5 +4,5 @@
 //! not name backend GPU types directly. The app driver borrows the cache from [`RendererRuntime`]
 //! and supplies a [`DisplayBlitSource`] for the per-call texture / orientation parameters.
 
-pub use crate::gpu::DisplayBlitResources;
-pub use crate::gpu::display_blit::DisplayBlitSource;
+pub(crate) use crate::gpu::DisplayBlitResources;
+pub(crate) use crate::gpu::display_blit::DisplayBlitSource;

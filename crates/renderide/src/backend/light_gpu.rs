@@ -4,7 +4,7 @@
 //! [`LightType`](crate::shared::LightType) and [`ShadowType`](crate::shared::ShadowType) are stored as `u32`
 //! with the same numeric values as `repr(u8)` on the wire.
 
-pub use crate::gpu::{GpuLight, MAX_LIGHTS};
+pub(crate) use crate::gpu::{GpuLight, MAX_LIGHTS};
 use crate::scene::ResolvedLight;
 use crate::shared::{LightType, ShadowType};
 

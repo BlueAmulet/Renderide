@@ -8,27 +8,24 @@ mod clustered_light;
 mod helpers;
 mod hi_z_build;
 mod mesh_deform;
-pub mod post_processing;
+pub(crate) mod post_processing;
 mod scene_color_compose;
 mod world_mesh_forward;
 
-pub use clustered_light::{ClusteredLightGraphResources, ClusteredLightPass};
-pub use hi_z_build::{HiZBuildGraphResources, HiZBuildPass};
-pub use mesh_deform::MeshDeformPass;
-pub use post_processing::{
+pub(crate) use clustered_light::{ClusteredLightGraphResources, ClusteredLightPass};
+pub(crate) use hi_z_build::{HiZBuildGraphResources, HiZBuildPass};
+pub(crate) use mesh_deform::MeshDeformPass;
+pub(crate) use post_processing::{
     AcesTonemapEffect, AgxTonemapEffect, AutoExposureEffect, BloomEffect, GtaoEffect,
 };
-pub use scene_color_compose::{SceneColorComposeGraphResources, SceneColorComposePass};
+pub(crate) use scene_color_compose::{SceneColorComposeGraphResources, SceneColorComposePass};
 pub(crate) use world_mesh_forward::{
-    GTAO_VIEW_NORMAL_FORMAT, PreparedWorldMeshForwardFrame, WorldMeshForwardEncodeRefs,
+    GTAO_VIEW_NORMAL_FORMAT, PreparedWorldMeshForwardFrame, WorldMeshColorSnapshotPass,
+    WorldMeshDepthSnapshotPass, WorldMeshForwardColorResolveGraphResources,
+    WorldMeshForwardColorResolvePass, WorldMeshForwardDepthPrepass,
+    WorldMeshForwardDepthPrepassGraphResources, WorldMeshForwardDepthResolvePass,
+    WorldMeshForwardEncodeRefs, WorldMeshForwardGraphResources, WorldMeshForwardIntersectPass,
+    WorldMeshForwardNormalGraphResources, WorldMeshForwardNormalPass, WorldMeshForwardOpaquePass,
     WorldMeshForwardPlanSlot, WorldMeshForwardPrepareContext, WorldMeshForwardSkyboxRenderer,
-    prepare_world_mesh_forward_frame,
-};
-pub use world_mesh_forward::{
-    WorldMeshColorSnapshotPass, WorldMeshDepthSnapshotPass,
-    WorldMeshForwardColorResolveGraphResources, WorldMeshForwardColorResolvePass,
-    WorldMeshForwardDepthPrepass, WorldMeshForwardDepthPrepassGraphResources,
-    WorldMeshForwardDepthResolvePass, WorldMeshForwardGraphResources,
-    WorldMeshForwardIntersectPass, WorldMeshForwardNormalGraphResources,
-    WorldMeshForwardNormalPass, WorldMeshForwardOpaquePass, WorldMeshForwardTransparentPass,
+    WorldMeshForwardTransparentPass, prepare_world_mesh_forward_frame,
 };

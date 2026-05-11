@@ -77,8 +77,8 @@
 //! + attachment formats + resolved render state).
 
 mod cache;
-pub mod embedded;
-pub mod host_data;
+pub(crate) mod embedded;
+pub(crate) mod host_data;
 mod material_passes;
 mod null_pipeline;
 mod pipeline_build_error;
@@ -89,7 +89,7 @@ mod registry;
 mod render_queue;
 mod render_state;
 mod router;
-pub mod shader_permutation;
+pub(crate) mod shader_permutation;
 mod system;
 #[cfg(test)]
 mod wgsl;
@@ -98,12 +98,12 @@ mod wgsl_reflect;
 #[cfg(test)]
 pub(crate) use cache::MaterialPipelineCache;
 /// Pipeline cache keyed by shader route / layout fingerprint.
-pub use cache::{MaterialPipelineSet, MaterialPipelineVariantSpec};
+pub(crate) use cache::{MaterialPipelineSet, MaterialPipelineVariantSpec};
 pub(crate) use material_passes::ZTEST_ALWAYS;
 
 /// Embedded raster materials: bind groups, texture pools, uniform packing, and stem-metadata queries.
 pub(crate) use embedded::EmbeddedMaterialBindShader;
-pub use embedded::{
+pub(crate) use embedded::{
     EmbeddedMaterialBindResources, EmbeddedTangentFallbackMode, EmbeddedTexturePools,
     SnapshotRequirements, embedded_default_stem_for_shader_asset_name,
     embedded_stem_depth_prepass_pass, embedded_stem_needs_color_stream,
@@ -117,16 +117,16 @@ pub use embedded::{
 
 #[cfg(test)]
 pub(crate) use material_passes::MaterialPassState;
-pub use material_passes::{
+pub(crate) use material_passes::{
     MaterialBlendMode, MaterialPassDesc, MaterialPipelinePropertyIds, PassKind,
     material_blend_mode_from_maps, materialized_pass_for_blend_mode, pass_from_kind,
 };
 pub(crate) use material_passes::{PropertyMapRef, first_float_from_maps, first_vec4_from_maps};
-pub use pipeline_build_error::PipelineBuildError;
-pub use pipeline_kind::RasterPipelineKind;
+pub(crate) use pipeline_build_error::PipelineBuildError;
+pub(crate) use pipeline_kind::RasterPipelineKind;
 /// Pipeline family descriptors, per-property GPU layout, and raster kind flags.
-pub use raster_pipeline::MaterialPipelineDesc;
-pub use render_queue::{UNITY_RENDER_QUEUE_ALPHA_TEST, render_queue_is_transparent};
+pub(crate) use raster_pipeline::MaterialPipelineDesc;
+pub(crate) use render_queue::{UNITY_RENDER_QUEUE_ALPHA_TEST, render_queue_is_transparent};
 #[cfg(test)]
 pub(crate) use render_queue::{
     UNITY_RENDER_QUEUE_GEOMETRY, UNITY_RENDER_QUEUE_OVERLAY, UNITY_RENDER_QUEUE_TRANSPARENT,
@@ -136,7 +136,7 @@ pub(crate) use render_queue::{
 };
 #[cfg(test)]
 pub(crate) use render_state::MaterialDepthOffsetState;
-pub use render_state::{
+pub(crate) use render_state::{
     MaterialRenderState, RasterFrontFace, RasterPrimitiveTopology,
     material_render_state_for_lookup, material_render_state_from_maps,
 };
@@ -144,24 +144,24 @@ pub use render_state::{
 #[cfg(test)]
 pub(crate) use wgsl_reflect::{ReflectedMaterialUniformBlock, ReflectedVertexInput};
 /// Naga reflection: composed WGSL -> `wgpu` bind layouts, uniform block layout, stem fingerprints.
-pub use wgsl_reflect::{
+pub(crate) use wgsl_reflect::{
     ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind,
     ReflectedVertexInputFormat, reflect_raster_material_wgsl, validate_layout_against_limits,
     validate_per_draw_group2, validate_vertex_layout_against_limits,
 };
 
 /// Null/fallback raster family used when host pipeline build fails.
-pub use null_pipeline::NullFamily;
+pub(crate) use null_pipeline::NullFamily;
 
 /// Cached resolver that interns [`MaterialPipelinePropertyIds`] once per
 /// [`crate::materials::host_data::PropertyIdRegistry`].
-pub use pipeline_property_resolver::PipelinePropertyResolver;
+pub(crate) use pipeline_property_resolver::PipelinePropertyResolver;
 
 /// Shader route table, optional material asset registry, and WGSL composition patches.
-pub use registry::MaterialRegistry;
-pub use router::{MaterialRouter, resolve_raster_pipeline};
+pub(crate) use registry::MaterialRegistry;
+pub(crate) use router::{MaterialRouter, resolve_raster_pipeline};
 
 /// Static shader feature flags (multiview, etc.) keyed into the pipeline cache.
-pub use shader_permutation::{SHADER_PERM_MULTIVIEW_STEREO, ShaderPermutation};
+pub(crate) use shader_permutation::{SHADER_PERM_MULTIVIEW_STEREO, ShaderPermutation};
 
-pub use system::MaterialSystem;
+pub(crate) use system::MaterialSystem;
