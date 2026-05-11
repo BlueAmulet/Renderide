@@ -1,13 +1,17 @@
 //! Command encoding for IBL mip-0 producers and GGX convolve passes.
 
 use bytemuck::{Pod, Zeroable};
-use wgpu::util::DeviceExt;
 
-use crate::profiling::{GpuProfilerHandle, compute_pass_timestamp_writes};
+use crate::profiling::GpuProfilerHandle;
 use crate::skybox::params::SkyboxEvaluatorParams;
 use crate::skybox::specular::{CubemapIblSource, EquirectIblSource, RuntimeCubemapIblSource};
 
-use super::key::{convolve_sample_count, dispatch_groups, mip_extent};
+use super::bind_groups::{
+    build_input_output_bind_group, build_sampled_bind_group, build_storage_bind_group,
+    make_uniform_buffer,
+};
+use super::key::convolve_sample_count;
+use super::mip_loop::{MipChainConfig, PerMipBindings, dispatch_mip0_pass, run_mip_chain};
 use super::pipeline::ComputePipeline;
 use super::resources::{
     PendingBakeResources, create_mip_array_sample_view, create_mip_storage_view,
@@ -76,53 +80,27 @@ pub(super) fn encode_analytic_mip0(
     resources: &mut PendingBakeResources,
 ) {
     profiling::scope!("skybox_ibl::encode_mip0_analytic");
-    let mut params = *ctx.params;
-    params = params.with_sample_size(ctx.face_size);
-    let params_buffer = ctx
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("skybox_ibl analytic params"),
-            contents: bytemuck::bytes_of(&params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+    let params = ctx.params.with_sample_size(ctx.face_size);
+    let params_buffer = make_uniform_buffer(ctx.device, "skybox_ibl analytic params", &params);
     crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_analytic_params_buffer");
     let mip0_storage = create_mip_storage_view(ctx.texture, 0);
-    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("skybox_ibl analytic bind group"),
-        layout: &ctx.pipeline.layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: params_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(&mip0_storage),
-            },
-        ],
-    });
+    let bind_group = build_storage_bind_group(
+        ctx.device,
+        &ctx.pipeline.layout,
+        "skybox_ibl analytic bind group",
+        &params_buffer,
+        &mip0_storage,
+    );
     crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_analytic_bind_group");
-    let pass_query = ctx
-        .profiler
-        .map(|profiler| profiler.begin_pass_query("skybox_ibl::mip0_analytic", ctx.encoder));
-    {
-        let mut pass = ctx
-            .encoder
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("skybox_ibl analytic mip0"),
-                timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
-            });
-        pass.set_pipeline(&ctx.pipeline.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(
-            dispatch_groups(ctx.face_size),
-            dispatch_groups(ctx.face_size),
-            6,
-        );
-    };
-    if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
-        profiler.end_query(ctx.encoder, query);
-    }
+    dispatch_mip0_pass(
+        ctx.encoder,
+        ctx.pipeline,
+        &bind_group,
+        ctx.face_size,
+        "skybox_ibl analytic mip0",
+        ctx.profiler,
+        "skybox_ibl::mip0_analytic",
+    );
     resources.buffers.push(params_buffer);
     resources.bind_groups.push(bind_group);
     resources.texture_views.push(mip0_storage);
@@ -149,59 +127,28 @@ pub(super) fn encode_cube_mip0(ctx: CubeEncodeContext<'_>, resources: &mut Pendi
         storage_v_inverted: u32::from(ctx.src.storage_v_inverted),
         _pad0: 0,
     };
-    let params_buffer = ctx
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("skybox_ibl cube mip0 params"),
-            contents: bytemuck::bytes_of(&params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+    let params_buffer = make_uniform_buffer(ctx.device, "skybox_ibl cube mip0 params", &params);
     crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_cube_mip0_params_buffer");
     let mip0_storage = create_mip_storage_view(ctx.texture, 0);
-    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("skybox_ibl cube mip0 bind group"),
-        layout: &ctx.pipeline.layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: params_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(ctx.src.view.as_ref()),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::Sampler(ctx.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(&mip0_storage),
-            },
-        ],
-    });
+    let bind_group = build_sampled_bind_group(
+        ctx.device,
+        &ctx.pipeline.layout,
+        "skybox_ibl cube mip0 bind group",
+        &params_buffer,
+        ctx.src.view.as_ref(),
+        ctx.sampler,
+        &mip0_storage,
+    );
     crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_cube_mip0_bind_group");
-    let pass_query = ctx
-        .profiler
-        .map(|profiler| profiler.begin_pass_query("skybox_ibl::mip0_cube", ctx.encoder));
-    {
-        let mut pass = ctx
-            .encoder
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("skybox_ibl cube mip0"),
-                timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
-            });
-        pass.set_pipeline(&ctx.pipeline.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(
-            dispatch_groups(ctx.face_size),
-            dispatch_groups(ctx.face_size),
-            6,
-        );
-    };
-    if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
-        profiler.end_query(ctx.encoder, query);
-    }
+    dispatch_mip0_pass(
+        ctx.encoder,
+        ctx.pipeline,
+        &bind_group,
+        ctx.face_size,
+        "skybox_ibl cube mip0",
+        ctx.profiler,
+        "skybox_ibl::mip0_cube",
+    );
     resources.buffers.push(params_buffer);
     resources.bind_groups.push(bind_group);
     resources.texture_views.push(mip0_storage);
@@ -232,59 +179,29 @@ pub(super) fn encode_runtime_cube_mip0(
         storage_v_inverted: 0,
         _pad0: 0,
     };
-    let params_buffer = ctx
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("skybox_ibl runtime cube mip0 params"),
-            contents: bytemuck::bytes_of(&params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+    let params_buffer =
+        make_uniform_buffer(ctx.device, "skybox_ibl runtime cube mip0 params", &params);
     crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_runtime_cube_mip0_params_buffer");
     let mip0_storage = create_mip_storage_view(ctx.texture, 0);
-    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("skybox_ibl runtime cube mip0 bind group"),
-        layout: &ctx.pipeline.layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: params_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(ctx.src.view.as_ref()),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::Sampler(ctx.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(&mip0_storage),
-            },
-        ],
-    });
+    let bind_group = build_sampled_bind_group(
+        ctx.device,
+        &ctx.pipeline.layout,
+        "skybox_ibl runtime cube mip0 bind group",
+        &params_buffer,
+        ctx.src.view.as_ref(),
+        ctx.sampler,
+        &mip0_storage,
+    );
     crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_runtime_cube_mip0_bind_group");
-    let pass_query = ctx
-        .profiler
-        .map(|profiler| profiler.begin_pass_query("skybox_ibl::mip0_runtime_cube", ctx.encoder));
-    {
-        let mut pass = ctx
-            .encoder
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("skybox_ibl runtime cube mip0"),
-                timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
-            });
-        pass.set_pipeline(&ctx.pipeline.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(
-            dispatch_groups(ctx.face_size),
-            dispatch_groups(ctx.face_size),
-            6,
-        );
-    };
-    if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
-        profiler.end_query(ctx.encoder, query);
-    }
+    dispatch_mip0_pass(
+        ctx.encoder,
+        ctx.pipeline,
+        &bind_group,
+        ctx.face_size,
+        "skybox_ibl runtime cube mip0",
+        ctx.profiler,
+        "skybox_ibl::mip0_runtime_cube",
+    );
     resources.buffers.push(params_buffer);
     resources.bind_groups.push(bind_group);
     resources.texture_views.push(mip0_storage);
@@ -318,59 +235,28 @@ pub(super) fn encode_equirect_mip0(
         fov: ctx.src.equirect_fov,
         st: ctx.src.equirect_st,
     };
-    let params_buffer = ctx
-        .device
-        .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("skybox_ibl equirect mip0 params"),
-            contents: bytemuck::bytes_of(&params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+    let params_buffer = make_uniform_buffer(ctx.device, "skybox_ibl equirect mip0 params", &params);
     crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_equirect_mip0_params_buffer");
     let mip0_storage = create_mip_storage_view(ctx.texture, 0);
-    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("skybox_ibl equirect mip0 bind group"),
-        layout: &ctx.pipeline.layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: params_buffer.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(ctx.src.view.as_ref()),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::Sampler(ctx.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(&mip0_storage),
-            },
-        ],
-    });
+    let bind_group = build_sampled_bind_group(
+        ctx.device,
+        &ctx.pipeline.layout,
+        "skybox_ibl equirect mip0 bind group",
+        &params_buffer,
+        ctx.src.view.as_ref(),
+        ctx.sampler,
+        &mip0_storage,
+    );
     crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_equirect_mip0_bind_group");
-    let pass_query = ctx
-        .profiler
-        .map(|profiler| profiler.begin_pass_query("skybox_ibl::mip0_equirect", ctx.encoder));
-    {
-        let mut pass = ctx
-            .encoder
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("skybox_ibl equirect mip0"),
-                timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
-            });
-        pass.set_pipeline(&ctx.pipeline.pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(
-            dispatch_groups(ctx.face_size),
-            dispatch_groups(ctx.face_size),
-            6,
-        );
-    };
-    if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
-        profiler.end_query(ctx.encoder, query);
-    }
+    dispatch_mip0_pass(
+        ctx.encoder,
+        ctx.pipeline,
+        &bind_group,
+        ctx.face_size,
+        "skybox_ibl equirect mip0",
+        ctx.profiler,
+        "skybox_ibl::mip0_equirect",
+    );
     resources.buffers.push(params_buffer);
     resources.bind_groups.push(bind_group);
     resources.texture_views.push(mip0_storage);
@@ -394,70 +280,55 @@ pub(super) fn encode_downsample_mips(
     resources: &mut PendingBakeResources,
 ) {
     profiling::scope!("skybox_ibl::encode_downsample_mips");
-    if ctx.mip_levels <= 1 {
-        return;
-    }
-    for mip in 1..ctx.mip_levels {
-        profiling::scope!("skybox_ibl::encode_downsample_mip");
-        let dst_size = mip_extent(ctx.face_size, mip);
-        let src_size = mip_extent(ctx.face_size, mip - 1);
-        let params = DownsampleParams {
-            dst_size,
-            src_size,
-            _pad0: 0,
-            _pad1: 0,
-        };
-        let params_buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("skybox_ibl downsample params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-        crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_downsample_params_buffer");
-        let src_view = create_mip_array_sample_view(ctx.texture, mip - 1);
-        let dst_view = create_mip_storage_view(ctx.texture, mip);
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("skybox_ibl downsample bind group"),
-            layout: &ctx.pipeline.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&src_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&dst_view),
-                },
-            ],
-        });
-        crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_downsample_bind_group");
-        let pass_query = ctx.profiler.map(|profiler| {
-            profiler.begin_pass_query(format!("skybox_ibl::downsample_mip{mip}"), ctx.encoder)
-        });
-        {
-            let mut pass = ctx
-                .encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("skybox_ibl downsample mip"),
-                    timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
-                });
-            pass.set_pipeline(&ctx.pipeline.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups(dispatch_groups(dst_size), dispatch_groups(dst_size), 6);
-        };
-        if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
-            profiler.end_query(ctx.encoder, query);
-        }
-        resources.buffers.push(params_buffer);
-        resources.bind_groups.push(bind_group);
-        resources.texture_views.push(src_view);
-        resources.texture_views.push(dst_view);
-    }
+    let DownsampleEncodeContext {
+        device,
+        encoder,
+        pipeline,
+        texture,
+        face_size,
+        mip_levels,
+        profiler,
+    } = ctx;
+    run_mip_chain(
+        MipChainConfig {
+            encoder,
+            pipeline,
+            face_size,
+            mip_levels,
+            profiler,
+            resources,
+            pass_label: "skybox_ibl downsample mip",
+            profiler_label_prefix: "skybox_ibl::downsample_mip",
+        },
+        |mip, dst_size, src_size| {
+            let params = DownsampleParams {
+                dst_size,
+                src_size,
+                _pad0: 0,
+                _pad1: 0,
+            };
+            let params_buffer =
+                make_uniform_buffer(device, "skybox_ibl downsample params", &params);
+            crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_downsample_params_buffer");
+            let src_view = create_mip_array_sample_view(texture, mip - 1);
+            let dst_view = create_mip_storage_view(texture, mip);
+            let bind_group = build_input_output_bind_group(
+                device,
+                &pipeline.layout,
+                "skybox_ibl downsample bind group",
+                &params_buffer,
+                &src_view,
+                &dst_view,
+            );
+            crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_downsample_bind_group");
+            PerMipBindings {
+                params: params_buffer,
+                bind_group,
+                src_view: Some(src_view),
+                dst_view,
+            }
+        },
+    );
 }
 
 /// Inputs for [`encode_convolve_mips`].
@@ -480,73 +351,59 @@ pub(super) fn encode_convolve_mips(
     resources: &mut PendingBakeResources,
 ) {
     profiling::scope!("skybox_ibl::encode_convolve_mips");
-    if ctx.mip_levels <= 1 {
-        return;
-    }
-    for mip in 1..ctx.mip_levels {
-        profiling::scope!("skybox_ibl::encode_convolve_mip");
-        let dst_size = mip_extent(ctx.face_size, mip);
-        let params = ConvolveParams {
-            dst_size,
-            mip_index: mip,
-            mip_count: ctx.mip_levels,
-            sample_count: convolve_sample_count(mip),
-            src_face_size: ctx.face_size,
-            src_max_lod: ctx.src_max_lod,
-            _pad0: 0,
-            _pad1: 0,
-        };
-        let params_buffer = ctx
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("skybox_ibl convolve params"),
-                contents: bytemuck::bytes_of(&params),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-        crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_convolve_params_buffer");
-        let dst_view = create_mip_storage_view(ctx.texture, mip);
-        let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("skybox_ibl convolve bind group"),
-            layout: &ctx.pipeline.layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(ctx.src_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(ctx.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&dst_view),
-                },
-            ],
-        });
-        crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_convolve_bind_group");
-        let pass_query = ctx.profiler.map(|profiler| {
-            profiler.begin_pass_query(format!("skybox_ibl::convolve_mip{mip}"), ctx.encoder)
-        });
-        {
-            let mut pass = ctx
-                .encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("skybox_ibl convolve mip"),
-                    timestamp_writes: compute_pass_timestamp_writes(pass_query.as_ref()),
-                });
-            pass.set_pipeline(&ctx.pipeline.pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups(dispatch_groups(dst_size), dispatch_groups(dst_size), 6);
-        };
-        if let (Some(profiler), Some(query)) = (ctx.profiler, pass_query) {
-            profiler.end_query(ctx.encoder, query);
-        }
-        resources.buffers.push(params_buffer);
-        resources.bind_groups.push(bind_group);
-        resources.texture_views.push(dst_view);
-    }
+    let ConvolveEncodeContext {
+        device,
+        encoder,
+        pipeline,
+        texture,
+        src_view,
+        sampler,
+        face_size,
+        mip_levels,
+        src_max_lod,
+        profiler,
+    } = ctx;
+    run_mip_chain(
+        MipChainConfig {
+            encoder,
+            pipeline,
+            face_size,
+            mip_levels,
+            profiler,
+            resources,
+            pass_label: "skybox_ibl convolve mip",
+            profiler_label_prefix: "skybox_ibl::convolve_mip",
+        },
+        |mip, dst_size, _src_size| {
+            let params = ConvolveParams {
+                dst_size,
+                mip_index: mip,
+                mip_count: mip_levels,
+                sample_count: convolve_sample_count(mip),
+                src_face_size: face_size,
+                src_max_lod,
+                _pad0: 0,
+                _pad1: 0,
+            };
+            let params_buffer = make_uniform_buffer(device, "skybox_ibl convolve params", &params);
+            crate::profiling::note_resource_churn!(Buffer, "skybox::ibl_convolve_params_buffer");
+            let dst_view = create_mip_storage_view(texture, mip);
+            let bind_group = build_sampled_bind_group(
+                device,
+                &pipeline.layout,
+                "skybox_ibl convolve bind group",
+                &params_buffer,
+                src_view,
+                sampler,
+                &dst_view,
+            );
+            crate::profiling::note_resource_churn!(BindGroup, "skybox::ibl_convolve_bind_group");
+            PerMipBindings {
+                params: params_buffer,
+                bind_group,
+                src_view: None,
+                dst_view,
+            }
+        },
+    );
 }

@@ -4,7 +4,7 @@ use std::borrow::Cow;
 
 use crate::embedded_shaders;
 
-use super::SkyboxIblBakeError;
+use super::errors::SkyboxIblBakeError;
 use super::resources::IBL_CUBE_FORMAT;
 
 /// Compute pipeline + bind-group layout pair built lazily from an embedded shader stem.
