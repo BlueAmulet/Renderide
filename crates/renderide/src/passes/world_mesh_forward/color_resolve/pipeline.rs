@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use crate::embedded_shaders::embedded_wgsl;
 use crate::gpu::bind_layout::{texture_layout_entry, uniform_buffer_layout_entry};
-use crate::gpu_resource::{OnceGpu, RenderPipelineMap};
+use crate::gpu_resource::{BindGroupMap, OnceGpu, RenderPipelineMap};
 use crate::render_graph::gpu_cache::{
     FullscreenPipelineVariantDesc, FullscreenShaderVariants, create_uniform_buffer,
     fullscreen_pipeline_variant,
@@ -24,6 +24,21 @@ use crate::render_graph::gpu_cache::{
 const PIPELINE_LABEL_MONO: &str = "msaa_resolve_hdr_default";
 /// Debug label for the multiview pipeline.
 const PIPELINE_LABEL_MULTIVIEW: &str = "msaa_resolve_hdr_multiview";
+
+/// Upper bound on cached resolve bind groups. The working set is bounded by the small number of
+/// `(scene-color MSAA texture, params UBO)` pairs alive at any given moment (per stage, per
+/// runtime view); the cap protects against unbounded growth when the transient pool recycles
+/// allocations rapidly (e.g. viewport resize storms, MSAA tier flips).
+const MAX_CACHED_BIND_GROUPS: usize = 16;
+
+/// Cache key for resolve bind groups. `source_texture` is the multisampled HDR scene-color source
+/// from the transient pool; `params_ubo` is the lazily-allocated per-pass UBO. Both are Arc-backed
+/// in wgpu, so equality is identity-based and reallocated resources produce new keys.
+#[derive(Clone, Eq, Hash, PartialEq)]
+struct ResolveBindGroupKey {
+    source_texture: wgpu::Texture,
+    params_ubo: wgpu::Buffer,
+}
 
 /// CPU-side `ResolveParams` mirror for the WGSL UBO.
 #[repr(C)]
@@ -42,7 +57,6 @@ impl ResolveParamsUbo {
 
 /// GPU state shared across all MSAA color resolve invocations: bind layouts, pipelines, and the
 /// per-frame `ResolveParams` UBO.
-#[derive(Default)]
 pub(super) struct MsaaResolveHdrPipelineCache {
     /// Bind group layout for the mono resolve variant.
     bind_group_layout_mono: OnceGpu<wgpu::BindGroupLayout>,
@@ -55,6 +69,26 @@ pub(super) struct MsaaResolveHdrPipelineCache {
     /// Lazily-allocated UBO holding the live sample count. Re-uploaded each frame through the
     /// graph upload sink before the pass records its draw.
     params_ubo: OnceGpu<wgpu::Buffer>,
+    /// Mono bind groups keyed by `(source MSAA texture, params UBO)`. Stale entries are orphaned
+    /// when the transient pool recycles the scene-color allocation.
+    bind_groups_mono: BindGroupMap<ResolveBindGroupKey>,
+    /// Multiview bind groups keyed the same way as `bind_groups_mono`; the cached value holds the
+    /// pair of single-layer texture views alive alongside the bind group itself.
+    bind_groups_multiview: BindGroupMap<ResolveBindGroupKey>,
+}
+
+impl Default for MsaaResolveHdrPipelineCache {
+    fn default() -> Self {
+        Self {
+            bind_group_layout_mono: OnceGpu::default(),
+            bind_group_layout_multiview: OnceGpu::default(),
+            mono: RenderPipelineMap::default(),
+            multiview: RenderPipelineMap::default(),
+            params_ubo: OnceGpu::default(),
+            bind_groups_mono: BindGroupMap::with_max_entries(MAX_CACHED_BIND_GROUPS),
+            bind_groups_multiview: BindGroupMap::with_max_entries(MAX_CACHED_BIND_GROUPS),
+        }
+    }
 }
 
 impl MsaaResolveHdrPipelineCache {
@@ -66,7 +100,7 @@ impl MsaaResolveHdrPipelineCache {
     }
 
     /// Bind group layout for the mono variant: `params` + one `texture_multisampled_2d<f32>`.
-    pub(super) fn bind_group_layout_mono(&self, device: &wgpu::Device) -> &wgpu::BindGroupLayout {
+    fn bind_group_layout_mono(&self, device: &wgpu::Device) -> &wgpu::BindGroupLayout {
         self.bind_group_layout_mono.get_or_create(|| {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("msaa_resolve_hdr_mono_bgl"),
@@ -90,10 +124,7 @@ impl MsaaResolveHdrPipelineCache {
 
     /// Bind group layout for the multiview variant: `params` + two `texture_multisampled_2d<f32>`
     /// bindings (one per eye layer of the source MSAA scene color).
-    pub(super) fn bind_group_layout_multiview(
-        &self,
-        device: &wgpu::Device,
-    ) -> &wgpu::BindGroupLayout {
+    fn bind_group_layout_multiview(&self, device: &wgpu::Device) -> &wgpu::BindGroupLayout {
         self.bind_group_layout_multiview.get_or_create(|| {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("msaa_resolve_hdr_multiview_bgl"),
@@ -120,6 +151,105 @@ impl MsaaResolveHdrPipelineCache {
                 ],
             })
         })
+    }
+
+    /// Returns a cached resolve bind group for the given source texture, building it on miss.
+    ///
+    /// The cached bind group owns the per-eye single-layer texture views (multiview path) or the
+    /// single-layer view (mono path), so view churn is amortized alongside the bind group itself.
+    pub(super) fn bind_group(
+        &self,
+        device: &wgpu::Device,
+        source_texture: &wgpu::Texture,
+        params_ubo: &wgpu::Buffer,
+        multiview_stereo: bool,
+    ) -> wgpu::BindGroup {
+        let key = ResolveBindGroupKey {
+            source_texture: source_texture.clone(),
+            params_ubo: params_ubo.clone(),
+        };
+        if multiview_stereo {
+            self.bind_groups_multiview.get_or_create(key, |k| {
+                let layer0 = k.source_texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("msaa_resolve_hdr_src_msaa_left"),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: 0,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                });
+                crate::profiling::note_resource_churn!(
+                    TextureView,
+                    "passes::world_mesh_color_resolve_left_view"
+                );
+                let layer1 = k.source_texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("msaa_resolve_hdr_src_msaa_right"),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: 1,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                });
+                crate::profiling::note_resource_churn!(
+                    TextureView,
+                    "passes::world_mesh_color_resolve_right_view"
+                );
+                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("msaa_resolve_hdr_bg_multiview"),
+                    layout: self.bind_group_layout_multiview(device),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: k.params_ubo.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&layer0),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&layer1),
+                        },
+                    ],
+                });
+                crate::profiling::note_resource_churn!(
+                    BindGroup,
+                    "passes::world_mesh_color_resolve_multiview_bg"
+                );
+                bind_group
+            })
+        } else {
+            self.bind_groups_mono.get_or_create(key, |k| {
+                let view = k.source_texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("msaa_resolve_hdr_src_msaa"),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: 0,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                });
+                crate::profiling::note_resource_churn!(
+                    TextureView,
+                    "passes::world_mesh_color_resolve_mono_view"
+                );
+                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("msaa_resolve_hdr_bg_mono"),
+                    layout: self.bind_group_layout_mono(device),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: k.params_ubo.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&view),
+                        },
+                    ],
+                });
+                crate::profiling::note_resource_churn!(
+                    BindGroup,
+                    "passes::world_mesh_color_resolve_mono_bg"
+                );
+                bind_group
+            })
+        }
     }
 
     /// Returns or builds a pipeline for `output_format` and the requested view configuration.
