@@ -327,16 +327,21 @@ impl EmbeddedMaterialBindResources {
     /// changes, or when the arena grows to a new backing buffer generation.
     ///
     /// `resolve_binding`, the uniform byte build, the `GraphUploadSink::write_buffer` call, and
-    /// `mark_written` all run under one arena lock. Splitting them across two critical sections
-    /// allowed `slot.last_written_(generation|texture_state_sig)` to record a `(mutation_gen,
-    /// texture_state_sig)` snapshot that disagreed with the bytes actually uploaded if any
-    /// concurrent caller mutated relevant state between the resolve and the mark - a later
-    /// cache hit could then skip a needed rewrite and let one material draw with another
-    /// material's uniforms. `write_buffer` is a deferred queue push that does no GPU
-    /// synchronization, so holding the arena lock across it is cheap.
+    /// `mark_written` all run under one arena shard lock. Splitting them across two critical
+    /// sections allowed `slot.last_written_(generation|texture_state_sig)` to record a
+    /// `(mutation_gen, texture_state_sig)` snapshot that disagreed with the bytes actually
+    /// uploaded if any concurrent caller mutated relevant state between the resolve and the
+    /// mark - a later cache hit could then skip a needed rewrite and let one material draw
+    /// with another material's uniforms. `write_buffer` is a deferred queue push that does no
+    /// GPU synchronization, so holding the shard lock across it is cheap.
+    ///
+    /// The arena is sharded by [`MaterialUniformCacheKey`] so concurrent rayon recording workers
+    /// hitting distinct keys land on distinct shards and never block one another. A given key
+    /// always routes to the same shard, so the per-shard slot table and `buffer_generation`
+    /// counter remain self-consistent.
     #[expect(
         clippy::significant_drop_tightening,
-        reason = "the arena lock is intentionally held across resolve_binding, the uniform byte build, write_buffer, and mark_written so slot tracking cannot disagree with the uploaded bytes"
+        reason = "the arena shard lock is intentionally held across resolve_binding, the uniform byte build, write_buffer, and mark_written so slot tracking cannot disagree with the uploaded bytes"
     )]
     pub(super) fn get_or_update_embedded_uniform_arena_slot(
         &self,
@@ -375,7 +380,7 @@ impl EmbeddedMaterialBindResources {
         };
 
         profiling::scope!("materials::embedded_uniform_arena_critical_section");
-        let mut arena = self.uniform_arena.lock();
+        let mut arena = self.uniform_arena_shard(uniform_key).lock();
         let (binding, needs_write) =
             arena.resolve_binding(*uniform_key, uniform_size, mutation_gen, texture_state_sig)?;
         if needs_write {

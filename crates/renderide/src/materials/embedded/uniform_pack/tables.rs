@@ -60,9 +60,6 @@ pub(super) fn inferred_keyword_float_f32(
     if let Some(value) = procedural_skybox_keyword_inferred(field_name, store, lookup, ids) {
         return Some(value);
     }
-    if let Some(value) = scalar_keyword_inferred(field_name, store, lookup, ids) {
-        return Some(value);
-    }
     if is_projection360_keyword(field_name)
         && let Some(value) = projection360_keyword_inferred(field_name, store, lookup, ids)
     {
@@ -135,31 +132,6 @@ fn is_procedural_sundisk_keyword(field_name: &str) -> bool {
     )
 }
 
-/// Infers scalar keyword fields that are driven by non-keyword host properties.
-fn scalar_keyword_inferred(
-    field_name: &str,
-    store: &MaterialPropertyStore,
-    lookup: MaterialPropertyLookupIds,
-    ids: &StemEmbeddedPropertyIds,
-) -> Option<f32> {
-    match field_name {
-        "LERP" => {
-            if let Some(value) = keyword_probe_float(field_name, store, lookup, ids) {
-                return Some(keyword_float_value(value));
-            }
-            let lerp = uniform_field_float("_Lerp", store, lookup, ids).unwrap_or(0.0);
-            Some(if lerp > 0.0 { 1.0 } else { 0.0 })
-        }
-        "SRGB" => {
-            if let Some(value) = keyword_probe_float(field_name, store, lookup, ids) {
-                return Some(keyword_float_value(value));
-            }
-            Some(1.0)
-        }
-        _ => None,
-    }
-}
-
 /// Converts Unity-style float keyword values into the renderer's packed scalar convention.
 fn keyword_float_value(value: f32) -> f32 {
     if value >= 0.5 { 1.0 } else { 0.0 }
@@ -190,17 +162,6 @@ fn ui_unlit_alpha_clip_inferred(
         return Some(keyword_float_value(value));
     }
     Some(1.0)
-}
-
-/// Reads a reflected uniform field's canonical host value as a scalar float.
-fn uniform_field_float(
-    field_name: &str,
-    store: &MaterialPropertyStore,
-    lookup: MaterialPropertyLookupIds,
-    ids: &StemEmbeddedPropertyIds,
-) -> Option<f32> {
-    let pid = *ids.uniform_field_ids.get(field_name)?;
-    first_float_by_pids(store, lookup, &[pid])
 }
 
 /// True for any keyword name that participates in `Projection360` keyword inference.

@@ -14,7 +14,7 @@
 #import renderide::core::uv as uvu
 #import renderide::pbs::normal as pnorm
 #import renderide::material::variant_bits as vb
-#import renderide::ui::rect_clip as rc
+#import renderide::ui::rect_clip as uirc
 
 struct FiltersBlurMaterial {
     _Spread: vec4<f32>,
@@ -126,22 +126,14 @@ fn sample_blur(center_uv: vec2<f32>, spread: vec2<f32>, iterations: u32, view_la
 
 //#pass forward
 @fragment
-fn fs_main(
-    @builtin(position) frag_pos: vec4<f32>,
-    @location(0) uv0: vec2<f32>,
-    @location(1) world_pos: vec3<f32>,
-    @location(2) world_n: vec3<f32>,
-    @location(3) @interpolate(flat) view_layer: u32,
-    @location(4) view_n: vec3<f32>,
-    @location(5) obj_xy: vec2<f32>,
-) -> @location(0) vec4<f32> {
-    if (rc::should_clip_rect_b(obj_xy, mat._Rect, kw_RECTCLIP())) {
+fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
+    if (uirc::should_clip_rect_kw(in.obj_xy, mat._Rect, kw_RECTCLIP())) {
         discard;
     }
-    let screen_uv = gp::frag_screen_uv(frag_pos);
-    let fade = sds::depth_fade(frag_pos, world_pos, view_layer, mat._DepthDivisor);
-    let spread = mat._Spread.xy * spread_modulation(uv0) * fade;
-    let center_uv = screen_uv - refract_offset(uv0, view_n, frag_pos.w) * fade;
+    let screen_uv = gp::frag_screen_uv(in.clip_pos);
+    let fade = sds::depth_fade(in.clip_pos, in.world_pos, in.view_layer, mat._DepthDivisor);
+    let spread = mat._Spread.xy * spread_modulation(in.primary_uv) * fade;
+    let center_uv = screen_uv - refract_offset(in.primary_uv, in.view_n, in.clip_pos.w) * fade;
     let iterations = u32(clamp(mat._Iterations, 1.0, 128.0));
-    return rg::retain_globals_additive(sample_blur(center_uv, spread, iterations, view_layer));
+    return rg::retain_globals_additive(sample_blur(center_uv, spread, iterations, in.view_layer));
 }

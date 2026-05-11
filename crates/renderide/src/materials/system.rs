@@ -119,6 +119,16 @@ impl MaterialSystem {
         self.material_registry.as_ref()
     }
 
+    /// Drains finished background pipeline builds into the cache (no-op before GPU attach).
+    ///
+    /// Recording threads call into the cache concurrently; pulling completions here keeps the
+    /// per-draw lookup from touching the completion channel or pending/failed mutexes.
+    pub fn drain_pipeline_build_completions(&self) {
+        if let Some(reg) = self.material_registry.as_ref() {
+            reg.drain_pipeline_build_completions();
+        }
+    }
+
     /// Embedded material bind groups (world Unlit, etc.) after GPU attach.
     pub fn embedded_material_bind(&self) -> Option<&EmbeddedMaterialBindResources> {
         self.embedded_material_bind.as_ref()

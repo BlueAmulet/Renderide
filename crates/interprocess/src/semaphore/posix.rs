@@ -174,10 +174,10 @@ impl PosixSemaphore {
             if Instant::now() >= deadline {
                 return false;
             }
-            match self.try_wait() {
-                true => return true,
-                false => std::thread::yield_now(),
+            if self.try_wait() {
+                return true;
             }
+            std::thread::yield_now();
         }
     }
 }
