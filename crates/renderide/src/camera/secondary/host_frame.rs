@@ -102,8 +102,9 @@ mod tests {
         camera_controller_transform_scale_from_lossy, host_camera_frame_for_render_texture,
     };
     use crate::camera::{
-        CameraClipPlanes, CameraProjectionKind, HostCameraFrame, OrthographicProjectionSpec,
-        Viewport, WorldProjectionSet, apply_view_handedness_fix,
+        CameraClipPlanes, CameraProjectionKind, EyeView, HostCameraFrame,
+        OrthographicProjectionSpec, StereoViewMatrices, Viewport, WorldProjectionSet,
+        apply_view_handedness_fix,
     };
     use crate::scene::SceneCoordinator;
     use crate::shared::{CameraProjection, CameraState, HeadOutputDevice};
@@ -156,6 +157,27 @@ mod tests {
         assert_eq!(out.projection_kind, CameraProjectionKind::Perspective);
         assert_eq!(out.desktop_fov_degrees, state.field_of_view);
         assert!(!out.vr_active);
+    }
+
+    #[test]
+    fn host_camera_frame_secondary_clears_vr_stereo_state() {
+        let eye = EyeView::new(Mat4::IDENTITY, Mat4::IDENTITY, Mat4::IDENTITY, Vec3::ZERO);
+        let base = HostCameraFrame {
+            vr_active: true,
+            stereo: Some(StereoViewMatrices::new(eye, eye)),
+            ..Default::default()
+        };
+
+        let out = host_camera_frame_for_render_texture(
+            &base,
+            &CameraState::default(),
+            (1280, 720),
+            Mat4::IDENTITY,
+        );
+
+        assert!(!out.vr_active);
+        assert!(out.stereo.is_none());
+        assert!(out.active_stereo().is_none());
     }
 
     #[test]

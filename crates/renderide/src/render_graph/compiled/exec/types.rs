@@ -5,6 +5,7 @@ use hashbrown::HashMap;
 use crate::camera::{HostCameraFrame, ViewId};
 use crate::diagnostics::PerViewHudOutputs;
 use crate::scene::SceneCoordinator;
+use crate::shared::RenderingContext;
 
 use super::super::super::blackboard::{Blackboard, GraphCommandStats};
 use super::super::super::context::GraphResolvedResources;
@@ -115,6 +116,8 @@ pub(super) struct PerViewWorkItem {
     pub(super) view_idx: usize,
     /// Host camera snapshot for the view.
     pub(super) host_camera: HostCameraFrame,
+    /// Render-context override scope used by this view.
+    pub(super) render_context: RenderingContext,
     /// Stable occlusion slot used by post-submit hooks.
     pub(super) view_id: ViewId,
     /// Background clear/skybox behavior for this view.

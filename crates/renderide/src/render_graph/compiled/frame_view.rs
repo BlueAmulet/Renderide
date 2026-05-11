@@ -8,7 +8,7 @@ use crate::camera::{
     camera_state_screen_space_reflections,
 };
 use crate::gpu::GpuContext;
-use crate::shared::{CameraRenderParameters, CameraState};
+use crate::shared::{CameraRenderParameters, CameraState, RenderingContext};
 
 /// MSAA policy for single-view offscreen targets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -175,6 +175,8 @@ pub struct FrameView<'a> {
     pub view_id: ViewId,
     /// Clip planes, FOV, and matrix overrides for this view.
     pub host_camera: HostCameraFrame,
+    /// Render-context override scope used by this view.
+    pub render_context: RenderingContext,
     /// Color/depth destination.
     pub target: FrameViewTarget<'a>,
     /// Background clear/skybox behavior for this view.

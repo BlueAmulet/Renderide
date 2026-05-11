@@ -49,7 +49,6 @@ impl RendererRuntime {
         }
 
         let base_camera = self.host_camera;
-        let render_context = RenderingContext::RenderToAsset;
         let mut active =
             std::mem::take(&mut self.tick_state.active_onchanges_reflection_probe_captures);
         let mut still_active = Vec::with_capacity(active.len());
@@ -60,7 +59,6 @@ impl RendererRuntime {
                 backend: &mut self.backend,
                 scene: &self.scene,
                 base_camera,
-                render_context,
                 capture: &mut capture,
             }) {
                 Ok(OnChangesCaptureStep::Pending) => still_active.push(capture),
@@ -167,7 +165,6 @@ struct OnChangesCaptureStepCtx<'a> {
     backend: &'a mut RenderBackend,
     scene: &'a SceneCoordinator,
     base_camera: HostCameraFrame,
-    render_context: RenderingContext,
     capture: &'a mut ActiveOnChangesReflectionProbeCapture,
 }
 
@@ -235,13 +232,8 @@ fn step_onchanges_reflection_probe_capture(
         &faces,
     )?;
     let view_ids = plans.iter().map(|plan| plan.view_id).collect::<Vec<_>>();
-    let render_result = render_reflection_probe_faces_offscreen(
-        ctx.gpu,
-        ctx.backend,
-        ctx.scene,
-        ctx.render_context,
-        plans,
-    );
+    let render_result =
+        render_reflection_probe_faces_offscreen(ctx.gpu, ctx.backend, ctx.scene, plans);
     ctx.backend.retire_one_shot_views(&view_ids);
     render_result?;
     for face in faces {
@@ -325,6 +317,7 @@ fn plan_onchanges_reflection_probe_faces(
                 probe_position,
                 face,
             ),
+            render_context: RenderingContext::RenderToAsset,
             render_space_filter: Some(space_id),
             draw_filter: Some(filter.clone()),
             view_id: ViewId::reflection_probe_render_task(

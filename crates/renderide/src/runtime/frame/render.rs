@@ -115,7 +115,6 @@ impl RendererRuntime {
         };
         self.backend
             .sync_active_views(prepared_views.plans().iter().map(|view| view.view_id));
-        let render_context = self.scene.active_main_render_context();
         {
             profiling::scope!("render::prepare_lights_for_views");
             self.backend.prepare_lights_for_views(
@@ -123,24 +122,22 @@ impl RendererRuntime {
                 prepared_views
                     .plans()
                     .iter()
-                    .map(|plan| plan.light_view_desc(render_context)),
+                    .map(FrameViewPlan::light_view_desc),
             );
         }
         let shared = {
             profiling::scope!("render::extract_frame_shared");
-            // Hand the per-view shader permutations through so the backend refreshes one material
-            // batch cache per distinct permutation; previously every non-mono view rebuilt its own
-            // cache locally inside `collect_view_draws`.
-            let view_perms: Vec<crate::materials::ShaderPermutation> = prepared_views
+            // Hand the per-view render context and shader permutation through so the backend
+            // refreshes material and draw-prep caches for each distinct view mode in the batch.
+            let view_perms = prepared_views
                 .plans()
                 .iter()
-                .map(|plan| plan.shader_permutation())
-                .collect();
+                .map(|plan| (plan.render_context(), plan.shader_permutation()))
+                .collect::<Vec<_>>();
             self.backend.extract_frame_shared(
                 &self.scene,
-                render_context,
                 select_inner_parallelism(prepared_views.plans()),
-                view_perms,
+                &view_perms,
             )
         };
         ExtractedFrame::new(prepared_views, shared)

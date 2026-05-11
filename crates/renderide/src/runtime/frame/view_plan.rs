@@ -108,6 +108,8 @@ pub(in crate::runtime) enum FrameViewPlanTarget<'a> {
 pub(in crate::runtime) struct FrameViewPlan<'a> {
     /// Per-view camera parameters (clip planes, matrices, stereo, overrides).
     pub(in crate::runtime) host_camera: HostCameraFrame,
+    /// Render-context override scope used for transforms, materials, culling, lights, and draws.
+    pub(in crate::runtime) render_context: RenderingContext,
     /// Optional selective/exclude filter; present for secondary cameras only.
     pub(in crate::runtime) draw_filter: Option<CameraTransformDrawFilter>,
     /// Optional render-space scope for offscreen cameras/tasks.
@@ -161,6 +163,7 @@ impl FrameViewPlan<'_> {
         FrameView {
             view_id: self.view_id,
             host_camera: self.host_camera,
+            render_context: self.render_context,
             target: self.target(),
             clear: self.clear,
             post_processing: self.post_processing,
@@ -177,14 +180,16 @@ impl FrameViewPlan<'_> {
         self.host_camera.view_origin_world()
     }
 
+    /// Render-context override scope for this view.
+    pub(in crate::runtime) fn render_context(&self) -> RenderingContext {
+        self.render_context
+    }
+
     /// Builds the light-resolution descriptor for this view.
-    pub(in crate::runtime) fn light_view_desc(
-        &self,
-        render_context: RenderingContext,
-    ) -> FrameLightViewDesc {
+    pub(in crate::runtime) fn light_view_desc(&self) -> FrameLightViewDesc {
         FrameLightViewDesc {
             view_id: self.view_id,
-            render_context,
+            render_context: self.render_context,
             render_space_filter: self.render_space_filter,
             head_output_transform: self.host_camera.head_output_transform,
         }
@@ -223,6 +228,7 @@ mod tests {
     fn main_swapchain_plan() -> FrameViewPlan<'static> {
         FrameViewPlan {
             host_camera: HostCameraFrame::default(),
+            render_context: RenderingContext::UserView,
             draw_filter: None,
             render_space_filter: None,
             view_id: ViewId::Main,

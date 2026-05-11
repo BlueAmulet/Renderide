@@ -94,6 +94,11 @@ impl RenderWorld {
         &self.prepared
     }
 
+    /// Prepared draw snapshot from the most recent [`Self::prepare_for_frame`] call.
+    pub(crate) fn prepared(&self) -> &FramePreparedRenderables {
+        &self.prepared
+    }
+
     fn mark_all_scene_spaces_dirty(&mut self, scene: &SceneCoordinator) {
         self.spaces.retain(|id, _| scene.space(*id).is_some());
         for id in scene.render_space_ids() {

@@ -68,14 +68,14 @@ pub(super) fn resolve_pass_config(
     }
 }
 
-/// Main render-space context, perspective projection for world draws, and optional ortho for overlays.
+/// Render context, perspective projection for world draws, and optional ortho for overlays.
 pub(super) fn compute_view_projections(
     scene: &SceneCoordinator,
     hc: HostCameraFrame,
+    render_context: RenderingContext,
     viewport_px: (u32, u32),
     draws: &[WorldMeshDrawItem],
 ) -> (RenderingContext, Mat4, Option<Mat4>) {
-    let render_context = scene.active_main_render_context();
     let projections = WorldProjectionSet::from_scene_host(scene, viewport_px, &hc);
 
     let has_overlay = !draws.is_empty() && draws.iter().any(|d| d.is_overlay);

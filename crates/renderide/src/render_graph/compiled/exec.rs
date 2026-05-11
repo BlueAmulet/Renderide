@@ -440,6 +440,7 @@ impl CompiledRenderGraph {
                     resolved: &resolved,
                     scene_color_format: mv_ctx.backend.scene_color_format_wgpu(),
                     host_camera: work_item.host_camera,
+                    render_context: work_item.render_context,
                     clear: work_item.clear,
                     post_processing: work_item.post_processing,
                     gpu_limits: mv_ctx.backend.gpu_limits().cloned(),
@@ -475,6 +476,7 @@ impl CompiledRenderGraph {
         for (view_idx, view) in views.iter_mut().enumerate() {
             let view_id = view.view_id();
             let host_camera = view.host_camera;
+            let render_context = view.render_context;
             let resolved = Self::resolve_owned_view_from_target(
                 view_id,
                 view.post_processing,
@@ -498,6 +500,7 @@ impl CompiledRenderGraph {
             work_items.push(PerViewWorkItem {
                 view_idx,
                 host_camera,
+                render_context,
                 view_id,
                 clear: view.clear,
                 post_processing: view.post_processing,

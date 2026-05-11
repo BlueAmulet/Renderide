@@ -9,6 +9,7 @@
 use crate::camera::{ViewId, camera_state_enabled, host_camera_frame_for_render_texture};
 use crate::render_graph::{FrameViewClear, OffscreenSampleCountPolicy, ViewPostProcessing};
 use crate::scene::RenderSpaceId;
+use crate::shared::RenderingContext;
 use crate::world_mesh::draw_filter_from_camera_entry;
 
 use super::super::RendererRuntime;
@@ -43,6 +44,10 @@ fn sort_secondary_view_tasks(tasks: &mut [(RenderSpaceId, f32, usize)]) {
     });
 }
 
+fn secondary_camera_render_context() -> RenderingContext {
+    RenderingContext::Camera
+}
+
 impl RendererRuntime {
     /// Collects every active view for this tick into a single ordered list.
     ///
@@ -66,11 +71,13 @@ impl RendererRuntime {
         let est_capacity =
             usize::from(hmd_target.is_some()) + secondary_views.len() + usize::from(includes_main);
         let mut views: Vec<FrameViewPlan<'a>> = Vec::with_capacity(est_capacity);
+        let main_render_context = self.scene.active_main_render_context();
 
         if let Some(ext) = hmd_target {
             let extent_px = ext.extent_px;
             views.push(FrameViewPlan {
                 host_camera: self.host_camera,
+                render_context: main_render_context,
                 draw_filter: None,
                 render_space_filter: None,
                 view_id: ViewId::Main,
@@ -173,7 +180,7 @@ impl RendererRuntime {
             let Some(world_m) = self.scene.world_matrix_for_render_context(
                 sid,
                 entry.transform_id as usize,
-                space.main_render_context(),
+                secondary_camera_render_context(),
                 self.host_camera.head_output_transform,
             ) else {
                 continue;
@@ -199,6 +206,7 @@ impl RendererRuntime {
             };
             views.push(FrameViewPlan {
                 host_camera: hc,
+                render_context: secondary_camera_render_context(),
                 draw_filter: Some(filter),
                 render_space_filter: Some(sid),
                 view_id: secondary_camera_view_id(sid, entry.renderable_index, cam_idx),
@@ -233,6 +241,7 @@ impl RendererRuntime {
     ) -> FrameViewPlan<'a> {
         FrameViewPlan {
             host_camera: self.host_camera,
+            render_context: self.scene.active_main_render_context(),
             draw_filter: None,
             render_space_filter: None,
             view_id: ViewId::Main,
@@ -275,6 +284,11 @@ mod tests {
             SECONDARY_CAMERA_SAMPLE_COUNT_POLICY,
             OffscreenSampleCountPolicy::MasterMsaa
         );
+    }
+
+    #[test]
+    fn secondary_cameras_use_camera_render_context() {
+        assert_eq!(secondary_camera_render_context(), RenderingContext::Camera);
     }
 
     #[test]

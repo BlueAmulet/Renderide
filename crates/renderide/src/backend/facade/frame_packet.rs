@@ -11,7 +11,7 @@ use crate::reflection_probes::specular::ReflectionProbeFrameSelection;
 use crate::scene::{RenderSpaceId, SceneApplyReport, SceneCacheFlushReport, SceneCoordinator};
 use crate::shared::RenderingContext;
 use crate::world_mesh::{
-    FrameMaterialBatchCache, FramePreparedRenderables, WorldMeshDrawCollectParallelism,
+    FrameMaterialBatchCache, FramePreparedRenderables, RenderWorld, WorldMeshDrawCollectParallelism,
 };
 
 use super::draw_preparation::DrawPreparationExtractDesc;
@@ -33,21 +33,42 @@ pub(crate) struct ExtractedFrameShared<'a> {
     pub(crate) router: &'a MaterialRouter,
     /// Registry of renderer-side property ids used by the pipeline selector.
     pub(crate) pipeline_property_ids: MaterialPipelinePropertyIds,
-    /// Mono/stereo/overlay render context applied this tick.
-    pub(crate) render_context: RenderingContext,
-    /// Persistent material batch caches keyed by [`ShaderPermutation`], refreshed once per frame
-    /// for every distinct permutation appearing across this tick's prepared views. Per-view draw
-    /// collection looks up the entry matching the view's permutation rather than building a
-    /// per-view local cache (the previous mono-only fast path is now subsumed by this map).
-    pub(crate) material_caches: &'a HashMap<ShaderPermutation, FrameMaterialBatchCache>,
-    /// Dense draw-prep snapshot from the backend render-world cache.
-    pub(crate) prepared_renderables: &'a FramePreparedRenderables,
+    /// Prepared render-world caches for every render context used by this tick's views.
+    pub(crate) render_worlds: &'a HashMap<u8, RenderWorld>,
+    /// Persistent material batch caches keyed by render context and [`ShaderPermutation`].
+    pub(crate) material_caches: &'a HashMap<(u8, ShaderPermutation), FrameMaterialBatchCache>,
     /// Shared occlusion state used for Hi-Z snapshots and temporal cull data.
     pub(crate) occlusion: &'a OcclusionSystem,
     /// CPU-side specular reflection-probe selector for per-object probe assignment.
     pub(crate) reflection_probes: &'a ReflectionProbeFrameSelection,
     /// Rayon parallelism tier for each view's inner walk.
     pub(crate) inner_parallelism: WorldMeshDrawCollectParallelism,
+}
+
+impl ExtractedFrameShared<'_> {
+    /// Dense draw-prep snapshot matching `render_context`, if it was prepared for this frame.
+    pub(crate) fn prepared_renderables_for(
+        &self,
+        render_context: RenderingContext,
+    ) -> Option<&FramePreparedRenderables> {
+        self.render_worlds
+            .get(&render_context_key(render_context))
+            .map(RenderWorld::prepared)
+    }
+
+    /// Material batch cache matching one view's render context and shader permutation.
+    pub(crate) fn material_cache_for(
+        &self,
+        render_context: RenderingContext,
+        shader_perm: ShaderPermutation,
+    ) -> Option<&FrameMaterialBatchCache> {
+        self.material_caches
+            .get(&(render_context_key(render_context), shader_perm))
+    }
+}
+
+fn render_context_key(render_context: RenderingContext) -> u8 {
+    render_context as u8
 }
 
 impl RenderBackend {
@@ -126,17 +147,15 @@ impl RenderBackend {
     /// Refreshes backend-owned draw-prep state and returns the immutable frame setup used by the
     /// runtime's per-view draw collection stage.
     ///
-    /// `view_shader_permutations` lists the [`ShaderPermutation`] each prepared view will use; one
-    /// material batch cache is refreshed per distinct permutation so multi-view frames (e.g. VR
+    /// `view_draw_preparations` lists each prepared view's render context and shader permutation;
+    /// one material batch cache is refreshed per distinct pair so multi-view frames (e.g. VR
     /// stereo + a secondary camera) do not pay an O(materials x pipeline_property_ids) walk per
-    /// view. The implicit `ShaderPermutation(0)` mono cache is always refreshed so the prepared
-    /// renderables walk warms the steady-state working set.
+    /// view.
     pub(crate) fn extract_frame_shared<'a>(
         &'a mut self,
         scene: &'a SceneCoordinator,
-        render_context: RenderingContext,
         inner_parallelism: WorldMeshDrawCollectParallelism,
-        view_shader_permutations: impl IntoIterator<Item = ShaderPermutation>,
+        view_draw_preparations: &[(RenderingContext, ShaderPermutation)],
     ) -> ExtractedFrameShared<'a> {
         self.draw_preparation
             .extract_frame_shared(DrawPreparationExtractDesc {
@@ -145,9 +164,8 @@ impl RenderBackend {
                 asset_transfers: &self.asset_transfers,
                 occlusion: &self.occlusion,
                 reflection_probes: self.reflection_probes.selection(),
-                render_context,
                 inner_parallelism,
-                view_shader_permutations,
+                view_draw_preparations,
             })
     }
 }
