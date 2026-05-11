@@ -3,10 +3,15 @@
 //! Sibling of [`pbsslice`](super::pbsslice); same `_Slicers[8]` plane evaluation and edge blending,
 //! but reads tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of
 //! `_Metallic` / `_MetallicMap`.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`. PBSSliceSpecular's Unity source declares
+//! `#pragma multi_compile _ _METALLICMAP` even though this shader is specular (copy-paste from
+//! the metallic sibling), so the bitmask Froox emits keys the optional specular-map sample to the
+//! alphabetically-positioned `METALLICMAP` slot.
 
 
-#import renderide::core::math as rmath
 #import renderide::mesh::vertex as mv
+#import renderide::material::variant_bits as vb
 #import renderide::pbs::families::slice as pslice
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::normal as pnorm
@@ -29,19 +34,24 @@ struct PBSSliceSpecularMaterial {
     _NormalScale: f32,
     _DetailNormalMapScale: f32,
     _AlphaClip: f32,
-    _WORLD_SPACE: f32,
-    _OBJECT_SPACE: f32,
-    _ALPHACLIP: f32,
-    _ALBEDOTEX: f32,
-    _DETAIL_ALBEDOTEX: f32,
-    _NORMALMAP: f32,
-    _DETAIL_NORMALMAP: f32,
-    _EMISSIONTEX: f32,
-    _SPECULARMAP: f32,
-    _OCCLUSION: f32,
+    _RenderideVariantBits: u32,
     _pad0: f32,
+    _pad1: f32,
     _Slicers: array<vec4<f32>, 8>,
 }
+
+const PBSSLICESPECULAR_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSSLICESPECULAR_KW_ALPHACLIP: u32 = 1u << 1u;
+const PBSSLICESPECULAR_KW_DETAIL_ALBEDOTEX: u32 = 1u << 2u;
+const PBSSLICESPECULAR_KW_DETAIL_NORMALMAP: u32 = 1u << 3u;
+const PBSSLICESPECULAR_KW_EMISSIONTEX: u32 = 1u << 4u;
+// Unity's pragma is `_ _METALLICMAP` even though this shader is specular; the bit gates
+// optional `_SpecularMap` sampling.
+const PBSSLICESPECULAR_KW_METALLICMAP: u32 = 1u << 5u;
+const PBSSLICESPECULAR_KW_NORMALMAP: u32 = 1u << 6u;
+const PBSSLICESPECULAR_KW_OBJECT_SPACE: u32 = 1u << 7u;
+const PBSSLICESPECULAR_KW_OCCLUSION: u32 = 1u << 8u;
+const PBSSLICESPECULAR_KW_WORLD_SPACE: u32 = 1u << 9u;
 
 @group(1) @binding(0)  var<uniform> mat: PBSSliceSpecularMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -59,9 +69,13 @@ struct PBSSliceSpecularMaterial {
 @group(1) @binding(13) var _DetailNormalMap: texture_2d<f32>;
 @group(1) @binding(14) var _DetailNormalMap_sampler: sampler;
 
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
 fn sample_albedo_color(uv_main: vec2<f32>, edge_lerp: f32) -> vec4<f32> {
     let tint = mix(mat._Color, mat._EdgeColor, edge_lerp);
-    if (uvu::kw_enabled(mat._ALBEDOTEX) || uvu::kw_enabled(mat._DETAIL_ALBEDOTEX)) {
+    if (pbs_kw(PBSSLICESPECULAR_KW_ALBEDOTEX) || pbs_kw(PBSSLICESPECULAR_KW_DETAIL_ALBEDOTEX)) {
         return textureSample(_MainTex, _MainTex_sampler, uv_main) * tint;
     }
     return tint;
@@ -74,14 +88,14 @@ fn sample_normal_world(
     world_t: vec4<f32>,
     front_facing: bool,
 ) -> vec3<f32> {
-    let use_normal_map = uvu::kw_enabled(mat._NORMALMAP) || uvu::kw_enabled(mat._DETAIL_NORMALMAP);
+    let use_normal_map = pbs_kw(PBSSLICESPECULAR_KW_NORMALMAP) || pbs_kw(PBSSLICESPECULAR_KW_DETAIL_NORMALMAP);
     if (use_normal_map) {
         let tbn = pnorm::orthonormal_tbn(world_n, world_t);
         var ts = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_main),
             mat._NormalScale,
         );
-        if (uvu::kw_enabled(mat._DETAIL_NORMALMAP)) {
+        if (pbs_kw(PBSSLICESPECULAR_KW_DETAIL_NORMALMAP)) {
             let detail = nd::decode_ts_normal_with_placeholder_sample(
                 textureSample(_DetailNormalMap, _DetailNormalMap_sampler, uv_detail),
                 mat._DetailNormalMapScale,
@@ -137,29 +151,27 @@ fn fs_main(
     let slice_p = pslice::slice_position(
         world_pos,
         object_pos,
-        uvu::kw_enabled(mat._WORLD_SPACE),
-        uvu::kw_enabled(mat._OBJECT_SPACE),
+        pbs_kw(PBSSLICESPECULAR_KW_WORLD_SPACE),
+        pbs_kw(PBSSLICESPECULAR_KW_OBJECT_SPACE),
     );
-    var min_distance: f32 = 60000.0;
-    for (var si: i32 = 0; si < 8; si = si + 1) {
-        let slicer = mat._Slicers[si];
-        if (all(slicer.xyz == vec3<f32>(0.0))) {
-            break;
-        }
-        min_distance = min(min_distance, pslice::plane_distance(slice_p, slicer.xyz, slicer.w));
-    }
-    if (min_distance < 0.0) {
+    let slice = pslice::evaluate_planes(
+        mat._Slicers,
+        slice_p,
+        mat._EdgeTransitionStart,
+        mat._EdgeTransitionEnd,
+    );
+    if (slice.min_distance < 0.0) {
         discard;
     }
-    let edge_lerp = 1.0 - rmath::safe_lerp_factor(mat._EdgeTransitionStart, mat._EdgeTransitionEnd, min_distance);
+    let edge_lerp = slice.edge_lerp;
 
     var c = sample_albedo_color(uv_main, edge_lerp);
-    if (uvu::kw_enabled(mat._DETAIL_ALBEDOTEX)) {
+    if (pbs_kw(PBSSLICESPECULAR_KW_DETAIL_ALBEDOTEX)) {
         let detail = textureSample(_DetailAlbedoMap, _DetailAlbedoMap_sampler, uv_detail_albedo).rgb * 2.0;
         c = vec4<f32>(c.rgb * detail, c.a);
     }
 
-    if (uvu::kw_enabled(mat._ALPHACLIP) && c.a <= mat._AlphaClip) {
+    if (pbs_kw(PBSSLICESPECULAR_KW_ALPHACLIP) && c.a <= mat._AlphaClip) {
         discard;
     }
 
@@ -168,12 +180,12 @@ fn fs_main(
     let n = sample_normal_world(uv_main, uv_detail_normal, world_n, world_t, front_facing);
 
     var occlusion: f32 = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSSLICESPECULAR_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
     var spec = mat._SpecularColor;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (pbs_kw(PBSSLICESPECULAR_KW_METALLICMAP)) {
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -181,7 +193,7 @@ fn fs_main(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var emission = mat._EmissionColor.rgb;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSSLICESPECULAR_KW_EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
     let edge_emission = mix(emission, mat._EdgeEmissionColor.rgb, edge_lerp);
