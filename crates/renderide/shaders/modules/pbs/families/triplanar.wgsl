@@ -90,3 +90,13 @@ fn sample_normal_world(
 
     return normalize(world_x * weights.x + world_y * weights.y + world_z * weights.z);
 }
+
+/// Reflect the shading normal across the geometric tangent plane on back faces, mirroring Unity's
+/// `o.Normal.z *= -1` flip in tangent space when `Cull` is off.
+fn flip_normal_for_back_face(n_world: vec3<f32>, world_n: vec3<f32>, front_facing: bool) -> vec3<f32> {
+    if (front_facing) {
+        return n_world;
+    }
+    let g = normalize(world_n);
+    return n_world - 2.0 * g * dot(n_world, g);
+}
