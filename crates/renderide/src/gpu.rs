@@ -6,6 +6,7 @@
 
 mod adapter;
 pub mod bind_layout;
+mod blit_kit;
 mod context;
 pub mod depth;
 pub mod display_blit;

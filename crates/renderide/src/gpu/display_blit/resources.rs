@@ -2,6 +2,8 @@
 //!
 //! Per-frame blit logic lives in the sibling [`super::surface_blit`] module.
 
+use crate::gpu::blit_kit::pipeline::{ColorBlitPipelineSlot, UvUniformBuffer};
+
 use super::pipelines::surface_pipeline;
 
 /// GPU resources for the desktop `BlitToDisplay` pass.
@@ -10,8 +12,8 @@ use super::pipelines::surface_pipeline;
 /// swapchain format changes (rare, e.g. window-move HDR transition).
 #[derive(Debug, Default)]
 pub struct DisplayBlitResources {
-    uniform_buf: Option<wgpu::Buffer>,
-    pipeline: Option<(wgpu::TextureFormat, wgpu::RenderPipeline)>,
+    uniform: UvUniformBuffer,
+    pipeline: ColorBlitPipelineSlot,
 }
 
 impl DisplayBlitResources {
@@ -20,22 +22,12 @@ impl DisplayBlitResources {
         Self::default()
     }
 
-    pub(super) fn uniform_buffer(&self) -> Option<&wgpu::Buffer> {
-        self.uniform_buf.as_ref()
+    pub(super) fn uniform(&self) -> &UvUniformBuffer {
+        &self.uniform
     }
 
     pub(super) fn ensure_uniform(&mut self, device: &wgpu::Device) {
-        if self.uniform_buf.is_some() {
-            return;
-        }
-        let buf = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("display_blit_uv"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        crate::profiling::note_resource_churn!(Buffer, "gpu::display_blit_uniform");
-        self.uniform_buf = Some(buf);
+        self.uniform.ensure(device, "display_blit_uv");
     }
 
     pub(super) fn pipeline_for_format(
@@ -43,12 +35,7 @@ impl DisplayBlitResources {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
     ) -> &wgpu::RenderPipeline {
-        let entry = self
-            .pipeline
-            .get_or_insert_with(|| (format, surface_pipeline(device, format)));
-        if entry.0 != format {
-            *entry = (format, surface_pipeline(device, format));
-        }
-        &entry.1
+        self.pipeline
+            .get_or_build(format, |format| surface_pipeline(device, format))
     }
 }

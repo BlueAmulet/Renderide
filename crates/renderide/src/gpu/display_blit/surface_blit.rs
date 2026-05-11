@@ -12,13 +12,14 @@
 use glam::Vec4;
 
 use crate::gpu::GpuContext;
+use crate::gpu::blit_kit::layout::sampled_2d_filtered_uv_layout;
+use crate::gpu::blit_kit::sampler::linear_clamp_sampler;
 use crate::present::{
     PresentClearError, SurfaceAcquireTrace, SurfaceFrameOutcome, SurfaceSubmitTrace,
     acquire_surface_outcome_traced, submit_surface_frame_traced,
 };
 
 use super::fit::{FittedRectPx, fit_rect_px, flip_uv_params};
-use super::pipelines::{linear_sampler, surface_bind_group_layout};
 use super::resources::DisplayBlitResources;
 
 /// Source texture sampled by [`DisplayBlitResources::present_blit_to_surface`].
@@ -79,22 +80,22 @@ impl DisplayBlitResources {
         let device_arc = gpu.device().clone();
         let device = device_arc.as_ref();
         self.ensure_uniform(device);
-        let Some(uniform_buf) = self.uniform_buffer() else {
+        let Some(uniform_buf) = self.uniform().get() else {
             logger::warn!("display_blit: uniform buffer missing after ensure_uniform");
             frame.present();
             return Ok(());
         };
-        gpu.queue().write_buffer(uniform_buf, 0, uv_bytes);
+        self.uniform().write(gpu.queue(), uv_bytes);
 
         let surface_view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         crate::profiling::note_resource_churn!(TextureView, "gpu::display_blit_surface_view");
-        let sampler = linear_sampler(device);
+        let sampler = linear_clamp_sampler(device);
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("display_blit_surface"),
-            layout: surface_bind_group_layout(device),
+            layout: sampled_2d_filtered_uv_layout(device),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
