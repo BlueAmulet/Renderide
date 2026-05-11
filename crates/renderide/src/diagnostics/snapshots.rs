@@ -13,9 +13,12 @@ pub mod texture_debug;
 pub use backend_diag::{BackendDiagSnapshot, ShaderRouteSnapshot};
 pub use frame_diagnostics::{
     FrameDiagnosticsIpcQueues, FrameDiagnosticsSnapshot, FrameDiagnosticsSnapshotCapture,
-    GpuAllocatorHud, GpuAllocatorHudRefresh, GpuAllocatorReportHud, XrRecoverableFailureCounts,
+    GpuAllocatorHud, GpuAllocatorHudRefresh, GpuAllocatorReportHud, HostHudGatherer,
+    XrRecoverableFailureCounts,
 };
-pub use frame_timing::FrameTimingHudSnapshot;
+pub use frame_timing::{FrameTimeHistory, FrameTimingEma, FrameTimingHudSnapshot};
 pub use renderer_info::{RendererInfoSnapshot, RendererInfoSnapshotCapture};
-pub use scene_transforms::{RenderSpaceTransformsSnapshot, SceneTransformsSnapshot};
+pub use scene_transforms::SceneTransformsSnapshot;
 pub use texture_debug::TextureDebugSnapshot;
+
+pub(crate) use scene_transforms::RenderSpaceTransformsSnapshot;

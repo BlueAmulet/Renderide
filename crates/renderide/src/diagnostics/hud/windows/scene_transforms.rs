@@ -2,7 +2,8 @@
 
 use imgui::{ListClipper, TabItem, TabItemFlags, TableFlags};
 
-use crate::diagnostics::{RenderSpaceTransformsSnapshot, SceneTransformsSnapshot};
+use crate::diagnostics::SceneTransformsSnapshot;
+use crate::diagnostics::snapshots::RenderSpaceTransformsSnapshot;
 
 use super::super::layout::{self, Viewport, WindowSlot};
 use super::super::state::HudUiState;

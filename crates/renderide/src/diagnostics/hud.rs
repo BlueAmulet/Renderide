@@ -15,11 +15,13 @@
 //! - [`view`]: rendering algebra (`HudWindow`, `TabView`).
 //! - [`registry`]: static-dispatch [`registry::DebugWindow`] enum + [`registry::OverlayFeatureFlags`].
 //! - [`fmt`]: right-aligned numeric formatters and byte-compaction helpers.
-//! - [`input`]: per-frame ImGui IO bridge for [`super::DebugHudInput`].
+//! - [`input`]: HUD input transport plus per-frame ImGui IO bridge.
+//! - [`encode_error`]: error type for the ImGui/wgpu HUD encode pass.
 //! - [`windows`]: concrete window/tab impls.
 
+pub mod encode_error;
 pub mod fmt;
-pub(crate) mod input;
+pub mod input;
 pub mod layout;
 pub(crate) mod persistence;
 pub mod registry;
@@ -27,6 +29,8 @@ pub mod state;
 pub mod view;
 pub mod windows;
 
+pub use encode_error::DebugHudEncodeError;
+pub use input::{DebugHudInput, sanitize_input_state_for_imgui_host};
 pub use state::HudUiState;
 
 use std::io;
@@ -48,8 +52,6 @@ use self::windows::main_debug::{MainDebugWindow, MainDebugWindowData};
 use self::windows::renderer_config::{RendererConfigData, RendererConfigWindow};
 use self::windows::scene_transforms::SceneTransformsWindow;
 use self::windows::texture_debug::TextureDebugWindow;
-use super::encode_error::DebugHudEncodeError;
-use super::input::DebugHudInput;
 use super::snapshots::frame_diagnostics::FrameDiagnosticsSnapshot;
 use super::snapshots::frame_timing::FrameTimingHudSnapshot;
 use super::snapshots::renderer_info::RendererInfoSnapshot;

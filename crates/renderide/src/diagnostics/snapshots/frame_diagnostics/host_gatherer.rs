@@ -1,6 +1,6 @@
 //! Throttled `sysinfo` sampling for the debug HUD host CPU / RAM section.
 
-use super::snapshots::frame_diagnostics::HostCpuMemoryHud;
+use super::host::HostCpuMemoryHud;
 use sysinfo::{
     CpuRefreshKind, MemoryRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind,
     System,
