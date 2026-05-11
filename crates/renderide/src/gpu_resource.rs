@@ -13,4 +13,4 @@ mod stats;
 pub(crate) use cache::{BindGroupMap, RenderPipelineMap};
 pub(crate) use once::OnceGpu;
 pub(crate) use sharded_lru::ShardedLru;
-pub(crate) use stats::{AtomicCacheCounters, CacheCounters, CacheStats, CacheStatsDelta};
+pub(crate) use stats::{AtomicCacheCounters, CacheCounters, CacheStats};

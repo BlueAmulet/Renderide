@@ -135,7 +135,7 @@ pub fn init_with_mirror(
     };
     if LOGGER.set(logger).is_ok()
         && let Some(logger) = LOGGER.get()
-        && let Ok(()) = log::set_logger(logger)
+        && matches!(log::set_logger(logger), Ok(()))
     {
         LOG_FACADE_INSTALLED.store(true, Ordering::Relaxed);
         log::set_max_level(max_level.into());
@@ -344,6 +344,10 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
     #[test]
+    #[expect(
+        clippy::cognitive_complexity,
+        reason = "end-to-end smoke test that intentionally exercises init, level filtering, re-init, panic payloads, and file content in a single sequence"
+    )]
     fn global_logger_full_smoke() {
         let path =
             std::env::temp_dir().join(format!("logger_output_smoke_{}.log", std::process::id()));

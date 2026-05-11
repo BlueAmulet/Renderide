@@ -11,6 +11,11 @@ use super::mesh::{Mesh, Vertex};
 ///
 /// Choosing `latitude = 16, longitude = 24` yields ~624 verts / ~1152 tris which is small
 /// enough to fit comfortably in any IPC ring while still showing recognizable shading.
+///
+/// # Panics
+///
+/// Panics if `latitude < 2` or `longitude < 3`; degenerate tessellations are rejected so the
+/// caller cannot end up with a malformed mesh.
 pub fn generate_sphere(latitude: u32, longitude: u32) -> Mesh {
     assert!(
         latitude >= 2 && longitude >= 3,

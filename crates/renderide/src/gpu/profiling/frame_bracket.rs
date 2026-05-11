@@ -273,8 +273,8 @@ fn timestamp_pair_bytes_to_ms(bytes: &[u8], timestamp_period: f32) -> Option<f64
     if bytes.len() < TIMESTAMP_PAIR_BYTES as usize {
         return None;
     }
-    let begin = u64::from_ne_bytes(bytes[0..8].try_into().ok()?);
-    let end = u64::from_ne_bytes(bytes[8..16].try_into().ok()?);
+    let begin = u64::from_le_bytes(bytes[0..8].try_into().ok()?);
+    let end = u64::from_le_bytes(bytes[8..16].try_into().ok()?);
     let ticks = end.saturating_sub(begin);
     let ns = (ticks as f64) * f64::from(timestamp_period);
     Some(ns / 1_000_000.0)
@@ -311,8 +311,8 @@ mod tests {
 
     fn timestamp_bytes(begin: u64, end: u64) -> [u8; 16] {
         let mut bytes = [0_u8; 16];
-        bytes[0..8].copy_from_slice(&begin.to_ne_bytes());
-        bytes[8..16].copy_from_slice(&end.to_ne_bytes());
+        bytes[0..8].copy_from_slice(&begin.to_le_bytes());
+        bytes[8..16].copy_from_slice(&end.to_le_bytes());
         bytes
     }
 }

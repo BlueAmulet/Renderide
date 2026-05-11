@@ -189,10 +189,8 @@ pub(super) struct TransientPoolMetricsDelta {
 
 impl TransientPoolMetricsDelta {
     pub(super) fn from_metrics(before: TransientPoolMetrics, after: TransientPoolMetrics) -> Self {
-        let texture_delta: crate::gpu_resource::CacheStatsDelta =
-            after.texture_cache.delta_since(before.texture_cache);
-        let buffer_delta: crate::gpu_resource::CacheStatsDelta =
-            after.buffer_cache.delta_since(before.buffer_cache);
+        let texture_delta = after.texture_cache.delta_since(before.texture_cache);
+        let buffer_delta = after.buffer_cache.delta_since(before.buffer_cache);
         Self {
             texture_misses: saturating_usize(texture_delta.misses),
             buffer_misses: saturating_usize(buffer_delta.misses),

@@ -304,7 +304,7 @@ impl AppDriver {
         let Some(target) = self.target.as_mut() else {
             return;
         };
-        if let GraphExecuteError::NoFrameGraph = error {
+        if matches!(error, GraphExecuteError::NoFrameGraph) {
             if let Err(present_error) = present_clear_frame(target.gpu_mut()) {
                 logger::warn!("present fallback failed: {present_error:?}");
                 target.reconfigure_for_window();

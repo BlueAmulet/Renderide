@@ -60,7 +60,7 @@ fn collect_wgsl_paths(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), BuildErr
             .map_err(|e| BuildError::Message(format!("stat {}: {e}", path.display())))?;
         if file_type.is_dir() {
             collect_wgsl_paths(&path, out)?;
-        } else if file_type.is_file() && path.extension().is_some_and(|x| x == "wgsl") {
+        } else if !file_type.is_dir() && path.extension().is_some_and(|x| x == "wgsl") {
             out.push(path);
         }
     }

@@ -80,7 +80,7 @@ fn atomic_write_toml(path: &Path, contents: &str) -> io::Result<()> {
 }
 
 fn merge_known_settings(existing: &mut Table, canonical: &Table) {
-    for (key, canonical_item) in canonical.iter() {
+    for (key, canonical_item) in canonical {
         if let Some(existing_item) = existing.get_mut(key)
             && let (Some(existing_table), Some(canonical_table)) =
                 (existing_item.as_table_mut(), canonical_item.as_table())

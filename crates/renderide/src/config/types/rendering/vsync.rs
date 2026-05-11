@@ -69,7 +69,7 @@ impl VsyncMode {
     ///
     /// [1]: https://www.w3.org/TR/webgpu/#dom-gpupresentmode-fifo
     pub fn resolve_present_mode(self, supported: &[wgpu::PresentMode]) -> wgpu::PresentMode {
-        use wgpu::PresentMode::*;
+        use wgpu::PresentMode::{Fifo, FifoRelaxed, Immediate, Mailbox};
         match self {
             Self::Off => first_supported_present_mode(&[Immediate, Mailbox, Fifo], supported),
             Self::On => first_supported_present_mode(&[FifoRelaxed, Fifo], supported),

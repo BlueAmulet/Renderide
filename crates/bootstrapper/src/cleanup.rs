@@ -44,7 +44,7 @@ fn remove_files_recursive_matching(dir: &Path, needle: &str) -> std::io::Result<
         };
         if ty.is_dir() {
             let _ = remove_files_recursive_matching(&path, needle);
-        } else if ty.is_file()
+        } else if !ty.is_dir()
             && path
                 .file_name()
                 .and_then(|n| n.to_str())

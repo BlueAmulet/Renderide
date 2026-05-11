@@ -81,7 +81,9 @@ impl XrSessionState {
                 let Some(event) = self.xr_instance.poll_event(&mut self.event_storage)? else {
                     break;
                 };
-                use xr::Event::*;
+                use xr::Event::{
+                    InstanceLossPending, InteractionProfileChanged, SessionStateChanged,
+                };
                 match event {
                     SessionStateChanged(e) => PollEventAction::SessionStateChanged(e.state()),
                     InstanceLossPending(_) => PollEventAction::InstanceLoss,

@@ -82,6 +82,10 @@ pub(super) fn downsample_rgba8_box(
 }
 
 /// Loads four contiguous RGBA8 bytes at `i` into a [`u32x4`] (one channel per lane, widened).
+#[expect(
+    clippy::inline_always,
+    reason = "inner SIMD helper on the per-texel downsample hot path"
+)]
 #[inline(always)]
 fn load_rgba8_lanes(src: &[u8], i: usize) -> u32x4 {
     u32x4::new([
@@ -93,6 +97,10 @@ fn load_rgba8_lanes(src: &[u8], i: usize) -> u32x4 {
 }
 
 /// Stores the low byte of each [`u32x4`] lane into the four `dst` slots.
+#[expect(
+    clippy::inline_always,
+    reason = "inner SIMD helper on the per-texel downsample hot path"
+)]
 #[inline(always)]
 fn store_rgba8_lanes(dst: &mut [u8], i: usize, lanes: u32x4) {
     let arr = lanes.to_array();

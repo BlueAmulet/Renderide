@@ -5,7 +5,6 @@
 //! via `Command::env("RENDERIDE_INTERPROCESS_DIR", ...)` (see `scene_session/spawn.rs`); the
 //! harness itself never mutates its own environment.
 
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -59,7 +58,7 @@ pub(super) fn connect_session(queue_capacity_bytes: i64) -> Result<IpcSession, H
     let tempdir_guard = tempfile::Builder::new()
         .prefix("renderide-test-shm-")
         .tempdir()?;
-    let tempdir_path: PathBuf = tempdir_guard.path().to_path_buf();
+    let tempdir_path = tempdir_guard.path().to_path_buf();
 
     let session_id = make_session_id();
     let connection_params = ConnectionParams {

@@ -53,15 +53,15 @@ impl PerlinNoise2D {
         let xi1 = (xi + 1) & 255;
         let py0 = self.perm[yi] as usize;
         let py1 = self.perm[yi1] as usize;
-        let a = self.perm[(xi + py0) & 255];
-        let b = self.perm[(xi + py1) & 255];
-        let c = self.perm[(xi1 + py0) & 255];
-        let d = self.perm[(xi1 + py1) & 255];
+        let hash_aa = self.perm[(xi + py0) & 255];
+        let hash_ab = self.perm[(xi + py1) & 255];
+        let hash_ba = self.perm[(xi1 + py0) & 255];
+        let hash_bb = self.perm[(xi1 + py1) & 255];
 
-        let g_aa = grad(a, xf, yf);
-        let g_ba = grad(c, xf - 1.0, yf);
-        let g_ab = grad(b, xf, yf - 1.0);
-        let g_bb = grad(d, xf - 1.0, yf - 1.0);
+        let g_aa = grad(hash_aa, xf, yf);
+        let g_ba = grad(hash_ba, xf - 1.0, yf);
+        let g_ab = grad(hash_ab, xf, yf - 1.0);
+        let g_bb = grad(hash_bb, xf - 1.0, yf - 1.0);
 
         lerp(v, lerp(u, g_aa, g_ba), lerp(u, g_ab, g_bb))
     }
@@ -161,14 +161,14 @@ pub fn generate_perlin_rgba(spec: &PerlinTextureSpec) -> RgbaImage {
         for x in 0..spec.width {
             let nx = x as f32 * inv_w;
             let ny = y as f32 * inv_h;
-            let n = noise
+            let value = noise
                 .fbm(nx, ny, spec.octaves, spec.lacunarity, spec.gain)
                 .clamp(-1.0, 1.0);
-            let m = n * 0.5 + 0.5; // [0, 1]
-            let r = (m * spec.tint[0] as f32).round() as u8;
-            let g = (m * spec.tint[1] as f32).round() as u8;
-            let b = (m * spec.tint[2] as f32).round() as u8;
-            img.put_pixel(x, y, image::Rgba([r, g, b, 255]));
+            let normalized = value * 0.5 + 0.5; // [0, 1]
+            let red = (normalized * spec.tint[0] as f32).round() as u8;
+            let green = (normalized * spec.tint[1] as f32).round() as u8;
+            let blue = (normalized * spec.tint[2] as f32).round() as u8;
+            img.put_pixel(x, y, image::Rgba([red, green, blue, 255]));
         }
     }
     img

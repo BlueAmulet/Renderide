@@ -88,25 +88,25 @@ fn generate_ibl_dfg_lut_rg32f() -> Vec<f32> {
 /// Multiscatter DFG integral factored for runtime Schlick energy reconstruction.
 fn dfv_multiscatter(no_v: f32, linear_roughness: f32, sample_count: u32) -> [f32; 2] {
     let no_v = saturate(no_v);
-    let v = Vec3::new((1.0 - no_v * no_v).max(0.0).sqrt(), 0.0, no_v);
-    let mut r = [0.0_f32; 2];
+    let view_dir = Vec3::new((1.0 - no_v * no_v).max(0.0).sqrt(), 0.0, no_v);
+    let mut accum = [0.0_f32; 2];
     for i in 0..sample_count {
-        let u = hammersley(i, sample_count);
-        let h = hemisphere_importance_sample_dggx(u, linear_roughness);
-        let l = 2.0 * v.dot(h) * h - v;
-        let vo_h = saturate(v.dot(h));
-        let no_l = saturate(l.z);
-        let no_h = saturate(h.z);
+        let xi = hammersley(i, sample_count);
+        let half_dir = hemisphere_importance_sample_dggx(xi, linear_roughness);
+        let light_dir = 2.0 * view_dir.dot(half_dir) * half_dir - view_dir;
+        let vo_h = saturate(view_dir.dot(half_dir));
+        let no_l = saturate(light_dir.z);
+        let no_h = saturate(half_dir.z);
         if no_l > 0.0 && no_h > 0.0 {
             let visibility = visibility_smith_ggx_correlated(no_v, no_l, linear_roughness);
             let v_term = visibility * no_l * (vo_h / no_h);
             let fc = pow5(1.0 - vo_h);
-            r[0] += v_term * fc;
-            r[1] += v_term;
+            accum[0] += v_term * fc;
+            accum[1] += v_term;
         }
     }
     let scale = 4.0 / (sample_count.max(1) as f32);
-    [r[0] * scale, r[1] * scale]
+    [accum[0] * scale, accum[1] * scale]
 }
 
 /// GGX importance sample for `D(a) * cos(theta)` in tangent space.

@@ -157,7 +157,7 @@ fn resolve_cull_decision(
     };
     acc.cull_stats.0 += 1;
     match outcome {
-        Err(CpuCullFailure::Frustum) | Err(CpuCullFailure::UiRectMask) => {
+        Err(CpuCullFailure::Frustum | CpuCullFailure::UiRectMask) => {
             acc.cull_stats.1 += 1;
             SlotCullDecision::RejectedFrustum
         }

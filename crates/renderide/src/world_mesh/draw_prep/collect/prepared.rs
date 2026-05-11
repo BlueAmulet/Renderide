@@ -155,7 +155,7 @@ fn prepared_run_view_state(
             cull_stats.0 += run.len();
             match mesh_cpu_cull_with_geometry(geom, ctx.scene, first.space_id, is_overlay, c, None)
             {
-                Err(CpuCullFailure::Frustum) | Err(CpuCullFailure::UiRectMask) => {
+                Err(CpuCullFailure::Frustum | CpuCullFailure::UiRectMask) => {
                     cull_stats.1 += run.len();
                     return (None, cull_stats);
                 }

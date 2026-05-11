@@ -43,12 +43,11 @@ pub fn try_openxr_hmd_multiview_submit(
         log_hmd_submit_skip("stereo swapchain unavailable");
         return false;
     }
-    let extent = match bundle.stereo_swapchain.as_ref() {
-        Some(s) => s.resolution,
-        None => {
-            log_hmd_submit_skip("stereo swapchain missing after ensure");
-            return false;
-        }
+    let extent = if let Some(s) = bundle.stereo_swapchain.as_ref() {
+        s.resolution
+    } else {
+        log_hmd_submit_skip("stereo swapchain missing after ensure");
+        return false;
     };
     if !ensure_stereo_depth_texture(gpu, bundle, extent) {
         log_hmd_submit_skip("stereo depth texture unavailable");
