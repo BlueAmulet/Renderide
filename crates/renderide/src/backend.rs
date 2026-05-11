@@ -28,6 +28,11 @@ mod world_mesh_frame_plan;
 pub(crate) use crate::render_graph::HistoryRegistry;
 pub(crate) use asset_transfers::{AssetIntegrationDrainSummary, AssetTransferQueue};
 pub(crate) use facade::ExtractedFrameShared;
+#[expect(
+    unused_imports,
+    reason = "intentional public re-export of attach result error type"
+)]
+pub use facade::RenderBackendAttachError;
 pub use facade::{RenderBackend, RenderBackendAttachDesc};
 pub use frame_gpu_bindings::FrameGpuBindingsError;
 pub(crate) use frame_resource_manager::FrameLightViewDesc;

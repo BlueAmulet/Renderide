@@ -7,6 +7,7 @@
 //! Graph execution lives in the `execute` submodule; IPC-facing asset handlers in `asset_ipc`.
 
 mod asset_ipc;
+mod attach;
 mod diagnostics;
 mod draw_preparation;
 mod execute;
@@ -15,26 +16,24 @@ mod frame_services;
 mod graph_access;
 mod graph_cache;
 mod graph_state;
+mod hud_methods;
+#[cfg(test)]
+mod post_processing_rebuild_tests;
 mod reflection_services;
 
-use std::path::PathBuf;
+pub use attach::{RenderBackendAttachDesc, RenderBackendAttachError};
+
 use std::sync::Arc;
 
-use thiserror::Error;
-
 use crate::backend::AssetTransferQueue;
-use crate::backend::asset_transfers as asset_uploads;
-use crate::config::{PostProcessingSettings, RendererSettingsHandle, SceneColorFormat};
-use crate::diagnostics::{DebugHudEncodeError, DebugHudInput, SceneTransformsSnapshot};
+use crate::config::{RendererSettingsHandle, SceneColorFormat};
 use crate::gpu::GpuLimits;
 use crate::gpu_pools::{MeshPool, RenderTexturePool, TexturePool};
 use crate::materials::host_data::MaterialPropertyStore;
 use crate::render_graph::TransientPool;
-use crate::world_mesh::{WorldMeshDrawStateRow, WorldMeshDrawStats};
 
-use super::{FrameGpuBindingsError, FrameResourceManager};
+use super::FrameResourceManager;
 use crate::materials::MaterialSystem;
-use crate::materials::embedded::EmbeddedMaterialBindError;
 use crate::occlusion::OcclusionSystem;
 use diagnostics::BackendDiagnostics;
 use draw_preparation::BackendDrawPreparation;
@@ -44,38 +43,6 @@ use graph_state::RenderGraphState;
 use reflection_services::ReflectionProbeServices;
 
 pub(crate) use frame_packet::ExtractedFrameShared;
-
-/// GPU attach failed for frame binds (`@group(0/1/2)`) or embedded materials (`@group(1)`).
-#[derive(Debug, Error)]
-pub enum RenderBackendAttachError {
-    /// Frame / empty material / per-draw allocation failed atomically.
-    #[error(transparent)]
-    FrameGpuBindings(#[from] FrameGpuBindingsError),
-    /// Embedded raster `@group(1)` bind resources could not be created.
-    #[error(transparent)]
-    EmbeddedMaterialBind(#[from] EmbeddedMaterialBindError),
-}
-
-/// Device, queue, and settings passed to [`RenderBackend::attach`] (shared-memory flush is passed separately for borrow reasons).
-pub struct RenderBackendAttachDesc {
-    /// Logical device for uploads and graph encoding.
-    pub device: Arc<wgpu::Device>,
-    /// Queue used for submits and GPU writes.
-    pub queue: Arc<wgpu::Queue>,
-    /// Shared GPU queue access gate cloned from [`crate::gpu::GpuContext`]; acquired by
-    /// upload, submit, and OpenXR queue-access paths. See [`crate::gpu::GpuQueueAccessGate`].
-    pub gpu_queue_access_gate: crate::gpu::GpuQueueAccessGate,
-    /// Capabilities for buffer sizing and MSAA.
-    pub gpu_limits: Arc<GpuLimits>,
-    /// Swapchain / main surface format for HUD and pipelines.
-    pub surface_format: wgpu::TextureFormat,
-    /// Live renderer settings (HUD, VR budgets, etc.).
-    pub renderer_settings: RendererSettingsHandle,
-    /// Path for persisting HUD/config from the debug overlay.
-    pub config_save_path: PathBuf,
-    /// When `true`, the ImGui config window must not write `config.toml` (startup extract failed).
-    pub suppress_renderer_config_disk_writes: bool,
-}
 
 fn scene_color_usage_supported(format: wgpu::TextureFormat, limits: &GpuLimits) -> bool {
     limits.texture_usage_supported(
@@ -370,192 +337,6 @@ impl RenderBackend {
         self.graph_state.frame_graph_cache.topo_levels()
     }
 
-    /// Call after [`crate::gpu::GpuContext`] is created so mesh/texture uploads can use the GPU.
-    ///
-    /// Wires device/queue into uploads, allocates frame binds and materials, and builds the default graph.
-    /// `shm` flushes pending mesh/texture payloads that require shared-memory reads; omit when none is
-    /// available yet (uploads stay queued).
-    /// `ipc` emits host completions for any pending uploads drained during attach.
-    ///
-    /// On error, CPU-side asset queues may already be partially configured; GPU draws must not run until
-    /// a successful attach.
-    pub fn attach(
-        &mut self,
-        desc: RenderBackendAttachDesc,
-        shm: Option<&mut crate::ipc::SharedMemoryAccessor>,
-        ipc: Option<&mut crate::ipc::DualQueueIpc>,
-    ) -> Result<(), RenderBackendAttachError> {
-        let RenderBackendAttachDesc {
-            device,
-            queue,
-            gpu_queue_access_gate,
-            gpu_limits,
-            surface_format,
-            renderer_settings,
-            config_save_path,
-            suppress_renderer_config_disk_writes,
-        } = desc;
-        self.renderer_settings = Some(renderer_settings.clone());
-        self.surface_format = Some(surface_format);
-        self.asset_transfers.attach_gpu_runtime(
-            device.clone(),
-            queue.clone(),
-            gpu_queue_access_gate,
-            Arc::clone(&gpu_limits),
-        );
-        self.frame_services
-            .attach(device.as_ref(), queue.as_ref(), Arc::clone(&gpu_limits))?;
-        self.diagnostics.attach(
-            device.as_ref(),
-            queue.as_ref(),
-            surface_format,
-            renderer_settings,
-            config_save_path,
-            suppress_renderer_config_disk_writes,
-        );
-        self.materials
-            .try_attach_gpu(device.clone(), &queue, Arc::clone(&gpu_limits))?;
-        self.reflection_probes
-            .pre_warm_sh2_projection_pipelines(&device);
-        asset_uploads::attach_flush_pending_asset_uploads(
-            &mut self.asset_transfers,
-            &mut self.materials,
-            &device,
-            shm,
-            ipc,
-        );
-
-        let (post_processing_settings, msaa_sample_count) = self
-            .renderer_settings
-            .as_ref()
-            .and_then(|h| {
-                h.read()
-                    .ok()
-                    .map(|g| (g.post_processing.clone(), g.rendering.msaa.as_count() as u8))
-            })
-            .unwrap_or_else(|| (PostProcessingSettings::default(), 1));
-        let graph_post_processing =
-            self.effective_post_processing_settings_for_graph(&post_processing_settings);
-        let shape = self.frame_graph_shape_for(&graph_post_processing, msaa_sample_count, false);
-        self.sync_frame_graph_cache(&graph_post_processing, shape);
-        logger::info!(
-            "backend attached: surface_format={:?} scene_color_format={:?} msaa_sample_count={} mesh_preprocess={} msaa_depth_resolve={} frame_graph_passes={} frame_graph_topo_levels={}",
-            surface_format,
-            self.scene_color_format_wgpu(),
-            msaa_sample_count,
-            self.frame_services.mesh_preprocess_enabled(),
-            self.frame_services.msaa_depth_resolve_enabled(),
-            self.frame_graph_pass_count(),
-            self.frame_graph_topo_levels(),
-        );
-        Ok(())
-    }
-
-    /// Updates whether main HUD diagnostics run (mirrors [`crate::config::DebugSettings::debug_hud_enabled`]).
-    pub fn set_debug_hud_main_enabled(&mut self, enabled: bool) {
-        self.diagnostics.set_main_enabled(enabled);
-    }
-
-    /// Updates whether texture HUD diagnostics run.
-    pub(crate) fn set_debug_hud_textures_enabled(&mut self, enabled: bool) {
-        self.diagnostics.set_textures_enabled(enabled);
-    }
-
-    /// Clears the current-view Texture2D set before collecting this frame's submitted draws.
-    pub(crate) fn clear_debug_hud_current_view_texture_2d_asset_ids(&mut self) {
-        self.diagnostics.clear_current_view_texture_2d_asset_ids();
-    }
-
-    /// Texture2D ids used by submitted world draws for the current view.
-    pub(crate) fn debug_hud_current_view_texture_2d_asset_ids(
-        &self,
-    ) -> &std::collections::BTreeSet<i32> {
-        self.diagnostics.current_view_texture_2d_asset_ids()
-    }
-
-    /// Updates pointer state for the ImGui overlay (called once per render_views).
-    pub fn set_debug_hud_input(&mut self, input: DebugHudInput) {
-        self.diagnostics.set_input(input);
-    }
-
-    /// Updates the wall-clock roundtrip (ms) for the HUD's FPS / Frame readout.
-    pub fn set_debug_hud_wall_frame_time_ms(&mut self, frame_time_ms: f64) {
-        self.diagnostics.set_wall_frame_time_ms(frame_time_ms);
-    }
-
-    /// Last inter-frame time in milliseconds supplied by the app for HUD FPS.
-    pub(crate) fn debug_frame_time_ms(&self) -> f64 {
-        self.diagnostics.frame_time_ms()
-    }
-
-    /// [`imgui::Io::want_capture_mouse`] from the last successful HUD encode (used to filter host IPC on the next tick).
-    pub(crate) fn debug_hud_last_want_capture_mouse(&self) -> bool {
-        self.diagnostics.last_want_capture_mouse()
-    }
-
-    /// [`imgui::Io::want_capture_keyboard`] from the last successful HUD encode (used to filter host IPC on the next tick).
-    pub(crate) fn debug_hud_last_want_capture_keyboard(&self) -> bool {
-        self.diagnostics.last_want_capture_keyboard()
-    }
-
-    /// Whether the HUD will draw visible content this frame.
-    pub(crate) fn debug_hud_has_visible_content(&self) -> bool {
-        self.diagnostics.has_visible_content()
-    }
-
-    /// Clears cached input-capture state when HUD encoding is skipped.
-    pub(crate) fn clear_debug_hud_input_capture(&mut self) {
-        self.diagnostics.clear_input_capture();
-    }
-
-    /// Stores [`crate::diagnostics::RendererInfoSnapshot`] for the next HUD frame.
-    pub(crate) fn set_debug_hud_snapshot(
-        &mut self,
-        snapshot: crate::diagnostics::RendererInfoSnapshot,
-    ) {
-        self.diagnostics.set_snapshot(snapshot);
-    }
-
-    pub(crate) fn set_debug_hud_frame_diagnostics(
-        &mut self,
-        snapshot: crate::diagnostics::FrameDiagnosticsSnapshot,
-    ) {
-        self.diagnostics.set_frame_diagnostics(snapshot);
-    }
-
-    pub(crate) fn set_debug_hud_frame_timing(
-        &mut self,
-        snapshot: crate::diagnostics::FrameTimingHudSnapshot,
-    ) {
-        self.diagnostics.set_frame_timing(snapshot);
-    }
-
-    /// Pushes the latest flattened GPU pass timings into the debug HUD's **GPU passes** tab.
-    pub(crate) fn set_debug_hud_gpu_pass_timings(
-        &mut self,
-        timings: Vec<crate::profiling::GpuPassEntry>,
-    ) {
-        self.diagnostics.set_gpu_pass_timings(timings);
-    }
-
-    /// Clears Stats / Shader routes payloads only (not frame timing or scene transforms).
-    pub(crate) fn clear_debug_hud_stats_snapshots(&mut self) {
-        self.diagnostics.clear_stats_snapshots();
-    }
-
-    /// Clears the **Scene transforms** HUD payload.
-    pub(crate) fn clear_debug_hud_scene_transforms_snapshot(&mut self) {
-        self.diagnostics.clear_scene_transforms_snapshot();
-    }
-
-    pub(crate) fn last_world_mesh_draw_stats(&self) -> WorldMeshDrawStats {
-        self.diagnostics.last_world_mesh_draw_stats()
-    }
-
-    pub(crate) fn last_world_mesh_draw_state_rows(&self) -> Vec<WorldMeshDrawStateRow> {
-        self.diagnostics.last_world_mesh_draw_state_rows()
-    }
-
     /// Plain-data backend snapshot consumed by the diagnostics HUD.
     ///
     /// Returns a [`crate::diagnostics::BackendDiagSnapshot`] capturing the fields
@@ -596,40 +377,6 @@ impl RenderBackend {
             gpu_light_count: self.frame_services.frame_resources.frame_lights().len(),
             signed_scene_color_active: self.signed_scene_color_active(),
         }
-    }
-
-    /// Updates the **Scene transforms** Dear ImGui window payload for the next composite pass.
-    pub(crate) fn set_debug_hud_scene_transforms_snapshot(
-        &mut self,
-        snapshot: SceneTransformsSnapshot,
-    ) {
-        self.diagnostics.set_scene_transforms_snapshot(snapshot);
-    }
-
-    /// Updates the **Textures** Dear ImGui window payload for the next composite pass.
-    pub(crate) fn set_debug_hud_texture_debug_snapshot(
-        &mut self,
-        snapshot: crate::diagnostics::TextureDebugSnapshot,
-    ) {
-        self.diagnostics.set_texture_debug_snapshot(snapshot);
-    }
-
-    /// Clears the **Textures** HUD payload.
-    pub(crate) fn clear_debug_hud_texture_debug_snapshot(&mut self) {
-        self.diagnostics.clear_texture_debug_snapshot();
-    }
-
-    /// Composites the debug HUD with `LoadOp::Load` onto the swapchain in `encoder`.
-    pub(crate) fn encode_debug_hud_overlay(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        encoder: &mut wgpu::CommandEncoder,
-        backbuffer: &wgpu::TextureView,
-        extent: (u32, u32),
-    ) -> Result<(), DebugHudEncodeError> {
-        self.diagnostics
-            .encode_overlay(device, queue, encoder, backbuffer, extent)
     }
 
     /// Mutable render-graph transient resource pool.
@@ -712,187 +459,5 @@ impl RenderBackend {
             live_auto_exposure_settings,
             wall_frame_time_ms,
         }
-    }
-}
-
-#[cfg(test)]
-mod post_processing_rebuild_tests {
-    use std::sync::{Arc, RwLock};
-
-    use super::*;
-    use crate::config::{GtaoSettings, RendererSettings, TonemapMode, TonemapSettings};
-    use crate::render_graph::{GraphCacheKey, post_process_chain::PostProcessChainSignature};
-    use hashbrown::HashMap;
-
-    fn settings_handle(post: PostProcessingSettings) -> RendererSettingsHandle {
-        Arc::new(RwLock::new(RendererSettings {
-            post_processing: post,
-            ..Default::default()
-        }))
-    }
-
-    /// Returns the current cached graph key.
-    fn cached_graph_key(backend: &RenderBackend) -> GraphCacheKey {
-        backend
-            .graph_state
-            .frame_graph_cache
-            .last_key()
-            .expect("graph key should exist after sync")
-    }
-
-    fn limits_with_format_usage(
-        format: wgpu::TextureFormat,
-        allowed_usages: wgpu::TextureUsages,
-    ) -> GpuLimits {
-        let mut format_features = HashMap::new();
-        format_features.insert(
-            format,
-            wgpu::TextureFormatFeatures {
-                allowed_usages,
-                flags: wgpu::TextureFormatFeatureFlags::empty(),
-            },
-        );
-        GpuLimits::synthetic_for_tests(
-            wgpu::Limits {
-                max_texture_dimension_2d: 4096,
-                max_storage_buffer_binding_size: 256 * 1024,
-                ..Default::default()
-            },
-            wgpu::Features::empty(),
-            format_features,
-        )
-    }
-
-    /// First sync builds the graph and stores the live signature.
-    #[test]
-    fn first_sync_builds_graph_and_records_signature() {
-        let mut backend = RenderBackend::new();
-        let handle = settings_handle(PostProcessingSettings {
-            enabled: true,
-            auto_exposure: crate::config::AutoExposureSettings {
-                enabled: true,
-                ..Default::default()
-            },
-            tonemap: TonemapSettings {
-                mode: TonemapMode::AcesFitted,
-            },
-            ..Default::default()
-        });
-        backend.renderer_settings = Some(handle);
-        backend.ensure_frame_graph_in_sync(false);
-        assert!(
-            backend.frame_graph_pass_count() > 0,
-            "graph should be built"
-        );
-        assert_eq!(
-            cached_graph_key(&backend).post_processing,
-            PostProcessChainSignature {
-                aces_tonemap: true,
-                agx_tonemap: false,
-                auto_exposure: true,
-                bloom: true,
-                bloom_max_mip_dimension: 512,
-                gtao: true,
-                gtao_denoise_passes: GtaoSettings::default().denoise_passes.min(3),
-            }
-        );
-    }
-
-    /// Toggling the master enable flips the signature and rebuilds the graph with an extra pass.
-    #[test]
-    fn signature_change_triggers_rebuild() {
-        let mut backend = RenderBackend::new();
-        let handle = settings_handle(PostProcessingSettings {
-            enabled: false,
-            ..Default::default()
-        });
-        backend.renderer_settings = Some(Arc::clone(&handle));
-        backend.ensure_frame_graph_in_sync(false);
-        let initial_passes = backend.frame_graph_pass_count();
-        let initial_signature = cached_graph_key(&backend).post_processing;
-
-        if let Ok(mut g) = handle.write() {
-            g.post_processing.enabled = true;
-            g.post_processing.tonemap.mode = TonemapMode::AcesFitted;
-        }
-        backend.ensure_frame_graph_in_sync(false);
-
-        assert_ne!(
-            cached_graph_key(&backend).post_processing,
-            initial_signature,
-            "signature must update after rebuild"
-        );
-        assert!(
-            backend.frame_graph_pass_count() > initial_passes,
-            "enabling ACES should add a graph pass"
-        );
-    }
-
-    /// Repeat sync without HUD edits is a no-op (no rebuild, signature and pass count unchanged).
-    #[test]
-    fn unchanged_signature_does_not_rebuild() {
-        let mut backend = RenderBackend::new();
-        let handle = settings_handle(PostProcessingSettings {
-            enabled: true,
-            tonemap: TonemapSettings {
-                mode: TonemapMode::AcesFitted,
-            },
-            ..Default::default()
-        });
-        backend.renderer_settings = Some(handle);
-        backend.ensure_frame_graph_in_sync(false);
-        let signature = cached_graph_key(&backend).post_processing;
-        let pass_count = backend.frame_graph_pass_count();
-
-        backend.ensure_frame_graph_in_sync(false);
-        assert_eq!(cached_graph_key(&backend).post_processing, signature);
-        assert_eq!(backend.frame_graph_pass_count(), pass_count);
-    }
-
-    /// Switching between mono and stereo multiview should flip the graph key in one place so the
-    /// runtime does not rely on implicit backend assumptions when VR starts or stops.
-    #[test]
-    fn multiview_change_updates_graph_key() {
-        let mut backend = RenderBackend::new();
-        backend.renderer_settings = Some(settings_handle(PostProcessingSettings::default()));
-
-        backend.ensure_frame_graph_in_sync(false);
-        let mono_key = cached_graph_key(&backend);
-        backend.ensure_frame_graph_in_sync(true);
-        let stereo_key = cached_graph_key(&backend);
-
-        assert!(!mono_key.multiview_stereo);
-        assert!(stereo_key.multiview_stereo);
-        assert_ne!(mono_key, stereo_key);
-    }
-
-    #[test]
-    fn scene_color_format_falls_back_when_requested_format_is_not_renderable() {
-        let limits = limits_with_format_usage(
-            wgpu::TextureFormat::Rg11b10Ufloat,
-            wgpu::TextureUsages::TEXTURE_BINDING,
-        );
-
-        assert_eq!(
-            effective_scene_color_format(wgpu::TextureFormat::Rg11b10Ufloat, &limits, false),
-            wgpu::TextureFormat::Rgba16Float
-        );
-    }
-
-    #[test]
-    fn scene_color_format_promotes_unsigned_when_signed_rgb_is_required() {
-        let limits = limits_with_format_usage(
-            wgpu::TextureFormat::Rg11b10Ufloat,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        );
-
-        assert_eq!(
-            effective_scene_color_format(wgpu::TextureFormat::Rg11b10Ufloat, &limits, true),
-            wgpu::TextureFormat::Rgba16Float
-        );
-        assert_eq!(
-            effective_scene_color_format(wgpu::TextureFormat::Rg11b10Ufloat, &limits, false),
-            wgpu::TextureFormat::Rg11b10Ufloat
-        );
     }
 }
