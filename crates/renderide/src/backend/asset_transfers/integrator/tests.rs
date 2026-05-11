@@ -1,3 +1,8 @@
+use std::time::{Duration, Instant};
+
+use super::super::texture_task::TextureUploadTask;
+use super::drain::{MIN_HIGH_PRIORITY_EMERGENCY_BUDGET, high_priority_emergency_deadline};
+use super::queue::ASSET_INTEGRATION_QUEUE_WARN_THRESHOLD;
 use super::*;
 use crate::shared::{SetTexture2DData, SetTexture2DFormat};
 
