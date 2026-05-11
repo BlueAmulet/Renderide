@@ -481,11 +481,17 @@ fn step_shader_route_task(
         route.shader_variant_bits,
     );
     if let Some(ipc) = ipc.as_deref_mut() {
-        let _ =
+        let ack_queued =
             ipc.send_background_reliable(RendererCommand::ShaderUploadResult(ShaderUploadResult {
                 asset_id: route.asset_id,
                 instance_changed: true,
             }));
+        if !ack_queued {
+            logger::warn!(
+                "shader route asset_id={}: failed to enqueue reliable ShaderUploadResult ack",
+                route.asset_id
+            );
+        }
     }
     StepResult::Done
 }
@@ -503,9 +509,14 @@ fn step_point_render_buffer_task(
         .point_render_buffer_uploads
         .insert(asset_id, upload);
     if let Some(ipc) = ipc.as_deref_mut() {
-        let _ = ipc.send_background_reliable(RendererCommand::PointRenderBufferConsumed(
+        let ack_queued = ipc.send_background_reliable(RendererCommand::PointRenderBufferConsumed(
             PointRenderBufferConsumed { asset_id },
         ));
+        if !ack_queued {
+            logger::warn!(
+                "point render buffer {asset_id}: failed to enqueue reliable consumed ack"
+            );
+        }
     }
     logger::debug!("point render buffer {asset_id}: consumed placeholder upload count={count}");
     StepResult::Done
@@ -525,9 +536,14 @@ fn step_trail_render_buffer_task(
         .trail_render_buffer_uploads
         .insert(asset_id, upload);
     if let Some(ipc) = ipc.as_deref_mut() {
-        let _ = ipc.send_background_reliable(RendererCommand::TrailRenderBufferConsumed(
+        let ack_queued = ipc.send_background_reliable(RendererCommand::TrailRenderBufferConsumed(
             TrailRenderBufferConsumed { asset_id },
         ));
+        if !ack_queued {
+            logger::warn!(
+                "trail render buffer {asset_id}: failed to enqueue reliable consumed ack"
+            );
+        }
     }
     logger::debug!(
         "trail render buffer {asset_id}: consumed placeholder upload trails={trails_count} points_per_trail={trail_point_count}"

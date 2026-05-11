@@ -66,14 +66,53 @@ pub(crate) fn load_app_config(log_level_cli: Option<LogLevel>) -> AppConfig {
         power_preference: load.settings.debug.power_preference.to_wgpu(),
         graphics_api: load.settings.rendering.graphics_api,
     };
+    log_startup_config_summary(&load, gpu, log_level_cli);
 
     AppConfig { load, gpu }
 }
 
+fn log_startup_config_summary(
+    load: &ConfigLoadResult,
+    gpu: GpuStartupConfig,
+    log_level_cli: Option<LogLevel>,
+) {
+    let settings = &load.settings;
+    logger::info!(
+        "Renderer config summary: source={:?} loaded_path={} save_path={} suppress_disk_writes={} log_verbose={} cli_log_level_present={} vsync={:?} graphics_api={} gpu_validation={} power_preference={} msaa={} scene_color={:?} post_processing_enabled={} gtao={} bloom={} auto_exposure={} tonemap={} watchdog_enabled={}",
+        load.resolve.source,
+        load.resolve
+            .loaded_path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "<none>".to_string()),
+        load.save_path.display(),
+        load.suppress_config_disk_writes,
+        settings.debug.log_verbose,
+        log_level_cli.is_some(),
+        gpu.vsync,
+        gpu.graphics_api.as_persist_str(),
+        gpu.gpu_validation_layers,
+        settings.debug.power_preference.persist_str(),
+        settings.rendering.msaa.persist_str(),
+        settings.rendering.scene_color_format,
+        settings.post_processing.enabled,
+        settings.post_processing.gtao.enabled,
+        settings.post_processing.bloom.enabled,
+        settings.post_processing.auto_exposure.enabled,
+        settings.post_processing.tonemap.mode.persist_str(),
+        settings.watchdog.enabled,
+    );
+}
+
 #[cfg(test)]
 mod tests {
-    use super::effective_renderer_log_level;
+    use super::{
+        GpuStartupConfig, MAX_FRAME_LATENCY, effective_renderer_log_level,
+        log_startup_config_summary,
+    };
+    use crate::config::{ConfigLoadResult, ConfigResolveOutcome, ConfigSource, RendererSettings};
     use logger::LogLevel;
+    use std::path::PathBuf;
 
     #[test]
     fn cli_always_overrides_log_verbose() {
@@ -91,5 +130,27 @@ mod tests {
     #[test]
     fn no_cli_uses_info_when_not_log_verbose() {
         assert_eq!(effective_renderer_log_level(None, false), LogLevel::Info);
+    }
+
+    #[test]
+    fn startup_config_summary_accepts_default_settings() {
+        let load = ConfigLoadResult {
+            settings: RendererSettings::default(),
+            resolve: ConfigResolveOutcome {
+                attempted_paths: Vec::new(),
+                loaded_path: None,
+                source: ConfigSource::None,
+            },
+            save_path: PathBuf::from("config.toml"),
+            suppress_config_disk_writes: false,
+        };
+        let gpu = GpuStartupConfig {
+            vsync: load.settings.rendering.vsync,
+            max_frame_latency: MAX_FRAME_LATENCY,
+            gpu_validation_layers: load.settings.debug.gpu_validation_layers,
+            power_preference: load.settings.debug.power_preference.to_wgpu(),
+            graphics_api: load.settings.rendering.graphics_api,
+        };
+        log_startup_config_summary(&load, gpu, None);
     }
 }

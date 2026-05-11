@@ -39,7 +39,11 @@ impl XrSessionState {
             // `take_pending_error` plumbing surfaces driver crashes separately so we
             // log here and fall through to the error-slot drain below.
             if wait_for_finalize(rx).is_err() {
-                logger::warn!("xr: timed out waiting for previous-frame finalize");
+                logger::warn!(
+                    "xr: timed out waiting for previous-frame finalize (session_running={} frame_open={})",
+                    self.session_running,
+                    self.frame_open.load(Ordering::Acquire)
+                );
             }
         }
         if let Some(err) = self.take_finalize_error() {

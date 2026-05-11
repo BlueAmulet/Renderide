@@ -47,6 +47,7 @@ pub(super) fn driver_loop(
     submit_counters: Arc<SubmitCounters>,
 ) {
     profiling::register_thread!("renderer-driver");
+    logger::info!("driver thread started");
 
     let _liveness = ConsumerLivenessGuard { ring: &ring };
     loop {
@@ -66,6 +67,13 @@ pub(super) fn driver_loop(
         }
     }
     // A `DriverMessage::Shutdown` value breaks the loop above; nothing further to do.
+    let (pushed, done) = submit_counters.snapshot();
+    logger::info!(
+        "driver thread exiting: backlog={} pushed={} done={}",
+        pushed.saturating_sub(done),
+        pushed,
+        done,
+    );
 }
 
 /// Handles one batch end-to-end: submit, install frame-timing callback, present, signal

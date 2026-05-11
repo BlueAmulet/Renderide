@@ -29,6 +29,15 @@ impl FrontendTransport {
         let Some(ref p) = self.params.clone() else {
             return Ok(());
         };
+        logger::info!(
+            "Opening renderer IPC queues: base={} capacity={} primary_sub={} primary_pub={} background_sub={} background_pub={}",
+            p.queue_name,
+            p.queue_capacity,
+            crate::connection::subscriber_queue_name(&p.queue_name, "Primary"),
+            crate::connection::publisher_queue_name(&p.queue_name, "Primary"),
+            crate::connection::subscriber_queue_name(&p.queue_name, "Background"),
+            crate::connection::publisher_queue_name(&p.queue_name, "Background"),
+        );
         self.ipc = Some(DualQueueIpc::connect(p)?);
         Ok(())
     }

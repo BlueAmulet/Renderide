@@ -70,6 +70,14 @@ impl XrStereoSwapchain {
             v0.recommended_image_rect_width,
             v0.recommended_image_rect_height,
         );
+        logger::info!(
+            "OpenXR view configuration: views={} recommended={}x{} max={}x{}",
+            views.len(),
+            v0.recommended_image_rect_width,
+            v0.recommended_image_rect_height,
+            v0.max_image_rect_width,
+            v0.max_image_rect_height,
+        );
 
         let handle = session.create_swapchain(&xr::SwapchainCreateInfo {
             create_flags: xr::SwapchainCreateFlags::EMPTY,
@@ -85,6 +93,14 @@ impl XrStereoSwapchain {
         })?;
 
         let images = handle.enumerate_images()?;
+        logger::info!(
+            "OpenXR swapchain images: count={} format={:?} resolution={}x{} array_layers={}",
+            images.len(),
+            XR_COLOR_FORMAT,
+            resolution.0,
+            resolution.1,
+            XR_VIEW_COUNT,
+        );
         let wgpu_buffers = import_openxr_swapchain_images(device, resolution, images)?;
 
         Ok(Self {

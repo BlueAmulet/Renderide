@@ -129,11 +129,13 @@ impl XrSessionState {
                 self.session
                     .begin(xr::ViewConfigurationType::PRIMARY_STEREO)?;
                 self.session_running = true;
+                logger::info!("OpenXR session begin succeeded (PRIMARY_STEREO)");
                 Ok(true)
             }
             xr::SessionState::STOPPING => {
                 self.session.end()?;
                 self.session_running = false;
+                logger::info!("OpenXR session end succeeded");
                 Ok(true)
             }
             xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {

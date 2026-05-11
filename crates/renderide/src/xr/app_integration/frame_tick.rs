@@ -1,10 +1,15 @@
 //! OpenXR frame wait/locate and host camera sync.
 
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use crate::camera::{StereoViewMatrices, effective_head_output_clip_planes};
 use crate::gpu::GpuQueueAccessGate;
 use crate::xr::{XrHostCameraSync, XrWgpuHandles};
 
 use super::types::OpenxrFrameTick;
+
+static WAIT_FRAME_FAILURE_STREAK: AtomicU32 = AtomicU32::new(0);
+static LOCATE_VIEWS_FAILURE_STREAK: AtomicU32 = AtomicU32::new(0);
 
 /// Single `wait_frame` + `locate_views` for stereo uniforms; used for both mirror and HMD paths.
 pub fn openxr_begin_frame_tick(
@@ -28,10 +33,14 @@ pub fn openxr_begin_frame_tick(
     let fs = {
         profiling::scope!("xr::wait_frame");
         match handles.xr_session.wait_frame(gpu_queue_access_gate) {
-            Ok(Some(state)) => state,
+            Ok(Some(state)) => {
+                WAIT_FRAME_FAILURE_STREAK.store(0, Ordering::Relaxed);
+                state
+            }
             Ok(None) => return None,
             Err(e) => {
-                logger::warn!("OpenXR wait_frame failed: {e:?}");
+                let streak = WAIT_FRAME_FAILURE_STREAK.fetch_add(1, Ordering::Relaxed) + 1;
+                logger::warn!("OpenXR wait_frame failed: {e:?} consecutive_failures={streak}");
                 runtime.note_openxr_wait_frame_failed();
                 return None;
             }
@@ -40,9 +49,13 @@ pub fn openxr_begin_frame_tick(
     let views = if fs.should_render {
         profiling::scope!("xr::locate_views");
         match handles.xr_session.locate_views(fs.predicted_display_time) {
-            Ok(v) => v,
+            Ok(v) => {
+                LOCATE_VIEWS_FAILURE_STREAK.store(0, Ordering::Relaxed);
+                v
+            }
             Err(e) => {
-                logger::warn!("OpenXR locate_views failed: {e:?}");
+                let streak = LOCATE_VIEWS_FAILURE_STREAK.fetch_add(1, Ordering::Relaxed) + 1;
+                logger::warn!("OpenXR locate_views failed: {e:?} consecutive_failures={streak}");
                 runtime.note_openxr_locate_views_failed();
                 Vec::new()
             }

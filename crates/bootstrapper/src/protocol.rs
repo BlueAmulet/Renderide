@@ -72,6 +72,32 @@ pub const fn should_trace_iter(loop_iter: u64) -> bool {
     loop_iter <= 3 || loop_iter.is_multiple_of(1000)
 }
 
+#[derive(Default)]
+struct QueueLoopStats {
+    messages: u64,
+    invalid_utf8: u64,
+    heartbeats: u64,
+    shutdowns: u64,
+    get_text: u64,
+    set_text: u64,
+    start_renderer: u64,
+}
+
+impl QueueLoopStats {
+    fn record_command(&mut self, cmd: &HostCommand) {
+        self.messages = self.messages.saturating_add(1);
+        match cmd {
+            HostCommand::Heartbeat => self.heartbeats = self.heartbeats.saturating_add(1),
+            HostCommand::Shutdown => self.shutdowns = self.shutdowns.saturating_add(1),
+            HostCommand::GetText => self.get_text = self.get_text.saturating_add(1),
+            HostCommand::SetText(_) => self.set_text = self.set_text.saturating_add(1),
+            HostCommand::StartRenderer(_) => {
+                self.start_renderer = self.start_renderer.saturating_add(1);
+            }
+        }
+    }
+}
+
 /// Blocks on `incoming` until `cancel`, handling messages. Initial watchdog uses
 /// [`INITIAL_HEARTBEAT_TIMEOUT_SECS`], extended to [`HEARTBEAT_REFRESH_TIMEOUT_SECS`] on each
 /// [`HostCommand::Heartbeat`] via `heartbeat_deadline`.
@@ -88,6 +114,8 @@ pub fn queue_loop(
     let mut last_wait_log = Instant::now();
     let mut last_flush = Instant::now();
     let mut loop_iter: u64 = 0;
+    let mut stats = QueueLoopStats::default();
+    let mut stop_reason = "cancel";
 
     logger::info!(
         "Starting queue loop ({} s initial idle timeout; {} s after each HEARTBEAT)",
@@ -129,12 +157,14 @@ pub fn queue_loop(
         }
 
         let Ok(arguments) = String::from_utf8(msg) else {
+            stats.invalid_utf8 = stats.invalid_utf8.saturating_add(1);
             continue;
         };
 
         logger::info!("Received message: {}", arguments);
 
         let cmd = parse_host_command(&arguments);
+        stats.record_command(&cmd);
         if matches!(
             protocol_handlers::dispatch_command(
                 cmd,
@@ -147,9 +177,23 @@ pub fn queue_loop(
             LoopAction::Break
         ) {
             cancel.store(true, Ordering::SeqCst);
+            stop_reason = "command-break";
             break;
         }
     }
+    logger::info!(
+        "Queue loop summary: reason={} elapsed_s={:.3} iterations={} messages={} invalid_utf8={} heartbeats={} shutdowns={} get_text={} set_text={} start_renderer={}",
+        stop_reason,
+        start.elapsed().as_secs_f64(),
+        loop_iter,
+        stats.messages,
+        stats.invalid_utf8,
+        stats.heartbeats,
+        stats.shutdowns,
+        stats.get_text,
+        stats.set_text,
+        stats.start_renderer,
+    );
 }
 
 #[cfg(test)]

@@ -106,12 +106,30 @@ impl RenderBackend {
         if key_changed {
             self.graph_state.reset_upload_arena();
         }
+        let needed_rebuild = self.graph_state.frame_graph_cache.last_key() != Some(key)
+            || self.graph_state.frame_graph_cache.pass_count() == 0;
         let post_processing_resources = self.graph_state.post_processing_resources().clone();
         if let Err(error) = self.graph_state.frame_graph_cache.ensure(key, || {
             build_main_graph_with_resources(key, post_processing, &post_processing_resources)
         }) {
             self.graph_state.reset_upload_arena();
             logger::warn!("render graph build failed: {error}");
+        } else if needed_rebuild
+            && let Some(stats) = self.graph_state.frame_graph_cache.compile_stats()
+        {
+            logger::info!(
+                "render graph ready: passes={} topo_levels={} culled={} transient_textures={} texture_slots={} transient_buffers={} buffer_slots={} imported_textures={} imported_buffers={} key={:?}",
+                stats.pass_count,
+                stats.topo_levels,
+                stats.culled_count,
+                stats.transient_texture_count,
+                stats.transient_texture_slots,
+                stats.transient_buffer_count,
+                stats.transient_buffer_slots,
+                stats.imported_texture_count,
+                stats.imported_buffer_count,
+                key,
+            );
         }
     }
 
