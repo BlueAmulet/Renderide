@@ -1,7 +1,7 @@
 name: Feature request
 description: Request a new capability, workflow, platform improvement, or renderer tool.
 title: "[Feature]: "
-labels: ["enhancement", "needs-triage"]
+labels: ["enhancement"]
 body:
   - type: markdown
     attributes:

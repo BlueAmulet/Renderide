@@ -1,7 +1,7 @@
 name: Performance report
 description: Report frame pacing, CPU/GPU cost, memory, stutter, or regression issues.
 title: "[Performance]: "
-labels: ["performance", "needs-triage"]
+labels: ["performance"]
 body:
   - type: markdown
     attributes:

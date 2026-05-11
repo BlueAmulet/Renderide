@@ -1,7 +1,7 @@
 name: Unity parity request
 description: Report missing or mismatched behavior compared with the Unity renderer.
 title: "[Parity]: "
-labels: ["parity", "needs-triage"]
+labels: ["parity"]
 body:
   - type: markdown
     attributes:

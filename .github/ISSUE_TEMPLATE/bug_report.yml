@@ -1,7 +1,7 @@
 name: Bug report
 description: Report incorrect rendering, input, windowing, or runtime behavior.
 title: "[Bug]: "
-labels: ["bug", "needs-triage"]
+labels: ["bug"]
 body:
   - type: markdown
     attributes:
