@@ -1,6 +1,8 @@
 //! Unity surface shader `Shader "Custom/TestBlend"`: metallic Standard lighting that lerps
 //! between two albedo textures and clips against `_CutOff`.
-
+//!
+//! No `#pragma multi_compile` user keywords on this shader; `_RenderideVariantBits` is
+//! reserved for layout consistency with the rest of the embedded materials and is never read.
 
 #import renderide::draw::per_draw as pd
 #import renderide::material::alpha_clip_sample as acs
@@ -19,6 +21,8 @@ struct TestBlendMaterial {
     _Metallic: f32,
     _Lerp: f32,
     _CutOff: f32,
+    _RenderideVariantBits: u32,
+    _pad0: vec3<u32>,
 }
 
 @group(1) @binding(0) var<uniform> mat: TestBlendMaterial;
@@ -88,20 +92,23 @@ fn shade(
     }
 
     let base_color = c.rgb * mat._Color.rgb;
-    let alpha = mat._Color.a * c.a;
+    // Unity's Custom/TestBlend is an opaque surface shader (no `o.Alpha = ...`); emit a
+    // fixed 1.0 alpha rather than propagating the texture/tint alpha through the output.
     let metallic = clamp(mat._Metallic, 0.0, 1.0);
     let smoothness = clamp(mat._Glossiness, 0.0, 1.0);
     let roughness = psamp::roughness_from_smoothness(smoothness);
     let n = normalize(world_n);
     let surface = psurf::metallic(
         base_color,
-        alpha,
+        1.0,
         metallic,
         roughness,
         1.0,
         n,
         vec3<f32>(0.0),
     );
+    // Touch the renderer-reserved uniform so naga-oil keeps the binding live across import pruning.
+    let touch = f32(mat._RenderideVariantBits) * 0.0;
     return vec4<f32>(
         plight::shade_metallic_clustered(
             frag_xy,
@@ -109,8 +116,8 @@ fn shade(
             view_layer,
             surface,
             plight::default_lighting_options(),
-        ),
-        alpha,
+        ) + vec3<f32>(touch),
+        1.0,
     );
 }
 

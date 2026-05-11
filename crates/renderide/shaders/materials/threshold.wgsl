@@ -1,21 +1,32 @@
 //! Grab-pass threshold filter (`Shader "Filters/Threshold"`).
+//!
+//! Reads the scene color, remaps `[_Threshold - _Transition/2, _Threshold + _Transition/2]`
+//! to `[0, 1]`, and clamps the result. The `RECTCLIP` variant bit
+//! (Unity `#pragma multi_compile _ RECTCLIP`) decides whether `_Rect` discards
+//! fragments outside the object-space rectangle.
 
 
 #import renderide::frame::globals as rg
 #import renderide::frame::grab_pass as gp
 #import renderide::mesh::vertex as mv
 #import renderide::draw::per_draw as pd
+#import renderide::material::variant_bits as vb
 #import renderide::ui::rect_clip as uirc
 
 struct FiltersThresholdMaterial {
     _Threshold: f32,
     _Transition: f32,
     _Rect: vec4<f32>,
-    _RectClip: f32,
-    _pad0: vec3<f32>,
+    _RenderideVariantBits: u32,
 }
 
+const THRESHOLD_KW_RECTCLIP: u32 = 1u << 0u;
+
 @group(1) @binding(0) var<uniform> mat: FiltersThresholdMaterial;
+
+fn threshold_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -55,7 +66,7 @@ fn fs_main(
     @location(0) obj_xy: vec2<f32>,
     @location(1) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect(obj_xy, mat._Rect, mat._RectClip)) {
+    if (uirc::should_clip_rect_kw(obj_xy, mat._Rect, threshold_kw(THRESHOLD_KW_RECTCLIP))) {
         discard;
     }
 

@@ -1,11 +1,14 @@
 //! Unity unlit `Shader "Unlit/PolarGrid"`: procedural polar grid visualizing radius bands and density.
-
+//!
+//! No `#pragma multi_compile` user keywords on this shader; `_RenderideVariantBits` is
+//! reserved for layout consistency with the rest of the embedded materials and is never read.
 
 #import renderide::frame::globals as rg
 #import renderide::mesh::vertex as mv
 
 struct PolarGridMaterial {
-    _pad: vec4<f32>,
+    _RenderideVariantBits: u32,
+    _pad0: vec3<u32>,
 }
 
 @group(1) @binding(0) var<uniform> mat: PolarGridMaterial;
@@ -42,6 +45,7 @@ fn fs_main(
     let debug = smoothstep(0.15, 0.25, raaf);
     let band = d - debug;
     let col = vec3<f32>(band * debug, band * (1.0 - debug), 0.0);
-    let touch = mat._pad.x * 0.0;
+    // Touch the renderer-reserved uniform so naga-oil keeps the binding live across import pruning.
+    let touch = f32(mat._RenderideVariantBits) * 0.0;
     return rg::retain_globals_additive(vec4<f32>(col + vec3<f32>(touch), 1.0));
 }

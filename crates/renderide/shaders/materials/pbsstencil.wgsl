@@ -6,8 +6,18 @@
 //! the WGSL itself is effectively `pbsmetallic` with the keyword surface scoped down to the
 //! Unity reference's smaller property block. Mirrors `pbsdualsided.wgsl` shading without the
 //! front-face flip.
+//!
+//! Emission picks up a Fresnel rim term driven by `_RimColor` / `_RimPower`. The Unity surf
+//! function declares the rim variable but never composites it into `o.Emission`; this port adds
+//! the missing add-back so the rim properties are observable.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSStencil's
+//! shader-specific keyword bits locally.
 
 
+#import renderide::frame::globals as rg
+#import renderide::material::fresnel as mf
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
@@ -17,16 +27,20 @@
 struct PbsStencilMaterial {
     _Color: vec4<f32>,
     _EmissionColor: vec4<f32>,
+    _RimColor: vec4<f32>,
     _MainTex_ST: vec4<f32>,
     _NormalScale: f32,
     _Glossiness: f32,
     _Metallic: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _METALLICMAP: f32,
-    _OCCLUSION: f32,
+    _RimPower: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSSTENCIL_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSSTENCIL_KW_EMISSIONTEX: u32 = 1u << 1u;
+const PBSSTENCIL_KW_METALLICMAP: u32 = 1u << 2u;
+const PBSSTENCIL_KW_NORMALMAP: u32 = 1u << 3u;
+const PBSSTENCIL_KW_OCCLUSION: u32 = 1u << 4u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsStencilMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -40,9 +54,33 @@ struct PbsStencilMaterial {
 @group(1) @binding(9)  var _MetallicMap: texture_2d<f32>;
 @group(1) @binding(10) var _MetallicMap_sampler: sampler;
 
+fn pbsstencil_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_ALBEDOTEX() -> bool {
+    return pbsstencil_kw(PBSSTENCIL_KW_ALBEDOTEX);
+}
+
+fn kw_EMISSIONTEX() -> bool {
+    return pbsstencil_kw(PBSSTENCIL_KW_EMISSIONTEX);
+}
+
+fn kw_METALLICMAP() -> bool {
+    return pbsstencil_kw(PBSSTENCIL_KW_METALLICMAP);
+}
+
+fn kw_NORMALMAP() -> bool {
+    return pbsstencil_kw(PBSSTENCIL_KW_NORMALMAP);
+}
+
+fn kw_OCCLUSION() -> bool {
+    return pbsstencil_kw(PBSSTENCIL_KW_OCCLUSION);
+}
+
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
     return psamp::sample_optional_world_normal(
-        uvu::kw_enabled(mat._NORMALMAP),
+        kw_NORMALMAP(),
         _NormalMap,
         _NormalMap_sampler,
         uv_main,
@@ -83,13 +121,13 @@ fn shade(
 ) -> vec4<f32> {
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
     var c = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (kw_ALBEDOTEX()) {
         c = c * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
 
     var metallic = mat._Metallic;
     var smoothness = mat._Glossiness;
-    if (uvu::kw_enabled(mat._METALLICMAP)) {
+    if (kw_METALLICMAP()) {
         let m = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
         metallic = m.r;
         smoothness = m.a;
@@ -98,16 +136,20 @@ fn shade(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (kw_OCCLUSION()) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
     var emission = mat._EmissionColor.rgb;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (kw_EMISSIONTEX()) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
 
     let n = sample_normal_world(uv_main, world_n, world_t);
+    let view_dir = rg::view_dir_for_world_pos(world_pos, view_layer);
+    let rim = mf::rim_factor(n, view_dir, mat._RimPower);
+    emission = emission + mat._RimColor.rgb * rim;
+
     let base_color = c.rgb;
     let surface = psurf::metallic(base_color, c.a, metallic, roughness, occlusion, n, emission);
     let options = plight::ClusterLightingOptions(include_directional, include_local, true, true);

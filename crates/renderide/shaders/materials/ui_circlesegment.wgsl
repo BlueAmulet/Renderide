@@ -4,6 +4,9 @@
 //! Vertex stream mapping matches the Unity shader:
 //! COLOR -> fill color, TANGENT -> border color, TEXCOORD1 -> angle data,
 //! TEXCOORD2 -> radius data, TEXCOORD3 -> border/corner data.
+//!
+//! `RECTCLIP` / `OVERLAY` (Unity `#pragma multi_compile`) are decoded from
+//! `_RenderideVariantBits` in sorted `UniqueKeywords` order.
 
 
 
@@ -11,7 +14,8 @@
 #import renderide::core::math as rmath
 #import renderide::mesh::vertex as mv
 #import renderide::draw::per_draw as pd
-#import renderide::frame::scene_depth_sample as sds
+#import renderide::material::variant_bits as vb
+#import renderide::ui::overlay_tint as uiot
 #import renderide::ui::rect_clip as uirc
 
 const PI: f32 = 3.14159265358979323846264338327;
@@ -21,12 +25,18 @@ struct UiCircleSegmentMaterial {
     _OutlineTint: vec4<f32>,
     _OverlayTint: vec4<f32>,
     _Rect: vec4<f32>,
-    _RectClip: f32,
-    _OVERLAY: f32,
-    _pad0: f32,
+    _RenderideVariantBits: u32,
+    _pad0: vec3<f32>,
 }
 
+const UICIRCLESEGMENT_KW_OVERLAY: u32 = 1u << 0u;
+const UICIRCLESEGMENT_KW_RECTCLIP: u32 = 1u << 1u;
+
 @group(1) @binding(0) var<uniform> mat: UiCircleSegmentMaterial;
+
+fn uicirclesegment_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -129,7 +139,7 @@ fn compute_strength(angle_dist: f32, radius_dist: f32, corner: f32) -> f32 {
 //#pass forward
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect(in.obj_xy, mat._Rect, mat._RectClip)) {
+    if (uirc::should_clip_rect_kw(in.obj_xy, mat._Rect, uicirclesegment_kw(UICIRCLESEGMENT_KW_RECTCLIP))) {
         discard;
     }
 
@@ -166,13 +176,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var color = mix(border_c, in.fill_color * mat._FillTint, fill_lerp);
 
-    if (mat._OVERLAY > 0.5) {
-        let scene_z = sds::scene_linear_depth(in.clip_pos, in.view_layer);
-        let part_z = sds::fragment_linear_depth(in.world_pos, in.view_layer);
-        if (part_z > scene_z) {
-            color = color * mat._OverlayTint;
-        }
-    }
+    color = uiot::apply_overlay_tint(
+        color,
+        mat._OverlayTint,
+        in.clip_pos,
+        in.world_pos,
+        in.view_layer,
+        uicirclesegment_kw(UICIRCLESEGMENT_KW_OVERLAY),
+    );
 
     return rg::retain_globals_additive(color);
 }

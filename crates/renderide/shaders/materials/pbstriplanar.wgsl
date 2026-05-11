@@ -4,18 +4,24 @@
 //! Each texture (`_MainTex`, `_MetallicMap`, `_EmissionMap`, `_NormalMap`, `_OcclusionMap`) is
 //! sampled three times -- once per axis-aligned plane (ZY for X, XZ for Y, XY for Z) -- and blended
 //! by `pow(abs(world_normal), _TriBlendPower)`. Normal maps use Reoriented Normal Mapping (RNM)
-//! per plane, after Ben Golus's 2017 example. World-space vs object-space is selected by
-//! `_WORLDSPACE` (1.0) / `_OBJECTSPACE` (1.0); this matches Unity's `_WORLDSPACE`/`_OBJECTSPACE`
-//! `multi_compile`.
+//! per plane, after Ben Golus's 2017 example. World-space vs object-space is selected by the
+//! `_OBJECTSPACE` / `_WORLDSPACE` keyword pair.
+//!
+//! Back faces flip the shading normal across the geometric tangent plane, matching Unity's
+//! `if (IN.facing < 0.5) o.Normal.z *= -1` so dual-sided meshes shade correctly when the host
+//! disables culling.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSTriplanar's
+//! shader-specific keyword bits locally.
 
 
 #import renderide::draw::per_draw as pd
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::families::triplanar as ptri
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::core::uv as uvu
 
 /// Material uniforms for `PBSTriplanar`.
 struct PbsTriplanarMaterial {
@@ -33,21 +39,17 @@ struct PbsTriplanarMaterial {
     _Metallic: f32,
     /// Triplanar blend exponent -- higher values produce sharper transitions between planes.
     _TriBlendPower: f32,
-    /// Keyword: project from world space (mutually exclusive with `_OBJECTSPACE`).
-    _WORLDSPACE: f32,
-    /// Keyword: project from object space (mutually exclusive with `_WORLDSPACE`).
-    _OBJECTSPACE: f32,
-    /// Keyword: enable albedo texture sampling (otherwise tint-only).
-    _ALBEDOTEX: f32,
-    /// Keyword: enable emission texture sampling.
-    _EMISSIONTEX: f32,
-    /// Keyword: enable normal map sampling with RNM blending across planes.
-    _NORMALMAP: f32,
-    /// Keyword: read metallic + smoothness from `_MetallicMap` (R=metallic, A=smoothness).
-    _METALLICMAP: f32,
-    /// Keyword: read occlusion from `_OcclusionMap.g` (matches Unity's reference).
-    _OCCLUSION: f32,
+    /// Renderer-reserved Froox shader variant bitmask.
+    _RenderideVariantBits: u32,
 }
+
+const PBSTRIPLANAR_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSTRIPLANAR_KW_EMISSIONTEX: u32 = 1u << 1u;
+const PBSTRIPLANAR_KW_METALLICMAP: u32 = 1u << 2u;
+const PBSTRIPLANAR_KW_NORMALMAP: u32 = 1u << 3u;
+const PBSTRIPLANAR_KW_OBJECTSPACE: u32 = 1u << 4u;
+const PBSTRIPLANAR_KW_OCCLUSION: u32 = 1u << 5u;
+const PBSTRIPLANAR_KW_WORLDSPACE: u32 = 1u << 6u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsTriplanarMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -60,6 +62,34 @@ struct PbsTriplanarMaterial {
 @group(1) @binding(8)  var _EmissionMap_sampler: sampler;
 @group(1) @binding(9)  var _OcclusionMap: texture_2d<f32>;
 @group(1) @binding(10) var _OcclusionMap_sampler: sampler;
+
+fn pbstriplanar_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_ALBEDOTEX() -> bool {
+    return pbstriplanar_kw(PBSTRIPLANAR_KW_ALBEDOTEX);
+}
+
+fn kw_EMISSIONTEX() -> bool {
+    return pbstriplanar_kw(PBSTRIPLANAR_KW_EMISSIONTEX);
+}
+
+fn kw_METALLICMAP() -> bool {
+    return pbstriplanar_kw(PBSTRIPLANAR_KW_METALLICMAP);
+}
+
+fn kw_NORMALMAP() -> bool {
+    return pbstriplanar_kw(PBSTRIPLANAR_KW_NORMALMAP);
+}
+
+fn kw_OBJECTSPACE() -> bool {
+    return pbstriplanar_kw(PBSTRIPLANAR_KW_OBJECTSPACE);
+}
+
+fn kw_OCCLUSION() -> bool {
+    return pbstriplanar_kw(PBSTRIPLANAR_KW_OCCLUSION);
+}
 
 /// Interpolated vertex output forwarded to both forward-base and forward-add fragments.
 ///
@@ -85,18 +115,18 @@ struct SurfaceData {
 }
 
 /// Resolve the [`SurfaceData`] for a fragment, mirroring Unity's triplanar `surf` for `PBSTriplanar`.
-fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>) -> SurfaceData {
+fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>, front_facing: bool) -> SurfaceData {
     let uvs = ptri::build_planar_uvs(proj_pos, world_n, mat._MainTex_ST);
     let weights = ptri::triplanar_weights(world_n, mat._TriBlendPower);
 
     var c = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (kw_ALBEDOTEX()) {
         c = c * ptri::sample_rgba(_MainTex, _MainTex_sampler, uvs, weights);
     }
 
     var metallic = mat._Metallic;
     var smoothness = mat._Glossiness;
-    if (uvu::kw_enabled(mat._METALLICMAP)) {
+    if (kw_METALLICMAP()) {
         let m = ptri::sample_rgba(_MetallicMap, _MetallicMap_sampler, uvs, weights);
         metallic = m.r;
         smoothness = m.a;
@@ -105,16 +135,27 @@ fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>)
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (kw_OCCLUSION()) {
         // Unity's reference reads occlusion from the green channel here.
         let occ = ptri::sample_rgba(_OcclusionMap, _OcclusionMap_sampler, uvs, weights);
         occlusion = occ.g;
     }
 
     var emission = mat._EmissionColor;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (kw_EMISSIONTEX()) {
         emission = emission * ptri::sample_rgba(_EmissionMap, _EmissionMap_sampler, uvs, weights);
     }
+
+    let n_world = ptri::sample_normal_world(
+        kw_NORMALMAP(),
+        _NormalMap,
+        _NormalMap_sampler,
+        uvs,
+        mat._NormalScale,
+        world_n,
+        weights,
+    );
+    let n = ptri::flip_normal_for_back_face(n_world, world_n, front_facing);
 
     return SurfaceData(
         c.rgb,
@@ -122,21 +163,13 @@ fn sample_surface(world_pos: vec3<f32>, world_n: vec3<f32>, proj_pos: vec3<f32>)
         metallic,
         roughness,
         occlusion,
-        ptri::sample_normal_world(
-            uvu::kw_enabled(mat._NORMALMAP),
-            _NormalMap,
-            _NormalMap_sampler,
-            uvs,
-            mat._NormalScale,
-            world_n,
-            weights,
-        ),
+        n,
         emission.rgb,
     );
 }
 
 /// Vertex stage: forward world position, world-space normal, and the projection-space position
-/// (world or object) selected by the `_WORLDSPACE`/`_OBJECTSPACE` keywords.
+/// (world or object) selected by the `_OBJECTSPACE` / `_WORLDSPACE` keywords.
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -160,7 +193,7 @@ fn vs_main(
     out.world_pos = world_p.xyz;
     out.world_n = wn;
     // Default to world-space projection; switch to object-space when `_OBJECTSPACE` keyword wins.
-    out.proj_pos = select(world_p.xyz, pos.xyz, uvu::kw_enabled(mat._OBJECTSPACE));
+    out.proj_pos = select(world_p.xyz, pos.xyz, kw_OBJECTSPACE());
 #ifdef MULTIVIEW
     out.view_layer = mv::packed_view_layer(instance_index, view_idx);
 #else
@@ -174,12 +207,13 @@ fn vs_main(
 @fragment
 fn fs_forward_base(
     @builtin(position) frag_pos: vec4<f32>,
+    @builtin(front_facing) front_facing: bool,
     @location(0) world_pos: vec3<f32>,
     @location(1) world_n: vec3<f32>,
     @location(2) proj_pos: vec3<f32>,
     @location(3) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
-    let s = sample_surface(world_pos, world_n, proj_pos);
+    let s = sample_surface(world_pos, world_n, proj_pos, front_facing);
     let surface = psurf::metallic(
         s.base_color,
         s.alpha,

@@ -1,29 +1,29 @@
 //! Canvas UI Unlit (`Shader "UI/Unlit"`): sprite texture, tint, alpha clip, mask, rect clip, overlay.
 //!
 //! Build emits `ui_unlit_default` / `ui_unlit_multiview` via [`MULTIVIEW`](https://docs.rs/naga_oil).
-//! `@group(1)` global names match Unity `UI_Unlit.shader` material property names for host reflection.
+//! `@group(1)` field names match Unity `UI_Unlit.shader` material property names for host reflection.
 //!
-//! **Vertex color:** Unity multiplies `vertex_color * _Tint`. The mesh pass provides a dense
+//! Vertex color: Unity multiplies `vertex_color * _Tint`. The mesh pass provides a dense
 //! float4 color stream at `@location(3)` with opaque-white fallback when the host mesh lacks color.
 //!
-//! Unity keyword-only modes are exposed as explicit scalar gates (`_ALPHACLIP`,
-//! `_TEXTURE_NORMALMAP`, `_TEXTURE_LERPCOLOR`, `_MASK_TEXTURE_MUL`, `_MASK_TEXTURE_CLIP`).
-//! Missing gates default off; `_ALPHATEST_ON` / `_ALPHABLEND_ON` remain as best-effort fallbacks
-//! inferred from on-wire render state.
+//! Froox `#pragma multi_compile` keywords (`ALPHACLIP`, `RECTCLIP`, `OVERLAY`,
+//! `TEXTURE_NORMALMAP`/`TEXTURE_LERPCOLOR`, `_MASK_TEXTURE_MUL`/`_MASK_TEXTURE_CLIP`) are decoded
+//! from the renderer-reserved `_RenderideVariantBits` uniform; bit positions match Froox's
+//! sorted `UniqueKeywords` list (underscore-prefixed keywords sort before letters).
 //!
 //! Per-draw uniforms (`@group(2)`) use [`renderide::draw::per_draw`].
 
 
 #import renderide::core::texture_sampling as ts
 #import renderide::frame::globals as rg
-#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::alpha as ma
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::core::normal_decode as nd
-#import renderide::draw::per_draw as pd
-#import renderide::frame::scene_depth_sample as sds
-#import renderide::ui::rect_clip as uirc
 #import renderide::core::uv as uvu
+#import renderide::draw::per_draw as pd
+#import renderide::ui::overlay_tint as uiot
+#import renderide::ui::rect_clip as uirc
 
 struct UiUnlitMaterial {
     _MainTex_ST: vec4<f32>,
@@ -32,25 +32,28 @@ struct UiUnlitMaterial {
     _OverlayTint: vec4<f32>,
     _Rect: vec4<f32>,
     _Cutoff: f32,
-    _ALPHACLIP: f32,
-    _ALPHATEST_ON: f32,
-    _ALPHABLEND_ON: f32,
-    _TEXTURE_NORMALMAP: f32,
-    _TEXTURE_LERPCOLOR: f32,
-    _MASK_TEXTURE_MUL: f32,
-    _MASK_TEXTURE_CLIP: f32,
-    _RectClip: f32,
-    _OVERLAY: f32,
+    _RenderideVariantBits: u32,
     _MainTex_LodBias: f32,
     _MaskTex_LodBias: f32,
-    _pad0: vec2<f32>,
 }
+
+const UIUNLIT_KW_MASK_TEXTURE_CLIP: u32 = 1u << 0u;
+const UIUNLIT_KW_MASK_TEXTURE_MUL: u32 = 1u << 1u;
+const UIUNLIT_KW_ALPHACLIP: u32 = 1u << 2u;
+const UIUNLIT_KW_OVERLAY: u32 = 1u << 3u;
+const UIUNLIT_KW_RECTCLIP: u32 = 1u << 4u;
+const UIUNLIT_KW_TEXTURE_LERPCOLOR: u32 = 1u << 5u;
+const UIUNLIT_KW_TEXTURE_NORMALMAP: u32 = 1u << 6u;
 
 @group(1) @binding(0) var<uniform> mat: UiUnlitMaterial;
 @group(1) @binding(1) var _MainTex: texture_2d<f32>;
 @group(1) @binding(2) var _MainTex_sampler: sampler;
 @group(1) @binding(3) var _MaskTex: texture_2d<f32>;
 @group(1) @binding(4) var _MaskTex_sampler: sampler;
+
+fn ui_unlit_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -95,39 +98,21 @@ fn vs_main(
     return out;
 }
 
-fn main_uv_for_storage(uv_main: vec2<f32>) -> vec2<f32> {
-    return uv_main;
-}
-
-fn mask_uv_for_storage(uv_main: vec2<f32>) -> vec2<f32> {
-    let uv_mask = uv_main * mat._MaskTex_ST.xy + mat._MaskTex_ST.zw;
-    return uv_mask;
-}
-
-fn main_uv_no_storage_flip(uv: vec2<f32>) -> vec2<f32> {
-    return uv * mat._MainTex_ST.xy + mat._MainTex_ST.zw;
-}
-
-fn mask_mul_from_sample(mask: vec4<f32>) -> f32 {
-    return dot(mask.rgb, vec3<f32>(0.3333333)) * mask.a;
-}
-
 //#pass forward
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect(in.obj_xy, mat._Rect, mat._RectClip)) {
+    if (uirc::should_clip_rect_kw(in.obj_xy, mat._Rect, ui_unlit_kw(UIUNLIT_KW_RECTCLIP))) {
         discard;
     }
 
-    let uv_main_unflipped = main_uv_no_storage_flip(in.uv);
-    let uv_s = main_uv_for_storage(uv_main_unflipped);
-    var tex_color = ts::sample_tex_2d(_MainTex, _MainTex_sampler, uv_s, mat._MainTex_LodBias);
-    if (uvu::kw_enabled(mat._TEXTURE_NORMALMAP)) {
+    let uv_main = uvu::apply_st(in.uv, mat._MainTex_ST);
+    var tex_color = ts::sample_tex_2d(_MainTex, _MainTex_sampler, uv_main, mat._MainTex_LodBias);
+    if (ui_unlit_kw(UIUNLIT_KW_TEXTURE_NORMALMAP)) {
         tex_color = vec4<f32>(nd::decode_ts_normal_with_placeholder_sample(tex_color, 1.0) * 0.5 + vec3<f32>(0.5), 1.0);
     }
 
     var color: vec4<f32>;
-    if (uvu::kw_enabled(mat._TEXTURE_LERPCOLOR)) {
+    if (ui_unlit_kw(UIUNLIT_KW_TEXTURE_LERPCOLOR)) {
         let l = dot(tex_color.rgb, vec3<f32>(0.3333333333));
         let lerp_color = mix(in.color, in.lerp_color, l);
         color = vec4<f32>(lerp_color.rgb, lerp_color.a * tex_color.a);
@@ -135,47 +120,32 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         color = in.color * tex_color;
     }
 
-    let uv_mask = mask_uv_for_storage(uv_main_unflipped);
-    let mask_mul_enabled = uvu::kw_enabled(mat._MASK_TEXTURE_MUL);
-    let mask_clip_enabled = uvu::kw_enabled(mat._MASK_TEXTURE_CLIP);
-    let alpha_test = uvu::kw_enabled(mat._ALPHATEST_ON);
-    let alpha_blend = uvu::kw_enabled(mat._ALPHABLEND_ON);
-    let alpha_clip = uvu::kw_enabled(mat._ALPHACLIP) || alpha_test;
-    var alpha_clip_done = false;
-
-    if (mask_mul_enabled || mask_clip_enabled) {
-        let mask = ts::sample_tex_2d(_MaskTex, _MaskTex_sampler, uv_mask, mat._MaskTex_LodBias);
-        let mul = mask_mul_from_sample(mask);
-        if (mask_mul_enabled) {
+    let mask_mul = ui_unlit_kw(UIUNLIT_KW_MASK_TEXTURE_MUL);
+    let mask_clip = ui_unlit_kw(UIUNLIT_KW_MASK_TEXTURE_CLIP);
+    if (mask_mul || mask_clip) {
+        let uv_mask = uvu::apply_st(in.uv, mat._MaskTex_ST);
+        let mask_sample = ts::sample_tex_2d(_MaskTex, _MaskTex_sampler, uv_mask, mat._MaskTex_LodBias);
+        let mul = ma::mask_luminance(mask_sample);
+        if (mask_mul) {
             color.a = color.a * mul;
         }
-        if (mask_clip_enabled && mul <= mat._Cutoff) {
-            discard;
-        }
-    } else if (alpha_blend) {
-        let mask_sample = ts::sample_tex_2d(_MaskTex, _MaskTex_sampler, uv_mask, mat._MaskTex_LodBias);
-        color = ma::apply_alpha_mask(color, mask_sample);
-    } else if (alpha_test) {
-        let mask_clip_alpha = acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_mask);
-        if (color.a * mask_clip_alpha <= mat._Cutoff) {
-            discard;
-        }
-        alpha_clip_done = true;
-    }
-
-    if (!alpha_clip_done && alpha_clip && !mask_clip_enabled) {
-        if (color.a <= mat._Cutoff) {
+        if (mask_clip && mul <= mat._Cutoff) {
             discard;
         }
     }
 
-    if (uvu::kw_enabled(mat._OVERLAY)) {
-        let scene_z = sds::scene_linear_depth(in.clip_pos, in.view_layer);
-        let part_z = sds::fragment_linear_depth(in.world_pos, in.view_layer);
-        if (part_z > scene_z) {
-            color = color * mat._OverlayTint;
-        }
+    if (ui_unlit_kw(UIUNLIT_KW_ALPHACLIP) && !mask_clip && color.a <= mat._Cutoff) {
+        discard;
     }
+
+    color = uiot::apply_overlay_tint(
+        color,
+        mat._OverlayTint,
+        in.clip_pos,
+        in.world_pos,
+        in.view_layer,
+        ui_unlit_kw(UIUNLIT_KW_OVERLAY),
+    );
 
     return rg::retain_globals_additive(color);
 }

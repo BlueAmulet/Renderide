@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn text_shaders_use_one_font_atlas_sample_for_coverage() -> io::Result<()> {
-    for file_name in ["ui_textunlit.wgsl", "textunlit.wgsl", "textunit.wgsl"] {
+    for file_name in ["ui_textunlit.wgsl", "textunlit.wgsl"] {
         let src = material_source(file_name)?;
         assert!(
             src.contains("#import renderide::core::texture_sampling as ts"),
@@ -44,7 +44,7 @@ fn text_shaders_use_one_font_atlas_sample_for_coverage() -> io::Result<()> {
 
 #[test]
 fn text_shaders_route_font_extra_data_through_normal_stream() -> io::Result<()> {
-    for file_name in ["ui_textunlit.wgsl", "textunlit.wgsl", "textunit.wgsl"] {
+    for file_name in ["ui_textunlit.wgsl", "textunlit.wgsl"] {
         let src = material_source(file_name)?;
         assert!(
             src.contains("@location(1) extra_n: vec4<f32>"),

@@ -325,3 +325,452 @@ fn pbsrimtransparentspecular_drops_dead_albedo_path() -> io::Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn pbsrim_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsrim.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+        ],
+        &[
+            ("PBSRIM_KW_ALBEDOTEX", 0),
+            ("PBSRIM_KW_EMISSIONTEX", 1),
+            ("PBSRIM_KW_METALLICMAP", 2),
+            ("PBSRIM_KW_NORMALMAP", 3),
+            ("PBSRIM_KW_OCCLUSION", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbsrimtransparent_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsrimtransparent.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+        ],
+        &[
+            ("PBSRIMTRANSPARENT_KW_ALBEDOTEX", 0),
+            ("PBSRIMTRANSPARENT_KW_EMISSIONTEX", 1),
+            ("PBSRIMTRANSPARENT_KW_METALLICMAP", 2),
+            ("PBSRIMTRANSPARENT_KW_NORMALMAP", 3),
+            ("PBSRIMTRANSPARENT_KW_OCCLUSION", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbsrimtransparentzwrite_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsrimtransparentzwrite.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+        ],
+        &[
+            ("PBSRIMTRANSPARENTZWRITE_KW_ALBEDOTEX", 0),
+            ("PBSRIMTRANSPARENTZWRITE_KW_EMISSIONTEX", 1),
+            ("PBSRIMTRANSPARENTZWRITE_KW_METALLICMAP", 2),
+            ("PBSRIMTRANSPARENTZWRITE_KW_NORMALMAP", 3),
+            ("PBSRIMTRANSPARENTZWRITE_KW_OCCLUSION", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbsrimtransparentzwritespecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsrimtransparentzwritespecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+        ],
+        &[
+            ("PBSRIMTRANSPARENTZWRITESPECULAR_KW_EMISSIONTEX", 0),
+            ("PBSRIMTRANSPARENTZWRITESPECULAR_KW_NORMALMAP", 1),
+            ("PBSRIMTRANSPARENTZWRITESPECULAR_KW_OCCLUSION", 2),
+            ("PBSRIMTRANSPARENTZWRITESPECULAR_KW_SPECULARMAP", 3),
+        ],
+    )
+}
+
+#[test]
+fn pbsrimtransparentzwritespecular_drops_dead_albedo_path() -> io::Result<()> {
+    let src = material_source("pbsrimtransparentzwritespecular.wgsl")?;
+    assert!(
+        !src.contains("_MainTex:"),
+        "pbsrimtransparentzwritespecular.wgsl must not bind _MainTex; Unity never declares \
+         #pragma multi_compile _ _ALBEDOTEX for this shader, so the #ifdef _ALBEDOTEX \
+         branch is dead code and `_Color` is always the base color"
+    );
+    assert!(
+        !src.contains("PBSRIMTRANSPARENTZWRITESPECULAR_KW_ALBEDOTEX"),
+        "pbsrimtransparentzwritespecular.wgsl must not declare a _ALBEDOTEX bit (dead in Unity)"
+    );
+    Ok(())
+}
+
+#[test]
+fn pbsslice_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsslice.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_DETAIL_ALBEDOTEX",
+            "_DETAIL_NORMALMAP",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OBJECT_SPACE",
+            "_OCCLUSION",
+            "_WORLD_SPACE",
+        ],
+        &[
+            ("PBSSLICE_KW_ALBEDOTEX", 0),
+            ("PBSSLICE_KW_ALPHACLIP", 1),
+            ("PBSSLICE_KW_DETAIL_ALBEDOTEX", 2),
+            ("PBSSLICE_KW_DETAIL_NORMALMAP", 3),
+            ("PBSSLICE_KW_EMISSIONTEX", 4),
+            ("PBSSLICE_KW_METALLICMAP", 5),
+            ("PBSSLICE_KW_NORMALMAP", 6),
+            ("PBSSLICE_KW_OBJECT_SPACE", 7),
+            ("PBSSLICE_KW_OCCLUSION", 8),
+            ("PBSSLICE_KW_WORLD_SPACE", 9),
+        ],
+    )
+}
+
+#[test]
+fn pbsslicespecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsslicespecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_DETAIL_ALBEDOTEX",
+            "_DETAIL_NORMALMAP",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OBJECT_SPACE",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+            "_WORLD_SPACE",
+        ],
+        &[
+            ("PBSSLICESPECULAR_KW_ALBEDOTEX", 0),
+            ("PBSSLICESPECULAR_KW_ALPHACLIP", 1),
+            ("PBSSLICESPECULAR_KW_DETAIL_ALBEDOTEX", 2),
+            ("PBSSLICESPECULAR_KW_DETAIL_NORMALMAP", 3),
+            ("PBSSLICESPECULAR_KW_EMISSIONTEX", 4),
+            ("PBSSLICESPECULAR_KW_METALLICMAP", 5),
+            ("PBSSLICESPECULAR_KW_NORMALMAP", 6),
+            ("PBSSLICESPECULAR_KW_OBJECT_SPACE", 7),
+            ("PBSSLICESPECULAR_KW_OCCLUSION", 8),
+            ("PBSSLICESPECULAR_KW_WORLD_SPACE", 9),
+        ],
+    )
+}
+
+#[test]
+fn pbsslicetransparent_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsslicetransparent.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_DETAIL_ALBEDOTEX",
+            "_DETAIL_NORMALMAP",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OBJECT_SPACE",
+            "_OCCLUSION",
+            "_WORLD_SPACE",
+        ],
+        &[
+            ("PBSSLICETRANSPARENT_KW_ALBEDOTEX", 0),
+            ("PBSSLICETRANSPARENT_KW_DETAIL_ALBEDOTEX", 1),
+            ("PBSSLICETRANSPARENT_KW_DETAIL_NORMALMAP", 2),
+            ("PBSSLICETRANSPARENT_KW_EMISSIONTEX", 3),
+            ("PBSSLICETRANSPARENT_KW_METALLICMAP", 4),
+            ("PBSSLICETRANSPARENT_KW_NORMALMAP", 5),
+            ("PBSSLICETRANSPARENT_KW_OBJECT_SPACE", 6),
+            ("PBSSLICETRANSPARENT_KW_OCCLUSION", 7),
+            ("PBSSLICETRANSPARENT_KW_WORLD_SPACE", 8),
+        ],
+    )
+}
+
+#[test]
+fn pbsslicetransparentspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsslicetransparentspecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_DETAIL_ALBEDOTEX",
+            "_DETAIL_NORMALMAP",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OBJECT_SPACE",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+            "_WORLD_SPACE",
+        ],
+        &[
+            ("PBSSLICETRANSPARENTSPECULAR_KW_ALBEDOTEX", 0),
+            ("PBSSLICETRANSPARENTSPECULAR_KW_DETAIL_ALBEDOTEX", 1),
+            ("PBSSLICETRANSPARENTSPECULAR_KW_DETAIL_NORMALMAP", 2),
+            ("PBSSLICETRANSPARENTSPECULAR_KW_EMISSIONTEX", 3),
+            ("PBSSLICETRANSPARENTSPECULAR_KW_METALLICMAP", 4),
+            ("PBSSLICETRANSPARENTSPECULAR_KW_NORMALMAP", 5),
+            ("PBSSLICETRANSPARENTSPECULAR_KW_OBJECT_SPACE", 6),
+            ("PBSSLICETRANSPARENTSPECULAR_KW_OCCLUSION", 7),
+            ("PBSSLICETRANSPARENTSPECULAR_KW_WORLD_SPACE", 8),
+        ],
+    )
+}
+
+#[test]
+fn pbsspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsspecular.wgsl",
+        &[
+            "_ALPHABLEND_ON",
+            "_ALPHAPREMULTIPLY_ON",
+            "_ALPHATEST_ON",
+            "_DETAIL_MULX2",
+            "_EMISSION",
+            "_GLOSSYREFLECTIONS_OFF",
+            "_MUL_RGB_BY_ALPHA",
+            "_NORMALMAP",
+            "_PARALLAXMAP",
+            "_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A",
+            "_SPECGLOSSMAP",
+            "_SPECULARHIGHLIGHTS_OFF",
+        ],
+        &[
+            ("PBSSPECULAR_KW_ALPHAPREMULTIPLY_ON", 1),
+            ("PBSSPECULAR_KW_ALPHATEST_ON", 2),
+            ("PBSSPECULAR_KW_DETAIL_MULX2", 3),
+            ("PBSSPECULAR_KW_EMISSION", 4),
+            ("PBSSPECULAR_KW_GLOSSYREFLECTIONS_OFF", 5),
+            ("PBSSPECULAR_KW_NORMALMAP", 6),
+            ("PBSSPECULAR_KW_PARALLAXMAP", 7),
+            ("PBSSPECULAR_KW_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A", 8),
+            ("PBSSPECULAR_KW_SPECGLOSSMAP", 9),
+            ("PBSSPECULAR_KW_SPECULARHIGHLIGHTS_OFF", 10),
+        ],
+    )
+}
+
+#[test]
+fn pbsspecular_emission_gated_by_variant_bit_not_runtime_check() -> io::Result<()> {
+    let src = material_source("pbsspecular.wgsl")?;
+    assert!(
+        !src.contains("dot(emission_color, emission_color)"),
+        "pbsspecular.wgsl must not use the runtime `dot(emission_color, emission_color) > 1e-8` \
+         guard; the _EMISSION variant bit controls the optional emission sample"
+    );
+    assert!(
+        src.contains("pbs_kw(PBSSPECULAR_KW_EMISSION)"),
+        "pbsspecular.wgsl must gate emission sampling on PBSSPECULAR_KW_EMISSION"
+    );
+    Ok(())
+}
+
+#[test]
+fn pbsstencilspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsstencilspecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+        ],
+        &[
+            ("PBSSTENCILSPECULAR_KW_ALBEDOTEX", 0),
+            ("PBSSTENCILSPECULAR_KW_EMISSIONTEX", 1),
+            ("PBSSTENCILSPECULAR_KW_NORMALMAP", 2),
+            ("PBSSTENCILSPECULAR_KW_OCCLUSION", 3),
+            ("PBSSTENCILSPECULAR_KW_SPECULARMAP", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbsstencil_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsstencil.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+        ],
+        &[
+            ("PBSSTENCIL_KW_ALBEDOTEX", 0),
+            ("PBSSTENCIL_KW_EMISSIONTEX", 1),
+            ("PBSSTENCIL_KW_METALLICMAP", 2),
+            ("PBSSTENCIL_KW_NORMALMAP", 3),
+            ("PBSSTENCIL_KW_OCCLUSION", 4),
+        ],
+    )
+}
+
+#[test]
+fn pbsstencil_emission_includes_rim_term() -> io::Result<()> {
+    let src = material_source("pbsstencil.wgsl")?;
+    assert!(
+        src.contains("mf::rim_factor("),
+        "pbsstencil.wgsl must compute rim through renderide::material::fresnel::rim_factor"
+    );
+    assert!(
+        src.contains("mat._RimColor.rgb"),
+        "pbsstencil.wgsl must add the _RimColor contribution to emission"
+    );
+    Ok(())
+}
+
+#[test]
+fn pbstriplanar_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbstriplanar.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OBJECTSPACE",
+            "_OCCLUSION",
+            "_WORLDSPACE",
+        ],
+        &[
+            ("PBSTRIPLANAR_KW_ALBEDOTEX", 0),
+            ("PBSTRIPLANAR_KW_EMISSIONTEX", 1),
+            ("PBSTRIPLANAR_KW_METALLICMAP", 2),
+            ("PBSTRIPLANAR_KW_NORMALMAP", 3),
+            ("PBSTRIPLANAR_KW_OBJECTSPACE", 4),
+            ("PBSTRIPLANAR_KW_OCCLUSION", 5),
+            ("PBSTRIPLANAR_KW_WORLDSPACE", 6),
+        ],
+    )
+}
+
+#[test]
+fn pbstriplanarspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbstriplanarspecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OBJECTSPACE",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+            "_WORLDSPACE",
+        ],
+        &[
+            ("PBSTRIPLANARSPEC_KW_ALBEDOTEX", 0),
+            ("PBSTRIPLANARSPEC_KW_EMISSIONTEX", 1),
+            ("PBSTRIPLANARSPEC_KW_NORMALMAP", 2),
+            ("PBSTRIPLANARSPEC_KW_OBJECTSPACE", 3),
+            ("PBSTRIPLANARSPEC_KW_OCCLUSION", 4),
+            ("PBSTRIPLANARSPEC_KW_SPECULARMAP", 5),
+            ("PBSTRIPLANARSPEC_KW_WORLDSPACE", 6),
+        ],
+    )
+}
+
+#[test]
+fn pbstriplanar_shaders_flip_normal_for_back_face() -> io::Result<()> {
+    for file in ["pbstriplanar.wgsl", "pbstriplanarspecular.wgsl"] {
+        let src = material_source(file)?;
+        assert!(
+            src.contains("ptri::flip_normal_for_back_face("),
+            "{file} must call ptri::flip_normal_for_back_face for dual-sided shading"
+        );
+        assert!(
+            src.contains("@builtin(front_facing)"),
+            "{file} must take @builtin(front_facing) so it can flip normals on back faces"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn pbsvertexcolortransparent_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsvertexcolortransparent.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "VCOLOR_ALBEDO",
+            "VCOLOR_EMIT",
+            "VCOLOR_METALLIC",
+        ],
+        &[
+            ("PBSVCT_KW_ALBEDOTEX", 0),
+            ("PBSVCT_KW_ALPHACLIP", 1),
+            ("PBSVCT_KW_EMISSIONTEX", 2),
+            ("PBSVCT_KW_METALLICMAP", 3),
+            ("PBSVCT_KW_NORMALMAP", 4),
+            ("PBSVCT_KW_OCCLUSION", 5),
+            ("PBSVCT_KW_VCOLOR_ALBEDO", 6),
+            ("PBSVCT_KW_VCOLOR_EMIT", 7),
+            ("PBSVCT_KW_VCOLOR_METALLIC", 8),
+        ],
+    )
+}
+
+#[test]
+fn pbsvertexcolortransparentspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsvertexcolortransparentspecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_ALPHACLIP",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+            "VCOLOR_ALBEDO",
+            "VCOLOR_EMIT",
+            "VCOLOR_SPECULAR",
+        ],
+        &[
+            ("PBSVCTS_KW_ALBEDOTEX", 0),
+            ("PBSVCTS_KW_ALPHACLIP", 1),
+            ("PBSVCTS_KW_EMISSIONTEX", 2),
+            ("PBSVCTS_KW_NORMALMAP", 3),
+            ("PBSVCTS_KW_OCCLUSION", 4),
+            ("PBSVCTS_KW_SPECULARMAP", 5),
+            ("PBSVCTS_KW_VCOLOR_ALBEDO", 6),
+            ("PBSVCTS_KW_VCOLOR_EMIT", 7),
+            ("PBSVCTS_KW_VCOLOR_SPECULAR", 8),
+        ],
+    )
+}

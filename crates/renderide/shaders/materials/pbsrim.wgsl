@@ -1,15 +1,17 @@
 //! Unity PBS rim (`Shader "PBSRim"`): metallic workflow + rim-light emission.
 //!
-//! This follows the same clustered forward path as `pbsmetallic.wgsl`, but uses the property set from
-//! Unity's dedicated rim shader (`_MetallicMap`, `_NormalMap`, `_RimColor`, `_RimPower`) instead of the
-//! Standard shader property names.
+//! Sibling of [`pbsmetallic`](super::pbsmetallic) on the clustered forward path, but uses the
+//! property set from Unity's dedicated rim shader (`_MetallicMap`, `_NormalMap`, `_RimColor`,
+//! `_RimPower`) instead of the Standard shader property names.
 //!
-//! Texture sampling follows Unity's multi-compile keyword behavior: fallback material values are used
-//! whenever the matching texture keyword is disabled.
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSRim's
+//! shader-specific keyword bits locally, sorted alphabetically by keyword name (Froox
+//! UniqueKeywords order).
 
 
 #import renderide::frame::globals as rg
 #import renderide::material::fresnel as mf
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
@@ -25,12 +27,14 @@ struct PbsRimMaterial {
     _Metallic: f32,
     _NormalScale: f32,
     _RimPower: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _METALLICMAP: f32,
-    _OCCLUSION: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSRIM_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSRIM_KW_EMISSIONTEX: u32 = 1u << 1u;
+const PBSRIM_KW_METALLICMAP: u32 = 1u << 2u;
+const PBSRIM_KW_NORMALMAP: u32 = 1u << 3u;
+const PBSRIM_KW_OCCLUSION: u32 = 1u << 4u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsRimMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -44,9 +48,13 @@ struct PbsRimMaterial {
 @group(1) @binding(9)  var _MetallicMap: texture_2d<f32>;
 @group(1) @binding(10) var _MetallicMap_sampler: sampler;
 
-fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t:vec4<f32>) -> vec3<f32> {
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
     return psamp::sample_optional_world_normal(
-        uvu::kw_enabled(mat._NORMALMAP),
+        pbs_kw(PBSRIM_KW_NORMALMAP),
         _NormalMap,
         _NormalMap_sampler,
         uv_main,
@@ -60,7 +68,7 @@ fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t:vec4<f32>
 fn metallic_roughness(uv: vec2<f32>) -> vec2<f32> {
     var metallic = mat._Metallic;
     var smoothness = mat._Glossiness;
-    if (uvu::kw_enabled(mat._METALLICMAP)) {
+    if (pbs_kw(PBSRIM_KW_METALLICMAP)) {
         let mg = textureSample(_MetallicMap, _MetallicMap_sampler, uv);
         metallic = mg.x;
         smoothness = mg.w;
@@ -102,7 +110,7 @@ fn fs_main(
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
     var albedo = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (pbs_kw(PBSRIM_KW_ALBEDOTEX)) {
         albedo = albedo * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
     let base_color = albedo.xyz;
@@ -113,14 +121,14 @@ fn fs_main(
     let roughness = mr.y;
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSRIM_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).x;
     }
 
     let n = sample_normal_world(uv_main, world_n, world_t);
 
     var emission = mat._EmissionColor.xyz;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSRIM_KW_EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).xyz;
     }
 
