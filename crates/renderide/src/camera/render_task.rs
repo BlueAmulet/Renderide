@@ -2,12 +2,10 @@
 
 use glam::{Mat4, Vec3};
 
-use crate::shared::{CameraProjection, CameraRenderParameters};
+use crate::shared::CameraRenderParameters;
 
-use super::{
-    CameraClipPlanes, CameraPose, CameraProjectionKind, EyeView, HostCameraFrame,
-    OrthographicProjectionSpec, Viewport, clamp_desktop_fov_degrees,
-};
+use super::host_camera_frame::{SingleCameraInputs, build_single_camera_frame};
+use super::{CameraClipPlanes, CameraPose, HostCameraFrame, Viewport, clamp_desktop_fov_degrees};
 
 /// Builds a [`HostCameraFrame`] for a host camera readback task.
 pub fn host_camera_frame_for_render_task(
@@ -16,40 +14,18 @@ pub fn host_camera_frame_for_render_task(
     viewport_px: (u32, u32),
     camera_world_matrix: Mat4,
 ) -> HostCameraFrame {
-    let viewport = Viewport::from_tuple(viewport_px);
-    let clip = camera_render_task_clip(parameters);
-    let pose = CameraPose::from_world_matrix(camera_world_matrix);
-    let fov_degrees = clamp_desktop_fov_degrees(parameters.fov);
-    let (explicit_view, primary_ortho_task, projection_kind) = match parameters.projection {
-        CameraProjection::Orthographic => {
-            let spec = OrthographicProjectionSpec::new(parameters.orthographic_size, clip);
-            (
-                EyeView::from_pose_projection(pose, spec.projection(viewport)),
-                Some(spec),
-                CameraProjectionKind::Orthographic,
-            )
-        }
-        CameraProjection::Perspective | CameraProjection::Panoramic => (
-            EyeView::perspective_from_pose(pose, viewport, fov_degrees, clip),
-            None,
-            CameraProjectionKind::Perspective,
-        ),
-    };
-
-    HostCameraFrame {
-        frame_index: base.frame_index,
-        clip,
-        desktop_fov_degrees: fov_degrees,
-        vr_active: false,
-        output_device: base.output_device,
-        projection_kind,
-        primary_ortho_task,
-        stereo: None,
-        head_output_transform: base.head_output_transform,
-        explicit_view: Some(explicit_view),
-        eye_world_position: Some(pose.world_position),
-        suppress_occlusion_temporal: true,
-    }
+    build_single_camera_frame(
+        base,
+        SingleCameraInputs {
+            viewport: Viewport::from_tuple(viewport_px),
+            pose: CameraPose::from_world_matrix(camera_world_matrix),
+            clip: camera_render_task_clip(parameters),
+            fov_degrees: clamp_desktop_fov_degrees(parameters.fov),
+            orthographic_size: parameters.orthographic_size,
+            projection: parameters.projection,
+            suppress_occlusion_temporal: true,
+        },
+    )
 }
 
 fn camera_render_task_clip(parameters: &CameraRenderParameters) -> CameraClipPlanes {
@@ -79,6 +55,7 @@ mod tests {
     use crate::shared::{CameraProjection, CameraRenderParameters};
 
     use super::*;
+    use crate::camera::CameraProjectionKind;
 
     #[test]
     fn camera_render_task_perspective_sets_explicit_view_and_clamps_fov() {

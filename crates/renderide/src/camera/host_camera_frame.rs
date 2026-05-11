@@ -1,125 +1,18 @@
-//! Host camera state types: per-frame camera fields, stereo bundle, and view identity.
+//! Per-frame host camera state and the shared HostCameraFrame builder.
 //!
-//! These types are populated by the host frame submit and consumed by world-mesh culling,
+//! `HostCameraFrame` is populated by the host frame submit and consumed by world-mesh culling,
 //! cluster lighting, world-mesh forward draw prep, the render graph's per-view planning, and
-//! diagnostics. They live in `crate::camera` (and not in `render_graph/`) so non-graph
-//! modules can talk about cameras and views without depending on the graph framework.
+//! diagnostics. It lives in `crate::camera` (and not in `render_graph/`) so non-graph modules
+//! can talk about cameras and views without depending on the graph framework.
 
 use glam::{Mat4, Vec3};
 
-use crate::scene::RenderSpaceId;
-use crate::shared::HeadOutputDevice;
+use crate::shared::{CameraProjection, HeadOutputDevice};
 
-use super::geometry::{CameraClipPlanes, EyeView, OrthographicProjectionSpec, Viewport};
+use super::geometry::{
+    CameraClipPlanes, CameraPose, EyeView, OrthographicProjectionSpec, Viewport,
+};
 use super::stereo::StereoViewMatrices;
-
-/// Stable logical identity for one secondary camera view.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct SecondaryCameraId {
-    /// Render space containing the camera.
-    pub render_space_id: RenderSpaceId,
-    /// Dense host camera renderable index within the render space.
-    pub renderable_index: i32,
-}
-
-impl SecondaryCameraId {
-    /// Builds a secondary-camera id from the host render-space and dense camera row.
-    pub const fn new(render_space_id: RenderSpaceId, renderable_index: i32) -> Self {
-        Self {
-            render_space_id,
-            renderable_index,
-        }
-    }
-}
-
-/// Stable logical identity for one host camera readback task view.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct CameraRenderTaskViewId {
-    /// Render space requested by the host task.
-    pub render_space_id: RenderSpaceId,
-    /// Dense index within the drained host task batch.
-    pub task_index: i32,
-}
-
-impl CameraRenderTaskViewId {
-    /// Builds a camera readback view id from the host render-space and task batch index.
-    pub const fn new(render_space_id: RenderSpaceId, task_index: i32) -> Self {
-        Self {
-            render_space_id,
-            task_index,
-        }
-    }
-}
-
-/// Stable logical identity for one reflection-probe cubemap bake face.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ReflectionProbeRenderTaskViewId {
-    /// Render space requested by the host task.
-    pub render_space_id: RenderSpaceId,
-    /// Host reflection-probe bake task id.
-    pub render_task_id: i32,
-    /// Cubemap face index in host `BitmapCube` order.
-    pub face_index: u8,
-}
-
-impl ReflectionProbeRenderTaskViewId {
-    /// Builds a reflection-probe bake face view id.
-    pub const fn new(render_space_id: RenderSpaceId, render_task_id: i32, face_index: u8) -> Self {
-        Self {
-            render_space_id,
-            render_task_id,
-            face_index,
-        }
-    }
-}
-
-/// Identifies one logical render view for view-scoped resources and temporal state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ViewId {
-    /// Main window or OpenXR multiview (shared primary-view state).
-    Main,
-    /// Secondary camera, tracked independently from the render target asset it writes.
-    SecondaryCamera(SecondaryCameraId),
-    /// One-shot host camera readback task view.
-    CameraRenderTask(CameraRenderTaskViewId),
-    /// One-shot reflection-probe cubemap bake face view.
-    ReflectionProbeRenderTask(ReflectionProbeRenderTaskViewId),
-}
-
-impl ViewId {
-    /// Builds the stable logical identity for one secondary camera view.
-    pub const fn secondary_camera(render_space_id: RenderSpaceId, renderable_index: i32) -> Self {
-        Self::SecondaryCamera(SecondaryCameraId::new(render_space_id, renderable_index))
-    }
-
-    /// Builds the stable logical identity for one camera readback task view.
-    pub const fn camera_render_task(render_space_id: RenderSpaceId, task_index: i32) -> Self {
-        Self::CameraRenderTask(CameraRenderTaskViewId::new(render_space_id, task_index))
-    }
-
-    /// Builds the stable logical identity for one reflection-probe bake face view.
-    pub const fn reflection_probe_render_task(
-        render_space_id: RenderSpaceId,
-        render_task_id: i32,
-        face_index: u8,
-    ) -> Self {
-        Self::ReflectionProbeRenderTask(ReflectionProbeRenderTaskViewId::new(
-            render_space_id,
-            render_task_id,
-            face_index,
-        ))
-    }
-
-    /// Render space that owns this view, when the view is scoped to one host render space.
-    pub const fn render_space_id(self) -> Option<RenderSpaceId> {
-        match self {
-            Self::Main => None,
-            Self::SecondaryCamera(id) => Some(id.render_space_id),
-            Self::CameraRenderTask(id) => Some(id.render_space_id),
-            Self::ReflectionProbeRenderTask(id) => Some(id.render_space_id),
-        }
-    }
-}
 
 /// Projection family used by shader helpers that need to distinguish perspective from orthographic math.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -238,6 +131,74 @@ impl HostCameraFrame {
             .eye_world_position
             .unwrap_or_else(|| self.head_output_transform.col(3).truncate());
         (camera_world, camera_world)
+    }
+}
+
+/// Resolved per-camera inputs for [`build_single_camera_frame`].
+pub(super) struct SingleCameraInputs {
+    /// Pixel viewport the camera renders into.
+    pub viewport: Viewport,
+    /// Camera world pose (world matrix and decoded world position).
+    pub pose: CameraPose,
+    /// Near/far clip distances, already validated/clamped by the caller.
+    pub clip: CameraClipPlanes,
+    /// Vertical FOV in degrees, already clamped by the caller.
+    pub fov_degrees: f32,
+    /// Orthographic half-height (consulted only for orthographic projections).
+    pub orthographic_size: f32,
+    /// Wire-format projection selector from the host.
+    pub projection: CameraProjection,
+    /// When `true`, the resulting view skips Hi-Z temporal state.
+    pub suppress_occlusion_temporal: bool,
+}
+
+/// Builds a [`HostCameraFrame`] for a single-camera view (secondary render texture or host
+/// camera readback task) from already-resolved pose, clip, and projection inputs.
+///
+/// Carries forward `frame_index`, `output_device`, and `head_output_transform` from `base`.
+/// `orthographic_size` is consulted only when `projection` is orthographic.
+pub(super) fn build_single_camera_frame(
+    base: &HostCameraFrame,
+    inputs: SingleCameraInputs,
+) -> HostCameraFrame {
+    let SingleCameraInputs {
+        viewport,
+        pose,
+        clip,
+        fov_degrees,
+        orthographic_size,
+        projection,
+        suppress_occlusion_temporal,
+    } = inputs;
+    let (explicit_view, primary_ortho_task, projection_kind) = match projection {
+        CameraProjection::Orthographic => {
+            let spec = OrthographicProjectionSpec::new(orthographic_size, clip);
+            (
+                EyeView::from_pose_projection(pose, spec.projection(viewport)),
+                Some(spec),
+                CameraProjectionKind::Orthographic,
+            )
+        }
+        CameraProjection::Perspective | CameraProjection::Panoramic => (
+            EyeView::perspective_from_pose(pose, viewport, fov_degrees, clip),
+            None,
+            CameraProjectionKind::Perspective,
+        ),
+    };
+
+    HostCameraFrame {
+        frame_index: base.frame_index,
+        clip,
+        desktop_fov_degrees: fov_degrees,
+        vr_active: false,
+        output_device: base.output_device,
+        projection_kind,
+        primary_ortho_task,
+        stereo: None,
+        head_output_transform: base.head_output_transform,
+        explicit_view: Some(explicit_view),
+        eye_world_position: Some(pose.world_position),
+        suppress_occlusion_temporal,
     }
 }
 

@@ -9,19 +9,21 @@
 
 mod frame;
 mod geometry;
+mod host_camera_frame;
 mod projection;
 mod projection_plan;
 mod render_task;
 mod secondary;
-mod state;
 mod stereo;
 mod view;
+mod view_id;
 
 pub(crate) use frame::{
     apply_frame_submit_fields, eye_world_position_from_active_main_space,
     head_output_from_active_main_space,
 };
 pub use geometry::{CameraClipPlanes, CameraPose, EyeView, OrthographicProjectionSpec, Viewport};
+pub use host_camera_frame::{CameraProjectionKind, HostCameraFrame};
 pub use projection::{
     clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_perspective,
     reverse_z_perspective_openxr_fov,
@@ -32,15 +34,15 @@ pub use secondary::{
     camera_state_enabled, camera_state_motion_blur, camera_state_post_processing,
     camera_state_screen_space_reflections, host_camera_frame_for_render_texture,
 };
-#[cfg(test)]
-pub(crate) use state::SecondaryCameraId;
-pub use state::{CameraProjectionKind, HostCameraFrame, ViewId};
 pub use stereo::StereoViewMatrices;
 pub use view::{
     apply_view_handedness_fix, view_matrix_for_host_world_mesh_space,
     view_matrix_for_world_mesh_render_space, view_matrix_from_render_transform,
     world_to_view_pair_for_skybox,
 };
+#[cfg(test)]
+pub(crate) use view_id::SecondaryCameraId;
+pub use view_id::ViewId;
 
 #[cfg(test)]
 mod tests {

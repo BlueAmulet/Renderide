@@ -6,7 +6,7 @@ use crate::scene::render_transform_to_matrix;
 use crate::scene::{RenderSpaceView, SceneCoordinator};
 use crate::shared::RenderTransform;
 
-use super::state::HostCameraFrame;
+use super::host_camera_frame::HostCameraFrame;
 
 /// Clamps scale for view matrix construction: if any axis is nearly zero, use unit scale.
 pub fn filter_scale_legacy(scale: Vec3) -> Vec3 {
