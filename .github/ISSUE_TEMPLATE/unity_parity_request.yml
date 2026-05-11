@@ -1,0 +1,135 @@
+name: Unity parity request
+description: Report missing or mismatched behavior compared with the Unity renderer.
+title: "[Parity]: "
+labels: ["parity", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when the Unity renderer has behavior that Renderide should match, including material, shader, lighting, camera, UI, VR, or presentation differences.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-request checklist
+      options:
+        - label: I searched existing issues for this parity gap.
+          required: true
+        - label: I compared the same scene or content in the Unity renderer and Renderide.
+          required: true
+        - label: I included screenshots, video, or a detailed written comparison when possible.
+          required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the parity gap in one or two sentences.
+      placeholder: "Example: Xiexe Toon rim lighting is much brighter in Unity than in Renderide."
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Material or shader
+        - Lighting or shadows
+        - Reflection probes or skybox
+        - Post-processing or color management
+        - UI, text, or masks
+        - Mesh, skinning, or blendshapes
+        - Camera, mirror, portal, or render texture
+        - Particles or effects
+        - VR or OpenXR presentation
+        - Input or window behavior
+        - Asset loading or scene state
+        - Other or unknown
+    validations:
+      required: true
+  - type: textarea
+    id: unity_behavior
+    attributes:
+      label: Unity renderer behavior
+      description: Describe what the Unity renderer does.
+    validations:
+      required: true
+  - type: textarea
+    id: renderide_behavior
+    attributes:
+      label: Renderide behavior
+      description: Describe what Renderide does differently.
+    validations:
+      required: true
+  - type: textarea
+    id: comparison_media
+    attributes:
+      label: Comparison media
+      description: Attach side-by-side screenshots, video, or captures. Label which is Unity and which is Renderide.
+    validations:
+      required: false
+  - type: input
+    id: content
+    attributes:
+      label: Affected content
+      description: Name the world, object, material, shader, pass, asset type, or workflow if known.
+      placeholder: World name, material name, shader filename, or asset type
+    validations:
+      required: false
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Runtime mode
+      options:
+        - Desktop
+        - OpenXR / VR
+        - Both desktop and VR
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Multiple operating systems
+        - Unknown
+    validations:
+      required: true
+  - type: input
+    id: renderide_version
+    attributes:
+      label: Renderide version or commit
+      description: Provide the commit hash, branch, release, or build artifact name.
+      placeholder: b01a15f0, master, or release artifact name
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      description: Include GPU model and driver version if known.
+      placeholder: Apple M3 Max, macOS 15.4
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce or compare
+      description: Explain how to reach the same content in both renderers.
+      placeholder: |
+        1. Launch Unity renderer and load ...
+        2. Capture view ...
+        3. Launch Renderide and load the same content ...
+        4. Compare ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste warnings, shader compilation messages, asset load messages, or validation output if relevant.
+      render: text
+    validations:
+      required: false
