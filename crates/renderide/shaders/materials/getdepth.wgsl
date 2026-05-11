@@ -4,19 +4,15 @@
 //! optionally rescales by `(depth - _ClipMin) / (_ClipMax - _ClipMin)`, applies
 //! `_Multiply * depth + _Offset`, saturates, and writes RGB grayscale.
 //!
-//! **Rect clip (Unity `RECTCLIP` keyword):** When `_RectClip > 0.5` and `_Rect`
-//! has non-zero area, fragments outside the rect in object XY are discarded.
-//! Missing `_RectClip` defaults to off.
-//!
-//! **Clip range (Unity `CLIP` keyword):** Missing `CLIP` defaults to off, matching
-//! the host's default even when `_ClipMax` is present.
-
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes GetDepth's
+//! shader-specific keyword bits locally (Unity `CLIP` selects clip-range rescaling,
+//! `RECTCLIP` discards fragments outside `_Rect` in object XY).
 
 #import renderide::post::filter_vertex as fv
 #import renderide::frame::globals as rg
 #import renderide::frame::scene_depth_sample as sds
+#import renderide::material::variant_bits as vb
 #import renderide::ui::rect_clip as uirc
-#import renderide::core::uv as uvu
 
 struct FiltersGetDepthMaterial {
     _Rect: vec4<f32>,
@@ -24,12 +20,27 @@ struct FiltersGetDepthMaterial {
     _Offset: f32,
     _ClipMin: f32,
     _ClipMax: f32,
-    _RectClip: f32,
-    CLIP: f32,
-    _pad0: vec2<f32>,
+    _RenderideVariantBits: u32,
+    _pad0: u32,
+    _pad1: vec2<u32>,
 }
 
+const GETDEPTH_KW_CLIP: u32 = 1u << 0u;
+const GETDEPTH_KW_RECTCLIP: u32 = 1u << 1u;
+
 @group(1) @binding(0) var<uniform> mat: FiltersGetDepthMaterial;
+
+fn getdepth_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_CLIP() -> bool {
+    return getdepth_kw(GETDEPTH_KW_CLIP);
+}
+
+fn kw_RECTCLIP() -> bool {
+    return getdepth_kw(GETDEPTH_KW_RECTCLIP);
+}
 
 @vertex
 fn vs_main(
@@ -52,12 +63,12 @@ fn vs_main(
 //#pass forward
 @fragment
 fn fs_main(vout: fv::RectVertexOutput) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect(vout.obj_xy, mat._Rect, mat._RectClip)) {
+    if (uirc::should_clip_rect_kw(vout.obj_xy, mat._Rect, kw_RECTCLIP())) {
         discard;
     }
 
     var depth = sds::scene_linear_depth(vout.clip_pos, vout.view_layer);
-    if (uvu::kw_enabled(mat.CLIP)) {
+    if (kw_CLIP()) {
         let range = max(mat._ClipMax - mat._ClipMin, 1e-6);
         depth = (depth - mat._ClipMin) / range;
     }

@@ -1,8 +1,7 @@
 //! Fresnel (`Shader "Fresnel"`): blends near/far colors from view-angle Fresnel and optional normal/mask textures.
 //!
-//! Keyword-style float fields mirror Unity `#pragma multi_compile` values:
-//! `_TEXTURE`, `_POLARUV`, `_NORMALMAP`, `_MASK_TEXTURE_MUL`, `_MASK_TEXTURE_CLIP`,
-//! `_VERTEXCOLORS`, `_MUL_ALPHA_INTENSITY`.
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes Fresnel's
+//! shader-specific keyword bits locally.
 
 #import renderide::frame::globals as rg
 #import renderide::pbs::normal as pnorm
@@ -10,6 +9,8 @@
 #import renderide::material::alpha as ma
 #import renderide::material::fresnel as mf
 #import renderide::material::sample as ms
+#import renderide::material::variant_bits as vb
+#import renderide::material::vertex_color as vc
 #import renderide::mesh::vertex as mv
 #import renderide::core::uv as uvu
 #import renderide::core::normal_decode as nd
@@ -26,15 +27,21 @@ struct FresnelMaterial {
     _NormalScale: f32,
     _Cutoff: f32,
     _PolarPow: f32,
-    _TEXTURE: f32,
-    _POLARUV: f32,
-    _NORMALMAP: f32,
-    _MASK_TEXTURE_MUL: f32,
-    _MASK_TEXTURE_CLIP: f32,
-    _VERTEXCOLORS: f32,
-    _MUL_ALPHA_INTENSITY: f32,
-    _ALPHATEST_ON: f32,
+    _RenderideVariantBits: u32,
+    _pad0: vec2<u32>,
 }
+
+const FRESNEL_KW_ALPHATEST: u32 = 1u << 0u;
+const FRESNEL_KW_MASK_TEXTURE_CLIP: u32 = 1u << 1u;
+const FRESNEL_KW_MASK_TEXTURE_MUL: u32 = 1u << 2u;
+const FRESNEL_KW_MUL_ALPHA_INTENSITY: u32 = 1u << 3u;
+const FRESNEL_KW_NORMALMAP: u32 = 1u << 4u;
+const FRESNEL_KW_POLARUV: u32 = 1u << 5u;
+const FRESNEL_KW_TEXTURE: u32 = 1u << 6u;
+const FRESNEL_KW_VERTEX_HDRSRGB_COLOR: u32 = 1u << 7u;
+const FRESNEL_KW_VERTEX_LINEAR_COLOR: u32 = 1u << 8u;
+const FRESNEL_KW_VERTEX_SRGB_COLOR: u32 = 1u << 9u;
+const FRESNEL_KW_VERTEXCOLORS: u32 = 1u << 10u;
 
 @group(1) @binding(0) var<uniform> mat: FresnelMaterial;
 @group(1) @binding(1) var _FarTex: texture_2d<f32>;
@@ -45,6 +52,60 @@ struct FresnelMaterial {
 @group(1) @binding(6) var _NormalMap_sampler: sampler;
 @group(1) @binding(7) var _MaskTex: texture_2d<f32>;
 @group(1) @binding(8) var _MaskTex_sampler: sampler;
+
+fn fresnel_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_ALPHATEST() -> bool {
+    return fresnel_kw(FRESNEL_KW_ALPHATEST);
+}
+
+fn kw_MASK_TEXTURE_CLIP() -> bool {
+    return fresnel_kw(FRESNEL_KW_MASK_TEXTURE_CLIP);
+}
+
+fn kw_MASK_TEXTURE_MUL() -> bool {
+    return fresnel_kw(FRESNEL_KW_MASK_TEXTURE_MUL);
+}
+
+fn kw_MUL_ALPHA_INTENSITY() -> bool {
+    return fresnel_kw(FRESNEL_KW_MUL_ALPHA_INTENSITY);
+}
+
+fn kw_NORMALMAP() -> bool {
+    return fresnel_kw(FRESNEL_KW_NORMALMAP);
+}
+
+fn kw_POLARUV() -> bool {
+    return fresnel_kw(FRESNEL_KW_POLARUV);
+}
+
+fn kw_TEXTURE() -> bool {
+    return fresnel_kw(FRESNEL_KW_TEXTURE);
+}
+
+fn kw_VERTEX_HDRSRGB_COLOR() -> bool {
+    return fresnel_kw(FRESNEL_KW_VERTEX_HDRSRGB_COLOR);
+}
+
+fn kw_VERTEX_SRGB_COLOR() -> bool {
+    return fresnel_kw(FRESNEL_KW_VERTEX_SRGB_COLOR);
+}
+
+fn kw_VERTEXCOLORS() -> bool {
+    return fresnel_kw(FRESNEL_KW_VERTEXCOLORS);
+}
+
+fn vertex_color_to_linear(color: vec4<f32>) -> vec4<f32> {
+    if (kw_VERTEX_HDRSRGB_COLOR()) {
+        return vc::srgb_to_linear_hdr(color);
+    }
+    if (kw_VERTEX_SRGB_COLOR()) {
+        return vc::srgb_to_linear_ldr(color);
+    }
+    return color;
+}
 
 @vertex
 fn vs_main(
@@ -69,7 +130,7 @@ fn vs_main(
 @fragment
 fn fs_main(in: mv::WorldColorVertexOutput) -> @location(0) vec4<f32> {
     var n = normalize(in.world_n);
-    if (mat._NORMALMAP > 0.99) {
+    if (kw_NORMALMAP()) {
         let uv_n = uvu::apply_st(in.primary_uv, mat._NormalMap_ST);
         let tbn = pnorm::orthonormal_tbn(n, in.world_t);
         let ts_n = nd::decode_ts_normal_with_placeholder_sample(
@@ -82,10 +143,10 @@ fn fs_main(in: mv::WorldColorVertexOutput) -> @location(0) vec4<f32> {
     let view_dir = rg::view_dir_for_world_pos(in.world_pos, in.view_layer);
     let fres = mf::view_angle_fresnel(n, view_dir, mat._Exp, mat._GammaCurve);
 
-    let use_polar = mat._POLARUV > 0.99;
+    let use_polar = kw_POLARUV();
     var far_color = mat._FarColor;
     var near_color = mat._NearColor;
-    if (uvu::kw_enabled(mat._TEXTURE)) {
+    if (kw_TEXTURE()) {
         far_color = far_color * ms::sample_rgba(_FarTex, _FarTex_sampler, in.primary_uv, mat._FarTex_ST, 0.0, mat._PolarPow, use_polar);
         near_color =
             near_color * ms::sample_rgba(_NearTex, _NearTex_sampler, in.primary_uv, mat._NearTex_ST, 0.0, mat._PolarPow, use_polar);
@@ -93,36 +154,36 @@ fn fs_main(in: mv::WorldColorVertexOutput) -> @location(0) vec4<f32> {
 
     var color = mf::near_far_color(near_color, far_color, fres);
     var clip_a = color.a;
-    if (uvu::kw_enabled(mat._TEXTURE)) {
+    if (kw_TEXTURE()) {
         let far_clip = mat._FarColor * ms::sample_rgba_lod0(_FarTex, _FarTex_sampler, in.primary_uv, mat._FarTex_ST, mat._PolarPow, use_polar);
         let near_clip = mat._NearColor * ms::sample_rgba_lod0(_NearTex, _NearTex_sampler, in.primary_uv, mat._NearTex_ST, mat._PolarPow, use_polar);
         clip_a = mix(near_clip.a, far_clip.a, clamp(fres, 0.0, 1.0));
     }
 
-    if (mat._MASK_TEXTURE_MUL > 0.99 || mat._MASK_TEXTURE_CLIP > 0.99) {
+    if (kw_MASK_TEXTURE_MUL() || kw_MASK_TEXTURE_CLIP()) {
         let uv_mask = uvu::apply_st(in.primary_uv, mat._MaskTex_ST);
         let mask = textureSample(_MaskTex, _MaskTex_sampler, uv_mask);
         let mul = ma::mask_luminance(mask);
         let mul_clip = acs::mask_luminance_mul_base_mip(_MaskTex, _MaskTex_sampler, uv_mask);
 
-        if (mat._MASK_TEXTURE_MUL > 0.99) {
+        if (kw_MASK_TEXTURE_MUL()) {
             color.a = color.a * mul;
             clip_a = clip_a * mul_clip;
         }
-        if (mat._MASK_TEXTURE_CLIP > 0.99 && mul_clip <= mat._Cutoff) {
+        if (kw_MASK_TEXTURE_CLIP() && mul_clip <= mat._Cutoff) {
             discard;
         }
     }
 
-    if (!(mat._MASK_TEXTURE_CLIP > 0.99) && uvu::kw_enabled(mat._ALPHATEST_ON) && clip_a <= mat._Cutoff) {
+    if (!kw_MASK_TEXTURE_CLIP() && kw_ALPHATEST() && clip_a <= mat._Cutoff) {
         discard;
     }
 
-    if (uvu::kw_enabled(mat._VERTEXCOLORS)) {
-        color = color * in.color;
+    if (kw_VERTEXCOLORS()) {
+        color = color * vertex_color_to_linear(in.color);
     }
 
-    if (mat._MUL_ALPHA_INTENSITY > 0.99) {
+    if (kw_MUL_ALPHA_INTENSITY()) {
         color.a = ma::alpha_intensity_squared(color.a, color.rgb);
     }
 
