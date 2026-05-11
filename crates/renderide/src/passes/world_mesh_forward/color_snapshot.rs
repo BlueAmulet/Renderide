@@ -4,9 +4,9 @@ use crate::render_graph::context::GraphResolvedResources;
 use crate::render_graph::frame_params::GraphPassFrame;
 use crate::world_mesh::WorldMeshHelperNeeds;
 
-use super::super::PreparedWorldMeshForwardFrame;
+use super::PreparedWorldMeshForwardFrame;
 
-use super::super::WorldMeshForwardGraphResources;
+use super::WorldMeshForwardGraphResources;
 
 /// Copies the resolved HDR scene color into the sampled scene-color snapshot used by grab-pass
 /// transparent materials.

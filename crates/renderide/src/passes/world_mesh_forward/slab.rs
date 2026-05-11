@@ -14,7 +14,7 @@ use crate::scene::SceneCoordinator;
 use crate::shared::RenderingContext;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
-use super::super::vp::compute_per_draw_vp_matrices;
+use super::vp::compute_per_draw_vp_matrices;
 
 /// Minimum draws before parallelizing per-draw VP / model uniform packing (rayon overhead).
 ///

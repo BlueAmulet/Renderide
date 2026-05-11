@@ -14,12 +14,12 @@ use crate::world_mesh::{
     state_rows_from_sorted, stats_from_sorted,
 };
 
-use super::super::skybox::SkyboxRenderer;
-use super::super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
 use super::camera::{compute_view_projections, resolve_pass_config};
 use super::frame_uniforms::write_per_view_frame_uniforms;
 use super::material_resolve::precompute_material_resolve_batches;
+use super::skybox::SkyboxRenderer;
 use super::slab::{SlabPackInputs, pack_and_upload_per_draw_slab};
+use super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
 
 /// Prepared world-mesh forward state plus deferred per-view HUD output.
 pub(crate) struct PreparedWorldMeshForwardView {
@@ -101,7 +101,7 @@ pub(super) fn maybe_set_world_mesh_draw_stats(
 
     if debug_hud.textures_enabled && offscreen_write_render_texture_asset_id.is_none() {
         outputs.current_view_texture_2d_asset_ids =
-            super::super::current_view_textures::current_view_texture2d_asset_ids_from_draws(
+            super::current_view_textures::current_view_texture2d_asset_ids_from_draws(
                 materials, draws,
             );
     }
@@ -357,7 +357,7 @@ fn world_mesh_hud_outputs(
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::material_batch::PipelineVariantKey;
+    use super::super::material_batch::PipelineVariantKey;
     use super::*;
     use crate::materials::{MaterialPipelineDesc, RasterPrimitiveTopology, ShaderPermutation};
     use crate::world_mesh::DrawGroup;

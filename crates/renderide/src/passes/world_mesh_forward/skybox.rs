@@ -10,7 +10,7 @@ use hashbrown::HashMap;
 use parking_lot::Mutex;
 
 use super::WorldMeshForwardPipelineState;
-use super::execute_helpers::frame_bind_group_for_view;
+use super::raster_recording::frame_bind_group_for_view;
 use crate::camera::{CameraProjectionKind, ViewId, world_to_view_pair_for_skybox};
 use crate::embedded_shaders;
 use crate::gpu::frame_bind_group_layout;

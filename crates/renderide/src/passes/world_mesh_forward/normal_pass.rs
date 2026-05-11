@@ -21,7 +21,7 @@ use crate::render_graph::resources::{
     BufferAccess, ImportedBufferHandle, ImportedTextureHandle, StorageAccess, TextureHandle,
 };
 
-use super::execute_helpers::{record_world_mesh_forward_normal_graph_raster, stencil_load_ops};
+use super::raster_recording::{record_world_mesh_forward_normal_graph_raster, stencil_load_ops};
 use super::{WorldMeshForwardPipelineState, WorldMeshForwardPlanSlot};
 
 /// GTAO view-space normal target format.

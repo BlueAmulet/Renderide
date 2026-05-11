@@ -1,58 +1,23 @@
-//! Shared setup and error helpers for concrete render-graph passes.
+//! Shared setup helpers for concrete render-graph passes.
+//!
+//! Splits into:
+//! - [`attachments`] -- pass-builder shorthands for declaring texture reads and color attachments,
+//!   plus the missing-frame-params error builder.
+//! - [`fullscreen_d2_array_pipeline`] -- shared cache for fullscreen blits that sample a single
+//!   D2-array texture (ACES/AgX tonemap, scene-color compose).
+//! - [`output_format`] -- helper for resolving the wgpu format a transient color attachment is
+//!   bound to.
 
-use crate::render_graph::error::RenderPassError;
-use crate::render_graph::pass::PassBuilder;
-use crate::render_graph::resources::{
-    ImportedTextureHandle, TextureAccess, TextureHandle, TextureResourceHandle,
+mod attachments;
+mod fullscreen_d2_array_pipeline;
+mod output_format;
+
+pub(in crate::passes) use attachments::{
+    color_attachment, imported_color_attachment, missing_pass_resource,
+    read_fragment_sampled_texture,
 };
-
-/// Declares a transient texture read by a fragment shader.
-pub(super) fn read_fragment_sampled_texture(b: &mut PassBuilder<'_>, handle: TextureHandle) {
-    b.read_texture_resource(
-        handle,
-        TextureAccess::Sampled {
-            stages: wgpu::ShaderStages::FRAGMENT,
-        },
-    );
-}
-
-/// Declares a color attachment write with no resolve target.
-pub(super) fn color_attachment(
-    b: &mut PassBuilder<'_>,
-    handle: impl Into<TextureResourceHandle>,
-    load: wgpu::LoadOp<wgpu::Color>,
-) {
-    let mut r = b.raster();
-    r.color(
-        handle,
-        wgpu::Operations {
-            load,
-            store: wgpu::StoreOp::Store,
-        },
-        Option::<TextureHandle>::None,
-    );
-}
-
-/// Declares an imported color attachment write with no resolve target.
-pub(super) fn imported_color_attachment(
-    b: &mut PassBuilder<'_>,
-    handle: ImportedTextureHandle,
-    load: wgpu::LoadOp<wgpu::Color>,
-) {
-    let mut r = b.raster();
-    r.color(
-        handle,
-        wgpu::Operations {
-            load,
-            store: wgpu::StoreOp::Store,
-        },
-        Option::<ImportedTextureHandle>::None,
-    );
-}
-
-/// Builds a missing-frame-params error with pass-specific context.
-pub(super) fn missing_pass_resource(pass: &str, detail: impl std::fmt::Display) -> RenderPassError {
-    RenderPassError::FrameParamsRequired {
-        pass: format!("{pass} ({detail})"),
-    }
-}
+pub(in crate::passes) use fullscreen_d2_array_pipeline::{
+    FullscreenD2ArrayPipelineLabels, FullscreenD2ArraySampledPipelineCache,
+    FullscreenD2ArrayShaders,
+};
+pub(in crate::passes) use output_format::transient_output_format_or;
