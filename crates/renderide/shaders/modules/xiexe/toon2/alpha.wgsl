@@ -47,7 +47,7 @@ fn apply_alpha(
 
     if (alpha_mode == xb::ALPHA_DITHERED) {
         let dither = xb::bayer_threshold(frag_xy);
-        if (xb::kw(xb::mat._FadeDither)) {
+        if (xb::prop_flag(xb::mat._FadeDither)) {
             let mask = acs::texture_rgba_base_mip(xb::_CutoutMask, xb::_CutoutMask_sampler, uv_primary).r;
             let dist = distance(rg::camera_world_pos_for_view(view_layer), world_pos);
             let d = smoothstep(xb::mat._FadeDitherDistance, xb::mat._FadeDitherDistance + 0.02, dist);

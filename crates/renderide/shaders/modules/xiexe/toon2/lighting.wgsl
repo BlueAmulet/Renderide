@@ -8,6 +8,7 @@
 #define_import_path renderide::xiexe::toon2::lighting
 
 #import renderide::xiexe::toon2::base as xb
+#import renderide::xiexe::toon2::variant_bits as xvb
 #import renderide::skybox::cubemap_storage as cubemap_storage
 #import renderide::frame::globals as rg
 #import renderide::frame::types as ft
@@ -276,7 +277,7 @@ fn matcap_uv(view_dir: vec3<f32>, n: vec3<f32>) -> vec2<f32> {
 
 /// Reflection blend-weight shared by the non-matcap indirect-specular blend modes.
 fn reflection_blend_weight(s: xb::SurfaceData) -> f32 {
-    if (xb::matcap_enabled()) {
+    if (xvb::matcap_enabled()) {
         return 1.0;
     }
     return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);
@@ -304,11 +305,11 @@ fn indirect_reflection_branch(
     ambient: vec3<f32>,
     dominant_light_col_atten: vec3<f32>,
 ) -> vec3<f32> {
-    if (xb::reflection_disabled()) {
+    if (xvb::reflection_disabled()) {
         return vec3<f32>(0.0);
     }
 
-    if (xb::matcap_enabled()) {
+    if (xvb::matcap_enabled()) {
         let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);
         let uv = matcap_uv(stereo_view_dir, normal);
         let lod = clamp((1.0 - clamp(perceptual_roughness, 0.0, 1.0)) * SPECCUBE_LOD_STEPS, 0.0, SPECCUBE_LOD_STEPS);
@@ -317,7 +318,7 @@ fn indirect_reflection_branch(
         return spec;
     }
 
-    if (xb::baked_cubemap_enabled()) {
+    if (xvb::baked_cubemap_enabled()) {
         let r = reflect(-view_dir, normal);
         let lod = clamp(
             (1.0 - clamp(perceptual_roughness, 0.0, 1.0)) * SPECCUBE_LOD_STEPS,
@@ -342,7 +343,7 @@ fn indirect_reflection_branch(
 
     let roughness = clamp(perceptual_roughness, 0.045, 1.0);
     let n_dot_v = clamp(dot(normal, view_dir), 0.0, 1.0);
-    let indirect_enabled = rprobe::has_indirect_specular(view_layer, xb::reflection_uses_pbr());
+    let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr());
     let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);
     let specular_energy = brdf::indirect_specular_energy_from_dfg(dfg, specular_reflectance, indirect_enabled);
     let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion_scalar(s), roughness);
@@ -383,7 +384,7 @@ fn indirect_specular(
         dominant_light_col_atten,
     );
 
-    if (!xb::matcap_enabled() && xb::clearcoat_enabled()) {
+    if (!xvb::matcap_enabled() && xb::clearcoat_enabled()) {
         spec = spec + indirect_reflection_branch(
             s,
             s.raw_normal,
@@ -411,7 +412,7 @@ fn apply_reflection_blend(surface: vec3<f32>, reflection: vec3<f32>, weight: f32
         return surface;
     }
 
-    if (xb::matcap_enabled()) {
+    if (xvb::matcap_enabled()) {
         return surface + reflection;
     }
 
@@ -436,7 +437,7 @@ fn emission_color(
     dominant_light_col_atten: vec3<f32>,
     base_pass: bool,
 ) -> vec3<f32> {
-    if (!base_pass || !xb::emission_map_enabled()) {
+    if (!base_pass || !xvb::emission_map_enabled()) {
         return vec3<f32>(0.0);
     }
 
