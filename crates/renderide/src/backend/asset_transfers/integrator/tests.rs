@@ -1,4 +1,9 @@
+use std::time::{Duration, Instant};
+
 use super::*;
+use super::drain::{MIN_HIGH_PRIORITY_EMERGENCY_BUDGET, high_priority_emergency_deadline};
+use super::queue::ASSET_INTEGRATION_QUEUE_WARN_THRESHOLD;
+use super::super::texture_task::TextureUploadTask;
 use crate::shared::{SetTexture2DData, SetTexture2DFormat};
 
 fn texture_task(high_priority: bool) -> AssetTask {
