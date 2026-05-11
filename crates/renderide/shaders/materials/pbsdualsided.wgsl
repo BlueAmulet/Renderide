@@ -3,8 +3,12 @@
 //! Unity's `#pragma surface surf Standard fullforwardshadows addshadow` generates forward base,
 //! forward additive, and shadow caster passes. This renderer has a forward color path here, so the
 //! shader declares the forward base + forward additive passes and keeps culling disabled.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSDualSided's
+//! shader-specific keyword bits locally.
 
 
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
@@ -21,16 +25,18 @@ struct PbsDualSidedMaterial {
     _Glossiness: f32,
     _Metallic: f32,
     _AlphaClip: f32,
-    _ALPHACLIP: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _METALLICMAP: f32,
-    _OCCLUSION: f32,
-    VCOLOR_ALBEDO: f32,
-    VCOLOR_EMIT: f32,
-    VCOLOR_METALLIC: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSDUALSIDED_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSDUALSIDED_KW_ALPHACLIP: u32 = 1u << 1u;
+const PBSDUALSIDED_KW_EMISSIONTEX: u32 = 1u << 2u;
+const PBSDUALSIDED_KW_METALLICMAP: u32 = 1u << 3u;
+const PBSDUALSIDED_KW_NORMALMAP: u32 = 1u << 4u;
+const PBSDUALSIDED_KW_OCCLUSION: u32 = 1u << 5u;
+const PBSDUALSIDED_KW_VCOLOR_ALBEDO: u32 = 1u << 6u;
+const PBSDUALSIDED_KW_VCOLOR_EMIT: u32 = 1u << 7u;
+const PBSDUALSIDED_KW_VCOLOR_METALLIC: u32 = 1u << 8u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsDualSidedMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -54,10 +60,14 @@ struct SurfaceData {
     emission: vec3<f32>,
 }
 
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
     let tbn = pnorm::visible_side_tbn(world_n, world_t, front_facing);
     var ts_n = vec3<f32>(0.0, 0.0, 1.0);
-    if (uvu::kw_enabled(mat._NORMALMAP)) {
+    if (pbs_kw(PBSDUALSIDED_KW_NORMALMAP)) {
         ts_n = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_main),
             mat._NormalScale,
@@ -76,32 +86,32 @@ fn sample_surface(
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
     var albedo = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (pbs_kw(PBSDUALSIDED_KW_ALBEDOTEX)) {
         albedo = albedo * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
-    if (uvu::kw_enabled(mat.VCOLOR_ALBEDO)) {
+    if (pbs_kw(PBSDUALSIDED_KW_VCOLOR_ALBEDO)) {
         albedo = albedo * vertex_color;
     }
-    let vertex_alpha = select(1.0, vertex_color.a, uvu::kw_enabled(mat.VCOLOR_ALBEDO));
+    let vertex_alpha = select(1.0, vertex_color.a, pbs_kw(PBSDUALSIDED_KW_VCOLOR_ALBEDO));
     let clip_alpha = select(
         albedo.a,
         mat._Color.a
             * vertex_alpha
             * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main),
-        uvu::kw_enabled(mat._ALBEDOTEX),
+        pbs_kw(PBSDUALSIDED_KW_ALBEDOTEX),
     );
-    if (uvu::kw_enabled(mat._ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
+    if (pbs_kw(PBSDUALSIDED_KW_ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
         discard;
     }
 
     var metallic = mat._Metallic;
     var smoothness = mat._Glossiness;
-    if (uvu::kw_enabled(mat._METALLICMAP)) {
+    if (pbs_kw(PBSDUALSIDED_KW_METALLICMAP)) {
         let m = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
         metallic = m.r;
         smoothness = m.a;
     }
-    if (uvu::kw_enabled(mat.VCOLOR_METALLIC)) {
+    if (pbs_kw(PBSDUALSIDED_KW_VCOLOR_METALLIC)) {
         metallic = metallic * dot(vertex_color.rgb, vec3<f32>(0.33333334));
         smoothness = smoothness * vertex_color.a;
     }
@@ -109,19 +119,15 @@ fn sample_surface(
     let roughness = clamp(1.0 - smoothness, 0.0, 1.0);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSDUALSIDED_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
-    let emission_color = mat._EmissionColor.rgb;
-    var emission = vec3<f32>(0.0);
-    if (dot(emission_color, emission_color) > 1e-8) {
-        emission = emission_color;
-        if (uvu::kw_enabled(mat._EMISSIONTEX)) {
-            emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
-        }
+    var emission = mat._EmissionColor.rgb;
+    if (pbs_kw(PBSDUALSIDED_KW_EMISSIONTEX)) {
+        emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
-    if (uvu::kw_enabled(mat.VCOLOR_EMIT)) {
+    if (pbs_kw(PBSDUALSIDED_KW_VCOLOR_EMIT)) {
         emission = emission * vertex_color.rgb;
     }
 
