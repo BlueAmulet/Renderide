@@ -16,6 +16,8 @@ struct FiltersGrayscaleMaterial {
     _RatioB: f32,
     _Lerp: f32,
     _RenderideVariantBits: u32,
+    _pad0: u32,
+    _pad1: vec2<u32>,
 }
 
 const GRAYSCALE_KW_GRADIENT: u32 = 1u << 0u;
@@ -29,8 +31,13 @@ fn grayscale_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
 }
 
-fn kw_GRADIENT() -> bool { return grayscale_kw(GRAYSCALE_KW_GRADIENT); }
-fn kw_RECTCLIP() -> bool { return grayscale_kw(GRAYSCALE_KW_RECTCLIP); }
+fn kw_GRADIENT() -> bool {
+    return grayscale_kw(GRAYSCALE_KW_GRADIENT);
+}
+
+fn kw_RECTCLIP() -> bool {
+    return grayscale_kw(GRAYSCALE_KW_RECTCLIP);
+}
 
 @vertex
 fn vs_main(
@@ -53,7 +60,7 @@ fn vs_main(
 //#pass forward
 @fragment
 fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect_bit(in.obj_xy, mat._Rect, mat._RenderideVariantBits, GRAYSCALE_KW_RECTCLIP)) {
+    if (uirc::should_clip_rect_kw(in.obj_xy, mat._Rect, kw_RECTCLIP())) {
         discard;
     }
 

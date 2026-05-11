@@ -28,6 +28,7 @@ struct FresnelMaterial {
     _Cutoff: f32,
     _PolarPow: f32,
     _RenderideVariantBits: u32,
+    _pad0: vec2<u32>,
 }
 
 const FRESNEL_KW_ALPHATEST: u32 = 1u << 0u;
@@ -56,14 +57,55 @@ fn fresnel_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
 }
 
-fn kw_ALPHATEST() -> bool { return fresnel_kw(FRESNEL_KW_ALPHATEST); }
-fn kw_MASK_TEXTURE_CLIP() -> bool { return fresnel_kw(FRESNEL_KW_MASK_TEXTURE_CLIP); }
-fn kw_MASK_TEXTURE_MUL() -> bool { return fresnel_kw(FRESNEL_KW_MASK_TEXTURE_MUL); }
-fn kw_MUL_ALPHA_INTENSITY() -> bool { return fresnel_kw(FRESNEL_KW_MUL_ALPHA_INTENSITY); }
-fn kw_NORMALMAP() -> bool { return fresnel_kw(FRESNEL_KW_NORMALMAP); }
-fn kw_POLARUV() -> bool { return fresnel_kw(FRESNEL_KW_POLARUV); }
-fn kw_TEXTURE() -> bool { return fresnel_kw(FRESNEL_KW_TEXTURE); }
-fn kw_VERTEXCOLORS() -> bool { return fresnel_kw(FRESNEL_KW_VERTEXCOLORS); }
+fn kw_ALPHATEST() -> bool {
+    return fresnel_kw(FRESNEL_KW_ALPHATEST);
+}
+
+fn kw_MASK_TEXTURE_CLIP() -> bool {
+    return fresnel_kw(FRESNEL_KW_MASK_TEXTURE_CLIP);
+}
+
+fn kw_MASK_TEXTURE_MUL() -> bool {
+    return fresnel_kw(FRESNEL_KW_MASK_TEXTURE_MUL);
+}
+
+fn kw_MUL_ALPHA_INTENSITY() -> bool {
+    return fresnel_kw(FRESNEL_KW_MUL_ALPHA_INTENSITY);
+}
+
+fn kw_NORMALMAP() -> bool {
+    return fresnel_kw(FRESNEL_KW_NORMALMAP);
+}
+
+fn kw_POLARUV() -> bool {
+    return fresnel_kw(FRESNEL_KW_POLARUV);
+}
+
+fn kw_TEXTURE() -> bool {
+    return fresnel_kw(FRESNEL_KW_TEXTURE);
+}
+
+fn kw_VERTEX_HDRSRGB_COLOR() -> bool {
+    return fresnel_kw(FRESNEL_KW_VERTEX_HDRSRGB_COLOR);
+}
+
+fn kw_VERTEX_SRGB_COLOR() -> bool {
+    return fresnel_kw(FRESNEL_KW_VERTEX_SRGB_COLOR);
+}
+
+fn kw_VERTEXCOLORS() -> bool {
+    return fresnel_kw(FRESNEL_KW_VERTEXCOLORS);
+}
+
+fn vertex_color_to_linear(color: vec4<f32>) -> vec4<f32> {
+    if (kw_VERTEX_HDRSRGB_COLOR()) {
+        return vc::srgb_to_linear_hdr(color);
+    }
+    if (kw_VERTEX_SRGB_COLOR()) {
+        return vc::srgb_to_linear_ldr(color);
+    }
+    return color;
+}
 
 @vertex
 fn vs_main(
@@ -138,13 +180,7 @@ fn fs_main(in: mv::WorldColorVertexOutput) -> @location(0) vec4<f32> {
     }
 
     if (kw_VERTEXCOLORS()) {
-        let decoded = vc::decode_vertex_color(
-            in.color,
-            mat._RenderideVariantBits,
-            FRESNEL_KW_VERTEX_SRGB_COLOR,
-            FRESNEL_KW_VERTEX_HDRSRGB_COLOR,
-        );
-        color = color * decoded;
+        color = color * vertex_color_to_linear(in.color);
     }
 
     if (kw_MUL_ALPHA_INTENSITY()) {

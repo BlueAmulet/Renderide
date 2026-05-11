@@ -21,6 +21,8 @@ struct FiltersGetDepthMaterial {
     _ClipMin: f32,
     _ClipMax: f32,
     _RenderideVariantBits: u32,
+    _pad0: u32,
+    _pad1: vec2<u32>,
 }
 
 const GETDEPTH_KW_CLIP: u32 = 1u << 0u;
@@ -32,8 +34,13 @@ fn getdepth_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
 }
 
-fn kw_CLIP() -> bool { return getdepth_kw(GETDEPTH_KW_CLIP); }
-fn kw_RECTCLIP() -> bool { return getdepth_kw(GETDEPTH_KW_RECTCLIP); }
+fn kw_CLIP() -> bool {
+    return getdepth_kw(GETDEPTH_KW_CLIP);
+}
+
+fn kw_RECTCLIP() -> bool {
+    return getdepth_kw(GETDEPTH_KW_RECTCLIP);
+}
 
 @vertex
 fn vs_main(
@@ -56,7 +63,7 @@ fn vs_main(
 //#pass forward
 @fragment
 fn fs_main(vout: fv::RectVertexOutput) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect_bit(vout.obj_xy, mat._Rect, mat._RenderideVariantBits, GETDEPTH_KW_RECTCLIP)) {
+    if (uirc::should_clip_rect_kw(vout.obj_xy, mat._Rect, kw_RECTCLIP())) {
         discard;
     }
 

@@ -29,6 +29,7 @@ struct FresnelLerpMaterial {
     _GammaCurve: f32,
     _LerpPolarPow: f32,
     _RenderideVariantBits: u32,
+    _pad0: vec2<u32>,
 }
 
 const FRESNELLERP_KW_LERPTEX: u32 = 1u << 0u;
@@ -57,11 +58,25 @@ fn fresnellerp_kw(mask: u32) -> bool {
     return vb::enabled(mat._RenderideVariantBits, mask);
 }
 
-fn kw_LERPTEX() -> bool { return fresnellerp_kw(FRESNELLERP_KW_LERPTEX); }
-fn kw_LERPTEX_POLARUV() -> bool { return fresnellerp_kw(FRESNELLERP_KW_LERPTEX_POLARUV); }
-fn kw_MULTI_VALUES() -> bool { return fresnellerp_kw(FRESNELLERP_KW_MULTI_VALUES); }
-fn kw_NORMALMAP() -> bool { return fresnellerp_kw(FRESNELLERP_KW_NORMALMAP); }
-fn kw_TEXTURE() -> bool { return fresnellerp_kw(FRESNELLERP_KW_TEXTURE); }
+fn kw_LERPTEX() -> bool {
+    return fresnellerp_kw(FRESNELLERP_KW_LERPTEX);
+}
+
+fn kw_LERPTEX_POLARUV() -> bool {
+    return fresnellerp_kw(FRESNELLERP_KW_LERPTEX_POLARUV);
+}
+
+fn kw_MULTI_VALUES() -> bool {
+    return fresnellerp_kw(FRESNELLERP_KW_MULTI_VALUES);
+}
+
+fn kw_NORMALMAP() -> bool {
+    return fresnellerp_kw(FRESNELLERP_KW_NORMALMAP);
+}
+
+fn kw_TEXTURE() -> bool {
+    return fresnellerp_kw(FRESNELLERP_KW_TEXTURE);
+}
 
 @vertex
 fn vs_main(

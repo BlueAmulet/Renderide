@@ -160,7 +160,10 @@ fn kw_VERTEXCOLORS() -> bool {
 }
 
 fn vertex_color_to_linear(color: vec4<f32>) -> vec4<f32> {
-    return vc::decode_vertex_color(color, mat._RenderideVariantBits, UNLIT_KW_VERTEX_SRGB_COLOR, 0u);
+    if (kw_VERTEX_SRGB_COLOR()) {
+        return vc::srgb_to_linear_ldr(color);
+    }
+    return color;
 }
 
 //#pass forward

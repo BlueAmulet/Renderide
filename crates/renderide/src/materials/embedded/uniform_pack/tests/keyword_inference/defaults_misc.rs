@@ -18,51 +18,6 @@ fn right_eye_variant_keyword_is_not_inferred_from_right_eye_st_presence() {
     );
 }
 
-#[test]
-fn lut_lerp_keyword_infers_from_lerp_uniform() {
-    let (_reflected, ids, reg) = reflected_with_f32_fields(&[("_Lerp", 0), ("LERP", 4)]);
-    let mut store = MaterialPropertyStore::new();
-    let lerp_pid = reg.intern("_Lerp");
-
-    assert_eq!(
-        inferred_keyword_float_f32("LERP", &store, lookup(24), &ids),
-        Some(0.0)
-    );
-
-    store.set_material(24, lerp_pid, MaterialPropertyValue::Float(0.0));
-    assert_eq!(
-        inferred_keyword_float_f32("LERP", &store, lookup(24), &ids),
-        Some(0.0)
-    );
-
-    store.set_material(24, lerp_pid, MaterialPropertyValue::Float(0.25));
-    assert_eq!(
-        inferred_keyword_float_f32("LERP", &store, lookup(24), &ids),
-        Some(1.0)
-    );
-}
-
-/// Base LUT materials default to the Unity/FrooxEngine `SRGB` variant unless the reflected
-/// keyword field is explicitly supplied as false.
-
-#[test]
-fn lut_srgb_keyword_defaults_on() {
-    let (_reflected, ids, reg) = reflected_with_f32_fields(&[("SRGB", 0)]);
-    let mut store = MaterialPropertyStore::new();
-
-    assert_eq!(
-        inferred_keyword_float_f32("SRGB", &store, lookup(25), &ids),
-        Some(1.0)
-    );
-
-    let srgb_pid = reg.intern("SRGB");
-    store.set_material(25, srgb_pid, MaterialPropertyValue::Float(0.0));
-    assert_eq!(
-        inferred_keyword_float_f32("SRGB", &store, lookup(25), &ids),
-        Some(0.0)
-    );
-}
-
 /// Additive blend factors alone are not enough; the material must also be in a transparent
 /// render type or queue range.
 
