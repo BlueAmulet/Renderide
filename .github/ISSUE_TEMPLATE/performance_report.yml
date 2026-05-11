@@ -1,0 +1,150 @@
+name: Performance report
+description: Report frame pacing, CPU/GPU cost, memory, stutter, or regression issues.
+title: "[Performance]: "
+labels: ["performance", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for performance problems in desktop or VR, including stutter, regressions, memory growth, GPU bottlenecks, CPU bottlenecks, and frame pacing issues.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-report checklist
+      options:
+        - label: I searched existing issues for the same performance problem.
+          required: true
+        - label: I tested a recent Renderide build.
+          required: true
+        - label: I checked whether validation layers, debug builds, capture tools, or background processes could explain the result.
+          required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the performance problem.
+      placeholder: "Example: VR frame time spikes from 6 ms to 22 ms when many transparent UI panels are visible."
+    validations:
+      required: true
+  - type: dropdown
+    id: issue_type
+    attributes:
+      label: Issue type
+      options:
+        - Frame time regression
+        - Stutter or hitching
+        - Low average FPS
+        - VR reprojection or missed frames
+        - CPU bottleneck
+        - GPU bottleneck
+        - Memory growth or resource churn
+        - Startup or asset loading time
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Runtime mode
+      options:
+        - Desktop
+        - OpenXR / VR
+        - Headless test harness
+        - Standalone renderer
+        - Multiple modes
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Multiple operating systems
+        - Unknown
+    validations:
+      required: true
+  - type: input
+    id: renderide_version
+    attributes:
+      label: Renderide version or commit
+      description: Provide the commit hash, branch, release, or build artifact name.
+      placeholder: b01a15f0, master, or release artifact name
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      description: Include GPU model and driver version if known.
+      placeholder: Intel Arc A770, driver 101.5590
+    validations:
+      required: true
+  - type: input
+    id: cpu_memory
+    attributes:
+      label: CPU and memory
+      description: Include CPU model and system memory if known.
+      placeholder: Ryzen 7 7800X3D, 32 GB RAM
+    validations:
+      required: false
+  - type: dropdown
+    id: graphics_backend
+    attributes:
+      label: Graphics backend
+      options:
+        - Vulkan
+        - DirectX 12
+        - Metal
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: measurements
+    attributes:
+      label: Measurements
+      description: Provide FPS, frame time, CPU/GPU time, memory, reprojection rate, or before/after numbers.
+      placeholder: |
+        Baseline:
+        Renderide result:
+        Unity renderer result:
+        Capture tool or HUD used:
+    validations:
+      required: true
+  - type: textarea
+    id: scene
+    attributes:
+      label: Scene or workload
+      description: Describe the world, material types, number of users, visible meshes, mirrors, UI, lights, videos, or other relevant content.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Explain how to trigger the performance problem.
+      placeholder: |
+        1. Launch with ...
+        2. Load ...
+        3. Look at ...
+        4. Observe frame time ...
+    validations:
+      required: true
+  - type: textarea
+    id: profiling
+    attributes:
+      label: Profiling data
+      description: Attach Tracy captures, GPU captures, screenshots of timing HUDs, or pass timing logs if available.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant warning, resource churn, validation, or timing log lines.
+      render: text
+    validations:
+      required: false

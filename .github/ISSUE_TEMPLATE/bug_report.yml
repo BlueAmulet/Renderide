@@ -1,0 +1,156 @@
+name: Bug report
+description: Report incorrect rendering, input, windowing, or runtime behavior.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for behavior that is wrong but does not crash the renderer. For crashes, device loss, hangs, or startup failures, use the crash report form.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-report checklist
+      options:
+        - label: I searched existing issues for the same problem.
+          required: true
+        - label: I can reproduce this on a recent Renderide build.
+          required: true
+        - label: I checked the renderer logs for warnings, panics, or validation errors.
+          required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the bug in one or two sentences.
+      placeholder: "Example: Transparent UI panels render in front of opaque world geometry when viewed in VR."
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Pick the closest affected area.
+      options:
+        - Materials or shaders
+        - Lighting or shadows
+        - Post-processing
+        - Skybox or reflection probes
+        - Meshes, skinning, or blendshapes
+        - UI, text, or masks
+        - Camera, mirror, or portal rendering
+        - Desktop windowing or presentation
+        - OpenXR or VR presentation
+        - IPC, scene state, or asset loading
+        - Other or unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Runtime mode
+      options:
+        - Desktop
+        - OpenXR / VR
+        - Headless test harness
+        - Standalone renderer
+        - Multiple modes
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Multiple operating systems
+        - Unknown
+    validations:
+      required: true
+  - type: input
+    id: renderide_version
+    attributes:
+      label: Renderide version or commit
+      description: Provide the commit hash, branch, release, or build artifact name.
+      placeholder: b01a15f0, master, or release artifact name
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      description: Include GPU model and driver version if known.
+      placeholder: NVIDIA RTX 3080, driver 555.85
+    validations:
+      required: true
+  - type: dropdown
+    id: graphics_backend
+    attributes:
+      label: Graphics backend
+      options:
+        - Vulkan
+        - DirectX 12
+        - Metal
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable reproduction you have.
+      placeholder: |
+        1. Launch Renderide with ...
+        2. Open world ...
+        3. Look at ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What does Renderide do?
+    validations:
+      required: true
+  - type: textarea
+    id: unity_comparison
+    attributes:
+      label: Unity renderer comparison
+      description: If you compared against the Unity renderer, describe the difference. If not, say not checked.
+      placeholder: The Unity renderer shows ..., while Renderide shows ...
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or video
+      description: Drag images or video here if the issue is visual.
+      placeholder: Attach comparison screenshots, video, or captures.
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste relevant lines from logs/renderer, logs/host, logs/bootstrapper, or validation output. Attach full logs if they are long.
+      render: text
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Add world details, material names, shader names, feature flags, or anything else that may help.
+    validations:
+      required: false
