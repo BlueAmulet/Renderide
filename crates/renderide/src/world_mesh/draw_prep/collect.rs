@@ -17,14 +17,12 @@ use rayon::prelude::*;
 use crate::gpu_pools::MeshPool;
 use crate::materials::ShaderPermutation;
 use crate::materials::host_data::MaterialDictionary;
-use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter, RasterFrontFace};
+use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter};
 use crate::reflection_probes::specular::ReflectionProbeFrameSelection;
-use crate::scene::{RenderSpaceId, SceneCoordinator, SkinnedMeshRenderer};
+use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::RenderingContext;
 use crate::world_mesh::culling::WorldMeshCullInput;
-use crate::world_mesh::materials::{
-    FrameMaterialBatchCache, MaterialResolveCtx, batch_key_for_slot_cached,
-};
+use crate::world_mesh::materials::FrameMaterialBatchCache;
 
 use super::filter::CameraTransformDrawFilter;
 use super::item::{WorldMeshDrawCollection, WorldMeshDrawItem};
@@ -35,6 +33,7 @@ mod candidate;
 mod filter_masks;
 pub(super) mod prepared;
 mod scene_walk;
+mod world_matrix;
 
 use filter_masks::build_per_space_filter_masks;
 use prepared::{PREPARED_CHUNK_SIZE, collect_prepared_chunk};
@@ -46,80 +45,6 @@ use super::prepared_renderables::FramePreparedDraw;
 use prepared::prepared_draws_share_renderer;
 #[cfg(test)]
 use scene_walk::transform_chain_has_degenerate_scale;
-
-/// Resolves the draw's world matrix when the selected vertex stream is still local-space.
-#[inline]
-fn world_matrix_for_local_vertex_stream(
-    ctx: &DrawCollectionContext<'_>,
-    space_id: RenderSpaceId,
-    node_id: i32,
-    is_overlay: bool,
-) -> Option<Mat4> {
-    if node_id < 0 {
-        return None;
-    }
-    if is_overlay {
-        return ctx
-            .scene
-            .overlay_layer_model_matrix_for_context(space_id, node_id as usize, ctx.render_context)
-            .or_else(|| {
-                ctx.scene
-                    .world_matrix_for_context(space_id, node_id as usize, ctx.render_context)
-            });
-    }
-    ctx.scene.world_matrix_for_render_context(
-        space_id,
-        node_id as usize,
-        ctx.render_context,
-        ctx.head_output_transform,
-    )
-}
-
-/// Resolves the raster front face for the model matrix used by the forward vertex shader.
-#[inline]
-fn front_face_for_world_matrix(world_matrix: Option<Mat4>) -> RasterFrontFace {
-    world_matrix
-        .map(RasterFrontFace::from_model_matrix)
-        .unwrap_or_default()
-}
-
-/// Resolves root-transform parity for skinned world-space vertex streams.
-#[inline]
-fn skinned_front_face_world_matrix(
-    ctx: &DrawCollectionContext<'_>,
-    space_id: RenderSpaceId,
-    node_id: i32,
-    skinned: Option<&SkinnedMeshRenderer>,
-) -> Option<Mat4> {
-    let root_node = skinned
-        .and_then(|renderer| renderer.root_bone_transform_id)
-        .filter(|&id| id >= 0)
-        .unwrap_or(node_id);
-    if root_node < 0 {
-        return None;
-    }
-    ctx.scene.world_matrix_for_render_context(
-        space_id,
-        root_node as usize,
-        ctx.render_context,
-        ctx.head_output_transform,
-    )
-}
-
-/// Selects the determinant source used for front-face winding.
-#[inline]
-fn front_face_for_draw_matrices(
-    world_space_deformed: bool,
-    rigid_world_matrix: Option<Mat4>,
-    deformed_front_face_world_matrix: Option<Mat4>,
-) -> RasterFrontFace {
-    if world_space_deformed {
-        return front_face_for_world_matrix(
-            deformed_front_face_world_matrix.or(rigid_world_matrix),
-        );
-    }
-    front_face_for_world_matrix(rigid_world_matrix)
-}
 
 /// Read-only scene, material, and cull state shared across all spaces during draw collection.
 pub struct DrawCollectionContext<'a> {

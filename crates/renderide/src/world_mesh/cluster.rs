@@ -7,6 +7,7 @@
 //! boundaries.
 
 mod clip;
+mod frame_uniforms;
 
 use glam::Mat4;
 
@@ -15,13 +16,11 @@ use crate::camera::{
     clamp_desktop_fov_degrees, effective_head_output_clip_planes, reverse_z_perspective,
     view_matrix_from_render_transform,
 };
-use crate::gpu::frame_globals::{
-    ClusteredFrameGlobalsParams, FRAME_PROJECTION_FLAG_ORTHOGRAPHIC, FrameGpuUniforms,
-    SkyboxSpecularUniformParams,
-};
+use crate::gpu::frame_globals::{FRAME_PROJECTION_FLAG_ORTHOGRAPHIC, FrameGpuUniforms};
 use crate::scene::SceneCoordinator;
 
 pub use clip::{CLUSTER_COUNT_Z, TILE_SIZE, sanitize_cluster_clip_planes};
+pub use frame_uniforms::FrameGpuUniformBuildParams;
 
 #[cfg(test)]
 pub use clip::{CLUSTER_FAR_CLIP_MIN_SPAN, CLUSTER_NEAR_CLIP_MIN, cluster_z_slice_from_view_z};
@@ -50,31 +49,6 @@ pub struct ClusterFrameParams {
     pub viewport_height: u32,
     /// Projection flags packed into the frame uniform for this view.
     pub projection_flags: u32,
-}
-
-/// Per-frame values layered on top of [`ClusterFrameParams`] when packing [`FrameGpuUniforms`].
-#[derive(Clone, Copy, Debug)]
-pub struct FrameGpuUniformBuildParams {
-    /// Left-eye or mono world-space camera position.
-    pub camera_world_pos: glam::Vec3,
-    /// Right-eye world-space camera position, or the same value as [`Self::camera_world_pos`] in mono mode.
-    pub camera_world_pos_right: glam::Vec3,
-    /// Number of resident lights written to the frame lights buffer.
-    pub light_count: u32,
-    /// Right-eye view-space-Z coefficients, or the mono coefficients for non-stereo frames.
-    pub right_z_coeffs: [f32; 4],
-    /// Right-eye projection parameters, or the mono parameters for non-stereo frames.
-    pub right_proj_params: [f32; 4],
-    /// Right-eye projection flags, or the mono flags for non-stereo frames.
-    pub right_projection_flags: u32,
-    /// Monotonic host frame index used by temporal effects.
-    pub frame_index: u32,
-    /// Whether `ambient_sh` contains host-authored lighting data.
-    pub ambient_sh_valid: bool,
-    /// Reserved direct skybox specular state; specular IBL comes from reflection probes.
-    pub skybox_specular: SkyboxSpecularUniformParams,
-    /// Host ambient SH2 coefficients for indirect diffuse.
-    pub ambient_sh: [[f32; 4]; 9],
 }
 
 impl ClusterFrameParams {
@@ -121,28 +95,7 @@ impl ClusterFrameParams {
     /// Right-eye fields in `params` should be the right-eye equivalents in stereo, or equal to the
     /// left/mono coefficients in desktop mode.
     pub fn frame_gpu_uniforms(&self, params: FrameGpuUniformBuildParams) -> FrameGpuUniforms {
-        FrameGpuUniforms::new_clustered(ClusteredFrameGlobalsParams {
-            camera_world_pos: params.camera_world_pos,
-            camera_world_pos_right: params.camera_world_pos_right,
-            view_space_z_coeffs: self.view_space_z_coeffs(),
-            view_space_z_coeffs_right: params.right_z_coeffs,
-            cluster_count_x: self.cluster_count_x,
-            cluster_count_y: self.cluster_count_y,
-            cluster_count_z: CLUSTER_COUNT_Z,
-            near_clip: self.near_clip,
-            far_clip: self.far_clip,
-            light_count: params.light_count,
-            viewport_width: self.viewport_width.max(1),
-            viewport_height: self.viewport_height.max(1),
-            proj_params_left: self.proj_params(),
-            proj_params_right: params.right_proj_params,
-            frame_index: params.frame_index,
-            projection_flags_left: self.projection_flags,
-            projection_flags_right: params.right_projection_flags,
-            ambient_sh_valid: params.ambient_sh_valid,
-            skybox_specular: params.skybox_specular,
-            ambient_sh: params.ambient_sh,
-        })
+        frame_uniforms::build_frame_gpu_uniforms(self, params)
     }
 }
 
