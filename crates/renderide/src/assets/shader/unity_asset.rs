@@ -42,15 +42,28 @@ pub(crate) struct ResolvedUnityShaderAsset {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct InternalShaderName {
+    full_name: String,
     shader_asset_name: String,
     shader_variant_bits: Option<u32>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum InternalNameSource {
     MNamePeek,
-    UnityObjectTypetree,
+    UnityObjectName,
+    UnityObjectNameField,
+    UnityObjectParsedForm,
+    UnityObjectScript,
     ShaderLabBytes,
+    ShaderObjectBytes,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct InternalShaderNameCandidate {
+    path_id: i64,
+    class_id: i32,
+    source: InternalNameSource,
+    name: InternalShaderName,
 }
 
 /// Shader asset filename or stem plus optional Froox variant bitmask from a filesystem path.
@@ -177,14 +190,19 @@ fn log_internal_name_resolution(
 ) {
     let source = match source {
         InternalNameSource::MNamePeek => "m_Name_peek",
-        InternalNameSource::UnityObjectTypetree => "typetree",
+        InternalNameSource::UnityObjectName => "typetree_m_Name",
+        InternalNameSource::UnityObjectNameField => "typetree_name",
+        InternalNameSource::UnityObjectParsedForm => "typetree_m_ParsedForm",
+        InternalNameSource::UnityObjectScript => "typetree_m_Script",
         InternalNameSource::ShaderLabBytes => "ShaderLab_bytes",
+        InternalNameSource::ShaderObjectBytes => "Shader_object_bytes",
     };
-    logger::debug!(
-        "shader_unity_asset: Shader path_id={} class_id={} source={} stem={:?} variant_bits={:?}",
+    logger::info!(
+        "shader_unity_asset: Shader path_id={} class_id={} source={} full_name={:?} stem={:?} variant_bits={:?}",
         path_id,
         class_id,
         source,
+        name.full_name,
         name.shader_asset_name,
         name.shader_variant_bits
     );
@@ -383,15 +401,29 @@ fn shader_resolution_from_bundle(
 }
 
 fn shader_internal_name_from_bundle(bundle: &AssetBundle) -> Option<InternalShaderName> {
+    let mut best: Option<InternalShaderNameCandidate> = None;
     for asset in &bundle.assets {
-        if let Some(name) = shader_internal_name_from_serialized_file(asset) {
-            return Some(name);
+        if let Some(candidate) = shader_internal_name_from_serialized_file(asset)
+            && update_best_internal_name_candidate(&mut best, candidate)
+        {
+            break;
         }
     }
-    None
+
+    let candidate = best?;
+    log_internal_name_resolution(
+        candidate.path_id,
+        candidate.class_id,
+        candidate.source,
+        &candidate.name,
+    );
+    Some(candidate.name)
 }
 
-fn shader_internal_name_from_serialized_file(sf: &SerializedFile) -> Option<InternalShaderName> {
+fn shader_internal_name_from_serialized_file(
+    sf: &SerializedFile,
+) -> Option<InternalShaderNameCandidate> {
+    let mut best: Option<InternalShaderNameCandidate> = None;
     for handle in sf.object_handles() {
         if handle.class_id() != SHADER {
             continue;
@@ -401,13 +433,18 @@ fn shader_internal_name_from_serialized_file(sf: &SerializedFile) -> Option<Inte
         match handle.peek_name() {
             Ok(Some(name)) if !name.trim().is_empty() => {
                 if let Some(parsed) = parse_internal_shader_name(&name) {
-                    log_internal_name_resolution(
-                        path_id,
-                        class_id,
-                        InternalNameSource::MNamePeek,
-                        &parsed,
+                    update_best_internal_name_candidate(
+                        &mut best,
+                        InternalShaderNameCandidate {
+                            path_id,
+                            class_id,
+                            source: InternalNameSource::MNamePeek,
+                            name: parsed,
+                        },
                     );
-                    return Some(parsed);
+                    if best_internal_name_has_variant(best.as_ref()) {
+                        break;
+                    }
                 }
             }
             Ok(Some(_)) => {}
@@ -428,14 +465,16 @@ fn shader_internal_name_from_serialized_file(sf: &SerializedFile) -> Option<Inte
 
         match handle.read() {
             Ok(obj) => {
-                if let Some(parsed) = shader_internal_name_from_loaded_unity_object(&obj) {
-                    log_internal_name_resolution(
-                        path_id,
-                        class_id,
-                        InternalNameSource::UnityObjectTypetree,
-                        &parsed,
-                    );
-                    return Some(parsed);
+                let candidates = shader_internal_name_candidates_from_loaded_unity_object(
+                    path_id, class_id, &obj,
+                );
+                for candidate in candidates {
+                    if update_best_internal_name_candidate(&mut best, candidate) {
+                        break;
+                    }
+                }
+                if best_internal_name_has_variant(best.as_ref()) {
+                    break;
                 }
                 logger::debug!(
                     "shader_unity_asset: Shader path_id={} typetree ok; keys_sample={:?}",
@@ -463,46 +502,133 @@ fn shader_internal_name_from_serialized_file(sf: &SerializedFile) -> Option<Inte
                 continue;
             }
         };
-        if let Some(parsed) = find_internal_shader_name_in_bytes(bytes) {
-            log_internal_name_resolution(
-                path_id,
-                class_id,
-                InternalNameSource::ShaderLabBytes,
-                &parsed,
+        if let Some((source, parsed)) = find_internal_shader_name_in_bytes(bytes) {
+            update_best_internal_name_candidate(
+                &mut best,
+                InternalShaderNameCandidate {
+                    path_id,
+                    class_id,
+                    source,
+                    name: parsed,
+                },
             );
-            return Some(parsed);
+            if best_internal_name_has_variant(best.as_ref()) {
+                break;
+            }
         }
     }
-    None
+    best
 }
 
-fn shader_internal_name_from_loaded_unity_object(
+fn update_best_internal_name_candidate(
+    best: &mut Option<InternalShaderNameCandidate>,
+    candidate: InternalShaderNameCandidate,
+) -> bool {
+    if best.as_ref().is_none_or(|current| {
+        internal_name_candidate_rank(&candidate) > internal_name_candidate_rank(current)
+    }) {
+        *best = Some(candidate);
+    }
+    best_internal_name_has_variant(best.as_ref())
+}
+
+fn best_internal_name_has_variant(candidate: Option<&InternalShaderNameCandidate>) -> bool {
+    candidate.is_some_and(|candidate| candidate.name.shader_variant_bits.is_some())
+}
+
+fn internal_name_candidate_rank(candidate: &InternalShaderNameCandidate) -> (u8, u8) {
+    (
+        u8::from(candidate.name.shader_variant_bits.is_some()),
+        internal_name_source_rank(candidate.source),
+    )
+}
+
+fn internal_name_source_rank(source: InternalNameSource) -> u8 {
+    match source {
+        InternalNameSource::UnityObjectParsedForm
+        | InternalNameSource::UnityObjectScript
+        | InternalNameSource::ShaderLabBytes
+        | InternalNameSource::ShaderObjectBytes => 3,
+        InternalNameSource::UnityObjectName | InternalNameSource::UnityObjectNameField => 2,
+        InternalNameSource::MNamePeek => 1,
+    }
+}
+
+fn shader_internal_name_candidates_from_loaded_unity_object(
+    path_id: i64,
+    class_id: i32,
     obj: &unity_asset_binary::object::UnityObject,
-) -> Option<InternalShaderName> {
+) -> Vec<InternalShaderNameCandidate> {
+    let mut candidates = Vec::new();
+
+    for (key, source) in [
+        ("m_ParsedForm", InternalNameSource::UnityObjectParsedForm),
+        ("m_Script", InternalNameSource::UnityObjectScript),
+    ] {
+        if let Some(value) = obj.get(key) {
+            if source == InternalNameSource::UnityObjectParsedForm
+                && let Some(parsed) = parsed_form_internal_shader_name(value)
+            {
+                candidates.push(InternalShaderNameCandidate {
+                    path_id,
+                    class_id,
+                    source,
+                    name: parsed,
+                });
+            }
+            let text = unity_value_searchable_text(value);
+            if let Some(parsed) = find_internal_shader_name_in_text(&text) {
+                candidates.push(InternalShaderNameCandidate {
+                    path_id,
+                    class_id,
+                    source,
+                    name: parsed,
+                });
+            }
+        }
+    }
+
     if let Some(parsed) = obj
         .name()
         .filter(|name| !name.trim().is_empty())
         .and_then(|name| parse_internal_shader_name(&name))
     {
-        return Some(parsed);
+        candidates.push(InternalShaderNameCandidate {
+            path_id,
+            class_id,
+            source: InternalNameSource::UnityObjectName,
+            name: parsed,
+        });
     }
+
     if let Some(parsed) = obj
         .get("name")
         .and_then(UnityValue::as_str)
         .filter(|name| !name.trim().is_empty())
         .and_then(parse_internal_shader_name)
     {
-        return Some(parsed);
+        candidates.push(InternalShaderNameCandidate {
+            path_id,
+            class_id,
+            source: InternalNameSource::UnityObjectNameField,
+            name: parsed,
+        });
     }
-    for key in ["m_ParsedForm", "m_Script"] {
-        if let Some(value) = obj.get(key) {
-            let text = unity_value_searchable_text(value);
-            if let Some(parsed) = find_internal_shader_name_in_text(&text) {
-                return Some(parsed);
-            }
-        }
-    }
-    None
+
+    candidates
+}
+
+fn parsed_form_internal_shader_name(value: &UnityValue) -> Option<InternalShaderName> {
+    let UnityValue::Object(fields) = value else {
+        return None;
+    };
+    ["m_Name", "name"].into_iter().find_map(|key| {
+        fields
+            .get(key)
+            .and_then(UnityValue::as_str)
+            .filter(|name| !name.trim().is_empty())
+            .and_then(parse_internal_shader_name)
+    })
 }
 
 fn unity_value_searchable_text(value: &UnityValue) -> String {
@@ -526,16 +652,60 @@ fn unity_value_searchable_text(value: &UnityValue) -> String {
     }
 }
 
-fn find_internal_shader_name_in_bytes(data: &[u8]) -> Option<InternalShaderName> {
+fn find_internal_shader_name_in_bytes(
+    data: &[u8],
+) -> Option<(InternalNameSource, InternalShaderName)> {
     let text = String::from_utf8_lossy(data);
-    find_internal_shader_name_in_text(&text)
+    if let Some(name) = find_internal_shader_name_in_text(&text) {
+        return Some((InternalNameSource::ShaderLabBytes, name));
+    }
+    find_variant_internal_shader_name_in_text_tokens(&text)
+        .map(|name| (InternalNameSource::ShaderObjectBytes, name))
 }
 
 fn find_internal_shader_name_in_text(text: &str) -> Option<InternalShaderName> {
-    let index = text.find("Shader")?;
-    let tail = text.get(index..)?;
-    let window: String = tail.chars().take(4096).collect();
-    parse_shader_lab_quoted_name(&window).and_then(|name| parse_internal_shader_name(&name))
+    let mut cursor = 0;
+    let mut best = None;
+
+    while let Some(relative_index) = text.get(cursor..)?.find("Shader") {
+        let index = cursor + relative_index;
+        let tail = text.get(index..)?;
+        let window: String = tail.chars().take(4096).collect();
+        if let Some(parsed) =
+            parse_shader_lab_quoted_name(&window).and_then(|name| parse_internal_shader_name(&name))
+        {
+            if parsed.shader_variant_bits.is_some() {
+                return Some(parsed);
+            }
+            if best.is_none() {
+                best = Some(parsed);
+            }
+        }
+        cursor = index + "Shader".len();
+    }
+
+    best
+}
+
+fn find_variant_internal_shader_name_in_text_tokens(text: &str) -> Option<InternalShaderName> {
+    let mut token = String::new();
+    for ch in text.chars().chain(std::iter::once('\0')) {
+        if is_shader_name_token_char(ch) {
+            token.push(ch);
+            continue;
+        }
+        if let Some(parsed) = parse_internal_shader_name(&token)
+            && parsed.shader_variant_bits.is_some()
+        {
+            return Some(parsed);
+        }
+        token.clear();
+    }
+    None
+}
+
+fn is_shader_name_token_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '/' | '\\' | '-' | '.' | ' ')
 }
 
 fn parse_shader_lab_quoted_name(text: &str) -> Option<String> {
@@ -587,6 +757,7 @@ fn parse_internal_shader_name(name: &str) -> Option<InternalShaderName> {
         split_variant_suffix(trimmed).map_or((trimmed, None), |(stem, bits)| (stem, Some(bits)));
     let shader_asset_name = shader_asset_stem_from_internal_name(stem)?;
     Some(InternalShaderName {
+        full_name: trimmed.to_string(),
         shader_asset_name,
         shader_variant_bits,
     })
@@ -757,6 +928,7 @@ mod tests {
         assert_eq!(
             parse_internal_shader_name("Unlit_00002202"),
             Some(InternalShaderName {
+                full_name: "Unlit_00002202".to_string(),
                 shader_asset_name: "Unlit".to_string(),
                 shader_variant_bits: Some(0x2202),
             })
@@ -764,6 +936,7 @@ mod tests {
         assert_eq!(
             parse_internal_shader_name("Custom/With_Underscore_00000080"),
             Some(InternalShaderName {
+                full_name: "Custom/With_Underscore_00000080".to_string(),
                 shader_asset_name: "With_Underscore".to_string(),
                 shader_variant_bits: Some(0x80),
             })
@@ -771,6 +944,7 @@ mod tests {
         assert_eq!(
             parse_internal_shader_name("Unlit_nothex123"),
             Some(InternalShaderName {
+                full_name: "Unlit_nothex123".to_string(),
                 shader_asset_name: "Unlit_nothex123".to_string(),
                 shader_variant_bits: None,
             })
@@ -782,6 +956,7 @@ mod tests {
         assert_eq!(
             find_internal_shader_name_in_text(r#"Shader "Unlit_00000200" { }"#),
             Some(InternalShaderName {
+                full_name: "Unlit_00000200".to_string(),
                 shader_asset_name: "Unlit".to_string(),
                 shader_variant_bits: Some(0x200),
             })
@@ -789,10 +964,88 @@ mod tests {
         assert_eq!(
             find_internal_shader_name_in_text(r#"Shader \"Unlit_00000200\" { }"#),
             Some(InternalShaderName {
+                full_name: "Unlit_00000200".to_string(),
                 shader_asset_name: "Unlit".to_string(),
                 shader_variant_bits: Some(0x200),
             })
         );
+    }
+
+    #[test]
+    fn shaderlab_name_parser_skips_non_declarations() {
+        assert_eq!(
+            find_internal_shader_name_in_text(r#"SubShader { } Shader "Unlit_00000200" { }"#),
+            Some(InternalShaderName {
+                full_name: "Unlit_00000200".to_string(),
+                shader_asset_name: "Unlit".to_string(),
+                shader_variant_bits: Some(0x200),
+            })
+        );
+    }
+
+    #[test]
+    fn parsed_form_name_field_is_internal_shader_name() {
+        let parsed_form = UnityValue::Object(
+            [(
+                "m_Name".to_string(),
+                UnityValue::String("Unlit_00000200".to_string()),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        assert_eq!(
+            parsed_form_internal_shader_name(&parsed_form),
+            Some(InternalShaderName {
+                full_name: "Unlit_00000200".to_string(),
+                shader_asset_name: "Unlit".to_string(),
+                shader_variant_bits: Some(0x200),
+            })
+        );
+    }
+
+    #[test]
+    fn raw_shader_bytes_can_fallback_to_variant_name_token() {
+        assert_eq!(
+            find_internal_shader_name_in_bytes(b"\x0e\0\0\0Unlit_00000200\0"),
+            Some((
+                InternalNameSource::ShaderObjectBytes,
+                InternalShaderName {
+                    full_name: "Unlit_00000200".to_string(),
+                    shader_asset_name: "Unlit".to_string(),
+                    shader_variant_bits: Some(0x200),
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn variant_candidate_wins_over_plain_object_name() {
+        let mut best = None;
+        update_best_internal_name_candidate(
+            &mut best,
+            InternalShaderNameCandidate {
+                path_id: 1,
+                class_id: SHADER,
+                source: InternalNameSource::MNamePeek,
+                name: parse_internal_shader_name("Unlit").expect("plain shader name"),
+            },
+        );
+        update_best_internal_name_candidate(
+            &mut best,
+            InternalShaderNameCandidate {
+                path_id: 1,
+                class_id: SHADER,
+                source: InternalNameSource::UnityObjectScript,
+                name: parse_internal_shader_name("Unlit_00000200").expect("variant shader name"),
+            },
+        );
+
+        let selected = best.expect("selected shader name");
+        assert_eq!(selected.source, InternalNameSource::UnityObjectScript);
+        assert_eq!(selected.name.full_name, "Unlit_00000200");
+        assert_eq!(selected.name.shader_asset_name, "Unlit");
+        assert_eq!(selected.name.shader_variant_bits, Some(0x200));
     }
 
     #[test]
