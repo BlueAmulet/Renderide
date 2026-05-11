@@ -174,7 +174,8 @@ impl GpuContext {
 
     /// Whether this frame should avoid CPU-mapped staging/readback buffers.
     pub(crate) fn avoid_mapped_buffers_this_frame(&self) -> bool {
-        self.mapped_buffer_recovery.avoid_mapped_buffers_this_frame()
+        self.mapped_buffer_recovery
+            .avoid_mapped_buffers_this_frame()
     }
 
     /// Current mapped-buffer invalidation generation.

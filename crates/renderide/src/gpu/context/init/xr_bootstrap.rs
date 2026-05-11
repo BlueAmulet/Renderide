@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use winit::window::Window;
 
-use super::shared::{
-    GpuContextParts, GpuRuntimeHandles, assemble_context, log_device_capability_summary,
-};
 use super::super::super::adapter::device::{install_uncaptured_error_handler, try_gpu_profiler};
 use super::super::super::adapter::msaa_support::MsaaSupport;
 use super::super::super::limits::GpuLimits;
 use super::super::super::sync::mapped_buffer_health::GpuMappedBufferHealth;
 use super::super::{GpuContext, GpuError};
+use super::shared::{
+    GpuContextParts, GpuRuntimeHandles, assemble_context, log_device_capability_summary,
+};
 use crate::config::VsyncMode;
 use crate::gpu::submission_state::GpuSubmissionState;
 

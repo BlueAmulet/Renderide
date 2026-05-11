@@ -1,33 +1,41 @@
-//! GPU device, adapter, swapchain, frame uniforms, and VR mirror blit.
+//! GPU device, adapter, swapchain, frame uniforms, profiling, and VR mirror blit.
 //!
-//! Layout: [`context`] ([`GpuContext`]), [`instance_setup`] ([`instance_flags_for_gpu_init`]),
-//! [`frame_globals`] ([`FrameGpuUniforms`]), [`frame_cpu_gpu_timing`] (debug HUD CPU/GPU intervals),
-//! [`present`] (surface acquire / clear helpers), [`vr_mirror`] (HMD eye -> staging -> window).
+//! Top-level layout:
+//! - [`context`] -- [`GpuContext`] (instance, surface, device, swapchain) and construction.
+//! - [`adapter`] -- adapter selection, device creation, feature negotiation, MSAA probing.
+//! - [`limits`] -- [`GpuLimits`] capability snapshot and bounds helpers.
+//! - [`depth`] -- reverse-Z conventions, depth-stencil format choice, and [`OutputDepthMode`].
+//! - [`frame_globals`] -- WGSL-matched per-frame uniform structs.
+//! - [`frame_bindings`] -- shader ABI: `@group(0)` BGL, light rows, reflection-probe rows.
+//! - [`profiling`] -- frame-bracket GPU timestamps and CPU/GPU wall-clock timing.
+//! - [`sync`] -- Vulkan queue serialisation and mapped-buffer health.
+//! - [`driver_thread`] -- dedicated submit/present worker.
+//! - [`present`], [`display_blit`], [`vr_mirror`], [`msaa_depth_resolve`] -- presentation passes.
+//! - [`bind_layout`] -- reusable [`wgpu::BindGroupLayoutEntry`] factories.
+//! - [`instance_setup`] -- renderer-policy clamps applied at instance/device creation.
+//!
+//! `blit_kit` (private) holds helpers shared by [`display_blit`] and [`vr_mirror`].
 
 mod adapter;
-pub mod bind_layout;
 mod blit_kit;
 mod context;
-pub mod depth;
-pub mod display_blit;
-pub mod driver_thread;
-pub mod frame_bindings;
 mod instance_setup;
-pub mod limits;
-pub mod msaa_depth_resolve;
-pub mod present;
-pub mod profiling;
 mod submission_state;
 mod sync;
 mod vr_mirror;
 
+pub mod bind_layout;
+pub mod depth;
+pub mod display_blit;
+pub mod driver_thread;
+pub mod frame_bindings;
 pub mod frame_globals;
+pub mod limits;
+pub mod msaa_depth_resolve;
+pub mod present;
+pub mod profiling;
 
-// Legacy submodule-path re-exports: external code references
-// `crate::gpu::frame_cpu_gpu_timing::*`; the file now lives under `profiling/`.
-pub use profiling::frame_cpu_gpu_timing;
-pub(crate) use profiling::frame_bracket;
-
+// --- External-API re-exports (cross-top-level-module contract) ---
 pub use context::{GpuContext, GpuError};
 pub use depth::{
     MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE, OutputDepthMode,
@@ -45,5 +53,12 @@ pub use limits::{CUBEMAP_ARRAY_LAYERS, GpuLimits};
 pub use msaa_depth_resolve::{
     MsaaDepthResolveMonoTargets, MsaaDepthResolveResources, MsaaDepthResolveStereoTargets,
 };
-pub use sync::queue_access_gate::GpuQueueAccessGate;
 pub use vr_mirror::{VR_MIRROR_EYE_LAYER, VrMirrorBlitResources};
+
+// --- Legacy submodule-path re-exports (preserve external `crate::gpu::<x>::*` paths) ---
+//
+// External code references `crate::gpu::frame_cpu_gpu_timing::*` and
+// `crate::gpu::GpuQueueAccessGate`; both physically live under newer parent modules now.
+pub(crate) use profiling::frame_bracket;
+pub use profiling::frame_cpu_gpu_timing;
+pub use sync::queue_access_gate::GpuQueueAccessGate;

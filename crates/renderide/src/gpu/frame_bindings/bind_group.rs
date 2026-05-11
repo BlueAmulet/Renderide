@@ -3,9 +3,9 @@
 use std::mem::size_of;
 use std::num::NonZeroU64;
 
+use super::super::frame_globals::FrameGpuUniforms;
 use super::lights::GpuLight;
 use super::reflection_probes::GpuReflectionProbeMetadata;
-use super::super::frame_globals::FrameGpuUniforms;
 
 /// Returns the `@group(0)` layout entries shared by every material pipeline.
 pub fn frame_bind_group_layout_entries() -> Vec<wgpu::BindGroupLayoutEntry> {

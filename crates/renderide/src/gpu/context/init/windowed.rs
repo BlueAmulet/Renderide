@@ -4,17 +4,17 @@ use std::sync::Arc;
 
 use winit::window::Window;
 
-use super::shared::{
-    GpuContextParts, GpuRuntimeHandles, WindowAdapterLogFields, assemble_context,
-    log_device_capability_summary, log_windowed_gpu_selection_summary,
-    log_windowed_gpu_startup_request, select_window_adapter_with_fallback,
-};
 use super::super::super::adapter::device::{request_device_for_adapter, try_gpu_profiler};
 use super::super::super::adapter::features::adapter_render_features_intersection;
 use super::super::super::adapter::msaa_support::MsaaSupport;
 use super::super::super::limits::GpuLimits;
 use super::super::super::sync::mapped_buffer_health::GpuMappedBufferHealth;
 use super::super::{GpuContext, GpuError};
+use super::shared::{
+    GpuContextParts, GpuRuntimeHandles, WindowAdapterLogFields, assemble_context,
+    log_device_capability_summary, log_windowed_gpu_selection_summary,
+    log_windowed_gpu_startup_request, select_window_adapter_with_fallback,
+};
 use crate::config::{GraphicsApiSetting, VsyncMode};
 use crate::gpu::submission_state::GpuSubmissionState;
 

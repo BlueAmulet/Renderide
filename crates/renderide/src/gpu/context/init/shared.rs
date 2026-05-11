@@ -182,10 +182,9 @@ pub(super) fn assemble_context(parts: GpuContextParts) -> GpuContext {
         device: parts.device,
         queue: parts.queue,
         gpu_queue_access_gate: parts.gpu_queue_access_gate,
-        mapped_buffer_recovery:
-            super::super::mapped_buffer_recovery::GpuMappedBufferRecovery::new(
-                parts.mapped_buffer_health,
-            ),
+        mapped_buffer_recovery: super::super::mapped_buffer_recovery::GpuMappedBufferRecovery::new(
+            parts.mapped_buffer_health,
+        ),
         surface: parts.surface,
         config: parts.config,
         supported_present_modes: parts.supported_present_modes,
