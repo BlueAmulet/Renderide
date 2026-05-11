@@ -7,6 +7,7 @@
 
 pub mod gpu_allocator;
 pub mod host;
+pub mod host_gatherer;
 pub mod ipc_health;
 pub mod mesh_draw;
 pub mod shader_routes;
@@ -16,6 +17,7 @@ pub use gpu_allocator::{
     GpuAllocatorFragment, GpuAllocatorHud, GpuAllocatorHudRefresh, GpuAllocatorReportHud,
 };
 pub use host::HostCpuMemoryHud;
+pub use host_gatherer::HostHudGatherer;
 pub use ipc_health::{FrameDiagnosticsIpcQueues, IpcHealthFragment};
 pub use mesh_draw::MeshDrawFragment;
 pub use shader_routes::ShaderRoutesFragment;

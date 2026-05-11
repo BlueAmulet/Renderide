@@ -4,12 +4,16 @@
 //! Unlike [`super::FrameDiagnosticsSnapshot`], this avoids the heavy shader-routes / allocator-report
 //! gathering and is safe to populate every tick.
 
+pub mod ema;
+pub mod history;
+
+pub use ema::FrameTimingEma;
+pub use history::FrameTimeHistory;
+
 use crate::gpu::GpuContext;
 use crate::gpu::frame_cpu_gpu_timing::GpuMsSource;
 
 use super::frame_diagnostics::{GpuAllocatorHud, HostCpuMemoryHud};
-use crate::diagnostics::ema::FrameTimingEma;
-use crate::diagnostics::frame_history::FrameTimeHistory;
 
 /// Minimal HUD payload: wall-clock roundtrip, CPU/GPU per-frame ms, memory totals, and
 /// frametime graph.
