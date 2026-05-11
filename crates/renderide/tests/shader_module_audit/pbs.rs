@@ -20,12 +20,9 @@ fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()>
         "BiRP light module must expose the shared spot angle attenuation helper"
     );
     assert!(
-        birp.contains("let offset = -light.spot_cos_half_angle * light.spot_angle_scale;")
-            && birp.contains(
-                "let attenuation = clamp(rho * light.spot_angle_scale + offset, 0.0, 1.0);"
-            )
-            && birp.contains("return attenuation * attenuation;"),
-        "spot angle attenuation must use the Filament-style squared cone ramp"
+        birp.contains("let t = clamp((1.0 - rho) * light.spot_angle_scale, 0.0, 1.0);")
+            && birp.contains("return range_fade(t);"),
+        "spot angle attenuation must use the shared quartic edge window"
     );
 
     let pbs_brdf = module_source("pbs/brdf.wgsl")?;
