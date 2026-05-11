@@ -8,6 +8,9 @@ use ash::vk::{self, Handle};
 use openxr as xr;
 
 use super::super::input::ProfileExtensionGates;
+use super::extensions::{
+    empty_profile_gates, enable_optional_extensions, enabled_extension_summary,
+};
 use super::types::XrBootstrapError;
 
 /// Cached `vkGetInstanceProcAddr` function pointer captured from the active [`ash::Entry`].
@@ -91,21 +94,12 @@ pub(super) fn create_openxr_instance(
 
     let mut enabled_extensions = xr::ExtensionSet::default();
     enabled_extensions.khr_vulkan_enable2 = true;
-    enabled_extensions.khr_generic_controller = available_extensions.khr_generic_controller;
-    enabled_extensions.bd_controller_interaction = available_extensions.bd_controller_interaction;
-    enabled_extensions.ext_hp_mixed_reality_controller =
-        available_extensions.ext_hp_mixed_reality_controller;
-    enabled_extensions.ext_samsung_odyssey_controller =
-        available_extensions.ext_samsung_odyssey_controller;
-    enabled_extensions.htc_vive_cosmos_controller_interaction =
-        available_extensions.htc_vive_cosmos_controller_interaction;
-    enabled_extensions.htc_vive_focus3_controller_interaction =
-        available_extensions.htc_vive_focus3_controller_interaction;
-    enabled_extensions.fb_touch_controller_pro = available_extensions.fb_touch_controller_pro;
-    enabled_extensions.meta_touch_controller_plus = available_extensions.meta_touch_controller_plus;
-    if available_extensions.ext_debug_utils {
-        enabled_extensions.ext_debug_utils = true;
-    }
+    let mut profile_gates = empty_profile_gates();
+    enable_optional_extensions(
+        &available_extensions,
+        &mut enabled_extensions,
+        &mut profile_gates,
+    );
     #[cfg(target_os = "android")]
     {
         enabled_extensions.khr_android_create_instance = true;
@@ -123,62 +117,15 @@ pub(super) fn create_openxr_instance(
         &[],
     )?;
 
-    let profile_gates = ProfileExtensionGates {
-        khr_generic_controller: enabled_extensions.khr_generic_controller,
-        bd_controller: enabled_extensions.bd_controller_interaction,
-        ext_hp_mixed_reality_controller: enabled_extensions.ext_hp_mixed_reality_controller,
-        ext_samsung_odyssey_controller: enabled_extensions.ext_samsung_odyssey_controller,
-        htc_vive_cosmos_controller_interaction: enabled_extensions
-            .htc_vive_cosmos_controller_interaction,
-        htc_vive_focus3_controller_interaction: enabled_extensions
-            .htc_vive_focus3_controller_interaction,
-        fb_touch_controller_pro: enabled_extensions.fb_touch_controller_pro,
-        meta_touch_controller_plus: enabled_extensions.meta_touch_controller_plus,
-    };
     logger::info!(
         "OpenXR instance created: enabled_extensions=[{}]",
-        enabled_openxr_extension_summary(&enabled_extensions)
+        enabled_extension_summary(&enabled_extensions)
     );
 
     Ok(OpenxrInstanceBundle {
         xr_instance,
         profile_gates,
     })
-}
-
-fn enabled_openxr_extension_summary(enabled: &xr::ExtensionSet) -> String {
-    let mut names = Vec::new();
-    if enabled.khr_vulkan_enable2 {
-        names.push("KHR_vulkan_enable2");
-    }
-    if enabled.ext_debug_utils {
-        names.push("EXT_debug_utils");
-    }
-    if enabled.khr_generic_controller {
-        names.push("KHR_generic_controller");
-    }
-    if enabled.bd_controller_interaction {
-        names.push("BD_controller_interaction");
-    }
-    if enabled.ext_hp_mixed_reality_controller {
-        names.push("EXT_hp_mixed_reality_controller");
-    }
-    if enabled.ext_samsung_odyssey_controller {
-        names.push("EXT_samsung_odyssey_controller");
-    }
-    if enabled.htc_vive_cosmos_controller_interaction {
-        names.push("HTC_vive_cosmos_controller_interaction");
-    }
-    if enabled.htc_vive_focus3_controller_interaction {
-        names.push("HTC_vive_focus3_controller_interaction");
-    }
-    if enabled.fb_touch_controller_pro {
-        names.push("FB_touch_controller_pro");
-    }
-    if enabled.meta_touch_controller_plus {
-        names.push("META_touch_controller_plus");
-    }
-    names.join(",")
 }
 
 /// OpenXR-reported Vulkan API version range expected by `xrCreateVulkanInstanceKHR` / `xrCreateVulkanDeviceKHR`.

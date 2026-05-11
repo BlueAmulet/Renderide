@@ -11,6 +11,7 @@
 //!   the `vkGetInstanceProcAddr` shim used by every OpenXR call into Vulkan.
 //! - **`vulkan`** -- ash Vulkan instance + logical device creation through OpenXR
 //!   `KHR_vulkan_enable2`.
+//! - **`extensions`** -- data-driven OpenXR extension negotiation table consumed by `instance`.
 //! - **`features`** -- data-driven wgpu feature negotiation table consumed by `vulkan`.
 //! - **`wgpu_assembly`** -- wgpu-hal Vulkan adapter / device assembly and final packaging into
 //!   [`XrWgpuHandles`].
@@ -18,6 +19,7 @@
 //! - **`init`** -- public [`init_wgpu_openxr`] orchestrator.
 //! - **`types`** / **`version`** -- shared error and Vulkan-version policy.
 
+mod extensions;
 mod features;
 mod init;
 mod instance;
