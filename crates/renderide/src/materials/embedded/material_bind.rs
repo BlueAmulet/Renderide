@@ -78,6 +78,19 @@ fn material_bind_group_result(
     )
 }
 
+struct EmbeddedBindCacheMissInputs<'a> {
+    layout: &'a Arc<StemMaterialLayout>,
+    stem_hash: u64,
+    texture_2d_asset_id: i32,
+    pools: &'a EmbeddedTexturePools<'a>,
+    store: &'a MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    offscreen_write_render_texture_asset_id: Option<i32>,
+    lookup_bind_key: MaterialBindCacheKey,
+    lookup_texture_bind_signature: u64,
+    uniform_binding: Option<&'a MaterialUniformArenaSlotBinding>,
+}
+
 fn build_material_bind_cache_key(
     stem_hash: u64,
     lookup: MaterialPropertyLookupIds,
@@ -324,8 +337,39 @@ impl EmbeddedMaterialBindResources {
         }
 
         profiling::scope!("materials::embedded_bind_cache_miss");
-        let (keepalive_views, keepalive_samplers) = self.resolve_group1_textures_and_samplers(
-            &layout,
+        self.build_and_cache_embedded_bind_group(EmbeddedBindCacheMissInputs {
+            layout: &layout,
+            stem_hash,
+            texture_2d_asset_id,
+            pools,
+            store,
+            lookup,
+            offscreen_write_render_texture_asset_id,
+            lookup_bind_key: bind_key,
+            lookup_texture_bind_signature: texture_bind_signature,
+            uniform_binding: uniform_binding.as_ref(),
+        })
+    }
+
+    fn build_and_cache_embedded_bind_group(
+        &self,
+        inputs: EmbeddedBindCacheMissInputs<'_>,
+    ) -> Result<(MaterialBindCacheKey, EmbeddedMaterialBindGroup), EmbeddedMaterialBindError> {
+        let EmbeddedBindCacheMissInputs {
+            layout,
+            stem_hash,
+            texture_2d_asset_id,
+            pools,
+            store,
+            lookup,
+            offscreen_write_render_texture_asset_id,
+            lookup_bind_key,
+            lookup_texture_bind_signature,
+            uniform_binding,
+        } = inputs;
+
+        let snapshot = self.snapshot_group1_textures_samplers(
+            layout,
             texture_2d_asset_id,
             pools,
             store,
@@ -333,13 +377,32 @@ impl EmbeddedMaterialBindResources {
             offscreen_write_render_texture_asset_id,
         )?;
 
-        let entries = build_embedded_bind_group_entries(
-            &layout,
-            uniform_binding.as_ref(),
-            &keepalive_views,
-            &keepalive_samplers,
-        )?;
+        // If pool state shifted between the lookup-side signature compute and the snapshot,
+        // the bind group we are about to build matches the snapshot's signature, not the
+        // lookup key. Re-key under the snapshot's signature and re-check the cache so we
+        // never file a bind group whose key does not describe its contents.
+        let final_bind_key = if snapshot.texture_bind_signature != lookup_texture_bind_signature {
+            let updated = build_material_bind_cache_key(
+                stem_hash,
+                lookup,
+                snapshot.texture_bind_signature,
+                offscreen_write_render_texture_asset_id,
+                uniform_binding,
+            );
+            if let Some(bg) = self.bind_cache.get_cloned(&updated) {
+                return Ok(material_bind_group_result(updated, bg, uniform_binding));
+            }
+            updated
+        } else {
+            lookup_bind_key
+        };
 
+        let entries = build_embedded_bind_group_entries(
+            layout,
+            uniform_binding,
+            &snapshot.views,
+            &snapshot.samplers,
+        )?;
         let bind_group = {
             profiling::scope!("materials::embedded_create_bind_group");
             let bind_group = Arc::new(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -350,15 +413,15 @@ impl EmbeddedMaterialBindResources {
             crate::profiling::note_resource_churn!(BindGroup, "materials::embedded_material_bind");
             bind_group
         };
-        let evicted = self.bind_cache.put(bind_key, bind_group.clone());
+        let evicted = self.bind_cache.put(final_bind_key, bind_group.clone());
         if let Some(evicted) = evicted {
             drop(evicted);
             logger::trace!("EmbeddedMaterialBindResources: evicted LRU bind group cache entry");
         }
         Ok(material_bind_group_result(
-            bind_key,
+            final_bind_key,
             bind_group,
-            uniform_binding.as_ref(),
+            uniform_binding,
         ))
     }
 
