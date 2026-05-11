@@ -1,9 +1,11 @@
 //! UV Rect (Unity shader asset `UVRect`): colors inside/outside a UV-space rect.
 //!
-//! `_ClipRect` is written only when clipping is active; zero-area values leave clipping disabled.
+//! Froox variant bits populate `_RenderideVariantBits`; the `RECTCLIP` keyword (host driver
+//! at `UV_RectMaterial.UpdateKeywords`) gates the clip-rect discard.
 
 #import renderide::frame::globals as rg
 #import renderide::core::math as rmath
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 
 struct UvRectMaterial {
@@ -11,9 +13,16 @@ struct UvRectMaterial {
     _ClipRect: vec4<f32>,
     _OuterColor: vec4<f32>,
     _InnerColor: vec4<f32>,
+    _RenderideVariantBits: u32,
 }
 
+const UVRECT_KW_RECTCLIP: u32 = 1u << 0u;
+
 @group(1) @binding(0) var<uniform> mat: UvRectMaterial;
+
+fn uvrect_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
 
 @vertex
 fn vs_main(
@@ -35,7 +44,7 @@ fn vs_main(
 //#pass forward
 @fragment
 fn fs_main(in: mv::UvVertexOutput) -> @location(0) vec4<f32> {
-    if (rmath::rect_has_area(mat._ClipRect) && rmath::outside_rect(in.uv, mat._ClipRect)) {
+    if (uvrect_kw(UVRECT_KW_RECTCLIP) && rmath::outside_rect(in.uv, mat._ClipRect)) {
         discard;
     }
 
