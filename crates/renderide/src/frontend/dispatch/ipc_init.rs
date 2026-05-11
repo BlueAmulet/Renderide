@@ -1,5 +1,7 @@
 //! Pure IPC command routing by [`crate::frontend::InitState`].
 
+use std::sync::LazyLock;
+
 use crate::frontend::InitState;
 use crate::shared::{
     HeadOutputDevice, RendererCommand, RendererInitData, RendererInitResult, TextureFormat,
@@ -10,8 +12,20 @@ use super::command_kind::{RendererCommandLifecycle, classify_renderer_command};
 use super::commands::handle_running_command;
 use super::renderer_command_kind::renderer_command_variant_tag;
 
-/// `Renderide` plus the `renderide` crate version (`env!("CARGO_PKG_VERSION")` at compile time).
-const RENDERER_IDENTIFIER: &str = concat!("Renderide ", env!("CARGO_PKG_VERSION"));
+/// `Renderide <version>` or `Renderide <version>-<8-char-commit>`.
+///
+/// The commit suffix is supplied by `build.rs` via the `RENDERIDE_GIT_COMMIT`
+/// rustc env var; an empty value means git was unavailable at build time and
+/// the suffix is omitted.
+static RENDERER_IDENTIFIER: LazyLock<String> = LazyLock::new(|| {
+    let version = env!("CARGO_PKG_VERSION");
+    let commit = env!("RENDERIDE_GIT_COMMIT");
+    if commit.is_empty() {
+        format!("Renderide {version}")
+    } else {
+        format!("Renderide {version}-{commit}")
+    }
+});
 
 /// Renderer capabilities reported during the init handshake.
 ///
@@ -96,7 +110,7 @@ pub(crate) fn build_renderer_init_result(
 ) -> RendererInitResult {
     RendererInitResult {
         actual_output_device: output_device,
-        renderer_identifier: Some(RENDERER_IDENTIFIER.to_string()),
+        renderer_identifier: Some(RENDERER_IDENTIFIER.clone()),
         main_window_handle_ptr: 0,
         stereo_rendering_mode: Some(capabilities.stereo_rendering_mode),
         max_texture_size: capabilities.max_texture_size,
