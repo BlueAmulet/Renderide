@@ -7,6 +7,7 @@ use hashbrown::HashSet;
 use crate::camera::ViewId;
 use crate::gpu::frame_globals::SkyboxSpecularUniformParams;
 use crate::mesh_deform::{PaddedPerDrawUniforms, SkinCacheKey};
+use crate::passes::MaterialBatchBoundary;
 use crate::render_graph::execution_backend::{GraphClusterBufferRefs, GraphFrameResources};
 use crate::render_graph::frame_params::PreRecordViewResourceLayout;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
@@ -97,7 +98,7 @@ impl GraphFrameResources for FrameResourceManager {
     fn with_per_view_material_batch_scratch(
         &self,
         view_id: ViewId,
-        f: &mut dyn FnMut(&mut Vec<(usize, usize)>),
+        f: &mut dyn FnMut(&mut Vec<MaterialBatchBoundary>),
     ) -> bool {
         let Some(scratch_slot) = self.per_view_per_draw_scratch(view_id) else {
             return false;

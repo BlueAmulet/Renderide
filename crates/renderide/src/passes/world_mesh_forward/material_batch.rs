@@ -21,6 +21,10 @@ use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
+/// Inclusive `(first_draw_idx, last_draw_idx)` span over the sorted world-mesh draw list
+/// identifying one contiguous material batch run.
+pub(crate) type MaterialBatchBoundary = (usize, usize);
+
 /// One resolved per-batch draw packet covering a contiguous range of sorted draws with the same
 /// [`crate::world_mesh::MaterialDrawBatchKey`].
 ///
@@ -190,7 +194,7 @@ impl<'a> MaterialDrawResolver<'a> {
     pub(crate) fn resolve_batches(
         &self,
         draws: &[WorldMeshDrawItem],
-        boundaries_scratch: &mut Vec<(usize, usize)>,
+        boundaries_scratch: &mut Vec<MaterialBatchBoundary>,
     ) -> Vec<MaterialBatchPacket> {
         profiling::scope!("world_mesh_forward::resolve_material_packets");
         boundaries_scratch.clear();
@@ -328,7 +332,7 @@ impl<'a> MaterialDrawResolver<'a> {
 /// into the caller-supplied `out` buffer. `out` is cleared before filling.
 fn collect_material_batch_boundaries_into(
     draws: &[WorldMeshDrawItem],
-    out: &mut Vec<(usize, usize)>,
+    out: &mut Vec<MaterialBatchBoundary>,
 ) {
     out.clear();
     let mut current_start = 0usize;

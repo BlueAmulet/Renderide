@@ -19,7 +19,7 @@ use super::frame_uniforms::write_per_view_frame_uniforms;
 use super::material_resolve::precompute_material_resolve_batches;
 use super::skybox::SkyboxRenderer;
 use super::slab::{SlabPackInputs, pack_and_upload_per_draw_slab};
-use super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
+use super::{MaterialBatchBoundary, MaterialBatchPacket, PreparedWorldMeshForwardFrame};
 
 /// Prepared world-mesh forward state plus deferred per-view HUD output.
 pub(crate) struct PreparedWorldMeshForwardView {
@@ -282,7 +282,7 @@ fn precompute_and_assign_material_batches(
     // Resolve per-batch pipelines and @group(1) bind groups in parallel (Filament phase-A).
     // Results live on `PreparedWorldMeshForwardFrame`; both raster sub-passes consume them.
     let mut precomputed_batches = Vec::new();
-    let mut resolve = |boundaries_scratch: &mut Vec<(usize, usize)>| {
+    let mut resolve = |boundaries_scratch: &mut Vec<MaterialBatchBoundary>| {
         profiling::scope!("world_mesh::prepare_frame::precompute_material_batches");
         precomputed_batches = precompute_material_resolve_batches(
             encode_refs,
