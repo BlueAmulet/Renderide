@@ -143,18 +143,12 @@ pub(crate) fn mesh_cpu_cull_with_geometry(
     ui_rect_clip_local: Option<Vec4>,
 ) -> Result<Option<Mat4>, CpuCullFailure> {
     if is_overlay {
-        if let (Some(rect), Some(model)) = (ui_rect_clip_local, geom.rigid_world_matrix)
-            && !overlay_rect_clip_visible(scene, space_id, culling, rect, model)
-        {
-            return Err(CpuCullFailure::UiRectMask);
-        }
-        return Ok(geom.rigid_world_matrix);
+        return cull_overlay_draw(scene, space_id, culling, ui_rect_clip_local, &geom);
     }
 
     let Some((wmin, wmax)) = geom.world_aabb else {
         return Ok(geom.rigid_world_matrix);
     };
-
     let Some(space) = scene.space(space_id) else {
         return Ok(geom.rigid_world_matrix);
     };
@@ -162,14 +156,32 @@ pub(crate) fn mesh_cpu_cull_with_geometry(
         .host_camera
         .explicit_world_to_view()
         .unwrap_or_else(|| view_matrix_for_world_mesh_render_space(scene, space));
-    let proj = &culling.proj;
 
-    if !cpu_cull_frustum_visible(proj, is_overlay, view, wmin, wmax) {
+    if !cpu_cull_frustum_visible(&culling.proj, is_overlay, view, wmin, wmax) {
         return Err(CpuCullFailure::Frustum);
     }
-
     if cpu_cull_hi_z_should_cull(space_id, wmin, wmax, culling) {
         return Err(CpuCullFailure::HiZ);
+    }
+    Ok(geom.rigid_world_matrix)
+}
+
+/// Cull decision for overlay-layer draws: optional `_RectClip` projection check, then accept.
+///
+/// Overlay draws bypass the world-space frustum and Hi-Z stages by design -- their model matrix
+/// already encodes screen-space position via
+/// [`crate::scene::SceneCoordinator::overlay_layer_model_matrix_for_context`].
+fn cull_overlay_draw(
+    scene: &SceneCoordinator,
+    space_id: RenderSpaceId,
+    culling: &WorldMeshCullInput<'_>,
+    ui_rect_clip_local: Option<Vec4>,
+    geom: &MeshCullGeometry,
+) -> Result<Option<Mat4>, CpuCullFailure> {
+    if let (Some(rect), Some(model)) = (ui_rect_clip_local, geom.rigid_world_matrix)
+        && !overlay_rect_clip_visible(scene, space_id, culling, rect, model)
+    {
+        return Err(CpuCullFailure::UiRectMask);
     }
     Ok(geom.rigid_world_matrix)
 }

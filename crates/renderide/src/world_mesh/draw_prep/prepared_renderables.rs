@@ -12,22 +12,23 @@
 //! The cull step and [`super::item::WorldMeshDrawItem`] construction stay per-view because they
 //! depend on the view's camera, filter, and Hi-Z snapshot.
 
-use glam::Mat4;
+mod expand;
+
 use hashbrown::HashSet;
 #[cfg(test)]
 use rayon::prelude::*;
 
+#[cfg(test)]
 use crate::gpu_pools::MeshPool;
-use crate::scene::{
-    MeshMaterialSlot, MeshRendererInstanceId, RenderSpaceId, SceneCoordinator, SkinnedMeshRenderer,
-    StaticMeshRenderer,
-};
+#[cfg(test)]
+use crate::scene::SceneCoordinator;
+use crate::scene::{MeshRendererInstanceId, RenderSpaceId};
 use crate::shared::RenderingContext;
-use crate::world_mesh::culling::{
-    MeshCullGeometry, MeshCullTarget, mesh_world_geometry_for_cull_with_head,
-};
+use crate::world_mesh::culling::MeshCullGeometry;
 
-use super::item::stacked_material_submesh_range;
+use expand::populate_runs_and_material_keys;
+
+pub(in crate::world_mesh::draw_prep) use expand::{estimated_draw_count, expand_space_into};
 
 /// One fully-resolved draw slot (renderer x material slot mapped to a submesh range) for the current frame.
 ///
@@ -97,23 +98,23 @@ pub(super) struct FramePreparedRun {
 /// walk, no repeated mesh-pool lookup, no repeated material-override resolution.
 pub struct FramePreparedRenderables {
     /// Active render spaces captured while building this frame snapshot.
-    pub(super) active_space_ids: Vec<RenderSpaceId>,
+    active_space_ids: Vec<RenderSpaceId>,
     /// Dense expanded draws. Order is deterministic: render spaces in
     /// [`SceneCoordinator::render_space_ids`] order, then static renderers (ascending index),
     /// then skinned renderers (ascending index), then material slots in ascending index.
-    pub(super) draws: Vec<FramePreparedDraw>,
+    draws: Vec<FramePreparedDraw>,
     /// Contiguous renderer runs in [`Self::draws`]. Lets per-view collection chunk the prepared
     /// list on run boundaries via [`Self::run_aligned_chunks`] and then consume precomputed run
     /// ranges directly instead of rediscovering boundaries inside every view/chunk.
-    pub(super) runs: Vec<FramePreparedRun>,
+    runs: Vec<FramePreparedRun>,
     /// First-seen unique `(material_asset_id, property_block_id)` keys referenced by
     /// [`Self::draws`]. Material caches consume this list once per shader permutation instead of
     /// materializing and deduping every prepared draw.
-    pub(super) material_property_keys: Vec<(i32, Option<i32>)>,
+    material_property_keys: Vec<(i32, Option<i32>)>,
     /// Render context used when resolving material overrides; must match the per-view contexts
     /// (the main renderer uses [`SceneCoordinator::active_main_render_context`] for every view
     /// in the same frame).
-    pub(super) render_context: RenderingContext,
+    render_context: RenderingContext,
     /// Reused per-worker output buffers for the multi-space parallel expansion path. Outer
     /// [`Vec`] is resized to [`Self::active_space_ids`] length; each inner [`Vec`] is cleared and
     /// re-filled inside the rayon worker before [`expand_space_into`] runs. Capacities persist
@@ -121,7 +122,7 @@ pub struct FramePreparedRenderables {
     #[cfg(test)]
     space_scratch: Vec<Vec<FramePreparedDraw>>,
     /// Reused dedup set for rebuilding [`Self::material_property_keys`].
-    pub(super) material_property_seen_scratch: HashSet<(i32, Option<i32>)>,
+    material_property_seen_scratch: HashSet<(i32, Option<i32>)>,
 }
 
 impl FramePreparedRenderables {
@@ -325,390 +326,38 @@ impl FramePreparedRenderables {
     pub fn unique_material_property_pairs(&self) -> &[(i32, Option<i32>)] {
         &self.material_property_keys
     }
-}
 
-/// One renderable's identity and mesh handles, threaded into [`expand_renderer_slots`].
-///
-/// Bundles the per-renderable fields that `expand_space_into` has already resolved so the slot
-/// expander doesn't take seven independent parameters.
-struct RenderableExpansion<'a> {
-    /// Render space the renderable lives in.
-    space_id: RenderSpaceId,
-    /// Index of the renderable within its kind-specific list (static or skinned).
-    renderable_index: usize,
-    /// Renderer-local identity that survives dense table reindexing.
-    instance_id: MeshRendererInstanceId,
-    /// Renderer record (shared base for static and skinned variants).
-    renderer: &'a StaticMeshRenderer,
-    /// GPU mesh resolved from the mesh pool.
-    mesh: &'a crate::assets::mesh::GpuMesh,
-    /// Whether this renderable is on the skinned path.
-    skinned: bool,
-    /// Whether the skinned mesh deforms into world space via the skin cache.
-    world_space_deformed: bool,
-    /// Whether the mesh has active blendshape weights this frame.
-    blendshape_deformed: bool,
-    /// Whether active blendshape tangent deltas should run for tangent-reading materials.
-    tangent_blendshape_deform_active: bool,
-    /// Frame-time precomputed cull geometry for the renderer (`None` for overlay spaces).
-    cull_geometry: Option<MeshCullGeometry>,
-}
-
-/// Walks `draws` once and refreshes renderer-run ranges plus unique material/property keys.
-///
-/// Runs are detected post-build instead of plumbed through the parallel expansion so the
-/// multi-space worker output can be merged with `Vec::append` without per-space offset adjustment.
-pub(super) fn populate_runs_and_material_keys(
-    draws: &[FramePreparedDraw],
-    runs: &mut Vec<FramePreparedRun>,
-    material_property_keys: &mut Vec<(i32, Option<i32>)>,
-    seen: &mut HashSet<(i32, Option<i32>)>,
-) {
-    profiling::scope!("mesh::prepared_renderables::populate_run_starts");
-    runs.clear();
-    material_property_keys.clear();
-    seen.clear();
-    if draws.is_empty() {
-        return;
-    }
-    let mut run_start = 0usize;
-    let mut prev = &draws[0];
-    for (idx, d) in draws.iter().enumerate() {
-        let key = (d.material_asset_id, d.property_block_id);
-        if seen.insert(key) {
-            material_property_keys.push(key);
+    /// Rebuilds this snapshot in place from the supplied iterator of cached `(space, draws)`
+    /// pairs. Used by [`super::render_world::RenderWorld`] when refreshing its persistent cache.
+    ///
+    /// Keeps the underlying `Vec` capacities so the steady-state rebuild path does not drop the
+    /// backing buffers each frame.
+    pub(super) fn rebuild_from_cached_spaces<'a, I>(
+        &mut self,
+        render_context: RenderingContext,
+        active_with_draws: I,
+    ) where
+        I: IntoIterator<Item = (RenderSpaceId, &'a [FramePreparedDraw])>,
+    {
+        self.render_context = render_context;
+        self.active_space_ids.clear();
+        self.draws.clear();
+        for (id, draws) in active_with_draws {
+            self.active_space_ids.push(id);
+            self.draws.extend(draws.iter().cloned());
         }
-        if idx > 0 && !super::collect::prepared::prepared_draws_share_renderer(prev, d) {
-            runs.push(FramePreparedRun {
-                start: run_start as u32,
-                end: idx as u32,
-            });
-            run_start = idx;
-        }
-        prev = d;
-    }
-    runs.push(FramePreparedRun {
-        start: run_start as u32,
-        end: draws.len() as u32,
-    });
-}
-
-/// Upper bound on prepared draws produced by `space_id`, used to pre-size per-space output
-/// buffers. The 2x multiplier reflects the typical 2-slot-per-renderer expansion observed across
-/// the existing scene corpus; over-estimation is cheap (`Vec::reserve` only grows), under-estimation
-/// triggers the doubling growth path.
-pub(super) fn estimated_draw_count(scene: &SceneCoordinator, space_id: RenderSpaceId) -> usize {
-    scene.space(space_id).map_or(0, |s| {
-        s.static_mesh_renderers()
-            .iter()
-            .filter(|renderer| renderer.emits_visible_color_draws())
-            .count()
-            .saturating_add(
-                s.skinned_mesh_renderers()
-                    .iter()
-                    .filter(|skinned| skinned.base.emits_visible_color_draws())
-                    .count(),
-            )
-            .saturating_mul(2)
-    })
-}
-
-/// Expands every valid renderer (static and skinned) in `space_id` into `out`.
-pub(super) fn expand_space_into(
-    out: &mut Vec<FramePreparedDraw>,
-    scene: &SceneCoordinator,
-    mesh_pool: &MeshPool,
-    render_context: RenderingContext,
-    space_id: RenderSpaceId,
-) {
-    let Some(space) = scene.space(space_id) else {
-        return;
-    };
-    if !space.is_active() {
-        return;
-    }
-
-    let space_is_overlay = space.is_overlay();
-    expand_static_renderers(
-        out,
-        scene,
-        mesh_pool,
-        render_context,
-        space_id,
-        space_is_overlay,
-        space.static_mesh_renderers(),
-    );
-    expand_skinned_renderers(
-        out,
-        scene,
-        mesh_pool,
-        render_context,
-        space_id,
-        space_is_overlay,
-        space.skinned_mesh_renderers(),
-    );
-}
-
-fn expand_static_renderers(
-    out: &mut Vec<FramePreparedDraw>,
-    scene: &SceneCoordinator,
-    mesh_pool: &MeshPool,
-    render_context: RenderingContext,
-    space_id: RenderSpaceId,
-    space_is_overlay: bool,
-    renderers: &[StaticMeshRenderer],
-) {
-    for (renderable_index, r) in renderers.iter().enumerate() {
-        if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
-            continue;
-        }
-        if scene.transform_has_degenerate_scale_for_context(
-            space_id,
-            r.node_id as usize,
-            render_context,
-        ) {
-            continue;
-        }
-        let Some(mesh) = mesh_pool.get(r.mesh_asset_id) else {
-            continue;
-        };
-        if mesh.submeshes.is_empty() {
-            continue;
-        }
-        let cull_geometry = precompute_cull_geometry(PrecomputeCullInputs {
-            scene,
-            space_id,
-            space_is_overlay,
-            mesh,
-            skinned: false,
-            skinned_renderer: None,
-            node_id: r.node_id,
-            render_context,
-        });
-        expand_renderer_slots(
-            out,
-            scene,
-            render_context,
-            RenderableExpansion {
-                space_id,
-                renderable_index,
-                instance_id: r.instance_id,
-                renderer: r,
-                mesh,
-                skinned: false,
-                world_space_deformed: false,
-                blendshape_deformed: mesh.supports_active_blendshape_deform(&r.blend_shape_weights),
-                tangent_blendshape_deform_active: mesh
-                    .supports_active_tangent_blendshape_deform(&r.blend_shape_weights),
-                cull_geometry,
-            },
+        populate_runs_and_material_keys(
+            &self.draws,
+            &mut self.runs,
+            &mut self.material_property_keys,
+            &mut self.material_property_seen_scratch,
         );
-    }
-}
-
-fn expand_skinned_renderers(
-    out: &mut Vec<FramePreparedDraw>,
-    scene: &SceneCoordinator,
-    mesh_pool: &MeshPool,
-    render_context: RenderingContext,
-    space_id: RenderSpaceId,
-    space_is_overlay: bool,
-    renderers: &[SkinnedMeshRenderer],
-) {
-    for (renderable_index, sk) in renderers.iter().enumerate() {
-        let r = &sk.base;
-        if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
-            continue;
-        }
-        if scene.transform_has_degenerate_scale_for_context(
-            space_id,
-            r.node_id as usize,
-            render_context,
-        ) {
-            continue;
-        }
-        let Some(mesh) = mesh_pool.get(r.mesh_asset_id) else {
-            continue;
-        };
-        if mesh.submeshes.is_empty() {
-            continue;
-        }
-        let world_space_deformed =
-            mesh.supports_world_space_skin_deform(Some(sk.bone_transform_indices.as_slice()));
-        let blendshape_deformed = mesh.supports_active_blendshape_deform(&r.blend_shape_weights);
-        let tangent_blendshape_deform_active =
-            mesh.supports_active_tangent_blendshape_deform(&r.blend_shape_weights);
-        let cull_geometry = precompute_cull_geometry(PrecomputeCullInputs {
-            scene,
-            space_id,
-            space_is_overlay,
-            mesh,
-            skinned: true,
-            skinned_renderer: Some(sk),
-            node_id: r.node_id,
-            render_context,
-        });
-        expand_renderer_slots(
-            out,
-            scene,
-            render_context,
-            RenderableExpansion {
-                space_id,
-                renderable_index,
-                instance_id: r.instance_id,
-                renderer: r,
-                mesh,
-                skinned: true,
-                world_space_deformed,
-                blendshape_deformed,
-                tangent_blendshape_deform_active,
-                cull_geometry,
-            },
-        );
-    }
-}
-
-/// Bundle of inputs needed to precompute one renderer's cull geometry for the frame.
-struct PrecomputeCullInputs<'a> {
-    scene: &'a SceneCoordinator,
-    space_id: RenderSpaceId,
-    space_is_overlay: bool,
-    mesh: &'a crate::assets::mesh::GpuMesh,
-    skinned: bool,
-    skinned_renderer: Option<&'a SkinnedMeshRenderer>,
-    node_id: i32,
-    render_context: RenderingContext,
-}
-
-/// Computes per-renderer cull geometry once per frame for non-overlay spaces.
-///
-/// Returns `None` when the source space is overlay (its world matrix re-roots against the
-/// per-view `head_output_transform`, so the geometry is genuinely view-dependent and must stay
-/// per-view). For non-overlay spaces, [`mesh_world_geometry_for_cull_with_head`] is invoked with
-/// `Mat4::IDENTITY` because the matrix path it follows
-/// ([`SceneCoordinator::world_matrix_for_render_context`]) only multiplies by
-/// `head_output_transform` for overlay spaces.
-fn precompute_cull_geometry(inputs: PrecomputeCullInputs<'_>) -> Option<MeshCullGeometry> {
-    let PrecomputeCullInputs {
-        scene,
-        space_id,
-        space_is_overlay,
-        mesh,
-        skinned,
-        skinned_renderer,
-        node_id,
-        render_context,
-    } = inputs;
-    if space_is_overlay {
-        return None;
-    }
-    let target = MeshCullTarget {
-        scene,
-        space_id,
-        mesh,
-        skinned,
-        skinned_renderer,
-        node_id,
-    };
-    Some(mesh_world_geometry_for_cull_with_head(
-        &target,
-        Mat4::IDENTITY,
-        render_context,
-    ))
-}
-
-/// Expands one renderer's material slots mapped to submesh ranges into prepared draws.
-///
-/// Mirrors [`super::collect::push_draws_for_renderer`]'s slot resolution and
-/// [`super::collect::push_one_slot_draw`]'s override / validity guards so the per-view collection
-/// path can iterate prepared draws unconditionally.
-fn expand_renderer_slots(
-    out: &mut Vec<FramePreparedDraw>,
-    scene: &SceneCoordinator,
-    render_context: RenderingContext,
-    renderable: RenderableExpansion<'_>,
-) {
-    let RenderableExpansion {
-        space_id,
-        renderable_index,
-        instance_id,
-        renderer,
-        mesh,
-        skinned,
-        world_space_deformed,
-        blendshape_deformed,
-        tangent_blendshape_deform_active,
-        cull_geometry,
-    } = renderable;
-    let fallback_slot;
-    let slots: &[MeshMaterialSlot] = if !renderer.material_slots.is_empty() {
-        &renderer.material_slots
-    } else if let Some(mat_id) = renderer.primary_material_asset_id {
-        fallback_slot = MeshMaterialSlot {
-            material_asset_id: mat_id,
-            property_block_id: renderer.primary_property_block_id,
-        };
-        std::slice::from_ref(&fallback_slot)
-    } else {
-        return;
-    };
-
-    if slots.is_empty() {
-        return;
-    }
-    let submeshes: &[(u32, u32)] = &mesh.submeshes;
-    if submeshes.is_empty() {
-        return;
-    }
-
-    let is_overlay = renderer.node_id >= 0
-        && scene.transform_is_in_overlay_layer(space_id, renderer.node_id as usize);
-
-    for (slot_index, slot) in slots.iter().enumerate() {
-        let Some((first_index, index_count)) =
-            stacked_material_submesh_range(slot_index, submeshes)
-        else {
-            continue;
-        };
-        if index_count == 0 {
-            continue;
-        }
-        let material_asset_id = scene
-            .overridden_material_asset_id(
-                space_id,
-                render_context,
-                skinned,
-                renderable_index,
-                slot_index,
-            )
-            .unwrap_or(slot.material_asset_id);
-        if material_asset_id < 0 {
-            continue;
-        }
-        out.push(FramePreparedDraw {
-            space_id,
-            renderable_index,
-            instance_id,
-            node_id: renderer.node_id,
-            mesh_asset_id: renderer.mesh_asset_id,
-            is_overlay,
-            sorting_order: renderer.sorting_order,
-            skinned,
-            world_space_deformed,
-            blendshape_deformed,
-            tangent_blendshape_deform_active,
-            slot_index,
-            first_index,
-            index_count,
-            material_asset_id,
-            property_block_id: slot.property_block_id,
-            cull_geometry,
-        });
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::expand::populate_runs_and_material_keys;
     use super::*;
     use crate::gpu_pools::MeshPool;
     use crate::scene::{RenderSpaceId, SceneCoordinator, SkinnedMeshRenderer, StaticMeshRenderer};

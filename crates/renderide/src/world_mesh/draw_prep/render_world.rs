@@ -12,7 +12,6 @@ use crate::shared::RenderingContext;
 
 use super::prepared_renderables::{
     FramePreparedDraw, FramePreparedRenderables, estimated_draw_count, expand_space_into,
-    populate_runs_and_material_keys,
 };
 
 /// Persistent renderer-facing cache of expanded world-mesh renderables.
@@ -134,28 +133,14 @@ impl RenderWorld {
         scene: &SceneCoordinator,
         render_context: RenderingContext,
     ) {
-        self.prepared.render_context = render_context;
-        self.prepared.active_space_ids.clear();
-        self.prepared.draws.clear();
-        self.prepared.runs.clear();
-        self.prepared.material_property_keys.clear();
-
-        for id in scene.render_space_ids() {
-            let Some(space) = self.spaces.get(&id) else {
-                continue;
-            };
-            if !space.active {
-                continue;
-            }
-            self.prepared.active_space_ids.push(id);
-            self.prepared.draws.extend(space.draws.iter().cloned());
-        }
-
-        populate_runs_and_material_keys(
-            &self.prepared.draws,
-            &mut self.prepared.runs,
-            &mut self.prepared.material_property_keys,
-            &mut self.prepared.material_property_seen_scratch,
+        self.prepared.rebuild_from_cached_spaces(
+            render_context,
+            scene.render_space_ids().filter_map(|id| {
+                self.spaces
+                    .get(&id)
+                    .filter(|s| s.active)
+                    .map(|s| (id, s.draws.as_slice()))
+            }),
         );
     }
 }
@@ -286,7 +271,7 @@ mod tests {
             world.prepared.render_context(),
             RenderingContext::RenderToAsset
         );
-        assert_eq!(world.prepared.active_space_ids, vec![active]);
-        assert!(world.prepared.draws.is_empty());
+        assert_eq!(world.prepared.active_space_ids(), &[active]);
+        assert!(world.prepared.draws().is_empty());
     }
 }

@@ -1,25 +1,19 @@
 //! Scene-walk draw collection fallback for world-mesh renderables.
 
+mod cull_cache;
+mod per_renderer;
+mod per_slot;
+
 use hashbrown::HashMap;
 
-use crate::scene::{MeshMaterialSlot, RenderSpaceId, SkinnedMeshRenderer, StaticMeshRenderer};
-
-use crate::world_mesh::culling::{
-    CpuCullFailure, MeshCullTarget, mesh_draw_passes_cpu_cull,
-    mesh_world_geometry_for_cull_with_head,
-};
+use crate::scene::{RenderSpaceId, SkinnedMeshRenderer, StaticMeshRenderer};
 use crate::world_mesh::materials::FrameMaterialBatchCache;
 
-use super::candidate::{DrawCandidate, evaluate_draw_candidate};
-use super::{
-    DrawCollectionContext, front_face_for_draw_matrices, skinned_front_face_world_matrix,
-    world_matrix_for_local_vertex_stream,
-};
+use super::super::item::{WorldMeshDrawItem, resolved_material_slot_count};
+use super::DrawCollectionContext;
 
-use super::super::item::{
-    WorldMeshDrawItem, resolved_material_slot_count, stacked_material_submesh_range,
-    stacked_material_submesh_topology,
-};
+use cull_cache::CachedCull;
+use per_renderer::push_draws_for_renderer;
 
 /// Renders per chunk (static or skinned slice of one render space).
 ///
@@ -27,7 +21,7 @@ use super::super::item::{
 pub(super) const WORLD_MESH_COLLECT_CHUNK_SIZE: usize = 128;
 
 /// Submesh index range for one material slot pairing during draw collection.
-pub(crate) struct SubmeshSlotIndices {
+struct SubmeshSlotIndices {
     /// Slot index in [`StaticMeshRenderer`] material slots.
     pub slot_index: usize,
     /// First index in the mesh index buffer for this submesh.
@@ -40,47 +34,47 @@ pub(crate) struct SubmeshSlotIndices {
 /// the cached per-renderer CPU cull outcome shared across the renderer's material slots.
 struct OverlayDeformCullFlags<'a> {
     /// Overlay layer uses alternate cull behavior.
-    is_overlay: bool,
+    pub is_overlay: bool,
     /// Skinned mesh with world-space deform from the skin cache.
-    world_space_deformed: bool,
+    pub world_space_deformed: bool,
     /// Mesh has active blendshape weights and uses cache-backed positions.
-    blendshape_deformed: bool,
+    pub blendshape_deformed: bool,
     /// Active blendshape tangent deltas should run when a material reads tangents.
-    tangent_blendshape_deform_active: bool,
+    pub tangent_blendshape_deform_active: bool,
     /// Cached cull outcome for this renderer; `None` when the cull was skipped (skinned or no
     /// culling pass active).
-    cached_cull: Option<&'a CachedCull>,
+    pub cached_cull: Option<&'a CachedCull>,
 }
 
 /// One static or skinned mesh renderer with its resolved [`crate::assets::mesh::GpuMesh`] and submesh index ranges.
 struct StaticMeshDrawSource<'a> {
     /// Render space containing the renderer.
-    space_id: RenderSpaceId,
+    pub space_id: RenderSpaceId,
     /// Base static renderer fields.
-    renderer: &'a StaticMeshRenderer,
+    pub renderer: &'a StaticMeshRenderer,
     /// Renderer index inside its static or skinned list.
-    renderable_index: usize,
+    pub renderable_index: usize,
     /// Renderer-local identity that survives dense table reindexing.
-    instance_id: crate::scene::MeshRendererInstanceId,
+    pub instance_id: crate::scene::MeshRendererInstanceId,
     /// Whether this source comes from the skinned renderer list.
-    skinned: bool,
+    pub skinned: bool,
     /// Skinned renderer data when [`Self::skinned`] is true.
-    skinned_renderer: Option<&'a SkinnedMeshRenderer>,
+    pub skinned_renderer: Option<&'a SkinnedMeshRenderer>,
     /// Resident mesh data.
-    mesh: &'a crate::assets::mesh::GpuMesh,
+    pub mesh: &'a crate::assets::mesh::GpuMesh,
     /// Submesh index ranges.
-    submeshes: &'a [(u32, u32)],
+    pub submeshes: &'a [(u32, u32)],
 }
 
 /// Mutable expansion state while expanding one chunk into draw items.
 struct DrawCollectionAccumulator<'a> {
     /// Draw output buffer for the current chunk.
-    out: &'a mut Vec<WorldMeshDrawItem>,
+    pub out: &'a mut Vec<WorldMeshDrawItem>,
     /// Pre-cull, frustum-cull, and Hi-Z-cull counters.
-    cull_stats: &'a mut (usize, usize, usize),
+    pub cull_stats: &'a mut (usize, usize, usize),
     /// Precomputed filter result per node index. When `Some`, used in place of
     /// [`super::super::filter::CameraTransformDrawFilter::passes_scene_node`] to avoid per-draw ancestor walks.
-    filter_pass_mask: Option<&'a [bool]>,
+    pub filter_pass_mask: Option<&'a [bool]>,
 }
 
 /// Whether a chunk covers the static or skinned renderer list of a render space.
@@ -115,311 +109,6 @@ pub(super) fn transform_chain_has_degenerate_scale(
             node_id as usize,
             ctx.render_context,
         )
-}
-
-/// Cached per-renderer CPU cull outcome shared across the renderer's material slots.
-///
-/// `mesh_draw_passes_cpu_cull` only depends on per-renderer state (scene/space, mesh, transform
-/// chain, overlay flag, render context) -- not on which material slot is being expanded. Computing
-/// it once amortizes frustum + Hi-Z work across slots. Skinned renderers don't run the cull, so
-/// `None` here means "no cull was performed; let downstream code derive the rigid world matrix".
-enum CachedCull {
-    /// Cull ran and accepted; carries the optional rigid world matrix it produced.
-    Accepted(Option<glam::Mat4>),
-    /// Cull ran and the renderer was rejected by the frustum stage.
-    RejectedFrustum,
-    /// Cull ran and the renderer was rejected by the Hi-Z stage.
-    RejectedHiZ,
-}
-
-/// Expands one static mesh renderer into draw items (material slots mapped to submesh ranges).
-///
-/// `collect_order` is filled with a placeholder; [`super::collect_and_sort_draws`]
-/// assigns the final stable index after per-chunk results are merged.
-fn push_draws_for_renderer(
-    ctx: &DrawCollectionContext<'_>,
-    acc: &mut DrawCollectionAccumulator<'_>,
-    draw: StaticMeshDrawSource<'_>,
-    cache: &FrameMaterialBatchCache,
-) {
-    if let Some(f) = ctx.transform_filter {
-        let passes = match acc.filter_pass_mask {
-            Some(mask) => {
-                let nid = draw.renderer.node_id;
-                nid >= 0 && (nid as usize) < mask.len() && mask[nid as usize]
-            }
-            None => f.passes_scene_node(ctx.scene, draw.space_id, draw.renderer.node_id),
-        };
-        if !passes {
-            return;
-        }
-    }
-    if transform_chain_has_degenerate_scale(ctx, draw.space_id, draw.renderer.node_id) {
-        return;
-    }
-
-    let fallback_slot;
-    let slots: &[MeshMaterialSlot] = if !draw.renderer.material_slots.is_empty() {
-        &draw.renderer.material_slots
-    } else if let Some(mat_id) = draw.renderer.primary_material_asset_id {
-        fallback_slot = MeshMaterialSlot {
-            material_asset_id: mat_id,
-            property_block_id: draw.renderer.primary_property_block_id,
-        };
-        std::slice::from_ref(&fallback_slot)
-    } else {
-        return;
-    };
-
-    if slots.is_empty() {
-        return;
-    }
-    let n_sub = draw.submeshes.len();
-    let n_slot = slots.len();
-    if n_sub == 0 {
-        return;
-    }
-
-    let is_overlay = draw.renderer.node_id >= 0
-        && ctx
-            .scene
-            .transform_is_in_overlay_layer(draw.space_id, draw.renderer.node_id as usize);
-    let world_space_deformed = draw.skinned
-        && draw.mesh.supports_world_space_skin_deform(
-            draw.skinned_renderer
-                .map(|skinned| skinned.bone_transform_indices.as_slice()),
-        );
-    let blendshape_deformed = draw
-        .mesh
-        .supports_active_blendshape_deform(&draw.renderer.blend_shape_weights);
-    let tangent_blendshape_deform_active = draw
-        .mesh
-        .supports_active_tangent_blendshape_deform(&draw.renderer.blend_shape_weights);
-
-    // Cull hoist: when a renderer expands to multiple material slots, every slot's cull would
-    // otherwise re-test the same world AABB / Hi-Z. Compute it once and feed every slot the
-    // cached outcome. For single-slot renderers (the common case for static scenery) the hoist
-    // has no work to amortize, so let `push_one_slot_draw` cull inline via its `None` branch.
-    let cached_cull = if n_slot > 1 {
-        compute_cached_cull(ctx, &draw, is_overlay)
-    } else {
-        None
-    };
-
-    for (slot_index, slot) in slots.iter().enumerate() {
-        let Some((first_index, index_count)) =
-            stacked_material_submesh_range(slot_index, draw.submeshes)
-        else {
-            continue;
-        };
-        push_one_slot_draw(
-            ctx,
-            acc,
-            &draw,
-            slot,
-            SubmeshSlotIndices {
-                slot_index,
-                first_index,
-                index_count,
-            },
-            OverlayDeformCullFlags {
-                is_overlay,
-                world_space_deformed,
-                blendshape_deformed,
-                tangent_blendshape_deform_active,
-                cached_cull: cached_cull.as_ref(),
-            },
-            cache,
-        );
-    }
-}
-
-/// Runs the per-renderer CPU cull once and packages the outcome for downstream slot expansion.
-///
-/// Skinned renderers and frames without a culling pass return `None`; otherwise the result is
-/// translated into [`CachedCull`] so [`push_one_slot_draw`] never reruns the same test.
-fn compute_cached_cull(
-    ctx: &DrawCollectionContext<'_>,
-    draw: &StaticMeshDrawSource<'_>,
-    is_overlay: bool,
-) -> Option<CachedCull> {
-    if draw.skinned {
-        return None;
-    }
-    let culling = ctx.culling?;
-    let target = MeshCullTarget {
-        scene: ctx.scene,
-        space_id: draw.space_id,
-        mesh: draw.mesh,
-        skinned: draw.skinned,
-        skinned_renderer: draw.skinned_renderer,
-        node_id: draw.renderer.node_id,
-    };
-    match mesh_draw_passes_cpu_cull(&target, is_overlay, culling, ctx.render_context, None) {
-        Ok(rigid_world_matrix) => Some(CachedCull::Accepted(rigid_world_matrix)),
-        Err(CpuCullFailure::Frustum) => Some(CachedCull::RejectedFrustum),
-        Err(CpuCullFailure::HiZ) => Some(CachedCull::RejectedHiZ),
-        Err(CpuCullFailure::UiRectMask) => Some(CachedCull::RejectedFrustum),
-    }
-}
-
-fn cull_result_for_slot(
-    ctx: &DrawCollectionContext<'_>,
-    draw: &StaticMeshDrawSource<'_>,
-    is_overlay: bool,
-    cached_cull: Option<&CachedCull>,
-) -> Option<Result<Option<glam::Mat4>, CpuCullFailure>> {
-    match cached_cull {
-        Some(CachedCull::Accepted(m)) => Some(Ok(*m)),
-        Some(CachedCull::RejectedFrustum) => Some(Err(CpuCullFailure::Frustum)),
-        Some(CachedCull::RejectedHiZ) => Some(Err(CpuCullFailure::HiZ)),
-        // Single-slot renderer bypassed the hoist: cull inline so per-slot work matches the
-        // cached path without paying the CachedCull wrapper cost.
-        None if !draw.skinned => ctx.culling.map(|culling| {
-            mesh_draw_passes_cpu_cull(
-                &MeshCullTarget {
-                    scene: ctx.scene,
-                    space_id: draw.space_id,
-                    mesh: draw.mesh,
-                    skinned: draw.skinned,
-                    skinned_renderer: draw.skinned_renderer,
-                    node_id: draw.renderer.node_id,
-                },
-                is_overlay,
-                culling,
-                ctx.render_context,
-                None,
-            )
-        }),
-        None => None,
-    }
-}
-
-fn world_aabb_for_reflection_probe_selection(
-    ctx: &DrawCollectionContext<'_>,
-    draw: &StaticMeshDrawSource<'_>,
-) -> Option<(glam::Vec3, glam::Vec3)> {
-    ctx.reflection_probes?;
-    let target = MeshCullTarget {
-        scene: ctx.scene,
-        space_id: draw.space_id,
-        mesh: draw.mesh,
-        skinned: draw.skinned,
-        skinned_renderer: draw.skinned_renderer,
-        node_id: draw.renderer.node_id,
-    };
-    mesh_world_geometry_for_cull_with_head(&target, ctx.head_output_transform, ctx.render_context)
-        .world_aabb
-}
-/// One material slot mapped to a submesh range: optional CPU cull, batch key, and [`WorldMeshDrawItem`] push.
-fn push_one_slot_draw(
-    ctx: &DrawCollectionContext<'_>,
-    acc: &mut DrawCollectionAccumulator<'_>,
-    draw: &StaticMeshDrawSource<'_>,
-    slot: &MeshMaterialSlot,
-    indices: SubmeshSlotIndices,
-    flags: OverlayDeformCullFlags<'_>,
-    cache: &FrameMaterialBatchCache,
-) {
-    let SubmeshSlotIndices {
-        slot_index,
-        first_index,
-        index_count,
-    } = indices;
-    let OverlayDeformCullFlags {
-        is_overlay,
-        world_space_deformed,
-        blendshape_deformed,
-        tangent_blendshape_deform_active,
-        cached_cull,
-    } = flags;
-    let material_asset_id = ctx
-        .scene
-        .overridden_material_asset_id(
-            draw.space_id,
-            ctx.render_context,
-            draw.skinned,
-            draw.renderable_index,
-            slot_index,
-        )
-        .unwrap_or(slot.material_asset_id);
-    if index_count == 0 || material_asset_id < 0 {
-        return;
-    }
-    let cull_result = cull_result_for_slot(ctx, draw, is_overlay, cached_cull);
-    let mut rigid_world_matrix = None;
-    if let Some(outcome) = cull_result {
-        acc.cull_stats.0 += 1;
-        match outcome {
-            Err(CpuCullFailure::Frustum) | Err(CpuCullFailure::UiRectMask) => {
-                acc.cull_stats.1 += 1;
-                return;
-            }
-            Err(CpuCullFailure::HiZ) => {
-                acc.cull_stats.2 += 1;
-                return;
-            }
-            Ok(m) => rigid_world_matrix = m,
-        }
-    }
-    if is_overlay && !world_space_deformed {
-        rigid_world_matrix =
-            world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id, true);
-    } else if !world_space_deformed && rigid_world_matrix.is_none() {
-        rigid_world_matrix =
-            world_matrix_for_local_vertex_stream(ctx, draw.space_id, draw.renderer.node_id, false);
-    }
-    let deformed_front_face_world_matrix = if world_space_deformed {
-        skinned_front_face_world_matrix(
-            ctx,
-            draw.space_id,
-            draw.renderer.node_id,
-            draw.skinned_renderer,
-        )
-    } else {
-        None
-    };
-    let front_face = front_face_for_draw_matrices(
-        world_space_deformed,
-        rigid_world_matrix,
-        deformed_front_face_world_matrix,
-    );
-    let primitive_topology =
-        stacked_material_submesh_topology(slot_index, &draw.mesh.submesh_topologies);
-    let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
-        (m.col(3).truncate() - ctx.view_origin_world).length_squared()
-    });
-    let world_aabb = world_aabb_for_reflection_probe_selection(ctx, draw);
-    let candidate = DrawCandidate {
-        space_id: draw.space_id,
-        node_id: draw.renderer.node_id,
-        renderable_index: draw.renderable_index,
-        instance_id: draw.instance_id,
-        mesh_asset_id: draw.renderer.mesh_asset_id,
-        slot_index,
-        first_index,
-        index_count,
-        is_overlay,
-        sorting_order: draw.renderer.sorting_order,
-        skinned: draw.skinned,
-        world_space_deformed,
-        blendshape_deformed,
-        tangent_blendshape_deform_active,
-        material_asset_id,
-        property_block_id: slot.property_block_id,
-        world_aabb,
-    };
-    if let Some(item) = evaluate_draw_candidate(
-        ctx,
-        cache,
-        candidate,
-        front_face,
-        primitive_topology,
-        rigid_world_matrix,
-        alpha_distance_sq,
-    ) {
-        acc.out.push(item);
-    }
 }
 
 /// Builds the chunk list: one entry per 128-renderer slice of static or skinned renderers per space.
@@ -490,64 +179,80 @@ pub(super) fn collect_chunk(
         ChunkKind::Static => {
             for renderable_index in spec.range.clone() {
                 let r = &space.static_mesh_renderers()[renderable_index];
-                if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
-                    continue;
-                }
-                let Some(mesh) = ctx.mesh_pool.get(r.mesh_asset_id) else {
+                let Some(source) = static_draw_source(ctx, spec.space_id, renderable_index, r)
+                else {
                     continue;
                 };
-                if mesh.submeshes.is_empty() {
-                    continue;
-                }
-                push_draws_for_renderer(
-                    ctx,
-                    &mut acc,
-                    StaticMeshDrawSource {
-                        space_id: spec.space_id,
-                        renderer: r,
-                        renderable_index,
-                        instance_id: r.instance_id,
-                        skinned: false,
-                        skinned_renderer: None,
-                        mesh,
-                        submeshes: &mesh.submeshes,
-                    },
-                    cache,
-                );
+                push_draws_for_renderer(ctx, &mut acc, source, cache);
             }
         }
         ChunkKind::Skinned => {
             for renderable_index in spec.range.clone() {
                 let skinned = &space.skinned_mesh_renderers()[renderable_index];
-                let r = &skinned.base;
-                if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
-                    continue;
-                }
-                let Some(mesh) = ctx.mesh_pool.get(r.mesh_asset_id) else {
+                let Some(source) =
+                    skinned_draw_source(ctx, spec.space_id, renderable_index, skinned)
+                else {
                     continue;
                 };
-                if mesh.submeshes.is_empty() {
-                    continue;
-                }
-                push_draws_for_renderer(
-                    ctx,
-                    &mut acc,
-                    StaticMeshDrawSource {
-                        space_id: spec.space_id,
-                        renderer: r,
-                        renderable_index,
-                        instance_id: r.instance_id,
-                        skinned: true,
-                        skinned_renderer: Some(skinned),
-                        mesh,
-                        submeshes: &mesh.submeshes,
-                    },
-                    cache,
-                );
+                push_draws_for_renderer(ctx, &mut acc, source, cache);
             }
         }
     }
     (out, cull_stats)
+}
+
+/// Builds a [`StaticMeshDrawSource`] from a static renderer entry, or returns `None` if the
+/// renderer is filtered out by mesh availability or trivial validity checks.
+fn static_draw_source<'a>(
+    ctx: &DrawCollectionContext<'a>,
+    space_id: RenderSpaceId,
+    renderable_index: usize,
+    r: &'a StaticMeshRenderer,
+) -> Option<StaticMeshDrawSource<'a>> {
+    if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
+        return None;
+    }
+    let mesh = ctx.mesh_pool.get(r.mesh_asset_id)?;
+    if mesh.submeshes.is_empty() {
+        return None;
+    }
+    Some(StaticMeshDrawSource {
+        space_id,
+        renderer: r,
+        renderable_index,
+        instance_id: r.instance_id,
+        skinned: false,
+        skinned_renderer: None,
+        mesh,
+        submeshes: &mesh.submeshes,
+    })
+}
+
+/// Builds a [`StaticMeshDrawSource`] from a skinned renderer entry, or returns `None` when filtered out.
+fn skinned_draw_source<'a>(
+    ctx: &DrawCollectionContext<'a>,
+    space_id: RenderSpaceId,
+    renderable_index: usize,
+    sk: &'a SkinnedMeshRenderer,
+) -> Option<StaticMeshDrawSource<'a>> {
+    let r = &sk.base;
+    if !r.emits_visible_color_draws() || r.mesh_asset_id < 0 || r.node_id < 0 {
+        return None;
+    }
+    let mesh = ctx.mesh_pool.get(r.mesh_asset_id)?;
+    if mesh.submeshes.is_empty() {
+        return None;
+    }
+    Some(StaticMeshDrawSource {
+        space_id,
+        renderer: r,
+        renderable_index,
+        instance_id: r.instance_id,
+        skinned: true,
+        skinned_renderer: Some(sk),
+        mesh,
+        submeshes: &mesh.submeshes,
+    })
 }
 
 /// Upper bound on expanded draw slots across active render spaces (capacity hint for the output vec).

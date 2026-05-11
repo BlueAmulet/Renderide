@@ -2,6 +2,7 @@
 
 use glam::{Mat4, Quat, Vec3};
 
+use super::world_matrix::front_face_for_draw_matrices;
 use super::*;
 use crate::gpu_pools::MeshPool;
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyStore, PropertyIdRegistry};

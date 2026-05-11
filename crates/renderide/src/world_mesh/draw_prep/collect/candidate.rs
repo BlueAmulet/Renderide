@@ -1,15 +1,20 @@
 //! Shared draw-candidate evaluation for world-mesh collection.
 
-use super::*;
-use crate::materials::RasterPrimitiveTopology;
-use crate::materials::ZTEST_ALWAYS;
+use glam::{Mat4, Vec3};
+
 use crate::materials::host_data::MaterialPropertyLookupIds;
-use crate::materials::render_queue_is_transparent;
+use crate::materials::{
+    RasterFrontFace, RasterPrimitiveTopology, ZTEST_ALWAYS, render_queue_is_transparent,
+};
 use crate::reflection_probes::specular::ReflectionProbeDrawSelection;
-use crate::scene::MeshRendererInstanceId;
+use crate::scene::{MeshRendererInstanceId, RenderSpaceId};
 use crate::world_mesh::culling::overlay_rect_clip_visible;
-use crate::world_mesh::materials::compute_batch_key_hash;
-use glam::Vec3;
+use crate::world_mesh::materials::{
+    FrameMaterialBatchCache, MaterialResolveCtx, batch_key_for_slot_cached, compute_batch_key_hash,
+};
+
+use super::super::item::WorldMeshDrawItem;
+use super::DrawCollectionContext;
 
 /// View-local material-slot draw candidate shared by scene-walk and prepared collection.
 pub(super) struct DrawCandidate {
@@ -173,8 +178,10 @@ mod tests {
     use crate::materials::host_data::{
         MaterialDictionary, MaterialPropertyStore, PropertyIdRegistry,
     };
-    use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter, RasterPipelineKind};
-    use crate::scene::{RenderSpaceId, SceneCoordinator};
+    use crate::materials::{
+        MaterialPipelinePropertyIds, MaterialRouter, RasterPipelineKind, ShaderPermutation,
+    };
+    use crate::scene::SceneCoordinator;
     use crate::shared::RenderingContext;
 
     #[test]

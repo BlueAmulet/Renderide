@@ -15,10 +15,9 @@ use crate::world_mesh::materials::FrameMaterialBatchCache;
 
 use super::super::item::{WorldMeshDrawItem, stacked_material_submesh_topology};
 use super::super::prepared_renderables::{FramePreparedDraw, FramePreparedRun};
+use super::DrawCollectionContext;
 use super::candidate::{DrawCandidate, evaluate_draw_candidate};
-use super::{
-    DrawCollectionContext, front_face_for_draw_matrices, world_matrix_for_local_vertex_stream,
-};
+use super::world_matrix::{front_face_for_draw_matrices, world_matrix_for_local_vertex_stream};
 
 /// Rayon chunk width when iterating a pre-expanded [`super::FramePreparedRenderables`] list.
 ///
