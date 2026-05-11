@@ -11,7 +11,7 @@ use crate::gpu::bind_layout::{
     fragment_filterable_d2_array_entry, fragment_filtering_sampler_entry, texture_layout_entry,
     uniform_buffer_layout_entry,
 };
-use crate::gpu_resource::{OnceGpu, RenderPipelineMap};
+use crate::gpu_resource::{BindGroupMap, OnceGpu, RenderPipelineMap};
 use crate::render_graph::gpu_cache::{
     FullscreenPipelineVariantDesc, FullscreenShaderVariants, create_d2_array_view,
     create_linear_clamp_sampler, create_wgsl_shader_module, fullscreen_pipeline_variant,
@@ -112,8 +112,34 @@ impl ViewAutoExposureGpuState {
     }
 }
 
+/// Upper bound on cached auto-exposure bind groups. The working set is bounded by the number of
+/// live view states (main + photo + utility offscreens + HMD eyes); the cap protects against
+/// unbounded growth when per-view GPU buffers are reallocated rapidly.
+const MAX_CACHED_BIND_GROUPS: usize = 16;
+
+/// Cache key for `compute_histogram` / `compute_average` bind groups.
+///
+/// `scene_color_texture` is the HDR scene-color source from the transient pool. The per-view
+/// state buffers (`settings`, `histogram`, `exposure`) are Arc-backed in wgpu, so reallocation
+/// produces a new key and stale entries simply age out under the LRU cap.
+#[derive(Clone, Eq, Hash, PartialEq)]
+struct AutoExposureComputeBindGroupKey {
+    scene_color_texture: wgpu::Texture,
+    settings: wgpu::Buffer,
+    histogram: wgpu::Buffer,
+    exposure: wgpu::Buffer,
+    multiview_stereo: bool,
+}
+
+/// Cache key for `apply` bind groups. Same identity rules as the compute key.
+#[derive(Clone, Eq, Hash, PartialEq)]
+struct AutoExposureApplyBindGroupKey {
+    scene_color_texture: wgpu::Texture,
+    exposure: wgpu::Buffer,
+    multiview_stereo: bool,
+}
+
 /// Process-wide pipeline cache for the auto-exposure compute and apply passes.
-#[derive(Default)]
 pub(super) struct AutoExposurePipelineCache {
     compute_bind_group_layout: OnceGpu<wgpu::BindGroupLayout>,
     apply_bind_group_layout: OnceGpu<wgpu::BindGroupLayout>,
@@ -122,6 +148,27 @@ pub(super) struct AutoExposurePipelineCache {
     average_pipeline: OnceGpu<wgpu::ComputePipeline>,
     mono_apply: RenderPipelineMap<wgpu::TextureFormat>,
     multiview_apply: RenderPipelineMap<wgpu::TextureFormat>,
+    /// Compute bind groups keyed by source texture, per-view state buffers, and view shape. The
+    /// cached value owns the D2Array texture view alongside the bind group.
+    compute_bind_groups: BindGroupMap<AutoExposureComputeBindGroupKey>,
+    /// Apply bind groups keyed by source texture, exposure buffer, and view shape.
+    apply_bind_groups: BindGroupMap<AutoExposureApplyBindGroupKey>,
+}
+
+impl Default for AutoExposurePipelineCache {
+    fn default() -> Self {
+        Self {
+            compute_bind_group_layout: OnceGpu::default(),
+            apply_bind_group_layout: OnceGpu::default(),
+            sampler: OnceGpu::default(),
+            histogram_pipeline: OnceGpu::default(),
+            average_pipeline: OnceGpu::default(),
+            mono_apply: RenderPipelineMap::default(),
+            multiview_apply: RenderPipelineMap::default(),
+            compute_bind_groups: BindGroupMap::with_max_entries(MAX_CACHED_BIND_GROUPS),
+            apply_bind_groups: BindGroupMap::with_max_entries(MAX_CACHED_BIND_GROUPS),
+        }
+    }
 }
 
 impl AutoExposurePipelineCache {
@@ -230,35 +277,44 @@ impl AutoExposurePipelineCache {
         multiview_stereo: bool,
         state: &ViewAutoExposureGpuState,
     ) -> wgpu::BindGroup {
-        let view = create_d2_array_view(
-            scene_color_texture,
-            "auto_exposure_histogram_src",
+        let key = AutoExposureComputeBindGroupKey {
+            scene_color_texture: scene_color_texture.clone(),
+            settings: state.settings.clone(),
+            histogram: state.histogram.clone(),
+            exposure: state.exposure.clone(),
             multiview_stereo,
-        );
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("auto_exposure_compute"),
-            layout: self.compute_bind_group_layout(device),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: state.settings.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: state.histogram.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: state.exposure.as_entire_binding(),
-                },
-            ],
-        });
-        crate::profiling::note_resource_churn!(BindGroup, "passes::auto_exposure_compute_bg");
-        bind_group
+        };
+        self.compute_bind_groups.get_or_create(key, |k| {
+            let view = create_d2_array_view(
+                &k.scene_color_texture,
+                "auto_exposure_histogram_src",
+                k.multiview_stereo,
+            );
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("auto_exposure_compute"),
+                layout: self.compute_bind_group_layout(device),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: k.settings.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: k.histogram.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: k.exposure.as_entire_binding(),
+                    },
+                ],
+            });
+            crate::profiling::note_resource_churn!(BindGroup, "passes::auto_exposure_compute_bg");
+            bind_group
+        })
     }
 
     pub(super) fn apply_bind_group(
@@ -268,31 +324,38 @@ impl AutoExposurePipelineCache {
         multiview_stereo: bool,
         state: &ViewAutoExposureGpuState,
     ) -> wgpu::BindGroup {
-        let view = create_d2_array_view(
-            scene_color_texture,
-            "auto_exposure_apply_src",
+        let key = AutoExposureApplyBindGroupKey {
+            scene_color_texture: scene_color_texture.clone(),
+            exposure: state.exposure.clone(),
             multiview_stereo,
-        );
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("auto_exposure_apply"),
-            layout: self.apply_bind_group_layout(device),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(self.sampler(device)),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: state.exposure.as_entire_binding(),
-                },
-            ],
-        });
-        crate::profiling::note_resource_churn!(BindGroup, "passes::auto_exposure_apply_bg");
-        bind_group
+        };
+        self.apply_bind_groups.get_or_create(key, |k| {
+            let view = create_d2_array_view(
+                &k.scene_color_texture,
+                "auto_exposure_apply_src",
+                k.multiview_stereo,
+            );
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("auto_exposure_apply"),
+                layout: self.apply_bind_group_layout(device),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(self.sampler(device)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: k.exposure.as_entire_binding(),
+                    },
+                ],
+            });
+            crate::profiling::note_resource_churn!(BindGroup, "passes::auto_exposure_apply_bg");
+            bind_group
+        })
     }
 
     fn sampler(&self, device: &wgpu::Device) -> &wgpu::Sampler {
