@@ -1,76 +1,23 @@
 //! Hi-Z pyramid compute dispatch and copy-to-staging encoding.
+//!
+//! This module is the top-level coordinator for one `encode_hi_z_build` call. Per-stage work
+//! (mip0 from depth, hierarchical downsample, copy-to-staging) lives in the submodules
+//! [`mip0`], [`downsample`], and [`staging_copy`]; each takes a borrowed [`EncodeSession`] plus
+//! per-call arguments.
 
-use bytemuck::{Pod, Zeroable};
+mod downsample;
+mod mip0;
+mod staging_copy;
 
 use crate::gpu::OutputDepthMode;
-use crate::occlusion::cpu::pyramid::{
-    hi_z_pyramid_dimensions, mip_dimensions, mip_levels_for_extent,
-};
+use crate::occlusion::cpu::pyramid::{hi_z_pyramid_dimensions, mip_levels_for_extent};
 use crate::render_graph::HistoryTextureMipViews;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
+use self::mip0::DepthBinding;
 use super::pipelines::HiZPipelines;
 use super::scratch::{HIZ_MAX_MIPS, HiZGpuScratch};
 use super::state::HiZGpuState;
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct LayerUniform {
-    layer: u32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-struct DownsampleUniform {
-    src_w: u32,
-    src_h: u32,
-    dst_w: u32,
-    dst_h: u32,
-}
-
-#[derive(Clone, Copy)]
-enum DepthBinding {
-    D2,
-    D2Array { layer: u32 },
-}
-
-/// Which history texture layer the current mip0 + downsample call should target.
-///
-/// Controls which cache slots [`super::scratch::HiZBindGroupCache`] reuses or rebuilds.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PyramidSide {
-    /// Desktop (non-stereo) or stereo-left pyramid.
-    DesktopOrLeft,
-    /// Stereo-right layer in a stereo history pyramid.
-    Right,
-}
-
-/// Device, encoder, and source/destination views for a single Hi-Z mip0 dispatch from depth.
-struct HiZMip0EncodeContext<'a> {
-    /// Device for bind group creation.
-    device: &'a wgpu::Device,
-    /// Graph upload sink for uniform writes (`layer_uniform`, `downsample_uniform`).
-    uploads: GraphUploadSink<'a>,
-    /// Active command encoder receiving the mip0 + downsample compute passes.
-    encoder: &'a mut wgpu::CommandEncoder,
-    /// Source depth view (sampled in the mip0 pass).
-    depth_view: &'a wgpu::TextureView,
-    /// Scratch buffers and viewports (extent, mip count, uniforms) plus cached bind groups.
-    scratch: &'a mut HiZGpuScratch,
-    /// Compiled Hi-Z pipelines (mip0 desktop/stereo + downsample).
-    pipes: &'a HiZPipelines,
-    /// Views for each pyramid mip level (written by mip0, read/written by downsample).
-    pyramid_views: &'a [wgpu::TextureView],
-    /// Binding flavour for the mip0 pass (D2 vs D2Array with layer).
-    depth_bind: DepthBinding,
-    /// Which pyramid (desktop/left vs right) this call targets; selects the cache slot.
-    side: PyramidSide,
-    /// GPU profiler for per-dispatch pass-level timestamp queries; [`None`] when disabled.
-    profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
-}
 
 /// GPU handles recorded into for one [`encode_hi_z_build`] call.
 pub struct HiZBuildRecord<'a> {
@@ -92,12 +39,45 @@ pub struct HiZHistoryTarget<'a> {
     pub mip_views: &'a HistoryTextureMipViews,
 }
 
+/// Which history texture layer the current mip0 + downsample call should target.
+///
+/// Controls which cache slots [`super::scratch::HiZBindGroupCache`] reuses or rebuilds.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum PyramidSide {
+    /// Desktop (non-stereo) or stereo-left pyramid.
+    DesktopOrLeft,
+    /// Stereo-right layer in a stereo history pyramid.
+    Right,
+}
+
 /// Per-layer mip chains selected from a registry-owned Hi-Z history texture.
 struct HiZHistoryViews<'a> {
     /// Desktop or stereo-left mip chain.
     left: &'a [wgpu::TextureView],
     /// Stereo-right mip chain when the depth target is a two-layer array.
     right: Option<&'a [wgpu::TextureView]>,
+}
+
+/// Stable handles shared across every per-stage dispatch inside one [`encode_hi_z_build`] call.
+///
+/// Per-call differentiators such as `pyramid_views`, `depth_bind`, `side`, `history_texture`,
+/// `ws`, `right_eye`, and `layer` are passed as function arguments to each stage; only the
+/// invariant handles live here so the stereo loop can re-use the session across both sides.
+pub(super) struct EncodeSession<'a> {
+    /// Device for on-demand bind-group creation.
+    pub(super) device: &'a wgpu::Device,
+    /// Graph upload sink for uniform writes (`layer_uniform`, `downsample_uniform`).
+    pub(super) uploads: GraphUploadSink<'a>,
+    /// Active command encoder receiving compute passes and staging copies.
+    pub(super) encoder: &'a mut wgpu::CommandEncoder,
+    /// Source depth view (sampled in the mip0 pass).
+    pub(super) depth_view: &'a wgpu::TextureView,
+    /// Scratch buffers and viewports (extent, mip count, uniforms) plus cached bind groups.
+    pub(super) scratch: &'a mut HiZGpuScratch,
+    /// Compiled Hi-Z pipelines (mip0 desktop/stereo + downsample).
+    pub(super) pipes: &'a HiZPipelines,
+    /// GPU profiler for per-dispatch pass-level timestamp queries; [`None`] when disabled.
+    pub(super) profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
 /// Records Hi-Z build + copy-to-staging into the state's current readback slot.
@@ -109,7 +89,7 @@ struct HiZHistoryViews<'a> {
 /// a [`wgpu::Queue::on_submitted_work_done`] closure, so the slot travels with the closure by value
 /// and a late-firing callback cannot consume a newer frame's slot.
 ///
-/// Call [`HiZGpuState::begin_frame_readback`] at the **start** of the next frame to drain
+/// Call [`HiZGpuState::drain_completed_map_async`] at the **start** of the next frame to drain
 /// completed maps.
 pub fn encode_hi_z_build(
     record: HiZBuildRecord<'_>,
@@ -142,20 +122,22 @@ pub fn encode_hi_z_build(
 
     invalidate_caches_for_targets(scratch, depth_view, &history_views);
 
-    let mut ctx = RecordCtx {
+    let mut session = EncodeSession {
         device,
         uploads,
         encoder,
         depth_view,
         scratch,
         pipes,
-        history_texture: history.texture,
-        ws,
         profiler,
     };
     let recorded = match mode {
-        OutputDepthMode::DesktopSingle => record_desktop_pyramid(&mut ctx, &history_views),
-        OutputDepthMode::StereoArray { .. } => record_stereo_pyramids(&mut ctx, &history_views),
+        OutputDepthMode::DesktopSingle => {
+            record_desktop_pyramid(&mut session, &history_views, history.texture, ws)
+        }
+        OutputDepthMode::StereoArray { .. } => {
+            record_stereo_pyramids(&mut session, &history_views, history.texture, ws)
+        }
     };
 
     if !recorded {
@@ -163,21 +145,6 @@ pub fn encode_hi_z_build(
     }
     let claimed_ws = state.claim_encoded_slot();
     debug_assert_eq!(claimed_ws, ws);
-}
-
-/// Common GPU/IPC handles threaded into per-side pyramid recording. Bundles the eight values
-/// that would otherwise blow past clippy's `too_many_arguments` threshold and keeps the
-/// desktop / stereo branches readable.
-struct RecordCtx<'a> {
-    device: &'a wgpu::Device,
-    uploads: GraphUploadSink<'a>,
-    encoder: &'a mut wgpu::CommandEncoder,
-    depth_view: &'a wgpu::TextureView,
-    scratch: &'a mut HiZGpuScratch,
-    pipes: &'a HiZPipelines,
-    history_texture: &'a wgpu::Texture,
-    ws: usize,
-    profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
 }
 
 /// Resets slot validity, invalidates cache, ensures [`HiZGpuScratch`] matches `extent` / stereo layout.
@@ -278,19 +245,29 @@ fn history_layer_mip_views(
     Some(&views[..required_mips as usize])
 }
 
-fn record_desktop_pyramid(ctx: &mut RecordCtx<'_>, history_views: &HiZHistoryViews<'_>) -> bool {
+fn record_desktop_pyramid(
+    session: &mut EncodeSession<'_>,
+    history_views: &HiZHistoryViews<'_>,
+    history_texture: &wgpu::Texture,
+    ws: usize,
+) -> bool {
     record_pyramid_side(
-        ctx,
+        session,
         history_views.left,
         DepthBinding::D2,
         PyramidSide::DesktopOrLeft,
     );
-    copy_layer_to_staging(ctx, 0, false);
+    staging_copy::copy_layer(session, history_texture, ws, 0, false);
     true
 }
 
-fn record_stereo_pyramids(ctx: &mut RecordCtx<'_>, history_views: &HiZHistoryViews<'_>) -> bool {
-    if !ctx.scratch.is_stereo() {
+fn record_stereo_pyramids(
+    session: &mut EncodeSession<'_>,
+    history_views: &HiZHistoryViews<'_>,
+    history_texture: &wgpu::Texture,
+    ws: usize,
+) -> bool {
+    if !session.scratch.is_stereo() {
         return false;
     }
     let Some(views_right) = history_views.right else {
@@ -298,334 +275,30 @@ fn record_stereo_pyramids(ctx: &mut RecordCtx<'_>, history_views: &HiZHistoryVie
     };
 
     record_pyramid_side(
-        ctx,
+        session,
         history_views.left,
         DepthBinding::D2Array { layer: 0 },
         PyramidSide::DesktopOrLeft,
     );
     record_pyramid_side(
-        ctx,
+        session,
         views_right,
         DepthBinding::D2Array { layer: 1 },
         PyramidSide::Right,
     );
 
-    copy_layer_to_staging(ctx, 0, false);
-    copy_layer_to_staging(ctx, 1, true);
+    staging_copy::copy_layer(session, history_texture, ws, 0, false);
+    staging_copy::copy_layer(session, history_texture, ws, 1, true);
     true
 }
 
 /// Records mip0 + downsample dispatches for one pyramid layer chain.
 fn record_pyramid_side(
-    ctx: &mut RecordCtx<'_>,
+    session: &mut EncodeSession<'_>,
     pyramid_views: &[wgpu::TextureView],
     depth_bind: DepthBinding,
     side: PyramidSide,
 ) {
-    dispatch_mip0_and_downsample(HiZMip0EncodeContext {
-        device: ctx.device,
-        uploads: ctx.uploads,
-        encoder: ctx.encoder,
-        depth_view: ctx.depth_view,
-        scratch: ctx.scratch,
-        pipes: ctx.pipes,
-        pyramid_views,
-        depth_bind,
-        side,
-        profiler: ctx.profiler,
-    });
-}
-
-/// Copies the active write-slot pyramid for `array_layer` into its staging ring entry.
-///
-/// `right_eye` selects the stereo-right staging ring; the desktop / stereo-left layer always
-/// targets `staging_desktop`.
-fn copy_layer_to_staging(ctx: &mut RecordCtx<'_>, array_layer: u32, right_eye: bool) {
-    let (bw, bh) = ctx.scratch.extent;
-    let mip_levels = ctx.scratch.mip_levels;
-    let staging = if right_eye {
-        let Some(staging_r) = ctx.scratch.staging_right() else {
-            return;
-        };
-        &staging_r[ctx.ws]
-    } else {
-        &ctx.scratch.staging_desktop[ctx.ws]
-    };
-    copy_pyramid_to_staging(
-        ctx.encoder,
-        ctx.history_texture,
-        array_layer,
-        bw,
-        bh,
-        mip_levels,
-        staging,
-    );
-}
-
-/// Fills Hi-Z mip0 from a depth texture (desktop 2D view or one layer of a stereo depth array).
-fn dispatch_hi_z_mip0_from_depth(args: &mut HiZMip0EncodeContext<'_>) {
-    match args.depth_bind {
-        DepthBinding::D2 => dispatch_hi_z_mip0_desktop(args),
-        DepthBinding::D2Array { layer } => dispatch_hi_z_mip0_stereo(args, layer),
-    }
-}
-
-/// Mip0 dispatch for the desktop (non-stereo) 2D depth view.
-fn dispatch_hi_z_mip0_desktop(args: &mut HiZMip0EncodeContext<'_>) {
-    let device = args.device;
-    let depth_view = args.depth_view;
-    let pyramid_views = args.pyramid_views;
-    let layout = &args.pipes.bgl_mip0_desktop;
-    let bg = args.scratch.bind_groups.mip0_desktop_or_build(|| {
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("hi_z_mip0_d_bg"),
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(depth_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&pyramid_views[0]),
-                },
-            ],
-        });
-        crate::profiling::note_resource_churn!(BindGroup, "occlusion::hi_z_mip0_desktop_bg");
-        bind_group
-    });
-    let pass_query = args
-        .profiler
-        .map(|p| p.begin_pass_query("hi_z_mip0_desktop", args.encoder));
-    let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
-    {
-        let mut pass = args
-            .encoder
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("hi_z_mip0_desktop"),
-                timestamp_writes,
-            });
-        pass.set_pipeline(&args.pipes.mip0_desktop);
-        pass.set_bind_group(0, &bg, &[]);
-        pass.dispatch_workgroups(
-            args.scratch.extent.0.div_ceil(8),
-            args.scratch.extent.1.div_ceil(8),
-            1,
-        );
-    };
-    if let (Some(p), Some(q)) = (args.profiler, pass_query) {
-        p.end_query(args.encoder, q);
-    }
-}
-
-/// Mip0 dispatch for one array layer of a stereo depth target.
-fn dispatch_hi_z_mip0_stereo(args: &mut HiZMip0EncodeContext<'_>, layer: u32) {
-    let layer_u = LayerUniform {
-        layer,
-        _pad0: 0,
-        _pad1: 0,
-        _pad2: 0,
-    };
-    args.uploads
-        .write_buffer(&args.scratch.layer_uniform, 0, bytemuck::bytes_of(&layer_u));
-    let device = args.device;
-    let depth_view = args.depth_view;
-    let pyramid_views = args.pyramid_views;
-    let layout = &args.pipes.bgl_mip0_stereo;
-    let layer_uniform = args.scratch.layer_uniform.clone();
-    let bg = args.scratch.bind_groups.mip0_stereo_or_build(layer, || {
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("hi_z_mip0_s_bg"),
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(depth_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: layer_uniform.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&pyramid_views[0]),
-                },
-            ],
-        });
-        crate::profiling::note_resource_churn!(BindGroup, "occlusion::hi_z_mip0_stereo_bg");
-        bind_group
-    });
-    let pass_query = args
-        .profiler
-        .map(|p| p.begin_pass_query("hi_z_mip0_stereo", args.encoder));
-    let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
-    {
-        let mut pass = args
-            .encoder
-            .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("hi_z_mip0_stereo"),
-                timestamp_writes,
-            });
-        pass.set_pipeline(&args.pipes.mip0_stereo);
-        pass.set_bind_group(0, &bg, &[]);
-        pass.dispatch_workgroups(
-            args.scratch.extent.0.div_ceil(8),
-            args.scratch.extent.1.div_ceil(8),
-            1,
-        );
-    };
-    if let (Some(p), Some(q)) = (args.profiler, pass_query) {
-        p.end_query(args.encoder, q);
-    }
-}
-
-/// Bundle of handles used by [`dispatch_hi_z_downsample_mips`].
-struct HiZDownsampleContext<'a> {
-    /// Device for on-demand bind-group creation.
-    device: &'a wgpu::Device,
-    /// Graph upload sink for `downsample_uniform` writes that carry per-mip extents.
-    uploads: GraphUploadSink<'a>,
-    /// Encoder receiving each mip's compute pass.
-    encoder: &'a mut wgpu::CommandEncoder,
-    /// Scratch providing both the `downsample_uniform` buffer and the cached bind groups.
-    scratch: &'a mut HiZGpuScratch,
-    /// Compiled downsample pipeline + bind-group layout.
-    pipes: &'a HiZPipelines,
-    /// Per-mip pyramid views for the active pyramid side.
-    pyramid_views: &'a [wgpu::TextureView],
-    /// Which pyramid's bind-group cache slot to read/write.
-    side: PyramidSide,
-    /// GPU profiler for per-dispatch timestamp queries; [`None`] when disabled.
-    profiler: Option<&'a crate::profiling::GpuProfilerHandle>,
-}
-
-/// Farthest-depth min-reduction chain from mip0 through the rest of the R32F pyramid.
-fn dispatch_hi_z_downsample_mips(args: &mut HiZDownsampleContext<'_>) {
-    let (bw, bh) = args.scratch.extent;
-    for mip in 0..args.scratch.mip_levels.saturating_sub(1) {
-        let (sw, sh) = mip_dimensions(bw, bh, mip).unwrap_or((1, 1));
-        let (dw, dh) = mip_dimensions(bw, bh, mip + 1).unwrap_or((1, 1));
-        let du = DownsampleUniform {
-            src_w: sw,
-            src_h: sh,
-            dst_w: dw,
-            dst_h: dh,
-        };
-        args.uploads
-            .write_buffer(&args.scratch.downsample_uniform, 0, bytemuck::bytes_of(&du));
-        let device = args.device;
-        let layout = &args.pipes.bgl_downsample;
-        let downsample_uniform = args.scratch.downsample_uniform.clone();
-        let pyramid_views = args.pyramid_views;
-        let build = || {
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("hi_z_ds_bg"),
-                layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&pyramid_views[mip as usize]),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(
-                            &pyramid_views[mip as usize + 1],
-                        ),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: downsample_uniform.as_entire_binding(),
-                    },
-                ],
-            });
-            crate::profiling::note_resource_churn!(BindGroup, "occlusion::hi_z_downsample_bg");
-            bind_group
-        };
-        let bg = match args.side {
-            PyramidSide::DesktopOrLeft => args
-                .scratch
-                .bind_groups
-                .downsample_desktop_or_build(mip, build),
-            PyramidSide::Right => args
-                .scratch
-                .bind_groups
-                .downsample_right_or_build(mip, build),
-        };
-        let pass_query = args
-            .profiler
-            .map(|p| p.begin_pass_query("hi_z_downsample", args.encoder));
-        let timestamp_writes = crate::profiling::compute_pass_timestamp_writes(pass_query.as_ref());
-        {
-            let mut pass = args
-                .encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("hi_z_downsample"),
-                    timestamp_writes,
-                });
-            pass.set_pipeline(&args.pipes.downsample);
-            pass.set_bind_group(0, &bg, &[]);
-            pass.dispatch_workgroups(dw.div_ceil(8), dh.div_ceil(8), 1);
-        };
-        if let (Some(p), Some(q)) = (args.profiler, pass_query) {
-            p.end_query(args.encoder, q);
-        }
-    }
-}
-
-/// Depth mip0 copy plus hierarchical downsample for one pyramid view chain (desktop or one array layer).
-fn dispatch_mip0_and_downsample(mut args: HiZMip0EncodeContext<'_>) {
-    dispatch_hi_z_mip0_from_depth(&mut args);
-    dispatch_hi_z_downsample_mips(&mut HiZDownsampleContext {
-        device: args.device,
-        uploads: args.uploads,
-        encoder: args.encoder,
-        scratch: args.scratch,
-        pipes: args.pipes,
-        pyramid_views: args.pyramid_views,
-        side: args.side,
-        profiler: args.profiler,
-    });
-}
-
-/// Copies all mips for one history texture array layer into the selected readback staging buffer.
-fn copy_pyramid_to_staging(
-    encoder: &mut wgpu::CommandEncoder,
-    texture: &wgpu::Texture,
-    array_layer: u32,
-    base_w: u32,
-    base_h: u32,
-    mip_levels: u32,
-    staging: &wgpu::Buffer,
-) {
-    let mut offset = 0u64;
-    for mip in 0..mip_levels {
-        let (w, h) = mip_dimensions(base_w, base_h, mip).unwrap_or((1, 1));
-        let row_pitch = wgpu::util::align_to(w * 4, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: mip,
-                origin: wgpu::Origin3d {
-                    x: 0,
-                    y: 0,
-                    z: array_layer,
-                },
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: staging,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset,
-                    bytes_per_row: Some(row_pitch),
-                    rows_per_image: Some(h),
-                },
-            },
-            wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            },
-        );
-        offset += u64::from(row_pitch) * u64::from(h);
-    }
+    mip0::dispatch(session, pyramid_views, depth_bind);
+    downsample::dispatch(session, pyramid_views, side);
 }
