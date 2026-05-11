@@ -217,6 +217,7 @@ fn add_view_depth_prefilter(
         first_resources,
         effect.settings,
         pipelines,
+        effect.multiview_stereo,
     )));
     let mut last = first;
     for mip in 1..VIEW_DEPTH_MIP_COUNT {
@@ -233,6 +234,7 @@ fn add_view_depth_prefilter(
             effect.settings,
             pipelines,
             mip,
+            effect.multiview_stereo,
         )));
         builder.add_edge(last, id);
         last = id;

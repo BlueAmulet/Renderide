@@ -39,6 +39,7 @@ pub(super) struct GtaoDepthPrefilterPass {
     resources: GtaoDepthPrefilterResources,
     settings: crate::config::GtaoSettings,
     pipelines: &'static GtaoPipelines,
+    view_depth_multiview_stereo: bool,
     mip_level: u32,
     profile_label: String,
 }
@@ -49,11 +50,13 @@ impl GtaoDepthPrefilterPass {
         resources: GtaoDepthPrefilterResources,
         settings: crate::config::GtaoSettings,
         pipelines: &'static GtaoPipelines,
+        view_depth_multiview_stereo: bool,
     ) -> Self {
         Self {
             resources,
             settings,
             pipelines,
+            view_depth_multiview_stereo,
             mip_level: 0,
             profile_label: "GtaoDepthPrefilter.mip0".to_string(),
         }
@@ -65,11 +68,13 @@ impl GtaoDepthPrefilterPass {
         settings: crate::config::GtaoSettings,
         pipelines: &'static GtaoPipelines,
         mip_level: u32,
+        view_depth_multiview_stereo: bool,
     ) -> Self {
         Self {
             resources,
             settings,
             pipelines,
+            view_depth_multiview_stereo,
             mip_level,
             profile_label: format!("GtaoDepthPrefilter.mip{mip_level}"),
         }
@@ -114,8 +119,16 @@ impl GtaoDepthPrefilterPass {
         (gx > 0 && gy > 0).then_some((gx, gy))
     }
 
-    fn dispatch_layer_count(&self, multiview_stereo: bool) -> u32 {
-        super::stereo_array_layer_count(multiview_stereo)
+    fn bind_group_multiview_stereo(&self) -> bool {
+        self.view_depth_multiview_stereo
+    }
+
+    fn dispatch_layer_count(&self, view_multiview_stereo: bool) -> u32 {
+        if self.view_depth_multiview_stereo {
+            super::stereo_array_layer_count(view_multiview_stereo)
+        } else {
+            1
+        }
     }
 
     fn record_mip0(
@@ -127,24 +140,17 @@ impl GtaoDepthPrefilterPass {
         gy: u32,
     ) -> Result<(), RenderPassError> {
         let frame_uniform_buffer = self.resolve_frame_uniform_buffer(ctx)?;
-        let multiview_stereo = ctx.pass_frame.view.multiview_stereo;
-        let layer_count = self.dispatch_layer_count(multiview_stereo);
+        let bind_group_multiview_stereo = self.bind_group_multiview_stereo();
+        let view_multiview_stereo = ctx.pass_frame.view.multiview_stereo;
+        let layer_count = self.dispatch_layer_count(view_multiview_stereo);
         let source_view =
             ctx.pass_frame
                 .view
                 .depth_texture
                 .create_view(&wgpu::TextureViewDescriptor {
-                    label: Some(if multiview_stereo {
-                        "gtao_prefilter_raw_depth_stereo"
-                    } else {
-                        "gtao_prefilter_raw_depth_mono"
-                    }),
+                    label: Some(raw_depth_view_label(bind_group_multiview_stereo)),
                     aspect: wgpu::TextureAspect::DepthOnly,
-                    dimension: Some(if multiview_stereo {
-                        wgpu::TextureViewDimension::D2Array
-                    } else {
-                        wgpu::TextureViewDimension::D2
-                    }),
+                    dimension: Some(prefilter_view_dimension(bind_group_multiview_stereo)),
                     base_array_layer: 0,
                     array_layer_count: Some(layer_count),
                     ..Default::default()
@@ -158,7 +164,7 @@ impl GtaoDepthPrefilterPass {
             layout: self
                 .pipelines
                 .depth_prefilter
-                .mip0_bind_group_layout(ctx.device, multiview_stereo),
+                .mip0_bind_group_layout(ctx.device, bind_group_multiview_stereo),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -182,7 +188,7 @@ impl GtaoDepthPrefilterPass {
         let pipeline = self
             .pipelines
             .depth_prefilter
-            .mip0_pipeline(ctx.device, multiview_stereo);
+            .mip0_pipeline(ctx.device, bind_group_multiview_stereo);
         dispatch_prefilter(
             ctx,
             self.profile_label.as_str(),
@@ -214,7 +220,7 @@ impl GtaoDepthPrefilterPass {
             layout: self
                 .pipelines
                 .depth_prefilter
-                .downsample_bind_group_layout(ctx.device, ctx.pass_frame.view.multiview_stereo),
+                .downsample_bind_group_layout(ctx.device, self.bind_group_multiview_stereo()),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -231,12 +237,12 @@ impl GtaoDepthPrefilterPass {
             ],
         });
         crate::profiling::note_resource_churn!(BindGroup, "passes::gtao_prefilter_downsample_bg");
-        let multiview_stereo = ctx.pass_frame.view.multiview_stereo;
-        let layer_count = self.dispatch_layer_count(multiview_stereo);
+        let bind_group_multiview_stereo = self.bind_group_multiview_stereo();
+        let layer_count = self.dispatch_layer_count(ctx.pass_frame.view.multiview_stereo);
         let pipeline = self
             .pipelines
             .depth_prefilter
-            .downsample_pipeline(ctx.device, multiview_stereo);
+            .downsample_pipeline(ctx.device, bind_group_multiview_stereo);
         dispatch_prefilter(
             ctx,
             self.profile_label.as_str(),
@@ -247,6 +253,22 @@ impl GtaoDepthPrefilterPass {
             layer_count,
         );
         Ok(())
+    }
+}
+
+fn raw_depth_view_label(bind_group_multiview_stereo: bool) -> &'static str {
+    if bind_group_multiview_stereo {
+        "gtao_prefilter_raw_depth_stereo"
+    } else {
+        "gtao_prefilter_raw_depth_mono"
+    }
+}
+
+fn prefilter_view_dimension(bind_group_multiview_stereo: bool) -> wgpu::TextureViewDimension {
+    if bind_group_multiview_stereo {
+        wgpu::TextureViewDimension::D2Array
+    } else {
+        wgpu::TextureViewDimension::D2
     }
 }
 
@@ -347,5 +369,66 @@ fn dispatch_prefilter(
     }
     if let (Some(query), Some(profiler)) = (pass_query, ctx.profiler) {
         profiler.end_query(ctx.encoder, query);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::GtaoSettings;
+
+    fn resources() -> GtaoDepthPrefilterResources {
+        GtaoDepthPrefilterResources {
+            depth: ImportedTextureHandle(0),
+            frame_uniforms: ImportedBufferHandle(0),
+            source_mip: None,
+            output_mip: SubresourceHandle(0),
+        }
+    }
+
+    #[test]
+    fn stereo_graph_mono_view_uses_array_bindings_with_one_dispatch_layer() {
+        let pass = GtaoDepthPrefilterPass::mip0(
+            resources(),
+            GtaoSettings::default(),
+            super::super::gtao_pipelines(),
+            true,
+        );
+
+        assert!(pass.bind_group_multiview_stereo());
+        assert_eq!(
+            prefilter_view_dimension(pass.bind_group_multiview_stereo()),
+            wgpu::TextureViewDimension::D2Array
+        );
+        assert_eq!(pass.dispatch_layer_count(false), 1);
+    }
+
+    #[test]
+    fn stereo_graph_stereo_view_dispatches_both_layers() {
+        let pass = GtaoDepthPrefilterPass::mip0(
+            resources(),
+            GtaoSettings::default(),
+            super::super::gtao_pipelines(),
+            true,
+        );
+
+        assert_eq!(pass.dispatch_layer_count(true), 2);
+    }
+
+    #[test]
+    fn mono_graph_uses_d2_bindings_and_single_layer() {
+        let pass = GtaoDepthPrefilterPass::mip0(
+            resources(),
+            GtaoSettings::default(),
+            super::super::gtao_pipelines(),
+            false,
+        );
+
+        assert!(!pass.bind_group_multiview_stereo());
+        assert_eq!(
+            prefilter_view_dimension(pass.bind_group_multiview_stereo()),
+            wgpu::TextureViewDimension::D2
+        );
+        assert_eq!(pass.dispatch_layer_count(false), 1);
     }
 }
