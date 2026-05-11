@@ -36,8 +36,8 @@ pub(crate) struct StemMaterialLayout {
 /// 4. The UI stencil and color-mask properties for reconstructing unshipped `RECTCLIP`
 ///    keyword state on masked content draws.
 ///
-/// FrooxEngine's `ShaderKeywords.Variant` bitmask is never sent over IPC, so every
-/// multi-compile-keyword toggle has to be inferred from what the host does send: texture
+/// Parsed shader variant metadata is authoritative when present. These ids support compatibility
+/// inference for shaders or material updates that do not provide that bitmask, using texture
 /// bindings, numeric material properties, render-type tag, render queue, blend factors,
 /// and UI stencil state.
 pub(crate) struct EmbeddedSharedKeywordIds {

@@ -3,6 +3,9 @@
 //! The bitmask is decoded against the matching Unity shader asset's sorted `UniqueKeywords`
 //! table. It is not a global enum: bit meanings are shader-specific.
 
+/// Renderer-reserved material uniform field that carries the shader-specific Froox variant bitmask.
+pub(crate) const RENDERIDE_VARIANT_BITS_FIELD: &str = "_RenderideVariantBits";
+
 /// One keyword entry in a shader-specific variant bitmask.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ShaderVariantKeyword {
@@ -57,27 +60,14 @@ pub(crate) fn shader_variant_metadata_for_embedded_stem(
     }
 }
 
-/// Decodes a material-uniform keyword field from a shader variant bitmask.
-///
-/// Returns `None` when no authoritative bitmask is present, when the shader has no metadata, or
-/// when the field is not a keyword in the shader's metadata. Callers may then use compatibility
-/// fallbacks for shaders that have not been moved to variant metadata yet.
-pub(crate) fn shader_variant_uniform_keyword_float(
-    stem: &str,
-    shader_variant_bits: Option<u32>,
-    field_name: &str,
-) -> Option<f32> {
-    let bits = shader_variant_bits?;
+/// Returns the bit mask for a keyword in a shader-specific variant bitmask.
+pub(crate) fn shader_variant_keyword_mask(stem: &str, keyword_name: &str) -> Option<u32> {
     let metadata = shader_variant_metadata_for_embedded_stem(stem)?;
     let bit_index = metadata
         .keywords
         .iter()
-        .position(|keyword| keyword.name == field_name && !keyword.affects_pipeline_state)?;
-    Some(if variant_bit_enabled(bits, bit_index) {
-        1.0
-    } else {
-        0.0
-    })
+        .position(|keyword| keyword.name == keyword_name)?;
+    variant_bit_mask(bit_index)
 }
 
 /// Returns true when a shader variant has any decoded pipeline-state keyword.
@@ -106,11 +96,14 @@ fn embedded_source_stem(stem: &str) -> &str {
         .unwrap_or(stem)
 }
 
-fn variant_bit_enabled(bits: u32, bit_index: usize) -> bool {
+fn variant_bit_mask(bit_index: usize) -> Option<u32> {
     u32::try_from(bit_index)
         .ok()
         .and_then(|shift| 1u32.checked_shl(shift))
-        .is_some_and(|mask| bits & mask != 0)
+}
+
+fn variant_bit_enabled(bits: u32, bit_index: usize) -> bool {
+    variant_bit_mask(bit_index).is_some_and(|mask| bits & mask != 0)
 }
 
 #[cfg(test)]
@@ -148,35 +141,25 @@ mod tests {
     }
 
     #[test]
-    fn unlit_variant_bits_decode_uniform_keyword_fields() {
-        let bits = (1u32 << 1) | (1u32 << 9) | (1u32 << 13);
-
+    fn unlit_variant_masks_match_keyword_order() {
         assert_eq!(
-            shader_variant_uniform_keyword_float("unlit_default", Some(bits), "_COLOR"),
-            Some(1.0)
+            shader_variant_keyword_mask("unlit_default", "_ALPHATEST"),
+            Some(1u32 << 0)
         );
         assert_eq!(
-            shader_variant_uniform_keyword_float("unlit_default", Some(bits), "_TEXTURE"),
-            Some(1.0)
+            shader_variant_keyword_mask("unlit_default", "_COLOR"),
+            Some(1u32 << 1)
         );
         assert_eq!(
-            shader_variant_uniform_keyword_float("unlit_default", Some(bits), "_VERTEXCOLORS"),
-            Some(1.0)
+            shader_variant_keyword_mask("unlit_default", "_TEXTURE"),
+            Some(1u32 << 9)
         );
         assert_eq!(
-            shader_variant_uniform_keyword_float("unlit_default", Some(bits), "_ALPHATEST"),
-            Some(0.0)
+            shader_variant_keyword_mask("unlit_default", "_VERTEXCOLORS"),
+            Some(1u32 << 13)
         );
         assert_eq!(
-            shader_variant_uniform_keyword_float("unlit_default", Some(bits), "_ALPHATEST_ON"),
-            None
-        );
-    }
-
-    #[test]
-    fn no_bitmask_keeps_compatibility_fallback_available() {
-        assert_eq!(
-            shader_variant_uniform_keyword_float("unlit_default", None, "_TEXTURE"),
+            shader_variant_keyword_mask("unlit_default", "_ALPHABLEND_ON"),
             None
         );
     }

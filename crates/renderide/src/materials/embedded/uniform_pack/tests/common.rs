@@ -60,6 +60,15 @@ pub(super) fn read_f32_at(bytes: &[u8], offset: usize) -> f32 {
     )
 }
 
+/// Extracts a packed u32 uniform from `bytes`.
+pub(super) fn read_u32_at(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("uniform u32 bytes"),
+    )
+}
+
 pub(super) fn reflected_with_f32_fields(
     field_specs: &[(&str, u32)],
 ) -> (
@@ -124,6 +133,17 @@ pub(super) fn reflected_with_uniform_fields(
     StemEmbeddedPropertyIds,
     PropertyIdRegistry,
 ) {
+    reflected_with_uniform_fields_for_stem("test_default", field_specs)
+}
+
+pub(super) fn reflected_with_uniform_fields_for_stem(
+    stem: &str,
+    field_specs: &[(&str, ReflectedUniformScalarKind, u32, u32)],
+) -> (
+    ReflectedRasterLayout,
+    StemEmbeddedPropertyIds,
+    PropertyIdRegistry,
+) {
     let registry = PropertyIdRegistry::new();
     let mut fields = HashMap::new();
     let mut total_size = 0u32;
@@ -155,7 +175,7 @@ pub(super) fn reflected_with_uniform_fields(
         requires_intersection_pass: false,
     };
     let ids = StemEmbeddedPropertyIds::build(
-        "test_default",
+        stem,
         Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
         &registry,
         &reflected,

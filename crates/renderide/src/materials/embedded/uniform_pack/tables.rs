@@ -3,6 +3,7 @@
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
 };
+use crate::materials::shader_variant::{RENDERIDE_VARIANT_BITS_FIELD, shader_variant_keyword_mask};
 
 use super::super::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
 use super::helpers::{
@@ -14,6 +15,23 @@ use super::helpers::{
 /// full-sphere `(TAU, PI)`. Tighter than any FOV the host realistically writes (the host
 /// converts whole-degree values through `* PI / 180`, so the residual is below `1e-6`).
 const PROJECTION360_FULL_SPHERE_EPSILON: f32 = 1e-3;
+
+/// Infers a renderer-reserved shader variant bitfield when no parsed Froox variant is available.
+pub(super) fn inferred_shader_variant_bits_u32(
+    field_name: &str,
+    shader_variant_bits: Option<u32>,
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<u32> {
+    if field_name != RENDERIDE_VARIANT_BITS_FIELD {
+        return None;
+    }
+    if let Some(bits) = shader_variant_bits {
+        return Some(bits);
+    }
+    inferred_unlit_variant_bits(store, lookup, ids)
+}
 
 /// Infers a scalar keyword uniform from host-visible material state.
 pub(super) fn inferred_keyword_float_f32(
@@ -150,6 +168,10 @@ fn scalar_keyword_inferred(
 /// Converts Unity-style float keyword values into the renderer's packed scalar convention.
 fn keyword_float_value(value: f32) -> f32 {
     if value >= 0.5 { 1.0 } else { 0.0 }
+}
+
+fn keyword_float_is_enabled(value: Option<f32>) -> bool {
+    value.is_some_and(|v| keyword_float_value(v) > 0.5)
 }
 
 /// Reads a direct keyword probe value, including explicit false values.
@@ -296,6 +318,106 @@ fn unlit_keyword_inferred(
         _ => return None,
     };
     Some(if enabled { 1.0 } else { 0.0 })
+}
+
+fn inferred_unlit_variant_bits(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> Option<u32> {
+    shader_variant_keyword_mask(&ids.stem, "_ALPHATEST")?;
+
+    let mut bits = 0u32;
+    set_variant_keyword(
+        &ids.stem,
+        &mut bits,
+        "_COLOR",
+        unlit_color_is_non_white(store, lookup, ids),
+    );
+    set_variant_keyword(
+        &ids.stem,
+        &mut bits,
+        "_TEXTURE",
+        texture_property_present_pids(store, lookup, &[ids.shared.tex, ids.shared.main_tex]),
+    );
+    set_variant_keyword(
+        &ids.stem,
+        &mut bits,
+        "_OFFSET_TEXTURE",
+        keyword_float_is_enabled(unlit_keyword_inferred(
+            "_OFFSET_TEXTURE",
+            store,
+            lookup,
+            ids,
+        )),
+    );
+    set_variant_keyword(
+        &ids.stem,
+        &mut bits,
+        "_MASK_TEXTURE_MUL",
+        keyword_float_is_enabled(unlit_keyword_inferred(
+            "_MASK_TEXTURE_MUL",
+            store,
+            lookup,
+            ids,
+        )),
+    );
+    set_variant_keyword(
+        &ids.stem,
+        &mut bits,
+        "_RIGHT_EYE_ST",
+        keyword_float_is_enabled(unlit_keyword_inferred("_RIGHT_EYE_ST", store, lookup, ids)),
+    );
+    set_variant_keyword(
+        &ids.stem,
+        &mut bits,
+        "_ALPHATEST",
+        keyword_float_is_enabled(blend_keyword_inferred(
+            "_ALPHATEST",
+            store,
+            lookup,
+            ids.shared.as_ref(),
+        )),
+    );
+    set_variant_keyword(
+        &ids.stem,
+        &mut bits,
+        "_MUL_RGB_BY_ALPHA",
+        keyword_float_is_enabled(blend_keyword_inferred(
+            "_MUL_RGB_BY_ALPHA",
+            store,
+            lookup,
+            ids.shared.as_ref(),
+        )),
+    );
+    set_variant_keyword(&ids.stem, &mut bits, "_VERTEXCOLORS", true);
+    Some(bits)
+}
+
+fn set_variant_keyword(stem: &str, bits: &mut u32, keyword_name: &str, enabled: bool) {
+    if !enabled {
+        return;
+    }
+    if let Some(mask) = shader_variant_keyword_mask(stem, keyword_name) {
+        *bits |= mask;
+    }
+}
+
+fn unlit_color_is_non_white(
+    store: &MaterialPropertyStore,
+    lookup: MaterialPropertyLookupIds,
+    ids: &StemEmbeddedPropertyIds,
+) -> bool {
+    let Some(pid) = ids.uniform_field_ids.get("_Color").copied() else {
+        return false;
+    };
+    let Some(MaterialPropertyValue::Float4(color)) = store.get_merged(lookup, pid) else {
+        return false;
+    };
+    color
+        .iter()
+        .zip([1.0, 1.0, 1.0, 1.0])
+        .any(|(component, default)| (*component - default).abs() > f32::EPSILON)
 }
 
 /// Discriminant of [`crate::shared::MaterialRenderType::TransparentCutout`] on the wire.

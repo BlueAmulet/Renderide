@@ -3,7 +3,6 @@
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
 };
-use crate::materials::shader_variant::shader_variant_uniform_keyword_float;
 use crate::materials::{ReflectedRasterLayout, ReflectedUniformField, ReflectedUniformScalarKind};
 use crate::shared::ColorProfile;
 
@@ -23,7 +22,7 @@ use helpers::{
     default_f32_for_field, default_vec4_for_field, first_float_by_pids,
     shader_writer_unescaped_field_name,
 };
-use tables::inferred_keyword_float_f32;
+use tables::{inferred_keyword_float_f32, inferred_shader_variant_bits_u32};
 
 /// Suffix convention that opts a uniform field in to host `mipmap_bias` population.
 const LOD_BIAS_SUFFIX: &str = "_LodBias";
@@ -47,6 +46,13 @@ const UNITY_STENCIL_OP_KEEP: i32 = 0;
 const UNITY_COLOR_MASK_NONE: i32 = 0;
 
 fn write_f32_at(buf: &mut [u8], field: &ReflectedUniformField, v: f32) {
+    let off = field.offset as usize;
+    if off + 4 <= buf.len() && field.size >= 4 {
+        buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
+    }
+}
+
+fn write_u32_at(buf: &mut [u8], field: &ReflectedUniformField, v: u32) {
     let off = field.offset as usize;
     if off + 4 <= buf.len() && field.size >= 4 {
         buf[off..off + 4].copy_from_slice(&v.to_le_bytes());
@@ -110,7 +116,7 @@ pub(crate) struct UniformPackTextureContext<'a> {
 /// Every value comes from one of several sources, in priority order: texture storage-orientation
 /// flags for fields following the [`STORAGE_V_INVERTED_SUFFIX`] convention, host-sourced sampler
 /// state for fields following the [`LOD_BIAS_SUFFIX`] convention (`_<Tex>_LodBias`), decoded
-/// shader-variant keywords, the host's property store (for host-declared properties), inferred text mode from `_FontAtlas` profile,
+/// renderer-reserved variant bitfields, the host's property store (for host-declared properties), inferred text mode from `_FontAtlas` profile,
 /// inferred UI rect clipping from stencil state, explicit-only zero-default UI controls,
 /// [`inferred_keyword_float_f32`] for multi-compile keyword
 /// fields (`_NORMALMAP`, `_ALPHATEST_ON`, ...) that do not yet have shader-specific variant
@@ -173,12 +179,6 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                     lod_bias_for_field(field_name, reflected, ids, store, lookup, tex_ctx)
                 {
                     bias
-                } else if let Some(variant_keyword) = shader_variant_uniform_keyword_float(
-                    &ids.stem,
-                    shader_variant_bits,
-                    shader_writer_unescaped_field_name(field_name),
-                ) {
-                    variant_keyword
                 } else if let Some(MaterialPropertyValue::Float(f)) = store.get_merged(lookup, pid)
                 {
                     *f
@@ -205,7 +205,17 @@ pub(crate) fn build_embedded_uniform_bytes_with_value_spaces(
                 };
                 write_f32_at(&mut buf, field, v);
             }
-            ReflectedUniformScalarKind::U32 => {}
+            ReflectedUniformScalarKind::U32 => {
+                let v = inferred_shader_variant_bits_u32(
+                    shader_writer_unescaped_field_name(field_name),
+                    shader_variant_bits,
+                    store,
+                    lookup,
+                    ids,
+                )
+                .unwrap_or(0);
+                write_u32_at(&mut buf, field, v);
+            }
             ReflectedUniformScalarKind::Unsupported => {
                 if let Some(MaterialPropertyValue::Float4Array(values)) =
                     store.get_merged(lookup, pid)

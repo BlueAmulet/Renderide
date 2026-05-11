@@ -71,6 +71,62 @@ fn declares_f32_field(src: &str, field_name: &str) -> bool {
     })
 }
 
+#[test]
+fn unlit_uses_reserved_variant_bits_instead_of_keyword_uniform_fields() -> io::Result<()> {
+    let src = material_source("unlit.wgsl")?;
+    assert!(src.contains("_RenderideVariantBits: u32"));
+
+    for field_name in [
+        "_ALPHATEST",
+        "_ALPHATEST_ON",
+        "_ALPHABLEND_ON",
+        "_COLOR",
+        "_MASK_TEXTURE_CLIP",
+        "_MASK_TEXTURE_MUL",
+        "_MUL_ALPHA_INTENSITY",
+        "_MUL_RGB_BY_ALPHA",
+        "_OFFSET_TEXTURE",
+        "_POLARUV",
+        "_RIGHT_EYE_ST",
+        "_TEXTURE",
+        "_TEXTURE_NORMALMAP",
+        "_VERTEX_LINEAR_COLOR",
+        "_VERTEX_SRGB_COLOR",
+        "_VERTEXCOLORS",
+    ] {
+        assert!(
+            !declares_f32_field(&src, field_name),
+            "{field_name} must be decoded from _RenderideVariantBits instead of packed as f32"
+        );
+    }
+
+    for (constant_name, bit_index) in [
+        ("UNLIT_KW_ALPHATEST", 0),
+        ("UNLIT_KW_COLOR", 1),
+        ("UNLIT_KW_MASK_TEXTURE_CLIP", 2),
+        ("UNLIT_KW_MASK_TEXTURE_MUL", 3),
+        ("UNLIT_KW_MUL_ALPHA_INTENSITY", 4),
+        ("UNLIT_KW_MUL_RGB_BY_ALPHA", 5),
+        ("UNLIT_KW_OFFSET_TEXTURE", 6),
+        ("UNLIT_KW_POLARUV", 7),
+        ("UNLIT_KW_RIGHT_EYE_ST", 8),
+        ("UNLIT_KW_TEXTURE", 9),
+        ("UNLIT_KW_TEXTURE_NORMALMAP", 10),
+        ("UNLIT_KW_VERTEX_LINEAR_COLOR", 11),
+        ("UNLIT_KW_VERTEX_SRGB_COLOR", 12),
+        ("UNLIT_KW_VERTEXCOLORS", 13),
+    ] {
+        assert!(
+            src.contains(&format!("const {constant_name}: u32 = 1u << {bit_index}u;")),
+            "{constant_name} must match the Froox sorted UniqueKeywords bit order"
+        );
+    }
+
+    assert!(src.contains("tex_color = tex_color * mat._Color;"));
+    assert!(src.contains("color = mat._Color;"));
+    Ok(())
+}
+
 fn all_texture_samples_guarded_by_keyword(src: &str, texture_name: &str, keyword: &str) -> bool {
     let sample = format!("textureSample({texture_name},");
     let guard = format!("uvu::kw_enabled(mat.{keyword})");

@@ -13,7 +13,7 @@
 //! |---|---|---|---|
 //! | Pipeline state | `_SrcBlend`, `_DstBlend`, `_ZWrite`, `_ZTest`, `_Cull`, `_Stencil*`, `_ColorMask`, `_OffsetFactor`, `_OffsetUnits` | [`MaterialBlendMode`] + [`MaterialRenderState`] | [`MaterialPipelineCacheKey`] (`wgpu::RenderPipeline` build) |
 //! | Shader uniform -- value | `_Color`, `_Tint`, `_Cutoff`, `_Glossiness`, `*_ST` | Host property store, packed by reflection | `@group(1) @binding(0)` material struct |
-//! | Shader uniform -- keyword | `_NORMALMAP`, `_ALPHATEST_ON`, `_ALPHABLEND_ON` | Shader-specific variant bitmask first, then host property / [`crate::materials::embedded::uniform_pack`] inference for shaders without metadata | `@group(1) @binding(0)` material struct |
+//! | Shader uniform -- keyword | `_NORMALMAP`, `_ALPHATEST_ON`, `_ALPHABLEND_ON`, `_RenderideVariantBits` | Shader-specific variant bitmask first; fallback host property / [`crate::materials::embedded::uniform_pack`] inference only when no parsed variant is available | `@group(1) @binding(0)` material struct |
 //! | Texture | `_MainTex`, `_NormalMap`, ... | Host texture pools, bound by reflection | `@group(1) @binding(N)` |
 //!
 //! **Pipeline-state property names must NEVER appear in a shader's `@group(1) @binding(0)`
