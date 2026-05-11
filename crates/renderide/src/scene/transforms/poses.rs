@@ -58,6 +58,12 @@ fn collect_pose_rows(poses: &[TransformPoseUpdate], node_count: usize) -> Vec<Po
 }
 
 /// Applies pose rows from a pre-extracted slice, repairing invalid components before commit.
+///
+/// Steady-state Resonite scenes route pose updates for every transform in an avatar skeleton each
+/// frame even when most bones did not animate. We bitwise-compare each row to the existing scene
+/// pose and skip the repair + write + dirty mark when they match. The mark drives downstream
+/// world-matrix recomputation, so skipping it here also skips per-node work in the cache flush
+/// and the prepared-renderables expansion later in the frame.
 pub(super) fn apply_transform_pose_updates_extracted(
     space: &mut RenderSpaceState,
     poses: &[TransformPoseUpdate],
@@ -72,9 +78,27 @@ pub(super) fn apply_transform_pose_updates_extracted(
     let rows = collect_pose_rows(poses, space.nodes.len());
     for row in rows {
         let fallback = space.nodes[row.transform_index];
-        space.nodes[row.transform_index] = repair_render_transform(&row.pose, &fallback);
+        // Bitwise-equal poses repair to themselves, so the cheaper compare lets us skip the dirty
+        // mark that drives downstream world-matrix recompute and prepared-renderables refresh.
+        if pose_matches(&row.pose, &fallback) {
+            continue;
+        }
+        let repaired = repair_render_transform(&row.pose, &fallback);
+        // After repair the value may still equal the existing scene pose (e.g. a clamp produced
+        // the same number as the cached fallback). Treat that case as unchanged too.
+        if pose_matches(&repaired, &fallback) {
+            continue;
+        }
+        space.nodes[row.transform_index] = repaired;
         changed.mark(row.transform_index);
     }
+}
+
+/// Field-wise bitwise equality for [`RenderTransform`]. Defers to `glam`'s `PartialEq` on `Vec3`
+/// and `Quat` so identical bit patterns compare equal.
+#[inline]
+fn pose_matches(a: &RenderTransform, b: &RenderTransform) -> bool {
+    a.position == b.position && a.scale == b.scale && a.rotation == b.rotation
 }
 
 /// Marks per-node dirty flags after local transform edits.
@@ -253,6 +277,55 @@ mod tests {
         assert_eq!(space.nodes[0].rotation.y, bad.rotation.y);
         assert_eq!(space.nodes[0].rotation.z, bad.rotation.z);
         assert_eq!(space.nodes[0].rotation.w, existing.rotation.w);
+        assert!(changed.any());
+    }
+
+    /// A pose row that exactly matches the existing scene pose is a no-op: the dirty mask must
+    /// stay clean so downstream world-matrix recompute and prepared-renderables refresh do not
+    /// fire on bones that did not actually move this tick.
+    #[test]
+    fn pose_matching_existing_scene_pose_leaves_dirty_mask_clean() {
+        let pose = pose_at(7.5);
+        let mut space = RenderSpaceState::default();
+        space.nodes.push(pose);
+        let mut changed = NodeDirtyMask::new(space.nodes.len());
+
+        apply_transform_pose_updates_extracted(
+            &mut space,
+            &[TransformPoseUpdate {
+                transform_id: 0,
+                pose,
+            }],
+            11,
+            3,
+            &mut changed,
+        );
+
+        assert_eq!(space.nodes[0].position, pose.position);
+        assert_eq!(space.nodes[0].scale, pose.scale);
+        assert_eq!(space.nodes[0].rotation, pose.rotation);
+        assert!(!changed.any(), "matching pose must not mark the node dirty");
+    }
+
+    /// A genuine pose change must still mark the node dirty.
+    #[test]
+    fn pose_with_distinct_position_marks_node_dirty() {
+        let mut space = RenderSpaceState::default();
+        space.nodes.push(pose_at(1.0));
+        let mut changed = NodeDirtyMask::new(space.nodes.len());
+
+        apply_transform_pose_updates_extracted(
+            &mut space,
+            &[TransformPoseUpdate {
+                transform_id: 0,
+                pose: pose_at(2.0),
+            }],
+            13,
+            5,
+            &mut changed,
+        );
+
+        assert_eq!(space.nodes[0].position.x, 2.0);
         assert!(changed.any());
     }
 }
