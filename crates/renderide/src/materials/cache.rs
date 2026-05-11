@@ -148,6 +148,11 @@ impl MaterialPipelineCache {
     /// Returns the cached pipeline set or queues a background build for a miss.
     ///
     /// On a cache hit, does not compose WGSL or run reflection; those run only on the worker.
+    ///
+    /// Recording paths invoke this concurrently from rayon workers; the per-call hot path now
+    /// avoids touching the completion channel and the pending-build mutexes when the entry is
+    /// already cached. Callers must invoke [`Self::drain_pipeline_build_completions`] once per
+    /// frame before recording so freshly-built pipelines land in the cache.
     pub(super) fn get_or_queue(
         &self,
         kind: &RasterPipelineKind,
@@ -155,7 +160,6 @@ impl MaterialPipelineCache {
         variant: MaterialPipelineVariantSpec,
     ) -> MaterialPipelineLookup {
         profiling::scope!("materials::get_or_create_pipeline");
-        self.drain_completed_pipeline_builds();
         let key = Self::cache_key(kind, desc, variant);
 
         if let Some(hit) = self.cached_pipeline_set(&key) {
@@ -235,6 +239,16 @@ impl MaterialPipelineCache {
             self.failed_pipeline_builds.lock().insert(key, e.clone());
             logger::warn!("MaterialPipelineCache: could not queue {kind:?} pipeline build: {e}");
         }
+    }
+
+    /// Drains the background-build completion channel into the pipeline cache.
+    ///
+    /// Must be called once per frame before per-view recording starts. Pulling the channel off
+    /// the hot path keeps [`Self::get_or_queue`] from contending the pending/failed mutexes on
+    /// every cache probe.
+    pub(super) fn drain_pipeline_build_completions(&self) {
+        profiling::scope!("materials::drain_pipeline_build_completions");
+        self.drain_completed_pipeline_builds();
     }
 
     fn drain_completed_pipeline_builds(&self) {

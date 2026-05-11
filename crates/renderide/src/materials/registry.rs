@@ -162,4 +162,12 @@ impl MaterialRegistry {
     pub fn variant_bits_for_shader_asset(&self, shader_asset_id: i32) -> Option<u32> {
         self.router.variant_bits_for_shader_asset(shader_asset_id)
     }
+
+    /// Drains finished background pipeline builds into the cache.
+    ///
+    /// Invoked once per frame from the renderer's tick before per-view recording so worker
+    /// threads never touch the completion channel or the pending/failed mutexes during draw.
+    pub fn drain_pipeline_build_completions(&self) {
+        self.cache.drain_pipeline_build_completions();
+    }
 }
