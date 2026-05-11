@@ -12,7 +12,8 @@ use super::super::profile::ActiveControllerProfile;
 
 /// Per-profile inputs after [`super::axis::derive_openxr_axis_button_flags`].
 ///
-/// Bundles everything needed by the profile-specific `openxr_*_controller_state` builders.
+/// Bundles everything needed by the profile-specific `openxr_*_controller_state` builders. Each
+/// builder destructures only the subset of fields it uses via [`bind_ctx!`].
 pub(super) struct OpenxrHostControllerCtx {
     pub(super) frame: ControllerFrame,
     pub(super) is_tracking: bool,
@@ -43,24 +44,15 @@ pub(super) struct OpenxrHostControllerCtx {
     pub(super) select: bool,
 }
 
-/// Oculus Touch-class mapping (also used by profiles without a dedicated host variant).
-fn host_state_touch_class_profile(ctx: OpenxrHostControllerCtx) -> VRControllerState {
-    openxr_touch_class_controller_state(ctx)
-}
-
-/// Valve Index mapping (thumbsticks + trackpads).
-fn host_state_index_profile(ctx: OpenxrHostControllerCtx) -> VRControllerState {
-    openxr_index_controller_state(ctx)
-}
-
-/// HTC Vive wand mapping.
-fn host_state_vive_profile(ctx: OpenxrHostControllerCtx) -> VRControllerState {
-    openxr_vive_controller_state(ctx)
-}
-
-/// Windows Mixed Reality mapping.
-fn host_state_windows_mr_profile(ctx: OpenxrHostControllerCtx) -> VRControllerState {
-    openxr_windows_mr_controller_state(ctx)
+/// Binds the listed [`OpenxrHostControllerCtx`] fields as local variables.
+///
+/// Each profile builder destructures only the subset of fields it uses; the remaining fields
+/// are dropped at the destructure site via `..`, which keeps each builder's signature visible
+/// at a glance instead of forcing every field name into every builder.
+macro_rules! bind_ctx {
+    ($ctx:expr, [ $($field:ident),* $(,)? ]) => {
+        let OpenxrHostControllerCtx { $($field,)* .. } = $ctx;
+    };
 }
 
 /// Dispatches to the concrete [`VRControllerState`] constructor for the active interaction profile.
@@ -84,45 +76,42 @@ pub(super) fn dispatch_openxr_profile_to_host_state(
         | ActiveControllerProfile::ViveCosmos
         | ActiveControllerProfile::ViveFocus3
         | ActiveControllerProfile::Generic
-        | ActiveControllerProfile::Simple => host_state_touch_class_profile(ctx),
-        ActiveControllerProfile::Index => host_state_index_profile(ctx),
-        ActiveControllerProfile::Vive => host_state_vive_profile(ctx),
-        ActiveControllerProfile::WindowsMr => host_state_windows_mr_profile(ctx),
+        | ActiveControllerProfile::Simple => openxr_touch_class_controller_state(ctx),
+        ActiveControllerProfile::Index => openxr_index_controller_state(ctx),
+        ActiveControllerProfile::Vive => openxr_vive_controller_state(ctx),
+        ActiveControllerProfile::WindowsMr => openxr_windows_mr_controller_state(ctx),
     }
 }
 
 /// Oculus Touch-class layout; the Quest-shaped host payload used by every OpenXR profile that
 /// lacks a dedicated host [`VRControllerState`] variant.
 fn openxr_touch_class_controller_state(ctx: OpenxrHostControllerCtx) -> VRControllerState {
-    let OpenxrHostControllerCtx {
-        frame,
-        is_tracking,
-        device_id,
-        device_model,
-        side,
-        body_node,
-        trigger,
-        trigger_touch,
-        trigger_click,
-        squeeze,
-        squeeze_click: _,
-        grip_touch: _,
-        grip_click,
-        joystick_touch,
-        touchpad_touch: _,
-        thumbstick,
-        thumbstick_click,
-        trackpad: _,
-        trackpad_click: _,
-        trackpad_force: _,
-        primary,
-        secondary,
-        primary_touch,
-        secondary_touch,
-        menu,
-        thumbrest_touch,
-        select,
-    } = ctx;
+    bind_ctx!(
+        ctx,
+        [
+            frame,
+            is_tracking,
+            device_id,
+            device_model,
+            side,
+            body_node,
+            trigger,
+            trigger_touch,
+            trigger_click,
+            squeeze,
+            grip_click,
+            joystick_touch,
+            thumbstick,
+            thumbstick_click,
+            primary,
+            secondary,
+            primary_touch,
+            secondary_touch,
+            menu,
+            thumbrest_touch,
+            select,
+        ]
+    );
     // The Khronos Simple profile only exposes `/input/select/click` and `/input/menu/click`, so
     // fold `select` into the Touch-class trigger/click channels. On profiles that bind trigger
     // directly this is a no-op (select is false).
@@ -161,36 +150,36 @@ fn openxr_touch_class_controller_state(ctx: OpenxrHostControllerCtx) -> VRContro
     })
 }
 
+/// Valve Index controller payload: analog grip, trackpads with force, A/B buttons.
 fn openxr_index_controller_state(ctx: OpenxrHostControllerCtx) -> VRControllerState {
-    let OpenxrHostControllerCtx {
-        frame,
-        is_tracking,
-        device_id,
-        device_model,
-        side,
-        body_node,
-        trigger,
-        trigger_touch,
-        trigger_click,
-        squeeze,
-        squeeze_click: _,
-        grip_touch,
-        grip_click,
-        joystick_touch,
-        touchpad_touch,
-        thumbstick,
-        thumbstick_click,
-        trackpad,
-        trackpad_click,
-        trackpad_force,
-        primary,
-        secondary,
-        primary_touch,
-        secondary_touch,
-        menu: _,
-        thumbrest_touch: _,
-        select: _,
-    } = ctx;
+    bind_ctx!(
+        ctx,
+        [
+            frame,
+            is_tracking,
+            device_id,
+            device_model,
+            side,
+            body_node,
+            trigger,
+            trigger_touch,
+            trigger_click,
+            squeeze,
+            grip_touch,
+            grip_click,
+            joystick_touch,
+            touchpad_touch,
+            thumbstick,
+            thumbstick_click,
+            trackpad,
+            trackpad_click,
+            trackpad_force,
+            primary,
+            secondary,
+            primary_touch,
+            secondary_touch,
+        ]
+    );
     VRControllerState::IndexControllerState(IndexControllerState {
         grip: squeeze,
         grip_touch,
@@ -225,36 +214,28 @@ fn openxr_index_controller_state(ctx: OpenxrHostControllerCtx) -> VRControllerSt
     })
 }
 
+/// HTC Vive wand payload: boolean grip, app menu, trackpad-only.
 fn openxr_vive_controller_state(ctx: OpenxrHostControllerCtx) -> VRControllerState {
-    let OpenxrHostControllerCtx {
-        frame,
-        is_tracking,
-        device_id,
-        device_model,
-        side,
-        body_node,
-        trigger,
-        trigger_touch,
-        trigger_click,
-        squeeze,
-        squeeze_click,
-        grip_touch: _,
-        grip_click: _,
-        joystick_touch: _,
-        touchpad_touch,
-        thumbstick: _,
-        thumbstick_click: _,
-        trackpad,
-        trackpad_click,
-        trackpad_force: _,
-        primary: _,
-        secondary: _,
-        primary_touch: _,
-        secondary_touch: _,
-        menu,
-        thumbrest_touch: _,
-        select: _,
-    } = ctx;
+    bind_ctx!(
+        ctx,
+        [
+            frame,
+            is_tracking,
+            device_id,
+            device_model,
+            side,
+            body_node,
+            trigger,
+            trigger_touch,
+            trigger_click,
+            squeeze,
+            squeeze_click,
+            touchpad_touch,
+            trackpad,
+            trackpad_click,
+            menu,
+        ]
+    );
     VRControllerState::ViveControllerState(ViveControllerState {
         grip: squeeze_click || squeeze > 0.5,
         app: menu,
@@ -280,36 +261,30 @@ fn openxr_vive_controller_state(ctx: OpenxrHostControllerCtx) -> VRControllerSta
     })
 }
 
+/// Windows Mixed Reality payload: boolean grip, both thumbstick and trackpad.
 fn openxr_windows_mr_controller_state(ctx: OpenxrHostControllerCtx) -> VRControllerState {
-    let OpenxrHostControllerCtx {
-        frame,
-        is_tracking,
-        device_id,
-        device_model,
-        side,
-        body_node,
-        trigger,
-        trigger_touch,
-        trigger_click,
-        squeeze,
-        squeeze_click,
-        grip_touch: _,
-        grip_click: _,
-        joystick_touch: _,
-        touchpad_touch,
-        thumbstick,
-        thumbstick_click,
-        trackpad,
-        trackpad_click,
-        trackpad_force: _,
-        primary: _,
-        secondary: _,
-        primary_touch: _,
-        secondary_touch: _,
-        menu,
-        thumbrest_touch: _,
-        select: _,
-    } = ctx;
+    bind_ctx!(
+        ctx,
+        [
+            frame,
+            is_tracking,
+            device_id,
+            device_model,
+            side,
+            body_node,
+            trigger,
+            trigger_touch,
+            trigger_click,
+            squeeze,
+            squeeze_click,
+            touchpad_touch,
+            thumbstick,
+            thumbstick_click,
+            trackpad,
+            trackpad_click,
+            menu,
+        ]
+    );
     VRControllerState::WindowsMRControllerState(WindowsMRControllerState {
         grip: squeeze_click || squeeze > 0.5,
         app: menu,
