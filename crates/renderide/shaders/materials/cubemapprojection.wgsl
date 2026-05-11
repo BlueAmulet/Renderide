@@ -2,22 +2,30 @@
 //!
 //! Treats the mesh UV0 as equirectangular angles, builds a unit direction (X-axis tilt by
 //! latitude, Y-axis spin by longitude), applies the host-supplied `_Rotation` orthonormal basis,
-//! and samples the cubemap. `FLIP > 0.5` negates the direction (Unity `FLIP` multi-compile).
+//! and samples the cubemap. The `FLIP` variant bit (Unity `#pragma multi_compile _ FLIP`)
+//! negates the direction.
 
 #import renderide::skybox::cubemap_storage as cubemap_storage
 #import renderide::post::filter_vertex as fv
 #import renderide::frame::globals as rg
+#import renderide::material::variant_bits as vb
 
 struct CubemapProjectionMaterial {
     _Rotation: mat4x4<f32>,
-    FLIP: f32,
     _Cube_StorageVInverted: f32,
+    _RenderideVariantBits: u32,
     _pad0: vec2<f32>,
 }
+
+const CUBEMAPPROJECTION_KW_FLIP: u32 = 1u << 0u;
 
 @group(1) @binding(0) var<uniform> mat: CubemapProjectionMaterial;
 @group(1) @binding(1) var _Cube: texture_cube<f32>;
 @group(1) @binding(2) var _Cube_sampler: sampler;
+
+fn kw_FLIP() -> bool {
+    return vb::enabled(mat._RenderideVariantBits, CUBEMAPPROJECTION_KW_FLIP);
+}
 
 const PI: f32 = 3.14159265359;
 const TAU: f32 = 6.28318530718;
@@ -63,7 +71,7 @@ fn fs_main(
     var dir = equirect_to_dir(primary_uv);
     let rot3 = mat3x3<f32>(mat._Rotation[0].xyz, mat._Rotation[1].xyz, mat._Rotation[2].xyz);
     dir = rot3 * dir;
-    if (mat.FLIP > 0.5) {
+    if (kw_FLIP()) {
         dir = -dir;
     }
     let color = textureSample(
