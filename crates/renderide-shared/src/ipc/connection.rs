@@ -30,10 +30,7 @@ pub struct ConnectionParams {
     pub queue_capacity: i64,
 }
 
-/// Parse `-QueueName` and `-QueueCapacity` from process arguments (case-insensitive flag suffix).
-///
-/// Returns [`None`] if either argument is missing or invalid so the renderer can run in
-/// **standalone** mode for development.
+/// Process-wide guard ensuring only one renderer initializes the IPC singleton.
 static RENDERIDE_SINGLETON_CLAIMED: AtomicBool = AtomicBool::new(false);
 
 /// Reserves the single-renderer process guard (Unity: one `RenderingManager`).
@@ -51,12 +48,21 @@ pub fn try_claim_renderer_singleton() -> Result<(), InitError> {
 /// Returns [`None`] when arguments are missing or invalid so the process can run without IPC.
 pub fn get_connection_parameters() -> Option<ConnectionParams> {
     let args: Vec<String> = env::args().collect();
+    parse_connection_args(&args)
+}
+
+/// Scans `args` for the first complete `-QueueName` / `-QueueCapacity` pair (case-insensitive
+/// flag suffix). Returns [`None`] when either flag is missing, malformed, or duplicated before
+/// the pair completes; the renderer treats `None` as standalone mode.
+///
+/// This is the production parser; both [`get_connection_parameters`] and the unit tests drive it.
+fn parse_connection_args(args: &[String]) -> Option<ConnectionParams> {
     if args.is_empty() {
         return None;
     }
 
-    let mut queue_name = None;
-    let mut queue_capacity = None;
+    let mut queue_name: Option<String> = None;
+    let mut queue_capacity: Option<i64> = None;
 
     let mut i = 0;
     while i < args.len() {
@@ -117,6 +123,11 @@ pub fn publisher_queue_name(base: &str, channel: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse_args(args: &[&str]) -> Option<ConnectionParams> {
+        let owned: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
+        parse_connection_args(&owned)
+    }
 
     #[test]
     fn parses_queue_name_and_capacity_case_insensitive() {
@@ -218,8 +229,6 @@ mod tests {
 
     #[test]
     fn parse_args_returns_first_complete_pair_and_ignores_later_flags() {
-        // Implementation returns as soon as both name and positive capacity are set; trailing
-        // arguments are not validated (matches `get_connection_parameters` scan semantics).
         let cmd = [
             "renderide",
             "-QueueName",
@@ -255,6 +264,11 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_returns_none_for_empty_argv() {
+        assert_eq!(parse_args(&[]), None);
+    }
+
+    #[test]
     fn ipc_suffixes_match_cloudtoid_non_authority() {
         let p = ConnectionParams {
             queue_name: "Foo".to_string(),
@@ -276,52 +290,5 @@ mod tests {
             publisher_queue_name(&p.queue_name, "Background"),
             "FooBackgroundS"
         );
-    }
-
-    fn parse_args(args: &[&str]) -> Option<ConnectionParams> {
-        // Scope env::args for testing without std::env::set_var
-        let owned: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
-        let mut queue_name = None;
-        let mut queue_capacity = None;
-        let mut i = 0;
-        while i < owned.len() {
-            let arg = &owned[i];
-            let next_i = i + 1;
-            if next_i >= owned.len() {
-                break;
-            }
-            let arg_lower = arg.to_lowercase();
-            if arg_lower.ends_with("queuename") {
-                if queue_name.is_some() {
-                    return None;
-                }
-                queue_name = Some(owned[next_i].clone());
-                i = next_i;
-            } else if arg_lower.ends_with("queuecapacity") {
-                if queue_capacity.is_some_and(|c| c > 0) {
-                    return None;
-                }
-                queue_capacity = owned[next_i].parse().ok().filter(|&c| c > 0);
-                i = next_i;
-            }
-            i += 1;
-            if let Some(name) = queue_name.as_ref()
-                && let Some(cap) = queue_capacity
-                && cap > 0
-            {
-                return Some(ConnectionParams {
-                    queue_name: name.clone(),
-                    queue_capacity: cap,
-                });
-            }
-        }
-        queue_name.and_then(|name| {
-            queue_capacity
-                .filter(|&c| c > 0)
-                .map(|cap| ConnectionParams {
-                    queue_name: name,
-                    queue_capacity: cap,
-                })
-        })
     }
 }

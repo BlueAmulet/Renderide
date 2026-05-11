@@ -1,7 +1,6 @@
 //! [`SharedMemoryAccessor`]: lazy map cache for host shared buffers.
 
 use hashbrown::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytemuck::{Pod, Zeroable};
 
@@ -21,11 +20,10 @@ use super::unix::SharedMemoryView;
 use super::windows::SharedMemoryView;
 
 use super::bounds::required_view_capacity;
-
-static SHARED_MEMORY_READ_FAILURES: AtomicU64 = AtomicU64::new(0);
-
-const SHARED_MEMORY_READ_FAILURE_FIRST_LOGS: u64 = 8;
-const SHARED_MEMORY_READ_FAILURE_LOG_EVERY: u64 = 256;
+use super::diagnostics::{
+    describe_descriptor_failure, describe_get_view_failure, describe_slice_failure,
+    describe_slice_failure_with_descriptor, log_shared_memory_read_failure, make_context_prefixer,
+};
 
 /// Lazy mapping cache keyed by `buffer_id` for host shared buffers.
 pub struct SharedMemoryAccessor {
@@ -34,6 +32,9 @@ pub struct SharedMemoryAccessor {
 }
 
 impl SharedMemoryAccessor {
+    /// Maximum bytes allocated for a single [`Self::access_copy`] (guards corrupt `length`).
+    pub const MAX_ACCESS_COPY_BYTES: i32 = 64 * 1024 * 1024;
+
     /// Builds an accessor with the session prefix from [`RendererInitData::shared_memory_prefix`](crate::shared::RendererInitData::shared_memory_prefix).
     pub fn new(prefix: String) -> Self {
         Self {
@@ -118,8 +119,61 @@ impl SharedMemoryAccessor {
         self.views.get_mut(&buffer_id)
     }
 
-    /// Maximum bytes allocated for a single [`Self::access_copy`] (guards corrupt `length`).
-    pub const MAX_ACCESS_COPY_BYTES: i32 = 64 * 1024 * 1024;
+    /// Resolves `descriptor` to an immutable byte slice and runs `f` against it.
+    ///
+    /// Routes `get_view` / `slice` failures through `prefix_err` and the diagnostics formatters so
+    /// every `access_copy_*` flavour produces the same error wording for the mapping/slicing
+    /// steps. Callers handle their own descriptor- and payload-shape validation before invoking.
+    fn with_validated_slice<R>(
+        &mut self,
+        descriptor: &SharedMemoryBufferDescriptor,
+        prefix_err: &impl Fn(&str) -> String,
+        f: impl FnOnce(&[u8]) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let buffer_id = descriptor.buffer_id;
+        let path_for_diag = self.shm_path_for_buffer(buffer_id);
+        let Some(view) = self.get_view(descriptor) else {
+            return Err(prefix_err(&describe_get_view_failure(
+                buffer_id,
+                &path_for_diag,
+            )));
+        };
+        let view_len = view.len();
+        let bytes = view
+            .slice(descriptor.offset, descriptor.length)
+            .ok_or_else(|| {
+                prefix_err(&describe_slice_failure(
+                    buffer_id,
+                    descriptor.offset,
+                    descriptor.length,
+                    view_len,
+                ))
+            })?;
+        f(bytes)
+    }
+
+    /// Resolves `descriptor` to a mutable byte slice, runs `f`, and flushes the range when `f`
+    /// returns `true`. Returns `false` on any pre-`f` failure (or when `f` itself returns `false`).
+    fn with_validated_slice_mut<F: FnOnce(&mut [u8]) -> bool>(
+        &mut self,
+        descriptor: &SharedMemoryBufferDescriptor,
+        f: F,
+    ) -> bool {
+        if descriptor.length <= 0 {
+            return false;
+        }
+        let Some(view) = self.get_view(descriptor) else {
+            return false;
+        };
+        let Some(bytes) = view.slice_mut(descriptor.offset, descriptor.length) else {
+            return false;
+        };
+        if !f(bytes) {
+            return false;
+        }
+        view.flush_range(descriptor.offset, descriptor.length);
+        true
+    }
 
     /// Copy helper for small typed reads (tests / diagnostics). Prefer [`Self::with_read_bytes`] for large meshes.
     pub fn access_copy<T: Pod + Zeroable>(
@@ -146,57 +200,9 @@ impl SharedMemoryAccessor {
         profiling::scope!("shared_memory::access_copy");
         let prefix_err = make_context_prefixer(context);
         validate_access_copy_descriptor(descriptor, Self::MAX_ACCESS_COPY_BYTES, &prefix_err)?;
-        let buffer_id = descriptor.buffer_id;
-        let path_for_diag = self.shm_path_for_buffer(buffer_id);
-        let Some(view) = self.get_view(descriptor) else {
-            return Err(prefix_err(&describe_get_view_failure(
-                buffer_id,
-                &path_for_diag,
-            )));
-        };
-        let bytes = view
-            .slice(descriptor.offset, descriptor.length)
-            .ok_or_else(|| {
-                prefix_err(&describe_slice_failure(
-                    buffer_id,
-                    descriptor.offset,
-                    descriptor.length,
-                    view.len(),
-                ))
-            })?;
-        let type_size = size_of::<T>();
-        let length = descriptor.length as usize;
-        let remainder = length % type_size;
-        if remainder != 0 {
-            return Err(prefix_err(&format!(
-                "length {length} is not a multiple of type size {type_size} (remainder {remainder})"
-            )));
-        }
-        let count = length / type_size;
-        if count == 0 {
-            return Ok(Vec::new());
-        }
-
-        let align = align_of::<T>();
-        let base = bytes.as_ptr() as usize;
-        if base.is_multiple_of(align)
-            && let Ok(slice) = bytemuck::try_cast_slice::<u8, T>(bytes)
-            && slice.len() >= count
-        {
-            return Ok(slice[..count].to_vec());
-        }
-
-        let mut out = Vec::with_capacity(count);
-        for i in 0..count {
-            let start = i * type_size;
-            let chunk = bytes
-                .get(start..start + type_size)
-                .ok_or_else(|| prefix_err("pod chunk subslice"))?;
-            let value = bytemuck::try_pod_read_unaligned::<T>(chunk)
-                .map_err(|e| prefix_err(&format!("pod_read_unaligned: {e:?}")))?;
-            out.push(value);
-        }
-        Ok(out)
+        self.with_validated_slice(descriptor, &prefix_err, |bytes| {
+            copy_pod_slice::<T>(bytes, descriptor.length as usize, &prefix_err)
+        })
     }
 
     /// Copies shared memory into host-sized rows and decodes each with [`MemoryPackable::unpack`].
@@ -230,56 +236,27 @@ impl SharedMemoryAccessor {
     ) -> Result<Vec<T>, String> {
         profiling::scope!("shared_memory::access_packable_rows");
         let prefix_err = make_context_prefixer(context);
-        if element_stride == 0 {
-            return Err(prefix_err("element_stride must be nonzero"));
-        }
-        validate_access_copy_descriptor(descriptor, max_bytes, &prefix_err)?;
-        let buffer_id = descriptor.buffer_id;
-        let path_for_diag = self.shm_path_for_buffer(buffer_id);
-        let Some(view) = self.get_view(descriptor) else {
-            return Err(prefix_err(&describe_get_view_failure(
-                buffer_id,
-                &path_for_diag,
-            )));
-        };
-        let bytes = view
-            .slice(descriptor.offset, descriptor.length)
-            .ok_or_else(|| {
-                prefix_err(&describe_slice_failure(
-                    buffer_id,
-                    descriptor.offset,
-                    descriptor.length,
-                    view.len(),
-                ))
-            })?;
-        let length = descriptor.length as usize;
-        let remainder = length % element_stride;
-        if remainder != 0 {
-            return Err(prefix_err(&format!(
-                "length {length} is not a multiple of element_stride {element_stride} (remainder {remainder})"
-            )));
-        }
-        let count = length / element_stride;
-        if count == 0 {
-            return Ok(Vec::new());
-        }
-        let mut out = Vec::with_capacity(count);
-        for chunk in bytes.chunks_exact(element_stride) {
-            let mut pool = DefaultEntityPool;
-            let mut unpacker = MemoryUnpacker::new(chunk, &mut pool);
-            let mut row = T::default();
-            row.unpack(&mut unpacker).map_err(|e: WireDecodeError| {
-                prefix_err(&format!("MemoryPackable::unpack: {e}"))
-            })?;
-            if unpacker.remaining_data() != 0 {
-                return Err(prefix_err(&format!(
-                    "unpack left {} bytes unconsumed (stride {element_stride})",
-                    unpacker.remaining_data()
-                )));
+        validate_memory_packable_row_descriptor(
+            descriptor,
+            element_stride,
+            max_bytes,
+            &prefix_err,
+        )?;
+        self.with_validated_slice(descriptor, &prefix_err, |bytes| {
+            let count = descriptor.length as usize / element_stride;
+            if count == 0 {
+                return Ok(Vec::new());
             }
-            out.push(row);
-        }
-        Ok(out)
+            let mut out = Vec::with_capacity(count);
+            for chunk in bytes.chunks_exact(element_stride) {
+                out.push(unpack_memory_packable_row::<T>(
+                    chunk,
+                    element_stride,
+                    &prefix_err,
+                )?);
+            }
+            Ok(out)
+        })
     }
 
     /// Copies host-sized [`MemoryPackable`] rows until `stop_after` returns `true` for a decoded row.
@@ -307,38 +284,22 @@ impl SharedMemoryAccessor {
             max_bytes,
             &prefix_err,
         )?;
-        let buffer_id = descriptor.buffer_id;
-        let path_for_diag = self.shm_path_for_buffer(buffer_id);
-        let Some(view) = self.get_view(descriptor) else {
-            return Err(prefix_err(&describe_get_view_failure(
-                buffer_id,
-                &path_for_diag,
-            )));
-        };
-        let bytes = view
-            .slice(descriptor.offset, descriptor.length)
-            .ok_or_else(|| {
-                prefix_err(&describe_slice_failure(
-                    buffer_id,
-                    descriptor.offset,
-                    descriptor.length,
-                    view.len(),
-                ))
-            })?;
-        let count = descriptor.length as usize / element_stride;
-        if count == 0 {
-            return Ok(Vec::new());
-        }
-        let mut out = Vec::with_capacity(count.min(1024));
-        for chunk in bytes.chunks_exact(element_stride) {
-            let row = unpack_memory_packable_row::<T>(chunk, element_stride, &prefix_err)?;
-            let stop = stop_after(&row);
-            out.push(row);
-            if stop {
-                break;
+        self.with_validated_slice(descriptor, &prefix_err, |bytes| {
+            let count = descriptor.length as usize / element_stride;
+            if count == 0 {
+                return Ok(Vec::new());
             }
-        }
-        Ok(out)
+            let mut out = Vec::with_capacity(count.min(1024));
+            for chunk in bytes.chunks_exact(element_stride) {
+                let row = unpack_memory_packable_row::<T>(chunk, element_stride, &prefix_err)?;
+                let stop = stop_after(&row);
+                out.push(row);
+                if stop {
+                    break;
+                }
+            }
+            Ok(out)
+        })
     }
 
     /// Mutably accesses shared memory as `T` slices: read-modify-write with flush so the host sees updates.
@@ -353,35 +314,25 @@ impl SharedMemoryAccessor {
         F: FnOnce(&mut [T]),
     {
         profiling::scope!("shared_memory::access_mut");
-        if descriptor.length <= 0 {
-            return false;
-        }
-        let Some(view) = self.get_view(descriptor) else {
-            return false;
-        };
-        let Some(bytes) = view.slice_mut(descriptor.offset, descriptor.length) else {
-            return false;
-        };
         let type_size = size_of::<T>();
         let count = descriptor.length as usize / type_size;
         if count == 0 {
             return false;
         }
-        let mut aligned = vec![0u8; bytes.len()];
-        aligned.copy_from_slice(bytes);
-        let Ok(slice) = bytemuck::try_cast_slice_mut::<u8, T>(&mut aligned) else {
-            return false;
-        };
-        if slice.len() < count {
-            return false;
-        }
-        f(&mut slice[..count]);
-        {
+        self.with_validated_slice_mut(descriptor, |bytes| {
+            let mut aligned = vec![0u8; bytes.len()];
+            aligned.copy_from_slice(bytes);
+            let Ok(slice) = bytemuck::try_cast_slice_mut::<u8, T>(&mut aligned) else {
+                return false;
+            };
+            if slice.len() < count {
+                return false;
+            }
+            f(&mut slice[..count]);
             profiling::scope!("shared_memory::flush_mut");
             bytes.copy_from_slice(bytemuck::cast_slice(slice));
-            view.flush_range(descriptor.offset, descriptor.length);
-        };
-        true
+            true
+        })
     }
 
     /// Mutably accesses raw bytes (no `Pod` requirement). Flushes after `f` returns.
@@ -390,37 +341,58 @@ impl SharedMemoryAccessor {
         F: FnOnce(&mut [u8]),
     {
         profiling::scope!("shared_memory::access_mut_bytes");
-        if descriptor.length <= 0 {
-            return false;
-        }
-        let Some(view) = self.get_view(descriptor) else {
-            return false;
-        };
-        let Some(bytes) = view.slice_mut(descriptor.offset, descriptor.length) else {
-            return false;
-        };
-        f(bytes);
-        {
+        self.with_validated_slice_mut(descriptor, |bytes| {
+            f(bytes);
             profiling::scope!("shared_memory::flush_mut_bytes");
-            view.flush_range(descriptor.offset, descriptor.length);
-        };
-        true
+            true
+        })
     }
 }
 
-/// Builds a closure that prepends `context: ` to error messages when `context` is `Some`,
-/// and passes them through unchanged otherwise. The same pattern is repeated by every
-/// `access_copy_*` method that takes a caller-supplied diagnostic context.
-fn make_context_prefixer(context: Option<&str>) -> impl Fn(&str) -> String + '_ {
-    move |msg: &str| match context {
-        Some(ctx) => format!("{ctx}: {msg}"),
-        None => msg.to_string(),
+/// Copies a typed POD slice out of `bytes` using bytemuck, falling back to per-element unaligned
+/// reads when the source pointer is not [`T`]-aligned.
+fn copy_pod_slice<T: Pod + Zeroable>(
+    bytes: &[u8],
+    length: usize,
+    prefix_err: &impl Fn(&str) -> String,
+) -> Result<Vec<T>, String> {
+    let type_size = size_of::<T>();
+    let remainder = length % type_size;
+    if remainder != 0 {
+        return Err(prefix_err(&format!(
+            "length {length} is not a multiple of type size {type_size} (remainder {remainder})"
+        )));
     }
+    let count = length / type_size;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let align = align_of::<T>();
+    let base = bytes.as_ptr() as usize;
+    if base.is_multiple_of(align)
+        && let Ok(slice) = bytemuck::try_cast_slice::<u8, T>(bytes)
+        && slice.len() >= count
+    {
+        return Ok(slice[..count].to_vec());
+    }
+
+    let mut out = Vec::with_capacity(count);
+    for i in 0..count {
+        let start = i * type_size;
+        let chunk = bytes
+            .get(start..start + type_size)
+            .ok_or_else(|| prefix_err("pod chunk subslice"))?;
+        let value = bytemuck::try_pod_read_unaligned::<T>(chunk)
+            .map_err(|e| prefix_err(&format!("pod_read_unaligned: {e:?}")))?;
+        out.push(value);
+    }
+    Ok(out)
 }
 
 /// Validates the descriptor invariants shared by all `access_copy_*` paths: positive length and
-/// length within the `MAX_ACCESS_COPY_BYTES` ceiling. Errors are routed through `prefix_err` so
-/// the caller's diagnostic context is preserved in the returned message.
+/// length within the `max_bytes` ceiling. Errors are routed through `prefix_err` so the caller's
+/// diagnostic context is preserved in the returned message.
 fn validate_access_copy_descriptor(
     descriptor: &SharedMemoryBufferDescriptor,
     max_bytes: i32,
@@ -482,62 +454,13 @@ fn unpack_memory_packable_row<T: MemoryPackable + Default>(
     Ok(row)
 }
 
-/// Renders the diagnostic string used when [`SharedMemoryAccessor::get_view`] fails to map a
-/// shared buffer (the most common cause is a missing or truncated backing file).
-fn describe_get_view_failure(buffer_id: i32, path_or_name: &str) -> String {
-    format!("get_view failed buffer_id={buffer_id} path/name={path_or_name}")
-}
-
-/// Renders the diagnostic string used when slicing a successfully-mapped view fails (the requested
-/// offset/length range fell outside the mapped capacity).
-fn describe_slice_failure(buffer_id: i32, offset: i32, length: i32, view_len: usize) -> String {
-    format!(
-        "slice failed buffer_id={buffer_id} offset={offset} length={length} view_len={view_len}"
-    )
-}
-
-fn describe_descriptor_failure(
-    descriptor: &SharedMemoryBufferDescriptor,
-    reason: &'static str,
-    path_or_name: Option<&str>,
-) -> String {
-    format!(
-        "shared memory read failed: reason={reason} buffer_id={} offset={} length={} capacity={} path/name={}",
-        descriptor.buffer_id,
-        descriptor.offset,
-        descriptor.length,
-        descriptor.buffer_capacity,
-        path_or_name.unwrap_or("<not-mapped>")
-    )
-}
-
-fn describe_slice_failure_with_descriptor(
-    descriptor: &SharedMemoryBufferDescriptor,
-    view_len: usize,
-) -> String {
-    format!(
-        "shared memory read failed: reason=slice failed buffer_id={} offset={} length={} capacity={} view_len={}",
-        descriptor.buffer_id,
-        descriptor.offset,
-        descriptor.length,
-        descriptor.buffer_capacity,
-        view_len
-    )
-}
-
-fn log_shared_memory_read_failure(message: &str) {
-    let occurrence = SHARED_MEMORY_READ_FAILURES.fetch_add(1, Ordering::Relaxed) + 1;
-    if occurrence <= SHARED_MEMORY_READ_FAILURE_FIRST_LOGS
-        || (occurrence - SHARED_MEMORY_READ_FAILURE_FIRST_LOGS)
-            .is_multiple_of(SHARED_MEMORY_READ_FAILURE_LOG_EVERY)
-    {
-        logger::warn!("{message} occurrence={occurrence}");
-    }
-}
-
 #[cfg(test)]
 mod access_copy_diagnostic_tests {
     use crate::buffer::SharedMemoryBufferDescriptor;
+    use crate::ipc::shared_memory::diagnostics::{
+        describe_descriptor_failure, describe_get_view_failure, describe_slice_failure,
+        make_context_prefixer,
+    };
     use crate::ipc::shared_memory::writer::{SharedMemoryWriter, SharedMemoryWriterConfig};
     use crate::shared::{
         RenderTransform, TRANSFORM_POSE_UPDATE_HOST_ROW_BYTES, TransformPoseUpdate,
@@ -545,8 +468,7 @@ mod access_copy_diagnostic_tests {
     use crate::wire_writer::{TransformPoseRow, encode_transform_pose_updates};
 
     use super::{
-        SharedMemoryAccessor, describe_get_view_failure, describe_slice_failure,
-        make_context_prefixer, validate_access_copy_descriptor,
+        SharedMemoryAccessor, validate_access_copy_descriptor,
         validate_memory_packable_row_descriptor,
     };
 
@@ -597,7 +519,7 @@ mod access_copy_diagnostic_tests {
             offset: 12,
             length: 34,
         };
-        let msg = super::describe_descriptor_failure(&d, "get_view failed", Some("path"));
+        let msg = describe_descriptor_failure(&d, "get_view failed", Some("path"));
         assert!(msg.contains("buffer_id=17"), "message={msg}");
         assert!(msg.contains("offset=12"), "message={msg}");
         assert!(msg.contains("length=34"), "message={msg}");

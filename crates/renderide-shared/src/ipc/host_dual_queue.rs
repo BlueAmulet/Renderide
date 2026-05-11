@@ -9,10 +9,10 @@
 
 use std::path::Path;
 
-use interprocess::{Publisher, QueueFactory, QueueOptions, Subscriber};
+use interprocess::{Publisher, QueueFactory, Subscriber};
 
 use super::connection::{ConnectionParams, InitError, publisher_queue_name, subscriber_queue_name};
-use super::dual_queue_shared::{drain_subscriber, encode_command};
+use super::dual_queue_shared::{drain_subscriber, encode_command, open_publisher, open_subscriber};
 use crate::packing::default_entity_pool::DefaultEntityPool;
 use crate::shared::RendererCommand;
 
@@ -64,12 +64,22 @@ impl HostDualQueueIpc {
     ) -> Result<Self, InitError> {
         let factory = QueueFactory::new();
         let cap = params.queue_capacity;
-        let primary_pub = open_authority_publisher(factory, params, "Primary", cap, dir_override)?;
+
+        // The host inverts the renderer's suffix convention: the renderer subscribes on `...A`
+        // so the host publishes there, and the renderer publishes on `...S` so the host
+        // subscribes there. `destroy_on_drop = true` because the host owns these queues.
+        let primary_pub_name = subscriber_queue_name(&params.queue_name, "Primary");
+        let background_pub_name = subscriber_queue_name(&params.queue_name, "Background");
+        let primary_sub_name = publisher_queue_name(&params.queue_name, "Primary");
+        let background_sub_name = publisher_queue_name(&params.queue_name, "Background");
+
+        let primary_pub = open_publisher(factory, &primary_pub_name, cap, dir_override, true)?;
         let background_pub =
-            open_authority_publisher(factory, params, "Background", cap, dir_override)?;
-        let primary_sub = open_authority_subscriber(factory, params, "Primary", cap, dir_override)?;
+            open_publisher(factory, &background_pub_name, cap, dir_override, true)?;
+        let primary_sub = open_subscriber(factory, &primary_sub_name, cap, dir_override, true)?;
         let background_sub =
-            open_authority_subscriber(factory, params, "Background", cap, dir_override)?;
+            open_subscriber(factory, &background_sub_name, cap, dir_override, true)?;
+
         Ok(Self {
             primary_publisher: primary_pub,
             background_publisher: background_pub,
@@ -122,52 +132,6 @@ impl HostDualQueueIpc {
         }
         self.background_publisher
             .try_enqueue(&self.send_buffer[..written])
-    }
-}
-
-/// Authority-side publisher: opens the `...A` queue (renderer subscribes here).
-fn open_authority_publisher(
-    factory: QueueFactory,
-    params: &ConnectionParams,
-    channel: &str,
-    capacity: i64,
-    dir_override: Option<&Path>,
-) -> Result<Publisher, InitError> {
-    // Renderer subscribes on `...A`; host publishes there.
-    let name = subscriber_queue_name(&params.queue_name, channel);
-    let options = build_queue_options(&name, capacity, dir_override)?;
-    factory
-        .create_publisher(options)
-        .map_err(|e| InitError::IpcConnect(e.to_string()))
-}
-
-/// Authority-side subscriber: opens the `...S` queue (renderer publishes here).
-fn open_authority_subscriber(
-    factory: QueueFactory,
-    params: &ConnectionParams,
-    channel: &str,
-    capacity: i64,
-    dir_override: Option<&Path>,
-) -> Result<Subscriber, InitError> {
-    // Renderer publishes on `...S`; host subscribes there.
-    let name = publisher_queue_name(&params.queue_name, channel);
-    let options = build_queue_options(&name, capacity, dir_override)?;
-    factory
-        .create_subscriber(options)
-        .map_err(|e| InitError::IpcConnect(e.to_string()))
-}
-
-fn build_queue_options(
-    queue_name: &str,
-    capacity: i64,
-    dir_override: Option<&Path>,
-) -> Result<QueueOptions, InitError> {
-    match dir_override {
-        Some(dir) => QueueOptions::with_path_and_destroy(queue_name, dir, capacity, true)
-            .map_err(InitError::IpcConnect),
-        None => {
-            QueueOptions::with_destroy(queue_name, capacity, true).map_err(InitError::IpcConnect)
-        }
     }
 }
 

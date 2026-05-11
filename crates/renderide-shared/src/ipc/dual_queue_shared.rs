@@ -1,13 +1,17 @@
 //! Helpers shared by [`super::dual_queue::DualQueueIpc`] (renderer side) and
 //! [`super::host_dual_queue::HostDualQueueIpc`] (host side).
 //!
-//! The two wrappers diverge in queue-suffix conventions and renderer-side backpressure tracking,
-//! but they both encode `RendererCommand` payloads and drain subscribers in identical ways. The
-//! only difference between their respective implementations was the log-label prefix used when
-//! reporting overflow or invalid messages, so those prefixes are passed in as parameters here.
+//! Both wrappers encode `RendererCommand` payloads, drain subscribers, and open Cloudtoid queues
+//! in the same way. The renderer-side wrapper additionally tracks backpressure and a reliable
+//! background outbox (see [`super::dual_queue_reliable_outbox`]), while the host-side wrapper
+//! inverts the `...A` / `...S` suffix convention so renderer and host meet on the same queues.
+//! Per-side specifics live in the wrappers; the encode/drain/open primitives below are common.
 
-use interprocess::Subscriber;
+use std::path::Path;
 
+use interprocess::{Publisher, QueueFactory, QueueOptions, Subscriber};
+
+use super::connection::InitError;
 use crate::packing::default_entity_pool::DefaultEntityPool;
 use crate::packing::memory_packer::MemoryPacker;
 use crate::packing::memory_unpacker::MemoryUnpacker;
@@ -60,6 +64,55 @@ pub(super) fn drain_subscriber(
 /// Logs an invalid-renderer-command decode failure at [`logger::warn!`].
 fn log_invalid_renderer_command(prefix: &'static str, err: WireDecodeError) {
     logger::warn!("{prefix}: dropped message ({err})");
+}
+
+/// Builds a [`QueueOptions`] for `name` with the given `capacity`, optional backing-directory
+/// override, and destroy-on-drop flag.
+///
+/// `dir_override = None` resolves the backing directory via [`interprocess::default_memory_dir`].
+/// `destroy_on_drop = true` is used by the queue owner (the host); clients (the renderer) leave
+/// the queue alone so the owner controls its lifetime.
+pub(super) fn queue_options(
+    name: &str,
+    capacity: i64,
+    dir_override: Option<&Path>,
+    destroy_on_drop: bool,
+) -> Result<QueueOptions, InitError> {
+    let result = match (dir_override, destroy_on_drop) {
+        (Some(dir), true) => QueueOptions::with_path_and_destroy(name, dir, capacity, true),
+        (Some(dir), false) => QueueOptions::with_path(name, dir, capacity),
+        (None, true) => QueueOptions::with_destroy(name, capacity, true),
+        (None, false) => QueueOptions::new(name, capacity),
+    };
+    result.map_err(InitError::IpcConnect)
+}
+
+/// Opens a [`Subscriber`] on the queue named `name`.
+pub(super) fn open_subscriber(
+    factory: QueueFactory,
+    name: &str,
+    capacity: i64,
+    dir_override: Option<&Path>,
+    destroy_on_drop: bool,
+) -> Result<Subscriber, InitError> {
+    let options = queue_options(name, capacity, dir_override, destroy_on_drop)?;
+    factory
+        .create_subscriber(options)
+        .map_err(|e| InitError::IpcConnect(e.to_string()))
+}
+
+/// Opens a [`Publisher`] on the queue named `name`.
+pub(super) fn open_publisher(
+    factory: QueueFactory,
+    name: &str,
+    capacity: i64,
+    dir_override: Option<&Path>,
+    destroy_on_drop: bool,
+) -> Result<Publisher, InitError> {
+    let options = queue_options(name, capacity, dir_override, destroy_on_drop)?;
+    factory
+        .create_publisher(options)
+        .map_err(|e| InitError::IpcConnect(e.to_string()))
 }
 
 #[cfg(test)]
