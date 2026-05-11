@@ -180,8 +180,11 @@ impl EmbeddedMaterialBindResources {
                         store,
                         lookup,
                     );
-                    let sampler =
-                        self.resolve_sampler(pools, resolved, offscreen_write_render_texture_asset_id);
+                    let sampler = self.resolve_sampler(
+                        pools,
+                        resolved,
+                        offscreen_write_render_texture_asset_id,
+                    );
                     samplers.push(sampler);
                 }
                 _ => {
