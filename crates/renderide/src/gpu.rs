@@ -11,18 +11,22 @@ pub mod depth;
 pub mod display_blit;
 pub mod driver_thread;
 pub mod frame_bindings;
-pub(crate) mod frame_bracket;
-pub(crate) mod frame_cpu_gpu_timing;
 mod instance_limits;
 pub mod limits;
 pub mod msaa_depth_resolve;
 pub mod output_depth_mode;
 pub mod present;
+pub mod profiling;
 mod submission_state;
 mod sync;
 mod vr_mirror;
 
 pub mod frame_globals;
+
+// Legacy submodule-path re-exports: external code references
+// `crate::gpu::frame_cpu_gpu_timing::*`; the file now lives under `profiling/`.
+pub use profiling::frame_cpu_gpu_timing;
+pub(crate) use profiling::frame_bracket;
 
 pub use context::{GpuContext, GpuError};
 pub use depth::{

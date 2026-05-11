@@ -10,8 +10,8 @@ use super::super::adapter::device::{
 use super::super::adapter::features::adapter_render_features_intersection;
 use super::super::adapter::msaa_support::MsaaSupport;
 use super::super::adapter::selection::{build_wgpu_instance, select_adapter};
-use super::super::frame_bracket::FrameBracket;
-use super::super::frame_cpu_gpu_timing::{FrameCpuGpuTiming, FrameCpuGpuTimingHandle};
+use super::super::profiling::frame_bracket::FrameBracket;
+use super::super::profiling::frame_cpu_gpu_timing::{FrameCpuGpuTiming, FrameCpuGpuTimingHandle};
 use super::super::limits::GpuLimits;
 use super::super::sync::mapped_buffer_health::GpuMappedBufferHealth;
 use super::{GpuContext, GpuError, PrimaryOffscreenTargets};

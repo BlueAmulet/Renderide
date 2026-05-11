@@ -4,8 +4,8 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex};
 
 use super::driver_thread::{DriverThread, SubmitToken};
-use super::frame_bracket::FrameBracket;
-use super::frame_cpu_gpu_timing::FrameCpuGpuTimingHandle;
+use super::profiling::frame_bracket::FrameBracket;
+use super::profiling::frame_cpu_gpu_timing::FrameCpuGpuTimingHandle;
 
 pub(super) struct PendingGpuProfilerEnd {
     pub(super) submit_token: SubmitToken,
