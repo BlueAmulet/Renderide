@@ -179,11 +179,50 @@ fn create_openxr_instance(xr_entry: xr::Entry) -> Result<OpenxrInstanceBundle, X
         fb_touch_controller_pro: enabled_extensions.fb_touch_controller_pro,
         meta_touch_controller_plus: enabled_extensions.meta_touch_controller_plus,
     };
+    logger::info!(
+        "OpenXR instance created: enabled_extensions=[{}]",
+        enabled_openxr_extension_summary(&enabled_extensions)
+    );
 
     Ok(OpenxrInstanceBundle {
         xr_instance,
         profile_gates,
     })
+}
+
+fn enabled_openxr_extension_summary(enabled: &xr::ExtensionSet) -> String {
+    let mut names = Vec::new();
+    if enabled.khr_vulkan_enable2 {
+        names.push("KHR_vulkan_enable2");
+    }
+    if enabled.ext_debug_utils {
+        names.push("EXT_debug_utils");
+    }
+    if enabled.khr_generic_controller {
+        names.push("KHR_generic_controller");
+    }
+    if enabled.bd_controller_interaction {
+        names.push("BD_controller_interaction");
+    }
+    if enabled.ext_hp_mixed_reality_controller {
+        names.push("EXT_hp_mixed_reality_controller");
+    }
+    if enabled.ext_samsung_odyssey_controller {
+        names.push("EXT_samsung_odyssey_controller");
+    }
+    if enabled.htc_vive_cosmos_controller_interaction {
+        names.push("HTC_vive_cosmos_controller_interaction");
+    }
+    if enabled.htc_vive_focus3_controller_interaction {
+        names.push("HTC_vive_focus3_controller_interaction");
+    }
+    if enabled.fb_touch_controller_pro {
+        names.push("FB_touch_controller_pro");
+    }
+    if enabled.meta_touch_controller_plus {
+        names.push("META_touch_controller_plus");
+    }
+    names.join(",")
 }
 
 type VulkanGraphicsRequirements = <xr::Vulkan as xr::Graphics>::Requirements;
@@ -733,6 +772,13 @@ pub fn init_wgpu_openxr(
 
     let (xr_system_id, environment_blend_mode, reqs) =
         probe_head_set_and_vulkan_requirements(&xr_instance)?;
+    logger::info!(
+        "OpenXR system: id={:?} environment_blend_mode={:?} vulkan_min={} vulkan_max={}",
+        xr_system_id,
+        environment_blend_mode,
+        reqs.min_api_version_supported,
+        reqs.max_api_version_supported,
+    );
     let ash_vk =
         create_openxr_vulkan_instance(&xr_instance, xr_system_id, gpu_validation_layers, &reqs)?;
     let vk_physical_device = ash_vk.vk_physical_device;

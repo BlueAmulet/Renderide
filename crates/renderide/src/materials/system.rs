@@ -274,9 +274,15 @@ impl MaterialSystem {
         }
 
         if let Some(ipc) = ipc {
-            let _ = ipc.send_background_reliable(RendererCommand::MaterialsUpdateBatchResult(
-                MaterialsUpdateBatchResult { update_batch_id },
-            ));
+            let ack_queued =
+                ipc.send_background_reliable(RendererCommand::MaterialsUpdateBatchResult(
+                    MaterialsUpdateBatchResult { update_batch_id },
+                ));
+            if !ack_queued {
+                logger::warn!(
+                    "materials update batch {update_batch_id}: failed to enqueue reliable background ack"
+                );
+            }
         }
     }
 

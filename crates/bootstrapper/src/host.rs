@@ -95,6 +95,11 @@ fn apply_host_stdio(cmd: &mut Command, cwd: &Path) {
 
 /// Prepares the command, spawns, and registers the child with `lifetime`.
 fn finish_spawn(mut cmd: Command, lifetime: &ChildLifetimeGroup) -> std::io::Result<Child> {
+    logger::info!(
+        "Host spawn command: program={:?} cwd={:?}",
+        cmd.get_program(),
+        cmd.get_current_dir()
+    );
     lifetime.prepare_command(&mut cmd);
     let child = cmd.spawn()?;
     lifetime.register_spawned(&child)?;

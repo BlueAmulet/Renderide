@@ -3,6 +3,7 @@
 //! Shared-memory queue files use [`crate::ipc::interprocess_backing_dir`] unless overridden; see
 //! [`crate::ipc::RENDERIDE_INTERPROCESS_DIR_ENV`].
 
+use std::env;
 use std::process::Child;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -35,14 +36,41 @@ fn log_run_intro(config: &ResoBootConfig) {
         logger::info!("Renderide log level: {}", level.as_arg());
     }
 
-    logger::info!("Bootstrapper start");
+    logger::info!(
+        "Bootstrapper start: version={} pid={} target={} {} arch={} exe={} cwd={}",
+        env!("CARGO_PKG_VERSION"),
+        std::process::id(),
+        env::consts::OS,
+        env::consts::FAMILY,
+        env::consts::ARCH,
+        env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|e| format!("<unavailable: {e}>")),
+        env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|e| format!("<unavailable: {e}>")),
+    );
     logger::info!("Shared memory prefix: {}", config.shared_memory_prefix);
+    logger::info!(
+        "Bootstrapper paths: current_directory={} renderite_directory={} renderite_executable={} runtime_config={}",
+        config.current_directory.display(),
+        config.renderite_directory.display(),
+        config.renderite_executable.display(),
+        config.runtime_config.display(),
+    );
     let backing = crate::ipc::interprocess_backing_dir();
     logger::info!(
         "Interprocess queue backing directory: {:?} (set {} to override; Host must match)",
         backing,
         crate::ipc::RENDERIDE_INTERPROCESS_DIR_ENV
     );
+    for key in ["RENDERIDE_INTERPROCESS_DIR", "RENDERIDE_LOGS_ROOT"] {
+        if let Ok(value) = env::var(key)
+            && !value.trim().is_empty()
+        {
+            logger::info!("Bootstrapper env override: {key}={value}");
+        }
+    }
 }
 
 /// Appends `-shmprefix` and the generated prefix to Host argv.
@@ -66,6 +94,7 @@ fn start_host_with_drainers(
 
     logger::ensure_log_dir(logger::LogComponent::Host)?;
     let host_log_path = logger::log_file_path(logger::LogComponent::Host, log_timestamp);
+    logger::info!("Host stdout/stderr log path: {}", host_log_path.display());
 
     if let Some(stdout) = child.stdout.take() {
         host::spawn_output_drainer(host_log_path.clone(), stdout, "[Host stdout]");
@@ -200,6 +229,7 @@ fn spawn_heartbeat_watchdog(
     let cancel_wd = Arc::clone(&cancel);
     let deadline_wd = Arc::clone(&heartbeat_deadline);
     std::thread::spawn(move || {
+        let start = Instant::now();
         while !cancel_wd.load(Ordering::Relaxed) {
             std::thread::sleep(watchdog_poll_interval());
             let Ok(deadline) = deadline_wd.lock() else {
@@ -209,9 +239,14 @@ fn spawn_heartbeat_watchdog(
                 cancel_wd.store(true, Ordering::SeqCst);
                 break;
             };
-            if Instant::now() > *deadline {
+            let now = Instant::now();
+            if now > *deadline {
                 cancel_wd.store(true, Ordering::SeqCst);
-                logger::info!("Bootstrapper messaging timeout!");
+                logger::warn!(
+                    "Bootstrapper messaging timeout: elapsed_s={:.3} overdue_ms={}",
+                    start.elapsed().as_secs_f64(),
+                    now.duration_since(*deadline).as_millis()
+                );
                 break;
             }
         }
@@ -230,6 +265,7 @@ fn spawn_host_exit_watcher(
     let cancel_host = Arc::clone(&cancel);
     let host_out_name = format!("{log_timestamp}.log");
     std::thread::spawn(move || {
+        let start = Instant::now();
         loop {
             if cancel_host.load(Ordering::Relaxed) {
                 break;
@@ -254,7 +290,8 @@ fn spawn_host_exit_watcher(
             match outcome {
                 Ok(Some(status)) => {
                     let msg = format!(
-                        "Host process exited (exit code: {status}). Check logs/host/{host_out_name} for stdout/stderr."
+                        "Host process exited after {:.3}s (exit code: {status}). Check logs/host/{host_out_name} for stdout/stderr.",
+                        start.elapsed().as_secs_f64()
                     );
                     logger::info!("{msg}");
                     cancel_host.store(true, Ordering::SeqCst);
@@ -278,6 +315,7 @@ fn spawn_renderer_exit_watcher(
     cancel: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
+        let start = Instant::now();
         loop {
             if cancel.load(Ordering::Relaxed) {
                 break;
@@ -305,7 +343,8 @@ fn spawn_renderer_exit_watcher(
             }
             if let Some(status) = exited {
                 logger::info!(
-                    "Renderer process exited ({status}); terminating Host and stopping bootstrapper"
+                    "Renderer process exited after {:.3}s ({status}); terminating Host and stopping bootstrapper",
+                    start.elapsed().as_secs_f64()
                 );
                 cancel.store(true, Ordering::SeqCst);
                 match host_child.lock() {

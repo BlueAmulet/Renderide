@@ -41,6 +41,12 @@ pub(super) struct RuntimeDiagnosticsState {
     texture_debug_snapshot_last_refresh: Option<Instant>,
     /// Count of failed frame-submit apply or cache-flush operations after host submits.
     pub(super) frame_submit_apply_failures: u64,
+    /// Whether the first successful frame submit has been logged.
+    pub(super) logged_first_frame_submit: bool,
+    /// Last logged render-space count after scene apply.
+    pub(super) last_scene_render_space_count: usize,
+    /// Last logged mesh-renderable count after scene apply.
+    pub(super) last_scene_mesh_renderable_count: usize,
 }
 
 impl RuntimeDiagnosticsState {
@@ -61,6 +67,9 @@ impl RuntimeDiagnosticsState {
             scene_transforms_snapshot_last_refresh: None,
             texture_debug_snapshot_last_refresh: None,
             frame_submit_apply_failures: 0,
+            logged_first_frame_submit: false,
+            last_scene_render_space_count: 0,
+            last_scene_mesh_renderable_count: 0,
         }
     }
 

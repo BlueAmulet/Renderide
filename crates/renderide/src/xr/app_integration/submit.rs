@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::diagnostics::log_throttle::LogThrottle;
 use crate::gpu::{GpuContext, VR_MIRROR_EYE_LAYER};
 use crate::render_graph::ExternalFrameTargets;
 use crate::xr::{XR_COLOR_FORMAT, XrFrameRenderer};
@@ -20,6 +21,7 @@ use super::types::{OpenxrFrameTick, XrSessionBundle};
 /// swallows `XR_TIMEOUT_EXPIRED` (returns `Ok(())` identically to success), making a bounded
 /// timeout indistinguishable from a real image release.
 const WAIT_IMAGE_WATCHDOG_TIMEOUT: Duration = Duration::from_millis(500);
+static HMD_SUBMIT_SKIP_LOG: LogThrottle = LogThrottle::new();
 
 /// Renders to the OpenXR stereo swapchain and queues `xrReleaseSwapchainImage` + `xrEndFrame`
 /// onto the driver thread.
@@ -35,49 +37,50 @@ pub fn try_openxr_hmd_multiview_submit(
     tick: &OpenxrFrameTick,
 ) -> bool {
     if !multiview_submit_prereqs(gpu, bundle, runtime, tick) {
+        log_hmd_submit_skip("prerequisites not met");
         return false;
     }
     if !ensure_stereo_swapchain(bundle) {
+        log_hmd_submit_skip("stereo swapchain unavailable");
         return false;
     }
     let extent = match bundle.stereo_swapchain.as_ref() {
         Some(s) => s.resolution,
-        None => return false,
+        None => {
+            log_hmd_submit_skip("stereo swapchain missing after ensure");
+            return false;
+        }
     };
     if !ensure_stereo_depth_texture(gpu, bundle, extent) {
+        log_hmd_submit_skip("stereo depth texture unavailable");
         return false;
     }
     let Some(sc) = bundle.stereo_swapchain.as_mut() else {
+        log_hmd_submit_skip("stereo swapchain missing before acquire");
         return false;
     };
     let image_index = {
         profiling::scope!("xr::swapchain_acquire");
         match acquire_swapchain_image(gpu, &sc.handle) {
             Ok(i) => i,
-            Err(_) => return false,
+            Err(e) => {
+                log_hmd_submit_skip_with_error("swapchain acquire_image failed", e);
+                return false;
+            }
         }
     };
-    {
-        profiling::scope!("xr::swapchain_wait_image");
-        let wd = EndFrameWatchdog::arm(WAIT_IMAGE_WATCHDOG_TIMEOUT, "xr::wait_image");
-        let res = sc.handle.lock().wait_image(xr::Duration::INFINITE);
-        wd.disarm();
-        if res.is_err() {
-            // OpenXR requires every successful `acquire_image` to be paired with
-            // `release_image`, even when `wait_image` fails. Without this release the
-            // runtime considers the image still in flight and `xrEndFrame` blocks until
-            // the swapchain is destroyed.
-            let _ = release_swapchain_image(gpu, &sc.handle);
-            return false;
-        }
+    if !wait_for_acquired_swapchain_image(gpu, &sc.handle) {
+        return false;
     }
     let Some(color_view) = sc.color_view_for_image(image_index) else {
         let _ = release_swapchain_image(gpu, &sc.handle);
+        log_hmd_submit_skip("color view missing for acquired swapchain image");
         return false;
     };
     let Some(stereo_depth) = bundle.stereo_depth.as_ref() else {
         logger::debug!("OpenXR stereo depth texture missing after resize");
         let _ = release_swapchain_image(gpu, &sc.handle);
+        log_hmd_submit_skip("stereo depth missing after resize");
         return false;
     };
     let ext = ExternalFrameTargets {
@@ -103,6 +106,7 @@ pub fn try_openxr_hmd_multiview_submit(
             // Synchronous release is correct here: no finalize work was queued for the
             // driver thread, so `xrReleaseSwapchainImage` cannot be deferred.
             let _ = release_swapchain_image(gpu, &sc.handle);
+            log_hmd_submit_skip("render graph submit_hmd_view failed");
             return false;
         }
     }
@@ -135,6 +139,40 @@ pub fn try_openxr_hmd_multiview_submit(
     }
     handles.xr_session.set_pending_finalize(rx);
     true
+}
+
+fn wait_for_acquired_swapchain_image(
+    gpu: &GpuContext,
+    swapchain: &parking_lot::Mutex<xr::Swapchain<xr::Vulkan>>,
+) -> bool {
+    profiling::scope!("xr::swapchain_wait_image");
+    let wd = EndFrameWatchdog::arm(WAIT_IMAGE_WATCHDOG_TIMEOUT, "xr::wait_image");
+    let res = swapchain.lock().wait_image(xr::Duration::INFINITE);
+    wd.disarm();
+    if let Err(e) = res {
+        // OpenXR requires every successful `acquire_image` to be paired with
+        // `release_image`, even when `wait_image` fails. Without this release the
+        // runtime considers the image still in flight and `xrEndFrame` blocks until
+        // the swapchain is destroyed.
+        let _ = release_swapchain_image(gpu, swapchain);
+        log_hmd_submit_skip_with_error("swapchain wait_image failed", e);
+        return false;
+    }
+    true
+}
+
+fn log_hmd_submit_skip(reason: &'static str) {
+    if let Some(occurrence) = HMD_SUBMIT_SKIP_LOG.should_log(4, 128) {
+        logger::debug!("OpenXR HMD submit skipped: reason={reason} occurrence={occurrence}");
+    }
+}
+
+fn log_hmd_submit_skip_with_error(reason: &'static str, error: xr::sys::Result) {
+    if let Some(occurrence) = HMD_SUBMIT_SKIP_LOG.should_log(4, 128) {
+        logger::debug!(
+            "OpenXR HMD submit skipped: reason={reason} error={error:?} occurrence={occurrence}"
+        );
+    }
 }
 
 /// Returns `Some([left, right])` when `views` carries the standard stereo pair OpenXR

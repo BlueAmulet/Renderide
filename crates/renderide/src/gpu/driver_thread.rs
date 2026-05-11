@@ -33,7 +33,9 @@ mod tests;
 
 use std::sync::Arc;
 use std::thread;
+use std::time::{Duration, Instant};
 
+use crate::diagnostics::log_throttle::LogThrottle;
 pub use error::DriverError;
 pub use submit_batch::{SubmitBatch, SubmitWait};
 pub use submit_counters::SubmitToken;
@@ -53,6 +55,9 @@ use surface_counters::SurfaceCounters;
 /// `CommandBufferQueue` latency target: one frame in flight on the driver, one being
 /// recorded by the main thread.
 pub const RING_CAPACITY: usize = 2;
+
+const SLOW_DRIVER_ENQUEUE_THRESHOLD: Duration = Duration::from_millis(2);
+static SLOW_DRIVER_ENQUEUE_LOG: LogThrottle = LogThrottle::new();
 
 /// Handle to the driver thread owned by [`crate::gpu::GpuContext`].
 ///
@@ -127,6 +132,7 @@ impl DriverThread {
             self.surface_counters.note_submitted();
         }
         let token = self.submit_counters.note_pushed();
+        let enqueue_start = Instant::now();
         if let Err(_dropped) = self.ring.push(DriverMessage::Submit(Box::new(batch))) {
             if has_surface {
                 // Roll back the submitted counter so `wait_for_previous_present` does not
@@ -138,6 +144,22 @@ impl DriverThread {
             self.submit_counters.note_submit_done();
             logger::warn!("driver thread exited; dropping submit batch");
             return None;
+        }
+        let enqueue_elapsed = enqueue_start.elapsed();
+        if enqueue_elapsed >= SLOW_DRIVER_ENQUEUE_THRESHOLD
+            && let Some(occurrence) = SLOW_DRIVER_ENQUEUE_LOG.should_log(4, 64)
+        {
+            let (pushed, done) = self.submit_counters.snapshot();
+            logger::warn!(
+                "driver submit enqueue blocked for {:.3}ms occurrence={} ring_depth={} backlog={} pushed={} done={} has_surface={}",
+                enqueue_elapsed.as_secs_f64() * 1000.0,
+                occurrence,
+                self.ring.depth(),
+                pushed.saturating_sub(done),
+                pushed,
+                done,
+                has_surface,
+            );
         }
         // Tracy plot of how full the driver ring is right after the push so saturation
         // (depth equal to RING_CAPACITY = the main thread blocked) and steady-state pipelining
@@ -206,17 +228,26 @@ impl DriverThread {
         }
         // Any recv error (channel disconnected due to panic inside the driver) is treated
         // as "driver no longer running" -- callers handle that via the separate error slot.
-        let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+        let _ = rx.recv_timeout(Duration::from_secs(5));
     }
 }
 
 impl Drop for DriverThread {
     fn drop(&mut self) {
+        let (pushed, done) = self.submit_counters.snapshot();
+        logger::info!(
+            "driver thread shutdown requested: backlog={} pushed={} done={} ring_depth={}",
+            pushed.saturating_sub(done),
+            pushed,
+            done,
+            self.ring.depth(),
+        );
         // If the driver thread is already gone, the push is a no-op; either way the
         // subsequent join completes once the worker function returns.
         let _ = self.ring.push(DriverMessage::Shutdown);
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
+        logger::info!("driver thread joined");
     }
 }

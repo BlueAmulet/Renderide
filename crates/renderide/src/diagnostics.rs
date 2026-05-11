@@ -5,12 +5,14 @@
 //!
 //! Also hosts the cooperative renderer hang/hitch detector ([`Watchdog`]).
 
+pub(crate) mod crash_context;
 mod ema;
 mod encode_error;
 mod frame_history;
 mod host_metrics;
 mod hud;
 mod input;
+pub(crate) mod log_throttle;
 pub mod per_view;
 mod snapshots;
 mod watchdog;

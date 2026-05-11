@@ -8,6 +8,11 @@
 use std::time::{Duration, Instant};
 
 use super::RendererRuntime;
+use crate::diagnostics::log_throttle::LogThrottle;
+
+static ASSET_INTEGRATION_NO_SHM_LOG: LogThrottle = LogThrottle::new();
+static ASSET_INTEGRATION_BUDGET_LOG: LogThrottle = LogThrottle::new();
+static ASSET_INTEGRATION_GPU_NOT_READY_LOG: LogThrottle = LogThrottle::new();
 
 impl RendererRuntime {
     /// Bounded cooperative mesh/texture asset integration.
@@ -49,6 +54,11 @@ impl RendererRuntime {
         }
         if self.frontend.shared_memory().is_none() {
             self.frontend.record_asset_integration_handle_wait();
+            if let Some(occurrence) = ASSET_INTEGRATION_NO_SHM_LOG.should_log(4, 128) {
+                logger::warn!(
+                    "asset integration skipped while waiting for host frame submit: shared memory unavailable occurrence={occurrence}"
+                );
+            }
             return false;
         }
         let Some(summary) = self.run_asset_integration_pass() else {
@@ -90,8 +100,18 @@ impl RendererRuntime {
         let deadline = now + Duration::from_millis(u64::from(budget_ms));
         let particle_deadline = deadline
             + Duration::from_millis(u64::from(self.asset_particle_integration_budget_ms()));
+        let pending_asset_work = self.backend.has_pending_asset_work();
         let (shm, ipc) = self.frontend.transport_pair_mut();
-        let shm = shm?;
+        let Some(shm) = shm else {
+            if pending_asset_work
+                && let Some(occurrence) = ASSET_INTEGRATION_NO_SHM_LOG.should_log(4, 128)
+            {
+                logger::warn!(
+                    "asset integration skipped: shared memory unavailable with pending asset/material work occurrence={occurrence}"
+                );
+            }
+            return None;
+        };
         let mut ipc_opt = ipc;
         let summary =
             self.backend
@@ -159,4 +179,35 @@ fn trace_asset_integration_summary(
         summary.particle_budget_exhausted,
         summary.peak_queued,
     );
+    if !summary.gpu_ready
+        && summary.total_after() > 0
+        && let Some(occurrence) = ASSET_INTEGRATION_GPU_NOT_READY_LOG.should_log(4, 128)
+    {
+        logger::warn!(
+            "asset integration could not drain GPU work: gpu_ready=false queued_after={} main={} high={} render={} normal={} particle={} occurrence={occurrence}",
+            summary.total_after(),
+            summary.main_after,
+            summary.high_priority_after,
+            summary.render_after,
+            summary.normal_priority_after,
+            summary.particle_after,
+        );
+    }
+    if summary.budget_exhausted()
+        && summary.total_after() > 0
+        && let Some(occurrence) = ASSET_INTEGRATION_BUDGET_LOG.should_log(4, 128)
+    {
+        logger::debug!(
+            "asset integration yielded with backlog: queued_before={} queued_after={} processed={} elapsed_ms={:.3} particle_elapsed_ms={:.3} exhausted_high={} exhausted_render={} exhausted_normal={} exhausted_particle={} occurrence={occurrence}",
+            summary.total_before(),
+            summary.total_after(),
+            summary.processed_tasks,
+            summary.elapsed.as_secs_f64() * 1000.0,
+            summary.particle_elapsed.as_secs_f64() * 1000.0,
+            summary.high_priority_budget_exhausted,
+            summary.render_budget_exhausted,
+            summary.normal_priority_budget_exhausted,
+            summary.particle_budget_exhausted,
+        );
+    }
 }

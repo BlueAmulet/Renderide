@@ -2,6 +2,7 @@
 
 use wgpu::TextureFormat;
 
+use super::compiled::CompileStats;
 use super::compiled::CompiledRenderGraph;
 use super::error::GraphBuildError;
 use super::post_process_chain::PostProcessChainSignature;
@@ -107,6 +108,12 @@ impl GraphCache {
         self.graph
             .as_ref()
             .map_or(0, |g| g.compile_stats.topo_levels)
+    }
+
+    /// Compile stats for diagnostics when a graph is cached.
+    #[must_use]
+    pub fn compile_stats(&self) -> Option<CompileStats> {
+        self.graph.as_ref().map(|g| g.compile_stats)
     }
 }
 

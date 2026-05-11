@@ -8,6 +8,7 @@
 
 use std::time::Instant;
 
+use crate::diagnostics::crash_context::{self, TickPhase};
 use crate::gpu::GpuContext;
 use crate::shared::{InputState, OutputState};
 
@@ -22,10 +23,13 @@ impl RendererRuntime {
     /// Records wall-clock spacing for host FPS metrics. Call at the very start of each winit tick,
     /// before [`Self::poll_ipc`], OpenXR, and [`Self::pre_frame`].
     pub fn tick_frame_wall_clock_begin(&mut self, now: Instant) {
+        crash_context::record_tick_start();
         self.tick_state.reset_for_tick();
         self.frontend.reset_ipc_outbound_drop_tick_flags();
         self.backend.reset_light_prep_for_tick();
         self.frontend.on_tick_frame_wall_clock(now);
+        let (primary, background) = self.frontend.ipc_consecutive_outbound_drop_streaks();
+        crash_context::set_ipc_drop_streaks(primary, background);
     }
 
     /// Per-tick decoupling activation check. Call **after** [`Self::poll_ipc`] (so a
@@ -94,6 +98,7 @@ impl RendererRuntime {
     /// returns.
     pub fn tick_one_frame(&mut self, gpu: &mut GpuContext, inputs: InputState) -> TickOutcome {
         profiling::scope!("tick::one_frame");
+        crash_context::set_tick_phase(TickPhase::IpcPoll);
         self.poll_ipc();
         if self.shutdown_requested() {
             return TickOutcome {
@@ -107,13 +112,16 @@ impl RendererRuntime {
                 ..Default::default()
             };
         }
+        crash_context::set_tick_phase(TickPhase::AssetIntegration);
         self.run_asset_integration();
         self.maintain_nonblocking_gpu_jobs(gpu);
         self.drain_reflection_probe_render_tasks(gpu);
         self.drain_camera_render_tasks(gpu);
+        crash_context::set_tick_phase(TickPhase::Lockstep);
         if self.should_send_begin_frame() {
             self.pre_frame(inputs);
         }
+        crash_context::set_tick_phase(TickPhase::RenderViews);
         let graph_error = self.render_desktop_frame(gpu).err();
         TickOutcome {
             graph_error,
@@ -132,6 +140,7 @@ impl RendererRuntime {
         inputs: InputState,
     ) -> TickOutcome {
         profiling::scope!("tick::one_frame_lockstep_only");
+        crash_context::set_tick_phase(TickPhase::IpcPoll);
         self.poll_ipc();
         if self.shutdown_requested() {
             return TickOutcome {
@@ -145,12 +154,14 @@ impl RendererRuntime {
                 ..Default::default()
             };
         }
+        crash_context::set_tick_phase(TickPhase::AssetIntegration);
         self.run_asset_integration();
         if let Some(gpu) = gpu {
             self.maintain_nonblocking_gpu_jobs(gpu);
             self.drain_reflection_probe_render_tasks(gpu);
             self.drain_camera_render_tasks(gpu);
         }
+        crash_context::set_tick_phase(TickPhase::Lockstep);
         if self.should_send_begin_frame() {
             self.pre_frame(inputs);
         }

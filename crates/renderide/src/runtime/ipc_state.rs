@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 
 use hashbrown::HashMap;
 
+use crate::frontend::dispatch::renderer_command_kind::renderer_command_variant_tag;
 use crate::shared::RendererCommand;
 
 const DEFERRED_PRE_FINALIZE_WARN_THRESHOLD: usize = 1024;
@@ -16,6 +17,31 @@ pub(super) struct RuntimeIpcState {
     deferred_pre_finalize_commands: VecDeque<RendererCommand>,
     /// Running counts of post-init renderer command variants seen without a running handler.
     unhandled_ipc_command_counts: HashMap<&'static str, u64>,
+}
+
+/// Summarizes a renderer-command collection as `Variant=count` pairs for diagnostic logs.
+pub(super) fn summarize_renderer_command_mix<'a>(
+    commands: impl IntoIterator<Item = &'a RendererCommand>,
+) -> String {
+    let mut counts: Vec<(&'static str, usize)> = Vec::new();
+    for cmd in commands {
+        let tag = renderer_command_variant_tag(cmd);
+        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| *existing == tag) {
+            *count += 1;
+        } else {
+            counts.push((tag, 1));
+        }
+    }
+    let mut out = String::new();
+    for (idx, (tag, count)) in counts.iter().enumerate() {
+        if idx > 0 {
+            out.push_str(", ");
+        }
+        out.push_str(tag);
+        out.push('=');
+        out.push_str(&count.to_string());
+    }
+    out
 }
 
 impl RuntimeIpcState {
@@ -68,7 +94,7 @@ impl RuntimeIpcState {
 #[cfg(test)]
 mod tests {
     use super::RuntimeIpcState;
-    use crate::shared::{QualityConfig, RendererCommand};
+    use crate::shared::{KeepAlive, QualityConfig, RendererCommand};
 
     #[test]
     fn unhandled_command_total_sums_variant_counts() {
@@ -107,5 +133,20 @@ mod tests {
             other => panic!("unexpected second deferred command: {other:?}"),
         }
         assert!(drained.is_empty());
+    }
+
+    #[test]
+    fn command_mix_summary_counts_tags() {
+        let commands = [
+            RendererCommand::KeepAlive(KeepAlive::default()),
+            RendererCommand::QualityConfig(QualityConfig::default()),
+            RendererCommand::QualityConfig(QualityConfig {
+                per_pixel_lights: 2,
+                ..Default::default()
+            }),
+        ];
+        let summary = super::summarize_renderer_command_mix(commands.iter());
+        assert!(summary.contains("KeepAlive=1"), "summary={summary}");
+        assert!(summary.contains("QualityConfig=2"), "summary={summary}");
     }
 }
