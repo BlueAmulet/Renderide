@@ -16,7 +16,7 @@ use parking_lot::Mutex;
 
 use crate::gpu_resource::AtomicCacheCounters;
 use crate::materials::ShaderPermutation;
-use crate::materials::embedded_raster_pipeline::{
+use crate::materials::embedded::stem_metadata::{
     EmbeddedRasterPipelineSource, build_embedded_wgsl, create_embedded_render_pipelines,
 };
 use crate::materials::null_pipeline::{build_null_wgsl, create_null_render_pipeline};
@@ -26,8 +26,8 @@ use crate::materials::{
     RasterPrimitiveTopology,
 };
 
-use super::family::MaterialPipelineDesc;
 use super::pipeline_build_error::PipelineBuildError;
+use super::raster_pipeline::MaterialPipelineDesc;
 
 /// Maximum raster pipelines retained (LRU eviction).
 const MAX_CACHED_PIPELINES: usize = 512;

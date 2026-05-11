@@ -3,13 +3,15 @@
 use crate::materials::host_data::{
     MaterialPropertyLookupIds, MaterialPropertyStore, MaterialPropertyValue,
 };
-use crate::materials::shader_variant::RENDERIDE_VARIANT_BITS_FIELD;
 
 use super::super::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
 use super::helpers::{
     first_float_by_pids, is_keyword_like_field, keyword_float_enabled_any_pids,
     shader_writer_unescaped_field_name, texture_property_present_pids,
 };
+
+/// Renderer-reserved material uniform field carrying the raw shader-specific Froox variant bitmask.
+const RENDERIDE_VARIANT_BITS_FIELD: &str = "_RenderideVariantBits";
 
 /// Tolerance (in radians) for treating a `Projection360` `_FOV.xy` value as the default
 /// full-sphere `(TAU, PI)`. Tighter than any FOV the host realistically writes (the host

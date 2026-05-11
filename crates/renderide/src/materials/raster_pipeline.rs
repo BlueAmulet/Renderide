@@ -4,17 +4,32 @@
 //! for float render textures. Pass descriptors from `//#pass` directives can override blend, depth,
 //! cull, stencil/color-write, and depth state per material.
 
+use std::num::NonZeroU32;
+
 use crate::gpu::{
     empty_material_bind_group_layout, frame_bind_group_layout, frame_bind_group_layout_entries,
 };
 use crate::materials::material_passes::{DefaultPassParams, MaterialPassDesc, default_pass};
 use crate::materials::pipeline_build_error::PipelineBuildError;
+use crate::materials::{MaterialRenderState, RasterFrontFace, RasterPrimitiveTopology};
 use crate::materials::{
-    MaterialPipelineDesc, ReflectedRasterLayout, ReflectedVertexInputFormat,
-    reflect_raster_material_wgsl, validate_layout_against_limits, validate_per_draw_group2,
+    ReflectedRasterLayout, ReflectedVertexInputFormat, reflect_raster_material_wgsl,
+    validate_layout_against_limits, validate_per_draw_group2,
     validate_vertex_layout_against_limits,
 };
-use crate::materials::{MaterialRenderState, RasterFrontFace, RasterPrimitiveTopology};
+
+/// Swapchain-relevant state needed to build a [`wgpu::RenderPipeline`].
+#[derive(Clone, Copy, Debug)]
+pub struct MaterialPipelineDesc {
+    /// Primary color attachment format (for example swapchain format).
+    pub surface_format: wgpu::TextureFormat,
+    /// Optional depth attachment (meshes / MRT later).
+    pub depth_stencil_format: Option<wgpu::TextureFormat>,
+    /// MSAA sample count (1 = off).
+    pub sample_count: u32,
+    /// When set, must match the render pass and pipeline (e.g. `0b11` for two multiview layers).
+    pub multiview_mask: Option<NonZeroU32>,
+}
 
 /// Compiled shader module and [`MaterialPipelineDesc`] from the material cache before adding a pipeline label.
 pub(crate) struct ShaderModuleBuildRefs<'a> {

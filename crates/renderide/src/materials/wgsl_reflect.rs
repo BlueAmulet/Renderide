@@ -8,6 +8,7 @@ mod bind_layout;
 #[cfg(test)]
 mod fingerprint;
 mod frame_group0;
+pub(in crate::materials) mod identifier_names;
 mod resource;
 mod types;
 mod uniform_vertex;

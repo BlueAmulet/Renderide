@@ -5,7 +5,7 @@
 //! an embedded WGSL stem. The serialized Shader object's internal name is also parsed for a Froox
 //! variant suffix, but that suffix is not used to choose the shader route.
 //!
-//! Names with an embedded `{asset_name}_default` WGSL target (see [`crate::materials::embedded_shader_stem`]) resolve to
+//! Names with an embedded `{asset_name}_default` WGSL target (see [`crate::materials::embedded_default_stem_for_shader_asset_name`]) resolve to
 //! [`RasterPipelineKind::EmbeddedStem`]; unresolved or non-embedded shaders use
 //! [`RasterPipelineKind::Null`] (the black/grey checkerboard) as the **only** mesh fallback
 //! (there is no separate solid-color pipeline).

@@ -157,16 +157,41 @@ impl MaterialRouter {
     }
 }
 
+/// Resolves the raster pipeline kind used for **mesh rasterization** for a host shader asset id.
+///
+/// Thin wrapper over [`MaterialRouter::pipeline_for_shader_asset`], populated when the host sends
+/// [`crate::shared::ShaderUpload`] (see [`crate::assets::shader::resolve_shader_upload`]).
+pub fn resolve_raster_pipeline(
+    shader_asset_id: i32,
+    router: &MaterialRouter,
+) -> RasterPipelineKind {
+    router.pipeline_for_shader_asset(shader_asset_id)
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use super::MaterialRouter;
+    use super::{MaterialRouter, resolve_raster_pipeline};
     use crate::materials::RasterPipelineKind;
 
     /// Arbitrary embedded stem for router tests.
     fn test_route_pipeline() -> RasterPipelineKind {
         RasterPipelineKind::EmbeddedStem(Arc::from("test_route_default"))
+    }
+
+    #[test]
+    fn resolve_raster_pipeline_unknown_shader_uses_router_fallback() {
+        let r = MaterialRouter::new(RasterPipelineKind::Null);
+        assert_eq!(resolve_raster_pipeline(999, &r), RasterPipelineKind::Null);
+    }
+
+    #[test]
+    fn resolve_raster_pipeline_registered_shader_uses_route_pipeline() {
+        let mut r = MaterialRouter::new(RasterPipelineKind::Null);
+        let route = RasterPipelineKind::EmbeddedStem(Arc::from("test_embedded_default"));
+        r.set_shader_pipeline(7, route.clone());
+        assert_eq!(resolve_raster_pipeline(7, &r), route);
     }
 
     #[test]

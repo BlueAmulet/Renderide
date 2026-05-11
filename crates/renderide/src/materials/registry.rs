@@ -5,10 +5,10 @@ use std::sync::Arc;
 use super::cache::{
     MaterialPipelineCache, MaterialPipelineLookup, MaterialPipelineSet, MaterialPipelineVariantSpec,
 };
-use super::family::MaterialPipelineDesc;
 use super::pipeline_kind::RasterPipelineKind;
-use super::resolve_raster::resolve_raster_pipeline;
+use super::raster_pipeline::MaterialPipelineDesc;
 use super::router::MaterialRouter;
+use super::router::resolve_raster_pipeline;
 
 /// Full cache lookup request for one material pipeline variant.
 struct PipelineLookupRequest<'a> {

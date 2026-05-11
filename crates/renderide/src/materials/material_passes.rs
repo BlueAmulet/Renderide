@@ -19,6 +19,7 @@
 mod blend_mode;
 mod pass_kind;
 mod property_ids;
+pub(in crate::materials) mod wire_tables;
 
 #[cfg(test)]
 mod policy_tests;
@@ -35,5 +36,6 @@ pub use pass_kind::{
     pass_from_kind,
 };
 pub use property_ids::MaterialPipelinePropertyIds;
+pub(crate) use wire_tables::ZTEST_ALWAYS;
 
 pub(crate) use blend_mode::{PropertyMapRef, first_float_from_maps, first_vec4_from_maps};

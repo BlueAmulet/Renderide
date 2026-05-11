@@ -39,7 +39,7 @@ pub(super) fn first_float_by_pids(
         })
 }
 
-pub(super) use crate::materials::shader_writer::strip_writer_digit_escape as shader_writer_unescaped_field_name;
+pub(super) use crate::materials::wgsl_reflect::identifier_names::strip_writer_digit_escape as shader_writer_unescaped_field_name;
 
 pub(super) fn default_f32_for_field(field_name: &str) -> Option<f32> {
     let field_name = shader_writer_unescaped_field_name(field_name);

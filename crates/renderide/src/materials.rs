@@ -78,13 +78,8 @@
 
 mod cache;
 pub mod embedded;
-mod embedded_raster_pipeline;
-pub(crate) mod embedded_shader_stem;
-mod family;
 pub mod host_data;
-mod material_pass_tables;
 mod material_passes;
-mod material_property_binding;
 mod null_pipeline;
 mod pipeline_build_error;
 mod pipeline_kind;
@@ -93,12 +88,8 @@ pub(crate) mod raster_pipeline;
 mod registry;
 mod render_queue;
 mod render_state;
-mod resolve_raster;
 mod router;
 pub mod shader_permutation;
-mod shader_variant;
-mod shader_writer;
-mod snapshot_requirements;
 mod system;
 #[cfg(test)]
 mod wgsl;
@@ -108,26 +99,22 @@ mod wgsl_reflect;
 pub(crate) use cache::MaterialPipelineCache;
 /// Pipeline cache keyed by shader route / layout fingerprint.
 pub use cache::{MaterialPipelineSet, MaterialPipelineVariantSpec};
-pub(crate) use material_pass_tables::ZTEST_ALWAYS;
+pub(crate) use material_passes::ZTEST_ALWAYS;
 
-/// Embedded raster materials: bind groups, texture pools, uniform packing for embedded WGSL stems.
+/// Embedded raster materials: bind groups, texture pools, uniform packing, and stem-metadata queries.
 pub(crate) use embedded::EmbeddedMaterialBindShader;
-pub use embedded::{EmbeddedMaterialBindResources, EmbeddedTexturePools};
-
-/// Unity shader asset names -> embedded WGSL stems and permutation flags.
-pub use embedded_raster_pipeline::{
-    EmbeddedTangentFallbackMode, embedded_stem_depth_prepass_pass,
-    embedded_stem_needs_color_stream, embedded_stem_needs_extended_vertex_streams,
-    embedded_stem_needs_tangent_stream, embedded_stem_needs_uv0_stream,
-    embedded_stem_needs_uv1_stream, embedded_stem_needs_uv2_stream, embedded_stem_needs_uv3_stream,
-    embedded_stem_pipeline_pass_count, embedded_stem_requires_intersection_pass,
-    embedded_stem_tangent_fallback_mode, embedded_stem_uses_alpha_blending,
-    embedded_stem_uses_scene_color_snapshot, embedded_stem_uses_scene_depth_snapshot,
+pub use embedded::{
+    EmbeddedMaterialBindResources, EmbeddedTangentFallbackMode, EmbeddedTexturePools,
+    SnapshotRequirements, embedded_default_stem_for_shader_asset_name,
+    embedded_stem_depth_prepass_pass, embedded_stem_needs_color_stream,
+    embedded_stem_needs_extended_vertex_streams, embedded_stem_needs_tangent_stream,
+    embedded_stem_needs_uv0_stream, embedded_stem_needs_uv1_stream, embedded_stem_needs_uv2_stream,
+    embedded_stem_needs_uv3_stream, embedded_stem_pipeline_pass_count,
+    embedded_stem_requires_intersection_pass, embedded_stem_tangent_fallback_mode,
+    embedded_stem_uses_alpha_blending, embedded_stem_uses_scene_color_snapshot,
+    embedded_stem_uses_scene_depth_snapshot,
 };
-pub use embedded_shader_stem::embedded_default_stem_for_shader_asset_name;
 
-/// Pipeline family descriptors, per-property GPU layout, and raster kind flags.
-pub use family::MaterialPipelineDesc;
 #[cfg(test)]
 pub(crate) use material_passes::MaterialPassState;
 pub use material_passes::{
@@ -137,6 +124,8 @@ pub use material_passes::{
 pub(crate) use material_passes::{PropertyMapRef, first_float_from_maps, first_vec4_from_maps};
 pub use pipeline_build_error::PipelineBuildError;
 pub use pipeline_kind::RasterPipelineKind;
+/// Pipeline family descriptors, per-property GPU layout, and raster kind flags.
+pub use raster_pipeline::MaterialPipelineDesc;
 pub use render_queue::{UNITY_RENDER_QUEUE_ALPHA_TEST, render_queue_is_transparent};
 #[cfg(test)]
 pub(crate) use render_queue::{
@@ -170,12 +159,9 @@ pub use pipeline_property_resolver::PipelinePropertyResolver;
 
 /// Shader route table, optional material asset registry, and WGSL composition patches.
 pub use registry::MaterialRegistry;
-pub use resolve_raster::resolve_raster_pipeline;
-pub use router::MaterialRouter;
+pub use router::{MaterialRouter, resolve_raster_pipeline};
 
 /// Static shader feature flags (multiview, etc.) keyed into the pipeline cache.
 pub use shader_permutation::{SHADER_PERM_MULTIVIEW_STEREO, ShaderPermutation};
 
-/// Unified scene-snapshot requirement flags surfaced by reflected raster materials.
-pub use snapshot_requirements::SnapshotRequirements;
 pub use system::MaterialSystem;
