@@ -382,7 +382,9 @@ impl EmbeddedMaterialBindResources {
         // the bind group we are about to build matches the snapshot's signature, not the
         // lookup key. Re-key under the snapshot's signature and re-check the cache so we
         // never file a bind group whose key does not describe its contents.
-        let final_bind_key = if snapshot.texture_bind_signature != lookup_texture_bind_signature {
+        let final_bind_key = if snapshot.texture_bind_signature == lookup_texture_bind_signature {
+            lookup_bind_key
+        } else {
             let updated = build_material_bind_cache_key(
                 stem_hash,
                 lookup,
@@ -394,8 +396,6 @@ impl EmbeddedMaterialBindResources {
                 return Ok(material_bind_group_result(updated, bg, uniform_binding));
             }
             updated
-        } else {
-            lookup_bind_key
         };
 
         let entries = build_embedded_bind_group_entries(

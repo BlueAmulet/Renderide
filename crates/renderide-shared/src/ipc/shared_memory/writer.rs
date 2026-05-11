@@ -191,7 +191,7 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
-    use super::*;
+    use super::{SharedMemoryWriterConfig, SharedMemoryWriterError, compose_memory_view_name};
     use std::ffi::OsStr;
     use std::os::windows::ffi::OsStrExt;
     use std::ptr::null;
