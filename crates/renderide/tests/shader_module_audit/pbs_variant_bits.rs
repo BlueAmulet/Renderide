@@ -243,3 +243,28 @@ fn pbsmultiuvspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
         ],
     )
 }
+
+#[test]
+fn pbsmultiuv_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsmultiuv.wgsl",
+        &[
+            "_ALPHACLIP",
+            "_DUAL_ALBEDO",
+            "_DUAL_EMISSIONTEX",
+            "_EMISSIONTEX",
+            "_METALLICMAP",
+            "_NORMALMAP",
+            "_OCCLUSION",
+        ],
+        &[
+            ("PBSMULTIUV_KW_ALPHACLIP", 0),
+            ("PBSMULTIUV_KW_DUAL_ALBEDO", 1),
+            ("PBSMULTIUV_KW_DUAL_EMISSIONTEX", 2),
+            ("PBSMULTIUV_KW_EMISSIONTEX", 3),
+            ("PBSMULTIUV_KW_METALLICMAP", 4),
+            ("PBSMULTIUV_KW_NORMALMAP", 5),
+            ("PBSMULTIUV_KW_OCCLUSION", 6),
+        ],
+    )
+}
