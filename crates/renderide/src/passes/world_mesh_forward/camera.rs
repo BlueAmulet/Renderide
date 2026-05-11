@@ -4,7 +4,7 @@ use std::num::NonZeroU32;
 
 use glam::Mat4;
 
-use super::super::WorldMeshForwardPipelineState;
+use super::WorldMeshForwardPipelineState;
 use crate::camera::{HostCameraFrame, WorldProjectionSet};
 use crate::gpu::GpuLimits;
 use crate::materials::MaterialPipelineDesc;

@@ -14,9 +14,6 @@ use std::sync::LazyLock;
 use pipeline::AcesTonemapPipelineCache;
 
 use crate::config::PostProcessingSettings;
-use crate::passes::helpers::{
-    color_attachment, missing_pass_resource, read_fragment_sampled_texture,
-};
 use crate::render_graph::builder::GraphBuilder;
 use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
@@ -27,6 +24,8 @@ use crate::render_graph::post_process_chain::{
     EffectPasses, PostProcessEffect, PostProcessEffectId,
 };
 use crate::render_graph::resources::TextureHandle;
+
+use super::fullscreen_tonemap::{record_fullscreen_d2_array_blit, setup_fullscreen_d2_array_pass};
 
 /// Graph handles for [`AcesTonemapPass`].
 #[derive(Clone, Copy, Debug)]
@@ -67,13 +66,7 @@ impl RasterPass for AcesTonemapPass {
     }
 
     fn setup(&mut self, b: &mut PassBuilder<'_>) -> Result<(), SetupError> {
-        read_fragment_sampled_texture(b, self.resources.input);
-        color_attachment(
-            b,
-            self.resources.output,
-            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-        );
-        Ok(())
+        setup_fullscreen_d2_array_pass(b, self.resources.input, self.resources.output)
     }
 
     fn multiview_mask_override(
@@ -94,36 +87,16 @@ impl RasterPass for AcesTonemapPass {
         rpass: &mut wgpu::RenderPass<'_>,
     ) -> Result<(), RenderPassError> {
         profiling::scope!("post_processing::aces_tonemap");
-        let frame = &*ctx.pass_frame;
-        let graph_resources = ctx.graph_resources;
-        let Some(tex) = graph_resources.transient_texture(self.resources.input) else {
-            return Err(missing_pass_resource(
-                self.name(),
-                format_args!("missing transient input {:?}", self.resources.input),
-            ));
-        };
-        let target_format = output_attachment_format(self.resources.output, graph_resources);
-        let pipeline =
-            self.pipelines
-                .pipeline(ctx.device, target_format, frame.view.multiview_stereo);
-        let bind_group =
-            self.pipelines
-                .bind_group(ctx.device, &tex.texture, frame.view.multiview_stereo);
-        rpass.set_pipeline(pipeline.as_ref());
-        rpass.set_bind_group(0, &bind_group, &[]);
-        rpass.draw(0..3, 0..1);
-        Ok(())
+        record_fullscreen_d2_array_blit(
+            self.name(),
+            ctx,
+            rpass,
+            self.resources.input,
+            self.resources.output,
+            |device, fmt, mv| self.pipelines.pipeline(device, fmt, mv),
+            |device, tex, mv| self.pipelines.bind_group(device, tex, mv),
+        )
     }
-}
-
-/// Resolves the wgpu format the ACES color attachment is bound to this frame.
-fn output_attachment_format(
-    output: TextureHandle,
-    graph_resources: &crate::render_graph::context::GraphResolvedResources,
-) -> wgpu::TextureFormat {
-    graph_resources
-        .transient_texture(output)
-        .map_or(wgpu::TextureFormat::Rgba16Float, |t| t.texture.format())
 }
 
 /// Effect descriptor that contributes an [`AcesTonemapPass`] to the post-processing chain.

@@ -6,7 +6,7 @@ use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
-use super::super::{MaterialBatchPacket, MaterialDrawResolver};
+use super::{MaterialBatchPacket, MaterialDrawResolver};
 
 /// Resolves per-batch pipeline sets and `@group(1)` bind groups for the sorted draw list.
 ///

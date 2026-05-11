@@ -2,15 +2,15 @@
 
 use std::sync::Arc;
 
-use super::super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
+use super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
 use crate::gpu::GpuLimits;
 use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::blackboard::Blackboard;
 use crate::render_graph::frame_params::{GraphPassFrame, PerViewFramePlanSlot};
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
-use super::super::encode::{ForwardDrawBatch, NormalDrawBatch, draw_normals_subset, draw_subset};
-use super::super::normal_pass::WorldMeshForwardNormalPipelineCache;
+use super::encode::{ForwardDrawBatch, NormalDrawBatch, draw_normals_subset, draw_subset};
+use super::normal_pass::WorldMeshForwardNormalPipelineCache;
 
 /// Returns stencil load/store ops when the active depth format has a stencil aspect.
 pub(in crate::passes::world_mesh_forward) fn stencil_load_ops(

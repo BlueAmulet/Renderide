@@ -16,6 +16,7 @@ mod aces_tonemap;
 mod agx_tonemap;
 mod auto_exposure;
 mod bloom;
+mod fullscreen_tonemap;
 mod gtao;
 
 pub use aces_tonemap::AcesTonemapEffect;

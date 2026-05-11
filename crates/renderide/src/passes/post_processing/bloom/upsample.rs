@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::num::NonZeroU32;
 
-use super::helpers::{attachment_format, stereo_mask_override};
+use super::helpers::attachment_format;
 use super::pipeline::{BloomPipelineCache, BloomPipelineKind};
 use crate::config::{BloomCompositeMode, BloomSettings};
 use crate::passes::helpers::{
@@ -11,6 +11,7 @@ use crate::passes::helpers::{
 };
 use crate::render_graph::context::RasterPassCtx;
 use crate::render_graph::error::{RenderPassError, SetupError};
+use crate::render_graph::gpu_cache::raster_stereo_mask_override;
 use crate::render_graph::pass::RenderPassTemplate;
 use crate::render_graph::pass::{PassBuilder, RasterPass};
 use crate::render_graph::post_process_settings::BloomSettingsSlot;
@@ -84,7 +85,7 @@ impl RasterPass for BloomUpsamplePass {
         ctx: &RasterPassCtx<'_, '_>,
         template: &RenderPassTemplate,
     ) -> Option<NonZeroU32> {
-        stereo_mask_override(ctx, template)
+        raster_stereo_mask_override(ctx, template)
     }
 
     fn should_record(&self, ctx: &RasterPassCtx<'_, '_>) -> Result<bool, RenderPassError> {

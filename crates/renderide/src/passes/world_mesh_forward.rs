@@ -36,14 +36,22 @@
 //! `view_transform` world-to-camera to avoid mixing stage with the host rig. Overlays keep
 //! `view` for orthographic / UI alignment. Matrix composition lives in [`vp`].
 
+mod camera;
 mod color_resolve;
+mod color_snapshot;
 mod current_view_textures;
 mod depth_prepass;
+mod depth_resolve;
+mod depth_snapshot;
 mod encode;
-mod execute_helpers;
+mod frame_uniforms;
 mod material_batch;
+mod material_resolve;
 mod normal_pass;
+mod prepare;
+mod raster_recording;
 mod skybox;
+mod slab;
 mod state;
 mod vp;
 
@@ -51,12 +59,10 @@ pub use color_resolve::{
     WorldMeshForwardColorResolveGraphResources, WorldMeshForwardColorResolvePass,
 };
 pub use depth_prepass::{WorldMeshForwardDepthPrepass, WorldMeshForwardDepthPrepassGraphResources};
-pub(crate) use execute_helpers::{
-    WorldMeshForwardPrepareContext, prepare_world_mesh_forward_frame,
-};
 pub(crate) use material_batch::{MaterialBatchPacket, MaterialDrawResolver};
 pub(crate) use normal_pass::GTAO_VIEW_NORMAL_FORMAT;
 pub use normal_pass::{WorldMeshForwardNormalGraphResources, WorldMeshForwardNormalPass};
+pub(crate) use prepare::{WorldMeshForwardPrepareContext, prepare_world_mesh_forward_frame};
 pub(crate) use skybox::SkyboxRenderer as WorldMeshForwardSkyboxRenderer;
 pub(crate) use state::{
     PreparedWorldMeshForwardFrame, WorldMeshForwardPipelineState, WorldMeshForwardPlanSlot,
@@ -76,9 +82,11 @@ use crate::render_graph::resources::{
 };
 use crate::world_mesh::InstancePlan;
 
-use execute_helpers::{
-    encode_msaa_depth_resolve_after_clear_only, encode_world_mesh_forward_color_snapshot,
-    encode_world_mesh_forward_depth_snapshot, record_world_mesh_forward_intersection_graph_raster,
+use color_snapshot::encode_world_mesh_forward_color_snapshot;
+use depth_resolve::encode_msaa_depth_resolve_after_clear_only;
+use depth_snapshot::encode_world_mesh_forward_depth_snapshot;
+use raster_recording::{
+    record_world_mesh_forward_intersection_graph_raster,
     record_world_mesh_forward_opaque_graph_raster,
     record_world_mesh_forward_post_skybox_graph_raster,
     record_world_mesh_forward_transparent_graph_raster, stencil_load_ops,
