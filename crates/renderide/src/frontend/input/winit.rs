@@ -1,4 +1,11 @@
 //! Adapts winit window events into [`WindowInputAccumulator`](super::WindowInputAccumulator).
+//!
+//! Submodules:
+//! - [`event_transition`] -- pure mapping from winit events to host-shaped transitions.
+//! - [`key_map`] -- platform-key to host [`crate::shared::Key`] table consumed by `event_transition`.
+
+mod event_transition;
+mod key_map;
 
 use std::path::{Path, PathBuf};
 
@@ -9,11 +16,11 @@ use winit::event::{
 };
 use winit::window::Window;
 
-use super::accumulator::WindowInputAccumulator;
-use super::event_transition::{
+use self::event_transition::{
     HeldKeyTransition, KeyboardEventTransition, MouseButtonSlot, keyboard_event_transition,
     mouse_button_transition, scroll_delta_from_wheel,
 };
+use super::accumulator::WindowInputAccumulator;
 
 /// Applies a [`WindowEvent`] from winit to the accumulator.
 ///
