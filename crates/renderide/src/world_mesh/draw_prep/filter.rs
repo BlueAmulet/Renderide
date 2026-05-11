@@ -293,4 +293,76 @@ mod tests {
             assert!(filter.passes_scene_node(&scene, space_id, node_id));
         }
     }
+
+    #[test]
+    fn direct_filter_passes_respects_only_and_exclude_sets() {
+        let only = CameraTransformDrawFilter {
+            only: Some(HashSet::from_iter([2])),
+            exclude: HashSet::from_iter([2, 3]),
+        };
+        assert!(!only.passes(1));
+        assert!(only.passes(2));
+        assert!(!only.passes(3));
+
+        let exclude = CameraTransformDrawFilter {
+            only: None,
+            exclude: HashSet::from_iter([4]),
+        };
+        assert!(exclude.passes(3));
+        assert!(!exclude.passes(4));
+    }
+
+    #[test]
+    fn selective_filter_returns_false_for_missing_space_and_negative_nodes() {
+        let scene = SceneCoordinator::new();
+        let filter = CameraTransformDrawFilter {
+            only: Some(HashSet::from_iter([0])),
+            exclude: HashSet::new(),
+        };
+
+        assert!(!filter.passes_scene_node(&scene, RenderSpaceId(42), 0));
+        assert!(!filter.passes_scene_node(&scene, RenderSpaceId(42), -1));
+    }
+
+    #[test]
+    fn ancestor_membership_handles_self_parent_without_looping() {
+        let mut scene = SceneCoordinator::new();
+        let id = RenderSpaceId(23);
+        scene.test_seed_space_identity_worlds(
+            id,
+            vec![RenderTransform::default(), RenderTransform::default()],
+            vec![0, 0],
+        );
+        let filter = CameraTransformDrawFilter {
+            only: Some(HashSet::from_iter([1])),
+            exclude: HashSet::new(),
+        };
+
+        assert!(!filter.passes_scene_node(&scene, id, 0));
+        assert_eq!(
+            filter.build_pass_mask(&scene, id).unwrap(),
+            vec![false, true]
+        );
+    }
+
+    #[test]
+    fn exclude_mask_treats_out_of_range_parent_as_terminal() {
+        let mut scene = SceneCoordinator::new();
+        let id = RenderSpaceId(24);
+        scene.test_seed_space_identity_worlds(
+            id,
+            vec![RenderTransform::default(), RenderTransform::default()],
+            vec![-1, 99],
+        );
+        let filter = CameraTransformDrawFilter {
+            only: None,
+            exclude: HashSet::from_iter([0]),
+        };
+
+        assert!(filter.passes_scene_node(&scene, id, 1));
+        assert_eq!(
+            filter.build_pass_mask(&scene, id).unwrap(),
+            vec![false, true]
+        );
+    }
 }

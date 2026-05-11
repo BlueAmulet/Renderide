@@ -544,7 +544,11 @@ mod access_copy_diagnostic_tests {
     };
     use crate::wire_writer::{TransformPoseRow, encode_transform_pose_updates};
 
-    use super::SharedMemoryAccessor;
+    use super::{
+        SharedMemoryAccessor, describe_get_view_failure, describe_slice_failure,
+        make_context_prefixer, validate_access_copy_descriptor,
+        validate_memory_packable_row_descriptor,
+    };
 
     fn unique_prefix(label: &str) -> String {
         format!("renderide_test_accessor_{label}_{}", std::process::id())
@@ -564,6 +568,28 @@ mod access_copy_diagnostic_tests {
     }
 
     #[test]
+    fn context_prefixer_adds_context_only_when_present() {
+        let with_context = make_context_prefixer(Some("mesh"));
+        let without_context = make_context_prefixer(None);
+
+        assert_eq!(with_context("bad descriptor"), "mesh: bad descriptor");
+        assert_eq!(without_context("bad descriptor"), "bad descriptor");
+    }
+
+    #[test]
+    fn descriptor_validation_accepts_length_at_maximum() {
+        let d = SharedMemoryBufferDescriptor {
+            buffer_id: 1,
+            buffer_capacity: 8,
+            offset: 0,
+            length: 8,
+        };
+        let prefix = make_context_prefixer(Some("copy"));
+
+        assert!(validate_access_copy_descriptor(&d, 8, &prefix).is_ok());
+    }
+
+    #[test]
     fn descriptor_failure_includes_descriptor_fields() {
         let d = SharedMemoryBufferDescriptor {
             buffer_id: 17,
@@ -577,6 +603,19 @@ mod access_copy_diagnostic_tests {
         assert!(msg.contains("length=34"), "message={msg}");
         assert!(msg.contains("capacity=4096"), "message={msg}");
         assert!(msg.contains("path/name=path"), "message={msg}");
+    }
+
+    #[test]
+    fn get_view_and_slice_failure_messages_include_mapping_context() {
+        let get = describe_get_view_failure(44, "/tmp/missing.qu");
+        assert!(get.contains("buffer_id=44"), "message={get}");
+        assert!(get.contains("/tmp/missing.qu"), "message={get}");
+
+        let slice = describe_slice_failure(45, 4, 12, 8);
+        assert!(slice.contains("buffer_id=45"), "message={slice}");
+        assert!(slice.contains("offset=4"), "message={slice}");
+        assert!(slice.contains("length=12"), "message={slice}");
+        assert!(slice.contains("view_len=8"), "message={slice}");
     }
 
     #[test]
@@ -595,6 +634,41 @@ mod access_copy_diagnostic_tests {
     }
 
     #[test]
+    fn memory_packable_row_descriptor_rejects_zero_stride_before_mapping() {
+        let d = SharedMemoryBufferDescriptor {
+            buffer_id: 7,
+            buffer_capacity: 128,
+            offset: 0,
+            length: 32,
+        };
+        let prefix = make_context_prefixer(Some("rows"));
+
+        let err =
+            validate_memory_packable_row_descriptor(&d, 0, 128, &prefix).expect_err("zero stride");
+
+        assert_eq!(err, "rows: element_stride must be nonzero");
+    }
+
+    #[test]
+    fn memory_packable_row_descriptor_rejects_misaligned_length_before_mapping() {
+        let d = SharedMemoryBufferDescriptor {
+            buffer_id: 8,
+            buffer_capacity: 128,
+            offset: 0,
+            length: 10,
+        };
+        let prefix = make_context_prefixer(None);
+
+        let err = validate_memory_packable_row_descriptor(&d, 4, 128, &prefix)
+            .expect_err("misaligned length");
+
+        assert!(
+            err.contains("is not a multiple of element_stride 4"),
+            "unexpected message: {err}"
+        );
+    }
+
+    #[test]
     fn access_copy_diagnostic_prefixes_context_on_early_validation_error() {
         let mut acc = SharedMemoryAccessor::new("pfx".into());
         let d = SharedMemoryBufferDescriptor {
@@ -608,6 +682,54 @@ mod access_copy_diagnostic_tests {
             .expect_err("negative length");
         assert!(err.starts_with("mesh_upload:"), "unexpected message: {err}");
         assert!(err.contains("length<=0"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn access_copy_rejects_non_multiple_type_size_after_mapping() {
+        let prefix = unique_prefix("non_multiple");
+        let cfg = SharedMemoryWriterConfig {
+            prefix: prefix.clone(),
+            destroy_on_drop: true,
+            ..SharedMemoryWriterConfig::default()
+        };
+        let mut writer = SharedMemoryWriter::open(cfg, 12, 3).expect("open writer");
+        writer.write_at(0, &[1, 2, 3]).expect("write bytes");
+        writer.flush();
+        let descriptor = writer.descriptor_for(0, 3);
+
+        let mut acc = SharedMemoryAccessor::new(prefix);
+        let err = acc
+            .access_copy_diagnostic::<u16>(&descriptor)
+            .expect_err("length is not multiple of u16");
+
+        assert!(
+            err.contains("is not a multiple of type size 2"),
+            "unexpected message: {err}"
+        );
+    }
+
+    #[test]
+    fn access_mut_bytes_writes_through_cached_mapping() {
+        let prefix = unique_prefix("mut_bytes");
+        let cfg = SharedMemoryWriterConfig {
+            prefix: prefix.clone(),
+            destroy_on_drop: true,
+            ..SharedMemoryWriterConfig::default()
+        };
+        let mut writer = SharedMemoryWriter::open(cfg, 13, 4).expect("open writer");
+        writer.write_at(0, &[1, 2, 3, 4]).expect("write bytes");
+        writer.flush();
+        let descriptor = writer.descriptor_for(0, 4);
+
+        let mut acc = SharedMemoryAccessor::new(prefix);
+        assert!(acc.access_mut_bytes(&descriptor, |bytes| {
+            bytes.copy_from_slice(&[9, 8, 7, 6]);
+        }));
+        let readback = acc
+            .access_copy_diagnostic::<u8>(&descriptor)
+            .expect("read mutated bytes");
+
+        assert_eq!(readback, vec![9, 8, 7, 6]);
     }
 
     #[test]

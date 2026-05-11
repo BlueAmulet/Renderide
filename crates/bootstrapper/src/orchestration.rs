@@ -409,4 +409,37 @@ mod assemble_host_args_tests {
         assert_eq!(out[out.len() - 2], "-shmprefix");
         assert_eq!(out[out.len() - 1], prefix);
     }
+
+    #[test]
+    fn preserves_existing_shmprefix_arguments_and_appends_new_pair() {
+        let out = assemble_host_args(
+            vec![
+                "-shmprefix".to_string(),
+                "old".to_string(),
+                "-Invisible".to_string(),
+            ],
+            "new",
+        );
+
+        assert_eq!(
+            out,
+            vec![
+                "-shmprefix".to_string(),
+                "old".to_string(),
+                "-Invisible".to_string(),
+                "-shmprefix".to_string(),
+                "new".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn accepts_empty_shared_memory_prefix_as_explicit_host_value() {
+        let out = assemble_host_args(vec!["-Data".into()], "");
+
+        assert_eq!(
+            out,
+            vec!["-Data".to_string(), "-shmprefix".to_string(), String::new()]
+        );
+    }
 }

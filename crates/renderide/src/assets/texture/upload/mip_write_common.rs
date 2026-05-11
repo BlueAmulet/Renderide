@@ -568,7 +568,11 @@ pub(super) fn copy_layout_for_mip(
 mod tests {
     use glam::IVec2;
 
-    use super::{choose_mip_start_bias, copy_extent_for_mip, valid_mip_prefix_len};
+    use super::{
+        MipUploadFormatCtx, MipUploadLabel, choose_mip_start_bias, copy_extent_for_mip,
+        copy_layout_for_mip, is_rgba8_family, mip_src_to_upload_pixels,
+        upload_uses_storage_v_inversion, valid_mip_prefix_len,
+    };
     use crate::shared::{SetTexture2DData, TextureFormat};
 
     #[test]
@@ -610,6 +614,36 @@ mod tests {
     }
 
     #[test]
+    fn choose_mip_start_bias_rejects_uploads_with_no_fitting_mips() {
+        let mut upload = SetTexture2DData::default();
+        upload.data.length = 4;
+        upload.mip_map_sizes = vec![IVec2::new(4, 4)];
+        upload.mip_starts = vec![0];
+
+        let err = choose_mip_start_bias(TextureFormat::RGBA32, &upload, 4)
+            .expect_err("no mip fits payload");
+
+        assert!(
+            err.to_string()
+                .contains("mip region exceeds shared memory descriptor"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn valid_prefix_len_errors_on_non_positive_dimensions() {
+        let mut upload = SetTexture2DData::default();
+        upload.data.length = 64;
+        upload.mip_map_sizes = vec![IVec2::new(4, 0)];
+        upload.mip_starts = vec![0];
+
+        let err = valid_mip_prefix_len(TextureFormat::RGBA32, &upload, 64, 0)
+            .expect_err("bad mip dimensions");
+
+        assert!(err.to_string().contains("non-positive mip dimensions"));
+    }
+
+    #[test]
     fn valid_prefix_len_stops_at_negative_tail_start() {
         let mut upload = SetTexture2DData::default();
         upload.data.length = 64;
@@ -618,6 +652,37 @@ mod tests {
 
         let prefix = valid_mip_prefix_len(TextureFormat::RGBA32, &upload, 64, 0).unwrap();
         assert_eq!(prefix, 1);
+    }
+
+    #[test]
+    fn valid_prefix_len_stops_when_start_is_before_bias() {
+        let mut upload = SetTexture2DData::default();
+        upload.data.offset = 128;
+        upload.data.length = 64;
+        upload.mip_map_sizes = vec![IVec2::new(4, 4)];
+        upload.mip_starts = vec![64];
+
+        let prefix = valid_mip_prefix_len(TextureFormat::RGBA32, &upload, 64, 128).unwrap();
+
+        assert_eq!(prefix, 0);
+    }
+
+    #[test]
+    fn valid_prefix_len_uses_compressed_byte_offsets() {
+        let mut upload = SetTexture2DData::default();
+        upload.data.length = 8;
+        upload.mip_map_sizes = vec![IVec2::new(4, 4)];
+        upload.mip_starts = vec![0];
+        assert_eq!(
+            valid_mip_prefix_len(TextureFormat::BC1, &upload, 8, 0).unwrap(),
+            1
+        );
+
+        upload.mip_starts = vec![16];
+        assert_eq!(
+            valid_mip_prefix_len(TextureFormat::BC1, &upload, 8, 0).unwrap(),
+            0
+        );
     }
 
     #[test]
@@ -636,5 +701,60 @@ mod tests {
         assert_eq!(extent.width, 7);
         assert_eq!(extent.height, 5);
         assert_eq!(extent.depth_or_array_layers, 3);
+    }
+
+    #[test]
+    fn copy_layout_for_mip_reports_tight_uncompressed_layout() {
+        let (layout, expected) =
+            copy_layout_for_mip(wgpu::TextureFormat::Rgba8Unorm, 3, 2).expect("layout");
+
+        assert_eq!(layout.bytes_per_row, Some(12));
+        assert_eq!(layout.rows_per_image, Some(2));
+        assert_eq!(expected, 24);
+    }
+
+    #[test]
+    fn copy_layout_for_mip_reports_block_compressed_layout() {
+        let (layout, expected) =
+            copy_layout_for_mip(wgpu::TextureFormat::Bc1RgbaUnorm, 5, 5).expect("layout");
+
+        assert_eq!(layout.bytes_per_row, Some(16));
+        assert_eq!(layout.rows_per_image, Some(2));
+        assert_eq!(expected, 32);
+    }
+
+    #[test]
+    fn rgba8_family_and_storage_orientation_contract_are_stable() {
+        assert!(is_rgba8_family(wgpu::TextureFormat::Rgba8Unorm));
+        assert!(is_rgba8_family(wgpu::TextureFormat::Rgba8UnormSrgb));
+        assert!(!is_rgba8_family(wgpu::TextureFormat::Bgra8Unorm));
+        assert!(upload_uses_storage_v_inversion(
+            TextureFormat::RGBA32,
+            wgpu::TextureFormat::Rgba8Unorm,
+            false,
+        ));
+    }
+
+    #[test]
+    fn mip_src_to_upload_pixels_direct_rgba8_keeps_bytes_and_marks_host_orientation() {
+        let ctx = MipUploadFormatCtx {
+            asset_id: 7,
+            fmt_format: TextureFormat::RGBA32,
+            wgpu_format: wgpu::TextureFormat::Rgba8Unorm,
+            needs_rgba8_decode: false,
+        };
+
+        let pixels = mip_src_to_upload_pixels(
+            ctx,
+            1,
+            1,
+            false,
+            &[1, 2, 3, 4],
+            MipUploadLabel::texture2d(0),
+        )
+        .expect("direct rgba upload");
+
+        assert_eq!(pixels.bytes, vec![1, 2, 3, 4]);
+        assert!(pixels.storage_v_inverted);
     }
 }

@@ -516,6 +516,54 @@ mod tests {
     }
 
     #[test]
+    fn readback_layout_rejects_wrong_mip_count() {
+        let mut task = task_with_origins(4, false);
+        task.mip_origins[0].pop();
+        let extent = ProbeTaskExtent::from_task(&task).expect("extent");
+
+        let error = compute_probe_readback_layout(
+            &task,
+            extent,
+            ProbeOutputFormat::from_hdr(task.hdr),
+            1_000_000,
+        )
+        .expect_err("wrong mip count must fail");
+
+        assert!(matches!(
+            error,
+            ReflectionProbeBakeError::InvalidMipOriginCount {
+                face: 0,
+                expected: 3,
+                actual: 2
+            }
+        ));
+    }
+
+    #[test]
+    fn readback_layout_rejects_negative_mip_origin() {
+        let mut task = task_with_origins(4, false);
+        task.mip_origins[2][1] = -5;
+        let extent = ProbeTaskExtent::from_task(&task).expect("extent");
+
+        let error = compute_probe_readback_layout(
+            &task,
+            extent,
+            ProbeOutputFormat::from_hdr(task.hdr),
+            1_000_000,
+        )
+        .expect_err("negative origin must fail");
+
+        assert!(matches!(
+            error,
+            ReflectionProbeBakeError::NegativeMipOrigin {
+                face: 2,
+                mip: 1,
+                origin: -5
+            }
+        ));
+    }
+
+    #[test]
     fn readback_layout_rejects_small_descriptor() {
         let mut task = task_with_origins(4, false);
         task.result_data.length = 1;
@@ -533,6 +581,56 @@ mod tests {
             error,
             ReflectionProbeBakeError::ResultDescriptorTooSmall { .. }
         ));
+    }
+
+    #[test]
+    fn readback_layout_rejects_buffer_above_device_limit() {
+        let task = task_with_origins(4, true);
+        let extent = ProbeTaskExtent::from_task(&task).expect("extent");
+
+        let error =
+            compute_probe_readback_layout(&task, extent, ProbeOutputFormat::from_hdr(task.hdr), 1)
+                .expect_err("readback buffer limit");
+
+        assert!(matches!(
+            error,
+            ReflectionProbeBakeError::ReadbackBufferTooLarge { size, max: 1 }
+                if size > 1
+        ));
+    }
+
+    #[test]
+    fn probe_result_required_byte_count_uses_sparse_host_origins() {
+        let layout = ProbeReadbackLayout {
+            subresources: vec![
+                ProbeMipReadback {
+                    face: ProbeCubeFace::PosX,
+                    mip: 0,
+                    extent: 1,
+                    bytes_per_row_tight: 8,
+                    bytes_per_row_padded: 8,
+                    buffer_offset: 0,
+                    host_origin: 12,
+                    host_byte_count: 4,
+                },
+                ProbeMipReadback {
+                    face: ProbeCubeFace::NegX,
+                    mip: 0,
+                    extent: 1,
+                    bytes_per_row_tight: 8,
+                    bytes_per_row_padded: 8,
+                    buffer_offset: 8,
+                    host_origin: 0,
+                    host_byte_count: 2,
+                },
+            ],
+            buffer_size: 16,
+            output_format: ProbeOutputFormat::Rgba16Float,
+        };
+
+        let required = probe_result_required_byte_count(&layout).expect("required bytes");
+
+        assert_eq!(required, 16);
     }
 
     #[test]
@@ -570,6 +668,66 @@ mod tests {
     }
 
     #[test]
+    fn pack_probe_readback_rejects_short_mapped_buffer() {
+        let layout = ProbeReadbackLayout {
+            subresources: vec![ProbeMipReadback {
+                face: ProbeCubeFace::PosX,
+                mip: 0,
+                extent: 1,
+                bytes_per_row_tight: 8,
+                bytes_per_row_padded: 8,
+                buffer_offset: 0,
+                host_origin: 0,
+                host_byte_count: 8,
+            }],
+            buffer_size: 8,
+            output_format: ProbeOutputFormat::Rgba16Float,
+        };
+        let mut dst = [0u8; 8];
+
+        let error = pack_probe_readback_to_host(&[0u8; 7], &layout, &mut dst)
+            .expect_err("short mapped buffer");
+
+        assert!(matches!(
+            error,
+            ReflectionProbeBakeError::MappedReadbackTooSmall {
+                required: 8,
+                actual: 7
+            }
+        ));
+    }
+
+    #[test]
+    fn pack_probe_readback_rejects_short_destination() {
+        let layout = ProbeReadbackLayout {
+            subresources: vec![ProbeMipReadback {
+                face: ProbeCubeFace::PosX,
+                mip: 0,
+                extent: 1,
+                bytes_per_row_tight: 8,
+                bytes_per_row_padded: 8,
+                buffer_offset: 0,
+                host_origin: 0,
+                host_byte_count: 8,
+            }],
+            buffer_size: 8,
+            output_format: ProbeOutputFormat::Rgba16Float,
+        };
+        let mut dst = [0u8; 7];
+
+        let error = pack_probe_readback_to_host(&[0u8; 8], &layout, &mut dst)
+            .expect_err("short destination");
+
+        assert!(matches!(
+            error,
+            ReflectionProbeBakeError::ResultDescriptorTooSmall {
+                required: 8,
+                actual: 7
+            }
+        ));
+    }
+
+    #[test]
     fn pack_rgba16f_writes_unity_bitmap_cube_rows_and_omits_padding() {
         let subresource = ProbeMipReadback {
             face: ProbeCubeFace::PosX,
@@ -602,6 +760,39 @@ mod tests {
                 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
             ]
         );
+    }
+
+    #[test]
+    fn half_float_decode_handles_zero_normal_infinity_and_nan() {
+        assert_eq!(f16_bits_to_f32(0x0000), 0.0);
+        assert_eq!(f16_bits_to_f32(0x3c00), 1.0);
+        assert_eq!(f16_bits_to_f32(0xc000), -2.0);
+        assert!(f16_bits_to_f32(0x7c00).is_infinite());
+        assert!(f16_bits_to_f32(0x7e00).is_nan());
+    }
+
+    #[test]
+    fn linear_f32_to_unorm8_clamps_and_rounds() {
+        assert_eq!(linear_f32_to_unorm8(f32::NAN), 0);
+        assert_eq!(linear_f32_to_unorm8(-0.01), 0);
+        assert_eq!(linear_f32_to_unorm8(0.0), 0);
+        assert_eq!(linear_f32_to_unorm8(0.5), 128);
+        assert_eq!(linear_f32_to_unorm8(1.0), 255);
+        assert_eq!(linear_f32_to_unorm8(2.0), 255);
+    }
+
+    #[test]
+    fn alignment_helpers_report_overflow() {
+        assert_eq!(align_u32(257, 256).expect("align u32"), 512);
+        assert_eq!(align_u64(513, 256).expect("align u64"), 768);
+        assert!(matches!(
+            align_u32(u32::MAX, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT),
+            Err(ReflectionProbeBakeError::OutputByteCountOverflow)
+        ));
+        assert!(matches!(
+            align_u64(u64::MAX, wgpu::COPY_BUFFER_ALIGNMENT),
+            Err(ReflectionProbeBakeError::OutputByteCountOverflow)
+        ));
     }
 
     #[test]

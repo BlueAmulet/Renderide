@@ -155,6 +155,54 @@ mod tests {
     }
 
     #[test]
+    fn parse_args_accepts_prefixed_flag_spellings_by_suffix() {
+        let cmd = [
+            "renderide",
+            "--renderide-QueueName",
+            "Prefixed",
+            "/QueueCapacity",
+            "2048",
+        ];
+        assert_eq!(
+            parse_args(&cmd),
+            Some(ConnectionParams {
+                queue_name: "Prefixed".into(),
+                queue_capacity: 2048,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_args_returns_none_when_flag_value_is_missing() {
+        assert_eq!(parse_args(&["renderide", "-QueueName"]), None);
+        assert_eq!(
+            parse_args(&["renderide", "-QueueName", "Name", "-QueueCapacity"]),
+            None
+        );
+    }
+
+    #[test]
+    fn parse_args_allows_replacing_invalid_capacity_with_later_valid_capacity() {
+        let cmd = [
+            "renderide",
+            "-QueueName",
+            "Recover",
+            "-QueueCapacity",
+            "bad",
+            "-QueueCapacity",
+            "1024",
+        ];
+
+        assert_eq!(
+            parse_args(&cmd),
+            Some(ConnectionParams {
+                queue_name: "Recover".into(),
+                queue_capacity: 1024,
+            })
+        );
+    }
+
+    #[test]
     fn parse_args_rejects_duplicate_queue_name() {
         let cmd = [
             "renderide",
