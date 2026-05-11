@@ -105,18 +105,6 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) packed_normal_map23: i32,
     /// `PBSColorSplat` packed emission texture.
     pub(crate) packed_emission_map: i32,
-    /// `Projection360` secondary equirectangular texture binding.
-    pub(crate) second_tex: i32,
-    /// `Projection360` tint-modulation texture binding.
-    pub(crate) tint_tex: i32,
-    /// `Projection360` direction-perturbation texture binding.
-    pub(crate) offset_tex: i32,
-    /// `Projection360` primary cubemap texture binding.
-    pub(crate) main_cube: i32,
-    /// `Projection360` secondary cubemap texture binding.
-    pub(crate) second_cube: i32,
-    /// `ProceduralSkybox` numeric sun-disk mode property.
-    pub(crate) sun_disk: i32,
 }
 
 impl EmbeddedSharedKeywordIds {
@@ -177,12 +165,6 @@ impl EmbeddedSharedKeywordIds {
             packed_normal_map01: registry.intern("_PackedNormalMap01"),
             packed_normal_map23: registry.intern("_PackedNormalMap23"),
             packed_emission_map: registry.intern("_PackedEmissionMap"),
-            second_tex: registry.intern("_SecondTex"),
-            tint_tex: registry.intern("_TintTex"),
-            offset_tex: registry.intern("_OffsetTex"),
-            main_cube: registry.intern("_MainCube"),
-            second_cube: registry.intern("_SecondCube"),
-            sun_disk: registry.intern("_SunDisk"),
         }
     }
 }
@@ -195,7 +177,8 @@ pub(crate) struct StemEmbeddedPropertyIds {
     pub(crate) keyword_field_probe_ids: HashMap<String, [i32; 3]>,
     /// Whether this stem is the `UI/Unlit` shader family whose `ALPHACLIP` keyword defaults on.
     pub(crate) ui_unlit_alpha_clip_default_on: bool,
-    /// Whether this stem should use Unity ProceduralSkybox property defaults.
+    /// Whether this stem should use Unity ProceduralSkybox property defaults when the host
+    /// hasn't written explicit values for `_SkyTint`/`_GroundColor`/etc.
     pub(crate) procedural_skybox_defaults: bool,
 }
 
