@@ -9,6 +9,7 @@ use crate::scene::ResolvedLight;
 use crate::shared::{LightType, ShadowType};
 
 const MIN_SPOT_ANGLE_SCALE_DENOMINATOR: f32 = 1e-6;
+const SPOT_INNER_ANGLE_RATIO: f32 = 0.9;
 
 /// Packs a [`ResolvedLight`] for GPU consumption.
 pub fn gpu_light_from_resolved(light: &ResolvedLight) -> GpuLight {
@@ -49,16 +50,17 @@ fn spot_angle_terms(spot_angle: f32) -> (f32, f32) {
     } else {
         0.0
     };
-    let radians = angle.to_radians();
-    let cos_half = (radians * 0.5).cos().clamp(0.0, 1.0);
-    let cos_quarter = (radians * 0.25).cos().clamp(0.0, 1.0);
-    let denominator = cos_quarter - cos_half;
+    let outer_half_radians = angle.to_radians() * 0.5;
+    let inner_half_radians = outer_half_radians * SPOT_INNER_ANGLE_RATIO;
+    let cos_outer = outer_half_radians.cos().clamp(0.0, 1.0);
+    let cos_inner = inner_half_radians.cos().clamp(0.0, 1.0);
+    let denominator = cos_inner - cos_outer;
     let scale = if denominator > MIN_SPOT_ANGLE_SCALE_DENOMINATOR {
         1.0 / denominator
     } else {
         0.0
     };
-    (cos_half, scale)
+    (cos_outer, scale)
 }
 
 impl From<&ResolvedLight> for GpuLight {
@@ -108,7 +110,8 @@ mod layout_tests {
     use crate::shared::{LightType, ShadowType};
 
     use super::{
-        GpuLight, MAX_LIGHTS, gpu_light_from_resolved, order_lights_for_clustered_shading_in_place,
+        GpuLight, MAX_LIGHTS, SPOT_INNER_ANGLE_RATIO, gpu_light_from_resolved,
+        order_lights_for_clustered_shading_in_place,
     };
 
     #[test]
@@ -138,14 +141,15 @@ mod layout_tests {
     }
 
     #[test]
-    fn gpu_light_packs_birp_spot_angle_terms() {
+    fn gpu_light_packs_filament_spot_angle_terms() {
         let light = resolved_light(LightType::Spot);
         let gpu = gpu_light_from_resolved(&light);
-        let angle = light.spot_angle.to_radians();
-        let expected_half = (angle * 0.5).cos();
-        let expected_scale = 1.0 / ((angle * 0.25).cos() - expected_half);
+        let outer_half = light.spot_angle.to_radians() * 0.5;
+        let expected_outer = outer_half.cos();
+        let expected_inner = (outer_half * SPOT_INNER_ANGLE_RATIO).cos();
+        let expected_scale = 1.0 / (expected_inner - expected_outer);
 
-        assert!((gpu.spot_cos_half_angle - expected_half).abs() < 1e-6);
+        assert!((gpu.spot_cos_half_angle - expected_outer).abs() < 1e-6);
         assert!((gpu.spot_angle_scale - expected_scale).abs() < 1e-5);
         assert!(gpu.spot_angle_scale.is_finite());
         assert!(gpu.spot_angle_scale > 0.0);
@@ -160,7 +164,11 @@ mod layout_tests {
 
         assert!(gpu.spot_cos_half_angle.abs() < 1e-6);
         assert!(gpu.spot_angle_scale.is_finite());
-        assert!((gpu.spot_angle_scale - std::f32::consts::SQRT_2).abs() < 1e-6);
+        assert!(
+            (gpu.spot_angle_scale - 1.0 / ((90.0_f32 * SPOT_INNER_ANGLE_RATIO).to_radians().cos()))
+                .abs()
+                < 1e-6
+        );
     }
 
     #[test]

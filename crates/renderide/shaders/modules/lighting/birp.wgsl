@@ -1,4 +1,4 @@
-//! Shared Unity Built-in Render Pipeline direct-light intensity and attenuation helpers.
+//! Shared direct-light intensity and attenuation helpers.
 
 #import renderide::frame::types as ft
 
@@ -51,15 +51,16 @@ fn normalized_spot_direction(direction: vec3<f32>) -> vec3<f32> {
     return direction * inverseSqrt(len_sq);
 }
 
-/// Unity BiRP-style spotlight cone attenuation.
+/// Filament-style spotlight cone attenuation.
 ///
 /// `l` is the normalized direction from the shaded surface toward the light. The packed light
-/// stores the outer half-angle cosine plus a scale that reaches full intensity at the quarter-angle
-/// cone, matching Unity's `unity_LightAtten` spot-light fade behavior.
+/// stores the outer half-angle cosine plus a scale derived from a fixed inner-angle ratio.
 fn spot_angle_attenuation(light: ft::GpuLight, l: vec3<f32>) -> f32 {
     if (light.spot_angle_scale <= 0.0) {
         return 0.0;
     }
     let rho = max(dot(-l, normalized_spot_direction(light.direction)), 0.0);
-    return clamp((rho - light.spot_cos_half_angle) * light.spot_angle_scale, 0.0, 1.0);
+    let offset = -light.spot_cos_half_angle * light.spot_angle_scale;
+    let attenuation = clamp(rho * light.spot_angle_scale + offset, 0.0, 1.0);
+    return attenuation * attenuation;
 }
