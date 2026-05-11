@@ -117,14 +117,6 @@ impl MaterialRegistry {
         );
         match &pipeline {
             RasterPipelineKind::EmbeddedStem(s) => {
-                if super::shader_variant::shader_variant_has_pipeline_state_keywords(
-                    s,
-                    shader_variant_bits,
-                ) {
-                    logger::debug!(
-                        "shader variant contains pipeline-state keywords for shader_asset_id={shader_asset_id} stem={s}"
-                    );
-                }
                 self.router.set_shader_stem(shader_asset_id, s.to_string());
             }
             RasterPipelineKind::Null => {

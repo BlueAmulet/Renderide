@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn unlit_texture_presence_infers_observable_keywords() {
+fn texture_presence_infers_generic_texture_keyword_only() {
     let mut store = MaterialPropertyStore::new();
     let reg = PropertyIdRegistry::new();
     let ids = StemEmbeddedPropertyIds::minimal_for_tests(&reg);
@@ -29,7 +29,7 @@ fn unlit_texture_presence_infers_observable_keywords() {
     );
     assert_eq!(
         inferred_keyword_float_f32("_MASK_TEXTURE_MUL", &store, lookup(50), &ids),
-        Some(1.0)
+        Some(0.0)
     );
     assert_eq!(
         inferred_keyword_float_f32("_MASK_TEXTURE_CLIP", &store, lookup(50), &ids),
@@ -37,7 +37,7 @@ fn unlit_texture_presence_infers_observable_keywords() {
     );
     assert_eq!(
         inferred_keyword_float_f32("_OFFSET_TEXTURE", &store, lookup(50), &ids),
-        Some(1.0)
+        Some(0.0)
     );
 }
 

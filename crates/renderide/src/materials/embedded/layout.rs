@@ -36,10 +36,9 @@ pub(crate) struct StemMaterialLayout {
 /// 4. The UI stencil and color-mask properties for reconstructing unshipped `RECTCLIP`
 ///    keyword state on masked content draws.
 ///
-/// Parsed shader variant metadata is authoritative when present. These ids support compatibility
-/// inference for shaders or material updates that do not provide that bitmask, using texture
-/// bindings, numeric material properties, render-type tag, render queue, blend factors,
-/// and UI stencil state.
+/// These ids support compatibility inference for reflected keyword uniforms using texture
+/// bindings, numeric material properties, render-type tag, render queue, blend factors, and UI
+/// stencil state. The raw `_RenderideVariantBits` uniform is passed separately and decoded by WGSL.
 pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) blend_mode: i32,
     pub(crate) mode: i32,
@@ -72,7 +71,6 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) gradient: i32,
     pub(crate) main_tex: i32,
     pub(crate) main_tex1: i32,
-    pub(crate) mask_tex: i32,
     pub(crate) emission_map: i32,
     pub(crate) emission_map1: i32,
     pub(crate) emission_map2: i32,
@@ -155,7 +153,6 @@ impl EmbeddedSharedKeywordIds {
             gradient: registry.intern("_Gradient"),
             main_tex: registry.intern("_MainTex"),
             main_tex1: registry.intern("_MainTex1"),
-            mask_tex: registry.intern("_MaskTex"),
             emission_map: registry.intern("_EmissionMap"),
             emission_map1: registry.intern("_EmissionMap1"),
             emission_map2: registry.intern("_EmissionMap2"),
@@ -201,7 +198,6 @@ impl EmbeddedSharedKeywordIds {
 
 /// Per-stem stable property ids from WGSL reflection (uniform members and `@group(1)` texture globals), built once when the stem layout loads.
 pub(crate) struct StemEmbeddedPropertyIds {
-    pub(crate) stem: String,
     pub(crate) shared: Arc<EmbeddedSharedKeywordIds>,
     pub(crate) uniform_field_ids: HashMap<String, i32>,
     pub(crate) texture_binding_property_ids: HashMap<u32, Arc<[i32]>>,
@@ -272,7 +268,6 @@ impl StemEmbeddedPropertyIds {
 
         let source_stem = source_stem_from_target_stem(stem);
         Self {
-            stem: stem.to_string(),
             shared,
             uniform_field_ids,
             texture_binding_property_ids,
@@ -294,7 +289,6 @@ impl StemEmbeddedPropertyIds {
     /// Shared keyword ids only (no per-stem uniform/texture reflection); for unit tests.
     pub fn minimal_for_tests(registry: &PropertyIdRegistry) -> Self {
         Self {
-            stem: "test_default".to_string(),
             shared: Arc::new(EmbeddedSharedKeywordIds::new(registry)),
             uniform_field_ids: HashMap::new(),
             texture_binding_property_ids: HashMap::new(),

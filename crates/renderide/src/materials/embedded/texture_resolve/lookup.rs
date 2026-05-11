@@ -260,7 +260,6 @@ mod tests {
                 requires_intersection_pass: false,
             },
             StemEmbeddedPropertyIds {
-                stem: "test_default".to_string(),
                 shared: Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
                 uniform_field_ids: HashMap::new(),
                 texture_binding_property_ids,

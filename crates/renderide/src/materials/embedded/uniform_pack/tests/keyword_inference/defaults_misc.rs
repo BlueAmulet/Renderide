@@ -3,7 +3,7 @@
 use super::*;
 
 #[test]
-fn right_eye_keyword_infers_from_right_eye_st_presence() {
+fn right_eye_variant_keyword_is_not_inferred_from_right_eye_st_presence() {
     let (_reflected, ids, registry) = reflected_with_f32_fields(&[("_RightEye_ST", 0)]);
     let mut store = MaterialPropertyStore::new();
     store.set_material(
@@ -14,7 +14,7 @@ fn right_eye_keyword_infers_from_right_eye_st_presence() {
 
     assert_eq!(
         inferred_keyword_float_f32("_RIGHT_EYE_ST", &store, lookup(51), &ids),
-        Some(1.0)
+        Some(0.0)
     );
 }
 

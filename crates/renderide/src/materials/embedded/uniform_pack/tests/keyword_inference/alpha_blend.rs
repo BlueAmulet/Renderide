@@ -195,7 +195,7 @@ fn xiexe_base_and_default_blend_factor_pairs_do_not_mix() {
 }
 
 /// `BlendMode.Additive` writes Transparent render type with `_SrcBlend = One` and
-/// `_DstBlend = One`; Unlit uses that signal to enable `_MUL_RGB_BY_ALPHA`.
+/// `_DstBlend = One`; reflected `_MUL_RGB_BY_ALPHA` fields keep that compatibility signal.
 
 #[test]
 fn transparent_render_type_with_additive_factors_infers_mul_rgb_by_alpha() {
