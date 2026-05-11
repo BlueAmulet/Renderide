@@ -3,10 +3,14 @@
 //!
 //! Each mask channel selects one of `_Color`/`_Color1`/`_Color2`/`_Color3`; the result is
 //! normalized by the channel sum and optionally multiplied by `_MainTex`. Per-channel emission
-//! follows the same pattern. Mirrors the keyword surface (`_ALBEDOTEX`, `_EMISSIONTEX`,
-//! `_NORMALMAP`, `_METALLICMAP`, `_OCCLUSION`, `_MULTI_VALUES`).
+//! follows the same pattern. The Unity asset declares the keyword surface
+//! (`_ALBEDOTEX`, `_EMISSIONTEX`, `_NORMALMAP`, `_METALLICMAP`, `_OCCLUSION`); a sixth keyword
+//! `_MULTI_VALUES` is present in the Unity property block but its pragma in the source asset is
+//! misspelled (`#pragma mutli_compile`) and is silently dropped by Froox's pragma parser, so it
+//! never participates in this shader's variant set.
 
 
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
@@ -42,18 +46,38 @@ struct PbsColorMaskMaterial {
     _Glossiness: f32,
     /// Metallic fallback when `_METALLICMAP` is disabled.
     _Metallic: f32,
-    /// Keyword: enable albedo texture multiply.
-    _ALBEDOTEX: f32,
-    /// Keyword: enable emission texture multiply.
-    _EMISSIONTEX: f32,
-    /// Keyword: enable normal map sampling.
-    _NORMALMAP: f32,
-    /// Keyword: read metallic + smoothness from `_MetallicMap` (R=metallic, A=smoothness).
-    _METALLICMAP: f32,
-    /// Keyword: read occlusion from `_OcclusionMap.r`.
-    _OCCLUSION: f32,
-    /// Keyword: when set with `_METALLICMAP`, multiply map values by `_Metallic`/`_Glossiness`.
-    _MULTI_VALUES: f32,
+    /// Renderer-reserved Froox variant bits (sorted UniqueKeywords).
+    _RenderideVariantBits: u32,
+}
+
+const PBSCOLORMASK_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSCOLORMASK_KW_EMISSIONTEX: u32 = 1u << 1u;
+const PBSCOLORMASK_KW_METALLICMAP: u32 = 1u << 2u;
+const PBSCOLORMASK_KW_NORMALMAP: u32 = 1u << 3u;
+const PBSCOLORMASK_KW_OCCLUSION: u32 = 1u << 4u;
+
+fn pbscolormask_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_ALBEDOTEX() -> bool {
+    return pbscolormask_kw(PBSCOLORMASK_KW_ALBEDOTEX);
+}
+
+fn kw_EMISSIONTEX() -> bool {
+    return pbscolormask_kw(PBSCOLORMASK_KW_EMISSIONTEX);
+}
+
+fn kw_METALLICMAP() -> bool {
+    return pbscolormask_kw(PBSCOLORMASK_KW_METALLICMAP);
+}
+
+fn kw_NORMALMAP() -> bool {
+    return pbscolormask_kw(PBSCOLORMASK_KW_NORMALMAP);
+}
+
+fn kw_OCCLUSION() -> bool {
+    return pbscolormask_kw(PBSCOLORMASK_KW_OCCLUSION);
 }
 
 @group(1) @binding(0)  var<uniform> mat: PbsColorMaskMaterial;
@@ -85,7 +109,7 @@ struct SurfaceData {
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
     let tbn = pnorm::orthonormal_tbn(normalize(world_n), normalize(world_t));
     var ts_n = vec3<f32>(0.0, 0.0, 1.0);
-    if (uvu::kw_enabled(mat._NORMALMAP)) {
+    if (kw_NORMALMAP()) {
         ts_n = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_main),
             mat._NormalScale,
@@ -110,18 +134,14 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> Sur
         + mat._Color2 * mask.b
         + mat._Color3 * mask.a;
     c = c * weight;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (kw_ALBEDOTEX()) {
         c = c * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
 
     var metallic = mat._Metallic;
     var smoothness = mat._Glossiness;
-    if (uvu::kw_enabled(mat._METALLICMAP)) {
-        var m = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
-        if (uvu::kw_enabled(mat._MULTI_VALUES)) {
-            m.r = m.r * mat._Metallic;
-            m.a = m.a * mat._Glossiness;
-        }
+    if (kw_METALLICMAP()) {
+        let m = textureSample(_MetallicMap, _MetallicMap_sampler, uv_main);
         metallic = m.r;
         smoothness = m.a;
     }
@@ -129,7 +149,7 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> Sur
     let roughness = clamp(1.0 - smoothness, 0.0, 1.0);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (kw_OCCLUSION()) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
@@ -139,7 +159,7 @@ fn sample_surface(uv0: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> Sur
         + mat._EmissionColor2 * mask.b
         + mat._EmissionColor3 * mask.a;
     emission = emission * weight;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (kw_EMISSIONTEX()) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main);
     }
 
@@ -205,5 +225,3 @@ fn fs_forward_base(
         s.alpha,
     );
 }
-
-/// Forward-add pass: additive accumulation of local (point/spot) lights.

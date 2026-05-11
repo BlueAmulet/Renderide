@@ -1,12 +1,19 @@
-//! Unity surface shader `Shader "PBSDisplaceShadow"`: depth-only displaced proxy.
+//! Unity surface shader `Shader "PBSDisplaceShadow"`: Standard metallic lighting on a
+//! vertex-displaced mesh, with a matching shadow-caster proxy.
 //!
-//! The Unity asset has an empty `surf` body and only offsets vertices along their normals from
-//! `_VertexOffsetMap`, so this stem writes depth without carrying the full PBS lighting path.
+//! The Unity asset declares `surface surf Standard fullforwardshadows vertex:vert addshadow`
+//! with an empty `surf` body, so the fragment shading collapses to defaults: albedo is
+//! `_Color * _MainTex`, metallic is 0, smoothness is the Standard default (0.5), no normal
+//! map, no emission. The vertex stage samples `_VertexOffsetMap.r` and offsets along the mesh
+//! normal; the depth-only pass uses the same displacement so shadow casts line up.
 
+#import renderide::core::uv as uvu
+#import renderide::draw::per_draw as pd
 #import renderide::frame::globals as rg
 #import renderide::mesh::vertex as mv
-#import renderide::draw::per_draw as pd
-#import renderide::core::uv as uvu
+#import renderide::pbs::displace as pdisp
+#import renderide::pbs::lighting as plight
+#import renderide::pbs::surface as psurf
 
 struct PbsDisplaceShadowMaterial {
     _Color: vec4<f32>,
@@ -22,11 +29,10 @@ struct PbsDisplaceShadowMaterial {
 @group(1) @binding(3) var _VertexOffsetMap: texture_2d<f32>;
 @group(1) @binding(4) var _VertexOffsetMap_sampler: sampler;
 
-struct VertexOutput {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) uv0: vec2<f32>,
-}
-
+/// Vertex stage: displace along the mesh normal using `_VertexOffsetMap.r`, then forward the
+/// usual world-space PBS payload. Tangents are passed through unchanged; the empty Unity
+/// `surf` body does not sample a normal map, so the tangent space is only forwarded for the
+/// shared `WorldVertexOutput` shape.
 @vertex
 fn vs_main(
     @builtin(instance_index) instance_index: u32,
@@ -36,34 +42,78 @@ fn vs_main(
     @location(0) pos: vec4<f32>,
     @location(1) n: vec4<f32>,
     @location(2) uv0: vec2<f32>,
-) -> VertexOutput {
-    let d = pd::get_draw(instance_index);
-    let vertex_offset_uv = uvu::apply_st(uv0, mat._VertexOffsetMap_ST);
-    let height = textureSampleLevel(
+    @location(4) t: vec4<f32>,
+) -> mv::WorldVertexOutput {
+    let draw = pd::get_draw(instance_index);
+    let displaced_uv = pdisp::apply_vertex_offsets(
+        pos.xyz,
+        n.xyz,
+        uv0,
+        draw.model,
+        true,
+        false,
+        false,
+        mat._VertexOffsetMap_ST,
+        vec4<f32>(1.0, 1.0, 0.0, 0.0),
+        vec2<f32>(0.0),
+        mat._VertexOffsetMagnitude,
+        mat._VertexOffsetBias,
         _VertexOffsetMap,
         _VertexOffsetMap_sampler,
-        vertex_offset_uv,
-        0.0,
-    ).r;
-    let displaced = pos.xyz + n.xyz * (height * mat._VertexOffsetMagnitude + mat._VertexOffsetBias);
-    let world_p = d.model * vec4<f32>(displaced, 1.0);
+        _VertexOffsetMap,
+        _VertexOffsetMap_sampler,
+    );
 #ifdef MULTIVIEW
-    let vp = mv::select_view_proj(d, view_idx);
+    let view_layer = view_idx;
 #else
-    let vp = mv::select_view_proj(d, 0u);
+    let view_layer = 0u;
 #endif
-
-    var out: VertexOutput;
-    out.clip_pos = vp * world_p;
-    out.uv0 = uv0;
-    return out;
+    return mv::world_vertex_main(
+        instance_index,
+        view_layer,
+        vec4<f32>(displaced_uv.position, 1.0),
+        n,
+        t,
+        displaced_uv.uv,
+    );
 }
 
+fn albedo_sample(uv0: vec2<f32>) -> vec4<f32> {
+    let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
+    return textureSample(_MainTex, _MainTex_sampler, uv_main) * mat._Color;
+}
+
+/// Forward pass: Standard metallic shading with Unity's default surf inputs (metallic=0,
+/// smoothness=0.5) and `_MainTex * _Color` albedo.
+//#pass forward
+@fragment
+fn fs_forward_base(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
+    let albedo = albedo_sample(in.primary_uv);
+    let surface = psurf::metallic(
+        albedo.rgb,
+        albedo.a,
+        0.0,
+        0.5,
+        1.0,
+        normalize(in.world_n),
+        vec3<f32>(0.0),
+    );
+    let shaded = plight::shade_metallic_clustered(
+        in.clip_pos.xy,
+        in.world_pos,
+        in.view_layer,
+        surface,
+        plight::default_lighting_options(),
+    );
+    return vec4<f32>(shaded, albedo.a);
+}
+
+/// Depth-only proxy pass for the `addshadow` shadow caster: emit a zero color that retains
+/// the per-frame global bindings without writing albedo.
 //#pass depth_prepass
 @fragment
-fn fs_depth_only(in: VertexOutput) -> @location(0) vec4<f32> {
-    let uv_main = uvu::apply_st(in.uv0, mat._MainTex_ST);
-    let albedo = textureSample(_MainTex, _MainTex_sampler, uv_main) * mat._Color;
-    let touch = (albedo.x + in.uv0.x) * 0.0;
+fn fs_depth_only(in: mv::WorldVertexOutput) -> @location(0) vec4<f32> {
+    let albedo = albedo_sample(in.primary_uv);
+    let touch = (albedo.x + in.primary_uv.x) * 0.0;
     return rg::retain_globals_additive(vec4<f32>(touch, touch, touch, 0.0));
 }

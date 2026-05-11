@@ -6,9 +6,11 @@
 //! (four separate textures gated by `_SPECULARMAP`).
 
 
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
+#import renderide::pbs::splat as splat
 #import renderide::pbs::surface as psurf
 #import renderide::core::uv as uvu
 
@@ -32,11 +34,37 @@ struct PbsColorSplatSpecularMaterial {
     _NormalScale1: f32,
     _NormalScale2: f32,
     _NormalScale3: f32,
-    _HEIGHTMAP: f32,
-    _PACKED_NORMALMAP: f32,
-    _EMISSIONTEX: f32,
-    _PACKED_EMISSIONTEX: f32,
-    _SPECULARMAP: f32,
+    _RenderideVariantBits: u32,
+}
+
+const PBSCOLORSPLATSPECULAR_KW_EMISSIONTEX: u32 = 1u << 0u;
+const PBSCOLORSPLATSPECULAR_KW_HEIGHTMAP: u32 = 1u << 1u;
+const PBSCOLORSPLATSPECULAR_KW_PACKED_EMISSIONTEX: u32 = 1u << 2u;
+const PBSCOLORSPLATSPECULAR_KW_PACKED_NORMALMAP: u32 = 1u << 3u;
+const PBSCOLORSPLATSPECULAR_KW_SPECULARMAP: u32 = 1u << 4u;
+
+fn pbscolorsplatspecular_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_EMISSIONTEX() -> bool {
+    return pbscolorsplatspecular_kw(PBSCOLORSPLATSPECULAR_KW_EMISSIONTEX);
+}
+
+fn kw_HEIGHTMAP() -> bool {
+    return pbscolorsplatspecular_kw(PBSCOLORSPLATSPECULAR_KW_HEIGHTMAP);
+}
+
+fn kw_PACKED_EMISSIONTEX() -> bool {
+    return pbscolorsplatspecular_kw(PBSCOLORSPLATSPECULAR_KW_PACKED_EMISSIONTEX);
+}
+
+fn kw_PACKED_NORMALMAP() -> bool {
+    return pbscolorsplatspecular_kw(PBSCOLORSPLATSPECULAR_KW_PACKED_NORMALMAP);
+}
+
+fn kw_SPECULARMAP() -> bool {
+    return pbscolorsplatspecular_kw(PBSCOLORSPLATSPECULAR_KW_SPECULARMAP);
 }
 
 @group(1) @binding(0)  var<uniform> mat: PbsColorSplatSpecularMaterial;
@@ -86,16 +114,12 @@ struct SurfaceData {
 }
 
 fn splat_weights(uv_albedo: vec2<f32>, uv_color: vec2<f32>) -> vec4<f32> {
-    var w = textureSample(_ColorMap, _ColorMap_sampler, uv_color);
-    if (uvu::kw_enabled(mat._HEIGHTMAP)) {
-        let heights = textureSample(_PackedHeightMap, _PackedHeightMap_sampler, uv_albedo) * w;
-        let max_height = max(max(heights.x, heights.y), max(heights.z, heights.w));
-        let band = max(mat._HeightTransitionRange, 1e-4);
-        let shifted = (heights - vec4<f32>(max_height) + vec4<f32>(band)) / band;
-        w = clamp(shifted, vec4<f32>(0.0), vec4<f32>(1.0));
+    let w = textureSample(_ColorMap, _ColorMap_sampler, uv_color);
+    if (kw_HEIGHTMAP()) {
+        let heights = textureSample(_PackedHeightMap, _PackedHeightMap_sampler, uv_albedo);
+        return splat::height_blended_weights(w, heights, mat._HeightTransitionRange);
     }
-    let total = max(w.x + w.y + w.z + w.w, 1e-4);
-    return w / total;
+    return splat::normalize_weights(w);
 }
 
 fn unpack_normal_xy(xy: vec2<f32>, scale: f32) -> vec3<f32> {
@@ -106,7 +130,7 @@ fn unpack_normal_xy(xy: vec2<f32>, scale: f32) -> vec3<f32> {
 
 fn sample_normal_world(uv_albedo: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, weights: vec4<f32>) -> vec3<f32> {
     let n = normalize(world_n);
-    if (!uvu::kw_enabled(mat._PACKED_NORMALMAP)) {
+    if (!kw_PACKED_NORMALMAP()) {
         return n;
     }
     let n01 = textureSample(_PackedNormalMap01, _PackedNormalMap01_sampler, uv_albedo);
@@ -125,7 +149,7 @@ fn sample_specular(uv_albedo: vec2<f32>, weights: vec4<f32>) -> vec4<f32> {
     var s1 = mat._SpecularColor1;
     var s2 = mat._SpecularColor2;
     var s3 = mat._SpecularColor3;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (kw_SPECULARMAP()) {
         s0 = s0 * textureSample(_SpecularMap, _SpecularMap_sampler, uv_albedo);
         s1 = s1 * textureSample(_SpecularMap1, _SpecularMap1_sampler, uv_albedo);
         s2 = s2 * textureSample(_SpecularMap2, _SpecularMap2_sampler, uv_albedo);
@@ -139,17 +163,17 @@ fn sample_emission(uv_albedo: vec2<f32>, weights: vec4<f32>) -> vec3<f32> {
     var e1 = mat._EmissionColor1;
     var e2 = mat._EmissionColor2;
     var e3 = mat._EmissionColor3;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
-        e0 = e0 * textureSample(_EmissionMap, _EmissionMap_sampler, uv_albedo);
-        e1 = e1 * textureSample(_EmissionMap1, _EmissionMap1_sampler, uv_albedo);
-        e2 = e2 * textureSample(_EmissionMap2, _EmissionMap2_sampler, uv_albedo);
-        e3 = e3 * textureSample(_EmissionMap3, _EmissionMap3_sampler, uv_albedo);
-    } else if (uvu::kw_enabled(mat._PACKED_EMISSIONTEX)) {
+    if (kw_PACKED_EMISSIONTEX()) {
         let packed = textureSample(_PackedEmissionMap, _PackedEmissionMap_sampler, uv_albedo);
         e0 = e0 * packed.x;
         e1 = e1 * packed.y;
         e2 = e2 * packed.z;
         e3 = e3 * packed.w;
+    } else if (kw_EMISSIONTEX()) {
+        e0 = e0 * textureSample(_EmissionMap, _EmissionMap_sampler, uv_albedo);
+        e1 = e1 * textureSample(_EmissionMap1, _EmissionMap1_sampler, uv_albedo);
+        e2 = e2 * textureSample(_EmissionMap2, _EmissionMap2_sampler, uv_albedo);
+        e3 = e3 * textureSample(_EmissionMap3, _EmissionMap3_sampler, uv_albedo);
     }
     let blended = e0 * weights.x + e1 * weights.y + e2 * weights.z + e3 * weights.w;
     return blended.rgb;

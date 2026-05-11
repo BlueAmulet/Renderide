@@ -1,15 +1,17 @@
 //! Overlay Unlit (`Shader "OverlayUnlit"`): front/behind unlit layers with Unity's two overlay
 //! depth tests (`Greater` behind, `LEqual` front).
 //!
-//! Keyword-style float fields mirror Unity `#pragma multi_compile` values:
-//! `_POLARUV`, `_MUL_RGB_BY_ALPHA`, `_MUL_ALPHA_INTENSITY`.
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes its sorted
+//! `UniqueKeywords` locally. The keyword groups gate texture sampling, alpha test, vertex-color
+//! multiply, vertex-color color-space conversion, polar UV, RGB premultiply, and alpha intensity.
 
 
 #import renderide::frame::globals as rg
 #import renderide::material::alpha_clip_sample as acs
 #import renderide::material::sample as ms
+#import renderide::material::variant_bits as vb
+#import renderide::material::vertex_color as vc
 #import renderide::mesh::vertex as mv
-#import renderide::core::uv as uvu
 
 struct OverlayUnlitMaterial {
     _BehindColor: vec4<f32>,
@@ -18,17 +20,60 @@ struct OverlayUnlitMaterial {
     _FrontTex_ST: vec4<f32>,
     _Cutoff: f32,
     _PolarPow: f32,
-    _POLARUV: f32,
-    _MUL_RGB_BY_ALPHA: f32,
-    _MUL_ALPHA_INTENSITY: f32,
-    _ALPHATEST: f32,
+    _RenderideVariantBits: u32,
 }
+
+const OVERLAYUNLIT_KW_ALPHATEST: u32 = 1u << 0u;
+const OVERLAYUNLIT_KW_MUL_ALPHA_INTENSITY: u32 = 1u << 1u;
+const OVERLAYUNLIT_KW_MUL_RGB_BY_ALPHA: u32 = 1u << 2u;
+const OVERLAYUNLIT_KW_POLARUV: u32 = 1u << 3u;
+const OVERLAYUNLIT_KW_TEXTURE: u32 = 1u << 4u;
+const OVERLAYUNLIT_KW_VERTEX_HDRSRGB_COLOR: u32 = 1u << 5u;
+const OVERLAYUNLIT_KW_VERTEX_LINEAR_COLOR: u32 = 1u << 6u;
+const OVERLAYUNLIT_KW_VERTEX_SRGB_COLOR: u32 = 1u << 7u;
+const OVERLAYUNLIT_KW_VERTEXCOLORS: u32 = 1u << 8u;
 
 @group(1) @binding(0) var<uniform> mat: OverlayUnlitMaterial;
 @group(1) @binding(1) var _BehindTex: texture_2d<f32>;
 @group(1) @binding(2) var _BehindTex_sampler: sampler;
 @group(1) @binding(3) var _FrontTex: texture_2d<f32>;
 @group(1) @binding(4) var _FrontTex_sampler: sampler;
+
+fn overlayunlit_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_ALPHATEST() -> bool {
+    return overlayunlit_kw(OVERLAYUNLIT_KW_ALPHATEST);
+}
+
+fn kw_MUL_ALPHA_INTENSITY() -> bool {
+    return overlayunlit_kw(OVERLAYUNLIT_KW_MUL_ALPHA_INTENSITY);
+}
+
+fn kw_MUL_RGB_BY_ALPHA() -> bool {
+    return overlayunlit_kw(OVERLAYUNLIT_KW_MUL_RGB_BY_ALPHA);
+}
+
+fn kw_POLARUV() -> bool {
+    return overlayunlit_kw(OVERLAYUNLIT_KW_POLARUV);
+}
+
+fn kw_TEXTURE() -> bool {
+    return overlayunlit_kw(OVERLAYUNLIT_KW_TEXTURE);
+}
+
+fn kw_VERTEX_HDRSRGB_COLOR() -> bool {
+    return overlayunlit_kw(OVERLAYUNLIT_KW_VERTEX_HDRSRGB_COLOR);
+}
+
+fn kw_VERTEX_SRGB_COLOR() -> bool {
+    return overlayunlit_kw(OVERLAYUNLIT_KW_VERTEX_SRGB_COLOR);
+}
+
+fn kw_VERTEXCOLORS() -> bool {
+    return overlayunlit_kw(OVERLAYUNLIT_KW_VERTEXCOLORS);
+}
 
 @vertex
 fn vs_main(
@@ -55,12 +100,10 @@ fn sample_layer(
     uv: vec2<f32>,
     st: vec4<f32>,
 ) -> vec4<f32> {
-    let sample_uv = ms::sample_uv(
-        uv,
-        st,
-        mat._PolarPow,
-        mat._POLARUV > 0.99,
-    );
+    if (!kw_TEXTURE()) {
+        return tint;
+    }
+    let sample_uv = ms::sample_uv(uv, st, mat._PolarPow, kw_POLARUV());
     return textureSample(tex, samp, sample_uv) * tint;
 }
 
@@ -72,26 +115,37 @@ fn sample_layer_lod0(
     uv: vec2<f32>,
     st: vec4<f32>,
 ) -> vec4<f32> {
-    let sample_uv = ms::sample_uv(
-        uv,
-        st,
-        mat._PolarPow,
-        mat._POLARUV > 0.99,
-    );
+    if (!kw_TEXTURE()) {
+        return tint;
+    }
+    let sample_uv = ms::sample_uv(uv, st, mat._PolarPow, kw_POLARUV());
     return acs::texture_rgba_base_mip(tex, samp, sample_uv) * tint;
 }
 
+fn apply_vertex_color(color_in: vec4<f32>, vertex_color: vec4<f32>) -> vec4<f32> {
+    if (!kw_VERTEXCOLORS()) {
+        return color_in;
+    }
+    var vc_linear = vertex_color;
+    if (kw_VERTEX_HDRSRGB_COLOR()) {
+        vc_linear = vc::srgb_to_linear_hdr(vc_linear);
+    } else if (kw_VERTEX_SRGB_COLOR()) {
+        vc_linear = vc::srgb_to_linear_ldr(vc_linear);
+    }
+    return color_in * vc_linear;
+}
+
 fn finalize_layer_color(color_in: vec4<f32>, clip_color: vec4<f32>, vertex_color: vec4<f32>) -> vec4<f32> {
-    if (uvu::kw_enabled(mat._ALPHATEST) && clip_color.a <= mat._Cutoff) {
+    if (kw_ALPHATEST() && clip_color.a <= mat._Cutoff) {
         discard;
     }
 
-    var color = color_in * vertex_color;
-    if (mat._MUL_RGB_BY_ALPHA > 0.99) {
+    var color = apply_vertex_color(color_in, vertex_color);
+    if (kw_MUL_RGB_BY_ALPHA()) {
         color = vec4<f32>(color.rgb * color.a, color.a);
     }
 
-    if (mat._MUL_ALPHA_INTENSITY > 0.99) {
+    if (kw_MUL_ALPHA_INTENSITY()) {
         let factor = (color.r + color.g + color.b) * 0.3333333;
         color.a = color.a * factor;
     }
