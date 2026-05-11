@@ -203,3 +203,15 @@ fn ui_textunlit_uses_reserved_variant_bits() -> io::Result<()> {
         ],
     )
 }
+
+#[test]
+fn ui_circlesegment_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "ui_circlesegment.wgsl",
+        &["_RectClip", "_OVERLAY"],
+        &[
+            ("UICIRCLESEGMENT_KW_OVERLAY", 0),
+            ("UICIRCLESEGMENT_KW_RECTCLIP", 1),
+        ],
+    )
+}
