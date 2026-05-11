@@ -1,10 +1,12 @@
 //! Tests for the parent module.
 
 use super::*;
-use crate::config::resolve::ConfigSource;
+use crate::config::ConfigSource;
+use crate::config::types::AutoExposureSettings;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use toml_edit::{DocumentMut, Item};
 
 struct EnvGuard {
     saved: Vec<(&'static str, Option<OsString>)>,
@@ -172,7 +174,7 @@ fn pipeline_layers_apply_in_order() {
 
 #[test]
 fn save_path_prefers_loaded() {
-    use crate::config::resolve::resolve_save_path;
+    use crate::config::persist::resolve::resolve_save_path;
     use std::path::PathBuf;
     let resolve = ConfigResolveOutcome {
         attempted_paths: vec![],
