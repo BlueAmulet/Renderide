@@ -19,7 +19,7 @@ use crate::mesh_deform::{GpuSkinCache, MeshDeformScratch, MeshPreprocessPipeline
 use crate::occlusion::OcclusionSystem;
 use crate::occlusion::gpu::HiZGpuState;
 use crate::scene::SceneCoordinator;
-use crate::shared::CameraClearMode;
+use crate::shared::{CameraClearMode, RenderingContext};
 
 use super::blackboard::BlackboardSlot;
 use super::compiled::ViewPostProcessing;
@@ -201,6 +201,8 @@ pub struct GraphPassFrameView<'a> {
     pub viewport_px: (u32, u32),
     /// Clip planes, FOV, and ortho task hint from the last host frame submission.
     pub host_camera: HostCameraFrame,
+    /// Render-context override scope used for transforms, materials, lights, and draw matrices.
+    pub render_context: RenderingContext,
     /// When `true`, the forward pass targets 2-layer array attachments and may use multiview.
     pub multiview_stereo: bool,
     /// When rendering a secondary camera to a host render texture, the asset id of the color

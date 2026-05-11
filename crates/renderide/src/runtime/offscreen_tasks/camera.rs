@@ -293,7 +293,6 @@ impl RendererRuntime {
             return;
         };
 
-        let render_context = RenderingContext::RenderToAsset;
         let base_camera = *host_camera;
         let total = tasks.len();
         for (index, task) in tasks.drain(..).enumerate() {
@@ -304,7 +303,6 @@ impl RendererRuntime {
                 scene,
                 base_camera,
                 shm: &mut *shm,
-                render_context,
                 task_index,
                 task: &task,
             }) {
@@ -337,7 +335,6 @@ struct CameraTaskRenderCtx<'a> {
     scene: &'a SceneCoordinator,
     base_camera: crate::camera::HostCameraFrame,
     shm: &'a mut SharedMemoryAccessor,
-    render_context: RenderingContext,
     task_index: i32,
     task: &'a CameraRenderTask,
 }
@@ -352,13 +349,7 @@ fn render_camera_task(ctx: CameraTaskRenderCtx<'_>) -> Result<(), CameraReadback
         ctx.task,
     )?;
     let view_id = planned.plan.view_id;
-    render_camera_task_offscreen(
-        ctx.gpu,
-        ctx.backend,
-        ctx.scene,
-        ctx.render_context,
-        planned.plan,
-    )?;
+    render_camera_task_offscreen(ctx.gpu, ctx.backend, ctx.scene, planned.plan)?;
     if planned.output_format.needs_alpha_coverage_repair() {
         alpha_coverage::apply_camera_task_alpha_coverage(ctx.gpu, &planned.targets);
     }
@@ -433,6 +424,7 @@ fn plan_camera_task(
     Ok(PlannedCameraTask {
         plan: FrameViewPlan {
             host_camera,
+            render_context: RenderingContext::RenderToAsset,
             draw_filter: Some(filter),
             render_space_filter: Some(render_space_id),
             view_id: ViewId::camera_render_task(render_space_id, task_index),
@@ -473,7 +465,6 @@ fn render_camera_task_offscreen(
     gpu: &mut GpuContext,
     backend: &mut RenderBackend,
     scene: &SceneCoordinator,
-    render_context: RenderingContext,
     plan: FrameViewPlan<'static>,
 ) -> Result<(), CameraReadbackError> {
     profiling::scope!("camera_task::offscreen_render");
@@ -484,19 +475,15 @@ fn render_camera_task_offscreen(
         prepared_views
             .plans()
             .iter()
-            .map(|plan| plan.light_view_desc(render_context)),
+            .map(FrameViewPlan::light_view_desc),
     );
     let view_perms = prepared_views
         .plans()
         .iter()
-        .map(FrameViewPlan::shader_permutation)
+        .map(|plan| (plan.render_context(), plan.shader_permutation()))
         .collect::<Vec<_>>();
-    let shared = backend.extract_frame_shared(
-        scene,
-        render_context,
-        WorldMeshDrawCollectParallelism::Full,
-        view_perms,
-    );
+    let shared =
+        backend.extract_frame_shared(scene, WorldMeshDrawCollectParallelism::Full, &view_perms);
     let submit_frame = ExtractedFrame::new(prepared_views, shared)
         .prepare_draws()
         .into_submit_frame();

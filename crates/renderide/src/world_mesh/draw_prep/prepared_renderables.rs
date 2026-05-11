@@ -111,9 +111,7 @@ pub struct FramePreparedRenderables {
     /// [`Self::draws`]. Material caches consume this list once per shader permutation instead of
     /// materializing and deduping every prepared draw.
     material_property_keys: Vec<(i32, Option<i32>)>,
-    /// Render context used when resolving material overrides; must match the per-view contexts
-    /// (the main renderer uses [`SceneCoordinator::active_main_render_context`] for every view
-    /// in the same frame).
+    /// Render context used when resolving material overrides; must match the per-view context.
     render_context: RenderingContext,
     /// Reused per-worker output buffers for the multi-space parallel expansion path. Outer
     /// [`Vec`] is resized to [`Self::active_space_ids`] length; each inner [`Vec`] is cleared and

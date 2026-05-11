@@ -229,7 +229,13 @@ fn pack_forward_draws_for_view(
 ) -> Option<PackedForwardDraws> {
     let (render_context, world_proj, overlay_proj) = {
         profiling::scope!("world_mesh::prepare_frame::compute_view_projections");
-        compute_view_projections(frame.shared.scene, hc, frame.view.viewport_px, &draws)
+        compute_view_projections(
+            frame.shared.scene,
+            hc,
+            frame.view.render_context,
+            frame.view.viewport_px,
+            &draws,
+        )
     };
     let offscreen_write_rt = frame.view.offscreen_write_render_texture_asset_id;
     let (world_proj, overlay_proj) =

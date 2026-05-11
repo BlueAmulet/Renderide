@@ -43,6 +43,7 @@ impl CompiledRenderGraph {
         let PerViewWorkItem {
             view_idx,
             host_camera,
+            render_context,
             clear,
             initial_blackboard,
             resolved,
@@ -79,8 +80,13 @@ impl CompiledRenderGraph {
         };
         let graph_resources: &GraphResolvedResources = &resolved_resources;
 
-        let mut frame_params =
-            Self::build_per_view_frame_params(shared, &resolved, &host_camera, clear);
+        let mut frame_params = Self::build_per_view_frame_params(
+            shared,
+            &resolved,
+            &host_camera,
+            render_context,
+            clear,
+        );
         let mut view_blackboard = self.build_per_view_blackboard(
             &frame_params,
             graph_resources,
@@ -88,19 +94,7 @@ impl CompiledRenderGraph {
             per_view_frame_bg_and_buf,
             view_idx,
         );
-        // Propagate the live GTAO settings so the GTAO chain (`GtaoMainPass` / `GtaoDenoisePass`
-        // / `GtaoApplyPass`) reads the current slider values every frame without rebuilding the
-        // compiled render graph. Topology fields (`enabled`, `denoise_passes`) are tracked by
-        // the chain signature; non-topology slider edits flow only through this slot.
-        view_blackboard.insert::<GtaoSettingsSlot>(GtaoSettingsValue(shared.live_gtao_settings));
-        // Same pattern for bloom: the first downsample reads `BloomSettingsSlot` to build its
-        // params UBO and the upsamples use it to compute per-mip blend constants + pick
-        // EnergyConserving vs Additive pipeline variants, so slider edits propagate next frame.
-        view_blackboard.insert::<BloomSettingsSlot>(BloomSettingsValue(shared.live_bloom_settings));
-        view_blackboard.insert::<AutoExposureSettingsSlot>(AutoExposureSettingsValue {
-            settings: shared.live_auto_exposure_settings,
-            delta_seconds: shared.wall_frame_delta_seconds,
-        });
+        Self::seed_live_post_process_settings(&mut view_blackboard, shared);
 
         {
             profiling::scope!("graph::per_view::pass_loop");
@@ -154,6 +148,7 @@ impl CompiledRenderGraph {
         shared: &'a PerViewRecordShared<'a>,
         resolved: &'a ResolvedView<'a>,
         host_camera: &crate::camera::HostCameraFrame,
+        render_context: crate::shared::RenderingContext,
         clear: super::super::super::frame_params::FrameViewClear,
     ) -> crate::render_graph::frame_params::GraphPassFrame<'a> {
         profiling::scope!("graph::per_view::build_frame_params");
@@ -175,6 +170,7 @@ impl CompiledRenderGraph {
                 resolved,
                 scene_color_format: shared.scene_color_format,
                 host_camera: *host_camera,
+                render_context,
                 clear,
                 post_processing: resolved.post_processing,
                 gpu_limits: shared.gpu_limits_arc.clone(),
@@ -213,6 +209,25 @@ impl CompiledRenderGraph {
         });
         view_blackboard.extend(graph_blackboard);
         view_blackboard
+    }
+
+    fn seed_live_post_process_settings(
+        blackboard: &mut Blackboard,
+        shared: &PerViewRecordShared<'_>,
+    ) {
+        // Propagate the live GTAO settings so the GTAO chain (`GtaoMainPass` / `GtaoDenoisePass`
+        // / `GtaoApplyPass`) reads the current slider values every frame without rebuilding the
+        // compiled render graph. Topology fields (`enabled`, `denoise_passes`) are tracked by
+        // the chain signature; non-topology slider edits flow only through this slot.
+        blackboard.insert::<GtaoSettingsSlot>(GtaoSettingsValue(shared.live_gtao_settings));
+        // Same pattern for bloom: the first downsample reads `BloomSettingsSlot` to build its
+        // params UBO and the upsamples use it to compute per-mip blend constants + pick
+        // EnergyConserving vs Additive pipeline variants, so slider edits propagate next frame.
+        blackboard.insert::<BloomSettingsSlot>(BloomSettingsValue(shared.live_bloom_settings));
+        blackboard.insert::<AutoExposureSettingsSlot>(AutoExposureSettingsValue {
+            settings: shared.live_auto_exposure_settings,
+            delta_seconds: shared.wall_frame_delta_seconds,
+        });
     }
 
     /// Encodes [`super::super::super::pass::PassPhase::FrameGlobal`] passes into a command buffer.
@@ -296,6 +311,7 @@ impl CompiledRenderGraph {
                     &mut **backend,
                     &resolved,
                     first.host_camera,
+                    first.render_context,
                     first.clear,
                     first.post_processing,
                 )

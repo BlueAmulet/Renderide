@@ -431,7 +431,6 @@ impl RendererRuntime {
             let (shm, mut ipc) = frontend.transport_pair_mut();
             flush_reflection_probe_render_results_to_ipc(tick_state, &mut ipc);
             if let Some(shm) = shm {
-                let render_context = RenderingContext::RenderToAsset;
                 let mut convolver = SkyboxIblConvolver::new();
                 let mut completed = 0u64;
                 let mut failed = 0u64;
@@ -443,7 +442,6 @@ impl RendererRuntime {
                         base_camera,
                         shm: &mut *shm,
                         convolver: &mut convolver,
-                        render_context,
                         queued: &queued,
                     }) {
                         Ok(()) => {
@@ -501,7 +499,6 @@ struct ReflectionProbeTaskRenderCtx<'a> {
     base_camera: HostCameraFrame,
     shm: &'a mut SharedMemoryAccessor,
     convolver: &'a mut SkyboxIblConvolver,
-    render_context: RenderingContext,
     queued: &'a QueuedReflectionProbeRenderTask,
 }
 
@@ -515,13 +512,8 @@ fn render_reflection_probe_task(
         .iter()
         .map(|plan| plan.view_id)
         .collect::<Vec<_>>();
-    let render_result = render_reflection_probe_faces_offscreen(
-        ctx.gpu,
-        ctx.backend,
-        ctx.scene,
-        ctx.render_context,
-        planned.plans,
-    );
+    let render_result =
+        render_reflection_probe_faces_offscreen(ctx.gpu, ctx.backend, ctx.scene, planned.plans);
     if let Err(error) = render_result {
         ctx.backend.retire_one_shot_views(&view_ids);
         return Err(error);
@@ -597,6 +589,7 @@ fn plan_reflection_probe_task(
                 probe_position,
                 face,
             ),
+            render_context: RenderingContext::RenderToAsset,
             draw_filter: Some(filter.clone()),
             render_space_filter: Some(queued.render_space_id),
             view_id: ViewId::reflection_probe_render_task(
@@ -638,7 +631,6 @@ fn render_reflection_probe_faces_offscreen(
     gpu: &mut GpuContext,
     backend: &mut RenderBackend,
     scene: &SceneCoordinator,
-    render_context: RenderingContext,
     plans: Vec<FrameViewPlan<'static>>,
 ) -> Result<(), ReflectionProbeBakeError> {
     profiling::scope!("reflection_probe_task::offscreen_render");
@@ -648,19 +640,15 @@ fn render_reflection_probe_faces_offscreen(
         prepared_views
             .plans()
             .iter()
-            .map(|plan| plan.light_view_desc(render_context)),
+            .map(FrameViewPlan::light_view_desc),
     );
     let view_perms = prepared_views
         .plans()
         .iter()
-        .map(FrameViewPlan::shader_permutation)
+        .map(|plan| (plan.render_context(), plan.shader_permutation()))
         .collect::<Vec<_>>();
-    let shared = backend.extract_frame_shared(
-        scene,
-        render_context,
-        WorldMeshDrawCollectParallelism::Full,
-        view_perms,
-    );
+    let shared =
+        backend.extract_frame_shared(scene, WorldMeshDrawCollectParallelism::Full, &view_perms);
     let submit_frame = ExtractedFrame::new(prepared_views, shared)
         .prepare_draws()
         .into_submit_frame();

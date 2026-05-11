@@ -229,7 +229,12 @@ fn collect_view_draws(
     };
     let inner_parallelism = select_inner_parallelism_for_prepared_work(
         prepared.len(),
-        setup.prepared_renderables.len(),
+        prepared
+            .iter()
+            .filter_map(|prep| setup.prepared_renderables_for(prep.render_context()))
+            .map(crate::world_mesh::FramePreparedRenderables::len)
+            .max()
+            .unwrap_or(0),
         setup.inner_parallelism,
     );
     // One view per frame is the desktop common case; rayon scope dispatch + single-task spawn is
@@ -238,12 +243,12 @@ fn collect_view_draws(
     let collect_one = |(prep, snap): (&FrameViewPlan<'_>, Option<ViewCullSnapshot>)| {
         profiling::scope!("render::collect_view_draws::collect_one");
         let shader_perm = prep.shader_permutation();
-        // The backend pre-refreshed one material batch cache per shader permutation in
-        // `extract_frame_shared`, so any view's permutation is guaranteed to find a hit. The
-        // previous mono-only fast path collapsed into this lookup.
+        let render_context = prep.render_context();
+        // The backend pre-refreshed one material batch cache per render-context/permutation pair
+        // in `extract_frame_shared`, so any prepared view should find a matching cache here.
         let material_cache = {
             profiling::scope!("render::collect_view_draws::material_cache_lookup");
-            setup.material_caches.get(&shader_perm)
+            setup.material_cache_for(render_context, shader_perm)
         };
         let (cull_proj, culling) = {
             profiling::scope!("render::collect_view_draws::build_cull_input");
@@ -264,7 +269,7 @@ fn collect_view_draws(
                 material_router: setup.router,
                 pipeline_property_ids: &setup.pipeline_property_ids,
                 shader_perm,
-                render_context: setup.render_context,
+                render_context,
                 head_output_transform: prep.host_camera.head_output_transform,
                 view_origin_world: prep.view_origin_world(),
                 culling: culling.as_ref(),
@@ -272,7 +277,7 @@ fn collect_view_draws(
                 render_space_filter: prep.render_space_filter,
                 material_cache,
                 reflection_probes: Some(setup.reflection_probes),
-                prepared: Some(setup.prepared_renderables),
+                prepared: setup.prepared_renderables_for(render_context),
             },
             inner_parallelism,
         );
@@ -371,22 +376,35 @@ fn select_inner_parallelism_for_prepared_work(
 
 /// Builds frustum + Hi-Z cull inputs for one prepared view.
 ///
-/// Returns [`None`] when the view has explicitly suppressed temporal occlusion (selective
-/// secondary cameras). Safe to call in parallel across views:
+/// Suppressed temporal occlusion still builds frustum inputs, but skips Hi-Z snapshots. Safe to
+/// call in parallel across views:
 /// [`OcclusionSystem`] is `Sync` because its internal readback channel uses `crossbeam_channel`.
 fn cull_snapshot_for_view(
     setup: &ExtractedFrameShared<'_>,
     prep: &FrameViewPlan<'_>,
 ) -> Option<ViewCullSnapshot> {
-    if prep.host_camera.suppress_occlusion_temporal {
-        return None;
-    }
-    let proj = build_world_mesh_cull_proj_params(setup.scene, prep.viewport_px, &prep.host_camera);
+    build_cull_snapshot_for_view(setup.scene, setup.occlusion, prep)
+}
+
+fn build_cull_snapshot_for_view(
+    scene: &crate::scene::SceneCoordinator,
+    occlusion: &crate::occlusion::OcclusionSystem,
+    prep: &FrameViewPlan<'_>,
+) -> Option<ViewCullSnapshot> {
+    let proj = build_world_mesh_cull_proj_params(scene, prep.viewport_px, &prep.host_camera);
     let depth_mode = prep.output_depth_mode();
+    let (hi_z, hi_z_temporal) = if prep.host_camera.suppress_occlusion_temporal {
+        (None, None)
+    } else {
+        (
+            occlusion.hi_z_cull_data(depth_mode, prep.view_id),
+            occlusion.hi_z_temporal_snapshot(prep.view_id),
+        )
+    };
     Some(ViewCullSnapshot {
         proj,
-        hi_z: setup.occlusion.hi_z_cull_data(depth_mode, prep.view_id),
-        hi_z_temporal: setup.occlusion.hi_z_temporal_snapshot(prep.view_id),
+        hi_z,
+        hi_z_temporal,
     })
 }
 
@@ -394,7 +412,9 @@ fn cull_snapshot_for_view(
 mod tests {
     use crate::camera::{HostCameraFrame, ViewId};
     use crate::mesh_deform::{SkinCacheKey, SkinCacheRendererKind};
+    use crate::occlusion::OcclusionSystem;
     use crate::render_graph::{FrameViewClear, ViewPostProcessing};
+    use crate::scene::SceneCoordinator;
     use crate::world_mesh::WorldMeshDrawCollectParallelism;
     use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawCollection};
@@ -405,6 +425,7 @@ mod tests {
     fn main_swapchain_plan() -> FrameViewPlan<'static> {
         FrameViewPlan {
             host_camera: HostCameraFrame::default(),
+            render_context: crate::shared::RenderingContext::UserView,
             draw_filter: None,
             render_space_filter: None,
             view_id: ViewId::Main,
@@ -413,6 +434,21 @@ mod tests {
             post_processing: ViewPostProcessing::primary_view(),
             target: FrameViewPlanTarget::MainSwapchain,
         }
+    }
+
+    #[test]
+    fn suppressed_occlusion_still_builds_frustum_cull_snapshot() {
+        let scene = SceneCoordinator::new();
+        let occlusion = OcclusionSystem::new();
+        let mut plan = main_swapchain_plan();
+        plan.host_camera.suppress_occlusion_temporal = true;
+
+        let snapshot =
+            build_cull_snapshot_for_view(&scene, &occlusion, &plan).expect("frustum cull snapshot");
+
+        assert!(snapshot.hi_z.is_none());
+        assert!(snapshot.hi_z_temporal.is_none());
+        assert!(snapshot.proj.vr_stereo.is_none());
     }
 
     #[test]
