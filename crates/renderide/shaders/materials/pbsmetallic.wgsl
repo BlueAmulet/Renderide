@@ -4,8 +4,12 @@
 //! `FORWARD` writes ambient/emission plus directional lighting, and `FORWARD_DELTA` additively
 //! accumulates local lights. Unity's ShadowCaster/Deferred/Meta passes are not declared here because
 //! this render path has one forward color target, not shadow-map, G-buffer, or lightmapping targets.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSMetallic's
+//! shader-specific keyword bits locally.
 
 
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::parallax as ppar
@@ -30,18 +34,7 @@ struct PbsMetallicMaterial {
     _Parallax: f32,
     _OcclusionStrength: f32,
     _DetailNormalMapScale: f32,
-    _NORMALMAP: f32,
-    _ALPHATEST_ON: f32,
-    _ALPHABLEND_ON: f32,
-    _ALPHAPREMULTIPLY_ON: f32,
-    _MUL_RGB_BY_ALPHA: f32,
-    _EMISSION: f32,
-    _METALLICGLOSSMAP: f32,
-    _DETAIL_MULX2: f32,
-    _SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A: f32,
-    _SPECULARHIGHLIGHTS_OFF: f32,
-    _GLOSSYREFLECTIONS_OFF: f32,
-    _PARALLAXMAP: f32,
+    _RenderideVariantBits: u32,
     _MainTex_LodBias: f32,
     _MetallicGlossMap_LodBias: f32,
     _BumpMap_LodBias: f32,
@@ -52,6 +45,19 @@ struct PbsMetallicMaterial {
     _DetailAlbedoMap_LodBias: f32,
     _DetailNormalMap_LodBias: f32,
 }
+
+const PBSMETALLIC_KW_ALPHABLEND_ON: u32 = 1u << 0u;
+const PBSMETALLIC_KW_ALPHAPREMULTIPLY_ON: u32 = 1u << 1u;
+const PBSMETALLIC_KW_ALPHATEST_ON: u32 = 1u << 2u;
+const PBSMETALLIC_KW_DETAIL_MULX2: u32 = 1u << 3u;
+const PBSMETALLIC_KW_EMISSION: u32 = 1u << 4u;
+const PBSMETALLIC_KW_GLOSSYREFLECTIONS_OFF: u32 = 1u << 5u;
+const PBSMETALLIC_KW_METALLICGLOSSMAP: u32 = 1u << 6u;
+const PBSMETALLIC_KW_NORMALMAP: u32 = 1u << 7u;
+const PBSMETALLIC_KW_PARALLAXMAP: u32 = 1u << 8u;
+const PBSMETALLIC_KW_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A: u32 = 1u << 9u;
+const PBSMETALLIC_KW_SPECULARHIGHLIGHTS_OFF: u32 = 1u << 10u;
+const PBSMETALLIC_KW_EDITOR_VISUALIZATION: u32 = 1u << 11u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsMetallicMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -83,40 +89,37 @@ struct SurfaceData {
     emission: vec3<f32>,
 }
 
-fn kw(v: f32) -> bool {
-    return v > 0.5;
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
 }
 
 fn alpha_test_enabled() -> bool {
-    return kw(mat._ALPHATEST_ON);
+    return pbs_kw(PBSMETALLIC_KW_ALPHATEST_ON);
 }
 
 fn alpha_premultiply_enabled() -> bool {
-    return kw(mat._ALPHAPREMULTIPLY_ON);
-}
-
-fn alpha_rgb_multiply_enabled() -> bool {
-    return alpha_premultiply_enabled() || kw(mat._MUL_RGB_BY_ALPHA);
+    return pbs_kw(PBSMETALLIC_KW_ALPHAPREMULTIPLY_ON);
 }
 
 fn specular_highlights_enabled() -> bool {
-    return !kw(mat._SPECULARHIGHLIGHTS_OFF);
+    return !pbs_kw(PBSMETALLIC_KW_SPECULARHIGHLIGHTS_OFF);
 }
 
 fn glossy_reflections_enabled() -> bool {
-    return !kw(mat._GLOSSYREFLECTIONS_OFF);
+    return !pbs_kw(PBSMETALLIC_KW_GLOSSYREFLECTIONS_OFF);
 }
 
 fn metallic_gloss_map_enabled() -> bool {
-    return kw(mat._METALLICGLOSSMAP);
+    return pbs_kw(PBSMETALLIC_KW_METALLICGLOSSMAP);
 }
 
 fn smoothness_from_albedo_alpha() -> bool {
-    return mat._SmoothnessTextureChannel > 0.5 || kw(mat._SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A);
+    return mat._SmoothnessTextureChannel > 0.5
+        || pbs_kw(PBSMETALLIC_KW_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A);
 }
 
 fn uv_with_parallax(uv: vec2<f32>, world_pos: vec3<f32>, world_n: vec3<f32>, world_t: vec4<f32>, view_layer: u32) -> vec2<f32> {
-    if (!kw(mat._PARALLAXMAP)) {
+    if (!pbs_kw(PBSMETALLIC_KW_PARALLAXMAP)) {
         return uv;
     }
     let h = ts::sample_tex_2d(_ParallaxMap, _ParallaxMap_sampler, uv, mat._ParallaxMap_LodBias).g;
@@ -130,7 +133,7 @@ fn sample_normal_world(
     world_t: vec4<f32>,
     detail_mask: f32,
 ) -> vec3<f32> {
-    if (!kw(mat._NORMALMAP)) {
+    if (!pbs_kw(PBSMETALLIC_KW_NORMALMAP)) {
         return normalize(world_n);
     }
 
@@ -140,7 +143,7 @@ fn sample_normal_world(
         mat._BumpScale,
     );
 
-    if (kw(mat._DETAIL_MULX2) && detail_mask > 0.001) {
+    if (pbs_kw(PBSMETALLIC_KW_DETAIL_MULX2) && detail_mask > 0.001) {
         let ts_detail = nd::decode_ts_normal_with_placeholder_sample(
             ts::sample_tex_2d(_DetailNormalMap, _DetailNormalMap_sampler, uv_detail, mat._DetailNormalMap_LodBias),
             mat._DetailNormalMapScale,
@@ -182,7 +185,7 @@ fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n:
     let occlusion = mix(1.0, occlusion_sample, clamp(mat._OcclusionStrength, 0.0, 1.0));
 
     var detail_mask = 0.0;
-    if (kw(mat._DETAIL_MULX2)) {
+    if (pbs_kw(PBSMETALLIC_KW_DETAIL_MULX2)) {
         detail_mask = ts::sample_tex_2d(_DetailMask, _DetailMask_sampler, uv_main, mat._DetailMask_LodBias).a;
         let detail = ts::sample_tex_2d(_DetailAlbedoMap, _DetailAlbedoMap_sampler, uv_detail, mat._DetailAlbedoMap_LodBias).rgb;
         base_color = base_color * mix(vec3<f32>(1.0), detail * 2.0, detail_mask);
@@ -190,17 +193,17 @@ fn sample_surface(uv0: vec2<f32>, uv1: vec2<f32>, world_pos: vec3<f32>, world_n:
 
     let n = sample_normal_world(uv_main, uv_detail, world_n, world_t, detail_mask);
 
-    let emission_color = mat._EmissionColor.rgb;
     var emission = vec3<f32>(0.0);
-    if (dot(emission_color, emission_color) > 1e-8) {
-        emission = ts::sample_tex_2d(_EmissionMap, _EmissionMap_sampler, uv_main, mat._EmissionMap_LodBias).rgb * emission_color;
+    if (pbs_kw(PBSMETALLIC_KW_EMISSION)) {
+        emission = ts::sample_tex_2d(_EmissionMap, _EmissionMap_sampler, uv_main, mat._EmissionMap_LodBias).rgb
+            * mat._EmissionColor.rgb;
     }
 
     return SurfaceData(base_color, base_alpha, metallic, roughness, occlusion, n, emission);
 }
 
 fn apply_premultiply(color: vec3<f32>, alpha: f32) -> vec3<f32> {
-    return select(color, color * alpha, alpha_rgb_multiply_enabled());
+    return select(color, color * alpha, alpha_premultiply_enabled());
 }
 
 @vertex

@@ -168,3 +168,53 @@ fn pbslerp_decodes_keywords_from_variant_bits() -> io::Result<()> {
         ],
     )
 }
+
+#[test]
+fn pbsmetallic_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsmetallic.wgsl",
+        &[
+            "_ALPHABLEND_ON",
+            "_ALPHAPREMULTIPLY_ON",
+            "_ALPHATEST_ON",
+            "_DETAIL_MULX2",
+            "_EMISSION",
+            "_GLOSSYREFLECTIONS_OFF",
+            "_METALLICGLOSSMAP",
+            "_MUL_RGB_BY_ALPHA",
+            "_NORMALMAP",
+            "_PARALLAXMAP",
+            "_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A",
+            "_SPECULARHIGHLIGHTS_OFF",
+        ],
+        &[
+            ("PBSMETALLIC_KW_ALPHABLEND_ON", 0),
+            ("PBSMETALLIC_KW_ALPHAPREMULTIPLY_ON", 1),
+            ("PBSMETALLIC_KW_ALPHATEST_ON", 2),
+            ("PBSMETALLIC_KW_DETAIL_MULX2", 3),
+            ("PBSMETALLIC_KW_EMISSION", 4),
+            ("PBSMETALLIC_KW_GLOSSYREFLECTIONS_OFF", 5),
+            ("PBSMETALLIC_KW_METALLICGLOSSMAP", 6),
+            ("PBSMETALLIC_KW_NORMALMAP", 7),
+            ("PBSMETALLIC_KW_PARALLAXMAP", 8),
+            ("PBSMETALLIC_KW_SMOOTHNESS_TEXTURE_ALBEDO_CHANNEL_A", 9),
+            ("PBSMETALLIC_KW_SPECULARHIGHLIGHTS_OFF", 10),
+            ("PBSMETALLIC_KW_EDITOR_VISUALIZATION", 11),
+        ],
+    )
+}
+
+#[test]
+fn pbsmetallic_emission_gated_by_variant_bit_not_runtime_check() -> io::Result<()> {
+    let src = material_source("pbsmetallic.wgsl")?;
+    assert!(
+        !src.contains("dot(emission_color, emission_color)"),
+        "pbsmetallic.wgsl must not use the runtime `dot(emission_color, emission_color) > 1e-8` \
+         guard; the _EMISSION variant bit controls the optional emission sample"
+    );
+    assert!(
+        src.contains("pbs_kw(PBSMETALLIC_KW_EMISSION)"),
+        "pbsmetallic.wgsl must gate emission sampling on PBSMETALLIC_KW_EMISSION"
+    );
+    Ok(())
+}
