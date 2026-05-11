@@ -62,65 +62,88 @@ pub(crate) fn texture_bind_signature(
             store,
             lookup,
         );
-        entry.binding.hash(&mut h);
-        name.hash(&mut h);
-        binding.hash_for_signature(&mut h);
-        match binding {
-            ResolvedTextureBinding::None => false.hash(&mut h),
-            ResolvedTextureBinding::Texture2D { asset_id } => {
-                if let Some(t) = pools.texture.get(asset_id) {
-                    let resident = t.mip_levels_resident > 0;
-                    resident.hash(&mut h);
-                    t.view_generation.hash(&mut h);
-                    t.mip_levels_resident.hash(&mut h);
-                    t.storage_v_inverted.hash(&mut h);
-                    hash_sampler_state(&t.sampler, &mut h);
-                } else {
-                    false.hash(&mut h);
-                }
+        hash_texture_entry_signature_contribution(
+            &mut h,
+            entry.binding,
+            name.as_str(),
+            binding,
+            pools,
+            offscreen_write_render_texture_asset_id,
+        );
+    }
+    h.finish()
+}
+
+/// Hashes one reflected texture entry's contribution to [`texture_bind_signature`].
+///
+/// A snapshot pass that captures texture views and samplers in lockstep with signature
+/// computation calls this so that the cache entry and its key are produced from the same
+/// pool read.
+pub(crate) fn hash_texture_entry_signature_contribution(
+    hasher: &mut impl Hasher,
+    entry_binding: u32,
+    host_name: &str,
+    binding: ResolvedTextureBinding,
+    pools: &EmbeddedTexturePools<'_>,
+    offscreen_write_render_texture_asset_id: Option<i32>,
+) {
+    entry_binding.hash(hasher);
+    host_name.hash(hasher);
+    binding.hash_for_signature(hasher);
+    match binding {
+        ResolvedTextureBinding::None => false.hash(hasher),
+        ResolvedTextureBinding::Texture2D { asset_id } => {
+            if let Some(t) = pools.texture.get(asset_id) {
+                let resident = t.mip_levels_resident > 0;
+                resident.hash(hasher);
+                t.view_generation.hash(hasher);
+                t.mip_levels_resident.hash(hasher);
+                t.storage_v_inverted.hash(hasher);
+                hash_sampler_state(&t.sampler, hasher);
+            } else {
+                false.hash(hasher);
             }
-            ResolvedTextureBinding::Texture3D { asset_id } => {
-                if let Some(t) = pools.texture3d.get(asset_id) {
-                    let resident = t.mip_levels_resident > 0;
-                    resident.hash(&mut h);
-                    t.mip_levels_resident.hash(&mut h);
-                    hash_sampler_state(&t.sampler, &mut h);
-                } else {
-                    false.hash(&mut h);
-                }
+        }
+        ResolvedTextureBinding::Texture3D { asset_id } => {
+            if let Some(t) = pools.texture3d.get(asset_id) {
+                let resident = t.mip_levels_resident > 0;
+                resident.hash(hasher);
+                t.mip_levels_resident.hash(hasher);
+                hash_sampler_state(&t.sampler, hasher);
+            } else {
+                false.hash(hasher);
             }
-            ResolvedTextureBinding::Cubemap { asset_id } => {
-                if let Some(t) = pools.cubemap.get(asset_id) {
-                    let resident = t.mip_levels_resident > 0;
-                    resident.hash(&mut h);
-                    t.mip_levels_resident.hash(&mut h);
-                    t.storage_v_inverted.hash(&mut h);
-                    hash_sampler_state(&t.sampler, &mut h);
-                } else {
-                    false.hash(&mut h);
-                }
+        }
+        ResolvedTextureBinding::Cubemap { asset_id } => {
+            if let Some(t) = pools.cubemap.get(asset_id) {
+                let resident = t.mip_levels_resident > 0;
+                resident.hash(hasher);
+                t.mip_levels_resident.hash(hasher);
+                t.storage_v_inverted.hash(hasher);
+                hash_sampler_state(&t.sampler, hasher);
+            } else {
+                false.hash(hasher);
             }
-            ResolvedTextureBinding::RenderTexture { asset_id } => {
-                if offscreen_write_render_texture_asset_id == Some(asset_id) {
-                    false.hash(&mut h);
-                } else if let Some(t) = pools.render_texture.get(asset_id) {
-                    t.is_sampleable().hash(&mut h);
-                    hash_sampler_state(&t.sampler, &mut h);
-                } else {
-                    false.hash(&mut h);
-                }
+        }
+        ResolvedTextureBinding::RenderTexture { asset_id } => {
+            if offscreen_write_render_texture_asset_id == Some(asset_id) {
+                false.hash(hasher);
+            } else if let Some(t) = pools.render_texture.get(asset_id) {
+                t.is_sampleable().hash(hasher);
+                hash_sampler_state(&t.sampler, hasher);
+            } else {
+                false.hash(hasher);
             }
-            ResolvedTextureBinding::VideoTexture { asset_id } => {
-                if let Some(t) = pools.video_texture.get(asset_id) {
-                    t.is_sampleable().hash(&mut h);
-                    hash_sampler_state(&t.sampler, &mut h);
-                } else {
-                    false.hash(&mut h);
-                }
+        }
+        ResolvedTextureBinding::VideoTexture { asset_id } => {
+            if let Some(t) = pools.video_texture.get(asset_id) {
+                t.is_sampleable().hash(hasher);
+                hash_sampler_state(&t.sampler, hasher);
+            } else {
+                false.hash(hasher);
             }
         }
     }
-    h.finish()
 }
 
 #[cfg(test)]

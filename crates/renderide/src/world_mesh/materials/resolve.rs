@@ -235,6 +235,7 @@ pub(crate) fn resolve_material_batch(
     let lookup_ids = MaterialPropertyLookupIds {
         material_asset_id,
         mesh_property_block_slot0: property_block_id,
+        mesh_renderer_property_block_id: None,
     };
     let (mat_map, pb_map) = dict.fetch_property_maps(lookup_ids);
     let blend_mode = material_blend_mode_from_maps(mat_map, pb_map, pipeline_property_ids);

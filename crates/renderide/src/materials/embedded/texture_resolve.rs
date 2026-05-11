@@ -4,7 +4,9 @@ mod bind_signature;
 mod lookup;
 mod sampler;
 
-pub(crate) use bind_signature::texture_bind_signature;
+pub(crate) use bind_signature::{
+    hash_texture_entry_signature_contribution, texture_bind_signature,
+};
 pub(crate) use lookup::{
     DefaultTextureColor, ResolvedTextureBinding, default_2d_texture_color_for_host,
     primary_texture_2d_asset_id, resolved_texture_binding_for_host,

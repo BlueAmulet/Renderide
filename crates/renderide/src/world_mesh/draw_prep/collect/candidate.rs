@@ -70,6 +70,7 @@ pub(super) fn evaluate_draw_candidate(
     let lookup_ids = MaterialPropertyLookupIds {
         material_asset_id: candidate.material_asset_id,
         mesh_property_block_slot0: candidate.property_block_id,
+        mesh_renderer_property_block_id: None,
     };
     let (batch_key, ui_rect_clip_local) = batch_key_for_slot_cached(
         candidate.material_asset_id,

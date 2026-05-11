@@ -21,6 +21,8 @@ pub(super) struct MaterialUniformCacheKey {
     pub(super) stem_hash: u64,
     pub(super) material_asset_id: i32,
     pub(super) property_block_slot0: Option<i32>,
+    /// Renderer-level `MaterialPropertyBlock` id (applies to every material on the renderer).
+    pub(super) renderer_property_block_id: Option<i32>,
     pub(super) texture_2d_asset_id: i32,
     pub(super) shader_variant_bits: Option<u32>,
 }
@@ -323,6 +325,19 @@ impl EmbeddedMaterialBindResources {
     ///
     /// Refreshes bytes when [`MaterialPropertyStore`] mutates, when texture-derived uniform state
     /// changes, or when the arena grows to a new backing buffer generation.
+    ///
+    /// `resolve_binding`, the uniform byte build, the `GraphUploadSink::write_buffer` call, and
+    /// `mark_written` all run under one arena lock. Splitting them across two critical sections
+    /// allowed `slot.last_written_(generation|texture_state_sig)` to record a `(mutation_gen,
+    /// texture_state_sig)` snapshot that disagreed with the bytes actually uploaded if any
+    /// concurrent caller mutated relevant state between the resolve and the mark - a later
+    /// cache hit could then skip a needed rewrite and let one material draw with another
+    /// material's uniforms. `write_buffer` is a deferred queue push that does no GPU
+    /// synchronization, so holding the arena lock across it is cheap.
+    #[expect(
+        clippy::significant_drop_tightening,
+        reason = "the arena lock is intentionally held across resolve_binding, the uniform byte build, write_buffer, and mark_written so slot tracking cannot disagree with the uploaded bytes"
+    )]
     pub(super) fn get_or_update_embedded_uniform_arena_slot(
         &self,
         req: EmbeddedUniformArenaRequest<'_>,
@@ -358,15 +373,11 @@ impl EmbeddedMaterialBindResources {
             pools,
             primary_texture_2d,
         };
-        let (binding, needs_write) = {
-            profiling::scope!("materials::embedded_uniform_arena_resolve");
-            self.uniform_arena.lock().resolve_binding(
-                *uniform_key,
-                uniform_size,
-                mutation_gen,
-                texture_state_sig,
-            )?
-        };
+
+        profiling::scope!("materials::embedded_uniform_arena_critical_section");
+        let mut arena = self.uniform_arena.lock();
+        let (binding, needs_write) =
+            arena.resolve_binding(*uniform_key, uniform_size, mutation_gen, texture_state_sig)?;
         if needs_write {
             profiling::scope!("materials::embedded_uniform_arena_write");
             let uniform_bytes = build_embedded_uniform_bytes_with_value_spaces(
@@ -386,12 +397,7 @@ impl EmbeddedMaterialBindResources {
                 u64::from(binding.dynamic_offset),
                 &uniform_bytes,
             );
-            self.uniform_arena.lock().mark_written(
-                uniform_key,
-                &binding,
-                mutation_gen,
-                texture_state_sig,
-            );
+            arena.mark_written(uniform_key, &binding, mutation_gen, texture_state_sig);
         } else {
             profiling::scope!("materials::embedded_uniform_arena_hit");
         }
@@ -408,6 +414,7 @@ mod tests {
             stem_hash: 7,
             material_asset_id,
             property_block_slot0: None,
+            renderer_property_block_id: None,
             texture_2d_asset_id: -1,
             shader_variant_bits: None,
         }
@@ -418,6 +425,7 @@ mod tests {
             stem_hash: 7,
             material_asset_id,
             property_block_slot0: Some(property_block_id),
+            renderer_property_block_id: None,
             texture_2d_asset_id: -1,
             shader_variant_bits: None,
         }

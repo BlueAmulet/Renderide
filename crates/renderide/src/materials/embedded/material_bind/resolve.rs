@@ -1,6 +1,9 @@
 //! Texture view and sampler resolution for embedded `@group(1)` bindings.
 
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+
+use ahash::AHasher;
 
 use super::super::bind_kind::TextureBindKind;
 use super::super::embedded_material_bind_error::EmbeddedMaterialBindError;
@@ -8,15 +11,20 @@ use super::super::layout::{StemMaterialLayout, stem_hash};
 use super::super::texture_pools::EmbeddedTexturePools;
 use super::super::texture_resolve::{
     DefaultTextureColor, ResolvedTextureBinding, create_sampler, default_2d_texture_color_for_host,
-    primary_texture_2d_asset_id, resolved_texture_binding_for_host, texture_bind_signature,
-    texture_property_ids_for_binding,
+    hash_texture_entry_signature_contribution, primary_texture_2d_asset_id,
+    resolved_texture_binding_for_host, texture_bind_signature, texture_property_ids_for_binding,
 };
 use super::cache::EmbeddedSamplerCacheKey;
 use super::uniform::MaterialUniformCacheKey;
 use crate::materials::host_data::{MaterialPropertyLookupIds, MaterialPropertyStore};
 
-pub(super) type EmbeddedGroup1TexturesAndSamplers =
-    (Vec<Arc<wgpu::TextureView>>, Vec<Arc<wgpu::Sampler>>);
+/// Texture views, samplers, and the matching bind signature captured from one pool read.
+pub(super) struct EmbeddedGroup1Snapshot {
+    pub(super) views: Vec<Arc<wgpu::TextureView>>,
+    pub(super) samplers: Vec<Arc<wgpu::Sampler>>,
+    /// Signature hashed from the same pool state used to capture `views` and `samplers`.
+    pub(super) texture_bind_signature: u64,
+}
 
 /// Stem layout, uniform/bind cache keys, and resolved primary texture ids for embedded `@group(1)` wiring.
 pub(super) struct EmbeddedBindInputResolution {
@@ -25,18 +33,6 @@ pub(super) struct EmbeddedBindInputResolution {
     pub(super) stem_hash: u64,
     pub(super) texture_bind_signature: u64,
     pub(super) texture_2d_asset_id: i32,
-}
-
-/// Host texture binding lookup for [`super::EmbeddedMaterialBindResources::resolve_texture_view_for_host`] and
-/// [`super::EmbeddedMaterialBindResources::resolve_sampler_for_host`].
-pub(super) struct HostTexturePropertyQuery<'a> {
-    pub(super) host_name: &'a str,
-    pub(super) texture_property_ids: &'a [i32],
-    pub(super) primary_texture_2d: i32,
-    pub(super) pools: &'a EmbeddedTexturePools<'a>,
-    pub(super) store: &'a MaterialPropertyStore,
-    pub(super) lookup: MaterialPropertyLookupIds,
-    pub(super) offscreen_write_render_texture_asset_id: Option<i32>,
 }
 
 use super::EmbeddedMaterialBindResources;
@@ -78,6 +74,7 @@ impl EmbeddedMaterialBindResources {
             stem_hash: sh,
             material_asset_id: lookup.material_asset_id,
             property_block_slot0: lookup.mesh_property_block_slot0,
+            renderer_property_block_id: lookup.mesh_renderer_property_block_id,
             texture_2d_asset_id,
             shader_variant_bits,
         };
@@ -90,8 +87,14 @@ impl EmbeddedMaterialBindResources {
         })
     }
 
-    /// Resolves every non-uniform `@group(1)` texture view and sampler in reflection order.
-    pub(super) fn resolve_group1_textures_and_samplers(
+    /// Walks `@group(1)` material entries once, capturing texture views, samplers, and the
+    /// matching `texture_bind_signature` from a single read of the property store and pools.
+    ///
+    /// The returned signature is hashed from the same pool entries that produced the captured
+    /// views and samplers, so a [`MaterialBindCacheKey`](super::cache::MaterialBindCacheKey)
+    /// built from it always describes the assembled bind group's actual contents - even if the
+    /// pool state shifted between an earlier lookup-side signature computation and this snapshot.
+    pub(super) fn snapshot_group1_textures_samplers(
         &self,
         layout: &Arc<StemMaterialLayout>,
         texture_2d_asset_id: i32,
@@ -99,10 +102,12 @@ impl EmbeddedMaterialBindResources {
         store: &MaterialPropertyStore,
         lookup: MaterialPropertyLookupIds,
         offscreen_write_render_texture_asset_id: Option<i32>,
-    ) -> Result<EmbeddedGroup1TexturesAndSamplers, EmbeddedMaterialBindError> {
-        profiling::scope!("materials::embedded_resolve_textures_samplers");
-        let mut keepalive_views: Vec<Arc<wgpu::TextureView>> = Vec::new();
-        let mut keepalive_samplers: Vec<Arc<wgpu::Sampler>> = Vec::new();
+    ) -> Result<EmbeddedGroup1Snapshot, EmbeddedMaterialBindError> {
+        profiling::scope!("materials::embedded_snapshot_textures_samplers");
+        let mut views: Vec<Arc<wgpu::TextureView>> = Vec::new();
+        let mut samplers: Vec<Arc<wgpu::Sampler>> = Vec::new();
+        let mut hasher = AHasher::default();
+        offscreen_write_render_texture_asset_id.hash(&mut hasher);
         for entry in &layout.reflected.material_entries {
             let b = entry.binding;
             match entry.ty {
@@ -125,22 +130,31 @@ impl EmbeddedMaterialBindResources {
                             "reflection: missing property id for texture @binding({b})"
                         )));
                     }
-                    let tex_view = Self::resolve_texture_view_for_host(
-                        HostTexturePropertyQuery {
-                            host_name,
-                            texture_property_ids: tex_pids,
-                            primary_texture_2d: texture_2d_asset_id,
-                            pools,
-                            store,
-                            lookup,
-                            offscreen_write_render_texture_asset_id,
-                        },
+                    let resolved = resolved_texture_binding_for_host(
+                        host_name,
+                        tex_pids,
+                        texture_2d_asset_id,
+                        store,
+                        lookup,
+                    );
+                    hash_texture_entry_signature_contribution(
+                        &mut hasher,
+                        b,
+                        host_name,
+                        resolved,
+                        pools,
+                        offscreen_write_render_texture_asset_id,
+                    );
+                    let tex_view = Self::resolve_texture_view(
+                        pools,
                         view_dimension,
+                        resolved,
+                        offscreen_write_render_texture_asset_id,
                     )
                     .unwrap_or_else(|| {
                         self.default_texture_view_for_host(host_name, view_dimension)
                     });
-                    keepalive_views.push(tex_view);
+                    views.push(tex_view);
                 }
                 wgpu::BindingType::Sampler(_) => {
                     let tex_binding = super::assemble::sampler_pairs_texture_binding(b);
@@ -159,16 +173,19 @@ impl EmbeddedMaterialBindResources {
                             "reflection: missing property id for texture @binding({tex_binding})"
                         )));
                     }
-                    let sampler = self.resolve_sampler_for_host(HostTexturePropertyQuery {
+                    let resolved = resolved_texture_binding_for_host(
                         host_name,
-                        texture_property_ids: tex_pids,
-                        primary_texture_2d: texture_2d_asset_id,
-                        pools,
+                        tex_pids,
+                        texture_2d_asset_id,
                         store,
                         lookup,
+                    );
+                    let sampler = self.resolve_sampler(
+                        pools,
+                        resolved,
                         offscreen_write_render_texture_asset_id,
-                    });
-                    keepalive_samplers.push(sampler);
+                    );
+                    samplers.push(sampler);
                 }
                 _ => {
                     return Err(EmbeddedMaterialBindError::from(format!(
@@ -177,7 +194,11 @@ impl EmbeddedMaterialBindResources {
                 }
             }
         }
-        Ok((keepalive_views, keepalive_samplers))
+        Ok(EmbeddedGroup1Snapshot {
+            views,
+            samplers,
+            texture_bind_signature: hasher.finish(),
+        })
     }
 
     fn default_texture_view_for_host(
@@ -194,36 +215,6 @@ impl EmbeddedMaterialBindResources {
                 DefaultTextureColor::Black => self.black_2d.view.clone(),
             },
         }
-    }
-
-    fn resolve_texture_view_for_host(
-        q: HostTexturePropertyQuery<'_>,
-        view_dimension: wgpu::TextureViewDimension,
-    ) -> Option<Arc<wgpu::TextureView>> {
-        let binding = resolved_texture_binding_for_host(
-            q.host_name,
-            q.texture_property_ids,
-            q.primary_texture_2d,
-            q.store,
-            q.lookup,
-        );
-        Self::resolve_texture_view(
-            q.pools,
-            view_dimension,
-            binding,
-            q.offscreen_write_render_texture_asset_id,
-        )
-    }
-
-    fn resolve_sampler_for_host(&self, q: HostTexturePropertyQuery<'_>) -> Arc<wgpu::Sampler> {
-        let binding = resolved_texture_binding_for_host(
-            q.host_name,
-            q.texture_property_ids,
-            q.primary_texture_2d,
-            q.store,
-            q.lookup,
-        );
-        self.resolve_sampler(q.pools, binding, q.offscreen_write_render_texture_asset_id)
     }
 
     fn resolve_texture_view(

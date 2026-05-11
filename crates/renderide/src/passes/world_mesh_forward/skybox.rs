@@ -183,6 +183,7 @@ impl SkyboxRenderer {
         let lookup = MaterialPropertyLookupIds {
             material_asset_id,
             mesh_property_block_slot0: None,
+            mesh_renderer_property_block_id: None,
         };
         let depth = if family == SkyboxFamily::Projection360 {
             let dict = MaterialDictionary::new(store);

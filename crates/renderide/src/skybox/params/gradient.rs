@@ -45,6 +45,7 @@ mod tests {
         MaterialPropertyLookupIds {
             material_asset_id,
             mesh_property_block_slot0: None,
+            mesh_renderer_property_block_id: None,
         }
     }
 
