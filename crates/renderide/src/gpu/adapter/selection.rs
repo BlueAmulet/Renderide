@@ -18,23 +18,11 @@ pub(crate) fn power_preference_score(
     device_type: wgpu::DeviceType,
     power_preference: wgpu::PowerPreference,
 ) -> u8 {
-    use wgpu::DeviceType::*;
+    use wgpu::DeviceType::{Cpu, DiscreteGpu, IntegratedGpu, Other, VirtualGpu};
     let prefer_low_power = power_preference == wgpu::PowerPreference::LowPower;
     match device_type {
-        DiscreteGpu => {
-            if prefer_low_power {
-                1
-            } else {
-                0
-            }
-        }
-        IntegratedGpu => {
-            if prefer_low_power {
-                0
-            } else {
-                1
-            }
-        }
+        DiscreteGpu => u8::from(prefer_low_power),
+        IntegratedGpu => u8::from(!prefer_low_power),
         VirtualGpu => 2,
         Cpu => 3,
         Other => 4,

@@ -152,12 +152,10 @@ pub(crate) fn resolved_material_slot_count(renderer: &StaticMeshRenderer) -> usi
     if !renderer.emits_visible_color_draws() {
         return 0;
     }
-    if !renderer.material_slots.is_empty() {
-        renderer.material_slots.len()
-    } else if renderer.primary_material_asset_id.is_some() {
-        1
+    if renderer.material_slots.is_empty() {
+        usize::from(renderer.primary_material_asset_id.is_some())
     } else {
-        0
+        renderer.material_slots.len()
     }
 }
 

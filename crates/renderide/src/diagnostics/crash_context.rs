@@ -571,7 +571,7 @@ fn push_u64(out: &mut [u8], w: &mut usize, mut value: u64) {
     }
     while i > 0 {
         i -= 1;
-        push(out, w, &tmp[i..i + 1]);
+        push(out, w, &tmp[i..=i]);
     }
 }
 

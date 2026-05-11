@@ -381,11 +381,12 @@ fn bind_position_vertex_stream(
         };
         let pos_buf = cache.positions_arena();
         let pos_range = entry.positions.byte_range();
+        let (pos_start, pos_end) = (pos_range.start, pos_range.end);
         bind_vertex_if_changed!(
             rpass,
             0,
-            pos_buf.slice(pos_range.start..pos_range.end),
-            BufferBindId::ranged(pos_buf, pos_range.start, pos_range.end),
+            pos_buf.slice(pos_range),
+            BufferBindId::ranged(pos_buf, pos_start, pos_end),
             last_mesh.vertex
         );
         return true;
@@ -428,21 +429,23 @@ fn bind_deformed_primary_streams(
     };
     let pos_buf = cache.positions_arena();
     let pos_range = entry.positions.byte_range();
+    let (pos_start, pos_end) = (pos_range.start, pos_range.end);
     bind_vertex_if_changed!(
         rpass,
         0,
-        pos_buf.slice(pos_range.start..pos_range.end),
-        BufferBindId::ranged(pos_buf, pos_range.start, pos_range.end),
+        pos_buf.slice(pos_range),
+        BufferBindId::ranged(pos_buf, pos_start, pos_end),
         last_mesh.vertex
     );
     if let Some(nrm_r) = entry.normals.as_ref() {
         let nrm_buf = cache.normals_arena();
         let nrm_range = nrm_r.byte_range();
+        let (nrm_start, nrm_end) = (nrm_range.start, nrm_range.end);
         bind_vertex_if_changed!(
             rpass,
             1,
-            nrm_buf.slice(nrm_range.start..nrm_range.end),
-            BufferBindId::ranged(nrm_buf, nrm_range.start, nrm_range.end),
+            nrm_buf.slice(nrm_range),
+            BufferBindId::ranged(nrm_buf, nrm_start, nrm_end),
             last_mesh.vertex
         );
         return true;
@@ -566,11 +569,12 @@ fn bind_tangent_stream(
         };
         let tangent_buf = cache.tangents_arena();
         let range = tangent_range.byte_range();
+        let (range_start, range_end) = (range.start, range.end);
         bind_vertex_if_changed!(
             rpass,
             slot,
-            tangent_buf.slice(range.start..range.end),
-            BufferBindId::ranged(tangent_buf, range.start, range.end),
+            tangent_buf.slice(range),
+            BufferBindId::ranged(tangent_buf, range_start, range_end),
             last_mesh.vertex
         );
         return true;

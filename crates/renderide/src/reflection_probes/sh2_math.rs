@@ -75,6 +75,10 @@ pub(super) fn evaluate_sh2(sh: &RenderSH2, n: Vec3) -> Vec3 {
 
 /// Evaluates stored raw RenderSH2 coefficients as Lambertian diffuse radiance.
 #[cfg(test)]
+#[expect(
+    clippy::suspicious_operation_groupings,
+    reason = "L=0..2 spherical-harmonic basis: each row uses the band's SH_C* constant by formula"
+)]
 pub(super) fn evaluate_lambert_diffuse_sh2(sh: &RenderSH2, n: Vec3) -> Vec3 {
     sh.sh0 * (SH_C0 * LAMBERT_BAND0)
         + sh.sh1 * (SH_C1 * LAMBERT_BAND1 * n.y)
@@ -460,9 +464,9 @@ fn sh2_texel_solid_angle(x: u32, y: u32, n: u32) -> f32 {
 
 /// Returns the Unity cube-face direction for one sample location.
 #[cfg(test)]
-fn sh2_cube_dir(face: u32, x: u32, y: u32, n: u32) -> Vec3 {
-    let u = (x as f32 + 0.5) / n as f32;
-    let v = (y as f32 + 0.5) / n as f32;
+fn sh2_cube_dir(face: u32, x: u32, y: u32, side: u32) -> Vec3 {
+    let u = (x as f32 + 0.5) / side as f32;
+    let v = (y as f32 + 0.5) / side as f32;
     match face {
         0 => Vec3::new(1.0, v * -2.0 + 1.0, u * -2.0 + 1.0).normalize(),
         1 => Vec3::new(-1.0, v * -2.0 + 1.0, u * 2.0 - 1.0).normalize(),

@@ -13,11 +13,11 @@ pub fn log_filename_timestamp() -> String {
     };
     let secs = dur.as_secs();
     let day_secs = secs % 86400;
-    let h = day_secs / 3600;
-    let m = (day_secs / 60) % 60;
-    let s = day_secs % 60;
-    let (y, mo, d) = days_since_epoch_to_ymd(secs / 86400);
-    format!("{y:04}-{mo:02}-{d:02}_{h:02}-{m:02}-{s:02}")
+    let hour = day_secs / 3600;
+    let minute = (day_secs / 60) % 60;
+    let second = day_secs % 60;
+    let (year, month, day) = days_since_epoch_to_ymd(secs / 86400);
+    format!("{year:04}-{month:02}-{day:02}_{hour:02}-{minute:02}-{second:02}")
 }
 
 /// Appends a line-prefix UTC timestamp `HH:MM:SS.mmm` to `out` without allocating.

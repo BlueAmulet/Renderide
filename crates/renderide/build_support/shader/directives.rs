@@ -232,7 +232,12 @@ pub(super) fn parse_source_alias(source: &str, file: &str) -> Result<Option<Stri
                 "{file}:{line_no}: `//#source_alias` accepts exactly one source file stem"
             )));
         }
-        if stem.contains('/') || stem.contains('\\') || stem.ends_with(".wgsl") {
+        if stem.contains('/')
+            || stem.contains('\\')
+            || std::path::Path::new(stem)
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("wgsl"))
+        {
             return Err(BuildError::Message(format!(
                 "{file}:{line_no}: `//#source_alias` must be a sibling WGSL file stem, got `{stem}`"
             )));

@@ -110,7 +110,10 @@ impl From<io::Error> for SharedMemoryWriterError {
 
 #[cfg(unix)]
 mod platform {
-    use super::*;
+    use super::{
+        File, MmapMut, OpenOptions, PathBuf, RENDERIDE_INTERPROCESS_DIR_ENV,
+        SharedMemoryWriterConfig, SharedMemoryWriterError, compose_memory_view_name, env,
+    };
 
     #[derive(Debug)]
     pub(super) struct PlatformWriter {

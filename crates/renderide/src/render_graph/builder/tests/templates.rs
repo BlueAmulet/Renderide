@@ -266,6 +266,9 @@ fn schedule_orders_frame_global_before_per_view() -> Result<(), GraphBuildError>
         "expected two per-view passes"
     );
     // Validate structural invariants.
-    g.schedule.validate().expect("schedule validates");
+    assert!(
+        g.schedule.validate().is_ok(),
+        "schedule validates after build"
+    );
     Ok(())
 }

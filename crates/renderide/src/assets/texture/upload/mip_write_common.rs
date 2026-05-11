@@ -164,9 +164,9 @@ pub(super) fn valid_mip_prefix_len(
             format!("mip {i}")
         })? {
             Ok(()) => count += 1,
-            Err(MipChainStop::NegativeStart)
-            | Err(MipChainStop::BeforeBias)
-            | Err(MipChainStop::OutOfPayload) => break,
+            Err(
+                MipChainStop::NegativeStart | MipChainStop::BeforeBias | MipChainStop::OutOfPayload,
+            ) => break,
         }
     }
     Ok(count)

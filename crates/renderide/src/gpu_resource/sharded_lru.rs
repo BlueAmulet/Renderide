@@ -63,7 +63,7 @@ impl<K: Eq + Hash, V> ShardedLru<K, V> {
     /// Removes every entry from every shard and returns the number of dropped entries.
     pub(crate) fn clear(&self) -> usize {
         let mut dropped = 0usize;
-        for shard in self.shards.iter() {
+        for shard in &self.shards {
             let mut shard = shard.lock();
             dropped = dropped.saturating_add(shard.len());
             shard.clear();

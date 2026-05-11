@@ -334,20 +334,19 @@ fn pending_frame_for_descriptor<'a>(
 ) -> Option<&'a mut PendingBlendshapeFrame> {
     let frames = per_shape.get_mut(shape_index)?;
     let frame_index = descriptor.frame_index;
-    let index = match frames
+    let index = if let Some(index) = frames
         .iter()
         .position(|frame| frame.frame_index == frame_index)
     {
-        Some(index) => index,
-        None => {
-            frames.push(PendingBlendshapeFrame {
-                shape_index: shape_index as u32,
-                frame_index,
-                frame_weight: descriptor.frame_weight,
-                entries: HashMap::new(),
-            });
-            frames.len() - 1
-        }
+        index
+    } else {
+        frames.push(PendingBlendshapeFrame {
+            shape_index: shape_index as u32,
+            frame_index,
+            frame_weight: descriptor.frame_weight,
+            entries: HashMap::new(),
+        });
+        frames.len() - 1
     };
     frames.get_mut(index)
 }

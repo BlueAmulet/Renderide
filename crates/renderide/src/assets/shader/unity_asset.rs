@@ -634,11 +634,10 @@ mod tests {
     #[test]
     fn parsed_form_name_field_is_internal_shader_name() {
         let parsed_form = UnityValue::Object(
-            [(
+            std::iter::once((
                 "m_Name".to_string(),
                 UnityValue::String("Unlit_00000200".to_string()),
-            )]
-            .into_iter()
+            ))
             .collect(),
         );
 
@@ -655,11 +654,10 @@ mod tests {
     #[test]
     fn parsed_form_plain_name_is_stem_without_variant_bits() {
         let parsed_form = UnityValue::Object(
-            [(
+            std::iter::once((
                 "m_Name".to_string(),
                 UnityValue::String("Unlit".to_string()),
-            )]
-            .into_iter()
+            ))
             .collect(),
         );
 
@@ -676,11 +674,10 @@ mod tests {
     #[test]
     fn parsed_form_name_missing_returns_none() {
         let parsed_form = UnityValue::Object(
-            [(
+            std::iter::once((
                 "m_Script".to_string(),
                 UnityValue::String("Unlit_00000200".to_string()),
-            )]
-            .into_iter()
+            ))
             .collect(),
         );
 

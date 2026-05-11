@@ -155,7 +155,7 @@ pub fn write_mesh_payload(input: &MeshLayoutInput<'_>) -> Result<MeshPayload, Me
     }
 
     let vertex_count = input.vertex_count as usize;
-    let stride: usize = compute_vertex_stride(&input.vertex_attributes);
+    let stride = compute_vertex_stride(&input.vertex_attributes);
     let row_sizes: Vec<usize> = input
         .vertex_attributes
         .iter()

@@ -17,80 +17,73 @@ pub fn pick_wgpu_storage_format(
 /// Maps host format without feature checks (for estimating sizes or documentation).
 pub fn map_host_format(host: TextureFormat, profile: ColorProfile) -> Option<wgpu::TextureFormat> {
     use ColorProfile::{SRGB, SRGBAlpha};
-    use TextureFormat::*;
+    use TextureFormat as TF;
 
     let srgb = matches!(profile, SRGB | SRGBAlpha);
 
     Some(match host {
-        Unknown => return None,
-        Alpha8 | R8 => wgpu::TextureFormat::R8Unorm,
-        RGB24 | RGB565 | BGR565 => return None, // decode path
-        RGBA32 => {
+        TF::Unknown => return None,
+        TF::Alpha8 | TF::R8 => wgpu::TextureFormat::R8Unorm,
+        TF::RGB24 | TF::RGB565 | TF::BGR565 => return None, // decode path
+        TF::RGBA32 | TF::ARGB32 | TF::BGRA32 => {
             if srgb {
                 wgpu::TextureFormat::Rgba8UnormSrgb
             } else {
                 wgpu::TextureFormat::Rgba8Unorm
             }
         }
-        ARGB32 | BGRA32 => {
-            if srgb {
-                wgpu::TextureFormat::Rgba8UnormSrgb
-            } else {
-                wgpu::TextureFormat::Rgba8Unorm
-            }
-        }
-        RGBAHalf | ARGBHalf => wgpu::TextureFormat::Rgba16Float,
-        RHalf => wgpu::TextureFormat::R16Float,
-        RGHalf => wgpu::TextureFormat::Rg16Float,
-        RGBAFloat | ARGBFloat => wgpu::TextureFormat::Rgba32Float,
-        RFloat => wgpu::TextureFormat::R32Float,
-        RGFloat => wgpu::TextureFormat::Rg32Float,
-        BC1 => {
+        TF::RGBAHalf | TF::ARGBHalf => wgpu::TextureFormat::Rgba16Float,
+        TF::RHalf => wgpu::TextureFormat::R16Float,
+        TF::RGHalf => wgpu::TextureFormat::Rg16Float,
+        TF::RGBAFloat | TF::ARGBFloat => wgpu::TextureFormat::Rgba32Float,
+        TF::RFloat => wgpu::TextureFormat::R32Float,
+        TF::RGFloat => wgpu::TextureFormat::Rg32Float,
+        TF::BC1 => {
             if srgb {
                 wgpu::TextureFormat::Bc1RgbaUnormSrgb
             } else {
                 wgpu::TextureFormat::Bc1RgbaUnorm
             }
         }
-        BC2 => {
+        TF::BC2 => {
             if srgb {
                 wgpu::TextureFormat::Bc2RgbaUnormSrgb
             } else {
                 wgpu::TextureFormat::Bc2RgbaUnorm
             }
         }
-        BC3 => {
+        TF::BC3 => {
             if srgb {
                 wgpu::TextureFormat::Bc3RgbaUnormSrgb
             } else {
                 wgpu::TextureFormat::Bc3RgbaUnorm
             }
         }
-        BC4 => wgpu::TextureFormat::Bc4RUnorm,
-        BC5 => wgpu::TextureFormat::Bc5RgUnorm,
-        BC6H => wgpu::TextureFormat::Bc6hRgbUfloat,
-        BC7 => {
+        TF::BC4 => wgpu::TextureFormat::Bc4RUnorm,
+        TF::BC5 => wgpu::TextureFormat::Bc5RgUnorm,
+        TF::BC6H => wgpu::TextureFormat::Bc6hRgbUfloat,
+        TF::BC7 => {
             if srgb {
                 wgpu::TextureFormat::Bc7RgbaUnormSrgb
             } else {
                 wgpu::TextureFormat::Bc7RgbaUnorm
             }
         }
-        ETC2RGB => {
+        TF::ETC2RGB => {
             if srgb {
                 wgpu::TextureFormat::Etc2Rgb8UnormSrgb
             } else {
                 wgpu::TextureFormat::Etc2Rgb8Unorm
             }
         }
-        ETC2RGBA1 => {
+        TF::ETC2RGBA1 => {
             if srgb {
                 wgpu::TextureFormat::Etc2Rgb8A1UnormSrgb
             } else {
                 wgpu::TextureFormat::Etc2Rgb8A1Unorm
             }
         }
-        ETC2RGBA8 => {
+        TF::ETC2RGBA8 => {
             if srgb {
                 wgpu::TextureFormat::Etc2Rgba8UnormSrgb
             } else {
@@ -100,7 +93,9 @@ pub fn map_host_format(host: TextureFormat, profile: ColorProfile) -> Option<wgp
         // ASTC always routes through the RGBA8 CPU decode path. Returning [`None`] forces the
         // upload path to allocate `Rgba8Unorm{Srgb}` and decode each mip via
         // [`crate::assets::texture::decode::decode_mip_to_rgba8`].
-        ASTC4x4 | ASTC5x5 | ASTC6x6 | ASTC8x8 | ASTC10x10 | ASTC12x12 => return None,
+        TF::ASTC4x4 | TF::ASTC5x5 | TF::ASTC6x6 | TF::ASTC8x8 | TF::ASTC10x10 | TF::ASTC12x12 => {
+            return None;
+        }
     })
 }
 
@@ -165,11 +160,40 @@ fn format_required_astc(f: wgpu::TextureFormat) -> bool {
 
 /// Formats we can accept via GPU-native storage or transient RGBA8 decode (advertised to the host).
 pub fn supported_host_formats_for_init() -> Vec<TextureFormat> {
-    use TextureFormat::*;
+    use TextureFormat as TF;
     vec![
-        Alpha8, R8, RGB24, RGBA32, ARGB32, BGRA32, RGB565, BGR565, RGBAHalf, ARGBHalf, RHalf,
-        RGHalf, RGBAFloat, ARGBFloat, RFloat, RGFloat, BC1, BC2, BC3, BC4, BC5, BC6H, BC7, ETC2RGB,
-        ETC2RGBA1, ETC2RGBA8, ASTC4x4, ASTC5x5, ASTC6x6, ASTC8x8, ASTC10x10, ASTC12x12,
+        TF::Alpha8,
+        TF::R8,
+        TF::RGB24,
+        TF::RGBA32,
+        TF::ARGB32,
+        TF::BGRA32,
+        TF::RGB565,
+        TF::BGR565,
+        TF::RGBAHalf,
+        TF::ARGBHalf,
+        TF::RHalf,
+        TF::RGHalf,
+        TF::RGBAFloat,
+        TF::ARGBFloat,
+        TF::RFloat,
+        TF::RGFloat,
+        TF::BC1,
+        TF::BC2,
+        TF::BC3,
+        TF::BC4,
+        TF::BC5,
+        TF::BC6H,
+        TF::BC7,
+        TF::ETC2RGB,
+        TF::ETC2RGBA1,
+        TF::ETC2RGBA8,
+        TF::ASTC4x4,
+        TF::ASTC5x5,
+        TF::ASTC6x6,
+        TF::ASTC8x8,
+        TF::ASTC10x10,
+        TF::ASTC12x12,
     ]
 }
 

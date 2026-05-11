@@ -14,6 +14,11 @@ use super::mesh::{Mesh, Vertex};
 ///
 /// The defaults `(48, 24, 0.65, 0.25)` produce a torus that fits comfortably inside a unit
 /// cube centered at the origin (`r_major + r_minor = 0.9`).
+///
+/// # Panics
+///
+/// Panics if `major_segments < 3`, `minor_segments < 3`, either radius is non-positive, or
+/// `minor_radius >= major_radius`. The torus would otherwise be degenerate or self-intersecting.
 pub fn generate_torus(
     major_segments: u32,
     minor_segments: u32,
@@ -103,10 +108,10 @@ mod tests {
         let m = generate_torus(16, 8, 0.6, 0.2);
         for v in &m.vertices {
             let pos = glam::Vec3::from_array(v.position);
-            let r_major_from_pos = (pos.x * pos.x + pos.z * pos.z).sqrt();
+            let r_major_from_pos = pos.x.hypot(pos.z);
             let dx = r_major_from_pos - 0.6;
             let dy = pos.y;
-            let dist = (dx * dx + dy * dy).sqrt();
+            let dist = dx.hypot(dy);
             assert!(
                 (0.199..0.201).contains(&dist),
                 "surface point {pos:?} not on tube of minor radius 0.2 (got {dist})"

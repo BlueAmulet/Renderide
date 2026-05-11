@@ -455,9 +455,11 @@ fn valid_cubemap_mip_prefix_len(
                 format!("cubemap face {face} mip {i}")
             })? {
                 Ok(()) => count += 1,
-                Err(MipChainStop::NegativeStart)
-                | Err(MipChainStop::BeforeBias)
-                | Err(MipChainStop::OutOfPayload) => break 'outer,
+                Err(
+                    MipChainStop::NegativeStart
+                    | MipChainStop::BeforeBias
+                    | MipChainStop::OutOfPayload,
+                ) => break 'outer,
             }
         }
     }

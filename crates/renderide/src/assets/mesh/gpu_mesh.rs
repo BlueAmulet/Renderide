@@ -61,6 +61,7 @@ impl fmt::Debug for ExtendedVertexStreamSource {
             .field("vertex_bytes_len", &self.vertex_bytes.len())
             .field("index_bytes_len", &self.index_bytes.len())
             .field("vertex_attributes_len", &self.vertex_attributes.len())
+            .field("index_format", &self.index_format)
             .field("submeshes_len", &self.submeshes.len())
             .field(
                 "can_generate_missing_tangents",
