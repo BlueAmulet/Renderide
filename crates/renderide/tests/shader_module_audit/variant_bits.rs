@@ -122,6 +122,34 @@ fn depthprojection_uses_reserved_variant_bits() -> io::Result<()> {
     )
 }
 
+#[test]
+fn pixelate_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "pixelate.wgsl",
+        &["RECTCLIP", "RESOLUTION_TEX", "_RectClip"],
+        &[
+            ("PIXELATE_KW_RECTCLIP", 0),
+            ("PIXELATE_KW_RESOLUTION_TEX", 1),
+        ],
+    )
+}
+
+#[test]
+fn pixelate_resolution_tex_sample_is_keyword_gated() -> io::Result<()> {
+    let src = material_source("pixelate.wgsl")?;
+    let kw_position = src.find("kw_RESOLUTION_TEX()").expect(
+        "pixelate.wgsl must reference kw_RESOLUTION_TEX() to gate the _ResolutionTex sample",
+    );
+    let sample_position = src
+        .find("textureSample(_ResolutionTex,")
+        .expect("pixelate.wgsl must sample _ResolutionTex");
+    assert!(
+        kw_position < sample_position,
+        "pixelate.wgsl must guard the _ResolutionTex sample on kw_RESOLUTION_TEX()"
+    );
+    Ok(())
+}
+
 fn is_meaningful_wrapper_line(line: &str) -> bool {
     let trimmed = line.trim();
     !trimmed.is_empty() && !trimmed.starts_with("//")
