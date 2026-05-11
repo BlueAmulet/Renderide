@@ -2,7 +2,7 @@
 //! Import with `#import renderide::frame::globals` from `shaders/materials/*.wgsl`.
 //!
 //! Composed materials that do not otherwise touch lighting storage must retain `lights`,
-//! `cluster_light_counts`, and `cluster_light_indices` (e.g. through `retain_globals_additive`);
+//! `cluster_light_ranges`, and `cluster_light_indices` (e.g. through `retain_globals_additive`);
 //! the composer drops unused globals, which breaks the fixed [`FrameGpuResources`] bind group
 //! layout at pipeline creation for storage-backed frame resources.
 //!
@@ -15,7 +15,7 @@
 
 @group(0) @binding(0) var<uniform> frame: ft::FrameGlobals;
 @group(0) @binding(1) var<storage, read> lights: array<ft::GpuLight>;
-@group(0) @binding(2) var<storage, read> cluster_light_counts: array<u32>;
+@group(0) @binding(2) var<storage, read> cluster_light_ranges: array<vec2<u32>>;
 @group(0) @binding(3) var<storage, read> cluster_light_indices: array<u32>;
 @group(0) @binding(4) var scene_depth: texture_depth_2d;
 @group(0) @binding(5) var scene_depth_array: texture_depth_2d_array;
@@ -121,7 +121,7 @@ fn retain_globals_additive(color: vec4<f32>) -> vec4<f32> {
         lit = lights[0].light_type;
     }
     let cluster_touch =
-        f32(cluster_light_counts[0u] & 255u) * 1e-10 +
+        f32(cluster_light_ranges[0u].y & 255u) * 1e-10 +
         f32(cluster_light_indices[0u] & 255u) * 1e-10;
     let probe_touch = reflection_probes[0u].params.x * 1e-10;
     return color + vec4<f32>(vec3<f32>(f32(lit) * 1e-10 + cluster_touch + probe_touch), 0.0);

@@ -1,4 +1,4 @@
-//! Per-frame GPU bind groups, per-view light staging, per-view cluster buffers, and per-view
+//! Per-frame GPU bind groups, per-view light staging, shared cluster buffers, and per-view
 //! per-draw instance resources.
 //!
 //! [`FrameResourceManager`] owns the fallback `@group(0)` frame resources
@@ -7,10 +7,10 @@
 //! storage slab per render view ([`PerDrawResources`]), and the CPU-side packed light buffers
 //! used by [`crate::passes::ClusteredLightPass`] and the forward pass.
 //!
-//! Per-view cluster buffers are each view's own independent storage so that views cannot stomp
-//! one another's clustered light lists under single-submit semantics. Per-view state is keyed by
-//! [`ViewId`] and created lazily on first use; retired explicitly when a secondary RT
-//! camera is destroyed.
+//! Cluster buffers are shared through [`FrameGpuResources`] and grow before graph recording so
+//! every planned viewport has enough dynamic index storage for its current light pack. Per-view
+//! state is keyed by [`ViewId`] and created lazily on first use; retired explicitly when a
+//! secondary RT camera is destroyed.
 //!
 //! Per-draw resources follow the same ownership model: one grow-on-demand slab per
 //! [`ViewId`], created lazily so no view can exhaust another view's per-draw capacity.
@@ -22,7 +22,7 @@ use glam::Mat4;
 use hashbrown::HashSet;
 use parking_lot::Mutex;
 
-use crate::backend::cluster_gpu::ClusterBufferRefs;
+use crate::backend::cluster_gpu::{CLUSTER_COUNT_Z, ClusterBufferRefs, TILE_SIZE};
 use crate::camera::ViewId;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
 use crate::gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLimits};
@@ -70,8 +70,9 @@ struct PreparedViewLights {
 
 /// Per-view `@group(0)` frame uniform buffer, light buffer, and bind group.
 ///
-/// The large cluster storage buffers (`cluster_light_counts`, `cluster_light_indices`) are
-/// shared across all views via [`FrameGpuResources::cluster_cache`] and are safe to share
+/// The large cluster storage buffers (`cluster_light_counts` range rows,
+/// `cluster_light_indices`) are shared across all views via [`FrameGpuResources::cluster_cache`]
+/// and are safe to share
 /// because GPU in-order execution within a single submit ensures each view's compute->raster
 /// pair retires before the next view's compute overwrites.
 ///
@@ -121,6 +122,8 @@ struct ClusterPreRecordLayout {
     height: u32,
     /// Whether cluster buffers need two-eye storage.
     stereo: bool,
+    /// Minimum compact light-index words required for this cluster layout.
+    index_capacity_words: u64,
 }
 
 /// Converts a view resource layout into the view-local scene snapshot sync request.
@@ -140,30 +143,63 @@ fn per_view_snapshot_sync_params(
 /// Returns stable unique cluster layouts while preserving first-seen view order.
 fn unique_cluster_pre_record_layouts(
     view_layouts: &[PreRecordViewResourceLayout],
+    light_count_for_view: impl Fn(ViewId) -> u32,
 ) -> Vec<ClusterPreRecordLayout> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::new();
+    let mut out: Vec<ClusterPreRecordLayout> = Vec::new();
     for layout in view_layouts {
-        let cluster = ClusterPreRecordLayout {
-            width: layout.width,
-            height: layout.height,
-            stereo: layout.stereo,
+        let Some(index_capacity_words) =
+            cluster_index_capacity_for_layout(*layout, light_count_for_view(layout.view_id))
+        else {
+            logger::warn!(
+                "skipping impossible cluster capacity for viewport {}x{} stereo={}",
+                layout.width,
+                layout.height,
+                layout.stereo
+            );
+            continue;
         };
-        if seen.insert(cluster) {
-            out.push(cluster);
+        if let Some(existing) = out.iter_mut().find(|existing| {
+            existing.width == layout.width
+                && existing.height == layout.height
+                && existing.stereo == layout.stereo
+        }) {
+            existing.index_capacity_words = existing.index_capacity_words.max(index_capacity_words);
+        } else {
+            out.push(ClusterPreRecordLayout {
+                width: layout.width,
+                height: layout.height,
+                stereo: layout.stereo,
+                index_capacity_words,
+            });
         }
     }
     out
 }
 
-/// Per-frame GPU state: shared frame/light resources, per-view cluster buffers and bind groups,
+/// Returns compact index-buffer capacity for a layout if the calculation fits in `u64`.
+fn cluster_index_capacity_for_layout(
+    layout: PreRecordViewResourceLayout,
+    light_count: u32,
+) -> Option<u64> {
+    let cluster_x = layout.width.max(1).div_ceil(TILE_SIZE);
+    let cluster_y = layout.height.max(1).div_ceil(TILE_SIZE);
+    let eye_count = if layout.stereo { 2_u64 } else { 1_u64 };
+    let capacity = u64::from(cluster_x)
+        .checked_mul(u64::from(cluster_y))?
+        .checked_mul(u64::from(CLUSTER_COUNT_Z))?
+        .checked_mul(eye_count)?
+        .checked_mul(u64::from(light_count.max(1)))?;
+    u32::try_from(capacity).is_ok().then_some(capacity)
+}
+
+/// Per-frame GPU state: shared frame/light/cluster resources, per-view bind groups,
 /// per-view per-draw storage slabs, and the CPU-side packed light buffer.
 pub struct FrameResourceManager {
     /// Shared `@group(0)` frame globals (lights, fallback snapshots, bind group layout).
     pub(crate) frame_gpu: Option<FrameGpuResources>,
     /// Placeholder `@group(1)` for materials without per-material bindings.
     pub(crate) empty_material: Option<EmptyMaterialBindGroup>,
-    /// Per-view cluster buffers, frame uniform buffer, and `@group(0)` bind group.
+    /// Per-view frame uniform buffer and `@group(0)` bind group.
     ///
     /// Created lazily on first use per [`ViewId`]; retired when a secondary RT camera
     /// is destroyed via [`Self::retire_per_view_frame`].
@@ -238,7 +274,7 @@ impl FrameResourceManager {
     ///
     /// On success, `@group(0)` / `@group(1)` / `@group(2)` layout are present.
     /// `queue` initializes fallback sampled textures used by group-0 bindings.
-    /// Per-view per-draw slabs and per-view cluster buffers are created lazily on first use.
+    /// Per-view per-draw slabs and per-view frame bind resources are created lazily on first use.
     /// On error, frame bind fields remain unset (no partial attach).
     pub fn attach(
         &mut self,
@@ -356,6 +392,10 @@ impl FrameResourceManager {
         let limits = Arc::clone(self.limits.as_ref()?);
         let viewport = (layout.width, layout.height);
         let stereo = layout.stereo;
+        let index_capacity_words = cluster_index_capacity_for_layout(
+            layout,
+            self.frame_light_count_for_view_u32(view_id),
+        )?;
         let snapshot_sync = per_view_snapshot_sync_params(layout);
 
         let per_view_frame = &mut self.per_view_frame;
@@ -363,7 +403,7 @@ impl FrameResourceManager {
         let fgpu = frame_gpu_opt.as_mut()?;
         // Grow the shared cluster buffers to cover this view if needed; `sync_cluster_viewport`
         // is grow-only so repeated calls from different views consolidate to the max envelope.
-        fgpu.sync_cluster_viewport(device, viewport, stereo)?;
+        fgpu.sync_cluster_viewport(device, viewport, stereo, index_capacity_words)?;
         let cluster_ver = fgpu.cluster_cache.version;
         let skybox_specular_version = fgpu.skybox_specular_version();
 
@@ -473,7 +513,7 @@ impl FrameResourceManager {
         self.per_view_frame.get(view_id)
     }
 
-    /// Frees per-view cluster buffers and bind group for a view that is no longer active.
+    /// Frees per-view frame bind resources for a view that is no longer active.
     ///
     /// Call alongside [`Self::retire_per_view_per_draw`] when a secondary RT camera is destroyed.
     /// Has no effect if the view was never allocated.
@@ -727,20 +767,29 @@ impl FrameResourceManager {
         view_layouts: &[PreRecordViewResourceLayout],
     ) {
         profiling::scope!("render::pre_record_sync_for_views");
-        for layout in unique_cluster_pre_record_layouts(view_layouts) {
+        let cluster_layouts = unique_cluster_pre_record_layouts(view_layouts, |view_id| {
+            self.frame_light_count_for_view_u32(view_id)
+        });
+        for layout in cluster_layouts {
             profiling::scope!("render::pre_record_sync_for_views::cluster_viewport");
             let Some(fgpu) = self.frame_gpu_mut() else {
                 return;
             };
             if fgpu
-                .sync_cluster_viewport(device, (layout.width, layout.height), layout.stereo)
+                .sync_cluster_viewport(
+                    device,
+                    (layout.width, layout.height),
+                    layout.stereo,
+                    layout.index_capacity_words,
+                )
                 .is_none()
             {
                 logger::warn!(
-                    "pre-record cluster sync failed for viewport {}x{} stereo={}",
+                    "pre-record cluster sync failed for viewport {}x{} stereo={} index_capacity={}",
                     layout.width,
                     layout.height,
-                    layout.stereo
+                    layout.stereo,
+                    layout.index_capacity_words
                 );
             }
         }

@@ -96,7 +96,7 @@ pub(super) fn write_cluster_params_padded(
 /// Process-wide cached compute pipeline + bind-group layout for the clustered-light dispatch.
 #[derive(Default)]
 pub(super) struct ClusteredLightPipelineCache {
-    /// Cached bind group layout (params dyn-uniform, lights, counts, indices).
+    /// Cached bind group layout (params dyn-uniform, lights, ranges, indices).
     bgl: OnceGpu<wgpu::BindGroupLayout>,
     /// Cached compute pipeline created against the layout.
     pipeline: OnceGpu<wgpu::ComputePipeline>,
@@ -173,7 +173,7 @@ fn compute_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: false },
                     has_dynamic_offset: false,
-                    min_binding_size: NonZeroU64::new(4),
+                    min_binding_size: NonZeroU64::new(8),
                 },
                 count: None,
             },

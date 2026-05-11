@@ -44,7 +44,8 @@ pub(super) fn validate_frame_group0(
 ) -> Result<(), ReflectError> {
     let expected_frame = size_of::<FrameGpuUniforms>() as u32;
     let expected_light = size_of::<GpuLight>() as u32;
-    let expected_cluster_u32 = size_of::<u32>() as u32;
+    let expected_cluster_range = size_of::<[u32; 2]>() as u32;
+    let expected_cluster_index = size_of::<u32>() as u32;
     let expected_probe = size_of::<GpuReflectionProbeMetadata>() as u32;
 
     let mut b0_size: Option<u32> = None;
@@ -113,8 +114,8 @@ pub(super) fn validate_frame_group0(
     let probe_stride_matches = b12_stride.is_none_or(|stride| stride == expected_probe);
     if b0_size == Some(expected_frame)
         && b1_stride == Some(expected_light)
-        && b2_stride == Some(expected_cluster_u32)
-        && b3_stride == Some(expected_cluster_u32)
+        && b2_stride == Some(expected_cluster_range)
+        && b3_stride == Some(expected_cluster_index)
         && probe_stride_matches
     {
         Ok(())
@@ -122,7 +123,8 @@ pub(super) fn validate_frame_group0(
         Err(ReflectError::FrameGroupMismatch {
             expected_frame,
             expected_light,
-            expected_cluster_u32,
+            expected_cluster_range,
+            expected_cluster_index,
             expected_probe,
             got0: b0_size,
             got1: b1_stride,

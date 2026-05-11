@@ -113,15 +113,17 @@ pub enum ReflectError {
     Layout(String),
     /// `@group(0)` sizes did not match frame globals, light/cluster buffers, or declared reflection-probe metadata.
     #[error(
-        "group(0) must have uniform binding 0 size {expected_frame}, storage binding 1 stride {expected_light}, bindings 2-3 u32 stride {expected_cluster_u32}, optional binding 12 stride {expected_probe}; got b0={got0:?} b1={got1:?} b2={got2:?} b3={got3:?} b12={got12:?}"
+        "group(0) must have uniform binding 0 size {expected_frame}, storage binding 1 stride {expected_light}, binding 2 range stride {expected_cluster_range}, binding 3 index stride {expected_cluster_index}, optional binding 12 stride {expected_probe}; got b0={got0:?} b1={got1:?} b2={got2:?} b3={got3:?} b12={got12:?}"
     )]
     FrameGroupMismatch {
         /// Expected `FrameGpuUniforms` uniform size in bytes.
         expected_frame: u32,
         /// Expected `GpuLight` struct stride in the lights storage buffer.
         expected_light: u32,
-        /// Expected `u32` stride for cluster count / index buffers.
-        expected_cluster_u32: u32,
+        /// Expected `[offset, count]` row stride for the cluster-range buffer.
+        expected_cluster_range: u32,
+        /// Expected `u32` stride for the compact cluster-index buffer.
+        expected_cluster_index: u32,
         /// Expected reflection-probe metadata stride.
         expected_probe: u32,
         /// Observed binding 0 size, if any.

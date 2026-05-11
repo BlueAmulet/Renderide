@@ -10,13 +10,14 @@ use super::frame_globals::FrameGpuUniforms;
 /// Max lights copied into the frame light buffer.
 pub const MAX_LIGHTS: usize = 65536;
 
-/// Maximum lights assigned to a single cluster.
-pub const MAX_LIGHTS_PER_TILE: u32 = 64;
-
-const _: () = assert!(MAX_LIGHTS_PER_TILE.is_multiple_of(2));
-
 /// Uniform buffer size for clustered light compute `ClusterParams`.
 pub const CLUSTER_PARAMS_UNIFORM_SIZE: u64 = 256;
+
+/// Number of `u32` words in one clustered-light range row.
+///
+/// Binding 2 stores `[offset, count]` for every cluster; binding 3 stores the compact light
+/// indices addressed by those rows.
+pub const CLUSTER_LIGHT_RANGE_WORDS: u64 = 2;
 
 /// GPU-facing light record for a storage buffer upload.
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -120,7 +121,7 @@ pub fn frame_bind_group_layout_entries() -> Vec<wgpu::BindGroupLayoutEntry> {
     entries
 }
 
-/// Layout for `@group(0)`: frame globals, lights, cluster lists, snapshots, and IBL.
+/// Layout for `@group(0)`: frame globals, lights, cluster ranges/lists, snapshots, and IBL.
 pub fn frame_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
     let entries = frame_bind_group_layout_entries();
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -165,7 +166,7 @@ fn append_frame_buffer_layout_entries(entries: &mut Vec<wgpu::BindGroupLayoutEnt
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Storage { read_only: true },
                 has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(4),
+                min_binding_size: NonZeroU64::new(8),
             },
             count: None,
         },

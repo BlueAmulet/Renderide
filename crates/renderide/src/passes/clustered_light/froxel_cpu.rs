@@ -1,12 +1,12 @@
 //! CPU light-centric froxel assignment for clustered forward lighting.
 //!
-//! This path mirrors the existing clustered-light storage contract (`cluster_light_counts` plus
-//! packed `cluster_light_indices`) so the material shaders do not need to change while the
-//! renderer gains a light-centric alternative to the O(froxels x lights) GPU scan.
+//! This path mirrors the clustered-light storage contract (`cluster_light_counts` range rows plus
+//! compact `cluster_light_indices`) so dense-light frames can use a light-centric alternative to
+//! the O(froxels x lights) GPU scan.
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
 
-use crate::gpu::{GpuLight, MAX_LIGHTS_PER_TILE};
+use crate::gpu::GpuLight;
 use crate::world_mesh::cluster::{
     CLUSTER_COUNT_Z, ClusterFrameParams, TILE_SIZE, sanitize_cluster_clip_planes,
 };
@@ -14,8 +14,6 @@ use crate::world_mesh::cluster::{
 /// Light count at which `Auto` mode starts considering CPU froxel assignment.
 pub(super) const AUTO_CPU_FROXEL_LIGHT_THRESHOLD: u32 = 128;
 
-/// Number of packed `u32` words reserved for one froxel's fixed light-index list.
-const INDEX_WORDS_PER_FROXEL: usize = (MAX_LIGHTS_PER_TILE / 2) as usize;
 /// Point light tag in [`GpuLight::light_type`].
 const LIGHT_TYPE_POINT: u32 = 0;
 /// Directional light tag in [`GpuLight::light_type`].
@@ -60,9 +58,9 @@ impl FroxelLayout {
 /// Per-frame CPU-produced cluster storage matching the existing WGSL buffers.
 #[derive(Clone, Debug, Default)]
 pub(super) struct CpuClusterAssignments {
-    /// One light count per froxel.
-    pub counts: Vec<u32>,
-    /// Packed 2 x `u16` light indices per `u32`, with `MAX_LIGHTS_PER_TILE / 2` words per froxel.
+    /// Per-froxel `[offset, count]` rows addressing [`Self::indices`].
+    pub ranges: Vec<[u32; 2]>,
+    /// Compact light indices for every froxel membership.
     pub indices: Vec<u32>,
     /// Assignment diagnostics for profiling and tests.
     pub stats: CpuFroxelStats,
@@ -71,9 +69,9 @@ pub(super) struct CpuClusterAssignments {
 /// CPU froxel assignment diagnostics.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct CpuFroxelStats {
-    /// Number of light/froxel memberships emitted before per-froxel truncation.
+    /// Number of light/froxel memberships emitted into compact storage.
     pub assigned_memberships: u64,
-    /// Number of light/froxel memberships dropped because a froxel hit `MAX_LIGHTS_PER_TILE`.
+    /// Number of light/froxel memberships dropped because compact storage could not represent them.
     pub overflowed_memberships: u64,
     /// Number of lights rejected before assignment because their conservative bounds miss the view.
     pub culled_lights: u32,
@@ -83,7 +81,7 @@ pub(super) struct CpuFroxelStats {
 pub(super) struct FroxelLightPlanner;
 
 impl FroxelLightPlanner {
-    /// Builds fixed-layout cluster assignments for every eye in `eye_params`.
+    /// Builds dynamic-range cluster assignments for every eye in `eye_params`.
     pub fn build(
         lights: &[GpuLight],
         eye_params: &[ClusterFrameParams],
@@ -99,11 +97,6 @@ impl FroxelLightPlanner {
             .ok()?
             .checked_mul(eye_count)?;
         let mut counts = vec![0u32; total_clusters];
-        let mut indices = if lights.is_empty() {
-            Vec::new()
-        } else {
-            vec![0u32; total_clusters.checked_mul(INDEX_WORDS_PER_FROXEL)?]
-        };
         let mut stats = CpuFroxelStats::default();
 
         for (eye_idx, params) in eye_params.iter().enumerate() {
@@ -113,19 +106,41 @@ impl FroxelLightPlanner {
                 return None;
             }
             let cluster_base = eye_idx.checked_mul(expected_clusters)?;
-            assign_eye_lights(
+            let mut emit_count = |cluster_id: usize, _light_idx: u32| {
+                let Some(count) = counts.get_mut(cluster_id) else {
+                    return;
+                };
+                *count = count.saturating_add(1);
+                stats.assigned_memberships = stats.assigned_memberships.saturating_add(1);
+            };
+            stats.culled_lights = stats.culled_lights.saturating_add(assign_eye_lights(
                 lights,
                 *params,
                 layout,
                 cluster_base,
-                &mut counts,
-                &mut indices,
-                &mut stats,
-            );
+                &mut emit_count,
+            ));
+        }
+
+        let (ranges, total_indices) = prefix_counts_to_ranges(&counts)?;
+        let mut indices = vec![0u32; total_indices];
+        let mut cursors = vec![0u32; total_clusters];
+
+        for (eye_idx, params) in eye_params.iter().enumerate() {
+            let layout = FroxelLayout::from_cluster_params(params);
+            let expected_clusters = layout.cluster_count()?;
+            if expected_clusters != usize::try_from(clusters_per_eye).ok()? {
+                return None;
+            }
+            let cluster_base = eye_idx.checked_mul(expected_clusters)?;
+            let mut emit_index = |cluster_id: usize, light_idx: u32| {
+                write_membership(cluster_id, light_idx, &ranges, &mut cursors, &mut indices);
+            };
+            assign_eye_lights(lights, *params, layout, cluster_base, &mut emit_index);
         }
 
         Some(CpuClusterAssignments {
-            counts,
+            ranges,
             indices,
             stats,
         })
@@ -138,40 +153,25 @@ fn assign_eye_lights(
     params: ClusterFrameParams,
     layout: FroxelLayout,
     cluster_base: usize,
-    counts: &mut [u32],
-    indices: &mut [u32],
-    stats: &mut CpuFroxelStats,
-) {
+    emit: &mut impl FnMut(usize, u32),
+) -> u32 {
     let view = params.world_to_view;
     let view_scale = params.world_to_view_scale_max();
+    let mut culled_lights = 0u32;
     for (light_idx, light) in lights.iter().enumerate() {
         if light.light_type == LIGHT_TYPE_DIRECTIONAL {
-            assign_directional(
-                light_idx as u32,
-                layout,
-                cluster_base,
-                counts,
-                indices,
-                stats,
-            );
+            assign_directional(light_idx as u32, layout, cluster_base, emit);
             continue;
         }
         let Some(bounds) =
             light_froxel_bounds(light, view, params.proj, view_scale, layout, params)
         else {
-            stats.culled_lights = stats.culled_lights.saturating_add(1);
+            culled_lights = culled_lights.saturating_add(1);
             continue;
         };
-        assign_bounded_light(
-            light_idx as u32,
-            bounds,
-            layout,
-            cluster_base,
-            counts,
-            indices,
-            stats,
-        );
+        assign_bounded_light(light_idx as u32, bounds, layout, cluster_base, emit);
     }
+    culled_lights
 }
 
 /// Inclusive froxel bounds touched by a light.
@@ -320,21 +320,13 @@ fn assign_directional(
     light_idx: u32,
     layout: FroxelLayout,
     cluster_base: usize,
-    counts: &mut [u32],
-    indices: &mut [u32],
-    stats: &mut CpuFroxelStats,
+    emit: &mut impl FnMut(usize, u32),
 ) {
     let Some(cluster_count) = layout.cluster_count() else {
         return;
     };
     for cluster_local in 0..cluster_count {
-        push_light(
-            cluster_base + cluster_local,
-            light_idx,
-            counts,
-            indices,
-            stats,
-        );
+        emit(cluster_base + cluster_local, light_idx);
     }
 }
 
@@ -344,51 +336,60 @@ fn assign_bounded_light(
     bounds: FroxelBounds,
     layout: FroxelLayout,
     cluster_base: usize,
-    counts: &mut [u32],
-    indices: &mut [u32],
-    stats: &mut CpuFroxelStats,
+    emit: &mut impl FnMut(usize, u32),
 ) {
     for z in bounds.z0..=bounds.z1 {
         for y in bounds.y0..=bounds.y1 {
             for x in bounds.x0..=bounds.x1 {
                 let local = x + layout.cluster_count_x * (y + layout.cluster_count_y * z);
-                push_light(
-                    cluster_base + local as usize,
-                    light_idx,
-                    counts,
-                    indices,
-                    stats,
-                );
+                emit(cluster_base + local as usize, light_idx);
             }
         }
     }
 }
 
-/// Appends one light index to one froxel's fixed-capacity packed index list.
-fn push_light(
-    cluster_id: usize,
-    light_idx: u32,
-    counts: &mut [u32],
-    indices: &mut [u32],
-    stats: &mut CpuFroxelStats,
-) {
-    let Some(count) = counts.get_mut(cluster_id) else {
-        return;
-    };
-    if *count >= MAX_LIGHTS_PER_TILE {
-        stats.overflowed_memberships = stats.overflowed_memberships.saturating_add(1);
-        return;
-    }
-    if !indices.is_empty() {
-        let slot = *count as usize;
-        let word = cluster_id * INDEX_WORDS_PER_FROXEL + (slot >> 1);
-        let shift = ((slot & 1) * 16) as u32;
-        if let Some(dst) = indices.get_mut(word) {
-            *dst |= (light_idx & 0xFFFF) << shift;
+/// Converts per-froxel counts into compact `[offset, count]` rows.
+fn prefix_counts_to_ranges(counts: &[u32]) -> Option<(Vec<[u32; 2]>, usize)> {
+    let mut ranges = Vec::with_capacity(counts.len());
+    let mut offset = 0u64;
+    for &count in counts {
+        let range_offset = u32::try_from(offset).ok()?;
+        ranges.push([range_offset, count]);
+        offset = offset.checked_add(u64::from(count))?;
+        if offset > u64::from(u32::MAX) {
+            return None;
         }
     }
-    *count += 1;
-    stats.assigned_memberships = stats.assigned_memberships.saturating_add(1);
+    let total_indices = usize::try_from(offset).ok()?;
+    Some((ranges, total_indices))
+}
+
+/// Appends one light index to one froxel's compact index range.
+fn write_membership(
+    cluster_id: usize,
+    light_idx: u32,
+    ranges: &[[u32; 2]],
+    cursors: &mut [u32],
+    indices: &mut [u32],
+) {
+    let Some(range) = ranges.get(cluster_id) else {
+        return;
+    };
+    let Some(cursor) = cursors.get_mut(cluster_id) else {
+        return;
+    };
+    if *cursor >= range[1] {
+        return;
+    }
+    let index_offset = u64::from(range[0]).checked_add(u64::from(*cursor));
+    let Some(index) = index_offset.and_then(|offset| usize::try_from(offset).ok()) else {
+        return;
+    };
+    let Some(dst) = indices.get_mut(index) else {
+        return;
+    };
+    *dst = light_idx;
+    *cursor += 1;
 }
 
 #[cfg(test)]
@@ -430,8 +431,16 @@ mod tests {
         }
     }
 
+    /// Returns the compact light-index slice for one cluster.
+    fn cluster_indices(assignments: &CpuClusterAssignments, cluster_id: usize) -> &[u32] {
+        let [offset, count] = assignments.ranges[cluster_id];
+        let start = offset as usize;
+        let end = start + count as usize;
+        &assignments.indices[start..end]
+    }
+
     #[test]
-    fn empty_lights_write_zero_counts_without_indices() {
+    fn empty_lights_write_zero_ranges_without_indices() {
         let params = test_params();
         let assignments = FroxelLightPlanner::build(
             &[],
@@ -439,8 +448,8 @@ mod tests {
             params.cluster_count_x * params.cluster_count_y * CLUSTER_COUNT_Z,
         )
         .expect("assignments");
-        assert_eq!(assignments.counts.len(), 64);
-        assert!(assignments.counts.iter().all(|&c| c == 0));
+        assert_eq!(assignments.ranges.len(), 64);
+        assert!(assignments.ranges.iter().all(|range| range[1] == 0));
         assert!(assignments.indices.is_empty());
     }
 
@@ -454,8 +463,8 @@ mod tests {
         )
         .expect("assignments");
 
-        assert!(assignments.counts.iter().all(|&c| c == 1));
-        assert_eq!(assignments.indices[0] & 0xFFFF, 0);
+        assert!(assignments.ranges.iter().all(|range| range[1] == 1));
+        assert_eq!(cluster_indices(&assignments, 0), &[0]);
     }
 
     #[test]
@@ -468,13 +477,17 @@ mod tests {
         )
         .expect("assignments");
 
-        let touched = assignments.counts.iter().filter(|&&c| c > 0).count();
+        let touched = assignments
+            .ranges
+            .iter()
+            .filter(|range| range[1] > 0)
+            .count();
         assert!(touched > 0);
-        assert!(touched < assignments.counts.len());
+        assert!(touched < assignments.ranges.len());
     }
 
     #[test]
-    fn packed_indices_store_two_lights_per_word() {
+    fn compact_indices_store_all_lights() {
         let params = test_params();
         let assignments = FroxelLightPlanner::build(
             &[directional_light(), directional_light()],
@@ -483,8 +496,23 @@ mod tests {
         )
         .expect("assignments");
 
-        assert_eq!(assignments.counts[0], 2);
-        assert_eq!(assignments.indices[0] & 0xFFFF, 0);
-        assert_eq!((assignments.indices[0] >> 16) & 0xFFFF, 1);
+        assert_eq!(assignments.ranges[0][1], 2);
+        assert_eq!(cluster_indices(&assignments, 0), &[0, 1]);
+    }
+
+    #[test]
+    fn compact_indices_do_not_truncate_dense_clusters() {
+        let params = test_params();
+        let lights = (0..70).map(|_| directional_light()).collect::<Vec<_>>();
+        let assignments = FroxelLightPlanner::build(
+            &lights,
+            &[params],
+            params.cluster_count_x * params.cluster_count_y * CLUSTER_COUNT_Z,
+        )
+        .expect("assignments");
+
+        assert!(assignments.ranges.iter().all(|range| range[1] == 70));
+        assert_eq!(cluster_indices(&assignments, 0).len(), 70);
+        assert_eq!(assignments.stats.overflowed_memberships, 0);
     }
 }

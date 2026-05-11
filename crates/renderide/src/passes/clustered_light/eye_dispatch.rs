@@ -1,13 +1,13 @@
 //! Per-eye dispatch driver for the clustered-light compute pass.
 //!
-//! Walks the resolved [`ClusterFrameParams`] for each eye, clears the cluster-count slice for
+//! Walks the resolved [`ClusterFrameParams`] for each eye, clears the cluster-range slice for
 //! that eye, uploads the corresponding `ClusterParams` uniform slot, and dispatches the compute
 //! shader. Mono and stereo paths share the loop; eye 0 is always the mono / left-eye row.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::camera::HostCameraFrame;
-use crate::gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLimits};
+use crate::gpu::{CLUSTER_LIGHT_RANGE_WORDS, CLUSTER_PARAMS_UNIFORM_SIZE, GpuLimits};
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::scene::SceneCoordinator;
 use crate::world_mesh::cluster::{
@@ -26,7 +26,7 @@ pub(super) struct ClusteredLightEyePassEnv<'a> {
     pub pipeline: &'a wgpu::ComputePipeline,
     /// Bind group with light/cluster/params resources.
     pub bind_group: &'a wgpu::BindGroup,
-    /// Per-cluster light-count storage cleared before each eye dispatch.
+    /// Per-cluster light-range storage cleared before each eye dispatch.
     pub cluster_light_counts: &'a wgpu::Buffer,
     /// Uniform buffer holding per-eye [`ClusterFrameParams`].
     pub params_buffer: &'a wgpu::Buffer,
@@ -139,13 +139,14 @@ pub(super) fn clustered_light_eye_params_for_viewport(
     }
 }
 
-/// Returns the byte range for a contiguous cluster-count slice.
+/// Returns the byte range for a contiguous cluster-range slice.
 pub(super) fn cluster_count_clear_range(
     cluster_offset: u32,
     cluster_count: u32,
 ) -> Option<(u64, u64)> {
-    let byte_offset = u64::from(cluster_offset).checked_mul(size_of::<u32>() as u64)?;
-    let byte_size = u64::from(cluster_count).checked_mul(size_of::<u32>() as u64)?;
+    let range_bytes = CLUSTER_LIGHT_RANGE_WORDS.checked_mul(size_of::<u32>() as u64)?;
+    let byte_offset = u64::from(cluster_offset).checked_mul(range_bytes)?;
+    let byte_size = u64::from(cluster_count).checked_mul(range_bytes)?;
     Some((byte_offset, byte_size))
 }
 
@@ -157,7 +158,7 @@ pub(super) fn clusters_per_eye_for_params(params: &ClusterFrameParams) -> Option
         .checked_mul(CLUSTER_COUNT_Z)
 }
 
-/// Clears the shared cluster-count range when there are no active lights.
+/// Clears the shared cluster-range rows when there are no active lights.
 pub(super) fn clear_zero_light_cluster_counts(
     encoder: &mut wgpu::CommandEncoder,
     cluster_light_counts: &wgpu::Buffer,
@@ -172,9 +173,13 @@ pub(super) fn clear_zero_light_cluster_counts(
         );
         return;
     };
-    let Some(counts_bytes) = total_clusters.checked_mul(size_of::<u32>() as u64) else {
+    let Some(range_bytes) = CLUSTER_LIGHT_RANGE_WORDS.checked_mul(size_of::<u32>() as u64) else {
+        logger::warn!("ClusteredLight: zero-light range row byte size overflows");
+        return;
+    };
+    let Some(counts_bytes) = total_clusters.checked_mul(range_bytes) else {
         logger::warn!(
-            "ClusteredLight: zero-light count clear byte size overflows for {total_clusters} clusters"
+            "ClusteredLight: zero-light range clear byte size overflows for {total_clusters} clusters"
         );
         return;
     };
@@ -236,10 +241,10 @@ mod tests {
         assert_eq!(params.far_clip, far);
     }
 
-    /// Count clears address one `u32` per cluster.
+    /// Range clears address two `u32` words per cluster.
     #[test]
-    fn cluster_count_clear_range_uses_u32_stride() {
-        assert_eq!(cluster_count_clear_range(3, 5), Some((12, 20)));
+    fn cluster_count_clear_range_uses_range_row_stride() {
+        assert_eq!(cluster_count_clear_range(3, 5), Some((24, 40)));
     }
 
     /// Reasonable grids fit in the checked per-eye cluster count.

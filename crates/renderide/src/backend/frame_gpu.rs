@@ -191,7 +191,7 @@ impl PerViewSceneSnapshots {
 }
 
 impl FrameGpuResources {
-    /// Layout for `@group(0)`: uniform frame + lights + cluster counts + cluster indices +
+    /// Layout for `@group(0)`: uniform frame + lights + cluster ranges + cluster indices +
     /// scene snapshots + reflection-probe specular resources.
     pub fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         frame_bind_group_layout(device)
@@ -335,7 +335,7 @@ impl FrameGpuResources {
         crate::profiling::note_resource_churn!(Buffer, "backend::frame_lights_storage");
         let mut cluster_cache = ClusterBufferCache::new();
         cluster_cache
-            .ensure_buffers(device, limits.as_ref(), (1, 1), CLUSTER_COUNT_Z, false)
+            .ensure_buffers(device, limits.as_ref(), (1, 1), CLUSTER_COUNT_Z, false, 1)
             .ok_or(FrameGpuInitError::ClusterEnsureFailed)?;
         let cluster_bind_version = cluster_cache.version;
         let refs = cluster_cache
@@ -382,10 +382,11 @@ impl FrameGpuResources {
         })
     }
 
-    /// Grows the shared cluster cache to cover `viewport` x `stereo` if possible; rebuilds
+    /// Grows the shared cluster cache to cover `viewport` x `stereo` and `index_capacity_words`
+    /// if possible; rebuilds
     /// [`Self::bind_group`] when the underlying buffers were reallocated.
     ///
-    /// When `stereo` is true, cluster count/index buffers are doubled for per-eye storage.
+    /// When `stereo` is true, cluster range storage is doubled for per-eye storage.
     /// Returns [`None`] when the requested layout exceeds device limits. Otherwise returns
     /// whether the bind group was recreated.
     ///
@@ -396,6 +397,7 @@ impl FrameGpuResources {
         device: &wgpu::Device,
         viewport: (u32, u32),
         stereo: bool,
+        index_capacity_words: u64,
     ) -> Option<bool> {
         profiling::scope!("render::sync_cluster_viewport");
         self.cluster_cache.ensure_buffers(
@@ -404,6 +406,7 @@ impl FrameGpuResources {
             viewport,
             CLUSTER_COUNT_Z,
             stereo,
+            index_capacity_words,
         )?;
         let ver = self.cluster_cache.version;
         if ver == self.cluster_bind_version {

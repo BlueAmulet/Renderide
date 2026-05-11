@@ -31,8 +31,8 @@ pub use depth::{
 };
 pub use display_blit::DisplayBlitResources;
 pub use frame_bindings::{
-    CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight, GpuReflectionProbeMetadata, MAX_LIGHTS,
-    MAX_LIGHTS_PER_TILE, REFLECTION_PROBE_ATLAS_FORMAT, REFLECTION_PROBE_METADATA_BOX_PROJECTION,
+    CLUSTER_LIGHT_RANGE_WORDS, CLUSTER_PARAMS_UNIFORM_SIZE, GpuLight, GpuReflectionProbeMetadata,
+    MAX_LIGHTS, REFLECTION_PROBE_ATLAS_FORMAT, REFLECTION_PROBE_METADATA_BOX_PROJECTION,
     REFLECTION_PROBE_METADATA_SH2_SOURCE_LOCAL, REFLECTION_PROBE_METADATA_SH2_SOURCE_SKYBOX,
     empty_material_bind_group_layout, frame_bind_group_layout, frame_bind_group_layout_entries,
 };

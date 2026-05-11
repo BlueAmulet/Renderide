@@ -49,10 +49,20 @@ fn new_manager_has_no_per_view_frame() {
 #[test]
 fn cluster_pre_record_layouts_ignore_snapshot_fields() {
     let dashboard = pre_record_layout(512, 256, false, false, true);
-    let dashboard_depth = pre_record_layout(512, 256, false, true, false);
+    let mut dashboard_depth = pre_record_layout(512, 256, false, true, false);
+    dashboard_depth.view_id = ViewId::secondary_camera(RenderSpaceId(7), 0);
     let main = pre_record_layout(1920, 1080, false, false, false);
+    let light_count = 3;
+    let dashboard_depth_light_count = 7;
 
-    let layouts = unique_cluster_pre_record_layouts(&[dashboard, dashboard_depth, main]);
+    let layouts =
+        unique_cluster_pre_record_layouts(&[dashboard, dashboard_depth, main], |view_id| {
+            if view_id == dashboard_depth.view_id {
+                dashboard_depth_light_count
+            } else {
+                light_count
+            }
+        });
 
     assert_eq!(
         layouts,
@@ -61,11 +71,17 @@ fn cluster_pre_record_layouts_ignore_snapshot_fields() {
                 width: 512,
                 height: 256,
                 stereo: false,
+                index_capacity_words: cluster_index_capacity_for_layout(
+                    dashboard_depth,
+                    dashboard_depth_light_count,
+                )
+                .unwrap(),
             },
             ClusterPreRecordLayout {
                 width: 1920,
                 height: 1080,
                 stereo: false,
+                index_capacity_words: cluster_index_capacity_for_layout(main, light_count).unwrap(),
             },
         ]
     );

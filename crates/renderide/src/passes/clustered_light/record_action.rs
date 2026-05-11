@@ -2,7 +2,7 @@
 //! [`super::ClusteredLightPass::prepare_record_action`].
 //!
 //! The clustered-light pass picks one of four record actions per view tick: skip, complete
-//! (CPU froxel finished the work), clear-counts (zero-light shortcut), or run the GPU scan.
+//! (CPU froxel finished the work), clear ranges (zero-light shortcut), or run the GPU scan.
 
 use crate::camera::ViewId;
 use crate::gpu::GpuLight;
@@ -17,15 +17,15 @@ pub(super) enum ClusteredLightRecordAction {
     Skip,
     /// CPU assignment already uploaded the cluster buffers.
     Done,
-    /// Clear cluster counts because the frame has no lights.
+    /// Clear cluster ranges because the frame has no lights.
     ClearZero(ClusteredLightClearData),
     /// Run the existing GPU scan compute path.
     GpuScan(ClusteredLightGpuScanData),
 }
 
-/// Data needed to clear empty per-cluster light counts.
+/// Data needed to clear empty per-cluster light ranges.
 pub(super) struct ClusteredLightClearData {
-    /// Shared cluster-count buffer.
+    /// Shared cluster-range buffer.
     pub cluster_light_counts: wgpu::Buffer,
     /// Number of clusters produced per eye.
     pub clusters_per_eye: u32,
@@ -39,9 +39,9 @@ pub(super) struct CpuFroxelRecordData<'a> {
     pub uploads: GraphUploadSink<'a>,
     /// CPU-side light rows packed during frame preparation.
     pub lights: &'a [GpuLight],
-    /// Shared cluster-count buffer.
+    /// Shared cluster-range buffer.
     pub cluster_light_counts: &'a wgpu::Buffer,
-    /// Shared packed cluster-index buffer.
+    /// Shared compact cluster-index buffer.
     pub cluster_light_indices: &'a wgpu::Buffer,
     /// Per-eye cluster frame params.
     pub eye_params: &'a [ClusterFrameParams],
@@ -59,9 +59,9 @@ pub(super) struct ClusteredLightGpuScanData {
     pub view_id: ViewId,
     /// Shared cluster-buffer cache version.
     pub cluster_ver: u64,
-    /// Shared cluster-count buffer.
+    /// Shared cluster-range buffer.
     pub cluster_light_counts: wgpu::Buffer,
-    /// Shared packed cluster-index buffer.
+    /// Shared compact cluster-index buffer.
     pub cluster_light_indices: wgpu::Buffer,
     /// Per-view cluster params uniform buffer.
     pub params_buffer: wgpu::Buffer,
@@ -96,7 +96,7 @@ pub(super) fn try_record_cpu_froxel(data: CpuFroxelRecordData<'_>) -> bool {
     data.uploads.write_buffer(
         data.cluster_light_counts,
         0,
-        bytemuck::cast_slice(&assignments.counts),
+        bytemuck::cast_slice(&assignments.ranges),
     );
     if !assignments.indices.is_empty() {
         data.uploads.write_buffer(
