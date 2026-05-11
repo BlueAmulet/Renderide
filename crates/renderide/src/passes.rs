@@ -20,12 +20,13 @@ pub(crate) use post_processing::{
 };
 pub(crate) use scene_color_compose::{SceneColorComposeGraphResources, SceneColorComposePass};
 pub(crate) use world_mesh_forward::{
-    GTAO_VIEW_NORMAL_FORMAT, PreparedWorldMeshForwardFrame, WorldMeshColorSnapshotPass,
-    WorldMeshDepthSnapshotPass, WorldMeshForwardColorResolveGraphResources,
-    WorldMeshForwardColorResolvePass, WorldMeshForwardDepthPrepass,
-    WorldMeshForwardDepthPrepassGraphResources, WorldMeshForwardDepthResolvePass,
-    WorldMeshForwardEncodeRefs, WorldMeshForwardGraphResources, WorldMeshForwardIntersectPass,
-    WorldMeshForwardNormalGraphResources, WorldMeshForwardNormalPass, WorldMeshForwardOpaquePass,
-    WorldMeshForwardPlanSlot, WorldMeshForwardPrepareContext, WorldMeshForwardSkyboxRenderer,
+    GTAO_VIEW_NORMAL_FORMAT, MaterialBatchBoundary, PreparedWorldMeshForwardFrame,
+    WorldMeshColorSnapshotPass, WorldMeshDepthSnapshotPass,
+    WorldMeshForwardColorResolveGraphResources, WorldMeshForwardColorResolvePass,
+    WorldMeshForwardDepthPrepass, WorldMeshForwardDepthPrepassGraphResources,
+    WorldMeshForwardDepthResolvePass, WorldMeshForwardEncodeRefs, WorldMeshForwardGraphResources,
+    WorldMeshForwardIntersectPass, WorldMeshForwardNormalGraphResources,
+    WorldMeshForwardNormalPass, WorldMeshForwardOpaquePass, WorldMeshForwardPlanSlot,
+    WorldMeshForwardPrepareContext, WorldMeshForwardSkyboxRenderer,
     WorldMeshForwardTransparentPass, prepare_world_mesh_forward_frame,
 };

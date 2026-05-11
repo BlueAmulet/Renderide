@@ -19,7 +19,7 @@ use super::frame_uniforms::write_per_view_frame_uniforms;
 use super::material_resolve::precompute_material_resolve_batches;
 use super::skybox::SkyboxRenderer;
 use super::slab::{SlabPackInputs, pack_and_upload_per_draw_slab};
-use super::{MaterialBatchPacket, PreparedWorldMeshForwardFrame};
+use super::{MaterialBatchBoundary, MaterialBatchPacket, PreparedWorldMeshForwardFrame};
 
 /// Prepared world-mesh forward state plus deferred per-view HUD output.
 pub(crate) struct PreparedWorldMeshForwardView {
@@ -100,10 +100,11 @@ pub(super) fn maybe_set_world_mesh_draw_stats(
     }
 
     if debug_hud.textures_enabled && offscreen_write_render_texture_asset_id.is_none() {
-        outputs.current_view_texture_2d_asset_ids =
-            super::current_view_textures::current_view_texture2d_asset_ids_from_draws(
-                materials, draws,
-            );
+        super::current_view_textures::current_view_texture2d_asset_ids_from_draws(
+            materials,
+            draws,
+            &mut outputs.current_view_texture_2d_asset_ids,
+        );
     }
     outputs
 }
@@ -191,6 +192,7 @@ pub(crate) fn prepare_world_mesh_forward_frame(
     };
 
     let precomputed_batches = precompute_and_assign_material_batches(
+        frame,
         &encode_refs,
         uploads,
         &draws,
@@ -269,6 +271,7 @@ fn pack_forward_draws_for_view(
 }
 
 fn precompute_and_assign_material_batches(
+    frame: &GraphPassFrame<'_>,
     encode_refs: &WorldMeshForwardEncodeRefs<'_>,
     uploads: GraphUploadSink<'_>,
     draws: &[WorldMeshDrawItem],
@@ -278,17 +281,29 @@ fn precompute_and_assign_material_batches(
 ) -> Vec<MaterialBatchPacket> {
     // Resolve per-batch pipelines and @group(1) bind groups in parallel (Filament phase-A).
     // Results live on `PreparedWorldMeshForwardFrame`; both raster sub-passes consume them.
-    let precomputed_batches = {
+    let mut precomputed_batches = Vec::new();
+    let mut resolve = |boundaries_scratch: &mut Vec<MaterialBatchBoundary>| {
         profiling::scope!("world_mesh::prepare_frame::precompute_material_batches");
-        precompute_material_resolve_batches(
+        precomputed_batches = precompute_material_resolve_batches(
             encode_refs,
             uploads,
             draws,
             pipeline.shader_perm,
             &pipeline.pass_desc,
             offscreen_write_rt,
-        )
+            boundaries_scratch,
+        );
     };
+    if !frame
+        .shared
+        .frame_resources
+        .with_per_view_material_batch_scratch(frame.view.view_id, &mut resolve)
+    {
+        // Scratch slot not provisioned yet; fall back to a one-shot boundary buffer so the
+        // first frame for a brand-new view still produces packets.
+        let mut fallback = Vec::new();
+        resolve(&mut fallback);
+    }
     assign_material_packet_indices(plan, &precomputed_batches);
     precomputed_batches
 }

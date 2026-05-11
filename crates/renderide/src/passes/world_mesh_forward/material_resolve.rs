@@ -6,7 +6,7 @@ use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
-use super::{MaterialBatchPacket, MaterialDrawResolver};
+use super::{MaterialBatchBoundary, MaterialBatchPacket, MaterialDrawResolver};
 
 /// Resolves per-batch pipeline sets and `@group(1)` bind groups for the sorted draw list.
 ///
@@ -20,6 +20,7 @@ pub(super) fn precompute_material_resolve_batches(
     shader_perm: ShaderPermutation,
     pass_desc: &MaterialPipelineDesc,
     offscreen_write_render_texture_asset_id: Option<i32>,
+    boundaries_scratch: &mut Vec<MaterialBatchBoundary>,
 ) -> Vec<MaterialBatchPacket> {
     MaterialDrawResolver::new(
         encode,
@@ -28,5 +29,5 @@ pub(super) fn precompute_material_resolve_batches(
         shader_perm,
         offscreen_write_render_texture_asset_id,
     )
-    .resolve_batches(draws)
+    .resolve_batches(draws, boundaries_scratch)
 }

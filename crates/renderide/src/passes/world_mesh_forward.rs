@@ -59,7 +59,7 @@ pub use color_resolve::{
     WorldMeshForwardColorResolveGraphResources, WorldMeshForwardColorResolvePass,
 };
 pub use depth_prepass::{WorldMeshForwardDepthPrepass, WorldMeshForwardDepthPrepassGraphResources};
-pub(crate) use material_batch::{MaterialBatchPacket, MaterialDrawResolver};
+pub(crate) use material_batch::{MaterialBatchBoundary, MaterialBatchPacket, MaterialDrawResolver};
 pub(crate) use normal_pass::GTAO_VIEW_NORMAL_FORMAT;
 pub use normal_pass::{WorldMeshForwardNormalGraphResources, WorldMeshForwardNormalPass};
 pub(crate) use prepare::{WorldMeshForwardPrepareContext, prepare_world_mesh_forward_frame};

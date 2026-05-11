@@ -80,6 +80,24 @@ pub trait GraphFrameResources: Send + Sync {
         f: &mut dyn FnMut(&mut Vec<PaddedPerDrawUniforms>, &mut Vec<u8>),
     ) -> bool;
 
+    /// Gives callers mutable access to the per-view material-batch boundary scratch so it can be
+    /// cleared and refilled without reallocating. Each tuple is an inclusive
+    /// `(first_draw_idx, last_draw_idx)` span over the sorted world-mesh draw list. Returns
+    /// `false` if the scratch slot has not yet been provisioned for this view.
+    ///
+    /// The boundary span type is duplicated as a tuple here rather than imported from
+    /// `passes::world_mesh_forward` because `render_graph -> passes` is a forbidden layer edge
+    /// (see `tests/architecture_layers.rs`).
+    #[expect(
+        clippy::type_complexity,
+        reason = "callback Vec element type cannot be hoisted through the render_graph -> passes layer boundary"
+    )]
+    fn with_per_view_material_batch_scratch(
+        &self,
+        view_id: ViewId,
+        f: &mut dyn FnMut(&mut Vec<(usize, usize)>),
+    ) -> bool;
+
     /// Per-view per-draw storage buffer.
     fn per_view_per_draw_storage(&self, view_id: ViewId) -> Option<wgpu::Buffer>;
 

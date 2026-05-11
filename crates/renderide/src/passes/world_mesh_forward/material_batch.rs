@@ -21,6 +21,10 @@ use crate::passes::WorldMeshForwardEncodeRefs;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 use crate::world_mesh::draw_prep::WorldMeshDrawItem;
 
+/// Inclusive `(first_draw_idx, last_draw_idx)` span over the sorted world-mesh draw list
+/// identifying one contiguous material batch run.
+pub(crate) type MaterialBatchBoundary = (usize, usize);
+
 /// One resolved per-batch draw packet covering a contiguous range of sorted draws with the same
 /// [`crate::world_mesh::MaterialDrawBatchKey`].
 ///
@@ -183,21 +187,32 @@ impl<'a> MaterialDrawResolver<'a> {
     }
 
     /// Resolves every contiguous material run in `draws` into record-ready packets.
-    pub(crate) fn resolve_batches(&self, draws: &[WorldMeshDrawItem]) -> Vec<MaterialBatchPacket> {
+    ///
+    /// `boundaries_scratch` is cleared and refilled with the material-batch boundary spans; the
+    /// caller owns the buffer so its capacity survives across frames and reallocates only on
+    /// growth past the previous high-water mark.
+    pub(crate) fn resolve_batches(
+        &self,
+        draws: &[WorldMeshDrawItem],
+        boundaries_scratch: &mut Vec<MaterialBatchBoundary>,
+    ) -> Vec<MaterialBatchPacket> {
         profiling::scope!("world_mesh_forward::resolve_material_packets");
+        boundaries_scratch.clear();
         if draws.is_empty() {
             return Vec::new();
         }
 
-        let boundaries = collect_material_batch_boundaries(draws);
-        if boundaries.len() < 2 {
-            boundaries
-                .into_iter()
-                .map(|(first, last)| self.resolve_one_batch(draws, first, last))
-                .collect()
+        collect_material_batch_boundaries_into(draws, boundaries_scratch);
+        if boundaries_scratch.len() < 2 {
+            let mut packets = Vec::with_capacity(boundaries_scratch.len());
+            for &(first, last) in boundaries_scratch.iter() {
+                packets.push(self.resolve_one_batch(draws, first, last));
+            }
+            packets
         } else {
-            boundaries
-                .into_par_iter()
+            boundaries_scratch
+                .par_iter()
+                .copied()
                 .map(|(first, last)| self.resolve_one_batch(draws, first, last))
                 .collect()
         }
@@ -313,20 +328,23 @@ impl<'a> MaterialDrawResolver<'a> {
     }
 }
 
-/// Walks `draws` once and emits `(first_idx, last_idx)` runs of identical material batch keys.
-fn collect_material_batch_boundaries(draws: &[WorldMeshDrawItem]) -> Vec<(usize, usize)> {
-    let mut boundaries: Vec<(usize, usize)> = Vec::new();
+/// Walks `draws` once and writes `(first_idx, last_idx)` runs of identical material batch keys
+/// into the caller-supplied `out` buffer. `out` is cleared before filling.
+fn collect_material_batch_boundaries_into(
+    draws: &[WorldMeshDrawItem],
+    out: &mut Vec<MaterialBatchBoundary>,
+) {
+    out.clear();
     let mut current_start = 0usize;
     let mut last_key = &draws[0].batch_key;
     for (idx, item) in draws.iter().enumerate().skip(1) {
         if &item.batch_key != last_key {
-            boundaries.push((current_start, idx - 1));
+            out.push((current_start, idx - 1));
             current_start = idx;
             last_key = &item.batch_key;
         }
     }
-    boundaries.push((current_start, draws.len() - 1));
-    boundaries
+    out.push((current_start, draws.len() - 1));
 }
 
 #[cfg(test)]
