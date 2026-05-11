@@ -13,6 +13,11 @@ pub(super) fn poll_video_texture_events(
     asset: &mut AssetTransferQueue,
     ipc: &mut Option<&mut DualQueueIpc>,
 ) {
+    // Idle scenes never instantiate a video player; skip the `mem::take` swap and the inner
+    // profiling scope entirely so the tracy timeline doesn't carry a zero-work zone every frame.
+    if asset.video.video_players.is_empty() {
+        return;
+    }
     profiling::scope!("asset::video_texture_poll_events");
     let mut video_textures = std::mem::take(&mut asset.video.video_players);
     {
