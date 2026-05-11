@@ -4,7 +4,6 @@ mod bindings;
 mod frame;
 mod hand_synth;
 mod manifest;
-mod openxr_action_paths;
 mod openxr_actions;
 mod openxr_input;
 mod pose;

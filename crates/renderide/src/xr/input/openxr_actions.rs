@@ -12,7 +12,6 @@
 
 mod action_handles;
 mod profile_paths;
-mod spaces;
 
 use std::sync::atomic::AtomicU8;
 
@@ -22,12 +21,54 @@ use super::bindings::{
     ProfileExtensionGates, apply_suggested_interaction_bindings, build_action_handle_map,
 };
 use super::manifest::Manifest;
-use super::openxr_action_paths::{UserPaths, resolve_user_paths};
 
 pub(super) use action_handles::OpenxrInputActions;
 use action_handles::build_actions;
 pub(super) use profile_paths::ResolvedProfilePaths;
-use spaces::create_grip_and_aim_spaces;
+
+/// Resolved `/user/hand/left` and `/user/hand/right` paths.
+struct UserPaths {
+    /// `/user/hand/left`
+    left_user_path: xr::Path,
+    /// `/user/hand/right`
+    right_user_path: xr::Path,
+}
+
+/// Interns the two top-level user-hand path strings via [`openxr::Instance::string_to_path`].
+///
+/// All interaction profile paths and per-action input/output paths are described in the TOML
+/// manifest (see [`super::manifest`]) and resolved on demand by
+/// [`super::bindings::apply_suggested_interaction_bindings`] and [`ResolvedProfilePaths`].
+/// Only `/user/hand/left` and `/user/hand/right` are pre-resolved here because they are used by
+/// the per-frame [`openxr::Session::current_interaction_profile`] queries.
+fn resolve_user_paths(instance: &xr::Instance) -> Result<UserPaths, xr::sys::Result> {
+    Ok(UserPaths {
+        left_user_path: instance.string_to_path("/user/hand/left")?,
+        right_user_path: instance.string_to_path("/user/hand/right")?,
+    })
+}
+
+/// Creates the four controller pose spaces (left/right grip, left/right aim) anchored at
+/// [`openxr::Posef::IDENTITY`] for the lifetime of the session.
+fn create_grip_and_aim_spaces(
+    session: &xr::Session<xr::Vulkan>,
+    actions: &OpenxrInputActions,
+) -> Result<(xr::Space, xr::Space, xr::Space, xr::Space), xr::sys::Result> {
+    Ok((
+        actions
+            .left_grip_pose
+            .create_space(session, xr::Path::NULL, xr::Posef::IDENTITY)?,
+        actions
+            .right_grip_pose
+            .create_space(session, xr::Path::NULL, xr::Posef::IDENTITY)?,
+        actions
+            .left_aim_pose
+            .create_space(session, xr::Path::NULL, xr::Posef::IDENTITY)?,
+        actions
+            .right_aim_pose
+            .create_space(session, xr::Path::NULL, xr::Posef::IDENTITY)?,
+    ))
+}
 
 /// Container for everything [`super::openxr_input::OpenxrInput`] needs after setup.
 pub(super) struct OpenxrInputParts {
