@@ -4,8 +4,8 @@ use crate::materials::host_data::MaterialPropertyValue;
 #[cfg(test)]
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyLookupIds};
 
-use super::super::material_pass_tables::unity_blend_factor;
 use super::property_ids::MaterialPipelinePropertyIds;
+use super::wire_tables::unity_blend_factor;
 
 /// Resonite/Froox material blend mode, or the shader stem's default when no material field is present.
 ///

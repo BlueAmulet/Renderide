@@ -222,7 +222,7 @@ fn texture_property_aliases(name: &str) -> &'static [&'static str] {
     }
 }
 
-pub(crate) use crate::materials::shader_writer::unescape_property_name as shader_writer_unescaped_property_name;
+pub(crate) use crate::materials::wgsl_reflect::identifier_names::unescape_property_name as shader_writer_unescaped_property_name;
 
 impl StemEmbeddedPropertyIds {
     pub(crate) fn build(

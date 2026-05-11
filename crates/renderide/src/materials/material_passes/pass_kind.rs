@@ -6,9 +6,9 @@
 //! mapping from declared kind to pipeline state, and [`MaterialRenderStatePolicy`] decides
 //! which host runtime properties may override that state per pass.
 
-use super::super::material_pass_tables::{unity_blend_state, unity_overlay_blend_state};
 use super::super::render_state::MaterialRenderState;
 use super::blend_mode::MaterialBlendMode;
+use super::wire_tables::{unity_blend_state, unity_overlay_blend_state};
 
 /// Const zero color-write mask for build-script-emitted pass tables.
 pub const COLOR_WRITES_NONE: wgpu::ColorWrites = wgpu::ColorWrites::empty();

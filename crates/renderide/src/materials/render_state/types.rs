@@ -2,7 +2,7 @@
 
 use glam::{Mat3, Mat4};
 
-use super::super::material_pass_tables::{
+use super::super::material_passes::wire_tables::{
     froox_ztest_depth_compare_function, unity_color_writes, unity_compare_function,
     unity_stencil_operation,
 };
