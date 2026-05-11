@@ -3,6 +3,9 @@
 //! [`pbsdisplace`](super::pbsdisplace).
 //!
 //! Reads tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of metallic-gloss.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSDisplaceSpecular's
+//! shader-specific keyword bits locally.
 
 #import renderide::mesh::vertex as mv
 #import renderide::draw::per_draw as pd
@@ -11,6 +14,7 @@
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
 #import renderide::material::alpha_clip_sample as acs
+#import renderide::material::variant_bits as vb
 #import renderide::core::uv as uvu
 
 struct PbsDisplaceSpecularMaterial {
@@ -28,17 +32,19 @@ struct PbsDisplaceSpecularMaterial {
     _VertexOffsetBias: f32,
     _UVOffsetMagnitude: f32,
     _UVOffsetBias: f32,
-    _ALPHACLIP: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _SPECULARMAP: f32,
-    _OCCLUSION: f32,
-    VERTEX_OFFSET: f32,
-    UV_OFFSET: f32,
-    OBJECT_POS_OFFSET: f32,
-    VERTEX_POS_OFFSET: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSDISPSPEC_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSDISPSPEC_KW_ALPHACLIP: u32 = 1u << 1u;
+const PBSDISPSPEC_KW_EMISSIONTEX: u32 = 1u << 2u;
+const PBSDISPSPEC_KW_NORMALMAP: u32 = 1u << 3u;
+const PBSDISPSPEC_KW_OCCLUSION: u32 = 1u << 4u;
+const PBSDISPSPEC_KW_SPECULARMAP: u32 = 1u << 5u;
+const PBSDISPSPEC_KW_OBJECT_POS_OFFSET: u32 = 1u << 6u;
+const PBSDISPSPEC_KW_UV_OFFSET: u32 = 1u << 7u;
+const PBSDISPSPEC_KW_VERTEX_OFFSET: u32 = 1u << 8u;
+const PBSDISPSPEC_KW_VERTEX_POS_OFFSET: u32 = 1u << 9u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsDisplaceSpecularMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -67,9 +73,24 @@ struct VertexOutput {
     @location(4) @interpolate(flat) view_layer: u32,
 }
 
+fn pbsdispspec_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_ALBEDOTEX() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_ALBEDOTEX); }
+fn kw_ALPHACLIP() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_ALPHACLIP); }
+fn kw_EMISSIONTEX() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_EMISSIONTEX); }
+fn kw_NORMALMAP() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_NORMALMAP); }
+fn kw_OCCLUSION() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_OCCLUSION); }
+fn kw_SPECULARMAP() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_SPECULARMAP); }
+fn kw_OBJECT_POS_OFFSET() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_OBJECT_POS_OFFSET); }
+fn kw_UV_OFFSET() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_UV_OFFSET); }
+fn kw_VERTEX_OFFSET() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_VERTEX_OFFSET); }
+fn kw_VERTEX_POS_OFFSET() -> bool { return pbsdispspec_kw(PBSDISPSPEC_KW_VERTEX_POS_OFFSET); }
+
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
     var ts_n = psamp::sample_optional_world_normal(
-        uvu::kw_enabled(mat._NORMALMAP),
+        kw_NORMALMAP(),
         _NormalMap,
         _NormalMap_sampler,
         uv_main,
@@ -101,9 +122,9 @@ fn vs_main(
         n.xyz,
         uv0,
         d.model,
-        uvu::kw_enabled(mat.VERTEX_OFFSET),
-        uvu::kw_enabled(mat.OBJECT_POS_OFFSET),
-        uvu::kw_enabled(mat.VERTEX_POS_OFFSET),
+        kw_VERTEX_OFFSET(),
+        kw_OBJECT_POS_OFFSET(),
+        kw_VERTEX_POS_OFFSET(),
         mat._VertexOffsetMap_ST,
         mat._PositionOffsetMap_ST,
         mat._PositionOffsetMagnitude.xy,
@@ -154,7 +175,7 @@ fn shade(
     let uv_main = pdisp::apply_fragment_uv_offset(
         uv_main_base,
         uv0,
-        uvu::kw_enabled(mat.UV_OFFSET),
+        kw_UV_OFFSET(),
         mat._UVOffsetMap_ST,
         mat._UVOffsetMagnitude,
         mat._UVOffsetBias,
@@ -163,16 +184,16 @@ fn shade(
     );
 
     var c = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (kw_ALBEDOTEX()) {
         c = c * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
     let clip_alpha = mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_main);
-    if (uvu::kw_enabled(mat._ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
+    if (kw_ALPHACLIP() && clip_alpha <= mat._AlphaClip) {
         discard;
     }
 
     var spec = mat._SpecularColor;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (kw_SPECULARMAP()) {
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -180,12 +201,12 @@ fn shade(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (kw_OCCLUSION()) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
     var emission = mat._EmissionColor.rgb;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (kw_EMISSIONTEX()) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
 

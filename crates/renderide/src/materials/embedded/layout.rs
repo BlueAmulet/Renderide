@@ -105,12 +105,6 @@ pub(crate) struct EmbeddedSharedKeywordIds {
     pub(crate) packed_normal_map23: i32,
     /// `PBSColorSplat` packed emission texture.
     pub(crate) packed_emission_map: i32,
-    /// `PBSDisplace` vertex-height texture.
-    pub(crate) vertex_offset_map: i32,
-    /// `PBSDisplace` fragment UV-offset texture.
-    pub(crate) uv_offset_map: i32,
-    /// `PBSDisplace` world/object-position texture used to offset vertex-offset sampling UVs.
-    pub(crate) position_offset_map: i32,
     /// `Projection360` secondary equirectangular texture binding.
     pub(crate) second_tex: i32,
     /// `Projection360` tint-modulation texture binding.
@@ -183,9 +177,6 @@ impl EmbeddedSharedKeywordIds {
             packed_normal_map01: registry.intern("_PackedNormalMap01"),
             packed_normal_map23: registry.intern("_PackedNormalMap23"),
             packed_emission_map: registry.intern("_PackedEmissionMap"),
-            vertex_offset_map: registry.intern("_VertexOffsetMap"),
-            uv_offset_map: registry.intern("_UVOffsetMap"),
-            position_offset_map: registry.intern("_PositionOffsetMap"),
             second_tex: registry.intern("_SecondTex"),
             tint_tex: registry.intern("_TintTex"),
             offset_tex: registry.intern("_OffsetTex"),
