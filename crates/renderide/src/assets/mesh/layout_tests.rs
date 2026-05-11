@@ -140,27 +140,57 @@ fn position_stream_synthesizes_normals_when_normal_missing() {
 }
 
 #[test]
+fn position_normal_stream_decodes_half_positions_and_signed_normals() {
+    let attrs = [
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Position,
+            format: VertexAttributeFormat::Half16,
+            dimensions: 3,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Normal,
+            format: VertexAttributeFormat::SInt8,
+            dimensions: 3,
+        },
+    ];
+    let mut raw = Vec::new();
+    for value in [0x3c00u16, 0x4000, 0x4200] {
+        raw.extend_from_slice(&value.to_le_bytes());
+    }
+    raw.extend_from_slice(&[0u8, 127u8, 0u8]);
+
+    let (pos, nrm) =
+        extract_float3_position_normal_as_vec4_streams(&raw, 1, 9, &attrs).expect("streams");
+    let pos0: [f32; 4] = bytemuck::pod_read_unaligned(&pos[..16]);
+    let nrm0: [f32; 4] = bytemuck::pod_read_unaligned(&nrm[..16]);
+
+    assert_eq!(pos0, [1.0, 2.0, 3.0, 1.0]);
+    assert_eq!(nrm0, [0.0, 1.0, 0.0, 0.0]);
+}
+
+#[test]
 fn split_bone_weights_four_influences_roundtrip() {
     let mut tail = Vec::new();
     for v in 0..2u8 {
         for k in 0..4u8 {
-            let w = f32::from(v + k) * 0.1;
+            let w = 0.25 + f32::from(v) * 0.01 + f32::from(k) * 0.01;
             let j = i32::from(k) + i32::from(v) * 10;
             tail.extend_from_slice(&w.to_le_bytes());
             tail.extend_from_slice(&j.to_le_bytes());
         }
     }
-    let (idx, wt) = split_bone_weights_tail_for_gpu(&tail, 2).expect("split");
+    let bone_counts = [4u8, 4u8];
+    let (idx, wt) = split_bone_weights_tail_for_gpu(&bone_counts, &tail, 2).expect("split");
     let w0 = f32::from_le_bytes(wt[0..4].try_into().unwrap());
     let i0 = u32::from_le_bytes(idx[0..4].try_into().unwrap());
-    assert!((w0 - 0.0).abs() < 1e-5);
-    assert_eq!(i0, 0);
+    assert!((w0 - (0.28 / 1.06)).abs() < 1e-5);
+    assert_eq!(i0, 3);
 
-    // Vertex 1, first influence (k=0): w=0.1, j=10
+    // Vertex 1 is sorted by descending weight, so k=3 is first.
     let w1_0 = f32::from_le_bytes(wt[16..20].try_into().unwrap());
     let i1_0 = u32::from_le_bytes(idx[16..20].try_into().unwrap());
-    assert!((w1_0 - 0.1).abs() < 1e-5);
-    assert_eq!(i1_0, 10);
+    assert!((w1_0 - (0.29 / 1.10)).abs() < 1e-5);
+    assert_eq!(i1_0, 13);
 }
 
 #[test]
@@ -168,17 +198,43 @@ fn split_bone_weights_negative_index_zeroes_weight() {
     let mut tail = Vec::new();
     tail.extend_from_slice(&0.5f32.to_le_bytes());
     tail.extend_from_slice(&(-1i32).to_le_bytes());
-    tail.extend_from_slice(&0f32.to_le_bytes());
-    tail.extend_from_slice(&0i32.to_le_bytes());
-    tail.extend_from_slice(&0f32.to_le_bytes());
-    tail.extend_from_slice(&0i32.to_le_bytes());
-    tail.extend_from_slice(&0f32.to_le_bytes());
-    tail.extend_from_slice(&0i32.to_le_bytes());
-    let (idx, wt) = split_bone_weights_tail_for_gpu(&tail, 1).expect("split");
+    let bone_counts = [1u8];
+    let (idx, wt) = split_bone_weights_tail_for_gpu(&bone_counts, &tail, 1).expect("split");
     let w0 = f32::from_le_bytes(wt[0..4].try_into().unwrap());
     let i0 = u32::from_le_bytes(idx[0..4].try_into().unwrap());
     assert!((w0 - 0.0).abs() < 1e-5);
     assert_eq!(i0, 0u32);
+}
+
+#[test]
+fn split_bone_weights_preserves_variable_counts_and_keeps_strongest_four() {
+    let mut tail = Vec::new();
+    for (w, j) in [
+        (0.2f32, 2i32),
+        (0.4, 4),
+        (0.1, 1),
+        (0.5, 5),
+        (0.3, 3),
+        (0.6, 6),
+        (0.05, 7),
+    ] {
+        tail.extend_from_slice(&w.to_le_bytes());
+        tail.extend_from_slice(&j.to_le_bytes());
+    }
+    let bone_counts = [2u8, 0u8, 5u8];
+    let (idx, wt) = split_bone_weights_tail_for_gpu(&bone_counts, &tail, 3).expect("split");
+
+    let v0_w0 = f32::from_le_bytes(wt[0..4].try_into().unwrap());
+    let v0_i0 = u32::from_le_bytes(idx[0..4].try_into().unwrap());
+    let v1_w0 = f32::from_le_bytes(wt[16..20].try_into().unwrap());
+    let v2_i0 = u32::from_le_bytes(idx[32..36].try_into().unwrap());
+    let v2_i3 = u32::from_le_bytes(idx[44..48].try_into().unwrap());
+
+    assert!((v0_w0 - (0.4 / 0.6)).abs() < 1e-5);
+    assert_eq!(v0_i0, 4);
+    assert_eq!(v1_w0, 0.0);
+    assert_eq!(v2_i0, 6);
+    assert_eq!(v2_i3, 1);
 }
 
 /// Unity uploads inverse bind matrices; the renderer stores them as [`Mat4::from_cols_array_2d`]
@@ -218,6 +274,31 @@ fn uv0_float2_zeros_when_missing() {
     let out = uv0_float2_stream_bytes(&raw, verts, stride, &attrs).expect("uv stream");
     assert_eq!(out.len(), verts * 8);
     assert!(out.iter().all(|&b| b == 0));
+}
+
+#[test]
+fn uv0_float2_preserves_unsigned_integer_values() {
+    let attrs = [
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::Position,
+            format: VertexAttributeFormat::Float32,
+            dimensions: 3,
+        },
+        VertexAttributeDescriptor {
+            attribute: VertexAttributeType::UV0,
+            format: VertexAttributeFormat::UInt8,
+            dimensions: 2,
+        },
+    ];
+    let mut raw = Vec::new();
+    raw.extend_from_slice(&0.0f32.to_le_bytes());
+    raw.extend_from_slice(&0.0f32.to_le_bytes());
+    raw.extend_from_slice(&0.0f32.to_le_bytes());
+    raw.extend_from_slice(&[3, 250]);
+
+    let out = uv0_float2_stream_bytes(&raw, 1, 14, &attrs).expect("uv stream");
+    let uv: [f32; 2] = bytemuck::pod_read_unaligned(&out[..8]);
+    assert_eq!(uv, [3.0, 250.0]);
 }
 
 #[test]

@@ -1,9 +1,9 @@
 //! Grab-pass channel-matrix filter (`Shader "Filters/ChannelMatrix"`).
 
 
-#import renderide::filter_vertex as fv
-#import renderide::globals as rg
-#import renderide::grab_pass as gp
+#import renderide::post::filter_vertex as fv
+#import renderide::frame::globals as rg
+#import renderide::frame::grab_pass as gp
 
 struct FiltersChannelMatrixMaterial {
     _LevelsR: vec4<f32>,

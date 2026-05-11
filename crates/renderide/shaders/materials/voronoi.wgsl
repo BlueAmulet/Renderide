@@ -9,9 +9,9 @@
 //! `_Time.y` directly; this matches the convention used by [`pbsvoronoicrystal`].
 
 
-#import renderide::filter_vertex as fv
-#import renderide::globals as rg
-#import renderide::voronoi as vor
+#import renderide::post::filter_vertex as fv
+#import renderide::frame::globals as rg
+#import renderide::material::voronoi as vor
 
 struct VoronoiMaterial {
     _WaveScale: f32,

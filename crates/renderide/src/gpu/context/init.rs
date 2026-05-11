@@ -13,6 +13,7 @@ use super::super::adapter::selection::{build_wgpu_instance, select_adapter};
 use super::super::frame_bracket::FrameBracket;
 use super::super::frame_cpu_gpu_timing::{FrameCpuGpuTiming, FrameCpuGpuTimingHandle};
 use super::super::limits::GpuLimits;
+use super::super::mapped_buffer_health::GpuMappedBufferHealth;
 use super::{GpuContext, GpuError, PrimaryOffscreenTargets};
 use crate::config::{GraphicsApiSetting, VsyncMode};
 use crate::gpu::submission_state::GpuSubmissionState;
@@ -36,14 +37,18 @@ struct GpuRuntimeHandles {
 
 impl GpuRuntimeHandles {
     /// Builds the driver-thread and timing handles for a `(device, queue)` pair.
-    fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Result<Self, GpuError> {
+    fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        mapped_buffer_health: Arc<GpuMappedBufferHealth>,
+    ) -> Result<Self, GpuError> {
         let gpu_queue_access_gate = super::super::GpuQueueAccessGate::new();
         let driver_thread = super::super::driver_thread::DriverThread::new(
             Arc::clone(&queue),
             gpu_queue_access_gate.clone(),
         )
         .map_err(GpuError::DriverThreadSpawn)?;
-        let frame_bracket = FrameBracket::new(device, Arc::clone(&queue));
+        let frame_bracket = FrameBracket::new(device, Arc::clone(&queue), mapped_buffer_health);
         Ok(Self {
             queue,
             gpu_queue_access_gate,
@@ -71,6 +76,8 @@ struct GpuContextParts {
     queue: Arc<wgpu::Queue>,
     /// Shared write-texture/submit gate.
     gpu_queue_access_gate: super::super::GpuQueueAccessGate,
+    /// Shared mapped-buffer invalidation generation.
+    mapped_buffer_health: Arc<GpuMappedBufferHealth>,
     /// Optional window-backed surface.
     surface: Option<wgpu::Surface<'static>>,
     /// Active surface/offscreen configuration.
@@ -95,6 +102,13 @@ struct WindowAdapterSelection {
     adapter: wgpu::Adapter,
 }
 
+#[derive(Clone, Copy)]
+struct WindowAdapterLogFields {
+    graphics_api: GraphicsApiSetting,
+    active_backends: wgpu::Backends,
+    instance_flags: wgpu::InstanceFlags,
+}
+
 /// Headless adapter-selection result before device creation.
 struct HeadlessAdapterSelection {
     /// Graphics API attempt that produced the adapter.
@@ -105,6 +119,59 @@ struct HeadlessAdapterSelection {
     active_backends: wgpu::Backends,
     /// Selected adapter.
     adapter: wgpu::Adapter,
+}
+
+fn log_windowed_gpu_startup_request(
+    window: &dyn Window,
+    vsync: VsyncMode,
+    max_frame_latency: u32,
+    gpu_validation_layers: bool,
+    power_preference: wgpu::PowerPreference,
+    graphics_api: GraphicsApiSetting,
+) {
+    let requested_size = window.surface_size();
+    logger::info!(
+        "GPU startup request (windowed): graphics_api={} validation={} power_preference={:?} vsync={:?} max_frame_latency={} initial_extent={}x{}",
+        graphics_api.as_persist_str(),
+        gpu_validation_layers,
+        power_preference,
+        vsync,
+        max_frame_latency,
+        requested_size.width,
+        requested_size.height,
+    );
+}
+
+fn log_windowed_gpu_selection_summary(
+    adapter_info: &wgpu::AdapterInfo,
+    selection: WindowAdapterLogFields,
+    config: &wgpu::SurfaceConfiguration,
+    vsync: VsyncMode,
+    supported_present_modes: &[wgpu::PresentMode],
+    msaa: &MsaaSupport,
+) {
+    logger::info!(
+        "GPU: adapter={} backend={:?} graphics_api={} active_backends={:?} extent={}x{} format={:?} vsync={:?} present_mode={:?} \
+         supported_present_modes={:?} desired_maximum_frame_latency={} instance_flags={:?} \
+         msaa_supported_sample_counts={:?} msaa_max_sample_count={} \
+         msaa_supported_sample_counts_stereo={:?} msaa_max_sample_count_stereo={}",
+        adapter_info.name,
+        adapter_info.backend,
+        selection.graphics_api.as_persist_str(),
+        selection.active_backends,
+        config.width,
+        config.height,
+        config.format,
+        vsync,
+        config.present_mode,
+        supported_present_modes,
+        config.desired_maximum_frame_latency,
+        selection.instance_flags,
+        &msaa.desktop,
+        msaa.desktop_max(),
+        &msaa.stereo,
+        msaa.stereo_max()
+    );
 }
 
 /// Builds the common [`GpuContext`] field set once all path-specific resources are ready.
@@ -121,12 +188,16 @@ fn assemble_context(parts: GpuContextParts) -> GpuContext {
         device: parts.device,
         queue: parts.queue,
         gpu_queue_access_gate: parts.gpu_queue_access_gate,
+        mapped_buffer_health: parts.mapped_buffer_health,
         surface: parts.surface,
         config: parts.config,
         supported_present_modes: parts.supported_present_modes,
         window: parts.window,
         depth_attachment: None,
         depth_extent_px: (0, 0),
+        mapped_buffer_invalidation_seen_generation: 0,
+        mapped_buffer_recovery_frames_remaining: 0,
+        avoid_mapped_buffers_this_frame: false,
         primary_offscreen: Option::<PrimaryOffscreenTargets>::None,
     }
 }
@@ -258,6 +329,14 @@ impl GpuContext {
         power_preference: wgpu::PowerPreference,
         graphics_api: GraphicsApiSetting,
     ) -> Result<Self, GpuError> {
+        log_windowed_gpu_startup_request(
+            window.as_ref(),
+            vsync,
+            max_frame_latency,
+            gpu_validation_layers,
+            power_preference,
+            graphics_api,
+        );
         let selection = select_window_adapter_with_fallback(
             &window,
             graphics_api,
@@ -265,11 +344,22 @@ impl GpuContext {
             power_preference,
         )
         .await?;
+        let selection_log = WindowAdapterLogFields {
+            graphics_api: selection.graphics_api,
+            active_backends: selection.active_backends,
+            instance_flags: selection.instance_flags,
+        };
         let surface_safe = selection.surface;
         let adapter = selection.adapter;
 
+        let mapped_buffer_health = Arc::new(GpuMappedBufferHealth::new());
         let required_features = adapter_render_features_intersection(&adapter);
-        let (device, queue) = request_device_for_adapter(&adapter, required_features).await?;
+        let (device, queue) = request_device_for_adapter(
+            &adapter,
+            required_features,
+            Arc::clone(&mapped_buffer_health),
+        )
+        .await?;
 
         let limits = GpuLimits::try_new(device.as_ref(), &adapter)?;
         let size = window.surface_size();
@@ -290,25 +380,15 @@ impl GpuContext {
             required_features,
             "GPU",
         );
-        logger::info!(
-            "GPU: adapter={} backend={:?} graphics_api={} active_backends={:?} vsync={:?} present_mode={:?} \
-             supported_present_modes={:?} desired_maximum_frame_latency={} instance_flags={:?} \
-             msaa_supported_sample_counts={:?} msaa_max_sample_count={} \
-             msaa_supported_sample_counts_stereo={:?} msaa_max_sample_count_stereo={}",
-            adapter_info.name,
-            adapter_info.backend,
-            selection.graphics_api.as_persist_str(),
-            selection.active_backends,
+        log_windowed_gpu_selection_summary(
+            &adapter_info,
+            selection_log,
+            &config,
             vsync,
-            config.present_mode,
-            supported_present_modes,
-            config.desired_maximum_frame_latency,
-            selection.instance_flags,
-            &msaa.desktop,
-            msaa.desktop_max(),
-            &msaa.stereo,
-            msaa.stereo_max()
+            &supported_present_modes,
+            &msaa,
         );
+        log_device_capability_summary("GPU", device.as_ref());
 
         let gpu_profiler = try_gpu_profiler(
             &adapter,
@@ -317,7 +397,11 @@ impl GpuContext {
             "GPU profiler unavailable: adapter lacks TIMESTAMP_QUERY; \
              Tracy GPU timeline will be empty (CPU spans still work)",
         );
-        let runtime = GpuRuntimeHandles::new(Arc::clone(&device), Arc::new(queue))?;
+        let runtime = GpuRuntimeHandles::new(
+            Arc::clone(&device),
+            Arc::new(queue),
+            Arc::clone(&mapped_buffer_health),
+        )?;
         let submission = GpuSubmissionState::new(
             runtime.driver_thread,
             runtime.frame_timing,
@@ -333,6 +417,7 @@ impl GpuContext {
             device,
             queue: runtime.queue,
             gpu_queue_access_gate: runtime.gpu_queue_access_gate,
+            mapped_buffer_health,
             surface: Some(surface_safe),
             config,
             supported_present_modes,
@@ -365,6 +450,15 @@ impl GpuContext {
         power_preference: wgpu::PowerPreference,
         graphics_api: GraphicsApiSetting,
     ) -> Result<Self, GpuError> {
+        logger::info!(
+            "GPU startup request (headless): graphics_api={} validation={} power_preference={:?} extent={}x{} max_frame_latency={}",
+            graphics_api.as_persist_str(),
+            gpu_validation_layers,
+            power_preference,
+            width,
+            height,
+            max_frame_latency,
+        );
         let selection = select_headless_adapter_with_fallback(
             graphics_api,
             gpu_validation_layers,
@@ -373,8 +467,14 @@ impl GpuContext {
         .await?;
         let adapter = selection.adapter;
 
+        let mapped_buffer_health = Arc::new(GpuMappedBufferHealth::new());
         let required_features = adapter_render_features_intersection(&adapter);
-        let (device, queue) = request_device_for_adapter(&adapter, required_features).await?;
+        let (device, queue) = request_device_for_adapter(
+            &adapter,
+            required_features,
+            Arc::clone(&mapped_buffer_health),
+        )
+        .await?;
 
         let limits = GpuLimits::try_new(device.as_ref(), &adapter)?;
 
@@ -415,6 +515,7 @@ impl GpuContext {
             &msaa.stereo,
             msaa.stereo_max(),
         );
+        log_device_capability_summary("GPU (headless)", device.as_ref());
         let gpu_profiler = try_gpu_profiler(
             &adapter,
             device.as_ref(),
@@ -422,7 +523,11 @@ impl GpuContext {
             "GPU profiler unavailable (headless): adapter lacks TIMESTAMP_QUERY; \
              Tracy GPU timeline will be empty (CPU spans still work)",
         );
-        let runtime = GpuRuntimeHandles::new(Arc::clone(&device), Arc::new(queue))?;
+        let runtime = GpuRuntimeHandles::new(
+            Arc::clone(&device),
+            Arc::new(queue),
+            Arc::clone(&mapped_buffer_health),
+        )?;
         let submission = GpuSubmissionState::new(
             runtime.driver_thread,
             runtime.frame_timing,
@@ -438,6 +543,7 @@ impl GpuContext {
             device,
             queue: runtime.queue,
             gpu_queue_access_gate: runtime.gpu_queue_access_gate,
+            mapped_buffer_health,
             surface: None,
             config,
             supported_present_modes: Vec::new(),
@@ -459,7 +565,16 @@ impl GpuContext {
         vsync: VsyncMode,
         max_frame_latency: u32,
     ) -> Result<Self, GpuError> {
-        install_uncaptured_error_handler(device.as_ref());
+        let requested_size = window.surface_size();
+        logger::info!(
+            "GPU startup request (OpenXR mirror): vsync={:?} max_frame_latency={} initial_extent={}x{}",
+            vsync,
+            max_frame_latency,
+            requested_size.width,
+            requested_size.height,
+        );
+        let mapped_buffer_health = Arc::new(GpuMappedBufferHealth::new());
+        install_uncaptured_error_handler(device.as_ref(), Arc::clone(&mapped_buffer_health));
         // `Arc<dyn Window>` is `Into<SurfaceTarget<'static>>`, so the returned `Surface` is
         // already `'static` -- no `transmute` is required to extend the borrow.
         let surface_safe: wgpu::Surface<'static> = instance
@@ -484,12 +599,15 @@ impl GpuContext {
             "GPU (OpenXR path)",
         );
         logger::info!(
-            "GPU (OpenXR path): adapter={} backend={:?} vsync={:?} present_mode={:?} \
+            "GPU (OpenXR path): adapter={} backend={:?} extent={}x{} format={:?} vsync={:?} present_mode={:?} \
              supported_present_modes={:?} desired_maximum_frame_latency={} \
              msaa_supported_sample_counts={:?} msaa_max_sample_count={} \
              msaa_supported_sample_counts_stereo={:?} msaa_max_sample_count_stereo={}",
             adapter_info.name,
             adapter_info.backend,
+            config.width,
+            config.height,
+            config.format,
             vsync,
             config.present_mode,
             supported_present_modes,
@@ -499,6 +617,7 @@ impl GpuContext {
             &msaa.stereo,
             msaa.stereo_max()
         );
+        log_device_capability_summary("GPU (OpenXR path)", device.as_ref());
         let gpu_profiler = try_gpu_profiler(
             adapter,
             device.as_ref(),
@@ -506,7 +625,11 @@ impl GpuContext {
             "GPU profiler unavailable (OpenXR path): adapter lacks \
              TIMESTAMP_QUERY; Tracy GPU timeline will be empty",
         );
-        let runtime = GpuRuntimeHandles::new(Arc::clone(&device), queue)?;
+        let runtime = GpuRuntimeHandles::new(
+            Arc::clone(&device),
+            queue,
+            Arc::clone(&mapped_buffer_health),
+        )?;
         let submission = GpuSubmissionState::new(
             runtime.driver_thread,
             runtime.frame_timing,
@@ -522,10 +645,27 @@ impl GpuContext {
             device,
             queue: runtime.queue,
             gpu_queue_access_gate: runtime.gpu_queue_access_gate,
+            mapped_buffer_health,
             surface: Some(surface_safe),
             config,
             supported_present_modes,
             window: Some(window),
         }))
     }
+}
+
+fn log_device_capability_summary(label: &str, device: &wgpu::Device) {
+    let limits = device.limits();
+    logger::info!(
+        "{label} device capabilities: features={:?} max_texture_2d={} max_texture_array_layers={} max_buffer_size={} max_bind_groups={} max_storage_buffers_per_shader_stage={} max_uniform_buffers_per_shader_stage={} max_compute_workgroup_storage_size={} max_multiview_view_count={}",
+        device.features(),
+        limits.max_texture_dimension_2d,
+        limits.max_texture_array_layers,
+        limits.max_buffer_size,
+        limits.max_bind_groups,
+        limits.max_storage_buffers_per_shader_stage,
+        limits.max_uniform_buffers_per_shader_stage,
+        limits.max_compute_workgroup_storage_size,
+        limits.max_multiview_view_count,
+    );
 }

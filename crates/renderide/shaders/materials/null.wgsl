@@ -1,11 +1,11 @@
 //! Null fallback material: Unity-style model-space transition checker.
 //!
-//! Imports `renderide::globals` so composed targets declare the full `@group(0)` frame bind layout
+//! Imports `renderide::frame::globals` so composed targets declare the full `@group(0)` frame bind layout
 //! that the renderer enforces in reflection; `retain_globals_additive` keeps each binding
 //! referenced after naga-oil import pruning.
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 
 struct VertexOutput {

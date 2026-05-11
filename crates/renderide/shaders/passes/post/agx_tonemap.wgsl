@@ -4,7 +4,7 @@
 //! Build script composes this source into `agx_tonemap_default` (mono) and
 //! `agx_tonemap_multiview` (stereo, `view_index` selects array layer) targets.
 
-#import renderide::fullscreen as fs
+#import renderide::core::fullscreen as fs
 
 const AGX_MIN_EV: f32 = -12.47393;
 const AGX_MAX_EV: f32 = 4.026069;

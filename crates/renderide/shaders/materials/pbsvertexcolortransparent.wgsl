@@ -5,13 +5,13 @@
 //! front-face flip (this shader is single-sided in Unity). Transparent default render state is
 //! driven by the host's `_SrcBlend` / `_DstBlend` / `_ZWrite` material properties.
 
-#import renderide::alpha_clip_sample as acs
-#import renderide::math as rmath
+#import renderide::material::alpha_clip_sample as acs
+#import renderide::core::math as rmath
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct PbsVertexColorTransparentMaterial {
     _Color: vec4<f32>,

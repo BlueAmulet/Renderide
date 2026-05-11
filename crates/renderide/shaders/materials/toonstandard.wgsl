@@ -7,15 +7,15 @@
 //! (`max((1-smoothness)*4, 0.01)` for specular, two diffuse bands plus transmission).
 
 
-#import renderide::birp::light as bl
-#import renderide::globals as rg
-#import renderide::per_draw as pd
+#import renderide::lighting::birp as bl
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::brdf as brdf
 #import renderide::pbs::cluster as pcls
 #import renderide::pbs::sampling as psamp
-#import renderide::toon::brdf as tbrdf
-#import renderide::uv_utils as uvu
+#import renderide::material::toon_brdf as tbrdf
+#import renderide::core::uv as uvu
 
 struct ToonStandardMaterial {
     _Color: vec4<f32>,

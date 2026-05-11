@@ -3,12 +3,12 @@
 //! and `_EmissionMap`/`_EmissionMap1` are sampled with their own.
 
 
-#import renderide::per_draw as pd
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct NosamplersMaterial {
     _Color: vec4<f32>,

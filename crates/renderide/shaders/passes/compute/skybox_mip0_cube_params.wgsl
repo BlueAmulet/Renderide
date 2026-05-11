@@ -4,8 +4,8 @@
 //! always written in canonical orientation; the optional `storage_v_inverted` flip is applied to
 //! the *input* sampling direction so native-compressed faces with flipped Y still resolve correctly.
 
-#import renderide::cubemap_storage as cubemap_storage
-#import renderide::ggx_prefilter as ggx
+#import renderide::skybox::cubemap_storage as cubemap_storage
+#import renderide::ibl::ggx_prefilter as ggx
 
 struct Mip0CubeParams {
     /// Destination cube face edge in texels.

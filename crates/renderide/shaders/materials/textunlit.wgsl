@@ -1,12 +1,12 @@
 //! World text unlit (Unity shader asset `TextUnlit`): MSDF / SDF / raster font atlas in world space.
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
-#import renderide::text_sdf as tsdf
-#import renderide::texture_sampling as ts
-#import renderide::uv_utils as uvu
+#import renderide::material::text_sdf as tsdf
+#import renderide::core::texture_sampling as ts
+#import renderide::core::uv as uvu
 
 struct TextUnlitMaterial {
     _TintColor: vec4<f32>,

@@ -3,10 +3,10 @@
 //! The Unity asset has an empty `surf` body and only offsets vertices along their normals from
 //! `_VertexOffsetMap`, so this stem writes depth without carrying the full PBS lighting path.
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::mesh::vertex as mv
-#import renderide::per_draw as pd
-#import renderide::uv_utils as uvu
+#import renderide::draw::per_draw as pd
+#import renderide::core::uv as uvu
 
 struct PbsDisplaceShadowMaterial {
     _Color: vec4<f32>,

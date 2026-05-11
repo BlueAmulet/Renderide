@@ -49,24 +49,7 @@ fn trace_ipc_batch(batch: &[RendererCommand], init_state: InitState, pending_sha
     if batch.is_empty() || !logger::enabled(logger::LogLevel::Trace) {
         return;
     }
-    let mut counts: Vec<(&'static str, usize)> = Vec::new();
-    for cmd in batch {
-        let tag = renderer_command_variant_tag(cmd);
-        if let Some((_, count)) = counts.iter_mut().find(|(existing, _)| *existing == tag) {
-            *count += 1;
-        } else {
-            counts.push((tag, 1));
-        }
-    }
-    let mut kinds = String::new();
-    for (idx, (tag, count)) in counts.iter().enumerate() {
-        if idx > 0 {
-            kinds.push_str(", ");
-        }
-        kinds.push_str(tag);
-        kinds.push('=');
-        kinds.push_str(&count.to_string());
-    }
+    let kinds = super::ipc_state::summarize_renderer_command_mix(batch.iter());
     logger::trace!(
         "IPC poll batch: commands={} init_state={:?} pending_shader_resolutions={} kinds=[{}]",
         batch.len(),

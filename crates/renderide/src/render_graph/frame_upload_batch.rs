@@ -368,9 +368,23 @@ impl FrameUploadBatch {
         queue: &wgpu::Queue,
         max_buffer_size: u64,
         upload_arena: &mut PersistentUploadArena,
+        avoid_mapped_staging: bool,
     ) -> Option<FrameUploadFlush> {
         crate::profiling::scope!("frame_upload::drain_and_flush");
         let (writes, payload_bytes, mut stats) = self.take_recorded_uploads()?;
+        if avoid_mapped_staging {
+            force_queue_fallback_stats(&mut stats);
+            replay_all_writes_through_queue(queue, &writes, &payload_bytes);
+            let (command_buffer, finish_ms) = record_empty_upload_command_buffer(device);
+            stats.finish_ms = finish_ms;
+            stats.apply_arena_pressure(upload_arena.pressure());
+            self.restore_recorded_upload_capacity(writes, payload_bytes);
+            return Some(FrameUploadFlush {
+                command_buffer,
+                on_submitted_work_done: None,
+                stats,
+            });
+        }
         let (plans, staging_size) = plan_staging_writes(&writes, &mut stats);
         #[cfg(feature = "tracy")]
         tracy_client::plot!("frame_upload::staging_bytes", staging_size as f64);
@@ -454,6 +468,36 @@ impl FrameUploadBatch {
     #[cfg(test)]
     pub(crate) fn pending_byte_count(&self) -> usize {
         self.recorded.lock().bytes.len()
+    }
+}
+
+fn force_queue_fallback_stats(stats: &mut FrameUploadBatchStats) {
+    stats.fallback_writes = stats.writes;
+    stats.staged_writes = 0;
+    stats.staging_bytes = 0;
+    stats.copy_ops = 0;
+    stats.persistent_staging_bytes = 0;
+    stats.persistent_slot_reuses = 0;
+    stats.persistent_slot_grows = 0;
+    stats.temporary_staging_bytes = 0;
+    stats.temporary_staging_fallbacks = 0;
+    stats.oversized_queue_fallback_writes = 0;
+}
+
+fn replay_all_writes_through_queue(
+    queue: &wgpu::Queue,
+    writes: &[QueueWrite],
+    payload_bytes: &[u8],
+) {
+    crate::profiling::scope!("frame_upload::recovery_queue_fallback");
+    for write in writes {
+        let QueueWrite::Buffer {
+            buffer,
+            offset,
+            data,
+            ..
+        } = write;
+        queue.write_buffer(buffer, *offset, &payload_bytes[data.clone()]);
     }
 }
 
@@ -541,6 +585,20 @@ fn record_upload_command_buffer(
     }
     {
         crate::profiling::scope!("CommandEncoder::finish::frame_upload");
+        let finish_start = Instant::now();
+        let command_buffer = encoder.finish();
+        let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
+        (command_buffer, finish_ms)
+    }
+}
+
+fn record_empty_upload_command_buffer(device: &wgpu::Device) -> (wgpu::CommandBuffer, f64) {
+    crate::profiling::scope!("frame_upload::record_empty_encoder");
+    let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("frame_upload_queue_fallback"),
+    });
+    {
+        crate::profiling::scope!("CommandEncoder::finish::frame_upload_queue_fallback");
         let finish_start = Instant::now();
         let command_buffer = encoder.finish();
         let finish_ms = finish_start.elapsed().as_secs_f64() * 1000.0;
@@ -682,6 +740,29 @@ mod tests {
 
         assert_eq!(order.scope, FrameUploadScope::per_view(1, 5));
         assert_eq!(order.local_seq, order.fallback_seq);
+    }
+
+    #[test]
+    fn forced_queue_fallback_clears_staging_stats() {
+        let mut stats = FrameUploadBatchStats {
+            writes: 3,
+            bytes: 64,
+            staged_writes: 3,
+            staging_bytes: 64,
+            copy_ops: 3,
+            persistent_staging_bytes: 64,
+            persistent_slot_reuses: 1,
+            ..FrameUploadBatchStats::default()
+        };
+
+        force_queue_fallback_stats(&mut stats);
+
+        assert_eq!(stats.fallback_writes, 3);
+        assert_eq!(stats.staged_writes, 0);
+        assert_eq!(stats.staging_bytes, 0);
+        assert_eq!(stats.copy_ops, 0);
+        assert_eq!(stats.persistent_staging_bytes, 0);
+        assert_eq!(stats.persistent_slot_reuses, 0);
     }
 
     // NOTE: Exercising `write_buffer` and `drain_and_flush` end-to-end requires a real

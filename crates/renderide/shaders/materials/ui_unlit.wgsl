@@ -11,19 +11,19 @@
 //! Missing gates default off; `_ALPHATEST_ON` / `_ALPHABLEND_ON` remain as best-effort fallbacks
 //! inferred from on-wire render state.
 //!
-//! Per-draw uniforms (`@group(2)`) use [`renderide::per_draw`].
+//! Per-draw uniforms (`@group(2)`) use [`renderide::draw::per_draw`].
 
 
-#import renderide::texture_sampling as ts
-#import renderide::globals as rg
-#import renderide::alpha_clip_sample as acs
+#import renderide::core::texture_sampling as ts
+#import renderide::frame::globals as rg
+#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::alpha as ma
 #import renderide::mesh::vertex as mv
-#import renderide::normal_decode as nd
-#import renderide::per_draw as pd
-#import renderide::scene_depth_sample as sds
+#import renderide::core::normal_decode as nd
+#import renderide::draw::per_draw as pd
+#import renderide::frame::scene_depth_sample as sds
 #import renderide::ui::rect_clip as uirc
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct UiUnlitMaterial {
     _MainTex_ST: vec4<f32>,

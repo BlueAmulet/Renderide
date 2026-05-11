@@ -5,6 +5,7 @@ mod readback;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
+use crate::diagnostics::crash_context::{self, RenderMode, TargetMode, TickPhase};
 use crate::gpu::GpuContext;
 use crate::ipc::HeadlessParams;
 use crate::run_error::RunError;
@@ -53,6 +54,8 @@ impl<'a> HeadlessDriver<'a> {
             params.height,
             params.interval_ms,
         );
+        crash_context::set_target_mode(TargetMode::Headless);
+        crash_context::set_render_mode(RenderMode::Headless);
 
         let gpu = pollster::block_on(GpuContext::new_headless(
             params.width,
@@ -85,6 +88,7 @@ impl<'a> HeadlessDriver<'a> {
             }
 
             let now = Instant::now();
+            crash_context::set_tick_phase(TickPhase::Headless);
             self.runtime.tick_frame_wall_clock_begin(now);
             let tick_kind = self.schedule.tick_kind(now);
             let outcome = self.run_tick(tick_kind);
@@ -124,16 +128,22 @@ impl<'a> HeadlessDriver<'a> {
     fn handle_tick_outcome(&mut self, outcome: TickOutcome) -> Option<RunExit> {
         if outcome.shutdown_requested {
             logger::info!("Headless: host shutdown requested, exiting");
+            self.runtime
+                .log_compact_renderer_summary("headless-host-shutdown");
             self.drain_graceful_shutdown();
             return Some(RunExit::Clean);
         }
         if outcome.fatal_error {
             logger::error!("Headless: fatal IPC error, exiting");
+            self.runtime
+                .log_compact_renderer_summary("headless-fatal-ipc");
             crate::profiling::flush_resource_churn_plots();
             crate::profiling::emit_frame_mark();
             return Some(RunExit::Code(4));
         }
         if let Some(err) = outcome.graph_error {
+            let kind = crash_context::graph_error_kind(&err);
+            crash_context::set_last_graph_error(kind);
             logger::warn!("Headless: render graph error this tick: {err:?}");
         }
         None

@@ -1,0 +1,150 @@
+name: Crash report
+description: Report crashes, panics, hangs, GPU device loss, or startup failures.
+title: "[Crash]: "
+labels: ["crash", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when Renderide exits unexpectedly, stops presenting frames, loses the GPU device, panics, or fails during startup.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-report checklist
+      options:
+        - label: I searched existing issues for the same crash or hang.
+          required: true
+        - label: I checked logs/renderer, logs/host, and logs/bootstrapper for crash details.
+          required: true
+        - label: I included the first error, panic, validation error, or backtrace that appears in the logs.
+          required: true
+  - type: dropdown
+    id: failure_type
+    attributes:
+      label: Failure type
+      options:
+        - Renderer process crash
+        - Rust panic
+        - GPU device lost
+        - GPU validation error
+        - Application hang or frozen frame
+        - Startup failure
+        - Host or bootstrapper exits with renderer
+        - Unknown
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe when the crash or hang occurs.
+      placeholder: "Example: Renderide panics when entering VR after loading a world with video textures."
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable reproduction you have.
+      placeholder: |
+        1. Launch with ...
+        2. Load ...
+        3. Wait until ...
+        4. Renderer exits or hangs.
+    validations:
+      required: true
+  - type: dropdown
+    id: reproducibility
+    attributes:
+      label: Reproducibility
+      options:
+        - Every time
+        - Often
+        - Sometimes
+        - Once
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Runtime mode
+      options:
+        - Desktop
+        - OpenXR / VR
+        - Headless test harness
+        - Standalone renderer
+        - Multiple modes
+        - Unknown
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Multiple operating systems
+        - Unknown
+    validations:
+      required: true
+  - type: input
+    id: renderide_version
+    attributes:
+      label: Renderide version or commit
+      description: Provide the commit hash, branch, release, or build artifact name.
+      placeholder: b01a15f0, master, or release artifact name
+    validations:
+      required: true
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and driver
+      description: Include GPU model and driver version if known.
+      placeholder: AMD RX 7900 XTX, Mesa 24.1
+    validations:
+      required: true
+  - type: dropdown
+    id: graphics_backend
+    attributes:
+      label: Graphics backend
+      options:
+        - Vulkan
+        - DirectX 12
+        - Metal
+        - Unknown
+    validations:
+      required: true
+  - type: input
+    id: xr_runtime
+    attributes:
+      label: OpenXR runtime and headset
+      description: Required for VR failures. Put not applicable for desktop-only failures.
+      placeholder: SteamVR with Valve Index, Monado with Quest Pro, or not applicable
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Crash logs, panic, or validation output
+      description: Paste the most relevant log section. Attach full logs if needed.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: last_good
+    attributes:
+      label: Last known good version
+      description: If this is a regression, provide the last commit or build that worked.
+      placeholder: Unknown, or commit/build name
+    validations:
+      required: false
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Add feature flags, validation layer settings, Tracy status, world details, or anything else that may help.
+    validations:
+      required: false

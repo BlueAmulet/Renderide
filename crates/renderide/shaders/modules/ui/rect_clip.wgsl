@@ -2,7 +2,7 @@
 
 #define_import_path renderide::ui::rect_clip
 
-#import renderide::math as rmath
+#import renderide::core::math as rmath
 
 fn rect_clip_enabled(rect: vec4<f32>, rect_clip: f32) -> bool {
     return rect_clip > 0.5 && rmath::rect_has_area(rect);

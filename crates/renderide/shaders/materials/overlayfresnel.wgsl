@@ -5,12 +5,12 @@
 //! `depth=GreaterEqual` (Unity `ZTest LEqual`) for the visible silhouette.
 
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::material::fresnel as mf
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
 
 struct OverlayFresnelMaterial {
     _BehindFarColor: vec4<f32>,

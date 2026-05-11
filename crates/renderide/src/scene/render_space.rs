@@ -45,6 +45,7 @@ impl<'a> RenderSpaceView<'a> {
     }
 
     /// Host render-space id.
+    #[cfg(test)]
     pub fn id(self) -> RenderSpaceId {
         self.state.id
     }

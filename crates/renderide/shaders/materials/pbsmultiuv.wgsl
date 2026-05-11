@@ -12,9 +12,9 @@
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::surface as psurf
-#import renderide::alpha_clip_sample as acs
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::material::alpha_clip_sample as acs
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
 
 /// Material uniforms for `PBSMultiUV`. Every texture has both a UV-channel selector (`_*UV`)
 /// and a tile/offset (`_*_ST`), matching the Unity property block.

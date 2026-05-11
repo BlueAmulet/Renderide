@@ -4,11 +4,11 @@ use super::*;
 
 #[test]
 fn mesh_world_tangent_applies_model_transform_parity() -> io::Result<()> {
-    let src = fs::read_to_string(manifest_dir().join("shaders/modules/mesh/vertex.wgsl"))?;
+    let src = source_file(manifest_dir().join("shaders/modules/mesh/vertex.wgsl"))?;
 
     for required in [
-        "fn model_handedness(draw: pd::PerDrawUniforms) -> f32",
-        "pd::position_stream_is_world_space(draw)",
+        "fn model_handedness(draw: dt::PerDrawUniforms) -> f32",
+        "dt::position_stream_is_world_space(draw)",
         "dot(draw.model[0].xyz, cross(draw.model[1].xyz, draw.model[2].xyz))",
         "let tangent_sign = select(1.0, -1.0, t.w < 0.0);",
         "tangent_sign * model_handedness(draw)",
@@ -29,7 +29,7 @@ fn mesh_world_tangent_applies_model_transform_parity() -> io::Result<()> {
 
 #[test]
 fn mesh_normals_do_not_use_model_vector_helper_path() -> io::Result<()> {
-    let src = fs::read_to_string(manifest_dir().join("shaders/modules/mesh/vertex.wgsl"))?;
+    let src = source_file(manifest_dir().join("shaders/modules/mesh/vertex.wgsl"))?;
 
     for forbidden in [
         "fn model_world_normal(",
@@ -53,7 +53,7 @@ fn mesh_normals_do_not_use_model_vector_helper_path() -> io::Result<()> {
 
 #[test]
 fn pbs_tbn_reorthonormalizes_interpolated_frame() -> io::Result<()> {
-    let src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs_normal.wgsl"))?;
+    let src = source_file(manifest_dir().join("shaders/modules/pbs/normal.wgsl"))?;
 
     for required in [
         "let n = world_n * inverseSqrt(n_len_sq);",
@@ -63,7 +63,7 @@ fn pbs_tbn_reorthonormalizes_interpolated_frame() -> io::Result<()> {
     ] {
         assert!(
             src.contains(required),
-            "pbs_normal.wgsl must contain `{required}`"
+            "pbs/normal.wgsl must contain `{required}`"
         );
     }
 
@@ -74,7 +74,7 @@ fn pbs_tbn_reorthonormalizes_interpolated_frame() -> io::Result<()> {
     ] {
         assert!(
             !src.contains(forbidden),
-            "pbs_normal.wgsl must not contain `{forbidden}`"
+            "pbs/normal.wgsl must not contain `{forbidden}`"
         );
     }
 
@@ -105,7 +105,7 @@ fn no_shader_references_model_matrix_normal_vertex_helper() -> io::Result<()> {
 
     for relative_dir in ["shaders/materials", "shaders/modules", "shaders/passes"] {
         for path in wgsl_files_recursive(relative_dir)? {
-            let src = fs::read_to_string(&path)?;
+            let src = source_file(&path)?;
             if src.contains("world_model_normal_vertex_main") {
                 offenders.push(file_label(&path));
             }
@@ -123,8 +123,7 @@ fn no_shader_references_model_matrix_normal_vertex_helper() -> io::Result<()> {
 
 #[test]
 fn custom_mesh_tbn_shaders_route_through_shared_parity() -> io::Result<()> {
-    let xiexe =
-        fs::read_to_string(manifest_dir().join("shaders/modules/xiexe_toon2_surface.wgsl"))?;
+    let xiexe = source_file(manifest_dir().join("shaders/modules/xiexe/toon2/surface.wgsl"))?;
     assert!(
         xiexe.contains("let world_tangent = mv::world_tangent(d, tangent);"),
         "Xiexe Toon 2 must use the shared parity-aware world tangent helper"
@@ -157,7 +156,7 @@ fn custom_mesh_tbn_shaders_route_through_shared_parity() -> io::Result<()> {
 fn mesh_tangent_handedness_is_not_recomputed_in_material_roots() -> io::Result<()> {
     let allowed = [
         "shaders/modules/mesh/vertex.wgsl",
-        "shaders/modules/pbs_normal.wgsl",
+        "shaders/modules/pbs/normal.wgsl",
         "shaders/passes/compute/mesh_skinning.wgsl",
     ];
     let mut offenders = Vec::new();
@@ -168,7 +167,7 @@ fn mesh_tangent_handedness_is_not_recomputed_in_material_roots() -> io::Result<(
             if allowed.contains(&label.as_str()) {
                 continue;
             }
-            let src = fs::read_to_string(&path)?;
+            let src = source_file(&path)?;
             for forbidden in [
                 "let tangent_sign = select",
                 "tangent.w < 0.0",
@@ -194,7 +193,7 @@ fn mesh_tangent_handedness_is_not_recomputed_in_material_roots() -> io::Result<(
 
 #[test]
 fn skinning_derives_tangent_handedness_from_deformed_bitangent() -> io::Result<()> {
-    let src = fs::read_to_string(manifest_dir().join("shaders/passes/compute/mesh_skinning.wgsl"))?;
+    let src = source_file(manifest_dir().join("shaders/passes/compute/mesh_skinning.wgsl"))?;
 
     for required in [
         "b_bind = cross(n_bind, t_bind) * bind_sign;",
@@ -213,7 +212,7 @@ fn skinning_derives_tangent_handedness_from_deformed_bitangent() -> io::Result<(
 
 #[test]
 fn procedural_tangent_frames_are_explicitly_exempt_from_mesh_parity() -> io::Result<()> {
-    let ggx = module_source("ggx_prefilter.wgsl")?;
+    let ggx = module_source("ibl/ggx_prefilter.wgsl")?;
     assert!(
         ggx.contains("fn tangent_to_world(local_dir: vec3<f32>, n: vec3<f32>) -> vec3<f32>")
             && ggx.contains("let tangent = normalize(cross(up, n));")
@@ -221,7 +220,7 @@ fn procedural_tangent_frames_are_explicitly_exempt_from_mesh_parity() -> io::Res
         "GGX prefilter builds a procedural sampling basis and must not import mesh tangent parity"
     );
 
-    let gtao = fs::read_to_string(manifest_dir().join("shaders/passes/post/gtao_main.wgsl"))?;
+    let gtao = source_file(manifest_dir().join("shaders/passes/post/gtao_main.wgsl"))?;
     assert!(
         gtao.contains("accepted.x * cross(l, t)")
             && gtao.contains("accepted.y * cross(t, r)")

@@ -2,7 +2,6 @@
 
 use crate::backend::AssetTransferQueue;
 use crate::backend::frame_gpu::ReflectionProbeSpecularResources;
-use crate::backend::resource_scope::RenderSpaceAssetSet;
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
 use crate::materials::MaterialSystem;
@@ -93,19 +92,13 @@ impl ReflectionProbeServices {
     }
 
     /// Purges reflection-probe resources tied to closed render spaces.
-    pub(super) fn purge_render_space_resources(
-        &mut self,
-        spaces: &[RenderSpaceId],
-        assets: &RenderSpaceAssetSet,
-    ) {
-        if spaces.is_empty() && assets.is_empty() {
+    pub(super) fn purge_render_space_resources(&mut self, spaces: &[RenderSpaceId]) {
+        if spaces.is_empty() {
             return;
         }
         let space_set: HashSet<RenderSpaceId> = spaces.iter().copied().collect();
-        let sh2 = self.sh2.purge_render_space_resources(&space_set, assets);
-        let specular = self
-            .specular
-            .purge_render_space_resources(&space_set, assets);
+        let sh2 = self.sh2.purge_render_space_resources(&space_set);
+        let specular = self.specular.purge_render_space_resources(&space_set);
         if sh2 > 0 || specular > 0 {
             logger::debug!(
                 "reflection probe purge: sh2_entries={} specular_entries={}",

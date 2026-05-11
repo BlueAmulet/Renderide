@@ -17,7 +17,7 @@ use super::super::item::{WorldMeshDrawItem, stacked_material_submesh_topology};
 use super::super::prepared_renderables::{FramePreparedDraw, FramePreparedRun};
 use super::candidate::{DrawCandidate, evaluate_draw_candidate};
 use super::{
-    DrawCollectionContext, front_face_for_world_matrix, world_matrix_for_local_vertex_stream,
+    DrawCollectionContext, front_face_for_draw_matrices, world_matrix_for_local_vertex_stream,
 };
 
 /// Rayon chunk width when iterating a pre-expanded [`super::FramePreparedRenderables`] list.
@@ -42,6 +42,7 @@ pub(in crate::world_mesh::draw_prep) fn prepared_draws_share_renderer(
         && a.skinned == b.skinned
         && a.world_space_deformed == b.world_space_deformed
         && a.blendshape_deformed == b.blendshape_deformed
+        && a.tangent_blendshape_deform_active == b.tangent_blendshape_deform_active
 }
 
 /// Per-renderer view-local state shared by every material slot in a prepared run.
@@ -125,7 +126,9 @@ fn prepared_run_view_state(
     let mut cull_stats = (0usize, 0usize, 0usize);
     let mut rigid_world_matrix = None;
     let mut world_aabb = None;
-    let needs_geometry = ctx.reflection_probes.is_some() || ctx.culling.is_some();
+    let mut deformed_front_face_world_matrix = None;
+    let needs_geometry =
+        ctx.reflection_probes.is_some() || ctx.culling.is_some() || first.world_space_deformed;
     let geometry = needs_geometry.then(|| {
         // Reuse the per-renderer geometry that `FramePreparedRenderables::build_for_frame` already
         // computed for non-overlay spaces. Overlay spaces (geometry depends on the per-view
@@ -148,6 +151,7 @@ fn prepared_run_view_state(
     });
     if let Some(geom) = geometry {
         world_aabb = geom.world_aabb;
+        deformed_front_face_world_matrix = geom.front_face_world_matrix;
         if let Some(c) = ctx.culling {
             cull_stats.0 += run.len();
             match mesh_cpu_cull_with_geometry(geom, ctx.scene, first.space_id, is_overlay, c, None)
@@ -175,7 +179,11 @@ fn prepared_run_view_state(
         rigid_world_matrix =
             world_matrix_for_local_vertex_stream(ctx, first.space_id, first.node_id, false);
     }
-    let front_face = front_face_for_world_matrix(rigid_world_matrix);
+    let front_face = front_face_for_draw_matrices(
+        first.world_space_deformed,
+        rigid_world_matrix,
+        deformed_front_face_world_matrix,
+    );
     let alpha_distance_sq = rigid_world_matrix.map_or(0.0, |m| {
         (m.col(3).truncate() - ctx.view_origin_world).length_squared()
     });
@@ -217,6 +225,7 @@ fn append_prepared_run_draws(
             skinned: d.skinned,
             world_space_deformed: d.world_space_deformed,
             blendshape_deformed: d.blendshape_deformed,
+            tangent_blendshape_deform_active: d.tangent_blendshape_deform_active,
             material_asset_id: d.material_asset_id,
             property_block_id: d.property_block_id,
             world_aabb: state.world_aabb,

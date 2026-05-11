@@ -5,12 +5,12 @@
 //! BRDF with the specular variant and reads tinted f0 + smoothness from `_SpecularColor` /
 //! `_SpecularMap` instead of `_Metallic` / `_MetallicMap`.
 
-#import renderide::alpha_clip_sample as acs
+#import renderide::material::alpha_clip_sample as acs
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct PbsVertexColorTransparentSpecularMaterial {
     _Color: vec4<f32>,

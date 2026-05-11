@@ -526,7 +526,7 @@ mod tests {
     fn wgsl_cluster_clip_constants_match_rust() {
         let wgsl = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/shaders/modules/cluster_math.wgsl"
+            "/shaders/modules/lighting/cluster_math.wgsl"
         ));
 
         assert!(wgsl.contains("const CLUSTER_NEAR_CLIP_MIN: f32 = 0.0001;"));

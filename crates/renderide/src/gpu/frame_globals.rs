@@ -1,4 +1,4 @@
-//! CPU layout for `shaders/modules/globals.wgsl` (`FrameGlobals` at `@group(0) @binding(0)`).
+//! CPU layout for `shaders/modules/frame/globals.wgsl` (`FrameGlobals` at `@group(0) @binding(0)`).
 //!
 //! Submodules:
 //! - [`uniforms`] -- the [`FrameGpuUniforms`] WGSL-matched Pod struct + per-eye / SH math.

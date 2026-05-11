@@ -7,6 +7,7 @@ use winit::event_loop::ActiveEventLoop;
 use winit::monitor::Fullscreen;
 use winit::window::{Window, WindowAttributes};
 
+use crate::diagnostics::crash_context::{self, TargetMode};
 use crate::frontend::input::enable_ime_on_window;
 use crate::frontend::output_device::head_output_device_wants_openxr;
 use crate::gpu::{GpuContext, GpuError};
@@ -81,8 +82,10 @@ impl RenderTarget {
         }
 
         let (gpu, mode) = if head_output_device_wants_openxr(output_device) {
+            crash_context::set_target_mode(TargetMode::OpenXr);
             create_openxr_target(&window, startup_gpu)?
         } else {
+            crash_context::set_target_mode(TargetMode::Desktop);
             create_desktop_target(&window, startup_gpu)?
         };
 

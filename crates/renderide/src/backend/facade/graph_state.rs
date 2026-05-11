@@ -44,6 +44,11 @@ impl RenderGraphState {
         &mut self.transient_pool
     }
 
+    /// Immutable graph transient pool for diagnostics.
+    pub(super) fn transient_pool(&self) -> &TransientPool {
+        &self.transient_pool
+    }
+
     /// Mutable history registry.
     pub(super) fn history_registry_mut(&mut self) -> &mut HistoryRegistry {
         &mut self.history_registry

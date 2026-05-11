@@ -2,26 +2,8 @@
 // `GpuLight` and `ClusterParams` layouts must match `crate::backend::GpuLight` and the
 // `ClusterParams` struct in `clustered_light.rs` (including uniform padding).
 
-#import renderide::cluster_math as cmath
-
-struct GpuLight {
-    position: vec3f,
-    _pad0: f32,
-    direction: vec3f,
-    _pad1: f32,
-    color: vec3f,
-    intensity: f32,
-    range: f32,
-    spot_cos_half_angle: f32,
-    light_type: u32,
-    _pad_before_shadow_params: u32,
-    shadow_strength: f32,
-    shadow_near_plane: f32,
-    shadow_bias: f32,
-    shadow_normal_bias: f32,
-    shadow_type: u32,
-    align_pad_vec3_tail: vec3<u32>,
-}
+#import renderide::lighting::cluster_math as cmath
+#import renderide::frame::types as ft
 
 struct ClusterParams {
     view: mat4x4f,
@@ -45,7 +27,7 @@ struct ClusterParams {
 }
 
 @group(0) @binding(0) var<uniform> params: ClusterParams;
-@group(0) @binding(1) var<storage, read> lights: array<GpuLight>;
+@group(0) @binding(1) var<storage, read> lights: array<ft::GpuLight>;
 @group(0) @binding(2) var<storage, read_write> cluster_light_counts: array<u32>;
 /// Packed light indices: 2 x `u16` per `u32` slot (low 16 bits = even slot, high 16 bits = odd
 /// slot). Each cluster is written by a single compute thread, so no atomics are required.

@@ -17,7 +17,7 @@ pub fn handle_heartbeat(heartbeat_deadline: &Arc<Mutex<Instant>>) -> LoopAction 
     if let Ok(mut d) = heartbeat_deadline.lock() {
         *d = Instant::now() + heartbeat_refresh_timeout();
     }
-    logger::info!("Got heartbeat.");
+    logger::debug!("Got heartbeat.");
     LoopAction::Continue
 }
 
@@ -74,8 +74,9 @@ pub fn handle_start_renderer(
     renderer_link::ensure_link(config);
 
     logger::info!(
-        "Spawning renderer: {:?} with args: {:?}",
-        config.renderite_executable,
+        "Spawning renderer: exe={} cwd={} args={:?}",
+        config.renderite_executable.display(),
+        config.renderite_directory.display(),
         args
     );
     let mut renderer_cmd = Command::new(&config.renderite_executable);
@@ -102,7 +103,12 @@ pub fn handle_start_renderer(
                     }
                     *slot = Some(process);
                 }
-                logger::info!("Renderer started PID {} with args: {}", pid, args.join(" "));
+                logger::info!(
+                    "Renderer started PID {} cwd={} args={}",
+                    pid,
+                    config.renderite_directory.display(),
+                    args.join(" ")
+                );
                 let response = format!("RENDERITE_STARTED:{pid}");
                 if !outgoing.try_enqueue(response.as_bytes()) {
                     logger::warn!("Failed to enqueue RENDERITE_STARTED:{pid} on bootstrapper_out");

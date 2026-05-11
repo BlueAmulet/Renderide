@@ -9,10 +9,10 @@
 //! defaults to grayscale (`1 - r`). Mirrors Unity `#pragma multi_compile DEPTH_GRAYSCALE DEPTH_HUE`.
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct DepthProjectionMaterial {
     _MainTex_ST: vec4<f32>,

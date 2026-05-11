@@ -2,9 +2,9 @@
 
 #define_import_path renderide::material::sample
 
-#import renderide::alpha_clip_sample as acs
-#import renderide::texture_sampling as ts
-#import renderide::uv_utils as uvu
+#import renderide::material::alpha_clip_sample as acs
+#import renderide::core::texture_sampling as ts
+#import renderide::core::uv as uvu
 
 fn sample_uv(raw_uv: vec2<f32>, st: vec4<f32>, polar_power: f32, polar_enabled: bool) -> vec2<f32> {
     let selected_uv = select(raw_uv, uvu::polar_uv(raw_uv, polar_power), polar_enabled);

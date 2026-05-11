@@ -177,19 +177,6 @@ impl LightCache {
         self.spaces.get(&space_id).map(Vec::as_slice)
     }
 
-    /// Iterates cookie Texture2D asset ids referenced by lights in `space_id`.
-    pub fn cookie_texture_asset_ids_for_space(
-        &self,
-        space_id: i32,
-    ) -> impl Iterator<Item = i32> + '_ {
-        self.spaces
-            .get(&space_id)
-            .into_iter()
-            .flat_map(|lights| lights.iter())
-            .map(|light| light.state.cookie_texture_asset_id)
-            .filter(|id| *id >= 0)
-    }
-
     /// Drops all light entries tied to a removed render space.
     pub fn remove_space(&mut self, space_id: i32) {
         self.spaces.remove(&space_id);

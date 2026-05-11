@@ -7,20 +7,20 @@
 //! so host binding picks them up by reflection.
 //!
 //! Per-frame bindings (`@group(0)`) are imported from `globals.wgsl` so composed targets match the frame bind group layout used by the renderer.
-//! Per-draw uniforms (`@group(2)`) use [`renderide::per_draw`].
+//! Per-draw uniforms (`@group(2)`) use [`renderide::draw::per_draw`].
 //!
 //! Froox variant bits populate `_RenderideVariantBits`; this shader decodes Unlit's
 //! shader-specific keyword bits locally.
 
-#import renderide::texture_sampling as ts
-#import renderide::globals as rg
-#import renderide::alpha_clip_sample as acs
+#import renderide::core::texture_sampling as ts
+#import renderide::frame::globals as rg
+#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::alpha as ma
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
-#import renderide::normal_decode as nd
-#import renderide::per_draw as pd
-#import renderide::uv_utils as uvu
-#import renderide::variant_bits as vb
+#import renderide::core::normal_decode as nd
+#import renderide::draw::per_draw as pd
+#import renderide::core::uv as uvu
 
 struct UnlitMaterial {
     _Color: vec4<f32>,

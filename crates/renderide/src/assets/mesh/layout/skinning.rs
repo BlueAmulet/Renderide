@@ -1,52 +1,88 @@
 //! Skinning buffer extraction helpers.
 
-/// Splits the mesh tail `bone_weights` region into GPU storage buffers for the skinning shader:
-/// `array<vec4<u32>>` joint indices and `array<vec4<f32>>` weights per vertex.
+/// Splits the mesh tail `bone_counts` and `bone_weights` regions into GPU storage buffers for the
+/// skinning shader: `array<vec4<u32>>` joint indices and `array<vec4<f32>>` weights per vertex.
 ///
-/// Supports either **4 influences** (`32 * vertex_count` bytes as `(f32 weight, i32 index)` tuples)
-/// or **1 influence** (`8 * vertex_count` bytes).
+/// The host stores a compact variable-length stream: one byte count per vertex followed by that many
+/// `(f32 weight, i32 index)` tuples. The renderer preserves the four strongest finite positive
+/// influences for each vertex and normalizes them for linear blend skinning.
 pub fn split_bone_weights_tail_for_gpu(
+    bone_counts: &[u8],
     bone_weights_tail: &[u8],
     vertex_count: usize,
 ) -> Option<(Vec<u8>, Vec<u8>)> {
     if vertex_count == 0 {
         return None;
     }
-    let four_inf = vertex_count * 32;
-    let one_inf = vertex_count * 8;
-    let span = if bone_weights_tail.len() >= four_inf {
-        4usize
-    } else if bone_weights_tail.len() >= one_inf {
-        1usize
-    } else {
+    if bone_counts.len() < vertex_count {
         return None;
-    };
+    }
 
     let mut idx_bytes = vec![0u8; vertex_count * 16];
     let mut wt_bytes = vec![0u8; vertex_count * 16];
+    let mut tail_offset = 0usize;
 
-    for v in 0..vertex_count {
-        for k in 0..4 {
-            let (w, j) = if k < span {
-                let off = v * (span * 8) + k * 8;
-                if off + 8 > bone_weights_tail.len() {
-                    return None;
-                }
-                let w_raw = f32::from_le_bytes(bone_weights_tail[off..off + 4].try_into().ok()?);
-                let j = i32::from_le_bytes(bone_weights_tail[off + 4..off + 8].try_into().ok()?);
-                // Match legacy skinned VB build: unmapped bones must not contribute (index 0 only if weight > 0).
-                if j < 0 {
-                    (0.0f32, 0u32)
-                } else {
-                    (w_raw, j as u32)
-                }
+    for (v, bone_count) in bone_counts.iter().copied().enumerate().take(vertex_count) {
+        let mut influences = [BoneInfluence::ZERO; 4];
+        for _ in 0..usize::from(bone_count) {
+            let end = tail_offset.checked_add(8)?;
+            let src = bone_weights_tail.get(tail_offset..end)?;
+            tail_offset = end;
+            let weight = f32::from_le_bytes(src[0..4].try_into().ok()?);
+            let index = i32::from_le_bytes(src[4..8].try_into().ok()?);
+            if weight.is_finite() && weight > 0.0 && index >= 0 {
+                insert_influence(
+                    &mut influences,
+                    BoneInfluence {
+                        weight,
+                        index: index as u32,
+                    },
+                );
+            }
+        }
+        let weight_sum = influences
+            .iter()
+            .fold(0.0f32, |sum, influence| sum + influence.weight);
+        for (k, influence) in influences.iter().enumerate() {
+            let w = if weight_sum > 1.0e-6 {
+                influence.weight / weight_sum
             } else {
-                (0.0f32, 0u32)
+                0.0
             };
             let wb = v * 16 + k * 4;
             wt_bytes[wb..wb + 4].copy_from_slice(&w.to_le_bytes());
-            idx_bytes[wb..wb + 4].copy_from_slice(&j.to_le_bytes());
+            idx_bytes[wb..wb + 4].copy_from_slice(&influence.index.to_le_bytes());
         }
     }
     Some((idx_bytes, wt_bytes))
+}
+
+#[derive(Clone, Copy)]
+struct BoneInfluence {
+    weight: f32,
+    index: u32,
+}
+
+impl BoneInfluence {
+    const ZERO: Self = Self {
+        weight: 0.0,
+        index: 0,
+    };
+}
+
+fn insert_influence(influences: &mut [BoneInfluence; 4], candidate: BoneInfluence) {
+    let mut insert_at = influences.len();
+    for (i, current) in influences.iter().enumerate() {
+        if candidate.weight > current.weight {
+            insert_at = i;
+            break;
+        }
+    }
+    if insert_at == influences.len() {
+        return;
+    }
+    for i in (insert_at + 1..influences.len()).rev() {
+        influences[i] = influences[i - 1];
+    }
+    influences[insert_at] = candidate;
 }

@@ -1,7 +1,7 @@
 //! Unity unlit `Shader "Unlit/TestShader"`: emissive-only single-color shader (Shader Forge output).
 
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::mesh::vertex as mv
 
 struct TestShaderMaterial {

@@ -1,14 +1,14 @@
 //! Matcap (`Shader "Matcap"`): tangent-space normal map, view-space normal matcap lookup.
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
-#import renderide::math as rmath
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
+#import renderide::core::math as rmath
 #import renderide::mesh::vertex as mv
-#import renderide::normal_decode as nd
+#import renderide::core::normal_decode as nd
 #import renderide::pbs::normal as pnorm
-#import renderide::uv_utils as uvu
-#import renderide::view_basis as vb
+#import renderide::core::uv as uvu
+#import renderide::frame::view_basis as vb
 
 struct MatcapMaterial {
     _NORMALMAP: f32,

@@ -1,13 +1,13 @@
 //! Grab-pass blur filter (`Shader "Filters/Blur"`).
 
 
-#import renderide::filter_math as fm
-#import renderide::filter_vertex as fv
-#import renderide::globals as rg
-#import renderide::grab_pass as gp
-#import renderide::normal_decode as nd
-#import renderide::scene_depth_sample as sds
-#import renderide::uv_utils as uvu
+#import renderide::post::filter_math as fm
+#import renderide::post::filter_vertex as fv
+#import renderide::frame::globals as rg
+#import renderide::frame::grab_pass as gp
+#import renderide::core::normal_decode as nd
+#import renderide::frame::scene_depth_sample as sds
+#import renderide::core::uv as uvu
 #import renderide::pbs::normal as pnorm
 
 struct FiltersBlurMaterial {

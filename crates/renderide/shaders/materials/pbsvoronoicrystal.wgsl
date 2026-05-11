@@ -8,15 +8,15 @@
 //! since-startup so the host must drive the animation directly).
 
 
-#import renderide::per_draw as pd
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
-#import renderide::voronoi as vor
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
+#import renderide::material::voronoi as vor
 
 struct PbsVoronoiCrystalMaterial {
     _ColorTint: vec4<f32>,

@@ -1,6 +1,7 @@
 //! [`SharedMemoryAccessor`]: lazy map cache for host shared buffers.
 
 use hashbrown::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use bytemuck::{Pod, Zeroable};
 
@@ -20,6 +21,11 @@ use super::unix::SharedMemoryView;
 use super::windows::SharedMemoryView;
 
 use super::bounds::required_view_capacity;
+
+static SHARED_MEMORY_READ_FAILURES: AtomicU64 = AtomicU64::new(0);
+
+const SHARED_MEMORY_READ_FAILURE_FIRST_LOGS: u64 = 8;
+const SHARED_MEMORY_READ_FAILURE_LOG_EVERY: u64 = 256;
 
 /// Lazy mapping cache keyed by `buffer_id` for host shared buffers.
 pub struct SharedMemoryAccessor {
@@ -68,10 +74,29 @@ impl SharedMemoryAccessor {
     ) -> Option<R> {
         profiling::scope!("shared_memory::with_read_bytes");
         if descriptor.length <= 0 {
+            log_shared_memory_read_failure(&describe_descriptor_failure(
+                descriptor,
+                "non-positive length",
+                None,
+            ));
             return None;
         }
-        let view = self.get_view(descriptor)?;
-        let bytes = view.slice(descriptor.offset, descriptor.length)?;
+        let path_for_diag = self.shm_path_for_buffer(descriptor.buffer_id);
+        let Some(view) = self.get_view(descriptor) else {
+            log_shared_memory_read_failure(&describe_descriptor_failure(
+                descriptor,
+                "get_view failed",
+                Some(path_for_diag.as_str()),
+            ));
+            return None;
+        };
+        let Some(bytes) = view.slice(descriptor.offset, descriptor.length) else {
+            log_shared_memory_read_failure(&describe_slice_failure_with_descriptor(
+                descriptor,
+                view.len(),
+            ));
+            return None;
+        };
         f(bytes)
     }
 
@@ -471,6 +496,45 @@ fn describe_slice_failure(buffer_id: i32, offset: i32, length: i32, view_len: us
     )
 }
 
+fn describe_descriptor_failure(
+    descriptor: &SharedMemoryBufferDescriptor,
+    reason: &'static str,
+    path_or_name: Option<&str>,
+) -> String {
+    format!(
+        "shared memory read failed: reason={reason} buffer_id={} offset={} length={} capacity={} path/name={}",
+        descriptor.buffer_id,
+        descriptor.offset,
+        descriptor.length,
+        descriptor.buffer_capacity,
+        path_or_name.unwrap_or("<not-mapped>")
+    )
+}
+
+fn describe_slice_failure_with_descriptor(
+    descriptor: &SharedMemoryBufferDescriptor,
+    view_len: usize,
+) -> String {
+    format!(
+        "shared memory read failed: reason=slice failed buffer_id={} offset={} length={} capacity={} view_len={}",
+        descriptor.buffer_id,
+        descriptor.offset,
+        descriptor.length,
+        descriptor.buffer_capacity,
+        view_len
+    )
+}
+
+fn log_shared_memory_read_failure(message: &str) {
+    let occurrence = SHARED_MEMORY_READ_FAILURES.fetch_add(1, Ordering::Relaxed) + 1;
+    if occurrence <= SHARED_MEMORY_READ_FAILURE_FIRST_LOGS
+        || (occurrence - SHARED_MEMORY_READ_FAILURE_FIRST_LOGS)
+            .is_multiple_of(SHARED_MEMORY_READ_FAILURE_LOG_EVERY)
+    {
+        logger::warn!("{message} occurrence={occurrence}");
+    }
+}
+
 #[cfg(test)]
 mod access_copy_diagnostic_tests {
     use crate::buffer::SharedMemoryBufferDescriptor;
@@ -497,6 +561,22 @@ mod access_copy_diagnostic_tests {
         };
         let err = acc.access_copy_diagnostic::<u32>(&d).expect_err("length 0");
         assert!(err.contains("length<=0"), "unexpected message: {err}");
+    }
+
+    #[test]
+    fn descriptor_failure_includes_descriptor_fields() {
+        let d = SharedMemoryBufferDescriptor {
+            buffer_id: 17,
+            buffer_capacity: 4096,
+            offset: 12,
+            length: 34,
+        };
+        let msg = super::describe_descriptor_failure(&d, "get_view failed", Some("path"));
+        assert!(msg.contains("buffer_id=17"), "message={msg}");
+        assert!(msg.contains("offset=12"), "message={msg}");
+        assert!(msg.contains("length=34"), "message={msg}");
+        assert!(msg.contains("capacity=4096"), "message={msg}");
+        assert!(msg.contains("path/name=path"), "message={msg}");
     }
 
     #[test]

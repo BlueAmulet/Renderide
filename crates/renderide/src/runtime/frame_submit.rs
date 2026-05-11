@@ -5,6 +5,7 @@ use std::time::Instant;
 use super::camera_render_tasks::zero_camera_render_task_results;
 use super::reflection_probe_render_tasks::reflection_probe_render_task_count;
 use super::{RendererRuntime, lockstep};
+use crate::diagnostics::crash_context::{self, TickPhase};
 use crate::shared::FrameSubmitData;
 
 impl RendererRuntime {
@@ -12,29 +13,36 @@ impl RendererRuntime {
     /// head-output transform.
     pub(crate) fn apply_frame_submit_data(&mut self, data: FrameSubmitData) {
         let prev_frame_index = self.host_camera.frame_index;
+        if prev_frame_index >= 0 {
+            let delta = i64::from(data.frame_index) - i64::from(prev_frame_index);
+            if !(0..=1).contains(&delta) {
+                logger::warn!(
+                    "host frame index jump: previous={} current={} delta={}",
+                    prev_frame_index,
+                    data.frame_index,
+                    delta
+                );
+            }
+        }
         lockstep::trace_duplicate_frame_index_if_interesting(data.frame_index, prev_frame_index);
         self.process_frame_submit(data);
     }
 
     fn process_frame_submit(&mut self, data: FrameSubmitData) {
         profiling::scope!("scene::frame_submit");
-        {
-            profiling::scope!("scene::frame_submit_frontend_bookkeeping");
-            self.frontend.note_frame_submit_processed(data.frame_index);
-            self.frontend
-                .apply_frame_submit_output(data.output_state.clone());
-            self.set_last_submit_render_task_count(data.render_tasks.len());
-        };
-
-        {
-            profiling::scope!("scene::frame_submit_camera_fields");
-            crate::camera::apply_frame_submit_fields(&mut self.host_camera, &data);
-        };
+        crash_context::set_tick_phase(TickPhase::FrameSubmit);
+        crash_context::set_last_host_frame_index(i64::from(data.frame_index));
+        let frame_index = data.frame_index;
+        let submitted_render_spaces = data.render_spaces.len();
+        let submitted_render_tasks = data.render_tasks.len();
+        let shared_memory_available = self.frontend.shared_memory().is_some();
+        self.begin_frame_submit_application(&data);
 
         let start = Instant::now();
         let mut apply_failed = false;
         let mut rendered_reflection_probes = Vec::new();
         let mut onchanges_reflection_probe_requests = Vec::new();
+        let mut scene_apply_report = None;
         let mut queue_camera_tasks = false;
         let reflection_probe_task_count = reflection_probe_render_task_count(&data);
         let mut queue_reflection_probe_tasks = false;
@@ -44,9 +52,14 @@ impl RendererRuntime {
             {
                 profiling::scope!("scene::frame_submit_apply_scene");
                 match self.scene.apply_frame_submit(shm, &data) {
-                    Ok(report) => self.backend.note_scene_apply_report(&report, &self.scene),
+                    Ok(report) => {
+                        self.backend.note_scene_apply_report(&report);
+                        scene_apply_report = Some(report);
+                    }
                     Err(e) => {
-                        logger::error!("scene apply_frame_submit failed: {e}");
+                        logger::error!(
+                            "scene apply_frame_submit failed: {e}; frame_index={frame_index} render_spaces={submitted_render_spaces} render_tasks={submitted_render_tasks} shared_memory_available={shared_memory_available}"
+                        );
                         apply_failed = true;
                     }
                 }
@@ -56,7 +69,11 @@ impl RendererRuntime {
                 match self.scene.flush_world_caches() {
                     Ok(report) => self.backend.note_scene_cache_flush_report(&report),
                     Err(e) => {
-                        logger::error!("scene flush_world_caches failed: {e}");
+                        logger::error!(
+                            "scene flush_world_caches failed: {e}; frame_index={frame_index} render_spaces={} mesh_renderables={}",
+                            self.scene.render_space_count(),
+                            self.scene.total_mesh_renderable_count()
+                        );
                         apply_failed = true;
                     }
                 }
@@ -93,6 +110,9 @@ impl RendererRuntime {
         } else if reflection_probe_task_count > 0 {
             failed_reflection_probe_tasks = true;
         }
+        if !apply_failed && let Some(report) = scene_apply_report.as_ref() {
+            self.log_successful_scene_apply(&data, report);
+        }
         self.finish_frame_submit_readback_queues(FrameSubmitReadbackQueueDecision {
             data: &data,
             reflection_probe_task_count,
@@ -105,18 +125,83 @@ impl RendererRuntime {
         self.frontend
             .enqueue_rendered_reflection_probes(rendered_reflection_probes);
         if apply_failed {
-            self.note_frame_submit_apply_failure();
-            self.frontend.set_fatal_error(true);
+            self.finish_failed_frame_submit_apply();
         }
+        self.derive_host_camera_after_frame_submit();
+        self.trace_frame_submit_processed(&data, reflection_probe_task_count, start);
+    }
+
+    fn begin_frame_submit_application(&mut self, data: &FrameSubmitData) {
         {
-            profiling::scope!("scene::frame_submit_host_camera_derive");
-            self.host_camera.head_output_transform =
-                crate::camera::head_output_from_active_main_space(&self.scene);
-            self.host_camera.eye_world_position =
-                crate::camera::eye_world_position_from_active_main_space(&self.scene);
+            profiling::scope!("scene::frame_submit_frontend_bookkeeping");
+            self.frontend.note_frame_submit_processed(data.frame_index);
+            self.frontend
+                .apply_frame_submit_output(data.output_state.clone());
+            self.set_last_submit_render_task_count(data.render_tasks.len());
         };
 
-        self.trace_frame_submit_processed(&data, reflection_probe_task_count, start);
+        {
+            profiling::scope!("scene::frame_submit_camera_fields");
+            crate::camera::apply_frame_submit_fields(&mut self.host_camera, data);
+        };
+    }
+
+    fn finish_failed_frame_submit_apply(&mut self) {
+        self.note_frame_submit_apply_failure();
+        logger::error!("{}", crash_context::format_snapshot());
+        self.frontend.set_fatal_error(true);
+    }
+
+    fn derive_host_camera_after_frame_submit(&mut self) {
+        profiling::scope!("scene::frame_submit_host_camera_derive");
+        self.host_camera.head_output_transform =
+            crate::camera::head_output_from_active_main_space(&self.scene);
+        self.host_camera.eye_world_position =
+            crate::camera::eye_world_position_from_active_main_space(&self.scene);
+    }
+
+    fn log_successful_scene_apply(
+        &mut self,
+        data: &FrameSubmitData,
+        report: &crate::scene::SceneApplyReport,
+    ) {
+        let render_spaces = self.scene.render_space_count();
+        let mesh_renderables = self.scene.total_mesh_renderable_count();
+        if !self.diagnostics.logged_first_frame_submit {
+            logger::info!(
+                "first FrameSubmitData applied: frame_index={} submitted_spaces={} tracked_spaces={} mesh_renderables={} render_tasks={} changed_spaces={} removed_spaces={}",
+                data.frame_index,
+                data.render_spaces.len(),
+                render_spaces,
+                mesh_renderables,
+                data.render_tasks.len(),
+                report.changed_spaces.len(),
+                report.removed_spaces.len(),
+            );
+            self.diagnostics.logged_first_frame_submit = true;
+        }
+        let previous_spaces = self.diagnostics.last_scene_render_space_count;
+        let previous_meshes = self.diagnostics.last_scene_mesh_renderable_count;
+        let topology_changed =
+            previous_spaces != render_spaces || previous_meshes != mesh_renderables;
+        if topology_changed
+            && (report.changed_spaces.len() + report.removed_spaces.len() > 0
+                || previous_spaces.abs_diff(render_spaces) >= 2
+                || previous_meshes.abs_diff(mesh_renderables) >= 64)
+        {
+            logger::debug!(
+                "scene topology changed: frame_index={} render_spaces {}->{} mesh_renderables {}->{} changed_spaces={} removed_spaces={}",
+                data.frame_index,
+                previous_spaces,
+                render_spaces,
+                previous_meshes,
+                mesh_renderables,
+                report.changed_spaces.len(),
+                report.removed_spaces.len(),
+            );
+        }
+        self.diagnostics.last_scene_render_space_count = render_spaces;
+        self.diagnostics.last_scene_mesh_renderable_count = mesh_renderables;
     }
 
     fn finish_frame_submit_readback_queues(

@@ -16,7 +16,7 @@
 //! `bloom_multiview` targets -- the multiview variant substitutes `@builtin(view_index)` for
 //! array sampling so the left/right stereo layers are scattered independently.
 
-#import renderide::fullscreen as fs
+#import renderide::core::fullscreen as fs
 
 /// Per-frame bloom parameters shared across all four entry points.
 struct BloomUniforms {

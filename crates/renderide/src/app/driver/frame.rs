@@ -6,6 +6,7 @@ use std::time::Instant;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::Window;
 
+use crate::diagnostics::crash_context::{self, RenderMode};
 use crate::frontend::input::{
     apply_output_state_to_window, apply_per_frame_cursor_lock_when_locked,
 };
@@ -19,6 +20,7 @@ const TICK_TRACE_PREFIX: &str = "renderide::tick";
 
 /// Emits a trace line naming the current frame phase.
 pub(super) fn tick_phase_trace(phase: &'static str) {
+    crash_context::set_tick_phase_label(phase);
     logger::trace!("{} phase={phase}", TICK_TRACE_PREFIX);
 }
 
@@ -208,12 +210,15 @@ impl AppDriver {
 
         if self.runtime.shutdown_requested() {
             logger::info!("Renderer shutdown requested by host");
+            self.runtime
+                .log_compact_renderer_summary("host-shutdown-requested");
             self.request_exit(ExitReason::HostShutdown, event_loop);
             return true;
         }
 
         if self.runtime.fatal_error() {
             logger::error!("Renderer fatal IPC error");
+            self.runtime.log_compact_renderer_summary("fatal-ipc");
             self.request_exit(ExitReason::FatalIpc, event_loop);
             return true;
         }
@@ -229,7 +234,7 @@ impl AppDriver {
         profiling::scope!("tick::render_views");
         tick_phase_trace("render_views");
         if let Some(target) = self.target.as_mut() {
-            self.runtime.drain_hi_z_readback(target.gpu().device());
+            self.runtime.drain_hi_z_readback(target.gpu_mut());
         }
 
         let hmd_projection_ended = self.try_hmd_multiview_submit(xr_tick);
@@ -240,6 +245,11 @@ impl AppDriver {
         } else {
             FrameRenderMode::Desktop
         };
+        crash_context::set_render_mode(match mode {
+            FrameRenderMode::HmdMultiview => RenderMode::HmdMultiview,
+            FrameRenderMode::VrSecondaryOnly => RenderMode::VrSecondariesOnly,
+            FrameRenderMode::Desktop => RenderMode::IpcDesktop,
+        });
         logger::trace!(
             "frame render mode: {:?} hmd_projection_ended={} vr_active={}",
             mode,
@@ -298,6 +308,8 @@ impl AppDriver {
             FrameRenderMode::Desktop => self.runtime.render_desktop_frame(target.gpu_mut()),
         };
         if let Err(error) = result {
+            let kind = crash_context::graph_error_kind(&error);
+            crash_context::set_last_graph_error(kind);
             self.handle_frame_graph_error(error);
         }
         Some(())
@@ -329,7 +341,9 @@ impl AppDriver {
         // Cheap (two atomic loads); plotted alongside `event_loop_idle_ms` so a regression
         // in driver-thread pipelining is visible in the same Tracy trace as a regression in
         // frame timing.
-        crate::profiling::plot_driver_submit_backlog(gpu.driver_submit_backlog());
+        let backlog = gpu.driver_submit_backlog();
+        crash_context::set_driver_backlog(backlog);
+        crate::profiling::plot_driver_submit_backlog(backlog);
     }
 
     fn end_frame_timing_and_hud_capture(&mut self) {

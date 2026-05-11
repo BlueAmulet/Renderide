@@ -59,13 +59,9 @@ impl<T> BoundedRing<T> {
 
     /// Snapshot of how many items are currently queued behind the consumer.
     ///
-    /// Used by [`super::DriverThread::submit`] to plot the ring depth into tracy so saturation
-    /// (depth at capacity) versus idle catches the eye next to other gpu metrics. Acquires the
-    /// inner mutex; this is fine because the function runs once per submit, not per per-frame
-    /// hot-path operation. Gated on the `tracy` feature because the only call site is the
-    /// matching tracy plot in [`super::DriverThread::submit`]; without it the method is dead
-    /// code.
-    #[cfg(feature = "tracy")]
+    /// Used by [`super::DriverThread::submit`] and shutdown logging to report ring saturation
+    /// next to submit backlog. Acquires the inner mutex; this is fine because the function runs
+    /// once per submit and during teardown, not inside GPU command recording loops.
     pub(super) fn depth(&self) -> usize {
         self.inner
             .lock()

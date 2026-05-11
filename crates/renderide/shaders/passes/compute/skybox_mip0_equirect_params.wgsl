@@ -5,7 +5,8 @@
 //! Mirrors `renderide::pbs::brdf::skybox_specular_projection360_equirect_uv` so the bake output
 //! matches what runtime sampling would have produced from the equirect directly.
 
-#import renderide::ggx_prefilter as ggx
+#import renderide::ibl::ggx_prefilter as ggx
+#import renderide::skybox::projection360 as p360
 
 struct Mip0EquirectParams {
     /// Destination cube face edge in texels.
@@ -26,36 +27,6 @@ struct Mip0EquirectParams {
 @group(0) @binding(2) var src_sampler: sampler;
 @group(0) @binding(3) var dst_mip: texture_storage_2d_array<rgba16float, write>;
 
-const PI: f32 = 3.14159265358979323846;
-const TAU: f32 = 6.28318530717958647692;
-
-/// Positive floating-point modulo for Projection360 angular wrapping.
-fn positive_fmod(v: vec2<f32>, wrap: vec2<f32>) -> vec2<f32> {
-    var r = v - trunc(v / wrap) * wrap;
-    r = r + wrap;
-    return r - trunc(r / wrap) * wrap;
-}
-
-/// Projection360 view direction -> unscaled equirectangular UVs.
-fn dir_to_uv(view_dir: vec3<f32>) -> vec2<f32> {
-    var angle = vec2<f32>(
-        atan2(view_dir.x, view_dir.z),
-        acos(clamp(dot(view_dir, vec3<f32>(0.0, 1.0, 0.0)), -1.0, 1.0)) - PI * 0.5,
-    );
-    angle = angle + params.fov.xy * 0.5 + params.fov.zw;
-    angle = positive_fmod(angle, vec2<f32>(TAU, PI));
-    return angle / max(abs(params.fov.xy), vec2<f32>(0.000001));
-}
-
-/// Applies `_MainTex_ST` and storage orientation to the equirect UVs.
-fn main_tex_uv(uv: vec2<f32>) -> vec2<f32> {
-    let uv_st = uv * params.st.xy + params.st.zw;
-    if (params.storage_v_inverted != 0u) {
-        return uv_st;
-    }
-    return vec2<f32>(uv_st.x, 1.0 - uv_st.y);
-}
-
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dst_size = max(params.dst_size, 1u);
@@ -63,8 +34,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let world_dir = ggx::cube_dir(gid.z, gid.x, gid.y, dst_size);
-    let uv_raw = clamp(dir_to_uv(-world_dir), vec2<f32>(0.0), vec2<f32>(1.0));
-    let uv = main_tex_uv(uv_raw);
+    let uv_raw = clamp(p360::dir_to_uv(-world_dir, params.fov), vec2<f32>(0.0), vec2<f32>(1.0));
+    let uv = p360::main_tex_uv(uv_raw, params.st, params.storage_v_inverted != 0u);
     let rgb = textureSampleLevel(src_tex, src_sampler, uv, 0.0).rgb;
     textureStore(
         dst_mip,

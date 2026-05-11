@@ -28,18 +28,14 @@ impl RenderBackend {
         normal_deadline: std::time::Instant,
         particle_deadline: std::time::Instant,
     ) -> AssetIntegrationDrainSummary {
-        let summary = asset_uploads::drain_asset_tasks(
+        asset_uploads::drain_asset_tasks(
             &mut self.asset_transfers,
             &mut self.materials,
             shm,
             ipc,
             normal_deadline,
             particle_deadline,
-        );
-        if summary.processed_main_tasks > 0 {
-            self.resource_scopes.note_material_dependencies_dirty();
-        }
-        summary
+        )
     }
 
     /// Whether upload or material work is queued or deferred on missing prerequisites.
@@ -333,13 +329,11 @@ impl RenderBackend {
 
     /// Remove material / property-block entries from the host store.
     pub fn on_unload_material(&mut self, asset_id: i32) {
-        self.resource_scopes.note_material_dependencies_dirty();
         self.materials.on_unload_material(asset_id);
     }
 
     /// Remove a property block from the host store.
     pub fn on_unload_material_property_block(&mut self, asset_id: i32) {
-        self.resource_scopes.note_material_dependencies_dirty();
         self.materials.on_unload_material_property_block(asset_id);
     }
 

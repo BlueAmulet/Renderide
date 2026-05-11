@@ -10,7 +10,7 @@
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::surface as psurf
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct PbsColorSplatSpecularMaterial {
     _Color: vec4<f32>,

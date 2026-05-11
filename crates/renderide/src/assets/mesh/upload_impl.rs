@@ -553,7 +553,8 @@ fn upload_skeleton_bone_buffers(
     let bc = &raw[layout.bone_counts_start..layout.bone_counts_start + layout.bone_counts_length];
     let bw =
         &raw[layout.bone_weights_start..layout.bone_weights_start + layout.bone_weights_length];
-    let (bi_buf, bw_buf) = if let Some((ib, wb)) = split_bone_weights_tail_for_gpu(bw, vc_usize) {
+    let (bi_buf, bw_buf) = if let Some((ib, wb)) = split_bone_weights_tail_for_gpu(bc, bw, vc_usize)
+    {
         let bi = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("mesh {} bone_indices", data.asset_id)),
             contents: &ib,

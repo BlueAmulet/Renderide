@@ -1,5 +1,6 @@
 //! Runtime application of decoded IPC dispatch effects.
 
+use crate::diagnostics::crash_context::{self, InitState as CrashInitState};
 use crate::frontend::InitState;
 use crate::frontend::dispatch::command_dispatch::RunningCommandEffect;
 use crate::frontend::dispatch::ipc_init::{self, IpcDispatchEffect, RendererInitCapabilities};
@@ -27,10 +28,12 @@ impl RendererRuntime {
             IpcDispatchEffect::Ignore => {}
             IpcDispatchEffect::ApplyInitData(d) => {
                 self.apply_renderer_init_data(d);
+                crash_context::set_init_state(CrashInitState::InitDataReceived);
             }
             IpcDispatchEffect::Finalize => {
                 logger::info!("IPC init finalized; renderer entering running command dispatch");
                 self.frontend.set_init_state(InitState::Finalized);
+                crash_context::set_init_state(CrashInitState::Finalized);
                 self.replay_deferred_pre_finalize_commands();
             }
             IpcDispatchEffect::DispatchRunning(effect) => {
@@ -40,8 +43,11 @@ impl RendererRuntime {
                 logger::trace!("IPC: deferring command until init finalized");
                 self.ipc_state.defer_pre_finalize_command(*cmd);
             }
-            IpcDispatchEffect::FatalExpectedInitData => {
-                logger::error!("IPC: expected RendererInitData first");
+            IpcDispatchEffect::FatalExpectedInitData { actual_tag } => {
+                logger::error!(
+                    "IPC: expected RendererInitData first, received RendererCommand::{actual_tag}\n{}",
+                    crash_context::format_snapshot()
+                );
                 self.frontend.set_fatal_error(true);
             }
         }
@@ -54,8 +60,9 @@ impl RendererRuntime {
             return;
         }
         logger::info!(
-            "IPC init finalized; replaying {} deferred command(s)",
-            deferred.len()
+            "IPC init finalized; replaying {} deferred command(s) mix=[{}]",
+            deferred.len(),
+            super::ipc_state::summarize_renderer_command_mix(deferred.iter())
         );
         while let Some(cmd) = deferred.pop_front() {
             self.handle_ipc_command(cmd);

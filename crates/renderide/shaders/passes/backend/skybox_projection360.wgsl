@@ -1,9 +1,10 @@
 //! Fullscreen Projection360 sky draw.
 
-#import renderide::cubemap_storage as cubemap_storage
-#import renderide::globals as rg
-#import renderide::skybox_common as skybox
-#import renderide::uv_utils as uvu
+#import renderide::skybox::cubemap_storage as cubemap_storage
+#import renderide::frame::globals as rg
+#import renderide::skybox::common as skybox
+#import renderide::core::uv as uvu
+#import renderide::skybox::projection360 as p360
 
 struct Projection360Material {
     _Tint: vec4<f32>,
@@ -69,70 +70,22 @@ struct VertexOutput {
     @location(1) @interpolate(flat) view_layer: u32,
 }
 
-const PI: f32 = 3.14159265359;
-const TAU: f32 = 6.28318530718;
-
-fn positive_fmod(v: vec2<f32>, wrap: vec2<f32>) -> vec2<f32> {
-    var r = v - trunc(v / wrap) * wrap;
-    r = r + wrap;
-    return r - trunc(r / wrap) * wrap;
-}
-
-fn dir_to_uv(view_dir: vec3<f32>) -> vec2<f32> {
-    var angle = vec2<f32>(
-        atan2(view_dir.x, view_dir.z),
-        acos(clamp(dot(view_dir, vec3<f32>(0.0, 1.0, 0.0)), -1.0, 1.0)) - PI * 0.5,
-    );
-    angle = angle + mat._FOV.xy * 0.5 + mat._FOV.zw;
-    angle = positive_fmod(angle, vec2<f32>(TAU, PI));
-    return angle / max(abs(mat._FOV.xy), vec2<f32>(0.000001));
-}
-
-fn rotate_dir(view_dir: vec3<f32>, rotate: vec2<f32>) -> vec3<f32> {
-    let sy = sin(rotate.y);
-    let cy = cos(rotate.y);
-    let x_rot = vec3<f32>(
-        view_dir.x,
-        view_dir.y * cy - view_dir.z * sy,
-        view_dir.y * sy + view_dir.z * cy,
-    );
-
-    let sx = sin(rotate.x);
-    let cx = cos(rotate.x);
-    return vec3<f32>(
-        x_rot.x * cx + x_rot.z * sx,
-        x_rot.y,
-        -x_rot.x * sx + x_rot.z * cx,
-    );
-}
-
-fn perspective_view_dir(ndc: vec2<f32>) -> vec3<f32> {
-    var plane_pos = ndc;
-    plane_pos.y = -plane_pos.y;
-    let plane_dir = tan(mat._PerspectiveFOV.xy * 0.5) * plane_pos;
-    return rotate_dir(normalize(vec3<f32>(plane_dir, 1.0)), mat._PerspectiveFOV.zw);
-}
-
 fn apply_offset(view_dir: vec3<f32>) -> vec3<f32> {
     if (!uvu::kw_enabled(mat._OFFSET)) {
         return view_dir;
     }
 
-    let offset_uv = dir_to_uv(view_dir);
+    let offset_uv = p360::dir_to_uv(view_dir, mat._FOV);
     let offset_sample =
         textureSampleLevel(_OffsetTex, _OffsetTex_sampler, uvu::apply_st(offset_uv, mat._OffsetTex_ST), 0.0).rg;
     let offset_mask = textureSampleLevel(_OffsetMask, _OffsetMask_sampler, offset_uv, 0.0).rg;
     let offset = (offset_sample * 2.0 - vec2<f32>(1.0)) * offset_mask * mat._OffsetMagnitude.xy;
-    return rotate_dir(view_dir, offset);
-}
-
-fn is_outside_uv(uv: vec2<f32>) -> bool {
-    return uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0;
+    return p360::rotate_dir(view_dir, offset);
 }
 
 fn sample_equirect(view_dir: vec3<f32>, view_layer: u32) -> vec4<f32> {
-    var uv = dir_to_uv(view_dir);
-    if (is_outside_uv(uv)) {
+    var uv = p360::dir_to_uv(view_dir, mat._FOV);
+    if (p360::is_outside_uv(uv)) {
         if (uvu::kw_enabled(mat.OUTSIDE_COLOR)) {
             return mat._OutsideColor;
         }
@@ -181,18 +134,14 @@ fn sample_cubemap(view_dir: vec3<f32>) -> vec4<f32> {
 }
 
 fn finish_color(c_in: vec4<f32>) -> vec4<f32> {
-    var c = c_in;
-    c = vec4<f32>(
-        pow(max(c.rgb, vec3<f32>(0.0)), vec3<f32>(max(mat._Gamma, 0.000001))) * mat._Exposure,
-        c.a,
-    ) * mat._Tint;
-
-    if (uvu::kw_enabled(mat._CLAMP_INTENSITY)) {
-        let m = max(c.r, max(c.g, c.b));
-        if (m > mat._MaxIntensity && m > 0.0) {
-            c = vec4<f32>(c.rgb * (mat._MaxIntensity / m), c.a);
-        }
-    }
+    let c = p360::apply_tint_exposure_and_clamp(
+        c_in,
+        mat._Tint,
+        mat._Gamma,
+        mat._Exposure,
+        uvu::kw_enabled(mat._CLAMP_INTENSITY),
+        mat._MaxIntensity,
+    );
     return rg::retain_globals_additive(c);
 }
 
@@ -206,7 +155,7 @@ fn base_view_dir(ndc: vec2<f32>, view_layer: u32) -> vec3<f32> {
     let camera_ray_world = skybox::world_ray_from_view_ray(camera_ray_view, view, view_layer);
 
     if (uvu::kw_enabled(mat._PERSPECTIVE)) {
-        return perspective_view_dir(ndc);
+        return p360::perspective_view_dir_from_ndc(ndc, mat._PerspectiveFOV);
     }
     return normalize(-camera_ray_world);
 }

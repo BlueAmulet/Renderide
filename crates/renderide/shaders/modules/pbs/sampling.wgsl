@@ -2,9 +2,9 @@
 
 #define_import_path renderide::pbs::sampling
 
-#import renderide::normal_decode as nd
+#import renderide::core::normal_decode as nd
 #import renderide::pbs::normal as pnorm
-#import renderide::texture_sampling as ts
+#import renderide::core::texture_sampling as ts
 
 fn roughness_from_smoothness(smoothness: f32) -> f32 {
     return clamp(1.0 - smoothness, 0.0, 1.0);

@@ -15,7 +15,13 @@ pub(super) fn acquire_swapchain_image(
     swapchain: &Mutex<xr::Swapchain<xr::Vulkan>>,
 ) -> Result<usize, xr::sys::Result> {
     let _gate = gpu.gpu_queue_access_gate().lock();
-    swapchain.lock().acquire_image().map(|i| i as usize)
+    swapchain
+        .lock()
+        .acquire_image()
+        .inspect_err(|e| {
+            logger::warn!("OpenXR swapchain acquire_image failed: {e:?}");
+        })
+        .map(|i| i as usize)
 }
 
 /// Releases one OpenXR swapchain image while holding the shared Vulkan queue access gate.
@@ -28,5 +34,7 @@ pub(super) fn release_swapchain_image(
     swapchain: &Mutex<xr::Swapchain<xr::Vulkan>>,
 ) -> Result<(), xr::sys::Result> {
     let _gate = gpu.gpu_queue_access_gate().lock();
-    swapchain.lock().release_image()
+    swapchain.lock().release_image().inspect_err(|e| {
+        logger::warn!("OpenXR swapchain release_image failed: {e:?}");
+    })
 }

@@ -53,12 +53,32 @@ fn define_import_path(src: &str) -> Option<&str> {
     })
 }
 
+fn source_file(path: impl AsRef<Path>) -> io::Result<String> {
+    fs::read_to_string(path).map(normalize_line_endings)
+}
+
+fn normalize_line_endings(src: String) -> String {
+    if src.contains('\r') {
+        src.replace("\r\n", "\n").replace('\r', "\n")
+    } else {
+        src
+    }
+}
+
+#[test]
+fn source_normalization_accepts_windows_line_endings() {
+    assert_eq!(
+        normalize_line_endings("line one\r\nline two\rline three".to_owned()),
+        "line one\nline two\nline three"
+    );
+}
+
 fn material_source(file_name: &str) -> io::Result<String> {
-    fs::read_to_string(manifest_dir().join("shaders/materials").join(file_name))
+    source_file(manifest_dir().join("shaders/materials").join(file_name))
 }
 
 fn module_source(file_name: &str) -> io::Result<String> {
-    fs::read_to_string(manifest_dir().join("shaders/modules").join(file_name))
+    source_file(manifest_dir().join("shaders/modules").join(file_name))
 }
 
 fn declares_f32_field(src: &str, field_name: &str) -> bool {

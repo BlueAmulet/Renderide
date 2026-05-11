@@ -36,6 +36,12 @@ pub(crate) struct MeshCullGeometry {
     pub world_aabb: Option<(Vec3, Vec3)>,
     /// World matrix for rigid meshes when [`Self::world_aabb`] was built from local bounds.
     pub rigid_world_matrix: Option<Mat4>,
+    /// World transform whose upper-3x3 determinant selects front-face winding.
+    ///
+    /// This is separate from [`Self::rigid_world_matrix`] because skinned meshes can provide
+    /// world-space deformed vertex streams while still needing root-transform parity for culling and
+    /// `front_facing`-driven shading.
+    pub front_face_world_matrix: Option<Mat4>,
 }
 
 /// World-space AABB (and rigid matrix when applicable) for culling, evaluated once per draw slot.
@@ -65,12 +71,14 @@ pub(crate) fn mesh_world_geometry_for_cull_with_head(
         return MeshCullGeometry {
             world_aabb: None,
             rigid_world_matrix: None,
+            front_face_world_matrix: None,
         };
     }
     if target.scene.space(target.space_id).is_none() {
         return MeshCullGeometry {
             world_aabb: None,
             rigid_world_matrix: None,
+            front_face_world_matrix: None,
         };
     }
     if target.skinned {
@@ -78,6 +86,7 @@ pub(crate) fn mesh_world_geometry_for_cull_with_head(
             return MeshCullGeometry {
                 world_aabb: None,
                 rigid_world_matrix: None,
+                front_face_world_matrix: None,
             };
         };
         // Posed bound from the host lives in the renderer-root local frame. Transform it by the
@@ -95,6 +104,7 @@ pub(crate) fn mesh_world_geometry_for_cull_with_head(
             return MeshCullGeometry {
                 world_aabb: None,
                 rigid_world_matrix: None,
+                front_face_world_matrix: None,
             };
         };
         let object_bounds = sk
@@ -104,6 +114,7 @@ pub(crate) fn mesh_world_geometry_for_cull_with_head(
         MeshCullGeometry {
             world_aabb: world_aabb_from_local_bounds(object_bounds, root_world),
             rigid_world_matrix: None,
+            front_face_world_matrix: Some(root_world),
         }
     } else {
         let Some(model) = target.scene.world_matrix_for_render_context(
@@ -115,11 +126,13 @@ pub(crate) fn mesh_world_geometry_for_cull_with_head(
             return MeshCullGeometry {
                 world_aabb: None,
                 rigid_world_matrix: None,
+                front_face_world_matrix: None,
             };
         };
         MeshCullGeometry {
             world_aabb: world_aabb_from_local_bounds(&target.mesh.bounds, model),
             rigid_world_matrix: Some(model),
+            front_face_world_matrix: Some(model),
         }
     }
 }

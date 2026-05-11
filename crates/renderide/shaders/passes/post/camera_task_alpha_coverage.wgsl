@@ -1,6 +1,6 @@
 //! Fullscreen CameraRenderTask alpha repair from reverse-Z depth coverage.
 
-#import renderide::fullscreen as fs
+#import renderide::core::fullscreen as fs
 
 @group(0) @binding(0) var task_depth: texture_depth_2d;
 

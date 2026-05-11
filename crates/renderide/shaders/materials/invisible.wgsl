@@ -2,8 +2,8 @@
 //! discards. Used as a hit-volume material that contributes nothing to color or depth.
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 
 struct InvisibleMaterial {

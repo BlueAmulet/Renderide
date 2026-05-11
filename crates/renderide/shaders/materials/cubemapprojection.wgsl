@@ -4,9 +4,9 @@
 //! latitude, Y-axis spin by longitude), applies the host-supplied `_Rotation` orthonormal basis,
 //! and samples the cubemap. `FLIP > 0.5` negates the direction (Unity `FLIP` multi-compile).
 
-#import renderide::cubemap_storage as cubemap_storage
-#import renderide::filter_vertex as fv
-#import renderide::globals as rg
+#import renderide::skybox::cubemap_storage as cubemap_storage
+#import renderide::post::filter_vertex as fv
+#import renderide::frame::globals as rg
 
 struct CubemapProjectionMaterial {
     _Rotation: mat4x4<f32>,

@@ -11,12 +11,12 @@
 //! zero, which makes the shift inert for materials that don't opt into offset sampling.
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
-#import renderide::alpha_clip_sample as acs
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
+#import renderide::material::alpha_clip_sample as acs
 #import renderide::mesh::billboard as mb
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct BillboardUnlitMaterial {
     _Color: vec4<f32>,

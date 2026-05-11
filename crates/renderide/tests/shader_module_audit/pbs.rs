@@ -4,7 +4,7 @@ use super::*;
 
 #[test]
 fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()> {
-    let birp = module_source("birp_light.wgsl")?;
+    let birp = module_source("lighting/birp.wgsl")?;
     assert!(
         birp.contains(
             "fn direct_light_intensity(intensity: f32) -> f32 {\n    return intensity * INTENSITY_BOOST;\n}"
@@ -16,7 +16,7 @@ fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()>
         "punctual distance attenuation must keep the existing intensity boost"
     );
 
-    let pbs_brdf = module_source("pbs_brdf.wgsl")?;
+    let pbs_brdf = module_source("pbs/brdf.wgsl")?;
     assert!(
         pbs_brdf.contains("out.attenuation = bl::direct_light_intensity(light.intensity);"),
         "PBS directional lights must use the shared intensity boost"
@@ -29,7 +29,7 @@ fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()>
         "PBS point and spot lights must continue using boosted distance attenuation"
     );
 
-    let xiexe = module_source("xiexe_toon2_lighting.wgsl")?;
+    let xiexe = module_source("xiexe/toon2/lighting.wgsl")?;
     assert!(
         xiexe.contains("bl::direct_light_intensity(light.intensity),"),
         "Xiexe directional lights must use the shared intensity boost"
@@ -88,7 +88,7 @@ fn standard_pbs_roots_use_unity_standard_packed_channels() -> io::Result<()> {
 
 #[test]
 fn pbs_indirect_specular_energy_respects_zero_f0() -> io::Result<()> {
-    let brdf = module_source("pbs_brdf.wgsl")?;
+    let brdf = module_source("pbs/brdf.wgsl")?;
 
     for required in [
         "let f90 = vec3<f32>(f90_from_f0(clamped_f0));",
@@ -96,7 +96,7 @@ fn pbs_indirect_specular_energy_respects_zero_f0() -> io::Result<()> {
     ] {
         assert!(
             brdf.contains(required),
-            "pbs_brdf.wgsl must contain `{required}`"
+            "pbs/brdf.wgsl must contain `{required}`"
         );
     }
 
@@ -104,15 +104,14 @@ fn pbs_indirect_specular_energy_respects_zero_f0() -> io::Result<()> {
         !brdf.contains(
             "return mix(vec3<f32>(dfg.x), vec3<f32>(dfg.y), clamp(f0, vec3<f32>(0.0), vec3<f32>(1.0)));"
         ),
-        "pbs_brdf.wgsl must not use the old implicit f90=1 DFG formula"
+        "pbs/brdf.wgsl must not use the old implicit f90=1 DFG formula"
     );
     Ok(())
 }
 
 #[test]
 fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
-    let sampling_src =
-        fs::read_to_string(manifest_dir().join("shaders/modules/pbs/sampling.wgsl"))?;
+    let sampling_src = source_file(manifest_dir().join("shaders/modules/pbs/sampling.wgsl"))?;
     assert!(
         sampling_src.contains("return clamp(1.0 - smoothness, 0.0, 1.0);"),
         "PBS smoothness conversion must keep perceptual roughness at 0 for mirror-smooth indirect reflections"
@@ -122,7 +121,7 @@ fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
         "PBS smoothness conversion must not apply the direct-light roughness floor globally"
     );
 
-    let brdf_src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs_brdf.wgsl"))?;
+    let brdf_src = source_file(manifest_dir().join("shaders/modules/pbs/brdf.wgsl"))?;
     for required in [
         "const MIN_ALPHA: f32 = 0.002;",
         "fn direct_alpha_from_perceptual_roughness(",
@@ -131,12 +130,11 @@ fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
     ] {
         assert!(
             brdf_src.contains(required),
-            "pbs_brdf.wgsl must contain `{required}`"
+            "pbs/brdf.wgsl must contain `{required}`"
         );
     }
 
-    let lighting_src =
-        fs::read_to_string(manifest_dir().join("shaders/modules/pbs/lighting.wgsl"))?;
+    let lighting_src = source_file(manifest_dir().join("shaders/modules/pbs/lighting.wgsl"))?;
     for required in [
         "let direct_roughness = brdf::direct_perceptual_roughness(s.roughness);",
         "let direct_dfg = brdf::sample_ibl_dfg_lut(direct_roughness, n_dot_v);",
@@ -149,7 +147,7 @@ fn pbs_roughness_keeps_indirect_mirror_path_unclamped() -> io::Result<()> {
     }
 
     for path in wgsl_files_recursive("shaders/materials")? {
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         for forbidden in [
             "clamp(1.0 - smoothness, 0.045, 1.0)",
             "clamp(1.0 - clamp(smoothness, 0.0, 1.0), 0.045, 1.0)",
@@ -213,13 +211,13 @@ fn pbs_lerp_preserves_variant_channels_and_raw_lerp() -> io::Result<()> {
 fn shared_pbs_lighting_roots_do_not_duplicate_clustered_lighting() -> io::Result<()> {
     let mut offenders = Vec::new();
     for path in wgsl_files_recursive("shaders/materials")? {
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         if !src.contains("renderide::pbs::lighting") {
             continue;
         }
 
         for forbidden in [
-            "#import renderide::sh2_ambient",
+            "#import renderide::ibl::sh2_ambient",
             "#import renderide::pbs::brdf",
             "#import renderide::pbs::cluster",
             "fn clustered_direct_lighting",
@@ -248,7 +246,7 @@ fn shared_pbs_lighting_roots_do_not_duplicate_clustered_lighting() -> io::Result
 
 #[test]
 fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> {
-    let normal_src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs_normal.wgsl"))?;
+    let normal_src = source_file(manifest_dir().join("shaders/modules/pbs/normal.wgsl"))?;
     for required in [
         "fn visible_side_tbn(",
         "select(-1.0, 1.0, front_facing)",
@@ -258,7 +256,7 @@ fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> 
     ] {
         assert!(
             normal_src.contains(required),
-            "pbs_normal.wgsl must define visible-side TBN helper containing `{required}`"
+            "pbs/normal.wgsl must define visible-side TBN helper containing `{required}`"
         );
     }
 
@@ -299,7 +297,7 @@ fn pbs_dualsided_shaders_use_visible_side_tbn_for_backfaces() -> io::Result<()> 
 
 #[test]
 fn pbs_standard_parallax_uses_tangent_space_view_dir() -> io::Result<()> {
-    let module_src = fs::read_to_string(manifest_dir().join("shaders/modules/pbs/parallax.wgsl"))?;
+    let module_src = source_file(manifest_dir().join("shaders/modules/pbs/parallax.wgsl"))?;
     for required in [
         "#define_import_path renderide::pbs::parallax",
         "rg::view_dir_for_world_pos(world_pos, view_layer)",
@@ -433,7 +431,7 @@ fn standard_material_roots_do_not_duplicate_clustered_pbs_lighting() -> io::Resu
     let mut offenders = Vec::new();
     for path in wgsl_files_recursive("shaders/materials")? {
         let label = file_label(&path);
-        let src = fs::read_to_string(&path)?;
+        let src = source_file(&path)?;
         if label == "shaders/materials/toonstandard.wgsl"
             || label == "shaders/materials/toonwater.wgsl"
         {
@@ -441,7 +439,7 @@ fn standard_material_roots_do_not_duplicate_clustered_pbs_lighting() -> io::Resu
         }
 
         for forbidden in [
-            "#import renderide::sh2_ambient",
+            "#import renderide::ibl::sh2_ambient",
             "#import renderide::pbs::cluster",
             "cluster_id_from_frag",
             "direct_radiance_metallic",

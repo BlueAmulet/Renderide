@@ -2,9 +2,9 @@
 //! and `Blend SrcAlpha OneMinusSrcAlpha` for HUD-style overlays.
 
 
-#import renderide::globals as rg
+#import renderide::frame::globals as rg
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct OverlayMaterial {
     _Blend: vec4<f32>,

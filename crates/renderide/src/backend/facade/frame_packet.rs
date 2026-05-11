@@ -16,7 +16,6 @@ use crate::world_mesh::{
 
 use super::draw_preparation::DrawPreparationExtractDesc;
 use super::{OcclusionSystem, RenderBackend};
-use crate::backend::resource_scope::ReleasedRenderSpaceResources;
 
 /// Immutable backend-owned extraction snapshot produced by [`RenderBackend::extract_frame_shared`].
 ///
@@ -53,16 +52,9 @@ pub(crate) struct ExtractedFrameShared<'a> {
 
 impl RenderBackend {
     /// Applies scene mutation reports to backend-owned CPU render-world caches.
-    pub(crate) fn note_scene_apply_report(
-        &mut self,
-        report: &SceneApplyReport,
-        scene: &SceneCoordinator,
-    ) {
+    pub(crate) fn note_scene_apply_report(&mut self, report: &SceneApplyReport) {
         self.draw_preparation.note_scene_apply_report(report);
-        let released = self
-            .resource_scopes
-            .apply_scene_report(report, scene, &self.materials);
-        self.purge_released_render_space_resources(released);
+        self.purge_closed_render_space_resources(&report.removed_spaces);
     }
 
     /// Applies world-cache flush reports to backend-owned CPU render-world caches.
@@ -70,32 +62,20 @@ impl RenderBackend {
         self.draw_preparation.note_scene_cache_flush_report(report);
     }
 
-    fn purge_released_render_space_resources(&mut self, released: ReleasedRenderSpaceResources) {
-        if released.is_empty() {
+    fn purge_closed_render_space_resources(&mut self, removed_spaces: &[RenderSpaceId]) {
+        if removed_spaces.is_empty() {
             return;
         }
-        profiling::scope!("backend::purge_released_render_space_resources");
+        profiling::scope!("backend::purge_closed_render_space_resources");
 
-        self.materials.purge_texture_reference_caches();
         self.reflection_probes
-            .purge_render_space_resources(&released.removed_spaces, &released.assets);
-        let retired_views = self.retire_views_for_render_spaces(&released.removed_spaces);
-        let skin_entries = self
-            .frame_services
-            .purge_skin_cache_spaces(&released.removed_spaces);
-        self.materials.purge_released_material_assets(
-            &released.assets.materials,
-            &released.assets.property_blocks,
-        );
-        let asset_summary = self
-            .asset_transfers
-            .purge_render_space_assets(&released.assets);
+            .purge_render_space_resources(removed_spaces);
+        let retired_views = self.retire_views_for_render_spaces(removed_spaces);
+        let skin_entries = self.frame_services.purge_skin_cache_spaces(removed_spaces);
 
         logger::info!(
-            "world-close resource purge: spaces={} zero_owner_assets={} asset_purges={} views={} skin_entries={}",
-            released.removed_spaces.len(),
-            released.assets.total_len(),
-            asset_summary.total(),
+            "world-close resource purge: spaces={} views={} skin_entries={}",
+            removed_spaces.len(),
             retired_views,
             skin_entries
         );
@@ -169,5 +149,55 @@ impl RenderBackend {
                 inner_parallelism,
                 view_shader_permutations,
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shared::{SetRenderTextureFormat, SetTexture2DFormat};
+
+    #[test]
+    fn closed_render_space_cleanup_preserves_renderer_session_asset_catalogs() {
+        let mut backend = RenderBackend::new();
+        backend.asset_transfers.catalogs.texture_formats.insert(
+            10,
+            SetTexture2DFormat {
+                asset_id: 10,
+                ..Default::default()
+            },
+        );
+        backend
+            .asset_transfers
+            .catalogs
+            .render_texture_formats
+            .insert(
+                20,
+                SetRenderTextureFormat {
+                    asset_id: 20,
+                    ..Default::default()
+                },
+            );
+        let report = SceneApplyReport {
+            removed_spaces: vec![RenderSpaceId(7)],
+            ..Default::default()
+        };
+
+        backend.note_scene_apply_report(&report);
+
+        assert!(
+            backend
+                .asset_transfers
+                .catalogs
+                .texture_formats
+                .contains_key(&10)
+        );
+        assert!(
+            backend
+                .asset_transfers
+                .catalogs
+                .render_texture_formats
+                .contains_key(&20)
+        );
     }
 }

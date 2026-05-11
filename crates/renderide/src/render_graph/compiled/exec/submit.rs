@@ -34,10 +34,17 @@ fn drain_upload_command_buffer(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     max_buffer_size: u64,
+    avoid_mapped_staging: bool,
 ) -> DrainedUploadCommand {
     profiling::scope!("gpu::drain_upload_batch");
     let upload_drain_start = Instant::now();
-    let upload_flush = upload_batch.drain_and_flush(device, queue, max_buffer_size, upload_arena);
+    let upload_flush = upload_batch.drain_and_flush(
+        device,
+        queue,
+        max_buffer_size,
+        upload_arena,
+        avoid_mapped_staging,
+    );
     let drain_ms = elapsed_ms(upload_drain_start);
     if let Some(flush) = upload_flush {
         DrainedUploadCommand {
@@ -98,14 +105,27 @@ fn drain_upload_for_submit(
     upload_batch: &FrameUploadBatch,
     queue_ref: &wgpu::Queue,
 ) -> DrainedUploadCommand {
+    let mut avoid_mapped_staging = mv_ctx.gpu.avoid_mapped_buffers_this_frame();
+    if avoid_mapped_staging {
+        mv_ctx.backend.upload_arena_mut().reset();
+    } else {
+        mv_ctx.backend.upload_arena_mut().maintain(mv_ctx.device);
+        if mv_ctx.gpu.observe_mapped_buffer_invalidation_during_frame() {
+            logger::warn!(
+                "frame upload drain observed mapped-buffer invalidation; using queue fallback"
+            );
+            mv_ctx.backend.upload_arena_mut().reset();
+            avoid_mapped_staging = true;
+        }
+    }
     let upload_arena = mv_ctx.backend.upload_arena_mut();
-    upload_arena.maintain(mv_ctx.device);
     drain_upload_command_buffer(
         upload_batch,
         upload_arena,
         mv_ctx.device,
         queue_ref,
         mv_ctx.gpu_limits.max_buffer_size(),
+        avoid_mapped_staging,
     )
 }
 

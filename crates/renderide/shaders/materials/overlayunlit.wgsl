@@ -5,11 +5,11 @@
 //! `_POLARUV`, `_MUL_RGB_BY_ALPHA`, `_MUL_ALPHA_INTENSITY`.
 
 
-#import renderide::globals as rg
-#import renderide::alpha_clip_sample as acs
+#import renderide::frame::globals as rg
+#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::sample as ms
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct OverlayUnlitMaterial {
     _BehindColor: vec4<f32>,

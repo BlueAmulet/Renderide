@@ -9,9 +9,9 @@
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
-#import renderide::alpha_clip_sample as acs
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::material::alpha_clip_sample as acs
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
 
 struct PbsDualSidedSpecularMaterial {
     _Color: vec4<f32>,

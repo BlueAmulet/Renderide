@@ -2,7 +2,7 @@
 //! `#ifdef MULTIVIEW` selects the per-eye layer; the non-multiview path samples layer 0.
 //! Future exposure / tonemap / grading hook.
 
-#import renderide::fullscreen as fs
+#import renderide::core::fullscreen as fs
 
 @group(0) @binding(0) var scene_color_hdr: texture_2d_array<f32>;
 @group(0) @binding(1) var scene_color_sampler: sampler;

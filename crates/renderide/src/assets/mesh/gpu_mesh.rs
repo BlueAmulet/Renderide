@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::shared::{
     IndexBufferFormat, MeshUploadData, RenderBoundingBox, SubmeshBufferDescriptor, SubmeshTopology,
-    VertexAttributeDescriptor, VertexAttributeFormat, VertexAttributeType,
+    VertexAttributeDescriptor, VertexAttributeType,
 };
 use glam::Mat4;
 
@@ -210,9 +210,10 @@ pub(super) fn compatible_for_in_place_real_skeleton(
     vertex_stride_us: usize,
     vertex_slice: &[u8],
 ) -> bool {
+    let bc = &raw[layout.bone_counts_start..layout.bone_counts_start + layout.bone_counts_length];
     let bw =
         &raw[layout.bone_weights_start..layout.bone_weights_start + layout.bone_weights_length];
-    match split_bone_weights_tail_for_gpu(bw, vc_usize) {
+    match split_bone_weights_tail_for_gpu(bc, bw, vc_usize) {
         Some((ref ib, ref wb)) => {
             if mesh.bone_indices_buffer.as_ref().map(|b| b.size()) != Some(ib.len() as u64) {
                 return false;
@@ -268,11 +269,9 @@ fn has_supported_vertex_attribute(
     target: VertexAttributeType,
     min_dimensions: i32,
 ) -> bool {
-    attrs.iter().any(|attr| {
-        (attr.attribute as i16) == (target as i16)
-            && attr.format == VertexAttributeFormat::Float32
-            && attr.dimensions >= min_dimensions
-    })
+    attrs
+        .iter()
+        .any(|attr| (attr.attribute as i16) == (target as i16) && attr.dimensions >= min_dimensions)
 }
 
 fn can_generate_missing_tangents(data: &MeshUploadData, layout: &MeshBufferLayout) -> bool {
@@ -503,7 +502,7 @@ pub(super) fn write_in_place_bone_buffers(
             if let Some(bcb) = &ctx.mesh.bone_counts_buffer {
                 ctx.queue.write_buffer(bcb.as_ref(), 0, bc);
             }
-            if let Some((ib, wb)) = split_bone_weights_tail_for_gpu(bw, ctx.vertex_count) {
+            if let Some((ib, wb)) = split_bone_weights_tail_for_gpu(bc, bw, ctx.vertex_count) {
                 if let Some(bi) = &ctx.mesh.bone_indices_buffer {
                     ctx.queue.write_buffer(bi.as_ref(), 0, &ib);
                 }

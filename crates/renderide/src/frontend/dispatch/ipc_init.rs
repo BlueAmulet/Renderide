@@ -8,6 +8,7 @@ use crate::shared::{
 use super::command_dispatch::RunningCommandEffect;
 use super::command_kind::{RendererCommandLifecycle, classify_renderer_command};
 use super::commands::handle_running_command;
+use super::renderer_command_kind::renderer_command_variant_tag;
 
 /// `Renderide` plus the `renderide` crate version (`env!("CARGO_PKG_VERSION")` at compile time).
 const RENDERER_IDENTIFIER: &str = concat!("Renderide ", env!("CARGO_PKG_VERSION"));
@@ -57,7 +58,10 @@ pub(crate) enum IpcDispatchEffect {
     /// Defer the command until init is finalized.
     DeferUntilFinalized(Box<RendererCommand>),
     /// Mark init as fatally invalid because init data was expected first.
-    FatalExpectedInitData,
+    FatalExpectedInitData {
+        /// Actual command tag observed while waiting for init data.
+        actual_tag: &'static str,
+    },
 }
 
 /// Computes the init-routing action without touching runtime state.
@@ -111,7 +115,9 @@ pub(crate) fn dispatch_ipc_command(
         InitDispatchDecision::Ignore => IpcDispatchEffect::Ignore,
         InitDispatchDecision::ApplyInitData => match cmd {
             RendererCommand::RendererInitData(d) => IpcDispatchEffect::ApplyInitData(d),
-            _ => IpcDispatchEffect::FatalExpectedInitData,
+            _ => IpcDispatchEffect::FatalExpectedInitData {
+                actual_tag: renderer_command_variant_tag(&cmd),
+            },
         },
         InitDispatchDecision::Finalize => IpcDispatchEffect::Finalize,
         InitDispatchDecision::DispatchRunning => {
@@ -120,7 +126,9 @@ pub(crate) fn dispatch_ipc_command(
         InitDispatchDecision::DeferUntilFinalized => {
             IpcDispatchEffect::DeferUntilFinalized(Box::new(cmd))
         }
-        InitDispatchDecision::FatalExpectedInitData => IpcDispatchEffect::FatalExpectedInitData,
+        InitDispatchDecision::FatalExpectedInitData => IpcDispatchEffect::FatalExpectedInitData {
+            actual_tag: renderer_command_variant_tag(&cmd),
+        },
     }
 }
 
@@ -214,6 +222,19 @@ mod tests {
                 RendererCommand::RendererInitData(RendererInitData::default())
             ),
             IpcDispatchEffect::ApplyInitData(_)
+        ));
+    }
+
+    #[test]
+    fn fatal_init_order_error_reports_actual_tag() {
+        assert!(matches!(
+            dispatch_ipc_command(
+                InitState::Uninitialized,
+                RendererCommand::QualityConfig(QualityConfig::default())
+            ),
+            IpcDispatchEffect::FatalExpectedInitData {
+                actual_tag: "QualityConfig"
+            }
         ));
     }
 

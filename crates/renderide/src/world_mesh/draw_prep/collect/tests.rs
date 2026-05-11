@@ -5,7 +5,9 @@ use glam::{Mat4, Quat, Vec3};
 use super::*;
 use crate::gpu_pools::MeshPool;
 use crate::materials::host_data::{MaterialDictionary, MaterialPropertyStore, PropertyIdRegistry};
-use crate::materials::{MaterialPipelinePropertyIds, MaterialRouter, RasterPipelineKind};
+use crate::materials::{
+    MaterialPipelinePropertyIds, MaterialRouter, RasterFrontFace, RasterPipelineKind,
+};
 use crate::scene::{MeshRendererInstanceId, RenderSpaceId, SceneCoordinator};
 use crate::shared::{RenderTransform, RenderingContext};
 
@@ -31,6 +33,7 @@ fn prepared_draw(space_id: RenderSpaceId) -> FramePreparedDraw {
         skinned: false,
         world_space_deformed: false,
         blendshape_deformed: false,
+        tangent_blendshape_deform_active: false,
         slot_index: 0,
         first_index: 0,
         index_count: 3,
@@ -55,6 +58,20 @@ fn prepared_draws_share_renderer_groups_material_slots_only() {
 
     assert!(prepared_draws_share_renderer(&first_slot, &second_slot));
     assert!(!prepared_draws_share_renderer(&second_slot, &next_renderer));
+}
+
+#[test]
+fn world_space_deformed_front_face_uses_deform_root_parity() {
+    let mirrored = Mat4::from_scale(Vec3::new(-1.0, 1.0, 1.0));
+
+    assert_eq!(
+        front_face_for_draw_matrices(true, None, Some(mirrored)),
+        RasterFrontFace::CounterClockwise
+    );
+    assert_eq!(
+        front_face_for_draw_matrices(false, None, Some(mirrored)),
+        RasterFrontFace::Clockwise
+    );
 }
 
 /// Unit-scale renderer nodes remain eligible for draw collection.

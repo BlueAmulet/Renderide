@@ -85,6 +85,16 @@ impl DualQueueIpc {
         let factory = QueueFactory::new();
         let cap = params.queue_capacity;
 
+        logger::info!(
+            "IPC connect: base={} capacity={} primary_sub={} primary_pub={} background_sub={} background_pub={}",
+            params.queue_name,
+            cap,
+            subscriber_queue_name(&params.queue_name, "Primary"),
+            publisher_queue_name(&params.queue_name, "Primary"),
+            subscriber_queue_name(&params.queue_name, "Background"),
+            publisher_queue_name(&params.queue_name, "Background"),
+        );
+
         let primary_sub = open_subscriber(factory, params, "Primary", cap)?;
         let background_sub = open_subscriber(factory, params, "Background", cap)?;
         let primary_pub = open_publisher(factory, params, "Primary", cap)?;
@@ -226,6 +236,15 @@ impl DualQueueIpc {
         }
         self.reliable_background_outbox
             .enqueue(self.send_buffer[..written].to_vec());
+        let pending_count = self.reliable_background_outbox.len();
+        let pending_bytes = self.reliable_background_outbox.pending_bytes();
+        if pending_count == 64 || (pending_count > 64 && pending_count.is_multiple_of(64)) {
+            logger::warn!(
+                "IPC reliable background outbox pressure: pending_messages={} pending_bytes={}",
+                pending_count,
+                pending_bytes
+            );
+        }
         self.flush_reliable_outbound();
         true
     }

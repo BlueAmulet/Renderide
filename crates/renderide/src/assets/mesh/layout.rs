@@ -24,6 +24,9 @@ pub use buffer_layout::{
 pub use skinning::split_bone_weights_tail_for_gpu;
 #[cfg(test)]
 pub use streams::vertex_float4_stream_bytes;
+pub(in crate::assets::mesh) use streams::{
+    VertexDecodeKind, decode_vertex_vec2, decode_vertex_vec3, decode_vertex_vec4,
+};
 pub use streams::{
     attribute_offset_and_size, color_float4_stream_bytes,
     extract_float3_position_normal_as_vec4_streams, uv0_float2_stream_bytes,

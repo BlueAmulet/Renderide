@@ -1,0 +1,87 @@
+name: Feature request
+description: Request a new capability, workflow, platform improvement, or renderer tool.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for new functionality that is not primarily about matching existing Unity renderer behavior. For Unity behavior gaps, use the parity request form.
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-request checklist
+      options:
+        - label: I searched existing issues and discussions for this request.
+          required: true
+        - label: This is about Renderide behavior, tooling, diagnostics, platform support, or renderer architecture.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What problem would this solve?
+      placeholder: "Example: It is hard to diagnose GPU timing spikes without a HUD counter for pass-level timings."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or behavior you want.
+    validations:
+      required: true
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      options:
+        - Rendering feature
+        - Material or shader support
+        - Lighting, shadows, or probes
+        - Post-processing
+        - VR or OpenXR
+        - Desktop windowing or presentation
+        - Performance or memory
+        - Diagnostics, logging, or profiling
+        - Developer workflow or testing
+        - Platform support
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Impact
+      description: Choose the practical impact of this request.
+      options:
+        - Blocks common use
+        - Improves correctness or parity
+        - Improves performance or stability
+        - Improves diagnostics or development
+        - Nice to have
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: List any workaround or alternate design you considered.
+      placeholder: Current workaround, why it is not enough, or not applicable.
+    validations:
+      required: false
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints and compatibility
+      description: Mention platform, GPU, VR, host protocol, shader, performance, or testing constraints if known.
+    validations:
+      required: false
+  - type: textarea
+    id: references
+    attributes:
+      label: References
+      description: Link screenshots, captures, papers, renderer examples, standards, or related issues.
+    validations:
+      required: false

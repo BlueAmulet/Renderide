@@ -2,8 +2,8 @@
 //!
 //! `_ClipRect` is written only when clipping is active; zero-area values leave clipping disabled.
 
-#import renderide::globals as rg
-#import renderide::math as rmath
+#import renderide::frame::globals as rg
+#import renderide::core::math as rmath
 #import renderide::mesh::vertex as mv
 
 struct UvRectMaterial {

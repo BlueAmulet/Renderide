@@ -5,10 +5,13 @@ use rayon::prelude::*;
 
 use crate::shared::{
     IndexBufferFormat, SubmeshBufferDescriptor, SubmeshTopology, VertexAttributeDescriptor,
-    VertexAttributeFormat, VertexAttributeType,
+    VertexAttributeType,
 };
 
-use super::layout::attribute_offset_and_size;
+use super::layout::{
+    VertexDecodeKind, attribute_offset_and_size, decode_vertex_vec2, decode_vertex_vec3,
+    decode_vertex_vec4,
+};
 
 const _: () = assert!(
     cfg!(target_endian = "little"),
@@ -71,7 +74,10 @@ pub(super) fn tangent_stream_bytes(
     }
 
     if !generate_missing {
-        return Some(default_tangent_stream_bytes(vertex_count));
+        return Some(
+            normal_based_tangent_stream_bytes(vertex_data, vertex_count, stride, attrs)
+                .unwrap_or_else(|| default_tangent_stream_bytes(vertex_count)),
+        );
     }
 
     Some(
@@ -84,6 +90,7 @@ pub(super) fn tangent_stream_bytes(
             index_format,
             submeshes,
         )
+        .or_else(|| normal_based_tangent_stream_bytes(vertex_data, vertex_count, stride, attrs))
         .unwrap_or_else(|| default_tangent_stream_bytes(vertex_count)),
     )
 }
@@ -95,30 +102,32 @@ fn host_tangent_stream_bytes(
     attrs: &[VertexAttributeDescriptor],
 ) -> Option<Vec<u8>> {
     let attr = find_attribute(attrs, VertexAttributeType::Tangent)?;
-    if attr.format != VertexAttributeFormat::Float32 || attr.dimensions < 3 {
+    if attr.dimensions < 3 {
         return None;
     }
     let (offset, size) = attribute_offset_and_size(attrs, VertexAttributeType::Tangent)?;
-    let dimensions = attr.dimensions.clamp(3, 4) as usize;
-    if size < dimensions * 4 {
-        return None;
-    }
     if vertex_count == 0 {
         return Some(Vec::new());
     }
     let last_base = (vertex_count - 1)
         .checked_mul(stride)?
         .checked_add(offset)?;
-    if last_base.checked_add(dimensions * 4)? > vertex_data.len() {
+    if last_base.checked_add(size)? > vertex_data.len() {
         return None;
     }
 
     let mut out = default_tangent_stream_bytes(vertex_count);
     let copy_one = |dst: &mut [u8], vertex: usize| {
         let base = vertex * stride + offset;
-        for component in 0..dimensions {
-            let src = base + component * 4;
-            dst[component * 4..component * 4 + 4].copy_from_slice(&vertex_data[src..src + 4]);
+        if let Some(tangent) = decode_vertex_vec4(
+            vertex_data,
+            base,
+            attr,
+            VertexDecodeKind::Direction,
+            DEFAULT_TANGENT,
+        ) {
+            let sanitized = sanitize_tangent(tangent);
+            dst.copy_from_slice(bytemuck::cast_slice(&sanitized));
         }
     };
     if vertex_count >= VERTEX_STREAM_PARALLEL_MIN {
@@ -133,6 +142,27 @@ fn host_tangent_stream_bytes(
     Some(out)
 }
 
+fn normal_based_tangent_stream_bytes(
+    vertex_data: &[u8],
+    vertex_count: usize,
+    stride: usize,
+    attrs: &[VertexAttributeDescriptor],
+) -> Option<Vec<u8>> {
+    let normals = read_vertex_stream3(
+        vertex_data,
+        vertex_count,
+        stride,
+        attrs,
+        VertexAttributeType::Normal,
+        VertexDecodeKind::Direction,
+    )?;
+    let tangents: Vec<[f32; 4]> = normals
+        .iter()
+        .map(|normal| tangent_from_normal(*normal))
+        .collect();
+    Some(encode_tangents(&tangents))
+}
+
 fn generate_mikktspace_tangent_stream_bytes(
     vertex_data: &[u8],
     index_data: &[u8],
@@ -142,26 +172,29 @@ fn generate_mikktspace_tangent_stream_bytes(
     index_format: IndexBufferFormat,
     submeshes: &[SubmeshBufferDescriptor],
 ) -> Option<Vec<u8>> {
-    let positions = read_float3_vertex_stream(
+    let positions = read_vertex_stream3(
         vertex_data,
         vertex_count,
         stride,
         attrs,
         VertexAttributeType::Position,
+        VertexDecodeKind::Position,
     )?;
-    let normals = read_float3_vertex_stream(
+    let normals = read_vertex_stream3(
         vertex_data,
         vertex_count,
         stride,
         attrs,
         VertexAttributeType::Normal,
+        VertexDecodeKind::Direction,
     )?;
-    let tex_coords = read_float2_vertex_stream(
+    let tex_coords = read_vertex_stream2(
         vertex_data,
         vertex_count,
         stride,
         attrs,
         VertexAttributeType::UV0,
+        VertexDecodeKind::TexCoord,
     )?;
     let indices = decode_indices(index_data, index_format)?;
     let faces = collect_triangle_faces(&indices, vertex_count, submeshes)?;
@@ -189,19 +222,20 @@ fn find_attribute(
         .find(|attr| (attr.attribute as i16) == (target as i16))
 }
 
-fn read_float3_vertex_stream(
+fn read_vertex_stream3(
     vertex_data: &[u8],
     vertex_count: usize,
     stride: usize,
     attrs: &[VertexAttributeDescriptor],
     target: VertexAttributeType,
+    kind: VertexDecodeKind,
 ) -> Option<Vec<[f32; 3]>> {
     let attr = find_attribute(attrs, target)?;
-    if attr.format != VertexAttributeFormat::Float32 || attr.dimensions < 3 {
+    if attr.dimensions < 3 {
         return None;
     }
     let (offset, size) = attribute_offset_and_size(attrs, target)?;
-    if size < 12 {
+    if size == 0 {
         return None;
     }
     if vertex_count == 0 {
@@ -210,13 +244,13 @@ fn read_float3_vertex_stream(
     let last_base = (vertex_count - 1)
         .checked_mul(stride)?
         .checked_add(offset)?;
-    if last_base.checked_add(12)? > vertex_data.len() {
+    if last_base.checked_add(size)? > vertex_data.len() {
         return None;
     }
 
     let read_one = |vertex: usize| -> [f32; 3] {
         let base = vertex * stride + offset;
-        bytemuck::pod_read_unaligned::<[f32; 3]>(&vertex_data[base..base + 12])
+        decode_vertex_vec3(vertex_data, base, attr, kind).unwrap_or([0.0, 0.0, 0.0])
     };
     let out: Vec<[f32; 3]> = if vertex_count >= VERTEX_STREAM_PARALLEL_MIN {
         (0..vertex_count).into_par_iter().map(read_one).collect()
@@ -226,19 +260,20 @@ fn read_float3_vertex_stream(
     Some(out)
 }
 
-fn read_float2_vertex_stream(
+fn read_vertex_stream2(
     vertex_data: &[u8],
     vertex_count: usize,
     stride: usize,
     attrs: &[VertexAttributeDescriptor],
     target: VertexAttributeType,
+    kind: VertexDecodeKind,
 ) -> Option<Vec<[f32; 2]>> {
     let attr = find_attribute(attrs, target)?;
-    if attr.format != VertexAttributeFormat::Float32 || attr.dimensions < 2 {
+    if attr.dimensions < 2 {
         return None;
     }
     let (offset, size) = attribute_offset_and_size(attrs, target)?;
-    if size < 8 {
+    if size == 0 {
         return None;
     }
     if vertex_count == 0 {
@@ -247,13 +282,13 @@ fn read_float2_vertex_stream(
     let last_base = (vertex_count - 1)
         .checked_mul(stride)?
         .checked_add(offset)?;
-    if last_base.checked_add(8)? > vertex_data.len() {
+    if last_base.checked_add(size)? > vertex_data.len() {
         return None;
     }
 
     let read_one = |vertex: usize| -> [f32; 2] {
         let base = vertex * stride + offset;
-        bytemuck::pod_read_unaligned::<[f32; 2]>(&vertex_data[base..base + 8])
+        decode_vertex_vec2(vertex_data, base, attr, kind).unwrap_or([0.0, 0.0])
     };
     let out: Vec<[f32; 2]> = if vertex_count >= VERTEX_STREAM_PARALLEL_MIN {
         (0..vertex_count).into_par_iter().map(read_one).collect()
@@ -369,6 +404,32 @@ fn sanitize_tangent(tangent: [f32; 4]) -> [f32; 4] {
     ]
 }
 
+fn tangent_from_normal(normal: [f32; 3]) -> [f32; 4] {
+    let Some(n) = normalize3(normal) else {
+        return DEFAULT_TANGENT;
+    };
+    let sign = if n[2] >= 0.0 { 1.0 } else { -1.0 };
+    let a = -1.0 / (sign + n[2]);
+    let b = n[0] * n[1] * a;
+    let tangent = [1.0 + sign * n[0] * n[0] * a, sign * b, -sign * n[0]];
+    let Some(t) = normalize3(tangent) else {
+        return DEFAULT_TANGENT;
+    };
+    [t[0], t[1], t[2], 1.0]
+}
+
+fn normalize3(v: [f32; 3]) -> Option<[f32; 3]> {
+    if !v.iter().all(|component| component.is_finite()) {
+        return None;
+    }
+    let len_squared = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    if len_squared <= TANGENT_EPSILON_SQUARED {
+        return None;
+    }
+    let inv_len = len_squared.sqrt().recip();
+    Some([v[0] * inv_len, v[1] * inv_len, v[2] * inv_len])
+}
+
 struct MikkGeometry {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
@@ -417,6 +478,7 @@ impl Geometry for MikkGeometry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::VertexAttributeFormat;
 
     fn attr(attribute: VertexAttributeType, dimensions: i32) -> VertexAttributeDescriptor {
         VertexAttributeDescriptor {
@@ -649,7 +711,9 @@ mod tests {
         let tangent_offset = 12 + 12 + 8;
         for v in 0..vertex_count {
             let base = v * stride + tangent_offset;
-            serial_out[v * 16..v * 16 + 16].copy_from_slice(&vertices[base..base + 16]);
+            let tangent = bytemuck::pod_read_unaligned::<[f32; 4]>(&vertices[base..base + 16]);
+            let tangent = sanitize_tangent(tangent);
+            serial_out[v * 16..v * 16 + 16].copy_from_slice(bytemuck::cast_slice(&tangent));
         }
         assert_eq!(parallel_out, serial_out);
     }

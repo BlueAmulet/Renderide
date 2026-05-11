@@ -1,6 +1,6 @@
 # Renderide
 
-A modern Rust + wgpu renderer for [Resonite](https://store.steampowered.com/app/2519830/Resonite/).
+A modern Rust + wgpu renderer for [Resonite](https://store.steampowered.com/app/2519830/Resonite/). Unofficial Renderide thread discussion [here](https://discord.com/channels/1040316820650991766/1156348246973751487) (in the Resonite Discord).
 
 ## Status
 
@@ -12,6 +12,35 @@ Visual bugs and missing features are expected.
 Resonite ships with a Unity-based renderer driven by the FrooxEngine host. Renderide is a drop-in replacement for that renderer, written in Rust on top of [wgpu](https://wgpu.rs/) and [OpenXR](https://www.khronos.org/openxr/). The host process is unchanged; Renderide attaches to it over shared-memory queues and takes over rendering, windowing, and XR.
 
 The split lets the engine and renderer evolve independently and lets the renderer target Vulkan, Metal, and DirectX 12 from a single Rust codebase.
+
+## Building and Running
+
+Prerequisites: a Vulkan-, Metal-, or DirectX 12-capable GPU and a Steam installation of [Resonite](https://store.steampowered.com/app/2519830/Resonite/).
+
+1. Clone this repository and switch to the `Renderide/` directory:
+
+   ```bash
+   git clone https://github.com/DoubleStyx/Renderide.git
+   cd Renderide
+   ```
+
+1. Install Rust with [Rustup](https://rustup.rs/) (if missing) and build the renderer:
+
+   ```bash
+   cargo build --release
+   ```
+
+1. Run the bootstrapper:
+
+   ```bash
+   ./target/release/bootstrapper
+   ```
+
+The bootstrapper will launch the Resonite host and connect Renderide automatically.
+
+- Enable validation layers in the config hud to get more detailed error messages for GPU crashes. Requires a restart.
+
+- Inspect logs in the `logs/` folder for panics, crashes, backtraces, and validation errors.
 
 ## Design goals
 
@@ -57,35 +86,6 @@ The workspace lives under `crates/`:
 | [`renderide-test`](crates/renderide-test) | Integration test harness that drives the renderer end-to-end. |
 
 A C# generator under [`generators/SharedTypeGenerator`](generators/SharedTypeGenerator) emits `crates/renderide-shared/src/shared.rs`. It is only needed when shared IPC types change.
-
-## Building and Running
-
-Prerequisites: a Vulkan-, Metal-, or DirectX 12-capable GPU and a Steam installation of [Resonite](https://store.steampowered.com/app/2519830/Resonite/).
-
-1. Clone this repository and switch to the `Renderide/` directory:
-
-   ```bash
-   git clone https://github.com/DoubleStyx/Renderide.git
-   cd Renderide
-   ```
-
-1. Install Rust with [Rustup](https://rustup.rs/) (if missing) and build the renderer:
-
-   ```bash
-   cargo build --release
-   ```
-
-1. Run the bootstrapper:
-
-   ```bash
-   ./target/release/bootstrapper
-   ```
-
-The bootstrapper will launch the Resonite host and connect Renderide automatically.
-
-- Enable validation layers in the config hud to get more detailed error messages for GPU crashes. Requires a restart.
-
-- Inspect logs in the `logs/` folder for panics, crashes, backtraces, and validation errors.
 
 ## Feature flags
 

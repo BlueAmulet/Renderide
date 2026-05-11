@@ -18,15 +18,20 @@ impl GpuContext {
         if self.config.present_mode == resolved {
             return;
         }
+        let previous = self.config.present_mode;
         self.config.present_mode = resolved;
         if let Some(surface) = self.surface.as_ref() {
             self.wait_for_previous_present();
             surface.configure(&self.device, &self.config);
         }
         logger::info!(
-            "Present mode set to {:?} (vsync={:?})",
+            "Present mode set: {:?} -> {:?} (vsync={:?} extent={}x{} format={:?})",
+            previous,
             self.config.present_mode,
-            mode
+            mode,
+            self.config.width,
+            self.config.height,
+            self.config.format,
         );
     }
 
@@ -39,6 +44,7 @@ impl GpuContext {
     /// [`wgpu::CurrentSurfaceTexture::Outdated`].
     pub fn reconfigure(&mut self, width: u32, height: u32) {
         profiling::scope!("gpu::reconfigure_surface");
+        let old = (self.config.width, self.config.height);
         self.config.width = width.max(1);
         self.config.height = height.max(1);
         if let Some(surface) = self.surface.as_ref() {
@@ -47,6 +53,15 @@ impl GpuContext {
         }
         self.depth_attachment = None;
         self.depth_extent_px = (0, 0);
+        logger::info!(
+            "Surface reconfigured: old_extent={}x{} new_extent={}x{} format={:?} present_mode={:?}",
+            old.0,
+            old.1,
+            self.config.width,
+            self.config.height,
+            self.config.format,
+            self.config.present_mode,
+        );
     }
 
     /// Whether this context drives a real swapchain surface (vs. headless offscreen primary target).
@@ -93,7 +108,12 @@ impl GpuContext {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Ok(t),
             wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
-                logger::info!("surface Lost or Outdated -- reconfiguring");
+                logger::info!(
+                    "surface Lost or Outdated -- reconfiguring (current_extent={}x{} present_mode={:?})",
+                    self.config.width,
+                    self.config.height,
+                    self.config.present_mode,
+                );
                 let size = self.window.as_ref().map(|w| w.surface_size());
                 if let Some(s) = size {
                     self.reconfigure(s.width, s.height);

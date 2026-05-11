@@ -8,11 +8,11 @@
 //! material keyword routing.
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
-#import renderide::procedural_sky as ps
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
+#import renderide::skybox::procedural as ps
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct ProceduralSkyboxMaterial {
     _SkyTint: vec4<f32>,

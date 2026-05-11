@@ -2,12 +2,12 @@
 //! distance from `_Point`.
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
-#import renderide::alpha_clip_sample as acs
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
+#import renderide::material::alpha_clip_sample as acs
 #import renderide::material::alpha as ma
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
+#import renderide::core::uv as uvu
 
 struct UnlitDistanceLerpMaterial {
     _Point: vec4<f32>,

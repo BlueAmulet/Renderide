@@ -1,6 +1,6 @@
 //! Fullscreen pass: applies the current auto-exposure EV to HDR scene color.
 
-#import renderide::fullscreen as fs
+#import renderide::core::fullscreen as fs
 
 @group(0) @binding(0) var scene_color_hdr: texture_2d_array<f32>;
 @group(0) @binding(1) var scene_color_sampler: sampler;

@@ -5,12 +5,12 @@
 //! not the side-by-side `eyeIndex` texture-coordinate offset Unity needs for single-pass stereo.
 
 
-#import renderide::globals as rg
-#import renderide::per_draw as pd
+#import renderide::frame::globals as rg
+#import renderide::draw::per_draw as pd
 #import renderide::material::alpha as ma
 #import renderide::mesh::vertex as mv
-#import renderide::uv_utils as uvu
-#import renderide::normal_decode as nd
+#import renderide::core::uv as uvu
+#import renderide::core::normal_decode as nd
 
 struct ReflectionMaterial {
     _Color: vec4<f32>,

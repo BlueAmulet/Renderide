@@ -14,6 +14,7 @@ use std::time::Duration;
 use parking_lot::RwLock;
 
 use crate::config::{WatchdogAction, WatchdogSettings};
+use crate::diagnostics::crash_context;
 
 use super::registry::{
     Heartbeat, HeartbeatRegistry, HeartbeatSlot, SlotEvaluation, evaluate_slot,
@@ -179,14 +180,17 @@ fn handle_slot(inner: &WatchdogInner, slot: &Arc<HeartbeatSlot>) {
             let trace = capture_hang_trace(slot);
             match trace {
                 Some(t) => logger::error!(
-                    "Watchdog: thread '{}' HANG -- last pet {elapsed_ms} ms ago (threshold {} ms)\n{t}",
+                    "Watchdog: thread '{}' HANG -- last pet {elapsed_ms} ms ago (threshold {} ms)\n{}{}",
                     slot.name,
-                    slot.hang_ns / 1_000_000
+                    slot.hang_ns / 1_000_000,
+                    crash_context::format_snapshot(),
+                    t,
                 ),
                 None => logger::error!(
-                    "Watchdog: thread '{}' HANG -- last pet {elapsed_ms} ms ago (threshold {} ms); stack capture unavailable",
+                    "Watchdog: thread '{}' HANG -- last pet {elapsed_ms} ms ago (threshold {} ms); stack capture unavailable\n{}",
                     slot.name,
-                    slot.hang_ns / 1_000_000
+                    slot.hang_ns / 1_000_000,
+                    crash_context::format_snapshot(),
                 ),
             }
             // Flush so the report is on disk before any subsequent abort.
