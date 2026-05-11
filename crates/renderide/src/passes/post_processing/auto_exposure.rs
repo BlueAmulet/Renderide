@@ -2,7 +2,8 @@
 //!
 //! The effect is split into two graph passes: a compute pass that meters HDR scene color and
 //! updates per-view exposure EV state, followed by a fullscreen raster pass that multiplies HDR
-//! scene color by the current exposure before tonemapping.
+//! scene color by the current exposure before tonemapping. Stereo views share one histogram and
+//! one exposure EV so both eyes adapt identically while the shader meters both texture layers.
 
 mod pipeline;
 

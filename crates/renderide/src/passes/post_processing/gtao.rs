@@ -19,10 +19,9 @@
 //!    kernel when `denoise_blur_beta <= 0`, so `denoise_passes == 0` collapses to a
 //!    "modulate by raw AO" path without re-binding a different pipeline.
 //!
-//! Multiview (stereo) is handled by per-stage pipeline variants (mono / multiview-stereo)
-//! picked via a `multiview_mask_override` of `NonZeroU32::new(3)` in stereo, with
-//! `#ifdef MULTIVIEW` in each shader selecting `@builtin(view_index)` and the array depth
-//! sample path.
+//! Multiview (stereo) is handled by per-stage pipeline variants. Raster stages use
+//! `multiview_mask_override` with `#ifdef MULTIVIEW` selecting `@builtin(view_index)`, while
+//! the compute depth prefilter dispatches one workgroup layer per eye against array subresources.
 
 mod apply_pass;
 mod denoise_pass;
@@ -51,19 +50,12 @@ use crate::render_graph::resources::{
     TransientTextureDesc, TransientTextureFormat,
 };
 
-const GTAO_VIEW_DEPTH_LAYER0_LABELS: [&str; VIEW_DEPTH_MIP_COUNT as usize] = [
-    "gtao_view_depth_mip0_l0",
-    "gtao_view_depth_mip1_l0",
-    "gtao_view_depth_mip2_l0",
-    "gtao_view_depth_mip3_l0",
-    "gtao_view_depth_mip4_l0",
-];
-const GTAO_VIEW_DEPTH_LAYER1_LABELS: [&str; VIEW_DEPTH_MIP_COUNT as usize] = [
-    "gtao_view_depth_mip0_l1",
-    "gtao_view_depth_mip1_l1",
-    "gtao_view_depth_mip2_l1",
-    "gtao_view_depth_mip3_l1",
-    "gtao_view_depth_mip4_l1",
+const GTAO_VIEW_DEPTH_MIP_LABELS: [&str; VIEW_DEPTH_MIP_COUNT as usize] = [
+    "gtao_view_depth_mip0",
+    "gtao_view_depth_mip1",
+    "gtao_view_depth_mip2",
+    "gtao_view_depth_mip3",
+    "gtao_view_depth_mip4",
 ];
 
 /// Effect descriptor that contributes the GTAO pass chain to the post-processing chain.
@@ -184,22 +176,7 @@ impl PostProcessEffect for GtaoEffect {
 
 #[derive(Clone, Copy, Debug)]
 struct ViewDepthSubresources {
-    layer0: [SubresourceHandle; VIEW_DEPTH_MIP_COUNT as usize],
-    layer1: Option<[SubresourceHandle; VIEW_DEPTH_MIP_COUNT as usize]>,
-}
-
-impl ViewDepthSubresources {
-    fn layer_count(self) -> u32 {
-        if self.layer1.is_some() { 2 } else { 1 }
-    }
-
-    fn layer(self, layer: u32) -> Option<[SubresourceHandle; VIEW_DEPTH_MIP_COUNT as usize]> {
-        match layer {
-            0 => Some(self.layer0),
-            1 => self.layer1,
-            _ => None,
-        }
-    }
+    mips: [SubresourceHandle; VIEW_DEPTH_MIP_COUNT as usize],
 }
 
 fn create_view_depth_subresources(
@@ -207,29 +184,18 @@ fn create_view_depth_subresources(
     view_depth: TextureHandle,
     multiview_stereo: bool,
 ) -> ViewDepthSubresources {
-    let layer0 = std::array::from_fn(|mip| {
+    let array_layer_count = stereo_array_layer_count(multiview_stereo);
+    let mips = std::array::from_fn(|mip| {
         builder.create_subresource(TransientSubresourceDesc {
             parent: view_depth,
-            label: GTAO_VIEW_DEPTH_LAYER0_LABELS[mip],
+            label: GTAO_VIEW_DEPTH_MIP_LABELS[mip],
             base_mip_level: mip as u32,
             mip_level_count: 1,
             base_array_layer: 0,
-            array_layer_count: 1,
+            array_layer_count,
         })
     });
-    let layer1 = multiview_stereo.then(|| {
-        std::array::from_fn(|mip| {
-            builder.create_subresource(TransientSubresourceDesc {
-                parent: view_depth,
-                label: GTAO_VIEW_DEPTH_LAYER1_LABELS[mip],
-                base_mip_level: mip as u32,
-                mip_level_count: 1,
-                base_array_layer: 1,
-                array_layer_count: 1,
-            })
-        })
-    });
-    ViewDepthSubresources { layer0, layer1 }
+    ViewDepthSubresources { mips }
 }
 
 fn add_view_depth_prefilter(
@@ -245,46 +211,31 @@ fn add_view_depth_prefilter(
         depth: effect.depth,
         frame_uniforms: effect.frame_uniforms,
         source_mip: None,
-        output_mip: view_depth_mips.layer0[0],
+        output_mip: view_depth_mips.mips[0],
     };
     let first = builder.add_compute_pass(Box::new(GtaoDepthPrefilterPass::mip0(
         first_resources,
         effect.settings,
         pipelines,
-        0,
     )));
     let mut last = first;
-    for layer in 0..view_depth_mips.layer_count() {
-        let Some(layer_mips) = view_depth_mips.layer(layer) else {
-            continue;
+    for mip in 1..VIEW_DEPTH_MIP_COUNT {
+        let output_mip = view_depth_mips.mips[mip as usize];
+        let source_mip = Some(view_depth_mips.mips[mip as usize - 1]);
+        let resources = GtaoDepthPrefilterResources {
+            depth: effect.depth,
+            frame_uniforms: effect.frame_uniforms,
+            source_mip,
+            output_mip,
         };
-        for mip in 0..VIEW_DEPTH_MIP_COUNT {
-            if mip == 0 && layer == 0 {
-                continue;
-            }
-            let output_mip = layer_mips[mip as usize];
-            let source_mip = (mip > 0).then(|| layer_mips[mip as usize - 1]);
-            let resources = GtaoDepthPrefilterResources {
-                depth: effect.depth,
-                frame_uniforms: effect.frame_uniforms,
-                source_mip,
-                output_mip,
-            };
-            let pass = if mip == 0 {
-                GtaoDepthPrefilterPass::mip0(resources, effect.settings, pipelines, layer)
-            } else {
-                GtaoDepthPrefilterPass::downsample(
-                    resources,
-                    effect.settings,
-                    pipelines,
-                    mip,
-                    layer,
-                )
-            };
-            let id = builder.add_compute_pass(Box::new(pass));
-            builder.add_edge(last, id);
-            last = id;
-        }
+        let id = builder.add_compute_pass(Box::new(GtaoDepthPrefilterPass::downsample(
+            resources,
+            effect.settings,
+            pipelines,
+            mip,
+        )));
+        builder.add_edge(last, id);
+        last = id;
     }
     (first, last)
 }
@@ -295,8 +246,8 @@ fn gtao_pipelines() -> &'static GtaoPipelines {
     &CACHE
 }
 
-fn should_record_depth_prefilter_layer(layer: u32, multiview_stereo: bool) -> bool {
-    layer == 0 || (layer == 1 && multiview_stereo)
+fn stereo_array_layer_count(multiview_stereo: bool) -> u32 {
+    if multiview_stereo { 2 } else { 1 }
 }
 
 /// Returns `true` when the active device supports GTAO's transient texture formats and usages.
@@ -468,10 +419,9 @@ mod tests {
     fn mono_view_depth_declares_only_layer_zero() {
         let mut builder = GraphBuilder::new();
         let texture = builder.create_texture(view_depth_desc("gtao_view_depth", false));
-        let mips = create_view_depth_subresources(&mut builder, texture, false);
+        let _mips = create_view_depth_subresources(&mut builder, texture, false);
 
-        assert_eq!(mips.layer_count(), 1);
-        assert!(mips.layer(1).is_none());
+        assert_eq!(builder.subresources.len(), VIEW_DEPTH_MIP_COUNT as usize);
         assert!(
             builder
                 .subresources
@@ -482,23 +432,34 @@ mod tests {
             builder
                 .subresources
                 .iter()
-                .all(|desc| !desc.label.ends_with("_l1"))
+                .all(|desc| desc.array_layer_count == 1)
         );
-    }
-
-    #[test]
-    fn stereo_view_depth_declares_layer_one() {
-        let mut builder = GraphBuilder::new();
-        let texture = builder.create_texture(view_depth_desc("gtao_view_depth", true));
-        let mips = create_view_depth_subresources(&mut builder, texture, true);
-
-        assert_eq!(mips.layer_count(), 2);
-        assert!(mips.layer(1).is_some());
         assert!(
             builder
                 .subresources
                 .iter()
-                .any(|desc| desc.label == "gtao_view_depth_mip4_l1")
+                .all(|desc| !desc.label.ends_with("_l0") && !desc.label.ends_with("_l1"))
+        );
+    }
+
+    #[test]
+    fn stereo_view_depth_declares_shared_layered_mips() {
+        let mut builder = GraphBuilder::new();
+        let texture = builder.create_texture(view_depth_desc("gtao_view_depth", true));
+        let _mips = create_view_depth_subresources(&mut builder, texture, true);
+
+        assert_eq!(builder.subresources.len(), VIEW_DEPTH_MIP_COUNT as usize);
+        assert!(
+            builder
+                .subresources
+                .iter()
+                .all(|desc| desc.base_array_layer == 0 && desc.array_layer_count == 2)
+        );
+        assert!(
+            builder
+                .subresources
+                .iter()
+                .all(|desc| !desc.label.ends_with("_l0") && !desc.label.ends_with("_l1"))
         );
         assert_eq!(
             builder.textures[texture.index()].array_layers,
@@ -507,10 +468,23 @@ mod tests {
     }
 
     #[test]
-    fn depth_prefilter_record_gate_matches_view_layers() {
-        assert!(should_record_depth_prefilter_layer(0, false));
-        assert!(should_record_depth_prefilter_layer(0, true));
-        assert!(!should_record_depth_prefilter_layer(1, false));
-        assert!(should_record_depth_prefilter_layer(1, true));
+    fn stereo_depth_prefilter_registers_one_pass_per_mip() {
+        let mut builder = GraphBuilder::new();
+        let texture = builder.create_texture(view_depth_desc("gtao_view_depth", true));
+        let mips = create_view_depth_subresources(&mut builder, texture, true);
+        let effect = GtaoEffect {
+            settings: GtaoSettings::default(),
+            depth: ImportedTextureHandle(0),
+            view_normals: TextureHandle(0),
+            frame_uniforms: ImportedBufferHandle(0),
+            multiview_stereo: true,
+        };
+        let before = builder.passes.len();
+
+        let (first, last) = add_view_depth_prefilter(&mut builder, mips, &effect, gtao_pipelines());
+
+        assert_eq!(builder.passes.len() - before, VIEW_DEPTH_MIP_COUNT as usize);
+        assert_eq!(first.0, before);
+        assert_eq!(last.0, before + VIEW_DEPTH_MIP_COUNT as usize - 1);
     }
 }

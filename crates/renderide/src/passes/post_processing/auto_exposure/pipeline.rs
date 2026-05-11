@@ -367,6 +367,14 @@ mod tests {
     }
 
     #[test]
+    fn stereo_auto_exposure_params_meter_two_layers_into_shared_state() {
+        let params =
+            AutoExposureParamsGpu::from_settings(AutoExposureSettings::default(), 0.016, 2);
+
+        assert_eq!(params.layer_count, 2);
+    }
+
+    #[test]
     fn default_auto_exposure_params_use_trimmed_metering_window() {
         let params =
             AutoExposureParamsGpu::from_settings(AutoExposureSettings::default(), 0.016, 1);

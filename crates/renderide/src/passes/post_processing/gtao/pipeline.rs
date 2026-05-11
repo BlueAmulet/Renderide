@@ -425,24 +425,42 @@ impl GtaoMainPipelineCache {
 /// Compute pipelines and layouts for the XeGTAO view-space depth prefilter.
 #[derive(Default)]
 pub(super) struct GtaoDepthPrefilterPipelineCache {
-    mip0_bind_group_layout: OnceGpu<wgpu::BindGroupLayout>,
-    downsample_bind_group_layout: OnceGpu<wgpu::BindGroupLayout>,
-    mip0_pipeline: OnceGpu<Arc<wgpu::ComputePipeline>>,
-    downsample_pipeline: OnceGpu<Arc<wgpu::ComputePipeline>>,
+    mip0_bind_group_layout_mono: OnceGpu<wgpu::BindGroupLayout>,
+    mip0_bind_group_layout_stereo: OnceGpu<wgpu::BindGroupLayout>,
+    downsample_bind_group_layout_mono: OnceGpu<wgpu::BindGroupLayout>,
+    downsample_bind_group_layout_stereo: OnceGpu<wgpu::BindGroupLayout>,
+    mip0_pipeline_mono: OnceGpu<Arc<wgpu::ComputePipeline>>,
+    mip0_pipeline_stereo: OnceGpu<Arc<wgpu::ComputePipeline>>,
+    downsample_pipeline_mono: OnceGpu<Arc<wgpu::ComputePipeline>>,
+    downsample_pipeline_stereo: OnceGpu<Arc<wgpu::ComputePipeline>>,
 }
 
 impl GtaoDepthPrefilterPipelineCache {
     /// Bind group layout for raw depth -> view-space mip 0.
-    pub(super) fn mip0_bind_group_layout(&self, device: &wgpu::Device) -> &wgpu::BindGroupLayout {
-        self.mip0_bind_group_layout.get_or_create(|| {
+    pub(super) fn mip0_bind_group_layout(
+        &self,
+        device: &wgpu::Device,
+        multiview_stereo: bool,
+    ) -> &wgpu::BindGroupLayout {
+        let slot = if multiview_stereo {
+            &self.mip0_bind_group_layout_stereo
+        } else {
+            &self.mip0_bind_group_layout_mono
+        };
+        slot.get_or_create(|| {
+            let view_dimension = prefilter_view_dimension(multiview_stereo);
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("gtao-prefilter-mip0"),
+                label: Some(if multiview_stereo {
+                    "gtao-prefilter-mip0-stereo"
+                } else {
+                    "gtao-prefilter-mip0-mono"
+                }),
                 entries: &[
                     texture_layout_entry(
                         0,
                         wgpu::ShaderStages::COMPUTE,
                         wgpu::TextureSampleType::Depth,
-                        wgpu::TextureViewDimension::D2,
+                        view_dimension,
                         false,
                     ),
                     uniform_buffer_layout_entry(1, wgpu::ShaderStages::COMPUTE, None),
@@ -452,7 +470,7 @@ impl GtaoDepthPrefilterPipelineCache {
                         wgpu::ShaderStages::COMPUTE,
                         wgpu::StorageTextureAccess::WriteOnly,
                         VIEW_DEPTH_FORMAT,
-                        wgpu::TextureViewDimension::D2,
+                        view_dimension,
                     ),
                 ],
             })
@@ -463,16 +481,27 @@ impl GtaoDepthPrefilterPipelineCache {
     pub(super) fn downsample_bind_group_layout(
         &self,
         device: &wgpu::Device,
+        multiview_stereo: bool,
     ) -> &wgpu::BindGroupLayout {
-        self.downsample_bind_group_layout.get_or_create(|| {
+        let slot = if multiview_stereo {
+            &self.downsample_bind_group_layout_stereo
+        } else {
+            &self.downsample_bind_group_layout_mono
+        };
+        slot.get_or_create(|| {
+            let view_dimension = prefilter_view_dimension(multiview_stereo);
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("gtao-prefilter-downsample"),
+                label: Some(if multiview_stereo {
+                    "gtao-prefilter-downsample-stereo"
+                } else {
+                    "gtao-prefilter-downsample-mono"
+                }),
                 entries: &[
                     texture_layout_entry(
                         0,
                         wgpu::ShaderStages::COMPUTE,
                         wgpu::TextureSampleType::Float { filterable: false },
-                        wgpu::TextureViewDimension::D2,
+                        view_dimension,
                         false,
                     ),
                     uniform_buffer_layout_entry(1, wgpu::ShaderStages::COMPUTE, None),
@@ -481,7 +510,7 @@ impl GtaoDepthPrefilterPipelineCache {
                         wgpu::ShaderStages::COMPUTE,
                         wgpu::StorageTextureAccess::WriteOnly,
                         VIEW_DEPTH_FORMAT,
-                        wgpu::TextureViewDimension::D2,
+                        view_dimension,
                     ),
                 ],
             })
@@ -489,69 +518,109 @@ impl GtaoDepthPrefilterPipelineCache {
     }
 
     /// Compute pipeline for raw depth -> view-space mip 0.
-    pub(super) fn mip0_pipeline(&self, device: &wgpu::Device) -> Arc<wgpu::ComputePipeline> {
-        self.mip0_pipeline
-            .get_or_create(|| {
-                let shader = create_wgsl_shader_module(
-                    device,
-                    "gtao_prefilter_mip0",
-                    embedded_wgsl!("gtao_prefilter_mip0"),
-                );
-                let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("gtao_prefilter_mip0"),
-                    bind_group_layouts: &[Some(self.mip0_bind_group_layout(device))],
-                    immediate_size: 0,
-                });
-                let pipeline = Arc::new(device.create_compute_pipeline(
-                    &wgpu::ComputePipelineDescriptor {
-                        label: Some("gtao_prefilter_mip0"),
-                        layout: Some(&layout),
-                        module: &shader,
-                        entry_point: Some("cs_main"),
-                        compilation_options: Default::default(),
-                        cache: None,
-                    },
-                ));
-                crate::profiling::note_resource_churn!(
-                    ComputePipeline,
-                    "passes::gtao_prefilter_mip0_pipeline"
-                );
-                pipeline
-            })
-            .clone()
+    pub(super) fn mip0_pipeline(
+        &self,
+        device: &wgpu::Device,
+        multiview_stereo: bool,
+    ) -> Arc<wgpu::ComputePipeline> {
+        let slot = if multiview_stereo {
+            &self.mip0_pipeline_stereo
+        } else {
+            &self.mip0_pipeline_mono
+        };
+        slot.get_or_create(|| {
+            let (label, source) = if multiview_stereo {
+                (
+                    "gtao_prefilter_mip0_multiview",
+                    embedded_wgsl!("gtao_prefilter_mip0_multiview"),
+                )
+            } else {
+                (
+                    "gtao_prefilter_mip0_default",
+                    embedded_wgsl!("gtao_prefilter_mip0_default"),
+                )
+            };
+            let shader = create_wgsl_shader_module(device, label, source);
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(label),
+                bind_group_layouts: &[Some(self.mip0_bind_group_layout(device, multiview_stereo))],
+                immediate_size: 0,
+            });
+            let pipeline = Arc::new(device.create_compute_pipeline(
+                &wgpu::ComputePipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&layout),
+                    module: &shader,
+                    entry_point: Some("cs_main"),
+                    compilation_options: Default::default(),
+                    cache: None,
+                },
+            ));
+            crate::profiling::note_resource_churn!(
+                ComputePipeline,
+                "passes::gtao_prefilter_mip0_pipeline"
+            );
+            pipeline
+        })
+        .clone()
     }
 
     /// Compute pipeline for view-space depth downsampling.
-    pub(super) fn downsample_pipeline(&self, device: &wgpu::Device) -> Arc<wgpu::ComputePipeline> {
-        self.downsample_pipeline
-            .get_or_create(|| {
-                let shader = create_wgsl_shader_module(
-                    device,
-                    "gtao_prefilter_downsample",
-                    embedded_wgsl!("gtao_prefilter_downsample"),
-                );
-                let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("gtao_prefilter_downsample"),
-                    bind_group_layouts: &[Some(self.downsample_bind_group_layout(device))],
-                    immediate_size: 0,
-                });
-                let pipeline = Arc::new(device.create_compute_pipeline(
-                    &wgpu::ComputePipelineDescriptor {
-                        label: Some("gtao_prefilter_downsample"),
-                        layout: Some(&layout),
-                        module: &shader,
-                        entry_point: Some("cs_main"),
-                        compilation_options: Default::default(),
-                        cache: None,
-                    },
-                ));
-                crate::profiling::note_resource_churn!(
-                    ComputePipeline,
-                    "passes::gtao_prefilter_downsample_pipeline"
-                );
-                pipeline
-            })
-            .clone()
+    pub(super) fn downsample_pipeline(
+        &self,
+        device: &wgpu::Device,
+        multiview_stereo: bool,
+    ) -> Arc<wgpu::ComputePipeline> {
+        let slot = if multiview_stereo {
+            &self.downsample_pipeline_stereo
+        } else {
+            &self.downsample_pipeline_mono
+        };
+        slot.get_or_create(|| {
+            let (label, source) = if multiview_stereo {
+                (
+                    "gtao_prefilter_downsample_multiview",
+                    embedded_wgsl!("gtao_prefilter_downsample_multiview"),
+                )
+            } else {
+                (
+                    "gtao_prefilter_downsample_default",
+                    embedded_wgsl!("gtao_prefilter_downsample_default"),
+                )
+            };
+            let shader = create_wgsl_shader_module(device, label, source);
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(label),
+                bind_group_layouts: &[Some(
+                    self.downsample_bind_group_layout(device, multiview_stereo),
+                )],
+                immediate_size: 0,
+            });
+            let pipeline = Arc::new(device.create_compute_pipeline(
+                &wgpu::ComputePipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&layout),
+                    module: &shader,
+                    entry_point: Some("cs_main"),
+                    compilation_options: Default::default(),
+                    cache: None,
+                },
+            ));
+            crate::profiling::note_resource_churn!(
+                ComputePipeline,
+                "passes::gtao_prefilter_downsample_pipeline"
+            );
+            pipeline
+        })
+        .clone()
+    }
+}
+
+fn prefilter_view_dimension(multiview_stereo: bool) -> wgpu::TextureViewDimension {
+    if multiview_stereo {
+        wgpu::TextureViewDimension::D2Array
+    } else {
+        wgpu::TextureViewDimension::D2
     }
 }
 
