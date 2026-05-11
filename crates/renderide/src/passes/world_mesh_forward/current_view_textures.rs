@@ -16,19 +16,19 @@ fn per_material_texture2d_asset_ids_for_draw(
     bind.texture2d_asset_ids_for_stem(stem, store, item.lookup_ids)
 }
 
-/// Collects texture ids for embedded-stem draws in order (may contain duplicates across draws).
-fn per_pass_texture2d_asset_ids_from_draws(
+/// Appends texture ids for embedded-stem draws into `out` in draw order (may contain duplicates).
+fn append_per_pass_texture2d_asset_ids_from_draws(
     materials: &MaterialSystem,
     draws: &[WorldMeshDrawItem],
-) -> Vec<i32> {
+    out: &mut Vec<i32>,
+) {
     let Some(bind) = materials.embedded_material_bind() else {
-        return Vec::new();
+        return;
     };
     let Some(registry) = materials.material_registry() else {
-        return Vec::new();
+        return;
     };
     let store = materials.material_property_store();
-    let mut out = Vec::new();
     for item in draws {
         if !matches!(item.batch_key.pipeline, RasterPipelineKind::EmbeddedStem(_)) {
             continue;
@@ -40,23 +40,26 @@ fn per_pass_texture2d_asset_ids_from_draws(
             bind, stem, store, item,
         ));
     }
-    out
 }
 
 /// Sort-then-dedup in O(n log n) instead of the O(n^2) `Vec::contains` linear scan.
 ///
 /// Sort order is implementation-defined (numeric ascending) since the debug HUD only needs the
 /// set of bound textures, not the original draw-order sequence.
-fn dedup_visible_texture_asset_ids(mut ids: Vec<i32>) -> Vec<i32> {
+fn dedup_visible_texture_asset_ids(ids: &mut Vec<i32>) {
     ids.sort_unstable();
     ids.dedup();
-    ids
 }
 
-/// Asset ids for 2D textures referenced by embedded materials in the current sorted draw list.
+/// Fills `out` with the deduplicated Texture2D asset ids referenced by embedded materials in the
+/// current sorted draw list. `out` is cleared before filling so its capacity survives across
+/// frames when the caller reuses the same buffer.
 pub(super) fn current_view_texture2d_asset_ids_from_draws(
     materials: &MaterialSystem,
     draws: &[WorldMeshDrawItem],
-) -> Vec<i32> {
-    dedup_visible_texture_asset_ids(per_pass_texture2d_asset_ids_from_draws(materials, draws))
+    out: &mut Vec<i32>,
+) {
+    out.clear();
+    append_per_pass_texture2d_asset_ids_from_draws(materials, draws, out);
+    dedup_visible_texture_asset_ids(out);
 }

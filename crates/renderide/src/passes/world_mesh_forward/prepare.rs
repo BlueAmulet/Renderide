@@ -100,10 +100,11 @@ pub(super) fn maybe_set_world_mesh_draw_stats(
     }
 
     if debug_hud.textures_enabled && offscreen_write_render_texture_asset_id.is_none() {
-        outputs.current_view_texture_2d_asset_ids =
-            super::current_view_textures::current_view_texture2d_asset_ids_from_draws(
-                materials, draws,
-            );
+        super::current_view_textures::current_view_texture2d_asset_ids_from_draws(
+            materials,
+            draws,
+            &mut outputs.current_view_texture_2d_asset_ids,
+        );
     }
     outputs
 }
