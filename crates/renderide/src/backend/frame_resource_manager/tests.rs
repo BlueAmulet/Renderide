@@ -1,6 +1,7 @@
 //! Tests for the parent module.
 
 use super::*;
+use super::cluster_layout::ClusterPreRecordLayout;
 
 use glam::{Mat4, Quat, Vec3};
 

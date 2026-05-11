@@ -15,24 +15,29 @@
 //! Per-draw resources follow the same ownership model: one grow-on-demand slab per
 //! [`ViewId`], created lazily so no view can exhaust another view's per-draw capacity.
 
+mod cluster_layout;
+mod per_view_state;
+mod view_desc;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(test)]
 use glam::Mat4;
 use hashbrown::HashSet;
 use parking_lot::Mutex;
 
-use crate::backend::cluster_gpu::{CLUSTER_COUNT_Z, ClusterBufferRefs, TILE_SIZE};
+use crate::backend::cluster_gpu::ClusterBufferRefs;
 use crate::camera::ViewId;
+use crate::gpu::GpuLimits;
 use crate::gpu::frame_globals::{FrameGpuUniforms, SkyboxSpecularUniformParams};
-use crate::gpu::{CLUSTER_PARAMS_UNIFORM_SIZE, GpuLimits};
 use crate::render_graph::execution_backend::{GraphClusterBufferRefs, GraphFrameResources};
 use crate::render_graph::frame_params::PreRecordViewResourceLayout;
 use crate::render_graph::frame_upload_batch::GraphUploadSink;
 
 use super::frame_gpu::{
-    EmptyMaterialBindGroup, FrameGpuResources, PerViewSceneSnapshotSyncParams,
-    PerViewSceneSnapshots, ReflectionProbeSpecularResources,
+    EmptyMaterialBindGroup, FrameGpuResources, PerViewSceneSnapshots,
+    ReflectionProbeSpecularResources,
 };
 use super::frame_gpu_bindings::{FrameGpuBindings, FrameGpuBindingsError};
 use super::light_gpu::{
@@ -44,153 +49,15 @@ use crate::mesh_deform::{PaddedPerDrawUniforms, SkinCacheKey};
 use crate::scene::{
     ResolvedLight, SceneCoordinator, light_contributes, light_has_negative_contribution,
 };
-use crate::shared::RenderingContext;
 
-/// View-specific inputs for resolving the light pack used by one render view.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct FrameLightViewDesc {
-    /// Stable identity of the render view receiving this light pack.
-    pub view_id: ViewId,
-    /// Render context used by draw collection for this view.
-    pub render_context: RenderingContext,
-    /// Optional render-space scope for offscreen cameras/tasks.
-    pub render_space_filter: Option<crate::scene::RenderSpaceId>,
-    /// Head-output transform used when resolving overlay-space world matrices.
-    pub head_output_transform: Mat4,
-}
+use cluster_layout::{
+    cluster_index_capacity_for_layout, make_cluster_params_buffer, per_view_snapshot_sync_params,
+    unique_cluster_pre_record_layouts,
+};
+use per_view_state::PreparedViewLights;
 
-/// CPU-side packed lights for one render view.
-#[derive(Default)]
-struct PreparedViewLights {
-    /// Packed GPU light rows for this view.
-    lights: Vec<GpuLight>,
-    /// Whether this view has at least one negative light contribution.
-    signed_scene_color_required: bool,
-}
-
-/// Per-view `@group(0)` frame uniform buffer, light buffer, and bind group.
-///
-/// The large cluster storage buffers (`cluster_light_counts` range rows,
-/// `cluster_light_indices`) are shared across all views via [`FrameGpuResources::cluster_cache`]
-/// and are safe to share
-/// because GPU in-order execution within a single submit ensures each view's compute->raster
-/// pair retires before the next view's compute overwrites.
-///
-/// [`Self::cluster_params_buffer`] is intentionally **per-view**: it is written by
-/// `ClusteredLightPass::record` via the graph upload sink, which accumulates writes from rayon
-/// workers. Since insertion order into the sink is non-deterministic, a shared params buffer
-/// would mean the last view to push wins -- corrupting every other view's cluster culling and
-/// causing strobe flicker. Keeping params per-view eliminates the race at the cost of ~512 B
-/// per view (completely negligible).
-pub struct PerViewFrameState {
-    /// Per-view `@group(0)` frame uniform buffer written by world-mesh frame planning each frame.
-    pub frame_uniform_buffer: wgpu::Buffer,
-    /// Per-view light storage buffer written during pre-record synchronization.
-    pub lights_buffer: wgpu::Buffer,
-    /// Per-view `@group(0)` bind group referencing [`Self::frame_uniform_buffer`],
-    /// [`Self::lights_buffer`], shared cluster buffers, and view-local scene snapshots.
-    pub frame_bind_group: Arc<wgpu::BindGroup>,
-    /// Per-view uniform buffer for `ClusterParams` (camera matrix, projection, viewport, etc.).
-    ///
-    /// Sized `CLUSTER_PARAMS_UNIFORM_SIZE x eye_multiplier`. Must be per-view -- see struct doc.
-    pub cluster_params_buffer: wgpu::Buffer,
-    /// View-local depth/color snapshots sampled by embedded material helper passes.
-    scene_snapshots: PerViewSceneSnapshots,
-    /// Shared [`ClusterBufferCache::version`] at which [`Self::frame_bind_group`] was last built.
-    last_cluster_version: u64,
-    /// Reflection-probe resource version at which [`Self::frame_bind_group`] was last built.
-    last_skybox_specular_version: u64,
-    /// Stereo flag at which [`Self::cluster_params_buffer`] was last allocated.
-    last_stereo: bool,
-}
-
-/// Per-view CPU scratch used to pack `@group(2)` per-draw uniforms before upload.
-#[derive(Default)]
-pub struct PerViewPerDrawScratch {
-    /// Packed per-draw uniforms before serializing into the byte slab.
-    pub uniforms: Vec<PaddedPerDrawUniforms>,
-    /// Serialized byte slab uploaded into [`PerDrawResources::per_draw_storage`].
-    pub slab_bytes: Vec<u8>,
-}
-
-/// Unique shared-cluster pre-record layout after removing view-local snapshot fields.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct ClusterPreRecordLayout {
-    /// Viewport width in physical pixels.
-    width: u32,
-    /// Viewport height in physical pixels.
-    height: u32,
-    /// Whether cluster buffers need two-eye storage.
-    stereo: bool,
-    /// Minimum compact light-index words required for this cluster layout.
-    index_capacity_words: u64,
-}
-
-/// Converts a view resource layout into the view-local scene snapshot sync request.
-fn per_view_snapshot_sync_params(
-    layout: PreRecordViewResourceLayout,
-) -> PerViewSceneSnapshotSyncParams {
-    PerViewSceneSnapshotSyncParams {
-        viewport: (layout.width, layout.height),
-        depth_format: layout.depth_format,
-        color_format: layout.color_format,
-        multiview: layout.stereo,
-        needs_depth_snapshot: layout.needs_depth_snapshot,
-        needs_color_snapshot: layout.needs_color_snapshot,
-    }
-}
-
-/// Returns stable unique cluster layouts while preserving first-seen view order.
-fn unique_cluster_pre_record_layouts(
-    view_layouts: &[PreRecordViewResourceLayout],
-    light_count_for_view: impl Fn(ViewId) -> u32,
-) -> Vec<ClusterPreRecordLayout> {
-    let mut out: Vec<ClusterPreRecordLayout> = Vec::new();
-    for layout in view_layouts {
-        let Some(index_capacity_words) =
-            cluster_index_capacity_for_layout(*layout, light_count_for_view(layout.view_id))
-        else {
-            logger::warn!(
-                "skipping impossible cluster capacity for viewport {}x{} stereo={}",
-                layout.width,
-                layout.height,
-                layout.stereo
-            );
-            continue;
-        };
-        if let Some(existing) = out.iter_mut().find(|existing| {
-            existing.width == layout.width
-                && existing.height == layout.height
-                && existing.stereo == layout.stereo
-        }) {
-            existing.index_capacity_words = existing.index_capacity_words.max(index_capacity_words);
-        } else {
-            out.push(ClusterPreRecordLayout {
-                width: layout.width,
-                height: layout.height,
-                stereo: layout.stereo,
-                index_capacity_words,
-            });
-        }
-    }
-    out
-}
-
-/// Returns compact index-buffer capacity for a layout if the calculation fits in `u64`.
-fn cluster_index_capacity_for_layout(
-    layout: PreRecordViewResourceLayout,
-    light_count: u32,
-) -> Option<u64> {
-    let cluster_x = layout.width.max(1).div_ceil(TILE_SIZE);
-    let cluster_y = layout.height.max(1).div_ceil(TILE_SIZE);
-    let eye_count = if layout.stereo { 2_u64 } else { 1_u64 };
-    let capacity = u64::from(cluster_x)
-        .checked_mul(u64::from(cluster_y))?
-        .checked_mul(u64::from(CLUSTER_COUNT_Z))?
-        .checked_mul(eye_count)?
-        .checked_mul(u64::from(light_count.max(1)))?;
-    u32::try_from(capacity).is_ok().then_some(capacity)
-}
+pub(crate) use view_desc::FrameLightViewDesc;
+pub use per_view_state::{PerViewFrameState, PerViewPerDrawScratch};
 
 /// Per-frame GPU state: shared frame/light/cluster resources, per-view bind groups,
 /// per-view per-draw storage slabs, and the CPU-side packed light buffer.
@@ -1026,21 +893,6 @@ impl GraphFrameResources for FrameResourceManager {
     ) {
         self.pre_record_sync_for_views(device, uploads, view_layouts);
     }
-}
-
-/// Allocates the per-view `ClusterParams` uniform buffer. Sized for one slot (mono) or two
-/// slots (stereo). Used by `ClusteredLightPass` to write camera matrices per-view without
-/// racing against other views' writes in the shared graph upload sink.
-fn make_cluster_params_buffer(device: &wgpu::Device, stereo: bool) -> wgpu::Buffer {
-    let eye_multiplier = if stereo { 2 } else { 1 };
-    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("per_view_cluster_params_uniform"),
-        size: CLUSTER_PARAMS_UNIFORM_SIZE * eye_multiplier,
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    crate::profiling::note_resource_churn!(Buffer, "backend::per_view_cluster_params_uniform");
-    buffer
 }
 
 #[cfg(test)]
