@@ -7,6 +7,7 @@ use crate::ipc::SharedMemoryAccessor;
 use crate::shared::ReflectionProbeRenderTask;
 use crate::skybox::ibl_cache::{SkyboxIblConvolver, mip_extent};
 
+use super::super::readback::{AwaitBufferMapError, align_u32_up, align_u64_up, await_buffer_map};
 use super::{
     CUBE_FACE_COUNT, ProbeCubeFace, ProbeMipReadback, ProbeOutputFormat, ProbeReadbackLayout,
     ProbeTaskExtent, RGBA16F_BYTES_PER_PIXEL, ReflectionProbeBakeError,
@@ -14,7 +15,17 @@ use super::{
 
 const PROBE_READBACK_TIMEOUT: Duration = Duration::from_secs(5);
 
-pub(super) fn compute_probe_readback_layout(
+impl From<AwaitBufferMapError> for ReflectionProbeBakeError {
+    fn from(err: AwaitBufferMapError) -> Self {
+        match err {
+            AwaitBufferMapError::DeviceLost(s) => Self::DeviceLost(s),
+            AwaitBufferMapError::Timeout => Self::ReadbackTimeout,
+            AwaitBufferMapError::Map(s) => Self::Map(s),
+        }
+    }
+}
+
+pub(in crate::runtime) fn compute_probe_readback_layout(
     task: &ReflectionProbeRenderTask,
     extent: ProbeTaskExtent,
     output_format: ProbeOutputFormat,
@@ -54,8 +65,10 @@ pub(super) fn compute_probe_readback_layout(
                 .checked_mul(RGBA16F_BYTES_PER_PIXEL as u32)
                 .ok_or(ReflectionProbeBakeError::OutputByteCountOverflow)?;
             let bytes_per_row_padded =
-                align_u32(bytes_per_row_tight, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)?;
-            let buffer_offset = align_u64(buffer_size, wgpu::COPY_BUFFER_ALIGNMENT)?;
+                align_u32_up(bytes_per_row_tight, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+                    .ok_or(ReflectionProbeBakeError::OutputByteCountOverflow)?;
+            let buffer_offset = align_u64_up(buffer_size, wgpu::COPY_BUFFER_ALIGNMENT)
+                .ok_or(ReflectionProbeBakeError::OutputByteCountOverflow)?;
             let copy_byte_count = u64::from(bytes_per_row_padded)
                 .checked_mul(u64::from(edge))
                 .ok_or(ReflectionProbeBakeError::OutputByteCountOverflow)?;
@@ -110,24 +123,7 @@ pub(super) fn compute_probe_readback_layout(
     })
 }
 
-fn align_u32(value: u32, alignment: u32) -> Result<u32, ReflectionProbeBakeError> {
-    value
-        .div_ceil(alignment)
-        .checked_mul(alignment)
-        .ok_or(ReflectionProbeBakeError::OutputByteCountOverflow)
-}
-
-fn align_u64(value: u64, alignment: u64) -> Result<u64, ReflectionProbeBakeError> {
-    let padded = value
-        .checked_add(alignment.saturating_sub(1))
-        .ok_or(ReflectionProbeBakeError::OutputByteCountOverflow)?;
-    padded
-        .checked_div(alignment)
-        .and_then(|q| q.checked_mul(alignment))
-        .ok_or(ReflectionProbeBakeError::OutputByteCountOverflow)
-}
-
-pub(super) fn readback_reflection_probe_cube(
+pub(in crate::runtime) fn readback_reflection_probe_cube(
     gpu: &GpuContext,
     convolver: &mut SkyboxIblConvolver,
     cube_texture: &wgpu::Texture,
@@ -159,7 +155,10 @@ pub(super) fn readback_reflection_probe_cube(
     };
     gpu.queue().submit(std::iter::once(command_buffer));
     let slice = readback.slice(..);
-    await_probe_buffer_map(slice, gpu.device())?;
+    {
+        profiling::scope!("reflection_probe_task::map_readback");
+        await_buffer_map(slice, gpu.device(), PROBE_READBACK_TIMEOUT)?;
+    }
     let mapped = {
         profiling::scope!("reflection_probe_task::copy_mapped_readback");
         let view = slice.get_mapped_range();
@@ -227,30 +226,7 @@ fn encode_probe_cube_readback_copy(
     }
 }
 
-fn await_probe_buffer_map(
-    slice: wgpu::BufferSlice<'_>,
-    device: &wgpu::Device,
-) -> Result<(), ReflectionProbeBakeError> {
-    profiling::scope!("reflection_probe_task::map_readback");
-    let (sender, receiver) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |result| {
-        let _ = sender.send(result);
-    });
-    device
-        .poll(wgpu::PollType::wait_indefinitely())
-        .map_err(|e| ReflectionProbeBakeError::DeviceLost(format!("{e:?}")))?;
-    match receiver.recv_timeout(PROBE_READBACK_TIMEOUT) {
-        Ok(result) => result.map_err(|e| ReflectionProbeBakeError::Map(format!("{e:?}"))),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            Err(ReflectionProbeBakeError::ReadbackTimeout)
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(ReflectionProbeBakeError::Map(
-            "map_async callback disconnected".to_owned(),
-        )),
-    }
-}
-
-pub(super) fn write_probe_task_result(
+pub(in crate::runtime) fn write_probe_task_result(
     shm: &mut SharedMemoryAccessor,
     task: &ReflectionProbeRenderTask,
     layout: &ProbeReadbackLayout,
@@ -422,7 +398,7 @@ fn linear_f32_to_unorm8(value: f32) -> u8 {
     }
 }
 
-pub(super) fn zero_probe_task_result(
+pub(in crate::runtime) fn zero_probe_task_result(
     shm: &mut SharedMemoryAccessor,
     task: &ReflectionProbeRenderTask,
 ) -> bool {
@@ -779,20 +755,6 @@ mod tests {
         assert_eq!(linear_f32_to_unorm8(0.5), 128);
         assert_eq!(linear_f32_to_unorm8(1.0), 255);
         assert_eq!(linear_f32_to_unorm8(2.0), 255);
-    }
-
-    #[test]
-    fn alignment_helpers_report_overflow() {
-        assert_eq!(align_u32(257, 256).expect("align u32"), 512);
-        assert_eq!(align_u64(513, 256).expect("align u64"), 768);
-        assert!(matches!(
-            align_u32(u32::MAX, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT),
-            Err(ReflectionProbeBakeError::OutputByteCountOverflow)
-        ));
-        assert!(matches!(
-            align_u64(u64::MAX, wgpu::COPY_BUFFER_ALIGNMENT),
-            Err(ReflectionProbeBakeError::OutputByteCountOverflow)
-        ));
     }
 
     #[test]

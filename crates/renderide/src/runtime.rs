@@ -38,57 +38,52 @@
 //!
 //! # Submodule layout
 //!
-//! Per-tick logic is split by concern; every submodule extends [`RendererRuntime`] through its
-//! own `impl` block:
+//! Per-tick logic is grouped by concern; every submodule that adds behavior to
+//! [`RendererRuntime`] does so through its own `impl` block.
 //!
+//! - [`frame`] -- per-frame pipeline: [`frame::view_planning`] collects views,
+//!   [`frame::view_plan`] holds per-view CPU intent, [`frame::extract`] turns that into the
+//!   immutable submit packet, [`frame::render`] dispatches the render mode, and
+//!   [`frame::submit`] applies host frame-submit payloads.
+//! - [`ipc`] -- IPC ingestion: [`ipc::entry`] drains the queue, [`ipc::effects`] dispatches
+//!   decoded effects to per-domain handlers under [`ipc::effects`]'s submodules, and
+//!   [`ipc::shader_material`] / [`ipc::lights`] own shader, material-batch, and light-buffer
+//!   submissions.
+//! - [`offscreen_tasks`] -- host-requested offscreen rendering: [`offscreen_tasks::camera`] for
+//!   camera capture, [`offscreen_tasks::reflection_probe`] for cubemap bake tasks, and
+//!   [`offscreen_tasks::readback`] for the shared GPU buffer-mapping plumbing.
+//! - [`state`] -- runtime-owned state holders aggregated as private fields on
+//!   [`RendererRuntime`]: [`state::config`], [`state::diagnostics`], [`state::ipc`],
+//!   [`state::tick`], [`state::xr`].
+//! - [`tick`] -- the two `tick_one_frame*` orchestrators and the lock-step / output forwards the
+//!   app driver calls inside one redraw iteration.
 //! - [`accessors`] -- thin facade pass-throughs to the frontend, backend, scene, and settings.
 //! - [`asset_integration`] -- cooperative asset-integration phase + once-per-tick gating.
-//! - [`camera_render_tasks`] -- host camera capture queue, offscreen render, GPU readback, and IPC writeback.
+//! - [`gpu_services`] -- GPU-facing helpers run once per tick (Hi-Z drain, async jobs,
+//!   transient eviction).
 //! - [`debug_hud_frame`] -- per-tick wiring for the diagnostics ImGui overlay.
-//! - [`frame_extract`] -- immutable per-tick view extraction, draw collection, submit packet.
-//! - [`frame_render`] -- render-mode dispatch, MSAA prep, frame-extract entry.
-//! - [`frame_submit`] -- runtime-side application of host frame-submit payloads.
-//! - [`frame_view_plan`] -- per-view CPU intent (target, clear, viewport, host camera).
-//! - [`gpu_services`] -- GPU-facing helpers run once per tick (Hi-Z drain, async jobs, transient eviction).
-//! - [`ipc_effects`] -- applies decoded frontend dispatch effects to runtime-owned domains.
-//! - [`ipc_entry`] -- IPC poll and command-effect decode/apply entrypoints.
-//! - [`lights_ipc`] -- applies host light-buffer IPC payloads to scene light caches.
+//! - [`shutdown`] -- graceful shutdown signaling and the compact final-summary log.
 //! - [`lockstep`] -- diagnostic helper for duplicate frame indices.
-//! - [`reflection_probe_render_tasks`] -- host reflection-probe cubemap bake tasks and IPC results.
-//! - [`shader_material_ipc`] -- applies shader route and material-batch IPC payloads.
-//! - [`tick`] -- tick prologue, lock-step / output forwards, the two `tick_one_frame*` orchestrators.
-//! - [`view_planning`] -- collection of HMD / secondary RT / main swapchain plans.
-//! - [`xr_glue`] -- `XrHostCameraSync` and `XrFrameRenderer` impls for [`RendererRuntime`].
+//! - [`xr_glue`] -- [`crate::xr::XrHostCameraSync`] and [`crate::xr::XrFrameRenderer`] impls
+//!   for [`RendererRuntime`].
 //!
-//! IPC dispatch in `crate::frontend::dispatch` is decode-only. [`ipc_entry`] polls queue commands,
-//! `frontend::dispatch` classifies them into domain effects, and [`ipc_effects`] is the single
-//! runtime-owned application point for frontend, scene, backend, host camera, settings, and IPC
-//! scratch mutations.
+//! IPC dispatch in [`crate::frontend::dispatch`] is decode-only. [`ipc::entry`] polls queue
+//! commands, `frontend::dispatch` classifies them into domain effects, and [`ipc::effects`] is
+//! the single runtime-owned application point for frontend, scene, backend, host camera,
+//! settings, and IPC scratch mutations.
 
 mod accessors;
 mod asset_integration;
-mod camera_render_tasks;
-mod config_state;
 mod debug_hud_frame;
-mod diagnostics_state;
-mod frame_extract;
-pub(crate) mod frame_render;
-mod frame_submit;
-mod frame_view_plan;
+mod frame;
 mod gpu_services;
-mod ipc_effects;
-mod ipc_entry;
-mod ipc_state;
-mod lights_ipc;
+mod ipc;
 mod lockstep;
-mod reflection_probe_render_tasks;
-mod shader_material_ipc;
+mod offscreen_tasks;
 mod shutdown;
+mod state;
 mod tick;
-mod tick_state;
-mod view_planning;
 mod xr_glue;
-mod xr_stats;
 
 use std::path::PathBuf;
 
@@ -100,11 +95,9 @@ use crate::frontend::RendererFrontend;
 use crate::render_graph::GraphExecuteError;
 use crate::scene::SceneCoordinator;
 
-use config_state::RuntimeConfigState;
-use diagnostics_state::RuntimeDiagnosticsState;
-use ipc_state::RuntimeIpcState;
-use tick_state::RuntimeTickState;
-use xr_stats::RuntimeXrStats;
+use state::{
+    RuntimeConfigState, RuntimeDiagnosticsState, RuntimeIpcState, RuntimeTickState, RuntimeXrStats,
+};
 
 /// Result of one [`RendererRuntime::tick_one_frame`] call.
 ///

@@ -1,14 +1,15 @@
-//! IPC-facing entry points on [`super::RendererRuntime`].
+//! IPC-facing entry points on [`RendererRuntime`].
 //!
 //! Owns the per-tick command drain ([`RendererRuntime::poll_ipc`]). Incoming commands are decoded
-//! by `crate::frontend::dispatch` and applied by `runtime::ipc_effects`, keeping frontend dispatch
+//! by [`crate::frontend::dispatch`] and applied by [`super::effects`], keeping frontend dispatch
 //! independent of the runtime facade.
 
 use crate::frontend::InitState;
 use crate::frontend::dispatch::renderer_command_kind::renderer_command_variant_tag;
 use crate::shared::RendererCommand;
 
-use super::RendererRuntime;
+use super::super::RendererRuntime;
+use super::shader_material;
 
 impl RendererRuntime {
     /// Total number of post-handshake IPC commands logged as unhandled (sum of per-variant counters).
@@ -25,7 +26,7 @@ impl RendererRuntime {
     /// first, then frame submits, then the rest (see [`crate::frontend::RendererFrontend::poll_commands`]).
     pub fn poll_ipc(&mut self) {
         profiling::scope!("ipc::poll_batch");
-        super::shader_material_ipc::drain_pending_shader_resolutions(
+        shader_material::drain_pending_shader_resolutions(
             &mut self.ipc_state.pending_shader_resolutions,
             &mut self.backend,
             &mut self.frontend,
@@ -49,7 +50,7 @@ fn trace_ipc_batch(batch: &[RendererCommand], init_state: InitState, pending_sha
     if batch.is_empty() || !logger::enabled(logger::LogLevel::Trace) {
         return;
     }
-    let kinds = super::ipc_state::summarize_renderer_command_mix(batch.iter());
+    let kinds = crate::runtime::state::ipc::summarize_renderer_command_mix(batch.iter());
     logger::trace!(
         "IPC poll batch: commands={} init_state={:?} pending_shader_resolutions={} kinds=[{}]",
         batch.len(),

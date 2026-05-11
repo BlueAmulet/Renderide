@@ -3,24 +3,24 @@
 //! Builds the ordered list of [`FrameViewPlan`]s that drive draw collection and graph
 //! execution: HMD stereo multiview (when present), then enabled secondary render-texture
 //! cameras sorted by camera depth, then the main desktop swapchain (when included). Logic
-//! sits between the render entry point in [`super::frame_render`] and the per-view extraction
-//! pipeline in [`super::frame_extract`].
+//! sits between the render entry point in [`super::render`] and the per-view extraction
+//! pipeline in [`super::extract`].
 
 use crate::camera::{ViewId, camera_state_enabled, host_camera_frame_for_render_texture};
 use crate::render_graph::{FrameViewClear, OffscreenSampleCountPolicy, ViewPostProcessing};
 use crate::scene::RenderSpaceId;
 use crate::world_mesh::draw_filter_from_camera_entry;
 
-use super::RendererRuntime;
-use super::frame_render::FrameRenderMode;
-use super::frame_view_plan::{FrameViewPlan, FrameViewPlanTarget, OffscreenRtHandles};
+use super::super::RendererRuntime;
+use super::render::FrameRenderMode;
+use super::view_plan::{FrameViewPlan, FrameViewPlanTarget, OffscreenRtHandles};
 
 /// MSAA policy used for host RenderTexture camera outputs.
 const SECONDARY_CAMERA_SAMPLE_COUNT_POLICY: OffscreenSampleCountPolicy =
     OffscreenSampleCountPolicy::MasterMsaa;
 
 /// Returns the stable logical identity for one secondary camera view.
-pub(super) fn secondary_camera_view_id(
+pub(in crate::runtime) fn secondary_camera_view_id(
     render_space_id: RenderSpaceId,
     renderable_index: i32,
     camera_index: usize,
@@ -51,7 +51,7 @@ impl RendererRuntime {
     /// 1. HMD stereo multiview (when `mode = VrWithHmd`).
     /// 2. Secondary render-texture cameras, sorted by camera depth.
     /// 3. Main desktop swapchain (when `mode = DesktopPlusSecondaries`).
-    pub(super) fn collect_prepared_views<'a>(
+    pub(in crate::runtime) fn collect_prepared_views<'a>(
         &mut self,
         mode: FrameRenderMode<'a>,
         swapchain_extent_px: (u32, u32),
@@ -227,7 +227,7 @@ impl RendererRuntime {
     /// culling. The render graph resolves its own rendering extent from
     /// [`crate::render_graph::FrameViewTarget::Swapchain::extent_px`] at record time -- that is a
     /// separate concern from cull math, which has already run by then.
-    pub(super) fn build_main_swapchain_view<'a>(
+    pub(in crate::runtime) fn build_main_swapchain_view<'a>(
         &self,
         swapchain_extent_px: (u32, u32),
     ) -> FrameViewPlan<'a> {

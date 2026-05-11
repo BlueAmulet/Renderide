@@ -8,8 +8,27 @@ use crate::shared::{
     LightsBufferRendererSubmission, RendererCommand,
 };
 
+use super::super::RendererRuntime;
+
+impl RendererRuntime {
+    /// Resolves transport handles and forwards the host light submission to
+    /// [`apply_lights_buffer_submission`].
+    pub(in crate::runtime) fn apply_lights_buffer_renderer_submission(
+        &mut self,
+        sub: LightsBufferRendererSubmission,
+    ) {
+        let buffer_id = sub.lights_buffer_unique_id;
+        let (shm, ipc) = self.frontend.transport_pair_mut();
+        let Some(shm) = shm else {
+            logger::warn!("lights_buffer_renderer_submission: no shared memory (id={buffer_id})");
+            return;
+        };
+        apply_lights_buffer_submission(&mut self.scene, shm, ipc, sub);
+    }
+}
+
 /// Copies packed light rows from SHM, stores them in the scene cache, and ACKs the host.
-pub(super) fn apply_lights_buffer_submission(
+fn apply_lights_buffer_submission(
     scene: &mut SceneCoordinator,
     shm: &mut SharedMemoryAccessor,
     ipc: Option<&mut DualQueueIpc>,

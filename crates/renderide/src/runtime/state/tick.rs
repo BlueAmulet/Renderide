@@ -3,42 +3,44 @@
 use crate::scene::{ReflectionProbeOnChangesRenderRequest, RenderSpaceId};
 use crate::shared::{CameraRenderTask, ReflectionProbeRenderResult, ReflectionProbeRenderTask};
 
-use super::reflection_probe_render_tasks::ActiveOnChangesReflectionProbeCapture;
+use crate::runtime::offscreen_tasks::reflection_probe::ActiveOnChangesReflectionProbeCapture;
 
 /// Reflection-probe bake task plus the render space that carried it.
 #[derive(Clone, Debug)]
-pub(super) struct QueuedReflectionProbeRenderTask {
+pub(in crate::runtime) struct QueuedReflectionProbeRenderTask {
     /// Host render space containing the reflection probe.
-    pub(super) render_space_id: RenderSpaceId,
+    pub(in crate::runtime) render_space_id: RenderSpaceId,
     /// Host bake task payload.
-    pub(super) task: ReflectionProbeRenderTask,
+    pub(in crate::runtime) task: ReflectionProbeRenderTask,
 }
 
 /// Per-tick gates and reusable view-planning scratch.
-pub(super) struct RuntimeTickState {
+pub(in crate::runtime) struct RuntimeTickState {
     /// Set when asset integration completed for the current winit tick.
     did_integrate_this_tick: bool,
     /// Reusable per-frame scratch for secondary render-texture view collection.
-    pub(super) secondary_view_tasks_scratch: Vec<(RenderSpaceId, f32, usize)>,
+    pub(in crate::runtime) secondary_view_tasks_scratch: Vec<(RenderSpaceId, f32, usize)>,
     /// Host camera readback tasks waiting for a GPU context before the next begin-frame send.
-    pub(super) pending_camera_render_tasks: Vec<CameraRenderTask>,
+    pub(in crate::runtime) pending_camera_render_tasks: Vec<CameraRenderTask>,
     /// Host reflection-probe bake tasks waiting for a GPU context before the next begin-frame send.
-    pub(super) pending_reflection_probe_render_tasks: Vec<QueuedReflectionProbeRenderTask>,
+    pub(in crate::runtime) pending_reflection_probe_render_tasks:
+        Vec<QueuedReflectionProbeRenderTask>,
     /// Reflection-probe bake results waiting for the background IPC queue to accept them.
-    pub(super) pending_reflection_probe_render_results: Vec<ReflectionProbeRenderResult>,
+    pub(in crate::runtime) pending_reflection_probe_render_results:
+        Vec<ReflectionProbeRenderResult>,
     /// OnChanges reflection-probe capture requests waiting for GPU processing.
-    pub(super) pending_onchanges_reflection_probe_requests:
+    pub(in crate::runtime) pending_onchanges_reflection_probe_requests:
         Vec<ReflectionProbeOnChangesRenderRequest>,
     /// OnChanges reflection-probe captures that may span multiple ticks.
-    pub(super) active_onchanges_reflection_probe_captures:
+    pub(in crate::runtime) active_onchanges_reflection_probe_captures:
         Vec<ActiveOnChangesReflectionProbeCapture>,
     /// Next renderer-side OnChanges cubemap capture generation.
-    pub(super) next_onchanges_reflection_probe_generation: u64,
+    pub(in crate::runtime) next_onchanges_reflection_probe_generation: u64,
 }
 
 impl RuntimeTickState {
     /// Creates empty tick state.
-    pub(super) fn new() -> Self {
+    pub(in crate::runtime) fn new() -> Self {
         Self {
             did_integrate_this_tick: false,
             secondary_view_tasks_scratch: Vec::new(),
@@ -52,17 +54,17 @@ impl RuntimeTickState {
     }
 
     /// Clears once-per-tick gates at the start of a new winit tick.
-    pub(super) fn reset_for_tick(&mut self) {
+    pub(in crate::runtime) fn reset_for_tick(&mut self) {
         self.did_integrate_this_tick = false;
     }
 
     /// Whether asset integration already ran this tick.
-    pub(super) fn did_integrate_assets_this_tick(&self) -> bool {
+    pub(in crate::runtime) fn did_integrate_assets_this_tick(&self) -> bool {
         self.did_integrate_this_tick
     }
 
     /// Marks asset integration as completed for this tick.
-    pub(super) fn mark_integrated_assets_this_tick(&mut self) {
+    pub(in crate::runtime) fn mark_integrated_assets_this_tick(&mut self) {
         self.did_integrate_this_tick = true;
     }
 }

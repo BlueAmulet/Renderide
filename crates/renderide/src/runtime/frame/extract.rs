@@ -2,7 +2,7 @@
 //!
 //! This module owns the immutable CPU-side hand-off for one render tick: prepared views,
 //! cull snapshots, prefetched draw plans, and the final submit packet. Keeping these types out
-//! of `frame_render` makes the render entrypoint an orchestration layer instead of another
+//! of [`super::render`] makes the render entrypoint an orchestration layer instead of another
 //! subsystem owner.
 
 use rayon::prelude::*;
@@ -19,13 +19,13 @@ use crate::world_mesh::{
     build_world_mesh_cull_proj_params, collect_and_sort_draws_with_parallelism,
 };
 
-use super::frame_view_plan::FrameViewPlan;
+use super::view_plan::FrameViewPlan;
 
 /// Immutable runtime-owned extraction packet built before per-view draw collection starts.
 ///
 /// Prepared views live beside the backend's read-only draw-prep view so later stages no longer
 /// need to reach back into mutable runtime or backend state.
-pub(super) struct ExtractedFrame<'views, 'backend> {
+pub(in crate::runtime) struct ExtractedFrame<'views, 'backend> {
     /// Ordered per-frame view plans and any headless output substitution snapshot.
     prepared_views: PreparedViews<'views>,
     /// Backend-owned draw-prep view assembled once for the frame.
@@ -34,7 +34,7 @@ pub(super) struct ExtractedFrame<'views, 'backend> {
 
 impl<'views, 'backend> ExtractedFrame<'views, 'backend> {
     /// Builds a frame extraction packet from prepared views and backend shared setup.
-    pub(super) fn new(
+    pub(in crate::runtime) fn new(
         prepared_views: PreparedViews<'views>,
         shared: ExtractedFrameShared<'backend>,
     ) -> Self {
@@ -45,12 +45,12 @@ impl<'views, 'backend> ExtractedFrame<'views, 'backend> {
     }
 
     /// Returns `true` when no view should be rendered this tick.
-    pub(super) fn is_empty(&self) -> bool {
+    pub(in crate::runtime) fn is_empty(&self) -> bool {
         self.prepared_views.is_empty()
     }
 
     /// Collects and packages explicit world-mesh draw plans for each prepared view.
-    pub(super) fn prepare_draws(self) -> PreparedDraws<'views> {
+    pub(in crate::runtime) fn prepare_draws(self) -> PreparedDraws<'views> {
         let ExtractedFrame {
             prepared_views,
             shared,
@@ -77,18 +77,18 @@ impl<'views, 'backend> ExtractedFrame<'views, 'backend> {
 
 /// Prepared per-frame view list plus any headless swapchain substitution resources needed to
 /// turn it into executable graph views.
-pub(super) struct PreparedViews<'a> {
+pub(in crate::runtime) struct PreparedViews<'a> {
     /// Ordered list of planned views for this tick.
     prepared: Vec<FrameViewPlan<'a>>,
     /// Headless main-target replacement captured before backend execution borrows the GPU.
-    headless_snapshot: Option<super::frame_view_plan::HeadlessOffscreenSnapshot>,
+    headless_snapshot: Option<super::view_plan::HeadlessOffscreenSnapshot>,
 }
 
 impl<'a> PreparedViews<'a> {
     /// Builds prepared views from the ordered plan and optional headless target snapshot.
-    pub(super) fn new(
+    pub(in crate::runtime) fn new(
         prepared: Vec<FrameViewPlan<'a>>,
-        headless_snapshot: Option<super::frame_view_plan::HeadlessOffscreenSnapshot>,
+        headless_snapshot: Option<super::view_plan::HeadlessOffscreenSnapshot>,
     ) -> Self {
         Self {
             prepared,
@@ -97,12 +97,12 @@ impl<'a> PreparedViews<'a> {
     }
 
     /// Returns `true` when no view should be rendered this tick.
-    pub(super) fn is_empty(&self) -> bool {
+    pub(in crate::runtime) fn is_empty(&self) -> bool {
         self.prepared.is_empty()
     }
 
     /// Shared slice of the ordered planned views.
-    pub(super) fn plans(&self) -> &[FrameViewPlan<'a>] {
+    pub(in crate::runtime) fn plans(&self) -> &[FrameViewPlan<'a>] {
         &self.prepared
     }
 
@@ -134,7 +134,7 @@ impl<'a> PreparedViews<'a> {
 }
 
 /// Immutable per-view draw packet built after culling and draw sorting.
-pub(super) struct PreparedDraws<'a> {
+pub(in crate::runtime) struct PreparedDraws<'a> {
     /// Ordered per-frame view plans and headless output substitution snapshot.
     prepared_views: PreparedViews<'a>,
     /// Explicit draw plan for every prepared view.
@@ -143,7 +143,7 @@ pub(super) struct PreparedDraws<'a> {
 
 impl<'a> PreparedDraws<'a> {
     /// Promotes prepared views plus explicit draws into the final submit packet.
-    pub(super) fn into_submit_frame(self) -> SubmitFrame<'a> {
+    pub(in crate::runtime) fn into_submit_frame(self) -> SubmitFrame<'a> {
         SubmitFrame {
             prepared_views: self.prepared_views,
             view_draws: self.view_draws,
@@ -152,7 +152,7 @@ impl<'a> PreparedDraws<'a> {
 }
 
 /// Final immutable runtime packet handed to backend execution for one frame.
-pub(super) struct SubmitFrame<'a> {
+pub(in crate::runtime) struct SubmitFrame<'a> {
     /// Ordered per-frame view plans and headless output substitution snapshot.
     prepared_views: PreparedViews<'a>,
     /// Explicit draw plan for every prepared view.
@@ -161,7 +161,7 @@ pub(super) struct SubmitFrame<'a> {
 
 impl SubmitFrame<'_> {
     /// Executes the final submit packet while the prepared view owners are still alive.
-    pub(super) fn execute(
+    pub(in crate::runtime) fn execute(
         self,
         gpu: &mut GpuContext,
         scene: &crate::scene::SceneCoordinator,
@@ -339,7 +339,7 @@ fn trace_view_draw_plans(prepared: &[FrameViewPlan<'_>], draw_plans: &[WorldMesh
 /// Selects the per-view inner-walk parallelism tier for a tick based on how many views will
 /// collect draws. Keeps rayon from oversubscribing when several views each spawn worker-level
 /// parallelism.
-pub(super) fn select_inner_parallelism(
+pub(in crate::runtime) fn select_inner_parallelism(
     prepared: &[FrameViewPlan<'_>],
 ) -> WorldMeshDrawCollectParallelism {
     if prepared.len() > 1 {
@@ -399,7 +399,7 @@ mod tests {
     use crate::world_mesh::test_fixtures::{DummyDrawItemSpec, dummy_world_mesh_draw_item};
     use crate::world_mesh::{PrefetchedWorldMeshViewDraws, WorldMeshDrawCollection};
 
-    use super::super::frame_view_plan::{FrameViewPlan, FrameViewPlanTarget};
+    use super::super::view_plan::{FrameViewPlan, FrameViewPlanTarget};
     use super::*;
 
     fn main_swapchain_plan() -> FrameViewPlan<'static> {

@@ -25,16 +25,19 @@ use super::{
 
 /// Active OnChanges probe capture, retained across ticks when host time slicing requests it.
 pub(crate) struct ActiveOnChangesReflectionProbeCapture {
-    pub(super) request: ReflectionProbeOnChangesRenderRequest,
+    pub(in crate::runtime) request: ReflectionProbeOnChangesRenderRequest,
     generation: u64,
     extent: ProbeTaskExtent,
     targets: ProbeTaskTargets,
     rendered_faces: u8,
-    pub(super) queued_unique_id: Option<i32>,
+    pub(in crate::runtime) queued_unique_id: Option<i32>,
 }
 
 impl RendererRuntime {
-    pub(super) fn drain_onchanges_reflection_probe_captures(&mut self, gpu: &mut GpuContext) {
+    pub(in crate::runtime) fn drain_onchanges_reflection_probe_captures(
+        &mut self,
+        gpu: &mut GpuContext,
+    ) {
         profiling::scope!("reflection_probe_onchanges::drain");
         self.start_pending_onchanges_reflection_probe_captures(gpu);
         if self
@@ -337,7 +340,7 @@ fn plan_onchanges_reflection_probe_faces(
         .collect())
 }
 
-pub(super) fn onchanges_faces_for_step(
+pub(in crate::runtime) fn onchanges_faces_for_step(
     mode: ReflectionProbeTimeSlicingMode,
     rendered_faces: u8,
 ) -> Vec<ProbeCubeFace> {
@@ -351,7 +354,7 @@ pub(super) fn onchanges_faces_for_step(
     }
 }
 
-pub(super) fn same_onchanges_probe(
+pub(in crate::runtime) fn same_onchanges_probe(
     a: ReflectionProbeOnChangesRenderRequest,
     b: ReflectionProbeOnChangesRenderRequest,
 ) -> bool {

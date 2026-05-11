@@ -12,12 +12,15 @@ use super::CameraTaskTargets;
 
 /// Returns whether a reverse-Z depth sample marks rendered geometry coverage.
 #[cfg(test)]
-pub(super) fn depth_marks_coverage(reverse_z_depth: f32) -> bool {
+pub(in crate::runtime) fn depth_marks_coverage(reverse_z_depth: f32) -> bool {
     reverse_z_depth > crate::gpu::MAIN_FORWARD_DEPTH_CLEAR
 }
 
 /// Writes alpha 1 to covered CameraRenderTask pixels while preserving existing alpha elsewhere.
-pub(super) fn apply_camera_task_alpha_coverage(gpu: &GpuContext, targets: &CameraTaskTargets) {
+pub(in crate::runtime) fn apply_camera_task_alpha_coverage(
+    gpu: &GpuContext,
+    targets: &CameraTaskTargets,
+) {
     profiling::scope!("camera_task::alpha_coverage");
     let pipelines = pipeline_cache();
     let depth_view = targets

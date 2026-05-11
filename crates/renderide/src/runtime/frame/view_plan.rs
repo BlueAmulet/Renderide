@@ -24,7 +24,7 @@ use crate::world_mesh::CameraTransformDrawFilter;
 ///
 /// Clones are cheap (`wgpu::Texture` and `wgpu::TextureView` are internally `Arc`-backed) and
 /// let swapchain-target plans be substituted without holding a long-lived `&mut GpuContext`.
-pub(super) struct HeadlessOffscreenSnapshot {
+pub(in crate::runtime) struct HeadlessOffscreenSnapshot {
     /// Color attachment view for the substituted offscreen target.
     color_view: wgpu::TextureView,
     /// Backing depth texture for the substituted offscreen target.
@@ -40,7 +40,7 @@ pub(super) struct HeadlessOffscreenSnapshot {
 impl HeadlessOffscreenSnapshot {
     /// Lazily allocates the headless primary targets if needed and snapshots cheap clones of
     /// their handles. Returns [`None`] when `gpu` is windowed.
-    pub(super) fn from_gpu(gpu: &mut GpuContext) -> Option<Self> {
+    pub(in crate::runtime) fn from_gpu(gpu: &mut GpuContext) -> Option<Self> {
         let targets = gpu.primary_offscreen_targets()?;
         Some(Self {
             color_view: targets.color_view.clone(),
@@ -53,7 +53,10 @@ impl HeadlessOffscreenSnapshot {
 
     /// Replaces every [`FrameViewTarget::Swapchain`] in `views` with an
     /// [`FrameViewTarget::OffscreenRt`] backed by this snapshot's owned handles.
-    pub(super) fn substitute_swapchain_views<'a>(&'a self, views: &mut [FrameView<'a>]) {
+    pub(in crate::runtime) fn substitute_swapchain_views<'a>(
+        &'a self,
+        views: &mut [FrameView<'a>],
+    ) {
         for view in views.iter_mut() {
             if matches!(view.target, FrameViewTarget::Swapchain) {
                 view.target = FrameViewTarget::OffscreenRt(ExternalOffscreenTargets {
@@ -72,23 +75,23 @@ impl HeadlessOffscreenSnapshot {
 
 /// Render-texture attachment handles owned by one planned secondary view so the underlying
 /// `Arc<TextureView>` / `Arc<Texture>` stay alive for the duration of the tick.
-pub(super) struct OffscreenRtHandles {
+pub(in crate::runtime) struct OffscreenRtHandles {
     /// Host render texture asset id writing this pass, or -1 when no host asset is written.
-    pub(super) rt_id: i32,
+    pub(in crate::runtime) rt_id: i32,
     /// Color attachment view for this render texture.
-    pub(super) color_view: Arc<wgpu::TextureView>,
+    pub(in crate::runtime) color_view: Arc<wgpu::TextureView>,
     /// Depth attachment backing texture.
-    pub(super) depth_texture: Arc<wgpu::Texture>,
+    pub(in crate::runtime) depth_texture: Arc<wgpu::Texture>,
     /// Depth attachment view.
-    pub(super) depth_view: Arc<wgpu::TextureView>,
+    pub(in crate::runtime) depth_view: Arc<wgpu::TextureView>,
     /// Color attachment format.
-    pub(super) color_format: wgpu::TextureFormat,
+    pub(in crate::runtime) color_format: wgpu::TextureFormat,
     /// MSAA policy for transient forward attachments that resolve into this target.
-    pub(super) sample_count_policy: OffscreenSampleCountPolicy,
+    pub(in crate::runtime) sample_count_policy: OffscreenSampleCountPolicy,
 }
 
 /// Target-specific payload for a [`FrameViewPlan`].
-pub(super) enum FrameViewPlanTarget<'a> {
+pub(in crate::runtime) enum FrameViewPlanTarget<'a> {
     /// HMD stereo multiview view; targets are external and pre-acquired by the XR driver.
     Hmd(ExternalFrameTargets<'a>),
     /// Single-view offscreen target; owns the color/depth handles for the tick.
@@ -102,23 +105,23 @@ pub(super) enum FrameViewPlanTarget<'a> {
 /// Built for every active view in the tick -- HMD stereo multiview, secondary render-texture
 /// cameras, and the main desktop swapchain -- so downstream draw and pass code consume a stable
 /// view-intent object instead of branching on runtime mode.
-pub(super) struct FrameViewPlan<'a> {
+pub(in crate::runtime) struct FrameViewPlan<'a> {
     /// Per-view camera parameters (clip planes, matrices, stereo, overrides).
-    pub(super) host_camera: HostCameraFrame,
+    pub(in crate::runtime) host_camera: HostCameraFrame,
     /// Optional selective/exclude filter; present for secondary cameras only.
-    pub(super) draw_filter: Option<CameraTransformDrawFilter>,
+    pub(in crate::runtime) draw_filter: Option<CameraTransformDrawFilter>,
     /// Optional render-space scope for offscreen cameras/tasks.
-    pub(super) render_space_filter: Option<RenderSpaceId>,
+    pub(in crate::runtime) render_space_filter: Option<RenderSpaceId>,
     /// Stable logical identity for view-scoped resources and temporal state.
-    pub(super) view_id: ViewId,
+    pub(in crate::runtime) view_id: ViewId,
     /// Attachment extent in pixels for this view.
-    pub(super) viewport_px: (u32, u32),
+    pub(in crate::runtime) viewport_px: (u32, u32),
     /// Background clear/skybox behavior for this view.
-    pub(super) clear: FrameViewClear,
+    pub(in crate::runtime) clear: FrameViewClear,
     /// Post-processing permissions for this view.
-    pub(super) post_processing: ViewPostProcessing,
+    pub(in crate::runtime) post_processing: ViewPostProcessing,
     /// Target-specific payload (HMD, secondary RT, main swapchain).
-    pub(super) target: FrameViewPlanTarget<'a>,
+    pub(in crate::runtime) target: FrameViewPlanTarget<'a>,
 }
 
 impl FrameViewPlan<'_> {
@@ -150,7 +153,7 @@ impl FrameViewPlan<'_> {
     }
 
     /// Converts this view plan plus graph prep state into the render-graph execution input.
-    pub(super) fn to_frame_view(
+    pub(in crate::runtime) fn to_frame_view(
         &self,
         resource_hints: FrameViewResourceHints,
         initial_blackboard: Blackboard,
@@ -170,12 +173,15 @@ impl FrameViewPlan<'_> {
     ///
     /// Preference order matches the world-mesh forward path: explicit camera world position
     /// (secondary RT cameras) -> main-space eye position -> head-output translation as fallback.
-    pub(super) fn view_origin_world(&self) -> glam::Vec3 {
+    pub(in crate::runtime) fn view_origin_world(&self) -> glam::Vec3 {
         self.host_camera.view_origin_world()
     }
 
     /// Builds the light-resolution descriptor for this view.
-    pub(super) fn light_view_desc(&self, render_context: RenderingContext) -> FrameLightViewDesc {
+    pub(in crate::runtime) fn light_view_desc(
+        &self,
+        render_context: RenderingContext,
+    ) -> FrameLightViewDesc {
         FrameLightViewDesc {
             view_id: self.view_id,
             render_context,
@@ -185,13 +191,13 @@ impl FrameViewPlan<'_> {
     }
 
     /// `true` when this view records the OpenXR stereo multiview draw path.
-    pub(super) fn is_multiview_stereo_active(&self) -> bool {
+    pub(in crate::runtime) fn is_multiview_stereo_active(&self) -> bool {
         matches!(self.target, FrameViewPlanTarget::Hmd(_))
             && self.host_camera.active_stereo().is_some()
     }
 
     /// Shader permutation used by CPU draw collection and material metadata for this view.
-    pub(super) fn shader_permutation(&self) -> ShaderPermutation {
+    pub(in crate::runtime) fn shader_permutation(&self) -> ShaderPermutation {
         if self.is_multiview_stereo_active() {
             SHADER_PERM_MULTIVIEW_STEREO
         } else {
@@ -200,7 +206,7 @@ impl FrameViewPlan<'_> {
     }
 
     /// Depth output layout used for Hi-Z and occlusion data sampled during CPU culling.
-    pub(super) fn output_depth_mode(&self) -> OutputDepthMode {
+    pub(in crate::runtime) fn output_depth_mode(&self) -> OutputDepthMode {
         OutputDepthMode::from_multiview_stereo(self.is_multiview_stereo_active())
     }
 }
