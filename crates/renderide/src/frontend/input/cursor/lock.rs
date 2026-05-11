@@ -4,7 +4,9 @@
 use glam::IVec2;
 #[cfg(not(target_os = "macos"))]
 use glam::Vec2;
-use winit::dpi::{LogicalPosition, LogicalSize, Position};
+#[cfg(not(target_os = "macos"))]
+use winit::dpi::LogicalSize;
+use winit::dpi::{LogicalPosition, Position};
 use winit::window::{CursorGrabMode, ImeRequest, Window};
 
 use super::super::accumulator::WindowInputAccumulator;

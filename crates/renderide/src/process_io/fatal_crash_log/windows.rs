@@ -56,7 +56,8 @@ pub(super) fn install_impl(log_path: &Path) -> Result<(), String> {
                 let context_n =
                     crate::diagnostics::crash_context::write_minimal_snapshot(&mut context_buf);
                 fds.write_all(&context_buf[..context_n]);
-                write_stack_trace(|chunk| fds.write_all(chunk));
+                const NO_POSIX_SIGNAL: i32 = 0;
+                write_stack_trace(NO_POSIX_SIGNAL, |chunk| fds.write_all(chunk));
             }
             CrashEventResult::from(false)
         }))

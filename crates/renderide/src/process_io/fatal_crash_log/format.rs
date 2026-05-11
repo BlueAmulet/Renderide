@@ -47,7 +47,7 @@ pub(super) fn write_decimal(mut n: u64, out: &mut [u8]) -> usize {
 /// `N` must satisfy `1 <= N <= 16`. Bits above `N * 4` are silently dropped, which matches the
 /// existing fixed-width formatting of 32-bit Windows exception codes and 64-bit instruction
 /// pointers.
-#[cfg(any(unix, windows))]
+#[cfg(any(target_os = "linux", target_os = "android", windows))]
 pub(super) fn write_hex_fixed<const N: usize>(n: u64, out: &mut [u8]) -> usize {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     if out.len() < N {
@@ -217,7 +217,7 @@ mod tests {
         assert!(line.ends_with(")\n"));
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(target_os = "linux", target_os = "android", windows))]
     #[test]
     fn write_hex_fixed_8_uppercase() {
         let mut out = [0u8; 8];
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(&out[..n], b"DEADBEEF");
     }
 
-    #[cfg(any(unix, windows))]
+    #[cfg(any(target_os = "linux", target_os = "android", windows))]
     #[test]
     fn write_hex_fixed_16_formats() {
         let mut out = [0u8; 16];
