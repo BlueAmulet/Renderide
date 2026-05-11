@@ -76,92 +76,86 @@ struct ControllerCurlInputs {
     trigger: f32,
 }
 
-/// Extracts the curl-driving inputs from a [`VRControllerState`] variant.
+/// Profile-agnostic pose + analog inputs feeding curl synthesis.
+///
+/// Each `VRControllerState` variant has the same set of pose fields and an analog trigger; the
+/// only profile-specific bit is grip, which is `f32` on Touch / Index but `bool` on Vive / WMR.
+/// Match arms in [`extract_curl_inputs`] pre-coerce grip into `0.0` / `1.0` for the boolean
+/// profiles, then call into [`curl_inputs_from_source`] uniformly.
+struct ControllerCurlSource {
+    is_tracking: bool,
+    side: Chirality,
+    position: Vec3,
+    rotation: Quat,
+    has_bound_hand: bool,
+    hand_position: Vec3,
+    hand_rotation: Quat,
+    grip: f32,
+    trigger: f32,
+}
+
+/// Builds [`ControllerCurlSource`] from a profile-specific controller state with an explicit
+/// grip expression. The other pose fields share the same names across every profile struct so
+/// they forward 1:1.
+macro_rules! curl_source {
+    ($s:expr, grip = $grip:expr) => {
+        ControllerCurlSource {
+            is_tracking: $s.is_tracking,
+            side: $s.side,
+            position: $s.position,
+            rotation: $s.rotation,
+            has_bound_hand: $s.has_bound_hand,
+            hand_position: $s.hand_position,
+            hand_rotation: $s.hand_rotation,
+            grip: $grip,
+            trigger: $s.trigger,
+        }
+    };
+}
+
+/// Builds [`ControllerCurlInputs`] from a profile-agnostic [`ControllerCurlSource`].
 ///
 /// Returns `None` when the controller is not tracked (we do not want to feed the host random
-/// hand poses). For controllers whose grip is a boolean (Vive wand, WMR), the boolean is
-/// coerced to `0.0` / `1.0`.
+/// hand poses). Grip and trigger are clamped to `0..=1` here so callers do not need to.
+fn curl_inputs_from_source(src: ControllerCurlSource) -> Option<ControllerCurlInputs> {
+    if !src.is_tracking {
+        return None;
+    }
+    let (wrist_position, wrist_rotation) = if src.has_bound_hand {
+        (
+            src.position + src.rotation * src.hand_position,
+            (src.rotation * src.hand_rotation).normalize(),
+        )
+    } else {
+        (src.position, src.rotation)
+    };
+    Some(ControllerCurlInputs {
+        side: src.side,
+        wrist_position,
+        wrist_rotation,
+        grip: src.grip.clamp(0.0, 1.0),
+        trigger: src.trigger.clamp(0.0, 1.0),
+    })
+}
+
+/// Extracts the curl-driving inputs from a [`VRControllerState`] variant.
+///
+/// Returns `None` when the controller is not tracked or when the variant is not produced by
+/// the current OpenXR dispatch. For controllers whose grip is a boolean (Vive wand, WMR), the
+/// boolean is coerced to `0.0` / `1.0` before clamping.
 fn extract_curl_inputs(controller: &VRControllerState) -> Option<ControllerCurlInputs> {
     match controller {
         VRControllerState::TouchControllerState(s) => {
-            if !s.is_tracking {
-                return None;
-            }
-            let (wrist_position, wrist_rotation) = if s.has_bound_hand {
-                (
-                    s.position + s.rotation * s.hand_position,
-                    (s.rotation * s.hand_rotation).normalize(),
-                )
-            } else {
-                (s.position, s.rotation)
-            };
-            Some(ControllerCurlInputs {
-                side: s.side,
-                wrist_position,
-                wrist_rotation,
-                grip: s.grip.clamp(0.0, 1.0),
-                trigger: s.trigger.clamp(0.0, 1.0),
-            })
+            curl_inputs_from_source(curl_source!(s, grip = s.grip))
         }
         VRControllerState::IndexControllerState(s) => {
-            if !s.is_tracking {
-                return None;
-            }
-            let (wrist_position, wrist_rotation) = if s.has_bound_hand {
-                (
-                    s.position + s.rotation * s.hand_position,
-                    (s.rotation * s.hand_rotation).normalize(),
-                )
-            } else {
-                (s.position, s.rotation)
-            };
-            Some(ControllerCurlInputs {
-                side: s.side,
-                wrist_position,
-                wrist_rotation,
-                grip: s.grip.clamp(0.0, 1.0),
-                trigger: s.trigger.clamp(0.0, 1.0),
-            })
+            curl_inputs_from_source(curl_source!(s, grip = s.grip))
         }
         VRControllerState::ViveControllerState(s) => {
-            if !s.is_tracking {
-                return None;
-            }
-            let (wrist_position, wrist_rotation) = if s.has_bound_hand {
-                (
-                    s.position + s.rotation * s.hand_position,
-                    (s.rotation * s.hand_rotation).normalize(),
-                )
-            } else {
-                (s.position, s.rotation)
-            };
-            Some(ControllerCurlInputs {
-                side: s.side,
-                wrist_position,
-                wrist_rotation,
-                grip: if s.grip { 1.0 } else { 0.0 },
-                trigger: s.trigger.clamp(0.0, 1.0),
-            })
+            curl_inputs_from_source(curl_source!(s, grip = if s.grip { 1.0 } else { 0.0 }))
         }
         VRControllerState::WindowsMRControllerState(s) => {
-            if !s.is_tracking {
-                return None;
-            }
-            let (wrist_position, wrist_rotation) = if s.has_bound_hand {
-                (
-                    s.position + s.rotation * s.hand_position,
-                    (s.rotation * s.hand_rotation).normalize(),
-                )
-            } else {
-                (s.position, s.rotation)
-            };
-            Some(ControllerCurlInputs {
-                side: s.side,
-                wrist_position,
-                wrist_rotation,
-                grip: if s.grip { 1.0 } else { 0.0 },
-                trigger: s.trigger.clamp(0.0, 1.0),
-            })
+            curl_inputs_from_source(curl_source!(s, grip = if s.grip { 1.0 } else { 0.0 }))
         }
         VRControllerState::CosmosControllerState(_)
         | VRControllerState::GenericControllerState(_)
@@ -536,6 +530,107 @@ mod tests {
         let hand = &hands[0];
         assert_eq!(hand.wrist_position, position);
         assert_eq!(hand.wrist_rotation, rotation);
+    }
+
+    #[test]
+    fn touch_clamps_out_of_range_grip_and_trigger() {
+        let VRControllerState::TouchControllerState(mut s) =
+            touch_controller(Chirality::Left, true, 0.0, 0.0)
+        else {
+            unreachable!()
+        };
+        s.grip = 1.5;
+        s.trigger = -0.5;
+        let inputs = extract_curl_inputs(&VRControllerState::TouchControllerState(s))
+            .expect("tracked controller should produce inputs");
+        assert_eq!(inputs.grip, 1.0, "grip > 1 must clamp to 1");
+        assert_eq!(inputs.trigger, 0.0, "trigger < 0 must clamp to 0");
+    }
+
+    #[test]
+    fn index_clamps_out_of_range_grip_and_trigger() {
+        use crate::shared::IndexControllerState;
+        let s = IndexControllerState {
+            side: Chirality::Right,
+            body_node: BodyNode::RightController,
+            is_device_active: true,
+            is_tracking: true,
+            grip: 2.0,
+            trigger: -0.25,
+            ..IndexControllerState::default()
+        };
+        let inputs = extract_curl_inputs(&VRControllerState::IndexControllerState(s))
+            .expect("tracked controller should produce inputs");
+        assert_eq!(inputs.grip, 1.0, "grip > 1 must clamp to 1");
+        assert_eq!(inputs.trigger, 0.0, "trigger < 0 must clamp to 0");
+    }
+
+    #[test]
+    fn vive_grip_bool_coerces_to_zero_or_one() {
+        use crate::shared::ViveControllerState;
+        let pressed = ViveControllerState {
+            side: Chirality::Left,
+            body_node: BodyNode::LeftController,
+            is_device_active: true,
+            is_tracking: true,
+            grip: true,
+            trigger: 0.4,
+            ..ViveControllerState::default()
+        };
+        let released = ViveControllerState {
+            grip: false,
+            ..pressed.clone()
+        };
+        let pressed_inputs = extract_curl_inputs(&VRControllerState::ViveControllerState(pressed))
+            .expect("tracked controller should produce inputs");
+        let released_inputs =
+            extract_curl_inputs(&VRControllerState::ViveControllerState(released))
+                .expect("tracked controller should produce inputs");
+        assert_eq!(pressed_inputs.grip, 1.0);
+        assert_eq!(released_inputs.grip, 0.0);
+        assert_eq!(pressed_inputs.trigger, 0.4);
+    }
+
+    #[test]
+    fn windows_mr_grip_bool_coerces_to_zero_or_one() {
+        use crate::shared::WindowsMRControllerState;
+        let pressed = WindowsMRControllerState {
+            side: Chirality::Right,
+            body_node: BodyNode::RightController,
+            is_device_active: true,
+            is_tracking: true,
+            grip: true,
+            trigger: 0.7,
+            ..WindowsMRControllerState::default()
+        };
+        let released = WindowsMRControllerState {
+            grip: false,
+            ..pressed.clone()
+        };
+        let pressed_inputs =
+            extract_curl_inputs(&VRControllerState::WindowsMRControllerState(pressed))
+                .expect("tracked controller should produce inputs");
+        let released_inputs =
+            extract_curl_inputs(&VRControllerState::WindowsMRControllerState(released))
+                .expect("tracked controller should produce inputs");
+        assert_eq!(pressed_inputs.grip, 1.0);
+        assert_eq!(released_inputs.grip, 0.0);
+        assert_eq!(pressed_inputs.trigger, 0.7);
+    }
+
+    #[test]
+    fn untracked_vive_returns_none() {
+        use crate::shared::ViveControllerState;
+        let s = ViveControllerState {
+            side: Chirality::Left,
+            body_node: BodyNode::LeftController,
+            is_device_active: true,
+            is_tracking: false,
+            grip: true,
+            trigger: 1.0,
+            ..ViveControllerState::default()
+        };
+        assert!(extract_curl_inputs(&VRControllerState::ViveControllerState(s)).is_none());
     }
 
     #[test]

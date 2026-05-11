@@ -4,15 +4,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::diagnostics::log_throttle::LogThrottle;
+use crate::gpu::driver_thread::BlockingCallWatchdog as EndFrameWatchdog;
 use crate::gpu::{GpuContext, VR_MIRROR_EYE_LAYER};
 use crate::render_graph::ExternalFrameTargets;
 use crate::xr::{XR_COLOR_FORMAT, XrFrameRenderer};
 use openxr as xr;
+use parking_lot::Mutex;
 
-use super::super::session::end_frame_watchdog::EndFrameWatchdog;
-use super::planning::multiview_submit_prereqs;
 use super::resources::{ensure_stereo_depth_texture, ensure_stereo_swapchain};
-use super::swapchain_access::{acquire_swapchain_image, release_swapchain_image};
 use super::types::{OpenxrFrameTick, XrSessionBundle};
 
 /// Deadline for a single `xrWaitSwapchainImage` call before the watchdog logs a compositor stall.
@@ -141,9 +140,69 @@ pub fn try_openxr_hmd_multiview_submit(
     true
 }
 
+/// Returns `true` when the session/runtime/GPU/tick state can submit an HMD projection layer.
+fn multiview_submit_prereqs(
+    gpu: &GpuContext,
+    bundle: &XrSessionBundle,
+    runtime: &impl XrFrameRenderer,
+    tick: &OpenxrFrameTick,
+) -> bool {
+    let handles = &bundle.handles;
+    if !handles.xr_session.session_running() {
+        return false;
+    }
+    if !handles.xr_session.is_visible() {
+        return false;
+    }
+    if !runtime.vr_active() {
+        return false;
+    }
+    if !gpu.device().features().contains(wgpu::Features::MULTIVIEW) {
+        return false;
+    }
+    if !tick.should_render || tick.views.len() < 2 {
+        return false;
+    }
+    true
+}
+
+/// Acquires one OpenXR swapchain image while holding the shared Vulkan queue access gate.
+///
+/// Briefly locks the swapchain mutex around `xrAcquireSwapchainImage`. The lock is dropped
+/// before `xrWaitSwapchainImage` so the long compositor wait does not block the driver
+/// thread's `xrReleaseSwapchainImage` for an unrelated frame.
+fn acquire_swapchain_image(
+    gpu: &GpuContext,
+    swapchain: &Mutex<xr::Swapchain<xr::Vulkan>>,
+) -> Result<usize, xr::sys::Result> {
+    let _gate = gpu.gpu_queue_access_gate().lock();
+    swapchain
+        .lock()
+        .acquire_image()
+        .inspect_err(|e| {
+            logger::warn!("OpenXR swapchain acquire_image failed: {e:?}");
+        })
+        .map(|i| i as usize)
+}
+
+/// Releases one OpenXR swapchain image while holding the shared Vulkan queue access gate.
+///
+/// Used by the failure recovery paths where no finalize work was queued for the driver
+/// thread. The success path releases on the driver thread instead, see
+/// [`crate::gpu::driver_thread::XrFinalizeKind::Projection`].
+fn release_swapchain_image(
+    gpu: &GpuContext,
+    swapchain: &Mutex<xr::Swapchain<xr::Vulkan>>,
+) -> Result<(), xr::sys::Result> {
+    let _gate = gpu.gpu_queue_access_gate().lock();
+    swapchain.lock().release_image().inspect_err(|e| {
+        logger::warn!("OpenXR swapchain release_image failed: {e:?}");
+    })
+}
+
 fn wait_for_acquired_swapchain_image(
     gpu: &GpuContext,
-    swapchain: &parking_lot::Mutex<xr::Swapchain<xr::Vulkan>>,
+    swapchain: &Mutex<xr::Swapchain<xr::Vulkan>>,
 ) -> bool {
     profiling::scope!("xr::swapchain_wait_image");
     let wd = EndFrameWatchdog::arm(WAIT_IMAGE_WATCHDOG_TIMEOUT, "xr::wait_image");
