@@ -1,28 +1,31 @@
 //! Grab-pass posterize filter (`Shader "Filters/Posterize"`).
-
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes Posterize's
+//! shader-specific keyword bits locally.
 
 #import renderide::post::filter_vertex as fv
 #import renderide::frame::globals as rg
 #import renderide::frame::grab_pass as gp
+#import renderide::material::variant_bits as vb
 #import renderide::ui::rect_clip as uirc
 
 struct FiltersPosterizeMaterial {
     _Rect: vec4<f32>,
     _Levels: f32,
-    _RectClip: f32,
-    _pad0: vec2<f32>,
+    _RenderideVariantBits: u32,
+    _pad0: vec2<u32>,
 }
+
+const POSTERIZE_KW_RECTCLIP: u32 = 1u << 0u;
 
 @group(1) @binding(0) var<uniform> mat: FiltersPosterizeMaterial;
 
-struct VertexOutput {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) primary_uv: vec2<f32>,
-    @location(1) world_pos: vec3<f32>,
-    @location(2) world_n: vec3<f32>,
-    @location(3) @interpolate(flat) view_layer: u32,
-    @location(4) view_n: vec3<f32>,
-    @location(5) obj_xy: vec2<f32>,
+fn posterize_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_RECTCLIP() -> bool {
+    return posterize_kw(POSTERIZE_KW_RECTCLIP);
 }
 
 @vertex
@@ -35,27 +38,18 @@ fn vs_main(
     @location(1) n: vec4<f32>,
     @location(2) uv0: vec2<f32>,
     @location(4) t: vec4<f32>,
-) -> VertexOutput {
+) -> fv::RectVertexOutput {
 #ifdef MULTIVIEW
-    let base = fv::vertex_main(instance_index, view_idx, pos, n, t, uv0);
+    return fv::rect_vertex_main(instance_index, view_idx, pos, n, t, uv0);
 #else
-    let base = fv::vertex_main(instance_index, 0u, pos, n, t, uv0);
+    return fv::rect_vertex_main(instance_index, 0u, pos, n, t, uv0);
 #endif
-    var out: VertexOutput;
-    out.clip_pos = base.clip_pos;
-    out.primary_uv = base.primary_uv;
-    out.world_pos = base.world_pos;
-    out.world_n = base.world_n;
-    out.view_layer = base.view_layer;
-    out.view_n = base.view_n;
-    out.obj_xy = pos.xy;
-    return out;
 }
 
 //#pass forward
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect(in.obj_xy, mat._Rect, mat._RectClip)) {
+fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
+    if (uirc::should_clip_rect_kw(in.obj_xy, mat._Rect, kw_RECTCLIP())) {
         discard;
     }
     let c = gp::sample_scene_color(gp::frag_screen_uv(in.clip_pos), in.view_layer);
