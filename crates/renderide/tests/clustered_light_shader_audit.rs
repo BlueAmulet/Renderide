@@ -29,7 +29,7 @@ fn wgsl_files(relative_dir: &str) -> io::Result<Vec<PathBuf>> {
 fn raw_cluster_storage_reader_allowed(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| matches!(name, "pbs_cluster.wgsl" | "globals.wgsl"))
+        .is_some_and(|name| matches!(name, "cluster.wgsl" | "globals.wgsl"))
 }
 
 /// Returns true when a shader source reads raw clustered-light list storage.
@@ -37,6 +37,8 @@ fn contains_raw_cluster_storage_read(src: &str) -> bool {
     [
         "rg::cluster_light_counts[",
         "cluster_light_counts[",
+        "rg::cluster_light_ranges[",
+        "cluster_light_ranges[",
         "rg::cluster_light_indices[",
         "cluster_light_indices[",
     ]

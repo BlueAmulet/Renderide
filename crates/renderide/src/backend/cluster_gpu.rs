@@ -1,14 +1,15 @@
 //! Clustered forward lighting: shared GPU buffers for per-cluster light lists.
 //!
-//! [`ClusterBufferCache`] tracks a grow-only high-water-mark over `cluster_light_counts` and
-//! `cluster_light_indices` -- the only two buffers shared across views. The per-view compute
+//! [`ClusterBufferCache`] tracks a grow-only high-water-mark over `cluster_light_counts`
+//! (range rows) and `cluster_light_indices` -- the only two buffers shared across views. The
+//! per-view compute
 //! params uniform (`ClusterParams`) is **not** managed here; it lives in
 //! `PerViewFrameState::cluster_params_buffer` to avoid a CPU-side write race during parallel
 //! per-view recording (see `frame_resource_manager.rs`).
 
 use std::mem::size_of;
 
-use crate::gpu::{GpuLimits, MAX_LIGHTS_PER_TILE};
+use crate::gpu::{CLUSTER_LIGHT_RANGE_WORDS, GpuLimits};
 pub use crate::world_mesh::cluster::{CLUSTER_COUNT_Z, TILE_SIZE};
 
 /// References to the two storage buffers shared across all views.
@@ -18,10 +19,9 @@ pub use crate::world_mesh::cluster::{CLUSTER_COUNT_Z, TILE_SIZE};
 /// parallel rayon recording (multiple views share one graph upload sink, last write wins).
 #[derive(Clone, Copy)]
 pub struct ClusterBufferRefs<'a> {
-    /// One `u32` count per cluster (compute writes; fragment reads plain `u32`; one thread per cluster).
+    /// Two `u32` words per cluster: compact-index offset and count.
     pub cluster_light_counts: &'a wgpu::Buffer,
-    /// Packed light indices: 2 x `u16` indices per `u32` slot. Slot `k` within cluster `c` lives
-    /// at `u32` word `c * (MAX_LIGHTS_PER_TILE / 2) + (k >> 1)`, bits `(k & 1) * 16 ..+16`.
+    /// Compact light-index storage addressed by the per-cluster range rows.
     pub cluster_light_indices: &'a wgpu::Buffer,
 }
 
@@ -36,8 +36,9 @@ pub struct ClusterBufferRefs<'a> {
 /// in order) overwrites only after the previous view's reads retire. This is why there is no
 /// per-view offset -- each view uses range `[0..view_cluster_count)` in turn.
 ///
-/// When `stereo` is true, the counts and indices buffers are allocated at **2x** size so the
-/// compute pass can write eye-0 clusters at `[0..N)` and eye-1 at `[N..2N)`.
+/// When `stereo` is true, range storage covers both eyes so the compute pass can write eye-0
+/// clusters at `[0..N)` and eye-1 at `[N..2N)`. Compact index storage is sized from the largest
+/// requested view layout.
 pub struct ClusterBufferCache {
     cluster_light_counts: Option<wgpu::Buffer>,
     cluster_light_indices: Option<wgpu::Buffer>,
@@ -47,12 +48,14 @@ pub struct ClusterBufferCache {
     pub version: u64,
 }
 
-/// Grow-only cache key: tracks the max viewport, Z slice count, and stereo flag observed so far.
+/// Grow-only cache key: tracks the max viewport, Z slice count, stereo flag, and compact index
+/// capacity observed so far.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 struct ClusterCacheKey {
     viewport: (u32, u32),
     cluster_count_z: u32,
     stereo: bool,
+    index_capacity_words: u64,
 }
 
 impl ClusterBufferCache {
@@ -66,13 +69,15 @@ impl ClusterBufferCache {
         }
     }
 
-    /// Ensures buffers fit `viewport`, `cluster_count_z`, and `stereo`. **Grow-only**: if the
-    /// current allocation already covers the request (equal or larger on every axis, with a
-    /// one-way `mono -> stereo` transition), the existing buffers are reused and [`Self::version`]
-    /// is not bumped. When a reallocation is required, the new high-water-mark replaces the
-    /// previous allocation and `version` bumps to invalidate bind-group caches.
+    /// Ensures buffers fit `viewport`, `cluster_count_z`, `stereo`, and
+    /// `min_index_capacity_words`. **Grow-only**: if the current allocation already covers the
+    /// request (equal or larger on every axis, with a one-way `mono -> stereo` transition), the
+    /// existing buffers are reused and [`Self::version`] is not bumped. When a reallocation is
+    /// required, the new high-water-mark replaces the previous allocation and `version` bumps to
+    /// invalidate bind-group caches.
     ///
-    /// When `stereo` is true, count and index buffers are doubled to hold per-eye cluster data.
+    /// When `stereo` is true, range storage is doubled to hold per-eye cluster data. Compact
+    /// index storage uses the requested explicit capacity.
     ///
     /// Returns [`None`] when cluster storage would exceed [`GpuLimits`] storage/buffer caps.
     pub fn ensure_buffers(
@@ -82,6 +87,7 @@ impl ClusterBufferCache {
         viewport: (u32, u32),
         cluster_count_z: u32,
         stereo: bool,
+        min_index_capacity_words: u64,
     ) -> Option<ClusterBufferRefs<'_>> {
         let (width, height) = viewport;
         if width == 0 || height == 0 {
@@ -114,20 +120,23 @@ impl ClusterBufferCache {
             );
             return None;
         };
-        let Some(counts_bytes) = total_clusters.checked_mul(size_of::<u32>() as u64) else {
+        let Some(counts_bytes) = total_clusters
+            .checked_mul(CLUSTER_LIGHT_RANGE_WORDS)
+            .and_then(|words| words.checked_mul(size_of::<u32>() as u64))
+        else {
             logger::warn!(
-                "cluster buffers: total_clusters={} count byte size overflows u64",
+                "cluster buffers: total_clusters={} range byte size overflows u64",
                 total_clusters
             );
             return None;
         };
-        let Some(indices_bytes) = total_clusters
-            .checked_mul(u64::from(MAX_LIGHTS_PER_TILE / 2))
-            .and_then(|words| words.checked_mul(size_of::<u32>() as u64))
-        else {
+        let index_capacity_words = min_index_capacity_words
+            .max(1)
+            .max(self.cached_key.index_capacity_words);
+        let Some(indices_bytes) = index_capacity_words.checked_mul(size_of::<u32>() as u64) else {
             logger::warn!(
-                "cluster buffers: total_clusters={} index byte size overflows u64",
-                total_clusters
+                "cluster buffers: index capacity {} byte size overflows u64",
+                index_capacity_words
             );
             return None;
         };
@@ -139,7 +148,7 @@ impl ClusterBufferCache {
             || indices_bytes > max_buf
         {
             logger::warn!(
-                "cluster buffers: max viewport {:?} stereo={} would need counts={} indices={} bytes; exceeds max_storage_buffer_binding_size ({}) or max_buffer_size ({})",
+                "cluster buffers: max viewport {:?} stereo={} would need ranges={} indices={} bytes; exceeds max_storage_buffer_binding_size ({}) or max_buffer_size ({})",
                 (new_max_w, new_max_h),
                 new_max_stereo,
                 counts_bytes,
@@ -153,6 +162,7 @@ impl ClusterBufferCache {
             viewport: (new_max_w, new_max_h),
             cluster_count_z: new_max_z,
             stereo: new_max_stereo,
+            index_capacity_words,
         };
         if self.cluster_light_counts.is_none() || self.cached_key != new_key {
             self.version = self.version.wrapping_add(1);

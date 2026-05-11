@@ -28,12 +28,10 @@ struct ClusterParams {
 
 @group(0) @binding(0) var<uniform> params: ClusterParams;
 @group(0) @binding(1) var<storage, read> lights: array<ft::GpuLight>;
-@group(0) @binding(2) var<storage, read_write> cluster_light_counts: array<u32>;
-/// Packed light indices: 2 x `u16` per `u32` slot (low 16 bits = even slot, high 16 bits = odd
-/// slot). Each cluster is written by a single compute thread, so no atomics are required.
+/// Per-cluster compact-index ranges: `.x` is offset in `cluster_light_indices`, `.y` is count.
+@group(0) @binding(2) var<storage, read_write> cluster_light_ranges: array<vec2<u32>>;
+/// Compact light indices. Each cluster is written by one compute thread, so no atomics are required.
 @group(0) @binding(3) var<storage, read_write> cluster_light_indices: array<u32>;
-
-const MAX_LIGHTS_PER_TILE: u32 = cmath::MAX_LIGHTS_PER_TILE;
 
 struct TileAabb {
     min_v: vec3f,
@@ -150,14 +148,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     let aabb_max = aabb.max_v;
 
     let global_cluster_id = params.cluster_offset + local_cluster_id;
+    let base_index = global_cluster_id * params.light_count;
     var count: u32 = 0u;
-    var packed: u32 = 0u;
-    let base_word = global_cluster_id * (MAX_LIGHTS_PER_TILE / 2u);
 
     for (var i = 0u; i < params.light_count; i++) {
-        if count >= MAX_LIGHTS_PER_TILE {
-            break;
-        }
         let light = lights[i];
         let pos_view = (params.view * vec4f(light.position.x, light.position.y, light.position.z, 1.0)).xyz;
         let dir_view = (params.view * vec4f(light.direction.x, light.direction.y, light.direction.z, 0.0)).xyz;
@@ -185,19 +179,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         }
 
         if intersects {
-            let shift = (count & 1u) * 16u;
-            packed |= (i & 0xFFFFu) << shift;
+            cluster_light_indices[base_index + count] = i;
             count += 1u;
-            if (count & 1u) == 0u {
-                cluster_light_indices[base_word + (count >> 1u) - 1u] = packed;
-                packed = 0u;
-            }
         }
     }
 
-    if (count & 1u) != 0u {
-        cluster_light_indices[base_word + (count >> 1u)] = packed;
-    }
-
-    cluster_light_counts[global_cluster_id] = count;
+    cluster_light_ranges[global_cluster_id] = vec2<u32>(base_index, count);
 }

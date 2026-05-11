@@ -54,7 +54,7 @@ fn direct_metallic_clustered(
     let aa_roughness = brdf::filter_perceptual_roughness(s.roughness, s.normal);
     let cluster_id = cluster_id_for_fragment(frag_xy, world_pos, view_layer);
     let count = pcls::cluster_light_count_at(cluster_id);
-    let i_max = min(count, pcls::MAX_LIGHTS_PER_TILE);
+    let i_max = count;
 
     var lo = vec3<f32>(0.0);
     for (var i = 0u; i < i_max; i++) {
@@ -99,7 +99,7 @@ fn direct_specular_clustered(
     let aa_roughness = brdf::filter_perceptual_roughness(s.roughness, s.normal);
     let cluster_id = cluster_id_for_fragment(frag_xy, world_pos, view_layer);
     let count = pcls::cluster_light_count_at(cluster_id);
-    let i_max = min(count, pcls::MAX_LIGHTS_PER_TILE);
+    let i_max = count;
 
     var lo = vec3<f32>(0.0);
     for (var i = 0u; i < i_max; i++) {

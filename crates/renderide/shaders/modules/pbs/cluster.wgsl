@@ -8,22 +8,19 @@
 #import renderide::frame::globals as rg
 
 const TILE_SIZE: u32 = cmath::TILE_SIZE;
-const MAX_LIGHTS_PER_TILE: u32 = cmath::MAX_LIGHTS_PER_TILE;
 
 /// Fetches the light count written by clustered-light compute for `cluster_id`.
 fn cluster_light_count_at(cluster_id: u32) -> u32 {
-    return rg::cluster_light_counts[cluster_id];
+    return rg::cluster_light_ranges[cluster_id].y;
 }
 
-/// Fetches the packed `u16` light index at `slot` within cluster `cluster_id`. Indices are stored
-/// 2 x `u16` per `u32` in `rg::cluster_light_indices` (low 16 bits = even slot, high 16 bits = odd
-/// slot). Must stay in sync with the compute-side writer in
-/// `shaders/passes/compute/clustered_light.wgsl` and the Rust-side layout documented on
+/// Fetches the compact light index at `slot` within cluster `cluster_id`. Must stay in sync with
+/// the compute-side writer in `shaders/passes/compute/clustered_light.wgsl` and the Rust-side
+/// layout documented on
 /// `ClusterBufferRefs::cluster_light_indices`.
 fn cluster_light_index_at(cluster_id: u32, slot: u32) -> u32 {
-    let base_word = cluster_id * (MAX_LIGHTS_PER_TILE / 2u);
-    let word = rg::cluster_light_indices[base_word + (slot >> 1u)];
-    return (word >> ((slot & 1u) * 16u)) & 0xFFFFu;
+    let range = rg::cluster_light_ranges[cluster_id];
+    return rg::cluster_light_indices[range.x + slot];
 }
 
 /// Integer pixel -> tile index. Uses `floor(pxy / TILE_SIZE)` so tile `k` covers pixels

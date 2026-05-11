@@ -27,9 +27,9 @@ use crate::render_graph::upload_arena::PersistentUploadArena;
 /// Cloned references to the shared clustered-light storage buffers.
 #[derive(Clone)]
 pub struct GraphClusterBufferRefs {
-    /// One `u32` count per cluster.
+    /// Two `u32` words per cluster: compact-index offset and count.
     pub cluster_light_counts: wgpu::Buffer,
-    /// Packed light indices for each cluster.
+    /// Compact light-index storage addressed by each cluster range row.
     pub cluster_light_indices: wgpu::Buffer,
 }
 

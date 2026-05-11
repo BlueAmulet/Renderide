@@ -63,7 +63,7 @@ pub struct ClusteredLightPass {
 pub struct ClusteredLightGraphResources {
     /// Imported light storage buffer.
     pub lights: ImportedBufferHandle,
-    /// Imported per-cluster light-count storage buffer.
+    /// Imported per-cluster light-range storage buffer.
     pub cluster_light_counts: ImportedBufferHandle,
     /// Imported per-cluster light-index storage buffer.
     pub cluster_light_indices: ImportedBufferHandle,
@@ -77,9 +77,9 @@ struct ClusterComputeBuffers<'a> {
     params: &'a wgpu::Buffer,
     /// Scene lights storage (read-only).
     lights: &'a wgpu::Buffer,
-    /// Shared per-cluster light-count storage (write).
+    /// Shared per-cluster light-range storage (write).
     counts: &'a wgpu::Buffer,
-    /// Shared per-cluster packed light-index storage (write).
+    /// Shared per-cluster compact light-index storage (write).
     indices: &'a wgpu::Buffer,
 }
 
@@ -142,8 +142,8 @@ impl ClusteredLightPass {
     }
 
     /// Returns whether this pass should use CPU froxel assignment for the current view.
-    fn should_use_cpu_froxel(&self, view_idx: usize, stereo: bool, light_count: u32) -> bool {
-        view_idx == 0 && stereo && light_count >= AUTO_CPU_FROXEL_LIGHT_THRESHOLD
+    fn should_use_cpu_froxel(&self, view_idx: usize, _stereo: bool, light_count: u32) -> bool {
+        view_idx == 0 && light_count >= AUTO_CPU_FROXEL_LIGHT_THRESHOLD
     }
 
     /// Selects and prepares the clustered-light work for the current graph view.

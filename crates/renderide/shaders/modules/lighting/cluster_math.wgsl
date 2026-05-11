@@ -3,7 +3,6 @@
 #define_import_path renderide::lighting::cluster_math
 
 const TILE_SIZE: u32 = 32u;
-const MAX_LIGHTS_PER_TILE: u32 = 64u;
 const CLUSTER_NEAR_CLIP_MIN: f32 = 0.0001;
 const CLUSTER_FAR_CLIP_MIN_SPAN: f32 = 0.0001;
 const CLUSTER_BOUNDARY_EPSILON: f32 = 0.00001;
