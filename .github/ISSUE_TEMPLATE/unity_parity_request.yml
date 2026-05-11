@@ -39,14 +39,6 @@ body:
     validations:
       required: true
   - type: textarea
-    id: logs
-    attributes:
-      label: Logs
-      description: Attach the renderer log, or paste relevant shader, material, asset, warning, validation, or startup sections. Include host/bootstrapper logs too if they help. If logs are unavailable, explain why.
-      render: text
-    validations:
-      required: true
-  - type: textarea
     id: media
     attributes:
       label: Screenshots or video
