@@ -177,11 +177,7 @@ pub(super) fn assemble_context(parts: GpuContextParts) -> GpuContext {
     GpuContext {
         submission: parts.submission,
         adapter_info: parts.adapter_info,
-        msaa_supported_sample_counts: parts.msaa.desktop,
-        msaa_supported_sample_counts_stereo: parts.msaa.stereo,
-        swapchain_msaa_effective: 1,
-        swapchain_msaa_requested_stereo: 1,
-        swapchain_msaa_effective_stereo: 1,
+        msaa: super::super::GpuMsaa::new(parts.msaa),
         limits: parts.limits,
         device: parts.device,
         queue: parts.queue,

@@ -13,9 +13,9 @@ impl RendererRuntime {
     pub(super) fn sync_master_msaa(&mut self, gpu: &mut GpuContext) -> u32 {
         profiling::scope!("render::sync_master_msaa");
         let requested_msaa = self.requested_master_msaa_count();
-        let prev_msaa = gpu.swapchain_msaa_effective();
-        gpu.set_swapchain_msaa_requested(requested_msaa);
-        let effective = gpu.swapchain_msaa_effective();
+        let prev_msaa = gpu.msaa().swapchain_msaa_effective();
+        gpu.msaa_mut().set_swapchain_msaa_requested(requested_msaa);
+        let effective = gpu.msaa().swapchain_msaa_effective();
         self.transient_evict_stale_msaa_tiers_if_changed(prev_msaa, effective);
         effective.max(1)
     }
@@ -24,9 +24,10 @@ impl RendererRuntime {
     pub(super) fn sync_stereo_msaa_from_master(&mut self, gpu: &mut GpuContext) -> u32 {
         profiling::scope!("render::sync_stereo_msaa");
         let requested_msaa = self.requested_master_msaa_count();
-        let prev_stereo = gpu.swapchain_msaa_effective_stereo();
-        gpu.set_swapchain_msaa_requested_stereo(requested_msaa);
-        let effective = gpu.swapchain_msaa_effective_stereo();
+        let prev_stereo = gpu.msaa().swapchain_msaa_effective_stereo();
+        gpu.msaa_mut()
+            .set_swapchain_msaa_requested_stereo(requested_msaa);
+        let effective = gpu.msaa().swapchain_msaa_effective_stereo();
         self.transient_evict_stale_msaa_tiers_if_changed(prev_stereo, effective);
         effective.max(1)
     }
