@@ -40,7 +40,7 @@ pub struct GpuLight {
     pub spot_cos_half_angle: f32,
     /// Light type as a `u32`.
     pub light_type: u32,
-    /// Multiplier for quartic spot cone attenuation.
+    /// Multiplier for projected radial spot cone attenuation.
     pub spot_angle_scale: f32,
     /// Shadow strength / visibility factor.
     pub shadow_strength: f32,
