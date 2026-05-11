@@ -2,10 +2,10 @@
 
 use wgpu::TextureFormat;
 
-use super::compiled::CompileStats;
-use super::compiled::CompiledRenderGraph;
-use super::error::GraphBuildError;
-use super::post_process_chain::PostProcessChainSignature;
+use super::super::error::GraphBuildError;
+use super::super::post_process_chain::PostProcessChainSignature;
+use super::CompileStats;
+use super::CompiledRenderGraph;
 use crate::camera::ViewId;
 
 /// Inputs that invalidate a compiled main graph (extent, MSAA, multiview, surface format,

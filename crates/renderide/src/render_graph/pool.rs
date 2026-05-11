@@ -7,11 +7,16 @@
 //! GPU-resource construction, validation against device limits, and lease wrapping live on
 //! [`TransientPool`] methods.
 
+mod leases;
 mod metrics;
 mod policy;
+mod validate;
 
 pub use metrics::TransientPoolMetrics;
 pub use policy::{BufferKey, TextureKey};
+
+use leases::{buffer_lease_from_entry, saturating_usize, texture_lease_from_entry};
+use validate::validate_texture_key;
 
 use hashbrown::HashMap;
 
@@ -19,7 +24,7 @@ use crate::gpu_resource::CacheCounters;
 
 use policy::{
     BufferKind, BufferSlotValue, PoolKind, TextureKind, TextureSlotValue, create_buffer,
-    create_texture_and_view, texture_key_dims,
+    create_texture_and_view,
 };
 
 /// Failure to build a [`PooledTextureLease`] or [`PooledBufferLease`] from pool entries.
@@ -381,105 +386,6 @@ impl TransientPool {
             retained_buffers: self.buffers.retained_count(BufferSlotValue::is_present),
         }
     }
-}
-
-fn saturating_usize(value: u64) -> usize {
-    if value > usize::MAX as u64 {
-        usize::MAX
-    } else {
-        value as usize
-    }
-}
-
-fn texture_lease_from_entry(
-    id: usize,
-    slot: &TextureSlotValue,
-) -> Result<PooledTextureLease, TransientPoolError> {
-    let texture = slot
-        .texture
-        .clone()
-        .ok_or(TransientPoolError::MissingTextureResources { pool_id: id })?;
-    let view = slot
-        .view
-        .clone()
-        .ok_or(TransientPoolError::MissingTextureResources { pool_id: id })?;
-    Ok(PooledTextureLease {
-        pool_id: id,
-        texture,
-        view,
-    })
-}
-
-fn buffer_lease_from_entry(
-    id: usize,
-    slot: &BufferSlotValue,
-) -> Result<PooledBufferLease, TransientPoolError> {
-    let buffer = slot
-        .buffer
-        .clone()
-        .ok_or(TransientPoolError::MissingBuffer { pool_id: id })?;
-    Ok(PooledBufferLease {
-        pool_id: id,
-        _buffer: buffer,
-        _size: slot.size,
-    })
-}
-
-/// Returns [`TransientPoolError::TextureExceedsLimits`] when `key` would exceed device limits.
-fn validate_texture_key(
-    limits: &crate::gpu::GpuLimits,
-    key: TextureKey,
-    label: &'static str,
-    usage: wgpu::TextureUsages,
-) -> Result<(), TransientPoolError> {
-    let (width, height, layers) = texture_key_dims(key);
-    let dims_fit = match key.dimension {
-        wgpu::TextureDimension::D3 => limits.texture_3d_fits(width, height, layers),
-        _ => limits.texture_2d_fits(width, height) && limits.array_layers_fit(layers),
-    };
-    let requested_mips = key.mip_levels.max(1);
-    let mips_fit = requested_mips <= 16 && requested_mips <= max_mip_levels_for_texture_key(key);
-    if !dims_fit || !mips_fit {
-        return Err(TransientPoolError::TextureExceedsLimits {
-            label,
-            width,
-            height,
-            layers,
-            mip_levels: key.mip_levels,
-        });
-    }
-    if !limits.texture_usage_supported(key.format, usage) {
-        return Err(TransientPoolError::TextureUnsupportedUsage {
-            label,
-            format: key.format,
-            usage,
-        });
-    }
-    let sample_count = key.sample_count.max(1);
-    let multisample_shape_fit = sample_count <= 1
-        || (key.mip_levels.max(1) == 1
-            && key.dimension == wgpu::TextureDimension::D2
-            && usage.contains(wgpu::TextureUsages::RENDER_ATTACHMENT)
-            && !usage.contains(wgpu::TextureUsages::STORAGE_BINDING)
-            && (layers <= 1 || limits.supports_multisample_array()));
-    if !multisample_shape_fit || !limits.texture_sample_count_supported(key.format, sample_count) {
-        return Err(TransientPoolError::TextureUnsupportedSampleCount {
-            label,
-            format: key.format,
-            sample_count,
-        });
-    }
-    Ok(())
-}
-
-fn max_mip_levels_for_texture_key(key: TextureKey) -> u32 {
-    let (width, height, depth) = texture_key_dims(key);
-    let max_axis = match key.dimension {
-        wgpu::TextureDimension::D1 => width,
-        wgpu::TextureDimension::D2 => width.max(height),
-        wgpu::TextureDimension::D3 => width.max(height).max(depth),
-    };
-    u32::BITS - max_axis.max(1).leading_zeros()
 }
 
 #[cfg(test)]
