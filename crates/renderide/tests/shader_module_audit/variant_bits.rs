@@ -122,6 +122,30 @@ fn depthprojection_uses_reserved_variant_bits() -> io::Result<()> {
     )
 }
 
+#[test]
+fn unlitdistancelerp_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "unlitdistancelerp.wgsl",
+        &[
+            "_ALPHATEST",
+            "_VERTEXCOLORS",
+            "_LOCAL_SPACE",
+            "_WORLD_SPACE",
+        ],
+        &[
+            ("UNLITDISTANCELERP_KW_ALPHATEST", 0),
+            ("UNLITDISTANCELERP_KW_VERTEXCOLORS", 1),
+            ("UNLITDISTANCELERP_KW_LOCAL_SPACE", 2),
+            ("UNLITDISTANCELERP_KW_WORLD_SPACE", 3),
+        ],
+    )
+}
+
+#[test]
+fn uvrect_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader("uvrect.wgsl", &[], &[("UVRECT_KW_RECTCLIP", 0)])
+}
+
 fn is_meaningful_wrapper_line(line: &str) -> bool {
     let trimmed = line.trim();
     !trimmed.is_empty() && !trimmed.starts_with("//")
