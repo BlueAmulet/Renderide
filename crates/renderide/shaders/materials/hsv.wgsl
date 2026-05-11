@@ -5,18 +5,29 @@
 #import renderide::post::filter_vertex as fv
 #import renderide::frame::globals as rg
 #import renderide::frame::grab_pass as gp
+#import renderide::material::variant_bits as vb
 #import renderide::ui::rect_clip as uirc
 
 struct FiltersHsvMaterial {
     _Rect: vec4<f32>,
     _HSVOffset: vec4<f32>,
     _HSVMul: vec4<f32>,
-    _RectClip: f32,
-    _pad0: f32,
-    _pad1: vec2<f32>,
+    _RenderideVariantBits: u32,
+    _pad0: u32,
+    _pad1: vec2<u32>,
 }
 
+const HSV_KW_RECTCLIP: u32 = 1u << 0u;
+
 @group(1) @binding(0) var<uniform> mat: FiltersHsvMaterial;
+
+fn hsv_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_RECTCLIP() -> bool {
+    return hsv_kw(HSV_KW_RECTCLIP);
+}
 
 @vertex
 fn vs_main(
@@ -39,7 +50,7 @@ fn vs_main(
 //#pass forward
 @fragment
 fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect(in.obj_xy, mat._Rect, mat._RectClip)) {
+    if (uirc::should_clip_rect_kw(in.obj_xy, mat._Rect, kw_RECTCLIP())) {
         discard;
     }
 

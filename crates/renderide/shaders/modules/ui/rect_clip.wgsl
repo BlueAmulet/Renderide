@@ -15,3 +15,7 @@ fn outside_rect_clip(p: vec2<f32>, rect: vec4<f32>) -> bool {
 fn should_clip_rect(p: vec2<f32>, rect: vec4<f32>, rect_clip: f32) -> bool {
     return rect_clip_enabled(rect, rect_clip) && outside_rect_clip(p, rect);
 }
+
+fn should_clip_rect_kw(p: vec2<f32>, rect: vec4<f32>, kw_enabled: bool) -> bool {
+    return kw_enabled && rmath::rect_has_area(rect) && outside_rect_clip(p, rect);
+}

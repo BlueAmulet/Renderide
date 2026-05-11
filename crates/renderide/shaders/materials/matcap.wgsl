@@ -4,6 +4,7 @@
 #import renderide::frame::globals as rg
 #import renderide::draw::per_draw as pd
 #import renderide::core::math as rmath
+#import renderide::material::variant_bits as varb
 #import renderide::mesh::vertex as mv
 #import renderide::core::normal_decode as nd
 #import renderide::pbs::normal as pnorm
@@ -11,16 +12,26 @@
 #import renderide::frame::view_basis as vb
 
 struct MatcapMaterial {
-    _NORMALMAP: f32,
-    _pad0: f32,
+    _RenderideVariantBits: u32,
+    _pad0: u32,
     _NormalMap_ST: vec4<f32>,
 }
+
+const MATCAP_KW_NORMALMAP: u32 = 1u << 0u;
 
 @group(1) @binding(0) var<uniform> mat: MatcapMaterial;
 @group(1) @binding(1) var _MainTex: texture_2d<f32>;
 @group(1) @binding(2) var _MainTex_sampler: sampler;
 @group(1) @binding(3) var _NormalMap: texture_2d<f32>;
 @group(1) @binding(4) var _NormalMap_sampler: sampler;
+
+fn matcap_kw(mask: u32) -> bool {
+    return varb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_NORMALMAP() -> bool {
+    return matcap_kw(MATCAP_KW_NORMALMAP);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -77,7 +88,7 @@ fn fs_main(
     @location(5) view_y: vec3<f32>,
 ) -> @location(0) vec4<f32> {
     var normal_ts = vec3<f32>(0.0, 0.0, 1.0);
-    if (uvu::kw_enabled(mat._NORMALMAP)) {
+    if (kw_NORMALMAP()) {
         normal_ts = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_normal),
             1.0,
