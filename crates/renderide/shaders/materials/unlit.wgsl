@@ -17,6 +17,7 @@
 #import renderide::material::alpha_clip_sample as acs
 #import renderide::material::alpha as ma
 #import renderide::material::variant_bits as vb
+#import renderide::material::vertex_color_space as vcs
 #import renderide::mesh::vertex as mv
 #import renderide::core::normal_decode as nd
 #import renderide::draw::per_draw as pd
@@ -150,34 +151,19 @@ fn kw_TEXTURE_NORMALMAP() -> bool {
     return unlit_kw(UNLIT_KW_TEXTURE_NORMALMAP);
 }
 
-fn kw_VERTEX_SRGB_COLOR() -> bool {
-    return unlit_kw(UNLIT_KW_VERTEX_SRGB_COLOR);
-}
-
 fn kw_VERTEXCOLORS() -> bool {
     return unlit_kw(UNLIT_KW_VERTEXCOLORS);
 }
 
-fn srgb_channel_to_linear(value: f32) -> f32 {
-    if (value < 1.0 && value > -1.0) {
-        if (value <= 0.04045) {
-            return value / 12.92;
-        }
-        return pow((value + 0.055) / 1.055, 2.4);
-    }
-    return value;
-}
-
 fn vertex_color_to_linear(color: vec4<f32>) -> vec4<f32> {
-    if (kw_VERTEX_SRGB_COLOR()) {
-        return vec4<f32>(
-            srgb_channel_to_linear(color.r),
-            srgb_channel_to_linear(color.g),
-            srgb_channel_to_linear(color.b),
-            color.a,
-        );
-    }
-    return color;
+    return vcs::apply(
+        color,
+        mat._RenderideVariantBits,
+        UNLIT_KW_VERTEX_LINEAR_COLOR,
+        UNLIT_KW_VERTEX_SRGB_COLOR,
+        0u,
+        0u,
+    );
 }
 
 //#pass forward
