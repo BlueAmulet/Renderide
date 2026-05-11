@@ -176,7 +176,7 @@ fn enabling_agx_adds_a_pass_and_a_transient() {
 }
 
 #[test]
-fn mono_gtao_graph_declares_no_layer_one_view_depth() {
+fn mono_gtao_graph_declares_single_layer_view_depth_mips() {
     let post = gtao_enabled_post();
     let mut key = smoke_key();
     key.multiview_stereo = false;
@@ -187,13 +187,14 @@ fn mono_gtao_graph_declares_no_layer_one_view_depth() {
         graph
             .subresources
             .iter()
-            .any(|desc| desc.label == "gtao_view_depth_mip4_l0")
+            .any(|desc| desc.label == "gtao_view_depth_mip4" && desc.array_layer_count == 1)
     );
     assert!(
         !graph
             .subresources
             .iter()
-            .any(|desc| desc.label.starts_with("gtao_view_depth_") && desc.label.ends_with("_l1"))
+            .any(|desc| desc.label.starts_with("gtao_view_depth_")
+                && (desc.label.ends_with("_l0") || desc.label.ends_with("_l1")))
     );
     let view_depth = graph
         .transient_textures
@@ -204,7 +205,7 @@ fn mono_gtao_graph_declares_no_layer_one_view_depth() {
 }
 
 #[test]
-fn stereo_gtao_graph_declares_layer_one_view_depth() {
+fn stereo_gtao_graph_declares_layered_view_depth_mips() {
     let post = gtao_enabled_post();
     let mut key = smoke_key();
     key.multiview_stereo = true;
@@ -215,7 +216,7 @@ fn stereo_gtao_graph_declares_layer_one_view_depth() {
         graph
             .subresources
             .iter()
-            .any(|desc| desc.label == "gtao_view_depth_mip4_l1")
+            .any(|desc| desc.label == "gtao_view_depth_mip4" && desc.array_layer_count == 2)
     );
     let view_depth = graph
         .transient_textures

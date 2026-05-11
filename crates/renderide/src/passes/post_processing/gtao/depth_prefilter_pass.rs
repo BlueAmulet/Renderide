@@ -30,17 +30,16 @@ pub(super) struct GtaoDepthPrefilterResources {
     pub frame_uniforms: ImportedBufferHandle,
     /// Previous view-space depth mip for downsample nodes.
     pub source_mip: Option<SubresourceHandle>,
-    /// Destination view-space depth mip/layer.
+    /// Destination view-space depth mip.
     pub output_mip: SubresourceHandle,
 }
 
-/// Computes one layer of one view-space depth mip.
+/// Computes one view-space depth mip, dispatching one workgroup layer per stereo eye.
 pub(super) struct GtaoDepthPrefilterPass {
     resources: GtaoDepthPrefilterResources,
     settings: crate::config::GtaoSettings,
     pipelines: &'static GtaoPipelines,
     mip_level: u32,
-    layer: u32,
     profile_label: String,
 }
 
@@ -50,15 +49,13 @@ impl GtaoDepthPrefilterPass {
         resources: GtaoDepthPrefilterResources,
         settings: crate::config::GtaoSettings,
         pipelines: &'static GtaoPipelines,
-        layer: u32,
     ) -> Self {
         Self {
             resources,
             settings,
             pipelines,
             mip_level: 0,
-            layer,
-            profile_label: format!("GtaoDepthPrefilter.mip0.layer{layer}"),
+            profile_label: "GtaoDepthPrefilter.mip0".to_string(),
         }
     }
 
@@ -68,15 +65,13 @@ impl GtaoDepthPrefilterPass {
         settings: crate::config::GtaoSettings,
         pipelines: &'static GtaoPipelines,
         mip_level: u32,
-        layer: u32,
     ) -> Self {
         Self {
             resources,
             settings,
             pipelines,
             mip_level,
-            layer,
-            profile_label: format!("GtaoDepthPrefilter.mip{mip_level}.layer{layer}"),
+            profile_label: format!("GtaoDepthPrefilter.mip{mip_level}"),
         }
     }
 
@@ -119,6 +114,10 @@ impl GtaoDepthPrefilterPass {
         (gx > 0 && gy > 0).then_some((gx, gy))
     }
 
+    fn dispatch_layer_count(&self, multiview_stereo: bool) -> u32 {
+        super::stereo_array_layer_count(multiview_stereo)
+    }
+
     fn record_mip0(
         &self,
         ctx: &mut ComputePassCtx<'_, '_, '_>,
@@ -128,28 +127,38 @@ impl GtaoDepthPrefilterPass {
         gy: u32,
     ) -> Result<(), RenderPassError> {
         let frame_uniform_buffer = self.resolve_frame_uniform_buffer(ctx)?;
+        let multiview_stereo = ctx.pass_frame.view.multiview_stereo;
+        let layer_count = self.dispatch_layer_count(multiview_stereo);
         let source_view =
             ctx.pass_frame
                 .view
                 .depth_texture
                 .create_view(&wgpu::TextureViewDescriptor {
-                    label: Some("gtao_prefilter_raw_depth_layer"),
+                    label: Some(if multiview_stereo {
+                        "gtao_prefilter_raw_depth_stereo"
+                    } else {
+                        "gtao_prefilter_raw_depth_mono"
+                    }),
                     aspect: wgpu::TextureAspect::DepthOnly,
-                    dimension: Some(wgpu::TextureViewDimension::D2),
-                    base_array_layer: self.layer,
-                    array_layer_count: Some(1),
+                    dimension: Some(if multiview_stereo {
+                        wgpu::TextureViewDimension::D2Array
+                    } else {
+                        wgpu::TextureViewDimension::D2
+                    }),
+                    base_array_layer: 0,
+                    array_layer_count: Some(layer_count),
                     ..Default::default()
                 });
         crate::profiling::note_resource_churn!(
             TextureView,
-            "passes::gtao_prefilter_raw_depth_layer_view"
+            "passes::gtao_prefilter_raw_depth_view"
         );
         let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("gtao_prefilter_mip0"),
             layout: self
                 .pipelines
                 .depth_prefilter
-                .mip0_bind_group_layout(ctx.device),
+                .mip0_bind_group_layout(ctx.device, multiview_stereo),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -170,7 +179,10 @@ impl GtaoDepthPrefilterPass {
             ],
         });
         crate::profiling::note_resource_churn!(BindGroup, "passes::gtao_prefilter_mip0_bg");
-        let pipeline = self.pipelines.depth_prefilter.mip0_pipeline(ctx.device);
+        let pipeline = self
+            .pipelines
+            .depth_prefilter
+            .mip0_pipeline(ctx.device, multiview_stereo);
         dispatch_prefilter(
             ctx,
             self.profile_label.as_str(),
@@ -178,6 +190,7 @@ impl GtaoDepthPrefilterPass {
             &bind_group,
             gx,
             gy,
+            layer_count,
         );
         Ok(())
     }
@@ -201,7 +214,7 @@ impl GtaoDepthPrefilterPass {
             layout: self
                 .pipelines
                 .depth_prefilter
-                .downsample_bind_group_layout(ctx.device),
+                .downsample_bind_group_layout(ctx.device, ctx.pass_frame.view.multiview_stereo),
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -218,10 +231,12 @@ impl GtaoDepthPrefilterPass {
             ],
         });
         crate::profiling::note_resource_churn!(BindGroup, "passes::gtao_prefilter_downsample_bg");
+        let multiview_stereo = ctx.pass_frame.view.multiview_stereo;
+        let layer_count = self.dispatch_layer_count(multiview_stereo);
         let pipeline = self
             .pipelines
             .depth_prefilter
-            .downsample_pipeline(ctx.device);
+            .downsample_pipeline(ctx.device, multiview_stereo);
         dispatch_prefilter(
             ctx,
             self.profile_label.as_str(),
@@ -229,6 +244,7 @@ impl GtaoDepthPrefilterPass {
             &bind_group,
             gx,
             gy,
+            layer_count,
         );
         Ok(())
     }
@@ -278,23 +294,13 @@ impl ComputePass for GtaoDepthPrefilterPass {
     }
 
     fn should_record(&self, ctx: &ComputePassCtx<'_, '_, '_>) -> Result<bool, RenderPassError> {
-        Ok(
-            super::super::view_post_processing_enabled(&ctx.pass_frame.view)
-                && super::should_record_depth_prefilter_layer(
-                    self.layer,
-                    ctx.pass_frame.view.multiview_stereo,
-                ),
-        )
+        Ok(super::super::view_post_processing_enabled(
+            &ctx.pass_frame.view,
+        ))
     }
 
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
         profiling::scope!("post_processing::gtao_depth_prefilter");
-        if !super::should_record_depth_prefilter_layer(
-            self.layer,
-            ctx.pass_frame.view.multiview_stereo,
-        ) {
-            return Ok(());
-        }
         let Some(output_view) = ctx
             .graph_resources
             .subresource_view(self.resources.output_mip)
@@ -323,6 +329,7 @@ fn dispatch_prefilter(
     bind_group: &wgpu::BindGroup,
     gx: u32,
     gy: u32,
+    layer_count: u32,
 ) {
     let pass_query = ctx
         .profiler
@@ -336,7 +343,7 @@ fn dispatch_prefilter(
             });
         cpass.set_pipeline(pipeline);
         cpass.set_bind_group(0, bind_group, &[]);
-        cpass.dispatch_workgroups(gx, gy, 1);
+        cpass.dispatch_workgroups(gx, gy, layer_count);
     }
     if let (Some(query), Some(profiler)) = (pass_query, ctx.profiler) {
         profiler.end_query(ctx.encoder, query);
