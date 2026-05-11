@@ -22,6 +22,7 @@
 //! differ from the host implementation.
 
 mod bounds;
+mod diagnostics;
 mod naming;
 
 #[cfg(unix)]

@@ -3,14 +3,11 @@
 //! Naming matches the managed client when the renderer is **non-authority**: subscribe on `...A`,
 //! publish on `...S` (see `Renderite.Shared.MessagingManager.Connect`).
 
-use std::collections::VecDeque;
+use interprocess::{Publisher, QueueFactory, Subscriber};
 
-use interprocess::{Publisher, QueueFactory, QueueOptions, Subscriber};
-
-use super::dual_queue_shared::{drain_subscriber, encode_command};
-use crate::ipc::connection::{
-    ConnectionParams, InitError, publisher_queue_name, subscriber_queue_name,
-};
+use super::connection::{ConnectionParams, InitError, publisher_queue_name, subscriber_queue_name};
+use super::dual_queue_reliable_outbox::ReliableBackgroundOutbox;
+use super::dual_queue_shared::{drain_subscriber, encode_command, open_publisher, open_subscriber};
 use crate::packing::default_entity_pool::DefaultEntityPool;
 use crate::shared::RendererCommand;
 
@@ -24,41 +21,6 @@ const INVALID_MESSAGE_LOG_PREFIX: &str = "IPC";
 
 /// After this many consecutive `try_enqueue` failures on one channel, log at [`logger::error!`].
 const IPC_CONSECUTIVE_DROP_ERROR_AFTER: u32 = 16;
-
-#[derive(Default)]
-struct ReliableBackgroundOutbox {
-    payloads: VecDeque<Vec<u8>>,
-    pending_bytes: usize,
-}
-
-impl ReliableBackgroundOutbox {
-    fn enqueue(&mut self, payload: Vec<u8>) {
-        self.pending_bytes = self.pending_bytes.saturating_add(payload.len());
-        self.payloads.push_back(payload);
-    }
-
-    fn front(&self) -> Option<&[u8]> {
-        self.payloads.front().map(Vec::as_slice)
-    }
-
-    fn mark_front_sent(&mut self) {
-        if let Some(payload) = self.payloads.pop_front() {
-            self.pending_bytes = self.pending_bytes.saturating_sub(payload.len());
-        }
-    }
-
-    fn is_empty(&self) -> bool {
-        self.payloads.is_empty()
-    }
-
-    fn len(&self) -> usize {
-        self.payloads.len()
-    }
-
-    fn pending_bytes(&self) -> usize {
-        self.pending_bytes
-    }
-}
 
 /// Host <-> renderer IPC over two Cloudtoid queue pairs (Primary and Background).
 pub struct DualQueueIpc {
@@ -85,20 +47,25 @@ impl DualQueueIpc {
         let factory = QueueFactory::new();
         let cap = params.queue_capacity;
 
+        let primary_sub_name = subscriber_queue_name(&params.queue_name, "Primary");
+        let background_sub_name = subscriber_queue_name(&params.queue_name, "Background");
+        let primary_pub_name = publisher_queue_name(&params.queue_name, "Primary");
+        let background_pub_name = publisher_queue_name(&params.queue_name, "Background");
+
         logger::info!(
             "IPC connect: base={} capacity={} primary_sub={} primary_pub={} background_sub={} background_pub={}",
             params.queue_name,
             cap,
-            subscriber_queue_name(&params.queue_name, "Primary"),
-            publisher_queue_name(&params.queue_name, "Primary"),
-            subscriber_queue_name(&params.queue_name, "Background"),
-            publisher_queue_name(&params.queue_name, "Background"),
+            primary_sub_name,
+            primary_pub_name,
+            background_sub_name,
+            background_pub_name,
         );
 
-        let primary_sub = open_subscriber(factory, params, "Primary", cap)?;
-        let background_sub = open_subscriber(factory, params, "Background", cap)?;
-        let primary_pub = open_publisher(factory, params, "Primary", cap)?;
-        let background_pub = open_publisher(factory, params, "Background", cap)?;
+        let primary_sub = open_subscriber(factory, &primary_sub_name, cap, None, false)?;
+        let background_sub = open_subscriber(factory, &background_sub_name, cap, None, false)?;
+        let primary_pub = open_publisher(factory, &primary_pub_name, cap, None, false)?;
+        let background_pub = open_publisher(factory, &background_pub_name, cap, None, false)?;
 
         Ok(Self {
             primary_subscriber: primary_sub,
@@ -301,35 +268,9 @@ fn send_on_publisher(
     false
 }
 
-fn open_subscriber(
-    factory: QueueFactory,
-    params: &ConnectionParams,
-    channel: &str,
-    capacity: i64,
-) -> Result<Subscriber, InitError> {
-    let name = subscriber_queue_name(&params.queue_name, channel);
-    let options = QueueOptions::new(&name, capacity).map_err(InitError::IpcConnect)?;
-    factory
-        .create_subscriber(options)
-        .map_err(|e| InitError::IpcConnect(e.to_string()))
-}
-
-fn open_publisher(
-    factory: QueueFactory,
-    params: &ConnectionParams,
-    channel: &str,
-    capacity: i64,
-) -> Result<Publisher, InitError> {
-    let name = publisher_queue_name(&params.queue_name, channel);
-    let options = QueueOptions::new(&name, capacity).map_err(InitError::IpcConnect)?;
-    factory
-        .create_publisher(options)
-        .map_err(|e| InitError::IpcConnect(e.to_string()))
-}
-
 #[cfg(test)]
 mod renderer_command_roundtrip_tests {
-    use super::{ENCODE_OVERFLOW_LOG_PREFIX, ReliableBackgroundOutbox};
+    use super::ENCODE_OVERFLOW_LOG_PREFIX;
     use crate::ipc::dual_queue_shared::encode_command;
     use crate::packing::default_entity_pool::DefaultEntityPool;
     use crate::packing::memory_unpacker::MemoryUnpacker;
@@ -351,56 +292,6 @@ mod renderer_command_roundtrip_tests {
             "RendererCommand wire roundtrip"
         );
         assert_eq!(unpacker.remaining_data(), 0, "no trailing bytes");
-    }
-
-    #[test]
-    fn reliable_background_outbox_preserves_fifo_and_byte_count() {
-        let mut outbox = ReliableBackgroundOutbox::default();
-
-        outbox.enqueue(vec![1, 2, 3]);
-        outbox.enqueue(vec![4, 5]);
-
-        assert_eq!(outbox.len(), 2);
-        assert_eq!(outbox.pending_bytes(), 5);
-        assert_eq!(outbox.front(), Some(&[1, 2, 3][..]));
-
-        outbox.mark_front_sent();
-
-        assert_eq!(outbox.len(), 1);
-        assert_eq!(outbox.pending_bytes(), 2);
-        assert_eq!(outbox.front(), Some(&[4, 5][..]));
-
-        outbox.mark_front_sent();
-
-        assert!(outbox.is_empty());
-        assert_eq!(outbox.pending_bytes(), 0);
-    }
-
-    #[test]
-    fn reliable_background_outbox_empty_mark_sent_is_noop() {
-        let mut outbox = ReliableBackgroundOutbox::default();
-
-        outbox.mark_front_sent();
-
-        assert!(outbox.is_empty());
-        assert_eq!(outbox.len(), 0);
-        assert_eq!(outbox.pending_bytes(), 0);
-        assert_eq!(outbox.front(), None);
-    }
-
-    #[test]
-    fn reliable_background_outbox_counts_zero_length_payloads_as_messages() {
-        let mut outbox = ReliableBackgroundOutbox::default();
-
-        outbox.enqueue(Vec::new());
-        outbox.enqueue(vec![1]);
-
-        assert_eq!(outbox.len(), 2);
-        assert_eq!(outbox.pending_bytes(), 1);
-        assert_eq!(outbox.front(), Some(&[][..]));
-        outbox.mark_front_sent();
-        assert_eq!(outbox.front(), Some(&[1][..]));
-        assert_eq!(outbox.pending_bytes(), 1);
     }
 
     #[test]
