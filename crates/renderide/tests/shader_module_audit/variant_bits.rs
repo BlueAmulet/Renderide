@@ -215,3 +215,30 @@ fn ui_circlesegment_uses_reserved_variant_bits() -> io::Result<()> {
         ],
     )
 }
+
+#[test]
+fn ui_unlit_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "ui_unlit.wgsl",
+        &[
+            "_ALPHACLIP",
+            "_ALPHATEST_ON",
+            "_ALPHABLEND_ON",
+            "_TEXTURE_NORMALMAP",
+            "_TEXTURE_LERPCOLOR",
+            "_MASK_TEXTURE_MUL",
+            "_MASK_TEXTURE_CLIP",
+            "_RectClip",
+            "_OVERLAY",
+        ],
+        &[
+            ("UIUNLIT_KW_MASK_TEXTURE_CLIP", 0),
+            ("UIUNLIT_KW_MASK_TEXTURE_MUL", 1),
+            ("UIUNLIT_KW_ALPHACLIP", 2),
+            ("UIUNLIT_KW_OVERLAY", 3),
+            ("UIUNLIT_KW_RECTCLIP", 4),
+            ("UIUNLIT_KW_TEXTURE_LERPCOLOR", 5),
+            ("UIUNLIT_KW_TEXTURE_NORMALMAP", 6),
+        ],
+    )
+}
