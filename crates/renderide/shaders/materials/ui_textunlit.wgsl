@@ -1,20 +1,15 @@
-//! Canvas UI text unlit (Unity shader asset `UI_TextUnlit`, normalized key `ui_textunlit`): MSDF/SDF/Raster font atlas, tint, outline, rect clip.
+//! Canvas UI text unlit (Unity shader asset `UI_TextUnlit`, normalized key `ui_textunlit`):
+//! MSDF/SDF/Raster font atlas, tint, outline, rect clip, overlay tint.
 //!
 //! Build emits `ui_textunlit_default` / `ui_textunlit_multiview` via [`MULTIVIEW`](https://docs.rs/naga_oil).
-//! `@group(1)` global names match Unity `UI_TextUnlit.shader` material property names for host reflection.
+//! `@group(1)` field names match Unity `UI_TextUnlit.shader` material property names for host reflection.
 //!
-//! **Vertex color:** Unity multiplies `_TintColor * vertexColor`. The mesh pass provides a float4
+//! Vertex color: Unity multiplies `_TintColor * vertexColor`. The mesh pass provides a float4
 //! color stream at `@location(3)` with opaque-white fallback when absent on the host mesh.
 //!
-//! **Glyph mode (Unity `RASTER` / `SDF` / `MSDF` keywords):** FrooxEngine sends `_Range` from
-//! `PixelRange / atlasSize` for both raster and distance-field fonts, so mode is not derived from `_Range`.
-//! Use **`_TextMode`**: `0` = MSDF (median RGB), `1` = RASTER (`atlas * tint`, alpha clip), `2` = SDF (single-channel alpha distance).
-//! Missing `_TextMode` is inferred from `_FontAtlas` color profile by CPU uniform packing.
-//!
-//! **Rect clip (Unity `RECTCLIP` keyword):** When **`_RectClip` > 0.5** and `_Rect` has non-zero area, fragments outside
-//! the rect in object XY are discarded. Missing `_RectClip` defaults to off.
-//!
-//! **OVERLAY** depth compositing uses `_OVERLAY` to gate the scene-depth comparison before applying `_OverlayTint`.
+//! Froox `#pragma multi_compile` keywords (`RASTER`/`SDF`/`MSDF`, `OUTLINE`, `RECTCLIP`, `OVERLAY`)
+//! are decoded from the renderer-reserved `_RenderideVariantBits` uniform; bit positions match
+//! Froox's sorted `UniqueKeywords` list.
 //!
 //! Per-draw uniforms (`@group(2)`) use [`renderide::draw::per_draw`].
 
@@ -23,10 +18,10 @@
 #import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 #import renderide::material::text_sdf as tsdf
+#import renderide::material::variant_bits as vb
 #import renderide::core::texture_sampling as ts
-#import renderide::frame::scene_depth_sample as sds
+#import renderide::ui::overlay_tint as uiot
 #import renderide::ui::rect_clip as uirc
-#import renderide::core::uv as uvu
 
 struct UiTextUnlitMaterial {
     _TintColor: vec4<f32>,
@@ -38,18 +33,27 @@ struct UiTextUnlitMaterial {
     _FaceDilate: f32,
     _FaceSoftness: f32,
     _OutlineSize: f32,
-    /// `0` = MSDF, `1` = RASTER, `2` = SDF (Unity shader keyword modes).
-    _TextMode: f32,
-    /// `1` when rect clipping is enabled (Unity `RECTCLIP`); gates use of `_Rect`.
-    _RectClip: f32,
-    /// `1` when overlay depth compositing is enabled (Unity `OVERLAY`).
-    _OVERLAY: f32,
+    _RenderideVariantBits: u32,
     _FontAtlas_LodBias: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
+
+const UITEXTUNLIT_KW_MSDF: u32 = 1u << 0u;
+const UITEXTUNLIT_KW_OUTLINE: u32 = 1u << 1u;
+const UITEXTUNLIT_KW_OVERLAY: u32 = 1u << 2u;
+const UITEXTUNLIT_KW_RASTER: u32 = 1u << 3u;
+const UITEXTUNLIT_KW_RECTCLIP: u32 = 1u << 4u;
+const UITEXTUNLIT_KW_SDF: u32 = 1u << 5u;
 
 @group(1) @binding(0) var<uniform> mat: UiTextUnlitMaterial;
 @group(1) @binding(1) var _FontAtlas: texture_2d<f32>;
 @group(1) @binding(2) var _FontAtlas_sampler: sampler;
+
+fn ui_textunlit_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -99,7 +103,7 @@ fn vs_main(
 fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
     let vtx_color = vout.vtx_color;
 
-    if (uirc::should_clip_rect(vout.obj_xy, mat._Rect, mat._RectClip)) {
+    if (uirc::should_clip_rect_kw(vout.obj_xy, mat._Rect, ui_textunlit_kw(UITEXTUNLIT_KW_RECTCLIP))) {
         discard;
     }
 
@@ -119,16 +123,27 @@ fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
         mat._OutlineSize,
     );
     let text_input = tsdf::DistanceFieldInput(0.0, vout.uv, vout.extra_data, vtx_color);
-    let mode = tsdf::text_mode_clamped(mat._TextMode);
-    var c = tsdf::shade_text_sample(atlas_color, style, text_input, vtx_color, mode);
+    let mode = tsdf::text_mode_from_keywords(
+        ui_textunlit_kw(UITEXTUNLIT_KW_RASTER),
+        ui_textunlit_kw(UITEXTUNLIT_KW_SDF),
+    );
+    var c = tsdf::shade_text_sample(
+        atlas_color,
+        style,
+        text_input,
+        vtx_color,
+        mode,
+        ui_textunlit_kw(UITEXTUNLIT_KW_OUTLINE),
+    );
 
-    if (mat._OVERLAY > 0.5) {
-        let scene_z = sds::scene_linear_depth(vout.clip_pos, vout.view_layer);
-        let part_z = sds::fragment_linear_depth(vout.world_pos, vout.view_layer);
-        if (part_z > scene_z) {
-            c = c * mat._OverlayTint;
-        }
-    }
+    c = uiot::apply_overlay_tint(
+        c,
+        mat._OverlayTint,
+        vout.clip_pos,
+        vout.world_pos,
+        vout.view_layer,
+        ui_textunlit_kw(UITEXTUNLIT_KW_OVERLAY),
+    );
 
     return rg::retain_globals_additive(c);
 }

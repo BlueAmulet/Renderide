@@ -31,6 +31,21 @@ fn text_mode_clamped(tm: f32) -> i32 {
     return clamp(i32(round(tm)), 0, 2);
 }
 
+/// Derives the text mode int (`0`=MSDF, `1`=RASTER, `2`=SDF) from decoded variant bits.
+///
+/// Defaults to MSDF when neither RASTER nor SDF is set, matching Unity's
+/// `#pragma multi_compile RASTER SDF MSDF` first-keyword default behavior after
+/// Froox's variant resolution.
+fn text_mode_from_keywords(raster: bool, sdf: bool) -> i32 {
+    if (raster) {
+        return 1;
+    }
+    if (sdf) {
+        return 2;
+    }
+    return 0;
+}
+
 fn distance_field_style(
     tint_color: vec4<f32>,
     outline_color: vec4<f32>,
@@ -51,7 +66,11 @@ fn distance_field_style(
     );
 }
 
-fn shade_distance_field(style: DistanceFieldStyle, input: DistanceFieldInput) -> vec4<f32> {
+fn shade_distance_field(
+    style: DistanceFieldStyle,
+    input: DistanceFieldInput,
+    outline_enabled: bool,
+) -> vec4<f32> {
     var sig_dist = input.sig_dist + style.face_dilate + input.extra_data.x;
 
     let fw = vec2<f32>(fwidth(input.uv.x), fwidth(input.uv.y));
@@ -67,7 +86,7 @@ fn shade_distance_field(style: DistanceFieldStyle, input: DistanceFieldInput) ->
 
     var fill_color = style.tint_color * input.vertex_color;
     let outline_w = style.outline_size + input.extra_data.y;
-    if (style.outline_size > 1e-6) {
+    if (outline_enabled && style.outline_size > 1e-6) {
         let outline_dist = sig_dist - outline_w;
         var outline_lerp = mix(outline_dist * aa, outline_dist, style.face_softness);
         outline_lerp = clamp(outline_lerp + 0.5, 0.0, 1.0);
@@ -87,6 +106,7 @@ fn shade_text_sample(
     input: DistanceFieldInput,
     raster_tint: vec4<f32>,
     mode: i32,
+    outline_enabled: bool,
 ) -> vec4<f32> {
     if (mode == 1) {
         let c = atlas_color * raster_tint;
@@ -103,7 +123,7 @@ fn shade_text_sample(
             input.extra_data,
             input.vertex_color,
         );
-        return shade_distance_field(style, sdf_input);
+        return shade_distance_field(style, sdf_input, outline_enabled);
     }
 
     let sdf_input = DistanceFieldInput(
@@ -112,5 +132,5 @@ fn shade_text_sample(
         input.extra_data,
         input.vertex_color,
     );
-    return shade_distance_field(style, sdf_input);
+    return shade_distance_field(style, sdf_input, outline_enabled);
 }

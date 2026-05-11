@@ -1,12 +1,18 @@
 //! World text unlit (Unity shader asset `TextUnlit`): MSDF / SDF / raster font atlas in world space.
+//!
+//! Build emits `textunlit_default` / `textunlit_multiview` via [`MULTIVIEW`](https://docs.rs/naga_oil).
+//!
+//! Froox `#pragma multi_compile` keywords (`RASTER`/`SDF`/`MSDF`, `OUTLINE`) are decoded from
+//! the renderer-reserved `_RenderideVariantBits` uniform; bit positions match Froox's
+//! sorted `UniqueKeywords` list (`Elements/Elements/Assets/ShaderMetadata.cs::GenerateUniqueKeywords()`).
 
 
 #import renderide::frame::globals as rg
 #import renderide::draw::per_draw as pd
 #import renderide::mesh::vertex as mv
 #import renderide::material::text_sdf as tsdf
+#import renderide::material::variant_bits as vb
 #import renderide::core::texture_sampling as ts
-#import renderide::core::uv as uvu
 
 struct TextUnlitMaterial {
     _TintColor: vec4<f32>,
@@ -16,15 +22,25 @@ struct TextUnlitMaterial {
     _FaceDilate: f32,
     _FaceSoftness: f32,
     _OutlineSize: f32,
-    _TextMode: f32,
+    _RenderideVariantBits: u32,
     _FontAtlas_LodBias: f32,
     _pad0: f32,
     _pad1: f32,
+    _pad2: f32,
 }
+
+const TEXTUNLIT_KW_MSDF: u32 = 1u << 0u;
+const TEXTUNLIT_KW_OUTLINE: u32 = 1u << 1u;
+const TEXTUNLIT_KW_RASTER: u32 = 1u << 2u;
+const TEXTUNLIT_KW_SDF: u32 = 1u << 3u;
 
 @group(1) @binding(0) var<uniform> mat: TextUnlitMaterial;
 @group(1) @binding(1) var _FontAtlas: texture_2d<f32>;
 @group(1) @binding(2) var _FontAtlas_sampler: sampler;
+
+fn textunlit_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -79,8 +95,18 @@ fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
         mat._OutlineSize,
     );
     let text_input = tsdf::DistanceFieldInput(0.0, vout.uv, vout.extra_data, vtx_color);
-    let mode = tsdf::text_mode_clamped(mat._TextMode);
-    let c = tsdf::shade_text_sample(atlas_color, style, text_input, vtx_color, mode);
+    let mode = tsdf::text_mode_from_keywords(
+        textunlit_kw(TEXTUNLIT_KW_RASTER),
+        textunlit_kw(TEXTUNLIT_KW_SDF),
+    );
+    let c = tsdf::shade_text_sample(
+        atlas_color,
+        style,
+        text_input,
+        vtx_color,
+        mode,
+        textunlit_kw(TEXTUNLIT_KW_OUTLINE),
+    );
 
     return rg::retain_globals_additive(c);
 }
