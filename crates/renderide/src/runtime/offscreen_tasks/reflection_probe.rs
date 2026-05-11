@@ -405,6 +405,7 @@ impl RendererRuntime {
 
     /// Attempts to flush queued reflection-probe bake results to the background IPC queue.
     pub(in crate::runtime) fn flush_reflection_probe_render_results(&mut self) {
+        profiling::scope!("reflection_probe_task::flush_results");
         let RendererRuntime {
             frontend,
             tick_state,

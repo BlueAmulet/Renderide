@@ -12,6 +12,7 @@ impl RendererRuntime {
     /// Applies a host frame submit to lock-step, output state, camera fields, scene caches, and
     /// head-output transform.
     pub(crate) fn apply_frame_submit_data(&mut self, data: FrameSubmitData) {
+        profiling::scope!("scene::apply_frame_submit");
         let prev_frame_index = self.host_camera.frame_index;
         if prev_frame_index >= 0 {
             let delta = i64::from(data.frame_index) - i64::from(prev_frame_index);
