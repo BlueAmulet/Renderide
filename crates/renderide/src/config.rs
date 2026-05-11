@@ -39,9 +39,7 @@
 
 mod handle;
 pub mod labeled_enum;
-mod load;
-mod resolve;
-mod save;
+pub(crate) mod persist;
 mod types;
 pub mod value;
 
@@ -50,13 +48,12 @@ pub mod value;
 pub(crate) static CONFIG_ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub use handle::{RendererSettingsHandle, settings_handle_from};
-pub use load::{
-    ConfigFilePolicy, ConfigLoadResult, load_renderer_settings, log_config_resolve_trace,
+pub use persist::{
+    ConfigFilePolicy, ConfigLoadResult, find_renderide_workspace_root, load_renderer_settings,
+    log_config_resolve_trace, save_renderer_settings, save_renderer_settings_pruned,
 };
-pub use resolve::find_renderide_workspace_root;
 #[cfg(test)]
-pub(crate) use resolve::{ConfigResolveOutcome, ConfigSource};
-pub use save::{save_renderer_settings, save_renderer_settings_pruned};
+pub(crate) use persist::{ConfigResolveOutcome, ConfigSource};
 pub use types::{
     AutoExposureSettings, BloomCompositeMode, BloomSettings, DebugHudMainTab,
     DebugHudMainTabVisibility, DebugHudRendererConfigTab, DebugHudRendererConfigTabVisibility,

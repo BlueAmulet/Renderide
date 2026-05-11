@@ -10,7 +10,7 @@ use std::path::Path;
 use toml_edit::{DocumentMut, Table};
 
 use super::resolve::FILE_NAME_TOML;
-use super::types::RendererSettings;
+use crate::config::types::RendererSettings;
 
 /// Writes `settings` to `path` as TOML atomically while preserving unknown existing keys.
 ///
