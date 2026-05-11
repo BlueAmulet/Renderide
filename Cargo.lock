@@ -1431,6 +1431,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "home"
+version = "0.5.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc627f471c528ff0c4a49e1d5e60450c8f6461dd6d10ba9dcd3a61d3dff7728d"
+dependencies = [
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2845,6 +2854,7 @@ dependencies = [
  "tracy-client",
  "unity-asset",
  "unity-asset-binary",
+ "user_dirs",
  "wgpu",
  "wgpu-profiler",
  "wide 1.4.0",
@@ -3722,6 +3732,15 @@ name = "unsafe-libyaml"
 version = "0.2.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
+
+[[package]]
+name = "user_dirs"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25e0d5bff51f431ac0e51881aa83a00d96561878caca262c04157857a4b02083"
+dependencies = [
+ "home",
+]
 
 [[package]]
 name = "utf8parse"
