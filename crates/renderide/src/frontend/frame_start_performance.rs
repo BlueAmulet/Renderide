@@ -23,10 +23,25 @@
 //! sample, so emitting every frame keeps `immediate_fps` and `render_time` in lock-step with the
 //! actual frame loop while the windowed `fps` value stays stable across each window. This is
 //! **not** GPU instrumentation; for that, see [`crate::gpu::frame_cpu_gpu_timing`].
+//!
+//! Layout:
+//! - [`fps_window`] -- count-based windowed FPS accumulator.
+//! - [`asset_integration`] -- per-tick asset-integration sample shape and the running accumulator
+//!   folded into each outgoing payload.
+//! - [`state`] -- [`FrameStartPerformanceState`] orchestrator that composes the above.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::shared::PerformanceState;
+
+pub(crate) mod asset_integration;
+pub(crate) mod fps_window;
+pub(crate) mod state;
+
+pub(crate) use asset_integration::{
+    AssetIntegrationPerformanceSample, AssetIntegrationPerformanceState,
+};
+pub(crate) use state::FrameStartPerformanceState;
 
 /// Window length for the count-based `fps` rolling average. Matches the `>= 500` ms threshold
 /// inside `PerformanceStats.Update`.
@@ -36,160 +51,6 @@ pub(crate) const FPS_WINDOW: Duration = Duration::from_millis(500);
 /// the renderer behavior of `state.renderTime = -1` when `XRStats.TryGetGPUTimeLastFrame` has no
 /// sample yet.
 pub(crate) const RENDER_TIME_UNAVAILABLE: f32 = -1.0;
-
-/// Mutable performance accumulator that feeds outgoing frame-start payloads.
-pub(crate) struct FrameStartPerformanceState {
-    last_tick_wall_start: Option<Instant>,
-    wall_interval_us_for_perf: u64,
-    last_render_time_seconds: f32,
-    framerate_window_start: Option<Instant>,
-    framerate_counter: u32,
-    last_window_fps: f32,
-    rendered_frames_since_last: i32,
-    asset_integration: AssetIntegrationPerformanceState,
-}
-
-/// Asset-integration counters accumulated until the next outgoing performance payload.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct AssetIntegrationPerformanceState {
-    integration_processing_time: f32,
-    extra_particle_processing_time: f32,
-    processed_asset_integrator_tasks: i32,
-    integration_high_priority_tasks: i32,
-    integration_tasks: i32,
-    integration_render_tasks: i32,
-    integration_particle_tasks: i32,
-    processing_handle_waits: i32,
-}
-
-/// One cooperative asset-integration sample to fold into the next performance payload.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(crate) struct AssetIntegrationPerformanceSample {
-    /// Non-particle integration time.
-    pub(crate) integration_elapsed: Duration,
-    /// Extra particle-lane integration time.
-    pub(crate) particle_elapsed: Duration,
-    /// Processed asset-integrator queue steps.
-    pub(crate) processed_tasks: u32,
-    /// Remaining high-priority upload tasks.
-    pub(crate) high_priority_tasks: usize,
-    /// Remaining normal-priority upload tasks.
-    pub(crate) normal_priority_tasks: usize,
-    /// Remaining render-lane tasks.
-    pub(crate) render_tasks: usize,
-    /// Remaining particle-lane tasks.
-    pub(crate) particle_tasks: usize,
-    /// Integration wait count while awaiting host frame submit.
-    pub(crate) handle_waits: i32,
-}
-
-impl Default for FrameStartPerformanceState {
-    fn default() -> Self {
-        Self {
-            last_tick_wall_start: None,
-            wall_interval_us_for_perf: 0,
-            last_render_time_seconds: RENDER_TIME_UNAVAILABLE,
-            framerate_window_start: None,
-            framerate_counter: 0,
-            last_window_fps: 0.0,
-            rendered_frames_since_last: 0,
-            asset_integration: AssetIntegrationPerformanceState::default(),
-        }
-    }
-}
-
-impl FrameStartPerformanceState {
-    /// Records wall-clock spacing between app-driver frame ticks and advances the count-based
-    /// FPS window.
-    ///
-    /// Mirrors `PerformanceStats.Update`: the first call starts the window without counting,
-    /// subsequent calls increment a frame counter, and once [`FPS_WINDOW`] has elapsed the
-    /// window emits `frames / elapsed_seconds` into `last_window_fps` and re-bases off `now`.
-    pub(crate) fn on_tick_frame_wall_clock(&mut self, now: Instant) {
-        self.wall_interval_us_for_perf = self
-            .last_tick_wall_start
-            .map_or(0, |t| now.duration_since(t).as_micros() as u64);
-        self.last_tick_wall_start = Some(now);
-
-        match self.framerate_window_start {
-            None => {
-                self.framerate_window_start = Some(now);
-                self.framerate_counter = 0;
-            }
-            Some(start) => {
-                self.framerate_counter = self.framerate_counter.saturating_add(1);
-                let elapsed = now.duration_since(start);
-                if elapsed >= FPS_WINDOW {
-                    let elapsed_secs = elapsed.as_secs_f32();
-                    if elapsed_secs > 0.0 {
-                        self.last_window_fps = self.framerate_counter as f32 / elapsed_secs;
-                    }
-                    self.framerate_counter = 0;
-                    self.framerate_window_start = Some(now);
-                }
-            }
-        }
-    }
-
-    /// Stores the most recently completed GPU submit-to-idle interval.
-    pub(crate) fn set_last_render_time_seconds(&mut self, render_time_seconds: Option<f32>) {
-        self.last_render_time_seconds = render_time_seconds.unwrap_or(RENDER_TIME_UNAVAILABLE);
-    }
-
-    /// Increments the renderer-tick counter captured by the next frame-start send.
-    pub(crate) fn note_render_tick_complete(&mut self) {
-        self.rendered_frames_since_last = self.rendered_frames_since_last.saturating_add(1);
-    }
-
-    /// Accumulates one cooperative asset-integration drain for the next frame-start payload.
-    pub(crate) fn record_asset_integration_stats(
-        &mut self,
-        sample: AssetIntegrationPerformanceSample,
-    ) {
-        let stats = &mut self.asset_integration;
-        stats.integration_processing_time += sample.integration_elapsed.as_secs_f32();
-        stats.extra_particle_processing_time += sample.particle_elapsed.as_secs_f32();
-        stats.processed_asset_integrator_tasks = stats
-            .processed_asset_integrator_tasks
-            .saturating_add(i32::try_from(sample.processed_tasks).unwrap_or(i32::MAX));
-        stats.integration_high_priority_tasks = stats
-            .integration_high_priority_tasks
-            .saturating_add(i32::try_from(sample.high_priority_tasks).unwrap_or(i32::MAX));
-        stats.integration_tasks = stats
-            .integration_tasks
-            .saturating_add(i32::try_from(sample.normal_priority_tasks).unwrap_or(i32::MAX));
-        stats.integration_render_tasks = stats
-            .integration_render_tasks
-            .saturating_add(i32::try_from(sample.render_tasks).unwrap_or(i32::MAX));
-        stats.integration_particle_tasks = stats
-            .integration_particle_tasks
-            .saturating_add(i32::try_from(sample.particle_tasks).unwrap_or(i32::MAX));
-        stats.processing_handle_waits = stats
-            .processing_handle_waits
-            .saturating_add(sample.handle_waits);
-    }
-
-    /// Records one asset-integration wake wait while the renderer is waiting for host submit.
-    pub(crate) fn record_asset_integration_handle_wait(&mut self) {
-        self.asset_integration.processing_handle_waits = self
-            .asset_integration
-            .processing_handle_waits
-            .saturating_add(1);
-    }
-
-    /// Captures and resets the rendered-frame counter while producing the next performance sample.
-    pub(crate) fn step_for_frame_start(&mut self) -> Option<PerformanceState> {
-        let rendered_frames_since_last = std::mem::replace(&mut self.rendered_frames_since_last, 0);
-        let asset_integration = std::mem::take(&mut self.asset_integration);
-        step_frame_performance(
-            self.wall_interval_us_for_perf,
-            self.last_render_time_seconds,
-            self.last_window_fps,
-            rendered_frames_since_last,
-            asset_integration,
-        )
-    }
-}
 
 /// Builds a [`PerformanceState`] for this frame.
 ///
@@ -236,6 +97,8 @@ pub(crate) fn step_frame_performance(
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
 
     #[test]
@@ -378,7 +241,7 @@ mod tests {
         for i in 1..=10 {
             state.on_tick_frame_wall_clock(t0 + Duration::from_millis(i * 10));
         }
-        assert_eq!(state.last_window_fps, 0.0);
+        assert_eq!(state.last_window_fps(), 0.0);
         let payload = state.step_for_frame_start().expect("payload built");
         assert_eq!(payload.fps, 0.0);
     }
@@ -395,9 +258,9 @@ mod tests {
         }
         state.on_tick_frame_wall_clock(t0 + Duration::from_millis(500));
         assert!(
-            (state.last_window_fps - 60.0).abs() < 0.01,
+            (state.last_window_fps() - 60.0).abs() < 0.01,
             "expected 60 fps, got {}",
-            state.last_window_fps
+            state.last_window_fps()
         );
     }
 
@@ -411,14 +274,14 @@ mod tests {
             state.on_tick_frame_wall_clock(t0 + Duration::from_micros(i * 16_666));
         }
         state.on_tick_frame_wall_clock(t0 + Duration::from_millis(500));
-        let after_first_window = state.last_window_fps;
+        let after_first_window = state.last_window_fps();
         assert!(after_first_window > 0.0);
         // Walk a few mid-window ticks at the same spacing; fps must not change until the next
         // window closes.
         let window_anchor = t0 + Duration::from_millis(500);
         for i in 1..=10 {
             state.on_tick_frame_wall_clock(window_anchor + Duration::from_micros(i * 16_666));
-            assert_eq!(state.last_window_fps, after_first_window);
+            assert_eq!(state.last_window_fps(), after_first_window);
         }
     }
 
@@ -432,7 +295,7 @@ mod tests {
             state.on_tick_frame_wall_clock(t0 + Duration::from_micros(i * 16_666));
         }
         state.on_tick_frame_wall_clock(t0 + Duration::from_millis(500));
-        let first_fps = state.last_window_fps;
+        let first_fps = state.last_window_fps();
         assert!((first_fps - 60.0).abs() < 0.01);
         // Second window: 7 mid-window ticks at 66.66 ms spacing, then an 8th tick at exactly
         // 500 ms past the new anchor -> 8 frames / 0.5 s = 16 fps. Independent of the first window.
@@ -441,7 +304,7 @@ mod tests {
             state.on_tick_frame_wall_clock(window_anchor + Duration::from_micros(i * 66_666));
         }
         state.on_tick_frame_wall_clock(window_anchor + Duration::from_millis(500));
-        let second_fps = state.last_window_fps;
+        let second_fps = state.last_window_fps();
         assert!(
             (second_fps - 16.0).abs() < 0.01,
             "expected 16 fps after second window, got {second_fps}"
