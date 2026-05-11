@@ -289,3 +289,39 @@ fn pbsrimspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
         ],
     )
 }
+
+#[test]
+fn pbsrimtransparentspecular_decodes_keywords_from_variant_bits() -> io::Result<()> {
+    assert_variant_bits_migration(
+        "pbsrimtransparentspecular.wgsl",
+        &[
+            "_ALBEDOTEX",
+            "_EMISSIONTEX",
+            "_NORMALMAP",
+            "_OCCLUSION",
+            "_SPECULARMAP",
+        ],
+        &[
+            ("PBSRIMTRANSPARENTSPECULAR_KW_EMISSIONTEX", 0),
+            ("PBSRIMTRANSPARENTSPECULAR_KW_NORMALMAP", 1),
+            ("PBSRIMTRANSPARENTSPECULAR_KW_OCCLUSION", 2),
+            ("PBSRIMTRANSPARENTSPECULAR_KW_SPECULARMAP", 3),
+        ],
+    )
+}
+
+#[test]
+fn pbsrimtransparentspecular_drops_dead_albedo_path() -> io::Result<()> {
+    let src = material_source("pbsrimtransparentspecular.wgsl")?;
+    assert!(
+        !src.contains("_MainTex:"),
+        "pbsrimtransparentspecular.wgsl must not bind _MainTex; Unity never declares \
+         #pragma multi_compile _ _ALBEDOTEX for this shader, so the #ifdef _ALBEDOTEX \
+         branch is dead code and `_Color` is always the base color"
+    );
+    assert!(
+        !src.contains("PBSRIMTRANSPARENTSPECULAR_KW_ALBEDOTEX"),
+        "pbsrimtransparentspecular.wgsl must not declare a _ALBEDOTEX bit (dead in Unity)"
+    );
+    Ok(())
+}
