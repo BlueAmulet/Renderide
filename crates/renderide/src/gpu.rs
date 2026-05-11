@@ -14,7 +14,6 @@ pub mod frame_bindings;
 mod instance_setup;
 pub mod limits;
 pub mod msaa_depth_resolve;
-pub mod output_depth_mode;
 pub mod present;
 pub mod profiling;
 mod submission_state;
@@ -30,7 +29,8 @@ pub(crate) use profiling::frame_bracket;
 
 pub use context::{GpuContext, GpuError};
 pub use depth::{
-    MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE, main_forward_depth_stencil_format,
+    MAIN_FORWARD_DEPTH_CLEAR, MAIN_FORWARD_DEPTH_COMPARE, OutputDepthMode,
+    main_forward_depth_stencil_format,
 };
 pub use display_blit::DisplayBlitResources;
 pub use frame_bindings::{
@@ -44,6 +44,5 @@ pub use limits::{CUBEMAP_ARRAY_LAYERS, GpuLimits};
 pub use msaa_depth_resolve::{
     MsaaDepthResolveMonoTargets, MsaaDepthResolveResources, MsaaDepthResolveStereoTargets,
 };
-pub use output_depth_mode::OutputDepthMode;
 pub use sync::queue_access_gate::GpuQueueAccessGate;
 pub use vr_mirror::{VR_MIRROR_EYE_LAYER, VrMirrorBlitResources};
