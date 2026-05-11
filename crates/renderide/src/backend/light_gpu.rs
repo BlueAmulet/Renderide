@@ -51,9 +51,10 @@ fn spot_angle_terms(spot_angle: f32) -> (f32, f32) {
     };
     let outer_half_radians = angle.to_radians() * 0.5;
     let cos_outer = outer_half_radians.cos().clamp(0.0, 1.0);
-    let denominator = 1.0 - cos_outer;
+    let cos_outer_sq = cos_outer * cos_outer;
+    let denominator = 1.0 - cos_outer_sq;
     let scale = if denominator > MIN_SPOT_ANGLE_SCALE_DENOMINATOR {
-        1.0 / denominator
+        cos_outer_sq / denominator
     } else {
         0.0
     };
@@ -137,12 +138,12 @@ mod layout_tests {
     }
 
     #[test]
-    fn gpu_light_packs_quartic_window_spot_angle_terms() {
+    fn gpu_light_packs_projected_radial_spot_angle_terms() {
         let light = resolved_light(LightType::Spot);
         let gpu = gpu_light_from_resolved(&light);
         let outer_half = light.spot_angle.to_radians() * 0.5;
         let expected_outer = outer_half.cos();
-        let expected_scale = 1.0 / (1.0 - expected_outer);
+        let expected_scale = 1.0 / outer_half.tan().powi(2);
 
         assert!((gpu.spot_cos_half_angle - expected_outer).abs() < 1e-6);
         assert!((gpu.spot_angle_scale - expected_scale).abs() < 1e-5);
@@ -159,7 +160,7 @@ mod layout_tests {
 
         assert!(gpu.spot_cos_half_angle.abs() < 1e-6);
         assert!(gpu.spot_angle_scale.is_finite());
-        assert!((gpu.spot_angle_scale - 1.0).abs() < 1e-6);
+        assert_eq!(gpu.spot_angle_scale, 0.0);
     }
 
     #[test]
