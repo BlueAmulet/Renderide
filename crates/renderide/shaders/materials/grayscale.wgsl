@@ -1,11 +1,13 @@
 //! Grab-pass grayscale filter (`Shader "Filters/Grayscale"`).
-
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes Grayscale's
+//! shader-specific keyword bits locally.
 
 #import renderide::post::filter_vertex as fv
 #import renderide::frame::globals as rg
 #import renderide::frame::grab_pass as gp
+#import renderide::material::variant_bits as vb
 #import renderide::ui::rect_clip as uirc
-#import renderide::core::uv as uvu
 
 struct FiltersGrayscaleMaterial {
     _Rect: vec4<f32>,
@@ -13,14 +15,22 @@ struct FiltersGrayscaleMaterial {
     _RatioG: f32,
     _RatioB: f32,
     _Lerp: f32,
-    GRADIENT: f32,
-    _RectClip: f32,
-    _pad0: vec2<f32>,
+    _RenderideVariantBits: u32,
 }
+
+const GRAYSCALE_KW_GRADIENT: u32 = 1u << 0u;
+const GRAYSCALE_KW_RECTCLIP: u32 = 1u << 1u;
 
 @group(1) @binding(0) var<uniform> mat: FiltersGrayscaleMaterial;
 @group(1) @binding(1) var _Gradient: texture_2d<f32>;
 @group(1) @binding(2) var _Gradient_sampler: sampler;
+
+fn grayscale_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_GRADIENT() -> bool { return grayscale_kw(GRAYSCALE_KW_GRADIENT); }
+fn kw_RECTCLIP() -> bool { return grayscale_kw(GRAYSCALE_KW_RECTCLIP); }
 
 @vertex
 fn vs_main(
@@ -43,14 +53,14 @@ fn vs_main(
 //#pass forward
 @fragment
 fn fs_main(in: fv::RectVertexOutput) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect(in.obj_xy, mat._Rect, mat._RectClip)) {
+    if (uirc::should_clip_rect_bit(in.obj_xy, mat._Rect, mat._RenderideVariantBits, GRAYSCALE_KW_RECTCLIP)) {
         discard;
     }
 
     let c = gp::sample_scene_color(gp::frag_screen_uv(in.clip_pos), in.view_layer);
     let grayscale = dot(c.rgb, vec3<f32>(mat._RatioR, mat._RatioG, mat._RatioB));
     var new_color = vec3<f32>(grayscale);
-    if (uvu::kw_enabled(mat.GRADIENT)) {
+    if (kw_GRADIENT()) {
         new_color = textureSampleLevel(_Gradient, _Gradient_sampler, vec2<f32>(grayscale, 0.0), 0.0).rgb;
     }
     let filtered = mix(c.rgb, new_color, mat._Lerp);
