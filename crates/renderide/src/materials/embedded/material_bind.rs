@@ -78,6 +78,25 @@ fn material_bind_group_result(
     )
 }
 
+fn build_material_bind_cache_key(
+    stem_hash: u64,
+    lookup: MaterialPropertyLookupIds,
+    texture_bind_signature: u64,
+    offscreen_write_render_texture_asset_id: Option<i32>,
+    uniform_binding: Option<&MaterialUniformArenaSlotBinding>,
+) -> MaterialBindCacheKey {
+    MaterialBindCacheKey {
+        stem_hash,
+        material_asset_id: lookup.material_asset_id,
+        property_block_slot0: lookup.mesh_property_block_slot0,
+        texture_bind_signature,
+        offscreen_write_render_texture_asset_id,
+        uniform_arena_generation: uniform_binding
+            .as_ref()
+            .map_or(0, |binding| binding.buffer_generation),
+    }
+}
+
 /// GPU resources shared by embedded material bind groups (layouts, default textures, sampler).
 pub struct EmbeddedMaterialBindResources {
     device: Arc<wgpu::Device>,
@@ -283,14 +302,13 @@ impl EmbeddedMaterialBindResources {
         } else {
             None
         };
-        let bind_key = MaterialBindCacheKey {
+        let bind_key = build_material_bind_cache_key(
             stem_hash,
+            lookup,
             texture_bind_signature,
             offscreen_write_render_texture_asset_id,
-            uniform_arena_generation: uniform_binding
-                .as_ref()
-                .map_or(0, |binding| binding.buffer_generation),
-        };
+            uniform_binding.as_ref(),
+        );
 
         let hit_bg = {
             profiling::scope!("materials::embedded_bind_cache_lookup");
