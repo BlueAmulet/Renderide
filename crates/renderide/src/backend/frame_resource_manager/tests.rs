@@ -1,11 +1,16 @@
 //! Tests for the parent module.
 
 use super::*;
-use super::cluster_layout::ClusterPreRecordLayout;
+use super::cluster_layout::{
+    ClusterPreRecordLayout, cluster_index_capacity_for_layout, per_view_snapshot_sync_params,
+    unique_cluster_pre_record_layouts,
+};
 
 use glam::{Mat4, Quat, Vec3};
 
-use crate::scene::RenderSpaceId;
+use crate::camera::ViewId;
+use crate::render_graph::frame_params::PreRecordViewResourceLayout;
+use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::{
     LightData, LightType, LightsBufferRendererState, RenderTransform, RenderingContext, ShadowType,
 };
