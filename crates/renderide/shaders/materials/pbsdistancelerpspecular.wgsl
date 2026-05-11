@@ -78,39 +78,6 @@ fn kw_SPECULARMAP() -> bool { return pbsdlspec_kw(PBSDLSPEC_KW_SPECULARMAP); }
 fn kw_LOCAL_SPACE() -> bool { return pbsdlspec_kw(PBSDLSPEC_KW_LOCAL_SPACE); }
 fn kw_OVERRIDE_DISPLACE_DIRECTION() -> bool { return pbsdlspec_kw(PBSDLSPEC_KW_OVERRIDE_DISPLACE_DIRECTION); }
 
-struct DisplaceResult {
-    displace: f32,
-    emission: vec3<f32>,
-}
-
-fn accumulate_points(reference: vec3<f32>) -> DisplaceResult {
-    let dist_inv = pdist::safe_inverse_range(mat._DisplaceDistanceFrom, mat._DisplaceDistanceTo);
-    let em_inv = pdist::safe_inverse_range(mat._EmissionDistanceFrom, mat._EmissionDistanceTo);
-    let count = u32(clamp(mat._PointCount, 0.0, 16.0));
-    var displace = 0.0;
-    var emission = vec3<f32>(0.0);
-    for (var i: u32 = 0u; i < count; i = i + 1u) {
-        let pt = mat._Points[i].xyz;
-        let d = distance(reference, pt);
-        displace = displace + pdist::point_displacement(
-            d,
-            mat._DisplaceDistanceFrom,
-            dist_inv,
-            mat._DisplaceMagnitudeFrom,
-            mat._DisplaceMagnitudeTo,
-        );
-        emission = emission + pdist::point_emission(
-            d,
-            mat._EmissionDistanceFrom,
-            em_inv,
-            mat._TintColors[i],
-            mat._EmissionColorFrom,
-            mat._EmissionColorTo,
-        );
-    }
-    return DisplaceResult(displace, emission);
-}
-
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
     var ts_n = psamp::sample_optional_world_normal(
         kw_NORMALMAP(),
@@ -144,7 +111,20 @@ fn vs_main(
     let use_world = !kw_LOCAL_SPACE();
     let reference_raw = select(pos.xyz, world_p_pre.xyz, use_world);
     let reference = pdist::snap_reference(reference_raw, mat._DistanceGridSize.xyz, mat._DistanceGridOffset.xyz);
-    let acc = accumulate_points(reference);
+    let acc = pdist::accumulate_points(
+        reference,
+        mat._PointCount,
+        mat._Points,
+        mat._TintColors,
+        mat._DisplaceDistanceFrom,
+        mat._DisplaceDistanceTo,
+        mat._DisplaceMagnitudeFrom,
+        mat._DisplaceMagnitudeTo,
+        mat._EmissionDistanceFrom,
+        mat._EmissionDistanceTo,
+        mat._EmissionColorFrom,
+        mat._EmissionColorTo,
+    );
 
     let direction = select(
         normalize(n.xyz),
