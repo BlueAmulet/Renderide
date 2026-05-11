@@ -8,6 +8,7 @@ use crate::config::{
 };
 use crate::render_graph::GraphCache;
 use crate::render_graph::post_process_chain::PostProcessChainSignature;
+use crate::render_graph::resources::TransientArrayLayers;
 
 fn smoke_key() -> GraphCacheKey {
     GraphCacheKey {
