@@ -3,6 +3,7 @@
 mod bindings;
 mod frame;
 mod hand_synth;
+mod haptics;
 mod manifest;
 mod openxr_actions;
 mod openxr_input;
@@ -12,5 +13,6 @@ mod state;
 
 pub use bindings::ProfileExtensionGates;
 pub use hand_synth::synthesize_hand_states;
+pub(crate) use haptics::OpenxrHaptics;
 pub use manifest::{ManifestError, load_manifest};
 pub use openxr_input::OpenxrInput;

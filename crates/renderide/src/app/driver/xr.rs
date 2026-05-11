@@ -4,7 +4,7 @@ use glam::{Quat, Vec3};
 
 use crate::frontend::input::vr_inputs_for_session;
 use crate::gpu::GpuQueueAccessGate;
-use crate::shared::{HeadOutputDevice, VRControllerState, VRInputsState};
+use crate::shared::{HeadOutputDevice, OutputState, VRControllerState, VRInputsState};
 use crate::xr::{OpenxrFrameTick, synthesize_hand_states};
 
 use super::AppDriver;
@@ -90,6 +90,28 @@ impl AppDriver {
             Ok(controllers) => self.xr_input_cache.controllers = controllers,
             Err(error) => logger::trace!("OpenXR input sync: {error:?}"),
         }
+    }
+
+    /// Applies host-requested VR haptics to OpenXR when the current target owns an active session.
+    pub(super) fn apply_host_vr_haptics(&mut self, output_state: &OutputState) {
+        let Some(target) = self.target.as_ref() else {
+            return;
+        };
+        let Some(session) = target.xr_session() else {
+            return;
+        };
+        if !session.handles.xr_session.session_running() {
+            return;
+        }
+        let Some(input) = session.handles.openxr_input.as_ref() else {
+            return;
+        };
+
+        self.xr_haptics.apply_output_state(
+            input,
+            session.handles.xr_session.xr_vulkan_session(),
+            output_state.vr.as_ref(),
+        );
     }
 
     /// Renders the HMD stereo view through the OpenXR projection layer when an OpenXR tick is

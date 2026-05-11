@@ -119,6 +119,8 @@ impl AppDriver {
         if let Some(idle_ms) = sample.event_loop_idle_ms {
             crate::profiling::plot_event_loop_idle_ms(idle_ms);
         }
+        self.xr_haptics
+            .set_frame_delta_seconds((sample.wall_frame_time_ms * 0.001) as f32);
         self.runtime
             .set_debug_hud_wall_frame_time_ms(sample.wall_frame_time_ms);
         self.sync_log_level_from_settings();
@@ -137,15 +139,17 @@ impl AppDriver {
         super::tick_phase_trace("poll_ipc_and_window");
         self.runtime.poll_ipc();
 
-        if let (Some(target), Some(output_state)) = (
-            self.target.as_ref(),
-            self.runtime.take_pending_output_state(),
-        ) && let Err(error) = apply_output_state_to_window(
-            target.window().as_ref(),
-            &output_state,
-            &mut self.cursor_output_tracking,
-        ) {
-            logger::debug!("apply_output_state_to_window: {error:?}");
+        if let Some(output_state) = self.runtime.take_pending_output_state() {
+            self.apply_host_vr_haptics(&output_state);
+            if let Some(target) = self.target.as_ref()
+                && let Err(error) = apply_output_state_to_window(
+                    target.window().as_ref(),
+                    &output_state,
+                    &mut self.cursor_output_tracking,
+                )
+            {
+                logger::debug!("apply_output_state_to_window: {error:?}");
+            }
         }
 
         if let Some(target) = self.target.as_ref()
