@@ -8,10 +8,10 @@
 
 use crate::scene::dense_update::for_each_row_with_par_dispatch;
 use crate::scene::render_space::RenderSpaceState;
-use crate::scene::transforms_apply::TransformRemovalEvent;
+use crate::scene::transforms::TransformRemovalEvent;
 use crate::scene::world::fixup_transform_id;
 
-/// Rolls each [`crate::scene::mesh_renderable::StaticMeshRenderer::node_id`] forward through
+/// Rolls each [`crate::scene::meshes::types::StaticMeshRenderer::node_id`] forward through
 /// this frame's transform swap-removals so existing entries follow their transform when it was
 /// swap-moved into a freed slot. Must run before the static-mesh apply step so any new state
 /// rows land on correctly reindexed entries.
@@ -55,9 +55,9 @@ pub(super) fn fixup_skinned_bones_for_transform_removals(
 
 #[cfg(test)]
 mod tests {
-    use crate::scene::mesh_renderable::StaticMeshRenderer;
+    use crate::scene::meshes::types::StaticMeshRenderer;
     use crate::scene::render_space::RenderSpaceState;
-    use crate::scene::transforms_apply::TransformRemovalEvent;
+    use crate::scene::transforms::TransformRemovalEvent;
 
     use super::fixup_static_meshes_for_transform_removals;
 
@@ -121,7 +121,7 @@ mod tests {
     fn static_mesh_survives_transform_removal_when_swapped_into_freed_slot() {
         use glam::{Quat, Vec3};
 
-        use crate::scene::transforms_apply::{
+        use crate::scene::transforms::{
             ExtractedTransformsUpdate, apply_transforms_update_extracted,
         };
         use crate::scene::world::WorldTransformCache;

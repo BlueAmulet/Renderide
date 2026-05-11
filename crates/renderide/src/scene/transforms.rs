@@ -4,7 +4,7 @@
 //! swap-with-last semantics. **Do not** sort removals.
 //!
 //! After removals run, the per-space orchestrator
-//! ([`crate::scene::coordinator::parallel_apply::apply_extracted_render_space_update`]) re-runs the
+//! ([`crate::scene::coordinator::apply::apply_extracted_render_space_update`]) re-runs the
 //! [`fixup_transform_id`](super::world::fixup_transform_id) sweep across cameras, static and skinned
 //! mesh renderables, layer assignments, render overrides, and lights using the captured
 //! [`TransformRemovalEvent`]s. Removal handling here therefore performs only the parent-pointer

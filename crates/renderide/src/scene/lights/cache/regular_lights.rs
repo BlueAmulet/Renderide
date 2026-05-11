@@ -7,7 +7,7 @@
 use glam::{Quat, Vec3};
 
 use crate::color_space::srgb_vec3_to_linear;
-use crate::scene::transforms_apply::TransformRemovalEvent;
+use crate::scene::transforms::TransformRemovalEvent;
 use crate::scene::world::fixup_transform_id;
 use crate::shared::{LightData, LightState, LightsBufferRendererState};
 

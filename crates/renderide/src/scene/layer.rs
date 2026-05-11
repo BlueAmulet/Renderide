@@ -7,7 +7,7 @@ use crate::shared::{LayerType, LayerUpdate};
 
 use super::error::SceneError;
 use super::render_space::{LayerAssignmentEntry, RenderSpaceState};
-use super::transforms_apply::TransformRemovalEvent;
+use super::transforms::TransformRemovalEvent;
 use super::world::fixup_transform_id;
 
 /// Owned per-space layer-update payload extracted from shared memory.

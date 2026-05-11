@@ -3,8 +3,8 @@
 use crate::ipc::SharedMemoryAccessor;
 use crate::scene::dense_update::{non_negative_i32s, swap_remove_dense_indices};
 use crate::scene::error::SceneError;
-use crate::scene::mesh_material_row::apply_mesh_renderer_state_row;
-use crate::scene::mesh_renderable::StaticMeshRenderer;
+use crate::scene::meshes::types::StaticMeshRenderer;
+use crate::scene::meshes::types::apply_mesh_renderer_state_row;
 use crate::scene::render_space::RenderSpaceState;
 use crate::shared::{
     LayerType, MESH_RENDERER_STATE_HOST_ROW_BYTES, MeshRenderablesUpdate, MeshRendererState,
@@ -108,7 +108,7 @@ pub(crate) fn apply_mesh_renderables_update_extracted(
 
 #[cfg(test)]
 mod tests {
-    use crate::scene::mesh_renderable::MeshRendererInstanceId;
+    use crate::scene::meshes::types::MeshRendererInstanceId;
     use crate::scene::render_space::RenderSpaceState;
 
     use super::{ExtractedMeshRenderablesUpdate, apply_mesh_renderables_update_extracted};

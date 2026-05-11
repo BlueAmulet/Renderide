@@ -497,7 +497,7 @@ fn regular_light_state_only_update_after_swap_uses_swapped_transform() {
 /// at world origin. Reproduces the user-reported bug directly.
 #[test]
 fn regular_light_transform_id_follows_swap_remove() {
-    use crate::scene::transforms_apply::TransformRemovalEvent;
+    use crate::scene::transforms::TransformRemovalEvent;
 
     let mut cache = LightCache::new();
     let space_id = 0;
@@ -539,7 +539,7 @@ fn regular_light_transform_id_follows_swap_remove() {
 /// Regression: same swap-remove fixup for buffer-renderer lights.
 #[test]
 fn buffer_renderer_transform_id_follows_swap_remove() {
-    use crate::scene::transforms_apply::TransformRemovalEvent;
+    use crate::scene::transforms::TransformRemovalEvent;
 
     let mut cache = LightCache::new();
     let space_id = 0;
@@ -580,7 +580,7 @@ fn buffer_renderer_transform_id_follows_swap_remove() {
 /// same frame's removals array; this guards against that invariant regressing.
 #[test]
 fn regular_light_whose_own_transform_was_removed_is_dropped() {
-    use crate::scene::transforms_apply::TransformRemovalEvent;
+    use crate::scene::transforms::TransformRemovalEvent;
 
     let mut cache = LightCache::new();
     let space_id = 0;
@@ -616,7 +616,7 @@ fn regular_light_whose_own_transform_was_removed_is_dropped() {
 /// cached light's `transform_id` untouched.
 #[test]
 fn light_fixup_ignores_unrelated_removals() {
-    use crate::scene::transforms_apply::TransformRemovalEvent;
+    use crate::scene::transforms::TransformRemovalEvent;
 
     let mut cache = LightCache::new();
     let space_id = 0;

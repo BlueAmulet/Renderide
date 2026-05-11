@@ -1,12 +1,108 @@
-//! Applies one [`crate::shared::MeshRendererState`] row and packed material / property-block ids.
+//! Per-render-space mesh renderable rows and the row-apply trait.
 //!
-//! Ordering matches Renderite `MeshRendererManager.ApplyUpdate`: `material_count` material asset ids,
-//! then when `material_property_block_count >= 0`, that many property-block ids (possibly fewer than
-//! materials).
+//! ## Dense tables
+//!
+//! Dense **`renderable_index`** from [`crate::shared::MeshRendererState`] maps to **`Vec` index**
+//! after host removals (swap-with-last, buffer order). Static and skinned renderables use
+//! **separate** tables, mirroring [`crate::shared::MeshRenderablesUpdate`] vs
+//! [`crate::shared::SkinnedMeshRenderablesUpdate`].
+//!
+//! ## State row apply
+//!
+//! [`apply_mesh_renderer_state_row`] applies one [`MeshRendererState`] row plus its packed
+//! material / property-block id slab. Ordering matches Renderite `MeshRendererManager.ApplyUpdate`:
+//! `material_count` material asset ids, then when `material_property_block_count >= 0`, that many
+//! property-block ids (possibly fewer than materials).
 
-use crate::shared::{MeshRendererState, ShadowCastMode};
+use crate::shared::{
+    LayerType, MeshRendererState, MotionVectorMode, RenderBoundingBox, ShadowCastMode,
+};
 
-use super::mesh_renderable::{MeshMaterialSlot, SkinnedMeshRenderer, StaticMeshRenderer};
+/// Renderer-local identity that survives dense table reindexing.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct MeshRendererInstanceId(
+    /// Monotonic renderer-local value assigned by the owning render space.
+    pub u64,
+);
+
+/// One submesh slot: material asset id and optional per-slot property block.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MeshMaterialSlot {
+    /// `Material.assetId` from the host.
+    pub material_asset_id: i32,
+    /// Property block asset id for this slot when present.
+    pub property_block_id: Option<i32>,
+}
+
+/// Static mesh draw instance.
+#[derive(Debug, Clone)]
+pub struct StaticMeshRenderer {
+    /// Renderer-local identity assigned when the renderer entry is created.
+    pub instance_id: MeshRendererInstanceId,
+    /// Dense transform index this renderer attaches to (`node_id`).
+    pub node_id: i32,
+    /// Draw layer (opaque vs overlay vs hidden).
+    pub layer: LayerType,
+    /// Resident mesh asset id in [`crate::gpu_pools::MeshPool`].
+    pub mesh_asset_id: i32,
+    /// Host sorting order within the layer.
+    pub sorting_order: i32,
+    /// Whether this mesh casts shadows.
+    pub shadow_cast_mode: ShadowCastMode,
+    /// Motion vector generation mode from the host.
+    pub motion_vector_mode: MotionVectorMode,
+    /// Submesh order: one entry per material slot.
+    pub material_slots: Vec<MeshMaterialSlot>,
+    /// Legacy slot 0 material handle for single-material paths.
+    pub primary_material_asset_id: Option<i32>,
+    /// Legacy slot 0 property block when present.
+    pub primary_property_block_id: Option<i32>,
+    /// Blendshape weights by shape index (IPD path for static is reserved; skinned uses host batches).
+    pub blend_shape_weights: Vec<f32>,
+}
+
+impl Default for StaticMeshRenderer {
+    fn default() -> Self {
+        Self {
+            instance_id: MeshRendererInstanceId::default(),
+            node_id: -1,
+            layer: LayerType::Hidden,
+            mesh_asset_id: -1,
+            sorting_order: 0,
+            shadow_cast_mode: ShadowCastMode::On,
+            motion_vector_mode: MotionVectorMode::default(),
+            material_slots: Vec::new(),
+            primary_material_asset_id: None,
+            primary_property_block_id: None,
+            blend_shape_weights: Vec::new(),
+        }
+    }
+}
+
+impl StaticMeshRenderer {
+    /// Returns whether this renderer should contribute to visible color rendering.
+    #[inline]
+    pub(crate) fn emits_visible_color_draws(&self) -> bool {
+        self.shadow_cast_mode != ShadowCastMode::ShadowOnly
+    }
+}
+
+/// Skinned mesh instance: [`StaticMeshRenderer`]-style header plus bone palette and root bone.
+#[derive(Debug, Clone, Default)]
+pub struct SkinnedMeshRenderer {
+    /// Shared mesh/material/blendshape header.
+    pub base: StaticMeshRenderer,
+    /// Dense transform indices for each bone influence column.
+    pub bone_transform_indices: Vec<i32>,
+    /// Root bone transform id when the hierarchy is anchored.
+    pub root_bone_transform_id: Option<i32>,
+    /// Host-computed posed AABB for this skinned renderable, expressed in the space of
+    /// [`Self::root_bone_transform_id`] (the renderer-root local frame the host sends to us in
+    /// [`crate::shared::SkinnedMeshBoundsUpdate::local_bounds`]). `None` until the host has sent
+    /// the first bounds row for this renderable -- culling falls back to the mesh bind-pose AABB
+    /// transformed by the renderable's root matrix.
+    pub posed_object_bounds: Option<RenderBoundingBox>,
+}
 
 /// Target for one [`MeshRendererState`] row: mesh/visual header and resolved material slots.
 pub(crate) trait MeshRendererStateSink {
@@ -16,7 +112,7 @@ pub(crate) trait MeshRendererStateSink {
         mesh_asset_id: i32,
         sorting_order: i32,
         shadow: ShadowCastMode,
-        motion: crate::shared::MotionVectorMode,
+        motion: MotionVectorMode,
     );
     /// Replaces submesh [`MeshMaterialSlot`] list plus the row's primary material and property-block handles.
     fn set_material_slots_and_legacy(
@@ -33,7 +129,7 @@ impl MeshRendererStateSink for StaticMeshRenderer {
         mesh_asset_id: i32,
         sorting_order: i32,
         shadow: ShadowCastMode,
-        motion: crate::shared::MotionVectorMode,
+        motion: MotionVectorMode,
     ) {
         self.mesh_asset_id = mesh_asset_id;
         self.sorting_order = sorting_order;
@@ -59,7 +155,7 @@ impl MeshRendererStateSink for SkinnedMeshRenderer {
         mesh_asset_id: i32,
         sorting_order: i32,
         shadow: ShadowCastMode,
-        motion: crate::shared::MotionVectorMode,
+        motion: MotionVectorMode,
     ) {
         self.base
             .set_mesh_visual_header(mesh_asset_id, sorting_order, shadow, motion);
@@ -161,9 +257,39 @@ pub(crate) fn apply_mesh_renderer_state_row<S: MeshRendererStateSink>(
 }
 
 #[cfg(test)]
-mod tests {
+mod renderer_tests {
     use super::*;
-    use crate::shared::LayerType;
+
+    #[test]
+    fn shadow_only_renderers_do_not_emit_visible_color_draws() {
+        let renderer = StaticMeshRenderer {
+            shadow_cast_mode: ShadowCastMode::ShadowOnly,
+            ..Default::default()
+        };
+
+        assert!(!renderer.emits_visible_color_draws());
+    }
+
+    #[test]
+    fn non_shadow_only_modes_emit_visible_color_draws() {
+        for shadow_cast_mode in [
+            ShadowCastMode::Off,
+            ShadowCastMode::On,
+            ShadowCastMode::DoubleSided,
+        ] {
+            let renderer = StaticMeshRenderer {
+                shadow_cast_mode,
+                ..Default::default()
+            };
+
+            assert!(renderer.emits_visible_color_draws());
+        }
+    }
+}
+
+#[cfg(test)]
+mod state_row_tests {
+    use super::*;
 
     fn state(
         renderable_index: i32,
@@ -178,7 +304,7 @@ mod tests {
             material_property_block_count: property_block_count,
             sorting_order: 0,
             shadow_cast_mode: ShadowCastMode::On,
-            motion_vector_mode: crate::shared::MotionVectorMode::default(),
+            motion_vector_mode: MotionVectorMode::default(),
             _padding: [0; 2],
         }
     }
