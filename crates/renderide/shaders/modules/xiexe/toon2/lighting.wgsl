@@ -57,9 +57,7 @@ fn sample_light(light: ft::GpuLight, world_pos: vec3<f32>) -> xb::LightSample {
     let l = xb::safe_normalize(to_light, vec3<f32>(0.0, 1.0, 0.0));
     var attenuation = bl::punctual_attenuation(light.intensity, dist, light.range);
     if (light.light_type == 2u) {
-        let spot_cos = dot(-l, xb::safe_normalize(light.direction.xyz, vec3<f32>(0.0, -1.0, 0.0)));
-        let inner_cos = min(light.spot_cos_half_angle + 0.1, 1.0);
-        attenuation = attenuation * smoothstep(light.spot_cos_half_angle, inner_cos, spot_cos);
+        attenuation = attenuation * bl::spot_angle_attenuation(light, l);
     }
     return xb::LightSample(l, light.color.xyz, attenuation, false);
 }

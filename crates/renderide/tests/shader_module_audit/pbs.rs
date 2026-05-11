@@ -15,6 +15,18 @@ fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()>
         birp.contains("return lut * range_fade(t) * INTENSITY_BOOST;"),
         "punctual distance attenuation must keep the existing intensity boost"
     );
+    assert!(
+        birp.contains("fn spot_angle_attenuation(light: ft::GpuLight, l: vec3<f32>) -> f32"),
+        "BiRP light module must expose the shared spot angle attenuation helper"
+    );
+    assert!(
+        birp.contains("let offset = -light.spot_cos_half_angle * light.spot_angle_scale;")
+            && birp.contains(
+                "let attenuation = clamp(rho * light.spot_angle_scale + offset, 0.0, 1.0);"
+            )
+            && birp.contains("return attenuation * attenuation;"),
+        "spot angle attenuation must use the Filament-style squared cone ramp"
+    );
 
     let pbs_brdf = module_source("pbs/brdf.wgsl")?;
     assert!(
@@ -23,6 +35,7 @@ fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()>
     );
     assert!(
         pbs_brdf.contains("out.attenuation = light.intensity * distance_attenuation(dist, light.range);")
+            && pbs_brdf.contains("let spot_atten = bl::spot_angle_attenuation(light, out.l);")
             && pbs_brdf.contains(
                 "out.attenuation = light.intensity * spot_atten * distance_attenuation(dist, light.range);"
             ),
@@ -37,7 +50,7 @@ fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()>
     assert!(
         xiexe.contains(
             "var attenuation = bl::punctual_attenuation(light.intensity, dist, light.range);"
-        ),
+        ) && xiexe.contains("attenuation = attenuation * bl::spot_angle_attenuation(light, l);"),
         "Xiexe point and spot lights must continue using boosted punctual attenuation"
     );
 
@@ -50,8 +63,29 @@ fn direct_light_boost_reaches_directional_and_punctual_paths() -> io::Result<()>
         assert!(
             src.contains(
                 "attenuation = light.intensity * brdf::distance_attenuation(dist, light.range);"
-            ),
+            ) && src.contains("attenuation = attenuation * bl::spot_angle_attenuation(light, l);"),
             "{material} point and spot lights must continue using boosted distance attenuation"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn spot_lights_do_not_use_arbitrary_smoothstep_cone_fade() -> io::Result<()> {
+    for (name, src) in [
+        ("pbs/brdf.wgsl", module_source("pbs/brdf.wgsl")?),
+        (
+            "xiexe/toon2/lighting.wgsl",
+            module_source("xiexe/toon2/lighting.wgsl")?,
+        ),
+        ("toonstandard.wgsl", material_source("toonstandard.wgsl")?),
+        ("toonwater.wgsl", material_source("toonwater.wgsl")?),
+    ] {
+        assert!(
+            !src.contains("spot_cos_half_angle + 0.1")
+                && !src.contains("smoothstep(light.spot_cos_half_angle"),
+            "{name} must route spot cone fade through the shared BiRP helper"
         );
     }
 
