@@ -12,6 +12,7 @@ use wgpu::hal;
 use wgpu::hal::api::Vulkan as HalVulkan;
 use wgpu::wgt;
 
+use super::features::negotiate_wgpu_features;
 use super::instance::{
     CACHED_VK_GET_INSTANCE_PROC_ADDR, VulkanGraphicsRequirements, vk_get_instance_proc_addr_shim,
 };
@@ -179,29 +180,7 @@ pub(super) struct VulkanOpenXrDeviceCreateDescriptor<'a> {
 pub(super) fn create_vulkan_logical_device_openxr(
     desc: VulkanOpenXrDeviceCreateDescriptor<'_>,
 ) -> Result<(wgt::Features, Vec<&'static std::ffi::CStr>, ash::Device), XrBootstrapError> {
-    let compression = wgt::Features::TEXTURE_COMPRESSION_BC
-        | wgt::Features::TEXTURE_COMPRESSION_ETC2
-        | wgt::Features::TEXTURE_COMPRESSION_ASTC;
-    let optional_float32_filterable = wgt::Features::FLOAT32_FILTERABLE;
-    let optional_rg11b10_renderable = wgt::Features::RG11B10UFLOAT_RENDERABLE;
-    let optional_depth32_stencil8 = wgt::Features::DEPTH32FLOAT_STENCIL8;
-    let timestamp = wgt::Features::TIMESTAMP_QUERY | wgt::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
-    // TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES: unlock hardware-reported MSAA sample counts (device
-    // exposes the real tiers instead of the WebGPU baseline).
-    // MULTISAMPLE_ARRAY: required for multisampled 2D array color/depth textures used by the stereo
-    // (single-pass multiview) MSAA path. Absence is silently handled: the stereo path falls back to
-    // `sample_count = 1` in [`crate::gpu::GpuContext::set_swapchain_msaa_requested_stereo`].
-    let adapter_format_features = wgt::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
-    let multisample_array = wgt::Features::MULTISAMPLE_ARRAY;
-    let wgpu_features = wgt::Features::MULTIVIEW
-        | (desc.wgpu_exposed.features
-            & (compression
-                | optional_float32_filterable
-                | optional_rg11b10_renderable
-                | optional_depth32_stencil8
-                | adapter_format_features
-                | multisample_array
-                | timestamp));
+    let wgpu_features = negotiate_wgpu_features(desc.wgpu_exposed.features);
 
     let mut enabled_device_extensions = desc
         .wgpu_exposed
