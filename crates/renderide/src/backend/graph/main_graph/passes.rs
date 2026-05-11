@@ -23,9 +23,7 @@ pub(super) struct MainGraphPassIds {
     pub(super) hiz: PassId,
 }
 
-fn main_forward_resources(
-    h: &MainGraphHandles,
-) -> crate::passes::WorldMeshForwardGraphResources {
+fn main_forward_resources(h: &MainGraphHandles) -> crate::passes::WorldMeshForwardGraphResources {
     crate::passes::WorldMeshForwardGraphResources {
         scene_color_hdr: h.scene_color_hdr,
         scene_color_hdr_msaa: h.scene_color_hdr_msaa,

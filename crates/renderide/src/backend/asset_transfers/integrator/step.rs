@@ -10,8 +10,8 @@ use crate::shared::{
 use super::super::AssetTransferQueue;
 use super::super::cubemap_task::CubemapUploadTask;
 use super::super::mesh_task::MeshUploadTask;
-use super::super::texture3d_task::Texture3dUploadTask;
 use super::super::texture_task::TextureUploadTask;
+use super::super::texture3d_task::Texture3dUploadTask;
 use super::gpu_context::AssetUploadGpuContext;
 
 /// Shader-route registration plus host acknowledgement produced by the async shader resolver.

@@ -44,6 +44,15 @@ struct IntegrationLaneOutcomes {
     normal_priority: LaneDrainOutcome,
 }
 
+/// Combined drain results fed into [`finalize_drain`].
+struct DrainOutcomes {
+    integration: IntegrationLaneOutcomes,
+    particle: LaneDrainOutcome,
+    integration_elapsed: Duration,
+    particle_elapsed: Duration,
+    gpu_ready: bool,
+}
+
 /// Runs integration steps: high-priority tasks get an emergency ceiling, then normal-priority tasks
 /// run until `normal_deadline`.
 pub fn drain_asset_tasks(
@@ -86,11 +95,13 @@ pub fn drain_asset_tasks(
         asset,
         ipc,
         summary,
-        integration,
-        particle_outcome,
-        particle_elapsed,
-        integration_elapsed,
-        gpu.is_some(),
+        DrainOutcomes {
+            integration,
+            particle: particle_outcome,
+            integration_elapsed,
+            particle_elapsed,
+            gpu_ready: gpu.is_some(),
+        },
     )
 }
 
@@ -106,7 +117,10 @@ pub fn drain_asset_tasks_unbounded(
 }
 
 /// Returns the emergency ceiling for high-priority tasks in a bounded drain.
-pub(super) fn high_priority_emergency_deadline(start: Instant, normal_deadline: Instant) -> Instant {
+pub(super) fn high_priority_emergency_deadline(
+    start: Instant,
+    normal_deadline: Instant,
+) -> Instant {
     let normal_budget = match normal_deadline.checked_duration_since(start) {
         Some(duration) => duration,
         None => Duration::ZERO,
@@ -202,45 +216,40 @@ fn run_particle_lane(
     (elapsed, outcome)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn finalize_drain(
     asset: &mut AssetTransferQueue,
     ipc: &mut Option<&mut DualQueueIpc>,
     summary: AssetIntegrationDrainSummary,
-    integration: IntegrationLaneOutcomes,
-    particle_outcome: LaneDrainOutcome,
-    particle_elapsed: Duration,
-    integration_elapsed: Duration,
-    gpu_ready: bool,
+    outcomes: DrainOutcomes,
 ) -> AssetIntegrationDrainSummary {
     plot_asset_integrator_backlog(
         asset,
-        integration.high_priority.pending,
-        integration.normal_priority.pending,
+        outcomes.integration.high_priority.pending,
+        outcomes.integration.normal_priority.pending,
     );
 
     poll_video_texture_events(asset, ipc);
 
     let processed = ProcessedLaneCounts {
-        main: integration.main.processed,
-        high_priority: integration.high_priority.processed,
-        normal_priority: integration.normal_priority.processed,
-        render: integration.render.processed,
-        particle: particle_outcome.processed,
+        main: outcomes.integration.main.processed,
+        high_priority: outcomes.integration.high_priority.processed,
+        normal_priority: outcomes.integration.normal_priority.processed,
+        render: outcomes.integration.render.processed,
+        particle: outcomes.particle.processed,
     };
     summary.finish(
         asset,
         DrainFinishState {
-            gpu_ready,
+            gpu_ready: outcomes.gpu_ready,
             budgets: BudgetExhaustion {
-                high_priority: integration.high_priority.pending,
-                normal_priority: integration.normal_priority.pending,
-                render: integration.render.pending,
-                particle: particle_outcome.pending,
+                high_priority: outcomes.integration.high_priority.pending,
+                normal_priority: outcomes.integration.normal_priority.pending,
+                render: outcomes.integration.render.pending,
+                particle: outcomes.particle.pending,
             },
             processed,
-            particle_elapsed,
-            elapsed: integration_elapsed,
+            particle_elapsed: outcomes.particle_elapsed,
+            elapsed: outcomes.integration_elapsed,
         },
     )
 }

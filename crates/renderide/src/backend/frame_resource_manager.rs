@@ -34,5 +34,5 @@ pub(crate) use view_desc::FrameLightViewDesc;
 
 // Re-exports kept for intra-doc links in sibling modules
 // (e.g. `frame_gpu.rs`, `cluster_gpu.rs` reference these types by path).
-#[allow(unused_imports, reason = "supports rustdoc intra-doc links")]
+#[expect(unused_imports, reason = "supports rustdoc intra-doc links")]
 pub(crate) use per_view_state::{PerViewFrameState, PerViewPerDrawScratch};

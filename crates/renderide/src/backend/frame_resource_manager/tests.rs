@@ -1,10 +1,10 @@
 //! Tests for the parent module.
 
-use super::*;
 use super::cluster_layout::{
     ClusterPreRecordLayout, cluster_index_capacity_for_layout, per_view_snapshot_sync_params,
     unique_cluster_pre_record_layouts,
 };
+use super::*;
 
 use glam::{Mat4, Quat, Vec3};
 
