@@ -9,9 +9,11 @@
 //! (`_EMISSIONTEX`) or one packed map (`_PACKED_EMISSIONTEX`).
 
 
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
+#import renderide::pbs::splat as splat
 #import renderide::pbs::surface as psurf
 #import renderide::core::uv as uvu
 
@@ -39,11 +41,37 @@ struct PbsColorSplatMaterial {
     _Metallic1: f32,
     _Metallic2: f32,
     _Metallic3: f32,
-    _HEIGHTMAP: f32,
-    _PACKED_NORMALMAP: f32,
-    _EMISSIONTEX: f32,
-    _PACKED_EMISSIONTEX: f32,
-    _METALLICMAP: f32,
+    _RenderideVariantBits: u32,
+}
+
+const PBSCOLORSPLAT_KW_EMISSIONTEX: u32 = 1u << 0u;
+const PBSCOLORSPLAT_KW_HEIGHTMAP: u32 = 1u << 1u;
+const PBSCOLORSPLAT_KW_METALLICMAP: u32 = 1u << 2u;
+const PBSCOLORSPLAT_KW_PACKED_EMISSIONTEX: u32 = 1u << 3u;
+const PBSCOLORSPLAT_KW_PACKED_NORMALMAP: u32 = 1u << 4u;
+
+fn pbscolorsplat_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_EMISSIONTEX() -> bool {
+    return pbscolorsplat_kw(PBSCOLORSPLAT_KW_EMISSIONTEX);
+}
+
+fn kw_HEIGHTMAP() -> bool {
+    return pbscolorsplat_kw(PBSCOLORSPLAT_KW_HEIGHTMAP);
+}
+
+fn kw_METALLICMAP() -> bool {
+    return pbscolorsplat_kw(PBSCOLORSPLAT_KW_METALLICMAP);
+}
+
+fn kw_PACKED_EMISSIONTEX() -> bool {
+    return pbscolorsplat_kw(PBSCOLORSPLAT_KW_PACKED_EMISSIONTEX);
+}
+
+fn kw_PACKED_NORMALMAP() -> bool {
+    return pbscolorsplat_kw(PBSCOLORSPLAT_KW_PACKED_NORMALMAP);
 }
 
 @group(1) @binding(0)  var<uniform> mat: PbsColorSplatMaterial;
@@ -88,16 +116,12 @@ struct SurfaceData {
 }
 
 fn splat_weights(uv_albedo: vec2<f32>, uv_color: vec2<f32>) -> vec4<f32> {
-    var w = textureSample(_ColorMap, _ColorMap_sampler, uv_color);
-    if (uvu::kw_enabled(mat._HEIGHTMAP)) {
-        let heights = textureSample(_PackedHeightMap, _PackedHeightMap_sampler, uv_albedo) * w;
-        let max_height = max(max(heights.x, heights.y), max(heights.z, heights.w));
-        let band = max(mat._HeightTransitionRange, 1e-4);
-        let shifted = (heights - vec4<f32>(max_height) + vec4<f32>(band)) / band;
-        w = clamp(shifted, vec4<f32>(0.0), vec4<f32>(1.0));
+    let w = textureSample(_ColorMap, _ColorMap_sampler, uv_color);
+    if (kw_HEIGHTMAP()) {
+        let heights = textureSample(_PackedHeightMap, _PackedHeightMap_sampler, uv_albedo);
+        return splat::height_blended_weights(w, heights, mat._HeightTransitionRange);
     }
-    let total = max(w.x + w.y + w.z + w.w, 1e-4);
-    return w / total;
+    return splat::normalize_weights(w);
 }
 
 fn unpack_normal_xy(xy: vec2<f32>, scale: f32) -> vec3<f32> {
@@ -108,7 +132,7 @@ fn unpack_normal_xy(xy: vec2<f32>, scale: f32) -> vec3<f32> {
 
 fn sample_normal_world(uv_albedo: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, weights: vec4<f32>) -> vec3<f32> {
     let n = normalize(world_n);
-    if (!uvu::kw_enabled(mat._PACKED_NORMALMAP)) {
+    if (!kw_PACKED_NORMALMAP()) {
         return n;
     }
     let n01 = textureSample(_PackedNormalMap01, _PackedNormalMap01_sampler, uv_albedo);
@@ -127,7 +151,7 @@ fn sample_metallic_gloss(uv_albedo: vec2<f32>, weights: vec4<f32>) -> vec2<f32> 
     var m1 = vec2<f32>(mat._Metallic1, mat._Glossiness1);
     var m2 = vec2<f32>(mat._Metallic2, mat._Glossiness2);
     var m3 = vec2<f32>(mat._Metallic3, mat._Glossiness3);
-    if (uvu::kw_enabled(mat._METALLICMAP)) {
+    if (kw_METALLICMAP()) {
         let s01 = textureSample(_MetallicGloss01, _MetallicGloss01_sampler, uv_albedo);
         let s23 = textureSample(_MetallicGloss23, _MetallicGloss23_sampler, uv_albedo);
         m0 = s01.xy * m0;
@@ -143,17 +167,17 @@ fn sample_emission(uv_albedo: vec2<f32>, weights: vec4<f32>) -> vec3<f32> {
     var e1 = mat._EmissionColor1;
     var e2 = mat._EmissionColor2;
     var e3 = mat._EmissionColor3;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
-        e0 = e0 * textureSample(_EmissionMap, _EmissionMap_sampler, uv_albedo);
-        e1 = e1 * textureSample(_EmissionMap1, _EmissionMap1_sampler, uv_albedo);
-        e2 = e2 * textureSample(_EmissionMap2, _EmissionMap2_sampler, uv_albedo);
-        e3 = e3 * textureSample(_EmissionMap3, _EmissionMap3_sampler, uv_albedo);
-    } else if (uvu::kw_enabled(mat._PACKED_EMISSIONTEX)) {
+    if (kw_PACKED_EMISSIONTEX()) {
         let packed = textureSample(_PackedEmissionMap, _PackedEmissionMap_sampler, uv_albedo);
         e0 = e0 * packed.x;
         e1 = e1 * packed.y;
         e2 = e2 * packed.z;
         e3 = e3 * packed.w;
+    } else if (kw_EMISSIONTEX()) {
+        e0 = e0 * textureSample(_EmissionMap, _EmissionMap_sampler, uv_albedo);
+        e1 = e1 * textureSample(_EmissionMap1, _EmissionMap1_sampler, uv_albedo);
+        e2 = e2 * textureSample(_EmissionMap2, _EmissionMap2_sampler, uv_albedo);
+        e3 = e3 * textureSample(_EmissionMap3, _EmissionMap3_sampler, uv_albedo);
     }
     let blended = e0 * weights.x + e1 * weights.y + e2 * weights.z + e3 * weights.w;
     return blended.rgb;
