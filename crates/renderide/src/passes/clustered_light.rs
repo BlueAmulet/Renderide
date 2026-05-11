@@ -248,6 +248,7 @@ impl ClusteredLightPass {
         ctx: &mut ComputePassCtx<'_, '_, '_>,
         data: &ClusteredLightGpuScanData,
     ) {
+        profiling::scope!("clustered_light::record_gpu_scan");
         let pipelines = clustered_light_pipelines();
         let pipeline = pipelines.pipeline(ctx.device);
         let bgl = pipelines.bind_group_layout(ctx.device);

@@ -19,6 +19,7 @@ pub(crate) fn encode_msaa_depth_resolve_after_clear_only(
     msaa_depth_resolve: Option<&MsaaDepthResolveResources>,
     profiler: Option<&GpuProfilerHandle>,
 ) {
+    profiling::scope!("world_mesh_forward::encode_depth_resolve_clear_only");
     if frame.view.sample_count <= 1 {
         return;
     }
@@ -38,6 +39,7 @@ pub(super) fn encode_msaa_depth_resolve_for_frame(
     resolve: &MsaaDepthResolveResources,
     profiler: Option<&GpuProfilerHandle>,
 ) {
+    profiling::scope!("world_mesh_forward::encode_depth_resolve_frame");
     let Some(limits) = frame.view.gpu_limits.as_ref() else {
         logger::warn!("MSAA depth resolve: gpu_limits missing; skipping resolve");
         return;

@@ -139,6 +139,7 @@ impl GtaoDepthPrefilterPass {
         gx: u32,
         gy: u32,
     ) -> Result<(), RenderPassError> {
+        profiling::scope!("post_processing::gtao_depth_prefilter::record_mip0");
         let frame_uniform_buffer = self.resolve_frame_uniform_buffer(ctx)?;
         let bind_group_multiview_stereo = self.bind_group_multiview_stereo();
         let view_multiview_stereo = ctx.pass_frame.view.multiview_stereo;
@@ -209,6 +210,7 @@ impl GtaoDepthPrefilterPass {
         gx: u32,
         gy: u32,
     ) -> Result<(), RenderPassError> {
+        profiling::scope!("post_processing::gtao_depth_prefilter::record_downsample");
         let Some(source_mip) = self.resources.source_mip else {
             return Err(missing_pass_resource(self.name(), "missing source mip"));
         };
@@ -353,6 +355,7 @@ fn dispatch_prefilter(
     gy: u32,
     layer_count: u32,
 ) {
+    profiling::scope!("post_processing::gtao_depth_prefilter::dispatch");
     let pass_query = ctx
         .profiler
         .map(|profiler| profiler.begin_pass_query(label, ctx.encoder));

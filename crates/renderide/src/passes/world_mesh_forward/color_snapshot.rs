@@ -17,6 +17,7 @@ pub(crate) fn encode_world_mesh_forward_color_snapshot(
     prepared: &PreparedWorldMeshForwardFrame,
     resources: WorldMeshForwardGraphResources,
 ) -> bool {
+    profiling::scope!("world_mesh_forward::encode_color_snapshot");
     if !color_snapshot_recording_needed(prepared.helper_needs) {
         return false;
     }

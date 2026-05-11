@@ -23,6 +23,7 @@ pub(crate) fn encode_world_mesh_forward_depth_snapshot(
     msaa_depth_resolve: Option<&MsaaDepthResolveResources>,
     profiler: Option<&GpuProfilerHandle>,
 ) -> bool {
+    profiling::scope!("world_mesh_forward::encode_depth_snapshot");
     if !depth_snapshot_recording_needed(prepared.helper_needs) {
         return false;
     }

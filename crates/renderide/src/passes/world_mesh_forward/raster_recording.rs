@@ -189,6 +189,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_opaque_gr
     blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
+    profiling::scope!("world_mesh_forward::record_opaque_graph_raster");
     record_world_mesh_forward_graph_raster(
         rpass,
         frame,
@@ -206,6 +207,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_post_skyb
     blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
+    profiling::scope!("world_mesh_forward::record_post_skybox_graph_raster");
     record_world_mesh_forward_graph_raster(
         rpass,
         frame,
@@ -223,6 +225,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_normal_gr
     prepared: &PreparedWorldMeshForwardFrame,
     pipelines: &WorldMeshForwardNormalPipelineCache,
 ) -> bool {
+    profiling::scope!("world_mesh_forward::record_normal_graph_raster");
     let groups = &prepared.plan.regular_groups;
     if groups.is_empty() {
         return true;
@@ -262,6 +265,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_intersect
     blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
+    profiling::scope!("world_mesh_forward::record_intersection_graph_raster");
     record_world_mesh_forward_graph_raster(
         rpass,
         frame,
@@ -279,6 +283,7 @@ pub(in crate::passes::world_mesh_forward) fn record_world_mesh_forward_transpare
     blackboard: &Blackboard,
     prepared: &PreparedWorldMeshForwardFrame,
 ) -> bool {
+    profiling::scope!("world_mesh_forward::record_transparent_graph_raster");
     record_world_mesh_forward_graph_raster(
         rpass,
         frame,

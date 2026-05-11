@@ -406,6 +406,7 @@ impl ComputePass for MeshDeformPass {
     }
 
     fn record(&self, ctx: &mut ComputePassCtx<'_, '_, '_>) -> Result<(), RenderPassError> {
+        profiling::scope!("mesh_deform::pass_record");
         let frame = &mut *ctx.pass_frame;
 
         if frame
