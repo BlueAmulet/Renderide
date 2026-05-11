@@ -1,7 +1,9 @@
 //! Per-draw uniform packing for mesh forward passes (WebGPU dynamic uniform offset = 256 bytes).
 
-use glam::{Mat3, Mat4};
+use glam::Mat4;
 use rayon::prelude::*;
+
+use super::wgsl_mat3x3::WgslMat3x3;
 
 /// Stride between consecutive draw slots in the uniform slab (`mat4`x3 + WGSL padding).
 pub const PER_DRAW_UNIFORM_STRIDE: usize = 256;
@@ -20,56 +22,6 @@ const PER_DRAW_REFLECTION_PROBE_INDICES_PAD_SLOT: usize = 1;
 const PER_DRAW_REFLECTION_PROBE_SECOND_WEIGHT_PAD_SLOT: usize = 2;
 /// Reflection-probe hit-count offset inside [`PaddedPerDrawUniforms::_pad`].
 const PER_DRAW_REFLECTION_PROBE_HIT_COUNT_PAD_SLOT: usize = 3;
-
-/// Column-major `mat3x3` with WGSL storage layout: each column is `vec3` padded to 16 bytes.
-///
-/// Matches [`mat3x3<f32>`](https://www.w3.org/TR/WGSL/#alignment-and-size) in storage (`vec3` stride 16).
-#[repr(C)]
-#[derive(Clone, Copy, PartialEq, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct WgslMat3x3 {
-    /// First column (x, y, z, _pad).
-    pub col0: [f32; 4],
-    /// Second column (x, y, z, _pad).
-    pub col1: [f32; 4],
-    /// Third column (x, y, z, _pad).
-    pub col2: [f32; 4],
-}
-
-impl WgslMat3x3 {
-    /// Identity `mat3x3` (flat normals unchanged when `model` is identity).
-    pub const IDENTITY: Self = Self {
-        col0: [1.0, 0.0, 0.0, 0.0],
-        col1: [0.0, 1.0, 0.0, 0.0],
-        col2: [0.0, 0.0, 1.0, 0.0],
-    };
-
-    /// Packs a glam [`Mat3`] into WGSL column-major storage layout.
-    #[must_use]
-    pub fn from_mat3(matrix: Mat3) -> Self {
-        let c0 = matrix.x_axis;
-        let c1 = matrix.y_axis;
-        let c2 = matrix.z_axis;
-        Self {
-            col0: [c0.x, c0.y, c0.z, 0.0],
-            col1: [c1.x, c1.y, c1.z, 0.0],
-            col2: [c2.x, c2.y, c2.z, 0.0],
-        }
-    }
-
-    /// `transpose(inverse(M))` for the upper 3x3 of `model`, packed for WGSL `normal_matrix`.
-    ///
-    /// For singular or near-singular linear parts, returns identity to avoid NaNs in the shader.
-    #[must_use]
-    pub fn from_model_upper_3x3(model: Mat4) -> Self {
-        let m3 = Mat3::from_mat4(model);
-        let det = m3.determinant();
-        if !det.is_finite() || det.abs() < 1e-20 {
-            return Self::IDENTITY;
-        }
-        let nm = m3.inverse().transpose();
-        Self::from_mat3(nm)
-    }
-}
 
 /// GPU layout: left/right view-projection, `model`, inverse-transpose normal matrix, padding to 256 bytes.
 ///
@@ -98,7 +50,7 @@ pub struct PaddedPerDrawUniforms {
     /// keeps the real model matrix and compensates in [`Self::view_proj_left`] / [`Self::view_proj_right`].
     pub model: [f32; 16],
     /// Inverse transpose of the upper 3x3 of [`Self::model`] for normal transforms.
-    pub normal_matrix: WgslMat3x3,
+    pub(super) normal_matrix: WgslMat3x3,
     /// Metadata plus padding to [`PER_DRAW_UNIFORM_STRIDE`] bytes.
     ///
     /// Slot 0 is [`PER_DRAW_POSITION_STREAM_WORLD_SPACE_FLAG`] when the vertex position stream is
@@ -327,15 +279,5 @@ mod tests {
             slab.copy_from_slice(bytemuck::bytes_of(slot));
         }
         assert_eq!(parallel, serial);
-    }
-
-    #[test]
-    fn normal_matrix_uniform_scale_matches_model_linear() {
-        let m = Mat4::from_scale(glam::Vec3::splat(2.0));
-        let nm = WgslMat3x3::from_model_upper_3x3(m);
-        let m3 = Mat3::from_mat4(m);
-        let expected = m3.inverse().transpose();
-        let c0 = glam::Vec3::new(nm.col0[0], nm.col0[1], nm.col0[2]);
-        assert!((c0 - expected.x_axis).length() < 1e-4);
     }
 }

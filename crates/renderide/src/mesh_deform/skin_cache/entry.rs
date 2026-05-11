@@ -2,6 +2,7 @@
 
 use hashbrown::HashMap;
 
+use super::arenas::EntryRanges;
 use super::key::{EntryNeed, SkinCacheKey};
 use crate::mesh_deform::range_alloc::Range;
 
@@ -33,6 +34,24 @@ pub struct SkinCacheEntry {
     pub last_touched_frame: u64,
     /// Last deform input signature recorded into this cache line.
     pub last_deform_signature: Option<DeformSignature>,
+}
+
+impl SkinCacheEntry {
+    /// Builds a freshly-committed cache line from arena ranges, taking ownership of the
+    /// allocations and stamping the current frame counter.
+    pub(super) fn from_ranges(ranges: EntryRanges, vertex_count: u32, frame: u64) -> Self {
+        Self {
+            positions: ranges.positions,
+            normals: ranges.normals,
+            tangents: ranges.tangents,
+            temp: ranges.temp,
+            temp_normals: ranges.temp_normals,
+            temp_tangents: ranges.temp_tangents,
+            vertex_count,
+            last_touched_frame: frame,
+            last_deform_signature: None,
+        }
+    }
 }
 
 /// Per-frame cache pressure counters for diagnostics.

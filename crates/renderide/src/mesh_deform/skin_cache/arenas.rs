@@ -41,9 +41,146 @@ pub struct EntryRanges {
     pub temp_tangents: Option<Range>,
 }
 
-fn free_optional(allocator: &mut RangeAllocator, range: Option<Range>) {
-    if let Some(range) = range {
-        allocator.free(range);
+/// In-flight allocations across four per-stream arenas that auto-roll back on drop unless
+/// [`Self::commit`] is called.
+///
+/// Each `take_*` method asks the corresponding allocator for `bytes` and stashes the resulting
+/// [`Range`] internally. On drop without a prior [`Self::commit`] call, every stashed range is
+/// returned to its allocator, leaving the four arenas in their original state. This collapses what
+/// would otherwise be a deep nest of manual rollback branches in [`try_alloc_stream_arenas`].
+struct PartialAlloc<'a> {
+    pos: &'a mut RangeAllocator,
+    nrm: &'a mut RangeAllocator,
+    tan: &'a mut RangeAllocator,
+    tmp: &'a mut RangeAllocator,
+    positions: Option<Range>,
+    normals: Option<Range>,
+    tangents: Option<Range>,
+    temp: Option<Range>,
+    temp_normals: Option<Range>,
+    temp_tangents: Option<Range>,
+    committed: bool,
+}
+
+impl<'a> PartialAlloc<'a> {
+    fn new(
+        pos: &'a mut RangeAllocator,
+        nrm: &'a mut RangeAllocator,
+        tan: &'a mut RangeAllocator,
+        tmp: &'a mut RangeAllocator,
+    ) -> Self {
+        Self {
+            pos,
+            nrm,
+            tan,
+            tmp,
+            positions: None,
+            normals: None,
+            tangents: None,
+            temp: None,
+            temp_normals: None,
+            temp_tangents: None,
+            committed: false,
+        }
+    }
+
+    fn take_positions(&mut self, bytes: u64) -> bool {
+        match self.pos.allocate(bytes) {
+            Some(range) => {
+                self.positions = Some(range);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn take_normals(&mut self, bytes: u64) -> bool {
+        match self.nrm.allocate(bytes) {
+            Some(range) => {
+                self.normals = Some(range);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn take_tangents(&mut self, bytes: u64) -> bool {
+        match self.tan.allocate(bytes) {
+            Some(range) => {
+                self.tangents = Some(range);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn take_temp(&mut self, bytes: u64) -> bool {
+        match self.tmp.allocate(bytes) {
+            Some(range) => {
+                self.temp = Some(range);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn take_temp_normals(&mut self, bytes: u64) -> bool {
+        match self.tmp.allocate(bytes) {
+            Some(range) => {
+                self.temp_normals = Some(range);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn take_temp_tangents(&mut self, bytes: u64) -> bool {
+        match self.tmp.allocate(bytes) {
+            Some(range) => {
+                self.temp_tangents = Some(range);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn commit(mut self) -> Option<EntryRanges> {
+        let positions = self.positions.take()?;
+        self.committed = true;
+        Some(EntryRanges {
+            positions,
+            normals: self.normals.take(),
+            tangents: self.tangents.take(),
+            temp: self.temp.take(),
+            temp_normals: self.temp_normals.take(),
+            temp_tangents: self.temp_tangents.take(),
+        })
+    }
+}
+
+impl Drop for PartialAlloc<'_> {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        if let Some(range) = self.positions.take() {
+            self.pos.free(range);
+        }
+        if let Some(range) = self.normals.take() {
+            self.nrm.free(range);
+        }
+        if let Some(range) = self.tangents.take() {
+            self.tan.free(range);
+        }
+        if let Some(range) = self.temp.take() {
+            self.tmp.free(range);
+        }
+        if let Some(range) = self.temp_normals.take() {
+            self.tmp.free(range);
+        }
+        if let Some(range) = self.temp_tangents.take() {
+            self.tmp.free(range);
+        }
     }
 }
 
@@ -59,81 +196,26 @@ fn try_alloc_stream_arenas(
     need: EntryNeed,
     bytes: u64,
 ) -> Option<EntryRanges> {
-    let positions = pos.allocate(bytes)?;
-    let normals = if need.needs_normals() {
-        match nrm.allocate(bytes) {
-            Some(range) => Some(range),
-            None => {
-                pos.free(positions);
-                return None;
-            }
-        }
-    } else {
-        None
-    };
-    let tangents = if need.needs_tangents {
-        match tan.allocate(bytes) {
-            Some(range) => Some(range),
-            None => {
-                pos.free(positions);
-                free_optional(nrm, normals);
-                return None;
-            }
-        }
-    } else {
-        None
-    };
-    let temp = if need.needs_temp_positions() {
-        match tmp.allocate(bytes) {
-            Some(range) => Some(range),
-            None => {
-                pos.free(positions);
-                free_optional(nrm, normals);
-                free_optional(tan, tangents);
-                return None;
-            }
-        }
-    } else {
-        None
-    };
-    let temp_normals = if need.needs_temp_normals() {
-        match tmp.allocate(bytes) {
-            Some(range) => Some(range),
-            None => {
-                pos.free(positions);
-                free_optional(nrm, normals);
-                free_optional(tan, tangents);
-                free_optional(tmp, temp);
-                return None;
-            }
-        }
-    } else {
-        None
-    };
-    let temp_tangents = if need.needs_temp_tangents() {
-        match tmp.allocate(bytes) {
-            Some(range) => Some(range),
-            None => {
-                pos.free(positions);
-                free_optional(nrm, normals);
-                free_optional(tan, tangents);
-                free_optional(tmp, temp);
-                free_optional(tmp, temp_normals);
-                return None;
-            }
-        }
-    } else {
-        None
-    };
-
-    Some(EntryRanges {
-        positions,
-        normals,
-        tangents,
-        temp,
-        temp_normals,
-        temp_tangents,
-    })
+    let mut txn = PartialAlloc::new(pos, nrm, tan, tmp);
+    if !txn.take_positions(bytes) {
+        return None;
+    }
+    if need.needs_normals() && !txn.take_normals(bytes) {
+        return None;
+    }
+    if need.needs_tangents && !txn.take_tangents(bytes) {
+        return None;
+    }
+    if need.needs_temp_positions() && !txn.take_temp(bytes) {
+        return None;
+    }
+    if need.needs_temp_normals() && !txn.take_temp_normals(bytes) {
+        return None;
+    }
+    if need.needs_temp_tangents() && !txn.take_temp_tangents(bytes) {
+        return None;
+    }
+    txn.commit()
 }
 
 /// Pairing of an arena buffer with its [`RangeAllocator`].
