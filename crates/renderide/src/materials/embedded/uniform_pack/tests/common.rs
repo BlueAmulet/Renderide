@@ -1,14 +1,12 @@
 //! Shared uniform-packing test fixtures.
 
-use std::sync::Arc;
-
 use hashbrown::HashMap;
 
 use super::super::*;
 use crate::gpu_pools::{
     CubemapPool, RenderTexturePool, Texture3dPool, TexturePool, VideoTexturePool,
 };
-use crate::materials::embedded::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
+use crate::materials::embedded::layout::StemEmbeddedPropertyIds;
 use crate::materials::host_data::MaterialPropertyLookupIds;
 use crate::materials::host_data::PropertyIdRegistry;
 use crate::materials::{ReflectedMaterialUniformBlock, ReflectedUniformScalarKind};
@@ -118,12 +116,7 @@ pub(super) fn reflected_with_f32_fields_for_stem(
         uses_scene_color_snapshot: false,
         requires_intersection_pass: false,
     };
-    let ids = StemEmbeddedPropertyIds::build(
-        stem,
-        Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
-        &registry,
-        &reflected,
-    );
+    let ids = StemEmbeddedPropertyIds::build(stem, &registry, &reflected);
     (reflected, ids, registry)
 }
 
@@ -175,28 +168,6 @@ pub(super) fn reflected_with_uniform_fields_for_stem(
         uses_scene_color_snapshot: false,
         requires_intersection_pass: false,
     };
-    let ids = StemEmbeddedPropertyIds::build(
-        stem,
-        Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
-        &registry,
-        &reflected,
-    );
+    let ids = StemEmbeddedPropertyIds::build(stem, &registry, &reflected);
     (reflected, ids, registry)
-}
-
-/// Packs an asset id as a host render-texture material property.
-pub(super) fn packed_render_texture(asset_id: i32) -> i32 {
-    use crate::assets::texture::HostTextureAssetKind;
-
-    let type_bits = 3u32;
-    let pack_type_shift = 32u32.saturating_sub(type_bits);
-    asset_id | ((HostTextureAssetKind::RenderTexture as i32) << pack_type_shift)
-}
-
-pub(super) fn packed_texture2d(asset_id: i32) -> i32 {
-    use crate::assets::texture::HostTextureAssetKind;
-
-    let type_bits = 3u32;
-    let pack_type_shift = 32u32.saturating_sub(type_bits);
-    asset_id | ((HostTextureAssetKind::Texture2D as i32) << pack_type_shift)
 }

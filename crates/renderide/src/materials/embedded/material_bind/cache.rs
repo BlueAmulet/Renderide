@@ -146,7 +146,6 @@ impl EmbeddedMaterialBindResources {
         let layout = build_stem_material_layout(
             self.device.as_ref(),
             stem,
-            &self.shared_keyword_ids,
             self.property_registry.as_ref(),
         )?;
         cache.insert(stem.to_string(), layout.clone());

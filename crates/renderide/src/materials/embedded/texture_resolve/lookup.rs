@@ -206,7 +206,7 @@ mod tests {
 
     use hashbrown::HashMap;
 
-    use crate::materials::embedded::layout::{EmbeddedSharedKeywordIds, StemEmbeddedPropertyIds};
+    use crate::materials::embedded::layout::StemEmbeddedPropertyIds;
     use crate::materials::host_data::PropertyIdRegistry;
 
     fn lookup(material_id: i32) -> MaterialPropertyLookupIds {
@@ -261,11 +261,8 @@ mod tests {
                 requires_intersection_pass: false,
             },
             StemEmbeddedPropertyIds {
-                shared: Arc::new(EmbeddedSharedKeywordIds::new(&registry)),
                 uniform_field_ids: HashMap::new(),
                 texture_binding_property_ids,
-                keyword_field_probe_ids: HashMap::new(),
-                ui_unlit_alpha_clip_default_on: false,
                 procedural_skybox_defaults: false,
             },
             registry,
