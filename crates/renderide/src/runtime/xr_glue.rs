@@ -78,7 +78,7 @@ impl crate::xr::XrFrameRenderer for RendererRuntime {
         RendererRuntime::render_frame(
             self,
             gpu,
-            crate::runtime::frame_render::FrameRenderMode::VrWithHmd(hmd),
+            crate::runtime::frame::render::FrameRenderMode::VrWithHmd(hmd),
         )
     }
 
@@ -86,7 +86,7 @@ impl crate::xr::XrFrameRenderer for RendererRuntime {
         RendererRuntime::render_frame(
             self,
             gpu,
-            crate::runtime::frame_render::FrameRenderMode::VrSecondariesOnly,
+            crate::runtime::frame::render::FrameRenderMode::VrSecondariesOnly,
         )
     }
 }

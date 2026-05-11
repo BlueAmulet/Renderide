@@ -10,9 +10,10 @@ use crate::shared::RendererCommand;
 const DEFERRED_PRE_FINALIZE_WARN_THRESHOLD: usize = 1024;
 
 /// IPC scratch state that is not part of transport ownership.
-pub(super) struct RuntimeIpcState {
+pub(in crate::runtime) struct RuntimeIpcState {
     /// In-flight shader uploads whose resolution is running on the rayon pool.
-    pub(super) pending_shader_resolutions: Vec<super::shader_material_ipc::PendingShaderResolution>,
+    pub(in crate::runtime) pending_shader_resolutions:
+        Vec<crate::runtime::ipc::shader_material::PendingShaderResolution>,
     /// Host commands received after init data but before init finalization.
     deferred_pre_finalize_commands: VecDeque<RendererCommand>,
     /// Running counts of post-init renderer command variants seen without a running handler.
@@ -20,7 +21,7 @@ pub(super) struct RuntimeIpcState {
 }
 
 /// Summarizes a renderer-command collection as `Variant=count` pairs for diagnostic logs.
-pub(super) fn summarize_renderer_command_mix<'a>(
+pub(in crate::runtime) fn summarize_renderer_command_mix<'a>(
     commands: impl IntoIterator<Item = &'a RendererCommand>,
 ) -> String {
     let mut counts: Vec<(&'static str, usize)> = Vec::new();
@@ -46,7 +47,7 @@ pub(super) fn summarize_renderer_command_mix<'a>(
 
 impl RuntimeIpcState {
     /// Creates empty IPC scratch state.
-    pub(super) fn new() -> Self {
+    pub(in crate::runtime) fn new() -> Self {
         Self {
             pending_shader_resolutions: Vec::new(),
             deferred_pre_finalize_commands: VecDeque::new(),
@@ -55,7 +56,7 @@ impl RuntimeIpcState {
     }
 
     /// Defers a host command received before init finalization.
-    pub(super) fn defer_pre_finalize_command(&mut self, cmd: RendererCommand) {
+    pub(in crate::runtime) fn defer_pre_finalize_command(&mut self, cmd: RendererCommand) {
         self.deferred_pre_finalize_commands.push_back(cmd);
         let count = self.deferred_pre_finalize_commands.len();
         if count == DEFERRED_PRE_FINALIZE_WARN_THRESHOLD
@@ -68,25 +69,30 @@ impl RuntimeIpcState {
     }
 
     /// Drains deferred pre-finalize commands in host arrival order.
-    pub(super) fn take_deferred_pre_finalize_commands(&mut self) -> VecDeque<RendererCommand> {
+    pub(in crate::runtime) fn take_deferred_pre_finalize_commands(
+        &mut self,
+    ) -> VecDeque<RendererCommand> {
         std::mem::take(&mut self.deferred_pre_finalize_commands)
     }
 
     /// Records one unhandled renderer command variant.
-    pub(super) fn record_unhandled_renderer_command(&mut self, tag: &'static str) -> u64 {
+    pub(in crate::runtime) fn record_unhandled_renderer_command(
+        &mut self,
+        tag: &'static str,
+    ) -> u64 {
         let count = self.unhandled_ipc_command_counts.entry(tag).or_insert(0);
         *count += 1;
         *count
     }
 
     /// Total number of unhandled post-handshake renderer commands.
-    pub(super) fn unhandled_command_event_total(&self) -> u64 {
+    pub(in crate::runtime) fn unhandled_command_event_total(&self) -> u64 {
         self.unhandled_ipc_command_counts.values().copied().sum()
     }
 
     /// Number of commands waiting for init finalization replay.
     #[cfg(test)]
-    pub(super) fn deferred_pre_finalize_command_count(&self) -> usize {
+    pub(in crate::runtime) fn deferred_pre_finalize_command_count(&self) -> usize {
         self.deferred_pre_finalize_commands.len()
     }
 }

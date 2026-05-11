@@ -4,7 +4,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hashbrown::HashSet;
-use rayon::prelude::*;
 
 use crate::backend::RenderBackend;
 use crate::camera::{ViewId, camera_render_task_world_matrix, host_camera_frame_for_render_task};
@@ -17,18 +16,19 @@ use crate::scene::{RenderSpaceId, SceneCoordinator};
 use crate::shared::{CameraRenderParameters, CameraRenderTask, RenderingContext, TextureFormat};
 use crate::world_mesh::{CameraTransformDrawFilter, WorldMeshDrawCollectParallelism};
 
-use super::RendererRuntime;
-use super::frame_extract::{ExtractedFrame, PreparedViews};
-use super::frame_view_plan::{FrameViewPlan, FrameViewPlanTarget, OffscreenRtHandles};
+use super::super::RendererRuntime;
+use super::super::frame::extract::{ExtractedFrame, PreparedViews};
+use super::super::frame::view_plan::{FrameViewPlan, FrameViewPlanTarget, OffscreenRtHandles};
+use super::readback::{AwaitBufferMapError, await_buffer_map};
 
 mod alpha_coverage;
+mod result_write;
 #[cfg(test)]
 mod tests;
 
-/// Buffers at or above this size are filled through rayon.
-const PAR_FILL_THRESHOLD: usize = 128 * 1024;
-/// Per-thread fill chunk for large shared-memory result buffers.
-const PAR_FILL_CHUNK: usize = 64 * 1024;
+pub(in crate::runtime) use result_write::zero_camera_render_task_results;
+use result_write::{output_byte_count, write_camera_task_result, zero_task_result};
+
 /// Maximum time to wait for the blocking task readback callback after `device.poll`.
 const CAMERA_READBACK_TIMEOUT: Duration = Duration::from_secs(5);
 /// Color attachment format used for CPU camera readback tasks.
@@ -37,10 +37,10 @@ const CAMERA_TASK_COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8
 const CAMERA_TASK_SAMPLE_COUNT_POLICY: OffscreenSampleCountPolicy =
     OffscreenSampleCountPolicy::MasterMsaa;
 /// Bytes per texel copied from the readback color target.
-const RGBA8_BYTES_PER_PIXEL: usize = 4;
+pub(super) const RGBA8_BYTES_PER_PIXEL: usize = 4;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CameraTaskOutputFormat {
+pub(super) enum CameraTaskOutputFormat {
     Argb32,
     Rgba32,
     Bgra32,
@@ -48,7 +48,7 @@ enum CameraTaskOutputFormat {
 }
 
 impl CameraTaskOutputFormat {
-    fn from_texture_format(format: TextureFormat) -> Option<Self> {
+    pub(super) fn from_texture_format(format: TextureFormat) -> Option<Self> {
         match format {
             TextureFormat::ARGB32 => Some(Self::Argb32),
             TextureFormat::RGBA32 => Some(Self::Rgba32),
@@ -58,22 +58,22 @@ impl CameraTaskOutputFormat {
         }
     }
 
-    const fn bytes_per_pixel(self) -> usize {
+    pub(super) const fn bytes_per_pixel(self) -> usize {
         match self {
             Self::Argb32 | Self::Rgba32 | Self::Bgra32 => 4,
             Self::Rgb24 => 3,
         }
     }
 
-    const fn needs_alpha_coverage_repair(self) -> bool {
+    pub(super) const fn needs_alpha_coverage_repair(self) -> bool {
         matches!(self, Self::Argb32 | Self::Rgba32 | Self::Bgra32)
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct CameraTaskExtent {
-    width: u32,
-    height: u32,
+pub(super) struct CameraTaskExtent {
+    pub(super) width: u32,
+    pub(super) height: u32,
 }
 
 impl CameraTaskExtent {
@@ -114,7 +114,7 @@ struct ReadbackLayout {
 }
 
 #[derive(Debug, thiserror::Error)]
-enum CameraReadbackError {
+pub(super) enum CameraReadbackError {
     #[error("CameraRenderTask missing parameters")]
     MissingParameters,
     #[error("CameraRenderTask render space {0} is missing")]
@@ -149,6 +149,16 @@ enum CameraReadbackError {
     ReadbackTimeout,
     #[error("CameraRenderTask map_async failed: {0}")]
     Map(String),
+}
+
+impl From<AwaitBufferMapError> for CameraReadbackError {
+    fn from(err: AwaitBufferMapError) -> Self {
+        match err {
+            AwaitBufferMapError::DeviceLost(s) => Self::DeviceLost(s),
+            AwaitBufferMapError::Timeout => Self::ReadbackTimeout,
+            AwaitBufferMapError::Map(s) => Self::Map(s),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -237,7 +247,7 @@ impl CameraTaskTargets {
 
 impl RendererRuntime {
     /// Appends host camera render tasks to the pre-begin-frame GPU readback queue.
-    pub(super) fn queue_camera_render_tasks(&mut self, tasks: &[CameraRenderTask]) {
+    pub(in crate::runtime) fn queue_camera_render_tasks(&mut self, tasks: &[CameraRenderTask]) {
         profiling::scope!("camera_task::queue");
         if tasks.is_empty() {
             return;
@@ -506,7 +516,10 @@ fn readback_camera_task_texture(
     let readback = create_readback_buffer(gpu, &layout);
     submit_texture_to_buffer_copy(gpu, color_texture, &layout, &readback);
     let slice = readback.slice(..);
-    await_buffer_map(slice, gpu.device())?;
+    {
+        profiling::scope!("camera_task::map_readback");
+        await_buffer_map(slice, gpu.device(), CAMERA_READBACK_TIMEOUT)?;
+    }
     let tight = {
         profiling::scope!("camera_task::copy_padded_rows");
         let view = slice.get_mapped_range();
@@ -604,29 +617,6 @@ fn submit_texture_to_buffer_copy(
     gpu.queue().submit(std::iter::once(command_buffer));
 }
 
-fn await_buffer_map(
-    slice: wgpu::BufferSlice<'_>,
-    device: &wgpu::Device,
-) -> Result<(), CameraReadbackError> {
-    profiling::scope!("camera_task::map_readback");
-    let (sender, receiver) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |result| {
-        let _ = sender.send(result);
-    });
-    device
-        .poll(wgpu::PollType::wait_indefinitely())
-        .map_err(|e| CameraReadbackError::DeviceLost(format!("{e:?}")))?;
-    match receiver.recv_timeout(CAMERA_READBACK_TIMEOUT) {
-        Ok(result) => result.map_err(|e| CameraReadbackError::Map(format!("{e:?}"))),
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            Err(CameraReadbackError::ReadbackTimeout)
-        }
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err(CameraReadbackError::Map(
-            "map_async callback disconnected".to_owned(),
-        )),
-    }
-}
-
 fn copy_padded_rows_to_tight(
     bytes: &[u8],
     layout: &ReadbackLayout,
@@ -651,145 +641,4 @@ fn copy_padded_rows_to_tight(
         tight[dst_start..dst_end].copy_from_slice(&bytes[src_start..src_end]);
     }
     Ok(tight)
-}
-
-fn write_camera_task_result(
-    shm: &mut SharedMemoryAccessor,
-    task: &CameraRenderTask,
-    output_format: CameraTaskOutputFormat,
-    extent: CameraTaskExtent,
-    rgba: &[u8],
-) -> Result<(), CameraReadbackError> {
-    profiling::scope!("camera_task::shared_memory_write");
-    let required = output_byte_count(extent, output_format)?;
-    let mut result = Err(CameraReadbackError::SharedMemoryMapFailed);
-    let mapped = shm.access_mut_bytes(&task.result_data, |bytes| {
-        zero_bytes_simd(bytes);
-        if bytes.len() < required {
-            result = Err(CameraReadbackError::ResultDescriptorTooSmall {
-                required,
-                actual: bytes.len(),
-            });
-            return;
-        }
-        result = pack_rgba8_to_host_buffer(rgba, extent, output_format, &mut bytes[..required]);
-    });
-    if mapped {
-        result
-    } else {
-        Err(CameraReadbackError::SharedMemoryMapFailed)
-    }
-}
-
-fn output_byte_count(
-    extent: CameraTaskExtent,
-    output_format: CameraTaskOutputFormat,
-) -> Result<usize, CameraReadbackError> {
-    (extent.width as usize)
-        .checked_mul(extent.height as usize)
-        .and_then(|pixels| pixels.checked_mul(output_format.bytes_per_pixel()))
-        .ok_or(CameraReadbackError::OutputByteCountOverflow)
-}
-
-fn pack_rgba8_to_host_buffer(
-    rgba: &[u8],
-    extent: CameraTaskExtent,
-    output_format: CameraTaskOutputFormat,
-    dst: &mut [u8],
-) -> Result<(), CameraReadbackError> {
-    let src_required = output_byte_count(extent, CameraTaskOutputFormat::Rgba32)?;
-    let dst_required = output_byte_count(extent, output_format)?;
-    if rgba.len() < src_required {
-        return Err(CameraReadbackError::ResultDescriptorTooSmall {
-            required: src_required,
-            actual: rgba.len(),
-        });
-    }
-    if dst.len() < dst_required {
-        return Err(CameraReadbackError::ResultDescriptorTooSmall {
-            required: dst_required,
-            actual: dst.len(),
-        });
-    }
-
-    let width = extent.width as usize;
-    let height = extent.height as usize;
-    let src_row_bytes = width * RGBA8_BYTES_PER_PIXEL;
-    let dst_pixel_bytes = output_format.bytes_per_pixel();
-    let dst_row_bytes = width * dst_pixel_bytes;
-    // The host bitmap for render tasks carries FlipY metadata, so keep the
-    // raw readback row order and only repack channels here.
-    for dst_row in 0..height {
-        let src_row_start = dst_row * src_row_bytes;
-        let dst_row_start = dst_row * dst_row_bytes;
-        for x in 0..width {
-            let src = src_row_start + x * RGBA8_BYTES_PER_PIXEL;
-            let dst_i = dst_row_start + x * dst_pixel_bytes;
-            let r = rgba[src];
-            let g = rgba[src + 1];
-            let b = rgba[src + 2];
-            let a = rgba[src + 3];
-            match output_format {
-                CameraTaskOutputFormat::Argb32 => {
-                    dst[dst_i] = a;
-                    dst[dst_i + 1] = r;
-                    dst[dst_i + 2] = g;
-                    dst[dst_i + 3] = b;
-                }
-                CameraTaskOutputFormat::Rgba32 => {
-                    dst[dst_i] = r;
-                    dst[dst_i + 1] = g;
-                    dst[dst_i + 2] = b;
-                    dst[dst_i + 3] = a;
-                }
-                CameraTaskOutputFormat::Bgra32 => {
-                    dst[dst_i] = b;
-                    dst[dst_i + 1] = g;
-                    dst[dst_i + 2] = r;
-                    dst[dst_i + 3] = a;
-                }
-                CameraTaskOutputFormat::Rgb24 => {
-                    dst[dst_i] = r;
-                    dst[dst_i + 1] = g;
-                    dst[dst_i + 2] = b;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn zero_camera_render_task_results(
-    shm: &mut SharedMemoryAccessor,
-    tasks: &[CameraRenderTask],
-) -> usize {
-    profiling::scope!("camera_task::zero_results");
-    tasks
-        .iter()
-        .filter(|task| !zero_task_result(shm, task))
-        .count()
-}
-
-fn zero_task_result(shm: &mut SharedMemoryAccessor, task: &CameraRenderTask) -> bool {
-    profiling::scope!("camera_task::zero_result");
-    let ok = shm.access_mut_bytes(&task.result_data, zero_bytes_simd);
-    if !ok {
-        logger::warn!(
-            "CameraRenderTask zero-fill failed for result buffer_id={} offset={} length={}",
-            task.result_data.buffer_id,
-            task.result_data.offset,
-            task.result_data.length
-        );
-    }
-    ok
-}
-
-fn zero_bytes_simd(bytes: &mut [u8]) {
-    if bytes.len() >= PAR_FILL_THRESHOLD {
-        bytes
-            .par_chunks_mut(PAR_FILL_CHUNK)
-            .for_each(|chunk| chunk.fill(0));
-    } else {
-        bytes.fill(0);
-    }
 }

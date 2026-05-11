@@ -1,0 +1,13 @@
+//! Per-frame pipeline that turns host scene state into a render-graph submit.
+//!
+//! - [`render`] -- mode dispatch (desktop / VR / VR-secondaries-only) and MSAA prep.
+//! - [`view_planning`] -- collects the HMD, secondary render-texture, and main swapchain views for one tick.
+//! - [`view_plan`] -- per-view CPU intent types (target, clear, viewport, host camera).
+//! - [`extract`] -- immutable per-tick view extraction, draw collection, and submit packet construction.
+//! - [`submit`] -- runtime-side application of host frame-submit payloads.
+
+pub(in crate::runtime) mod extract;
+pub(crate) mod render;
+pub(in crate::runtime) mod submit;
+pub(in crate::runtime) mod view_plan;
+pub(in crate::runtime) mod view_planning;

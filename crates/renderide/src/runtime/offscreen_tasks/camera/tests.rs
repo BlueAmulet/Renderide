@@ -2,6 +2,7 @@
 
 use glam::IVec2;
 
+use super::result_write::{output_byte_count, pack_rgba8_to_host_buffer};
 use super::*;
 
 #[test]
@@ -389,15 +390,4 @@ fn camera_render_task_post_processing_policy_matches_host_parameters() {
         enabled_with_ssr_policy,
         ViewPostProcessing::new(true, true, false)
     );
-}
-
-#[test]
-fn zero_bytes_simd_clears_small_and_large_buffers() {
-    let mut small = vec![0xabu8; 32];
-    zero_bytes_simd(&mut small);
-    assert!(small.iter().all(|&byte| byte == 0));
-
-    let mut large = vec![0xcdu8; PAR_FILL_THRESHOLD + 17];
-    zero_bytes_simd(&mut large);
-    assert!(large.iter().all(|&byte| byte == 0));
 }

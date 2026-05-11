@@ -7,9 +7,9 @@ use std::fmt::Write as _;
 use crate::gpu::GpuContext;
 use crate::render_graph::{ExternalFrameTargets, GraphExecuteError};
 
-use super::RendererRuntime;
-use super::frame_extract::{ExtractedFrame, PreparedViews, select_inner_parallelism};
-use super::frame_view_plan::{FrameViewPlan, FrameViewPlanTarget, HeadlessOffscreenSnapshot};
+use super::super::RendererRuntime;
+use super::extract::{ExtractedFrame, PreparedViews, select_inner_parallelism};
+use super::view_plan::{FrameViewPlan, FrameViewPlanTarget, HeadlessOffscreenSnapshot};
 
 /// Which combination of views the compiled render graph records for one tick.
 ///
@@ -27,7 +27,7 @@ pub(crate) enum FrameRenderMode<'a> {
 
 impl FrameRenderMode<'_> {
     /// `true` when this mode appends the main desktop swapchain view.
-    pub(super) fn includes_main_swapchain(&self) -> bool {
+    pub(in crate::runtime) fn includes_main_swapchain(&self) -> bool {
         matches!(self, FrameRenderMode::DesktopPlusSecondaries)
     }
 

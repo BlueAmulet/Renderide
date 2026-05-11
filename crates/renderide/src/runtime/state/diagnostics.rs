@@ -12,27 +12,27 @@ const GPU_ALLOCATOR_FULL_REPORT_INTERVAL: Duration = Duration::from_secs(2);
 const HUD_HEAVY_SNAPSHOT_INTERVAL: Duration = Duration::from_millis(250);
 
 /// Diagnostics state that belongs to runtime orchestration rather than the backend HUD widget.
-pub(super) struct RuntimeDiagnosticsState {
+pub(in crate::runtime) struct RuntimeDiagnosticsState {
     /// Throttled host CPU/RAM sampling for the debug HUD.
-    pub(super) host_hud: HostHudGatherer,
+    pub(in crate::runtime) host_hud: HostHudGatherer,
     /// Rolling per-frame wall time history that feeds the frame timing sparkline.
-    pub(super) frame_time_history: crate::diagnostics::FrameTimeHistory,
+    pub(in crate::runtime) frame_time_history: crate::diagnostics::FrameTimeHistory,
     /// Persistent EMA state for frame timing scalar readouts.
-    pub(super) frame_timing_ema: crate::diagnostics::FrameTimingEma,
+    pub(in crate::runtime) frame_timing_ema: crate::diagnostics::FrameTimingEma,
     /// `FrameSubmitData::render_tasks` length from the last applied frame submit.
-    pub(super) last_submit_render_task_count: usize,
+    pub(in crate::runtime) last_submit_render_task_count: usize,
     /// Camera readback tasks currently waiting to be drained before the next begin-frame send.
-    pub(super) pending_camera_readbacks: usize,
+    pub(in crate::runtime) pending_camera_readbacks: usize,
     /// Cumulative camera readback tasks successfully written to host shared memory.
-    pub(super) completed_camera_readbacks: u64,
+    pub(in crate::runtime) completed_camera_readbacks: u64,
     /// Cumulative camera readback tasks failed and zero-filled when possible.
-    pub(super) failed_camera_readbacks: u64,
+    pub(in crate::runtime) failed_camera_readbacks: u64,
     /// Cached full allocator report for the GPU memory HUD tab.
-    pub(super) allocator_report_hud: Option<GpuAllocatorReportHud>,
+    pub(in crate::runtime) allocator_report_hud: Option<GpuAllocatorReportHud>,
     /// Cached allocator totals from the same throttled report.
-    pub(super) allocator_report_totals: GpuAllocatorHud,
+    pub(in crate::runtime) allocator_report_totals: GpuAllocatorHud,
     /// Wall clock when a GPU memory tab refresh was last attempted.
-    pub(super) allocator_report_last_refresh: Option<Instant>,
+    pub(in crate::runtime) allocator_report_last_refresh: Option<Instant>,
     /// Wall clock when the main debug HUD table snapshots were last refreshed.
     main_hud_snapshot_last_refresh: Option<Instant>,
     /// Wall clock when the scene-transform HUD snapshot was last refreshed.
@@ -40,18 +40,18 @@ pub(super) struct RuntimeDiagnosticsState {
     /// Wall clock when the texture-debug HUD snapshot was last refreshed.
     texture_debug_snapshot_last_refresh: Option<Instant>,
     /// Count of failed frame-submit apply or cache-flush operations after host submits.
-    pub(super) frame_submit_apply_failures: u64,
+    pub(in crate::runtime) frame_submit_apply_failures: u64,
     /// Whether the first successful frame submit has been logged.
-    pub(super) logged_first_frame_submit: bool,
+    pub(in crate::runtime) logged_first_frame_submit: bool,
     /// Last logged render-space count after scene apply.
-    pub(super) last_scene_render_space_count: usize,
+    pub(in crate::runtime) last_scene_render_space_count: usize,
     /// Last logged mesh-renderable count after scene apply.
-    pub(super) last_scene_mesh_renderable_count: usize,
+    pub(in crate::runtime) last_scene_mesh_renderable_count: usize,
 }
 
 impl RuntimeDiagnosticsState {
     /// Creates empty runtime diagnostics state.
-    pub(super) fn new() -> Self {
+    pub(in crate::runtime) fn new() -> Self {
         Self {
             host_hud: HostHudGatherer::default(),
             frame_time_history: crate::diagnostics::FrameTimeHistory::new(),
@@ -73,48 +73,54 @@ impl RuntimeDiagnosticsState {
         }
     }
 
-    pub(super) fn should_refresh_main_hud_snapshot(&mut self, now: Instant) -> bool {
+    pub(in crate::runtime) fn should_refresh_main_hud_snapshot(&mut self, now: Instant) -> bool {
         should_refresh_snapshot(&mut self.main_hud_snapshot_last_refresh, now)
     }
 
-    pub(super) fn should_refresh_scene_transforms_snapshot(&mut self, now: Instant) -> bool {
+    pub(in crate::runtime) fn should_refresh_scene_transforms_snapshot(
+        &mut self,
+        now: Instant,
+    ) -> bool {
         should_refresh_snapshot(&mut self.scene_transforms_snapshot_last_refresh, now)
     }
 
-    pub(super) fn should_refresh_texture_debug_snapshot(&mut self, now: Instant) -> bool {
+    pub(in crate::runtime) fn should_refresh_texture_debug_snapshot(
+        &mut self,
+        now: Instant,
+    ) -> bool {
         should_refresh_snapshot(&mut self.texture_debug_snapshot_last_refresh, now)
     }
 
-    pub(super) fn clear_main_hud_snapshot_timer(&mut self) {
+    pub(in crate::runtime) fn clear_main_hud_snapshot_timer(&mut self) {
         self.main_hud_snapshot_last_refresh = None;
     }
 
-    pub(super) fn clear_scene_transforms_snapshot_timer(&mut self) {
+    pub(in crate::runtime) fn clear_scene_transforms_snapshot_timer(&mut self) {
         self.scene_transforms_snapshot_last_refresh = None;
     }
 
-    pub(super) fn clear_texture_debug_snapshot_timer(&mut self) {
+    pub(in crate::runtime) fn clear_texture_debug_snapshot_timer(&mut self) {
         self.texture_debug_snapshot_last_refresh = None;
     }
 
     /// Updates the latest render-task count for the HUD.
-    pub(super) fn set_last_submit_render_task_count(&mut self, n: usize) {
+    pub(in crate::runtime) fn set_last_submit_render_task_count(&mut self, n: usize) {
         self.last_submit_render_task_count = n;
     }
 
     /// Replaces the current pending camera readback count.
-    pub(super) fn set_pending_camera_readbacks(&mut self, n: usize) {
+    pub(in crate::runtime) fn set_pending_camera_readbacks(&mut self, n: usize) {
         self.pending_camera_readbacks = n;
     }
 
     /// Adds completed and failed camera readback counts to the cumulative HUD counters.
-    pub(super) fn note_camera_readback_results(&mut self, completed: u64, failed: u64) {
+    pub(in crate::runtime) fn note_camera_readback_results(&mut self, completed: u64, failed: u64) {
         self.completed_camera_readbacks = self.completed_camera_readbacks.saturating_add(completed);
         self.failed_camera_readbacks = self.failed_camera_readbacks.saturating_add(failed);
     }
 
     /// Increments the cumulative scene-apply failure counter.
-    pub(super) fn note_frame_submit_apply_failure(&mut self) {
+    pub(in crate::runtime) fn note_frame_submit_apply_failure(&mut self) {
         self.frame_submit_apply_failures = self.frame_submit_apply_failures.saturating_add(1);
     }
 
@@ -122,7 +128,7 @@ impl RuntimeDiagnosticsState {
     ///
     /// The full sorted report is only retained when the main debug HUD needs the GPU memory tab;
     /// the frame-timing overlay uses the cheaper totals.
-    pub(super) fn refresh_gpu_allocator_report_hud(
+    pub(in crate::runtime) fn refresh_gpu_allocator_report_hud(
         &mut self,
         gpu: &GpuContext,
         now: Instant,
@@ -156,7 +162,7 @@ impl RuntimeDiagnosticsState {
     }
 
     /// Seconds until the next full allocator refresh should be attempted.
-    pub(super) fn allocator_report_next_refresh_in_secs(&self, now: Instant) -> f32 {
+    pub(in crate::runtime) fn allocator_report_next_refresh_in_secs(&self, now: Instant) -> f32 {
         self.allocator_report_last_refresh.map_or(
             GPU_ALLOCATOR_FULL_REPORT_INTERVAL.as_secs_f32(),
             |t| {
@@ -169,14 +175,14 @@ impl RuntimeDiagnosticsState {
     }
 
     /// Clears main-HUD allocator report state when the main HUD is disabled.
-    pub(super) fn clear_allocator_report(&mut self) {
+    pub(in crate::runtime) fn clear_allocator_report(&mut self) {
         self.allocator_report_hud = None;
         self.allocator_report_totals = GpuAllocatorHud::default();
         self.allocator_report_last_refresh = None;
     }
 
     /// Clears the full GPU allocation table while keeping totals for the frame-timing overlay.
-    pub(super) fn clear_allocator_report_detail(&mut self) {
+    pub(in crate::runtime) fn clear_allocator_report_detail(&mut self) {
         self.allocator_report_hud = None;
     }
 }

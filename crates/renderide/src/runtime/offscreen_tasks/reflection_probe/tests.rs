@@ -4,10 +4,16 @@ use glam::Vec3;
 use hashbrown::HashSet;
 
 use crate::camera::HostCameraFrame;
+use crate::render_graph::FrameViewClear;
 use crate::shared::{
-    ReflectionProbeRenderTask, ReflectionProbeState, ReflectionProbeTimeSlicingMode,
+    ReflectionProbeClear, ReflectionProbeRenderTask, ReflectionProbeState,
+    ReflectionProbeTimeSlicingMode,
 };
 
+use super::face::{
+    finite_positive_or, host_camera_frame_for_probe_face, probe_face_world_matrix,
+    reflection_probe_clip,
+};
 use super::*;
 
 #[test]

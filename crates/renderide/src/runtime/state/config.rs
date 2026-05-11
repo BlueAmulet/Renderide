@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use crate::config::{RendererSettingsHandle, save_renderer_settings};
 
 /// Settings handle, persistence path, and config-write suppression state.
-pub(super) struct RuntimeConfigState {
+pub(in crate::runtime) struct RuntimeConfigState {
     /// Process-wide renderer settings shared with the HUD and frame loop.
-    pub(super) settings: RendererSettingsHandle,
+    pub(in crate::runtime) settings: RendererSettingsHandle,
     /// Target path for persisting renderer settings from the ImGui config window.
     config_save_path: PathBuf,
     /// When true, ImGui and config save helpers must not overwrite `config.toml`.
@@ -16,7 +16,10 @@ pub(super) struct RuntimeConfigState {
 
 impl RuntimeConfigState {
     /// Creates runtime config state from the loaded settings handle and save path.
-    pub(super) fn new(settings: RendererSettingsHandle, config_save_path: PathBuf) -> Self {
+    pub(in crate::runtime) fn new(
+        settings: RendererSettingsHandle,
+        config_save_path: PathBuf,
+    ) -> Self {
         Self {
             settings,
             config_save_path,
@@ -25,22 +28,22 @@ impl RuntimeConfigState {
     }
 
     /// Cloned config save path for backend HUD attach.
-    pub(super) fn cloned_config_save_path(&self) -> PathBuf {
+    pub(in crate::runtime) fn cloned_config_save_path(&self) -> PathBuf {
         self.config_save_path.clone()
     }
 
     /// Sets whether renderer config disk writes are blocked.
-    pub(super) fn set_suppress_renderer_config_disk_writes(&mut self, value: bool) {
+    pub(in crate::runtime) fn set_suppress_renderer_config_disk_writes(&mut self, value: bool) {
         self.suppress_renderer_config_disk_writes = value;
     }
 
     /// Whether renderer config disk writes are blocked.
-    pub(super) fn suppress_renderer_config_disk_writes(&self) -> bool {
+    pub(in crate::runtime) fn suppress_renderer_config_disk_writes(&self) -> bool {
         self.suppress_renderer_config_disk_writes
     }
 
     /// Toggles the master ImGui overlay visibility setting and persists it when allowed.
-    pub(super) fn toggle_imgui_visibility(&self) -> Option<bool> {
+    pub(in crate::runtime) fn toggle_imgui_visibility(&self) -> Option<bool> {
         let Ok(mut settings) = self.settings.write() else {
             logger::warn!(
                 "Failed to toggle ImGui visibility: renderer settings store is unavailable"

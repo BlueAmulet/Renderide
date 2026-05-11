@@ -2,9 +2,9 @@
 
 use std::time::Instant;
 
-use super::camera_render_tasks::zero_camera_render_task_results;
-use super::reflection_probe_render_tasks::reflection_probe_render_task_count;
-use super::{RendererRuntime, lockstep};
+use super::super::offscreen_tasks::camera::zero_camera_render_task_results;
+use super::super::offscreen_tasks::reflection_probe::reflection_probe_render_task_count;
+use super::super::{RendererRuntime, lockstep};
 use crate::diagnostics::crash_context::{self, TickPhase};
 use crate::shared::FrameSubmitData;
 
@@ -268,7 +268,7 @@ mod tests {
         RenderSpaceUpdate, TextureFormat,
     };
 
-    use super::RendererRuntime;
+    use super::super::super::RendererRuntime;
 
     #[test]
     fn successful_frame_submit_queues_camera_render_tasks() {
