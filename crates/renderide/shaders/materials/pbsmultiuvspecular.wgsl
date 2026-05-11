@@ -4,8 +4,12 @@
 //! Mirrors [`pbsmultiuv`](super::pbsmultiuv) for the SpecularSetup workflow. All four Unity UV
 //! channels (`texcoord` ... `texcoord3`) are wired through. Per-texture `_*UV` values `< 1.0`
 //! resolve to UV0, `< 2.0` to UV1, `< 3.0` to UV2, and `>= 3.0` to UV3.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSMultiUVSpecular's
+//! shader-specific keyword bits locally.
 
 
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::normal as pnorm
 #import renderide::pbs::lighting as plight
@@ -26,25 +30,18 @@ struct PbsMultiUVSpecularMaterial {
     _SpecularColor: vec4<f32>,
     /// Albedo tile/offset.
     _MainTex_ST: vec4<f32>,
-    /// Storage-V-inverted flag for `_MainTex` (non-zero => skip the final V-flip).
     /// Secondary albedo tile/offset.
     _SecondaryAlbedo_ST: vec4<f32>,
-    /// Storage-V-inverted flag for `_SecondaryAlbedo`.
     /// Normal map tile/offset.
     _NormalMap_ST: vec4<f32>,
-    /// Storage-V-inverted flag for `_NormalMap`.
     /// Emission map tile/offset.
     _EmissionMap_ST: vec4<f32>,
-    /// Storage-V-inverted flag for `_EmissionMap`.
     /// Secondary emission map tile/offset.
     _SecondaryEmissionMap_ST: vec4<f32>,
-    /// Storage-V-inverted flag for `_SecondaryEmissionMap`.
     /// Specular map tile/offset.
     _SpecularMap_ST: vec4<f32>,
-    /// Storage-V-inverted flag for `_SpecularMap`.
     /// Occlusion map tile/offset.
     _OcclusionMap_ST: vec4<f32>,
-    /// Storage-V-inverted flag for `_OcclusionMap`.
     /// Tangent-space normal scale.
     _NormalScale: f32,
     /// Alpha-clip threshold; applied only when `_ALPHACLIP` is enabled.
@@ -63,21 +60,17 @@ struct PbsMultiUVSpecularMaterial {
     _OcclusionUV: f32,
     /// UV-channel selector for `_SpecularMap`.
     _SpecularUV: f32,
-    /// Keyword: enable secondary albedo multiply.
-    _DUAL_ALBEDO: f32,
-    /// Keyword: enable emission texture multiply.
-    _EMISSIONTEX: f32,
-    /// Keyword: enable secondary emission texture additive contribution.
-    _DUAL_EMISSIONTEX: f32,
-    /// Keyword: enable normal map sampling.
-    _NORMALMAP: f32,
-    /// Keyword: read tinted f0 + smoothness from `_SpecularMap`.
-    _SPECULARMAP: f32,
-    /// Keyword: read occlusion from `_OcclusionMap.r`.
-    _OCCLUSION: f32,
-    /// Keyword: enable alpha clipping against `_AlphaClip`.
-    _ALPHACLIP: f32,
+    /// Renderer-reserved Froox shader-specific variant bitmask.
+    _RenderideVariantBits: u32,
 }
+
+const PBSMULTIUVSPECULAR_KW_ALPHACLIP: u32 = 1u << 0u;
+const PBSMULTIUVSPECULAR_KW_DUAL_ALBEDO: u32 = 1u << 1u;
+const PBSMULTIUVSPECULAR_KW_DUAL_EMISSIONTEX: u32 = 1u << 2u;
+const PBSMULTIUVSPECULAR_KW_EMISSIONTEX: u32 = 1u << 3u;
+const PBSMULTIUVSPECULAR_KW_NORMALMAP: u32 = 1u << 4u;
+const PBSMULTIUVSPECULAR_KW_OCCLUSION: u32 = 1u << 5u;
+const PBSMULTIUVSPECULAR_KW_SPECULARMAP: u32 = 1u << 6u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsMultiUVSpecularMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -107,6 +100,10 @@ struct SurfaceData {
     emission: vec3<f32>,
 }
 
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
 /// Pick UV0..UV3 by a `_*UV` index uniform: `< 1.0` -> UV0, `< 2.0` -> UV1, `< 3.0` -> UV2,
 /// `>= 3.0` -> UV3.
 fn pick_uv(uv0: vec2<f32>, uv1: vec2<f32>, uv2: vec2<f32>, uv3: vec2<f32>, idx: f32) -> vec2<f32> {
@@ -127,7 +124,7 @@ fn sample_normal_world(
 ) -> vec3<f32> {
     let tbn = pnorm::orthonormal_tbn(world_n, world_t);
     var ts_n = vec3<f32>(0.0, 0.0, 1.0);
-    if (uvu::kw_enabled(mat._NORMALMAP)) {
+    if (pbs_kw(PBSMULTIUVSPECULAR_KW_NORMALMAP)) {
         let uv_n = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._NormalUV), mat._NormalMap_ST);
         ts_n = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_n),
@@ -153,17 +150,17 @@ fn sample_surface(
     let uv_albedo = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._AlbedoUV), mat._MainTex_ST);
 
     var c = mat._Color * textureSample(_MainTex, _MainTex_sampler, uv_albedo);
-    if (uvu::kw_enabled(mat._DUAL_ALBEDO)) {
+    if (pbs_kw(PBSMULTIUVSPECULAR_KW_DUAL_ALBEDO)) {
         let uv_albedo2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryAlbedoUV), mat._SecondaryAlbedo_ST);
         c = c * textureSample(_SecondaryAlbedo, _SecondaryAlbedo_sampler, uv_albedo2);
     }
     let clip_alpha = mat._Color.a * acs::texture_alpha_base_mip(_MainTex, _MainTex_sampler, uv_albedo);
-    if (uvu::kw_enabled(mat._ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
+    if (pbs_kw(PBSMULTIUVSPECULAR_KW_ALPHACLIP) && clip_alpha <= mat._AlphaClip) {
         discard;
     }
 
     var spec = mat._SpecularColor;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (pbs_kw(PBSMULTIUVSPECULAR_KW_SPECULARMAP)) {
         let uv_spec = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SpecularUV), mat._SpecularMap_ST);
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_spec);
     }
@@ -173,17 +170,17 @@ fn sample_surface(
     let one_minus_reflectivity = 1.0 - max(max(f0.r, f0.g), f0.b);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSMULTIUVSPECULAR_KW_OCCLUSION)) {
         let uv_occ = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._OcclusionUV), mat._OcclusionMap_ST);
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_occ).r;
     }
 
     var emission = mat._EmissionColor.rgb;
-    if (uvu::kw_enabled(mat._EMISSIONTEX) || uvu::kw_enabled(mat._DUAL_EMISSIONTEX)) {
+    if (pbs_kw(PBSMULTIUVSPECULAR_KW_EMISSIONTEX) || pbs_kw(PBSMULTIUVSPECULAR_KW_DUAL_EMISSIONTEX)) {
         let uv_em = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._EmissionUV), mat._EmissionMap_ST);
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_em).rgb;
     }
-    if (uvu::kw_enabled(mat._DUAL_EMISSIONTEX)) {
+    if (pbs_kw(PBSMULTIUVSPECULAR_KW_DUAL_EMISSIONTEX)) {
         let uv_em2 = uvu::apply_st(pick_uv(uv0, uv1, uv2, uv3, mat._SecondaryEmissionUV), mat._SecondaryEmissionMap_ST);
         let secondary =
             textureSample(_SecondaryEmissionMap, _SecondaryEmissionMap_sampler, uv_em2).rgb;

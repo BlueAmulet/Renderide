@@ -3,10 +3,14 @@
 //! Sibling of [`pbsrim`](super::pbsrim); swaps the metallic BRDF for the specular variant and
 //! reads tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of `_Metallic` /
 //! `_MetallicMap`. Texture sampling follows Unity's multi-compile keyword behavior.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSRimSpecular's
+//! shader-specific keyword bits locally.
 
 
 #import renderide::frame::globals as rg
 #import renderide::material::fresnel as mf
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
@@ -21,12 +25,14 @@ struct PbsRimSpecularMaterial {
     _MainTex_ST: vec4<f32>,
     _NormalScale: f32,
     _RimPower: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _SPECULARMAP: f32,
-    _OCCLUSION: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSRIMSPECULAR_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSRIMSPECULAR_KW_EMISSIONTEX: u32 = 1u << 1u;
+const PBSRIMSPECULAR_KW_NORMALMAP: u32 = 1u << 2u;
+const PBSRIMSPECULAR_KW_OCCLUSION: u32 = 1u << 3u;
+const PBSRIMSPECULAR_KW_SPECULARMAP: u32 = 1u << 4u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsRimSpecularMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -40,9 +46,13 @@ struct PbsRimSpecularMaterial {
 @group(1) @binding(9)  var _SpecularMap: texture_2d<f32>;
 @group(1) @binding(10) var _SpecularMap_sampler: sampler;
 
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
     return psamp::sample_optional_world_normal(
-        uvu::kw_enabled(mat._NORMALMAP),
+        pbs_kw(PBSRIMSPECULAR_KW_NORMALMAP),
         _NormalMap,
         _NormalMap_sampler,
         uv_main,
@@ -84,14 +94,14 @@ fn fs_main(
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
     var albedo = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (pbs_kw(PBSRIMSPECULAR_KW_ALBEDOTEX)) {
         albedo = albedo * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
     let base_color = albedo.xyz;
     let alpha = albedo.a;
 
     var spec = mat._SpecularColor;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (pbs_kw(PBSRIMSPECULAR_KW_SPECULARMAP)) {
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -99,14 +109,14 @@ fn fs_main(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSRIMSPECULAR_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).x;
     }
 
     let n = sample_normal_world(uv_main, world_n, world_t);
 
     var emission = mat._EmissionColor.xyz;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSRIMSPECULAR_KW_EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).xyz;
     }
 

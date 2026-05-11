@@ -3,10 +3,18 @@
 //!
 //! Transparent default render state is driven by the host's `_SrcBlend` / `_DstBlend` / `_ZWrite`
 //! material properties; the WGSL is identical to the opaque sibling.
+//!
+//! The Unity reference asset has `#ifdef _ALBEDOTEX` blocks but never declares the matching
+//! `#pragma multi_compile`, so the albedo branch is dead in the compiled shader. The port follows
+//! suit: `_Color` is the only base color and `_MainTex` is not bound.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes
+//! PBSRimTransparentSpecular's shader-specific keyword bits locally.
 
 
 #import renderide::frame::globals as rg
 #import renderide::material::fresnel as mf
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
@@ -21,30 +29,31 @@ struct PbsRimTransparentSpecularMaterial {
     _MainTex_ST: vec4<f32>,
     _NormalScale: f32,
     _RimPower: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _SPECULARMAP: f32,
-    _OCCLUSION: f32,
-    _pad0: f32,
-    _pad1: f32,
+    _RenderideVariantBits: u32,
 }
 
-@group(1) @binding(0)  var<uniform> mat: PbsRimTransparentSpecularMaterial;
-@group(1) @binding(1)  var _MainTex: texture_2d<f32>;
-@group(1) @binding(2)  var _MainTex_sampler: sampler;
-@group(1) @binding(3)  var _NormalMap: texture_2d<f32>;
-@group(1) @binding(4)  var _NormalMap_sampler: sampler;
-@group(1) @binding(5)  var _EmissionMap: texture_2d<f32>;
-@group(1) @binding(6)  var _EmissionMap_sampler: sampler;
-@group(1) @binding(7)  var _OcclusionMap: texture_2d<f32>;
-@group(1) @binding(8)  var _OcclusionMap_sampler: sampler;
-@group(1) @binding(9)  var _SpecularMap: texture_2d<f32>;
-@group(1) @binding(10) var _SpecularMap_sampler: sampler;
+const PBSRIMTRANSPARENTSPECULAR_KW_EMISSIONTEX: u32 = 1u << 0u;
+const PBSRIMTRANSPARENTSPECULAR_KW_NORMALMAP: u32 = 1u << 1u;
+const PBSRIMTRANSPARENTSPECULAR_KW_OCCLUSION: u32 = 1u << 2u;
+const PBSRIMTRANSPARENTSPECULAR_KW_SPECULARMAP: u32 = 1u << 3u;
+
+@group(1) @binding(0) var<uniform> mat: PbsRimTransparentSpecularMaterial;
+@group(1) @binding(1) var _NormalMap: texture_2d<f32>;
+@group(1) @binding(2) var _NormalMap_sampler: sampler;
+@group(1) @binding(3) var _EmissionMap: texture_2d<f32>;
+@group(1) @binding(4) var _EmissionMap_sampler: sampler;
+@group(1) @binding(5) var _OcclusionMap: texture_2d<f32>;
+@group(1) @binding(6) var _OcclusionMap_sampler: sampler;
+@group(1) @binding(7) var _SpecularMap: texture_2d<f32>;
+@group(1) @binding(8) var _SpecularMap_sampler: sampler;
+
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
     return psamp::sample_optional_world_normal(
-        uvu::kw_enabled(mat._NORMALMAP),
+        pbs_kw(PBSRIMTRANSPARENTSPECULAR_KW_NORMALMAP),
         _NormalMap,
         _NormalMap_sampler,
         uv_main,
@@ -86,15 +95,11 @@ fn fs_main(
 ) -> @location(0) vec4<f32> {
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
-    var c0 = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
-        c0 = c0 * textureSample(_MainTex, _MainTex_sampler, uv_main);
-    }
-    let base_color = c0.rgb;
-    let alpha = c0.a;
+    let base_color = mat._Color.rgb;
+    let alpha = mat._Color.a;
 
     var spec = mat._SpecularColor;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (pbs_kw(PBSRIMTRANSPARENTSPECULAR_KW_SPECULARMAP)) {
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -102,7 +107,7 @@ fn fs_main(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSRIMTRANSPARENTSPECULAR_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
@@ -112,7 +117,7 @@ fn fs_main(
     }
 
     var emission = mat._EmissionColor.rgb;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSRIMTRANSPARENTSPECULAR_KW_EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
 

@@ -2,10 +2,11 @@
 //! intersection tint/emission parameters sampled from the scene-depth snapshot copied between the
 //! opaque and intersection subpasses.
 //!
-//! Keyword-style float fields mirror Unity `#pragma multi_compile` values:
-//! `_ALBEDOTEX`, `_EMISSIONTEX`, `_NORMALMAP`, `_SPECULARMAP`, `_OCCLUSION`.
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSIntersectSpecular's
+//! shader-specific keyword bits locally.
 
 #import renderide::core::math as rmath
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::normal as pnorm
@@ -27,13 +28,14 @@ struct PbsIntersectSpecularMaterial {
     _EndTransitionStart: f32,
     _EndTransitionEnd: f32,
     _NormalScale: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _SPECULARMAP: f32,
-    _OCCLUSION: f32,
-    _pad0: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSINTERSECTSPECULAR_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSINTERSECTSPECULAR_KW_EMISSIONTEX: u32 = 1u << 1u;
+const PBSINTERSECTSPECULAR_KW_NORMALMAP: u32 = 1u << 2u;
+const PBSINTERSECTSPECULAR_KW_OCCLUSION: u32 = 1u << 3u;
+const PBSINTERSECTSPECULAR_KW_SPECULARMAP: u32 = 1u << 4u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsIntersectSpecularMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -47,9 +49,13 @@ struct PbsIntersectSpecularMaterial {
 @group(1) @binding(9)  var _SpecularMap: texture_2d<f32>;
 @group(1) @binding(10) var _SpecularMap_sampler: sampler;
 
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>, front_facing: bool) -> vec3<f32> {
     var n = world_n;
-    if (uvu::kw_enabled(mat._NORMALMAP)) {
+    if (pbs_kw(PBSINTERSECTSPECULAR_KW_NORMALMAP)) {
         let tbn = pnorm::orthonormal_tbn(n, world_t);
         let ts_n = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(_NormalMap, _NormalMap_sampler, uv_main),
@@ -104,7 +110,7 @@ fn fs_main(
     let intersect_lerp = intersection_lerp(frag_pos, world_pos, view_layer);
 
     var c0 = mix(mat._Color, mat._IntersectColor, intersect_lerp);
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (pbs_kw(PBSINTERSECTSPECULAR_KW_ALBEDOTEX)) {
         c0 = c0 * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
     let base_color = c0.rgb;
@@ -113,12 +119,12 @@ fn fs_main(
     let n = sample_normal_world(uv_main, world_n, world_t, front_facing);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSINTERSECTSPECULAR_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
     var spec_sample = mat._SpecularColor;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (pbs_kw(PBSINTERSECTSPECULAR_KW_SPECULARMAP)) {
         spec_sample = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
     }
     let f0 = spec_sample.rgb;
@@ -126,7 +132,7 @@ fn fs_main(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var emission = mat._EmissionColor.xyz;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSINTERSECTSPECULAR_KW_EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
     emission = emission + mat._IntersectEmissionColor.rgb * intersect_lerp;
