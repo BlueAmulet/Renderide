@@ -101,3 +101,51 @@ pub(super) fn debug_assert_no_scheduled_rows(bytes: &[u8]) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use glam::Vec3;
+
+    #[test]
+    fn task_answer_postpone_leaves_no_scheduled_row() {
+        const RESULT_OFFSET: usize = std::mem::offset_of!(ReflectionProbeSH2Task, result);
+        let mut row = vec![0u8; task_stride()];
+        row[0..4].copy_from_slice(&0i32.to_le_bytes());
+        row[4..8].copy_from_slice(&0i32.to_le_bytes());
+        row[RESULT_OFFSET..RESULT_OFFSET + 4]
+            .copy_from_slice(&(ComputeResult::Scheduled as i32).to_le_bytes());
+
+        write_task_answer(&mut row, 0, TaskAnswer::status(ComputeResult::Postpone));
+        debug_assert_no_scheduled_rows(&row);
+
+        let result = read_i32_le(&row[RESULT_OFFSET..RESULT_OFFSET + 4]);
+        assert_eq!(result, Some(ComputeResult::Postpone as i32));
+    }
+
+    #[test]
+    fn computed_task_answer_writes_data_before_result_slot() {
+        const RESULT_OFFSET: usize = std::mem::offset_of!(ReflectionProbeSH2Task, result);
+        const DATA_OFFSET: usize = std::mem::offset_of!(ReflectionProbeSH2Task, result_data);
+        let mut row = vec![0u8; task_stride()];
+        row[0..4].copy_from_slice(&0i32.to_le_bytes());
+        row[4..8].copy_from_slice(&0i32.to_le_bytes());
+        let sh = RenderSH2 {
+            sh0: Vec3::new(1.0, 2.0, 3.0),
+            ..RenderSH2::default()
+        };
+
+        write_task_answer(&mut row, 0, TaskAnswer::computed(sh));
+        debug_assert_no_scheduled_rows(&row);
+
+        let result = read_i32_le(&row[RESULT_OFFSET..RESULT_OFFSET + 4]);
+        let first_component = f32::from_le_bytes(
+            row[DATA_OFFSET..DATA_OFFSET + 4]
+                .try_into()
+                .expect("four-byte f32"),
+        );
+        assert_eq!(result, Some(ComputeResult::Computed as i32));
+        assert_eq!(first_component, 1.0);
+    }
+}

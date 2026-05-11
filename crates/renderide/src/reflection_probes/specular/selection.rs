@@ -412,3 +412,180 @@ fn axis_value(v: Vec3A, axis: usize) -> f32 {
         _ => v.z,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn probe(index: i32, atlas: u16, importance: i32, min: Vec3, max: Vec3) -> SpatialProbe {
+        SpatialProbe {
+            renderable_index: index,
+            atlas_index: atlas,
+            importance,
+            aabb_min: Vec3A::from(min),
+            aabb_max: Vec3A::from(max),
+            center: Vec3A::from((min + max) * 0.5),
+            volume: aabb_volume(min, max),
+        }
+    }
+
+    #[test]
+    fn higher_priority_overrides_lower_priority() {
+        let index = ReflectionProbeSpatialIndex::build(vec![
+            probe(0, 1, 0, Vec3::splat(-100.0), Vec3::splat(100.0)),
+            probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+        ]);
+
+        let selection = index.select((Vec3::splat(-0.25), Vec3::splat(0.25)));
+
+        assert_eq!(selection, ReflectionProbeDrawSelection::one(2));
+    }
+
+    #[test]
+    fn frame_selection_uses_skybox_fallback_when_no_probe_hits() {
+        let mut selection = ReflectionProbeFrameSelection::default();
+        let space_id = RenderSpaceId(7);
+        selection.rebuild_spatial(Vec::new(), [(space_id, 9)]);
+
+        let draw = selection.select(space_id, (Vec3::splat(-1.0), Vec3::splat(1.0)));
+
+        assert_eq!(
+            draw,
+            ReflectionProbeDrawSelection {
+                first_atlas_index: 9,
+                second_atlas_index: 0,
+                second_weight: 0.0,
+                hit_count: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn frame_selection_prefers_probe_hit_over_skybox_fallback() {
+        let mut selection = ReflectionProbeFrameSelection::default();
+        let space_id = RenderSpaceId(7);
+        selection.rebuild_spatial(
+            [(
+                space_id,
+                probe(0, 3, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+            )],
+            [(space_id, 9)],
+        );
+
+        let draw = selection.select(space_id, (Vec3::splat(-0.5), Vec3::splat(0.5)));
+
+        assert_eq!(draw, ReflectionProbeDrawSelection::one(3));
+    }
+
+    #[test]
+    fn same_importance_selects_two_by_intersection_volume() {
+        let index = ReflectionProbeSpatialIndex::build(vec![
+            probe(
+                0,
+                1,
+                1,
+                Vec3::new(-1.0, -1.0, -1.0),
+                Vec3::new(1.0, 1.0, 1.0),
+            ),
+            probe(
+                1,
+                2,
+                1,
+                Vec3::new(0.0, -1.0, -1.0),
+                Vec3::new(2.0, 1.0, 1.0),
+            ),
+            probe(
+                2,
+                3,
+                1,
+                Vec3::new(0.75, -1.0, -1.0),
+                Vec3::new(2.0, 1.0, 1.0),
+            ),
+        ]);
+
+        let selection = index.select((Vec3::new(-0.5, -0.5, -0.5), Vec3::new(1.5, 0.5, 0.5)));
+
+        assert_eq!(selection.hit_count, 2);
+        assert_eq!(selection.first_atlas_index, 1);
+        assert_eq!(selection.second_atlas_index, 2);
+        assert!((selection.second_weight - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn contained_same_importance_probe_selects_inner_when_object_fully_inside() {
+        let index = ReflectionProbeSpatialIndex::build(vec![
+            probe(0, 1, 1, Vec3::splat(-10.0), Vec3::splat(10.0)),
+            probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+        ]);
+
+        let selection = index.select((Vec3::splat(-0.5), Vec3::splat(0.5)));
+
+        assert_eq!(selection, ReflectionProbeDrawSelection::one(2));
+    }
+
+    #[test]
+    fn contained_same_importance_probe_blends_when_object_partially_leaves_inner() {
+        let index = ReflectionProbeSpatialIndex::build(vec![
+            probe(0, 1, 1, Vec3::splat(-10.0), Vec3::splat(10.0)),
+            probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+        ]);
+
+        let selection = index.select((Vec3::new(-0.5, -0.5, -0.5), Vec3::new(1.5, 0.5, 0.5)));
+
+        assert_eq!(selection.hit_count, 2);
+        assert_eq!(selection.first_atlas_index, 2);
+        assert_eq!(selection.second_atlas_index, 1);
+        assert!((selection.second_weight - 0.25).abs() < 1e-6);
+    }
+
+    #[test]
+    fn identical_same_importance_probe_boxes_use_intersection_blend() {
+        let index = ReflectionProbeSpatialIndex::build(vec![
+            probe(0, 1, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+            probe(1, 2, 1, Vec3::splat(-1.0), Vec3::splat(1.0)),
+        ]);
+
+        let selection = index.select((Vec3::splat(-0.5), Vec3::splat(0.5)));
+
+        assert_eq!(selection.hit_count, 2);
+        assert_eq!(selection.first_atlas_index, 1);
+        assert_eq!(selection.second_atlas_index, 2);
+        assert!((selection.second_weight - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bvh_matches_bruteforce_candidates() {
+        let probes: Vec<_> = (0..32)
+            .map(|i| {
+                let x = i as f32 * 0.5;
+                probe(
+                    i,
+                    (i + 1) as u16,
+                    1,
+                    Vec3::new(x, -1.0, -1.0),
+                    Vec3::new(x + 1.0, 1.0, 1.0),
+                )
+            })
+            .collect();
+        let index = ReflectionProbeSpatialIndex::build(probes.clone());
+        let object = (Vec3::new(4.2, -0.25, -0.25), Vec3::new(6.1, 0.25, 0.25));
+        let selection = index.select(object);
+
+        let mut brute: Vec<_> = probes
+            .iter()
+            .filter_map(|probe| {
+                let v = intersection_volume_vec3a(
+                    probe.aabb_min,
+                    probe.aabb_max,
+                    Vec3A::from(object.0),
+                    Vec3A::from(object.1),
+                );
+                (v > 0.0).then_some((probe.atlas_index, v))
+            })
+            .collect();
+        brute.sort_by(|a, b| b.1.total_cmp(&a.1));
+
+        assert_eq!(selection.first_atlas_index, brute[0].0);
+        assert_eq!(selection.second_atlas_index, brute[1].0);
+    }
+}

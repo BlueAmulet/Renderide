@@ -1,9 +1,29 @@
+//! Nonblocking SH2 projection cache and GPU-job scheduler.
+
+mod gpu_source;
+mod pipeline_cache;
+mod scheduling;
+mod source_keys;
+mod task_pass;
+
+#[cfg(test)]
+mod tests;
+
+pub(super) use gpu_source::GpuSh2Source;
+pub(super) use source_keys::{
+    CubemapResidency, CubemapSourceMaterialIdentity, DEFAULT_SAMPLE_SIZE,
+    MAX_PENDING_JOB_AGE_FRAMES, Projection360EquirectKey, SH2_OUTPUT_BYTES, Sh2ProjectParams,
+    Sh2SourceKey, SkyParamMode,
+};
+
 use std::collections::VecDeque;
 use std::sync::Arc;
 
 use glam::Vec3;
 use hashbrown::{HashMap, HashSet};
 
+use super::sh2_math::{constant_color_sh2, f32x4_bits};
+use super::source_resolution::Sh2ResolvedSource;
 use crate::backend::AssetTransferQueue;
 use crate::gpu::GpuContext;
 use crate::ipc::SharedMemoryAccessor;
@@ -11,200 +31,17 @@ use crate::materials::MaterialSystem;
 use crate::profiling;
 use crate::reflection_probes::specular::RuntimeReflectionProbeCaptureStore;
 use crate::scene::SceneCoordinator;
-use crate::shared::{ComputeResult, FrameSubmitData, ReflectionProbeSH2Tasks, RenderSH2};
-use crate::skybox::params::{SkyboxEvaluatorParams, SkyboxParamMode, storage_v_inverted_flag};
+use crate::shared::{FrameSubmitData, RenderSH2};
 use crate::skybox::specular::SkyboxIblSource;
 
-use super::projection_pipeline::{
-    ProjectionBinding, ProjectionPipeline, ProjectionPipelineBuildOutcome, ProjectionPipelineKind,
-    encode_projection_job, spawn_projection_pipeline_build,
-};
-use super::readback_jobs::{Sh2ReadbackJobs, SubmittedGpuSh2Job};
-use super::sh2_math::{constant_color_sh2, f32x4_bits};
-use super::source_resolution::{Sh2ResolvedSource, resolve_task_source};
-use super::task_rows::{
-    TaskAnswer, TaskHeader, debug_assert_no_scheduled_rows, read_task_header, task_stride,
-    write_task_answer,
-};
+use pipeline_cache::ProjectionPipelineCache;
+use source_keys::sh2_key_matches_closed_spaces;
+use task_pass::Sh2TaskSourceContext;
 
-/// Skybox projection sample resolution per cube face.
-pub(super) const DEFAULT_SAMPLE_SIZE: u32 = crate::skybox::params::DEFAULT_SKYBOX_SAMPLE_SIZE;
-/// Maximum pending GPU jobs kept alive at once.
-const MAX_IN_FLIGHT_JOBS: usize = 6;
+use super::readback_jobs::Sh2ReadbackJobs;
+
 /// Maximum completed SH2 projections retained before pruning to recently touched sources.
 const MAX_COMPLETED_SH2_CACHE_ENTRIES: usize = 512;
-/// Number of renderer ticks before a pending GPU readback is treated as failed.
-pub(super) const MAX_PENDING_JOB_AGE_FRAMES: u32 = 120;
-/// Bytes copied back from the compute output buffer.
-pub(super) const SH2_OUTPUT_BYTES: u64 = (9 * 16) as u64;
-/// Uniform payload shared by SH2 projection compute kernels.
-pub(super) type Sh2ProjectParams = SkyboxEvaluatorParams;
-
-/// Hashable `Projection360` equirectangular sampling state used by SH2 cache keys.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-pub(crate) struct Projection360EquirectKey {
-    /// `_FOV` bit pattern.
-    fov_bits: [u32; 4],
-    /// `_MainTex_ST` bit pattern.
-    main_tex_st_bits: [u32; 4],
-    /// `_MainTex_StorageVInverted` bit pattern.
-    storage_v_inverted_bits: u32,
-}
-
-impl Projection360EquirectKey {
-    /// Builds a cache-key fragment from the packed projection parameters.
-    pub(super) fn from_params(params: &Sh2ProjectParams) -> Self {
-        Self {
-            fov_bits: f32x4_bits(params.color0),
-            main_tex_st_bits: f32x4_bits(params.color1),
-            storage_v_inverted_bits: params.scalars[0].to_bits(),
-        }
-    }
-}
-
-/// Parameter-only sky evaluator mode used by `sh2_project_sky_params`.
-pub(super) type SkyParamMode = SkyboxParamMode;
-
-/// Hashable description of the source projected into SH2.
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub(crate) enum Sh2SourceKey {
-    /// Analytic constant-color source.
-    ConstantColor {
-        /// Render-space id that owns the probe.
-        render_space_id: i32,
-        /// RGBA color bit pattern.
-        color_bits: [u32; 4],
-    },
-    /// Resident cubemap source.
-    Cubemap {
-        /// Render-space id that owns the probe.
-        render_space_id: i32,
-        /// Skybox material asset id when this source came from a material, or `-1` for direct probe sources.
-        material_asset_id: i32,
-        /// Host material generation mixed into skybox sources.
-        material_generation: u64,
-        /// Stable hash of the shader route stem when this source came from a material.
-        route_hash: u64,
-        /// Cubemap asset id.
-        asset_id: i32,
-        /// Source GPU allocation generation.
-        allocation_generation: u64,
-        /// Face size.
-        size: u32,
-        /// Contiguous resident mip count.
-        resident_mips: u32,
-        /// Source cubemap content generation.
-        content_generation: u64,
-        /// Source cubemap storage orientation.
-        storage_v_inverted: bool,
-        /// Projection sample grid edge per cube face.
-        sample_size: u32,
-    },
-    /// Renderer-captured OnChanges cubemap source.
-    RuntimeCubemap {
-        /// Render space that owns the probe.
-        render_space_id: i32,
-        /// Dense reflection-probe renderable index.
-        renderable_index: i32,
-        /// Renderer-side capture generation.
-        generation: u64,
-        /// Face size.
-        size: u32,
-        /// Projection sample grid edge per cube face.
-        sample_size: u32,
-    },
-    /// Resident equirectangular texture source.
-    EquirectTexture2D {
-        /// Render-space id that owns the probe.
-        render_space_id: i32,
-        /// Skybox material asset id when this source came from a material.
-        material_asset_id: i32,
-        /// Host material generation.
-        material_generation: u64,
-        /// Stable hash of the shader route stem when this source came from a material.
-        route_hash: u64,
-        /// Texture asset id.
-        asset_id: i32,
-        /// Source GPU allocation generation.
-        allocation_generation: u64,
-        /// Mip0 width.
-        width: u32,
-        /// Mip0 height.
-        height: u32,
-        /// Contiguous resident mip count.
-        resident_mips: u32,
-        /// Source texture content generation.
-        content_generation: u64,
-        /// Projection sample grid edge per cube face.
-        sample_size: u32,
-        /// Projection360 equirectangular sampling state.
-        projection: Projection360EquirectKey,
-    },
-    /// Parameter-only sky material source.
-    SkyParams {
-        /// Render-space id that owns the probe.
-        render_space_id: i32,
-        /// Skybox material asset id.
-        material_asset_id: i32,
-        /// Host material generation.
-        material_generation: u64,
-        /// Projection sample grid edge per cube face.
-        sample_size: u32,
-        /// Shader route discriminator.
-        route_hash: u64,
-    },
-}
-
-impl Sh2SourceKey {
-    /// Render space that owns this SH2 source.
-    pub(crate) fn render_space_id(&self) -> i32 {
-        match *self {
-            Self::ConstantColor {
-                render_space_id, ..
-            }
-            | Self::Cubemap {
-                render_space_id, ..
-            }
-            | Self::RuntimeCubemap {
-                render_space_id, ..
-            }
-            | Self::EquirectTexture2D {
-                render_space_id, ..
-            }
-            | Self::SkyParams {
-                render_space_id, ..
-            } => render_space_id,
-        }
-    }
-}
-
-/// GPU-projected source payload queued for scheduling.
-#[derive(Clone, Debug)]
-pub(super) enum GpuSh2Source {
-    /// Cubemap sampled from the cubemap pool.
-    Cubemap {
-        /// Cubemap asset id.
-        asset_id: i32,
-        /// Source cubemap storage orientation.
-        storage_v_inverted: bool,
-    },
-    /// Equirectangular 2D texture sampled from the texture pool.
-    EquirectTexture2D {
-        /// Texture asset id.
-        asset_id: i32,
-        /// Projection360 sampling parameters.
-        params: Box<Sh2ProjectParams>,
-    },
-    /// Parameter-only sky material evaluator.
-    SkyParams { params: Box<Sh2ProjectParams> },
-    /// Renderer-captured OnChanges cubemap.
-    RuntimeCubemap {
-        /// Captured texture kept alive with the source view.
-        texture: Arc<wgpu::Texture>,
-        /// Cube view sampled by the SH2 projection shader.
-        view: Arc<wgpu::TextureView>,
-    },
-}
 
 /// Nonblocking SH2 projection cache and GPU-job scheduler.
 pub struct ReflectionProbeSh2System {
@@ -218,27 +55,10 @@ pub struct ReflectionProbeSh2System {
     queued_sources: HashMap<Sh2SourceKey, GpuSh2Source>,
     /// FIFO ordering for [`Self::queued_sources`].
     queue_order: VecDeque<Sh2SourceKey>,
-    /// Lazily-created cubemap pipeline.
-    cubemap_pipeline: Option<ProjectionPipeline>,
-    /// Lazily-created equirectangular 2D pipeline.
-    equirect_pipeline: Option<ProjectionPipeline>,
-    /// Lazily-created parameter sky pipeline.
-    sky_params_pipeline: Option<ProjectionPipeline>,
+    /// Lazy-built SH2 projection pipelines.
+    pipeline_cache: ProjectionPipelineCache,
     /// Source keys touched by the current task pass.
     touched_this_pass: HashSet<Sh2SourceKey>,
-    /// Completed asynchronous projection-pipeline builds.
-    pipeline_build_rx: crossbeam_channel::Receiver<ProjectionPipelineBuildOutcome>,
-    /// Submission side of [`Self::pipeline_build_rx`].
-    pipeline_build_tx: crossbeam_channel::Sender<ProjectionPipelineBuildOutcome>,
-    /// Projection pipelines currently compiling on worker threads.
-    pending_pipeline_builds: HashSet<ProjectionPipelineKind>,
-    /// Projection pipeline kinds that failed to build.
-    failed_pipeline_builds: HashSet<ProjectionPipelineKind>,
-}
-
-enum ScheduleSourceOutcome {
-    Submitted(SubmittedGpuSh2Job),
-    RetryLater(GpuSh2Source),
 }
 
 impl Default for ReflectionProbeSh2System {
@@ -247,32 +67,17 @@ impl Default for ReflectionProbeSh2System {
     }
 }
 
-struct Sh2TaskSourceContext<'a> {
-    scene: &'a SceneCoordinator,
-    materials: &'a MaterialSystem,
-    assets: &'a AssetTransferQueue,
-    captures: &'a RuntimeReflectionProbeCaptureStore,
-    render_space_id: i32,
-}
-
 impl ReflectionProbeSh2System {
     /// Creates an empty SH2 system.
     pub fn new() -> Self {
-        let (pipeline_build_tx, pipeline_build_rx) = crossbeam_channel::unbounded();
         Self {
             completed: HashMap::new(),
             readback_jobs: Sh2ReadbackJobs::new(),
             failed: HashSet::new(),
             queued_sources: HashMap::new(),
             queue_order: VecDeque::new(),
-            cubemap_pipeline: None,
-            equirect_pipeline: None,
-            sky_params_pipeline: None,
+            pipeline_cache: ProjectionPipelineCache::new(),
             touched_this_pass: HashSet::new(),
-            pipeline_build_rx,
-            pipeline_build_tx,
-            pending_pipeline_builds: HashSet::new(),
-            failed_pipeline_builds: HashSet::new(),
         }
     }
 
@@ -353,7 +158,7 @@ impl ReflectionProbeSh2System {
             logger::warn!("reflection_probe_sh2: GPU SH2 readback failed for {key:?}: {reason:?}");
             self.failed.insert(key);
         }
-        self.drain_completed_pipeline_builds();
+        self.pipeline_cache.drain_completed_builds();
         self.schedule_queued_sources(gpu, assets);
         self.prune_completed_cache_if_needed();
     }
@@ -361,14 +166,7 @@ impl ReflectionProbeSh2System {
     /// Starts background builds for all SH2 projection pipelines before the first probe asks for them.
     pub fn pre_warm_projection_pipelines(&mut self, device: &Arc<wgpu::Device>) {
         profiling::scope!("reflection_probe_sh2::pre_warm_projection_pipelines");
-        for kind in ProjectionPipelineKind::ALL {
-            if let Err(e) = self.ensure_projection_pipeline_ready(device, kind) {
-                logger::warn!(
-                    "reflection_probe_sh2: projection pipeline pre-warm failed for {}: {e}",
-                    kind.stem()
-                );
-            }
-        }
+        self.pipeline_cache.pre_warm(device);
     }
 
     /// Ensures an SH2 projection exists for a renderer-owned reflection-probe IBL source.
@@ -384,7 +182,7 @@ impl ReflectionProbeSh2System {
         self.ensure_resolved_source(key, source)
     }
 
-    fn ensure_resolved_source(
+    pub(super) fn ensure_resolved_source(
         &mut self,
         key: Sh2SourceKey,
         source: Sh2ResolvedSource,
@@ -407,67 +205,6 @@ impl ReflectionProbeSh2System {
                 None
             }
             Sh2ResolvedSource::Postpone => None,
-        }
-    }
-
-    /// Answers all rows in one shared-memory task descriptor.
-    fn answer_task_buffer(
-        &mut self,
-        shm: &mut SharedMemoryAccessor,
-        source_ctx: Sh2TaskSourceContext<'_>,
-        tasks: &ReflectionProbeSH2Tasks,
-    ) {
-        profiling::scope!("reflection_probe_sh2::answer_task_buffer");
-        if tasks.tasks.length <= 0 {
-            return;
-        }
-
-        let ok = shm.access_mut_bytes(&tasks.tasks, |bytes| {
-            profiling::scope!("reflection_probe_sh2::task_buffer_scan");
-            let mut offset = 0usize;
-            while offset + task_stride() <= bytes.len() {
-                let Some(task) = read_task_header(bytes, offset) else {
-                    break;
-                };
-                if task.renderable_index < 0 {
-                    break;
-                }
-                let answer = self.answer_for_task(&source_ctx, task);
-                write_task_answer(bytes, offset, answer);
-                offset += task_stride();
-            }
-            debug_assert_no_scheduled_rows(bytes);
-        });
-
-        if !ok {
-            logger::warn!(
-                "reflection_probe_sh2: could not write SH2 task results (shared memory buffer)"
-            );
-        }
-    }
-
-    /// Resolves one host task into an immediate answer.
-    fn answer_for_task(
-        &mut self,
-        source_ctx: &Sh2TaskSourceContext<'_>,
-        task: TaskHeader,
-    ) -> TaskAnswer {
-        let Some((key, source)) = resolve_task_source(
-            source_ctx.scene,
-            source_ctx.materials,
-            source_ctx.assets,
-            source_ctx.captures,
-            source_ctx.render_space_id,
-            task,
-        ) else {
-            return TaskAnswer::status(ComputeResult::Failed);
-        };
-
-        let key_failed = self.failed.contains(&key);
-        match self.ensure_resolved_source(key, source) {
-            Some(sh) => TaskAnswer::computed(sh),
-            None if key_failed => TaskAnswer::status(ComputeResult::Failed),
-            None => TaskAnswer::status(ComputeResult::Postpone),
         }
     }
 
@@ -499,283 +236,6 @@ impl ReflectionProbeSh2System {
             logger::debug!("reflection_probe_sh2: pruned {removed} completed SH2 cache entries");
         }
     }
-
-    /// Schedules queued sources until the in-flight cap is reached.
-    fn schedule_queued_sources(&mut self, gpu: &mut GpuContext, assets: &AssetTransferQueue) {
-        profiling::scope!("reflection_probe_sh2::schedule_queued_sources");
-        let attempts = self.queue_order.len();
-        for _ in 0..attempts {
-            if self.readback_jobs.len() >= MAX_IN_FLIGHT_JOBS {
-                break;
-            }
-            let Some(key) = self.queue_order.pop_front() else {
-                break;
-            };
-            let Some(source) = self.queued_sources.remove(&key) else {
-                continue;
-            };
-            if self.completed.contains_key(&key)
-                || self.readback_jobs.contains_key(&key)
-                || self.failed.contains(&key)
-            {
-                continue;
-            }
-            match self.schedule_source(gpu, assets, key.clone(), source) {
-                Ok(ScheduleSourceOutcome::Submitted(job)) => {
-                    self.readback_jobs.insert(key, job);
-                }
-                Ok(ScheduleSourceOutcome::RetryLater(source)) => {
-                    self.queue_order.push_back(key.clone());
-                    self.queued_sources.insert(key, source);
-                }
-                Err(e) => {
-                    logger::warn!("reflection_probe_sh2: GPU SH2 schedule failed: {e}");
-                    self.failed.insert(key);
-                }
-            }
-        }
-    }
-
-    /// Encodes and submits one source projection.
-    fn schedule_source(
-        &mut self,
-        gpu: &mut GpuContext,
-        assets: &AssetTransferQueue,
-        key: Sh2SourceKey,
-        source: GpuSh2Source,
-    ) -> Result<ScheduleSourceOutcome, String> {
-        profiling::scope!("reflection_probe_sh2::schedule_source");
-        let pipeline_kind = projection_pipeline_kind(&source);
-        if !self.ensure_projection_pipeline_ready(gpu.device(), pipeline_kind)? {
-            return Ok(ScheduleSourceOutcome::RetryLater(source));
-        }
-        let pipeline = self.projection_pipeline(pipeline_kind).ok_or_else(|| {
-            format!(
-                "projection pipeline {} missing after build",
-                pipeline_kind.stem()
-            )
-        })?;
-        match source {
-            GpuSh2Source::Cubemap {
-                asset_id,
-                storage_v_inverted,
-            } => self
-                .schedule_cubemap_source(gpu, assets, key, asset_id, storage_v_inverted, pipeline)
-                .map(ScheduleSourceOutcome::Submitted),
-            GpuSh2Source::EquirectTexture2D { asset_id, params } => self
-                .schedule_equirect_source(gpu, assets, key, asset_id, params.as_ref(), pipeline)
-                .map(ScheduleSourceOutcome::Submitted),
-            GpuSh2Source::SkyParams { params } => self
-                .schedule_sky_params_source(gpu, key, params.as_ref(), pipeline)
-                .map(ScheduleSourceOutcome::Submitted),
-            GpuSh2Source::RuntimeCubemap { texture, view } => self
-                .schedule_runtime_cubemap_source(gpu, key, texture, view, pipeline)
-                .map(ScheduleSourceOutcome::Submitted),
-        }
-    }
-
-    fn schedule_cubemap_source(
-        &self,
-        gpu: &mut GpuContext,
-        assets: &AssetTransferQueue,
-        key: Sh2SourceKey,
-        asset_id: i32,
-        storage_v_inverted: bool,
-        pipeline: &ProjectionPipeline,
-    ) -> Result<SubmittedGpuSh2Job, String> {
-        profiling::scope!("reflection_probe_sh2::schedule_cubemap");
-        let tex = assets
-            .cubemap_pool()
-            .get(asset_id)
-            .filter(|t| t.mip_levels_resident > 0)
-            .ok_or_else(|| format!("cubemap {asset_id} not resident"))?;
-        let sampler = sh2_cubemap_sampler(gpu.device(), "SH2 cubemap sampler");
-        let view = tex.view.clone();
-        let submit_done_tx = self.readback_jobs.submit_done_sender();
-        let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
-        params.scalars[0] = storage_v_inverted_flag(storage_v_inverted);
-        encode_projection_job(
-            gpu,
-            key,
-            pipeline,
-            &[
-                ProjectionBinding::TextureView(view.as_ref()),
-                ProjectionBinding::Sampler(&sampler),
-            ],
-            &params,
-            &submit_done_tx,
-            "reflection_probe_sh2::project_cubemap",
-        )
-    }
-
-    fn schedule_equirect_source(
-        &self,
-        gpu: &mut GpuContext,
-        assets: &AssetTransferQueue,
-        key: Sh2SourceKey,
-        asset_id: i32,
-        params: &Sh2ProjectParams,
-        pipeline: &ProjectionPipeline,
-    ) -> Result<SubmittedGpuSh2Job, String> {
-        profiling::scope!("reflection_probe_sh2::schedule_equirect");
-        let tex = assets
-            .texture_pool()
-            .get(asset_id)
-            .filter(|t| t.mip_levels_resident > 0)
-            .ok_or_else(|| format!("texture2d {asset_id} not resident"))?;
-        let sampler = gpu.device().create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("SH2 equirect sampler"),
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
-        let view = tex.view.clone();
-        let submit_done_tx = self.readback_jobs.submit_done_sender();
-        encode_projection_job(
-            gpu,
-            key,
-            pipeline,
-            &[
-                ProjectionBinding::TextureView(view.as_ref()),
-                ProjectionBinding::Sampler(&sampler),
-            ],
-            params,
-            &submit_done_tx,
-            "reflection_probe_sh2::project_equirect",
-        )
-    }
-
-    fn schedule_sky_params_source(
-        &self,
-        gpu: &mut GpuContext,
-        key: Sh2SourceKey,
-        params: &Sh2ProjectParams,
-        pipeline: &ProjectionPipeline,
-    ) -> Result<SubmittedGpuSh2Job, String> {
-        profiling::scope!("reflection_probe_sh2::schedule_sky_params");
-        let submit_done_tx = self.readback_jobs.submit_done_sender();
-        encode_projection_job(
-            gpu,
-            key,
-            pipeline,
-            &[],
-            params,
-            &submit_done_tx,
-            "reflection_probe_sh2::project_sky_params",
-        )
-    }
-
-    fn schedule_runtime_cubemap_source(
-        &self,
-        gpu: &mut GpuContext,
-        key: Sh2SourceKey,
-        texture: Arc<wgpu::Texture>,
-        view: Arc<wgpu::TextureView>,
-        pipeline: &ProjectionPipeline,
-    ) -> Result<SubmittedGpuSh2Job, String> {
-        profiling::scope!("reflection_probe_sh2::schedule_runtime_cubemap");
-        let sampler = sh2_cubemap_sampler(gpu.device(), "SH2 runtime cubemap sampler");
-        let submit_done_tx = self.readback_jobs.submit_done_sender();
-        let mut job = encode_projection_job(
-            gpu,
-            key,
-            pipeline,
-            &[
-                ProjectionBinding::TextureView(view.as_ref()),
-                ProjectionBinding::Sampler(&sampler),
-            ],
-            &Sh2ProjectParams::empty(SkyParamMode::Procedural),
-            &submit_done_tx,
-            "reflection_probe_sh2::project_runtime_cubemap",
-        )?;
-        job.textures.push(texture);
-        job.source_views.push(view);
-        Ok(job)
-    }
-
-    fn drain_completed_pipeline_builds(&mut self) {
-        while let Ok(outcome) = self.pipeline_build_rx.try_recv() {
-            self.pending_pipeline_builds.remove(&outcome.kind);
-            match outcome.result {
-                Ok(pipeline) => {
-                    *self.projection_pipeline_slot_mut(outcome.kind) = Some(pipeline);
-                }
-                Err(e) => {
-                    logger::warn!(
-                        "reflection_probe_sh2: projection pipeline build failed for {}: {e}",
-                        outcome.kind.stem()
-                    );
-                    self.failed_pipeline_builds.insert(outcome.kind);
-                }
-            }
-        }
-    }
-
-    fn ensure_projection_pipeline_ready(
-        &mut self,
-        device: &Arc<wgpu::Device>,
-        kind: ProjectionPipelineKind,
-    ) -> Result<bool, String> {
-        if self.projection_pipeline(kind).is_some() {
-            return Ok(true);
-        }
-        if self.failed_pipeline_builds.contains(&kind) {
-            return Err(format!(
-                "projection pipeline {} previously failed to build",
-                kind.stem()
-            ));
-        }
-        if self.pending_pipeline_builds.contains(&kind) {
-            return Ok(false);
-        }
-        spawn_projection_pipeline_build(kind, device.clone(), self.pipeline_build_tx.clone())?;
-        self.pending_pipeline_builds.insert(kind);
-        Ok(false)
-    }
-
-    fn projection_pipeline(&self, kind: ProjectionPipelineKind) -> Option<&ProjectionPipeline> {
-        match kind {
-            ProjectionPipelineKind::Cubemap => self.cubemap_pipeline.as_ref(),
-            ProjectionPipelineKind::Equirect => self.equirect_pipeline.as_ref(),
-            ProjectionPipelineKind::SkyParams => self.sky_params_pipeline.as_ref(),
-        }
-    }
-
-    fn projection_pipeline_slot_mut(
-        &mut self,
-        kind: ProjectionPipelineKind,
-    ) -> &mut Option<ProjectionPipeline> {
-        match kind {
-            ProjectionPipelineKind::Cubemap => &mut self.cubemap_pipeline,
-            ProjectionPipelineKind::Equirect => &mut self.equirect_pipeline,
-            ProjectionPipelineKind::SkyParams => &mut self.sky_params_pipeline,
-        }
-    }
-}
-
-fn projection_pipeline_kind(source: &GpuSh2Source) -> ProjectionPipelineKind {
-    match source {
-        GpuSh2Source::Cubemap { .. } => ProjectionPipelineKind::Cubemap,
-        GpuSh2Source::EquirectTexture2D { .. } => ProjectionPipelineKind::Equirect,
-        GpuSh2Source::SkyParams { .. } => ProjectionPipelineKind::SkyParams,
-        GpuSh2Source::RuntimeCubemap { .. } => ProjectionPipelineKind::Cubemap,
-    }
-}
-
-fn sh2_cubemap_sampler(device: &wgpu::Device, label: &'static str) -> wgpu::Sampler {
-    device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some(label),
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-        ..Default::default()
-    })
 }
 
 fn sh2_source_from_ibl_source(
@@ -799,25 +259,27 @@ fn sh2_source_from_ibl_source(
                 }),
             )
         }
-        SkyboxIblSource::Cubemap(src) => (
-            Sh2SourceKey::Cubemap {
-                render_space_id,
+        SkyboxIblSource::Cubemap(src) => {
+            let identity = CubemapSourceMaterialIdentity {
                 material_asset_id: src.material_asset_id,
                 material_generation: src.material_generation,
                 route_hash: src.route_hash,
-                asset_id: src.asset_id,
+            };
+            let residency = CubemapResidency {
                 allocation_generation: src.allocation_generation,
                 size: src.face_size,
                 resident_mips: src.mip_levels_resident,
                 content_generation: src.content_generation,
                 storage_v_inverted: src.storage_v_inverted,
-                sample_size: DEFAULT_SAMPLE_SIZE,
-            },
-            Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
-                asset_id: src.asset_id,
-                storage_v_inverted: src.storage_v_inverted,
-            }),
-        ),
+            };
+            (
+                Sh2SourceKey::cubemap(render_space_id, identity, src.asset_id, residency),
+                Sh2ResolvedSource::Gpu(GpuSh2Source::Cubemap {
+                    asset_id: src.asset_id,
+                    storage_v_inverted: src.storage_v_inverted,
+                }),
+            )
+        }
         SkyboxIblSource::Equirect(src) => {
             let mut params = Sh2ProjectParams::empty(SkyParamMode::Procedural);
             params.color0 = src.equirect_fov;
@@ -870,13 +332,3 @@ fn sh2_source_from_ibl_source(
         ),
     }
 }
-
-fn sh2_key_matches_closed_spaces(
-    key: &Sh2SourceKey,
-    spaces: &HashSet<crate::scene::RenderSpaceId>,
-) -> bool {
-    spaces.contains(&crate::scene::RenderSpaceId(key.render_space_id()))
-}
-
-#[cfg(test)]
-mod tests;
