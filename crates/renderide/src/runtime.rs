@@ -75,6 +75,7 @@
 mod accessors;
 mod asset_integration;
 mod debug_hud_frame;
+pub mod display;
 mod frame;
 mod gpu_services;
 mod ipc;
@@ -95,6 +96,7 @@ use crate::frontend::RendererFrontend;
 use crate::render_graph::GraphExecuteError;
 use crate::scene::SceneCoordinator;
 
+use self::display::DisplayBlitResources;
 use state::{
     RuntimeConfigState, RuntimeDiagnosticsState, RuntimeIpcState, RuntimeTickState, RuntimeXrStats,
 };
@@ -132,6 +134,8 @@ pub struct RendererRuntime {
     tick_state: RuntimeTickState,
     /// Cumulative recoverable OpenXR failure counts.
     xr_stats: RuntimeXrStats,
+    /// Lazy GPU resources for the host `BlitToDisplay` desktop pass; created on first use.
+    display_blit: DisplayBlitResources,
 }
 
 impl RendererRuntime {
@@ -151,7 +155,16 @@ impl RendererRuntime {
             ipc_state: RuntimeIpcState::new(),
             tick_state: RuntimeTickState::new(),
             xr_stats: RuntimeXrStats::default(),
+            display_blit: DisplayBlitResources::new(),
         }
+    }
+
+    /// Disjoint mutable access to the display-blit cache and render backend so callers can run
+    /// the desktop-blit pass with the HUD overlay callback against the backend without aliasing.
+    pub fn display_blit_and_backend_mut(
+        &mut self,
+    ) -> (&mut DisplayBlitResources, &mut RenderBackend) {
+        (&mut self.display_blit, &mut self.backend)
     }
 }
 
