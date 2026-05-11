@@ -377,6 +377,43 @@ mod renderer_command_roundtrip_tests {
     }
 
     #[test]
+    fn reliable_background_outbox_empty_mark_sent_is_noop() {
+        let mut outbox = ReliableBackgroundOutbox::default();
+
+        outbox.mark_front_sent();
+
+        assert!(outbox.is_empty());
+        assert_eq!(outbox.len(), 0);
+        assert_eq!(outbox.pending_bytes(), 0);
+        assert_eq!(outbox.front(), None);
+    }
+
+    #[test]
+    fn reliable_background_outbox_counts_zero_length_payloads_as_messages() {
+        let mut outbox = ReliableBackgroundOutbox::default();
+
+        outbox.enqueue(Vec::new());
+        outbox.enqueue(vec![1]);
+
+        assert_eq!(outbox.len(), 2);
+        assert_eq!(outbox.pending_bytes(), 1);
+        assert_eq!(outbox.front(), Some(&[][..]));
+        outbox.mark_front_sent();
+        assert_eq!(outbox.front(), Some(&[1][..]));
+        assert_eq!(outbox.pending_bytes(), 1);
+    }
+
+    #[test]
+    fn encode_command_reports_zero_when_output_buffer_is_too_small() {
+        let mut cmd = RendererCommand::FrameSubmitData(FrameSubmitData::default());
+        let mut tiny = [0u8; 1];
+
+        let written = encode_command(&mut cmd, &mut tiny, ENCODE_OVERFLOW_LOG_PREFIX);
+
+        assert_eq!(written, 0);
+    }
+
+    #[test]
     fn roundtrip_keep_alive() {
         assert_roundtrip(RendererCommand::KeepAlive(KeepAlive {}));
     }

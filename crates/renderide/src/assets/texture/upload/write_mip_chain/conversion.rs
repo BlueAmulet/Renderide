@@ -225,6 +225,20 @@ mod tests {
     }
 
     #[test]
+    fn downsample_rejects_zero_sized_mips() {
+        let err = downsample_rgba8_box(&[0u8; 4], 1, 1, 0, 1).expect_err("zero dst width");
+
+        assert!(err.to_string().contains("zero-sized RGBA8 mip"));
+    }
+
+    #[test]
+    fn downsample_rejects_source_length_mismatch() {
+        let err = downsample_rgba8_box(&[0u8; 15], 2, 2, 1, 1).expect_err("short source");
+
+        assert!(err.to_string().contains("RGBA8 mip len 15 != expected 16"));
+    }
+
+    #[test]
     fn downsample_2x2_matches_reference() {
         let sw = 8usize;
         let sh = 8usize;
@@ -237,6 +251,14 @@ mod tests {
             .expect("downsample");
         let expected = reference_downsample(&src, sw, sh, dw, dh);
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn downsample_single_pixel_to_single_pixel_is_identity() {
+        let src = [7u8, 9, 11, 13];
+        let actual = downsample_rgba8_box(&src, 1, 1, 1, 1).expect("downsample");
+
+        assert_eq!(actual, src);
     }
 
     #[test]
@@ -253,6 +275,29 @@ mod tests {
             .expect("downsample");
         let expected = reference_downsample(&src, sw, sh, dw, dh);
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn downsample_general_3x3_to_1x1_averages_all_source_pixels() {
+        let mut src = Vec::new();
+        for i in 0..9u8 {
+            src.extend_from_slice(&[i, i.saturating_mul(2), 10, 255]);
+        }
+
+        let actual = downsample_rgba8_box(&src, 3, 3, 1, 1).expect("downsample");
+
+        assert_eq!(actual, vec![4, 8, 10, 255]);
+    }
+
+    #[test]
+    fn load_and_store_rgba8_lanes_roundtrip_channel_order() {
+        let src = [1u8, 2, 3, 4, 9, 9, 9, 9];
+        let lanes = load_rgba8_lanes(&src, 0);
+        let mut dst = [0u8; 4];
+
+        store_rgba8_lanes(&mut dst, 0, lanes);
+
+        assert_eq!(dst, [1, 2, 3, 4]);
     }
 
     #[test]

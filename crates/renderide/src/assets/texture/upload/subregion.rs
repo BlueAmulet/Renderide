@@ -286,9 +286,14 @@ pub(super) fn try_write_texture2d_subregion(
 
 #[cfg(test)]
 mod tests {
-    use crate::shared::TextureUploadHint;
+    use glam::IVec2;
 
-    use super::{MipSubrectCopy, hint_region_is_empty, pack_subrect_tight};
+    use crate::shared::{SetTexture2DData, SetTexture2DFormat, TextureFormat, TextureUploadHint};
+
+    use super::{
+        MipSubrectCopy, hint_region_is_empty, pack_subrect_tight, subregion_rect_from_hint,
+        subregion_resolve_mip0_slice,
+    };
 
     #[test]
     fn hint_region_empty_matches_shared_semantics() {
@@ -301,7 +306,11 @@ mod tests {
         h.region_data.width = 10;
         h.region_data.height = 0;
         assert!(hint_region_is_empty(&h));
+        h.region_data.width = 0;
         h.region_data.height = 10;
+        assert!(hint_region_is_empty(&h));
+        h.region_data.height = 10;
+        h.region_data.width = 10;
         assert!(!hint_region_is_empty(&h));
     }
 
@@ -330,6 +339,80 @@ mod tests {
         .unwrap();
         assert_eq!(out.len(), 16);
         assert!(out.iter().all(|&b| b == 1));
+    }
+
+    #[test]
+    fn pack_subrect_tight_extracts_offset_rectangle() {
+        let mut v = vec![0u8; 4 * 3 * 4];
+        for y in 0..3 {
+            for x in 0..4 {
+                let i = (y * 4 + x) * 4;
+                v[i..i + 4].copy_from_slice(&[x as u8, y as u8, 0, 255]);
+            }
+        }
+
+        let out = pack_subrect_tight(
+            &v,
+            &MipSubrectCopy {
+                full_width: 4,
+                full_height: 3,
+                bpp: 4,
+                x: 1,
+                y: 1,
+                w: 2,
+                h: 2,
+            },
+            false,
+        )
+        .expect("pack subrect");
+
+        assert_eq!(
+            out,
+            vec![1, 1, 0, 255, 2, 1, 0, 255, 1, 2, 0, 255, 2, 2, 0, 255]
+        );
+    }
+
+    #[test]
+    fn pack_subrect_tight_rejects_rows_outside_source_extent() {
+        let err = pack_subrect_tight(
+            &[0u8; 4 * 4],
+            &MipSubrectCopy {
+                full_width: 2,
+                full_height: 1,
+                bpp: 4,
+                x: 0,
+                y: 1,
+                w: 1,
+                h: 1,
+            },
+            false,
+        )
+        .expect_err("row outside extent");
+
+        assert!(err.to_string().contains("subrect row out of bounds"));
+    }
+
+    #[test]
+    fn pack_subrect_tight_rejects_rows_past_buffer_len() {
+        let err = pack_subrect_tight(
+            &[0u8; 7],
+            &MipSubrectCopy {
+                full_width: 2,
+                full_height: 1,
+                bpp: 4,
+                x: 0,
+                y: 0,
+                w: 2,
+                h: 1,
+            },
+            false,
+        )
+        .expect_err("short source buffer");
+
+        assert!(
+            err.to_string()
+                .contains("subrect row extends past mip buffer")
+        );
     }
 
     #[test]
@@ -372,5 +455,78 @@ mod tests {
         for byte in &out[16..32] {
             assert_eq!(*byte, 0xCC);
         }
+    }
+
+    #[test]
+    fn subregion_rect_from_hint_clamps_negative_origin_and_rejects_empty_size() {
+        let mut hint = TextureUploadHint::default();
+        hint.region_data.x = -7;
+        hint.region_data.y = -3;
+        hint.region_data.width = 2;
+        hint.region_data.height = 3;
+        assert_eq!(
+            subregion_rect_from_hint(&hint, 4, 4).expect("clamped rect"),
+            (0, 0, 2, 3)
+        );
+
+        hint.region_data.width = 0;
+        let err = subregion_rect_from_hint(&hint, 4, 4).expect_err("empty rect");
+        assert!(err.to_string().contains("region width/height"));
+    }
+
+    #[test]
+    fn subregion_rect_from_hint_rejects_out_of_bounds_regions() {
+        let mut hint = TextureUploadHint::default();
+        hint.region_data.x = 3;
+        hint.region_data.y = 0;
+        hint.region_data.width = 2;
+        hint.region_data.height = 1;
+
+        let err = subregion_rect_from_hint(&hint, 4, 4).expect_err("out of bounds");
+
+        assert!(err.to_string().contains("out of bounds"));
+    }
+
+    #[test]
+    fn subregion_resolve_mip0_slice_supports_descriptor_offset_rebase() {
+        let fmt = SetTexture2DFormat {
+            format: TextureFormat::RGBA32,
+            ..Default::default()
+        };
+        let mut upload = SetTexture2DData::default();
+        upload.data.offset = 128;
+        upload.data.length = 16;
+        upload.mip_map_sizes = vec![IVec2::new(2, 2)];
+        upload.mip_starts = vec![128];
+        let payload: Vec<u8> = (0u8..16).collect();
+
+        let (w, h, mip) = subregion_resolve_mip0_slice(&fmt, &upload, &payload).expect("mip0");
+
+        assert_eq!((w, h), (2, 2));
+        assert_eq!(mip, payload.as_slice());
+    }
+
+    #[test]
+    fn subregion_resolve_mip0_slice_rejects_bad_dimensions_and_negative_start() {
+        let fmt = SetTexture2DFormat {
+            format: TextureFormat::RGBA32,
+            ..Default::default()
+        };
+        let mut upload = SetTexture2DData::default();
+        upload.data.length = 16;
+        upload.mip_map_sizes = vec![IVec2::new(0, 2)];
+        upload.mip_starts = vec![0];
+        let err = subregion_resolve_mip0_slice(&fmt, &upload, &[0u8; 16])
+            .expect_err("non-positive dimensions");
+        assert!(err.to_string().contains("non-positive mip dimensions"));
+
+        upload.mip_map_sizes = vec![IVec2::new(2, 2)];
+        upload.mip_starts = vec![-1];
+        let err =
+            subregion_resolve_mip0_slice(&fmt, &upload, &[0u8; 16]).expect_err("negative start");
+        assert!(
+            err.to_string()
+                .contains("mip region exceeds shared memory descriptor")
+        );
     }
 }

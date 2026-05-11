@@ -170,6 +170,7 @@ impl Default for RenderWorld {
 mod tests {
     use super::*;
     use crate::scene::SceneCacheFlushReport;
+    use crate::shared::RenderTransform;
 
     #[test]
     fn apply_report_marks_changed_spaces_dirty() {
@@ -217,5 +218,75 @@ mod tests {
         });
 
         assert!(world.dirty_spaces.contains(&RenderSpaceId(9)));
+    }
+
+    #[test]
+    fn removed_space_wins_over_changed_space_in_apply_report() {
+        let mut world = RenderWorld::default();
+        world
+            .spaces
+            .insert(RenderSpaceId(5), RenderWorldSpace::default());
+
+        world.note_scene_apply_report(&SceneApplyReport {
+            frame_index: 9,
+            submitted_spaces: vec![RenderSpaceId(5)],
+            changed_spaces: vec![RenderSpaceId(5)],
+            removed_spaces: vec![RenderSpaceId(5)],
+        });
+
+        assert!(!world.spaces.contains_key(&RenderSpaceId(5)));
+        assert!(!world.dirty_spaces.contains(&RenderSpaceId(5)));
+        assert!(world.full_rebuild_requested);
+    }
+
+    #[test]
+    fn mark_all_scene_spaces_dirty_retain_only_existing_scene_spaces() {
+        let mut scene = SceneCoordinator::new();
+        let keep = RenderSpaceId(10);
+        scene.test_seed_space_identity_worlds(keep, vec![RenderTransform::default()], vec![-1]);
+        let mut world = RenderWorld::default();
+        world.spaces.insert(keep, RenderWorldSpace::default());
+        world
+            .spaces
+            .insert(RenderSpaceId(11), RenderWorldSpace::default());
+
+        world.mark_all_scene_spaces_dirty(&scene);
+
+        assert!(world.spaces.contains_key(&keep));
+        assert!(!world.spaces.contains_key(&RenderSpaceId(11)));
+        assert!(world.dirty_spaces.contains(&keep));
+    }
+
+    #[test]
+    fn rebuild_prepared_snapshot_skips_inactive_cached_spaces() {
+        let mut scene = SceneCoordinator::new();
+        let active = RenderSpaceId(20);
+        let inactive = RenderSpaceId(21);
+        scene.test_seed_space_identity_worlds(active, vec![RenderTransform::default()], vec![-1]);
+        scene.test_seed_space_identity_worlds(inactive, vec![RenderTransform::default()], vec![-1]);
+        let mut world = RenderWorld::default();
+        world.spaces.insert(
+            active,
+            RenderWorldSpace {
+                active: true,
+                draws: Vec::new(),
+            },
+        );
+        world.spaces.insert(
+            inactive,
+            RenderWorldSpace {
+                active: false,
+                draws: Vec::new(),
+            },
+        );
+
+        world.rebuild_prepared_snapshot(&scene, RenderingContext::RenderToAsset);
+
+        assert_eq!(
+            world.prepared.render_context(),
+            RenderingContext::RenderToAsset
+        );
+        assert_eq!(world.prepared.active_space_ids, vec![active]);
+        assert!(world.prepared.draws.is_empty());
     }
 }

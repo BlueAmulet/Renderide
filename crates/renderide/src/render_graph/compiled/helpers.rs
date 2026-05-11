@@ -568,6 +568,25 @@ mod tests {
     }
 
     #[test]
+    fn backbuffer_extent_resolves_to_viewport_or_multilayer_viewport() {
+        assert_eq!(
+            resolve_transient_extent(TransientExtent::Backbuffer, (0, 0), 1),
+            TransientExtent::Custom {
+                width: 1,
+                height: 1,
+            }
+        );
+        assert_eq!(
+            resolve_transient_extent(TransientExtent::Backbuffer, (1280, 720), 2),
+            TransientExtent::MultiLayer {
+                width: 1280,
+                height: 720,
+                layers: 2,
+            }
+        );
+    }
+
+    #[test]
     fn backbuffer_scaled_mip_preserves_lower_configured_dimension() {
         assert_eq!(
             resolve_transient_extent(
@@ -583,6 +602,21 @@ mod tests {
                 height: 512,
             }
         );
+    }
+
+    #[test]
+    fn power_of_two_at_or_below_handles_zero_and_non_powers() {
+        assert_eq!(power_of_two_at_or_below(0), 1);
+        assert_eq!(power_of_two_at_or_below(1), 1);
+        assert_eq!(power_of_two_at_or_below(3), 2);
+        assert_eq!(power_of_two_at_or_below(1025), 1024);
+    }
+
+    #[test]
+    fn mip_axis_extent_clamps_high_mips_to_one() {
+        assert_eq!(mip_axis_extent(64, 0), 64);
+        assert_eq!(mip_axis_extent(64, 3), 8);
+        assert_eq!(mip_axis_extent(64, 32), 1);
     }
 
     #[test]
@@ -681,6 +715,22 @@ mod tests {
     }
 
     #[test]
+    fn transient_mip_count_never_returns_zero() {
+        assert_eq!(
+            clamp_mip_levels_for_transient_extent(
+                0,
+                TransientExtent::Custom {
+                    width: 16,
+                    height: 16,
+                },
+                wgpu::TextureDimension::D2,
+                1,
+            ),
+            1
+        );
+    }
+
+    #[test]
     fn transient_mip_count_uses_array_layers_only_for_3d_textures() {
         let extent = TransientExtent::MultiLayer {
             width: 4,
@@ -694,6 +744,85 @@ mod tests {
         assert_eq!(
             clamp_mip_levels_for_transient_extent(8, extent, wgpu::TextureDimension::D3, 16),
             5
+        );
+    }
+
+    #[test]
+    fn clamp_viewport_for_transient_alloc_applies_minimum_and_device_limit() {
+        assert_eq!(clamp_viewport_for_transient_alloc((0, 0), 1024), (1, 1));
+        assert_eq!(
+            clamp_viewport_for_transient_alloc((2048, 512), 1024),
+            (1024, 512)
+        );
+    }
+
+    #[test]
+    fn resolve_buffer_size_keeps_fixed_buffers_nonzero() {
+        assert_eq!(
+            resolve_buffer_size(BufferSizePolicy::Fixed(0), (1920, 1080)),
+            1
+        );
+        assert_eq!(
+            resolve_buffer_size(BufferSizePolicy::Fixed(4096), (1920, 1080)),
+            4096
+        );
+    }
+
+    #[test]
+    fn attachment_target_selects_single_or_multisampled_resource() {
+        let single = TextureResourceHandle::Transient(TextureHandle(1));
+        let multi = TextureResourceHandle::Transient(TextureHandle(2));
+        let imported = TextureResourceHandle::Imported(
+            crate::render_graph::resources::ImportedTextureHandle(3),
+        );
+
+        assert_eq!(
+            resolve_attachment_target(TextureAttachmentTarget::Resource(imported), 8),
+            imported
+        );
+        assert_eq!(
+            resolve_attachment_target(
+                TextureAttachmentTarget::FrameSampled {
+                    single_sample: single,
+                    multisampled: multi,
+                },
+                1,
+            ),
+            single
+        );
+        assert_eq!(
+            resolve_attachment_target(
+                TextureAttachmentTarget::FrameSampled {
+                    single_sample: single,
+                    multisampled: multi,
+                },
+                4,
+            ),
+            multi
+        );
+    }
+
+    #[test]
+    fn attachment_resolve_target_is_sample_count_aware() {
+        let target = TextureResourceHandle::Transient(TextureHandle(7));
+
+        assert_eq!(
+            resolve_attachment_resolve_target(TextureAttachmentResolve::Always(target), 1),
+            Some(target)
+        );
+        assert_eq!(
+            resolve_attachment_resolve_target(
+                TextureAttachmentResolve::FrameMultisampled(target),
+                1,
+            ),
+            None
+        );
+        assert_eq!(
+            resolve_attachment_resolve_target(
+                TextureAttachmentResolve::FrameMultisampled(target),
+                2,
+            ),
+            Some(target)
         );
     }
 }

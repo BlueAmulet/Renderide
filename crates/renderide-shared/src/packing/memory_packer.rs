@@ -244,6 +244,33 @@ fn short_type_name<T>() -> &'static str {
 mod tests {
     use super::*;
 
+    #[derive(Clone, Copy)]
+    enum TestEnum {
+        A,
+        B,
+    }
+
+    impl EnumRepr for TestEnum {
+        fn as_i32(self) -> i32 {
+            match self {
+                Self::A => 11,
+                Self::B => 22,
+            }
+        }
+
+        fn from_i32(i: i32) -> Self {
+            if i == 22 { Self::B } else { Self::A }
+        }
+    }
+
+    fn read_i32(bytes: &[u8], offset: usize) -> i32 {
+        i32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("i32 bytes"))
+    }
+
+    fn read_u16(bytes: &[u8], offset: usize) -> u16 {
+        u16::from_le_bytes(bytes[offset..offset + 2].try_into().expect("u16 bytes"))
+    }
+
     #[test]
     fn buffer_overflow_does_not_panic_and_records_error() {
         let mut buf = [0u8; 3];
@@ -287,6 +314,19 @@ mod tests {
     }
 
     #[test]
+    fn compute_length_and_remaining_track_cursor_progress() {
+        let mut backing = vec![0u8; 8];
+        let original = backing.clone();
+        let mut packer = MemoryPacker::new(&mut backing);
+
+        packer.write(&0x1122u16);
+        packer.write_bool(true);
+
+        assert_eq!(packer.compute_length(&original), 3);
+        assert_eq!(packer.remaining_len(), 5);
+    }
+
+    #[test]
     fn into_result_returns_err_after_overflow() {
         let mut backing = vec![0u8; 2];
         let original = backing.clone();
@@ -294,5 +334,111 @@ mod tests {
         packer.write(&0u32);
         let err = packer.into_result(&original).expect_err("should overflow");
         assert!(matches!(err, MemoryPackError::BufferTooSmall { .. }));
+    }
+
+    #[test]
+    fn write_bool_and_packed_bools_use_expected_bit_layout() {
+        let mut backing = [0u8; 3];
+        let mut packer = MemoryPacker::new(&mut backing);
+
+        packer.write_bool(false);
+        packer.write_bool(true);
+        packer.write_packed_bools_array([true, false, true, true, false, false, true, false]);
+
+        assert_eq!(backing, [0, 1, 0b0100_1101]);
+    }
+
+    #[test]
+    fn write_str_encodes_none_and_utf16_code_units() {
+        let mut backing = [0u8; 16];
+        let mut packer = MemoryPacker::new(&mut backing);
+
+        packer.write_str(None);
+        packer.write_str(Some("Az"));
+
+        assert_eq!(read_i32(&backing, 0), -1);
+        assert_eq!(read_i32(&backing, 4), 2);
+        assert_eq!(read_u16(&backing, 8), b'A' as u16);
+        assert_eq!(read_u16(&backing, 10), b'z' as u16);
+    }
+
+    #[test]
+    fn write_option_encodes_presence_byte_before_value() {
+        let mut backing = [0u8; 12];
+        let mut packer = MemoryPacker::new(&mut backing);
+
+        packer.write_option::<u32>(None);
+        packer.write_option(Some(&0x1122_3344u32));
+        let written = packer.compute_length(&[0u8; 12]);
+
+        assert_eq!(backing[0], 0);
+        assert_eq!(backing[1], 1);
+        assert_eq!(
+            u32::from_le_bytes(backing[2..6].try_into().expect("u32 bytes")),
+            0x1122_3344
+        );
+        assert_eq!(written, 6);
+    }
+
+    #[test]
+    fn write_value_list_encodes_count_and_values() {
+        let mut backing = [0u8; 16];
+        let mut packer = MemoryPacker::new(&mut backing);
+
+        packer.write_value_list(Some(&[5u16, 9u16]));
+        packer.write_value_list::<u16>(None);
+
+        assert_eq!(read_i32(&backing, 0), 2);
+        assert_eq!(read_u16(&backing, 4), 5);
+        assert_eq!(read_u16(&backing, 6), 9);
+        assert_eq!(read_i32(&backing, 8), 0);
+    }
+
+    #[test]
+    fn write_nested_value_list_encodes_outer_and_inner_counts() {
+        let nested = vec![vec![1u16, 2u16], vec![3u16]];
+        let mut backing = [0u8; 32];
+        let mut packer = MemoryPacker::new(&mut backing);
+
+        packer.write_nested_value_list(Some(&nested));
+
+        assert_eq!(read_i32(&backing, 0), 2);
+        assert_eq!(read_i32(&backing, 4), 2);
+        assert_eq!(read_u16(&backing, 8), 1);
+        assert_eq!(read_u16(&backing, 10), 2);
+        assert_eq!(read_i32(&backing, 12), 1);
+        assert_eq!(read_u16(&backing, 16), 3);
+    }
+
+    #[test]
+    fn write_enum_value_list_stores_i32_discriminants() {
+        let mut backing = [0u8; 16];
+        let mut packer = MemoryPacker::new(&mut backing);
+
+        packer.write_enum_value_list(Some(&[TestEnum::A, TestEnum::B]));
+
+        assert_eq!(read_i32(&backing, 0), 2);
+        assert_eq!(read_i32(&backing, 4), 11);
+        assert_eq!(read_i32(&backing, 8), 22);
+    }
+
+    #[test]
+    fn write_string_list_encodes_nullable_entries() {
+        let entries = [Some("x"), None];
+        let mut backing = [0u8; 24];
+        let mut packer = MemoryPacker::new(&mut backing);
+
+        packer.write_string_list(Some(&entries));
+
+        assert_eq!(read_i32(&backing, 0), 2);
+        assert_eq!(read_i32(&backing, 4), 1);
+        assert_eq!(read_u16(&backing, 8), b'x' as u16);
+        assert_eq!(read_i32(&backing, 10), -1);
+    }
+
+    #[test]
+    fn short_type_name_strips_module_prefix() {
+        assert_eq!(short_type_name::<Option<u32>>(), "Option<u32>");
+        assert_eq!(short_type_name::<MemoryPacker<'_>>(), "MemoryPacker<'_>");
     }
 }

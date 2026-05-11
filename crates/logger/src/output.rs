@@ -341,6 +341,7 @@ mod tests {
     use super::*;
     use crate::panic::log_panic_payload;
     use std::fs;
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
     #[test]
     fn global_logger_full_smoke() {
@@ -414,6 +415,19 @@ mod tests {
         assert!(!buf.contains("stale_should_be_overwritten"));
         assert!(buf.contains(" [renderide] INFO fresh_line\n"));
         assert!(buf.starts_with('['));
+    }
+
+    #[test]
+    fn format_log_line_into_preserves_custom_target() {
+        let mut buf = String::new();
+        format_log_line_into(
+            &mut buf,
+            "renderide::asset",
+            LogLevel::Debug,
+            format_args!("loaded"),
+        );
+
+        assert!(buf.contains(" [renderide::asset] DEBUG loaded\n"));
     }
 
     #[test]
@@ -495,5 +509,91 @@ mod tests {
             2,
             "expected embedded + trailing newline: {buf:?}"
         );
+    }
+
+    #[test]
+    fn logger_enabled_filters_naga_debug_when_max_level_is_debug() {
+        let path = std::env::temp_dir().join(format!("logger_enabled_{}.log", std::process::id()));
+        let _ = fs::remove_file(&path);
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .expect("open log file");
+        let logger = Logger {
+            path: path.clone(),
+            file: Mutex::new(file),
+            mirror_stderr: false,
+            mirror_writer: Mutex::new(None),
+            max_level: AtomicU8::new(LogLevel::Debug as u8),
+        };
+        let regular_debug = log::Metadata::builder()
+            .level(log::Level::Debug)
+            .target("renderide")
+            .build();
+        let naga_debug = log::Metadata::builder()
+            .level(log::Level::Debug)
+            .target("naga::front")
+            .build();
+        let naga_info = log::Metadata::builder()
+            .level(log::Level::Info)
+            .target("naga::front")
+            .build();
+
+        assert!(log::Log::enabled(&logger, &regular_debug));
+        assert!(!log::Log::enabled(&logger, &naga_debug));
+        assert!(log::Log::enabled(&logger, &naga_info));
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn write_line_locked_respects_mirror_writer_level_filter() {
+        static MIRRORED: AtomicUsize = AtomicUsize::new(0);
+        fn mirror(bytes: &[u8]) {
+            MIRRORED.fetch_add(bytes.len(), AtomicOrdering::SeqCst);
+        }
+
+        MIRRORED.store(0, AtomicOrdering::SeqCst);
+        let path = std::env::temp_dir().join(format!("logger_mirror_{}.log", std::process::id()));
+        let _ = fs::remove_file(&path);
+        let file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .expect("open log file");
+        let logger = Logger {
+            path: path.clone(),
+            file: Mutex::new(file),
+            mirror_stderr: false,
+            mirror_writer: Mutex::new(Some(MirrorWriter {
+                max_level: LogLevel::Warn,
+                write: mirror,
+            })),
+            max_level: AtomicU8::new(LogLevel::Trace as u8),
+        };
+
+        write_line_locked(&logger, LogLevel::Info, b"info\n");
+        assert_eq!(MIRRORED.load(AtomicOrdering::SeqCst), 0);
+        write_line_locked(&logger, LogLevel::Error, b"error\n");
+        assert_eq!(MIRRORED.load(AtomicOrdering::SeqCst), 6);
+        let contents = fs::read_to_string(&path).expect("read log");
+        assert!(contents.contains("info"));
+        assert!(contents.contains("error"));
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn with_line_buf_uses_fallback_when_thread_local_buffer_is_already_borrowed() {
+        let len = LINE_BUF.with(|cell| {
+            let _borrow = cell.borrow_mut();
+            with_line_buf(|buf| {
+                buf.push_str("fallback");
+                buf.len()
+            })
+        });
+
+        assert_eq!(len, "fallback".len());
     }
 }

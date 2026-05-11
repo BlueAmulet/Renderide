@@ -285,6 +285,81 @@ mod tests {
     }
 
     #[test]
+    fn strip_windows_desktop_non_array_frameworks_is_noop() {
+        let path = std::env::temp_dir().join(format!(
+            "bootstrapper_runtime_cfg_fw_object_{}",
+            std::process::id()
+        ));
+        let before =
+            json!({ "runtimeOptions": { "frameworks": {"name": "Microsoft.WindowsDesktop.App"} } });
+        fs::write(&path, serde_json::to_string_pretty(&before).unwrap()).unwrap();
+
+        strip_windows_desktop_from_runtime_config(&path);
+
+        let after: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(after, before);
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn strip_windows_desktop_retains_framework_entries_without_name() {
+        let path = std::env::temp_dir().join(format!(
+            "bootstrapper_runtime_cfg_missing_name_{}",
+            std::process::id()
+        ));
+        let before = json!({
+            "runtimeOptions": {
+                "frameworks": [
+                    {"version": "8.0.0"},
+                    {"name": "Microsoft.WindowsDesktop.App", "version": "8.0.0"},
+                    {"name": "Microsoft.NETCore.App", "version": "8.0.0"}
+                ]
+            }
+        });
+        fs::write(&path, serde_json::to_string_pretty(&before).unwrap()).unwrap();
+
+        strip_windows_desktop_from_runtime_config(&path);
+
+        let after: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let frameworks = after["runtimeOptions"]["frameworks"].as_array().unwrap();
+        assert_eq!(frameworks.len(), 2);
+        assert!(frameworks.iter().any(|f| f.get("name").is_none()));
+        assert!(frameworks.iter().any(|f| {
+            f.get("name").and_then(|name| name.as_str()) == Some("Microsoft.NETCore.App")
+        }));
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn strip_windows_desktop_removes_all_desktop_framework_entries() {
+        let path = std::env::temp_dir().join(format!(
+            "bootstrapper_runtime_cfg_multi_desktop_{}",
+            std::process::id()
+        ));
+        let before = json!({
+            "runtimeOptions": {
+                "frameworks": [
+                    {"name": "Microsoft.WindowsDesktop.App", "version": "7.0.0"},
+                    {"name": "Microsoft.NETCore.App", "version": "8.0.0"},
+                    {"name": "Microsoft.WindowsDesktop.App", "version": "8.0.0"}
+                ]
+            }
+        });
+        fs::write(&path, serde_json::to_string_pretty(&before).unwrap()).unwrap();
+
+        strip_windows_desktop_from_runtime_config(&path);
+
+        let after: Value = serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+        let frameworks = after["runtimeOptions"]["frameworks"].as_array().unwrap();
+        assert_eq!(frameworks.len(), 1);
+        assert_eq!(
+            frameworks[0]["name"].as_str(),
+            Some("Microsoft.NETCore.App")
+        );
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
     fn strip_windows_desktop_only_desktop_framework_removed() {
         let path = std::env::temp_dir().join(format!(
             "bootstrapper_runtime_cfg_only_desktop_{}",
@@ -332,6 +407,21 @@ mod tests {
         let out = fs::read_to_string(&log_path).expect("read log");
         assert!(out.contains("[P] line one"));
         assert!(out.contains("[P] line two"));
+        let _ = fs::remove_file(&log_path);
+    }
+
+    #[test]
+    fn spawn_output_drainer_trims_line_endings_only() {
+        let log_path = std::env::temp_dir().join(format!(
+            "bootstrapper_drainer_trim_{}.log",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&log_path);
+        spawn_output_drainer(log_path.clone(), Cursor::new(b"  padded  \r\n"), "[P]");
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let out = fs::read_to_string(&log_path).expect("read log");
+        assert!(out.contains("[P]   padded"));
+        assert!(!out.contains('\r'));
         let _ = fs::remove_file(&log_path);
     }
 }

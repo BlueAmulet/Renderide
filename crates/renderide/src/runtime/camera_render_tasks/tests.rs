@@ -57,6 +57,26 @@ fn copy_padded_rows_to_tight_strips_padding() {
 }
 
 #[test]
+fn copy_padded_rows_to_tight_rejects_short_mapping() {
+    let layout = ReadbackLayout {
+        width: 2,
+        height: 2,
+        bytes_per_row_tight: 8,
+        bytes_per_row_padded: 12,
+        buffer_size: 24,
+    };
+    let err = copy_padded_rows_to_tight(&[0u8; 23], &layout).expect_err("short mapping");
+
+    assert!(matches!(
+        err,
+        CameraReadbackError::MappedReadbackTooSmall {
+            required: 24,
+            actual: 23
+        }
+    ));
+}
+
+#[test]
 fn pack_rgba8_preserves_rows_and_converts_formats() {
     let extent = CameraTaskExtent {
         width: 2,
@@ -103,6 +123,32 @@ fn pack_rgba8_preserves_rows_and_converts_formats() {
 }
 
 #[test]
+fn pack_rgba8_rejects_small_source_without_touching_destination() {
+    let extent = CameraTaskExtent {
+        width: 2,
+        height: 1,
+    };
+    let mut dst = [9u8; 8];
+
+    let err = pack_rgba8_to_host_buffer(
+        &[1, 2, 3, 4, 5, 6, 7],
+        extent,
+        CameraTaskOutputFormat::Rgba32,
+        &mut dst,
+    )
+    .expect_err("small rgba source");
+
+    assert!(matches!(
+        err,
+        CameraReadbackError::ResultDescriptorTooSmall {
+            required: 8,
+            actual: 7
+        }
+    ));
+    assert_eq!(dst, [9u8; 8]);
+}
+
+#[test]
 fn pack_rgba8_rejects_small_destination_without_writing_past_end() {
     let extent = CameraTaskExtent {
         width: 2,
@@ -125,6 +171,25 @@ fn pack_rgba8_rejects_small_destination_without_writing_past_end() {
 }
 
 #[test]
+fn task_extent_accepts_positive_dimensions() {
+    let parameters = CameraRenderParameters {
+        resolution: IVec2::new(4096, 2048),
+        ..Default::default()
+    };
+
+    let extent = CameraTaskExtent::from_parameters(&parameters).expect("valid extent");
+
+    assert_eq!(
+        extent,
+        CameraTaskExtent {
+            width: 4096,
+            height: 2048
+        }
+    );
+    assert_eq!(extent.tuple(), (4096, 2048));
+}
+
+#[test]
 fn task_extent_rejects_invalid_dimensions() {
     let parameters = CameraRenderParameters {
         resolution: IVec2::new(-1, 4),
@@ -141,6 +206,75 @@ fn task_extent_rejects_invalid_dimensions() {
 }
 
 #[test]
+fn task_extent_rejects_zero_dimensions() {
+    for resolution in [IVec2::new(0, 4), IVec2::new(4, 0)] {
+        let parameters = CameraRenderParameters {
+            resolution,
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            CameraTaskExtent::from_parameters(&parameters),
+            Err(CameraReadbackError::InvalidExtent { .. })
+        ));
+    }
+}
+
+#[test]
+fn compute_readback_layout_rejects_zero_extent() {
+    let err = compute_readback_layout(
+        wgpu::Extent3d {
+            width: 0,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        4096,
+    )
+    .expect_err("zero width");
+
+    assert!(matches!(
+        err,
+        CameraReadbackError::InvalidExtent {
+            width: 0,
+            height: 1
+        }
+    ));
+}
+
+#[test]
+fn compute_readback_layout_rejects_buffers_above_limit() {
+    let err = compute_readback_layout(
+        wgpu::Extent3d {
+            width: 64,
+            height: 2,
+            depth_or_array_layers: 1,
+        },
+        255,
+    )
+    .expect_err("buffer over limit");
+
+    assert!(matches!(
+        err,
+        CameraReadbackError::ReadbackBufferTooLarge { size, max: 255 }
+            if size > 255
+    ));
+}
+
+#[test]
+fn output_byte_count_detects_overflow() {
+    let err = output_byte_count(
+        CameraTaskExtent {
+            width: u32::MAX,
+            height: u32::MAX,
+        },
+        CameraTaskOutputFormat::Rgba32,
+    )
+    .expect_err("overflow");
+
+    assert!(matches!(err, CameraReadbackError::OutputByteCountOverflow));
+}
+
+#[test]
 fn draw_filter_prefers_only_render_list_over_excludes() {
     let task = CameraRenderTask {
         only_render_list: vec![1, 2],
@@ -152,6 +286,21 @@ fn draw_filter_prefers_only_render_list_over_excludes() {
 
     assert!(filter.only.as_ref().is_some_and(|only| only.contains(&1)));
     assert!(filter.exclude.is_empty());
+}
+
+#[test]
+fn draw_filter_uses_excludes_when_only_list_is_empty() {
+    let task = CameraRenderTask {
+        exclude_render_list: vec![7, 9, 7],
+        ..Default::default()
+    };
+
+    let filter = draw_filter_from_camera_render_task(&task);
+
+    assert!(filter.only.is_none());
+    assert_eq!(filter.exclude.len(), 2);
+    assert!(filter.exclude.contains(&7));
+    assert!(filter.exclude.contains(&9));
 }
 
 #[test]
@@ -176,6 +325,14 @@ fn output_format_accepts_initial_cpu_formats() {
         CameraTaskOutputFormat::from_texture_format(TextureFormat::RGBAHalf),
         None
     );
+}
+
+#[test]
+fn output_format_reports_expected_byte_widths() {
+    assert_eq!(CameraTaskOutputFormat::Argb32.bytes_per_pixel(), 4);
+    assert_eq!(CameraTaskOutputFormat::Rgba32.bytes_per_pixel(), 4);
+    assert_eq!(CameraTaskOutputFormat::Bgra32.bytes_per_pixel(), 4);
+    assert_eq!(CameraTaskOutputFormat::Rgb24.bytes_per_pixel(), 3);
 }
 
 #[test]
@@ -232,4 +389,15 @@ fn camera_render_task_post_processing_policy_matches_host_parameters() {
         enabled_with_ssr_policy,
         ViewPostProcessing::new(true, true, false)
     );
+}
+
+#[test]
+fn zero_bytes_simd_clears_small_and_large_buffers() {
+    let mut small = vec![0xabu8; 32];
+    zero_bytes_simd(&mut small);
+    assert!(small.iter().all(|&byte| byte == 0));
+
+    let mut large = vec![0xcdu8; PAR_FILL_THRESHOLD + 17];
+    zero_bytes_simd(&mut large);
+    assert!(large.iter().all(|&byte| byte == 0));
 }
