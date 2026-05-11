@@ -44,7 +44,7 @@ body:
       description: Attach the renderer log, or paste the relevant section. Include host/bootstrapper logs too if they help. If logs are unavailable, explain why.
       render: text
     validations:
-      required: true
+      required: false
   - type: textarea
     id: media
     attributes:
