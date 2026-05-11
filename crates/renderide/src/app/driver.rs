@@ -18,6 +18,7 @@ use crate::diagnostics::crash_context;
 use crate::frontend::input::{CursorOutputTracking, WindowInputAccumulator};
 use crate::gpu::DisplayBlitResources;
 use crate::runtime::RendererRuntime;
+use crate::xr::OpenxrHaptics;
 
 use self::logging::LogFlushCadence;
 use self::target::RenderTarget;
@@ -53,6 +54,7 @@ pub(crate) struct AppDriver {
     pub(in crate::app::driver) external_shutdown: Option<ExternalShutdownCoordinator>,
     pub(in crate::app::driver) main_heartbeat: Option<crate::diagnostics::Heartbeat>,
     pub(in crate::app::driver) xr_input_cache: XrInputCache,
+    pub(in crate::app::driver) xr_haptics: OpenxrHaptics,
     /// Lazy GPU resources for the host `BlitToDisplay` desktop pass; created on first use.
     pub(in crate::app::driver) display_blit: DisplayBlitResources,
 }
@@ -81,6 +83,7 @@ impl AppDriver {
             external_shutdown,
             main_heartbeat,
             xr_input_cache: XrInputCache::default(),
+            xr_haptics: OpenxrHaptics::default(),
             display_blit: DisplayBlitResources::new(),
         }
     }

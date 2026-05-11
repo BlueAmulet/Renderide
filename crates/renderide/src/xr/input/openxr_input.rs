@@ -262,6 +262,26 @@ impl OpenxrInput {
         }
     }
 
+    /// Applies a haptic vibration event to the hand-specific OpenXR haptic action.
+    pub(in crate::xr::input) fn apply_haptic_feedback(
+        &self,
+        session: &xr::Session<xr::Vulkan>,
+        side: Chirality,
+        duration: xr::Duration,
+        frequency_hz: f32,
+        amplitude: f32,
+    ) -> Result<(), xr::sys::Result> {
+        let action = match side {
+            Chirality::Left => &self.actions.left_haptic,
+            Chirality::Right => &self.actions.right_haptic,
+        };
+        let event = xr::HapticVibration::new()
+            .duration(duration)
+            .frequency(frequency_hz)
+            .amplitude(amplitude);
+        action.apply_feedback(session, xr::Path::NULL, &event)
+    }
+
     /// Syncs actions, samples poses and digital/analog state, and returns left/right [`VRControllerState`] values.
     pub fn sync_and_sample(
         &self,

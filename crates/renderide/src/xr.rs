@@ -32,6 +32,7 @@ pub(crate) mod session;
 mod swapchain;
 
 pub use bootstrap::{XrWgpuHandles, init_wgpu_openxr};
+pub(crate) use input::OpenxrHaptics;
 pub use input::{OpenxrInput, synthesize_hand_states};
 pub use session::{
     XrSessionState, eye_view_from_xr_view_aligned, headset_center_pose_from_stereo_views,
