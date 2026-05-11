@@ -59,7 +59,6 @@
 
 pub(crate) mod blackboard;
 pub(crate) mod builder;
-mod cache;
 pub(crate) mod compiled;
 pub(crate) mod context;
 pub(crate) mod error;
@@ -79,7 +78,7 @@ mod schedule;
 mod swapchain_scope;
 pub(crate) mod upload_arena;
 
-pub(crate) use cache::{GraphCache, GraphCacheKey};
+pub(crate) use compiled::cache::{GraphCache, GraphCacheKey};
 pub(crate) use compiled::{
     ExternalFrameTargets, ExternalOffscreenTargets, FrameView, FrameViewResourceHints,
     FrameViewTarget, OffscreenSampleCountPolicy, ViewPostProcessing,

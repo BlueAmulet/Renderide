@@ -16,7 +16,11 @@
 
 mod chain;
 pub(crate) mod effect;
+mod output;
 mod ping_pong;
+mod signature;
 
-pub use chain::{ChainOutput, PostProcessChain, PostProcessChainSignature};
+pub use chain::PostProcessChain;
 pub use effect::{EffectPasses, PostProcessEffect, PostProcessEffectId};
+pub use output::ChainOutput;
+pub use signature::PostProcessChainSignature;
