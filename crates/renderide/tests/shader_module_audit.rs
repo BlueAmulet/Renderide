@@ -157,36 +157,6 @@ fn unlit_uses_reserved_variant_bits_instead_of_keyword_uniform_fields() -> io::R
     Ok(())
 }
 
-fn all_texture_samples_guarded_by_keyword(src: &str, texture_name: &str, keyword: &str) -> bool {
-    let sample = format!("textureSample({texture_name},");
-    let guard = format!("uvu::kw_enabled(mat.{keyword})");
-    let mut saw_sample = false;
-
-    for (sample_pos, _) in src.match_indices(&sample) {
-        saw_sample = true;
-        let before_sample = &src[..sample_pos];
-        let Some(guard_pos) = before_sample.rfind(&guard) else {
-            return false;
-        };
-        if before_sample[guard_pos..].contains('}') {
-            return false;
-        }
-    }
-
-    saw_sample
-}
-
-fn normal_sampling_guarded_by_keyword(src: &str) -> bool {
-    let Some(call_pos) = src.find("sample_optional_world_normal(") else {
-        return false;
-    };
-    let call = &src[call_pos..];
-    let Some(call_end) = call.find(");") else {
-        return false;
-    };
-    call[..call_end].contains("uvu::kw_enabled(mat._NORMALMAP)")
-}
-
 fn count_font_atlas_lod_bias_samples(src: &str) -> usize {
     src.match_indices("ts::sample_tex_2d(")
         .filter(|(sample_pos, _)| {

@@ -122,6 +122,34 @@ fn depthprojection_uses_reserved_variant_bits() -> io::Result<()> {
     )
 }
 
+#[test]
+fn pixelate_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "pixelate.wgsl",
+        &["RECTCLIP", "RESOLUTION_TEX", "_RectClip"],
+        &[
+            ("PIXELATE_KW_RECTCLIP", 0),
+            ("PIXELATE_KW_RESOLUTION_TEX", 1),
+        ],
+    )
+}
+
+#[test]
+fn pixelate_resolution_tex_sample_is_keyword_gated() -> io::Result<()> {
+    let src = material_source("pixelate.wgsl")?;
+    let kw_position = src.find("kw_RESOLUTION_TEX()").expect(
+        "pixelate.wgsl must reference kw_RESOLUTION_TEX() to gate the _ResolutionTex sample",
+    );
+    let sample_position = src
+        .find("textureSample(_ResolutionTex,")
+        .expect("pixelate.wgsl must sample _ResolutionTex");
+    assert!(
+        kw_position < sample_position,
+        "pixelate.wgsl must guard the _ResolutionTex sample on kw_RESOLUTION_TEX()"
+    );
+    Ok(())
+}
+
 fn is_meaningful_wrapper_line(line: &str) -> bool {
     let trimmed = line.trim();
     !trimmed.is_empty() && !trimmed.starts_with("//")
@@ -153,4 +181,92 @@ fn blur_perobject_is_source_alias_wrapper() -> io::Result<()> {
 #[test]
 fn channelmatrix_perobject_is_source_alias_wrapper() -> io::Result<()> {
     assert_source_alias_wrapper("channelmatrix_perobject.wgsl", "channelmatrix")
+}
+
+#[test]
+fn threshold_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "threshold.wgsl",
+        &["RECTCLIP"],
+        &[("THRESHOLD_KW_RECTCLIP", 0)],
+    )
+}
+
+#[test]
+fn threshold_perobject_is_source_alias_wrapper() -> io::Result<()> {
+    assert_source_alias_wrapper("threshold_perobject.wgsl", "threshold")
+}
+
+#[test]
+fn textunlit_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "textunlit.wgsl",
+        &["_TextMode"],
+        &[
+            ("TEXTUNLIT_KW_MSDF", 0),
+            ("TEXTUNLIT_KW_OUTLINE", 1),
+            ("TEXTUNLIT_KW_RASTER", 2),
+            ("TEXTUNLIT_KW_SDF", 3),
+        ],
+    )
+}
+
+#[test]
+fn textunit_is_source_alias_wrapper() -> io::Result<()> {
+    assert_source_alias_wrapper("textunit.wgsl", "textunlit")
+}
+
+#[test]
+fn ui_textunlit_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "ui_textunlit.wgsl",
+        &["_TextMode", "_RectClip", "_OVERLAY"],
+        &[
+            ("UITEXTUNLIT_KW_MSDF", 0),
+            ("UITEXTUNLIT_KW_OUTLINE", 1),
+            ("UITEXTUNLIT_KW_OVERLAY", 2),
+            ("UITEXTUNLIT_KW_RASTER", 3),
+            ("UITEXTUNLIT_KW_RECTCLIP", 4),
+            ("UITEXTUNLIT_KW_SDF", 5),
+        ],
+    )
+}
+
+#[test]
+fn ui_circlesegment_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "ui_circlesegment.wgsl",
+        &["_RectClip", "_OVERLAY"],
+        &[
+            ("UICIRCLESEGMENT_KW_OVERLAY", 0),
+            ("UICIRCLESEGMENT_KW_RECTCLIP", 1),
+        ],
+    )
+}
+
+#[test]
+fn ui_unlit_uses_reserved_variant_bits() -> io::Result<()> {
+    assert_variant_bits_shader(
+        "ui_unlit.wgsl",
+        &[
+            "_ALPHACLIP",
+            "_ALPHATEST_ON",
+            "_ALPHABLEND_ON",
+            "_TEXTURE_NORMALMAP",
+            "_TEXTURE_LERPCOLOR",
+            "_MASK_TEXTURE_MUL",
+            "_MASK_TEXTURE_CLIP",
+            "_RectClip",
+            "_OVERLAY",
+        ],
+        &[
+            ("UIUNLIT_KW_MASK_TEXTURE_CLIP", 0),
+            ("UIUNLIT_KW_MASK_TEXTURE_MUL", 1),
+            ("UIUNLIT_KW_ALPHACLIP", 2),
+            ("UIUNLIT_KW_OVERLAY", 3),
+            ("UIUNLIT_KW_RECTCLIP", 4),
+            ("UIUNLIT_KW_TEXTURE_LERPCOLOR", 5),
+            ("UIUNLIT_KW_TEXTURE_NORMALMAP", 6),
+        ],
+    )
 }

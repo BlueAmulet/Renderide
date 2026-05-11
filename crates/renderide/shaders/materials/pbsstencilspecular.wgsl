@@ -2,8 +2,12 @@
 //! standard forward path; host applies stencil ops driven by `_Stencil*` and `_ColorMask`.
 //! Sibling of [`pbsstencil`](super::pbsstencil); swaps to the SpecularSetup BRDF and reads
 //! tinted f0 + smoothness from `_SpecularColor` / `_SpecularMap` instead of metallic-gloss.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes
+//! PBSStencilSpecular's shader-specific keyword bits locally.
 
 #import renderide::mesh::vertex as mv
+#import renderide::material::variant_bits as vb
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
 #import renderide::pbs::surface as psurf
@@ -15,12 +19,14 @@ struct PbsStencilSpecularMaterial {
     _EmissionColor: vec4<f32>,
     _MainTex_ST: vec4<f32>,
     _NormalScale: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _SPECULARMAP: f32,
-    _OCCLUSION: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSSTENCILSPECULAR_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSSTENCILSPECULAR_KW_EMISSIONTEX: u32 = 1u << 1u;
+const PBSSTENCILSPECULAR_KW_NORMALMAP: u32 = 1u << 2u;
+const PBSSTENCILSPECULAR_KW_OCCLUSION: u32 = 1u << 3u;
+const PBSSTENCILSPECULAR_KW_SPECULARMAP: u32 = 1u << 4u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsStencilSpecularMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -34,9 +40,13 @@ struct PbsStencilSpecularMaterial {
 @group(1) @binding(9)  var _SpecularMap: texture_2d<f32>;
 @group(1) @binding(10) var _SpecularMap_sampler: sampler;
 
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
     return psamp::sample_optional_world_normal(
-        uvu::kw_enabled(mat._NORMALMAP),
+        pbs_kw(PBSSTENCILSPECULAR_KW_NORMALMAP),
         _NormalMap,
         _NormalMap_sampler,
         uv_main,
@@ -77,12 +87,12 @@ fn shade(
 ) -> vec4<f32> {
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
     var c = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (pbs_kw(PBSSTENCILSPECULAR_KW_ALBEDOTEX)) {
         c = c * textureSample(_MainTex, _MainTex_sampler, uv_main);
     }
 
     var spec = mat._SpecularColor;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (pbs_kw(PBSSTENCILSPECULAR_KW_SPECULARMAP)) {
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -90,12 +100,12 @@ fn shade(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSSTENCILSPECULAR_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
     var emission = mat._EmissionColor.rgb;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSSTENCILSPECULAR_KW_EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
 

@@ -1,14 +1,16 @@
 //! Grab-pass pixelation filter (`Shader "Filters/Pixelate"`).
 //!
-//! **Rect clip (Unity `RECTCLIP` keyword):** When `_RectClip > 0.5` and `_Rect`
-//! has non-zero area, fragments outside the rect in object XY are discarded.
-//! Missing `_RectClip` defaults to off.
+//! Snaps the grab-screen UV onto a discrete pixel grid sized by `_Resolution` (optionally scaled
+//! per-pixel by `_ResolutionTex` when the `RESOLUTION_TEX` variant bit is set), then resamples the
+//! grab-pass scene color at that quantized UV. The `RECTCLIP` variant bit gates an object-space
+//! `_Rect` clip; both keywords come from Resonite's variant bitmask.
 
 
 #import renderide::post::filter_math as fm
 #import renderide::post::filter_vertex as fv
 #import renderide::frame::globals as rg
 #import renderide::frame::grab_pass as gp
+#import renderide::material::variant_bits as vb
 #import renderide::ui::rect_clip as uirc
 #import renderide::core::uv as uvu
 
@@ -16,14 +18,29 @@ struct FiltersPixelateMaterial {
     _Resolution: vec4<f32>,
     _ResolutionTex_ST: vec4<f32>,
     _Rect: vec4<f32>,
-    _RectClip: f32,
+    _RenderideVariantBits: u32,
     _pad0: f32,
     _pad1: vec2<f32>,
 }
 
+const PIXELATE_KW_RECTCLIP: u32 = 1u << 0u;
+const PIXELATE_KW_RESOLUTION_TEX: u32 = 1u << 1u;
+
 @group(1) @binding(0) var<uniform> mat: FiltersPixelateMaterial;
 @group(1) @binding(1) var _ResolutionTex: texture_2d<f32>;
 @group(1) @binding(2) var _ResolutionTex_sampler: sampler;
+
+fn pixelate_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
+fn kw_RECTCLIP() -> bool {
+    return pixelate_kw(PIXELATE_KW_RECTCLIP);
+}
+
+fn kw_RESOLUTION_TEX() -> bool {
+    return pixelate_kw(PIXELATE_KW_RESOLUTION_TEX);
+}
 
 struct VertexOutput {
     @builtin(position) clip_pos: vec4<f32>,
@@ -65,12 +82,15 @@ fn vs_main(
 //#pass forward
 @fragment
 fn fs_main(vout: VertexOutput) -> @location(0) vec4<f32> {
-    if (uirc::should_clip_rect(vout.obj_xy, mat._Rect, mat._RectClip)) {
+    if (uirc::should_clip_rect_kw(vout.obj_xy, mat._Rect, kw_RECTCLIP())) {
         discard;
     }
 
-    let texel_scale = textureSample(_ResolutionTex, _ResolutionTex_sampler, uvu::apply_st(vout.primary_uv, mat._ResolutionTex_ST)).rg;
-    let resolution = max(mat._Resolution.xy * texel_scale, vec2<f32>(1.0));
+    var resolution = max(mat._Resolution.xy, vec2<f32>(1.0));
+    if (kw_RESOLUTION_TEX()) {
+        let texel_scale = textureSample(_ResolutionTex, _ResolutionTex_sampler, uvu::apply_st(vout.primary_uv, mat._ResolutionTex_ST)).rg;
+        resolution = max(mat._Resolution.xy * texel_scale, vec2<f32>(1.0));
+    }
     let uv = fm::safe_div_vec2(round(gp::frag_screen_uv(vout.clip_pos) * resolution), resolution);
     return rg::retain_globals_additive(gp::sample_scene_color(uv, vout.view_layer));
 }

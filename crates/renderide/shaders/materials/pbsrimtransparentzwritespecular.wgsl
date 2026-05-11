@@ -2,12 +2,17 @@
 //! same shading as [`pbsrimtransparentspecular`](super::pbsrimtransparentspecular), with a
 //! depth-only prepass before the alpha-blended forward pass so the surface populates depth.
 //!
-//! Mirrors [`pbsrimtransparentzwrite`](super::pbsrimtransparentzwrite) but with the SpecularSetup
-//! workflow.
+//! The Unity reference asset has `#ifdef _ALBEDOTEX` blocks but never declares the matching
+//! `#pragma multi_compile`, so the albedo branch is dead in the compiled shader. The port follows
+//! suit: `_Color` is the only base color and `_MainTex` is not bound.
+//!
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes
+//! PBSRimTransparentZWriteSpecular's shader-specific keyword bits locally.
 
 
 #import renderide::frame::globals as rg
 #import renderide::material::fresnel as mf
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::sampling as psamp
@@ -22,30 +27,31 @@ struct PbsRimTransparentZWriteSpecularMaterial {
     _MainTex_ST: vec4<f32>,
     _NormalScale: f32,
     _RimPower: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _SPECULARMAP: f32,
-    _OCCLUSION: f32,
-    _pad0: f32,
-    _pad1: f32,
+    _RenderideVariantBits: u32,
 }
 
-@group(1) @binding(0)  var<uniform> mat: PbsRimTransparentZWriteSpecularMaterial;
-@group(1) @binding(1)  var _MainTex: texture_2d<f32>;
-@group(1) @binding(2)  var _MainTex_sampler: sampler;
-@group(1) @binding(3)  var _NormalMap: texture_2d<f32>;
-@group(1) @binding(4)  var _NormalMap_sampler: sampler;
-@group(1) @binding(5)  var _EmissionMap: texture_2d<f32>;
-@group(1) @binding(6)  var _EmissionMap_sampler: sampler;
-@group(1) @binding(7)  var _OcclusionMap: texture_2d<f32>;
-@group(1) @binding(8)  var _OcclusionMap_sampler: sampler;
-@group(1) @binding(9)  var _SpecularMap: texture_2d<f32>;
-@group(1) @binding(10) var _SpecularMap_sampler: sampler;
+const PBSRIMTRANSPARENTZWRITESPECULAR_KW_EMISSIONTEX: u32 = 1u << 0u;
+const PBSRIMTRANSPARENTZWRITESPECULAR_KW_NORMALMAP: u32 = 1u << 1u;
+const PBSRIMTRANSPARENTZWRITESPECULAR_KW_OCCLUSION: u32 = 1u << 2u;
+const PBSRIMTRANSPARENTZWRITESPECULAR_KW_SPECULARMAP: u32 = 1u << 3u;
+
+@group(1) @binding(0) var<uniform> mat: PbsRimTransparentZWriteSpecularMaterial;
+@group(1) @binding(1) var _NormalMap: texture_2d<f32>;
+@group(1) @binding(2) var _NormalMap_sampler: sampler;
+@group(1) @binding(3) var _EmissionMap: texture_2d<f32>;
+@group(1) @binding(4) var _EmissionMap_sampler: sampler;
+@group(1) @binding(5) var _OcclusionMap: texture_2d<f32>;
+@group(1) @binding(6) var _OcclusionMap_sampler: sampler;
+@group(1) @binding(7) var _SpecularMap: texture_2d<f32>;
+@group(1) @binding(8) var _SpecularMap_sampler: sampler;
+
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
 
 fn sample_normal_world(uv_main: vec2<f32>, world_n: vec3<f32>, world_t: vec4<f32>) -> vec3<f32> {
     return psamp::sample_optional_world_normal(
-        uvu::kw_enabled(mat._NORMALMAP),
+        pbs_kw(PBSRIMTRANSPARENTZWRITESPECULAR_KW_NORMALMAP),
         _NormalMap,
         _NormalMap_sampler,
         uv_main,
@@ -84,16 +90,15 @@ fn fs_depth_only(
     @location(4) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
-    let albedo_s = textureSample(_MainTex, _MainTex_sampler, uv_main);
     let normal_s = textureSample(_NormalMap, _NormalMap_sampler, uv_main);
     let emit_s = textureSample(_EmissionMap, _EmissionMap_sampler, uv_main);
     let occ_s = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main);
     let spec_s = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
     let touch = (mat._Color.x + mat._SpecularColor.x + mat._EmissionColor.x + mat._RimColor.x
-        + mat._NormalScale + mat._RimPower + mat._ALBEDOTEX + mat._EMISSIONTEX + mat._NORMALMAP
-        + mat._SPECULARMAP + mat._OCCLUSION
-        + albedo_s.x + normal_s.x + emit_s.x + occ_s.x + spec_s.x
-        + world_pos.x + world_n.x  + world_t.x + f32(view_layer)) * 0.0;
+        + mat._NormalScale + mat._RimPower
+        + f32(mat._RenderideVariantBits)
+        + normal_s.x + emit_s.x + occ_s.x + spec_s.x
+        + world_pos.x + world_n.x + world_t.x + f32(view_layer)) * 0.0;
     return rg::retain_globals_additive(vec4<f32>(touch, touch, touch, 0.0));
 }
 
@@ -110,12 +115,8 @@ fn fs_main(
 ) -> @location(0) vec4<f32> {
     let uv_main = uvu::apply_st(uv0, mat._MainTex_ST);
 
-    var c0 = mat._Color;
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
-        c0 = c0 * textureSample(_MainTex, _MainTex_sampler, uv_main);
-    }
-    let base_color = c0.rgb;
-    let alpha = c0.a;
+    let base_color = mat._Color.rgb;
+    let alpha = mat._Color.a;
 
     var n = sample_normal_world(uv_main, world_n, world_t);
     if (!front_facing) {
@@ -123,12 +124,12 @@ fn fs_main(
     }
 
     var occlusion = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSRIMTRANSPARENTZWRITESPECULAR_KW_OCCLUSION)) {
         occlusion = textureSample(_OcclusionMap, _OcclusionMap_sampler, uv_main).r;
     }
 
     var spec = mat._SpecularColor;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (pbs_kw(PBSRIMTRANSPARENTZWRITESPECULAR_KW_SPECULARMAP)) {
         spec = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main);
     }
     let f0 = clamp(spec.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -136,7 +137,7 @@ fn fs_main(
     let roughness = psamp::roughness_from_smoothness(smoothness);
 
     var emission = mat._EmissionColor.rgb;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSRIMTRANSPARENTZWRITESPECULAR_KW_EMISSIONTEX)) {
         emission = emission * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main).rgb;
     }
 
