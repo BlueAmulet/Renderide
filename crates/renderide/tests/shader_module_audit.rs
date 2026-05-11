@@ -195,5 +195,7 @@ mod pbs;
 mod tangent_basis;
 #[path = "shader_module_audit/text.rs"]
 mod text;
+#[path = "shader_module_audit/variant_bits.rs"]
+mod variant_bits;
 #[path = "shader_module_audit/xiexe_and_probes.rs"]
 mod xiexe_and_probes;
