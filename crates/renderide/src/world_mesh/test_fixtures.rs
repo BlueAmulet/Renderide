@@ -108,6 +108,7 @@ pub fn dummy_world_mesh_draw_item(spec: DummyDrawItemSpec) -> WorldMeshDrawItem 
         lookup_ids: MaterialPropertyLookupIds {
             material_asset_id: mid,
             mesh_property_block_slot0: pb,
+            mesh_renderer_property_block_id: None,
         },
         batch_key,
         batch_key_hash,

@@ -102,6 +102,7 @@ fn build_material_bind_cache_key(
         stem_hash,
         material_asset_id: lookup.material_asset_id,
         property_block_slot0: lookup.mesh_property_block_slot0,
+        renderer_property_block_id: lookup.mesh_renderer_property_block_id,
         texture_bind_signature,
         offscreen_write_render_texture_asset_id,
         uniform_arena_generation: uniform_binding

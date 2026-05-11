@@ -117,9 +117,13 @@ pub(crate) struct MaterialBindCacheKey {
     /// Host material asset id; two materials with identical resolved texture sets must not
     /// share a cached bind group, since one carries the other's uniform dynamic offset.
     pub(super) material_asset_id: i32,
-    /// Optional first `MaterialPropertyBlock` slot id; pairs with [`Self::material_asset_id`]
+    /// Optional per-slot `MaterialPropertyBlock` id; pairs with [`Self::material_asset_id`]
     /// to keep MPB-distinct draws on separate cache entries.
     pub(super) property_block_slot0: Option<i32>,
+    /// Optional renderer-level `MaterialPropertyBlock` id that applies to every material on
+    /// the same renderer; keyed separately so a renderer-PB override does not let one
+    /// renderer's draw collapse onto another renderer's cached entry.
+    pub(super) renderer_property_block_id: Option<i32>,
     pub(super) texture_bind_signature: u64,
     /// Distinguishes main vs secondary-RT passes when self-sampling is masked.
     pub(super) offscreen_write_render_texture_asset_id: Option<i32>,

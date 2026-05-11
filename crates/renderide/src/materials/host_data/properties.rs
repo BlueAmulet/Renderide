@@ -28,13 +28,19 @@ pub enum MaterialPropertyValue {
     Texture(i32),
 }
 
-/// Host material id plus optional [`MaterialPropertyBlock`](https://docs.unity3d.com/ScriptReference/MaterialPropertyBlock.html)-style override id.
+/// Host material id plus optional [`MaterialPropertyBlock`](https://docs.unity3d.com/ScriptReference/MaterialPropertyBlock.html)-style override ids.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MaterialPropertyLookupIds {
     /// Material asset id (e.g. `MeshRenderer.sharedMaterials[k]`).
     pub material_asset_id: i32,
-    /// Optional property block asset id for this draw.
+    /// Optional per-slot property block asset id for this draw
+    /// (`MeshRenderer.SetPropertyBlock(block, materialIndex)`).
     pub mesh_property_block_slot0: Option<i32>,
+    /// Optional renderer-level property block asset id that applies to every material slot on
+    /// the same renderer (`MeshRenderer.SetPropertyBlock(block)` without an index). Currently
+    /// not populated by any scene-side caller; reserved so the property merge and cache keys
+    /// stay correct when the wire format/scene path starts forwarding the renderer-level PB.
+    pub mesh_renderer_property_block_id: Option<i32>,
 }
 
 /// Read-only view over [`MaterialPropertyStore`] for shader and merged property queries.
@@ -134,13 +140,16 @@ impl MaterialPropertyStore {
         self.global_mutation_generation
     }
 
-    /// Monotonic generation for `material_id` and optional property block, used to skip redundant GPU uniform uploads.
+    /// Monotonic generation for `material_id` and optional property blocks, used to skip redundant GPU uniform uploads.
     pub fn mutation_generation(&self, ids: MaterialPropertyLookupIds) -> u64 {
         let m = self.material_generation(ids.material_asset_id);
-        let pb = ids
+        let slot_pb = ids
             .mesh_property_block_slot0
             .map_or(0, |b| self.property_block_generation(b));
-        m ^ pb.rotate_left(17)
+        let renderer_pb = ids
+            .mesh_renderer_property_block_id
+            .map_or(0, |b| self.property_block_generation(b));
+        m ^ slot_pb.rotate_left(17) ^ renderer_pb.rotate_left(31)
     }
 
     /// Monotonic per-material generation. Bumped by every `set_material` /
@@ -227,7 +236,9 @@ impl MaterialPropertyStore {
             .get(&property_id)
     }
 
-    /// Prefer property block, then material (Unity override semantics).
+    /// Prefer per-slot property block, then material, then renderer-level property block
+    /// (Unity override semantics, with the renderer-level PB acting as a default for slots
+    /// whose per-slot PB and material both miss the property).
     pub fn get_merged(
         &self,
         ids: MaterialPropertyLookupIds,
@@ -238,7 +249,15 @@ impl MaterialPropertyStore {
         {
             return Some(v);
         }
-        self.get_material(ids.material_asset_id, property_id)
+        if let Some(v) = self.get_material(ids.material_asset_id, property_id) {
+            return Some(v);
+        }
+        if let Some(pb) = ids.mesh_renderer_property_block_id
+            && let Some(v) = self.get_property_block(pb, property_id)
+        {
+            return Some(v);
+        }
+        None
     }
 
     /// Records `set_shader` for a material (`property_id` on wire is the shader asset id).
@@ -312,6 +331,38 @@ mod material_dictionary_tests {
         let ids = MaterialPropertyLookupIds {
             material_asset_id: 1,
             mesh_property_block_slot0: Some(5),
+            mesh_renderer_property_block_id: None,
+        };
+        assert_eq!(
+            store.get_merged(ids, 42),
+            Some(&MaterialPropertyValue::Float(0.75))
+        );
+    }
+
+    #[test]
+    fn get_merged_falls_through_to_renderer_property_block_when_slot_and_material_miss() {
+        let mut store = MaterialPropertyStore::new();
+        store.set_property_block(9, 42, MaterialPropertyValue::Float(0.5));
+        let ids = MaterialPropertyLookupIds {
+            material_asset_id: 1,
+            mesh_property_block_slot0: None,
+            mesh_renderer_property_block_id: Some(9),
+        };
+        assert_eq!(
+            store.get_merged(ids, 42),
+            Some(&MaterialPropertyValue::Float(0.5))
+        );
+    }
+
+    #[test]
+    fn get_merged_prefers_slot_property_block_over_renderer_property_block() {
+        let mut store = MaterialPropertyStore::new();
+        store.set_property_block(5, 42, MaterialPropertyValue::Float(0.75));
+        store.set_property_block(9, 42, MaterialPropertyValue::Float(0.5));
+        let ids = MaterialPropertyLookupIds {
+            material_asset_id: 1,
+            mesh_property_block_slot0: Some(5),
+            mesh_renderer_property_block_id: Some(9),
         };
         assert_eq!(
             store.get_merged(ids, 42),
@@ -326,6 +377,7 @@ mod material_dictionary_tests {
         let ids = MaterialPropertyLookupIds {
             material_asset_id: 1,
             mesh_property_block_slot0: Some(5),
+            mesh_renderer_property_block_id: None,
         };
         assert_eq!(
             store.get_merged(ids, 42),
@@ -355,6 +407,7 @@ mod material_dictionary_tests {
         let ids = MaterialPropertyLookupIds {
             material_asset_id: 3,
             mesh_property_block_slot0: None,
+            mesh_renderer_property_block_id: None,
         };
         let g0 = store.mutation_generation(ids);
         store.set_material(3, 7, MaterialPropertyValue::Float(1.0));

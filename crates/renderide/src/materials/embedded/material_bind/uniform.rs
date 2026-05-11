@@ -21,6 +21,8 @@ pub(super) struct MaterialUniformCacheKey {
     pub(super) stem_hash: u64,
     pub(super) material_asset_id: i32,
     pub(super) property_block_slot0: Option<i32>,
+    /// Renderer-level `MaterialPropertyBlock` id (applies to every material on the renderer).
+    pub(super) renderer_property_block_id: Option<i32>,
     pub(super) texture_2d_asset_id: i32,
     pub(super) shader_variant_bits: Option<u32>,
 }
@@ -408,6 +410,7 @@ mod tests {
             stem_hash: 7,
             material_asset_id,
             property_block_slot0: None,
+            renderer_property_block_id: None,
             texture_2d_asset_id: -1,
             shader_variant_bits: None,
         }
@@ -418,6 +421,7 @@ mod tests {
             stem_hash: 7,
             material_asset_id,
             property_block_slot0: Some(property_block_id),
+            renderer_property_block_id: None,
             texture_2d_asset_id: -1,
             shader_variant_bits: None,
         }

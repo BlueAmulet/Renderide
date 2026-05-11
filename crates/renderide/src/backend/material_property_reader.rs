@@ -77,6 +77,7 @@ mod tests {
         let lookup = MaterialPropertyLookupIds {
             material_asset_id: 1,
             mesh_property_block_slot0: None,
+            mesh_renderer_property_block_id: None,
         };
 
         assert_eq!(

@@ -74,6 +74,7 @@ impl EmbeddedMaterialBindResources {
             stem_hash: sh,
             material_asset_id: lookup.material_asset_id,
             property_block_slot0: lookup.mesh_property_block_slot0,
+            renderer_property_block_id: lookup.mesh_renderer_property_block_id,
             texture_2d_asset_id,
             shader_variant_bits,
         };

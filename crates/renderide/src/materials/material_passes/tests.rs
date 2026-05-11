@@ -35,6 +35,7 @@ fn resolves_unity_src_dst_blend_properties() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 43,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
     };
     assert_eq!(
         material_blend_mode_for_lookup(&dict, lookup, &ids),
@@ -55,6 +56,7 @@ fn resolves_xiexe_src_dst_base_blend_properties() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 430,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
     };
     assert_eq!(
         material_blend_mode_for_lookup(&dict, lookup, &ids),
@@ -87,6 +89,7 @@ fn resolves_unity_stencil_and_color_mask_properties() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 44,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     assert!(state.stencil.enabled);
@@ -127,6 +130,7 @@ fn property_block_overrides_stencil_reference() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 45,
         mesh_property_block_slot0: Some(450),
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     assert_eq!(state.stencil_reference(), 5);
@@ -145,6 +149,7 @@ fn stencil_comp_zero_disables_stencil_state() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 46,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     assert!(!state.stencil.enabled);
@@ -162,6 +167,7 @@ fn zwrite_property_overrides_pass_depth_write() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 47,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     assert_eq!(state.depth_write, Some(false));
@@ -173,6 +179,7 @@ fn zwrite_property_overrides_pass_depth_write() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 47,
         mesh_property_block_slot0: Some(470),
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     assert_eq!(state.depth_write, Some(true));
@@ -191,6 +198,7 @@ fn ztest_property_overrides_pass_depth_compare_for_reverse_z() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 48,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     assert_eq!(state.depth_compare, Some(6));
@@ -205,6 +213,7 @@ fn ztest_property_overrides_pass_depth_compare_for_reverse_z() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 48,
         mesh_property_block_slot0: Some(480),
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     assert_eq!(
@@ -226,6 +235,7 @@ fn offset_properties_override_pass_depth_bias_for_reverse_z() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 49,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
     };
 
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
@@ -251,6 +261,7 @@ fn offset_properties_override_pass_depth_bias_for_reverse_z() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 49,
         mesh_property_block_slot0: Some(490),
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     let bias = state.depth_bias(7, 0.25);
@@ -393,6 +404,7 @@ fn cull_property_resolves_off_front_back() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 50,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     assert_eq!(state.cull_override, MaterialCullOverride::Off);
@@ -429,6 +441,7 @@ fn property_block_overrides_cull() {
     let lookup = MaterialPropertyLookupIds {
         material_asset_id: 52,
         mesh_property_block_slot0: Some(520),
+        mesh_renderer_property_block_id: None,
     };
     let state = material_render_state_for_lookup(&dict, lookup, &ids);
     assert_eq!(state.cull_override, MaterialCullOverride::Off);

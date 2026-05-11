@@ -26,6 +26,7 @@ pub(crate) fn resolve_skybox_material_ibl_source(
     let lookup = MaterialPropertyLookupIds {
         material_asset_id,
         mesh_property_block_slot0: None,
+        mesh_renderer_property_block_id: None,
     };
 
     if route_lower.contains("projection360") {
