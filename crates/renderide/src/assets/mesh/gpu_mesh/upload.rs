@@ -182,45 +182,111 @@ pub(super) fn validate_mesh_upload_layout(
     true
 }
 
+/// Creates a buffer with initial contents while capturing validation errors.
+///
+/// Mirrors [`wgpu::util::DeviceExt::create_buffer_init`] but pops a validation
+/// error scope between [`wgpu::Device::create_buffer`] and
+/// [`wgpu::Buffer::get_mapped_range_mut`] so an invalid `Buffer` cannot reach
+/// the mapped-range write, which panics fatally when the buffer is invalid.
+///
+/// Returns [`None`] when buffer creation failed validation; the helper logs the
+/// underlying wgpu error with label, content size, and usage flags.
+fn try_create_buffer_init(
+    device: &wgpu::Device,
+    desc: &wgpu::util::BufferInitDescriptor<'_>,
+) -> Option<wgpu::Buffer> {
+    let error_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+
+    let unpadded_size = desc.contents.len() as wgpu::BufferAddress;
+    let buffer = if unpadded_size == 0 {
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: desc.label,
+            size: 0,
+            usage: desc.usage,
+            mapped_at_creation: false,
+        })
+    } else {
+        let align_mask = wgpu::COPY_BUFFER_ALIGNMENT - 1;
+        let padded_size =
+            ((unpadded_size + align_mask) & !align_mask).max(wgpu::COPY_BUFFER_ALIGNMENT);
+        device.create_buffer(&wgpu::BufferDescriptor {
+            label: desc.label,
+            size: padded_size,
+            usage: desc.usage,
+            mapped_at_creation: true,
+        })
+    };
+
+    if let Some(err) = pollster::block_on(error_scope.pop()) {
+        logger::error!(
+            "mesh upload: buffer create failed for {:?} ({} B, usage {:?}): {}",
+            desc.label,
+            desc.contents.len(),
+            desc.usage,
+            err,
+        );
+        return None;
+    }
+
+    if unpadded_size != 0 {
+        buffer
+            .get_mapped_range_mut(..)
+            .slice(..unpadded_size as usize)
+            .copy_from_slice(desc.contents);
+        buffer.unmap();
+    }
+
+    Some(buffer)
+}
+
 /// Creates core vertex and index buffers from the layout-validated `raw` slice.
+///
+/// Returns [`None`] when either buffer fails wgpu validation; the caller must
+/// abort the mesh upload in that case.
 pub(super) fn create_core_vertex_index_buffers(
     device: &wgpu::Device,
     raw: &[u8],
     data: &MeshUploadData,
     layout: &MeshBufferLayout,
-) -> CoreBuffers {
+) -> Option<CoreBuffers> {
     profiling::scope!("asset::mesh_create_core_buffers");
     let vertex_stride = compute_vertex_stride(&data.vertex_attributes).max(1) as u32;
     let vertex_stride_us = vertex_stride as usize;
     let index_count = compute_index_count(&data.submeshes);
     let index_count_u32 = index_count.max(0) as u32;
 
-    let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some(&format!("mesh {} vertices", data.asset_id)),
-        contents: &raw[..layout.vertex_size],
-        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-    });
+    let vb = try_create_buffer_init(
+        device,
+        &wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("mesh {} vertices", data.asset_id)),
+            contents: &raw[..layout.vertex_size],
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        },
+    )?;
     crate::profiling::note_resource_churn!(Buffer, "assets::mesh_core_vertices");
 
     let ib_slice =
         &raw[layout.index_buffer_start..layout.index_buffer_start + layout.index_buffer_length];
-    let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some(&format!("mesh {} indices", data.asset_id)),
-        contents: ib_slice,
-        usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
-    });
+    let ib = try_create_buffer_init(
+        device,
+        &wgpu::util::BufferInitDescriptor {
+            label: Some(&format!("mesh {} indices", data.asset_id)),
+            contents: ib_slice,
+            usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+        },
+    )?;
     crate::profiling::note_resource_churn!(Buffer, "assets::mesh_core_indices");
 
     let index_format = wgpu_index_format(data.index_buffer_format);
 
-    CoreBuffers {
+    Some(CoreBuffers {
         vb,
         ib,
         index_format,
         vertex_stride,
         vertex_stride_us,
         index_count_u32,
-    }
+    })
 }
 
 fn upload_positions_normals(

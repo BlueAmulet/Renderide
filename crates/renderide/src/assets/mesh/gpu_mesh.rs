@@ -650,7 +650,7 @@ impl GpuMesh {
         let use_blendshapes =
             data.upload_hint.flags.blendshapes() && !data.blendshape_buffers.is_empty();
 
-        let core = create_core_vertex_index_buffers(device, raw, data, layout);
+        let core = create_core_vertex_index_buffers(device, raw, data, layout)?;
         let vc_usize = data.vertex_count.max(0) as usize;
 
         let derived = extract_derived_vertex_streams(device, raw, data, layout, &core);
