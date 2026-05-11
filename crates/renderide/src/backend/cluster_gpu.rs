@@ -89,101 +89,42 @@ impl ClusterBufferCache {
         stereo: bool,
         min_index_capacity_words: u64,
     ) -> Option<ClusterBufferRefs<'_>> {
-        let (width, height) = viewport;
-        if width == 0 || height == 0 {
-            return None;
-        }
-        let new_max_w = width.max(self.cached_key.viewport.0);
-        let new_max_h = height.max(self.cached_key.viewport.1);
-        let new_max_z = cluster_count_z.max(self.cached_key.cluster_count_z);
-        let new_max_stereo = stereo || self.cached_key.stereo;
-        let cluster_count_x = new_max_w.div_ceil(TILE_SIZE);
-        let cluster_count_y = new_max_h.div_ceil(TILE_SIZE);
-        let Some(clusters_per_eye) = u64::from(cluster_count_x)
-            .checked_mul(u64::from(cluster_count_y))
-            .and_then(|xy| xy.checked_mul(u64::from(new_max_z)))
-        else {
-            logger::warn!(
-                "cluster buffers: cluster grid {}x{}x{} overflows u64",
-                cluster_count_x,
-                cluster_count_y,
-                new_max_z
-            );
-            return None;
-        };
-        let eye_multiplier = if new_max_stereo { 2_u64 } else { 1_u64 };
-        let Some(total_clusters) = clusters_per_eye.checked_mul(eye_multiplier) else {
-            logger::warn!(
-                "cluster buffers: clusters_per_eye={} stereo={} overflows u64",
-                clusters_per_eye,
-                new_max_stereo
-            );
-            return None;
-        };
-        let Some(counts_bytes) = total_clusters
-            .checked_mul(CLUSTER_LIGHT_RANGE_WORDS)
-            .and_then(|words| words.checked_mul(size_of::<u32>() as u64))
-        else {
-            logger::warn!(
-                "cluster buffers: total_clusters={} range byte size overflows u64",
-                total_clusters
-            );
-            return None;
-        };
-        let index_capacity_words = min_index_capacity_words
-            .max(1)
-            .max(self.cached_key.index_capacity_words);
-        let Some(indices_bytes) = index_capacity_words.checked_mul(size_of::<u32>() as u64) else {
-            logger::warn!(
-                "cluster buffers: index capacity {} byte size overflows u64",
-                index_capacity_words
-            );
-            return None;
-        };
-        let max_bind = limits.max_storage_buffer_binding_size();
-        let max_buf = limits.max_buffer_size();
-        if counts_bytes > max_bind
-            || indices_bytes > max_bind
-            || counts_bytes > max_buf
-            || indices_bytes > max_buf
-        {
-            logger::warn!(
-                "cluster buffers: max viewport {:?} stereo={} would need ranges={} indices={} bytes; exceeds max_storage_buffer_binding_size ({}) or max_buffer_size ({})",
-                (new_max_w, new_max_h),
-                new_max_stereo,
-                counts_bytes,
-                indices_bytes,
-                max_bind,
-                max_buf
-            );
-            return None;
-        }
-        let new_key = ClusterCacheKey {
-            viewport: (new_max_w, new_max_h),
-            cluster_count_z: new_max_z,
-            stereo: new_max_stereo,
-            index_capacity_words,
-        };
-        if self.cluster_light_counts.is_none() || self.cached_key != new_key {
-            self.version = self.version.wrapping_add(1);
-            self.cached_key = new_key;
-
-            self.cluster_light_counts = Some(device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("cluster_light_counts"),
-                size: counts_bytes,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }));
-            crate::profiling::note_resource_churn!(Buffer, "backend::cluster_light_counts");
-            self.cluster_light_indices = Some(device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("cluster_light_indices"),
-                size: indices_bytes,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }));
-            crate::profiling::note_resource_churn!(Buffer, "backend::cluster_light_indices");
-        }
+        let plan = compute_cluster_cache_size(
+            self.cached_key,
+            limits,
+            viewport,
+            cluster_count_z,
+            stereo,
+            min_index_capacity_words,
+        )?;
+        self.reallocate_if_needed(device, plan);
         self.current_refs()
+    }
+
+    /// Allocates the shared cluster buffers when the cached key differs from the planned key,
+    /// bumping [`Self::version`] so bind-group caches invalidate. No-op when the plan matches the
+    /// already-allocated state.
+    fn reallocate_if_needed(&mut self, device: &wgpu::Device, plan: ClusterAllocationPlan) {
+        if self.cluster_light_counts.is_some() && self.cached_key == plan.new_key {
+            return;
+        }
+        self.version = self.version.wrapping_add(1);
+        self.cached_key = plan.new_key;
+
+        self.cluster_light_counts = Some(device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cluster_light_counts"),
+            size: plan.counts_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }));
+        crate::profiling::note_resource_churn!(Buffer, "backend::cluster_light_counts");
+        self.cluster_light_indices = Some(device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cluster_light_indices"),
+            size: plan.indices_bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        }));
+        crate::profiling::note_resource_churn!(Buffer, "backend::cluster_light_indices");
     }
 
     /// Returns refs to the currently-provisioned storage buffers, or [`None`] if not yet
@@ -201,4 +142,105 @@ impl Default for ClusterBufferCache {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Planned allocation footprint produced by [`compute_cluster_cache_size`] and consumed by
+/// [`ClusterBufferCache::reallocate_if_needed`].
+struct ClusterAllocationPlan {
+    new_key: ClusterCacheKey,
+    counts_bytes: u64,
+    indices_bytes: u64,
+}
+
+/// Computes the grow-only allocation footprint for the next [`ClusterBufferCache::ensure_buffers`]
+/// call. Returns [`None`] when the viewport is empty, the cluster math overflows, or the resulting
+/// byte sizes exceed [`GpuLimits`] caps; in each failure case the matching `logger::warn!` is
+/// emitted with the same message that [`ClusterBufferCache::ensure_buffers`] historically produced.
+fn compute_cluster_cache_size(
+    cached_key: ClusterCacheKey,
+    limits: &GpuLimits,
+    viewport: (u32, u32),
+    cluster_count_z: u32,
+    stereo: bool,
+    min_index_capacity_words: u64,
+) -> Option<ClusterAllocationPlan> {
+    let (width, height) = viewport;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let new_max_w = width.max(cached_key.viewport.0);
+    let new_max_h = height.max(cached_key.viewport.1);
+    let new_max_z = cluster_count_z.max(cached_key.cluster_count_z);
+    let new_max_stereo = stereo || cached_key.stereo;
+    let cluster_count_x = new_max_w.div_ceil(TILE_SIZE);
+    let cluster_count_y = new_max_h.div_ceil(TILE_SIZE);
+    let Some(clusters_per_eye) = u64::from(cluster_count_x)
+        .checked_mul(u64::from(cluster_count_y))
+        .and_then(|xy| xy.checked_mul(u64::from(new_max_z)))
+    else {
+        logger::warn!(
+            "cluster buffers: cluster grid {}x{}x{} overflows u64",
+            cluster_count_x,
+            cluster_count_y,
+            new_max_z
+        );
+        return None;
+    };
+    let eye_multiplier = if new_max_stereo { 2_u64 } else { 1_u64 };
+    let Some(total_clusters) = clusters_per_eye.checked_mul(eye_multiplier) else {
+        logger::warn!(
+            "cluster buffers: clusters_per_eye={} stereo={} overflows u64",
+            clusters_per_eye,
+            new_max_stereo
+        );
+        return None;
+    };
+    let Some(counts_bytes) = total_clusters
+        .checked_mul(CLUSTER_LIGHT_RANGE_WORDS)
+        .and_then(|words| words.checked_mul(size_of::<u32>() as u64))
+    else {
+        logger::warn!(
+            "cluster buffers: total_clusters={} range byte size overflows u64",
+            total_clusters
+        );
+        return None;
+    };
+    let index_capacity_words = min_index_capacity_words
+        .max(1)
+        .max(cached_key.index_capacity_words);
+    let Some(indices_bytes) = index_capacity_words.checked_mul(size_of::<u32>() as u64) else {
+        logger::warn!(
+            "cluster buffers: index capacity {} byte size overflows u64",
+            index_capacity_words
+        );
+        return None;
+    };
+    let max_bind = limits.max_storage_buffer_binding_size();
+    let max_buf = limits.max_buffer_size();
+    if counts_bytes > max_bind
+        || indices_bytes > max_bind
+        || counts_bytes > max_buf
+        || indices_bytes > max_buf
+    {
+        logger::warn!(
+            "cluster buffers: max viewport {:?} stereo={} would need ranges={} indices={} bytes; exceeds max_storage_buffer_binding_size ({}) or max_buffer_size ({})",
+            (new_max_w, new_max_h),
+            new_max_stereo,
+            counts_bytes,
+            indices_bytes,
+            max_bind,
+            max_buf
+        );
+        return None;
+    }
+    Some(ClusterAllocationPlan {
+        new_key: ClusterCacheKey {
+            viewport: (new_max_w, new_max_h),
+            cluster_count_z: new_max_z,
+            stereo: new_max_stereo,
+            index_capacity_words,
+        },
+        counts_bytes,
+        indices_bytes,
+    })
 }
