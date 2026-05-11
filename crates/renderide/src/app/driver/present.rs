@@ -1,22 +1,16 @@
-//! Render result presentation and swapchain recovery for the app driver.
+//! Render result presentation and display-blit dispatch for the app driver.
 
 use crate::gpu::GpuContext;
 use crate::gpu::display_blit::DisplayBlitSource;
 use crate::present::{
-    SurfaceAcquireTrace, SurfaceSubmitTrace, present_clear_frame,
-    present_clear_frame_overlay_traced, present_clear_frame_overlay_traced_with_color,
+    SurfaceAcquireTrace, SurfaceSubmitTrace, present_clear_frame_overlay_traced,
+    present_clear_frame_overlay_traced_with_color,
 };
-use crate::render_graph::GraphExecuteError;
 use crate::runtime::RendererRuntime;
 use crate::shared::BlitToDisplayState;
 use crate::xr::OpenxrFrameTick;
 
 use super::AppDriver;
-
-/// Display index of the desktop window for the local user.
-///
-/// Display zero is the default display index sent for desktop mirror and preview blits.
-pub(super) const DESKTOP_DISPLAY_INDEX: i16 = 0;
 
 /// Presentation action implied by the frame render outcome.
 ///
@@ -59,7 +53,7 @@ impl AppDriver {
         hmd_projection_ended: bool,
     ) {
         profiling::scope!("tick::present_and_diagnostics");
-        super::frame::tick_phase_trace("present_and_diagnostics");
+        super::tick_phase_trace("present_and_diagnostics");
         let plan = self.compute_presentation_plan(hmd_projection_ended);
         self.present_plan(plan);
         if !hmd_projection_ended {
@@ -76,7 +70,7 @@ impl AppDriver {
             && let Some(state) = self
                 .runtime
                 .scene()
-                .desktop_blit_for_display(DESKTOP_DISPLAY_INDEX)
+                .desktop_blit_for_display(super::DESKTOP_DISPLAY_INDEX)
         {
             return PresentationPlan::DesktopBlitToDisplay { state };
         }
@@ -186,45 +180,6 @@ impl AppDriver {
             |encoder, view, gpu| encode_debug_hud_overlay(runtime, gpu, encoder, view),
         ) {
             logger::debug!("VR mirror clear (no HMD frame): {error:?}");
-        }
-    }
-
-    pub(super) fn queue_empty_openxr_frame_if_needed(&mut self, xr_tick: Option<OpenxrFrameTick>) {
-        let Some(tick) = xr_tick else {
-            return;
-        };
-        let Some(target) = self.target.as_mut() else {
-            return;
-        };
-        let Some((gpu, session)) = target.openxr_parts_mut() else {
-            return;
-        };
-        // Atomic check is intentional: the driver thread clears `frame_open` from a deferred
-        // finalize, so this read is safe without holding any session mutex.
-        if !session.handles.xr_session.frame_open() {
-            return;
-        }
-        profiling::scope!("xr::end_frame_if_open");
-        let (finalize, rx) = session
-            .handles
-            .xr_session
-            .build_empty_finalize(tick.predicted_display_time);
-        gpu.submit_finalize_only(finalize);
-        session.handles.xr_session.set_pending_finalize(rx);
-    }
-
-    pub(super) fn handle_frame_graph_error(&mut self, error: GraphExecuteError) {
-        let Some(target) = self.target.as_mut() else {
-            return;
-        };
-        if let GraphExecuteError::NoFrameGraph = error {
-            if let Err(present_error) = present_clear_frame(target.gpu_mut()) {
-                logger::warn!("present fallback failed: {present_error:?}");
-                target.reconfigure_for_window();
-            }
-        } else {
-            logger::warn!("frame graph failed: {error:?}");
-            target.reconfigure_for_window();
         }
     }
 }

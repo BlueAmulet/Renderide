@@ -2,8 +2,10 @@
 
 mod config;
 mod logging;
+mod panic;
 mod runtime;
 pub(crate) mod services;
+mod signals;
 
 use std::cell::RefCell;
 use std::rc::Rc;

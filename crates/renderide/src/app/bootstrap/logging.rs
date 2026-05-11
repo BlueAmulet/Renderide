@@ -1,4 +1,4 @@
-//! File logging, native stdio forwarding, fatal-crash logging, and panic reporting.
+//! File logging, native stdio forwarding, and renderer-startup banner.
 
 use std::env;
 use std::path::Path;
@@ -34,20 +34,9 @@ pub(crate) fn init_logging() -> Result<LoggingBootstrap, RunError> {
 
     crate::native_stdio::ensure_stdio_forwarded_to_logger();
     crate::fatal_crash_log::install(&log_path);
-    install_panic_hook(&log_path);
+    super::panic::install_panic_hook(&log_path);
 
     Ok(LoggingBootstrap { log_level_cli })
-}
-
-fn install_panic_hook(log_path: &Path) {
-    let log_path_hook = log_path.to_path_buf();
-    std::panic::set_hook(Box::new(move |info| {
-        let mut report = logger::panic_report(info);
-        report.push('\n');
-        report.push_str(&crash_context::format_snapshot());
-        logger::append_panic_report_to_file(&log_path_hook, &report);
-        crate::native_stdio::try_write_preserved_stderr(report.as_bytes());
-    }));
 }
 
 fn log_renderer_startup_context(log_path: &Path, initial_log_level: LogLevel) {

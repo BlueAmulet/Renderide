@@ -1,6 +1,13 @@
-//! Graceful windowed-driver shutdown coordination.
+//! Graceful windowed-driver shutdown coordination and exit-request handling.
 
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
+
+use winit::event_loop::{ActiveEventLoop, ControlFlow};
+
+use super::super::exit::ExitReason;
+use super::AppDriver;
+use super::target::RenderTarget;
 
 /// Maximum time the winit driver will keep polling OpenXR shutdown before leaving the event loop.
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
@@ -66,6 +73,83 @@ impl GracefulShutdown {
     /// Poll cadence while the drain is pending.
     pub(super) const fn poll_interval(&self) -> Duration {
         self.poll_interval
+    }
+}
+
+impl AppDriver {
+    /// Records a normal exit request and either exits the event loop or starts the cooperative
+    /// shutdown drain, depending on the reason's [`ExitReason::uses_graceful_shutdown`].
+    pub(super) fn request_exit(&mut self, reason: ExitReason, event_loop: &dyn ActiveEventLoop) {
+        let first_request = !self.exit_is_requested();
+        let request = self.exit.borrow_mut().request(reason);
+        if !request.reason().uses_graceful_shutdown() {
+            event_loop.exit();
+            return;
+        }
+        if first_request && self.shutdown.begin(Instant::now()) {
+            self.runtime.begin_graceful_shutdown();
+            logger::info!("Graceful renderer shutdown started: {:?}", request.reason());
+        }
+        if self.openxr_frame_open() {
+            return;
+        }
+        self.poll_graceful_shutdown(event_loop);
+    }
+
+    /// Polls the OS-driven cooperative shutdown coordinator and triggers exit if set.
+    pub(super) fn check_external_shutdown(&mut self, event_loop: &dyn ActiveEventLoop) -> bool {
+        let Some(coord) = self.external_shutdown.as_ref() else {
+            return false;
+        };
+        if !coord.requested.load(Ordering::Relaxed) {
+            return false;
+        }
+        if coord.log_when_checked {
+            logger::info!("Graceful shutdown requested; exiting event loop");
+        }
+        self.request_exit(ExitReason::ExternalShutdown, event_loop);
+        true
+    }
+
+    /// Drives the cooperative shutdown drain to either completion or the timeout deadline.
+    pub(super) fn poll_graceful_shutdown(&mut self, event_loop: &dyn ActiveEventLoop) -> bool {
+        if !self.shutdown.is_started() {
+            return false;
+        }
+
+        let now = Instant::now();
+        let target_complete = self
+            .target
+            .as_mut()
+            .is_none_or(|target| target.poll_graceful_shutdown(&mut self.shutdown));
+        let runtime_complete = self.runtime.graceful_shutdown_complete();
+        let complete = target_complete && runtime_complete;
+
+        if complete {
+            logger::info!("Graceful renderer shutdown completed");
+            event_loop.exit();
+            return true;
+        }
+
+        if self.shutdown.timed_out(now) {
+            logger::warn!(
+                "Graceful renderer shutdown timed out after {}ms; exiting",
+                self.shutdown.timeout().as_millis()
+            );
+            event_loop.exit();
+            return true;
+        }
+
+        event_loop.set_control_flow(ControlFlow::WaitUntil(now + self.shutdown.poll_interval()));
+        false
+    }
+
+    /// Whether an OpenXR frame is currently waiting on `xrEndFrame`.
+    pub(super) fn openxr_frame_open(&self) -> bool {
+        self.target
+            .as_ref()
+            .and_then(RenderTarget::xr_session)
+            .is_some_and(|session| session.handles.xr_session.frame_open())
     }
 }
 

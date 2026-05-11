@@ -31,6 +31,7 @@ mod driver;
 mod exit;
 mod frame_clock;
 mod headless;
+mod redraw_plan;
 mod window_icon;
 
 pub use bootstrap::run;

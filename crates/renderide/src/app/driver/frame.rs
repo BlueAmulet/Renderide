@@ -10,19 +10,12 @@ use crate::diagnostics::crash_context::{self, RenderMode};
 use crate::frontend::input::{
     apply_output_state_to_window, apply_per_frame_cursor_lock_when_locked,
 };
+use crate::present::present_clear_frame;
+use crate::render_graph::GraphExecuteError;
 use crate::xr::OpenxrFrameTick;
 
 use super::super::exit::ExitReason;
 use super::AppDriver;
-
-/// Prefix for per-phase trace lines in the app frame tick.
-const TICK_TRACE_PREFIX: &str = "renderide::tick";
-
-/// Emits a trace line naming the current frame phase.
-pub(super) fn tick_phase_trace(phase: &'static str) {
-    crash_context::set_tick_phase_label(phase);
-    logger::trace!("{} phase={phase}", TICK_TRACE_PREFIX);
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FrameTickOutcome {
@@ -121,7 +114,7 @@ impl AppDriver {
 
     fn frame_tick_prologue(&mut self, frame_start: Instant) {
         profiling::scope!("tick::prologue");
-        tick_phase_trace("frame_tick_prologue");
+        super::tick_phase_trace("frame_tick_prologue");
         let sample = self.frame_clock.begin_frame(frame_start);
         if let Some(idle_ms) = sample.event_loop_idle_ms {
             crate::profiling::plot_event_loop_idle_ms(idle_ms);
@@ -141,7 +134,7 @@ impl AppDriver {
 
     fn poll_ipc_and_window(&mut self) {
         profiling::scope!("tick::poll_ipc_and_window");
-        tick_phase_trace("poll_ipc_and_window");
+        super::tick_phase_trace("poll_ipc_and_window");
         self.runtime.poll_ipc();
 
         if let (Some(target), Some(output_state)) = (
@@ -174,7 +167,7 @@ impl AppDriver {
 
     fn lock_step_exchange(&mut self) {
         profiling::scope!("tick::lock_step_exchange");
-        tick_phase_trace("lock_step_exchange");
+        super::tick_phase_trace("lock_step_exchange");
         if self.runtime.should_send_begin_frame() {
             let lock = self.runtime.host_cursor_lock_requested();
             let mut inputs = self.input.take_input_state(lock);
@@ -232,7 +225,7 @@ impl AppDriver {
         xr_tick: Option<&OpenxrFrameTick>,
     ) -> Option<RenderViewsOutcome> {
         profiling::scope!("tick::render_views");
-        tick_phase_trace("render_views");
+        super::tick_phase_trace("render_views");
         if let Some(target) = self.target.as_mut() {
             self.runtime.drain_hi_z_readback(target.gpu_mut());
         }
@@ -271,20 +264,6 @@ impl AppDriver {
         })
     }
 
-    fn try_hmd_multiview_submit(&mut self, xr_tick: Option<&OpenxrFrameTick>) -> bool {
-        let Some(tick) = xr_tick else {
-            return false;
-        };
-        let Some(target) = self.target.as_mut() else {
-            return false;
-        };
-        let Some((gpu, session)) = target.openxr_parts_mut() else {
-            return false;
-        };
-        profiling::scope!("xr::hmd_multiview_submit");
-        crate::xr::try_openxr_hmd_multiview_submit(gpu, session, &mut self.runtime, tick)
-    }
-
     fn render_non_hmd_views(&mut self, mode: FrameRenderMode) -> Option<()> {
         let target = self.target.as_mut()?;
         use crate::xr::XrFrameRenderer;
@@ -292,7 +271,7 @@ impl AppDriver {
             && self
                 .runtime
                 .scene()
-                .desktop_blit_for_display(super::present::DESKTOP_DISPLAY_INDEX)
+                .desktop_blit_for_display(super::DESKTOP_DISPLAY_INDEX)
                 .is_some();
         let result = match mode {
             FrameRenderMode::HmdMultiview => Ok(()),
@@ -315,9 +294,26 @@ impl AppDriver {
         Some(())
     }
 
+    /// Reacts to a per-frame [`GraphExecuteError`]: when the graph itself is missing, drive a
+    /// clear-only present so the swapchain still progresses; otherwise log and reconfigure.
+    fn handle_frame_graph_error(&mut self, error: GraphExecuteError) {
+        let Some(target) = self.target.as_mut() else {
+            return;
+        };
+        if let GraphExecuteError::NoFrameGraph = error {
+            if let Err(present_error) = present_clear_frame(target.gpu_mut()) {
+                logger::warn!("present fallback failed: {present_error:?}");
+                target.reconfigure_for_window();
+            }
+        } else {
+            logger::warn!("frame graph failed: {error:?}");
+            target.reconfigure_for_window();
+        }
+    }
+
     fn frame_tick_epilogue(&mut self) {
         profiling::scope!("tick::epilogue");
-        tick_phase_trace("frame_tick_epilogue");
+        super::tick_phase_trace("frame_tick_epilogue");
         self.drain_driver_thread_error();
         self.end_frame_timing_and_hud_capture();
         let gpu_render_time_seconds = self

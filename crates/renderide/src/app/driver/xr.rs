@@ -1,4 +1,4 @@
-//! OpenXR frame begin and IPC input cache for the app driver.
+//! OpenXR frame begin/end, HMD multiview submission, and IPC input cache for the app driver.
 
 use glam::{Quat, Vec3};
 
@@ -33,7 +33,7 @@ impl AppDriver {
     /// Runs OpenXR wait/locate and samples input before lock-step IPC input is built.
     pub(super) fn xr_begin_tick(&mut self) -> Option<OpenxrFrameTick> {
         profiling::scope!("tick::xr_begin_tick");
-        super::frame::tick_phase_trace("xr_begin_tick");
+        super::tick_phase_trace("xr_begin_tick");
         let gpu_queue_access_gate = self
             .target
             .as_ref()
@@ -90,6 +90,48 @@ impl AppDriver {
             Ok(controllers) => self.xr_input_cache.controllers = controllers,
             Err(error) => logger::trace!("OpenXR input sync: {error:?}"),
         }
+    }
+
+    /// Renders the HMD stereo view through the OpenXR projection layer when an OpenXR tick is
+    /// active; returns `true` only when an OpenXR projection layer was actually submitted.
+    pub(super) fn try_hmd_multiview_submit(&mut self, xr_tick: Option<&OpenxrFrameTick>) -> bool {
+        let Some(tick) = xr_tick else {
+            return false;
+        };
+        let Some(target) = self.target.as_mut() else {
+            return false;
+        };
+        let Some((gpu, session)) = target.openxr_parts_mut() else {
+            return false;
+        };
+        profiling::scope!("xr::hmd_multiview_submit");
+        crate::xr::try_openxr_hmd_multiview_submit(gpu, session, &mut self.runtime, tick)
+    }
+
+    /// Ends the OpenXR frame with an empty projection layer when one is still open but the
+    /// renderer did not submit HMD content this tick (e.g., shutdown, fatal IPC, or graph error).
+    pub(super) fn queue_empty_openxr_frame_if_needed(&mut self, xr_tick: Option<OpenxrFrameTick>) {
+        let Some(tick) = xr_tick else {
+            return;
+        };
+        let Some(target) = self.target.as_mut() else {
+            return;
+        };
+        let Some((gpu, session)) = target.openxr_parts_mut() else {
+            return;
+        };
+        // Atomic check is intentional: the driver thread clears `frame_open` from a deferred
+        // finalize, so this read is safe without holding any session mutex.
+        if !session.handles.xr_session.frame_open() {
+            return;
+        }
+        profiling::scope!("xr::end_frame_if_open");
+        let (finalize, rx) = session
+            .handles
+            .xr_session
+            .build_empty_finalize(tick.predicted_display_time);
+        gpu.submit_finalize_only(finalize);
+        session.handles.xr_session.set_pending_finalize(rx);
     }
 }
 
