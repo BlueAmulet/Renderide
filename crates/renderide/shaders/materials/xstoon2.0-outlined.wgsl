@@ -8,6 +8,7 @@
 
 #import renderide::xiexe::toon2 as xs
 #import renderide::xiexe::toon2::base as xb
+#import renderide::xiexe::toon2::variant_bits as xvb
 
 const XIEE_ALPHA_MODE: u32 = 0u;
 
@@ -66,7 +67,7 @@ fn fs_outline(
     @location(8) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
     return xs::fragment_outline(
-        frag_pos, front_facing, world_pos, world_n, world_t, world_b, uv0, uv1, color, view_layer, xb::resolved_alpha_mode(XIEE_ALPHA_MODE)
+        frag_pos, front_facing, world_pos, world_n, world_t, world_b, uv0, uv1, color, view_layer, xvb::resolved_alpha_mode_from_bits(XIEE_ALPHA_MODE)
     );
 }
 
@@ -85,6 +86,6 @@ fn fs_forward_base(
     @location(8) @interpolate(flat) view_layer: u32,
 ) -> @location(0) vec4<f32> {
     return xs::fragment_forward(
-        frag_pos, front_facing, world_pos, world_n, world_t, world_b, uv0, uv1, color, view_layer, xb::resolved_alpha_mode(XIEE_ALPHA_MODE)
+        frag_pos, front_facing, world_pos, world_n, world_t, world_b, uv0, uv1, color, view_layer, xvb::resolved_alpha_mode_from_bits(XIEE_ALPHA_MODE)
     );
 }

@@ -10,6 +10,7 @@
 #define_import_path renderide::xiexe::toon2::surface
 
 #import renderide::xiexe::toon2::base as xb
+#import renderide::xiexe::toon2::variant_bits as xvb
 #import renderide::frame::globals as rg
 #import renderide::mesh::vertex as mv
 #import renderide::draw::per_draw as pd
@@ -82,7 +83,7 @@ fn decode_normal_world(
         b = -b;
     }
 
-    if (xb::normal_map_enabled()) {
+    if (xvb::normal_map_enabled()) {
         let base_ts = nd::decode_ts_normal_with_placeholder_sample(
             textureSample(xb::_BumpMap, xb::_BumpMap_sampler, uv_normal),
             xb::mat._BumpScale,
@@ -135,7 +136,7 @@ fn sample_surface(
 
     var albedo = textureSample(xb::_MainTex, xb::_MainTex_sampler, uv_albedo) * xb::mat._Color;
     let clip_alpha = xb::mat._Color.a * acs::texture_alpha_base_mip(xb::_MainTex, xb::_MainTex_sampler, uv_albedo);
-    if (xb::vertex_color_albedo_enabled()) {
+    if (xvb::vertex_color_albedo_enabled()) {
         albedo = vec4<f32>(albedo.rgb * color.rgb, albedo.a);
     }
     // `diffuse_color` keeps the original (saturated) base color for tinting paths
@@ -163,7 +164,7 @@ fn sample_surface(
     var metallic = clamp(xb::mat._Metallic, 0.0, 1.0);
     var smoothness = clamp(xb::mat._Glossiness, 0.0, 1.0);
     let mg = textureSample(xb::_MetallicGlossMap, xb::_MetallicGlossMap_sampler, uv_metallic);
-    if (xb::metallic_map_enabled()) {
+    if (xvb::metallic_map_enabled()) {
         metallic = clamp(xb::mat._Metallic * mg.r, 0.0, 1.0);
         smoothness = clamp(xb::mat._Glossiness * mg.a, 0.0, 1.0);
     }
@@ -182,23 +183,23 @@ fn sample_surface(
     let reflectivity_mask = textureSample(xb::_ReflectivityMask, xb::_ReflectivityMask_sampler, uv_reflectivity).r;
 
     var occlusion = vec3<f32>(1.0);
-    if (xb::occlusion_enabled()) {
+    if (xvb::occlusion_enabled()) {
         let occ = textureSample(xb::_OcclusionMap, xb::_OcclusionMap_sampler, uv_occlusion).r;
         occlusion = mix(xb::mat._OcclusionColor.rgb, vec3<f32>(1.0), occ);
     }
 
     var emission = vec3<f32>(0.0);
-    if (xb::emission_map_enabled()) {
+    if (xvb::emission_map_enabled()) {
         emission = textureSample(xb::_EmissionMap, xb::_EmissionMap_sampler, uv_emission).rgb;
     }
 
     var ramp_mask = 0.0;
-    if (xb::ramp_mask_enabled()) {
+    if (xvb::ramp_mask_enabled()) {
         ramp_mask = textureSample(xb::_RampSelectionMask, xb::_RampSelectionMask_sampler, uv_primary).r;
     }
 
     var thickness = 1.0;
-    if (xb::thickness_enabled()) {
+    if (xvb::thickness_enabled()) {
         thickness = textureSample(xb::_ThicknessMap, xb::_ThicknessMap_sampler, uv_thickness).r;
     }
 

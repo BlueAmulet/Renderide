@@ -91,6 +91,16 @@ fn declares_f32_field(src: &str, field_name: &str) -> bool {
     })
 }
 
+fn declares_u32_field(src: &str, field_name: &str) -> bool {
+    src.lines().any(|line| {
+        let trimmed = line.trim();
+        let Some((name, ty)) = trimmed.split_once(':') else {
+            return false;
+        };
+        name.trim() == field_name && ty.trim_start().starts_with("u32")
+    })
+}
+
 #[test]
 fn unlit_uses_reserved_variant_bits_instead_of_keyword_uniform_fields() -> io::Result<()> {
     let src = material_source("unlit.wgsl")?;

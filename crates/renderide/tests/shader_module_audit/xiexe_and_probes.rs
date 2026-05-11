@@ -35,7 +35,7 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
         .find("let stereo_view_dir = rg::stereo_center_view_dir_for_world_pos(world_pos, view_layer);")
         .expect("Xiexe lighting must contain a matcap sampling branch");
     let non_matcap_branch_pos = lighting_src
-        .find("if (xb::baked_cubemap_enabled()) {")
+        .find("if (xvb::baked_cubemap_enabled()) {")
         .expect("Xiexe lighting must contain non-matcap reflection handling");
     assert!(
         matcap_sample_pos < non_matcap_branch_pos,
@@ -52,13 +52,13 @@ fn xiexe_matcap_uses_stereo_center_view_dir() -> io::Result<()> {
     );
     assert!(
         lighting_src.contains(
-            "if (xb::matcap_enabled()) {\n        return 1.0;\n    }\n    return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);"
+            "if (xvb::matcap_enabled()) {\n        return 1.0;\n    }\n    return clamp(s.reflectivity * s.reflectivity_mask, 0.0, 1.0);"
         ),
         "Xiexe matcaps must not be blended by reflectivity or reflectivity-mask weight"
     );
     assert!(
         lighting_src.contains(
-            "if (xb::matcap_enabled()) {\n        return surface + reflection;\n    }\n\n    if (reflection_is_multiplicative()) {"
+            "if (xvb::matcap_enabled()) {\n        return surface + reflection;\n    }\n\n    if (reflection_is_multiplicative()) {"
         ),
         "Xiexe matcap reflections must use additive composition before `_ReflectionBlendMode` branches"
     );
@@ -121,7 +121,7 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
 
     for required in [
         "return rprobe::indirect_diffuse(s.normal, view_layer, true);",
-        "let indirect_enabled = rprobe::has_indirect_specular(view_layer, xb::reflection_uses_pbr());",
+        "let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr());",
         "let dfg = brdf::sample_ibl_dfg_lut(roughness, n_dot_v);",
         "let specular_energy = brdf::indirect_specular_energy_from_dfg(dfg, specular_reflectance, indirect_enabled);",
         "let specular_occlusion = brdf::specular_ao_lagarde(n_dot_v, occlusion_scalar(s), roughness);",
@@ -135,7 +135,7 @@ fn xiexe_pbr_reflections_use_pbs_probe_energy_terms() -> io::Result<()> {
     }
 
     let pbr_branch_pos = lighting_src
-        .find("let indirect_enabled = rprobe::has_indirect_specular(view_layer, xb::reflection_uses_pbr());")
+        .find("let indirect_enabled = rprobe::has_indirect_specular(view_layer, xvb::reflection_uses_pbr());")
         .expect("Xiexe PBR reflection branch must query probe availability");
     let pbr_return_pos = lighting_src[pbr_branch_pos..]
         .find("return spec;")
@@ -182,26 +182,37 @@ fn reflection_probe_specular_samples_unity_oriented_atlas() -> io::Result<()> {
 }
 
 #[test]
-fn xiexe_generic_stems_resolve_alpha_mode_from_keywords() -> io::Result<()> {
+fn xiexe_generic_stems_resolve_alpha_mode_from_variant_bits() -> io::Result<()> {
     let base_src = source_file(manifest_dir().join("shaders/modules/xiexe/toon2/base.wgsl"))?;
-    for field_name in ["Cutout", "AlphaBlend", "Transparent"] {
+    assert!(
+        declares_u32_field(&base_src, "_RenderideVariantBits"),
+        "xiexe_toon2_base.wgsl must expose `_RenderideVariantBits` as a u32 field"
+    );
+    for forbidden in ["Cutout", "AlphaBlend", "Transparent"] {
         assert!(
-            declares_f32_field(&base_src, field_name),
-            "xiexe_toon2_base.wgsl must expose `{field_name}` as an f32 keyword field"
+            !declares_f32_field(&base_src, forbidden),
+            "xiexe_toon2_base.wgsl must not retain the legacy `{forbidden}` f32 keyword field"
         );
     }
+    assert!(
+        !base_src.contains("fn resolved_alpha_mode("),
+        "xiexe_toon2_base.wgsl must not retain the legacy `resolved_alpha_mode` helper"
+    );
+
+    let variant_bits_src =
+        source_file(manifest_dir().join("shaders/modules/xiexe/toon2/variant_bits.wgsl"))?;
     for required in [
-        "fn resolved_alpha_mode(static_alpha_mode: u32) -> u32",
-        "kw(mat.Cutout)",
-        "return ALPHA_CUTOUT;",
-        "kw(mat.Transparent)",
-        "return ALPHA_TRANSPARENT;",
-        "kw(mat.AlphaBlend)",
-        "return ALPHA_FADE;",
+        "fn resolved_alpha_mode_from_bits(static_alpha_mode: u32) -> u32",
+        "kw_Cutout()",
+        "return xb::ALPHA_CUTOUT;",
+        "kw_Transparent()",
+        "return xb::ALPHA_TRANSPARENT;",
+        "kw_AlphaBlend()",
+        "return xb::ALPHA_FADE;",
     ] {
         assert!(
-            base_src.contains(required),
-            "xiexe_toon2_base.wgsl must contain `{required}`"
+            variant_bits_src.contains(required),
+            "xiexe_toon2_variant_bits.wgsl must contain `{required}`"
         );
     }
 
@@ -212,8 +223,12 @@ fn xiexe_generic_stems_resolve_alpha_mode_from_keywords() -> io::Result<()> {
     ] {
         let src = material_source(file_name)?;
         assert!(
-            src.contains("xb::resolved_alpha_mode(XIEE_ALPHA_MODE)"),
-            "{file_name} must route the generic Xiexe alpha mode through material keywords"
+            src.contains("xvb::resolved_alpha_mode_from_bits(XIEE_ALPHA_MODE)"),
+            "{file_name} must route the generic Xiexe alpha mode through the variant bitmask"
+        );
+        assert!(
+            !src.contains("xb::resolved_alpha_mode("),
+            "{file_name} must not retain the legacy keyword-driven alpha-mode resolver"
         );
     }
     Ok(())

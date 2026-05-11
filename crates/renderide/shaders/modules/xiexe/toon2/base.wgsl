@@ -140,13 +140,16 @@ struct XiexeToon2Material {
     _SpecularArea: f32,
     /// Lerp factor that tints specular highlight by albedo.
     _SpecularAlbedoTint: f32,
-    /// Spec mode selector (passthrough; only the GGX branch is implemented).
+    /// Spec mode selector. Passthrough: the upstream `calcDirectSpecular` switch on this
+    /// value (`XSLightingFunctions.cginc:187-210`) is commented out, so the Unity reference
+    /// always runs the standard smooth GGX path. The field is kept for material parity.
     _SpecMode: f32,
-    /// Spec style selector (passthrough).
+    /// Spec style selector. Same upstream-stubbed status as `_SpecMode`.
     _SpecularStyle: f32,
-    /// Anisotropic alpha along tangent (reserved).
+    /// Anisotropic alpha along tangent. Upstream `D_GGXAnisotropic` is defined but never
+    /// called from the live specular path; kept for material parity.
     _AnisotropicAX: f32,
-    /// Anisotropic alpha along bitangent (reserved).
+    /// Anisotropic alpha along bitangent. See `_AnisotropicAX`.
     _AnisotropicAY: f32,
 
     /// Sharpens the shadow attenuation transition. `0` = smooth, `1` = hard step.
@@ -185,11 +188,13 @@ struct XiexeToon2Material {
     _FadeDither: f32,
     /// Distance at which the fade-dither starts to take effect.
     _FadeDitherDistance: f32,
-    /// Reserved halftone dot-size control kept for material property parity.
+    /// Halftone dot size. The upstream `DotHalftone`/`LineHalftone` helpers in
+    /// `XSHelperFunctions.cginc:229-272` are commented out as "finish implementing later",
+    /// so the Unity reference does not modulate shading by halftone. Kept for material parity.
     _HalftoneDotSize: f32,
-    /// Reserved halftone dot-amount control kept for material property parity.
+    /// Halftone dot density. See `_HalftoneDotSize`.
     _HalftoneDotAmount: f32,
-    /// Reserved halftone line-amount control kept for material property parity.
+    /// Halftone line density. See `_HalftoneDotSize`.
     _HalftoneLineAmount: f32,
 
     /// Enables vertex-color-tinted albedo (Unity `VERTEX_COLOR_ALBEDO`).
@@ -218,42 +223,10 @@ struct XiexeToon2Material {
     /// UV set selector for the emission map.
     _UVSetEmission: f32,
 
-    /// Unity `_NORMALMAP` keyword flag (1 = enabled).
-    _NORMALMAP: f32,
-    /// Unity `NORMAL_MAP` keyword alias.
-    NORMAL_MAP: f32,
-    /// Unity `_EMISSION` keyword flag.
-    _EMISSION: f32,
-    /// Unity `EMISSION_MAP` keyword alias.
-    EMISSION_MAP: f32,
-    /// Unity `_METALLICGLOSSMAP` keyword flag.
-    _METALLICGLOSSMAP: f32,
-    /// Unity `METALLICGLOSS_MAP` keyword alias.
-    METALLICGLOSS_MAP: f32,
-    /// Unity `OCCLUSION_METALLIC` keyword (enables both occlusion and metallic-gloss maps).
-    OCCLUSION_METALLIC: f32,
-    /// Unity `_OCCLUSION` keyword flag.
-    _OCCLUSION: f32,
-    /// Unity `OCCLUSION_MAP` keyword alias.
-    OCCLUSION_MAP: f32,
-    /// Unity `RAMPMASK_OUTLINEMASK_THICKNESS` keyword (enables ramp-mask, outline-mask, and thickness).
-    RAMPMASK_OUTLINEMASK_THICKNESS: f32,
-    /// Unity `RAMP_MASK` keyword flag.
-    RAMP_MASK: f32,
-    /// Unity `OUTLINE_MASK` keyword flag.
-    OUTLINE_MASK: f32,
-    /// Unity `THICKNESS_MAP` keyword flag.
-    THICKNESS_MAP: f32,
-    /// Unity `MATCAP` keyword flag.
-    MATCAP: f32,
-    /// Unity `VERTEX_COLOR_ALBEDO` keyword flag.
-    VERTEX_COLOR_ALBEDO: f32,
-    /// Xiexe `Cutout` keyword flag.
-    Cutout: f32,
-    /// Xiexe `AlphaBlend` keyword flag.
-    AlphaBlend: f32,
-    /// Xiexe `Transparent` keyword flag.
-    Transparent: f32,
+    /// Renderer-reserved variant bitfield decoded by `renderide::xiexe::toon2::variant_bits`.
+    /// Each bit corresponds to one entry of the alphabetically-sorted `UniqueKeywords` list
+    /// built from the Unity shader's `#pragma multi_compile` groups.
+    _RenderideVariantBits: u32,
 }
 
 /// Per-material uniform binding consumed by every xiexe-toon submodule.
@@ -406,26 +379,12 @@ struct LightSample {
     is_directional: bool,
 }
 
-/// Returns true when a Unity-style keyword flag is set (`> 0.5` is the canonical test).
-fn kw(v: f32) -> bool {
+/// Returns true when a Unity material *property* (Enum or ToggleUI, not a multi_compile
+/// keyword) reads "on". Reserved for scalar property flags such as `_OutlineAlbedoTint` and
+/// `_OutlineLighting`; shader keywords decode through
+/// [`renderide::xiexe::toon2::variant_bits`] instead.
+fn prop_flag(v: f32) -> bool {
     return v > 0.5;
-}
-
-/// Resolves material-authored alpha keywords for generic Xiexe stems.
-fn resolved_alpha_mode(static_alpha_mode: u32) -> u32 {
-    if (static_alpha_mode != ALPHA_OPAQUE) {
-        return static_alpha_mode;
-    }
-    if (kw(mat.Cutout)) {
-        return ALPHA_CUTOUT;
-    }
-    if (kw(mat.Transparent)) {
-        return ALPHA_TRANSPARENT;
-    }
-    if (kw(mat.AlphaBlend)) {
-        return ALPHA_FADE;
-    }
-    return ALPHA_OPAQUE;
 }
 
 /// `clamp(v, 0, 1)` shortcut. Hand-rolled so call sites don't drag in a `saturate` HLSL
@@ -462,81 +421,16 @@ fn maybe_saturate_color(c: vec3<f32>) -> vec3<f32> {
     return mix(g, c, mat._Saturation);
 }
 
-/// True when either the new-style `_NORMALMAP` flag or the alias keyword is set.
-fn normal_map_enabled() -> bool {
-    return kw(mat._NORMALMAP) || kw(mat.NORMAL_MAP);
-}
-
-/// True when any emission keyword is set or `_EmissionColor` is non-black.
-fn emission_map_enabled() -> bool {
-    return kw(mat._EMISSION) || kw(mat.EMISSION_MAP) ||
-        dot(mat._EmissionColor.rgb, mat._EmissionColor.rgb) > 1e-8;
-}
-
-/// True when any metallic / occlusion-metallic keyword enables the metallic-gloss map.
-fn metallic_map_enabled() -> bool {
-    return kw(mat._METALLICGLOSSMAP) || kw(mat.METALLICGLOSS_MAP) ||
-        kw(mat.OCCLUSION_METALLIC);
-}
-
-/// True when any occlusion keyword is set.
-fn occlusion_enabled() -> bool {
-    return kw(mat._OCCLUSION) || kw(mat.OCCLUSION_MAP) || kw(mat.OCCLUSION_METALLIC);
-}
-
-/// True when the ramp-selection mask is enabled by either keyword.
-fn ramp_mask_enabled() -> bool {
-    return kw(mat.RAMP_MASK) || kw(mat.RAMPMASK_OUTLINEMASK_THICKNESS);
-}
-
-/// True when the thickness map is enabled by either keyword.
-fn thickness_enabled() -> bool {
-    return kw(mat.THICKNESS_MAP) || kw(mat.RAMPMASK_OUTLINEMASK_THICKNESS);
-}
-
-/// True when matcap mode is selected via the `MATCAP` keyword or `_ReflectionMode == 2`.
-///
-/// The keyword path is kept because Resonite's `XiexeToonMaterial` drives matcap through a
-/// texture-presence keyword even when it does not populate `_ReflectionMode` explicitly.
-fn matcap_enabled() -> bool {
-    return kw(mat.MATCAP) || abs(mat._ReflectionMode - 2.0) < 0.5;
-}
-
-/// True when the reflection mode explicitly disables indirect specular and no matcap keyword is set.
-fn reflection_disabled() -> bool {
-    return !kw(mat.MATCAP) && abs(mat._ReflectionMode - 3.0) < 0.5;
-}
-
-/// True when the shader should use the skybox/PBR reflection branch (`_ReflectionMode == 0`).
-///
-/// Mode `1` ("baked cubemap") samples `_BakedCubemap` directly via
-/// `lighting::indirect_reflection_branch` and is therefore excluded here.
-fn reflection_uses_pbr() -> bool {
-    return !reflection_disabled() && !matcap_enabled() && !baked_cubemap_enabled();
-}
-
-/// True when the reflection mode selects the per-material baked-cubemap branch.
-fn baked_cubemap_enabled() -> bool {
-    return !kw(mat.MATCAP) && abs(mat._ReflectionMode - 1.0) < 0.5;
-}
-
-/// True when the legacy clear-coat controls should add the secondary lobe.
+/// True when the scalar `_ClearCoat` property is on and both clear-coat strength and smoothness
+/// are non-zero. `_ClearCoat` is a Unity material property, not a multi_compile keyword.
 fn clearcoat_enabled() -> bool {
-    return kw(mat._ClearCoat) && mat._ClearcoatStrength > 1e-4 && mat._ClearcoatSmoothness > 1e-4;
+    return prop_flag(mat._ClearCoat) && mat._ClearcoatStrength > 1e-4 && mat._ClearcoatSmoothness > 1e-4;
 }
 
-/// True when emission should be dimmed by scene brightness.
-///
-/// Legacy Resonite-authored XSToon2 materials never populated `_ScaleWithLight`; keeping the
-/// sensitivity check avoids unexpectedly changing those materials while still honoring imported
-/// content that explicitly enables the feature.
+/// True when emission should be dimmed by scene brightness. `_ScaleWithLight` is a Unity
+/// material property in XSToon2.0, so this is not driven by the variant bitmask.
 fn scale_with_light_enabled() -> bool {
     return mat._ScaleWithLight < 0.5 && mat._ScaleWithLightSensitivity > 1e-4;
-}
-
-/// True when vertex-color albedo tinting is enabled via either keyword spelling.
-fn vertex_color_albedo_enabled() -> bool {
-    return kw(mat._VertexColorAlbedo) || kw(mat.VERTEX_COLOR_ALBEDO);
 }
 
 /// Selects between the primary and secondary UV sets based on a Unity `_UVSetX` scalar

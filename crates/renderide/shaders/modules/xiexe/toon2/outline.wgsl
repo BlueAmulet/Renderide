@@ -80,7 +80,7 @@ fn fragment_outline(
     let alpha = xa::apply_alpha(alpha_mode, frag_pos.xy, world_pos, view_layer, uv_primary, s.albedo.a, s.clip_alpha);
 
     var ol = xb::mat._OutlineColor.rgb;
-    if (xb::kw(xb::mat._OutlineAlbedoTint)) {
+    if (xb::prop_flag(xb::mat._OutlineAlbedoTint)) {
         ol = ol * s.diffuse_color;
     }
 
@@ -88,7 +88,7 @@ fn fragment_outline(
     // selector (`XSToon2.0.shader` uses `_OutlineEmissiveues`, `XSToon2.0 Outlined.shader`
     // uses `_OutlineLighting`, `XSDefines.cginc` declares `_OutlineEmissive`). Treat any
     // non-zero flag as "Emissive".
-    let emissive_mode = xb::kw(xb::mat._OutlineLighting) || xb::kw(xb::mat._OutlineEmissive) || xb::kw(xb::mat._OutlineEmissiveues);
+    let emissive_mode = xb::prop_flag(xb::mat._OutlineLighting) || xb::prop_flag(xb::mat._OutlineEmissive) || xb::prop_flag(xb::mat._OutlineEmissiveues);
 
     var rgb: vec3<f32>;
     if (emissive_mode) {
