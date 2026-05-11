@@ -8,13 +8,11 @@ pub use crate::gpu::{GpuLight, MAX_LIGHTS};
 use crate::scene::ResolvedLight;
 use crate::shared::{LightType, ShadowType};
 
+const MIN_SPOT_ANGLE_SCALE_DENOMINATOR: f32 = 1e-6;
+
 /// Packs a [`ResolvedLight`] for GPU consumption.
 pub fn gpu_light_from_resolved(light: &ResolvedLight) -> GpuLight {
-    let spot_cos_half_angle = if light.spot_angle > 0.0 && light.spot_angle < 180.0 {
-        (light.spot_angle.to_radians() / 2.0).cos()
-    } else {
-        1.0
-    };
+    let (spot_cos_half_angle, spot_angle_scale) = spot_angle_terms(light.spot_angle);
     GpuLight {
         position: [
             light.world_position.x,
@@ -33,7 +31,7 @@ pub fn gpu_light_from_resolved(light: &ResolvedLight) -> GpuLight {
         range: light.range.max(0.001),
         spot_cos_half_angle,
         light_type: light_type_u32(light.light_type),
-        _pad_before_shadow_params: 0,
+        spot_angle_scale,
         shadow_strength: light.shadow_strength,
         shadow_near_plane: light.shadow_near_plane,
         shadow_bias: light.shadow_bias,
@@ -43,6 +41,24 @@ pub fn gpu_light_from_resolved(light: &ResolvedLight) -> GpuLight {
         _pad_trailing: [0; 3],
         _pad_struct_end: [0; 12],
     }
+}
+
+fn spot_angle_terms(spot_angle: f32) -> (f32, f32) {
+    let angle = if spot_angle.is_finite() {
+        spot_angle.clamp(0.0, 180.0)
+    } else {
+        0.0
+    };
+    let radians = angle.to_radians();
+    let cos_half = (radians * 0.5).cos().clamp(0.0, 1.0);
+    let cos_quarter = (radians * 0.25).cos().clamp(0.0, 1.0);
+    let denominator = cos_quarter - cos_half;
+    let scale = if denominator > MIN_SPOT_ANGLE_SCALE_DENOMINATOR {
+        1.0 / denominator
+    } else {
+        0.0
+    };
+    (cos_half, scale)
 }
 
 impl From<&ResolvedLight> for GpuLight {
@@ -91,7 +107,9 @@ mod layout_tests {
     use crate::scene::ResolvedLight;
     use crate::shared::{LightType, ShadowType};
 
-    use super::{GpuLight, MAX_LIGHTS, order_lights_for_clustered_shading_in_place};
+    use super::{
+        GpuLight, MAX_LIGHTS, gpu_light_from_resolved, order_lights_for_clustered_shading_in_place,
+    };
 
     #[test]
     fn gpu_light_stride_matches_wgsl() {
@@ -116,6 +134,47 @@ mod layout_tests {
             shadow_near_plane: 0.0,
             shadow_bias: 0.0,
             shadow_normal_bias: 0.0,
+        }
+    }
+
+    #[test]
+    fn gpu_light_packs_birp_spot_angle_terms() {
+        let light = resolved_light(LightType::Spot);
+        let gpu = gpu_light_from_resolved(&light);
+        let angle = light.spot_angle.to_radians();
+        let expected_half = (angle * 0.5).cos();
+        let expected_scale = 1.0 / ((angle * 0.25).cos() - expected_half);
+
+        assert!((gpu.spot_cos_half_angle - expected_half).abs() < 1e-6);
+        assert!((gpu.spot_angle_scale - expected_scale).abs() < 1e-5);
+        assert!(gpu.spot_angle_scale.is_finite());
+        assert!(gpu.spot_angle_scale > 0.0);
+    }
+
+    #[test]
+    fn gpu_light_packs_wide_spot_angle() {
+        let mut light = resolved_light(LightType::Spot);
+        light.spot_angle = 180.0;
+
+        let gpu = gpu_light_from_resolved(&light);
+
+        assert!(gpu.spot_cos_half_angle.abs() < 1e-6);
+        assert!(gpu.spot_angle_scale.is_finite());
+        assert!((gpu.spot_angle_scale - std::f32::consts::SQRT_2).abs() < 1e-6);
+    }
+
+    #[test]
+    fn gpu_light_packs_degenerate_spot_angles_without_non_finite_terms() {
+        for angle in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut light = resolved_light(LightType::Spot);
+            light.spot_angle = angle;
+
+            let gpu = gpu_light_from_resolved(&light);
+
+            assert!(gpu.spot_cos_half_angle.is_finite());
+            assert!(gpu.spot_angle_scale.is_finite());
+            assert_eq!(gpu.spot_cos_half_angle, 1.0);
+            assert_eq!(gpu.spot_angle_scale, 0.0);
         }
     }
 

@@ -142,9 +142,7 @@ fn shade(
             l = normalize(to_light);
             attenuation = light.intensity * brdf::distance_attenuation(dist, light.range);
             if (light.light_type == 2u) {
-                let spot_cos = dot(-l, normalize(light.direction));
-                let inner = min(light.spot_cos_half_angle + 0.1, 1.0);
-                attenuation = attenuation * smoothstep(light.spot_cos_half_angle, inner, spot_cos);
+                attenuation = attenuation * bl::spot_angle_attenuation(light, l);
             }
         }
         let diff_step = tbrdf::diffuse(n, l, mat._Transmission);

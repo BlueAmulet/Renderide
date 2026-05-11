@@ -40,8 +40,8 @@ pub struct GpuLight {
     pub spot_cos_half_angle: f32,
     /// Light type as a `u32`.
     pub light_type: u32,
-    /// Padding before shadow parameter block.
-    pub _pad_before_shadow_params: u32,
+    /// Multiplier for Unity BiRP-style spot cone attenuation.
+    pub spot_angle_scale: f32,
     /// Shadow strength / visibility factor.
     pub shadow_strength: f32,
     /// Shadow projection near plane.
@@ -72,7 +72,7 @@ impl Default for GpuLight {
             range: 10.0,
             spot_cos_half_angle: 1.0,
             light_type: 0,
-            _pad_before_shadow_params: 0,
+            spot_angle_scale: 0.0,
             shadow_strength: 0.0,
             shadow_near_plane: 0.0,
             shadow_bias: 0.0,

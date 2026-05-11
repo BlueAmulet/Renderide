@@ -14,7 +14,7 @@ struct GpuLight {
     range: f32,
     spot_cos_half_angle: f32,
     light_type: u32,
-    align_pad_before_shadow: u32,
+    spot_angle_scale: f32,
     shadow_strength: f32,
     shadow_near_plane: f32,
     shadow_bias: f32,

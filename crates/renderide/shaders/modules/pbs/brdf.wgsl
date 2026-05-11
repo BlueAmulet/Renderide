@@ -277,9 +277,7 @@ fn eval_light(light: ft::GpuLight, world_pos: vec3<f32>) -> LightSample {
         let to_light = light_pos - world_pos;
         let dist = length(to_light);
         out.l = normalize(to_light);
-        let spot_cos = dot(-out.l, normalize(light_dir));
-        let inner_cos = min(light.spot_cos_half_angle + 0.1, 1.0);
-        let spot_atten = smoothstep(light.spot_cos_half_angle, inner_cos, spot_cos);
+        let spot_atten = bl::spot_angle_attenuation(light, out.l);
         out.attenuation = light.intensity * spot_atten * distance_attenuation(dist, light.range);
     }
     return out;
