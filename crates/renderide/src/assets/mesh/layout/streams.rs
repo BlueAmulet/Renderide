@@ -2,6 +2,7 @@
 
 use crate::shared::{VertexAttributeDescriptor, VertexAttributeFormat, VertexAttributeType};
 
+use super::super::gpu_mesh::attribute_reader::AttributeReader;
 use super::buffer_layout::vertex_format_size;
 
 /// Attribute semantic used when expanding host vertex scalars into float streams.
@@ -45,55 +46,38 @@ pub fn extract_float3_position_normal_as_vec4_streams(
     stride: usize,
     attrs: &[VertexAttributeDescriptor],
 ) -> Option<(Vec<u8>, Vec<u8>)> {
-    if vertex_count == 0 || stride == 0 {
-        return None;
-    }
-    let need = vertex_count.checked_mul(stride)?;
-    if vertex_data.len() < need {
-        return None;
-    }
-    let pos = attribute_offset_and_size(attrs, VertexAttributeType::Position)?;
-    let pos_attr = attrs
-        .iter()
-        .find(|a| (a.attribute as i16) == (VertexAttributeType::Position as i16))?;
-    if pos_attr.dimensions < 3 {
-        return None;
-    }
-    if pos.1 < vertex_format_size(pos_attr.format) as usize * 3 {
-        return None;
-    }
+    let position_reader = AttributeReader::from_attrs(
+        vertex_data,
+        vertex_count,
+        stride,
+        attrs,
+        VertexAttributeType::Position,
+        VertexDecodeKind::Position,
+        3,
+    )?;
+    let normal_reader = AttributeReader::from_attrs(
+        vertex_data,
+        vertex_count,
+        stride,
+        attrs,
+        VertexAttributeType::Normal,
+        VertexDecodeKind::Direction,
+        3,
+    );
 
     let mut pos_out = vec![0u8; vertex_count * 16];
     let mut nrm_out = vec![0u8; vertex_count * 16];
     let one = 1.0f32.to_le_bytes();
     fill_normal_stream_with_forward_z(&mut nrm_out);
 
-    let nrm = attribute_offset_and_size(attrs, VertexAttributeType::Normal);
-    let nrm_attr = attrs
-        .iter()
-        .find(|a| (a.attribute as i16) == (VertexAttributeType::Normal as i16));
-    let nrm_attr_and_offset = if matches!(
-        (nrm, nrm_attr),
-        (Some((_, sz)), Some(attr))
-            if attr.dimensions >= 3 && sz >= vertex_format_size(attr.format) as usize * 3
-    ) {
-        nrm.zip(nrm_attr.copied())
-            .map(|((off, _), attr)| (off, attr))
-    } else {
-        None
-    };
-
     for i in 0..vertex_count {
-        let base = i * stride;
-        let p0 = base + pos.0;
-        let position = decode_vertex_vec3(vertex_data, p0, *pos_attr, VertexDecodeKind::Position)?;
+        let position = position_reader.read_vec3(i)?;
         let po = i * 16;
         write_f32s(&mut pos_out[po..po + 12], &position);
         pos_out[po + 12..po + 16].copy_from_slice(&one);
 
-        if let Some((nrm_offset, attr)) = nrm_attr_and_offset {
-            let n0 = base + nrm_offset;
-            let normal = decode_vertex_vec3(vertex_data, n0, attr, VertexDecodeKind::Direction)?;
+        if let Some(nr) = &normal_reader {
+            let normal = nr.read_vec3(i)?;
             let no = i * 16;
             write_f32s(&mut nrm_out[no..no + 12], &normal);
         }
@@ -150,21 +134,19 @@ pub fn vertex_float2_stream_bytes(
         return None;
     }
     let mut out = vec![0u8; vertex_count * 8];
-    let Some((off, sz)) = attribute_offset_and_size(attrs, target) else {
+    let Some(reader) = AttributeReader::from_attrs(
+        vertex_data,
+        vertex_count,
+        stride,
+        attrs,
+        target,
+        VertexDecodeKind::TexCoord,
+        2,
+    ) else {
         return Some(out);
     };
-    let attr = attrs
-        .iter()
-        .find(|a| (a.attribute as i16) == (target as i16))?;
-    if attr.dimensions < 2 {
-        return Some(out);
-    }
-    if sz < vertex_format_size(attr.format) as usize * 2 {
-        return Some(out);
-    }
     for i in 0..vertex_count {
-        let base = i * stride + off;
-        let uv = decode_vertex_vec2(vertex_data, base, *attr, VertexDecodeKind::TexCoord)?;
+        let uv = reader.read_vec2(i)?;
         let o = i * 8;
         write_f32s(&mut out[o..o + 8], &uv);
     }
@@ -198,28 +180,19 @@ pub fn vertex_float4_stream_bytes(
         }
     }
 
-    let Some((off, sz)) = attribute_offset_and_size(attrs, target) else {
+    let Some(reader) = AttributeReader::from_attrs(
+        vertex_data,
+        vertex_count,
+        stride,
+        attrs,
+        target,
+        VertexDecodeKind::Position,
+        1,
+    ) else {
         return Some(out);
     };
-    let attr = attrs
-        .iter()
-        .find(|a| (a.attribute as i16) == (target as i16))?;
-    if attr.dimensions < 1 {
-        return Some(out);
-    }
-    let dims = attr.dimensions.clamp(1, 4) as usize;
-    if sz < dims * vertex_format_size(attr.format) as usize {
-        return Some(out);
-    }
     for i in 0..vertex_count {
-        let base = i * stride + off;
-        let values = decode_vertex_vec4(
-            vertex_data,
-            base,
-            *attr,
-            VertexDecodeKind::Position,
-            default,
-        )?;
+        let values = reader.read_vec4(i, default)?;
         let o = i * 16;
         write_f32s(&mut out[o..o + 16], &values);
     }
@@ -247,25 +220,20 @@ pub fn color_float4_stream_bytes(
     let mut out = vec![0u8; vertex_count * 16];
     fill_color_stream_with_white(&mut out);
 
-    let Some((off, _sz)) = attribute_offset_and_size(attrs, VertexAttributeType::Color) else {
+    let Some(reader) = AttributeReader::from_attrs(
+        vertex_data,
+        vertex_count,
+        stride,
+        attrs,
+        VertexAttributeType::Color,
+        VertexDecodeKind::Color,
+        1,
+    ) else {
         return Some(out);
     };
-    let color_attr = attrs
-        .iter()
-        .find(|a| (a.attribute as i16) == (VertexAttributeType::Color as i16))?;
-    if color_attr.dimensions < 1 {
-        return Some(out);
-    }
 
     for i in 0..vertex_count {
-        let base = i * stride + off;
-        let rgba = decode_vertex_vec4(
-            vertex_data,
-            base,
-            *color_attr,
-            VertexDecodeKind::Color,
-            [1.0; 4],
-        )?;
+        let rgba = reader.read_vec4(i, [1.0; 4])?;
         let o = i * 16;
         write_f32s(&mut out[o..o + 16], &rgba);
     }

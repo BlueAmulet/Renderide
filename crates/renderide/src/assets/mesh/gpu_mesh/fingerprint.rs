@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 
 use crate::shared::MeshUploadData;
 
-use super::layout::MeshBufferLayout;
+use super::super::layout::MeshBufferLayout;
 
 /// Stable hash of host layout metadata and buffer byte sizes (for tracing and cache keys).
 ///

@@ -1,14 +1,14 @@
-//! Layout validation and [`try_upload_mesh_from_raw`] entry point (uses [`super::gpu_mesh::GpuMesh`]).
+//! Layout validation and [`try_upload_mesh_from_raw`] entry point (uses [`super::GpuMesh`]).
 
 use crate::gpu::GpuLimits;
 use crate::shared::MeshUploadData;
 
-use super::gpu_mesh::GpuMesh;
-use super::gpu_mesh_fingerprint::mesh_layout_fingerprint;
-use super::layout::{
+use super::super::layout::{
     MeshBufferLayout, compute_index_count, compute_mesh_buffer_layout, compute_vertex_stride,
     index_bytes_per_element,
 };
+use super::GpuMesh;
+use super::fingerprint::mesh_layout_fingerprint;
 
 /// Computes [`MeshBufferLayout`] from [`MeshUploadData`] and validates bone region lengths.
 pub fn compute_and_validate_mesh_layout(data: &MeshUploadData) -> Option<MeshBufferLayout> {
@@ -119,7 +119,7 @@ pub fn try_upload_mesh_from_raw(
 mod tests {
     use crate::shared::MeshUploadHintFlag;
 
-    use super::super::gpu_mesh_hints::{
+    use super::super::hints::{
         mesh_upload_hint_any_selective, mesh_upload_hint_touches_vertex_streams,
     };
 
