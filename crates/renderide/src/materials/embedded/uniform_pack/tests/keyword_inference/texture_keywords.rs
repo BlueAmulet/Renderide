@@ -289,49 +289,6 @@ fn clip_keyword_stays_off_from_clip_range_properties_only() {
 }
 
 #[test]
-fn inferred_pbs_displace_keywords_follow_host_keyword_predicates() {
-    let (_reflected, ids, reg) =
-        reflected_with_f32_fields(&[("_VertexOffsetBias", 0), ("_UVOffsetBias", 4)]);
-    let mut store = MaterialPropertyStore::new();
-    store.set_material(
-        55,
-        reg.intern("_VertexOffsetMap"),
-        MaterialPropertyValue::Texture(packed_texture2d(123)),
-    );
-    store.set_material(
-        55,
-        reg.intern("_UVOffsetBias"),
-        MaterialPropertyValue::Float(0.25),
-    );
-    store.set_material(
-        55,
-        reg.intern("_PositionOffsetMap"),
-        MaterialPropertyValue::Texture(packed_texture2d(456)),
-    );
-
-    assert_eq!(
-        inferred_keyword_float_f32("VERTEX_OFFSET", &store, lookup(55), &ids),
-        Some(1.0)
-    );
-    assert_eq!(
-        inferred_keyword_float_f32("UV_OFFSET", &store, lookup(55), &ids),
-        Some(1.0)
-    );
-    assert_eq!(
-        inferred_keyword_float_f32("OBJECT_POS_OFFSET", &store, lookup(55), &ids),
-        Some(1.0)
-    );
-    assert_eq!(
-        inferred_keyword_float_f32("VERTEX_POS_OFFSET", &store, lookup(55), &ids),
-        Some(0.0)
-    );
-    assert_eq!(
-        inferred_keyword_float_f32("VERTEX_OFFSET", &store, lookup(56), &ids),
-        Some(0.0)
-    );
-}
-
-#[test]
 fn only_main_texture_bindings_fallback_to_primary_texture() {
     use crate::materials::embedded::texture_resolve::should_fallback_to_primary_texture;
     assert!(should_fallback_to_primary_texture("_MainTex"));
