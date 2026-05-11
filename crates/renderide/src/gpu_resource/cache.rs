@@ -30,10 +30,24 @@ impl<K, V> GpuCache<K, V> {
     }
 
     fn with_max_entries(max_entries: usize) -> Self {
+        debug_assert!(
+            max_entries > 0,
+            "GpuCache::with_max_entries requires a non-zero bound; otherwise every insert clears"
+        );
         Self {
             entries: Mutex::new(HashMap::new()),
             max_entries: Some(max_entries),
         }
+    }
+}
+
+impl<K, V> GpuCache<K, V>
+where
+    K: Eq + Hash,
+    V: Clone,
+{
+    fn get(&self, key: &K) -> Option<V> {
+        self.entries.lock().get(key).cloned()
     }
 }
 
@@ -112,12 +126,15 @@ where
 }
 
 /// Typed cache for `wgpu::RenderPipeline` values.
+///
+/// Backed by [`GpuCache`] for double-check insertion and a [`KeyedSingleFlight`] that serializes
+/// concurrent compilations of the same key so each pipeline is built at most once.
 #[derive(Debug)]
 pub(crate) struct RenderPipelineMap<K>
 where
     K: Eq + Hash,
 {
-    pipelines: Mutex<HashMap<K, Arc<wgpu::RenderPipeline>>>,
+    inner: GpuCache<K, Arc<wgpu::RenderPipeline>>,
     compiles: KeyedSingleFlight<K>,
 }
 
@@ -127,7 +144,7 @@ where
 {
     fn default() -> Self {
         Self {
-            pipelines: Mutex::new(HashMap::new()),
+            inner: GpuCache::new(),
             compiles: KeyedSingleFlight::default(),
         }
     }
@@ -141,11 +158,11 @@ where
     pub(crate) fn get_or_create(
         &self,
         key: K,
-        build: impl Fn(&K) -> wgpu::RenderPipeline,
+        build: impl FnOnce(&K) -> wgpu::RenderPipeline,
     ) -> Arc<wgpu::RenderPipeline> {
         loop {
-            if let Some(existing) = self.pipelines.lock().get(&key) {
-                return existing.clone();
+            if let Some(existing) = self.inner.get(&key) {
+                return existing;
             }
 
             let leader = match self.compiles.acquire(key.clone()) {
@@ -156,12 +173,7 @@ where
                 }
             };
 
-            if let Some(existing) = self.pipelines.lock().get(&key) {
-                return existing.clone();
-            }
-
-            let pipeline = Arc::new(build(&key));
-            self.pipelines.lock().insert(key, pipeline.clone());
+            let pipeline = self.inner.get_or_create(key, |k| Arc::new(build(k)));
             drop(leader);
             return pipeline;
         }
@@ -203,5 +215,15 @@ mod tests {
         cache.clear();
 
         assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn cache_get_returns_cloned_existing_value() {
+        let cache = GpuCache::<u32, u32>::new();
+
+        assert_eq!(cache.get(&1), None);
+        cache.get_or_create(1, |_| 10);
+        assert_eq!(cache.get(&1), Some(10));
+        assert_eq!(cache.get(&2), None);
     }
 }
