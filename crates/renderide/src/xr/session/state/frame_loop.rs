@@ -78,10 +78,25 @@ impl XrSessionState {
 
     /// Drains a pending finalize signal without beginning a new frame. Called from the
     /// shutdown path so we do not destroy the session while the driver thread is still
-    /// holding `xr::FrameStream` / `xr::Swapchain` references.
+    /// holding `xr::FrameStream` / `xr::Swapchain` references. Bounded by
+    /// [`AWAIT_FINALIZE_SHUTDOWN_TIMEOUT`] so a hung compositor cannot stall the Drop
+    /// chain past the main-thread watchdog threshold.
     pub(in crate::xr) fn await_finalize_pending(&mut self) {
-        if let Some(rx) = self.pending_finalize.take() {
-            let _ = wait_for_finalize(rx);
+        if let Some(rx) = self.pending_finalize.take()
+            && rx.recv_timeout(AWAIT_FINALIZE_SHUTDOWN_TIMEOUT).is_err()
+        {
+            logger::warn!(
+                "xr: shutdown finalize wait timed out after {} ms; proceeding without driver-thread ack (session_running={} frame_open={})",
+                AWAIT_FINALIZE_SHUTDOWN_TIMEOUT.as_millis(),
+                self.session_running,
+                self.frame_open.load(Ordering::Acquire)
+            );
         }
     }
 }
+
+/// Upper bound on how long [`XrSessionState::await_finalize_pending`] will block during
+/// shutdown. The cooperative graceful-shutdown drain already bounds the polling loop at
+/// `GRACEFUL_SHUTDOWN_TIMEOUT`; this guards the unconditional wait inside Drop so the
+/// main thread cannot park here past the watchdog's hang threshold.
+const AWAIT_FINALIZE_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(1);

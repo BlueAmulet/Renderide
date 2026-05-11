@@ -36,14 +36,22 @@ static CRASH_REENTRY: AtomicBool = AtomicBool::new(false);
 ///
 /// Phase 1 writes a signal-safe hex instruction-pointer list from a fixed stack buffer.
 /// Phase 2 best-effort symbolicates through [`backtrace::resolve`]; it is allocation-heavy
-/// and wrapped in [`std::panic::catch_unwind`] so a poisoned allocator or corrupt heap
+/// and wrapped in [`std::panic::catch_unwind`] so an unrelated fault inside symbolication
 /// cannot propagate back into the crash handler. Both phases route through the same
 /// `write_all` closure, preserving the "crashes appear in both log and terminal" invariant
 /// of the existing Unix/Windows writers.
 ///
+/// When `signal` is [`libc::SIGABRT`] (Linux/Android), Phase 2 is **skipped**. SIGABRT
+/// almost always comes from glibc raising `abort()` from inside an allocator critical
+/// section (e.g. `double free or corruption`); the malloc arena lock is held by the
+/// faulting thread, so Phase 2's `String::with_capacity` would park on
+/// `__lll_lock_wait_private` forever and `catch_unwind` cannot rescue a thread blocked
+/// on a mutex. Phase 1's hex IPs are already sufficient to recover the call site
+/// offline via `addr2line`.
+///
 /// On reentry (another fault inside Phase 2), the guard short-circuits and the function
 /// returns immediately.
-pub(super) fn write_stack_trace<F>(write_all: F)
+pub(super) fn write_stack_trace<F>(signal: i32, write_all: F)
 where
     F: Fn(&[u8]),
 {
@@ -61,6 +69,16 @@ where
     let mut hex_buf = [0u8; HEX_BUF_LEN];
     let hex_n = format_frames_hex(&ips[..n], &mut hex_buf);
     write_all(&hex_buf[..hex_n]);
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if signal == libc::SIGABRT {
+        const SKIP_MSG: &[u8] =
+            b"SYMBOLS: skipped (SIGABRT; symbolicator would deadlock on malloc lock)\n";
+        write_all(SKIP_MSG);
+        return;
+    }
+    // Silence unused-variable on non-Linux/Android targets where the SIGABRT skip is gated out.
+    let _ = signal;
 
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let sym = symbolicate_frames(&ips[..n]);
@@ -200,12 +218,13 @@ mod tests {
         // Reset in case a prior test in the same process left the guard set.
         CRASH_REENTRY.store(false, Ordering::Release);
 
+        // SIGSEGV (11) is a non-SIGABRT signal so the test still exercises Phase 2.
         let count = Cell::new(0usize);
-        write_stack_trace(|_chunk| {
+        write_stack_trace(11, |_chunk| {
             count.set(count.get() + 1);
         });
         let first = count.get();
-        write_stack_trace(|_chunk| {
+        write_stack_trace(11, |_chunk| {
             count.set(count.get() + 1);
         });
         let second = count.get();
@@ -217,6 +236,32 @@ mod tests {
         assert_eq!(
             first, second,
             "second call should be blocked by the reentry guard"
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[test]
+    fn sigabrt_skips_phase_two_symbols() {
+        use std::cell::RefCell;
+
+        CRASH_REENTRY.store(false, Ordering::Release);
+
+        let captured: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+        write_stack_trace(libc::SIGABRT, |chunk| {
+            captured.borrow_mut().extend_from_slice(chunk);
+        });
+        let text = String::from_utf8(captured.into_inner()).expect("utf8");
+        assert!(
+            text.contains("STACK ("),
+            "Phase 1 hex block should still be emitted on SIGABRT"
+        );
+        assert!(
+            text.contains("SYMBOLS: skipped"),
+            "SIGABRT skip notice should be emitted in place of Phase 2"
+        );
+        assert!(
+            !text.contains("SYMBOLS:\n"),
+            "Phase 2 symbol header must not appear on SIGABRT"
         );
     }
 }

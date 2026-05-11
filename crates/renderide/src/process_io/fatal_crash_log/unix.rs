@@ -78,7 +78,13 @@ pub(super) fn install_impl(log_path: &Path) -> Result<(), String> {
                     crate::diagnostics::crash_context::write_minimal_snapshot(&mut context_buf);
                 fds.write_all(&context_buf[..context_n]);
                 #[cfg(any(target_os = "linux", target_os = "android"))]
-                write_stack_trace(|chunk| fds.write_all(chunk));
+                {
+                    // `ssi_signo` is `u32`; the stack-trace writer wants an `i32` so it can
+                    // compare against `libc::SIGABRT` and skip Phase 2 on allocator-originated
+                    // aborts. The cast is lossless for valid signal numbers.
+                    let signal = ctx.siginfo.ssi_signo as i32;
+                    write_stack_trace(signal, |chunk| fds.write_all(chunk));
+                }
             }
             CrashEventResult::from(false)
         }))

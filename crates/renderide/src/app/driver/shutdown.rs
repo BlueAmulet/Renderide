@@ -88,6 +88,17 @@ impl AppDriver {
         }
         if first_request && self.shutdown.begin(Instant::now()) {
             self.runtime.begin_graceful_shutdown();
+            // Suspend the main-thread watchdog for the rest of the process lifetime. The
+            // cooperative drain, OpenXR exit handshake, target Drop, and GPU Drop are each
+            // individually bounded but together can legitimately exceed the watchdog's
+            // hang threshold; suppressing reports here matches the intent of
+            // `WatchdogPause` and prevents misleading HANG lines during clean shutdown.
+            if self.shutdown_watchdog_pause.is_none() {
+                self.shutdown_watchdog_pause = self
+                    .main_heartbeat
+                    .as_ref()
+                    .map(crate::diagnostics::Heartbeat::pause);
+            }
             logger::info!("Graceful renderer shutdown started: {:?}", request.reason());
         }
         if self.openxr_frame_open() {

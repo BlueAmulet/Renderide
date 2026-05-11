@@ -21,4 +21,4 @@ pub use snapshots::{
     RendererInfoSnapshot, RendererInfoSnapshotCapture, SceneTransformsSnapshot,
     ShaderRouteSnapshot, TextureDebugSnapshot, XrRecoverableFailureCounts,
 };
-pub use watchdog::{Heartbeat, Watchdog};
+pub use watchdog::{Heartbeat, Watchdog, WatchdogPause};
