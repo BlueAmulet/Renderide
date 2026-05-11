@@ -1,10 +1,10 @@
 //! Unity PBS lerp specular (`Shader "PBSLerpSpecular"`): specular workflow blending between two
 //! material sets with `_Lerp` or `_LerpTex`.
 //!
-//! This mirrors the same keyword/property surface as the Unity shader:
-//! `_LERPTEX`, `_ALBEDOTEX`, `_EMISSIONTEX`, `_NORMALMAP`, `_SPECULARMAP`,
-//! `_OCCLUSION`, `_MULTI_VALUES`, `_DUALSIDED`, `_ALPHACLIP`.
+//! Froox variant bits populate `_RenderideVariantBits`; this shader decodes PBSLerpSpecular's
+//! shader-specific keyword bits locally.
 
+#import renderide::material::variant_bits as vb
 #import renderide::mesh::vertex as mv
 #import renderide::pbs::lighting as plight
 #import renderide::pbs::normal as pnorm
@@ -28,16 +28,18 @@ struct PbsLerpSpecularMaterial {
     _NormalScale: f32,
     _NormalScale1: f32,
     _AlphaClip: f32,
-    _LERPTEX: f32,
-    _ALBEDOTEX: f32,
-    _EMISSIONTEX: f32,
-    _NORMALMAP: f32,
-    _SPECULARMAP: f32,
-    _OCCLUSION: f32,
-    _MULTI_VALUES: f32,
-    _DUALSIDED: f32,
-    _ALPHACLIP: f32,
+    _RenderideVariantBits: u32,
 }
+
+const PBSLERPSPECULAR_KW_ALBEDOTEX: u32 = 1u << 0u;
+const PBSLERPSPECULAR_KW_ALPHACLIP: u32 = 1u << 1u;
+const PBSLERPSPECULAR_KW_DUALSIDED: u32 = 1u << 2u;
+const PBSLERPSPECULAR_KW_EMISSIONTEX: u32 = 1u << 3u;
+const PBSLERPSPECULAR_KW_LERPTEX: u32 = 1u << 4u;
+const PBSLERPSPECULAR_KW_MULTI_VALUES: u32 = 1u << 5u;
+const PBSLERPSPECULAR_KW_NORMALMAP: u32 = 1u << 6u;
+const PBSLERPSPECULAR_KW_OCCLUSION: u32 = 1u << 7u;
+const PBSLERPSPECULAR_KW_SPECULARMAP: u32 = 1u << 8u;
 
 @group(1) @binding(0)  var<uniform> mat: PbsLerpSpecularMaterial;
 @group(1) @binding(1)  var _MainTex: texture_2d<f32>;
@@ -63,6 +65,10 @@ struct PbsLerpSpecularMaterial {
 @group(1) @binding(21) var _SpecularMap1: texture_2d<f32>;
 @group(1) @binding(22) var _SpecularMap1_sampler: sampler;
 
+fn pbs_kw(mask: u32) -> bool {
+    return vb::enabled(mat._RenderideVariantBits, mask);
+}
+
 fn sample_normal_world(
     uv0: vec2<f32>,
     uv1: vec2<f32>,
@@ -71,9 +77,9 @@ fn sample_normal_world(
     front_facing: bool,
     lerp_factor: f32,
 ) -> vec3<f32> {
-    if (!uvu::kw_enabled(mat._NORMALMAP)) {
+    if (!pbs_kw(PBSLERPSPECULAR_KW_NORMALMAP)) {
         var n = normalize(world_n);
-        if (uvu::kw_enabled(mat._DUALSIDED) && !front_facing) {
+        if (pbs_kw(PBSLERPSPECULAR_KW_DUALSIDED) && !front_facing) {
             n = -n;
         }
         return n;
@@ -89,7 +95,7 @@ fn sample_normal_world(
         mat._NormalScale1,
     );
     var ts = normalize(mix(ts0, ts1, vec3<f32>(lerp_factor)));
-    if (uvu::kw_enabled(mat._DUALSIDED) && !front_facing) {
+    if (pbs_kw(PBSLERPSPECULAR_KW_DUALSIDED) && !front_facing) {
         ts.z = -ts.z;
     }
     return normalize(tbn * ts);
@@ -97,9 +103,9 @@ fn sample_normal_world(
 
 fn compute_lerp_factor(uv_lerp: vec2<f32>) -> f32 {
     var l = mat._Lerp;
-    if (uvu::kw_enabled(mat._LERPTEX)) {
+    if (pbs_kw(PBSLERPSPECULAR_KW_LERPTEX)) {
         l = textureSample(_LerpTex, _LerpTex_sampler, uv_lerp).r;
-        if (uvu::kw_enabled(mat._MULTI_VALUES)) {
+        if (pbs_kw(PBSLERPSPECULAR_KW_MULTI_VALUES)) {
             l = l * mat._Lerp;
         }
     }
@@ -143,7 +149,7 @@ fn fs_main(
     var c0 = mat._Color;
     var c1 = mat._Color1;
     var clip_a = mix(mat._Color.a, mat._Color1.a, l);
-    if (uvu::kw_enabled(mat._ALBEDOTEX)) {
+    if (pbs_kw(PBSLERPSPECULAR_KW_ALBEDOTEX)) {
         c0 = c0 * textureSample(_MainTex, _MainTex_sampler, uv_main0);
         c1 = c1 * textureSample(_MainTex1, _MainTex1_sampler, uv_main1);
         clip_a = mix(
@@ -154,7 +160,7 @@ fn fs_main(
     }
 
     let c = mix(c0, c1, l);
-    if (uvu::kw_enabled(mat._ALPHACLIP) && clip_a <= mat._AlphaClip) {
+    if (pbs_kw(PBSLERPSPECULAR_KW_ALPHACLIP) && clip_a <= mat._AlphaClip) {
         discard;
     }
 
@@ -163,7 +169,7 @@ fn fs_main(
 
     var occlusion0 = 1.0;
     var occlusion1 = 1.0;
-    if (uvu::kw_enabled(mat._OCCLUSION)) {
+    if (pbs_kw(PBSLERPSPECULAR_KW_OCCLUSION)) {
         occlusion0 = textureSample(_Occlusion, _Occlusion_sampler, uv_main0).r;
         occlusion1 = textureSample(_Occlusion1, _Occlusion1_sampler, uv_main1).r;
     }
@@ -171,7 +177,7 @@ fn fs_main(
 
     var emission0 = mat._EmissionColor.xyz;
     var emission1 = mat._EmissionColor1.xyz;
-    if (uvu::kw_enabled(mat._EMISSIONTEX)) {
+    if (pbs_kw(PBSLERPSPECULAR_KW_EMISSIONTEX)) {
         emission0 =
             emission0 * textureSample(_EmissionMap, _EmissionMap_sampler, uv_main0).xyz;
         emission1 =
@@ -181,10 +187,10 @@ fn fs_main(
 
     var spec0 = mat._SpecularColor;
     var spec1 = mat._SpecularColor1;
-    if (uvu::kw_enabled(mat._SPECULARMAP)) {
+    if (pbs_kw(PBSLERPSPECULAR_KW_SPECULARMAP)) {
         spec0 = textureSample(_SpecularMap, _SpecularMap_sampler, uv_main0);
         spec1 = textureSample(_SpecularMap1, _SpecularMap1_sampler, uv_main1);
-        if (uvu::kw_enabled(mat._MULTI_VALUES)) {
+        if (pbs_kw(PBSLERPSPECULAR_KW_MULTI_VALUES)) {
             spec0 = spec0 * mat._SpecularColor;
             spec1 = spec1 * mat._SpecularColor1;
         }
